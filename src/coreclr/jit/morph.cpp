@@ -3097,7 +3097,8 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
 
         if (argInfo->HasLateUse())
         {
-            assert(arg->OperIs(GT_ARGPLACE, GT_ASG) || (arg->OperIs(GT_COMMA) && arg->TypeIs(TYP_VOID)));
+            assert(arg->OperIs(GT_ARGPLACE, GT_ASG, GT_SSA_DEF, GT_STORE_LCL_VAR) ||
+                   (arg->OperIs(GT_COMMA) && arg->TypeIs(TYP_VOID)));
 
             argsSideEffects |= arg->gtFlags;
             continue;
@@ -3158,7 +3159,7 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
         // temp arg copies? The struct arg morph code below doesn't handle that.
         GenTree* argVal = arg->SkipComma();
 
-        if (argVal->OperIs(GT_ASG, GT_FIELD_LIST, GT_ARGPLACE))
+        if (argVal->OperIs(GT_ASG, GT_FIELD_LIST, GT_ARGPLACE, GT_SSA_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
         {
             // Skip arguments that have already been transformed.
             argsSideEffects |= arg->gtFlags;
@@ -12015,11 +12016,11 @@ DONE_MORPHING_CHILDREN:
             break;
 
         case GT_COMMA:
-
-            /* Special case: trees that don't produce a value */
-            if (op2->OperIs(GT_ASG) || (op2->OperGet() == GT_COMMA && op2->TypeGet() == TYP_VOID) || fgIsThrow(op2))
+            // Special case: trees that don't produce a value
+            if (op2->OperIs(GT_ASG, GT_SSA_DEF) || (op2->OperIs(GT_COMMA) && op2->TypeIs(TYP_VOID)) || fgIsThrow(op2))
             {
-                typ = tree->gtType = TYP_VOID;
+                tree->SetType(TYP_VOID);
+                typ = TYP_VOID;
             }
 
             {
@@ -12101,7 +12102,13 @@ DONE_MORPHING_CHILDREN:
 
     assert(oper == tree->gtOper);
 
-    if (oper != GT_ASG)
+    // If the tree always throws an exception we can drop most of it, except, of course
+    // the exception throwing parts. But we cannot remove assignments as that will mess
+    // up call arg setup, which expects an assignment tree and doesn't know that the
+    // tree will always throw an exception.
+    // TODO-MIKE-Review: Why bother do anything here to begin with? Can't we just set
+    // fgRemoveRestOfBlock and have fgMorphTree callers deal with it?
+    if ((oper != GT_ASG) && (oper != GT_SSA_DEF))
     {
         /* Check for op1 as a GT_COMMA with a unconditional throw node */
         if (op1 && fgIsCommaThrow(op1, true))

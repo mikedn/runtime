@@ -44,11 +44,19 @@ public:
         Stack* m_listPrev;
         // The basic block (used only when popping blocks)
         BasicBlock* m_block;
-        // The actual information StackNode stores - the SSA number
-        unsigned m_ssaNum;
+        // The actual information StackNode stores - the SSA number for memory or GenTreeSsaDef* for locals.
+        union {
+            unsigned       m_ssaNum;
+            GenTreeSsaDef* m_def;
+        };
 
         StackNode(Stack* listPrev, BasicBlock* block, unsigned ssaNum)
             : m_listPrev(listPrev), m_block(block), m_ssaNum(ssaNum)
+        {
+        }
+
+        StackNode(Stack* listPrev, BasicBlock* block, GenTreeSsaDef* def)
+            : m_listPrev(listPrev), m_block(block), m_def(def)
         {
         }
     };
@@ -70,11 +78,11 @@ private:
 public:
     SsaRenameState(CompAllocator alloc, unsigned lvaCount);
 
-    // Get the SSA number at the top of the stack for the specified variable.
-    unsigned Top(unsigned lclNum);
+    // Get the SSA def at the top of the stack for the specified variable.
+    GenTreeSsaDef* Top(unsigned lclNum);
 
-    // Push a SSA number onto the stack for the specified variable.
-    void Push(BasicBlock* block, unsigned lclNum, unsigned ssaNum);
+    // Push a SSA def onto the stack for the specified variable.
+    void Push(BasicBlock* block, unsigned lclNum, GenTreeSsaDef* def);
 
     // Pop all stacks that have an entry for "block" on top.
     void PopBlockStacks(BasicBlock* block);
@@ -113,6 +121,7 @@ private:
 
     // Push a SSA number onto a stack
     void Push(Stack* stack, BasicBlock* block, unsigned ssaNum);
+    void Push(Stack* stack, BasicBlock* block, GenTreeSsaDef* def);
 
     INDEBUG(void DumpStack(Stack* stack);)
 };

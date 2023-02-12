@@ -3652,7 +3652,7 @@ GenTreeRetExpr::GenTreeRetExpr(GenTreeCall* call)
 
 bool GenTree::OperRequiresAsgFlag()
 {
-    if (OperIs(GT_ASG, GT_SSA_DEF) ||
+    if (OperIs(GT_ASG, GT_SSA_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
         OperIs(GT_XADD, GT_XORR, GT_XAND, GT_XCHG, GT_LOCKADD, GT_CMPXCHG, GT_MEMORYBARRIER, GT_COPY_BLK, GT_INIT_BLK))
     {
         return true;
@@ -4010,12 +4010,12 @@ GenTreeOp* Compiler::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
 
     if (type == TYP_UNDEF)
     {
-        // ASG and NULLCHECK have non VOID types but they don't actually
+        // Some nodes have non VOID types but they don't actually
         // produce a value. Don't propagate the type through COMMAs.
-        type = op2->OperIs(GT_ASG, GT_NULLCHECK) ? TYP_VOID : op2->GetType();
+        type = op2->OperIs(GT_ASG, GT_SSA_DEF, GT_NULLCHECK) ? TYP_VOID : op2->GetType();
     }
 
-    assert(!op2->OperIs(GT_NULLCHECK, GT_ASG) || (type == TYP_VOID));
+    assert(!op2->OperIs(GT_NULLCHECK, GT_ASG, GT_SSA_DEF) || (type == TYP_VOID));
 
     return new (this, GT_COMMA) GenTreeOp(GT_COMMA, type, op1, op2);
 }
@@ -5265,7 +5265,7 @@ GenTree* Compiler::gtCloneExpr(
                 goto DONE;
 
             case GT_SSA_USE:
-                copy = new (this, GT_SSA_USE) GenTreeSsaUse(tree->AsSsaUse()->GetDef());
+                copy = new (this, GT_SSA_USE) GenTreeSsaUse(tree->AsSsaUse());
                 goto DONE;
 
             case GT_CLS_VAR_ADDR:

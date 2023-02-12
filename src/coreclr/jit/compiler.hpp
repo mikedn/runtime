@@ -2217,7 +2217,7 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
 // the SSA use number in the store node and the SSA def number in a node-number map.
 inline void Compiler::SetPartialSsaDefNum(GenTreeLclFld* store, unsigned ssaNum)
 {
-    assert(store->OperIs(GT_LCL_FLD));
+    assert(store->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD));
     assert((store->gtFlags & (GTF_VAR_DEF | GTF_VAR_USEASG)) == (GTF_VAR_DEF | GTF_VAR_USEASG));
 
     if (m_partialSsaDefMap == nullptr)
@@ -2231,7 +2231,7 @@ inline void Compiler::SetPartialSsaDefNum(GenTreeLclFld* store, unsigned ssaNum)
 inline unsigned Compiler::GetSsaDefNum(GenTreeLclVarCommon* lclNode)
 {
     assert((lclNode->gtFlags & GTF_VAR_DEF) != 0);
-    assert(lvaGetDesc(lclNode)->IsInSsa());
+    assert(lvaGetDesc(lclNode)->IsInSsa() || lvaGetDesc(lclNode)->IsSsa());
 
     if ((lclNode->gtFlags & GTF_VAR_USEASG) == 0)
     {

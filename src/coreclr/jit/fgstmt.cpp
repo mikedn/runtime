@@ -48,7 +48,7 @@ void Compiler::fgInsertStmtAtBeg(BasicBlock* block, Statement* stmt)
 {
     Statement* firstStmt = block->firstStmt();
 
-    if (stmt->IsPhiDefnStmt())
+    if (stmt->IsPhiDefnStmt() || stmt->GetRootNode()->IsSsaPhiDef())
     {
         // The new tree will now be the first one of the block.
         block->bbStmtList = stmt;

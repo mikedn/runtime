@@ -2746,6 +2746,11 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
             }
 #endif // ASSERTION_PROP
 
+            if (doSsa)
+            {
+                DoPhase(this, PHASE_DESTROY_SSA, &Compiler::fgSsaDestroy);
+            }
+
             if (fgModified)
             {
                 DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH, &Compiler::phUpdateFlowGraph);

@@ -4593,6 +4593,7 @@ public:
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, unsigned> NodeToUnsignedMap;
 
+    GenTreeSsaDef*     m_initSsaDefs      = nullptr;
     NodeToUnsignedMap* m_partialSsaDefMap = nullptr;
 
     void SetPartialSsaDefNum(GenTreeLclFld* store, unsigned ssaNum);
@@ -4601,6 +4602,7 @@ public:
 
     // Performs SSA conversion.
     void fgSsaBuild();
+    void fgSsaDestroy();
 
 #ifdef OPT_CONFIG
     // Reset any data structures to the state expected by "fgSsaBuild", so it can be run again.

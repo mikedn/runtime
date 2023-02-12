@@ -489,25 +489,23 @@ void SsaBuilder::ComputeIteratedDominanceFrontier(BasicBlock* b, const BlkToBlkV
  *
  * @return If there is a phi node for the lclNum, returns the GT_PHI tree, else NULL.
  */
-static GenTree* GetPhiNode(BasicBlock* block, unsigned lclNum)
+static GenTreeSsaPhi* GetPhiNode(BasicBlock* block, unsigned lclNum)
 {
     // Walk the statements for phi nodes.
     for (Statement* const stmt : block->Statements())
     {
+        GenTree* tree = stmt->GetRootNode();
+
         // A prefix of the statements of the block are phi definition nodes. If we complete processing
         // that prefix, exit.
-        if (!stmt->IsPhiDefnStmt())
+        if (!tree->IsSsaPhiDef())
         {
             break;
         }
 
-        GenTree* tree = stmt->GetRootNode();
-
-        GenTree* phiLhs = tree->AsOp()->gtOp1;
-        assert(phiLhs->OperIs(GT_LCL_VAR));
-        if (phiLhs->AsLclVar()->GetLclNum() == lclNum)
+        if (tree->AsSsaDef()->GetLclNum() == lclNum)
         {
-            return tree->AsOp()->gtOp2;
+            return tree->AsSsaDef()->GetValue()->AsSsaPhi();
         }
     }
     return nullptr;
@@ -522,31 +520,23 @@ static GenTree* GetPhiNode(BasicBlock* block, unsigned lclNum)
 //
 void SsaBuilder::InsertPhi(BasicBlock* block, unsigned lclNum)
 {
-    var_types type = m_pCompiler->lvaGetDesc(lclNum)->TypeGet();
+    var_types type = m_pCompiler->lvaGetDesc(lclNum)->GetType();
 
-    GenTree* lhs = m_pCompiler->gtNewLclvNode(lclNum, type);
-    // PHIs and all the associated nodes do not generate any code so the costs are always 0
-    lhs->SetCosts(0, 0);
-    GenTree* phi = new (m_pCompiler, GT_PHI) GenTreePhi(type);
+    GenTreeSsaPhi* phi = new (m_pCompiler, GT_SSA_PHI) GenTreeSsaPhi(type);
     phi->SetCosts(0, 0);
-    GenTree* asg = m_pCompiler->gtNewAssignNode(lhs, phi);
-    // Evaluate the assignment RHS (the PHI node) first. This way the LHS will end up right
-    // in front of the assignment in the linear order, that ensures that using FindUser
-    // on the LHS to find the assignment doesn't have to traverse the PHI and its args.
-    asg->gtFlags |= GTF_REVERSE_OPS;
-    asg->SetCosts(0, 0);
 
-    // Create the statement and chain everything in linear order - PHI, LCL_VAR, ASG
-    Statement* stmt = m_pCompiler->gtNewStmt(asg);
+    GenTreeSsaDef* def = new (m_pCompiler, GT_SSA_DEF) GenTreeSsaDef(phi, block, lclNum, SsaConfig::RESERVED_SSA_NUM);
+    def->gtFlags       = GTF_VAR_DEF | GTF_ASG;
+    def->SetCosts(0, 0);
+
+    Statement* stmt = m_pCompiler->gtNewStmt(def);
     stmt->SetTreeList(phi);
-    phi->gtNext = lhs;
-    lhs->gtPrev = phi;
-    lhs->gtNext = asg;
-    asg->gtPrev = lhs;
+    phi->gtNext = def;
+    def->gtPrev = phi;
 
 #ifdef DEBUG
     unsigned seqNum = 1;
-    for (GenTree* const node : stmt->TreeList())
+    for (GenTree* const node : stmt->Nodes())
     {
         node->gtSeqNum = seqNum++;
     }
@@ -568,31 +558,29 @@ void SsaBuilder::InsertPhi(BasicBlock* block, unsigned lclNum)
 //    pred   - The predecessor block
 //
 void SsaBuilder::AddPhiArg(
-    BasicBlock* block, Statement* stmt, GenTreePhi* phi, unsigned lclNum, unsigned ssaNum, BasicBlock* pred)
+    BasicBlock* block, Statement* stmt, GenTreeSsaPhi* phi, unsigned lclNum, GenTreeSsaDef* def, BasicBlock* pred)
 {
 #ifdef DEBUG
     // Make sure it isn't already present: we should only add each definition once.
-    for (GenTreePhi::Use& use : phi->Uses())
+    for (GenTreeSsaPhi::Use& use : phi->Uses())
     {
-        assert(use.GetNode()->AsPhiArg()->GetSsaNum() != ssaNum);
+        assert(use.GetNode()->GetDef() != def);
     }
 #endif // DEBUG
 
-    var_types type = m_pCompiler->lvaGetDesc(lclNum)->TypeGet();
-
-    GenTree* phiArg = new (m_pCompiler, GT_PHI_ARG) GenTreePhiArg(type, lclNum, ssaNum, pred);
+    GenTreeSsaUse* use = new (m_pCompiler, GT_SSA_USE) GenTreeSsaUse(def, pred);
     // Costs are not relevant for PHI args.
-    phiArg->SetCosts(0, 0);
+    use->SetCosts(0, 0);
     // The argument order doesn't matter so just insert at the front of the list because
     // it's easier. It's also easier to insert in linear order since the first argument
     // will be first in linear order as well.
-    phi->gtUses = new (m_pCompiler, CMK_ASTNode) GenTreePhi::Use(phiArg, phi->gtUses);
+    phi->m_uses = new (m_pCompiler, CMK_ASTNode) GenTreeSsaPhi::Use(use, phi->m_uses);
 
     GenTree* head = stmt->GetTreeList();
-    assert(head->OperIs(GT_PHI, GT_PHI_ARG));
-    stmt->SetTreeList(phiArg);
-    phiArg->gtNext = head;
-    head->gtPrev   = phiArg;
+    assert(head->OperIs(GT_SSA_PHI, GT_SSA_USE));
+    stmt->SetTreeList(use);
+    use->gtNext  = head;
+    head->gtPrev = use;
 
 #ifdef DEBUG
     unsigned seqNum = 1;
@@ -602,8 +590,8 @@ void SsaBuilder::AddPhiArg(
     }
 #endif // DEBUG
 
-    DBG_SSA_JITDUMP("Added PHI arg u:%d for V%02u from " FMT_BB " in " FMT_BB ".\n", ssaNum, lclNum, pred->bbNum,
-                    block->bbNum);
+    DBG_SSA_JITDUMP("Added PHI arg u:%d for V%02u from " FMT_BB " in " FMT_BB ".\n", def->GetSsaNum(), lclNum,
+                    pred->bbNum, block->bbNum);
 }
 
 // Special value to represent a to-be-filled in Memory Phi arg list.
@@ -649,10 +637,11 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
         // For each local var number "lclNum" that "block" assigns to...
         for (VarSetOps::Enumerator en(m_pCompiler, block->bbVarDef); en.MoveNext();)
         {
-            unsigned lclNum = m_pCompiler->lvaTrackedIndexToLclNum(en.Current());
+            unsigned   lclNum = m_pCompiler->lvaTrackedIndexToLclNum(en.Current());
+            LclVarDsc* lcl    = m_pCompiler->lvaGetDesc(lclNum);
             DBG_SSA_JITDUMP("  Considering local var V%02u:\n", lclNum);
 
-            if (!m_pCompiler->lvaGetDesc(lclNum)->IsInSsa())
+            if (!lcl->IsSsa())
             {
                 DBG_SSA_JITDUMP("  Skipping because it is excluded.\n");
                 continue;
@@ -727,40 +716,112 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
     {
         lclNode           = dst->AsLclVarCommon();
         unsigned   lclNum = lclNode->GetLclNum();
-        LclVarDsc* varDsc = m_pCompiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl    = m_pCompiler->lvaGetDesc(lclNum);
 
-        if (varDsc->IsInSsa())
+        if (lcl->IsSsa())
         {
             // Promoted variables are not in SSA, only their fields are.
-            assert(!varDsc->IsPromoted());
+            assert(!lcl->IsPromoted());
             // If it's a SSA local then it cannot be address exposed and thus does not define SSA memory.
-            assert(!varDsc->IsAddressExposed());
+            assert(!lcl->IsAddressExposed());
             // This should have been marked as defintion.
             assert((lclNode->gtFlags & GTF_VAR_DEF) != 0);
 
-            unsigned ssaNum = varDsc->lvPerSsaData.AllocSsaNum(m_allocator, block, asgNode);
+            GenTreeFlags defFlags = lclNode->gtFlags & ~GTF_DONT_CSE;
 
-            if (lclNode->IsPartialLclFld(m_pCompiler))
+            if (lclNode->gtPrev != nullptr)
             {
-                assert((lclNode->gtFlags & GTF_VAR_USEASG) != 0);
+                lclNode->gtPrev->gtNext = lclNode->gtNext;
+            }
 
-                lclNode->SetSsaNum(m_renameStack.Top(lclNum));
-                m_pCompiler->SetPartialSsaDefNum(lclNode->AsLclFld(), ssaNum);
+            if (lclNode->gtNext != nullptr)
+            {
+                lclNode->gtNext->gtPrev = lclNode->gtPrev;
+            }
+
+            GenTree* value  = asgNode->GetOp(1);
+            unsigned ssaNum = lcl->lvPerSsaData.AllocSsaNum(m_allocator, block, asgNode);
+
+            if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
+            {
+                GenTree* structValue;
+
+                if (lclFld->IsPartialLclFld(m_pCompiler))
+                {
+                    assert((lclFld->gtFlags & GTF_VAR_USEASG) != 0);
+
+                    structValue = new (m_pCompiler, GT_SSA_USE) GenTreeSsaUse(m_renameStack.Top(lclNum), block);
+                }
+                else if (lcl->TypeIs(TYP_STRUCT))
+                {
+                    assert((lclFld->gtFlags & GTF_VAR_USEASG) == 0);
+
+                    // TODO-MIKE-SSA: This leaves us with an STRUCT INSERT from which we
+                    // cannot recover the struct layout. In VN we might get away with it
+                    // because it will simply insert the field value using the field seq
+                    // into a zero map, and then cast the struct to the layout of the def.
+                    // We won't be able to CSE the INSERT but we should not need that.
+                    structValue = m_pCompiler->gtNewZeroConNode(TYP_INT);
+                }
+                else
+                {
+                    assert((lclFld->gtFlags & GTF_VAR_USEASG) == 0);
+
+                    // TODO-MIKE-SSA: Using INSERT/EXTRACT with non-STRUCT types is dubious,
+                    // 64 bit BITCASTs on 32 bit targets and shift/bitwise ops for oddities
+                    // like (((byte*)&int_local) + 1) = 42; should avoid this this mess.
+                    structValue = m_pCompiler->gtNewZeroConNode(lcl->GetType());
+                }
+
+                structValue->SetCosts(0, 0);
+
+                unsigned      fieldTypeNum = varTypeToTypeNum(lclFld->GetType(), lclFld->GetLayoutNum());
+                unsigned      fieldOffs    = lclFld->GetLclOffs();
+                FieldSeqNode* fieldSeq     = lclFld->GetFieldSeq();
+
+                GenTree* insert = lclFld;
+                insert->SetOper(GT_INSERT);
+                insert->SetType(lcl->GetType());
+                insert->AsInsert()->SetStructValue(structValue);
+                insert->AsInsert()->SetFieldValue(value);
+                insert->AsInsert()->SetField(fieldTypeNum, fieldOffs, fieldSeq);
+                insert->gtFlags = GTF_DONT_CSE;
+                insert->SetSideEffects(value->GetSideEffects());
+
+                // TODO-MIKE-SSA: Pff, manual node linking sucks.
+
+                asgNode->gtPrev->gtNext = structValue;
+                structValue->gtPrev     = asgNode->gtPrev;
+                structValue->gtNext     = insert;
+                insert->gtPrev          = structValue;
+                insert->gtNext          = asgNode;
+                asgNode->gtPrev         = insert;
+
+                value = insert;
             }
             else
             {
                 assert((lclNode->gtFlags & GTF_VAR_USEASG) == 0);
-                lclNode->SetSsaNum(ssaNum);
             }
 
-            m_renameStack.Push(block, lclNum, ssaNum);
+            GenTree* def = asgNode;
+            def->SetOper(GT_SSA_DEF);
+            def->AsSsaDef()->Init();
+            def->AsSsaDef()->SetLclNum(lclNum);
+            def->AsSsaDef()->SetSsaNum(ssaNum);
+            def->AsSsaDef()->SetBlock(block);
+            def->AsSsaDef()->SetValue(value);
+            def->SetType(lcl->lvNormalizeOnStore() ? varActualType(lcl->GetType()) : lcl->GetType());
+            def->gtFlags = defFlags | value->GetSideEffects() | GTF_ASG;
+
+            m_renameStack.Push(block, lclNum, def->AsSsaDef());
 
             // If necessary, add "lclNum/ssaNum" to the arg list of a phi def in any
             // handlers for try blocks that "block" is within.  (But only do this for "real" definitions,
             // not phi definitions.)
-            if (!asgNode->gtGetOp2()->OperIs(GT_PHI))
+            if (!value->IsSsaPhi())
             {
-                AddDefToHandlerPhis(block, lclNum, ssaNum);
+                AddDefToHandlerPhis(block, lclNum, def->AsSsaDef());
             }
 
             return;
@@ -768,7 +829,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 
         lclNode->SetSsaNum(SsaConfig::RESERVED_SSA_NUM);
 
-        if (!varDsc->IsAddressExposed())
+        if (!lcl->IsAddressExposed())
         {
             return;
         }
@@ -816,33 +877,82 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
     }
 }
 
+void SsaBuilder::RenamePhiDef(GenTreeSsaDef* def, BasicBlock* block)
+{
+    unsigned   lclNum = def->GetLclNum();
+    LclVarDsc* lcl    = m_pCompiler->lvaGetDesc(lclNum);
+
+    def->SetSsaNum(lcl->lvPerSsaData.AllocSsaNum(m_allocator, block, nullptr));
+    m_renameStack.Push(block, lclNum, def);
+}
+
 //------------------------------------------------------------------------
 // RenameLclUse: Rename a use of a local variable.
 //
 // Arguments:
 //    lclNode - A GT_LCL_VAR or GT_LCL_FLD node that is not a definition
 //
-void SsaBuilder::RenameLclUse(GenTreeLclVarCommon* lclNode)
+void SsaBuilder::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block)
 {
     assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
     assert((lclNode->gtFlags & GTF_VAR_DEF) == 0);
 
     unsigned   lclNum = lclNode->GetLclNum();
-    unsigned   ssaNum = NoSsaNum;
     LclVarDsc* lcl    = m_pCompiler->lvaGetDesc(lclNum);
 
-    if (lcl->IsInSsa())
+    if (!lcl->IsSsa())
     {
-        // Promoted variables are not in SSA, only their fields are.
-        assert(!lcl->IsPromoted());
-
-        ssaNum = m_renameStack.Top(lclNum);
+        return;
     }
 
-    lclNode->SetSsaNum(ssaNum);
+    // Promoted variables are not in SSA, only their fields are.
+    assert(!lcl->IsPromoted());
+
+    GenTreeSsaDef* def = m_renameStack.Top(lclNum);
+
+    if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
+    {
+        GenTreeSsaUse* use = new (m_pCompiler, GT_SSA_USE) GenTreeSsaUse(def, block);
+        use->SetCosts(0, 0);
+
+        unsigned      fieldOffset = lclFld->GetLclOffs();
+        FieldSeqNode* fieldSeq    = lclFld->GetFieldSeq();
+        unsigned      fieldLayoutNum =
+            lclFld->TypeIs(TYP_STRUCT) ? lclFld->GetLayoutNum() : static_cast<unsigned>(lclFld->GetType());
+
+        lclNode->ChangeOper(GT_EXTRACT);
+        GenTreeExtract* extract = lclNode->AsExtract();
+
+        extract->SetField(fieldLayoutNum, fieldOffset, fieldSeq);
+        extract->SetStructValue(use);
+
+        if (extract->gtPrev == nullptr)
+        {
+            assert(stmt->GetTreeList() == extract);
+
+            stmt->SetTreeList(use);
+            use->gtNext     = extract;
+            extract->gtPrev = use;
+        }
+        else
+        {
+            extract->gtPrev->gtNext = use;
+            use->gtPrev             = extract->gtPrev;
+            use->gtNext             = extract;
+            extract->gtPrev         = use;
+        }
+    }
+    else
+    {
+        lclNode->SetOper(GT_SSA_USE);
+        lclNode->AsSsaUse()->Init();
+        lclNode->AsSsaUse()->SetBlock(block);
+
+        def->AddUse(lclNode->AsSsaUse());
+    }
 }
 
-void SsaBuilder::AddDefToHandlerPhis(BasicBlock* block, unsigned lclNum, unsigned ssaNum)
+void SsaBuilder::AddDefToHandlerPhis(BasicBlock* block, unsigned lclNum, GenTreeSsaDef* def)
 {
     assert(m_pCompiler->lvaTable[lclNum].lvTracked); // Precondition.
     unsigned lclIndex = m_pCompiler->lvaTable[lclNum].lvVarIndex;
@@ -852,7 +962,7 @@ void SsaBuilder::AddDefToHandlerPhis(BasicBlock* block, unsigned lclNum, unsigne
     {
         DBG_SSA_JITDUMP("Definition of local V%02u/d:%d in block " FMT_BB
                         " has exn handler; adding as phi arg to handlers.\n",
-                        lclNum, ssaNum, block->bbNum);
+                        lclNum, def->GetSsaNum(), block->bbNum);
         while (true)
         {
             BasicBlock* handler = tryBlk->ExFlowBlock();
@@ -866,20 +976,18 @@ void SsaBuilder::AddDefToHandlerPhis(BasicBlock* block, unsigned lclNum, unsigne
                 // A prefix of blocks statements will be SSA definitions.  Search those for "lclNum".
                 for (Statement* const stmt : handler->Statements())
                 {
+                    GenTree* tree = stmt->GetRootNode();
+
                     // If the tree is not an SSA def, break out of the loop: we're done.
-                    if (!stmt->IsPhiDefnStmt())
+                    if (!tree->IsSsaPhiDef())
                     {
                         break;
                     }
 
-                    GenTree* tree = stmt->GetRootNode();
-
-                    assert(tree->IsPhiDefn());
-
-                    if (tree->AsOp()->gtOp1->AsLclVar()->GetLclNum() == lclNum)
+                    if (tree->AsSsaDef()->GetLclNum() == lclNum)
                     {
                         // It's the definition for the right local.  Add "ssaNum" to the RHS.
-                        AddPhiArg(handler, stmt, tree->gtGetOp2()->AsPhi(), lclNum, ssaNum, block);
+                        AddPhiArg(handler, stmt, tree->AsSsaDef()->GetValue()->AsSsaPhi(), lclNum, def, block);
 #ifdef DEBUG
                         phiFound = true;
 #endif
@@ -984,12 +1092,16 @@ void SsaBuilder::BlockRenameVariables(BasicBlock* block)
             {
                 RenameDef(tree->AsOp(), block);
             }
+            else if (tree->OperIs(GT_SSA_DEF))
+            {
+                RenamePhiDef(tree->AsSsaDef(), block);
+            }
             // PHI_ARG nodes already have SSA numbers so we only need to check LCL_VAR and LCL_FLD nodes.
             else if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
                 if ((tree->gtFlags & GTF_VAR_DEF) == 0)
                 {
-                    RenameLclUse(tree->AsLclVarCommon());
+                    RenameLclUse(tree->AsLclVarCommon(), stmt, block);
                 }
             }
             else if (tree->OperIs(GT_NULLCHECK))
@@ -1026,6 +1138,14 @@ void SsaBuilder::BlockRenameVariables(BasicBlock* block)
                 }
             }
         }
+
+#ifdef DEBUG
+        unsigned seqNum = 0;
+        for (GenTree* node : stmt->Nodes())
+        {
+            node->gtSeqNum = ++seqNum;
+        }
+#endif
     }
 
     block->bbFlags |= earlyPropBlockSummary;
@@ -1071,7 +1191,7 @@ void SsaBuilder::BlockRenameVariables(BasicBlock* block)
 }
 
 //------------------------------------------------------------------------
-// AddPhiArgsToSuccessors: Add GT_PHI_ARG nodes to the GT_PHI nodes within block's successors.
+// AddPhiArgsToSuccessors: Add SSA_USE nodes to the SSA_PHI nodes within block's successors.
 //
 // Arguments:
 //    block - The block
@@ -1083,27 +1203,28 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
         // Walk the statements for phi nodes.
         for (Statement* const stmt : succ->Statements())
         {
+            GenTree* tree = stmt->GetRootNode();
+
             // A prefix of the statements of the block are phi definition nodes. If we complete processing
             // that prefix, exit.
-            if (!stmt->IsPhiDefnStmt())
+            if (!tree->IsSsaPhiDef())
             {
                 break;
             }
 
-            GenTree*    tree = stmt->GetRootNode();
-            GenTreePhi* phi  = tree->gtGetOp2()->AsPhi();
+            GenTreeSsaPhi* phi = tree->AsSsaDef()->GetValue()->AsSsaPhi();
 
-            unsigned lclNum = tree->AsOp()->gtOp1->AsLclVar()->GetLclNum();
-            unsigned ssaNum = m_renameStack.Top(lclNum);
+            unsigned       lclNum = tree->AsSsaDef()->GetLclNum();
+            GenTreeSsaDef* def    = m_renameStack.Top(lclNum);
             // Search the arglist for an existing definition for ssaNum.
             // (Can we assert that its the head of the list?  This should only happen when we add
             // during renaming for a definition that occurs within a try, and then that's the last
             // value of the var within that basic block.)
 
             bool found = false;
-            for (GenTreePhi::Use& use : phi->Uses())
+            for (GenTreeSsaPhi::Use& use : phi->Uses())
             {
-                if (use.GetNode()->AsPhiArg()->GetSsaNum() == ssaNum)
+                if (use.GetNode()->GetDef() == def)
                 {
                     found = true;
                     break;
@@ -1111,7 +1232,7 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
             }
             if (!found)
             {
-                AddPhiArg(succ, stmt, phi, lclNum, ssaNum, block);
+                AddPhiArg(succ, stmt, phi, lclNum, def, block);
             }
         }
 
@@ -1197,15 +1318,12 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
                     GenTree* tree = stmt->GetRootNode();
 
                     // Check if the first n of the statements are phi nodes. If not, exit.
-                    if (tree->OperGet() != GT_ASG || tree->AsOp()->gtOp2 == nullptr ||
-                        tree->AsOp()->gtOp2->OperGet() != GT_PHI)
+                    if (!tree->IsSsaPhiDef())
                     {
                         break;
                     }
 
-                    // Get the phi node from GT_ASG.
-                    GenTree* lclVar = tree->AsOp()->gtOp1;
-                    unsigned lclNum = lclVar->AsLclVar()->GetLclNum();
+                    unsigned lclNum = tree->AsSsaDef()->GetLclNum();
 
                     // If the variable is live-out of "blk", and is therefore live on entry to the try-block-start
                     // "succ", then we make sure the current SSA name for the
@@ -1217,15 +1335,15 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
                         continue;
                     }
 
-                    GenTreePhi* phi = tree->gtGetOp2()->AsPhi();
+                    GenTreeSsaPhi* phi = tree->AsSsaDef()->GetValue()->AsSsaPhi();
 
-                    unsigned ssaNum = m_renameStack.Top(lclNum);
+                    GenTreeSsaDef* def = m_renameStack.Top(lclNum);
 
                     // See if this ssaNum is already an arg to the phi.
                     bool alreadyArg = false;
-                    for (GenTreePhi::Use& use : phi->Uses())
+                    for (GenTreeSsaPhi::Use& use : phi->Uses())
                     {
-                        if (use.GetNode()->AsPhiArg()->GetSsaNum() == ssaNum)
+                        if (use.GetNode()->GetDef() == def)
                         {
                             alreadyArg = true;
                             break;
@@ -1233,7 +1351,7 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
                     }
                     if (!alreadyArg)
                     {
-                        AddPhiArg(handlerStart, stmt, phi, lclNum, ssaNum, block);
+                        AddPhiArg(handlerStart, stmt, phi, lclNum, def, block);
                     }
                 }
 
@@ -1281,13 +1399,26 @@ void SsaBuilder::RenameVariables()
     {
         LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);
 
-        if (lcl->IsInSsa() &&
+        if (lcl->IsSsa() &&
             VarSetOps::IsMember(m_pCompiler, m_pCompiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()))
         {
             unsigned ssaNum = lcl->lvPerSsaData.AllocSsaNum(m_allocator);
             // HasImplicitSsaDef assumes that this is always the first SSA def.
             assert(ssaNum == SsaConfig::FIRST_SSA_NUM);
-            m_renameStack.Push(m_pCompiler->fgFirstBB, lclNum, ssaNum);
+
+            // TODO-MIKE-SSA: Having a SSA_UNDEF oper might be better than using a LCL_VAR
+            // as a fake def value. It saves a bit of memory by not allocating an extra
+            // node and avoids the weird situation of still having LCL_VAR nodes for locals
+            // that are supposed to be in SSA form. Though these nodes are not part of any
+            // basic block so they're invisible to anything except SSA code, which can treat
+            // them specially (by basically ignoring them).
+
+            GenTreeSsaDef* def =
+                new (m_pCompiler, GT_SSA_DEF) GenTreeSsaDef(m_pCompiler->gtNewLclvNode(lclNum, lcl->GetType()),
+                                                            m_pCompiler->fgFirstBB, lclNum, ssaNum);
+            def->gtNext                = m_pCompiler->m_initSsaDefs;
+            m_pCompiler->m_initSsaDefs = def;
+            m_renameStack.Push(m_pCompiler->fgFirstBB, lclNum, def);
         }
     }
 
@@ -1468,7 +1599,7 @@ void SsaBuilder::Build()
     // Mark all variables that will be tracked by SSA
     for (unsigned lclNum = 0; lclNum < m_pCompiler->lvaCount; lclNum++)
     {
-        m_pCompiler->lvaTable[lclNum].lvInSsa = IncludeInSsa(lclNum);
+        m_pCompiler->lvaGetDesc(lclNum)->m_isSsa = IncludeInSsa(lclNum);
     }
 
     // Insert phi functions.
@@ -1632,4 +1763,171 @@ bool GenTreeSsaPhi::Equals(GenTreeSsaPhi* phi1, GenTreeSsaPhi* phi2)
     }
 
     return (i1 == end1) && (i2 == end2);
+}
+
+static void DestroySsaDef(Compiler* compiler, GenTreeSsaDef* def, Statement* stmt)
+{
+    unsigned       lclNum = def->GetLclNum();
+    LclVarDsc*     lcl    = compiler->lvaGetDesc(lclNum);
+    GenTreeSsaUse* uses   = def->GetUseList();
+
+    // TODO-MIKE-SSA: The SSA_DEF Uses iterator cannot be used because
+    // we change the uses to LCL_VAR as we visit them. Maybe it can be
+    // changed to support this (or have a special kind of iterator that
+    // supports this), it may be useful in other situations.
+
+    if (uses != nullptr)
+    {
+        GenTreeSsaUse* use = uses;
+
+        do
+        {
+            GenTreeSsaUse* nextUse = use->GetNextUse();
+
+            GenTree* load = use;
+            load->SetOper(GT_LCL_VAR);
+            load->AsLclVar()->SetLclNum(lclNum);
+
+            use = nextUse;
+        } while (use != uses);
+    }
+
+    GenTree* store = def;
+
+    if (GenTreeInsert* insert = def->GetValue()->IsInsert())
+    {
+        GenTree*         structValue = insert->GetStructValue();
+        const FieldInfo& field       = insert->GetField();
+
+        // TODO-MIKE-SSA: Similar to the EXTRACT case, we may need
+        // to handle more cases here once optimizations are enabled.
+
+        store->SetOper(GT_STORE_LCL_FLD);
+        store->SetType(field.GetType());
+        store->AsLclFld()->SetOp(0, insert->GetFieldValue());
+        store->AsLclFld()->SetLayoutNum(field.GetLayoutNum());
+        store->AsLclFld()->SetLclOffs(field.GetOffset());
+        store->AsLclFld()->SetFieldSeq(field.GetFieldSeq());
+        store->AsLclFld()->SetLclNum(lclNum);
+
+        structValue->gtNext->gtPrev = structValue->gtPrev;
+
+        if (structValue->gtPrev != nullptr)
+        {
+            structValue->gtPrev->gtNext = structValue->gtNext;
+        }
+        else
+        {
+            assert(stmt->GetNodeList() == structValue);
+            stmt->SetNodeList(structValue->gtNext);
+        }
+
+        insert->gtNext->gtPrev = insert->gtPrev;
+        insert->gtPrev->gtNext = insert->gtNext;
+    }
+    else
+    {
+        store->SetOper(GT_STORE_LCL_VAR);
+        store->AsLclVar()->SetLclNum(lclNum);
+    }
+}
+
+static void DestroyExtract(Compiler* compiler, Statement* stmt, GenTreeExtract* extract)
+{
+    GenTree* src = extract->GetStructValue();
+
+    unsigned lclNum;
+
+    // TODO-MIKE-SSA: Initially the source is always SSA_USE but during
+    // destruction we'll tipically encounter the corresponding SSA_DEF
+    // first and change the source to LCL_VAR (or maybe LCL_FLD?)
+    // And once optimizations are running again we might see something
+    // else here (e.g. an INT 0 resulting from struct init propagation)
+    // so we'll need to handle more cases.
+
+    if (GenTreeSsaUse* use = src->IsSsaUse())
+    {
+        lclNum = use->GetDef()->GetLclNum();
+    }
+    else
+    {
+        lclNum = src->AsLclVar()->GetLclNum();
+    }
+
+    FieldInfo field  = extract->GetField();
+    GenTree*  lclFld = extract;
+
+    lclFld->SetOper(GT_LCL_FLD);
+    lclFld->AsLclFld()->SetLclNum(lclNum);
+    lclFld->AsLclFld()->SetLclOffs(field.GetOffset());
+    lclFld->AsLclFld()->SetLayoutNum(field.GetLayoutNum());
+    lclFld->AsLclFld()->SetFieldSeq(field.GetFieldSeq());
+
+    src->gtNext->gtPrev = src->gtPrev;
+
+    if (src->gtPrev != nullptr)
+    {
+        src->gtPrev->gtNext = src->gtNext;
+    }
+    else
+    {
+        stmt->SetTreeList(src->gtNext);
+    }
+}
+
+void Compiler::fgSsaDestroy()
+{
+    for (GenTree* def = m_initSsaDefs; def != nullptr; def = def->gtNext)
+    {
+        DestroySsaDef(this, def->AsSsaDef(), nullptr);
+    }
+
+    for (BasicBlock* block : Blocks())
+    {
+        Statement* lastPhiDef = nullptr;
+
+        for (Statement* stmt : block->Statements())
+        {
+            if (stmt->GetRootNode()->IsSsaPhiDef())
+            {
+                lastPhiDef = stmt;
+            }
+
+            for (GenTree* node : stmt->Nodes())
+            {
+                if (GenTreeSsaDef* def = node->IsSsaDef())
+                {
+                    DestroySsaDef(this, def, stmt);
+                }
+                else if (GenTreeExtract* extract = node->IsExtract())
+                {
+                    DestroyExtract(this, stmt, extract);
+                }
+            }
+
+#ifdef DEBUG
+            unsigned seqNum = 0;
+            for (GenTree* node : stmt->Nodes())
+            {
+                node->gtSeqNum = ++seqNum;
+            }
+#endif
+        }
+
+        if (lastPhiDef != nullptr)
+        {
+            Statement* first = lastPhiDef->GetNextStmt();
+
+            if (first == nullptr)
+            {
+                block->bbStmtList = nullptr;
+            }
+            else
+            {
+                Statement* last = block->GetLastStatement();
+                INDEBUG(first->SetPrevStmt(nullptr));
+                block->SetStatements(first, last);
+            }
+        }
+    }
 }

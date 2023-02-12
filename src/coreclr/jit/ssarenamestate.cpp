@@ -41,14 +41,14 @@ void SsaRenameState::EnsureStacks()
 //    the start of the first block must have associated SSA definitions and their SSA numbers
 //    must have been pushed first.
 //
-unsigned SsaRenameState::Top(unsigned lclNum)
+GenTreeSsaDef* SsaRenameState::Top(unsigned lclNum)
 {
     DBG_SSA_JITDUMP("[SsaRenameState::Top] V%02u\n", lclNum);
 
     noway_assert(m_stacks != nullptr);
     StackNode* top = m_stacks[lclNum].Top();
     noway_assert(top != nullptr);
-    return top->m_ssaNum;
+    return top->m_def;
 }
 
 //------------------------------------------------------------------------
@@ -59,12 +59,12 @@ unsigned SsaRenameState::Top(unsigned lclNum)
 //    lclNum - The local variable number
 //    ssaNum - The SSA number
 //
-void SsaRenameState::Push(BasicBlock* block, unsigned lclNum, unsigned ssaNum)
+void SsaRenameState::Push(BasicBlock* block, unsigned lclNum, GenTreeSsaDef* def)
 {
-    DBG_SSA_JITDUMP("[SsaRenameState::Push] " FMT_BB ", V%02u, count = %d\n", block->bbNum, lclNum, ssaNum);
+    DBG_SSA_JITDUMP("[SsaRenameState::Push] " FMT_BB ", V%02u, def = [%06u]\n", block->bbNum, lclNum, def->GetID());
 
     EnsureStacks();
-    Push(&m_stacks[lclNum], block, ssaNum);
+    Push(&m_stacks[lclNum], block, def);
 }
 
 //------------------------------------------------------------------------
@@ -91,6 +91,27 @@ void SsaRenameState::Push(Stack* stack, BasicBlock* block, unsigned ssaNum)
         // If we already have a stack node for this block then simply update
         // update the SSA number, the previous one is no longer needed.
         top->m_ssaNum = ssaNum;
+    }
+
+    INDEBUG(DumpStack(stack));
+}
+
+void SsaRenameState::Push(Stack* stack, BasicBlock* block, GenTreeSsaDef* def)
+{
+    StackNode* top = stack->Top();
+
+    if ((top == nullptr) || (top->m_block != block))
+    {
+        stack->Push(AllocStackNode(m_stackListTail, block, def));
+        // Append the stack to the stack list. The stack list allows
+        // PopBlockStacks to easily find stacks that need popping.
+        m_stackListTail = stack;
+    }
+    else
+    {
+        // If we already have a stack node for this block then simply
+        // update the SSA def, the previous one is no longer needed.
+        top->m_def = def;
     }
 
     INDEBUG(DumpStack(stack));
@@ -146,7 +167,14 @@ void SsaRenameState::DumpStack(Stack* stack)
 
         for (StackNode* i = stack->Top(); i != nullptr; i = i->m_stackPrev)
         {
-            printf("%s<" FMT_BB ", %u>", (i == stack->Top()) ? "" : ", ", i->m_block->bbNum, i->m_ssaNum);
+            if (stack == &m_memoryStack)
+            {
+                printf("%s<" FMT_BB ", %u>", (i == stack->Top()) ? "" : ", ", i->m_block->bbNum, i->m_ssaNum);
+            }
+            else
+            {
+                printf("%s<" FMT_BB ", [%06u]>", (i == stack->Top()) ? "" : ", ", i->m_block->bbNum, i->m_def->GetID());
+            }
         }
 
         printf("\n");

@@ -3205,7 +3205,7 @@ public:
         assert(lclNum != BAD_VAR_NUM);
 
         m_lclNum = lclNum;
-        m_ssaNum = SsaConfig::RESERVED_SSA_NUM;
+        m_ssaNum = NoSsaNum;
     }
 
     uint16_t GetLclOffs() const;
@@ -3455,6 +3455,11 @@ public:
         // code is unlikely to clone assignments to begin with.
     }
 
+    void Init()
+    {
+        m_uses = nullptr;
+    }
+
     unsigned GetLclNum() const
     {
         return m_lclNum;
@@ -3538,6 +3543,13 @@ public:
     GenTreeSsaUse(const GenTreeSsaUse* copyFrom) : GenTree(GT_SSA_USE, copyFrom->GetType()), m_block(copyFrom->m_block)
     {
         copyFrom->m_def->AddUse(this);
+    }
+
+    void Init()
+    {
+        m_def     = nullptr;
+        m_nextUse = nullptr;
+        m_prevUse = nullptr;
     }
 
     GenTreeSsaDef* GetDef() const
@@ -3777,6 +3789,11 @@ public:
     FieldSeqNode* GetFieldSeq() const
     {
         return m_fieldSeq;
+    }
+
+    bool HasFieldSeq() const
+    {
+        return (m_fieldSeq != nullptr) && (m_fieldSeq != FieldSeqNode::NotAField());
     }
 
 #if DEBUGGABLE_GENTREE
@@ -6926,6 +6943,12 @@ public:
         return m_treeList;
     }
 
+    void SetNodeList(GenTree* list)
+    {
+        m_treeList = list;
+    }
+
+    // [[deprecated]]
     void SetTreeList(GenTree* treeHead)
     {
         m_treeList = treeHead;
