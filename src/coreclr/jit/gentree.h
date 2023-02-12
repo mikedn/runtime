@@ -40,28 +40,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #endif // !DEBUG
 #endif // !DEBUGGABLE_GENTREE
 
-// The SpecialCodeKind enum is used to indicate the type of special (unique)
-// target block that will be targeted by an instruction.
-// These are used by:
-//   GenTreeBoundsChk nodes (SCK_RNGCHK_FAIL, SCK_ARG_EXCPN, SCK_ARG_RNG_EXCPN)
-//     - these nodes have a field (gtThrowKind) to indicate which kind
-//   GenTreeOps nodes, for which codegen will generate the branch
-//     - it will use the appropriate kind based on the opcode, though it's not
-//       clear why SCK_OVERFLOW == SCK_ARITH_EXCPN
-//
-enum SpecialCodeKind
-{
-    SCK_RNGCHK_FAIL,                // target when range check fails
-    SCK_DIV_BY_ZERO,                // target for divide by zero (Not used on X86/X64)
-    SCK_ARITH_EXCPN,                // target on arithmetic exception
-    SCK_OVERFLOW = SCK_ARITH_EXCPN, // target on overflow
-    SCK_ARG_EXCPN,                  // target on ArgumentException (currently used only for SIMD intrinsics)
-    SCK_ARG_RNG_EXCPN,              // target on ArgumentOutOfRangeException (currently used only for SIMD intrinsics)
-    SCK_COUNT
-};
-
-/*****************************************************************************/
-
 enum genTreeOps : BYTE
 {
 #define GTNODE(en, st, cm, ok) GT_##en,
@@ -96,13 +74,22 @@ enum GenTreeKinds
     GTK_NOCONTAIN = 0x0080, // Node cannot be contained
 };
 
-/*****************************************************************************/
-
 enum CallKind
 {
     CT_USER_FUNC,
     CT_HELPER,
     CT_INDIRECT
+};
+
+enum class ThrowHelperKind : uint8_t
+{
+    IndexOutOfRange,       // throw IndexOutOfRangeException
+    DivideByZero,          // throw DivideByZeroException
+    Overflow,              // throw OverflowException
+    Arithmetic = Overflow, // throw OverflowException
+    Argument,              // throw ArgumentException
+    ArgumentOutOfRange,    // throw ArgumentOutOfRangeException
+    COUNT
 };
 
 #ifdef DEBUG
@@ -5631,9 +5618,9 @@ struct GenTreeBoundsChk : public GenTree
     GenTree*        gtIndex;
     GenTree*        gtArrLen;
     BasicBlock*     m_throwBlock;
-    SpecialCodeKind m_throwKind;
+    ThrowHelperKind m_throwKind;
 
-    GenTreeBoundsChk(genTreeOps oper, GenTree* index, GenTree* length, SpecialCodeKind kind)
+    GenTreeBoundsChk(genTreeOps oper, GenTree* index, GenTree* length, ThrowHelperKind kind)
         : GenTree(oper, TYP_VOID), gtIndex(index), gtArrLen(length), m_throwBlock(nullptr), m_throwKind(kind)
     {
         bool isValidOper =
@@ -5682,7 +5669,7 @@ struct GenTreeBoundsChk : public GenTree
         return gtArrLen->IsArrLen() ? gtArrLen->AsArrLen()->GetArray() : nullptr;
     }
 
-    SpecialCodeKind GetThrowKind() const
+    ThrowHelperKind GetThrowKind() const
     {
         return m_throwKind;
     }

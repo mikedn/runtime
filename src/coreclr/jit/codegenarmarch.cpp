@@ -1321,7 +1321,7 @@ void CodeGen::genCodeForArrIndex(GenTreeArrIndex* arrIndex)
     emit->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, arrReg, offset);
     emit->emitIns_R_R(INS_cmp, EA_4BYTE, tgtReg, tmpReg);
 
-    genJumpToThrowHlpBlk(EJ_hs, SCK_RNGCHK_FAIL);
+    genJumpToThrowHlpBlk(EJ_hs, ThrowHelperKind::IndexOutOfRange);
 
     genProduceReg(arrIndex);
 }
@@ -1514,7 +1514,7 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
     {
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, baseReg, node->GetLenOffs());
         GetEmitter()->emitIns_R_R(INS_cmp, emitActualTypeSize(index->TypeGet()), indexReg, tmpReg);
-        genJumpToThrowHlpBlk(EJ_hs, SCK_RNGCHK_FAIL, node->GetThrowBlock());
+        genJumpToThrowHlpBlk(EJ_hs, ThrowHelperKind::IndexOutOfRange, node->GetThrowBlock());
     }
 
     // Can we use a ScaledAdd instruction?
@@ -3055,7 +3055,7 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
     {
         case GenIntCastDesc::CHECK_POSITIVE:
             GetEmitter()->emitIns_R_I(INS_cmp, EA_ATTR(desc.CheckSrcSize()), reg, 0);
-            genJumpToThrowHlpBlk(EJ_lt, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_lt, ThrowHelperKind::Overflow);
             break;
 
 #ifdef TARGET_ARM64
@@ -3064,7 +3064,7 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             // cannot be encoded in the immediate operand of CMP. Use TST instead to check
             // if the upper 32 bits are zero.
             GetEmitter()->emitIns_R_I(INS_tst, EA_8BYTE, reg, 0xFFFFFFFF00000000LL);
-            genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
             break;
 
         case GenIntCastDesc::CHECK_POSITIVE_INT_RANGE:
@@ -3072,12 +3072,12 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             // cannot be encoded in the immediate operand of CMP. Use TST instead to check
             // if the upper 33 bits are zero.
             GetEmitter()->emitIns_R_I(INS_tst, EA_8BYTE, reg, 0xFFFFFFFF80000000LL);
-            genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
             break;
 
         case GenIntCastDesc::CHECK_INT_RANGE:
             GetEmitter()->emitIns_R_R_I(INS_cmp, EA_8BYTE, reg, reg, 0, INS_OPTS_SXTW);
-            genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
             break;
 #endif
 
@@ -3095,7 +3095,7 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
 
                 GetEmitter()->emitIns_R_R_I(INS_cmp, EA_ATTR(desc.CheckSrcSize()), reg, reg, 0,
                                             castMinValue == -128 ? INS_OPTS_SXTB : INS_OPTS_SXTH);
-                genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+                genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
                 break;
             }
 #endif
@@ -3108,18 +3108,18 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             {
                 assert((castMaxValue == 32767) || (castMaxValue == 65535));
                 GetEmitter()->emitIns_R_I(INS_cmp, EA_ATTR(desc.CheckSrcSize()), reg, castMaxValue + 1);
-                genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_hs : EJ_ge, SCK_OVERFLOW);
+                genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_hs : EJ_ge, ThrowHelperKind::Overflow);
             }
             else
             {
                 GetEmitter()->emitIns_R_I(INS_cmp, EA_ATTR(desc.CheckSrcSize()), reg, castMaxValue);
-                genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_hi : EJ_gt, SCK_OVERFLOW);
+                genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_hi : EJ_gt, ThrowHelperKind::Overflow);
             }
 
             if (castMinValue != 0)
             {
                 GetEmitter()->emitIns_R_I(INS_cmp, EA_ATTR(desc.CheckSrcSize()), reg, castMinValue);
-                genJumpToThrowHlpBlk(EJ_lt, SCK_OVERFLOW);
+                genJumpToThrowHlpBlk(EJ_lt, ThrowHelperKind::Overflow);
             }
         }
         break;

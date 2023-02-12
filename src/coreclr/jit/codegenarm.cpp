@@ -921,7 +921,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
 
     // If exponent is all 1's, throw ArithmeticException
     emit->emitIns_R_I(INS_add, EA_4BYTE, intReg, 1, INS_FLAGS_SET);
-    genJumpToThrowHlpBlk(EJ_eq, SCK_ARITH_EXCPN);
+    genJumpToThrowHlpBlk(EJ_eq, ThrowHelperKind::Arithmetic);
 
     // If it's a finite value, copy it to targetReg
     inst_Mov(targetType, targetReg, fpReg, /* canSkip */ true, emitTypeSize(treeNode));
@@ -1118,12 +1118,12 @@ void CodeGen::genLongToIntCast(GenTree* cast)
             inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT, EA_4BYTE);
             inst_JMP(EJ_mi, allOne);
             inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
-            genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
             inst_JMP(EJ_jmp, success);
 
             genDefineTempLabel(allOne);
             inst_RV_IV(INS_cmp, hiSrcReg, -1, EA_4BYTE);
-            genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
 
             genDefineTempLabel(success);
         }
@@ -1132,11 +1132,11 @@ void CodeGen::genLongToIntCast(GenTree* cast)
             if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
             {
                 inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT, EA_4BYTE);
-                genJumpToThrowHlpBlk(EJ_mi, SCK_OVERFLOW);
+                genJumpToThrowHlpBlk(EJ_mi, ThrowHelperKind::Overflow);
             }
 
             inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
-            genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
         }
     }
 
@@ -1854,8 +1854,7 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
             }
         }
 
-        // Jump to the block which will throw the exception.
-        genJumpToThrowHlpBlk(jumpKind, SCK_OVERFLOW);
+        genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);
     }
 
     return dst->GetRegNum();

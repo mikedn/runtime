@@ -3740,7 +3740,7 @@ void CodeGen::genCodeForArrIndex(GenTreeArrIndex* arrIndex)
                                genOffsetOfMDArrayLowerBound(elemType, rank, dim));
     GetEmitter()->emitIns_R_AR(INS_cmp, emitActualTypeSize(TYP_INT), tgtReg, arrReg,
                                genOffsetOfMDArrayDimensionSize(elemType, rank, dim));
-    genJumpToThrowHlpBlk(EJ_jae, SCK_RNGCHK_FAIL);
+    genJumpToThrowHlpBlk(EJ_jae, ThrowHelperKind::IndexOutOfRange);
 
     genProduceReg(arrIndex);
 }
@@ -4531,7 +4531,7 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
             GetEmitter()->emitIns_R_AR(INS_cmp, EA_4BYTE, indexReg, baseReg, node->GetLenOffs());
         }
 
-        genJumpToThrowHlpBlk(EJ_jae, SCK_RNGCHK_FAIL, node->GetThrowBlock());
+        genJumpToThrowHlpBlk(EJ_jae, ThrowHelperKind::IndexOutOfRange, node->GetThrowBlock());
     }
 
 #ifdef TARGET_64BIT
@@ -5947,12 +5947,12 @@ void CodeGen::genLongToIntCast(GenTree* cast)
             inst_JMP(EJ_js, allOne);
 
             inst_RV_RV(INS_test, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
-            genJumpToThrowHlpBlk(EJ_jne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
             inst_JMP(EJ_jmp, success);
 
             genDefineTempLabel(allOne);
             inst_RV_IV(INS_cmp, hiSrcReg, -1, EA_4BYTE);
-            genJumpToThrowHlpBlk(EJ_jne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
 
             genDefineTempLabel(success);
         }
@@ -5961,11 +5961,11 @@ void CodeGen::genLongToIntCast(GenTree* cast)
             if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
             {
                 inst_RV_RV(INS_test, loSrcReg, loSrcReg, TYP_INT, EA_4BYTE);
-                genJumpToThrowHlpBlk(EJ_js, SCK_OVERFLOW);
+                genJumpToThrowHlpBlk(EJ_js, ThrowHelperKind::Overflow);
             }
 
             inst_RV_RV(INS_test, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
-            genJumpToThrowHlpBlk(EJ_jne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
         }
     }
 
@@ -5989,7 +5989,7 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
     {
         case GenIntCastDesc::CHECK_POSITIVE:
             GetEmitter()->emitIns_R_R(INS_test, EA_SIZE(desc.CheckSrcSize()), reg, reg);
-            genJumpToThrowHlpBlk(EJ_jl, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_jl, ThrowHelperKind::Overflow);
             break;
 
 #ifdef TARGET_64BIT
@@ -6002,20 +6002,20 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             assert(tempReg != reg);
             GetEmitter()->emitIns_Mov(INS_mov, EA_8BYTE, tempReg, reg, /* canSkip */ false);
             GetEmitter()->emitIns_R_I(INS_shr_N, EA_8BYTE, tempReg, 32);
-            genJumpToThrowHlpBlk(EJ_jne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
         }
         break;
 
         case GenIntCastDesc::CHECK_POSITIVE_INT_RANGE:
             GetEmitter()->emitIns_R_I(INS_cmp, EA_8BYTE, reg, INT32_MAX);
-            genJumpToThrowHlpBlk(EJ_ja, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_ja, ThrowHelperKind::Overflow);
             break;
 
         case GenIntCastDesc::CHECK_INT_RANGE:
             GetEmitter()->emitIns_R_I(INS_cmp, EA_8BYTE, reg, INT32_MAX);
-            genJumpToThrowHlpBlk(EJ_jg, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_jg, ThrowHelperKind::Overflow);
             GetEmitter()->emitIns_R_I(INS_cmp, EA_8BYTE, reg, INT32_MIN);
-            genJumpToThrowHlpBlk(EJ_jl, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_jl, ThrowHelperKind::Overflow);
             break;
 #endif
 
@@ -6026,12 +6026,12 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             const int castMinValue = desc.CheckSmallIntMin();
 
             GetEmitter()->emitIns_R_I(INS_cmp, EA_SIZE(desc.CheckSrcSize()), reg, castMaxValue);
-            genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_ja : EJ_jg, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_ja : EJ_jg, ThrowHelperKind::Overflow);
 
             if (castMinValue != 0)
             {
                 GetEmitter()->emitIns_R_I(INS_cmp, EA_SIZE(desc.CheckSrcSize()), reg, castMinValue);
-                genJumpToThrowHlpBlk(EJ_jl, SCK_OVERFLOW);
+                genJumpToThrowHlpBlk(EJ_jl, ThrowHelperKind::Overflow);
             }
         }
         break;
@@ -6386,7 +6386,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     inst_RV_IV(INS_cmp, tmpReg, expMask, EA_4BYTE);
 
     // If exponent is all 1's, throw ArithmeticException
-    genJumpToThrowHlpBlk(EJ_je, SCK_ARITH_EXCPN);
+    genJumpToThrowHlpBlk(EJ_je, ThrowHelperKind::Arithmetic);
 
     // if it is a finite shift copy it to targetReg
     inst_Mov(targetType, targetReg, op1->GetRegNum(), /* canSkip */ true);
@@ -6444,7 +6444,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     inst_RV_IV(INS_cmp, tmpReg, expMask, EA_4BYTE);
 
     // If exponent is all 1's, throw ArithmeticException
-    genJumpToThrowHlpBlk(EJ_je, SCK_ARITH_EXCPN);
+    genJumpToThrowHlpBlk(EJ_je, ThrowHelperKind::Arithmetic);
 
     if ((targetType == TYP_DOUBLE) && (targetReg == op1->GetRegNum()))
     {

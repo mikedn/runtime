@@ -4631,7 +4631,7 @@ PhaseStatus Lowering::DoPhase()
         {
             if (GenTreeBoundsChk* boundsChk = node->IsBoundsChk())
             {
-                boundsChk->SetThrowBlock(comp->fgGetThrowHelperBlock(block, boundsChk->GetThrowKind(), throwIndex));
+                boundsChk->SetThrowBlock(comp->fgGetThrowHelperBlock(boundsChk->GetThrowKind(), block, throwIndex));
             }
         }
     }

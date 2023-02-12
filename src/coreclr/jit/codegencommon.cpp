@@ -645,7 +645,7 @@ void CodeGen::genExitCode(BasicBlock* block)
 //   codeKind - the special throw-helper kind;
 //   failBlk  - optional fail target block, if it is already known;
 //
-void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, SpecialCodeKind codeKind, BasicBlock* failBlk)
+void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, ThrowHelperKind codeKind, BasicBlock* failBlk)
 {
     bool useThrowHlpBlk = compiler->fgUseThrowHelperBlocks();
 #if defined(UNIX_X86_ABI) && defined(FEATURE_EH_FUNCLETS)
@@ -762,9 +762,7 @@ void CodeGen::genCheckOverflow(GenTree* tree)
 #endif // defined(TARGET_ARMARCH)
     }
 
-    // Jump to the block which will throw the expection
-
-    genJumpToThrowHlpBlk(jumpKind, SCK_OVERFLOW);
+    genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);
 }
 
 #if defined(FEATURE_EH_FUNCLETS)

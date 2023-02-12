@@ -2400,7 +2400,7 @@ void CodeGen::genCodeForDivMod(GenTreeOp* div)
 
     if (divisor->IsIntegralConst(0))
     {
-        genJumpToThrowHlpBlk(EJ_jmp, SCK_DIV_BY_ZERO);
+        genJumpToThrowHlpBlk(EJ_jmp, ThrowHelperKind::DivideByZero);
     }
     else
     {
@@ -2412,7 +2412,7 @@ void CodeGen::genCodeForDivMod(GenTreeOp* div)
         if (!divisor->IsIntCon())
         {
             emit->emitIns_R_I(INS_cmp, attr, divisorReg, 0);
-            genJumpToThrowHlpBlk(EJ_eq, SCK_DIV_BY_ZERO);
+            genJumpToThrowHlpBlk(EJ_eq, ThrowHelperKind::DivideByZero);
         }
         else
         {
@@ -2426,7 +2426,7 @@ void CodeGen::genCodeForDivMod(GenTreeOp* div)
             inst_JMP(EJ_ne, sdivLabel);
             emit->emitIns_R_R_R(INS_adds, attr, REG_ZR, dividendReg, dividendReg);
             inst_JMP(EJ_ne, sdivLabel);
-            genJumpToThrowHlpBlk(EJ_vs, SCK_ARITH_EXCPN);
+            genJumpToThrowHlpBlk(EJ_vs, ThrowHelperKind::Arithmetic);
             genDefineTempLabel(sdivLabel);
         }
 
@@ -3074,7 +3074,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     emit->emitIns_R_I(INS_cmp, EA_4BYTE, intReg, expMask);
 
     // If exponent is all 1's, throw ArithmeticException
-    genJumpToThrowHlpBlk(EJ_eq, SCK_ARITH_EXCPN);
+    genJumpToThrowHlpBlk(EJ_eq, ThrowHelperKind::Arithmetic);
 
     // if it is a finite value copy it to targetReg
     inst_Mov(targetType, treeNode->GetRegNum(), fpReg, /* canSkip */ true);

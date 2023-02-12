@@ -2897,31 +2897,31 @@ EXIT:;
     fgFirstColdBlock = firstColdBlock;
 }
 
-CorInfoHelpFunc Compiler::GetThrowHelperCall(SpecialCodeKind kind)
+CorInfoHelpFunc Compiler::GetThrowHelperCall(ThrowHelperKind kind)
 {
     switch (kind)
     {
-        case SCK_RNGCHK_FAIL:
+        case ThrowHelperKind::IndexOutOfRange:
             return CORINFO_HELP_RNGCHKFAIL;
-        case SCK_ARG_EXCPN:
-            return CORINFO_HELP_THROW_ARGUMENTEXCEPTION;
-        case SCK_ARG_RNG_EXCPN:
-            return CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION;
-        case SCK_DIV_BY_ZERO:
+        case ThrowHelperKind::DivideByZero:
             return CORINFO_HELP_THROWDIVZERO;
-        case SCK_ARITH_EXCPN:
+        case ThrowHelperKind::Overflow:
             return CORINFO_HELP_OVERFLOW;
+        case ThrowHelperKind::Argument:
+            return CORINFO_HELP_THROW_ARGUMENTEXCEPTION;
+        case ThrowHelperKind::ArgumentOutOfRange:
+            return CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION;
         default:
             unreached();
     }
 }
 
-BasicBlock* Compiler::fgGetThrowHelperBlock(BasicBlock* throwBlock, SpecialCodeKind kind)
+BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* throwBlock)
 {
-    return fgGetThrowHelperBlock(throwBlock, kind, bbThrowIndex(throwBlock));
+    return fgGetThrowHelperBlock(kind, throwBlock, bbThrowIndex(throwBlock));
 }
 
-BasicBlock* Compiler::fgGetThrowHelperBlock(BasicBlock* throwBlock, SpecialCodeKind kind, unsigned throwIndex)
+BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* throwBlock, unsigned throwIndex)
 {
     assert(!throwBlock->isEmpty());
 
@@ -2973,27 +2973,28 @@ BasicBlock* Compiler::fgGetThrowHelperBlock(BasicBlock* throwBlock, SpecialCodeK
         const char* msg;
         switch (kind)
         {
-            case SCK_RNGCHK_FAIL:
-                msg = " for RNGCHK_FAIL";
+            case ThrowHelperKind::IndexOutOfRange:
+                msg = "IndexOutOfRange";
                 break;
-            case SCK_DIV_BY_ZERO:
-                msg = " for DIV_BY_ZERO";
+            case ThrowHelperKind::DivideByZero:
+                msg = "DivideByZero";
                 break;
-            case SCK_OVERFLOW:
-                msg = " for OVERFLOW";
+            case ThrowHelperKind::Overflow:
+                msg = "Overflow";
                 break;
-            case SCK_ARG_EXCPN:
-                msg = " for ARG_EXCPN";
+            case ThrowHelperKind::Argument:
+                msg = "Argument";
                 break;
-            case SCK_ARG_RNG_EXCPN:
-                msg = " for ARG_RNG_EXCPN";
+            case ThrowHelperKind::ArgumentOutOfRange:
+                msg = "ArgumentOutOfRange";
                 break;
             default:
-                msg = " for ??";
+                msg = "???";
                 break;
         }
 
-        printf("\nfgAddCodeRef - Add BB in %s%s, new block " FMT_BB "\n", msgWhere, msg, helperBlock->bbNum);
+        printf("\nAdding throw helper block in %s for %sException, new block " FMT_BB "\n", msgWhere, msg,
+               helperBlock->bbNum);
     }
 #endif // DEBUG
 
@@ -3001,21 +3002,21 @@ BasicBlock* Compiler::fgGetThrowHelperBlock(BasicBlock* throwBlock, SpecialCodeK
 
     switch (kind)
     {
-        static_assert_no_msg(SCK_OVERFLOW == SCK_ARITH_EXCPN);
+        static_assert_no_msg(ThrowHelperKind::Arithmetic == ThrowHelperKind::Overflow);
 
-        case SCK_RNGCHK_FAIL:
+        case ThrowHelperKind::IndexOutOfRange:
             helper = CORINFO_HELP_RNGCHKFAIL;
             break;
-        case SCK_DIV_BY_ZERO:
+        case ThrowHelperKind::DivideByZero:
             helper = CORINFO_HELP_THROWDIVZERO;
             break;
-        case SCK_OVERFLOW:
+        case ThrowHelperKind::Overflow:
             helper = CORINFO_HELP_OVERFLOW;
             break;
-        case SCK_ARG_EXCPN:
+        case ThrowHelperKind::Argument:
             helper = CORINFO_HELP_THROW_ARGUMENTEXCEPTION;
             break;
-        case SCK_ARG_RNG_EXCPN:
+        case ThrowHelperKind::ArgumentOutOfRange:
             helper = CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION;
             break;
         default:
@@ -3041,16 +3042,16 @@ BasicBlock* Compiler::fgGetThrowHelperBlock(BasicBlock* throwBlock, SpecialCodeK
     return helperBlock;
 }
 
-ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(SpecialCodeKind kind, BasicBlock* throwBlock)
+ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(ThrowHelperKind kind, BasicBlock* throwBlock)
 {
     return fgFindThrowHelperBlock(kind, bbThrowIndex(throwBlock));
 }
 
-ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(SpecialCodeKind kind, unsigned throwIndex)
+ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(ThrowHelperKind kind, unsigned throwIndex)
 {
     assert(fgUseThrowHelperBlocks());
 
-    ThrowHelperBlock* cached = m_throwHelperBlockCache[kind];
+    ThrowHelperBlock* cached = m_throwHelperBlockCache[static_cast<unsigned>(kind)];
 
     if ((cached != nullptr) && (cached->throwIndex == throwIndex))
     {
@@ -3063,7 +3064,7 @@ ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(SpecialCodeKind kind, unsigne
     {
         if ((found->throwIndex == throwIndex) && (found->kind == kind))
         {
-            m_throwHelperBlockCache[kind] = found;
+            m_throwHelperBlockCache[static_cast<unsigned>(kind)] = found;
             break;
         }
     }

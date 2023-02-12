@@ -697,7 +697,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
     if (cast->gtOverflow())
     {
-        fgGetThrowHelperBlock(compCurBB, SCK_OVERFLOW);
+        fgGetThrowHelperBlock(ThrowHelperKind::Overflow, compCurBB);
     }
 
     return cast;
@@ -5364,7 +5364,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
             noway_assert(index2 != nullptr);
         }
 
-        boundsCheck = gtNewArrBoundsChk(index2, arrLen, SCK_RNGCHK_FAIL);
+        boundsCheck = gtNewArrBoundsChk(index2, arrLen, ThrowHelperKind::IndexOutOfRange);
     }
 
     GenTree* offset = index;
@@ -11416,18 +11416,18 @@ DONE_MORPHING_CHILDREN:
 
 #ifdef TARGET_ARM64
         case GT_DIV:
-            fgGetThrowHelperBlock(compCurBB, SCK_OVERFLOW);
-            fgGetThrowHelperBlock(compCurBB, SCK_DIV_BY_ZERO);
+            fgGetThrowHelperBlock(ThrowHelperKind::Overflow, compCurBB);
+            fgGetThrowHelperBlock(ThrowHelperKind::DivideByZero, compCurBB);
             break;
         case GT_UDIV:
-            fgGetThrowHelperBlock(compCurBB, SCK_DIV_BY_ZERO);
+            fgGetThrowHelperBlock(ThrowHelperKind::DivideByZero, compCurBB);
             break;
 #endif
 
         case GT_SUB:
             if (tree->gtOverflow())
             {
-                fgGetThrowHelperBlock(compCurBB, SCK_OVERFLOW);
+                fgGetThrowHelperBlock(ThrowHelperKind::Overflow, compCurBB);
                 break;
             }
 
@@ -11526,7 +11526,7 @@ DONE_MORPHING_CHILDREN:
         case GT_ADD:
             if (tree->gtOverflow())
             {
-                fgGetThrowHelperBlock(compCurBB, SCK_OVERFLOW);
+                fgGetThrowHelperBlock(ThrowHelperKind::Overflow, compCurBB);
                 break;
             }
         CM_ADD_OP:
@@ -11858,7 +11858,7 @@ DONE_MORPHING_CHILDREN:
 
         case GT_CKFINITE:
             noway_assert(varTypeIsFloating(op1->GetType()));
-            fgGetThrowHelperBlock(compCurBB, SCK_ARITH_EXCPN);
+            fgGetThrowHelperBlock(ThrowHelperKind::Arithmetic, compCurBB);
             break;
 
         case GT_INDEX_ADDR:
@@ -11868,7 +11868,7 @@ DONE_MORPHING_CHILDREN:
 
             if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
             {
-                tree->AsIndexAddr()->SetThrowBlock(fgGetThrowHelperBlock(compCurBB, SCK_RNGCHK_FAIL));
+                tree->AsIndexAddr()->SetThrowBlock(fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, compCurBB));
                 tree->AddSideEffects(GTF_EXCEPT);
             }
             break;
@@ -13407,7 +13407,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
                 if (opts.MinOpts())
                 {
-                    check->SetThrowBlock(fgGetThrowHelperBlock(compCurBB, check->GetThrowKind()));
+                    check->SetThrowBlock(fgGetThrowHelperBlock(check->GetThrowKind(), compCurBB));
                 }
             }
         }
@@ -13433,7 +13433,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
             if (fgGlobalMorph)
             {
-                fgGetThrowHelperBlock(compCurBB, SCK_RNGCHK_FAIL);
+                fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, compCurBB);
             }
             break;
 

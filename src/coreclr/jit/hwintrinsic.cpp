@@ -268,8 +268,9 @@ GenTree* Importer::addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound
         immOpUses[1] = gtNewOperNode(GT_SUB, TYP_INT, immOpUses[1], gtNewIconNode(immLowerBound, TYP_INT));
     }
 
-    GenTreeBoundsChk* hwIntrinsicChk = new (comp, GT_HW_INTRINSIC_CHK)
-        GenTreeBoundsChk(GT_HW_INTRINSIC_CHK, immOpUses[1], adjustedUpperBoundNode, SCK_ARG_RNG_EXCPN);
+    GenTreeBoundsChk* hwIntrinsicChk =
+        new (comp, GT_HW_INTRINSIC_CHK) GenTreeBoundsChk(GT_HW_INTRINSIC_CHK, immOpUses[1], adjustedUpperBoundNode,
+                                                         ThrowHelperKind::ArgumentOutOfRange);
 
     return gtNewCommaNode(hwIntrinsicChk, immOpUses[0]);
 }

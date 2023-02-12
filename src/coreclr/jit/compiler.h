@@ -2291,8 +2291,8 @@ struct Importer
     GenTree* impGetArrayElementsAsVector(ClassLayout*    layout,
                                          GenTree*        array,
                                          GenTree*        index,
-                                         SpecialCodeKind indexThrowKind,
-                                         SpecialCodeKind lastIndexThrowKind);
+                                         ThrowHelperKind indexThrowKind,
+                                         ThrowHelperKind lastIndexThrowKind);
     GenTree* impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig);
@@ -2694,7 +2694,7 @@ struct Importer
     GenTreeOp* gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type = TYP_UNDEF);
     GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2);
     GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
-    GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind);
+    GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
     GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
     GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
     GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
@@ -2834,14 +2834,14 @@ struct ThrowHelperBlock
     ThrowHelperBlock* const next;
     BasicBlock* const       block;
     unsigned const          throwIndex;
-    SpecialCodeKind const   kind;
+    ThrowHelperKind const   kind;
 
 #if !FEATURE_FIXED_OUT_ARGS
     bool     stackLevelSet = false;
     unsigned stackLevel    = 0;
 #endif
 
-    ThrowHelperBlock(ThrowHelperBlock* next, SpecialCodeKind kind, unsigned throwIndex, BasicBlock* block)
+    ThrowHelperBlock(ThrowHelperBlock* next, ThrowHelperKind kind, unsigned throwIndex, BasicBlock* block)
         : next(next), block(block), throwIndex(throwIndex), kind(kind)
     {
     }
@@ -3424,7 +3424,7 @@ public:
     GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
 
     GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs);
-    GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind);
+    GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
 
     GenTreeIndir* gtNewIndir(var_types typ, GenTree* addr);
 
@@ -5431,15 +5431,15 @@ private:
     unsigned fgGetLargeFieldOffsetNullCheckTemp(var_types type); // We cache one temp per type to be
                                                                  // used when morphing big offset.
     ThrowHelperBlock* m_throwHelperBlockList = nullptr;
-    ThrowHelperBlock* m_throwHelperBlockCache[SCK_COUNT]{};
+    ThrowHelperBlock* m_throwHelperBlockCache[static_cast<unsigned>(ThrowHelperKind::COUNT)]{};
 
 public:
-    static CorInfoHelpFunc GetThrowHelperCall(SpecialCodeKind kind);
+    static CorInfoHelpFunc GetThrowHelperCall(ThrowHelperKind kind);
 
-    BasicBlock* fgGetThrowHelperBlock(BasicBlock* throwBlock, SpecialCodeKind kind);
-    BasicBlock* fgGetThrowHelperBlock(BasicBlock* throwBlock, SpecialCodeKind kind, unsigned throwIndex);
-    ThrowHelperBlock* fgFindThrowHelperBlock(SpecialCodeKind kind, BasicBlock* throwBlock);
-    ThrowHelperBlock* fgFindThrowHelperBlock(SpecialCodeKind kind, unsigned throwIndex);
+    BasicBlock* fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* throwBlock);
+    BasicBlock* fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* throwBlock, unsigned throwIndex);
+    ThrowHelperBlock* fgFindThrowHelperBlock(ThrowHelperKind kind, BasicBlock* throwBlock);
+    ThrowHelperBlock* fgFindThrowHelperBlock(ThrowHelperKind kind, unsigned throwIndex);
 
     bool fgUseThrowHelperBlocks() const
     {

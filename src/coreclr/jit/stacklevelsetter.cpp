@@ -142,23 +142,23 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(GenTree* node, BasicBlock* 
         case GT_INDEX_ADDR:
         case GT_ARR_ELEM:
         case GT_ARR_INDEX:
-            SetThrowHelperBlockStackLevel(SCK_RNGCHK_FAIL, throwBlock);
+            SetThrowHelperBlockStackLevel(ThrowHelperKind::IndexOutOfRange, throwBlock);
             break;
 
         case GT_CKFINITE:
-            SetThrowHelperBlockStackLevel(SCK_ARITH_EXCPN, throwBlock);
+            SetThrowHelperBlockStackLevel(ThrowHelperKind::Arithmetic, throwBlock);
             break;
 
         default:
             if (node->gtOverflowEx())
             {
-                SetThrowHelperBlockStackLevel(SCK_OVERFLOW, throwBlock);
+                SetThrowHelperBlockStackLevel(ThrowHelperKind::Overflow, throwBlock);
             }
             break;
     }
 }
 
-void StackLevelSetter::SetThrowHelperBlockStackLevel(SpecialCodeKind kind, BasicBlock* throwBlock)
+void StackLevelSetter::SetThrowHelperBlockStackLevel(ThrowHelperKind kind, BasicBlock* throwBlock)
 {
     ThrowHelperBlock* helper = comp->fgFindThrowHelperBlock(kind, throwBlock);
 

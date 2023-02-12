@@ -1620,7 +1620,7 @@ AGAIN:
 #endif
             hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->GetIndex()));
             hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->GetLength()));
-            hash = genTreeHashAdd(hash, tree->AsBoundsChk()->GetThrowKind());
+            hash = genTreeHashAdd(hash, static_cast<unsigned>(tree->AsBoundsChk()->GetThrowKind()));
             break;
 
         case GT_ARR_OFFSET:
@@ -6551,28 +6551,31 @@ void Compiler::gtDispNodeName(GenTree* tree)
         }
         bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%d)", lea->GetOffset());
     }
-    else if (tree->gtOper == GT_ARR_BOUNDS_CHECK)
+    else if (GenTreeBoundsChk* boundsChk = tree->IsBoundsChk())
     {
-        switch (tree->AsBoundsChk()->GetThrowKind())
+        const char* kindName;
+
+        switch (boundsChk->GetThrowKind())
         {
-            case SCK_RNGCHK_FAIL:
-            {
-                bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s_Rng", name);
-                if (tree->AsBoundsChk()->GetThrowBlock() != nullptr)
-                {
-                    bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), " -> " FMT_BB,
-                                            tree->AsBoundsChk()->GetThrowBlock()->bbNum);
-                }
+            case ThrowHelperKind::IndexOutOfRange:
+                kindName = "Rng";
                 break;
-            }
-            case SCK_ARG_EXCPN:
-                sprintf_s(bufp, sizeof(buf), "%s_Arg", name);
+            case ThrowHelperKind::Argument:
+                kindName = "Arg";
                 break;
-            case SCK_ARG_RNG_EXCPN:
-                sprintf_s(bufp, sizeof(buf), "%s_ArgRng", name);
+            case ThrowHelperKind::ArgumentOutOfRange:
+                kindName = "ArgRng";
                 break;
             default:
-                unreached();
+                kindName = "???";
+                break;
+        }
+
+        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s_%s", name, kindName);
+
+        if (boundsChk->GetThrowBlock() != nullptr)
+        {
+            bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), " -> " FMT_BB, tree->AsBoundsChk()->GetThrowBlock()->bbNum);
         }
     }
     else if (tree->gtOverflowEx())
