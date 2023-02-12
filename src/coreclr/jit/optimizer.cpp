@@ -3488,13 +3488,8 @@ PhaseStatus Compiler::optUnrollLoops()
     assert(UNROLL_LIMIT_SZ[COUNT_OPT_CODE] == 0);
 
     // Visit loops from highest to lowest number to visit them in innermost to outermost order.
-    for (unsigned lnum = optLoopCount - 1; lnum != ~0U; --lnum)
+    for (unsigned lnum = optLoopCount - 1; lnum != UINT_MAX; --lnum)
     {
-        // This is necessary due to an apparent analysis limitation since
-        // optLoopCount must be strictly greater than 0 upon entry and lnum
-        // cannot wrap due to the loop termination condition.
-        PREFAST_ASSUME(lnum != 0U - 1);
-
         BasicBlock* block;
         BasicBlock* head;
         BasicBlock* bottom;

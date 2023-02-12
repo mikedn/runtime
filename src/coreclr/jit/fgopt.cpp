@@ -4058,28 +4058,17 @@ bool Compiler::fgExpandRarelyRunBlocks()
                 block->bbSetRunRarely();
                 result = true;
 
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("All branches to " FMT_BB " are from rarely run blocks, marking as rarely run\n",
-                           block->bbNum);
-                }
-#endif // DEBUG
+                JITDUMP("All branches to " FMT_BB " are from rarely run blocks, marking as rarely run\n", block->bbNum);
 
                 // When marking a BBJ_CALLFINALLY as rarely run we also mark
                 // the BBJ_ALWAYS that comes after it as rarely run
-                //
                 if (block->isBBCallAlwaysPair())
                 {
                     BasicBlock* bNext = block->bbNext;
-                    PREFIX_ASSUME(bNext != nullptr);
+                    assert(bNext != nullptr);
                     bNext->bbSetRunRarely();
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("Also marking the BBJ_ALWAYS at " FMT_BB " as rarely run\n", bNext->bbNum);
-                    }
-#endif // DEBUG
+
+                    JITDUMP("Also marking the BBJ_ALWAYS at " FMT_BB " as rarely run\n", bNext->bbNum);
                 }
             }
         }

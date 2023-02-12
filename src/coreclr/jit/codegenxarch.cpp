@@ -1843,37 +1843,34 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             UseReg(treeNode);
             break;
 
-#if !defined(FEATURE_EH_FUNCLETS)
+#ifndef FEATURE_EH_FUNCLETS
         case GT_END_LFIN:
-
+        {
             // Have to clear the ShadowSP of the nesting level which encloses the finally. Generates:
             //     mov dword ptr [ebp-0xC], 0  // for some slot of the ShadowSP local var
 
-            size_t finallyNesting;
-            finallyNesting = treeNode->AsVal()->gtVal1;
-            noway_assert(treeNode->AsVal()->gtVal1 < compiler->compHndBBtabCount);
+            unsigned finallyNesting = static_cast<unsigned>(treeNode->AsVal()->gtVal1);
             noway_assert(finallyNesting < compiler->compHndBBtabCount);
 
-            // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
-            unsigned filterEndOffsetSlotOffs;
-            PREFIX_ASSUME(compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetBlockSize() > REGSIZE_BYTES);
-            filterEndOffsetSlotOffs =
-                compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetBlockSize() - REGSIZE_BYTES;
+            unsigned   shadowSPSlotsLclNum = compiler->lvaShadowSPslotsVar;
+            LclVarDsc* shadowSPSlotsLcl    = compiler->lvaGetDesc(shadowSPSlotsLclNum);
 
-            size_t curNestingSlotOffs;
-            curNestingSlotOffs = filterEndOffsetSlotOffs - ((finallyNesting + 1) * REGSIZE_BYTES);
-            GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, compiler->lvaShadowSPslotsVar, (unsigned)curNestingSlotOffs,
-                                      0);
-            break;
+            // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
+            assert(shadowSPSlotsLcl->GetBlockSize() > REGSIZE_BYTES);
+            unsigned filterEndOffsetSlotOffs = shadowSPSlotsLcl->GetBlockSize() - REGSIZE_BYTES;
+
+            unsigned curNestingSlotOffs = filterEndOffsetSlotOffs - ((finallyNesting + 1) * REGSIZE_BYTES);
+            GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, shadowSPSlotsLclNum, curNestingSlotOffs, 0);
+        }
+        break;
 #endif // !FEATURE_EH_FUNCLETS
 
         case GT_PINVOKE_PROLOG:
             noway_assert((liveness.GetGCRegs() & ~fullIntArgRegMask()) == 0);
-
 #ifdef PSEUDORANDOM_NOP_INSERTION
             // the runtime side requires the codegen here to be consistent
             emit->emitDisableRandomNops();
-#endif // PSEUDORANDOM_NOP_INSERTION
+#endif
             break;
 
         case GT_LABEL:

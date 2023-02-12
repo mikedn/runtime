@@ -667,7 +667,6 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, ThrowHelperKind codeKi
 
 #ifdef DEBUG
             ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(codeKind, compiler->compCurBB);
-
             assert(excpRaisingBlock == helper->block);
 #if !FEATURE_FIXED_OUT_ARGS
             assert(helper->stackLevelSet || isFramePointerUsed());
@@ -677,12 +676,12 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, ThrowHelperKind codeKi
         else
         {
             ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(codeKind, compiler->compCurBB);
-
-            PREFIX_ASSUME_MSG((helper != nullptr), ("ERROR: failed to find exception throw block"));
-            excpRaisingBlock = helper->block;
+            assert(helper != nullptr);
 #if !FEATURE_FIXED_OUT_ARGS
             assert(helper->stackLevelSet || isFramePointerUsed());
 #endif
+
+            excpRaisingBlock = helper->block;
         }
 
         noway_assert(excpRaisingBlock != nullptr);
@@ -4945,18 +4944,24 @@ void CodeGen::genSetScopeInfo(unsigned       which,
         // accessed via the varargs cookie. Discard generated info,
         // and just find its position relative to the varargs handle
 
-        PREFIX_ASSUME(compiler->lvaVarargsHandleArg < compiler->info.compArgsCount);
-        if (!compiler->lvaTable[compiler->lvaVarargsHandleArg].lvOnFrame)
+        assert(compiler->lvaVarargsHandleArg < compiler->info.compArgsCount);
+
+        LclVarDsc* varargHandleLcl = compiler->lvaGetDesc(compiler->lvaVarargsHandleArg);
+
+        if (!varargHandleLcl->lvOnFrame)
         {
             noway_assert(!compiler->opts.compDbgCode);
             return;
         }
 
-        // Can't check compiler->lvaTable[varNum].lvOnFrame as we don't set it for
-        // arguments of vararg functions to avoid reporting them to GC.
-        noway_assert(!compiler->lvaTable[varNum].lvRegister);
-        unsigned cookieOffset = compiler->lvaTable[compiler->lvaVarargsHandleArg].GetStackOffset();
-        unsigned varOffset    = compiler->lvaTable[varNum].GetStackOffset();
+        LclVarDsc* varLcl = compiler->lvaGetDesc(varNum);
+
+        // Can't check varLcl->lvOnFrame as we don't set it for params
+        // of vararg functions to avoid reporting them to GC.
+        noway_assert(!varLcl->lvRegister);
+
+        unsigned cookieOffset = varargHandleLcl->GetStackOffset();
+        unsigned varOffset    = varLcl->GetStackOffset();
 
         noway_assert(cookieOffset < varOffset);
         unsigned offset     = varOffset - cookieOffset;
@@ -5439,14 +5444,14 @@ void CodeGen::genIPmappingGen()
             continue;
         }
 
-        /* If there are mappings with the same native offset, then:
-           o If one of them is NO_MAPPING, ignore it
-           o If one of them is a label, report that and ignore the other one
-           o Else report the higher IL offset
-         */
+        assert(prevMapping != nullptr); // We would exit before if this was true
 
-        PREFIX_ASSUME(prevMapping != nullptr); // We would exit before if this was true
-        if (prevMapping->ipmdILoffsx == (IL_OFFSETX)ICorDebugInfo::NO_MAPPING)
+        // If there are mappings with the same native offset, then:
+        // o If one of them is NO_MAPPING, ignore it
+        // o If one of them is a label, report that and ignore the other one
+        // o Else report the higher IL offset
+
+        if (prevMapping->ipmdILoffsx == static_cast<IL_OFFSETX>(ICorDebugInfo::NO_MAPPING))
         {
             // If the previous entry was NO_MAPPING, ignore it
             prevMapping->ipmdNativeLoc.Init();

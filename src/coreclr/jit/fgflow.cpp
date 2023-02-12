@@ -369,15 +369,14 @@ flowList* Compiler::fgRemoveAllRefPreds(BasicBlock* block, BasicBlock* blockPred
 void Compiler::fgRemoveBlockAsPred(BasicBlock* block)
 {
     assert(!fgCheapPredsValid);
-
-    PREFIX_ASSUME(block != nullptr);
+    assert(block != nullptr);
 
     BasicBlock* bNext;
 
     switch (block->bbJumpKind)
     {
         case BBJ_CALLFINALLY:
-            if (!(block->bbFlags & BBF_RETLESS_CALL))
+            if ((block->bbFlags & BBF_RETLESS_CALL) == 0)
             {
                 assert(block->isBBCallAlwaysPair());
 
@@ -716,10 +715,9 @@ void Compiler::fgComputePreds()
                 if (!(block->bbFlags & BBF_RETLESS_CALL))
                 {
                     assert(block->isBBCallAlwaysPair());
-
-                    /* Mark the next block as being a jump target,
-                       since the call target will return there */
-                    PREFIX_ASSUME(block->bbNext != nullptr);
+                    // Mark the next block as being a jump target,
+                    // since the call target will return there */
+                    assert(block->bbNext != nullptr);
                 }
 
                 FALLTHROUGH;

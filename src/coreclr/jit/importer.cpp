@@ -6751,25 +6751,17 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 break;
         }
 
-        //-------------------------------------------------------------------------
-        // Set more flags
-
-        PREFIX_ASSUME(call != nullptr);
-
-        if (mflags & CORINFO_FLG_NOGCCHECK)
+        if ((mflags & CORINFO_FLG_NOGCCHECK) != 0)
         {
             call->gtCallMoreFlags |= GTF_CALL_M_NOGCCHECK;
         }
 
-        // Mark call if it's one of the ones we will maybe treat as an intrinsic
         if (isSpecialIntrinsic)
         {
             call->gtCallMoreFlags |= GTF_CALL_M_SPECIAL_INTRINSIC;
         }
 
-        /* Special case - Check if it is a call to Delegate.Invoke(). */
-
-        if (mflags & CORINFO_FLG_DELEGATE_INVOKE)
+        if ((mflags & CORINFO_FLG_DELEGATE_INVOKE) != 0)
         {
             assert(!(mflags & CORINFO_FLG_STATIC)); // can't call a static method
             assert(mflags & CORINFO_FLG_FINAL);

@@ -3762,20 +3762,12 @@ void Compiler::fgUnlinkRange(BasicBlock* bBeg, BasicBlock* bEnd)
 #endif // FEATURE_EH_FUNCLETS
 }
 
-/*****************************************************************************************************
- *
- *  Function called to remove a basic block
- */
-
 void Compiler::fgRemoveBlock(BasicBlock* block, bool unreachable)
 {
-    /* The block has to be either unreachable or empty */
-
-    PREFIX_ASSUME(block != nullptr);
+    assert(block != nullptr);
+    JITDUMP("fgRemoveBlock " FMT_BB "\n", block->bbNum);
 
     BasicBlock* bPrev = block->bbPrev;
-
-    JITDUMP("fgRemoveBlock " FMT_BB "\n", block->bbNum);
 
     // If we've cached any mappings from switch blocks to SwitchDesc's (which contain only the
     // *unique* successors of the switch block), invalidate that cache, since an entry in one of
@@ -3795,7 +3787,7 @@ void Compiler::fgRemoveBlock(BasicBlock* block, bool unreachable)
 
     if (unreachable)
     {
-        PREFIX_ASSUME(bPrev != nullptr);
+        assert(bPrev != nullptr);
 
         fgUnreachableBlock(block);
 
@@ -4043,7 +4035,7 @@ void Compiler::fgRemoveBlock(BasicBlock* block, bool unreachable)
 
                 case BBJ_NONE:
                     noway_assert(predBlock == bPrev);
-                    PREFIX_ASSUME(bPrev != nullptr);
+                    assert(bPrev != nullptr);
 
                     /* In the case of BBJ_ALWAYS we have to change the type of its predecessor */
                     if (block->bbJumpKind == BBJ_ALWAYS)
@@ -5493,8 +5485,8 @@ BasicBlock* Compiler::fgNewBBinRegion(BBjumpKinds jumpKind,
     else
     {
         noway_assert(tryIndex > 0 || hndIndex > 0);
-        PREFIX_ASSUME(tryIndex <= compHndBBtabCount);
-        PREFIX_ASSUME(hndIndex <= compHndBBtabCount);
+        assert(tryIndex <= compHndBBtabCount);
+        assert(hndIndex <= compHndBBtabCount);
 
         // Decide which region to put in, the "try" region or the "handler" region.
         if (tryIndex == 0)
