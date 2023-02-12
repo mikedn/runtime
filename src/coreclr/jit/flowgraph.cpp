@@ -3127,9 +3127,7 @@ bool Compiler::fgIsThrowHelperBlock(BasicBlock* block)
     {
         if (block == helper->block)
         {
-            return (helper->kind == SCK_RNGCHK_FAIL) || (helper->kind == SCK_DIV_BY_ZERO) ||
-                   (helper->kind == SCK_OVERFLOW) || (helper->kind == SCK_ARG_EXCPN) ||
-                   (helper->kind == SCK_ARG_RNG_EXCPN);
+            return true;
         }
     }
 
@@ -3144,9 +3142,6 @@ unsigned Compiler::fgGetThrowHelperBlockStackLevel(BasicBlock* block)
     {
         if (block == helper->block)
         {
-            assert(helper->kind == SCK_RNGCHK_FAIL || helper->kind == SCK_DIV_BY_ZERO || helper->kind == SCK_OVERFLOW ||
-                   helper->kind == SCK_ARG_EXCPN || helper->kind == SCK_ARG_RNG_EXCPN);
-
             // TODO: bbTgtStkDepth is DEBUG-only.
             // Should we use it regularly and avoid this search.
             assert(block->bbTgtStkDepth == helper->stackLevel);
