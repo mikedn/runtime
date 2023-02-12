@@ -2422,7 +2422,7 @@ void Compiler::fgFindOperOrder()
 // and computing lvaOutgoingArgumentAreaSize.
 //
 // Notes:
-//    Lowers GT_ARR_LENGTH, GT_ARR_BOUNDS_CHECK
+//    Lowers GT_ARR_BOUNDS_CHECK
 //
 //    For target ABIs with fixed out args area, computes upper bound on
 //    the size of this area from the calls in the IR.
@@ -2446,39 +2446,6 @@ void Compiler::fgSimpleLowering()
         {
             switch (tree->OperGet())
             {
-                case GT_ARR_LENGTH:
-                {
-                    GenTree* arr = tree->AsArrLen()->GetArray();
-
-                    noway_assert(arr->gtNext == tree);
-
-                    GenTree* addr;
-
-                    if (arr->IsIntegralConst(0))
-                    {
-                        // If the array is NULL, then we should get a NULL reference
-                        // exception when computing its length.  We need to maintain
-                        // an invariant where there is no sum of two constants node,
-                        // so let's simply return an indirection of NULL. Also change
-                        // the address to I_IMPL, there's no reason to keep the REF.
-
-                        addr = arr;
-                        addr->SetType(TYP_I_IMPL);
-                    }
-                    else
-                    {
-                        GenTree* ofs = gtNewIconNode(tree->AsArrLen()->GetLenOffs(), TYP_I_IMPL);
-                        addr         = gtNewOperNode(GT_ADD, TYP_BYREF, arr, ofs);
-
-                        range.InsertAfter(arr, ofs, addr);
-                    }
-
-                    tree->ChangeOper(GT_IND);
-                    tree->AsIndir()->SetAddr(addr);
-
-                    break;
-                }
-
                 case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
                 case GT_HW_INTRINSIC_CHK:

@@ -194,6 +194,36 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             BlockRange().Remove(node);
             break;
 
+        case GT_ARR_LENGTH:
+        {
+            GenTree* array  = node->AsArrLen()->GetArray();
+            unsigned offset = node->AsArrLen()->GetLenOffs();
+            GenTree* addr;
+
+            if (array->IsIntegralConst(0))
+            {
+                // If the array is NULL, then we should get a NULL reference
+                // exception when computing its length.  We need to maintain
+                // an invariant where there is no sum of two constants node,
+                // so let's simply return an indirection of NULL. Also change
+                // the address to I_IMPL, there's no reason to keep the REF.
+
+                addr = array;
+                addr->SetType(TYP_I_IMPL);
+            }
+            else
+            {
+                GenTree* intCon = comp->gtNewIconNode(offset, TYP_I_IMPL);
+                addr            = comp->gtNewOperNode(GT_ADD, TYP_BYREF, array, intCon);
+
+                BlockRange().InsertAfter(array, intCon, addr);
+            }
+
+            node->ChangeOper(GT_IND);
+            node->AsIndir()->SetAddr(addr);
+            goto IND;
+        }
+
         case GT_OBJ:
             if (varTypeIsSIMD(node->GetType()))
             {
@@ -202,6 +232,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             FALLTHROUGH;
         case GT_IND:
         case GT_BLK:
+        IND:
             // Remove side effects that may have been inherited from address.
             node->gtFlags &= ~GTF_ASG;
 
