@@ -148,11 +148,11 @@ void CodeGen::genMarkLabelsForCodegen()
         }
     }
 
-    // Walk all the exceptional code blocks and mark them, since they don't appear in the normal flow graph.
-    for (Compiler::AddCodeDsc* add = compiler->fgAddCodeList; add; add = add->acdNext)
+    // Walk all the throw helper blocks and mark them, since jumps to them don't appear the flow graph.
+    for (ThrowHelperBlock* helper = compiler->m_throwHelperBlockList; helper != nullptr; helper = helper->next)
     {
-        JITDUMP("  " FMT_BB " : throw helper block\n", add->acdDstBlk->bbNum);
-        add->acdDstBlk->bbFlags |= BBF_HAS_LABEL;
+        JITDUMP("  " FMT_BB " : throw helper block\n", helper->block->bbNum);
+        helper->block->bbFlags |= BBF_HAS_LABEL;
     }
 
     for (EHblkDsc* const HBtab : EHClauses(compiler))
@@ -637,7 +637,7 @@ void CodeGen::genExitCode(BasicBlock* block)
 // genJumpToThrowHlpBlk: Generate code for an out-of-line exception.
 //
 // Notes:
-//   For code that uses throw helper blocks, we share the helper blocks created by fgAddCodeRef().
+//   For code that uses throw helper blocks, we share the helper blocks created by fgGetThrowHelperBlock.
 //   Otherwise, we generate the 'throw' inline.
 //
 // Arguments:
@@ -666,24 +666,23 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, SpecialCodeKind codeKi
             excpRaisingBlock = failBlk;
 
 #ifdef DEBUG
-            Compiler::AddCodeDsc* add =
-                compiler->fgFindExcptnTarget(codeKind, compiler->bbThrowIndex(compiler->compCurBB));
-            assert(excpRaisingBlock == add->acdDstBlk);
+            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(codeKind, compiler->compCurBB);
+
+            assert(excpRaisingBlock == helper->block);
 #if !FEATURE_FIXED_OUT_ARGS
-            assert(add->acdStkLvlInit || isFramePointerUsed());
-#endif // !FEATURE_FIXED_OUT_ARGS
-#endif // DEBUG
+            assert(helper->stackLevelSet || isFramePointerUsed());
+#endif
+#endif
         }
         else
         {
-            // Find the helper-block which raises the exception.
-            Compiler::AddCodeDsc* add =
-                compiler->fgFindExcptnTarget(codeKind, compiler->bbThrowIndex(compiler->compCurBB));
-            PREFIX_ASSUME_MSG((add != nullptr), ("ERROR: failed to find exception throw block"));
-            excpRaisingBlock = add->acdDstBlk;
+            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(codeKind, compiler->compCurBB);
+
+            PREFIX_ASSUME_MSG((helper != nullptr), ("ERROR: failed to find exception throw block"));
+            excpRaisingBlock = helper->block;
 #if !FEATURE_FIXED_OUT_ARGS
-            assert(add->acdStkLvlInit || isFramePointerUsed());
-#endif // !FEATURE_FIXED_OUT_ARGS
+            assert(helper->stackLevelSet || isFramePointerUsed());
+#endif
         }
 
         noway_assert(excpRaisingBlock != nullptr);
@@ -704,7 +703,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, SpecialCodeKind codeKi
             inst_JMP(reverseJumpKind, tgtBlk);
         }
 
-        genEmitHelperCall(Compiler::acdHelper(codeKind));
+        genEmitHelperCall(Compiler::GetThrowHelperCall(codeKind));
 
         // Define the spot for the normal non-exception case to jump to.
         if (tgtBlk != nullptr)
@@ -1156,9 +1155,9 @@ void CodeGen::genEmitMachineCode()
 #endif
 
 #ifdef DEBUG_ARG_SLOTS
-    // Check our max stack level. Needed for fgAddCodeRef().
+    // Check our max stack level. Needed for fgGetThrowHelperBlock.
     // We need to relax the assert as our estimation won't include code-gen
-    // stack changes (which we know don't affect fgAddCodeRef()).
+    // stack changes (which we know don't affect fgGetThrowHelperBlock).
     // NOTE: after emitEndCodeGen (including here), emitMaxStackDepth is a
     // count of DWORD-sized arguments, NOT argument size in bytes.
     {

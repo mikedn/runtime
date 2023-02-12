@@ -2897,10 +2897,9 @@ EXIT:;
     fgFirstColdBlock = firstColdBlock;
 }
 
-/* static */
-CorInfoHelpFunc Compiler::acdHelper(SpecialCodeKind codeKind)
+CorInfoHelpFunc Compiler::GetThrowHelperCall(SpecialCodeKind kind)
 {
-    switch (codeKind)
+    switch (kind)
     {
         case SCK_RNGCHK_FAIL:
             return CORINFO_HELP_RNGCHKFAIL;
@@ -2913,32 +2912,21 @@ CorInfoHelpFunc Compiler::acdHelper(SpecialCodeKind codeKind)
         case SCK_ARITH_EXCPN:
             return CORINFO_HELP_OVERFLOW;
         default:
-            assert(!"Bad codeKind");
-            return CORINFO_HELP_UNDEF;
+            unreached();
     }
 }
 
-BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, SpecialCodeKind kind)
+BasicBlock* Compiler::fgGetThrowHelperBlock(BasicBlock* throwBlock, SpecialCodeKind kind)
 {
-    return fgAddCodeRef(srcBlk, bbThrowIndex(srcBlk), kind);
+    return fgGetThrowHelperBlock(throwBlock, kind, bbThrowIndex(throwBlock));
 }
 
-//------------------------------------------------------------------------
-// fgAddCodeRef: Find/create an added code entry associated with the given block and with the given kind.
-//
-// Arguments:
-//   srcBlk  - the block that needs an entry;
-//   refData - the index to use as the cache key for sharing throw blocks;
-//   kind    - the kind of exception;
-//
-// Return Value:
-//   The target throw helper block or nullptr if throw helper blocks are disabled.
-//
-BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, SpecialCodeKind kind)
+BasicBlock* Compiler::fgGetThrowHelperBlock(BasicBlock* throwBlock, SpecialCodeKind kind, unsigned throwIndex)
 {
-    // Record that the code will call a THROW_HELPER
-    // so on Windows Amd64 we can allocate the 4 outgoing
-    // arg slots on the stack frame if there are no other calls.
+    assert(!throwBlock->isEmpty());
+
+    // Record that the function will have a throw helper call so on win-x64 we allocate
+    // the 4 outgoing arg slots on the stack frame even if there are no other calls.
     compUsesThrowHelper = true;
 
     if (!fgUseThrowHelperBlocks())
@@ -2946,47 +2934,34 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
         return nullptr;
     }
 
-    /* First look for an existing entry that matches what we're looking for */
+    ThrowHelperBlock* existing = fgFindThrowHelperBlock(kind, throwIndex);
 
-    AddCodeDsc* add = fgFindExcptnTarget(kind, refData);
-
-    if (add) // found it
+    if (existing != nullptr)
     {
-        return add->acdDstBlk;
+        return existing->block;
     }
 
-    /* We have to allocate a new entry and prepend it to the list */
-
-    add          = new (this, CMK_Unknown) AddCodeDsc;
-    add->acdData = refData;
-    add->acdKind = kind;
-    add->acdNext = fgAddCodeList;
-
-    fgAddCodeList = add;
-
-    /* Create the target basic block */
-
-    BasicBlock* newBlk;
-
-    newBlk = add->acdDstBlk = fgNewBBinRegion(BBJ_THROW, srcBlk, /* runRarely */ true, /* insertAtEnd */ true);
+    BasicBlock* helperBlock = fgNewBBinRegion(BBJ_THROW, throwBlock, /* runRarely */ true, /* insertAtEnd */ true);
+    // There are no explicit jumps to this block so optimizations could remove it as dead.
+    helperBlock->bbFlags |= BBF_IMPORTED | BBF_DONT_REMOVE;
 
 #ifdef DEBUG
     if (verbose)
     {
         const char* msgWhere = "";
-        if (!srcBlk->hasTryIndex() && !srcBlk->hasHndIndex())
+        if (!throwBlock->hasTryIndex() && !throwBlock->hasHndIndex())
         {
             msgWhere = "non-EH region";
         }
-        else if (!srcBlk->hasTryIndex())
+        else if (!throwBlock->hasTryIndex())
         {
             msgWhere = "handler";
         }
-        else if (!srcBlk->hasHndIndex())
+        else if (!throwBlock->hasHndIndex())
         {
             msgWhere = "try";
         }
-        else if (srcBlk->getTryIndex() < srcBlk->getHndIndex())
+        else if (throwBlock->getTryIndex() < throwBlock->getHndIndex())
         {
             msgWhere = "try";
         }
@@ -3018,31 +2993,24 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
                 break;
         }
 
-        printf("\nfgAddCodeRef - Add BB in %s%s, new block %s\n", msgWhere, msg, add->acdDstBlk->dspToString());
+        printf("\nfgAddCodeRef - Add BB in %s%s, new block " FMT_BB "\n", msgWhere, msg, helperBlock->bbNum);
     }
 #endif // DEBUG
 
-    /* Mark the block as added by the compiler and not removable by future flow
-       graph optimizations. Note that no bbJumpDest points to these blocks. */
-
-    newBlk->bbFlags |= BBF_IMPORTED;
-    newBlk->bbFlags |= BBF_DONT_REMOVE;
-
-    /* Now figure out what code to insert */
-
-    CorInfoHelpFunc helper = CORINFO_HELP_UNDEF;
+    CorInfoHelpFunc helper;
 
     switch (kind)
     {
+        static_assert_no_msg(SCK_OVERFLOW == SCK_ARITH_EXCPN);
+
         case SCK_RNGCHK_FAIL:
             helper = CORINFO_HELP_RNGCHKFAIL;
             break;
         case SCK_DIV_BY_ZERO:
             helper = CORINFO_HELP_THROWDIVZERO;
             break;
-        case SCK_ARITH_EXCPN:
+        case SCK_OVERFLOW:
             helper = CORINFO_HELP_OVERFLOW;
-            noway_assert(SCK_OVERFLOW == SCK_ARITH_EXCPN);
             break;
         case SCK_ARG_EXCPN:
             helper = CORINFO_HELP_THROW_ARGUMENTEXCEPTION;
@@ -3051,64 +3019,152 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
             helper = CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION;
             break;
         default:
-            noway_assert(!"unexpected code addition kind");
-            return nullptr;
+            unreached();
     }
 
-    noway_assert(helper != CORINFO_HELP_UNDEF);
+    GenTreeCall* call = gtNewHelperCallNode(helper, TYP_VOID);
 
-    // Add the appropriate helper call.
-    GenTreeCall* tree = gtNewHelperCallNode(helper, TYP_VOID);
-
-    // Store the tree in the new basic block.
-    assert(!srcBlk->isEmpty());
-    if (!srcBlk->IsLIR())
+    if (!throwBlock->IsLIR())
     {
-        // There are no args here but fgMorphArgs has side effects
-        // such as setting the outgoing arg area (which is necessary
-        // on AMD if there are any calls).
-        fgMorphArgs(tree);
-
-        fgInsertStmtAtEnd(newBlk, fgNewStmtFromTree(tree));
+        fgInsertStmtAtEnd(helperBlock, fgNewStmtFromTree(call));
+        // These helpers have no args but fgMorphArgs may have other has side effects.
+        fgMorphArgs(call);
     }
     else
     {
-        LIR::InsertHelperCallBefore(this, LIR::AsRange(newBlk), nullptr, tree);
+        LIR::InsertHelperCallBefore(this, LIR::AsRange(helperBlock), nullptr, call);
     }
 
-    return add->acdDstBlk;
+    m_throwHelperBlockList =
+        new (this, CMK_ThrowHelperBlock) ThrowHelperBlock(m_throwHelperBlockList, kind, throwIndex, helperBlock);
+
+    return helperBlock;
 }
 
-/*****************************************************************************
- * Finds the block to jump to, to throw a given kind of exception
- * We maintain a cache of one AddCodeDsc for each kind, to make searching fast.
- * Note : Each block uses the same (maybe shared) block as the jump target for
- * a given type of exception
- */
+ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(SpecialCodeKind kind, BasicBlock* throwBlock)
+{
+    return fgFindThrowHelperBlock(kind, bbThrowIndex(throwBlock));
+}
 
-Compiler::AddCodeDsc* Compiler::fgFindExcptnTarget(SpecialCodeKind kind, unsigned refData)
+ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(SpecialCodeKind kind, unsigned throwIndex)
 {
     assert(fgUseThrowHelperBlocks());
-    if (!(fgExcptnTargetCache[kind] && // Try the cached value first
-          fgExcptnTargetCache[kind]->acdData == refData))
+
+    ThrowHelperBlock* cached = m_throwHelperBlockCache[kind];
+
+    if ((cached != nullptr) && (cached->throwIndex == throwIndex))
     {
-        // Too bad, have to search for the jump target for the exception
+        return cached;
+    }
 
-        AddCodeDsc* add = nullptr;
+    ThrowHelperBlock* found = nullptr;
 
-        for (add = fgAddCodeList; add != nullptr; add = add->acdNext)
+    for (found = m_throwHelperBlockList; found != nullptr; found = found->next)
+    {
+        if ((found->throwIndex == throwIndex) && (found->kind == kind))
         {
-            if (add->acdData == refData && add->acdKind == kind)
+            m_throwHelperBlockCache[kind] = found;
+            break;
+        }
+    }
+
+    return found;
+}
+
+bool Compiler::fgIsThrowHelperBlock(BasicBlock* block)
+{
+    if (m_throwHelperBlockList == nullptr)
+    {
+        return false;
+    }
+
+    if (block->bbJumpKind != BBJ_THROW)
+    {
+        return false;
+    }
+
+    if ((block->bbFlags & (BBF_INTERNAL | BBF_DONT_REMOVE)) != (BBF_INTERNAL | BBF_DONT_REMOVE))
+    {
+        return false;
+    }
+
+    GenTree* lastNode = block->lastNode();
+
+#ifdef DEBUG
+    if (block->IsLIR())
+    {
+        LIR::Range& blockRange = LIR::AsRange(block);
+        for (LIR::Range::ReverseIterator node = blockRange.rbegin(), end = blockRange.rend(); node != end; ++node)
+        {
+            if (node->OperIs(GT_CALL))
             {
+                assert(*node == lastNode);
+                assert(node == blockRange.rbegin());
                 break;
             }
         }
+    }
+#endif
 
-        fgExcptnTargetCache[kind] = add; // Cache it
+    if ((lastNode == nullptr) || !lastNode->OperIs(GT_CALL))
+    {
+        return false;
     }
 
-    return fgExcptnTargetCache[kind];
+    CorInfoHelpFunc helper = eeGetHelperNum(lastNode->AsCall()->GetMethodHandle());
+
+    if (((helper != CORINFO_HELP_RNGCHKFAIL) && (helper != CORINFO_HELP_THROWDIVZERO) &&
+         (helper != CORINFO_HELP_THROWNULLREF) && (helper != CORINFO_HELP_OVERFLOW)))
+    {
+        return false;
+    }
+
+    // We can get to this point for blocks that we didn't create as throw helper blocks
+    // under stress, with implausible flow graph optimizations.
+    // So, walk the m_throwHelperBlockList for the final determination.
+
+    for (ThrowHelperBlock* helper = m_throwHelperBlockList; helper != nullptr; helper = helper->next)
+    {
+        if (block == helper->block)
+        {
+            return (helper->kind == SCK_RNGCHK_FAIL) || (helper->kind == SCK_DIV_BY_ZERO) ||
+                   (helper->kind == SCK_OVERFLOW) || (helper->kind == SCK_ARG_EXCPN) ||
+                   (helper->kind == SCK_ARG_RNG_EXCPN);
+        }
+    }
+
+    return false;
 }
+
+#if !FEATURE_FIXED_OUT_ARGS
+
+unsigned Compiler::fgGetThrowHelperBlockStackLevel(BasicBlock* block)
+{
+    for (ThrowHelperBlock* helper = m_throwHelperBlockList; helper != nullptr; helper = helper->next)
+    {
+        if (block == helper->block)
+        {
+            assert(helper->kind == SCK_RNGCHK_FAIL || helper->kind == SCK_DIV_BY_ZERO || helper->kind == SCK_OVERFLOW ||
+                   helper->kind == SCK_ARG_EXCPN || helper->kind == SCK_ARG_RNG_EXCPN);
+
+            // TODO: bbTgtStkDepth is DEBUG-only.
+            // Should we use it regularly and avoid this search.
+            assert(block->bbTgtStkDepth == helper->stackLevel);
+
+            return helper->stackLevel;
+        }
+    }
+
+    noway_assert(
+        !"fgGetThrowHelperBlockStackLevel should only be called if fgIsThrowHelperBlock is true, but we can't find the "
+         "block in the throw helper block list");
+
+    // We couldn't find the basic block: it must not have been a throw helper block.
+
+    return 0;
+}
+
+#endif // !FEATURE_FIXED_OUT_ARGS
 
 /*****************************************************************************
  *

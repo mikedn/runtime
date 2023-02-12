@@ -59,6 +59,7 @@ CompMemKindMacro(ZeroInit)
 CompMemKindMacro(Pgo)
 CompMemKindMacro(MorphAssertion)
 CompMemKindMacro(SpillTemp)
+CompMemKindMacro(ThrowHelperBlock)
 //clang-format on
 
 #undef CompMemKindMacro

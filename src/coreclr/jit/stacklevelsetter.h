@@ -17,8 +17,8 @@ private:
     void ProcessBlock(BasicBlock* block);
 
 #if !FEATURE_FIXED_OUT_ARGS
-    void SetThrowHelperBlocks(GenTree* node, BasicBlock* block);
-    void SetThrowHelperBlock(SpecialCodeKind kind, BasicBlock* block);
+    void SetThrowHelperBlockStackLevel(GenTree* node, BasicBlock* throwBlock);
+    void SetThrowHelperBlockStackLevel(SpecialCodeKind kind, BasicBlock* throwBlock);
 #endif
 
     unsigned PopArgumentsFromCall(GenTreeCall* call);

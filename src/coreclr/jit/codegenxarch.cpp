@@ -205,7 +205,7 @@ void CodeGen::genAdjustStackLevel(BasicBlock* block)
 {
     // Check for inserted throw blocks and adjust genStackLevel.
 
-    if (!compiler->fgIsThrowHlpBlk(block))
+    if (!compiler->fgIsThrowHelperBlock(block))
     {
         return;
     }
@@ -225,7 +225,7 @@ void CodeGen::genAdjustStackLevel(BasicBlock* block)
     {
         noway_assert(block->bbFlags & BBF_HAS_LABEL);
 
-        SetStackLevel(compiler->fgThrowHlpBlkStkLevel(block) * sizeof(int));
+        SetStackLevel(compiler->fgGetThrowHelperBlockStackLevel(block) * REGSIZE_BYTES);
 
         if (genStackLevel != 0)
         {

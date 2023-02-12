@@ -2829,6 +2829,24 @@ struct Importer
     bool inlImportReturn(InlineInfo* inlineInfo, GenTree* op, CORINFO_CLASS_HANDLE retClsHnd);
 };
 
+struct ThrowHelperBlock
+{
+    ThrowHelperBlock* const next;
+    BasicBlock* const       block;
+    unsigned const          throwIndex;
+    SpecialCodeKind const   kind;
+
+#if !FEATURE_FIXED_OUT_ARGS
+    bool     stackLevelSet = false;
+    unsigned stackLevel    = 0;
+#endif
+
+    ThrowHelperBlock(ThrowHelperBlock* next, SpecialCodeKind kind, unsigned throwIndex, BasicBlock* block)
+        : next(next), block(block), throwIndex(throwIndex), kind(kind)
+    {
+    }
+};
+
 class Compiler
 {
     friend class emitter;
@@ -5412,45 +5430,25 @@ private:
 
     unsigned fgGetLargeFieldOffsetNullCheckTemp(var_types type); // We cache one temp per type to be
                                                                  // used when morphing big offset.
-
-    //-------------------------------------------------------------------------
-    //
-    //  The following keeps track of any code we've added for things like array
-    //  range checking or explicit calls to enable GC, and so on.
-    //
-public:
-    struct AddCodeDsc
-    {
-        AddCodeDsc*     acdNext;
-        BasicBlock*     acdDstBlk; // block  to  which we jump
-        unsigned        acdData;
-        SpecialCodeKind acdKind; // what kind of a special block is this?
-#if !FEATURE_FIXED_OUT_ARGS
-        bool     acdStkLvlInit = false; // has acdStkLvl value been already set?
-        unsigned acdStkLvl     = 0;     // stack level in stack slots.
-#endif
-    };
-
-private:
-    static CorInfoHelpFunc acdHelper(SpecialCodeKind codeKind);
-
-    AddCodeDsc* fgAddCodeList                  = nullptr;
-    AddCodeDsc* fgExcptnTargetCache[SCK_COUNT] = {};
-
-    BasicBlock* fgAddCodeRef(BasicBlock* srcBlk, SpecialCodeKind kind);
-    BasicBlock* fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, SpecialCodeKind kind);
+    ThrowHelperBlock* m_throwHelperBlockList = nullptr;
+    ThrowHelperBlock* m_throwHelperBlockCache[SCK_COUNT]{};
 
 public:
-    AddCodeDsc* fgFindExcptnTarget(SpecialCodeKind kind, unsigned refData);
+    static CorInfoHelpFunc GetThrowHelperCall(SpecialCodeKind kind);
+
+    BasicBlock* fgGetThrowHelperBlock(BasicBlock* throwBlock, SpecialCodeKind kind);
+    BasicBlock* fgGetThrowHelperBlock(BasicBlock* throwBlock, SpecialCodeKind kind, unsigned throwIndex);
+    ThrowHelperBlock* fgFindThrowHelperBlock(SpecialCodeKind kind, BasicBlock* throwBlock);
+    ThrowHelperBlock* fgFindThrowHelperBlock(SpecialCodeKind kind, unsigned throwIndex);
 
     bool fgUseThrowHelperBlocks() const
     {
         return !opts.compDbgCode;
     }
 
-    AddCodeDsc* fgGetAdditionalCodeDescriptors()
+    ThrowHelperBlock* fgGetAdditionalCodeDescriptors()
     {
-        return fgAddCodeList;
+        return m_throwHelperBlockList;
     }
 
     void inlReplaceRetExpr(Statement* stmt);
@@ -5486,10 +5484,10 @@ public:
     INDEBUG(void inlDebugCheckInlineCandidates();)
 
 private:
-    bool fgIsThrowHlpBlk(BasicBlock* block);
+    bool fgIsThrowHelperBlock(BasicBlock* block);
 
 #if !FEATURE_FIXED_OUT_ARGS
-    unsigned fgThrowHlpBlkStkLevel(BasicBlock* block);
+    unsigned fgGetThrowHelperBlockStackLevel(BasicBlock* block);
 #endif // !FEATURE_FIXED_OUT_ARGS
 
     void fgPromoteStructs();

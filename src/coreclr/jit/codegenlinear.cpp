@@ -538,7 +538,7 @@ void CodeGen::genCodeForBBlist()
                 // 4. On AMD64, if the next block is in a different EH region.
                 if ((block->bbNext == nullptr) || (block->bbNext->bbFlags & BBF_FUNCLET_BEG) ||
                     !BasicBlock::sameEHRegion(block, block->bbNext) ||
-                    (!isFramePointerUsed() && compiler->fgIsThrowHlpBlk(block->bbNext)) ||
+                    (!isFramePointerUsed() && compiler->fgIsThrowHelperBlock(block->bbNext)) ||
                     block->bbNext == compiler->fgFirstColdBlock)
                 {
                     instGen(INS_BREAKPOINT); // This should never get executed

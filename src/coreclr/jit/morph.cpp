@@ -697,7 +697,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
     if (cast->gtOverflow())
     {
-        fgAddCodeRef(compCurBB, SCK_OVERFLOW);
+        fgGetThrowHelperBlock(compCurBB, SCK_OVERFLOW);
     }
 
     return cast;
@@ -11416,18 +11416,18 @@ DONE_MORPHING_CHILDREN:
 
 #ifdef TARGET_ARM64
         case GT_DIV:
-            fgAddCodeRef(compCurBB, SCK_OVERFLOW);
-            fgAddCodeRef(compCurBB, SCK_DIV_BY_ZERO);
+            fgGetThrowHelperBlock(compCurBB, SCK_OVERFLOW);
+            fgGetThrowHelperBlock(compCurBB, SCK_DIV_BY_ZERO);
             break;
         case GT_UDIV:
-            fgAddCodeRef(compCurBB, SCK_DIV_BY_ZERO);
+            fgGetThrowHelperBlock(compCurBB, SCK_DIV_BY_ZERO);
             break;
 #endif
 
         case GT_SUB:
             if (tree->gtOverflow())
             {
-                fgAddCodeRef(compCurBB, SCK_OVERFLOW);
+                fgGetThrowHelperBlock(compCurBB, SCK_OVERFLOW);
                 break;
             }
 
@@ -11526,7 +11526,7 @@ DONE_MORPHING_CHILDREN:
         case GT_ADD:
             if (tree->gtOverflow())
             {
-                fgAddCodeRef(compCurBB, SCK_OVERFLOW);
+                fgGetThrowHelperBlock(compCurBB, SCK_OVERFLOW);
                 break;
             }
         CM_ADD_OP:
@@ -11858,7 +11858,7 @@ DONE_MORPHING_CHILDREN:
 
         case GT_CKFINITE:
             noway_assert(varTypeIsFloating(op1->GetType()));
-            fgAddCodeRef(compCurBB, SCK_ARITH_EXCPN);
+            fgGetThrowHelperBlock(compCurBB, SCK_ARITH_EXCPN);
             break;
 
         case GT_INDEX_ADDR:
@@ -11868,7 +11868,7 @@ DONE_MORPHING_CHILDREN:
 
             if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
             {
-                tree->AsIndexAddr()->SetThrowBlock(fgAddCodeRef(compCurBB, SCK_RNGCHK_FAIL));
+                tree->AsIndexAddr()->SetThrowBlock(fgGetThrowHelperBlock(compCurBB, SCK_RNGCHK_FAIL));
                 tree->AddSideEffects(GTF_EXCEPT);
             }
             break;
@@ -13407,7 +13407,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
                 if (opts.MinOpts())
                 {
-                    check->SetThrowBlock(fgAddCodeRef(compCurBB, check->GetThrowKind()));
+                    check->SetThrowBlock(fgGetThrowHelperBlock(compCurBB, check->GetThrowKind()));
                 }
             }
         }
@@ -13433,7 +13433,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
             if (fgGlobalMorph)
             {
-                fgAddCodeRef(compCurBB, SCK_RNGCHK_FAIL);
+                fgGetThrowHelperBlock(compCurBB, SCK_RNGCHK_FAIL);
             }
             break;
 

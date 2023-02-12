@@ -1181,6 +1181,7 @@ void Lowering::LowerCallArgs(GenTreeCall* call)
 {
     CallInfo* info = call->GetInfo();
 
+#if FEATURE_FIXED_OUT_ARGS
     if (!call->IsFastTailCall())
     {
         unsigned callArgSize = info->GetNextSlotNum() * REGSIZE_BYTES;
@@ -1191,6 +1192,7 @@ void Lowering::LowerCallArgs(GenTreeCall* call)
             JITDUMP("Increasing outgoingArgAreaSize to %u for call [%06u]\n", outgoingArgAreaSize, call->GetID());
         }
     }
+#endif
 
     for (unsigned i = 0; i < info->GetArgCount(); i++)
     {
@@ -4629,7 +4631,7 @@ PhaseStatus Lowering::DoPhase()
         {
             if (GenTreeBoundsChk* boundsChk = node->IsBoundsChk())
             {
-                boundsChk->SetThrowBlock(comp->fgAddCodeRef(block, throwIndex, boundsChk->GetThrowKind()));
+                boundsChk->SetThrowBlock(comp->fgGetThrowHelperBlock(block, boundsChk->GetThrowKind(), throwIndex));
             }
         }
     }

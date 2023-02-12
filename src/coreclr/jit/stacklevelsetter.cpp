@@ -108,7 +108,7 @@ void StackLevelSetter::ProcessBlock(BasicBlock* block)
         {
             if (node->OperMayThrow(comp))
             {
-                SetThrowHelperBlocks(node, block);
+                SetThrowHelperBlockStackLevel(node, block);
             }
         }
 #endif // !FEATURE_FIXED_OUT_ARGS
@@ -125,69 +125,44 @@ void StackLevelSetter::ProcessBlock(BasicBlock* block)
 }
 
 #if !FEATURE_FIXED_OUT_ARGS
-//------------------------------------------------------------------------
-// SetThrowHelperBlocks: Set throw helper blocks incoming stack levels targeted
-//                       from the node.
-//
-// Notes:
-//   one node can target several helper blocks, but not all operands that throw do this.
-//   So the function can set 0-2 throw blocks depends on oper and overflow flag.
-//
-// Arguments:
-//   node - the node to process;
-//   block - the source block for the node.
-void StackLevelSetter::SetThrowHelperBlocks(GenTree* node, BasicBlock* block)
+
+void StackLevelSetter::SetThrowHelperBlockStackLevel(GenTree* node, BasicBlock* throwBlock)
 {
     assert(node->OperMayThrow(comp));
 
-    // Check that it uses throw block, find its kind, find the block, set level.
-    switch (node->OperGet())
+    switch (node->GetOper())
     {
         case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
 #endif
-            SetThrowHelperBlock(node->AsBoundsChk()->GetThrowKind(), block);
+            SetThrowHelperBlockStackLevel(node->AsBoundsChk()->GetThrowKind(), throwBlock);
             break;
 
         case GT_INDEX_ADDR:
         case GT_ARR_ELEM:
         case GT_ARR_INDEX:
-        {
-            SetThrowHelperBlock(SCK_RNGCHK_FAIL, block);
-        }
-        break;
+            SetThrowHelperBlockStackLevel(SCK_RNGCHK_FAIL, throwBlock);
+            break;
 
         case GT_CKFINITE:
-        {
-            SetThrowHelperBlock(SCK_ARITH_EXCPN, block);
-        }
-        break;
-        default: // Other opers can target throw only due to overflow.
+            SetThrowHelperBlockStackLevel(SCK_ARITH_EXCPN, throwBlock);
             break;
-    }
-    if (node->gtOverflowEx())
-    {
-        SetThrowHelperBlock(SCK_OVERFLOW, block);
+
+        default:
+            if (node->gtOverflowEx())
+            {
+                SetThrowHelperBlockStackLevel(SCK_OVERFLOW, throwBlock);
+            }
+            break;
     }
 }
 
-//------------------------------------------------------------------------
-// SetThrowHelperBlock: Set throw helper block incoming stack levels targeted
-//                      from the block with this kind.
-//
-// Notes:
-//   Set framePointerRequired if finds that the block has several incoming edges
-//   with different stack levels.
-//
-// Arguments:
-//   kind - the special throw-helper kind;
-//   block - the source block that targets helper.
-void StackLevelSetter::SetThrowHelperBlock(SpecialCodeKind kind, BasicBlock* block)
+void StackLevelSetter::SetThrowHelperBlockStackLevel(SpecialCodeKind kind, BasicBlock* throwBlock)
 {
-    Compiler::AddCodeDsc* add = comp->fgFindExcptnTarget(kind, comp->bbThrowIndex(block));
-    assert(add != nullptr);
-    if (add->acdStkLvlInit)
+    ThrowHelperBlock* helper = comp->fgFindThrowHelperBlock(kind, throwBlock);
+
+    if (helper->stackLevelSet)
     {
         // If different range checks happen at different stack levels,
         // they can't all jump to the same "call @rngChkFailed" AND have
@@ -202,19 +177,19 @@ void StackLevelSetter::SetThrowHelperBlock(SpecialCodeKind kind, BasicBlock* blo
         // For Linux/x86, we possibly need to insert stack alignment adjustment
         // before the first stack argument pushed for every call. But we
         // don't know what the stack alignment adjustment will be when
-        // we morph a tree that calls fgAddCodeRef(), so the stack depth
+        // we morph a tree that calls fgGetThrowHelperBlock, so the stack depth
         // number will be incorrect. For now, simply force all functions with
         // these helpers to have EBP frames. It might be possible to make
         // this less conservative. E.g., for top-level (not nested) calls
         // without stack args, the stack pointer hasn't changed and stack
         // depth will be known to be zero. Or, figure out a way to update
         // or generate all required helpers after all stack alignment
-        // has been added, and the stack level at each call to fgAddCodeRef()
+        // has been added, and the stack level at each call to fgGetThrowHelperBlock
         // is known, or can be recalculated.
         CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifndef UNIX_X86_ABI
-        if (add->acdStkLvl != currentStackLevel)
+        if (helper->stackLevel != currentStackLevel)
 #endif
         {
             framePointerRequired = true;
@@ -222,10 +197,10 @@ void StackLevelSetter::SetThrowHelperBlock(SpecialCodeKind kind, BasicBlock* blo
     }
     else
     {
-        add->acdStkLvlInit = true;
-        add->acdStkLvl     = currentStackLevel;
+        helper->stackLevelSet = true;
+        helper->stackLevel    = currentStackLevel;
 
-        INDEBUG(add->acdDstBlk->bbTgtStkDepth = currentStackLevel);
+        INDEBUG(helper->block->bbTgtStkDepth = currentStackLevel);
     }
 }
 
