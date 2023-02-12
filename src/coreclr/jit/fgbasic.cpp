@@ -5774,15 +5774,3 @@ BasicBlock* Compiler::fgNewBBinRegionWorker(BBjumpKinds jumpKind,
 
     return newBlk;
 }
-
-//------------------------------------------------------------------------
-// fgUseThrowHelperBlocks: Determinate does compiler use throw helper blocks.
-//
-// Note:
-//   For debuggable code, codegen will generate the 'throw' code inline.
-// Return Value:
-//    true if 'throw' helper block should be created.
-bool Compiler::fgUseThrowHelperBlocks()
-{
-    return !opts.compDbgCode;
-}

@@ -2918,6 +2918,11 @@ CorInfoHelpFunc Compiler::acdHelper(SpecialCodeKind codeKind)
     }
 }
 
+BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, SpecialCodeKind kind)
+{
+    return fgAddCodeRef(srcBlk, bbThrowIndex(srcBlk), kind);
+}
+
 //------------------------------------------------------------------------
 // fgAddCodeRef: Find/create an added code entry associated with the given block and with the given kind.
 //

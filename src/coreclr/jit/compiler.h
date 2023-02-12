@@ -5437,12 +5437,16 @@ private:
     AddCodeDsc* fgAddCodeList                  = nullptr;
     AddCodeDsc* fgExcptnTargetCache[SCK_COUNT] = {};
 
+    BasicBlock* fgAddCodeRef(BasicBlock* srcBlk, SpecialCodeKind kind);
     BasicBlock* fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, SpecialCodeKind kind);
 
 public:
     AddCodeDsc* fgFindExcptnTarget(SpecialCodeKind kind, unsigned refData);
 
-    bool fgUseThrowHelperBlocks();
+    bool fgUseThrowHelperBlocks() const
+    {
+        return !opts.compDbgCode;
+    }
 
     AddCodeDsc* fgGetAdditionalCodeDescriptors()
     {
