@@ -2950,7 +2950,7 @@ BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* th
 
     BasicBlock* helperBlock = fgNewBBinRegion(BBJ_THROW, throwBlock, /* runRarely */ true, /* insertAtEnd */ true);
     // There are no explicit jumps to this block so optimizations could remove it as dead.
-    helperBlock->bbFlags |= BBF_IMPORTED | BBF_DONT_REMOVE;
+    helperBlock->bbFlags |= BBF_IMPORTED | BBF_DONT_REMOVE | BBF_THROW_HELPER;
 
 #ifdef DEBUG
     if (verbose)
@@ -3059,65 +3059,7 @@ ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(ThrowHelperKind kind, unsigne
 
 bool Compiler::fgIsThrowHelperBlock(BasicBlock* block)
 {
-    if (m_throwHelperBlockList == nullptr)
-    {
-        return false;
-    }
-
-    if (block->bbJumpKind != BBJ_THROW)
-    {
-        return false;
-    }
-
-    if ((block->bbFlags & (BBF_INTERNAL | BBF_DONT_REMOVE)) != (BBF_INTERNAL | BBF_DONT_REMOVE))
-    {
-        return false;
-    }
-
-    GenTree* lastNode = block->lastNode();
-
-#ifdef DEBUG
-    if (block->IsLIR())
-    {
-        LIR::Range& blockRange = LIR::AsRange(block);
-        for (LIR::Range::ReverseIterator node = blockRange.rbegin(), end = blockRange.rend(); node != end; ++node)
-        {
-            if (node->OperIs(GT_CALL))
-            {
-                assert(*node == lastNode);
-                assert(node == blockRange.rbegin());
-                break;
-            }
-        }
-    }
-#endif
-
-    if ((lastNode == nullptr) || !lastNode->OperIs(GT_CALL))
-    {
-        return false;
-    }
-
-    CorInfoHelpFunc helper = eeGetHelperNum(lastNode->AsCall()->GetMethodHandle());
-
-    if (((helper != CORINFO_HELP_RNGCHKFAIL) && (helper != CORINFO_HELP_THROWDIVZERO) &&
-         (helper != CORINFO_HELP_THROWNULLREF) && (helper != CORINFO_HELP_OVERFLOW)))
-    {
-        return false;
-    }
-
-    // We can get to this point for blocks that we didn't create as throw helper blocks
-    // under stress, with implausible flow graph optimizations.
-    // So, walk the m_throwHelperBlockList for the final determination.
-
-    for (ThrowHelperBlock* helper = m_throwHelperBlockList; helper != nullptr; helper = helper->next)
-    {
-        if (block == helper->block)
-        {
-            return true;
-        }
-    }
-
-    return false;
+    return (block->bbFlags & BBF_THROW_HELPER) != 0;
 }
 
 #if !FEATURE_FIXED_OUT_ARGS

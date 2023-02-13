@@ -426,7 +426,7 @@ enum BasicBlockFlags : uint64_t
     BBF_DONT_REMOVE          = MAKE_BBFLAG( 4), // BB should not be removed during flow graph optimizations
     BBF_IMPORTED             = MAKE_BBFLAG( 5), // BB byte-code has been imported
     BBF_INTERNAL             = MAKE_BBFLAG( 6), // BB has been added by the compiler
-
+    BBF_THROW_HELPER         = MAKE_BBFLAG( 7), // BB is a throw helper block added by the compiler
     BBF_TRY_BEG              = MAKE_BBFLAG( 8), // BB starts a 'try' block
     BBF_FUNCLET_BEG          = MAKE_BBFLAG( 9), // BB is the beginning of a funclet
     BBF_HAS_NULLCHECK        = MAKE_BBFLAG(10), // BB contains a null check
