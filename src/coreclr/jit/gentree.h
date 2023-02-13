@@ -89,7 +89,6 @@ enum class ThrowHelperKind : uint8_t
     Arithmetic = Overflow, // throw OverflowException
     Argument,              // throw ArgumentException
     ArgumentOutOfRange,    // throw ArgumentOutOfRangeException
-    COUNT
 };
 
 #ifdef DEBUG

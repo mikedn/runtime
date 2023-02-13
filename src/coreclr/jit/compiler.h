@@ -2831,10 +2831,10 @@ struct Importer
 
 struct ThrowHelperBlock
 {
-    ThrowHelperBlock* const next;
-    BasicBlock* const       block;
-    unsigned const          throwIndex;
-    ThrowHelperKind const   kind;
+    ThrowHelperBlock*     next;
+    BasicBlock* const     block;
+    unsigned const        throwIndex;
+    ThrowHelperKind const kind;
 
 #if !FEATURE_FIXED_OUT_ARGS
     bool     stackLevelSet = false;
@@ -5431,7 +5431,6 @@ private:
     unsigned fgGetLargeFieldOffsetNullCheckTemp(var_types type); // We cache one temp per type to be
                                                                  // used when morphing big offset.
     ThrowHelperBlock* m_throwHelperBlockList = nullptr;
-    ThrowHelperBlock* m_throwHelperBlockCache[static_cast<unsigned>(ThrowHelperKind::COUNT)]{};
 
 public:
     static CorInfoHelpFunc GetThrowHelperCall(ThrowHelperKind kind);

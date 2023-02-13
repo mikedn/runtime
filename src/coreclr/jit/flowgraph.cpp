@@ -3056,22 +3056,25 @@ ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(ThrowHelperKind kind, unsigne
 {
     assert(fgUseThrowHelperBlocks());
 
-    ThrowHelperBlock* cached = m_throwHelperBlockCache[static_cast<unsigned>(kind)];
-
-    if ((cached != nullptr) && (cached->throwIndex == throwIndex))
-    {
-        return cached;
-    }
-
     ThrowHelperBlock* found = nullptr;
+    ThrowHelperBlock* prev  = nullptr;
 
     for (found = m_throwHelperBlockList; found != nullptr; found = found->next)
     {
         if ((found->throwIndex == throwIndex) && (found->kind == kind))
         {
-            m_throwHelperBlockCache[static_cast<unsigned>(kind)] = found;
             break;
         }
+
+        prev = found;
+    }
+
+    if ((found != nullptr) && (prev != nullptr))
+    {
+        prev->next  = found->next;
+        found->next = m_throwHelperBlockList;
+
+        m_throwHelperBlockList = found;
     }
 
     return found;
