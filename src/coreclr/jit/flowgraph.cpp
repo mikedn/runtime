@@ -2901,6 +2901,8 @@ CorInfoHelpFunc Compiler::GetThrowHelperCall(ThrowHelperKind kind)
 {
     switch (kind)
     {
+        static_assert_no_msg(ThrowHelperKind::Arithmetic == ThrowHelperKind::Overflow);
+
         case ThrowHelperKind::IndexOutOfRange:
             return CORINFO_HELP_RNGCHKFAIL;
         case ThrowHelperKind::DivideByZero:
@@ -3003,32 +3005,7 @@ BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* th
     }
 #endif // DEBUG
 
-    CorInfoHelpFunc helper;
-
-    switch (kind)
-    {
-        static_assert_no_msg(ThrowHelperKind::Arithmetic == ThrowHelperKind::Overflow);
-
-        case ThrowHelperKind::IndexOutOfRange:
-            helper = CORINFO_HELP_RNGCHKFAIL;
-            break;
-        case ThrowHelperKind::DivideByZero:
-            helper = CORINFO_HELP_THROWDIVZERO;
-            break;
-        case ThrowHelperKind::Overflow:
-            helper = CORINFO_HELP_OVERFLOW;
-            break;
-        case ThrowHelperKind::Argument:
-            helper = CORINFO_HELP_THROW_ARGUMENTEXCEPTION;
-            break;
-        case ThrowHelperKind::ArgumentOutOfRange:
-            helper = CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION;
-            break;
-        default:
-            unreached();
-    }
-
-    GenTreeCall* call = gtNewHelperCallNode(helper, TYP_VOID);
+    GenTreeCall* call = gtNewHelperCallNode(GetThrowHelperCall(kind), TYP_VOID);
 
     if (!throwBlock->IsLIR())
     {
