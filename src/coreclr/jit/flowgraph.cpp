@@ -7,77 +7,51 @@
 #pragma hdrstop
 #endif
 
-// Flowgraph Miscellany
-
-//------------------------------------------------------------------------
-// blockNeedsGCPoll: Determine whether the block needs GC poll inserted
-//
-// Arguments:
-//   block         - the block to check
-//
-// Notes:
-//    The GC poll may not be required because of optimizations applied earlier
-//    or because of GC poll done implicitly by regular unmanaged calls.
-//
-// Returns:
-//    Whether the GC poll needs to be inserted after the block
-//
-static bool blockNeedsGCPoll(BasicBlock* block)
+static bool BlockNeedsGCPoll(BasicBlock* block)
 {
-    bool blockMayNeedGCPoll = false;
-    for (Statement* const stmt : block->NonPhiStatements())
-    {
-        if ((stmt->GetRootNode()->gtFlags & GTF_CALL) != 0)
-        {
-            for (GenTree* const tree : stmt->TreeList())
-            {
-                if (tree->OperGet() == GT_CALL)
-                {
-                    GenTreeCall* call = tree->AsCall();
-                    if (call->IsUnmanaged())
-                    {
-                        if (!call->IsSuppressGCTransition())
-                        {
-                            // If the block contains regular unmanaged call, we can depend on it
-                            // to poll for GC. No need to scan further.
-                            return false;
-                        }
+    bool blockNeedsGCPoll = false;
 
-                        blockMayNeedGCPoll = true;
-                    }
+    for (Statement* stmt : block->NonPhiStatements())
+    {
+        if ((stmt->GetRootNode()->gtFlags & GTF_CALL) == 0)
+        {
+            continue;
+        }
+
+        for (GenTree* node : stmt->Nodes())
+        {
+            if (GenTreeCall* call = node->IsCall())
+            {
+                if (!call->IsUnmanaged())
+                {
+                    continue;
                 }
+
+                if (!call->IsSuppressGCTransition())
+                {
+                    // If the block contains regular unmanaged call, we can depend on it
+                    // to poll for GC. No need to scan further.
+                    // TODO-MIKE-Review: Wouldn't a normal managed call also allow GC?
+                    return false;
+                }
+
+                blockNeedsGCPoll = true;
             }
         }
     }
-    return blockMayNeedGCPoll;
+
+    return blockNeedsGCPoll;
 }
 
-//------------------------------------------------------------------------------
-// fgInsertGCPolls : Insert GC polls for basic blocks containing calls to methods
-//                   with SuppressGCTransitionAttribute.
-//
-// Notes:
-//    When not optimizing, the method relies on BBF_HAS_SUPPRESSGC_CALL flag to
-//    find the basic blocks that require GC polls; when optimizing the tree nodes
-//    are scanned to find calls to methods with SuppressGCTransitionAttribute.
-//
-//    This must be done after any transformations that would add control flow between
-//    calls.
-//
-// Returns:
-//    PhaseStatus indicating what, if anything, was changed.
-//
-
+// Insert GC polls for basic blocks containing calls to methods with SuppressGCTransition
+// attribute. This must be done after any transformations that would add control flow
+// between calls.
 PhaseStatus Compiler::fgInsertGCPolls()
 {
-    PhaseStatus result = PhaseStatus::MODIFIED_NOTHING;
-
     if ((optMethodFlags & OMF_NEEDS_GCPOLLS) == 0)
     {
-        return result;
+        return PhaseStatus::MODIFIED_NOTHING;
     }
-
-    bool createdPollBlocks = false;
 
 #ifdef DEBUG
     if (verbose)
@@ -86,27 +60,19 @@ PhaseStatus Compiler::fgInsertGCPolls()
         fgDispBasicBlocks(false);
         printf("\n");
     }
-#endif // DEBUG
+#endif
 
-    BasicBlock* block;
+    PhaseStatus result            = PhaseStatus::MODIFIED_NOTHING;
+    bool        createdPollBlocks = false;
 
-    // Walk through the blocks and hunt for a block that needs a GC Poll
-    for (block = fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
     {
-        // When optimizations are enabled, we can't rely on BBF_HAS_SUPPRESSGC_CALL flag:
-        // the call could've been moved, e.g., hoisted from a loop, CSE'd, etc.
-        if (opts.OptimizationDisabled() ? ((block->bbFlags & BBF_HAS_SUPPRESSGC_CALL) == 0) : !blockNeedsGCPoll(block))
+        // When optimizations are enabled, we can't rely on BBF_HAS_SUPPRESSGC_CALL flag,
+        // calls could've been moved (e.g., hoisted from a loop, CSE'd, etc.)
+        if (opts.OptimizationDisabled() ? ((block->bbFlags & BBF_HAS_SUPPRESSGC_CALL) == 0) : !BlockNeedsGCPoll(block))
         {
             continue;
         }
-
-        result = PhaseStatus::MODIFIED_EVERYTHING;
-
-        // This block needs a GC poll. We either just insert a callout or we split the block and inline part of
-        // the test.
-
-        // If we're doing GCPOLL_CALL, just insert a GT_CALL node before the last node in the block.
-        CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
         switch (block->bbJumpKind)
@@ -122,85 +88,62 @@ PhaseStatus Compiler::fgInsertGCPolls()
             default:
                 assert(!"Unexpected block kind");
         }
-#endif // DEBUG
+#endif
 
         GCPollType pollType = GCPOLL_INLINE;
 
-        // We'd like to inset an inline poll. Below is the list of places where we
-        // can't or don't want to emit an inline poll. Check all of those. If after all of that we still
-        // have INLINE, then emit an inline check.
-
         if (opts.OptimizationDisabled())
         {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Selecting CALL poll in block " FMT_BB " because of debug/minopts\n", block->bbNum);
-            }
-#endif // DEBUG
+            JITDUMP("Selecting CALL poll in block " FMT_BB " because of debug/minopts\n", block->bbNum);
 
             // Don't split blocks and create inlined polls unless we're optimizing.
             pollType = GCPOLL_CALL;
         }
         else if (genReturnBB == block)
         {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Selecting CALL poll in block " FMT_BB " because it is the single return block\n", block->bbNum);
-            }
-#endif // DEBUG
+            JITDUMP("Selecting CALL poll in block " FMT_BB " because it is the single return block\n", block->bbNum);
 
-            // we don't want to split the single return block
+            // We don't want to split the single return block.
             pollType = GCPOLL_CALL;
         }
         else if (BBJ_SWITCH == block->bbJumpKind)
         {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Selecting CALL poll in block " FMT_BB " because it is a SWITCH block\n", block->bbNum);
-            }
-#endif // DEBUG
+            JITDUMP("Selecting CALL poll in block " FMT_BB " because it is a SWITCH block\n", block->bbNum);
 
             // We don't want to deal with all the outgoing edges of a switch block.
             pollType = GCPOLL_CALL;
         }
         else if ((block->bbFlags & BBF_COLD) != 0)
         {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Selecting CALL poll in block " FMT_BB " because it is a cold block\n", block->bbNum);
-            }
-#endif // DEBUG
+            JITDUMP("Selecting CALL poll in block " FMT_BB " because it is a cold block\n", block->bbNum);
 
             // We don't want to split a cold block.
             pollType = GCPOLL_CALL;
         }
 
-        BasicBlock* curBasicBlock = fgCreateGCPoll(pollType, block);
-        createdPollBlocks |= (block != curBasicBlock);
-        block = curBasicBlock;
+        BasicBlock* newBlock = fgCreateGCPoll(pollType, block);
+        createdPollBlocks |= (block != newBlock);
+        block  = newBlock;
+        result = PhaseStatus::MODIFIED_EVERYTHING;
     }
 
-    // If we split a block to create a GC Poll, then rerun fgReorderBlocks to push the rarely run blocks out
-    // past the epilog.  We should never split blocks unless we're optimizing.
+    // If we split a block to create a GC Poll, then rerun fgReorderBlocks to push the rarely
+    // run blocks out past the epilog. We should never split blocks unless we're optimizing.
     if (createdPollBlocks)
     {
         noway_assert(opts.OptimizationEnabled());
+
         fgReorderBlocks();
-        constexpr bool computePreds = true;
-        constexpr bool computeDoms  = false;
-        fgUpdateChangedFlowGraph(computePreds, computeDoms);
+        fgUpdateChangedFlowGraph(/* computePreds */ true, /* computeDoms */ false);
     }
+
 #ifdef DEBUG
     if (verbose)
     {
         printf("*************** After fgInsertGCPolls()\n");
         fgDispBasicBlocks(true);
     }
-#endif // DEBUG
+#endif
 
     return result;
 }
