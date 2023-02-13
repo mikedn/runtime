@@ -148,77 +148,64 @@ PhaseStatus Compiler::fgInsertGCPolls()
     return result;
 }
 
-//------------------------------------------------------------------------------
-// fgCreateGCPoll : Insert a GC poll of the specified type for the given basic block.
-//
-// Arguments:
-//    pollType  - The type of GC poll to insert
-//    block     - Basic block to insert the poll for
-//
-// Return Value:
-//    If new basic blocks are inserted, the last inserted block; otherwise, the input block.
-//
-
+// Insert a GC poll of the specified type for the given basic block.
+// For inline polls this returns the new block that follows the poll
+// call block, otherwise it returns null.
 BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 {
-    bool createdPollBlocks;
+    void* addrOfTrapReturningThreadsAddr;
+    void* trapReturningThreadsAddr = info.compCompHnd->getAddrOfCaptureThreadGlobal(&addrOfTrapReturningThreadsAddr);
 
-    void* addrTrap;
-    void* pAddrOfCaptureThreadGlobal;
-
-    addrTrap = info.compCompHnd->getAddrOfCaptureThreadGlobal(&pAddrOfCaptureThreadGlobal);
-
-    // If the trap and address of thread global are null, make the call.
-    if (addrTrap == nullptr && pAddrOfCaptureThreadGlobal == nullptr)
+    // If we can't get the address of the global variable we can't make inline polls.
+    if ((trapReturningThreadsAddr == nullptr) && (addrOfTrapReturningThreadsAddr == nullptr))
     {
         pollType = GCPOLL_CALL;
     }
 
-    // Create the GC_CALL node
     GenTree* call = gtNewHelperCallNode(CORINFO_HELP_POLL_GC, TYP_VOID);
     call          = fgMorphCall(call->AsCall());
     gtSetEvalOrder(call);
 
-    BasicBlock* bottom = nullptr;
+    // TODO-MIKE-Review: This may insert the GC poll call before the unmanaged call,
+    // which might be in the last statement of a conditoinal the block. It probably
+    // doesn't matter but it seems a bit dodgy.
 
     if (pollType == GCPOLL_CALL)
     {
-        createdPollBlocks = false;
-
         Statement* newStmt = nullptr;
+
         if ((block->bbJumpKind == BBJ_ALWAYS) || (block->bbJumpKind == BBJ_CALLFINALLY) ||
             (block->bbJumpKind == BBJ_NONE))
         {
-            // For BBJ_ALWAYS, BBJ_CALLFINALLY, and BBJ_NONE and  we don't need to insert it before the condition.
-            // Just append it.
             newStmt = fgNewStmtAtEnd(block, call);
         }
         else
         {
             newStmt = fgNewStmtNearEnd(block, call);
-            // For DDB156656, we need to associate the GC Poll with the IL offset (and therefore sequence
-            // point) of the tree before which we inserted the poll.  One example of when this is a
-            // problem:
-            //  if (...) {  //1
-            //      ...
-            //  } //2
-            //  else { //3
-            //      ...
-            //  }
-            //  (gcpoll) //4
-            //  return. //5
+
+            // We need to associate the GC Poll with the IL offset (and therefore sequencepoint)
+            // of the tree before which we inserted the poll. Example:
             //
-            //  If we take the if statement at 1, we encounter a jump at 2.  This jumps over the else
-            //  and lands at 4.  4 is where we inserted the gcpoll.  However, that is associated with
-            //  the sequence point a 3.  Therefore, the debugger displays the wrong source line at the
-            //  gc poll location.
+            //  1: if (...) {
+            //         ...
+            //  2: }
+            //  3: else {
+            //         ...
+            //     }
+            //  4: GC poll call
+            //  5: return
             //
+            //  If we take the if statement at 1, we encounter a jump at 2. This jumps over the else
+            //  and lands at 4. 4 is where we inserted the poll call. However, that is associated with
+            //  the sequence point a 3. Therefore, the debugger displays the wrong source line at the
+            //  GC poll location.
             //  More formally, if control flow targets an instruction, that instruction must be the
             //  start of a new sequence point.
+
             Statement* nextStmt = newStmt->GetNextStmt();
+
             if (nextStmt != nullptr)
             {
-                // Is it possible for gtNextStmt to be NULL?
                 newStmt->SetILOffsetX(nextStmt->GetILOffsetX());
             }
         }
@@ -230,208 +217,178 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
         }
 
         block->bbFlags |= BBF_GC_SAFE_POINT;
+
 #ifdef DEBUG
         if (verbose)
         {
-            printf("*** creating GC Poll in block " FMT_BB "\n", block->bbNum);
+            printf("*** Added GC Poll to block " FMT_BB "\n", block->bbNum);
             gtDispBlockStmts(block);
         }
-#endif // DEBUG
+#endif
+
+        return block;
     }
-    else // GCPOLL_INLINE
-    {
-        assert(pollType == GCPOLL_INLINE);
-        createdPollBlocks = true;
-        // if we're doing GCPOLL_INLINE, then:
-        //  1) Create two new blocks: Poll and Bottom.  The original block is called Top.
 
-        // I want to create:
-        // top -> poll -> bottom (lexically)
-        // so that we jump over poll to get to bottom.
-        BasicBlock*   top                = block;
-        BasicBlock*   topFallThrough     = nullptr;
-        unsigned char lpIndexFallThrough = BasicBlock::NOT_IN_LOOP;
-
-        if (top->bbJumpKind == BBJ_COND)
-        {
-            topFallThrough     = top->bbNext;
-            lpIndexFallThrough = topFallThrough->bbNatLoopNum;
-        }
-
-        BasicBlock* poll          = fgNewBBafter(BBJ_NONE, top, true);
-        bottom                    = fgNewBBafter(top->bbJumpKind, poll, true);
-        BBjumpKinds   oldJumpKind = top->bbJumpKind;
-        unsigned char lpIndex     = top->bbNatLoopNum;
-
-        // Update block flags
-        const BasicBlockFlags originalFlags = top->bbFlags | BBF_GC_SAFE_POINT;
-
-        // We are allowed to split loops and we need to keep a few other flags...
-        //
-        noway_assert((originalFlags & (BBF_SPLIT_NONEXIST &
-                                       ~(BBF_LOOP_HEAD | BBF_LOOP_CALL0 | BBF_LOOP_CALL1 | BBF_LOOP_PREHEADER |
-                                         BBF_RETLESS_CALL))) == 0);
-        top->bbFlags = originalFlags & (~(BBF_SPLIT_LOST | BBF_LOOP_PREHEADER | BBF_RETLESS_CALL) | BBF_GC_SAFE_POINT);
-        bottom->bbFlags |= originalFlags & (BBF_SPLIT_GAINED | BBF_IMPORTED | BBF_GC_SAFE_POINT | BBF_LOOP_PREHEADER |
-                                            BBF_RETLESS_CALL);
-        bottom->inheritWeight(top);
-        poll->bbFlags |= originalFlags & (BBF_SPLIT_GAINED | BBF_IMPORTED | BBF_GC_SAFE_POINT);
-
-        // Mark Poll as rarely run.
-        poll->bbSetRunRarely();
-        poll->bbNatLoopNum = lpIndex; // Set the bbNatLoopNum in case we are in a loop
-
-        // Bottom gets all the outgoing edges and inherited flags of Original.
-        bottom->bbJumpDest   = top->bbJumpDest;
-        bottom->bbNatLoopNum = lpIndex; // Set the bbNatLoopNum in case we are in a loop
-        if (lpIndex != BasicBlock::NOT_IN_LOOP)
-        {
-            // Set the new lpBottom in the natural loop table
-            optLoopTable[lpIndex].lpBottom = bottom;
-        }
-
-        if (lpIndexFallThrough != BasicBlock::NOT_IN_LOOP)
-        {
-            // Set the new lpHead in the natural loop table
-            optLoopTable[lpIndexFallThrough].lpHead = bottom;
-        }
-
-        // Add the GC_CALL node to Poll.
-        Statement* pollStmt = fgNewStmtAtEnd(poll, call);
-        if (fgStmtListThreaded)
-        {
-            gtSetStmtInfo(pollStmt);
-            fgSetStmtSeq(pollStmt);
-        }
-
-        // Remove the last statement from Top and add it to Bottom if necessary.
-        if ((oldJumpKind == BBJ_COND) || (oldJumpKind == BBJ_RETURN) || (oldJumpKind == BBJ_THROW))
-        {
-            Statement* stmt = top->firstStmt();
-            while (stmt->GetNextStmt() != nullptr)
-            {
-                stmt = stmt->GetNextStmt();
-            }
-            fgRemoveStmt(top, stmt);
-            fgInsertStmtAtEnd(bottom, stmt);
-        }
-
-        // for BBJ_ALWAYS blocks, bottom is an empty block.
-
-        // Create a GT_EQ node that checks against g_TrapReturningThreads.  True jumps to Bottom,
-        // false falls through to poll.  Add this to the end of Top.  Top is now BBJ_COND.  Bottom is
-        // now a jump target
-        CLANG_FORMAT_COMMENT_ANCHOR;
+    assert(pollType == GCPOLL_INLINE);
 
 #ifdef ENABLE_FAST_GCPOLL_HELPER
-        // Prefer the fast gc poll helepr over the double indirection
-        noway_assert(pAddrOfCaptureThreadGlobal == nullptr);
+    // Prefer the fast GC poll helper over the double indirection.
+    noway_assert(pAddrOfCaptureThreadGlobal == nullptr);
 #endif
 
-        GenTree* value; // The value of g_TrapReturningThreads
-        if (pAddrOfCaptureThreadGlobal != nullptr)
-        {
-            // Use a double indirection
-            GenTree* addr =
-                gtNewIndOfIconHandleNode(TYP_I_IMPL, (size_t)pAddrOfCaptureThreadGlobal, GTF_ICON_CONST_PTR, true);
+    // For GCPOLL_INLINE we create two new blocks: Poll and Bottom.
+    // The original block is called Top.
 
-            value = gtNewOperNode(GT_IND, TYP_INT, addr);
-            // This indirection won't cause an exception.
-            value->gtFlags |= GTF_IND_NONFAULTING;
-        }
-        else
-        {
-            // Use a single indirection
-            value = gtNewIndOfIconHandleNode(TYP_INT, (size_t)addrTrap, GTF_ICON_GLOBAL_PTR, false);
-        }
+    BasicBlock*            top             = block;
+    BasicBlock::loopNumber fallThroughLoop = BasicBlock::NOT_IN_LOOP;
 
-        // NOTE: in c++ an equivalent load is done via LoadWithoutBarrier() to ensure that the
-        // program order is preserved. (not hoisted out of a loop or cached in a local, for example)
-        //
-        // Here we introduce the read really late after all major optimizations are done, and the location
-        // is formally unknown, so noone could optimize the load, thus no special flags are needed.
-
-        // Compare for equal to zero
-        GenTree* trapRelop = gtNewOperNode(GT_EQ, TYP_INT, value, gtNewIconNode(0, TYP_INT));
-
-        trapRelop->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
-        GenTree* trapCheck = gtNewOperNode(GT_JTRUE, TYP_VOID, trapRelop);
-        gtSetEvalOrder(trapCheck);
-        Statement* trapCheckStmt = fgNewStmtAtEnd(top, trapCheck);
-        if (fgStmtListThreaded)
-        {
-            gtSetStmtInfo(trapCheckStmt);
-            fgSetStmtSeq(trapCheckStmt);
-        }
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Adding trapCheck in " FMT_BB "\n", top->bbNum);
-            gtDispTree(trapCheck);
-        }
-#endif
-
-        top->bbJumpDest = bottom;
-        top->bbJumpKind = BBJ_COND;
-
-        // Bottom has Top and Poll as its predecessors.  Poll has just Top as a predecessor.
-        fgAddRefPred(bottom, poll);
-        fgAddRefPred(bottom, top);
-        fgAddRefPred(poll, top);
-
-        // Replace Top with Bottom in the predecessor list of all outgoing edges from Bottom
-        // (1 for unconditional branches, 2 for conditional branches, N for switches).
-        switch (oldJumpKind)
-        {
-            case BBJ_NONE:
-                fgReplacePred(bottom->bbNext, top, bottom);
-                break;
-            case BBJ_RETURN:
-            case BBJ_THROW:
-                // no successors
-                break;
-            case BBJ_COND:
-                // replace predecessor in the fall through block.
-                noway_assert(bottom->bbNext);
-                fgReplacePred(bottom->bbNext, top, bottom);
-
-                // fall through for the jump target
-                FALLTHROUGH;
-
-            case BBJ_ALWAYS:
-            case BBJ_CALLFINALLY:
-                fgReplacePred(bottom->bbJumpDest, top, bottom);
-                break;
-            case BBJ_SWITCH:
-                NO_WAY("SWITCH should be a call rather than an inlined poll.");
-                break;
-            default:
-                NO_WAY("Unknown block type for updating predecessor lists.");
-        }
-
-        if (compCurBB == top)
-        {
-            compCurBB = bottom;
-        }
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("*** creating inlined GC Poll in top block " FMT_BB "\n", top->bbNum);
-            gtDispBlockStmts(top);
-            printf(" poll block is " FMT_BB "\n", poll->bbNum);
-            gtDispBlockStmts(poll);
-            printf(" bottom block is " FMT_BB "\n", bottom->bbNum);
-            gtDispBlockStmts(bottom);
-
-            printf("\nAfter this change in fgCreateGCPoll the BB graph is:");
-            fgDispBasicBlocks(false);
-        }
-#endif // DEBUG
+    if (top->bbJumpKind == BBJ_COND)
+    {
+        fallThroughLoop = top->bbNext->bbNatLoopNum;
     }
 
-    return createdPollBlocks ? bottom : block;
+    BasicBlock* poll   = fgNewBBafter(BBJ_NONE, top, true);
+    BasicBlock* bottom = fgNewBBafter(top->bbJumpKind, poll, true);
+
+    const BBjumpKinds            topKind  = top->bbJumpKind;
+    const BasicBlock::loopNumber topLoop  = top->bbNatLoopNum;
+    const BasicBlockFlags        topFlags = top->bbFlags | BBF_GC_SAFE_POINT;
+
+    noway_assert(
+        (topFlags & (BBF_SPLIT_NONEXIST &
+                     ~(BBF_LOOP_HEAD | BBF_LOOP_CALL0 | BBF_LOOP_CALL1 | BBF_LOOP_PREHEADER | BBF_RETLESS_CALL))) == 0);
+
+    top->bbFlags = topFlags & (~(BBF_SPLIT_LOST | BBF_LOOP_PREHEADER | BBF_RETLESS_CALL) | BBF_GC_SAFE_POINT);
+
+    bottom->bbFlags |=
+        topFlags & (BBF_SPLIT_GAINED | BBF_IMPORTED | BBF_GC_SAFE_POINT | BBF_LOOP_PREHEADER | BBF_RETLESS_CALL);
+    bottom->inheritWeight(top);
+
+    poll->bbFlags |= topFlags & (BBF_SPLIT_GAINED | BBF_IMPORTED | BBF_GC_SAFE_POINT);
+    poll->bbSetRunRarely();
+    poll->bbNatLoopNum = topLoop;
+
+    bottom->bbJumpDest   = top->bbJumpDest;
+    bottom->bbNatLoopNum = topLoop;
+
+    if (topLoop != BasicBlock::NOT_IN_LOOP)
+    {
+        optLoopTable[topLoop].lpBottom = bottom;
+    }
+
+    if (fallThroughLoop != BasicBlock::NOT_IN_LOOP)
+    {
+        optLoopTable[fallThroughLoop].lpHead = bottom;
+    }
+
+    Statement* pollStmt = fgNewStmtAtEnd(poll, call);
+
+    if (fgStmtListThreaded)
+    {
+        gtSetStmtInfo(pollStmt);
+        fgSetStmtSeq(pollStmt);
+    }
+
+    if ((topKind == BBJ_COND) || (topKind == BBJ_RETURN) || (topKind == BBJ_THROW))
+    {
+        Statement* stmt = top->firstStmt();
+
+        while (stmt->GetNextStmt() != nullptr)
+        {
+            stmt = stmt->GetNextStmt();
+        }
+
+        fgRemoveStmt(top, stmt);
+        fgInsertStmtAtEnd(bottom, stmt);
+    }
+
+    GenTree* indir;
+
+    if (addrOfTrapReturningThreadsAddr != nullptr)
+    {
+        GenTree* addr = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(addrOfTrapReturningThreadsAddr),
+                                                 GTF_ICON_CONST_PTR, true);
+        indir = gtNewOperNode(GT_IND, TYP_INT, addr);
+        indir->gtFlags |= GTF_IND_NONFAULTING;
+    }
+    else
+    {
+        indir = gtNewIndOfIconHandleNode(TYP_INT, reinterpret_cast<size_t>(trapReturningThreadsAddr),
+                                         GTF_ICON_GLOBAL_PTR, false);
+    }
+
+    // NOTE: In native code this load is done via LoadWithoutBarrier() to ensure that
+    // the program order is preserved (e.g. not hoisted out of a loop or cached in a local).
+    // Here we introduce the load really late after all major optimizations are done,
+    // and the location is formally unknown, so the load should not be optimized thus
+    // no special flags are needed.
+
+    GenTree* trapEq = gtNewOperNode(GT_EQ, TYP_INT, indir, gtNewIconNode(0, TYP_INT));
+    trapEq->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
+    GenTree* trapCheck = gtNewOperNode(GT_JTRUE, TYP_VOID, trapEq);
+    gtSetEvalOrder(trapCheck);
+    Statement* trapCheckStmt = fgNewStmtAtEnd(top, trapCheck);
+
+    if (fgStmtListThreaded)
+    {
+        gtSetStmtInfo(trapCheckStmt);
+        fgSetStmtSeq(trapCheckStmt);
+    }
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("Adding trapCheck in " FMT_BB "\n", top->bbNum);
+        gtDispTree(trapCheck);
+    }
+#endif
+
+    top->bbJumpDest = bottom;
+    top->bbJumpKind = BBJ_COND;
+
+    fgAddRefPred(bottom, poll);
+    fgAddRefPred(bottom, top);
+    fgAddRefPred(poll, top);
+
+    switch (topKind)
+    {
+        case BBJ_RETURN:
+        case BBJ_THROW:
+            break;
+        case BBJ_NONE:
+            fgReplacePred(bottom->bbNext, top, bottom);
+            break;
+        case BBJ_COND:
+            noway_assert(bottom->bbNext);
+            fgReplacePred(bottom->bbNext, top, bottom);
+            FALLTHROUGH;
+        case BBJ_ALWAYS:
+        case BBJ_CALLFINALLY:
+            fgReplacePred(bottom->bbJumpDest, top, bottom);
+            break;
+
+        default:
+            unreached();
+    }
+
+    if (compCurBB == top)
+    {
+        compCurBB = bottom;
+    }
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("*** Added inlined GC Poll trap check in top block " FMT_BB "\n", top->bbNum);
+        gtDispBlockStmts(top);
+        printf(" poll block is " FMT_BB "\n", poll->bbNum);
+        gtDispBlockStmts(poll);
+        printf(" bottom block is " FMT_BB "\n", bottom->bbNum);
+        gtDispBlockStmts(bottom);
+    }
+#endif
+
+    return bottom;
 }
 
 //------------------------------------------------------------------------
