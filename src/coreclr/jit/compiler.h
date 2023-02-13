@@ -5445,11 +5445,6 @@ public:
         return !opts.compDbgCode;
     }
 
-    ThrowHelperBlock* fgGetAdditionalCodeDescriptors()
-    {
-        return m_throwHelperBlockList;
-    }
-
     void inlReplaceRetExpr(Statement* stmt);
     void inlFoldJTrue(BasicBlock* block);
     bool inlInlineCall(Statement* stmt, GenTreeCall* call);
