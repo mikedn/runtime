@@ -6817,9 +6817,7 @@ public:
     bool    bRangeAllowStress;
     bool    compCodeGenDone = false;
     int64_t compNumStatementLinksTraversed;   // # of links traversed while doing debug checks
-    bool    fgNormalizeEHDone = false;        // Has the flowgraph EH normalization phase been done?
-    size_t  compSizeEstimate;                 // The estimated size of the method as per `gtSetEvalOrder`.
-    size_t  compCycleEstimate;                // The estimated cycle count of the method as per `gtSetEvalOrder`
+    bool    fgNormalizeEHDone        = false; // Has the flowgraph EH normalization phase been done?
     bool    fgNoStructParamPromotion = false; // Set to true to turn off struct promotion of this method's params.
 #endif
 

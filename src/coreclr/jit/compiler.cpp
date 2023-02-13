@@ -3094,24 +3094,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     //
     DoPhase(this, PHASE_DETERMINE_FIRST_COLD_BLOCK, &Compiler::fgDetermineFirstColdBlock);
 
-#ifdef DEBUG
-    fgDebugCheckLinks(compStressCompile(STRESS_REMORPH_TREES, 50));
-
-    // Stash the current estimate of the function's size if necessary.
-    if (verbose)
-    {
-        compSizeEstimate  = 0;
-        compCycleEstimate = 0;
-        for (BasicBlock* const block : Blocks())
-        {
-            for (Statement* const stmt : block->Statements())
-            {
-                compSizeEstimate += stmt->GetCostSz();
-                compCycleEstimate += stmt->GetCostEx();
-            }
-        }
-    }
-#endif
+    INDEBUG(fgDebugCheckLinks(compStressCompile(STRESS_REMORPH_TREES, 50)));
 
     Rationalizer rat(this);
     rat.Run();

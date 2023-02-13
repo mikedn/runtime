@@ -658,16 +658,6 @@ void CodeGen::genCodeForBBlist()
     } //------------------ END-FOR each block of the method -------------------
 
     liveness.End(this);
-
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("\n# ");
-        printf("compCycleEstimate = %6d, compSizeEstimate = %5d ", compiler->compCycleEstimate,
-               compiler->compSizeEstimate);
-        printf("%s\n", compiler->info.compFullName);
-    }
-#endif
 }
 
 /*
