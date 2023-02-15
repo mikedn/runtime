@@ -2073,39 +2073,6 @@ inline bool Compiler::IsSharedStaticHelper(GenTree* tree)
     return result1;
 }
 
-inline bool Compiler::IsGcSafePoint(GenTree* tree)
-{
-    if (tree->IsCall())
-    {
-        GenTreeCall* call = tree->AsCall();
-        if (!call->IsFastTailCall())
-        {
-            if (call->IsUnmanaged() && call->IsSuppressGCTransition())
-            {
-                // Both an indirect and user calls can be unmanaged
-                // and have a request to suppress the GC transition so
-                // the check is done prior to the separate handling of
-                // indirect and user calls.
-                return false;
-            }
-            else if (call->gtCallType == CT_INDIRECT)
-            {
-                return true;
-            }
-            else if (call->gtCallType == CT_USER_FUNC)
-            {
-                if ((call->gtCallMoreFlags & GTF_CALL_M_NOGCCHECK) == 0)
-                {
-                    return true;
-                }
-            }
-            // otherwise we have a CT_HELPER
-        }
-    }
-
-    return false;
-}
-
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
