@@ -262,8 +262,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
 #ifdef TARGET_ARM
     if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
     {
-        // The ARM CORINFO_HELP_INIT_PINVOKE_FRAME helper uses a custom calling convention that returns with
-        // TCB in REG_PINVOKE_TCB. fgMorphCall() sets the correct argument registers.
         BuildDef(call, RBM_PINVOKE_TCB);
     }
     else
