@@ -7969,8 +7969,6 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         return fgMorphTree(gtNewNullCheck(thisPtr));
     }
 
-    noway_assert(call->gtOper == GT_CALL);
-
     if (fgGlobalMorph)
     {
         if (call->IsIndirectCall())
@@ -8030,7 +8028,6 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
     compCurBB->bbFlags |= BBF_HAS_CALL;
 
     fgMorphArgs(call);
-    assert(call->OperIs(GT_CALL));
 
     if (call->IsExpandedEarly() && call->IsVirtualVtable())
     {
