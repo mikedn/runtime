@@ -6428,7 +6428,7 @@ public:
     static CorInfoHelpFunc eeGetHelperNum(CORINFO_METHOD_HANDLE method);
 
     static bool IsSharedStaticHelper(GenTree* tree);
-    static bool IsGcSafePoint(GenTree* tree);
+    static bool IsCallGCSafePoint(GenTreeCall* call);
 
     static CORINFO_FIELD_HANDLE eeFindJitDataOffs(unsigned jitDataOffs);
     // returns true/false if 'field' is a Jit Data offset

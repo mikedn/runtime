@@ -7915,34 +7915,26 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
     return paramAssignStmt;
 }
 
-bool Compiler::IsGcSafePoint(GenTree* tree)
+bool Compiler::IsCallGCSafePoint(GenTreeCall* call)
 {
-    if (tree->IsCall())
+    if (call->IsFastTailCall())
     {
-        GenTreeCall* call = tree->AsCall();
-        if (!call->IsFastTailCall())
-        {
-            if (call->IsUnmanaged() && call->IsSuppressGCTransition())
-            {
-                // Both an indirect and user calls can be unmanaged
-                // and have a request to suppress the GC transition so
-                // the check is done prior to the separate handling of
-                // indirect and user calls.
-                return false;
-            }
-            else if (call->gtCallType == CT_INDIRECT)
-            {
-                return true;
-            }
-            else if (call->gtCallType == CT_USER_FUNC)
-            {
-                if ((call->gtCallMoreFlags & GTF_CALL_M_NOGCCHECK) == 0)
-                {
-                    return true;
-                }
-            }
-            // otherwise we have a CT_HELPER
-        }
+        return false;
+    }
+
+    if (call->IsUnmanaged() && call->IsSuppressGCTransition())
+    {
+        return false;
+    }
+
+    if (call->IsIndirectCall())
+    {
+        return true;
+    }
+
+    if (call->IsUserCall() && ((call->gtCallMoreFlags & GTF_CALL_M_NOGCCHECK) == 0))
+    {
+        return true;
     }
 
     return false;
@@ -8001,7 +7993,7 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
     // In the event the call indicates the block isn't a GC safe point
     // and the call is unmanaged with a GC transition suppression request
     // then insert a GC poll.
-    if (IsGcSafePoint(call))
+    if (IsCallGCSafePoint(call))
     {
         compCurBB->bbFlags |= BBF_GC_SAFE_POINT;
     }
@@ -8019,6 +8011,9 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
     // We need to do these before the arguments are morphed.
     if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0)
     {
+        // TODO-MIKE-Review: Hrm, above we already marked the block as
+        // containing a GC safe point and are we removing the call?!?
+
         GenTree* optTree = gtFoldExprCall(call);
 
         if (optTree != call)
