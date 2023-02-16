@@ -3932,9 +3932,9 @@ bool Compiler::optReachWithoutCall(BasicBlock* topBB, BasicBlock* botBB)
 
     noway_assert(topBB->bbNum <= botBB->bbNum);
 
-    // We can always check topBB and botBB for any gc safe points and early out
+    // We can always check topBB and botBB for any GC safe points and early out.
 
-    if ((topBB->bbFlags | botBB->bbFlags) & BBF_GC_SAFE_POINT)
+    if (topBB->HasGCSafePoint() || botBB->HasGCSafePoint())
     {
         return false;
     }
@@ -3960,9 +3960,7 @@ bool Compiler::optReachWithoutCall(BasicBlock* topBB, BasicBlock* botBB)
         {
             noway_assert(curBB->bbNum <= botBB->bbNum);
 
-            // Does this block contain a gc safe point?
-
-            if (curBB->bbFlags & BBF_GC_SAFE_POINT)
+            if (curBB->HasGCSafePoint())
             {
                 // Will this block always execute on the way to botBB ?
                 //

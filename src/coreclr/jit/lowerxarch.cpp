@@ -593,8 +593,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     // Therefore the block containing the tail call should be a GC safe point to avoid
     // GC starvation. It is legal for the block to be unmarked iff the entry block is a
     // GC safe point, as the entry block trivially dominates every reachable block.
-    assert(((comp->compCurBB->bbFlags & BBF_GC_SAFE_POINT) != 0) ||
-           ((comp->fgFirstBB->bbFlags & BBF_GC_SAFE_POINT) != 0));
+    assert(comp->compCurBB->HasGCSafePoint() || comp->fgFirstBB->HasGCSafePoint());
 
     CallInfo* callInfo = call->GetInfo();
 

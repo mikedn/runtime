@@ -989,38 +989,19 @@ void Compiler::fgLoopCallMark()
  *  Note the fact that the given block is a loop header.
  */
 
-inline void Compiler::fgMarkLoopHead(BasicBlock* block)
+void Compiler::fgMarkLoopHead(BasicBlock* block)
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("fgMarkLoopHead: Checking loop head block " FMT_BB ": ", block->bbNum);
-    }
-#endif
-
-    /* Have we decided to generate fully interruptible code already? */
+    JITDUMP("fgMarkLoopHead: Checking loop head block " FMT_BB ": ", block->bbNum);
 
     if (codeGen->GetInterruptible())
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("method is already fully interruptible\n");
-        }
-#endif
+        JITDUMP("method is already fully interruptible\n");
         return;
     }
 
-    /* Is the loop head block known to execute a method call? */
-
-    if (block->bbFlags & BBF_GC_SAFE_POINT)
+    if (block->HasGCSafePoint())
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("this block will execute a call\n");
-        }
-#endif
+        JITDUMP("this block will execute a call\n");
         return;
     }
 

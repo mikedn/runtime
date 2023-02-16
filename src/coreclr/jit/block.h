@@ -594,6 +594,11 @@ struct BasicBlock : private LIR::Range
         return ((bbFlags & BBF_LOOP_ALIGN) != 0);
     }
 
+    bool HasGCSafePoint() const
+    {
+        return (bbFlags & BBF_GC_SAFE_POINT) != 0;
+    }
+
 #ifdef DEBUG
     void     dspFlags();               // Print the flags
     unsigned dspCheapPreds();          // Print the predecessors (bbCheapPreds)

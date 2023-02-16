@@ -6767,8 +6767,10 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         // fgSetBlockOrder() is going to mark the method as fully interruptible
         // if the block containing this tail call is reachable without executing
         // any call.
+
         BasicBlock* curBlock = compCurBB;
-        if (canFastTailCall || (fgFirstBB->bbFlags & BBF_GC_SAFE_POINT) || (compCurBB->bbFlags & BBF_GC_SAFE_POINT) ||
+
+        if (canFastTailCall || fgFirstBB->HasGCSafePoint() || compCurBB->HasGCSafePoint() ||
             (fgCreateGCPoll(GCPOLL_INLINE, compCurBB) == curBlock))
         {
             // We didn't insert a poll block, so we need to morph the call now
