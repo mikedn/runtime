@@ -5339,9 +5339,11 @@ public:
 
 private:
     GenTree* fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* mac);
+#if FEATURE_FASTTAILCALL
     bool fgCanFastTailCall(GenTreeCall* call, const char** failReason);
-#if FEATURE_FASTTAILCALL && (defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64))
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     bool fgCallHasMustCopyByrefParameter(CallInfo* callInfo);
+#endif
 #endif
     bool     fgCheckStmtAfterTailCall();
     GenTree* fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL_HELPERS& help);

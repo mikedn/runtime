@@ -3716,7 +3716,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
             // handle very well. On X64 this also reduces the need for REX prefixes.
             var_types newArgType = fieldOffset + fieldSize > 4 ? TYP_LONG : TYP_INT;
 #else
-            var_types newArgType = TYP_INT;
+            var_types newArgType      = TYP_INT;
 #endif
 
             GenTree* field = gtNewLclvNode(fieldLclNum, fieldLcl->GetType());
@@ -5817,9 +5817,9 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 //    caller({ double, double, double, double, double, double }) // 48 byte stack
 //    callee(int, int) -- 2 int registers
 
+#if FEATURE_FASTTAILCALL
 bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 {
-#if FEATURE_FASTTAILCALL
     // To reach here means that the return types of the caller and callee are tail call compatible.
     if (callee->IsTailPrefixedCall())
     {
@@ -5995,12 +5995,8 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 
     reportFastTailCallDecision(nullptr);
     return true;
-#else // FEATURE_FASTTAILCALL
-    if (failReason)
-        *failReason = "Fast tailcalls are not supported on this platform";
-    return false;
-#endif
 }
+#endif // FEATURE_FASTTAILCALL
 
 #if FEATURE_FASTTAILCALL && (defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64))
 //------------------------------------------------------------------------
@@ -6345,8 +6341,13 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         return nullptr;
     }
 
+#if FEATURE_FASTTAILCALL
     const char* failReason      = nullptr;
-    bool        canFastTailCall = fgCanFastTailCall(call, &failReason);
+    const bool  canFastTailCall = fgCanFastTailCall(call, &failReason);
+#else
+    const char*       failReason      = "Fast tailcalls are not supported on this platform";
+    constexpr bool    canFastTailCall = false;
+#endif
 
     CORINFO_TAILCALL_HELPERS tailCallHelpers;
 #ifdef TARGET_X86
@@ -6693,128 +6694,118 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     }
 #endif
 
-    GenTree* result;
-
     if (!canFastTailCall X86_ONLY(&&!tailCallViaJitHelper))
     {
         // For tailcall via CORINFO_TAILCALL_HELPERS we transform into regular
         // calls with (to the JIT) regular control flow so we do not need to do
         // much special handling.
-        result = fgMorphTailCallViaHelpers(call, tailCallHelpers);
+
+        return fgMorphTailCallViaHelpers(call, tailCallHelpers);
     }
-    else
+
+    // Otherwise we will transform into something that does not return. For
+    // fast tailcalls a "jump" and for tailcall via JIT helper a call to a
+    // JIT helper that does not return. So peel off everything after the
+    // call.
+    Statement* nextMorphStmt = fgMorphStmt->GetNextStmt();
+    JITDUMP("Remove all stmts after the call.\n");
+    while (nextMorphStmt != nullptr)
     {
-        // Otherwise we will transform into something that does not return. For
-        // fast tailcalls a "jump" and for tailcall via JIT helper a call to a
-        // JIT helper that does not return. So peel off everything after the
-        // call.
-        Statement* nextMorphStmt = fgMorphStmt->GetNextStmt();
-        JITDUMP("Remove all stmts after the call.\n");
-        while (nextMorphStmt != nullptr)
-        {
-            Statement* stmtToRemove = nextMorphStmt;
-            nextMorphStmt           = stmtToRemove->GetNextStmt();
-            fgRemoveStmt(compCurBB, stmtToRemove);
-        }
+        Statement* stmtToRemove = nextMorphStmt;
+        nextMorphStmt           = stmtToRemove->GetNextStmt();
+        fgRemoveStmt(compCurBB, stmtToRemove);
+    }
 
-        bool     isRootReplaced = false;
-        GenTree* root           = fgMorphStmt->GetRootNode();
+    bool     isRootReplaced = false;
+    GenTree* root           = fgMorphStmt->GetRootNode();
 
-        if (root != call)
-        {
-            JITDUMP("Replace root node [%06d] with [%06d] tail call node.\n", dspTreeID(root), dspTreeID(call));
-            isRootReplaced = true;
-            fgMorphStmt->SetRootNode(call);
-        }
+    if (root != call)
+    {
+        JITDUMP("Replace root node [%06d] with [%06d] tail call node.\n", dspTreeID(root), dspTreeID(call));
+        isRootReplaced = true;
+        fgMorphStmt->SetRootNode(call);
+    }
 
-        var_types retType = call->GetType();
+    var_types retType = call->GetType();
 
-        // Avoid potential extra work for the return (for example, vzeroupper)
-        call->SetType(TYP_VOID);
-        call->SetRetSigType(TYP_VOID);
-        call->SetRetLayout(nullptr);
-        call->GetRetDesc()->Reset();
+    // Avoid potential extra work for the return (for example, vzeroupper)
+    call->SetType(TYP_VOID);
+    call->SetRetSigType(TYP_VOID);
+    call->SetRetLayout(nullptr);
+    call->GetRetDesc()->Reset();
 
 #ifdef TARGET_X86
-        if (tailCallViaJitHelper)
-        {
-            fgMorphTailCallViaJitHelper(call);
+    static_assert_no_msg(!canFastTailCall);
+    assert(tailCallViaJitHelper);
 
-            // Force re-evaluating the argInfo. fgMorphTailCallViaJitHelper will modify the
-            // argument list, invalidating the argInfo.
-            call->fgArgInfo = nullptr;
-        }
-#endif
+    fgMorphTailCallViaJitHelper(call);
 
-        // Tail call via JIT helper: The VM can't use return address hijacking
-        // if we're not going to return and the helper doesn't have enough info
-        // to safely poll, so we poll before the tail call, if the block isn't
-        // already safe. Since tail call via helper is a slow mechanism it
-        // doen't matter whether we emit GC poll. his is done to be in parity
-        // with Jit64. Also this avoids GC info size increase if all most all
-        // methods are expected to be tail calls (e.g. F#).
-        //
-        // Note that we can avoid emitting GC-poll if we know that the current
-        // BB is dominated by a Gc-SafePoint block. But we don't have dominator
-        // info at this point. One option is to just add a place holder node for
-        // GC-poll (e.g. GT_GCPOLL) here and remove it in lowering if the block
-        // is dominated by a GC-SafePoint. For now it not clear whether
-        // optimizing slow tail calls is worth the effort. As a low cost check,
-        // we check whether the first and current basic blocks are
-        // GC-SafePoints.
-        //
-        // Fast Tail call as epilog+jmp - No need to insert GC-poll. Instead,
-        // fgSetBlockOrder() is going to mark the method as fully interruptible
-        // if the block containing this tail call is reachable without executing
-        // any call.
+    // Force re-evaluating the argInfo. fgMorphTailCallViaJitHelper will
+    // modify the argument list, invalidating the argInfo.
+    call->fgArgInfo = nullptr;
 
-        BasicBlock* curBlock = compCurBB;
+    // Tail call via JIT helper: The VM can't use return address hijacking
+    // if we're not going to return and the helper doesn't have enough info
+    // to safely poll, so we poll before the tail call, if the block isn't
+    // already safe. Since tail call via helper is a slow mechanism it
+    // doen't matter whether we emit GC poll. his is done to be in parity
+    // with Jit64. Also this avoids GC info size increase if all most all
+    // methods are expected to be tail calls (e.g. F#).
+    //
+    // Note that we can avoid emitting GC-poll if we know that the current
+    // BB is dominated by a Gc-SafePoint block. But we don't have dominator
+    // info at this point. One option is to just add a place holder node for
+    // GC-poll (e.g. GT_GCPOLL) here and remove it in lowering if the block
+    // is dominated by a GC-SafePoint. For now it not clear whether
+    // optimizing slow tail calls is worth the effort. As a low cost check,
+    // we check whether the first and current basic blocks are
+    // GC-SafePoints.
 
-        if (canFastTailCall || fgFirstBB->HasGCSafePoint() || compCurBB->HasGCSafePoint() ||
-            (fgCreateGCPoll(GCPOLL_INLINE, compCurBB) == curBlock))
-        {
-            // We didn't insert a poll block, so we need to morph the call now
-            // (Normally it will get morphed when we get to the split poll block)
-            GenTree* temp = fgMorphCall(call);
-            noway_assert(temp == call);
-        }
+    BasicBlock* curBlock = compCurBB;
 
-        // Fast tail call: in case of fast tail calls, we need a jmp epilog and
-        // hence mark it as BBJ_RETURN with BBF_JMP flag set.
-        noway_assert(compCurBB->bbJumpKind == BBJ_RETURN);
-        if (canFastTailCall)
-        {
-            compCurBB->bbFlags |= BBF_HAS_JMP;
-        }
-        else
-        {
-            // We call CORINFO_HELP_TAILCALL which does not return, so we will
-            // not need epilogue.
-            compCurBB->bbJumpKind = BBJ_THROW;
-        }
-
-        if (isRootReplaced)
-        {
-            // We have replaced the root node of this stmt and deleted the rest,
-            // but we still have the deleted, dead nodes on the `fgMorph*` stack
-            // if the root node was an `ASG`, `RET` or `CAST`.
-            // Return a zero con node to exit morphing of the old trees without asserts
-            // and forbid POST_ORDER morphing doing something wrong with our call.
-
-            if (varTypeIsStruct(retType))
-            {
-                retType = TYP_INT;
-            }
-
-            result = fgMorphTree(gtNewZeroConNode(retType));
-        }
-        else
-        {
-            result = call;
-        }
+    if (fgFirstBB->HasGCSafePoint() || compCurBB->HasGCSafePoint() ||
+        (fgCreateGCPoll(GCPOLL_INLINE, compCurBB) == curBlock))
+    {
+        // We didn't insert a poll block, so we need to morph the call now
+        // (Normally it will get morphed when we get to the split poll block)
+        GenTree* temp = fgMorphCall(call);
+        noway_assert(temp == call);
     }
 
-    return result;
+    noway_assert(compCurBB->bbJumpKind == BBJ_RETURN);
+
+    // We call CORINFO_HELP_TAILCALL which does not return, so we will
+    // not need epilogue.
+    compCurBB->bbJumpKind = BBJ_THROW;
+#else
+    // Fast Tail call as epilog + jmp - No need to insert GC-poll. Instead,
+    // fgSetBlockOrder() is going to mark the method as fully interruptible
+    // if the block containing this tail call is reachable without executing
+    // any call.
+
+    GenTree* temp = fgMorphCall(call);
+    noway_assert(temp == call);
+    noway_assert(compCurBB->bbJumpKind == BBJ_RETURN);
+    compCurBB->bbFlags |= BBF_HAS_JMP;
+#endif
+
+    if (isRootReplaced)
+    {
+        // We have replaced the root node of this stmt and deleted the rest,
+        // but we still have the deleted, dead nodes on the `fgMorph*` stack
+        // if the root node was an `ASG`, `RET` or `CAST`.
+        // Return a zero con node to exit morphing of the old trees without asserts
+        // and forbid POST_ORDER morphing doing something wrong with our call.
+
+        if (varTypeIsStruct(retType))
+        {
+            retType = TYP_INT;
+        }
+
+        return fgMorphTree(gtNewZeroConNode(retType));
+    }
+
+    return call;
 }
 
 //------------------------------------------------------------------------
