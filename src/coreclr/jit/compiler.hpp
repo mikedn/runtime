@@ -929,20 +929,9 @@ inline GenTree* Compiler::gtUnusedValNode(GenTree* expr)
     return gtNewCommaNode(expr, gtNewNothingNode());
 }
 
-/*****************************************************************************
- *
- * A wrapper for gtSetEvalOrder and gtComputeFPlvls
- * Necessary because the FP levels may need to be re-computed if we reverse
- * operands
- */
-
 inline void Compiler::gtSetStmtInfo(Statement* stmt)
 {
-    GenTree* expr = stmt->GetRootNode();
-
-    /* Recursively process the expression */
-
-    gtSetEvalOrder(expr);
+    gtSetEvalOrder(stmt->GetRootNode());
 }
 
 inline GenTreeCast* Compiler::gtNewCastNode(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType)
