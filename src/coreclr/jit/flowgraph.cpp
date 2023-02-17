@@ -3078,24 +3078,36 @@ void Compiler::fgSetBlockOrder()
         // they're GC safe. If not, then go fully interruptible.
 
         auto EdgeIsGCSafe = [](BasicBlock* src, BasicBlock* dst) {
-            return (src->bbNum < dst->bbNum) || src->HasGCSafePoint() || dst->HasGCSafePoint();
+            return (src->bbNum < dst->bbNum) || dst->HasGCSafePoint();
         };
 
-        for (BasicBlock* const block : Blocks())
+        for (BasicBlock* block : Blocks())
         {
-            bool partiallyInterruptible = true;
+            if (block->HasGCSafePoint())
+            {
+                continue;
+            }
+
+            bool fullyInterruptible = false;
 
             switch (block->bbJumpKind)
             {
                 case BBJ_COND:
                 case BBJ_ALWAYS:
-                    partiallyInterruptible = EdgeIsGCSafe(block, block->bbJumpDest);
+                    if (!EdgeIsGCSafe(block, block->bbJumpDest))
+                    {
+                        fullyInterruptible = true;
+                    }
                     break;
 
                 case BBJ_SWITCH:
-                    for (BasicBlock* const bTarget : block->SwitchTargets())
+                    for (BasicBlock* target : block->SwitchTargets())
                     {
-                        partiallyInterruptible &= EdgeIsGCSafe(block, bTarget);
+                        if (!EdgeIsGCSafe(block, target))
+                        {
+                            fullyInterruptible = true;
+                            break;
+                        }
                     }
                     break;
 
@@ -3103,7 +3115,7 @@ void Compiler::fgSetBlockOrder()
                     break;
             }
 
-            if (!partiallyInterruptible)
+            if (fullyInterruptible)
             {
                 codeGen->SetInterruptible(true);
                 break;
