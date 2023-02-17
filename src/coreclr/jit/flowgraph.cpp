@@ -1032,12 +1032,7 @@ bool Compiler::fgReachWithoutCall(BasicBlock* topBB, BasicBlock* botBB)
 
 void Compiler::fgLoopCallMark()
 {
-    /* If we've already marked all the block, bail */
-
-    if (fgLoopCallMarked)
-    {
-        return;
-    }
+    assert(!fgLoopCallMarked);
 
     fgLoopCallMarked = true;
 
@@ -1088,29 +1083,26 @@ void Compiler::fgMarkLoopHead(BasicBlock* block)
         return;
     }
 
-    /* Are dominator sets available? */
+    assert(fgDomsComputed);
 
-    if (fgDomsComputed)
+    /* Make sure that we know which loops will always execute calls */
+
+    if (!fgLoopCallMarked)
     {
-        /* Make sure that we know which loops will always execute calls */
+        fgLoopCallMark();
+    }
 
-        if (!fgLoopCallMarked)
-        {
-            fgLoopCallMark();
-        }
+    /* Will every trip through our loop execute a call? */
 
-        /* Will every trip through our loop execute a call? */
-
-        if (block->bbFlags & BBF_LOOP_CALL1)
-        {
+    if (block->bbFlags & BBF_LOOP_CALL1)
+    {
 #ifdef DEBUG
-            if (verbose)
-            {
-                printf("this block dominates a block that will execute a call\n");
-            }
-#endif
-            return;
+        if (verbose)
+        {
+            printf("this block dominates a block that will execute a call\n");
         }
+#endif
+        return;
     }
 
     // We have to make this method fully interruptible since we can not
