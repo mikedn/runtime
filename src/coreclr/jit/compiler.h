@@ -5072,8 +5072,8 @@ public:
     GenTree* fgMorphNormalizeLclVarStore(GenTreeOp* asg);
 
     void fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB);
+    bool fgReachWithoutCall(BasicBlock* srcBB, BasicBlock* dstBB);
     void fgLoopCallMark();
-
     void fgMarkLoopHead(BasicBlock* block);
 
     unsigned fgGetCodeEstimate(BasicBlock* block);
@@ -6174,10 +6174,6 @@ public:
                                               BasicBlock*       head,
                                               BasicBlock*       slow);
 
-protected:
-    bool optReachWithoutCall(BasicBlock* srcBB, BasicBlock* dstBB);
-
-protected:
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

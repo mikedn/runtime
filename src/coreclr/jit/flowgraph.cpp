@@ -929,7 +929,7 @@ inline void Compiler::fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB)
     {
         /* Check whether there is a loop path that doesn't call */
 
-        if (optReachWithoutCall(dstBB, srcBB))
+        if (fgReachWithoutCall(dstBB, srcBB))
         {
             dstBB->bbFlags |= BBF_LOOP_CALL0;
             dstBB->bbFlags &= ~BBF_LOOP_CALL1;
@@ -939,6 +939,90 @@ inline void Compiler::fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB)
             dstBB->bbFlags |= BBF_LOOP_CALL1;
         }
     }
+}
+
+/*****************************************************************************
+ *
+ *  Return false if there is a code path from 'topBB' to 'botBB' that might
+ *  not execute a method call.
+ */
+
+bool Compiler::fgReachWithoutCall(BasicBlock* topBB, BasicBlock* botBB)
+{
+    // TODO-Cleanup: Currently BBF_GC_SAFE_POINT is not set for helper calls,
+    // as some helper calls are neither interruptible nor hijackable.
+    // When we can determine this, then we can set BBF_GC_SAFE_POINT for
+    // those helpers too.
+
+    noway_assert(topBB->bbNum <= botBB->bbNum);
+
+    // We can always check topBB and botBB for any GC safe points and early out.
+
+    if (topBB->HasGCSafePoint() || botBB->HasGCSafePoint())
+    {
+        return false;
+    }
+
+    // Otherwise we will need to rely upon the dominator sets
+
+    if (!fgDomsComputed)
+    {
+        // return a conservative answer of true when we don't have the dominator sets
+        return true;
+    }
+
+    BasicBlock* curBB = topBB;
+    for (;;)
+    {
+        noway_assert(curBB);
+
+        // If we added a loop pre-header block then we will
+        //  have a bbNum greater than fgLastBB, and we won't have
+        //  any dominator information about this block, so skip it.
+        //
+        if (curBB->bbNum <= fgLastBB->bbNum)
+        {
+            noway_assert(curBB->bbNum <= botBB->bbNum);
+
+            if (curBB->HasGCSafePoint())
+            {
+                // Will this block always execute on the way to botBB ?
+                //
+                // Since we are checking every block in [topBB .. botBB] and we are using
+                // a lexical definition of a loop.
+                //  (all that we know is that is that botBB is a back-edge to topBB)
+                // Thus while walking blocks in this range we may encounter some blocks
+                // that are not really part of the loop, and so we need to perform
+                // some additional checks:
+                //
+                // We will check that the current 'curBB' is reachable from 'topBB'
+                // and that it dominates the block containing the back-edge 'botBB'
+                // When both of these are true then we know that the gcsafe point in 'curBB'
+                // will be encountered in the loop and we can return false
+                //
+                if (fgDominate(curBB, botBB) && fgReachable(topBB, curBB))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                // If we've reached the destination block, then we're done
+
+                if (curBB == botBB)
+                {
+                    break;
+                }
+            }
+        }
+
+        curBB = curBB->bbNext;
+    }
+
+    // If we didn't find any blocks that contained a gc safe point and
+    // also met the fgDominate and fgReachable criteria then we must return true
+    //
+    return true;
 }
 
 /*****************************************************************************
@@ -3048,7 +3132,7 @@ void Compiler::fgSetBlockOrder()
 
 #if FEATURE_FASTTAILCALL
 #ifndef JIT32_GCENCODER
-        if (block->endsWithTailCallOrJmp(this, true) && optReachWithoutCall(fgFirstBB, block))
+        if (block->endsWithTailCallOrJmp(this, true) && fgReachWithoutCall(fgFirstBB, block))
         {
             // This tail call might combine with other tail calls to form a
             // loop.  Thus we need to either add a poll, or make the method

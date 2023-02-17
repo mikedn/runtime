@@ -1467,7 +1467,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     // a GC-safe point or the whole method is marked as fully interruptible.
     //
     // TODO-Cleanup:
-    // optReachWithoutCall() depends on the fact that loop headers blocks
+    // fgReachWithoutCall() depends on the fact that loop headers blocks
     // will have a block number > fgLastBB.  These loop headers gets added
     // after dominator computation and get skipped by OptReachWithoutCall().
     // The below condition cannot be asserted in lower because we may add
@@ -1475,7 +1475,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     // numbers than the loop header block number.
     //
     // assert(comp->compCurBB->HasGCSafePoint() ||
-    //        !comp->optReachWithoutCall(comp->fgFirstBB, comp->compCurBB) || comp->GetInterruptible());
+    //        !comp->fgReachWithoutCall(comp->fgFirstBB, comp->compCurBB) || comp->GetInterruptible());
 
     // If PInvokes are in-lined, we have to remember to execute PInvoke method epilog anywhere that
     // a method returns.  This is a case of caller method has both PInvokes and tail calls.
