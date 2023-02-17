@@ -3054,16 +3054,7 @@ unsigned Compiler::fgGetThrowHelperBlockStackLevel(BasicBlock* block)
 
 void Compiler::fgSetBlockOrder()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgSetBlockOrder()\n");
-    }
-#endif // DEBUG
-
-#ifdef DEBUG
-    BasicBlock::s_nMaxTrees = 0;
-#endif
+    JITDUMP("*************** In fgSetBlockOrder()\n");
 
     /* Walk the basic blocks to assign sequence numbers */
 
@@ -3142,13 +3133,7 @@ void Compiler::fgSetBlockOrder()
 
     fgStmtListThreaded = true;
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("The biggest BB has %4u tree nodes\n", BasicBlock::s_nMaxTrees);
-    }
-    fgDebugCheckLinks();
-#endif // DEBUG
+    INDEBUG(fgDebugCheckLinks());
 }
 
 void Compiler::fgSetBlockOrder(BasicBlock* block)
@@ -3268,8 +3253,6 @@ public:
         m_tail         = node;
 
         INDEBUG(node->gtSeqNum = ++m_seqNum;)
-        // Keep track of the highest # of tree nodes
-        INDEBUG(BasicBlock::s_nMaxTrees = max(m_seqNum, BasicBlock::s_nMaxTrees);)
 
         return Compiler::WALK_CONTINUE;
     }

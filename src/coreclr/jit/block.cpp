@@ -25,12 +25,6 @@ size_t BasicBlock::s_Count;
 #endif // MEASURE_BLOCK_SIZE
 
 #ifdef DEBUG
-// The max # of tree nodes in any BB
-/* static */
-unsigned BasicBlock::s_nMaxTrees;
-#endif // DEBUG
-
-#ifdef DEBUG
 flowList* ShuffleHelper(unsigned hash, flowList* res)
 {
     flowList* head = res;

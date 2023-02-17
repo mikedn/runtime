@@ -1129,8 +1129,6 @@ struct BasicBlock : private LIR::Range
     unsigned bbTgtStkDepth; // Native stack depth on entry (for throw-blocks)
 #endif
 
-    static unsigned s_nMaxTrees; // The max # of tree nodes in any BB
-
     // This is used in integrity checks.  We semi-randomly pick a traversal stamp, label all blocks
     // in the BB list with that stamp (in this field); then we can tell if (e.g.) predecessors are
     // still in the BB list by whether they have the same stamp (with high probability).
