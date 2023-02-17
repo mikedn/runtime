@@ -3073,27 +3073,29 @@ void Compiler::fgSetBlockOrder()
     }
     else
     {
-        /* If we don't have the dominators, use an abbreviated test for fully interruptible.  If there are
-         * any back edges, check the source and destination blocks to see if they're GC Safe.  If not, then
-         * go fully interruptible. */
+        // If we didn't compute dominators, use an abbreviated test for fully interruptible.
+        // If there are any back edges, check the source and destination blocks to see if
+        // they're GC safe. If not, then go fully interruptible.
+
+        auto EdgeIsGCSafe = [](BasicBlock* src, BasicBlock* dst) {
+            return (src->bbNum < dst->bbNum) || src->HasGCSafePoint() || dst->HasGCSafePoint();
+        };
+
         for (BasicBlock* const block : Blocks())
         {
-// true if the edge is forward, or if it is a back edge and either the source and dest are GC safe.
-#define EDGE_IS_GC_SAFE(src, dst)                                                                                      \
-    (((src)->bbNum < (dst)->bbNum) || (((src)->bbFlags | (dst)->bbFlags) & BBF_GC_SAFE_POINT))
-
             bool partiallyInterruptible = true;
+
             switch (block->bbJumpKind)
             {
                 case BBJ_COND:
                 case BBJ_ALWAYS:
-                    partiallyInterruptible = EDGE_IS_GC_SAFE(block, block->bbJumpDest);
+                    partiallyInterruptible = EdgeIsGCSafe(block, block->bbJumpDest);
                     break;
 
                 case BBJ_SWITCH:
                     for (BasicBlock* const bTarget : block->SwitchTargets())
                     {
-                        partiallyInterruptible &= EDGE_IS_GC_SAFE(block, bTarget);
+                        partiallyInterruptible &= EdgeIsGCSafe(block, bTarget);
                     }
                     break;
 
@@ -3106,7 +3108,6 @@ void Compiler::fgSetBlockOrder()
                 codeGen->SetInterruptible(true);
                 break;
             }
-#undef EDGE_IS_GC_SAFE
         }
     }
 
