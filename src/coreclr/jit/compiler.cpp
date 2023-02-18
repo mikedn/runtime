@@ -2968,7 +2968,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     // nodes properly linked.
     // This can create GC poll calls, and create new BasicBlocks (without updating dominators/reachability).
     //
-    DoPhase(this, PHASE_SET_BLOCK_ORDER, &Compiler::fgSetBlockOrder);
+    DoPhase(this, PHASE_SET_BLOCK_ORDER, &Compiler::fgSetBlockOrderPhase);
 
     // At this point we know if we are fully interruptible or not
     if (opts.OptimizationEnabled())

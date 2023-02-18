@@ -5061,7 +5061,7 @@ public:
     // method that returns if you should split here
     typedef bool(fgSplitPredicate)(GenTree* tree, GenTree* parent, fgWalkData* data);
 
-    void fgSetBlockOrder();
+    void fgSetBlockOrderPhase();
 
     void fgRemoveReturnBlock(BasicBlock* block);
 
@@ -5074,7 +5074,6 @@ public:
     void fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB);
     bool fgReachWithoutCall(BasicBlock* srcBB, BasicBlock* dstBB);
     void fgLoopCallMark();
-    void fgMarkLoopHead(BasicBlock* block);
 
     unsigned fgGetCodeEstimate(BasicBlock* block);
 
@@ -5285,7 +5284,7 @@ private:
     GenTree* fgSetTreeSeq(GenTree* tree, bool isLIR = false);
     void fgCheckTreeSeq(GenTree* tree, bool isLIR = false);
     void fgSetStmtSeq(Statement* stmt);
-    void fgSetBlockOrder(BasicBlock* block);
+    void fgSequenceBlockStatements(BasicBlock* block);
 
 private:
 #ifndef TARGET_X86

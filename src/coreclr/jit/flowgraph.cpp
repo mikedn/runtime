@@ -908,213 +908,6 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
     return call;
 }
 
-/*****************************************************************************
- *
- *  Mark whether the edge "srcBB -> dstBB" forms a loop that will always
- *  execute a call or not.
- */
-
-inline void Compiler::fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB)
-{
-    /* Bail if this is not a backward edge */
-
-    if (srcBB->bbNum < dstBB->bbNum)
-    {
-        return;
-    }
-
-    /* Unless we already know that there is a loop without a call here ... */
-
-    if (!(dstBB->bbFlags & BBF_LOOP_CALL0))
-    {
-        /* Check whether there is a loop path that doesn't call */
-
-        if (fgReachWithoutCall(dstBB, srcBB))
-        {
-            dstBB->bbFlags |= BBF_LOOP_CALL0;
-            dstBB->bbFlags &= ~BBF_LOOP_CALL1;
-        }
-        else
-        {
-            dstBB->bbFlags |= BBF_LOOP_CALL1;
-        }
-    }
-}
-
-/*****************************************************************************
- *
- *  Return false if there is a code path from 'topBB' to 'botBB' that might
- *  not execute a method call.
- */
-
-bool Compiler::fgReachWithoutCall(BasicBlock* topBB, BasicBlock* botBB)
-{
-    // TODO-Cleanup: Currently BBF_GC_SAFE_POINT is not set for helper calls,
-    // as some helper calls are neither interruptible nor hijackable.
-    // When we can determine this, then we can set BBF_GC_SAFE_POINT for
-    // those helpers too.
-
-    noway_assert(topBB->bbNum <= botBB->bbNum);
-
-    // We can always check topBB and botBB for any GC safe points and early out.
-
-    if (topBB->HasGCSafePoint() || botBB->HasGCSafePoint())
-    {
-        return false;
-    }
-
-    // Otherwise we will need to rely upon the dominator sets
-
-    if (!fgDomsComputed)
-    {
-        // return a conservative answer of true when we don't have the dominator sets
-        return true;
-    }
-
-    BasicBlock* curBB = topBB;
-    for (;;)
-    {
-        noway_assert(curBB);
-
-        // If we added a loop pre-header block then we will
-        //  have a bbNum greater than fgLastBB, and we won't have
-        //  any dominator information about this block, so skip it.
-        //
-        if (curBB->bbNum <= fgLastBB->bbNum)
-        {
-            noway_assert(curBB->bbNum <= botBB->bbNum);
-
-            if (curBB->HasGCSafePoint())
-            {
-                // Will this block always execute on the way to botBB ?
-                //
-                // Since we are checking every block in [topBB .. botBB] and we are using
-                // a lexical definition of a loop.
-                //  (all that we know is that is that botBB is a back-edge to topBB)
-                // Thus while walking blocks in this range we may encounter some blocks
-                // that are not really part of the loop, and so we need to perform
-                // some additional checks:
-                //
-                // We will check that the current 'curBB' is reachable from 'topBB'
-                // and that it dominates the block containing the back-edge 'botBB'
-                // When both of these are true then we know that the gcsafe point in 'curBB'
-                // will be encountered in the loop and we can return false
-                //
-                if (fgDominate(curBB, botBB) && fgReachable(topBB, curBB))
-                {
-                    return false;
-                }
-            }
-            else
-            {
-                // If we've reached the destination block, then we're done
-
-                if (curBB == botBB)
-                {
-                    break;
-                }
-            }
-        }
-
-        curBB = curBB->bbNext;
-    }
-
-    // If we didn't find any blocks that contained a gc safe point and
-    // also met the fgDominate and fgReachable criteria then we must return true
-    //
-    return true;
-}
-
-/*****************************************************************************
- *
- *  Mark which loops are guaranteed to execute a call.
- */
-
-void Compiler::fgLoopCallMark()
-{
-    assert(!fgLoopCallMarked);
-
-    fgLoopCallMarked = true;
-
-    /* Walk the blocks, looking for backward edges */
-
-    for (BasicBlock* const block : Blocks())
-    {
-        switch (block->bbJumpKind)
-        {
-            case BBJ_COND:
-            case BBJ_CALLFINALLY:
-            case BBJ_ALWAYS:
-            case BBJ_EHCATCHRET:
-                fgLoopCallTest(block, block->bbJumpDest);
-                break;
-
-            case BBJ_SWITCH:
-                for (BasicBlock* const bTarget : block->SwitchTargets())
-                {
-                    fgLoopCallTest(block, bTarget);
-                }
-                break;
-
-            default:
-                break;
-        }
-    }
-}
-
-/*****************************************************************************
- *
- *  Note the fact that the given block is a loop header.
- */
-
-void Compiler::fgMarkLoopHead(BasicBlock* block)
-{
-    JITDUMP("fgMarkLoopHead: Checking loop head block " FMT_BB ": ", block->bbNum);
-
-    if (codeGen->GetInterruptible())
-    {
-        JITDUMP("method is already fully interruptible\n");
-        return;
-    }
-
-    if (block->HasGCSafePoint())
-    {
-        JITDUMP("this block will execute a call\n");
-        return;
-    }
-
-    assert(fgDomsComputed);
-
-    /* Make sure that we know which loops will always execute calls */
-
-    if (!fgLoopCallMarked)
-    {
-        fgLoopCallMark();
-    }
-
-    /* Will every trip through our loop execute a call? */
-
-    if (block->bbFlags & BBF_LOOP_CALL1)
-    {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("this block dominates a block that will execute a call\n");
-        }
-#endif
-        return;
-    }
-
-    // We have to make this method fully interruptible since we can not
-    // ensure that this loop will execute a call every time it loops.
-    //
-    // We'll also need to generate a full register map for this method.
-
-    JITDUMP("no guaranteed callsite exits, marking method as fully interruptible\n");
-
-    codeGen->SetInterruptible(true);
-}
-
 GenTree* Compiler::fgGetCritSectOfStaticMethod()
 {
     noway_assert(!compIsForInlining());
@@ -3045,30 +2838,179 @@ unsigned Compiler::fgGetThrowHelperBlockStackLevel(BasicBlock* block)
 
 #endif // !FEATURE_FIXED_OUT_ARGS
 
-/*****************************************************************************
- *
- *  Figure out the order in which operators should be evaluated, along with
- *  other information (such as the register sets trashed by each subtree).
- *  Also finds blocks that need GC polls and inserts them as needed.
- */
+// Return false if there is a code path from topBlock to bottomBlock
+// that might not execute a method call.
+bool Compiler::fgReachWithoutCall(BasicBlock* topBlock, BasicBlock* bottomBlock)
+{
+    assert(topBlock->bbNum <= bottomBlock->bbNum);
 
-void Compiler::fgSetBlockOrder()
+    // We can always check topBB and botBB for any GC safe points and early out.
+    //
+    // TODO-Cleanup: Currently BBF_GC_SAFE_POINT is not set for helper calls,
+    // as some helper calls are neither interruptible nor hijackable. When we
+    // can determine this, then we can set BBF_GC_SAFE_POINT for helpers too.
+
+    if (topBlock->HasGCSafePoint() || bottomBlock->HasGCSafePoint())
+    {
+        return false;
+    }
+
+    if (!fgDomsComputed)
+    {
+        // Return a conservative answer of true when we don't have the dominator sets.
+        return true;
+    }
+
+    for (BasicBlock* block = topBlock;; block = block->bbNext)
+    {
+        noway_assert(block != nullptr);
+
+        // If we added a loop pre-header block then we will have a bbNum greater
+        // than fgLastBB, and we won't have any dominator information about this
+        // block, so skip it.
+
+        if (block->bbNum > fgLastBB->bbNum)
+        {
+            continue;
+        }
+
+        noway_assert(block->bbNum <= bottomBlock->bbNum);
+
+        if (block->HasGCSafePoint())
+        {
+            // Will this block always execute on the way to bottom?
+            //
+            // We are checking every block in [topBlock..bottomBlock] and we are using a
+            // lexical definition of a loop (all that we know is that is that the bottom
+            // block has a back-edge to the top block).
+            // Thus while walking blocks in this range we may encounter some blocks that
+            // are not really part of the loop, and so we need to perform some additional
+            // checks.
+            // We will check that the current block is reachable from the top block and
+            // that it dominates the block containing the back-edge bottom block.
+            // When both of these are true then we know that the GC safe point in the
+            // current block will be encountered in the loop and we can return false.
+
+            if (fgDominate(block, bottomBlock) && fgReachable(topBlock, block))
+            {
+                return false;
+            }
+        }
+        else if (block == bottomBlock)
+        {
+            // We've reached the destination block so we're done.
+            break;
+        }
+    }
+
+    // If we didn't find any blocks that contained a GC safe point and also
+    // met the fgDominate and fgReachable criteria then we must return true.
+
+    return true;
+}
+
+// Mark whether the edge srcBB -> dstBB forms a loop that will always
+// execute a call or not.
+void Compiler::fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB)
+{
+    if (srcBB->bbNum < dstBB->bbNum)
+    {
+        return;
+    }
+
+    if ((dstBB->bbFlags & BBF_LOOP_CALL0) == 0)
+    {
+        if (fgReachWithoutCall(dstBB, srcBB))
+        {
+            dstBB->bbFlags |= BBF_LOOP_CALL0;
+            dstBB->bbFlags &= ~BBF_LOOP_CALL1;
+        }
+        else
+        {
+            dstBB->bbFlags |= BBF_LOOP_CALL1;
+        }
+    }
+}
+
+// Mark loops that are guaranteed to execute a call.
+void Compiler::fgLoopCallMark()
+{
+    assert(fgDomsComputed);
+    assert(!fgLoopCallMarked);
+
+    fgLoopCallMarked = true;
+
+    for (BasicBlock* block : Blocks())
+    {
+        switch (block->bbJumpKind)
+        {
+            case BBJ_COND:
+            case BBJ_CALLFINALLY:
+            case BBJ_ALWAYS:
+            case BBJ_EHCATCHRET:
+                fgLoopCallTest(block, block->bbJumpDest);
+                break;
+
+            case BBJ_SWITCH:
+                for (BasicBlock* target : block->SwitchTargets())
+                {
+                    fgLoopCallTest(block, target);
+                }
+                break;
+
+            default:
+                break;
+        }
+    }
+}
+
+// Figure out the order in which operators should be evaluated.
+// Also finds blocks that need GC polls.
+void Compiler::fgSetBlockOrderPhase()
 {
     JITDUMP("*************** In fgSetBlockOrder()\n");
 
-    /* Walk the basic blocks to assign sequence numbers */
-
-    /* If we don't compute the doms, then we never mark blocks as loops. */
     if (fgDomsComputed)
     {
-        for (BasicBlock* const block : Blocks())
+        for (BasicBlock* block : Blocks())
         {
-            /* If this block is a loop header, mark it appropriately */
-
-            if (block->isLoopHead())
+            if (codeGen->GetInterruptible())
             {
-                fgMarkLoopHead(block);
+                JITDUMP("method is already fully interruptible\n");
+                break;
             }
+
+            if (!block->isLoopHead())
+            {
+                continue;
+            }
+
+            JITDUMP("Checking loop head block " FMT_BB ": ", block->bbNum);
+
+            if (block->HasGCSafePoint())
+            {
+                JITDUMP("this block will execute a call\n");
+                continue;
+            }
+
+            if (!fgLoopCallMarked)
+            {
+                fgLoopCallMark();
+            }
+
+            if ((block->bbFlags & BBF_LOOP_CALL1) != 0)
+            {
+                JITDUMP("this block dominates a block that will execute a call\n");
+                continue;
+            }
+
+            // We have to make this method fully interruptible since we can not
+            // ensure that this loop will execute a call every time it loops.
+
+            JITDUMP("no guaranteed callsite exits, marking method as fully interruptible\n");
+
+            codeGen->SetInterruptible(true);
+            break;
         }
     }
     else
@@ -3123,51 +3065,42 @@ void Compiler::fgSetBlockOrder()
         }
     }
 
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* block : Blocks())
     {
-
-#if FEATURE_FASTTAILCALL
-#ifndef JIT32_GCENCODER
-        if (block->endsWithTailCallOrJmp(this, true) && fgReachWithoutCall(fgFirstBB, block))
+#if FEATURE_FASTTAILCALL && !defined(JIT32_GCENCODER)
+        if ((block->EndsWithJmp(this) || block->EndsWithTailCall(this, true)) && fgReachWithoutCall(fgFirstBB, block))
         {
-            // This tail call might combine with other tail calls to form a
-            // loop.  Thus we need to either add a poll, or make the method
-            // fully interruptible.  I chose the later because that's what
-            // JIT64 does.
+            // This tail call might combine with other tail calls to form a loop. Thus
+            // we need to either add a poll, or make the method fully interruptible.
+            // I chose the later because that's what JIT64 does.
             codeGen->SetInterruptible(true);
         }
-#endif // !JIT32_GCENCODER
-#endif // FEATURE_FASTTAILCALL
+#endif
 
-        fgSetBlockOrder(block);
+        fgSequenceBlockStatements(block);
     }
-
-    /* Remember that now the tree list is threaded */
 
     fgStmtListThreaded = true;
 
     INDEBUG(fgDebugCheckLinks());
 }
 
-void Compiler::fgSetBlockOrder(BasicBlock* block)
+void Compiler::fgSequenceBlockStatements(BasicBlock* block)
 {
     for (Statement* stmt : block->Statements())
     {
         fgSetStmtSeq(stmt);
 
-        /* Are there any more trees in this basic block? */
-
         if (stmt->GetNextStmt() == nullptr)
         {
-            /* last statement in the tree list */
             noway_assert(block->lastStmt() == stmt);
+
             break;
         }
 
 #ifdef DEBUG
         if (block->bbStmtList == stmt)
         {
-            /* first statement in the list */
             assert(stmt->GetPrevStmt()->GetNextStmt() == nullptr);
         }
         else
@@ -3176,7 +3109,7 @@ void Compiler::fgSetBlockOrder(BasicBlock* block)
         }
 
         assert(stmt->GetNextStmt()->GetPrevStmt() == stmt);
-#endif // DEBUG
+#endif
     }
 }
 

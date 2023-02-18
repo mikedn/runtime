@@ -598,15 +598,14 @@ public:
 
     bool PerBlockAnalysis(BasicBlock* block, bool keepAliveThis)
     {
-        /* Compute the 'liveOut' set */
         VarSetOps::ClearD(m_compiler, m_liveOut);
         m_memoryLiveOut = false;
-        if (block->endsWithJmpMethod(m_compiler))
+
+        if (block->EndsWithJmp(m_compiler))
         {
-            // A JMP uses all the arguments, so mark them all
-            // as live at the JMP instruction
-            //
+            // A JMP uses all the arguments, so mark them all as live at the JMP instruction.
             const LclVarDsc* varDscEndParams = m_compiler->lvaTable + m_compiler->info.compArgsCount;
+
             for (LclVarDsc* varDsc = m_compiler->lvaTable; varDsc < varDscEndParams; varDsc++)
             {
                 noway_assert(!varDsc->lvPromoted);

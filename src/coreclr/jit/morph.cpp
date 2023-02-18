@@ -14313,10 +14313,9 @@ void Compiler::fgMorphStmts(BasicBlock* block)
     }
 
 #if FEATURE_FASTTAILCALL
-    GenTree* recursiveTailCall = nullptr;
-    if (block->endsWithTailCallConvertibleToLoop(this, &recursiveTailCall))
+    if (GenTreeCall* recursiveTailCall = block->EndsWithTailCallConvertibleToLoop(this))
     {
-        fgMorphRecursiveFastTailCallIntoLoop(block, recursiveTailCall->AsCall());
+        fgMorphRecursiveFastTailCallIntoLoop(block, recursiveTailCall);
     }
 #endif
 

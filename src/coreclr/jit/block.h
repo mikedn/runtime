@@ -1184,16 +1184,10 @@ struct BasicBlock : private LIR::Range
     GenTree* firstNode() const;
     GenTree* lastNode() const;
 
-    bool endsWithJmpMethod(Compiler* comp) const;
-
-    bool endsWithTailCall(Compiler* comp,
-                          bool      fastTailCallsOnly,
-                          bool      tailCallsConvertibleToLoopOnly,
-                          GenTree** tailCall) const;
-
-    bool endsWithTailCallOrJmp(Compiler* comp, bool fastTailCallsOnly = false) const;
-
-    bool endsWithTailCallConvertibleToLoop(Compiler* comp, GenTree** tailCall) const;
+    bool EndsWithJmp(Compiler* comp) const;
+    bool EndsWithTailCall(Compiler* comp, bool fastTailCallsOnly) const;
+    GenTreeCall* EndsWithTailCallConvertibleToLoop(Compiler* comp) const;
+    GenTreeCall* EndsWithTailCall(Compiler* comp, bool fastTailCallsOnly, bool tailCallsConvertibleToLoopOnly) const;
 
     // Returns the first statement in the statement list of "this" that is
     // not an SSA definition (a lcl = phi(...) assignment).
