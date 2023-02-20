@@ -4667,6 +4667,19 @@ PhaseStatus Lowering::DoPhase()
         LowerBlock(block);
     }
 
+    if (comp->fgHasEH() || comp->compMethodRequiresPInvokeFrame() || comp->compIsProfilerHookNeeded() ||
+        comp->compLocallocUsed
+#ifdef TARGET_X86
+        || comp->compTailCallUsed
+#endif
+#ifdef JIT32_GCENCODER
+        || comp->info.compPublishStubParam || comp->info.compIsVarArgs || comp->lvaReportParamTypeArg()
+#endif
+        || comp->opts.compDbgEnC)
+    {
+        comp->opts.SetFramePointerRequired();
+    }
+
 #if FEATURE_FIXED_OUT_ARGS
     // Finish computing the outgoing args area size
     //

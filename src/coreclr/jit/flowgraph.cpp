@@ -2964,29 +2964,11 @@ void Compiler::fgLoopCallMark()
     }
 }
 
-void Compiler::fgSetOptions()
+void Compiler::fgSetFullyInterruptiblePhase()
 {
-    // Assert that the EH table has been initialized by now. Note that
-    // compHndBBtabAllocCount never decreases; it is a high-water mark
-    // of table allocation. In contrast, compHndBBtabCount does shrink
-    // if we delete a dead EH region, and if it shrinks to zero, the
-    // table pointer compHndBBtab is unreliable.
-    assert(compHndBBtabAllocCount >= info.compXcptnsCount);
+    JITDUMP("*************** In fgSetFullyInterruptiblePhase()\n");
 
-    bool hasEH =
-#ifdef TARGET_X86
-        // This case should use the !X86 path. This would require a few more
-        // changes for X86 to use compHndBBtabCount (the current number of EH
-        // clauses) instead of info.compXcptnsCount (the number of EH clauses
-        // in IL), such as in ehNeedsShadowSPslots().
-        // This is because sometimes the IL has an EH clause that we delete
-        // as statically dead code before we get here, leaving no EH clauses,
-        // and thus no requirement to use a frame pointer because of EH.
-        info.compXcptnsCount
-#else
-        compHndBBtabCount
-#endif
-        != 0;
+    assert(!codeGen->GetInterruptible());
 
     if (opts.compDbgCode
 #if !defined(JIT32_GCENCODER) || defined(UNIX_X86_ABI)
@@ -2994,7 +2976,7 @@ void Compiler::fgSetOptions()
         // are fully-interruptible. So if we have a catch or finally that
         // will keep frame-vars alive, we need to force fully-interruptible.
         // UNIX_X86_ABI uses GC info for unwinding.
-        || hasEH
+        || fgHasEH()
 #endif
 #ifdef DEBUG
         || JitConfig.JitFullyInt() || compStressCompile(STRESS_GENERIC_VARN, 30)
@@ -3002,30 +2984,6 @@ void Compiler::fgSetOptions()
             )
     {
         codeGen->SetInterruptible(true);
-    }
-
-    if (hasEH || compMethodRequiresPInvokeFrame() || compIsProfilerHookNeeded() || compLocallocUsed
-#ifdef TARGET_X86
-        || compTailCallUsed
-#endif
-#ifdef JIT32_GCENCODER
-        || info.compPublishStubParam || info.compIsVarArgs || lvaReportParamTypeArg()
-#endif
-        || opts.compDbgEnC)
-    {
-        opts.SetFramePointerRequired();
-    }
-}
-
-void Compiler::fgSetFullyInterruptiblePhase()
-{
-    JITDUMP("*************** In fgSetFullyInterruptiblePhase()\n");
-
-    fgSetOptions();
-
-    if (codeGen->GetInterruptible())
-    {
-        JITDUMP("Method is already fully interruptible\n");
         return;
     }
 

@@ -3208,6 +3208,29 @@ public:
     void fgRemoveEH();
 #endif // !FEATURE_EH
 
+    bool fgHasEH() const
+    {
+        // Assert that the EH table has been initialized by now. Note that
+        // compHndBBtabAllocCount never decreases; it is a high-water mark
+        // of table allocation. In contrast, compHndBBtabCount does shrink
+        // if we delete a dead EH region, and if it shrinks to zero, the
+        // table pointer compHndBBtab is unreliable.
+        assert(compHndBBtabAllocCount >= info.compXcptnsCount);
+
+#ifdef TARGET_X86
+        // This case should use the !X86 path. This would require a few more
+        // changes for X86 to use compHndBBtabCount (the current number of EH
+        // clauses) instead of info.compXcptnsCount (the number of EH clauses
+        // in IL), such as in ehNeedsShadowSPslots().
+        // This is because sometimes the IL has an EH clause that we delete
+        // as statically dead code before we get here, leaving no EH clauses,
+        // and thus no requirement to use a frame pointer because of EH.
+        return info.compXcptnsCount != 0;
+#else
+        return compHndBBtabCount != 0;
+#endif
+    }
+
     void fgSortEHTable();
 
     // Causes the EH table to obey some well-formedness conditions, by inserting
@@ -5059,7 +5082,6 @@ public:
     // method that returns if you should split here
     typedef bool(fgSplitPredicate)(GenTree* tree, GenTree* parent, fgWalkData* data);
 
-    void fgSetOptions();
     void fgSetFullyInterruptiblePhase();
     void fgSetBlockOrderPhase();
 
