@@ -2964,21 +2964,29 @@ void Compiler::fgLoopCallMark()
     }
 }
 
-// Figure out the order in which operators should be evaluated.
-// Also finds blocks that need GC polls.
-void Compiler::fgSetBlockOrderPhase()
+void Compiler::fgSetFullyInterruptiblePhase()
 {
-    JITDUMP("*************** In fgSetBlockOrder()\n");
+    JITDUMP("*************** In fgSetFullyInterruptiblePhase()\n");
+
+    if (codeGen->GetInterruptible())
+    {
+        JITDUMP("Method is already fully interruptible\n");
+        return;
+    }
 
     if (fgDomsComputed)
     {
         for (BasicBlock* block : Blocks())
         {
-            if (codeGen->GetInterruptible())
+#if FEATURE_FASTTAILCALL && !defined(JIT32_GCENCODER)
+            if ((block->EndsWithJmp(this) || block->EndsWithFastTailCall(this)) && fgReachWithoutCall(fgFirstBB, block))
             {
-                JITDUMP("method is already fully interruptible\n");
+                // Tail calls might combine to form a loop. We need to either add a poll,
+                // or make the method fully interruptible. JIT64 did the later.
+                codeGen->SetInterruptible(true);
                 break;
             }
+#endif
 
             if (!block->isLoopHead())
             {
@@ -3053,6 +3061,19 @@ void Compiler::fgSetBlockOrderPhase()
                     }
                     break;
 
+#if FEATURE_FASTTAILCALL && !defined(JIT32_GCENCODER)
+                case BBJ_RETURN:
+                case BBJ_THROW:
+                    // Tail calls might combine to form a loop. We need to either add a poll,
+                    // or make the method fully interruptible. JIT64 did the later.
+                    if ((block->EndsWithJmp(this) || block->EndsWithFastTailCall(this)) &&
+                        (!fgFirstBB->HasGCSafePoint() && !block->HasGCSafePoint()))
+                    {
+                        fullyInterruptible = true;
+                    }
+                    break;
+#endif
+
                 default:
                     break;
             }
@@ -3064,19 +3085,12 @@ void Compiler::fgSetBlockOrderPhase()
             }
         }
     }
+}
 
+void Compiler::fgSetBlockOrderPhase()
+{
     for (BasicBlock* block : Blocks())
     {
-#if FEATURE_FASTTAILCALL && !defined(JIT32_GCENCODER)
-        if ((block->EndsWithJmp(this) || block->EndsWithTailCall(this, true)) && fgReachWithoutCall(fgFirstBB, block))
-        {
-            // This tail call might combine with other tail calls to form a loop. Thus
-            // we need to either add a poll, or make the method fully interruptible.
-            // I chose the later because that's what JIT64 does.
-            codeGen->SetInterruptible(true);
-        }
-#endif
-
         fgSequenceBlockStatements(block);
     }
 

@@ -1185,7 +1185,8 @@ struct BasicBlock : private LIR::Range
     GenTree* lastNode() const;
 
     bool EndsWithJmp(Compiler* comp) const;
-    bool EndsWithTailCall(Compiler* comp, bool fastTailCallsOnly) const;
+    bool EndsWithTailCall(Compiler* comp) const;
+    bool EndsWithFastTailCall(Compiler* comp) const;
     GenTreeCall* EndsWithTailCallConvertibleToLoop(Compiler* comp) const;
     GenTreeCall* EndsWithTailCall(Compiler* comp, bool fastTailCallsOnly, bool tailCallsConvertibleToLoopOnly) const;
 

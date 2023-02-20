@@ -1273,9 +1273,14 @@ bool BasicBlock::EndsWithJmp(Compiler* comp) const
            lastNode()->OperIs(GT_JMP);
 }
 
-bool BasicBlock::EndsWithTailCall(Compiler* comp, bool fastTailCallsOnly) const
+bool BasicBlock::EndsWithTailCall(Compiler* comp) const
 {
-    return EndsWithTailCall(comp, fastTailCallsOnly, /*tailCallsConvertibleToLoopOnly*/ false) != nullptr;
+    return EndsWithTailCall(comp, /*fastTailCallsOnly*/ false, /*tailCallsConvertibleToLoopOnly*/ false) != nullptr;
+}
+
+bool BasicBlock::EndsWithFastTailCall(Compiler* comp) const
+{
+    return EndsWithTailCall(comp, /*fastTailCallsOnly*/ true, /*tailCallsConvertibleToLoopOnly*/ false) != nullptr;
 }
 
 GenTreeCall* BasicBlock::EndsWithTailCallConvertibleToLoop(Compiler* comp) const

@@ -5061,6 +5061,7 @@ public:
     // method that returns if you should split here
     typedef bool(fgSplitPredicate)(GenTree* tree, GenTree* parent, fgWalkData* data);
 
+    void fgSetFullyInterruptiblePhase();
     void fgSetBlockOrderPhase();
 
     void fgRemoveReturnBlock(BasicBlock* block);

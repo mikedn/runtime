@@ -66,6 +66,7 @@ CompPhaseNameMacro(PHASE_ADD_COPIES,             "Add copies",                  
 #endif
 CompPhaseNameMacro(PHASE_OPTIMIZE_BOOLS,         "Optimize bools",                 "OPT-BOOL", false, -1, false)
 CompPhaseNameMacro(PHASE_FIND_OPER_ORDER,        "Find oper order",                "OPER-ORD", false, -1, false)
+CompPhaseNameMacro(PHASE_SET_FULLY_INTERRUPTIBLE,"Set fully interruptible",        "FULLY-INT",false, -1, true)
 CompPhaseNameMacro(PHASE_SET_BLOCK_ORDER,        "Set block order",                "BLK-ORD",  false, -1, true)
 CompPhaseNameMacro(PHASE_BUILD_SSA,              "Build SSA representation",       "SSA",      true,  -1, false)
 CompPhaseNameMacro(PHASE_BUILD_SSA_TOPOSORT,     "SSA: topological sort",          "SSA-SORT", false, PHASE_BUILD_SSA, false)

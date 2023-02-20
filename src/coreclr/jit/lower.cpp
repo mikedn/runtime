@@ -3078,7 +3078,7 @@ void Lowering::InsertPInvokeMethodEpilog(BasicBlock* returnBB DEBUGARG(GenTree* 
 
     // Method doing PInvoke calls has exactly one return block unless it has "jmp" or tail calls.
     assert(((returnBB == comp->genReturnBB) && (returnBB->bbJumpKind == BBJ_RETURN)) || returnBB->EndsWithJmp(comp) ||
-           returnBB->EndsWithTailCall(comp, false));
+           returnBB->EndsWithTailCall(comp));
 
     LIR::Range& returnBlockRange = LIR::AsRange(returnBB);
 

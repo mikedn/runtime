@@ -2962,12 +2962,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     // Figure out the order in which operators are to be evaluated
     //
     DoPhase(this, PHASE_FIND_OPER_ORDER, &Compiler::fgFindOperOrder);
-
-    // Weave the tree lists. Anyone who modifies the tree shapes after
-    // this point is responsible for calling fgSetStmtSeq() to keep the
-    // nodes properly linked.
-    // This can create GC poll calls, and create new BasicBlocks (without updating dominators/reachability).
-    //
+    DoPhase(this, PHASE_SET_FULLY_INTERRUPTIBLE, &Compiler::fgSetFullyInterruptiblePhase);
     DoPhase(this, PHASE_SET_BLOCK_ORDER, &Compiler::fgSetBlockOrderPhase);
 
     // At this point we know if we are fully interruptible or not
