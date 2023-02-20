@@ -4479,8 +4479,6 @@ public:
 
     bool fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(const char* msg));
 
-    void fgSetOptions();
-
 #ifdef DEBUG
     static fgWalkPreFn fgAssertNoQmark;
     void fgPreExpandQmarkChecks(GenTree* expr);
@@ -5061,6 +5059,7 @@ public:
     // method that returns if you should split here
     typedef bool(fgSplitPredicate)(GenTree* tree, GenTree* parent, fgWalkData* data);
 
+    void fgSetOptions();
     void fgSetFullyInterruptiblePhase();
     void fgSetBlockOrderPhase();
 

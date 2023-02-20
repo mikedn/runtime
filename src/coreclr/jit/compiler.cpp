@@ -2849,9 +2849,6 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
         }
 #endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
 
-        // Decide the kind of code we want to generate
-        fgSetOptions();
-
         fgExpandQmarkNodes();
 
 #ifdef DEBUG

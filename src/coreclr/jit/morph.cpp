@@ -14578,66 +14578,6 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
     }
 }
 
-void Compiler::fgSetOptions()
-{
-    if (opts.compDbgCode
-#ifdef UNIX_X86_ABI
-        || (info.compXcptnsCount > 0)
-#endif
-#ifdef DEBUG
-        || JitConfig.JitFullyInt() || compStressCompile(STRESS_GENERIC_VARN, 30)
-#endif
-            )
-    {
-        codeGen->SetInterruptible(true);
-    }
-
-    // Assert that the EH table has been initialized by now. Note that
-    // compHndBBtabAllocCount never decreases; it is a high-water mark
-    // of table allocation. In contrast, compHndBBtabCount does shrink
-    // if we delete a dead EH region, and if it shrinks to zero, the
-    // table pointer compHndBBtab is unreliable.
-    assert(compHndBBtabAllocCount >= info.compXcptnsCount);
-
-#ifdef TARGET_X86
-    // Note: this case, and the !X86 case below, should both use the
-    // !X86 path. This would require a few more changes for X86 to use
-    // compHndBBtabCount (the current number of EH clauses) instead of
-    // info.compXcptnsCount (the number of EH clauses in IL), such as
-    // in ehNeedsShadowSPslots(). This is because sometimes the IL has
-    // an EH clause that we delete as statically dead code before we
-    // get here, leaving no EH clauses left, and thus no requirement
-    // to use a frame pointer because of EH. But until all the code uses
-    // the same test, leave info.compXcptnsCount here.
-    if (info.compXcptnsCount > 0)
-#else
-    if (compHndBBtabCount > 0)
-#endif
-    {
-        opts.SetFramePointerRequired();
-
-#ifndef JIT32_GCENCODER
-        // EnumGcRefs will only enumerate slots in aborted frames
-        // if they are fully-interruptible.  So if we have a catch
-        // or finally that will keep frame-vars alive, we need to
-        // force fully-interruptible.
-        JITDUMP("Method has EH, marking method as fully interruptible\n");
-        codeGen->SetInterruptible(true);
-#endif
-    }
-    else if (compMethodRequiresPInvokeFrame() || compIsProfilerHookNeeded() || compLocallocUsed
-#ifdef TARGET_X86
-             || compTailCallUsed
-#endif
-#ifdef JIT32_GCENCODER
-             || info.compPublishStubParam || info.compIsVarArgs || lvaReportParamTypeArg()
-#endif
-             || opts.compDbgEnC)
-    {
-        opts.SetFramePointerRequired();
-    }
-}
-
 GenTree* Compiler::fgInitThisClass()
 {
     noway_assert(!compIsForInlining());
