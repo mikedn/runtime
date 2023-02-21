@@ -2842,6 +2842,7 @@ unsigned Compiler::fgGetThrowHelperBlockStackLevel(BasicBlock* block)
 // that might not execute a method call.
 bool Compiler::fgReachWithoutCall(BasicBlock* topBlock, BasicBlock* bottomBlock)
 {
+    assert(fgDomsComputed);
     assert(topBlock->bbNum <= bottomBlock->bbNum);
 
     // We can always check topBB and botBB for any GC safe points and early out.
@@ -2853,12 +2854,6 @@ bool Compiler::fgReachWithoutCall(BasicBlock* topBlock, BasicBlock* bottomBlock)
     if (topBlock->HasGCSafePoint() || bottomBlock->HasGCSafePoint())
     {
         return false;
-    }
-
-    if (!fgDomsComputed)
-    {
-        // Return a conservative answer of true when we don't have the dominator sets.
-        return true;
     }
 
     for (BasicBlock* block = topBlock;; block = block->bbNext)
@@ -2913,6 +2908,8 @@ bool Compiler::fgReachWithoutCall(BasicBlock* topBlock, BasicBlock* bottomBlock)
 // execute a call or not.
 void Compiler::fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB)
 {
+    assert(fgDomsComputed);
+
     if (srcBB->bbNum < dstBB->bbNum)
     {
         return;
