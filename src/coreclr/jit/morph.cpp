@@ -1359,6 +1359,60 @@ unsigned CallInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
     return firstSlot;
 }
 
+#if FEATURE_FIXED_OUT_ARGS
+static bool HasInlineThrowHelperCall(Compiler* compiler, GenTree* tree)
+{
+    if (compiler->fgUseThrowHelperBlocks() || ((tree->gtFlags & GTF_EXCEPT) == 0))
+    {
+        return false;
+    }
+
+    return compiler->fgWalkTreePre(&tree, [](GenTree** use, Compiler::fgWalkData* data) {
+        GenTree* node = *use;
+
+        if ((node->gtFlags & GTF_EXCEPT) == 0)
+        {
+            return Compiler::WALK_SKIP_SUBTREES;
+        }
+
+        switch (node->GetOper())
+        {
+            case GT_MUL:
+            case GT_ADD:
+            case GT_SUB:
+            case GT_CAST:
+                if (node->gtOverflow())
+                {
+                    return Compiler::WALK_ABORT;
+                }
+                break;
+
+            case GT_INDEX_ADDR:
+                if ((node->gtFlags & GTF_INX_RNGCHK) != 0)
+                {
+                    return Compiler::WALK_ABORT;
+                }
+                break;
+
+            case GT_ARR_BOUNDS_CHECK:
+                return Compiler::WALK_ABORT;
+
+            default:
+                break;
+        }
+
+        return Compiler::WALK_CONTINUE;
+    }) == Compiler::WALK_ABORT;
+}
+
+static bool HasLclHeap(Compiler* compiler, GenTree* tree)
+{
+    return compiler->fgWalkTreePre(&tree, [](GenTree** use, Compiler::fgWalkData* data) {
+        return (*use)->OperIs(GT_LCLHEAP) ? Compiler::WALK_ABORT : Compiler::WALK_CONTINUE;
+    }) == Compiler::WALK_ABORT;
+}
+#endif // FEATURE_FIXED_OUT_ARGS
+
 void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 {
     assert(!argsComplete);
@@ -1467,8 +1521,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
         // conservative, but I want to avoid as much special-case debug-only code
         // as possible, so leveraging the GTF_CALL flag is the easiest.
 
-        if (!treatLikeCall && ((arg->gtFlags & GTF_EXCEPT) != 0) && (argCount > 1) && compiler->opts.compDbgCode &&
-            (compiler->fgWalkTreePre(&arg, Compiler::fgChkThrowCB) == Compiler::WALK_ABORT))
+        if (!treatLikeCall && (argCount > 1) && HasInlineThrowHelperCall(compiler, arg))
         {
             for (unsigned otherArgIndex = 0; otherArgIndex < argCount; otherArgIndex++)
             {
@@ -1587,8 +1640,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
             if ((arg->gtFlags & GTF_EXCEPT) != 0)
             {
 #if FEATURE_FIXED_OUT_ARGS
-                // Returns WALK_ABORT if a GT_LCLHEAP node is encountered in the arg tree
-                if (compiler->fgWalkTreePre(&arg, Compiler::fgChkLocAllocCB) == Compiler::WALK_ABORT)
+                if (HasLclHeap(compiler, arg))
 #endif
                 {
                     argInfo->SetTempNeeded();
