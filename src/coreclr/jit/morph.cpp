@@ -7964,6 +7964,9 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
 
     if (fgGlobalMorph)
     {
+        // TODO-MIKE-Cleanup: This should be moved to lowering (or LSRA's "build",
+        // only rpMustCreateEBPFrame needs it and doing it here is premature as
+        // calls can be removed later.
         if (call->IsIndirectCall())
         {
             optCallCount++;

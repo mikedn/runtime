@@ -162,8 +162,8 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
         pollType = GCPOLL_CALL;
     }
 
-    GenTree* call = gtNewHelperCallNode(CORINFO_HELP_POLL_GC, TYP_VOID);
-    call          = fgMorphCall(call->AsCall());
+    GenTreeCall* call = gtNewHelperCallNode(CORINFO_HELP_POLL_GC, TYP_VOID);
+    fgMorphArgs(call);
 
     // TODO-MIKE-Review: This may insert the GC poll call before the unmanaged call,
     // which might be in the last statement of a conditoinal the block. It probably
