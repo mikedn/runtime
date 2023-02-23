@@ -6831,9 +6831,9 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     compCurBB->bbJumpKind = BBJ_THROW;
 #else
     // Fast Tail call as epilog + jmp - No need to insert GC-poll. Instead,
-    // fgSetBlockOrder() is going to mark the method as fully interruptible
-    // if the block containing this tail call is reachable without executing
-    // any call.
+    // fgSetFullyInterruptiblePhase is going to mark the method as fully
+    // interruptible if the block containing this tail call is reachable
+    // without executing any call.
 
     GenTree* temp = fgMorphCall(call);
     noway_assert(temp == call);
