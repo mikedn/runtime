@@ -650,6 +650,22 @@ void Compiler::fgRemovePreds()
     fgCheapPredsValid  = false;
 }
 
+// Compute bbNum, bbRefs and bbPreds
+//
+// This is the first time full (not cheap) preds will be computed.
+// And, if we have profile data, we can now check integrity.
+//
+// From this point on the flowgraph information such as bbNum,
+// bbRefs or bbPreds has to be kept updated.
+//
+void Compiler::fgComputePredsPhase()
+{
+    JITDUMP("\nRenumbering the basic blocks for fgComputePred\n");
+    fgRenumberBlocks();
+    noway_assert(!fgComputePredsDone);
+    fgComputePreds();
+}
+
 //------------------------------------------------------------------------
 // fgComputePreds: Compute the predecessor lists for each block.
 //

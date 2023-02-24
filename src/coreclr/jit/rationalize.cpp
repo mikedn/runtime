@@ -434,6 +434,8 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
 PhaseStatus Rationalizer::DoPhase()
 {
 #ifdef DEBUG
+    comp->fgDebugCheckLinks(comp->compStressCompile(Compiler::STRESS_REMORPH_TREES, 50));
+
     for (BasicBlock* block = comp->fgFirstBB; block != nullptr; block = block->bbNext)
     {
         for (Statement* statement : block->Statements())
@@ -538,6 +540,11 @@ PhaseStatus Rationalizer::DoPhase()
     }
 
     comp->compRationalIRForm = true;
+
+#ifdef DEBUG
+    comp->fgDebugCheckBBlist();
+    comp->fgDebugCheckLinks();
+#endif
 
     return PhaseStatus::MODIFIED_EVERYTHING;
 }

@@ -863,3 +863,17 @@ void ObjectAllocator::RewriteUses()
         }
     }
 }
+
+PhaseStatus Compiler::fgMorphAllocObjPhase()
+{
+    // Transform each GT_ALLOCOBJ node into either an allocation helper call or
+    // local variable allocation on the stack.
+    ObjectAllocator objectAllocator(this);
+
+    if (compObjectStackAllocation() && opts.OptimizationEnabled())
+    {
+        objectAllocator.EnableObjectStackAllocation();
+    }
+
+    return objectAllocator.DoPhase();
+}

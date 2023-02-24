@@ -15,6 +15,30 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma hdrstop
 #endif
 
+void Compiler::gsPhase()
+{
+    unsigned prevBBCount = fgBBcount;
+    if (getNeedsGSSecurityCookie())
+    {
+        gsGSChecksInitCookie();
+
+        if (compGSReorderStackLayout)
+        {
+            gsCopyShadowParams();
+        }
+
+        // If we needed to create any new BasicBlocks then renumber the blocks
+        if (fgBBcount > prevBBCount)
+        {
+            fgRenumberBlocks();
+        }
+    }
+    else
+    {
+        JITDUMP("No GS security needed\n");
+    }
+}
+
 void Compiler::gsGSChecksInitCookie()
 {
     lvaGSSecurityCookie = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("GSCookie"));

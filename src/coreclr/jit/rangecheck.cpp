@@ -1308,3 +1308,9 @@ void RangeCheck::OptimizeRangeChecks()
         }
     }
 }
+
+void Compiler::optRangeCheckPhase()
+{
+    RangeCheck rc(this);
+    rc.OptimizeRangeChecks();
+}

@@ -4495,8 +4495,11 @@ public:
 
     bool fgFoldConditional(BasicBlock* block);
 
+    void        fgMorphInitPhase();
+    PhaseStatus fgMorphAllocObjPhase();
+    void        fgMorphPhase();
+    void        fgMorphBlocks();
     void fgMorphStmts(BasicBlock* block);
-    void fgMorphBlocks();
 
     void fgMergeBlockReturn(BasicBlock* block);
 
@@ -4877,6 +4880,8 @@ protected:
     void fgUpdateChangedFlowGraph(const bool computePreds = true, const bool computeDoms = true);
 
 public:
+    void fgComputePredsPhase();
+
     // Compute the predecessors of the blocks in the control flow graph.
     void fgComputePreds();
 
@@ -5075,6 +5080,7 @@ public:
 
     bool fgIsForwardBranch(BasicBlock* bJump, BasicBlock* bSrc = nullptr);
 
+    void fgUpdateFlowGraphPhase();
     bool fgUpdateFlowGraph(Lowering* lowering = nullptr, bool doTailDup = false);
 
     void fgFindOperOrder();
@@ -6148,9 +6154,7 @@ public:
     void optAddCopies();
 #endif // ASSERTION_PROP
 
-    /**************************************************************************
-     *                          Range checks
-     *************************************************************************/
+    void optRangeCheckPhase();
 
 public:
     struct LoopCloneVisitorInfo
@@ -7309,6 +7313,7 @@ public:
     GSCookie            gsGlobalSecurityCookieVal;  // Value of global cookie if addr is NULL
     ShadowParamVarInfo* gsShadowVarInfo = nullptr;  // Table used by shadow param analysis code
 
+    void gsPhase();
     void gsGSChecksInitCookie();   // Grabs cookie variable
     void gsCopyShadowParams();     // Identify vulnerable params and create dhadow copies
     bool gsFindVulnerableParams(); // Shadow param analysis code

@@ -5313,6 +5313,11 @@ bool Compiler::fgReorderBlocks()
 #pragma warning(pop)
 #endif
 
+void Compiler::fgUpdateFlowGraphPhase()
+{
+    fgUpdateFlowGraph(nullptr, /* doTailDup */ false);
+}
+
 //-------------------------------------------------------------
 // fgUpdateFlowGraph: Removes any empty blocks, unreachable blocks, and redundant jumps.
 // Most of those appear after dead store removal and folding of conditionals.
@@ -5329,15 +5334,9 @@ bool Compiler::fgReorderBlocks()
 //
 bool Compiler::fgUpdateFlowGraph(Lowering* lowering, bool doTailDuplication)
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\n*************** In fgUpdateFlowGraph()");
-    }
-#endif // DEBUG
+    JITDUMP("\n*************** In fgUpdateFlowGraph()");
 
-    /* This should never be called for debuggable code */
-
+    // This should never be called for debuggable code.
     noway_assert(opts.OptimizationEnabled());
 
 #ifdef DEBUG

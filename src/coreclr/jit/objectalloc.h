@@ -19,12 +19,11 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "phase.h"
 #include "smallhash.h"
 
-class ObjectAllocator final : public Phase<ObjectAllocator>
+class ObjectAllocator final
 {
     typedef SmallHashTable<unsigned int, unsigned int, 8U> LocalToLocalMap;
 
-    //===============================================================================
-    // Data members
+    Compiler*    comp;
     bool         m_IsObjectStackAllocationEnabled;
     bool         m_AnalysisDone;
     BitVecTraits m_bitVecTraits;
@@ -74,7 +73,7 @@ private:
 //===============================================================================
 
 inline ObjectAllocator::ObjectAllocator(Compiler* comp)
-    : Phase(comp, PHASE_ALLOCATE_OBJECTS)
+    : comp(comp)
     , m_IsObjectStackAllocationEnabled(false)
     , m_AnalysisDone(false)
     , m_bitVecTraits(comp->lvaCount, comp)

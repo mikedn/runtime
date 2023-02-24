@@ -17,7 +17,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "ssabuilder.h"
 #include "valuenum.h"
-#include "rangecheck.h"
 #include "lower.h"
 #include "stacklevelsetter.h"
 #include "patchpointinfo.h"
@@ -1558,7 +1557,36 @@ void Compiler::compInitOptions()
 
     lvaEnregEHVars = compEnregLocals() && JitConfig.EnableEHWriteThru();
 
-#ifdef DEBUG
+#if DEBUG
+    if (lvaEnregEHVars)
+    {
+        unsigned methHash   = info.compMethodHash();
+        char*    lostr      = getenv("JitEHWTHashLo");
+        unsigned methHashLo = 0;
+        bool     dump       = false;
+        if (lostr != nullptr)
+        {
+            sscanf_s(lostr, "%x", &methHashLo);
+            dump = true;
+        }
+        char*    histr      = getenv("JitEHWTHashHi");
+        unsigned methHashHi = UINT32_MAX;
+        if (histr != nullptr)
+        {
+            sscanf_s(histr, "%x", &methHashHi);
+            dump = true;
+        }
+        if (methHash < methHashLo || methHash > methHashHi)
+        {
+            lvaEnregEHVars = false;
+        }
+        else if (dump)
+        {
+            printf("Enregistering EH Vars for method %s, hash = 0x%x.\n", info.compFullName, info.compMethodHash());
+            printf(""); // flush
+        }
+    }
+
     if (verbose)
     {
         printf("****** START compiling %s (MethodHash=%08x)\n", info.compFullName, info.compMethodHash());
@@ -2613,8 +2641,6 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 {
     assert(!compIsForInlining());
 
-    INDEBUG(compFunctionTraceStart());
-
     // Incorporate profile data.
     //
     // Note: the importer is sensitive to block weights, so this has
@@ -2655,74 +2681,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     fgRemoveEH();
 #endif // !FEATURE_EH
 
-    // Start phases that are broadly called morphing, and includes
-    // global morph, as well as other phases that massage the trees so
-    // that we can generate code out of them.
-    //
-    auto morphInitPhase = [this]() {
-
-        // Initialize the BlockSet epoch
-        NewBasicBlockEpoch();
-
-        // Insert call to class constructor as the first basic block if
-        // we were asked to do so.
-        if (info.compCompHnd->initClass(nullptr /* field */, nullptr /* method */,
-                                        impTokenLookupContextHandle /* context */) &
-            CORINFO_INITCLASS_USE_HELPER)
-        {
-            fgEnsureFirstBBisScratch();
-            fgNewStmtAtBeg(fgFirstBB, fgInitThisClass());
-        }
-
-#ifdef DEBUG
-        if (opts.compGcChecks)
-        {
-            for (unsigned i = 0; i < info.compArgsCount; i++)
-            {
-                if (lvaTable[i].TypeGet() == TYP_REF)
-                {
-                    // confirm that the argument is a GC pointer (for debugging (GC stress))
-                    GenTree*          op   = gtNewLclvNode(i, TYP_REF);
-                    GenTreeCall::Use* args = gtNewCallArgs(op);
-                    op                     = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_VOID, args);
-
-                    fgEnsureFirstBBisScratch();
-                    fgNewStmtAtEnd(fgFirstBB, op);
-
-                    if (verbose)
-                    {
-                        printf("\ncompGcChecks tree:\n");
-                        gtDispTree(op);
-                    }
-                }
-            }
-        }
-
-#ifdef TARGET_XARCH
-        if (opts.compStackCheckOnRet)
-        {
-            lvaReturnSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("ReturnSpCheck"));
-            lvaSetImplicitlyReferenced(lvaReturnSpCheck);
-        }
-#ifdef TARGET_X86
-        if (opts.compStackCheckOnCall)
-        {
-            lvaCallSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("CallSpCheck"));
-            lvaSetImplicitlyReferenced(lvaCallSpCheck);
-        }
-#endif // TARGET_X86
-#endif // TARGET_XARCH
-#endif // DEBUG
-
-        // Filter out unimported BBs
-        fgRemoveEmptyBlocks();
-    };
-    DoPhase(this, PHASE_MORPH_INIT, morphInitPhase);
-
-#ifdef DEBUG
-    // Inliner could add basic blocks. Check that the flowgraph data is up-to-date
-    fgDebugCheckBBlist(false, false);
-#endif // DEBUG
+    DoPhase(this, PHASE_MORPH_INIT, &Compiler::fgMorphInitPhase);
 
     // Inline callee methods into this root method
     //
@@ -2731,16 +2690,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     // Record "start" values for post-inlining cycles and elapsed time.
     RecordStateAtEndOfInlining();
 
-    // Transform each GT_ALLOCOBJ node into either an allocation helper call or
-    // local variable allocation on the stack.
-    ObjectAllocator objectAllocator(this); // PHASE_ALLOCATE_OBJECTS
-
-    if (compObjectStackAllocation() && opts.OptimizationEnabled())
-    {
-        objectAllocator.EnableObjectStackAllocation();
-    }
-
-    objectAllocator.Run();
+    DoPhase(this, PHASE_ALLOCATE_OBJECTS, &Compiler::fgMorphAllocObjPhase);
 
     // Add any internal blocks/trees we may need
     //
@@ -2770,127 +2720,19 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
 #endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
 
-#if DEBUG
-    if (lvaEnregEHVars)
-    {
-        unsigned methHash   = info.compMethodHash();
-        char*    lostr      = getenv("JitEHWTHashLo");
-        unsigned methHashLo = 0;
-        bool     dump       = false;
-        if (lostr != nullptr)
-        {
-            sscanf_s(lostr, "%x", &methHashLo);
-            dump = true;
-        }
-        char*    histr      = getenv("JitEHWTHashHi");
-        unsigned methHashHi = UINT32_MAX;
-        if (histr != nullptr)
-        {
-            sscanf_s(histr, "%x", &methHashHi);
-            dump = true;
-        }
-        if (methHash < methHashLo || methHash > methHashHi)
-        {
-            lvaEnregEHVars = false;
-        }
-        else if (dump)
-        {
-            printf("Enregistering EH Vars for method %s, hash = 0x%x.\n", info.compFullName, info.compMethodHash());
-            printf(""); // flush
-        }
-    }
-#endif
-
-    // Compute bbNum, bbRefs and bbPreds
-    //
-    // This is the first time full (not cheap) preds will be computed.
-    // And, if we have profile data, we can now check integrity.
-    //
-    // From this point on the flowgraph information such as bbNum,
-    // bbRefs or bbPreds has to be kept updated.
-    //
-    auto computePredsPhase = [this]() {
-        JITDUMP("\nRenumbering the basic blocks for fgComputePred\n");
-        fgRenumberBlocks();
-        noway_assert(!fgComputePredsDone);
-        fgComputePreds();
-    };
-    DoPhase(this, PHASE_COMPUTE_PREDS, computePredsPhase);
+    DoPhase(this, PHASE_COMPUTE_PREDS, &Compiler::fgComputePredsPhase);
 
     // Now that we have pred lists, do some flow-related optimizations
     if (opts.OptimizationEnabled())
     {
         DoPhase(this, PHASE_MERGE_THROWS, &Compiler::fgTailMergeThrows);
-        DoPhase(this, PHASE_EARLY_UPDATE_FLOW_GRAPH, [this]() { fgUpdateFlowGraph(nullptr, /* doTailDup */ false); });
+        DoPhase(this, PHASE_EARLY_UPDATE_FLOW_GRAPH, &Compiler::fgUpdateFlowGraphPhase);
     }
 
     DoPhase(this, PHASE_PROMOTE_STRUCTS, &Compiler::fgPromoteStructs);
-
     DoPhase(this, PHASE_STR_ADRLCL, &Compiler::fgMarkAddressExposedLocals);
-
-    // Morph the trees in all the blocks of the method
-    //
-    auto morphGlobalPhase = [this]() {
-        unsigned prevBBCount = fgBBcount;
-        fgMorphBlocks();
-
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
-        // Fix any LclVar annotations on discarded struct promotion temps for implicit by-ref params
-        lvaDemoteImplicitByRefParams();
-        lvaRefCountState = RCS_INVALID;
-#endif
-
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-        if (fgNeedToAddFinallyTargetBits)
-        {
-            // We previously wiped out the BBF_FINALLY_TARGET bits due to some morphing; add them back.
-            fgAddFinallyTargetFlags();
-            fgNeedToAddFinallyTargetBits = false;
-        }
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-
-        fgExpandQmarkNodes();
-
-#ifdef DEBUG
-        compCurBB = nullptr;
-#endif // DEBUG
-
-        // If we needed to create any new BasicBlocks then renumber the blocks
-        if (fgBBcount > prevBBCount)
-        {
-            fgRenumberBlocks();
-        }
-
-        // We can now enable all phase checking
-        activePhaseChecks = PhaseChecks::CHECK_ALL;
-    };
-    DoPhase(this, PHASE_MORPH_GLOBAL, morphGlobalPhase);
-
-    // GS security checks for unsafe buffers
-    //
-    auto gsPhase = [this]() {
-        unsigned prevBBCount = fgBBcount;
-        if (getNeedsGSSecurityCookie())
-        {
-            gsGSChecksInitCookie();
-
-            if (compGSReorderStackLayout)
-            {
-                gsCopyShadowParams();
-            }
-
-            // If we needed to create any new BasicBlocks then renumber the blocks
-            if (fgBBcount > prevBBCount)
-            {
-                fgRenumberBlocks();
-            }
-        }
-        else
-        {
-            JITDUMP("No GS security needed\n");
-        }
-    };
-    DoPhase(this, PHASE_GS_COOKIE, gsPhase);
+    DoPhase(this, PHASE_MORPH_GLOBAL, &Compiler::fgMorphPhase);
+    DoPhase(this, PHASE_GS_COOKIE, &Compiler::gsPhase);
 
     // Compute the block and edge weights
     //
@@ -3052,21 +2894,13 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
             if (doRangeAnalysis)
             {
-                auto rangePhase = [this]() {
-                    RangeCheck rc(this);
-                    rc.OptimizeRangeChecks();
-                };
-
-                // Bounds check elimination via range analysis
-                //
-                DoPhase(this, PHASE_OPTIMIZE_INDEX_CHECKS, rangePhase);
+                DoPhase(this, PHASE_OPTIMIZE_INDEX_CHECKS, &Compiler::optRangeCheckPhase);
             }
 #endif // ASSERTION_PROP
 
             if (fgModified)
             {
-                DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH,
-                        [this]() { fgUpdateFlowGraph(nullptr, /* doTailDup */ false); });
+                DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH, &Compiler::fgUpdateFlowGraphPhase);
                 DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS2, &Compiler::fgComputeEdgeWeights);
             }
 
@@ -3086,15 +2920,8 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     //
     DoPhase(this, PHASE_DETERMINE_FIRST_COLD_BLOCK, &Compiler::fgDetermineFirstColdBlock);
 
-    INDEBUG(fgDebugCheckLinks(compStressCompile(STRESS_REMORPH_TREES, 50)));
-
     Rationalizer rat(this);
     rat.Run();
-
-#ifdef DEBUG
-    fgDebugCheckBBlist();
-    fgDebugCheckLinks();
-#endif
 
     // Enable this to gather statistical data such as
     // call and register argument info, flowgraph and loop info, etc.
@@ -3143,22 +2970,6 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     RecordStateAtEndOfCompilation();
 
     INDEBUG(++Compiler::jitTotalMethodCompiled);
-
-    INDEBUG(compFunctionTraceEnd(*nativeCode, *nativeCodeSize, false));
-    JITDUMP("Method code size: %u\n", *nativeCodeSize);
-
-#if FUNC_INFO_LOGGING
-    if (compJitFuncInfoFile != nullptr)
-    {
-        assert(!compIsForInlining());
-#ifdef DEBUG // We only have access to info.compFullName in DEBUG builds.
-        fprintf(compJitFuncInfoFile, "%s\n", info.compFullName);
-#elif FEATURE_SIMD
-        fprintf(compJitFuncInfoFile, " %s\n", eeGetMethodFullName(info.compMethodHnd));
-#endif
-        fprintf(compJitFuncInfoFile, ""); // in our logic this causes a flush
-    }
-#endif // FUNC_INFO_LOGGING
 }
 
 //------------------------------------------------------------------------
@@ -3565,6 +3376,19 @@ unsigned Compiler::compMethodHash(CORINFO_METHOD_HANDLE methodHnd)
 
 void Compiler::compCompileFinish()
 {
+#if FUNC_INFO_LOGGING
+    if (compJitFuncInfoFile != nullptr)
+    {
+        assert(!compIsForInlining());
+#ifdef DEBUG // We only have access to info.compFullName in DEBUG builds.
+        fprintf(compJitFuncInfoFile, "%s\n", info.compFullName);
+#elif FEATURE_SIMD
+        fprintf(compJitFuncInfoFile, " %s\n", eeGetMethodFullName(info.compMethodHnd));
+#endif
+        fprintf(compJitFuncInfoFile, ""); // in our logic this causes a flush
+    }
+#endif // FUNC_INFO_LOGGING
+
 #if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES || CALL_ARG_STATS
     genMethodCnt++;
 #endif
@@ -4071,7 +3895,10 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     }
 #endif
 
+    INDEBUG(compFunctionTraceStart());
     compCompile(nativeCode, nativeCodeSize, jitFlags);
+    INDEBUG(compFunctionTraceEnd(*nativeCode, *nativeCodeSize, false));
+    JITDUMP("Method code size: %u\n", *nativeCodeSize);
     compCompileFinish();
 
     // Did we just compile for a target architecture that the VM isn't expecting? If so, the VM

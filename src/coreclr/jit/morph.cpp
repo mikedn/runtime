@@ -14378,27 +14378,115 @@ void Compiler::fgMorphStmts(BasicBlock* block)
     fgRemoveRestOfBlock = false;
 }
 
-/*****************************************************************************
- *
- *  Morph the blocks of the method.
- *  Returns true if the basic block list is modified.
- *  This function should be called just once.
- */
+void Compiler::fgMorphInitPhase()
+{
+    // Initialize the BlockSet epoch
+    NewBasicBlockEpoch();
+
+    // Insert call to class constructor as the first basic block if
+    // we were asked to do so.
+    if (info.compCompHnd->initClass(nullptr /* field */, nullptr /* method */,
+                                    impTokenLookupContextHandle /* context */) &
+        CORINFO_INITCLASS_USE_HELPER)
+    {
+        fgEnsureFirstBBisScratch();
+        fgNewStmtAtBeg(fgFirstBB, fgInitThisClass());
+    }
+
+#ifdef DEBUG
+    if (opts.compGcChecks)
+    {
+        for (unsigned i = 0; i < info.compArgsCount; i++)
+        {
+            if (lvaTable[i].TypeGet() == TYP_REF)
+            {
+                // confirm that the argument is a GC pointer (for debugging (GC stress))
+                GenTree*          op   = gtNewLclvNode(i, TYP_REF);
+                GenTreeCall::Use* args = gtNewCallArgs(op);
+                op                     = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_VOID, args);
+
+                fgEnsureFirstBBisScratch();
+                fgNewStmtAtEnd(fgFirstBB, op);
+
+                if (verbose)
+                {
+                    printf("\ncompGcChecks tree:\n");
+                    gtDispTree(op);
+                }
+            }
+        }
+    }
+
+#ifdef TARGET_XARCH
+    if (opts.compStackCheckOnRet)
+    {
+        lvaReturnSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("ReturnSpCheck"));
+        lvaSetImplicitlyReferenced(lvaReturnSpCheck);
+    }
+#ifdef TARGET_X86
+    if (opts.compStackCheckOnCall)
+    {
+        lvaCallSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("CallSpCheck"));
+        lvaSetImplicitlyReferenced(lvaCallSpCheck);
+    }
+#endif // TARGET_X86
+#endif // TARGET_XARCH
+#endif // DEBUG
+
+    fgRemoveEmptyBlocks();
+
+    INDEBUG(fgDebugCheckBBlist(false, false));
+}
+
+void Compiler::fgMorphPhase()
+{
+    unsigned prevBBCount = fgBBcount;
+
+    // Since fgMorphTree can be called after various optimizations to re-arrange
+    // the nodes we need a global flag to signal if we are during the one-pass
+    // global morphing.
+    fgGlobalMorph = true;
+
+    fgMorphBlocks();
+
+    // We are done with the global morphing phase
+    fgGlobalMorph = false;
+    compCurBB     = nullptr;
+
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+    // Fix any LclVar annotations on discarded struct promotion temps for implicit by-ref params
+    lvaDemoteImplicitByRefParams();
+    lvaRefCountState = RCS_INVALID;
+#endif
+
+#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+    if (fgNeedToAddFinallyTargetBits)
+    {
+        // We previously wiped out the BBF_FINALLY_TARGET bits due to some morphing; add them back.
+        fgAddFinallyTargetFlags();
+        fgNeedToAddFinallyTargetBits = false;
+    }
+#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+
+    fgExpandQmarkNodes();
+
+#ifdef DEBUG
+    compCurBB = nullptr;
+#endif // DEBUG
+
+    // If we needed to create any new BasicBlocks then renumber the blocks
+    if (fgBBcount > prevBBCount)
+    {
+        fgRenumberBlocks();
+    }
+
+    // We can now enable all phase checking
+    activePhaseChecks = PhaseChecks::CHECK_ALL;
+}
 
 void Compiler::fgMorphBlocks()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\n*************** In fgMorphBlocks()\n");
-    }
-#endif
-
-    /* Since fgMorphTree can be called after various optimizations to re-arrange
-     * the nodes we need a global flag to signal if we are during the one-pass
-     * global morphing */
-
-    fgGlobalMorph = true;
+    JITDUMP("\n*************** In fgMorphBlocks()\n");
 
 #if LOCAL_ASSERTION_PROP
     morphAssertionInit();
@@ -14458,10 +14546,6 @@ void Compiler::fgMorphBlocks()
 #if LOCAL_ASSERTION_PROP
     morphAssertionDone();
 #endif
-
-    // We are done with the global morphing phase
-    fgGlobalMorph = false;
-    compCurBB     = nullptr;
 
     // Under OSR, we no longer need to specially protect the original method entry
     //
