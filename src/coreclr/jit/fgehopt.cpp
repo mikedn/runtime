@@ -32,6 +32,7 @@
 //
 PhaseStatus Compiler::fgRemoveEmptyFinally()
 {
+    assert(opts.OptimizationEnabled());
 #if defined(FEATURE_EH_FUNCLETS)
     // We need to do this transformation before funclets are created.
     assert(!fgFuncletsCreated);
@@ -43,18 +44,6 @@ PhaseStatus Compiler::fgRemoveEmptyFinally()
     if (compHndBBtabCount == 0)
     {
         JITDUMP("No EH in this method, nothing to remove.\n");
-        return PhaseStatus::MODIFIED_NOTHING;
-    }
-
-    if (opts.MinOpts())
-    {
-        JITDUMP("Method compiled with minOpts, no removal.\n");
-        return PhaseStatus::MODIFIED_NOTHING;
-    }
-
-    if (opts.compDbgCode)
-    {
-        JITDUMP("Method compiled with debug codegen, no removal.\n");
         return PhaseStatus::MODIFIED_NOTHING;
     }
 
@@ -279,6 +268,7 @@ PhaseStatus Compiler::fgRemoveEmptyTry()
 {
     JITDUMP("\n*************** In fgRemoveEmptyTry()\n");
 
+    assert(opts.OptimizationEnabled());
 #if defined(FEATURE_EH_FUNCLETS)
     // We need to do this transformation before funclets are created.
     assert(!fgFuncletsCreated);
@@ -303,18 +293,6 @@ PhaseStatus Compiler::fgRemoveEmptyTry()
     if (compHndBBtabCount == 0)
     {
         JITDUMP("No EH in this method, nothing to remove.\n");
-        return PhaseStatus::MODIFIED_NOTHING;
-    }
-
-    if (opts.MinOpts())
-    {
-        JITDUMP("Method compiled with minOpts, no removal.\n");
-        return PhaseStatus::MODIFIED_NOTHING;
-    }
-
-    if (opts.compDbgCode)
-    {
-        JITDUMP("Method compiled with debug codegen, no removal.\n");
         return PhaseStatus::MODIFIED_NOTHING;
     }
 
@@ -608,6 +586,7 @@ PhaseStatus Compiler::fgRemoveEmptyTry()
 //
 PhaseStatus Compiler::fgCloneFinally()
 {
+    assert(opts.OptimizationEnabled());
 #if defined(FEATURE_EH_FUNCLETS)
     // We need to do this transformation before funclets are created.
     assert(!fgFuncletsCreated);
@@ -632,18 +611,6 @@ PhaseStatus Compiler::fgCloneFinally()
     if (compHndBBtabCount == 0)
     {
         JITDUMP("No EH in this method, no cloning.\n");
-        return PhaseStatus::MODIFIED_NOTHING;
-    }
-
-    if (opts.MinOpts())
-    {
-        JITDUMP("Method compiled with minOpts, no cloning.\n");
-        return PhaseStatus::MODIFIED_NOTHING;
-    }
-
-    if (opts.compDbgCode)
-    {
-        JITDUMP("Method compiled with debug codegen, no cloning.\n");
         return PhaseStatus::MODIFIED_NOTHING;
     }
 
@@ -1533,6 +1500,8 @@ void Compiler::fgCleanupContinuation(BasicBlock* continuation)
 //
 PhaseStatus Compiler::fgUpdateFinallyTargetFlags()
 {
+    assert(opts.OptimizationEnabled());
+
     // Any finally targetflag fixup required?
     if (fgOptimizedFinally)
     {
@@ -1614,6 +1583,7 @@ void Compiler::fgAddFinallyTargetFlags()
 
 PhaseStatus Compiler::fgMergeFinallyChains()
 {
+    assert(opts.OptimizationEnabled());
 #if defined(FEATURE_EH_FUNCLETS)
     // We need to do this transformation before funclets are created.
     assert(!fgFuncletsCreated);
@@ -1625,18 +1595,6 @@ PhaseStatus Compiler::fgMergeFinallyChains()
     if (compHndBBtabCount == 0)
     {
         JITDUMP("No EH in this method, nothing to merge.\n");
-        return PhaseStatus::MODIFIED_NOTHING;
-    }
-
-    if (opts.MinOpts())
-    {
-        JITDUMP("Method compiled with minOpts, no merging.\n");
-        return PhaseStatus::MODIFIED_NOTHING;
-    }
-
-    if (opts.compDbgCode)
-    {
-        JITDUMP("Method compiled with debug codegen, no merging.\n");
         return PhaseStatus::MODIFIED_NOTHING;
     }
 

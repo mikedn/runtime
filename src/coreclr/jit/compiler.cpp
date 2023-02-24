@@ -2696,29 +2696,16 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     //
     DoPhase(this, PHASE_MORPH_ADD_INTERNAL, &Compiler::fgAddInternal);
 
-    // Remove empty try regions
-    //
-    DoPhase(this, PHASE_EMPTY_TRY, &Compiler::fgRemoveEmptyTry);
-
-    // Remove empty finally regions
-    //
-    DoPhase(this, PHASE_EMPTY_FINALLY, &Compiler::fgRemoveEmptyFinally);
-
-    // Streamline chains of finally invocations
-    //
-    DoPhase(this, PHASE_MERGE_FINALLY_CHAINS, &Compiler::fgMergeFinallyChains);
-
-    // Clone code in finallys to reduce overhead for non-exceptional paths
-    //
-    DoPhase(this, PHASE_CLONE_FINALLY, &Compiler::fgCloneFinally);
-
+    if (opts.OptimizationEnabled() && (compHndBBtabCount != 0))
+    {
+        DoPhase(this, PHASE_EMPTY_TRY, &Compiler::fgRemoveEmptyTry);
+        DoPhase(this, PHASE_EMPTY_FINALLY, &Compiler::fgRemoveEmptyFinally);
+        DoPhase(this, PHASE_MERGE_FINALLY_CHAINS, &Compiler::fgMergeFinallyChains);
+        DoPhase(this, PHASE_CLONE_FINALLY, &Compiler::fgCloneFinally);
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-
-    // Update finally target flags after EH optimizations
-    //
-    DoPhase(this, PHASE_UPDATE_FINALLY_FLAGS, &Compiler::fgUpdateFinallyTargetFlags);
-
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+        DoPhase(this, PHASE_UPDATE_FINALLY_FLAGS, &Compiler::fgUpdateFinallyTargetFlags);
+#endif
+    }
 
     DoPhase(this, PHASE_COMPUTE_PREDS, &Compiler::fgComputePredsPhase);
 
