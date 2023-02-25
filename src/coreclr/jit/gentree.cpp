@@ -13957,70 +13957,41 @@ GenTree* Compiler::gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
 
 GenTree* Compiler::gtNewStaticMethodMonitorAddr()
 {
-    noway_assert(!compIsForInlining());
-
-    noway_assert(info.compIsStatic); // This method should only be called for static methods.
-
-    GenTree* tree = nullptr;
+    assert(!compIsForInlining());
+    assert(info.compIsStatic);
 
     CORINFO_LOOKUP_KIND kind;
     info.compCompHnd->getLocationOfThisType(info.compMethodHnd, &kind);
 
     if (!kind.needsRuntimeLookup)
     {
-        void *critSect = nullptr, **pCrit = nullptr;
-        critSect = info.compCompHnd->getMethodSync(info.compMethodHnd, (void**)&pCrit);
-        noway_assert((!critSect) != (!pCrit));
+        void* monitorAddr = nullptr;
+        void* monitor     = info.compCompHnd->getMethodSync(info.compMethodHnd, &monitorAddr);
+        noway_assert((monitor == nullptr) != (monitorAddr == nullptr));
 
-        tree = gtNewIconEmbHndNode(critSect, pCrit, GTF_ICON_METHOD_HDL, info.compMethodHnd);
+        return gtNewIconEmbHndNode(monitor, monitorAddr, GTF_ICON_METHOD_HDL, info.compMethodHnd);
     }
-    else
+
+    // Collectible types requires that for shared generic code, if we use the generic context paramter
+    // that we report it. (This is a conservative approach, we could detect some cases particularly when the
+    // context parameter is this that we don't need the eager reporting logic.)
+    lvaGenericsContextInUse = true;
+
+    GenTree* context = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
+    context->gtFlags |= GTF_VAR_CONTEXT;
+    GenTree* classHandle = nullptr;
+
+    switch (kind.runtimeLookupKind)
     {
-        // Collectible types requires that for shared generic code, if we use the generic context paramter
-        // that we report it. (This is a conservative approach, we could detect some cases particularly when the
-        // context parameter is this that we don't need the eager reporting logic.)
-        lvaGenericsContextInUse = true;
-
-        switch (kind.runtimeLookupKind)
-        {
-            case CORINFO_LOOKUP_THISOBJ:
-            {
-                noway_assert(!"Should never get this for static method.");
-                break;
-            }
-
-            case CORINFO_LOOKUP_CLASSPARAM:
-            {
-                // In this case, the hidden param is the class handle.
-                tree = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
-                tree->gtFlags |= GTF_VAR_CONTEXT;
-                break;
-            }
-
-            case CORINFO_LOOKUP_METHODPARAM:
-            {
-                // In this case, the hidden param is the method handle.
-                tree = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
-                tree->gtFlags |= GTF_VAR_CONTEXT;
-                // Call helper CORINFO_HELP_GETCLASSFROMMETHODPARAM to get the class handle
-                // from the method handle.
-                tree = gtNewHelperCallNode(CORINFO_HELP_GETCLASSFROMMETHODPARAM, TYP_I_IMPL, gtNewCallArgs(tree));
-                break;
-            }
-
-            default:
-            {
-                noway_assert(!"Unknown LOOKUP_KIND");
-                break;
-            }
-        }
-
-        noway_assert(tree); // tree should now contain the CORINFO_CLASS_HANDLE for the exact class.
-
-        // Given the class handle, get the pointer to the Monitor.
-        tree = gtNewHelperCallNode(CORINFO_HELP_GETSYNCFROMCLASSHANDLE, TYP_I_IMPL, gtNewCallArgs(tree));
+        case CORINFO_LOOKUP_CLASSPARAM:
+            classHandle = context;
+            break;
+        case CORINFO_LOOKUP_METHODPARAM:
+            classHandle = gtNewHelperCallNode(CORINFO_HELP_GETCLASSFROMMETHODPARAM, TYP_I_IMPL, gtNewCallArgs(context));
+            break;
+        default:
+            unreached();
     }
 
-    noway_assert(tree);
-    return tree;
+    return gtNewHelperCallNode(CORINFO_HELP_GETSYNCFROMCLASSHANDLE, TYP_I_IMPL, gtNewCallArgs(classHandle));
 }
