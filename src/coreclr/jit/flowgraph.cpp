@@ -1870,6 +1870,31 @@ void Compiler::fgAddInternal()
 {
     noway_assert(!compIsForInlining());
 
+#ifdef DEBUG
+    if (opts.compGcChecks)
+    {
+        for (unsigned i = 0; i < info.GetParamCount(); i++)
+        {
+            if (!lvaGetDesc(i)->TypeIs(TYP_REF))
+            {
+                continue;
+            }
+
+            GenTree* op   = gtNewLclvNode(i, TYP_REF);
+            GenTree* call = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_VOID, gtNewCallArgs(op));
+
+            fgEnsureFirstBBisScratch();
+            fgNewStmtAtEnd(fgFirstBB, call);
+
+            if (verbose)
+            {
+                printf("\ncompGcChecks tree:\n");
+                gtDispTree(call);
+            }
+        }
+    }
+#endif
+
     // The backend requires a scratch BB into which it can safely insert a P/Invoke method prolog if one is
     // required. Similarly, we need a scratch BB for poisoning. Create it here.
     if (compMethodRequiresPInvokeFrame() || compShouldPoisonFrame())

@@ -14394,29 +14394,6 @@ void Compiler::phMorphInit()
     }
 
 #ifdef DEBUG
-    if (opts.compGcChecks)
-    {
-        for (unsigned i = 0; i < info.compArgsCount; i++)
-        {
-            if (lvaTable[i].TypeGet() == TYP_REF)
-            {
-                // confirm that the argument is a GC pointer (for debugging (GC stress))
-                GenTree*          op   = gtNewLclvNode(i, TYP_REF);
-                GenTreeCall::Use* args = gtNewCallArgs(op);
-                op                     = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_VOID, args);
-
-                fgEnsureFirstBBisScratch();
-                fgNewStmtAtEnd(fgFirstBB, op);
-
-                if (verbose)
-                {
-                    printf("\ncompGcChecks tree:\n");
-                    gtDispTree(op);
-                }
-            }
-        }
-    }
-
 #ifdef TARGET_XARCH
     if (opts.compStackCheckOnRet)
     {
