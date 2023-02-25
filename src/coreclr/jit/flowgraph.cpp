@@ -769,76 +769,6 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
     return call;
 }
 
-GenTree* Compiler::fgGetCritSectOfStaticMethod()
-{
-    noway_assert(!compIsForInlining());
-
-    noway_assert(info.compIsStatic); // This method should only be called for static methods.
-
-    GenTree* tree = nullptr;
-
-    CORINFO_LOOKUP_KIND kind;
-    info.compCompHnd->getLocationOfThisType(info.compMethodHnd, &kind);
-
-    if (!kind.needsRuntimeLookup)
-    {
-        void *critSect = nullptr, **pCrit = nullptr;
-        critSect = info.compCompHnd->getMethodSync(info.compMethodHnd, (void**)&pCrit);
-        noway_assert((!critSect) != (!pCrit));
-
-        tree = gtNewIconEmbHndNode(critSect, pCrit, GTF_ICON_METHOD_HDL, info.compMethodHnd);
-    }
-    else
-    {
-        // Collectible types requires that for shared generic code, if we use the generic context paramter
-        // that we report it. (This is a conservative approach, we could detect some cases particularly when the
-        // context parameter is this that we don't need the eager reporting logic.)
-        lvaGenericsContextInUse = true;
-
-        switch (kind.runtimeLookupKind)
-        {
-            case CORINFO_LOOKUP_THISOBJ:
-            {
-                noway_assert(!"Should never get this for static method.");
-                break;
-            }
-
-            case CORINFO_LOOKUP_CLASSPARAM:
-            {
-                // In this case, the hidden param is the class handle.
-                tree = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
-                tree->gtFlags |= GTF_VAR_CONTEXT;
-                break;
-            }
-
-            case CORINFO_LOOKUP_METHODPARAM:
-            {
-                // In this case, the hidden param is the method handle.
-                tree = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
-                tree->gtFlags |= GTF_VAR_CONTEXT;
-                // Call helper CORINFO_HELP_GETCLASSFROMMETHODPARAM to get the class handle
-                // from the method handle.
-                tree = gtNewHelperCallNode(CORINFO_HELP_GETCLASSFROMMETHODPARAM, TYP_I_IMPL, gtNewCallArgs(tree));
-                break;
-            }
-
-            default:
-            {
-                noway_assert(!"Unknown LOOKUP_KIND");
-                break;
-            }
-        }
-
-        noway_assert(tree); // tree should now contain the CORINFO_CLASS_HANDLE for the exact class.
-
-        // Given the class handle, get the pointer to the Monitor.
-        tree = gtNewHelperCallNode(CORINFO_HELP_GETSYNCFROMCLASSHANDLE, TYP_I_IMPL, gtNewCallArgs(tree));
-    }
-
-    noway_assert(tree);
-    return tree;
-}
-
 #if defined(FEATURE_EH_FUNCLETS)
 
 /*****************************************************************************
@@ -1075,7 +1005,7 @@ void Compiler::fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, un
     assert((block->bbJumpKind == BBJ_NONE) || (block->bbJumpKind == BBJ_RETURN) ||
            (block->bbJumpKind == BBJ_EHFINALLYRET));
 
-    GenTree* monitor  = info.compIsStatic ? fgGetCritSectOfStaticMethod() : gtNewLclvNode(thisLclNum, TYP_REF);
+    GenTree* monitor  = info.compIsStatic ? gtNewStaticMethodMonitorAddr() : gtNewLclvNode(thisLclNum, TYP_REF);
     GenTree* acquired = gtNewLclVarAddrNode(lvaMonAcquired);
     GenTree* call     = gtNewHelperCallNode(helper, TYP_VOID, gtNewCallArgs(monitor, acquired));
 
@@ -1964,8 +1894,7 @@ void Compiler::fgAddInternal()
 
         if (info.compIsStatic)
         {
-            tree = fgGetCritSectOfStaticMethod();
-
+            tree = gtNewStaticMethodMonitorAddr();
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_ENTER_STATIC, TYP_VOID, gtNewCallArgs(tree));
         }
         else
@@ -1973,7 +1902,6 @@ void Compiler::fgAddInternal()
             noway_assert(lvaGetDesc(info.compThisArg)->TypeIs(TYP_REF));
 
             tree = gtNewLclvNode(info.compThisArg, TYP_REF);
-
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_ENTER, TYP_VOID, gtNewCallArgs(tree));
         }
 
@@ -2001,14 +1929,12 @@ void Compiler::fgAddInternal()
 
         if (info.compIsStatic)
         {
-            tree = fgGetCritSectOfStaticMethod();
-
+            tree = gtNewStaticMethodMonitorAddr();
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_EXIT_STATIC, TYP_VOID, gtNewCallArgs(tree));
         }
         else
         {
             tree = gtNewLclvNode(info.compThisArg, TYP_REF);
-
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_EXIT, TYP_VOID, gtNewCallArgs(tree));
         }
 

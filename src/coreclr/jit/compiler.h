@@ -4473,7 +4473,7 @@ public:
                                                   BasicBlock*      handler,
                                                   BlockToBlockMap& continuationMap);
 
-    GenTree* fgGetCritSectOfStaticMethod();
+    GenTree* gtNewStaticMethodMonitorAddr();
 
 #if defined(FEATURE_EH_FUNCLETS)
 
