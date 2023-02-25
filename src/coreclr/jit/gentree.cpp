@@ -13710,3 +13710,219 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
 
     return varTypeIsUnsigned(fromType) != varTypeIsUnsigned(toType);
 }
+
+GenTreeCall* Compiler::gtNewInitThisClassHelperCall()
+{
+    noway_assert(!compIsForInlining());
+
+    CORINFO_LOOKUP_KIND kind;
+    info.compCompHnd->getLocationOfThisType(info.compMethodHnd, &kind);
+
+    if (!kind.needsRuntimeLookup)
+    {
+        return gtNewSharedCctorHelperCall(info.compClassHnd);
+    }
+    else
+    {
+#ifdef FEATURE_READYTORUN_COMPILER
+        // Only CoreRT understands CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE. Don't do this on CoreCLR.
+        if (opts.IsReadyToRun() && IsTargetAbi(CORINFO_CORERT_ABI))
+        {
+            CORINFO_RESOLVED_TOKEN resolvedToken;
+            memset(&resolvedToken, 0, sizeof(resolvedToken));
+
+            // We are in a shared method body, but maybe we don't need a runtime lookup after all.
+            // This covers the case of a generic method on a non-generic type.
+            if (!(info.compClassAttr & CORINFO_FLG_SHAREDINST))
+            {
+                resolvedToken.hClass = info.compClassHnd;
+                return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
+            }
+
+            // We need a runtime lookup.
+            GenTree* ctxTree = gtNewRuntimeContextTree(kind.runtimeLookupKind);
+
+            // CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE with a zeroed out resolvedToken means "get the static
+            // base of the class that owns the method being compiled". If we're in this method, it means we're not
+            // inlining and there's no ambiguity.
+            return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE, TYP_BYREF,
+                                                 gtNewCallArgs(ctxTree), &kind);
+        }
+#endif
+
+        // Collectible types requires that for shared generic code, if we use the generic context paramter
+        // that we report it. (This is a conservative approach, we could detect some cases particularly when the
+        // context parameter is this that we don't need the eager reporting logic.)
+        lvaGenericsContextInUse = true;
+
+        switch (kind.runtimeLookupKind)
+        {
+            case CORINFO_LOOKUP_THISOBJ:
+            {
+                // This code takes a this pointer; but we need to pass the static method desc to get the right point in
+                // the hierarchy
+                GenTree* vtTree = gtNewLclvNode(info.compThisArg, TYP_REF);
+                vtTree->gtFlags |= GTF_VAR_CONTEXT;
+                // Vtable pointer of this object
+                vtTree             = gtNewMethodTableLookup(vtTree);
+                GenTree* methodHnd = gtNewIconEmbMethHndNode(info.compMethodHnd);
+
+                return gtNewHelperCallNode(CORINFO_HELP_INITINSTCLASS, TYP_VOID, gtNewCallArgs(vtTree, methodHnd));
+            }
+
+            case CORINFO_LOOKUP_CLASSPARAM:
+            {
+                GenTree* vtTree = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
+                vtTree->gtFlags |= GTF_VAR_CONTEXT;
+                return gtNewHelperCallNode(CORINFO_HELP_INITCLASS, TYP_VOID, gtNewCallArgs(vtTree));
+            }
+
+            case CORINFO_LOOKUP_METHODPARAM:
+            {
+                GenTree* methHndTree = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
+                methHndTree->gtFlags |= GTF_VAR_CONTEXT;
+                return gtNewHelperCallNode(CORINFO_HELP_INITINSTCLASS, TYP_VOID,
+                                           gtNewCallArgs(gtNewIconNode(0), methHndTree));
+            }
+
+            default:
+                noway_assert(!"Unknown LOOKUP_KIND");
+                UNREACHABLE();
+        }
+    }
+}
+
+GenTreeCall* Compiler::gtNewSharedCctorHelperCall(CORINFO_CLASS_HANDLE cls)
+{
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (opts.IsReadyToRun())
+    {
+        CORINFO_RESOLVED_TOKEN resolvedToken;
+        memset(&resolvedToken, 0, sizeof(resolvedToken));
+        resolvedToken.hClass = cls;
+
+        return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
+    }
+#endif
+
+    // Call the shared non gc static helper, as its the fastest
+    return gtNewSharedStaticsCctorHelperCall(cls, info.compCompHnd->getSharedCCtorHelper(cls));
+}
+
+GenTreeCall* Compiler::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper)
+{
+    bool         bNeedClassID = true;
+    GenTreeFlags callFlags    = GTF_EMPTY;
+
+    var_types type = TYP_BYREF;
+
+    // This is sort of ugly, as we have knowledge of what the helper is returning.
+    // We need the return type.
+    switch (helper)
+    {
+        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
+            bNeedClassID = false;
+            FALLTHROUGH;
+
+        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR:
+            callFlags |= GTF_CALL_HOISTABLE;
+            FALLTHROUGH;
+
+        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS:
+        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS:
+        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS:
+        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS:
+            // type = TYP_BYREF;
+            break;
+
+        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
+            bNeedClassID = false;
+            FALLTHROUGH;
+
+        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR:
+            callFlags |= GTF_CALL_HOISTABLE;
+            FALLTHROUGH;
+
+        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE:
+        case CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS:
+            type = TYP_I_IMPL;
+            break;
+
+        default:
+            assert(!"unknown shared statics helper");
+            break;
+    }
+
+    GenTreeCall::Use* argList = nullptr;
+
+    GenTree* opModuleIDArg;
+    GenTree* opClassIDArg;
+
+    // Get the class ID
+    unsigned clsID;
+    size_t   moduleID;
+    void*    pclsID;
+    void*    pmoduleID;
+
+    clsID = info.compCompHnd->getClassDomainID(cls, &pclsID);
+
+    moduleID = info.compCompHnd->getClassModuleIdForStatics(cls, nullptr, &pmoduleID);
+
+    if (!(callFlags & GTF_CALL_HOISTABLE))
+    {
+        if (info.compCompHnd->getClassAttribs(cls) & CORINFO_FLG_BEFOREFIELDINIT)
+        {
+            callFlags |= GTF_CALL_HOISTABLE;
+        }
+    }
+
+    if (pmoduleID)
+    {
+        opModuleIDArg = gtNewIndOfIconHandleNode(TYP_I_IMPL, (size_t)pmoduleID, GTF_ICON_CIDMID_HDL, true);
+    }
+    else
+    {
+        opModuleIDArg = gtNewIconNode((size_t)moduleID, TYP_I_IMPL);
+    }
+
+    if (bNeedClassID)
+    {
+        if (pclsID)
+        {
+            opClassIDArg = gtNewIndOfIconHandleNode(TYP_INT, (size_t)pclsID, GTF_ICON_CIDMID_HDL, true);
+        }
+        else
+        {
+            opClassIDArg = gtNewIconNode(clsID, TYP_INT);
+        }
+
+        // call the helper to get the base
+        argList = gtNewCallArgs(opModuleIDArg, opClassIDArg);
+    }
+    else
+    {
+        argList = gtNewCallArgs(opModuleIDArg);
+    }
+
+    GenTreeCall* result = gtNewHelperCallNode(helper, type, argList);
+    result->gtFlags |= callFlags;
+
+    // If we're importing the special EqualityComparer<T>.Default or Comparer<T>.Default
+    // intrinsics, flag the helper call. Later during inlining, we can
+    // remove the helper call if the associated field lookup is unused.
+    if ((info.compFlags & CORINFO_FLG_JIT_INTRINSIC) != 0)
+    {
+        NamedIntrinsic ni = lookupNamedIntrinsic(info.compMethodHnd);
+        if ((ni == NI_System_Collections_Generic_EqualityComparer_get_Default) ||
+            (ni == NI_System_Collections_Generic_Comparer_get_Default))
+        {
+            JITDUMP("\nmarking helper call [%06u] as special dce...\n", result->gtTreeID);
+            result->gtCallMoreFlags |= GTF_CALL_M_HELPER_SPECIAL_DCE;
+        }
+    }
+
+    return result;
+}

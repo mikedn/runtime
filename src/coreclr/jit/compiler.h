@@ -2607,8 +2607,8 @@ struct Importer
 
     GenTree* gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
 
-    GenTreeCall* fgGetStaticsCCtorHelper(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper);
-    GenTreeCall* fgGetSharedCCtor(CORINFO_CLASS_HANDLE cls);
+    GenTreeCall* gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper);
+    GenTreeCall* gtNewSharedCctorHelperCall(CORINFO_CLASS_HANDLE cls);
 
     CORINFO_CLASS_HANDLE impGetRefAnyClass();
     CORINFO_CLASS_HANDLE impGetObjectClass();
@@ -4525,11 +4525,9 @@ public:
     void fgExpandQmarkStmt(BasicBlock* block, Statement* stmt);
     void fgExpandQmarkNodes();
 
-    GenTree* fgInitThisClass();
-
-    GenTreeCall* fgGetStaticsCCtorHelper(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper);
-
-    GenTreeCall* fgGetSharedCCtor(CORINFO_CLASS_HANDLE cls);
+    GenTreeCall* gtNewInitThisClassHelperCall();
+    GenTreeCall* gtNewSharedCctorHelperCall(CORINFO_CLASS_HANDLE cls);
+    GenTreeCall* gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper);
 
     void fgLocalVarLiveness();
     void fgLocalVarLivenessUntracked();

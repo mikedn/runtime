@@ -5406,7 +5406,7 @@ GenTree* Importer::impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken)
     else
     {
         // Call the shared non gc static helper, as its the fastest
-        node = fgGetSharedCCtor(pResolvedToken->hClass);
+        node = gtNewSharedCctorHelperCall(pResolvedToken->hClass);
     }
 
     return node;
@@ -5614,7 +5614,7 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
             else
 #endif
             {
-                addr = fgGetStaticsCCtorHelper(resolvedToken->hClass, fieldInfo.helper);
+                addr = gtNewSharedStaticsCctorHelperCall(resolvedToken->hClass, fieldInfo.helper);
             }
             break;
         }
@@ -17313,14 +17313,14 @@ GenTree* Importer::gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
     return comp->gtNewRuntimeContextTree(kind);
 }
 
-GenTreeCall* Importer::fgGetStaticsCCtorHelper(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper)
+GenTreeCall* Importer::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper)
 {
-    return comp->fgGetStaticsCCtorHelper(cls, helper);
+    return comp->gtNewSharedStaticsCctorHelperCall(cls, helper);
 }
 
-GenTreeCall* Importer::fgGetSharedCCtor(CORINFO_CLASS_HANDLE cls)
+GenTreeCall* Importer::gtNewSharedCctorHelperCall(CORINFO_CLASS_HANDLE cls)
 {
-    return comp->fgGetSharedCCtor(cls);
+    return comp->gtNewSharedCctorHelperCall(cls);
 }
 
 CORINFO_CLASS_HANDLE Importer::impGetRefAnyClass()

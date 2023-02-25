@@ -14390,7 +14390,7 @@ void Compiler::phMorphInit()
         CORINFO_INITCLASS_USE_HELPER)
     {
         fgEnsureFirstBBisScratch();
-        fgNewStmtAtBeg(fgFirstBB, fgInitThisClass());
+        fgNewStmtAtBeg(fgFirstBB, gtNewInitThisClassHelperCall());
     }
 
     fgRemoveEmptyBlocks();
@@ -14674,87 +14674,6 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
 
         genReturnBB->setBBProfileWeight(newWeight);
         DISPBLOCK(genReturnBB);
-    }
-}
-
-GenTree* Compiler::fgInitThisClass()
-{
-    noway_assert(!compIsForInlining());
-
-    CORINFO_LOOKUP_KIND kind;
-    info.compCompHnd->getLocationOfThisType(info.compMethodHnd, &kind);
-
-    if (!kind.needsRuntimeLookup)
-    {
-        return fgGetSharedCCtor(info.compClassHnd);
-    }
-    else
-    {
-#ifdef FEATURE_READYTORUN_COMPILER
-        // Only CoreRT understands CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE. Don't do this on CoreCLR.
-        if (opts.IsReadyToRun() && IsTargetAbi(CORINFO_CORERT_ABI))
-        {
-            CORINFO_RESOLVED_TOKEN resolvedToken;
-            memset(&resolvedToken, 0, sizeof(resolvedToken));
-
-            // We are in a shared method body, but maybe we don't need a runtime lookup after all.
-            // This covers the case of a generic method on a non-generic type.
-            if (!(info.compClassAttr & CORINFO_FLG_SHAREDINST))
-            {
-                resolvedToken.hClass = info.compClassHnd;
-                return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
-            }
-
-            // We need a runtime lookup.
-            GenTree* ctxTree = gtNewRuntimeContextTree(kind.runtimeLookupKind);
-
-            // CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE with a zeroed out resolvedToken means "get the static
-            // base of the class that owns the method being compiled". If we're in this method, it means we're not
-            // inlining and there's no ambiguity.
-            return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE, TYP_BYREF,
-                                                 gtNewCallArgs(ctxTree), &kind);
-        }
-#endif
-
-        // Collectible types requires that for shared generic code, if we use the generic context paramter
-        // that we report it. (This is a conservative approach, we could detect some cases particularly when the
-        // context parameter is this that we don't need the eager reporting logic.)
-        lvaGenericsContextInUse = true;
-
-        switch (kind.runtimeLookupKind)
-        {
-            case CORINFO_LOOKUP_THISOBJ:
-            {
-                // This code takes a this pointer; but we need to pass the static method desc to get the right point in
-                // the hierarchy
-                GenTree* vtTree = gtNewLclvNode(info.compThisArg, TYP_REF);
-                vtTree->gtFlags |= GTF_VAR_CONTEXT;
-                // Vtable pointer of this object
-                vtTree             = gtNewMethodTableLookup(vtTree);
-                GenTree* methodHnd = gtNewIconEmbMethHndNode(info.compMethodHnd);
-
-                return gtNewHelperCallNode(CORINFO_HELP_INITINSTCLASS, TYP_VOID, gtNewCallArgs(vtTree, methodHnd));
-            }
-
-            case CORINFO_LOOKUP_CLASSPARAM:
-            {
-                GenTree* vtTree = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
-                vtTree->gtFlags |= GTF_VAR_CONTEXT;
-                return gtNewHelperCallNode(CORINFO_HELP_INITCLASS, TYP_VOID, gtNewCallArgs(vtTree));
-            }
-
-            case CORINFO_LOOKUP_METHODPARAM:
-            {
-                GenTree* methHndTree = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
-                methHndTree->gtFlags |= GTF_VAR_CONTEXT;
-                return gtNewHelperCallNode(CORINFO_HELP_INITINSTCLASS, TYP_VOID,
-                                           gtNewCallArgs(gtNewIconNode(0), methHndTree));
-            }
-
-            default:
-                noway_assert(!"Unknown LOOKUP_KIND");
-                UNREACHABLE();
-        }
     }
 }
 

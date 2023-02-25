@@ -2269,7 +2269,7 @@ Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)
 
         CORINFO_CLASS_HANDLE exactClass = eeGetClassFromContext(inlineInfo->inlineCandidateInfo->exactContextHnd);
 
-        GenTree*   tree = fgGetSharedCCtor(exactClass);
+        GenTree*   tree = gtNewSharedCctorHelperCall(exactClass);
         Statement* stmt = gtNewStmt(tree, inlineInfo->iciStmt->GetILOffsetX());
         fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
         afterStmt = stmt;
@@ -2589,7 +2589,7 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
     // If the arg is a static field access and the field access was produced
     // by a call to EqualityComparer<T>.get_Default, the helper call to ensure
     // the field has a value can be suppressed. This helper call is marked as
-    // "Special DCE" during importation, over in fgGetStaticsCCtorHelper.
+    // "Special DCE" during importation, over in gtNewSharedStaticsCctorHelperCall.
 
     if (argNode->OperIs(GT_COMMA))
     {
