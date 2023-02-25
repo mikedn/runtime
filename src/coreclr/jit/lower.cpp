@@ -1194,6 +1194,18 @@ void Lowering::LowerCallArgs(GenTreeCall* call)
     }
 #endif
 
+#ifndef TARGET_X86
+    // TODO-MIKE-Review: What does the arg slot count has to do with x64 or any other non-x86
+    // architectures? This condition does reduce code size but it appears to do so by accident:
+    // EBP based address modes have smaller encoding than ESP based ones but then this basically
+    // counts arg stores and those always use ESP. What we really need is the number of non-arg
+    // stack references that exist, and this has nothing to do with that.
+    if (info->GetNextSlotNum() - INIT_ARG_STACK_SLOT >= 4)
+    {
+        comp->opts.SetFramePointerRequired();
+    }
+#endif
+
     for (unsigned i = 0; i < info->GetArgCount(); i++)
     {
         JITDUMPTREE(info->GetArgInfo(i)->GetNode(), "lowering call arg %u (before):\n", i);

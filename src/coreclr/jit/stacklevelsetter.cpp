@@ -4,32 +4,18 @@
 #include "jitpch.h"
 #include "stacklevelsetter.h"
 
+#if !FEATURE_FIXED_OUT_ARGS
+
 StackLevelSetter::StackLevelSetter(Compiler* compiler)
     : Phase(compiler, PHASE_STACK_LEVEL_SETTER)
-#if !FEATURE_FIXED_OUT_ARGS
     , framePointerRequired(compiler->opts.IsFramePointerRequired())
     , throwHelperBlocksUsed(comp->fgUseThrowHelperBlocks() && comp->compUsesThrowHelper)
-#endif
 {
 }
 
-//------------------------------------------------------------------------
-// DoPhase: Calculate stack slots numbers for outgoing args.
-//
-// Returns:
-//   PhaseStatus indicating what, if anything, was changed.
-//
-// Notes:
-//   For non-x86 platforms it calculates the max number of slots
-//   that calls inside this method can push on the stack.
-//   This value is used for sanity checks in the emitter.
-//
-//   Stack slots are pointer-sized: 4 bytes for 32-bit platforms, 8 bytes for 64-bit platforms.
-//
-//   For x86 it also sets throw-helper blocks incoming stack depth and set
-//   framePointerRequired when it is necessary. These values are used to pop
-//   pushed args when an exception occurs.
-//
+// For x86 it sets throw-helper blocks incoming stack depth and set
+// framePointerRequired when it is necessary. These values are used
+// to pop pushed args when an exception occurs.
 PhaseStatus StackLevelSetter::DoPhase()
 {
     for (BasicBlock* const block : comp->Blocks())
@@ -37,30 +23,17 @@ PhaseStatus StackLevelSetter::DoPhase()
         ProcessBlock(block);
     }
 
-#ifdef TARGET_X86
     // Profiler hook calls do not appear in the IR and do push an argument.
     if (comp->compIsProfilerHookNeeded() && (maxStackLevel == 0))
     {
         maxStackLevel = 1;
     }
-#endif
 
-    // TODO-MIKE-Review: What does "maxStackLevel >= 4" has to do with x64 or any other non-x86
-    // architectures? This condition does reduce code size but it appears to do so by accident:
-    // EBP based address modes have smaller encoding than ESP based ones but then this basically
-    // counts arg stores and those always use ESP. What we really need is the number of non-arg
-    // stack references that exist, and this has nothing to do with that.
-
-    if (maxStackLevel >= 4
-#if !FEATURE_FIXED_OUT_ARGS
-        || framePointerRequired
-#endif
-        )
+    if ((maxStackLevel >= 4) || framePointerRequired)
     {
         comp->opts.SetFramePointerRequired();
     }
 
-#ifdef JIT32_GCENCODER
     // The GC encoding for fully interruptible methods does not
     // support more than 1023 pushed arguments, so we have to
     // use a partially interruptible GC info/encoding.
@@ -71,7 +44,6 @@ PhaseStatus StackLevelSetter::DoPhase()
 
         comp->codeGen->SetInterruptible(false);
     }
-#endif
 
     return PhaseStatus::MODIFIED_NOTHING;
 }
@@ -89,11 +61,8 @@ PhaseStatus StackLevelSetter::DoPhase()
 //
 void StackLevelSetter::ProcessBlock(BasicBlock* block)
 {
-    // TODO-MIKE-Cleanup: Investigate why we need to run StackLevelSetter at all in the
-    // FEATURE_FIXED_OUT_ARGS case. It should not be needed since the stack level doesn't
-    // change.
-
     assert(currentStackLevel == 0);
+
     for (GenTree* node : LIR::AsRange(block))
     {
         if (GenTreePutArgStk* putArgStk = node->IsPutArgStk())
@@ -102,8 +71,6 @@ void StackLevelSetter::ProcessBlock(BasicBlock* block)
             continue;
         }
 
-#if !FEATURE_FIXED_OUT_ARGS
-        // Set throw blocks incoming stack depth for x86.
         if (throwHelperBlocksUsed && !framePointerRequired)
         {
             if (node->OperMayThrow(comp))
@@ -111,7 +78,6 @@ void StackLevelSetter::ProcessBlock(BasicBlock* block)
                 SetThrowHelperBlockStackLevel(node, block);
             }
         }
-#endif // !FEATURE_FIXED_OUT_ARGS
 
         if (GenTreeCall* call = node->IsCall())
         {
@@ -123,8 +89,6 @@ void StackLevelSetter::ProcessBlock(BasicBlock* block)
     }
     assert(currentStackLevel == 0);
 }
-
-#if !FEATURE_FIXED_OUT_ARGS
 
 void StackLevelSetter::SetThrowHelperBlockStackLevel(GenTree* node, BasicBlock* throwBlock)
 {
@@ -204,8 +168,6 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(ThrowHelperKind kind, Basic
     }
 }
 
-#endif // !FEATURE_FIXED_OUT_ARGS
-
 //------------------------------------------------------------------------
 // PopArgumentsFromCall: Calculate the number of stack arguments that are used by the call.
 //
@@ -253,3 +215,5 @@ void StackLevelSetter::PopArg(GenTreePutArgStk* putArgStk)
     assert(currentStackLevel >= putArgStk->GetSlotCount());
     currentStackLevel -= putArgStk->GetSlotCount();
 }
+
+#endif // !FEATURE_FIXED_OUT_ARGS

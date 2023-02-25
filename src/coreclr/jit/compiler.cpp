@@ -2764,8 +2764,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     Lowering lowering(this);
     lowering.Run();
 
-#ifndef OSX_ARM64_ABI
-    // TODO: do not run it in release on other platforms, see https://github.com/dotnet/runtime/issues/42673.
+#if !FEATURE_FIXED_OUT_ARGS
     StackLevelSetter stackLevelSetter(this);
     stackLevelSetter.Run();
 #endif
