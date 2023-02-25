@@ -2619,81 +2619,39 @@ void Compiler::EndPhase(Phases phase)
     mostRecentlyActivePhase = phase;
 }
 
-//------------------------------------------------------------------------
-// compCompile: run phases needed for compilation
-//
-// Arguments:
-//   methodCodePtr [OUT] - address of generated code
-//   methodCodeSize [OUT] - size of the generated code (hot + cold setions)
-//   jitFlags [IN] - flags controlling jit behavior
-//
-// Notes:
-//  This is the most interesting 'toplevel' function in the JIT.  It goes through the operations of
-//  importing, morphing, optimizations and code generation.  This is called from the EE through the
-//  code:CILJit::compileMethod function.
-//
-//  For an overview of the structure of the JIT, see:
-//   https://github.com/dotnet/runtime/blob/main/docs/design/coreclr/jit/ryujit-overview.md
-//
-//  Also called for inlinees, though they will only be run through the first few phases.
-//
 void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
 {
     assert(!compIsForInlining());
 
-    // Incorporate profile data.
-    //
-    // Note: the importer is sensitive to block weights, so this has
-    // to happen before importation.
-    //
     DoPhase(this, PHASE_INCPROFILE, &Compiler::fgIncorporateProfileData);
 
-    // If we're going to instrument code, we may need to prepare before
-    // we import.
-    //
     if (jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
     {
         DoPhase(this, PHASE_IBCPREP, &Compiler::fgPrepareToInstrumentMethod);
     }
 
-    // Import: convert the instrs in each basic block to a tree based intermediate representation
-    //
     DoPhase(this, PHASE_IMPORTATION, &Compiler::fgImport);
 
-    // If instrumenting, add block and class probes.
-    //
     if (jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
     {
         DoPhase(this, PHASE_IBCINSTR, &Compiler::fgInstrumentMethod);
     }
 
-    // Transform indirect calls that require control flow expansion.
-    //
     DoPhase(this, PHASE_INDXCALL, &Compiler::fgTransformIndirectCalls);
-
-    // Expand any patchpoints
-    //
     DoPhase(this, PHASE_PATCHPOINTS, &Compiler::fgTransformPatchpoints);
 
 #if !FEATURE_EH
-    // If we aren't yet supporting EH in a compiler bring-up, remove as many EH handlers as possible, so
-    // we can pass tests that contain try/catch EH, but don't actually throw any exceptions.
+    // If we aren't yet supporting EH in a compiler bring-up, remove as many EH handlers as possible,
+    // so we can pass tests that contain try/catch EH, but don't actually throw any exceptions.
     fgRemoveEH();
 #endif // !FEATURE_EH
 
     DoPhase(this, PHASE_MORPH_INIT, &Compiler::fgMorphInitPhase);
-
-    // Inline callee methods into this root method
-    //
     DoPhase(this, PHASE_MORPH_INLINE, &Compiler::fgInline);
 
-    // Record "start" values for post-inlining cycles and elapsed time.
     RecordStateAtEndOfInlining();
 
     DoPhase(this, PHASE_ALLOCATE_OBJECTS, &Compiler::fgMorphAllocObjPhase);
-
-    // Add any internal blocks/trees we may need
-    //
     DoPhase(this, PHASE_MORPH_ADD_INTERNAL, &Compiler::fgAddInternal);
 
     if (opts.OptimizationEnabled() && (compHndBBtabCount != 0))
@@ -2709,7 +2667,6 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
     DoPhase(this, PHASE_COMPUTE_PREDS, &Compiler::fgComputePredsPhase);
 
-    // Now that we have pred lists, do some flow-related optimizations
     if (opts.OptimizationEnabled())
     {
         DoPhase(this, PHASE_MERGE_THROWS, &Compiler::fgTailMergeThrows);
@@ -2720,52 +2677,22 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     DoPhase(this, PHASE_STR_ADRLCL, &Compiler::fgMarkAddressExposedLocals);
     DoPhase(this, PHASE_MORPH_GLOBAL, &Compiler::fgMorphPhase);
     DoPhase(this, PHASE_GS_COOKIE, &Compiler::gsPhase);
-
-    // Compute the block and edge weights
-    //
     DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS, &Compiler::fgComputeBlockAndEdgeWeights);
-
-#if defined(FEATURE_EH_FUNCLETS)
-
-    // Create funclets from the EH handlers.
-    //
+#ifdef FEATURE_EH_FUNCLETS
     DoPhase(this, PHASE_CREATE_FUNCLETS, &Compiler::fgCreateFunclets);
-
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     if (opts.OptimizationEnabled())
     {
-        // Invert loops
-        //
         DoPhase(this, PHASE_INVERT_LOOPS, &Compiler::optInvertLoops);
-
-        // Optimize block order
-        //
         DoPhase(this, PHASE_OPTIMIZE_LAYOUT, &Compiler::optOptimizeLayout);
-
-        // Compute reachability sets and dominators.
-        //
         DoPhase(this, PHASE_COMPUTE_REACHABILITY, &Compiler::fgComputeReachability);
-
-        // Discover and classify natural loops
-        // (e.g. mark iterative loops as such). Also marks loop blocks
-        // and sets bbWeight to the loop nesting levels
-        //
         DoPhase(this, PHASE_FIND_LOOPS, &Compiler::optFindLoops);
-
-        // Clone loops with optimization opportunities, and
-        // choose one based on dynamic condition evaluation.
-        //
         DoPhase(this, PHASE_CLONE_LOOPS, &Compiler::optCloneLoops);
-
-        // Unroll loops
-        //
         DoPhase(this, PHASE_UNROLL_LOOPS, &Compiler::optUnrollLoops);
     }
 
-#ifdef DEBUG
-    fgDebugCheckLinks();
-#endif
+    INDEBUG(fgDebugCheckLinks());
 
     DoPhase(this, PHASE_MARK_LOCAL_VARS, &Compiler::lvaMarkLocalVars);
 
@@ -2782,30 +2709,29 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
         DoPhase(this, PHASE_OPTIMIZE_BOOLS, &Compiler::optOptimizeBools);
 
-        // optOptimizeBools() might have changed the number of blocks; the dominators/reachability might be bad.
+        // optOptimizeBools() might have changed the number of blocks;
+        // the dominators/reachability might be bad.
+        // TODO-MIKE-Review: So should fgDomsComputed be set to false?
     }
 
-    // Figure out the order in which operators are to be evaluated
-    //
     DoPhase(this, PHASE_FIND_OPER_ORDER, &Compiler::fgFindOperOrder);
     DoPhase(this, PHASE_SET_FULLY_INTERRUPTIBLE, &Compiler::fgSetFullyInterruptiblePhase);
     DoPhase(this, PHASE_SET_BLOCK_ORDER, &Compiler::fgSetBlockOrderPhase);
 
-    // At this point we know if we are fully interruptible or not
     if (opts.OptimizationEnabled())
     {
-        bool doSsa           = true;
-        bool doEarlyProp     = true;
-        bool doValueNum      = true;
-        bool doLoopHoisting  = true;
-        bool doCopyProp      = true;
-        bool doBranchOpt     = true;
-        bool doCse           = true;
-        bool doAssertionProp = true;
-        bool doRangeAnalysis = true;
-        int  iterations      = 1;
+        bool     doSsa           = true;
+        bool     doEarlyProp     = true;
+        bool     doValueNum      = true;
+        bool     doLoopHoisting  = true;
+        bool     doCopyProp      = true;
+        bool     doBranchOpt     = true;
+        bool     doCse           = true;
+        bool     doAssertionProp = true;
+        bool     doRangeAnalysis = true;
+        unsigned iterationCount  = 1;
 
-#if defined(OPT_CONFIG)
+#ifdef OPT_CONFIG
         doSsa           = (JitConfig.JitDoSsa() != 0);
         doEarlyProp     = doSsa && (JitConfig.JitDoEarlyProp() != 0);
         doValueNum      = doSsa && (JitConfig.JitDoValueNumber() != 0);
@@ -2818,44 +2744,40 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
         if (opts.optRepeat)
         {
-            iterations = JitConfig.JitOptRepeatCount();
+            iterationCount = static_cast<unsigned>(JitConfig.JitOptRepeatCount());
         }
-#endif // defined(OPT_CONFIG)
+#endif // OPT_CONFIG
 
-        while (iterations > 0)
+        for (unsigned iteration = 0; iteration < iterationCount; iteration++)
         {
+            if (iteration != 0)
+            {
+                ResetOptAnnotations();
+                RecomputeLoopInfo();
+            }
+
             if (doSsa)
             {
-                // Build up SSA form for the IR
-                //
                 DoPhase(this, PHASE_BUILD_SSA, &Compiler::fgSsaBuild);
             }
 
             if (doEarlyProp)
             {
-                // Propagate array length and rewrite getType() method call
-                //
                 DoPhase(this, PHASE_EARLY_PROP, &Compiler::optEarlyProp);
             }
 
             if (doValueNum)
             {
-                // Value number the trees
-                //
                 DoPhase(this, PHASE_VALUE_NUMBER, &Compiler::fgValueNumber);
             }
 
             if (doLoopHoisting)
             {
-                // Hoist invariant code out of loops
-                //
                 DoPhase(this, PHASE_HOIST_LOOP_CODE, &Compiler::optHoistLoopCode);
             }
 
             if (doCopyProp)
             {
-                // Perform VN based copy propagation
-                //
                 DoPhase(this, PHASE_VN_COPY_PROP, &Compiler::optVnCopyProp);
             }
 
@@ -2866,16 +2788,12 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
             if (doCse)
             {
-                // Remove common sub-expressions
-                //
                 DoPhase(this, PHASE_OPTIMIZE_VALNUM_CSES, &Compiler::cseMain);
             }
 
 #if ASSERTION_PROP
             if (doAssertionProp)
             {
-                // Assertion propagation
-                //
                 DoPhase(this, PHASE_ASSERTION_PROP_MAIN, &Compiler::apMain);
             }
 
@@ -2890,53 +2808,32 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
                 DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH, &Compiler::fgUpdateFlowGraphPhase);
                 DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS2, &Compiler::fgComputeEdgeWeights);
             }
-
-            // Iterate if requested, resetting annotations first.
-            if (--iterations != 0)
-            {
-                ResetOptAnnotations();
-                RecomputeLoopInfo();
-            }
         }
     }
 
-    // Insert GC Polls
     DoPhase(this, PHASE_INSERT_GC_POLLS, &Compiler::fgInsertGCPolls);
-
-    // Determine start of cold region if we are hot/cold splitting
-    //
     DoPhase(this, PHASE_DETERMINE_FIRST_COLD_BLOCK, &Compiler::fgDetermineFirstColdBlock);
 
     Rationalizer rat(this);
     rat.Run();
 
-    // Enable this to gather statistical data such as
-    // call and register argument info, flowgraph and loop info, etc.
     compJitStats();
 
-    // Assign registers to variables, etc.
-
-    ///////////////////////////////////////////////////////////////////////////////
     // Dominator and reachability sets are no longer valid. They haven't been
     // maintained up to here, and shouldn't be used (unless recomputed).
-    ///////////////////////////////////////////////////////////////////////////////
     fgDomsComputed = false;
 
     Lowering lowering(this);
     lowering.Run();
 
-#if !defined(OSX_ARM64_ABI)
-    // Set stack levels; this information is necessary for x86
-    // but on other platforms it is used only in asserts.
+#ifndef OSX_ARM64_ABI
     // TODO: do not run it in release on other platforms, see https://github.com/dotnet/runtime/issues/42673.
     StackLevelSetter stackLevelSetter(this);
     stackLevelSetter.Run();
-#endif // !OSX_ARM64_ABI
+#endif
 
     codeGen->genGenerateCode(nativeCode, nativeCodeSize);
 
-    // We're done -- set the active phase to the last phase
-    // (which isn't really a phase)
     mostRecentlyActivePhase = PHASE_POST_EMIT;
 
 #ifdef FEATURE_JIT_METHOD_PERF
@@ -2951,7 +2848,6 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     }
 #endif
 
-    // Generate PatchpointInfo
     generatePatchpointInfo();
 
     RecordStateAtEndOfCompilation();
