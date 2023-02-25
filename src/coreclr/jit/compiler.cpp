@@ -2617,7 +2617,12 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     DoPhase(this, PHASE_PROMOTE_STRUCTS, &Compiler::fgPromoteStructs);
     DoPhase(this, PHASE_STR_ADRLCL, &Compiler::fgMarkAddressExposedLocals);
     DoPhase(this, PHASE_MORPH_GLOBAL, &Compiler::phMorph);
-    DoPhase(this, PHASE_GS_COOKIE, &Compiler::phGSCookie);
+
+    if (getNeedsGSSecurityCookie())
+    {
+        DoPhase(this, PHASE_GS_COOKIE, &Compiler::phGSCookie);
+    }
+
     DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS, &Compiler::fgComputeBlockAndEdgeWeights);
 #ifdef FEATURE_EH_FUNCLETS
     DoPhase(this, PHASE_CREATE_FUNCLETS, &Compiler::fgCreateFunclets);
@@ -2749,8 +2754,16 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
         }
     }
 
-    DoPhase(this, PHASE_INSERT_GC_POLLS, &Compiler::phInsertGCPolls);
-    DoPhase(this, PHASE_DETERMINE_FIRST_COLD_BLOCK, &Compiler::phDetermineFirstColdBlock);
+    if ((optMethodFlags & OMF_NEEDS_GCPOLLS) != 0)
+    {
+        DoPhase(this, PHASE_INSERT_GC_POLLS, &Compiler::phInsertGCPolls);
+    }
+
+    if (opts.compProcedureSplitting)
+    {
+        DoPhase(this, PHASE_DETERMINE_FIRST_COLD_BLOCK, &Compiler::phDetermineFirstColdBlock);
+    }
+
     DoPhase(this, PHASE_RATIONALIZE, &Compiler::phRationalize);
 
     // Dominator and reachability sets are no longer valid. They haven't been
@@ -2768,7 +2781,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     mostRecentlyActivePhase = PHASE_POST_EMIT;
 
 #ifdef FEATURE_JIT_METHOD_PERF
-    if (pCompJitTimer)
+    if (pCompJitTimer != nullptr)
     {
 #if MEASURE_CLRAPI_CALLS
         EndPhase(PHASE_CLR_API);
@@ -2779,7 +2792,10 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     }
 #endif
 
-    generatePatchpointInfo();
+    if (doesMethodHavePatchpoints())
+    {
+        generatePatchpointInfo();
+    }
 
     RecordStateAtEndOfCompilation();
 
@@ -2792,11 +2808,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 //
 void Compiler::generatePatchpointInfo()
 {
-    if (!doesMethodHavePatchpoints())
-    {
-        // Nothing to report
-        return;
-    }
+    assert(doesMethodHavePatchpoints());
 
     // Patchpoints are only found in Tier0 code, which is unoptimized, and so
     // should always have frame pointer.

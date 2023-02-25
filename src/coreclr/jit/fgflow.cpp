@@ -660,9 +660,9 @@ void Compiler::fgRemovePreds()
 //
 void Compiler::phComputePreds()
 {
-    JITDUMP("\nRenumbering the basic blocks for phComputePreds\n");
-    fgRenumberBlocks();
     noway_assert(!fgComputePredsDone);
+
+    fgRenumberBlocks();
     fgComputePreds();
 }
 

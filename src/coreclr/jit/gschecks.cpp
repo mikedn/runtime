@@ -17,25 +17,20 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 void Compiler::phGSCookie()
 {
+    assert(getNeedsGSSecurityCookie());
+
     unsigned prevBBCount = fgBBcount;
-    if (getNeedsGSSecurityCookie())
+    gsGSChecksInitCookie();
+
+    if (compGSReorderStackLayout)
     {
-        gsGSChecksInitCookie();
-
-        if (compGSReorderStackLayout)
-        {
-            gsCopyShadowParams();
-        }
-
-        // If we needed to create any new BasicBlocks then renumber the blocks
-        if (fgBBcount > prevBBCount)
-        {
-            fgRenumberBlocks();
-        }
+        gsCopyShadowParams();
     }
-    else
+
+    // If we needed to create any new BasicBlocks then renumber the blocks
+    if (fgBBcount > prevBBCount)
     {
-        JITDUMP("No GS security needed\n");
+        fgRenumberBlocks();
     }
 }
 

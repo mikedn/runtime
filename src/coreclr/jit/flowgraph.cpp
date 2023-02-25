@@ -48,10 +48,7 @@ static bool BlockNeedsGCPoll(BasicBlock* block)
 // between calls.
 PhaseStatus Compiler::phInsertGCPolls()
 {
-    if ((optMethodFlags & OMF_NEEDS_GCPOLLS) == 0)
-    {
-        return PhaseStatus::MODIFIED_NOTHING;
-    }
+    assert((optMethodFlags & OMF_NEEDS_GCPOLLS) != 0);
 
 #ifdef DEBUG
     if (verbose)
@@ -2427,17 +2424,9 @@ void Compiler::fgCreateFunclets()
 // or are rarely executed.
 void Compiler::phDetermineFirstColdBlock()
 {
-    // Since we may need to create a new transistion block
-    // we assert that it is OK to create new blocks.
+    assert(opts.compProcedureSplitting);
+    assert(fgFirstColdBlock == nullptr);
     assert(fgSafeBasicBlockCreation);
-
-    fgFirstColdBlock = nullptr;
-
-    if (!opts.compProcedureSplitting)
-    {
-        JITDUMP("No procedure splitting will be done for this method\n");
-        return;
-    }
 
 #ifdef DEBUG
     if ((compHndBBtabCount > 0) && !opts.compProcedureSplittingEH)
