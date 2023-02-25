@@ -121,17 +121,13 @@ void Compiler::JitLogEE(unsigned level, const char* fmt, ...)
 
 #endif // DEBUG
 
-/*****************************************************************************/
-#if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES || CALL_ARG_STATS
-
+#if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES
 static unsigned genMethodCnt;  // total number of methods JIT'ted
 unsigned        genMethodICnt; // number of interruptible methods
 unsigned        genMethodNCnt; // number of non-interruptible methods
 static unsigned genSmallMethodsNeedingExtraMemoryCnt = 0;
-
 #endif
 
-/*****************************************************************************/
 #if MEASURE_NODE_SIZE
 NodeSizeStats genNodeSizeStats;
 NodeSizeStats genNodeSizeStatsPerFunc;
@@ -169,55 +165,6 @@ size_t gcHeaderNSize; // GC header      size: non-interruptible methods
 size_t gcPtrMapNSize; // GC pointer map size: non-interruptible methods
 
 #endif // DISPLAY_SIZES
-
-/*****************************************************************************
- *
- *  Variables to keep track of argument counts.
- */
-
-#if CALL_ARG_STATS
-
-unsigned argTotalCalls;
-unsigned argHelperCalls;
-unsigned argStaticCalls;
-unsigned argNonVirtualCalls;
-unsigned argVirtualCalls;
-
-unsigned argTotalArgs; // total number of args for all calls (including objectPtr)
-unsigned argTotalDWordArgs;
-unsigned argTotalLongArgs;
-unsigned argTotalFloatArgs;
-unsigned argTotalDoubleArgs;
-
-unsigned argTotalRegArgs;
-unsigned argTotalTemps;
-unsigned argTotalLclVar;
-unsigned argTotalDeferred;
-unsigned argTotalConst;
-
-unsigned argTotalObjPtr;
-unsigned argTotalGTF_ASGinArgs;
-
-unsigned argMaxTempsPerMethod;
-
-unsigned  argCntBuckets[] = {0, 1, 2, 3, 4, 5, 6, 10, 0};
-Histogram argCntTable(argCntBuckets);
-
-unsigned  argDWordCntBuckets[] = {0, 1, 2, 3, 4, 5, 6, 10, 0};
-Histogram argDWordCntTable(argDWordCntBuckets);
-
-unsigned  argDWordLngCntBuckets[] = {0, 1, 2, 3, 4, 5, 6, 10, 0};
-Histogram argDWordLngCntTable(argDWordLngCntBuckets);
-
-unsigned  argTempsCntBuckets[] = {0, 1, 2, 3, 4, 5, 6, 10, 0};
-Histogram argTempsCntTable(argTempsCntBuckets);
-
-#endif // CALL_ARG_STATS
-
-/*****************************************************************************
- *
- *  Variables to keep track of basic block counts.
- */
 
 #if COUNT_BASIC_BLOCKS
 
@@ -531,7 +478,7 @@ void Compiler::compShutdown()
     }
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
-#if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES || CALL_ARG_STATS
+#if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES
     if (genMethodCnt == 0)
     {
         return;
@@ -661,10 +608,6 @@ void Compiler::compShutdown()
     }
 
 #endif // DISPLAY_SIZES
-
-#if CALL_ARG_STATS
-    compDispCallArgStats(fout);
-#endif
 
 #if COUNT_BASIC_BLOCKS
     fprintf(fout, "--------------------------------------------------\n");
@@ -2814,8 +2757,6 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     Rationalizer rat(this);
     rat.Run();
 
-    compJitStats();
-
     // Dominator and reachability sets are no longer valid. They haven't been
     // maintained up to here, and shouldn't be used (unless recomputed).
     fgDomsComputed = false;
@@ -3271,7 +3212,7 @@ void Compiler::compCompileFinish()
     }
 #endif // FUNC_INFO_LOGGING
 
-#if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES || CALL_ARG_STATS
+#if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES
     genMethodCnt++;
 #endif
 
@@ -3936,185 +3877,6 @@ START:
 
     return result;
 }
-
-/*****************************************************************************
- *
- *  Gather statistics - mainly used for the standalone
- *  Enable various #ifdef's to get the information you need
- */
-
-void Compiler::compJitStats()
-{
-#if CALL_ARG_STATS
-
-    /* Method types and argument statistics */
-    compCallArgStats();
-#endif // CALL_ARG_STATS
-}
-
-#if CALL_ARG_STATS
-
-/*****************************************************************************
- *
- *  Gather statistics about method calls and arguments
- */
-
-void Compiler::compCallArgStats()
-{
-    unsigned argNum;
-
-    unsigned argDWordNum;
-    unsigned argLngNum;
-    unsigned argFltNum;
-    unsigned argDblNum;
-
-    unsigned regArgNum;
-    unsigned regArgDeferred;
-    unsigned regArgTemp;
-
-    unsigned regArgLclVar;
-    unsigned regArgConst;
-
-    unsigned argTempsThisMethod = 0;
-
-    assert(fgStmtListThreaded);
-
-    for (BasicBlock* const block : Blocks())
-    {
-        for (Statement* const stmt : block->Statements())
-        {
-            for (GenTree* const call : stmt->TreeList())
-            {
-                if (call->gtOper != GT_CALL)
-                    continue;
-
-                argNum = regArgNum = regArgDeferred = regArgTemp = regArgConst = regArgLclVar = argDWordNum =
-                    argLngNum = argFltNum = argDblNum = 0;
-
-                argTotalCalls++;
-
-                if (call->AsCall()->gtCallThisArg == nullptr)
-                {
-                    if (call->AsCall()->gtCallType == CT_HELPER)
-                    {
-                        argHelperCalls++;
-                    }
-                    else
-                    {
-                        argStaticCalls++;
-                    }
-                }
-                else
-                {
-                    /* We have a 'this' pointer */
-
-                    argDWordNum++;
-                    argNum++;
-                    regArgNum++;
-                    regArgDeferred++;
-                    argTotalObjPtr++;
-
-                    if (call->AsCall()->IsVirtual())
-                    {
-                        /* virtual function */
-                        argVirtualCalls++;
-                    }
-                    else
-                    {
-                        argNonVirtualCalls++;
-                    }
-                }
-            }
-        }
-    }
-
-    argTempsCntTable.record(argTempsThisMethod);
-
-    if (argMaxTempsPerMethod < argTempsThisMethod)
-    {
-        argMaxTempsPerMethod = argTempsThisMethod;
-    }
-}
-
-/* static */
-void Compiler::compDispCallArgStats(FILE* fout)
-{
-    if (argTotalCalls == 0)
-        return;
-
-    fprintf(fout, "\n");
-    fprintf(fout, "--------------------------------------------------\n");
-    fprintf(fout, "Call stats\n");
-    fprintf(fout, "--------------------------------------------------\n");
-    fprintf(fout, "Total # of calls = %d, calls / method = %.3f\n\n", argTotalCalls,
-            (float)argTotalCalls / genMethodCnt);
-
-    fprintf(fout, "Percentage of      helper calls = %4.2f %%\n", (float)(100 * argHelperCalls) / argTotalCalls);
-    fprintf(fout, "Percentage of      static calls = %4.2f %%\n", (float)(100 * argStaticCalls) / argTotalCalls);
-    fprintf(fout, "Percentage of     virtual calls = %4.2f %%\n", (float)(100 * argVirtualCalls) / argTotalCalls);
-    fprintf(fout, "Percentage of non-virtual calls = %4.2f %%\n\n", (float)(100 * argNonVirtualCalls) / argTotalCalls);
-
-    fprintf(fout, "Average # of arguments per call = %.2f%%\n\n", (float)argTotalArgs / argTotalCalls);
-
-    fprintf(fout, "Percentage of DWORD  arguments   = %.2f %%\n", (float)(100 * argTotalDWordArgs) / argTotalArgs);
-    fprintf(fout, "Percentage of LONG   arguments   = %.2f %%\n", (float)(100 * argTotalLongArgs) / argTotalArgs);
-    fprintf(fout, "Percentage of FLOAT  arguments   = %.2f %%\n", (float)(100 * argTotalFloatArgs) / argTotalArgs);
-    fprintf(fout, "Percentage of DOUBLE arguments   = %.2f %%\n\n", (float)(100 * argTotalDoubleArgs) / argTotalArgs);
-
-    if (argTotalRegArgs == 0)
-        return;
-
-    /*
-        fprintf(fout, "Total deferred arguments     = %d \n", argTotalDeferred);
-
-        fprintf(fout, "Total temp arguments         = %d \n\n", argTotalTemps);
-
-        fprintf(fout, "Total 'this' arguments       = %d \n", argTotalObjPtr);
-        fprintf(fout, "Total local var arguments    = %d \n", argTotalLclVar);
-        fprintf(fout, "Total constant arguments     = %d \n\n", argTotalConst);
-    */
-
-    fprintf(fout, "\nRegister Arguments:\n\n");
-
-    fprintf(fout, "Percentage of deferred arguments = %.2f %%\n", (float)(100 * argTotalDeferred) / argTotalRegArgs);
-    fprintf(fout, "Percentage of temp arguments     = %.2f %%\n\n", (float)(100 * argTotalTemps) / argTotalRegArgs);
-
-    fprintf(fout, "Maximum # of temps per method    = %d\n\n", argMaxTempsPerMethod);
-
-    fprintf(fout, "Percentage of ObjPtr arguments   = %.2f %%\n", (float)(100 * argTotalObjPtr) / argTotalRegArgs);
-    // fprintf(fout, "Percentage of global arguments   = %.2f %%\n", (float)(100 * argTotalDWordGlobEf) /
-    // argTotalRegArgs);
-    fprintf(fout, "Percentage of constant arguments = %.2f %%\n", (float)(100 * argTotalConst) / argTotalRegArgs);
-    fprintf(fout, "Percentage of lcl var arguments  = %.2f %%\n\n", (float)(100 * argTotalLclVar) / argTotalRegArgs);
-
-    fprintf(fout, "--------------------------------------------------\n");
-    fprintf(fout, "Argument count frequency table (includes ObjPtr):\n");
-    fprintf(fout, "--------------------------------------------------\n");
-    argCntTable.dump(fout);
-    fprintf(fout, "--------------------------------------------------\n");
-
-    fprintf(fout, "--------------------------------------------------\n");
-    fprintf(fout, "DWORD argument count frequency table (w/o LONG):\n");
-    fprintf(fout, "--------------------------------------------------\n");
-    argDWordCntTable.dump(fout);
-    fprintf(fout, "--------------------------------------------------\n");
-
-    fprintf(fout, "--------------------------------------------------\n");
-    fprintf(fout, "Temps count frequency table (per method):\n");
-    fprintf(fout, "--------------------------------------------------\n");
-    argTempsCntTable.dump(fout);
-    fprintf(fout, "--------------------------------------------------\n");
-
-    /*
-        fprintf(fout, "--------------------------------------------------\n");
-        fprintf(fout, "DWORD argument count frequency table (w/ LONG):\n");
-        fprintf(fout, "--------------------------------------------------\n");
-        argDWordLngCntTable.dump(fout);
-        fprintf(fout, "--------------------------------------------------\n");
-    */
-}
-
-#endif // CALL_ARG_STATS
 
 // JIT time end to end, and by phases.
 

@@ -7204,19 +7204,6 @@ public:
 
     bool compIsProfilerHookNeeded();
 
-    //-------------------------------------------------------------------------
-    /*               Statistical Data Gathering                               */
-
-    void compJitStats(); // call this function and enable
-                         // various ifdef's below for statistical data
-
-#if CALL_ARG_STATS
-    void        compCallArgStats();
-    static void compDispCallArgStats(FILE* fout);
-#endif
-
-    //-------------------------------------------------------------------------
-
 public:
 #ifdef DEBUG
     void compFunctionTraceStart();
