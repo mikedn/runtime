@@ -2670,6 +2670,23 @@ void Compiler::lvaComputeRefCountsLIR()
 
 void Compiler::phAddSpecialLocals()
 {
+#ifdef DEBUG
+#ifdef TARGET_XARCH
+    if (opts.compStackCheckOnRet)
+    {
+        lvaReturnSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("ReturnSpCheck"));
+        lvaSetImplicitlyReferenced(lvaReturnSpCheck);
+    }
+#ifdef TARGET_X86
+    if (opts.compStackCheckOnCall)
+    {
+        lvaCallSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("CallSpCheck"));
+        lvaSetImplicitlyReferenced(lvaCallSpCheck);
+    }
+#endif // TARGET_X86
+#endif // TARGET_XARCH
+#endif // DEBUG
+
 #ifndef FEATURE_EH_FUNCLETS
     if (ehNeedsShadowSPslots())
     {
