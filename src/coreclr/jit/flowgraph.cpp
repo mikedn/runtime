@@ -1735,6 +1735,16 @@ void Compiler::fgAddInternal()
 {
     noway_assert(!compIsForInlining());
 
+    // Insert call to class constructor as the first basic block if
+    // we were asked to do so.
+    if (info.compCompHnd->initClass(nullptr /* field */, nullptr /* method */,
+                                    impTokenLookupContextHandle /* context */) &
+        CORINFO_INITCLASS_USE_HELPER)
+    {
+        fgEnsureFirstBBisScratch();
+        fgNewStmtAtBeg(fgFirstBB, gtNewInitThisClassHelperCall());
+    }
+
 #ifdef DEBUG
     if (opts.compGcChecks)
     {
