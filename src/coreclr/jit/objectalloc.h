@@ -42,7 +42,7 @@ public:
     bool IsObjectStackAllocationEnabled() const;
     void EnableObjectStackAllocation();
 
-    PhaseStatus DoPhase();
+    PhaseStatus Run();
 
 private:
     bool CanAllocateLclVarOnStack(unsigned int lclNum, CORINFO_CLASS_HANDLE clsHnd);

@@ -5313,7 +5313,7 @@ bool Compiler::fgReorderBlocks()
 #pragma warning(pop)
 #endif
 
-void Compiler::fgUpdateFlowGraphPhase()
+void Compiler::phUpdateFlowGraph()
 {
     fgUpdateFlowGraph(nullptr, /* doTailDup */ false);
 }

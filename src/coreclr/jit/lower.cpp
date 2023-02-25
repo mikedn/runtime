@@ -5877,7 +5877,7 @@ bool Lowering::IsContainableMemoryOp(Compiler* comp, GenTree* node)
     return false;
 }
 
-PhaseStatus Compiler::fgLower()
+PhaseStatus Compiler::phLower()
 {
     Lowering lowering(this);
     lowering.Run();

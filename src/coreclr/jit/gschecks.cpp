@@ -15,7 +15,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma hdrstop
 #endif
 
-void Compiler::gsPhase()
+void Compiler::phGSCookie()
 {
     unsigned prevBBCount = fgBBcount;
     if (getNeedsGSSecurityCookie())

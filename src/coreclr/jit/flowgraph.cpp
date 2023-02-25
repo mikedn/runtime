@@ -46,7 +46,7 @@ static bool BlockNeedsGCPoll(BasicBlock* block)
 // Insert GC polls for basic blocks containing calls to methods with SuppressGCTransition
 // attribute. This must be done after any transformations that would add control flow
 // between calls.
-PhaseStatus Compiler::fgInsertGCPolls()
+PhaseStatus Compiler::phInsertGCPolls()
 {
     if ((optMethodFlags & OMF_NEEDS_GCPOLLS) == 0)
     {
@@ -56,7 +56,6 @@ PhaseStatus Compiler::fgInsertGCPolls()
 #ifdef DEBUG
     if (verbose)
     {
-        printf("*************** In fgInsertGCPolls() for %s\n", info.compFullName);
         fgDispBasicBlocks(false);
         printf("\n");
     }
@@ -2138,10 +2137,8 @@ void Compiler::fgAddInternal()
 #endif
 }
 
-void Compiler::fgFindOperOrder()
+void Compiler::phFindOperOrder()
 {
-    JITDUMP("*************** In fgFindOperOrder()\n");
-
     for (BasicBlock* block : Blocks())
     {
         compCurBB = block;
@@ -2424,26 +2421,14 @@ void Compiler::fgCreateFunclets()
 
 #endif // defined(FEATURE_EH_FUNCLETS)
 
-/*-------------------------------------------------------------------------
- *
- * Walk the basic blocks list to determine the first block to place in the
- * cold section.  This would be the first of a series of rarely executed blocks
- * such that no succeeding blocks are in a try region or an exception handler
- * or are rarely executed.
- */
-
-void Compiler::fgDetermineFirstColdBlock()
+// Walk the basic blocks list to determine the first block to place in the
+// cold section. This would be the first of a series of rarely executed blocks
+// such that no succeeding blocks are in a try region or an exception handler
+// or are rarely executed.
+void Compiler::phDetermineFirstColdBlock()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\n*************** In fgDetermineFirstColdBlock()\n");
-    }
-#endif // DEBUG
-
     // Since we may need to create a new transistion block
     // we assert that it is OK to create new blocks.
-    //
     assert(fgSafeBasicBlockCreation);
 
     fgFirstColdBlock = nullptr;
@@ -2961,10 +2946,8 @@ void Compiler::fgLoopCallMark()
     }
 }
 
-void Compiler::fgSetFullyInterruptiblePhase()
+void Compiler::phSetFullyInterruptible()
 {
-    JITDUMP("*************** In fgSetFullyInterruptiblePhase()\n");
-
     assert(!codeGen->GetInterruptible());
 
     if (opts.compDbgCode
@@ -3097,7 +3080,7 @@ void Compiler::fgSetFullyInterruptiblePhase()
     }
 }
 
-void Compiler::fgSetBlockOrderPhase()
+void Compiler::phSetBlockOrder()
 {
     for (BasicBlock* block : Blocks())
     {

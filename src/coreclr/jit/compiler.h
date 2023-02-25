@@ -4495,10 +4495,7 @@ public:
 
     bool fgFoldConditional(BasicBlock* block);
 
-    void        fgMorphInitPhase();
-    PhaseStatus fgMorphAllocObjPhase();
-    void        fgMorphPhase();
-    void        fgMorphBlocks();
+    void fgMorphBlocks();
     void fgMorphStmts(BasicBlock* block);
 
     void fgMergeBlockReturn(BasicBlock* block);
@@ -4880,8 +4877,6 @@ protected:
     void fgUpdateChangedFlowGraph(const bool computePreds = true, const bool computeDoms = true);
 
 public:
-    void fgComputePredsPhase();
-
     // Compute the predecessors of the blocks in the control flow graph.
     void fgComputePreds();
 
@@ -4905,7 +4900,6 @@ public:
         GCPOLL_INLINE
     };
 
-    PhaseStatus fgInsertGCPolls();
     BasicBlock* fgCreateGCPoll(GCPollType pollType, BasicBlock* block);
 
     // Requires that "block" is a block that returns from
@@ -5073,26 +5067,12 @@ public:
     BasicBlock::weight_t fgComputeMissingBlockWeights();
     void fgComputeCalledCount(BasicBlock::weight_t returnWeight);
     void fgComputeEdgeWeights();
-
     bool fgReorderBlocks();
-
-    void        fgDetermineFirstColdBlock();
-    PhaseStatus fgRationalize();
-    PhaseStatus fgLower();
-    PhaseStatus fgSetThrowHelperBlockStackLevel();
-
     bool fgIsForwardBranch(BasicBlock* bJump, BasicBlock* bSrc = nullptr);
-
-    void fgUpdateFlowGraphPhase();
     bool fgUpdateFlowGraph(Lowering* lowering = nullptr, bool doTailDup = false);
-
-    void fgFindOperOrder();
 
     // method that returns if you should split here
     typedef bool(fgSplitPredicate)(GenTree* tree, GenTree* parent, fgWalkData* data);
-
-    void fgSetFullyInterruptiblePhase();
-    void fgSetBlockOrderPhase();
 
     void fgRemoveReturnBlock(BasicBlock* block);
 
@@ -6157,8 +6137,6 @@ public:
     void optAddCopies();
 #endif // ASSERTION_PROP
 
-    void optRangeCheckPhase();
-
 public:
     struct LoopCloneVisitorInfo
     {
@@ -7139,6 +7117,24 @@ public:
     void         compCompileFinish();
     CorJitResult compCompileHelper(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags);
 
+    void        phMorphInit();
+    PhaseStatus phMorphAllocObj();
+    void        phComputePreds();
+    void        phMorph();
+    void        phGSCookie();
+    void        phFindOperOrder();
+    void        phSetFullyInterruptible();
+    void        phSetBlockOrder();
+    void        phRemoveRangeCheck();
+    void        phUpdateFlowGraph();
+    PhaseStatus phInsertGCPolls();
+    void        phDetermineFirstColdBlock();
+    PhaseStatus phRationalize();
+    PhaseStatus phLower();
+#if !FEATURE_FIXED_OUT_ARGS
+    PhaseStatus phSetThrowHelperBlockStackLevel();
+#endif
+
     ArenaAllocator* compGetArenaAllocator();
 
     void generatePatchpointInfo();
@@ -7304,7 +7300,6 @@ public:
     GSCookie            gsGlobalSecurityCookieVal;  // Value of global cookie if addr is NULL
     ShadowParamVarInfo* gsShadowVarInfo = nullptr;  // Table used by shadow param analysis code
 
-    void gsPhase();
     void gsGSChecksInitCookie();   // Grabs cookie variable
     void gsCopyShadowParams();     // Identify vulnerable params and create dhadow copies
     bool gsFindVulnerableParams(); // Shadow param analysis code

@@ -565,7 +565,7 @@ void Rationalizer::Run()
     comp->compRationalIRForm = true;
 }
 
-PhaseStatus Compiler::fgRationalize()
+PhaseStatus Compiler::phRationalize()
 {
 #ifdef DEBUG
     fgDebugCheckLinks(compStressCompile(Compiler::STRESS_REMORPH_TREES, 50));

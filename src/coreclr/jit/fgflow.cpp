@@ -658,9 +658,9 @@ void Compiler::fgRemovePreds()
 // From this point on the flowgraph information such as bbNum,
 // bbRefs or bbPreds has to be kept updated.
 //
-void Compiler::fgComputePredsPhase()
+void Compiler::phComputePreds()
 {
-    JITDUMP("\nRenumbering the basic blocks for fgComputePred\n");
+    JITDUMP("\nRenumbering the basic blocks for phComputePreds\n");
     fgRenumberBlocks();
     noway_assert(!fgComputePredsDone);
     fgComputePreds();

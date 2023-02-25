@@ -2587,12 +2587,12 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     fgRemoveEH();
 #endif // !FEATURE_EH
 
-    DoPhase(this, PHASE_MORPH_INIT, &Compiler::fgMorphInitPhase);
+    DoPhase(this, PHASE_MORPH_INIT, &Compiler::phMorphInit);
     DoPhase(this, PHASE_MORPH_INLINE, &Compiler::fgInline);
 
     RecordStateAtEndOfInlining();
 
-    DoPhase(this, PHASE_ALLOCATE_OBJECTS, &Compiler::fgMorphAllocObjPhase);
+    DoPhase(this, PHASE_ALLOCATE_OBJECTS, &Compiler::phMorphAllocObj);
     DoPhase(this, PHASE_MORPH_ADD_INTERNAL, &Compiler::fgAddInternal);
 
     if (opts.OptimizationEnabled() && (compHndBBtabCount != 0))
@@ -2606,18 +2606,18 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 #endif
     }
 
-    DoPhase(this, PHASE_COMPUTE_PREDS, &Compiler::fgComputePredsPhase);
+    DoPhase(this, PHASE_COMPUTE_PREDS, &Compiler::phComputePreds);
 
     if (opts.OptimizationEnabled())
     {
         DoPhase(this, PHASE_MERGE_THROWS, &Compiler::fgTailMergeThrows);
-        DoPhase(this, PHASE_EARLY_UPDATE_FLOW_GRAPH, &Compiler::fgUpdateFlowGraphPhase);
+        DoPhase(this, PHASE_EARLY_UPDATE_FLOW_GRAPH, &Compiler::phUpdateFlowGraph);
     }
 
     DoPhase(this, PHASE_PROMOTE_STRUCTS, &Compiler::fgPromoteStructs);
     DoPhase(this, PHASE_STR_ADRLCL, &Compiler::fgMarkAddressExposedLocals);
-    DoPhase(this, PHASE_MORPH_GLOBAL, &Compiler::fgMorphPhase);
-    DoPhase(this, PHASE_GS_COOKIE, &Compiler::gsPhase);
+    DoPhase(this, PHASE_MORPH_GLOBAL, &Compiler::phMorph);
+    DoPhase(this, PHASE_GS_COOKIE, &Compiler::phGSCookie);
     DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS, &Compiler::fgComputeBlockAndEdgeWeights);
 #ifdef FEATURE_EH_FUNCLETS
     DoPhase(this, PHASE_CREATE_FUNCLETS, &Compiler::fgCreateFunclets);
@@ -2655,9 +2655,9 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
         // TODO-MIKE-Review: So should fgDomsComputed be set to false?
     }
 
-    DoPhase(this, PHASE_FIND_OPER_ORDER, &Compiler::fgFindOperOrder);
-    DoPhase(this, PHASE_SET_FULLY_INTERRUPTIBLE, &Compiler::fgSetFullyInterruptiblePhase);
-    DoPhase(this, PHASE_SET_BLOCK_ORDER, &Compiler::fgSetBlockOrderPhase);
+    DoPhase(this, PHASE_FIND_OPER_ORDER, &Compiler::phFindOperOrder);
+    DoPhase(this, PHASE_SET_FULLY_INTERRUPTIBLE, &Compiler::phSetFullyInterruptible);
+    DoPhase(this, PHASE_SET_BLOCK_ORDER, &Compiler::phSetBlockOrder);
 
     if (opts.OptimizationEnabled())
     {
@@ -2737,30 +2737,30 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
             if (doRangeAnalysis)
             {
-                DoPhase(this, PHASE_OPTIMIZE_INDEX_CHECKS, &Compiler::optRangeCheckPhase);
+                DoPhase(this, PHASE_OPTIMIZE_INDEX_CHECKS, &Compiler::phRemoveRangeCheck);
             }
 #endif // ASSERTION_PROP
 
             if (fgModified)
             {
-                DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH, &Compiler::fgUpdateFlowGraphPhase);
+                DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH, &Compiler::phUpdateFlowGraph);
                 DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS2, &Compiler::fgComputeEdgeWeights);
             }
         }
     }
 
-    DoPhase(this, PHASE_INSERT_GC_POLLS, &Compiler::fgInsertGCPolls);
-    DoPhase(this, PHASE_DETERMINE_FIRST_COLD_BLOCK, &Compiler::fgDetermineFirstColdBlock);
-    DoPhase(this, PHASE_RATIONALIZE, &Compiler::fgRationalize);
+    DoPhase(this, PHASE_INSERT_GC_POLLS, &Compiler::phInsertGCPolls);
+    DoPhase(this, PHASE_DETERMINE_FIRST_COLD_BLOCK, &Compiler::phDetermineFirstColdBlock);
+    DoPhase(this, PHASE_RATIONALIZE, &Compiler::phRationalize);
 
     // Dominator and reachability sets are no longer valid. They haven't been
     // maintained up to here, and shouldn't be used (unless recomputed).
     fgDomsComputed = false;
 
-    DoPhase(this, PHASE_LOWERING, &Compiler::fgLower);
+    DoPhase(this, PHASE_LOWERING, &Compiler::phLower);
 
 #if !FEATURE_FIXED_OUT_ARGS
-    DoPhase(this, PHASE_STACK_LEVEL_SETTER, &Compiler::fgSetThrowHelperBlockStackLevel);
+    DoPhase(this, PHASE_STACK_LEVEL_SETTER, &Compiler::phSetThrowHelperBlockStackLevel);
 #endif
 
     codeGen->genGenerateCode(nativeCode, nativeCodeSize);

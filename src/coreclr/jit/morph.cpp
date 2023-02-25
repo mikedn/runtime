@@ -14378,7 +14378,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
     fgRemoveRestOfBlock = false;
 }
 
-void Compiler::fgMorphInitPhase()
+void Compiler::phMorphInit()
 {
     // Initialize the BlockSet epoch
     NewBasicBlockEpoch();
@@ -14438,7 +14438,7 @@ void Compiler::fgMorphInitPhase()
     INDEBUG(fgDebugCheckBBlist(false, false));
 }
 
-void Compiler::fgMorphPhase()
+void Compiler::phMorph()
 {
     unsigned prevBBCount = fgBBcount;
 

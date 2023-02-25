@@ -1309,7 +1309,7 @@ void RangeCheck::OptimizeRangeChecks()
     }
 }
 
-void Compiler::optRangeCheckPhase()
+void Compiler::phRemoveRangeCheck()
 {
     RangeCheck rc(this);
     rc.OptimizeRangeChecks();

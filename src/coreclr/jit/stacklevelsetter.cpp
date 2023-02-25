@@ -234,7 +234,7 @@ void StackLevelSetter::PopArg(GenTreePutArgStk* putArgStk)
     currentStackLevel -= putArgStk->GetSlotCount();
 }
 
-PhaseStatus Compiler::fgSetThrowHelperBlockStackLevel()
+PhaseStatus Compiler::phSetThrowHelperBlockStackLevel()
 {
     StackLevelSetter stackLevelSetter(this);
     stackLevelSetter.Run();
