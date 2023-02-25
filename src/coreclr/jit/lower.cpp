@@ -4620,7 +4620,7 @@ GenTree* Lowering::LowerArrElem(GenTree* node)
     return nextToLower;
 }
 
-PhaseStatus Lowering::DoPhase()
+void Lowering::Run()
 {
 #ifdef PROFILING_SUPPORTED
 #ifdef UNIX_AMD64_ABI
@@ -4766,8 +4766,6 @@ PhaseStatus Lowering::DoPhase()
     }
 
     DBEXEC(comp->verbose, comp->lvaTableDump());
-
-    return PhaseStatus::MODIFIED_EVERYTHING;
 }
 
 #ifdef DEBUG
@@ -5877,4 +5875,11 @@ bool Lowering::IsContainableMemoryOp(Compiler* comp, GenTree* node)
     }
 
     return false;
+}
+
+PhaseStatus Compiler::fgLower()
+{
+    Lowering lowering(this);
+    lowering.Run();
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }

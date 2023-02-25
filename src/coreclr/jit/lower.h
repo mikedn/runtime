@@ -19,8 +19,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "lsra.h"
 #include "sideeffects.h"
 
-class Lowering final : public Phase<Lowering>
+class Lowering
 {
+    Compiler*     comp;
     SideEffectSet m_scratchSideEffects; // SideEffectSet used for IsSafeToContainMem and isRMWIndirCandidate
     BasicBlock*   m_block;
     unsigned      vtableCallTemp = BAD_VAR_NUM; // local variable we use as a temp for vtable calls
@@ -38,11 +39,11 @@ class Lowering final : public Phase<Lowering>
 #endif // FEATURE_HW_INTRINSICS
 
 public:
-    Lowering(Compiler* compiler) : Phase(compiler, PHASE_LOWERING)
+    Lowering(Compiler* compiler) : comp(compiler)
     {
     }
 
-    PhaseStatus DoPhase();
+    void Run();
 
     void LowerNode(BasicBlock* block, GenTree* node)
     {

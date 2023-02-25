@@ -17,7 +17,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "ssabuilder.h"
 #include "valuenum.h"
-#include "lower.h"
 #include "patchpointinfo.h"
 #include "jitstd/algorithm.h"
 
@@ -2758,8 +2757,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     // maintained up to here, and shouldn't be used (unless recomputed).
     fgDomsComputed = false;
 
-    Lowering lowering(this);
-    lowering.Run();
+    DoPhase(this, PHASE_LOWERING, &Compiler::fgLower);
 
 #if !FEATURE_FIXED_OUT_ARGS
     DoPhase(this, PHASE_STACK_LEVEL_SETTER, &Compiler::fgSetThrowHelperBlockStackLevel);
