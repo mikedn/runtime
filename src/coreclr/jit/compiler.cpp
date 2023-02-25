@@ -2424,7 +2424,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     // JIT\HardwareIntrinsics\General\Vector128_1\Vector128_1_ro
     opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() == 2);
 #else
-    opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() != 0);
+    opts.compExpandCallsEarly      = (JitConfig.JitExpandCallsEarly() != 0);
 #endif
 }
 
@@ -2720,41 +2720,38 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
     if (opts.OptimizationEnabled())
     {
-        bool     doSsa           = true;
-        bool     doEarlyProp     = true;
-        bool     doValueNum      = true;
-        bool     doLoopHoisting  = true;
-        bool     doCopyProp      = true;
-        bool     doBranchOpt     = true;
-        bool     doCse           = true;
-        bool     doAssertionProp = true;
-        bool     doRangeAnalysis = true;
-        unsigned iterationCount  = 1;
-
 #ifdef OPT_CONFIG
-        doSsa           = (JitConfig.JitDoSsa() != 0);
-        doEarlyProp     = doSsa && (JitConfig.JitDoEarlyProp() != 0);
-        doValueNum      = doSsa && (JitConfig.JitDoValueNumber() != 0);
-        doLoopHoisting  = doValueNum && (JitConfig.JitDoLoopHoisting() != 0);
-        doCopyProp      = doValueNum && (JitConfig.JitDoCopyProp() != 0);
-        doBranchOpt     = doValueNum && (JitConfig.JitDoRedundantBranchOpts() != 0);
-        doCse           = doValueNum && (JitConfig.JitNoCSE() == 0);
-        doAssertionProp = doValueNum && (JitConfig.JitDoAssertionProp() != 0);
-        doRangeAnalysis = doAssertionProp && (JitConfig.JitDoRangeAnalysis() != 0);
-
-        if (opts.optRepeat)
-        {
-            iterationCount = static_cast<unsigned>(JitConfig.JitOptRepeatCount());
-        }
-#endif // OPT_CONFIG
+        const bool     doSsa           = (JitConfig.JitDoSsa() != 0);
+        const bool     doEarlyProp     = doSsa && (JitConfig.JitDoEarlyProp() != 0);
+        const bool     doValueNum      = doSsa && (JitConfig.JitDoValueNumber() != 0);
+        const bool     doLoopHoisting  = doValueNum && (JitConfig.JitDoLoopHoisting() != 0);
+        const bool     doCopyProp      = doValueNum && (JitConfig.JitDoCopyProp() != 0);
+        const bool     doBranchOpt     = doValueNum && (JitConfig.JitDoRedundantBranchOpts() != 0);
+        const bool     doCse           = doValueNum && (JitConfig.JitNoCSE() == 0);
+        const bool     doAssertionProp = doValueNum && (JitConfig.JitDoAssertionProp() != 0);
+        const bool     doRangeAnalysis = doAssertionProp && (JitConfig.JitDoRangeAnalysis() != 0);
+        const unsigned iterationCount  = !opts.optRepeat ? 1 : static_cast<unsigned>(JitConfig.JitOptRepeatCount());
 
         for (unsigned iteration = 0; iteration < iterationCount; iteration++)
+#else
+        const bool doSsa           = true;
+        const bool doEarlyProp     = true;
+        const bool doValueNum      = true;
+        const bool doLoopHoisting  = true;
+        const bool doCopyProp      = true;
+        const bool doBranchOpt     = true;
+        const bool doCse           = true;
+        const bool doAssertionProp = true;
+        const bool doRangeAnalysis = true;
+#endif
         {
+#ifdef OPT_CONFIG
             if (iteration != 0)
             {
                 ResetOptAnnotations();
                 RecomputeLoopInfo();
             }
+#endif
 
             if (doSsa)
             {
@@ -2935,6 +2932,7 @@ void Compiler::generatePatchpointInfo()
     info.compCompHnd->setPatchpointInfo(patchpointInfo);
 }
 
+#ifdef OPT_CONFIG
 //------------------------------------------------------------------------
 // ResetOptAnnotations: Clear annotations produced during global optimizations.
 //
@@ -2992,6 +2990,7 @@ void Compiler::RecomputeLoopInfo()
     // Rebuild the loop tree annotations themselves
     optFindLoops();
 }
+#endif // OPT_CONFIG
 
 #ifdef DEBUG
 

@@ -7235,11 +7235,12 @@ protected:
     void compInitDebuggingInfo();
     void compSetOptimizationLevel(const ILStats& ilStats);
 
+#ifdef OPT_CONFIG
     // Clear annotations produced during optimizations; to be used between iterations when repeating opts.
     void ResetOptAnnotations();
-
     // Regenerate loop descriptors; to be used between iterations when repeating opts.
     void RecomputeLoopInfo();
+#endif
 
 #ifdef PROFILING_SUPPORTED
     // Data required for generating profiler Enter/Leave/TailCall hooks
