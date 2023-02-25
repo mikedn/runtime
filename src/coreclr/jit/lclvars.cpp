@@ -2668,23 +2668,9 @@ void Compiler::lvaComputeRefCountsLIR()
     }
 }
 
-//------------------------------------------------------------------------
-// lvaMarkLocalVars: enable normal ref counting, compute initial counts, sort locals table
-//
-// Notes:
-//    Now behaves differently in minopts / debug. Instead of actually inspecting
-//    the IR and counting references, the jit assumes all locals are referenced
-//    and does not sort the locals table.
-//
-//    Also, when optimizing, lays the groundwork for assertion prop and more.
-//    See details in lvaMarkLclRefs.
-
-void Compiler::lvaMarkLocalVars()
+void Compiler::phAddSpecialLocals()
 {
-#if !defined(FEATURE_EH_FUNCLETS)
-
-    // Grab space for exception handling
-
+#ifndef FEATURE_EH_FUNCLETS
     if (ehNeedsShadowSPslots())
     {
         // The first slot is reserved for ICodeManager::FixContext(ppEndRegion)
@@ -2707,7 +2693,6 @@ void Compiler::lvaMarkLocalVars()
         lvaGetDesc(lvaShadowSPslotsVar)->SetBlockType(slotsNeeded * REGSIZE_BYTES);
         lvaSetImplicitlyReferenced(lvaShadowSPslotsVar);
     }
-
 #endif // !FEATURE_EH_FUNCLETS
 
     // PSPSym and LocAllocSPvar are not used by the CoreRT ABI
@@ -2742,17 +2727,16 @@ void Compiler::lvaMarkLocalVars()
         }
 #endif // JIT32_GCENCODER
     }
+}
 
-    // Ref counting is now enabled normally.
-    lvaRefCountState = RCS_NORMAL;
+void Compiler::phImplicitRefLocals()
+{
+    // If we don't optimize we make all locals implicitly referenced.
+    lvaSetImplictlyReferenced();
+}
 
-    if (opts.OptimizationDisabled())
-    {
-        // If we don't optimize we make all locals implicitly referenced.
-        lvaSetImplictlyReferenced();
-        return;
-    }
-
+void Compiler::phRefCountLocals()
+{
     lvaComputeLclRefCounts();
 
     const bool reportParamTypeArg = lvaReportParamTypeArg();
@@ -2803,6 +2787,8 @@ void Compiler::lvaSetImplictlyReferenced()
     assert(opts.OptimizationDisabled());
     assert(!compRationalIRForm);
 
+    lvaRefCountState = RCS_NORMAL;
+
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
         LclVarDsc* lcl = lvaGetDesc(lclNum);
@@ -2832,6 +2818,8 @@ void Compiler::lvaComputeLclRefCounts()
     JITDUMP("\n*** lvaComputeLclRefCounts ***\n");
 
     assert(opts.OptimizationEnabled());
+
+    lvaRefCountState = RCS_NORMAL;
 
     // First, reset all explicit ref counts and weights.
 

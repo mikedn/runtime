@@ -2640,16 +2640,16 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
     INDEBUG(fgDebugCheckLinks());
 
-    DoPhase(this, PHASE_MARK_LOCAL_VARS, &Compiler::lvaMarkLocalVars);
+    DoPhase(this, PHASE_ADD_LOCAL_VARS, &Compiler::phAddSpecialLocals);
 
-    // IMPORTANT, after this point, locals are ref counted.
-    // However, ref counts are not kept incrementally up to date.
-    assert(lvaLocalVarRefCounted());
-
-    if (opts.OptimizationEnabled())
+    if (!opts.OptimizationEnabled())
     {
+        DoPhase(this, PHASE_IMPLICIT_REF_LOCAL_VARS, &Compiler::phImplicitRefLocals);
+    }
+    else
+    {
+        DoPhase(this, PHASE_REF_COUNT_LOCAL_VARS, &Compiler::phRefCountLocals);
 #if ASSERTION_PROP
-        // optAddCopies depends on lvaRefBlks, which is set in lvaMarkLocalVars.
         DoPhase(this, PHASE_ADD_COPIES, &Compiler::optAddCopies);
 #endif
 

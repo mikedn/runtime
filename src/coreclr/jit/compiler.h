@@ -4001,7 +4001,6 @@ public:
 
     void lvaMarkLivenessTrackedLocals();
 
-    void lvaMarkLocalVars(); // Local variable ref-counting
     void lvaSetImplictlyReferenced();
     void lvaComputeLclRefCounts();
     void lvaComputeRefCountsHIR();
@@ -7122,6 +7121,9 @@ public:
     void        phComputePreds();
     void        phMorph();
     void        phGSCookie();
+    void        phAddSpecialLocals();
+    void        phImplicitRefLocals();
+    void        phRefCountLocals();
     void        phFindOperOrder();
     void        phSetFullyInterruptible();
     void        phSetBlockOrder();

@@ -60,7 +60,9 @@ CompPhaseNameMacro(PHASE_FIND_LOOPS,             "Find loops",                  
 CompPhaseNameMacro(PHASE_CLONE_LOOPS,            "Clone loops",                    "LP-CLONE", false, -1, false)
 CompPhaseNameMacro(PHASE_UNROLL_LOOPS,           "Unroll loops",                   "UNROLL",   false, -1, false)
 CompPhaseNameMacro(PHASE_HOIST_LOOP_CODE,        "Hoist loop code",                "LP-HOIST", false, -1, false)
-CompPhaseNameMacro(PHASE_MARK_LOCAL_VARS,        "Mark local vars",                "MARK-LCL", false, -1, false)
+CompPhaseNameMacro(PHASE_ADD_LOCAL_VARS,         "Add local vars",                 "ADD-LCL",  false, -1, false)
+CompPhaseNameMacro(PHASE_IMPLICIT_REF_LOCAL_VARS,"Implicit ref local vars",        "IMPL-LCL", false, -1, false)
+CompPhaseNameMacro(PHASE_REF_COUNT_LOCAL_VARS,   "Ref count local vars",           "REF-LCL",  false, -1, false)
 #if ASSERTION_PROP
 CompPhaseNameMacro(PHASE_ADD_COPIES,             "Add copies",                     "ADD_COPY", false, -1, false)
 #endif
