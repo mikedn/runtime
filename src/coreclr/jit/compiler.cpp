@@ -18,7 +18,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "ssabuilder.h"
 #include "valuenum.h"
 #include "lower.h"
-#include "stacklevelsetter.h"
 #include "patchpointinfo.h"
 #include "jitstd/algorithm.h"
 
@@ -2753,9 +2752,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
     DoPhase(this, PHASE_INSERT_GC_POLLS, &Compiler::fgInsertGCPolls);
     DoPhase(this, PHASE_DETERMINE_FIRST_COLD_BLOCK, &Compiler::fgDetermineFirstColdBlock);
-
-    Rationalizer rat(this);
-    rat.Run();
+    DoPhase(this, PHASE_RATIONALIZE, &Compiler::fgRationalize);
 
     // Dominator and reachability sets are no longer valid. They haven't been
     // maintained up to here, and shouldn't be used (unless recomputed).
@@ -2765,8 +2762,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     lowering.Run();
 
 #if !FEATURE_FIXED_OUT_ARGS
-    StackLevelSetter stackLevelSetter(this);
-    stackLevelSetter.Run();
+    DoPhase(this, PHASE_STACK_LEVEL_SETTER, &Compiler::fgSetThrowHelperBlockStackLevel);
 #endif
 
     codeGen->genGenerateCode(nativeCode, nativeCodeSize);

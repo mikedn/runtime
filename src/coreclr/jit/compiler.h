@@ -5077,6 +5077,8 @@ public:
     bool fgReorderBlocks();
 
     void fgDetermineFirstColdBlock();
+    PhaseStatus fgRationalize();
+    PhaseStatus fgSetThrowHelperBlockStackLevel();
 
     bool fgIsForwardBranch(BasicBlock* bJump, BasicBlock* bSrc = nullptr);
 

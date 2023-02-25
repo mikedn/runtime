@@ -3,6 +3,41 @@
 
 #include "jitpch.h"
 
+class Rationalizer
+{
+    Compiler*   comp;
+    BasicBlock* m_block;
+    Statement*  m_statement;
+
+public:
+    Rationalizer(Compiler* comp) : comp(comp)
+    {
+        INDEBUG(comp->compNumStatementLinksTraversed = 0;)
+    }
+
+    void Run();
+
+private:
+    inline LIR::Range& BlockRange() const
+    {
+        return LIR::AsRange(m_block);
+    }
+
+    void RewriteNodeAsCall(GenTree**             use,
+                           ArrayStack<GenTree*>& parents,
+                           CORINFO_METHOD_HANDLE callHnd,
+#ifdef FEATURE_READYTORUN_COMPILER
+                           CORINFO_CONST_LOOKUP entryPoint,
+#endif
+                           GenTreeCall::Use* args);
+
+    void RewriteIntrinsicAsUserCall(GenTree** use, ArrayStack<GenTree*>& parents);
+    void RewriteAssignment(LIR::Use& use);
+    void RewriteLocalAssignment(GenTreeOp* assignment, GenTreeLclVarCommon* location);
+
+    Compiler::fgWalkResult RewriteNode(GenTree** useEdge, GenTree* user);
+};
+
 void Rationalizer::RewriteNodeAsCall(GenTree**             use,
                                      ArrayStack<GenTree*>& parents,
                                      CORINFO_METHOD_HANDLE callHnd,
@@ -431,20 +466,8 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
     return Compiler::WALK_CONTINUE;
 }
 
-PhaseStatus Rationalizer::DoPhase()
+void Rationalizer::Run()
 {
-#ifdef DEBUG
-    comp->fgDebugCheckLinks(comp->compStressCompile(Compiler::STRESS_REMORPH_TREES, 50));
-
-    for (BasicBlock* block = comp->fgFirstBB; block != nullptr; block = block->bbNext)
-    {
-        for (Statement* statement : block->Statements())
-        {
-            comp->fgDebugCheckNodeLinks(block, statement);
-        }
-    }
-#endif
-
     class RationalizeVisitor final : public GenTreeVisitor<RationalizeVisitor>
     {
         Rationalizer& m_rationalizer;
@@ -540,10 +563,28 @@ PhaseStatus Rationalizer::DoPhase()
     }
 
     comp->compRationalIRForm = true;
+}
+
+PhaseStatus Compiler::fgRationalize()
+{
+#ifdef DEBUG
+    fgDebugCheckLinks(compStressCompile(Compiler::STRESS_REMORPH_TREES, 50));
+
+    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
+    {
+        for (Statement* statement : block->Statements())
+        {
+            fgDebugCheckNodeLinks(block, statement);
+        }
+    }
+#endif
+
+    Rationalizer rationalizer(this);
+    rationalizer.Run();
 
 #ifdef DEBUG
-    comp->fgDebugCheckBBlist();
-    comp->fgDebugCheckLinks();
+    fgDebugCheckBBlist();
+    fgDebugCheckLinks();
 #endif
 
     return PhaseStatus::MODIFIED_EVERYTHING;

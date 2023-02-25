@@ -22,7 +22,6 @@
 #include "dataflow.h"
 #include "block.h"
 #include "jiteh.h"
-#include "rationalize.h"
 #include "jitstd.h"
 #include "ssaconfig.h"
 #include "blockset.h"

@@ -2,21 +2,41 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#include "stacklevelsetter.h"
 
 #if !FEATURE_FIXED_OUT_ARGS
 
+// Sets throw-helper blocks incoming stack depth and set framePointerRequired when
+// it is necessary. These values are used to pop pushed args when an exception occurs.
+class StackLevelSetter
+{
+    Compiler* comp;
+    unsigned  currentStackLevel = 0; // current number of stack slots used by arguments.
+    unsigned  maxStackLevel     = 0; // max number of stack slots for arguments.
+    bool      framePointerRequired;  // Is frame pointer required based on the analysis made by this phase.
+    bool      throwHelperBlocksUsed; // Were any throw helper blocks created for this method.
+
+public:
+    StackLevelSetter(Compiler* compiler);
+
+    void Run();
+
+private:
+    void ProcessBlock(BasicBlock* block);
+    void SetThrowHelperBlockStackLevel(GenTree* node, BasicBlock* throwBlock);
+    void SetThrowHelperBlockStackLevel(ThrowHelperKind kind, BasicBlock* throwBlock);
+    unsigned PopArgumentsFromCall(GenTreeCall* call);
+    void PushArg(GenTreePutArgStk* putArgStk);
+    void PopArg(GenTreePutArgStk* putArgStk);
+};
+
 StackLevelSetter::StackLevelSetter(Compiler* compiler)
-    : Phase(compiler, PHASE_STACK_LEVEL_SETTER)
+    : comp(compiler)
     , framePointerRequired(compiler->opts.IsFramePointerRequired())
     , throwHelperBlocksUsed(comp->fgUseThrowHelperBlocks() && comp->compUsesThrowHelper)
 {
 }
 
-// For x86 it sets throw-helper blocks incoming stack depth and set
-// framePointerRequired when it is necessary. These values are used
-// to pop pushed args when an exception occurs.
-PhaseStatus StackLevelSetter::DoPhase()
+void StackLevelSetter::Run()
 {
     for (BasicBlock* const block : comp->Blocks())
     {
@@ -44,8 +64,6 @@ PhaseStatus StackLevelSetter::DoPhase()
 
         comp->codeGen->SetInterruptible(false);
     }
-
-    return PhaseStatus::MODIFIED_NOTHING;
 }
 
 //------------------------------------------------------------------------
@@ -214,6 +232,13 @@ void StackLevelSetter::PopArg(GenTreePutArgStk* putArgStk)
 {
     assert(currentStackLevel >= putArgStk->GetSlotCount());
     currentStackLevel -= putArgStk->GetSlotCount();
+}
+
+PhaseStatus Compiler::fgSetThrowHelperBlockStackLevel()
+{
+    StackLevelSetter stackLevelSetter(this);
+    stackLevelSetter.Run();
+    return PhaseStatus::MODIFIED_NOTHING;
 }
 
 #endif // !FEATURE_FIXED_OUT_ARGS
