@@ -1158,26 +1158,6 @@ GenTree* Importer::gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* pLookup,
 #endif //  DEBUG
     return addr;
 }
-
-GenTreeCall* Compiler::gtNewReadyToRunHelperCallNode(
-    CORINFO_RESOLVED_TOKEN* pResolvedToken,
-    CorInfoHelpFunc         helper,
-    var_types               type,
-    GenTreeCall::Use*       args /* = nullptr */,
-    CORINFO_LOOKUP_KIND*    pGenericLookupKind /* =NULL. Only used with generics */)
-{
-    CORINFO_CONST_LOOKUP lookup;
-    if (!info.compCompHnd->getReadyToRunHelper(pResolvedToken, pGenericLookupKind, helper, &lookup))
-    {
-        return nullptr;
-    }
-
-    GenTreeCall* op1 = gtNewHelperCallNode(helper, type, args);
-
-    op1->setEntryPoint(lookup);
-
-    return op1;
-}
 #endif
 
 GenTree* Importer::impMethodPointer(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo)
@@ -1207,32 +1187,6 @@ GenTree* Importer::impMethodPointer(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
     }
 
     return op1;
-}
-
-GenTree* Compiler::gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
-{
-    // Collectible types requires that for shared generic code, if we use the generic context parameter
-    // that we report it. (This is a conservative approach, we could detect some cases particularly when the
-    // context parameter is this that we don't need the eager reporting logic.)
-    // TODO-MIKE-Review: Shouldn't this be set on the "root" compiler?!
-    lvaGenericsContextInUse = true;
-
-    Compiler* root = impInlineRoot();
-
-    if (kind == CORINFO_LOOKUP_THISOBJ)
-    {
-        GenTree* ctxTree = gtNewLclvNode(root->info.compThisArg, TYP_REF);
-        ctxTree->gtFlags |= GTF_VAR_CONTEXT;
-        // The context is the method table pointer of the this object.
-        return gtNewMethodTableLookup(ctxTree);
-    }
-
-    assert(kind == CORINFO_LOOKUP_METHODPARAM || kind == CORINFO_LOOKUP_CLASSPARAM);
-
-    // Exact method descriptor as passed in.
-    GenTree* ctxTree = gtNewLclvNode(root->info.compTypeCtxtArg, TYP_I_IMPL);
-    ctxTree->gtFlags |= GTF_VAR_CONTEXT;
-    return ctxTree;
 }
 
 /*****************************************************************************/

@@ -4329,6 +4329,25 @@ GenTreeCall* Compiler::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types typ
     return call;
 }
 
+#ifdef FEATURE_READYTORUN_COMPILER
+GenTreeCall* Compiler::gtNewReadyToRunHelperCallNode(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                                     CorInfoHelpFunc         helper,
+                                                     var_types               type,
+                                                     GenTreeCall::Use*       args,
+                                                     CORINFO_LOOKUP_KIND*    genericLookupKind)
+{
+    CORINFO_CONST_LOOKUP lookup;
+    if (!info.compCompHnd->getReadyToRunHelper(resolvedToken, genericLookupKind, helper, &lookup))
+    {
+        return nullptr;
+    }
+
+    GenTreeCall* call = gtNewHelperCallNode(helper, type, args);
+    call->setEntryPoint(lookup);
+    return call;
+}
+#endif
+
 GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
     GenTreeCall* call = gtNewCallNode(CT_INDIRECT, addr, type, args, ilOffset);
@@ -13907,4 +13926,31 @@ GenTreeCall* Compiler::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cl
     }
 
     return call;
+}
+
+GenTree* Compiler::gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
+{
+    // Collectible types requires that for shared generic code, if we use the generic context parameter
+    // that we report it. (This is a conservative approach, we could detect some cases particularly when the
+    // context parameter is this that we don't need the eager reporting logic.)
+    // TODO-MIKE-Review: Shouldn't this be set on the "root" compiler?!
+    lvaGenericsContextInUse = true;
+
+    Compiler* root = impInlineRoot();
+
+    if (kind == CORINFO_LOOKUP_THISOBJ)
+    {
+        GenTree* ctxTree = gtNewLclvNode(root->info.compThisArg, TYP_REF);
+        ctxTree->gtFlags |= GTF_VAR_CONTEXT;
+
+        // The context is the method table pointer of the this object.
+        return gtNewMethodTableLookup(ctxTree);
+    }
+
+    assert((kind == CORINFO_LOOKUP_METHODPARAM) || (kind == CORINFO_LOOKUP_CLASSPARAM));
+
+    // Exact method descriptor as passed in.
+    GenTree* ctxTree = gtNewLclvNode(root->info.compTypeCtxtArg, TYP_I_IMPL);
+    ctxTree->gtFlags |= GTF_VAR_CONTEXT;
+    return ctxTree;
 }
