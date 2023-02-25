@@ -31,7 +31,7 @@ CompPhaseNameMacro(PHASE_POST_IMPORT,            "Post-import",                 
 CompPhaseNameMacro(PHASE_IBCPREP,                "Profile instrumentation prep",   "IBCPREP",  false, -1, false)
 CompPhaseNameMacro(PHASE_IBCINSTR,               "Profile instrumentation",        "IBCINSTR", false, -1, false)
 CompPhaseNameMacro(PHASE_INCPROFILE,             "Profile incorporation",          "INCPROF",  false, -1, false)
-CompPhaseNameMacro(PHASE_MORPH_INIT,             "Morph - Init",                   "MOR-INIT" ,false, -1, false)
+CompPhaseNameMacro(PHASE_REMOVE_NOT_IMPORTED,    "Remove not imported blocks",     "NOT-IMP",  false, -1, false)
 CompPhaseNameMacro(PHASE_MORPH_INLINE,           "Morph - Inlining",               "MOR-INL",  false, -1, true)
 CompPhaseNameMacro(PHASE_MORPH_ADD_INTERNAL,     "Morph - Add internal blocks",    "MOR-ADD",  false, -1, true)
 CompPhaseNameMacro(PHASE_ALLOCATE_OBJECTS,       "Allocate Objects",               "ALLOC-OBJ", false, -1, false)

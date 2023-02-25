@@ -14378,14 +14378,6 @@ void Compiler::fgMorphStmts(BasicBlock* block)
     fgRemoveRestOfBlock = false;
 }
 
-void Compiler::phMorphInit()
-{
-    // Initialize the BlockSet epoch
-    NewBasicBlockEpoch();
-    fgRemoveEmptyBlocks();
-    INDEBUG(fgDebugCheckBBlist(false, false));
-}
-
 void Compiler::phMorph()
 {
     unsigned prevBBCount = fgBBcount;

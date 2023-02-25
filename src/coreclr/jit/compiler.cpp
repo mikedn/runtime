@@ -2587,7 +2587,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     fgRemoveEH();
 #endif // !FEATURE_EH
 
-    DoPhase(this, PHASE_MORPH_INIT, &Compiler::phMorphInit);
+    DoPhase(this, PHASE_REMOVE_NOT_IMPORTED, &Compiler::phRemoveNotImportedBlocks);
     DoPhase(this, PHASE_MORPH_INLINE, &Compiler::fgInline);
 
     RecordStateAtEndOfInlining();

@@ -7114,7 +7114,7 @@ public:
     void         compCompileFinish();
     CorJitResult compCompileHelper(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags);
 
-    void        phMorphInit();
+    void        phRemoveNotImportedBlocks();
     PhaseStatus phMorphAllocObj();
     void        phComputePreds();
     void        phMorph();

@@ -1207,6 +1207,13 @@ BlockSet_ValRet_T Compiler::fgGetDominatorSet(BasicBlock* block)
     return domSet;
 }
 
+void Compiler::phRemoveNotImportedBlocks()
+{
+    NewBasicBlockEpoch();
+    fgRemoveEmptyBlocks();
+    INDEBUG(fgDebugCheckBBlist(false, false));
+}
+
 //------------------------------------------------------------------------
 // fgRemoveEmptyBlocks: clean up flow graph after importation
 //
