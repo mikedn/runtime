@@ -4869,9 +4869,8 @@ protected:
     // && postOrder(A) >= postOrder(B) making the computation O(1).
     void fgNumberDomTree(DomTreeNode* domTree);
 
-    // When the flow graph changes, we need to update the block numbers, predecessor lists, reachability sets, and
-    // dominators.
-    void fgUpdateChangedFlowGraph(const bool computePreds = true, const bool computeDoms = true);
+    // When the flow graph changes, we need to update the block numbers, predecessor lists, reachability sets.
+    void fgUpdateChangedFlowGraph(bool computePreds);
 
 public:
     // Compute the predecessors of the blocks in the control flow graph.

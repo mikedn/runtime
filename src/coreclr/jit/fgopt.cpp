@@ -166,15 +166,7 @@ bool Compiler::fgReachable(BasicBlock* b1, BasicBlock* b2)
     return BlockSetOps::IsMember(this, b2->bbReach, b1->bbNum);
 }
 
-//------------------------------------------------------------------------
-// fgUpdateChangedFlowGraph: Update changed flow graph information.
-//
-// If the flow graph has changed, we need to recompute various information if we want to use it again.
-//
-// Arguments:
-//    computeDoms -- `true` if we should recompute dominators
-//
-void Compiler::fgUpdateChangedFlowGraph(const bool computePreds, const bool computeDoms)
+void Compiler::fgUpdateChangedFlowGraph(const bool computePreds)
 {
     // We need to clear this so we don't hit an assert calling fgRenumberBlocks().
     fgDomsComputed = false;
@@ -186,12 +178,9 @@ void Compiler::fgUpdateChangedFlowGraph(const bool computePreds, const bool comp
     {
         fgComputePreds();
     }
+
     fgComputeEnterBlocksSet();
     fgComputeReachabilitySets();
-    if (computeDoms)
-    {
-        fgComputeDoms();
-    }
 }
 
 //------------------------------------------------------------------------
@@ -522,18 +511,13 @@ bool Compiler::fgRemoveUnreachableBlocks()
 //
 void Compiler::fgComputeReachability()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgComputeReachability\n");
-    }
+    JITDUMP("*************** In fgComputeReachability\n");
 
-    fgVerifyHandlerTab();
-
-    // Make sure that the predecessor lists are accurate
     assert(fgComputePredsDone);
+#ifdef DEBUG
+    fgVerifyHandlerTab();
     fgDebugCheckBBlist();
-#endif // DEBUG
+#endif
 
     /* Create a list of all BBJ_RETURN blocks. The head of the list is 'fgReturnBlocks'. */
     fgReturnBlocks = nullptr;
@@ -603,12 +587,6 @@ void Compiler::fgComputeReachability()
     fgVerifyHandlerTab();
     fgDebugCheckBBlist(true);
 #endif // DEBUG
-
-    //
-    // Now, compute the dominators
-    //
-
-    fgComputeDoms();
 }
 
 //-------------------------------------------------------------

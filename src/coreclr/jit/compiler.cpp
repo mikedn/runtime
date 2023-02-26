@@ -2633,6 +2633,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
         DoPhase(this, PHASE_INVERT_LOOPS, &Compiler::optInvertLoops);
         DoPhase(this, PHASE_OPTIMIZE_LAYOUT, &Compiler::optOptimizeLayout);
         DoPhase(this, PHASE_COMPUTE_REACHABILITY, &Compiler::fgComputeReachability);
+        DoPhase(this, PHASE_COMPUTE_DOMINATORS, &Compiler::fgComputeDoms);
         DoPhase(this, PHASE_FIND_LOOPS, &Compiler::optFindLoops);
         DoPhase(this, PHASE_CLONE_LOOPS, &Compiler::optCloneLoops);
         DoPhase(this, PHASE_UNROLL_LOOPS, &Compiler::optUnrollLoops);
@@ -2924,16 +2925,18 @@ void Compiler::RecomputeLoopInfo()
 {
     assert(opts.optRepeat);
     assert(JitConfig.JitOptRepeatCount() > 0);
-    // Recompute reachability sets, dominators, and loops.
+
     optLoopCount   = 0;
     fgDomsComputed = false;
+
     for (BasicBlock* const block : Blocks())
     {
         block->bbFlags &= ~BBF_LOOP_FLAGS;
         block->bbNatLoopNum = BasicBlock::NOT_IN_LOOP;
     }
+
     fgComputeReachability();
-    // Rebuild the loop tree annotations themselves
+    fgComputeDoms();
     optFindLoops();
 }
 #endif // OPT_CONFIG

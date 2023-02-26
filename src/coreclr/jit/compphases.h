@@ -55,6 +55,7 @@ CompPhaseNameMacro(PHASE_MERGE_THROWS,           "Merge throw blocks",          
 CompPhaseNameMacro(PHASE_INVERT_LOOPS,           "Invert loops",                   "LOOP-INV", false, -1, false)
 CompPhaseNameMacro(PHASE_OPTIMIZE_LAYOUT,        "Optimize layout",                "LAYOUT",   false, -1, false)
 CompPhaseNameMacro(PHASE_COMPUTE_REACHABILITY,   "Compute blocks reachability",    "BL_REACH", false, -1, false)
+CompPhaseNameMacro(PHASE_COMPUTE_DOMINATORS,     "Compute dominators",             "BL_DOMS",  false, -1, false)
 CompPhaseNameMacro(PHASE_ZERO_INITS,             "Redundant zero Inits",           "ZERO-INIT", false, -1, false)
 CompPhaseNameMacro(PHASE_FIND_LOOPS,             "Find loops",                     "LOOP-FND", false, -1, false)
 CompPhaseNameMacro(PHASE_CLONE_LOOPS,            "Clone loops",                    "LP-CLONE", false, -1, false)

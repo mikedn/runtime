@@ -2451,8 +2451,8 @@ NO_MORE_LOOPS:
     }
     if (mod)
     {
-        constexpr bool computePreds = true;
-        fgUpdateChangedFlowGraph(computePreds);
+        fgUpdateChangedFlowGraph(/*computePreds*/ true);
+        fgComputeDoms();
     }
 
 #ifdef DEBUG
@@ -3903,8 +3903,8 @@ PhaseStatus Compiler::optUnrollLoops()
 
     if (change)
     {
-        constexpr bool computePreds = true;
-        fgUpdateChangedFlowGraph(computePreds);
+        fgUpdateChangedFlowGraph(/*computePreds*/ true);
+        fgComputeDoms();
     }
 
 #ifdef DEBUG

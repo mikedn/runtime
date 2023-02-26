@@ -2532,8 +2532,8 @@ PhaseStatus Compiler::optCloneLoops()
     if (optLoopsCloned > 0)
     {
         JITDUMP("Recompute reachability and dominators after loop cloning\n");
-        constexpr bool computePreds = false;
-        fgUpdateChangedFlowGraph(computePreds);
+        fgUpdateChangedFlowGraph(/*computePreds*/ false);
+        fgComputeDoms();
     }
 
 #ifdef DEBUG

@@ -130,7 +130,7 @@ PhaseStatus Compiler::phInsertGCPolls()
         noway_assert(opts.OptimizationEnabled());
 
         fgReorderBlocks();
-        fgUpdateChangedFlowGraph(/* computePreds */ true, /* computeDoms */ false);
+        fgUpdateChangedFlowGraph(/*computePreds*/ true);
     }
 
 #ifdef DEBUG
