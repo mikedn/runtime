@@ -4566,7 +4566,7 @@ public:
     void fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt);
     void fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
 
-    GenTree* fgRemoveDeadStore(GenTreeOp* asgNode);
+    GenTree* fgRemoveDeadStore(GenTreeOp* asgNode, Statement* stmt);
 
     void fgInterBlockLocalVarLivenessUntracked();
     bool fgInterBlockLocalVarLiveness();
@@ -5342,15 +5342,16 @@ private:
     bool fgCallHasMustCopyByrefParameter(CallInfo* callInfo);
 #endif
 #endif
-    bool     fgCheckStmtAfterTailCall();
-    GenTree* fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL_HELPERS& help);
+    bool fgCheckStmtAfterTailCall(Statement* callStmt);
+    GenTree* fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL_HELPERS& help, Statement* stmt);
 #ifdef TARGET_X86
     bool fgCanTailCallViaJitHelper();
     void fgMorphTailCallViaJitHelper(GenTreeCall* call);
 #endif
     GenTree* fgCreateCallDispatcherAndGetResult(GenTreeCall*          origCall,
                                                 CORINFO_METHOD_HANDLE callTargetStubHnd,
-                                                CORINFO_METHOD_HANDLE dispatcherHnd);
+                                                CORINFO_METHOD_HANDLE dispatcherHnd,
+                                                Statement*            stmt);
     GenTree* getLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                            CORINFO_LOOKUP*         pLookup,
                            GenTreeFlags            handleFlags,
@@ -5363,7 +5364,7 @@ private:
                                       CORINFO_CALL_INFO*      pCallInfo);
     GenTree* getTokenHandleTree(CORINFO_RESOLVED_TOKEN* pResolvedToken, bool parent);
 
-    GenTree* fgMorphPotentialTailCall(GenTreeCall* call);
+    GenTree* fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt);
     GenTree* fgGetStubAddrArg(GenTreeCall* call);
     void fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCall* recursiveTailCall);
     Statement* fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
@@ -5372,7 +5373,7 @@ private:
                                                      IL_OFFSETX     callILOffset,
                                                      Statement*     tmpAssignmentInsertionPoint,
                                                      Statement*     paramAssignmentInsertionPoint);
-    GenTree* fgMorphCall(GenTreeCall* call);
+    GenTree* fgMorphCall(GenTreeCall* call, Statement* stmt);
     GenTree* fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* value);
     GenTree* fgExpandVirtualVtableCallTarget(GenTreeCall* call);
     GenTree* fgMorphLeaf(GenTree* tree);
@@ -5425,7 +5426,7 @@ public:
 private:
     void fgMorphTreeDone(GenTree* tree, GenTree* oldTree = nullptr DEBUGARG(int morphNum = 0));
 
-    Statement* fgMorphStmt;
+    Statement* fgGlobalMorphStmt = nullptr;
 
     unsigned fgGetLargeFieldOffsetNullCheckTemp(var_types type); // We cache one temp per type to be
                                                                  // used when morphing big offset.
@@ -7071,7 +7072,6 @@ public:
 #endif
 
     BasicBlock* compCurBB = nullptr; // the current basic block in process
-    Statement*  compCurStmt;         // the current statement in process
     GenTree*    compCurTree;         // the current tree in process
 
     EHblkDsc* compHndBBtab           = nullptr; // array of EH data

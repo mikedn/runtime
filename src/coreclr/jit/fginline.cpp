@@ -693,8 +693,6 @@ void Compiler::inlMain()
 
 void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* inlineResult)
 {
-    fgMorphStmt = stmt;
-
     InlineInfo inlineInfo;
 
     inlineInfo.InlinerCompiler     = this;

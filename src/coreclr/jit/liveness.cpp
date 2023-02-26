@@ -364,8 +364,6 @@ void Compiler::fgPerBlockLocalVarLiveness()
 
         for (Statement* const stmt : block->NonPhiStatements())
         {
-            compCurStmt = stmt;
-
             for (GenTree* const node : stmt->Nodes())
             {
                 fgPerNodeLocalVarLiveness(state, node);
@@ -853,17 +851,18 @@ void Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_VALARG_TP keepAlive, B
         return;
     }
 
-    Statement* nextStmt = block->lastStmt();
+    Statement* prevStmt = block->lastStmt();
+    Statement* stmt;
 
     do
     {
-        noway_assert(nextStmt != nullptr);
+        noway_assert(prevStmt != nullptr);
 
-        compCurStmt = nextStmt;
-        nextStmt    = nextStmt->GetPrevStmt();
+        stmt     = prevStmt;
+        prevStmt = stmt->GetPrevStmt();
 
-        fgComputeLifeStmt(life, keepAlive, compCurStmt);
-    } while (compCurStmt != firstStmt);
+        fgComputeLifeStmt(life, keepAlive, stmt);
+    } while (stmt != firstStmt);
 }
 
 void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt)
@@ -910,7 +909,7 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
 
                 if (isDeadStore)
                 {
-                    GenTree* nextNode = fgRemoveDeadStore(node->AsOp());
+                    GenTree* nextNode = fgRemoveDeadStore(node->AsOp(), stmt);
 
                     if (nextNode == nullptr)
                     {
@@ -1225,7 +1224,7 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 }
 
 // Remove a dead assignment. Returns true if the entire statement was removed.
-GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode)
+GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode, Statement* stmt)
 {
     assert(!compRationalIRForm);
     assert(asgNode->OperIs(GT_ASG));
@@ -1250,18 +1249,18 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode)
         // This is a top level assignment, we can remove the entire statement
         // if there are no side effects.
 
-        noway_assert(compCurStmt->GetRootNode() == asgNode);
+        noway_assert(stmt->GetRootNode() == asgNode);
 
         if (sideEffects == nullptr)
         {
-            fgRemoveStmt(compCurBB, compCurStmt DEBUGARG(false));
+            fgRemoveStmt(compCurBB, stmt DEBUGARG(false));
 
             return nullptr;
         }
 
         // Replace the assignment statement with the list of side effects
         // and process the statement again.
-        compCurStmt->SetRootNode(sideEffects);
+        stmt->SetRootNode(sideEffects);
         return sideEffects;
     }
 

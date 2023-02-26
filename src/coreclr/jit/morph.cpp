@@ -6229,7 +6229,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
 //    classify which kind of tailcall we are able to (or should) do, along with
 //    modifying the trees to perform that kind of tailcall.
 //
-GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
+GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 {
     // It should either be an explicit (i.e. tail prefixed) or an implicit tail call
     assert(call->IsTailPrefixedCall() ^ call->IsImplicitTailCall());
@@ -6387,7 +6387,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         }
     }
 
-    if (!fgCheckStmtAfterTailCall())
+    if (!fgCheckStmtAfterTailCall(stmt))
     {
         failTailCall("Unexpected statements after the tail call");
         return nullptr;
@@ -6701,7 +6701,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         compCurBB->bbJumpKind = BBJ_RETURN;
     }
 
-    GenTree* stmtExpr = fgMorphStmt->GetRootNode();
+    GenTree* stmtExpr = stmt->GetRootNode();
 
 #ifdef DEBUG
     // Tail call needs to be in one of the following IR forms
@@ -6752,14 +6752,14 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         // calls with (to the JIT) regular control flow so we do not need to do
         // much special handling.
 
-        return fgMorphTailCallViaHelpers(call, tailCallHelpers);
+        return fgMorphTailCallViaHelpers(call, tailCallHelpers, stmt);
     }
 
     // Otherwise we will transform into something that does not return. For
     // fast tailcalls a "jump" and for tailcall via JIT helper a call to a
     // JIT helper that does not return. So peel off everything after the
     // call.
-    Statement* nextMorphStmt = fgMorphStmt->GetNextStmt();
+    Statement* nextMorphStmt = stmt->GetNextStmt();
     JITDUMP("Remove all stmts after the call.\n");
     while (nextMorphStmt != nullptr)
     {
@@ -6769,13 +6769,13 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     }
 
     bool     isRootReplaced = false;
-    GenTree* root           = fgMorphStmt->GetRootNode();
+    GenTree* root           = stmt->GetRootNode();
 
     if (root != call)
     {
         JITDUMP("Replace root node [%06d] with [%06d] tail call node.\n", dspTreeID(root), dspTreeID(call));
         isRootReplaced = true;
-        fgMorphStmt->SetRootNode(call);
+        stmt->SetRootNode(call);
     }
 
     var_types retType = call->GetType();
@@ -6820,7 +6820,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     {
         // We didn't insert a poll block, so we need to morph the call now
         // (Normally it will get morphed when we get to the split poll block)
-        GenTree* temp = fgMorphCall(call);
+        GenTree* temp = fgMorphCall(call, stmt);
         noway_assert(temp == call);
     }
 
@@ -6835,7 +6835,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     // interruptible if the block containing this tail call is reachable
     // without executing any call.
 
-    GenTree* temp = fgMorphCall(call);
+    GenTree* temp = fgMorphCall(call, stmt);
     noway_assert(temp == call);
     noway_assert(compCurBB->bbJumpKind == BBJ_RETURN);
     compCurBB->bbFlags |= BBF_HAS_JMP;
@@ -6892,7 +6892,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
 // whenever the call node returns a value. If the call node does not return a
 // value the last comma will not be there.
 //
-GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL_HELPERS& help)
+GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL_HELPERS& help, Statement* stmt)
 {
     // R2R requires different handling but we don't support tailcall via
     // helpers in R2R yet, so just leave it for now.
@@ -6928,7 +6928,8 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
         call->gtFlags &= ~GTF_CALL_VIRT_STUB;
     }
 
-    GenTree* callDispatcherAndGetResult = fgCreateCallDispatcherAndGetResult(call, help.hCallTarget, help.hDispatcher);
+    GenTree* callDispatcherAndGetResult =
+        fgCreateCallDispatcherAndGetResult(call, help.hCallTarget, help.hDispatcher, stmt);
 
     // Change the call to a call to the StoreArgs stub.
     if (call->HasRetBufArg())
@@ -7149,9 +7150,10 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
 //
 GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          origCall,
                                                       CORINFO_METHOD_HANDLE callTargetStubHnd,
-                                                      CORINFO_METHOD_HANDLE dispatcherHnd)
+                                                      CORINFO_METHOD_HANDLE dispatcherHnd,
+                                                      Statement*            stmt)
 {
-    GenTreeCall* callDispatcherNode = gtNewUserCallNode(dispatcherHnd, TYP_VOID, nullptr, fgMorphStmt->GetILOffsetX());
+    GenTreeCall* callDispatcherNode = gtNewUserCallNode(dispatcherHnd, TYP_VOID, nullptr, stmt->GetILOffsetX());
     // The dispatcher has signature
     // void DispatchTailCalls(void* callersRetAddrSlot, void* callTarget, void* retValue)
 
@@ -7985,11 +7987,11 @@ bool Compiler::IsCallGCSafePoint(GenTreeCall* call)
     return false;
 }
 
-GenTree* Compiler::fgMorphCall(GenTreeCall* call)
+GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
 {
     if (call->CanTailCall())
     {
-        GenTree* newNode = fgMorphPotentialTailCall(call);
+        GenTree* newNode = fgMorphPotentialTailCall(call, stmt);
         if (newNode != nullptr)
         {
             return newNode;
@@ -7998,13 +8000,13 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         assert(!call->CanTailCall());
     }
 
-    if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) == 0 &&
-        (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_VIRTUAL_FUNC_PTR)
+    if (((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) == 0) &&
+        ((call->GetMethodHandle() == eeFindHelper(CORINFO_HELP_VIRTUAL_FUNC_PTR))
 #ifdef FEATURE_READYTORUN_COMPILER
-         || call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_READYTORUN_VIRTUAL_FUNC_PTR)
+         || (call->GetMethodHandle() == eeFindHelper(CORINFO_HELP_READYTORUN_VIRTUAL_FUNC_PTR))
 #endif
              ) &&
-        (call == fgMorphStmt->GetRootNode()))
+        (stmt != nullptr) && (call == stmt->GetRootNode()))
     {
         // This is call to CORINFO_HELP_VIRTUAL_FUNC_PTR with ignored result.
         // Transform it into a null check.
@@ -8340,10 +8342,10 @@ GenTree* Compiler::fgMorphConst(GenTree* tree)
     {
         useLazyStrCns = true;
     }
-    else if (fgGlobalMorph && compCurStmt->GetRootNode()->IsCall())
+    else if (fgGlobalMorph && fgGlobalMorphStmt->GetRootNode()->IsCall())
     {
         // Quick check: if the root node of the current statement happens to be a noreturn call.
-        GenTreeCall* call = compCurStmt->GetRootNode()->AsCall();
+        GenTreeCall* call = fgGlobalMorphStmt->GetRootNode()->AsCall();
         useLazyStrCns     = call->IsNoReturn() || fgIsThrow(call);
     }
 
@@ -13451,7 +13453,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             {
                 tree->gtFlags &= ~GTF_EXCEPT;
             }
-            tree = fgMorphCall(tree->AsCall());
+            tree = fgMorphCall(tree->AsCall(), fgGlobalMorphStmt);
             break;
 
         case GT_ARR_BOUNDS_CHECK:
@@ -14083,7 +14085,6 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
     // Reset some ambient state
     fgRemoveRestOfBlock = false;
     compCurBB           = block;
-    compCurStmt         = stmt;
 
     GenTree* morph = fgMorphTree(stmt->GetRootNode());
 
@@ -14203,8 +14204,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
             continue;
         }
 
-        fgMorphStmt = stmt;
-        compCurStmt = stmt;
+        fgGlobalMorphStmt = stmt;
 
 #ifdef DEBUG
         unsigned oldHash = verbose ? gtHashValue(stmt->GetRootNode()) : DUMMY_INIT(~0);
@@ -14220,19 +14220,13 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         fgMorphIndirectParams(stmt);
 #endif
 
-        GenTree* oldTree = stmt->GetRootNode();
-
-        /* Morph this statement tree */
-
+        GenTree* oldTree     = stmt->GetRootNode();
         GenTree* morphedTree = fgMorphTree(oldTree);
 
-// mark any outgoing arg temps as free so we can reuse them in the next statement.
-
 #ifndef TARGET_X86
+        // Mark any outgoing arg temps as free so we can reuse them in the next statement.
         abiFreeAllStructArgTemps();
 #endif
-
-        // Has fgMorphStmt been sneakily changed ?
 
         if ((stmt->GetRootNode() != oldTree) || (block != compCurBB))
         {
@@ -14390,8 +14384,9 @@ void Compiler::phMorph()
     fgMorphBlocks();
 
     // We are done with the global morphing phase
-    fgGlobalMorph = false;
-    compCurBB     = nullptr;
+    fgGlobalMorph     = false;
+    fgGlobalMorphStmt = nullptr;
+    compCurBB         = nullptr;
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     // Fix any LclVar annotations on discarded struct promotion temps for implicit by-ref params
@@ -15240,16 +15235,14 @@ void Compiler::AddZeroOffsetFieldSeq(GenTree* addr, FieldSeqNode* fieldSeq)
 // Return Value:
 //    'true' if stmts are in the expected form, else 'false'.
 //
-bool Compiler::fgCheckStmtAfterTailCall()
+bool Compiler::fgCheckStmtAfterTailCall(Statement* callStmt)
 {
-
     // For void calls, we would have created a GT_CALL in the stmt list.
     // For non-void calls, we would have created a GT_RETURN(GT_CAST(GT_CALL)).
     // For calls returning structs, we would have a void call, followed by a void return.
     // For debuggable code, it would be an assignment of the call to a temp
     // We want to get rid of any of this extra trees, and just leave
     // the call.
-    Statement* callStmt = fgMorphStmt;
 
     Statement* nextMorphStmt = callStmt->GetNextStmt();
 
