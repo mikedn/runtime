@@ -23,7 +23,7 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
 {
     GenTree* src = cast->GetOp(0);
 
-    if (src->OperIsConst())
+    if (src->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
     {
         GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
 
@@ -32,9 +32,9 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
             return fgMorphTree(folded);
         }
 
-        if (folded->OperIsConst())
+        if (folded->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
         {
-            return fgMorphConst(folded);
+            return folded;
         }
 
         noway_assert(cast->OperIs(GT_CAST));
@@ -8314,24 +8314,9 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
     return result;
 }
 
-/*****************************************************************************
- *
- *  Transform the given GTK_CONST tree for code generation.
- */
-
-GenTree* Compiler::fgMorphConst(GenTree* tree)
+GenTree* Compiler::fgMorphStrCon(GenTreeStrCon* tree, Statement* stmt)
 {
-    assert(tree->OperIsConst());
-
-    /* Clear any exception flags or other unnecessary flags
-     * that may have been set before folding this node to a constant */
-
-    tree->gtFlags &= ~(GTF_ALL_EFFECT | GTF_REVERSE_OPS);
-
-    if (tree->OperGet() != GT_CNS_STR)
-    {
-        return tree;
-    }
+    assert(fgGlobalMorph);
 
     // TODO-CQ: Do this for compCurBB->isRunRarely(). Doing that currently will
     // guarantee slow performance for that block. Instead cache the return value
@@ -8342,16 +8327,15 @@ GenTree* Compiler::fgMorphConst(GenTree* tree)
     {
         useLazyStrCns = true;
     }
-    else if (fgGlobalMorph && fgGlobalMorphStmt->GetRootNode()->IsCall())
+    else if (GenTreeCall* call = stmt->GetRootNode()->IsCall())
     {
         // Quick check: if the root node of the current statement happens to be a noreturn call.
-        GenTreeCall* call = fgGlobalMorphStmt->GetRootNode()->AsCall();
-        useLazyStrCns     = call->IsNoReturn() || fgIsThrow(call);
+        useLazyStrCns = call->IsNoReturn() || fgIsThrow(call);
     }
 
     if (useLazyStrCns)
     {
-        CorInfoHelpFunc helper = info.compCompHnd->getLazyStringLiteralHelper(tree->AsStrCon()->gtScpHnd);
+        CorInfoHelpFunc helper = info.compCompHnd->getLazyStringLiteralHelper(tree->gtScpHnd);
         if (helper != CORINFO_HELP_UNDEF)
         {
             // For un-important blocks, we want to construct the string lazily
@@ -8359,28 +8343,24 @@ GenTree* Compiler::fgMorphConst(GenTree* tree)
             GenTreeCall::Use* args;
             if (helper == CORINFO_HELP_STRCNS_CURRENT_MODULE)
             {
-                args = gtNewCallArgs(gtNewIconNode(RidFromToken(tree->AsStrCon()->gtSconCPX), TYP_INT));
+                args = gtNewCallArgs(gtNewIconNode(RidFromToken(tree->gtSconCPX), TYP_INT));
             }
             else
             {
-                args = gtNewCallArgs(gtNewIconNode(RidFromToken(tree->AsStrCon()->gtSconCPX), TYP_INT),
-                                     gtNewIconEmbScpHndNode(tree->AsStrCon()->gtScpHnd));
+                args = gtNewCallArgs(gtNewIconNode(RidFromToken(tree->gtSconCPX), TYP_INT),
+                                     gtNewIconEmbScpHndNode(tree->gtScpHnd));
             }
 
-            tree = gtNewHelperCallNode(helper, TYP_REF, args);
-            return fgMorphTree(tree);
+            return fgMorphTree(gtNewHelperCallNode(helper, TYP_REF, args));
         }
     }
 
-    assert(tree->AsStrCon()->gtScpHnd == info.compScopeHnd || !IsUninitialized(tree->AsStrCon()->gtScpHnd));
+    assert(tree->gtScpHnd == info.compScopeHnd || !IsUninitialized(tree->gtScpHnd));
 
     LPVOID         pValue;
-    InfoAccessType iat =
-        info.compCompHnd->constructStringLiteral(tree->AsStrCon()->gtScpHnd, tree->AsStrCon()->gtSconCPX, &pValue);
+    InfoAccessType iat = info.compCompHnd->constructStringLiteral(tree->gtScpHnd, tree->gtSconCPX, &pValue);
 
-    tree = gtNewStringLiteralNode(iat, pValue);
-
-    return fgMorphTree(tree);
+    return fgMorphTree(gtNewStringLiteralNode(iat, pValue));
 }
 
 GenTree* Compiler::fgMorphLeaf(GenTree* tree)
@@ -13404,31 +13384,30 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 #endif
     }
 
-    /* Save the original un-morphed tree for fgMorphTreeDone */
-
+    // Save the original un-morphed tree for fgMorphTreeDone.
     GenTree* oldTree = tree;
-
-    /* Figure out what kind of a node we have */
 
     unsigned kind = tree->OperKind();
 
-    /* Is this a constant node? */
-
-    if (tree->OperIsConst())
-    {
-        tree = fgMorphConst(tree);
-        goto DONE;
-    }
-
-    /* Is this a leaf node? */
-
     if (kind & GTK_LEAF)
     {
-        tree = fgMorphLeaf(tree);
+        if (tree->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
+        {
+            // Clear any exception flags or other unnecessary flags that
+            // may have been set before folding this node to a constant.
+            tree->gtFlags &= ~(GTF_ALL_EFFECT | GTF_REVERSE_OPS);
+        }
+        else if (GenTreeStrCon* str = tree->IsStrCon())
+        {
+            tree = fgMorphStrCon(str, fgGlobalMorphStmt);
+        }
+        else
+        {
+            tree = fgMorphLeaf(tree);
+        }
+
         goto DONE;
     }
-
-    /* Is it a 'simple' unary/binary operator? */
 
     if (kind & GTK_SMPOP)
     {
@@ -13436,9 +13415,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         goto DONE;
     }
 
-    /* See what kind of a special operator we have here */
-
-    switch (tree->OperGet())
+    switch (tree->GetOper())
     {
         case GT_QMARK:
             tree = fgMorphQmark(tree->AsQmark(), mac);

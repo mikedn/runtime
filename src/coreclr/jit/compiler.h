@@ -5397,7 +5397,7 @@ private:
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
     GenTree* fgMorphSmpOpOptional(GenTreeOp* tree);
-    GenTree* fgMorphConst(GenTree* tree);
+    GenTree* fgMorphStrCon(GenTreeStrCon* tree, Statement* stmt);
     GenTree* fgMorphAssociative(GenTreeOp* tree);
 
 #ifndef TARGET_64BIT

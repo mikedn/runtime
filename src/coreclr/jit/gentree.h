@@ -1223,6 +1223,7 @@ public:
 
     static bool OperIsConst(genTreeOps gtOper)
     {
+        // TODO-MIKE-Cleanup: Including GT_CNS_STR in "const" operator is as dumb as it gets.
         return (gtOper == GT_CNS_INT) || (gtOper == GT_CNS_LNG) || (gtOper == GT_CNS_DBL) || (gtOper == GT_CNS_STR);
     }
 
