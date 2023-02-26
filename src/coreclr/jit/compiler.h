@@ -7122,8 +7122,8 @@ public:
     void        phImplicitRefLocals();
     void        phRefCountLocals();
     void        phFindOperOrder();
-    void        phSetFullyInterruptible();
     void        phSetBlockOrder();
+    void        phSetFullyInterruptible();
     void        phRemoveRangeCheck();
     void        phUpdateFlowGraph();
     PhaseStatus phInsertGCPolls();

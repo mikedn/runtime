@@ -2662,8 +2662,13 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     }
 
     DoPhase(this, PHASE_FIND_OPER_ORDER, &Compiler::phFindOperOrder);
-    DoPhase(this, PHASE_SET_FULLY_INTERRUPTIBLE, &Compiler::phSetFullyInterruptible);
     DoPhase(this, PHASE_SET_BLOCK_ORDER, &Compiler::phSetBlockOrder);
+
+    // TODO-MIKE-Review: Can this be done after the SSA optimizations? Those can remove
+    // dead code and we may end up with fully interruptible code for no reason.
+    // But this depends on BBF_LOOP_HEAD, which is set only by fgComputeReachability.
+    // And optRemoveRedundantZeroInits depends on the code not being fully interruptible.
+    DoPhase(this, PHASE_SET_FULLY_INTERRUPTIBLE, &Compiler::phSetFullyInterruptible);
 
     if (opts.OptimizationEnabled())
     {
