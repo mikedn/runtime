@@ -2758,7 +2758,11 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
                 DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS2, &Compiler::fgComputeEdgeWeights);
             }
         }
+
+        fgDomsComputed = false;
     }
+
+    assert(!fgDomsComputed);
 
     if ((optMethodFlags & OMF_NEEDS_GCPOLLS) != 0)
     {
@@ -2771,13 +2775,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     }
 
     DoPhase(this, PHASE_RATIONALIZE, &Compiler::phRationalize);
-
-    // Dominator and reachability sets are no longer valid. They haven't been
-    // maintained up to here, and shouldn't be used (unless recomputed).
-    fgDomsComputed = false;
-
     DoPhase(this, PHASE_LOWERING, &Compiler::phLower);
-
 #if !FEATURE_FIXED_OUT_ARGS
     DoPhase(this, PHASE_STACK_LEVEL_SETTER, &Compiler::phSetThrowHelperBlockStackLevel);
 #endif
