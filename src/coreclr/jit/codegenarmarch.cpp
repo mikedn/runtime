@@ -109,13 +109,7 @@ target_ssize_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(ssize_t s
     return lastTouchDelta;
 }
 
-//------------------------------------------------------------------------
-// genCodeForTreeNode Generate code for a single node in the tree.
-//
-// Preconditions:
-//    All operands have been evaluated.
-//
-void CodeGen::genCodeForTreeNode(GenTree* treeNode)
+void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 {
     emitter* emit = GetEmitter();
 
@@ -274,11 +268,11 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_RETFILT:
-            genRetFilt(treeNode);
+            GenRetFilt(treeNode, block);
             break;
 
         case GT_RETURN:
-            genReturn(treeNode);
+            GenReturn(treeNode, block);
             break;
 
         case GT_LEA:
@@ -351,17 +345,17 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_JTRUE:
-            genCodeForJumpTrue(treeNode->AsOp());
+            GenJTrue(treeNode->AsUnOp(), block);
             break;
 
 #ifdef TARGET_ARM64
         case GT_JCMP:
-            genCodeForJumpCompare(treeNode->AsOp());
+            GenJCmp(treeNode->AsOp(), block);
             break;
-#endif // TARGET_ARM64
+#endif
 
         case GT_JCC:
-            genCodeForJcc(treeNode->AsCC());
+            GenJCC(treeNode->AsCC(), block);
             break;
 
         case GT_SETCC:
@@ -465,7 +459,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_CATCH_ARG:
-            noway_assert(handlerGetsXcptnObj(compiler->compCurBB->bbCatchTyp));
+            noway_assert(handlerGetsXcptnObj(block->bbCatchTyp));
             // Catch arguments get passed in a register. genCodeForBBlist()
             // would have marked it as holding a GC object, but not used.
             noway_assert((liveness.GetGCRegs(TYP_REF) & RBM_EXCEPTION_OBJECT) != RBM_NONE);
@@ -502,7 +496,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_JMPTABLE:
-            genJumpTable(treeNode);
+            GenJmpTable(treeNode, block);
             break;
 
         case GT_SWITCH_TABLE:

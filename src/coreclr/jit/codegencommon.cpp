@@ -341,33 +341,19 @@ unsigned CodeGen::genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned r
     return compiler->eeGetArrayDataOffset(elemType) + genTypeSize(TYP_INT) * dimension;
 }
 
-/*****************************************************************************
- *
- *  The following can be used to create basic blocks that serve as labels for
- *  the emitter. Use with caution - these are not real basic blocks!
- *
- */
-
-// inline
+// The following can be used to create basic blocks that serve as labels for
+// the emitter. Use with caution - these are not real basic blocks!
 BasicBlock* CodeGen::genCreateTempLabel()
 {
-#ifdef DEBUG
-    // These blocks don't affect FP
-    compiler->fgSafeBasicBlockCreation = true;
-#endif
-
+    INDEBUG(compiler->fgSafeBasicBlockCreation = true);
     BasicBlock* block = compiler->bbNewBasicBlock(BBJ_NONE);
-
-#ifdef DEBUG
-    compiler->fgSafeBasicBlockCreation = false;
-#endif
+    INDEBUG(compiler->fgSafeBasicBlockCreation = false);
 
     JITDUMP("Mark " FMT_BB " as label: codegen temp block\n", block->bbNum);
-    block->bbFlags |= BBF_HAS_LABEL;
 
-    // Use coldness of current block, as this label will
-    // be contained in it.
-    block->bbFlags |= (compiler->compCurBB->bbFlags & BBF_COLD);
+    block->bbFlags |= BBF_HAS_LABEL;
+    // Use coldness of current block, as this label will be contained in it.
+    block->bbFlags |= (m_currentBlock->bbFlags & BBF_COLD);
 
 #ifdef DEBUG
 #ifdef UNIX_X86_ABI
@@ -666,7 +652,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, ThrowHelperKind codeKi
             excpRaisingBlock = failBlk;
 
 #ifdef DEBUG
-            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(codeKind, compiler->compCurBB);
+            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(codeKind, m_currentBlock);
             assert(excpRaisingBlock == helper->block);
 #if !FEATURE_FIXED_OUT_ARGS
             assert(helper->stackLevelSet || isFramePointerUsed());
@@ -675,7 +661,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, ThrowHelperKind codeKi
         }
         else
         {
-            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(codeKind, compiler->compCurBB);
+            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(codeKind, m_currentBlock);
             assert(helper != nullptr);
 #if !FEATURE_FIXED_OUT_ARGS
             assert(helper->stackLevelSet || isFramePointerUsed());
@@ -5597,17 +5583,13 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
     return NULL;
 }
 
-/*****************************************************************************/
 #endif // !defined(DEBUG)
 #endif // defined(LATE_DISASM)
-/*****************************************************************************/
 
-void CodeGen::genRetFilt(GenTree* retfilt)
+void CodeGen::GenRetFilt(GenTree* retfilt, BasicBlock* block)
 {
     assert(retfilt->OperIs(GT_RETFILT));
-
-    assert((compiler->compCurBB->bbJumpKind == BBJ_EHFILTERRET) ||
-           (compiler->compCurBB->bbJumpKind == BBJ_EHFINALLYRET));
+    assert((block->bbJumpKind == BBJ_EHFILTERRET) || (block->bbJumpKind == BBJ_EHFINALLYRET));
 
     if (retfilt->TypeIs(TYP_VOID))
     {
@@ -5616,8 +5598,7 @@ void CodeGen::genRetFilt(GenTree* retfilt)
 
     assert(retfilt->TypeIs(TYP_INT));
 
-    GenTree*  src    = retfilt->AsUnOp()->GetOp(0);
-    regNumber srcReg = genConsumeReg(src);
+    regNumber srcReg = UseReg(retfilt->AsUnOp()->GetOp(0));
 
     GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_INTRET, srcReg, /* canSkip */ true);
 }
@@ -5659,14 +5640,14 @@ void CodeGen::genLongReturn(GenTree* src)
 
 #endif // !TARGET_64BIT
 
-void CodeGen::genReturn(GenTree* ret)
+void CodeGen::GenReturn(GenTree* ret, BasicBlock* block)
 {
     assert(ret->OperIs(GT_RETURN));
 
     // Normally RETURN nodes appears at the end of RETURN blocks but sometimes the frontend fails
     // to properly cleanup after an unconditional throw and we end up with a THROW block having an
     // unreachable RETURN node at the end.
-    assert((compiler->compCurBB->bbJumpKind == BBJ_RETURN) || (compiler->compCurBB->bbJumpKind == BBJ_THROW));
+    assert((block->bbJumpKind == BBJ_RETURN) || (block->bbJumpKind == BBJ_THROW));
 #if defined(FEATURE_EH_FUNCLETS)
     assert(compiler->funCurrentFunc()->funKind == FUNC_ROOT);
 #endif
@@ -5740,7 +5721,7 @@ void CodeGen::genReturn(GenTree* ret)
     //
     // There should be a single return block while generating profiler ELT callbacks,
     // so we just look for that block to trigger insertion of the profile hook.
-    if ((compiler->compCurBB == compiler->genReturnBB) && compiler->compIsProfilerHookNeeded())
+    if ((block == compiler->genReturnBB) && compiler->compIsProfilerHookNeeded())
     {
         genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_LEAVE);
     }

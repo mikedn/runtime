@@ -618,19 +618,14 @@ void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
     GetEmitter()->emitIns_R_ARX(INS_ldr, EA_4BYTE, REG_PC, baseReg, idxReg, TARGET_POINTER_SIZE, 0);
 }
 
-//------------------------------------------------------------------------
-// genJumpTable: emits the table and an instruction to get the address of the first element
-//
-void CodeGen::genJumpTable(GenTree* treeNode)
+void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
 {
-    noway_assert(compiler->compCurBB->bbJumpKind == BBJ_SWITCH);
-    assert(treeNode->OperGet() == GT_JMPTABLE);
+    assert(switchBlock->bbJumpKind == BBJ_SWITCH);
+    assert(node->OperIs(GT_JMPTABLE));
 
-    unsigned     jumpCount = compiler->compCurBB->bbJumpSwt->bbsCount;
-    BasicBlock** jumpTable = compiler->compCurBB->bbJumpSwt->bbsDstTab;
-    unsigned     jmpTabBase;
-
-    jmpTabBase = GetEmitter()->emitBBTableDataGenBeg(jumpCount, false);
+    unsigned     jumpCount  = switchBlock->bbJumpSwt->bbsCount;
+    BasicBlock** jumpTable  = switchBlock->bbJumpSwt->bbsDstTab;
+    unsigned     jmpTabBase = GetEmitter()->emitBBTableDataGenBeg(jumpCount, false);
 
     JITDUMP("\n      J_M%03u_DS%02u LABEL   DWORD\n", compiler->compMethodID, jmpTabBase);
 
@@ -646,9 +641,8 @@ void CodeGen::genJumpTable(GenTree* treeNode)
 
     GetEmitter()->emitDataGenEnd();
 
-    genMov32RelocatableDataLabel(jmpTabBase, treeNode->GetRegNum());
-
-    genProduceReg(treeNode);
+    genMov32RelocatableDataLabel(jmpTabBase, node->GetRegNum());
+    DefReg(node);
 }
 
 instruction CodeGen::genGetInsForOper(genTreeOps oper)

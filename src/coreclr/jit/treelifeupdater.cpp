@@ -221,7 +221,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             // case we keep vars live everywhere, OR the variable is address-exposed,
             // OR this block is part of a try block, in which case it may be live at the handler
             // Could add a check that, if it's in newLife, that it's also in
-            // fgGetHandlerLiveVars(compCurBB), but seems excessive
+            // fgGetHandlerLiveVars(codeGen->m_currentBlock), but seems excessive
             //
             // For a dead store, it can be the case that we set both isBorn and isDying to true.
             // (We don't eliminate dead stores under MinOpts, so we can't assume they're always

@@ -2455,20 +2455,14 @@ void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
     GetEmitter()->emitIns_R(INS_br, emitActualTypeSize(TYP_I_IMPL), baseReg);
 }
 
-// emits the table and an instruction to get the address of the first element
-void CodeGen::genJumpTable(GenTree* treeNode)
+void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
 {
-    noway_assert(compiler->compCurBB->bbJumpKind == BBJ_SWITCH);
-    assert(treeNode->OperGet() == GT_JMPTABLE);
+    assert(switchBlock->bbJumpKind == BBJ_SWITCH);
+    assert(node->OperIs(GT_JMPTABLE));
 
-    unsigned     jumpCount = compiler->compCurBB->bbJumpSwt->bbsCount;
-    BasicBlock** jumpTable = compiler->compCurBB->bbJumpSwt->bbsDstTab;
-    unsigned     jmpTabOffs;
-    unsigned     jmpTabBase;
-
-    jmpTabBase = GetEmitter()->emitBBTableDataGenBeg(jumpCount, true);
-
-    jmpTabOffs = 0;
+    unsigned     jumpCount  = switchBlock->bbJumpSwt->bbsCount;
+    BasicBlock** jumpTable  = switchBlock->bbJumpSwt->bbsDstTab;
+    unsigned     jmpTabBase = GetEmitter()->emitBBTableDataGenBeg(jumpCount, true);
 
     JITDUMP("\n      J_M%03u_DS%02u LABEL   DWORD\n", compiler->compMethodID, jmpTabBase);
 
@@ -2487,9 +2481,8 @@ void CodeGen::genJumpTable(GenTree* treeNode)
     // Access to inline data is 'abstracted' by a special type of static member
     // (produced by eeFindJitDataOffs) which the emitter recognizes as being a reference
     // to constant data, not a real static field.
-    GetEmitter()->emitIns_R_C(INS_adr, emitActualTypeSize(TYP_I_IMPL), treeNode->GetRegNum(), REG_NA,
-                              compiler->eeFindJitDataOffs(jmpTabBase));
-    genProduceReg(treeNode);
+    GetEmitter()->emitIns_R_C(INS_adr, EA_PTRSIZE, node->GetRegNum(), REG_NA, compiler->eeFindJitDataOffs(jmpTabBase));
+    DefReg(node);
 }
 
 //------------------------------------------------------------------------
@@ -3149,8 +3142,7 @@ void CodeGen::genCodeForCompare(GenTreeOp* tree)
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForJumpCompare: Generates code for jmpCompare statement.
+// Generates code for JCMP node.
 //
 // A GT_JCMP node is created when a comparison and conditional branch
 // can be executed in a single instruction.
@@ -3177,20 +3169,14 @@ void CodeGen::genCodeForCompare(GenTreeOp* tree)
 //    GTF_JCMP_TST -- Set if this is a tbz/tbnz rather than cbz/cbnz
 //    GTF_JCMP_EQ  -- Set if this is cbz/tbz rather than cbnz/tbnz
 //
-// Arguments:
-//    tree - The GT_JCMP tree node.
-//
-// Return Value:
-//    None
-//
-void CodeGen::genCodeForJumpCompare(GenTreeOp* tree)
+void CodeGen::GenJCmp(GenTreeOp* tree, BasicBlock* block)
 {
-    assert(compiler->compCurBB->bbJumpKind == BBJ_COND);
+    assert(tree->OperIs(GT_JCMP));
+    assert(block->bbJumpKind == BBJ_COND);
 
     GenTree* op1 = tree->gtGetOp1();
     GenTree* op2 = tree->gtGetOp2();
 
-    assert(tree->OperIs(GT_JCMP));
     assert(!varTypeIsFloating(tree));
     assert(!op1->isUsedFromMemory());
     assert(!op2->isUsedFromMemory());
@@ -3209,7 +3195,7 @@ void CodeGen::genCodeForJumpCompare(GenTreeOp* tree)
 
         instruction ins = (tree->gtFlags & GTF_JCMP_EQ) ? INS_tbz : INS_tbnz;
 
-        GetEmitter()->emitIns_J_R_I(ins, attr, compiler->compCurBB->bbJumpDest, reg, static_cast<int>(imm));
+        GetEmitter()->emitIns_J_R_I(ins, attr, block->bbJumpDest, reg, static_cast<int>(imm));
     }
     else
     {
@@ -3217,7 +3203,7 @@ void CodeGen::genCodeForJumpCompare(GenTreeOp* tree)
 
         instruction ins = (tree->gtFlags & GTF_JCMP_EQ) ? INS_cbz : INS_cbnz;
 
-        GetEmitter()->emitIns_J_R(ins, attr, compiler->compCurBB->bbJumpDest, reg);
+        GetEmitter()->emitIns_J_R(ins, attr, block->bbJumpDest, reg);
     }
 }
 

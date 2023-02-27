@@ -1487,13 +1487,7 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     genDefineTempLabel(skipLabel);
 }
 
-/*****************************************************************************
- *
- * Generate code for a single node in the tree.
- * Preconditions: All operands have been evaluated
- *
- */
-void CodeGen::genCodeForTreeNode(GenTree* treeNode)
+void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 {
     emitter* emit = GetEmitter();
 
@@ -1662,11 +1656,11 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_RETFILT:
-            genRetFilt(treeNode);
+            GenRetFilt(treeNode, block);
             break;
 
         case GT_RETURN:
-            genReturn(treeNode);
+            GenReturn(treeNode, block);
             break;
 
         case GT_LEA:
@@ -1728,11 +1722,11 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_JTRUE:
-            genCodeForJumpTrue(treeNode->AsOp());
+            GenJTrue(treeNode->AsUnOp(), block);
             break;
 
         case GT_JCC:
-            genCodeForJcc(treeNode->AsCC());
+            GenJCC(treeNode->AsCC(), block);
             break;
 
         case GT_SETCC:
@@ -1835,7 +1829,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_CATCH_ARG:
-            noway_assert(handlerGetsXcptnObj(compiler->compCurBB->bbCatchTyp));
+            noway_assert(handlerGetsXcptnObj(block->bbCatchTyp));
             // Catch arguments get passed in a register. genCodeForBBlist()
             // would have marked it as holding a GC object, but not used.
             noway_assert((liveness.GetGCRegs(TYP_REF) & RBM_EXCEPTION_OBJECT) != RBM_NONE);
@@ -1889,7 +1883,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_JMPTABLE:
-            genJumpTable(treeNode);
+            GenJmpTable(treeNode, block);
             break;
 
         case GT_SWITCH_TABLE:
@@ -3444,20 +3438,14 @@ void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
     GetEmitter()->emitIns_R(INS_i_jmp, emitTypeSize(TYP_I_IMPL), baseReg);
 }
 
-// emits the table and an instruction to get the address of the first element
-void CodeGen::genJumpTable(GenTree* treeNode)
+void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
 {
-    noway_assert(compiler->compCurBB->bbJumpKind == BBJ_SWITCH);
-    assert(treeNode->OperGet() == GT_JMPTABLE);
+    assert(switchBlock->bbJumpKind == BBJ_SWITCH);
+    assert(node->OperIs(GT_JMPTABLE));
 
-    unsigned     jumpCount = compiler->compCurBB->bbJumpSwt->bbsCount;
-    BasicBlock** jumpTable = compiler->compCurBB->bbJumpSwt->bbsDstTab;
-    unsigned     jmpTabOffs;
-    unsigned     jmpTabBase;
-
-    jmpTabBase = GetEmitter()->emitBBTableDataGenBeg(jumpCount, true);
-
-    jmpTabOffs = 0;
+    unsigned     jumpCount  = switchBlock->bbJumpSwt->bbsCount;
+    BasicBlock** jumpTable  = switchBlock->bbJumpSwt->bbsDstTab;
+    unsigned     jmpTabBase = GetEmitter()->emitBBTableDataGenBeg(jumpCount, true);
 
     JITDUMP("\n      J_M%03u_DS%02u LABEL   DWORD\n", compiler->compMethodID, jmpTabBase);
 
@@ -3476,9 +3464,8 @@ void CodeGen::genJumpTable(GenTree* treeNode)
     // Access to inline shift is 'abstracted' by a special type of static member
     // (produced by eeFindJitDataOffs) which the emitter recognizes as being a reference
     // to constant shift, not a real static field.
-    GetEmitter()->emitIns_R_C(INS_lea, emitTypeSize(TYP_I_IMPL), treeNode->GetRegNum(),
-                              compiler->eeFindJitDataOffs(jmpTabBase));
-    genProduceReg(treeNode);
+    GetEmitter()->emitIns_R_C(INS_lea, EA_PTRSIZE, node->GetRegNum(), compiler->eeFindJitDataOffs(jmpTabBase));
+    DefReg(node);
 }
 
 //------------------------------------------------------------------------
