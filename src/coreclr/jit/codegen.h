@@ -38,6 +38,11 @@ class CodeGen final : public CodeGenInterface
 public:
     CodeGen(Compiler* compiler);
 
+    BasicBlock* GetCurrentBlock() const
+    {
+        return m_currentBlock;
+    }
+
     virtual void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
 
     void genAllocateRegisters();

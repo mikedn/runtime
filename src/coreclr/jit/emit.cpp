@@ -21,8 +21,29 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "gcinfotypes.h"
 
 emitter::emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo)
-    : emitComp(compiler), gcInfo(compiler), codeGen(codeGen), emitCmpHandle(jitInfo)
+    : emitComp(compiler)
+    , gcInfo(compiler)
+    , codeGen(codeGen)
+    , emitCmpHandle(jitInfo)
+#ifdef DEBUG
+    , keepLongJumps(JitConfig.JitLongAddress() != 0)
+#endif
 {
+}
+
+BasicBlock* emitter::GetCurrentBlock() const
+{
+    return codeGen->GetCurrentBlock();
+}
+
+bool emitter::InDifferentRegions(BasicBlock* block1, BasicBlock* block2) const
+{
+    return emitComp->fgInDifferentRegions(block1, block2);
+}
+
+bool emitter::IsColdBlock(BasicBlock* block) const
+{
+    return emitComp->fgIsBlockCold(block);
 }
 
 /*****************************************************************************
@@ -865,35 +886,17 @@ void emitter::perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacter
     pResult->insLatency    = PERFSCORE_LATENCY_1C;
 }
 
-#endif // defined(DEBUG) || defined(LATE_DISASM)
-
-//----------------------------------------------------------------------------------------
-// getCurrentBlockWeight: Return the block weight for the currently active block
-//
-// Arguments:
-//    None
-//
-// Return Value:
-//    The block weight for the current block
-//
-// Notes:
-//    The current block is recorded in emitComp->compCurBB by
-//    CodeGen::genCodeForBBlist() as it walks the blocks.
-//    When we are in the prolog/epilog this value is nullptr.
-//
 BasicBlock::weight_t emitter::getCurrentBlockWeight()
 {
-    // If we have a non-null compCurBB, then use it to get the current block weight
-    if (emitComp->compCurBB != nullptr)
-    {
-        return emitComp->compCurBB->getBBWeight(emitComp);
-    }
-    else // we have a null compCurBB
+    if (GetCurrentBlock() == nullptr)
     {
         // prolog or epilog case, so just use the standard weight
         return BB_UNITY_WEIGHT;
     }
+
+    return GetCurrentBlock()->getBBWeight(emitComp);
 }
+#endif // defined(DEBUG) || defined(LATE_DISASM)
 
 void emitter::dispIns(instrDesc* id)
 {
@@ -1088,12 +1091,12 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
     emitCurIGinsCnt++;
 
 #ifdef DEBUG
-    if (emitComp->compCurBB != emitCurIG->lastGeneratedBlock)
+    if (emitCurIG->lastGeneratedBlock != GetCurrentBlock())
     {
-        emitCurIG->igBlocks.push_back(emitComp->compCurBB);
-        emitCurIG->lastGeneratedBlock = emitComp->compCurBB;
+        emitCurIG->lastGeneratedBlock = GetCurrentBlock();
+        emitCurIG->igBlocks.push_back(emitCurIG->lastGeneratedBlock);
     }
-#endif // DEBUG
+#endif
 
     return id;
 }

@@ -4162,43 +4162,23 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     id->idInsFmt(fmt);
     id->idInsSize(isz);
 
-#ifdef DEBUG
-    // Mark the finally call
-    if (ins == INS_b && emitComp->compCurBB->bbJumpKind == BBJ_CALLFINALLY)
-    {
-        id->idDebugOnlyInfo()->idFinallyCall = true;
-    }
-#endif // DEBUG
+    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
+                (ins == INS_b) && (GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
 
-    /* Assume the jump will be long */
-
-    id->idjShort = 0;
-    if (dst != NULL)
+    if (dst != nullptr)
     {
         id->idAddr()->iiaBBlabel = dst;
-        id->idjKeepLong          = emitComp->fgInDifferentRegions(emitComp->compCurBB, dst);
-
-#ifdef DEBUG
-        if (emitComp->opts.compLongAddress) // Force long branches
-            id->idjKeepLong = 1;
-#endif // DEBUG
+        id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst) INDEBUG(|| keepLongJumps);
     }
     else
     {
         id->idAddr()->iiaSetInstrCount(instrCount);
-        id->idjKeepLong = false;
-        /* This jump must be short */
         emitSetShortJump(id);
         id->idSetIsBound();
     }
 
-    /* Record the jump's IG and offset within it */
-
-    id->idjIG   = emitCurIG;
-    id->idjOffs = emitCurIGsize;
-
-    /* Append this jump to this IG's jump list */
-
+    id->idjIG        = emitCurIG;
+    id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 
@@ -4280,18 +4260,9 @@ void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNu
     id->idReg1(reg);
     id->idInsFmt(IF_T2_N1);
     id->idInsSize(emitInsSize(IF_T2_N1));
-
-#ifdef DEBUG
-    // Mark the catch return
-    if (emitComp->compCurBB->bbJumpKind == BBJ_EHCATCHRET)
-    {
-        id->idDebugOnlyInfo()->idCatchRet = true;
-    }
-#endif // DEBUG
-
     id->idAddr()->iiaBBlabel = dst;
+    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
-    id->idjShort     = false;
     id->idjKeepLong  = true;
     id->idjIG        = emitCurIG;
     id->idjOffs      = emitCurIGsize;

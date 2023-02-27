@@ -7662,25 +7662,13 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
         id->idReg2(addrReg); // integer register to compute long address (used for vector dest when we end up with long
                              // address)
     }
-    id->idjShort = false; // Assume loading constant from long address
 
-    // Keep it long if it's in cold code.
-    id->idjKeepLong = emitComp->fgIsBlockCold(emitComp->compCurBB);
+    id->idjKeepLong = IsColdBlock(GetCurrentBlock()) INDEBUG(|| keepLongJumps);
 
-#ifdef DEBUG
-    if (emitComp->opts.compLongAddress)
-        id->idjKeepLong = 1;
-#endif // DEBUG
-
-    // If it's possible to be shortened, then put it in jump list
-    // to be revisited by emitJumpDistBind.
     if (!id->idjKeepLong)
     {
-        /* Record the jump's IG and offset within it */
-        id->idjIG   = emitCurIG;
-        id->idjOffs = emitCurIGsize;
-
-        /* Append this jump to this IG's jump list */
+        id->idjIG        = emitCurIG;
+        id->idjOffs      = emitCurIGsize;
         id->idjNext      = emitCurIGjmpList;
         emitCurIGjmpList = id;
 
@@ -7804,57 +7792,22 @@ void emitter::emitSetShortJump(instrDescJmp* id)
     id->idjShort = true;
 }
 
-/*****************************************************************************
- *
- *  Add a label instruction.
- */
-
 void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg)
 {
-    assert(dst->bbFlags & BBF_HAS_LABEL);
-
-    insFormat fmt = IF_NONE;
-
-    switch (ins)
-    {
-        case INS_adr:
-            fmt = IF_LARGEADR;
-            break;
-        default:
-            unreached();
-    }
+    assert(ins == INS_adr);
+    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
-
     id->idIns(ins);
-    id->idInsFmt(fmt);
-    id->idjShort             = false;
-    id->idAddr()->iiaBBlabel = dst;
-    id->idReg1(reg);
+    id->idInsFmt(IF_LARGEADR);
     id->idOpSize(EA_PTRSIZE);
+    id->idReg1(reg);
+    id->idAddr()->iiaBBlabel = dst;
+    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
-#ifdef DEBUG
-    // Mark the catch return
-    if (emitComp->compCurBB->bbJumpKind == BBJ_EHCATCHRET)
-    {
-        id->idDebugOnlyInfo()->idCatchRet = true;
-    }
-#endif // DEBUG
-
-    id->idjKeepLong = emitComp->fgInDifferentRegions(emitComp->compCurBB, dst);
-
-#ifdef DEBUG
-    if (emitComp->opts.compLongAddress)
-        id->idjKeepLong = 1;
-#endif // DEBUG
-
-    /* Record the jump's IG and offset within it */
-
-    id->idjIG   = emitCurIG;
-    id->idjOffs = emitCurIGsize;
-
-    /* Append this jump to this IG's jump list */
-
+    id->idjKeepLong  = InDifferentRegions(GetCurrentBlock(), dst) INDEBUG(|| keepLongJumps);
+    id->idjIG        = emitCurIG;
+    id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 
@@ -7869,30 +7822,20 @@ void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNu
 void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg)
 {
     assert((ins == INS_cbz) || (ins == INS_cbnz));
-
     assert(dst != nullptr);
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
-
-    insFormat fmt = IF_LARGEJMP;
 
     instrDescJmp* id = emitNewInstrJmp();
 
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(IF_LARGEJMP);
     id->idReg1(reg);
-    id->idjShort = false;
     id->idOpSize(EA_SIZE(attr));
-
     id->idAddr()->iiaBBlabel = dst;
-    id->idjKeepLong          = emitComp->fgInDifferentRegions(emitComp->compCurBB, dst);
 
-    /* Record the jump's IG and offset within it */
-
-    id->idjIG   = emitCurIG;
-    id->idjOffs = emitCurIGsize;
-
-    /* Append this jump to this IG's jump list */
-
+    id->idjKeepLong  = InDifferentRegions(GetCurrentBlock(), dst);
+    id->idjIG        = emitCurIG;
+    id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 
@@ -7907,33 +7850,23 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNu
 void emitter::emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg, int imm)
 {
     assert((ins == INS_tbz) || (ins == INS_tbnz));
-
     assert(dst != nullptr);
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
     assert((EA_SIZE(attr) == EA_4BYTE) || (EA_SIZE(attr) == EA_8BYTE));
     assert(imm < ((EA_SIZE(attr) == EA_4BYTE) ? 32 : 64));
 
-    insFormat fmt = IF_LARGEJMP;
-
     instrDescJmp* id = emitNewInstrJmp();
 
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(IF_LARGEJMP);
     id->idReg1(reg);
-    id->idjShort = false;
     id->idSmallCns(imm);
     id->idOpSize(EA_SIZE(attr));
-
     id->idAddr()->iiaBBlabel = dst;
-    id->idjKeepLong          = emitComp->fgInDifferentRegions(emitComp->compCurBB, dst);
 
-    /* Record the jump's IG and offset within it */
-
-    id->idjIG   = emitCurIG;
-    id->idjOffs = emitCurIGsize;
-
-    /* Append this jump to this IG's jump list */
-
+    id->idjKeepLong  = InDifferentRegions(GetCurrentBlock(), dst);
+    id->idjIG        = emitCurIG;
+    id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 
@@ -7997,15 +7930,10 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
 
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idjShort = idjShort;
+    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
+                (ins == INS_bl_local) && (GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
 
-#ifdef DEBUG
-    // Mark the finally call
-    if (ins == INS_bl_local && emitComp->compCurBB->bbJumpKind == BBJ_CALLFINALLY)
-    {
-        id->idDebugOnlyInfo()->idFinallyCall = true;
-    }
-#endif // DEBUG
+    id->idjShort = idjShort;
 
     if (dst != nullptr)
     {
@@ -8016,12 +7944,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
         // The target needs to be relocated.
         if (!idjShort)
         {
-            id->idjKeepLong = emitComp->fgInDifferentRegions(emitComp->compCurBB, dst);
-
-#ifdef DEBUG
-            if (emitComp->opts.compLongAddress) // Force long branches
-                id->idjKeepLong = 1;
-#endif // DEBUG
+            id->idjKeepLong = InDifferentRegions(GetCurrentBlock(), dst) INDEBUG(|| keepLongJumps);
         }
     }
     else

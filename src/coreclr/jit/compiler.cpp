@@ -1399,8 +1399,7 @@ void Compiler::compInitConfigOptions()
             codeGen->setVerbose();
         }
 
-        opts.compLongAddress = cfg.JitLongAddress() != 0;
-        opts.optRepeat       = cfg.JitOptRepeat().contains(methodName, className, methodParams);
+        opts.optRepeat = cfg.JitOptRepeat().contains(methodName, className, methodParams);
     }
 
     if (verbose ||
