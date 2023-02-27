@@ -186,22 +186,14 @@ public:
 
     BasicBlock* GetLoopMemoryBlock(GenTree* node)
     {
-        BasicBlock* block = nullptr;
-        return GetNodeToLoopMemoryBlockMap()->Lookup(node, &block) ? block : nullptr;
+        BasicBlock* block;
+        return (m_nodeToLoopMemoryBlockMap != nullptr) && m_nodeToLoopMemoryBlockMap->Lookup(node, &block) ? block
+                                                                                                           : nullptr;
     }
 
     void CopyLoopMemoryDependence(GenTree* fromNode, GenTree* toNode);
 
 private:
-    NodeToLoopMemoryBlockMap* GetNodeToLoopMemoryBlockMap()
-    {
-        if (m_nodeToLoopMemoryBlockMap == nullptr)
-        {
-            m_nodeToLoopMemoryBlockMap = new (m_alloc) NodeToLoopMemoryBlockMap(m_alloc);
-        }
-        return m_nodeToLoopMemoryBlockMap;
-    }
-
     void RecordLoopMemoryDependence(GenTree* tree, BasicBlock* block, ValueNum memoryVN);
 
     // TODO-Cleanup: should transform "attribs" into a struct with bit fields.  That would be simpler...

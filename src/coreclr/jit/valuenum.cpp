@@ -2480,10 +2480,13 @@ void ValueNumStore::RecordLoopMemoryDependence(GenTree* node, BasicBlock* block,
 
     // If we already have a recorded a loop entry block for this tree,
     // see if the new update is for a more closely nested loop.
-    NodeToLoopMemoryBlockMap* const map      = GetNodeToLoopMemoryBlockMap();
-    BasicBlock*                     mapBlock = nullptr;
+    BasicBlock* mapBlock = nullptr;
 
-    if (map->Lookup(node, &mapBlock))
+    if (m_nodeToLoopMemoryBlockMap == nullptr)
+    {
+        m_nodeToLoopMemoryBlockMap = new (m_alloc) NodeToLoopMemoryBlockMap(m_alloc);
+    }
+    else if (m_nodeToLoopMemoryBlockMap->Lookup(node, &mapBlock))
     {
         unsigned const mapLoopNum = mapBlock->bbNatLoopNum;
 
@@ -2499,21 +2502,18 @@ void ValueNumStore::RecordLoopMemoryDependence(GenTree* node, BasicBlock* block,
         }
     }
 
-    // MemoryVN now describes the most constraining loop memory dependence
-    // we know of. Update the map.
+    // MemoryVN now describes the most constraining loop memory dependence we know of. Update the map.
     JITDUMP("      ==> Updating loop memory dependence of [%06u] to " FMT_LP "\n", node->GetID(), updateLoopNum);
-    map->Set(node, loopTable[updateLoopNum].lpEntry, NodeToLoopMemoryBlockMap::Overwrite);
+    m_nodeToLoopMemoryBlockMap->Set(node, loopTable[updateLoopNum].lpEntry, NodeToLoopMemoryBlockMap::Overwrite);
 }
 
 // Record that tree's loop memory dependence is the same as some other tree.
 void ValueNumStore::CopyLoopMemoryDependence(GenTree* fromNode, GenTree* toNode)
 {
-    NodeToLoopMemoryBlockMap* const map      = GetNodeToLoopMemoryBlockMap();
-    BasicBlock*                     mapBlock = nullptr;
-
-    if (map->Lookup(fromNode, &mapBlock))
+    BasicBlock* block;
+    if ((m_nodeToLoopMemoryBlockMap != nullptr) && m_nodeToLoopMemoryBlockMap->Lookup(fromNode, &block))
     {
-        map->Set(toNode, mapBlock);
+        m_nodeToLoopMemoryBlockMap->Set(toNode, block);
     }
 }
 
