@@ -145,7 +145,7 @@ private:
     void InsertPInvokeCallProlog(GenTreeCall* call);
     void InsertPInvokeCallEpilog(GenTreeCall* call);
     void InsertPInvokeMethodProlog();
-    void InsertPInvokeMethodEpilog(BasicBlock* returnBB DEBUGARG(GenTree* lastExpr));
+    void InsertPInvokeMethodEpilog(INDEBUG(GenTree* lastExpr));
     void InsertSetGCState(GenTree* before, int cns);
     void InsertReturnTrap(GenTree* before);
     enum FrameLinkAction

@@ -1486,14 +1486,14 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     // new basic blocks for range check failure, which have higher block
     // numbers than the loop header block number.
     //
-    // assert(comp->compCurBB->HasGCSafePoint() ||
-    //        !comp->fgReachWithoutCall(comp->fgFirstBB, comp->compCurBB) || comp->GetInterruptible());
+    // assert(m_block->HasGCSafePoint() ||
+    //        !comp->fgReachWithoutCall(comp->fgFirstBB, m_block) || comp->GetInterruptible());
 
     // If PInvokes are in-lined, we have to remember to execute PInvoke method epilog anywhere that
     // a method returns.  This is a case of caller method has both PInvokes and tail calls.
     if (comp->compMethodRequiresPInvokeFrame())
     {
-        InsertPInvokeMethodEpilog(comp->compCurBB DEBUGARG(call));
+        InsertPInvokeMethodEpilog(INDEBUG(call));
     }
 
     // Args for tail call are setup in incoming arg area.  The gc-ness of args of
@@ -1545,9 +1545,9 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         // this we insert GT_NO_OP as embedded stmt before GT_START_NONGC, if the method
         // has a single basic block and is not a GC-safe point.  The presence of a single
         // nop outside non-gc interruptible region will prevent gc starvation.
-        if ((comp->fgBBcount == 1) && !comp->compCurBB->HasGCSafePoint())
+        if ((comp->fgBBcount == 1) && !m_block->HasGCSafePoint())
         {
-            assert(comp->fgFirstBB == comp->compCurBB);
+            assert(comp->fgFirstBB == m_block);
             GenTree* noOp = new (comp, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
             BlockRange().InsertBefore(startNonGCNode, noOp);
         }
@@ -1979,7 +1979,7 @@ void Lowering::LowerJmpMethod(GenTree* jmp)
     // a method returns.
     if (comp->compMethodRequiresPInvokeFrame())
     {
-        InsertPInvokeMethodEpilog(comp->compCurBB DEBUGARG(jmp));
+        InsertPInvokeMethodEpilog(INDEBUG(jmp));
     }
 }
 
@@ -1995,9 +1995,9 @@ void Lowering::LowerReturn(GenTreeUnOp* ret)
     }
 
     // Method doing PInvokes has exactly one return block unless it has tail calls.
-    if (comp->compMethodRequiresPInvokeFrame() && (comp->compCurBB == comp->genReturnBB))
+    if (comp->compMethodRequiresPInvokeFrame() && (m_block == comp->genReturnBB))
     {
-        InsertPInvokeMethodEpilog(comp->compCurBB DEBUGARG(ret));
+        InsertPInvokeMethodEpilog(INDEBUG(ret));
     }
 
     if (!ret->TypeIs(TYP_VOID))
@@ -3076,9 +3076,8 @@ void Lowering::InsertPInvokeMethodProlog()
 // Return Value:
 //    Code tree to perform the action.
 //
-void Lowering::InsertPInvokeMethodEpilog(BasicBlock* returnBB DEBUGARG(GenTree* lastExpr))
+void Lowering::InsertPInvokeMethodEpilog(INDEBUG(GenTree* lastExpr))
 {
-    assert(returnBB != nullptr);
     assert(comp->info.compUnmanagedCallCountWithGCTransition);
 
     if (comp->opts.ShouldUsePInvokeHelpers())
@@ -3089,12 +3088,10 @@ void Lowering::InsertPInvokeMethodEpilog(BasicBlock* returnBB DEBUGARG(GenTree* 
     JITDUMP("======= Inserting PInvoke method epilog\n");
 
     // Method doing PInvoke calls has exactly one return block unless it has "jmp" or tail calls.
-    assert(((returnBB == comp->genReturnBB) && (returnBB->bbJumpKind == BBJ_RETURN)) || returnBB->EndsWithJmp(comp) ||
-           returnBB->EndsWithTailCall(comp));
+    assert(((m_block == comp->genReturnBB) && (m_block->bbJumpKind == BBJ_RETURN)) || m_block->EndsWithJmp(comp) ||
+           m_block->EndsWithTailCall(comp));
 
-    LIR::Range& returnBlockRange = LIR::AsRange(returnBB);
-
-    GenTree* insertionPoint = returnBlockRange.LastNode();
+    GenTree* insertionPoint = BlockRange().LastNode();
     assert(insertionPoint == lastExpr);
 
     // Note: PInvoke Method Epilog (PME) needs to be inserted just before GT_RETURN, GT_JMP or GT_CALL node in execution
@@ -3119,7 +3116,7 @@ void Lowering::InsertPInvokeMethodEpilog(BasicBlock* returnBB DEBUGARG(GenTree* 
     if (comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
 #endif // TARGET_64BIT
     {
-        InsertFrameLinkUpdate(returnBlockRange, insertionPoint, PopFrame);
+        InsertFrameLinkUpdate(BlockRange(), insertionPoint, PopFrame);
     }
 }
 
@@ -4637,7 +4634,8 @@ void Lowering::Run()
     // really need any lowering (they contain only calls to helpers with no args).
     for (BasicBlock* block : comp->Blocks())
     {
-        comp->compCurBB     = block;
+        comp->compCurBB = block;
+
         unsigned throwIndex = comp->bbThrowIndex(block);
 
         for (GenTree* node : LIR::AsRange(block))
@@ -4647,6 +4645,8 @@ void Lowering::Run()
                 boundsChk->SetThrowBlock(comp->fgGetThrowHelperBlock(boundsChk->GetThrowKind(), block, throwIndex));
             }
         }
+
+        assert(comp->compCurBB == block);
     }
 
     // If we have any PInvoke calls, insert the one-time prolog code. We'll inserted the epilog code in the
@@ -4677,7 +4677,8 @@ void Lowering::Run()
 #endif
 
         LowerBlock(block);
-    }
+        assert(comp->compCurBB == block);
+}
 
     if (comp->fgHasEH() || comp->compMethodRequiresPInvokeFrame() || comp->compIsProfilerHookNeeded() ||
         comp->compLocallocUsed
@@ -4900,15 +4901,8 @@ bool Lowering::CheckBlock(BasicBlock* block)
 }
 #endif // DEBUG
 
-//------------------------------------------------------------------------
-// Lowering::LowerBlock: Lower all the nodes in a BasicBlock
-//
-// Arguments:
-//   block    - the block to lower.
-//
 void Lowering::LowerBlock(BasicBlock* block)
 {
-    assert(block == comp->compCurBB); // compCurBB must already be set.
     assert(block->isEmpty() || block->IsLIR());
 
     m_block = block;
