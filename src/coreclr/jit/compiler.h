@@ -4601,33 +4601,6 @@ public:
     unsigned GetSsaDefNum(GenTreeLclVarCommon* lclNode);
     INDEBUG(void MoveSsaDefNum(GenTreeLclVarCommon* from, GenTreeLclVarCommon* to);)
 
-    // This map tracks nodes whose value numbers explicitly or implicitly depend on memory states.
-    // The map provides the entry block of the most closely enclosing loop that
-    // defines the memory region accessed when defining the nodes's VN.
-    //
-    // This information should be consulted when considering hoisting node out of a loop, as the VN
-    // for the node will only be valid within the indicated loop.
-    //
-    // It is not fine-grained enough to track memory dependence within loops, so cannot be used
-    // for more general code motion.
-    //
-    // If a node does not have an entry in the map we currently assume the VN is not memory dependent
-    // and so memory does not constrain hoisting.
-    //
-    typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, BasicBlock*> NodeToLoopMemoryBlockMap;
-    NodeToLoopMemoryBlockMap* m_nodeToLoopMemoryBlockMap = nullptr;
-    NodeToLoopMemoryBlockMap* GetNodeToLoopMemoryBlockMap()
-    {
-        if (m_nodeToLoopMemoryBlockMap == nullptr)
-        {
-            m_nodeToLoopMemoryBlockMap = new (getAllocator()) NodeToLoopMemoryBlockMap(getAllocator());
-        }
-        return m_nodeToLoopMemoryBlockMap;
-    }
-
-    void optRecordLoopMemoryDependence(GenTree* tree, BasicBlock* block, ValueNum memoryVN);
-    void optCopyLoopMemoryDependence(GenTree* fromTree, GenTree* toTree);
-
     // Performs SSA conversion.
     void fgSsaBuild();
 
@@ -5837,11 +5810,13 @@ protected:
     // unshared with any other loop.  Returns "true" iff the flowgraph has been modified
     bool optCanonicalizeLoop(unsigned loopInd);
 
+public:
     // Requires "l1" to be a valid loop table index, and not "BasicBlock::NOT_IN_LOOP".  Requires "l2" to be
     // a valid loop table index, or else "BasicBlock::NOT_IN_LOOP".  Returns true
     // iff "l2" is not NOT_IN_LOOP, and "l1" contains "l2".
     bool optLoopContains(unsigned l1, unsigned l2);
 
+private:
     // Updates the loop table by changing loop "loopInd", whose head is required
     // to be "from", to be "to".  Also performs this transformation for any
     // loop nested in "loopInd" that shares the same head as "loopInd".

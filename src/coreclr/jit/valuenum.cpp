@@ -2245,7 +2245,7 @@ TailCall:
         // select(store(m, i, v), i) == v
         if (storeIndexVN == indexVN)
         {
-            m_pComp->optRecordLoopMemoryDependence(m_currentNode, m_pComp->compCurBB, storeMapVN);
+            RecordLoopMemoryDependence(m_currentNode, m_pComp->compCurBB, storeMapVN);
             return funcApp.m_args[2];
         }
 
@@ -2417,6 +2417,104 @@ TailCall:
     }
 
     return res;
+}
+
+// Record that tree's value number is dependent on a particular memory VN.
+// Only tracks trees in loops, and memory updates in the same loop nest.
+// So this is a coarse-grained dependence that is only usable for hoisting
+// tree out of its enclosing loops.
+void ValueNumStore::RecordLoopMemoryDependence(GenTree* node, BasicBlock* block, ValueNum memoryVN)
+{
+    // If tree is not in a loop, we don't need to track its loop dependence.
+    unsigned const loopNum = block->bbNatLoopNum;
+
+    if (loopNum == BasicBlock::NOT_IN_LOOP)
+    {
+        return;
+    }
+
+    unsigned updateLoopNum = LoopOfVN(memoryVN);
+
+    if (updateLoopNum >= BasicBlock::MAX_LOOP_NUM)
+    {
+        // There should be only two special non-loop loop nums.
+        assert((updateLoopNum == BasicBlock::MAX_LOOP_NUM) || (updateLoopNum == BasicBlock::NOT_IN_LOOP));
+
+        // memoryVN defined outside of any loop, we can ignore.
+        JITDUMP("      ==> Not updating loop memory dependence of [%06u], memory " FMT_VN " not defined in a loop\n",
+                node->GetID(), memoryVN);
+        return;
+    }
+
+    Compiler::LoopDsc* loopTable = m_pComp->optLoopTable;
+
+    // If the loop was removed, then record the dependence in the nearest enclosing loop, if any.
+    while ((loopTable[updateLoopNum].lpFlags & LPFLG_REMOVED) != 0)
+    {
+        unsigned const updateParentLoopNum = loopTable[updateLoopNum].lpParent;
+
+        if (updateParentLoopNum == BasicBlock::NOT_IN_LOOP)
+        {
+            // Memory VN was defined in a loop, but no longer.
+            JITDUMP("      ==> Not updating loop memory dependence of [%06u], memory " FMT_VN
+                    " no longer defined in a loop\n",
+                    node->GetID(), memoryVN);
+            break;
+        }
+
+        JITDUMP("      ==> " FMT_LP " removed, updating dependence to parent " FMT_LP "\n", updateLoopNum,
+                updateParentLoopNum);
+
+        updateLoopNum = updateParentLoopNum;
+    }
+
+    // If the update block is not the the header of a loop containing
+    // block, we can also ignore the update.
+    if (!m_pComp->optLoopContains(updateLoopNum, loopNum))
+    {
+        JITDUMP("      ==> Not updating loop memory dependence of [%06u]/" FMT_LP ", memory " FMT_VN "/" FMT_LP
+                " is not defined in an enclosing loop\n",
+                node->GetID(), loopNum, memoryVN, updateLoopNum);
+        return;
+    }
+
+    // If we already have a recorded a loop entry block for this tree,
+    // see if the new update is for a more closely nested loop.
+    NodeToLoopMemoryBlockMap* const map      = GetNodeToLoopMemoryBlockMap();
+    BasicBlock*                     mapBlock = nullptr;
+
+    if (map->Lookup(node, &mapBlock))
+    {
+        unsigned const mapLoopNum = mapBlock->bbNatLoopNum;
+
+        // If the update loop contains the existing map loop,
+        // the existing map loop is more constraining.
+        // So no update needed.
+        if (m_pComp->optLoopContains(updateLoopNum, mapLoopNum))
+        {
+            JITDUMP("      ==> Not updating loop memory dependence of [%06u]; alrady constrained to " FMT_LP
+                    " nested in " FMT_LP "\n",
+                    node->GetID(), mapLoopNum, updateLoopNum);
+            return;
+        }
+    }
+
+    // MemoryVN now describes the most constraining loop memory dependence
+    // we know of. Update the map.
+    JITDUMP("      ==> Updating loop memory dependence of [%06u] to " FMT_LP "\n", node->GetID(), updateLoopNum);
+    map->Set(node, loopTable[updateLoopNum].lpEntry, NodeToLoopMemoryBlockMap::Overwrite);
+}
+
+// Record that tree's loop memory dependence is the same as some other tree.
+void ValueNumStore::CopyLoopMemoryDependence(GenTree* fromNode, GenTree* toNode)
+{
+    NodeToLoopMemoryBlockMap* const map      = GetNodeToLoopMemoryBlockMap();
+    BasicBlock*                     mapBlock = nullptr;
+
+    if (map->Lookup(fromNode, &mapBlock))
+    {
+        map->Set(toNode, mapBlock);
+    }
 }
 
 ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, ValueNum arg0VN)

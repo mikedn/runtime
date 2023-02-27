@@ -4934,7 +4934,7 @@ void Compiler::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
     GenTree* hoistExpr = gtCloneExpr(origExpr, GTF_MAKE_CSE);
 
     // Copy any loop memory dependence.
-    optCopyLoopMemoryDependence(origExpr, hoistExpr);
+    vnStore->CopyLoopMemoryDependence(origExpr, hoistExpr);
 
     // At this point we should have a cloned expression, marked with the GTF_MAKE_CSE flag
     assert(hoistExpr != origExpr);
@@ -5478,132 +5478,6 @@ bool Compiler::optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum)
 }
 
 //------------------------------------------------------------------------
-// optRecordLoopMemoryDependence: record that tree's value number
-//   is dependent on a particular memory VN
-//
-// Arguments:
-//   tree -- tree in question
-//   block -- block containing tree
-//   memoryVN -- VN for a "map" from a select operation encounterd
-//     while computing the tree's VN
-//
-// Notes:
-//   Only tracks trees in loops, and memory updates in the same loop nest.
-//   So this is a coarse-grained dependence that is only usable for
-//   hoisting tree out of its enclosing loops.
-//
-void Compiler::optRecordLoopMemoryDependence(GenTree* tree, BasicBlock* block, ValueNum memoryVN)
-{
-    // If tree is not in a loop, we don't need to track its loop dependence.
-    //
-    unsigned const loopNum = block->bbNatLoopNum;
-
-    if (loopNum == BasicBlock::NOT_IN_LOOP)
-    {
-        return;
-    }
-
-    // Find the loop associated with this memory VN.
-    //
-    unsigned updateLoopNum = vnStore->LoopOfVN(memoryVN);
-
-    if (updateLoopNum >= BasicBlock::MAX_LOOP_NUM)
-    {
-        // There should be only two special non-loop loop nums.
-        //
-        assert((updateLoopNum == BasicBlock::MAX_LOOP_NUM) || (updateLoopNum == BasicBlock::NOT_IN_LOOP));
-
-        // memoryVN defined outside of any loop, we can ignore.
-        //
-        JITDUMP("      ==> Not updating loop memory dependence of [%06u], memory " FMT_VN " not defined in a loop\n",
-                dspTreeID(tree), memoryVN);
-        return;
-    }
-
-    // If the loop was removed, then record the dependence in the nearest enclosing loop, if any.
-    //
-    while ((optLoopTable[updateLoopNum].lpFlags & LPFLG_REMOVED) != 0)
-    {
-        unsigned const updateParentLoopNum = optLoopTable[updateLoopNum].lpParent;
-
-        if (updateParentLoopNum == BasicBlock::NOT_IN_LOOP)
-        {
-            // Memory VN was defined in a loop, but no longer.
-            //
-            JITDUMP("      ==> Not updating loop memory dependence of [%06u], memory " FMT_VN
-                    " no longer defined in a loop\n",
-                    dspTreeID(tree), memoryVN);
-            break;
-        }
-
-        JITDUMP("      ==> " FMT_LP " removed, updating dependence to parent " FMT_LP "\n", updateLoopNum,
-                updateParentLoopNum);
-
-        updateLoopNum = updateParentLoopNum;
-    }
-
-    // If the update block is not the the header of a loop containing
-    // block, we can also ignore the update.
-    //
-    if (!optLoopContains(updateLoopNum, loopNum))
-    {
-        JITDUMP("      ==> Not updating loop memory dependence of [%06u]/" FMT_LP ", memory " FMT_VN "/" FMT_LP
-                " is not defined in an enclosing loop\n",
-                dspTreeID(tree), loopNum, memoryVN, updateLoopNum);
-        return;
-    }
-
-    // If we already have a recorded a loop entry block for this
-    // tree, see if the new update is for a more closely nested
-    // loop.
-    //
-    NodeToLoopMemoryBlockMap* const map      = GetNodeToLoopMemoryBlockMap();
-    BasicBlock*                     mapBlock = nullptr;
-
-    if (map->Lookup(tree, &mapBlock))
-    {
-        unsigned const mapLoopNum = mapBlock->bbNatLoopNum;
-
-        // If the update loop contains the existing map loop,
-        // the existing map loop is more constraining. So no
-        // update needed.
-        //
-        if (optLoopContains(updateLoopNum, mapLoopNum))
-        {
-            JITDUMP("      ==> Not updating loop memory dependence of [%06u]; alrady constrained to " FMT_LP
-                    " nested in " FMT_LP "\n",
-                    dspTreeID(tree), mapLoopNum, updateLoopNum);
-            return;
-        }
-    }
-
-    // MemoryVN now describes the most constraining loop memory dependence
-    // we know of. Update the map.
-    //
-    JITDUMP("      ==> Updating loop memory dependence of [%06u] to " FMT_LP "\n", dspTreeID(tree), updateLoopNum);
-    map->Set(tree, optLoopTable[updateLoopNum].lpEntry, NodeToLoopMemoryBlockMap::Overwrite);
-}
-
-//------------------------------------------------------------------------
-// optCopyLoopMemoryDependence: record that tree's loop memory dependence
-//   is the same as some other tree.
-//
-// Arguments:
-//   fromTree -- tree to copy dependence from
-//   toTree -- tree in question
-//
-void Compiler::optCopyLoopMemoryDependence(GenTree* fromTree, GenTree* toTree)
-{
-    NodeToLoopMemoryBlockMap* const map      = GetNodeToLoopMemoryBlockMap();
-    BasicBlock*                     mapBlock = nullptr;
-
-    if (map->Lookup(fromTree, &mapBlock))
-    {
-        map->Set(toTree, mapBlock);
-    }
-}
-
-//------------------------------------------------------------------------
 // optHoistLoopBlocks: Hoist invariant expression out of the loop.
 //
 // Arguments:
@@ -5699,11 +5573,10 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
                 return true;
             }
 
-            NodeToLoopMemoryBlockMap* const map            = m_compiler->GetNodeToLoopMemoryBlockMap();
-            BasicBlock*                     loopEntryBlock = nullptr;
-            if (map->Lookup(tree, &loopEntryBlock))
+            if (BasicBlock* loopEntryBlock = m_compiler->vnStore->GetLoopMemoryBlock(tree))
             {
                 ValueNum loopMemoryVN = m_compiler->GetMemoryPerSsaData(loopEntryBlock->bbMemorySsaNumIn)->m_vn;
+
                 if (!m_compiler->optVNIsLoopInvariant(loopMemoryVN, m_loopNum,
                                                       &m_hoistContext->m_curLoopVnInvariantCache))
                 {
