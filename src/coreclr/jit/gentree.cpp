@@ -11366,7 +11366,7 @@ INTEGRAL_OVF:
     assert(op1 != nullptr);
 
     op2 = op1;
-    op1 = gtNewHelperCallNode(CORINFO_HELP_OVERFLOW, TYP_VOID, gtNewCallArgs(gtNewIconNode(compCurBB->bbTryIndex)));
+    op1 = gtNewHelperCallNode(CORINFO_HELP_OVERFLOW, TYP_VOID);
 
     // op1 is a call to the JIT helper that throws an Overflow exception.
     // Attach the ExcSet for VNF_OverflowExc(Void) to this call.
