@@ -5417,10 +5417,10 @@ public:
         return !opts.compDbgCode;
     }
 
-    void inlReplaceRetExpr(Statement* stmt);
+    void inlReplaceRetExpr(BasicBlock* block, Statement* stmt);
     void inlFoldJTrue(BasicBlock* block);
-    bool inlInlineCall(Statement* stmt, GenTreeCall* call);
-    void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
+    bool inlInlineCall(BasicBlock* block, Statement* stmt, GenTreeCall* call);
+    void inlInvokeInlineeCompiler(BasicBlock* block, Statement* stmt, GenTreeCall* call, InlineResult* result);
     void inlMain();
     void inlImportInlinee();
     void inlCreateBasicBlocks();

@@ -60,7 +60,7 @@ PhaseStatus Compiler::fgInline()
 
         for (Statement* const stmt : block->Statements())
         {
-            inlReplaceRetExpr(stmt);
+            inlReplaceRetExpr(block, stmt);
 
             // The importer ensures that all inline candidates are statement roots.
             GenTree* expr = stmt->GetRootNode();
@@ -71,7 +71,7 @@ PhaseStatus Compiler::fgInline()
 
                 if (call->IsInlineCandidate())
                 {
-                    bool inlined = inlInlineCall(stmt, call);
+                    bool inlined = inlInlineCall(block, stmt, call);
 
                     if (inlined || (call->gtInlineCandidateInfo->retExprPlaceholder != nullptr))
                     {
@@ -87,6 +87,8 @@ PhaseStatus Compiler::fgInline()
                 stmt->SetRootNode(expr->AsOp()->GetOp(0));
             }
         }
+
+        assert(compCurBB == block);
 
         if ((block->bbJumpKind == BBJ_COND) && block->lastStmt()->GetRootNode()->AsUnOp()->GetOp(0)->IsIntCon())
         {
@@ -117,10 +119,12 @@ PhaseStatus Compiler::fgInline()
 
 class RetExprReplaceVisitor : public GenTreeVisitor<RetExprReplaceVisitor>
 {
-    Statement* m_stmt;
+    BasicBlock* m_block;
+    Statement*  m_stmt;
 
 public:
-    RetExprReplaceVisitor(Compiler* compiler, Statement* stmt) : GenTreeVisitor(compiler), m_stmt(stmt)
+    RetExprReplaceVisitor(Compiler* compiler, BasicBlock* block, Statement* stmt)
+        : GenTreeVisitor(compiler), m_block(block), m_stmt(stmt)
     {
     }
 
@@ -180,7 +184,7 @@ public:
                 value   = retExpr->GetRetExpr();
             }
 
-            m_compiler->compCurBB->bbFlags |= retExpr->GetRetBlockIRSummary();
+            m_block->bbFlags |= retExpr->GetRetBlockIRSummary();
 
             if (tree->TypeIs(TYP_BYREF) && !value->TypeIs(TYP_BYREF) && value->OperIs(GT_IND))
             {
@@ -323,7 +327,7 @@ public:
             // struct returns. We can always use a separate statement.
             GenTreeOp* comma   = tree->AsUnOp()->GetOp(0)->AsOp();
             Statement* newStmt = m_compiler->gtNewStmt(comma->GetOp(0), m_stmt->GetILOffsetX());
-            m_compiler->fgInsertStmtBefore(m_compiler->compCurBB, m_stmt, newStmt);
+            m_compiler->fgInsertStmtBefore(m_block, m_stmt, newStmt);
             GenTree* value = comma->GetOp(1);
             tree->AsUnOp()->SetOp(0, value);
             tree->SetSideEffects(value->GetSideEffects());
@@ -337,9 +341,9 @@ public:
     }
 };
 
-void Compiler::inlReplaceRetExpr(Statement* stmt)
+void Compiler::inlReplaceRetExpr(BasicBlock* block, Statement* stmt)
 {
-    RetExprReplaceVisitor visitor(this, stmt);
+    RetExprReplaceVisitor visitor(this, block, stmt);
 
     visitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
 }
@@ -408,7 +412,7 @@ void Compiler::inlDebugCheckInlineCandidates()
 
 #endif // DEBUG
 
-bool Compiler::inlInlineCall(Statement* stmt, GenTreeCall* call)
+bool Compiler::inlInlineCall(BasicBlock* block, Statement* stmt, GenTreeCall* call)
 {
     assert(call->IsInlineCandidate());
 
@@ -449,14 +453,14 @@ bool Compiler::inlInlineCall(Statement* stmt, GenTreeCall* call)
     // impMarkInlineCandidate is expected not to mark tail prefixed calls as inline candidates.
     noway_assert(!call->IsTailPrefixedCall());
 
-    JITDUMPTREE(call, "Expanding inline candidate " FMT_TREEID " in " FMT_BB ":\n%s", call->GetID(), compCurBB->bbNum,
+    JITDUMPTREE(call, "Expanding inline candidate " FMT_TREEID " in " FMT_BB ":\n%s", call->GetID(), block->bbNum,
                 call->IsImplicitTailCall() ? "Note: candidate is implicit tail call\n" : "");
 
     m_inlineStrategy->NoteAttempt(&result);
 
     unsigned initialLvaCount = lvaCount;
 
-    inlInvokeInlineeCompiler(stmt, call, &result);
+    inlInvokeInlineeCompiler(block, stmt, call, &result);
 
     assert(result.IsDecided());
 
@@ -691,12 +695,15 @@ void Compiler::inlMain()
 #endif
 }
 
-void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* inlineResult)
+void Compiler::inlInvokeInlineeCompiler(BasicBlock*   block,
+                                        Statement*    stmt,
+                                        GenTreeCall*  call,
+                                        InlineResult* inlineResult)
 {
     InlineInfo inlineInfo;
 
     inlineInfo.InlinerCompiler     = this;
-    inlineInfo.iciBlock            = compCurBB;
+    inlineInfo.iciBlock            = block;
     inlineInfo.iciStmt             = stmt;
     inlineInfo.iciCall             = call;
     inlineInfo.inlineCandidateInfo = call->GetInlineCandidateInfo();
@@ -1160,7 +1167,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
 
         if ((inlineInfo->retSpillTempLclNum == BAD_VAR_NUM) && (fgFirstBB->bbNext != nullptr))
         {
-            inlineInfo->retBlockIRSummary = compCurBB->bbFlags & BBF_IR_SUMMARY;
+            inlineInfo->retBlockIRSummary = importer.compCurBB->bbFlags & BBF_IR_SUMMARY;
         }
     }
 
