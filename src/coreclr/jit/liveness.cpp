@@ -370,6 +370,9 @@ void Compiler::fgPerBlockLocalVarLiveness()
             }
         }
 
+        noway_assert(compCurBB == block);
+        INDEBUG(compCurBB = nullptr);
+
         block->bbVarUse      = state.fgCurUseSet;
         block->bbVarDef      = state.fgCurDefSet;
         block->bbMemoryUse   = state.fgCurMemoryUse;
@@ -861,11 +864,11 @@ void Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_VALARG_TP keepAlive, B
         stmt     = prevStmt;
         prevStmt = stmt->GetPrevStmt();
 
-        fgComputeLifeStmt(life, keepAlive, stmt);
+        fgComputeLifeStmt(life, keepAlive, stmt, block);
     } while (stmt != firstStmt);
 }
 
-void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt)
+void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt, BasicBlock* block)
 {
     bool updateStmt = false;
     INDEBUG(bool modified = false;)
@@ -909,7 +912,7 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
 
                 if (isDeadStore)
                 {
-                    GenTree* nextNode = fgRemoveDeadStore(node->AsOp(), stmt);
+                    GenTree* nextNode = fgRemoveDeadStore(node->AsOp(), stmt, block);
 
                     if (nextNode == nullptr)
                     {
@@ -1224,7 +1227,7 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 }
 
 // Remove a dead assignment. Returns true if the entire statement was removed.
-GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode, Statement* stmt)
+GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode, Statement* stmt, BasicBlock* block)
 {
     assert(!compRationalIRForm);
     assert(asgNode->OperIs(GT_ASG));
@@ -1253,7 +1256,7 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode, Statement* stmt)
 
         if (sideEffects == nullptr)
         {
-            fgRemoveStmt(compCurBB, stmt DEBUGARG(false));
+            fgRemoveStmt(block, stmt DEBUGARG(false));
 
             return nullptr;
         }

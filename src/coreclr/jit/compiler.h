@@ -4563,10 +4563,10 @@ public:
                                     GenTreeLclVarCommon* node);
 
     void fgComputeLifeBlock(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
-    void fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt);
+    void fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt, BasicBlock* block);
     void fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
 
-    GenTree* fgRemoveDeadStore(GenTreeOp* asgNode, Statement* stmt);
+    GenTree* fgRemoveDeadStore(GenTreeOp* asgNode, Statement* stmt, BasicBlock* block);
 
     void fgInterBlockLocalVarLivenessUntracked();
     bool fgInterBlockLocalVarLiveness();
