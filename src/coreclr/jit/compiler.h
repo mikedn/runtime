@@ -7072,7 +7072,6 @@ public:
 #endif
 
     BasicBlock* compCurBB = nullptr; // the current basic block in process
-    GenTree*    compCurTree;         // the current tree in process
 
     EHblkDsc* compHndBBtab           = nullptr; // array of EH data
     unsigned  compHndBBtabCount      = 0;       // element count of used elements in EH data array

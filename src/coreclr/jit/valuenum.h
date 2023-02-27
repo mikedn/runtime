@@ -125,6 +125,9 @@ struct VNFuncApp
 
 class ValueNumStore
 {
+    Compiler*     m_pComp;
+    CompAllocator m_alloc;
+    GenTree*      m_currentNode = nullptr;
 
 public:
     // We will reserve "max unsigned" to represent "not a value number", for maps that might start uninitialized.
@@ -161,14 +164,13 @@ public:
         }
     };
 
+    void SetCurrentNode(GenTree* node)
+    {
+        m_currentNode = node;
+    }
+
 private:
-    Compiler* m_pComp;
-
-    // For allocations.  (Other things?)
-    CompAllocator m_alloc;
-
     // TODO-Cleanup: should transform "attribs" into a struct with bit fields.  That would be simpler...
-
     enum VNFOpAttrib
     {
         VNFOA_IllegalGenTreeOp = 0x1,  // corresponds to a genTreeOps value that is not a legal VN func.

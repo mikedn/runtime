@@ -2245,7 +2245,7 @@ TailCall:
         // select(store(m, i, v), i) == v
         if (storeIndexVN == indexVN)
         {
-            m_pComp->optRecordLoopMemoryDependence(m_pComp->compCurTree, m_pComp->compCurBB, storeMapVN);
+            m_pComp->optRecordLoopMemoryDependence(m_currentNode, m_pComp->compCurBB, storeMapVN);
             return funcApp.m_args[2];
         }
 
@@ -7583,13 +7583,13 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
         }
 #endif
 
-        for (GenTree* const tree : stmt->TreeList())
+        for (GenTree* node : stmt->Nodes())
         {
-            // Set up ambient var referring to current tree.
-            compCurTree = tree;
-            fgValueNumberTree(tree);
-            compCurTree = nullptr;
+            vnStore->SetCurrentNode(node);
+            fgValueNumberTree(node);
         }
+
+        vnStore->SetCurrentNode(nullptr);
 
 #ifdef DEBUG
         if (verbose)
