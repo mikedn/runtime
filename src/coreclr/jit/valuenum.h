@@ -127,7 +127,8 @@ class ValueNumStore
 {
     Compiler*     m_pComp;
     CompAllocator m_alloc;
-    GenTree*      m_currentNode = nullptr;
+    BasicBlock*   m_currentBlock = nullptr;
+    GenTree*      m_currentNode  = nullptr;
     // This map tracks nodes whose value numbers explicitly or implicitly depend on memory states.
     // The map provides the entry block of the most closely enclosing loop that
     // defines the memory region accessed when defining the nodes's VN.
@@ -178,6 +179,18 @@ public:
             return result;
         }
     };
+
+    void SetCurrentBlock(BasicBlock* block)
+    {
+        m_currentBlock = block;
+    }
+
+#ifdef DEBUG
+    BasicBlock* GetCurrentBlock() const
+    {
+        return m_currentBlock;
+    }
+#endif
 
     void SetCurrentNode(GenTree* node)
     {
@@ -611,6 +624,7 @@ public:
     // Get a new, unique value number for an expression that we're not equating to some function,
     // which is the value of a tree in the given block.
     ValueNum VNForExpr(BasicBlock* block, var_types typ);
+    ValueNum VNForExpr(var_types typ);
     ValueNum UniqueVN(var_types type);
 
     ValueNum VNForBitCast(ValueNum valueVN, var_types toType);

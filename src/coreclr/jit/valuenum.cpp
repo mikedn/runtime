@@ -2118,17 +2118,13 @@ ValueNum ValueNumStore::VNForFunc(
     return resultVN;
 }
 
-ValueNum ValueNumStore::VNForMapStore(var_types typ, ValueNum mapVN, ValueNum indexVN, ValueNum valueVN)
+ValueNum ValueNumStore::VNForMapStore(var_types type, ValueNum mapVN, ValueNum indexVN, ValueNum valueVN)
 {
-    assert(varTypeIsStruct(typ));
+    assert(varTypeIsStruct(type));
 
-    BasicBlock* const            bb      = m_pComp->compCurBB;
-    BasicBlock::loopNumber const loopNum = bb->bbNatLoopNum;
-    ValueNum const               result  = VNForFunc(typ, VNF_MapStore, mapVN, indexVN, valueVN, loopNum);
-
-    INDEBUG(m_pComp->vnTrace(result));
-
-    return result;
+    ValueNum vn = VNForFunc(type, VNF_MapStore, mapVN, indexVN, valueVN, m_currentBlock->bbNatLoopNum);
+    INDEBUG(m_pComp->vnTrace(vn));
+    return vn;
 }
 
 // This requires a "ValueNumKind" because it will attempt, given "select(phi(m1, ..., mk), ind)", to evaluate
@@ -2245,7 +2241,7 @@ TailCall:
         // select(store(m, i, v), i) == v
         if (storeIndexVN == indexVN)
         {
-            RecordLoopMemoryDependence(m_currentNode, m_pComp->compCurBB, storeMapVN);
+            RecordLoopMemoryDependence(m_currentNode, m_currentBlock, storeMapVN);
             return funcApp.m_args[2];
         }
 
@@ -3716,6 +3712,11 @@ ValueNum ValueNumStore::VNForExpr(BasicBlock* block, var_types typ)
     return resultVN;
 }
 
+ValueNum ValueNumStore::VNForExpr(var_types type)
+{
+    return VNForExpr(m_currentBlock, type);
+}
+
 ValueNum ValueNumStore::UniqueVN(var_types type)
 {
     return VNForExpr(nullptr, type);
@@ -4432,7 +4433,7 @@ ValueNum Compiler::vnCastStruct(ValueNumKind vnk, ValueNum valueVN, ClassLayout*
 
     if (valueVN == NoVN)
     {
-        valueVN = vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+        valueVN = vnStore->VNForExpr(TYP_STRUCT);
     }
 
     return valueVN;
@@ -4488,7 +4489,7 @@ ValueNum Compiler::vnCoerceStoreValue(
             else
             {
                 assert(value->OperIs(GT_INIT_VAL));
-                valueVN = vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+                valueVN = vnStore->VNForExpr(TYP_STRUCT);
             }
         }
     }
@@ -4506,7 +4507,7 @@ ValueNum Compiler::vnCoerceStoreValue(
     {
         // This store modifies only a part of the field, just store a new, unique value for now.
         // We could probably merge with the existing value but that's probably not worthwhile now.
-        return vnStore->VNForExpr(compCurBB, fieldType);
+        return vnStore->VNForExpr(fieldType);
     }
 
     // TODO-MIKE-Cleanup: This special casing is inherited from old code, it's probably not
@@ -4562,7 +4563,7 @@ ValueNum Compiler::vnCoerceStoreValue(
         }
         else
         {
-            valueVN = vnStore->VNForExpr(compCurBB, fieldType);
+            valueVN = vnStore->VNForExpr(fieldType);
         }
 
         INDEBUG(vnTrace(valueVN));
@@ -4596,12 +4597,12 @@ ValueNum Compiler::vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types 
             return valueVN;
         }
 
-        // TODO-MIKE-Fix: Using VNForExpr with compCurBB here and below is highly suspect.
+        // TODO-MIKE-Fix: Using VNForExpr with the current block here and below is highly suspect.
         // These are loads, one way or another they use memory that may have been defined
         // in a block different than the current one.
         // Also, as long as the load size is less or equal the field size the resulting
         // value depends solely on the loaded value and there's no need to use MemOpaque.
-        return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+        return vnStore->VNForExpr(TYP_STRUCT);
     }
 
     if (loadType == fieldType)
@@ -4620,7 +4621,7 @@ ValueNum Compiler::vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types 
     // TODO-MIKE-CQ: Check what other cases might be worth handling here (e.g. float/int,
     // long/double mismatches -> VNF_BitCast).
 
-    return vnStore->VNForExpr(compCurBB, varActualType(loadType));
+    return vnStore->VNForExpr(varActualType(loadType));
 }
 
 var_types Compiler::vnGetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout)
@@ -4809,7 +4810,7 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
         else
         {
             assert(value->OperIs(GT_INIT_VAL));
-            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, TYP_STRUCT));
+            valueVNP.SetBoth(vnStore->VNForExpr(TYP_STRUCT));
         }
     }
     else
@@ -4870,13 +4871,12 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
 
     if (!lcl->IsInSsa())
     {
-        load->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
+        load->gtVNPair.SetBoth(vnStore->VNForExpr(load->GetType()));
 
         return;
     }
 
     load->SetVNP(vnLocalLoad(load, lcl, load->GetSsaNum()));
-    ;
 }
 
 ValueNumPair Compiler::vnLocalLoad(GenTreeLclVar* load, LclVarDsc* lcl, unsigned ssaNum)
@@ -4898,7 +4898,7 @@ ValueNumPair Compiler::vnLocalLoad(GenTreeLclVar* load, LclVarDsc* lcl, unsigned
         else
         {
             printf("bad type %s %s\n", varTypeName(load->GetType()), varTypeName(lcl->GetType()));
-            vnp.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
+            vnp.SetBoth(vnStore->VNForExpr(load->GetType()));
         }
     }
 
@@ -4953,7 +4953,7 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
 
     if (!store->HasFieldSeq())
     {
-        valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
+        valueVNP.SetBoth(vnStore->VNForExpr(varActualType(lcl->GetType())));
     }
     else
     {
@@ -4977,7 +4977,7 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
 
         if (valueVNP.GetLiberal() == NoVN)
         {
-            valueVNP.SetLiberal(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
+            valueVNP.SetLiberal(vnStore->VNForExpr(varActualType(lcl->GetType())));
         }
 
         valueVNP.SetConservative(
@@ -4985,7 +4985,7 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
 
         if (valueVNP.GetConservative() == NoVN)
         {
-            valueVNP.SetConservative(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
+            valueVNP.SetConservative(vnStore->VNForExpr(varActualType(lcl->GetType())));
         }
     }
 
@@ -5011,14 +5011,14 @@ void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
                                vnStore->VNForUPtrSizeIntCon(load->GetLclOffs()), vnStore->VNForFieldSeq(nullptr));
 
         load->SetLiberalVN(vnMemoryLoad(load->GetType(), addrVN));
-        load->SetConservativeVN(vnStore->VNForExpr(compCurBB, load->GetType()));
+        load->SetConservativeVN(vnStore->VNForExpr(load->GetType()));
 
         return;
     }
 
     if (!lcl->IsInSsa() || !load->HasFieldSeq())
     {
-        load->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
+        load->gtVNPair.SetBoth(vnStore->VNForExpr(load->GetType()));
 
         return;
     }
@@ -5205,7 +5205,7 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
     }
 
     // The conservative VN of a load is always a new, unique VN.
-    ValueNum  conservativeVN = vnStore->VNForExpr(compCurBB, load->GetType());
+    ValueNum  conservativeVN = vnStore->VNForExpr(load->GetType());
     ValueNum  valueVN;
     VNFuncApp funcApp;
     GenTree*  obj;
@@ -5279,7 +5279,7 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
     // TODO-MIKE-CQ: Currently struct stores are not handled.
     if (store->TypeIs(TYP_STRUCT))
     {
-        return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+        return vnStore->VNForExpr(TYP_STRUCT);
     }
 
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
@@ -5316,7 +5316,7 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
     {
         // If the store is wider than the field just store a new, unique VN in the field.
         // The store might modify other static fields but that's undefined behaviour.
-        valueVN = vnStore->VNForExpr(compCurBB, fieldType);
+        valueVN = vnStore->VNForExpr(fieldType);
     }
 
     return vnStore->VNForMapStore(TYP_STRUCT, memVN, fieldVN, valueVN);
@@ -5346,7 +5346,7 @@ ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
         //
         // return vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, vnStore->VNForReadOnlyMemoryMap(), fieldVN);
 
-        return vnStore->VNForExpr(compCurBB, TYP_REF);
+        return vnStore->VNForExpr(TYP_REF);
     }
 
     if (fieldSeq != nullptr)
@@ -5395,7 +5395,7 @@ ValueNum Compiler::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeq
     // TODO-MIKE-CQ: Currently struct stores are not handled.
     if (store->TypeIs(TYP_STRUCT))
     {
-        return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+        return vnStore->VNForExpr(TYP_STRUCT);
     }
 
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
@@ -5429,7 +5429,7 @@ ValueNum Compiler::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeq
         // be modified but it's undefined behaviour and can be igored. We could probably
         // enumerate this object's fields and store unique values in those that overlap
         // the store.
-        return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+        return vnStore->VNForExpr(TYP_STRUCT);
     }
 
     fieldMapVN = vnStore->VNForMapStore(TYP_STRUCT, fieldMapVN, objVN, valueVN);
@@ -5469,7 +5469,7 @@ ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAd
     // TODO-MIKE-CQ: Currently struct stores are not handled.
     if (store->TypeIs(TYP_STRUCT))
     {
-        return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+        return vnStore->VNForExpr(TYP_STRUCT);
     }
 
     ValueNum      elemTypeVN = elemAddr.m_args[0];
@@ -5495,7 +5495,7 @@ ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAd
 
     if (fieldSeq == FieldSeqStore::NotAField())
     {
-        return vnStore->VNForMapStore(TYP_STRUCT, memVN, elemTypeVN, vnStore->VNForExpr(compCurBB, TYP_STRUCT));
+        return vnStore->VNForMapStore(TYP_STRUCT, memVN, elemTypeVN, vnStore->VNForExpr(TYP_STRUCT));
     }
 
     ValueNum arrayTypeMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, memVN, elemTypeVN);
@@ -5517,7 +5517,7 @@ ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAd
     {
         // If the store is wider than the array element then update the entire array, not just the element.
         // Of course, such a store may modify other arrays/objects but that's undefined behaviour.
-        arrayTypeMapVN = vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+        arrayTypeMapVN = vnStore->VNForExpr(TYP_STRUCT);
     }
     else
     {
@@ -5555,8 +5555,8 @@ ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr
 
     if (fieldSeq == FieldSeqStore::NotAField())
     {
-        // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
-        return vnStore->VNForExpr(compCurBB, elemType);
+        // TODO-MIKE-Fix: Using VNForExpr with the current block for loads is suspect...
+        return vnStore->VNForExpr(elemType);
     }
 
     ValueNum arrayTypeMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, memVN, elemTypeVN);
@@ -5631,8 +5631,8 @@ void Compiler::vnCmpXchg(GenTreeCmpXchg* node)
 {
     vnClearMemory(node DEBUGARG("cmpxchg intrinsic"));
 
-    // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
-    ValueNum     value = vnStore->VNForExpr(compCurBB, node->GetType());
+    // TODO-MIKE-Fix: Using VNForExpr with the current block for loads is suspect...
+    ValueNum     value = vnStore->VNForExpr(node->GetType());
     ValueNumPair exset = vnAddNullPtrExset(node->GetAddr()->GetVNP());
     exset              = vnStore->VNPUnionExcSet(node->GetValue()->GetVNP(), exset);
     exset              = vnStore->VNPUnionExcSet(node->GetCompareValue()->GetVNP(), exset);
@@ -5645,8 +5645,8 @@ void Compiler::vnInterlocked(GenTreeOp* node)
 
     vnClearMemory(node DEBUGARG("interlocked intrinsic"));
 
-    // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
-    ValueNum     value = vnStore->VNForExpr(compCurBB, node->GetType());
+    // TODO-MIKE-Fix: Using VNForExpr with the current block for loads is suspect...
+    ValueNum     value = vnStore->VNForExpr(node->GetType());
     ValueNumPair exset = vnAddNullPtrExset(node->GetOp(0)->GetVNP());
     exset              = vnStore->VNPUnionExcSet(node->GetOp(1)->GetVNP(), exset);
     node->SetVNP(vnStore->VNPWithExc({value, value}, exset));
@@ -5662,8 +5662,8 @@ ValueNum Compiler::vnMemoryLoad(var_types type, ValueNum addrVN)
         // how many bytes will be read by this load, so return a new unique value number
 
         // TODO-MIKE-CQ: The type number should be used instead to get this to work.
-        // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
-        return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+        // TODO-MIKE-Fix: Using VNForExpr with the current block for loads is suspect...
+        return vnStore->VNForExpr(TYP_STRUCT);
     }
 
     ValueNum memoryVN = fgCurMemoryVN;
@@ -7536,6 +7536,7 @@ bool Compiler::vnBlockIsLoopEntry(BasicBlock* block, unsigned* loopNum)
 void Compiler::fgValueNumberBlock(BasicBlock* blk)
 {
     compCurBB = blk;
+    vnStore->SetCurrentBlock(blk);
 
     Statement* stmt = blk->firstStmt();
 
@@ -7708,7 +7709,9 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
         GetMemoryPerSsaData(blk->bbMemorySsaNumOut)->m_vn = fgCurMemoryVN;
     }
 
+    assert(compCurBB == vnStore->GetCurrentBlock());
     compCurBB = nullptr;
+    vnStore->SetCurrentBlock(nullptr);
 }
 
 Compiler::VNLoop::VNLoop(Compiler* compiler)
@@ -7965,12 +7968,12 @@ ValueNum Compiler::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned inner
 
 void Compiler::vnClearMemory(GenTree* node DEBUGARG(const char* comment))
 {
-    vnUpdateMemory(node, vnStore->VNForExpr(compCurBB, TYP_STRUCT) DEBUGARG(comment));
+    vnUpdateMemory(node, vnStore->VNForExpr(TYP_STRUCT) DEBUGARG(comment));
 }
 
 void Compiler::vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment))
 {
-    assert(compCurBB->bbMemoryDef);
+    assert(vnStore->GetCurrentBlock()->bbMemoryDef);
 
     fgCurMemoryVN = memVN;
     INDEBUG(vnTraceMem(fgCurMemoryVN, comment));
@@ -8197,7 +8200,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
         case GT_CATCH_ARG:
             // We know nothing about the value of a caught expression.
-            tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
+            tree->gtVNPair.SetBoth(vnStore->VNForExpr(tree->GetType()));
             break;
 
         case GT_MEMORYBARRIER:
@@ -8346,7 +8349,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
         case GT_LCLHEAP:
         // It is not necessary to model the StackOverflow exception for LCLHEAP
         case GT_LABEL:
-            tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
+            tree->gtVNPair.SetBoth(vnStore->VNForExpr(tree->GetType()));
             break;
 
         case GT_CKFINITE:
@@ -8420,11 +8423,11 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             {
                 // TODO-MIKE-CQ: It would be nice to give GT_ARR_ELEM a proper VN...
                 noway_assert(GenTree::OperIsSpecial(oper));
-                // TODO-MIKE-Fix: Using VNForExpr with compCurBB for arbitrary nodes is suspect.
+                // TODO-MIKE-Fix: Using VNForExpr with the current block for arbitrary nodes is suspect.
                 // Also, it might be better to explicitly list all the opers in this switch so
                 // we don't accidentally miss one that may have some sort of side effects that
                 // need special handling.
-                tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
+                tree->gtVNPair.SetBoth(vnStore->VNForExpr(tree->GetType()));
             }
             break;
     }
@@ -8504,7 +8507,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
         // TODO-MIKE-CQ: We can't generate a proper VN for nodes that use the auxiliary
         // type because the type is simply ignored and we end up doing invalid CSE, see
         // vn-add-saturate-scalar.cs.
-        node->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, node->GetType()));
+        node->gtVNPair.SetBoth(vnStore->VNForExpr(node->GetType()));
         return;
     }
 
@@ -8516,8 +8519,8 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             // For now we will generate a unique value number for loads with more
             // than one operand (i.e. GatherVector128)
-            // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
-            node->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, node->GetType()));
+            // TODO-MIKE-Fix: Using VNForExpr with the current block for loads is suspect...
+            node->gtVNPair.SetBoth(vnStore->VNForExpr(node->GetType()));
             return;
         }
 
@@ -8535,8 +8538,8 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
         ValueNum loadVN = vnMemoryLoad(node->GetType(), addrVN);
 
         node->gtVNPair.SetLiberal(loadVN);
-        // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
-        node->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, node->GetType()));
+        // TODO-MIKE-Fix: Using VNForExpr with the current block for loads is suspect...
+        node->gtVNPair.SetConservative(vnStore->VNForExpr(node->GetType()));
         node->gtVNPair = vnStore->VNPWithExc(node->gtVNPair, addrXVNP);
         vnAddNullPtrExset(node, node->GetOp(0));
 
@@ -8547,7 +8550,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
 
     if (arity > 4)
     {
-        node->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, node->GetType()));
+        node->gtVNPair.SetBoth(vnStore->VNForExpr(node->GetType()));
         return;
     }
 
@@ -8791,11 +8794,11 @@ void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueN
     if (addUniqueArg)
     {
         argCount--;
-        // TODO-MIKE-Fix: Using VNForExpr with compCurBB for calls is suspect.
+        // TODO-MIKE-Fix: Using VNForExpr with the current block for calls is suspect.
         // The call may return a value obtained by loading from memory defined
         // by a different block. This only works because calls have special
         // handling in loop hoisting.
-        vnpUniqueArg.SetBoth(vnStore->VNForExpr(compCurBB, call->GetType()));
+        vnpUniqueArg.SetBoth(vnStore->VNForExpr(call->GetType()));
 
         if (argCount == 0)
         {
@@ -8927,11 +8930,11 @@ void Compiler::fgValueNumberCall(GenTreeCall* call)
         }
         else
         {
-            // TODO-MIKE-Fix: Using VNForExpr with compCurBB for calls is suspect.
+            // TODO-MIKE-Fix: Using VNForExpr with the current block for calls is suspect.
             // The call may return a value obtained by loading from memory defined
             // by a different block. This only works because calls have special
             // handling in loop hoisting.
-            call->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, call->TypeGet()));
+            call->gtVNPair.SetBoth(vnStore->VNForExpr(call->GetType()));
         }
 
         vnClearMemory(call DEBUGARG("user call"));
@@ -9291,11 +9294,11 @@ bool Compiler::fgValueNumberHelperCall(GenTreeCall* call)
         }
         else
         {
-            // TODO-MIKE-Fix: Using VNForExpr with compCurBB for calls is suspect.
+            // TODO-MIKE-Fix: Using VNForExpr with the current block for calls is suspect.
             // The call may return a value obtained by loading from memory defined
             // by a different block. This only works because calls have special
             // handling in loop hoisting.
-            vnpNorm.SetBoth(vnStore->VNForExpr(compCurBB, call->TypeGet()));
+            vnpNorm.SetBoth(vnStore->VNForExpr(call->GetType()));
         }
     }
 
