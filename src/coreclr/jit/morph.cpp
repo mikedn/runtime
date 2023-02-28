@@ -6567,31 +6567,29 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     }
 
     // If this block has a flow successor, make suitable updates.
-    //
-    BasicBlock* const nextBlock = compCurBB->GetUniqueSucc();
+    BasicBlock*       callBlock = compCurBB;
+    BasicBlock* const nextBlock = callBlock->GetUniqueSucc();
 
     if (nextBlock == nullptr)
     {
-        // No unique successor. compCurBB should be a return.
-        //
-        assert(compCurBB->bbJumpKind == BBJ_RETURN);
+        assert(callBlock->bbJumpKind == BBJ_RETURN);
     }
     else
     {
         // Flow no longer reaches nextBlock from here.
         //
-        fgRemoveRefPred(nextBlock, compCurBB);
+        fgRemoveRefPred(nextBlock, callBlock);
 
         // Adjust profile weights.
         //
         // Note if this is a tail call to loop, further updates
         // are needed once we install the loop edge.
         //
-        if (compCurBB->hasProfileWeight() && nextBlock->hasProfileWeight())
+        if (callBlock->hasProfileWeight() && nextBlock->hasProfileWeight())
         {
             // Since we have linear flow we can update the next block weight.
             //
-            BasicBlock::weight_t const blockWeight   = compCurBB->bbWeight;
+            BasicBlock::weight_t const blockWeight   = callBlock->bbWeight;
             BasicBlock::weight_t const nextWeight    = nextBlock->bbWeight;
             BasicBlock::weight_t const newNextWeight = nextWeight - blockWeight;
 
@@ -6612,7 +6610,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             {
                 JITDUMP("Not reducing profile weight of " FMT_BB " as its weight " FMT_WT
                         " is less than direct flow pred " FMT_BB " weight " FMT_WT "\n",
-                        nextBlock->bbNum, nextWeight, compCurBB->bbNum, blockWeight);
+                        nextBlock->bbNum, nextWeight, callBlock->bbNum, blockWeight);
             }
 
             // If nextBlock is not a BBJ_RETURN, it should have a unique successor that
@@ -6682,7 +6680,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
                     {
                         JITDUMP("Not reducing profile weight of " FMT_BB " as its weight " FMT_WT
                                 " is less than direct flow pred " FMT_BB " weight " FMT_WT "\n",
-                                nextNextBlock->bbNum, nextNextWeight, compCurBB->bbNum, blockWeight);
+                                nextNextBlock->bbNum, nextNextWeight, callBlock->bbNum, blockWeight);
                     }
                 }
             }
@@ -6698,7 +6696,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
         // Many tailcalls will have call and ret in the same block, and thus be
         // BBJ_RETURN, but if the call falls through to a ret, and we are doing a
         // tailcall, change it here.
-        compCurBB->bbJumpKind = BBJ_RETURN;
+        callBlock->bbJumpKind = BBJ_RETURN;
     }
 
     GenTree* stmtExpr = stmt->GetRootNode();
@@ -6765,7 +6763,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     {
         Statement* stmtToRemove = nextMorphStmt;
         nextMorphStmt           = stmtToRemove->GetNextStmt();
-        fgRemoveStmt(compCurBB, stmtToRemove);
+        fgRemoveStmt(callBlock, stmtToRemove);
     }
 
     bool     isRootReplaced = false;
@@ -6813,10 +6811,8 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     // we check whether the first and current basic blocks are
     // GC-SafePoints.
 
-    BasicBlock* curBlock = compCurBB;
-
-    if (fgFirstBB->HasGCSafePoint() || compCurBB->HasGCSafePoint() ||
-        (fgCreateGCPoll(GCPOLL_INLINE, compCurBB) == curBlock))
+    if (fgFirstBB->HasGCSafePoint() || callBlock->HasGCSafePoint() ||
+        (fgCreateGCPoll(GCPOLL_INLINE, callBlock) == callBlock))
     {
         // We didn't insert a poll block, so we need to morph the call now
         // (Normally it will get morphed when we get to the split poll block)
@@ -6824,11 +6820,15 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
         noway_assert(temp == call);
     }
 
-    noway_assert(compCurBB->bbJumpKind == BBJ_RETURN);
+    // fgCreateGCPoll might have created new blocks and moved the call to one of them,
+    // updating the current block in the process.
+    callBlock = compCurBB;
+
+    noway_assert(callBlock->bbJumpKind == BBJ_RETURN);
 
     // We call CORINFO_HELP_TAILCALL which does not return, so we will
     // not need epilogue.
-    compCurBB->bbJumpKind = BBJ_THROW;
+    callBlock->bbJumpKind = BBJ_THROW;
 #else
     // Fast Tail call as epilog + jmp - No need to insert GC-poll. Instead,
     // fgSetFullyInterruptiblePhase is going to mark the method as fully
@@ -6837,8 +6837,8 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 
     GenTree* temp = fgMorphCall(call, stmt);
     noway_assert(temp == call);
-    noway_assert(compCurBB->bbJumpKind == BBJ_RETURN);
-    compCurBB->bbFlags |= BBF_HAS_JMP;
+    noway_assert(callBlock->bbJumpKind == BBJ_RETURN);
+    callBlock->bbFlags |= BBF_HAS_JMP;
 #endif
 
     if (isRootReplaced)
@@ -8037,13 +8037,15 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
         }
     }
 
+    BasicBlock* callBlock = compCurBB;
+
     // Mark the block as a GC safe point for the call if possible.
     // In the event the call indicates the block isn't a GC safe point
     // and the call is unmanaged with a GC transition suppression request
     // then insert a GC poll.
     if (IsCallGCSafePoint(call))
     {
-        compCurBB->bbFlags |= BBF_GC_SAFE_POINT;
+        callBlock->bbFlags |= BBF_GC_SAFE_POINT;
     }
 
     // Regardless of the state of the basic block with respect to GC safe point,
@@ -8051,7 +8053,7 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
     // transition. Only mark the block for GC Poll insertion on the first morph.
     if (fgGlobalMorph && call->IsUnmanaged() && call->IsSuppressGCTransition())
     {
-        compCurBB->bbFlags |= (BBF_HAS_SUPPRESSGC_CALL | BBF_GC_SAFE_POINT);
+        callBlock->bbFlags |= (BBF_HAS_SUPPRESSGC_CALL | BBF_GC_SAFE_POINT);
         optMethodFlags |= OMF_NEEDS_GCPOLLS;
     }
 
@@ -8075,7 +8077,7 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
     // Note that there is code below that can remove the call, but we're still setting
     // this flag here. Also note that INTRINSIC nodes may become calls but we don't set
     // this flag for those, that may affect CSE.
-    compCurBB->bbFlags |= BBF_HAS_CALL;
+    callBlock->bbFlags |= BBF_HAS_CALL;
 
     fgMorphArgs(call);
 
@@ -8314,16 +8316,16 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
     return result;
 }
 
-GenTree* Compiler::fgMorphStrCon(GenTreeStrCon* tree, Statement* stmt)
+GenTree* Compiler::fgMorphStrCon(GenTreeStrCon* tree, Statement* stmt, BasicBlock* block)
 {
     assert(fgGlobalMorph);
 
-    // TODO-CQ: Do this for compCurBB->isRunRarely(). Doing that currently will
+    // TODO-CQ: Do this for block->isRunRarely(). Doing that currently will
     // guarantee slow performance for that block. Instead cache the return value
     // of CORINFO_HELP_STRCNS and go to cache first giving reasonable perf.
 
     bool useLazyStrCns = false;
-    if (compCurBB->bbJumpKind == BBJ_THROW)
+    if (block->bbJumpKind == BBJ_THROW)
     {
         useLazyStrCns = true;
     }
@@ -10830,6 +10832,8 @@ DONE_MORPHING_CHILDREN:
     op1 = tree->AsOp()->gtOp1;
     op2 = tree->gtGetOp2IfPresent();
 
+    BasicBlock* currentBlock = compCurBB;
+
     // Perform the required oper-specific postorder morphing
     switch (oper)
     {
@@ -11478,18 +11482,18 @@ DONE_MORPHING_CHILDREN:
 
 #ifdef TARGET_ARM64
         case GT_DIV:
-            fgGetThrowHelperBlock(ThrowHelperKind::Overflow, compCurBB);
-            fgGetThrowHelperBlock(ThrowHelperKind::DivideByZero, compCurBB);
+            fgGetThrowHelperBlock(ThrowHelperKind::Overflow, currentBlock);
+            fgGetThrowHelperBlock(ThrowHelperKind::DivideByZero, currentBlock);
             break;
         case GT_UDIV:
-            fgGetThrowHelperBlock(ThrowHelperKind::DivideByZero, compCurBB);
+            fgGetThrowHelperBlock(ThrowHelperKind::DivideByZero, currentBlock);
             break;
 #endif
 
         case GT_SUB:
             if (tree->gtOverflow())
             {
-                fgGetThrowHelperBlock(ThrowHelperKind::Overflow, compCurBB);
+                fgGetThrowHelperBlock(ThrowHelperKind::Overflow, currentBlock);
                 break;
             }
 
@@ -11588,7 +11592,7 @@ DONE_MORPHING_CHILDREN:
         case GT_ADD:
             if (tree->gtOverflow())
             {
-                fgGetThrowHelperBlock(ThrowHelperKind::Overflow, compCurBB);
+                fgGetThrowHelperBlock(ThrowHelperKind::Overflow, currentBlock);
                 break;
             }
         CM_ADD_OP:
@@ -11920,7 +11924,7 @@ DONE_MORPHING_CHILDREN:
 
         case GT_CKFINITE:
             noway_assert(varTypeIsFloating(op1->GetType()));
-            fgGetThrowHelperBlock(ThrowHelperKind::Arithmetic, compCurBB);
+            fgGetThrowHelperBlock(ThrowHelperKind::Arithmetic, currentBlock);
             break;
 
         case GT_INDEX_ADDR:
@@ -11930,7 +11934,8 @@ DONE_MORPHING_CHILDREN:
 
             if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
             {
-                tree->AsIndexAddr()->SetThrowBlock(fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, compCurBB));
+                tree->AsIndexAddr()->SetThrowBlock(
+                    fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, currentBlock));
                 tree->AddSideEffects(GTF_EXCEPT);
             }
             break;
@@ -13385,7 +13390,8 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
     }
 
     // Save the original un-morphed tree for fgMorphTreeDone.
-    GenTree* oldTree = tree;
+    GenTree*    oldTree      = tree;
+    BasicBlock* currentBlock = compCurBB;
 
     unsigned kind = tree->OperKind();
 
@@ -13399,7 +13405,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         }
         else if (GenTreeStrCon* str = tree->IsStrCon())
         {
-            tree = fgMorphStrCon(str, fgGlobalMorphStmt);
+            tree = fgMorphStrCon(str, fgGlobalMorphStmt, currentBlock);
         }
         else
         {
@@ -13466,7 +13472,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
                 if (opts.MinOpts())
                 {
-                    check->SetThrowBlock(fgGetThrowHelperBlock(check->GetThrowKind(), compCurBB));
+                    check->SetThrowBlock(fgGetThrowHelperBlock(check->GetThrowKind(), currentBlock));
                 }
             }
         }
@@ -13492,7 +13498,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
             if (fgGlobalMorph)
             {
-                fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, compCurBB);
+                fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, currentBlock);
             }
             break;
 
@@ -14205,7 +14211,9 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         abiFreeAllStructArgTemps();
 #endif
 
-        if ((stmt->GetRootNode() != oldTree) || (block != compCurBB))
+        BasicBlock* currentBlock = compCurBB;
+
+        if ((stmt->GetRootNode() != oldTree) || (block != currentBlock))
         {
             if (stmt->GetRootNode() != oldTree)
             {
@@ -14233,10 +14241,10 @@ void Compiler::fgMorphStmts(BasicBlock* block)
             //   - a tail call dispatched via runtime help (IL stubs), in which
             //   case there will not be any tailcall and the block will be ending
             //   with BBJ_RETURN (as normal control flow)
-            noway_assert((call->IsFastTailCall() && (compCurBB->bbJumpKind == BBJ_RETURN) &&
-                          ((compCurBB->bbFlags & BBF_HAS_JMP)) != 0) ||
-                         X86_ONLY((call->IsTailCallViaJitHelper() && (compCurBB->bbJumpKind == BBJ_THROW)) ||)(
-                             !call->IsTailCall() && (compCurBB->bbJumpKind == BBJ_RETURN)));
+            noway_assert((call->IsFastTailCall() && (currentBlock->bbJumpKind == BBJ_RETURN) &&
+                          ((currentBlock->bbFlags & BBF_HAS_JMP)) != 0) ||
+                         X86_ONLY((call->IsTailCallViaJitHelper() && (currentBlock->bbJumpKind == BBJ_THROW)) ||)(
+                             !call->IsTailCall() && (currentBlock->bbJumpKind == BBJ_RETURN)));
         }
 
 #ifdef DEBUG
