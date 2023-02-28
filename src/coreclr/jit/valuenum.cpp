@@ -7535,7 +7535,6 @@ bool Compiler::vnBlockIsLoopEntry(BasicBlock* block, unsigned* loopNum)
 
 void Compiler::fgValueNumberBlock(BasicBlock* blk)
 {
-    compCurBB = blk;
     vnStore->SetCurrentBlock(blk);
 
     Statement* stmt = blk->firstStmt();
@@ -7709,8 +7708,6 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
         GetMemoryPerSsaData(blk->bbMemorySsaNumOut)->m_vn = fgCurMemoryVN;
     }
 
-    assert(compCurBB == vnStore->GetCurrentBlock());
-    compCurBB = nullptr;
     vnStore->SetCurrentBlock(nullptr);
 }
 

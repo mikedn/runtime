@@ -5398,7 +5398,8 @@ public:
 private:
     void fgMorphTreeDone(GenTree* tree, GenTree* oldTree = nullptr DEBUGARG(int morphNum = 0));
 
-    Statement* fgGlobalMorphStmt = nullptr;
+    Statement*  fgGlobalMorphStmt = nullptr;
+    BasicBlock* fgMorphBlock      = nullptr;
 
     unsigned fgGetLargeFieldOffsetNullCheckTemp(var_types type); // We cache one temp per type to be
                                                                  // used when morphing big offset.
@@ -7045,8 +7046,6 @@ public:
     unsigned compStatementID  = 0;
     unsigned compBasicBlockID = 0;
 #endif
-
-    BasicBlock* compCurBB = nullptr; // the current basic block in process
 
     EHblkDsc* compHndBBtab           = nullptr; // array of EH data
     unsigned  compHndBBtabCount      = 0;       // element count of used elements in EH data array

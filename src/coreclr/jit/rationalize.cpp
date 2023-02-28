@@ -64,6 +64,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
     call->setEntryPoint(entryPoint);
 #endif
 
+    comp->fgMorphBlock = m_block;
     comp->fgMorphArgs(call);
 
     // Replace "tree" with "call"
@@ -509,14 +510,12 @@ void Rationalizer::Run()
         }
     };
 
-    comp->compCurBB = nullptr;
-    comp->fgOrder   = Compiler::FGOrderLinear;
+    comp->fgOrder = Compiler::FGOrderLinear;
 
     RationalizeVisitor visitor(*this);
     for (BasicBlock* const block : comp->Blocks())
     {
-        comp->compCurBB = block;
-        m_block         = block;
+        m_block = block;
 
         block->MakeLIR(nullptr, nullptr);
 

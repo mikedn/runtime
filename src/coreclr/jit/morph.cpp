@@ -697,7 +697,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
     if (cast->gtOverflow())
     {
-        fgGetThrowHelperBlock(ThrowHelperKind::Overflow, compCurBB);
+        fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
     }
 
     return cast;
@@ -6567,7 +6567,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     }
 
     // If this block has a flow successor, make suitable updates.
-    BasicBlock*       callBlock = compCurBB;
+    BasicBlock*       callBlock = fgMorphBlock;
     BasicBlock* const nextBlock = callBlock->GetUniqueSucc();
 
     if (nextBlock == nullptr)
@@ -6827,8 +6827,8 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     else
     {
         // fgCreateGCPoll has created new blocks and moved the call to one of them.
-        callBlock = newCallBlock;
-        compCurBB = callBlock;
+        callBlock    = newCallBlock;
+        fgMorphBlock = callBlock;
     }
 
     noway_assert(callBlock->bbJumpKind == BBJ_RETURN);
@@ -8044,7 +8044,7 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
         }
     }
 
-    BasicBlock* callBlock = compCurBB;
+    BasicBlock* callBlock = fgMorphBlock;
 
     // Mark the block as a GC safe point for the call if possible.
     // In the event the call indicates the block isn't a GC safe point
@@ -10839,7 +10839,7 @@ DONE_MORPHING_CHILDREN:
     op1 = tree->AsOp()->gtOp1;
     op2 = tree->gtGetOp2IfPresent();
 
-    BasicBlock* currentBlock = compCurBB;
+    BasicBlock* currentBlock = fgMorphBlock;
 
     // Perform the required oper-specific postorder morphing
     switch (oper)
@@ -13398,7 +13398,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
     // Save the original un-morphed tree for fgMorphTreeDone.
     GenTree*    oldTree      = tree;
-    BasicBlock* currentBlock = compCurBB;
+    BasicBlock* currentBlock = fgMorphBlock;
 
     unsigned kind = tree->OperKind();
 
@@ -14074,7 +14074,7 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
 
     // Reset some ambient state
     fgRemoveRestOfBlock = false;
-    compCurBB           = block;
+    fgMorphBlock        = block;
 
     GenTree* morph = fgMorphTree(stmt->GetRootNode());
 
@@ -14185,6 +14185,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
     assert(fgGlobalMorph);
 
     fgRemoveRestOfBlock = false;
+    fgMorphBlock        = block;
 
     for (Statement* const stmt : block->Statements())
     {
@@ -14218,7 +14219,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         abiFreeAllStructArgTemps();
 #endif
 
-        BasicBlock* currentBlock = compCurBB;
+        BasicBlock* currentBlock = fgMorphBlock;
 
         if ((stmt->GetRootNode() != oldTree) || (block != currentBlock))
         {
@@ -14378,7 +14379,7 @@ void Compiler::phMorph()
     // We are done with the global morphing phase
     fgGlobalMorph     = false;
     fgGlobalMorphStmt = nullptr;
-    compCurBB         = nullptr;
+    fgMorphBlock      = nullptr;
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     // Fix any LclVar annotations on discarded struct promotion temps for implicit by-ref params
@@ -14396,10 +14397,6 @@ void Compiler::phMorph()
 #endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
 
     fgExpandQmarkNodes();
-
-#ifdef DEBUG
-    compCurBB = nullptr;
-#endif // DEBUG
 
     // If we needed to create any new BasicBlocks then renumber the blocks
     if (fgBBcount > prevBBCount)
@@ -14452,10 +14449,7 @@ void Compiler::fgMorphBlocks()
             morphAssertionSetCount(0);
         }
 #endif
-        // Make the current basic block address available globally.
-        compCurBB = block;
 
-        // Process all statement trees in the basic block.
         fgMorphStmts(block);
 
         // Do we need to merge the result of this block into a single return block?

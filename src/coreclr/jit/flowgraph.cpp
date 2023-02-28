@@ -1959,8 +1959,6 @@ void Compiler::phFindOperOrder()
 {
     for (BasicBlock* block : Blocks())
     {
-        compCurBB = block;
-
         for (Statement* stmt : block->Statements())
         {
             gtSetStmtInfo(stmt);

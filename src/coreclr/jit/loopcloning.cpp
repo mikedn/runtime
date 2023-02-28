@@ -1314,7 +1314,6 @@ void Compiler::optPerformStaticOptimizations(unsigned loopNum, LoopCloneContext*
             case LcOptInfo::LcJaggedArray:
             {
                 LcJaggedArrayOptInfo* arrIndexInfo = optInfo->AsLcJaggedArrayOptInfo();
-                compCurBB                          = arrIndexInfo->arrIndex.useBlock;
 
                 // Remove all bounds checks for this array up to (and including) `arrIndexInfo->dim`. So, if that is 1,
                 // Remove rank 0 and 1 bounds checks.
@@ -2351,7 +2350,6 @@ bool Compiler::optIdentifyLoopOptInfo(unsigned loopNum, LoopCloneContext* contex
     LoopCloneVisitorInfo info(context, loopNum);
     for (BasicBlock* const block : loop.LoopBlocks())
     {
-        compCurBB  = block;
         info.block = block;
         for (Statement* const stmt : block->Statements())
         {

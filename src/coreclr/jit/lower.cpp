@@ -4634,8 +4634,6 @@ void Lowering::Run()
     // really need any lowering (they contain only calls to helpers with no args).
     for (BasicBlock* block : comp->Blocks())
     {
-        comp->compCurBB = block;
-
         unsigned throwIndex = comp->bbThrowIndex(block);
 
         for (GenTree* node : LIR::AsRange(block))
@@ -4645,8 +4643,6 @@ void Lowering::Run()
                 boundsChk->SetThrowBlock(comp->fgGetThrowHelperBlock(boundsChk->GetThrowKind(), block, throwIndex));
             }
         }
-
-        assert(comp->compCurBB == block);
     }
 
     // If we have any PInvoke calls, insert the one-time prolog code. We'll inserted the epilog code in the
@@ -4667,8 +4663,6 @@ void Lowering::Run()
 
     for (BasicBlock* const block : comp->Blocks())
     {
-        comp->compCurBB = block;
-
 #ifndef TARGET_64BIT
         if (comp->compLongUsed)
         {
@@ -4677,8 +4671,7 @@ void Lowering::Run()
 #endif
 
         LowerBlock(block);
-        assert(comp->compCurBB == block);
-}
+    }
 
     if (comp->fgHasEH() || comp->compMethodRequiresPInvokeFrame() || comp->compIsProfilerHookNeeded() ||
         comp->compLocallocUsed

@@ -3127,8 +3127,6 @@ void Compiler::fgMarkAddressExposedLocals()
 
     for (BasicBlock* const block : Blocks())
     {
-        compCurBB = block;
-
 #ifdef FEATURE_SIMD
         buffer.Clear();
 #endif

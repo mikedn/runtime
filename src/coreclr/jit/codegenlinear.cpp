@@ -168,8 +168,7 @@ void CodeGen::genCodeForBBlist()
 
         genLogLabel(block);
 
-        compiler->compCurBB = block;
-        m_currentBlock      = block;
+        m_currentBlock = block;
 
         bool needLabel = (block->bbFlags & BBF_HAS_LABEL) != 0;
 
@@ -634,11 +633,8 @@ void CodeGen::genCodeForBBlist()
             varLiveKeeper->dumpBlockVariableLiveRanges(block);
         }
 #endif
-
-        assert(compiler->compCurBB == m_currentBlock);
     }
 
-    INDEBUG(compiler->compCurBB = nullptr);
     m_currentBlock = nullptr;
     liveness.End(this);
 }

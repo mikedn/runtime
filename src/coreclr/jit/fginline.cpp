@@ -56,8 +56,6 @@ PhaseStatus Compiler::fgInline()
 
     for (BasicBlock* const block : Blocks())
     {
-        compCurBB = block;
-
         for (Statement* const stmt : block->Statements())
         {
             inlReplaceRetExpr(block, stmt);
@@ -87,8 +85,6 @@ PhaseStatus Compiler::fgInline()
                 stmt->SetRootNode(expr->AsOp()->GetOp(0));
             }
         }
-
-        assert(compCurBB == block);
 
         if ((block->bbJumpKind == BBJ_COND) && block->lastStmt()->GetRootNode()->AsUnOp()->GetOp(0)->IsIntCon())
         {

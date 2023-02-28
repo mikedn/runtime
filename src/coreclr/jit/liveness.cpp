@@ -360,8 +360,6 @@ void Compiler::fgPerBlockLocalVarLiveness()
         VarSetOps::ClearD(this, state.fgCurUseSet);
         VarSetOps::ClearD(this, state.fgCurDefSet);
 
-        compCurBB = block;
-
         for (Statement* const stmt : block->NonPhiStatements())
         {
             for (GenTree* const node : stmt->Nodes())
@@ -369,9 +367,6 @@ void Compiler::fgPerBlockLocalVarLiveness()
                 fgPerNodeLocalVarLiveness(state, node);
             }
         }
-
-        noway_assert(compCurBB == block);
-        INDEBUG(compCurBB = nullptr);
 
         block->bbVarUse      = state.fgCurUseSet;
         block->bbVarDef      = state.fgCurDefSet;
@@ -1316,8 +1311,6 @@ void Compiler::fgInterBlockLocalVarLivenessUntracked()
 
     for (BasicBlock* const block : Blocks())
     {
-        compCurBB = block;
-
         if (compRationalIRForm)
         {
             fgComputeLifeLIR(life, keepAlive, block);
@@ -1326,9 +1319,6 @@ void Compiler::fgInterBlockLocalVarLivenessUntracked()
         {
             fgComputeLifeBlock(life, keepAlive, block);
         }
-
-        noway_assert(compCurBB == block);
-        INDEBUG(compCurBB = nullptr);
     }
 }
 
@@ -1402,8 +1392,6 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
     for (BasicBlock* const block : Blocks())
     {
-        compCurBB = block;
-
         if (ehBlockHasExnFlowDsc(block))
         {
             VarSetOps::Assign(this, keepAlive, fgGetHandlerLiveVars(block));
@@ -1438,9 +1426,6 @@ bool Compiler::fgInterBlockLocalVarLiveness()
             // of others, which may expose more dead stores.
             changed = true;
         }
-
-        noway_assert(compCurBB == block);
-        INDEBUG(compCurBB = nullptr);
     }
 
     return fgStmtRemoved && changed;

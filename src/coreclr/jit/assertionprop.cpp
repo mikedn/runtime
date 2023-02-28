@@ -3751,7 +3751,6 @@ private:
     {
         for (BasicBlock* const block : compiler->Blocks())
         {
-            compiler->compCurBB = block;
             INDEBUG(currentBlock = block);
 
             for (Statement* stmt = block->GetFirstStatement(); stmt != nullptr; stmt = stmt->GetNextStmt())
@@ -3769,8 +3768,6 @@ private:
                     GenerateNodeAssertions(node);
                 }
             }
-
-            assert(compiler->compCurBB == currentBlock);
         }
 
         INDEBUG(currentBlock = nullptr);
@@ -3825,7 +3822,6 @@ private:
                 continue;
             }
 
-            compiler->compCurBB           = block;
             compiler->fgRemoveRestOfBlock = false;
             INDEBUG(currentBlock = block);
 
@@ -3874,8 +3870,6 @@ private:
                 Statement* nextStmt = (prevStmt == nullptr) ? block->firstStmt() : prevStmt->GetNextStmt();
                 stmt                = (stmt == nextStmt) ? stmt->GetNextStmt() : nextStmt;
             }
-
-            assert(compiler->compCurBB == currentBlock);
         }
 
         INDEBUG(currentBlock = nullptr);

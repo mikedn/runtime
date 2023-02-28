@@ -2077,9 +2077,6 @@ void Compiler::fgUnreachableBlock(BasicBlock* block)
 
     /* First walk the statement trees in this basic block and delete each stmt */
 
-    /* Make the block publicly available */
-    compCurBB = block;
-
     if (block->IsLIR())
     {
         LIR::Range& blockRange = LIR::AsRange(block);
@@ -2576,8 +2573,6 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
                 }
             }
 
-            /* Remove the block */
-            compCurBB = block;
             fgRemoveBlock(block, false);
             return true;
 
@@ -2778,12 +2773,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
 
                 if (fgStmtListThreaded)
                 {
-                    compCurBB = block;
-
-                    /* Update ordering, costs, FP levels, etc. */
                     gtSetStmtInfo(switchStmt);
-
-                    /* Re-link the nodes for this statement */
                     fgSetStmtSeq(switchStmt);
                 }
             }
@@ -3268,7 +3258,6 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
 
                 if (sideEffList == nullptr)
                 {
-                    compCurBB = block;
                     fgRemoveStmt(block, condStmt);
                 }
                 else
@@ -3292,20 +3281,13 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
 
                     if (fgStmtListThreaded)
                     {
-                        compCurBB = block;
-
-                        /* Update ordering, costs, FP levels, etc. */
                         gtSetStmtInfo(condStmt);
-
-                        /* Re-link the nodes for this statement */
                         fgSetStmtSeq(condStmt);
                     }
                 }
             }
             else
             {
-                compCurBB = block;
-                /* conditional has NO side effect - remove it */
                 fgRemoveStmt(block, condStmt);
             }
         }

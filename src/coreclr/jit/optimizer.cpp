@@ -4954,10 +4954,8 @@ void Compiler::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
     BasicBlock* preHead = optLoopTable[lnum].lpHead;
     assert(preHead->bbJumpKind == BBJ_NONE);
 
-    // fgMorphTree requires that compCurBB be the block that contains
-    // (or in this case, will contain) the expression.
-    compCurBB = preHead;
-    hoist     = fgMorphTree(hoist);
+    fgMorphBlock = preHead;
+    hoist        = fgMorphTree(hoist);
 
     Statement* hoistStmt = gtNewStmt(hoist);
     hoistStmt->SetCompilerAdded();
