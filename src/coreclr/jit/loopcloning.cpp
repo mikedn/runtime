@@ -2272,7 +2272,7 @@ Compiler::fgWalkResult Compiler::optCanOptimizeByLoopCloning(GenTree* tree, Loop
             return WALK_SKIP_SUBTREES;
         }
 
-        arrIndex.useBlock = info->block;
+        INDEBUG(arrIndex.useBlock = info->block;)
 
         // Walk the dimensions and see if iterVar of the loop is used as index.
         for (unsigned dim = 0; dim < arrIndex.rank; ++dim)
