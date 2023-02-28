@@ -4957,33 +4957,11 @@ void Compiler::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
     fgMorphBlock = preHead;
     hoist        = fgMorphTree(hoist);
 
-    Statement* hoistStmt = gtNewStmt(hoist);
+    Statement* hoistStmt = fgNewStmtAtEnd(preHead, hoist);
     hoistStmt->SetCompilerAdded();
 
-    /* simply append the statement at the end of the preHead's list */
-
-    Statement* firstStmt = preHead->firstStmt();
-
-    if (firstStmt != nullptr)
-    {
-        /* append after last statement */
-
-        Statement* lastStmt = preHead->lastStmt();
-        assert(lastStmt->GetNextStmt() == nullptr);
-
-        lastStmt->SetNextStmt(hoistStmt);
-        hoistStmt->SetPrevStmt(lastStmt);
-        firstStmt->SetPrevStmt(hoistStmt);
-    }
-    else
-    {
-        /* Empty pre-header - store the single statement in the block */
-
-        preHead->bbStmtList = hoistStmt;
-        hoistStmt->SetPrevStmt(hoistStmt);
-    }
-
-    hoistStmt->SetNextStmt(nullptr);
+    gtSetStmtInfo(hoistStmt);
+    fgSetStmtSeq(hoistStmt);
 
 #ifdef DEBUG
     if (verbose)
@@ -4992,12 +4970,6 @@ void Compiler::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
         gtDispTree(hoist);
     }
 #endif
-
-    if (fgStmtListThreaded)
-    {
-        gtSetStmtInfo(hoistStmt);
-        fgSetStmtSeq(hoistStmt);
-    }
 
 #if LOOP_HOIST_STATS
     if (!m_curLoopHasHoistedExpression)
