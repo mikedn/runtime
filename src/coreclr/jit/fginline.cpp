@@ -987,6 +987,8 @@ bool Compiler::inlImportReturn(Importer&            importer,
                                GenTree*             retExpr,
                                CORINFO_CLASS_HANDLE retExprClass)
 {
+    assert(importer.currentBlock->bbJumpKind == BBJ_RETURN);
+
     JITDUMPTREE(retExpr, "\nInlinee return expression:\n");
 
     // If the inlinee has GC ref locals we always need to have a spill temp
@@ -1167,7 +1169,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
 
         if ((inlineInfo->retSpillTempLclNum == BAD_VAR_NUM) && (fgFirstBB->bbNext != nullptr))
         {
-            inlineInfo->retBlockIRSummary = importer.compCurBB->bbFlags & BBF_IR_SUMMARY;
+            inlineInfo->retBlockIRSummary = importer.currentBlock->bbFlags & BBF_IR_SUMMARY;
         }
     }
 

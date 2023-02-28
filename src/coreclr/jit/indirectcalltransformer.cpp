@@ -755,14 +755,14 @@ private:
 
             JITDUMP("Direct call [%06u] in block " FMT_BB "\n", compiler->dspTreeID(call), thenBlock->bbNum);
 
-            // Then invoke impDevirtualizeCall to actually transform the call for us,
+            // Then invoke impLateDevirtualizeCall to actually transform the call for us,
             // given the original (base) method and the exact guarded class. It should succeed.
             CORINFO_METHOD_HANDLE  methodHnd;
             CORINFO_CONTEXT_HANDLE context;
             compiler->impLateDevirtualizeCall(call, inlineInfo, &methodHnd, &context);
 
             // We know this call can devirtualize or we would not have set up GDV here.
-            // So impDevirtualizeCall should succeed in devirtualizing.
+            // So impLateDevirtualizeCall should succeed in devirtualizing.
             //
             assert(!call->IsVirtual());
 

@@ -1912,10 +1912,10 @@ struct Importer
 #endif
     CompilerOptions&    opts;
     CompiledMethodInfo& info;
-    BasicBlock*&        compCurBB;
 
-    Statement* impStmtList = nullptr; // Statements for the BB being imported.
-    Statement* impLastStmt = nullptr; // The last statement for the current BB.
+    BasicBlock* currentBlock = nullptr;
+    Statement*  impStmtList  = nullptr; // Statements for the BB being imported.
+    Statement*  impLastStmt  = nullptr; // The last statement for the current BB.
 
     bool     impBoxTempInUse = false;
     unsigned impBoxTemp      = BAD_VAR_NUM;
