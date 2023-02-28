@@ -6808,21 +6808,28 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     // GC-poll (e.g. GT_GCPOLL) here and remove it in lowering if the block
     // is dominated by a GC-SafePoint. For now it not clear whether
     // optimizing slow tail calls is worth the effort. As a low cost check,
-    // we check whether the first and current basic blocks are
-    // GC-SafePoints.
+    // we check whether the first and current basic blocks are GC-SafePoints.
 
-    if (fgFirstBB->HasGCSafePoint() || callBlock->HasGCSafePoint() ||
-        (fgCreateGCPoll(GCPOLL_INLINE, callBlock) == callBlock))
+    BasicBlock* newCallBlock = callBlock;
+
+    if (!fgFirstBB->HasGCSafePoint() && !callBlock->HasGCSafePoint())
+    {
+        newCallBlock = fgCreateGCPoll(GCPOLL_INLINE, callBlock);
+    }
+
+    if (newCallBlock == callBlock)
     {
         // We didn't insert a poll block, so we need to morph the call now
-        // (Normally it will get morphed when we get to the split poll block)
+        // (normally it will get morphed when we get to the poll block).
         GenTree* temp = fgMorphCall(call, stmt);
         noway_assert(temp == call);
     }
-
-    // fgCreateGCPoll might have created new blocks and moved the call to one of them,
-    // updating the current block in the process.
-    callBlock = compCurBB;
+    else
+    {
+        // fgCreateGCPoll has created new blocks and moved the call to one of them.
+        callBlock = newCallBlock;
+        compCurBB = callBlock;
+    }
 
     noway_assert(callBlock->bbJumpKind == BBJ_RETURN);
 

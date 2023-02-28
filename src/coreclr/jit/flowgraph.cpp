@@ -366,11 +366,6 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
             unreached();
     }
 
-    if (compCurBB == top)
-    {
-        compCurBB = bottom;
-    }
-
 #ifdef DEBUG
     if (verbose)
     {
