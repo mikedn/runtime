@@ -6113,9 +6113,10 @@ public:
     {
         LoopCloneContext* context;
         unsigned          loopNum;
-        Statement*        stmt;
-        LoopCloneVisitorInfo(LoopCloneContext* context, unsigned loopNum, Statement* stmt)
-            : context(context), loopNum(loopNum), stmt(nullptr)
+        Statement*        stmt  = nullptr;
+        BasicBlock*       block = nullptr;
+
+        LoopCloneVisitorInfo(LoopCloneContext* context, unsigned loopNum) : context(context), loopNum(loopNum)
         {
         }
     };

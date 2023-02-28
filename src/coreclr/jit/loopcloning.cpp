@@ -2166,7 +2166,6 @@ bool Compiler::optExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsN
     }
     result->indLcls.Push(indLcl);
     result->bndsChks.Push(tree);
-    result->useBlock = compCurBB;
     result->rank++;
 
     return true;
@@ -2258,8 +2257,8 @@ Compiler::fgWalkResult Compiler::optCanOptimizeByLoopCloning(GenTree* tree, Loop
 #ifdef DEBUG
         if (verbose)
         {
-            printf("Found ArrIndex at " FMT_BB " " FMT_STMT " tree [%06u] which is equivalent to: ",
-                   arrIndex.useBlock->bbNum, info->stmt->GetID(), tree->GetID());
+            printf("Found ArrIndex at " FMT_BB " " FMT_STMT " tree [%06u] which is equivalent to: ", info->block->bbNum,
+                   info->stmt->GetID(), tree->GetID());
             arrIndex.Print();
             printf(", bounds check nodes: ");
             arrIndex.PrintBoundsCheckNodes();
@@ -2273,6 +2272,8 @@ Compiler::fgWalkResult Compiler::optCanOptimizeByLoopCloning(GenTree* tree, Loop
             JITDUMP("V%02d is not loop invariant\n", arrIndex.arrLcl);
             return WALK_SKIP_SUBTREES;
         }
+
+        arrIndex.useBlock = info->block;
 
         // Walk the dimensions and see if iterVar of the loop is used as index.
         for (unsigned dim = 0; dim < arrIndex.rank; ++dim)
@@ -2347,10 +2348,11 @@ bool Compiler::optIdentifyLoopOptInfo(unsigned loopNum, LoopCloneContext* contex
 
     const LoopDsc& loop = optLoopTable[loopNum];
 
-    LoopCloneVisitorInfo info(context, loopNum, nullptr);
+    LoopCloneVisitorInfo info(context, loopNum);
     for (BasicBlock* const block : loop.LoopBlocks())
     {
-        compCurBB = block;
+        compCurBB  = block;
+        info.block = block;
         for (Statement* const stmt : block->Statements())
         {
             info.stmt = stmt;
