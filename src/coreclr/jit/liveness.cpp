@@ -840,16 +840,17 @@ bool Compiler::fgComputeLifePromotedLocal(VARSET_TP&           liveOut,
     return isDef && isLastUse && !(lcl->lvCustomLayout && lcl->lvContainsHoles);
 }
 
-void Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_VALARG_TP keepAlive, BasicBlock* block)
+bool Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_VALARG_TP keepAlive, BasicBlock* block)
 {
     Statement* firstStmt = block->FirstNonPhiDef();
 
     if (firstStmt == nullptr)
     {
-        return;
+        return false;
     }
 
-    Statement* prevStmt = block->lastStmt();
+    bool       stmtRemoved = false;
+    Statement* prevStmt    = block->lastStmt();
     Statement* stmt;
 
     do
@@ -859,11 +860,13 @@ void Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_VALARG_TP keepAlive, B
         stmt     = prevStmt;
         prevStmt = stmt->GetPrevStmt();
 
-        fgComputeLifeStmt(life, keepAlive, stmt, block);
+        stmtRemoved |= fgComputeLifeStmt(life, keepAlive, stmt, block);
     } while (stmt != firstStmt);
+
+    return stmtRemoved;
 }
 
-void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt, BasicBlock* block)
+bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt, BasicBlock* block)
 {
     bool updateStmt = false;
     INDEBUG(bool modified = false;)
@@ -912,7 +915,12 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
                     if (nextNode == nullptr)
                     {
                         // The entire statement was removed, we're done.
-                        return;
+
+                        // TODO-MIKE-Review: Why do we care about an entire statement being removed
+                        // but not about the other cases where only some nodes are removed? Those
+                        // could affect liveness as well.
+
+                        return true;
                     }
 
                     if (nextNode == stmt->GetRootNode())
@@ -959,9 +967,11 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
         JITDUMPTREE(stmt->GetRootNode(), "\nfgComputeLifeStmt modified tree:\n");
     }
 #endif
+
+    return false;
 }
 
-void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars, BasicBlock* block)
+bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars, BasicBlock* block)
 {
     noway_assert(VarSetOps::IsSubset(this, keepAliveVars, life));
 
@@ -970,8 +980,10 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
     if (firstNode == nullptr)
     {
-        return;
+        return false;
     }
+
+    bool useDefRemoved = false;
 
     for (GenTree *node = blockRange.LastNode(), *next, *end = firstNode->gtPrev; node != end; node = next)
     {
@@ -992,12 +1004,12 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
                     blockRange.Delete(this, block, node);
 
-                    if (lcl->lvTracked)
+                    if (lcl->HasLiveness())
                     {
-                        fgStmtRemoved = true;
+                        useDefRemoved = true;
                     }
                 }
-                else if (lcl->lvTracked)
+                else if (lcl->HasLiveness())
                 {
                     fgComputeLifeTrackedLocalUse(life, lcl, lclNode);
                 }
@@ -1015,7 +1027,7 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 LclVarDsc*           lcl         = lvaGetDesc(lclNode);
                 bool                 isDeadStore = false;
 
-                if (lcl->lvTracked)
+                if (lcl->HasLiveness())
                 {
                     isDeadStore = fgComputeLifeTrackedLocalDef(life, keepAliveVars, lcl, lclNode);
                 }
@@ -1068,7 +1080,7 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
                     lclNode->GetOp(0)->SetUnusedValue();
                     blockRange.Remove(node);
-                    fgStmtRemoved = true;
+                    useDefRemoved = true;
                 }
 
                 break;
@@ -1219,6 +1231,8 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 break;
         }
     }
+
+    return useDefRemoved;
 }
 
 // Remove a dead assignment. Returns true if the entire statement was removed.
@@ -1304,8 +1318,6 @@ void Compiler::fgInterBlockLocalVarLivenessUntracked()
 {
     assert(lvaTrackedCount == 0);
 
-    fgStmtRemoved = false;
-
     VARSET_TP keepAlive = VarSetOps::UninitVal();
     VARSET_TP life      = VarSetOps::UninitVal();
 
@@ -1385,10 +1397,10 @@ bool Compiler::fgInterBlockLocalVarLiveness()
         }
     }
 
-    fgStmtRemoved       = false;
-    bool      changed   = false;
-    VARSET_TP keepAlive = VarSetOps::MakeEmpty(this);
-    VARSET_TP life      = VarSetOps::MakeEmpty(this);
+    bool      useDefRemoved = false;
+    bool      changed       = false;
+    VARSET_TP keepAlive     = VarSetOps::MakeEmpty(this);
+    VARSET_TP life          = VarSetOps::MakeEmpty(this);
 
     for (BasicBlock* const block : Blocks())
     {
@@ -1407,11 +1419,11 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
         if (compRationalIRForm)
         {
-            fgComputeLifeLIR(life, keepAlive, block);
+            useDefRemoved |= fgComputeLifeLIR(life, keepAlive, block);
         }
         else
         {
-            fgComputeLifeBlock(life, keepAlive, block);
+            useDefRemoved |= fgComputeLifeBlock(life, keepAlive, block);
         }
 
         if (!VarSetOps::Equal(this, life, block->bbLiveIn))
@@ -1428,7 +1440,7 @@ bool Compiler::fgInterBlockLocalVarLiveness()
         }
     }
 
-    return fgStmtRemoved && changed;
+    return useDefRemoved && changed;
 }
 
 #ifdef DEBUG

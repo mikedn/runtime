@@ -483,8 +483,6 @@ void Compiler::fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dum
 
     noway_assert(!csePhase);
 
-    fgStmtRemoved = true;
-
 #ifdef DEBUG
     if (verbose)
     {

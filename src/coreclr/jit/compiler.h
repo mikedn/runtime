@@ -4375,8 +4375,7 @@ public:
     bool fgEnterBlksSetValid     = false; // Is the fgEnterBlks set valid?
 #endif
 
-    bool fgRemoveRestOfBlock;   // true if we know that we will throw
-    bool fgStmtRemoved = false; // true if we remove statements -> need new DFA
+    bool fgRemoveRestOfBlock; // true if we know that we will throw
 
     // There are two modes for ordering of the trees.
     //  - In FGOrderTree, the dominant ordering is the tree order, and the nodes contained in
@@ -4561,9 +4560,9 @@ public:
                                     LclVarDsc*           lcl,
                                     GenTreeLclVarCommon* node);
 
-    void fgComputeLifeBlock(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
-    void fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt, BasicBlock* block);
-    void fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
+    bool fgComputeLifeBlock(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
+    bool fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt, BasicBlock* block);
+    bool fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
 
     GenTree* fgRemoveDeadStore(GenTreeOp* asgNode, Statement* stmt, BasicBlock* block);
 
