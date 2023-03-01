@@ -14312,17 +14312,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
             continue;
         }
 
-        /* Check if this block ends with a conditional branch that can be folded */
-
-        if (fgFoldConditional(block))
-        {
-            continue;
-        }
-
-        if (ehBlockHasExnFlowDsc(block))
-        {
-            continue;
-        }
+        fgFoldConditional(block);
     }
 
     if (fgRemoveRestOfBlock)
