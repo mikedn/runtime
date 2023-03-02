@@ -7267,9 +7267,7 @@ public:
 #endif
     };
 
-    GSCookie*           gsGlobalSecurityCookieAddr; // Address of global cookie for unsafe buffer checks
-    GSCookie            gsGlobalSecurityCookieVal;  // Value of global cookie if addr is NULL
-    ShadowParamVarInfo* gsShadowVarInfo = nullptr;  // Table used by shadow param analysis code
+    ShadowParamVarInfo* gsShadowVarInfo = nullptr; // Table used by shadow param analysis code
 
     void gsGSChecksInitCookie();   // Grabs cookie variable
     void gsCopyShadowParams();     // Identify vulnerable params and create dhadow copies

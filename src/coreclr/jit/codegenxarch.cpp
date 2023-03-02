@@ -21,38 +21,27 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "lower.h"
 #include "patchpointinfo.h"
 
-//---------------------------------------------------------------------
-// PrologSetGSSecurityCookie: Set the "GS" security cookie in the prolog.
-//
-// Arguments:
-//     initReg        - register to use as a scratch register
-//     pInitRegZeroed - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
-//                      this call sets 'initReg' to a non-zero shift.
-//
-// Return Value:
-//     None
-//
-void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
 {
     assert(compiler->getNeedsGSSecurityCookie());
 
-    if (compiler->gsGlobalSecurityCookieAddr == nullptr)
+    unsigned gsCookieLclNum = compiler->lvaGSSecurityCookie;
+
+    if (m_gsCookieAddr == nullptr)
     {
-        noway_assert(compiler->gsGlobalSecurityCookieVal != 0);
+        noway_assert(m_gsCookieVal != 0);
 
 #ifdef TARGET_AMD64
-        if (!FitsIn<int32_t>(compiler->gsGlobalSecurityCookieVal))
+        if (!FitsIn<int32_t>(m_gsCookieVal))
         {
-            GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, initReg, compiler->gsGlobalSecurityCookieVal);
-            GetEmitter()->emitIns_S_R(INS_mov, EA_8BYTE, initReg, compiler->lvaGSSecurityCookie, 0);
-            *pInitRegZeroed = false;
+            GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, initReg, m_gsCookieVal);
+            GetEmitter()->emitIns_S_R(INS_mov, EA_8BYTE, initReg, gsCookieLclNum, 0);
+            *initRegZeroed = false;
         }
         else
 #endif
         {
-            // mov   dword ptr [frame.GSSecurityCookie], #GlobalSecurityCookieVal
-            GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, compiler->lvaGSSecurityCookie, 0,
-                                      (int)compiler->gsGlobalSecurityCookieVal);
+            GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, gsCookieLclNum, 0, static_cast<int>(m_gsCookieVal));
         }
     }
     else
@@ -61,34 +50,28 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
         // On x64, if we're not moving into RAX, and the address isn't RIP relative, we can't encode it.
         //  mov   eax, dword ptr [compiler->gsGlobalSecurityCookieAddr]
         //  mov   dword ptr [frame.GSSecurityCookie], eax
-        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_EAX, (ssize_t)compiler->gsGlobalSecurityCookieAddr);
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_EAX, compiler->lvaGSSecurityCookie, 0);
+        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_EAX, reinterpret_cast<ssize_t>(m_gsCookieAddr));
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_EAX, gsCookieLclNum, 0);
 
         if (initReg == REG_EAX)
         {
-            *pInitRegZeroed = false;
+            *initRegZeroed = false;
         }
     }
 }
 
-// Generate code to check that the GS cookie wasn't thrashed by a buffer
-// overrun. For tail calls, preserve all registers around code sequence.
-// Otherwise ECX could be modified.
-void CodeGen::genEmitGSCookieCheck(bool tailCallEpilog)
+void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
 {
-    noway_assert(compiler->gsGlobalSecurityCookieAddr || compiler->gsGlobalSecurityCookieVal);
-
     regNumber regGSCheck;
 
     if (!tailCallEpilog)
     {
-        // Non-tail call: we can use any callee trash register that is not
-        // a return register or contain 'this' pointer (keep alive this), since
-        // we are generating GS cookie check after a GT_RETURN block.
-        // Note: On Amd64 System V RDX is an arg register - REG_ARG_2 - as well
-        // as return register for two-register-returned structs.
-        if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaTable[compiler->info.compThisArg].lvIsInReg() &&
-            (compiler->lvaTable[compiler->info.compThisArg].GetRegNum() == REG_ARG_0))
+        // We can use any callee trash register that is not a return register
+        // or contain 'this' pointer (keep alive this), since we are generating
+        // GS cookie check after a GT_RETURN node.
+
+        if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaGetDesc(compiler->info.compThisArg)->lvIsInReg() &&
+            (compiler->lvaGetDesc(compiler->info.compThisArg)->GetRegNum() == REG_ARG_0))
         {
             regGSCheck = REG_ARG_1;
         }
@@ -112,27 +95,28 @@ void CodeGen::genEmitGSCookieCheck(bool tailCallEpilog)
 #endif
     }
 
+    unsigned gsCookieLclNum = compiler->lvaGSSecurityCookie;
 #ifdef TARGET_X86
     var_types pushedRegType = TYP_UNDEF;
 #endif
 
-    if (compiler->gsGlobalSecurityCookieAddr == nullptr)
+    if (m_gsCookieAddr == nullptr)
     {
+        noway_assert(m_gsCookieVal != 0);
+
 #ifdef TARGET_AMD64
-        if (!FitsIn<int32_t>(compiler->gsGlobalSecurityCookieVal))
+        if (!FitsIn<int32_t>(m_gsCookieVal))
         {
-            GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, regGSCheck, compiler->gsGlobalSecurityCookieVal);
-            GetEmitter()->emitIns_S_R(INS_cmp, EA_8BYTE, regGSCheck, compiler->lvaGSSecurityCookie, 0);
+            GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, regGSCheck, m_gsCookieVal);
+            GetEmitter()->emitIns_S_R(INS_cmp, EA_8BYTE, regGSCheck, gsCookieLclNum, 0);
         }
         else
 #endif
         {
-            assert((int)compiler->gsGlobalSecurityCookieVal == (ssize_t)compiler->gsGlobalSecurityCookieVal);
-            GetEmitter()->emitIns_S_I(INS_cmp, EA_PTRSIZE, compiler->lvaGSSecurityCookie, 0,
-                                      (int)compiler->gsGlobalSecurityCookieVal);
+            GetEmitter()->emitIns_S_I(INS_cmp, EA_PTRSIZE, gsCookieLclNum, 0, static_cast<int>(m_gsCookieVal));
         }
     }
-    else // Ngen case - GS cookie shift needs to be accessed through an indirection.
+    else
     {
 #ifdef TARGET_X86
         if (tailCallEpilog)
@@ -141,9 +125,9 @@ void CodeGen::genEmitGSCookieCheck(bool tailCallEpilog)
         }
 #endif
 
-        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSCheck, (ssize_t)compiler->gsGlobalSecurityCookieAddr);
+        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSCheck, reinterpret_cast<ssize_t>(m_gsCookieAddr));
         GetEmitter()->emitIns_R_AR(INS_mov, EA_PTRSIZE, regGSCheck, regGSCheck, 0);
-        GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, regGSCheck, compiler->lvaGSSecurityCookie, 0);
+        GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, regGSCheck, gsCookieLclNum, 0);
     }
 
     BasicBlock* gsCheckBlk = genCreateTempLabel();
@@ -4904,7 +4888,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #ifdef TARGET_X86
     if (call->IsTailCallViaJitHelper() && compiler->getNeedsGSSecurityCookie())
     {
-        genEmitGSCookieCheck(true);
+        EpilogGSCookieCheck(true);
     }
 #endif
 

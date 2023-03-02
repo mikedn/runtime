@@ -539,71 +539,60 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
     }
 }
 
-//---------------------------------------------------------------------
-// PrologSetGSSecurityCookie: Set the "GS" security cookie in the prolog.
-//
-// Arguments:
-//     initReg        - register to use as a scratch register
-//     pInitRegZeroed - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
-//                      this call sets 'initReg' to a non-zero value.
-//
-// Return Value:
-//     None
-//
-void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
 {
     assert(compiler->getNeedsGSSecurityCookie());
 
-    if (compiler->gsGlobalSecurityCookieAddr == nullptr)
-    {
-        noway_assert(compiler->gsGlobalSecurityCookieVal != 0);
+    unsigned gsCookieLclNum = compiler->lvaGSSecurityCookie;
 
-        instGen_Set_Reg_To_Imm(EA_PTRSIZE, initReg, compiler->gsGlobalSecurityCookieVal);
-        GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, initReg, compiler->lvaGSSecurityCookie, 0);
+    if (m_gsCookieAddr == nullptr)
+    {
+        noway_assert(m_gsCookieVal != 0);
+
+        instGen_Set_Reg_To_Imm(EA_PTRSIZE, initReg, m_gsCookieVal);
+        GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, initReg, gsCookieLclNum, 0);
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_DSP_RELOC, initReg, (ssize_t)compiler->gsGlobalSecurityCookieAddr DEBUGARG(
-                                                              (size_t)THT_SetGSCookie) DEBUGARG(GTF_EMPTY));
+        instGen_Set_Reg_To_Imm(EA_PTR_DSP_RELOC, initReg, reinterpret_cast<ssize_t>(m_gsCookieAddr)
+                                                              DEBUGARG((size_t)THT_SetGSCookie) DEBUGARG(GTF_EMPTY));
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, initReg, initReg, 0);
         GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, initReg, compiler->lvaGSSecurityCookie, 0);
     }
 
-    *pInitRegZeroed = false;
+    *initRegZeroed = false;
 }
 
-void CodeGen::genEmitGSCookieCheck()
+void CodeGen::EpilogGSCookieCheck()
 {
-    noway_assert(compiler->gsGlobalSecurityCookieAddr || compiler->gsGlobalSecurityCookieVal);
-
     // We need two temporary registers, to load the GS cookie values and compare them. We can't use
     // any argument registers if 'pushReg' is true (meaning we have a JMP call). They should be
     // callee-trash registers, which should not contain anything interesting at this point.
     // We don't have any IR node representing this check, so LSRA can't communicate registers
     // for us to use.
 
-    regNumber regGSConst = REG_GSCOOKIE_TMP_0;
-    regNumber regGSValue = REG_GSCOOKIE_TMP_1;
+    regNumber regGSConst     = REG_GSCOOKIE_TMP_0;
+    regNumber regGSValue     = REG_GSCOOKIE_TMP_1;
+    unsigned  gsCookieLclNum = compiler->lvaGSSecurityCookie;
 
-    if (compiler->gsGlobalSecurityCookieAddr == nullptr)
+    if (m_gsCookieAddr == nullptr)
     {
-        instGen_Set_Reg_To_Imm(EA_PTRSIZE, regGSConst, compiler->gsGlobalSecurityCookieVal);
+        noway_assert(m_gsCookieVal != 0);
+
+        instGen_Set_Reg_To_Imm(EA_PTRSIZE, regGSConst, m_gsCookieVal);
     }
     else
     {
-        // Ngen case - GS cookie constant needs to be accessed through an indirection.
-        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSConst, (ssize_t)compiler->gsGlobalSecurityCookieAddr DEBUGARG(
+        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSConst, reinterpret_cast<ssize_t>(m_gsCookieAddr) DEBUGARG(
                                                                     (size_t)THT_GSCookieCheck) DEBUGARG(GTF_EMPTY));
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, regGSConst, regGSConst, 0);
     }
-    // Load this method's GS value from the stack frame
-    GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, regGSValue, compiler->lvaGSSecurityCookie, 0);
-    // Compare with the GC cookie constant
+
+    GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, regGSValue, gsCookieLclNum, 0);
     GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, regGSConst, regGSValue);
 
     BasicBlock* gsCheckBlk = genCreateTempLabel();
     inst_JMP(EJ_eq, gsCheckBlk);
-    // regGSConst and regGSValue aren't needed anymore, we can use them for helper call
     genEmitHelperCall(CORINFO_HELP_FAIL_FAST);
     genDefineTempLabel(gsCheckBlk);
 }

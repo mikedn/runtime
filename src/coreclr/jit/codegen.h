@@ -28,6 +28,8 @@ class CodeGen final : public CodeGenInterface
     IPmappingDsc*     genIPmappingList = nullptr;
     IPmappingDsc*     genIPmappingLast = nullptr;
     BasicBlock*       m_currentBlock   = nullptr;
+    GSCookie*         m_gsCookieAddr   = nullptr;
+    GSCookie          m_gsCookieVal    = 0;
 
     CodeGenLivenessUpdater liveness;
 #ifdef TARGET_ARMARCH
@@ -1118,9 +1120,9 @@ protected:
 #ifdef TARGET_XARCH
     void GenStoreIndRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy);
     void genCodeForBT(GenTreeOp* bt);
-    void genEmitGSCookieCheck(bool tailCallEpilog);
+    void EpilogGSCookieCheck(bool tailCallEpilog);
 #else
-    void genEmitGSCookieCheck();
+    void EpilogGSCookieCheck();
 #endif
 
     void genCodeForCast(GenTreeCast* cast);

@@ -610,9 +610,9 @@ void CodeGen::genExitCode(BasicBlock* block)
         bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
 
 #ifdef TARGET_XARCH
-        genEmitGSCookieCheck(jmpEpilog);
+        EpilogGSCookieCheck(jmpEpilog);
 #else
-        genEmitGSCookieCheck();
+        EpilogGSCookieCheck();
 #endif
     }
 
@@ -4117,6 +4117,11 @@ void CodeGen::genFinalizeFrame()
     UpdateParamsWithInitialReg();
 
     compiler->lvaAssignFrameOffsets(Compiler::FINAL_FRAME_LAYOUT);
+
+    if (compiler->getNeedsGSSecurityCookie())
+    {
+        compiler->info.compCompHnd->getGSCookie(&m_gsCookieVal, &m_gsCookieAddr);
+    }
 }
 
 regNumber CodeGen::PrologChooseInitReg(regMaskTP initRegs)
