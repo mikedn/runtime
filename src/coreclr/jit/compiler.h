@@ -5210,11 +5210,8 @@ public:
         return fgIsUsingProfileWeights() ? fgNumProfileRuns : BB_UNITY_WEIGHT_UNSIGNED;
     }
 
-//-------- Insert a statement at the start or end of a basic block --------
-
 #ifdef DEBUG
-public:
-    static bool fgBlockContainsStatementBounded(BasicBlock* block, Statement* stmt, bool answerOnBoundExceeded = true);
+    bool fgBlockContainsStatementBounded(BasicBlock* block, Statement* stmt, bool answerOnBoundExceeded = true);
 #endif
 
 public:
@@ -6778,14 +6775,14 @@ public:
     bool compSuppressedZeroInit = false; // There are vars with lvSuppressedZeroInit set
 
 #ifdef DEBUG
-    bool    compQmarkRationalized   = false; // Is it allowed to use a GT_QMARK node.
-    bool    compSwitchedToOptimized = false; // Codegen initially was Tier0 but jit switched to FullOpts
-    bool    compSwitchedToMinOpts   = false; // Codegen initially was Tier1/FullOpts but jit switched to MinOpts
-    bool    bRangeAllowStress;
-    bool    compCodeGenDone = false;
-    int64_t compNumStatementLinksTraversed;   // # of links traversed while doing debug checks
-    bool    fgNormalizeEHDone        = false; // Has the flowgraph EH normalization phase been done?
-    bool    fgNoStructParamPromotion = false; // Set to true to turn off struct promotion of this method's params.
+    bool     compQmarkRationalized   = false; // Is it allowed to use a GT_QMARK node.
+    bool     compSwitchedToOptimized = false; // Codegen initially was Tier0 but jit switched to FullOpts
+    bool     compSwitchedToMinOpts   = false; // Codegen initially was Tier1/FullOpts but jit switched to MinOpts
+    bool     bRangeAllowStress;
+    bool     compCodeGenDone = false;
+    unsigned fgStmtLinksTraversed;             // # of links traversed while doing debug checks
+    bool     fgNormalizeEHDone        = false; // Has the flowgraph EH normalization phase been done?
+    bool     fgNoStructParamPromotion = false; // Set to true to turn off struct promotion of this method's params.
 #endif
 
     bool fgNoStructPromotion       = false; // Set to true to turn off struct promotion for this method.

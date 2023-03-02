@@ -7,37 +7,28 @@
 #pragma hdrstop
 #endif
 
-// Flowgraph Statements
-
 #ifdef DEBUG
 // Check to see if block contains a statement but don't spend more than a certain
 // budget doing this per method compiled.
 // If the budget is exceeded, return 'answerOnBoundExceeded' as the answer.
-/* static */
-bool Compiler::fgBlockContainsStatementBounded(BasicBlock* block,
-                                               Statement*  stmt,
-                                               bool        answerOnBoundExceeded /*= true*/)
+bool Compiler::fgBlockContainsStatementBounded(BasicBlock* block, Statement* stmt, bool answerOnBoundExceeded)
 {
-    const __int64 maxLinks = 1000000000;
+    constexpr unsigned maxLinks = 1000000000;
 
-    __int64* numTraversed = &JitTls::GetCompiler()->compNumStatementLinksTraversed;
-
-    if (*numTraversed > maxLinks)
+    for (Statement* s = block->GetFirstStatement(); s != nullptr; s = s->GetNextStmt())
     {
-        return answerOnBoundExceeded;
+        if (s == stmt)
+        {
+            return true;
+        }
+
+        if (++fgStmtLinksTraversed > maxLinks)
+        {
+            return answerOnBoundExceeded;
+        }
     }
 
-    Statement* curr = block->firstStmt();
-    do
-    {
-        (*numTraversed)++;
-        if (curr == stmt)
-        {
-            break;
-        }
-        curr = curr->GetNextStmt();
-    } while (curr != nullptr);
-    return curr != nullptr;
+    return false;
 }
 #endif // DEBUG
 

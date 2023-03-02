@@ -12,7 +12,7 @@ class Rationalizer
 public:
     Rationalizer(Compiler* comp) : comp(comp)
     {
-        INDEBUG(comp->compNumStatementLinksTraversed = 0;)
+        INDEBUG(comp->fgStmtLinksTraversed = 0;)
     }
 
     void Run();
