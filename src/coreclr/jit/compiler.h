@@ -6774,11 +6774,11 @@ public:
     bool compTailCallUsed       = false; // Does the method do a tailcall
     bool compLocallocUsed       = false; // Does the method use localloc.
     bool compQmarkUsed          = false; // Does the method use GT_QMARK
-    bool compQmarkRationalized  = false; // Is it allowed to use a GT_QMARK node.
     bool compHasBackwardJump    = false; // Does the method (or some inlinee) have a lexically backwards jump?
     bool compSuppressedZeroInit = false; // There are vars with lvSuppressedZeroInit set
 
 #ifdef DEBUG
+    bool    compQmarkRationalized   = false; // Is it allowed to use a GT_QMARK node.
     bool    compSwitchedToOptimized = false; // Codegen initially was Tier0 but jit switched to FullOpts
     bool    compSwitchedToMinOpts   = false; // Codegen initially was Tier1/FullOpts but jit switched to MinOpts
     bool    bRangeAllowStress;

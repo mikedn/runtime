@@ -15108,7 +15108,7 @@ void Compiler::fgExpandQmarkNodes()
         INDEBUG(fgPostExpandQmarkChecks();)
     }
 
-    compQmarkRationalized = true;
+    INDEBUG(compQmarkRationalized = true;)
 }
 
 #ifdef DEBUG
