@@ -4406,11 +4406,11 @@ public:
     bool fgGlobalMorph = false; // indicates if we are during the global morphing phase
                                 // since fgMorphTree can be called from several places
 
-    bool fgLoopCallMarked       = false; // The following check for loops that don't execute calls
-    bool fgHasLoops             = false; // True if this method has any loops, set in fgComputeReachability
-    bool fgLocalVarLivenessDone = false; // Note that this one is used outside of debug.
+    bool fgLoopCallMarked = false; // The following check for loops that don't execute calls
+    bool fgHasLoops       = false; // True if this method has any loops, set in fgComputeReachability
 
 #ifdef DEBUG
+    bool fgLocalVarLivenessDone = false;
     bool jitFallbackCompile; // Are we doing a fallback compile? That is, have we executed a NO_WAY assert,
                              //   and we are trying to compile again in a "safer", minopts mode?
 

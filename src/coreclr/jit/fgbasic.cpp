@@ -3667,13 +3667,6 @@ BasicBlock* Compiler::fgSplitEdge(BasicBlock* curr, BasicBlock* succ)
         newBlock->inheritWeightPercentage(curr, 50);
     }
 
-    // The bbLiveIn and bbLiveOut are both equal to the bbLiveIn of 'succ'
-    if (fgLocalVarLivenessDone)
-    {
-        VarSetOps::Assign(this, newBlock->bbLiveIn, succ->bbLiveIn);
-        VarSetOps::Assign(this, newBlock->bbLiveOut, succ->bbLiveIn);
-    }
-
     return newBlock;
 }
 

@@ -7773,7 +7773,8 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
 
         prefix = " (";
 
-        if (fieldLcl->lvTracked && fgLocalVarLivenessDone && node->IsMultiRegLclVar() && node->AsLclVar()->IsLastUse(i))
+        if (fgLocalVarLivenessDone && fieldLcl->HasLiveness() && node->IsMultiRegLclVar() &&
+            node->AsLclVar()->IsLastUse(i))
         {
             printf("%slast-use", prefix);
             prefix = ", ";

@@ -7713,6 +7713,10 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
             // in resolveEdges(), after all the edge resolution has been done (by calling this
             // method for each edge).
             block = compiler->fgSplitEdge(fromBlock, toBlock);
+            // The bbLiveIn and bbLiveOut are both equal to the bbLiveIn of 'succ'
+            assert(compiler->fgLocalVarLivenessDone);
+            VarSetOps::Assign(compiler, block->bbLiveIn, toBlock->bbLiveIn);
+            VarSetOps::Assign(compiler, block->bbLiveOut, toBlock->bbLiveIn);
 
             // Split edges are counted against fromBlock.
             INTRACK_STATS(updateLsraStat(STAT_SPLIT_EDGE, fromBlock->bbNum));

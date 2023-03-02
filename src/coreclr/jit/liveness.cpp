@@ -118,7 +118,7 @@ void Compiler::fgLocalVarLivenessUntracked()
     fgInterBlockLocalVarLivenessUntracked();
 
     // Since there are no tracked locals liveness basically never runs.
-    fgLocalVarLivenessDone = false;
+    INDEBUG(fgLocalVarLivenessDone = false;)
 
     EndPhase(PHASE_LCLVARLIVENESS);
 }
@@ -168,9 +168,9 @@ void Compiler::fgLocalVarLiveness()
 
         fgLiveVarAnalysis();
         changed = fgInterBlockLocalVarLiveness();
-
-        fgLocalVarLivenessDone = true;
     }
+
+    INDEBUG(fgLocalVarLivenessDone = true;)
 
     EndPhase(PHASE_LCLVARLIVENESS);
 }
