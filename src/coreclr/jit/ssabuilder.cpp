@@ -1497,12 +1497,7 @@ void SsaBuilder::SetupBBRoot()
     // May need to fix up preds list, so remember the old first block.
     BasicBlock* oldFirst = m_pCompiler->fgFirstBB;
 
-    // Copy the liveness information from the first basic block.
-    if (m_pCompiler->fgLocalVarLivenessDone)
-    {
-        VarSetOps::Assign(m_pCompiler, bbRoot->bbLiveIn, oldFirst->bbLiveIn);
-        VarSetOps::Assign(m_pCompiler, bbRoot->bbLiveOut, oldFirst->bbLiveIn);
-    }
+    assert(!m_pCompiler->fgLocalVarLivenessDone);
 
     // Copy the bbWeight.  (This is technically wrong, if the first block is a loop head, but
     // it shouldn't matter...)
