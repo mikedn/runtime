@@ -3982,7 +3982,6 @@ GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* o
 {
     assert(!compQmarkRationalized);
 
-    compQmarkUsed = true;
     return new (this, GT_QMARK) GenTreeQmark(type, cond, op1, op2);
 }
 

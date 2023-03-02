@@ -10119,6 +10119,8 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         qmark->SetType(varActualType(elseExpr->GetType()));
     }
 
+    compQmarkUsed = true;
+
     return qmark;
 }
 
