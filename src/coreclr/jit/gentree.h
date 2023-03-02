@@ -13,14 +13,10 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-/*****************************************************************************/
-#ifndef _GENTREE_H_
-#define _GENTREE_H_
-/*****************************************************************************/
+#pragma once
 
-#include "vartype.h"   // For "var_types"
-#include "target.h"    // For "regNumber"
-#include "ssaconfig.h" // For "SsaConfig::RESERVED_SSA_NUM"
+#include "vartype.h"
+#include "target.h"
 #include "valuenumtype.h"
 #include "jitstd.h"
 #include "jithashtable.h"
@@ -3161,6 +3157,20 @@ struct GenTreeStrCon : public GenTree
     }
 #endif
 };
+
+namespace SsaConfig
+{
+// FIRST ssa num is given to the first definition of a variable which can either be:
+// 1. A regular definition in the program.
+// 2. Or initialization by compInitMem.
+static const int FIRST_SSA_NUM = 1;
+
+// Sentinel value to indicate variable not touched by SSA.
+static const int RESERVED_SSA_NUM = 0;
+
+} // end of namespace SsaConfig
+
+static constexpr int NoSsaNum = SsaConfig::RESERVED_SSA_NUM;
 
 // Common supertype of LCL_VAR, LCL_FLD, REG_VAR, PHI_ARG
 // This inherits from UnOp because lclvar stores are Unops
@@ -7723,7 +7733,3 @@ enum varRefKinds : uint8_t
     VR_IND_SCL   = 0x02, // a non-object reference
     VR_GLB_VAR   = 0x04, // a global (clsVar)
 };
-
-/*****************************************************************************/
-#endif // !GENTREE_H
-/*****************************************************************************/

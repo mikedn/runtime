@@ -438,10 +438,10 @@ const bool dspGCtbls = true;
             JitTls::GetCompiler()->gtDispTree(tree);                                                                   \
         }                                                                                                              \
     }
-#define JITDUMPEXEC(x)                                                                                                 \
+#define DBG_SSA_JITDUMP(...)                                                                                           \
     {                                                                                                                  \
-        if (JitTls::GetCompiler()->verbose)                                                                            \
-            x;                                                                                                         \
+        if (JitTls::GetCompiler()->verboseSsa)                                                                         \
+            logf(__VA_ARGS__);                                                                                         \
     }
 #define JITLOG(x)                                                                                                      \
     {                                                                                                                  \
@@ -477,8 +477,8 @@ const bool dspGCtbls = true;
 #define VERBOSE JitTls::GetCompiler()->verbose
 #else // !DEBUG
 #define JITDUMP(...)
-#define JITDUMPEXEC(x)
 #define JITDUMPTREE(...)
+#define DBG_SSA_JITDUMP(...)
 #define JITLOG(x)
 #define JITLOG_THIS(t, x)
 #define DBEXEC(flg, expr)

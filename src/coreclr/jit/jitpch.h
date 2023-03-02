@@ -23,7 +23,6 @@
 #include "block.h"
 #include "jiteh.h"
 #include "jitstd.h"
-#include "ssaconfig.h"
 #include "blockset.h"
 #include "bitvec.h"
 #include "inline.h"

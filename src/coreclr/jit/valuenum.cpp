@@ -16,7 +16,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #endif
 
 #include "valuenum.h"
-#include "ssaconfig.h"
 
 // Windows x86 and Windows ARM/ARM64 may not define _isnanf() but they do define _isnan().
 // We will redirect the macros to these other functions if the macro is not defined for the
