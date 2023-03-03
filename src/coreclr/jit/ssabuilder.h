@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #pragma once
-#pragma warning(disable : 4503) // 'identifier' : decorated name length exceeded, name was truncated
 
 #include "compiler.h"
 #include "ssarenamestate.h"
