@@ -1537,12 +1537,8 @@ void SsaBuilder::SetupBBRoot()
     oldFirst->bbRefs--;
 
     m_pCompiler->fgInsertBBbefore(m_pCompiler->fgFirstBB, bbRoot);
-
     assert(m_pCompiler->fgFirstBB == bbRoot);
-    if (m_pCompiler->fgComputePredsDone)
-    {
-        m_pCompiler->fgAddRefPred(oldFirst, bbRoot);
-    }
+    m_pCompiler->fgAddRefPred(oldFirst, bbRoot);
 }
 
 //------------------------------------------------------------------------
