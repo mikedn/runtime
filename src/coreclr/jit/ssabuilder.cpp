@@ -4,53 +4,6 @@
 #include "jitpch.h"
 #include "ssabuilder.h"
 
-namespace
-{
-/**
- * Method that finds a common IDom parent, much like least common ancestor.
- *
- * @param finger1 A basic block that might share IDom ancestor with finger2.
- * @param finger2 A basic block that might share IDom ancestor with finger1.
- *
- * @see "A simple, fast dominance algorithm" by Keith D. Cooper, Timothy J. Harvey, Ken Kennedy.
- *
- * @return A basic block whose IDom is the dominator for finger1 and finger2,
- * or else NULL.  This may be called while immediate dominators are being
- * computed, and if the input values are members of the same loop (each reachable from the other),
- * then one may not yet have its immediate dominator computed when we are attempting
- * to find the immediate dominator of the other.  So a NULL return value means that the
- * the two inputs are in a cycle, not that they don't have a common dominator ancestor.
- */
-static inline BasicBlock* IntersectDom(BasicBlock* finger1, BasicBlock* finger2)
-{
-    while (finger1 != finger2)
-    {
-        if (finger1 == nullptr || finger2 == nullptr)
-        {
-            return nullptr;
-        }
-        while (finger1 != nullptr && finger1->bbPostOrderNum < finger2->bbPostOrderNum)
-        {
-            finger1 = finger1->bbIDom;
-        }
-        if (finger1 == nullptr)
-        {
-            return nullptr;
-        }
-        while (finger2 != nullptr && finger2->bbPostOrderNum < finger1->bbPostOrderNum)
-        {
-            finger2 = finger2->bbIDom;
-        }
-    }
-    return finger1;
-}
-
-} // end of anonymous namespace.
-
-// =================================================================================
-//                                      SSA
-// =================================================================================
-
 void Compiler::fgSsaBuild()
 {
     assert(!ssaForm);
@@ -238,6 +191,39 @@ int SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
     // assert(postIndex == (count - 1));
 
     return postIndex;
+}
+
+// Method that finds a common IDom parent, much like least common ancestor.
+// See "A simple, fast dominance algorithm" by Keith D. Cooper, Timothy J. Harvey, Ken Kennedy.
+//
+// Returns a basic block whose IDom is the dominator for finger1 and finger2, or else NULL.
+// This may be called while immediate dominators are being computed, and if the input values
+// are members of the same loop (each reachable from the other), then one may not yet have
+// its immediate dominator computed when we are attempting to find the immediate dominator
+// of the other. So a NULL return value means that the the two inputs are in a cycle, not
+// that they don't have a common dominator ancestor.
+BasicBlock* SsaBuilder::IntersectDom(BasicBlock* finger1, BasicBlock* finger2)
+{
+    while (finger1 != finger2)
+    {
+        if (finger1 == nullptr || finger2 == nullptr)
+        {
+            return nullptr;
+        }
+        while (finger1 != nullptr && finger1->bbPostOrderNum < finger2->bbPostOrderNum)
+        {
+            finger1 = finger1->bbIDom;
+        }
+        if (finger1 == nullptr)
+        {
+            return nullptr;
+        }
+        while (finger2 != nullptr && finger2->bbPostOrderNum < finger1->bbPostOrderNum)
+        {
+            finger2 = finger2->bbIDom;
+        }
+    }
+    return finger1;
 }
 
 /**

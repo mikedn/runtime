@@ -35,6 +35,8 @@ private:
     // the output array.
     int TopologicalSort(BasicBlock** postOrder, int count);
 
+    static BasicBlock* IntersectDom(BasicBlock* finger1, BasicBlock* finger2);
+
     // Requires "postOrder" to hold the blocks of the flowgraph in topologically sorted
     // order. Requires count to be the valid entries in the "postOrder" array. Computes
     // each block's immediate dominator and records it in the BasicBlock in bbIDom.
