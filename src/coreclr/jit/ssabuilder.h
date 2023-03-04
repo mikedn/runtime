@@ -8,17 +8,10 @@
 
 class SsaBuilder
 {
-private:
-    inline void EndPhase(Phases phase)
-    {
-        m_pCompiler->EndPhase(phase);
-    }
+public:
+    SsaBuilder(Compiler* pCompiler);
 
     bool IncludeInSsa(unsigned lclNum);
-
-public:
-    // Constructor
-    SsaBuilder(Compiler* pCompiler);
 
     // Requires stmt nodes to be already sequenced in evaluation order. Analyzes the graph
     // for introduction of phi-nodes as GT_PHI tree nodes at the beginning of each block.

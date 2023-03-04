@@ -641,7 +641,7 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
     // Compute dominance frontier.
     BlkToBlkVectorMap mapDF(m_allocator);
     ComputeDominanceFrontiers(postOrder, count, &mapDF);
-    EndPhase(PHASE_BUILD_SSA_DF);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_DF);
 
     // Use the same IDF vector for all blocks to avoid unnecessary memory allocations
     BlkVector blockIDF(m_allocator);
@@ -723,7 +723,7 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
             }
         }
     }
-    EndPhase(PHASE_BUILD_SSA_INSERT_PHIS);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_INSERT_PHIS);
 }
 
 //------------------------------------------------------------------------
@@ -1467,23 +1467,23 @@ void SsaBuilder::Build()
     // Topologically sort the graph.
     int count = TopologicalSort(postOrder, blockCount);
     JITDUMP("[SsaBuilder] Topologically sorted the graph.\n");
-    EndPhase(PHASE_BUILD_SSA_TOPOSORT);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_TOPOSORT);
 
     // Compute IDom(b).
     ComputeImmediateDom(postOrder, count);
 
     m_pCompiler->fgSsaDomTree = m_pCompiler->fgBuildDomTree();
-    EndPhase(PHASE_BUILD_SSA_DOMS);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_DOMS);
 
     // Compute liveness on the graph.
     DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
     m_pCompiler->lvaMarkLivenessTrackedLocals();
     m_pCompiler->fgLocalVarLiveness();
-    EndPhase(PHASE_BUILD_SSA_LIVENESS);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_LIVENESS);
     DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
 
     m_pCompiler->optRemoveRedundantZeroInits();
-    EndPhase(PHASE_ZERO_INITS);
+    m_pCompiler->EndPhase(PHASE_ZERO_INITS);
 
     // Mark all variables that will be tracked by SSA
     for (unsigned lclNum = 0; lclNum < m_pCompiler->lvaCount; lclNum++)
@@ -1496,7 +1496,7 @@ void SsaBuilder::Build()
 
     // Rename local variables and collect UD information for each ssa var.
     RenameVariables();
-    EndPhase(PHASE_BUILD_SSA_RENAME);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_RENAME);
 
 #ifdef DEBUG
     // At this point we are in SSA form. Print the SSA form.
