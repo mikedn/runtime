@@ -2,7 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#include "ssabuilder.h"
+#include "ssarenamestate.h"
 
 // VN based copy propagation
 //

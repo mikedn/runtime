@@ -10,12 +10,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif // _MSC_VER
 #include "hostallocator.h"
 #include "emit.h"
-#include "ssabuilder.h"
 #include "valuenum.h"
 #include "patchpointinfo.h"
 #include "jitstd/algorithm.h"

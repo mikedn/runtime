@@ -75,7 +75,7 @@ class OptBoolsDsc;         // defined in optimizer.cpp
 struct IndentStack;
 #endif
 struct LoopHoistContext;
-
+class SsaBuilder;
 class Lowering; // defined in lower.h
 
 // The following are defined in this file, Compiler.h
