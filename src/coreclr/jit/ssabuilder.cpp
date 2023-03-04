@@ -652,7 +652,7 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
             unsigned lclNum = m_pCompiler->lvaTrackedIndexToLclNum(en.Current());
             DBG_SSA_JITDUMP("  Considering local var V%02u:\n", lclNum);
 
-            if (!m_pCompiler->lvaInSsa(lclNum))
+            if (!m_pCompiler->lvaGetDesc(lclNum)->IsInSsa())
             {
                 DBG_SSA_JITDUMP("  Skipping because it is excluded.\n");
                 continue;
@@ -827,17 +827,14 @@ void SsaBuilder::RenameLclUse(GenTreeLclVarCommon* lclNode)
     assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
     assert((lclNode->gtFlags & GTF_VAR_DEF) == 0);
 
-    unsigned lclNum = lclNode->GetLclNum();
-    unsigned ssaNum;
+    unsigned   lclNum = lclNode->GetLclNum();
+    unsigned   ssaNum = NoSsaNum;
+    LclVarDsc* lcl    = m_pCompiler->lvaGetDesc(lclNum);
 
-    if (!m_pCompiler->lvaInSsa(lclNum))
-    {
-        ssaNum = SsaConfig::RESERVED_SSA_NUM;
-    }
-    else
+    if (lcl->IsInSsa())
     {
         // Promoted variables are not in SSA, only their fields are.
-        assert(!m_pCompiler->lvaGetDesc(lclNum)->lvPromoted);
+        assert(!lcl->IsPromoted());
 
         ssaNum = m_renameStack.Top(lclNum);
     }

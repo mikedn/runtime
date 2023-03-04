@@ -136,7 +136,7 @@ private:
     {
         GenTree* array = arrLen->GetArray();
 
-        if (!array->OperIs(GT_LCL_VAR) || !compiler->lvaInSsa(array->AsLclVar()->GetLclNum()))
+        if (!array->OperIs(GT_LCL_VAR) || !compiler->lvaGetDesc(array->AsLclVar())->IsInSsa())
         {
             return nullptr;
         }

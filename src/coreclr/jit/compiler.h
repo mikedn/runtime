@@ -4030,22 +4030,13 @@ public:
     void lvaUpdateClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
     void lvaUpdateClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
 
+    bool lvaTempsHaveLargerOffsetThanVars();
+
     unsigned lvaGSSecurityCookie = BAD_VAR_NUM; // LclVar number
-    bool     lvaTempsHaveLargerOffsetThanVars();
-
-    // Returns "true" iff local variable "lclNum" is in SSA form.
-    bool lvaInSsa(unsigned lclNum)
-    {
-        assert(lclNum < lvaCount);
-        return lvaTable[lclNum].lvInSsa;
-    }
-
-    unsigned lvaStubArgumentVar = BAD_VAR_NUM; // variable representing the secret stub argument
-
-#if defined(FEATURE_EH_FUNCLETS)
+    unsigned lvaStubArgumentVar  = BAD_VAR_NUM; // variable representing the secret stub argument
+#ifdef FEATURE_EH_FUNCLETS
     unsigned lvaPSPSym = BAD_VAR_NUM; // variable representing the PSPSym
 #endif
-
     unsigned genReturnLocal = BAD_VAR_NUM; // Local number for the return value when applicable.
     unsigned fgLargeFieldOffsetNullCheckTemps[3];
 
