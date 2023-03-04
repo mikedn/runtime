@@ -647,11 +647,9 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
         }
 
         // For each local var number "lclNum" that "block" assigns to...
-        VarSetOps::Iter defVars(m_pCompiler, block->bbVarDef);
-        unsigned        varIndex = 0;
-        while (defVars.NextElem(&varIndex))
+        for (VarSetOps::Enumerator en(m_pCompiler, block->bbVarDef); en.MoveNext();)
         {
-            unsigned lclNum = m_pCompiler->lvaTrackedIndexToLclNum(varIndex);
+            unsigned lclNum = m_pCompiler->lvaTrackedIndexToLclNum(en.Current());
             DBG_SSA_JITDUMP("  Considering local var V%02u:\n", lclNum);
 
             if (!m_pCompiler->lvaInSsa(lclNum))
@@ -667,7 +665,7 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
                                 block->bbNum);
 
                 // Check if variable "lclNum" is live in block "*iterBlk".
-                if (!VarSetOps::IsMember(m_pCompiler, bbInDomFront->bbLiveIn, varIndex))
+                if (!VarSetOps::IsMember(m_pCompiler, bbInDomFront->bbLiveIn, en.Current()))
                 {
                     continue;
                 }
