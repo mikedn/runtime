@@ -4617,13 +4617,7 @@ public:
     ValueNumStore* vnStore = nullptr;
 
 public:
-    ValueNumStore* GetValueNumStore()
-    {
-        return vnStore;
-    }
-
-    // Do value numbering (assign a value number to each
-    // tree node).
+    // Do value numbering (assign a value number to each tree node).
     void fgValueNumber();
 
     void vnComma(GenTreeOp* comma);
