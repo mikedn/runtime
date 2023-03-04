@@ -2699,8 +2699,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 #ifdef OPT_CONFIG
             if (iteration != 0)
             {
-                ResetOptAnnotations();
-                RecomputeLoopInfo();
+                fgSsaReset();
             }
 #endif
 
@@ -2880,68 +2879,6 @@ void Compiler::generatePatchpointInfo()
     // Register this with the runtime.
     info.compCompHnd->setPatchpointInfo(patchpointInfo);
 }
-
-#ifdef OPT_CONFIG
-//------------------------------------------------------------------------
-// ResetOptAnnotations: Clear annotations produced during global optimizations.
-//
-// Notes:
-//    The intent of this method is to clear any information typically assumed
-//    to be set only once; it is used between iterations when JitOptRepeat is
-//    in effect.
-
-void Compiler::ResetOptAnnotations()
-{
-    assert(opts.optRepeat);
-    assert(JitConfig.JitOptRepeatCount() > 0);
-
-    fgResetForSsa();
-
-    ssaForm            = false;
-    vnStore            = nullptr;
-    m_partialSsaDefMap = nullptr;
-
-    for (BasicBlock* const block : Blocks())
-    {
-        block->bbPredsWithEH = nullptr;
-
-        for (Statement* const stmt : block->Statements())
-        {
-            for (GenTree* const tree : stmt->TreeList())
-            {
-                tree->ClearVN();
-            }
-        }
-    }
-}
-
-//------------------------------------------------------------------------
-// RecomputeLoopInfo: Recompute loop annotations between opt-repeat iterations.
-//
-// Notes:
-//    The intent of this method is to update loop structure annotations, and those
-//    they depend on; these annotations may have become stale during optimization,
-//    and need to be up-to-date before running another iteration of optimizations.
-
-void Compiler::RecomputeLoopInfo()
-{
-    assert(opts.optRepeat);
-    assert(JitConfig.JitOptRepeatCount() > 0);
-
-    optLoopCount   = 0;
-    fgDomsComputed = false;
-
-    for (BasicBlock* const block : Blocks())
-    {
-        block->bbFlags &= ~BBF_LOOP_FLAGS;
-        block->bbNatLoopNum = BasicBlock::NOT_IN_LOOP;
-    }
-
-    fgComputeReachability();
-    fgComputeDoms();
-    optFindLoops();
-}
-#endif // OPT_CONFIG
 
 #ifdef DEBUG
 

@@ -69,8 +69,24 @@ void Compiler::fgSsaBuild()
 #endif // DEBUG
 }
 
-void Compiler::fgResetForSsa()
+#ifdef OPT_CONFIG
+
+void Compiler::fgSsaReset()
 {
+    assert(opts.optRepeat);
+    assert(JitConfig.JitOptRepeatCount() > 0);
+
+    fgDomsComputed = false;
+    optLoopCount   = 0;
+    optLoopTable   = nullptr;
+    INDEBUG(fgLocalVarLivenessDone = false;)
+    ssaForm            = false;
+    m_partialSsaDefMap = nullptr;
+    vnStore            = nullptr;
+    vnLoopTable        = nullptr;
+    apAssertionCount   = 0;
+    apAssertionTable   = nullptr;
+
     for (unsigned i = 0; i < lvaCount; ++i)
     {
         lvaTable[i].lvPerSsaData.Reset();
@@ -79,36 +95,50 @@ void Compiler::fgResetForSsa()
     lvMemoryPerSsaData.Reset();
     m_memorySsaMap = nullptr;
 
-    for (BasicBlock* const blk : Blocks())
+    for (BasicBlock* block : Blocks())
     {
-        // Eliminate phis.
+        block->bbFlags &= ~BBF_LOOP_FLAGS;
+        block->bbNatLoopNum       = BasicBlock::NOT_IN_LOOP;
+        block->bbPredsWithEH      = nullptr;
+        block->bbMemorySsaPhiFunc = nullptr;
+        block->bbMemorySsaNumIn   = SsaConfig::RESERVED_SSA_NUM;
+        block->bbMemorySsaNumOut  = SsaConfig::RESERVED_SSA_NUM;
 
-        blk->bbMemorySsaPhiFunc = nullptr;
+        Statement* first = block->FirstNonPhiDef();
 
-        if (blk->bbStmtList != nullptr)
+        if (first == nullptr)
         {
-            Statement* last = blk->lastStmt();
-            blk->bbStmtList = blk->FirstNonPhiDef();
-            if (blk->bbStmtList != nullptr)
-            {
-                blk->bbStmtList->SetPrevStmt(last);
-            }
+            block->bbStmtList = nullptr;
+            continue;
         }
 
-        for (Statement* stmt : blk->Statements())
-        {
-            for (GenTree* tree : stmt->Nodes())
-            {
-                assert(!tree->OperIs(GT_PHI_ARG));
+        Statement* last = block->GetLastStatement();
+        INDEBUG(first->SetPrevStmt(nullptr);)
+        block->SetStatements(first, last);
 
-                if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        for (Statement* stmt : block->Statements())
+        {
+            for (GenTree* node : stmt->Nodes())
+            {
+                assert(!node->OperIs(GT_PHI_ARG));
+
+                node->SetVNs({NoVN, NoVN});
+
+                if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                 {
-                    tree->AsLclVarCommon()->SetSsaNum(SsaConfig::RESERVED_SSA_NUM);
+                    node->AsLclVarCommon()->SetSsaNum(SsaConfig::RESERVED_SSA_NUM);
+                    node->gtFlags &= ~GTF_VAR_FIELD_DEATH_MASK;
                 }
             }
         }
     }
+
+    fgComputeReachability();
+    fgComputeDoms();
+    optFindLoops();
 }
+
+#endif // OPT_CONFIG
 
 /**
  *  Constructor for the SSA builder.

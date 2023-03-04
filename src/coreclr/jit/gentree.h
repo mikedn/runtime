@@ -1082,10 +1082,6 @@ public:
     {
         gtVNPair = vnp;
     }
-    void ClearVN()
-    {
-        gtVNPair = ValueNumPair(); // Initializes both elements to "NoVN".
-    }
 
     GenTreeFlags GetSideEffects() const
     {

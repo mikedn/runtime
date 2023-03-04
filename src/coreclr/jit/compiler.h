@@ -4602,8 +4602,10 @@ public:
     // Performs SSA conversion.
     void fgSsaBuild();
 
+#ifdef OPT_CONFIG
     // Reset any data structures to the state expected by "fgSsaBuild", so it can be run again.
-    void fgResetForSsa();
+    void fgSsaReset();
+#endif
 
     // Returns "true" if this is a special variable that is never zero initialized in the prolog.
     bool lvaIsNeverZeroInitializedInProlog(unsigned lclNum);
@@ -7188,13 +7190,6 @@ protected:
     void compSetProcessor();
     void compInitDebuggingInfo();
     void compSetOptimizationLevel(const ILStats& ilStats);
-
-#ifdef OPT_CONFIG
-    // Clear annotations produced during optimizations; to be used between iterations when repeating opts.
-    void ResetOptAnnotations();
-    // Regenerate loop descriptors; to be used between iterations when repeating opts.
-    void RecomputeLoopInfo();
-#endif
 
 #ifdef PROFILING_SUPPORTED
     // Data required for generating profiler Enter/Leave/TailCall hooks
