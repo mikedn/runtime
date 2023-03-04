@@ -2,24 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #pragma once
-#pragma warning(disable : 4503) // 'identifier' : decorated name length exceeded, name was truncated
 
 #include "compiler.h"
 #include "ssarenamestate.h"
 
 class SsaBuilder
 {
-private:
-    inline void EndPhase(Phases phase)
-    {
-        m_pCompiler->EndPhase(phase);
-    }
+public:
+    SsaBuilder(Compiler* pCompiler);
 
     bool IncludeInSsa(unsigned lclNum);
-
-public:
-    // Constructor
-    SsaBuilder(Compiler* pCompiler);
 
     // Requires stmt nodes to be already sequenced in evaluation order. Analyzes the graph
     // for introduction of phi-nodes as GT_PHI tree nodes at the beginning of each block.
@@ -42,6 +34,8 @@ private:
     // number of nodes visited while sorting the graph. In other words, valid entries in
     // the output array.
     int TopologicalSort(BasicBlock** postOrder, int count);
+
+    static BasicBlock* IntersectDom(BasicBlock* finger1, BasicBlock* finger2);
 
     // Requires "postOrder" to hold the blocks of the flowgraph in topologically sorted
     // order. Requires count to be the valid entries in the "postOrder" array. Computes

@@ -1158,26 +1158,6 @@ GenTree* Importer::gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* pLookup,
 #endif //  DEBUG
     return addr;
 }
-
-GenTreeCall* Compiler::gtNewReadyToRunHelperCallNode(
-    CORINFO_RESOLVED_TOKEN* pResolvedToken,
-    CorInfoHelpFunc         helper,
-    var_types               type,
-    GenTreeCall::Use*       args /* = nullptr */,
-    CORINFO_LOOKUP_KIND*    pGenericLookupKind /* =NULL. Only used with generics */)
-{
-    CORINFO_CONST_LOOKUP lookup;
-    if (!info.compCompHnd->getReadyToRunHelper(pResolvedToken, pGenericLookupKind, helper, &lookup))
-    {
-        return nullptr;
-    }
-
-    GenTreeCall* op1 = gtNewHelperCallNode(helper, type, args);
-
-    op1->setEntryPoint(lookup);
-
-    return op1;
-}
 #endif
 
 GenTree* Importer::impMethodPointer(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo)
@@ -1207,32 +1187,6 @@ GenTree* Importer::impMethodPointer(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
     }
 
     return op1;
-}
-
-GenTree* Compiler::gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
-{
-    // Collectible types requires that for shared generic code, if we use the generic context parameter
-    // that we report it. (This is a conservative approach, we could detect some cases particularly when the
-    // context parameter is this that we don't need the eager reporting logic.)
-    // TODO-MIKE-Review: Shouldn't this be set on the "root" compiler?!
-    lvaGenericsContextInUse = true;
-
-    Compiler* root = impInlineRoot();
-
-    if (kind == CORINFO_LOOKUP_THISOBJ)
-    {
-        GenTree* ctxTree = gtNewLclvNode(root->info.compThisArg, TYP_REF);
-        ctxTree->gtFlags |= GTF_VAR_CONTEXT;
-        // The context is the method table pointer of the this object.
-        return gtNewMethodTableLookup(ctxTree);
-    }
-
-    assert(kind == CORINFO_LOOKUP_METHODPARAM || kind == CORINFO_LOOKUP_CLASSPARAM);
-
-    // Exact method descriptor as passed in.
-    GenTree* ctxTree = gtNewLclvNode(root->info.compTypeCtxtArg, TYP_I_IMPL);
-    ctxTree->gtFlags |= GTF_VAR_CONTEXT;
-    return ctxTree;
 }
 
 /*****************************************************************************/
@@ -1564,7 +1518,7 @@ void Importer::impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned spill
 
 void Importer::SpillCatchArg()
 {
-    assert(handlerGetsXcptnObj(compCurBB->bbCatchTyp));
+    assert(handlerGetsXcptnObj(currentBlock->bbCatchTyp));
     assert(verCurrentState.esStackDepth == 1);
     assert(impStackTop().val->OperIs(GT_CATCH_ARG));
 
@@ -1591,7 +1545,7 @@ void Importer::impSpillLclReferences(unsigned lclNum)
         // to spill assignments to the local if the local is live on entry to the handler.
         // We don't have liveness during import so we simply spill them all.
 
-        bool xcptnCaught = ((tree->gtFlags & (GTF_CALL | GTF_EXCEPT)) != 0) && ehBlockHasExnFlowDsc(compCurBB);
+        bool xcptnCaught = ((tree->gtFlags & (GTF_CALL | GTF_EXCEPT)) != 0) && ehBlockHasExnFlowDsc(currentBlock);
 
         if (xcptnCaught || impHasLclRef(tree, lclNum))
         {
@@ -3018,7 +2972,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             CORINFO_FIELD_HANDLE lengthHnd    = info.compCompHnd->getFieldInClass(clsHnd, 1);
             const unsigned       lengthOffset = info.compCompHnd->getFieldOffset(lengthHnd);
             GenTree* length      = gtNewFieldIndir(TYP_INT, gtNewFieldAddr(spanAddrUses[0], lengthHnd, lengthOffset));
-            GenTree* boundsCheck = gtNewArrBoundsChk(indexUses[0], length, SCK_RNGCHK_FAIL);
+            GenTree* boundsCheck = gtNewArrBoundsChk(indexUses[0], length, ThrowHelperKind::IndexOutOfRange);
             GenTree* indexOffset;
 
             if (GenTreeIntCon* indexConst = index->IsIntCon())
@@ -4456,7 +4410,7 @@ bool Importer::impImportBoxPattern(BoxPattern              pattern,
                 return false;
             }
 
-            sideEffects = impImportPop(compCurBB);
+            sideEffects = impImportPop(currentBlock);
 
             if (sideEffects != nullptr)
             {
@@ -4678,7 +4632,7 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         }
 
         // Remember that this basic block contains 'new' of an object, and so does this method
-        compCurBB->bbFlags |= BBF_HAS_NEWOBJ;
+        currentBlock->bbFlags |= BBF_HAS_NEWOBJ;
         comp->optMethodFlags |= OMF_HAS_NEWOBJ;
 
         GenTree*   asg     = gtNewAssignNode(gtNewLclvNode(impBoxTemp, TYP_REF), op1);
@@ -4939,7 +4893,7 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
     node->AsCall()->compileTimeHelperArgumentHandle = (CORINFO_GENERIC_HANDLE)pResolvedToken->hClass;
 
     // Remember that this basic block contains 'new' of a md array
-    compCurBB->bbFlags |= BBF_HAS_NEWARRAY;
+    currentBlock->bbFlags |= BBF_HAS_NEWARRAY;
 
     impPushOnStack(node, typeInfo(TI_REF, pResolvedToken->hClass));
 }
@@ -5406,7 +5360,7 @@ GenTree* Importer::impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken)
     else
     {
         // Call the shared non gc static helper, as its the fastest
-        node = fgGetSharedCCtor(pResolvedToken->hClass);
+        node = gtNewSharedCctorHelperCall(pResolvedToken->hClass);
     }
 
     return node;
@@ -5614,7 +5568,7 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
             else
 #endif
             {
-                addr = fgGetStaticsCCtorHelper(resolvedToken->hClass, fieldInfo.helper);
+                addr = gtNewSharedStaticsCctorHelperCall(resolvedToken->hClass, fieldInfo.helper);
             }
             break;
         }
@@ -6751,25 +6705,17 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 break;
         }
 
-        //-------------------------------------------------------------------------
-        // Set more flags
-
-        PREFIX_ASSUME(call != nullptr);
-
-        if (mflags & CORINFO_FLG_NOGCCHECK)
+        if ((mflags & CORINFO_FLG_NOGCCHECK) != 0)
         {
             call->gtCallMoreFlags |= GTF_CALL_M_NOGCCHECK;
         }
 
-        // Mark call if it's one of the ones we will maybe treat as an intrinsic
         if (isSpecialIntrinsic)
         {
             call->gtCallMoreFlags |= GTF_CALL_M_SPECIAL_INTRINSIC;
         }
 
-        /* Special case - Check if it is a call to Delegate.Invoke(). */
-
-        if (mflags & CORINFO_FLG_DELEGATE_INVOKE)
+        if ((mflags & CORINFO_FLG_DELEGATE_INVOKE) != 0)
         {
             assert(!(mflags & CORINFO_FLG_STATIC)); // can't call a static method
             assert(mflags & CORINFO_FLG_FINAL);
@@ -6873,7 +6819,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     // inlinees, just checking the call site block is sufficient.
     {
         // New lexical block here to avoid compilation errors because of GOTOs.
-        BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : compCurBB;
+        BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : currentBlock;
         impCheckForPInvokeCall(call, methHnd, sig, mflags, block);
     }
 
@@ -7366,7 +7312,7 @@ void Importer::SetupTailCall(GenTreeCall*            call,
         BADCODE("Stack should be empty after tailcall");
     }
 
-    assert(!isExplicitTailCall || (compCurBB->bbJumpKind == BBJ_RETURN));
+    assert(!isExplicitTailCall || (currentBlock->bbJumpKind == BBJ_RETURN));
 
     // Ask VM for permission to tailcall
     if (tailCallFailReason != nullptr)
@@ -7473,9 +7419,9 @@ void Importer::SetupTailCall(GenTreeCall*            call,
         }
 
         JITDUMP("\nFound recursive tail call. Mark " FMT_BB " to " FMT_BB " as having a backward branch.\n",
-                loopHead->bbNum, compCurBB->bbNum);
+                loopHead->bbNum, currentBlock->bbNum);
 
-        comp->fgMarkBackwardJump(loopHead, compCurBB);
+        comp->fgMarkBackwardJump(loopHead, currentBlock);
     }
 }
 
@@ -8783,7 +8729,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
     // Don't bother with inline expansion when jit is trying to
     // generate code quickly, or the cast is in code that won't run very
     // often, or the method already is pretty big.
-    if (compCurBB->isRunRarely() || opts.OptimizationDisabled())
+    if (currentBlock->isRunRarely() || opts.OptimizationDisabled())
     {
         // not worth the code expansion if jitting fast or in a rarely run block
         shouldExpandInline = false;
@@ -11822,7 +11768,7 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
 
     // Check legality and profitability of inline expansion for unboxing.
     const bool canExpandInline    = (helper == CORINFO_HELP_UNBOX);
-    const bool shouldExpandInline = !compCurBB->isRunRarely() && opts.OptimizationEnabled();
+    const bool shouldExpandInline = !currentBlock->isRunRarely() && opts.OptimizationEnabled();
 
     if (canExpandInline && shouldExpandInline)
     {
@@ -12796,7 +12742,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
         assert(constrainedResolvedToken == nullptr);
 
         // See comment in impCheckForPInvokeCall
-        BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : compCurBB;
+        BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : currentBlock;
 
         if (info.compCompHnd->convertPInvokeCalliToCall(&resolvedToken, !impCanPInvokeInlineCallSite(block)))
         {
@@ -12939,7 +12885,7 @@ bool Importer::impInlineReturnInstruction()
 void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
 {
     assert(!compIsForInlining());
-    assert(compCurBB->bbJumpKind == BBJ_RETURN);
+    assert(currentBlock->bbJumpKind == BBJ_RETURN);
 
     GenTree* ret;
 
@@ -13109,7 +13055,7 @@ void Importer::ImportSingleBlockMethod(BasicBlock* block)
 {
     assert((block == comp->fgFirstBB) && (block->bbNext == nullptr) && ((block->bbFlags & BBF_INTERNAL) == 0));
 
-    compCurBB = block;
+    currentBlock = block;
     impImportBlockCode(block);
     impStmtListEnd(block);
 
@@ -13147,7 +13093,7 @@ void Importer::impImportBlock(BasicBlock* block)
 
     impSetCurrentState(block);
 
-    compCurBB = block;
+    currentBlock = block;
 
     if (((block->bbFlags & BBF_TRY_BEG) != 0) && (verCurrentState.esStackDepth != 0))
     {
@@ -13199,9 +13145,9 @@ void Importer::impImportBlock(BasicBlock* block)
         reimportSpillClique = impSpillStackAtBlockEnd(block);
     }
 
-    // Some of the append/spill logic works on compCurBB
+    // Some of the append/spill logic works on currentBlock
 
-    assert(compCurBB == block);
+    assert(currentBlock == block);
 
     /* Save the tree list in the block */
     impStmtListEnd(block);
@@ -14492,7 +14438,7 @@ bool Importer::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
     assert(compIsForInlining());
     assert(opts.OptEnabled(CLFLG_INLINING));
 
-    BasicBlock* block = compCurBB;
+    BasicBlock* block = currentBlock;
 
     if (block != comp->fgFirstBB)
     {
@@ -14747,28 +14693,17 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
     if (!(methAttr & CORINFO_FLG_FORCEINLINE))
     {
         /* Don't bother inline blocks that are in the filter region */
-        if (bbInCatchHandlerILRange(compCurBB))
+        if (bbInCatchHandlerILRange(currentBlock))
         {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("\nWill not inline blocks that are in the catch handler region\n");
-            }
-
-#endif
+            JITDUMP("\nWill not inline blocks that are in the catch handler region\n");
 
             inlineResult.NoteFatal(InlineObservation::CALLSITE_IS_WITHIN_CATCH);
             return;
         }
 
-        if (bbInFilterILRange(compCurBB))
+        if (bbInFilterILRange(currentBlock))
         {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("\nWill not inline blocks that are in the filter region\n");
-            }
-#endif
+            JITDUMP("\nWill not inline blocks that are in the filter region\n");
 
             inlineResult.NoteFatal(InlineObservation::CALLSITE_IS_WITHIN_FILTER);
             return;
@@ -14796,7 +14731,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
     if (methAttr & CORINFO_FLG_PINVOKE)
     {
         // See comment in impCheckForPInvokeCall
-        BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : compCurBB;
+        BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : currentBlock;
         if (!impCanPInvokeInlineCallSite(block))
         {
             inlineResult.NoteFatal(InlineObservation::CALLSITE_PINVOKE_EH);
@@ -15048,7 +14983,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
             !isLateDevirtualization)
         {
             JITDUMP("\n ... marking [%06u] in " FMT_BB " for class profile instrumentation\n", dspTreeID(call),
-                    compCurBB->bbNum);
+                    importer->currentBlock->bbNum);
             ClassProfileCandidateInfo* pInfo = new (this, CMK_Inlining) ClassProfileCandidateInfo;
 
             // Record some info needed for the class profiling probe.
@@ -15065,7 +15000,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 
             // Flag block as needing scrutiny
             //
-            compCurBB->bbFlags |= BBF_HAS_CLASS_PROFILE;
+            importer->currentBlock->bbFlags |= BBF_HAS_CLASS_PROFILE;
         }
 
         return;
@@ -16087,7 +16022,7 @@ void Importer::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
     }
 
     // Bail if not optimizing or the call site is very likely cold
-    if (compCurBB->isRunRarely() || opts.OptimizationDisabled())
+    if (currentBlock->isRunRarely() || opts.OptimizationDisabled())
     {
         JITDUMP("NOT Marking call [%06u] as guarded devirtualization candidate -- rare / dbg / minopts\n",
                 dspTreeID(call));
@@ -16925,7 +16860,6 @@ Importer::Importer(Compiler* comp)
 #endif
     , opts(comp->opts)
     , info(comp->info)
-    , compCurBB(comp->compCurBB)
     , verCurrentState(comp)
 {
 }
@@ -17321,14 +17255,14 @@ GenTree* Importer::gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
     return comp->gtNewRuntimeContextTree(kind);
 }
 
-GenTreeCall* Importer::fgGetStaticsCCtorHelper(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper)
+GenTreeCall* Importer::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper)
 {
-    return comp->fgGetStaticsCCtorHelper(cls, helper);
+    return comp->gtNewSharedStaticsCctorHelperCall(cls, helper);
 }
 
-GenTreeCall* Importer::fgGetSharedCCtor(CORINFO_CLASS_HANDLE cls)
+GenTreeCall* Importer::gtNewSharedCctorHelperCall(CORINFO_CLASS_HANDLE cls)
 {
-    return comp->fgGetSharedCCtor(cls);
+    return comp->gtNewSharedCctorHelperCall(cls);
 }
 
 CORINFO_CLASS_HANDLE Importer::impGetRefAnyClass()
@@ -17710,7 +17644,7 @@ GenTreeOp* Importer::gtNewAssignNode(GenTree* dst, GenTree* src)
     return comp->gtNewAssignNode(dst, src);
 }
 
-GenTreeBoundsChk* Importer::gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind)
+GenTreeBoundsChk* Importer::gtNewArrBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)
 {
     return comp->gtNewArrBoundsChk(index, length, kind);
 }

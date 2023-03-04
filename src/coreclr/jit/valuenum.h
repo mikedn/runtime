@@ -125,6 +125,25 @@ struct VNFuncApp
 
 class ValueNumStore
 {
+    Compiler*     m_pComp;
+    CompAllocator m_alloc;
+    BasicBlock*   m_currentBlock = nullptr;
+    GenTree*      m_currentNode  = nullptr;
+    // This map tracks nodes whose value numbers explicitly or implicitly depend on memory states.
+    // The map provides the entry block of the most closely enclosing loop that
+    // defines the memory region accessed when defining the nodes's VN.
+    //
+    // This information should be consulted when considering hoisting node out of a loop, as the VN
+    // for the node will only be valid within the indicated loop.
+    //
+    // It is not fine-grained enough to track memory dependence within loops, so cannot be used
+    // for more general code motion.
+    //
+    // If a node does not have an entry in the map we currently assume the VN is not memory dependent
+    // and so memory does not constrain hoisting.
+    //
+    typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, BasicBlock*> NodeToLoopMemoryBlockMap;
+    NodeToLoopMemoryBlockMap* m_nodeToLoopMemoryBlockMap = nullptr;
 
 public:
     // We will reserve "max unsigned" to represent "not a value number", for maps that might start uninitialized.
@@ -161,14 +180,36 @@ public:
         }
     };
 
-private:
-    Compiler* m_pComp;
+    void SetCurrentBlock(BasicBlock* block)
+    {
+        m_currentBlock = block;
+    }
 
-    // For allocations.  (Other things?)
-    CompAllocator m_alloc;
+#ifdef DEBUG
+    BasicBlock* GetCurrentBlock() const
+    {
+        return m_currentBlock;
+    }
+#endif
+
+    void SetCurrentNode(GenTree* node)
+    {
+        m_currentNode = node;
+    }
+
+    BasicBlock* GetLoopMemoryBlock(GenTree* node)
+    {
+        BasicBlock* block;
+        return (m_nodeToLoopMemoryBlockMap != nullptr) && m_nodeToLoopMemoryBlockMap->Lookup(node, &block) ? block
+                                                                                                           : nullptr;
+    }
+
+    void CopyLoopMemoryDependence(GenTree* fromNode, GenTree* toNode);
+
+private:
+    void RecordLoopMemoryDependence(GenTree* tree, BasicBlock* block, ValueNum memoryVN);
 
     // TODO-Cleanup: should transform "attribs" into a struct with bit fields.  That would be simpler...
-
     enum VNFOpAttrib
     {
         VNFOA_IllegalGenTreeOp = 0x1,  // corresponds to a genTreeOps value that is not a legal VN func.
@@ -583,6 +624,7 @@ public:
     // Get a new, unique value number for an expression that we're not equating to some function,
     // which is the value of a tree in the given block.
     ValueNum VNForExpr(BasicBlock* block, var_types typ);
+    ValueNum VNForExpr(var_types typ);
     ValueNum UniqueVN(var_types type);
 
     ValueNum VNForBitCast(ValueNum valueVN, var_types toType);

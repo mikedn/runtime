@@ -23,7 +23,7 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
 {
     GenTree* src = cast->GetOp(0);
 
-    if (src->OperIsConst())
+    if (src->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
     {
         GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
 
@@ -32,9 +32,9 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
             return fgMorphTree(folded);
         }
 
-        if (folded->OperIsConst())
+        if (folded->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
         {
-            return fgMorphConst(folded);
+            return folded;
         }
 
         noway_assert(cast->OperIs(GT_CAST));
@@ -697,7 +697,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
     if (cast->gtOverflow())
     {
-        fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_OVERFLOW);
+        fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
     }
 
     return cast;
@@ -1359,6 +1359,60 @@ unsigned CallInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
     return firstSlot;
 }
 
+#if FEATURE_FIXED_OUT_ARGS
+static bool HasInlineThrowHelperCall(Compiler* compiler, GenTree* tree)
+{
+    if (compiler->fgUseThrowHelperBlocks() || ((tree->gtFlags & GTF_EXCEPT) == 0))
+    {
+        return false;
+    }
+
+    return compiler->fgWalkTreePre(&tree, [](GenTree** use, Compiler::fgWalkData* data) {
+        GenTree* node = *use;
+
+        if ((node->gtFlags & GTF_EXCEPT) == 0)
+        {
+            return Compiler::WALK_SKIP_SUBTREES;
+        }
+
+        switch (node->GetOper())
+        {
+            case GT_MUL:
+            case GT_ADD:
+            case GT_SUB:
+            case GT_CAST:
+                if (node->gtOverflow())
+                {
+                    return Compiler::WALK_ABORT;
+                }
+                break;
+
+            case GT_INDEX_ADDR:
+                if ((node->gtFlags & GTF_INX_RNGCHK) != 0)
+                {
+                    return Compiler::WALK_ABORT;
+                }
+                break;
+
+            case GT_ARR_BOUNDS_CHECK:
+                return Compiler::WALK_ABORT;
+
+            default:
+                break;
+        }
+
+        return Compiler::WALK_CONTINUE;
+    }) == Compiler::WALK_ABORT;
+}
+
+static bool HasLclHeap(Compiler* compiler, GenTree* tree)
+{
+    return compiler->fgWalkTreePre(&tree, [](GenTree** use, Compiler::fgWalkData* data) {
+        return (*use)->OperIs(GT_LCLHEAP) ? Compiler::WALK_ABORT : Compiler::WALK_CONTINUE;
+    }) == Compiler::WALK_ABORT;
+}
+#endif // FEATURE_FIXED_OUT_ARGS
+
 void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 {
     assert(!argsComplete);
@@ -1467,8 +1521,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
         // conservative, but I want to avoid as much special-case debug-only code
         // as possible, so leveraging the GTF_CALL flag is the easiest.
 
-        if (!treatLikeCall && ((arg->gtFlags & GTF_EXCEPT) != 0) && (argCount > 1) && compiler->opts.compDbgCode &&
-            (compiler->fgWalkTreePre(&arg, Compiler::fgChkThrowCB) == Compiler::WALK_ABORT))
+        if (!treatLikeCall && (argCount > 1) && HasInlineThrowHelperCall(compiler, arg))
         {
             for (unsigned otherArgIndex = 0; otherArgIndex < argCount; otherArgIndex++)
             {
@@ -1587,8 +1640,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
             if ((arg->gtFlags & GTF_EXCEPT) != 0)
             {
 #if FEATURE_FIXED_OUT_ARGS
-                // Returns WALK_ABORT if a GT_LCLHEAP node is encountered in the arg tree
-                if (compiler->fgWalkTreePre(&arg, Compiler::fgChkLocAllocCB) == Compiler::WALK_ABORT)
+                if (HasLclHeap(compiler, arg))
 #endif
                 {
                     argInfo->SetTempNeeded();
@@ -3716,7 +3768,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
             // handle very well. On X64 this also reduces the need for REX prefixes.
             var_types newArgType = fieldOffset + fieldSize > 4 ? TYP_LONG : TYP_INT;
 #else
-            var_types newArgType = TYP_INT;
+            var_types newArgType      = TYP_INT;
 #endif
 
             GenTree* field = gtNewLclvNode(fieldLclNum, fieldLcl->GetType());
@@ -5364,7 +5416,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
             noway_assert(index2 != nullptr);
         }
 
-        boundsCheck = gtNewArrBoundsChk(index2, arrLen, SCK_RNGCHK_FAIL);
+        boundsCheck = gtNewArrBoundsChk(index2, arrLen, ThrowHelperKind::IndexOutOfRange);
     }
 
     GenTree* offset = index;
@@ -5817,9 +5869,9 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 //    caller({ double, double, double, double, double, double }) // 48 byte stack
 //    callee(int, int) -- 2 int registers
 
+#if FEATURE_FASTTAILCALL
 bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 {
-#if FEATURE_FASTTAILCALL
     // To reach here means that the return types of the caller and callee are tail call compatible.
     if (callee->IsTailPrefixedCall())
     {
@@ -5995,12 +6047,8 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 
     reportFastTailCallDecision(nullptr);
     return true;
-#else // FEATURE_FASTTAILCALL
-    if (failReason)
-        *failReason = "Fast tailcalls are not supported on this platform";
-    return false;
-#endif
 }
+#endif // FEATURE_FASTTAILCALL
 
 #if FEATURE_FASTTAILCALL && (defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64))
 //------------------------------------------------------------------------
@@ -6181,7 +6229,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
 //    classify which kind of tailcall we are able to (or should) do, along with
 //    modifying the trees to perform that kind of tailcall.
 //
-GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
+GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 {
     // It should either be an explicit (i.e. tail prefixed) or an implicit tail call
     assert(call->IsTailPrefixedCall() ^ call->IsImplicitTailCall());
@@ -6339,14 +6387,19 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         }
     }
 
-    if (!fgCheckStmtAfterTailCall())
+    if (!fgCheckStmtAfterTailCall(stmt))
     {
         failTailCall("Unexpected statements after the tail call");
         return nullptr;
     }
 
+#if FEATURE_FASTTAILCALL
     const char* failReason      = nullptr;
-    bool        canFastTailCall = fgCanFastTailCall(call, &failReason);
+    const bool  canFastTailCall = fgCanFastTailCall(call, &failReason);
+#else
+    const char*       failReason      = "Fast tailcalls are not supported on this platform";
+    constexpr bool    canFastTailCall = false;
+#endif
 
     CORINFO_TAILCALL_HELPERS tailCallHelpers;
 #ifdef TARGET_X86
@@ -6514,31 +6567,29 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     }
 
     // If this block has a flow successor, make suitable updates.
-    //
-    BasicBlock* const nextBlock = compCurBB->GetUniqueSucc();
+    BasicBlock*       callBlock = fgMorphBlock;
+    BasicBlock* const nextBlock = callBlock->GetUniqueSucc();
 
     if (nextBlock == nullptr)
     {
-        // No unique successor. compCurBB should be a return.
-        //
-        assert(compCurBB->bbJumpKind == BBJ_RETURN);
+        assert(callBlock->bbJumpKind == BBJ_RETURN);
     }
     else
     {
         // Flow no longer reaches nextBlock from here.
         //
-        fgRemoveRefPred(nextBlock, compCurBB);
+        fgRemoveRefPred(nextBlock, callBlock);
 
         // Adjust profile weights.
         //
         // Note if this is a tail call to loop, further updates
         // are needed once we install the loop edge.
         //
-        if (compCurBB->hasProfileWeight() && nextBlock->hasProfileWeight())
+        if (callBlock->hasProfileWeight() && nextBlock->hasProfileWeight())
         {
             // Since we have linear flow we can update the next block weight.
             //
-            BasicBlock::weight_t const blockWeight   = compCurBB->bbWeight;
+            BasicBlock::weight_t const blockWeight   = callBlock->bbWeight;
             BasicBlock::weight_t const nextWeight    = nextBlock->bbWeight;
             BasicBlock::weight_t const newNextWeight = nextWeight - blockWeight;
 
@@ -6559,7 +6610,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             {
                 JITDUMP("Not reducing profile weight of " FMT_BB " as its weight " FMT_WT
                         " is less than direct flow pred " FMT_BB " weight " FMT_WT "\n",
-                        nextBlock->bbNum, nextWeight, compCurBB->bbNum, blockWeight);
+                        nextBlock->bbNum, nextWeight, callBlock->bbNum, blockWeight);
             }
 
             // If nextBlock is not a BBJ_RETURN, it should have a unique successor that
@@ -6629,7 +6680,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
                     {
                         JITDUMP("Not reducing profile weight of " FMT_BB " as its weight " FMT_WT
                                 " is less than direct flow pred " FMT_BB " weight " FMT_WT "\n",
-                                nextNextBlock->bbNum, nextNextWeight, compCurBB->bbNum, blockWeight);
+                                nextNextBlock->bbNum, nextNextWeight, callBlock->bbNum, blockWeight);
                     }
                 }
             }
@@ -6645,10 +6696,10 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         // Many tailcalls will have call and ret in the same block, and thus be
         // BBJ_RETURN, but if the call falls through to a ret, and we are doing a
         // tailcall, change it here.
-        compCurBB->bbJumpKind = BBJ_RETURN;
+        callBlock->bbJumpKind = BBJ_RETURN;
     }
 
-    GenTree* stmtExpr = fgMorphStmt->GetRootNode();
+    GenTree* stmtExpr = stmt->GetRootNode();
 
 #ifdef DEBUG
     // Tail call needs to be in one of the following IR forms
@@ -6693,126 +6744,127 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     }
 #endif
 
-    GenTree* result;
-
     if (!canFastTailCall X86_ONLY(&&!tailCallViaJitHelper))
     {
         // For tailcall via CORINFO_TAILCALL_HELPERS we transform into regular
         // calls with (to the JIT) regular control flow so we do not need to do
         // much special handling.
-        result = fgMorphTailCallViaHelpers(call, tailCallHelpers);
+
+        return fgMorphTailCallViaHelpers(call, tailCallHelpers, stmt);
+    }
+
+    // Otherwise we will transform into something that does not return. For
+    // fast tailcalls a "jump" and for tailcall via JIT helper a call to a
+    // JIT helper that does not return. So peel off everything after the
+    // call.
+    Statement* nextMorphStmt = stmt->GetNextStmt();
+    JITDUMP("Remove all stmts after the call.\n");
+    while (nextMorphStmt != nullptr)
+    {
+        Statement* stmtToRemove = nextMorphStmt;
+        nextMorphStmt           = stmtToRemove->GetNextStmt();
+        fgRemoveStmt(callBlock, stmtToRemove);
+    }
+
+    bool     isRootReplaced = false;
+    GenTree* root           = stmt->GetRootNode();
+
+    if (root != call)
+    {
+        JITDUMP("Replace root node [%06d] with [%06d] tail call node.\n", dspTreeID(root), dspTreeID(call));
+        isRootReplaced = true;
+        stmt->SetRootNode(call);
+    }
+
+    var_types retType = call->GetType();
+
+    // Avoid potential extra work for the return (for example, vzeroupper)
+    call->SetType(TYP_VOID);
+    call->SetRetSigType(TYP_VOID);
+    call->SetRetLayout(nullptr);
+    call->GetRetDesc()->Reset();
+
+#ifdef TARGET_X86
+    static_assert_no_msg(!canFastTailCall);
+    assert(tailCallViaJitHelper);
+
+    fgMorphTailCallViaJitHelper(call);
+
+    // Force re-evaluating the argInfo. fgMorphTailCallViaJitHelper will
+    // modify the argument list, invalidating the argInfo.
+    call->fgArgInfo = nullptr;
+
+    // Tail call via JIT helper: The VM can't use return address hijacking
+    // if we're not going to return and the helper doesn't have enough info
+    // to safely poll, so we poll before the tail call, if the block isn't
+    // already safe. Since tail call via helper is a slow mechanism it
+    // doen't matter whether we emit GC poll. his is done to be in parity
+    // with Jit64. Also this avoids GC info size increase if all most all
+    // methods are expected to be tail calls (e.g. F#).
+    //
+    // Note that we can avoid emitting GC-poll if we know that the current
+    // BB is dominated by a Gc-SafePoint block. But we don't have dominator
+    // info at this point. One option is to just add a place holder node for
+    // GC-poll (e.g. GT_GCPOLL) here and remove it in lowering if the block
+    // is dominated by a GC-SafePoint. For now it not clear whether
+    // optimizing slow tail calls is worth the effort. As a low cost check,
+    // we check whether the first and current basic blocks are GC-SafePoints.
+
+    BasicBlock* newCallBlock = callBlock;
+
+    if (!fgFirstBB->HasGCSafePoint() && !callBlock->HasGCSafePoint())
+    {
+        newCallBlock = fgCreateGCPoll(GCPOLL_INLINE, callBlock);
+    }
+
+    if (newCallBlock == callBlock)
+    {
+        // We didn't insert a poll block, so we need to morph the call now
+        // (normally it will get morphed when we get to the poll block).
+        GenTree* temp = fgMorphCall(call, stmt);
+        noway_assert(temp == call);
     }
     else
     {
-        // Otherwise we will transform into something that does not return. For
-        // fast tailcalls a "jump" and for tailcall via JIT helper a call to a
-        // JIT helper that does not return. So peel off everything after the
-        // call.
-        Statement* nextMorphStmt = fgMorphStmt->GetNextStmt();
-        JITDUMP("Remove all stmts after the call.\n");
-        while (nextMorphStmt != nullptr)
-        {
-            Statement* stmtToRemove = nextMorphStmt;
-            nextMorphStmt           = stmtToRemove->GetNextStmt();
-            fgRemoveStmt(compCurBB, stmtToRemove);
-        }
-
-        bool     isRootReplaced = false;
-        GenTree* root           = fgMorphStmt->GetRootNode();
-
-        if (root != call)
-        {
-            JITDUMP("Replace root node [%06d] with [%06d] tail call node.\n", dspTreeID(root), dspTreeID(call));
-            isRootReplaced = true;
-            fgMorphStmt->SetRootNode(call);
-        }
-
-        var_types retType = call->GetType();
-
-        // Avoid potential extra work for the return (for example, vzeroupper)
-        call->SetType(TYP_VOID);
-        call->SetRetSigType(TYP_VOID);
-        call->SetRetLayout(nullptr);
-        call->GetRetDesc()->Reset();
-
-#ifdef TARGET_X86
-        if (tailCallViaJitHelper)
-        {
-            fgMorphTailCallViaJitHelper(call);
-
-            // Force re-evaluating the argInfo. fgMorphTailCallViaJitHelper will modify the
-            // argument list, invalidating the argInfo.
-            call->fgArgInfo = nullptr;
-        }
-#endif
-
-        // Tail call via JIT helper: The VM can't use return address hijacking
-        // if we're not going to return and the helper doesn't have enough info
-        // to safely poll, so we poll before the tail call, if the block isn't
-        // already safe. Since tail call via helper is a slow mechanism it
-        // doen't matter whether we emit GC poll. his is done to be in parity
-        // with Jit64. Also this avoids GC info size increase if all most all
-        // methods are expected to be tail calls (e.g. F#).
-        //
-        // Note that we can avoid emitting GC-poll if we know that the current
-        // BB is dominated by a Gc-SafePoint block. But we don't have dominator
-        // info at this point. One option is to just add a place holder node for
-        // GC-poll (e.g. GT_GCPOLL) here and remove it in lowering if the block
-        // is dominated by a GC-SafePoint. For now it not clear whether
-        // optimizing slow tail calls is worth the effort. As a low cost check,
-        // we check whether the first and current basic blocks are
-        // GC-SafePoints.
-        //
-        // Fast Tail call as epilog+jmp - No need to insert GC-poll. Instead,
-        // fgSetBlockOrder() is going to mark the method as fully interruptible
-        // if the block containing this tail call is reachable without executing
-        // any call.
-        BasicBlock* curBlock = compCurBB;
-        if (canFastTailCall || (fgFirstBB->bbFlags & BBF_GC_SAFE_POINT) || (compCurBB->bbFlags & BBF_GC_SAFE_POINT) ||
-            (fgCreateGCPoll(GCPOLL_INLINE, compCurBB) == curBlock))
-        {
-            // We didn't insert a poll block, so we need to morph the call now
-            // (Normally it will get morphed when we get to the split poll block)
-            GenTree* temp = fgMorphCall(call);
-            noway_assert(temp == call);
-        }
-
-        // Fast tail call: in case of fast tail calls, we need a jmp epilog and
-        // hence mark it as BBJ_RETURN with BBF_JMP flag set.
-        noway_assert(compCurBB->bbJumpKind == BBJ_RETURN);
-        if (canFastTailCall)
-        {
-            compCurBB->bbFlags |= BBF_HAS_JMP;
-        }
-        else
-        {
-            // We call CORINFO_HELP_TAILCALL which does not return, so we will
-            // not need epilogue.
-            compCurBB->bbJumpKind = BBJ_THROW;
-        }
-
-        if (isRootReplaced)
-        {
-            // We have replaced the root node of this stmt and deleted the rest,
-            // but we still have the deleted, dead nodes on the `fgMorph*` stack
-            // if the root node was an `ASG`, `RET` or `CAST`.
-            // Return a zero con node to exit morphing of the old trees without asserts
-            // and forbid POST_ORDER morphing doing something wrong with our call.
-
-            if (varTypeIsStruct(retType))
-            {
-                retType = TYP_INT;
-            }
-
-            result = fgMorphTree(gtNewZeroConNode(retType));
-        }
-        else
-        {
-            result = call;
-        }
+        // fgCreateGCPoll has created new blocks and moved the call to one of them.
+        callBlock    = newCallBlock;
+        fgMorphBlock = callBlock;
     }
 
-    return result;
+    noway_assert(callBlock->bbJumpKind == BBJ_RETURN);
+
+    // We call CORINFO_HELP_TAILCALL which does not return, so we will
+    // not need epilogue.
+    callBlock->bbJumpKind = BBJ_THROW;
+#else
+    // Fast Tail call as epilog + jmp - No need to insert GC-poll. Instead,
+    // fgSetFullyInterruptiblePhase is going to mark the method as fully
+    // interruptible if the block containing this tail call is reachable
+    // without executing any call.
+
+    GenTree* temp = fgMorphCall(call, stmt);
+    noway_assert(temp == call);
+    noway_assert(callBlock->bbJumpKind == BBJ_RETURN);
+    callBlock->bbFlags |= BBF_HAS_JMP;
+#endif
+
+    if (isRootReplaced)
+    {
+        // We have replaced the root node of this stmt and deleted the rest,
+        // but we still have the deleted, dead nodes on the `fgMorph*` stack
+        // if the root node was an `ASG`, `RET` or `CAST`.
+        // Return a zero con node to exit morphing of the old trees without asserts
+        // and forbid POST_ORDER morphing doing something wrong with our call.
+
+        if (varTypeIsStruct(retType))
+        {
+            retType = TYP_INT;
+        }
+
+        return fgMorphTree(gtNewZeroConNode(retType));
+    }
+
+    return call;
 }
 
 //------------------------------------------------------------------------
@@ -6847,7 +6899,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
 // whenever the call node returns a value. If the call node does not return a
 // value the last comma will not be there.
 //
-GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL_HELPERS& help)
+GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL_HELPERS& help, Statement* stmt)
 {
     // R2R requires different handling but we don't support tailcall via
     // helpers in R2R yet, so just leave it for now.
@@ -6883,7 +6935,8 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
         call->gtFlags &= ~GTF_CALL_VIRT_STUB;
     }
 
-    GenTree* callDispatcherAndGetResult = fgCreateCallDispatcherAndGetResult(call, help.hCallTarget, help.hDispatcher);
+    GenTree* callDispatcherAndGetResult =
+        fgCreateCallDispatcherAndGetResult(call, help.hCallTarget, help.hDispatcher, stmt);
 
     // Change the call to a call to the StoreArgs stub.
     if (call->HasRetBufArg())
@@ -7104,9 +7157,10 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
 //
 GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          origCall,
                                                       CORINFO_METHOD_HANDLE callTargetStubHnd,
-                                                      CORINFO_METHOD_HANDLE dispatcherHnd)
+                                                      CORINFO_METHOD_HANDLE dispatcherHnd,
+                                                      Statement*            stmt)
 {
-    GenTreeCall* callDispatcherNode = gtNewUserCallNode(dispatcherHnd, TYP_VOID, nullptr, fgMorphStmt->GetILOffsetX());
+    GenTreeCall* callDispatcherNode = gtNewUserCallNode(dispatcherHnd, TYP_VOID, nullptr, stmt->GetILOffsetX());
     // The dispatcher has signature
     // void DispatchTailCalls(void* callersRetAddrSlot, void* callTarget, void* retValue)
 
@@ -7915,11 +7969,36 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
     return paramAssignStmt;
 }
 
-GenTree* Compiler::fgMorphCall(GenTreeCall* call)
+bool Compiler::IsCallGCSafePoint(GenTreeCall* call)
+{
+    if (call->IsFastTailCall())
+    {
+        return false;
+    }
+
+    if (call->IsUnmanaged() && call->IsSuppressGCTransition())
+    {
+        return false;
+    }
+
+    if (call->IsIndirectCall())
+    {
+        return true;
+    }
+
+    if (call->IsUserCall() && ((call->gtCallMoreFlags & GTF_CALL_M_NOGCCHECK) == 0))
+    {
+        return true;
+    }
+
+    return false;
+}
+
+GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
 {
     if (call->CanTailCall())
     {
-        GenTree* newNode = fgMorphPotentialTailCall(call);
+        GenTree* newNode = fgMorphPotentialTailCall(call, stmt);
         if (newNode != nullptr)
         {
             return newNode;
@@ -7928,13 +8007,13 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         assert(!call->CanTailCall());
     }
 
-    if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) == 0 &&
-        (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_VIRTUAL_FUNC_PTR)
+    if (((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) == 0) &&
+        ((call->GetMethodHandle() == eeFindHelper(CORINFO_HELP_VIRTUAL_FUNC_PTR))
 #ifdef FEATURE_READYTORUN_COMPILER
-         || call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_READYTORUN_VIRTUAL_FUNC_PTR)
+         || (call->GetMethodHandle() == eeFindHelper(CORINFO_HELP_READYTORUN_VIRTUAL_FUNC_PTR))
 #endif
              ) &&
-        (call == fgMorphStmt->GetRootNode()))
+        (stmt != nullptr) && (call == stmt->GetRootNode()))
     {
         // This is call to CORINFO_HELP_VIRTUAL_FUNC_PTR with ignored result.
         // Transform it into a null check.
@@ -7944,10 +8023,11 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         return fgMorphTree(gtNewNullCheck(thisPtr));
     }
 
-    noway_assert(call->gtOper == GT_CALL);
-
     if (fgGlobalMorph)
     {
+        // TODO-MIKE-Cleanup: This should be moved to lowering (or LSRA's "build",
+        // only rpMustCreateEBPFrame needs it and doing it here is premature as
+        // calls can be removed later.
         if (call->IsIndirectCall())
         {
             optCallCount++;
@@ -7964,13 +8044,15 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         }
     }
 
+    BasicBlock* callBlock = fgMorphBlock;
+
     // Mark the block as a GC safe point for the call if possible.
     // In the event the call indicates the block isn't a GC safe point
     // and the call is unmanaged with a GC transition suppression request
     // then insert a GC poll.
-    if (IsGcSafePoint(call))
+    if (IsCallGCSafePoint(call))
     {
-        compCurBB->bbFlags |= BBF_GC_SAFE_POINT;
+        callBlock->bbFlags |= BBF_GC_SAFE_POINT;
     }
 
     // Regardless of the state of the basic block with respect to GC safe point,
@@ -7978,7 +8060,7 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
     // transition. Only mark the block for GC Poll insertion on the first morph.
     if (fgGlobalMorph && call->IsUnmanaged() && call->IsSuppressGCTransition())
     {
-        compCurBB->bbFlags |= (BBF_HAS_SUPPRESSGC_CALL | BBF_GC_SAFE_POINT);
+        callBlock->bbFlags |= (BBF_HAS_SUPPRESSGC_CALL | BBF_GC_SAFE_POINT);
         optMethodFlags |= OMF_NEEDS_GCPOLLS;
     }
 
@@ -7986,6 +8068,9 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
     // We need to do these before the arguments are morphed.
     if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0)
     {
+        // TODO-MIKE-Review: Hrm, above we already marked the block as
+        // containing a GC safe point and are we removing the call?!?
+
         GenTree* optTree = gtFoldExprCall(call);
 
         if (optTree != call)
@@ -7999,10 +8084,9 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
     // Note that there is code below that can remove the call, but we're still setting
     // this flag here. Also note that INTRINSIC nodes may become calls but we don't set
     // this flag for those, that may affect CSE.
-    compCurBB->bbFlags |= BBF_HAS_CALL;
+    callBlock->bbFlags |= BBF_HAS_CALL;
 
     fgMorphArgs(call);
-    assert(call->OperIs(GT_CALL));
 
     if (call->IsExpandedEarly() && call->IsVirtualVtable())
     {
@@ -8239,44 +8323,28 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
     return result;
 }
 
-/*****************************************************************************
- *
- *  Transform the given GTK_CONST tree for code generation.
- */
-
-GenTree* Compiler::fgMorphConst(GenTree* tree)
+GenTree* Compiler::fgMorphStrCon(GenTreeStrCon* tree, Statement* stmt, BasicBlock* block)
 {
-    assert(tree->OperIsConst());
+    assert(fgGlobalMorph);
 
-    /* Clear any exception flags or other unnecessary flags
-     * that may have been set before folding this node to a constant */
-
-    tree->gtFlags &= ~(GTF_ALL_EFFECT | GTF_REVERSE_OPS);
-
-    if (tree->OperGet() != GT_CNS_STR)
-    {
-        return tree;
-    }
-
-    // TODO-CQ: Do this for compCurBB->isRunRarely(). Doing that currently will
+    // TODO-CQ: Do this for block->isRunRarely(). Doing that currently will
     // guarantee slow performance for that block. Instead cache the return value
     // of CORINFO_HELP_STRCNS and go to cache first giving reasonable perf.
 
     bool useLazyStrCns = false;
-    if (compCurBB->bbJumpKind == BBJ_THROW)
+    if (block->bbJumpKind == BBJ_THROW)
     {
         useLazyStrCns = true;
     }
-    else if (fgGlobalMorph && compCurStmt->GetRootNode()->IsCall())
+    else if (GenTreeCall* call = stmt->GetRootNode()->IsCall())
     {
         // Quick check: if the root node of the current statement happens to be a noreturn call.
-        GenTreeCall* call = compCurStmt->GetRootNode()->AsCall();
-        useLazyStrCns     = call->IsNoReturn() || fgIsThrow(call);
+        useLazyStrCns = call->IsNoReturn() || fgIsThrow(call);
     }
 
     if (useLazyStrCns)
     {
-        CorInfoHelpFunc helper = info.compCompHnd->getLazyStringLiteralHelper(tree->AsStrCon()->gtScpHnd);
+        CorInfoHelpFunc helper = info.compCompHnd->getLazyStringLiteralHelper(tree->gtScpHnd);
         if (helper != CORINFO_HELP_UNDEF)
         {
             // For un-important blocks, we want to construct the string lazily
@@ -8284,28 +8352,24 @@ GenTree* Compiler::fgMorphConst(GenTree* tree)
             GenTreeCall::Use* args;
             if (helper == CORINFO_HELP_STRCNS_CURRENT_MODULE)
             {
-                args = gtNewCallArgs(gtNewIconNode(RidFromToken(tree->AsStrCon()->gtSconCPX), TYP_INT));
+                args = gtNewCallArgs(gtNewIconNode(RidFromToken(tree->gtSconCPX), TYP_INT));
             }
             else
             {
-                args = gtNewCallArgs(gtNewIconNode(RidFromToken(tree->AsStrCon()->gtSconCPX), TYP_INT),
-                                     gtNewIconEmbScpHndNode(tree->AsStrCon()->gtScpHnd));
+                args = gtNewCallArgs(gtNewIconNode(RidFromToken(tree->gtSconCPX), TYP_INT),
+                                     gtNewIconEmbScpHndNode(tree->gtScpHnd));
             }
 
-            tree = gtNewHelperCallNode(helper, TYP_REF, args);
-            return fgMorphTree(tree);
+            return fgMorphTree(gtNewHelperCallNode(helper, TYP_REF, args));
         }
     }
 
-    assert(tree->AsStrCon()->gtScpHnd == info.compScopeHnd || !IsUninitialized(tree->AsStrCon()->gtScpHnd));
+    assert(tree->gtScpHnd == info.compScopeHnd || !IsUninitialized(tree->gtScpHnd));
 
     LPVOID         pValue;
-    InfoAccessType iat =
-        info.compCompHnd->constructStringLiteral(tree->AsStrCon()->gtScpHnd, tree->AsStrCon()->gtSconCPX, &pValue);
+    InfoAccessType iat = info.compCompHnd->constructStringLiteral(tree->gtScpHnd, tree->gtSconCPX, &pValue);
 
-    tree = gtNewStringLiteralNode(iat, pValue);
-
-    return fgMorphTree(tree);
+    return fgMorphTree(gtNewStringLiteralNode(iat, pValue));
 }
 
 GenTree* Compiler::fgMorphLeaf(GenTree* tree)
@@ -10055,6 +10119,8 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         qmark->SetType(varActualType(elseExpr->GetType()));
     }
 
+    compQmarkUsed = true;
+
     return qmark;
 }
 
@@ -10775,6 +10841,8 @@ DONE_MORPHING_CHILDREN:
     op1 = tree->AsOp()->gtOp1;
     op2 = tree->gtGetOp2IfPresent();
 
+    BasicBlock* currentBlock = fgMorphBlock;
+
     // Perform the required oper-specific postorder morphing
     switch (oper)
     {
@@ -11423,20 +11491,18 @@ DONE_MORPHING_CHILDREN:
 
 #ifdef TARGET_ARM64
         case GT_DIV:
-            // Codegen for this instruction needs to be able to throw two exceptions:
-            fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_OVERFLOW);
-            fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_DIV_BY_ZERO);
+            fgGetThrowHelperBlock(ThrowHelperKind::Overflow, currentBlock);
+            fgGetThrowHelperBlock(ThrowHelperKind::DivideByZero, currentBlock);
             break;
         case GT_UDIV:
-            // Codegen for this instruction needs to be able to throw one exception:
-            fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_DIV_BY_ZERO);
+            fgGetThrowHelperBlock(ThrowHelperKind::DivideByZero, currentBlock);
             break;
 #endif
 
         case GT_SUB:
             if (tree->gtOverflow())
             {
-                fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_OVERFLOW);
+                fgGetThrowHelperBlock(ThrowHelperKind::Overflow, currentBlock);
                 break;
             }
 
@@ -11535,7 +11601,7 @@ DONE_MORPHING_CHILDREN:
         case GT_ADD:
             if (tree->gtOverflow())
             {
-                fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_OVERFLOW);
+                fgGetThrowHelperBlock(ThrowHelperKind::Overflow, currentBlock);
                 break;
             }
         CM_ADD_OP:
@@ -11866,10 +11932,8 @@ DONE_MORPHING_CHILDREN:
             break;
 
         case GT_CKFINITE:
-
-            noway_assert(varTypeIsFloating(op1->TypeGet()));
-
-            fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_ARITH_EXCPN);
+            noway_assert(varTypeIsFloating(op1->GetType()));
+            fgGetThrowHelperBlock(ThrowHelperKind::Arithmetic, currentBlock);
             break;
 
         case GT_INDEX_ADDR:
@@ -11879,7 +11943,8 @@ DONE_MORPHING_CHILDREN:
 
             if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
             {
-                tree->AsIndexAddr()->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL));
+                tree->AsIndexAddr()->SetThrowBlock(
+                    fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, currentBlock));
                 tree->AddSideEffects(GTF_EXCEPT);
             }
             break;
@@ -13333,31 +13398,31 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 #endif
     }
 
-    /* Save the original un-morphed tree for fgMorphTreeDone */
-
-    GenTree* oldTree = tree;
-
-    /* Figure out what kind of a node we have */
+    // Save the original un-morphed tree for fgMorphTreeDone.
+    GenTree*    oldTree      = tree;
+    BasicBlock* currentBlock = fgMorphBlock;
 
     unsigned kind = tree->OperKind();
 
-    /* Is this a constant node? */
-
-    if (tree->OperIsConst())
-    {
-        tree = fgMorphConst(tree);
-        goto DONE;
-    }
-
-    /* Is this a leaf node? */
-
     if (kind & GTK_LEAF)
     {
-        tree = fgMorphLeaf(tree);
+        if (tree->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
+        {
+            // Clear any exception flags or other unnecessary flags that
+            // may have been set before folding this node to a constant.
+            tree->gtFlags &= ~(GTF_ALL_EFFECT | GTF_REVERSE_OPS);
+        }
+        else if (GenTreeStrCon* str = tree->IsStrCon())
+        {
+            tree = fgMorphStrCon(str, fgGlobalMorphStmt, currentBlock);
+        }
+        else
+        {
+            tree = fgMorphLeaf(tree);
+        }
+
         goto DONE;
     }
-
-    /* Is it a 'simple' unary/binary operator? */
 
     if (kind & GTK_SMPOP)
     {
@@ -13365,9 +13430,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         goto DONE;
     }
 
-    /* See what kind of a special operator we have here */
-
-    switch (tree->OperGet())
+    switch (tree->GetOper())
     {
         case GT_QMARK:
             tree = fgMorphQmark(tree->AsQmark(), mac);
@@ -13382,7 +13445,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             {
                 tree->gtFlags &= ~GTF_EXCEPT;
             }
-            tree = fgMorphCall(tree->AsCall());
+            tree = fgMorphCall(tree->AsCall(), fgGlobalMorphStmt);
             break;
 
         case GT_ARR_BOUNDS_CHECK:
@@ -13418,7 +13481,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
                 if (opts.MinOpts())
                 {
-                    check->SetThrowBlock(fgGetRngChkTarget(compCurBB, check->GetThrowKind()));
+                    check->SetThrowBlock(fgGetThrowHelperBlock(check->GetThrowKind(), currentBlock));
                 }
             }
         }
@@ -13444,7 +13507,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
             if (fgGlobalMorph)
             {
-                fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL);
+                fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, currentBlock);
             }
             break;
 
@@ -14013,8 +14076,7 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
 
     // Reset some ambient state
     fgRemoveRestOfBlock = false;
-    compCurBB           = block;
-    compCurStmt         = stmt;
+    fgMorphBlock        = block;
 
     GenTree* morph = fgMorphTree(stmt->GetRootNode());
 
@@ -14125,6 +14187,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
     assert(fgGlobalMorph);
 
     fgRemoveRestOfBlock = false;
+    fgMorphBlock        = block;
 
     for (Statement* const stmt : block->Statements())
     {
@@ -14134,8 +14197,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
             continue;
         }
 
-        fgMorphStmt = stmt;
-        compCurStmt = stmt;
+        fgGlobalMorphStmt = stmt;
 
 #ifdef DEBUG
         unsigned oldHash = verbose ? gtHashValue(stmt->GetRootNode()) : DUMMY_INIT(~0);
@@ -14151,21 +14213,17 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         fgMorphIndirectParams(stmt);
 #endif
 
-        GenTree* oldTree = stmt->GetRootNode();
-
-        /* Morph this statement tree */
-
+        GenTree* oldTree     = stmt->GetRootNode();
         GenTree* morphedTree = fgMorphTree(oldTree);
 
-// mark any outgoing arg temps as free so we can reuse them in the next statement.
-
 #ifndef TARGET_X86
+        // Mark any outgoing arg temps as free so we can reuse them in the next statement.
         abiFreeAllStructArgTemps();
 #endif
 
-        // Has fgMorphStmt been sneakily changed ?
+        BasicBlock* currentBlock = fgMorphBlock;
 
-        if ((stmt->GetRootNode() != oldTree) || (block != compCurBB))
+        if ((stmt->GetRootNode() != oldTree) || (block != currentBlock))
         {
             if (stmt->GetRootNode() != oldTree)
             {
@@ -14193,10 +14251,10 @@ void Compiler::fgMorphStmts(BasicBlock* block)
             //   - a tail call dispatched via runtime help (IL stubs), in which
             //   case there will not be any tailcall and the block will be ending
             //   with BBJ_RETURN (as normal control flow)
-            noway_assert((call->IsFastTailCall() && (compCurBB->bbJumpKind == BBJ_RETURN) &&
-                          ((compCurBB->bbFlags & BBF_HAS_JMP)) != 0) ||
-                         X86_ONLY((call->IsTailCallViaJitHelper() && (compCurBB->bbJumpKind == BBJ_THROW)) ||)(
-                             !call->IsTailCall() && (compCurBB->bbJumpKind == BBJ_RETURN)));
+            noway_assert((call->IsFastTailCall() && (currentBlock->bbJumpKind == BBJ_RETURN) &&
+                          ((currentBlock->bbFlags & BBF_HAS_JMP)) != 0) ||
+                         X86_ONLY((call->IsTailCallViaJitHelper() && (currentBlock->bbJumpKind == BBJ_THROW)) ||)(
+                             !call->IsTailCall() && (currentBlock->bbJumpKind == BBJ_RETURN)));
         }
 
 #ifdef DEBUG
@@ -14256,17 +14314,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
             continue;
         }
 
-        /* Check if this block ends with a conditional branch that can be folded */
-
-        if (fgFoldConditional(block))
-        {
-            continue;
-        }
-
-        if (ehBlockHasExnFlowDsc(block))
-        {
-            continue;
-        }
+        fgFoldConditional(block);
     }
 
     if (fgRemoveRestOfBlock)
@@ -14299,10 +14347,9 @@ void Compiler::fgMorphStmts(BasicBlock* block)
     }
 
 #if FEATURE_FASTTAILCALL
-    GenTree* recursiveTailCall = nullptr;
-    if (block->endsWithTailCallConvertibleToLoop(this, &recursiveTailCall))
+    if (GenTreeCall* recursiveTailCall = block->EndsWithTailCallConvertibleToLoop(this))
     {
-        fgMorphRecursiveFastTailCallIntoLoop(block, recursiveTailCall->AsCall());
+        fgMorphRecursiveFastTailCallIntoLoop(block, recursiveTailCall);
     }
 #endif
 
@@ -14310,27 +14357,52 @@ void Compiler::fgMorphStmts(BasicBlock* block)
     fgRemoveRestOfBlock = false;
 }
 
-/*****************************************************************************
- *
- *  Morph the blocks of the method.
- *  Returns true if the basic block list is modified.
- *  This function should be called just once.
- */
+void Compiler::phMorph()
+{
+    unsigned prevBBCount = fgBBcount;
+
+    // Since fgMorphTree can be called after various optimizations to re-arrange
+    // the nodes we need a global flag to signal if we are during the one-pass
+    // global morphing.
+    fgGlobalMorph = true;
+
+    fgMorphBlocks();
+
+    // We are done with the global morphing phase
+    fgGlobalMorph     = false;
+    fgGlobalMorphStmt = nullptr;
+    fgMorphBlock      = nullptr;
+
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+    // Fix any LclVar annotations on discarded struct promotion temps for implicit by-ref params
+    lvaDemoteImplicitByRefParams();
+    lvaRefCountState = RCS_INVALID;
+#endif
+
+#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+    if (fgNeedToAddFinallyTargetBits)
+    {
+        // We previously wiped out the BBF_FINALLY_TARGET bits due to some morphing; add them back.
+        fgAddFinallyTargetFlags();
+        fgNeedToAddFinallyTargetBits = false;
+    }
+#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+
+    fgExpandQmarkNodes();
+
+    // If we needed to create any new BasicBlocks then renumber the blocks
+    if (fgBBcount > prevBBCount)
+    {
+        fgRenumberBlocks();
+    }
+
+    // We can now enable all phase checking
+    activePhaseChecks = PhaseChecks::CHECK_ALL;
+}
 
 void Compiler::fgMorphBlocks()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\n*************** In fgMorphBlocks()\n");
-    }
-#endif
-
-    /* Since fgMorphTree can be called after various optimizations to re-arrange
-     * the nodes we need a global flag to signal if we are during the one-pass
-     * global morphing */
-
-    fgGlobalMorph = true;
+    JITDUMP("\n*************** In fgMorphBlocks()\n");
 
 #if LOCAL_ASSERTION_PROP
     morphAssertionInit();
@@ -14369,10 +14441,7 @@ void Compiler::fgMorphBlocks()
             morphAssertionSetCount(0);
         }
 #endif
-        // Make the current basic block address available globally.
-        compCurBB = block;
 
-        // Process all statement trees in the basic block.
         fgMorphStmts(block);
 
         // Do we need to merge the result of this block into a single return block?
@@ -14390,10 +14459,6 @@ void Compiler::fgMorphBlocks()
 #if LOCAL_ASSERTION_PROP
     morphAssertionDone();
 #endif
-
-    // We are done with the global morphing phase
-    fgGlobalMorph = false;
-    compCurBB     = nullptr;
 
     // Under OSR, we no longer need to specially protect the original method entry
     //
@@ -14562,147 +14627,6 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
 
         genReturnBB->setBBProfileWeight(newWeight);
         DISPBLOCK(genReturnBB);
-    }
-}
-
-void Compiler::fgSetOptions()
-{
-    if (opts.compDbgCode
-#ifdef UNIX_X86_ABI
-        || (info.compXcptnsCount > 0)
-#endif
-#ifdef DEBUG
-        || JitConfig.JitFullyInt() || compStressCompile(STRESS_GENERIC_VARN, 30)
-#endif
-            )
-    {
-        codeGen->SetInterruptible(true);
-    }
-
-    // Assert that the EH table has been initialized by now. Note that
-    // compHndBBtabAllocCount never decreases; it is a high-water mark
-    // of table allocation. In contrast, compHndBBtabCount does shrink
-    // if we delete a dead EH region, and if it shrinks to zero, the
-    // table pointer compHndBBtab is unreliable.
-    assert(compHndBBtabAllocCount >= info.compXcptnsCount);
-
-#ifdef TARGET_X86
-    // Note: this case, and the !X86 case below, should both use the
-    // !X86 path. This would require a few more changes for X86 to use
-    // compHndBBtabCount (the current number of EH clauses) instead of
-    // info.compXcptnsCount (the number of EH clauses in IL), such as
-    // in ehNeedsShadowSPslots(). This is because sometimes the IL has
-    // an EH clause that we delete as statically dead code before we
-    // get here, leaving no EH clauses left, and thus no requirement
-    // to use a frame pointer because of EH. But until all the code uses
-    // the same test, leave info.compXcptnsCount here.
-    if (info.compXcptnsCount > 0)
-#else
-    if (compHndBBtabCount > 0)
-#endif
-    {
-        opts.SetFramePointerRequired();
-
-#ifndef JIT32_GCENCODER
-        // EnumGcRefs will only enumerate slots in aborted frames
-        // if they are fully-interruptible.  So if we have a catch
-        // or finally that will keep frame-vars alive, we need to
-        // force fully-interruptible.
-        JITDUMP("Method has EH, marking method as fully interruptible\n");
-        codeGen->SetInterruptible(true);
-#endif
-    }
-    else if (compMethodRequiresPInvokeFrame() || compIsProfilerHookNeeded() || compLocallocUsed
-#ifdef TARGET_X86
-             || compTailCallUsed
-#endif
-#ifdef JIT32_GCENCODER
-             || info.compPublishStubParam || info.compIsVarArgs || lvaReportParamTypeArg()
-#endif
-             || opts.compDbgEnC)
-    {
-        opts.SetFramePointerRequired();
-    }
-}
-
-GenTree* Compiler::fgInitThisClass()
-{
-    noway_assert(!compIsForInlining());
-
-    CORINFO_LOOKUP_KIND kind;
-    info.compCompHnd->getLocationOfThisType(info.compMethodHnd, &kind);
-
-    if (!kind.needsRuntimeLookup)
-    {
-        return fgGetSharedCCtor(info.compClassHnd);
-    }
-    else
-    {
-#ifdef FEATURE_READYTORUN_COMPILER
-        // Only CoreRT understands CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE. Don't do this on CoreCLR.
-        if (opts.IsReadyToRun() && IsTargetAbi(CORINFO_CORERT_ABI))
-        {
-            CORINFO_RESOLVED_TOKEN resolvedToken;
-            memset(&resolvedToken, 0, sizeof(resolvedToken));
-
-            // We are in a shared method body, but maybe we don't need a runtime lookup after all.
-            // This covers the case of a generic method on a non-generic type.
-            if (!(info.compClassAttr & CORINFO_FLG_SHAREDINST))
-            {
-                resolvedToken.hClass = info.compClassHnd;
-                return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
-            }
-
-            // We need a runtime lookup.
-            GenTree* ctxTree = gtNewRuntimeContextTree(kind.runtimeLookupKind);
-
-            // CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE with a zeroed out resolvedToken means "get the static
-            // base of the class that owns the method being compiled". If we're in this method, it means we're not
-            // inlining and there's no ambiguity.
-            return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE, TYP_BYREF,
-                                                 gtNewCallArgs(ctxTree), &kind);
-        }
-#endif
-
-        // Collectible types requires that for shared generic code, if we use the generic context paramter
-        // that we report it. (This is a conservative approach, we could detect some cases particularly when the
-        // context parameter is this that we don't need the eager reporting logic.)
-        lvaGenericsContextInUse = true;
-
-        switch (kind.runtimeLookupKind)
-        {
-            case CORINFO_LOOKUP_THISOBJ:
-            {
-                // This code takes a this pointer; but we need to pass the static method desc to get the right point in
-                // the hierarchy
-                GenTree* vtTree = gtNewLclvNode(info.compThisArg, TYP_REF);
-                vtTree->gtFlags |= GTF_VAR_CONTEXT;
-                // Vtable pointer of this object
-                vtTree             = gtNewMethodTableLookup(vtTree);
-                GenTree* methodHnd = gtNewIconEmbMethHndNode(info.compMethodHnd);
-
-                return gtNewHelperCallNode(CORINFO_HELP_INITINSTCLASS, TYP_VOID, gtNewCallArgs(vtTree, methodHnd));
-            }
-
-            case CORINFO_LOOKUP_CLASSPARAM:
-            {
-                GenTree* vtTree = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
-                vtTree->gtFlags |= GTF_VAR_CONTEXT;
-                return gtNewHelperCallNode(CORINFO_HELP_INITCLASS, TYP_VOID, gtNewCallArgs(vtTree));
-            }
-
-            case CORINFO_LOOKUP_METHODPARAM:
-            {
-                GenTree* methHndTree = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
-                methHndTree->gtFlags |= GTF_VAR_CONTEXT;
-                return gtNewHelperCallNode(CORINFO_HELP_INITINSTCLASS, TYP_VOID,
-                                           gtNewCallArgs(gtNewIconNode(0), methHndTree));
-            }
-
-            default:
-                noway_assert(!"Unknown LOOKUP_KIND");
-                UNREACHABLE();
-        }
     }
 }
 
@@ -15186,7 +15110,7 @@ void Compiler::fgExpandQmarkNodes()
         INDEBUG(fgPostExpandQmarkChecks();)
     }
 
-    compQmarkRationalized = true;
+    INDEBUG(compQmarkRationalized = true;)
 }
 
 #ifdef DEBUG
@@ -15289,16 +15213,14 @@ void Compiler::AddZeroOffsetFieldSeq(GenTree* addr, FieldSeqNode* fieldSeq)
 // Return Value:
 //    'true' if stmts are in the expected form, else 'false'.
 //
-bool Compiler::fgCheckStmtAfterTailCall()
+bool Compiler::fgCheckStmtAfterTailCall(Statement* callStmt)
 {
-
     // For void calls, we would have created a GT_CALL in the stmt list.
     // For non-void calls, we would have created a GT_RETURN(GT_CAST(GT_CALL)).
     // For calls returning structs, we would have a void call, followed by a void return.
     // For debuggable code, it would be an assignment of the call to a temp
     // We want to get rid of any of this extra trees, and just leave
     // the call.
-    Statement* callStmt = fgMorphStmt;
 
     Statement* nextMorphStmt = callStmt->GetNextStmt();
 

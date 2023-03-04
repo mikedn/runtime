@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#include "ssabuilder.h"
 
 // This phase performs an SSA-based value propagation optimization that currently only
 // applies to array lengths and explicit null checks.
@@ -137,7 +136,7 @@ private:
     {
         GenTree* array = arrLen->GetArray();
 
-        if (!array->OperIs(GT_LCL_VAR) || !compiler->lvaInSsa(array->AsLclVar()->GetLclNum()))
+        if (!array->OperIs(GT_LCL_VAR) || !compiler->lvaGetDesc(array->AsLclVar())->IsInSsa())
         {
             return nullptr;
         }

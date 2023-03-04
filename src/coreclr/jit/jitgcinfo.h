@@ -73,7 +73,7 @@ public:
 #ifdef JIT32_GCENCODER
             unsigned argOffset;
 #else
-            int argOffset;
+            int  argOffset;
 #endif
         };
     };
@@ -116,8 +116,8 @@ public:
 #ifndef JIT32_GCENCODER
     bool hasArgStores = false;
 #else
-    bool        isFramePointerUsed = false;
-    bool        useArgsBitStack    = false;
+    bool         isFramePointerUsed = false;
+    bool         useArgsBitStack    = false;
 
     static constexpr unsigned ArgsBitStackMaxDepth = sizeof(unsigned) * CHAR_BIT;
 

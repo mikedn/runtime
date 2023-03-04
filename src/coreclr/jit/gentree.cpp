@@ -1620,7 +1620,7 @@ AGAIN:
 #endif
             hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->GetIndex()));
             hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->GetLength()));
-            hash = genTreeHashAdd(hash, tree->AsBoundsChk()->GetThrowKind());
+            hash = genTreeHashAdd(hash, static_cast<unsigned>(tree->AsBoundsChk()->GetThrowKind()));
             break;
 
         case GT_ARR_OFFSET:
@@ -3982,7 +3982,6 @@ GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* o
 {
     assert(!compQmarkRationalized);
 
-    compQmarkUsed = true;
     return new (this, GT_QMARK) GenTreeQmark(type, cond, op1, op2);
 }
 
@@ -4328,6 +4327,25 @@ GenTreeCall* Compiler::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types typ
     INDEBUG(call->gtInlineObservation = InlineObservation::CALLSITE_IS_CALL_TO_HELPER);
     return call;
 }
+
+#ifdef FEATURE_READYTORUN_COMPILER
+GenTreeCall* Compiler::gtNewReadyToRunHelperCallNode(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                                     CorInfoHelpFunc         helper,
+                                                     var_types               type,
+                                                     GenTreeCall::Use*       args,
+                                                     CORINFO_LOOKUP_KIND*    genericLookupKind)
+{
+    CORINFO_CONST_LOOKUP lookup;
+    if (!info.compCompHnd->getReadyToRunHelper(resolvedToken, genericLookupKind, helper, &lookup))
+    {
+        return nullptr;
+    }
+
+    GenTreeCall* call = gtNewHelperCallNode(helper, type, args);
+    call->setEntryPoint(lookup);
+    return call;
+}
+#endif
 
 GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
@@ -6551,28 +6569,31 @@ void Compiler::gtDispNodeName(GenTree* tree)
         }
         bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%d)", lea->GetOffset());
     }
-    else if (tree->gtOper == GT_ARR_BOUNDS_CHECK)
+    else if (GenTreeBoundsChk* boundsChk = tree->IsBoundsChk())
     {
-        switch (tree->AsBoundsChk()->GetThrowKind())
+        const char* kindName;
+
+        switch (boundsChk->GetThrowKind())
         {
-            case SCK_RNGCHK_FAIL:
-            {
-                bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s_Rng", name);
-                if (tree->AsBoundsChk()->GetThrowBlock() != nullptr)
-                {
-                    bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), " -> " FMT_BB,
-                                            tree->AsBoundsChk()->GetThrowBlock()->bbNum);
-                }
+            case ThrowHelperKind::IndexOutOfRange:
+                kindName = "Rng";
                 break;
-            }
-            case SCK_ARG_EXCPN:
-                sprintf_s(bufp, sizeof(buf), "%s_Arg", name);
+            case ThrowHelperKind::Argument:
+                kindName = "Arg";
                 break;
-            case SCK_ARG_RNG_EXCPN:
-                sprintf_s(bufp, sizeof(buf), "%s_ArgRng", name);
+            case ThrowHelperKind::ArgumentOutOfRange:
+                kindName = "ArgRng";
                 break;
             default:
-                unreached();
+                kindName = "???";
+                break;
+        }
+
+        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s_%s", name, kindName);
+
+        if (boundsChk->GetThrowBlock() != nullptr)
+        {
+            bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), " -> " FMT_BB, tree->AsBoundsChk()->GetThrowBlock()->bbNum);
         }
     }
     else if (tree->gtOverflowEx())
@@ -7660,7 +7681,7 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
         prefix = ", ";
     }
 
-    if (node->HasSsaName())
+    if (ssaForm && (node->GetSsaNum() != NoSsaNum))
     {
         printf("%s", prefix);
 
@@ -7752,7 +7773,8 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
 
         prefix = " (";
 
-        if (fieldLcl->lvTracked && fgLocalVarLivenessDone && node->IsMultiRegLclVar() && node->AsLclVar()->IsLastUse(i))
+        if (fgLocalVarLivenessDone && fieldLcl->HasLiveness() && node->IsMultiRegLclVar() &&
+            node->AsLclVar()->IsLastUse(i))
         {
             printf("%slast-use", prefix);
             prefix = ", ";
@@ -11344,7 +11366,7 @@ INTEGRAL_OVF:
     assert(op1 != nullptr);
 
     op2 = op1;
-    op1 = gtNewHelperCallNode(CORINFO_HELP_OVERFLOW, TYP_VOID, gtNewCallArgs(gtNewIconNode(compCurBB->bbTryIndex)));
+    op1 = gtNewHelperCallNode(CORINFO_HELP_OVERFLOW, TYP_VOID);
 
     // op1 is a call to the JIT helper that throws an Overflow exception.
     // Attach the ExcSet for VNF_OverflowExc(Void) to this call.
@@ -13706,4 +13728,270 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
     }
 
     return varTypeIsUnsigned(fromType) != varTypeIsUnsigned(toType);
+}
+
+GenTreeCall* Compiler::gtNewInitThisClassHelperCall()
+{
+    noway_assert(!compIsForInlining());
+
+    CORINFO_LOOKUP_KIND kind;
+    info.compCompHnd->getLocationOfThisType(info.compMethodHnd, &kind);
+
+    if (!kind.needsRuntimeLookup)
+    {
+        return gtNewSharedCctorHelperCall(info.compClassHnd);
+    }
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (opts.IsReadyToRun() && IsTargetAbi(CORINFO_CORERT_ABI))
+    {
+        CORINFO_RESOLVED_TOKEN resolvedToken{};
+
+        // We are in a shared method body, but maybe we don't need a runtime lookup after all.
+        // This covers the case of a generic method on a non-generic type.
+        if ((info.compClassAttr & CORINFO_FLG_SHAREDINST) == 0)
+        {
+            resolvedToken.hClass = info.compClassHnd;
+
+            return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
+        }
+
+        GenTree* ctxTree = gtNewRuntimeContextTree(kind.runtimeLookupKind);
+        // CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE with a zeroed out resolvedToken means
+        // "get the static base of the class that owns the method being compiled". If we're
+        // in this method, it means we're not inlining and there's no ambiguity.
+        return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE, TYP_BYREF,
+                                             gtNewCallArgs(ctxTree), &kind);
+    }
+#endif
+
+    // Collectible types requires that for shared generic code, if we use the generic
+    // context paramter that we report it. This is a conservative approach, we could
+    // detect some cases particularly when the context parameter is this that we do
+    // not need the eager reporting logic.
+    lvaGenericsContextInUse = true;
+
+    CorInfoHelpFunc   helper;
+    GenTreeCall::Use* args;
+
+    switch (kind.runtimeLookupKind)
+    {
+        GenTree* context;
+
+        case CORINFO_LOOKUP_THISOBJ:
+            helper  = CORINFO_HELP_INITINSTCLASS;
+            context = gtNewLclvNode(info.compThisArg, TYP_REF);
+            context->gtFlags |= GTF_VAR_CONTEXT;
+            context = gtNewMethodTableLookup(context);
+            // This code takes a this pointer; but we need to pass the static
+            // method desc to get the right point in the hierarchy.
+            args = gtNewCallArgs(context, gtNewIconEmbMethHndNode(info.compMethodHnd));
+            break;
+        case CORINFO_LOOKUP_CLASSPARAM:
+            helper  = CORINFO_HELP_INITCLASS;
+            context = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
+            context->gtFlags |= GTF_VAR_CONTEXT;
+            args = gtNewCallArgs(context);
+            break;
+        case CORINFO_LOOKUP_METHODPARAM:
+            helper  = CORINFO_HELP_INITINSTCLASS;
+            context = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
+            context->gtFlags |= GTF_VAR_CONTEXT;
+            args = gtNewCallArgs(gtNewIconNode(0), context);
+            break;
+        default:
+            unreached();
+    }
+
+    return gtNewHelperCallNode(helper, TYP_VOID, args);
+}
+
+GenTreeCall* Compiler::gtNewSharedCctorHelperCall(CORINFO_CLASS_HANDLE cls)
+{
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (opts.IsReadyToRun())
+    {
+        CORINFO_RESOLVED_TOKEN resolvedToken{};
+        resolvedToken.hClass = cls;
+
+        return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
+    }
+#endif
+
+    // Call the shared non gc static helper, as its the fastest
+    return gtNewSharedStaticsCctorHelperCall(cls, info.compCompHnd->getSharedCCtorHelper(cls));
+}
+
+GenTreeCall* Compiler::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper)
+{
+    bool         needClassId = true;
+    GenTreeFlags callFlags   = GTF_EMPTY;
+    var_types    retType     = TYP_BYREF;
+
+    // This is sort of ugly, as we have knowledge of what the helper is returning.
+    // We need the return type.
+    switch (helper)
+    {
+        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
+            needClassId = false;
+            FALLTHROUGH;
+        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR:
+            callFlags |= GTF_CALL_HOISTABLE;
+            FALLTHROUGH;
+        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS:
+        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS:
+        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS:
+        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS:
+            retType = TYP_BYREF;
+            break;
+
+        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
+            needClassId = false;
+            FALLTHROUGH;
+        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR:
+            callFlags |= GTF_CALL_HOISTABLE;
+            FALLTHROUGH;
+        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE:
+        case CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS:
+            retType = TYP_I_IMPL;
+            break;
+
+        default:
+            assert(!"unknown shared statics helper");
+            break;
+    }
+
+    if ((callFlags & GTF_CALL_HOISTABLE) == 0)
+    {
+        if ((info.compCompHnd->getClassAttribs(cls) & CORINFO_FLG_BEFOREFIELDINIT) != 0)
+        {
+            callFlags |= GTF_CALL_HOISTABLE;
+        }
+    }
+
+    void*    moduleIdAddr;
+    size_t   moduleId = info.compCompHnd->getClassModuleIdForStatics(cls, nullptr, &moduleIdAddr);
+    GenTree* moduleIdArg;
+
+    if (moduleIdAddr == nullptr)
+    {
+        moduleIdArg = gtNewIconNode(moduleId, TYP_I_IMPL);
+    }
+    else
+    {
+        moduleIdArg =
+            gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(moduleIdAddr), GTF_ICON_CIDMID_HDL, true);
+    }
+
+    GenTreeCall::Use* args = gtNewCallArgs(moduleIdArg);
+
+    if (needClassId)
+    {
+        void*    classIdAddr;
+        unsigned classId = info.compCompHnd->getClassDomainID(cls, &classIdAddr);
+        GenTree* classIdArg;
+
+        if (classIdAddr == nullptr)
+        {
+            classIdArg = gtNewIconNode(classId, TYP_INT);
+        }
+        else
+        {
+            classIdArg =
+                gtNewIndOfIconHandleNode(TYP_INT, reinterpret_cast<size_t>(classIdAddr), GTF_ICON_CIDMID_HDL, true);
+        }
+
+        args->SetNext(gtNewCallArgs(classIdArg));
+    }
+
+    GenTreeCall* call = gtNewHelperCallNode(helper, retType, args);
+    call->gtFlags |= callFlags;
+
+    // If we're importing the special EqualityComparer<T>.Default or Comparer<T>.Default
+    // intrinsics, flag the helper call. Later during inlining, we can remove the helper
+    // call if the associated field lookup is unused.
+    if ((info.compFlags & CORINFO_FLG_JIT_INTRINSIC) != 0)
+    {
+        NamedIntrinsic ni = lookupNamedIntrinsic(info.compMethodHnd);
+
+        if ((ni == NI_System_Collections_Generic_EqualityComparer_get_Default) ||
+            (ni == NI_System_Collections_Generic_Comparer_get_Default))
+        {
+            JITDUMP("\nmarking helper call [%06u] as special DCE...\n", call->GetID());
+            call->gtCallMoreFlags |= GTF_CALL_M_HELPER_SPECIAL_DCE;
+        }
+    }
+
+    return call;
+}
+
+GenTree* Compiler::gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
+{
+    // Collectible types requires that for shared generic code, if we use the generic context parameter
+    // that we report it. (This is a conservative approach, we could detect some cases particularly when the
+    // context parameter is this that we don't need the eager reporting logic.)
+    // TODO-MIKE-Review: Shouldn't this be set on the "root" compiler?!
+    lvaGenericsContextInUse = true;
+
+    Compiler* root = impInlineRoot();
+
+    if (kind == CORINFO_LOOKUP_THISOBJ)
+    {
+        GenTree* ctxTree = gtNewLclvNode(root->info.compThisArg, TYP_REF);
+        ctxTree->gtFlags |= GTF_VAR_CONTEXT;
+
+        // The context is the method table pointer of the this object.
+        return gtNewMethodTableLookup(ctxTree);
+    }
+
+    assert((kind == CORINFO_LOOKUP_METHODPARAM) || (kind == CORINFO_LOOKUP_CLASSPARAM));
+
+    // Exact method descriptor as passed in.
+    GenTree* ctxTree = gtNewLclvNode(root->info.compTypeCtxtArg, TYP_I_IMPL);
+    ctxTree->gtFlags |= GTF_VAR_CONTEXT;
+    return ctxTree;
+}
+
+GenTree* Compiler::gtNewStaticMethodMonitorAddr()
+{
+    assert(!compIsForInlining());
+    assert(info.compIsStatic);
+
+    CORINFO_LOOKUP_KIND kind;
+    info.compCompHnd->getLocationOfThisType(info.compMethodHnd, &kind);
+
+    if (!kind.needsRuntimeLookup)
+    {
+        void* monitorAddr = nullptr;
+        void* monitor     = info.compCompHnd->getMethodSync(info.compMethodHnd, &monitorAddr);
+        noway_assert((monitor == nullptr) != (monitorAddr == nullptr));
+
+        return gtNewIconEmbHndNode(monitor, monitorAddr, GTF_ICON_METHOD_HDL, info.compMethodHnd);
+    }
+
+    // Collectible types requires that for shared generic code, if we use the generic context paramter
+    // that we report it. (This is a conservative approach, we could detect some cases particularly when the
+    // context parameter is this that we don't need the eager reporting logic.)
+    lvaGenericsContextInUse = true;
+
+    GenTree* context = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
+    context->gtFlags |= GTF_VAR_CONTEXT;
+    GenTree* classHandle = nullptr;
+
+    switch (kind.runtimeLookupKind)
+    {
+        case CORINFO_LOOKUP_CLASSPARAM:
+            classHandle = context;
+            break;
+        case CORINFO_LOOKUP_METHODPARAM:
+            classHandle = gtNewHelperCallNode(CORINFO_HELP_GETCLASSFROMMETHODPARAM, TYP_I_IMPL, gtNewCallArgs(context));
+            break;
+        default:
+            unreached();
+    }
+
+    return gtNewHelperCallNode(CORINFO_HELP_GETSYNCFROMCLASSHANDLE, TYP_I_IMPL, gtNewCallArgs(classHandle));
 }

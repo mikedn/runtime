@@ -7,7 +7,7 @@
 #pragma hdrstop
 #endif
 
-#include "lower.h" // for LowerRange()
+#include "lower.h" // for LowerNode()
 
 // Flowgraph Optimization
 
@@ -166,15 +166,7 @@ bool Compiler::fgReachable(BasicBlock* b1, BasicBlock* b2)
     return BlockSetOps::IsMember(this, b2->bbReach, b1->bbNum);
 }
 
-//------------------------------------------------------------------------
-// fgUpdateChangedFlowGraph: Update changed flow graph information.
-//
-// If the flow graph has changed, we need to recompute various information if we want to use it again.
-//
-// Arguments:
-//    computeDoms -- `true` if we should recompute dominators
-//
-void Compiler::fgUpdateChangedFlowGraph(const bool computePreds, const bool computeDoms)
+void Compiler::fgUpdateChangedFlowGraph(const bool computePreds)
 {
     // We need to clear this so we don't hit an assert calling fgRenumberBlocks().
     fgDomsComputed = false;
@@ -186,12 +178,9 @@ void Compiler::fgUpdateChangedFlowGraph(const bool computePreds, const bool comp
     {
         fgComputePreds();
     }
+
     fgComputeEnterBlocksSet();
     fgComputeReachabilitySets();
-    if (computeDoms)
-    {
-        fgComputeDoms();
-    }
 }
 
 //------------------------------------------------------------------------
@@ -250,7 +239,7 @@ void Compiler::fgComputeReachabilitySets()
                 /* Union the predecessor's reachability set into newReach */
                 BlockSetOps::UnionD(this, newReach, predBlock->bbReach);
 
-                if (!(predBlock->bbFlags & BBF_GC_SAFE_POINT))
+                if (!predBlock->HasGCSafePoint())
                 {
                     predGcSafe = false;
                 }
@@ -382,7 +371,7 @@ bool Compiler::fgRemoveUnreachableBlocks()
     for (BasicBlock* const block : Blocks())
     {
         /* Internal throw blocks are also reachable */
-        if (fgIsThrowHlpBlk(block))
+        if (fgIsThrowHelperBlock(block))
         {
             goto SKIP_BLOCK;
         }
@@ -522,18 +511,13 @@ bool Compiler::fgRemoveUnreachableBlocks()
 //
 void Compiler::fgComputeReachability()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgComputeReachability\n");
-    }
+    JITDUMP("*************** In fgComputeReachability\n");
 
-    fgVerifyHandlerTab();
-
-    // Make sure that the predecessor lists are accurate
     assert(fgComputePredsDone);
+#ifdef DEBUG
+    fgVerifyHandlerTab();
     fgDebugCheckBBlist();
-#endif // DEBUG
+#endif
 
     /* Create a list of all BBJ_RETURN blocks. The head of the list is 'fgReturnBlocks'. */
     fgReturnBlocks = nullptr;
@@ -603,12 +587,6 @@ void Compiler::fgComputeReachability()
     fgVerifyHandlerTab();
     fgDebugCheckBBlist(true);
 #endif // DEBUG
-
-    //
-    // Now, compute the dominators
-    //
-
-    fgComputeDoms();
 }
 
 //-------------------------------------------------------------
@@ -1205,6 +1183,13 @@ BlockSet_ValRet_T Compiler::fgGetDominatorSet(BasicBlock* block)
     } while (block != nullptr);
 
     return domSet;
+}
+
+void Compiler::phRemoveNotImportedBlocks()
+{
+    NewBasicBlockEpoch();
+    fgRemoveEmptyBlocks();
+    INDEBUG(fgDebugCheckBBlist(false, false));
 }
 
 //------------------------------------------------------------------------
@@ -2092,9 +2077,6 @@ void Compiler::fgUnreachableBlock(BasicBlock* block)
 
     /* First walk the statement trees in this basic block and delete each stmt */
 
-    /* Make the block publicly available */
-    compCurBB = block;
-
     if (block->IsLIR())
     {
         LIR::Range& blockRange = LIR::AsRange(block);
@@ -2591,8 +2573,6 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
                 }
             }
 
-            /* Remove the block */
-            compCurBB = block;
             fgRemoveBlock(block, false);
             return true;
 
@@ -2793,12 +2773,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
 
                 if (fgStmtListThreaded)
                 {
-                    compCurBB = block;
-
-                    /* Update ordering, costs, FP levels, etc. */
                     gtSetStmtInfo(switchStmt);
-
-                    /* Re-link the nodes for this statement */
                     fgSetStmtSeq(switchStmt);
                 }
             }
@@ -3283,7 +3258,6 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
 
                 if (sideEffList == nullptr)
                 {
-                    compCurBB = block;
                     fgRemoveStmt(block, condStmt);
                 }
                 else
@@ -3307,20 +3281,13 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
 
                     if (fgStmtListThreaded)
                     {
-                        compCurBB = block;
-
-                        /* Update ordering, costs, FP levels, etc. */
                         gtSetStmtInfo(condStmt);
-
-                        /* Re-link the nodes for this statement */
                         fgSetStmtSeq(condStmt);
                     }
                 }
             }
             else
             {
-                compCurBB = block;
-                /* conditional has NO side effect - remove it */
                 fgRemoveStmt(block, condStmt);
             }
         }
@@ -4058,28 +4025,17 @@ bool Compiler::fgExpandRarelyRunBlocks()
                 block->bbSetRunRarely();
                 result = true;
 
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("All branches to " FMT_BB " are from rarely run blocks, marking as rarely run\n",
-                           block->bbNum);
-                }
-#endif // DEBUG
+                JITDUMP("All branches to " FMT_BB " are from rarely run blocks, marking as rarely run\n", block->bbNum);
 
                 // When marking a BBJ_CALLFINALLY as rarely run we also mark
                 // the BBJ_ALWAYS that comes after it as rarely run
-                //
                 if (block->isBBCallAlwaysPair())
                 {
                     BasicBlock* bNext = block->bbNext;
-                    PREFIX_ASSUME(bNext != nullptr);
+                    assert(bNext != nullptr);
                     bNext->bbSetRunRarely();
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("Also marking the BBJ_ALWAYS at " FMT_BB " as rarely run\n", bNext->bbNum);
-                    }
-#endif // DEBUG
+
+                    JITDUMP("Also marking the BBJ_ALWAYS at " FMT_BB " as rarely run\n", bNext->bbNum);
                 }
             }
         }
@@ -5324,6 +5280,11 @@ bool Compiler::fgReorderBlocks()
 #pragma warning(pop)
 #endif
 
+void Compiler::phUpdateFlowGraph()
+{
+    fgUpdateFlowGraph(nullptr, /* doTailDup */ false);
+}
+
 //-------------------------------------------------------------
 // fgUpdateFlowGraph: Removes any empty blocks, unreachable blocks, and redundant jumps.
 // Most of those appear after dead store removal and folding of conditionals.
@@ -5340,15 +5301,9 @@ bool Compiler::fgReorderBlocks()
 //
 bool Compiler::fgUpdateFlowGraph(Lowering* lowering, bool doTailDuplication)
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\n*************** In fgUpdateFlowGraph()");
-    }
-#endif // DEBUG
+    JITDUMP("\n*************** In fgUpdateFlowGraph()");
 
-    /* This should never be called for debuggable code */
-
+    // This should never be called for debuggable code.
     noway_assert(opts.OptimizationEnabled());
 
 #ifdef DEBUG

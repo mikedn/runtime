@@ -21,38 +21,27 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "lower.h"
 #include "patchpointinfo.h"
 
-//---------------------------------------------------------------------
-// PrologSetGSSecurityCookie: Set the "GS" security cookie in the prolog.
-//
-// Arguments:
-//     initReg        - register to use as a scratch register
-//     pInitRegZeroed - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
-//                      this call sets 'initReg' to a non-zero shift.
-//
-// Return Value:
-//     None
-//
-void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
 {
     assert(compiler->getNeedsGSSecurityCookie());
 
-    if (compiler->gsGlobalSecurityCookieAddr == nullptr)
+    unsigned gsCookieLclNum = compiler->lvaGSSecurityCookie;
+
+    if (m_gsCookieAddr == nullptr)
     {
-        noway_assert(compiler->gsGlobalSecurityCookieVal != 0);
+        noway_assert(m_gsCookieVal != 0);
 
 #ifdef TARGET_AMD64
-        if (!FitsIn<int32_t>(compiler->gsGlobalSecurityCookieVal))
+        if (!FitsIn<int32_t>(m_gsCookieVal))
         {
-            GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, initReg, compiler->gsGlobalSecurityCookieVal);
-            GetEmitter()->emitIns_S_R(INS_mov, EA_8BYTE, initReg, compiler->lvaGSSecurityCookie, 0);
-            *pInitRegZeroed = false;
+            GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, initReg, m_gsCookieVal);
+            GetEmitter()->emitIns_S_R(INS_mov, EA_8BYTE, initReg, gsCookieLclNum, 0);
+            *initRegZeroed = false;
         }
         else
 #endif
         {
-            // mov   dword ptr [frame.GSSecurityCookie], #GlobalSecurityCookieVal
-            GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, compiler->lvaGSSecurityCookie, 0,
-                                      (int)compiler->gsGlobalSecurityCookieVal);
+            GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, gsCookieLclNum, 0, static_cast<int>(m_gsCookieVal));
         }
     }
     else
@@ -61,34 +50,28 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
         // On x64, if we're not moving into RAX, and the address isn't RIP relative, we can't encode it.
         //  mov   eax, dword ptr [compiler->gsGlobalSecurityCookieAddr]
         //  mov   dword ptr [frame.GSSecurityCookie], eax
-        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_EAX, (ssize_t)compiler->gsGlobalSecurityCookieAddr);
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_EAX, compiler->lvaGSSecurityCookie, 0);
+        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_EAX, reinterpret_cast<ssize_t>(m_gsCookieAddr));
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_EAX, gsCookieLclNum, 0);
 
         if (initReg == REG_EAX)
         {
-            *pInitRegZeroed = false;
+            *initRegZeroed = false;
         }
     }
 }
 
-// Generate code to check that the GS cookie wasn't thrashed by a buffer
-// overrun. For tail calls, preserve all registers around code sequence.
-// Otherwise ECX could be modified.
-void CodeGen::genEmitGSCookieCheck(bool tailCallEpilog)
+void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
 {
-    noway_assert(compiler->gsGlobalSecurityCookieAddr || compiler->gsGlobalSecurityCookieVal);
-
     regNumber regGSCheck;
 
     if (!tailCallEpilog)
     {
-        // Non-tail call: we can use any callee trash register that is not
-        // a return register or contain 'this' pointer (keep alive this), since
-        // we are generating GS cookie check after a GT_RETURN block.
-        // Note: On Amd64 System V RDX is an arg register - REG_ARG_2 - as well
-        // as return register for two-register-returned structs.
-        if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaTable[compiler->info.compThisArg].lvIsInReg() &&
-            (compiler->lvaTable[compiler->info.compThisArg].GetRegNum() == REG_ARG_0))
+        // We can use any callee trash register that is not a return register
+        // or contain 'this' pointer (keep alive this), since we are generating
+        // GS cookie check after a GT_RETURN node.
+
+        if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaGetDesc(compiler->info.compThisArg)->lvIsInReg() &&
+            (compiler->lvaGetDesc(compiler->info.compThisArg)->GetRegNum() == REG_ARG_0))
         {
             regGSCheck = REG_ARG_1;
         }
@@ -112,27 +95,28 @@ void CodeGen::genEmitGSCookieCheck(bool tailCallEpilog)
 #endif
     }
 
+    unsigned gsCookieLclNum = compiler->lvaGSSecurityCookie;
 #ifdef TARGET_X86
     var_types pushedRegType = TYP_UNDEF;
 #endif
 
-    if (compiler->gsGlobalSecurityCookieAddr == nullptr)
+    if (m_gsCookieAddr == nullptr)
     {
+        noway_assert(m_gsCookieVal != 0);
+
 #ifdef TARGET_AMD64
-        if (!FitsIn<int32_t>(compiler->gsGlobalSecurityCookieVal))
+        if (!FitsIn<int32_t>(m_gsCookieVal))
         {
-            GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, regGSCheck, compiler->gsGlobalSecurityCookieVal);
-            GetEmitter()->emitIns_S_R(INS_cmp, EA_8BYTE, regGSCheck, compiler->lvaGSSecurityCookie, 0);
+            GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, regGSCheck, m_gsCookieVal);
+            GetEmitter()->emitIns_S_R(INS_cmp, EA_8BYTE, regGSCheck, gsCookieLclNum, 0);
         }
         else
 #endif
         {
-            assert((int)compiler->gsGlobalSecurityCookieVal == (ssize_t)compiler->gsGlobalSecurityCookieVal);
-            GetEmitter()->emitIns_S_I(INS_cmp, EA_PTRSIZE, compiler->lvaGSSecurityCookie, 0,
-                                      (int)compiler->gsGlobalSecurityCookieVal);
+            GetEmitter()->emitIns_S_I(INS_cmp, EA_PTRSIZE, gsCookieLclNum, 0, static_cast<int>(m_gsCookieVal));
         }
     }
-    else // Ngen case - GS cookie shift needs to be accessed through an indirection.
+    else
     {
 #ifdef TARGET_X86
         if (tailCallEpilog)
@@ -141,9 +125,9 @@ void CodeGen::genEmitGSCookieCheck(bool tailCallEpilog)
         }
 #endif
 
-        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSCheck, (ssize_t)compiler->gsGlobalSecurityCookieAddr);
+        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSCheck, reinterpret_cast<ssize_t>(m_gsCookieAddr));
         GetEmitter()->emitIns_R_AR(INS_mov, EA_PTRSIZE, regGSCheck, regGSCheck, 0);
-        GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, regGSCheck, compiler->lvaGSSecurityCookie, 0);
+        GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, regGSCheck, gsCookieLclNum, 0);
     }
 
     BasicBlock* gsCheckBlk = genCreateTempLabel();
@@ -205,7 +189,7 @@ void CodeGen::genAdjustStackLevel(BasicBlock* block)
 {
     // Check for inserted throw blocks and adjust genStackLevel.
 
-    if (!compiler->fgIsThrowHlpBlk(block))
+    if (!compiler->fgIsThrowHelperBlock(block))
     {
         return;
     }
@@ -225,7 +209,7 @@ void CodeGen::genAdjustStackLevel(BasicBlock* block)
     {
         noway_assert(block->bbFlags & BBF_HAS_LABEL);
 
-        SetStackLevel(compiler->fgThrowHlpBlkStkLevel(block) * sizeof(int));
+        SetStackLevel(compiler->fgGetThrowHelperBlockStackLevel(block) * REGSIZE_BYTES);
 
         if (genStackLevel != 0)
         {
@@ -1487,13 +1471,7 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     genDefineTempLabel(skipLabel);
 }
 
-/*****************************************************************************
- *
- * Generate code for a single node in the tree.
- * Preconditions: All operands have been evaluated
- *
- */
-void CodeGen::genCodeForTreeNode(GenTree* treeNode)
+void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 {
     emitter* emit = GetEmitter();
 
@@ -1662,11 +1640,11 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_RETFILT:
-            genRetFilt(treeNode);
+            GenRetFilt(treeNode, block);
             break;
 
         case GT_RETURN:
-            genReturn(treeNode);
+            GenReturn(treeNode, block);
             break;
 
         case GT_LEA:
@@ -1728,11 +1706,11 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_JTRUE:
-            genCodeForJumpTrue(treeNode->AsOp());
+            GenJTrue(treeNode->AsUnOp(), block);
             break;
 
         case GT_JCC:
-            genCodeForJcc(treeNode->AsCC());
+            GenJCC(treeNode->AsCC(), block);
             break;
 
         case GT_SETCC:
@@ -1835,7 +1813,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_CATCH_ARG:
-            noway_assert(handlerGetsXcptnObj(compiler->compCurBB->bbCatchTyp));
+            noway_assert(handlerGetsXcptnObj(block->bbCatchTyp));
             // Catch arguments get passed in a register. genCodeForBBlist()
             // would have marked it as holding a GC object, but not used.
             noway_assert((liveness.GetGCRegs(TYP_REF) & RBM_EXCEPTION_OBJECT) != RBM_NONE);
@@ -1843,37 +1821,34 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             UseReg(treeNode);
             break;
 
-#if !defined(FEATURE_EH_FUNCLETS)
+#ifndef FEATURE_EH_FUNCLETS
         case GT_END_LFIN:
-
+        {
             // Have to clear the ShadowSP of the nesting level which encloses the finally. Generates:
             //     mov dword ptr [ebp-0xC], 0  // for some slot of the ShadowSP local var
 
-            size_t finallyNesting;
-            finallyNesting = treeNode->AsVal()->gtVal1;
-            noway_assert(treeNode->AsVal()->gtVal1 < compiler->compHndBBtabCount);
+            unsigned finallyNesting = static_cast<unsigned>(treeNode->AsVal()->gtVal1);
             noway_assert(finallyNesting < compiler->compHndBBtabCount);
 
-            // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
-            unsigned filterEndOffsetSlotOffs;
-            PREFIX_ASSUME(compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetBlockSize() > REGSIZE_BYTES);
-            filterEndOffsetSlotOffs =
-                compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetBlockSize() - REGSIZE_BYTES;
+            unsigned   shadowSPSlotsLclNum = compiler->lvaShadowSPslotsVar;
+            LclVarDsc* shadowSPSlotsLcl    = compiler->lvaGetDesc(shadowSPSlotsLclNum);
 
-            size_t curNestingSlotOffs;
-            curNestingSlotOffs = filterEndOffsetSlotOffs - ((finallyNesting + 1) * REGSIZE_BYTES);
-            GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, compiler->lvaShadowSPslotsVar, (unsigned)curNestingSlotOffs,
-                                      0);
-            break;
+            // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
+            assert(shadowSPSlotsLcl->GetBlockSize() > REGSIZE_BYTES);
+            unsigned filterEndOffsetSlotOffs = shadowSPSlotsLcl->GetBlockSize() - REGSIZE_BYTES;
+
+            unsigned curNestingSlotOffs = filterEndOffsetSlotOffs - ((finallyNesting + 1) * REGSIZE_BYTES);
+            GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, shadowSPSlotsLclNum, curNestingSlotOffs, 0);
+        }
+        break;
 #endif // !FEATURE_EH_FUNCLETS
 
         case GT_PINVOKE_PROLOG:
             noway_assert((liveness.GetGCRegs() & ~fullIntArgRegMask()) == 0);
-
 #ifdef PSEUDORANDOM_NOP_INSERTION
             // the runtime side requires the codegen here to be consistent
             emit->emitDisableRandomNops();
-#endif // PSEUDORANDOM_NOP_INSERTION
+#endif
             break;
 
         case GT_LABEL:
@@ -1892,7 +1867,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_JMPTABLE:
-            genJumpTable(treeNode);
+            GenJmpTable(treeNode, block);
             break;
 
         case GT_SWITCH_TABLE:
@@ -3447,20 +3422,14 @@ void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
     GetEmitter()->emitIns_R(INS_i_jmp, emitTypeSize(TYP_I_IMPL), baseReg);
 }
 
-// emits the table and an instruction to get the address of the first element
-void CodeGen::genJumpTable(GenTree* treeNode)
+void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
 {
-    noway_assert(compiler->compCurBB->bbJumpKind == BBJ_SWITCH);
-    assert(treeNode->OperGet() == GT_JMPTABLE);
+    assert(switchBlock->bbJumpKind == BBJ_SWITCH);
+    assert(node->OperIs(GT_JMPTABLE));
 
-    unsigned     jumpCount = compiler->compCurBB->bbJumpSwt->bbsCount;
-    BasicBlock** jumpTable = compiler->compCurBB->bbJumpSwt->bbsDstTab;
-    unsigned     jmpTabOffs;
-    unsigned     jmpTabBase;
-
-    jmpTabBase = GetEmitter()->emitBBTableDataGenBeg(jumpCount, true);
-
-    jmpTabOffs = 0;
+    unsigned     jumpCount  = switchBlock->bbJumpSwt->bbsCount;
+    BasicBlock** jumpTable  = switchBlock->bbJumpSwt->bbsDstTab;
+    unsigned     jmpTabBase = GetEmitter()->emitBBTableDataGenBeg(jumpCount, true);
 
     JITDUMP("\n      J_M%03u_DS%02u LABEL   DWORD\n", compiler->compMethodID, jmpTabBase);
 
@@ -3479,9 +3448,8 @@ void CodeGen::genJumpTable(GenTree* treeNode)
     // Access to inline shift is 'abstracted' by a special type of static member
     // (produced by eeFindJitDataOffs) which the emitter recognizes as being a reference
     // to constant shift, not a real static field.
-    GetEmitter()->emitIns_R_C(INS_lea, emitTypeSize(TYP_I_IMPL), treeNode->GetRegNum(),
-                              compiler->eeFindJitDataOffs(jmpTabBase));
-    genProduceReg(treeNode);
+    GetEmitter()->emitIns_R_C(INS_lea, EA_PTRSIZE, node->GetRegNum(), compiler->eeFindJitDataOffs(jmpTabBase));
+    DefReg(node);
 }
 
 //------------------------------------------------------------------------
@@ -3740,7 +3708,7 @@ void CodeGen::genCodeForArrIndex(GenTreeArrIndex* arrIndex)
                                genOffsetOfMDArrayLowerBound(elemType, rank, dim));
     GetEmitter()->emitIns_R_AR(INS_cmp, emitActualTypeSize(TYP_INT), tgtReg, arrReg,
                                genOffsetOfMDArrayDimensionSize(elemType, rank, dim));
-    genJumpToThrowHlpBlk(EJ_jae, SCK_RNGCHK_FAIL);
+    genJumpToThrowHlpBlk(EJ_jae, ThrowHelperKind::IndexOutOfRange);
 
     genProduceReg(arrIndex);
 }
@@ -4531,7 +4499,7 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
             GetEmitter()->emitIns_R_AR(INS_cmp, EA_4BYTE, indexReg, baseReg, node->GetLenOffs());
         }
 
-        genJumpToThrowHlpBlk(EJ_jae, SCK_RNGCHK_FAIL, node->GetThrowBlock());
+        genJumpToThrowHlpBlk(EJ_jae, ThrowHelperKind::IndexOutOfRange, node->GetThrowBlock());
     }
 
 #ifdef TARGET_64BIT
@@ -4920,7 +4888,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #ifdef TARGET_X86
     if (call->IsTailCallViaJitHelper() && compiler->getNeedsGSSecurityCookie())
     {
-        genEmitGSCookieCheck(true);
+        EpilogGSCookieCheck(true);
     }
 #endif
 
@@ -5312,9 +5280,6 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #ifdef TARGET_X86
                 if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
                 {
-                    // The x86 CORINFO_HELP_INIT_PINVOKE_FRAME helper uses a custom calling convention that returns with
-                    // TCB in REG_PINVOKE_TCB. AMD64/ARM64 use the standard calling convention. fgMorphCall() sets the
-                    // correct argument registers.
                     returnReg = REG_PINVOKE_TCB;
                 }
                 else
@@ -5947,12 +5912,12 @@ void CodeGen::genLongToIntCast(GenTree* cast)
             inst_JMP(EJ_js, allOne);
 
             inst_RV_RV(INS_test, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
-            genJumpToThrowHlpBlk(EJ_jne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
             inst_JMP(EJ_jmp, success);
 
             genDefineTempLabel(allOne);
             inst_RV_IV(INS_cmp, hiSrcReg, -1, EA_4BYTE);
-            genJumpToThrowHlpBlk(EJ_jne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
 
             genDefineTempLabel(success);
         }
@@ -5961,11 +5926,11 @@ void CodeGen::genLongToIntCast(GenTree* cast)
             if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
             {
                 inst_RV_RV(INS_test, loSrcReg, loSrcReg, TYP_INT, EA_4BYTE);
-                genJumpToThrowHlpBlk(EJ_js, SCK_OVERFLOW);
+                genJumpToThrowHlpBlk(EJ_js, ThrowHelperKind::Overflow);
             }
 
             inst_RV_RV(INS_test, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
-            genJumpToThrowHlpBlk(EJ_jne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
         }
     }
 
@@ -5989,7 +5954,7 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
     {
         case GenIntCastDesc::CHECK_POSITIVE:
             GetEmitter()->emitIns_R_R(INS_test, EA_SIZE(desc.CheckSrcSize()), reg, reg);
-            genJumpToThrowHlpBlk(EJ_jl, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_jl, ThrowHelperKind::Overflow);
             break;
 
 #ifdef TARGET_64BIT
@@ -6002,20 +5967,20 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             assert(tempReg != reg);
             GetEmitter()->emitIns_Mov(INS_mov, EA_8BYTE, tempReg, reg, /* canSkip */ false);
             GetEmitter()->emitIns_R_I(INS_shr_N, EA_8BYTE, tempReg, 32);
-            genJumpToThrowHlpBlk(EJ_jne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
         }
         break;
 
         case GenIntCastDesc::CHECK_POSITIVE_INT_RANGE:
             GetEmitter()->emitIns_R_I(INS_cmp, EA_8BYTE, reg, INT32_MAX);
-            genJumpToThrowHlpBlk(EJ_ja, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_ja, ThrowHelperKind::Overflow);
             break;
 
         case GenIntCastDesc::CHECK_INT_RANGE:
             GetEmitter()->emitIns_R_I(INS_cmp, EA_8BYTE, reg, INT32_MAX);
-            genJumpToThrowHlpBlk(EJ_jg, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_jg, ThrowHelperKind::Overflow);
             GetEmitter()->emitIns_R_I(INS_cmp, EA_8BYTE, reg, INT32_MIN);
-            genJumpToThrowHlpBlk(EJ_jl, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_jl, ThrowHelperKind::Overflow);
             break;
 #endif
 
@@ -6026,12 +5991,12 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             const int castMinValue = desc.CheckSmallIntMin();
 
             GetEmitter()->emitIns_R_I(INS_cmp, EA_SIZE(desc.CheckSrcSize()), reg, castMaxValue);
-            genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_ja : EJ_jg, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_ja : EJ_jg, ThrowHelperKind::Overflow);
 
             if (castMinValue != 0)
             {
                 GetEmitter()->emitIns_R_I(INS_cmp, EA_SIZE(desc.CheckSrcSize()), reg, castMinValue);
-                genJumpToThrowHlpBlk(EJ_jl, SCK_OVERFLOW);
+                genJumpToThrowHlpBlk(EJ_jl, ThrowHelperKind::Overflow);
             }
         }
         break;
@@ -6386,7 +6351,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     inst_RV_IV(INS_cmp, tmpReg, expMask, EA_4BYTE);
 
     // If exponent is all 1's, throw ArithmeticException
-    genJumpToThrowHlpBlk(EJ_je, SCK_ARITH_EXCPN);
+    genJumpToThrowHlpBlk(EJ_je, ThrowHelperKind::Arithmetic);
 
     // if it is a finite shift copy it to targetReg
     inst_Mov(targetType, targetReg, op1->GetRegNum(), /* canSkip */ true);
@@ -6444,7 +6409,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     inst_RV_IV(INS_cmp, tmpReg, expMask, EA_4BYTE);
 
     // If exponent is all 1's, throw ArithmeticException
-    genJumpToThrowHlpBlk(EJ_je, SCK_ARITH_EXCPN);
+    genJumpToThrowHlpBlk(EJ_je, ThrowHelperKind::Arithmetic);
 
     if ((targetType == TYP_DOUBLE) && (targetReg == op1->GetRegNum()))
     {

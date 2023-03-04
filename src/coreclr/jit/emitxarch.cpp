@@ -4823,45 +4823,25 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     emitCurIGsize += sz;
 }
 
-/*****************************************************************************
- *
- *  Add a label instruction.
- */
 void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg)
 {
     assert(ins == INS_lea);
-    assert(dst->bbFlags & BBF_HAS_LABEL);
+    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
 
-    id->idIns(ins);
+    id->idIns(INS_lea);
     id->idReg1(reg);
     id->idInsFmt(IF_RWR_LABEL);
     id->idOpSize(EA_SIZE(attr)); // emitNewInstrJmp() sets the size (incorrectly) to EA_1BYTE
     id->idAddr()->iiaBBlabel = dst;
+    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
-    /* The label reference is always long */
-
-    id->idjShort    = 0;
-    id->idjKeepLong = 1;
-
-    /* Record the current IG and offset within it */
-
-    id->idjIG   = emitCurIG;
-    id->idjOffs = emitCurIGsize;
-
-    /* Append this instruction to this IG's jump list */
-
+    id->idjKeepLong  = true;
+    id->idjIG        = emitCurIG;
+    id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
-
-#ifdef DEBUG
-    // Mark the catch return
-    if (emitComp->compCurBB->bbJumpKind == BBJ_EHCATCHRET)
-    {
-        id->idDebugOnlyInfo()->idCatchRet = true;
-    }
-#endif // DEBUG
 
 #if EMITTER_STATS
     emitTotalIGjmps++;
@@ -5760,37 +5740,23 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
 
-#ifdef DEBUG
-    // Mark the finally call
-    if (ins == INS_call && emitComp->compCurBB->bbJumpKind == BBJ_CALLFINALLY)
-    {
-        id->idDebugOnlyInfo()->idFinallyCall = true;
-    }
-#endif // DEBUG
+    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
+                (ins == INS_call) && (GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
 
-    id->idjShort = 0;
     if (dst != nullptr)
     {
-        /* Assume the jump will be long */
         id->idAddr()->iiaBBlabel = dst;
-        id->idjKeepLong          = emitComp->fgInDifferentRegions(emitComp->compCurBB, dst);
+        id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst);
     }
     else
     {
         id->idAddr()->iiaSetInstrCount(instrCount);
-        id->idjKeepLong = false;
-        /* This jump must be short */
         emitSetShortJump(id);
         id->idSetIsBound();
     }
 
-    /* Record the jump's IG and offset within it */
-
-    id->idjIG   = emitCurIG;
-    id->idjOffs = emitCurIGsize;
-
-    /* Append this jump to this IG's jump list */
-
+    id->idjIG        = emitCurIG;
+    id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 

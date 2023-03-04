@@ -209,13 +209,13 @@ class Compiler;
  */
 struct ArrIndex
 {
-    unsigned                      arrLcl;   // The array base local num
-    JitExpandArrayStack<unsigned> indLcls;  // The indices local nums
-    JitExpandArrayStack<GenTree*> bndsChks; // The bounds checks nodes along each dimension.
-    unsigned                      rank;     // Rank of the array
-    BasicBlock*                   useBlock; // Block where the [] occurs
+    JitExpandArrayStack<unsigned> indLcls;              // The indices local nums
+    JitExpandArrayStack<GenTree*> bndsChks;             // The bounds checks nodes along each dimension.
+    unsigned                      arrLcl = BAD_VAR_NUM; // The array base local num
+    unsigned                      rank   = 0;           // Rank of the array
+    INDEBUG(BasicBlock* useBlock = nullptr;)            // Block where the [] occurs
 
-    ArrIndex(CompAllocator alloc) : arrLcl(BAD_VAR_NUM), indLcls(alloc), bndsChks(alloc), rank(0), useBlock(nullptr)
+    ArrIndex(CompAllocator alloc) : indLcls(alloc), bndsChks(alloc)
     {
     }
 

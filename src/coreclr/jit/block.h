@@ -426,7 +426,7 @@ enum BasicBlockFlags : uint64_t
     BBF_DONT_REMOVE          = MAKE_BBFLAG( 4), // BB should not be removed during flow graph optimizations
     BBF_IMPORTED             = MAKE_BBFLAG( 5), // BB byte-code has been imported
     BBF_INTERNAL             = MAKE_BBFLAG( 6), // BB has been added by the compiler
-
+    BBF_THROW_HELPER         = MAKE_BBFLAG( 7), // BB is a throw helper block added by the compiler
     BBF_TRY_BEG              = MAKE_BBFLAG( 8), // BB starts a 'try' block
     BBF_FUNCLET_BEG          = MAKE_BBFLAG( 9), // BB is the beginning of a funclet
     BBF_HAS_NULLCHECK        = MAKE_BBFLAG(10), // BB contains a null check
@@ -592,6 +592,11 @@ struct BasicBlock : private LIR::Range
     bool isLoopAlign() const
     {
         return ((bbFlags & BBF_LOOP_ALIGN) != 0);
+    }
+
+    bool HasGCSafePoint() const
+    {
+        return (bbFlags & BBF_GC_SAFE_POINT) != 0;
     }
 
 #ifdef DEBUG
@@ -1124,8 +1129,6 @@ struct BasicBlock : private LIR::Range
     unsigned bbTgtStkDepth; // Native stack depth on entry (for throw-blocks)
 #endif
 
-    static unsigned s_nMaxTrees; // The max # of tree nodes in any BB
-
     // This is used in integrity checks.  We semi-randomly pick a traversal stamp, label all blocks
     // in the BB list with that stamp (in this field); then we can tell if (e.g.) predecessors are
     // still in the BB list by whether they have the same stamp (with high probability).
@@ -1181,16 +1184,11 @@ struct BasicBlock : private LIR::Range
     GenTree* firstNode() const;
     GenTree* lastNode() const;
 
-    bool endsWithJmpMethod(Compiler* comp) const;
-
-    bool endsWithTailCall(Compiler* comp,
-                          bool      fastTailCallsOnly,
-                          bool      tailCallsConvertibleToLoopOnly,
-                          GenTree** tailCall) const;
-
-    bool endsWithTailCallOrJmp(Compiler* comp, bool fastTailCallsOnly = false) const;
-
-    bool endsWithTailCallConvertibleToLoop(Compiler* comp, GenTree** tailCall) const;
+    bool EndsWithJmp(Compiler* comp) const;
+    bool EndsWithTailCall(Compiler* comp) const;
+    bool EndsWithFastTailCall(Compiler* comp) const;
+    GenTreeCall* EndsWithTailCallConvertibleToLoop(Compiler* comp) const;
+    GenTreeCall* EndsWithTailCall(Compiler* comp, bool fastTailCallsOnly, bool tailCallsConvertibleToLoopOnly) const;
 
     // Returns the first statement in the statement list of "this" that is
     // not an SSA definition (a lcl = phi(...) assignment).

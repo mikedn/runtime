@@ -342,15 +342,14 @@ public:
     {
     }
 
-    void VisitStmt(Statement* stmt)
+    void VisitStmt(Statement* stmt DEBUGARG(BasicBlock* block))
     {
 #ifdef DEBUG
         char message[64];
 
         if (m_compiler->verbose)
         {
-            sprintf_s(message, sizeof(message), "LocalAddressVisitor visiting statement " FMT_BB,
-                      m_compiler->compCurBB->bbNum);
+            sprintf_s(message, sizeof(message), "LocalAddressVisitor visiting statement " FMT_BB, block->bbNum);
             m_compiler->gtDispStmt(stmt, message);
             m_stmtModified = false;
         }
@@ -378,8 +377,7 @@ public:
         {
             if (m_stmtModified)
             {
-                sprintf_s(message, sizeof(message), "LocalAddressVisitor modified statement " FMT_BB,
-                          m_compiler->compCurBB->bbNum);
+                sprintf_s(message, sizeof(message), "LocalAddressVisitor modified statement " FMT_BB, block->bbNum);
                 m_compiler->gtDispStmt(stmt, message);
             }
 
@@ -3129,16 +3127,13 @@ void Compiler::fgMarkAddressExposedLocals()
 
     for (BasicBlock* const block : Blocks())
     {
-        // Make the current basic block address available globally
-        compCurBB = block;
-
 #ifdef FEATURE_SIMD
         buffer.Clear();
 #endif
 
         for (Statement* stmt : block->Statements())
         {
-            visitor.VisitStmt(stmt);
+            visitor.VisitStmt(stmt DEBUGARG(block));
 
 #ifdef FEATURE_SIMD
             if (opts.OptimizationEnabled() && buffer.Add(this, stmt))

@@ -7713,6 +7713,10 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
             // in resolveEdges(), after all the edge resolution has been done (by calling this
             // method for each edge).
             block = compiler->fgSplitEdge(fromBlock, toBlock);
+            // The bbLiveIn and bbLiveOut are both equal to the bbLiveIn of 'succ'
+            assert(compiler->fgLocalVarLivenessDone);
+            VarSetOps::Assign(compiler, block->bbLiveIn, toBlock->bbLiveIn);
+            VarSetOps::Assign(compiler, block->bbLiveOut, toBlock->bbLiveIn);
 
             // Split edges are counted against fromBlock.
             INTRACK_STATS(updateLsraStat(STAT_SPLIT_EDGE, fromBlock->bbNum));
@@ -8794,8 +8798,6 @@ void LinearScan::lsraGetOperandString(GenTree*          tree,
             break;
         case LinearScan::LSRA_DUMP_POST:
         {
-            Compiler* compiler = JitTls::GetCompiler();
-
             if (!tree->gtHasReg())
             {
                 _snprintf_s(operandString, operandStringLength, operandStringLength, "STK%s", lastUseChar);
@@ -8829,7 +8831,6 @@ void LinearScan::lsraGetOperandString(GenTree*          tree,
 }
 void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDest)
 {
-    Compiler*      compiler            = JitTls::GetCompiler();
     const unsigned operandStringLength = 6 * MAX_MULTIREG_COUNT + 1;
     char           operandString[operandStringLength];
     const char*    emptyDestOperand = "               ";

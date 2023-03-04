@@ -871,7 +871,7 @@ inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs)
     return arrLen;
 }
 
-inline GenTreeBoundsChk* Compiler::gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind)
+inline GenTreeBoundsChk* Compiler::gtNewArrBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)
 {
     return new (this, GT_ARR_BOUNDS_CHECK) GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, index, length, kind);
 }
@@ -929,20 +929,9 @@ inline GenTree* Compiler::gtUnusedValNode(GenTree* expr)
     return gtNewCommaNode(expr, gtNewNothingNode());
 }
 
-/*****************************************************************************
- *
- * A wrapper for gtSetEvalOrder and gtComputeFPlvls
- * Necessary because the FP levels may need to be re-computed if we reverse
- * operands
- */
-
 inline void Compiler::gtSetStmtInfo(Statement* stmt)
 {
-    GenTree* expr = stmt->GetRootNode();
-
-    /* Recursively process the expression */
-
-    gtSetEvalOrder(expr);
+    gtSetEvalOrder(stmt->GetRootNode());
 }
 
 inline GenTreeCast* Compiler::gtNewCastNode(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType)
@@ -1595,115 +1584,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-/*****************************************************************************
- *
- * Has this block been added to throw an inlined exception
- * Returns true if the block was added to throw one of:
- *    range-check exception
- *    argument exception (used by feature SIMD)
- *    argument range-check exception (used by feature SIMD)
- *    divide by zero exception  (Not used on X86/X64)
- *    null reference exception (Not currently used)
- *    overflow exception
- */
-
-inline bool Compiler::fgIsThrowHlpBlk(BasicBlock* block)
-{
-    if (fgAddCodeList == nullptr)
-    {
-        return false;
-    }
-
-    if (!(block->bbFlags & BBF_INTERNAL) || block->bbJumpKind != BBJ_THROW)
-    {
-        return false;
-    }
-
-    GenTree* call = block->lastNode();
-
-#ifdef DEBUG
-    if (block->IsLIR())
-    {
-        LIR::Range& blockRange = LIR::AsRange(block);
-        for (LIR::Range::ReverseIterator node = blockRange.rbegin(), end = blockRange.rend(); node != end; ++node)
-        {
-            if (node->OperGet() == GT_CALL)
-            {
-                assert(*node == call);
-                assert(node == blockRange.rbegin());
-                break;
-            }
-        }
-    }
-#endif
-
-    if (!call || (call->gtOper != GT_CALL))
-    {
-        return false;
-    }
-
-    if (!((call->AsCall()->gtCallMethHnd == eeFindHelper(CORINFO_HELP_RNGCHKFAIL)) ||
-          (call->AsCall()->gtCallMethHnd == eeFindHelper(CORINFO_HELP_THROWDIVZERO)) ||
-          (call->AsCall()->gtCallMethHnd == eeFindHelper(CORINFO_HELP_THROWNULLREF)) ||
-          (call->AsCall()->gtCallMethHnd == eeFindHelper(CORINFO_HELP_OVERFLOW))))
-    {
-        return false;
-    }
-
-    // We can get to this point for blocks that we didn't create as throw helper blocks
-    // under stress, with implausible flow graph optimizations. So, walk the fgAddCodeList
-    // for the final determination.
-
-    for (AddCodeDsc* add = fgAddCodeList; add; add = add->acdNext)
-    {
-        if (block == add->acdDstBlk)
-        {
-            return add->acdKind == SCK_RNGCHK_FAIL || add->acdKind == SCK_DIV_BY_ZERO || add->acdKind == SCK_OVERFLOW ||
-                   add->acdKind == SCK_ARG_EXCPN || add->acdKind == SCK_ARG_RNG_EXCPN;
-        }
-    }
-
-    // We couldn't find it in the fgAddCodeList
-    return false;
-}
-
-#if !FEATURE_FIXED_OUT_ARGS
-
-/*****************************************************************************
- *
- *  Return the stackLevel of the inserted block that throws exception
- *  (by calling the EE helper).
- */
-
-inline unsigned Compiler::fgThrowHlpBlkStkLevel(BasicBlock* block)
-{
-    for (AddCodeDsc* add = fgAddCodeList; add; add = add->acdNext)
-    {
-        if (block == add->acdDstBlk)
-        {
-            // Compute assert cond separately as assert macro cannot have conditional compilation directives.
-            bool cond =
-                (add->acdKind == SCK_RNGCHK_FAIL || add->acdKind == SCK_DIV_BY_ZERO || add->acdKind == SCK_OVERFLOW ||
-                 add->acdKind == SCK_ARG_EXCPN || add->acdKind == SCK_ARG_RNG_EXCPN);
-            assert(cond);
-
-            // TODO: bbTgtStkDepth is DEBUG-only.
-            // Should we use it regularly and avoid this search.
-            assert(block->bbTgtStkDepth == add->acdStkLvl);
-            return add->acdStkLvl;
-        }
-    }
-
-    noway_assert(!"fgThrowHlpBlkStkLevel should only be called if fgIsThrowHlpBlk() is true, but we can't find the "
-                  "block in the fgAddCodeList list");
-
-    /* We couldn't find the basic block: it must not have been a throw helper block */
-
-    return 0;
-}
-
-#endif // !FEATURE_FIXED_OUT_ARGS
-
 /*
     Small inline function to change a given block to a throw block.
 
@@ -2180,39 +2060,6 @@ inline bool Compiler::IsSharedStaticHelper(GenTree* tree)
     assert (result1 == result2);
 #endif
     return result1;
-}
-
-inline bool Compiler::IsGcSafePoint(GenTree* tree)
-{
-    if (tree->IsCall())
-    {
-        GenTreeCall* call = tree->AsCall();
-        if (!call->IsFastTailCall())
-        {
-            if (call->IsUnmanaged() && call->IsSuppressGCTransition())
-            {
-                // Both an indirect and user calls can be unmanaged
-                // and have a request to suppress the GC transition so
-                // the check is done prior to the separate handling of
-                // indirect and user calls.
-                return false;
-            }
-            else if (call->gtCallType == CT_INDIRECT)
-            {
-                return true;
-            }
-            else if (call->gtCallType == CT_USER_FUNC)
-            {
-                if ((call->gtCallMoreFlags & GTF_CALL_M_NOGCCHECK) == 0)
-                {
-                    return true;
-                }
-            }
-            // otherwise we have a CT_HELPER
-        }
-    }
-
-    return false;
 }
 
 /*

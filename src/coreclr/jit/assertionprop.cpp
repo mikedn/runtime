@@ -647,8 +647,9 @@ class AssertionProp
     ValueNumToAssertsMap* vnAssertionMap;
     bool                  stmtMorphPending;
 #ifdef DEBUG
-    bool     verbose;
-    GenTree* currentNode;
+    bool        verbose;
+    GenTree*    currentNode  = nullptr;
+    BasicBlock* currentBlock = nullptr;
 #endif
 
 public:
@@ -3750,7 +3751,7 @@ private:
     {
         for (BasicBlock* const block : compiler->Blocks())
         {
-            compiler->compCurBB = block;
+            INDEBUG(currentBlock = block);
 
             for (Statement* stmt = block->GetFirstStatement(); stmt != nullptr; stmt = stmt->GetNextStmt())
             {
@@ -3768,6 +3769,8 @@ private:
                 }
             }
         }
+
+        INDEBUG(currentBlock = nullptr);
     }
 
     void ComputeAvailability()
@@ -3819,8 +3822,8 @@ private:
                 continue;
             }
 
-            compiler->compCurBB           = block;
             compiler->fgRemoveRestOfBlock = false;
+            INDEBUG(currentBlock = block);
 
             for (Statement* stmt = block->FirstNonPhiDef(); stmt != nullptr;)
             {
@@ -3868,6 +3871,8 @@ private:
                 stmt                = (stmt == nextStmt) ? stmt->GetNextStmt() : nextStmt;
             }
         }
+
+        INDEBUG(currentBlock = nullptr);
     }
 
 #ifdef DEBUG
@@ -3931,7 +3936,7 @@ private:
 
     void TraceAssertion(const char* message, const AssertionDsc& assertion, const char* comment = nullptr)
     {
-        printf(FMT_BB " [%06u] %s %s ", compiler->compCurBB->bbNum, currentNode->GetID(),
+        printf(FMT_BB " [%06u] %s %s ", currentBlock->bbNum, currentNode->GetID(),
                GenTree::OpName(currentNode->GetOper()), message);
 
         DumpAssertion(assertion);

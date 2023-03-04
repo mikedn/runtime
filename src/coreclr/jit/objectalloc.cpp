@@ -17,18 +17,11 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "gentree.h"
 
-//------------------------------------------------------------------------
-// DoPhase: Run analysis (if object stack allocation is enabled) and then
-//          morph each GT_ALLOCOBJ node either into an allocation helper
-//          call or stack allocation.
+// Run analysis (if object stack allocation is enabled) and then
+// morph each GT_ALLOCOBJ node either into an allocation helper
+// call or stack allocation.
 //
-// Returns:
-//    PhaseStatus indicating, what, if anything, was modified
-//
-// Notes:
-//    Runs only if Compiler::optMethodFlags has flag OMF_HAS_NEWOBJ set.
-//
-PhaseStatus ObjectAllocator::DoPhase()
+PhaseStatus ObjectAllocator::Run()
 {
     if ((comp->optMethodFlags & OMF_HAS_NEWOBJ) == 0)
     {
@@ -862,4 +855,18 @@ void ObjectAllocator::RewriteUses()
             rewriteUsesVisitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
         }
     }
+}
+
+PhaseStatus Compiler::phMorphAllocObj()
+{
+    // Transform each GT_ALLOCOBJ node into either an allocation helper call or
+    // local variable allocation on the stack.
+    ObjectAllocator objectAllocator(this);
+
+    if (compObjectStackAllocation() && opts.OptimizationEnabled())
+    {
+        objectAllocator.EnableObjectStackAllocation();
+    }
+
+    return objectAllocator.Run();
 }

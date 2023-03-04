@@ -3,6 +3,41 @@
 
 #include "jitpch.h"
 
+class Rationalizer
+{
+    Compiler*   comp;
+    BasicBlock* m_block;
+    Statement*  m_statement;
+
+public:
+    Rationalizer(Compiler* comp) : comp(comp)
+    {
+        INDEBUG(comp->fgStmtLinksTraversed = 0;)
+    }
+
+    void Run();
+
+private:
+    inline LIR::Range& BlockRange() const
+    {
+        return LIR::AsRange(m_block);
+    }
+
+    void RewriteNodeAsCall(GenTree**             use,
+                           ArrayStack<GenTree*>& parents,
+                           CORINFO_METHOD_HANDLE callHnd,
+#ifdef FEATURE_READYTORUN_COMPILER
+                           CORINFO_CONST_LOOKUP entryPoint,
+#endif
+                           GenTreeCall::Use* args);
+
+    void RewriteIntrinsicAsUserCall(GenTree** use, ArrayStack<GenTree*>& parents);
+    void RewriteAssignment(LIR::Use& use);
+    void RewriteLocalAssignment(GenTreeOp* assignment, GenTreeLclVarCommon* location);
+
+    Compiler::fgWalkResult RewriteNode(GenTree** useEdge, GenTree* user);
+};
+
 void Rationalizer::RewriteNodeAsCall(GenTree**             use,
                                      ArrayStack<GenTree*>& parents,
                                      CORINFO_METHOD_HANDLE callHnd,
@@ -29,6 +64,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
     call->setEntryPoint(entryPoint);
 #endif
 
+    comp->fgMorphBlock = m_block;
     comp->fgMorphArgs(call);
 
     // Replace "tree" with "call"
@@ -194,6 +230,36 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             BlockRange().Remove(node);
             break;
 
+        case GT_ARR_LENGTH:
+        {
+            GenTree* array  = node->AsArrLen()->GetArray();
+            unsigned offset = node->AsArrLen()->GetLenOffs();
+            GenTree* addr;
+
+            if (array->IsIntegralConst(0))
+            {
+                // If the array is NULL, then we should get a NULL reference
+                // exception when computing its length.  We need to maintain
+                // an invariant where there is no sum of two constants node,
+                // so let's simply return an indirection of NULL. Also change
+                // the address to I_IMPL, there's no reason to keep the REF.
+
+                addr = array;
+                addr->SetType(TYP_I_IMPL);
+            }
+            else
+            {
+                GenTree* intCon = comp->gtNewIconNode(offset, TYP_I_IMPL);
+                addr            = comp->gtNewOperNode(GT_ADD, TYP_BYREF, array, intCon);
+
+                BlockRange().InsertAfter(array, intCon, addr);
+            }
+
+            node->ChangeOper(GT_IND);
+            node->AsIndir()->SetAddr(addr);
+            goto IND;
+        }
+
         case GT_OBJ:
             if (varTypeIsSIMD(node->GetType()))
             {
@@ -202,6 +268,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             FALLTHROUGH;
         case GT_IND:
         case GT_BLK:
+        IND:
             // Remove side effects that may have been inherited from address.
             node->gtFlags &= ~GTF_ASG;
 
@@ -400,18 +467,8 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
     return Compiler::WALK_CONTINUE;
 }
 
-PhaseStatus Rationalizer::DoPhase()
+void Rationalizer::Run()
 {
-#ifdef DEBUG
-    for (BasicBlock* block = comp->fgFirstBB; block != nullptr; block = block->bbNext)
-    {
-        for (Statement* statement : block->Statements())
-        {
-            comp->fgDebugCheckNodeLinks(block, statement);
-        }
-    }
-#endif
-
     class RationalizeVisitor final : public GenTreeVisitor<RationalizeVisitor>
     {
         Rationalizer& m_rationalizer;
@@ -453,14 +510,12 @@ PhaseStatus Rationalizer::DoPhase()
         }
     };
 
-    comp->compCurBB = nullptr;
-    comp->fgOrder   = Compiler::FGOrderLinear;
+    comp->fgOrder = Compiler::FGOrderLinear;
 
     RationalizeVisitor visitor(*this);
     for (BasicBlock* const block : comp->Blocks())
     {
-        comp->compCurBB = block;
-        m_block         = block;
+        m_block = block;
 
         block->MakeLIR(nullptr, nullptr);
 
@@ -507,6 +562,29 @@ PhaseStatus Rationalizer::DoPhase()
     }
 
     comp->compRationalIRForm = true;
+}
+
+PhaseStatus Compiler::phRationalize()
+{
+#ifdef DEBUG
+    fgDebugCheckLinks(compStressCompile(Compiler::STRESS_REMORPH_TREES, 50));
+
+    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
+    {
+        for (Statement* statement : block->Statements())
+        {
+            fgDebugCheckNodeLinks(block, statement);
+        }
+    }
+#endif
+
+    Rationalizer rationalizer(this);
+    rationalizer.Run();
+
+#ifdef DEBUG
+    fgDebugCheckBBlist();
+    fgDebugCheckLinks();
+#endif
 
     return PhaseStatus::MODIFIED_EVERYTHING;
 }

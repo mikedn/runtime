@@ -810,8 +810,8 @@ GenTree* Importer::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
 GenTree* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
                                                GenTree*        array,
                                                GenTree*        index,
-                                               SpecialCodeKind indexThrowKind,
-                                               SpecialCodeKind lastIndexThrowKind)
+                                               ThrowHelperKind indexThrowKind,
+                                               ThrowHelperKind lastIndexThrowKind)
 {
     assert(array->TypeIs(TYP_REF));
     assert((index == nullptr) || (varActualType(index->GetType()) == TYP_INT));
@@ -879,7 +879,8 @@ GenTree* Importer::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLay
     GenTree* array    = impPopStackCoerceArg(TYP_REF);
     GenTree* destAddr = isNewObj ? nullptr : impPopStack().val;
 
-    GenTree* indir = impGetArrayElementsAsVector(layout, array, index, SCK_RNGCHK_FAIL, SCK_RNGCHK_FAIL);
+    GenTree* indir = impGetArrayElementsAsVector(layout, array, index, ThrowHelperKind::IndexOutOfRange,
+                                                 ThrowHelperKind::IndexOutOfRange);
 
     if (destAddr != nullptr)
     {
@@ -901,7 +902,8 @@ GenTree* Importer::impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLay
     GenTree* array = impPopStackCoerceArg(TYP_REF);
     GenTree* value = impPopStackAddrAsVector(layout->GetSIMDType());
 
-    GenTree* indir = impGetArrayElementsAsVector(layout, array, index, SCK_ARG_RNG_EXCPN, SCK_ARG_EXCPN);
+    GenTree* indir = impGetArrayElementsAsVector(layout, array, index, ThrowHelperKind::ArgumentOutOfRange,
+                                                 ThrowHelperKind::Argument);
     return gtNewAssignNode(indir, value);
 }
 
@@ -3022,7 +3024,7 @@ void SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree* tree, va
 
             GenTree* lastIndex  = compiler->gtNewIconNode(index + simdElementCount - 1, TYP_INT);
             GenTree* arrLen     = compiler->gtNewArrLen(compiler->gtCloneExpr(array), OFFSETOF__CORINFO_Array__length);
-            GenTree* arrBndsChk = compiler->gtNewArrBoundsChk(lastIndex, arrLen, SCK_RNGCHK_FAIL);
+            GenTree* arrBndsChk = compiler->gtNewArrBoundsChk(lastIndex, arrLen, ThrowHelperKind::IndexOutOfRange);
 
             addr   = compiler->gtNewCommaNode(arrBndsChk, array);
             offset = OFFSETOF__CORINFO_Array__data + index * varTypeSize(TYP_FLOAT);

@@ -360,11 +360,6 @@ typedef ptrdiff_t ssize_t;
 #define FUNC_INFO_LOGGING 1 // Support dumping function info to a file. In retail, only NYIs, with no function name,
                             // are dumped.
 
-/*****************************************************************************/
-/*****************************************************************************/
-/* Set these to 1 to collect and output various statistics about the JIT */
-
-#define CALL_ARG_STATS 0      // Collect stats about calls and call arguments.
 #define COUNT_BASIC_BLOCKS 0  // Create a histogram of basic block sizes, and a histogram of IL sizes in the simple
                               // case of single block methods.
 #define COUNT_LOOPS 0         // Collect stats about loops, such as the total number of natural loops, a histogram of
@@ -443,10 +438,10 @@ const bool dspGCtbls = true;
             JitTls::GetCompiler()->gtDispTree(tree);                                                                   \
         }                                                                                                              \
     }
-#define JITDUMPEXEC(x)                                                                                                 \
+#define DBG_SSA_JITDUMP(...)                                                                                           \
     {                                                                                                                  \
-        if (JitTls::GetCompiler()->verbose)                                                                            \
-            x;                                                                                                         \
+        if (JitTls::GetCompiler()->verboseSsa)                                                                         \
+            logf(__VA_ARGS__);                                                                                         \
     }
 #define JITLOG(x)                                                                                                      \
     {                                                                                                                  \
@@ -482,8 +477,8 @@ const bool dspGCtbls = true;
 #define VERBOSE JitTls::GetCompiler()->verbose
 #else // !DEBUG
 #define JITDUMP(...)
-#define JITDUMPEXEC(x)
 #define JITDUMPTREE(...)
+#define DBG_SSA_JITDUMP(...)
 #define JITLOG(x)
 #define JITLOG_THIS(t, x)
 #define DBEXEC(flg, expr)
@@ -586,7 +581,7 @@ inline size_t unsigned_abs(ssize_t x)
 
 /*****************************************************************************/
 
-#if CALL_ARG_STATS || COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE || MEASURE_MEM_ALLOC
+#if COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE || MEASURE_MEM_ALLOC
 
 #define HISTOGRAM_MAX_SIZE_COUNT 64
 
@@ -604,7 +599,7 @@ private:
     unsigned              m_counts[HISTOGRAM_MAX_SIZE_COUNT];
 };
 
-#endif // CALL_ARG_STATS || COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE
+#endif // COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE
 
 /*****************************************************************************/
 

@@ -618,19 +618,14 @@ void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
     GetEmitter()->emitIns_R_ARX(INS_ldr, EA_4BYTE, REG_PC, baseReg, idxReg, TARGET_POINTER_SIZE, 0);
 }
 
-//------------------------------------------------------------------------
-// genJumpTable: emits the table and an instruction to get the address of the first element
-//
-void CodeGen::genJumpTable(GenTree* treeNode)
+void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
 {
-    noway_assert(compiler->compCurBB->bbJumpKind == BBJ_SWITCH);
-    assert(treeNode->OperGet() == GT_JMPTABLE);
+    assert(switchBlock->bbJumpKind == BBJ_SWITCH);
+    assert(node->OperIs(GT_JMPTABLE));
 
-    unsigned     jumpCount = compiler->compCurBB->bbJumpSwt->bbsCount;
-    BasicBlock** jumpTable = compiler->compCurBB->bbJumpSwt->bbsDstTab;
-    unsigned     jmpTabBase;
-
-    jmpTabBase = GetEmitter()->emitBBTableDataGenBeg(jumpCount, false);
+    unsigned     jumpCount  = switchBlock->bbJumpSwt->bbsCount;
+    BasicBlock** jumpTable  = switchBlock->bbJumpSwt->bbsDstTab;
+    unsigned     jmpTabBase = GetEmitter()->emitBBTableDataGenBeg(jumpCount, false);
 
     JITDUMP("\n      J_M%03u_DS%02u LABEL   DWORD\n", compiler->compMethodID, jmpTabBase);
 
@@ -646,9 +641,8 @@ void CodeGen::genJumpTable(GenTree* treeNode)
 
     GetEmitter()->emitDataGenEnd();
 
-    genMov32RelocatableDataLabel(jmpTabBase, treeNode->GetRegNum());
-
-    genProduceReg(treeNode);
+    genMov32RelocatableDataLabel(jmpTabBase, node->GetRegNum());
+    DefReg(node);
 }
 
 instruction CodeGen::genGetInsForOper(genTreeOps oper)
@@ -921,7 +915,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
 
     // If exponent is all 1's, throw ArithmeticException
     emit->emitIns_R_I(INS_add, EA_4BYTE, intReg, 1, INS_FLAGS_SET);
-    genJumpToThrowHlpBlk(EJ_eq, SCK_ARITH_EXCPN);
+    genJumpToThrowHlpBlk(EJ_eq, ThrowHelperKind::Arithmetic);
 
     // If it's a finite value, copy it to targetReg
     inst_Mov(targetType, targetReg, fpReg, /* canSkip */ true, emitTypeSize(treeNode));
@@ -1118,12 +1112,12 @@ void CodeGen::genLongToIntCast(GenTree* cast)
             inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT, EA_4BYTE);
             inst_JMP(EJ_mi, allOne);
             inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
-            genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
             inst_JMP(EJ_jmp, success);
 
             genDefineTempLabel(allOne);
             inst_RV_IV(INS_cmp, hiSrcReg, -1, EA_4BYTE);
-            genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
 
             genDefineTempLabel(success);
         }
@@ -1132,11 +1126,11 @@ void CodeGen::genLongToIntCast(GenTree* cast)
             if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
             {
                 inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT, EA_4BYTE);
-                genJumpToThrowHlpBlk(EJ_mi, SCK_OVERFLOW);
+                genJumpToThrowHlpBlk(EJ_mi, ThrowHelperKind::Overflow);
             }
 
             inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
-            genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
         }
     }
 
@@ -1854,8 +1848,7 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
             }
         }
 
-        // Jump to the block which will throw the exception.
-        genJumpToThrowHlpBlk(jumpKind, SCK_OVERFLOW);
+        genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);
     }
 
     return dst->GetRegNum();

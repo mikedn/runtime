@@ -277,9 +277,14 @@ class emitter
     GCInfo       gcInfo;
     CodeGen*     codeGen;
     ICorJitInfo* emitCmpHandle;
+    INDEBUG(bool keepLongJumps;)
 
 public:
     emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo);
+
+    BasicBlock* GetCurrentBlock() const;
+    bool InDifferentRegions(BasicBlock* block1, BasicBlock* block2) const;
+    bool IsColdBlock(BasicBlock* block) const;
 
     /************************************************************************/
     /*       Overall emitter control (including startup and shutdown)       */
@@ -1261,9 +1266,8 @@ private:
 
     void perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* result);
 
-#endif // defined(DEBUG) || defined(LATE_DISASM)
-
     BasicBlock::weight_t getCurrentBlockWeight();
+#endif // defined(DEBUG) || defined(LATE_DISASM)
 
     void dispIns(instrDesc* id);
 

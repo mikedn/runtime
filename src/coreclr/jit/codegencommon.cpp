@@ -148,11 +148,11 @@ void CodeGen::genMarkLabelsForCodegen()
         }
     }
 
-    // Walk all the exceptional code blocks and mark them, since they don't appear in the normal flow graph.
-    for (Compiler::AddCodeDsc* add = compiler->fgAddCodeList; add; add = add->acdNext)
+    // Walk all the throw helper blocks and mark them, since jumps to them don't appear the flow graph.
+    for (ThrowHelperBlock* helper = compiler->m_throwHelperBlockList; helper != nullptr; helper = helper->next)
     {
-        JITDUMP("  " FMT_BB " : throw helper block\n", add->acdDstBlk->bbNum);
-        add->acdDstBlk->bbFlags |= BBF_HAS_LABEL;
+        JITDUMP("  " FMT_BB " : throw helper block\n", helper->block->bbNum);
+        helper->block->bbFlags |= BBF_HAS_LABEL;
     }
 
     for (EHblkDsc* const HBtab : EHClauses(compiler))
@@ -341,33 +341,19 @@ unsigned CodeGen::genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned r
     return compiler->eeGetArrayDataOffset(elemType) + genTypeSize(TYP_INT) * dimension;
 }
 
-/*****************************************************************************
- *
- *  The following can be used to create basic blocks that serve as labels for
- *  the emitter. Use with caution - these are not real basic blocks!
- *
- */
-
-// inline
+// The following can be used to create basic blocks that serve as labels for
+// the emitter. Use with caution - these are not real basic blocks!
 BasicBlock* CodeGen::genCreateTempLabel()
 {
-#ifdef DEBUG
-    // These blocks don't affect FP
-    compiler->fgSafeBasicBlockCreation = true;
-#endif
-
+    INDEBUG(compiler->fgSafeBasicBlockCreation = true);
     BasicBlock* block = compiler->bbNewBasicBlock(BBJ_NONE);
-
-#ifdef DEBUG
-    compiler->fgSafeBasicBlockCreation = false;
-#endif
+    INDEBUG(compiler->fgSafeBasicBlockCreation = false);
 
     JITDUMP("Mark " FMT_BB " as label: codegen temp block\n", block->bbNum);
-    block->bbFlags |= BBF_HAS_LABEL;
 
-    // Use coldness of current block, as this label will
-    // be contained in it.
-    block->bbFlags |= (compiler->compCurBB->bbFlags & BBF_COLD);
+    block->bbFlags |= BBF_HAS_LABEL;
+    // Use coldness of current block, as this label will be contained in it.
+    block->bbFlags |= (m_currentBlock->bbFlags & BBF_COLD);
 
 #ifdef DEBUG
 #ifdef UNIX_X86_ABI
@@ -624,9 +610,9 @@ void CodeGen::genExitCode(BasicBlock* block)
         bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
 
 #ifdef TARGET_XARCH
-        genEmitGSCookieCheck(jmpEpilog);
+        EpilogGSCookieCheck(jmpEpilog);
 #else
-        genEmitGSCookieCheck();
+        EpilogGSCookieCheck();
 #endif
     }
 
@@ -637,7 +623,7 @@ void CodeGen::genExitCode(BasicBlock* block)
 // genJumpToThrowHlpBlk: Generate code for an out-of-line exception.
 //
 // Notes:
-//   For code that uses throw helper blocks, we share the helper blocks created by fgAddCodeRef().
+//   For code that uses throw helper blocks, we share the helper blocks created by fgGetThrowHelperBlock.
 //   Otherwise, we generate the 'throw' inline.
 //
 // Arguments:
@@ -645,7 +631,7 @@ void CodeGen::genExitCode(BasicBlock* block)
 //   codeKind - the special throw-helper kind;
 //   failBlk  - optional fail target block, if it is already known;
 //
-void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, SpecialCodeKind codeKind, BasicBlock* failBlk)
+void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, ThrowHelperKind codeKind, BasicBlock* failBlk)
 {
     bool useThrowHlpBlk = compiler->fgUseThrowHelperBlocks();
 #if defined(UNIX_X86_ABI) && defined(FEATURE_EH_FUNCLETS)
@@ -666,24 +652,22 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, SpecialCodeKind codeKi
             excpRaisingBlock = failBlk;
 
 #ifdef DEBUG
-            Compiler::AddCodeDsc* add =
-                compiler->fgFindExcptnTarget(codeKind, compiler->bbThrowIndex(compiler->compCurBB));
-            assert(excpRaisingBlock == add->acdDstBlk);
+            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(codeKind, m_currentBlock);
+            assert(excpRaisingBlock == helper->block);
 #if !FEATURE_FIXED_OUT_ARGS
-            assert(add->acdStkLvlInit || isFramePointerUsed());
-#endif // !FEATURE_FIXED_OUT_ARGS
-#endif // DEBUG
+            assert(helper->stackLevelSet || isFramePointerUsed());
+#endif
+#endif
         }
         else
         {
-            // Find the helper-block which raises the exception.
-            Compiler::AddCodeDsc* add =
-                compiler->fgFindExcptnTarget(codeKind, compiler->bbThrowIndex(compiler->compCurBB));
-            PREFIX_ASSUME_MSG((add != nullptr), ("ERROR: failed to find exception throw block"));
-            excpRaisingBlock = add->acdDstBlk;
+            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(codeKind, m_currentBlock);
+            assert(helper != nullptr);
 #if !FEATURE_FIXED_OUT_ARGS
-            assert(add->acdStkLvlInit || isFramePointerUsed());
-#endif // !FEATURE_FIXED_OUT_ARGS
+            assert(helper->stackLevelSet || isFramePointerUsed());
+#endif
+
+            excpRaisingBlock = helper->block;
         }
 
         noway_assert(excpRaisingBlock != nullptr);
@@ -704,7 +688,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, SpecialCodeKind codeKi
             inst_JMP(reverseJumpKind, tgtBlk);
         }
 
-        genEmitHelperCall(Compiler::acdHelper(codeKind));
+        genEmitHelperCall(Compiler::GetThrowHelperCall(codeKind));
 
         // Define the spot for the normal non-exception case to jump to.
         if (tgtBlk != nullptr)
@@ -763,9 +747,7 @@ void CodeGen::genCheckOverflow(GenTree* tree)
 #endif // defined(TARGET_ARMARCH)
     }
 
-    // Jump to the block which will throw the expection
-
-    genJumpToThrowHlpBlk(jumpKind, SCK_OVERFLOW);
+    genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);
 }
 
 #if defined(FEATURE_EH_FUNCLETS)
@@ -1156,9 +1138,9 @@ void CodeGen::genEmitMachineCode()
 #endif
 
 #ifdef DEBUG_ARG_SLOTS
-    // Check our max stack level. Needed for fgAddCodeRef().
+    // Check our max stack level. Needed for fgGetThrowHelperBlock.
     // We need to relax the assert as our estimation won't include code-gen
-    // stack changes (which we know don't affect fgAddCodeRef()).
+    // stack changes (which we know don't affect fgGetThrowHelperBlock).
     // NOTE: after emitEndCodeGen (including here), emitMaxStackDepth is a
     // count of DWORD-sized arguments, NOT argument size in bytes.
     {
@@ -4135,6 +4117,11 @@ void CodeGen::genFinalizeFrame()
     UpdateParamsWithInitialReg();
 
     compiler->lvaAssignFrameOffsets(Compiler::FINAL_FRAME_LAYOUT);
+
+    if (compiler->getNeedsGSSecurityCookie())
+    {
+        compiler->info.compCompHnd->getGSCookie(&m_gsCookieVal, &m_gsCookieAddr);
+    }
 }
 
 regNumber CodeGen::PrologChooseInitReg(regMaskTP initRegs)
@@ -4948,18 +4935,24 @@ void CodeGen::genSetScopeInfo(unsigned       which,
         // accessed via the varargs cookie. Discard generated info,
         // and just find its position relative to the varargs handle
 
-        PREFIX_ASSUME(compiler->lvaVarargsHandleArg < compiler->info.compArgsCount);
-        if (!compiler->lvaTable[compiler->lvaVarargsHandleArg].lvOnFrame)
+        assert(compiler->lvaVarargsHandleArg < compiler->info.compArgsCount);
+
+        LclVarDsc* varargHandleLcl = compiler->lvaGetDesc(compiler->lvaVarargsHandleArg);
+
+        if (!varargHandleLcl->lvOnFrame)
         {
             noway_assert(!compiler->opts.compDbgCode);
             return;
         }
 
-        // Can't check compiler->lvaTable[varNum].lvOnFrame as we don't set it for
-        // arguments of vararg functions to avoid reporting them to GC.
-        noway_assert(!compiler->lvaTable[varNum].lvRegister);
-        unsigned cookieOffset = compiler->lvaTable[compiler->lvaVarargsHandleArg].GetStackOffset();
-        unsigned varOffset    = compiler->lvaTable[varNum].GetStackOffset();
+        LclVarDsc* varLcl = compiler->lvaGetDesc(varNum);
+
+        // Can't check varLcl->lvOnFrame as we don't set it for params
+        // of vararg functions to avoid reporting them to GC.
+        noway_assert(!varLcl->lvRegister);
+
+        unsigned cookieOffset = varargHandleLcl->GetStackOffset();
+        unsigned varOffset    = varLcl->GetStackOffset();
 
         noway_assert(cookieOffset < varOffset);
         unsigned offset     = varOffset - cookieOffset;
@@ -5442,14 +5435,14 @@ void CodeGen::genIPmappingGen()
             continue;
         }
 
-        /* If there are mappings with the same native offset, then:
-           o If one of them is NO_MAPPING, ignore it
-           o If one of them is a label, report that and ignore the other one
-           o Else report the higher IL offset
-         */
+        assert(prevMapping != nullptr); // We would exit before if this was true
 
-        PREFIX_ASSUME(prevMapping != nullptr); // We would exit before if this was true
-        if (prevMapping->ipmdILoffsx == (IL_OFFSETX)ICorDebugInfo::NO_MAPPING)
+        // If there are mappings with the same native offset, then:
+        // o If one of them is NO_MAPPING, ignore it
+        // o If one of them is a label, report that and ignore the other one
+        // o Else report the higher IL offset
+
+        if (prevMapping->ipmdILoffsx == static_cast<IL_OFFSETX>(ICorDebugInfo::NO_MAPPING))
         {
             // If the previous entry was NO_MAPPING, ignore it
             prevMapping->ipmdNativeLoc.Init();
@@ -5595,17 +5588,13 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
     return NULL;
 }
 
-/*****************************************************************************/
 #endif // !defined(DEBUG)
 #endif // defined(LATE_DISASM)
-/*****************************************************************************/
 
-void CodeGen::genRetFilt(GenTree* retfilt)
+void CodeGen::GenRetFilt(GenTree* retfilt, BasicBlock* block)
 {
     assert(retfilt->OperIs(GT_RETFILT));
-
-    assert((compiler->compCurBB->bbJumpKind == BBJ_EHFILTERRET) ||
-           (compiler->compCurBB->bbJumpKind == BBJ_EHFINALLYRET));
+    assert((block->bbJumpKind == BBJ_EHFILTERRET) || (block->bbJumpKind == BBJ_EHFINALLYRET));
 
     if (retfilt->TypeIs(TYP_VOID))
     {
@@ -5614,8 +5603,7 @@ void CodeGen::genRetFilt(GenTree* retfilt)
 
     assert(retfilt->TypeIs(TYP_INT));
 
-    GenTree*  src    = retfilt->AsUnOp()->GetOp(0);
-    regNumber srcReg = genConsumeReg(src);
+    regNumber srcReg = UseReg(retfilt->AsUnOp()->GetOp(0));
 
     GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_INTRET, srcReg, /* canSkip */ true);
 }
@@ -5657,14 +5645,14 @@ void CodeGen::genLongReturn(GenTree* src)
 
 #endif // !TARGET_64BIT
 
-void CodeGen::genReturn(GenTree* ret)
+void CodeGen::GenReturn(GenTree* ret, BasicBlock* block)
 {
     assert(ret->OperIs(GT_RETURN));
 
     // Normally RETURN nodes appears at the end of RETURN blocks but sometimes the frontend fails
     // to properly cleanup after an unconditional throw and we end up with a THROW block having an
     // unreachable RETURN node at the end.
-    assert((compiler->compCurBB->bbJumpKind == BBJ_RETURN) || (compiler->compCurBB->bbJumpKind == BBJ_THROW));
+    assert((block->bbJumpKind == BBJ_RETURN) || (block->bbJumpKind == BBJ_THROW));
 #if defined(FEATURE_EH_FUNCLETS)
     assert(compiler->funCurrentFunc()->funKind == FUNC_ROOT);
 #endif
@@ -5738,7 +5726,7 @@ void CodeGen::genReturn(GenTree* ret)
     //
     // There should be a single return block while generating profiler ELT callbacks,
     // so we just look for that block to trigger insertion of the profile hook.
-    if ((compiler->compCurBB == compiler->genReturnBB) && compiler->compIsProfilerHookNeeded())
+    if ((block == compiler->genReturnBB) && compiler->compIsProfilerHookNeeded())
     {
         genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_LEAVE);
     }

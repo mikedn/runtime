@@ -7,106 +7,68 @@
 #pragma hdrstop
 #endif
 
-// Flowgraph Miscellany
-
-//------------------------------------------------------------------------
-// blockNeedsGCPoll: Determine whether the block needs GC poll inserted
-//
-// Arguments:
-//   block         - the block to check
-//
-// Notes:
-//    The GC poll may not be required because of optimizations applied earlier
-//    or because of GC poll done implicitly by regular unmanaged calls.
-//
-// Returns:
-//    Whether the GC poll needs to be inserted after the block
-//
-static bool blockNeedsGCPoll(BasicBlock* block)
+static bool BlockNeedsGCPoll(BasicBlock* block)
 {
-    bool blockMayNeedGCPoll = false;
-    for (Statement* const stmt : block->NonPhiStatements())
+    bool blockNeedsGCPoll = false;
+
+    for (Statement* stmt : block->NonPhiStatements())
     {
-        if ((stmt->GetRootNode()->gtFlags & GTF_CALL) != 0)
-        {
-            for (GenTree* const tree : stmt->TreeList())
-            {
-                if (tree->OperGet() == GT_CALL)
-                {
-                    GenTreeCall* call = tree->AsCall();
-                    if (call->IsUnmanaged())
-                    {
-                        if (!call->IsSuppressGCTransition())
-                        {
-                            // If the block contains regular unmanaged call, we can depend on it
-                            // to poll for GC. No need to scan further.
-                            return false;
-                        }
-
-                        blockMayNeedGCPoll = true;
-                    }
-                }
-            }
-        }
-    }
-    return blockMayNeedGCPoll;
-}
-
-//------------------------------------------------------------------------------
-// fgInsertGCPolls : Insert GC polls for basic blocks containing calls to methods
-//                   with SuppressGCTransitionAttribute.
-//
-// Notes:
-//    When not optimizing, the method relies on BBF_HAS_SUPPRESSGC_CALL flag to
-//    find the basic blocks that require GC polls; when optimizing the tree nodes
-//    are scanned to find calls to methods with SuppressGCTransitionAttribute.
-//
-//    This must be done after any transformations that would add control flow between
-//    calls.
-//
-// Returns:
-//    PhaseStatus indicating what, if anything, was changed.
-//
-
-PhaseStatus Compiler::fgInsertGCPolls()
-{
-    PhaseStatus result = PhaseStatus::MODIFIED_NOTHING;
-
-    if ((optMethodFlags & OMF_NEEDS_GCPOLLS) == 0)
-    {
-        return result;
-    }
-
-    bool createdPollBlocks = false;
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgInsertGCPolls() for %s\n", info.compFullName);
-        fgDispBasicBlocks(false);
-        printf("\n");
-    }
-#endif // DEBUG
-
-    BasicBlock* block;
-
-    // Walk through the blocks and hunt for a block that needs a GC Poll
-    for (block = fgFirstBB; block != nullptr; block = block->bbNext)
-    {
-        // When optimizations are enabled, we can't rely on BBF_HAS_SUPPRESSGC_CALL flag:
-        // the call could've been moved, e.g., hoisted from a loop, CSE'd, etc.
-        if (opts.OptimizationDisabled() ? ((block->bbFlags & BBF_HAS_SUPPRESSGC_CALL) == 0) : !blockNeedsGCPoll(block))
+        if ((stmt->GetRootNode()->gtFlags & GTF_CALL) == 0)
         {
             continue;
         }
 
-        result = PhaseStatus::MODIFIED_EVERYTHING;
+        for (GenTree* node : stmt->Nodes())
+        {
+            if (GenTreeCall* call = node->IsCall())
+            {
+                if (!call->IsUnmanaged())
+                {
+                    continue;
+                }
 
-        // This block needs a GC poll. We either just insert a callout or we split the block and inline part of
-        // the test.
+                if (!call->IsSuppressGCTransition())
+                {
+                    // If the block contains regular unmanaged call, we can depend on it
+                    // to poll for GC. No need to scan further.
+                    // TODO-MIKE-Review: Wouldn't a normal managed call also allow GC?
+                    return false;
+                }
 
-        // If we're doing GCPOLL_CALL, just insert a GT_CALL node before the last node in the block.
-        CLANG_FORMAT_COMMENT_ANCHOR;
+                blockNeedsGCPoll = true;
+            }
+        }
+    }
+
+    return blockNeedsGCPoll;
+}
+
+// Insert GC polls for basic blocks containing calls to methods with SuppressGCTransition
+// attribute. This must be done after any transformations that would add control flow
+// between calls.
+PhaseStatus Compiler::phInsertGCPolls()
+{
+    assert((optMethodFlags & OMF_NEEDS_GCPOLLS) != 0);
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        fgDispBasicBlocks(false);
+        printf("\n");
+    }
+#endif
+
+    PhaseStatus result            = PhaseStatus::MODIFIED_NOTHING;
+    bool        createdPollBlocks = false;
+
+    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
+    {
+        // When optimizations are enabled, we can't rely on BBF_HAS_SUPPRESSGC_CALL flag,
+        // calls could've been moved (e.g., hoisted from a loop, CSE'd, etc.)
+        if (opts.OptimizationDisabled() ? ((block->bbFlags & BBF_HAS_SUPPRESSGC_CALL) == 0) : !BlockNeedsGCPoll(block))
+        {
+            continue;
+        }
 
 #ifdef DEBUG
         switch (block->bbJumpKind)
@@ -122,160 +84,123 @@ PhaseStatus Compiler::fgInsertGCPolls()
             default:
                 assert(!"Unexpected block kind");
         }
-#endif // DEBUG
+#endif
 
         GCPollType pollType = GCPOLL_INLINE;
 
-        // We'd like to inset an inline poll. Below is the list of places where we
-        // can't or don't want to emit an inline poll. Check all of those. If after all of that we still
-        // have INLINE, then emit an inline check.
-
         if (opts.OptimizationDisabled())
         {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Selecting CALL poll in block " FMT_BB " because of debug/minopts\n", block->bbNum);
-            }
-#endif // DEBUG
+            JITDUMP("Selecting CALL poll in block " FMT_BB " because of debug/minopts\n", block->bbNum);
 
             // Don't split blocks and create inlined polls unless we're optimizing.
             pollType = GCPOLL_CALL;
         }
         else if (genReturnBB == block)
         {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Selecting CALL poll in block " FMT_BB " because it is the single return block\n", block->bbNum);
-            }
-#endif // DEBUG
+            JITDUMP("Selecting CALL poll in block " FMT_BB " because it is the single return block\n", block->bbNum);
 
-            // we don't want to split the single return block
+            // We don't want to split the single return block.
             pollType = GCPOLL_CALL;
         }
         else if (BBJ_SWITCH == block->bbJumpKind)
         {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Selecting CALL poll in block " FMT_BB " because it is a SWITCH block\n", block->bbNum);
-            }
-#endif // DEBUG
+            JITDUMP("Selecting CALL poll in block " FMT_BB " because it is a SWITCH block\n", block->bbNum);
 
             // We don't want to deal with all the outgoing edges of a switch block.
             pollType = GCPOLL_CALL;
         }
         else if ((block->bbFlags & BBF_COLD) != 0)
         {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Selecting CALL poll in block " FMT_BB " because it is a cold block\n", block->bbNum);
-            }
-#endif // DEBUG
+            JITDUMP("Selecting CALL poll in block " FMT_BB " because it is a cold block\n", block->bbNum);
 
             // We don't want to split a cold block.
             pollType = GCPOLL_CALL;
         }
 
-        BasicBlock* curBasicBlock = fgCreateGCPoll(pollType, block);
-        createdPollBlocks |= (block != curBasicBlock);
-        block = curBasicBlock;
+        BasicBlock* newBlock = fgCreateGCPoll(pollType, block);
+        createdPollBlocks |= (block != newBlock);
+        block  = newBlock;
+        result = PhaseStatus::MODIFIED_EVERYTHING;
     }
 
-    // If we split a block to create a GC Poll, then rerun fgReorderBlocks to push the rarely run blocks out
-    // past the epilog.  We should never split blocks unless we're optimizing.
+    // If we split a block to create a GC Poll, then rerun fgReorderBlocks to push the rarely
+    // run blocks out past the epilog. We should never split blocks unless we're optimizing.
     if (createdPollBlocks)
     {
         noway_assert(opts.OptimizationEnabled());
+
         fgReorderBlocks();
-        constexpr bool computePreds = true;
-        constexpr bool computeDoms  = false;
-        fgUpdateChangedFlowGraph(computePreds, computeDoms);
+        fgUpdateChangedFlowGraph(/*computePreds*/ true);
     }
+
 #ifdef DEBUG
     if (verbose)
     {
         printf("*************** After fgInsertGCPolls()\n");
         fgDispBasicBlocks(true);
     }
-#endif // DEBUG
+#endif
 
     return result;
 }
 
-//------------------------------------------------------------------------------
-// fgCreateGCPoll : Insert a GC poll of the specified type for the given basic block.
-//
-// Arguments:
-//    pollType  - The type of GC poll to insert
-//    block     - Basic block to insert the poll for
-//
-// Return Value:
-//    If new basic blocks are inserted, the last inserted block; otherwise, the input block.
-//
-
+// Insert a GC poll of the specified type for the given basic block.
+// For inline polls this returns the new block that follows the poll
+// call block, otherwise it returns null.
 BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 {
-    bool createdPollBlocks;
+    void* addrOfTrapReturningThreadsAddr;
+    void* trapReturningThreadsAddr = info.compCompHnd->getAddrOfCaptureThreadGlobal(&addrOfTrapReturningThreadsAddr);
 
-    void* addrTrap;
-    void* pAddrOfCaptureThreadGlobal;
-
-    addrTrap = info.compCompHnd->getAddrOfCaptureThreadGlobal(&pAddrOfCaptureThreadGlobal);
-
-    // If the trap and address of thread global are null, make the call.
-    if (addrTrap == nullptr && pAddrOfCaptureThreadGlobal == nullptr)
+    // If we can't get the address of the global variable we can't make inline polls.
+    if ((trapReturningThreadsAddr == nullptr) && (addrOfTrapReturningThreadsAddr == nullptr))
     {
         pollType = GCPOLL_CALL;
     }
 
-    // Create the GC_CALL node
-    GenTree* call = gtNewHelperCallNode(CORINFO_HELP_POLL_GC, TYP_VOID);
-    call          = fgMorphCall(call->AsCall());
-    gtSetEvalOrder(call);
+    GenTreeCall* call = gtNewHelperCallNode(CORINFO_HELP_POLL_GC, TYP_VOID);
+    fgMorphArgs(call);
 
-    BasicBlock* bottom = nullptr;
+    // TODO-MIKE-Review: This may insert the GC poll call before the unmanaged call,
+    // which might be in the last statement of a conditoinal the block. It probably
+    // doesn't matter but it seems a bit dodgy.
 
     if (pollType == GCPOLL_CALL)
     {
-        createdPollBlocks = false;
-
         Statement* newStmt = nullptr;
+
         if ((block->bbJumpKind == BBJ_ALWAYS) || (block->bbJumpKind == BBJ_CALLFINALLY) ||
             (block->bbJumpKind == BBJ_NONE))
         {
-            // For BBJ_ALWAYS, BBJ_CALLFINALLY, and BBJ_NONE and  we don't need to insert it before the condition.
-            // Just append it.
             newStmt = fgNewStmtAtEnd(block, call);
         }
         else
         {
             newStmt = fgNewStmtNearEnd(block, call);
-            // For DDB156656, we need to associate the GC Poll with the IL offset (and therefore sequence
-            // point) of the tree before which we inserted the poll.  One example of when this is a
-            // problem:
-            //  if (...) {  //1
-            //      ...
-            //  } //2
-            //  else { //3
-            //      ...
-            //  }
-            //  (gcpoll) //4
-            //  return. //5
+
+            // We need to associate the GC Poll with the IL offset (and therefore sequencepoint)
+            // of the tree before which we inserted the poll. Example:
             //
-            //  If we take the if statement at 1, we encounter a jump at 2.  This jumps over the else
-            //  and lands at 4.  4 is where we inserted the gcpoll.  However, that is associated with
-            //  the sequence point a 3.  Therefore, the debugger displays the wrong source line at the
-            //  gc poll location.
+            //  1: if (...) {
+            //         ...
+            //  2: }
+            //  3: else {
+            //         ...
+            //     }
+            //  4: GC poll call
+            //  5: return
             //
+            //  If we take the if statement at 1, we encounter a jump at 2. This jumps over the else
+            //  and lands at 4. 4 is where we inserted the poll call. However, that is associated with
+            //  the sequence point a 3. Therefore, the debugger displays the wrong source line at the
+            //  GC poll location.
             //  More formally, if control flow targets an instruction, that instruction must be the
             //  start of a new sequence point.
+
             Statement* nextStmt = newStmt->GetNextStmt();
+
             if (nextStmt != nullptr)
             {
-                // Is it possible for gtNextStmt to be NULL?
                 newStmt->SetILOffsetX(nextStmt->GetILOffsetX());
             }
         }
@@ -287,208 +212,173 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
         }
 
         block->bbFlags |= BBF_GC_SAFE_POINT;
+
 #ifdef DEBUG
         if (verbose)
         {
-            printf("*** creating GC Poll in block " FMT_BB "\n", block->bbNum);
+            printf("*** Added GC Poll to block " FMT_BB "\n", block->bbNum);
             gtDispBlockStmts(block);
         }
-#endif // DEBUG
+#endif
+
+        return block;
     }
-    else // GCPOLL_INLINE
-    {
-        assert(pollType == GCPOLL_INLINE);
-        createdPollBlocks = true;
-        // if we're doing GCPOLL_INLINE, then:
-        //  1) Create two new blocks: Poll and Bottom.  The original block is called Top.
 
-        // I want to create:
-        // top -> poll -> bottom (lexically)
-        // so that we jump over poll to get to bottom.
-        BasicBlock*   top                = block;
-        BasicBlock*   topFallThrough     = nullptr;
-        unsigned char lpIndexFallThrough = BasicBlock::NOT_IN_LOOP;
-
-        if (top->bbJumpKind == BBJ_COND)
-        {
-            topFallThrough     = top->bbNext;
-            lpIndexFallThrough = topFallThrough->bbNatLoopNum;
-        }
-
-        BasicBlock* poll          = fgNewBBafter(BBJ_NONE, top, true);
-        bottom                    = fgNewBBafter(top->bbJumpKind, poll, true);
-        BBjumpKinds   oldJumpKind = top->bbJumpKind;
-        unsigned char lpIndex     = top->bbNatLoopNum;
-
-        // Update block flags
-        const BasicBlockFlags originalFlags = top->bbFlags | BBF_GC_SAFE_POINT;
-
-        // We are allowed to split loops and we need to keep a few other flags...
-        //
-        noway_assert((originalFlags & (BBF_SPLIT_NONEXIST &
-                                       ~(BBF_LOOP_HEAD | BBF_LOOP_CALL0 | BBF_LOOP_CALL1 | BBF_LOOP_PREHEADER |
-                                         BBF_RETLESS_CALL))) == 0);
-        top->bbFlags = originalFlags & (~(BBF_SPLIT_LOST | BBF_LOOP_PREHEADER | BBF_RETLESS_CALL) | BBF_GC_SAFE_POINT);
-        bottom->bbFlags |= originalFlags & (BBF_SPLIT_GAINED | BBF_IMPORTED | BBF_GC_SAFE_POINT | BBF_LOOP_PREHEADER |
-                                            BBF_RETLESS_CALL);
-        bottom->inheritWeight(top);
-        poll->bbFlags |= originalFlags & (BBF_SPLIT_GAINED | BBF_IMPORTED | BBF_GC_SAFE_POINT);
-
-        // Mark Poll as rarely run.
-        poll->bbSetRunRarely();
-        poll->bbNatLoopNum = lpIndex; // Set the bbNatLoopNum in case we are in a loop
-
-        // Bottom gets all the outgoing edges and inherited flags of Original.
-        bottom->bbJumpDest   = top->bbJumpDest;
-        bottom->bbNatLoopNum = lpIndex; // Set the bbNatLoopNum in case we are in a loop
-        if (lpIndex != BasicBlock::NOT_IN_LOOP)
-        {
-            // Set the new lpBottom in the natural loop table
-            optLoopTable[lpIndex].lpBottom = bottom;
-        }
-
-        if (lpIndexFallThrough != BasicBlock::NOT_IN_LOOP)
-        {
-            // Set the new lpHead in the natural loop table
-            optLoopTable[lpIndexFallThrough].lpHead = bottom;
-        }
-
-        // Add the GC_CALL node to Poll.
-        Statement* pollStmt = fgNewStmtAtEnd(poll, call);
-        if (fgStmtListThreaded)
-        {
-            gtSetStmtInfo(pollStmt);
-            fgSetStmtSeq(pollStmt);
-        }
-
-        // Remove the last statement from Top and add it to Bottom if necessary.
-        if ((oldJumpKind == BBJ_COND) || (oldJumpKind == BBJ_RETURN) || (oldJumpKind == BBJ_THROW))
-        {
-            Statement* stmt = top->firstStmt();
-            while (stmt->GetNextStmt() != nullptr)
-            {
-                stmt = stmt->GetNextStmt();
-            }
-            fgRemoveStmt(top, stmt);
-            fgInsertStmtAtEnd(bottom, stmt);
-        }
-
-        // for BBJ_ALWAYS blocks, bottom is an empty block.
-
-        // Create a GT_EQ node that checks against g_TrapReturningThreads.  True jumps to Bottom,
-        // false falls through to poll.  Add this to the end of Top.  Top is now BBJ_COND.  Bottom is
-        // now a jump target
-        CLANG_FORMAT_COMMENT_ANCHOR;
+    assert(pollType == GCPOLL_INLINE);
 
 #ifdef ENABLE_FAST_GCPOLL_HELPER
-        // Prefer the fast gc poll helepr over the double indirection
-        noway_assert(pAddrOfCaptureThreadGlobal == nullptr);
+    // Prefer the fast GC poll helper over the double indirection.
+    noway_assert(pAddrOfCaptureThreadGlobal == nullptr);
 #endif
 
-        GenTree* value; // The value of g_TrapReturningThreads
-        if (pAddrOfCaptureThreadGlobal != nullptr)
-        {
-            // Use a double indirection
-            GenTree* addr =
-                gtNewIndOfIconHandleNode(TYP_I_IMPL, (size_t)pAddrOfCaptureThreadGlobal, GTF_ICON_CONST_PTR, true);
+    // For GCPOLL_INLINE we create two new blocks: Poll and Bottom.
+    // The original block is called Top.
 
-            value = gtNewOperNode(GT_IND, TYP_INT, addr);
-            // This indirection won't cause an exception.
-            value->gtFlags |= GTF_IND_NONFAULTING;
-        }
-        else
-        {
-            // Use a single indirection
-            value = gtNewIndOfIconHandleNode(TYP_INT, (size_t)addrTrap, GTF_ICON_GLOBAL_PTR, false);
-        }
+    BasicBlock*            top             = block;
+    BasicBlock::loopNumber fallThroughLoop = BasicBlock::NOT_IN_LOOP;
 
-        // NOTE: in c++ an equivalent load is done via LoadWithoutBarrier() to ensure that the
-        // program order is preserved. (not hoisted out of a loop or cached in a local, for example)
-        //
-        // Here we introduce the read really late after all major optimizations are done, and the location
-        // is formally unknown, so noone could optimize the load, thus no special flags are needed.
-
-        // Compare for equal to zero
-        GenTree* trapRelop = gtNewOperNode(GT_EQ, TYP_INT, value, gtNewIconNode(0, TYP_INT));
-
-        trapRelop->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
-        GenTree* trapCheck = gtNewOperNode(GT_JTRUE, TYP_VOID, trapRelop);
-        gtSetEvalOrder(trapCheck);
-        Statement* trapCheckStmt = fgNewStmtAtEnd(top, trapCheck);
-        if (fgStmtListThreaded)
-        {
-            gtSetStmtInfo(trapCheckStmt);
-            fgSetStmtSeq(trapCheckStmt);
-        }
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Adding trapCheck in " FMT_BB "\n", top->bbNum);
-            gtDispTree(trapCheck);
-        }
-#endif
-
-        top->bbJumpDest = bottom;
-        top->bbJumpKind = BBJ_COND;
-
-        // Bottom has Top and Poll as its predecessors.  Poll has just Top as a predecessor.
-        fgAddRefPred(bottom, poll);
-        fgAddRefPred(bottom, top);
-        fgAddRefPred(poll, top);
-
-        // Replace Top with Bottom in the predecessor list of all outgoing edges from Bottom
-        // (1 for unconditional branches, 2 for conditional branches, N for switches).
-        switch (oldJumpKind)
-        {
-            case BBJ_NONE:
-                fgReplacePred(bottom->bbNext, top, bottom);
-                break;
-            case BBJ_RETURN:
-            case BBJ_THROW:
-                // no successors
-                break;
-            case BBJ_COND:
-                // replace predecessor in the fall through block.
-                noway_assert(bottom->bbNext);
-                fgReplacePred(bottom->bbNext, top, bottom);
-
-                // fall through for the jump target
-                FALLTHROUGH;
-
-            case BBJ_ALWAYS:
-            case BBJ_CALLFINALLY:
-                fgReplacePred(bottom->bbJumpDest, top, bottom);
-                break;
-            case BBJ_SWITCH:
-                NO_WAY("SWITCH should be a call rather than an inlined poll.");
-                break;
-            default:
-                NO_WAY("Unknown block type for updating predecessor lists.");
-        }
-
-        if (compCurBB == top)
-        {
-            compCurBB = bottom;
-        }
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("*** creating inlined GC Poll in top block " FMT_BB "\n", top->bbNum);
-            gtDispBlockStmts(top);
-            printf(" poll block is " FMT_BB "\n", poll->bbNum);
-            gtDispBlockStmts(poll);
-            printf(" bottom block is " FMT_BB "\n", bottom->bbNum);
-            gtDispBlockStmts(bottom);
-
-            printf("\nAfter this change in fgCreateGCPoll the BB graph is:");
-            fgDispBasicBlocks(false);
-        }
-#endif // DEBUG
+    if (top->bbJumpKind == BBJ_COND)
+    {
+        fallThroughLoop = top->bbNext->bbNatLoopNum;
     }
 
-    return createdPollBlocks ? bottom : block;
+    BasicBlock* poll   = fgNewBBafter(BBJ_NONE, top, true);
+    BasicBlock* bottom = fgNewBBafter(top->bbJumpKind, poll, true);
+
+    const BBjumpKinds            topKind  = top->bbJumpKind;
+    const BasicBlock::loopNumber topLoop  = top->bbNatLoopNum;
+    const BasicBlockFlags        topFlags = top->bbFlags | BBF_GC_SAFE_POINT;
+
+    noway_assert(
+        (topFlags & (BBF_SPLIT_NONEXIST &
+                     ~(BBF_LOOP_HEAD | BBF_LOOP_CALL0 | BBF_LOOP_CALL1 | BBF_LOOP_PREHEADER | BBF_RETLESS_CALL))) == 0);
+
+    top->bbFlags = topFlags & (~(BBF_SPLIT_LOST | BBF_LOOP_PREHEADER | BBF_RETLESS_CALL) | BBF_GC_SAFE_POINT);
+
+    bottom->bbFlags |=
+        topFlags & (BBF_SPLIT_GAINED | BBF_IMPORTED | BBF_GC_SAFE_POINT | BBF_LOOP_PREHEADER | BBF_RETLESS_CALL);
+    bottom->inheritWeight(top);
+
+    poll->bbFlags |= topFlags & (BBF_SPLIT_GAINED | BBF_IMPORTED | BBF_GC_SAFE_POINT);
+    poll->bbSetRunRarely();
+    poll->bbNatLoopNum = topLoop;
+
+    bottom->bbJumpDest   = top->bbJumpDest;
+    bottom->bbNatLoopNum = topLoop;
+
+    if (topLoop != BasicBlock::NOT_IN_LOOP)
+    {
+        optLoopTable[topLoop].lpBottom = bottom;
+    }
+
+    if (fallThroughLoop != BasicBlock::NOT_IN_LOOP)
+    {
+        optLoopTable[fallThroughLoop].lpHead = bottom;
+    }
+
+    Statement* pollStmt = fgNewStmtAtEnd(poll, call);
+
+    if (fgStmtListThreaded)
+    {
+        gtSetStmtInfo(pollStmt);
+        fgSetStmtSeq(pollStmt);
+    }
+
+    if ((topKind == BBJ_COND) || (topKind == BBJ_RETURN) || (topKind == BBJ_THROW))
+    {
+        Statement* stmt = top->firstStmt();
+
+        while (stmt->GetNextStmt() != nullptr)
+        {
+            stmt = stmt->GetNextStmt();
+        }
+
+        fgRemoveStmt(top, stmt);
+        fgInsertStmtAtEnd(bottom, stmt);
+    }
+
+    GenTree* indir;
+
+    if (addrOfTrapReturningThreadsAddr != nullptr)
+    {
+        GenTree* addr = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(addrOfTrapReturningThreadsAddr),
+                                                 GTF_ICON_CONST_PTR, true);
+        indir = gtNewOperNode(GT_IND, TYP_INT, addr);
+        indir->gtFlags |= GTF_IND_NONFAULTING;
+    }
+    else
+    {
+        indir = gtNewIndOfIconHandleNode(TYP_INT, reinterpret_cast<size_t>(trapReturningThreadsAddr),
+                                         GTF_ICON_GLOBAL_PTR, false);
+    }
+
+    // NOTE: In native code this load is done via LoadWithoutBarrier() to ensure that
+    // the program order is preserved (e.g. not hoisted out of a loop or cached in a local).
+    // Here we introduce the load really late after all major optimizations are done,
+    // and the location is formally unknown, so the load should not be optimized thus
+    // no special flags are needed.
+
+    GenTree* trapEq = gtNewOperNode(GT_EQ, TYP_INT, indir, gtNewIconNode(0, TYP_INT));
+    trapEq->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
+    GenTree* trapCheck = gtNewOperNode(GT_JTRUE, TYP_VOID, trapEq);
+    gtSetEvalOrder(trapCheck);
+    Statement* trapCheckStmt = fgNewStmtAtEnd(top, trapCheck);
+
+    if (fgStmtListThreaded)
+    {
+        gtSetStmtInfo(trapCheckStmt);
+        fgSetStmtSeq(trapCheckStmt);
+    }
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("Adding trapCheck in " FMT_BB "\n", top->bbNum);
+        gtDispTree(trapCheck);
+    }
+#endif
+
+    top->bbJumpDest = bottom;
+    top->bbJumpKind = BBJ_COND;
+
+    fgAddRefPred(bottom, poll);
+    fgAddRefPred(bottom, top);
+    fgAddRefPred(poll, top);
+
+    switch (topKind)
+    {
+        case BBJ_RETURN:
+        case BBJ_THROW:
+            break;
+        case BBJ_NONE:
+            fgReplacePred(bottom->bbNext, top, bottom);
+            break;
+        case BBJ_COND:
+            noway_assert(bottom->bbNext);
+            fgReplacePred(bottom->bbNext, top, bottom);
+            FALLTHROUGH;
+        case BBJ_ALWAYS:
+        case BBJ_CALLFINALLY:
+            fgReplacePred(bottom->bbJumpDest, top, bottom);
+            break;
+
+        default:
+            unreached();
+    }
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("*** Added inlined GC Poll trap check in top block " FMT_BB "\n", top->bbNum);
+        gtDispBlockStmts(top);
+        printf(" poll block is " FMT_BB "\n", poll->bbNum);
+        gtDispBlockStmts(poll);
+        printf(" bottom block is " FMT_BB "\n", bottom->bbNum);
+        gtDispBlockStmts(bottom);
+    }
+#endif
+
+    return bottom;
 }
 
 //------------------------------------------------------------------------
@@ -618,141 +508,6 @@ bool Compiler::fgIsCommaThrow(GenTree* tree, bool forFolding /* = false */)
         return (fgIsThrow(tree->AsOp()->gtOp1));
     }
     return false;
-}
-
-GenTreeCall* Compiler::fgGetStaticsCCtorHelper(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper)
-{
-    bool         bNeedClassID = true;
-    GenTreeFlags callFlags    = GTF_EMPTY;
-
-    var_types type = TYP_BYREF;
-
-    // This is sort of ugly, as we have knowledge of what the helper is returning.
-    // We need the return type.
-    switch (helper)
-    {
-        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
-            bNeedClassID = false;
-            FALLTHROUGH;
-
-        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR:
-            callFlags |= GTF_CALL_HOISTABLE;
-            FALLTHROUGH;
-
-        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE:
-        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS:
-        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS:
-        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE:
-        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS:
-        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS:
-            // type = TYP_BYREF;
-            break;
-
-        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
-            bNeedClassID = false;
-            FALLTHROUGH;
-
-        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR:
-            callFlags |= GTF_CALL_HOISTABLE;
-            FALLTHROUGH;
-
-        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE:
-        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE:
-        case CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS:
-            type = TYP_I_IMPL;
-            break;
-
-        default:
-            assert(!"unknown shared statics helper");
-            break;
-    }
-
-    GenTreeCall::Use* argList = nullptr;
-
-    GenTree* opModuleIDArg;
-    GenTree* opClassIDArg;
-
-    // Get the class ID
-    unsigned clsID;
-    size_t   moduleID;
-    void*    pclsID;
-    void*    pmoduleID;
-
-    clsID = info.compCompHnd->getClassDomainID(cls, &pclsID);
-
-    moduleID = info.compCompHnd->getClassModuleIdForStatics(cls, nullptr, &pmoduleID);
-
-    if (!(callFlags & GTF_CALL_HOISTABLE))
-    {
-        if (info.compCompHnd->getClassAttribs(cls) & CORINFO_FLG_BEFOREFIELDINIT)
-        {
-            callFlags |= GTF_CALL_HOISTABLE;
-        }
-    }
-
-    if (pmoduleID)
-    {
-        opModuleIDArg = gtNewIndOfIconHandleNode(TYP_I_IMPL, (size_t)pmoduleID, GTF_ICON_CIDMID_HDL, true);
-    }
-    else
-    {
-        opModuleIDArg = gtNewIconNode((size_t)moduleID, TYP_I_IMPL);
-    }
-
-    if (bNeedClassID)
-    {
-        if (pclsID)
-        {
-            opClassIDArg = gtNewIndOfIconHandleNode(TYP_INT, (size_t)pclsID, GTF_ICON_CIDMID_HDL, true);
-        }
-        else
-        {
-            opClassIDArg = gtNewIconNode(clsID, TYP_INT);
-        }
-
-        // call the helper to get the base
-        argList = gtNewCallArgs(opModuleIDArg, opClassIDArg);
-    }
-    else
-    {
-        argList = gtNewCallArgs(opModuleIDArg);
-    }
-
-    GenTreeCall* result = gtNewHelperCallNode(helper, type, argList);
-    result->gtFlags |= callFlags;
-
-    // If we're importing the special EqualityComparer<T>.Default or Comparer<T>.Default
-    // intrinsics, flag the helper call. Later during inlining, we can
-    // remove the helper call if the associated field lookup is unused.
-    if ((info.compFlags & CORINFO_FLG_JIT_INTRINSIC) != 0)
-    {
-        NamedIntrinsic ni = lookupNamedIntrinsic(info.compMethodHnd);
-        if ((ni == NI_System_Collections_Generic_EqualityComparer_get_Default) ||
-            (ni == NI_System_Collections_Generic_Comparer_get_Default))
-        {
-            JITDUMP("\nmarking helper call [%06u] as special dce...\n", result->gtTreeID);
-            result->gtCallMoreFlags |= GTF_CALL_M_HELPER_SPECIAL_DCE;
-        }
-    }
-
-    return result;
-}
-
-GenTreeCall* Compiler::fgGetSharedCCtor(CORINFO_CLASS_HANDLE cls)
-{
-#ifdef FEATURE_READYTORUN_COMPILER
-    if (opts.IsReadyToRun())
-    {
-        CORINFO_RESOLVED_TOKEN resolvedToken;
-        memset(&resolvedToken, 0, sizeof(resolvedToken));
-        resolvedToken.hClass = cls;
-
-        return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
-    }
-#endif
-
-    // Call the shared non gc static helper, as its the fastest
-    return fgGetStaticsCCtorHelper(cls, info.compCompHnd->getSharedCCtorHelper(cls));
 }
 
 bool Compiler::fgAddrCouldBeNull(GenTree* addr)
@@ -1009,226 +764,6 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
     return call;
 }
 
-/*****************************************************************************
- *
- *  Mark whether the edge "srcBB -> dstBB" forms a loop that will always
- *  execute a call or not.
- */
-
-inline void Compiler::fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB)
-{
-    /* Bail if this is not a backward edge */
-
-    if (srcBB->bbNum < dstBB->bbNum)
-    {
-        return;
-    }
-
-    /* Unless we already know that there is a loop without a call here ... */
-
-    if (!(dstBB->bbFlags & BBF_LOOP_CALL0))
-    {
-        /* Check whether there is a loop path that doesn't call */
-
-        if (optReachWithoutCall(dstBB, srcBB))
-        {
-            dstBB->bbFlags |= BBF_LOOP_CALL0;
-            dstBB->bbFlags &= ~BBF_LOOP_CALL1;
-        }
-        else
-        {
-            dstBB->bbFlags |= BBF_LOOP_CALL1;
-        }
-    }
-}
-
-/*****************************************************************************
- *
- *  Mark which loops are guaranteed to execute a call.
- */
-
-void Compiler::fgLoopCallMark()
-{
-    /* If we've already marked all the block, bail */
-
-    if (fgLoopCallMarked)
-    {
-        return;
-    }
-
-    fgLoopCallMarked = true;
-
-    /* Walk the blocks, looking for backward edges */
-
-    for (BasicBlock* const block : Blocks())
-    {
-        switch (block->bbJumpKind)
-        {
-            case BBJ_COND:
-            case BBJ_CALLFINALLY:
-            case BBJ_ALWAYS:
-            case BBJ_EHCATCHRET:
-                fgLoopCallTest(block, block->bbJumpDest);
-                break;
-
-            case BBJ_SWITCH:
-                for (BasicBlock* const bTarget : block->SwitchTargets())
-                {
-                    fgLoopCallTest(block, bTarget);
-                }
-                break;
-
-            default:
-                break;
-        }
-    }
-}
-
-/*****************************************************************************
- *
- *  Note the fact that the given block is a loop header.
- */
-
-inline void Compiler::fgMarkLoopHead(BasicBlock* block)
-{
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("fgMarkLoopHead: Checking loop head block " FMT_BB ": ", block->bbNum);
-    }
-#endif
-
-    /* Have we decided to generate fully interruptible code already? */
-
-    if (codeGen->GetInterruptible())
-    {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("method is already fully interruptible\n");
-        }
-#endif
-        return;
-    }
-
-    /* Is the loop head block known to execute a method call? */
-
-    if (block->bbFlags & BBF_GC_SAFE_POINT)
-    {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("this block will execute a call\n");
-        }
-#endif
-        return;
-    }
-
-    /* Are dominator sets available? */
-
-    if (fgDomsComputed)
-    {
-        /* Make sure that we know which loops will always execute calls */
-
-        if (!fgLoopCallMarked)
-        {
-            fgLoopCallMark();
-        }
-
-        /* Will every trip through our loop execute a call? */
-
-        if (block->bbFlags & BBF_LOOP_CALL1)
-        {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("this block dominates a block that will execute a call\n");
-            }
-#endif
-            return;
-        }
-    }
-
-    // We have to make this method fully interruptible since we can not
-    // ensure that this loop will execute a call every time it loops.
-    //
-    // We'll also need to generate a full register map for this method.
-
-    JITDUMP("no guaranteed callsite exits, marking method as fully interruptible\n");
-
-    codeGen->SetInterruptible(true);
-}
-
-GenTree* Compiler::fgGetCritSectOfStaticMethod()
-{
-    noway_assert(!compIsForInlining());
-
-    noway_assert(info.compIsStatic); // This method should only be called for static methods.
-
-    GenTree* tree = nullptr;
-
-    CORINFO_LOOKUP_KIND kind;
-    info.compCompHnd->getLocationOfThisType(info.compMethodHnd, &kind);
-
-    if (!kind.needsRuntimeLookup)
-    {
-        void *critSect = nullptr, **pCrit = nullptr;
-        critSect = info.compCompHnd->getMethodSync(info.compMethodHnd, (void**)&pCrit);
-        noway_assert((!critSect) != (!pCrit));
-
-        tree = gtNewIconEmbHndNode(critSect, pCrit, GTF_ICON_METHOD_HDL, info.compMethodHnd);
-    }
-    else
-    {
-        // Collectible types requires that for shared generic code, if we use the generic context paramter
-        // that we report it. (This is a conservative approach, we could detect some cases particularly when the
-        // context parameter is this that we don't need the eager reporting logic.)
-        lvaGenericsContextInUse = true;
-
-        switch (kind.runtimeLookupKind)
-        {
-            case CORINFO_LOOKUP_THISOBJ:
-            {
-                noway_assert(!"Should never get this for static method.");
-                break;
-            }
-
-            case CORINFO_LOOKUP_CLASSPARAM:
-            {
-                // In this case, the hidden param is the class handle.
-                tree = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
-                tree->gtFlags |= GTF_VAR_CONTEXT;
-                break;
-            }
-
-            case CORINFO_LOOKUP_METHODPARAM:
-            {
-                // In this case, the hidden param is the method handle.
-                tree = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
-                tree->gtFlags |= GTF_VAR_CONTEXT;
-                // Call helper CORINFO_HELP_GETCLASSFROMMETHODPARAM to get the class handle
-                // from the method handle.
-                tree = gtNewHelperCallNode(CORINFO_HELP_GETCLASSFROMMETHODPARAM, TYP_I_IMPL, gtNewCallArgs(tree));
-                break;
-            }
-
-            default:
-            {
-                noway_assert(!"Unknown LOOKUP_KIND");
-                break;
-            }
-        }
-
-        noway_assert(tree); // tree should now contain the CORINFO_CLASS_HANDLE for the exact class.
-
-        // Given the class handle, get the pointer to the Monitor.
-        tree = gtNewHelperCallNode(CORINFO_HELP_GETSYNCFROMCLASSHANDLE, TYP_I_IMPL, gtNewCallArgs(tree));
-    }
-
-    noway_assert(tree);
-    return tree;
-}
-
 #if defined(FEATURE_EH_FUNCLETS)
 
 /*****************************************************************************
@@ -1465,7 +1000,7 @@ void Compiler::fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, un
     assert((block->bbJumpKind == BBJ_NONE) || (block->bbJumpKind == BBJ_RETURN) ||
            (block->bbJumpKind == BBJ_EHFINALLYRET));
 
-    GenTree* monitor  = info.compIsStatic ? fgGetCritSectOfStaticMethod() : gtNewLclvNode(thisLclNum, TYP_REF);
+    GenTree* monitor  = info.compIsStatic ? gtNewStaticMethodMonitorAddr() : gtNewLclvNode(thisLclNum, TYP_REF);
     GenTree* acquired = gtNewLclVarAddrNode(lvaMonAcquired);
     GenTree* call     = gtNewHelperCallNode(helper, TYP_VOID, gtNewCallArgs(monitor, acquired));
 
@@ -2125,6 +1660,41 @@ void Compiler::fgAddInternal()
 {
     noway_assert(!compIsForInlining());
 
+    // Insert call to class constructor as the first basic block if
+    // we were asked to do so.
+    if (info.compCompHnd->initClass(nullptr /* field */, nullptr /* method */,
+                                    impTokenLookupContextHandle /* context */) &
+        CORINFO_INITCLASS_USE_HELPER)
+    {
+        fgEnsureFirstBBisScratch();
+        fgNewStmtAtBeg(fgFirstBB, gtNewInitThisClassHelperCall());
+    }
+
+#ifdef DEBUG
+    if (opts.compGcChecks)
+    {
+        for (unsigned i = 0; i < info.GetParamCount(); i++)
+        {
+            if (!lvaGetDesc(i)->TypeIs(TYP_REF))
+            {
+                continue;
+            }
+
+            GenTree* op   = gtNewLclvNode(i, TYP_REF);
+            GenTree* call = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_VOID, gtNewCallArgs(op));
+
+            fgEnsureFirstBBisScratch();
+            fgNewStmtAtEnd(fgFirstBB, call);
+
+            if (verbose)
+            {
+                printf("\ncompGcChecks tree:\n");
+                gtDispTree(call);
+            }
+        }
+    }
+#endif
+
     // The backend requires a scratch BB into which it can safely insert a P/Invoke method prolog if one is
     // required. Similarly, we need a scratch BB for poisoning. Create it here.
     if (compMethodRequiresPInvokeFrame() || compShouldPoisonFrame())
@@ -2319,8 +1889,7 @@ void Compiler::fgAddInternal()
 
         if (info.compIsStatic)
         {
-            tree = fgGetCritSectOfStaticMethod();
-
+            tree = gtNewStaticMethodMonitorAddr();
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_ENTER_STATIC, TYP_VOID, gtNewCallArgs(tree));
         }
         else
@@ -2328,7 +1897,6 @@ void Compiler::fgAddInternal()
             noway_assert(lvaGetDesc(info.compThisArg)->TypeIs(TYP_REF));
 
             tree = gtNewLclvNode(info.compThisArg, TYP_REF);
-
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_ENTER, TYP_VOID, gtNewCallArgs(tree));
         }
 
@@ -2356,14 +1924,12 @@ void Compiler::fgAddInternal()
 
         if (info.compIsStatic)
         {
-            tree = fgGetCritSectOfStaticMethod();
-
+            tree = gtNewStaticMethodMonitorAddr();
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_EXIT_STATIC, TYP_VOID, gtNewCallArgs(tree));
         }
         else
         {
             tree = gtNewLclvNode(info.compThisArg, TYP_REF);
-
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_EXIT, TYP_VOID, gtNewCallArgs(tree));
         }
 
@@ -2389,189 +1955,15 @@ void Compiler::fgAddInternal()
 #endif
 }
 
-/*****************************************************************************/
-/*****************************************************************************/
-
-void Compiler::fgFindOperOrder()
+void Compiler::phFindOperOrder()
 {
-#ifdef DEBUG
-    if (verbose)
+    for (BasicBlock* block : Blocks())
     {
-        printf("*************** In fgFindOperOrder()\n");
-    }
-#endif
-
-    /* Walk the basic blocks and for each statement determine
-     * the evaluation order, cost, FP levels, etc... */
-
-    for (BasicBlock* const block : Blocks())
-    {
-        compCurBB = block;
-        for (Statement* const stmt : block->Statements())
+        for (Statement* stmt : block->Statements())
         {
-            /* Recursively process the statement */
-
-            compCurStmt = stmt;
             gtSetStmtInfo(stmt);
         }
     }
-}
-
-//------------------------------------------------------------------------
-// fgSimpleLowering: do full walk of all IR, lowering selected operations
-// and computing lvaOutgoingArgumentAreaSize.
-//
-// Notes:
-//    Lowers GT_ARR_LENGTH, GT_ARR_BOUNDS_CHECK
-//
-//    For target ABIs with fixed out args area, computes upper bound on
-//    the size of this area from the calls in the IR.
-//
-//    Outgoing arg area size is computed here because we want to run it
-//    after optimization (in case calls are removed) and need to look at
-//    all possible calls in the method.
-
-void Compiler::fgSimpleLowering()
-{
-#if FEATURE_FIXED_OUT_ARGS
-    unsigned outgoingArgSpaceSize = 0;
-#endif // FEATURE_FIXED_OUT_ARGS
-
-    for (BasicBlock* const block : Blocks())
-    {
-        compCurBB = block;
-
-        LIR::Range& range = LIR::AsRange(block);
-        for (GenTree* tree : range)
-        {
-            switch (tree->OperGet())
-            {
-                case GT_ARR_LENGTH:
-                {
-                    GenTree* arr = tree->AsArrLen()->GetArray();
-
-                    noway_assert(arr->gtNext == tree);
-
-                    GenTree* addr;
-
-                    if (arr->IsIntegralConst(0))
-                    {
-                        // If the array is NULL, then we should get a NULL reference
-                        // exception when computing its length.  We need to maintain
-                        // an invariant where there is no sum of two constants node,
-                        // so let's simply return an indirection of NULL. Also change
-                        // the address to I_IMPL, there's no reason to keep the REF.
-
-                        addr = arr;
-                        addr->SetType(TYP_I_IMPL);
-                    }
-                    else
-                    {
-                        GenTree* ofs = gtNewIconNode(tree->AsArrLen()->GetLenOffs(), TYP_I_IMPL);
-                        addr         = gtNewOperNode(GT_ADD, TYP_BYREF, arr, ofs);
-
-                        range.InsertAfter(arr, ofs, addr);
-                    }
-
-                    tree->ChangeOper(GT_IND);
-                    tree->AsIndir()->SetAddr(addr);
-
-                    break;
-                }
-
-                case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-                case GT_HW_INTRINSIC_CHK:
-#endif
-                    tree->AsBoundsChk()->SetThrowBlock(fgGetRngChkTarget(block, tree->AsBoundsChk()->GetThrowKind()));
-                    break;
-
-#if FEATURE_FIXED_OUT_ARGS
-                case GT_CALL:
-                {
-                    GenTreeCall* call = tree->AsCall();
-                    // Fast tail calls use the caller-supplied scratch
-                    // space so have no impact on this method's outgoing arg size.
-                    if (!call->IsFastTailCall())
-                    {
-                        // Update outgoing arg size to handle this call
-                        const unsigned thisCallOutAreaSize =
-                            max(call->GetInfo()->GetNextSlotNum() * REGSIZE_BYTES, MIN_ARG_AREA_FOR_CALL);
-
-                        if (thisCallOutAreaSize > outgoingArgSpaceSize)
-                        {
-                            outgoingArgSpaceSize = thisCallOutAreaSize;
-                            JITDUMP("Bumping outgoingArgSpaceSize to %u for call [%06d]\n", outgoingArgSpaceSize,
-                                    dspTreeID(tree));
-                        }
-                        else
-                        {
-                            JITDUMP("outgoingArgSpaceSize %u sufficient for call [%06d], which needs %u\n",
-                                    outgoingArgSpaceSize, dspTreeID(tree), thisCallOutAreaSize);
-                        }
-                    }
-                    else
-                    {
-                        JITDUMP("outgoingArgSpaceSize not impacted by fast tail call [%06d]\n", dspTreeID(tree));
-                    }
-                    break;
-                }
-#endif // FEATURE_FIXED_OUT_ARGS
-
-                default:
-                {
-                    // No other operators need processing.
-                    break;
-                }
-            } // switch on oper
-        }     // foreach tree
-    }         // foreach BB
-
-#if FEATURE_FIXED_OUT_ARGS
-    // Finish computing the outgoing args area size
-    //
-    // Need to make sure the MIN_ARG_AREA_FOR_CALL space is added to the frame if:
-    // 1. there are calls to THROW_HEPLPER methods.
-    // 2. we are generating profiling Enter/Leave/TailCall hooks. This will ensure
-    //    that even methods without any calls will have outgoing arg area space allocated.
-    //
-    // An example for these two cases is Windows Amd64, where the ABI requires to have 4 slots for
-    // the outgoing arg space if the method makes any calls.
-    if (outgoingArgSpaceSize < MIN_ARG_AREA_FOR_CALL)
-    {
-        if (compUsesThrowHelper || compIsProfilerHookNeeded())
-        {
-            outgoingArgSpaceSize = MIN_ARG_AREA_FOR_CALL;
-            JITDUMP("Bumping outgoingArgSpaceSize to %u for throw helper or profile hook", outgoingArgSpaceSize);
-        }
-    }
-
-    // If a function has localloc, we will need to move the outgoing arg space when the
-    // localloc happens. When we do this, we need to maintain stack alignment. To avoid
-    // leaving alignment-related holes when doing this move, make sure the outgoing
-    // argument space size is a multiple of the stack alignment by aligning up to the next
-    // stack alignment boundary.
-    if (compLocallocUsed)
-    {
-        outgoingArgSpaceSize = roundUp(outgoingArgSpaceSize, STACK_ALIGN);
-        JITDUMP("Bumping outgoingArgSpaceSize to %u for localloc", outgoingArgSpaceSize);
-    }
-
-    assert(outgoingArgSpaceSize % REGSIZE_BYTES == 0);
-
-    codeGen->outgoingArgSpaceSize.SetFinalValue(outgoingArgSpaceSize);
-    lvaGetDesc(lvaOutgoingArgSpaceVar)->SetBlockType(outgoingArgSpaceSize);
-#endif // FEATURE_FIXED_OUT_ARGS
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nAfter fgSimpleLowering()");
-        fgDispBasicBlocks();
-        fgDispHandlerTab();
-        printf("\n");
-    }
-#endif
 }
 
 /*****************************************************************************************************
@@ -2844,35 +2236,15 @@ void Compiler::fgCreateFunclets()
 
 #endif // defined(FEATURE_EH_FUNCLETS)
 
-/*-------------------------------------------------------------------------
- *
- * Walk the basic blocks list to determine the first block to place in the
- * cold section.  This would be the first of a series of rarely executed blocks
- * such that no succeeding blocks are in a try region or an exception handler
- * or are rarely executed.
- */
-
-void Compiler::fgDetermineFirstColdBlock()
+// Walk the basic blocks list to determine the first block to place in the
+// cold section. This would be the first of a series of rarely executed blocks
+// such that no succeeding blocks are in a try region or an exception handler
+// or are rarely executed.
+void Compiler::phDetermineFirstColdBlock()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\n*************** In fgDetermineFirstColdBlock()\n");
-    }
-#endif // DEBUG
-
-    // Since we may need to create a new transistion block
-    // we assert that it is OK to create new blocks.
-    //
+    assert(opts.compProcedureSplitting);
+    assert(fgFirstColdBlock == nullptr);
     assert(fgSafeBasicBlockCreation);
-
-    fgFirstColdBlock = nullptr;
-
-    if (!opts.compProcedureSplitting)
-    {
-        JITDUMP("No procedure splitting will be done for this method\n");
-        return;
-    }
 
 #ifdef DEBUG
     if ((compHndBBtabCount > 0) && !opts.compProcedureSplittingEH)
@@ -3066,43 +2438,36 @@ EXIT:;
     fgFirstColdBlock = firstColdBlock;
 }
 
-/* static */
-CorInfoHelpFunc Compiler::acdHelper(SpecialCodeKind codeKind)
+CorInfoHelpFunc Compiler::GetThrowHelperCall(ThrowHelperKind kind)
 {
-    switch (codeKind)
+    switch (kind)
     {
-        case SCK_RNGCHK_FAIL:
+        static_assert_no_msg(ThrowHelperKind::Arithmetic == ThrowHelperKind::Overflow);
+
+        case ThrowHelperKind::IndexOutOfRange:
             return CORINFO_HELP_RNGCHKFAIL;
-        case SCK_ARG_EXCPN:
-            return CORINFO_HELP_THROW_ARGUMENTEXCEPTION;
-        case SCK_ARG_RNG_EXCPN:
-            return CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION;
-        case SCK_DIV_BY_ZERO:
+        case ThrowHelperKind::DivideByZero:
             return CORINFO_HELP_THROWDIVZERO;
-        case SCK_ARITH_EXCPN:
+        case ThrowHelperKind::Overflow:
             return CORINFO_HELP_OVERFLOW;
+        case ThrowHelperKind::Argument:
+            return CORINFO_HELP_THROW_ARGUMENTEXCEPTION;
+        case ThrowHelperKind::ArgumentOutOfRange:
+            return CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION;
         default:
-            assert(!"Bad codeKind");
-            return CORINFO_HELP_UNDEF;
+            unreached();
     }
 }
 
-//------------------------------------------------------------------------
-// fgAddCodeRef: Find/create an added code entry associated with the given block and with the given kind.
-//
-// Arguments:
-//   srcBlk  - the block that needs an entry;
-//   refData - the index to use as the cache key for sharing throw blocks;
-//   kind    - the kind of exception;
-//
-// Return Value:
-//   The target throw helper block or nullptr if throw helper blocks are disabled.
-//
-BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, SpecialCodeKind kind)
+BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* throwBlock)
 {
-    // Record that the code will call a THROW_HELPER
-    // so on Windows Amd64 we can allocate the 4 outgoing
-    // arg slots on the stack frame if there are no other calls.
+    return fgGetThrowHelperBlock(kind, throwBlock, bbThrowIndex(throwBlock));
+}
+
+BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* throwBlock, unsigned throwIndex)
+{
+    // Record that the function will have a throw helper call so on win-x64 we allocate
+    // the 4 outgoing arg slots on the stack frame even if there are no other calls.
     compUsesThrowHelper = true;
 
     if (!fgUseThrowHelperBlocks())
@@ -3110,47 +2475,41 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
         return nullptr;
     }
 
-    /* First look for an existing entry that matches what we're looking for */
+    ThrowHelperBlock* existing = fgFindThrowHelperBlock(kind, throwIndex);
 
-    AddCodeDsc* add = fgFindExcptnTarget(kind, refData);
-
-    if (add) // found it
+    if (existing != nullptr)
     {
-        return add->acdDstBlk;
+        return existing->block;
     }
 
-    /* We have to allocate a new entry and prepend it to the list */
+    // We can't assert before searching for an existing block, loop hoisting
+    // clones and morphs statement trees before adding them to the pre-header
+    // so the pre-header block may be empty when this is called. Since loop
+    // hoisting just clones existing node we can't reach this assert code,
+    // the throw helper block should already exist.
+    assert(!throwBlock->isEmpty());
 
-    add          = new (this, CMK_Unknown) AddCodeDsc;
-    add->acdData = refData;
-    add->acdKind = kind;
-    add->acdNext = fgAddCodeList;
-
-    fgAddCodeList = add;
-
-    /* Create the target basic block */
-
-    BasicBlock* newBlk;
-
-    newBlk = add->acdDstBlk = fgNewBBinRegion(BBJ_THROW, srcBlk, /* runRarely */ true, /* insertAtEnd */ true);
+    BasicBlock* helperBlock = fgNewBBinRegion(BBJ_THROW, throwBlock, /* runRarely */ true, /* insertAtEnd */ true);
+    // There are no explicit jumps to this block so optimizations could remove it as dead.
+    helperBlock->bbFlags |= BBF_IMPORTED | BBF_DONT_REMOVE | BBF_THROW_HELPER;
 
 #ifdef DEBUG
     if (verbose)
     {
         const char* msgWhere = "";
-        if (!srcBlk->hasTryIndex() && !srcBlk->hasHndIndex())
+        if (!throwBlock->hasTryIndex() && !throwBlock->hasHndIndex())
         {
             msgWhere = "non-EH region";
         }
-        else if (!srcBlk->hasTryIndex())
+        else if (!throwBlock->hasTryIndex())
         {
             msgWhere = "handler";
         }
-        else if (!srcBlk->hasHndIndex())
+        else if (!throwBlock->hasHndIndex())
         {
             msgWhere = "try";
         }
-        else if (srcBlk->getTryIndex() < srcBlk->getHndIndex())
+        else if (throwBlock->getTryIndex() < throwBlock->getHndIndex())
         {
             msgWhere = "try";
         }
@@ -3162,275 +2521,400 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
         const char* msg;
         switch (kind)
         {
-            case SCK_RNGCHK_FAIL:
-                msg = " for RNGCHK_FAIL";
+            case ThrowHelperKind::IndexOutOfRange:
+                msg = "IndexOutOfRange";
                 break;
-            case SCK_DIV_BY_ZERO:
-                msg = " for DIV_BY_ZERO";
+            case ThrowHelperKind::DivideByZero:
+                msg = "DivideByZero";
                 break;
-            case SCK_OVERFLOW:
-                msg = " for OVERFLOW";
+            case ThrowHelperKind::Overflow:
+                msg = "Overflow";
                 break;
-            case SCK_ARG_EXCPN:
-                msg = " for ARG_EXCPN";
+            case ThrowHelperKind::Argument:
+                msg = "Argument";
                 break;
-            case SCK_ARG_RNG_EXCPN:
-                msg = " for ARG_RNG_EXCPN";
+            case ThrowHelperKind::ArgumentOutOfRange:
+                msg = "ArgumentOutOfRange";
                 break;
             default:
-                msg = " for ??";
+                msg = "???";
                 break;
         }
 
-        printf("\nfgAddCodeRef - Add BB in %s%s, new block %s\n", msgWhere, msg, add->acdDstBlk->dspToString());
+        printf("\nAdding throw helper block in %s for %sException, new block " FMT_BB "\n", msgWhere, msg,
+               helperBlock->bbNum);
     }
 #endif // DEBUG
 
-    /* Mark the block as added by the compiler and not removable by future flow
-       graph optimizations. Note that no bbJumpDest points to these blocks. */
+    GenTreeCall* call = gtNewHelperCallNode(GetThrowHelperCall(kind), TYP_VOID);
 
-    newBlk->bbFlags |= BBF_IMPORTED;
-    newBlk->bbFlags |= BBF_DONT_REMOVE;
-
-    /* Now figure out what code to insert */
-
-    CorInfoHelpFunc helper = CORINFO_HELP_UNDEF;
-
-    switch (kind)
+    if (!throwBlock->IsLIR())
     {
-        case SCK_RNGCHK_FAIL:
-            helper = CORINFO_HELP_RNGCHKFAIL;
-            break;
-        case SCK_DIV_BY_ZERO:
-            helper = CORINFO_HELP_THROWDIVZERO;
-            break;
-        case SCK_ARITH_EXCPN:
-            helper = CORINFO_HELP_OVERFLOW;
-            noway_assert(SCK_OVERFLOW == SCK_ARITH_EXCPN);
-            break;
-        case SCK_ARG_EXCPN:
-            helper = CORINFO_HELP_THROW_ARGUMENTEXCEPTION;
-            break;
-        case SCK_ARG_RNG_EXCPN:
-            helper = CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION;
-            break;
-        default:
-            noway_assert(!"unexpected code addition kind");
-            return nullptr;
-    }
-
-    noway_assert(helper != CORINFO_HELP_UNDEF);
-
-    // Add the appropriate helper call.
-    GenTreeCall* tree = gtNewHelperCallNode(helper, TYP_VOID);
-
-    // Store the tree in the new basic block.
-    assert(!srcBlk->isEmpty());
-    if (!srcBlk->IsLIR())
-    {
-        // There are no args here but fgMorphArgs has side effects
-        // such as setting the outgoing arg area (which is necessary
-        // on AMD if there are any calls).
-        fgMorphArgs(tree);
-
-        fgInsertStmtAtEnd(newBlk, fgNewStmtFromTree(tree));
+        fgInsertStmtAtEnd(helperBlock, fgNewStmtFromTree(call));
+        // These helpers have no args but fgMorphArgs may have other has side effects.
+        fgMorphArgs(call);
     }
     else
     {
-        LIR::InsertHelperCallBefore(this, LIR::AsRange(newBlk), nullptr, tree);
+        LIR::InsertHelperCallBefore(this, LIR::AsRange(helperBlock), nullptr, call);
     }
 
-    return add->acdDstBlk;
+    m_throwHelperBlockList =
+        new (this, CMK_ThrowHelperBlock) ThrowHelperBlock(m_throwHelperBlockList, kind, throwIndex, helperBlock);
+
+    return helperBlock;
 }
 
-/*****************************************************************************
- * Finds the block to jump to, to throw a given kind of exception
- * We maintain a cache of one AddCodeDsc for each kind, to make searching fast.
- * Note : Each block uses the same (maybe shared) block as the jump target for
- * a given type of exception
- */
+ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(ThrowHelperKind kind, BasicBlock* throwBlock)
+{
+    return fgFindThrowHelperBlock(kind, bbThrowIndex(throwBlock));
+}
 
-Compiler::AddCodeDsc* Compiler::fgFindExcptnTarget(SpecialCodeKind kind, unsigned refData)
+ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(ThrowHelperKind kind, unsigned throwIndex)
 {
     assert(fgUseThrowHelperBlocks());
-    if (!(fgExcptnTargetCache[kind] && // Try the cached value first
-          fgExcptnTargetCache[kind]->acdData == refData))
+
+    ThrowHelperBlock* found = nullptr;
+    ThrowHelperBlock* prev  = nullptr;
+
+    for (found = m_throwHelperBlockList; found != nullptr; found = found->next)
     {
-        // Too bad, have to search for the jump target for the exception
-
-        AddCodeDsc* add = nullptr;
-
-        for (add = fgAddCodeList; add != nullptr; add = add->acdNext)
+        if ((found->throwIndex == throwIndex) && (found->kind == kind))
         {
-            if (add->acdData == refData && add->acdKind == kind)
+            break;
+        }
+
+        prev = found;
+    }
+
+    if ((found != nullptr) && (prev != nullptr))
+    {
+        prev->next  = found->next;
+        found->next = m_throwHelperBlockList;
+
+        m_throwHelperBlockList = found;
+    }
+
+    return found;
+}
+
+bool Compiler::fgIsThrowHelperBlock(BasicBlock* block)
+{
+    return (block->bbFlags & BBF_THROW_HELPER) != 0;
+}
+
+#if !FEATURE_FIXED_OUT_ARGS
+
+unsigned Compiler::fgGetThrowHelperBlockStackLevel(BasicBlock* block)
+{
+    for (ThrowHelperBlock* helper = m_throwHelperBlockList; helper != nullptr; helper = helper->next)
+    {
+        if (block == helper->block)
+        {
+            // TODO: bbTgtStkDepth is DEBUG-only.
+            // Should we use it regularly and avoid this search.
+            assert(block->bbTgtStkDepth == helper->stackLevel);
+
+            return helper->stackLevel;
+        }
+    }
+
+    noway_assert(
+        !"fgGetThrowHelperBlockStackLevel should only be called if fgIsThrowHelperBlock is true, but we can't find the "
+         "block in the throw helper block list");
+
+    // We couldn't find the basic block: it must not have been a throw helper block.
+
+    return 0;
+}
+
+#endif // !FEATURE_FIXED_OUT_ARGS
+
+// Return false if there is a code path from topBlock to bottomBlock
+// that might not execute a method call.
+bool Compiler::fgReachWithoutCall(BasicBlock* topBlock, BasicBlock* bottomBlock)
+{
+    assert(fgDomsComputed);
+    assert(topBlock->bbNum <= bottomBlock->bbNum);
+
+    // We can always check topBB and botBB for any GC safe points and early out.
+    //
+    // TODO-Cleanup: Currently BBF_GC_SAFE_POINT is not set for helper calls,
+    // as some helper calls are neither interruptible nor hijackable. When we
+    // can determine this, then we can set BBF_GC_SAFE_POINT for helpers too.
+
+    if (topBlock->HasGCSafePoint() || bottomBlock->HasGCSafePoint())
+    {
+        return false;
+    }
+
+    for (BasicBlock* block = topBlock;; block = block->bbNext)
+    {
+        noway_assert(block != nullptr);
+
+        // If we added a loop pre-header block then we will have a bbNum greater
+        // than fgLastBB, and we won't have any dominator information about this
+        // block, so skip it.
+
+        if (block->bbNum > fgLastBB->bbNum)
+        {
+            continue;
+        }
+
+        noway_assert(block->bbNum <= bottomBlock->bbNum);
+
+        if (block->HasGCSafePoint())
+        {
+            // Will this block always execute on the way to bottom?
+            //
+            // We are checking every block in [topBlock..bottomBlock] and we are using a
+            // lexical definition of a loop (all that we know is that is that the bottom
+            // block has a back-edge to the top block).
+            // Thus while walking blocks in this range we may encounter some blocks that
+            // are not really part of the loop, and so we need to perform some additional
+            // checks.
+            // We will check that the current block is reachable from the top block and
+            // that it dominates the block containing the back-edge bottom block.
+            // When both of these are true then we know that the GC safe point in the
+            // current block will be encountered in the loop and we can return false.
+
+            if (fgDominate(block, bottomBlock) && fgReachable(topBlock, block))
             {
-                break;
+                return false;
             }
         }
-
-        fgExcptnTargetCache[kind] = add; // Cache it
-    }
-
-    return fgExcptnTargetCache[kind];
-}
-
-//------------------------------------------------------------------------
-// fgGetRngChkTarget: Create/find the appropriate throw block for a range check.
-//
-// Arguments:
-//   block - the block that contains the range check
-//   kind  - the kind of exception
-//
-// Return Value:
-//   The target throw helper block this check jumps to upon failure.
-//
-BasicBlock* Compiler::fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind)
-{
-    if (!fgUseThrowHelperBlocks() || compIsForInlining())
-    {
-        return nullptr;
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*** Computing fgRngChkTarget for block " FMT_BB "\n", block->bbNum);
-        if (!block->IsLIR())
+        else if (block == bottomBlock)
         {
-            gtDispStmt(compCurStmt);
+            // We've reached the destination block so we're done.
+            break;
         }
     }
-#endif
 
-    // We attach the throw block to the containing try region (if any).
-    return fgAddCodeRef(block, bbThrowIndex(block), kind);
+    // If we didn't find any blocks that contained a GC safe point and also
+    // met the fgDominate and fgReachable criteria then we must return true.
+
+    return true;
 }
 
-/*****************************************************************************
- *
- *  Figure out the order in which operators should be evaluated, along with
- *  other information (such as the register sets trashed by each subtree).
- *  Also finds blocks that need GC polls and inserts them as needed.
- */
-
-void Compiler::fgSetBlockOrder()
+// Mark whether the edge srcBB -> dstBB forms a loop that will always
+// execute a call or not.
+void Compiler::fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB)
 {
-#ifdef DEBUG
-    if (verbose)
+    assert(fgDomsComputed);
+
+    if (srcBB->bbNum < dstBB->bbNum)
     {
-        printf("*************** In fgSetBlockOrder()\n");
+        return;
     }
-#endif // DEBUG
 
-#ifdef DEBUG
-    BasicBlock::s_nMaxTrees = 0;
+    if ((dstBB->bbFlags & BBF_LOOP_CALL0) == 0)
+    {
+        if (fgReachWithoutCall(dstBB, srcBB))
+        {
+            dstBB->bbFlags |= BBF_LOOP_CALL0;
+            dstBB->bbFlags &= ~BBF_LOOP_CALL1;
+        }
+        else
+        {
+            dstBB->bbFlags |= BBF_LOOP_CALL1;
+        }
+    }
+}
+
+// Mark loops that are guaranteed to execute a call.
+void Compiler::fgLoopCallMark()
+{
+    assert(fgDomsComputed);
+    assert(!fgLoopCallMarked);
+
+    fgLoopCallMarked = true;
+
+    for (BasicBlock* block : Blocks())
+    {
+        switch (block->bbJumpKind)
+        {
+            case BBJ_COND:
+            case BBJ_CALLFINALLY:
+            case BBJ_ALWAYS:
+            case BBJ_EHCATCHRET:
+                fgLoopCallTest(block, block->bbJumpDest);
+                break;
+
+            case BBJ_SWITCH:
+                for (BasicBlock* target : block->SwitchTargets())
+                {
+                    fgLoopCallTest(block, target);
+                }
+                break;
+
+            default:
+                break;
+        }
+    }
+}
+
+void Compiler::phSetFullyInterruptible()
+{
+    assert(!codeGen->GetInterruptible());
+
+    if (opts.compDbgCode
+#if !defined(JIT32_GCENCODER) || defined(UNIX_X86_ABI)
+        // EnumGcRefs will only enumerate slots in aborted frames if they
+        // are fully-interruptible. So if we have a catch or finally that
+        // will keep frame-vars alive, we need to force fully-interruptible.
+        // UNIX_X86_ABI uses GC info for unwinding.
+        || fgHasEH()
 #endif
+#ifdef DEBUG
+        || JitConfig.JitFullyInt() || compStressCompile(STRESS_GENERIC_VARN, 30)
+#endif
+            )
+    {
+        codeGen->SetInterruptible(true);
+        return;
+    }
 
-    /* Walk the basic blocks to assign sequence numbers */
-
-    /* If we don't compute the doms, then we never mark blocks as loops. */
     if (fgDomsComputed)
     {
-        for (BasicBlock* const block : Blocks())
+        for (BasicBlock* block : Blocks())
         {
-            /* If this block is a loop header, mark it appropriately */
-
-            if (block->isLoopHead())
+#if FEATURE_FASTTAILCALL && !defined(JIT32_GCENCODER)
+            if ((block->EndsWithJmp(this) || block->EndsWithFastTailCall(this)) && fgReachWithoutCall(fgFirstBB, block))
             {
-                fgMarkLoopHead(block);
+                // Tail calls might combine to form a loop. We need to either add a poll,
+                // or make the method fully interruptible. JIT64 did the later.
+                codeGen->SetInterruptible(true);
+                break;
             }
+#endif
+
+            if (!block->isLoopHead())
+            {
+                continue;
+            }
+
+            JITDUMP("Checking loop head block " FMT_BB ": ", block->bbNum);
+
+            if (block->HasGCSafePoint())
+            {
+                JITDUMP("this block will execute a call\n");
+                continue;
+            }
+
+            if (!fgLoopCallMarked)
+            {
+                fgLoopCallMark();
+            }
+
+            if ((block->bbFlags & BBF_LOOP_CALL1) != 0)
+            {
+                JITDUMP("this block dominates a block that will execute a call\n");
+                continue;
+            }
+
+            // We have to make this method fully interruptible since we can not
+            // ensure that this loop will execute a call every time it loops.
+
+            JITDUMP("no guaranteed callsite exits, marking method as fully interruptible\n");
+
+            codeGen->SetInterruptible(true);
+            break;
         }
     }
     else
     {
-        /* If we don't have the dominators, use an abbreviated test for fully interruptible.  If there are
-         * any back edges, check the source and destination blocks to see if they're GC Safe.  If not, then
-         * go fully interruptible. */
-        for (BasicBlock* const block : Blocks())
-        {
-// true if the edge is forward, or if it is a back edge and either the source and dest are GC safe.
-#define EDGE_IS_GC_SAFE(src, dst)                                                                                      \
-    (((src)->bbNum < (dst)->bbNum) || (((src)->bbFlags | (dst)->bbFlags) & BBF_GC_SAFE_POINT))
+        // If we didn't compute dominators, use an abbreviated test for fully interruptible.
+        // If there are any back edges, check the source and destination blocks to see if
+        // they're GC safe. If not, then go fully interruptible.
 
-            bool partiallyInterruptible = true;
+        auto EdgeIsGCSafe = [](BasicBlock* src, BasicBlock* dst) {
+            return (src->bbNum < dst->bbNum) || dst->HasGCSafePoint();
+        };
+
+        for (BasicBlock* block : Blocks())
+        {
+            if (block->HasGCSafePoint())
+            {
+                continue;
+            }
+
+            bool fullyInterruptible = false;
+
             switch (block->bbJumpKind)
             {
                 case BBJ_COND:
                 case BBJ_ALWAYS:
-                    partiallyInterruptible = EDGE_IS_GC_SAFE(block, block->bbJumpDest);
+                    if (!EdgeIsGCSafe(block, block->bbJumpDest))
+                    {
+                        fullyInterruptible = true;
+                    }
                     break;
 
                 case BBJ_SWITCH:
-                    for (BasicBlock* const bTarget : block->SwitchTargets())
+                    for (BasicBlock* target : block->SwitchTargets())
                     {
-                        partiallyInterruptible &= EDGE_IS_GC_SAFE(block, bTarget);
+                        if (!EdgeIsGCSafe(block, target))
+                        {
+                            fullyInterruptible = true;
+                            break;
+                        }
                     }
                     break;
+
+#if FEATURE_FASTTAILCALL && !defined(JIT32_GCENCODER)
+                case BBJ_RETURN:
+                case BBJ_THROW:
+                    // Tail calls might combine to form a loop. We need to either add a poll,
+                    // or make the method fully interruptible. JIT64 did the later.
+                    if ((block->EndsWithJmp(this) || block->EndsWithFastTailCall(this)) &&
+                        (!fgFirstBB->HasGCSafePoint() && !block->HasGCSafePoint()))
+                    {
+                        fullyInterruptible = true;
+                    }
+                    break;
+#endif
 
                 default:
                     break;
             }
 
-            if (!partiallyInterruptible)
+            if (fullyInterruptible)
             {
                 codeGen->SetInterruptible(true);
                 break;
             }
-#undef EDGE_IS_GC_SAFE
         }
     }
+}
 
-    for (BasicBlock* const block : Blocks())
+void Compiler::phSetBlockOrder()
+{
+    for (BasicBlock* block : Blocks())
     {
-
-#if FEATURE_FASTTAILCALL
-#ifndef JIT32_GCENCODER
-        if (block->endsWithTailCallOrJmp(this, true) && optReachWithoutCall(fgFirstBB, block))
-        {
-            // This tail call might combine with other tail calls to form a
-            // loop.  Thus we need to either add a poll, or make the method
-            // fully interruptible.  I chose the later because that's what
-            // JIT64 does.
-            codeGen->SetInterruptible(true);
-        }
-#endif // !JIT32_GCENCODER
-#endif // FEATURE_FASTTAILCALL
-
-        fgSetBlockOrder(block);
+        fgSequenceBlockStatements(block);
     }
-
-    /* Remember that now the tree list is threaded */
 
     fgStmtListThreaded = true;
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("The biggest BB has %4u tree nodes\n", BasicBlock::s_nMaxTrees);
-    }
-    fgDebugCheckLinks();
-#endif // DEBUG
+    INDEBUG(fgDebugCheckLinks());
 }
 
-void Compiler::fgSetBlockOrder(BasicBlock* block)
+void Compiler::fgSequenceBlockStatements(BasicBlock* block)
 {
     for (Statement* stmt : block->Statements())
     {
         fgSetStmtSeq(stmt);
 
-        /* Are there any more trees in this basic block? */
-
         if (stmt->GetNextStmt() == nullptr)
         {
-            /* last statement in the tree list */
             noway_assert(block->lastStmt() == stmt);
+
             break;
         }
 
 #ifdef DEBUG
         if (block->bbStmtList == stmt)
         {
-            /* first statement in the list */
             assert(stmt->GetPrevStmt()->GetNextStmt() == nullptr);
         }
         else
@@ -3439,7 +2923,7 @@ void Compiler::fgSetBlockOrder(BasicBlock* block)
         }
 
         assert(stmt->GetNextStmt()->GetPrevStmt() == stmt);
-#endif // DEBUG
+#endif
     }
 }
 
@@ -3529,8 +3013,6 @@ public:
         m_tail         = node;
 
         INDEBUG(node->gtSeqNum = ++m_seqNum;)
-        // Keep track of the highest # of tree nodes
-        INDEBUG(BasicBlock::s_nMaxTrees = max(m_seqNum, BasicBlock::s_nMaxTrees);)
 
         return Compiler::WALK_CONTINUE;
     }
@@ -3661,61 +3143,4 @@ GenTree* Compiler::fgSetTreeSeq(GenTree* tree, bool isLIR)
 void Compiler::fgSetStmtSeq(Statement* stmt)
 {
     stmt->SetTreeList(fgSetTreeSeq(stmt->GetRootNode(), false));
-}
-
-/*****************************************************************************/
-/*static*/
-Compiler::fgWalkResult Compiler::fgChkThrowCB(GenTree** pTree, fgWalkData* data)
-{
-    GenTree* tree = *pTree;
-
-    // If this tree doesn't have the EXCEPT flag set, then there is no
-    // way any of the child nodes could throw, so we can stop recursing.
-    if (!(tree->gtFlags & GTF_EXCEPT))
-    {
-        return Compiler::WALK_SKIP_SUBTREES;
-    }
-
-    switch (tree->gtOper)
-    {
-        case GT_MUL:
-        case GT_ADD:
-        case GT_SUB:
-        case GT_CAST:
-            if (tree->gtOverflow())
-            {
-                return Compiler::WALK_ABORT;
-            }
-            break;
-
-        case GT_INDEX_ADDR:
-            // These two call CORINFO_HELP_RNGCHKFAIL for Debug code
-            if (tree->gtFlags & GTF_INX_RNGCHK)
-            {
-                return Compiler::WALK_ABORT;
-            }
-            break;
-
-        case GT_ARR_BOUNDS_CHECK:
-            return Compiler::WALK_ABORT;
-
-        default:
-            break;
-    }
-
-    return Compiler::WALK_CONTINUE;
-}
-
-/*****************************************************************************/
-/*static*/
-Compiler::fgWalkResult Compiler::fgChkLocAllocCB(GenTree** pTree, fgWalkData* data)
-{
-    GenTree* tree = *pTree;
-
-    if (tree->gtOper == GT_LCLHEAP)
-    {
-        return Compiler::WALK_ABORT;
-    }
-
-    return Compiler::WALK_CONTINUE;
 }

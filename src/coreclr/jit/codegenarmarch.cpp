@@ -109,13 +109,7 @@ target_ssize_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(ssize_t s
     return lastTouchDelta;
 }
 
-//------------------------------------------------------------------------
-// genCodeForTreeNode Generate code for a single node in the tree.
-//
-// Preconditions:
-//    All operands have been evaluated.
-//
-void CodeGen::genCodeForTreeNode(GenTree* treeNode)
+void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 {
     emitter* emit = GetEmitter();
 
@@ -274,11 +268,11 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_RETFILT:
-            genRetFilt(treeNode);
+            GenRetFilt(treeNode, block);
             break;
 
         case GT_RETURN:
-            genReturn(treeNode);
+            GenReturn(treeNode, block);
             break;
 
         case GT_LEA:
@@ -351,17 +345,17 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_JTRUE:
-            genCodeForJumpTrue(treeNode->AsOp());
+            GenJTrue(treeNode->AsUnOp(), block);
             break;
 
 #ifdef TARGET_ARM64
         case GT_JCMP:
-            genCodeForJumpCompare(treeNode->AsOp());
+            GenJCmp(treeNode->AsOp(), block);
             break;
-#endif // TARGET_ARM64
+#endif
 
         case GT_JCC:
-            genCodeForJcc(treeNode->AsCC());
+            GenJCC(treeNode->AsCC(), block);
             break;
 
         case GT_SETCC:
@@ -465,7 +459,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_CATCH_ARG:
-            noway_assert(handlerGetsXcptnObj(compiler->compCurBB->bbCatchTyp));
+            noway_assert(handlerGetsXcptnObj(block->bbCatchTyp));
             // Catch arguments get passed in a register. genCodeForBBlist()
             // would have marked it as holding a GC object, but not used.
             noway_assert((liveness.GetGCRegs(TYP_REF) & RBM_EXCEPTION_OBJECT) != RBM_NONE);
@@ -502,7 +496,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_JMPTABLE:
-            genJumpTable(treeNode);
+            GenJmpTable(treeNode, block);
             break;
 
         case GT_SWITCH_TABLE:
@@ -545,71 +539,60 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
     }
 }
 
-//---------------------------------------------------------------------
-// PrologSetGSSecurityCookie: Set the "GS" security cookie in the prolog.
-//
-// Arguments:
-//     initReg        - register to use as a scratch register
-//     pInitRegZeroed - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
-//                      this call sets 'initReg' to a non-zero value.
-//
-// Return Value:
-//     None
-//
-void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
 {
     assert(compiler->getNeedsGSSecurityCookie());
 
-    if (compiler->gsGlobalSecurityCookieAddr == nullptr)
-    {
-        noway_assert(compiler->gsGlobalSecurityCookieVal != 0);
+    unsigned gsCookieLclNum = compiler->lvaGSSecurityCookie;
 
-        instGen_Set_Reg_To_Imm(EA_PTRSIZE, initReg, compiler->gsGlobalSecurityCookieVal);
-        GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, initReg, compiler->lvaGSSecurityCookie, 0);
+    if (m_gsCookieAddr == nullptr)
+    {
+        noway_assert(m_gsCookieVal != 0);
+
+        instGen_Set_Reg_To_Imm(EA_PTRSIZE, initReg, m_gsCookieVal);
+        GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, initReg, gsCookieLclNum, 0);
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_DSP_RELOC, initReg, (ssize_t)compiler->gsGlobalSecurityCookieAddr DEBUGARG(
-                                                              (size_t)THT_SetGSCookie) DEBUGARG(GTF_EMPTY));
+        instGen_Set_Reg_To_Imm(EA_PTR_DSP_RELOC, initReg, reinterpret_cast<ssize_t>(m_gsCookieAddr)
+                                                              DEBUGARG((size_t)THT_SetGSCookie) DEBUGARG(GTF_EMPTY));
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, initReg, initReg, 0);
         GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, initReg, compiler->lvaGSSecurityCookie, 0);
     }
 
-    *pInitRegZeroed = false;
+    *initRegZeroed = false;
 }
 
-void CodeGen::genEmitGSCookieCheck()
+void CodeGen::EpilogGSCookieCheck()
 {
-    noway_assert(compiler->gsGlobalSecurityCookieAddr || compiler->gsGlobalSecurityCookieVal);
-
     // We need two temporary registers, to load the GS cookie values and compare them. We can't use
     // any argument registers if 'pushReg' is true (meaning we have a JMP call). They should be
     // callee-trash registers, which should not contain anything interesting at this point.
     // We don't have any IR node representing this check, so LSRA can't communicate registers
     // for us to use.
 
-    regNumber regGSConst = REG_GSCOOKIE_TMP_0;
-    regNumber regGSValue = REG_GSCOOKIE_TMP_1;
+    regNumber regGSConst     = REG_GSCOOKIE_TMP_0;
+    regNumber regGSValue     = REG_GSCOOKIE_TMP_1;
+    unsigned  gsCookieLclNum = compiler->lvaGSSecurityCookie;
 
-    if (compiler->gsGlobalSecurityCookieAddr == nullptr)
+    if (m_gsCookieAddr == nullptr)
     {
-        instGen_Set_Reg_To_Imm(EA_PTRSIZE, regGSConst, compiler->gsGlobalSecurityCookieVal);
+        noway_assert(m_gsCookieVal != 0);
+
+        instGen_Set_Reg_To_Imm(EA_PTRSIZE, regGSConst, m_gsCookieVal);
     }
     else
     {
-        // Ngen case - GS cookie constant needs to be accessed through an indirection.
-        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSConst, (ssize_t)compiler->gsGlobalSecurityCookieAddr DEBUGARG(
+        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSConst, reinterpret_cast<ssize_t>(m_gsCookieAddr) DEBUGARG(
                                                                     (size_t)THT_GSCookieCheck) DEBUGARG(GTF_EMPTY));
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, regGSConst, regGSConst, 0);
     }
-    // Load this method's GS value from the stack frame
-    GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, regGSValue, compiler->lvaGSSecurityCookie, 0);
-    // Compare with the GC cookie constant
+
+    GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, regGSValue, gsCookieLclNum, 0);
     GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, regGSConst, regGSValue);
 
     BasicBlock* gsCheckBlk = genCreateTempLabel();
     inst_JMP(EJ_eq, gsCheckBlk);
-    // regGSConst and regGSValue aren't needed anymore, we can use them for helper call
     genEmitHelperCall(CORINFO_HELP_FAIL_FAST);
     genDefineTempLabel(gsCheckBlk);
 }
@@ -1321,7 +1304,7 @@ void CodeGen::genCodeForArrIndex(GenTreeArrIndex* arrIndex)
     emit->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, arrReg, offset);
     emit->emitIns_R_R(INS_cmp, EA_4BYTE, tgtReg, tmpReg);
 
-    genJumpToThrowHlpBlk(EJ_hs, SCK_RNGCHK_FAIL);
+    genJumpToThrowHlpBlk(EJ_hs, ThrowHelperKind::IndexOutOfRange);
 
     genProduceReg(arrIndex);
 }
@@ -1514,7 +1497,7 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
     {
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, baseReg, node->GetLenOffs());
         GetEmitter()->emitIns_R_R(INS_cmp, emitActualTypeSize(index->TypeGet()), indexReg, tmpReg);
-        genJumpToThrowHlpBlk(EJ_hs, SCK_RNGCHK_FAIL, node->GetThrowBlock());
+        genJumpToThrowHlpBlk(EJ_hs, ThrowHelperKind::IndexOutOfRange, node->GetThrowBlock());
     }
 
     // Can we use a ScaledAdd instruction?
@@ -2706,8 +2689,6 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #ifdef TARGET_ARM
             if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
             {
-                // The CORINFO_HELP_INIT_PINVOKE_FRAME helper uses a custom calling convention that returns with
-                // TCB in REG_PINVOKE_TCB. fgMorphCall() sets the correct argument registers.
                 returnReg = REG_PINVOKE_TCB;
             }
             else
@@ -3055,7 +3036,7 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
     {
         case GenIntCastDesc::CHECK_POSITIVE:
             GetEmitter()->emitIns_R_I(INS_cmp, EA_ATTR(desc.CheckSrcSize()), reg, 0);
-            genJumpToThrowHlpBlk(EJ_lt, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_lt, ThrowHelperKind::Overflow);
             break;
 
 #ifdef TARGET_ARM64
@@ -3064,7 +3045,7 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             // cannot be encoded in the immediate operand of CMP. Use TST instead to check
             // if the upper 32 bits are zero.
             GetEmitter()->emitIns_R_I(INS_tst, EA_8BYTE, reg, 0xFFFFFFFF00000000LL);
-            genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
             break;
 
         case GenIntCastDesc::CHECK_POSITIVE_INT_RANGE:
@@ -3072,12 +3053,12 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             // cannot be encoded in the immediate operand of CMP. Use TST instead to check
             // if the upper 33 bits are zero.
             GetEmitter()->emitIns_R_I(INS_tst, EA_8BYTE, reg, 0xFFFFFFFF80000000LL);
-            genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
             break;
 
         case GenIntCastDesc::CHECK_INT_RANGE:
             GetEmitter()->emitIns_R_R_I(INS_cmp, EA_8BYTE, reg, reg, 0, INS_OPTS_SXTW);
-            genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
             break;
 #endif
 
@@ -3095,7 +3076,7 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
 
                 GetEmitter()->emitIns_R_R_I(INS_cmp, EA_ATTR(desc.CheckSrcSize()), reg, reg, 0,
                                             castMinValue == -128 ? INS_OPTS_SXTB : INS_OPTS_SXTH);
-                genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+                genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
                 break;
             }
 #endif
@@ -3108,18 +3089,18 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             {
                 assert((castMaxValue == 32767) || (castMaxValue == 65535));
                 GetEmitter()->emitIns_R_I(INS_cmp, EA_ATTR(desc.CheckSrcSize()), reg, castMaxValue + 1);
-                genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_hs : EJ_ge, SCK_OVERFLOW);
+                genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_hs : EJ_ge, ThrowHelperKind::Overflow);
             }
             else
             {
                 GetEmitter()->emitIns_R_I(INS_cmp, EA_ATTR(desc.CheckSrcSize()), reg, castMaxValue);
-                genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_hi : EJ_gt, SCK_OVERFLOW);
+                genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_hi : EJ_gt, ThrowHelperKind::Overflow);
             }
 
             if (castMinValue != 0)
             {
                 GetEmitter()->emitIns_R_I(INS_cmp, EA_ATTR(desc.CheckSrcSize()), reg, castMinValue);
-                genJumpToThrowHlpBlk(EJ_lt, SCK_OVERFLOW);
+                genJumpToThrowHlpBlk(EJ_lt, ThrowHelperKind::Overflow);
             }
         }
         break;

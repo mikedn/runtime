@@ -59,7 +59,6 @@ void DecomposeLongs::PrepareForDecomposition()
 //
 void DecomposeLongs::DecomposeBlock(BasicBlock* block)
 {
-    assert(block == m_compiler->compCurBB); // compCurBB must already be set.
     assert(block->isEmpty() || block->IsLIR());
     m_range = &LIR::AsRange(block);
     DecomposeRangeHelper();

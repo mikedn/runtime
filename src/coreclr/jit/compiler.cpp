@@ -10,16 +10,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif // _MSC_VER
 #include "hostallocator.h"
 #include "emit.h"
-#include "ssabuilder.h"
 #include "valuenum.h"
-#include "rangecheck.h"
-#include "lower.h"
-#include "stacklevelsetter.h"
 #include "patchpointinfo.h"
 #include "jitstd/algorithm.h"
 
@@ -122,17 +115,13 @@ void Compiler::JitLogEE(unsigned level, const char* fmt, ...)
 
 #endif // DEBUG
 
-/*****************************************************************************/
-#if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES || CALL_ARG_STATS
-
+#if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES
 static unsigned genMethodCnt;  // total number of methods JIT'ted
 unsigned        genMethodICnt; // number of interruptible methods
 unsigned        genMethodNCnt; // number of non-interruptible methods
 static unsigned genSmallMethodsNeedingExtraMemoryCnt = 0;
-
 #endif
 
-/*****************************************************************************/
 #if MEASURE_NODE_SIZE
 NodeSizeStats genNodeSizeStats;
 NodeSizeStats genNodeSizeStatsPerFunc;
@@ -170,55 +159,6 @@ size_t gcHeaderNSize; // GC header      size: non-interruptible methods
 size_t gcPtrMapNSize; // GC pointer map size: non-interruptible methods
 
 #endif // DISPLAY_SIZES
-
-/*****************************************************************************
- *
- *  Variables to keep track of argument counts.
- */
-
-#if CALL_ARG_STATS
-
-unsigned argTotalCalls;
-unsigned argHelperCalls;
-unsigned argStaticCalls;
-unsigned argNonVirtualCalls;
-unsigned argVirtualCalls;
-
-unsigned argTotalArgs; // total number of args for all calls (including objectPtr)
-unsigned argTotalDWordArgs;
-unsigned argTotalLongArgs;
-unsigned argTotalFloatArgs;
-unsigned argTotalDoubleArgs;
-
-unsigned argTotalRegArgs;
-unsigned argTotalTemps;
-unsigned argTotalLclVar;
-unsigned argTotalDeferred;
-unsigned argTotalConst;
-
-unsigned argTotalObjPtr;
-unsigned argTotalGTF_ASGinArgs;
-
-unsigned argMaxTempsPerMethod;
-
-unsigned  argCntBuckets[] = {0, 1, 2, 3, 4, 5, 6, 10, 0};
-Histogram argCntTable(argCntBuckets);
-
-unsigned  argDWordCntBuckets[] = {0, 1, 2, 3, 4, 5, 6, 10, 0};
-Histogram argDWordCntTable(argDWordCntBuckets);
-
-unsigned  argDWordLngCntBuckets[] = {0, 1, 2, 3, 4, 5, 6, 10, 0};
-Histogram argDWordLngCntTable(argDWordLngCntBuckets);
-
-unsigned  argTempsCntBuckets[] = {0, 1, 2, 3, 4, 5, 6, 10, 0};
-Histogram argTempsCntTable(argTempsCntBuckets);
-
-#endif // CALL_ARG_STATS
-
-/*****************************************************************************
- *
- *  Variables to keep track of basic block counts.
- */
 
 #if COUNT_BASIC_BLOCKS
 
@@ -532,7 +472,7 @@ void Compiler::compShutdown()
     }
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
-#if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES || CALL_ARG_STATS
+#if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES
     if (genMethodCnt == 0)
     {
         return;
@@ -662,10 +602,6 @@ void Compiler::compShutdown()
     }
 
 #endif // DISPLAY_SIZES
-
-#if CALL_ARG_STATS
-    compDispCallArgStats(fout);
-#endif
 
 #if COUNT_BASIC_BLOCKS
     fprintf(fout, "--------------------------------------------------\n");
@@ -1459,8 +1395,7 @@ void Compiler::compInitConfigOptions()
             codeGen->setVerbose();
         }
 
-        opts.compLongAddress = cfg.JitLongAddress() != 0;
-        opts.optRepeat       = cfg.JitOptRepeat().contains(methodName, className, methodParams);
+        opts.optRepeat = cfg.JitOptRepeat().contains(methodName, className, methodParams);
     }
 
     if (verbose ||
@@ -1558,7 +1493,36 @@ void Compiler::compInitOptions()
 
     lvaEnregEHVars = compEnregLocals() && JitConfig.EnableEHWriteThru();
 
-#ifdef DEBUG
+#if DEBUG
+    if (lvaEnregEHVars)
+    {
+        unsigned methHash   = info.compMethodHash();
+        char*    lostr      = getenv("JitEHWTHashLo");
+        unsigned methHashLo = 0;
+        bool     dump       = false;
+        if (lostr != nullptr)
+        {
+            sscanf_s(lostr, "%x", &methHashLo);
+            dump = true;
+        }
+        char*    histr      = getenv("JitEHWTHashHi");
+        unsigned methHashHi = UINT32_MAX;
+        if (histr != nullptr)
+        {
+            sscanf_s(histr, "%x", &methHashHi);
+            dump = true;
+        }
+        if (methHash < methHashLo || methHash > methHashHi)
+        {
+            lvaEnregEHVars = false;
+        }
+        else if (dump)
+        {
+            printf("Enregistering EH Vars for method %s, hash = 0x%x.\n", info.compFullName, info.compMethodHash());
+            printf(""); // flush
+        }
+    }
+
     if (verbose)
     {
         printf("****** START compiling %s (MethodHash=%08x)\n", info.compFullName, info.compMethodHash());
@@ -2396,7 +2360,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     // JIT\HardwareIntrinsics\General\Vector128_1\Vector128_1_ro
     opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() == 2);
 #else
-    opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() != 0);
+    opts.compExpandCallsEarly      = (JitConfig.JitExpandCallsEarly() != 0);
 #endif
 }
 
@@ -2591,450 +2555,172 @@ void Compiler::EndPhase(Phases phase)
     mostRecentlyActivePhase = phase;
 }
 
-//------------------------------------------------------------------------
-// compCompile: run phases needed for compilation
-//
-// Arguments:
-//   methodCodePtr [OUT] - address of generated code
-//   methodCodeSize [OUT] - size of the generated code (hot + cold setions)
-//   jitFlags [IN] - flags controlling jit behavior
-//
-// Notes:
-//  This is the most interesting 'toplevel' function in the JIT.  It goes through the operations of
-//  importing, morphing, optimizations and code generation.  This is called from the EE through the
-//  code:CILJit::compileMethod function.
-//
-//  For an overview of the structure of the JIT, see:
-//   https://github.com/dotnet/runtime/blob/main/docs/design/coreclr/jit/ryujit-overview.md
-//
-//  Also called for inlinees, though they will only be run through the first few phases.
-//
 void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
 {
     assert(!compIsForInlining());
 
-    INDEBUG(compFunctionTraceStart());
-
-    // Incorporate profile data.
-    //
-    // Note: the importer is sensitive to block weights, so this has
-    // to happen before importation.
-    //
     DoPhase(this, PHASE_INCPROFILE, &Compiler::fgIncorporateProfileData);
 
-    // If we're going to instrument code, we may need to prepare before
-    // we import.
-    //
     if (jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
     {
         DoPhase(this, PHASE_IBCPREP, &Compiler::fgPrepareToInstrumentMethod);
     }
 
-    // Import: convert the instrs in each basic block to a tree based intermediate representation
-    //
     DoPhase(this, PHASE_IMPORTATION, &Compiler::fgImport);
 
-    // If instrumenting, add block and class probes.
-    //
     if (jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
     {
         DoPhase(this, PHASE_IBCINSTR, &Compiler::fgInstrumentMethod);
     }
 
-    // Transform indirect calls that require control flow expansion.
-    //
     DoPhase(this, PHASE_INDXCALL, &Compiler::fgTransformIndirectCalls);
-
-    // Expand any patchpoints
-    //
     DoPhase(this, PHASE_PATCHPOINTS, &Compiler::fgTransformPatchpoints);
 
 #if !FEATURE_EH
-    // If we aren't yet supporting EH in a compiler bring-up, remove as many EH handlers as possible, so
-    // we can pass tests that contain try/catch EH, but don't actually throw any exceptions.
+    // If we aren't yet supporting EH in a compiler bring-up, remove as many EH handlers as possible,
+    // so we can pass tests that contain try/catch EH, but don't actually throw any exceptions.
     fgRemoveEH();
 #endif // !FEATURE_EH
 
-    // Start phases that are broadly called morphing, and includes
-    // global morph, as well as other phases that massage the trees so
-    // that we can generate code out of them.
-    //
-    auto morphInitPhase = [this]() {
-
-        // Initialize the BlockSet epoch
-        NewBasicBlockEpoch();
-
-        // Insert call to class constructor as the first basic block if
-        // we were asked to do so.
-        if (info.compCompHnd->initClass(nullptr /* field */, nullptr /* method */,
-                                        impTokenLookupContextHandle /* context */) &
-            CORINFO_INITCLASS_USE_HELPER)
-        {
-            fgEnsureFirstBBisScratch();
-            fgNewStmtAtBeg(fgFirstBB, fgInitThisClass());
-        }
-
-#ifdef DEBUG
-        if (opts.compGcChecks)
-        {
-            for (unsigned i = 0; i < info.compArgsCount; i++)
-            {
-                if (lvaTable[i].TypeGet() == TYP_REF)
-                {
-                    // confirm that the argument is a GC pointer (for debugging (GC stress))
-                    GenTree*          op   = gtNewLclvNode(i, TYP_REF);
-                    GenTreeCall::Use* args = gtNewCallArgs(op);
-                    op                     = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_VOID, args);
-
-                    fgEnsureFirstBBisScratch();
-                    fgNewStmtAtEnd(fgFirstBB, op);
-
-                    if (verbose)
-                    {
-                        printf("\ncompGcChecks tree:\n");
-                        gtDispTree(op);
-                    }
-                }
-            }
-        }
-
-#ifdef TARGET_XARCH
-        if (opts.compStackCheckOnRet)
-        {
-            lvaReturnSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("ReturnSpCheck"));
-            lvaSetImplicitlyReferenced(lvaReturnSpCheck);
-        }
-#ifdef TARGET_X86
-        if (opts.compStackCheckOnCall)
-        {
-            lvaCallSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("CallSpCheck"));
-            lvaSetImplicitlyReferenced(lvaCallSpCheck);
-        }
-#endif // TARGET_X86
-#endif // TARGET_XARCH
-#endif // DEBUG
-
-        // Filter out unimported BBs
-        fgRemoveEmptyBlocks();
-    };
-    DoPhase(this, PHASE_MORPH_INIT, morphInitPhase);
-
-#ifdef DEBUG
-    // Inliner could add basic blocks. Check that the flowgraph data is up-to-date
-    fgDebugCheckBBlist(false, false);
-#endif // DEBUG
-
-    // Inline callee methods into this root method
-    //
+    DoPhase(this, PHASE_REMOVE_NOT_IMPORTED, &Compiler::phRemoveNotImportedBlocks);
     DoPhase(this, PHASE_MORPH_INLINE, &Compiler::fgInline);
 
-    // Record "start" values for post-inlining cycles and elapsed time.
     RecordStateAtEndOfInlining();
 
-    // Transform each GT_ALLOCOBJ node into either an allocation helper call or
-    // local variable allocation on the stack.
-    ObjectAllocator objectAllocator(this); // PHASE_ALLOCATE_OBJECTS
-
-    if (compObjectStackAllocation() && opts.OptimizationEnabled())
-    {
-        objectAllocator.EnableObjectStackAllocation();
-    }
-
-    objectAllocator.Run();
-
-    // Add any internal blocks/trees we may need
-    //
+    DoPhase(this, PHASE_ALLOCATE_OBJECTS, &Compiler::phMorphAllocObj);
     DoPhase(this, PHASE_MORPH_ADD_INTERNAL, &Compiler::fgAddInternal);
 
-    // Remove empty try regions
-    //
-    DoPhase(this, PHASE_EMPTY_TRY, &Compiler::fgRemoveEmptyTry);
-
-    // Remove empty finally regions
-    //
-    DoPhase(this, PHASE_EMPTY_FINALLY, &Compiler::fgRemoveEmptyFinally);
-
-    // Streamline chains of finally invocations
-    //
-    DoPhase(this, PHASE_MERGE_FINALLY_CHAINS, &Compiler::fgMergeFinallyChains);
-
-    // Clone code in finallys to reduce overhead for non-exceptional paths
-    //
-    DoPhase(this, PHASE_CLONE_FINALLY, &Compiler::fgCloneFinally);
-
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-
-    // Update finally target flags after EH optimizations
-    //
-    DoPhase(this, PHASE_UPDATE_FINALLY_FLAGS, &Compiler::fgUpdateFinallyTargetFlags);
-
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-
-#if DEBUG
-    if (lvaEnregEHVars)
+    if (opts.OptimizationEnabled() && (compHndBBtabCount != 0))
     {
-        unsigned methHash   = info.compMethodHash();
-        char*    lostr      = getenv("JitEHWTHashLo");
-        unsigned methHashLo = 0;
-        bool     dump       = false;
-        if (lostr != nullptr)
-        {
-            sscanf_s(lostr, "%x", &methHashLo);
-            dump = true;
-        }
-        char*    histr      = getenv("JitEHWTHashHi");
-        unsigned methHashHi = UINT32_MAX;
-        if (histr != nullptr)
-        {
-            sscanf_s(histr, "%x", &methHashHi);
-            dump = true;
-        }
-        if (methHash < methHashLo || methHash > methHashHi)
-        {
-            lvaEnregEHVars = false;
-        }
-        else if (dump)
-        {
-            printf("Enregistering EH Vars for method %s, hash = 0x%x.\n", info.compFullName, info.compMethodHash());
-            printf(""); // flush
-        }
-    }
+        DoPhase(this, PHASE_EMPTY_TRY, &Compiler::fgRemoveEmptyTry);
+        DoPhase(this, PHASE_EMPTY_FINALLY, &Compiler::fgRemoveEmptyFinally);
+        DoPhase(this, PHASE_MERGE_FINALLY_CHAINS, &Compiler::fgMergeFinallyChains);
+        DoPhase(this, PHASE_CLONE_FINALLY, &Compiler::fgCloneFinally);
+#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+        DoPhase(this, PHASE_UPDATE_FINALLY_FLAGS, &Compiler::fgUpdateFinallyTargetFlags);
 #endif
+    }
 
-    // Compute bbNum, bbRefs and bbPreds
-    //
-    // This is the first time full (not cheap) preds will be computed.
-    // And, if we have profile data, we can now check integrity.
-    //
-    // From this point on the flowgraph information such as bbNum,
-    // bbRefs or bbPreds has to be kept updated.
-    //
-    auto computePredsPhase = [this]() {
-        JITDUMP("\nRenumbering the basic blocks for fgComputePred\n");
-        fgRenumberBlocks();
-        noway_assert(!fgComputePredsDone);
-        fgComputePreds();
-    };
-    DoPhase(this, PHASE_COMPUTE_PREDS, computePredsPhase);
+    DoPhase(this, PHASE_COMPUTE_PREDS, &Compiler::phComputePreds);
 
-    // Now that we have pred lists, do some flow-related optimizations
     if (opts.OptimizationEnabled())
     {
         DoPhase(this, PHASE_MERGE_THROWS, &Compiler::fgTailMergeThrows);
-        DoPhase(this, PHASE_EARLY_UPDATE_FLOW_GRAPH, [this]() { fgUpdateFlowGraph(nullptr, /* doTailDup */ false); });
+        DoPhase(this, PHASE_EARLY_UPDATE_FLOW_GRAPH, &Compiler::phUpdateFlowGraph);
     }
 
     DoPhase(this, PHASE_PROMOTE_STRUCTS, &Compiler::fgPromoteStructs);
-
     DoPhase(this, PHASE_STR_ADRLCL, &Compiler::fgMarkAddressExposedLocals);
+    DoPhase(this, PHASE_MORPH_GLOBAL, &Compiler::phMorph);
 
-    // Morph the trees in all the blocks of the method
-    //
-    auto morphGlobalPhase = [this]() {
-        unsigned prevBBCount = fgBBcount;
-        fgMorphBlocks();
+    if (getNeedsGSSecurityCookie())
+    {
+        DoPhase(this, PHASE_GS_COOKIE, &Compiler::phGSCookie);
+    }
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
-        // Fix any LclVar annotations on discarded struct promotion temps for implicit by-ref params
-        lvaDemoteImplicitByRefParams();
-        lvaRefCountState = RCS_INVALID;
-#endif
-
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-        if (fgNeedToAddFinallyTargetBits)
-        {
-            // We previously wiped out the BBF_FINALLY_TARGET bits due to some morphing; add them back.
-            fgAddFinallyTargetFlags();
-            fgNeedToAddFinallyTargetBits = false;
-        }
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-
-        // Decide the kind of code we want to generate
-        fgSetOptions();
-
-        fgExpandQmarkNodes();
-
-#ifdef DEBUG
-        compCurBB = nullptr;
-#endif // DEBUG
-
-        // If we needed to create any new BasicBlocks then renumber the blocks
-        if (fgBBcount > prevBBCount)
-        {
-            fgRenumberBlocks();
-        }
-
-        // We can now enable all phase checking
-        activePhaseChecks = PhaseChecks::CHECK_ALL;
-    };
-    DoPhase(this, PHASE_MORPH_GLOBAL, morphGlobalPhase);
-
-    // GS security checks for unsafe buffers
-    //
-    auto gsPhase = [this]() {
-        unsigned prevBBCount = fgBBcount;
-        if (getNeedsGSSecurityCookie())
-        {
-            gsGSChecksInitCookie();
-
-            if (compGSReorderStackLayout)
-            {
-                gsCopyShadowParams();
-            }
-
-            // If we needed to create any new BasicBlocks then renumber the blocks
-            if (fgBBcount > prevBBCount)
-            {
-                fgRenumberBlocks();
-            }
-        }
-        else
-        {
-            JITDUMP("No GS security needed\n");
-        }
-    };
-    DoPhase(this, PHASE_GS_COOKIE, gsPhase);
-
-    // Compute the block and edge weights
-    //
     DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS, &Compiler::fgComputeBlockAndEdgeWeights);
-
-#if defined(FEATURE_EH_FUNCLETS)
-
-    // Create funclets from the EH handlers.
-    //
+#ifdef FEATURE_EH_FUNCLETS
     DoPhase(this, PHASE_CREATE_FUNCLETS, &Compiler::fgCreateFunclets);
-
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     if (opts.OptimizationEnabled())
     {
-        // Invert loops
-        //
         DoPhase(this, PHASE_INVERT_LOOPS, &Compiler::optInvertLoops);
-
-        // Optimize block order
-        //
         DoPhase(this, PHASE_OPTIMIZE_LAYOUT, &Compiler::optOptimizeLayout);
-
-        // Compute reachability sets and dominators.
-        //
         DoPhase(this, PHASE_COMPUTE_REACHABILITY, &Compiler::fgComputeReachability);
-
-        // Discover and classify natural loops
-        // (e.g. mark iterative loops as such). Also marks loop blocks
-        // and sets bbWeight to the loop nesting levels
-        //
+        DoPhase(this, PHASE_COMPUTE_DOMINATORS, &Compiler::fgComputeDoms);
         DoPhase(this, PHASE_FIND_LOOPS, &Compiler::optFindLoops);
-
-        // Clone loops with optimization opportunities, and
-        // choose one based on dynamic condition evaluation.
-        //
         DoPhase(this, PHASE_CLONE_LOOPS, &Compiler::optCloneLoops);
-
-        // Unroll loops
-        //
         DoPhase(this, PHASE_UNROLL_LOOPS, &Compiler::optUnrollLoops);
     }
 
-#ifdef DEBUG
-    fgDebugCheckLinks();
-#endif
+    INDEBUG(fgDebugCheckLinks());
 
-    DoPhase(this, PHASE_MARK_LOCAL_VARS, &Compiler::lvaMarkLocalVars);
+    DoPhase(this, PHASE_ADD_LOCAL_VARS, &Compiler::phAddSpecialLocals);
 
-    // IMPORTANT, after this point, locals are ref counted.
-    // However, ref counts are not kept incrementally up to date.
-    assert(lvaLocalVarRefCounted());
-
-    if (opts.OptimizationEnabled())
+    if (!opts.OptimizationEnabled())
     {
+        DoPhase(this, PHASE_IMPLICIT_REF_LOCAL_VARS, &Compiler::phImplicitRefLocals);
+    }
+    else
+    {
+        DoPhase(this, PHASE_REF_COUNT_LOCAL_VARS, &Compiler::phRefCountLocals);
 #if ASSERTION_PROP
-        // optAddCopies depends on lvaRefBlks, which is set in lvaMarkLocalVars.
         DoPhase(this, PHASE_ADD_COPIES, &Compiler::optAddCopies);
 #endif
 
         DoPhase(this, PHASE_OPTIMIZE_BOOLS, &Compiler::optOptimizeBools);
 
-        // optOptimizeBools() might have changed the number of blocks; the dominators/reachability might be bad.
+        // optOptimizeBools() might have changed the number of blocks;
+        // the dominators/reachability might be bad.
+        // TODO-MIKE-Review: So should fgDomsComputed be set to false?
     }
 
-    // Figure out the order in which operators are to be evaluated
-    //
-    DoPhase(this, PHASE_FIND_OPER_ORDER, &Compiler::fgFindOperOrder);
+    DoPhase(this, PHASE_FIND_OPER_ORDER, &Compiler::phFindOperOrder);
+    DoPhase(this, PHASE_SET_BLOCK_ORDER, &Compiler::phSetBlockOrder);
 
-    // Weave the tree lists. Anyone who modifies the tree shapes after
-    // this point is responsible for calling fgSetStmtSeq() to keep the
-    // nodes properly linked.
-    // This can create GC poll calls, and create new BasicBlocks (without updating dominators/reachability).
-    //
-    DoPhase(this, PHASE_SET_BLOCK_ORDER, &Compiler::fgSetBlockOrder);
+    // TODO-MIKE-Review: Can this be done after the SSA optimizations? Those can remove
+    // dead code and we may end up with fully interruptible code for no reason.
+    // But this depends on BBF_LOOP_HEAD, which is set only by fgComputeReachability.
+    // And optRemoveRedundantZeroInits depends on the code not being fully interruptible.
+    DoPhase(this, PHASE_SET_FULLY_INTERRUPTIBLE, &Compiler::phSetFullyInterruptible);
 
-    // At this point we know if we are fully interruptible or not
     if (opts.OptimizationEnabled())
     {
-        bool doSsa           = true;
-        bool doEarlyProp     = true;
-        bool doValueNum      = true;
-        bool doLoopHoisting  = true;
-        bool doCopyProp      = true;
-        bool doBranchOpt     = true;
-        bool doCse           = true;
-        bool doAssertionProp = true;
-        bool doRangeAnalysis = true;
-        int  iterations      = 1;
+#ifdef OPT_CONFIG
+        const bool     doSsa           = (JitConfig.JitDoSsa() != 0);
+        const bool     doEarlyProp     = doSsa && (JitConfig.JitDoEarlyProp() != 0);
+        const bool     doValueNum      = doSsa && (JitConfig.JitDoValueNumber() != 0);
+        const bool     doLoopHoisting  = doValueNum && (JitConfig.JitDoLoopHoisting() != 0);
+        const bool     doCopyProp      = doValueNum && (JitConfig.JitDoCopyProp() != 0);
+        const bool     doBranchOpt     = doValueNum && (JitConfig.JitDoRedundantBranchOpts() != 0);
+        const bool     doCse           = doValueNum && (JitConfig.JitNoCSE() == 0);
+        const bool     doAssertionProp = doValueNum && (JitConfig.JitDoAssertionProp() != 0);
+        const bool     doRangeAnalysis = doAssertionProp && (JitConfig.JitDoRangeAnalysis() != 0);
+        const unsigned iterationCount  = !opts.optRepeat ? 1 : static_cast<unsigned>(JitConfig.JitOptRepeatCount());
 
-#if defined(OPT_CONFIG)
-        doSsa           = (JitConfig.JitDoSsa() != 0);
-        doEarlyProp     = doSsa && (JitConfig.JitDoEarlyProp() != 0);
-        doValueNum      = doSsa && (JitConfig.JitDoValueNumber() != 0);
-        doLoopHoisting  = doValueNum && (JitConfig.JitDoLoopHoisting() != 0);
-        doCopyProp      = doValueNum && (JitConfig.JitDoCopyProp() != 0);
-        doBranchOpt     = doValueNum && (JitConfig.JitDoRedundantBranchOpts() != 0);
-        doCse           = doValueNum && (JitConfig.JitNoCSE() == 0);
-        doAssertionProp = doValueNum && (JitConfig.JitDoAssertionProp() != 0);
-        doRangeAnalysis = doAssertionProp && (JitConfig.JitDoRangeAnalysis() != 0);
-
-        if (opts.optRepeat)
+        for (unsigned iteration = 0; iteration < iterationCount; iteration++)
+#else
+        const bool doSsa           = true;
+        const bool doEarlyProp     = true;
+        const bool doValueNum      = true;
+        const bool doLoopHoisting  = true;
+        const bool doCopyProp      = true;
+        const bool doBranchOpt     = true;
+        const bool doCse           = true;
+        const bool doAssertionProp = true;
+        const bool doRangeAnalysis = true;
+#endif
         {
-            iterations = JitConfig.JitOptRepeatCount();
-        }
-#endif // defined(OPT_CONFIG)
+#ifdef OPT_CONFIG
+            if (iteration != 0)
+            {
+                fgSsaReset();
+            }
+#endif
 
-        while (iterations > 0)
-        {
             if (doSsa)
             {
-                // Build up SSA form for the IR
-                //
                 DoPhase(this, PHASE_BUILD_SSA, &Compiler::fgSsaBuild);
             }
 
             if (doEarlyProp)
             {
-                // Propagate array length and rewrite getType() method call
-                //
                 DoPhase(this, PHASE_EARLY_PROP, &Compiler::optEarlyProp);
             }
 
             if (doValueNum)
             {
-                // Value number the trees
-                //
                 DoPhase(this, PHASE_VALUE_NUMBER, &Compiler::fgValueNumber);
             }
 
             if (doLoopHoisting)
             {
-                // Hoist invariant code out of loops
-                //
                 DoPhase(this, PHASE_HOIST_LOOP_CODE, &Compiler::optHoistLoopCode);
             }
 
             if (doCopyProp)
             {
-                // Perform VN based copy propagation
-                //
                 DoPhase(this, PHASE_VN_COPY_PROP, &Compiler::optVnCopyProp);
             }
 
@@ -3045,121 +2731,56 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
             if (doCse)
             {
-                // Remove common sub-expressions
-                //
                 DoPhase(this, PHASE_OPTIMIZE_VALNUM_CSES, &Compiler::cseMain);
             }
 
 #if ASSERTION_PROP
             if (doAssertionProp)
             {
-                // Assertion propagation
-                //
                 DoPhase(this, PHASE_ASSERTION_PROP_MAIN, &Compiler::apMain);
             }
 
             if (doRangeAnalysis)
             {
-                auto rangePhase = [this]() {
-                    RangeCheck rc(this);
-                    rc.OptimizeRangeChecks();
-                };
-
-                // Bounds check elimination via range analysis
-                //
-                DoPhase(this, PHASE_OPTIMIZE_INDEX_CHECKS, rangePhase);
+                DoPhase(this, PHASE_OPTIMIZE_INDEX_CHECKS, &Compiler::phRemoveRangeCheck);
             }
 #endif // ASSERTION_PROP
 
             if (fgModified)
             {
-                DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH,
-                        [this]() { fgUpdateFlowGraph(nullptr, /* doTailDup */ false); });
+                DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH, &Compiler::phUpdateFlowGraph);
                 DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS2, &Compiler::fgComputeEdgeWeights);
             }
-
-            // Iterate if requested, resetting annotations first.
-            if (--iterations != 0)
-            {
-                ResetOptAnnotations();
-                RecomputeLoopInfo();
-            }
         }
+
+        ssaForm        = false;
+        fgDomsComputed = false;
     }
 
-    // Insert GC Polls
-    DoPhase(this, PHASE_INSERT_GC_POLLS, &Compiler::fgInsertGCPolls);
+    assert(!fgDomsComputed);
 
-    // Determine start of cold region if we are hot/cold splitting
-    //
-    DoPhase(this, PHASE_DETERMINE_FIRST_COLD_BLOCK, &Compiler::fgDetermineFirstColdBlock);
-
-#ifdef DEBUG
-    fgDebugCheckLinks(compStressCompile(STRESS_REMORPH_TREES, 50));
-
-    // Stash the current estimate of the function's size if necessary.
-    if (verbose)
+    if ((optMethodFlags & OMF_NEEDS_GCPOLLS) != 0)
     {
-        compSizeEstimate  = 0;
-        compCycleEstimate = 0;
-        for (BasicBlock* const block : Blocks())
-        {
-            for (Statement* const stmt : block->Statements())
-            {
-                compSizeEstimate += stmt->GetCostSz();
-                compCycleEstimate += stmt->GetCostEx();
-            }
-        }
+        DoPhase(this, PHASE_INSERT_GC_POLLS, &Compiler::phInsertGCPolls);
     }
+
+    if (opts.compProcedureSplitting)
+    {
+        DoPhase(this, PHASE_DETERMINE_FIRST_COLD_BLOCK, &Compiler::phDetermineFirstColdBlock);
+    }
+
+    DoPhase(this, PHASE_RATIONALIZE, &Compiler::phRationalize);
+    DoPhase(this, PHASE_LOWERING, &Compiler::phLower);
+#if !FEATURE_FIXED_OUT_ARGS
+    DoPhase(this, PHASE_STACK_LEVEL_SETTER, &Compiler::phSetThrowHelperBlockStackLevel);
 #endif
-
-    // rationalize trees
-    Rationalizer rat(this); // PHASE_RATIONALIZE
-    rat.Run();
-
-    // Here we do "simple lowering".  When the RyuJIT backend works for all
-    // platforms, this will be part of the more general lowering phase.  For now, though, we do a separate
-    // pass of "final lowering."  We must do this before (final) liveness analysis, because this creates
-    // range check throw blocks, in which the liveness must be correct.
-    //
-    DoPhase(this, PHASE_SIMPLE_LOWERING, &Compiler::fgSimpleLowering);
-
-#ifdef DEBUG
-    fgDebugCheckBBlist();
-    fgDebugCheckLinks();
-#endif
-
-    // Enable this to gather statistical data such as
-    // call and register argument info, flowgraph and loop info, etc.
-    compJitStats();
-
-    // Assign registers to variables, etc.
-
-    ///////////////////////////////////////////////////////////////////////////////
-    // Dominator and reachability sets are no longer valid. They haven't been
-    // maintained up to here, and shouldn't be used (unless recomputed).
-    ///////////////////////////////////////////////////////////////////////////////
-    fgDomsComputed = false;
-
-    Lowering lowering(this);
-    lowering.Run();
-
-#if !defined(OSX_ARM64_ABI)
-    // Set stack levels; this information is necessary for x86
-    // but on other platforms it is used only in asserts.
-    // TODO: do not run it in release on other platforms, see https://github.com/dotnet/runtime/issues/42673.
-    StackLevelSetter stackLevelSetter(this);
-    stackLevelSetter.Run();
-#endif // !OSX_ARM64_ABI
 
     codeGen->genGenerateCode(nativeCode, nativeCodeSize);
 
-    // We're done -- set the active phase to the last phase
-    // (which isn't really a phase)
     mostRecentlyActivePhase = PHASE_POST_EMIT;
 
 #ifdef FEATURE_JIT_METHOD_PERF
-    if (pCompJitTimer)
+    if (pCompJitTimer != nullptr)
     {
 #if MEASURE_CLRAPI_CALLS
         EndPhase(PHASE_CLR_API);
@@ -3170,28 +2791,14 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     }
 #endif
 
-    // Generate PatchpointInfo
-    generatePatchpointInfo();
+    if (doesMethodHavePatchpoints())
+    {
+        generatePatchpointInfo();
+    }
 
     RecordStateAtEndOfCompilation();
 
     INDEBUG(++Compiler::jitTotalMethodCompiled);
-
-    INDEBUG(compFunctionTraceEnd(*nativeCode, *nativeCodeSize, false));
-    JITDUMP("Method code size: %u\n", *nativeCodeSize);
-
-#if FUNC_INFO_LOGGING
-    if (compJitFuncInfoFile != nullptr)
-    {
-        assert(!compIsForInlining());
-#ifdef DEBUG // We only have access to info.compFullName in DEBUG builds.
-        fprintf(compJitFuncInfoFile, "%s\n", info.compFullName);
-#elif FEATURE_SIMD
-        fprintf(compJitFuncInfoFile, " %s\n", eeGetMethodFullName(info.compMethodHnd));
-#endif
-        fprintf(compJitFuncInfoFile, ""); // in our logic this causes a flush
-    }
-#endif // FUNC_INFO_LOGGING
 }
 
 //------------------------------------------------------------------------
@@ -3200,11 +2807,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 //
 void Compiler::generatePatchpointInfo()
 {
-    if (!doesMethodHavePatchpoints())
-    {
-        // Nothing to report
-        return;
-    }
+    assert(doesMethodHavePatchpoints());
 
     // Patchpoints are only found in Tier0 code, which is unoptimized, and so
     // should always have frame pointer.
@@ -3272,64 +2875,6 @@ void Compiler::generatePatchpointInfo()
 
     // Register this with the runtime.
     info.compCompHnd->setPatchpointInfo(patchpointInfo);
-}
-
-//------------------------------------------------------------------------
-// ResetOptAnnotations: Clear annotations produced during global optimizations.
-//
-// Notes:
-//    The intent of this method is to clear any information typically assumed
-//    to be set only once; it is used between iterations when JitOptRepeat is
-//    in effect.
-
-void Compiler::ResetOptAnnotations()
-{
-    assert(opts.optRepeat);
-    assert(JitConfig.JitOptRepeatCount() > 0);
-
-    fgResetForSsa();
-
-    ssaForm            = false;
-    vnStore            = nullptr;
-    m_partialSsaDefMap = nullptr;
-
-    for (BasicBlock* const block : Blocks())
-    {
-        block->bbPredsWithEH = nullptr;
-
-        for (Statement* const stmt : block->Statements())
-        {
-            for (GenTree* const tree : stmt->TreeList())
-            {
-                tree->ClearVN();
-            }
-        }
-    }
-}
-
-//------------------------------------------------------------------------
-// RecomputeLoopInfo: Recompute loop annotations between opt-repeat iterations.
-//
-// Notes:
-//    The intent of this method is to update loop structure annotations, and those
-//    they depend on; these annotations may have become stale during optimization,
-//    and need to be up-to-date before running another iteration of optimizations.
-
-void Compiler::RecomputeLoopInfo()
-{
-    assert(opts.optRepeat);
-    assert(JitConfig.JitOptRepeatCount() > 0);
-    // Recompute reachability sets, dominators, and loops.
-    optLoopCount   = 0;
-    fgDomsComputed = false;
-    for (BasicBlock* const block : Blocks())
-    {
-        block->bbFlags &= ~BBF_LOOP_FLAGS;
-        block->bbNatLoopNum = BasicBlock::NOT_IN_LOOP;
-    }
-    fgComputeReachability();
-    // Rebuild the loop tree annotations themselves
-    optFindLoops();
 }
 
 #ifdef DEBUG
@@ -3598,7 +3143,20 @@ unsigned Compiler::compMethodHash(CORINFO_METHOD_HANDLE methodHnd)
 
 void Compiler::compCompileFinish()
 {
-#if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES || CALL_ARG_STATS
+#if FUNC_INFO_LOGGING
+    if (compJitFuncInfoFile != nullptr)
+    {
+        assert(!compIsForInlining());
+#ifdef DEBUG // We only have access to info.compFullName in DEBUG builds.
+        fprintf(compJitFuncInfoFile, "%s\n", info.compFullName);
+#elif FEATURE_SIMD
+        fprintf(compJitFuncInfoFile, " %s\n", eeGetMethodFullName(info.compMethodHnd));
+#endif
+        fprintf(compJitFuncInfoFile, ""); // in our logic this causes a flush
+    }
+#endif // FUNC_INFO_LOGGING
+
+#if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES
     genMethodCnt++;
 #endif
 
@@ -4104,7 +3662,10 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     }
 #endif
 
+    INDEBUG(compFunctionTraceStart());
     compCompile(nativeCode, nativeCodeSize, jitFlags);
+    INDEBUG(compFunctionTraceEnd(*nativeCode, *nativeCodeSize, false));
+    JITDUMP("Method code size: %u\n", *nativeCodeSize);
     compCompileFinish();
 
     // Did we just compile for a target architecture that the VM isn't expecting? If so, the VM
@@ -4260,185 +3821,6 @@ START:
 
     return result;
 }
-
-/*****************************************************************************
- *
- *  Gather statistics - mainly used for the standalone
- *  Enable various #ifdef's to get the information you need
- */
-
-void Compiler::compJitStats()
-{
-#if CALL_ARG_STATS
-
-    /* Method types and argument statistics */
-    compCallArgStats();
-#endif // CALL_ARG_STATS
-}
-
-#if CALL_ARG_STATS
-
-/*****************************************************************************
- *
- *  Gather statistics about method calls and arguments
- */
-
-void Compiler::compCallArgStats()
-{
-    unsigned argNum;
-
-    unsigned argDWordNum;
-    unsigned argLngNum;
-    unsigned argFltNum;
-    unsigned argDblNum;
-
-    unsigned regArgNum;
-    unsigned regArgDeferred;
-    unsigned regArgTemp;
-
-    unsigned regArgLclVar;
-    unsigned regArgConst;
-
-    unsigned argTempsThisMethod = 0;
-
-    assert(fgStmtListThreaded);
-
-    for (BasicBlock* const block : Blocks())
-    {
-        for (Statement* const stmt : block->Statements())
-        {
-            for (GenTree* const call : stmt->TreeList())
-            {
-                if (call->gtOper != GT_CALL)
-                    continue;
-
-                argNum = regArgNum = regArgDeferred = regArgTemp = regArgConst = regArgLclVar = argDWordNum =
-                    argLngNum = argFltNum = argDblNum = 0;
-
-                argTotalCalls++;
-
-                if (call->AsCall()->gtCallThisArg == nullptr)
-                {
-                    if (call->AsCall()->gtCallType == CT_HELPER)
-                    {
-                        argHelperCalls++;
-                    }
-                    else
-                    {
-                        argStaticCalls++;
-                    }
-                }
-                else
-                {
-                    /* We have a 'this' pointer */
-
-                    argDWordNum++;
-                    argNum++;
-                    regArgNum++;
-                    regArgDeferred++;
-                    argTotalObjPtr++;
-
-                    if (call->AsCall()->IsVirtual())
-                    {
-                        /* virtual function */
-                        argVirtualCalls++;
-                    }
-                    else
-                    {
-                        argNonVirtualCalls++;
-                    }
-                }
-            }
-        }
-    }
-
-    argTempsCntTable.record(argTempsThisMethod);
-
-    if (argMaxTempsPerMethod < argTempsThisMethod)
-    {
-        argMaxTempsPerMethod = argTempsThisMethod;
-    }
-}
-
-/* static */
-void Compiler::compDispCallArgStats(FILE* fout)
-{
-    if (argTotalCalls == 0)
-        return;
-
-    fprintf(fout, "\n");
-    fprintf(fout, "--------------------------------------------------\n");
-    fprintf(fout, "Call stats\n");
-    fprintf(fout, "--------------------------------------------------\n");
-    fprintf(fout, "Total # of calls = %d, calls / method = %.3f\n\n", argTotalCalls,
-            (float)argTotalCalls / genMethodCnt);
-
-    fprintf(fout, "Percentage of      helper calls = %4.2f %%\n", (float)(100 * argHelperCalls) / argTotalCalls);
-    fprintf(fout, "Percentage of      static calls = %4.2f %%\n", (float)(100 * argStaticCalls) / argTotalCalls);
-    fprintf(fout, "Percentage of     virtual calls = %4.2f %%\n", (float)(100 * argVirtualCalls) / argTotalCalls);
-    fprintf(fout, "Percentage of non-virtual calls = %4.2f %%\n\n", (float)(100 * argNonVirtualCalls) / argTotalCalls);
-
-    fprintf(fout, "Average # of arguments per call = %.2f%%\n\n", (float)argTotalArgs / argTotalCalls);
-
-    fprintf(fout, "Percentage of DWORD  arguments   = %.2f %%\n", (float)(100 * argTotalDWordArgs) / argTotalArgs);
-    fprintf(fout, "Percentage of LONG   arguments   = %.2f %%\n", (float)(100 * argTotalLongArgs) / argTotalArgs);
-    fprintf(fout, "Percentage of FLOAT  arguments   = %.2f %%\n", (float)(100 * argTotalFloatArgs) / argTotalArgs);
-    fprintf(fout, "Percentage of DOUBLE arguments   = %.2f %%\n\n", (float)(100 * argTotalDoubleArgs) / argTotalArgs);
-
-    if (argTotalRegArgs == 0)
-        return;
-
-    /*
-        fprintf(fout, "Total deferred arguments     = %d \n", argTotalDeferred);
-
-        fprintf(fout, "Total temp arguments         = %d \n\n", argTotalTemps);
-
-        fprintf(fout, "Total 'this' arguments       = %d \n", argTotalObjPtr);
-        fprintf(fout, "Total local var arguments    = %d \n", argTotalLclVar);
-        fprintf(fout, "Total constant arguments     = %d \n\n", argTotalConst);
-    */
-
-    fprintf(fout, "\nRegister Arguments:\n\n");
-
-    fprintf(fout, "Percentage of deferred arguments = %.2f %%\n", (float)(100 * argTotalDeferred) / argTotalRegArgs);
-    fprintf(fout, "Percentage of temp arguments     = %.2f %%\n\n", (float)(100 * argTotalTemps) / argTotalRegArgs);
-
-    fprintf(fout, "Maximum # of temps per method    = %d\n\n", argMaxTempsPerMethod);
-
-    fprintf(fout, "Percentage of ObjPtr arguments   = %.2f %%\n", (float)(100 * argTotalObjPtr) / argTotalRegArgs);
-    // fprintf(fout, "Percentage of global arguments   = %.2f %%\n", (float)(100 * argTotalDWordGlobEf) /
-    // argTotalRegArgs);
-    fprintf(fout, "Percentage of constant arguments = %.2f %%\n", (float)(100 * argTotalConst) / argTotalRegArgs);
-    fprintf(fout, "Percentage of lcl var arguments  = %.2f %%\n\n", (float)(100 * argTotalLclVar) / argTotalRegArgs);
-
-    fprintf(fout, "--------------------------------------------------\n");
-    fprintf(fout, "Argument count frequency table (includes ObjPtr):\n");
-    fprintf(fout, "--------------------------------------------------\n");
-    argCntTable.dump(fout);
-    fprintf(fout, "--------------------------------------------------\n");
-
-    fprintf(fout, "--------------------------------------------------\n");
-    fprintf(fout, "DWORD argument count frequency table (w/o LONG):\n");
-    fprintf(fout, "--------------------------------------------------\n");
-    argDWordCntTable.dump(fout);
-    fprintf(fout, "--------------------------------------------------\n");
-
-    fprintf(fout, "--------------------------------------------------\n");
-    fprintf(fout, "Temps count frequency table (per method):\n");
-    fprintf(fout, "--------------------------------------------------\n");
-    argTempsCntTable.dump(fout);
-    fprintf(fout, "--------------------------------------------------\n");
-
-    /*
-        fprintf(fout, "--------------------------------------------------\n");
-        fprintf(fout, "DWORD argument count frequency table (w/ LONG):\n");
-        fprintf(fout, "--------------------------------------------------\n");
-        argDWordLngCntTable.dump(fout);
-        fprintf(fout, "--------------------------------------------------\n");
-    */
-}
-
-#endif // CALL_ARG_STATS
 
 // JIT time end to end, and by phases.
 

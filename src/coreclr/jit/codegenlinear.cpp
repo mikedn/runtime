@@ -100,17 +100,6 @@ void CodeGen::UpdateLclBlockLiveInRegs(BasicBlock* block)
 #endif
 }
 
-//------------------------------------------------------------------------
-// genCodeForBBlist: Generate code for all the blocks in a method
-//
-// Arguments:
-//    None
-//
-// Notes:
-//    This is the main method for linear codegen. It calls genCodeForTreeNode
-//    to generate the code for each node in each BasicBlock, and handles BasicBlock
-//    boundaries and branches.
-//
 void CodeGen::genCodeForBBlist()
 {
 #ifdef DEBUG
@@ -153,15 +142,7 @@ void CodeGen::genCodeForBBlist()
     /* Initialize structures used in the block list iteration */
     genInitialize();
 
-    /*-------------------------------------------------------------------------
-     *
-     *  Walk the basic blocks and generate code for each one
-     *
-     */
-
-    BasicBlock* block;
-
-    for (block = compiler->fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* block = compiler->fgFirstBB; block != nullptr; block = block->bbNext)
     {
 #ifdef DEBUG
         if (compiler->verbose)
@@ -187,7 +168,7 @@ void CodeGen::genCodeForBBlist()
 
         genLogLabel(block);
 
-        compiler->compCurBB = block;
+        m_currentBlock = block;
 
         bool needLabel = (block->bbFlags & BBF_HAS_LABEL) != 0;
 
@@ -309,7 +290,7 @@ void CodeGen::genCodeForBBlist()
             }
             else
             {
-                genCodeForTreeNode(node);
+                GenNode(node, block);
 
                 if (node->gtHasReg() && node->IsUnusedValue())
                 {
@@ -538,7 +519,7 @@ void CodeGen::genCodeForBBlist()
                 // 4. On AMD64, if the next block is in a different EH region.
                 if ((block->bbNext == nullptr) || (block->bbNext->bbFlags & BBF_FUNCLET_BEG) ||
                     !BasicBlock::sameEHRegion(block, block->bbNext) ||
-                    (!isFramePointerUsed() && compiler->fgIsThrowHlpBlk(block->bbNext)) ||
+                    (!isFramePointerUsed() && compiler->fgIsThrowHelperBlock(block->bbNext)) ||
                     block->bbNext == compiler->fgFirstColdBlock)
                 {
                     instGen(INS_BREAKPOINT); // This should never get executed
@@ -651,23 +632,11 @@ void CodeGen::genCodeForBBlist()
         {
             varLiveKeeper->dumpBlockVariableLiveRanges(block);
         }
-#endif // defined(DEBUG) && defined(USING_VARIABLE_LIVE_RANGE)
-
-        INDEBUG(compiler->compCurBB = nullptr);
-
-    } //------------------ END-FOR each block of the method -------------------
-
-    liveness.End(this);
-
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("\n# ");
-        printf("compCycleEstimate = %6d, compSizeEstimate = %5d ", compiler->compCycleEstimate,
-               compiler->compSizeEstimate);
-        printf("%s\n", compiler->info.compFullName);
-    }
 #endif
+    }
+
+    m_currentBlock = nullptr;
+    liveness.End(this);
 }
 
 /*
@@ -2043,18 +2012,12 @@ CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForJumpTrue: Generate code for a GT_JTRUE node.
-//
-// Arguments:
-//    jtrue - The node
-//
-void CodeGen::genCodeForJumpTrue(GenTreeOp* jtrue)
+void CodeGen::GenJTrue(GenTreeUnOp* jtrue, BasicBlock* block)
 {
-    assert(compiler->compCurBB->bbJumpKind == BBJ_COND);
     assert(jtrue->OperIs(GT_JTRUE));
+    assert(block->bbJumpKind == BBJ_COND);
 
-    GenTreeOp*   relop     = jtrue->gtGetOp1()->AsOp();
+    GenTreeOp*   relop     = jtrue->GetOp(0)->AsOp();
     GenCondition condition = GenCondition::FromRelop(relop);
 
     if (condition.PreferSwap())
@@ -2076,21 +2039,15 @@ void CodeGen::genCodeForJumpTrue(GenTreeOp* jtrue)
     }
 #endif
 
-    inst_JCC(condition, compiler->compCurBB->bbJumpDest);
+    inst_JCC(condition, block->bbJumpDest);
 }
 
-//------------------------------------------------------------------------
-// genCodeForJcc: Generate code for a GT_JCC node.
-//
-// Arguments:
-//    jcc - The node
-//
-void CodeGen::genCodeForJcc(GenTreeCC* jcc)
+void CodeGen::GenJCC(GenTreeCC* jcc, BasicBlock* block)
 {
-    assert(compiler->compCurBB->bbJumpKind == BBJ_COND);
     assert(jcc->OperIs(GT_JCC));
+    assert(block->bbJumpKind == BBJ_COND);
 
-    inst_JCC(jcc->gtCondition, compiler->compCurBB->bbJumpDest);
+    inst_JCC(jcc->gtCondition, block->bbJumpDest);
 }
 
 //------------------------------------------------------------------------

@@ -1181,6 +1181,31 @@ void Lowering::LowerCallArgs(GenTreeCall* call)
 {
     CallInfo* info = call->GetInfo();
 
+#if FEATURE_FIXED_OUT_ARGS
+    if (!call->IsFastTailCall())
+    {
+        unsigned callArgSize = info->GetNextSlotNum() * REGSIZE_BYTES;
+
+        if (callArgSize > outgoingArgAreaSize)
+        {
+            outgoingArgAreaSize = callArgSize;
+            JITDUMP("Increasing outgoingArgAreaSize to %u for call [%06u]\n", outgoingArgAreaSize, call->GetID());
+        }
+    }
+#endif
+
+#ifndef TARGET_X86
+    // TODO-MIKE-Review: What does the arg slot count has to do with x64 or any other non-x86
+    // architectures? This condition does reduce code size but it appears to do so by accident:
+    // EBP based address modes have smaller encoding than ESP based ones but then this basically
+    // counts arg stores and those always use ESP. What we really need is the number of non-arg
+    // stack references that exist, and this has nothing to do with that.
+    if (info->GetNextSlotNum() - INIT_ARG_STACK_SLOT >= 4)
+    {
+        comp->opts.SetFramePointerRequired();
+    }
+#endif
+
     for (unsigned i = 0; i < info->GetArgCount(); i++)
     {
         JITDUMPTREE(info->GetArgInfo(i)->GetNode(), "lowering call arg %u (before):\n", i);
@@ -1454,20 +1479,21 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     // a GC-safe point or the whole method is marked as fully interruptible.
     //
     // TODO-Cleanup:
-    // optReachWithoutCall() depends on the fact that loop headers blocks
+    // fgReachWithoutCall() depends on the fact that loop headers blocks
     // will have a block number > fgLastBB.  These loop headers gets added
     // after dominator computation and get skipped by OptReachWithoutCall().
-    // The below condition cannot be asserted in lower because fgSimpleLowering()
-    // can add a new basic block for range check failure which becomes
-    // fgLastBB with block number > loop header block number.
-    // assert((comp->compCurBB->bbFlags & BBF_GC_SAFE_POINT) ||
-    //         !comp->optReachWithoutCall(comp->fgFirstBB, comp->compCurBB) || comp->GetInterruptible());
+    // The below condition cannot be asserted in lower because we may add
+    // new basic blocks for range check failure, which have higher block
+    // numbers than the loop header block number.
+    //
+    // assert(m_block->HasGCSafePoint() ||
+    //        !comp->fgReachWithoutCall(comp->fgFirstBB, m_block) || comp->GetInterruptible());
 
     // If PInvokes are in-lined, we have to remember to execute PInvoke method epilog anywhere that
     // a method returns.  This is a case of caller method has both PInvokes and tail calls.
     if (comp->compMethodRequiresPInvokeFrame())
     {
-        InsertPInvokeMethodEpilog(comp->compCurBB DEBUGARG(call));
+        InsertPInvokeMethodEpilog(INDEBUG(call));
     }
 
     // Args for tail call are setup in incoming arg area.  The gc-ness of args of
@@ -1519,9 +1545,9 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         // this we insert GT_NO_OP as embedded stmt before GT_START_NONGC, if the method
         // has a single basic block and is not a GC-safe point.  The presence of a single
         // nop outside non-gc interruptible region will prevent gc starvation.
-        if ((comp->fgBBcount == 1) && !(comp->compCurBB->bbFlags & BBF_GC_SAFE_POINT))
+        if ((comp->fgBBcount == 1) && !m_block->HasGCSafePoint())
         {
-            assert(comp->fgFirstBB == comp->compCurBB);
+            assert(comp->fgFirstBB == m_block);
             GenTree* noOp = new (comp, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
             BlockRange().InsertBefore(startNonGCNode, noOp);
         }
@@ -1953,7 +1979,7 @@ void Lowering::LowerJmpMethod(GenTree* jmp)
     // a method returns.
     if (comp->compMethodRequiresPInvokeFrame())
     {
-        InsertPInvokeMethodEpilog(comp->compCurBB DEBUGARG(jmp));
+        InsertPInvokeMethodEpilog(INDEBUG(jmp));
     }
 }
 
@@ -1969,9 +1995,9 @@ void Lowering::LowerReturn(GenTreeUnOp* ret)
     }
 
     // Method doing PInvokes has exactly one return block unless it has tail calls.
-    if (comp->compMethodRequiresPInvokeFrame() && (comp->compCurBB == comp->genReturnBB))
+    if (comp->compMethodRequiresPInvokeFrame() && (m_block == comp->genReturnBB))
     {
-        InsertPInvokeMethodEpilog(comp->compCurBB DEBUGARG(ret));
+        InsertPInvokeMethodEpilog(INDEBUG(ret));
     }
 
     if (!ret->TypeIs(TYP_VOID))
@@ -3050,9 +3076,8 @@ void Lowering::InsertPInvokeMethodProlog()
 // Return Value:
 //    Code tree to perform the action.
 //
-void Lowering::InsertPInvokeMethodEpilog(BasicBlock* returnBB DEBUGARG(GenTree* lastExpr))
+void Lowering::InsertPInvokeMethodEpilog(INDEBUG(GenTree* lastExpr))
 {
-    assert(returnBB != nullptr);
     assert(comp->info.compUnmanagedCallCountWithGCTransition);
 
     if (comp->opts.ShouldUsePInvokeHelpers())
@@ -3063,12 +3088,10 @@ void Lowering::InsertPInvokeMethodEpilog(BasicBlock* returnBB DEBUGARG(GenTree* 
     JITDUMP("======= Inserting PInvoke method epilog\n");
 
     // Method doing PInvoke calls has exactly one return block unless it has "jmp" or tail calls.
-    assert(((returnBB == comp->genReturnBB) && (returnBB->bbJumpKind == BBJ_RETURN)) ||
-           returnBB->endsWithTailCallOrJmp(comp));
+    assert(((m_block == comp->genReturnBB) && (m_block->bbJumpKind == BBJ_RETURN)) || m_block->EndsWithJmp(comp) ||
+           m_block->EndsWithTailCall(comp));
 
-    LIR::Range& returnBlockRange = LIR::AsRange(returnBB);
-
-    GenTree* insertionPoint = returnBlockRange.LastNode();
+    GenTree* insertionPoint = BlockRange().LastNode();
     assert(insertionPoint == lastExpr);
 
     // Note: PInvoke Method Epilog (PME) needs to be inserted just before GT_RETURN, GT_JMP or GT_CALL node in execution
@@ -3093,7 +3116,7 @@ void Lowering::InsertPInvokeMethodEpilog(BasicBlock* returnBB DEBUGARG(GenTree* 
     if (comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
 #endif // TARGET_64BIT
     {
-        InsertFrameLinkUpdate(returnBlockRange, insertionPoint, PopFrame);
+        InsertFrameLinkUpdate(BlockRange(), insertionPoint, PopFrame);
     }
 }
 
@@ -3142,7 +3165,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
 #endif
         GenTreeCall* pInvokeBegin = comp->gtNewHelperCallNode(CORINFO_HELP_JIT_PINVOKE_BEGIN, TYP_VOID, args);
         LIR::InsertHelperCallBefore(comp, BlockRange(), insertBefore, pInvokeBegin);
-        LowerNode(pInvokeBegin);
+        LowerCall(pInvokeBegin);
         return;
     }
 
@@ -4594,7 +4617,7 @@ GenTree* Lowering::LowerArrElem(GenTree* node)
     return nextToLower;
 }
 
-PhaseStatus Lowering::DoPhase()
+void Lowering::Run()
 {
 #ifdef PROFILING_SUPPORTED
 #ifdef UNIX_AMD64_ABI
@@ -4604,6 +4627,23 @@ PhaseStatus Lowering::DoPhase()
     }
 #endif
 #endif // PROFILING_SUPPORTED
+
+    // TODO-MIKE-Cleanup: See if this can be done during the existing lowering traversal.
+    // It looks like we may end up inserting block in front of previously lowered blocks
+    // and miss lowering these new blocks. But then these blocks are trivial and don't
+    // really need any lowering (they contain only calls to helpers with no args).
+    for (BasicBlock* block : comp->Blocks())
+    {
+        unsigned throwIndex = comp->bbThrowIndex(block);
+
+        for (GenTree* node : LIR::AsRange(block))
+        {
+            if (GenTreeBoundsChk* boundsChk = node->IsBoundsChk())
+            {
+                boundsChk->SetThrowBlock(comp->fgGetThrowHelperBlock(boundsChk->GetThrowKind(), block, throwIndex));
+            }
+        }
+    }
 
     // If we have any PInvoke calls, insert the one-time prolog code. We'll inserted the epilog code in the
     // appropriate spots later. NOTE: there is a minor optimization opportunity here, as we still create p/invoke
@@ -4623,8 +4663,6 @@ PhaseStatus Lowering::DoPhase()
 
     for (BasicBlock* const block : comp->Blocks())
     {
-        comp->compCurBB = block;
-
 #ifndef TARGET_64BIT
         if (comp->compLongUsed)
         {
@@ -4634,6 +4672,55 @@ PhaseStatus Lowering::DoPhase()
 
         LowerBlock(block);
     }
+
+    if (comp->fgHasEH() || comp->compMethodRequiresPInvokeFrame() || comp->compIsProfilerHookNeeded() ||
+        comp->compLocallocUsed
+#ifdef TARGET_X86
+        || comp->compTailCallUsed
+#endif
+#ifdef JIT32_GCENCODER
+        || comp->info.compPublishStubParam || comp->info.compIsVarArgs || comp->lvaReportParamTypeArg()
+#endif
+        || comp->opts.compDbgEnC)
+    {
+        comp->opts.SetFramePointerRequired();
+    }
+
+#if FEATURE_FIXED_OUT_ARGS
+    // Finish computing the outgoing args area size
+    //
+    // Need to make sure the MIN_ARG_AREA_FOR_CALL space is added to the frame if:
+    // 1. there are calls to THROW_HEPLPER methods.
+    // 2. we are generating profiling Enter/Leave/TailCall hooks. This will ensure
+    //    that even methods without any calls will have outgoing arg area space allocated.
+    //
+    // An example for these two cases is Windows Amd64, where the ABI requires to have 4 slots for
+    // the outgoing arg space if the method makes any calls.
+    if (outgoingArgAreaSize < MIN_ARG_AREA_FOR_CALL)
+    {
+        if (comp->compUsesThrowHelper || comp->compIsProfilerHookNeeded())
+        {
+            outgoingArgAreaSize = MIN_ARG_AREA_FOR_CALL;
+            JITDUMP("Increasing outgoingArgAreaSize to %u for throw helper or profile hook", outgoingArgAreaSize);
+        }
+    }
+
+    // If a function has localloc, we will need to move the outgoing arg space when the
+    // localloc happens. When we do this, we need to maintain stack alignment. To avoid
+    // leaving alignment-related holes when doing this move, make sure the outgoing
+    // argument space size is a multiple of the stack alignment by aligning up to the next
+    // stack alignment boundary.
+    if (comp->compLocallocUsed)
+    {
+        outgoingArgAreaSize = roundUp(outgoingArgAreaSize, STACK_ALIGN);
+        JITDUMP("Increasing outgoingArgAreaSize to %u for localloc", outgoingArgAreaSize);
+    }
+
+    assert(outgoingArgAreaSize % REGSIZE_BYTES == 0);
+
+    comp->codeGen->outgoingArgSpaceSize.SetFinalValue(outgoingArgAreaSize);
+    comp->lvaGetDesc(comp->lvaOutgoingArgSpaceVar)->SetBlockType(outgoingArgAreaSize);
+#endif // FEATURE_FIXED_OUT_ARGS
 
 #ifdef DEBUG
     JITDUMP("Lower has completed modifying nodes.\n");
@@ -4673,8 +4760,6 @@ PhaseStatus Lowering::DoPhase()
     }
 
     DBEXEC(comp->verbose, comp->lvaTableDump());
-
-    return PhaseStatus::MODIFIED_EVERYTHING;
 }
 
 #ifdef DEBUG
@@ -4809,15 +4894,8 @@ bool Lowering::CheckBlock(BasicBlock* block)
 }
 #endif // DEBUG
 
-//------------------------------------------------------------------------
-// Lowering::LowerBlock: Lower all the nodes in a BasicBlock
-//
-// Arguments:
-//   block    - the block to lower.
-//
 void Lowering::LowerBlock(BasicBlock* block)
 {
-    assert(block == comp->compCurBB); // compCurBB must already be set.
     assert(block->isEmpty() || block->IsLIR());
 
     m_block = block;
@@ -5784,4 +5862,11 @@ bool Lowering::IsContainableMemoryOp(Compiler* comp, GenTree* node)
     }
 
     return false;
+}
+
+PhaseStatus Compiler::phLower()
+{
+    Lowering lowering(this);
+    lowering.Run();
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }

@@ -19,11 +19,15 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "lsra.h"
 #include "sideeffects.h"
 
-class Lowering final : public Phase<Lowering>
+class Lowering
 {
+    Compiler*     comp;
     SideEffectSet m_scratchSideEffects; // SideEffectSet used for IsSafeToContainMem and isRMWIndirCandidate
     BasicBlock*   m_block;
     unsigned      vtableCallTemp = BAD_VAR_NUM; // local variable we use as a temp for vtable calls
+#if FEATURE_FIXED_OUT_ARGS
+    unsigned outgoingArgAreaSize = 0;
+#endif
 #ifdef FEATURE_HW_INTRINSICS
 #ifdef TARGET_ARM64
     unsigned m_simd8MemoryTemp = BAD_VAR_NUM;
@@ -35,11 +39,11 @@ class Lowering final : public Phase<Lowering>
 #endif // FEATURE_HW_INTRINSICS
 
 public:
-    Lowering(Compiler* compiler) : Phase(compiler, PHASE_LOWERING)
+    Lowering(Compiler* compiler) : comp(compiler)
     {
     }
 
-    PhaseStatus DoPhase();
+    void Run();
 
     void LowerNode(BasicBlock* block, GenTree* node)
     {
@@ -141,7 +145,7 @@ private:
     void InsertPInvokeCallProlog(GenTreeCall* call);
     void InsertPInvokeCallEpilog(GenTreeCall* call);
     void InsertPInvokeMethodProlog();
-    void InsertPInvokeMethodEpilog(BasicBlock* returnBB DEBUGARG(GenTree* lastExpr));
+    void InsertPInvokeMethodEpilog(INDEBUG(GenTree* lastExpr));
     void InsertSetGCState(GenTree* before, int cns);
     void InsertReturnTrap(GenTree* before);
     enum FrameLinkAction

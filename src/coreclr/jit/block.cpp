@@ -25,12 +25,6 @@ size_t BasicBlock::s_Count;
 #endif // MEASURE_BLOCK_SIZE
 
 #ifdef DEBUG
-// The max # of tree nodes in any BB
-/* static */
-unsigned BasicBlock::s_nMaxTrees;
-#endif // DEBUG
-
-#ifdef DEBUG
 flowList* ShuffleHelper(unsigned hash, flowList* res)
 {
     flowList* head = res;
@@ -1273,126 +1267,71 @@ BasicBlock* BasicBlock::GetSucc(unsigned i, Compiler* comp)
     }
 }
 
-// Returns true if the basic block ends with GT_JMP
-bool BasicBlock::endsWithJmpMethod(Compiler* comp) const
+bool BasicBlock::EndsWithJmp(Compiler* comp) const
 {
-    if (comp->compJmpOpUsed && (bbJumpKind == BBJ_RETURN) && (bbFlags & BBF_HAS_JMP))
-    {
-        GenTree* lastNode = this->lastNode();
-        assert(lastNode != nullptr);
-        return lastNode->OperGet() == GT_JMP;
-    }
-
-    return false;
+    return comp->compJmpOpUsed && (bbJumpKind == BBJ_RETURN) && ((bbFlags & BBF_HAS_JMP) != 0) &&
+           lastNode()->OperIs(GT_JMP);
 }
 
-// Returns true if the basic block ends with either
-//  i) GT_JMP or
-// ii) tail call (implicit or explicit)
-//
-// Params:
-//    comp              - Compiler instance
-//    fastTailCallsOnly - Only consider fast tail calls excluding tail calls via helper.
-//
-bool BasicBlock::endsWithTailCallOrJmp(Compiler* comp, bool fastTailCallsOnly /*=false*/) const
+bool BasicBlock::EndsWithTailCall(Compiler* comp) const
 {
-    GenTree* tailCall                       = nullptr;
-    bool     tailCallsConvertibleToLoopOnly = false;
-    return endsWithJmpMethod(comp) ||
-           endsWithTailCall(comp, fastTailCallsOnly, tailCallsConvertibleToLoopOnly, &tailCall);
+    return EndsWithTailCall(comp, /*fastTailCallsOnly*/ false, /*tailCallsConvertibleToLoopOnly*/ false) != nullptr;
 }
 
-//------------------------------------------------------------------------------
-// endsWithTailCall : Check if the block ends with a tail call.
-//
-// Arguments:
-//    comp                            - compiler instance
-//    fastTailCallsOnly               - check for fast tail calls only
-//    tailCallsConvertibleToLoopOnly  - check for tail calls convertible to loop only
-//    tailCall                        - a pointer to a tree that will be set to the call tree if the block
-//                                      ends with a tail call and will be set to nullptr otherwise.
-//
-// Return Value:
-//    true if the block ends with a tail call; false otherwise.
-//
-// Notes:
-//    At most one of fastTailCallsOnly and tailCallsConvertibleToLoopOnly flags can be true.
-//
-bool BasicBlock::endsWithTailCall(Compiler* comp,
-                                  bool      fastTailCallsOnly,
-                                  bool      tailCallsConvertibleToLoopOnly,
-                                  GenTree** tailCall) const
+bool BasicBlock::EndsWithFastTailCall(Compiler* comp) const
+{
+    return EndsWithTailCall(comp, /*fastTailCallsOnly*/ true, /*tailCallsConvertibleToLoopOnly*/ false) != nullptr;
+}
+
+GenTreeCall* BasicBlock::EndsWithTailCallConvertibleToLoop(Compiler* comp) const
+{
+    return EndsWithTailCall(comp, /*fastTailCallsOnly*/ false, /*tailCallsConvertibleToLoopOnly*/ true);
+}
+
+GenTreeCall* BasicBlock::EndsWithTailCall(Compiler* comp,
+                                          bool      fastTailCallsOnly,
+                                          bool      tailCallsConvertibleToLoopOnly) const
 {
     assert(!fastTailCallsOnly || !tailCallsConvertibleToLoopOnly);
-    *tailCall   = nullptr;
-    bool result = false;
 
-    // Is this a tail call?
-    // The reason for keeping this under RyuJIT is so as not to impact existing Jit32 x86 and arm
-    // targets.
-    if (comp->compTailCallUsed)
+    if (!comp->compTailCallUsed)
     {
-        if (fastTailCallsOnly || tailCallsConvertibleToLoopOnly)
-        {
-            // Only fast tail calls or only tail calls convertible to loops
-            result = (bbFlags & BBF_HAS_JMP) && (bbJumpKind == BBJ_RETURN);
-        }
-        else
-        {
-            // Fast tail calls, tail calls convertible to loops, and tails calls dispatched via helper
-            result = (bbJumpKind == BBJ_THROW) || ((bbFlags & BBF_HAS_JMP) && (bbJumpKind == BBJ_RETURN));
-        }
-
-        if (result)
-        {
-            GenTree* lastNode = this->lastNode();
-            if (lastNode->OperGet() == GT_CALL)
-            {
-                GenTreeCall* call = lastNode->AsCall();
-                if (tailCallsConvertibleToLoopOnly)
-                {
-                    result = call->IsTailCallConvertibleToLoop();
-                }
-                else if (fastTailCallsOnly)
-                {
-                    result = call->IsFastTailCall();
-                }
-                else
-                {
-                    result = call->IsTailCall();
-                }
-
-                if (result)
-                {
-                    *tailCall = call;
-                }
-            }
-            else
-            {
-                result = false;
-            }
-        }
+        return nullptr;
     }
 
-    return result;
-}
+    bool result = (bbJumpKind == BBJ_RETURN) && ((bbFlags & BBF_HAS_JMP) != 0);
 
-//------------------------------------------------------------------------------
-// endsWithTailCallConvertibleToLoop : Check if the block ends with a tail call convertible to loop.
-//
-// Arguments:
-//    comp  -  compiler instance
-//    tailCall  -  a pointer to a tree that will be set to the call tree if the block
-//                 ends with a tail call convertible to loop and will be set to nullptr otherwise.
-//
-// Return Value:
-//    true if the block ends with a tail call convertible to loop.
-//
-bool BasicBlock::endsWithTailCallConvertibleToLoop(Compiler* comp, GenTree** tailCall) const
-{
-    bool fastTailCallsOnly              = false;
-    bool tailCallsConvertibleToLoopOnly = true;
-    return endsWithTailCall(comp, fastTailCallsOnly, tailCallsConvertibleToLoopOnly, tailCall);
+    if (!fastTailCallsOnly && !tailCallsConvertibleToLoopOnly)
+    {
+        result |= (bbJumpKind == BBJ_THROW);
+    }
+
+    if (!result)
+    {
+        return nullptr;
+    }
+
+    GenTreeCall* call = lastNode()->IsCall();
+
+    if (call == nullptr)
+    {
+        return nullptr;
+    }
+
+    if (tailCallsConvertibleToLoopOnly)
+    {
+        result = call->IsTailCallConvertibleToLoop();
+    }
+    else if (fastTailCallsOnly)
+    {
+        result = call->IsFastTailCall();
+    }
+    else
+    {
+        result = call->IsTailCall();
+    }
+
+    return result ? call : nullptr;
 }
 
 /*****************************************************************************

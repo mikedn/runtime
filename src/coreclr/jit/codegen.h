@@ -27,6 +27,9 @@ class CodeGen final : public CodeGenInterface
     class LinearScan* m_lsra           = nullptr;
     IPmappingDsc*     genIPmappingList = nullptr;
     IPmappingDsc*     genIPmappingLast = nullptr;
+    BasicBlock*       m_currentBlock   = nullptr;
+    GSCookie*         m_gsCookieAddr   = nullptr;
+    GSCookie          m_gsCookieVal    = 0;
 
     CodeGenLivenessUpdater liveness;
 #ifdef TARGET_ARMARCH
@@ -36,6 +39,11 @@ class CodeGen final : public CodeGenInterface
 
 public:
     CodeGen(Compiler* compiler);
+
+    BasicBlock* GetCurrentBlock() const
+    {
+        return m_currentBlock;
+    }
 
     virtual void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
 
@@ -201,7 +209,7 @@ protected:
 
     void genExitCode(BasicBlock* block);
 
-    void genJumpToThrowHlpBlk(emitJumpKind jumpKind, SpecialCodeKind codeKind, BasicBlock* failBlk = nullptr);
+    void genJumpToThrowHlpBlk(emitJumpKind jumpKind, ThrowHelperKind codeKind, BasicBlock* failBlk = nullptr);
 
     void genCheckOverflow(GenTree* tree);
 
@@ -810,7 +818,7 @@ protected:
     void GenIntCon(GenTreeIntCon* node);
     void GenDblCon(GenTreeDblCon* node);
 #endif
-    void genCodeForTreeNode(GenTree* treeNode);
+    void GenNode(GenTree* node, BasicBlock* block);
     void genCodeForBinary(GenTreeOp* treeNode);
     void GenFloatNegate(GenTreeUnOp* node);
     void GenFloatBinaryOp(GenTreeOp* node);
@@ -1112,9 +1120,9 @@ protected:
 #ifdef TARGET_XARCH
     void GenStoreIndRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy);
     void genCodeForBT(GenTreeOp* bt);
-    void genEmitGSCookieCheck(bool tailCallEpilog);
+    void EpilogGSCookieCheck(bool tailCallEpilog);
 #else
-    void genEmitGSCookieCheck();
+    void EpilogGSCookieCheck();
 #endif
 
     void genCodeForCast(GenTreeCast* cast);
@@ -1135,7 +1143,6 @@ protected:
     void GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store);
     void GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store);
     void genCodeForReturnTrap(GenTreeOp* tree);
-    void genCodeForJcc(GenTreeCC* tree);
     void genCodeForSetcc(GenTreeCC* setcc);
     void genCodeForStoreInd(GenTreeStoreInd* tree);
 #ifdef TARGET_XARCH
@@ -1220,7 +1227,7 @@ protected:
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
     void GenStructStoreUnrollRegsWB(GenTreeObj* store);
 #endif
-    void genJumpTable(GenTree* tree);
+    void GenJmpTable(GenTree* node, BasicBlock* switchBlock);
     void genTableBasedSwitch(GenTreeOp* tree);
     void genCodeForArrIndex(GenTreeArrIndex* treeNode);
     void genCodeForArrOffset(GenTreeArrOffs* treeNode);
@@ -1236,10 +1243,11 @@ protected:
 #endif
                       );
     BasicBlock* genCallFinally(BasicBlock* block);
-    void genCodeForJumpTrue(GenTreeOp* jtrue);
+    void GenJTrue(GenTreeUnOp* jtrue, BasicBlock* block);
+    void GenJCC(GenTreeCC* jcc, BasicBlock* block);
 #ifdef TARGET_ARM64
-    void genCodeForJumpCompare(GenTreeOp* tree);
-#endif // TARGET_ARM64
+    void GenJCmp(GenTreeOp* jcmp, BasicBlock* block);
+#endif
 
 #if defined(FEATURE_EH_FUNCLETS)
     void genEHCatchRet(BasicBlock* block);
@@ -1259,8 +1267,8 @@ protected:
     void genFloatReturn(GenTree* src);
 #endif
 
-    void genRetFilt(GenTree* retfilt);
-    void genReturn(GenTree* ret);
+    void GenRetFilt(GenTree* retfilt, BasicBlock* block);
+    void GenReturn(GenTree* ret, BasicBlock* block);
 
     void genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTmp);
     void genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNumber regTmp);

@@ -15,12 +15,29 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma hdrstop
 #endif
 
+void Compiler::phGSCookie()
+{
+    assert(getNeedsGSSecurityCookie());
+
+    unsigned prevBBCount = fgBBcount;
+    gsGSChecksInitCookie();
+
+    if (compGSReorderStackLayout)
+    {
+        gsCopyShadowParams();
+    }
+
+    // If we needed to create any new BasicBlocks then renumber the blocks
+    if (fgBBcount > prevBBCount)
+    {
+        fgRenumberBlocks();
+    }
+}
+
 void Compiler::gsGSChecksInitCookie()
 {
     lvaGSSecurityCookie = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("GSCookie"));
     lvaSetImplicitlyReferenced(lvaGSSecurityCookie);
-
-    info.compCompHnd->getGSCookie(&gsGlobalSecurityCookieVal, &gsGlobalSecurityCookieAddr);
 }
 
 /*****************************************************************************

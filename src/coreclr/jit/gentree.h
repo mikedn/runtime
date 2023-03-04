@@ -13,14 +13,10 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-/*****************************************************************************/
-#ifndef _GENTREE_H_
-#define _GENTREE_H_
-/*****************************************************************************/
+#pragma once
 
-#include "vartype.h"   // For "var_types"
-#include "target.h"    // For "regNumber"
-#include "ssaconfig.h" // For "SsaConfig::RESERVED_SSA_NUM"
+#include "vartype.h"
+#include "target.h"
 #include "valuenumtype.h"
 #include "jitstd.h"
 #include "jithashtable.h"
@@ -39,28 +35,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #define DEBUGGABLE_GENTREE 0
 #endif // !DEBUG
 #endif // !DEBUGGABLE_GENTREE
-
-// The SpecialCodeKind enum is used to indicate the type of special (unique)
-// target block that will be targeted by an instruction.
-// These are used by:
-//   GenTreeBoundsChk nodes (SCK_RNGCHK_FAIL, SCK_ARG_EXCPN, SCK_ARG_RNG_EXCPN)
-//     - these nodes have a field (gtThrowKind) to indicate which kind
-//   GenTreeOps nodes, for which codegen will generate the branch
-//     - it will use the appropriate kind based on the opcode, though it's not
-//       clear why SCK_OVERFLOW == SCK_ARITH_EXCPN
-//
-enum SpecialCodeKind
-{
-    SCK_RNGCHK_FAIL,                // target when range check fails
-    SCK_DIV_BY_ZERO,                // target for divide by zero (Not used on X86/X64)
-    SCK_ARITH_EXCPN,                // target on arithmetic exception
-    SCK_OVERFLOW = SCK_ARITH_EXCPN, // target on overflow
-    SCK_ARG_EXCPN,                  // target on ArgumentException (currently used only for SIMD intrinsics)
-    SCK_ARG_RNG_EXCPN,              // target on ArgumentOutOfRangeException (currently used only for SIMD intrinsics)
-    SCK_COUNT
-};
-
-/*****************************************************************************/
 
 enum genTreeOps : BYTE
 {
@@ -96,13 +70,21 @@ enum GenTreeKinds
     GTK_NOCONTAIN = 0x0080, // Node cannot be contained
 };
 
-/*****************************************************************************/
-
 enum CallKind
 {
     CT_USER_FUNC,
     CT_HELPER,
     CT_INDIRECT
+};
+
+enum class ThrowHelperKind : uint8_t
+{
+    IndexOutOfRange,       // throw IndexOutOfRangeException
+    DivideByZero,          // throw DivideByZeroException
+    Overflow,              // throw OverflowException
+    Arithmetic = Overflow, // throw OverflowException
+    Argument,              // throw ArgumentException
+    ArgumentOutOfRange,    // throw ArgumentOutOfRangeException
 };
 
 #ifdef DEBUG
@@ -1100,10 +1082,6 @@ public:
     {
         gtVNPair = vnp;
     }
-    void ClearVN()
-    {
-        gtVNPair = ValueNumPair(); // Initializes both elements to "NoVN".
-    }
 
     GenTreeFlags GetSideEffects() const
     {
@@ -1237,6 +1215,7 @@ public:
 
     static bool OperIsConst(genTreeOps gtOper)
     {
+        // TODO-MIKE-Cleanup: Including GT_CNS_STR in "const" operator is as dumb as it gets.
         return (gtOper == GT_CNS_INT) || (gtOper == GT_CNS_LNG) || (gtOper == GT_CNS_DBL) || (gtOper == GT_CNS_STR);
     }
 
@@ -3175,6 +3154,20 @@ struct GenTreeStrCon : public GenTree
 #endif
 };
 
+namespace SsaConfig
+{
+// FIRST ssa num is given to the first definition of a variable which can either be:
+// 1. A regular definition in the program.
+// 2. Or initialization by compInitMem.
+static const int FIRST_SSA_NUM = 1;
+
+// Sentinel value to indicate variable not touched by SSA.
+static const int RESERVED_SSA_NUM = 0;
+
+} // end of namespace SsaConfig
+
+static constexpr int NoSsaNum = SsaConfig::RESERVED_SSA_NUM;
+
 // Common supertype of LCL_VAR, LCL_FLD, REG_VAR, PHI_ARG
 // This inherits from UnOp because lclvar stores are Unops
 struct GenTreeLclVarCommon : public GenTreeUnOp
@@ -3221,11 +3214,6 @@ public:
     void SetSsaNum(unsigned ssaNum)
     {
         m_ssaNum = ssaNum;
-    }
-
-    bool HasSsaName()
-    {
-        return (m_ssaNum != SsaConfig::RESERVED_SSA_NUM);
     }
 
 #if DEBUGGABLE_GENTREE
@@ -5631,9 +5619,9 @@ struct GenTreeBoundsChk : public GenTree
     GenTree*        gtIndex;
     GenTree*        gtArrLen;
     BasicBlock*     m_throwBlock;
-    SpecialCodeKind m_throwKind;
+    ThrowHelperKind m_throwKind;
 
-    GenTreeBoundsChk(genTreeOps oper, GenTree* index, GenTree* length, SpecialCodeKind kind)
+    GenTreeBoundsChk(genTreeOps oper, GenTree* index, GenTree* length, ThrowHelperKind kind)
         : GenTree(oper, TYP_VOID), gtIndex(index), gtArrLen(length), m_throwBlock(nullptr), m_throwKind(kind)
     {
         bool isValidOper =
@@ -5682,7 +5670,7 @@ struct GenTreeBoundsChk : public GenTree
         return gtArrLen->IsArrLen() ? gtArrLen->AsArrLen()->GetArray() : nullptr;
     }
 
-    SpecialCodeKind GetThrowKind() const
+    ThrowHelperKind GetThrowKind() const
     {
         return m_throwKind;
     }
@@ -7736,7 +7724,3 @@ enum varRefKinds : uint8_t
     VR_IND_SCL   = 0x02, // a non-object reference
     VR_GLB_VAR   = 0x04, // a global (clsVar)
 };
-
-/*****************************************************************************/
-#endif // !GENTREE_H
-/*****************************************************************************/

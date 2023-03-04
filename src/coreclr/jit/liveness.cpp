@@ -118,7 +118,7 @@ void Compiler::fgLocalVarLivenessUntracked()
     fgInterBlockLocalVarLivenessUntracked();
 
     // Since there are no tracked locals liveness basically never runs.
-    fgLocalVarLivenessDone = false;
+    INDEBUG(fgLocalVarLivenessDone = false;)
 
     EndPhase(PHASE_LCLVARLIVENESS);
 }
@@ -168,9 +168,9 @@ void Compiler::fgLocalVarLiveness()
 
         fgLiveVarAnalysis();
         changed = fgInterBlockLocalVarLiveness();
-
-        fgLocalVarLivenessDone = true;
     }
+
+    INDEBUG(fgLocalVarLivenessDone = true;)
 
     EndPhase(PHASE_LCLVARLIVENESS);
 }
@@ -360,12 +360,8 @@ void Compiler::fgPerBlockLocalVarLiveness()
         VarSetOps::ClearD(this, state.fgCurUseSet);
         VarSetOps::ClearD(this, state.fgCurDefSet);
 
-        compCurBB = block;
-
         for (Statement* const stmt : block->NonPhiStatements())
         {
-            compCurStmt = stmt;
-
             for (GenTree* const node : stmt->Nodes())
             {
                 fgPerNodeLocalVarLiveness(state, node);
@@ -598,15 +594,14 @@ public:
 
     bool PerBlockAnalysis(BasicBlock* block, bool keepAliveThis)
     {
-        /* Compute the 'liveOut' set */
         VarSetOps::ClearD(m_compiler, m_liveOut);
         m_memoryLiveOut = false;
-        if (block->endsWithJmpMethod(m_compiler))
+
+        if (block->EndsWithJmp(m_compiler))
         {
-            // A JMP uses all the arguments, so mark them all
-            // as live at the JMP instruction
-            //
+            // A JMP uses all the arguments, so mark them all as live at the JMP instruction.
             const LclVarDsc* varDscEndParams = m_compiler->lvaTable + m_compiler->info.compArgsCount;
+
             for (LclVarDsc* varDsc = m_compiler->lvaTable; varDsc < varDscEndParams; varDsc++)
             {
                 noway_assert(!varDsc->lvPromoted);
@@ -845,29 +840,33 @@ bool Compiler::fgComputeLifePromotedLocal(VARSET_TP&           liveOut,
     return isDef && isLastUse && !(lcl->lvCustomLayout && lcl->lvContainsHoles);
 }
 
-void Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_VALARG_TP keepAlive, BasicBlock* block)
+bool Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_VALARG_TP keepAlive, BasicBlock* block)
 {
     Statement* firstStmt = block->FirstNonPhiDef();
 
     if (firstStmt == nullptr)
     {
-        return;
+        return false;
     }
 
-    Statement* nextStmt = block->lastStmt();
+    bool       stmtRemoved = false;
+    Statement* prevStmt    = block->lastStmt();
+    Statement* stmt;
 
     do
     {
-        noway_assert(nextStmt != nullptr);
+        noway_assert(prevStmt != nullptr);
 
-        compCurStmt = nextStmt;
-        nextStmt    = nextStmt->GetPrevStmt();
+        stmt     = prevStmt;
+        prevStmt = stmt->GetPrevStmt();
 
-        fgComputeLifeStmt(life, keepAlive, compCurStmt);
-    } while (compCurStmt != firstStmt);
+        stmtRemoved |= fgComputeLifeStmt(life, keepAlive, stmt, block);
+    } while (stmt != firstStmt);
+
+    return stmtRemoved;
 }
 
-void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt)
+bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt, BasicBlock* block)
 {
     bool updateStmt = false;
     INDEBUG(bool modified = false;)
@@ -911,12 +910,17 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
 
                 if (isDeadStore)
                 {
-                    GenTree* nextNode = fgRemoveDeadStore(node->AsOp());
+                    GenTree* nextNode = fgRemoveDeadStore(node->AsOp(), stmt, block);
 
                     if (nextNode == nullptr)
                     {
                         // The entire statement was removed, we're done.
-                        return;
+
+                        // TODO-MIKE-Review: Why do we care about an entire statement being removed
+                        // but not about the other cases where only some nodes are removed? Those
+                        // could affect liveness as well.
+
+                        return true;
                     }
 
                     if (nextNode == stmt->GetRootNode())
@@ -963,9 +967,11 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
         JITDUMPTREE(stmt->GetRootNode(), "\nfgComputeLifeStmt modified tree:\n");
     }
 #endif
+
+    return false;
 }
 
-void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars, BasicBlock* block)
+bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars, BasicBlock* block)
 {
     noway_assert(VarSetOps::IsSubset(this, keepAliveVars, life));
 
@@ -974,8 +980,10 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
     if (firstNode == nullptr)
     {
-        return;
+        return false;
     }
+
+    bool useDefRemoved = false;
 
     for (GenTree *node = blockRange.LastNode(), *next, *end = firstNode->gtPrev; node != end; node = next)
     {
@@ -996,12 +1004,12 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
                     blockRange.Delete(this, block, node);
 
-                    if (lcl->lvTracked)
+                    if (lcl->HasLiveness())
                     {
-                        fgStmtRemoved = true;
+                        useDefRemoved = true;
                     }
                 }
-                else if (lcl->lvTracked)
+                else if (lcl->HasLiveness())
                 {
                     fgComputeLifeTrackedLocalUse(life, lcl, lclNode);
                 }
@@ -1019,7 +1027,7 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 LclVarDsc*           lcl         = lvaGetDesc(lclNode);
                 bool                 isDeadStore = false;
 
-                if (lcl->lvTracked)
+                if (lcl->HasLiveness())
                 {
                     isDeadStore = fgComputeLifeTrackedLocalDef(life, keepAliveVars, lcl, lclNode);
                 }
@@ -1072,7 +1080,7 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
                     lclNode->GetOp(0)->SetUnusedValue();
                     blockRange.Remove(node);
-                    fgStmtRemoved = true;
+                    useDefRemoved = true;
                 }
 
                 break;
@@ -1223,10 +1231,12 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 break;
         }
     }
+
+    return useDefRemoved;
 }
 
 // Remove a dead assignment. Returns true if the entire statement was removed.
-GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode)
+GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode, Statement* stmt, BasicBlock* block)
 {
     assert(!compRationalIRForm);
     assert(asgNode->OperIs(GT_ASG));
@@ -1251,18 +1261,18 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode)
         // This is a top level assignment, we can remove the entire statement
         // if there are no side effects.
 
-        noway_assert(compCurStmt->GetRootNode() == asgNode);
+        noway_assert(stmt->GetRootNode() == asgNode);
 
         if (sideEffects == nullptr)
         {
-            fgRemoveStmt(compCurBB, compCurStmt DEBUGARG(false));
+            fgRemoveStmt(block, stmt DEBUGARG(false));
 
             return nullptr;
         }
 
         // Replace the assignment statement with the list of side effects
         // and process the statement again.
-        compCurStmt->SetRootNode(sideEffects);
+        stmt->SetRootNode(sideEffects);
         return sideEffects;
     }
 
@@ -1308,15 +1318,11 @@ void Compiler::fgInterBlockLocalVarLivenessUntracked()
 {
     assert(lvaTrackedCount == 0);
 
-    fgStmtRemoved = false;
-
     VARSET_TP keepAlive = VarSetOps::UninitVal();
     VARSET_TP life      = VarSetOps::UninitVal();
 
     for (BasicBlock* const block : Blocks())
     {
-        compCurBB = block;
-
         if (compRationalIRForm)
         {
             fgComputeLifeLIR(life, keepAlive, block);
@@ -1325,9 +1331,6 @@ void Compiler::fgInterBlockLocalVarLivenessUntracked()
         {
             fgComputeLifeBlock(life, keepAlive, block);
         }
-
-        noway_assert(compCurBB == block);
-        INDEBUG(compCurBB = nullptr);
     }
 }
 
@@ -1394,15 +1397,13 @@ bool Compiler::fgInterBlockLocalVarLiveness()
         }
     }
 
-    fgStmtRemoved       = false;
-    bool      changed   = false;
-    VARSET_TP keepAlive = VarSetOps::MakeEmpty(this);
-    VARSET_TP life      = VarSetOps::MakeEmpty(this);
+    bool      useDefRemoved = false;
+    bool      changed       = false;
+    VARSET_TP keepAlive     = VarSetOps::MakeEmpty(this);
+    VARSET_TP life          = VarSetOps::MakeEmpty(this);
 
     for (BasicBlock* const block : Blocks())
     {
-        compCurBB = block;
-
         if (ehBlockHasExnFlowDsc(block))
         {
             VarSetOps::Assign(this, keepAlive, fgGetHandlerLiveVars(block));
@@ -1418,11 +1419,11 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
         if (compRationalIRForm)
         {
-            fgComputeLifeLIR(life, keepAlive, block);
+            useDefRemoved |= fgComputeLifeLIR(life, keepAlive, block);
         }
         else
         {
-            fgComputeLifeBlock(life, keepAlive, block);
+            useDefRemoved |= fgComputeLifeBlock(life, keepAlive, block);
         }
 
         if (!VarSetOps::Equal(this, life, block->bbLiveIn))
@@ -1437,12 +1438,9 @@ bool Compiler::fgInterBlockLocalVarLiveness()
             // of others, which may expose more dead stores.
             changed = true;
         }
-
-        noway_assert(compCurBB == block);
-        INDEBUG(compCurBB = nullptr);
     }
 
-    return fgStmtRemoved && changed;
+    return useDefRemoved && changed;
 }
 
 #ifdef DEBUG

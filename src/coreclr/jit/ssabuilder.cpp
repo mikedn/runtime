@@ -2,56 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#include "ssaconfig.h"
-#include "ssarenamestate.h"
 #include "ssabuilder.h"
-
-namespace
-{
-/**
- * Method that finds a common IDom parent, much like least common ancestor.
- *
- * @param finger1 A basic block that might share IDom ancestor with finger2.
- * @param finger2 A basic block that might share IDom ancestor with finger1.
- *
- * @see "A simple, fast dominance algorithm" by Keith D. Cooper, Timothy J. Harvey, Ken Kennedy.
- *
- * @return A basic block whose IDom is the dominator for finger1 and finger2,
- * or else NULL.  This may be called while immediate dominators are being
- * computed, and if the input values are members of the same loop (each reachable from the other),
- * then one may not yet have its immediate dominator computed when we are attempting
- * to find the immediate dominator of the other.  So a NULL return value means that the
- * the two inputs are in a cycle, not that they don't have a common dominator ancestor.
- */
-static inline BasicBlock* IntersectDom(BasicBlock* finger1, BasicBlock* finger2)
-{
-    while (finger1 != finger2)
-    {
-        if (finger1 == nullptr || finger2 == nullptr)
-        {
-            return nullptr;
-        }
-        while (finger1 != nullptr && finger1->bbPostOrderNum < finger2->bbPostOrderNum)
-        {
-            finger1 = finger1->bbIDom;
-        }
-        if (finger1 == nullptr)
-        {
-            return nullptr;
-        }
-        while (finger2 != nullptr && finger2->bbPostOrderNum < finger1->bbPostOrderNum)
-        {
-            finger2 = finger2->bbIDom;
-        }
-    }
-    return finger1;
-}
-
-} // end of anonymous namespace.
-
-// =================================================================================
-//                                      SSA
-// =================================================================================
 
 void Compiler::fgSsaBuild()
 {
@@ -70,8 +21,24 @@ void Compiler::fgSsaBuild()
 #endif // DEBUG
 }
 
-void Compiler::fgResetForSsa()
+#ifdef OPT_CONFIG
+
+void Compiler::fgSsaReset()
 {
+    assert(opts.optRepeat);
+    assert(JitConfig.JitOptRepeatCount() > 0);
+
+    fgDomsComputed = false;
+    optLoopCount   = 0;
+    optLoopTable   = nullptr;
+    INDEBUG(fgLocalVarLivenessDone = false;)
+    ssaForm            = false;
+    m_partialSsaDefMap = nullptr;
+    vnStore            = nullptr;
+    vnLoopTable        = nullptr;
+    apAssertionCount   = 0;
+    apAssertionTable   = nullptr;
+
     for (unsigned i = 0; i < lvaCount; ++i)
     {
         lvaTable[i].lvPerSsaData.Reset();
@@ -80,36 +47,50 @@ void Compiler::fgResetForSsa()
     lvMemoryPerSsaData.Reset();
     m_memorySsaMap = nullptr;
 
-    for (BasicBlock* const blk : Blocks())
+    for (BasicBlock* block : Blocks())
     {
-        // Eliminate phis.
+        block->bbFlags &= ~BBF_LOOP_FLAGS;
+        block->bbNatLoopNum       = BasicBlock::NOT_IN_LOOP;
+        block->bbPredsWithEH      = nullptr;
+        block->bbMemorySsaPhiFunc = nullptr;
+        block->bbMemorySsaNumIn   = SsaConfig::RESERVED_SSA_NUM;
+        block->bbMemorySsaNumOut  = SsaConfig::RESERVED_SSA_NUM;
 
-        blk->bbMemorySsaPhiFunc = nullptr;
+        Statement* first = block->FirstNonPhiDef();
 
-        if (blk->bbStmtList != nullptr)
+        if (first == nullptr)
         {
-            Statement* last = blk->lastStmt();
-            blk->bbStmtList = blk->FirstNonPhiDef();
-            if (blk->bbStmtList != nullptr)
-            {
-                blk->bbStmtList->SetPrevStmt(last);
-            }
+            block->bbStmtList = nullptr;
+            continue;
         }
 
-        for (Statement* stmt : blk->Statements())
-        {
-            for (GenTree* tree : stmt->Nodes())
-            {
-                assert(!tree->OperIs(GT_PHI_ARG));
+        Statement* last = block->GetLastStatement();
+        INDEBUG(first->SetPrevStmt(nullptr);)
+        block->SetStatements(first, last);
 
-                if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        for (Statement* stmt : block->Statements())
+        {
+            for (GenTree* node : stmt->Nodes())
+            {
+                assert(!node->OperIs(GT_PHI_ARG));
+
+                node->SetVNs({NoVN, NoVN});
+
+                if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                 {
-                    tree->AsLclVarCommon()->SetSsaNum(SsaConfig::RESERVED_SSA_NUM);
+                    node->AsLclVarCommon()->SetSsaNum(SsaConfig::RESERVED_SSA_NUM);
+                    node->gtFlags &= ~GTF_VAR_FIELD_DEATH_MASK;
                 }
             }
         }
     }
+
+    fgComputeReachability();
+    fgComputeDoms();
+    optFindLoops();
 }
+
+#endif // OPT_CONFIG
 
 /**
  *  Constructor for the SSA builder.
@@ -210,6 +191,39 @@ int SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
     // assert(postIndex == (count - 1));
 
     return postIndex;
+}
+
+// Method that finds a common IDom parent, much like least common ancestor.
+// See "A simple, fast dominance algorithm" by Keith D. Cooper, Timothy J. Harvey, Ken Kennedy.
+//
+// Returns a basic block whose IDom is the dominator for finger1 and finger2, or else NULL.
+// This may be called while immediate dominators are being computed, and if the input values
+// are members of the same loop (each reachable from the other), then one may not yet have
+// its immediate dominator computed when we are attempting to find the immediate dominator
+// of the other. So a NULL return value means that the the two inputs are in a cycle, not
+// that they don't have a common dominator ancestor.
+BasicBlock* SsaBuilder::IntersectDom(BasicBlock* finger1, BasicBlock* finger2)
+{
+    while (finger1 != finger2)
+    {
+        if (finger1 == nullptr || finger2 == nullptr)
+        {
+            return nullptr;
+        }
+        while (finger1 != nullptr && finger1->bbPostOrderNum < finger2->bbPostOrderNum)
+        {
+            finger1 = finger1->bbIDom;
+        }
+        if (finger1 == nullptr)
+        {
+            return nullptr;
+        }
+        while (finger2 != nullptr && finger2->bbPostOrderNum < finger1->bbPostOrderNum)
+        {
+            finger2 = finger2->bbIDom;
+        }
+    }
+    return finger1;
 }
 
 /**
@@ -612,7 +626,7 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
     // Compute dominance frontier.
     BlkToBlkVectorMap mapDF(m_allocator);
     ComputeDominanceFrontiers(postOrder, count, &mapDF);
-    EndPhase(PHASE_BUILD_SSA_DF);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_DF);
 
     // Use the same IDF vector for all blocks to avoid unnecessary memory allocations
     BlkVector blockIDF(m_allocator);
@@ -633,14 +647,12 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
         }
 
         // For each local var number "lclNum" that "block" assigns to...
-        VarSetOps::Iter defVars(m_pCompiler, block->bbVarDef);
-        unsigned        varIndex = 0;
-        while (defVars.NextElem(&varIndex))
+        for (VarSetOps::Enumerator en(m_pCompiler, block->bbVarDef); en.MoveNext();)
         {
-            unsigned lclNum = m_pCompiler->lvaTrackedIndexToLclNum(varIndex);
+            unsigned lclNum = m_pCompiler->lvaTrackedIndexToLclNum(en.Current());
             DBG_SSA_JITDUMP("  Considering local var V%02u:\n", lclNum);
 
-            if (!m_pCompiler->lvaInSsa(lclNum))
+            if (!m_pCompiler->lvaGetDesc(lclNum)->IsInSsa())
             {
                 DBG_SSA_JITDUMP("  Skipping because it is excluded.\n");
                 continue;
@@ -653,7 +665,7 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
                                 block->bbNum);
 
                 // Check if variable "lclNum" is live in block "*iterBlk".
-                if (!VarSetOps::IsMember(m_pCompiler, bbInDomFront->bbLiveIn, varIndex))
+                if (!VarSetOps::IsMember(m_pCompiler, bbInDomFront->bbLiveIn, en.Current()))
                 {
                     continue;
                 }
@@ -694,7 +706,7 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
             }
         }
     }
-    EndPhase(PHASE_BUILD_SSA_INSERT_PHIS);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_INSERT_PHIS);
 }
 
 //------------------------------------------------------------------------
@@ -815,17 +827,14 @@ void SsaBuilder::RenameLclUse(GenTreeLclVarCommon* lclNode)
     assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
     assert((lclNode->gtFlags & GTF_VAR_DEF) == 0);
 
-    unsigned lclNum = lclNode->GetLclNum();
-    unsigned ssaNum;
+    unsigned   lclNum = lclNode->GetLclNum();
+    unsigned   ssaNum = NoSsaNum;
+    LclVarDsc* lcl    = m_pCompiler->lvaGetDesc(lclNum);
 
-    if (!m_pCompiler->lvaInSsa(lclNum))
-    {
-        ssaNum = SsaConfig::RESERVED_SSA_NUM;
-    }
-    else
+    if (lcl->IsInSsa())
     {
         // Promoted variables are not in SSA, only their fields are.
-        assert(!m_pCompiler->lvaGetDesc(lclNum)->lvPromoted);
+        assert(!lcl->IsPromoted());
 
         ssaNum = m_renameStack.Top(lclNum);
     }
@@ -1438,23 +1447,23 @@ void SsaBuilder::Build()
     // Topologically sort the graph.
     int count = TopologicalSort(postOrder, blockCount);
     JITDUMP("[SsaBuilder] Topologically sorted the graph.\n");
-    EndPhase(PHASE_BUILD_SSA_TOPOSORT);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_TOPOSORT);
 
     // Compute IDom(b).
     ComputeImmediateDom(postOrder, count);
 
     m_pCompiler->fgSsaDomTree = m_pCompiler->fgBuildDomTree();
-    EndPhase(PHASE_BUILD_SSA_DOMS);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_DOMS);
 
     // Compute liveness on the graph.
     DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
     m_pCompiler->lvaMarkLivenessTrackedLocals();
     m_pCompiler->fgLocalVarLiveness();
-    EndPhase(PHASE_BUILD_SSA_LIVENESS);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_LIVENESS);
     DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
 
     m_pCompiler->optRemoveRedundantZeroInits();
-    EndPhase(PHASE_ZERO_INITS);
+    m_pCompiler->EndPhase(PHASE_ZERO_INITS);
 
     // Mark all variables that will be tracked by SSA
     for (unsigned lclNum = 0; lclNum < m_pCompiler->lvaCount; lclNum++)
@@ -1467,7 +1476,7 @@ void SsaBuilder::Build()
 
     // Rename local variables and collect UD information for each ssa var.
     RenameVariables();
-    EndPhase(PHASE_BUILD_SSA_RENAME);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_RENAME);
 
 #ifdef DEBUG
     // At this point we are in SSA form. Print the SSA form.
@@ -1497,12 +1506,7 @@ void SsaBuilder::SetupBBRoot()
     // May need to fix up preds list, so remember the old first block.
     BasicBlock* oldFirst = m_pCompiler->fgFirstBB;
 
-    // Copy the liveness information from the first basic block.
-    if (m_pCompiler->fgLocalVarLivenessDone)
-    {
-        VarSetOps::Assign(m_pCompiler, bbRoot->bbLiveIn, oldFirst->bbLiveIn);
-        VarSetOps::Assign(m_pCompiler, bbRoot->bbLiveOut, oldFirst->bbLiveIn);
-    }
+    assert(!m_pCompiler->fgLocalVarLivenessDone);
 
     // Copy the bbWeight.  (This is technically wrong, if the first block is a loop head, but
     // it shouldn't matter...)
@@ -1514,12 +1518,8 @@ void SsaBuilder::SetupBBRoot()
     oldFirst->bbRefs--;
 
     m_pCompiler->fgInsertBBbefore(m_pCompiler->fgFirstBB, bbRoot);
-
     assert(m_pCompiler->fgFirstBB == bbRoot);
-    if (m_pCompiler->fgComputePredsDone)
-    {
-        m_pCompiler->fgAddRefPred(oldFirst, bbRoot);
-    }
+    m_pCompiler->fgAddRefPred(oldFirst, bbRoot);
 }
 
 //------------------------------------------------------------------------
