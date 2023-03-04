@@ -2757,6 +2757,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
             }
         }
 
+        ssaForm        = false;
         fgDomsComputed = false;
     }
 

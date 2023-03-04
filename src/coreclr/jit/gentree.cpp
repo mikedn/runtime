@@ -7681,7 +7681,7 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
         prefix = ", ";
     }
 
-    if (node->HasSsaName())
+    if (ssaForm && node->HasSsaName())
     {
         printf("%s", prefix);
 
