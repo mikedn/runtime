@@ -5614,17 +5614,20 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
             {
                 GenTreeLclVarCommon* lclVar = tree->AsLclVarCommon();
                 unsigned             lclNum = lclVar->GetLclNum();
+                LclVarDsc*           lcl    = m_compiler->lvaGetDesc(lclNum);
 
-                // To be invariant a LclVar node must not be the LHS of an assignment ...
                 bool isInvariant = !user->OperIs(GT_ASG) || (user->AsOp()->gtGetOp1() != tree);
-                // and the variable must be in SSA ...
-                isInvariant = isInvariant && m_compiler->lvaInSsa(lclNum) && lclVar->HasSsaName();
-                // and the SSA definition must be outside the loop we're hoisting from ...
+                isInvariant      = isInvariant && lcl->IsInSsa();
+                // TODO-MIKE-Cleanup: Unreachable blocks aren't properly removed (see Runtime_57061_2).
+                // Such blocks may or may not be traversed by various JIT phases - SSA builder does not
+                // traverse them but this code does and ends up asserting due to missing SSA numbers.
+                // Well, at least that's why this probably checks for NoSsaNum, but it seems unlikely
+                // that loop hositing would hit dead code. We'll see.
+                isInvariant = isInvariant && (lclVar->GetSsaNum() != NoSsaNum);
                 isInvariant = isInvariant &&
                               !m_compiler->optLoopTable[m_loopNum].lpContains(
-                                  m_compiler->lvaGetDesc(lclNum)->GetPerSsaData(lclVar->GetSsaNum())->GetBlock());
-                // and the VN of the tree is considered invariant as well.
-                //
+                                  lcl->GetPerSsaData(lclVar->GetSsaNum())->GetBlock());
+
                 // TODO-CQ: This VN invariance check should not be necessary and in some cases it is conservative - it
                 // is possible that the SSA def is outside the loop but VN does not understand what the node is doing
                 // (e.g. LCL_FLD-based type reinterpretation) and assigns a "new, unique VN" to the node. This VN is
