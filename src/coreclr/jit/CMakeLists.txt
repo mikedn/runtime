@@ -126,6 +126,7 @@ set( JIT_SOURCES
   morphblock.cpp
   objectalloc.cpp
   optcse.cpp
+  optloophoist.cpp
   optimizer.cpp
   patchpoint.cpp
   phase.cpp
