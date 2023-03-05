@@ -11596,7 +11596,7 @@ bool Compiler::gtNodeHasSideEffects(GenTree* node, GenTreeFlags flags, bool igno
     // will simply be dropped is they are ever subject to an "extract side effects" operation.
     // It is possible that the reason no bugs have yet been observed in this area is that the
     // other nodes are likely to always be tree roots.
-    if (((flags & GTF_ASG) != 0) && node->OperIs(GT_ASG))
+    if (((flags & GTF_ASG) != 0) && node->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_SSA_DEF))
     {
         return true;
     }
