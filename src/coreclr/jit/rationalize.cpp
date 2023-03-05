@@ -444,6 +444,11 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             // Clear the GTF_ASG flag for all nodes but stores
             node->gtFlags &= ~GTF_ASG;
         }
+        else if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+        {
+            // Local stores may have inherited GTF_EXCEPT from the value tree.
+            node->gtFlags &= ~GTF_EXCEPT;
+        }
 
         if (!node->IsCall())
         {
