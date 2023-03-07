@@ -20,26 +20,26 @@
 //     any code that does not interfere with the NULLCHECK thrown exception
 //     IND(addr)
 //
-//   - ASG(x, COMMA(NULLCHECK(y), ADD(y, offset1)))
+//   - SSA_DEF(x, COMMA(NULLCHECK(y), ADD(y, offset1)))
 //     any code that does not interfere with the NULLCHECK thrown exception
-//     IND(ADD(x, offset2))
+//     IND(ADD(SSA_USE(x), offset2))
 //
 // We can eliminate a NULLCHECK only if there are no interfering side effects between
 // the NULLCHECK node and the indir. For example, we can't eliminate the NULLCHECK if
 // there is an assignment to a memory location between it and the indir. Because of
 // this NULLCHECKs are eliminated only when the indirections are in the same block,
-// to avoid potentially costly intereference checks across blocks.
+// to avoid potentially costly interference checks across blocks.
 
 class EarlyProp
 {
     static const int SsaChaseLimit = 5;
 
-    typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, GenTreeIndir*> LocalNumberToNullCheckTreeMap;
+    typedef JitHashTable<GenTreeSsaDef*, JitPtrKeyFuncs<GenTreeSsaDef>, GenTreeIndir*> DefNullCheckMap;
 
-    Compiler*                     compiler;
-    BasicBlock*                   currentBlock;
-    Statement*                    currentStatement;
-    LocalNumberToNullCheckTreeMap nullCheckMap;
+    Compiler*       compiler;
+    BasicBlock*     currentBlock;
+    Statement*      currentStatement;
+    DefNullCheckMap nullCheckMap;
 
 public:
     EarlyProp(Compiler* compiler) : compiler(compiler), nullCheckMap(compiler->getAllocator(CMK_EarlyProp))
@@ -134,14 +134,14 @@ private:
 
     GenTree* PropagateArrayLength(GenTreeArrLen* arrLen)
     {
-        GenTree* array = arrLen->GetArray();
+        GenTreeSsaUse* array = arrLen->GetArray()->IsSsaUse();
 
-        if (!array->OperIs(GT_LCL_VAR) || !compiler->lvaGetDesc(array->AsLclVar())->IsInSsa())
+        if (array == nullptr)
         {
             return nullptr;
         }
 
-        GenTree* length = GetArrayLength(array->AsLclVar());
+        GenTree* length = GetArrayLength(array);
 
         if ((length == nullptr) || !length->IsIntCon())
         {
@@ -224,14 +224,13 @@ private:
         return arrLen;
     }
 
-    GenTree* GetArrayLength(GenTreeLclVar* lclVar)
+    GenTree* GetArrayLength(GenTreeSsaUse* use)
     {
-        INDEBUG(BasicBlock* defBlock = nullptr;)
-        GenTree* value = GetSsaValue(lclVar DEBUGARG(&defBlock));
-        return value->IsHelperCall() ? GetArrayLengthFromNewHelperCall(value->AsCall() DEBUGARG(defBlock)) : nullptr;
+        GenTree* value = GetSsaValue(use);
+        return value->IsHelperCall() ? GetArrayLengthFromNewHelperCall(value->AsCall()) : nullptr;
     }
 
-    GenTree* GetArrayLengthFromNewHelperCall(GenTreeCall* call DEBUGARG(BasicBlock* block))
+    GenTree* GetArrayLengthFromNewHelperCall(GenTreeCall* call)
     {
         assert(call->IsHelperCall());
 
@@ -258,33 +257,18 @@ private:
         return arrayLength;
     }
 
-    GenTree* GetSsaValue(GenTreeLclVar* use DEBUGARG(BasicBlock** defBlock))
+    static GenTree* GetSsaValue(GenTreeSsaUse* use)
     {
-        for (unsigned i = 0; (i < SsaChaseLimit) && (use->GetSsaNum() != SsaConfig::RESERVED_SSA_NUM); i++)
+        for (unsigned i = 0; i < SsaChaseLimit; i++)
         {
-            LclSsaVarDsc* ssaDef = compiler->lvaGetSsaDesc(use);
-            GenTreeOp*    asg    = ssaDef->GetAssignment();
+            GenTree* value = use->GetDef()->GetValue();
 
-            INDEBUG(*defBlock = ssaDef->GetBlock());
-
-            if (asg == nullptr)
-            {
-                // Parameters have no definition assignments.
-                assert(use->GetSsaNum() == SsaConfig::FIRST_SSA_NUM);
-
-                break;
-            }
-
-            assert(asg->OperIs(GT_ASG));
-
-            GenTree* value = asg->GetOp(1);
-
-            if (!value->OperIs(GT_LCL_VAR))
+            if (!value->IsSsaUse())
             {
                 return value;
             }
 
-            use = value->AsLclVar();
+            use = value->AsSsaUse();
         }
 
         return use;
@@ -302,7 +286,10 @@ private:
         {
             JITDUMPTREE(nullCheck, "FoldNullCheck marking a NULLCHECK for removal\n");
 
-            nullCheckMap.Remove(nullCheck->GetAddr()->AsLclVar()->GetLclNum());
+            if (GenTreeSsaUse* use = nullCheck->GetAddr()->IsSsaUse())
+            {
+                nullCheckMap.Remove(use->GetDef());
+            }
 
             nullCheck->ChangeToNothingNode();
 
@@ -338,10 +325,10 @@ private:
             compiler->fgSetStmtSeq(nullCheckStmt);
         }
 
-        if (indir->OperIs(GT_NULLCHECK) && indir->AsIndir()->GetAddr()->OperIs(GT_LCL_VAR))
+        if (indir->OperIs(GT_NULLCHECK) && indir->AsIndir()->GetAddr()->IsSsaUse())
         {
-            nullCheckMap.Set(indir->AsIndir()->GetAddr()->AsLclVar()->GetLclNum(), indir->AsIndir(),
-                             LocalNumberToNullCheckTreeMap::SetKind::Overwrite);
+            nullCheckMap.Set(indir->AsIndir()->GetAddr()->AsSsaUse()->GetDef(), indir->AsIndir(),
+                             DefNullCheckMap::SetKind::Overwrite);
         }
     }
 
@@ -357,50 +344,44 @@ private:
             addr = addr->AsOp()->GetOp(0);
         }
 
-        if (!addr->OperIs(GT_LCL_VAR))
+        GenTreeSsaUse* addrUse = addr->IsSsaUse();
+
+        if (addrUse == nullptr)
         {
             return nullptr;
         }
 
-        GenTreeLclVar* addrLclVar = addr->AsLclVar();
+        GenTreeSsaDef* addrDef   = addrUse->GetDef();
+        GenTreeIndir*  nullCheck = nullptr;
 
-        if (addrLclVar->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
+        if (!nullCheckMap.Lookup(addrDef, &nullCheck))
         {
-            return nullptr;
-        }
-
-        GenTreeIndir* nullCheck = nullptr;
-
-        if (nullCheckMap.Lookup(addrLclVar->GetLclNum(), &nullCheck))
-        {
-            if (nullCheck->GetAddr()->AsLclVar()->GetSsaNum() != addrLclVar->GetSsaNum())
-            {
-                nullCheck = nullptr;
-            }
-        }
-
-        if (nullCheck == nullptr)
-        {
-            LclSsaVarDsc* ssaDef = compiler->lvaGetSsaDesc(addrLclVar);
-
             // We can only check for NULLCHECK exception interference if the
             // NULLCHECK is in the same block as the indir.
-            if (currentBlock != ssaDef->GetBlock())
+            if (currentBlock != addrDef->GetBlock())
             {
                 return nullptr;
             }
 
-            GenTree* ssaDefValue = ssaDef->GetAssignment()->GetOp(1);
+            GenTree* addrValue = addrDef->GetValue();
 
-            if (!ssaDefValue->OperIs(GT_COMMA))
+            if (!addrValue->OperIs(GT_COMMA))
             {
                 return nullptr;
             }
 
-            GenTree* commaOp1 = ssaDefValue->AsOp()->GetOp(0)->SkipComma();
-            GenTree* commaOp2 = ssaDefValue->AsOp()->GetOp(1);
+            GenTree* commaOp1 = addrValue->AsOp()->GetOp(0)->SkipComma();
+            GenTree* commaOp2 = addrValue->AsOp()->GetOp(1);
 
-            if (!commaOp1->OperIs(GT_NULLCHECK))
+            if (!commaOp1->OperIs(GT_NULLCHECK) || !commaOp2->OperIs(GT_ADD))
+            {
+                return nullptr;
+            }
+
+            GenTreeOp*     add       = commaOp2->AsOp();
+            GenTreeIntCon* addOffset = add->GetOp(1)->IsIntCon();
+
+            if (addOffset == nullptr)
             {
                 return nullptr;
             }
@@ -408,26 +389,29 @@ private:
             nullCheck = commaOp1->AsIndir();
 
             GenTree* nullCheckAddr = nullCheck->GetAddr();
+            GenTree* addBase       = add->GetOp(0);
 
-            if (!nullCheckAddr->OperIs(GT_LCL_VAR) || !commaOp2->OperIs(GT_ADD))
+            if (nullCheckAddr->OperIs(GT_LCL_VAR))
+            {
+                if (!addBase->OperIs(GT_LCL_VAR) ||
+                    (addBase->AsLclVar()->GetLclNum() != nullCheckAddr->AsLclVar()->GetLclNum()))
+                {
+                    return nullptr;
+                }
+            }
+            else if (GenTreeSsaUse* use = nullCheckAddr->IsSsaUse())
+            {
+                if (!addBase->IsSsaUse() || (addBase->AsSsaUse()->GetDef() != use->GetDef()))
+                {
+                    return nullptr;
+                }
+            }
+            else
             {
                 return nullptr;
             }
 
-            GenTreeOp* add = commaOp2->AsOp();
-
-            if (!add->GetOp(0)->OperIs(GT_LCL_VAR) ||
-                (add->GetOp(0)->AsLclVar()->GetLclNum() != nullCheckAddr->AsLclVar()->GetLclNum()))
-            {
-                return nullptr;
-            }
-
-            if (!add->GetOp(1)->IsIntCon())
-            {
-                return nullptr;
-            }
-
-            offset += add->GetOp(1)->AsIntCon()->GetValue();
+            offset += offset + addOffset->GetValue();
         }
 
         return compiler->fgIsBigOffset(offset) ? nullptr : nullCheck;
@@ -439,7 +423,7 @@ private:
         assert(indir->OperIsIndirOrArrLength());
 
         // Usually we can ignore assignments to any locals that are not address exposed,
-        // but in try regions we also need to ignore assignemtns to locals that are live
+        // but in try regions we also need to ignore assignments to locals that are live
         // in exception handlers.
         bool isInsideTry = currentBlock->hasTryIndex();
 
@@ -450,7 +434,7 @@ private:
         GenTree*   nullCheckStatementRoot = nullCheck;
 
         // TODO-MIKE-Review: Could we simply remove null checks from the map as we traverse
-        // the block and entirely avoid this intereference check?
+        // the block and entirely avoid this interference check?
 
         for (GenTree* node = nullCheck->gtNext; node != nullptr; node = node->gtNext)
         {
@@ -539,6 +523,22 @@ private:
             }
         }
 
+        if (GenTreeSsaDef* def = node->IsSsaDef())
+        {
+            if (isInsideTry)
+            {
+                // TODO-MIKE-Review: This IsInsert check is probably bogus, it's here because the
+                // old code specifically checked for LCL_VAR, rejecting LCL_FLD ASG destionations.
+                // Also, what we really care about here is if this particular definition of the
+                // local has EH uses, all other defs are irrelevant.
+                return !def->GetValue()->IsInsert() && !compiler->lvaGetDesc(def->GetLclNum())->lvEHLive;
+            }
+            else
+            {
+                return true;
+            }
+        }
+
         return !isInsideTry && (!node->OperRequiresAsgFlag() || ((node->gtFlags & GTF_GLOB_REF) == 0));
     }
 
@@ -575,6 +575,27 @@ private:
             {
                 // We disallow only assignments to global memory.
                 return (dst->gtFlags & GTF_GLOB_REF) == 0;
+            }
+        }
+
+        if (GenTreeSsaDef* def = node->IsSsaDef())
+        {
+            if ((def->GetValue()->gtFlags & GTF_ASG) != 0)
+            {
+                return false;
+            }
+
+            if (isInsideTry)
+            {
+                // TODO-MIKE-Review: This IsInsert check is probably bogus, it's here because the
+                // old code specifically checked for LCL_VAR, rejecting LCL_FLD ASG destionations.
+                // Also, what we really care about here is if this particular definition of the
+                // local has EH uses, all other defs are irrelevant.
+                return !def->GetValue()->IsInsert() && !compiler->lvaGetDesc(def->GetLclNum())->lvEHLive;
+            }
+            else
+            {
+                return true;
             }
         }
 
