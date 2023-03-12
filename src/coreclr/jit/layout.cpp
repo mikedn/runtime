@@ -592,16 +592,27 @@ ClassLayout* Compiler::typGetStructLayout(GenTree* node)
 
     node = node->gtEffectiveVal();
 
+    // TODO-MIKE-Cleanup: INSERT likely needs its own layout, see VN
+    // issue with INSERTing into a ZeroMap.
+    while (GenTreeInsert* insert = node->IsInsert())
+    {
+        node = insert->GetStructValue();
+    }
+
     switch (node->GetOper())
     {
         case GT_OBJ:
             return node->AsObj()->GetLayout();
         case GT_CALL:
             return node->AsCall()->GetRetLayout();
+        case GT_SSA_USE:
+            return lvaGetDesc(node->AsSsaUse()->GetDef()->GetLclNum())->GetLayout();
         case GT_LCL_VAR:
             return lvaGetDesc(node->AsLclVar())->GetLayout();
         case GT_LCL_FLD:
             return node->AsLclFld()->GetLayout(this);
+        case GT_EXTRACT:
+            return typGetLayoutByNum(node->AsExtract()->GetField().GetTypeNum());
         case GT_BITCAST:
         case GT_IND:
 #ifdef FEATURE_HW_INTRINSICS

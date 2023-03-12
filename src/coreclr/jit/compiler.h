@@ -1006,6 +1006,7 @@ public:
 
     bool HasImplicitSsaDef() const
     {
+        // TODO-MIKE-Fix: This doesn't work for new SSA because assignments are no longer used.
         return (lvPerSsaData.GetCount() != 0) &&
                (lvPerSsaData.GetSsaDef(SsaConfig::FIRST_SSA_NUM)->GetAssignment() == nullptr);
     }
@@ -4643,10 +4644,14 @@ public:
     ValueNumPair vnExtractStructField(GenTree* load, ValueNumPair structVN, FieldSeqNode* fieldSeq);
     ValueNum vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types fieldType, ClassLayout* fieldLayout);
     void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
+    void vnSsaDef(GenTreeSsaDef* def);
     void vnLocalLoad(GenTreeLclVar* load);
     ValueNumPair vnLocalLoad(GenTreeLclVar* load, LclVarDsc* lcl, unsigned ssaNum);
+    void vnSsaUse(GenTreeSsaUse* use);
     void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
+    void vnInsert(GenTreeInsert* insert);
     void vnLocalFieldLoad(GenTreeLclFld* load);
+    void vnExtract(GenTreeExtract* extract);
     ValueNum vnAddField(GenTreeOp* add);
     void vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);
     void vnIndirLoad(GenTreeIndir* load);
@@ -5569,6 +5574,7 @@ private:
     void vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary);
     void vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary);
     void vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopSsaDefs(GenTreeSsaDef* def, VNLoopMemorySummary& summary);
     void vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
     void vnSummarizeLoopObjFieldMemoryStores(GenTreeIndir* store, FieldSeqNode* fieldSeq, VNLoopMemorySummary& summary);
     void vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, GenTreeOp* asg, VNLoopMemorySummary& summary);

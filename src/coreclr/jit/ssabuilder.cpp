@@ -1395,6 +1395,9 @@ void SsaBuilder::RenameVariables()
 
     // The first thing we do is treat parameters and must-init variables as if they have a
     // virtual definition before entry -- they start out at SSA name 1.
+    GenTreeSsaDef* firstInitSsaDef = nullptr;
+    GenTreeSsaDef* lastInitSsaDef  = nullptr;
+
     for (unsigned lclNum = 0; lclNum < m_pCompiler->lvaCount; lclNum++)
     {
         LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);
@@ -1416,11 +1419,23 @@ void SsaBuilder::RenameVariables()
             GenTreeSsaDef* def =
                 new (m_pCompiler, GT_SSA_DEF) GenTreeSsaDef(m_pCompiler->gtNewLclvNode(lclNum, lcl->GetType()),
                                                             m_pCompiler->fgFirstBB, lclNum, ssaNum);
-            def->gtNext                = m_pCompiler->m_initSsaDefs;
-            m_pCompiler->m_initSsaDefs = def;
+
             m_renameStack.Push(m_pCompiler->fgFirstBB, lclNum, def);
+
+            if (firstInitSsaDef == nullptr)
+            {
+                firstInitSsaDef = def;
+                lastInitSsaDef  = def;
+            }
+            else
+            {
+                lastInitSsaDef->gtNext = def;
+                lastInitSsaDef         = def;
+            }
         }
     }
+
+    m_pCompiler->m_initSsaDefs = firstInitSsaDef;
 
     // In ValueNum we'd assume un-inited memory gets FIRST_SSA_NUM.
     // The memory is a parameter.  Use FIRST_SSA_NUM as first SSA name.
