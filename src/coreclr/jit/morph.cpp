@@ -9421,25 +9421,28 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         assert(dest->OperIs(GT_OBJ) || (dest->OperIs(GT_IND) && varTypeIsSIMD(dest->GetType())));
     }
 
-    GenTreeLclVarCommon* srcLclNode = nullptr;
-    unsigned             srcLclNum  = BAD_VAR_NUM;
-    LclVarDsc*           srcLclVar  = nullptr;
-    unsigned             srcLclOffs = 0;
-    bool                 srcPromote = false;
+    unsigned   srcLclNum  = BAD_VAR_NUM;
+    LclVarDsc* srcLclVar  = nullptr;
+    unsigned   srcLclOffs = 0;
+    bool       srcPromote = false;
 
     if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        srcLclNode = src->AsLclVarCommon();
-        srcLclNum  = srcLclNode->GetLclNum();
-        srcLclOffs = srcLclNode->GetLclOffs();
+        srcLclNum  = src->AsLclVarCommon()->GetLclNum();
+        srcLclOffs = src->AsLclVarCommon()->GetLclOffs();
         srcLclVar  = lvaGetDesc(srcLclNum);
+    }
+    else if (GenTreeSsaUse* use = src->IsSsaUse())
+    {
+        srcLclNum = use->GetDef()->GetLclNum();
+        srcLclVar = lvaGetDesc(srcLclNum);
     }
     else if (src->OperIs(GT_COMMA))
     {
         // During CSE we may see COMMA(..., LCL_VAR) but neither the CSE temp
         // nor the assignment destination are expected to be promoted so we
         // don't need to do anything, we'll just keep the struct copy as is.
-        assert(!lvaGetDesc(src->SkipComma()->AsLclVar())->IsPromoted());
+        assert(src->SkipComma()->IsSsaUse() || !lvaGetDesc(src->SkipComma()->AsLclVar())->IsPromoted());
         assert((destLclVar == nullptr) || !destLclVar->IsIndependentPromoted());
     }
     else if (!src->OperIs(GT_OBJ))

@@ -1821,25 +1821,35 @@ void Compiler::gtPrepareCost(GenTree* tree)
     gtSetEvalOrder(tree);
 }
 
-bool Compiler::gtIsLikelyRegVar(GenTree* tree)
+LclVarDsc* Compiler::gtIsLikelyRegVar(GenTree* tree)
 {
-    if (tree->gtOper != GT_LCL_VAR)
+    unsigned lclNum;
+
+    if (tree->OperIs(GT_LCL_VAR))
     {
-        return false;
+        lclNum = tree->AsLclVar()->GetLclNum();
+    }
+    else if (tree->OperIs(GT_SSA_USE))
+    {
+        lclNum = tree->AsSsaUse()->GetDef()->GetLclNum();
+    }
+    else
+    {
+        return nullptr;
     }
 
-    LclVarDsc* varDsc = lvaGetDesc(tree->AsLclVar());
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-    if (varDsc->lvDoNotEnregister)
+    if (lcl->lvDoNotEnregister)
     {
-        return false;
+        return nullptr;
     }
 
     // If this is an EH-live var, return false if it is a def,
     // as it will have to go to memory.
-    if (varDsc->lvLiveInOutOfHndlr && ((tree->gtFlags & GTF_VAR_DEF) != 0))
+    if (lcl->lvLiveInOutOfHndlr && ((tree->gtFlags & GTF_VAR_DEF) != 0))
     {
-        return false;
+        return nullptr;
     }
 
     // Be pessimistic if ref counts are not yet set up.
@@ -1848,22 +1858,27 @@ bool Compiler::gtIsLikelyRegVar(GenTree* tree)
     // See notes in GitHub issue 18969.
     if (!lvaLocalVarRefCounted())
     {
-        return false;
+        return nullptr;
     }
 
-    if (varDsc->lvRefCntWtd() < (BB_UNITY_WEIGHT * 3))
+    if (lcl->lvRefCntWtd() < (BB_UNITY_WEIGHT * 3))
     {
-        return false;
+        return nullptr;
     }
 
 #ifdef TARGET_X86
-    if (varTypeUsesFloatReg(tree->TypeGet()))
-        return false;
-    if (varTypeIsLong(tree->TypeGet()))
-        return false;
+    if (varTypeUsesFloatReg(tree->GetType()))
+    {
+        return nullptr;
+    }
+
+    if (varTypeIsLong(tree->GetType()))
+    {
+        return nullptr;
+    }
 #endif
 
-    return true;
+    return lcl;
 }
 
 //------------------------------------------------------------------------
@@ -2341,19 +2356,19 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             break;
 
             case GT_SSA_USE:
-                level  = 1;
-                costEx = 1;
-                costSz = 1;
-                break;
-
             case GT_LCL_VAR:
-                level = 1;
-                if (gtIsLikelyRegVar(tree))
+            {
+                // TODO-MIKE-Cleanup: Probably only SSA_USE needs this, since LCL_VARs
+                // are not in SSA that usually means that they don't have liveness
+                // so they cannot be register candidates.
+                LclVarDsc* lcl = gtIsLikelyRegVar(tree);
+
+                if (lcl != nullptr)
                 {
                     costEx = 1;
                     costSz = 1;
-                    /* Sign-extend and zero-extend are more expensive to load */
-                    if (lvaTable[tree->AsLclVar()->GetLclNum()].lvNormalizeOnLoad())
+
+                    if (lcl->lvNormalizeOnLoad())
                     {
                         costEx += 1;
                         costSz += 1;
@@ -2363,25 +2378,29 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 {
                     costEx = IND_COST_EX;
                     costSz = 2;
-                    /* Sign-extend and zero-extend are more expensive to load */
-                    if (varTypeIsSmall(tree->TypeGet()))
+
+                    if (varTypeIsSmall(tree->GetType()))
                     {
                         costEx += 1;
                         costSz += 1;
                     }
                 }
-#if defined(TARGET_AMD64)
-                // increase costSz for floating point locals
+
+#ifdef TARGET_AMD64
                 if (isflt)
                 {
                     costSz += 1;
-                    if (!gtIsLikelyRegVar(tree))
+
+                    if (lcl == nullptr)
                     {
                         costSz += 1;
                     }
                 }
 #endif
-                break;
+
+                level = 1;
+            }
+            break;
 
             case GT_CLS_VAR_ADDR:
                 level = 1;
@@ -2489,9 +2508,24 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     break;
 
                 case GT_INSERT:
-                case GT_EXTRACT:
                     costEx = 0;
                     costSz = 0;
+                    break;
+
+                case GT_EXTRACT:
+                    costEx = IND_COST_EX;
+                    costSz = 4;
+                    if (varTypeIsSmall(tree->GetType()))
+                    {
+                        costEx += 1;
+                        costSz += 1;
+                    }
+
+                    // We need EXTRACT(SSA_USE) to have the same costs as a LCL_FLD, skip adding op1 costs.
+                    if (op1->OperIs(GT_SSA_USE))
+                    {
+                        goto DONE;
+                    }
                     break;
 
                 case GT_CAST:
@@ -12336,6 +12370,11 @@ bool GenTreeIntCon::AddrNeedsReloc(Compiler* comp)
 ClassLayout* GenTreeLclFld::GetLayout(Compiler* compiler) const
 {
     return (m_layoutNum == 0) ? nullptr : compiler->typGetLayoutByNum(m_layoutNum);
+}
+
+ClassLayout* GenTreeExtract::GetLayout(Compiler* compiler) const
+{
+    return (m_field.GetLayoutNum() == 0) ? nullptr : compiler->typGetLayoutByNum(m_field.GetLayoutNum());
 }
 
 void GenTreeLclFld::SetLayout(ClassLayout* layout, Compiler* compiler)

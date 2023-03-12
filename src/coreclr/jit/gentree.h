@@ -3891,6 +3891,8 @@ public:
         m_field = {typeNum, offset, fieldSeq};
     }
 
+    ClassLayout* GetLayout(Compiler* compiler) const;
+
 #if DEBUGGABLE_GENTREE
     GenTreeExtract() = default;
 #endif

@@ -96,6 +96,7 @@ bool Compiler::cseIsCandidate(GenTree* node)
         case GT_ARR_ELEM:
         case GT_ARR_LENGTH:
         case GT_LCL_FLD:
+        case GT_EXTRACT:
         case GT_NEG:
         case GT_NOT:
         case GT_BSWAP:
@@ -715,8 +716,12 @@ public:
                     // Here, unlike the rest of CSE, we use the conservative value number rather
                     // than the liberal one, since the conservative one is what assertion prop will
                     // use and the point is to avoid optimizing cases that it will handle.
+                    // Treat EXTRACT as leaf too, since originally this was LCL_FLD.
+                    // TODO-MIKE-Review: It's not clear what's up with this leaf constant stuff.
+                    // It turns out that LCL_FLDs that produce 0 are CSEd, that seems stupid.
 
-                    if (!node->OperIsLeaf() && vnStore->IsVNConstant(vnStore->VNNormalValue(node->GetConservativeVN())))
+                    if (!node->OperIsLeaf() && !node->IsExtract() &&
+                        vnStore->IsVNConstant(vnStore->VNNormalValue(node->GetConservativeVN())))
                     {
                         continue;
                     }
