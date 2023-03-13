@@ -80,19 +80,13 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
         return lclNum == thisParamLclNum;
     }
 
-public:
-    CopyPropDomTreeVisitor(Compiler* compiler)
-        : DomTreeVisitor(compiler, compiler->fgSsaDomTree), lclSsaStackMap(compiler->getAllocator(CMK_CopyProp))
-    {
-    }
-
-    void PushSsaDef(SsaStack* stack, BasicBlock* block, unsigned ssaNum)
+    void PushSsaDef(SsaStack* stack, BasicBlock* block, GenTreeSsaDef* def)
     {
         SsaStackNode* top = stack->Top();
 
         if ((top == nullptr) || (top->m_block != block))
         {
-            stack->Push(AllocStackNode(stackListTail, block, ssaNum));
+            stack->Push(AllocStackNode(stackListTail, block, def));
             // Append the stack to the stack list. The stack list allows PopBlockSsaDefs
             // to easily find stacks that need popping.
             stackListTail = stack;
@@ -100,8 +94,8 @@ public:
         else
         {
             // If we already have a stack node for this block then simply update
-            // update the SSA number, the previous one is no longer needed.
-            top->m_ssaNum = ssaNum;
+            // update the def, the previous one is no longer needed.
+            top->m_def = def;
         }
     }
 
@@ -112,13 +106,9 @@ public:
         const char* prefix = "";
         for (const auto& pair : lclSsaStackMap)
         {
-            unsigned lclNum = pair.key;
-            unsigned ssaNum = pair.value.Top()->m_ssaNum;
-
-            if (ssaNum != SsaConfig::RESERVED_SSA_NUM)
+            if (GenTreeSsaDef* def = pair.value.Top()->m_def)
             {
-                ValueNum vn = m_compiler->lvaGetDesc(lclNum)->GetPerSsaData(ssaNum)->GetConservativeVN();
-                printf("%sV%02u:%u " FMT_VN, prefix, lclNum, ssaNum, vn);
+                printf("%sV%02u#%u " FMT_VN, prefix, pair.key, def->GetSsaNum(), def->GetConservativeVN());
                 prefix = ", ";
             }
         }
@@ -136,22 +126,26 @@ public:
         }
     }
 
+public:
+    CopyPropDomTreeVisitor(Compiler* compiler)
+        : DomTreeVisitor(compiler, compiler->fgSsaDomTree), lclSsaStackMap(compiler->getAllocator(CMK_CopyProp))
+    {
+    }
+
     void Begin()
     {
-        for (unsigned lclNum = 0; lclNum < m_compiler->lvaCount; lclNum++)
+        for (GenTreeSsaDef* def = m_compiler->m_initSsaDefs; def != nullptr;
+             def                = static_cast<GenTreeSsaDef*>(def->gtNext))
         {
-            LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
-
-            if (lcl->HasImplicitSsaDef())
-            {
-                PushSsaDef(lclSsaStackMap.Emplace(lclNum), m_compiler->fgFirstBB, SsaConfig::FIRST_SSA_NUM);
-            }
+            PushSsaDef(lclSsaStackMap.Emplace(def->GetLclNum()), m_compiler->fgFirstBB, def);
         }
 
         if ((m_compiler->info.compThisArg) != BAD_VAR_NUM)
         {
             LclVarDsc* lcl = m_compiler->lvaGetDesc(m_compiler->info.compThisArg);
 
+            // TODO-MIKE-Fix: HasImplicitSsaDef doesn't work for new SSA because
+            // it depends on ASG nodes.
             if (lcl->HasSingleSsaDef() && lcl->HasImplicitSsaDef())
             {
                 thisParamLclNum = m_compiler->info.compThisArg;
@@ -169,72 +163,86 @@ public:
         }
 #endif
 
-        for (Statement* const stmt : block->Statements())
+        for (Statement* stmt : block->Statements())
         {
-            for (GenTree* const node : stmt->Nodes())
+            GenTree* root = stmt->GetRootNode();
+
+            if (!root->IsSsaPhiDef())
             {
-                if (!node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+                break;
+            }
+
+            unsigned lclNum = root->AsSsaDef()->GetLclNum();
+
+            if (IsAlwaysLiveThisParam(lclNum))
+            {
+                continue;
+            }
+
+            PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, root->AsSsaDef());
+        }
+
+        for (Statement* stmt : block->NonPhiStatements())
+        {
+            for (GenTree* node : stmt->Nodes())
+            {
+                if (GenTreeSsaDef* def = node->IsSsaDef())
                 {
-                    continue;
-                }
+                    unsigned lclNum = def->GetLclNum();
 
-                GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
-                unsigned             lclNum  = lclNode->GetLclNum();
-                LclVarDsc*           lcl     = m_compiler->lvaGetDesc(lclNum);
-
-                if (!lcl->IsInSsa())
-                {
-                    continue;
-                }
-
-                if (IsAlwaysLiveThisParam(lclNum))
-                {
-                    continue;
-                }
-
-                if ((lclNode->gtFlags & (GTF_VAR_DEF | GTF_VAR_DEATH)) != 0)
-                {
-                    // We obviously need to push a SSA def for VAR_DEF but we also push
-                    // a "fake" one for VAR_DEATH, to prevent live range extension.
-                    // For STRUCT local live range extension isn't an issue as they're
-                    // currently not enregistered nor is any stack packing done.
-
-                    unsigned ssaDefNum = ((lclNode->gtFlags & GTF_VAR_DEATH) != 0) ? SsaConfig::RESERVED_SSA_NUM
-                                                                                   : m_compiler->GetSsaDefNum(lclNode);
-
-                    if (((lclNode->gtFlags & GTF_VAR_DEF) != 0) || !lcl->TypeIs(TYP_STRUCT))
-                    {
-                        PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, ssaDefNum);
-                    }
-
-                    if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
+                    if (IsAlwaysLiveThisParam(lclNum))
                     {
                         continue;
                     }
-                }
 
-                if (lclNode->OperIs(GT_LCL_VAR))
+                    PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, def);
+                }
+                else if (GenTreeSsaUse* use = node->IsSsaUse())
                 {
+                    unsigned lclNum = use->GetDef()->GetLclNum();
+
+                    if (IsAlwaysLiveThisParam(lclNum))
+                    {
+                        continue;
+                    }
+
+                    if ((node->gtFlags & GTF_VAR_DEATH) != 0)
+                    {
+                        // We push a "fake" def for VAR_DEATH, to prevent live range extension.
+                        // For STRUCT locals live range extension isn't an issue, as they're
+                        // currently not enregistered nor is any stack packing done.
+
+                        if (!use->TypeIs(TYP_STRUCT))
+                        {
+                            PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, nullptr);
+                        }
+                    }
+
+                    // TODO-MIKE-SSA: Ignore EXTRACTs for now, old code ignored LCL_FLDs.
+                    if ((node->gtNext != nullptr) && node->gtNext->IsExtract() &&
+                        (node->gtNext->AsExtract()->GetStructValue() == node))
+                    {
+                        continue;
+                    }
+
                     // TODO-Review: EH successor/predecessor iteration seems broken.
                     if ((block->bbCatchTyp != BBCT_FINALLY) && (block->bbCatchTyp != BBCT_FAULT))
                     {
-                        CopyProp(block, lclNode->AsLclVar());
+                        CopyProp(block, use);
                     }
                 }
             }
         }
     }
 
-    void CopyProp(BasicBlock* block, GenTreeLclVar* use)
+    void CopyProp(BasicBlock* block, GenTreeSsaUse* use)
     {
-        assert(use->OperIs(GT_LCL_VAR) && ((use->gtFlags & GTF_VAR_DEF) == 0));
-
         if (use->GetConservativeVN() == ValueNumStore::NoVN)
         {
             return;
         }
 
-        unsigned   lclNum = use->GetLclNum();
+        unsigned   lclNum = use->GetDef()->GetLclNum();
         LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
 
         // TODO-MIKE-Review: The whole "search the SSA defs for a def with matching VN" approach
@@ -247,10 +255,10 @@ public:
 
         for (const auto& pair : lclSsaStackMap)
         {
-            unsigned newLclNum = pair.key;
-            unsigned newSsaNum = pair.value.Top()->m_ssaNum;
+            unsigned       newLclNum = pair.key;
+            GenTreeSsaDef* newDef    = pair.value.Top()->m_def;
 
-            if ((lclNum == newLclNum) || (newSsaNum == SsaConfig::RESERVED_SSA_NUM))
+            if ((lclNum == newLclNum) || (newDef == nullptr))
             {
                 continue;
             }
@@ -292,7 +300,7 @@ public:
             }
 
             // The use must produce the same value number if we substitute the def.
-            if (m_compiler->vnLocalLoad(use, newLcl, newSsaNum).GetConservative() != use->GetConservativeVN())
+            if (m_compiler->vnSsaUse(use, newLcl, newDef->GetSsaNum()).GetConservative() != use->GetConservativeVN())
             {
                 continue;
             }
@@ -303,11 +311,11 @@ public:
                 continue;
             }
 
-            JITDUMP("[%06u] replacing V%02u:%u by V%02u:%u\n", use->GetID(), use->GetLclNum(), use->GetSsaNum(),
-                    newLclNum, newSsaNum);
+            JITDUMP("[%06u] replacing V%02u#%u by V%02u#%u\n", use->GetID(), use->GetDef()->GetLclNum(),
+                    use->GetDef()->GetSsaNum(), newLclNum, newDef->GetSsaNum());
 
-            use->SetLclNum(newLclNum);
-            use->SetSsaNum(newSsaNum);
+            use->GetDef()->RemoveUse(use);
+            newDef->AddUse(use);
 
             break;
         }

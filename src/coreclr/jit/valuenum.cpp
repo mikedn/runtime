@@ -5032,8 +5032,15 @@ ValueNumPair Compiler::vnLocalLoad(GenTreeLclVar* load, LclVarDsc* lcl, unsigned
 
 void Compiler::vnSsaUse(GenTreeSsaUse* use)
 {
-    LclVarDsc*   lcl = lvaGetDesc(use->GetDef()->GetLclNum());
-    ValueNumPair vnp = lcl->GetPerSsaData(use->GetDef()->GetSsaNum())->GetVNP();
+    LclVarDsc* lcl    = lvaGetDesc(use->GetDef()->GetLclNum());
+    unsigned   ssaNum = use->GetDef()->GetSsaNum();
+
+    use->SetVNP(vnSsaUse(use, lcl, ssaNum));
+}
+
+ValueNumPair Compiler::vnSsaUse(GenTreeSsaUse* use, LclVarDsc* lcl, unsigned ssaNum)
+{
+    ValueNumPair vnp = lcl->GetPerSsaData(ssaNum)->GetVNP();
 
     assert(vnp.GetLiberal() != ValueNumStore::NoVN);
 
@@ -5071,7 +5078,7 @@ void Compiler::vnSsaUse(GenTreeSsaUse* use)
         }
     }
 
-    use->SetVNP(vnp);
+    return vnp;
 }
 
 void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value)

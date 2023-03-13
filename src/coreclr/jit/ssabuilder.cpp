@@ -914,6 +914,7 @@ void SsaBuilder::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, Bas
     {
         GenTreeSsaUse* use = new (m_pCompiler, GT_SSA_USE) GenTreeSsaUse(def, block);
         use->SetCosts(0, 0);
+        use->gtFlags |= lclNode->gtFlags & GTF_VAR_DEATH;
 
         unsigned      fieldOffset = lclFld->GetLclOffs();
         FieldSeqNode* fieldSeq    = lclFld->GetFieldSeq();

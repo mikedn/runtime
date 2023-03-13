@@ -1006,7 +1006,6 @@ public:
 
     bool HasImplicitSsaDef() const
     {
-        // TODO-MIKE-Fix: This doesn't work for new SSA because assignments are no longer used.
         return (lvPerSsaData.GetCount() != 0) &&
                (lvPerSsaData.GetSsaDef(SsaConfig::FIRST_SSA_NUM)->GetAssignment() == nullptr);
     }
@@ -4648,6 +4647,7 @@ public:
     void vnLocalLoad(GenTreeLclVar* load);
     ValueNumPair vnLocalLoad(GenTreeLclVar* load, LclVarDsc* lcl, unsigned ssaNum);
     void vnSsaUse(GenTreeSsaUse* use);
+    ValueNumPair vnSsaUse(GenTreeSsaUse* use, LclVarDsc* lcl, unsigned ssaNum);
     void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
     void vnInsert(GenTreeInsert* insert);
     void vnLocalFieldLoad(GenTreeLclFld* load);
