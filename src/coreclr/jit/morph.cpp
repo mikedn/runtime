@@ -8145,7 +8145,7 @@ GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
     for (GenTreeCall::Use& use : call->Args())
     {
         GenTree* const arg = use.GetNode();
-        if (!arg->OperIs(GT_ASG))
+        if (!arg->OperIs(GT_ASG, GT_SSA_DEF, GT_STORE_LCL_VAR))
         {
             continue;
         }
@@ -9436,6 +9436,10 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     {
         srcLclNum = use->GetDef()->GetLclNum();
         srcLclVar = lvaGetDesc(srcLclNum);
+    }
+    else if (src->IsExtract())
+    {
+        // TODO-MIKE-SSA: Figure out what to do with this, do we need to treat it as a local?
     }
     else if (src->OperIs(GT_COMMA))
     {

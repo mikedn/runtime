@@ -8972,6 +8972,10 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
         case GT_RETFILT:
         case GT_RETURN:
         case GT_IND:
+        case GT_SSA_DEF:
+        // TODO-MIKE-Cleanup: INSERT(0, 0) => 0, EXTRACT(0) => 0
+        case GT_INSERT:
+        case GT_EXTRACT:
             return tree;
         default:
             break;

@@ -927,6 +927,13 @@ void SsaBuilder::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, Bas
         extract->SetField(fieldLayoutNum, fieldOffset, fieldSeq);
         extract->SetStructValue(use);
 
+        // Block constant propagation when EXTRACT is used as a form of reinterpretation,
+        // we risk ending up with FP constants that fgSsaDestroy doesn't know how to handle.
+        if (!use->TypeIs(TYP_STRUCT))
+        {
+            use->gtFlags |= GTF_DONT_CSE;
+        }
+
         if (extract->gtPrev == nullptr)
         {
             assert(stmt->GetTreeList() == extract);
@@ -1825,6 +1832,12 @@ static void DestroySsaDef(Compiler* compiler, GenTreeSsaDef* def, Statement* stm
         store->AsLclFld()->SetLclOffs(field.GetOffset());
         store->AsLclFld()->SetFieldSeq(field.GetFieldSeq());
         store->AsLclFld()->SetLclNum(lclNum);
+        store->gtFlags |= GTF_VAR_DEF;
+
+        if (store->IsPartialLclFld(compiler))
+        {
+            store->gtFlags |= GTF_VAR_USEASG;
+        }
 
         structValue->gtNext->gtPrev = structValue->gtPrev;
 
@@ -1845,6 +1858,7 @@ static void DestroySsaDef(Compiler* compiler, GenTreeSsaDef* def, Statement* stm
     {
         store->SetOper(GT_STORE_LCL_VAR);
         store->AsLclVar()->SetLclNum(lclNum);
+        store->gtFlags |= GTF_VAR_DEF;
     }
 }
 

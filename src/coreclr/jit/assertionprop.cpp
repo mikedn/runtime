@@ -771,28 +771,30 @@ private:
             }
         }
 
-        if (!addr->OperIs(GT_LCL_VAR) || compiler->fgIsBigOffset(offset))
+        if (compiler->fgIsBigOffset(offset))
         {
             return NO_ASSERTION_INDEX;
         }
 
-        unsigned   lclNum = addr->AsLclVar()->GetLclNum();
+        if (!addr->OperIs(GT_LCL_VAR, GT_SSA_USE))
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        unsigned   lclNum = addr->IsSsaUse() ? addr->AsSsaUse()->GetDef()->GetLclNum() : addr->AsLclVar()->GetLclNum();
         LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
 
         AssertionDsc assertion;
 
         if (lcl->TypeIs(TYP_REF))
         {
-            if (lcl->IsAddressExposed())
+            // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
+            if (!addr->IsSsaUse())
             {
                 return NO_ASSERTION_INDEX;
             }
 
-            // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
-            if (addr->AsLclVar()->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
-            {
-                return NO_ASSERTION_INDEX;
-            }
+            assert(!lcl->IsAddressExposed());
 
             assertion.op1.kind   = O1K_LCLVAR;
             assertion.op1.vn     = addr->GetConservativeVN();
@@ -869,26 +871,17 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        // TODO-MIKE-Review: Restricting the cast operands to LCL_VAR is largely superfluous,
+        // TODO-MIKE-Review: Restricting the cast operands to SSA_USE is largely superfluous,
         // all it does is preventing less useful assertions from being created, that would
         // just wast space in the assertion table.
-        if (!value->OperIs(GT_LCL_VAR))
+        if (!value->IsSsaUse())
         {
             return NO_ASSERTION_INDEX;
         }
 
-        // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
-        if (value->AsLclVar()->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
-        {
-            return NO_ASSERTION_INDEX;
-        }
+        LclVarDsc* lcl = compiler->lvaGetDesc(value->AsSsaUse()->GetDef()->GetLclNum());
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(value->AsLclVar());
-
-        if (lcl->IsAddressExposed())
-        {
-            return NO_ASSERTION_INDEX;
-        }
+        assert(!lcl->IsAddressExposed());
 
         if (lcl->IsPromotedField() && lcl->lvNormalizeOnLoad())
         {
@@ -900,24 +893,15 @@ private:
         return AddRangeAssertion(value->GetConservativeVN(), range.min, range.max);
     }
 
-    AssertionIndex CreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind)
+    // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
+    AssertionIndex CreateEqualityAssertion(GenTreeSsaUse* op1, GenTree* op2, ApKind kind)
     {
         assert((op1 != nullptr) && (op2 != nullptr));
-        assert(op1->OperIs(GT_LCL_VAR));
         assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(op1->AsLclVar());
+        LclVarDsc* lcl = compiler->lvaGetDesc(op1->GetDef()->GetLclNum());
 
-        if (lcl->IsAddressExposed())
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
-        if (op1->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
-        {
-            return NO_ASSERTION_INDEX;
-        }
+        assert(!lcl->IsAddressExposed());
 
         op2 = op2->SkipComma();
 
@@ -939,7 +923,7 @@ private:
                 }
 
                 assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = op1->GetLclNum();
+                assertion.op1.lclNum       = op1->GetDef()->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_INT;
                 assertion.op2.intCon.value = op2->AsIntCon()->GetValue(lcl->GetType());
                 assertion.op2.intCon.flags = op2->AsIntCon()->GetHandleKind();
@@ -948,7 +932,7 @@ private:
 #ifndef TARGET_64BIT
             case GT_CNS_LNG:
                 assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = op1->GetLclNum();
+                assertion.op1.lclNum       = op1->GetDef()->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_LONG;
                 assertion.op2.lngCon.value = op2->AsLngCon()->GetValue();
                 break;
@@ -965,14 +949,14 @@ private:
                 }
 
                 assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = op1->GetLclNum();
+                assertion.op1.lclNum       = op1->GetDef()->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_DOUBLE;
                 assertion.op2.dblCon.value = op2->AsDblCon()->GetValue();
                 break;
 
             case GT_LCL_VAR:
             {
-                if (op1->GetLclNum() == op2->AsLclVar()->GetLclNum())
+                if (op1->GetDef()->GetLclNum() == op2->AsLclVar()->GetLclNum())
                 {
                     return NO_ASSERTION_INDEX;
                 }
@@ -990,6 +974,32 @@ private:
                 }
 
                 if (valLcl->IsAddressExposed())
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                assertion.op1.kind = O1K_VALUE_NUMBER;
+                assertion.op2.kind = O2K_VALUE_NUMBER;
+                break;
+            }
+
+            case GT_SSA_USE:
+            {
+                if (op1->GetDef()->GetLclNum() == op2->AsSsaUse()->GetDef()->GetLclNum())
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                LclVarDsc* valLcl = compiler->lvaGetDesc(op2->AsSsaUse()->GetDef()->GetLclNum());
+
+                assert(!valLcl->IsAddressExposed());
+
+                if (lcl->GetType() != valLcl->GetType())
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                if (valLcl->lvNormalizeOnLoad() && !lcl->lvNormalizeOnLoad())
                 {
                     return NO_ASSERTION_INDEX;
                 }
@@ -1388,6 +1398,37 @@ private:
         return isTrue ? index : AssertionInfo::ForNextEdge(index);
     }
 
+    GenTree* GetCseValue(GenTree* node)
+    {
+        if (!node->OperIs(GT_COMMA))
+        {
+            return node;
+        }
+
+        GenTree* op1 = node->AsOp()->GetOp(0);
+        GenTree* op2 = node->AsOp()->GetOp(1);
+
+        if (op2->OperIs(GT_LCL_VAR) && op1->OperIs(GT_ASG))
+        {
+            GenTree* dst = op1->AsOp()->GetOp(0);
+            GenTree* src = op1->AsOp()->GetOp(1);
+
+            if (dst->OperIs(GT_LCL_VAR) && (dst->AsLclVar()->GetLclNum() == op2->AsLclVar()->GetLclNum()))
+            {
+                return src;
+            }
+        }
+        else if (op2->OperIs(GT_SSA_USE) && op1->OperIs(GT_SSA_DEF))
+        {
+            if (op2->AsSsaUse()->GetDef() == op1->AsSsaDef())
+            {
+                return op1->AsSsaDef()->GetValue();
+            }
+        }
+
+        return node;
+    }
+
     AssertionInfo GenerateJTrueEqualityAssertions(GenTreeOp* relop)
     {
         assert(relop->OperIs(GT_EQ, GT_NE));
@@ -1396,17 +1437,32 @@ private:
 
         // Look through any CSEs so we see the actual trees providing values, if possible.
         // This is important for exact type assertions, which need to see the GT_IND.
-        GenTree* op1 = relop->GetOp(0)->gtCommaAssignVal();
-        GenTree* op2 = relop->GetOp(1)->gtCommaAssignVal();
+        GenTree* op1 = GetCseValue(relop->GetOp(0));
+        GenTree* op2 = GetCseValue(relop->GetOp(1));
 
-        if (!op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_VAR))
+        // TODO-MIKE-Review: This is probably bogus, old code tried to swap operands so
+        // that LCL_VAR comes first. But it didn't check if the local is in SSA form and
+        // then CreateEqualityAssertion rejected it.
+        if (op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_SSA_USE))
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        if (!op1->OperIs(GT_SSA_USE) && op2->OperIs(GT_SSA_USE))
         {
             std::swap(op1, op2);
         }
 
-        if (op1->OperIs(GT_LCL_VAR) && (op2->OperIsConst() || op2->OperIs(GT_LCL_VAR)))
+        if (op1->OperIs(GT_SSA_USE) && op2->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL, GT_LCL_VAR, GT_SSA_USE))
         {
-            return CreateEqualityAssertion(op1->AsLclVar(), op2, assertionKind);
+            return CreateEqualityAssertion(op1->AsSsaUse(), op2, assertionKind);
+        }
+
+        // TODO-MIKE-Review: This is probably bogus, in old code CreateEqualityAssertion handled
+        // this case and rejected AX locals, even though those can be handled by the code below.
+        if (op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
+        {
+            return NO_ASSERTION_INDEX;
         }
 
         ValueNum op1VN = vnStore->VNNormalValue(op1->GetConservativeVN());
@@ -1448,6 +1504,12 @@ private:
         }
     }
 
+    bool IsUnaliasedLocal(GenTree* node)
+    {
+        return node->OperIs(GT_SSA_USE) ||
+               (node->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(node->AsLclVar())->IsAddressExposed());
+    }
+
     AssertionIndex GenerateJTrueReadyToRunTypeAssertions(GenTree* op1, GenTree* op2, ApKind assertionKind)
     {
         assert(compiler->opts.IsReadyToRun());
@@ -1459,8 +1521,7 @@ private:
 
         GenTree* addr = op1->AsIndir()->GetAddr();
 
-        if (!addr->TypeIs(TYP_REF) || !addr->OperIs(GT_LCL_VAR) ||
-            compiler->lvaGetDesc(addr->AsLclVar())->IsAddressExposed())
+        if (!addr->TypeIs(TYP_REF) || !IsUnaliasedLocal(addr))
         {
             return NO_ASSERTION_INDEX;
         }
@@ -1495,8 +1556,7 @@ private:
 
             GenTree* addr = op1->AsIndir()->GetAddr();
 
-            if (!addr->TypeIs(TYP_REF) || !addr->OperIs(GT_LCL_VAR) ||
-                compiler->lvaGetDesc(addr->AsLclVar())->IsAddressExposed() || (addr->GetConservativeVN() == NoVN))
+            if (!addr->TypeIs(TYP_REF) || !IsUnaliasedLocal(addr) || (addr->GetConservativeVN() == NoVN))
             {
                 return NO_ASSERTION_INDEX;
             }
@@ -1553,8 +1613,7 @@ private:
             assert(objectArg->TypeIs(TYP_REF));
             assert(mtArg->TypeIs(TYP_I_IMPL));
 
-            if (!objectArg->OperIs(GT_LCL_VAR) || compiler->lvaGetDesc(objectArg->AsLclVar())->IsAddressExposed() ||
-                (objectArg->GetConservativeVN() == NoVN))
+            if (!IsUnaliasedLocal(objectArg) || (objectArg->GetConservativeVN() == NoVN))
             {
                 return NO_ASSERTION_INDEX;
             }
@@ -1742,6 +1801,74 @@ private:
         return UpdateTree(conNode, lclVar, stmt);
     }
 
+    GenTree* PropagateSsaUseConst(const AssertionDsc& assertion, GenTreeSsaUse* use, Statement* stmt)
+    {
+#ifdef DEBUG
+        LclVarDsc* lcl = compiler->lvaGetDesc(use->GetDef()->GetLclNum());
+
+        assert(!lcl->IsAddressExposed() && !lcl->lvIsCSE);
+        assert(use->GetType() == lcl->GetType());
+        assert(!varTypeIsStruct(use->GetType()));
+
+        DBEXEC(verbose, TraceAssertion("propagating", assertion);)
+#endif
+
+        const auto& val = assertion.op2;
+        GenTree*    conNode;
+
+        switch (val.kind)
+        {
+            case O2K_CONST_DOUBLE:
+                // "x == 0.0" implies both "x == 0.0" and "x == -0.0" so we can't substitute x with 0.0.
+                if (val.dblCon.value == 0.0)
+                {
+                    return nullptr;
+                }
+
+                use->GetDef()->RemoveUse(use);
+                conNode = use->ChangeToDblCon(val.dblCon.value);
+                break;
+
+#ifndef TARGET_64BIT
+            case O2K_CONST_LONG:
+                if (!use->TypeIs(TYP_LONG))
+                {
+                    return nullptr;
+                }
+
+                use->GetDef()->RemoveUse(use);
+                conNode = use->ChangeToLngCon(val.lngCon.value);
+                break;
+#endif
+
+            default:
+                assert(val.kind == O2K_CONST_INT);
+
+                if ((val.intCon.flags & GTF_ICON_HDL_MASK) == 0)
+                {
+                    use->GetDef()->RemoveUse(use);
+                    conNode = use->ChangeToIntCon(varActualType(use->GetType()), val.intCon.value);
+                }
+                else if (compiler->opts.compReloc)
+                {
+                    return nullptr;
+                }
+                else
+                {
+                    use->GetDef()->RemoveUse(use);
+                    conNode = use->ChangeToIntCon(TYP_I_IMPL, val.intCon.value);
+                    conNode->AsIntCon()->SetHandleKind(val.intCon.flags & GTF_ICON_HDL_MASK);
+                }
+                break;
+        }
+
+        assert(vnStore->IsVNConstant(val.vn));
+
+        conNode->gtVNPair.SetBoth(val.vn);
+
+        return UpdateTree(conNode, use, stmt);
+    }
+
     const AssertionDsc* FindConstAssertion(const ASSERT_TP assertions, ValueNum vn, unsigned lclNum)
     {
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
@@ -1820,6 +1947,42 @@ private:
         }
 
         return PropagateLclVarConst(*assertion, lclVar, stmt);
+    }
+
+    GenTree* PropagateSsaUse(const ASSERT_TP assertions, GenTreeSsaUse* use, Statement* stmt)
+    {
+        unsigned   lclNum = use->GetDef()->GetLclNum();
+        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+
+        assert(!lcl->IsAddressExposed());
+
+        // TODO-MIKE-Review: It's not clear why propagation is blocked for CSE temps.
+
+        if (lcl->lvIsCSE)
+        {
+            return nullptr;
+        }
+
+        // TODO-MIKE-Review: This likely blocks const propagation to small int locals for no reason.
+        if (use->GetType() != lcl->GetType())
+        {
+            return nullptr;
+        }
+
+        // There are no struct/vector equality relops.
+        if (varTypeIsStruct(use->GetType()))
+        {
+            return nullptr;
+        }
+
+        const AssertionDsc* assertion = FindConstAssertion(assertions, use->GetConservativeVN(), lclNum);
+
+        if (assertion == nullptr)
+        {
+            return nullptr;
+        }
+
+        return PropagateSsaUseConst(*assertion, use, stmt);
     }
 
     const AssertionDsc* FindEqualityAssertion(const ASSERT_TP assertions, GenTree* op1, GenTree* op2)
@@ -1962,7 +2125,7 @@ private:
             GenTree* op1 = relop->GetOp(0);
             GenTree* op2 = relop->GetOp(1);
 
-            if (!op1->OperIs(GT_LCL_VAR, GT_IND))
+            if (!op1->OperIs(GT_LCL_VAR, GT_SSA_USE, GT_IND))
             {
                 return nullptr;
             }
@@ -2055,9 +2218,11 @@ private:
         GenTree* actualOp1 = op1->SkipComma();
         ValueNum vn;
 
-        if (actualOp1->OperIs(GT_LCL_VAR))
+        if (actualOp1->OperIs(GT_LCL_VAR, GT_SSA_USE))
         {
-            LclVarDsc* lcl = compiler->lvaGetDesc(actualOp1->AsLclVar());
+            LclVarDsc* lcl =
+                compiler->lvaGetDesc(actualOp1->OperIs(GT_LCL_VAR) ? actualOp1->AsLclVar()->GetLclNum()
+                                                                   : actualOp1->AsSsaUse()->GetDef()->GetLclNum());
 
             // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
             // They're usually present on every LCL_VAR use so we'll never get assertions
@@ -2213,7 +2378,7 @@ private:
             addr = addr->AsOp()->GetOp(0);
         }
 
-        if (!addr->OperIs(GT_LCL_VAR))
+        if (!addr->OperIs(GT_LCL_VAR, GT_SSA_USE))
         {
             return nullptr;
         }
@@ -2292,7 +2457,7 @@ private:
         GenTree* thisArg = call->GetThisArg();
         noway_assert(thisArg != nullptr);
 
-        if (!thisArg->OperIs(GT_LCL_VAR))
+        if (!thisArg->OperIs(GT_LCL_VAR, GT_SSA_USE))
         {
             return nullptr;
         }
@@ -2356,7 +2521,7 @@ private:
 
         GenTree* objectArg = call->GetArgNodeByArgNum(1);
 
-        if (!objectArg->OperIs(GT_LCL_VAR))
+        if (!objectArg->OperIs(GT_LCL_VAR, GT_SSA_USE))
         {
             return nullptr;
         }
@@ -2618,6 +2783,12 @@ private:
                     return nullptr;
                 }
                 return PropagateLclVarUse(assertions, node->AsLclVar(), stmt);
+            case GT_SSA_USE:
+                if ((node->gtFlags & GTF_DONT_CSE) != 0)
+                {
+                    return nullptr;
+                }
+                return PropagateSsaUse(assertions, node->AsSsaUse(), stmt);
             case GT_OBJ:
             case GT_BLK:
             case GT_IND:
@@ -3416,11 +3587,25 @@ private:
                 // can be done when the struct fits in a register. Otherwise we may
                 // need a STRUCT typed constant node instead of abusing GT_CNS_INT.
 
-                if ((user != nullptr) && user->OperIs(GT_ASG) && (user->AsOp()->GetOp(1) == tree) &&
+                if ((user != nullptr) &&
+                    ((user->OperIs(GT_ASG) && (user->AsOp()->GetOp(1) == tree)) || user->IsInsert()) &&
                     ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
-                    (m_vnStore->VNConservativeNormalValue(tree->gtVNPair) == m_vnStore->VNForZeroMap()))
+                    (m_vnStore->VNNormalValue(tree->GetConservativeVN()) == m_vnStore->VNForZeroMap()))
                 {
-                    user->AsOp()->SetOp(1, m_compiler->gtNewIconNode(0));
+                    if (user->OperIs(GT_ASG))
+                    {
+                        user->AsOp()->SetOp(1, m_compiler->gtNewIconNode(0));
+                    }
+                    else if (user->AsInsert()->GetStructValue() == tree)
+                    {
+                        user->AsInsert()->SetStructValue(m_compiler->gtNewIconNode(0));
+                    }
+                    else
+                    {
+                        assert(user->AsInsert()->GetFieldValue() == tree);
+                        user->AsInsert()->SetFieldValue(m_compiler->gtNewIconNode(0));
+                    }
+
                     m_stmtMorphPending = true;
                 }
 
@@ -3491,6 +3676,14 @@ private:
                         return Compiler::WALK_CONTINUE;
                     }
 
+                    break;
+
+                case GT_SSA_USE:
+                    // Don't undo constant CSEs.
+                    if (m_compiler->lvaGetDesc(tree->AsSsaUse()->GetDef()->GetLclNum())->lvIsCSE)
+                    {
+                        return Compiler::WALK_CONTINUE;
+                    }
                     break;
 
                 case GT_ADD:
@@ -3729,6 +3922,11 @@ private:
             if ((offset > UINT16_MAX) || (offset >= m_compiler->lvaGetDesc(lclNum)->GetTypeSize()))
             {
                 return false;
+            }
+
+            if (GenTreeSsaUse* use = node->IsSsaUse())
+            {
+                use->GetDef()->RemoveUse(use);
             }
 
             if ((offset == 0) && (fieldSeq == nullptr))

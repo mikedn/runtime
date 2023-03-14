@@ -2169,12 +2169,13 @@ public:
         if (value->defCount == 1)
         {
             JITDUMP(FMT_CSE " is single-def, so associated temp V%02u will be in SSA\n", value->index, lclNum);
-            lcl->lvInSsa = true;
+            lcl->m_isSsa = true;
 
             ssaNum = lcl->lvPerSsaData.AllocSsaNum(compiler->getAllocator(CMK_SSA));
         }
 
-        ValueNum conservativeVN = ValueNumStore::VNForVoid();
+        GenTreeSsaDef* singleDef      = nullptr;
+        ValueNum       conservativeVN = ValueNumStore::VNForVoid();
 
         for (const Occurrence* occ = &value->firstOccurrence; occ != nullptr; occ = occ->next)
         {
@@ -2218,6 +2219,13 @@ public:
                         conservativeVN = NoVN;
                     }
                 }
+
+                if (ssaNum != NoSsaNum)
+                {
+                    assert(singleDef == nullptr);
+
+                    singleDef = new (compiler, GT_SSA_DEF) GenTreeSsaDef(expr, occ->block, lclNum, ssaNum);
+                }
             }
         }
 
@@ -2245,11 +2253,20 @@ public:
             // trusting value numbering...
             noway_assert(IsCompatibleType(lclType, exprType) || (baseConstVN != vnStore->VNForNull()));
 
-            GenTreeLclVar* lclUse = compiler->gtNewLclvNode(lclNum, lclType);
-            lclUse->SetSsaNum(ssaNum);
+            Statement*  stmt    = occ->stmt;
+            BasicBlock* block   = occ->block;
+            GenTree*    defExpr = expr;
+            GenTree*    newExpr;
 
-            GenTree* newExpr = lclUse;
-            GenTree* defExpr = expr;
+            if (singleDef != nullptr)
+            {
+                newExpr = new (compiler, GT_SSA_USE) GenTreeSsaUse(singleDef, block);
+                newExpr->SetType(lclType);
+            }
+            else
+            {
+                newExpr = compiler->gtNewLclvNode(lclNum, lclType);
+            }
 
             if (isSharedConst)
             {
@@ -2279,34 +2296,38 @@ public:
                 newExpr->SetVNP(vnStore->VNPNormalPair(expr->GetVNP()));
             }
 
-            Statement*  stmt  = occ->stmt;
-            BasicBlock* block = occ->block;
-
             if (isDef)
             {
                 assert((lclType != TYP_STRUCT) ||
                        (defExpr->IsCall() && (defExpr->AsCall()->GetRetDesc()->GetRegCount() == 1)));
 
-                GenTreeLclVar* lclDef = compiler->gtNewLclvNode(lclNum, lclType);
-                lclDef->SetVNP(defExpr->GetVNP());
-                lclDef->SetSsaNum(ssaNum);
-
-                GenTreeOp* asg = compiler->gtNewAssignNode(lclDef, defExpr);
-                asg->SetVNP(ValueNumStore::VNPForVoid());
-
-                if (ssaNum != NoSsaNum)
+                if (singleDef != nullptr)
                 {
+                    singleDef->SetType(lclType);
+                    singleDef->SetValue(defExpr);
+                    singleDef->SetVNP(defExpr->GetVNP());
+
                     LclSsaVarDsc* ssaDef = lcl->GetPerSsaData(ssaNum);
                     // This is the first and only def for this CSE.
                     assert(ssaDef->GetBlock() == nullptr);
                     assert(ssaDef->GetAssignment() == nullptr);
 
                     ssaDef->SetBlock(block);
-                    ssaDef->SetAssignment(asg);
                     ssaDef->SetVNP(defExpr->GetVNP());
+
+                    newExpr = compiler->gtNewCommaNode(singleDef, newExpr, exprType);
+                }
+                else
+                {
+                    GenTreeLclVar* lclDef = compiler->gtNewLclvNode(lclNum, lclType);
+                    lclDef->SetVNP(defExpr->GetVNP());
+
+                    GenTreeOp* asg = compiler->gtNewAssignNode(lclDef, defExpr);
+                    asg->SetVNP(ValueNumStore::VNPForVoid());
+
+                    newExpr = compiler->gtNewCommaNode(asg, newExpr, exprType);
                 }
 
-                newExpr = compiler->gtNewCommaNode(asg, newExpr, exprType);
                 newExpr->SetVNP(expr->GetVNP());
             }
             else

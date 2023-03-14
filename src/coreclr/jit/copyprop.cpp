@@ -311,6 +311,15 @@ public:
                 continue;
             }
 
+            // TODO-MIKE-Fix: VN ZeroMap is untyped so we risk replacing a use of a local
+            // having type A with a use of a local having type B. Usually this does not
+            // matter (the end result is a 0 initialized struct value) but in the case of
+            // INSERT we can end swapping the struct and field operands.
+            if (lcl->TypeIs(TYP_STRUCT) && (lcl->GetLayout()->GetSize() != newLcl->GetLayout()->GetSize()))
+            {
+                continue;
+            }
+
             JITDUMP("[%06u] replacing V%02u#%u by V%02u#%u\n", use->GetID(), use->GetDef()->GetLclNum(),
                     use->GetDef()->GetSsaNum(), newLclNum, newDef->GetSsaNum());
 
