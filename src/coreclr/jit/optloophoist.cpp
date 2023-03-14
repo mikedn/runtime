@@ -694,21 +694,22 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
 
             if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                GenTreeLclVarCommon* lclVar = tree->AsLclVarCommon();
-                unsigned             lclNum = lclVar->GetLclNum();
-                LclVarDsc*           lcl    = m_compiler->lvaGetDesc(lclNum);
+                return fgWalkResult::WALK_CONTINUE;
+            }
 
-                bool isInvariant = !user->OperIs(GT_ASG) || (user->AsOp()->gtGetOp1() != tree);
-                isInvariant      = isInvariant && lcl->IsInSsa();
+            if (GenTreeSsaUse* use = tree->IsSsaUse())
+            {
                 // TODO-MIKE-Cleanup: Unreachable blocks aren't properly removed (see Runtime_57061_2).
                 // Such blocks may or may not be traversed by various JIT phases - SSA builder does not
                 // traverse them but this code does and ends up asserting due to missing SSA numbers.
                 // Well, at least that's why this probably checks for NoSsaNum, but it seems unlikely
                 // that loop hositing would hit dead code. We'll see.
-                isInvariant = isInvariant && (lclVar->GetSsaNum() != NoSsaNum);
-                isInvariant = isInvariant &&
-                              !m_compiler->optLoopTable[m_loopNum].lpContains(
-                                  lcl->GetPerSsaData(lclVar->GetSsaNum())->GetBlock());
+
+                GenTreeSsaDef* def = use->GetDef();
+                LclVarDsc*     lcl = m_compiler->lvaGetDesc(def->GetLclNum());
+
+                bool isInvariant =
+                    !m_compiler->optLoopTable[m_loopNum].lpContains(lcl->GetPerSsaData(def->GetSsaNum())->GetBlock());
 
                 // TODO-CQ: This VN invariance check should not be necessary and in some cases it is conservative - it
                 // is possible that the SSA def is outside the loop but VN does not understand what the node is doing
@@ -1281,6 +1282,20 @@ void Compiler::fgCreateLoopPreHeader(unsigned lnum)
     for (Statement* const stmt : top->Statements())
     {
         GenTree* tree = stmt->GetRootNode();
+
+        if (tree->IsSsaPhiDef())
+        {
+            for (GenTreeSsaPhi::Use& use : tree->AsSsaDef()->GetValue()->AsSsaPhi()->Uses())
+            {
+                if (use.GetNode()->GetBlock() == head)
+                {
+                    use.GetNode()->SetBlock(preHead);
+                }
+            }
+
+            continue;
+        }
+
         if (tree->OperGet() != GT_ASG)
         {
             break;

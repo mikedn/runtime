@@ -8406,7 +8406,9 @@ void Compiler::gtDispTree(GenTree*     tree,
             {
                 for (GenTreeSsaPhi::Use& use : tree->AsSsaPhi()->Uses())
                 {
-                    gtDispChild(use.GetNode(), indentStack, (use.GetNext() == nullptr) ? IIArcBottom : IIArc);
+                    char block[32];
+                    sprintf_s(block, sizeof(block), "pred " FMT_BB, use.GetNode()->GetBlock()->bbNum);
+                    gtDispChild(use.GetNode(), indentStack, (use.GetNext() == nullptr) ? IIArcBottom : IIArc, block);
                 }
             }
             break;
