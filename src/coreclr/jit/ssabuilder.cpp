@@ -569,6 +569,9 @@ void SsaBuilder::AddPhiArg(
 #endif // DEBUG
 
     GenTreeSsaUse* use = new (m_pCompiler, GT_SSA_USE) GenTreeSsaUse(def, pred);
+    // We need to keep PHI args (e.g. we can't propagate a constant to a PHI arg).
+    // TODO-MIKE-SSA: This may be unreliable, only some transforms check GTF_DONT_CSE.
+    use->gtFlags |= GTF_DONT_CSE;
     // Costs are not relevant for PHI args.
     use->SetCosts(0, 0);
     // The argument order doesn't matter so just insert at the front of the list because

@@ -7750,9 +7750,10 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
 
         for (GenTreeSsaPhi::Use& use : def->GetValue()->AsSsaPhi()->Uses())
         {
-            GenTreeSsaDef* phiArg         = use.GetNode()->AsSsaUse()->GetDef();
-            ValueNum       phiArgSsaNumVN = vnStore->VNForIntCon(phiArg->GetSsaNum());
-            ValueNumPair   phiArgVNP = lvaGetDesc(phiArg->GetLclNum())->GetPerSsaData(phiArg->GetSsaNum())->GetVNP();
+            GenTreeSsaUse* phiArg         = use.GetNode();
+            GenTreeSsaDef* argDef         = phiArg->GetDef();
+            ValueNum       phiArgSsaNumVN = vnStore->VNForIntCon(argDef->GetSsaNum());
+            ValueNumPair   phiArgVNP = lvaGetDesc(argDef->GetLclNum())->GetPerSsaData(argDef->GetSsaNum())->GetVNP();
 
             phiArg->gtVNPair = phiArgVNP;
 
