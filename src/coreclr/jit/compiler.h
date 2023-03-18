@@ -932,6 +932,7 @@ public:
 
     unsigned AllocSsaNum(CompAllocator alloc)
     {
+        assert(m_isSsa);
         return m_ssaDefs.AllocSsaNum(alloc);
     }
 

@@ -2162,20 +2162,8 @@ public:
         // a simple use of the CSE temp.
         // Later we will unmark any nested CSE's for the CSE uses.
 
-        // If there's just a single def for the CSE, we'll put this
-        // CSE into SSA form on the fly. We won't need any PHIs.
-        unsigned ssaNum = NoSsaNum;
-
-        if (value->defCount == 1)
-        {
-            JITDUMP(FMT_CSE " is single-def, so associated temp V%02u will be in SSA\n", value->index, lclNum);
-            lcl->m_isSsa = true;
-
-            ssaNum = lcl->AllocSsaNum(compiler->getAllocator(CMK_SSA));
-        }
-
-        GenTreeSsaDef* singleDef      = nullptr;
-        ValueNum       conservativeVN = ValueNumStore::VNForVoid();
+        const Occurrence* singleDefOccurence = nullptr;
+        ValueNum          conservativeVN     = ValueNumStore::VNForVoid();
 
         for (const Occurrence* occ = &value->firstOccurrence; occ != nullptr; occ = occ->next)
         {
@@ -2220,16 +2208,28 @@ public:
                     }
                 }
 
-                if (ssaNum != NoSsaNum)
+                // If there's just a single def for the CSE, we'll put this
+                // CSE into SSA form on the fly. We won't need any PHIs.
+                if (value->defCount == 1)
                 {
-                    assert(singleDef == nullptr);
+                    assert(singleDefOccurence == nullptr);
 
-                    singleDef = new (compiler, GT_SSA_DEF) GenTreeSsaDef(expr, occ->block, lclNum, ssaNum);
+                    singleDefOccurence = occ;
                 }
             }
         }
 
         JITDUMP("\n");
+
+        GenTreeSsaDef* singleDef = nullptr;
+
+        if (singleDefOccurence != nullptr)
+        {
+            lcl->m_isSsa    = true;
+            unsigned ssaNum = lcl->AllocSsaNum(compiler->getAllocator(CMK_SSA));
+            singleDef       = new (compiler, GT_SSA_DEF)
+                GenTreeSsaDef(singleDefOccurence->expr, singleDefOccurence->block, lclNum, ssaNum);
+        }
 
         for (const Occurrence* occ = &value->firstOccurrence; occ != nullptr; occ = occ->next)
         {
