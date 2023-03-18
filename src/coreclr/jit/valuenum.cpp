@@ -2297,7 +2297,7 @@ TailCall:
 
             if (lcl != nullptr)
             {
-                phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->m_vnPair.Get(vnk);
+                phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->GetVNP().Get(vnk);
             }
             else if (vnk == VNK_Liberal)
             {
@@ -2337,7 +2337,7 @@ TailCall:
 
                     if (lcl != nullptr)
                     {
-                        phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->m_vnPair.Get(vnk);
+                        phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->GetVNP().Get(vnk);
                     }
                     else if (vnk == VNK_Liberal)
                     {
@@ -7400,10 +7400,8 @@ void Compiler::fgValueNumber()
 
         ValueNum initVN = isZeroed ? vnStore->VNZeroForType(type) : vnStore->VNForExpr(fgFirstBB, type);
 
-        LclSsaVarDsc* ssaDef = lcl->GetPerSsaData(SsaConfig::FIRST_SSA_NUM);
-        ssaDef->m_vnPair.SetBoth(initVN);
-
-        def->gtVNPair.SetBoth(initVN);
+        lcl->GetPerSsaData(SsaConfig::FIRST_SSA_NUM)->SetVNP(ValueNumPair{initVN});
+        def->SetVNP(ValueNumPair{initVN});
 
         INDEBUG(vnTraceLocal(lclNum, def->GetVNP()));
     }

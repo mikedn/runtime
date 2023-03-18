@@ -133,16 +133,11 @@ struct VarScopeDsc
 // This class stores information associated with a LclVar SSA definition.
 class LclSsaVarDsc
 {
-    // The basic block where the definition occurs. Definitions of uninitialized variables
-    // are considered to occur at the start of the first basic block (fgFirstBB).
-    BasicBlock* m_block;
-    // The GT_ASG node that generates the definition, or nullptr for definitions
-    // of uninitialized variables.
-    GenTreeOp* m_asg;
+    BasicBlock*  m_block;
+    GenTreeOp*   m_asg;
+    ValueNumPair m_vnp;
 
 public:
-    ValueNumPair m_vnPair;
-
     LclSsaVarDsc(BasicBlock* block, GenTreeOp* asg) : m_block(block), m_asg(asg)
     {
         assert((asg == nullptr) || asg->OperIs(GT_ASG));
@@ -165,27 +160,27 @@ public:
 
     ValueNumPair GetVNP() const
     {
-        return m_vnPair;
+        return m_vnp;
     }
 
     ValueNum GetLiberalVN() const
     {
-        return m_vnPair.GetLiberal();
+        return m_vnp.GetLiberal();
     }
 
     ValueNum GetConservativeVN() const
     {
-        return m_vnPair.GetConservative();
+        return m_vnp.GetConservative();
     }
 
     void SetVNP(ValueNumPair vnp)
     {
-        m_vnPair = vnp;
+        m_vnp = vnp;
     }
 
     void SetLiberalVN(ValueNum vn)
     {
-        m_vnPair.SetLiberal(vn);
+        m_vnp.SetLiberal(vn);
     }
 };
 
