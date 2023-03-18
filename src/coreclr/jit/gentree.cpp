@@ -7823,22 +7823,6 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
         prefix = ", ";
     }
 
-    if (ssaForm && (node->GetSsaNum() != NoSsaNum))
-    {
-        printf("%s", prefix);
-
-        if ((node->gtFlags & GTF_VAR_USEASG) != 0)
-        {
-            printf("u:%d, d:%d", node->GetSsaNum(), GetSsaDefNum(node));
-        }
-        else
-        {
-            printf("%s:%d", ((node->gtFlags & GTF_VAR_DEF) != 0) ? "d" : "u", node->GetSsaNum());
-        }
-
-        prefix = ", ";
-    }
-
     if (lcl->IsPromoted())
     {
         printf("%s%s", prefix, lcl->IsIndependentPromoted() ? "P-INDEP" : "P-DEP");

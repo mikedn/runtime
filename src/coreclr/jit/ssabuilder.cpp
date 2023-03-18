@@ -32,12 +32,11 @@ void Compiler::fgSsaReset()
     optLoopCount   = 0;
     optLoopTable   = nullptr;
     INDEBUG(fgLocalVarLivenessDone = false;)
-    ssaForm            = false;
-    m_partialSsaDefMap = nullptr;
-    vnStore            = nullptr;
-    vnLoopTable        = nullptr;
-    apAssertionCount   = 0;
-    apAssertionTable   = nullptr;
+    ssaForm          = false;
+    vnStore          = nullptr;
+    vnLoopTable      = nullptr;
+    apAssertionCount = 0;
+    apAssertionTable = nullptr;
 
     for (unsigned i = 0; i < lvaCount; ++i)
     {

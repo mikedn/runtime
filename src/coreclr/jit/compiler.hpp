@@ -2212,50 +2212,6 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
     return !info.compInitMem || (varDsc->lvIsTemp && !varDsc->HasGCPtr());
 }
 
-// Local field stores usually modify only a part of a local so they're both a use and a def.
-// GenTreeLclVarCommon has room for only one SSA number so for such partial stores we store
-// the SSA use number in the store node and the SSA def number in a node-number map.
-inline void Compiler::SetPartialSsaDefNum(GenTreeLclFld* store, unsigned ssaNum)
-{
-    assert(store->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD));
-    assert((store->gtFlags & (GTF_VAR_DEF | GTF_VAR_USEASG)) == (GTF_VAR_DEF | GTF_VAR_USEASG));
-
-    if (m_partialSsaDefMap == nullptr)
-    {
-        m_partialSsaDefMap = new (getAllocator(CMK_SSA)) NodeToUnsignedMap(getAllocator(CMK_SSA));
-    }
-
-    m_partialSsaDefMap->Set(store, ssaNum);
-}
-
-inline unsigned Compiler::GetSsaDefNum(GenTreeLclVarCommon* lclNode)
-{
-    assert((lclNode->gtFlags & GTF_VAR_DEF) != 0);
-    assert(lvaGetDesc(lclNode)->IsSsa());
-
-    if ((lclNode->gtFlags & GTF_VAR_USEASG) == 0)
-    {
-        return lclNode->GetSsaNum();
-    }
-
-    assert(lclNode->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD));
-
-    return *m_partialSsaDefMap->LookupPointer(lclNode);
-}
-
-#ifdef DEBUG
-inline void Compiler::MoveSsaDefNum(GenTreeLclVarCommon* from, GenTreeLclVarCommon* to)
-{
-    if (m_partialSsaDefMap != nullptr)
-    {
-        if (unsigned* ssaDefNum = m_partialSsaDefMap->LookupPointer(from))
-        {
-            m_partialSsaDefMap->Set(to, *ssaDefNum);
-        }
-    }
-}
-#endif
-
 template <typename TVisitor>
 void GenTree::VisitOperands(TVisitor visitor)
 {

@@ -4587,12 +4587,7 @@ public:
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, unsigned> NodeToUnsignedMap;
 
-    GenTreeSsaDef*     m_initSsaDefs      = nullptr;
-    NodeToUnsignedMap* m_partialSsaDefMap = nullptr;
-
-    void SetPartialSsaDefNum(GenTreeLclFld* store, unsigned ssaNum);
-    unsigned GetSsaDefNum(GenTreeLclVarCommon* lclNode);
-    INDEBUG(void MoveSsaDefNum(GenTreeLclVarCommon* from, GenTreeLclVarCommon* to);)
+    GenTreeSsaDef* m_initSsaDefs = nullptr;
 
     // Performs SSA conversion.
     void fgSsaBuild();
