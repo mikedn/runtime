@@ -153,11 +153,6 @@ public:
         m_block = block;
     }
 
-    GenTreeOp* GetAssignment() const
-    {
-        return m_asg;
-    }
-
     ValueNumPair GetVNP() const
     {
         return m_vnp;
@@ -977,12 +972,6 @@ public:
     bool HasSingleSsaDef() const
     {
         return lvPerSsaData.GetCount() == 1;
-    }
-
-    bool HasImplicitSsaDef() const
-    {
-        return (lvPerSsaData.GetCount() != 0) &&
-               (lvPerSsaData.GetSsaDef(SsaConfig::FIRST_SSA_NUM)->GetAssignment() == nullptr);
     }
 
     var_types GetRegisterType(const GenTreeLclVarCommon* tree) const;

@@ -137,19 +137,14 @@ public:
         for (GenTreeSsaDef* def = m_compiler->m_initSsaDefs; def != nullptr;
              def                = static_cast<GenTreeSsaDef*>(def->gtNext))
         {
-            PushSsaDef(lclSsaStackMap.Emplace(def->GetLclNum()), m_compiler->fgFirstBB, def);
-        }
+            unsigned lclNum = def->GetLclNum();
 
-        if ((m_compiler->info.compThisArg) != BAD_VAR_NUM)
-        {
-            LclVarDsc* lcl = m_compiler->lvaGetDesc(m_compiler->info.compThisArg);
-
-            // TODO-MIKE-Fix: HasImplicitSsaDef doesn't work for new SSA because
-            // it depends on ASG nodes.
-            if (lcl->HasSingleSsaDef() && lcl->HasImplicitSsaDef())
+            if ((lclNum == m_compiler->info.compThisArg) && m_compiler->lvaGetDesc(lclNum)->HasSingleSsaDef())
             {
                 thisParamLclNum = m_compiler->info.compThisArg;
             }
+
+            PushSsaDef(lclSsaStackMap.Emplace(lclNum), m_compiler->fgFirstBB, def);
         }
     }
 

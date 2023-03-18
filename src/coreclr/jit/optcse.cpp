@@ -2310,7 +2310,6 @@ public:
                     LclSsaVarDsc* ssaDef = lcl->GetPerSsaData(ssaNum);
                     // This is the first and only def for this CSE.
                     assert(ssaDef->GetBlock() == nullptr);
-                    assert(ssaDef->GetAssignment() == nullptr);
 
                     ssaDef->SetBlock(block);
                     ssaDef->SetVNP(defExpr->GetVNP());
