@@ -295,7 +295,7 @@ public:
             }
 
             // The use must produce the same value number if we substitute the def.
-            if (m_compiler->vnSsaUse(use, newLcl, newDef->GetSsaNum()).GetConservative() != use->GetConservativeVN())
+            if (m_compiler->vnSsaUse(use, newDef).GetConservative() != use->GetConservativeVN())
             {
                 continue;
             }

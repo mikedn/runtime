@@ -40,7 +40,7 @@ void Compiler::fgSsaReset()
 
     for (unsigned i = 0; i < lvaCount; ++i)
     {
-        lvaTable[i].lvPerSsaData.Reset();
+        lvaTable[i].ClearSsa();
     }
 
     lvMemoryPerSsaData.Reset();
@@ -739,7 +739,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
             }
 
             GenTree* value  = asgNode->GetOp(1);
-            unsigned ssaNum = lcl->lvPerSsaData.AllocSsaNum(m_allocator, block, asgNode);
+            unsigned ssaNum = lcl->AllocSsaNum(m_allocator, block);
 
             if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
             {
@@ -879,7 +879,7 @@ void SsaBuilder::RenamePhiDef(GenTreeSsaDef* def, BasicBlock* block)
     unsigned   lclNum = def->GetLclNum();
     LclVarDsc* lcl    = m_pCompiler->lvaGetDesc(lclNum);
 
-    def->SetSsaNum(lcl->lvPerSsaData.AllocSsaNum(m_allocator, block, nullptr));
+    def->SetSsaNum(lcl->AllocSsaNum(m_allocator, block));
     m_renameStack.Push(block, lclNum, def);
 }
 
@@ -1410,7 +1410,7 @@ void SsaBuilder::RenameVariables()
         if (lcl->IsSsa() &&
             VarSetOps::IsMember(m_pCompiler, m_pCompiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()))
         {
-            unsigned ssaNum = lcl->lvPerSsaData.AllocSsaNum(m_allocator, m_pCompiler->fgFirstBB, nullptr);
+            unsigned ssaNum = lcl->AllocSsaNum(m_allocator, m_pCompiler->fgFirstBB);
             // HasImplicitSsaDef assumes that this is always the first SSA def.
             assert(ssaNum == SsaConfig::FIRST_SSA_NUM);
 

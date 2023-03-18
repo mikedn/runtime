@@ -2171,7 +2171,7 @@ public:
             JITDUMP(FMT_CSE " is single-def, so associated temp V%02u will be in SSA\n", value->index, lclNum);
             lcl->m_isSsa = true;
 
-            ssaNum = lcl->lvPerSsaData.AllocSsaNum(compiler->getAllocator(CMK_SSA), nullptr, nullptr);
+            ssaNum = lcl->AllocSsaNum(compiler->getAllocator(CMK_SSA), nullptr);
         }
 
         GenTreeSsaDef* singleDef      = nullptr;
@@ -2306,13 +2306,6 @@ public:
                     singleDef->SetType(lclType);
                     singleDef->SetValue(defExpr);
                     singleDef->SetVNP(defExpr->GetVNP());
-
-                    LclSsaVarDsc* ssaDef = lcl->GetPerSsaData(ssaNum);
-                    // This is the first and only def for this CSE.
-                    assert(ssaDef->GetBlock() == nullptr);
-
-                    ssaDef->SetBlock(block);
-                    ssaDef->SetVNP(defExpr->GetVNP());
 
                     newExpr = compiler->gtNewCommaNode(singleDef, newExpr, exprType);
                 }

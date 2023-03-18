@@ -703,11 +703,7 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
                 // Well, at least that's why this probably checks for NoSsaNum, but it seems unlikely
                 // that loop hositing would hit dead code. We'll see.
 
-                GenTreeSsaDef* def = use->GetDef();
-                LclVarDsc*     lcl = m_compiler->lvaGetDesc(def->GetLclNum());
-
-                bool isInvariant =
-                    !m_compiler->optLoopTable[m_loopNum].lpContains(lcl->GetPerSsaData(def->GetSsaNum())->GetBlock());
+                bool isInvariant = !m_compiler->optLoopTable[m_loopNum].lpContains(use->GetDef()->GetBlock());
 
                 // TODO-CQ: This VN invariance check should not be necessary and in some cases it is conservative - it
                 // is possible that the SSA def is outside the loop but VN does not understand what the node is doing
@@ -1093,10 +1089,9 @@ bool Compiler::optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* loo
         if (funcApp.m_func == VNF_PhiDef)
         {
             // Is the definition within the loop?  If so, is not loop-invariant.
-            unsigned      lclNum = funcApp.m_args[0];
-            unsigned      ssaNum = funcApp.m_args[1];
-            LclSsaVarDsc* ssaDef = lvaTable[lclNum].GetPerSsaData(ssaNum);
-            res                  = !optLoopContains(lnum, ssaDef->GetBlock()->bbNatLoopNum);
+            unsigned lclNum = funcApp.m_args[0];
+            unsigned ssaNum = funcApp.m_args[1];
+            res = !optLoopContains(lnum, lvaGetDesc(lclNum)->GetPerSsaData(ssaNum)->GetBlock()->bbNatLoopNum);
         }
         else if (funcApp.m_func == VNF_PhiMemoryDef)
         {

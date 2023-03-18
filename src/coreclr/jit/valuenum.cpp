@@ -4768,14 +4768,10 @@ void Compiler::vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store,
 
 void Compiler::vnSummarizeLoopSsaDefs(GenTreeSsaDef* def, VNLoopMemorySummary& summary)
 {
-    if (!def->TypeIs(TYP_BYREF))
+    if (def->TypeIs(TYP_BYREF))
     {
-        return;
+        def->SetLiberalVN(def->GetValue()->GetLiberalVN());
     }
-
-    LclVarDsc* lcl     = lvaGetDesc(def->GetLclNum());
-    ValueNum   valueVN = def->GetValue()->GetLiberalVN();
-    lcl->GetPerSsaData(def->GetSsaNum())->SetLiberalVN(valueVN);
 }
 
 void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value)
@@ -4900,17 +4896,18 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
 
 void Compiler::vnSsaUse(GenTreeSsaUse* use)
 {
-    LclVarDsc* lcl    = lvaGetDesc(use->GetDef()->GetLclNum());
-    unsigned   ssaNum = use->GetDef()->GetSsaNum();
+    LclVarDsc* lcl = lvaGetDesc(use->GetDef()->GetLclNum());
 
-    use->SetVNP(vnSsaUse(use, lcl, ssaNum));
+    use->SetVNP(vnSsaUse(use, use->GetDef()));
 }
 
-ValueNumPair Compiler::vnSsaUse(GenTreeSsaUse* use, LclVarDsc* lcl, unsigned ssaNum)
+ValueNumPair Compiler::vnSsaUse(GenTreeSsaUse* use, GenTreeSsaDef* def)
 {
-    ValueNumPair vnp = lcl->GetPerSsaData(ssaNum)->GetVNP();
+    LclVarDsc*   lcl = lvaGetDesc(def->GetLclNum());
+    ValueNumPair vnp = def->GetVNP();
 
-    assert(vnp.GetLiberal() != ValueNumStore::NoVN);
+    assert(vnp.GetLiberal() != NoVN);
+    assert(vnp == lcl->GetPerSsaData(def->GetSsaNum())->GetVNP());
 
     unsigned valSize = varTypeSize(varActualType(use->GetType()));
     unsigned lclSize = varTypeSize(varActualType(lcl->GetType()));
@@ -7552,12 +7549,13 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
 
         for (GenTreeSsaPhi::Use& use : def->GetValue()->AsSsaPhi()->Uses())
         {
-            GenTreeSsaUse* phiArg         = use.GetNode();
-            GenTreeSsaDef* argDef         = phiArg->GetDef();
-            ValueNum       phiArgSsaNumVN = vnStore->VNForIntCon(argDef->GetSsaNum());
-            ValueNumPair   phiArgVNP = lvaGetDesc(argDef->GetLclNum())->GetPerSsaData(argDef->GetSsaNum())->GetVNP();
+            GenTreeSsaUse* phiArg    = use.GetNode();
+            GenTreeSsaDef* argDef    = phiArg->GetDef();
+            ValueNumPair   phiArgVNP = argDef->GetVNP();
 
-            phiArg->gtVNPair = phiArgVNP;
+            phiArg->SetVNP(phiArgVNP);
+
+            ValueNum phiArgSsaNumVN = vnStore->VNForIntCon(argDef->GetSsaNum());
 
             if (phiVNP.GetLiberal() == ValueNumStore::NoVN)
             {
@@ -7606,9 +7604,8 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
                                                   ValueNumPair(ssaNumVN, ssaNumVN), phiVNP);
         }
 
-        LclSsaVarDsc* newSsaDefDsc = lvaGetDesc(def->GetLclNum())->GetPerSsaData(def->GetSsaNum());
-        newSsaDefDsc->SetVNP(newSsaDefVNP);
         def->SetVNP(newSsaDefVNP);
+        lvaGetDesc(def->GetLclNum())->GetPerSsaData(def->GetSsaNum())->SetVNP(newSsaDefVNP);
         INDEBUG(vnTraceLocal(def->GetLclNum(), newSsaDefVNP));
     }
 
@@ -8097,8 +8094,7 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
         case GT_SSA_USE:
             if (node->TypeIs(TYP_BYREF))
             {
-                LclVarDsc* lcl = lvaGetDesc(node->AsSsaUse()->GetDef()->GetLclNum());
-                node->SetLiberalVN(lcl->GetPerSsaData(node->AsSsaUse()->GetDef()->GetSsaNum())->GetLiberalVN());
+                node->SetLiberalVN(node->AsSsaUse()->GetDef()->GetLiberalVN());
             }
             break;
 

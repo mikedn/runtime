@@ -134,13 +134,11 @@ struct VarScopeDsc
 class LclSsaVarDsc
 {
     BasicBlock*  m_block;
-    GenTreeOp*   m_asg;
     ValueNumPair m_vnp;
 
 public:
-    LclSsaVarDsc(BasicBlock* block, GenTreeOp* asg) : m_block(block), m_asg(asg)
+    LclSsaVarDsc(BasicBlock* block) : m_block(block)
     {
-        assert((asg == nullptr) || asg->OperIs(GT_ASG));
     }
 
     BasicBlock* GetBlock() const
@@ -161,11 +159,6 @@ public:
     ValueNum GetLiberalVN() const
     {
         return m_vnp.GetLiberal();
-    }
-
-    ValueNum GetConservativeVN() const
-    {
-        return m_vnp.GetConservative();
     }
 
     void SetVNP(ValueNumPair vnp)
@@ -863,12 +856,15 @@ public:
 private:
     ClassLayout*  m_layout;   // layout info for structs
     FieldSeqNode* m_fieldSeq; // field sequence for promoted struct fields
-
 public:
 #if ASSERTION_PROP
     BlockSet   lvUseBlocks; // Set of blocks that contain uses
     Statement* lvDefStmt;   // Pointer to the statement with the single definition
 #endif
+private:
+    SsaDefArray<LclSsaVarDsc> m_ssaDefs;
+
+public:
     var_types GetType() const
     {
         return lvType;
@@ -959,25 +955,29 @@ public:
         m_layout = layout;
     }
 
-    SsaDefArray<LclSsaVarDsc> lvPerSsaData;
+    unsigned AllocSsaNum(CompAllocator alloc, BasicBlock* block)
+    {
+        return m_ssaDefs.AllocSsaNum(alloc, block);
+    }
 
-    // Returns the address of the per-Ssa data for the given ssaNum (which is required
-    // not to be the SsaConfig::RESERVED_SSA_NUM, which indicates that the variable is
-    // not an SSA variable).
     LclSsaVarDsc* GetPerSsaData(unsigned ssaNum)
     {
-        return lvPerSsaData.GetSsaDef(ssaNum);
+        return m_ssaDefs.GetSsaDef(ssaNum);
     }
 
     bool HasSingleSsaDef() const
     {
-        return lvPerSsaData.GetCount() == 1;
+        return m_ssaDefs.GetCount() == 1;
+    }
+
+    void ClearSsa()
+    {
+        m_isSsa = false;
+        m_ssaDefs.Reset();
     }
 
     var_types GetRegisterType(const GenTreeLclVarCommon* tree) const;
-
     var_types GetRegisterType() const;
-
     var_types GetActualRegisterType() const;
 
     //-----------------------------------------------------------------------------
@@ -4600,7 +4600,7 @@ public:
     void vnSsaDef(GenTreeSsaDef* def);
     void vnLocalLoad(GenTreeLclVar* load);
     void vnSsaUse(GenTreeSsaUse* use);
-    ValueNumPair vnSsaUse(GenTreeSsaUse* use, LclVarDsc* lcl, unsigned ssaNum);
+    ValueNumPair vnSsaUse(GenTreeSsaUse* use, GenTreeSsaDef* def);
     void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
     void vnInsert(GenTreeInsert* insert);
     void vnLocalFieldLoad(GenTreeLclFld* load);
