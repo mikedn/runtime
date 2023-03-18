@@ -355,7 +355,6 @@ public:
     unsigned char lvLiveInOutOfHndlr : 1; // The variable is live in or out of an exception handler, and therefore must
                                           // be on the stack (at least at those boundaries.)
 
-    unsigned char lvInSsa : 1; // The variable is in SSA form (set by SsaBuilder)
     unsigned char m_isSsa : 1; // The variable is in SSA form (set by SsaBuilder)
 
 #ifdef DEBUG
@@ -450,11 +449,6 @@ public:
     bool IsAddressExposed() const
     {
         return lvAddrExposed;
-    }
-
-    bool IsInSsa() const
-    {
-        return lvInSsa;
     }
 
     bool IsSsa() const
@@ -4645,7 +4639,6 @@ public:
     void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
     void vnSsaDef(GenTreeSsaDef* def);
     void vnLocalLoad(GenTreeLclVar* load);
-    ValueNumPair vnLocalLoad(GenTreeLclVar* load, LclVarDsc* lcl, unsigned ssaNum);
     void vnSsaUse(GenTreeSsaUse* use);
     ValueNumPair vnSsaUse(GenTreeSsaUse* use, LclVarDsc* lcl, unsigned ssaNum);
     void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);

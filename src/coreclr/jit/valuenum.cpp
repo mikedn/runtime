@@ -4760,22 +4760,10 @@ void Compiler::vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store,
                                                 GenTreeOp*           asg,
                                                 VNLoopMemorySummary& summary)
 {
-    LclVarDsc* lcl = lvaGetDesc(store);
-
-    if (lcl->IsAddressExposed())
+    if (lvaGetDesc(store)->IsAddressExposed())
     {
         summary.AddAddressExposedLocal(store->GetLclNum());
-
-        return;
     }
-
-    if (!lcl->IsInSsa() || !lcl->TypeIs(TYP_BYREF) || !store->OperIs(GT_LCL_VAR))
-    {
-        return;
-    }
-
-    ValueNum valueVN = asg->GetOp(1)->GetLiberalVN();
-    lcl->GetPerSsaData(store->GetSsaNum())->SetLiberalVN(valueVN);
 }
 
 void Compiler::vnSummarizeLoopSsaDefs(GenTreeSsaDef* def, VNLoopMemorySummary& summary)
@@ -4793,90 +4781,21 @@ void Compiler::vnSummarizeLoopSsaDefs(GenTreeSsaDef* def, VNLoopMemorySummary& s
 void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value)
 {
     assert(store->OperIs(GT_LCL_VAR) && ((store->gtFlags & GTF_VAR_DEF) != 0));
+    assert(!lvaGetDesc(store)->IsSsa());
 
-    LclVarDsc* lcl = lvaGetDesc(store);
-
-    if (lcl->IsAddressExposed())
+    if (!lvaGetDesc(store)->IsAddressExposed())
     {
-        ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
-                                                vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
-        INDEBUG(vnTrace(lclAddrVN));
-
-        ValueNum memVN = vnAddressExposedLocalStore(store, lclAddrVN, value);
-        vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
+        assert(!GetMemorySsaMap()->Lookup(asg));
 
         return;
     }
 
-    assert(!GetMemorySsaMap()->Lookup(asg));
+    ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
+                                            vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
+    INDEBUG(vnTrace(lclAddrVN));
 
-    if (!lcl->IsInSsa())
-    {
-        return;
-    }
-
-    ValueNumPair valueVNP;
-
-    if (store->TypeIs(TYP_STRUCT))
-    {
-        assert(lcl->TypeIs(TYP_STRUCT));
-
-        if (value->TypeIs(TYP_STRUCT))
-        {
-            valueVNP = vnStore->VNPNormalPair(value->GetVNP());
-
-            ClassLayout* valueLayout = typGetStructLayout(value);
-
-            if (valueLayout != lcl->GetLayout())
-            {
-                valueVNP = vnCastStruct(valueVNP, valueLayout, lcl->GetLayout());
-            }
-        }
-        else if (value->OperIs(GT_CNS_INT))
-        {
-            assert(value->IsIntegralConst(0));
-            valueVNP.SetBoth(vnStore->VNForZeroMap());
-        }
-        else
-        {
-            assert(value->OperIs(GT_INIT_VAL));
-            valueVNP.SetBoth(vnStore->VNForExpr(TYP_STRUCT));
-        }
-    }
-    else
-    {
-        valueVNP = vnStore->VNPNormalPair(value->GetVNP());
-
-        var_types valueType = value->GetType();
-        var_types storeType = store->GetType();
-
-        if (valueType != storeType)
-        {
-            if ((varTypeSize(valueType) == varTypeSize(storeType)) && !varTypeIsSmall(valueType))
-            {
-                valueVNP.SetLiberal(vnStore->VNForBitCast(valueVNP.GetLiberal(), store->GetType()));
-                valueVNP.SetConservative(vnStore->VNForBitCast(valueVNP.GetConservative(), store->GetType()));
-            }
-            else
-            {
-                // TODO-MIKE-CQ: This inserts superfluous casts for all sort of small int/INT mismatches,
-                // these ultimately impact CSE because they make the stored value appear to be different
-                // from the original value. This happens easily when storing a value loaded from a small
-                // int field into an int or small int local - the load already widened the small int and
-                // produced an INT value, now we're widening it again and given that VNForCast doesn't
-                // attempt to remove redundant casts we end up with a new value number, different from
-                // the one produced by the load.
-                // This is also dubious in case the IR contains other type mismatches, possibly involving
-                // SIMD types, SIMD12 and SIMD16 in particular.
-                valueVNP = vnStore->VNForCast(valueVNP, storeType);
-            }
-        }
-    }
-
-    lcl->GetPerSsaData(store->GetSsaNum())->SetVNP(valueVNP);
-    store->SetVNP(valueVNP);
-
-    INDEBUG(vnTraceLocal(store->GetLclNum(), valueVNP));
+    ValueNum memVN = vnAddressExposedLocalStore(store, lclAddrVN, value);
+    vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
 }
 
 void Compiler::vnSsaDef(GenTreeSsaDef* def)
@@ -4960,74 +4879,23 @@ void Compiler::vnSsaDef(GenTreeSsaDef* def)
 void Compiler::vnLocalLoad(GenTreeLclVar* load)
 {
     assert(load->OperIs(GT_LCL_VAR) && ((load->gtFlags & GTF_VAR_DEF) == 0));
+    assert(!lvaGetDesc(load)->IsSsa());
 
-    LclVarDsc* lcl = lvaGetDesc(load);
-
-    if (lcl->IsAddressExposed())
-    {
-        ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
-                                             vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
-
-        // TODO-MIKE-Review: Setting the conservative VN to a non unique VN is suspect.
-        // Well, the chance that an address-exposed local is modified by another thread
-        // is slim so perhaps this is fine as it is but then vnIndirStore should do the
-        // same for local addresses.
-        load->gtVNPair.SetBoth(vnMemoryLoad(load->GetType(), addrVN));
-
-        return;
-    }
-
-    if (!lcl->IsInSsa())
+    if (!lvaGetDesc(load)->IsAddressExposed())
     {
         load->gtVNPair.SetBoth(vnStore->VNForExpr(load->GetType()));
 
         return;
     }
 
-    load->SetVNP(vnLocalLoad(load, lcl, load->GetSsaNum()));
-}
+    ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
+                                         vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
 
-ValueNumPair Compiler::vnLocalLoad(GenTreeLclVar* load, LclVarDsc* lcl, unsigned ssaNum)
-{
-    ValueNumPair vnp = lcl->GetPerSsaData(ssaNum)->GetVNP();
-
-    assert(vnp.GetLiberal() != ValueNumStore::NoVN);
-
-    unsigned valSize = varTypeSize(varActualType(load->GetType()));
-    unsigned lclSize = varTypeSize(varActualType(lcl->GetType()));
-
-    if (valSize != lclSize)
-    {
-        // Expected type mismatch case is LONG local loaded as INT, ignore everything else.
-        if (load->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG))
-        {
-            vnp = vnStore->VNForCast(vnp, TYP_INT);
-        }
-        else
-        {
-            printf("bad type %s %s\n", varTypeName(load->GetType()), varTypeName(lcl->GetType()));
-            vnp.SetBoth(vnStore->VNForExpr(load->GetType()));
-        }
-    }
-
-    // A BYREF local may have a zero offset field sequence that needs to be added.
-    if (load->TypeIs(TYP_BYREF))
-    {
-        if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(load))
-        {
-            ValueNum extendVN = vnStore->ExtendPtrVN(vnp.GetLiberal(), fieldSeq, 0);
-
-            if (extendVN != NoVN)
-            {
-                // TODO-MIKE-Fix: This doesn't make a lot of sense. We only look at the liberal VN,
-                // the conservative VN might be different (e.g. the value stored in the local could
-                // have been the result of a load from memory).
-                vnp.SetBoth(extendVN);
-            }
-        }
-    }
-
-    return vnp;
+    // TODO-MIKE-Review: Setting the conservative VN to a non unique VN is suspect.
+    // Well, the chance that an address-exposed local is modified by another thread
+    // is slim so perhaps this is fine as it is but then vnIndirStore should do the
+    // same for local addresses.
+    load->gtVNPair.SetBoth(vnMemoryLoad(load->GetType(), addrVN));
 }
 
 void Compiler::vnSsaUse(GenTreeSsaUse* use)
@@ -5085,73 +4953,22 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
 {
     assert(store->OperIs(GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
     assert(((store->gtFlags & GTF_VAR_USEASG) != 0) == store->IsPartialLclFld(this));
+    assert(!lvaGetDesc(store)->IsSsa());
 
-    LclVarDsc* lcl = lvaGetDesc(store);
-
-    if (lcl->IsAddressExposed())
+    if (!lvaGetDesc(store)->IsAddressExposed())
     {
-        ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
-                                                vnStore->VNForUPtrSizeIntCon(store->GetLclOffs()),
-                                                vnStore->VNForFieldSeq(store->GetFieldSeq()));
-        INDEBUG(vnTrace(lclAddrVN));
-
-        ValueNum memVN = vnAddressExposedLocalStore(store, lclAddrVN, value);
-        vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
+        assert(!GetMemorySsaMap()->Lookup(asg));
 
         return;
     }
 
-    assert(!GetMemorySsaMap()->Lookup(asg));
+    ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
+                                            vnStore->VNForUPtrSizeIntCon(store->GetLclOffs()),
+                                            vnStore->VNForFieldSeq(store->GetFieldSeq()));
+    INDEBUG(vnTrace(lclAddrVN));
 
-    if (!lcl->IsInSsa())
-    {
-        return;
-    }
-
-    ValueNumPair valueVNP;
-
-    if (!store->HasFieldSeq())
-    {
-        valueVNP.SetBoth(vnStore->VNForExpr(varActualType(lcl->GetType())));
-    }
-    else
-    {
-        ValueNumPair currentVNP;
-
-        if ((store->gtFlags & GTF_VAR_USEASG) == 0)
-        {
-            // If the LCL_FLD exactly overlaps the local we can ignore the existing value,
-            // just insert the new value into a zero map.
-            currentVNP.SetBoth(vnStore->VNForZeroMap());
-        }
-        else
-        {
-            currentVNP = lcl->GetPerSsaData(store->GetSsaNum())->GetVNP();
-        }
-
-        FieldSeqNode* fieldSeq = store->GetFieldSeq();
-        var_types     lclType  = lcl->GetType();
-
-        valueVNP.SetLiberal(vnInsertStructField(store, value, VNK_Liberal, currentVNP.GetLiberal(), lclType, fieldSeq));
-
-        if (valueVNP.GetLiberal() == NoVN)
-        {
-            valueVNP.SetLiberal(vnStore->VNForExpr(varActualType(lcl->GetType())));
-        }
-
-        valueVNP.SetConservative(
-            vnInsertStructField(store, value, VNK_Conservative, currentVNP.GetConservative(), lclType, fieldSeq));
-
-        if (valueVNP.GetConservative() == NoVN)
-        {
-            valueVNP.SetConservative(vnStore->VNForExpr(varActualType(lcl->GetType())));
-        }
-    }
-
-    lcl->GetPerSsaData(GetSsaDefNum(store))->SetVNP(valueVNP);
-    store->SetVNP(valueVNP);
-
-    INDEBUG(vnTraceLocal(store->GetLclNum(), valueVNP));
+    ValueNum memVN = vnAddressExposedLocalStore(store, lclAddrVN, value);
+    vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
 }
 
 void Compiler::vnInsert(GenTreeInsert* insert)
@@ -5204,36 +5021,24 @@ void Compiler::vnInsert(GenTreeInsert* insert)
 void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
 {
     assert(load->OperIs(GT_LCL_FLD) && ((load->gtFlags & GTF_VAR_DEF) == 0));
+    assert(!lvaGetDesc(load)->IsSsa());
 
-    LclVarDsc* lcl = lvaGetDesc(load);
-
-    if (lcl->IsAddressExposed())
-    {
-        // Note that the field sequence is currently ignored because we don't try to resolve
-        // these loads back to a store. We only care about getting the same VN when loading
-        // the same type from the same address (provided that there are no interfering stores).
-        ValueNum addrVN =
-            vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
-                               vnStore->VNForUPtrSizeIntCon(load->GetLclOffs()), vnStore->VNForFieldSeq(nullptr));
-
-        load->SetLiberalVN(vnMemoryLoad(load->GetType(), addrVN));
-        load->SetConservativeVN(vnStore->VNForExpr(load->GetType()));
-
-        return;
-    }
-
-    if (!lcl->IsInSsa() || !load->HasFieldSeq())
+    if (!lvaGetDesc(load)->IsAddressExposed())
     {
         load->gtVNPair.SetBoth(vnStore->VNForExpr(load->GetType()));
 
         return;
     }
 
-    assert(varTypeIsStruct(lcl->GetType()));
+    // Note that the field sequence is currently ignored because we don't try to resolve
+    // these loads back to a store. We only care about getting the same VN when loading
+    // the same type from the same address (provided that there are no interfering stores).
+    ValueNum addrVN =
+        vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
+                           vnStore->VNForUPtrSizeIntCon(load->GetLclOffs()), vnStore->VNForFieldSeq(nullptr));
 
-    ValueNumPair vnp = lcl->GetPerSsaData(load->GetSsaNum())->GetVNP();
-    vnp              = vnExtractStructField(load, vnp, load->GetFieldSeq());
-    load->SetVNP(vnp);
+    load->SetLiberalVN(vnMemoryLoad(load->GetType(), addrVN));
+    load->SetConservativeVN(vnStore->VNForExpr(load->GetType()));
 }
 
 void Compiler::vnExtract(GenTreeExtract* extract)
@@ -8290,21 +8095,6 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
 
         case GT_COMMA:
             node->SetLiberalVN(node->AsOp()->GetOp(1)->GetLiberalVN());
-            break;
-
-        case GT_LCL_VAR:
-            if (node->TypeIs(TYP_BYREF) && ((node->gtFlags & GTF_VAR_DEF) == 0))
-            {
-                LclVarDsc* lcl = lvaGetDesc(node->AsLclVar());
-
-                // TODO-MIKE-Cleanup: Unreachable blocks aren't properly removed (see Runtime_57061_2).
-                // Such blocks may or may not be traversed by various JIT phases - SSA builder does not
-                // traverse them but this code does and ends up asserting due to missing SSA numbers.
-                if (lcl->IsInSsa() && (node->AsLclVar()->GetSsaNum() != NoSsaNum))
-                {
-                    node->SetLiberalVN(lcl->GetPerSsaData(node->AsLclVar()->GetSsaNum())->GetLiberalVN());
-                }
-            }
             break;
 
         case GT_SSA_USE:

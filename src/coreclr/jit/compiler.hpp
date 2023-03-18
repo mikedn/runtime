@@ -2231,7 +2231,7 @@ inline void Compiler::SetPartialSsaDefNum(GenTreeLclFld* store, unsigned ssaNum)
 inline unsigned Compiler::GetSsaDefNum(GenTreeLclVarCommon* lclNode)
 {
     assert((lclNode->gtFlags & GTF_VAR_DEF) != 0);
-    assert(lvaGetDesc(lclNode)->IsInSsa() || lvaGetDesc(lclNode)->IsSsa());
+    assert(lvaGetDesc(lclNode)->IsSsa());
 
     if ((lclNode->gtFlags & GTF_VAR_USEASG) == 0)
     {
