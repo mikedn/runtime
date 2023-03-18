@@ -2998,6 +2998,7 @@ struct GenTreeLclVarCommon : public GenTreeUnOp
 {
 private:
     unsigned m_lclNum;
+    unsigned m_unused; // to preserve TREE_NODE_SZ_SMALL, which is sizeof(GenTreeLclFld)
 
 protected:
     GenTreeLclVarCommon(const GenTreeLclVarCommon* copyFrom)
