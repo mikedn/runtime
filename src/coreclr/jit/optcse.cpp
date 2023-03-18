@@ -2311,13 +2311,11 @@ public:
                 }
                 else
                 {
-                    GenTreeLclVar* lclDef = compiler->gtNewLclvNode(lclNum, lclType);
-                    lclDef->SetVNP(defExpr->GetVNP());
+                    GenTreeLclVar* store = compiler->gtNewStoreLclVar(lclNum, lclType, defExpr);
+                    store->AddSideEffects(defExpr->GetSideEffects());
+                    store->SetVNP(defExpr->GetVNP());
 
-                    GenTreeOp* asg = compiler->gtNewAssignNode(lclDef, defExpr);
-                    asg->SetVNP(ValueNumStore::VNPForVoid());
-
-                    newExpr = compiler->gtNewCommaNode(asg, newExpr, exprType);
+                    newExpr = compiler->gtNewCommaNode(store, newExpr, exprType);
                 }
 
                 newExpr->SetVNP(expr->GetVNP());

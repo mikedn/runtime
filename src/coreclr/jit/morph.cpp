@@ -3159,7 +3159,7 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
         // temp arg copies? The struct arg morph code below doesn't handle that.
         GenTree* argVal = arg->SkipComma();
 
-        if (argVal->OperIs(GT_ASG, GT_FIELD_LIST, GT_ARGPLACE, GT_SSA_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+        if (argVal->OperIs(GT_ASG, GT_FIELD_LIST, GT_ARGPLACE, GT_SSA_DEF, GT_STORE_LCL_VAR))
         {
             // Skip arguments that have already been transformed.
             argsSideEffects |= arg->gtFlags;
@@ -12024,7 +12024,8 @@ DONE_MORPHING_CHILDREN:
 
         case GT_COMMA:
             // Special case: trees that don't produce a value
-            if (op2->OperIs(GT_ASG, GT_SSA_DEF) || (op2->OperIs(GT_COMMA) && op2->TypeIs(TYP_VOID)) || fgIsThrow(op2))
+            if (op2->OperIs(GT_ASG, GT_SSA_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
+                (op2->OperIs(GT_COMMA) && op2->TypeIs(TYP_VOID)) || fgIsThrow(op2))
             {
                 tree->SetType(TYP_VOID);
                 typ = TYP_VOID;
@@ -12115,7 +12116,7 @@ DONE_MORPHING_CHILDREN:
     // tree will always throw an exception.
     // TODO-MIKE-Review: Why bother do anything here to begin with? Can't we just set
     // fgRemoveRestOfBlock and have fgMorphTree callers deal with it?
-    if ((oper != GT_ASG) && (oper != GT_SSA_DEF))
+    if ((oper != GT_ASG) && (oper != GT_SSA_DEF) && (oper != GT_STORE_LCL_VAR))
     {
         /* Check for op1 as a GT_COMMA with a unconditional throw node */
         if (op1 && fgIsCommaThrow(op1, true))

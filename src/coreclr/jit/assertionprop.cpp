@@ -1408,14 +1408,11 @@ private:
         GenTree* op1 = node->AsOp()->GetOp(0);
         GenTree* op2 = node->AsOp()->GetOp(1);
 
-        if (op2->OperIs(GT_LCL_VAR) && op1->OperIs(GT_ASG))
+        if (op2->OperIs(GT_LCL_VAR) && op1->OperIs(GT_STORE_LCL_VAR))
         {
-            GenTree* dst = op1->AsOp()->GetOp(0);
-            GenTree* src = op1->AsOp()->GetOp(1);
-
-            if (dst->OperIs(GT_LCL_VAR) && (dst->AsLclVar()->GetLclNum() == op2->AsLclVar()->GetLclNum()))
+            if (op1->AsLclVar()->GetLclNum() == op2->AsLclVar()->GetLclNum())
             {
-                return src;
+                return op1->AsLclVar()->GetOp(0);
             }
         }
         else if (op2->OperIs(GT_SSA_USE) && op1->OperIs(GT_SSA_DEF))
