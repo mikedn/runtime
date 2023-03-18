@@ -141,19 +141,9 @@ public:
         return m_vnp;
     }
 
-    ValueNum GetLiberalVN() const
-    {
-        return m_vnp.GetLiberal();
-    }
-
     void SetVNP(ValueNumPair vnp)
     {
         m_vnp = vnp;
-    }
-
-    void SetLiberalVN(ValueNum vn)
-    {
-        m_vnp.SetLiberal(vn);
     }
 };
 
