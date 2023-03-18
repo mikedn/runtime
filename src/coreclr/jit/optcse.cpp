@@ -2171,7 +2171,7 @@ public:
             JITDUMP(FMT_CSE " is single-def, so associated temp V%02u will be in SSA\n", value->index, lclNum);
             lcl->m_isSsa = true;
 
-            ssaNum = lcl->lvPerSsaData.AllocSsaNum(compiler->getAllocator(CMK_SSA));
+            ssaNum = lcl->lvPerSsaData.AllocSsaNum(compiler->getAllocator(CMK_SSA), nullptr, nullptr);
         }
 
         GenTreeSsaDef* singleDef      = nullptr;

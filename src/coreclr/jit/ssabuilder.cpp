@@ -1410,7 +1410,7 @@ void SsaBuilder::RenameVariables()
         if (lcl->IsSsa() &&
             VarSetOps::IsMember(m_pCompiler, m_pCompiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()))
         {
-            unsigned ssaNum = lcl->lvPerSsaData.AllocSsaNum(m_allocator);
+            unsigned ssaNum = lcl->lvPerSsaData.AllocSsaNum(m_allocator, m_pCompiler->fgFirstBB, nullptr);
             // HasImplicitSsaDef assumes that this is always the first SSA def.
             assert(ssaNum == SsaConfig::FIRST_SSA_NUM);
 

@@ -7402,7 +7402,6 @@ void Compiler::fgValueNumber()
 
         LclSsaVarDsc* ssaDef = lcl->GetPerSsaData(SsaConfig::FIRST_SSA_NUM);
         ssaDef->m_vnPair.SetBoth(initVN);
-        ssaDef->SetBlock(fgFirstBB);
 
         def->gtVNPair.SetBoth(initVN);
 
