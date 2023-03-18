@@ -71,13 +71,10 @@ void Compiler::fgSsaReset()
         {
             for (GenTree* node : stmt->Nodes())
             {
-                assert(!node->OperIs(GT_PHI_ARG));
-
                 node->SetVNs({NoVN, NoVN});
 
                 if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                 {
-                    node->AsLclVarCommon()->SetSsaNum(SsaConfig::RESERVED_SSA_NUM);
                     node->gtFlags &= ~GTF_VAR_FIELD_DEATH_MASK;
                 }
             }
@@ -828,8 +825,6 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 
             return;
         }
-
-        lclNode->SetSsaNum(SsaConfig::RESERVED_SSA_NUM);
 
         if (!lcl->IsAddressExposed())
         {

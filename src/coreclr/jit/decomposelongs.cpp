@@ -424,7 +424,7 @@ GenTree* DecomposeLongs::DecomposeStoreLclVar(LIR::Use& use)
     GenTreeLclVar* tree = use.Def()->AsLclVar();
     GenTree*       rhs  = tree->GetOp(0);
 
-    if (rhs->OperIs(GT_PHI, GT_CALL, GT_MUL_LONG))
+    if (rhs->OperIs(GT_CALL, GT_MUL_LONG))
     {
         // GT_CALLs are not decomposed, so will not be converted to GT_LONG
         // GT_STORE_LCL_VAR = GT_CALL are handled in genMultiRegCallStoreToLocal

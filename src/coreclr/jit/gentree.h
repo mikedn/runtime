@@ -1858,14 +1858,7 @@ public:
     inline var_types  CastFromType();
     inline var_types& CastToType();
 
-    // Returns "true" iff "this" is a phi-related node (i.e. a GT_PHI_ARG, GT_PHI, or a PhiDefn).
-    bool IsPhiNode();
-
-    // Returns "true" iff "*this" is an assignment (GT_ASG) tree that defines an SSA name (lcl = phi(...));
-    bool IsPhiDefn();
     bool IsSsaPhiDef() const;
-
-    // Returns "true" iff "*this" is a statement containing an assignment that defines an SSA name (lcl = phi(...));
 
     // Because of the fact that we hid the assignment operator of "BitSet" (in DEBUG),
     // we can't synthesize an assignment operator.
@@ -1991,177 +1984,6 @@ public:
     GenTree(const GenTree* copyFrom) : GenTree(copyFrom->gtOper, copyFrom->gtType)
     {
     }
-};
-
-// Represents a GT_PHI node - a variable sized list of GT_PHI_ARG nodes.
-// All PHI_ARG nodes must represent uses of the same local variable and
-// the PHI node's type must be the same as the local variable's type.
-//
-// The PHI node does not represent a definition by itself, it is always
-// the RHS of a GT_ASG node. The LHS of the ASG node is always a GT_LCL_VAR
-// node, that is a definition for the same local variable referenced by
-// all the used PHI_ARG nodes:
-//
-//   ASG(LCL_VAR(lcl7), PHI(PHI_ARG(lcl7), PHI_ARG(lcl7), PHI_ARG(lcl7)))
-//
-// PHI nodes are also present in LIR, where GT_STORE_LCL_VAR replaces the
-// ASG node.
-//
-// The order of the PHI_ARG uses is not currently relevant and it may be
-// the same or not as the order of the predecessor blocks.
-//
-struct GenTreePhi final : public GenTree
-{
-    class Use
-    {
-        GenTree* m_node;
-        Use*     m_next;
-
-    public:
-        Use(GenTree* node, Use* next = nullptr) : m_node(node), m_next(next)
-        {
-            assert(node->OperIs(GT_PHI_ARG));
-        }
-
-        GenTree*& NodeRef()
-        {
-            return m_node;
-        }
-
-        GenTree* GetNode() const
-        {
-            assert(m_node->OperIs(GT_PHI_ARG));
-            return m_node;
-        }
-
-        void SetNode(GenTree* node)
-        {
-            assert(node->OperIs(GT_PHI_ARG));
-            m_node = node;
-        }
-
-        Use*& NextRef()
-        {
-            return m_next;
-        }
-
-        Use* GetNext() const
-        {
-            return m_next;
-        }
-    };
-
-    class UseIterator
-    {
-        Use* m_use;
-
-    public:
-        UseIterator(Use* use) : m_use(use)
-        {
-        }
-
-        Use& operator*() const
-        {
-            return *m_use;
-        }
-
-        Use* operator->() const
-        {
-            return m_use;
-        }
-
-        UseIterator& operator++()
-        {
-            m_use = m_use->GetNext();
-            return *this;
-        }
-
-        bool operator==(const UseIterator& i) const
-        {
-            return m_use == i.m_use;
-        }
-
-        bool operator!=(const UseIterator& i) const
-        {
-            return m_use != i.m_use;
-        }
-    };
-
-    class UseList
-    {
-        Use* m_uses;
-
-    public:
-        UseList(Use* uses) : m_uses(uses)
-        {
-        }
-
-        UseIterator begin() const
-        {
-            return UseIterator(m_uses);
-        }
-
-        UseIterator end() const
-        {
-            return UseIterator(nullptr);
-        }
-    };
-
-    Use* gtUses;
-
-    GenTreePhi(var_types type) : GenTree(GT_PHI, type), gtUses(nullptr)
-    {
-    }
-
-    UseList Uses()
-    {
-        return UseList(gtUses);
-    }
-
-    //--------------------------------------------------------------------------
-    // Equals: Checks if 2 PHI nodes are equal.
-    //
-    // Arguments:
-    //    phi1 - The first PHI node
-    //    phi2 - The second PHI node
-    //
-    // Return Value:
-    //    true if the 2 PHI nodes have the same type, number of uses, and the
-    //    uses are equal.
-    //
-    // Notes:
-    //    The order of uses must be the same for equality, even if the
-    //    order is not usually relevant and is not guaranteed to reflect
-    //    a particular order of the predecessor blocks.
-    //
-    static bool Equals(GenTreePhi* phi1, GenTreePhi* phi2)
-    {
-        if (phi1->TypeGet() != phi2->TypeGet())
-        {
-            return false;
-        }
-
-        GenTreePhi::UseIterator i1   = phi1->Uses().begin();
-        GenTreePhi::UseIterator end1 = phi1->Uses().end();
-        GenTreePhi::UseIterator i2   = phi2->Uses().begin();
-        GenTreePhi::UseIterator end2 = phi2->Uses().end();
-
-        for (; (i1 != end1) && (i2 != end2); ++i1, ++i2)
-        {
-            if (!Compare(i1->GetNode(), i2->GetNode()))
-            {
-                return false;
-            }
-        }
-
-        return (i1 == end1) && (i2 == end2);
-    }
-
-#if DEBUGGABLE_GENTREE
-    GenTreePhi() : GenTree()
-    {
-    }
-#endif
 };
 
 // Represents a list of fields constituting a struct, when it is passed as an argument.
@@ -2459,7 +2281,6 @@ class GenTreeUseEdgeIterator final
     void AdvanceBoundsChk();
     void AdvanceArrElem();
     void AdvanceFieldList();
-    void AdvancePhi();
     void AdvanceSsaPhi();
 #ifdef FEATURE_HW_INTRINSICS
     void AdvanceHWIntrinsic();
@@ -3176,14 +2997,11 @@ static constexpr int NoSsaNum = SsaConfig::RESERVED_SSA_NUM;
 struct GenTreeLclVarCommon : public GenTreeUnOp
 {
 private:
-    unsigned m_lclNum; // The local number. An index into the Compiler::lvaTable array.
-    unsigned m_ssaNum; // The SSA number.
+    unsigned m_lclNum;
 
 protected:
     GenTreeLclVarCommon(const GenTreeLclVarCommon* copyFrom)
-        : GenTreeUnOp(copyFrom->GetOper(), copyFrom->GetType())
-        , m_lclNum(copyFrom->m_lclNum)
-        , m_ssaNum(copyFrom->m_ssaNum)
+        : GenTreeUnOp(copyFrom->GetOper(), copyFrom->GetType()), m_lclNum(copyFrom->m_lclNum)
     {
     }
 
@@ -3204,20 +3022,9 @@ public:
         assert(lclNum != BAD_VAR_NUM);
 
         m_lclNum = lclNum;
-        m_ssaNum = NoSsaNum;
     }
 
     uint16_t GetLclOffs() const;
-
-    unsigned GetSsaNum() const
-    {
-        return m_ssaNum;
-    }
-
-    void SetSsaNum(unsigned ssaNum)
-    {
-        m_ssaNum = ssaNum;
-    }
 
 #if DEBUGGABLE_GENTREE
     GenTreeLclVarCommon() : GenTreeUnOp()
@@ -7024,11 +6831,6 @@ public:
         m_compilerAdded = true;
     }
 
-    bool IsPhiDefnStmt() const
-    {
-        return m_rootNode->IsPhiDefn();
-    }
-
     unsigned char GetCostSz() const
     {
         return m_rootNode->GetCostSz();
@@ -7165,24 +6967,6 @@ public:
 
 #if DEBUGGABLE_GENTREE
     GenTreeClsVar() : GenTree()
-    {
-    }
-#endif
-};
-
-/* gtPhiArg -- phi node rhs argument, var = phi(phiarg, phiarg, phiarg...); GT_PHI_ARG */
-struct GenTreePhiArg : public GenTreeLclVarCommon
-{
-    BasicBlock* gtPredBB;
-
-    GenTreePhiArg(var_types type, unsigned lclNum, unsigned ssaNum, BasicBlock* block)
-        : GenTreeLclVarCommon(GT_PHI_ARG, type, lclNum), gtPredBB(block)
-    {
-        SetSsaNum(ssaNum);
-    }
-
-#if DEBUGGABLE_GENTREE
-    GenTreePhiArg() : GenTreeLclVarCommon()
     {
     }
 #endif

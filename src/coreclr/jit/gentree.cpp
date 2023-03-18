@@ -235,7 +235,6 @@ static_assert_no_msg(sizeof(GenTreeDynBlk)       <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeRetExpr)      <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeILOffset)     <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeClsVar)       <= TREE_NODE_SZ_SMALL);
-static_assert_no_msg(sizeof(GenTreePhiArg)       <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeInstr)        <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreePutArgStk)    <= TREE_NODE_SZ_SMALL);
 #ifdef FEATURE_HW_INTRINSICS
@@ -1265,9 +1264,6 @@ AGAIN:
             op2 = op2->AsArrElem()->gtArrObj;
             goto AGAIN;
 
-        case GT_PHI:
-            return GenTreePhi::Equals(op1->AsPhi(), op2->AsPhi());
-
         case GT_SSA_PHI:
             return GenTreeSsaPhi::Equals(op1->AsSsaPhi(), op2->AsSsaPhi());
 
@@ -1572,13 +1568,6 @@ AGAIN:
             }
 
             for (GenTreeCall::Use& use : tree->AsCall()->LateArgs())
-            {
-                hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
-            }
-            break;
-
-        case GT_PHI:
-            for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
             {
                 hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
             }
@@ -2430,7 +2419,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 costSz = 3;
                 break;
 
-            case GT_PHI_ARG:
             case GT_ARGPLACE:
                 level  = 0;
                 costEx = 0;
@@ -3373,23 +3361,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             costSz += 2 + (arrElem->gtArrRank * 2);
         }
         break;
-
-        case GT_PHI:
-            for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
-            {
-                lvl2 = gtSetEvalOrder(use.GetNode());
-                // PHI args should always have cost 0 and level 0
-                assert(lvl2 == 0);
-                assert(use.GetNode()->GetCostEx() == 0);
-                assert(use.GetNode()->GetCostSz() == 0);
-            }
-            // Give it a level of 2, just to be sure that it's greater than the LHS of
-            // the parent assignment and the PHI gets evaluated first in linear order.
-            // See also SsaBuilder::InsertPhi and SsaBuilder::AddPhiArg.
-            level  = 2;
-            costEx = 0;
-            costSz = 0;
-            break;
 
         case GT_SSA_PHI:
             for (GenTreeSsaPhi::Use& use : tree->AsSsaPhi()->Uses())
@@ -5546,19 +5517,6 @@ GenTree* Compiler::gtCloneExpr(
         }
         break;
 
-        case GT_PHI:
-        {
-            copy                      = new (this, GT_PHI) GenTreePhi(tree->TypeGet());
-            GenTreePhi::Use** prevUse = &copy->AsPhi()->gtUses;
-            for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
-            {
-                *prevUse = new (this, CMK_ASTNode)
-                    GenTreePhi::Use(gtCloneExpr(use.GetNode(), addFlags, deepVarNum, deepVarVal), *prevUse);
-                prevUse = &((*prevUse)->NextRef());
-            }
-        }
-        break;
-
         case GT_SSA_PHI:
         {
             copy                         = new (this, GT_SSA_PHI) GenTreeSsaPhi(tree->GetType());
@@ -6046,7 +6004,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
 #if !defined(FEATURE_EH_FUNCLETS)
         case GT_END_LFIN:
 #endif // !FEATURE_EH_FUNCLETS
-        case GT_PHI_ARG:
         case GT_JMPTABLE:
         case GT_CLS_VAR_ADDR:
         case GT_ARGPLACE:
@@ -6146,12 +6103,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             m_statePtr = m_node->AsInstr()->Uses().begin();
             m_advance  = &GenTreeUseEdgeIterator::AdvanceInstr;
             AdvanceInstr();
-            return;
-
-        case GT_PHI:
-            m_statePtr = m_node->AsPhi()->gtUses;
-            m_advance  = &GenTreeUseEdgeIterator::AdvancePhi;
-            AdvancePhi();
             return;
 
         case GT_SSA_PHI:
@@ -6322,25 +6273,6 @@ void GenTreeUseEdgeIterator::AdvanceInstr()
         GenTreeInstr::Use* currentUse = static_cast<GenTreeInstr::Use*>(m_statePtr);
         m_edge                        = &currentUse->NodeRef();
         m_statePtr                    = currentUse + 1;
-    }
-}
-
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::AdvancePhi: produces the next operand of a Phi node and advances the state.
-//
-void GenTreeUseEdgeIterator::AdvancePhi()
-{
-    assert(m_state == 0);
-
-    if (m_statePtr == nullptr)
-    {
-        m_state = -1;
-    }
-    else
-    {
-        GenTreePhi::Use* currentUse = static_cast<GenTreePhi::Use*>(m_statePtr);
-        m_edge                      = &currentUse->NodeRef();
-        m_statePtr                  = currentUse->GetNext();
     }
 }
 
@@ -7694,7 +7626,6 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
     switch (tree->GetOper())
     {
         case GT_LCL_FLD:
-        case GT_PHI_ARG:
         case GT_LCL_VAR:
         case GT_LCL_ADDR:
             dmpLclVarCommon(tree->AsLclVarCommon(), indentStack);
@@ -8365,20 +8296,6 @@ void Compiler::gtDispTree(GenTree*     tree,
                 {
                     gtDispChild(tree->AsInstr()->GetOp(i), indentStack,
                                 (i == tree->AsInstr()->GetNumOps() - 1) ? IIArcBottom : IIArc);
-                }
-            }
-            break;
-
-        case GT_PHI:
-            gtDispCommonEndLine(tree);
-
-            if (!topOnly)
-            {
-                for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
-                {
-                    char block[32];
-                    sprintf_s(block, sizeof(block), "pred " FMT_BB, use.GetNode()->AsPhiArg()->gtPredBB->bbNum);
-                    gtDispChild(use.GetNode(), indentStack, (use.GetNext() == nullptr) ? IIArcBottom : IIArc, block);
                 }
             }
             break;
@@ -12047,17 +11964,6 @@ bool Compiler::gtComplexityExceeds(GenTree* tree, unsigned limit)
 {
     ComplexityStruct complexity(limit);
     return fgWalkTreePre(&tree, &ComplexityExceedsWalker, &complexity) == WALK_ABORT;
-}
-
-bool GenTree::IsPhiNode()
-{
-    return OperIs(GT_PHI_ARG, GT_PHI) || IsPhiDefn();
-}
-
-bool GenTree::IsPhiDefn()
-{
-    return (OperIs(GT_ASG) && AsOp()->GetOp(1)->OperIs(GT_PHI)) ||
-           (OperIs(GT_STORE_LCL_VAR) && AsLclVar()->GetOp(0)->OperIs(GT_PHI));
 }
 
 bool GenTree::IsSsaPhiDef() const

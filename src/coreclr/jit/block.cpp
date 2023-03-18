@@ -999,8 +999,7 @@ Statement* BasicBlock::FirstNonPhiDef() const
         return nullptr;
     }
     GenTree* tree = stmt->GetRootNode();
-    while (tree->IsSsaPhiDef() || (tree->OperGet() == GT_ASG && tree->AsOp()->gtOp2->OperGet() == GT_PHI) ||
-           (tree->OperGet() == GT_STORE_LCL_VAR && tree->AsOp()->gtOp1->OperGet() == GT_PHI))
+    while (tree->IsSsaPhiDef())
     {
         stmt = stmt->GetNextStmt();
         if (stmt == nullptr)

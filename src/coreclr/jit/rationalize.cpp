@@ -135,7 +135,6 @@ void Rationalizer::RewriteLocalAssignment(GenTreeOp* assignment, GenTreeLclVarCo
     store->SetType(location->GetType());
     store->SetOp(0, value);
     store->SetLclNum(location->GetLclNum());
-    store->SetSsaNum(location->GetSsaNum());
 
     if (store->OperIs(GT_STORE_LCL_FLD))
     {
@@ -538,11 +537,7 @@ void Rationalizer::Run()
             assert(statement->GetNodeList()->gtPrev == nullptr);
             assert(statement->GetRootNode() != nullptr);
             assert(statement->GetRootNode()->gtNext == nullptr);
-
-            if (statement->IsPhiDefnStmt())
-            {
-                continue;
-            }
+            assert(!statement->GetRootNode()->IsSsaPhiDef());
 
             IL_OFFSETX stmtILOffset = statement->GetILOffsetX();
 

@@ -171,12 +171,6 @@ public:
         return m_asg;
     }
 
-    void SetAssignment(GenTreeOp* asg)
-    {
-        assert((asg == nullptr) || asg->OperIs(GT_ASG));
-        m_asg = asg;
-    }
-
     ValueNumPair GetVNP() const
     {
         return m_vnPair;
@@ -3969,11 +3963,6 @@ public:
     {
         assert(lclAddr->GetLclNum() < lvaCount);
         return &lvaTable[lclAddr->GetLclNum()];
-    }
-
-    LclSsaVarDsc* lvaGetSsaDesc(const GenTreeLclVarCommon* lclNode)
-    {
-        return lvaGetDesc(lclNode)->GetPerSsaData(lclNode->GetSsaNum());
     }
 
     unsigned lvaTrackedIndexToLclNum(unsigned trackedIndex)
@@ -7949,7 +7938,6 @@ public:
 #if !defined(FEATURE_EH_FUNCLETS)
             case GT_END_LFIN:
 #endif // !FEATURE_EH_FUNCLETS
-            case GT_PHI_ARG:
             case GT_JMPTABLE:
             case GT_CLS_VAR_ADDR:
             case GT_ARGPLACE:
@@ -8029,17 +8017,6 @@ public:
                 break;
 
             // Special nodes
-            case GT_PHI:
-                for (GenTreePhi::Use& use : node->AsPhi()->Uses())
-                {
-                    result = WalkTree(&use.NodeRef(), node);
-                    if (result == fgWalkResult::WALK_ABORT)
-                    {
-                        return result;
-                    }
-                }
-                break;
-
             case GT_SSA_PHI:
                 for (GenTreeSsaPhi::Use& use : node->AsSsaPhi()->Uses())
                 {

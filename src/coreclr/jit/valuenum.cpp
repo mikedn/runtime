@@ -8227,12 +8227,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             tree->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
             break;
 
-        case GT_PHI_ARG:
-            // This one is special because we should never process it in this method: it should
-            // always be taken care of, when needed, during pre-processing of a blocks phi definitions.
-            assert(false);
-            break;
-
         case GT_ASG:
             vnAssignment(tree->AsOp());
             break;

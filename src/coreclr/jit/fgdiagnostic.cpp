@@ -3121,14 +3121,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 chkFlags |= bndsChk->GetLength()->GetSideEffects();
                 break;
 
-            case GT_PHI:
-                for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
-                {
-                    fgDebugCheckFlags(use.GetNode());
-                    chkFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
-                }
-                break;
-
             case GT_SSA_PHI:
                 for (GenTreeSsaPhi::Use& use : tree->AsSsaPhi()->Uses())
                 {

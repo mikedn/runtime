@@ -2241,7 +2241,6 @@ void GenTree::VisitOperands(TVisitor visitor)
 #if !defined(FEATURE_EH_FUNCLETS)
         case GT_END_LFIN:
 #endif // !FEATURE_EH_FUNCLETS
-        case GT_PHI_ARG:
         case GT_JMPTABLE:
         case GT_CLS_VAR_ADDR:
         case GT_ARGPLACE:
@@ -2306,16 +2305,6 @@ void GenTree::VisitOperands(TVisitor visitor)
             return;
 
         // Special nodes
-        case GT_PHI:
-            for (GenTreePhi::Use& use : AsPhi()->Uses())
-            {
-                if (visitor(use.NodeRef()) == VisitResult::Abort)
-                {
-                    break;
-                }
-            }
-            return;
-
         case GT_SSA_PHI:
             for (GenTreeSsaPhi::Use& use : AsSsaPhi()->Uses())
             {

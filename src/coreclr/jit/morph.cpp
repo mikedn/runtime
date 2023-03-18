@@ -10894,7 +10894,7 @@ DONE_MORPHING_CHILDREN:
                 }
             }
 
-            if (varTypeIsStruct(typ) && !op2->OperIs(GT_PHI))
+            if (varTypeIsStruct(typ))
             {
                 return fgMorphStructAssignment(tree->AsOp());
             }
@@ -13522,15 +13522,6 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             if (fgGlobalMorph)
             {
                 fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, currentBlock);
-            }
-            break;
-
-        case GT_PHI:
-            tree->gtFlags &= ~GTF_ALL_EFFECT;
-            for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
-            {
-                use.SetNode(fgMorphTree(use.GetNode()));
-                tree->gtFlags |= use.GetNode()->gtFlags & GTF_ALL_EFFECT;
             }
             break;
 
