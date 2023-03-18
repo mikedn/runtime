@@ -739,7 +739,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
             }
 
             GenTree* value  = asgNode->GetOp(1);
-            unsigned ssaNum = lcl->AllocSsaNum(m_allocator, block);
+            unsigned ssaNum = lcl->AllocSsaNum(m_allocator);
 
             if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
             {
@@ -879,7 +879,7 @@ void SsaBuilder::RenamePhiDef(GenTreeSsaDef* def, BasicBlock* block)
     unsigned   lclNum = def->GetLclNum();
     LclVarDsc* lcl    = m_pCompiler->lvaGetDesc(lclNum);
 
-    def->SetSsaNum(lcl->AllocSsaNum(m_allocator, block));
+    def->SetSsaNum(lcl->AllocSsaNum(m_allocator));
     m_renameStack.Push(block, lclNum, def);
 }
 
@@ -1410,7 +1410,7 @@ void SsaBuilder::RenameVariables()
         if (lcl->IsSsa() &&
             VarSetOps::IsMember(m_pCompiler, m_pCompiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()))
         {
-            unsigned ssaNum = lcl->AllocSsaNum(m_allocator, m_pCompiler->fgFirstBB);
+            unsigned ssaNum = lcl->AllocSsaNum(m_allocator);
             // HasImplicitSsaDef assumes that this is always the first SSA def.
             assert(ssaNum == SsaConfig::FIRST_SSA_NUM);
 

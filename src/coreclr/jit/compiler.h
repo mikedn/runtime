@@ -133,24 +133,9 @@ struct VarScopeDsc
 // This class stores information associated with a LclVar SSA definition.
 class LclSsaVarDsc
 {
-    BasicBlock*  m_block;
     ValueNumPair m_vnp;
 
 public:
-    LclSsaVarDsc(BasicBlock* block) : m_block(block)
-    {
-    }
-
-    BasicBlock* GetBlock() const
-    {
-        return m_block;
-    }
-
-    void SetBlock(BasicBlock* block)
-    {
-        m_block = block;
-    }
-
     ValueNumPair GetVNP() const
     {
         return m_vnp;
@@ -955,9 +940,9 @@ public:
         m_layout = layout;
     }
 
-    unsigned AllocSsaNum(CompAllocator alloc, BasicBlock* block)
+    unsigned AllocSsaNum(CompAllocator alloc)
     {
-        return m_ssaDefs.AllocSsaNum(alloc, block);
+        return m_ssaDefs.AllocSsaNum(alloc);
     }
 
     LclSsaVarDsc* GetPerSsaData(unsigned ssaNum)

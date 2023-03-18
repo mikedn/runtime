@@ -1086,37 +1086,25 @@ bool Compiler::optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* loo
     VNFuncApp funcApp;
     if (vnStore->GetVNFunc(vn, &funcApp))
     {
-        if (funcApp.m_func == VNF_PhiDef)
+        if ((funcApp.m_func == VNF_PhiDef) || (funcApp.m_func == VNF_PhiMemoryDef))
         {
-            // Is the definition within the loop?  If so, is not loop-invariant.
-            unsigned lclNum = funcApp.m_args[0];
-            unsigned ssaNum = funcApp.m_args[1];
-            res = !optLoopContains(lnum, lvaGetDesc(lclNum)->GetPerSsaData(ssaNum)->GetBlock()->bbNatLoopNum);
-        }
-        else if (funcApp.m_func == VNF_PhiMemoryDef)
-        {
-            BasicBlock* defnBlk = vnStore->ConstantHostPtr<BasicBlock>(funcApp.m_args[0]);
-            res                 = !optLoopContains(lnum, defnBlk->bbNatLoopNum);
+            res = !optLoopContains(lnum, vnStore->ConstantHostPtr<BasicBlock>(funcApp[1])->bbNatLoopNum);
         }
         else if (funcApp.m_func == VNF_MemOpaque)
         {
-            const unsigned vnLoopNum = funcApp.m_args[0];
-            res                      = !optLoopContains(lnum, vnLoopNum);
+            res = !optLoopContains(lnum, funcApp[0]);
         }
         else
         {
             for (unsigned i = 0; i < funcApp.m_arity; i++)
             {
-                // 4th arg of mapStore identifies the loop where the store happens.
-                //
                 if (funcApp.m_func == VNF_MapStore)
                 {
                     assert(funcApp.m_arity == 4);
 
                     if (i == 3)
                     {
-                        const unsigned vnLoopNum = funcApp.m_args[3];
-                        res                      = !optLoopContains(lnum, vnLoopNum);
+                        res = !optLoopContains(lnum, funcApp[3]);
                         break;
                     }
                 }

@@ -2025,30 +2025,15 @@ ValueNum ValueNumStore::VNForFunc(var_types typ, VNFunc func, ValueNum arg0VN, V
 //
 // Return Value:     - Returns the ValueNum associated with 'func'('arg0VN','arg1VN','arg1VN)
 //
-// Note: - This method only handles Trinary operations
-//         We have to special case VNF_PhiDef, as it's first two arguments are not ValueNums
-//
 ValueNum ValueNumStore::VNForFunc(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN, ValueNum arg2VN)
 {
     assert(arg0VN != NoVN);
     assert(arg1VN != NoVN);
     assert(arg2VN != NoVN);
     assert(VNFuncArityIsLegal(func, 3));
-
-#ifdef DEBUG
-    // Function arguments carry no exceptions.
-    //
-    if (func != VNF_PhiDef)
-    {
-        // For a phi definition first and second argument are "plain" local/ssa numbers.
-        // (I don't know if having such non-VN arguments to a VN function is a good idea -- if we wanted to declare
-        // ValueNum to be "short" it would be a problem, for example.  But we'll leave it for now, with these explicit
-        // exceptions.)
-        assert(arg0VN == VNNormalValue(arg0VN));
-        assert(arg1VN == VNNormalValue(arg1VN));
-    }
+    assert(arg0VN == VNNormalValue(arg0VN));
+    assert(arg1VN == VNNormalValue(arg1VN));
     assert(arg2VN == VNNormalValue(arg2VN));
-#endif
 
     ValueNum resultVN;
 
@@ -2267,19 +2252,14 @@ TailCall:
             goto TailCall;
         }
     }
-    else if (funcApp.m_func == VNF_PhiDef || funcApp.m_func == VNF_PhiMemoryDef)
+    else if ((funcApp.m_func == VNF_PhiDef) || (funcApp.m_func == VNF_PhiMemoryDef))
     {
-        LclVarDsc* lcl = nullptr;
-        ValueNum   phiVN;
+        ValueNum   phiVN = funcApp[0];
+        LclVarDsc* lcl   = nullptr;
 
         if (funcApp.m_func == VNF_PhiDef)
         {
-            lcl   = m_pComp->lvaGetDesc(unsigned(funcApp.m_args[0]));
-            phiVN = funcApp.m_args[2];
-        }
-        else
-        {
-            phiVN = funcApp.m_args[1];
+            lcl = m_pComp->lvaGetDesc(ConstantValue<unsigned>(funcApp[2]));
         }
 
         if (GetVNFunc(phiVN, &funcApp))
@@ -2292,7 +2272,7 @@ TailCall:
             // We need to be careful about breaking infinite recursion.  Record the outer map.
             m_fixedPointMapSels.Push(mapVN);
 
-            unsigned phiArgSsaNum = ConstantValue<unsigned>(funcApp.m_args[0]);
+            unsigned phiArgSsaNum = ConstantValue<unsigned>(funcApp[0]);
             ValueNum phiArgVN;
 
             if (lcl != nullptr)
@@ -5748,7 +5728,7 @@ BasicBlock::loopNumber ValueNumStore::LoopOfVN(ValueNum vn)
         }
         else if (funcApp.m_func == VNF_PhiMemoryDef)
         {
-            return ConstantHostPtr<BasicBlock>(funcApp.m_args[0])->bbNatLoopNum;
+            return ConstantHostPtr<BasicBlock>(funcApp[1])->bbNatLoopNum;
         }
     }
 
@@ -7597,11 +7577,11 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
         else
         {
             // They were not the same; we need to create a phi definition.
-            ValueNum lclNumVN = static_cast<ValueNum>(def->GetLclNum());
-            ValueNum ssaNumVN = static_cast<ValueNum>(def->GetSsaNum());
+            ValueNum lclNumVN = vnStore->VNForIntCon(def->GetLclNum());
+            ValueNum blockVN  = vnStore->VNForHostPtr(blk);
 
-            newSsaDefVNP = vnStore->VNPairForFunc(def->GetType(), VNF_PhiDef, ValueNumPair(lclNumVN, lclNumVN),
-                                                  ValueNumPair(ssaNumVN, ssaNumVN), phiVNP);
+            newSsaDefVNP = vnStore->VNPairForFunc(def->GetType(), VNF_PhiDef, phiVNP, ValueNumPair{blockVN},
+                                                  ValueNumPair{lclNumVN});
         }
 
         def->SetVNP(newSsaDefVNP);
@@ -7657,7 +7637,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
             }
             else
             {
-                newMemoryVN = vnStore->VNForFunc(TYP_STRUCT, VNF_PhiMemoryDef, vnStore->VNForHostPtr(blk), phiVN);
+                newMemoryVN = vnStore->VNForFunc(TYP_STRUCT, VNF_PhiMemoryDef, phiVN, vnStore->VNForHostPtr(blk));
             }
         }
 
