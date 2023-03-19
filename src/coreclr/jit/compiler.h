@@ -1311,7 +1311,6 @@ inline LoopFlags& operator&=(LoopFlags& a, LoopFlags b)
     return a = (LoopFlags)((uint16_t)a & (uint16_t)b);
 }
 
-enum ApKind : uint8_t;
 struct AssertionDsc;
 
 class BoundsAssertion
