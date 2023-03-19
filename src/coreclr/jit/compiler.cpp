@@ -1395,7 +1395,9 @@ void Compiler::compInitConfigOptions()
             codeGen->setVerbose();
         }
 
-        opts.optRepeat = cfg.JitOptRepeat().contains(methodName, className, methodParams);
+        // TODO-MIKE-SSA: This doesn't work with new SSA because it transforms
+        // assignments into stores and doesn't accept stores as input.
+        // opts.optRepeat = cfg.JitOptRepeat().contains(methodName, className, methodParams);
     }
 
     if (verbose ||
