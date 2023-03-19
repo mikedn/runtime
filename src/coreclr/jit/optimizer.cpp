@@ -6057,32 +6057,15 @@ void Compiler::optAddCopies()
         return;
     }
 
-    unsigned   lclNum;
-    LclVarDsc* varDsc;
-
-    for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        var_types typ = varDsc->TypeGet();
+        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+        var_types  typ    = varDsc->TypeGet();
 
         // We only add copies for non temp local variables
         // that have a single def and that can possibly be enregistered
 
-        if (varDsc->lvIsTemp || !varDsc->lvSingleDef || (typ == TYP_STRUCT))
-        {
-            continue;
-        }
-
-        /* For lvNormalizeOnLoad(), we need to add a cast to the copy-assignment
-           like "copyLclNum = int(varDsc)" and GenerateNodeAssertions() only
-           tracks simple assignments. The same goes for lvNormalizedOnStore as
-           the cast is generated in fgMorphSmpOpAsg. This boils down to not having
-           a copy until GenerateNodeAssertions handles this*/
-        if (varDsc->lvNormalizeOnLoad() || varDsc->lvNormalizeOnStore())
-        {
-            continue;
-        }
-
-        if (varTypeIsSmall(varDsc->TypeGet()) || typ == TYP_BOOL)
+        if (varDsc->lvIsTemp || !varDsc->lvSingleDef || (typ == TYP_STRUCT) || varTypeIsSmall(typ))
         {
             continue;
         }
@@ -6124,6 +6107,12 @@ void Compiler::optAddCopies()
             continue;
         }
 
+        if (BlockSetOps::MayBeUninit(varDsc->lvUseBlocks))
+        {
+            // No references
+            continue;
+        }
+
         // We require that the weighted ref count be significant.
         if (varDsc->lvRefCntWtd() <= (BB_LOOP_WEIGHT_SCALE * BB_UNITY_WEIGHT / 2))
         {
@@ -6150,12 +6139,6 @@ void Compiler::optAddCopies()
         //
         // We must have a ref in a block that is dominated only by the entry block
         //
-
-        if (BlockSetOps::MayBeUninit(varDsc->lvUseBlocks))
-        {
-            // No references
-            continue;
-        }
 
         bool isDominatedByFirstBB = false;
 
