@@ -785,14 +785,13 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 {
     assert(asgNode->OperIs(GT_ASG));
 
-    GenTree*             dst     = asgNode->GetOp(0);
-    GenTreeLclVarCommon* lclNode = nullptr;
+    GenTree* dst = asgNode->GetOp(0);
 
     if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        lclNode           = dst->AsLclVarCommon();
-        unsigned   lclNum = lclNode->GetLclNum();
-        LclVarDsc* lcl    = m_pCompiler->lvaGetDesc(lclNum);
+        GenTreeLclVarCommon* lclNode = dst->AsLclVarCommon();
+        unsigned             lclNum  = lclNode->GetLclNum();
+        LclVarDsc*           lcl     = m_pCompiler->lvaGetDesc(lclNum);
 
         if (lcl->IsSsa())
         {
@@ -910,44 +909,16 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
     }
 
     // Figure out if "asgNode" may make a new GC heap state (if we care for this block).
+    // TODO-MIKE-Review: Looks like this misses HWINTRINSIC memory stores...
     if (!block->bbMemoryHavoc && m_pCompiler->ehBlockHasExnFlowDsc(block))
     {
-        bool isMemoryDef = false;
+        unsigned ssaNum = m_pCompiler->lvMemoryPerSsaData.AllocSsaNum(m_allocator);
+        m_renameStack.PushMemory(block, ssaNum);
+        m_pCompiler->GetMemorySsaMap()->Set(asgNode, ssaNum);
 
-        if (lclNode != nullptr)
-        {
-            isMemoryDef = m_pCompiler->lvaGetDesc(lclNode)->IsAddressExposed();
-        }
-        else
-        {
-            if (GenTreeIndir* indir = dst->IsIndir())
-            {
-                if (GenTreeLclAddr* lclAddr = indir->GetAddr()->IsLocalAddrExpr())
-                {
-                    assert(m_pCompiler->lvaGetDesc(lclAddr)->IsAddressExposed());
-                }
-            }
+        DBG_SSA_JITDUMP("Node [%06u] in try block defines memory; SSA #%u.\n", asgNode->GetID(), ssaNum);
 
-            isMemoryDef = true;
-        }
-
-        // TODO-MIKE-Review: Looks like this misses HWINTRINSIC memory stores...
-
-        if (isMemoryDef)
-        {
-            unsigned ssaNum = m_pCompiler->lvMemoryPerSsaData.AllocSsaNum(m_allocator);
-            m_renameStack.PushMemory(block, ssaNum);
-            m_pCompiler->GetMemorySsaMap()->Set(asgNode, ssaNum);
-
-#ifdef DEBUG
-            if (m_pCompiler->verboseSsa)
-            {
-                printf("Node [%06u] in try block defines memory; SSA # = %u.\n", asgNode->GetID(), ssaNum);
-            }
-#endif
-
-            AddMemoryDefToHandlerPhis(block, ssaNum);
-        }
+        AddMemoryDefToHandlerPhis(block, ssaNum);
     }
 }
 
