@@ -29,7 +29,7 @@ private:
     void ComputeDominanceFrontiers(BasicBlock** postOrder, int count, BlockDFMap* mapDF);
     void ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMap* mapDF, BlockVector* bIDF);
 
-    void InsertPhiFunctions(BasicBlock** postOrder, int count);
+    void InsertPhiFunctions(BasicBlock** postOrder, int count, const BlockDFMap& mapDF);
     static GenTreeSsaPhi* GetPhiNode(BasicBlock* block, unsigned lclNum);
     void InsertPhi(BasicBlock* block, unsigned lclNum);
     void AddPhiArg(
@@ -140,6 +140,145 @@ SsaBuilder::SsaBuilder(Compiler* pCompiler)
 {
 }
 
+void SsaBuilder::Build()
+{
+    JITDUMP("*************** In SsaBuilder::Build()\n");
+
+    SetupBBRoot();
+
+    int blockCount = m_pCompiler->fgBBNumMax + 1;
+
+    JITDUMP("[SsaBuilder] Max block count is %d.\n", blockCount);
+
+    BasicBlock** postOrder;
+
+    if (blockCount > DEFAULT_MIN_OPTS_BB_COUNT)
+    {
+        postOrder = new (m_allocator) BasicBlock*[blockCount];
+    }
+    else
+    {
+        postOrder = (BasicBlock**)alloca(blockCount * sizeof(BasicBlock*));
+    }
+
+    m_visitedTraits = BitVecTraits(blockCount, m_pCompiler);
+    m_visited       = BitVecOps::MakeEmpty(&m_visitedTraits);
+
+    // TODO-Cleanup: We currently have two dominance computations happening.  We should unify them; for
+    // now, at least forget the results of the first. Note that this does not clear fgDomTreePreOrder
+    // and fgDomTreePostOrder nor does the subsequent code call fgNumberDomTree once the new dominator
+    // tree is built. The pre/post order numbers that were generated previously and used for loop
+    // recognition are still being used by optPerformHoistExpr via fgCreateLoopPreHeader. That's rather
+    // odd, considering that SetupBBRoot may have added a new block.
+    for (BasicBlock* const block : m_pCompiler->Blocks())
+    {
+        block->bbIDom         = nullptr;
+        block->bbPostOrderNum = 0;
+    }
+
+    int count = TopologicalSort(postOrder, blockCount);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_TOPOSORT);
+
+    ComputeImmediateDom(postOrder, count);
+
+    m_pCompiler->fgSsaDomTree = m_pCompiler->fgBuildDomTree();
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_DOMS);
+
+    DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
+    m_pCompiler->lvaMarkLivenessTrackedLocals();
+    m_pCompiler->fgLocalVarLiveness();
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_LIVENESS);
+    DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
+
+    m_pCompiler->optRemoveRedundantZeroInits();
+    m_pCompiler->EndPhase(PHASE_ZERO_INITS);
+
+    for (unsigned lclNum = 0; lclNum < m_pCompiler->lvaCount; lclNum++)
+    {
+        m_pCompiler->lvaGetDesc(lclNum)->m_isSsa = IncludeInSsa(lclNum);
+    }
+
+    BlockDFMap mapDF(m_allocator);
+    ComputeDominanceFrontiers(postOrder, count, &mapDF);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_DF);
+    InsertPhiFunctions(postOrder, count, mapDF);
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_INSERT_PHIS);
+    RenameVariables();
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_RENAME);
+
+    DBEXEC(m_pCompiler->verboseSsa, Print(postOrder, count))
+}
+
+void SsaBuilder::SetupBBRoot()
+{
+    // Allocate a bbroot, if necessary.
+    // We need a unique block to be the root of the dominator tree.
+    // This can be violated if the first block is in a try, or if it is the first block of
+    // a loop (which would necessarily be an infinite loop) -- i.e., it has a predecessor.
+
+    // If neither condition holds, no reason to make a new block.
+    if (!m_pCompiler->fgFirstBB->hasTryIndex() && m_pCompiler->fgFirstBB->bbPreds == nullptr)
+    {
+        return;
+    }
+
+    BasicBlock* bbRoot = m_pCompiler->bbNewBasicBlock(BBJ_NONE);
+    bbRoot->bbFlags |= BBF_INTERNAL;
+
+    // May need to fix up preds list, so remember the old first block.
+    BasicBlock* oldFirst = m_pCompiler->fgFirstBB;
+
+    assert(!m_pCompiler->fgLocalVarLivenessDone);
+
+    // Copy the bbWeight.  (This is technically wrong, if the first block is a loop head, but
+    // it shouldn't matter...)
+    bbRoot->inheritWeight(oldFirst);
+
+    // There's an artifical incoming reference count for the first BB.  We're about to make it no longer
+    // the first BB, so decrement that.
+    assert(oldFirst->bbRefs > 0);
+    oldFirst->bbRefs--;
+
+    m_pCompiler->fgInsertBBbefore(m_pCompiler->fgFirstBB, bbRoot);
+    assert(m_pCompiler->fgFirstBB == bbRoot);
+    m_pCompiler->fgAddRefPred(oldFirst, bbRoot);
+}
+
+bool SsaBuilder::IncludeInSsa(unsigned lclNum)
+{
+    LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);
+
+    if (!lcl->HasLiveness())
+    {
+        return false;
+    }
+
+    assert(!lcl->IsAddressExposed());
+    assert(!lcl->IsPromoted());
+
+    if (lcl->lvOverlappingFields)
+    {
+        return false;
+    }
+
+    if (lcl->IsPromotedField())
+    {
+        LclVarDsc* parentLcl = m_pCompiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
+
+        if (parentLcl->IsDependentPromoted() || parentLcl->lvIsMultiRegRet)
+        {
+            // SSA must exclude struct fields that are not independent:
+            // - we don't model the struct assignment properly when multiple fields
+            //   can be assigned by one struct assignment.
+            // - SSA doesn't allow a single node to contain multiple SSA definitions.
+            // - dependent promoted fields are never candidates for a register.
+            return false;
+        }
+    }
+
+    return true;
+}
+
 int SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
 {
     Compiler* comp = m_pCompiler;
@@ -212,6 +351,8 @@ int SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
 
     // In the absence of EH (because catch/finally have no preds), this should be valid.
     // assert(postIndex == (count - 1));
+
+    JITDUMP("[SsaBuilder] Topologically sorted the graph.\n");
 
     return postIndex;
 }
@@ -557,18 +698,12 @@ void SsaBuilder::AddPhiArg(
 // Special value to represent a to-be-filled in Memory Phi arg list.
 static BasicBlock::MemoryPhiArg EmptyMemoryPhiDef(0, nullptr);
 
-void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
+void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count, const BlockDFMap& mapDF)
 {
     JITDUMP("*************** In SsaBuilder::InsertPhiFunctions()\n");
 
-    BlockDFMap mapDF(m_allocator);
-    ComputeDominanceFrontiers(postOrder, count, &mapDF);
-    m_pCompiler->EndPhase(PHASE_BUILD_SSA_DF);
-
     // Use the same IDF vector for all blocks to avoid unnecessary memory allocations
     BlockVector blockIDF(m_allocator);
-
-    JITDUMP("Inserting phi functions:\n");
 
     for (int i = 0; i < count; ++i)
     {
@@ -644,7 +779,6 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
             }
         }
     }
-    m_pCompiler->EndPhase(PHASE_BUILD_SSA_INSERT_PHIS);
 }
 
 void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
@@ -1422,164 +1556,6 @@ void SsaBuilder::Print(BasicBlock** postOrder, int count)
     }
 }
 #endif // DEBUG
-
-void SsaBuilder::Build()
-{
-#ifdef DEBUG
-    if (m_pCompiler->verbose)
-    {
-        printf("*************** In SsaBuilder::Build()\n");
-    }
-#endif
-
-    // Ensure that there's a first block outside a try, so that the dominator tree has a unique root.
-    SetupBBRoot();
-
-    // Just to keep block no. & index same add 1.
-    int blockCount = m_pCompiler->fgBBNumMax + 1;
-
-    JITDUMP("[SsaBuilder] Max block count is %d.\n", blockCount);
-
-    // Allocate the postOrder array for the graph.
-
-    BasicBlock** postOrder;
-
-    if (blockCount > DEFAULT_MIN_OPTS_BB_COUNT)
-    {
-        postOrder = new (m_allocator) BasicBlock*[blockCount];
-    }
-    else
-    {
-        postOrder = (BasicBlock**)alloca(blockCount * sizeof(BasicBlock*));
-    }
-
-    m_visitedTraits = BitVecTraits(blockCount, m_pCompiler);
-    m_visited       = BitVecOps::MakeEmpty(&m_visitedTraits);
-
-    // TODO-Cleanup: We currently have two dominance computations happening.  We should unify them; for
-    // now, at least forget the results of the first. Note that this does not clear fgDomTreePreOrder
-    // and fgDomTreePostOrder nor does the subsequent code call fgNumberDomTree once the new dominator
-    // tree is built. The pre/post order numbers that were generated previously and used for loop
-    // recognition are still being used by optPerformHoistExpr via fgCreateLoopPreHeader. That's rather
-    // odd, considering that SetupBBRoot may have added a new block.
-    for (BasicBlock* const block : m_pCompiler->Blocks())
-    {
-        block->bbIDom         = nullptr;
-        block->bbPostOrderNum = 0;
-    }
-
-    // Topologically sort the graph.
-    int count = TopologicalSort(postOrder, blockCount);
-    JITDUMP("[SsaBuilder] Topologically sorted the graph.\n");
-    m_pCompiler->EndPhase(PHASE_BUILD_SSA_TOPOSORT);
-
-    // Compute IDom(b).
-    ComputeImmediateDom(postOrder, count);
-
-    m_pCompiler->fgSsaDomTree = m_pCompiler->fgBuildDomTree();
-    m_pCompiler->EndPhase(PHASE_BUILD_SSA_DOMS);
-
-    // Compute liveness on the graph.
-    DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
-    m_pCompiler->lvaMarkLivenessTrackedLocals();
-    m_pCompiler->fgLocalVarLiveness();
-    m_pCompiler->EndPhase(PHASE_BUILD_SSA_LIVENESS);
-    DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
-
-    m_pCompiler->optRemoveRedundantZeroInits();
-    m_pCompiler->EndPhase(PHASE_ZERO_INITS);
-
-    // Mark all variables that will be tracked by SSA
-    for (unsigned lclNum = 0; lclNum < m_pCompiler->lvaCount; lclNum++)
-    {
-        m_pCompiler->lvaGetDesc(lclNum)->m_isSsa = IncludeInSsa(lclNum);
-    }
-
-    // Insert phi functions.
-    InsertPhiFunctions(postOrder, count);
-
-    // Rename local variables and collect UD information for each ssa var.
-    RenameVariables();
-    m_pCompiler->EndPhase(PHASE_BUILD_SSA_RENAME);
-
-#ifdef DEBUG
-    // At this point we are in SSA form. Print the SSA form.
-    if (m_pCompiler->verboseSsa)
-    {
-        Print(postOrder, count);
-    }
-#endif
-}
-
-void SsaBuilder::SetupBBRoot()
-{
-    // Allocate a bbroot, if necessary.
-    // We need a unique block to be the root of the dominator tree.
-    // This can be violated if the first block is in a try, or if it is the first block of
-    // a loop (which would necessarily be an infinite loop) -- i.e., it has a predecessor.
-
-    // If neither condition holds, no reason to make a new block.
-    if (!m_pCompiler->fgFirstBB->hasTryIndex() && m_pCompiler->fgFirstBB->bbPreds == nullptr)
-    {
-        return;
-    }
-
-    BasicBlock* bbRoot = m_pCompiler->bbNewBasicBlock(BBJ_NONE);
-    bbRoot->bbFlags |= BBF_INTERNAL;
-
-    // May need to fix up preds list, so remember the old first block.
-    BasicBlock* oldFirst = m_pCompiler->fgFirstBB;
-
-    assert(!m_pCompiler->fgLocalVarLivenessDone);
-
-    // Copy the bbWeight.  (This is technically wrong, if the first block is a loop head, but
-    // it shouldn't matter...)
-    bbRoot->inheritWeight(oldFirst);
-
-    // There's an artifical incoming reference count for the first BB.  We're about to make it no longer
-    // the first BB, so decrement that.
-    assert(oldFirst->bbRefs > 0);
-    oldFirst->bbRefs--;
-
-    m_pCompiler->fgInsertBBbefore(m_pCompiler->fgFirstBB, bbRoot);
-    assert(m_pCompiler->fgFirstBB == bbRoot);
-    m_pCompiler->fgAddRefPred(oldFirst, bbRoot);
-}
-
-bool SsaBuilder::IncludeInSsa(unsigned lclNum)
-{
-    LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);
-
-    if (!lcl->HasLiveness())
-    {
-        return false;
-    }
-
-    assert(!lcl->IsAddressExposed());
-    assert(!lcl->IsPromoted());
-
-    if (lcl->lvOverlappingFields)
-    {
-        return false;
-    }
-
-    if (lcl->IsPromotedField())
-    {
-        LclVarDsc* parentLcl = m_pCompiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
-
-        if (parentLcl->IsDependentPromoted() || parentLcl->lvIsMultiRegRet)
-        {
-            // SSA must exclude struct fields that are not independent:
-            // - we don't model the struct assignment properly when multiple fields
-            //   can be assigned by one struct assignment.
-            // - SSA doesn't allow a single node to contain multiple SSA definitions.
-            // - dependent promoted fields are never candidates for a register.
-            return false;
-        }
-    }
-
-    return true;
-}
 
 void GenTreeSsaDef::AddUse(GenTreeSsaUse* use)
 {
