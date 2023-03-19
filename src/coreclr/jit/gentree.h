@@ -1730,10 +1730,6 @@ public:
     // and if so return the tree for the parameter.
     GenTreeLclVar* IsImplicitByrefIndir(Compiler* compiler);
 
-    // Determine whether this is an assignment tree of the form X = X (op) Y,
-    // where Y is an arbitrary tree, and X is a lclVar.
-    unsigned IsLclVarUpdateTree(GenTree** otherTree, genTreeOps* updateOper);
-
     void SetContained()
     {
         assert(IsValue());

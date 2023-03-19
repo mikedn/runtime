@@ -12051,55 +12051,6 @@ GenTreeLclVar* GenTree::IsImplicitByrefIndir(Compiler* compiler)
     return nullptr;
 }
 
-//------------------------------------------------------------------------
-// IsLclVarUpdateTree: Determine whether this is an assignment tree of the
-//                     form Vn = Vn 'oper' 'otherTree' where Vn is a lclVar
-//
-// Arguments:
-//    pOtherTree - An "out" argument in which 'otherTree' will be returned.
-//    pOper      - An "out" argument in which 'oper' will be returned.
-//
-// Return Value:
-//    If the tree is of the above form, the lclNum of the variable being
-//    updated is returned, and 'pOtherTree' and 'pOper' are set.
-//    Otherwise, returns BAD_VAR_NUM.
-//
-// Notes:
-//    'otherTree' can have any shape.
-//     We avoid worrying about whether the op is commutative by only considering the
-//     first operand of the rhs. It is expected that most trees of this form will
-//     already have the lclVar on the lhs.
-//     TODO-CQ: Evaluate whether there are missed opportunities due to this, or
-//     whether gtSetEvalOrder will already have put the lclVar on the lhs in
-//     the cases of interest.
-
-unsigned GenTree::IsLclVarUpdateTree(GenTree** pOtherTree, genTreeOps* pOper)
-{
-    unsigned lclNum = BAD_VAR_NUM;
-    if (OperIs(GT_ASG))
-    {
-        GenTree* lhs = AsOp()->gtOp1;
-        GenTree* rhs = AsOp()->gtOp2;
-        if (lhs->OperIs(GT_LCL_VAR) && rhs->OperIsBinary())
-        {
-            unsigned lhsLclNum = lhs->AsLclVar()->GetLclNum();
-            GenTree* rhsOp1    = rhs->AsOp()->gtOp1;
-            GenTree* rhsOp2    = rhs->AsOp()->gtOp2;
-
-            // Some operators, such as HWINTRINSIC, are currently declared as binary but
-            // may not have two operands. We must check that both operands actually exist.
-            if ((rhsOp1 != nullptr) && (rhsOp2 != nullptr) && rhsOp1->OperIs(GT_LCL_VAR) &&
-                (rhsOp1->AsLclVar()->GetLclNum() == lhsLclNum))
-            {
-                lclNum      = lhsLclNum;
-                *pOtherTree = rhsOp2;
-                *pOper      = rhs->OperGet();
-            }
-        }
-    }
-    return lclNum;
-}
-
 #ifdef DEBUG
 //------------------------------------------------------------------------
 // canBeContained: check whether this tree node may be a subcomponent of its parent for purposes
