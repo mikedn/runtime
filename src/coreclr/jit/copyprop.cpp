@@ -213,9 +213,10 @@ public:
                         }
                     }
 
-                    // TODO-MIKE-SSA: Ignore EXTRACTs for now, old code ignored LCL_FLDs.
-                    if ((node->gtNext != nullptr) && node->gtNext->IsExtract() &&
-                        (node->gtNext->AsExtract()->GetStructValue() == node))
+                    // TODO-MIKE-SSA: Ignore EXTRACT/INSERTs for now, old code ignored LCL_FLDs.
+                    if ((node->gtNext != nullptr) &&
+                        ((node->gtNext->IsExtract() && (node->gtNext->AsExtract()->GetStructValue() == node)) ||
+                         (node->gtNext->IsInsert() && (node->gtNext->AsInsert()->GetStructValue() == node))))
                     {
                         continue;
                     }

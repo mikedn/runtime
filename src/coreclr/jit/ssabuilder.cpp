@@ -826,6 +826,13 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
                     assert((lclFld->gtFlags & GTF_VAR_USEASG) != 0);
 
                     structValue = new (m_pCompiler, GT_LCL_USE) GenTreeLclUse(m_renameStack.Top(lclNum), block);
+                    // TODO-MIKE-SSA: This is messy, we can't allow 0 to propagate to this
+                    // use because we drop it on the floor when we destroy the SSA form.
+                    // Destroy SSA needs to deal with this by adding a STORE_LCL_VAR(lclNum, 0)
+                    // before the STORE_LCL_FLD it generates now. But it needs to check if
+                    // the insert is really a partial def, otherwise we need to continue to
+                    // drop this to cover the case below.
+                    structValue->SetDoNotCSE();
                 }
                 else if (lcl->TypeIs(TYP_STRUCT))
                 {
@@ -836,7 +843,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
                     // because it will simply insert the field value using the field seq
                     // into a zero map, and then cast the struct to the layout of the def.
                     // We won't be able to CSE the INSERT but we should not need that.
-                    structValue = m_pCompiler->gtNewZeroConNode(TYP_INT);
+                    structValue = m_pCompiler->gtNewIconNode(0, TYP_INT);
                 }
                 else
                 {
@@ -1634,6 +1641,23 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
     {
         GenTree*         structValue = insert->GetStructValue();
         const FieldInfo& field       = insert->GetField();
+
+#ifdef DEBUG
+        if (GenTreeLclUse* use = structValue->IsLclUse())
+        {
+            assert(use->GetDef()->GetLclNum() == lclNum);
+        }
+        else if (structValue->OperIs(GT_LCL_VAR))
+        {
+            assert(structValue->AsLclVar()->GetLclNum() == lclNum);
+        }
+        else
+        {
+            // It is assume that this comes from the non-partial field INSERTs,
+            // and this it can be dropped on the floor. See TODO in RenameDef.
+            assert(structValue->IsIntegralConst(0) || structValue->IsDblConPositiveZero());
+        }
+#endif
 
         // TODO-MIKE-SSA: Similar to the EXTRACT case, we may need
         // to handle more cases here once optimizations are enabled.

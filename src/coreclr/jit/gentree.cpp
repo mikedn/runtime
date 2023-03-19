@@ -3111,6 +3111,11 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             // because of trickiness around ensuring the execution order does not change during rationalization.
             tryToSwap = false;
         }
+        else if (oper == GT_INSERT)
+        {
+            // INSERT's second operand must always be evaluated last, to match the semantics of STORE_LCL_FLD.
+            tryToSwap = false;
+        }
         else
         {
             if (tree->gtFlags & GTF_REVERSE_OPS)
