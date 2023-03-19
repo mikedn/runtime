@@ -7878,6 +7878,11 @@ void Compiler::dmpSsaDefUse(GenTree* node, IndentStack* indentStack)
         printf("%sDNER", prefix);
     }
 
+    if ((node->gtFlags & GTF_VAR_DEATH) != 0)
+    {
+        printf("%slast-use", prefix);
+    }
+
     if (lcl->IsPromotedField())
     {
         printf("%s%s V%02u@%u", prefix, lcl->IsDependentPromotedField(this) ? "P-DEP" : "P-INDEP",
