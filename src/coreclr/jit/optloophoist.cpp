@@ -11,6 +11,7 @@ void Compiler::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
 
     // This loop has to be in a form that is approved for hoisting.
     assert(optLoopTable[lnum].lpFlags & LPFLG_HOISTABLE);
+    assert(!origExpr->OperIs(GT_ASG, GT_SSA_DEF, GT_STORE_LCL_VAR));
 
     // Create a copy of the expression and mark it for CSE's.
     GenTree* hoistExpr = gtCloneExpr(origExpr, GTF_MAKE_CSE);
@@ -20,16 +21,9 @@ void Compiler::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
 
     // At this point we should have a cloned expression, marked with the GTF_MAKE_CSE flag
     assert(hoistExpr != origExpr);
-    assert(hoistExpr->gtFlags & GTF_MAKE_CSE);
+    assert((hoistExpr->gtFlags & GTF_MAKE_CSE) != 0);
 
-    GenTree* hoist = hoistExpr;
-    // The value of the expression isn't used (unless it's an assignment).
-    if (hoistExpr->OperGet() != GT_ASG)
-    {
-        hoist = gtUnusedValNode(hoistExpr);
-    }
-
-    /* Put the statement in the preheader */
+    GenTree* hoist = gtUnusedValNode(hoistExpr);
 
     fgCreateLoopPreHeader(lnum);
 
