@@ -2,7 +2,51 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#include "ssabuilder.h"
+#include "ssarenamestate.h"
+
+class SsaBuilder
+{
+    Compiler*      m_pCompiler;
+    CompAllocator  m_allocator;
+    BitVecTraits   m_visitedTraits;
+    BitVec         m_visited;
+    SsaRenameState m_renameStack;
+
+    using BlockVector = jitstd::vector<BasicBlock*>;
+    using BlockDFMap  = JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, BlockVector>;
+
+public:
+    SsaBuilder(Compiler* compiler);
+
+    void Build();
+
+private:
+    void SetupBBRoot();
+    bool IncludeInSsa(unsigned lclNum);
+    int TopologicalSort(BasicBlock** postOrder, int count);
+    static BasicBlock* IntersectDom(BasicBlock* finger1, BasicBlock* finger2);
+    void ComputeImmediateDom(BasicBlock** postOrder, int count);
+    void ComputeDominanceFrontiers(BasicBlock** postOrder, int count, BlockDFMap* mapDF);
+    void ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMap* mapDF, BlockVector* bIDF);
+
+    void InsertPhiFunctions(BasicBlock** postOrder, int count);
+    static GenTreeSsaPhi* GetPhiNode(BasicBlock* block, unsigned lclNum);
+    void InsertPhi(BasicBlock* block, unsigned lclNum);
+    void AddPhiArg(
+        BasicBlock* block, Statement* stmt, GenTreeSsaPhi* phi, unsigned lclNum, GenTreeSsaDef* def, BasicBlock* pred);
+
+    void RenameVariables();
+    void BlockRenameVariables(BasicBlock* block);
+    void RenameDef(GenTreeOp* asgNode, BasicBlock* block);
+    void RenamePhiDef(GenTreeSsaDef* def, BasicBlock* block);
+    void RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block);
+
+    void AddDefToHandlerPhis(BasicBlock* block, unsigned lclNum, GenTreeSsaDef* def);
+    void AddMemoryDefToHandlerPhis(BasicBlock* block, unsigned ssaNum);
+    void AddPhiArgsToSuccessors(BasicBlock* block);
+
+    INDEBUG(void Print(BasicBlock** postOrder, int count);)
+};
 
 void Compiler::fgSsaBuild()
 {
@@ -88,13 +132,6 @@ void Compiler::fgSsaReset()
 
 #endif // OPT_CONFIG
 
-/**
- *  Constructor for the SSA builder.
- *
- *  @param pCompiler Current compiler instance.
- *
- *  @remarks Initializes the class and member pointers/objects that use constructors.
- */
 SsaBuilder::SsaBuilder(Compiler* pCompiler)
     : m_pCompiler(pCompiler)
     , m_allocator(pCompiler->getAllocator(CMK_SSA))
@@ -102,16 +139,6 @@ SsaBuilder::SsaBuilder(Compiler* pCompiler)
     , m_renameStack(m_allocator, pCompiler->lvaCount)
 {
 }
-
-//------------------------------------------------------------------------
-//  TopologicalSort: Topologically sort the graph and return the number of nodes visited.
-//
-//  Arguments:
-//     postOrder - The array in which the arranged basic blocks have to be returned.
-//     count - The size of the postOrder array.
-//
-//  Return Value:
-//     The number of nodes visited while performing DFS on the graph.
 
 int SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
 {
@@ -222,14 +249,6 @@ BasicBlock* SsaBuilder::IntersectDom(BasicBlock* finger1, BasicBlock* finger2)
     return finger1;
 }
 
-/**
- * Computes the immediate dominator IDom for each block iteratively.
- *
- * @param postOrder The array of basic blocks arranged in postOrder.
- * @param count The size of valid elements in the postOrder array.
- *
- * @see "A simple, fast dominance algorithm." paper.
- */
 void SsaBuilder::ComputeImmediateDom(BasicBlock** postOrder, int count)
 {
     JITDUMP("[SsaBuilder::ComputeImmediateDom]\n");
@@ -308,24 +327,7 @@ void SsaBuilder::ComputeImmediateDom(BasicBlock** postOrder, int count)
     }
 }
 
-//------------------------------------------------------------------------
-// ComputeDominanceFrontiers: Compute flow graph dominance frontiers
-//
-// Arguments:
-//    postOrder - an array containing all flow graph blocks
-//    count     - the number of blocks in the postOrder array
-//    mapDF     - a caller provided hashtable that will be populated
-//                with blocks and their dominance frontiers (only those
-//                blocks that have non-empty frontiers will be included)
-//
-// Notes:
-//     Recall that the dominance frontier of a block B is the set of blocks
-//     B3 such that there exists some B2 s.t. B3 is a successor of B2, and
-//     B dominates B2. Note that this dominance need not be strict -- B2
-//     and B may be the same node.
-//     See "A simple, fast dominance algorithm", by Cooper, Harvey, and Kennedy.
-//
-void SsaBuilder::ComputeDominanceFrontiers(BasicBlock** postOrder, int count, BlkToBlkVectorMap* mapDF)
+void SsaBuilder::ComputeDominanceFrontiers(BasicBlock** postOrder, int count, BlockDFMap* mapDF)
 {
     DBG_SSA_JITDUMP("Computing DF:\n");
 
@@ -374,7 +376,7 @@ void SsaBuilder::ComputeDominanceFrontiers(BasicBlock** postOrder, int count, Bl
                 DBG_SSA_JITDUMP("      Adding " FMT_BB " to dom frontier of pred dom " FMT_BB ".\n", block->bbNum,
                                 b1->bbNum);
 
-                BlkVector& b1DF = *mapDF->Emplace(b1, m_allocator);
+                BlockVector& b1DF = *mapDF->Emplace(b1, m_allocator);
                 // It's possible to encounter the same DF multiple times, ensure that we don't add duplicates.
                 if (b1DF.empty() || (b1DF.back() != block))
                 {
@@ -393,7 +395,7 @@ void SsaBuilder::ComputeDominanceFrontiers(BasicBlock** postOrder, int count, Bl
             BasicBlock* b = postOrder[i];
             printf("Block " FMT_BB " := {", b->bbNum);
 
-            BlkVector* bDF = mapDF->LookupPointer(b);
+            BlockVector* bDF = mapDF->LookupPointer(b);
             if (bDF != nullptr)
             {
                 int index = 0;
@@ -408,25 +410,11 @@ void SsaBuilder::ComputeDominanceFrontiers(BasicBlock** postOrder, int count, Bl
 #endif
 }
 
-//------------------------------------------------------------------------
-// ComputeIteratedDominanceFrontier: Compute the iterated dominance frontier
-// for the specified block.
-//
-// Arguments:
-//    b     - the block to computed the frontier for
-//    mapDF - a map containing the dominance frontiers of all blocks
-//    bIDF  - a caller provided vector where the IDF is to be stored
-//
-// Notes:
-//    The iterated dominance frontier is formed by a closure operation:
-//    the IDF of B is the smallest set that includes B's dominance frontier,
-//    and also includes the dominance frontier of all elements of the set.
-//
-void SsaBuilder::ComputeIteratedDominanceFrontier(BasicBlock* b, const BlkToBlkVectorMap* mapDF, BlkVector* bIDF)
+void SsaBuilder::ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMap* mapDF, BlockVector* bIDF)
 {
     assert(bIDF->empty());
 
-    BlkVector* bDF = mapDF->LookupPointer(b);
+    BlockVector* bDF = mapDF->LookupPointer(b);
 
     if (bDF != nullptr)
     {
@@ -447,8 +435,8 @@ void SsaBuilder::ComputeIteratedDominanceFrontier(BasicBlock* b, const BlkToBlkV
         // to track newly added blocks in a separate set.
         for (size_t newIndex = 0; newIndex < bIDF->size(); newIndex++)
         {
-            BasicBlock* f   = (*bIDF)[newIndex];
-            BlkVector*  fDF = mapDF->LookupPointer(f);
+            BasicBlock*  f   = (*bIDF)[newIndex];
+            BlockVector* fDF = mapDF->LookupPointer(f);
 
             if (fDF != nullptr)
             {
@@ -477,23 +465,12 @@ void SsaBuilder::ComputeIteratedDominanceFrontier(BasicBlock* b, const BlkToBlkV
 #endif
 }
 
-/**
- * Returns the phi GT_PHI node if the variable already has a phi node.
- *
- * @param block The block for which the existence of a phi node needs to be checked.
- * @param lclNum The lclNum for which the occurrence of a phi node needs to be checked.
- *
- * @return If there is a phi node for the lclNum, returns the GT_PHI tree, else NULL.
- */
-static GenTreeSsaPhi* GetPhiNode(BasicBlock* block, unsigned lclNum)
+GenTreeSsaPhi* SsaBuilder::GetPhiNode(BasicBlock* block, unsigned lclNum)
 {
-    // Walk the statements for phi nodes.
     for (Statement* const stmt : block->Statements())
     {
         GenTree* tree = stmt->GetRootNode();
 
-        // A prefix of the statements of the block are phi definition nodes. If we complete processing
-        // that prefix, exit.
         if (!tree->IsSsaPhiDef())
         {
             break;
@@ -504,16 +481,10 @@ static GenTreeSsaPhi* GetPhiNode(BasicBlock* block, unsigned lclNum)
             return tree->AsSsaDef()->GetValue()->AsSsaPhi();
         }
     }
+
     return nullptr;
 }
 
-//------------------------------------------------------------------------
-// InsertPhi: Insert a new GT_PHI statement.
-//
-// Arguments:
-//    block  - The block where to insert the statement
-//    lclNum - The variable number
-//
 void SsaBuilder::InsertPhi(BasicBlock* block, unsigned lclNum)
 {
     var_types type = m_pCompiler->lvaGetDesc(lclNum)->GetType();
@@ -543,16 +514,6 @@ void SsaBuilder::InsertPhi(BasicBlock* block, unsigned lclNum)
     JITDUMP("Added PHI definition for V%02u at start of " FMT_BB ".\n", lclNum, block->bbNum);
 }
 
-//------------------------------------------------------------------------
-// AddPhiArg: Add a new GT_PHI_ARG node to an existing GT_PHI node.
-//
-// Arguments:
-//    block  - The block that contains the statement
-//    stmt   - The statement that contains the GT_PHI node
-//    lclNum - The variable number
-//    ssaNum - The SSA number
-//    pred   - The predecessor block
-//
 void SsaBuilder::AddPhiArg(
     BasicBlock* block, Statement* stmt, GenTreeSsaPhi* phi, unsigned lclNum, GenTreeSsaDef* def, BasicBlock* pred)
 {
@@ -596,27 +557,16 @@ void SsaBuilder::AddPhiArg(
 // Special value to represent a to-be-filled in Memory Phi arg list.
 static BasicBlock::MemoryPhiArg EmptyMemoryPhiDef(0, nullptr);
 
-/**
- * Inserts phi functions at DF(b) for variables v that are live after the phi
- * insertion point i.e., v in live-in(b).
- *
- * To do so, the function computes liveness, dominance frontier and inserts a phi node,
- * if we have var v in def(b) and live-in(l) and l is in DF(b).
- *
- * @param postOrder The array of basic blocks arranged in postOrder.
- * @param count The size of valid elements in the postOrder array.
- */
 void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
 {
     JITDUMP("*************** In SsaBuilder::InsertPhiFunctions()\n");
 
-    // Compute dominance frontier.
-    BlkToBlkVectorMap mapDF(m_allocator);
+    BlockDFMap mapDF(m_allocator);
     ComputeDominanceFrontiers(postOrder, count, &mapDF);
     m_pCompiler->EndPhase(PHASE_BUILD_SSA_DF);
 
     // Use the same IDF vector for all blocks to avoid unnecessary memory allocations
-    BlkVector blockIDF(m_allocator);
+    BlockVector blockIDF(m_allocator);
 
     JITDUMP("Inserting phi functions:\n");
 
@@ -697,13 +647,6 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
     m_pCompiler->EndPhase(PHASE_BUILD_SSA_INSERT_PHIS);
 }
 
-//------------------------------------------------------------------------
-// RenameDef: Rename a local or memory definition generated by a GT_ASG node.
-//
-// Arguments:
-//    asgNode - The GT_ASG node that generates the definition
-//    block - The basic block that contains `asgNode`
-//
 void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 {
     assert(asgNode->OperIs(GT_ASG));
@@ -883,12 +826,6 @@ void SsaBuilder::RenamePhiDef(GenTreeSsaDef* def, BasicBlock* block)
     m_renameStack.Push(block, lclNum, def);
 }
 
-//------------------------------------------------------------------------
-// RenameLclUse: Rename a use of a local variable.
-//
-// Arguments:
-//    lclNode - A GT_LCL_VAR or GT_LCL_FLD node that is not a definition
-//
 void SsaBuilder::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block)
 {
     assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
@@ -1063,12 +1000,6 @@ void SsaBuilder::AddMemoryDefToHandlerPhis(BasicBlock* block, unsigned ssaNum)
     }
 }
 
-//------------------------------------------------------------------------
-// BlockRenameVariables: Rename all definitions and uses within a block.
-//
-// Arguments:
-//    block - The block
-//
 void SsaBuilder::BlockRenameVariables(BasicBlock* block)
 {
     // First handle the incoming memory state.
@@ -1195,12 +1126,6 @@ void SsaBuilder::BlockRenameVariables(BasicBlock* block)
                     block->bbMemorySsaNumIn, block->bbMemorySsaNumOut);
 }
 
-//------------------------------------------------------------------------
-// AddPhiArgsToSuccessors: Add SSA_USE nodes to the SSA_PHI nodes within block's successors.
-//
-// Arguments:
-//    block - The block
-//
 void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
 {
     for (BasicBlock* succ : block->GetAllSuccs(m_pCompiler))
@@ -1387,13 +1312,6 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
     }
 }
 
-//------------------------------------------------------------------------
-// RenameVariables: Rename all definitions and uses within the compiled method.
-//
-// Notes:
-//    See Briggs, Cooper, Harvey and Simpson "Practical Improvements to the Construction
-//    and Destruction of Static Single Assignment Form."
-//
 void SsaBuilder::RenameVariables()
 {
     JITDUMP("*************** In SsaBuilder::RenameVariables()\n");
@@ -1495,23 +1413,6 @@ void SsaBuilder::RenameVariables()
 }
 
 #ifdef DEBUG
-/**
- * Print the blocks, the phi nodes get printed as well.
- * @example:
- * After SSA BB02:
- *                [0027CC0C] -----------                 stmtExpr  void  (IL 0x019...0x01B)
- * N001 (  1,  1)       [0027CB70] -----------                 const     int    23
- * N003 (  3,  3)    [0027CBD8] -A------R--                 =         int
- * N002 (  1,  1)       [0027CBA4] D------N---                 lclVar    int    V01 arg1         d:5
- *
- * After SSA BB04:
- *                [0027D530] -----------                 stmtExpr  void  (IL   ???...  ???)
- * N002 (  0,  0)       [0027D4C8] -----------                 phi       int
- *                            [0027D8CC] -----------                 lclVar    int    V01 arg1         u:5
- *                            [0027D844] -----------                 lclVar    int    V01 arg1         u:4
- * N004 (  2,  2)    [0027D4FC] -A------R--                 =         int
- * N003 (  1,  1)       [0027D460] D------N---                 lclVar    int    V01 arg1         d:3
- */
 void SsaBuilder::Print(BasicBlock** postOrder, int count)
 {
     for (int i = count - 1; i >= 0; --i)
@@ -1522,34 +1423,6 @@ void SsaBuilder::Print(BasicBlock** postOrder, int count)
 }
 #endif // DEBUG
 
-/**
- * Build SSA form.
- *
- * Sorts the graph topologically.
- *   - Collects them in postOrder array.
- *
- * Identifies each block's immediate dominator.
- *   - Computes this in bbIDom of each BasicBlock.
- *
- * Computes DOM tree relation.
- *   - Computes domTree as block -> set of blocks.
- *   - Computes pre/post order traversal of the DOM tree.
- *
- * Inserts phi nodes.
- *   - Computes dominance frontier as block -> set of blocks.
- *   - Allocates block use/def/livein/liveout and computes it.
- *   - Inserts phi nodes with only rhs at the beginning of the blocks.
- *
- * Renames variables.
- *   - Walks blocks in evaluation order and gives uses and defs names.
- *   - Gives empty phi nodes their rhs arguments as they become known while renaming.
- *
- * @return true if successful, for now, this must always be true.
- *
- * @see "A simple, fast dominance algorithm" by Keith D. Cooper, Timothy J. Harvey, Ken Kennedy.
- * @see Briggs, Cooper, Harvey and Simpson "Practical Improvements to the Construction
- *      and Destruction of Static Single Assignment Form."
- */
 void SsaBuilder::Build()
 {
 #ifdef DEBUG
@@ -1673,15 +1546,6 @@ void SsaBuilder::SetupBBRoot()
     m_pCompiler->fgAddRefPred(oldFirst, bbRoot);
 }
 
-//------------------------------------------------------------------------
-// IncludeInSsa: Check if the specified variable can be included in SSA.
-//
-// Arguments:
-//    lclNum - the variable number
-//
-// Return Value:
-//    true if the variable is included in SSA
-//
 bool SsaBuilder::IncludeInSsa(unsigned lclNum)
 {
     LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);

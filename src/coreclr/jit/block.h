@@ -1409,8 +1409,6 @@ public:
     static unsigned GetHashCode(const BasicBlock* ptr);
 };
 
-typedef jitstd::vector<BasicBlock*> BlkVector;
-typedef JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, BlkVector>   BlkToBlkVectorMap;
 typedef JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, BasicBlock*> BlockToBlockMap;
 
 // BasicBlockIterator: forward iterator for the BasicBlock linked list.
