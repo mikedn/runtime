@@ -1625,10 +1625,9 @@ bool GenTreeSsaPhi::Equals(GenTreeSsaPhi* phi1, GenTreeSsaPhi* phi2)
     return (i1 == end1) && (i2 == end2);
 }
 
-static void DestroySsaDef(Compiler* compiler, GenTreeSsaDef* def, Statement* stmt)
+static void DestroySsaUses(GenTreeSsaDef* def)
 {
     unsigned       lclNum = def->GetLclNum();
-    LclVarDsc*     lcl    = compiler->lvaGetDesc(lclNum);
     GenTreeSsaUse* uses   = def->GetUseList();
 
     // TODO-MIKE-SSA: The SSA_DEF Uses iterator cannot be used because
@@ -1651,8 +1650,14 @@ static void DestroySsaDef(Compiler* compiler, GenTreeSsaDef* def, Statement* stm
             use = nextUse;
         } while (use != uses);
     }
+}
 
-    GenTree* store = def;
+static void DestroySsaDef(Compiler* compiler, GenTreeSsaDef* def, Statement* stmt)
+{
+    DestroySsaUses(def);
+
+    unsigned lclNum = def->GetLclNum();
+    GenTree* store  = def;
 
     if (GenTreeInsert* insert = def->GetValue()->IsInsert())
     {
@@ -1699,7 +1704,7 @@ static void DestroySsaDef(Compiler* compiler, GenTreeSsaDef* def, Statement* stm
     }
 }
 
-static void DestroyExtract(Compiler* compiler, Statement* stmt, GenTreeExtract* extract)
+static void DestroyExtract(Statement* stmt, GenTreeExtract* extract)
 {
     GenTree* src = extract->GetStructValue();
 
@@ -1746,7 +1751,7 @@ void Compiler::fgSsaDestroy()
 {
     for (GenTree* def = m_initSsaDefs; def != nullptr; def = def->gtNext)
     {
-        DestroySsaDef(this, def->AsSsaDef(), nullptr);
+        DestroySsaUses(def->AsSsaDef());
     }
 
     for (BasicBlock* block : Blocks())
@@ -1757,7 +1762,12 @@ void Compiler::fgSsaDestroy()
         {
             if (stmt->GetRootNode()->IsSsaPhiDef())
             {
+                DestroySsaUses(stmt->GetRootNode()->AsSsaDef());
                 lastPhiDef = stmt;
+
+                // We don't care about the rest of the nodes, they're uses that were
+                // (or will be) transformed when their defs are encountered.
+                continue;
             }
 
             for (GenTree* node : stmt->Nodes())
@@ -1768,7 +1778,7 @@ void Compiler::fgSsaDestroy()
                 }
                 else if (GenTreeExtract* extract = node->IsExtract())
                 {
-                    DestroyExtract(this, stmt, extract);
+                    DestroyExtract(stmt, extract);
                 }
             }
 
