@@ -135,7 +135,6 @@ void Rationalizer::RewriteLocalAssignment(GenTreeOp* assignment, GenTreeLclVarCo
     store->SetType(location->GetType());
     store->SetOp(0, value);
     store->SetLclNum(location->GetLclNum());
-    store->SetSsaNum(location->GetSsaNum());
 
     if (store->OperIs(GT_STORE_LCL_FLD))
     {
@@ -147,9 +146,6 @@ void Rationalizer::RewriteLocalAssignment(GenTreeOp* assignment, GenTreeLclVarCo
 
     store->gtFlags |= GTF_VAR_DEF;
     store->gtFlags &= ~GTF_EXCEPT;
-
-    // We don't use SSA in LIR but being able to still display SSA use/defs might be useful.
-    INDEBUG(comp->MoveSsaDefNum(location, store));
 }
 
 void Rationalizer::RewriteAssignment(LIR::Use& use)
@@ -444,6 +440,11 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             // Clear the GTF_ASG flag for all nodes but stores
             node->gtFlags &= ~GTF_ASG;
         }
+        else if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+        {
+            // Local stores may have inherited GTF_EXCEPT from the value tree.
+            node->gtFlags &= ~GTF_EXCEPT;
+        }
 
         if (!node->IsCall())
         {
@@ -536,11 +537,7 @@ void Rationalizer::Run()
             assert(statement->GetNodeList()->gtPrev == nullptr);
             assert(statement->GetRootNode() != nullptr);
             assert(statement->GetRootNode()->gtNext == nullptr);
-
-            if (statement->IsPhiDefnStmt())
-            {
-                continue;
-            }
+            assert(!statement->GetRootNode()->IsPhiDef());
 
             IL_OFFSETX stmtILOffset = statement->GetILOffsetX();
 

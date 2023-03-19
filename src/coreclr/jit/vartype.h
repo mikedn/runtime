@@ -299,6 +299,19 @@ inline bool varTypeIsStruct(T vt)
     return ((varTypeClassification[TypeGet(vt)] & VTF_S) != 0);
 }
 
+inline var_types varTypeFromTypeNum(unsigned typeNum)
+{
+    return typeNum < TYP_COUNT ? static_cast<var_types>(typeNum) : TYP_STRUCT;
+}
+
+inline unsigned varTypeToTypeNum(var_types type, unsigned layoutNum)
+{
+    // TODO-MIKE-SSA: We may need to preserve the layout for SIMD types too,
+    // otherwise we may run into problems during VN.
+    assert((type != TYP_STRUCT) || (layoutNum != 0));
+    return type == TYP_STRUCT ? layoutNum : static_cast<unsigned>(type);
+}
+
 template <class T>
 inline bool varTypeUsesFloatReg(T vt)
 {

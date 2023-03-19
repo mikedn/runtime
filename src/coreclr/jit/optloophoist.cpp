@@ -11,6 +11,7 @@ void Compiler::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
 
     // This loop has to be in a form that is approved for hoisting.
     assert(optLoopTable[lnum].lpFlags & LPFLG_HOISTABLE);
+    assert(!origExpr->OperIs(GT_ASG, GT_LCL_DEF, GT_STORE_LCL_VAR));
 
     // Create a copy of the expression and mark it for CSE's.
     GenTree* hoistExpr = gtCloneExpr(origExpr, GTF_MAKE_CSE);
@@ -20,16 +21,9 @@ void Compiler::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
 
     // At this point we should have a cloned expression, marked with the GTF_MAKE_CSE flag
     assert(hoistExpr != origExpr);
-    assert(hoistExpr->gtFlags & GTF_MAKE_CSE);
+    assert((hoistExpr->gtFlags & GTF_MAKE_CSE) != 0);
 
-    GenTree* hoist = hoistExpr;
-    // The value of the expression isn't used (unless it's an assignment).
-    if (hoistExpr->OperGet() != GT_ASG)
-    {
-        hoist = gtUnusedValNode(hoistExpr);
-    }
-
-    /* Put the statement in the preheader */
+    GenTree* hoist = gtUnusedValNode(hoistExpr);
 
     fgCreateLoopPreHeader(lnum);
 
@@ -627,7 +621,7 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
 
             if (BasicBlock* loopEntryBlock = m_compiler->vnStore->GetLoopMemoryBlock(tree))
             {
-                ValueNum loopMemoryVN = m_compiler->GetMemoryPerSsaData(loopEntryBlock->bbMemorySsaNumIn)->m_vn;
+                ValueNum loopMemoryVN = m_compiler->GetMemoryPerSsaData(loopEntryBlock->memoryEntrySsaNum)->m_vn;
 
                 if (!m_compiler->optVNIsLoopInvariant(loopMemoryVN, m_loopNum,
                                                       &m_hoistContext->m_curLoopVnInvariantCache))
@@ -690,25 +684,20 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
         {
             GenTree* tree = *use;
 
-            assert(!tree->OperIs(GT_PHI_ARG));
-
             if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                GenTreeLclVarCommon* lclVar = tree->AsLclVarCommon();
-                unsigned             lclNum = lclVar->GetLclNum();
-                LclVarDsc*           lcl    = m_compiler->lvaGetDesc(lclNum);
+                return fgWalkResult::WALK_CONTINUE;
+            }
 
-                bool isInvariant = !user->OperIs(GT_ASG) || (user->AsOp()->gtGetOp1() != tree);
-                isInvariant      = isInvariant && lcl->IsInSsa();
+            if (GenTreeLclUse* use = tree->IsLclUse())
+            {
                 // TODO-MIKE-Cleanup: Unreachable blocks aren't properly removed (see Runtime_57061_2).
                 // Such blocks may or may not be traversed by various JIT phases - SSA builder does not
                 // traverse them but this code does and ends up asserting due to missing SSA numbers.
                 // Well, at least that's why this probably checks for NoSsaNum, but it seems unlikely
                 // that loop hositing would hit dead code. We'll see.
-                isInvariant = isInvariant && (lclVar->GetSsaNum() != NoSsaNum);
-                isInvariant = isInvariant &&
-                              !m_compiler->optLoopTable[m_loopNum].lpContains(
-                                  lcl->GetPerSsaData(lclVar->GetSsaNum())->GetBlock());
+
+                bool isInvariant = !m_compiler->optLoopTable[m_loopNum].lpContains(use->GetDef()->GetBlock());
 
                 // TODO-CQ: This VN invariance check should not be necessary and in some cases it is conservative - it
                 // is possible that the SSA def is outside the loop but VN does not understand what the node is doing
@@ -1091,38 +1080,25 @@ bool Compiler::optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* loo
     VNFuncApp funcApp;
     if (vnStore->GetVNFunc(vn, &funcApp))
     {
-        if (funcApp.m_func == VNF_PhiDef)
+        if ((funcApp.m_func == VNF_PhiDef) || (funcApp.m_func == VNF_PhiMemoryDef))
         {
-            // Is the definition within the loop?  If so, is not loop-invariant.
-            unsigned      lclNum = funcApp.m_args[0];
-            unsigned      ssaNum = funcApp.m_args[1];
-            LclSsaVarDsc* ssaDef = lvaTable[lclNum].GetPerSsaData(ssaNum);
-            res                  = !optLoopContains(lnum, ssaDef->GetBlock()->bbNatLoopNum);
-        }
-        else if (funcApp.m_func == VNF_PhiMemoryDef)
-        {
-            BasicBlock* defnBlk = vnStore->ConstantHostPtr<BasicBlock>(funcApp.m_args[0]);
-            res                 = !optLoopContains(lnum, defnBlk->bbNatLoopNum);
+            res = !optLoopContains(lnum, vnStore->ConstantHostPtr<BasicBlock>(funcApp[1])->bbNatLoopNum);
         }
         else if (funcApp.m_func == VNF_MemOpaque)
         {
-            const unsigned vnLoopNum = funcApp.m_args[0];
-            res                      = !optLoopContains(lnum, vnLoopNum);
+            res = !optLoopContains(lnum, funcApp[0]);
         }
         else
         {
             for (unsigned i = 0; i < funcApp.m_arity; i++)
             {
-                // 4th arg of mapStore identifies the loop where the store happens.
-                //
                 if (funcApp.m_func == VNF_MapStore)
                 {
                     assert(funcApp.m_arity == 4);
 
                     if (i == 3)
                     {
-                        const unsigned vnLoopNum = funcApp.m_args[3];
-                        res                      = !optLoopContains(lnum, vnLoopNum);
+                        res = !optLoopContains(lnum, funcApp[3]);
                         break;
                     }
                 }
@@ -1281,21 +1257,17 @@ void Compiler::fgCreateLoopPreHeader(unsigned lnum)
     for (Statement* const stmt : top->Statements())
     {
         GenTree* tree = stmt->GetRootNode();
-        if (tree->OperGet() != GT_ASG)
+
+        if (!tree->IsPhiDef())
         {
             break;
         }
-        GenTree* op2 = tree->gtGetOp2();
-        if (op2->OperGet() != GT_PHI)
+
+        for (GenTreePhi::Use& use : tree->AsLclDef()->GetValue()->AsPhi()->Uses())
         {
-            break;
-        }
-        for (GenTreePhi::Use& use : op2->AsPhi()->Uses())
-        {
-            GenTreePhiArg* phiArg = use.GetNode()->AsPhiArg();
-            if (phiArg->gtPredBB == head)
+            if (use.GetNode()->GetBlock() == head)
             {
-                phiArg->gtPredBB = preHead;
+                use.GetNode()->SetBlock(preHead);
             }
         }
     }

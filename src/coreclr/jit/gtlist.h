@@ -23,7 +23,8 @@ GTNODE(STORE_LCL_VAR    , GenTreeLclVar      ,0,(GTK_UNOP|GTK_NOVALUE)) // store
 GTNODE(STORE_LCL_FLD    , GenTreeLclFld      ,0,(GTK_UNOP|GTK_NOVALUE)) // store to field in a non-primitive variable
 GTNODE(LCL_VAR          , GenTreeLclVar      ,0,GTK_LEAF)               // local variable
 GTNODE(LCL_FLD          , GenTreeLclFld      ,0,GTK_LEAF)               // field in a non-primitive variable
-GTNODE(PHI_ARG          , GenTreePhiArg      ,0,GTK_LEAF)               // phi(phiarg, phiarg, phiarg)
+GTNODE(LCL_DEF          , GenTreeLclDef      ,0,GTK_UNOP)               // local variable SSA def
+GTNODE(LCL_USE          , GenTreeLclUse      ,0,GTK_LEAF)               // local variable SSA use
 GTNODE(LCL_ADDR         , GenTreeLclAddr     ,0,GTK_LEAF)               // address of a local variable
 GTNODE(CATCH_ARG        , GenTree            ,0,GTK_LEAF)               // Exception object in a catch block
 GTNODE(LABEL            , GenTree            ,0,GTK_LEAF)               // Jump-target
@@ -81,6 +82,9 @@ GTNODE(COPY_BLK         , GenTreeDynBlk      ,0,GTK_SPECIAL|GTK_NOVALUE)        
 GTNODE(INIT_BLK         , GenTreeDynBlk      ,0,GTK_SPECIAL|GTK_NOVALUE) // Dynamically sized block init
 
 GTNODE(BOX              , GenTreeBox         ,0,(GTK_UNOP|GTK_EXOP|GTK_NOTLIR))
+
+GTNODE(INSERT           , GenTreeInsert      ,0,GTK_BINOP|GTK_EXOP|GTK_NOTLIR)
+GTNODE(EXTRACT          , GenTreeExtract     ,0,GTK_UNOP|GTK_EXOP|GTK_NOTLIR)
 
 // TODO-Cleanup: GT_ARR_BOUNDS_CHECK should be made a GTK_BINOP now that it has only two child nodes
 GTNODE(ARR_BOUNDS_CHECK , GenTreeBoundsChk   ,0,(GTK_SPECIAL|GTK_NOVALUE)) // array bounds check
@@ -252,7 +256,7 @@ GTNODE(END_LFIN         , GenTreeVal         ,0,(GTK_LEAF|GTK_NOVALUE))   // end
 //  Nodes used for optimizations.
 //-----------------------------------------------------------------------------
 
-GTNODE(PHI              , GenTreePhi         ,0,GTK_SPECIAL)              // phi node for ssa.
+GTNODE(PHI              , GenTreePhi         ,0,GTK_SPECIAL)
 
 //-----------------------------------------------------------------------------
 //  Nodes used by Lower to generate a closer CPU representation of other nodes

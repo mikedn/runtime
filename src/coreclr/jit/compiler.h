@@ -133,73 +133,17 @@ struct VarScopeDsc
 // This class stores information associated with a LclVar SSA definition.
 class LclSsaVarDsc
 {
-    // The basic block where the definition occurs. Definitions of uninitialized variables
-    // are considered to occur at the start of the first basic block (fgFirstBB).
-    //
-    // TODO-Cleanup: In the case of uninitialized variables the block is set to nullptr by
-    // SsaBuilder and changed to fgFirstBB during value numbering. It would be useful to
-    // investigate and perhaps eliminate this rather unexpected behavior.
-    BasicBlock* m_block;
-    // The GT_ASG node that generates the definition, or nullptr for definitions
-    // of uninitialized variables.
-    GenTreeOp* m_asg;
+    ValueNumPair m_vnp;
 
 public:
-    ValueNumPair m_vnPair;
-
-    LclSsaVarDsc() : m_block(nullptr), m_asg(nullptr)
-    {
-    }
-
-    LclSsaVarDsc(BasicBlock* block, GenTreeOp* asg) : m_block(block), m_asg(asg)
-    {
-        assert((asg == nullptr) || asg->OperIs(GT_ASG));
-    }
-
-    BasicBlock* GetBlock() const
-    {
-        return m_block;
-    }
-
-    void SetBlock(BasicBlock* block)
-    {
-        m_block = block;
-    }
-
-    GenTreeOp* GetAssignment() const
-    {
-        return m_asg;
-    }
-
-    void SetAssignment(GenTreeOp* asg)
-    {
-        assert((asg == nullptr) || asg->OperIs(GT_ASG));
-        m_asg = asg;
-    }
-
     ValueNumPair GetVNP() const
     {
-        return m_vnPair;
-    }
-
-    ValueNum GetLiberalVN() const
-    {
-        return m_vnPair.GetLiberal();
-    }
-
-    ValueNum GetConservativeVN() const
-    {
-        return m_vnPair.GetConservative();
+        return m_vnp;
     }
 
     void SetVNP(ValueNumPair vnp)
     {
-        m_vnPair = vnp;
-    }
-
-    void SetLiberalVN(ValueNum vn)
-    {
-        m_vnPair.SetLiberal(vn);
+        m_vnp = vnp;
     }
 };
 
@@ -355,7 +299,7 @@ public:
     unsigned char lvLiveInOutOfHndlr : 1; // The variable is live in or out of an exception handler, and therefore must
                                           // be on the stack (at least at those boundaries.)
 
-    unsigned char lvInSsa : 1; // The variable is in SSA form (set by SsaBuilder)
+    unsigned char m_isSsa : 1; // The variable is in SSA form (set by SsaBuilder)
 
 #ifdef DEBUG
     // These further document the reasons for setting "lvDoNotEnregister".  (Note that "lvAddrExposed" is one of the
@@ -451,9 +395,9 @@ public:
         return lvAddrExposed;
     }
 
-    bool IsInSsa() const
+    bool IsSsa() const
     {
-        return lvInSsa;
+        return m_isSsa;
     }
 
 #if OPT_BOOL_OPS
@@ -887,12 +831,15 @@ public:
 private:
     ClassLayout*  m_layout;   // layout info for structs
     FieldSeqNode* m_fieldSeq; // field sequence for promoted struct fields
-
 public:
 #if ASSERTION_PROP
     BlockSet   lvUseBlocks; // Set of blocks that contain uses
     Statement* lvDefStmt;   // Pointer to the statement with the single definition
 #endif
+private:
+    SsaDefArray<LclSsaVarDsc> m_ssaDefs;
+
+public:
     var_types GetType() const
     {
         return lvType;
@@ -983,31 +930,30 @@ public:
         m_layout = layout;
     }
 
-    SsaDefArray<LclSsaVarDsc> lvPerSsaData;
+    unsigned AllocSsaNum(CompAllocator alloc)
+    {
+        assert(m_isSsa);
+        return m_ssaDefs.AllocSsaNum(alloc);
+    }
 
-    // Returns the address of the per-Ssa data for the given ssaNum (which is required
-    // not to be the SsaConfig::RESERVED_SSA_NUM, which indicates that the variable is
-    // not an SSA variable).
     LclSsaVarDsc* GetPerSsaData(unsigned ssaNum)
     {
-        return lvPerSsaData.GetSsaDef(ssaNum);
+        return m_ssaDefs.GetSsaDef(ssaNum);
     }
 
     bool HasSingleSsaDef() const
     {
-        return lvPerSsaData.GetCount() == 1;
+        return m_ssaDefs.GetCount() == 1;
     }
 
-    bool HasImplicitSsaDef() const
+    void ClearSsa()
     {
-        return (lvPerSsaData.GetCount() != 0) &&
-               (lvPerSsaData.GetSsaDef(SsaConfig::FIRST_SSA_NUM)->GetAssignment() == nullptr);
+        m_isSsa = false;
+        m_ssaDefs.Reset();
     }
 
     var_types GetRegisterType(const GenTreeLclVarCommon* tree) const;
-
     var_types GetRegisterType() const;
-
     var_types GetActualRegisterType() const;
 
     //-----------------------------------------------------------------------------
@@ -1365,7 +1311,6 @@ inline LoopFlags& operator&=(LoopFlags& a, LoopFlags b)
     return a = (LoopFlags)((uint16_t)a & (uint16_t)b);
 }
 
-enum ApKind : uint8_t;
 struct AssertionDsc;
 
 class BoundsAssertion
@@ -3531,7 +3476,7 @@ public:
     INDEBUG(unsigned gtHashValue(GenTree* tree);)
 
     void gtPrepareCost(GenTree* tree);
-    bool gtIsLikelyRegVar(GenTree* tree);
+    LclVarDsc* gtIsLikelyRegVar(GenTree* tree);
 
     // Returns true iff the secondNode can be swapped with firstNode.
     bool gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode);
@@ -3620,6 +3565,9 @@ public:
     void gtDispConst(GenTree* tree);
     void gtDispLeaf(GenTree* tree, IndentStack* indentStack);
     void dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentStack);
+    void dmpSsaDefUse(GenTree* node, IndentStack* indentStack);
+    void dmpExtract(GenTreeExtract* extract, IndentStack* indentStack);
+    void dmpInsert(GenTreeInsert* insert, IndentStack* indentStack);
     void dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to);
     void gtDispNodeName(GenTree* tree);
     void dmpNodeRegs(GenTree* node);
@@ -3966,11 +3914,6 @@ public:
     {
         assert(lclAddr->GetLclNum() < lvaCount);
         return &lvaTable[lclAddr->GetLclNum()];
-    }
-
-    LclSsaVarDsc* lvaGetSsaDesc(const GenTreeLclVarCommon* lclNode)
-    {
-        return lvaGetDesc(lclNode)->GetPerSsaData(lclNode->GetSsaNum());
     }
 
     unsigned lvaTrackedIndexToLclNum(unsigned trackedIndex)
@@ -4584,14 +4527,11 @@ public:
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, unsigned> NodeToUnsignedMap;
 
-    NodeToUnsignedMap* m_partialSsaDefMap = nullptr;
-
-    void SetPartialSsaDefNum(GenTreeLclFld* store, unsigned ssaNum);
-    unsigned GetSsaDefNum(GenTreeLclVarCommon* lclNode);
-    INDEBUG(void MoveSsaDefNum(GenTreeLclVarCommon* from, GenTreeLclVarCommon* to);)
+    GenTreeLclDef* m_initSsaDefs = nullptr;
 
     // Performs SSA conversion.
     void fgSsaBuild();
+    void fgSsaDestroy();
 
 #ifdef OPT_CONFIG
     // Reset any data structures to the state expected by "fgSsaBuild", so it can be run again.
@@ -4632,10 +4572,14 @@ public:
     ValueNumPair vnExtractStructField(GenTree* load, ValueNumPair structVN, FieldSeqNode* fieldSeq);
     ValueNum vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types fieldType, ClassLayout* fieldLayout);
     void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
+    void vnLocalDef(GenTreeLclDef* def);
     void vnLocalLoad(GenTreeLclVar* load);
-    ValueNumPair vnLocalLoad(GenTreeLclVar* load, LclVarDsc* lcl, unsigned ssaNum);
+    void vnLocalUse(GenTreeLclUse* use);
+    ValueNumPair vnLocalUse(GenTreeLclUse* use, GenTreeLclDef* def);
     void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
+    void vnInsert(GenTreeInsert* insert);
     void vnLocalFieldLoad(GenTreeLclFld* load);
+    void vnExtract(GenTreeExtract* extract);
     ValueNum vnAddField(GenTreeOp* add);
     void vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);
     void vnIndirLoad(GenTreeIndir* load);
@@ -5558,6 +5502,7 @@ private:
     void vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary);
     void vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary);
     void vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary& summary);
     void vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
     void vnSummarizeLoopObjFieldMemoryStores(GenTreeIndir* store, FieldSeqNode* fieldSeq, VNLoopMemorySummary& summary);
     void vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
@@ -5774,6 +5719,9 @@ protected:
     void optUpdateLoopsBeforeRemoveBlock(BasicBlock* block, bool skipUnmarkLoop = false);
 
     bool optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTestStmt);
+    // Determine whether this is an assignment tree of the form X = X (op) Y,
+    // where Y is an arbitrary tree, and X is a lclVar.
+    unsigned optIsLclVarUpdateTree(GenTree* tree, GenTree** otherTree, genTreeOps* updateOper);
     unsigned optIsLoopIncrTree(GenTree* incr);
     bool optCheckIterInLoopTest(unsigned loopInd, GenTree* test, BasicBlock* from, BasicBlock* to, unsigned iterVar);
     bool optComputeIterInfo(GenTree* incr, BasicBlock* from, BasicBlock* to, unsigned* pIterVar);
@@ -6988,7 +6936,7 @@ private:
     class ClassLayoutTable* typGetClassLayoutTable();
 
 public:
-    bool typIsLayoutNum(unsigned layoutNum);
+    static bool typIsLayoutNum(unsigned layoutNum);
     INDEBUG(const char* typGetName(unsigned typeNum);)
     // Get the layout having the specified layout number.
     ClassLayout* typGetLayoutByNum(unsigned layoutNum);
@@ -7924,6 +7872,7 @@ public:
                 FALLTHROUGH;
 
             // Leaf nodes
+            case GT_LCL_USE:
             case GT_CATCH_ARG:
             case GT_LABEL:
             case GT_FTN_ADDR:
@@ -7943,7 +7892,6 @@ public:
 #if !defined(FEATURE_EH_FUNCLETS)
             case GT_END_LFIN:
 #endif // !FEATURE_EH_FUNCLETS
-            case GT_PHI_ARG:
             case GT_JMPTABLE:
             case GT_CLS_VAR_ADDR:
             case GT_ARGPLACE:
@@ -7980,6 +7928,7 @@ public:
                     break;
                 }
                 FALLTHROUGH;
+            case GT_LCL_DEF:
             case GT_NOT:
             case GT_NEG:
             case GT_FNEG:
@@ -7990,6 +7939,7 @@ public:
             case GT_ARR_LENGTH:
             case GT_CAST:
             case GT_BITCAST:
+            case GT_EXTRACT:
             case GT_CKFINITE:
             case GT_LCLHEAP:
             case GT_FIELD_ADDR:

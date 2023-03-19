@@ -1092,8 +1092,6 @@ void LIR::Range::Delete(Compiler* compiler, BasicBlock* block, GenTree* firstNod
     assert(lastNode->gtNext == nullptr);
 
 #ifdef DEBUG
-    // We can't do this in the loop above because it causes `IsPhiNode` to return a false negative
-    // for `GT_STORE_LCL_VAR` nodes that participate in phi definitions.
     for (GenTree* node = firstNode; node != nullptr; node = node->gtNext)
     {
         DEBUG_DESTROY_NODE(node);

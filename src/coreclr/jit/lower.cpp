@@ -2023,7 +2023,6 @@ void Lowering::LowerLclVar(GenTreeLclVar* lclVar)
 void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
-    assert(!store->GetOp(0)->OperIs(GT_PHI));
 
 #ifdef FEATURE_SIMD
     if (store->TypeIs(TYP_SIMD12))
@@ -4866,8 +4865,11 @@ void Lowering::CheckNode(GenTree* node)
             break;
 
         case GT_PHI:
-        case GT_PHI_ARG:
-            assert(!"Should not see phi nodes after rationalize");
+        case GT_LCL_USE:
+        case GT_LCL_DEF:
+        case GT_INSERT:
+        case GT_EXTRACT:
+            assert(!"Should not see SSA nodes in lowering");
             break;
 
         case GT_LCL_FLD:

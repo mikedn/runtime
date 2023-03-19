@@ -293,6 +293,8 @@ public:
     }
 };
 
+using FieldSeq = FieldSeqNode;
+
 // This class canonicalizes field sequences.
 class FieldSeqStore
 {
@@ -1610,7 +1612,6 @@ public:
     void ReplaceOperand(GenTree** useEdge, GenTree* replacement);
 
     inline GenTree* gtEffectiveVal();
-    inline GenTree* gtCommaAssignVal();
 
     GenTree* SkipComma();
 
@@ -1728,10 +1729,6 @@ public:
     // Determine if this tree represents an indirection for an implict byref parameter,
     // and if so return the tree for the parameter.
     GenTreeLclVar* IsImplicitByrefIndir(Compiler* compiler);
-
-    // Determine whether this is an assignment tree of the form X = X (op) Y,
-    // where Y is an arbitrary tree, and X is a lclVar.
-    unsigned IsLclVarUpdateTree(GenTree** otherTree, genTreeOps* updateOper);
 
     void SetContained()
     {
@@ -1857,13 +1854,7 @@ public:
     inline var_types  CastFromType();
     inline var_types& CastToType();
 
-    // Returns "true" iff "this" is a phi-related node (i.e. a GT_PHI_ARG, GT_PHI, or a PhiDefn).
-    bool IsPhiNode();
-
-    // Returns "true" iff "*this" is an assignment (GT_ASG) tree that defines an SSA name (lcl = phi(...));
-    bool IsPhiDefn();
-
-    // Returns "true" iff "*this" is a statement containing an assignment that defines an SSA name (lcl = phi(...));
+    bool IsPhiDef() const;
 
     // Because of the fact that we hid the assignment operator of "BitSet" (in DEBUG),
     // we can't synthesize an assignment operator.
@@ -1989,177 +1980,6 @@ public:
     GenTree(const GenTree* copyFrom) : GenTree(copyFrom->gtOper, copyFrom->gtType)
     {
     }
-};
-
-// Represents a GT_PHI node - a variable sized list of GT_PHI_ARG nodes.
-// All PHI_ARG nodes must represent uses of the same local variable and
-// the PHI node's type must be the same as the local variable's type.
-//
-// The PHI node does not represent a definition by itself, it is always
-// the RHS of a GT_ASG node. The LHS of the ASG node is always a GT_LCL_VAR
-// node, that is a definition for the same local variable referenced by
-// all the used PHI_ARG nodes:
-//
-//   ASG(LCL_VAR(lcl7), PHI(PHI_ARG(lcl7), PHI_ARG(lcl7), PHI_ARG(lcl7)))
-//
-// PHI nodes are also present in LIR, where GT_STORE_LCL_VAR replaces the
-// ASG node.
-//
-// The order of the PHI_ARG uses is not currently relevant and it may be
-// the same or not as the order of the predecessor blocks.
-//
-struct GenTreePhi final : public GenTree
-{
-    class Use
-    {
-        GenTree* m_node;
-        Use*     m_next;
-
-    public:
-        Use(GenTree* node, Use* next = nullptr) : m_node(node), m_next(next)
-        {
-            assert(node->OperIs(GT_PHI_ARG));
-        }
-
-        GenTree*& NodeRef()
-        {
-            return m_node;
-        }
-
-        GenTree* GetNode() const
-        {
-            assert(m_node->OperIs(GT_PHI_ARG));
-            return m_node;
-        }
-
-        void SetNode(GenTree* node)
-        {
-            assert(node->OperIs(GT_PHI_ARG));
-            m_node = node;
-        }
-
-        Use*& NextRef()
-        {
-            return m_next;
-        }
-
-        Use* GetNext() const
-        {
-            return m_next;
-        }
-    };
-
-    class UseIterator
-    {
-        Use* m_use;
-
-    public:
-        UseIterator(Use* use) : m_use(use)
-        {
-        }
-
-        Use& operator*() const
-        {
-            return *m_use;
-        }
-
-        Use* operator->() const
-        {
-            return m_use;
-        }
-
-        UseIterator& operator++()
-        {
-            m_use = m_use->GetNext();
-            return *this;
-        }
-
-        bool operator==(const UseIterator& i) const
-        {
-            return m_use == i.m_use;
-        }
-
-        bool operator!=(const UseIterator& i) const
-        {
-            return m_use != i.m_use;
-        }
-    };
-
-    class UseList
-    {
-        Use* m_uses;
-
-    public:
-        UseList(Use* uses) : m_uses(uses)
-        {
-        }
-
-        UseIterator begin() const
-        {
-            return UseIterator(m_uses);
-        }
-
-        UseIterator end() const
-        {
-            return UseIterator(nullptr);
-        }
-    };
-
-    Use* gtUses;
-
-    GenTreePhi(var_types type) : GenTree(GT_PHI, type), gtUses(nullptr)
-    {
-    }
-
-    UseList Uses()
-    {
-        return UseList(gtUses);
-    }
-
-    //--------------------------------------------------------------------------
-    // Equals: Checks if 2 PHI nodes are equal.
-    //
-    // Arguments:
-    //    phi1 - The first PHI node
-    //    phi2 - The second PHI node
-    //
-    // Return Value:
-    //    true if the 2 PHI nodes have the same type, number of uses, and the
-    //    uses are equal.
-    //
-    // Notes:
-    //    The order of uses must be the same for equality, even if the
-    //    order is not usually relevant and is not guaranteed to reflect
-    //    a particular order of the predecessor blocks.
-    //
-    static bool Equals(GenTreePhi* phi1, GenTreePhi* phi2)
-    {
-        if (phi1->TypeGet() != phi2->TypeGet())
-        {
-            return false;
-        }
-
-        GenTreePhi::UseIterator i1   = phi1->Uses().begin();
-        GenTreePhi::UseIterator end1 = phi1->Uses().end();
-        GenTreePhi::UseIterator i2   = phi2->Uses().begin();
-        GenTreePhi::UseIterator end2 = phi2->Uses().end();
-
-        for (; (i1 != end1) && (i2 != end2); ++i1, ++i2)
-        {
-            if (!Compare(i1->GetNode(), i2->GetNode()))
-            {
-                return false;
-            }
-        }
-
-        return (i1 == end1) && (i2 == end2);
-    }
-
-#if DEBUGGABLE_GENTREE
-    GenTreePhi() : GenTree()
-    {
-    }
-#endif
 };
 
 // Represents a list of fields constituting a struct, when it is passed as an argument.
@@ -3173,14 +2993,12 @@ static constexpr int NoSsaNum = SsaConfig::RESERVED_SSA_NUM;
 struct GenTreeLclVarCommon : public GenTreeUnOp
 {
 private:
-    unsigned m_lclNum; // The local number. An index into the Compiler::lvaTable array.
-    unsigned m_ssaNum; // The SSA number.
+    unsigned m_lclNum;
+    unsigned m_unused; // to preserve TREE_NODE_SZ_SMALL, which is sizeof(GenTreeLclFld)
 
 protected:
     GenTreeLclVarCommon(const GenTreeLclVarCommon* copyFrom)
-        : GenTreeUnOp(copyFrom->GetOper(), copyFrom->GetType())
-        , m_lclNum(copyFrom->m_lclNum)
-        , m_ssaNum(copyFrom->m_ssaNum)
+        : GenTreeUnOp(copyFrom->GetOper(), copyFrom->GetType()), m_lclNum(copyFrom->m_lclNum)
     {
     }
 
@@ -3201,20 +3019,9 @@ public:
         assert(lclNum != BAD_VAR_NUM);
 
         m_lclNum = lclNum;
-        m_ssaNum = SsaConfig::RESERVED_SSA_NUM;
     }
 
     uint16_t GetLclOffs() const;
-
-    unsigned GetSsaNum() const
-    {
-        return m_ssaNum;
-    }
-
-    void SetSsaNum(unsigned ssaNum)
-    {
-        m_ssaNum = ssaNum;
-    }
 
 #if DEBUGGABLE_GENTREE
     GenTreeLclVarCommon() : GenTreeUnOp()
@@ -3417,6 +3224,481 @@ public:
 
 #if DEBUGGABLE_GENTREE
     GenTreeLclAddr() = default;
+#endif
+};
+
+struct GenTreeLclUse;
+
+class LclUses;
+
+struct GenTreeLclDef final : public GenTreeUnOp
+{
+    friend LclUses;
+
+private:
+    unsigned       m_lclNum;
+    unsigned       m_ssaNum;
+    BasicBlock*    m_block;
+    GenTreeLclUse* m_uses = nullptr;
+
+public:
+    GenTreeLclDef(GenTree* value, BasicBlock* block, unsigned lclNum, unsigned ssaNum)
+        : GenTreeUnOp(GT_LCL_DEF, value->GetType(), value), m_lclNum(lclNum), m_ssaNum(ssaNum), m_block(block)
+    {
+        gtFlags |= GTF_ASG;
+    }
+
+    GenTreeLclDef(const GenTreeLclDef* copyFrom)
+        : GenTreeUnOp(GT_LCL_DEF, copyFrom->GetType(), copyFrom->gtOp1)
+        , m_lclNum(copyFrom->m_lclNum)
+        , m_ssaNum(copyFrom->m_ssaNum)
+        , m_block(nullptr)
+    {
+        // TODO-MIKE-Consider: Maybe this should just assert. SSA defs can't really
+        // be cloned, at least not with the simplistic CloneExpr mechanism. Existing
+        // code is unlikely to clone assignments to begin with.
+    }
+
+    void Init()
+    {
+        m_uses = nullptr;
+    }
+
+    unsigned GetLclNum() const
+    {
+        return m_lclNum;
+    }
+
+    void SetLclNum(unsigned lclNum)
+    {
+        assert(lclNum != BAD_VAR_NUM);
+
+        m_lclNum = lclNum;
+        m_ssaNum = NoSsaNum;
+    }
+
+    unsigned GetSsaNum() const
+    {
+        return m_ssaNum;
+    }
+
+    void SetSsaNum(unsigned ssaNum)
+    {
+        m_ssaNum = ssaNum;
+    }
+
+    GenTree* GetValue() const
+    {
+        return gtOp1;
+    }
+
+    void SetValue(GenTree* value)
+    {
+        gtOp1 = value;
+    }
+
+    BasicBlock* GetBlock() const
+    {
+        return m_block;
+    }
+
+    void SetBlock(BasicBlock* block)
+    {
+        m_block = block;
+    }
+
+    void AddUse(GenTreeLclUse* use);
+    void RemoveUse(GenTreeLclUse* use);
+    LclUses Uses();
+
+    GenTreeLclUse* GetUseList() const
+    {
+        return m_uses;
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeLclDef() = default;
+#endif
+};
+
+struct GenTreeLclUse final : public GenTree
+{
+    friend GenTreeLclDef;
+    friend LclUses;
+
+private:
+    // TODO-MIKE-Cleanup: SSA uses currently don't need the basic block but it could
+    // be useful to have it around. SSA PHI args need the predecessor block and we
+    // don't have more room for it so we just store it here, as if the PHI arg occurs
+    // in the predecessor. Depending on how you look at it that may actually be true,
+    // but it could be confusing.
+    BasicBlock* m_block;
+
+    GenTreeLclDef* m_def     = nullptr;
+    GenTreeLclUse* m_nextUse = nullptr;
+    GenTreeLclUse* m_prevUse = nullptr;
+
+public:
+    GenTreeLclUse(GenTreeLclDef* def, BasicBlock* block) : GenTree(GT_LCL_USE, def->GetType()), m_block(block)
+    {
+        def->AddUse(this);
+    }
+
+    GenTreeLclUse(const GenTreeLclUse* copyFrom) : GenTree(GT_LCL_USE, copyFrom->GetType()), m_block(copyFrom->m_block)
+    {
+        copyFrom->m_def->AddUse(this);
+    }
+
+    void Init()
+    {
+        m_def     = nullptr;
+        m_nextUse = nullptr;
+        m_prevUse = nullptr;
+    }
+
+    GenTreeLclDef* GetDef() const
+    {
+        return m_def;
+    }
+
+    BasicBlock* GetBlock() const
+    {
+        return m_block;
+    }
+
+    void SetBlock(BasicBlock* block)
+    {
+        m_block = block;
+    }
+
+    GenTreeLclUse* GetNextUse() const
+    {
+        return m_nextUse;
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeLclUse() = default;
+#endif
+};
+
+class LclUses
+{
+    GenTreeLclUse* m_uses;
+
+public:
+    LclUses(GenTreeLclUse* uses) : m_uses(uses)
+    {
+    }
+
+    class iterator
+    {
+        GenTreeLclUse* m_use;
+
+    public:
+        iterator(GenTreeLclUse* use) : m_use(use)
+        {
+        }
+
+        GenTreeLclUse* operator*()
+        {
+            return m_use;
+        }
+
+        bool operator==(const iterator& other) const
+        {
+            return m_use == other.m_use;
+        }
+
+        bool operator!=(const iterator& other) const
+        {
+            return m_use != other.m_use;
+        }
+
+        void operator++()
+        {
+            m_use = m_use->m_nextUse;
+            if (m_use == m_use->m_def->m_uses)
+            {
+                m_use = nullptr;
+            }
+        }
+    };
+
+    iterator begin()
+    {
+        return iterator(m_uses);
+    }
+
+    iterator end()
+    {
+        return iterator(nullptr);
+    }
+};
+
+inline LclUses GenTreeLclDef::Uses()
+{
+    return LclUses(m_uses);
+}
+
+struct GenTreePhi final : public GenTree
+{
+    class Use
+    {
+        GenTree* m_node;
+        Use*     m_next;
+
+    public:
+        Use(GenTreeLclUse* node, Use* next = nullptr) : m_node(node), m_next(next)
+        {
+        }
+
+        GenTree*& NodeRef()
+        {
+            return m_node;
+        }
+
+        GenTreeLclUse* GetNode() const
+        {
+            return m_node->AsLclUse();
+        }
+
+        void SetNode(GenTreeLclUse* node)
+        {
+            m_node = node;
+        }
+
+        Use*& NextRef()
+        {
+            return m_next;
+        }
+
+        Use* GetNext() const
+        {
+            return m_next;
+        }
+    };
+
+    class UseIterator
+    {
+        Use* m_use;
+
+    public:
+        UseIterator(Use* use) : m_use(use)
+        {
+        }
+
+        Use& operator*() const
+        {
+            return *m_use;
+        }
+
+        Use* operator->() const
+        {
+            return m_use;
+        }
+
+        UseIterator& operator++()
+        {
+            m_use = m_use->GetNext();
+            return *this;
+        }
+
+        bool operator==(const UseIterator& i) const
+        {
+            return m_use == i.m_use;
+        }
+
+        bool operator!=(const UseIterator& i) const
+        {
+            return m_use != i.m_use;
+        }
+    };
+
+    class UseList
+    {
+        Use* m_uses;
+
+    public:
+        UseList(Use* uses) : m_uses(uses)
+        {
+        }
+
+        UseIterator begin() const
+        {
+            return UseIterator(m_uses);
+        }
+
+        UseIterator end() const
+        {
+            return UseIterator(nullptr);
+        }
+    };
+
+    Use* m_uses;
+
+    GenTreePhi(var_types type) : GenTree(GT_PHI, type), m_uses(nullptr)
+    {
+    }
+
+    UseList Uses() const
+    {
+        return UseList(m_uses);
+    }
+
+    static bool Equals(GenTreePhi* phi1, GenTreePhi* phi2);
+
+#if DEBUGGABLE_GENTREE
+    GenTreePhi() = default;
+#endif
+};
+
+class FieldInfo
+{
+    // TODO-MIKE-Cleanup: For now these are 16 bit to be consistent with LCL_FLD,
+    // but EXTRACT/INSERT have enough space to make these 32 bit.
+    uint16_t  m_typeNum;
+    uint16_t  m_offset;
+    FieldSeq* m_fieldSeq;
+
+public:
+    FieldInfo(unsigned typeNum, unsigned offset, FieldSeq* fieldSeq)
+        : m_typeNum(static_cast<uint16_t>(typeNum)), m_offset(static_cast<uint16_t>(offset)), m_fieldSeq(fieldSeq)
+    {
+        assert(typeNum <= UINT16_MAX);
+        assert(offset <= UINT16_MAX);
+    }
+
+    FieldInfo(const FieldInfo& field) = default;
+
+    var_types GetType() const
+    {
+        return varTypeFromTypeNum(m_typeNum);
+    }
+
+    uint16_t GetTypeNum() const
+    {
+        return m_typeNum;
+    }
+
+    uint16_t GetLayoutNum() const
+    {
+        return m_typeNum < TYP_COUNT ? 0 : m_typeNum;
+    }
+
+    uint16_t GetOffset() const
+    {
+        return m_offset;
+    }
+
+    FieldSeqNode* GetFieldSeq() const
+    {
+        return m_fieldSeq;
+    }
+
+    bool HasFieldSeq() const
+    {
+        return (m_fieldSeq != nullptr) && (m_fieldSeq != FieldSeqNode::NotAField());
+    }
+
+#if DEBUGGABLE_GENTREE
+    FieldInfo() = default;
+#endif
+};
+
+struct GenTreeInsert final : public GenTreeOp
+{
+private:
+    FieldInfo m_field;
+
+public:
+    GenTreeInsert(
+        GenTree* fieldValue, GenTree* structValue, unsigned fieldTypeNum, unsigned fieldOffset, FieldSeq* fieldSeq)
+        : GenTreeOp{GT_INSERT, structValue->GetType(), fieldValue, structValue}
+        , m_field{fieldTypeNum, fieldOffset, fieldSeq}
+    {
+    }
+
+    GenTreeInsert(const GenTreeInsert* copyFrom)
+        : GenTreeOp{GT_INSERT, copyFrom->GetType(), copyFrom->gtOp1, copyFrom->gtOp2}, m_field{copyFrom->m_field}
+    {
+    }
+
+    GenTree* GetFieldValue() const
+    {
+        return gtOp1;
+    }
+
+    void SetFieldValue(GenTree* value)
+    {
+        gtOp1 = value;
+    }
+
+    GenTree* GetStructValue() const
+    {
+        return gtOp2;
+    }
+
+    void SetStructValue(GenTree* value)
+    {
+        gtOp2 = value;
+    }
+
+    const FieldInfo& GetField() const
+    {
+        return m_field;
+    }
+
+    void SetField(unsigned typeNum, unsigned offset, FieldSeq* fieldSeq)
+    {
+        m_field = {typeNum, offset, fieldSeq};
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeInsert() = default;
+#endif
+};
+
+struct GenTreeExtract final : public GenTreeUnOp
+{
+private:
+    FieldInfo m_field;
+
+public:
+    GenTreeExtract(GenTree* structValue, unsigned fieldTypeNum, unsigned fieldOffset, FieldSeqNode* fieldSeq)
+        : GenTreeUnOp{GT_EXTRACT, varTypeFromTypeNum(fieldTypeNum), structValue}
+        , m_field{fieldTypeNum, fieldOffset, fieldSeq}
+    {
+    }
+
+    GenTreeExtract(const GenTreeExtract* copyFrom)
+        : GenTreeUnOp{GT_EXTRACT, copyFrom->GetType(), copyFrom->gtOp1}, m_field{copyFrom->m_field}
+    {
+    }
+
+    GenTree* GetStructValue() const
+    {
+        return gtOp1;
+    }
+
+    void SetStructValue(GenTree* value)
+    {
+        gtOp1 = value;
+    }
+
+    const FieldInfo& GetField() const
+    {
+        return m_field;
+    }
+
+    void SetField(unsigned typeNum, unsigned offset, FieldSeq* fieldSeq)
+    {
+        m_field = {typeNum, offset, fieldSeq};
+    }
+
+    ClassLayout* GetLayout(Compiler* compiler) const;
+
+#if DEBUGGABLE_GENTREE
+    GenTreeExtract() = default;
 #endif
 };
 
@@ -6467,6 +6749,12 @@ public:
         return m_treeList;
     }
 
+    void SetNodeList(GenTree* list)
+    {
+        m_treeList = list;
+    }
+
+    // [[deprecated]]
     void SetTreeList(GenTree* treeHead)
     {
         m_treeList = treeHead;
@@ -6538,11 +6826,6 @@ public:
     void SetCompilerAdded()
     {
         m_compilerAdded = true;
-    }
-
-    bool IsPhiDefnStmt() const
-    {
-        return m_rootNode->IsPhiDefn();
     }
 
     unsigned char GetCostSz() const
@@ -6681,24 +6964,6 @@ public:
 
 #if DEBUGGABLE_GENTREE
     GenTreeClsVar() : GenTree()
-    {
-    }
-#endif
-};
-
-/* gtPhiArg -- phi node rhs argument, var = phi(phiarg, phiarg, phiarg...); GT_PHI_ARG */
-struct GenTreePhiArg : public GenTreeLclVarCommon
-{
-    BasicBlock* gtPredBB;
-
-    GenTreePhiArg(var_types type, unsigned lclNum, unsigned ssaNum, BasicBlock* block)
-        : GenTreeLclVarCommon(GT_PHI_ARG, type, lclNum), gtPredBB(block)
-    {
-        SetSsaNum(ssaNum);
-    }
-
-#if DEBUGGABLE_GENTREE
-    GenTreePhiArg() : GenTreeLclVarCommon()
     {
     }
 #endif
@@ -7416,39 +7681,6 @@ inline GenTree* GenTree::SkipComma()
         node = node->AsOp()->GetOp(1);
     }
     return node;
-}
-
-//-------------------------------------------------------------------------
-// gtCommaAssignVal - find value being assigned to a comma wrapped assigment
-//
-// Returns:
-//    tree representing value being assigned if this tree represents a
-//    comma-wrapped local definition and use.
-//
-//    original tree, of not.
-//
-inline GenTree* GenTree::gtCommaAssignVal()
-{
-    GenTree* result = this;
-
-    if (OperIs(GT_COMMA))
-    {
-        GenTree* commaOp1 = AsOp()->gtOp1;
-        GenTree* commaOp2 = AsOp()->gtOp2;
-
-        if (commaOp2->OperIs(GT_LCL_VAR) && commaOp1->OperIs(GT_ASG))
-        {
-            GenTree* asgOp1 = commaOp1->AsOp()->gtOp1;
-            GenTree* asgOp2 = commaOp1->AsOp()->gtOp2;
-
-            if (asgOp1->OperIs(GT_LCL_VAR) && (asgOp1->AsLclVar()->GetLclNum() == commaOp2->AsLclVar()->GetLclNum()))
-            {
-                result = asgOp2;
-            }
-        }
-    }
-
-    return result;
 }
 
 inline GenTree* GenTree::SkipRetExpr()

@@ -2212,56 +2212,13 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
     return !info.compInitMem || (varDsc->lvIsTemp && !varDsc->HasGCPtr());
 }
 
-// Local field stores usually modify only a part of a local so they're both a use and a def.
-// GenTreeLclVarCommon has room for only one SSA number so for such partial stores we store
-// the SSA use number in the store node and the SSA def number in a node-number map.
-inline void Compiler::SetPartialSsaDefNum(GenTreeLclFld* store, unsigned ssaNum)
-{
-    assert(store->OperIs(GT_LCL_FLD));
-    assert((store->gtFlags & (GTF_VAR_DEF | GTF_VAR_USEASG)) == (GTF_VAR_DEF | GTF_VAR_USEASG));
-
-    if (m_partialSsaDefMap == nullptr)
-    {
-        m_partialSsaDefMap = new (getAllocator(CMK_SSA)) NodeToUnsignedMap(getAllocator(CMK_SSA));
-    }
-
-    m_partialSsaDefMap->Set(store, ssaNum);
-}
-
-inline unsigned Compiler::GetSsaDefNum(GenTreeLclVarCommon* lclNode)
-{
-    assert((lclNode->gtFlags & GTF_VAR_DEF) != 0);
-    assert(lvaGetDesc(lclNode)->IsInSsa());
-
-    if ((lclNode->gtFlags & GTF_VAR_USEASG) == 0)
-    {
-        return lclNode->GetSsaNum();
-    }
-
-    assert(lclNode->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD));
-
-    return *m_partialSsaDefMap->LookupPointer(lclNode);
-}
-
-#ifdef DEBUG
-inline void Compiler::MoveSsaDefNum(GenTreeLclVarCommon* from, GenTreeLclVarCommon* to)
-{
-    if (m_partialSsaDefMap != nullptr)
-    {
-        if (unsigned* ssaDefNum = m_partialSsaDefMap->LookupPointer(from))
-        {
-            m_partialSsaDefMap->Set(to, *ssaDefNum);
-        }
-    }
-}
-#endif
-
 template <typename TVisitor>
 void GenTree::VisitOperands(TVisitor visitor)
 {
     switch (OperGet())
     {
         // Leaf nodes
+        case GT_LCL_USE:
         case GT_LCL_VAR:
         case GT_LCL_FLD:
         case GT_LCL_ADDR:
@@ -2284,7 +2241,6 @@ void GenTree::VisitOperands(TVisitor visitor)
 #if !defined(FEATURE_EH_FUNCLETS)
         case GT_END_LFIN:
 #endif // !FEATURE_EH_FUNCLETS
-        case GT_PHI_ARG:
         case GT_JMPTABLE:
         case GT_CLS_VAR_ADDR:
         case GT_ARGPLACE:
@@ -2306,6 +2262,7 @@ void GenTree::VisitOperands(TVisitor visitor)
             FALLTHROUGH;
 
         // Standard unary operators
+        case GT_LCL_DEF:
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
         case GT_NOT:
@@ -2318,6 +2275,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_ARR_LENGTH:
         case GT_CAST:
         case GT_BITCAST:
+        case GT_EXTRACT:
         case GT_CKFINITE:
         case GT_LCLHEAP:
         case GT_FIELD_ADDR:

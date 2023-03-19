@@ -2025,30 +2025,15 @@ ValueNum ValueNumStore::VNForFunc(var_types typ, VNFunc func, ValueNum arg0VN, V
 //
 // Return Value:     - Returns the ValueNum associated with 'func'('arg0VN','arg1VN','arg1VN)
 //
-// Note: - This method only handles Trinary operations
-//         We have to special case VNF_PhiDef, as it's first two arguments are not ValueNums
-//
 ValueNum ValueNumStore::VNForFunc(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN, ValueNum arg2VN)
 {
     assert(arg0VN != NoVN);
     assert(arg1VN != NoVN);
     assert(arg2VN != NoVN);
     assert(VNFuncArityIsLegal(func, 3));
-
-#ifdef DEBUG
-    // Function arguments carry no exceptions.
-    //
-    if (func != VNF_PhiDef)
-    {
-        // For a phi definition first and second argument are "plain" local/ssa numbers.
-        // (I don't know if having such non-VN arguments to a VN function is a good idea -- if we wanted to declare
-        // ValueNum to be "short" it would be a problem, for example.  But we'll leave it for now, with these explicit
-        // exceptions.)
-        assert(arg0VN == VNNormalValue(arg0VN));
-        assert(arg1VN == VNNormalValue(arg1VN));
-    }
+    assert(arg0VN == VNNormalValue(arg0VN));
+    assert(arg1VN == VNNormalValue(arg1VN));
     assert(arg2VN == VNNormalValue(arg2VN));
-#endif
 
     ValueNum resultVN;
 
@@ -2267,19 +2252,14 @@ TailCall:
             goto TailCall;
         }
     }
-    else if (funcApp.m_func == VNF_PhiDef || funcApp.m_func == VNF_PhiMemoryDef)
+    else if ((funcApp.m_func == VNF_PhiDef) || (funcApp.m_func == VNF_PhiMemoryDef))
     {
-        LclVarDsc* lcl = nullptr;
-        ValueNum   phiVN;
+        ValueNum   phiVN = funcApp[0];
+        LclVarDsc* lcl   = nullptr;
 
         if (funcApp.m_func == VNF_PhiDef)
         {
-            lcl   = m_pComp->lvaGetDesc(unsigned(funcApp.m_args[0]));
-            phiVN = funcApp.m_args[2];
-        }
-        else
-        {
-            phiVN = funcApp.m_args[1];
+            lcl = m_pComp->lvaGetDesc(ConstantValue<unsigned>(funcApp[2]));
         }
 
         if (GetVNFunc(phiVN, &funcApp))
@@ -2292,12 +2272,12 @@ TailCall:
             // We need to be careful about breaking infinite recursion.  Record the outer map.
             m_fixedPointMapSels.Push(mapVN);
 
-            unsigned phiArgSsaNum = ConstantValue<unsigned>(funcApp.m_args[0]);
+            unsigned phiArgSsaNum = ConstantValue<unsigned>(funcApp[0]);
             ValueNum phiArgVN;
 
             if (lcl != nullptr)
             {
-                phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->m_vnPair.Get(vnk);
+                phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->GetVNP().Get(vnk);
             }
             else if (vnk == VNK_Liberal)
             {
@@ -2337,7 +2317,7 @@ TailCall:
 
                     if (lcl != nullptr)
                     {
-                        phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->m_vnPair.Get(vnk);
+                        phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->GetVNP().Get(vnk);
                     }
                     else if (vnk == VNK_Liberal)
                     {
@@ -4450,16 +4430,31 @@ ValueNum Compiler::vnCoerceStoreValue(
     ValueNum  valueVN   = vnStore->VNNormalValue(value->GetVN(vnk));
     var_types valueType = vnStore->TypeOfVN(valueVN);
 
-    unsigned fieldSize = fieldType == TYP_STRUCT ? fieldLayout->GetSize() : varTypeSize(fieldType);
-    unsigned storeSize = varTypeSize(store->GetType());
+    unsigned  fieldSize = fieldType == TYP_STRUCT ? fieldLayout->GetSize() : varTypeSize(fieldType);
+    var_types storeType;
 
-    if (store->TypeIs(TYP_STRUCT))
+    if (GenTreeInsert* insert = store->IsInsert())
+    {
+        storeType = insert->GetField().GetType();
+    }
+    else
+    {
+        storeType = store->GetType();
+    }
+
+    unsigned storeSize = varTypeSize(storeType);
+
+    if (storeType == TYP_STRUCT)
     {
         ClassLayout* storeLayout;
 
         if (GenTreeLclFld* lclFld = store->IsLclFld())
         {
             storeLayout = lclFld->GetLayout(this);
+        }
+        else if (GenTreeInsert* insert = store->IsInsert())
+        {
+            storeLayout = typGetLayoutByNum(insert->GetField().GetTypeNum());
         }
         else
         {
@@ -4585,6 +4580,10 @@ ValueNum Compiler::vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types 
         if (GenTreeLclFld* lclFld = load->IsLclFld())
         {
             loadLayout = lclFld->GetLayout(this);
+        }
+        else if (GenTreeExtract* extract = load->IsExtract())
+        {
+            loadLayout = typGetLayoutByNum(extract->GetField().GetLayoutNum());
         }
         else
         {
@@ -4741,52 +4740,47 @@ void Compiler::vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store,
                                                 GenTreeOp*           asg,
                                                 VNLoopMemorySummary& summary)
 {
-    LclVarDsc* lcl = lvaGetDesc(store);
-
-    if (lcl->IsAddressExposed())
+    if (lvaGetDesc(store)->IsAddressExposed())
     {
         summary.AddAddressExposedLocal(store->GetLclNum());
-
-        return;
     }
+}
 
-    if (!lcl->IsInSsa() || !lcl->TypeIs(TYP_BYREF) || !store->OperIs(GT_LCL_VAR))
+void Compiler::vnSummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary& summary)
+{
+    if (def->TypeIs(TYP_BYREF))
     {
-        return;
+        def->SetLiberalVN(def->GetValue()->GetLiberalVN());
     }
-
-    ValueNum valueVN = asg->GetOp(1)->GetLiberalVN();
-    lcl->GetPerSsaData(store->GetSsaNum())->SetLiberalVN(valueVN);
 }
 
 void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value)
 {
     assert(store->OperIs(GT_LCL_VAR) && ((store->gtFlags & GTF_VAR_DEF) != 0));
+    assert(!lvaGetDesc(store)->IsSsa());
 
-    LclVarDsc* lcl = lvaGetDesc(store);
-
-    if (lcl->IsAddressExposed())
+    if (!lvaGetDesc(store)->IsAddressExposed())
     {
-        ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
-                                                vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
-        INDEBUG(vnTrace(lclAddrVN));
-
-        ValueNum memVN = vnAddressExposedLocalStore(store, lclAddrVN, value);
-        vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
+        assert(!GetMemorySsaMap()->Lookup(asg));
 
         return;
     }
 
-    assert(!GetMemorySsaMap()->Lookup(asg));
+    ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
+                                            vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
+    INDEBUG(vnTrace(lclAddrVN));
 
-    if (!lcl->IsInSsa())
-    {
-        return;
-    }
+    ValueNum memVN = vnAddressExposedLocalStore(store, lclAddrVN, value);
+    vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
+}
 
+void Compiler::vnLocalDef(GenTreeLclDef* def)
+{
+    LclVarDsc*   lcl   = lvaGetDesc(def->GetLclNum());
+    GenTree*     value = def->GetValue();
     ValueNumPair valueVNP;
 
-    if (store->TypeIs(TYP_STRUCT))
+    if (def->TypeIs(TYP_STRUCT))
     {
         assert(lcl->TypeIs(TYP_STRUCT));
 
@@ -4794,11 +4788,21 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
         {
             valueVNP = vnStore->VNPNormalPair(value->GetVNP());
 
-            ClassLayout* valueLayout = typGetStructLayout(value);
-
-            if (valueLayout != lcl->GetLayout())
+            // TODO-MIKE-Fix: INSERT needs layout, the struct value may be a constant 0
+            // for initialization and then we don't have layout. Well, 0 could probably
+            // be replaced by a dedicated struct init code that has layout but it's
+            // probably better for INSERT itself to have layout.
+            // This can be ignored for now, we simply assume that the INSERT layout is
+            // the same as the local layout, since INSERTs are currently built only from
+            // LCL_FLD stores.
+            if (!value->IsInsert())
             {
-                valueVNP = vnCastStruct(valueVNP, valueLayout, lcl->GetLayout());
+                ClassLayout* valueLayout = typGetStructLayout(value);
+
+                if (valueLayout != lcl->GetLayout())
+                {
+                    valueVNP = vnCastStruct(valueVNP, valueLayout, lcl->GetLayout());
+                }
             }
         }
         else if (value->OperIs(GT_CNS_INT))
@@ -4817,14 +4821,14 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
         valueVNP = vnStore->VNPNormalPair(value->GetVNP());
 
         var_types valueType = value->GetType();
-        var_types storeType = store->GetType();
+        var_types defType   = def->GetType();
 
-        if (valueType != storeType)
+        if (valueType != defType)
         {
-            if ((varTypeSize(valueType) == varTypeSize(storeType)) && !varTypeIsSmall(valueType))
+            if ((varTypeSize(valueType) == varTypeSize(defType)) && !varTypeIsSmall(valueType))
             {
-                valueVNP.SetLiberal(vnStore->VNForBitCast(valueVNP.GetLiberal(), store->GetType()));
-                valueVNP.SetConservative(vnStore->VNForBitCast(valueVNP.GetConservative(), store->GetType()));
+                valueVNP.SetLiberal(vnStore->VNForBitCast(valueVNP.GetLiberal(), def->GetType()));
+                valueVNP.SetConservative(vnStore->VNForBitCast(valueVNP.GetConservative(), def->GetType()));
             }
             else
             {
@@ -4837,74 +4841,75 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
                 // the one produced by the load.
                 // This is also dubious in case the IR contains other type mismatches, possibly involving
                 // SIMD types, SIMD12 and SIMD16 in particular.
-                valueVNP = vnStore->VNForCast(valueVNP, storeType);
+                valueVNP = vnStore->VNForCast(valueVNP, defType);
             }
         }
     }
 
-    lcl->GetPerSsaData(store->GetSsaNum())->SetVNP(valueVNP);
-    store->SetVNP(valueVNP);
+    lcl->GetPerSsaData(def->GetSsaNum())->SetVNP(valueVNP);
+    def->SetVNP(valueVNP);
 
-    INDEBUG(vnTraceLocal(store->GetLclNum(), valueVNP));
+    INDEBUG(vnTraceLocal(def->GetLclNum(), valueVNP));
 }
 
 void Compiler::vnLocalLoad(GenTreeLclVar* load)
 {
     assert(load->OperIs(GT_LCL_VAR) && ((load->gtFlags & GTF_VAR_DEF) == 0));
+    assert(!lvaGetDesc(load)->IsSsa());
 
-    LclVarDsc* lcl = lvaGetDesc(load);
-
-    if (lcl->IsAddressExposed())
-    {
-        ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
-                                             vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
-
-        // TODO-MIKE-Review: Setting the conservative VN to a non unique VN is suspect.
-        // Well, the chance that an address-exposed local is modified by another thread
-        // is slim so perhaps this is fine as it is but then vnIndirStore should do the
-        // same for local addresses.
-        load->gtVNPair.SetBoth(vnMemoryLoad(load->GetType(), addrVN));
-
-        return;
-    }
-
-    if (!lcl->IsInSsa())
+    if (!lvaGetDesc(load)->IsAddressExposed())
     {
         load->gtVNPair.SetBoth(vnStore->VNForExpr(load->GetType()));
 
         return;
     }
 
-    load->SetVNP(vnLocalLoad(load, lcl, load->GetSsaNum()));
+    ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
+                                         vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
+
+    // TODO-MIKE-Review: Setting the conservative VN to a non unique VN is suspect.
+    // Well, the chance that an address-exposed local is modified by another thread
+    // is slim so perhaps this is fine as it is but then vnIndirStore should do the
+    // same for local addresses.
+    load->gtVNPair.SetBoth(vnMemoryLoad(load->GetType(), addrVN));
 }
 
-ValueNumPair Compiler::vnLocalLoad(GenTreeLclVar* load, LclVarDsc* lcl, unsigned ssaNum)
+void Compiler::vnLocalUse(GenTreeLclUse* use)
 {
-    ValueNumPair vnp = lcl->GetPerSsaData(ssaNum)->GetVNP();
+    LclVarDsc* lcl = lvaGetDesc(use->GetDef()->GetLclNum());
 
-    assert(vnp.GetLiberal() != ValueNumStore::NoVN);
+    use->SetVNP(vnLocalUse(use, use->GetDef()));
+}
 
-    unsigned valSize = varTypeSize(varActualType(load->GetType()));
+ValueNumPair Compiler::vnLocalUse(GenTreeLclUse* use, GenTreeLclDef* def)
+{
+    LclVarDsc*   lcl = lvaGetDesc(def->GetLclNum());
+    ValueNumPair vnp = def->GetVNP();
+
+    assert(vnp.GetLiberal() != NoVN);
+    assert(vnp == lcl->GetPerSsaData(def->GetSsaNum())->GetVNP());
+
+    unsigned valSize = varTypeSize(varActualType(use->GetType()));
     unsigned lclSize = varTypeSize(varActualType(lcl->GetType()));
 
     if (valSize != lclSize)
     {
         // Expected type mismatch case is LONG local loaded as INT, ignore everything else.
-        if (load->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG))
+        if (use->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG))
         {
             vnp = vnStore->VNForCast(vnp, TYP_INT);
         }
         else
         {
-            printf("bad type %s %s\n", varTypeName(load->GetType()), varTypeName(lcl->GetType()));
-            vnp.SetBoth(vnStore->VNForExpr(load->GetType()));
+            printf("bad type %s %s\n", varTypeName(use->GetType()), varTypeName(lcl->GetType()));
+            vnp.SetBoth(vnStore->VNForExpr(use->GetType()));
         }
     }
 
     // A BYREF local may have a zero offset field sequence that needs to be added.
-    if (load->TypeIs(TYP_BYREF))
+    if (use->TypeIs(TYP_BYREF))
     {
-        if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(load))
+        if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(use))
         {
             ValueNum extendVN = vnStore->ExtendPtrVN(vnp.GetLiberal(), fieldSeq, 0);
 
@@ -4925,108 +4930,111 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
 {
     assert(store->OperIs(GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
     assert(((store->gtFlags & GTF_VAR_USEASG) != 0) == store->IsPartialLclFld(this));
+    assert(!lvaGetDesc(store)->IsSsa());
 
-    LclVarDsc* lcl = lvaGetDesc(store);
-
-    if (lcl->IsAddressExposed())
+    if (!lvaGetDesc(store)->IsAddressExposed())
     {
-        ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
-                                                vnStore->VNForUPtrSizeIntCon(store->GetLclOffs()),
-                                                vnStore->VNForFieldSeq(store->GetFieldSeq()));
-        INDEBUG(vnTrace(lclAddrVN));
-
-        ValueNum memVN = vnAddressExposedLocalStore(store, lclAddrVN, value);
-        vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
+        assert(!GetMemorySsaMap()->Lookup(asg));
 
         return;
     }
 
-    assert(!GetMemorySsaMap()->Lookup(asg));
+    ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
+                                            vnStore->VNForUPtrSizeIntCon(store->GetLclOffs()),
+                                            vnStore->VNForFieldSeq(store->GetFieldSeq()));
+    INDEBUG(vnTrace(lclAddrVN));
 
-    if (!lcl->IsInSsa())
+    ValueNum memVN = vnAddressExposedLocalStore(store, lclAddrVN, value);
+    vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
+}
+
+void Compiler::vnInsert(GenTreeInsert* insert)
+{
+    const FieldInfo& field = insert->GetField();
+    ValueNumPair     valueVNP;
+
+    if (!field.HasFieldSeq())
     {
-        return;
-    }
-
-    ValueNumPair valueVNP;
-
-    if (!store->HasFieldSeq())
-    {
-        valueVNP.SetBoth(vnStore->VNForExpr(varActualType(lcl->GetType())));
+        valueVNP.SetBoth(vnStore->VNForExpr(varActualType(insert->GetType())));
     }
     else
     {
+        GenTree*     structValue = insert->GetStructValue();
+        GenTree*     fieldValue  = insert->GetFieldValue();
         ValueNumPair currentVNP;
 
-        if ((store->gtFlags & GTF_VAR_USEASG) == 0)
+        if (structValue->IsIntegralConst(0))
         {
-            // If the LCL_FLD exactly overlaps the local we can ignore the existing value,
-            // just insert the new value into a zero map.
             currentVNP.SetBoth(vnStore->VNForZeroMap());
         }
         else
         {
-            currentVNP = lcl->GetPerSsaData(store->GetSsaNum())->GetVNP();
+            currentVNP = structValue->GetVNP();
         }
 
-        FieldSeqNode* fieldSeq = store->GetFieldSeq();
-        var_types     lclType  = lcl->GetType();
+        FieldSeqNode* fieldSeq = field.GetFieldSeq();
+        var_types     lclType  = insert->GetType();
 
-        valueVNP.SetLiberal(vnInsertStructField(store, value, VNK_Liberal, currentVNP.GetLiberal(), lclType, fieldSeq));
+        valueVNP.SetLiberal(
+            vnInsertStructField(insert, fieldValue, VNK_Liberal, currentVNP.GetLiberal(), lclType, fieldSeq));
 
         if (valueVNP.GetLiberal() == NoVN)
         {
-            valueVNP.SetLiberal(vnStore->VNForExpr(varActualType(lcl->GetType())));
+            valueVNP.SetLiberal(vnStore->VNForExpr(varActualType(insert->GetType())));
         }
 
         valueVNP.SetConservative(
-            vnInsertStructField(store, value, VNK_Conservative, currentVNP.GetConservative(), lclType, fieldSeq));
+            vnInsertStructField(insert, fieldValue, VNK_Conservative, currentVNP.GetConservative(), lclType, fieldSeq));
 
         if (valueVNP.GetConservative() == NoVN)
         {
-            valueVNP.SetConservative(vnStore->VNForExpr(varActualType(lcl->GetType())));
+            valueVNP.SetConservative(vnStore->VNForExpr(varActualType(insert->GetType())));
         }
     }
 
-    lcl->GetPerSsaData(GetSsaDefNum(store))->SetVNP(valueVNP);
-    store->SetVNP(valueVNP);
-
-    INDEBUG(vnTraceLocal(store->GetLclNum(), valueVNP));
+    insert->SetVNP(valueVNP);
 }
 
 void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
 {
     assert(load->OperIs(GT_LCL_FLD) && ((load->gtFlags & GTF_VAR_DEF) == 0));
+    assert(!lvaGetDesc(load)->IsSsa());
 
-    LclVarDsc* lcl = lvaGetDesc(load);
-
-    if (lcl->IsAddressExposed())
-    {
-        // Note that the field sequence is currently ignored because we don't try to resolve
-        // these loads back to a store. We only care about getting the same VN when loading
-        // the same type from the same address (provided that there are no interfering stores).
-        ValueNum addrVN =
-            vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
-                               vnStore->VNForUPtrSizeIntCon(load->GetLclOffs()), vnStore->VNForFieldSeq(nullptr));
-
-        load->SetLiberalVN(vnMemoryLoad(load->GetType(), addrVN));
-        load->SetConservativeVN(vnStore->VNForExpr(load->GetType()));
-
-        return;
-    }
-
-    if (!lcl->IsInSsa() || !load->HasFieldSeq())
+    if (!lvaGetDesc(load)->IsAddressExposed())
     {
         load->gtVNPair.SetBoth(vnStore->VNForExpr(load->GetType()));
 
         return;
     }
 
-    assert(varTypeIsStruct(lcl->GetType()));
+    // Note that the field sequence is currently ignored because we don't try to resolve
+    // these loads back to a store. We only care about getting the same VN when loading
+    // the same type from the same address (provided that there are no interfering stores).
+    ValueNum addrVN =
+        vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
+                           vnStore->VNForUPtrSizeIntCon(load->GetLclOffs()), vnStore->VNForFieldSeq(nullptr));
 
-    ValueNumPair vnp = lcl->GetPerSsaData(load->GetSsaNum())->GetVNP();
-    vnp              = vnExtractStructField(load, vnp, load->GetFieldSeq());
-    load->SetVNP(vnp);
+    load->SetLiberalVN(vnMemoryLoad(load->GetType(), addrVN));
+    load->SetConservativeVN(vnStore->VNForExpr(load->GetType()));
+}
+
+void Compiler::vnExtract(GenTreeExtract* extract)
+{
+    const FieldInfo& field = extract->GetField();
+
+    if (!field.HasFieldSeq())
+    {
+        extract->gtVNPair.SetBoth(vnStore->VNForExpr(extract->GetType()));
+
+        return;
+    }
+
+    GenTree* structValue = extract->GetStructValue();
+    assert(varTypeIsStruct(structValue->GetType()));
+
+    ValueNumPair vnp = structValue->GetVNP();
+    vnp              = vnExtractStructField(extract, vnp, field.GetFieldSeq());
+    extract->SetVNP(vnp);
 }
 
 void Compiler::vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary)
@@ -5720,7 +5728,7 @@ BasicBlock::loopNumber ValueNumStore::LoopOfVN(ValueNum vn)
         }
         else if (funcApp.m_func == VNF_PhiMemoryDef)
         {
-            return ConstantHostPtr<BasicBlock>(funcApp.m_args[0])->bbNatLoopNum;
+            return ConstantHostPtr<BasicBlock>(funcApp[1])->bbNatLoopNum;
         }
     }
 
@@ -7329,34 +7337,18 @@ void Compiler::fgValueNumber()
     // parameters and initial memory are treated as loop invariant.
     assert(fgFirstBB->bbNatLoopNum == BasicBlock::NOT_IN_LOOP);
 
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (GenTreeLclDef* def = m_initSsaDefs; def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
     {
-        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+        unsigned   lclNum   = def->GetLclNum();
+        LclVarDsc* lcl      = lvaGetDesc(lclNum);
+        var_types  type     = lcl->GetType();
+        bool       isZeroed = false;
 
-        if (!varDsc->HasImplicitSsaDef())
-        {
-            continue;
-        }
+        assert(def->GetSsaNum() == SsaConfig::FIRST_SSA_NUM);
 
-        if (varDsc->IsParam())
+        if (!lcl->IsParam())
         {
-            // We assume that code equivalent to this variable initialization loop
-            // has been performed when doing SSA naming, so that all the variables we give
-            // initial VNs to here have been given initial SSA definitions there.
-            // SSA numbers always start from FIRST_SSA_NUM, and we give the value number to SSA name FIRST_SSA_NUM.
-            ValueNum      initVal = vnStore->VNForExpr(fgFirstBB, varDsc->GetType());
-            LclSsaVarDsc* ssaDef  = varDsc->GetPerSsaData(SsaConfig::FIRST_SSA_NUM);
-            ssaDef->m_vnPair.SetBoth(initVal);
-            ssaDef->SetBlock(fgFirstBB);
-            INDEBUG(vnTraceLocal(lclNum, ssaDef->GetVNP()));
-        }
-        else
-        {
-            // The last clause covers the use-before-def variables (the ones that are live-in to the the first block),
-            // these are variables that are read before being initialized (at least on some control flow paths)
-            // if they are not must-init, then they get VNF_InitVal(i), as with the param case.)
-
-            bool isZeroed = (info.compInitMem || varDsc->lvMustInit);
+            isZeroed = (info.compInitMem || lcl->lvMustInit);
 
             // For OSR, locals or promoted fields of locals may be missing the initial def
             // because of partial importation. We can't assume they are zero.
@@ -7372,34 +7364,23 @@ void Compiler::fgValueNumber()
             }
 #endif
 
-            var_types type = varDsc->GetType();
-
             if (type == TYP_BLK)
             {
                 // TYP_BLK is used for the EHSlots locals on x86 (aka shadowSPslotsVar),
-                // for the lvaInlinedPInvokeFrameVar on x64, arm and x86
-                // and for the outgoing argument area if FEATURE_FIXED_OUT_ARGS is enabled.
-                // The stack associated with these LclVars are not zero initialized.
+                // for the lvaInlinedPInvokeFrameVar on x64/x86/ARM and for the outgoing
+                // argument area if FEATURE_FIXED_OUT_ARGS is enabled.
+                // These locals are not zero initialized.
                 isZeroed = false;
                 type     = TYP_STRUCT;
             }
-
-            ValueNum initVal;
-
-            if (isZeroed)
-            {
-                initVal = vnStore->VNZeroForType(type);
-            }
-            else
-            {
-                initVal = vnStore->VNForExpr(fgFirstBB, type);
-            }
-
-            LclSsaVarDsc* ssaDef = varDsc->GetPerSsaData(SsaConfig::FIRST_SSA_NUM);
-            ssaDef->m_vnPair.SetBoth(initVal);
-            ssaDef->SetBlock(fgFirstBB);
-            INDEBUG(vnTraceLocal(lclNum, ssaDef->GetVNP()));
         }
+
+        ValueNum initVN = isZeroed ? vnStore->VNZeroForType(type) : vnStore->VNForExpr(fgFirstBB, type);
+
+        lcl->GetPerSsaData(SsaConfig::FIRST_SSA_NUM)->SetVNP(ValueNumPair{initVN});
+        def->SetVNP(ValueNumPair{initVN});
+
+        INDEBUG(vnTraceLocal(lclNum, def->GetVNP()));
     }
 
     // Give memory an initial value number (about which we know nothing).
@@ -7540,22 +7521,21 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
 
     // First: visit phi's.  If "newVNForPhis", give them new VN's.  If not,
     // first check to see if all phi args have the same value.
-    for (; (stmt != nullptr) && stmt->IsPhiDefnStmt(); stmt = stmt->GetNextStmt())
+    for (; (stmt != nullptr) && stmt->GetRootNode()->IsPhiDef(); stmt = stmt->GetNextStmt())
     {
-        GenTree* asg = stmt->GetRootNode();
-        assert(asg->OperIs(GT_ASG));
-
-        GenTreeLclVar* newSsaDef = asg->AsOp()->gtGetOp1()->AsLclVar();
+        GenTreeLclDef* def = stmt->GetRootNode()->AsLclDef();
         ValueNumPair   phiVNP;
         ValueNumPair   sameVNP;
 
-        for (GenTreePhi::Use& use : asg->AsOp()->gtGetOp2()->AsPhi()->Uses())
+        for (GenTreePhi::Use& use : def->GetValue()->AsPhi()->Uses())
         {
-            GenTreePhiArg* phiArg         = use.GetNode()->AsPhiArg();
-            ValueNum       phiArgSsaNumVN = vnStore->VNForIntCon(phiArg->GetSsaNum());
-            ValueNumPair   phiArgVNP      = lvaGetDesc(phiArg)->GetPerSsaData(phiArg->GetSsaNum())->m_vnPair;
+            GenTreeLclUse* phiArg    = use.GetNode();
+            GenTreeLclDef* argDef    = phiArg->GetDef();
+            ValueNumPair   phiArgVNP = argDef->GetVNP();
 
-            phiArg->gtVNPair = phiArgVNP;
+            phiArg->SetVNP(phiArgVNP);
+
+            ValueNum phiArgSsaNumVN = vnStore->VNForIntCon(argDef->GetSsaNum());
 
             if (phiVNP.GetLiberal() == ValueNumStore::NoVN)
             {
@@ -7565,8 +7545,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
             }
             else
             {
-                phiVNP = vnStore->VNPairForFunc(newSsaDef->TypeGet(), VNF_Phi,
-                                                ValueNumPair(phiArgSsaNumVN, phiArgSsaNumVN), phiVNP);
+                phiVNP = vnStore->VNPairForFunc(def->GetType(), VNF_Phi, ValueNumPair(phiArgSsaNumVN), phiVNP);
                 INDEBUG(vnTrace(phiVNP));
 
                 if ((sameVNP.GetLiberal() != phiArgVNP.GetLiberal()) ||
@@ -7598,24 +7577,23 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
         else
         {
             // They were not the same; we need to create a phi definition.
-            ValueNum lclNumVN = ValueNum(newSsaDef->GetLclNum());
-            ValueNum ssaNumVN = ValueNum(newSsaDef->GetSsaNum());
+            ValueNum lclNumVN = vnStore->VNForIntCon(def->GetLclNum());
+            ValueNum blockVN  = vnStore->VNForHostPtr(blk);
 
-            newSsaDefVNP = vnStore->VNPairForFunc(newSsaDef->TypeGet(), VNF_PhiDef, ValueNumPair(lclNumVN, lclNumVN),
-                                                  ValueNumPair(ssaNumVN, ssaNumVN), phiVNP);
+            newSsaDefVNP = vnStore->VNPairForFunc(def->GetType(), VNF_PhiDef, phiVNP, ValueNumPair{blockVN},
+                                                  ValueNumPair{lclNumVN});
         }
 
-        LclSsaVarDsc* newSsaDefDsc = lvaGetDesc(newSsaDef)->GetPerSsaData(newSsaDef->GetSsaNum());
-        newSsaDefDsc->m_vnPair     = newSsaDefVNP;
-        INDEBUG(vnTraceLocal(newSsaDef->GetLclNum(), newSsaDefVNP));
+        def->SetVNP(newSsaDefVNP);
+        lvaGetDesc(def->GetLclNum())->GetPerSsaData(def->GetSsaNum())->SetVNP(newSsaDefVNP);
+        INDEBUG(vnTraceLocal(def->GetLclNum(), newSsaDefVNP));
     }
 
     // Now do the same for memory.
 
-    // Is there a phi for this block?
-    if (blk->bbMemorySsaPhiFunc == nullptr)
+    if (blk->memoryPhi == nullptr)
     {
-        fgCurMemoryVN = GetMemoryPerSsaData(blk->bbMemorySsaNumIn)->m_vn;
+        fgCurMemoryVN = GetMemoryPerSsaData(blk->memoryEntrySsaNum)->m_vn;
         assert(fgCurMemoryVN != ValueNumStore::NoVN);
     }
     else
@@ -7628,7 +7606,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
         }
         else
         {
-            BasicBlock::MemoryPhiArg* phiArgs = blk->bbMemorySsaPhiFunc;
+            BasicBlock::MemoryPhiArg* phiArgs = blk->memoryPhi;
 
             ValueNum sameMemoryVN = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
             INDEBUG(vnTraceMem(sameMemoryVN, "predecessor memory"));
@@ -7658,12 +7636,12 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
             }
             else
             {
-                newMemoryVN = vnStore->VNForFunc(TYP_STRUCT, VNF_PhiMemoryDef, vnStore->VNForHostPtr(blk), phiVN);
+                newMemoryVN = vnStore->VNForFunc(TYP_STRUCT, VNF_PhiMemoryDef, phiVN, vnStore->VNForHostPtr(blk));
             }
         }
 
-        GetMemoryPerSsaData(blk->bbMemorySsaNumIn)->m_vn = newMemoryVN;
-        fgCurMemoryVN                                    = newMemoryVN;
+        GetMemoryPerSsaData(blk->memoryEntrySsaNum)->m_vn = newMemoryVN;
+        fgCurMemoryVN                                     = newMemoryVN;
     }
 
     INDEBUG(vnTraceMem(fgCurMemoryVN));
@@ -7702,9 +7680,9 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
 #endif
     }
 
-    if (blk->bbMemorySsaNumOut != blk->bbMemorySsaNumIn)
+    if (blk->memoryExitSsaNum != blk->memoryEntrySsaNum)
     {
-        GetMemoryPerSsaData(blk->bbMemorySsaNumOut)->m_vn = fgCurMemoryVN;
+        GetMemoryPerSsaData(blk->memoryExitSsaNum)->m_vn = fgCurMemoryVN;
     }
 
     vnStore->SetCurrentBlock(nullptr);
@@ -7911,7 +7889,7 @@ ValueNum Compiler::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned inner
     // Otherwise, there is a single non-loop pred.
     assert(nonLoopPred != nullptr);
     // What is its memory post-state?
-    ValueNum newMemoryVN = GetMemoryPerSsaData(nonLoopPred->bbMemorySsaNumOut)->m_vn;
+    ValueNum newMemoryVN = GetMemoryPerSsaData(nonLoopPred->memoryExitSsaNum)->m_vn;
     assert(newMemoryVN != ValueNumStore::NoVN); // We must have processed the single non-loop pred before reaching the
                                                 // loop entry.
 
@@ -8054,6 +8032,10 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
             vnSummarizeLoopAssignmentMemoryStores(node->AsOp(), summary);
             break;
 
+        case GT_LCL_DEF:
+            vnSummarizeLoopLocalDefs(node->AsLclDef(), summary);
+            break;
+
         case GT_CALL:
             vnSummarizeLoopCallMemoryStores(node->AsCall(), summary);
             break;
@@ -8088,18 +8070,10 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
             node->SetLiberalVN(node->AsOp()->GetOp(1)->GetLiberalVN());
             break;
 
-        case GT_LCL_VAR:
-            if (node->TypeIs(TYP_BYREF) && ((node->gtFlags & GTF_VAR_DEF) == 0))
+        case GT_LCL_USE:
+            if (node->TypeIs(TYP_BYREF))
             {
-                LclVarDsc* lcl = lvaGetDesc(node->AsLclVar());
-
-                // TODO-MIKE-Cleanup: Unreachable blocks aren't properly removed (see Runtime_57061_2).
-                // Such blocks may or may not be traversed by various JIT phases - SSA builder does not
-                // traverse them but this code does and ends up asserting due to missing SSA numbers.
-                if (lcl->IsInSsa() && (node->AsLclVar()->GetSsaNum() != NoSsaNum))
-                {
-                    node->SetLiberalVN(lcl->GetPerSsaData(node->AsLclVar()->GetSsaNum())->GetLiberalVN());
-                }
+                node->SetLiberalVN(node->AsLclUse()->GetDef()->GetLiberalVN());
             }
             break;
 
@@ -8189,6 +8163,22 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             }
             break;
 
+        case GT_LCL_DEF:
+            vnLocalDef(tree->AsLclDef());
+            break;
+
+        case GT_LCL_USE:
+            vnLocalUse(tree->AsLclUse());
+            break;
+
+        case GT_INSERT:
+            vnInsert(tree->AsInsert());
+            break;
+
+        case GT_EXTRACT:
+            vnExtract(tree->AsExtract());
+            break;
+
         case GT_FTN_ADDR:
             // Use the value of the function pointer (actually, a method handle.)
             tree->gtVNPair.SetBoth(vnStore->VNForHandle(ssize_t(tree->AsFptrVal()->gtFptrMethod), GTF_ICON_METHOD_HDL));
@@ -8207,12 +8197,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             // We'll give ARGPLACE the actual argument value number when the call
             // node itself is value numbered.
             tree->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
-            break;
-
-        case GT_PHI_ARG:
-            // This one is special because we should never process it in this method: it should
-            // always be taken care of, when needed, during pre-processing of a blocks phi definitions.
-            assert(false);
             break;
 
         case GT_ASG:

@@ -2,449 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
-/*****************************************************************************
- *
- *  Add new copies before Assertion Prop.
- */
-
-void Compiler::optAddCopies()
-{
-    // TODO-MIKE-Review: Does this thing actually work? Copies are added but
-    // they don't appear to be used. The idea was probably that copy prop will
-    // pick up these copies but that doesn't seem to happen.
-
-    unsigned   lclNum;
-    LclVarDsc* varDsc;
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\n*************** In optAddCopies()\n\n");
-    }
-    if (verboseTrees)
-    {
-        printf("Blocks/Trees at start of phase\n");
-        fgDispBasicBlocks(true);
-    }
-#endif
-
-    // Don't add any copies if we have reached the tracking limit.
-    if (lvaHaveManyLocals())
-    {
-        return;
-    }
-
-    for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
-    {
-        var_types typ = varDsc->TypeGet();
-
-        // We only add copies for non temp local variables
-        // that have a single def and that can possibly be enregistered
-
-        if (varDsc->lvIsTemp || !varDsc->lvSingleDef || (typ == TYP_STRUCT))
-        {
-            continue;
-        }
-
-        /* For lvNormalizeOnLoad(), we need to add a cast to the copy-assignment
-           like "copyLclNum = int(varDsc)" and GenerateNodeAssertions() only
-           tracks simple assignments. The same goes for lvNormalizedOnStore as
-           the cast is generated in fgMorphSmpOpAsg. This boils down to not having
-           a copy until GenerateNodeAssertions handles this*/
-        if (varDsc->lvNormalizeOnLoad() || varDsc->lvNormalizeOnStore())
-        {
-            continue;
-        }
-
-        if (varTypeIsSmall(varDsc->TypeGet()) || typ == TYP_BOOL)
-        {
-            continue;
-        }
-
-        // If locals must be initialized to zero, that initialization counts as a second definition.
-        // VB in particular allows usage of variables not explicitly initialized.
-        // Note that this effectively disables this optimization for all local variables
-        // as C# sets InitLocals all the time starting in Whidbey.
-
-        if (!varDsc->IsParam() && info.compInitMem)
-        {
-            continue;
-        }
-
-        // On x86 we may want to add a copy for an incoming double parameter
-        // because we can ensure that the copy we make is double aligned
-        // where as we can never ensure the alignment of an incoming double parameter
-        //
-        // On all other platforms we will never need to make a copy
-        // for an incoming double parameter
-        //
-        // TODO-MIKE-CQ: So if this is done in order to get around DOUBLE parameter
-        // alignment then why the crap it's also checking for FLOAT?!?
-
-        bool isFloatParam = false;
-
-#ifdef TARGET_X86
-        isFloatParam = varDsc->IsParam() && varTypeIsFloating(typ);
-#endif
-
-        if (!isFloatParam && !varDsc->lvEHLive)
-        {
-            continue;
-        }
-
-        // We don't want to add a copy for a variable that is part of a struct
-        if (varDsc->lvIsStructField)
-        {
-            continue;
-        }
-
-        // We require that the weighted ref count be significant.
-        if (varDsc->lvRefCntWtd() <= (BB_LOOP_WEIGHT_SCALE * BB_UNITY_WEIGHT / 2))
-        {
-            continue;
-        }
-
-        // For parameters, we only want to add a copy for the heavier-than-average
-        // uses instead of adding a copy to cover every single use.
-        // 'paramImportantUseDom' is the set of blocks that dominate the
-        // heavier-than-average uses of a parameter.
-        // Initial value is all blocks.
-
-        BlockSet paramImportantUseDom(BlockSetOps::MakeFull(this));
-
-        // This will be threshold for determining heavier-than-average uses
-        BasicBlock::weight_t paramAvgWtdRefDiv2 =
-            (varDsc->lvRefCntWtd() + varDsc->lvRefCnt() / 2) / (varDsc->lvRefCnt() * 2);
-
-        bool paramFoundImportantUse = false;
-
-        JITDUMP("Trying to add a copy for %s V%02u, avg_wtd = %s\n", varDsc->IsParam() ? "param" : "local", lclNum,
-                refCntWtd2str(paramAvgWtdRefDiv2));
-
-        //
-        // We must have a ref in a block that is dominated only by the entry block
-        //
-
-        if (BlockSetOps::MayBeUninit(varDsc->lvUseBlocks))
-        {
-            // No references
-            continue;
-        }
-
-        bool isDominatedByFirstBB = false;
-
-        BlockSetOps::Iter iter(this, varDsc->lvUseBlocks);
-        unsigned          bbNum = 0;
-        while (iter.NextElem(&bbNum))
-        {
-            /* Find the block 'bbNum' */
-            BasicBlock* block = fgFirstBB;
-            while (block && (block->bbNum != bbNum))
-            {
-                block = block->bbNext;
-            }
-            noway_assert(block && (block->bbNum == bbNum));
-
-            bool     importantUseInBlock = varDsc->IsParam() && (block->getBBWeight(this) > paramAvgWtdRefDiv2);
-            bool     isPreHeaderBlock    = ((block->bbFlags & BBF_LOOP_PREHEADER) != 0);
-            BlockSet blockDom(BlockSetOps::UninitVal());
-            BlockSet blockDomSub0(BlockSetOps::UninitVal());
-
-            if (block->bbIDom == nullptr && isPreHeaderBlock)
-            {
-                // Loop Preheader blocks that we insert will have a bbDom set that is nullptr
-                // but we can instead use the bNext successor block's dominator information
-                noway_assert(block->bbNext != nullptr);
-                BlockSetOps::AssignNoCopy(this, blockDom, fgGetDominatorSet(block->bbNext));
-            }
-            else
-            {
-                BlockSetOps::AssignNoCopy(this, blockDom, fgGetDominatorSet(block));
-            }
-
-            if (!BlockSetOps::IsEmpty(this, blockDom))
-            {
-                BlockSetOps::Assign(this, blockDomSub0, blockDom);
-                if (isPreHeaderBlock)
-                {
-                    // We must clear bbNext block number from the dominator set
-                    BlockSetOps::RemoveElemD(this, blockDomSub0, block->bbNext->bbNum);
-                }
-                /* Is this block dominated by fgFirstBB? */
-                if (BlockSetOps::IsMember(this, blockDomSub0, fgFirstBB->bbNum))
-                {
-                    isDominatedByFirstBB = true;
-                }
-            }
-
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("        Referenced in " FMT_BB ", bbWeight is %s", bbNum,
-                       refCntWtd2str(block->getBBWeight(this)));
-
-                if (isDominatedByFirstBB)
-                {
-                    printf(", which is dominated by BB01");
-                }
-
-                if (importantUseInBlock)
-                {
-                    printf(", ImportantUse");
-                }
-
-                printf("\n");
-            }
-#endif
-
-            /* If this is a heavier-than-average block, then track which
-               blocks dominate this use of the parameter. */
-            if (importantUseInBlock)
-            {
-                paramFoundImportantUse = true;
-                BlockSetOps::IntersectionD(this, paramImportantUseDom,
-                                           blockDomSub0); // Clear blocks that do not dominate
-            }
-        }
-
-        // We should have found at least one heavier-than-averageDiv2 block.
-        if (varDsc->IsParam())
-        {
-            if (!paramFoundImportantUse)
-            {
-                continue;
-            }
-        }
-
-        // For us to add a new copy:
-        // we require that we have a floating point parameter
-        // or an EH live variable that is always reached from the first BB
-        // and we have at least one block available in paramImportantUseDom
-        bool doCopy = (isFloatParam || (isDominatedByFirstBB && varDsc->lvEHLive)) &&
-                      !BlockSetOps::IsEmpty(this, paramImportantUseDom);
-
-        // Under stress mode we expand the number of candidates
-        // to include parameters of any type
-        // or any variable that is always reached from the first BB
-        //
-        if (compStressCompile(STRESS_GENERIC_VARN, 30))
-        {
-            // Ensure that we preserve the invariants required by the subsequent code.
-            if (varDsc->IsParam() || isDominatedByFirstBB)
-            {
-                doCopy = true;
-            }
-        }
-
-        if (!doCopy)
-        {
-            continue;
-        }
-
-        unsigned copyLclNum = lvaGrabTemp(false DEBUGARG("optAddCopies"));
-        // Because lvaGrabTemp may have reallocated the lvaTable, ensure varDsc
-        // is still in sync with lvaTable[lclNum];
-        varDsc = lvaGetDesc(lclNum);
-
-        if (varTypeIsSIMD(varDsc->GetType()))
-        {
-            lvaSetStruct(copyLclNum, varDsc->GetLayout(), /* checkUnsafeBuffer */ false);
-            assert(lvaGetDesc(copyLclNum)->GetType() == typ);
-        }
-        else
-        {
-            lvaGetDesc(copyLclNum)->SetType(typ);
-        }
-
-        JITDUMP("Finding the best place to insert the assignment V%02i = V%02i\n", copyLclNum, lclNum);
-
-        Statement* stmt;
-
-        if (varDsc->IsParam())
-        {
-            noway_assert((varDsc->lvDefStmt == nullptr) || varDsc->lvIsStructField);
-
-            // Create a new copy assignment tree
-            GenTree* copyAsgn = gtNewAssignNode(gtNewLclvNode(copyLclNum, typ), gtNewLclvNode(lclNum, typ));
-
-            /* Find the best block to insert the new assignment     */
-            /* We will choose the lowest weighted block, and within */
-            /* those block, the highest numbered block which        */
-            /* dominates all the uses of the local variable         */
-
-            /* Our default is to use the first block */
-            BasicBlock*          bestBlock  = fgFirstBB;
-            BasicBlock::weight_t bestWeight = bestBlock->getBBWeight(this);
-            BasicBlock*          block      = bestBlock;
-
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("        Starting at " FMT_BB ", bbWeight is %s", block->bbNum,
-                       refCntWtd2str(block->getBBWeight(this)));
-
-                printf(", bestWeight is %s\n", refCntWtd2str(bestWeight));
-            }
-#endif
-
-            /* We have already calculated paramImportantUseDom above. */
-            BlockSetOps::Iter iter(this, paramImportantUseDom);
-            unsigned          bbNum = 0;
-            while (iter.NextElem(&bbNum))
-            {
-                /* Advance block to point to 'bbNum' */
-                /* This assumes that the iterator returns block number is increasing lexical order. */
-                while (block && (block->bbNum != bbNum))
-                {
-                    block = block->bbNext;
-                }
-                noway_assert(block && (block->bbNum == bbNum));
-
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("        Considering " FMT_BB ", bbWeight is %s", block->bbNum,
-                           refCntWtd2str(block->getBBWeight(this)));
-
-                    printf(", bestWeight is %s\n", refCntWtd2str(bestWeight));
-                }
-#endif
-
-                // Does this block have a smaller bbWeight value?
-                if (block->getBBWeight(this) > bestWeight)
-                {
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("bbWeight too high\n");
-                    }
-#endif
-                    continue;
-                }
-
-                // Don't use blocks that are exception handlers because
-                // inserting a new first statement will interface with
-                // the CATCHARG
-
-                if (handlerGetsXcptnObj(block->bbCatchTyp))
-                {
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("Catch block\n");
-                    }
-#endif
-                    continue;
-                }
-
-                // Don't use the BBJ_ALWAYS block marked with BBF_KEEP_BBJ_ALWAYS. These
-                // are used by EH code. The JIT can not generate code for such a block.
-
-                if (block->bbFlags & BBF_KEEP_BBJ_ALWAYS)
-                {
-#if defined(FEATURE_EH_FUNCLETS)
-                    // With funclets, this is only used for BBJ_CALLFINALLY/BBJ_ALWAYS pairs. For x86, it is also used
-                    // as the "final step" block for leaving finallys.
-                    assert(block->isBBCallAlwaysPairTail());
-#endif // FEATURE_EH_FUNCLETS
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("Internal EH BBJ_ALWAYS block\n");
-                    }
-#endif
-                    continue;
-                }
-
-                // This block will be the new candidate for the insert point
-                // for the new assignment
-                CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("new bestBlock\n");
-                }
-#endif
-
-                bestBlock  = block;
-                bestWeight = block->getBBWeight(this);
-            }
-
-            // If there is a use of the variable in this block
-            // then we insert the assignment at the beginning
-            // otherwise we insert the statement at the end
-            CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("        Insert copy at the %s of " FMT_BB "\n",
-                       (BlockSetOps::IsEmpty(this, paramImportantUseDom) ||
-                        BlockSetOps::IsMember(this, varDsc->lvUseBlocks, bestBlock->bbNum))
-                           ? "start"
-                           : "end",
-                       bestBlock->bbNum);
-            }
-#endif
-
-            if (BlockSetOps::IsEmpty(this, paramImportantUseDom) ||
-                BlockSetOps::IsMember(this, varDsc->lvUseBlocks, bestBlock->bbNum))
-            {
-                stmt = fgNewStmtAtBeg(bestBlock, copyAsgn);
-            }
-            else
-            {
-                stmt = fgNewStmtNearEnd(bestBlock, copyAsgn);
-            }
-        }
-        else
-        {
-            noway_assert(varDsc->lvDefStmt != nullptr);
-
-            /* Locate the assignment to varDsc in the lvDefStmt */
-            stmt = varDsc->lvDefStmt;
-
-            GenTreeOp* tree = nullptr;
-
-            for (GenTree* node = stmt->GetRootNode(); node != nullptr; node = node->gtPrev)
-            {
-                if (!node->OperIs(GT_ASG))
-                {
-                    continue;
-                }
-
-                GenTree* dest = node->AsOp()->GetOp(0);
-
-                if (!dest->OperIs(GT_LCL_VAR) || (dest->AsLclVar()->GetLclNum() != lclNum))
-                {
-                    continue;
-                }
-
-                tree = node->AsOp();
-                break;
-            }
-
-            noway_assert(tree != nullptr);
-
-            GenTree* newAsg  = gtNewAssignNode(gtNewLclvNode(copyLclNum, typ), tree->GetOp(1));
-            GenTree* copyAsg = gtNewAssignNode(tree->GetOp(0), gtNewLclvNode(copyLclNum, typ));
-
-            tree->ChangeOper(GT_COMMA);
-            tree->SetOp(0, newAsg);
-            tree->SetOp(1, copyAsg);
-            tree->SetType(TYP_VOID);
-            tree->SetSideEffects(newAsg->GetSideEffects() | copyAsg->GetSideEffects());
-            tree->gtFlags &= ~GTF_REVERSE_OPS;
-        }
-
-        JITDUMPTREE(stmt->GetRootNode(), "\nIntroduced a copy for V%02u\n", lclNum);
-    }
-}
 
 enum ApKind : uint8_t
 {
@@ -771,28 +328,30 @@ private:
             }
         }
 
-        if (!addr->OperIs(GT_LCL_VAR) || compiler->fgIsBigOffset(offset))
+        if (compiler->fgIsBigOffset(offset))
         {
             return NO_ASSERTION_INDEX;
         }
 
-        unsigned   lclNum = addr->AsLclVar()->GetLclNum();
+        if (!addr->OperIs(GT_LCL_VAR, GT_LCL_USE))
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        unsigned   lclNum = addr->IsLclUse() ? addr->AsLclUse()->GetDef()->GetLclNum() : addr->AsLclVar()->GetLclNum();
         LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
 
         AssertionDsc assertion;
 
         if (lcl->TypeIs(TYP_REF))
         {
-            if (lcl->IsAddressExposed())
+            // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
+            if (!addr->IsLclUse())
             {
                 return NO_ASSERTION_INDEX;
             }
 
-            // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
-            if (addr->AsLclVar()->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
-            {
-                return NO_ASSERTION_INDEX;
-            }
+            assert(!lcl->IsAddressExposed());
 
             assertion.op1.kind   = O1K_LCLVAR;
             assertion.op1.vn     = addr->GetConservativeVN();
@@ -869,26 +428,17 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        // TODO-MIKE-Review: Restricting the cast operands to LCL_VAR is largely superfluous,
+        // TODO-MIKE-Review: Restricting the cast operands to SSA_USE is largely superfluous,
         // all it does is preventing less useful assertions from being created, that would
         // just wast space in the assertion table.
-        if (!value->OperIs(GT_LCL_VAR))
+        if (!value->IsLclUse())
         {
             return NO_ASSERTION_INDEX;
         }
 
-        // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
-        if (value->AsLclVar()->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
-        {
-            return NO_ASSERTION_INDEX;
-        }
+        LclVarDsc* lcl = compiler->lvaGetDesc(value->AsLclUse()->GetDef()->GetLclNum());
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(value->AsLclVar());
-
-        if (lcl->IsAddressExposed())
-        {
-            return NO_ASSERTION_INDEX;
-        }
+        assert(!lcl->IsAddressExposed());
 
         if (lcl->IsPromotedField() && lcl->lvNormalizeOnLoad())
         {
@@ -900,24 +450,15 @@ private:
         return AddRangeAssertion(value->GetConservativeVN(), range.min, range.max);
     }
 
-    AssertionIndex CreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind)
+    // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
+    AssertionIndex CreateEqualityAssertion(GenTreeLclUse* op1, GenTree* op2, ApKind kind)
     {
         assert((op1 != nullptr) && (op2 != nullptr));
-        assert(op1->OperIs(GT_LCL_VAR));
         assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(op1->AsLclVar());
+        LclVarDsc* lcl = compiler->lvaGetDesc(op1->GetDef()->GetLclNum());
 
-        if (lcl->IsAddressExposed())
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
-        if (op1->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
-        {
-            return NO_ASSERTION_INDEX;
-        }
+        assert(!lcl->IsAddressExposed());
 
         op2 = op2->SkipComma();
 
@@ -939,7 +480,7 @@ private:
                 }
 
                 assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = op1->GetLclNum();
+                assertion.op1.lclNum       = op1->GetDef()->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_INT;
                 assertion.op2.intCon.value = op2->AsIntCon()->GetValue(lcl->GetType());
                 assertion.op2.intCon.flags = op2->AsIntCon()->GetHandleKind();
@@ -948,7 +489,7 @@ private:
 #ifndef TARGET_64BIT
             case GT_CNS_LNG:
                 assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = op1->GetLclNum();
+                assertion.op1.lclNum       = op1->GetDef()->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_LONG;
                 assertion.op2.lngCon.value = op2->AsLngCon()->GetValue();
                 break;
@@ -965,14 +506,14 @@ private:
                 }
 
                 assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = op1->GetLclNum();
+                assertion.op1.lclNum       = op1->GetDef()->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_DOUBLE;
                 assertion.op2.dblCon.value = op2->AsDblCon()->GetValue();
                 break;
 
             case GT_LCL_VAR:
             {
-                if (op1->GetLclNum() == op2->AsLclVar()->GetLclNum())
+                if (op1->GetDef()->GetLclNum() == op2->AsLclVar()->GetLclNum())
                 {
                     return NO_ASSERTION_INDEX;
                 }
@@ -990,6 +531,32 @@ private:
                 }
 
                 if (valLcl->IsAddressExposed())
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                assertion.op1.kind = O1K_VALUE_NUMBER;
+                assertion.op2.kind = O2K_VALUE_NUMBER;
+                break;
+            }
+
+            case GT_LCL_USE:
+            {
+                if (op1->GetDef()->GetLclNum() == op2->AsLclUse()->GetDef()->GetLclNum())
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                LclVarDsc* valLcl = compiler->lvaGetDesc(op2->AsLclUse()->GetDef()->GetLclNum());
+
+                assert(!valLcl->IsAddressExposed());
+
+                if (lcl->GetType() != valLcl->GetType())
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                if (valLcl->lvNormalizeOnLoad() && !lcl->lvNormalizeOnLoad())
                 {
                     return NO_ASSERTION_INDEX;
                 }
@@ -1388,6 +955,34 @@ private:
         return isTrue ? index : AssertionInfo::ForNextEdge(index);
     }
 
+    GenTree* GetCseValue(GenTree* node)
+    {
+        if (!node->OperIs(GT_COMMA))
+        {
+            return node;
+        }
+
+        GenTree* op1 = node->AsOp()->GetOp(0);
+        GenTree* op2 = node->AsOp()->GetOp(1);
+
+        if (op2->OperIs(GT_LCL_VAR) && op1->OperIs(GT_STORE_LCL_VAR))
+        {
+            if (op1->AsLclVar()->GetLclNum() == op2->AsLclVar()->GetLclNum())
+            {
+                return op1->AsLclVar()->GetOp(0);
+            }
+        }
+        else if (op2->OperIs(GT_LCL_USE) && op1->OperIs(GT_LCL_DEF))
+        {
+            if (op2->AsLclUse()->GetDef() == op1->AsLclDef())
+            {
+                return op1->AsLclDef()->GetValue();
+            }
+        }
+
+        return node;
+    }
+
     AssertionInfo GenerateJTrueEqualityAssertions(GenTreeOp* relop)
     {
         assert(relop->OperIs(GT_EQ, GT_NE));
@@ -1396,17 +991,32 @@ private:
 
         // Look through any CSEs so we see the actual trees providing values, if possible.
         // This is important for exact type assertions, which need to see the GT_IND.
-        GenTree* op1 = relop->GetOp(0)->gtCommaAssignVal();
-        GenTree* op2 = relop->GetOp(1)->gtCommaAssignVal();
+        GenTree* op1 = GetCseValue(relop->GetOp(0));
+        GenTree* op2 = GetCseValue(relop->GetOp(1));
 
-        if (!op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_VAR))
+        // TODO-MIKE-Review: This is probably bogus, old code tried to swap operands so
+        // that LCL_VAR comes first. But it didn't check if the local is in SSA form and
+        // then CreateEqualityAssertion rejected it.
+        if (op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_USE))
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        if (!op1->OperIs(GT_LCL_USE) && op2->OperIs(GT_LCL_USE))
         {
             std::swap(op1, op2);
         }
 
-        if (op1->OperIs(GT_LCL_VAR) && (op2->OperIsConst() || op2->OperIs(GT_LCL_VAR)))
+        if (op1->OperIs(GT_LCL_USE) && op2->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL, GT_LCL_VAR, GT_LCL_USE))
         {
-            return CreateEqualityAssertion(op1->AsLclVar(), op2, assertionKind);
+            return CreateEqualityAssertion(op1->AsLclUse(), op2, assertionKind);
+        }
+
+        // TODO-MIKE-Review: This is probably bogus, in old code CreateEqualityAssertion handled
+        // this case and rejected AX locals, even though those can be handled by the code below.
+        if (op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
+        {
+            return NO_ASSERTION_INDEX;
         }
 
         ValueNum op1VN = vnStore->VNNormalValue(op1->GetConservativeVN());
@@ -1448,6 +1058,12 @@ private:
         }
     }
 
+    bool IsUnaliasedLocal(GenTree* node)
+    {
+        return node->OperIs(GT_LCL_USE) ||
+               (node->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(node->AsLclVar())->IsAddressExposed());
+    }
+
     AssertionIndex GenerateJTrueReadyToRunTypeAssertions(GenTree* op1, GenTree* op2, ApKind assertionKind)
     {
         assert(compiler->opts.IsReadyToRun());
@@ -1459,8 +1075,7 @@ private:
 
         GenTree* addr = op1->AsIndir()->GetAddr();
 
-        if (!addr->TypeIs(TYP_REF) || !addr->OperIs(GT_LCL_VAR) ||
-            compiler->lvaGetDesc(addr->AsLclVar())->IsAddressExposed())
+        if (!addr->TypeIs(TYP_REF) || !IsUnaliasedLocal(addr))
         {
             return NO_ASSERTION_INDEX;
         }
@@ -1495,8 +1110,7 @@ private:
 
             GenTree* addr = op1->AsIndir()->GetAddr();
 
-            if (!addr->TypeIs(TYP_REF) || !addr->OperIs(GT_LCL_VAR) ||
-                compiler->lvaGetDesc(addr->AsLclVar())->IsAddressExposed() || (addr->GetConservativeVN() == NoVN))
+            if (!addr->TypeIs(TYP_REF) || !IsUnaliasedLocal(addr) || (addr->GetConservativeVN() == NoVN))
             {
                 return NO_ASSERTION_INDEX;
             }
@@ -1553,8 +1167,7 @@ private:
             assert(objectArg->TypeIs(TYP_REF));
             assert(mtArg->TypeIs(TYP_I_IMPL));
 
-            if (!objectArg->OperIs(GT_LCL_VAR) || compiler->lvaGetDesc(objectArg->AsLclVar())->IsAddressExposed() ||
-                (objectArg->GetConservativeVN() == NoVN))
+            if (!IsUnaliasedLocal(objectArg) || (objectArg->GetConservativeVN() == NoVN))
             {
                 return NO_ASSERTION_INDEX;
             }
@@ -1742,6 +1355,74 @@ private:
         return UpdateTree(conNode, lclVar, stmt);
     }
 
+    GenTree* PropagateSsaUseConst(const AssertionDsc& assertion, GenTreeLclUse* use, Statement* stmt)
+    {
+#ifdef DEBUG
+        LclVarDsc* lcl = compiler->lvaGetDesc(use->GetDef()->GetLclNum());
+
+        assert(!lcl->IsAddressExposed() && !lcl->lvIsCSE);
+        assert(use->GetType() == lcl->GetType());
+        assert(!varTypeIsStruct(use->GetType()));
+
+        DBEXEC(verbose, TraceAssertion("propagating", assertion);)
+#endif
+
+        const auto& val = assertion.op2;
+        GenTree*    conNode;
+
+        switch (val.kind)
+        {
+            case O2K_CONST_DOUBLE:
+                // "x == 0.0" implies both "x == 0.0" and "x == -0.0" so we can't substitute x with 0.0.
+                if (val.dblCon.value == 0.0)
+                {
+                    return nullptr;
+                }
+
+                use->GetDef()->RemoveUse(use);
+                conNode = use->ChangeToDblCon(val.dblCon.value);
+                break;
+
+#ifndef TARGET_64BIT
+            case O2K_CONST_LONG:
+                if (!use->TypeIs(TYP_LONG))
+                {
+                    return nullptr;
+                }
+
+                use->GetDef()->RemoveUse(use);
+                conNode = use->ChangeToLngCon(val.lngCon.value);
+                break;
+#endif
+
+            default:
+                assert(val.kind == O2K_CONST_INT);
+
+                if ((val.intCon.flags & GTF_ICON_HDL_MASK) == 0)
+                {
+                    use->GetDef()->RemoveUse(use);
+                    conNode = use->ChangeToIntCon(varActualType(use->GetType()), val.intCon.value);
+                }
+                else if (compiler->opts.compReloc)
+                {
+                    return nullptr;
+                }
+                else
+                {
+                    use->GetDef()->RemoveUse(use);
+                    conNode = use->ChangeToIntCon(TYP_I_IMPL, val.intCon.value);
+                    conNode->AsIntCon()->SetHandleKind(val.intCon.flags & GTF_ICON_HDL_MASK);
+                }
+                break;
+        }
+
+        assert(vnStore->IsVNConstant(val.vn));
+
+        conNode->gtVNPair.SetBoth(val.vn);
+
+        return UpdateTree(conNode, use, stmt);
+    }
+
     const AssertionDsc* FindConstAssertion(const ASSERT_TP assertions, ValueNum vn, unsigned lclNum)
     {
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
@@ -1820,6 +1501,42 @@ private:
         }
 
         return PropagateLclVarConst(*assertion, lclVar, stmt);
+    }
+
+    GenTree* PropagateSsaUse(const ASSERT_TP assertions, GenTreeLclUse* use, Statement* stmt)
+    {
+        unsigned   lclNum = use->GetDef()->GetLclNum();
+        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+
+        assert(!lcl->IsAddressExposed());
+
+        // TODO-MIKE-Review: It's not clear why propagation is blocked for CSE temps.
+
+        if (lcl->lvIsCSE)
+        {
+            return nullptr;
+        }
+
+        // TODO-MIKE-Review: This likely blocks const propagation to small int locals for no reason.
+        if (use->GetType() != lcl->GetType())
+        {
+            return nullptr;
+        }
+
+        // There are no struct/vector equality relops.
+        if (varTypeIsStruct(use->GetType()))
+        {
+            return nullptr;
+        }
+
+        const AssertionDsc* assertion = FindConstAssertion(assertions, use->GetConservativeVN(), lclNum);
+
+        if (assertion == nullptr)
+        {
+            return nullptr;
+        }
+
+        return PropagateSsaUseConst(*assertion, use, stmt);
     }
 
     const AssertionDsc* FindEqualityAssertion(const ASSERT_TP assertions, GenTree* op1, GenTree* op2)
@@ -1962,7 +1679,7 @@ private:
             GenTree* op1 = relop->GetOp(0);
             GenTree* op2 = relop->GetOp(1);
 
-            if (!op1->OperIs(GT_LCL_VAR, GT_IND))
+            if (!op1->OperIs(GT_LCL_VAR, GT_LCL_USE, GT_IND))
             {
                 return nullptr;
             }
@@ -2055,9 +1772,11 @@ private:
         GenTree* actualOp1 = op1->SkipComma();
         ValueNum vn;
 
-        if (actualOp1->OperIs(GT_LCL_VAR))
+        if (actualOp1->OperIs(GT_LCL_VAR, GT_LCL_USE))
         {
-            LclVarDsc* lcl = compiler->lvaGetDesc(actualOp1->AsLclVar());
+            LclVarDsc* lcl =
+                compiler->lvaGetDesc(actualOp1->OperIs(GT_LCL_VAR) ? actualOp1->AsLclVar()->GetLclNum()
+                                                                   : actualOp1->AsLclUse()->GetDef()->GetLclNum());
 
             // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
             // They're usually present on every LCL_VAR use so we'll never get assertions
@@ -2213,7 +1932,7 @@ private:
             addr = addr->AsOp()->GetOp(0);
         }
 
-        if (!addr->OperIs(GT_LCL_VAR))
+        if (!addr->OperIs(GT_LCL_VAR, GT_LCL_USE))
         {
             return nullptr;
         }
@@ -2292,7 +2011,7 @@ private:
         GenTree* thisArg = call->GetThisArg();
         noway_assert(thisArg != nullptr);
 
-        if (!thisArg->OperIs(GT_LCL_VAR))
+        if (!thisArg->OperIs(GT_LCL_VAR, GT_LCL_USE))
         {
             return nullptr;
         }
@@ -2356,7 +2075,7 @@ private:
 
         GenTree* objectArg = call->GetArgNodeByArgNum(1);
 
-        if (!objectArg->OperIs(GT_LCL_VAR))
+        if (!objectArg->OperIs(GT_LCL_VAR, GT_LCL_USE))
         {
             return nullptr;
         }
@@ -2618,6 +2337,12 @@ private:
                     return nullptr;
                 }
                 return PropagateLclVarUse(assertions, node->AsLclVar(), stmt);
+            case GT_LCL_USE:
+                if ((node->gtFlags & GTF_DONT_CSE) != 0)
+                {
+                    return nullptr;
+                }
+                return PropagateSsaUse(assertions, node->AsLclUse(), stmt);
             case GT_OBJ:
             case GT_BLK:
             case GT_IND:
@@ -3416,11 +3141,25 @@ private:
                 // can be done when the struct fits in a register. Otherwise we may
                 // need a STRUCT typed constant node instead of abusing GT_CNS_INT.
 
-                if ((user != nullptr) && user->OperIs(GT_ASG) && (user->AsOp()->GetOp(1) == tree) &&
+                if ((user != nullptr) &&
+                    ((user->OperIs(GT_ASG) && (user->AsOp()->GetOp(1) == tree)) || user->IsInsert()) &&
                     ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
-                    (m_vnStore->VNConservativeNormalValue(tree->gtVNPair) == m_vnStore->VNForZeroMap()))
+                    (m_vnStore->VNNormalValue(tree->GetConservativeVN()) == m_vnStore->VNForZeroMap()))
                 {
-                    user->AsOp()->SetOp(1, m_compiler->gtNewIconNode(0));
+                    if (user->OperIs(GT_ASG))
+                    {
+                        user->AsOp()->SetOp(1, m_compiler->gtNewIconNode(0));
+                    }
+                    else if (user->AsInsert()->GetStructValue() == tree)
+                    {
+                        user->AsInsert()->SetStructValue(m_compiler->gtNewIconNode(0));
+                    }
+                    else
+                    {
+                        assert(user->AsInsert()->GetFieldValue() == tree);
+                        user->AsInsert()->SetFieldValue(m_compiler->gtNewIconNode(0));
+                    }
+
                     m_stmtMorphPending = true;
                 }
 
@@ -3491,6 +3230,14 @@ private:
                         return Compiler::WALK_CONTINUE;
                     }
 
+                    break;
+
+                case GT_LCL_USE:
+                    // Don't undo constant CSEs.
+                    if (m_compiler->lvaGetDesc(tree->AsLclUse()->GetDef()->GetLclNum())->lvIsCSE)
+                    {
+                        return Compiler::WALK_CONTINUE;
+                    }
                     break;
 
                 case GT_ADD:
@@ -3729,6 +3476,11 @@ private:
             if ((offset > UINT16_MAX) || (offset >= m_compiler->lvaGetDesc(lclNum)->GetTypeSize()))
             {
                 return false;
+            }
+
+            if (GenTreeLclUse* use = node->IsLclUse())
+            {
+                use->GetDef()->RemoveUse(use);
             }
 
             if ((offset == 0) && (fieldSeq == nullptr))

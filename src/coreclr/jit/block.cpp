@@ -999,8 +999,7 @@ Statement* BasicBlock::FirstNonPhiDef() const
         return nullptr;
     }
     GenTree* tree = stmt->GetRootNode();
-    while ((tree->OperGet() == GT_ASG && tree->AsOp()->gtOp2->OperGet() == GT_PHI) ||
-           (tree->OperGet() == GT_STORE_LCL_VAR && tree->AsOp()->gtOp1->OperGet() == GT_PHI))
+    while (tree->IsPhiDef())
     {
         stmt = stmt->GetNextStmt();
         if (stmt == nullptr)
@@ -1411,9 +1410,9 @@ BasicBlock* Compiler::bbNewBasicBlock(BBjumpKinds jumpKind)
 
     livInitNewBlock(block);
 
-    block->bbMemorySsaPhiFunc = nullptr;
-    block->bbMemorySsaNumIn   = 0;
-    block->bbMemorySsaNumOut  = 0;
+    block->memoryPhi         = nullptr;
+    block->memoryEntrySsaNum = 0;
+    block->memoryExitSsaNum  = 0;
 
     // Make sure we reserve a NOT_IN_LOOP value that isn't a legal table index.
     static_assert_no_msg(BasicBlock::MAX_LOOP_NUM < BasicBlock::NOT_IN_LOOP);
