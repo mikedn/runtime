@@ -1063,13 +1063,13 @@ struct BasicBlock : private LIR::Range
         void* operator new(size_t sz, class Compiler* comp);
     };
 
-    MemoryPhiArg* bbMemorySsaPhiFunc; // If the "in" Heap SSA var is not a phi definition, this value
-                                      // is NULL.
+    // If the "in" Heap SSA var is not a phi definition, this value is null.
+    MemoryPhiArg* memoryPhi;
     // Otherwise, it is either the special value EmptyMemoryPhiDefn, to indicate
     // that Heap needs a phi definition on entry, or else it is the linked list
     // of the phi arguments.
-    unsigned bbMemorySsaNumIn;  // The SSA # of memory on entry to the block.
-    unsigned bbMemorySsaNumOut; // The SSA # of memory on exit from the block.
+    unsigned memoryEntrySsaNum; // The SSA # of memory on entry to the block.
+    unsigned memoryExitSsaNum;  // The SSA # of memory on exit from the block.
 
     /* The following are the standard bit sets for dataflow analysis.
      *  We perform CSE and range-checks at the same time

@@ -418,7 +418,7 @@ public:
 
     // Given the local variable, first find the definition of the local and find the range of the rhs.
     // Helper for GetRange.
-    Range ComputeRangeForLocalDef(BasicBlock* block, GenTreeSsaUse* use, bool monIncreasing DEBUGARG(int indent));
+    Range ComputeRangeForLocalDef(BasicBlock* block, GenTreeLclUse* use, bool monIncreasing DEBUGARG(int indent));
 
     // Compute the range, rather than retrieve a cached value. Helper for GetRange.
     Range ComputeRange(BasicBlock* block, GenTree* expr, bool monIncreasing DEBUGARG(int indent));
@@ -428,8 +428,8 @@ public:
 
     // Merge assertions from AssertionProp's flags, for the corresponding "phiArg."
     // Requires "pRange" to contain range that is computed partially.
-    void MergePhiArgAssertion(BasicBlock* block, GenTreeSsaUse* use, Range* pRange DEBUGARG(int indent));
-    void MergeSsaUseAssertion(BasicBlock* block, GenTreeSsaUse* use, Range* pRange DEBUGARG(int indent));
+    void MergePhiArgAssertion(BasicBlock* block, GenTreeLclUse* use, Range* pRange DEBUGARG(int indent));
+    void MergeSsaUseAssertion(BasicBlock* block, GenTreeLclUse* use, Range* pRange DEBUGARG(int indent));
 
     // Inspect the assertions about the current ValueNum to refine pRange
     void MergeEdgeAssertions(ValueNum num, ASSERT_VALARG_TP assertions, Range* pRange);
@@ -445,7 +445,7 @@ public:
     bool DoesBinOpOverflow(BasicBlock* block, GenTreeOp* binop);
 
     // Does the phi operands involve an assignment that could overflow?
-    bool DoesPhiOverflow(BasicBlock* block, GenTreeSsaPhi* phi);
+    bool DoesPhiOverflow(BasicBlock* block, GenTreePhi* phi);
 
     bool ComputeDoesOverflow(BasicBlock* block, GenTree* expr);
 

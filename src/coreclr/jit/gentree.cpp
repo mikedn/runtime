@@ -1264,8 +1264,8 @@ AGAIN:
             op2 = op2->AsArrElem()->gtArrObj;
             goto AGAIN;
 
-        case GT_SSA_PHI:
-            return GenTreeSsaPhi::Equals(op1->AsSsaPhi(), op2->AsSsaPhi());
+        case GT_PHI:
+            return GenTreePhi::Equals(op1->AsPhi(), op2->AsPhi());
 
         case GT_FIELD_LIST:
             return GenTreeFieldList::Equals(op1->AsFieldList(), op2->AsFieldList());
@@ -1573,8 +1573,8 @@ AGAIN:
             }
             break;
 
-        case GT_SSA_PHI:
-            for (GenTreeSsaPhi::Use& use : tree->AsSsaPhi()->Uses())
+        case GT_PHI:
+            for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
             {
                 hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
             }
@@ -1818,9 +1818,9 @@ LclVarDsc* Compiler::gtIsLikelyRegVar(GenTree* tree)
     {
         lclNum = tree->AsLclVar()->GetLclNum();
     }
-    else if (tree->OperIs(GT_SSA_USE))
+    else if (tree->OperIs(GT_LCL_USE))
     {
-        lclNum = tree->AsSsaUse()->GetDef()->GetLclNum();
+        lclNum = tree->AsLclUse()->GetDef()->GetLclNum();
     }
     else
     {
@@ -2344,7 +2344,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             }
             break;
 
-            case GT_SSA_USE:
+            case GT_LCL_USE:
             case GT_LCL_VAR:
             {
                 // TODO-MIKE-Cleanup: Probably only SSA_USE needs this, since LCL_VARs
@@ -2510,7 +2510,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     }
 
                     // We need EXTRACT(SSA_USE) to have the same costs as a LCL_FLD, skip adding op1 costs.
-                    if (op1->OperIs(GT_SSA_USE))
+                    if (op1->OperIs(GT_LCL_USE))
                     {
                         goto DONE;
                     }
@@ -2891,7 +2891,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                 goto DONE;
 
-            case GT_SSA_DEF:
+            case GT_LCL_DEF:
                 costEx = 0;
                 costSz = 0;
                 break;
@@ -3362,8 +3362,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         }
         break;
 
-        case GT_SSA_PHI:
-            for (GenTreeSsaPhi::Use& use : tree->AsSsaPhi()->Uses())
+        case GT_PHI:
+            for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
             {
                 lvl2 = gtSetEvalOrder(use.GetNode());
                 // PHI args should always have cost 0 and level 0
@@ -3657,7 +3657,7 @@ GenTreeRetExpr::GenTreeRetExpr(GenTreeCall* call)
 
 bool GenTree::OperRequiresAsgFlag()
 {
-    if (OperIs(GT_ASG, GT_SSA_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
+    if (OperIs(GT_ASG, GT_LCL_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
         OperIs(GT_XADD, GT_XORR, GT_XAND, GT_XCHG, GT_LOCKADD, GT_CMPXCHG, GT_MEMORYBARRIER, GT_COPY_BLK, GT_INIT_BLK))
     {
         return true;
@@ -4017,10 +4017,10 @@ GenTreeOp* Compiler::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
     {
         // Some nodes have non VOID types but they don't actually
         // produce a value. Don't propagate the type through COMMAs.
-        type = op2->OperIs(GT_ASG, GT_SSA_DEF, GT_NULLCHECK) ? TYP_VOID : op2->GetType();
+        type = op2->OperIs(GT_ASG, GT_LCL_DEF, GT_NULLCHECK) ? TYP_VOID : op2->GetType();
     }
 
-    assert(!op2->OperIs(GT_NULLCHECK, GT_ASG, GT_SSA_DEF) || (type == TYP_VOID));
+    assert(!op2->OperIs(GT_NULLCHECK, GT_ASG, GT_LCL_DEF) || (type == TYP_VOID));
 
     return new (this, GT_COMMA) GenTreeOp(GT_COMMA, type, op1, op2);
 }
@@ -5269,8 +5269,8 @@ GenTree* Compiler::gtCloneExpr(
                 copy = new (this, GT_LCL_ADDR) GenTreeLclAddr(tree->AsLclAddr());
                 goto DONE;
 
-            case GT_SSA_USE:
-                copy = new (this, GT_SSA_USE) GenTreeSsaUse(tree->AsSsaUse());
+            case GT_LCL_USE:
+                copy = new (this, GT_LCL_USE) GenTreeLclUse(tree->AsLclUse());
                 goto DONE;
 
             case GT_CLS_VAR_ADDR:
@@ -5373,8 +5373,8 @@ GenTree* Compiler::gtCloneExpr(
                                     tree->AsArrIndex()->gtArrElemType);
                 break;
 
-            case GT_SSA_DEF:
-                copy = new (this, GT_SSA_DEF) GenTreeSsaDef(tree->AsSsaDef());
+            case GT_LCL_DEF:
+                copy = new (this, GT_LCL_DEF) GenTreeLclDef(tree->AsLclDef());
                 break;
             case GT_EXTRACT:
                 copy = new (this, GT_EXTRACT) GenTreeExtract(tree->AsExtract());
@@ -5517,15 +5517,14 @@ GenTree* Compiler::gtCloneExpr(
         }
         break;
 
-        case GT_SSA_PHI:
+        case GT_PHI:
         {
-            copy                         = new (this, GT_SSA_PHI) GenTreeSsaPhi(tree->GetType());
-            GenTreeSsaPhi::Use** prevUse = &copy->AsSsaPhi()->m_uses;
-            for (GenTreeSsaPhi::Use& use : tree->AsSsaPhi()->Uses())
+            copy                      = new (this, GT_PHI) GenTreePhi(tree->GetType());
+            GenTreePhi::Use** prevUse = &copy->AsPhi()->m_uses;
+            for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
             {
                 *prevUse = new (this, CMK_ASTNode)
-                    GenTreeSsaPhi::Use(gtCloneExpr(use.GetNode(), addFlags, deepVarNum, deepVarVal)->AsSsaUse(),
-                                       *prevUse);
+                    GenTreePhi::Use(gtCloneExpr(use.GetNode(), addFlags, deepVarNum, deepVarVal)->AsLclUse(), *prevUse);
                 prevUse = &((*prevUse)->NextRef());
             }
         }
@@ -5981,7 +5980,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
     switch (m_node->OperGet())
     {
         // Leaf nodes
-        case GT_SSA_USE:
+        case GT_LCL_USE:
         case GT_LCL_VAR:
         case GT_LCL_FLD:
         case GT_LCL_ADDR:
@@ -6016,7 +6015,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             return;
 
         // Standard unary operators
-        case GT_SSA_DEF:
+        case GT_LCL_DEF:
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
         case GT_NOT:
@@ -6105,10 +6104,10 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             AdvanceInstr();
             return;
 
-        case GT_SSA_PHI:
-            m_statePtr = m_node->AsSsaPhi()->m_uses;
-            m_advance  = &GenTreeUseEdgeIterator::AdvanceSsaPhi;
-            AdvanceSsaPhi();
+        case GT_PHI:
+            m_statePtr = m_node->AsPhi()->m_uses;
+            m_advance  = &GenTreeUseEdgeIterator::AdvancePhi;
+            AdvancePhi();
             return;
 
         case GT_ARR_BOUNDS_CHECK:
@@ -6276,7 +6275,7 @@ void GenTreeUseEdgeIterator::AdvanceInstr()
     }
 }
 
-void GenTreeUseEdgeIterator::AdvanceSsaPhi()
+void GenTreeUseEdgeIterator::AdvancePhi()
 {
     assert(m_state == 0);
 
@@ -6286,9 +6285,9 @@ void GenTreeUseEdgeIterator::AdvanceSsaPhi()
     }
     else
     {
-        GenTreeSsaPhi::Use* currentUse = static_cast<GenTreeSsaPhi::Use*>(m_statePtr);
-        m_edge                         = &currentUse->NodeRef();
-        m_statePtr                     = currentUse->GetNext();
+        GenTreePhi::Use* currentUse = static_cast<GenTreePhi::Use*>(m_statePtr);
+        m_edge                      = &currentUse->NodeRef();
+        m_statePtr                  = currentUse->GetNext();
     }
 }
 
@@ -7011,11 +7010,11 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
         {
             lcl = lvaGetDesc(tree->AsLclVar());
         }
-        else if (GenTreeSsaDef* def = tree->IsSsaDef())
+        else if (GenTreeLclDef* def = tree->IsLclDef())
         {
             lcl = lvaGetDesc(def->GetLclNum());
         }
-        else if (GenTreeSsaUse* use = tree->IsSsaUse())
+        else if (GenTreeLclUse* use = tree->IsLclUse())
         {
             lcl = lvaGetDesc(use->GetDef()->GetLclNum());
         }
@@ -7631,7 +7630,7 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
             dmpLclVarCommon(tree->AsLclVarCommon(), indentStack);
             break;
 
-        case GT_SSA_USE:
+        case GT_LCL_USE:
             dmpSsaDefUse(tree, indentStack);
             break;
 
@@ -7854,8 +7853,8 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
 
 void Compiler::dmpSsaDefUse(GenTree* node, IndentStack* indentStack)
 {
-    GenTreeSsaUse* use    = node->IsSsaUse();
-    GenTreeSsaDef* def    = use != nullptr ? use->GetDef() : node->IsSsaDef();
+    GenTreeLclUse* use    = node->IsLclUse();
+    GenTreeLclDef* def    = use != nullptr ? use->GetDef() : node->IsLclDef();
     unsigned       lclNum = def->GetLclNum();
     unsigned       ssaNum = def->GetSsaNum();
     LclVarDsc*     lcl    = lvaGetDesc(lclNum);
@@ -8081,7 +8080,7 @@ void Compiler::gtDispTree(GenTree*     tree,
         case GT_STORE_LCL_FLD:
             dmpLclVarCommon(tree->AsLclVarCommon(), indentStack);
             break;
-        case GT_SSA_DEF:
+        case GT_LCL_DEF:
             dmpSsaDefUse(tree, indentStack);
             break;
         case GT_EXTRACT:
@@ -8305,12 +8304,12 @@ void Compiler::gtDispTree(GenTree*     tree,
             }
             break;
 
-        case GT_SSA_PHI:
+        case GT_PHI:
             gtDispCommonEndLine(tree);
 
             if (!topOnly)
             {
-                for (GenTreeSsaPhi::Use& use : tree->AsSsaPhi()->Uses())
+                for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
                 {
                     char block[32];
                     sprintf_s(block, sizeof(block), "pred " FMT_BB, use.GetNode()->GetBlock()->bbNum);
@@ -8878,7 +8877,7 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
         case GT_RETFILT:
         case GT_RETURN:
         case GT_IND:
-        case GT_SSA_DEF:
+        case GT_LCL_DEF:
         // TODO-MIKE-Cleanup: INSERT(0, 0) => 0, EXTRACT(0) => 0
         case GT_INSERT:
         case GT_EXTRACT:
@@ -11542,7 +11541,7 @@ bool Compiler::gtNodeHasSideEffects(GenTree* node, GenTreeFlags flags, bool igno
     // will simply be dropped is they are ever subject to an "extract side effects" operation.
     // It is possible that the reason no bugs have yet been observed in this area is that the
     // other nodes are likely to always be tree roots.
-    if (((flags & GTF_ASG) != 0) && node->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_SSA_DEF))
+    if (((flags & GTF_ASG) != 0) && node->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_LCL_DEF))
     {
         return true;
     }
@@ -11971,9 +11970,9 @@ bool Compiler::gtComplexityExceeds(GenTree* tree, unsigned limit)
     return fgWalkTreePre(&tree, &ComplexityExceedsWalker, &complexity) == WALK_ABORT;
 }
 
-bool GenTree::IsSsaPhiDef() const
+bool GenTree::IsPhiDef() const
 {
-    return (gtOper == GT_SSA_DEF) && AsSsaDef()->GetValue()->OperIs(GT_SSA_PHI);
+    return (gtOper == GT_LCL_DEF) && AsLclDef()->GetValue()->OperIs(GT_PHI);
 }
 
 bool GenTree::IsPartialLclFld(Compiler* comp)

@@ -4746,7 +4746,7 @@ void Compiler::vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store,
     }
 }
 
-void Compiler::vnSummarizeLoopSsaDefs(GenTreeSsaDef* def, VNLoopMemorySummary& summary)
+void Compiler::vnSummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary& summary)
 {
     if (def->TypeIs(TYP_BYREF))
     {
@@ -4774,7 +4774,7 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
     vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
 }
 
-void Compiler::vnSsaDef(GenTreeSsaDef* def)
+void Compiler::vnLocalDef(GenTreeLclDef* def)
 {
     LclVarDsc*   lcl   = lvaGetDesc(def->GetLclNum());
     GenTree*     value = def->GetValue();
@@ -4874,14 +4874,14 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
     load->gtVNPair.SetBoth(vnMemoryLoad(load->GetType(), addrVN));
 }
 
-void Compiler::vnSsaUse(GenTreeSsaUse* use)
+void Compiler::vnLocalUse(GenTreeLclUse* use)
 {
     LclVarDsc* lcl = lvaGetDesc(use->GetDef()->GetLclNum());
 
-    use->SetVNP(vnSsaUse(use, use->GetDef()));
+    use->SetVNP(vnLocalUse(use, use->GetDef()));
 }
 
-ValueNumPair Compiler::vnSsaUse(GenTreeSsaUse* use, GenTreeSsaDef* def)
+ValueNumPair Compiler::vnLocalUse(GenTreeLclUse* use, GenTreeLclDef* def)
 {
     LclVarDsc*   lcl = lvaGetDesc(def->GetLclNum());
     ValueNumPair vnp = def->GetVNP();
@@ -7337,7 +7337,7 @@ void Compiler::fgValueNumber()
     // parameters and initial memory are treated as loop invariant.
     assert(fgFirstBB->bbNatLoopNum == BasicBlock::NOT_IN_LOOP);
 
-    for (GenTreeSsaDef* def = m_initSsaDefs; def != nullptr; def = static_cast<GenTreeSsaDef*>(def->gtNext))
+    for (GenTreeLclDef* def = m_initSsaDefs; def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
     {
         unsigned   lclNum   = def->GetLclNum();
         LclVarDsc* lcl      = lvaGetDesc(lclNum);
@@ -7521,16 +7521,16 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
 
     // First: visit phi's.  If "newVNForPhis", give them new VN's.  If not,
     // first check to see if all phi args have the same value.
-    for (; (stmt != nullptr) && stmt->GetRootNode()->IsSsaPhiDef(); stmt = stmt->GetNextStmt())
+    for (; (stmt != nullptr) && stmt->GetRootNode()->IsPhiDef(); stmt = stmt->GetNextStmt())
     {
-        GenTreeSsaDef* def = stmt->GetRootNode()->AsSsaDef();
+        GenTreeLclDef* def = stmt->GetRootNode()->AsLclDef();
         ValueNumPair   phiVNP;
         ValueNumPair   sameVNP;
 
-        for (GenTreeSsaPhi::Use& use : def->GetValue()->AsSsaPhi()->Uses())
+        for (GenTreePhi::Use& use : def->GetValue()->AsPhi()->Uses())
         {
-            GenTreeSsaUse* phiArg    = use.GetNode();
-            GenTreeSsaDef* argDef    = phiArg->GetDef();
+            GenTreeLclUse* phiArg    = use.GetNode();
+            GenTreeLclDef* argDef    = phiArg->GetDef();
             ValueNumPair   phiArgVNP = argDef->GetVNP();
 
             phiArg->SetVNP(phiArgVNP);
@@ -7591,10 +7591,9 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
 
     // Now do the same for memory.
 
-    // Is there a phi for this block?
-    if (blk->bbMemorySsaPhiFunc == nullptr)
+    if (blk->memoryPhi == nullptr)
     {
-        fgCurMemoryVN = GetMemoryPerSsaData(blk->bbMemorySsaNumIn)->m_vn;
+        fgCurMemoryVN = GetMemoryPerSsaData(blk->memoryEntrySsaNum)->m_vn;
         assert(fgCurMemoryVN != ValueNumStore::NoVN);
     }
     else
@@ -7607,7 +7606,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
         }
         else
         {
-            BasicBlock::MemoryPhiArg* phiArgs = blk->bbMemorySsaPhiFunc;
+            BasicBlock::MemoryPhiArg* phiArgs = blk->memoryPhi;
 
             ValueNum sameMemoryVN = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
             INDEBUG(vnTraceMem(sameMemoryVN, "predecessor memory"));
@@ -7641,8 +7640,8 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
             }
         }
 
-        GetMemoryPerSsaData(blk->bbMemorySsaNumIn)->m_vn = newMemoryVN;
-        fgCurMemoryVN                                    = newMemoryVN;
+        GetMemoryPerSsaData(blk->memoryEntrySsaNum)->m_vn = newMemoryVN;
+        fgCurMemoryVN                                     = newMemoryVN;
     }
 
     INDEBUG(vnTraceMem(fgCurMemoryVN));
@@ -7681,9 +7680,9 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
 #endif
     }
 
-    if (blk->bbMemorySsaNumOut != blk->bbMemorySsaNumIn)
+    if (blk->memoryExitSsaNum != blk->memoryEntrySsaNum)
     {
-        GetMemoryPerSsaData(blk->bbMemorySsaNumOut)->m_vn = fgCurMemoryVN;
+        GetMemoryPerSsaData(blk->memoryExitSsaNum)->m_vn = fgCurMemoryVN;
     }
 
     vnStore->SetCurrentBlock(nullptr);
@@ -7890,7 +7889,7 @@ ValueNum Compiler::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned inner
     // Otherwise, there is a single non-loop pred.
     assert(nonLoopPred != nullptr);
     // What is its memory post-state?
-    ValueNum newMemoryVN = GetMemoryPerSsaData(nonLoopPred->bbMemorySsaNumOut)->m_vn;
+    ValueNum newMemoryVN = GetMemoryPerSsaData(nonLoopPred->memoryExitSsaNum)->m_vn;
     assert(newMemoryVN != ValueNumStore::NoVN); // We must have processed the single non-loop pred before reaching the
                                                 // loop entry.
 
@@ -8033,8 +8032,8 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
             vnSummarizeLoopAssignmentMemoryStores(node->AsOp(), summary);
             break;
 
-        case GT_SSA_DEF:
-            vnSummarizeLoopSsaDefs(node->AsSsaDef(), summary);
+        case GT_LCL_DEF:
+            vnSummarizeLoopLocalDefs(node->AsLclDef(), summary);
             break;
 
         case GT_CALL:
@@ -8071,10 +8070,10 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
             node->SetLiberalVN(node->AsOp()->GetOp(1)->GetLiberalVN());
             break;
 
-        case GT_SSA_USE:
+        case GT_LCL_USE:
             if (node->TypeIs(TYP_BYREF))
             {
-                node->SetLiberalVN(node->AsSsaUse()->GetDef()->GetLiberalVN());
+                node->SetLiberalVN(node->AsLclUse()->GetDef()->GetLiberalVN());
             }
             break;
 
@@ -8164,12 +8163,12 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             }
             break;
 
-        case GT_SSA_DEF:
-            vnSsaDef(tree->AsSsaDef());
+        case GT_LCL_DEF:
+            vnLocalDef(tree->AsLclDef());
             break;
 
-        case GT_SSA_USE:
-            vnSsaUse(tree->AsSsaUse());
+        case GT_LCL_USE:
+            vnLocalUse(tree->AsLclUse());
             break;
 
         case GT_INSERT:

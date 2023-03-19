@@ -80,7 +80,7 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
         return lclNum == thisParamLclNum;
     }
 
-    void PushSsaDef(SsaStack* stack, BasicBlock* block, GenTreeSsaDef* def)
+    void PushSsaDef(SsaStack* stack, BasicBlock* block, GenTreeLclDef* def)
     {
         SsaStackNode* top = stack->Top();
 
@@ -106,7 +106,7 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
         const char* prefix = "";
         for (const auto& pair : lclSsaStackMap)
         {
-            if (GenTreeSsaDef* def = pair.value.Top()->m_def)
+            if (GenTreeLclDef* def = pair.value.Top()->m_def)
             {
                 printf("%sV%02u#%u " FMT_VN, prefix, pair.key, def->GetSsaNum(), def->GetConservativeVN());
                 prefix = ", ";
@@ -134,8 +134,8 @@ public:
 
     void Begin()
     {
-        for (GenTreeSsaDef* def = m_compiler->m_initSsaDefs; def != nullptr;
-             def                = static_cast<GenTreeSsaDef*>(def->gtNext))
+        for (GenTreeLclDef* def = m_compiler->m_initSsaDefs; def != nullptr;
+             def                = static_cast<GenTreeLclDef*>(def->gtNext))
         {
             unsigned lclNum = def->GetLclNum();
 
@@ -162,26 +162,26 @@ public:
         {
             GenTree* root = stmt->GetRootNode();
 
-            if (!root->IsSsaPhiDef())
+            if (!root->IsPhiDef())
             {
                 break;
             }
 
-            unsigned lclNum = root->AsSsaDef()->GetLclNum();
+            unsigned lclNum = root->AsLclDef()->GetLclNum();
 
             if (IsAlwaysLiveThisParam(lclNum))
             {
                 continue;
             }
 
-            PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, root->AsSsaDef());
+            PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, root->AsLclDef());
         }
 
         for (Statement* stmt : block->NonPhiStatements())
         {
             for (GenTree* node : stmt->Nodes())
             {
-                if (GenTreeSsaDef* def = node->IsSsaDef())
+                if (GenTreeLclDef* def = node->IsLclDef())
                 {
                     unsigned lclNum = def->GetLclNum();
 
@@ -192,7 +192,7 @@ public:
 
                     PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, def);
                 }
-                else if (GenTreeSsaUse* use = node->IsSsaUse())
+                else if (GenTreeLclUse* use = node->IsLclUse())
                 {
                     unsigned lclNum = use->GetDef()->GetLclNum();
 
@@ -230,7 +230,7 @@ public:
         }
     }
 
-    void CopyProp(BasicBlock* block, GenTreeSsaUse* use)
+    void CopyProp(BasicBlock* block, GenTreeLclUse* use)
     {
         if (use->GetConservativeVN() == ValueNumStore::NoVN)
         {
@@ -251,7 +251,7 @@ public:
         for (const auto& pair : lclSsaStackMap)
         {
             unsigned       newLclNum = pair.key;
-            GenTreeSsaDef* newDef    = pair.value.Top()->m_def;
+            GenTreeLclDef* newDef    = pair.value.Top()->m_def;
 
             if ((lclNum == newLclNum) || (newDef == nullptr))
             {
@@ -295,7 +295,7 @@ public:
             }
 
             // The use must produce the same value number if we substitute the def.
-            if (m_compiler->vnSsaUse(use, newDef).GetConservative() != use->GetConservativeVN())
+            if (m_compiler->vnLocalUse(use, newDef).GetConservative() != use->GetConservativeVN())
             {
                 continue;
             }

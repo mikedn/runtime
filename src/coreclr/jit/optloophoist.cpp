@@ -11,7 +11,7 @@ void Compiler::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
 
     // This loop has to be in a form that is approved for hoisting.
     assert(optLoopTable[lnum].lpFlags & LPFLG_HOISTABLE);
-    assert(!origExpr->OperIs(GT_ASG, GT_SSA_DEF, GT_STORE_LCL_VAR));
+    assert(!origExpr->OperIs(GT_ASG, GT_LCL_DEF, GT_STORE_LCL_VAR));
 
     // Create a copy of the expression and mark it for CSE's.
     GenTree* hoistExpr = gtCloneExpr(origExpr, GTF_MAKE_CSE);
@@ -621,7 +621,7 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
 
             if (BasicBlock* loopEntryBlock = m_compiler->vnStore->GetLoopMemoryBlock(tree))
             {
-                ValueNum loopMemoryVN = m_compiler->GetMemoryPerSsaData(loopEntryBlock->bbMemorySsaNumIn)->m_vn;
+                ValueNum loopMemoryVN = m_compiler->GetMemoryPerSsaData(loopEntryBlock->memoryEntrySsaNum)->m_vn;
 
                 if (!m_compiler->optVNIsLoopInvariant(loopMemoryVN, m_loopNum,
                                                       &m_hoistContext->m_curLoopVnInvariantCache))
@@ -689,7 +689,7 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
                 return fgWalkResult::WALK_CONTINUE;
             }
 
-            if (GenTreeSsaUse* use = tree->IsSsaUse())
+            if (GenTreeLclUse* use = tree->IsLclUse())
             {
                 // TODO-MIKE-Cleanup: Unreachable blocks aren't properly removed (see Runtime_57061_2).
                 // Such blocks may or may not be traversed by various JIT phases - SSA builder does not
@@ -1258,12 +1258,12 @@ void Compiler::fgCreateLoopPreHeader(unsigned lnum)
     {
         GenTree* tree = stmt->GetRootNode();
 
-        if (!tree->IsSsaPhiDef())
+        if (!tree->IsPhiDef())
         {
             break;
         }
 
-        for (GenTreeSsaPhi::Use& use : tree->AsSsaDef()->GetValue()->AsSsaPhi()->Uses())
+        for (GenTreePhi::Use& use : tree->AsLclDef()->GetValue()->AsPhi()->Uses())
         {
             if (use.GetNode()->GetBlock() == head)
             {

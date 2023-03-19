@@ -316,18 +316,18 @@ bool RangeCheck::IsBinOpMonotonicallyIncreasing(GenTreeOp* binop)
 
     JITDUMP("[RangeCheck::IsBinOpMonotonicallyIncreasing] [%06u], [%06u]\n", op1->GetID(), op2->GetID());
     // Check if we have a var + const.
-    if (op2->IsSsaUse())
+    if (op2->IsLclUse())
     {
         std::swap(op1, op2);
     }
-    if (!op1->IsSsaUse())
+    if (!op1->IsLclUse())
     {
         JITDUMP("Not monotonically increasing because op1 is not lclVar.\n");
         return false;
     }
     switch (op2->OperGet())
     {
-        case GT_SSA_USE:
+        case GT_LCL_USE:
             // When adding two local variables, we also must ensure that any constant is non-negative.
             return IsMonotonicallyIncreasing(op1, true) && IsMonotonicallyIncreasing(op2, true);
 
@@ -383,7 +383,7 @@ bool RangeCheck::IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeCon
         }
     }
     // If the rhs expr is local, then try to find the def of the local.
-    else if (GenTreeSsaUse* use = expr->IsSsaUse())
+    else if (GenTreeLclUse* use = expr->IsLclUse())
     {
         return IsMonotonicallyIncreasing(use->GetDef()->GetValue(), rejectNegativeConst);
     }
@@ -391,9 +391,9 @@ bool RangeCheck::IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeCon
     {
         return IsBinOpMonotonicallyIncreasing(expr->AsOp());
     }
-    else if (GenTreeSsaPhi* phi = expr->IsSsaPhi())
+    else if (GenTreePhi* phi = expr->IsPhi())
     {
-        for (GenTreeSsaPhi::Use& use : phi->Uses())
+        for (GenTreePhi::Use& use : phi->Uses())
         {
             // If the arg is already in the path, skip.
             if (m_pSearchPath->Lookup(use.GetNode()))
@@ -693,7 +693,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
 
 // Merge assertions from the pred edges of the block, i.e., check for any assertions about "op's" value numbers for phi
 // arguments. If not a phi argument, check if we have assertions about local variables.
-void RangeCheck::MergePhiArgAssertion(BasicBlock* block, GenTreeSsaUse* use, Range* pRange DEBUGARG(int indent))
+void RangeCheck::MergePhiArgAssertion(BasicBlock* block, GenTreeLclUse* use, Range* pRange DEBUGARG(int indent))
 {
     JITDUMP("Merging assertions from pred edges of " FMT_BB " for op [%06d] " FMT_VN "\n", block->bbNum, use->GetID(),
             m_pCompiler->vnStore->VNConservativeNormalValue(use->gtVNPair));
@@ -726,7 +726,7 @@ void RangeCheck::MergePhiArgAssertion(BasicBlock* block, GenTreeSsaUse* use, Ran
     }
 }
 
-void RangeCheck::MergeSsaUseAssertion(BasicBlock* block, GenTreeSsaUse* use, Range* pRange DEBUGARG(int indent))
+void RangeCheck::MergeSsaUseAssertion(BasicBlock* block, GenTreeLclUse* use, Range* pRange DEBUGARG(int indent))
 {
     JITDUMP("Merging assertions from pred edges of " FMT_BB " for op [%06u] " FMT_VN "\n", block->bbNum, use->GetID(),
             m_pCompiler->vnStore->VNNormalValue(use->GetConservativeVN()));
@@ -805,7 +805,7 @@ Range RangeCheck::ComputeRangeForBinOp(BasicBlock* block, GenTreeOp* binop, bool
         {
             op1Range = GetRange(block, op1, monIncreasing DEBUGARG(indent));
         }
-        if (GenTreeSsaUse* use = op1->IsSsaUse())
+        if (GenTreeLclUse* use = op1->IsLclUse())
         {
             MergeSsaUseAssertion(block, use, &op1Range DEBUGARG(indent + 1));
         }
@@ -830,7 +830,7 @@ Range RangeCheck::ComputeRangeForBinOp(BasicBlock* block, GenTreeOp* binop, bool
         {
             op2Range = GetRange(block, op2, monIncreasing DEBUGARG(indent));
         }
-        if (GenTreeSsaUse* use = op2->IsSsaUse())
+        if (GenTreeLclUse* use = op2->IsLclUse())
         {
             MergeSsaUseAssertion(block, use, &op2Range DEBUGARG(indent + 1));
         }
@@ -848,10 +848,10 @@ Range RangeCheck::ComputeRangeForBinOp(BasicBlock* block, GenTreeOp* binop, bool
 
 // Compute the range for a local var definition.
 Range RangeCheck::ComputeRangeForLocalDef(BasicBlock*    block,
-                                          GenTreeSsaUse* use,
+                                          GenTreeLclUse* use,
                                           bool monIncreasing DEBUGARG(int indent))
 {
-    GenTreeSsaDef* def = use->GetDef();
+    GenTreeLclDef* def = use->GetDef();
 
 #ifdef DEBUG
     if (m_pCompiler->verbose)
@@ -970,9 +970,9 @@ bool RangeCheck::DoesBinOpOverflow(BasicBlock* block, GenTreeOp* binop)
     return true;
 }
 
-bool RangeCheck::DoesPhiOverflow(BasicBlock* block, GenTreeSsaPhi* phi)
+bool RangeCheck::DoesPhiOverflow(BasicBlock* block, GenTreePhi* phi)
 {
-    for (GenTreeSsaPhi::Use& use : phi->Uses())
+    for (GenTreePhi::Use& use : phi->Uses())
     {
         GenTree* arg = use.GetNode();
         if (m_pSearchPath->Lookup(arg))
@@ -1022,7 +1022,7 @@ bool RangeCheck::ComputeDoesOverflow(BasicBlock* block, GenTree* expr)
         overflows = ComputeDoesOverflow(block, expr->gtEffectiveVal());
     }
     // Check if the var def has rhs involving arithmetic that overflows.
-    else if (GenTreeSsaUse* use = expr->IsSsaUse())
+    else if (GenTreeLclUse* use = expr->IsLclUse())
     {
         overflows = DoesOverflow(use->GetDef()->GetBlock(), use->GetDef()->GetValue());
     }
@@ -1038,7 +1038,7 @@ bool RangeCheck::ComputeDoesOverflow(BasicBlock* block, GenTree* expr)
         overflows = false;
     }
     // Walk through phi arguments to check if phi arguments involve arithmetic that overflows.
-    else if (GenTreeSsaPhi* phi = expr->IsSsaPhi())
+    else if (GenTreePhi* phi = expr->IsPhi())
     {
         overflows = DoesPhiOverflow(block, phi);
     }
@@ -1117,7 +1117,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monIncreas
                     : Limit(Limit::keUnknown);
     }
     // If local, find the definition from the def map and evaluate the range for rhs.
-    else if (GenTreeSsaUse* use = expr->IsSsaUse())
+    else if (GenTreeLclUse* use = expr->IsLclUse())
     {
         range = ComputeRangeForLocalDef(block, use, monIncreasing DEBUGARG(indent + 1));
         MergeSsaUseAssertion(block, use, &range DEBUGARG(indent + 1));
@@ -1128,9 +1128,9 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monIncreas
         range = ComputeRangeForBinOp(block, expr->AsOp(), monIncreasing DEBUGARG(indent + 1));
     }
     // If phi, then compute the range for arguments, calling the result "dependent" when looping begins.
-    else if (GenTreeSsaPhi* phi = expr->IsSsaPhi())
+    else if (GenTreePhi* phi = expr->IsPhi())
     {
-        for (GenTreeSsaPhi::Use& use : phi->Uses())
+        for (GenTreePhi::Use& use : phi->Uses())
         {
             Range argRange = Range(Limit(Limit::keUndef));
             if (m_pSearchPath->Lookup(use.GetNode()))

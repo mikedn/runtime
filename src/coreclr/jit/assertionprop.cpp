@@ -333,12 +333,12 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        if (!addr->OperIs(GT_LCL_VAR, GT_SSA_USE))
+        if (!addr->OperIs(GT_LCL_VAR, GT_LCL_USE))
         {
             return NO_ASSERTION_INDEX;
         }
 
-        unsigned   lclNum = addr->IsSsaUse() ? addr->AsSsaUse()->GetDef()->GetLclNum() : addr->AsLclVar()->GetLclNum();
+        unsigned   lclNum = addr->IsLclUse() ? addr->AsLclUse()->GetDef()->GetLclNum() : addr->AsLclVar()->GetLclNum();
         LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
 
         AssertionDsc assertion;
@@ -346,7 +346,7 @@ private:
         if (lcl->TypeIs(TYP_REF))
         {
             // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
-            if (!addr->IsSsaUse())
+            if (!addr->IsLclUse())
             {
                 return NO_ASSERTION_INDEX;
             }
@@ -431,12 +431,12 @@ private:
         // TODO-MIKE-Review: Restricting the cast operands to SSA_USE is largely superfluous,
         // all it does is preventing less useful assertions from being created, that would
         // just wast space in the assertion table.
-        if (!value->IsSsaUse())
+        if (!value->IsLclUse())
         {
             return NO_ASSERTION_INDEX;
         }
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(value->AsSsaUse()->GetDef()->GetLclNum());
+        LclVarDsc* lcl = compiler->lvaGetDesc(value->AsLclUse()->GetDef()->GetLclNum());
 
         assert(!lcl->IsAddressExposed());
 
@@ -451,7 +451,7 @@ private:
     }
 
     // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
-    AssertionIndex CreateEqualityAssertion(GenTreeSsaUse* op1, GenTree* op2, ApKind kind)
+    AssertionIndex CreateEqualityAssertion(GenTreeLclUse* op1, GenTree* op2, ApKind kind)
     {
         assert((op1 != nullptr) && (op2 != nullptr));
         assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
@@ -540,14 +540,14 @@ private:
                 break;
             }
 
-            case GT_SSA_USE:
+            case GT_LCL_USE:
             {
-                if (op1->GetDef()->GetLclNum() == op2->AsSsaUse()->GetDef()->GetLclNum())
+                if (op1->GetDef()->GetLclNum() == op2->AsLclUse()->GetDef()->GetLclNum())
                 {
                     return NO_ASSERTION_INDEX;
                 }
 
-                LclVarDsc* valLcl = compiler->lvaGetDesc(op2->AsSsaUse()->GetDef()->GetLclNum());
+                LclVarDsc* valLcl = compiler->lvaGetDesc(op2->AsLclUse()->GetDef()->GetLclNum());
 
                 assert(!valLcl->IsAddressExposed());
 
@@ -972,11 +972,11 @@ private:
                 return op1->AsLclVar()->GetOp(0);
             }
         }
-        else if (op2->OperIs(GT_SSA_USE) && op1->OperIs(GT_SSA_DEF))
+        else if (op2->OperIs(GT_LCL_USE) && op1->OperIs(GT_LCL_DEF))
         {
-            if (op2->AsSsaUse()->GetDef() == op1->AsSsaDef())
+            if (op2->AsLclUse()->GetDef() == op1->AsLclDef())
             {
-                return op1->AsSsaDef()->GetValue();
+                return op1->AsLclDef()->GetValue();
             }
         }
 
@@ -997,19 +997,19 @@ private:
         // TODO-MIKE-Review: This is probably bogus, old code tried to swap operands so
         // that LCL_VAR comes first. But it didn't check if the local is in SSA form and
         // then CreateEqualityAssertion rejected it.
-        if (op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_SSA_USE))
+        if (op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_USE))
         {
             return NO_ASSERTION_INDEX;
         }
 
-        if (!op1->OperIs(GT_SSA_USE) && op2->OperIs(GT_SSA_USE))
+        if (!op1->OperIs(GT_LCL_USE) && op2->OperIs(GT_LCL_USE))
         {
             std::swap(op1, op2);
         }
 
-        if (op1->OperIs(GT_SSA_USE) && op2->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL, GT_LCL_VAR, GT_SSA_USE))
+        if (op1->OperIs(GT_LCL_USE) && op2->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL, GT_LCL_VAR, GT_LCL_USE))
         {
-            return CreateEqualityAssertion(op1->AsSsaUse(), op2, assertionKind);
+            return CreateEqualityAssertion(op1->AsLclUse(), op2, assertionKind);
         }
 
         // TODO-MIKE-Review: This is probably bogus, in old code CreateEqualityAssertion handled
@@ -1060,7 +1060,7 @@ private:
 
     bool IsUnaliasedLocal(GenTree* node)
     {
-        return node->OperIs(GT_SSA_USE) ||
+        return node->OperIs(GT_LCL_USE) ||
                (node->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(node->AsLclVar())->IsAddressExposed());
     }
 
@@ -1355,7 +1355,7 @@ private:
         return UpdateTree(conNode, lclVar, stmt);
     }
 
-    GenTree* PropagateSsaUseConst(const AssertionDsc& assertion, GenTreeSsaUse* use, Statement* stmt)
+    GenTree* PropagateSsaUseConst(const AssertionDsc& assertion, GenTreeLclUse* use, Statement* stmt)
     {
 #ifdef DEBUG
         LclVarDsc* lcl = compiler->lvaGetDesc(use->GetDef()->GetLclNum());
@@ -1503,7 +1503,7 @@ private:
         return PropagateLclVarConst(*assertion, lclVar, stmt);
     }
 
-    GenTree* PropagateSsaUse(const ASSERT_TP assertions, GenTreeSsaUse* use, Statement* stmt)
+    GenTree* PropagateSsaUse(const ASSERT_TP assertions, GenTreeLclUse* use, Statement* stmt)
     {
         unsigned   lclNum = use->GetDef()->GetLclNum();
         LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
@@ -1679,7 +1679,7 @@ private:
             GenTree* op1 = relop->GetOp(0);
             GenTree* op2 = relop->GetOp(1);
 
-            if (!op1->OperIs(GT_LCL_VAR, GT_SSA_USE, GT_IND))
+            if (!op1->OperIs(GT_LCL_VAR, GT_LCL_USE, GT_IND))
             {
                 return nullptr;
             }
@@ -1772,11 +1772,11 @@ private:
         GenTree* actualOp1 = op1->SkipComma();
         ValueNum vn;
 
-        if (actualOp1->OperIs(GT_LCL_VAR, GT_SSA_USE))
+        if (actualOp1->OperIs(GT_LCL_VAR, GT_LCL_USE))
         {
             LclVarDsc* lcl =
                 compiler->lvaGetDesc(actualOp1->OperIs(GT_LCL_VAR) ? actualOp1->AsLclVar()->GetLclNum()
-                                                                   : actualOp1->AsSsaUse()->GetDef()->GetLclNum());
+                                                                   : actualOp1->AsLclUse()->GetDef()->GetLclNum());
 
             // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
             // They're usually present on every LCL_VAR use so we'll never get assertions
@@ -1932,7 +1932,7 @@ private:
             addr = addr->AsOp()->GetOp(0);
         }
 
-        if (!addr->OperIs(GT_LCL_VAR, GT_SSA_USE))
+        if (!addr->OperIs(GT_LCL_VAR, GT_LCL_USE))
         {
             return nullptr;
         }
@@ -2011,7 +2011,7 @@ private:
         GenTree* thisArg = call->GetThisArg();
         noway_assert(thisArg != nullptr);
 
-        if (!thisArg->OperIs(GT_LCL_VAR, GT_SSA_USE))
+        if (!thisArg->OperIs(GT_LCL_VAR, GT_LCL_USE))
         {
             return nullptr;
         }
@@ -2075,7 +2075,7 @@ private:
 
         GenTree* objectArg = call->GetArgNodeByArgNum(1);
 
-        if (!objectArg->OperIs(GT_LCL_VAR, GT_SSA_USE))
+        if (!objectArg->OperIs(GT_LCL_VAR, GT_LCL_USE))
         {
             return nullptr;
         }
@@ -2337,12 +2337,12 @@ private:
                     return nullptr;
                 }
                 return PropagateLclVarUse(assertions, node->AsLclVar(), stmt);
-            case GT_SSA_USE:
+            case GT_LCL_USE:
                 if ((node->gtFlags & GTF_DONT_CSE) != 0)
                 {
                     return nullptr;
                 }
-                return PropagateSsaUse(assertions, node->AsSsaUse(), stmt);
+                return PropagateSsaUse(assertions, node->AsLclUse(), stmt);
             case GT_OBJ:
             case GT_BLK:
             case GT_IND:
@@ -3232,9 +3232,9 @@ private:
 
                     break;
 
-                case GT_SSA_USE:
+                case GT_LCL_USE:
                     // Don't undo constant CSEs.
-                    if (m_compiler->lvaGetDesc(tree->AsSsaUse()->GetDef()->GetLclNum())->lvIsCSE)
+                    if (m_compiler->lvaGetDesc(tree->AsLclUse()->GetDef()->GetLclNum())->lvIsCSE)
                     {
                         return Compiler::WALK_CONTINUE;
                     }
@@ -3478,7 +3478,7 @@ private:
                 return false;
             }
 
-            if (GenTreeSsaUse* use = node->IsSsaUse())
+            if (GenTreeLclUse* use = node->IsLclUse())
             {
                 use->GetDef()->RemoveUse(use);
             }

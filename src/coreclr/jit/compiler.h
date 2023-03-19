@@ -4527,7 +4527,7 @@ public:
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, unsigned> NodeToUnsignedMap;
 
-    GenTreeSsaDef* m_initSsaDefs = nullptr;
+    GenTreeLclDef* m_initSsaDefs = nullptr;
 
     // Performs SSA conversion.
     void fgSsaBuild();
@@ -4572,10 +4572,10 @@ public:
     ValueNumPair vnExtractStructField(GenTree* load, ValueNumPair structVN, FieldSeqNode* fieldSeq);
     ValueNum vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types fieldType, ClassLayout* fieldLayout);
     void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
-    void vnSsaDef(GenTreeSsaDef* def);
+    void vnLocalDef(GenTreeLclDef* def);
     void vnLocalLoad(GenTreeLclVar* load);
-    void vnSsaUse(GenTreeSsaUse* use);
-    ValueNumPair vnSsaUse(GenTreeSsaUse* use, GenTreeSsaDef* def);
+    void vnLocalUse(GenTreeLclUse* use);
+    ValueNumPair vnLocalUse(GenTreeLclUse* use, GenTreeLclDef* def);
     void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
     void vnInsert(GenTreeInsert* insert);
     void vnLocalFieldLoad(GenTreeLclFld* load);
@@ -5502,7 +5502,7 @@ private:
     void vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary);
     void vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary);
     void vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopSsaDefs(GenTreeSsaDef* def, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary& summary);
     void vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
     void vnSummarizeLoopObjFieldMemoryStores(GenTreeIndir* store, FieldSeqNode* fieldSeq, VNLoopMemorySummary& summary);
     void vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
@@ -7872,7 +7872,7 @@ public:
                 FALLTHROUGH;
 
             // Leaf nodes
-            case GT_SSA_USE:
+            case GT_LCL_USE:
             case GT_CATCH_ARG:
             case GT_LABEL:
             case GT_FTN_ADDR:
@@ -7928,7 +7928,7 @@ public:
                     break;
                 }
                 FALLTHROUGH;
-            case GT_SSA_DEF:
+            case GT_LCL_DEF:
             case GT_NOT:
             case GT_NEG:
             case GT_FNEG:
@@ -7971,8 +7971,8 @@ public:
                 break;
 
             // Special nodes
-            case GT_SSA_PHI:
-                for (GenTreeSsaPhi::Use& use : node->AsSsaPhi()->Uses())
+            case GT_PHI:
+                for (GenTreePhi::Use& use : node->AsPhi()->Uses())
                 {
                     result = WalkTree(&use.NodeRef(), node);
                     if (result == fgWalkResult::WALK_ABORT)

@@ -1854,7 +1854,7 @@ public:
     inline var_types  CastFromType();
     inline var_types& CastToType();
 
-    bool IsSsaPhiDef() const;
+    bool IsPhiDef() const;
 
     // Because of the fact that we hid the assignment operator of "BitSet" (in DEBUG),
     // we can't synthesize an assignment operator.
@@ -2277,7 +2277,7 @@ class GenTreeUseEdgeIterator final
     void AdvanceBoundsChk();
     void AdvanceArrElem();
     void AdvanceFieldList();
-    void AdvanceSsaPhi();
+    void AdvancePhi();
 #ifdef FEATURE_HW_INTRINSICS
     void AdvanceHWIntrinsic();
     void AdvanceHWIntrinsicReverseOp();
@@ -3227,29 +3227,29 @@ public:
 #endif
 };
 
-struct GenTreeSsaUse;
+struct GenTreeLclUse;
 
-class SsaUses;
+class LclUses;
 
-struct GenTreeSsaDef final : public GenTreeUnOp
+struct GenTreeLclDef final : public GenTreeUnOp
 {
-    friend SsaUses;
+    friend LclUses;
 
 private:
     unsigned       m_lclNum;
     unsigned       m_ssaNum;
     BasicBlock*    m_block;
-    GenTreeSsaUse* m_uses = nullptr;
+    GenTreeLclUse* m_uses = nullptr;
 
 public:
-    GenTreeSsaDef(GenTree* value, BasicBlock* block, unsigned lclNum, unsigned ssaNum)
-        : GenTreeUnOp(GT_SSA_DEF, value->GetType(), value), m_lclNum(lclNum), m_ssaNum(ssaNum), m_block(block)
+    GenTreeLclDef(GenTree* value, BasicBlock* block, unsigned lclNum, unsigned ssaNum)
+        : GenTreeUnOp(GT_LCL_DEF, value->GetType(), value), m_lclNum(lclNum), m_ssaNum(ssaNum), m_block(block)
     {
         gtFlags |= GTF_ASG;
     }
 
-    GenTreeSsaDef(const GenTreeSsaDef* copyFrom)
-        : GenTreeUnOp(GT_SSA_DEF, copyFrom->GetType(), copyFrom->gtOp1)
+    GenTreeLclDef(const GenTreeLclDef* copyFrom)
+        : GenTreeUnOp(GT_LCL_DEF, copyFrom->GetType(), copyFrom->gtOp1)
         , m_lclNum(copyFrom->m_lclNum)
         , m_ssaNum(copyFrom->m_ssaNum)
         , m_block(nullptr)
@@ -3307,24 +3307,24 @@ public:
         m_block = block;
     }
 
-    void AddUse(GenTreeSsaUse* use);
-    void RemoveUse(GenTreeSsaUse* use);
-    SsaUses Uses();
+    void AddUse(GenTreeLclUse* use);
+    void RemoveUse(GenTreeLclUse* use);
+    LclUses Uses();
 
-    GenTreeSsaUse* GetUseList() const
+    GenTreeLclUse* GetUseList() const
     {
         return m_uses;
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeSsaDef() = default;
+    GenTreeLclDef() = default;
 #endif
 };
 
-struct GenTreeSsaUse final : public GenTree
+struct GenTreeLclUse final : public GenTree
 {
-    friend GenTreeSsaDef;
-    friend SsaUses;
+    friend GenTreeLclDef;
+    friend LclUses;
 
 private:
     // TODO-MIKE-Cleanup: SSA uses currently don't need the basic block but it could
@@ -3334,17 +3334,17 @@ private:
     // but it could be confusing.
     BasicBlock* m_block;
 
-    GenTreeSsaDef* m_def     = nullptr;
-    GenTreeSsaUse* m_nextUse = nullptr;
-    GenTreeSsaUse* m_prevUse = nullptr;
+    GenTreeLclDef* m_def     = nullptr;
+    GenTreeLclUse* m_nextUse = nullptr;
+    GenTreeLclUse* m_prevUse = nullptr;
 
 public:
-    GenTreeSsaUse(GenTreeSsaDef* def, BasicBlock* block) : GenTree(GT_SSA_USE, def->GetType()), m_block(block)
+    GenTreeLclUse(GenTreeLclDef* def, BasicBlock* block) : GenTree(GT_LCL_USE, def->GetType()), m_block(block)
     {
         def->AddUse(this);
     }
 
-    GenTreeSsaUse(const GenTreeSsaUse* copyFrom) : GenTree(GT_SSA_USE, copyFrom->GetType()), m_block(copyFrom->m_block)
+    GenTreeLclUse(const GenTreeLclUse* copyFrom) : GenTree(GT_LCL_USE, copyFrom->GetType()), m_block(copyFrom->m_block)
     {
         copyFrom->m_def->AddUse(this);
     }
@@ -3356,7 +3356,7 @@ public:
         m_prevUse = nullptr;
     }
 
-    GenTreeSsaDef* GetDef() const
+    GenTreeLclDef* GetDef() const
     {
         return m_def;
     }
@@ -3371,35 +3371,35 @@ public:
         m_block = block;
     }
 
-    GenTreeSsaUse* GetNextUse() const
+    GenTreeLclUse* GetNextUse() const
     {
         return m_nextUse;
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeSsaUse() = default;
+    GenTreeLclUse() = default;
 #endif
 };
 
-class SsaUses
+class LclUses
 {
-    GenTreeSsaUse* m_uses;
+    GenTreeLclUse* m_uses;
 
 public:
-    SsaUses(GenTreeSsaUse* uses) : m_uses(uses)
+    LclUses(GenTreeLclUse* uses) : m_uses(uses)
     {
     }
 
     class iterator
     {
-        GenTreeSsaUse* m_use;
+        GenTreeLclUse* m_use;
 
     public:
-        iterator(GenTreeSsaUse* use) : m_use(use)
+        iterator(GenTreeLclUse* use) : m_use(use)
         {
         }
 
-        GenTreeSsaUse* operator*()
+        GenTreeLclUse* operator*()
         {
             return m_use;
         }
@@ -3435,12 +3435,12 @@ public:
     }
 };
 
-inline SsaUses GenTreeSsaDef::Uses()
+inline LclUses GenTreeLclDef::Uses()
 {
-    return SsaUses(m_uses);
+    return LclUses(m_uses);
 }
 
-struct GenTreeSsaPhi final : public GenTree
+struct GenTreePhi final : public GenTree
 {
     class Use
     {
@@ -3448,7 +3448,7 @@ struct GenTreeSsaPhi final : public GenTree
         Use*     m_next;
 
     public:
-        Use(GenTreeSsaUse* node, Use* next = nullptr) : m_node(node), m_next(next)
+        Use(GenTreeLclUse* node, Use* next = nullptr) : m_node(node), m_next(next)
         {
         }
 
@@ -3457,12 +3457,12 @@ struct GenTreeSsaPhi final : public GenTree
             return m_node;
         }
 
-        GenTreeSsaUse* GetNode() const
+        GenTreeLclUse* GetNode() const
         {
-            return m_node->AsSsaUse();
+            return m_node->AsLclUse();
         }
 
-        void SetNode(GenTreeSsaUse* node)
+        void SetNode(GenTreeLclUse* node)
         {
             m_node = node;
         }
@@ -3536,7 +3536,7 @@ struct GenTreeSsaPhi final : public GenTree
 
     Use* m_uses;
 
-    GenTreeSsaPhi(var_types type) : GenTree(GT_SSA_PHI, type), m_uses(nullptr)
+    GenTreePhi(var_types type) : GenTree(GT_PHI, type), m_uses(nullptr)
     {
     }
 
@@ -3545,10 +3545,10 @@ struct GenTreeSsaPhi final : public GenTree
         return UseList(m_uses);
     }
 
-    static bool Equals(GenTreeSsaPhi* phi1, GenTreeSsaPhi* phi2);
+    static bool Equals(GenTreePhi* phi1, GenTreePhi* phi2);
 
 #if DEBUGGABLE_GENTREE
-    GenTreeSsaPhi() = default;
+    GenTreePhi() = default;
 #endif
 };
 

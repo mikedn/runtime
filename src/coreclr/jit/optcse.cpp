@@ -2221,14 +2221,14 @@ public:
 
         JITDUMP("\n");
 
-        GenTreeSsaDef* singleDef = nullptr;
+        GenTreeLclDef* singleDef = nullptr;
 
         if (singleDefOccurence != nullptr)
         {
             lcl->m_isSsa    = true;
             unsigned ssaNum = lcl->AllocSsaNum(compiler->getAllocator(CMK_SSA));
-            singleDef       = new (compiler, GT_SSA_DEF)
-                GenTreeSsaDef(singleDefOccurence->expr, singleDefOccurence->block, lclNum, ssaNum);
+            singleDef       = new (compiler, GT_LCL_DEF)
+                GenTreeLclDef(singleDefOccurence->expr, singleDefOccurence->block, lclNum, ssaNum);
         }
 
         for (const Occurrence* occ = &value->firstOccurrence; occ != nullptr; occ = occ->next)
@@ -2260,7 +2260,7 @@ public:
 
             if (singleDef != nullptr)
             {
-                newExpr = new (compiler, GT_SSA_USE) GenTreeSsaUse(singleDef, block);
+                newExpr = new (compiler, GT_LCL_USE) GenTreeLclUse(singleDef, block);
                 newExpr->SetType(lclType);
             }
             else

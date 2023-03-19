@@ -34,7 +34,7 @@ class EarlyProp
 {
     static const int SsaChaseLimit = 5;
 
-    typedef JitHashTable<GenTreeSsaDef*, JitPtrKeyFuncs<GenTreeSsaDef>, GenTreeIndir*> DefNullCheckMap;
+    typedef JitHashTable<GenTreeLclDef*, JitPtrKeyFuncs<GenTreeLclDef>, GenTreeIndir*> DefNullCheckMap;
 
     Compiler*       compiler;
     BasicBlock*     currentBlock;
@@ -134,7 +134,7 @@ private:
 
     GenTree* PropagateArrayLength(GenTreeArrLen* arrLen)
     {
-        GenTreeSsaUse* array = arrLen->GetArray()->IsSsaUse();
+        GenTreeLclUse* array = arrLen->GetArray()->IsLclUse();
 
         if (array == nullptr)
         {
@@ -224,7 +224,7 @@ private:
         return arrLen;
     }
 
-    GenTree* GetArrayLength(GenTreeSsaUse* use)
+    GenTree* GetArrayLength(GenTreeLclUse* use)
     {
         GenTree* value = GetSsaValue(use);
         return value->IsHelperCall() ? GetArrayLengthFromNewHelperCall(value->AsCall()) : nullptr;
@@ -257,18 +257,18 @@ private:
         return arrayLength;
     }
 
-    static GenTree* GetSsaValue(GenTreeSsaUse* use)
+    static GenTree* GetSsaValue(GenTreeLclUse* use)
     {
         for (unsigned i = 0; i < SsaChaseLimit; i++)
         {
             GenTree* value = use->GetDef()->GetValue();
 
-            if (!value->IsSsaUse())
+            if (!value->IsLclUse())
             {
                 return value;
             }
 
-            use = value->AsSsaUse();
+            use = value->AsLclUse();
         }
 
         return use;
@@ -286,7 +286,7 @@ private:
         {
             JITDUMPTREE(nullCheck, "FoldNullCheck marking a NULLCHECK for removal\n");
 
-            if (GenTreeSsaUse* use = nullCheck->GetAddr()->IsSsaUse())
+            if (GenTreeLclUse* use = nullCheck->GetAddr()->IsLclUse())
             {
                 nullCheckMap.Remove(use->GetDef());
             }
@@ -325,9 +325,9 @@ private:
             compiler->fgSetStmtSeq(nullCheckStmt);
         }
 
-        if (indir->OperIs(GT_NULLCHECK) && indir->AsIndir()->GetAddr()->IsSsaUse())
+        if (indir->OperIs(GT_NULLCHECK) && indir->AsIndir()->GetAddr()->IsLclUse())
         {
-            nullCheckMap.Set(indir->AsIndir()->GetAddr()->AsSsaUse()->GetDef(), indir->AsIndir(),
+            nullCheckMap.Set(indir->AsIndir()->GetAddr()->AsLclUse()->GetDef(), indir->AsIndir(),
                              DefNullCheckMap::SetKind::Overwrite);
         }
     }
@@ -344,14 +344,14 @@ private:
             addr = addr->AsOp()->GetOp(0);
         }
 
-        GenTreeSsaUse* addrUse = addr->IsSsaUse();
+        GenTreeLclUse* addrUse = addr->IsLclUse();
 
         if (addrUse == nullptr)
         {
             return nullptr;
         }
 
-        GenTreeSsaDef* addrDef   = addrUse->GetDef();
+        GenTreeLclDef* addrDef   = addrUse->GetDef();
         GenTreeIndir*  nullCheck = nullptr;
 
         if (!nullCheckMap.Lookup(addrDef, &nullCheck))
@@ -399,9 +399,9 @@ private:
                     return nullptr;
                 }
             }
-            else if (GenTreeSsaUse* use = nullCheckAddr->IsSsaUse())
+            else if (GenTreeLclUse* use = nullCheckAddr->IsLclUse())
             {
-                if (!addBase->IsSsaUse() || (addBase->AsSsaUse()->GetDef() != use->GetDef()))
+                if (!addBase->IsLclUse() || (addBase->AsLclUse()->GetDef() != use->GetDef()))
                 {
                     return nullptr;
                 }
@@ -523,7 +523,7 @@ private:
             }
         }
 
-        if (GenTreeSsaDef* def = node->IsSsaDef())
+        if (GenTreeLclDef* def = node->IsLclDef())
         {
             if (isInsideTry)
             {
@@ -578,7 +578,7 @@ private:
             }
         }
 
-        if (GenTreeSsaDef* def = node->IsSsaDef())
+        if (GenTreeLclDef* def = node->IsLclDef())
         {
             if ((def->GetValue()->gtFlags & GTF_ASG) != 0)
             {

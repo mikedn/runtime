@@ -41,7 +41,7 @@ void SsaRenameState::EnsureStacks()
 //    the start of the first block must have associated SSA definitions and their SSA numbers
 //    must have been pushed first.
 //
-GenTreeSsaDef* SsaRenameState::Top(unsigned lclNum)
+GenTreeLclDef* SsaRenameState::Top(unsigned lclNum)
 {
     DBG_SSA_JITDUMP("[SsaRenameState::Top] V%02u\n", lclNum);
 
@@ -59,7 +59,7 @@ GenTreeSsaDef* SsaRenameState::Top(unsigned lclNum)
 //    lclNum - The local variable number
 //    ssaNum - The SSA number
 //
-void SsaRenameState::Push(BasicBlock* block, unsigned lclNum, GenTreeSsaDef* def)
+void SsaRenameState::Push(BasicBlock* block, unsigned lclNum, GenTreeLclDef* def)
 {
     DBG_SSA_JITDUMP("[SsaRenameState::Push] " FMT_BB ", V%02u, def = [%06u]\n", block->bbNum, lclNum, def->GetID());
 
@@ -96,7 +96,7 @@ void SsaRenameState::Push(Stack* stack, BasicBlock* block, unsigned ssaNum)
     INDEBUG(DumpStack(stack));
 }
 
-void SsaRenameState::Push(Stack* stack, BasicBlock* block, GenTreeSsaDef* def)
+void SsaRenameState::Push(Stack* stack, BasicBlock* block, GenTreeLclDef* def)
 {
     StackNode* top = stack->Top();
 

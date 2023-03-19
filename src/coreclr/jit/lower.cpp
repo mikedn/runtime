@@ -4864,9 +4864,9 @@ void Lowering::CheckNode(GenTree* node)
             assert(comp->lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
             break;
 
-        case GT_SSA_PHI:
-        case GT_SSA_USE:
-        case GT_SSA_DEF:
+        case GT_PHI:
+        case GT_LCL_USE:
+        case GT_LCL_DEF:
         case GT_INSERT:
         case GT_EXTRACT:
             assert(!"Should not see SSA nodes in lowering");

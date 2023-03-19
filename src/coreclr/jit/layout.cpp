@@ -605,8 +605,8 @@ ClassLayout* Compiler::typGetStructLayout(GenTree* node)
             return node->AsObj()->GetLayout();
         case GT_CALL:
             return node->AsCall()->GetRetLayout();
-        case GT_SSA_USE:
-            return lvaGetDesc(node->AsSsaUse()->GetDef()->GetLclNum())->GetLayout();
+        case GT_LCL_USE:
+            return lvaGetDesc(node->AsLclUse()->GetDef()->GetLclNum())->GetLayout();
         case GT_LCL_VAR:
             return lvaGetDesc(node->AsLclVar())->GetLayout();
         case GT_LCL_FLD:

@@ -537,7 +537,7 @@ void Rationalizer::Run()
             assert(statement->GetNodeList()->gtPrev == nullptr);
             assert(statement->GetRootNode() != nullptr);
             assert(statement->GetRootNode()->gtNext == nullptr);
-            assert(!statement->GetRootNode()->IsSsaPhiDef());
+            assert(!statement->GetRootNode()->IsPhiDef());
 
             IL_OFFSETX stmtILOffset = statement->GetILOffsetX();
 

@@ -23,8 +23,8 @@ GTNODE(STORE_LCL_VAR    , GenTreeLclVar      ,0,(GTK_UNOP|GTK_NOVALUE)) // store
 GTNODE(STORE_LCL_FLD    , GenTreeLclFld      ,0,(GTK_UNOP|GTK_NOVALUE)) // store to field in a non-primitive variable
 GTNODE(LCL_VAR          , GenTreeLclVar      ,0,GTK_LEAF)               // local variable
 GTNODE(LCL_FLD          , GenTreeLclFld      ,0,GTK_LEAF)               // field in a non-primitive variable
-GTNODE(SSA_DEF          , GenTreeSsaDef      ,0,GTK_UNOP)               // local variable SSA def
-GTNODE(SSA_USE          , GenTreeSsaUse      ,0,GTK_LEAF)               // local variable SSA use
+GTNODE(LCL_DEF          , GenTreeLclDef      ,0,GTK_UNOP)               // local variable SSA def
+GTNODE(LCL_USE          , GenTreeLclUse      ,0,GTK_LEAF)               // local variable SSA use
 GTNODE(LCL_ADDR         , GenTreeLclAddr     ,0,GTK_LEAF)               // address of a local variable
 GTNODE(CATCH_ARG        , GenTree            ,0,GTK_LEAF)               // Exception object in a catch block
 GTNODE(LABEL            , GenTree            ,0,GTK_LEAF)               // Jump-target
@@ -256,7 +256,7 @@ GTNODE(END_LFIN         , GenTreeVal         ,0,(GTK_LEAF|GTK_NOVALUE))   // end
 //  Nodes used for optimizations.
 //-----------------------------------------------------------------------------
 
-GTNODE(SSA_PHI          , GenTreeSsaPhi      ,0,GTK_SPECIAL)
+GTNODE(PHI              , GenTreePhi         ,0,GTK_SPECIAL)
 
 //-----------------------------------------------------------------------------
 //  Nodes used by Lower to generate a closer CPU representation of other nodes

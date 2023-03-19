@@ -3034,7 +3034,7 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
 
         if (argInfo->HasLateUse())
         {
-            assert(arg->OperIs(GT_ARGPLACE, GT_ASG, GT_SSA_DEF, GT_STORE_LCL_VAR) ||
+            assert(arg->OperIs(GT_ARGPLACE, GT_ASG, GT_LCL_DEF, GT_STORE_LCL_VAR) ||
                    (arg->OperIs(GT_COMMA) && arg->TypeIs(TYP_VOID)));
 
             argsSideEffects |= arg->gtFlags;
@@ -3096,7 +3096,7 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
         // temp arg copies? The struct arg morph code below doesn't handle that.
         GenTree* argVal = arg->SkipComma();
 
-        if (argVal->OperIs(GT_ASG, GT_FIELD_LIST, GT_ARGPLACE, GT_SSA_DEF, GT_STORE_LCL_VAR))
+        if (argVal->OperIs(GT_ASG, GT_FIELD_LIST, GT_ARGPLACE, GT_LCL_DEF, GT_STORE_LCL_VAR))
         {
             // Skip arguments that have already been transformed.
             argsSideEffects |= arg->gtFlags;
@@ -8082,7 +8082,7 @@ GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
     for (GenTreeCall::Use& use : call->Args())
     {
         GenTree* const arg = use.GetNode();
-        if (!arg->OperIs(GT_ASG, GT_SSA_DEF, GT_STORE_LCL_VAR))
+        if (!arg->OperIs(GT_ASG, GT_LCL_DEF, GT_STORE_LCL_VAR))
         {
             continue;
         }
@@ -9369,7 +9369,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         srcLclOffs = src->AsLclVarCommon()->GetLclOffs();
         srcLclVar  = lvaGetDesc(srcLclNum);
     }
-    else if (GenTreeSsaUse* use = src->IsSsaUse())
+    else if (GenTreeLclUse* use = src->IsLclUse())
     {
         srcLclNum = use->GetDef()->GetLclNum();
         srcLclVar = lvaGetDesc(srcLclNum);
@@ -9383,7 +9383,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         // During CSE we may see COMMA(..., LCL_VAR) but neither the CSE temp
         // nor the assignment destination are expected to be promoted so we
         // don't need to do anything, we'll just keep the struct copy as is.
-        assert(src->SkipComma()->IsSsaUse() || !lvaGetDesc(src->SkipComma()->AsLclVar())->IsPromoted());
+        assert(src->SkipComma()->IsLclUse() || !lvaGetDesc(src->SkipComma()->AsLclVar())->IsPromoted());
         assert((destLclVar == nullptr) || !destLclVar->IsIndependentPromoted());
     }
     else if (!src->OperIs(GT_OBJ))
@@ -11961,7 +11961,7 @@ DONE_MORPHING_CHILDREN:
 
         case GT_COMMA:
             // Special case: trees that don't produce a value
-            if (op2->OperIs(GT_ASG, GT_SSA_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
+            if (op2->OperIs(GT_ASG, GT_LCL_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
                 (op2->OperIs(GT_COMMA) && op2->TypeIs(TYP_VOID)) || fgIsThrow(op2))
             {
                 tree->SetType(TYP_VOID);
@@ -12053,7 +12053,7 @@ DONE_MORPHING_CHILDREN:
     // tree will always throw an exception.
     // TODO-MIKE-Review: Why bother do anything here to begin with? Can't we just set
     // fgRemoveRestOfBlock and have fgMorphTree callers deal with it?
-    if ((oper != GT_ASG) && (oper != GT_SSA_DEF) && (oper != GT_STORE_LCL_VAR))
+    if ((oper != GT_ASG) && (oper != GT_LCL_DEF) && (oper != GT_STORE_LCL_VAR))
     {
         /* Check for op1 as a GT_COMMA with a unconditional throw node */
         if (op1 && fgIsCommaThrow(op1, true))
@@ -13463,9 +13463,9 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
-        case GT_SSA_PHI:
+        case GT_PHI:
             tree->gtFlags &= ~GTF_ALL_EFFECT;
-            for (GenTreeSsaPhi::Use& use : tree->AsSsaPhi()->Uses())
+            for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
             {
                 use.SetNode(use.GetNode());
                 tree->gtFlags |= use.GetNode()->gtFlags & GTF_ALL_EFFECT;
