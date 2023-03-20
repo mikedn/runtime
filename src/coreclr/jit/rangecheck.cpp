@@ -285,7 +285,7 @@ class RangeCheck
 
     using OverflowMap = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, bool>;
     using RangeMap    = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, Range>;
-    using SearchPath  = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, BasicBlock*>;
+    using SearchPath  = JitHashSet<GenTree*, JitPtrKeyFuncs<GenTree>>;
 
     ValueNumStore* vnStore;
     OverflowMap    overflowMap;
@@ -520,7 +520,7 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
 
     rangeMap.RemoveAll();
     overflowMap.RemoveAll();
-    searchPath.RemoveAll();
+    searchPath.Clear();
 
     Range range = GetRange(block, indexExpr, false);
 
@@ -540,7 +540,7 @@ void RangeCheck::Widen(BasicBlock* block, GenTree* expr, Range* range)
 
     if (range->lower.IsDependent() || range->lower.IsUnknown())
     {
-        searchPath.RemoveAll();
+        searchPath.Clear();
 
         if (IsMonotonicallyIncreasing(expr, false))
         {
@@ -590,7 +590,7 @@ bool RangeCheck::IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeCon
     JITDUMP("MonotonicallyIncreasing: ");
     DBEXEC(compiler->verbose, compiler->gtDispTree(expr, nullptr, nullptr, true));
 
-    if (searchPath.Set(expr, nullptr, SearchPath::Overwrite))
+    if (!searchPath.Add(expr))
     {
         return true;
     }
@@ -630,7 +630,7 @@ bool RangeCheck::IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeCon
     {
         for (GenTreePhi::Use& use : phi->Uses())
         {
-            if (searchPath.Lookup(use.GetNode()))
+            if (searchPath.Contains(use.GetNode()))
             {
                 continue;
             }
@@ -693,12 +693,12 @@ bool RangeCheck::ComputeAddOverflow(BasicBlock* block, GenTreeOp* expr)
     GenTree* op1 = expr->GetOp(0);
     GenTree* op2 = expr->GetOp(1);
 
-    if (!searchPath.Lookup(op1) && DoesOverflow(block, op1))
+    if (!searchPath.Contains(op1) && DoesOverflow(block, op1))
     {
         return true;
     }
 
-    if (!searchPath.Lookup(op2) && DoesOverflow(block, op2))
+    if (!searchPath.Contains(op2) && DoesOverflow(block, op2))
     {
         return true;
     }
@@ -728,7 +728,7 @@ bool RangeCheck::ComputePhiOverflow(BasicBlock* block, GenTreePhi* phi)
     {
         GenTree* arg = use.GetNode();
 
-        if (searchPath.Lookup(arg))
+        if (searchPath.Contains(arg))
         {
             continue;
         }
@@ -747,7 +747,7 @@ bool RangeCheck::ComputeOverflow(BasicBlock* block, GenTree* expr)
     JITDUMP("Overflow: " FMT_BB " ", block->bbNum);
     DBEXEC(compiler->verbose, compiler->gtDispTree(expr, nullptr, nullptr, true));
 
-    searchPath.Set(expr, block, SearchPath::Overwrite);
+    searchPath.Add(expr);
     bool overflows = true;
 
     if (searchPath.GetCount() > MaxSearchDepth)
@@ -1182,7 +1182,7 @@ Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool mon
 
     if (op1RangeCached == nullptr)
     {
-        if (searchPath.Lookup(op1))
+        if (searchPath.Contains(op1))
         {
             op1Range = Range(Limit::Kind::Dependent);
         }
@@ -1206,7 +1206,7 @@ Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool mon
 
     if (op2RangeCached == nullptr)
     {
-        if (searchPath.Lookup(op2))
+        if (searchPath.Contains(op2))
         {
             op2Range = Range(Limit::Kind::Dependent);
         }
@@ -1235,7 +1235,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
     JITDUMP("Range: " FMT_BB " ", block->bbNum);
     DBEXEC(compiler->verbose, compiler->gtDispTree(expr, nullptr, nullptr, true));
 
-    if (!searchPath.Set(expr, block, SearchPath::Overwrite))
+    if (searchPath.Add(expr))
     {
         noway_assert(!rangeMap.Lookup(expr));
         budget--;
@@ -1286,7 +1286,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
         {
             Range useRange;
 
-            if (searchPath.Lookup(use.GetNode()))
+            if (searchPath.Contains(use.GetNode()))
             {
                 JITDUMP("Range: " FMT_BB " ", block->bbNum);
                 DBEXEC(compiler->verbose, compiler->gtDispTree(use.GetNode(), nullptr, nullptr, true));
