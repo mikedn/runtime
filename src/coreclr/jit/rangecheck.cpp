@@ -287,14 +287,14 @@ class RangeCheck
     using RangeMap    = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, Range*>;
     using SearchPath  = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, BasicBlock*>;
 
-    ValueNumStore*    vnStore;
-    OverflowMap       overflowMap;
-    RangeMap          rangeMap;
-    SearchPath        searchPath;
-    Compiler*         compiler;
-    CompAllocator     alloc;
-    GenTreeBoundsChk* currentBoundsChk = nullptr;
-    int               budget           = MaxVisitBudget;
+    ValueNumStore* vnStore;
+    OverflowMap    overflowMap;
+    RangeMap       rangeMap;
+    SearchPath     searchPath;
+    Compiler*      compiler;
+    CompAllocator  alloc;
+    ValueNum       currentLengthVN = NoVN;
+    int            budget          = MaxVisitBudget;
 
 public:
     RangeCheck(Compiler* compiler)
@@ -465,7 +465,7 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
     ValueNum lengthVN   = vnStore->VNNormalValue(lengthExpr->GetConservativeVN());
     int      lengthVal  = 0;
 
-    currentBoundsChk = boundsChk;
+    currentLengthVN = lengthVN;
 
     if (vnStore->IsVNConstant(lengthVN))
     {
@@ -951,14 +951,14 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             }
         }
 
-        ValueNum arrLenVN = vnStore->VNNormalValue(currentBoundsChk->GetLength()->GetConservativeVN());
+        ValueNum lengthVN = currentLengthVN;
 
-        if (vnStore->IsVNConstant(arrLenVN))
+        if (vnStore->IsVNConstant(lengthVN))
         {
             // Set lengthVN to NoVN; this will make it match the "vn" recorded on
             // constant limits (where we explicitly track the constant and don't
             // redundantly store its VN in the "vn" field).
-            arrLenVN = NoVN;
+            lengthVN = NoVN;
         }
 
         // During assertion prop we add assertions of the form:
@@ -997,13 +997,13 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
         }
 
         // Doesn't tighten the current bound. So skip.
-        if (range->upper.IsConstant() && (limit.GetVN() != arrLenVN))
+        if (range->upper.IsConstant() && (limit.GetVN() != lengthVN))
         {
             continue;
         }
 
         // Check if the incoming limit from assertions tightens the existing upper limit.
-        if (range->upper.IsVN() && (range->upper.GetVN() == arrLenVN))
+        if (range->upper.IsVN() && (range->upper.GetVN() == lengthVN))
         {
             // We have checked the current range's (pRange's) upper limit is either of the form:
             //      length + cns
@@ -1013,9 +1013,9 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             // we need to make sure that incoming limit is also on the same length (or
             // length + cns) and not some other length.
 
-            if (limit.GetVN() != arrLenVN)
+            if (limit.GetVN() != lengthVN)
             {
-                JITDUMP("Assertion: Length VN did not match arrLen=" FMT_VN ", limit=" FMT_VN "\n", arrLenVN,
+                JITDUMP("Assertion: Length VNs did not match: length " FMT_VN ", limit " FMT_VN "\n", lengthVN,
                         limit.GetVN());
 
                 continue;
