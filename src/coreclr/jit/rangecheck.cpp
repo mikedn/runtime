@@ -284,7 +284,7 @@ class RangeCheck
     static constexpr int MaxArrayLength = 0x7FFFFFFF;
 
     using OverflowMap = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, bool>;
-    using RangeMap    = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, Range*>;
+    using RangeMap    = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, Range>;
     using SearchPath  = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, BasicBlock*>;
 
     ValueNumStore* vnStore;
@@ -703,23 +703,23 @@ bool RangeCheck::ComputeAddOverflow(BasicBlock* block, GenTreeOp* expr)
         return true;
     }
 
-    Range* op1Range = nullptr;
+    const Range* r1 = rangeMap.LookupPointer(op1);
 
-    if (!rangeMap.Lookup(op1, &op1Range))
+    if (r1 == nullptr)
     {
         return true;
     }
 
-    Range* op2Range = nullptr;
+    const Range* r2 = rangeMap.LookupPointer(op2);
 
-    if (!rangeMap.Lookup(op2, &op2Range))
+    if (r2 == nullptr)
     {
         return true;
     }
 
-    JITDUMP("Overflow: Add %s %s\n", ToString(*op1Range), ToString(*op2Range));
+    JITDUMP("Overflow: Add %s %s\n", ToString(*r1), ToString(*r2));
 
-    return AddOverflows(op1Range->upper, op2Range->upper);
+    return AddOverflows(r1->upper, r2->upper);
 }
 
 bool RangeCheck::ComputePhiOverflow(BasicBlock* block, GenTreePhi* phi)
@@ -1177,10 +1177,10 @@ Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool mon
 
     assert(expr->OperIs(GT_ADD));
 
-    Range* op1RangeCached = nullptr;
-    Range  op1Range;
+    const Range* op1RangeCached = rangeMap.LookupPointer(op1);
+    Range        op1Range;
 
-    if (!rangeMap.Lookup(op1, &op1RangeCached))
+    if (op1RangeCached == nullptr)
     {
         if (searchPath.Lookup(op1))
         {
@@ -1201,10 +1201,10 @@ Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool mon
         op1Range = *op1RangeCached;
     }
 
-    Range* op2RangeCached;
-    Range  op2Range;
+    const Range* op2RangeCached = rangeMap.LookupPointer(op2);
+    Range        op2Range;
 
-    if (!rangeMap.Lookup(op2, &op2RangeCached))
+    if (op2RangeCached == nullptr)
     {
         if (searchPath.Lookup(op2))
         {
@@ -1330,7 +1330,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
         }
     }
 
-    rangeMap.Set(expr, new (alloc) Range(range), RangeMap::Overwrite);
+    rangeMap.Set(expr, range, RangeMap::Overwrite);
     searchPath.Remove(expr);
 
     JITDUMP("Range: " FMT_BB " [%06u] = %s\n", block->bbNum, expr->GetID(), ToString(range));
@@ -1340,24 +1340,16 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
 
 Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing)
 {
-    Range  range;
-    Range* cachedRange = nullptr;
-
-    if (rangeMap.Lookup(expr, &cachedRange))
+    if (const Range* cachedRange = rangeMap.LookupPointer(expr))
     {
         JITDUMP("Range: " FMT_BB " ", block->bbNum);
         DBEXEC(compiler->verbose, compiler->gtDispTree(expr, nullptr, nullptr, true));
+        JITDUMP("Range: Cached %s\n", ToString(*cachedRange));
 
-        range = *cachedRange;
-
-        JITDUMP("Range: Cached %s\n", ToString(range));
-    }
-    else
-    {
-        range = ComputeRange(block, expr, monotonicallyIncreasing);
+        return *cachedRange;
     }
 
-    return range;
+    return ComputeRange(block, expr, monotonicallyIncreasing);
 }
 
 void RangeCheck::OptimizeRangeChecks()
