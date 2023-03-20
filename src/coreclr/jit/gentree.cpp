@@ -7872,9 +7872,9 @@ void Compiler::dmpSsaDefUse(GenTree* node, IndentStack* indentStack)
     printf("%s#%u", prefix, ssaNum);
     prefix = ", ";
 
-    if ((use != nullptr) && (use->GetBlock() != nullptr))
+    if (BasicBlock* block = (use != nullptr) ? use->GetBlock() : def->GetBlock())
     {
-        printf("%s" FMT_BB, prefix, use->GetBlock()->bbNum);
+        printf("%s" FMT_BB, prefix, block->bbNum);
     }
 
     if (lcl->lvDoNotEnregister)
