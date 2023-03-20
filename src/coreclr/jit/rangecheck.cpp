@@ -529,7 +529,10 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
         return false;
     }
 
-    Widen(block, indexExpr, &range);
+    if (range.lower.IsDependent())
+    {
+        Widen(block, indexExpr, &range);
+    }
 
     return !range.upper.IsUnknown() && !range.lower.IsUnknown() && IsInBounds(range, lengthExpr, lengthVal);
 }
@@ -538,17 +541,14 @@ void RangeCheck::Widen(BasicBlock* block, GenTree* expr, Range* range)
 {
     JITDUMP("Widen: " FMT_BB " [%06u] %s\n", block->bbNum, expr->GetID(), ToString(*range));
 
-    if (range->lower.IsDependent() || range->lower.IsUnknown())
+    searchPath.Clear();
+
+    if (IsMonotonicallyIncreasing(expr, false))
     {
-        searchPath.Clear();
+        JITDUMP("Widen: " FMT_BB " [%06u] is monotonically increasing.\n", block->bbNum, expr->GetID());
 
-        if (IsMonotonicallyIncreasing(expr, false))
-        {
-            JITDUMP("Widen: " FMT_BB " [%06u] is monotonically increasing.\n", block->bbNum, expr->GetID());
-
-            rangeMap.RemoveAll();
-            *range = GetRange(block, expr, true);
-        }
+        rangeMap.RemoveAll();
+        *range = GetRange(block, expr, true);
     }
 }
 
