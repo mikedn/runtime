@@ -1085,7 +1085,7 @@ void RangeCheck::MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Ra
 {
     ASSERT_TP assertions = block->bbAssertionIn;
 
-    if ((compiler->GetAssertionCount() != 0) && !BitVecOps::MayBeUninit(assertions))
+    if (!BitVecOps::MayBeUninit(assertions))
     {
         GenTreeLclDef* def     = use->GetDef();
         ValueNum       valueVN = vnStore->VNNormalValue(def->GetConservativeVN());
@@ -1105,7 +1105,7 @@ Range RangeCheck::ComputeLclDefRange(BasicBlock* block, GenTreeLclDef* def, bool
     Range     range      = GetRange(def->GetBlock(), def->GetValue(), monotonicallyIncreasing);
     ASSERT_TP assertions = block->bbAssertionIn;
 
-    if ((compiler->GetAssertionCount() != 0) && !BitVecOps::MayBeUninit(assertions))
+    if (!BitVecOps::MayBeUninit(assertions))
     {
         ValueNum valueVN = vnStore->VNNormalValue(def->GetValue()->GetConservativeVN());
 
