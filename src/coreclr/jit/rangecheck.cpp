@@ -301,7 +301,7 @@ private:
     bool IsInBounds(const Range& range, GenTree* lengthExpr, int lengthVal);
     Range GetRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing);
     Range ComputeRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing);
-    Range ComputeLclDefRange(BasicBlock* block, GenTreeLclDef* def, bool monotonicallyIncreasing);
+    Range ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use, bool monotonicallyIncreasing);
     Range ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool monotonicallyIncreasing);
     void MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
     void MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
@@ -1083,12 +1083,12 @@ void RangeCheck::MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Ra
 
 void RangeCheck::MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range)
 {
-    ASSERT_TP assertions = block->bbAssertionIn;
+    GenTreeLclDef* def        = use->GetDef();
+    ASSERT_TP      assertions = block->bbAssertionIn;
 
     if (!BitVecOps::MayBeUninit(assertions))
     {
-        GenTreeLclDef* def     = use->GetDef();
-        ValueNum       valueVN = vnStore->VNNormalValue(def->GetConservativeVN());
+        ValueNum valueVN = vnStore->VNNormalValue(def->GetConservativeVN());
 
         JITDUMP("Range: Merging assertions for def [%06u] " FMT_VN " from predecessors of " FMT_BB "\n", def->GetID(),
                 valueVN, block->bbNum);
@@ -1097,24 +1097,15 @@ void RangeCheck::MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Ra
     }
 }
 
-Range RangeCheck::ComputeLclDefRange(BasicBlock* block, GenTreeLclDef* def, bool monotonicallyIncreasing)
+Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use, bool monotonicallyIncreasing)
 {
+    GenTreeLclDef* def = use->GetDef();
+
     JITDUMP("Range: " FMT_BB " ", block->bbNum);
     DBEXEC(compiler->verbose, compiler->gtDispTree(def, nullptr, nullptr, true));
 
-    Range     range      = GetRange(def->GetBlock(), def->GetValue(), monotonicallyIncreasing);
-    ASSERT_TP assertions = block->bbAssertionIn;
-
-    if (!BitVecOps::MayBeUninit(assertions))
-    {
-        ValueNum valueVN = vnStore->VNNormalValue(def->GetValue()->GetConservativeVN());
-
-        JITDUMP("Range: Merging assertions for def [%06u] " FMT_VN " from predecessors of " FMT_BB "\n", def->GetID(),
-                valueVN, block->bbNum);
-
-        MergeEdgeAssertions(valueVN, assertions, &range);
-    }
-
+    Range range = GetRange(def->GetBlock(), def->GetValue(), monotonicallyIncreasing);
+    MergeLclUseAssertions(block, use, &range);
     return range;
 }
 
@@ -1263,8 +1254,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
     }
     else if (GenTreeLclUse* use = expr->IsLclUse())
     {
-        range = ComputeLclDefRange(block, use->GetDef(), monotonicallyIncreasing);
-        MergeLclUseAssertions(block, use, &range);
+        range = ComputeLclUseRange(block, use, monotonicallyIncreasing);
     }
     else if (GenTreePhi* phi = expr->IsPhi())
     {
