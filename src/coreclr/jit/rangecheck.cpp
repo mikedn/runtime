@@ -1162,15 +1162,15 @@ Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool mon
         if (searchPath.Contains(op1))
         {
             op1Range = Range(Limit::Kind::Dependent);
+
+            if (GenTreeLclUse* use = op1->IsLclUse())
+            {
+                MergeLclUseAssertions(block, use, &op1Range);
+            }
         }
         else
         {
             op1Range = GetRange(block, op1, monotonicallyIncreasing);
-        }
-
-        if (GenTreeLclUse* use = op1->IsLclUse())
-        {
-            MergeLclUseAssertions(block, use, &op1Range);
         }
     }
     else
@@ -1186,15 +1186,15 @@ Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool mon
         if (searchPath.Contains(op2))
         {
             op2Range = Range(Limit::Kind::Dependent);
+
+            if (GenTreeLclUse* use = op2->IsLclUse())
+            {
+                MergeLclUseAssertions(block, use, &op2Range);
+            }
         }
         else
         {
             op2Range = GetRange(block, op2, monotonicallyIncreasing);
-        }
-
-        if (GenTreeLclUse* use = op2->IsLclUse())
-        {
-            MergeLclUseAssertions(block, use, &op2Range);
         }
     }
     else
