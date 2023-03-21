@@ -141,39 +141,41 @@ struct Range
 
 static Range Add(const Range& r1, const Range& r2)
 {
-    const Limit& lo1 = r1.lower;
-    const Limit& up1 = r1.upper;
-    const Limit& lo2 = r2.lower;
-    const Limit& up2 = r2.upper;
-
     Range result = Limit::Kind::Unknown;
 
-    if ((lo1.IsDependent() && !lo1.IsUnknown()) || (lo2.IsDependent() && !lo2.IsUnknown()))
+    const Limit& lo1 = r1.lower;
+    const Limit& lo2 = r2.lower;
+
+    // TODO-MIKE-Review: This is dubious. Old code had lo1.IsDependent() && !lo1.IsUnknown(),
+    // with the Unknown check being obviously pointless. But was that just bogus code or was
+    // it actually broken and needs to be lo1.IsDependent() && !lo2.IsUnknown()? It would
+    // make sense for Unknown to act as "bottom"...
+
+    if (lo1.IsDependent() || lo2.IsDependent())
     {
         result.lower = Limit::Kind::Dependent;
     }
-
-    if ((up1.IsDependent() && !up1.IsUnknown()) || (up2.IsDependent() && !up2.IsUnknown()))
-    {
-        result.upper = Limit::Kind::Dependent;
-    }
-
-    if (lo1.IsConstant())
+    else if (lo1.IsConstant())
     {
         result.lower = lo2 + lo1.GetConstant();
     }
-
-    if (lo2.IsConstant())
+    else if (lo2.IsConstant())
     {
         result.lower = lo1 + lo2.GetConstant();
     }
 
-    if (up1.IsConstant())
+    const Limit& up1 = r1.upper;
+    const Limit& up2 = r2.upper;
+
+    if (up1.IsDependent() || up2.IsDependent())
+    {
+        result.upper = Limit::Kind::Dependent;
+    }
+    else if (up1.IsConstant())
     {
         result.upper = up2 + up1.GetConstant();
     }
-
-    if (up2.IsConstant())
+    else if (up2.IsConstant())
     {
         result.upper = up1 + up2.GetConstant();
     }
@@ -183,88 +185,74 @@ static Range Add(const Range& r1, const Range& r2)
 
 static Range Merge(const Range& r1, const Range& r2, bool monotonicallyIncreasing)
 {
-    const Limit& lo1 = r1.lower;
-    const Limit& up1 = r1.upper;
-    const Limit& lo2 = r2.lower;
-    const Limit& up2 = r2.upper;
-
     Range result = Limit::Kind::Unknown;
 
-    if (lo1.IsUnknown() || lo2.IsUnknown())
+    const Limit& lo1 = r1.lower;
+    const Limit& lo2 = r2.lower;
+
+    if (!lo1.IsUnknown() && !lo2.IsUnknown())
     {
-        result.lower = Limit::Kind::Unknown;
-    }
-    else if (lo1.IsUndef())
-    {
-        result.lower = lo2;
-    }
-    else if (lo1.IsDependent() || lo2.IsDependent())
-    {
-        if (monotonicallyIncreasing)
+        if (lo1.IsUndef())
         {
-            result.lower = lo1.IsDependent() ? lo2 : lo1;
+            result.lower = lo2;
         }
-        else
+        else if (lo1.IsDependent() || lo2.IsDependent())
         {
-            result.lower = Limit::Kind::Dependent;
+            if (monotonicallyIncreasing)
+            {
+                result.lower = lo1.IsDependent() ? lo2 : lo1;
+            }
+            else
+            {
+                result.lower = Limit::Kind::Dependent;
+            }
+        }
+        else if (lo1.IsConstant() && lo2.IsConstant())
+        {
+            result.lower = Limit(Min(lo1.GetConstant(), lo2.GetConstant()));
+        }
+        else if (lo1 == lo2)
+        {
+            result.lower = lo1;
         }
     }
 
-    if (up1.IsUnknown() || up2.IsUnknown())
-    {
-        result.upper = Limit::Kind::Unknown;
-    }
-    else if (up1.IsUndef())
-    {
-        result.upper = up2;
-    }
-    else if (up1.IsDependent() || up2.IsDependent())
-    {
-        result.upper = Limit::Kind::Dependent;
-    }
+    const Limit& up1 = r1.upper;
+    const Limit& up2 = r2.upper;
 
-    if (lo1.IsConstant() && lo2.IsConstant())
+    if (!up1.IsUnknown() && !up2.IsUnknown())
     {
-        result.lower = Limit(Min(lo1.GetConstant(), lo2.GetConstant()));
-    }
-
-    if (up1.IsConstant() && up2.IsConstant())
-    {
-        result.upper = Limit(Max(up1.GetConstant(), up2.GetConstant()));
-    }
-
-    if (up2 == up1)
-    {
-        result.upper = up2;
-    }
-
-    if (lo2 == lo1)
-    {
-        result.lower = lo1;
-    }
-
-    // Widen Upper Limit => Max(k, (a.len + n)) yields (a.len + n),
-    // This is correct if k >= 0 and n >= k, since a.len always >= 0
-    // (a.len + n) could overflow, but the result (a.len + n) also
-    // preserves the overflow.
-    if (up1.IsConstant() && up1.GetConstant() >= 0 && up2.IsVN() && up2.GetConstant() >= up1.GetConstant())
-    {
-        result.upper = up2;
-    }
-
-    if (up2.IsConstant() && up2.GetConstant() >= 0 && up1.IsVN() && up1.GetConstant() >= up2.GetConstant())
-    {
-        result.upper = up1;
-    }
-
-    if (up1.IsVN() && up2.IsVN() && up1.GetVN() == up2.GetVN())
-    {
-        result.upper = up1;
-
-        // Widen the upper bound if the other constant is greater.
-        if (up2.GetConstant() > up1.GetConstant())
+        if (up1.IsUndef())
         {
             result.upper = up2;
+        }
+        else if (up1.IsDependent() || up2.IsDependent())
+        {
+            result.upper = Limit::Kind::Dependent;
+        }
+        else if (up1.IsConstant() && up2.IsConstant())
+        {
+            result.upper = Limit(Max(up1.GetConstant(), up2.GetConstant()));
+        }
+        else if (up1 == up2)
+        {
+            result.upper = up1;
+        }
+        // Widen Upper Limit => Max(k, (a.len + n)) yields (a.len + n),
+        // This is correct if k >= 0 and n >= k, since a.len always >= 0
+        // (a.len + n) could overflow, but the result (a.len + n) also
+        // preserves the overflow.
+        else if (up1.IsConstant() && up2.IsVN() && (up1.GetConstant() >= 0) && (up1.GetConstant() <= up2.GetConstant()))
+        {
+            result.upper = up2;
+        }
+        else if (up1.IsVN() && up2.IsConstant() && (up2.GetConstant() >= 0) && (up1.GetConstant() >= up2.GetConstant()))
+        {
+            result.upper = up1;
+        }
+        else if (up1.IsVN() && up2.IsVN() && (up1.GetVN() == up2.GetVN()))
+        {
+            result.upper = up2.GetConstant() > up1.GetConstant() ? up2 : up1;
         }
     }
 
