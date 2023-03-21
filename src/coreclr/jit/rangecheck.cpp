@@ -301,10 +301,10 @@ private:
     bool IsInBounds(const Range& range, GenTree* lengthExpr, int lengthVal);
     Range GetRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing);
     Range ComputeRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing);
-    Range ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use, bool monotonicallyIncreasing);
+    Range ComputeLclDefRange(BasicBlock* block, GenTreeLclDef* def, bool monotonicallyIncreasing);
     Range ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool monotonicallyIncreasing);
-    void MergePhiArgAssertion(BasicBlock* block, GenTreeLclUse* use, Range* range);
-    void MergeLclUseAssertion(BasicBlock* block, GenTreeLclUse* use, Range* range);
+    void MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
+    void MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
     void MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Range* range);
     int GetArrayLength(ValueNum vn);
     bool GetLimitMax(const Limit& limit, int* max);
@@ -1051,7 +1051,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
     }
 }
 
-void RangeCheck::MergePhiArgAssertion(BasicBlock* block, GenTreeLclUse* use, Range* range)
+void RangeCheck::MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range)
 {
     if (compiler->GetAssertionCount() == 0)
     {
@@ -1081,7 +1081,7 @@ void RangeCheck::MergePhiArgAssertion(BasicBlock* block, GenTreeLclUse* use, Ran
     }
 }
 
-void RangeCheck::MergeLclUseAssertion(BasicBlock* block, GenTreeLclUse* use, Range* range)
+void RangeCheck::MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range)
 {
     ASSERT_TP assertions = block->bbAssertionIn;
 
@@ -1097,10 +1097,8 @@ void RangeCheck::MergeLclUseAssertion(BasicBlock* block, GenTreeLclUse* use, Ran
     }
 }
 
-Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use, bool monotonicallyIncreasing)
+Range RangeCheck::ComputeLclDefRange(BasicBlock* block, GenTreeLclDef* def, bool monotonicallyIncreasing)
 {
-    GenTreeLclDef* def = use->GetDef();
-
     JITDUMP("Range: " FMT_BB " ", block->bbNum);
     DBEXEC(compiler->verbose, compiler->gtDispTree(def, nullptr, nullptr, true));
 
@@ -1181,7 +1179,7 @@ Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool mon
 
         if (GenTreeLclUse* use = op1->IsLclUse())
         {
-            MergeLclUseAssertion(block, use, &op1Range);
+            MergeLclUseAssertions(block, use, &op1Range);
         }
     }
     else
@@ -1205,7 +1203,7 @@ Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool mon
 
         if (GenTreeLclUse* use = op2->IsLclUse())
         {
-            MergeLclUseAssertion(block, use, &op2Range);
+            MergeLclUseAssertions(block, use, &op2Range);
         }
     }
     else
@@ -1265,8 +1263,8 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
     }
     else if (GenTreeLclUse* use = expr->IsLclUse())
     {
-        range = ComputeLclUseRange(block, use, monotonicallyIncreasing);
-        MergeLclUseAssertion(block, use, &range);
+        range = ComputeLclDefRange(block, use->GetDef(), monotonicallyIncreasing);
+        MergeLclUseAssertions(block, use, &range);
     }
     else if (GenTreePhi* phi = expr->IsPhi())
     {
@@ -1290,7 +1288,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
                 assert(!useRange.upper.IsUndef());
             }
 
-            MergePhiArgAssertion(block, use.GetNode(), &useRange);
+            MergePhiArgAssertions(block, use.GetNode(), &useRange);
 
             JITDUMP("Range: PHI(%s, %s)\n", ToString(range), ToString(useRange));
             range = Merge(range, useRange, monotonicallyIncreasing);
