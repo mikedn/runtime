@@ -1209,33 +1209,14 @@ Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool mon
 
 Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing)
 {
-    JITDUMP("Range: " FMT_BB " ", block->bbNum);
-    DBEXEC(compiler->verbose, compiler->gtDispTree(expr, nullptr, nullptr, true));
-
-    if (searchPath.Add(expr))
-    {
-        noway_assert(!rangeMap.Lookup(expr));
-        budget--;
-    }
-
     ValueNum vn = vnStore->VNNormalValue(expr->GetConservativeVN());
     Range    range;
 
-    if (budget <= 0)
-    {
-        range = Range(Limit::Kind::Unknown);
-        JITDUMP("Range: Budget exceeded\n");
-    }
-    else if (searchPath.GetCount() > MaxSearchDepth)
-    {
-        range = Range(Limit::Kind::Unknown);
-        JITDUMP("Range: Depth exceeded\n");
-    }
     // TODO-CQ: The current implementation is reliant on integer storage types
     // for constants. It could use INT64. Still, representing ULONG constants
     // might require preserving the var_type whether it is a un/signed 64-bit.
     // JIT64 doesn't do anything for "long" either. No asm diffs.
-    else if (expr->TypeIs(TYP_LONG, TYP_ULONG))
+    if (expr->TypeIs(TYP_LONG, TYP_ULONG))
     {
         range = Range(Limit::Kind::Unknown);
         JITDUMP("Range: LONG expressions not supported\n");
@@ -1306,26 +1287,46 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
         }
     }
 
+    return range;
+}
+
+Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing)
+{
+    JITDUMP("Range: " FMT_BB " ", block->bbNum);
+    DBEXEC(compiler->verbose, compiler->gtDispTree(expr, nullptr, nullptr, true));
+
+    if (const Range* cachedRange = rangeMap.LookupPointer(expr))
+    {
+        JITDUMP("Range: Cached %s\n", ToString(*cachedRange));
+
+        return *cachedRange;
+    }
+
+    if (searchPath.Add(expr))
+    {
+        noway_assert(!rangeMap.Lookup(expr));
+        budget--;
+    }
+
+    Range range;
+
+    if ((budget <= 0) || (searchPath.GetCount() > MaxSearchDepth))
+    {
+        JITDUMP("Range: %s exceeded\n", budget <= 0 ? "Budget" : "Depth");
+
+        range = Range(Limit::Kind::Unknown);
+    }
+    else
+    {
+        range = ComputeRange(block, expr, monotonicallyIncreasing);
+    }
+
     rangeMap.Set(expr, range, RangeMap::Overwrite);
     searchPath.Remove(expr);
 
     JITDUMP("Range: " FMT_BB " [%06u] = %s\n", block->bbNum, expr->GetID(), ToString(range));
 
     return range;
-}
-
-Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing)
-{
-    if (const Range* cachedRange = rangeMap.LookupPointer(expr))
-    {
-        JITDUMP("Range: " FMT_BB " ", block->bbNum);
-        DBEXEC(compiler->verbose, compiler->gtDispTree(expr, nullptr, nullptr, true));
-        JITDUMP("Range: Cached %s\n", ToString(*cachedRange));
-
-        return *cachedRange;
-    }
-
-    return ComputeRange(block, expr, monotonicallyIncreasing);
 }
 
 void RangeCheck::OptimizeRangeChecks()
