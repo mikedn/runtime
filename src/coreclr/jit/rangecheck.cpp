@@ -1159,18 +1159,15 @@ Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool mon
 
     if (op1RangeCached == nullptr)
     {
-        if (searchPath.Contains(op1))
-        {
-            op1Range = Range(Limit::Kind::Dependent);
+        op1Range = GetRange(block, op1, monotonicallyIncreasing);
+    }
+    else if (op1RangeCached->lower.IsUndef())
+    {
+        op1Range = Range(Limit::Kind::Dependent);
 
-            if (GenTreeLclUse* use = op1->IsLclUse())
-            {
-                MergeLclUseAssertions(block, use, &op1Range);
-            }
-        }
-        else
+        if (GenTreeLclUse* use = op1->IsLclUse())
         {
-            op1Range = GetRange(block, op1, monotonicallyIncreasing);
+            MergeLclUseAssertions(block, use, &op1Range);
         }
     }
     else
@@ -1183,18 +1180,15 @@ Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool mon
 
     if (op2RangeCached == nullptr)
     {
-        if (searchPath.Contains(op2))
-        {
-            op2Range = Range(Limit::Kind::Dependent);
+        op2Range = GetRange(block, op2, monotonicallyIncreasing);
+    }
+    else if (op2RangeCached->lower.IsUndef())
+    {
+        op2Range = Range(Limit::Kind::Dependent);
 
-            if (GenTreeLclUse* use = op2->IsLclUse())
-            {
-                MergeLclUseAssertions(block, use, &op2Range);
-            }
-        }
-        else
+        if (GenTreeLclUse* use = op2->IsLclUse())
         {
-            op2Range = GetRange(block, op2, monotonicallyIncreasing);
+            MergeLclUseAssertions(block, use, &op2Range);
         }
     }
     else
@@ -1241,9 +1235,14 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
     {
         for (GenTreePhi::Use& use : phi->Uses())
         {
-            Range useRange;
+            const Range* cachedRange = rangeMap.LookupPointer(use.GetNode());
+            Range        useRange;
 
-            if (searchPath.Contains(use.GetNode()))
+            if (cachedRange == nullptr)
+            {
+                useRange = GetRange(block, use.GetNode(), monotonicallyIncreasing);
+            }
+            else if (cachedRange->lower.IsUndef())
             {
                 JITDUMP("Range: " FMT_BB " ", block->bbNum);
                 DBEXEC(compiler->verbose, compiler->gtDispTree(use.GetNode(), nullptr, nullptr, true));
@@ -1253,10 +1252,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
             }
             else
             {
-                useRange = GetRange(block, use.GetNode(), monotonicallyIncreasing);
-
-                assert(!useRange.lower.IsUndef());
-                assert(!useRange.upper.IsUndef());
+                useRange = *cachedRange;
             }
 
             MergePhiArgAssertions(block, use.GetNode(), &useRange);
@@ -1295,22 +1291,22 @@ Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr, bool monotonicallyI
     JITDUMP("Range: " FMT_BB " ", block->bbNum);
     DBEXEC(compiler->verbose, compiler->gtDispTree(expr, nullptr, nullptr, true));
 
-    if (const Range* cachedRange = rangeMap.LookupPointer(expr))
+    Range* cachedRange = rangeMap.LookupPointer(expr);
+    Range  range;
+
+    if (cachedRange == nullptr)
+    {
+        cachedRange = rangeMap.Emplace(expr, range);
+        budget--;
+    }
+    else if (!cachedRange->lower.IsUndef())
     {
         JITDUMP("Range: Cached %s\n", ToString(*cachedRange));
 
         return *cachedRange;
     }
 
-    if (searchPath.Add(expr))
-    {
-        noway_assert(!rangeMap.Lookup(expr));
-        budget--;
-    }
-
-    Range range;
-
-    if ((budget <= 0) || (searchPath.GetCount() > MaxSearchDepth))
+    if ((budget <= 0) || (rangeMap.GetCount() > MaxSearchDepth))
     {
         JITDUMP("Range: %s exceeded\n", budget <= 0 ? "Budget" : "Depth");
 
@@ -1319,10 +1315,11 @@ Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr, bool monotonicallyI
     else
     {
         range = ComputeRange(block, expr, monotonicallyIncreasing);
+
+        assert(!range.lower.IsUndef() && !range.upper.IsUndef());
     }
 
-    rangeMap.Set(expr, range, RangeMap::Overwrite);
-    searchPath.Remove(expr);
+    *cachedRange = range;
 
     JITDUMP("Range: " FMT_BB " [%06u] = %s\n", block->bbNum, expr->GetID(), ToString(range));
 
