@@ -312,7 +312,6 @@ private:
     bool ComputeAddOverflow(BasicBlock* block, GenTreeOp* expr);
     bool ComputePhiOverflow(BasicBlock* block, GenTreePhi* phi);
     bool ComputeOverflow(BasicBlock* block, GenTree* expr);
-    bool DoesOverflow(BasicBlock* block, GenTree* expr);
     void Widen(BasicBlock* block, GenTree* expr, Range* range);
     bool IsAddMonotonicallyIncreasing(GenTreeOp* expr);
     bool IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeConst);
@@ -512,7 +511,7 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
 
     Range range = GetRange(block, indexExpr, false);
 
-    if (range.upper.IsUnknown() || range.lower.IsUnknown() || DoesOverflow(block, indexExpr))
+    if (range.upper.IsUnknown() || range.lower.IsUnknown() || ComputeOverflow(block, indexExpr))
     {
         return false;
     }
@@ -681,14 +680,34 @@ bool RangeCheck::ComputeAddOverflow(BasicBlock* block, GenTreeOp* expr)
     GenTree* op1 = expr->GetOp(0);
     GenTree* op2 = expr->GetOp(1);
 
-    if (!searchPath.Contains(op1) && DoesOverflow(block, op1))
+    if (!searchPath.Contains(op1))
     {
-        return true;
+        bool overflows = false;
+
+        if (!overflowMap.Lookup(op1, &overflows))
+        {
+            overflows = ComputeOverflow(block, op1);
+        }
+
+        if (overflows)
+        {
+            return true;
+        }
     }
 
-    if (!searchPath.Contains(op2) && DoesOverflow(block, op2))
+    if (!searchPath.Contains(op2))
     {
-        return true;
+        bool overflows = false;
+
+        if (!overflowMap.Lookup(op2, &overflows))
+        {
+            overflows = ComputeOverflow(block, op2);
+        }
+
+        if (overflows)
+        {
+            return true;
+        }
     }
 
     const Range* r1 = rangeMap.LookupPointer(op1);
@@ -716,14 +735,19 @@ bool RangeCheck::ComputePhiOverflow(BasicBlock* block, GenTreePhi* phi)
     {
         GenTree* arg = use.GetNode();
 
-        if (searchPath.Contains(arg))
+        if (!searchPath.Contains(arg))
         {
-            continue;
-        }
+            bool overflows = false;
 
-        if (DoesOverflow(block, arg))
-        {
-            return true;
+            if (!overflowMap.Lookup(arg, &overflows))
+            {
+                overflows = ComputeOverflow(block, arg);
+            }
+
+            if (overflows)
+            {
+                return true;
+            }
         }
     }
 
@@ -764,7 +788,12 @@ bool RangeCheck::ComputeOverflow(BasicBlock* block, GenTree* expr)
     }
     else if (GenTreeLclUse* use = expr->IsLclUse())
     {
-        overflows = DoesOverflow(use->GetDef()->GetBlock(), use->GetDef()->GetValue());
+        GenTreeLclDef* def = use->GetDef();
+
+        if (!overflowMap.Lookup(def->GetValue(), &overflows))
+        {
+            overflows = ComputeOverflow(def->GetBlock(), def->GetValue());
+        }
     }
     else if (GenTreePhi* phi = expr->IsPhi())
     {
@@ -775,18 +804,6 @@ bool RangeCheck::ComputeOverflow(BasicBlock* block, GenTree* expr)
     searchPath.Remove(expr);
 
     JITDUMP("Overflow: " FMT_BB " [%06u] %s\n", block->bbNum, expr->GetID(), overflows ? "overflows" : "no overflow");
-
-    return overflows;
-}
-
-bool RangeCheck::DoesOverflow(BasicBlock* block, GenTree* expr)
-{
-    bool overflows = false;
-
-    if (!overflowMap.Lookup(expr, &overflows))
-    {
-        overflows = ComputeOverflow(block, expr);
-    }
 
     return overflows;
 }
