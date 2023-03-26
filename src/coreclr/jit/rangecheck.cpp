@@ -302,7 +302,8 @@ private:
     Range GetRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing);
     Range ComputeRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing);
     Range ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use, bool monotonicallyIncreasing);
-    Range ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool monotonicallyIncreasing);
+    Range ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr);
+    Range ComputeAddRange(BasicBlock* block, GenTreeOp* expr, bool monotonicallyIncreasing);
     void MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
     void MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
     void MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Range* range);
@@ -1122,50 +1123,53 @@ Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use, bool
     return range;
 }
 
-Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr, bool monotonicallyIncreasing)
+Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr)
 {
-    assert(expr->OperIs(GT_ADD, GT_AND, GT_RSH, GT_LSH, GT_UMOD));
+    assert(expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD));
 
     GenTree* op1 = expr->GetOp(0);
     GenTree* op2 = expr->GetOp(1);
 
-    if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD))
+    if (!op2->IsIntCnsFitsInI32())
     {
-        if (!op2->IsIntCnsFitsInI32())
-        {
-            return Limit::Kind::Unknown;
-        }
-
-        int constLimit = -1;
-
-        if (expr->OperIs(GT_AND))
-        {
-            constLimit = op2->AsIntCon()->GetInt32Value();
-        }
-        else if (expr->OperIs(GT_UMOD))
-        {
-            constLimit = op2->AsIntCon()->GetInt32Value() - 1;
-        }
-        else if (expr->OperIs(GT_RSH, GT_LSH) && op1->OperIs(GT_AND) && op1->AsOp()->GetOp(1)->IsIntCnsFitsInI32())
-        {
-            int mask  = op1->AsOp()->GetOp(1)->AsIntCon()->GetInt32Value();
-            int shift = op2->AsIntCon()->GetInt32Value();
-
-            if ((mask >= 0) && (shift >= 0) && (shift < 32))
-            {
-                constLimit = expr->OperIs(GT_RSH) ? (mask >> shift) : (mask << shift);
-            }
-        }
-
-        if (constLimit < 0)
-        {
-            return Limit::Kind::Unknown;
-        }
-
-        return Range(0, constLimit);
+        return Limit::Kind::Unknown;
     }
 
+    int constLimit = -1;
+
+    if (expr->OperIs(GT_AND))
+    {
+        constLimit = op2->AsIntCon()->GetInt32Value();
+    }
+    else if (expr->OperIs(GT_UMOD))
+    {
+        constLimit = op2->AsIntCon()->GetInt32Value() - 1;
+    }
+    else if (expr->OperIs(GT_RSH, GT_LSH) && op1->OperIs(GT_AND) && op1->AsOp()->GetOp(1)->IsIntCnsFitsInI32())
+    {
+        int mask  = op1->AsOp()->GetOp(1)->AsIntCon()->GetInt32Value();
+        int shift = op2->AsIntCon()->GetInt32Value();
+
+        if ((mask >= 0) && (shift >= 0) && (shift < 32))
+        {
+            constLimit = expr->OperIs(GT_RSH) ? (mask >> shift) : (mask << shift);
+        }
+    }
+
+    if (constLimit < 0)
+    {
+        return Limit::Kind::Unknown;
+    }
+
+    return Range(0, constLimit);
+}
+
+Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* expr, bool monotonicallyIncreasing)
+{
     assert(expr->OperIs(GT_ADD));
+
+    GenTree* op1 = expr->GetOp(0);
+    GenTree* op2 = expr->GetOp(1);
 
     const Range* op1RangeCached = rangeMap.LookupPointer(op1);
     Range        op1Range;
@@ -1236,9 +1240,13 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
     {
         range = GetRange(block, expr->gtEffectiveVal(), monotonicallyIncreasing);
     }
-    else if (expr->OperIs(GT_ADD, GT_AND, GT_RSH, GT_LSH, GT_UMOD))
+    else if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD))
     {
-        range = ComputeBinOpRange(block, expr->AsOp(), monotonicallyIncreasing);
+        range = ComputeBinOpRange(block, expr->AsOp());
+    }
+    else if (expr->OperIs(GT_ADD))
+    {
+        range = ComputeAddRange(block, expr->AsOp(), monotonicallyIncreasing);
     }
     else if (GenTreeLclUse* use = expr->IsLclUse())
     {
