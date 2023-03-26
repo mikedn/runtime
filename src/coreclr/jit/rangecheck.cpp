@@ -314,6 +314,7 @@ private:
     bool ComputeOverflow(BasicBlock* block, GenTree* expr);
     void Widen(BasicBlock* block, GenTree* expr, Range* range);
     bool IsAddMonotonicallyIncreasing(GenTreeOp* expr);
+    bool IsPhiMonotonicallyIncreasing(GenTreePhi* phi, bool rejectNegativeConst);
     bool IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeConst);
 
 #ifdef DEBUG
@@ -572,6 +573,24 @@ bool RangeCheck::IsAddMonotonicallyIncreasing(GenTreeOp* expr)
     return false;
 }
 
+bool RangeCheck::IsPhiMonotonicallyIncreasing(GenTreePhi* phi, bool rejectNegativeConst)
+{
+    for (GenTreePhi::Use& use : phi->Uses())
+    {
+        if (searchPath.Contains(use.GetNode()))
+        {
+            continue;
+        }
+
+        if (!IsMonotonicallyIncreasing(use.GetNode(), rejectNegativeConst))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool RangeCheck::IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeConst)
 {
     JITDUMP("MonotonicallyIncreasing: ");
@@ -582,59 +601,36 @@ bool RangeCheck::IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeCon
         return true;
     }
 
-    // Remove hashtable entry for expr when we exit the present scope.
-    auto                                         code = [this, expr] { searchPath.Remove(expr); };
-    jitstd::utility::scoped_code<decltype(code)> finally(code);
+    bool monotonicallyIncreasing = false;
 
     if (searchPath.GetCount() > MaxSearchDepth)
     {
-        return false;
+        monotonicallyIncreasing = false;
     }
-
-    ValueNum vn = expr->GetConservativeVN();
-
-    if (vnStore->IsVNInt32Constant(vn))
+    else if (vnStore->IsVNInt32Constant(expr->GetConservativeVN()))
     {
-        return !rejectNegativeConst || (vnStore->ConstantValue<int>(vn) >= 0);
+        monotonicallyIncreasing = !rejectNegativeConst || (vnStore->ConstantValue<int>(expr->GetConservativeVN()) >= 0);
     }
-
-    if (expr->OperIs(GT_COMMA))
+    else if (expr->OperIs(GT_COMMA))
     {
-        return IsMonotonicallyIncreasing(expr->gtEffectiveVal(), rejectNegativeConst);
+        monotonicallyIncreasing = IsMonotonicallyIncreasing(expr->gtEffectiveVal(), rejectNegativeConst);
     }
-
-    if (expr->OperIs(GT_ADD))
+    else if (expr->OperIs(GT_ADD))
     {
-        return IsAddMonotonicallyIncreasing(expr->AsOp());
+        monotonicallyIncreasing = IsAddMonotonicallyIncreasing(expr->AsOp());
     }
-
-    if (GenTreeLclUse* use = expr->IsLclUse())
+    else if (GenTreeLclUse* use = expr->IsLclUse())
     {
-        return IsMonotonicallyIncreasing(use->GetDef()->GetValue(), rejectNegativeConst);
+        monotonicallyIncreasing = IsMonotonicallyIncreasing(use->GetDef()->GetValue(), rejectNegativeConst);
     }
-
-    if (GenTreePhi* phi = expr->IsPhi())
+    else if (GenTreePhi* phi = expr->IsPhi())
     {
-        for (GenTreePhi::Use& use : phi->Uses())
-        {
-            if (searchPath.Contains(use.GetNode()))
-            {
-                continue;
-            }
-
-            if (!IsMonotonicallyIncreasing(use.GetNode(), rejectNegativeConst))
-            {
-                JITDUMP("Phi argument not monotonically increasing\n");
-                return false;
-            }
-        }
-
-        return true;
+        monotonicallyIncreasing = IsPhiMonotonicallyIncreasing(phi, rejectNegativeConst);
     }
 
-    JITDUMP("Unknown expression\n");
+    searchPath.Remove(expr);
 
-    return false;
+    return monotonicallyIncreasing;
 }
 
 bool RangeCheck::GetLimitMax(const Limit& limit, int* max)
