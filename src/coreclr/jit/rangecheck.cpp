@@ -302,7 +302,7 @@ private:
     Range GetRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing);
     Range ComputeRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing);
     Range ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use, bool monotonicallyIncreasing);
-    Range ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr);
+    Range ComputeBinOpRange(GenTreeOp* expr);
     Range ComputeAddRange(BasicBlock* block, GenTreeOp* expr, bool monotonicallyIncreasing);
     void MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
     void MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
@@ -1123,14 +1123,14 @@ Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use, bool
     return range;
 }
 
-Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr)
+Range RangeCheck::ComputeBinOpRange(GenTreeOp* expr)
 {
     assert(expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD));
+    assert(expr->TypeIs(TYP_INT));
 
-    GenTree* op1 = expr->GetOp(0);
-    GenTree* op2 = expr->GetOp(1);
+    GenTreeIntCon* op2 = expr->GetOp(1)->IsIntCon();
 
-    if (!op2->IsIntCnsFitsInI32())
+    if (op2 == nullptr)
     {
         return Limit::Kind::Unknown;
     }
@@ -1139,20 +1139,25 @@ Range RangeCheck::ComputeBinOpRange(BasicBlock* block, GenTreeOp* expr)
 
     if (expr->OperIs(GT_AND))
     {
-        constLimit = op2->AsIntCon()->GetInt32Value();
+        constLimit = op2->GetInt32Value();
     }
     else if (expr->OperIs(GT_UMOD))
     {
-        constLimit = op2->AsIntCon()->GetInt32Value() - 1;
+        constLimit = op2->GetInt32Value() - 1;
     }
-    else if (expr->OperIs(GT_RSH, GT_LSH) && op1->OperIs(GT_AND) && op1->AsOp()->GetOp(1)->IsIntCnsFitsInI32())
+    else if (expr->OperIs(GT_RSH, GT_LSH))
     {
-        int mask  = op1->AsOp()->GetOp(1)->AsIntCon()->GetInt32Value();
-        int shift = op2->AsIntCon()->GetInt32Value();
+        GenTree* op1 = expr->GetOp(0);
 
-        if ((mask >= 0) && (shift >= 0) && (shift < 32))
+        if (op1->OperIs(GT_AND) && op1->AsOp()->GetOp(1)->IsIntCon())
         {
-            constLimit = expr->OperIs(GT_RSH) ? (mask >> shift) : (mask << shift);
+            int mask  = op1->AsOp()->GetOp(1)->AsIntCon()->GetInt32Value();
+            int shift = op2->GetInt32Value();
+
+            if ((mask >= 0) && (shift >= 0) && (shift < 32))
+            {
+                constLimit = expr->OperIs(GT_RSH) ? (mask >> shift) : (mask << shift);
+            }
         }
     }
 
@@ -1168,9 +1173,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* expr, bool monot
 {
     assert(expr->OperIs(GT_ADD));
 
-    GenTree* op1 = expr->GetOp(0);
-    GenTree* op2 = expr->GetOp(1);
-
+    GenTree*     op1            = expr->GetOp(0);
     const Range* op1RangeCached = rangeMap.LookupPointer(op1);
     Range        op1Range;
 
@@ -1192,6 +1195,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* expr, bool monot
         op1Range = *op1RangeCached;
     }
 
+    GenTree*     op2            = expr->GetOp(1);
     const Range* op2RangeCached = rangeMap.LookupPointer(op2);
     Range        op2Range;
 
@@ -1242,7 +1246,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
     }
     else if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD))
     {
-        range = ComputeBinOpRange(block, expr->AsOp());
+        range = ComputeBinOpRange(expr->AsOp());
     }
     else if (expr->OperIs(GT_ADD))
     {
