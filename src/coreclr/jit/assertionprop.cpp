@@ -236,6 +236,15 @@ public:
             ComputeAvailability();
             PropagateAssertions();
         }
+        else
+        {
+            for (BasicBlock* block : compiler->Blocks())
+            {
+                block->bbAssertionIn          = nullptr;
+                block->bbAssertionOut         = nullptr;
+                block->bbAssertionOutJumpDest = nullptr;
+            }
+        }
 
         compiler->apAssertionTable = assertionTable;
         compiler->apAssertionCount = assertionCount;
