@@ -508,12 +508,18 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
     }
 
     rangeMap.RemoveAll();
-    overflowMap.RemoveAll();
-    searchPath.Clear();
 
     Range range = GetRange(block, indexExpr, false);
 
-    if (range.upper.IsUnknown() || range.lower.IsUnknown() || ComputeOverflow(block, indexExpr))
+    if (range.upper.IsUnknown() || range.lower.IsUnknown())
+    {
+        return false;
+    }
+
+    overflowMap.RemoveAll();
+    searchPath.Clear();
+
+    if (ComputeOverflow(block, indexExpr))
     {
         return false;
     }
