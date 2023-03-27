@@ -276,7 +276,6 @@ class RangeCheck
     using SearchPath  = JitHashSet<GenTree*, JitPtrKeyFuncs<GenTree>>;
 
     ValueNumStore* vnStore;
-    OverflowMap    overflowMap;
     RangeMap       rangeMap;
     SearchPath     searchPath;
     Compiler*      compiler;
@@ -287,7 +286,6 @@ class RangeCheck
 public:
     RangeCheck(Compiler* compiler)
         : vnStore(compiler->vnStore)
-        , overflowMap(compiler->getAllocator(CMK_RangeCheck))
         , rangeMap(compiler->getAllocator(CMK_RangeCheck))
         , searchPath(compiler->getAllocator(CMK_RangeCheck))
         , compiler(compiler)
@@ -310,9 +308,7 @@ private:
     int GetArrayLength(ValueNum vn);
     bool GetLimitMax(const Limit& limit, int* max);
     bool AddOverflows(const Limit& limit1, const Limit& limit2);
-    bool ComputeAddOverflow(BasicBlock* block, GenTreeOp* expr);
-    bool ComputePhiOverflow(BasicBlock* block, GenTreePhi* phi);
-    bool ComputeOverflow(BasicBlock* block, GenTree* expr);
+    bool ComputeOverflow();
     void Widen(BasicBlock* block, GenTree* expr, Range* range);
     bool IsAddMonotonicallyIncreasing(GenTreeOp* expr);
     bool IsPhiMonotonicallyIncreasing(GenTreePhi* phi, bool rejectNegativeConst);
@@ -511,15 +507,7 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
 
     Range range = GetRange(block, indexExpr, false);
 
-    if (range.upper.IsUnknown() || range.lower.IsUnknown())
-    {
-        return false;
-    }
-
-    overflowMap.RemoveAll();
-    searchPath.Clear();
-
-    if (ComputeOverflow(block, indexExpr))
+    if (range.upper.IsUnknown() || range.lower.IsUnknown() || ComputeOverflow())
     {
         return false;
     }
@@ -678,137 +666,39 @@ bool RangeCheck::AddOverflows(const Limit& limit1, const Limit& limit2)
     return !GetLimitMax(limit1, &max1) || !GetLimitMax(limit2, &max2) || IntAddOverflows(max1, max2);
 }
 
-bool RangeCheck::ComputeAddOverflow(BasicBlock* block, GenTreeOp* expr)
+bool RangeCheck::ComputeOverflow()
 {
-    GenTree* op1 = expr->GetOp(0);
-    GenTree* op2 = expr->GetOp(1);
-
-    if (!searchPath.Contains(op1))
+    for (const auto& pair : rangeMap)
     {
-        bool overflows = false;
+        GenTree* node = pair.key;
 
-        if (!overflowMap.Lookup(op1, &overflows))
+        JITDUMP("Overflow: ");
+        DBEXEC(compiler->verbose, compiler->gtDispTree(node, nullptr, nullptr, true));
+
+        if (node->OperIs(GT_ADD))
         {
-            overflows = ComputeOverflow(block, op1);
-        }
+            const Range* r1 = rangeMap.LookupPointer(node->AsOp()->GetOp(0));
+            const Range* r2 = rangeMap.LookupPointer(node->AsOp()->GetOp(1));
 
-        if (overflows)
-        {
-            return true;
-        }
-    }
-
-    if (!searchPath.Contains(op2))
-    {
-        bool overflows = false;
-
-        if (!overflowMap.Lookup(op2, &overflows))
-        {
-            overflows = ComputeOverflow(block, op2);
-        }
-
-        if (overflows)
-        {
-            return true;
-        }
-    }
-
-    const Range* r1 = rangeMap.LookupPointer(op1);
-
-    if (r1 == nullptr)
-    {
-        return true;
-    }
-
-    const Range* r2 = rangeMap.LookupPointer(op2);
-
-    if (r2 == nullptr)
-    {
-        return true;
-    }
-
-    JITDUMP("Overflow: Add %s %s\n", ToString(*r1), ToString(*r2));
-
-    return AddOverflows(r1->upper, r2->upper);
-}
-
-bool RangeCheck::ComputePhiOverflow(BasicBlock* block, GenTreePhi* phi)
-{
-    for (GenTreePhi::Use& use : phi->Uses())
-    {
-        GenTree* arg = use.GetNode();
-
-        if (!searchPath.Contains(arg))
-        {
-            bool overflows = false;
-
-            if (!overflowMap.Lookup(arg, &overflows))
+            if (AddOverflows(r1->upper, r2->upper))
             {
-                overflows = ComputeOverflow(block, arg);
-            }
+                JITDUMP("Overflow: [%06u] overflows\n", node->GetID());
 
-            if (overflows)
-            {
                 return true;
             }
         }
+        else if (!node->OperIs(GT_COMMA, GT_IND, GT_LCL_USE, GT_LCL_DEF, GT_PHI, GT_AND, GT_UMOD, GT_LSH, GT_RSH) &&
+                 !vnStore->IsVNConstant(node->GetConservativeVN()))
+        {
+            JITDUMP("Overflow: [%06u] overflows\n", node->GetID());
+
+            return true;
+        }
+
+        JITDUMP("Overflow: [%06u] no overflow\n", node->GetID());
     }
 
     return false;
-}
-
-bool RangeCheck::ComputeOverflow(BasicBlock* block, GenTree* expr)
-{
-    JITDUMP("Overflow: " FMT_BB " ", block->bbNum);
-    DBEXEC(compiler->verbose, compiler->gtDispTree(expr, nullptr, nullptr, true));
-
-    searchPath.Add(expr);
-    bool overflows = true;
-
-    if (searchPath.GetCount() > MaxSearchDepth)
-    {
-        overflows = true;
-    }
-    else if (vnStore->IsVNConstant(expr->GetConservativeVN()))
-    {
-        overflows = false;
-    }
-    else if (expr->OperIs(GT_IND))
-    {
-        overflows = false;
-    }
-    else if (expr->OperIs(GT_COMMA))
-    {
-        overflows = ComputeOverflow(block, expr->gtEffectiveVal());
-    }
-    else if (expr->OperIs(GT_ADD))
-    {
-        overflows = ComputeAddOverflow(block, expr->AsOp());
-    }
-    else if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD))
-    {
-        overflows = false;
-    }
-    else if (GenTreeLclUse* use = expr->IsLclUse())
-    {
-        GenTreeLclDef* def = use->GetDef();
-
-        if (!overflowMap.Lookup(def->GetValue(), &overflows))
-        {
-            overflows = ComputeOverflow(def->GetBlock(), def->GetValue());
-        }
-    }
-    else if (GenTreePhi* phi = expr->IsPhi())
-    {
-        overflows = ComputePhiOverflow(block, phi);
-    }
-
-    overflowMap.Set(expr, overflows, OverflowMap::Overwrite);
-    searchPath.Remove(expr);
-
-    JITDUMP("Overflow: " FMT_BB " [%06u] %s\n", block->bbNum, expr->GetID(), overflows ? "overflows" : "no overflow");
-
-    return overflows;
 }
 
 void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Range* range)
