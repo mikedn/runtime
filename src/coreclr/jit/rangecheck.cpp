@@ -125,16 +125,16 @@ public:
 
 struct Range
 {
-    Limit upper;
-    Limit lower;
+    Limit min;
+    Limit max;
 
     Range() = default;
 
-    Range(const Limit& limit) : upper(limit), lower(limit)
+    Range(const Limit& limit) : min{limit}, max{limit}
     {
     }
 
-    Range(const Limit& lower, const Limit& upper) : upper(upper), lower(lower)
+    Range(const Limit& min, const Limit& max) : min{min}, max{max}
     {
     }
 };
@@ -143,41 +143,41 @@ static Range Add(const Range& r1, const Range& r2)
 {
     Range result = Limit::Kind::Unknown;
 
-    const Limit& lo1 = r1.lower;
-    const Limit& lo2 = r2.lower;
+    const Limit& min1 = r1.min;
+    const Limit& min2 = r2.min;
 
     // TODO-MIKE-Review: This is dubious. Old code had lo1.IsDependent() && !lo1.IsUnknown(),
     // with the Unknown check being obviously pointless. But was that just bogus code or was
     // it actually broken and needs to be lo1.IsDependent() && !lo2.IsUnknown()? It would
     // make sense for Unknown to act as "bottom"...
 
-    if (lo1.IsDependent() || lo2.IsDependent())
+    if (min1.IsDependent() || min2.IsDependent())
     {
-        result.lower = Limit::Kind::Dependent;
+        result.min = Limit::Kind::Dependent;
     }
-    else if (lo1.IsConstant())
+    else if (min1.IsConstant())
     {
-        result.lower = lo2 + lo1.GetConstant();
+        result.min = min2 + min1.GetConstant();
     }
-    else if (lo2.IsConstant())
+    else if (min2.IsConstant())
     {
-        result.lower = lo1 + lo2.GetConstant();
+        result.min = min1 + min2.GetConstant();
     }
 
-    const Limit& up1 = r1.upper;
-    const Limit& up2 = r2.upper;
+    const Limit& max1 = r1.max;
+    const Limit& max2 = r2.max;
 
-    if (up1.IsDependent() || up2.IsDependent())
+    if (max1.IsDependent() || max2.IsDependent())
     {
-        result.upper = Limit::Kind::Dependent;
+        result.max = Limit::Kind::Dependent;
     }
-    else if (up1.IsConstant())
+    else if (max1.IsConstant())
     {
-        result.upper = up2 + up1.GetConstant();
+        result.max = max2 + max1.GetConstant();
     }
-    else if (up2.IsConstant())
+    else if (max2.IsConstant())
     {
-        result.upper = up1 + up2.GetConstant();
+        result.max = max1 + max2.GetConstant();
     }
 
     return result;
@@ -187,72 +187,74 @@ static Range Merge(const Range& r1, const Range& r2, bool monotonicallyIncreasin
 {
     Range result = Limit::Kind::Unknown;
 
-    const Limit& lo1 = r1.lower;
-    const Limit& lo2 = r2.lower;
+    const Limit& min1 = r1.min;
+    const Limit& min2 = r2.min;
 
-    if (!lo1.IsUnknown() && !lo2.IsUnknown())
+    if (!min1.IsUnknown() && !min2.IsUnknown())
     {
-        if (lo1.IsUndef())
+        if (min1.IsUndef())
         {
-            result.lower = lo2;
+            result.min = min2;
         }
-        else if (lo1.IsDependent() || lo2.IsDependent())
+        else if (min1.IsDependent() || min2.IsDependent())
         {
             if (monotonicallyIncreasing)
             {
-                result.lower = lo1.IsDependent() ? lo2 : lo1;
+                result.min = min1.IsDependent() ? min2 : min1;
             }
             else
             {
-                result.lower = Limit::Kind::Dependent;
+                result.min = Limit::Kind::Dependent;
             }
         }
-        else if (lo1.IsConstant() && lo2.IsConstant())
+        else if (min1.IsConstant() && min2.IsConstant())
         {
-            result.lower = Limit(Min(lo1.GetConstant(), lo2.GetConstant()));
+            result.min = Limit(Min(min1.GetConstant(), min2.GetConstant()));
         }
-        else if (lo1 == lo2)
+        else if (min1 == min2)
         {
-            result.lower = lo1;
+            result.min = min1;
         }
     }
 
-    const Limit& up1 = r1.upper;
-    const Limit& up2 = r2.upper;
+    const Limit& max1 = r1.max;
+    const Limit& max2 = r2.max;
 
-    if (!up1.IsUnknown() && !up2.IsUnknown())
+    if (!max1.IsUnknown() && !max2.IsUnknown())
     {
-        if (up1.IsUndef())
+        if (max1.IsUndef())
         {
-            result.upper = up2;
+            result.max = max2;
         }
-        else if (up1.IsDependent() || up2.IsDependent())
+        else if (max1.IsDependent() || max2.IsDependent())
         {
-            result.upper = Limit::Kind::Dependent;
+            result.max = Limit::Kind::Dependent;
         }
-        else if (up1.IsConstant() && up2.IsConstant())
+        else if (max1.IsConstant() && max2.IsConstant())
         {
-            result.upper = Limit(Max(up1.GetConstant(), up2.GetConstant()));
+            result.max = Limit(Max(max1.GetConstant(), max2.GetConstant()));
         }
-        else if (up1 == up2)
+        else if (max1 == max2)
         {
-            result.upper = up1;
+            result.max = max1;
         }
         // Widen Upper Limit => Max(k, (a.len + n)) yields (a.len + n),
         // This is correct if k >= 0 and n >= k, since a.len always >= 0
         // (a.len + n) could overflow, but the result (a.len + n) also
         // preserves the overflow.
-        else if (up1.IsConstant() && up2.IsVN() && (up1.GetConstant() >= 0) && (up1.GetConstant() <= up2.GetConstant()))
+        else if (max1.IsConstant() && max2.IsVN() && (max1.GetConstant() >= 0) &&
+                 (max1.GetConstant() <= max2.GetConstant()))
         {
-            result.upper = up2;
+            result.max = max2;
         }
-        else if (up1.IsVN() && up2.IsConstant() && (up2.GetConstant() >= 0) && (up1.GetConstant() >= up2.GetConstant()))
+        else if (max1.IsVN() && max2.IsConstant() && (max2.GetConstant() >= 0) &&
+                 (max1.GetConstant() >= max2.GetConstant()))
         {
-            result.upper = up1;
+            result.max = max1;
         }
-        else if (up1.IsVN() && up2.IsVN() && (up1.GetVN() == up2.GetVN()))
+        else if (max1.IsVN() && max2.IsVN() && (max1.GetVN() == max2.GetVN()))
         {
-            result.upper = up2.GetConstant() > up1.GetConstant() ? up2 : up1;
+            result.max = max2.GetConstant() > max1.GetConstant() ? max2 : max1;
         }
     }
 
@@ -353,7 +355,7 @@ private:
     {
         constexpr size_t size = 64;
         char*            buf  = compiler->getAllocator(CMK_DebugOnly).allocate<char>(size);
-        sprintf_s(buf, size, "[%s..%s]", ToString(range.lower), ToString(range.upper));
+        sprintf_s(buf, size, "[%s..%s]", ToString(range.min), ToString(range.max));
         return buf;
     }
 #endif
@@ -380,21 +382,21 @@ bool RangeCheck::IsInBounds(const Range& range, GenTree* lengthExpr, int lengthV
 
     JITDUMP("InBounds: length value is: %d\n", lengthVal);
 
-    if (range.upper.IsVN())
+    if (range.max.IsVN())
     {
-        if (range.upper.GetVN() != upperLimitVN)
+        if (range.max.GetVN() != upperLimitVN)
         {
             return false;
         }
 
-        int ucns = range.upper.GetConstant();
+        int ucns = range.max.GetConstant();
 
         if (ucns >= 0)
         {
             return false;
         }
 
-        if (range.lower.IsConstant() && (range.lower.GetConstant() >= 0))
+        if (range.min.IsConstant() && (range.min.GetConstant() >= 0))
         {
             return true;
         }
@@ -404,39 +406,39 @@ bool RangeCheck::IsInBounds(const Range& range, GenTree* lengthExpr, int lengthV
             return false;
         }
 
-        if (range.lower.IsVN())
+        if (range.min.IsVN())
         {
-            int lcns = range.lower.GetConstant();
+            int lcns = range.min.GetConstant();
 
-            return (lcns < 0) && (-lcns <= lengthVal) && (range.lower.GetVN() == upperLimitVN) && (lcns <= ucns);
+            return (lcns < 0) && (-lcns <= lengthVal) && (range.min.GetVN() == upperLimitVN) && (lcns <= ucns);
         }
     }
-    else if (range.upper.IsConstant())
+    else if (range.max.IsConstant())
     {
         if (lengthVal <= 0)
         {
             return false;
         }
 
-        int ucns = range.upper.GetConstant();
+        int ucns = range.max.GetConstant();
 
         if (ucns >= lengthVal)
         {
             return false;
         }
 
-        if (range.lower.IsConstant())
+        if (range.min.IsConstant())
         {
-            int lcns = range.lower.GetConstant();
+            int lcns = range.min.GetConstant();
 
             return (lcns >= 0) && (lcns <= ucns);
         }
 
-        if (range.lower.IsVN())
+        if (range.min.IsVN())
         {
-            int lcns = range.lower.GetConstant();
+            int lcns = range.min.GetConstant();
 
-            return (lcns < 0) && (-lcns <= lengthVal) && (range.lower.GetVN() == upperLimitVN) &&
+            return (lcns < 0) && (-lcns <= lengthVal) && (range.min.GetVN() == upperLimitVN) &&
                    (lengthVal + lcns <= ucns);
         }
     }
@@ -477,9 +479,9 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
             Range lengthRange = Limit::Kind::Dependent;
             MergeEdgeAssertions(lengthVN, block->bbAssertionIn, &lengthRange);
 
-            if (lengthRange.lower.IsConstant())
+            if (lengthRange.min.IsConstant())
             {
-                lengthVal = lengthRange.lower.GetConstant();
+                lengthVal = lengthRange.min.GetConstant();
             }
         }
     }
@@ -520,17 +522,17 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
     rangeMap.RemoveAll();
     Range range = GetRange(block, indexExpr);
 
-    if (range.upper.IsUnknown() || range.lower.IsUnknown() || ComputeOverflow())
+    if (range.max.IsUnknown() || range.min.IsUnknown() || ComputeOverflow())
     {
         return false;
     }
 
-    if (range.lower.IsDependent())
+    if (range.min.IsDependent())
     {
         Widen(block, indexExpr, &range);
     }
 
-    return !range.upper.IsUnknown() && !range.lower.IsUnknown() && IsInBounds(range, lengthExpr, lengthVal);
+    return !range.max.IsUnknown() && !range.min.IsUnknown() && IsInBounds(range, lengthExpr, lengthVal);
 }
 
 void RangeCheck::Widen(BasicBlock* block, GenTree* expr, Range* range)
@@ -694,7 +696,7 @@ bool RangeCheck::ComputeOverflow()
             const Range* r1 = rangeMap.LookupPointer(node->AsOp()->GetOp(0));
             const Range* r2 = rangeMap.LookupPointer(node->AsOp()->GetOp(1));
 
-            if (AddOverflows(r1->upper, r2->upper))
+            if (AddOverflows(r1->max, r2->max))
             {
                 JITDUMP("Overflow: [%06u] overflows\n", node->GetID());
 
@@ -909,13 +911,13 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
         }
 
         // Doesn't tighten the current bound. So skip.
-        if (range->upper.IsConstant() && (limit.GetVN() != lengthVN))
+        if (range->max.IsConstant() && (limit.GetVN() != lengthVN))
         {
             continue;
         }
 
         // Check if the incoming limit from assertions tightens the existing upper limit.
-        if (range->upper.IsVN() && (range->upper.GetVN() == lengthVN))
+        if (range->max.IsVN() && (range->max.GetVN() == lengthVN))
         {
             // We have checked the current range's (pRange's) upper limit is either of the form:
             //      length + cns
@@ -933,7 +935,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
                 continue;
             }
 
-            int curCns = range->upper.GetConstant();
+            int curCns = range->max.GetConstant();
             int limCns = limit.IsVN() ? limit.GetConstant() : 0;
 
             // Incoming limit doesn't tighten the existing upper limit.
@@ -957,15 +959,15 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
         {
             case GT_LT:
             case GT_LE:
-                range->upper = limit;
+                range->max = limit;
                 break;
             case GT_GT:
             case GT_GE:
-                range->lower = limit;
+                range->min = limit;
                 break;
             case GT_EQ:
-                range->upper = limit;
-                range->lower = limit;
+                range->max = limit;
+                range->min = limit;
                 break;
             default:
                 break;
@@ -1097,7 +1099,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
     {
         op1Range = GetRange(block, op1);
     }
-    else if (op1RangeCached->lower.IsUndef())
+    else if (op1RangeCached->min.IsUndef())
     {
         op1Range = Range(Limit::Kind::Dependent);
 
@@ -1119,7 +1121,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
     {
         op2Range = GetRange(block, op2);
     }
-    else if (op2RangeCached->lower.IsUndef())
+    else if (op2RangeCached->min.IsUndef())
     {
         op2Range = Range(Limit::Kind::Dependent);
 
@@ -1151,7 +1153,7 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
         {
             useRange = GetRange(block, use.GetNode());
         }
-        else if (cachedRange->lower.IsUndef())
+        else if (cachedRange->min.IsUndef())
         {
             JITDUMP("Range: " FMT_BB " ", block->bbNum);
             DBEXEC(compiler->verbose, compiler->gtDispTree(use.GetNode(), nullptr, nullptr, true));
@@ -1237,7 +1239,7 @@ Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
         cachedRange = rangeMap.Emplace(expr, range);
         budget--;
     }
-    else if (!cachedRange->lower.IsUndef())
+    else if (!cachedRange->min.IsUndef())
     {
         JITDUMP("Range: Cached %s\n", ToString(*cachedRange));
 
@@ -1254,7 +1256,7 @@ Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
     {
         range = ComputeRange(block, expr);
 
-        assert(!range.lower.IsUndef() && !range.upper.IsUndef());
+        assert(!range.min.IsUndef() && !range.max.IsUndef());
     }
 
     *cachedRange = range;
