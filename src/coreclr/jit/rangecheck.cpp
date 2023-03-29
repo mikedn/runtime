@@ -302,7 +302,8 @@ private:
     Range ComputeRange(BasicBlock* block, GenTree* expr);
     Range ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use);
     Range ComputeBinOpRange(GenTreeOp* expr);
-    Range ComputeAddRange(BasicBlock* block, GenTreeOp* expr);
+    Range ComputeAddRange(BasicBlock* block, GenTreeOp* add);
+    Range ComputePhiRange(BasicBlock* block, GenTreePhi* phi);
     void MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
     void MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
     void MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Range* range);
@@ -1084,11 +1085,11 @@ Range RangeCheck::ComputeBinOpRange(GenTreeOp* expr)
     return Range(0, constLimit);
 }
 
-Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* expr)
+Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
 {
-    assert(expr->OperIs(GT_ADD) && expr->TypeIs(TYP_INT));
+    assert(add->OperIs(GT_ADD) && add->TypeIs(TYP_INT));
 
-    GenTree*     op1            = expr->GetOp(0);
+    GenTree*     op1            = add->GetOp(0);
     const Range* op1RangeCached = rangeMap.LookupPointer(op1);
     Range        op1Range;
 
@@ -1110,7 +1111,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* expr)
         op1Range = *op1RangeCached;
     }
 
-    GenTree*     op2            = expr->GetOp(1);
+    GenTree*     op2            = add->GetOp(1);
     const Range* op2RangeCached = rangeMap.LookupPointer(op2);
     Range        op2Range;
 
@@ -1135,6 +1136,41 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* expr)
     JITDUMP("Range: ADD(%s, %s)\n", ToString(op1Range), ToString(op2Range));
 
     return Add(op1Range, op2Range);
+}
+
+Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
+{
+    Range range;
+
+    for (GenTreePhi::Use& use : phi->Uses())
+    {
+        const Range* cachedRange = rangeMap.LookupPointer(use.GetNode());
+        Range        useRange;
+
+        if (cachedRange == nullptr)
+        {
+            useRange = GetRange(block, use.GetNode());
+        }
+        else if (cachedRange->lower.IsUndef())
+        {
+            JITDUMP("Range: " FMT_BB " ", block->bbNum);
+            DBEXEC(compiler->verbose, compiler->gtDispTree(use.GetNode(), nullptr, nullptr, true));
+            JITDUMP("Range: Already being computed\n");
+
+            useRange = Range(Limit::Kind::Dependent);
+        }
+        else
+        {
+            useRange = *cachedRange;
+        }
+
+        MergePhiArgAssertions(block, use.GetNode(), &useRange);
+
+        JITDUMP("Range: PHI(%s, %s)\n", ToString(range), ToString(useRange));
+        range = Merge(range, useRange, monotonicallyIncreasing);
+    }
+
+    return range;
 }
 
 Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
@@ -1166,33 +1202,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
     }
     else if (GenTreePhi* phi = expr->IsPhi())
     {
-        for (GenTreePhi::Use& use : phi->Uses())
-        {
-            const Range* cachedRange = rangeMap.LookupPointer(use.GetNode());
-            Range        useRange;
-
-            if (cachedRange == nullptr)
-            {
-                useRange = GetRange(block, use.GetNode());
-            }
-            else if (cachedRange->lower.IsUndef())
-            {
-                JITDUMP("Range: " FMT_BB " ", block->bbNum);
-                DBEXEC(compiler->verbose, compiler->gtDispTree(use.GetNode(), nullptr, nullptr, true));
-                JITDUMP("Range: Already being computed\n");
-
-                useRange = Range(Limit::Kind::Dependent);
-            }
-            else
-            {
-                useRange = *cachedRange;
-            }
-
-            MergePhiArgAssertions(block, use.GetNode(), &useRange);
-
-            JITDUMP("Range: PHI(%s, %s)\n", ToString(range), ToString(useRange));
-            range = Merge(range, useRange, monotonicallyIncreasing);
-        }
+        range = ComputePhiRange(block, phi);
     }
     else
     {
