@@ -1178,55 +1178,50 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
     assert(varActualType(expr->GetType()) == TYP_INT);
 
     ValueNum vn = vnStore->VNNormalValue(expr->GetConservativeVN());
-    Range    range;
 
     if (vnStore->IsVNConstant(vn))
     {
-        range = vnStore->TypeOfVN(vn) == TYP_INT ? Limit(vnStore->ConstantValue<int>(vn)) : Limit(Limit::Kind::Unknown);
-    }
-    else if (expr->OperIs(GT_COMMA))
-    {
-        range = GetRange(block, expr->gtEffectiveVal());
-    }
-    else if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD))
-    {
-        range = ComputeBinOpRange(expr->AsOp());
-    }
-    else if (expr->OperIs(GT_ADD))
-    {
-        range = ComputeAddRange(block, expr->AsOp());
-    }
-    else if (GenTreeLclUse* use = expr->IsLclUse())
-    {
-        range = ComputeLclUseRange(block, use);
-    }
-    else if (GenTreePhi* phi = expr->IsPhi())
-    {
-        range = ComputePhiRange(block, phi);
-    }
-    else
-    {
-        switch (expr->GetType())
-        {
-            case TYP_UBYTE:
-                range = Range(0, 255);
-                break;
-            case TYP_BYTE:
-                range = Range(-128, 127);
-                break;
-            case TYP_USHORT:
-                range = Range(0, 65535);
-                break;
-            case TYP_SHORT:
-                range = Range(-32768, 32767);
-                break;
-            default:
-                range = Range(Limit::Kind::Unknown);
-                break;
-        }
+        return vnStore->TypeOfVN(vn) == TYP_INT ? Limit(vnStore->ConstantValue<int>(vn)) : Limit(Limit::Kind::Unknown);
     }
 
-    return range;
+    if (expr->OperIs(GT_COMMA))
+    {
+        return GetRange(block, expr->gtEffectiveVal());
+    }
+
+    if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD))
+    {
+        return ComputeBinOpRange(expr->AsOp());
+    }
+
+    if (expr->OperIs(GT_ADD))
+    {
+        return ComputeAddRange(block, expr->AsOp());
+    }
+
+    if (GenTreeLclUse* use = expr->IsLclUse())
+    {
+        return ComputeLclUseRange(block, use);
+    }
+
+    if (GenTreePhi* phi = expr->IsPhi())
+    {
+        return ComputePhiRange(block, phi);
+    }
+
+    switch (expr->GetType())
+    {
+        case TYP_UBYTE:
+            return Range(0, 255);
+        case TYP_BYTE:
+            return Range(-128, 127);
+        case TYP_USHORT:
+            return Range(0, 65535);
+        case TYP_SHORT:
+            return Range(-32768, 32767);
+        default:
+            return Range(Limit::Kind::Unknown);
+    }
 }
 
 Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
