@@ -280,8 +280,9 @@ class RangeCheck
     SearchPath     searchPath;
     Compiler*      compiler;
     CompAllocator  alloc;
-    ValueNum       currentLengthVN = NoVN;
-    int            budget          = MaxVisitBudget;
+    ValueNum       currentLengthVN         = NoVN;
+    int            budget                  = MaxVisitBudget;
+    bool           monotonicallyIncreasing = false;
 
 public:
     RangeCheck(Compiler* compiler)
@@ -297,11 +298,11 @@ public:
 private:
     bool OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsChk);
     bool IsInBounds(const Range& range, GenTree* lengthExpr, int lengthVal);
-    Range GetRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing);
-    Range ComputeRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing);
-    Range ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use, bool monotonicallyIncreasing);
+    Range GetRange(BasicBlock* block, GenTree* expr);
+    Range ComputeRange(BasicBlock* block, GenTree* expr);
+    Range ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use);
     Range ComputeBinOpRange(GenTreeOp* expr);
-    Range ComputeAddRange(BasicBlock* block, GenTreeOp* expr, bool monotonicallyIncreasing);
+    Range ComputeAddRange(BasicBlock* block, GenTreeOp* expr);
     void MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
     void MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
     void MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Range* range);
@@ -503,9 +504,9 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
         }
     }
 
+    monotonicallyIncreasing = false;
     rangeMap.RemoveAll();
-
-    Range range = GetRange(block, indexExpr, false);
+    Range range = GetRange(block, indexExpr);
 
     if (range.upper.IsUnknown() || range.lower.IsUnknown() || ComputeOverflow())
     {
@@ -530,8 +531,9 @@ void RangeCheck::Widen(BasicBlock* block, GenTree* expr, Range* range)
     {
         JITDUMP("Widen: " FMT_BB " [%06u] is monotonically increasing.\n", block->bbNum, expr->GetID());
 
+        monotonicallyIncreasing = true;
         rangeMap.RemoveAll();
-        *range = GetRange(block, expr, true);
+        *range = GetRange(block, expr);
     }
 }
 
@@ -1007,14 +1009,14 @@ void RangeCheck::MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Ra
     }
 }
 
-Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use, bool monotonicallyIncreasing)
+Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use)
 {
     GenTreeLclDef* def = use->GetDef();
 
     JITDUMP("Range: " FMT_BB " ", block->bbNum);
     DBEXEC(compiler->verbose, compiler->gtDispTree(def, nullptr, nullptr, true));
 
-    Range range = GetRange(def->GetBlock(), def->GetValue(), monotonicallyIncreasing);
+    Range range = GetRange(def->GetBlock(), def->GetValue());
     MergeLclUseAssertions(block, use, &range);
     return range;
 }
@@ -1065,7 +1067,7 @@ Range RangeCheck::ComputeBinOpRange(GenTreeOp* expr)
     return Range(0, constLimit);
 }
 
-Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* expr, bool monotonicallyIncreasing)
+Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* expr)
 {
     assert(expr->OperIs(GT_ADD));
 
@@ -1075,7 +1077,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* expr, bool monot
 
     if (op1RangeCached == nullptr)
     {
-        op1Range = GetRange(block, op1, monotonicallyIncreasing);
+        op1Range = GetRange(block, op1);
     }
     else if (op1RangeCached->lower.IsUndef())
     {
@@ -1097,7 +1099,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* expr, bool monot
 
     if (op2RangeCached == nullptr)
     {
-        op2Range = GetRange(block, op2, monotonicallyIncreasing);
+        op2Range = GetRange(block, op2);
     }
     else if (op2RangeCached->lower.IsUndef())
     {
@@ -1118,7 +1120,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* expr, bool monot
     return Add(op1Range, op2Range);
 }
 
-Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing)
+Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
 {
     ValueNum vn = vnStore->VNNormalValue(expr->GetConservativeVN());
     Range    range;
@@ -1138,7 +1140,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
     }
     else if (expr->OperIs(GT_COMMA))
     {
-        range = GetRange(block, expr->gtEffectiveVal(), monotonicallyIncreasing);
+        range = GetRange(block, expr->gtEffectiveVal());
     }
     else if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD))
     {
@@ -1146,11 +1148,11 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
     }
     else if (expr->OperIs(GT_ADD))
     {
-        range = ComputeAddRange(block, expr->AsOp(), monotonicallyIncreasing);
+        range = ComputeAddRange(block, expr->AsOp());
     }
     else if (GenTreeLclUse* use = expr->IsLclUse())
     {
-        range = ComputeLclUseRange(block, use, monotonicallyIncreasing);
+        range = ComputeLclUseRange(block, use);
     }
     else if (GenTreePhi* phi = expr->IsPhi())
     {
@@ -1161,7 +1163,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
 
             if (cachedRange == nullptr)
             {
-                useRange = GetRange(block, use.GetNode(), monotonicallyIncreasing);
+                useRange = GetRange(block, use.GetNode());
             }
             else if (cachedRange->lower.IsUndef())
             {
@@ -1207,7 +1209,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monotonica
     return range;
 }
 
-Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr, bool monotonicallyIncreasing)
+Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
 {
     JITDUMP("Range: " FMT_BB " ", block->bbNum);
     DBEXEC(compiler->verbose, compiler->gtDispTree(expr, nullptr, nullptr, true));
@@ -1235,7 +1237,7 @@ Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr, bool monotonicallyI
     }
     else
     {
-        range = ComputeRange(block, expr, monotonicallyIncreasing);
+        range = ComputeRange(block, expr);
 
         assert(!range.lower.IsUndef() && !range.upper.IsUndef());
     }
