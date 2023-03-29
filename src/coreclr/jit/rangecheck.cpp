@@ -504,6 +504,17 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
         }
     }
 
+    // TODO-CQ: The current implementation is reliant on integer storage types
+    // for constants. It could use INT64. Still, representing ULONG constants
+    // might require preserving the var_type whether it is a un/signed 64-bit.
+    // JIT64 doesn't do anything for "long" either. No asm diffs.
+    if (varActualType(indexExpr->GetType()) != TYP_INT)
+    {
+        JITDUMP("Optimize: Unsupported index type %s\n", varTypeName(indexExpr->GetType()));
+
+        return false;
+    }
+
     monotonicallyIncreasing = false;
     rangeMap.RemoveAll();
     Range range = GetRange(block, indexExpr);
@@ -1016,6 +1027,13 @@ Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use)
     JITDUMP("Range: " FMT_BB " ", block->bbNum);
     DBEXEC(compiler->verbose, compiler->gtDispTree(def, nullptr, nullptr, true));
 
+    // Uses may perform implicit LONG to INT truncation and possibly
+    // other weird conversions such as BYREF to INT, ignore for now.
+    if (varActualType(def->GetType()) != TYP_INT)
+    {
+        return Limit::Kind::Unknown;
+    }
+
     Range range = GetRange(def->GetBlock(), def->GetValue());
     MergeLclUseAssertions(block, use, &range);
     return range;
@@ -1023,8 +1041,7 @@ Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use)
 
 Range RangeCheck::ComputeBinOpRange(GenTreeOp* expr)
 {
-    assert(expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD));
-    assert(expr->TypeIs(TYP_INT));
+    assert(expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD) && expr->TypeIs(TYP_INT));
 
     GenTreeIntCon* op2 = expr->GetOp(1)->IsIntCon();
 
@@ -1069,7 +1086,7 @@ Range RangeCheck::ComputeBinOpRange(GenTreeOp* expr)
 
 Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* expr)
 {
-    assert(expr->OperIs(GT_ADD));
+    assert(expr->OperIs(GT_ADD) && expr->TypeIs(TYP_INT));
 
     GenTree*     op1            = expr->GetOp(0);
     const Range* op1RangeCached = rangeMap.LookupPointer(op1);
@@ -1122,19 +1139,12 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* expr)
 
 Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
 {
+    assert(varActualType(expr->GetType()) == TYP_INT);
+
     ValueNum vn = vnStore->VNNormalValue(expr->GetConservativeVN());
     Range    range;
 
-    // TODO-CQ: The current implementation is reliant on integer storage types
-    // for constants. It could use INT64. Still, representing ULONG constants
-    // might require preserving the var_type whether it is a un/signed 64-bit.
-    // JIT64 doesn't do anything for "long" either. No asm diffs.
-    if (expr->TypeIs(TYP_LONG, TYP_ULONG))
-    {
-        range = Range(Limit::Kind::Unknown);
-        JITDUMP("Range: LONG expressions not supported\n");
-    }
-    else if (vnStore->IsVNConstant(vn))
+    if (vnStore->IsVNConstant(vn))
     {
         range = vnStore->TypeOfVN(vn) == TYP_INT ? Limit(vnStore->ConstantValue<int>(vn)) : Limit(Limit::Kind::Unknown);
     }
