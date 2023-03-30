@@ -12,7 +12,7 @@ struct Limit
 {
     enum class Kind
     {
-        Undef,     // The limit is yet to be computed.
+        Undefined, // The limit is yet to be computed.
         VN,        // The limit is a value number + constant value.
         Const,     // The limit is a constant value.
         Dependent, // The limit is depends on some other value.
@@ -25,13 +25,13 @@ private:
     int      cns;
 
 public:
-    Limit() : kind(Kind::Undef)
+    Limit() : kind(Kind::Undefined)
     {
     }
 
     Limit(Kind kind) : kind(kind)
     {
-        assert((kind == Kind::Undef) || (kind == Kind::Dependent) || (kind == Kind::Unknown));
+        assert((kind == Kind::Undefined) || (kind == Kind::Dependent) || (kind == Kind::Unknown));
     }
 
     Limit(int cns) : kind(Kind::Const), vn(NoVN), cns(cns)
@@ -42,9 +42,9 @@ public:
     {
     }
 
-    bool IsUndef() const
+    bool IsUndefined() const
     {
-        return kind == Kind::Undef;
+        return kind == Kind::Undefined;
     }
 
     bool IsDependent() const
@@ -109,7 +109,7 @@ public:
     {
         switch (kind)
         {
-            case Kind::Undef:
+            case Kind::Undefined:
             case Kind::Unknown:
             case Kind::Dependent:
                 return l.kind == kind;
@@ -192,7 +192,7 @@ static Range Merge(const Range& r1, const Range& r2, bool monotonicallyIncreasin
 
     if (!min1.IsUnknown() && !min2.IsUnknown())
     {
-        if (min1.IsUndef())
+        if (min1.IsUndefined())
         {
             result.min = min2;
         }
@@ -222,7 +222,7 @@ static Range Merge(const Range& r1, const Range& r2, bool monotonicallyIncreasin
 
     if (!max1.IsUnknown() && !max2.IsUnknown())
     {
-        if (max1.IsUndef())
+        if (max1.IsUndefined())
         {
             result.max = max2;
         }
@@ -329,8 +329,8 @@ private:
             size_t len;
             int    c;
 
-            case Limit::Kind::Undef:
-                return "Undef";
+            case Limit::Kind::Undefined:
+                return "Undefined";
             case Limit::Kind::Unknown:
                 return "Unknown";
             case Limit::Kind::Dependent:
@@ -1099,7 +1099,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
     {
         op1Range = GetRange(block, op1);
     }
-    else if (op1RangeCached->min.IsUndef())
+    else if (op1RangeCached->min.IsUndefined())
     {
         op1Range = Range(Limit::Kind::Dependent);
 
@@ -1121,7 +1121,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
     {
         op2Range = GetRange(block, op2);
     }
-    else if (op2RangeCached->min.IsUndef())
+    else if (op2RangeCached->min.IsUndefined())
     {
         op2Range = Range(Limit::Kind::Dependent);
 
@@ -1153,7 +1153,7 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
         {
             useRange = GetRange(block, use.GetNode());
         }
-        else if (cachedRange->min.IsUndef())
+        else if (cachedRange->min.IsUndefined())
         {
             JITDUMP("Range: " FMT_BB " ", block->bbNum);
             DBEXEC(compiler->verbose, compiler->gtDispTree(use.GetNode(), nullptr, nullptr, true));
@@ -1239,7 +1239,7 @@ Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
         cachedRange = rangeMap.Emplace(expr, range);
         budget--;
     }
-    else if (!cachedRange->min.IsUndef())
+    else if (!cachedRange->min.IsUndefined())
     {
         JITDUMP("Range: Cached %s\n", ToString(*cachedRange));
 
@@ -1256,7 +1256,7 @@ Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
     {
         range = ComputeRange(block, expr);
 
-        assert(!range.min.IsUndef() && !range.max.IsUndef());
+        assert(!range.min.IsUndefined() && !range.max.IsUndefined());
     }
 
     *cachedRange = range;
