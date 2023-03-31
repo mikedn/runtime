@@ -72,7 +72,7 @@ class Instrumentor;        // defined in fgprofile.cpp
 class SpanningTreeVisitor; // defined in fgprofile.cpp
 class OptBoolsDsc;         // defined in optimizer.cpp
 #ifdef DEBUG
-struct IndentStack;
+class IndentStack;
 #endif
 struct LoopHoistContext;
 class SsaBuilder;
@@ -3558,16 +3558,16 @@ public:
 // Functions to display the trees
 
 #ifdef DEBUG
-    void gtDispNode(GenTree* tree, IndentStack* indentStack, __in_z const char* msg, bool isLIR);
+    void gtDispNode(GenTree* tree);
     void gtDispNodeHeader(GenTree* tree);
     int dmpNodeFlags(GenTree* node);
     int gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags);
     void gtDispConst(GenTree* tree);
-    void gtDispLeaf(GenTree* tree, IndentStack* indentStack);
-    void dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentStack);
-    void dmpSsaDefUse(GenTree* node, IndentStack* indentStack);
-    void dmpExtract(GenTreeExtract* extract, IndentStack* indentStack);
-    void dmpInsert(GenTreeInsert* insert, IndentStack* indentStack);
+    void gtDispLeaf(GenTree* tree);
+    void dmpLclVarCommon(GenTreeLclVarCommon* node);
+    void dmpSsaDefUse(GenTree* node);
+    void dmpExtract(GenTreeExtract* extract);
+    void dmpInsert(GenTreeInsert* insert);
     void dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to);
     void gtDispNodeName(GenTree* tree);
     void dmpNodeRegs(GenTree* node);
@@ -3575,24 +3575,8 @@ public:
     void gtDispZeroFieldSeq(GenTree* tree);
     void gtDispVN(GenTree* tree);
     void gtDispCommonEndLine(GenTree* tree);
-
-    enum IndentInfo
-    {
-        IINone,
-        IIArc,
-        IIArcBottom
-    };
-
-    void gtDispChild(GenTree*             child,
-                     IndentStack*         indentStack,
-                     IndentInfo           arcType,
-                     __in_opt const char* msg     = nullptr,
-                     bool                 topOnly = false);
-    void gtDispTree(GenTree*             tree,
-                    IndentStack*         indentStack = nullptr,
-                    __in_opt const char* msg         = nullptr,
-                    bool                 topOnly     = false,
-                    bool                 isLIR       = false);
+    void gtDispTree(GenTree* tree, bool header = true, bool operands = true);
+    void gtDispTreeRec(GenTree* tree, IndentStack* indentStack, const char* msg, bool topOnly, bool isLIR, bool header);
     void gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, const char** ilNameOut, unsigned* ilNumOut);
     int gtGetLclVarName(unsigned lclNum, char* buf, unsigned buf_remaining);
     int dmpLclName(unsigned lclNum);

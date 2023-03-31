@@ -3979,7 +3979,7 @@ GenTree* Importer::impArrayAccessIntrinsic(
 
     // The rank 1 case is special because it has to handle two array formats
     // we will simply not do that case
-    if (rank > GT_ARR_MAX_RANK || rank <= 1)
+    if ((rank > GenTreeArrElem::MaxRank) || (rank <= 1))
     {
         return nullptr;
     }
@@ -4037,10 +4037,8 @@ GenTree* Importer::impArrayAccessIntrinsic(
         elemSize = genTypeSize(elemType);
     }
 
-    if (static_cast<unsigned char>(elemSize) != elemSize)
+    if (elemSize > GenTreeArrElem::MaxElemSize)
     {
-        // elemSize would be truncated as an unsigned char.
-        // This means the array element is too large. Don't do the optimization.
         return nullptr;
     }
 
@@ -4061,9 +4059,7 @@ GenTree* Importer::impArrayAccessIntrinsic(
                (elemType == TYP_DOUBLE && val->gtType == TYP_FLOAT));
     }
 
-    noway_assert((unsigned char)GT_ARR_MAX_RANK == GT_ARR_MAX_RANK);
-
-    GenTree* inds[GT_ARR_MAX_RANK];
+    GenTree* inds[GenTreeArrElem::MaxRank];
     for (unsigned k = rank; k > 0; k--)
     {
         inds[k - 1] = impPopStack().val;
@@ -4072,8 +4068,7 @@ GenTree* Importer::impArrayAccessIntrinsic(
     GenTree* arr = impPopStack().val;
     assert(arr->gtType == TYP_REF);
 
-    GenTree* arrElem = new (comp, GT_ARR_ELEM) GenTreeArrElem(TYP_BYREF, arr, static_cast<unsigned char>(rank),
-                                                              static_cast<unsigned char>(elemSize), elemType, &inds[0]);
+    GenTree* arrElem = new (comp, GT_ARR_ELEM) GenTreeArrElem(TYP_BYREF, arr, rank, elemSize, elemType, inds);
 
     if (name != NI_CORINFO_INTRINSIC_Array_Address)
     {

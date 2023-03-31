@@ -5980,31 +5980,29 @@ struct GenTreeBoundsChk : public GenTree
 #endif
 };
 
-// GenTreeArrElem - bounds checked address (byref) of a general array element,
-//    for multidimensional arrays, or 1-d arrays with non-zero lower bounds.
-//
 struct GenTreeArrElem : public GenTree
 {
-    GenTree* gtArrObj;
+    static constexpr unsigned MaxRank     = 3;
+    static constexpr unsigned MaxElemSize = UINT8_MAX;
 
-#define GT_ARR_MAX_RANK 3
-    GenTree*      gtArrInds[GT_ARR_MAX_RANK]; // Indices
-    unsigned char gtArrRank;                  // Rank of the array
+    GenTree*  gtArrObj;
+    GenTree*  gtArrInds[MaxRank];
+    uint8_t   gtArrRank;
+    uint8_t   gtArrElemSize;
+    var_types gtArrElemType;
 
-    unsigned char gtArrElemSize; // !!! Caution, this is an "unsigned char", it is used only
-                                 // on the optimization path of array intrisics.
-                                 // It stores the size of array elements WHEN it can fit
-                                 // into an "unsigned char".
-                                 // This has caused VSW 571394.
-    var_types gtArrElemType;     // The array element type
-
-    // Requires that "inds" is a pointer to an array of "rank" nodes for the indices.
-    GenTreeArrElem(
-        var_types type, GenTree* arr, unsigned char rank, unsigned char elemSize, var_types elemType, GenTree** inds)
-        : GenTree(GT_ARR_ELEM, type), gtArrObj(arr), gtArrRank(rank), gtArrElemSize(elemSize), gtArrElemType(elemType)
+    GenTreeArrElem(var_types type, GenTree* arr, unsigned rank, unsigned elemSize, var_types elemType, GenTree** inds)
+        : GenTree(GT_ARR_ELEM, type)
+        , gtArrObj(arr)
+        , gtArrRank(static_cast<uint8_t>(rank))
+        , gtArrElemSize(static_cast<uint8_t>(elemSize))
+        , gtArrElemType(elemType)
     {
+        assert(rank <= MaxRank);
+        assert(elemSize <= MaxElemSize);
+
         gtFlags |= (arr->gtFlags & GTF_ALL_EFFECT);
-        for (unsigned char i = 0; i < rank; i++)
+        for (unsigned i = 0; i < rank; i++)
         {
             gtArrInds[i] = inds[i];
             gtFlags |= (inds[i]->gtFlags & GTF_ALL_EFFECT);
@@ -6012,15 +6010,35 @@ struct GenTreeArrElem : public GenTree
         gtFlags |= GTF_EXCEPT;
     }
 
+    unsigned GetRank() const
+    {
+        return static_cast<unsigned>(gtArrRank);
+    }
+
     GenTree* GetArray() const
     {
         return gtArrObj;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeArrElem() : GenTree()
+    GenTree* GetIndex(unsigned i) const
     {
+        assert(i < gtArrRank);
+        return gtArrInds[i];
     }
+
+    unsigned GetNumOps() const
+    {
+        return 1 + gtArrRank;
+    }
+
+    GenTree* GetOp(unsigned i) const
+    {
+        assert(i <= gtArrRank);
+        return i == 0 ? gtArrObj : gtArrInds[i - 1];
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeArrElem() = default;
 #endif
 };
 
@@ -6053,40 +6071,32 @@ struct GenTreeArrElem : public GenTree
 //
 struct GenTreeArrIndex : public GenTreeOp
 {
-    // The array object - may be any expression producing an Array reference, but is likely to be a lclVar.
-    GenTree*& ArrObj()
-    {
-        return gtOp1;
-    }
-    // The index expression - may be any integral expression.
-    GenTree*& IndexExpr()
-    {
-        return gtOp2;
-    }
-    unsigned char gtCurrDim;     // The current dimension
-    unsigned char gtArrRank;     // Rank of the array
-    var_types     gtArrElemType; // The array element type
+    uint8_t   gtCurrDim;
+    uint8_t   gtArrRank;
+    var_types gtArrElemType;
 
-    GenTreeArrIndex(var_types     type,
-                    GenTree*      arrObj,
-                    GenTree*      indexExpr,
-                    unsigned char currDim,
-                    unsigned char arrRank,
-                    var_types     elemType)
+    GenTreeArrIndex(
+        var_types type, GenTree* arrObj, GenTree* indexExpr, unsigned currDim, unsigned arrRank, var_types elemType)
         : GenTreeOp(GT_ARR_INDEX, type, arrObj, indexExpr)
-        , gtCurrDim(currDim)
-        , gtArrRank(arrRank)
+        , gtCurrDim(static_cast<uint8_t>(currDim))
+        , gtArrRank(static_cast<uint8_t>(arrRank))
         , gtArrElemType(elemType)
     {
         gtFlags |= GTF_EXCEPT;
     }
-#if DEBUGGABLE_GENTREE
-protected:
-    friend GenTree;
-    // Used only for GenTree::GetVtableForOper()
-    GenTreeArrIndex() : GenTreeOp()
+
+    GenTree*& ArrObj()
     {
+        return gtOp1;
     }
+
+    GenTree*& IndexExpr()
+    {
+        return gtOp2;
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeArrIndex() = default;
 #endif
 };
 
@@ -6120,20 +6130,20 @@ protected:
 //
 struct GenTreeArrOffs : public GenTreeTernaryOp
 {
-    unsigned char gtCurrDim;     // The current dimension
-    unsigned char gtArrRank;     // Rank of the array
-    var_types     gtArrElemType; // The array element type
+    uint8_t   gtCurrDim;
+    uint8_t   gtArrRank;
+    var_types gtArrElemType;
 
-    GenTreeArrOffs(var_types     type,
-                   GenTree*      offset,
-                   GenTree*      index,
-                   GenTree*      arrObj,
-                   unsigned char currDim,
-                   unsigned char rank,
-                   var_types     elemType)
+    GenTreeArrOffs(var_types type,
+                   GenTree*  offset,
+                   GenTree*  index,
+                   GenTree*  arrObj,
+                   unsigned  currDim,
+                   unsigned  rank,
+                   var_types elemType)
         : GenTreeTernaryOp(GT_ARR_OFFSET, type, offset, index, arrObj)
-        , gtCurrDim(currDim)
-        , gtArrRank(rank)
+        , gtCurrDim(static_cast<uint8_t>(currDim))
+        , gtArrRank(static_cast<uint8_t>(rank))
         , gtArrElemType(elemType)
     {
         assert(index->gtFlags & GTF_EXCEPT);
@@ -6167,13 +6177,9 @@ struct GenTreeArrOffs : public GenTreeTernaryOp
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeArrOffs() : GenTreeTernaryOp()
-    {
-    }
+    GenTreeArrOffs() = default;
 #endif
 };
-
-/* gtAddrMode -- Target-specific canonicalized addressing expression (GT_LEA) */
 
 struct GenTreeAddrMode : public GenTreeOp
 {

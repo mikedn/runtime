@@ -15116,7 +15116,7 @@ void Compiler::AddZeroOffsetFieldSeq(GenTree* addr, FieldSeqNode* fieldSeq)
         printf("\nAddZeroOffsetFieldSeq ");
         dmpFieldSeqFields(fieldSeq);
         printf(" to address\n");
-        gtDispTree(addr, nullptr, nullptr, true, false);
+        gtDispTree(addr, true, false);
     }
 #endif
 

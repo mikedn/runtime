@@ -1581,7 +1581,7 @@ public:
 
             printf("\n    ");
 
-            compiler->gtDispTree(expr, nullptr, nullptr, true);
+            compiler->gtDispTree(expr, true, false);
         }
 
         printf("\n");

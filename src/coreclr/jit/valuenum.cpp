@@ -8413,22 +8413,14 @@ void Compiler::fgValueNumberTree(GenTree* tree)
     }
 
 #ifdef DEBUG
-    if (verbose)
+    if (verbose && (tree->GetLiberalVN() != NoVN))
     {
-        if (tree->gtVNPair.GetLiberal() != ValueNumStore::NoVN)
-        {
-            printf("[%06u] ", tree->GetID());
-            gtDispNodeName(tree);
-            if (tree->OperIsLeaf())
-            {
-                gtDispLeaf(tree, nullptr);
-            }
-            printf(" => ");
-            vnpPrint(tree->gtVNPair, 1);
-            printf("\n");
-        }
+        gtDispTree(tree, false, false);
+        printf("        = ");
+        vnpPrint(tree->GetVNP(), 1);
+        printf("\n");
     }
-#endif // DEBUG
+#endif
 }
 
 void Compiler::vnIntrinsic(GenTreeIntrinsic* intrinsic)

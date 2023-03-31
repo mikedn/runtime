@@ -69,7 +69,7 @@ public:
     }
 
     // Return the i'th element from the top
-    T Top(unsigned i = 0)
+    T Top(unsigned i = 0) const
     {
         assert(i < m_size);
         return m_data[m_size - 1 - i];

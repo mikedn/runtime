@@ -8904,7 +8904,7 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
         compiler->gtDispNodeName(tree);
         if (tree->OperIsLeaf())
         {
-            compiler->gtDispLeaf(tree, nullptr);
+            compiler->gtDispLeaf(tree);
         }
     }
 }

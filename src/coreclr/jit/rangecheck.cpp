@@ -489,7 +489,7 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
         currentLengthVN = lengthVN;
     }
 
-    JITDUMP("Optimize: " FMT_VN " value %d\n", lengthVN, lengthVal);
+    JITDUMP("Optimize: Length " FMT_VN " value %d\n", lengthVN, lengthVal);
 
     if (vnStore->IsVNConstant(indexVN) && (lengthVal > 0))
     {
@@ -568,7 +568,7 @@ bool RangeCheck::IsAddMonotonicallyIncreasing(GenTreeOp* expr)
 
     if (!op1->IsLclUse())
     {
-        JITDUMP("Not monotonically increasing because op1 is not LCL_USE.\n");
+        JITDUMP("Monotony: Not monotonically increasing because op1 is not LCL_USE.\n");
         return false;
     }
 
@@ -582,7 +582,7 @@ bool RangeCheck::IsAddMonotonicallyIncreasing(GenTreeOp* expr)
         return (con->GetValue() >= 0) && IsMonotonicallyIncreasing(op1, false);
     }
 
-    JITDUMP("Not monotonically increasing because expression is not recognized.\n");
+    JITDUMP("Monotony: Not monotonically increasing because expression is not recognized.\n");
 
     return false;
 }
@@ -607,8 +607,8 @@ bool RangeCheck::IsPhiMonotonicallyIncreasing(GenTreePhi* phi, bool rejectNegati
 
 bool RangeCheck::IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeConst)
 {
-    JITDUMP("MonotonicallyIncreasing: ");
-    DBEXEC(compiler->verbose, compiler->gtDispTree(expr, nullptr, nullptr, true));
+    JITDUMP("Monotony: ");
+    DBEXEC(compiler->verbose, compiler->gtDispTree(expr, false, false));
 
     if (!searchPath.Add(expr))
     {
@@ -692,7 +692,7 @@ bool RangeCheck::ComputeOverflow()
         GenTree* node = pair.key;
 
         JITDUMP("Overflow: ");
-        DBEXEC(compiler->verbose, compiler->gtDispTree(node, nullptr, nullptr, true));
+        DBEXEC(compiler->verbose, compiler->gtDispTree(node, false, false));
 
         if (node->OperIs(GT_ADD))
         {
@@ -933,6 +933,8 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             }
         }
 
+        JITDUMP("Assertion: %s -> ", ToString(*range));
+
         switch (cmpOper)
         {
             case GT_LT:
@@ -951,7 +953,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
                 break;
         }
 
-        JITDUMP("Assertion: Range after edge merging: %s\n", ToString(*range));
+        JITDUMP("%s\n", ToString(*range));
     }
 }
 
@@ -977,10 +979,6 @@ void RangeCheck::MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Ra
     if (!BitVecOps::MayBeUninit(assertions))
     {
         ValueNum valueVN = vnStore->VNNormalValue(use->GetDef()->GetConservativeVN());
-
-        JITDUMP("Range: Merging assertions for def [%06u] " FMT_VN " from " FMT_BB " predecessor of " FMT_BB "  \n",
-                use->GetDef()->GetID(), valueVN, pred->bbNum, block->bbNum);
-
         MergeEdgeAssertions(valueVN, assertions, range);
     }
 }
@@ -993,10 +991,6 @@ void RangeCheck::MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Ra
     if (!BitVecOps::MayBeUninit(assertions))
     {
         ValueNum valueVN = vnStore->VNNormalValue(def->GetConservativeVN());
-
-        JITDUMP("Range: Merging assertions for def [%06u] " FMT_VN " from predecessors of " FMT_BB "\n", def->GetID(),
-                valueVN, block->bbNum);
-
         MergeEdgeAssertions(valueVN, assertions, range);
     }
 }
@@ -1006,7 +1000,7 @@ Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use)
     GenTreeLclDef* def = use->GetDef();
 
     JITDUMP("Range: " FMT_BB " ", block->bbNum);
-    DBEXEC(compiler->verbose, compiler->gtDispTree(def, nullptr, nullptr, true));
+    DBEXEC(compiler->verbose, compiler->gtDispTree(def, false, false));
 
     // Uses may perform implicit LONG to INT truncation and possibly
     // other weird conversions such as BYREF to INT, ignore for now.
@@ -1113,7 +1107,8 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
         op2Range = *op2RangeCached;
     }
 
-    JITDUMP("Range: ADD(%s, %s)\n", ToString(op1Range), ToString(op2Range));
+    JITDUMP("Range: " FMT_BB " [%06u] ADD %s, %s\n", block->bbNum, add->GetID(), ToString(op1Range),
+            ToString(op2Range));
 
     return Add(op1Range, op2Range);
 }
@@ -1134,7 +1129,7 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
         else if (cachedRange->min.IsUndefined())
         {
             JITDUMP("Range: " FMT_BB " ", block->bbNum);
-            DBEXEC(compiler->verbose, compiler->gtDispTree(use.GetNode(), nullptr, nullptr, true));
+            DBEXEC(compiler->verbose, compiler->gtDispTree(use.GetNode(), false, false));
             JITDUMP("Range: Already being computed\n");
 
             useRange = Range(Limit::Kind::Dependent);
@@ -1146,7 +1141,9 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
 
         MergePhiArgAssertions(block, use.GetNode(), &useRange);
 
-        JITDUMP("Range: PHI(%s, %s)\n", ToString(range), ToString(useRange));
+        JITDUMP("Range: " FMT_BB " [%06u] PHI %s, %s\n", block->bbNum, phi->GetID(), ToString(range),
+                ToString(useRange));
+
         range = Merge(range, useRange, monotonicallyIncreasing);
     }
 
@@ -1207,7 +1204,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
 Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
 {
     JITDUMP("Range: " FMT_BB " ", block->bbNum);
-    DBEXEC(compiler->verbose, compiler->gtDispTree(expr, nullptr, nullptr, true));
+    DBEXEC(compiler->verbose, compiler->gtDispTree(expr, false, false));
 
     Range* cachedRange = rangeMap.LookupPointer(expr);
     Range  range;

@@ -458,7 +458,7 @@ const bool dspGCtbls = true;
     }
 #define DISPNODE(t)                                                                                                    \
     if (JitTls::GetCompiler()->verbose)                                                                                \
-        JitTls::GetCompiler()->gtDispTree(t, nullptr, nullptr, true);
+        JitTls::GetCompiler()->gtDispLIRNode(t);
 #define DISPTREE(t)                                                                                                    \
     if (JitTls::GetCompiler()->verbose)                                                                                \
         JitTls::GetCompiler()->gtDispTree(t);
