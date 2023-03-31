@@ -74,6 +74,7 @@ public:
 
     ValueNum GetVN() const
     {
+        assert(IsConstant() || IsVN()); // For constant limits we return NoVN.
         return vn;
     }
 
@@ -454,8 +455,6 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
     ValueNum lengthVN   = vnStore->VNNormalValue(lengthExpr->GetConservativeVN());
     int      lengthVal  = 0;
 
-    currentLengthVN = lengthVN;
-
     if (vnStore->IsVNConstant(lengthVN))
     {
         ssize_t      constVal   = -1;
@@ -465,6 +464,8 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
         {
             lengthVal = static_cast<int>(constVal);
         }
+
+        currentLengthVN = NoVN;
     }
     else
     {
@@ -484,6 +485,8 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
                 lengthVal = lengthRange.min.GetConstant();
             }
         }
+
+        currentLengthVN = lengthVN;
     }
 
     JITDUMP("Optimize: " FMT_VN " value %d\n", lengthVN, lengthVal);
@@ -845,16 +848,13 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             continue;
         }
 
-        // Make sure the assertion is of the form != 0 or == 0 if it isn't a constant assertion.
         assert(isConstantAssertion || assertion.IsRange() || (assertion.GetConstantVN() == vnStore->VNForIntCon(0)));
-
         assert(limit.IsVN() || limit.IsConstant());
 
         JITDUMP("Assertion: ");
         DBEXEC(compiler->verbose, compiler->apDumpBoundsAssertion(assertion);)
 
-        // Limits are sometimes made with the form vn + constant, where vn is a known constant
-        // see if we can simplify this to just a constant
+        // Limits are sometimes VN + constant, where VN is also constant.
         if (limit.IsVN() && vnStore->IsVNInt32Constant(limit.GetVN()))
         {
             Limit tempLimit = vnStore->ConstantValue<int>(limit.GetVN());
@@ -863,16 +863,6 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             {
                 limit = tempLimit;
             }
-        }
-
-        ValueNum lengthVN = currentLengthVN;
-
-        if (vnStore->IsVNConstant(lengthVN))
-        {
-            // Set lengthVN to NoVN; this will make it match the "vn" recorded on
-            // constant limits (where we explicitly track the constant and don't
-            // redundantly store its VN in the "vn" field).
-            lengthVN = NoVN;
         }
 
         // During assertion prop we add assertions of the form:
@@ -899,62 +889,50 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
 
         assert(cmpOper != GT_NONE);
 
-        // Bounds are inclusive, so add -1 for upper bound when "<". But make sure we won't underflow.
+        // Ranges are inclusive, adjust limit as needed.
         if ((cmpOper == GT_LT) && !limit.AddConstant(-1))
         {
             continue;
         }
-        // Bounds are inclusive, so add +1 for lower bound when ">". But make sure we won't overflow.
+
         if ((cmpOper == GT_GT) && !limit.AddConstant(1))
         {
             continue;
         }
 
-        // Doesn't tighten the current bound. So skip.
-        if (range->max.IsConstant() && (limit.GetVN() != lengthVN))
+        // Ignore assertions that are redundant or unlikely to be useful (e.g. if we already have
+        // "i < a.len + 2" then "i < a.len + 3" is redundant, if the a.len is constant then non
+        // constant limits aren't useful).
+        //
+        // TODO-MIKE-Review: If the limit is constant shouldn't we be checking for redundant cases,
+        // like "i < 2" and then "i < 3"? Also, even if the a.len is constant a VN based assertion
+        // could still provide some useful info - length VNs are known to be positive.
+        // For VN assertions involving different VNs - could "i < a1.len + 1" be better than
+        // "i < a2.len + 2" because it's less likely to overflow?
+        // Why is range->max being checked even if the limit is intended for range->min?
+        if (range->max.IsConstant())
         {
-            continue;
-        }
-
-        // Check if the incoming limit from assertions tightens the existing upper limit.
-        if (range->max.IsVN() && (range->max.GetVN() == lengthVN))
-        {
-            // We have checked the current range's (pRange's) upper limit is either of the form:
-            //      length + cns
-            //      and length == the bndsChkCandidate's arrLen
-            //
-            // We want to check if the incoming limit tightens the bound, and for that
-            // we need to make sure that incoming limit is also on the same length (or
-            // length + cns) and not some other length.
-
-            if (limit.GetVN() != lengthVN)
+            if (limit.GetVN() != currentLengthVN)
             {
-                JITDUMP("Assertion: Length VNs did not match: length " FMT_VN ", limit " FMT_VN "\n", lengthVN,
-                        limit.GetVN());
-
-                continue;
-            }
-
-            int curCns = range->max.GetConstant();
-            int limCns = limit.IsVN() ? limit.GetConstant() : 0;
-
-            // Incoming limit doesn't tighten the existing upper limit.
-            if (limCns >= curCns)
-            {
-                JITDUMP("Assertion: Bound limit %d doesn't tighten current bound %d\n", limCns, curCns);
+                JITDUMP("Assertion: limit " FMT_VN " != length " FMT_VN "\n", limit.GetVN(), currentLengthVN);
                 continue;
             }
         }
-        else
+        else if (range->max.IsVN() && (range->max.GetVN() == currentLengthVN))
         {
-            // Current range's upper bound is not "length + cns" and the
-            // incoming limit is not on the same length as the bounds check candidate.
-            // So we could skip this assertion. But in cases, of Dependent or Unknown
-            // type of upper limit, the incoming assertion still tightens the upper
-            // bound to a saner value. So do not skip the assertion.
+            if (limit.GetVN() != currentLengthVN)
+            {
+                JITDUMP("Assertion: limit " FMT_VN " != length " FMT_VN "\n", limit.GetVN(), currentLengthVN);
+                continue;
+            }
+
+            if (limit.GetConstant() >= range->max.GetConstant())
+            {
+                JITDUMP("Assertion: limit VN + %d >= max VN + %d\n", limit.GetConstant(), range->max.GetConstant());
+                continue;
+            }
         }
 
-        // cmpOp (loop index i) cmpOper len +/- cns
         switch (cmpOper)
         {
             case GT_LT:
