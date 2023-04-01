@@ -453,18 +453,12 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
     ValueNum indexVN    = vnStore->VNNormalValue(indexExpr->GetConservativeVN());
     GenTree* lengthExpr = boundsChk->GetLength();
     ValueNum lengthVN   = vnStore->VNNormalValue(lengthExpr->GetConservativeVN());
-    int      lengthVal  = 0;
+    int      lengthVal;
+    ssize_t  constVal;
 
-    if (vnStore->IsVNConstant(lengthVN))
+    if (vnStore->IsIntegralConstant(lengthVN, &constVal))
     {
-        ssize_t      constVal   = -1;
-        GenTreeFlags constFlags = GTF_EMPTY;
-
-        if (vnStore->IsVNIntegralConstant(lengthVN, &constVal, &constFlags))
-        {
-            lengthVal = static_cast<int>(constVal);
-        }
-
+        lengthVal       = static_cast<int>(constVal);
         currentLengthVN = NoVN;
     }
     else
@@ -491,16 +485,8 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
 
     JITDUMP("Optimize: Length " FMT_VN " value %d\n", lengthVN, lengthVal);
 
-    if (vnStore->IsVNConstant(indexVN) && (lengthVal > 0))
+    if ((lengthVal > 0) && vnStore->IsIntegralConstant(indexVN, &constVal))
     {
-        ssize_t      constVal   = -1;
-        GenTreeFlags constFlags = GTF_EMPTY;
-
-        if (!vnStore->IsVNIntegralConstant(indexVN, &constVal, &constFlags))
-        {
-            return false;
-        }
-
         JITDUMP("Optimize: Constant index %d " FMT_VN " in [0, %d " FMT_VN ").\n", constVal, indexVN, lengthVal,
                 lengthVN);
 

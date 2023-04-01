@@ -528,7 +528,7 @@ public:
     // If "vn" is a "VNF_ValWithExc(norm, excSet)" value, returns the "norm" argument; otherwise,
     // just returns "vn".
     // The Normal value is the value number of the expression when no exceptions occurred
-    ValueNum VNNormalValue(ValueNum vn);
+    ValueNum VNNormalValue(ValueNum vn) const;
 
     // Given a "vnp", get the ValueNum kind based upon vnk,
     // then call VNNormalValue on that ValueNum
@@ -651,18 +651,16 @@ public:
     // they have been returned by previous "VNFor..." operations.  They can assert false if this is
     // not true.
 
-    var_types TypeOfVN(ValueNum vn);
+    var_types TypeOfVN(ValueNum vn) const;
 
     // Returns BasicBlock::MAX_LOOP_NUM if the given value number's loop nest is unknown or ill-defined.
     BasicBlock::loopNumber LoopOfVN(ValueNum vn);
 
     // Returns true iff the VN represents a (non-handle) constant.
-    bool IsVNConstant(ValueNum vn);
-
-    bool IsVNIntegralConstant(ValueNum vn, ssize_t* value, GenTreeFlags* flags);
-
-    // Returns true iff the VN represents an integer constant.
-    bool IsVNInt32Constant(ValueNum vn);
+    var_types GetConstantType(ValueNum vn) const;
+    bool IsVNConstant(ValueNum vn) const;
+    bool IsVNInt32Constant(ValueNum vn) const;
+    bool IsIntegralConstant(ValueNum vn, ssize_t* value) const;
 
     typedef SmallHashTable<ValueNum, bool, 8U> CheckedBoundVNSet;
 
@@ -733,10 +731,10 @@ public:
     void GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, CompareCheckedBoundArithInfo* info);
 
     // Returns the flags on the current handle. GTF_ICON_CLASS_HDL for example.
-    GenTreeFlags GetHandleFlags(ValueNum vn);
+    GenTreeFlags GetHandleFlags(ValueNum vn) const;
 
     // Returns true iff the VN represents a handle constant.
-    bool IsVNHandle(ValueNum vn);
+    bool IsVNHandle(ValueNum vn) const;
 
     // Convert a vartype_t to the value number's storage type for that vartype_t.
     // For example, ValueNum of type TYP_LONG are stored in a map of INT64 variables.
@@ -754,10 +752,10 @@ private:
 
     // Get the actual value and coerce the actual type c->m_typ to the wanted type T.
     template <typename T>
-    FORCEINLINE T SafeGetConstantValue(Chunk* c, unsigned offset);
+    FORCEINLINE T SafeGetConstantValue(Chunk* c, unsigned offset) const;
 
     template <typename T>
-    T ConstantValueInternal(ValueNum vn DEBUGARG(bool coerce))
+    T ConstantValueInternal(ValueNum vn DEBUGARG(bool coerce)) const
     {
         Chunk* c = m_chunks.Get(GetChunkNum(vn));
         assert(c->m_attribs == CEA_Const || c->m_attribs == CEA_Handle);
@@ -836,7 +834,7 @@ public:
     // Requires that "vn" is a constant, and that its type is compatible with the explicitly passed
     // type "T". Also, note that "T" has to have an accurate storage size of the TypeOfVN(vn).
     template <typename T>
-    T ConstantValue(ValueNum vn)
+    T ConstantValue(ValueNum vn) const
     {
         return ConstantValueInternal<T>(vn DEBUGARG(false));
     }
@@ -844,7 +842,7 @@ public:
     // Requires that "vn" is a constant, and that its type can be coerced to the explicitly passed
     // type "T".
     template <typename T>
-    T CoercedConstantValue(ValueNum vn)
+    T CoercedConstantValue(ValueNum vn) const
     {
         return ConstantValueInternal<T>(vn DEBUGARG(true));
     }
@@ -872,7 +870,7 @@ public:
 
     // If "vn" represents a function application, returns "true" and set "*funcApp" to
     // the function application it represents; otherwise, return "false."
-    VNFunc GetVNFunc(ValueNum vn, VNFuncApp* funcApp);
+    VNFunc GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const;
 
     // Returns "true" iff "vn" is a valid value number -- one that has been previously returned.
     bool VNIsValid(ValueNum vn);
@@ -1364,7 +1362,7 @@ struct ValueNumStore::VarTypConv<TYP_REF>
 
 // Get the actual value and coerce the actual type c->m_typ to the wanted type T.
 template <typename T>
-FORCEINLINE T ValueNumStore::SafeGetConstantValue(Chunk* c, unsigned offset)
+FORCEINLINE T ValueNumStore::SafeGetConstantValue(Chunk* c, unsigned offset) const
 {
     switch (c->m_typ)
     {

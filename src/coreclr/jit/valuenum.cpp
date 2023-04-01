@@ -1345,17 +1345,10 @@ ValueNumPair ValueNumStore::VNPUnionExcSet(ValueNumPair vnpWx, ValueNumPair vnpE
 //                 a VN func with VNF_ValWithExc.
 //                 This VN func has the normal value as m_args[0]
 //
-ValueNum ValueNumStore::VNNormalValue(ValueNum vn)
+ValueNum ValueNumStore::VNNormalValue(ValueNum vn) const
 {
     VNFuncApp funcApp;
-    if (GetVNFunc(vn, &funcApp) && funcApp.m_func == VNF_ValWithExc)
-    {
-        return funcApp.m_args[0];
-    }
-    else
-    {
-        return vn;
-    }
+    return GetVNFunc(vn, &funcApp) && (funcApp.m_func == VNF_ValWithExc) ? funcApp[0] : vn;
 }
 
 //--------------------------------------------------------------------------------
@@ -5690,17 +5683,6 @@ ValueNum Compiler::vnMemoryLoad(var_types type, ValueNum addrVN)
     return vnStore->VNForFunc(type, VNF_MemLoad, typeVN, addrVN, memoryVN);
 }
 
-var_types ValueNumStore::TypeOfVN(ValueNum vn)
-{
-    if (vn == NoVN)
-    {
-        return TYP_UNDEF;
-    }
-
-    Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    return c->m_typ;
-}
-
 //------------------------------------------------------------------------
 // LoopOfVN: If the given value number is VNF_MemOpaque, VNF_MapStore, or
 //    VNF_MemoryPhiDef, return the loop number where the memory update occurs,
@@ -5735,29 +5717,52 @@ BasicBlock::loopNumber ValueNumStore::LoopOfVN(ValueNum vn)
     return BasicBlock::MAX_LOOP_NUM;
 }
 
-bool ValueNumStore::IsVNConstant(ValueNum vn)
+var_types ValueNumStore::TypeOfVN(ValueNum vn) const
 {
-    if (vn == NoVN)
+    return vn == NoVN ? TYP_UNDEF : m_chunks.Get(GetChunkNum(vn))->m_typ;
+}
+
+var_types ValueNumStore::GetConstantType(ValueNum vn) const
+{
+    if ((vn == NoVN) || (vn == VNForVoid()))
     {
-        return false;
+        return TYP_UNDEF;
     }
+
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    if (c->m_attribs == CEA_Const)
-    {
-        return vn != VNForVoid(); // Void is not a "real" constant -- in the sense that it represents no value.
-    }
-    else
-    {
-        return c->m_attribs == CEA_Handle;
-    }
+    return (c->m_attribs == CEA_Const || c->m_attribs == CEA_Handle) ? c->m_typ : TYP_UNDEF;
 }
 
-bool ValueNumStore::IsVNInt32Constant(ValueNum vn)
+bool ValueNumStore::IsVNConstant(ValueNum vn) const
 {
-    return IsVNConstant(vn) && (TypeOfVN(vn) == TYP_INT);
+    return GetConstantType(vn) != TYP_UNDEF;
 }
 
-GenTreeFlags ValueNumStore::GetHandleFlags(ValueNum vn)
+bool ValueNumStore::IsVNInt32Constant(ValueNum vn) const
+{
+    return GetConstantType(vn) == TYP_INT;
+}
+
+bool ValueNumStore::IsIntegralConstant(ValueNum vn, ssize_t* value) const
+{
+    assert(vn == VNNormalValue(vn));
+
+    switch (GetConstantType(vn))
+    {
+        case TYP_INT:
+            *value = ConstantValue<int32_t>(vn);
+            return true;
+#ifdef TARGET_64BIT
+        case TYP_LONG:
+            *value = ConstantValue<int64_t>(vn);
+            return true;
+#endif
+        default:
+            return false;
+    }
+}
+
+GenTreeFlags ValueNumStore::GetHandleFlags(ValueNum vn) const
 {
     assert(IsVNHandle(vn));
     Chunk*    c      = m_chunks.Get(GetChunkNum(vn));
@@ -5766,15 +5771,9 @@ GenTreeFlags ValueNumStore::GetHandleFlags(ValueNum vn)
     return handle->m_flags;
 }
 
-bool ValueNumStore::IsVNHandle(ValueNum vn)
+bool ValueNumStore::IsVNHandle(ValueNum vn) const
 {
-    if (vn == NoVN)
-    {
-        return false;
-    }
-
-    Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    return c->m_attribs == CEA_Handle;
+    return (vn != NoVN) && (m_chunks.Get(GetChunkNum(vn))->m_attribs == CEA_Handle);
 }
 
 bool ValueNumStore::IsVNCompareCheckedBound(const VNFuncApp& funcApp)
@@ -6404,7 +6403,7 @@ ValueNum ValueNumStore::EvalMathFuncBinary(var_types typ, NamedIntrinsic gtMathF
     }
 }
 
-VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
+VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const
 {
     if (vn == NoVN)
     {
@@ -9670,36 +9669,6 @@ void Compiler::vnAddNodeExceptionSet(GenTree* node)
             return;
         default:
             unreached();
-    }
-}
-
-bool ValueNumStore::IsVNIntegralConstant(ValueNum vn, ssize_t* value, GenTreeFlags* flags)
-{
-    assert(vn == VNNormalValue(vn));
-
-    if (!IsVNConstant(vn))
-    {
-        return false;
-    }
-
-    switch (TypeOfVN(vn))
-    {
-        case TYP_INT:
-            *value = ConstantValue<int32_t>(vn);
-            *flags = IsVNHandle(vn) ? GetHandleFlags(vn) : GTF_EMPTY;
-
-            return true;
-
-#ifdef TARGET_64BIT
-        case TYP_LONG:
-            *value = ConstantValue<int64_t>(vn);
-            *flags = IsVNHandle(vn) ? GetHandleFlags(vn) : GTF_EMPTY;
-
-            return true;
-#endif
-
-        default:
-            return false;
     }
 }
 
