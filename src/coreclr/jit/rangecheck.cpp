@@ -179,11 +179,7 @@ static Range Add(const Range& r1, const Range& r2)
     const Limit& max1 = r1.max;
     const Limit& max2 = r2.max;
 
-    if (max1.IsDependent() || max2.IsDependent())
-    {
-        result.max = Limit::Dependent();
-    }
-    else if (max1.IsConstant())
+    if (max1.IsConstant())
     {
         result.max = max2 + max1.GetConstant();
     }
@@ -237,10 +233,6 @@ static Range Merge(const Range& r1, const Range& r2, bool monotonicallyIncreasin
         if (max1.IsUndefined())
         {
             result.max = max2;
-        }
-        else if (max1.IsDependent() || max2.IsDependent())
-        {
-            result.max = Limit::Dependent();
         }
         else if (max1.IsConstant() && max2.IsConstant())
         {
@@ -1059,7 +1051,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
     }
     else if (op1RangeCached->min.IsUndefined())
     {
-        op1Range = Range(Limit::Dependent());
+        op1Range = Range(Limit::Dependent(), Limit::Unknown());
 
         if (GenTreeLclUse* use = op1->IsLclUse())
         {
@@ -1081,7 +1073,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
     }
     else if (op2RangeCached->min.IsUndefined())
     {
-        op2Range = Range(Limit::Dependent());
+        op2Range = Range(Limit::Dependent(), Limit::Unknown());
 
         if (GenTreeLclUse* use = op2->IsLclUse())
         {
@@ -1118,7 +1110,7 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
             DBEXEC(compiler->verbose, compiler->gtDispTree(use.GetNode(), false, false));
             JITDUMP("Range: Already being computed\n");
 
-            useRange = Range(Limit::Dependent());
+            useRange = Range(Limit::Dependent(), Limit::Unknown());
         }
         else
         {
