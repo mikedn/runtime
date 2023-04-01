@@ -299,7 +299,7 @@ public:
 private:
     bool OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsChk);
     bool IsInBounds(const Range& range, GenTree* lengthExpr, int lengthVal);
-    Range GetRange(BasicBlock* block, GenTree* expr);
+    Range* GetRange(BasicBlock* block, GenTree* expr);
     Range ComputeRange(BasicBlock* block, GenTree* expr);
     Range ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use);
     Range ComputeBinOpRange(GenTreeOp* expr);
@@ -312,10 +312,10 @@ private:
     bool GetLimitMax(const Limit& limit, int* max);
     bool AddOverflows(const Limit& limit1, const Limit& limit2);
     bool ComputeOverflow();
-    void Widen(BasicBlock* block, GenTree* expr, Range* range);
     bool IsAddMonotonicallyIncreasing(GenTreeOp* expr);
     bool IsPhiMonotonicallyIncreasing(GenTreePhi* phi, bool rejectNegativeConst);
     bool IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeConst);
+    Range* Widen(BasicBlock* block, GenTree* expr, Range* range);
 
 #ifdef DEBUG
     const char* ToString(const Limit& limit)
@@ -500,23 +500,23 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
 
     monotonicallyIncreasing = false;
     rangeMap.RemoveAll();
-    Range range = GetRange(block, indexExpr);
+    Range* range = GetRange(block, indexExpr);
 
-    if (range.max.IsUnknown() || range.min.IsUnknown() || ComputeOverflow())
+    if (range->max.IsUnknown() || range->min.IsUnknown() || ComputeOverflow())
     {
         return false;
     }
 
-    if (range.min.IsDependent())
+    if (range->min.IsDependent())
     {
-        Widen(block, indexExpr, &range);
+        range = Widen(block, indexExpr, range);
     }
 
-    return !range.max.IsUnknown() && !range.min.IsUnknown() &&
-           IsInBounds(range, lengthExpr, static_cast<int>(lengthVal));
+    return !range->max.IsUnknown() && !range->min.IsUnknown() &&
+           IsInBounds(*range, lengthExpr, static_cast<int>(lengthVal));
 }
 
-void RangeCheck::Widen(BasicBlock* block, GenTree* expr, Range* range)
+Range* RangeCheck::Widen(BasicBlock* block, GenTree* expr, Range* range)
 {
     JITDUMP("Widen: " FMT_BB " [%06u] %s\n", block->bbNum, expr->GetID(), ToString(*range));
 
@@ -528,8 +528,10 @@ void RangeCheck::Widen(BasicBlock* block, GenTree* expr, Range* range)
 
         monotonicallyIncreasing = true;
         rangeMap.RemoveAll();
-        *range = GetRange(block, expr);
+        range = GetRange(block, expr);
     }
+
+    return range;
 }
 
 bool RangeCheck::IsAddMonotonicallyIncreasing(GenTreeOp* expr)
@@ -987,7 +989,7 @@ Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use)
         return Limit::Unknown();
     }
 
-    Range range = GetRange(def->GetBlock(), def->GetValue());
+    Range range = *GetRange(def->GetBlock(), def->GetValue());
     MergeLclUseAssertions(block, use, &range);
     return range;
 }
@@ -1041,54 +1043,49 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
 {
     assert(add->OperIs(GT_ADD) && add->TypeIs(TYP_INT));
 
-    GenTree*     op1            = add->GetOp(0);
-    const Range* op1RangeCached = rangeMap.LookupPointer(op1);
-    Range        op1Range;
+    GenTree*     op1    = add->GetOp(0);
+    const Range* range1 = rangeMap.LookupPointer(op1);
+    Range        dependentRange1;
 
-    if (op1RangeCached == nullptr)
+    if (range1 == nullptr)
     {
-        op1Range = GetRange(block, op1);
+        range1 = GetRange(block, op1);
     }
-    else if (op1RangeCached->min.IsUndefined())
+    else if (range1->min.IsUndefined())
     {
-        op1Range = Range(Limit::Dependent(), Limit::Unknown());
+        dependentRange1 = Range(Limit::Dependent(), Limit::Unknown());
 
         if (GenTreeLclUse* use = op1->IsLclUse())
         {
-            MergeLclUseAssertions(block, use, &op1Range);
+            MergeLclUseAssertions(block, use, &dependentRange1);
         }
-    }
-    else
-    {
-        op1Range = *op1RangeCached;
+
+        range1 = &dependentRange1;
     }
 
-    GenTree*     op2            = add->GetOp(1);
-    const Range* op2RangeCached = rangeMap.LookupPointer(op2);
-    Range        op2Range;
+    GenTree*     op2    = add->GetOp(1);
+    const Range* range2 = rangeMap.LookupPointer(op2);
+    Range        dependentRange2;
 
-    if (op2RangeCached == nullptr)
+    if (range2 == nullptr)
     {
-        op2Range = GetRange(block, op2);
+        range2 = GetRange(block, op2);
     }
-    else if (op2RangeCached->min.IsUndefined())
+    else if (range2->min.IsUndefined())
     {
-        op2Range = Range(Limit::Dependent(), Limit::Unknown());
+        dependentRange2 = Range(Limit::Dependent(), Limit::Unknown());
 
         if (GenTreeLclUse* use = op2->IsLclUse())
         {
-            MergeLclUseAssertions(block, use, &op2Range);
+            MergeLclUseAssertions(block, use, &dependentRange2);
         }
-    }
-    else
-    {
-        op2Range = *op2RangeCached;
+
+        range2 = &dependentRange2;
     }
 
-    JITDUMP("Range: " FMT_BB " [%06u] ADD %s, %s\n", block->bbNum, add->GetID(), ToString(op1Range),
-            ToString(op2Range));
+    JITDUMP("Range: " FMT_BB " [%06u] ADD %s, %s\n", block->bbNum, add->GetID(), ToString(*range1), ToString(*range2));
 
-    return Add(op1Range, op2Range);
+    return Add(*range1, *range2);
 }
 
 Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
@@ -1102,7 +1099,7 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
 
         if (cachedRange == nullptr)
         {
-            useRange = GetRange(block, use.GetNode());
+            useRange = *GetRange(block, use.GetNode());
         }
         else if (cachedRange->min.IsUndefined())
         {
@@ -1141,7 +1138,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
 
     if (expr->OperIs(GT_COMMA))
     {
-        return GetRange(block, expr->gtEffectiveVal());
+        return *GetRange(block, expr->gtEffectiveVal());
     }
 
     if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD))
@@ -1179,42 +1176,38 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
     }
 }
 
-Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
+Range* RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
 {
     JITDUMP("Range: " FMT_BB " ", block->bbNum);
     DBEXEC(compiler->verbose, compiler->gtDispTree(expr, false, false));
 
-    Range* cachedRange = rangeMap.LookupPointer(expr);
-    Range  range;
+    Range* range = rangeMap.LookupPointer(expr);
 
-    if (cachedRange == nullptr)
+    if (range == nullptr)
     {
-        cachedRange = rangeMap.Emplace(expr, range);
+        range = rangeMap.Emplace(expr);
         budget--;
     }
-    else if (!cachedRange->min.IsUndefined())
+    else if (!range->min.IsUndefined())
     {
-        JITDUMP("Range: Cached %s\n", ToString(*cachedRange));
+        JITDUMP("Range: Cached %s\n", ToString(*range));
 
-        return *cachedRange;
+        return range;
     }
 
     if ((budget <= 0) || (rangeMap.GetCount() > MaxSearchDepth))
     {
         JITDUMP("Range: %s exceeded\n", budget <= 0 ? "Budget" : "Depth");
 
-        range = Range(Limit::Unknown());
+        *range = Range(Limit::Unknown());
     }
     else
     {
-        range = ComputeRange(block, expr);
-
-        assert(!range.min.IsUndefined() && !range.max.IsUndefined());
+        *range = ComputeRange(block, expr);
     }
 
-    *cachedRange = range;
-
-    JITDUMP("Range: " FMT_BB " [%06u] = %s\n", block->bbNum, expr->GetID(), ToString(range));
+    assert(!range->min.IsUndefined() && !range->max.IsUndefined());
+    JITDUMP("Range: " FMT_BB " [%06u] = %s\n", block->bbNum, expr->GetID(), ToString(*range));
 
     return range;
 }
