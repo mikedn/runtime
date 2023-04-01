@@ -7523,10 +7523,11 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
     for (; (stmt != nullptr) && stmt->GetRootNode()->IsPhiDef(); stmt = stmt->GetNextStmt())
     {
         GenTreeLclDef* def = stmt->GetRootNode()->AsLclDef();
+        GenTreePhi*    phi = def->GetValue()->AsPhi();
         ValueNumPair   phiVNP;
         ValueNumPair   sameVNP;
 
-        for (GenTreePhi::Use& use : def->GetValue()->AsPhi()->Uses())
+        for (GenTreePhi::Use& use : phi->Uses())
         {
             GenTreeLclUse* phiArg    = use.GetNode();
             GenTreeLclDef* argDef    = phiArg->GetDef();
@@ -7565,13 +7566,13 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
         assert(vnStore->GetVNFunc(phiVNP.GetConservative(), &phiFunc) && (phiFunc.m_func == VNF_Phi));
 #endif
 
-        ValueNumPair newSsaDefVNP;
+        ValueNumPair phiDefVNP;
 
         if (sameVNP.BothDefined())
         {
             // If all the args of the phi had the same value(s, liberal and conservative), then there wasn't really
             // a reason to have the phi -- just pass on that value.
-            newSsaDefVNP = sameVNP;
+            phiDefVNP = sameVNP;
         }
         else
         {
@@ -7579,13 +7580,14 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
             ValueNum lclNumVN = vnStore->VNForIntCon(def->GetLclNum());
             ValueNum blockVN  = vnStore->VNForHostPtr(blk);
 
-            newSsaDefVNP = vnStore->VNPairForFunc(def->GetType(), VNF_PhiDef, phiVNP, ValueNumPair{blockVN},
-                                                  ValueNumPair{lclNumVN});
+            phiDefVNP = vnStore->VNPairForFunc(def->GetType(), VNF_PhiDef, phiVNP, ValueNumPair{blockVN},
+                                               ValueNumPair{lclNumVN});
         }
 
-        def->SetVNP(newSsaDefVNP);
-        lvaGetDesc(def->GetLclNum())->GetPerSsaData(def->GetSsaNum())->SetVNP(newSsaDefVNP);
-        INDEBUG(vnTraceLocal(def->GetLclNum(), newSsaDefVNP));
+        def->SetVNP(phiDefVNP);
+        phi->SetVNP(phiDefVNP);
+        lvaGetDesc(def->GetLclNum())->GetPerSsaData(def->GetSsaNum())->SetVNP(phiDefVNP);
+        INDEBUG(vnTraceLocal(def->GetLclNum(), phiDefVNP));
     }
 
     // Now do the same for memory.
