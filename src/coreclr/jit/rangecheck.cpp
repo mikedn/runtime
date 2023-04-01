@@ -449,28 +449,23 @@ bool RangeCheck::IsInBounds(const Range& range, GenTree* lengthExpr, int lengthV
 
 bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsChk)
 {
-    GenTree* indexExpr  = boundsChk->GetIndex();
-    ValueNum indexVN    = vnStore->VNNormalValue(indexExpr->GetConservativeVN());
     GenTree* lengthExpr = boundsChk->GetLength();
     ValueNum lengthVN   = vnStore->VNNormalValue(lengthExpr->GetConservativeVN());
-    int      lengthVal;
-    ssize_t  constVal;
+    ssize_t  lengthVal  = 0;
 
-    if (vnStore->IsIntegralConstant(lengthVN, &constVal))
+    if (vnStore->IsIntegralConstant(lengthVN, &lengthVal))
     {
-        lengthVal       = static_cast<int>(constVal);
         currentLengthVN = NoVN;
+
+        JITDUMP("Optimize: Constant length " FMT_VN " %d\n", lengthVN, lengthVal);
     }
     else
     {
-        lengthVal = GetArrayLength(lengthVN);
+        currentLengthVN = lengthVN;
+        lengthVal       = 0;
 
-        // If we can't find the length, see if there are any assertions
-        // about the length that we can use to get a minimum length.
-        if ((lengthVal <= 0) && (compiler->GetAssertionCount() != 0))
+        if (compiler->GetAssertionCount() != 0)
         {
-            JITDUMP("Optimize: Looking for length " FMT_VN " assertions\n", lengthVN);
-
             Range lengthRange = Limit::Kind::Dependent;
             MergeEdgeAssertions(lengthVN, block->bbAssertionIn, &lengthRange);
 
@@ -480,20 +475,18 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
             }
         }
 
-        currentLengthVN = lengthVN;
+        JITDUMP("Optimize: Min constant length " FMT_VN " %d\n", lengthVN, lengthVal);
     }
 
-    JITDUMP("Optimize: Length " FMT_VN " value %d\n", lengthVN, lengthVal);
+    GenTree* indexExpr = boundsChk->GetIndex();
+    ValueNum indexVN   = vnStore->VNNormalValue(indexExpr->GetConservativeVN());
+    ssize_t  indexVal;
 
-    if ((lengthVal > 0) && vnStore->IsIntegralConstant(indexVN, &constVal))
+    if ((lengthVal > 0) && vnStore->IsIntegralConstant(indexVN, &indexVal) && (0 <= indexVal) && (indexVal < lengthVal))
     {
-        JITDUMP("Optimize: Constant index %d " FMT_VN " in [0, %d " FMT_VN ").\n", constVal, indexVN, lengthVal,
-                lengthVN);
+        JITDUMP("Optimize: Constant index " FMT_VN " %d in [0, %d).\n", indexVN, indexVal, lengthVal);
 
-        if ((0 <= constVal) && (constVal < lengthVal))
-        {
-            return true;
-        }
+        return true;
     }
 
     // TODO-CQ: The current implementation is reliant on integer storage types
@@ -521,7 +514,8 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
         Widen(block, indexExpr, &range);
     }
 
-    return !range.max.IsUnknown() && !range.min.IsUnknown() && IsInBounds(range, lengthExpr, lengthVal);
+    return !range.max.IsUnknown() && !range.min.IsUnknown() &&
+           IsInBounds(range, lengthExpr, static_cast<int>(lengthVal));
 }
 
 void RangeCheck::Widen(BasicBlock* block, GenTree* expr, Range* range)
