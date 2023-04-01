@@ -1134,9 +1134,9 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
 
     ValueNum vn = vnStore->VNNormalValue(expr->GetConservativeVN());
 
-    if (vnStore->IsVNConstant(vn))
+    if (var_types type = vnStore->GetConstantType(vn))
     {
-        return vnStore->TypeOfVN(vn) == TYP_INT ? Limit::Constant(vnStore->ConstantValue<int>(vn)) : Limit::Unknown();
+        return type == TYP_INT ? Limit::Constant(vnStore->ConstantValue<int>(vn)) : Limit::Unknown();
     }
 
     if (expr->OperIs(GT_COMMA))
