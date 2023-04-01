@@ -274,28 +274,23 @@ class RangeCheck
     // arrays of single-byte structures)."
     static constexpr int MaxArrayLength = 0x7FFFFFFF;
 
-    using OverflowMap = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, bool>;
-    using RangeMap    = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, Range>;
-    using SearchPath  = JitHashSet<GenTree*, JitPtrKeyFuncs<GenTree>>;
-
-    ValueNumStore* vnStore;
-    RangeMap       rangeMap;
-    SearchPath     searchPath;
-    Compiler*      compiler;
-    CompAllocator  alloc;
-    ValueNum       currentLengthVN         = NoVN;
-    int            budget                  = MaxVisitBudget;
-    bool           monotonicallyIncreasing = false;
+    Compiler* const      compiler;
+    ValueNumStore* const vnStore;
+    JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, Range> rangeMap;
+    JitHashSet<GenTree*, JitPtrKeyFuncs<GenTree>> searchPath;
+    ValueNum currentLengthVN         = NoVN;
+    int      budget                  = MaxVisitBudget;
+    bool     monotonicallyIncreasing = false;
 
 public:
     RangeCheck(Compiler* compiler)
-        : vnStore(compiler->vnStore)
+        : compiler(compiler)
+        , vnStore(compiler->vnStore)
         , rangeMap(compiler->getAllocator(CMK_RangeCheck))
         , searchPath(compiler->getAllocator(CMK_RangeCheck))
-        , compiler(compiler)
-        , alloc(compiler->getAllocator(CMK_RangeCheck))
     {
     }
+
     void OptimizeRangeChecks();
 
 private:
