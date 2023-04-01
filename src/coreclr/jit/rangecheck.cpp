@@ -459,9 +459,9 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
         currentLengthVN = lengthVN;
         lengthVal       = 0;
 
-        if (compiler->GetAssertionCount() != 0)
+        if (!BitVecOps::MayBeUninit(block->bbAssertionIn))
         {
-            Range lengthRange = Limit::Kind::Dependent;
+            Range lengthRange;
             MergeEdgeAssertions(lengthVN, block->bbAssertionIn, &lengthRange);
 
             if (lengthRange.min.IsConstant())
