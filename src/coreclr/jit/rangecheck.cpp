@@ -14,7 +14,7 @@ struct Limit
     {
         Undefined, // The limit is yet to be computed.
         VN,        // The limit is a value number + constant value.
-        Const,     // The limit is a constant value.
+        Constant,  // The limit is a constant value.
         Dependent, // The limit is depends on some other value.
         Unknown    // The limit could not be determined.
     };
@@ -24,22 +24,33 @@ private:
     ValueNum vn;
     int      cns;
 
+    Limit(Kind kind, ValueNum vn, int cns) : kind(kind), vn(vn), cns(cns)
+    {
+    }
+
 public:
     Limit() : kind(Kind::Undefined)
     {
     }
 
-    Limit(Kind kind) : kind(kind)
+    static Limit Constant(int cns)
     {
-        assert((kind == Kind::Undefined) || (kind == Kind::Dependent) || (kind == Kind::Unknown));
+        return Limit(Kind::Constant, NoVN, cns);
     }
 
-    Limit(int cns) : kind(Kind::Const), vn(NoVN), cns(cns)
+    static Limit VN(ValueNum vn, int cns = 0)
     {
+        return Limit(Kind::VN, vn, cns);
     }
 
-    Limit(ValueNum vn, int cns) : kind(Kind::VN), vn(vn), cns(cns)
+    static Limit Dependent()
     {
+        return Limit(Kind::Dependent, NoVN, 0);
+    }
+
+    static Limit Unknown()
+    {
+        return Limit(Kind::Unknown, NoVN, 0);
     }
 
     bool IsUndefined() const
@@ -59,7 +70,7 @@ public:
 
     bool IsConstant() const
     {
-        return kind == Kind::Const;
+        return kind == Kind::Constant;
     }
 
     bool IsVN() const
@@ -103,7 +114,7 @@ public:
     Limit operator+(int c) const
     {
         Limit result = *this;
-        return result.AddConstant(c) ? result : Limit::Kind::Unknown;
+        return result.AddConstant(c) ? result : Limit::Unknown();
     }
 
     bool operator==(const Limit& l) const
@@ -116,7 +127,7 @@ public:
                 return l.kind == kind;
             case Kind::VN:
                 return l.kind == kind && l.vn == vn && l.cns == cns;
-            case Kind::Const:
+            case Kind::Constant:
                 return l.kind == kind && l.cns == cns;
             default:
                 return false;
@@ -142,7 +153,7 @@ struct Range
 
 static Range Add(const Range& r1, const Range& r2)
 {
-    Range result = Limit::Kind::Unknown;
+    Range result = Limit::Unknown();
 
     const Limit& min1 = r1.min;
     const Limit& min2 = r2.min;
@@ -154,7 +165,7 @@ static Range Add(const Range& r1, const Range& r2)
 
     if (min1.IsDependent() || min2.IsDependent())
     {
-        result.min = Limit::Kind::Dependent;
+        result.min = Limit::Dependent();
     }
     else if (min1.IsConstant())
     {
@@ -170,7 +181,7 @@ static Range Add(const Range& r1, const Range& r2)
 
     if (max1.IsDependent() || max2.IsDependent())
     {
-        result.max = Limit::Kind::Dependent;
+        result.max = Limit::Dependent();
     }
     else if (max1.IsConstant())
     {
@@ -186,7 +197,7 @@ static Range Add(const Range& r1, const Range& r2)
 
 static Range Merge(const Range& r1, const Range& r2, bool monotonicallyIncreasing)
 {
-    Range result = Limit::Kind::Unknown;
+    Range result = Limit::Unknown();
 
     const Limit& min1 = r1.min;
     const Limit& min2 = r2.min;
@@ -205,12 +216,12 @@ static Range Merge(const Range& r1, const Range& r2, bool monotonicallyIncreasin
             }
             else
             {
-                result.min = Limit::Kind::Dependent;
+                result.min = Limit::Dependent();
             }
         }
         else if (min1.IsConstant() && min2.IsConstant())
         {
-            result.min = Limit(Min(min1.GetConstant(), min2.GetConstant()));
+            result.min = Limit::Constant(Min(min1.GetConstant(), min2.GetConstant()));
         }
         else if (min1 == min2)
         {
@@ -229,11 +240,11 @@ static Range Merge(const Range& r1, const Range& r2, bool monotonicallyIncreasin
         }
         else if (max1.IsDependent() || max2.IsDependent())
         {
-            result.max = Limit::Kind::Dependent;
+            result.max = Limit::Dependent();
         }
         else if (max1.IsConstant() && max2.IsConstant())
         {
-            result.max = Limit(Max(max1.GetConstant(), max2.GetConstant()));
+            result.max = Limit::Constant(Max(max1.GetConstant(), max2.GetConstant()));
         }
         else if (max1 == max2)
         {
@@ -331,7 +342,7 @@ private:
                 return "Unknown";
             case Limit::Kind::Dependent:
                 return "Dependent";
-            case Limit::Kind::Const:
+            case Limit::Kind::Constant:
                 sprintf_s(buf, size, "%d", limit.GetConstant());
                 return buf;
             case Limit::Kind::VN:
@@ -737,7 +748,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             }
 
             int cons = vnStore->ConstantValue<int>(info.arrOp);
-            limit    = Limit(info.vnBound, info.arrOper == GT_SUB ? -cons : cons);
+            limit    = Limit::VN(info.vnBound, info.arrOper == GT_SUB ? -cons : cons);
             cmpOper  = info.cmpOper;
         }
         // Current assertion is of the form (i < len) != 0
@@ -752,12 +763,12 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             if (vn == info.cmpOp)
             {
                 cmpOper = info.cmpOper;
-                limit   = Limit(info.vnBound, 0);
+                limit   = Limit::VN(info.vnBound);
             }
             else if (vn == info.vnBound)
             {
                 cmpOper = GenTree::SwapRelop(info.cmpOper);
-                limit   = Limit(info.cmpOp, 0);
+                limit   = Limit::VN(info.cmpOp);
             }
             else
             {
@@ -780,12 +791,12 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             // we can get useful information from cast related ranges.
             if (max == INT32_MAX)
             {
-                limit   = min;
+                limit   = Limit::Constant(min);
                 cmpOper = GT_GE;
             }
             else if (min == INT32_MIN)
             {
-                limit   = max;
+                limit   = Limit::Constant(max);
                 cmpOper = GT_LE;
             }
             else
@@ -801,12 +812,12 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             if ((cnstLimit == 0) && !assertion.IsEqual() && vnStore->IsVNCheckedBound(assertion.GetVN()))
             {
                 // we have arr.Len != 0, so the length must be atleast one
-                limit   = 1;
+                limit   = Limit::Constant(1);
                 cmpOper = GT_GE;
             }
             else if (assertion.IsEqual())
             {
-                limit   = cnstLimit;
+                limit   = Limit::Constant(cnstLimit);
                 cmpOper = GT_EQ;
             }
             else
@@ -832,7 +843,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
         // Limits are sometimes VN + constant, where VN is also constant.
         if (limit.IsVN() && vnStore->IsVNInt32Constant(limit.GetVN()))
         {
-            Limit tempLimit = vnStore->ConstantValue<int>(limit.GetVN());
+            Limit tempLimit = Limit::Constant(vnStore->ConstantValue<int>(limit.GetVN()));
 
             if (tempLimit.AddConstant(limit.GetConstant()))
             {
@@ -981,7 +992,7 @@ Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use)
     // other weird conversions such as BYREF to INT, ignore for now.
     if (varActualType(def->GetType()) != TYP_INT)
     {
-        return Limit::Kind::Unknown;
+        return Limit::Unknown();
     }
 
     Range range = GetRange(def->GetBlock(), def->GetValue());
@@ -997,7 +1008,7 @@ Range RangeCheck::ComputeBinOpRange(GenTreeOp* expr)
 
     if (op2 == nullptr)
     {
-        return Limit::Kind::Unknown;
+        return Limit::Unknown();
     }
 
     int constLimit = -1;
@@ -1028,10 +1039,10 @@ Range RangeCheck::ComputeBinOpRange(GenTreeOp* expr)
 
     if (constLimit < 0)
     {
-        return Limit::Kind::Unknown;
+        return Limit::Unknown();
     }
 
-    return Range(0, constLimit);
+    return Range(Limit::Constant(0), Limit::Constant(constLimit));
 }
 
 Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
@@ -1048,7 +1059,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
     }
     else if (op1RangeCached->min.IsUndefined())
     {
-        op1Range = Range(Limit::Kind::Dependent);
+        op1Range = Range(Limit::Dependent());
 
         if (GenTreeLclUse* use = op1->IsLclUse())
         {
@@ -1070,7 +1081,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
     }
     else if (op2RangeCached->min.IsUndefined())
     {
-        op2Range = Range(Limit::Kind::Dependent);
+        op2Range = Range(Limit::Dependent());
 
         if (GenTreeLclUse* use = op2->IsLclUse())
         {
@@ -1107,7 +1118,7 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
             DBEXEC(compiler->verbose, compiler->gtDispTree(use.GetNode(), false, false));
             JITDUMP("Range: Already being computed\n");
 
-            useRange = Range(Limit::Kind::Dependent);
+            useRange = Range(Limit::Dependent());
         }
         else
         {
@@ -1133,7 +1144,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
 
     if (vnStore->IsVNConstant(vn))
     {
-        return vnStore->TypeOfVN(vn) == TYP_INT ? Limit(vnStore->ConstantValue<int>(vn)) : Limit(Limit::Kind::Unknown);
+        return vnStore->TypeOfVN(vn) == TYP_INT ? Limit::Constant(vnStore->ConstantValue<int>(vn)) : Limit::Unknown();
     }
 
     if (expr->OperIs(GT_COMMA))
@@ -1164,15 +1175,15 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
     switch (expr->GetType())
     {
         case TYP_UBYTE:
-            return Range(0, 255);
+            return Range(Limit::Constant(0), Limit::Constant(255));
         case TYP_BYTE:
-            return Range(-128, 127);
+            return Range(Limit::Constant(-128), Limit::Constant(127));
         case TYP_USHORT:
-            return Range(0, 65535);
+            return Range(Limit::Constant(0), Limit::Constant(65535));
         case TYP_SHORT:
-            return Range(-32768, 32767);
+            return Range(Limit::Constant(-32768), Limit::Constant(32767));
         default:
-            return Range(Limit::Kind::Unknown);
+            return Range(Limit::Unknown());
     }
 }
 
@@ -1200,7 +1211,7 @@ Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
     {
         JITDUMP("Range: %s exceeded\n", budget <= 0 ? "Budget" : "Depth");
 
-        range = Range(Limit::Kind::Unknown);
+        range = Range(Limit::Unknown());
     }
     else
     {
