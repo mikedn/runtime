@@ -151,120 +151,6 @@ struct Range
     }
 };
 
-static Range Add(const Range& r1, const Range& r2)
-{
-    Range result = Limit::Unknown();
-
-    const Limit& min1 = r1.min;
-    const Limit& min2 = r2.min;
-
-    // TODO-MIKE-Review: This is dubious. Old code had lo1.IsDependent() && !lo1.IsUnknown(),
-    // with the Unknown check being obviously pointless. But was that just bogus code or was
-    // it actually broken and needs to be lo1.IsDependent() && !lo2.IsUnknown()? It would
-    // make sense for Unknown to act as "bottom"...
-
-    if (min1.IsDependent() || min2.IsDependent())
-    {
-        result.min = Limit::Dependent();
-    }
-    else if (min1.IsConstant())
-    {
-        result.min = min2 + min1.GetConstant();
-    }
-    else if (min2.IsConstant())
-    {
-        result.min = min1 + min2.GetConstant();
-    }
-
-    const Limit& max1 = r1.max;
-    const Limit& max2 = r2.max;
-
-    if (max1.IsConstant())
-    {
-        result.max = max2 + max1.GetConstant();
-    }
-    else if (max2.IsConstant())
-    {
-        result.max = max1 + max2.GetConstant();
-    }
-
-    return result;
-}
-
-static Range Merge(const Range& r1, const Range& r2, bool monotonicallyIncreasing)
-{
-    Range result = Limit::Unknown();
-
-    const Limit& min1 = r1.min;
-    const Limit& min2 = r2.min;
-
-    if (!min1.IsUnknown() && !min2.IsUnknown())
-    {
-        if (min1.IsUndefined())
-        {
-            result.min = min2;
-        }
-        else if (min1.IsDependent() || min2.IsDependent())
-        {
-            if (monotonicallyIncreasing)
-            {
-                result.min = min1.IsDependent() ? min2 : min1;
-            }
-            else
-            {
-                result.min = Limit::Dependent();
-            }
-        }
-        else if (min1.IsConstant() && min2.IsConstant())
-        {
-            result.min = Limit::Constant(Min(min1.GetConstant(), min2.GetConstant()));
-        }
-        else if (min1 == min2)
-        {
-            result.min = min1;
-        }
-    }
-
-    const Limit& max1 = r1.max;
-    const Limit& max2 = r2.max;
-
-    if (!max1.IsUnknown() && !max2.IsUnknown())
-    {
-        if (max1.IsUndefined())
-        {
-            result.max = max2;
-        }
-        else if (max1.IsConstant() && max2.IsConstant())
-        {
-            result.max = Limit::Constant(Max(max1.GetConstant(), max2.GetConstant()));
-        }
-        else if (max1 == max2)
-        {
-            result.max = max1;
-        }
-        // Widen Upper Limit => Max(k, (a.len + n)) yields (a.len + n),
-        // This is correct if k >= 0 and n >= k, since a.len always >= 0
-        // (a.len + n) could overflow, but the result (a.len + n) also
-        // preserves the overflow.
-        else if (max1.IsConstant() && max2.IsVN() && (max1.GetConstant() >= 0) &&
-                 (max1.GetConstant() <= max2.GetConstant()))
-        {
-            result.max = max2;
-        }
-        else if (max1.IsVN() && max2.IsConstant() && (max2.GetConstant() >= 0) &&
-                 (max1.GetConstant() >= max2.GetConstant()))
-        {
-            result.max = max1;
-        }
-        else if (max1.IsVN() && max2.IsVN() && (max1.GetVN() == max2.GetVN()))
-        {
-            result.max = max2.GetConstant() > max1.GetConstant() ? max2 : max1;
-        }
-    }
-
-    return result;
-}
-
 class RangeCheck
 {
     static constexpr int MaxSearchDepth = 100;
@@ -303,7 +189,9 @@ private:
     Range ComputeRange(BasicBlock* block, GenTree* expr);
     Range ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use);
     Range ComputeBinOpRange(GenTreeOp* expr);
+    Range AddRanges(const Range& r1, const Range& r2) const;
     Range ComputeAddRange(BasicBlock* block, GenTreeOp* add);
+    Range MergeRanges(const Range& r1, const Range& r2) const;
     Range ComputePhiRange(BasicBlock* block, GenTreePhi* phi);
     void MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
     void MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
@@ -1039,6 +927,46 @@ Range RangeCheck::ComputeBinOpRange(GenTreeOp* expr)
     return Range(Limit::Constant(0), Limit::Constant(constLimit));
 }
 
+Range RangeCheck::AddRanges(const Range& r1, const Range& r2) const
+{
+    Range result = Limit::Unknown();
+
+    const Limit& min1 = r1.min;
+    const Limit& min2 = r2.min;
+
+    // TODO-MIKE-Review: This is dubious. Old code had lo1.IsDependent() && !lo1.IsUnknown(),
+    // with the Unknown check being obviously pointless. But was that just bogus code or was
+    // it actually broken and needs to be lo1.IsDependent() && !lo2.IsUnknown()? It would
+    // make sense for Unknown to act as "bottom"...
+
+    if (min1.IsDependent() || min2.IsDependent())
+    {
+        result.min = Limit::Dependent();
+    }
+    else if (min1.IsConstant())
+    {
+        result.min = min2 + min1.GetConstant();
+    }
+    else if (min2.IsConstant())
+    {
+        result.min = min1 + min2.GetConstant();
+    }
+
+    const Limit& max1 = r1.max;
+    const Limit& max2 = r2.max;
+
+    if (max1.IsConstant())
+    {
+        result.max = max2 + max1.GetConstant();
+    }
+    else if (max2.IsConstant())
+    {
+        result.max = max1 + max2.GetConstant();
+    }
+
+    return result;
+}
+
 Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
 {
     assert(add->OperIs(GT_ADD) && add->TypeIs(TYP_INT));
@@ -1085,7 +1013,81 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
 
     JITDUMP("Range: " FMT_BB " [%06u] ADD %s, %s\n", block->bbNum, add->GetID(), ToString(*range1), ToString(*range2));
 
-    return Add(*range1, *range2);
+    return AddRanges(*range1, *range2);
+}
+
+Range RangeCheck::MergeRanges(const Range& r1, const Range& r2) const
+{
+    Range result = Limit::Unknown();
+
+    const Limit& min1 = r1.min;
+    const Limit& min2 = r2.min;
+
+    if (!min1.IsUnknown() && !min2.IsUnknown())
+    {
+        if (min1.IsUndefined())
+        {
+            result.min = min2;
+        }
+        else if (min1.IsDependent() || min2.IsDependent())
+        {
+            if (monotonicallyIncreasing)
+            {
+                result.min = min1.IsDependent() ? min2 : min1;
+            }
+            else
+            {
+                result.min = Limit::Dependent();
+            }
+        }
+        else if (min1.IsConstant() && min2.IsConstant())
+        {
+            result.min = Limit::Constant(Min(min1.GetConstant(), min2.GetConstant()));
+        }
+        else if (min1 == min2)
+        {
+            result.min = min1;
+        }
+    }
+
+    const Limit& max1 = r1.max;
+    const Limit& max2 = r2.max;
+
+    if (!max1.IsUnknown() && !max2.IsUnknown())
+    {
+        if (max1.IsUndefined())
+        {
+            result.max = max2;
+        }
+        else if (max1.IsConstant() && max2.IsConstant())
+        {
+            result.max = Limit::Constant(Max(max1.GetConstant(), max2.GetConstant()));
+        }
+        else if (max1 == max2)
+        {
+            result.max = max1;
+        }
+        // Widen Upper Limit => Max(k, (a.len + n)) yields (a.len + n),
+        // This is correct if k >= 0 and n >= k, since a.len always >= 0
+        // (a.len + n) could overflow, but the result (a.len + n) also
+        // preserves the overflow.
+        else if (max1.IsConstant() && max2.IsVN() && (max1.GetConstant() >= 0) &&
+                 (max1.GetConstant() <= max2.GetConstant()))
+        {
+            result.max = max2;
+        }
+        else if (max1.IsVN() && max2.IsConstant() && (max2.GetConstant() >= 0) &&
+                 (max1.GetConstant() >= max2.GetConstant()))
+        {
+            result.max = max1;
+        }
+        else if (max1.IsVN() && max2.IsVN() && (max1.GetVN() == max2.GetVN()))
+        {
+            result.max = max2.GetConstant() > max1.GetConstant() ? max2 : max1;
+        }
+    }
+
+    return result;
 }
 
 Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
@@ -1119,7 +1121,7 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
         JITDUMP("Range: " FMT_BB " [%06u] PHI %s, %s\n", block->bbNum, phi->GetID(), ToString(range),
                 ToString(useRange));
 
-        range = Merge(range, useRange, monotonicallyIncreasing);
+        range = MergeRanges(range, useRange);
     }
 
     return range;
