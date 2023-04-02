@@ -416,7 +416,6 @@ enum GenTreeFlags : unsigned
     // BOUNDS_CHECK specific flags
 
     GTF_BOUND_VALID           = 0x80000000, // Index is known to be valid
-    GTF_BOUND_VECT            = 0x40000000, // Vector element index bounds check
 
     // ARR_LENGTH specific flags
 

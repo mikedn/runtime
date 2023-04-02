@@ -269,7 +269,6 @@ GenTree* Importer::addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound
     }
 
     GenTreeBoundsChk* check = gtNewBoundsChk(immOpUses[1], adjustedUpperBoundNode, ThrowHelperKind::ArgumentOutOfRange);
-    check->gtFlags |= GTF_BOUND_VECT;
     return gtNewCommaNode(check, immOpUses[0]);
 }
 
