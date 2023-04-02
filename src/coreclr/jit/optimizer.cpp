@@ -5000,13 +5000,6 @@ void Compiler::optRemoveRangeCheck(GenTreeBoundsChk* check, GenTreeOp* comma, St
         tree = sideEffects;
     }
 
-    if (tree->OperIs(GT_COMMA))
-    {
-        // TODO-CQ: We should also remove the COMMA, but in any case we can no longer CSE the COMMA.
-        // TODO-MIKE-Review: What the crap does this have to do with CSE?!?
-        tree->gtFlags |= GTF_DONT_CSE;
-    }
-
     gtUpdateSideEffects(stmt, tree);
 
     JITDUMPTREE(stmt->GetRootNode(), "After optRemoveRangeCheck [%06u]:\n", check->GetID());
