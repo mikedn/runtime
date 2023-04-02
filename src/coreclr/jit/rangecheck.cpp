@@ -981,45 +981,11 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
 {
     assert(add->OperIs(GT_ADD) && add->TypeIs(TYP_INT));
 
-    GenTree*     op1    = add->GetOp(0)->SkipComma();
-    const Range* range1 = rangeMap.LookupPointer(op1);
-    Range        dependentRange1;
+    GenTree* op1 = add->GetOp(0)->SkipComma();
+    GenTree* op2 = add->GetOp(1)->SkipComma();
 
-    if (range1 == nullptr)
-    {
-        range1 = GetRange(block, op1);
-    }
-    else if (range1->min.IsUndefined())
-    {
-        dependentRange1 = Range(Limit::Dependent(), Limit::Unknown());
-
-        if (GenTreeLclUse* use = op1->IsLclUse())
-        {
-            MergeLclUseAssertions(block, use, &dependentRange1);
-        }
-
-        range1 = &dependentRange1;
-    }
-
-    GenTree*     op2    = add->GetOp(1)->SkipComma();
-    const Range* range2 = rangeMap.LookupPointer(op2);
-    Range        dependentRange2;
-
-    if (range2 == nullptr)
-    {
-        range2 = GetRange(block, op2);
-    }
-    else if (range2->min.IsUndefined())
-    {
-        dependentRange2 = Range(Limit::Dependent(), Limit::Unknown());
-
-        if (GenTreeLclUse* use = op2->IsLclUse())
-        {
-            MergeLclUseAssertions(block, use, &dependentRange2);
-        }
-
-        range2 = &dependentRange2;
-    }
+    const Range* range1 = GetRange(block, op1);
+    const Range* range2 = GetRange(block, op2);
 
     JITDUMP("Range: " FMT_BB " [%06u] ADD %s, %s\n", block->bbNum, add->GetID(), ToString(*range1), ToString(*range2));
 
