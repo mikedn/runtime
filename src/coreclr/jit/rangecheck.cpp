@@ -169,6 +169,7 @@ class RangeCheck
     JitHashSet<GenTree*, JitPtrKeyFuncs<GenTree>> searchPath;
     ValueNum currentLengthVN         = NoVN;
     int      budget                  = MaxVisitBudget;
+    bool     hasUnknownOper          = false;
     bool     monotonicallyIncreasing = false;
 
 public:
@@ -386,11 +387,12 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
         return false;
     }
 
+    hasUnknownOper          = false;
     monotonicallyIncreasing = false;
     rangeMap.RemoveAll();
     Range* range = GetRange(block, indexExpr);
 
-    if (range->max.IsUnknown() || range->min.IsUnknown() || ComputeOverflow())
+    if (range->max.IsUnknown() || range->min.IsUnknown() || hasUnknownOper || ComputeOverflow())
     {
         return false;
     }
@@ -573,13 +575,6 @@ bool RangeCheck::ComputeOverflow()
 
                 return true;
             }
-        }
-        else if (!node->OperIs(GT_COMMA, GT_IND, GT_LCL_USE, GT_LCL_DEF, GT_PHI, GT_AND, GT_UMOD, GT_LSH, GT_RSH) &&
-                 !vnStore->IsVNConstant(node->GetConservativeVN()))
-        {
-            JITDUMP("Overflow: [%06u] overflows\n", node->GetID());
-
-            return true;
         }
 
         JITDUMP("Overflow: [%06u] no overflow\n", node->GetID());
@@ -1163,19 +1158,30 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
         return ComputePhiRange(block, phi);
     }
 
-    switch (expr->GetType())
+    // TODO-MIKE-Review: What about LCL_FLD and CAST?
+    if (expr->OperIs(GT_IND))
     {
-        case TYP_UBYTE:
-            return Range(Limit::Constant(0), Limit::Constant(255));
-        case TYP_BYTE:
-            return Range(Limit::Constant(-128), Limit::Constant(127));
-        case TYP_USHORT:
-            return Range(Limit::Constant(0), Limit::Constant(65535));
-        case TYP_SHORT:
-            return Range(Limit::Constant(-32768), Limit::Constant(32767));
-        default:
-            return Range(Limit::Unknown());
+        switch (expr->GetType())
+        {
+            case TYP_UBYTE:
+                return Range(Limit::Constant(0), Limit::Constant(255));
+            case TYP_BYTE:
+                return Range(Limit::Constant(-128), Limit::Constant(127));
+            case TYP_USHORT:
+                return Range(Limit::Constant(0), Limit::Constant(65535));
+            case TYP_SHORT:
+                return Range(Limit::Constant(-32768), Limit::Constant(32767));
+            default:
+                return Range(Limit::Unknown());
+        }
     }
+
+    // TODO-MIKE-CQ: Old code treated unknown opers as overflowing. Only MS bozos know
+    // how exactly an unknown oper, for which we return an unknown range anyway, can
+    // overflow...
+    hasUnknownOper = true;
+
+    return Range(Limit::Unknown());
 }
 
 Range* RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
