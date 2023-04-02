@@ -1320,12 +1320,12 @@ void Compiler::optPerformStaticOptimizations(unsigned loopNum, LoopCloneContext*
 
                 for (unsigned dim = 0; dim <= arrIndexInfo->dim; dim++)
                 {
-                    GenTree* bndsChkNode = arrIndexInfo->arrIndex.bndsChks[dim];
+                    GenTreeOp* comma = arrIndexInfo->arrIndex.bndsChks[dim];
 
 #ifdef DEBUG
                     if (verbose)
                     {
-                        printf("Remove bounds check [%06u]", bndsChkNode->gtGetOp1()->GetID());
+                        printf("Remove bounds check [%06u]", comma->GetOp(0)->GetID());
                         printf(" for " FMT_STMT ", dim% d, ", arrIndexInfo->stmt->GetID(), dim);
                         arrIndexInfo->arrIndex.Print();
                         printf(", bounds check nodes: ");
@@ -1334,7 +1334,7 @@ void Compiler::optPerformStaticOptimizations(unsigned loopNum, LoopCloneContext*
                     }
 #endif // DEBUG
 
-                    if (bndsChkNode->gtGetOp1()->IsBoundsChk())
+                    if (GenTreeBoundsChk* boundsChk = comma->GetOp(0)->IsBoundsChk())
                     {
                         // This COMMA node will only represent a bounds check if we've haven't already removed this
                         // bounds check in some other nesting cloned loop. For example, consider:
@@ -1348,15 +1348,14 @@ void Compiler::optPerformStaticOptimizations(unsigned loopNum, LoopCloneContext*
                         // the nested bounds check but nobody has gotten rid of the outer bounds check. As before, we
                         // know the outer bounds check is not needed because it's been added to the cloning conditions,
                         // so we can get rid of the bounds check here.
-                        //
-                        optRemoveCommaBasedRangeCheck(bndsChkNode, arrIndexInfo->stmt);
+                        optRemoveRangeCheck(boundsChk, comma, arrIndexInfo->stmt);
                     }
                     else
                     {
                         JITDUMP("  Bounds check already removed\n");
 
                         // If the bounds check node isn't there, it better have been converted to a GT_NOP.
-                        assert(bndsChkNode->gtGetOp1()->OperIs(GT_NOP));
+                        assert(comma->GetOp(0)->OperIs(GT_NOP));
                     }
                 }
 
@@ -2126,12 +2125,12 @@ bool Compiler::optIsStackLocalInvariant(unsigned loopNum, unsigned lclNum)
 //
 bool Compiler::optExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum)
 {
-    if (tree->gtOper != GT_COMMA)
+    if (!tree->OperIs(GT_COMMA))
     {
         return false;
     }
-    GenTree* before = tree->gtGetOp1();
-    if (before->gtOper != GT_ARR_BOUNDS_CHECK)
+    GenTree* before = tree->AsOp()->GetOp(0);
+    if (!before->OperIs(GT_ARR_BOUNDS_CHECK))
     {
         return false;
     }
@@ -2164,7 +2163,7 @@ bool Compiler::optExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsN
         result->arrLcl = arrLcl;
     }
     result->indLcls.Push(indLcl);
-    result->bndsChks.Push(tree);
+    result->bndsChks.Push(tree->AsOp());
     result->rank++;
 
     return true;

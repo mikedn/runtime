@@ -5413,9 +5413,7 @@ private:
     */
 
 public:
-    GenTree* optRemoveRangeCheck(GenTreeBoundsChk* check, GenTree* comma, Statement* stmt);
-    GenTree* optRemoveStandaloneRangeCheck(GenTreeBoundsChk* check, Statement* stmt);
-    void optRemoveCommaBasedRangeCheck(GenTree* comma, Statement* stmt);
+    void optRemoveRangeCheck(GenTreeBoundsChk* check, GenTreeOp* comma, Statement* stmt);
 
 protected:
     // Do hoisting for all loops.

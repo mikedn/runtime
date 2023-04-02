@@ -4970,124 +4970,52 @@ int Compiler::optIsSetAssgLoop(unsigned lnum, ALLVARSET_VALARG_TP vars, varRefKi
     return 0;
 }
 
-//------------------------------------------------------------------------------
-// optRemoveRangeCheck : Given an indexing node, mark it as not needing a range check.
-//
-// Arguments:
-//    check  -  Range check tree, the raw CHECK node (ARRAY, SIMD or HWINTRINSIC).
-//    comma  -  GT_COMMA to which the "check" belongs, "nullptr" if the check is a standalone one.
-//    stmt   -  Statement the indexing nodes belong to.
-//
-// Return Value:
-//    Rewritten "check" - no-op if it has no side effects or the tree that contains them.
-//
-// Assumptions:
-//    This method is capable of removing checks of two kinds: COMMA-based and standalone top-level ones.
-//    In case of a COMMA-based check, "check" must be a non-null first operand of a non-null COMMA.
-//    In case of a standalone check, "comma" must be null and "check" - "stmt"'s root.
-//
-GenTree* Compiler::optRemoveRangeCheck(GenTreeBoundsChk* check, GenTree* comma, Statement* stmt)
+void Compiler::optRemoveRangeCheck(GenTreeBoundsChk* check, GenTreeOp* comma, Statement* stmt)
 {
-    noway_assert(stmt != nullptr);
-    noway_assert((comma != nullptr && comma->OperIs(GT_COMMA) && comma->gtGetOp1() == check) ||
-                 (check != nullptr && check->IsBoundsChk() && comma == nullptr));
-    noway_assert(check->IsBoundsChk());
+    JITDUMPTREE(stmt->GetRootNode(), "Before optRemoveRangeCheck [%06u]:\n", check->GetID());
 
-    GenTree* tree = comma != nullptr ? comma : check;
+    assert((comma == nullptr) || (comma->OperIs(GT_COMMA) && (comma->GetOp(0) == check)));
+    assert((comma != nullptr) || (stmt->GetRootNode() == check));
 
-#ifdef DEBUG
-    if (verbose)
+    GenTree* sideEffects = gtExtractSideEffList(check, GTF_ASG, /* ignoreRoot */ true);
+    GenTree* tree        = check;
+
+    if (sideEffects == nullptr)
     {
-        printf("Before optRemoveRangeCheck:\n");
-        gtDispTree(tree);
+        check->ChangeToNothingNode();
+
+        if (comma != nullptr)
+        {
+            tree = comma;
+        }
     }
-#endif
-
-    GenTree* sideEffList = gtExtractSideEffList(check, GTF_ASG);
-
-    if (sideEffList != nullptr)
+    else if (comma != nullptr)
     {
-        // We've got some side effects.
-        if (tree->OperIs(GT_COMMA))
-        {
-            // Make the comma handle them.
-            tree->AsOp()->gtOp1 = sideEffList;
-        }
-        else
-        {
-            // Make the statement execute them instead of the check.
-            stmt->SetRootNode(sideEffList);
-            tree = sideEffList;
-        }
+        comma->SetOp(0, sideEffects);
+        tree = comma;
     }
     else
     {
-        check->ChangeToNothingNode();
+        stmt->SetRootNode(sideEffects);
+        tree = sideEffects;
     }
 
     if (tree->OperIs(GT_COMMA))
     {
-        // TODO-CQ: We should also remove the GT_COMMA, but in any case we can no longer CSE the GT_COMMA.
+        // TODO-CQ: We should also remove the COMMA, but in any case we can no longer CSE the COMMA.
+        // TODO-MIKE-Review: What the crap does this have to do with CSE?!?
         tree->gtFlags |= GTF_DONT_CSE;
     }
 
     gtUpdateSideEffects(stmt, tree);
-
-    // Recalculate the GetCostSz(), etc...
     gtSetStmtInfo(stmt);
 
-    // Re-thread the nodes if necessary
     if (fgStmtListThreaded)
     {
         fgSetStmtSeq(stmt);
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        // gtUpdateSideEffects can update the side effects for ancestors in the tree, so display the whole statement
-        // tree, not just the sub-tree.
-        printf("After optRemoveRangeCheck for [%06u]:\n", dspTreeID(tree));
-        gtDispTree(stmt->GetRootNode());
-    }
-#endif
-
-    return check;
-}
-
-//------------------------------------------------------------------------------
-// optRemoveStandaloneRangeCheck : A thin wrapper over optRemoveRangeCheck that removes standalone checks.
-//
-// Arguments:
-//    check - The standalone top-level CHECK node.
-//    stmt  - The statement "check" is a root node of.
-//
-// Return Value:
-//    If "check" has no side effects, it is retuned, bashed to a no-op.
-//    If it has side effects, the tree that executes them is returned.
-//
-GenTree* Compiler::optRemoveStandaloneRangeCheck(GenTreeBoundsChk* check, Statement* stmt)
-{
-    assert(check != nullptr);
-    assert(stmt != nullptr);
-    assert(check == stmt->GetRootNode());
-
-    return optRemoveRangeCheck(check, nullptr, stmt);
-}
-
-//------------------------------------------------------------------------------
-// optRemoveCommaBasedRangeCheck : A thin wrapper over optRemoveRangeCheck that removes COMMA-based checks.
-//
-// Arguments:
-//    comma - GT_COMMA of which the first operand is the CHECK to be removed.
-//    stmt  - The statement "comma" belongs to.
-//
-void Compiler::optRemoveCommaBasedRangeCheck(GenTree* comma, Statement* stmt)
-{
-    assert(comma != nullptr && comma->OperIs(GT_COMMA));
-    assert(stmt != nullptr);
-
-    optRemoveRangeCheck(comma->gtGetOp1()->AsBoundsChk(), comma, stmt);
+    JITDUMPTREE(stmt->GetRootNode(), "After optRemoveRangeCheck [%06u]:\n", check->GetID());
 }
 
 //-----------------------------------------------------------------------------
