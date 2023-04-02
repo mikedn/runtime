@@ -2972,7 +2972,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             CORINFO_FIELD_HANDLE lengthHnd    = info.compCompHnd->getFieldInClass(clsHnd, 1);
             const unsigned       lengthOffset = info.compCompHnd->getFieldOffset(lengthHnd);
             GenTree* length      = gtNewFieldIndir(TYP_INT, gtNewFieldAddr(spanAddrUses[0], lengthHnd, lengthOffset));
-            GenTree* boundsCheck = gtNewArrBoundsChk(indexUses[0], length, ThrowHelperKind::IndexOutOfRange);
+            GenTree* boundsCheck = gtNewBoundsChk(indexUses[0], length, ThrowHelperKind::IndexOutOfRange);
             GenTree* indexOffset;
 
             if (GenTreeIntCon* indexConst = index->IsIntCon())
@@ -17639,9 +17639,9 @@ GenTreeOp* Importer::gtNewAssignNode(GenTree* dst, GenTree* src)
     return comp->gtNewAssignNode(dst, src);
 }
 
-GenTreeBoundsChk* Importer::gtNewArrBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)
+GenTreeBoundsChk* Importer::gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)
 {
-    return comp->gtNewArrBoundsChk(index, length, kind);
+    return comp->gtNewBoundsChk(index, length, kind);
 }
 
 GenTreeIndexAddr* Importer::gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType)

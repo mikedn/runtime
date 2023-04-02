@@ -3109,10 +3109,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 }
                 break;
 
-            case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HW_INTRINSIC_CHK:
-#endif
+            case GT_BOUNDS_CHECK:
                 GenTreeBoundsChk* bndsChk;
                 bndsChk = tree->AsBoundsChk();
                 fgDebugCheckFlags(bndsChk->GetIndex());

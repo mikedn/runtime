@@ -261,18 +261,16 @@ GenTree* Importer::addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound
     GenTree*      adjustedUpperBoundNode = gtNewIconNode(adjustedUpperBound, TYP_INT);
 
     GenTree* immOpUses[2];
-    impMakeMultiUse(immOp, 2, immOpUses, CHECK_SPILL_ALL DEBUGARG("hw intrinsic range check temp"));
+    impMakeMultiUse(immOp, 2, immOpUses, CHECK_SPILL_ALL DEBUGARG("vector index check temp"));
 
     if (immLowerBound != 0)
     {
         immOpUses[1] = gtNewOperNode(GT_SUB, TYP_INT, immOpUses[1], gtNewIconNode(immLowerBound, TYP_INT));
     }
 
-    GenTreeBoundsChk* hwIntrinsicChk =
-        new (comp, GT_HW_INTRINSIC_CHK) GenTreeBoundsChk(GT_HW_INTRINSIC_CHK, immOpUses[1], adjustedUpperBoundNode,
-                                                         ThrowHelperKind::ArgumentOutOfRange);
-
-    return gtNewCommaNode(hwIntrinsicChk, immOpUses[0]);
+    GenTreeBoundsChk* check = gtNewBoundsChk(immOpUses[1], adjustedUpperBoundNode, ThrowHelperKind::ArgumentOutOfRange);
+    check->gtFlags |= GTF_BOUND_VECT;
+    return gtNewCommaNode(check, immOpUses[0]);
 }
 
 //------------------------------------------------------------------------

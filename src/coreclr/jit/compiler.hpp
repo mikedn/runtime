@@ -871,9 +871,9 @@ inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs)
     return arrLen;
 }
 
-inline GenTreeBoundsChk* Compiler::gtNewArrBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)
+inline GenTreeBoundsChk* Compiler::gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)
 {
-    return new (this, GT_ARR_BOUNDS_CHECK) GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, index, length, kind);
+    return new (this, GT_BOUNDS_CHECK) GenTreeBoundsChk(index, length, kind);
 }
 
 //------------------------------------------------------------------------------
@@ -2347,10 +2347,7 @@ void GenTree::VisitOperands(TVisitor visitor)
             }
             return;
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
+        case GT_BOUNDS_CHECK:
             if (visitor(AsBoundsChk()->gtIndex) == VisitResult::Abort)
             {
                 return;

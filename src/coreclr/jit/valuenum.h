@@ -676,11 +676,11 @@ public:
     typedef SmallHashTable<ValueNum, bool, 8U> CheckedBoundVNSet;
 
     // Returns true if the VN is known or likely to appear as the conservative value number
-    // of the length argument to a GT_ARR_BOUNDS_CHECK node.
+    // of the length argument to a GT_BOUNDS_CHECK node.
     bool IsVNCheckedBound(ValueNum vn);
 
     // Record that a VN is known to appear as the conservative value number of the length
-    // argument to a GT_ARR_BOUNDS_CHECK node.
+    // argument to a GT_BOUNDS_CHECK node.
     void SetVNIsCheckedBound(ValueNum vn);
 
     struct CompareCheckedBoundArithInfo

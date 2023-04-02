@@ -1331,7 +1331,7 @@ static bool HasInlineThrowHelperCall(Compiler* compiler, GenTree* tree)
                 }
                 break;
 
-            case GT_ARR_BOUNDS_CHECK:
+            case GT_BOUNDS_CHECK:
                 return Compiler::WALK_ABORT;
 
             default:
@@ -5347,7 +5347,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
             noway_assert(index2 != nullptr);
         }
 
-        boundsCheck = gtNewArrBoundsChk(index2, arrLen, ThrowHelperKind::IndexOutOfRange);
+        boundsCheck = gtNewBoundsChk(index2, arrLen, ThrowHelperKind::IndexOutOfRange);
     }
 
     GenTree* offset = index;
@@ -12118,37 +12118,18 @@ DONE_MORPHING_CHILDREN:
             }
         }
 
-        /* Check for op2 as a GT_COMMA with a unconditional throw */
-
-        if (op2 && fgIsCommaThrow(op2, true))
+        if ((op2 != nullptr) && fgIsCommaThrow(op2, true))
         {
-            /* We can safely throw out the rest of the statements */
             fgRemoveRestOfBlock = true;
 
-            // If op1 has no side-effects
             if ((op1->gtFlags & GTF_ALL_EFFECT) == 0)
             {
-                // If tree is an asg node
-                if (tree->OperIs(GT_ASG))
+                if (tree->OperIs(GT_ASG, GT_BOUNDS_CHECK, GT_COMMA))
                 {
-                    /* Return the throw node as the new tree */
                     return op2->AsOp()->gtOp1;
                 }
 
-                if (tree->OperGet() == GT_ARR_BOUNDS_CHECK)
-                {
-                    /* Return the throw node as the new tree */
-                    return op2->AsOp()->gtOp1;
-                }
-
-                // If tree is a comma node
-                if (tree->OperGet() == GT_COMMA)
-                {
-                    /* Return the throw node as the new tree */
-                    return op2->AsOp()->gtOp1;
-                }
-
-                /* for the shift nodes the type of op2 can differ from the tree type */
+                // for the shift nodes the type of op2 can differ from the tree type
                 if ((typ == TYP_LONG) && (genActualType(op2->gtType) == TYP_INT))
                 {
                     noway_assert(GenTree::OperIsShiftOrRotate(oper));
@@ -13386,10 +13367,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             tree = fgMorphCall(tree->AsCall(), fgGlobalMorphStmt);
             break;
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
+        case GT_BOUNDS_CHECK:
         {
             GenTreeBoundsChk* check  = tree->AsBoundsChk();
             GenTree*          index  = check->GetIndex();

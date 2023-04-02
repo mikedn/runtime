@@ -413,9 +413,10 @@ enum GenTreeFlags : unsigned
 
     GTF_INX_RNGCHK            = 0x80000000, // The array index must be range-checked
 
-    // ARR_BOUNDS_CHECK specific flags
+    // BOUNDS_CHECK specific flags
 
-    GTF_ARR_BOUND_INBND       = 0x80000000, // Index is known to be valid.
+    GTF_BOUND_VALID           = 0x80000000, // Index is known to be valid
+    GTF_BOUND_VECT            = 0x40000000, // Vector element index bounds check
 
     // ARR_LENGTH specific flags
 
@@ -5903,21 +5904,14 @@ struct GenTreeBoundsChk : public GenTree
     BasicBlock*     m_throwBlock;
     ThrowHelperKind m_throwKind;
 
-    GenTreeBoundsChk(genTreeOps oper, GenTree* index, GenTree* length, ThrowHelperKind kind)
-        : GenTree(oper, TYP_VOID), gtIndex(index), gtArrLen(length), m_throwBlock(nullptr), m_throwKind(kind)
+    GenTreeBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)
+        : GenTree(GT_BOUNDS_CHECK, TYP_VOID), gtIndex(index), gtArrLen(length), m_throwBlock(nullptr), m_throwKind(kind)
     {
-        bool isValidOper =
-#ifdef FEATURE_HW_INTRINSICS
-            (oper == GT_HW_INTRINSIC_CHK) ||
-#endif
-            (oper == GT_ARR_BOUNDS_CHECK);
-        assert(isValidOper);
-
         gtFlags |= GTF_EXCEPT | index->GetSideEffects() | length->GetSideEffects();
     }
 
     GenTreeBoundsChk(const GenTreeBoundsChk* copyFrom)
-        : GenTree(copyFrom->GetOper(), TYP_VOID)
+        : GenTree(GT_BOUNDS_CHECK, TYP_VOID)
         , gtIndex(copyFrom->gtIndex)
         , gtArrLen(copyFrom->gtArrLen)
         , m_throwBlock(copyFrom->m_throwBlock)

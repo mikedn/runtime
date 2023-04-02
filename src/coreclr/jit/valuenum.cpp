@@ -6898,8 +6898,8 @@ void ValueNumStore::InitValueNumStoreStatics()
         {
             arity = 2;
         }
-        // Since GT_ARR_BOUNDS_CHECK is not currently GTK_BINOP
-        else if (gtOper == GT_ARR_BOUNDS_CHECK)
+        // Since GT_BOUNDS_CHECK is not currently GTK_BINOP
+        else if (gtOper == GT_BOUNDS_CHECK)
         {
             arity = 2;
         }
@@ -6928,28 +6928,10 @@ void ValueNumStore::InitValueNumStoreStatics()
 
     assert(vnfNum == VNF_COUNT);
 
-    genTreeOps genTreeOpsIllegalAsVNFunc[]{GT_IND,
-                                           GT_NULLCHECK,
-                                           GT_QMARK,
-                                           GT_LOCKADD,
-                                           GT_XADD,
-                                           GT_XCHG,
-                                           GT_CMPXCHG,
-                                           GT_LCLHEAP,
-                                           GT_BOX,
-                                           GT_XORR,
-                                           GT_XAND,
-                                           GT_COMMA,
-                                           GT_ARR_BOUNDS_CHECK,
-                                           GT_OBJ,
-                                           GT_BLK,
-                                           GT_JTRUE,
-                                           GT_RETURN,
-                                           GT_SWITCH,
-                                           GT_RETFILT,
-                                           GT_CKFINITE,
-                                           GT_ASG,
-                                           GT_NOP};
+    genTreeOps genTreeOpsIllegalAsVNFunc[]{GT_IND,          GT_NULLCHECK, GT_QMARK, GT_LOCKADD, GT_XADD,   GT_XCHG,
+                                           GT_CMPXCHG,      GT_LCLHEAP,   GT_BOX,   GT_XORR,    GT_XAND,   GT_COMMA,
+                                           GT_BOUNDS_CHECK, GT_OBJ,       GT_BLK,   GT_JTRUE,   GT_RETURN, GT_SWITCH,
+                                           GT_RETFILT,      GT_CKFINITE,  GT_ASG,   GT_NOP};
 
     for (auto oper : genTreeOpsIllegalAsVNFunc)
     {
@@ -8255,13 +8237,10 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             fgValueNumberCall(tree->AsCall());
             break;
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
+        case GT_BOUNDS_CHECK:
         {
-            ValueNumPair vnpIndex  = tree->AsBoundsChk()->GetIndex()->gtVNPair;
-            ValueNumPair vnpArrLen = tree->AsBoundsChk()->GetLength()->gtVNPair;
+            ValueNumPair vnpIndex  = tree->AsBoundsChk()->GetIndex()->GetVNP();
+            ValueNumPair vnpArrLen = tree->AsBoundsChk()->GetLength()->GetVNP();
 
             ValueNumPair vnpExcSet = ValueNumStore::VNPForEmptyExcSet();
 

@@ -277,10 +277,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             return LowerCast(node->AsCast());
 
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
+        case GT_BOUNDS_CHECK:
             ContainCheckBoundsChk(node->AsBoundsChk());
             break;
 #endif

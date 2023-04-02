@@ -2638,7 +2638,7 @@ struct Importer
     GenTreeOp* gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type = TYP_UNDEF);
     GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2);
     GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
-    GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
+    GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
     GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
     GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
     GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
@@ -3391,7 +3391,7 @@ public:
     GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
 
     GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs);
-    GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
+    GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
 
     GenTreeIndir* gtNewIndir(var_types typ, GenTree* addr);
 
@@ -8015,10 +8015,7 @@ public:
                 }
                 break;
 
-            case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HW_INTRINSIC_CHK:
-#endif
+            case GT_BOUNDS_CHECK:
                 result = WalkTree(&node->AsBoundsChk()->gtIndex, node);
                 if (result == fgWalkResult::WALK_ABORT)
                 {

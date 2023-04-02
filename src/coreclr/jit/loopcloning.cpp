@@ -2136,11 +2136,15 @@ bool Compiler::optExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsN
         return false;
     }
     GenTree* before = tree->AsOp()->GetOp(0);
-    if (!before->OperIs(GT_ARR_BOUNDS_CHECK))
+    if (!before->OperIs(GT_BOUNDS_CHECK))
     {
         return false;
     }
     GenTreeBoundsChk* arrBndsChk = before->AsBoundsChk();
+    if ((arrBndsChk->gtFlags & GTF_BOUND_VECT) != 0)
+    {
+        return false;
+    }
     if (!arrBndsChk->gtIndex->OperIs(GT_LCL_VAR))
     {
         return false;

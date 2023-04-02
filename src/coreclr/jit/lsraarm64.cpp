@@ -536,10 +536,7 @@ int LinearScan::BuildNode(GenTree* tree)
         }
         break;
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
+        case GT_BOUNDS_CHECK:
             assert(dstCount == 0);
             srcCount = BuildOperandUses(tree->AsBoundsChk()->GetIndex());
             srcCount += BuildOperandUses(tree->AsBoundsChk()->GetLength());

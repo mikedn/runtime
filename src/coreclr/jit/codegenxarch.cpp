@@ -1797,10 +1797,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             GetEmitter()->emitIns_Nop(1);
             break;
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
+        case GT_BOUNDS_CHECK:
             genRangeCheck(treeNode->AsBoundsChk());
             break;
 

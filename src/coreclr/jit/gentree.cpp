@@ -1280,10 +1280,7 @@ AGAIN:
         case GT_INIT_BLK:
             return GenTreeTernaryOp::Equals(op1->AsTernaryOp(), op2->AsTernaryOp());
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
+        case GT_BOUNDS_CHECK:
             return GenTreeBoundsChk::Equals(op1->AsBoundsChk(), op2->AsBoundsChk());
 
         default:
@@ -1603,10 +1600,7 @@ AGAIN:
             }
             break;
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
+        case GT_BOUNDS_CHECK:
             hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->GetIndex()));
             hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->GetLength()));
             hash = genTreeHashAdd(hash, static_cast<unsigned>(tree->AsBoundsChk()->GetThrowKind()));
@@ -3478,10 +3472,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             level++;
             break;
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
+        case GT_BOUNDS_CHECK:
             costEx = 4; // cmp reg,reg and jae throw (not taken)
             costSz = 7; // jump to cold section
 
@@ -3826,7 +3817,7 @@ bool GenTree::OperMayThrow(Compiler* comp)
         case GT_FIELD_ADDR:
             return comp->fgAddrCouldBeNull(AsFieldAddr()->GetAddr());
 
-        case GT_ARR_BOUNDS_CHECK:
+        case GT_BOUNDS_CHECK:
         case GT_ARR_INDEX:
         case GT_ARR_OFFSET:
         case GT_LCLHEAP:
@@ -3837,8 +3828,6 @@ bool GenTree::OperMayThrow(Compiler* comp)
             return (gtFlags & GTF_INX_RNGCHK) != 0;
 
 #ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-            return true;
         case GT_HWINTRINSIC:
             return AsHWIntrinsic()->OperIsMemoryLoadOrStore();
 #endif
@@ -5548,10 +5537,7 @@ GenTree* Compiler::gtCloneExpr(
             copy = new (this, GT_INSTR) GenTreeInstr(tree->AsInstr(), this);
             break;
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
+        case GT_BOUNDS_CHECK:
             copy = new (this, oper) GenTreeBoundsChk(tree->AsBoundsChk());
             copy->AsBoundsChk()->SetIndex(
                 gtCloneExpr(tree->AsBoundsChk()->GetIndex(), addFlags, deepVarNum, deepVarVal));
@@ -6104,10 +6090,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             AdvancePhi();
             return;
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
+        case GT_BOUNDS_CHECK:
             m_edge = &m_node->AsBoundsChk()->gtIndex;
             assert(*m_edge != nullptr);
             m_advance = &GenTreeUseEdgeIterator::AdvanceBoundsChk;
@@ -8370,10 +8353,7 @@ void Compiler::gtDispTreeRec(
             }
             break;
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
+        case GT_BOUNDS_CHECK:
             GenTreeBoundsChk* boundsChk;
             boundsChk = tree->AsBoundsChk();
             const char* kindName;
