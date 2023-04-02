@@ -1238,6 +1238,8 @@ void RangeCheck::OptimizeRangeChecks()
     {
         for (Statement* stmt : block->Statements())
         {
+            bool stmtModified = false;
+
             for (GenTree* node : stmt->Nodes())
             {
                 if (budget <= 0)
@@ -1268,8 +1270,15 @@ void RangeCheck::OptimizeRangeChecks()
                     {
                         JITDUMP("Optimize: Removing range check\n");
                         compiler->optRemoveRangeCheck(boundsChk, comma, stmt);
+                        stmtModified = true;
                     }
                 }
+            }
+
+            if (stmtModified)
+            {
+                compiler->gtSetStmtInfo(stmt);
+                compiler->fgSetStmtSeq(stmt);
             }
         }
     }

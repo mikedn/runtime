@@ -5164,8 +5164,10 @@ private:
 
     GenTree* fgSetTreeSeq(GenTree* tree, bool isLIR = false);
     void fgCheckTreeSeq(GenTree* tree, bool isLIR = false);
-    void fgSetStmtSeq(Statement* stmt);
     void fgSequenceBlockStatements(BasicBlock* block);
+
+public:
+    void fgSetStmtSeq(Statement* stmt);
 
 private:
 #ifndef TARGET_X86

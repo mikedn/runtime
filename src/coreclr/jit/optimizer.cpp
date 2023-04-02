@@ -5008,12 +5008,6 @@ void Compiler::optRemoveRangeCheck(GenTreeBoundsChk* check, GenTreeOp* comma, St
     }
 
     gtUpdateSideEffects(stmt, tree);
-    gtSetStmtInfo(stmt);
-
-    if (fgStmtListThreaded)
-    {
-        fgSetStmtSeq(stmt);
-    }
 
     JITDUMPTREE(stmt->GetRootNode(), "After optRemoveRangeCheck [%06u]:\n", check->GetID());
 }
