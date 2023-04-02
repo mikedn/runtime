@@ -5103,17 +5103,12 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
 #endif // defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
 
-/*****************************************************************************
- *
- *  A little helper used to rearrange nested commutative operations. The
- *  effect is that nested associative, commutative operations are transformed
- *  into a 'left-deep' tree, i.e. into something like this:
- *
- *      (((a op b) op c) op d) op...
- */
-
-#if REARRANGE_ADDS
-
+// A little helper used to rearrange nested commutative operations. The
+// effect is that nested associative, commutative operations are transformed
+// into a 'left-deep' tree, i.e. into something like this:
+//
+//     (((a op b) op c) op d) op...
+//
 void Compiler::fgMoveOpsLeft(GenTree* tree)
 {
     GenTree*   op1;
@@ -5243,8 +5238,6 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
 
     return;
 }
-
-#endif
 
 GenTree* Compiler::fgMorphStringIndexIndir(GenTreeIndexAddr* index)
 {
@@ -12455,10 +12448,8 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
         }
     }
 
-#if REARRANGE_ADDS
-
-    /* Change "((x+icon)+y)" to "((x+y)+icon)"
-       Don't reorder floating-point operations */
+    // Change "((x+icon)+y)" to "((x+y)+icon)"
+    // Don't reorder floating-point operations.
 
     if (fgGlobalMorph && (oper == GT_ADD) && !tree->gtOverflow() && (op1->gtOper == GT_ADD) && !op1->gtOverflow() &&
         varTypeIsIntegralOrI(typ))
@@ -12496,12 +12487,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
         }
     }
 
-#endif
-
-    /*-------------------------------------------------------------------------
-     * Perform optional oper-specific postorder morphing
-     */
-
+    // Perform optional oper-specific postorder morphing
     switch (oper)
     {
         case GT_ASG:

@@ -5173,9 +5173,7 @@ private:
     hashBv* m_abiStructArgTempsInUse = nullptr;
 #endif
 
-#if REARRANGE_ADDS
     void fgMoveOpsLeft(GenTree* tree);
-#endif
 
     bool fgIsCommaThrow(GenTree* tree, bool forFolding = false);
 

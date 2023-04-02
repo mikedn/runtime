@@ -4988,10 +4988,6 @@ int Compiler::optIsSetAssgLoop(unsigned lnum, ALLVARSET_VALARG_TP vars, varRefKi
 //
 GenTree* Compiler::optRemoveRangeCheck(GenTreeBoundsChk* check, GenTree* comma, Statement* stmt)
 {
-#if !REARRANGE_ADDS
-    noway_assert(!"can't remove range checks without REARRANGE_ADDS right now");
-#endif
-
     noway_assert(stmt != nullptr);
     noway_assert((comma != nullptr && comma->OperIs(GT_COMMA) && comma->gtGetOp1() == check) ||
                  (check != nullptr && check->IsBoundsChk() && comma == nullptr));
