@@ -2348,11 +2348,11 @@ void GenTree::VisitOperands(TVisitor visitor)
             return;
 
         case GT_BOUNDS_CHECK:
-            if (visitor(AsBoundsChk()->gtIndex) == VisitResult::Abort)
+            if (visitor(AsBoundsChk()->gtOp1) == VisitResult::Abort)
             {
                 return;
             }
-            visitor(AsBoundsChk()->gtArrLen);
+            visitor(AsBoundsChk()->gtOp2);
             return;
 
         case GT_ARR_ELEM:

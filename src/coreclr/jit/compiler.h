@@ -4685,8 +4685,7 @@ public:
     // Adds the exception set for the current tree node which is performing a overflow checking operation
     void fgValueNumberAddExceptionSetForOverflow(GenTree* tree);
 
-    // Adds the exception set for the current tree node which is performing a bounds check operation
-    void fgValueNumberAddExceptionSetForBoundsCheck(GenTree* tree);
+    void vnAddBoundsChkExceptionSet(GenTreeBoundsChk* tree);
 
     void vnCkFinite(GenTreeUnOp* node);
 
@@ -8016,12 +8015,12 @@ public:
                 break;
 
             case GT_BOUNDS_CHECK:
-                result = WalkTree(&node->AsBoundsChk()->gtIndex, node);
+                result = WalkTree(&node->AsBoundsChk()->gtOp1, node);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;
                 }
-                result = WalkTree(&node->AsBoundsChk()->gtArrLen, node);
+                result = WalkTree(&node->AsBoundsChk()->gtOp2, node);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;

@@ -8243,21 +8243,15 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             ValueNumPair vnpArrLen = tree->AsBoundsChk()->GetLength()->GetVNP();
 
             ValueNumPair vnpExcSet = ValueNumStore::VNPForEmptyExcSet();
+            vnpExcSet              = vnStore->VNPUnionExcSet(vnpIndex, vnpExcSet);
+            vnpExcSet              = vnStore->VNPUnionExcSet(vnpArrLen, vnpExcSet);
+            tree->SetVNP(vnStore->VNPWithExc(vnStore->VNPForVoid(), vnpExcSet));
 
-            // And collect the exceptions  from Index and ArrLen
-            vnpExcSet = vnStore->VNPUnionExcSet(vnpIndex, vnpExcSet);
-            vnpExcSet = vnStore->VNPUnionExcSet(vnpArrLen, vnpExcSet);
+            vnAddBoundsChkExceptionSet(tree->AsBoundsChk());
 
-            // A bounds check node has no value, but may throw exceptions.
-            tree->gtVNPair = vnStore->VNPWithExc(vnStore->VNPForVoid(), vnpExcSet);
-
-            // next add the bounds check exception set for the current tree node
-            fgValueNumberAddExceptionSetForBoundsCheck(tree);
-
-            // Record non-constant value numbers that are used as the length argument to bounds checks, so
-            // that
-            // assertion prop will know that comparisons against them are worth analyzing.
-            ValueNum lengthVN = tree->AsBoundsChk()->gtArrLen->gtVNPair.GetConservative();
+            // Record non-constant value numbers that are used as the length argument to bounds checks,
+            // so that assertion prop will know that comparisons against them are worth analyzing.
+            ValueNum lengthVN = tree->AsBoundsChk()->GetLength()->GetConservativeVN();
             if ((lengthVN != ValueNumStore::NoVN) && !vnStore->IsVNConstant(lengthVN))
             {
                 vnStore->SetVNIsCheckedBound(lengthVN);
@@ -9546,45 +9540,22 @@ void Compiler::fgValueNumberAddExceptionSetForOverflow(GenTree* tree)
     }
 }
 
-//--------------------------------------------------------------------------------
-// fgValueNumberAddExceptionSetForBoundsCheck
-//          - Adds the exception set for the current tree node
-//            which is performing an bounds check operation
-//
-// Arguments:
-//    tree  - The current GenTree node,
-//            It must be a node that performs a bounds check operation
-//
-// Return Value:
-//          - The tree's gtVNPair is updated to include the
-//            VNF_IndexOutOfRangeExc exception set.
-//
-void Compiler::fgValueNumberAddExceptionSetForBoundsCheck(GenTree* tree)
+void Compiler::vnAddBoundsChkExceptionSet(GenTreeBoundsChk* node)
 {
-    GenTreeBoundsChk* node = tree->AsBoundsChk();
-    assert(node != nullptr);
+    ValueNumPair vnpIndex  = node->GetIndex()->GetVNP();
+    ValueNumPair vnpLength = node->GetLength()->GetVNP();
 
-    ValueNumPair vnpIndex  = node->gtIndex->gtVNPair;
-    ValueNumPair vnpArrLen = node->gtArrLen->gtVNPair;
-
-    // Unpack, Norm,Exc for the tree's VN
-    //
     ValueNumPair vnpTreeNorm;
     ValueNumPair vnpTreeExc;
+    vnStore->VNPUnpackExc(node->GetVNP(), &vnpTreeNorm, &vnpTreeExc);
 
-    vnStore->VNPUnpackExc(tree->gtVNPair, &vnpTreeNorm, &vnpTreeExc);
-
-    // Construct the exception set for bounds check
     ValueNumPair boundsChkExcSet = vnStore->VNPExcSetSingleton(
         vnStore->VNPairForFunc(TYP_REF, VNF_IndexOutOfRangeExc, vnStore->VNPNormalPair(vnpIndex),
-                               vnStore->VNPNormalPair(vnpArrLen)));
+                               vnStore->VNPNormalPair(vnpLength)));
 
-    // Combine the new Overflow exception with the original exception set of tree
     ValueNumPair newExcSet = vnStore->VNPExcSetUnion(vnpTreeExc, boundsChkExcSet);
 
-    // Update the VN for the tree it, the updated VN for tree
-    // now includes the IndexOutOfRange exception.
-    tree->gtVNPair = vnStore->VNPWithExc(vnpTreeNorm, newExcSet);
+    node->SetVNP(vnStore->VNPWithExc(vnpTreeNorm, newExcSet));
 }
 
 void Compiler::vnCkFinite(GenTreeUnOp* node)

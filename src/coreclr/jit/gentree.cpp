@@ -6091,7 +6091,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             return;
 
         case GT_BOUNDS_CHECK:
-            m_edge = &m_node->AsBoundsChk()->gtIndex;
+            m_edge = &m_node->AsBoundsChk()->gtOp1;
             assert(*m_edge != nullptr);
             m_advance = &GenTreeUseEdgeIterator::AdvanceBoundsChk;
             return;
@@ -6163,7 +6163,7 @@ void GenTreeUseEdgeIterator::AdvanceTernaryOp()
 //
 void GenTreeUseEdgeIterator::AdvanceBoundsChk()
 {
-    m_edge = &m_node->AsBoundsChk()->gtArrLen;
+    m_edge = &m_node->AsBoundsChk()->gtOp2;
     assert(*m_edge != nullptr);
     m_advance = &GenTreeUseEdgeIterator::Terminate;
 }

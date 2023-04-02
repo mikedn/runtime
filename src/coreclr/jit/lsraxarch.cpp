@@ -445,8 +445,8 @@ int LinearScan::BuildNode(GenTree* tree)
 
         case GT_BOUNDS_CHECK:
             assert(dstCount == 0);
-            srcCount = BuildOperandUses(tree->AsBoundsChk()->GetIndex());
-            srcCount += BuildOperandUses(tree->AsBoundsChk()->GetLength());
+            srcCount = BuildOperandUses(tree->AsBoundsChk()->GetOp(0));
+            srcCount += BuildOperandUses(tree->AsBoundsChk()->GetOp(1));
             break;
 
         case GT_ARR_ELEM:

@@ -5896,53 +5896,47 @@ struct GenTreeArrLen : public GenTreeUnOp
 #endif
 };
 
-struct GenTreeBoundsChk : public GenTree
+struct GenTreeBoundsChk : public GenTreeOp
 {
-    GenTree*        gtIndex;
-    GenTree*        gtArrLen;
     BasicBlock*     m_throwBlock;
     ThrowHelperKind m_throwKind;
 
     GenTreeBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)
-        : GenTree(GT_BOUNDS_CHECK, TYP_VOID), gtIndex(index), gtArrLen(length), m_throwBlock(nullptr), m_throwKind(kind)
+        : GenTreeOp(GT_BOUNDS_CHECK, TYP_VOID, index, length), m_throwBlock(nullptr), m_throwKind(kind)
     {
         gtFlags |= GTF_EXCEPT | index->GetSideEffects() | length->GetSideEffects();
     }
 
     GenTreeBoundsChk(const GenTreeBoundsChk* copyFrom)
-        : GenTree(GT_BOUNDS_CHECK, TYP_VOID)
-        , gtIndex(copyFrom->gtIndex)
-        , gtArrLen(copyFrom->gtArrLen)
-        , m_throwBlock(copyFrom->m_throwBlock)
-        , m_throwKind(copyFrom->m_throwKind)
+        : GenTreeOp(copyFrom), m_throwBlock(copyFrom->m_throwBlock), m_throwKind(copyFrom->m_throwKind)
     {
     }
 
     GenTree* GetIndex() const
     {
-        return gtIndex;
+        return gtOp1;
     }
 
     void SetIndex(GenTree* index)
     {
         assert(varTypeIsIntegral(index->GetType()));
-        gtIndex = index;
+        gtOp1 = index;
     }
 
     GenTree* GetLength() const
     {
-        return gtArrLen;
+        return gtOp2;
     }
 
     void SetLength(GenTree* length)
     {
         assert(varTypeIsIntegral(length->GetType()));
-        gtArrLen = length;
+        gtOp2 = length;
     }
 
     GenTree* GetArray() const
     {
-        return gtArrLen->IsArrLen() ? gtArrLen->AsArrLen()->GetArray() : nullptr;
+        return gtOp2->IsArrLen() ? gtOp2->AsArrLen()->GetArray() : nullptr;
     }
 
     ThrowHelperKind GetThrowKind() const
@@ -5963,13 +5957,11 @@ struct GenTreeBoundsChk : public GenTree
     static bool Equals(const GenTreeBoundsChk* c1, const GenTreeBoundsChk* c2)
     {
         return (c1->GetOper() == c2->GetOper()) && (c1->m_throwKind == c2->m_throwKind) &&
-               Compare(c1->gtIndex, c2->gtIndex) && Compare(c1->gtArrLen, c2->gtArrLen);
+               Compare(c1->gtOp1, c2->gtOp1) && Compare(c1->gtOp2, c2->gtOp2);
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeBoundsChk() : GenTree()
-    {
-    }
+    GenTreeBoundsChk() = default;
 #endif
 };
 
