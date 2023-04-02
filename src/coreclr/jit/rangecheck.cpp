@@ -251,7 +251,25 @@ private:
 
 int RangeCheck::GetArrayLength(ValueNum vn)
 {
-    return vnStore->GetNewArrSize(vnStore->GetArrForLenVn(vn));
+    VNFuncApp funcApp;
+
+    if (!vnStore->GetVNFunc(vn, &funcApp) || !funcApp.Is(GT_ARR_LENGTH))
+    {
+        return -1;
+    }
+
+    if (!vnStore->GetVNFunc(funcApp[0], &funcApp) || !funcApp.Is(VNF_JitNewArr, VNF_JitReadyToRunNewArr))
+    {
+        return -1;
+    }
+
+    // TODO-MIKE-CQ: On 64 bit targets VNF_JitReadyToRunNewArr's length argument is LONG, not INT.
+    if (vnStore->GetConstantType(funcApp[1]) != TYP_INT)
+    {
+        return -1;
+    }
+
+    return vnStore->ConstantValue<int>(funcApp[1]);
 }
 
 bool RangeCheck::IsInBounds(const Range& range, GenTree* lengthExpr, int lengthVal)
@@ -530,7 +548,7 @@ bool RangeCheck::GetLimitMax(const Limit& limit, int* max)
     {
         int len = GetArrayLength(limit.GetVN());
 
-        if (len <= 0)
+        if (len < 0)
         {
             len = MaxArrayLength;
         }

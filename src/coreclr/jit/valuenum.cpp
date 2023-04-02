@@ -5849,51 +5849,24 @@ void ValueNumStore::GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, Co
     }
 }
 
-ValueNum ValueNumStore::GetArrForLenVn(ValueNum vn)
-{
-    VNFuncApp funcApp;
-    return GetVNFunc(vn, &funcApp) && funcApp.Is(GT_ARR_LENGTH) ? funcApp[0] : NoVN;
-}
-
-bool ValueNumStore::IsVNNewArr(ValueNum vn, VNFuncApp* funcApp)
-{
-    return GetVNFunc(vn, funcApp) &&
-           ((funcApp->m_func == VNF_JitNewArr) || (funcApp->m_func == VNF_JitReadyToRunNewArr));
-}
-
-int ValueNumStore::GetNewArrSize(ValueNum vn)
-{
-    VNFuncApp funcApp;
-    return IsVNNewArr(vn, &funcApp) && IsVNInt32Constant(funcApp[1]) ? ConstantValue<int>(funcApp[1]) : 0;
-}
-
-bool ValueNumStore::IsVNArrLen(ValueNum vn)
-{
-    VNFuncApp funcApp;
-    return GetVNFunc(vn, &funcApp) && funcApp.Is(GT_ARR_LENGTH);
-}
-
 bool ValueNumStore::IsVNCheckedBound(ValueNum vn)
 {
     bool dummy;
     if (m_checkedBoundVNs.TryGetValue(vn, &dummy))
     {
         // This VN appeared as the conservative VN of the length argument of some
-        // GT_ARR_BOUND node.
-        return true;
-    }
-    if (IsVNArrLen(vn))
-    {
-        // Even if we haven't seen this VN in a bounds check, if it is an array length
-        // VN then consider it a checked bound VN.  This facilitates better bounds check
-        // removal by ensuring that compares against array lengths get put in the
-        // Cse::checkedBoundMap; such an array length might get CSEd with one that was
-        // directly used in a bounds check, and having the map entry will let us update
-        // the compare's VN so that OptimizeRangeChecks can recognize such compares.
+        // BoundsChk node.
         return true;
     }
 
-    return false;
+    // Even if we haven't seen this VN in a bounds check, if it is an array length
+    // VN then consider it a checked bound VN. This facilitates better bounds check
+    // removal by ensuring that compares against array lengths get put in the
+    // Cse::checkedBoundMap; such an array length might get CSEd with one that was
+    // directly used in a bounds check, and having the map entry will let us update
+    // the compare's VN so that OptimizeRangeChecks can recognize such compares.
+    VNFuncApp funcApp;
+    return GetVNFunc(vn, &funcApp) && funcApp.Is(GT_ARR_LENGTH);
 }
 
 void ValueNumStore::SetVNIsCheckedBound(ValueNum vn)

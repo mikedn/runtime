@@ -106,10 +106,21 @@ struct VNFuncApp
         return m_func == static_cast<VNFunc>(oper);
     }
 
+    bool Is(VNFunc func) const
+    {
+        return m_func == func;
+    }
+
     template <typename... T>
     bool Is(genTreeOps oper, T... rest) const
     {
         return Is(oper) || Is(rest...);
+    }
+
+    template <typename... T>
+    bool Is(VNFunc func, T... rest) const
+    {
+        return Is(func) || Is(rest...);
     }
 
     ValueNum operator[](unsigned i) const
@@ -697,18 +708,6 @@ public:
         }
 #endif
     };
-
-    // Check if "vn" is "new [] (type handle, size)"
-    bool IsVNNewArr(ValueNum vn, VNFuncApp* funcApp);
-
-    // Check if "vn" IsVNNewArr and return <= 0 if arr size cannot be determined, else array size.
-    int GetNewArrSize(ValueNum vn);
-
-    // Check if "vn" is "a.len"
-    bool IsVNArrLen(ValueNum vn);
-
-    // If "vn" is VN(a.len) then return VN(a); NoVN if VN(a) can't be determined.
-    ValueNum GetArrForLenVn(ValueNum vn);
 
     static bool IsVNCompareCheckedBoundRelop(const VNFuncApp& funcApp)
     {
