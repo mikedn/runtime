@@ -169,6 +169,7 @@ class RangeCheck
     JitHashSet<GenTree*, JitPtrKeyFuncs<GenTree>> searchPath;
     ValueNum currentLengthVN         = NoVN;
     int      budget                  = MaxVisitBudget;
+    int      searchDepth             = MaxSearchDepth;
     bool     hasUnknownOper          = false;
     bool     monotonicallyIncreasing = false;
 
@@ -407,6 +408,7 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
 
     hasUnknownOper          = false;
     monotonicallyIncreasing = false;
+    searchDepth             = MaxSearchDepth;
     rangeMap.RemoveAll();
     Range* range = GetRange(block, indexExpr);
 
@@ -435,6 +437,7 @@ Range* RangeCheck::Widen(BasicBlock* block, GenTree* expr, Range* range)
         JITDUMP("Widen: " FMT_BB " [%06u] is monotonically increasing.\n", block->bbNum, expr->GetID());
 
         monotonicallyIncreasing = true;
+        searchDepth             = MaxSearchDepth;
         rangeMap.RemoveAll();
         range = GetRange(block, expr);
     }
@@ -1181,7 +1184,7 @@ Range* RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
         return range;
     }
 
-    if ((budget <= 0) || (rangeMap.GetCount() > MaxSearchDepth))
+    if ((budget <= 0) || (searchDepth <= 0))
     {
         JITDUMP("Range: %s exceeded\n", budget <= 0 ? "Budget" : "Depth");
 
@@ -1189,7 +1192,9 @@ Range* RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
     }
     else
     {
+        searchDepth--;
         *range = ComputeRange(block, expr);
+        searchDepth++;
     }
 
     assert(!range->min.IsUndefined() && !range->max.IsUndefined());
