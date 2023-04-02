@@ -189,25 +189,25 @@ private:
     Range* GetRange(BasicBlock* block, GenTree* expr);
     Range ComputeRange(BasicBlock* block, GenTree* expr);
     Range ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use);
-    Range ComputeBinOpRange(GenTreeOp* expr);
+    Range ComputeBinOpRange(GenTreeOp* expr) const;
     Range AddRanges(const Range& r1, const Range& r2) const;
     Range ComputeAddRange(BasicBlock* block, GenTreeOp* add);
     Range MergeRanges(const Range& r1, const Range& r2) const;
     Range ComputePhiRange(BasicBlock* block, GenTreePhi* phi);
-    void MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
-    void MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range);
-    void MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Range* range);
-    int GetArrayLength(ValueNum vn);
-    bool GetLimitMax(const Limit& limit, int* max);
-    bool AddOverflows(const Limit& limit1, const Limit& limit2);
-    bool ComputeOverflow();
+    void MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range) const;
+    void MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range) const;
+    void MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Range* range) const;
+    int GetArrayLength(ValueNum vn) const;
+    bool GetLimitMax(const Limit& limit, int* max) const;
+    bool AddOverflows(const Limit& limit1, const Limit& limit2) const;
+    bool ComputeOverflow() const;
     bool IsAddMonotonicallyIncreasing(GenTreeOp* expr);
     bool IsPhiMonotonicallyIncreasing(GenTreePhi* phi, bool rejectNegativeConst);
     bool IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeConst);
     Range* Widen(BasicBlock* block, GenTree* expr, Range* range);
 
 #ifdef DEBUG
-    const char* ToString(const Limit& limit)
+    const char* ToString(const Limit& limit) const
     {
         constexpr size_t size = 64;
         char*            buf  = compiler->getAllocator(CMK_DebugOnly).allocate<char>(size);
@@ -239,7 +239,7 @@ private:
         }
     }
 
-    const char* ToString(const Range& range)
+    const char* ToString(const Range& range) const
     {
         constexpr size_t size = 64;
         char*            buf  = compiler->getAllocator(CMK_DebugOnly).allocate<char>(size);
@@ -249,7 +249,7 @@ private:
 #endif
 };
 
-int RangeCheck::GetArrayLength(ValueNum vn)
+int RangeCheck::GetArrayLength(ValueNum vn) const
 {
     VNFuncApp funcApp;
 
@@ -529,7 +529,7 @@ bool RangeCheck::IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeCon
     return monotonicallyIncreasing;
 }
 
-bool RangeCheck::GetLimitMax(const Limit& limit, int* max)
+bool RangeCheck::GetLimitMax(const Limit& limit, int* max) const
 {
     if (limit.IsConstant())
     {
@@ -560,14 +560,14 @@ bool RangeCheck::GetLimitMax(const Limit& limit, int* max)
     return false;
 }
 
-bool RangeCheck::AddOverflows(const Limit& limit1, const Limit& limit2)
+bool RangeCheck::AddOverflows(const Limit& limit1, const Limit& limit2) const
 {
     int max1;
     int max2;
     return !GetLimitMax(limit1, &max1) || !GetLimitMax(limit2, &max2) || IntAddOverflows(max1, max2);
 }
 
-bool RangeCheck::ComputeOverflow()
+bool RangeCheck::ComputeOverflow() const
 {
     for (const auto& pair : rangeMap)
     {
@@ -595,7 +595,7 @@ bool RangeCheck::ComputeOverflow()
     return false;
 }
 
-void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Range* range)
+void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Range* range) const
 {
     if (vn == NoVN)
     {
@@ -832,7 +832,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
     }
 }
 
-void RangeCheck::MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range)
+void RangeCheck::MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range) const
 {
     if (compiler->GetAssertionCount() == 0)
     {
@@ -858,7 +858,7 @@ void RangeCheck::MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Ra
     }
 }
 
-void RangeCheck::MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range)
+void RangeCheck::MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range) const
 {
     GenTreeLclDef* def        = use->GetDef();
     ASSERT_TP      assertions = block->bbAssertionIn;
@@ -889,7 +889,7 @@ Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use)
     return range;
 }
 
-Range RangeCheck::ComputeBinOpRange(GenTreeOp* expr)
+Range RangeCheck::ComputeBinOpRange(GenTreeOp* expr) const
 {
     assert(expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD) && expr->TypeIs(TYP_INT));
 
