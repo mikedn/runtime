@@ -2141,32 +2141,28 @@ bool Compiler::optExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsN
         return false;
     }
     GenTreeBoundsChk* arrBndsChk = before->AsBoundsChk();
-    if ((arrBndsChk->gtFlags & GTF_BOUND_VECT) != 0)
-    {
-        return false;
-    }
-    if (!arrBndsChk->gtIndex->OperIs(GT_LCL_VAR))
+    if (!arrBndsChk->GetIndex()->OperIs(GT_LCL_VAR))
     {
         return false;
     }
 
-    // For span we may see gtArrLen is a local var or local field or constant.
-    // We won't try and extract those.
-    if (arrBndsChk->gtArrLen->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_CNS_INT))
+    GenTreeArrLen* arrLen = arrBndsChk->GetLength()->IsArrLen();
+
+    if (arrLen == nullptr)
     {
         return false;
     }
-    if (!arrBndsChk->gtArrLen->gtGetOp1()->OperIs(GT_LCL_VAR))
+    if (!arrLen->GetArray()->OperIs(GT_LCL_VAR))
     {
         return false;
     }
-    unsigned arrLcl = arrBndsChk->gtArrLen->gtGetOp1()->AsLclVar()->GetLclNum();
+    unsigned arrLcl = arrLen->GetArray()->AsLclVar()->GetLclNum();
     if (lhsNum != BAD_VAR_NUM && arrLcl != lhsNum)
     {
         return false;
     }
 
-    unsigned indLcl = arrBndsChk->gtIndex->AsLclVar()->GetLclNum();
+    unsigned indLcl = arrBndsChk->GetIndex()->AsLclVar()->GetLclNum();
 
     if (lhsNum == BAD_VAR_NUM)
     {
