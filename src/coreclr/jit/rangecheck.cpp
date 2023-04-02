@@ -354,7 +354,7 @@ bool RangeCheck::IsInBounds(const Range& range, GenTree* lengthExpr, int lengthV
 
 bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsChk)
 {
-    GenTree* lengthExpr = boundsChk->GetLength();
+    GenTree* lengthExpr = boundsChk->GetLength()->SkipComma();
     ValueNum lengthVN   = vnStore->VNNormalValue(lengthExpr->GetConservativeVN());
     ssize_t  lengthVal  = 0;
 
@@ -383,7 +383,7 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
         JITDUMP("Optimize: Min constant length " FMT_VN " %d\n", lengthVN, lengthVal);
     }
 
-    GenTree* indexExpr = boundsChk->GetIndex();
+    GenTree* indexExpr = boundsChk->GetIndex()->SkipComma();
     ValueNum indexVN   = vnStore->VNNormalValue(indexExpr->GetConservativeVN());
     ssize_t  indexVal;
 
@@ -446,8 +446,8 @@ bool RangeCheck::IsAddMonotonicallyIncreasing(GenTreeOp* expr)
 {
     assert(expr->OperIs(GT_ADD));
 
-    GenTree* op1 = expr->GetOp(0);
-    GenTree* op2 = expr->GetOp(1);
+    GenTree* op1 = expr->GetOp(0)->SkipComma();
+    GenTree* op2 = expr->GetOp(1)->SkipComma();
 
     if (op2->IsLclUse())
     {
@@ -513,17 +513,14 @@ bool RangeCheck::IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeCon
     {
         monotonicallyIncreasing = !rejectNegativeConst || (vnStore->ConstantValue<int>(expr->GetConservativeVN()) >= 0);
     }
-    else if (expr->OperIs(GT_COMMA))
-    {
-        monotonicallyIncreasing = IsMonotonicallyIncreasing(expr->gtEffectiveVal(), rejectNegativeConst);
-    }
     else if (expr->OperIs(GT_ADD))
     {
         monotonicallyIncreasing = IsAddMonotonicallyIncreasing(expr->AsOp());
     }
     else if (GenTreeLclUse* use = expr->IsLclUse())
     {
-        monotonicallyIncreasing = IsMonotonicallyIncreasing(use->GetDef()->GetValue(), rejectNegativeConst);
+        monotonicallyIncreasing =
+            IsMonotonicallyIncreasing(use->GetDef()->GetValue()->SkipComma(), rejectNegativeConst);
     }
     else if (GenTreePhi* phi = expr->IsPhi())
     {
@@ -584,8 +581,8 @@ bool RangeCheck::ComputeOverflow()
 
         if (node->OperIs(GT_ADD))
         {
-            const Range* r1 = rangeMap.LookupPointer(node->AsOp()->GetOp(0));
-            const Range* r2 = rangeMap.LookupPointer(node->AsOp()->GetOp(1));
+            const Range* r1 = rangeMap.LookupPointer(node->AsOp()->GetOp(0)->SkipComma());
+            const Range* r2 = rangeMap.LookupPointer(node->AsOp()->GetOp(1)->SkipComma());
 
             if (AddOverflows(r1->max, r2->max))
             {
@@ -890,7 +887,7 @@ Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use)
         return Limit::Unknown();
     }
 
-    Range range = *GetRange(def->GetBlock(), def->GetValue());
+    Range range = *GetRange(def->GetBlock(), def->GetValue()->SkipComma());
     MergeLclUseAssertions(block, use, &range);
     return range;
 }
@@ -899,7 +896,7 @@ Range RangeCheck::ComputeBinOpRange(GenTreeOp* expr)
 {
     assert(expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD) && expr->TypeIs(TYP_INT));
 
-    GenTreeIntCon* op2 = expr->GetOp(1)->IsIntCon();
+    GenTreeIntCon* op2 = expr->GetOp(1)->SkipComma()->IsIntCon();
 
     if (op2 == nullptr)
     {
@@ -918,16 +915,19 @@ Range RangeCheck::ComputeBinOpRange(GenTreeOp* expr)
     }
     else if (expr->OperIs(GT_RSH, GT_LSH))
     {
-        GenTree* op1 = expr->GetOp(0);
+        GenTree* op1   = expr->GetOp(0)->SkipComma();
+        int      shift = op2->GetInt32Value();
 
-        if (op1->OperIs(GT_AND) && op1->AsOp()->GetOp(1)->IsIntCon())
+        if ((shift >= 0) && (shift < 32) && op1->OperIs(GT_AND))
         {
-            int mask  = op1->AsOp()->GetOp(1)->AsIntCon()->GetInt32Value();
-            int shift = op2->GetInt32Value();
-
-            if ((mask >= 0) && (shift >= 0) && (shift < 32))
+            if (GenTreeIntCon* maskIntCon = op1->AsOp()->GetOp(1)->SkipComma()->IsIntCon())
             {
-                constLimit = expr->OperIs(GT_RSH) ? (mask >> shift) : (mask << shift);
+                int mask = maskIntCon->GetInt32Value();
+
+                if (mask >= 0)
+                {
+                    constLimit = expr->OperIs(GT_RSH) ? (mask >> shift) : (mask << shift);
+                }
             }
         }
     }
@@ -984,7 +984,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
 {
     assert(add->OperIs(GT_ADD) && add->TypeIs(TYP_INT));
 
-    GenTree*     op1    = add->GetOp(0);
+    GenTree*     op1    = add->GetOp(0)->SkipComma();
     const Range* range1 = rangeMap.LookupPointer(op1);
     Range        dependentRange1;
 
@@ -1004,7 +1004,7 @@ Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
         range1 = &dependentRange1;
     }
 
-    GenTree*     op2    = add->GetOp(1);
+    GenTree*     op2    = add->GetOp(1)->SkipComma();
     const Range* range2 = rangeMap.LookupPointer(op2);
     Range        dependentRange2;
 
@@ -1142,18 +1142,13 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
 
 Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
 {
-    assert(varActualType(expr->GetType()) == TYP_INT);
+    assert(!expr->OperIs(GT_COMMA) && (varActualType(expr->GetType()) == TYP_INT));
 
     ValueNum vn = vnStore->VNNormalValue(expr->GetConservativeVN());
 
     if (var_types type = vnStore->GetConstantType(vn))
     {
         return type == TYP_INT ? Limit::Constant(vnStore->ConstantValue<int>(vn)) : Limit::Unknown();
-    }
-
-    if (expr->OperIs(GT_COMMA))
-    {
-        return *GetRange(block, expr->gtEffectiveVal());
     }
 
     if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD))
@@ -1206,6 +1201,8 @@ Range* RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
 {
     JITDUMP("Range: " FMT_BB " ", block->bbNum);
     DBEXEC(compiler->verbose, compiler->gtDispTree(expr, false, false));
+
+    assert(!expr->OperIs(GT_COMMA));
 
     Range* range = rangeMap.LookupPointer(expr);
 
