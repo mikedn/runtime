@@ -479,10 +479,7 @@ bool RangeCheck::IsPhiMonotonicallyIncreasing(GenTreePhi* phi, bool rejectNegati
 {
     for (GenTreePhi::Use& use : phi->Uses())
     {
-        if (searchPath.Contains(use.GetNode()))
-        {
-            continue;
-        }
+        assert(!searchPath.Contains(use.GetNode()));
 
         if (!IsMonotonicallyIncreasing(use.GetNode(), rejectNegativeConst))
         {
