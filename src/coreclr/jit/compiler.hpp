@@ -2347,14 +2347,6 @@ void GenTree::VisitOperands(TVisitor visitor)
             }
             return;
 
-        case GT_BOUNDS_CHECK:
-            if (visitor(AsBoundsChk()->gtOp1) == VisitResult::Abort)
-            {
-                return;
-            }
-            visitor(AsBoundsChk()->gtOp2);
-            return;
-
         case GT_ARR_ELEM:
         {
             GenTreeArrElem* const arrElem = this->AsArrElem();

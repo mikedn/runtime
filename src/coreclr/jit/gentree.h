@@ -2274,7 +2274,6 @@ class GenTreeUseEdgeIterator final
 
     // Advance functions for special nodes
     void AdvanceTernaryOp();
-    void AdvanceBoundsChk();
     void AdvanceArrElem();
     void AdvanceFieldList();
     void AdvancePhi();

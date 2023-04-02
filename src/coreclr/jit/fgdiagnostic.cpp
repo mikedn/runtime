@@ -3109,15 +3109,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 }
                 break;
 
-            case GT_BOUNDS_CHECK:
-                GenTreeBoundsChk* bndsChk;
-                bndsChk = tree->AsBoundsChk();
-                fgDebugCheckFlags(bndsChk->GetIndex());
-                chkFlags |= bndsChk->GetIndex()->GetSideEffects();
-                fgDebugCheckFlags(bndsChk->GetLength());
-                chkFlags |= bndsChk->GetLength()->GetSideEffects();
-                break;
-
             case GT_PHI:
                 for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
                 {

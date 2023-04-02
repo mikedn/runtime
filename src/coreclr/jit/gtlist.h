@@ -86,8 +86,7 @@ GTNODE(BOX              , GenTreeBox         ,0,(GTK_UNOP|GTK_EXOP|GTK_NOTLIR))
 GTNODE(INSERT           , GenTreeInsert      ,0,GTK_BINOP|GTK_EXOP|GTK_NOTLIR)
 GTNODE(EXTRACT          , GenTreeExtract     ,0,GTK_UNOP|GTK_EXOP|GTK_NOTLIR)
 
-// TODO-Cleanup: GT_BOUNDS_CHECK should be made a GTK_BINOP now that it has only two child nodes
-GTNODE(BOUNDS_CHECK     , GenTreeBoundsChk   ,0,(GTK_SPECIAL|GTK_NOVALUE))
+GTNODE(BOUNDS_CHECK     , GenTreeBoundsChk   ,0,GTK_BINOP|GTK_EXOP|GTK_NOVALUE)
 
 GTNODE(ALLOCOBJ         , GenTreeAllocObj    ,0,(GTK_UNOP|GTK_EXOP))      // object allocator
 

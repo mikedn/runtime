@@ -8014,19 +8014,6 @@ public:
                 }
                 break;
 
-            case GT_BOUNDS_CHECK:
-                result = WalkTree(&node->AsBoundsChk()->gtOp1, node);
-                if (result == fgWalkResult::WALK_ABORT)
-                {
-                    return result;
-                }
-                result = WalkTree(&node->AsBoundsChk()->gtOp2, node);
-                if (result == fgWalkResult::WALK_ABORT)
-                {
-                    return result;
-                }
-                break;
-
             case GT_ARR_ELEM:
             {
                 GenTreeArrElem* const arrElem = node->AsArrElem();

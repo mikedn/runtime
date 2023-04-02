@@ -1145,8 +1145,6 @@ AGAIN:
     {
         if (IsExOp(kind))
         {
-            // ExOp operators extend unary operator with extra, non-GenTree* members.  In many cases,
-            // these should be included in the hash code.
             switch (oper)
             {
                 case GT_INTRINSIC:
@@ -1171,11 +1169,12 @@ AGAIN:
                         return false;
                     }
                     break;
-
-                // For the ones below no extra argument matters for comparison.
-                case GT_QMARK:
+                case GT_BOUNDS_CHECK:
+                    if (op1->AsBoundsChk()->GetThrowKind() != op2->AsBoundsChk()->GetThrowKind())
+                    {
+                        return false;
+                    }
                     break;
-
                 default:
                     assert(!"unexpected binary ExOp operator");
             }
@@ -1279,9 +1278,6 @@ AGAIN:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
             return GenTreeTernaryOp::Equals(op1->AsTernaryOp(), op2->AsTernaryOp());
-
-        case GT_BOUNDS_CHECK:
-            return GenTreeBoundsChk::Equals(op1->AsBoundsChk(), op2->AsBoundsChk());
 
         default:
             assert(!"unexpected operator");
@@ -1460,8 +1456,6 @@ AGAIN:
     {
         if (GenTree::IsExOp(kind))
         {
-            // ExOp operators extend operators with extra, non-GenTree* members.  In many cases,
-            // these should be included in the hash code.
             switch (oper)
             {
                 case GT_INTRINSIC:
@@ -1480,6 +1474,10 @@ AGAIN:
                 // For the ones below no extra argument matters for comparison.
                 case GT_ARR_INDEX:
                 case GT_INDEX_ADDR:
+                    break;
+
+                case GT_BOUNDS_CHECK:
+                    hash += genTreeHashAdd(hash, static_cast<unsigned>(tree->AsBoundsChk()->GetThrowKind()));
                     break;
 
                 default:
@@ -1598,12 +1596,6 @@ AGAIN:
             {
                 hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
             }
-            break;
-
-        case GT_BOUNDS_CHECK:
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->GetIndex()));
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->GetLength()));
-            hash = genTreeHashAdd(hash, static_cast<unsigned>(tree->AsBoundsChk()->GetThrowKind()));
             break;
 
         case GT_ARR_OFFSET:
@@ -2897,6 +2889,23 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 }
                 goto DONE_OP1;
 
+            case GT_BOUNDS_CHECK:
+                costEx = 4; // cmp reg,reg and jae throw (not taken)
+                costSz = 7; // jump to cold section
+
+                level = gtSetEvalOrder(tree->AsBoundsChk()->GetIndex());
+                costEx += tree->AsBoundsChk()->GetIndex()->GetCostEx();
+                costSz += tree->AsBoundsChk()->GetIndex()->GetCostSz();
+
+                lvl2 = gtSetEvalOrder(tree->AsBoundsChk()->GetLength());
+                if (level < lvl2)
+                {
+                    level = lvl2;
+                }
+                costEx += tree->AsBoundsChk()->GetLength()->GetCostEx();
+                costSz += tree->AsBoundsChk()->GetLength()->GetCostSz();
+                goto DONE;
+
             default:
                 break;
         }
@@ -3470,23 +3479,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             }
 
             level++;
-            break;
-
-        case GT_BOUNDS_CHECK:
-            costEx = 4; // cmp reg,reg and jae throw (not taken)
-            costSz = 7; // jump to cold section
-
-            level = gtSetEvalOrder(tree->AsBoundsChk()->GetIndex());
-            costEx += tree->AsBoundsChk()->GetIndex()->GetCostEx();
-            costSz += tree->AsBoundsChk()->GetIndex()->GetCostSz();
-
-            lvl2 = gtSetEvalOrder(tree->AsBoundsChk()->GetLength());
-            if (level < lvl2)
-            {
-                level = lvl2;
-            }
-            costEx += tree->AsBoundsChk()->GetLength()->GetCostEx();
-            costSz += tree->AsBoundsChk()->GetLength()->GetCostSz();
             break;
 
         case GT_ARR_OFFSET:
@@ -5402,6 +5394,12 @@ GenTree* Compiler::gtCloneExpr(
                 copy = new (this, oper) GenTreeCopyOrReload(oper, tree->GetType(), tree->AsUnOp()->GetOp(0));
                 break;
 
+            case GT_BOUNDS_CHECK:
+                copy = new (this, oper) GenTreeBoundsChk(tree->AsBoundsChk());
+                copy->AsBoundsChk()->SetIndex(tree->AsBoundsChk()->GetIndex());
+                copy->AsBoundsChk()->SetLength(tree->AsBoundsChk()->GetLength());
+                break;
+
 #ifndef TARGET_64BIT
             case GT_MUL:
             case GT_DIV:
@@ -5536,15 +5534,6 @@ GenTree* Compiler::gtCloneExpr(
         case GT_INSTR:
             copy = new (this, GT_INSTR) GenTreeInstr(tree->AsInstr(), this);
             break;
-
-        case GT_BOUNDS_CHECK:
-            copy = new (this, oper) GenTreeBoundsChk(tree->AsBoundsChk());
-            copy->AsBoundsChk()->SetIndex(
-                gtCloneExpr(tree->AsBoundsChk()->GetIndex(), addFlags, deepVarNum, deepVarVal));
-            copy->AsBoundsChk()->SetLength(
-                gtCloneExpr(tree->AsBoundsChk()->GetLength(), addFlags, deepVarNum, deepVarVal));
-            break;
-
         case GT_QMARK:
             copy = new (this, GT_QMARK) GenTreeQmark(tree->AsQmark());
             goto CLONE_TERNARY;
@@ -6090,12 +6079,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             AdvancePhi();
             return;
 
-        case GT_BOUNDS_CHECK:
-            m_edge = &m_node->AsBoundsChk()->gtOp1;
-            assert(*m_edge != nullptr);
-            m_advance = &GenTreeUseEdgeIterator::AdvanceBoundsChk;
-            return;
-
         case GT_ARR_ELEM:
             m_edge = &m_node->AsArrElem()->gtArrObj;
             assert(*m_edge != nullptr);
@@ -6158,21 +6141,6 @@ void GenTreeUseEdgeIterator::AdvanceTernaryOp()
     assert(*m_edge != nullptr);
 }
 
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::AdvanceBoundsChk: produces the next operand of a BoundsChk node and advances the state.
-//
-void GenTreeUseEdgeIterator::AdvanceBoundsChk()
-{
-    m_edge = &m_node->AsBoundsChk()->gtOp2;
-    assert(*m_edge != nullptr);
-    m_advance = &GenTreeUseEdgeIterator::Terminate;
-}
-
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::AdvanceArrElem: produces the next operand of a ArrElem node and advances the state.
-//
-// Because these nodes are variadic, this function uses `m_state` to index into the list of array indices.
-//
 void GenTreeUseEdgeIterator::AdvanceArrElem()
 {
     if (m_state < m_node->AsArrElem()->gtArrRank)
@@ -8382,14 +8350,6 @@ void Compiler::gtDispTreeRec(
             }
 
             printf(")");
-
-            gtDispCommonEndLine(tree);
-
-            if (!topOnly)
-            {
-                gtDispChild(boundsChk->GetIndex(), IIArc);
-                gtDispChild(boundsChk->GetLength(), IIArcBottom);
-            }
             break;
 
         case GT_STORE_OBJ:
@@ -8398,15 +8358,7 @@ void Compiler::gtDispTreeRec(
             {
                 printf(" (%s)", StructStoreKindName(tree->AsBlk()->GetKind()));
             }
-
-            gtDispCommonEndLine(tree);
-
-            if (!topOnly)
-            {
-                gtDispChild(tree->AsBlk()->GetValue(), IIArc);
-                gtDispChild(tree->AsBlk()->GetAddr(), IIArc);
-            }
-            return;
+            break;
 
         case GT_ARR_OFFSET:
         case GT_CMPXCHG:
@@ -10283,7 +10235,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
         return tree;
     }
 
-    if (tree->OperIs(GT_NOP, GT_ALLOCOBJ, GT_RUNTIMELOOKUP))
+    if (tree->OperIs(GT_NOP, GT_ALLOCOBJ, GT_RUNTIMELOOKUP, GT_BOUNDS_CHECK))
     {
         return tree;
     }
