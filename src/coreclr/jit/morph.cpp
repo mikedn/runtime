@@ -11877,13 +11877,10 @@ DONE_MORPHING_CHILDREN:
         case GT_INDEX_ADDR:
             assert(opts.MinOpts());
 
-            tree->SetSideEffects(op1->GetSideEffects() | op2->GetSideEffects());
-
             if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
             {
                 tree->AsIndexAddr()->SetThrowBlock(
                     fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, currentBlock));
-                tree->AddSideEffects(GTF_EXCEPT);
             }
             break;
 
