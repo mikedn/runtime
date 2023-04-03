@@ -11887,22 +11887,6 @@ DONE_MORPHING_CHILDREN:
             }
             break;
 
-        case GT_BOUNDS_CHECK:
-            if (opts.MinOpts() && !fgIsCommaThrow(op1))
-            {
-                // TODO-MIKE-Review: This doesn't make a lot of sense. One way or another, fgSimpleLowering
-                // creates and sets the throw block (if throw helper blocks are used). Why would we do this
-                // here only in minopts? It probably makes sense to delay throw block creation to lowering
-                // so the optimizer has fewer blocks to process (throw blocks don't do anything interesting,
-                // they're just helper calls without any arguments). But if we delay when optimizations are
-                // enabled why not also delay in minopts? Is this a leftover from when the throw block stack
-                // level for x86 args was computed during morph?
-
-                GenTreeBoundsChk* check = tree->AsBoundsChk();
-                check->SetThrowBlock(fgGetThrowHelperBlock(check->GetThrowKind(), currentBlock));
-            }
-            break;
-
         case GT_IND:
 #ifdef TARGET_ARM
             // Check for a misalignment floating point indirection.
