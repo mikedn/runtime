@@ -186,7 +186,7 @@ public:
 
 private:
     bool OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsChk);
-    bool IsInBounds(const Range& range, GenTree* lengthExpr, int lengthVal);
+    bool IsInBounds(const Range& range, ValueNum lengthVN, int lengthVal);
     Range* GetRange(BasicBlock* block, GenTree* expr);
     Range ComputeRange(BasicBlock* block, GenTree* expr);
     Range ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use);
@@ -273,84 +273,48 @@ int RangeCheck::GetArrayLength(ValueNum vn) const
     return vnStore->ConstantValue<int>(funcApp[1]);
 }
 
-bool RangeCheck::IsInBounds(const Range& range, GenTree* lengthExpr, int lengthVal)
+bool RangeCheck::IsInBounds(const Range& range, ValueNum lengthVN, int lengthVal)
 {
-    ValueNum upperLimitVN = vnStore->VNNormalValue(lengthExpr->GetConservativeVN());
-
-    JITDUMP("InBounds: %s in [0, " FMT_VN "]\n", ToString(range), upperLimitVN);
-    JITDUMP("InBounds: length " FMT_VN " is: ", upperLimitVN);
-    DBEXEC(compiler->verbose, vnStore->vnDump(compiler, upperLimitVN));
+    JITDUMP("InBounds: %s in [0, " FMT_VN "]\n", ToString(range), lengthVN);
+    JITDUMP("InBounds: length " FMT_VN " is: ", lengthVN);
+    DBEXEC(compiler->verbose, vnStore->vnDump(compiler, lengthVN));
     JITDUMP("\n");
+    JITDUMP("InBounds: length value is: %d\n", lengthVal);
 
-    if ((lengthVal <= 0) && !vnStore->IsVNCheckedBound(upperLimitVN))
+    if (range.max.IsConstant())
+    {
+        if ((lengthVal <= 0) || (range.max.GetConstant() >= lengthVal))
+        {
+            return false;
+        }
+
+        if (range.min.IsVN())
+        {
+            return (range.min.GetVN() == lengthVN) && (range.min.GetConstant() < 0) &&
+                   (-range.min.GetConstant() <= lengthVal) &&
+                   (lengthVal + range.min.GetConstant() <= range.max.GetConstant());
+        }
+
+        assert(range.min.IsConstant());
+        // TODO-MIKE-Review: How could min > max? Should this check be an assert instead?
+        return (range.min.GetConstant() >= 0) && (range.min.GetConstant() <= range.max.GetConstant());
+    }
+
+    assert(range.max.IsVN());
+
+    if ((range.max.GetVN() != lengthVN) || (range.max.GetConstant() >= 0))
     {
         return false;
     }
 
-    JITDUMP("InBounds: length value is: %d\n", lengthVal);
-
-    if (range.max.IsVN())
+    if (range.min.IsVN())
     {
-        if (range.max.GetVN() != upperLimitVN)
-        {
-            return false;
-        }
-
-        int ucns = range.max.GetConstant();
-
-        if (ucns >= 0)
-        {
-            return false;
-        }
-
-        if (range.min.IsConstant() && (range.min.GetConstant() >= 0))
-        {
-            return true;
-        }
-
-        if (lengthVal <= 0)
-        {
-            return false;
-        }
-
-        if (range.min.IsVN())
-        {
-            int lcns = range.min.GetConstant();
-
-            return (lcns < 0) && (-lcns <= lengthVal) && (range.min.GetVN() == upperLimitVN) && (lcns <= ucns);
-        }
-    }
-    else if (range.max.IsConstant())
-    {
-        if (lengthVal <= 0)
-        {
-            return false;
-        }
-
-        int ucns = range.max.GetConstant();
-
-        if (ucns >= lengthVal)
-        {
-            return false;
-        }
-
-        if (range.min.IsConstant())
-        {
-            int lcns = range.min.GetConstant();
-
-            return (lcns >= 0) && (lcns <= ucns);
-        }
-
-        if (range.min.IsVN())
-        {
-            int lcns = range.min.GetConstant();
-
-            return (lcns < 0) && (-lcns <= lengthVal) && (range.min.GetVN() == upperLimitVN) &&
-                   (lengthVal + lcns <= ucns);
-        }
+        return (lengthVal > 0) && (range.min.GetVN() == lengthVN) && (range.min.GetConstant() < 0) &&
+               (-range.min.GetConstant() <= lengthVal) && (range.min.GetConstant() <= range.max.GetConstant());
     }
 
-    return false;
+    assert(range.min.IsConstant());
+    return range.min.GetConstant() >= 0;
 }
 
 bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsChk)
@@ -422,8 +386,13 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
         range = Widen(block, indexExpr, range);
     }
 
-    return !range->max.IsUnknown() && !range->min.IsUnknown() &&
-           IsInBounds(*range, lengthExpr, static_cast<int>(lengthVal));
+    if ((lengthVal <= 0) && !vnStore->IsVNCheckedBound(lengthVN))
+    {
+        return false;
+    }
+
+    return (range->min.IsConstant() || range->min.IsVN()) && (range->max.IsConstant() || range->max.IsVN()) &&
+           IsInBounds(*range, lengthVN, static_cast<int>(lengthVal));
 }
 
 Range* RangeCheck::Widen(BasicBlock* block, GenTree* expr, Range* range)
@@ -600,11 +569,6 @@ bool RangeCheck::ComputeOverflow() const
 
 void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Range* range) const
 {
-    if (vn == NoVN)
-    {
-        return;
-    }
-
     BitVecTraits apTraits(compiler->GetAssertionCount(), compiler);
     for (BitVecOps::Enumerator en(&apTraits, assertions); en.MoveNext();)
     {
@@ -616,16 +580,15 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
         }
 
         Limit      limit;
-        genTreeOps cmpOper             = GT_NONE;
-        bool       isConstantAssertion = false;
+        genTreeOps cmpOper = GT_NONE;
 
-        // Current assertion is of the form (i < len - cns) != 0
-        if (assertion.IsCompareCheckedBoundArith())
+        if (assertion.IsCompareCheckedBoundArith()) // (i < length - C) ==/!= 0
         {
-            ValueNumStore::CompareCheckedBoundArithInfo info;
+            assert(assertion.GetConstantVN() == vnStore->VNForIntCon(0));
 
             VNFuncApp funcApp;
             vnStore->GetVNFunc(assertion.GetVN(), &funcApp);
+            ValueNumStore::CompareCheckedBoundArithInfo info;
             vnStore->GetCompareCheckedBoundArithInfo(funcApp, &info);
             assert((info.arrOper == GT_ADD) || (info.arrOper == GT_SUB));
 
@@ -641,34 +604,31 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
 
             int cons = vnStore->ConstantValue<int>(info.arrOp);
             limit    = Limit::VN(info.vnBound, info.arrOper == GT_SUB ? -cons : cons);
-            cmpOper  = info.cmpOper;
+            cmpOper  = assertion.IsEqual() ? GenTree::ReverseRelop(info.cmpOper) : info.cmpOper;
         }
-        // Current assertion is of the form (i < len) != 0
-        else if (assertion.IsCompareCheckedBound())
+        else if (assertion.IsCompareCheckedBound()) // (i < length) ==/!= 0
         {
-            ValueNumStore::CompareCheckedBoundArithInfo info;
+            assert(assertion.GetConstantVN() == vnStore->VNForIntCon(0));
 
             VNFuncApp funcApp;
             vnStore->GetVNFunc(assertion.GetVN(), &funcApp);
+            ValueNumStore::CompareCheckedBoundArithInfo info;
             vnStore->GetCompareCheckedBound(funcApp, &info);
 
-            if (vn == info.cmpOp)
+            if (vn == info.vnBound)
             {
-                cmpOper = info.cmpOper;
-                limit   = Limit::VN(info.vnBound);
+                std::swap(info.vnBound, info.cmpOp);
+                info.cmpOper = GenTree::SwapRelop(info.cmpOper);
             }
-            else if (vn == info.vnBound)
-            {
-                cmpOper = GenTree::SwapRelop(info.cmpOper);
-                limit   = Limit::VN(info.cmpOp);
-            }
-            else
+            else if (vn != info.cmpOp)
             {
                 continue;
             }
+
+            limit   = Limit::VN(info.vnBound);
+            cmpOper = assertion.IsEqual() ? GenTree::ReverseRelop(info.cmpOper) : info.cmpOper;
         }
-        // Current assertion is of the form i IN [K1..K2]
-        else if (assertion.IsRange())
+        else if (assertion.IsRange()) // i IN [C1..C2]
         {
             if (vn != assertion.GetVN())
             {
@@ -678,8 +638,8 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             int max = assertion.GetRangeMax();
             int min = assertion.GetRangeMin();
 
-            // TODO-MIKE-Review: Old code handled only "i < K" like cases,
-            // not the more general "i IN [K1..K2]" case. It's likely that
+            // TODO-MIKE-Review: Old code handled only "i < C" like cases,
+            // not the more general "i IN [C1..C2]" case. It's likely that
             // we can get useful information from cast related ranges.
             if (max == INT32_MAX)
             {
@@ -696,84 +656,53 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
                 continue;
             }
         }
-        // Current assertion is of the form i == 100
-        else if (assertion.IsConstant() && (assertion.GetVN() == vn))
+        else if (assertion.IsConstant()) // i ==/!= C
         {
-            int cnstLimit = vnStore->CoercedConstantValue<int>(assertion.GetConstantVN());
-
-            if ((cnstLimit == 0) && !assertion.IsEqual() && vnStore->IsVNCheckedBound(assertion.GetVN()))
+            if (vn != assertion.GetVN())
             {
-                // we have arr.Len != 0, so the length must be atleast one
-                limit   = Limit::Constant(1);
-                cmpOper = GT_GE;
-            }
-            else if (assertion.IsEqual())
-            {
-                limit   = Limit::Constant(cnstLimit);
-                cmpOper = GT_EQ;
-            }
-            else
-            {
-                // We have a != assertion, but it doesn't tell us much about the interval. So just skip it.
                 continue;
             }
 
-            isConstantAssertion = true;
+            int constValue = vnStore->CoercedConstantValue<int>(assertion.GetConstantVN());
+
+            if (assertion.IsEqual())
+            {
+                limit   = Limit::Constant(constValue);
+                cmpOper = GT_EQ;
+            }
+            else if ((constValue == 0) && vnStore->IsVNCheckedBound(assertion.GetVN()))
+            {
+                limit   = Limit::Constant(1);
+                cmpOper = GT_GE;
+            }
+            else
+            {
+                continue;
+            }
         }
-        // Current assertion is not supported, ignore it
         else
         {
             continue;
         }
 
-        assert(isConstantAssertion || assertion.IsRange() || (assertion.GetConstantVN() == vnStore->VNForIntCon(0)));
-        assert(limit.IsVN() || limit.IsConstant());
-
         JITDUMP("Assertion: ");
-        DBEXEC(compiler->verbose, compiler->apDumpBoundsAssertion(assertion);)
+        DBEXEC(compiler->verbose, compiler->apDumpBoundsAssertion(assertion));
+        assert(limit.IsVN() || limit.IsConstant());
+        assert(cmpOper != GT_NONE);
 
         // Limits are sometimes VN + constant, where VN is also constant.
         if (limit.IsVN() && vnStore->IsVNInt32Constant(limit.GetVN()))
         {
-            Limit tempLimit = Limit::Constant(vnStore->ConstantValue<int>(limit.GetVN()));
+            Limit temp = Limit::Constant(vnStore->ConstantValue<int>(limit.GetVN()));
 
-            if (tempLimit.AddConstant(limit.GetConstant()))
+            if (temp.AddConstant(limit.GetConstant()))
             {
-                limit = tempLimit;
+                limit = temp;
             }
         }
 
-        // During assertion prop we add assertions of the form:
-        //
-        //      (i < length) == 0
-        //      (i < length) != 0
-        //      (i < 100) == 0
-        //      (i < 100) != 0
-        //      i == 100
-        //
-        // At this point, we have detected that either op1.vn is (i < length) or (i < length + cns) or
-        // (i < 100) and the op2.vn is 0 or that op1.vn is i and op2.vn is a known constant.
-        //
-        // Now, let us check if we are == 0 (i.e., op1 assertion is false) or != 0 (op1 assertion
-        // is true.).
-        //
-        // If we have a non-constant assertion of the form == 0 (i.e., equals false), then reverse relop.
-        // The relop has to be reversed because we have: (i < length) is false which is the same
-        // as (i >= length).
-        if (!isConstantAssertion && assertion.IsEqual())
-        {
-            cmpOper = GenTree::ReverseRelop(cmpOper);
-        }
-
-        assert(cmpOper != GT_NONE);
-
         // Ranges are inclusive, adjust limit as needed.
-        if ((cmpOper == GT_LT) && !limit.AddConstant(-1))
-        {
-            continue;
-        }
-
-        if ((cmpOper == GT_GT) && !limit.AddConstant(1))
+        if (((cmpOper == GT_LT) || (cmpOper == GT_GT)) && !limit.AddConstant(cmpOper == GT_LT ? -1 : 1))
         {
             continue;
         }
@@ -857,6 +786,7 @@ void RangeCheck::MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Ra
     if (!BitVecOps::MayBeUninit(assertions))
     {
         ValueNum valueVN = vnStore->VNNormalValue(use->GetDef()->GetConservativeVN());
+        assert(valueVN != NoVN);
         MergeEdgeAssertions(valueVN, assertions, range);
     }
 }
@@ -869,6 +799,7 @@ void RangeCheck::MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Ra
     if (!BitVecOps::MayBeUninit(assertions))
     {
         ValueNum valueVN = vnStore->VNNormalValue(def->GetConservativeVN());
+        assert(valueVN != NoVN);
         MergeEdgeAssertions(valueVN, assertions, range);
     }
 }
