@@ -766,6 +766,8 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
 
 void RangeCheck::MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Range* range) const
 {
+    JITDUMP("Range: " FMT_BB " [%06u] = %s\n", block->bbNum, use->GetID(), ToString(*range));
+
     if (compiler->GetAssertionCount() == 0)
     {
         return;
@@ -808,7 +810,7 @@ Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use)
 {
     GenTreeLclDef* def = use->GetDef();
 
-    JITDUMP("Range: " FMT_BB " ", block->bbNum);
+    JITDUMP("Range: " FMT_BB " ", def->GetBlock()->bbNum);
     DBEXEC(compiler->verbose, compiler->gtDispTree(def, false, false));
 
     // Uses may perform implicit LONG to INT truncation and possibly
@@ -1002,39 +1004,57 @@ Range RangeCheck::MergeRanges(const Range& r1, const Range& r2) const
 
 Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
 {
-    Range range;
+    Range phiRange;
 
     for (GenTreePhi::Use& use : phi->Uses())
     {
-        const Range* cachedRange = rangeMap.LookupPointer(use.GetNode());
-        Range        useRange;
+        Range* range = rangeMap.LookupPointer(use.GetNode());
+        Range  useRange;
 
-        if (cachedRange == nullptr)
+        JITDUMP("Range: " FMT_BB " ", block->bbNum);
+        DBEXEC(compiler->verbose, compiler->gtDispTree(use.GetNode(), false, false));
+
+        if (range == nullptr)
         {
-            useRange = *GetRange(block, use.GetNode());
+            ValueNum useVN = vnStore->VNNormalValue(use.GetNode()->GetConservativeVN());
+
+            if (vnStore->IsVNInt32Constant(useVN))
+            {
+                useRange = Limit::Constant(vnStore->GetConstantInt32(useVN));
+                MergePhiArgAssertions(block, use.GetNode(), &useRange);
+                rangeMap.Emplace(use.GetNode(), useRange);
+            }
+            else
+            {
+                GenTreeLclDef* def = use.GetNode()->GetDef();
+
+                JITDUMP("Range: " FMT_BB " ", def->GetBlock()->bbNum);
+                DBEXEC(compiler->verbose, compiler->gtDispTree(def, false, false));
+
+                range    = rangeMap.Emplace(use.GetNode());
+                useRange = *GetRange(def->GetBlock(), def->GetValue()->SkipComma());
+                MergePhiArgAssertions(block, use.GetNode(), &useRange);
+                *range = useRange;
+            }
         }
-        else if (cachedRange->min.IsUndefined())
+        else if (range->min.IsUndefined())
         {
-            JITDUMP("Range: " FMT_BB " ", block->bbNum);
-            DBEXEC(compiler->verbose, compiler->gtDispTree(use.GetNode(), false, false));
-            JITDUMP("Range: Already being computed\n");
-
             useRange = Range(Limit::Dependent(), Limit::Unknown());
+            MergePhiArgAssertions(block, use.GetNode(), &useRange);
         }
         else
         {
-            useRange = *cachedRange;
+            useRange = *range;
+            JITDUMP("Range: " FMT_BB " [%06u] = %s\n", block->bbNum, use.GetNode()->GetID(), ToString(useRange));
         }
 
-        MergePhiArgAssertions(block, use.GetNode(), &useRange);
-
-        JITDUMP("Range: " FMT_BB " [%06u] PHI %s, %s\n", block->bbNum, phi->GetID(), ToString(range),
+        JITDUMP("Range: " FMT_BB " [%06u] PHI %s, %s\n", block->bbNum, phi->GetID(), ToString(phiRange),
                 ToString(useRange));
 
-        range = MergeRanges(range, useRange);
+        phiRange = MergeRanges(phiRange, useRange);
     }
 
-    return range;
+    return phiRange;
 }
 
 Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
@@ -1170,7 +1190,7 @@ void RangeCheck::OptimizeRangeChecks()
                 {
                     if (OptimizeRangeCheck(block, boundsChk))
                     {
-                        JITDUMP("Optimize: Removing range check\n");
+                        JITDUMP("Optimize: Removing phiRange check\n");
                         compiler->optRemoveRangeCheck(boundsChk, comma, stmt);
                         stmtModified = true;
                     }
