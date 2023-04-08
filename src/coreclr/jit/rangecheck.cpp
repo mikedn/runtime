@@ -1015,50 +1015,50 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
 
     for (GenTreePhi::Use& use : phi->Uses())
     {
-        Range* range = rangeMap.LookupPointer(use.GetNode());
-        Range  useRange;
+        GenTreeLclUse* useNode  = use.GetNode();
+        Range*         useRange = rangeMap.LookupPointer(useNode);
 
         JITDUMP("Range: " FMT_BB " ", block->bbNum);
-        DBEXEC(compiler->verbose, compiler->gtDispTree(use.GetNode(), false, false));
+        DBEXEC(compiler->verbose, compiler->gtDispTree(useNode, false, false));
 
-        if (range == nullptr)
+        if (useRange == nullptr)
         {
-            ValueNum useVN = vnStore->VNNormalValue(use.GetNode()->GetConservativeVN());
+            ValueNum useVN = vnStore->VNNormalValue(useNode->GetConservativeVN());
 
             if (vnStore->IsVNInt32Constant(useVN))
             {
-                useRange = Limit::Constant(vnStore->GetConstantInt32(useVN));
-                MergePhiArgAssertions(block, use.GetNode(), &useRange);
-                rangeMap.Emplace(use.GetNode(), useRange);
+                Range range = Limit::Constant(vnStore->GetConstantInt32(useVN));
+                MergePhiArgAssertions(block, useNode, &range);
+                useRange = rangeMap.Emplace(useNode, range);
             }
             else
             {
-                GenTreeLclDef* def = use.GetNode()->GetDef();
+                GenTreeLclDef* def = useNode->GetDef();
 
                 JITDUMP("Range: " FMT_BB " ", def->GetBlock()->bbNum);
                 DBEXEC(compiler->verbose, compiler->gtDispTree(def, false, false));
 
-                range    = rangeMap.Emplace(use.GetNode());
-                useRange = *GetRange(def->GetBlock(), def->GetValue()->SkipComma());
-                MergePhiArgAssertions(block, use.GetNode(), &useRange);
-                *range = useRange;
+                useRange    = rangeMap.Emplace(useNode);
+                Range range = *GetRange(def->GetBlock(), def->GetValue()->SkipComma());
+                MergePhiArgAssertions(block, useNode, &range);
+                *useRange = range;
             }
         }
-        else if (range->min.IsUndefined())
+        else if (useRange->min.IsUndefined())
         {
-            useRange = Range(Limit::Dependent(), Limit::Unknown());
-            MergePhiArgAssertions(block, use.GetNode(), &useRange);
+            Range range = Range(Limit::Dependent(), Limit::Unknown());
+            MergePhiArgAssertions(block, useNode, &range);
+            *useRange = range;
         }
         else
         {
-            useRange = *range;
-            JITDUMP("Range: " FMT_BB " [%06u] = %s\n", block->bbNum, use.GetNode()->GetID(), ToString(useRange));
+            JITDUMP("Range: " FMT_BB " [%06u] = %s\n", block->bbNum, useNode->GetID(), ToString(*useRange));
         }
 
         JITDUMP("Range: " FMT_BB " [%06u] PHI %s, %s\n", block->bbNum, phi->GetID(), ToString(phiRange),
-                ToString(useRange));
+                ToString(*useRange));
 
-        phiRange = MergeRanges(phiRange, useRange);
+        phiRange = MergeRanges(phiRange, *useRange);
     }
 
     return phiRange;
