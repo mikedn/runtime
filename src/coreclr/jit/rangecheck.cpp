@@ -205,7 +205,7 @@ private:
     bool IsAddMonotonicallyIncreasing(GenTreeOp* expr);
     bool IsPhiMonotonicallyIncreasing(GenTreePhi* phi, bool rejectNegativeConst);
     bool IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeConst);
-    Range* Widen(BasicBlock* block, GenTree* expr, Range* range);
+    bool Widen(BasicBlock* block, GenTree* expr, Range* range);
 
 #ifdef DEBUG
     const char* ToString(const Limit& limit) const
@@ -370,20 +370,25 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
         return false;
     }
 
+    JITDUMP("Optimize: " FMT_BB " ", block->bbNum);
+    DBEXEC(compiler->verbose, compiler->gtDispTree(indexExpr, false, false));
+
     hasUnknownOper          = false;
     monotonicallyIncreasing = false;
     searchDepth             = MaxSearchDepth;
     rangeMap.RemoveAll();
-    Range* range = GetRange(block, indexExpr);
+    Range range = ComputeRange(block, indexExpr);
 
-    if (range->max.IsUnknown() || range->min.IsUnknown() || hasUnknownOper || ComputeOverflow())
+    JITDUMP("Optimize: Index range is %s\n", ToString(range));
+
+    if (range.max.IsUnknown() || range.min.IsUnknown() || hasUnknownOper || ComputeOverflow())
     {
         return false;
     }
 
-    if (range->min.IsDependent())
+    if (range.min.IsDependent() && Widen(block, indexExpr, &range))
     {
-        range = Widen(block, indexExpr, range);
+        JITDUMP("Optimize: Widened index range is %s\n", ToString(range));
     }
 
     if ((lengthVal <= 0) && !vnStore->IsVNCheckedBound(lengthVN))
@@ -391,27 +396,29 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
         return false;
     }
 
-    return (range->min.IsConstant() || range->min.IsVN()) && (range->max.IsConstant() || range->max.IsVN()) &&
-           IsInBounds(*range, lengthVN, static_cast<int>(lengthVal));
+    return (range.min.IsConstant() || range.min.IsVN()) && (range.max.IsConstant() || range.max.IsVN()) &&
+           IsInBounds(range, lengthVN, static_cast<int>(lengthVal));
 }
 
-Range* RangeCheck::Widen(BasicBlock* block, GenTree* expr, Range* range)
+bool RangeCheck::Widen(BasicBlock* block, GenTree* expr, Range* range)
 {
     JITDUMP("Widen: " FMT_BB " [%06u] %s\n", block->bbNum, expr->GetID(), ToString(*range));
 
     searchPath.Clear();
 
-    if (IsMonotonicallyIncreasing(expr, false))
+    if (!IsMonotonicallyIncreasing(expr, false))
     {
-        JITDUMP("Widen: " FMT_BB " [%06u] is monotonically increasing.\n", block->bbNum, expr->GetID());
-
-        monotonicallyIncreasing = true;
-        searchDepth             = MaxSearchDepth;
-        rangeMap.RemoveAll();
-        range = GetRange(block, expr);
+        return false;
     }
 
-    return range;
+    JITDUMP("Widen: " FMT_BB " [%06u] is monotonically increasing.\n", block->bbNum, expr->GetID());
+
+    monotonicallyIncreasing = true;
+    searchDepth             = MaxSearchDepth;
+    rangeMap.RemoveAll();
+    *range = ComputeRange(block, expr);
+
+    return true;
 }
 
 bool RangeCheck::IsAddMonotonicallyIncreasing(GenTreeOp* expr)
@@ -1068,11 +1075,6 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
         return type == TYP_INT ? Limit::Constant(vnStore->ConstantValue<int>(vn)) : Limit::Unknown();
     }
 
-    if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD))
-    {
-        return ComputeBinOpRange(expr->AsOp());
-    }
-
     if (expr->OperIs(GT_ADD))
     {
         return ComputeAddRange(block, expr->AsOp());
@@ -1086,6 +1088,11 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
     if (GenTreePhi* phi = expr->IsPhi())
     {
         return ComputePhiRange(block, phi);
+    }
+
+    if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD))
+    {
+        return ComputeBinOpRange(expr->AsOp());
     }
 
     // TODO-MIKE-Review: What about LCL_FLD and CAST?
