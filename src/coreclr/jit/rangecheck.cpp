@@ -201,7 +201,7 @@ private:
     int GetArrayLength(ValueNum vn) const;
     bool GetLimitMax(const Limit& limit, int* max) const;
     bool AddOverflows(const Limit& limit1, const Limit& limit2) const;
-    bool ComputeOverflow() const;
+    bool HasAddOverflow() const;
     bool IsAddMonotonicallyIncreasing(GenTreeOp* expr);
     bool IsPhiMonotonicallyIncreasing(GenTreePhi* phi, bool rejectNegativeConst);
     bool IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeConst);
@@ -381,7 +381,7 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
 
     JITDUMP("Optimize: Index range is %s\n", ToString(range));
 
-    if (range.max.IsUnknown() || range.min.IsUnknown() || hasUnknownOper || ComputeOverflow())
+    if (range.max.IsUnknown() || range.min.IsUnknown() || hasUnknownOper || HasAddOverflow())
     {
         return false;
     }
@@ -546,30 +546,30 @@ bool RangeCheck::AddOverflows(const Limit& limit1, const Limit& limit2) const
     return !GetLimitMax(limit1, &max1) || !GetLimitMax(limit2, &max2) || IntAddOverflows(max1, max2);
 }
 
-bool RangeCheck::ComputeOverflow() const
+bool RangeCheck::HasAddOverflow() const
 {
     for (const auto& pair : rangeMap)
     {
         GenTree* node = pair.key;
 
-        JITDUMP("Overflow: ");
-        DBEXEC(compiler->verbose, compiler->gtDispTree(node, false, false));
-
         if (node->OperIs(GT_ADD))
         {
+            JITDUMP("Overflow: ");
+            DBEXEC(compiler->verbose, compiler->gtDispTree(node, false, false));
+
             const Range* r1 = rangeMap.LookupPointer(node->AsOp()->GetOp(0)->SkipComma());
             const Range* r2 = rangeMap.LookupPointer(node->AsOp()->GetOp(1)->SkipComma());
 
             if (AddOverflows(r1->max, r2->max))
             {
-                JITDUMP("Overflow: [%06u] overflows\n", node->GetID());
+                JITDUMP("Overflow: overflows\n");
 
                 return true;
             }
         }
-
-        JITDUMP("Overflow: [%06u] no overflow\n", node->GetID());
     }
+
+    JITDUMP("Overflow: no overflow\n");
 
     return false;
 }
