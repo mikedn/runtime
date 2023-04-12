@@ -167,11 +167,13 @@ class RangeCheck
     ValueNumStore* const vnStore;
     JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, Range> rangeMap;
     JitHashSet<GenTree*, JitPtrKeyFuncs<GenTree>> searchPath;
-    ValueNum currentLengthVN         = NoVN;
-    int      budget                  = MaxVisitBudget;
-    int      searchDepth             = MaxSearchDepth;
-    bool     hasUnknownOper          = false;
-    bool     monotonicallyIncreasing = false;
+    GenTree* currentIndexExpr              = nullptr;
+    ValueNum currentLengthVN               = NoVN;
+    int      budget                        = MaxVisitBudget;
+    int      searchDepth                   = MaxSearchDepth;
+    bool     hasUnknownOper                = false;
+    bool     isMonotonicallyIncreasing     = false;
+    GenTree* isMonotonicallyIncreasingExpr = nullptr;
 
 public:
     RangeCheck(Compiler* compiler)
@@ -205,7 +207,6 @@ private:
     bool IsAddMonotonicallyIncreasing(GenTreeOp* expr);
     bool IsPhiMonotonicallyIncreasing(GenTreePhi* phi, bool rejectNegativeConst);
     bool IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeConst);
-    bool Widen(BasicBlock* block, GenTree* expr, Range* range);
 
 #ifdef DEBUG
     const char* ToString(const Limit& limit) const
@@ -373,10 +374,12 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
     JITDUMP("Optimize: " FMT_BB " ", block->bbNum);
     DBEXEC(compiler->verbose, compiler->gtDispTree(indexExpr, false, false));
 
-    hasUnknownOper          = false;
-    monotonicallyIncreasing = false;
-    searchDepth             = MaxSearchDepth;
+    currentIndexExpr          = indexExpr;
+    hasUnknownOper            = false;
+    isMonotonicallyIncreasing = false;
+    searchDepth               = MaxSearchDepth;
     rangeMap.RemoveAll();
+
     Range range = ComputeRange(block, indexExpr);
 
     JITDUMP("Optimize: Index range is %s\n", ToString(range));
@@ -386,11 +389,6 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
         return false;
     }
 
-    if (range.min.IsDependent() && Widen(block, indexExpr, &range))
-    {
-        JITDUMP("Optimize: Widened index range is %s\n", ToString(range));
-    }
-
     if ((lengthVal <= 0) && !vnStore->IsVNCheckedBound(lengthVN))
     {
         return false;
@@ -398,27 +396,6 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
 
     return (range.min.IsConstant() || range.min.IsVN()) && (range.max.IsConstant() || range.max.IsVN()) &&
            IsInBounds(range, lengthVN, static_cast<int>(lengthVal));
-}
-
-bool RangeCheck::Widen(BasicBlock* block, GenTree* expr, Range* range)
-{
-    JITDUMP("Widen: " FMT_BB " [%06u] %s\n", block->bbNum, expr->GetID(), ToString(*range));
-
-    searchPath.Clear();
-
-    if (!IsMonotonicallyIncreasing(expr, false))
-    {
-        return false;
-    }
-
-    JITDUMP("Widen: " FMT_BB " [%06u] is monotonically increasing.\n", block->bbNum, expr->GetID());
-
-    monotonicallyIncreasing = true;
-    searchDepth             = MaxSearchDepth;
-    rangeMap.RemoveAll();
-    *range = ComputeRange(block, expr);
-
-    return true;
 }
 
 bool RangeCheck::IsAddMonotonicallyIncreasing(GenTreeOp* expr)
@@ -950,7 +927,7 @@ Range RangeCheck::MergeRanges(const Range& r1, const Range& r2) const
         }
         else if (min1.IsDependent() || min2.IsDependent())
         {
-            if (monotonicallyIncreasing)
+            if (isMonotonicallyIncreasing)
             {
                 result.min = min1.IsDependent() ? min2 : min1;
             }
@@ -1046,7 +1023,20 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
         }
         else if (useRange->min.IsUndefined())
         {
-            Range range = Range(Limit::Dependent(), Limit::Unknown());
+            if (isMonotonicallyIncreasingExpr != currentIndexExpr)
+            {
+                searchPath.Clear();
+                isMonotonicallyIncreasing     = IsMonotonicallyIncreasing(currentIndexExpr, false);
+                isMonotonicallyIncreasingExpr = currentIndexExpr;
+            }
+
+            Range range = Limit::Unknown();
+
+            if (isMonotonicallyIncreasing)
+            {
+                range.min = Limit::Dependent();
+            }
+
             MergePhiArgAssertions(block, useNode, &range);
             *useRange = range;
         }
