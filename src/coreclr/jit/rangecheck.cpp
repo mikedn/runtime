@@ -171,7 +171,6 @@ class RangeCheck
     ValueNum currentLengthVN               = NoVN;
     int      budget                        = MaxVisitBudget;
     int      searchDepth                   = MaxSearchDepth;
-    bool     hasUnknownOper                = false;
     bool     isMonotonicallyIncreasing     = false;
     GenTree* isMonotonicallyIncreasingExpr = nullptr;
 
@@ -375,7 +374,6 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
     DBEXEC(compiler->verbose, compiler->gtDispTree(indexExpr, false, false));
 
     currentIndexExpr          = indexExpr;
-    hasUnknownOper            = false;
     isMonotonicallyIncreasing = false;
     searchDepth               = MaxSearchDepth;
     rangeMap.RemoveAll();
@@ -384,7 +382,7 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
 
     JITDUMP("Optimize: Index range is %s\n", ToString(range));
 
-    if (range.max.IsUnknown() || range.min.IsUnknown() || hasUnknownOper || HasAddOverflow())
+    if (range.max.IsUnknown() || range.min.IsUnknown() || HasAddOverflow())
     {
         return false;
     }
@@ -1102,11 +1100,6 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
                 return Range(Limit::Unknown());
         }
     }
-
-    // TODO-MIKE-CQ: Old code treated unknown opers as overflowing. Only MS bozos know
-    // how exactly an unknown oper, for which we return an unknown range anyway, can
-    // overflow...
-    hasUnknownOper = true;
 
     return Range(Limit::Unknown());
 }
