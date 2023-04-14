@@ -264,13 +264,17 @@ int RangeCheck::GetArrayLength(ValueNum vn) const
         return -1;
     }
 
-    // TODO-MIKE-CQ: On 64 bit targets VNF_JitReadyToRunNewArr's length argument is LONG, not INT.
-    if (vnStore->GetConstantType(funcApp[1]) != TYP_INT)
-    {
-        return -1;
-    }
+    var_types type = vnStore->GetConstantType(funcApp[1]);
 
-    return vnStore->ConstantValue<int>(funcApp[1]);
+#ifdef TARGET_64BIT
+    if (type == TYP_LONG)
+    {
+        int64_t length = vnStore->ConstantValue<int64_t>(funcApp[1]);
+        return length <= INT32_MAX ? static_cast<int>(length) : -1;
+    }
+#endif
+
+    return type == TYP_INT ? vnStore->ConstantValue<int>(funcApp[1]) : -1;
 }
 
 bool RangeCheck::IsInBounds(const Range& range, ValueNum lengthVN, int lengthVal)
@@ -332,20 +336,25 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
     else
     {
         currentLengthVN = lengthVN;
-        lengthVal       = 0;
+        lengthVal       = GetArrayLength(lengthVN);
 
-        if (!BitVecOps::MayBeUninit(block->bbAssertionIn))
+        if (lengthVal < 0)
         {
-            Range lengthRange;
-            MergeEdgeAssertions(lengthVN, block->bbAssertionIn, &lengthRange);
+            lengthVal = 0;
 
-            if (lengthRange.min.IsConstant())
+            if (!BitVecOps::MayBeUninit(block->bbAssertionIn))
             {
-                lengthVal = lengthRange.min.GetConstant();
-            }
-        }
+                Range lengthRange;
+                MergeEdgeAssertions(lengthVN, block->bbAssertionIn, &lengthRange);
 
-        JITDUMP("Optimize: Min constant length " FMT_VN " %d\n", lengthVN, lengthVal);
+                if (lengthRange.min.IsConstant())
+                {
+                    lengthVal = lengthRange.min.GetConstant();
+                }
+            }
+
+            JITDUMP("Optimize: Min constant length " FMT_VN " %d\n", lengthVN, lengthVal);
+        }
     }
 
     GenTree* indexExpr = boundsChk->GetIndex()->SkipComma();
