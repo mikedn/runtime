@@ -3524,7 +3524,10 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
 
     JITDUMP("Addressing mode:\n");
     JITDUMP("  Base\n    ");
-    DISPNODE(am.base);
+    if (am.base != nullptr)
+    {
+        DISPNODE(am.base);
+    }
     if (am.index != nullptr)
     {
         JITDUMP("  + Index * %u + %d\n    ", am.scale, am.offset);
