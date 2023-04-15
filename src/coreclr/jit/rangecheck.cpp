@@ -191,7 +191,7 @@ private:
     Range* GetRange(BasicBlock* block, GenTree* expr);
     Range ComputeRange(BasicBlock* block, GenTree* expr);
     Range ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use);
-    Range ComputeBinOpRange(GenTreeOp* expr) const;
+    Range ComputeLeafRange(GenTree* expr) const;
     Range AddRanges(const Range& r1, const Range& r2) const;
     Range ComputeAddRange(BasicBlock* block, GenTreeOp* add);
     Range MergeRanges(const Range& r1, const Range& r2) const;
@@ -816,54 +816,6 @@ Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use)
     return range;
 }
 
-Range RangeCheck::ComputeBinOpRange(GenTreeOp* expr) const
-{
-    assert(expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD) && expr->TypeIs(TYP_INT));
-
-    GenTreeIntCon* op2 = expr->GetOp(1)->SkipComma()->IsIntCon();
-
-    if (op2 == nullptr)
-    {
-        return Limit::Unknown();
-    }
-
-    int constLimit = -1;
-
-    if (expr->OperIs(GT_AND))
-    {
-        constLimit = op2->GetInt32Value();
-    }
-    else if (expr->OperIs(GT_UMOD))
-    {
-        constLimit = op2->GetInt32Value() - 1;
-    }
-    else if (expr->OperIs(GT_RSH, GT_LSH))
-    {
-        GenTree* op1   = expr->GetOp(0)->SkipComma();
-        int      shift = op2->GetInt32Value();
-
-        if ((shift >= 0) && (shift < 32) && op1->OperIs(GT_AND))
-        {
-            if (GenTreeIntCon* maskIntCon = op1->AsOp()->GetOp(1)->SkipComma()->IsIntCon())
-            {
-                int mask = maskIntCon->GetInt32Value();
-
-                if (mask >= 0)
-                {
-                    constLimit = expr->OperIs(GT_RSH) ? (mask >> shift) : (mask << shift);
-                }
-            }
-        }
-    }
-
-    if (constLimit < 0)
-    {
-        return Limit::Unknown();
-    }
-
-    return Range(Limit::Constant(0), Limit::Constant(constLimit));
-}
-
 Range RangeCheck::AddRanges(const Range& r1, const Range& r2) const
 {
     Range result = Limit::Unknown();
@@ -1061,6 +1013,72 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
     return phiRange;
 }
 
+Range RangeCheck::ComputeLeafRange(GenTree* expr) const
+{
+    if (expr->OperIs(GT_IND, GT_LCL_FLD, GT_LCL_VAR, GT_CAST))
+    {
+        switch (expr->IsCast() ? expr->AsCast()->GetCastType() : expr->GetType())
+        {
+            case TYP_BOOL:
+            case TYP_UBYTE:
+                return Range(Limit::Constant(0), Limit::Constant(255));
+            case TYP_BYTE:
+                return Range(Limit::Constant(-128), Limit::Constant(127));
+            case TYP_USHORT:
+                return Range(Limit::Constant(0), Limit::Constant(65535));
+            case TYP_SHORT:
+                return Range(Limit::Constant(-32768), Limit::Constant(32767));
+            default:
+                return Limit::Unknown();
+        }
+    }
+    else if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD) && expr->TypeIs(TYP_INT))
+    {
+        GenTreeIntCon* op2 = expr->AsOp()->GetOp(1)->SkipComma()->IsIntCon();
+
+        if (op2 == nullptr)
+        {
+            return Limit::Unknown();
+        }
+
+        int constLimit = -1;
+
+        if (expr->OperIs(GT_AND))
+        {
+            constLimit = op2->GetInt32Value();
+        }
+        else if (expr->OperIs(GT_UMOD))
+        {
+            constLimit = op2->GetInt32Value() - 1;
+        }
+        else if (expr->OperIs(GT_RSH, GT_LSH))
+        {
+            GenTree* op1   = expr->AsOp()->GetOp(0)->SkipComma();
+            int      shift = op2->GetInt32Value();
+
+            if ((shift >= 0) && (shift < 32) && op1->OperIs(GT_AND))
+            {
+                if (GenTreeIntCon* maskIntCon = op1->AsOp()->GetOp(1)->SkipComma()->IsIntCon())
+                {
+                    int mask = maskIntCon->GetInt32Value();
+
+                    if (mask >= 0)
+                    {
+                        constLimit = expr->OperIs(GT_RSH) ? (mask >> shift) : (mask << shift);
+                    }
+                }
+            }
+        }
+
+        if (constLimit >= 0)
+        {
+            return Range(Limit::Constant(0), Limit::Constant(constLimit));
+        }
+    }
+
+    return Limit::Unknown();
+}
+
 Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
 {
     assert(!expr->OperIs(GT_COMMA) && (varActualType(expr->GetType()) == TYP_INT));
@@ -1087,30 +1105,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
         return ComputePhiRange(block, phi);
     }
 
-    if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD))
-    {
-        return ComputeBinOpRange(expr->AsOp());
-    }
-
-    if (expr->OperIs(GT_IND, GT_LCL_FLD, GT_LCL_VAR, GT_CAST))
-    {
-        switch (expr->IsCast() ? expr->AsCast()->GetCastType() : expr->GetType())
-        {
-            case TYP_BOOL:
-            case TYP_UBYTE:
-                return Range(Limit::Constant(0), Limit::Constant(255));
-            case TYP_BYTE:
-                return Range(Limit::Constant(-128), Limit::Constant(127));
-            case TYP_USHORT:
-                return Range(Limit::Constant(0), Limit::Constant(65535));
-            case TYP_SHORT:
-                return Range(Limit::Constant(-32768), Limit::Constant(32767));
-            default:
-                return Limit::Unknown();
-        }
-    }
-
-    return Limit::Unknown();
+    return ComputeLeafRange(expr);
 }
 
 Range* RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
