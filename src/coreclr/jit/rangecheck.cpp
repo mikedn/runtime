@@ -1092,11 +1092,11 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
         return ComputeBinOpRange(expr->AsOp());
     }
 
-    // TODO-MIKE-Review: What about LCL_FLD and CAST?
-    if (expr->OperIs(GT_IND))
+    if (expr->OperIs(GT_IND, GT_LCL_FLD, GT_LCL_VAR, GT_CAST))
     {
-        switch (expr->GetType())
+        switch (expr->IsCast() ? expr->AsCast()->GetCastType() : expr->GetType())
         {
+            case TYP_BOOL:
             case TYP_UBYTE:
                 return Range(Limit::Constant(0), Limit::Constant(255));
             case TYP_BYTE:
@@ -1106,11 +1106,11 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
             case TYP_SHORT:
                 return Range(Limit::Constant(-32768), Limit::Constant(32767));
             default:
-                return Range(Limit::Unknown());
+                return Limit::Unknown();
         }
     }
 
-    return Range(Limit::Unknown());
+    return Limit::Unknown();
 }
 
 Range* RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
