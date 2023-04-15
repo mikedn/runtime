@@ -1240,7 +1240,7 @@ void RangeCheck::OptimizeRangeChecks()
                 {
                     if (OptimizeRangeCheck(block, boundsChk))
                     {
-                        JITDUMP("Optimize: Removing phiRange check\n");
+                        JITDUMP("Optimize: Removing range check\n");
                         compiler->optRemoveRangeCheck(boundsChk, comma, stmt);
                         stmtModified = true;
                     }
