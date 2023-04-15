@@ -203,6 +203,7 @@ private:
     bool GetLimitMax(const Limit& limit, int* max) const;
     bool AddOverflows(const Limit& limit1, const Limit& limit2) const;
     bool HasAddOverflow() const;
+    bool HasPositiveStep(GenTreePhi* phi, GenTreeLclUse* use) const;
     bool IsAddMonotonicallyIncreasing(GenTreeOp* expr);
     bool IsPhiMonotonicallyIncreasing(GenTreePhi* phi, bool rejectNegativeConst);
     bool IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeConst);
@@ -403,6 +404,54 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
 
     return (range.min.IsConstant() || range.min.IsVN()) && (range.max.IsConstant() || range.max.IsVN()) &&
            IsInBounds(range, lengthVN, static_cast<int>(lengthVal));
+}
+
+bool RangeCheck::HasPositiveStep(GenTreePhi* phi, GenTreeLclUse* phiArg) const
+{
+    GenTree* value = phiArg->GetDef()->GetValue();
+    int      step  = 0;
+    int      count = 0;
+
+    for (unsigned i = 0; i < 16; i++)
+    {
+        if (!value->TypeIs(TYP_INT))
+        {
+            return false;
+        }
+
+        if (GenTreeLclUse* use = value->IsLclUse())
+        {
+            value = use->GetDef()->GetValue();
+
+            continue;
+        }
+
+        if (value->OperIs(GT_ADD))
+        {
+            GenTree* op1 = value->AsOp()->GetOp(0);
+            GenTree* op2 = value->AsOp()->GetOp(1);
+
+            if (vnStore->IsVNConstant(op1->GetConservativeVN()))
+            {
+                std::swap(op1, op2);
+            }
+            else if (!vnStore->IsVNConstant(op2->GetConservativeVN()))
+            {
+                return false;
+            }
+
+            value = op1;
+            step += vnStore->GetConstantInt32(op2->GetConservativeVN());
+
+            count++;
+
+            continue;
+        }
+
+        break;
+    }
+
+    return (value == phi) && (step > 0);
 }
 
 bool RangeCheck::IsAddMonotonicallyIncreasing(GenTreeOp* expr)
@@ -982,18 +1031,25 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
         }
         else if (useRange->min.IsUndefined())
         {
-            if (isMonotonicallyIncreasingExpr != currentIndexExpr)
-            {
-                searchPath.Clear();
-                isMonotonicallyIncreasing     = IsMonotonicallyIncreasing(currentIndexExpr, false);
-                isMonotonicallyIncreasingExpr = currentIndexExpr;
-            }
-
             Range range = Limit::Unknown();
 
-            if (isMonotonicallyIncreasing)
+            if (HasPositiveStep(phi, useNode))
             {
-                range.min = Limit::Dependent();
+                range.min = phiRange.min;
+            }
+            else
+            {
+                if (isMonotonicallyIncreasingExpr != currentIndexExpr)
+                {
+                    searchPath.Clear();
+                    isMonotonicallyIncreasing     = IsMonotonicallyIncreasing(currentIndexExpr, false);
+                    isMonotonicallyIncreasingExpr = currentIndexExpr;
+                }
+
+                if (isMonotonicallyIncreasing)
+                {
+                    range.min = Limit::Dependent();
+                }
             }
 
             MergePhiArgAssertions(block, useNode, &range);
