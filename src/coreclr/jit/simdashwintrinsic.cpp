@@ -835,13 +835,13 @@ GenTree* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
         index = indexUses[0];
 
         lastIndex = gtNewOperNode(GT_ADD, TYP_INT, indexUses[1], lastIndex);
-        array     = gtNewCommaNode(gtNewArrBoundsChk(lastIndex, arrLen, lastIndexThrowKind), array);
+        array     = gtNewCommaNode(gtNewBoundsChk(lastIndex, arrLen, lastIndexThrowKind), array);
         arrLen    = gtNewArrLen(arrayUses[2], OFFSETOF__CORINFO_Array__length);
-        array     = gtNewCommaNode(gtNewArrBoundsChk(indexUses[2], arrLen, indexThrowKind), array);
+        array     = gtNewCommaNode(gtNewBoundsChk(indexUses[2], arrLen, indexThrowKind), array);
     }
     else
     {
-        array = gtNewCommaNode(gtNewArrBoundsChk(lastIndex, arrLen, lastIndexThrowKind), array);
+        array = gtNewCommaNode(gtNewBoundsChk(lastIndex, arrLen, lastIndexThrowKind), array);
     }
 
     GenTree* offset = gtNewIconNode(OFFSETOF__CORINFO_Array__data, TYP_I_IMPL);
@@ -3024,7 +3024,7 @@ void SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree* tree, va
 
             GenTree* lastIndex  = compiler->gtNewIconNode(index + simdElementCount - 1, TYP_INT);
             GenTree* arrLen     = compiler->gtNewArrLen(compiler->gtCloneExpr(array), OFFSETOF__CORINFO_Array__length);
-            GenTree* arrBndsChk = compiler->gtNewArrBoundsChk(lastIndex, arrLen, ThrowHelperKind::IndexOutOfRange);
+            GenTree* arrBndsChk = compiler->gtNewBoundsChk(lastIndex, arrLen, ThrowHelperKind::IndexOutOfRange);
 
             addr   = compiler->gtNewCommaNode(arrBndsChk, array);
             offset = OFFSETOF__CORINFO_Array__data + index * varTypeSize(TYP_FLOAT);

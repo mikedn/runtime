@@ -1188,9 +1188,8 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
             case GT_PUTARG_STK:
             case GT_IL_OFFSET:
             case GT_KEEPALIVE:
-            case GT_ARR_BOUNDS_CHECK:
+            case GT_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
-            case GT_HW_INTRINSIC_CHK:
             case GT_HWINTRINSIC:
 #endif
                 // These nodes cannot be removed, some always have side effects, some are flow

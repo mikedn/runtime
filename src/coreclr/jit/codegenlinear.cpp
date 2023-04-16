@@ -770,13 +770,13 @@ void CodeGen::genCheckConsumeNode(GenTree* const node)
         else if ((node->gtDebugFlags & GTF_DEBUG_NODE_CG_CONSUMED) != 0)
         {
             printf("Node was consumed twice:\n");
-            compiler->gtDispTree(node, nullptr, nullptr, true);
+            compiler->gtDispLIRNode(node);
         }
         else if ((lastConsumedNode != nullptr) && (node->gtUseNum < lastConsumedNode->gtUseNum))
         {
             printf("Nodes were consumed out-of-order:\n");
-            compiler->gtDispTree(lastConsumedNode, nullptr, nullptr, true);
-            compiler->gtDispTree(node, nullptr, nullptr, true);
+            compiler->gtDispLIRNode(lastConsumedNode);
+            compiler->gtDispLIRNode(node);
         }
     }
 

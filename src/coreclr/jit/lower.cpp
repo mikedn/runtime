@@ -277,10 +277,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             return LowerCast(node->AsCast());
 
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
+        case GT_BOUNDS_CHECK:
             ContainCheckBoundsChk(node->AsBoundsChk());
             break;
 #endif
@@ -3527,7 +3524,10 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
 
     JITDUMP("Addressing mode:\n");
     JITDUMP("  Base\n    ");
-    DISPNODE(am.base);
+    if (am.base != nullptr)
+    {
+        DISPNODE(am.base);
+    }
     if (am.index != nullptr)
     {
         JITDUMP("  + Index * %u + %d\n    ", am.scale, am.offset);

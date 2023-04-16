@@ -236,6 +236,15 @@ public:
             ComputeAvailability();
             PropagateAssertions();
         }
+        else
+        {
+            for (BasicBlock* block : compiler->Blocks())
+            {
+                block->bbAssertionIn          = nullptr;
+                block->bbAssertionOut         = nullptr;
+                block->bbAssertionOutJumpDest = nullptr;
+            }
+        }
 
         compiler->apAssertionTable = assertionTable;
         compiler->apAssertionCount = assertionCount;
@@ -1226,7 +1235,7 @@ private:
 
         switch (node->GetOper())
         {
-            case GT_ARR_BOUNDS_CHECK:
+            case GT_BOUNDS_CHECK:
                 assertionInfo = GenerateBoundsChkAssertion(node->AsBoundsChk());
                 break;
 
@@ -1906,16 +1915,14 @@ private:
 
     GenTree* PropagateComma(GenTreeOp* comma, Statement* stmt)
     {
-        // Remove the bounds check as part of the GT_COMMA node since we need user pointer to remove nodes.
-        // When processing visits the bounds check, it sets the throw kind to None if the check is redundant.
-
-        if (!comma->GetOp(0)->OperIs(GT_ARR_BOUNDS_CHECK) || ((comma->GetOp(0)->gtFlags & GTF_ARR_BOUND_INBND) == 0))
+        // Remove the bounds check as part of the COMMA node since we need the user to remove nodes.
+        if (comma->GetOp(0)->OperIs(GT_BOUNDS_CHECK) && ((comma->GetOp(0)->gtFlags & GTF_BOUND_VALID) != 0))
         {
-            return nullptr;
+            compiler->optRemoveRangeCheck(comma->GetOp(0)->AsBoundsChk(), comma, stmt);
+            return UpdateTree(comma, comma, stmt);
         }
 
-        compiler->optRemoveCommaBasedRangeCheck(comma, stmt);
-        return UpdateTree(comma, comma, stmt);
+        return nullptr;
     }
 
     GenTree* PropagateIndir(const ASSERT_TP assertions, GenTreeIndir* indir, Statement* stmt)
@@ -2108,7 +2115,7 @@ private:
 #ifdef FEATURE_ENABLE_NO_RANGE_CHECKS
         if (JitConfig.JitNoRangeChks())
         {
-            boundsChk->gtFlags |= GTF_ARR_BOUND_INBND;
+            boundsChk->gtFlags |= GTF_BOUND_VALID;
             return nullptr;
         }
 #endif
@@ -2284,10 +2291,11 @@ private:
         {
             if (boundsChk == stmt->GetRootNode())
             {
-                return UpdateTree(compiler->optRemoveStandaloneRangeCheck(boundsChk, stmt), boundsChk, stmt);
+                compiler->optRemoveRangeCheck(boundsChk, nullptr, stmt);
+                return UpdateTree(stmt->GetRootNode(), boundsChk, stmt);
             }
 
-            boundsChk->gtFlags |= GTF_ARR_BOUND_INBND;
+            boundsChk->gtFlags |= GTF_BOUND_VALID;
         }
 
         return nullptr;
@@ -2348,7 +2356,7 @@ private:
             case GT_IND:
             case GT_NULLCHECK:
                 return PropagateIndir(assertions, node->AsIndir(), stmt);
-            case GT_ARR_BOUNDS_CHECK:
+            case GT_BOUNDS_CHECK:
                 return PropagateBoundsChk(assertions, node->AsBoundsChk(), stmt);
             case GT_COMMA:
                 return PropagateComma(node->AsOp(), stmt);

@@ -413,9 +413,9 @@ enum GenTreeFlags : unsigned
 
     GTF_INX_RNGCHK            = 0x80000000, // The array index must be range-checked
 
-    // ARR_BOUNDS_CHECK specific flags
+    // BOUNDS_CHECK specific flags
 
-    GTF_ARR_BOUND_INBND       = 0x80000000, // Index is known to be valid.
+    GTF_BOUND_VALID           = 0x80000000, // Index is known to be valid
 
     // ARR_LENGTH specific flags
 
@@ -2274,7 +2274,6 @@ class GenTreeUseEdgeIterator final
 
     // Advance functions for special nodes
     void AdvanceTernaryOp();
-    void AdvanceBoundsChk();
     void AdvanceArrElem();
     void AdvanceFieldList();
     void AdvancePhi();
@@ -5896,60 +5895,47 @@ struct GenTreeArrLen : public GenTreeUnOp
 #endif
 };
 
-struct GenTreeBoundsChk : public GenTree
+struct GenTreeBoundsChk : public GenTreeOp
 {
-    GenTree*        gtIndex;
-    GenTree*        gtArrLen;
     BasicBlock*     m_throwBlock;
     ThrowHelperKind m_throwKind;
 
-    GenTreeBoundsChk(genTreeOps oper, GenTree* index, GenTree* length, ThrowHelperKind kind)
-        : GenTree(oper, TYP_VOID), gtIndex(index), gtArrLen(length), m_throwBlock(nullptr), m_throwKind(kind)
+    GenTreeBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)
+        : GenTreeOp(GT_BOUNDS_CHECK, TYP_VOID, index, length), m_throwBlock(nullptr), m_throwKind(kind)
     {
-        bool isValidOper =
-#ifdef FEATURE_HW_INTRINSICS
-            (oper == GT_HW_INTRINSIC_CHK) ||
-#endif
-            (oper == GT_ARR_BOUNDS_CHECK);
-        assert(isValidOper);
-
         gtFlags |= GTF_EXCEPT | index->GetSideEffects() | length->GetSideEffects();
     }
 
     GenTreeBoundsChk(const GenTreeBoundsChk* copyFrom)
-        : GenTree(copyFrom->GetOper(), TYP_VOID)
-        , gtIndex(copyFrom->gtIndex)
-        , gtArrLen(copyFrom->gtArrLen)
-        , m_throwBlock(copyFrom->m_throwBlock)
-        , m_throwKind(copyFrom->m_throwKind)
+        : GenTreeOp(copyFrom), m_throwBlock(copyFrom->m_throwBlock), m_throwKind(copyFrom->m_throwKind)
     {
     }
 
     GenTree* GetIndex() const
     {
-        return gtIndex;
+        return gtOp1;
     }
 
     void SetIndex(GenTree* index)
     {
         assert(varTypeIsIntegral(index->GetType()));
-        gtIndex = index;
+        gtOp1 = index;
     }
 
     GenTree* GetLength() const
     {
-        return gtArrLen;
+        return gtOp2;
     }
 
     void SetLength(GenTree* length)
     {
         assert(varTypeIsIntegral(length->GetType()));
-        gtArrLen = length;
+        gtOp2 = length;
     }
 
     GenTree* GetArray() const
     {
-        return gtArrLen->IsArrLen() ? gtArrLen->AsArrLen()->GetArray() : nullptr;
+        return gtOp2->IsArrLen() ? gtOp2->AsArrLen()->GetArray() : nullptr;
     }
 
     ThrowHelperKind GetThrowKind() const
@@ -5970,41 +5956,37 @@ struct GenTreeBoundsChk : public GenTree
     static bool Equals(const GenTreeBoundsChk* c1, const GenTreeBoundsChk* c2)
     {
         return (c1->GetOper() == c2->GetOper()) && (c1->m_throwKind == c2->m_throwKind) &&
-               Compare(c1->gtIndex, c2->gtIndex) && Compare(c1->gtArrLen, c2->gtArrLen);
+               Compare(c1->gtOp1, c2->gtOp1) && Compare(c1->gtOp2, c2->gtOp2);
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeBoundsChk() : GenTree()
-    {
-    }
+    GenTreeBoundsChk() = default;
 #endif
 };
 
-// GenTreeArrElem - bounds checked address (byref) of a general array element,
-//    for multidimensional arrays, or 1-d arrays with non-zero lower bounds.
-//
 struct GenTreeArrElem : public GenTree
 {
-    GenTree* gtArrObj;
+    static constexpr unsigned MaxRank     = 3;
+    static constexpr unsigned MaxElemSize = UINT8_MAX;
 
-#define GT_ARR_MAX_RANK 3
-    GenTree*      gtArrInds[GT_ARR_MAX_RANK]; // Indices
-    unsigned char gtArrRank;                  // Rank of the array
+    GenTree*  gtArrObj;
+    GenTree*  gtArrInds[MaxRank];
+    uint8_t   gtArrRank;
+    uint8_t   gtArrElemSize;
+    var_types gtArrElemType;
 
-    unsigned char gtArrElemSize; // !!! Caution, this is an "unsigned char", it is used only
-                                 // on the optimization path of array intrisics.
-                                 // It stores the size of array elements WHEN it can fit
-                                 // into an "unsigned char".
-                                 // This has caused VSW 571394.
-    var_types gtArrElemType;     // The array element type
-
-    // Requires that "inds" is a pointer to an array of "rank" nodes for the indices.
-    GenTreeArrElem(
-        var_types type, GenTree* arr, unsigned char rank, unsigned char elemSize, var_types elemType, GenTree** inds)
-        : GenTree(GT_ARR_ELEM, type), gtArrObj(arr), gtArrRank(rank), gtArrElemSize(elemSize), gtArrElemType(elemType)
+    GenTreeArrElem(var_types type, GenTree* arr, unsigned rank, unsigned elemSize, var_types elemType, GenTree** inds)
+        : GenTree(GT_ARR_ELEM, type)
+        , gtArrObj(arr)
+        , gtArrRank(static_cast<uint8_t>(rank))
+        , gtArrElemSize(static_cast<uint8_t>(elemSize))
+        , gtArrElemType(elemType)
     {
+        assert(rank <= MaxRank);
+        assert(elemSize <= MaxElemSize);
+
         gtFlags |= (arr->gtFlags & GTF_ALL_EFFECT);
-        for (unsigned char i = 0; i < rank; i++)
+        for (unsigned i = 0; i < rank; i++)
         {
             gtArrInds[i] = inds[i];
             gtFlags |= (inds[i]->gtFlags & GTF_ALL_EFFECT);
@@ -6012,15 +5994,35 @@ struct GenTreeArrElem : public GenTree
         gtFlags |= GTF_EXCEPT;
     }
 
+    unsigned GetRank() const
+    {
+        return static_cast<unsigned>(gtArrRank);
+    }
+
     GenTree* GetArray() const
     {
         return gtArrObj;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeArrElem() : GenTree()
+    GenTree* GetIndex(unsigned i) const
     {
+        assert(i < gtArrRank);
+        return gtArrInds[i];
     }
+
+    unsigned GetNumOps() const
+    {
+        return 1 + gtArrRank;
+    }
+
+    GenTree* GetOp(unsigned i) const
+    {
+        assert(i <= gtArrRank);
+        return i == 0 ? gtArrObj : gtArrInds[i - 1];
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeArrElem() = default;
 #endif
 };
 
@@ -6053,40 +6055,32 @@ struct GenTreeArrElem : public GenTree
 //
 struct GenTreeArrIndex : public GenTreeOp
 {
-    // The array object - may be any expression producing an Array reference, but is likely to be a lclVar.
-    GenTree*& ArrObj()
-    {
-        return gtOp1;
-    }
-    // The index expression - may be any integral expression.
-    GenTree*& IndexExpr()
-    {
-        return gtOp2;
-    }
-    unsigned char gtCurrDim;     // The current dimension
-    unsigned char gtArrRank;     // Rank of the array
-    var_types     gtArrElemType; // The array element type
+    uint8_t   gtCurrDim;
+    uint8_t   gtArrRank;
+    var_types gtArrElemType;
 
-    GenTreeArrIndex(var_types     type,
-                    GenTree*      arrObj,
-                    GenTree*      indexExpr,
-                    unsigned char currDim,
-                    unsigned char arrRank,
-                    var_types     elemType)
+    GenTreeArrIndex(
+        var_types type, GenTree* arrObj, GenTree* indexExpr, unsigned currDim, unsigned arrRank, var_types elemType)
         : GenTreeOp(GT_ARR_INDEX, type, arrObj, indexExpr)
-        , gtCurrDim(currDim)
-        , gtArrRank(arrRank)
+        , gtCurrDim(static_cast<uint8_t>(currDim))
+        , gtArrRank(static_cast<uint8_t>(arrRank))
         , gtArrElemType(elemType)
     {
         gtFlags |= GTF_EXCEPT;
     }
-#if DEBUGGABLE_GENTREE
-protected:
-    friend GenTree;
-    // Used only for GenTree::GetVtableForOper()
-    GenTreeArrIndex() : GenTreeOp()
+
+    GenTree*& ArrObj()
     {
+        return gtOp1;
     }
+
+    GenTree*& IndexExpr()
+    {
+        return gtOp2;
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeArrIndex() = default;
 #endif
 };
 
@@ -6120,20 +6114,20 @@ protected:
 //
 struct GenTreeArrOffs : public GenTreeTernaryOp
 {
-    unsigned char gtCurrDim;     // The current dimension
-    unsigned char gtArrRank;     // Rank of the array
-    var_types     gtArrElemType; // The array element type
+    uint8_t   gtCurrDim;
+    uint8_t   gtArrRank;
+    var_types gtArrElemType;
 
-    GenTreeArrOffs(var_types     type,
-                   GenTree*      offset,
-                   GenTree*      index,
-                   GenTree*      arrObj,
-                   unsigned char currDim,
-                   unsigned char rank,
-                   var_types     elemType)
+    GenTreeArrOffs(var_types type,
+                   GenTree*  offset,
+                   GenTree*  index,
+                   GenTree*  arrObj,
+                   unsigned  currDim,
+                   unsigned  rank,
+                   var_types elemType)
         : GenTreeTernaryOp(GT_ARR_OFFSET, type, offset, index, arrObj)
-        , gtCurrDim(currDim)
-        , gtArrRank(rank)
+        , gtCurrDim(static_cast<uint8_t>(currDim))
+        , gtArrRank(static_cast<uint8_t>(rank))
         , gtArrElemType(elemType)
     {
         assert(index->gtFlags & GTF_EXCEPT);
@@ -6167,13 +6161,9 @@ struct GenTreeArrOffs : public GenTreeTernaryOp
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeArrOffs() : GenTreeTernaryOp()
-    {
-    }
+    GenTreeArrOffs() = default;
 #endif
 };
-
-/* gtAddrMode -- Target-specific canonicalized addressing expression (GT_LEA) */
 
 struct GenTreeAddrMode : public GenTreeOp
 {

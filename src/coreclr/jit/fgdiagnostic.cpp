@@ -3109,18 +3109,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 }
                 break;
 
-            case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HW_INTRINSIC_CHK:
-#endif
-                GenTreeBoundsChk* bndsChk;
-                bndsChk = tree->AsBoundsChk();
-                fgDebugCheckFlags(bndsChk->GetIndex());
-                chkFlags |= bndsChk->GetIndex()->GetSideEffects();
-                fgDebugCheckFlags(bndsChk->GetLength());
-                chkFlags |= bndsChk->GetLength()->GetSideEffects();
-                break;
-
             case GT_PHI:
                 for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
                 {

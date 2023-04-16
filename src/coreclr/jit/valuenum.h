@@ -106,10 +106,21 @@ struct VNFuncApp
         return m_func == static_cast<VNFunc>(oper);
     }
 
+    bool Is(VNFunc func) const
+    {
+        return m_func == func;
+    }
+
     template <typename... T>
     bool Is(genTreeOps oper, T... rest) const
     {
         return Is(oper) || Is(rest...);
+    }
+
+    template <typename... T>
+    bool Is(VNFunc func, T... rest) const
+    {
+        return Is(func) || Is(rest...);
     }
 
     ValueNum operator[](unsigned i) const
@@ -528,7 +539,7 @@ public:
     // If "vn" is a "VNF_ValWithExc(norm, excSet)" value, returns the "norm" argument; otherwise,
     // just returns "vn".
     // The Normal value is the value number of the expression when no exceptions occurred
-    ValueNum VNNormalValue(ValueNum vn);
+    ValueNum VNNormalValue(ValueNum vn) const;
 
     // Given a "vnp", get the ValueNum kind based upon vnk,
     // then call VNNormalValue on that ValueNum
@@ -651,27 +662,25 @@ public:
     // they have been returned by previous "VNFor..." operations.  They can assert false if this is
     // not true.
 
-    var_types TypeOfVN(ValueNum vn);
+    var_types TypeOfVN(ValueNum vn) const;
 
     // Returns BasicBlock::MAX_LOOP_NUM if the given value number's loop nest is unknown or ill-defined.
     BasicBlock::loopNumber LoopOfVN(ValueNum vn);
 
     // Returns true iff the VN represents a (non-handle) constant.
-    bool IsVNConstant(ValueNum vn);
-
-    bool IsVNIntegralConstant(ValueNum vn, ssize_t* value, GenTreeFlags* flags);
-
-    // Returns true iff the VN represents an integer constant.
-    bool IsVNInt32Constant(ValueNum vn);
+    var_types GetConstantType(ValueNum vn) const;
+    bool IsVNConstant(ValueNum vn) const;
+    bool IsVNInt32Constant(ValueNum vn) const;
+    bool IsIntegralConstant(ValueNum vn, ssize_t* value) const;
 
     typedef SmallHashTable<ValueNum, bool, 8U> CheckedBoundVNSet;
 
     // Returns true if the VN is known or likely to appear as the conservative value number
-    // of the length argument to a GT_ARR_BOUNDS_CHECK node.
+    // of the length argument to a GT_BOUNDS_CHECK node.
     bool IsVNCheckedBound(ValueNum vn);
 
     // Record that a VN is known to appear as the conservative value number of the length
-    // argument to a GT_ARR_BOUNDS_CHECK node.
+    // argument to a GT_BOUNDS_CHECK node.
     void SetVNIsCheckedBound(ValueNum vn);
 
     struct CompareCheckedBoundArithInfo
@@ -700,18 +709,6 @@ public:
 #endif
     };
 
-    // Check if "vn" is "new [] (type handle, size)"
-    bool IsVNNewArr(ValueNum vn, VNFuncApp* funcApp);
-
-    // Check if "vn" IsVNNewArr and return <= 0 if arr size cannot be determined, else array size.
-    int GetNewArrSize(ValueNum vn);
-
-    // Check if "vn" is "a.len"
-    bool IsVNArrLen(ValueNum vn);
-
-    // If "vn" is VN(a.len) then return VN(a); NoVN if VN(a) can't be determined.
-    ValueNum GetArrForLenVn(ValueNum vn);
-
     static bool IsVNCompareCheckedBoundRelop(const VNFuncApp& funcApp)
     {
         return funcApp.Is(GT_LE, GT_GE, GT_LT, GT_GT);
@@ -733,10 +730,10 @@ public:
     void GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, CompareCheckedBoundArithInfo* info);
 
     // Returns the flags on the current handle. GTF_ICON_CLASS_HDL for example.
-    GenTreeFlags GetHandleFlags(ValueNum vn);
+    GenTreeFlags GetHandleFlags(ValueNum vn) const;
 
     // Returns true iff the VN represents a handle constant.
-    bool IsVNHandle(ValueNum vn);
+    bool IsVNHandle(ValueNum vn) const;
 
     // Convert a vartype_t to the value number's storage type for that vartype_t.
     // For example, ValueNum of type TYP_LONG are stored in a map of INT64 variables.
@@ -754,10 +751,10 @@ private:
 
     // Get the actual value and coerce the actual type c->m_typ to the wanted type T.
     template <typename T>
-    FORCEINLINE T SafeGetConstantValue(Chunk* c, unsigned offset);
+    FORCEINLINE T SafeGetConstantValue(Chunk* c, unsigned offset) const;
 
     template <typename T>
-    T ConstantValueInternal(ValueNum vn DEBUGARG(bool coerce))
+    T ConstantValueInternal(ValueNum vn DEBUGARG(bool coerce)) const
     {
         Chunk* c = m_chunks.Get(GetChunkNum(vn));
         assert(c->m_attribs == CEA_Const || c->m_attribs == CEA_Handle);
@@ -836,7 +833,7 @@ public:
     // Requires that "vn" is a constant, and that its type is compatible with the explicitly passed
     // type "T". Also, note that "T" has to have an accurate storage size of the TypeOfVN(vn).
     template <typename T>
-    T ConstantValue(ValueNum vn)
+    T ConstantValue(ValueNum vn) const
     {
         return ConstantValueInternal<T>(vn DEBUGARG(false));
     }
@@ -844,7 +841,7 @@ public:
     // Requires that "vn" is a constant, and that its type can be coerced to the explicitly passed
     // type "T".
     template <typename T>
-    T CoercedConstantValue(ValueNum vn)
+    T CoercedConstantValue(ValueNum vn) const
     {
         return ConstantValueInternal<T>(vn DEBUGARG(true));
     }
@@ -872,7 +869,7 @@ public:
 
     // If "vn" represents a function application, returns "true" and set "*funcApp" to
     // the function application it represents; otherwise, return "false."
-    VNFunc GetVNFunc(ValueNum vn, VNFuncApp* funcApp);
+    VNFunc GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const;
 
     // Returns "true" iff "vn" is a valid value number -- one that has been previously returned.
     bool VNIsValid(ValueNum vn);
@@ -1364,7 +1361,7 @@ struct ValueNumStore::VarTypConv<TYP_REF>
 
 // Get the actual value and coerce the actual type c->m_typ to the wanted type T.
 template <typename T>
-FORCEINLINE T ValueNumStore::SafeGetConstantValue(Chunk* c, unsigned offset)
+FORCEINLINE T ValueNumStore::SafeGetConstantValue(Chunk* c, unsigned offset) const
 {
     switch (c->m_typ)
     {

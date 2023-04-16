@@ -1331,7 +1331,7 @@ static bool HasInlineThrowHelperCall(Compiler* compiler, GenTree* tree)
                 }
                 break;
 
-            case GT_ARR_BOUNDS_CHECK:
+            case GT_BOUNDS_CHECK:
                 return Compiler::WALK_ABORT;
 
             default:
@@ -5103,17 +5103,12 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
 #endif // defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
 
-/*****************************************************************************
- *
- *  A little helper used to rearrange nested commutative operations. The
- *  effect is that nested associative, commutative operations are transformed
- *  into a 'left-deep' tree, i.e. into something like this:
- *
- *      (((a op b) op c) op d) op...
- */
-
-#if REARRANGE_ADDS
-
+// A little helper used to rearrange nested commutative operations. The
+// effect is that nested associative, commutative operations are transformed
+// into a 'left-deep' tree, i.e. into something like this:
+//
+//     (((a op b) op c) op d) op...
+//
 void Compiler::fgMoveOpsLeft(GenTree* tree)
 {
     GenTree*   op1;
@@ -5244,8 +5239,6 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
     return;
 }
 
-#endif
-
 GenTree* Compiler::fgMorphStringIndexIndir(GenTreeIndexAddr* index)
 {
     // Fold "cns_str"[cns_index] to ushort constant
@@ -5354,7 +5347,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
             noway_assert(index2 != nullptr);
         }
 
-        boundsCheck = gtNewArrBoundsChk(index2, arrLen, ThrowHelperKind::IndexOutOfRange);
+        boundsCheck = gtNewBoundsChk(index2, arrLen, ThrowHelperKind::IndexOutOfRange);
     }
 
     GenTree* offset = index;
@@ -11884,13 +11877,10 @@ DONE_MORPHING_CHILDREN:
         case GT_INDEX_ADDR:
             assert(opts.MinOpts());
 
-            tree->SetSideEffects(op1->GetSideEffects() | op2->GetSideEffects());
-
             if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
             {
                 tree->AsIndexAddr()->SetThrowBlock(
                     fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, currentBlock));
-                tree->AddSideEffects(GTF_EXCEPT);
             }
             break;
 
@@ -12125,37 +12115,18 @@ DONE_MORPHING_CHILDREN:
             }
         }
 
-        /* Check for op2 as a GT_COMMA with a unconditional throw */
-
-        if (op2 && fgIsCommaThrow(op2, true))
+        if ((op2 != nullptr) && fgIsCommaThrow(op2, true))
         {
-            /* We can safely throw out the rest of the statements */
             fgRemoveRestOfBlock = true;
 
-            // If op1 has no side-effects
             if ((op1->gtFlags & GTF_ALL_EFFECT) == 0)
             {
-                // If tree is an asg node
-                if (tree->OperIs(GT_ASG))
+                if (tree->OperIs(GT_ASG, GT_BOUNDS_CHECK, GT_COMMA))
                 {
-                    /* Return the throw node as the new tree */
                     return op2->AsOp()->gtOp1;
                 }
 
-                if (tree->OperGet() == GT_ARR_BOUNDS_CHECK)
-                {
-                    /* Return the throw node as the new tree */
-                    return op2->AsOp()->gtOp1;
-                }
-
-                // If tree is a comma node
-                if (tree->OperGet() == GT_COMMA)
-                {
-                    /* Return the throw node as the new tree */
-                    return op2->AsOp()->gtOp1;
-                }
-
-                /* for the shift nodes the type of op2 can differ from the tree type */
+                // for the shift nodes the type of op2 can differ from the tree type
                 if ((typ == TYP_LONG) && (genActualType(op2->gtType) == TYP_INT))
                 {
                     noway_assert(GenTree::OperIsShiftOrRotate(oper));
@@ -12455,10 +12426,8 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
         }
     }
 
-#if REARRANGE_ADDS
-
-    /* Change "((x+icon)+y)" to "((x+y)+icon)"
-       Don't reorder floating-point operations */
+    // Change "((x+icon)+y)" to "((x+y)+icon)"
+    // Don't reorder floating-point operations.
 
     if (fgGlobalMorph && (oper == GT_ADD) && !tree->gtOverflow() && (op1->gtOper == GT_ADD) && !op1->gtOverflow() &&
         varTypeIsIntegralOrI(typ))
@@ -12496,12 +12465,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
         }
     }
 
-#endif
-
-    /*-------------------------------------------------------------------------
-     * Perform optional oper-specific postorder morphing
-     */
-
+    // Perform optional oper-specific postorder morphing
     switch (oper)
     {
         case GT_ASG:
@@ -13399,45 +13363,6 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             }
             tree = fgMorphCall(tree->AsCall(), fgGlobalMorphStmt);
             break;
-
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
-        {
-            GenTreeBoundsChk* check  = tree->AsBoundsChk();
-            GenTree*          index  = check->GetIndex();
-            GenTree*          length = check->GetLength();
-
-            index  = fgMorphTree(index);
-            length = fgMorphTree(length);
-
-            // If the index is a COMMA(throw, x), just return that.
-            if (fgIsCommaThrow(index))
-            {
-                tree = index;
-            }
-            else
-            {
-                check->SetIndex(index);
-                check->SetLength(length);
-                check->SetSideEffects(GTF_EXCEPT | index->GetSideEffects() | length->GetSideEffects());
-
-                // TODO-MIKE-Review: This doesn't make a lot of sense. One way or another, fgSimpleLowering
-                // creates and sets the throw block (if throw helper blocks are used). Why would we do this
-                // here only in minopts? It probably makes sense to delay throw block creation to lowering
-                // so the optimizer has fewer blocks to process (throw blocks don't do anything interesting,
-                // they're just helper calls without any arguments). But if we delay when optimizations are
-                // enabled why not also delay in minopts? Is this a leftover from when the throw block stack
-                // level for x86 args was computed during morph?
-
-                if (opts.MinOpts())
-                {
-                    check->SetThrowBlock(fgGetThrowHelperBlock(check->GetThrowKind(), currentBlock));
-                }
-            }
-        }
-        break;
 
         case GT_ARR_ELEM:
             tree->AsArrElem()->gtArrObj = fgMorphTree(tree->AsArrElem()->gtArrObj);
@@ -15116,7 +15041,7 @@ void Compiler::AddZeroOffsetFieldSeq(GenTree* addr, FieldSeqNode* fieldSeq)
         printf("\nAddZeroOffsetFieldSeq ");
         dmpFieldSeqFields(fieldSeq);
         printf(" to address\n");
-        gtDispTree(addr, nullptr, nullptr, true, false);
+        gtDispTree(addr, true, false);
     }
 #endif
 

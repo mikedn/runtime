@@ -169,7 +169,7 @@ private:
         // useless (c1 < c2)-like assertions) and reach RangeCheck where they are finally removed.
         // Common patterns like new int[] { x, y, z } benefit from this.
 
-        if ((arrLen->gtNext != nullptr) && arrLen->gtNext->OperIs(GT_ARR_BOUNDS_CHECK))
+        if ((arrLen->gtNext != nullptr) && arrLen->gtNext->IsBoundsChk())
         {
             GenTreeBoundsChk* check = arrLen->gtNext->AsBoundsChk();
 

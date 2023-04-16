@@ -4877,7 +4877,7 @@ void cTree(Compiler* comp, GenTree* tree)
 {
     static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
     printf("===================================================================== *Tree %u\n", sequenceNumber++);
-    comp->gtDispTree(tree, nullptr, ">>>");
+    comp->gtDispTree(tree);
 }
 
 void cTreeLIR(Compiler* comp, GenTree* tree)

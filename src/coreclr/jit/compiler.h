@@ -72,7 +72,7 @@ class Instrumentor;        // defined in fgprofile.cpp
 class SpanningTreeVisitor; // defined in fgprofile.cpp
 class OptBoolsDsc;         // defined in optimizer.cpp
 #ifdef DEBUG
-struct IndentStack;
+class IndentStack;
 #endif
 struct LoopHoistContext;
 class SsaBuilder;
@@ -2638,7 +2638,7 @@ struct Importer
     GenTreeOp* gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type = TYP_UNDEF);
     GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2);
     GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
-    GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
+    GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
     GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
     GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
     GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
@@ -3391,7 +3391,7 @@ public:
     GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
 
     GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs);
-    GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
+    GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
 
     GenTreeIndir* gtNewIndir(var_types typ, GenTree* addr);
 
@@ -3558,16 +3558,16 @@ public:
 // Functions to display the trees
 
 #ifdef DEBUG
-    void gtDispNode(GenTree* tree, IndentStack* indentStack, __in_z const char* msg, bool isLIR);
+    void gtDispNode(GenTree* tree);
     void gtDispNodeHeader(GenTree* tree);
     int dmpNodeFlags(GenTree* node);
     int gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags);
     void gtDispConst(GenTree* tree);
-    void gtDispLeaf(GenTree* tree, IndentStack* indentStack);
-    void dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentStack);
-    void dmpSsaDefUse(GenTree* node, IndentStack* indentStack);
-    void dmpExtract(GenTreeExtract* extract, IndentStack* indentStack);
-    void dmpInsert(GenTreeInsert* insert, IndentStack* indentStack);
+    void gtDispLeaf(GenTree* tree);
+    void dmpLclVarCommon(GenTreeLclVarCommon* node);
+    void dmpSsaDefUse(GenTree* node);
+    void dmpExtract(GenTreeExtract* extract);
+    void dmpInsert(GenTreeInsert* insert);
     void dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to);
     void gtDispNodeName(GenTree* tree);
     void dmpNodeRegs(GenTree* node);
@@ -3575,24 +3575,8 @@ public:
     void gtDispZeroFieldSeq(GenTree* tree);
     void gtDispVN(GenTree* tree);
     void gtDispCommonEndLine(GenTree* tree);
-
-    enum IndentInfo
-    {
-        IINone,
-        IIArc,
-        IIArcBottom
-    };
-
-    void gtDispChild(GenTree*             child,
-                     IndentStack*         indentStack,
-                     IndentInfo           arcType,
-                     __in_opt const char* msg     = nullptr,
-                     bool                 topOnly = false);
-    void gtDispTree(GenTree*             tree,
-                    IndentStack*         indentStack = nullptr,
-                    __in_opt const char* msg         = nullptr,
-                    bool                 topOnly     = false,
-                    bool                 isLIR       = false);
+    void gtDispTree(GenTree* tree, bool header = true, bool operands = true);
+    void gtDispTreeRec(GenTree* tree, IndentStack* indentStack, const char* msg, bool topOnly, bool isLIR, bool header);
     void gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, const char** ilNameOut, unsigned* ilNumOut);
     int gtGetLclVarName(unsigned lclNum, char* buf, unsigned buf_remaining);
     int dmpLclName(unsigned lclNum);
@@ -4701,8 +4685,7 @@ public:
     // Adds the exception set for the current tree node which is performing a overflow checking operation
     void fgValueNumberAddExceptionSetForOverflow(GenTree* tree);
 
-    // Adds the exception set for the current tree node which is performing a bounds check operation
-    void fgValueNumberAddExceptionSetForBoundsCheck(GenTree* tree);
+    void vnAddBoundsChkExceptionSet(GenTreeBoundsChk* tree);
 
     void vnCkFinite(GenTreeUnOp* node);
 
@@ -5180,8 +5163,10 @@ private:
 
     GenTree* fgSetTreeSeq(GenTree* tree, bool isLIR = false);
     void fgCheckTreeSeq(GenTree* tree, bool isLIR = false);
-    void fgSetStmtSeq(Statement* stmt);
     void fgSequenceBlockStatements(BasicBlock* block);
+
+public:
+    void fgSetStmtSeq(Statement* stmt);
 
 private:
 #ifndef TARGET_X86
@@ -5189,9 +5174,7 @@ private:
     hashBv* m_abiStructArgTempsInUse = nullptr;
 #endif
 
-#if REARRANGE_ADDS
     void fgMoveOpsLeft(GenTree* tree);
-#endif
 
     bool fgIsCommaThrow(GenTree* tree, bool forFolding = false);
 
@@ -5431,9 +5414,7 @@ private:
     */
 
 public:
-    GenTree* optRemoveRangeCheck(GenTreeBoundsChk* check, GenTree* comma, Statement* stmt);
-    GenTree* optRemoveStandaloneRangeCheck(GenTreeBoundsChk* check, Statement* stmt);
-    void optRemoveCommaBasedRangeCheck(GenTree* comma, Statement* stmt);
+    void optRemoveRangeCheck(GenTreeBoundsChk* check, GenTreeOp* comma, Statement* stmt);
 
 protected:
     // Do hoisting for all loops.
@@ -8030,22 +8011,6 @@ public:
                     {
                         return result;
                     }
-                }
-                break;
-
-            case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HW_INTRINSIC_CHK:
-#endif
-                result = WalkTree(&node->AsBoundsChk()->gtIndex, node);
-                if (result == fgWalkResult::WALK_ABORT)
-                {
-                    return result;
-                }
-                result = WalkTree(&node->AsBoundsChk()->gtArrLen, node);
-                if (result == fgWalkResult::WALK_ABORT)
-                {
-                    return result;
                 }
                 break;
 

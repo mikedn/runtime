@@ -350,8 +350,6 @@ public:
         m_tableSizeInfo = JitPrimeInfo();
         m_tableCount    = 0;
         m_tableMax      = 0;
-
-        return;
     }
 
     // Get an iterator to the first key in the table.
@@ -834,6 +832,25 @@ public:
         Node::operator delete(node, m_alloc);
 
         return true;
+    }
+
+    void Clear()
+    {
+        for (unsigned i = 0; i < m_primeInfo.prime; i++)
+        {
+            for (Node *node = m_buckets[i], *next; node != nullptr; node = next)
+            {
+                next = node->m_next;
+                Node::operator delete(node, m_alloc);
+            }
+        }
+
+        m_alloc.deallocate(m_buckets);
+
+        m_buckets   = nullptr;
+        m_primeInfo = JitPrimeInfo();
+        m_count     = 0;
+        m_maxCount  = 0;
     }
 
     unsigned GetCount() const

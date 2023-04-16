@@ -472,11 +472,11 @@ int LinearScan::BuildNode(GenTree* tree)
             }
             break;
 
-        case GT_ARR_BOUNDS_CHECK:
+        case GT_BOUNDS_CHECK:
             srcCount = 2;
             assert(dstCount == 0);
-            BuildUse(tree->AsBoundsChk()->GetIndex());
-            BuildUse(tree->AsBoundsChk()->GetLength());
+            BuildUse(tree->AsBoundsChk()->GetOp(0));
+            BuildUse(tree->AsBoundsChk()->GetOp(1));
             break;
 
         case GT_ARR_ELEM:

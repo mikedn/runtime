@@ -1320,12 +1320,12 @@ void Compiler::optPerformStaticOptimizations(unsigned loopNum, LoopCloneContext*
 
                 for (unsigned dim = 0; dim <= arrIndexInfo->dim; dim++)
                 {
-                    GenTree* bndsChkNode = arrIndexInfo->arrIndex.bndsChks[dim];
+                    GenTreeOp* comma = arrIndexInfo->arrIndex.bndsChks[dim];
 
 #ifdef DEBUG
                     if (verbose)
                     {
-                        printf("Remove bounds check [%06u]", bndsChkNode->gtGetOp1()->GetID());
+                        printf("Remove bounds check [%06u]", comma->GetOp(0)->GetID());
                         printf(" for " FMT_STMT ", dim% d, ", arrIndexInfo->stmt->GetID(), dim);
                         arrIndexInfo->arrIndex.Print();
                         printf(", bounds check nodes: ");
@@ -1334,7 +1334,7 @@ void Compiler::optPerformStaticOptimizations(unsigned loopNum, LoopCloneContext*
                     }
 #endif // DEBUG
 
-                    if (bndsChkNode->gtGetOp1()->IsBoundsChk())
+                    if (GenTreeBoundsChk* boundsChk = comma->GetOp(0)->IsBoundsChk())
                     {
                         // This COMMA node will only represent a bounds check if we've haven't already removed this
                         // bounds check in some other nesting cloned loop. For example, consider:
@@ -1348,15 +1348,20 @@ void Compiler::optPerformStaticOptimizations(unsigned loopNum, LoopCloneContext*
                         // the nested bounds check but nobody has gotten rid of the outer bounds check. As before, we
                         // know the outer bounds check is not needed because it's been added to the cloning conditions,
                         // so we can get rid of the bounds check here.
-                        //
-                        optRemoveCommaBasedRangeCheck(bndsChkNode, arrIndexInfo->stmt);
+                        optRemoveRangeCheck(boundsChk, comma, arrIndexInfo->stmt);
+
+                        // TODO-MIKE-Cleanup: Turns out that CSE is dumb and it will make CSE def out of
+                        // COMMA(NOP, x) and a CSE use out x, because they have the same value numbers.
+                        // Can we just make CSE ignore COMMA(NOP, x)? Or remove it altogether somewhere
+                        // along the way?
+                        comma->gtFlags |= GTF_DONT_CSE;
                     }
                     else
                     {
                         JITDUMP("  Bounds check already removed\n");
 
                         // If the bounds check node isn't there, it better have been converted to a GT_NOP.
-                        assert(bndsChkNode->gtGetOp1()->OperIs(GT_NOP));
+                        assert(comma->GetOp(0)->OperIs(GT_NOP));
                     }
                 }
 
@@ -2126,45 +2131,45 @@ bool Compiler::optIsStackLocalInvariant(unsigned loopNum, unsigned lclNum)
 //
 bool Compiler::optExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum)
 {
-    if (tree->gtOper != GT_COMMA)
+    if (!tree->OperIs(GT_COMMA))
     {
         return false;
     }
-    GenTree* before = tree->gtGetOp1();
-    if (before->gtOper != GT_ARR_BOUNDS_CHECK)
+    GenTree* before = tree->AsOp()->GetOp(0);
+    if (!before->OperIs(GT_BOUNDS_CHECK))
     {
         return false;
     }
     GenTreeBoundsChk* arrBndsChk = before->AsBoundsChk();
-    if (!arrBndsChk->gtIndex->OperIs(GT_LCL_VAR))
+    if (!arrBndsChk->GetIndex()->OperIs(GT_LCL_VAR))
     {
         return false;
     }
 
-    // For span we may see gtArrLen is a local var or local field or constant.
-    // We won't try and extract those.
-    if (arrBndsChk->gtArrLen->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_CNS_INT))
+    GenTreeArrLen* arrLen = arrBndsChk->GetLength()->IsArrLen();
+
+    if (arrLen == nullptr)
     {
         return false;
     }
-    if (!arrBndsChk->gtArrLen->gtGetOp1()->OperIs(GT_LCL_VAR))
+    if (!arrLen->GetArray()->OperIs(GT_LCL_VAR))
     {
         return false;
     }
-    unsigned arrLcl = arrBndsChk->gtArrLen->gtGetOp1()->AsLclVar()->GetLclNum();
+    unsigned arrLcl = arrLen->GetArray()->AsLclVar()->GetLclNum();
     if (lhsNum != BAD_VAR_NUM && arrLcl != lhsNum)
     {
         return false;
     }
 
-    unsigned indLcl = arrBndsChk->gtIndex->AsLclVar()->GetLclNum();
+    unsigned indLcl = arrBndsChk->GetIndex()->AsLclVar()->GetLclNum();
 
     if (lhsNum == BAD_VAR_NUM)
     {
         result->arrLcl = arrLcl;
     }
     result->indLcls.Push(indLcl);
-    result->bndsChks.Push(tree);
+    result->bndsChks.Push(tree->AsOp());
     result->rank++;
 
     return true;

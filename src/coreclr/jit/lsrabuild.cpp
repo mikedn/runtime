@@ -1617,7 +1617,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
     if (VERBOSE)
     {
         dumpDefList();
-        compiler->gtDispTree(tree, nullptr, nullptr, true);
+        compiler->gtDispLIRNode(tree);
     }
 #endif // DEBUG
 

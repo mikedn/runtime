@@ -1345,17 +1345,10 @@ ValueNumPair ValueNumStore::VNPUnionExcSet(ValueNumPair vnpWx, ValueNumPair vnpE
 //                 a VN func with VNF_ValWithExc.
 //                 This VN func has the normal value as m_args[0]
 //
-ValueNum ValueNumStore::VNNormalValue(ValueNum vn)
+ValueNum ValueNumStore::VNNormalValue(ValueNum vn) const
 {
     VNFuncApp funcApp;
-    if (GetVNFunc(vn, &funcApp) && funcApp.m_func == VNF_ValWithExc)
-    {
-        return funcApp.m_args[0];
-    }
-    else
-    {
-        return vn;
-    }
+    return GetVNFunc(vn, &funcApp) && (funcApp.m_func == VNF_ValWithExc) ? funcApp[0] : vn;
 }
 
 //--------------------------------------------------------------------------------
@@ -5690,17 +5683,6 @@ ValueNum Compiler::vnMemoryLoad(var_types type, ValueNum addrVN)
     return vnStore->VNForFunc(type, VNF_MemLoad, typeVN, addrVN, memoryVN);
 }
 
-var_types ValueNumStore::TypeOfVN(ValueNum vn)
-{
-    if (vn == NoVN)
-    {
-        return TYP_UNDEF;
-    }
-
-    Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    return c->m_typ;
-}
-
 //------------------------------------------------------------------------
 // LoopOfVN: If the given value number is VNF_MemOpaque, VNF_MapStore, or
 //    VNF_MemoryPhiDef, return the loop number where the memory update occurs,
@@ -5735,29 +5717,52 @@ BasicBlock::loopNumber ValueNumStore::LoopOfVN(ValueNum vn)
     return BasicBlock::MAX_LOOP_NUM;
 }
 
-bool ValueNumStore::IsVNConstant(ValueNum vn)
+var_types ValueNumStore::TypeOfVN(ValueNum vn) const
 {
-    if (vn == NoVN)
+    return vn == NoVN ? TYP_UNDEF : m_chunks.Get(GetChunkNum(vn))->m_typ;
+}
+
+var_types ValueNumStore::GetConstantType(ValueNum vn) const
+{
+    if ((vn == NoVN) || (vn == VNForVoid()))
     {
-        return false;
+        return TYP_UNDEF;
     }
+
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    if (c->m_attribs == CEA_Const)
-    {
-        return vn != VNForVoid(); // Void is not a "real" constant -- in the sense that it represents no value.
-    }
-    else
-    {
-        return c->m_attribs == CEA_Handle;
-    }
+    return (c->m_attribs == CEA_Const || c->m_attribs == CEA_Handle) ? c->m_typ : TYP_UNDEF;
 }
 
-bool ValueNumStore::IsVNInt32Constant(ValueNum vn)
+bool ValueNumStore::IsVNConstant(ValueNum vn) const
 {
-    return IsVNConstant(vn) && (TypeOfVN(vn) == TYP_INT);
+    return GetConstantType(vn) != TYP_UNDEF;
 }
 
-GenTreeFlags ValueNumStore::GetHandleFlags(ValueNum vn)
+bool ValueNumStore::IsVNInt32Constant(ValueNum vn) const
+{
+    return GetConstantType(vn) == TYP_INT;
+}
+
+bool ValueNumStore::IsIntegralConstant(ValueNum vn, ssize_t* value) const
+{
+    assert(vn == VNNormalValue(vn));
+
+    switch (GetConstantType(vn))
+    {
+        case TYP_INT:
+            *value = ConstantValue<int32_t>(vn);
+            return true;
+#ifdef TARGET_64BIT
+        case TYP_LONG:
+            *value = ConstantValue<int64_t>(vn);
+            return true;
+#endif
+        default:
+            return false;
+    }
+}
+
+GenTreeFlags ValueNumStore::GetHandleFlags(ValueNum vn) const
 {
     assert(IsVNHandle(vn));
     Chunk*    c      = m_chunks.Get(GetChunkNum(vn));
@@ -5766,15 +5771,9 @@ GenTreeFlags ValueNumStore::GetHandleFlags(ValueNum vn)
     return handle->m_flags;
 }
 
-bool ValueNumStore::IsVNHandle(ValueNum vn)
+bool ValueNumStore::IsVNHandle(ValueNum vn) const
 {
-    if (vn == NoVN)
-    {
-        return false;
-    }
-
-    Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    return c->m_attribs == CEA_Handle;
+    return (vn != NoVN) && (m_chunks.Get(GetChunkNum(vn))->m_attribs == CEA_Handle);
 }
 
 bool ValueNumStore::IsVNCompareCheckedBound(const VNFuncApp& funcApp)
@@ -5850,51 +5849,24 @@ void ValueNumStore::GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, Co
     }
 }
 
-ValueNum ValueNumStore::GetArrForLenVn(ValueNum vn)
-{
-    VNFuncApp funcApp;
-    return GetVNFunc(vn, &funcApp) && funcApp.Is(GT_ARR_LENGTH) ? funcApp[0] : NoVN;
-}
-
-bool ValueNumStore::IsVNNewArr(ValueNum vn, VNFuncApp* funcApp)
-{
-    return GetVNFunc(vn, funcApp) &&
-           ((funcApp->m_func == VNF_JitNewArr) || (funcApp->m_func == VNF_JitReadyToRunNewArr));
-}
-
-int ValueNumStore::GetNewArrSize(ValueNum vn)
-{
-    VNFuncApp funcApp;
-    return IsVNNewArr(vn, &funcApp) && IsVNInt32Constant(funcApp[1]) ? ConstantValue<int>(funcApp[1]) : 0;
-}
-
-bool ValueNumStore::IsVNArrLen(ValueNum vn)
-{
-    VNFuncApp funcApp;
-    return GetVNFunc(vn, &funcApp) && funcApp.Is(GT_ARR_LENGTH);
-}
-
 bool ValueNumStore::IsVNCheckedBound(ValueNum vn)
 {
     bool dummy;
     if (m_checkedBoundVNs.TryGetValue(vn, &dummy))
     {
         // This VN appeared as the conservative VN of the length argument of some
-        // GT_ARR_BOUND node.
-        return true;
-    }
-    if (IsVNArrLen(vn))
-    {
-        // Even if we haven't seen this VN in a bounds check, if it is an array length
-        // VN then consider it a checked bound VN.  This facilitates better bounds check
-        // removal by ensuring that compares against array lengths get put in the
-        // Cse::checkedBoundMap; such an array length might get CSEd with one that was
-        // directly used in a bounds check, and having the map entry will let us update
-        // the compare's VN so that OptimizeRangeChecks can recognize such compares.
+        // BoundsChk node.
         return true;
     }
 
-    return false;
+    // Even if we haven't seen this VN in a bounds check, if it is an array length
+    // VN then consider it a checked bound VN. This facilitates better bounds check
+    // removal by ensuring that compares against array lengths get put in the
+    // Cse::checkedBoundMap; such an array length might get CSEd with one that was
+    // directly used in a bounds check, and having the map entry will let us update
+    // the compare's VN so that OptimizeRangeChecks can recognize such compares.
+    VNFuncApp funcApp;
+    return GetVNFunc(vn, &funcApp) && funcApp.Is(GT_ARR_LENGTH);
 }
 
 void ValueNumStore::SetVNIsCheckedBound(ValueNum vn)
@@ -6404,7 +6376,7 @@ ValueNum ValueNumStore::EvalMathFuncBinary(var_types typ, NamedIntrinsic gtMathF
     }
 }
 
-VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
+VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const
 {
     if (vn == NoVN)
     {
@@ -6926,8 +6898,8 @@ void ValueNumStore::InitValueNumStoreStatics()
         {
             arity = 2;
         }
-        // Since GT_ARR_BOUNDS_CHECK is not currently GTK_BINOP
-        else if (gtOper == GT_ARR_BOUNDS_CHECK)
+        // Since GT_BOUNDS_CHECK is not currently GTK_BINOP
+        else if (gtOper == GT_BOUNDS_CHECK)
         {
             arity = 2;
         }
@@ -6956,28 +6928,10 @@ void ValueNumStore::InitValueNumStoreStatics()
 
     assert(vnfNum == VNF_COUNT);
 
-    genTreeOps genTreeOpsIllegalAsVNFunc[]{GT_IND,
-                                           GT_NULLCHECK,
-                                           GT_QMARK,
-                                           GT_LOCKADD,
-                                           GT_XADD,
-                                           GT_XCHG,
-                                           GT_CMPXCHG,
-                                           GT_LCLHEAP,
-                                           GT_BOX,
-                                           GT_XORR,
-                                           GT_XAND,
-                                           GT_COMMA,
-                                           GT_ARR_BOUNDS_CHECK,
-                                           GT_OBJ,
-                                           GT_BLK,
-                                           GT_JTRUE,
-                                           GT_RETURN,
-                                           GT_SWITCH,
-                                           GT_RETFILT,
-                                           GT_CKFINITE,
-                                           GT_ASG,
-                                           GT_NOP};
+    genTreeOps genTreeOpsIllegalAsVNFunc[]{GT_IND,          GT_NULLCHECK, GT_QMARK, GT_LOCKADD, GT_XADD,   GT_XCHG,
+                                           GT_CMPXCHG,      GT_LCLHEAP,   GT_BOX,   GT_XORR,    GT_XAND,   GT_COMMA,
+                                           GT_BOUNDS_CHECK, GT_OBJ,       GT_BLK,   GT_JTRUE,   GT_RETURN, GT_SWITCH,
+                                           GT_RETFILT,      GT_CKFINITE,  GT_ASG,   GT_NOP};
 
     for (auto oper : genTreeOpsIllegalAsVNFunc)
     {
@@ -7524,10 +7478,11 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
     for (; (stmt != nullptr) && stmt->GetRootNode()->IsPhiDef(); stmt = stmt->GetNextStmt())
     {
         GenTreeLclDef* def = stmt->GetRootNode()->AsLclDef();
+        GenTreePhi*    phi = def->GetValue()->AsPhi();
         ValueNumPair   phiVNP;
         ValueNumPair   sameVNP;
 
-        for (GenTreePhi::Use& use : def->GetValue()->AsPhi()->Uses())
+        for (GenTreePhi::Use& use : phi->Uses())
         {
             GenTreeLclUse* phiArg    = use.GetNode();
             GenTreeLclDef* argDef    = phiArg->GetDef();
@@ -7566,13 +7521,13 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
         assert(vnStore->GetVNFunc(phiVNP.GetConservative(), &phiFunc) && (phiFunc.m_func == VNF_Phi));
 #endif
 
-        ValueNumPair newSsaDefVNP;
+        ValueNumPair phiDefVNP;
 
         if (sameVNP.BothDefined())
         {
             // If all the args of the phi had the same value(s, liberal and conservative), then there wasn't really
             // a reason to have the phi -- just pass on that value.
-            newSsaDefVNP = sameVNP;
+            phiDefVNP = sameVNP;
         }
         else
         {
@@ -7580,13 +7535,14 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
             ValueNum lclNumVN = vnStore->VNForIntCon(def->GetLclNum());
             ValueNum blockVN  = vnStore->VNForHostPtr(blk);
 
-            newSsaDefVNP = vnStore->VNPairForFunc(def->GetType(), VNF_PhiDef, phiVNP, ValueNumPair{blockVN},
-                                                  ValueNumPair{lclNumVN});
+            phiDefVNP = vnStore->VNPairForFunc(def->GetType(), VNF_PhiDef, phiVNP, ValueNumPair{blockVN},
+                                               ValueNumPair{lclNumVN});
         }
 
-        def->SetVNP(newSsaDefVNP);
-        lvaGetDesc(def->GetLclNum())->GetPerSsaData(def->GetSsaNum())->SetVNP(newSsaDefVNP);
-        INDEBUG(vnTraceLocal(def->GetLclNum(), newSsaDefVNP));
+        def->SetVNP(phiDefVNP);
+        phi->SetVNP(phiDefVNP);
+        lvaGetDesc(def->GetLclNum())->GetPerSsaData(def->GetSsaNum())->SetVNP(phiDefVNP);
+        INDEBUG(vnTraceLocal(def->GetLclNum(), phiDefVNP));
     }
 
     // Now do the same for memory.
@@ -8281,30 +8237,21 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             fgValueNumberCall(tree->AsCall());
             break;
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
+        case GT_BOUNDS_CHECK:
         {
-            ValueNumPair vnpIndex  = tree->AsBoundsChk()->GetIndex()->gtVNPair;
-            ValueNumPair vnpArrLen = tree->AsBoundsChk()->GetLength()->gtVNPair;
+            ValueNumPair vnpIndex  = tree->AsBoundsChk()->GetIndex()->GetVNP();
+            ValueNumPair vnpArrLen = tree->AsBoundsChk()->GetLength()->GetVNP();
 
             ValueNumPair vnpExcSet = ValueNumStore::VNPForEmptyExcSet();
+            vnpExcSet              = vnStore->VNPUnionExcSet(vnpIndex, vnpExcSet);
+            vnpExcSet              = vnStore->VNPUnionExcSet(vnpArrLen, vnpExcSet);
+            tree->SetVNP(vnStore->VNPWithExc(vnStore->VNPForVoid(), vnpExcSet));
 
-            // And collect the exceptions  from Index and ArrLen
-            vnpExcSet = vnStore->VNPUnionExcSet(vnpIndex, vnpExcSet);
-            vnpExcSet = vnStore->VNPUnionExcSet(vnpArrLen, vnpExcSet);
+            vnAddBoundsChkExceptionSet(tree->AsBoundsChk());
 
-            // A bounds check node has no value, but may throw exceptions.
-            tree->gtVNPair = vnStore->VNPWithExc(vnStore->VNPForVoid(), vnpExcSet);
-
-            // next add the bounds check exception set for the current tree node
-            fgValueNumberAddExceptionSetForBoundsCheck(tree);
-
-            // Record non-constant value numbers that are used as the length argument to bounds checks, so
-            // that
-            // assertion prop will know that comparisons against them are worth analyzing.
-            ValueNum lengthVN = tree->AsBoundsChk()->gtArrLen->gtVNPair.GetConservative();
+            // Record non-constant value numbers that are used as the length argument to bounds checks,
+            // so that assertion prop will know that comparisons against them are worth analyzing.
+            ValueNum lengthVN = tree->AsBoundsChk()->GetLength()->GetConservativeVN();
             if ((lengthVN != ValueNumStore::NoVN) && !vnStore->IsVNConstant(lengthVN))
             {
                 vnStore->SetVNIsCheckedBound(lengthVN);
@@ -8413,22 +8360,14 @@ void Compiler::fgValueNumberTree(GenTree* tree)
     }
 
 #ifdef DEBUG
-    if (verbose)
+    if (verbose && (tree->GetLiberalVN() != NoVN))
     {
-        if (tree->gtVNPair.GetLiberal() != ValueNumStore::NoVN)
-        {
-            printf("[%06u] ", tree->GetID());
-            gtDispNodeName(tree);
-            if (tree->OperIsLeaf())
-            {
-                gtDispLeaf(tree, nullptr);
-            }
-            printf(" => ");
-            vnpPrint(tree->gtVNPair, 1);
-            printf("\n");
-        }
+        gtDispTree(tree, false, false);
+        printf("        = ");
+        vnpPrint(tree->GetVNP(), 1);
+        printf("\n");
     }
-#endif // DEBUG
+#endif
 }
 
 void Compiler::vnIntrinsic(GenTreeIntrinsic* intrinsic)
@@ -9601,45 +9540,22 @@ void Compiler::fgValueNumberAddExceptionSetForOverflow(GenTree* tree)
     }
 }
 
-//--------------------------------------------------------------------------------
-// fgValueNumberAddExceptionSetForBoundsCheck
-//          - Adds the exception set for the current tree node
-//            which is performing an bounds check operation
-//
-// Arguments:
-//    tree  - The current GenTree node,
-//            It must be a node that performs a bounds check operation
-//
-// Return Value:
-//          - The tree's gtVNPair is updated to include the
-//            VNF_IndexOutOfRangeExc exception set.
-//
-void Compiler::fgValueNumberAddExceptionSetForBoundsCheck(GenTree* tree)
+void Compiler::vnAddBoundsChkExceptionSet(GenTreeBoundsChk* node)
 {
-    GenTreeBoundsChk* node = tree->AsBoundsChk();
-    assert(node != nullptr);
+    ValueNumPair vnpIndex  = node->GetIndex()->GetVNP();
+    ValueNumPair vnpLength = node->GetLength()->GetVNP();
 
-    ValueNumPair vnpIndex  = node->gtIndex->gtVNPair;
-    ValueNumPair vnpArrLen = node->gtArrLen->gtVNPair;
-
-    // Unpack, Norm,Exc for the tree's VN
-    //
     ValueNumPair vnpTreeNorm;
     ValueNumPair vnpTreeExc;
+    vnStore->VNPUnpackExc(node->GetVNP(), &vnpTreeNorm, &vnpTreeExc);
 
-    vnStore->VNPUnpackExc(tree->gtVNPair, &vnpTreeNorm, &vnpTreeExc);
-
-    // Construct the exception set for bounds check
     ValueNumPair boundsChkExcSet = vnStore->VNPExcSetSingleton(
         vnStore->VNPairForFunc(TYP_REF, VNF_IndexOutOfRangeExc, vnStore->VNPNormalPair(vnpIndex),
-                               vnStore->VNPNormalPair(vnpArrLen)));
+                               vnStore->VNPNormalPair(vnpLength)));
 
-    // Combine the new Overflow exception with the original exception set of tree
     ValueNumPair newExcSet = vnStore->VNPExcSetUnion(vnpTreeExc, boundsChkExcSet);
 
-    // Update the VN for the tree it, the updated VN for tree
-    // now includes the IndexOutOfRange exception.
-    tree->gtVNPair = vnStore->VNPWithExc(vnpTreeNorm, newExcSet);
+    node->SetVNP(vnStore->VNPWithExc(vnpTreeNorm, newExcSet));
 }
 
 void Compiler::vnCkFinite(GenTreeUnOp* node)
@@ -9678,36 +9594,6 @@ void Compiler::vnAddNodeExceptionSet(GenTree* node)
             return;
         default:
             unreached();
-    }
-}
-
-bool ValueNumStore::IsVNIntegralConstant(ValueNum vn, ssize_t* value, GenTreeFlags* flags)
-{
-    assert(vn == VNNormalValue(vn));
-
-    if (!IsVNConstant(vn))
-    {
-        return false;
-    }
-
-    switch (TypeOfVN(vn))
-    {
-        case TYP_INT:
-            *value = ConstantValue<int32_t>(vn);
-            *flags = IsVNHandle(vn) ? GetHandleFlags(vn) : GTF_EMPTY;
-
-            return true;
-
-#ifdef TARGET_64BIT
-        case TYP_LONG:
-            *value = ConstantValue<int64_t>(vn);
-            *flags = IsVNHandle(vn) ? GetHandleFlags(vn) : GTF_EMPTY;
-
-            return true;
-#endif
-
-        default:
-            return false;
     }
 }
 

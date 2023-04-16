@@ -25,15 +25,22 @@ const unsigned short GenTree::gtOperKindTable[] = {
 
 #ifdef DEBUG
 
+enum IndentKind
+{
+    IINone,
+    IIArc,
+    IIArcBottom
+};
+
 // IndentStack: This struct is used, along with its related enums and strings,
-//    to control both the indendtation and the printing of arcs.
+//    to control both the indentation and the printing of arcs.
 //
 // Notes:
 //    The mode of printing is set in the Constructor, using its 'compiler' argument.
 //    Currently it only prints arcs when fgOrder == fgOrderLinear.
 //    The type of arc to print is specified by the IndentInfo enum, and is controlled
 //    by the caller of the Push() method.
-struct IndentStack
+class IndentStack
 {
     enum IndentChars
     {
@@ -44,10 +51,10 @@ struct IndentStack
         ICTerminal
     };
 
-    ArrayStack<Compiler::IndentInfo> stack;
-    const char* const*               indents;
+    ArrayStack<IndentKind> stack;
+    const char* const*     indents;
 
-    // Constructor for IndentStack.  Uses 'compiler' to determine the mode of printing.
+public:
     IndentStack(Compiler* compiler) : stack(compiler->getAllocator(CMK_DebugOnly))
     {
         // clang-format off
@@ -59,32 +66,34 @@ struct IndentStack
         indents = JitConfig.JitDumpASCII() ? asciiIndents : unicodeIndents;
     }
 
-    unsigned Empty()
+    bool Empty()
     {
         return stack.Empty();
     }
 
-    // Push a new indentation onto the stack, of the given type.
-    void Push(Compiler::IndentInfo info)
+    void Push(IndentKind kind)
     {
-        stack.Push(info);
+        stack.Push(kind);
     }
 
-    // Pop the most recent indentation type off the stack.
-    Compiler::IndentInfo Pop()
+    IndentKind Pop()
     {
         return stack.Pop();
     }
 
-    // Print the current indentation and arcs.
-    void print()
+    IndentKind& Top()
+    {
+        return stack.TopRef();
+    }
+
+    void Print()
     {
         for (unsigned i = 0, count = stack.Size(); i < count; i++)
         {
             unsigned index = count - 1 - i;
             switch (stack.Top(index))
             {
-                case Compiler::IndentInfo::IIArc:
+                case IIArc:
                     if (index == 0)
                     {
                         printf("%s%s%s", indents[ICMiddle], indents[ICDash], indents[ICDash]);
@@ -94,7 +103,7 @@ struct IndentStack
                         printf("%s  ", indents[ICVertical]);
                     }
                     break;
-                case Compiler::IndentInfo::IIArcBottom:
+                case IIArcBottom:
                     printf("%s%s%s", indents[ICBottom], indents[ICDash], indents[ICDash]);
                     break;
                 default:
@@ -105,25 +114,6 @@ struct IndentStack
         printf("%s", indents[ICTerminal]);
     }
 };
-
-//------------------------------------------------------------------------
-// printIndent: This is a static method which simply invokes the 'print'
-//    method on its 'indentStack' argument.
-//
-// Arguments:
-//    indentStack - specifies the information for the indentation & arcs to be printed
-//
-// Notes:
-//    This method exists to localize the checking for the case where indentStack is null.
-
-static void printIndent(IndentStack* indentStack)
-{
-    if (indentStack == nullptr)
-    {
-        return;
-    }
-    indentStack->print();
-}
 
 #endif
 
@@ -1155,8 +1145,6 @@ AGAIN:
     {
         if (IsExOp(kind))
         {
-            // ExOp operators extend unary operator with extra, non-GenTree* members.  In many cases,
-            // these should be included in the hash code.
             switch (oper)
             {
                 case GT_INTRINSIC:
@@ -1181,11 +1169,12 @@ AGAIN:
                         return false;
                     }
                     break;
-
-                // For the ones below no extra argument matters for comparison.
-                case GT_QMARK:
+                case GT_BOUNDS_CHECK:
+                    if (op1->AsBoundsChk()->GetThrowKind() != op2->AsBoundsChk()->GetThrowKind())
+                    {
+                        return false;
+                    }
                     break;
-
                 default:
                     assert(!"unexpected binary ExOp operator");
             }
@@ -1289,12 +1278,6 @@ AGAIN:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
             return GenTreeTernaryOp::Equals(op1->AsTernaryOp(), op2->AsTernaryOp());
-
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
-            return GenTreeBoundsChk::Equals(op1->AsBoundsChk(), op2->AsBoundsChk());
 
         default:
             assert(!"unexpected operator");
@@ -1473,8 +1456,6 @@ AGAIN:
     {
         if (GenTree::IsExOp(kind))
         {
-            // ExOp operators extend operators with extra, non-GenTree* members.  In many cases,
-            // these should be included in the hash code.
             switch (oper)
             {
                 case GT_INTRINSIC:
@@ -1493,6 +1474,10 @@ AGAIN:
                 // For the ones below no extra argument matters for comparison.
                 case GT_ARR_INDEX:
                 case GT_INDEX_ADDR:
+                    break;
+
+                case GT_BOUNDS_CHECK:
+                    hash += genTreeHashAdd(hash, static_cast<unsigned>(tree->AsBoundsChk()->GetThrowKind()));
                     break;
 
                 default:
@@ -1611,15 +1596,6 @@ AGAIN:
             {
                 hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
             }
-            break;
-
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->GetIndex()));
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->GetLength()));
-            hash = genTreeHashAdd(hash, static_cast<unsigned>(tree->AsBoundsChk()->GetThrowKind()));
             break;
 
         case GT_ARR_OFFSET:
@@ -2913,6 +2889,23 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 }
                 goto DONE_OP1;
 
+            case GT_BOUNDS_CHECK:
+                costEx = 4; // cmp reg,reg and jae throw (not taken)
+                costSz = 7; // jump to cold section
+
+                level = gtSetEvalOrder(tree->AsBoundsChk()->GetIndex());
+                costEx += tree->AsBoundsChk()->GetIndex()->GetCostEx();
+                costSz += tree->AsBoundsChk()->GetIndex()->GetCostSz();
+
+                lvl2 = gtSetEvalOrder(tree->AsBoundsChk()->GetLength());
+                if (level < lvl2)
+                {
+                    level = lvl2;
+                }
+                costEx += tree->AsBoundsChk()->GetLength()->GetCostEx();
+                costSz += tree->AsBoundsChk()->GetLength()->GetCostSz();
+                goto DONE;
+
             default:
                 break;
         }
@@ -3488,26 +3481,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             level++;
             break;
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
-            costEx = 4; // cmp reg,reg and jae throw (not taken)
-            costSz = 7; // jump to cold section
-
-            level = gtSetEvalOrder(tree->AsBoundsChk()->GetIndex());
-            costEx += tree->AsBoundsChk()->GetIndex()->GetCostEx();
-            costSz += tree->AsBoundsChk()->GetIndex()->GetCostSz();
-
-            lvl2 = gtSetEvalOrder(tree->AsBoundsChk()->GetLength());
-            if (level < lvl2)
-            {
-                level = lvl2;
-            }
-            costEx += tree->AsBoundsChk()->GetLength()->GetCostEx();
-            costSz += tree->AsBoundsChk()->GetLength()->GetCostSz();
-            break;
-
         case GT_ARR_OFFSET:
         case GT_CMPXCHG:
         case GT_COPY_BLK:
@@ -3836,7 +3809,7 @@ bool GenTree::OperMayThrow(Compiler* comp)
         case GT_FIELD_ADDR:
             return comp->fgAddrCouldBeNull(AsFieldAddr()->GetAddr());
 
-        case GT_ARR_BOUNDS_CHECK:
+        case GT_BOUNDS_CHECK:
         case GT_ARR_INDEX:
         case GT_ARR_OFFSET:
         case GT_LCLHEAP:
@@ -3847,8 +3820,6 @@ bool GenTree::OperMayThrow(Compiler* comp)
             return (gtFlags & GTF_INX_RNGCHK) != 0;
 
 #ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-            return true;
         case GT_HWINTRINSIC:
             return AsHWIntrinsic()->OperIsMemoryLoadOrStore();
 #endif
@@ -5423,6 +5394,12 @@ GenTree* Compiler::gtCloneExpr(
                 copy = new (this, oper) GenTreeCopyOrReload(oper, tree->GetType(), tree->AsUnOp()->GetOp(0));
                 break;
 
+            case GT_BOUNDS_CHECK:
+                copy = new (this, oper) GenTreeBoundsChk(tree->AsBoundsChk());
+                copy->AsBoundsChk()->SetIndex(tree->AsBoundsChk()->GetIndex());
+                copy->AsBoundsChk()->SetLength(tree->AsBoundsChk()->GetLength());
+                break;
+
 #ifndef TARGET_64BIT
             case GT_MUL:
             case GT_DIV:
@@ -5511,14 +5488,13 @@ GenTree* Compiler::gtCloneExpr(
         case GT_ARR_ELEM:
         {
             GenTreeArrElem* arrElem = tree->AsArrElem();
-            GenTree*        inds[GT_ARR_MAX_RANK];
-            for (unsigned dim = 0; dim < arrElem->gtArrRank; dim++)
+            GenTree*        ops[1 + GenTreeArrElem::MaxRank];
+            for (unsigned i = 0; i < 1 + arrElem->GetRank(); i++)
             {
-                inds[dim] = gtCloneExpr(arrElem->gtArrInds[dim], addFlags, deepVarNum, deepVarVal);
+                ops[i] = gtCloneExpr(arrElem->GetOp(i), addFlags, deepVarNum, deepVarVal);
             }
-            copy = new (this, GT_ARR_ELEM)
-                GenTreeArrElem(arrElem->TypeGet(), gtCloneExpr(arrElem->gtArrObj, addFlags, deepVarNum, deepVarVal),
-                               arrElem->gtArrRank, arrElem->gtArrElemSize, arrElem->gtArrElemType, &inds[0]);
+            copy = new (this, GT_ARR_ELEM) GenTreeArrElem(arrElem->GetType(), ops[0], arrElem->gtArrRank,
+                                                          arrElem->gtArrElemSize, arrElem->gtArrElemType, &ops[1]);
         }
         break;
 
@@ -5558,18 +5534,6 @@ GenTree* Compiler::gtCloneExpr(
         case GT_INSTR:
             copy = new (this, GT_INSTR) GenTreeInstr(tree->AsInstr(), this);
             break;
-
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
-            copy = new (this, oper) GenTreeBoundsChk(tree->AsBoundsChk());
-            copy->AsBoundsChk()->SetIndex(
-                gtCloneExpr(tree->AsBoundsChk()->GetIndex(), addFlags, deepVarNum, deepVarVal));
-            copy->AsBoundsChk()->SetLength(
-                gtCloneExpr(tree->AsBoundsChk()->GetLength(), addFlags, deepVarNum, deepVarVal));
-            break;
-
         case GT_QMARK:
             copy = new (this, GT_QMARK) GenTreeQmark(tree->AsQmark());
             goto CLONE_TERNARY;
@@ -6115,15 +6079,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             AdvancePhi();
             return;
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
-            m_edge = &m_node->AsBoundsChk()->gtIndex;
-            assert(*m_edge != nullptr);
-            m_advance = &GenTreeUseEdgeIterator::AdvanceBoundsChk;
-            return;
-
         case GT_ARR_ELEM:
             m_edge = &m_node->AsArrElem()->gtArrObj;
             assert(*m_edge != nullptr);
@@ -6186,21 +6141,6 @@ void GenTreeUseEdgeIterator::AdvanceTernaryOp()
     assert(*m_edge != nullptr);
 }
 
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::AdvanceBoundsChk: produces the next operand of a BoundsChk node and advances the state.
-//
-void GenTreeUseEdgeIterator::AdvanceBoundsChk()
-{
-    m_edge = &m_node->AsBoundsChk()->gtArrLen;
-    assert(*m_edge != nullptr);
-    m_advance = &GenTreeUseEdgeIterator::Terminate;
-}
-
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::AdvanceArrElem: produces the next operand of a ArrElem node and advances the state.
-//
-// Because these nodes are variadic, this function uses `m_state` to index into the list of array indices.
-//
 void GenTreeUseEdgeIterator::AdvanceArrElem()
 {
     if (m_state < m_node->AsArrElem()->gtArrRank)
@@ -6554,41 +6494,30 @@ int Compiler::gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags)
     // clang-format on
 }
 
-/*****************************************************************************/
-
 void Compiler::gtDispNodeName(GenTree* tree)
 {
-    /* print the node name */
+    const char* name = tree->GetOper() < GT_COUNT ? GenTree::OpName(tree->GetOper()) : "???";
+    char        buf[32];
 
-    const char* name;
+    if (GenTreeArrElem* arrElem = tree->IsArrElem())
+    {
+        char* p = buf + SimpleSprintf_s(buf, buf, sizeof(buf), "%s[", name);
 
-    assert(tree);
-    if (tree->gtOper < GT_COUNT)
-    {
-        name = GenTree::OpName(tree->OperGet());
-    }
-    else
-    {
-        name = "<ERROR>";
-    }
-    char  buf[32];
-    char* bufp = &buf[0];
-
-    if (tree->gtOper == GT_ARR_ELEM)
-    {
-        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s[", name);
-        for (unsigned rank = tree->AsArrElem()->gtArrRank - 1; rank; rank--)
+        for (unsigned i = 0; i < arrElem->GetRank() - 1; i++)
         {
-            bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), ",");
+            p += SimpleSprintf_s(p, buf, sizeof(buf), ",");
         }
-        SimpleSprintf_s(bufp, buf, sizeof(buf), "]");
+
+        SimpleSprintf_s(p, buf, sizeof(buf), "]");
     }
-    else if (tree->gtOper == GT_ARR_OFFSET || tree->gtOper == GT_ARR_INDEX)
+    else if (tree->OperIs(GT_ARR_OFFSET, GT_ARR_INDEX))
     {
-        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s[", name);
-        unsigned char currDim;
-        unsigned char rank;
-        if (tree->gtOper == GT_ARR_OFFSET)
+        char* p = buf + SimpleSprintf_s(buf, buf, sizeof(buf), "%s[", name);
+
+        unsigned currDim;
+        unsigned rank;
+
+        if (tree->OperIs(GT_ARR_OFFSET))
         {
             currDim = tree->AsArrOffs()->gtCurrDim;
             rank    = tree->AsArrOffs()->gtArrRank;
@@ -6599,84 +6528,66 @@ void Compiler::gtDispNodeName(GenTree* tree)
             rank    = tree->AsArrIndex()->gtArrRank;
         }
 
-        for (unsigned char dim = 0; dim < rank; dim++)
+        for (unsigned dim = 0; dim < rank; dim++)
         {
             // Use a defacto standard i,j,k for the dimensions.
             // Note that we only support up to rank 3 arrays with these nodes, so we won't run out of characters.
             char dimChar = '*';
+
             if (dim == currDim)
             {
-                dimChar = 'i' + dim;
+                dimChar = static_cast<char>('i' + dim);
             }
             else if (dim > currDim)
             {
                 dimChar = ' ';
             }
 
-            bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%c", dimChar);
+            if (dimChar != ' ')
+            {
+                p += SimpleSprintf_s(p, buf, sizeof(buf), "%c", dimChar);
+            }
+
             if (dim != rank - 1)
             {
-                bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), ",");
+                p += SimpleSprintf_s(p, buf, sizeof(buf), ",");
             }
         }
-        SimpleSprintf_s(bufp, buf, sizeof(buf), "]");
+
+        SimpleSprintf_s(p, buf, sizeof(buf), "]");
     }
     else if (GenTreeAddrMode* lea = tree->IsAddrMode())
     {
-        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s(", name);
+        char* p = buf + SimpleSprintf_s(buf, buf, sizeof(buf), "%s(", name);
+
         if (lea->GetBase() != nullptr)
         {
-            bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "b+");
+            p += SimpleSprintf_s(p, buf, sizeof(buf), "b+");
         }
+
         if (lea->GetIndex() != nullptr)
         {
-            bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "(i*%d)+", lea->GetScale());
-        }
-        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%d)", lea->GetOffset());
-    }
-    else if (GenTreeBoundsChk* boundsChk = tree->IsBoundsChk())
-    {
-        const char* kindName;
-
-        switch (boundsChk->GetThrowKind())
-        {
-            case ThrowHelperKind::IndexOutOfRange:
-                kindName = "Rng";
-                break;
-            case ThrowHelperKind::Argument:
-                kindName = "Arg";
-                break;
-            case ThrowHelperKind::ArgumentOutOfRange:
-                kindName = "ArgRng";
-                break;
-            default:
-                kindName = "???";
-                break;
+            p += SimpleSprintf_s(p, buf, sizeof(buf), "(i*%d)+", lea->GetScale());
         }
 
-        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s_%s", name, kindName);
-
-        if (boundsChk->GetThrowBlock() != nullptr)
-        {
-            bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), " -> " FMT_BB, tree->AsBoundsChk()->GetThrowBlock()->bbNum);
-        }
+        SimpleSprintf_s(p, buf, sizeof(buf), "%d)", lea->GetOffset());
     }
     else if (tree->gtOverflowEx())
     {
-        sprintf_s(bufp, sizeof(buf), "%s_ovfl%c", name, 0);
+        sprintf_s(buf, sizeof(buf), "%s_ovfl%c", name, 0);
     }
     else
     {
-        sprintf_s(bufp, sizeof(buf), "%s%c", name, 0);
+        sprintf_s(buf, sizeof(buf), "%s%c", name, 0);
     }
 
     if (strlen(buf) < 10)
     {
-        printf(" %-10s", buf);
+        printf("%-10s", buf);
     }
     else
     {
-        printf(" %s", buf);
+        printf("%s", buf);
     }
 }
 
@@ -6729,8 +6640,6 @@ void Compiler::gtDispCommonEndLine(GenTree* tree)
 // Display the sequence, costs and flags portion of the node dump.
 void Compiler::gtDispNodeHeader(GenTree* tree)
 {
-    printf("[%06u] ", tree->GetID());
-
     dmpNodeFlags(tree);
 
     if (tree->gtSeqNum != 0)
@@ -6944,36 +6853,8 @@ int Compiler::dmpNodeFlags(GenTree* tree)
     return length;
 }
 
-//------------------------------------------------------------------------
-// gtDispNode: Print a tree to jitstdout.
-//
-// Arguments:
-//    tree - the tree to be printed
-//    indentStack - the specification for the current level of indentation & arcs
-//    msg         - a contextual method (i.e. from the parent) to print
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    'indentStack' may be null, in which case no indentation or arcs are printed
-//    'msg' may be null
-//
-void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z __in_opt const char* msg, bool isLIR)
+void Compiler::gtDispNode(GenTree* tree)
 {
-    gtDispNodeHeader(tree);
-
-    if (isLIR)
-    {
-        assert(msg == nullptr);
-        dmpNodeRegs(tree);
-    }
-    else
-    {
-        printf(" %-*s", 13, msg == nullptr ? "" : msg);
-        printIndent(indentStack);
-    }
-
     gtDispNodeName(tree);
 
     if (!varTypeIsStruct(tree->GetType()))
@@ -7606,20 +7487,7 @@ void Compiler::dmpFieldSeqFields(FieldSeqNode* fieldSeq)
     }
 }
 
-//------------------------------------------------------------------------
-// gtDispLeaf: Print a single leaf node to jitstdout.
-//
-// Arguments:
-//    tree - the tree to be printed
-//    indentStack - the specification for the current level of indentation & arcs
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    'indentStack' may be null, in which case no indentation or arcs are printed
-
-void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
+void Compiler::gtDispLeaf(GenTree* tree)
 {
     if (tree->OperIsConst())
     {
@@ -7632,11 +7500,11 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
         case GT_LCL_FLD:
         case GT_LCL_VAR:
         case GT_LCL_ADDR:
-            dmpLclVarCommon(tree->AsLclVarCommon(), indentStack);
+            dmpLclVarCommon(tree->AsLclVarCommon());
             break;
 
         case GT_LCL_USE:
-            dmpSsaDefUse(tree, indentStack);
+            dmpSsaDefUse(tree);
             break;
 
         case GT_JMP:
@@ -7725,7 +7593,7 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
     }
 }
 
-void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentStack)
+void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node)
 {
     const unsigned   lclNum = node->GetLclNum();
     const LclVarDsc* lcl    = lvaGetDesc(lclNum);
@@ -7856,7 +7724,7 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
     printf(" }");
 }
 
-void Compiler::dmpSsaDefUse(GenTree* node, IndentStack* indentStack)
+void Compiler::dmpSsaDefUse(GenTree* node)
 {
     GenTreeLclUse* use    = node->IsLclUse();
     GenTreeLclDef* def    = use != nullptr ? use->GetDef() : node->IsLclDef();
@@ -7872,9 +7740,9 @@ void Compiler::dmpSsaDefUse(GenTree* node, IndentStack* indentStack)
     printf("%s#%u", prefix, ssaNum);
     prefix = ", ";
 
-    if ((use != nullptr) && (use->GetBlock() != nullptr))
+    if (BasicBlock* block = (use != nullptr) ? use->GetBlock() : def->GetBlock())
     {
-        printf("%s" FMT_BB, prefix, use->GetBlock()->bbNum);
+        printf("%s" FMT_BB, prefix, block->bbNum);
     }
 
     if (lcl->lvDoNotEnregister)
@@ -7905,7 +7773,7 @@ void Compiler::dmpSsaDefUse(GenTree* node, IndentStack* indentStack)
     }
 }
 
-void Compiler::dmpExtract(GenTreeExtract* extract, IndentStack* indentStack)
+void Compiler::dmpExtract(GenTreeExtract* extract)
 {
     const FieldInfo& field = extract->GetField();
 
@@ -7919,7 +7787,7 @@ void Compiler::dmpExtract(GenTreeExtract* extract, IndentStack* indentStack)
     }
 }
 
-void Compiler::dmpInsert(GenTreeInsert* insert, IndentStack* indentStack)
+void Compiler::dmpInsert(GenTreeInsert* insert)
 {
     const FieldInfo& field = insert->GetField();
 
@@ -7972,127 +7840,81 @@ const char* StructStoreKindName(StructStoreKind kind)
     }
 }
 
-//------------------------------------------------------------------------
-// gtDispLeaf: Print a child node to jitstdout.
-//
-// Arguments:
-//    tree - the tree to be printed
-//    indentStack - the specification for the current level of indentation & arcs
-//    arcType     - the type of arc to use for this child
-//    msg         - a contextual method (i.e. from the parent) to print
-//    topOnly     - a boolean indicating whether to print the children, or just the top node
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    'indentStack' may be null, in which case no indentation or arcs are printed
-//    'msg' has a default value of null
-//    'topOnly' is an optional argument that defaults to false
-
-void Compiler::gtDispChild(GenTree*             child,
-                           IndentStack*         indentStack,
-                           IndentInfo           arcType,
-                           __in_opt const char* msg,     /* = nullptr  */
-                           bool                 topOnly) /* = false */
+void Compiler::gtDispTree(GenTree* tree, bool header, bool operands)
 {
-    indentStack->Push(arcType);
-    gtDispTree(child, indentStack, msg, topOnly);
-    indentStack->Pop();
+    IndentStack indentStack(this);
+    gtDispTreeRec(tree, &indentStack, nullptr, !operands, false, header);
 }
 
-void Compiler::gtDispTree(GenTree*     tree,
-                          IndentStack* indentStack,                 /* = nullptr */
-                          __in __in_z __in_opt const char* msg,     /* = nullptr  */
-                          bool                             topOnly, /* = false */
-                          bool                             isLIR)   /* = false */
+void Compiler::gtDispTreeRec(
+    GenTree* tree, IndentStack* indentStack, const char* msg, bool topOnly, bool isLIR, bool header)
 {
-    if (tree == nullptr)
+    if ((tree == nullptr) || IsUninitialized(tree))
     {
-        printf(" [%08X] <NULL>\n", tree);
-        printf(""); // null string means flush
+        printf("Invalid tree node %p\n", tree);
         return;
     }
 
-    if (indentStack == nullptr)
+    printf("[%06u] ", tree->GetID());
+
+    if (header)
     {
-        indentStack = new (this, CMK_DebugOnly) IndentStack(this);
+        gtDispNodeHeader(tree);
+
+        if (isLIR)
+        {
+            dmpNodeRegs(tree);
+        }
+        else
+        {
+            printf(" %-*s", 13, msg == nullptr ? "" : msg);
+
+            indentStack->Print();
+
+            if (!indentStack->Empty() && (indentStack->Top() == IIArcBottom))
+            {
+                indentStack->Top() = IINone;
+            }
+        }
+
+        printf(" ");
     }
 
-    if (IsUninitialized(tree))
-    {
-        /* Value used to initalize nodes */
-        printf("Uninitialized tree node!\n");
-        return;
-    }
+    gtDispNode(tree);
 
-    if (tree->gtOper >= GT_COUNT)
+    if (tree->GetOper() >= GT_COUNT)
     {
-        gtDispNode(tree, indentStack, msg, isLIR);
         printf("Bogus operator!\n");
         return;
     }
 
     if (tree->OperIsLeaf())
     {
-        gtDispNode(tree, indentStack, msg, isLIR);
-        gtDispLeaf(tree, indentStack);
+        gtDispLeaf(tree);
         gtDispCommonEndLine(tree);
-
         return;
     }
 
-    // Determine what kind of arc to propagate.
-    IndentInfo myArc    = IINone;
-    IndentInfo lowerArc = IINone;
-    if (!indentStack->Empty())
-    {
-        myArc = indentStack->Pop();
-        switch (myArc)
-        {
-            case IIArcBottom:
-                indentStack->Push(IIArc);
-                lowerArc = IINone;
-                break;
-            case IIArc:
-                indentStack->Push(IIArc);
-                lowerArc = IIArc;
-                break;
-            default:
-                indentStack->Push(IINone);
-                lowerArc = IINone;
-                break;
-        }
-    }
-
-    if (myArc != IINone)
-    {
+    auto gtDispChild = [this, indentStack, header](GenTree* child, IndentKind indent, const char* msg = nullptr) {
+        indentStack->Push(indent);
+        gtDispTreeRec(child, indentStack, msg, false, false, header);
         indentStack->Pop();
-        indentStack->Push(myArc);
-    }
-
-    gtDispNode(tree, indentStack, msg, isLIR);
-
-    if (!indentStack->Empty())
-    {
-        indentStack->Pop();
-        indentStack->Push(lowerArc);
-    }
+    };
 
     switch (tree->GetOper())
     {
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
-            dmpLclVarCommon(tree->AsLclVarCommon(), indentStack);
+            dmpLclVarCommon(tree->AsLclVarCommon());
             break;
         case GT_LCL_DEF:
-            dmpSsaDefUse(tree, indentStack);
+            dmpSsaDefUse(tree);
             break;
         case GT_EXTRACT:
-            dmpExtract(tree->AsExtract(), indentStack);
+            dmpExtract(tree->AsExtract());
             break;
         case GT_INSERT:
-            dmpInsert(tree->AsInsert(), indentStack);
+            dmpInsert(tree->AsInsert());
             break;
 
         case GT_CAST:
@@ -8257,7 +8079,7 @@ void Compiler::gtDispTree(GenTree*     tree,
             {
                 for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
                 {
-                    gtDispChild(use.GetNode(), indentStack, (use.GetNext() == nullptr) ? IIArcBottom : IIArc);
+                    gtDispChild(use.GetNode(), (use.GetNext() == nullptr) ? IIArcBottom : IIArc);
                 }
             }
             break;
@@ -8281,7 +8103,7 @@ void Compiler::gtDispTree(GenTree*     tree,
             {
                 for (unsigned i = 0; i < tree->AsHWIntrinsic()->GetNumOps(); i++)
                 {
-                    gtDispChild(tree->AsHWIntrinsic()->GetOp(i), indentStack,
+                    gtDispChild(tree->AsHWIntrinsic()->GetOp(i),
                                 (i == tree->AsHWIntrinsic()->GetNumOps() - 1) ? IIArcBottom : IIArc);
                 }
             }
@@ -8303,7 +8125,7 @@ void Compiler::gtDispTree(GenTree*     tree,
             {
                 for (unsigned i = 0; i < tree->AsInstr()->GetNumOps(); i++)
                 {
-                    gtDispChild(tree->AsInstr()->GetOp(i), indentStack,
+                    gtDispChild(tree->AsInstr()->GetOp(i),
                                 (i == tree->AsInstr()->GetNumOps() - 1) ? IIArcBottom : IIArc);
                 }
             }
@@ -8318,7 +8140,7 @@ void Compiler::gtDispTree(GenTree*     tree,
                 {
                     char block[32];
                     sprintf_s(block, sizeof(block), "pred " FMT_BB, use.GetNode()->GetBlock()->bbNum);
-                    gtDispChild(use.GetNode(), indentStack, (use.GetNext() == nullptr) ? IIArcBottom : IIArc, block);
+                    gtDispChild(use.GetNode(), (use.GetNext() == nullptr) ? IIArcBottom : IIArc, block);
                 }
             }
             break;
@@ -8441,52 +8263,45 @@ void Compiler::gtDispTree(GenTree*     tree,
                 });
 
                 unsigned argNum = 0;
+                char     buf[256];
 
                 if (call->gtCallThisArg != nullptr)
                 {
-                    char buf[256];
-
                     GenTree* argNode = call->gtCallThisArg->GetNode();
                     gtGetCallArgMsg(call, argNode, argNum, buf, sizeof(buf));
-                    gtDispChild(argNode, indentStack, (argNode == lastChild) ? IIArcBottom : IIArc, buf, false);
+                    gtDispChild(argNode, (argNode == lastChild) ? IIArcBottom : IIArc, buf);
                     argNum++;
                 }
 
                 for (GenTreeCall::Use& use : call->Args())
                 {
-                    char buf[256];
-
                     GenTree* argNode = use.GetNode();
                     gtGetCallArgMsg(call, argNode, argNum, buf, sizeof(buf));
-                    gtDispChild(argNode, indentStack, (argNode == lastChild) ? IIArcBottom : IIArc, buf, false);
+                    gtDispChild(argNode, (argNode == lastChild) ? IIArcBottom : IIArc, buf);
                     argNum++;
                 }
 
                 for (GenTreeCall::Use& use : call->LateArgs())
                 {
-                    char buf[256];
-
-                    IndentInfo arcType = (use.GetNext() == nullptr) ? IIArcBottom : IIArc;
                     gtGetCallArgMsg(call, call->GetArgInfoByLateArgUse(&use), use.GetNode(), buf, sizeof(buf));
-                    gtDispChild(use.GetNode(), indentStack, arcType, buf, false);
+                    gtDispChild(use.GetNode(), (use.GetNext() == nullptr) ? IIArcBottom : IIArc, buf);
                 }
 
                 if (call->IsIndirectCall())
                 {
                     if (call->gtCallCookie != nullptr)
                     {
-                        gtDispChild(call->gtCallCookie, indentStack,
-                                    (call->gtCallCookie == lastChild) ? IIArcBottom : IIArc, "cookie", false);
+                        gtDispChild(call->gtCallCookie, (call->gtCallCookie == lastChild) ? IIArcBottom : IIArc,
+                                    "cookie");
                     }
 
-                    gtDispChild(call->gtCallAddr, indentStack, (call->gtCallAddr == lastChild) ? IIArcBottom : IIArc,
-                                "callAddr", false);
+                    gtDispChild(call->gtCallAddr, (call->gtCallAddr == lastChild) ? IIArcBottom : IIArc, "callAddr");
                 }
 
                 if (call->gtControlExpr != nullptr)
                 {
-                    gtDispChild(call->gtControlExpr, indentStack,
-                                (call->gtControlExpr == lastChild) ? IIArcBottom : IIArc, "control expr", false);
+                    gtDispChild(call->gtControlExpr, (call->gtControlExpr == lastChild) ? IIArcBottom : IIArc,
+                                "control expr");
                 }
             }
         }
@@ -8497,28 +8312,44 @@ void Compiler::gtDispTree(GenTree*     tree,
 
             if (!topOnly)
             {
-                gtDispChild(tree->AsArrElem()->gtArrObj, indentStack, IIArc, nullptr, topOnly);
+                GenTreeArrElem* arrElem = tree->AsArrElem();
 
-                unsigned dim;
-                for (dim = 0; dim < tree->AsArrElem()->gtArrRank; dim++)
+                for (unsigned i = 0; i < arrElem->GetNumOps(); i++)
                 {
-                    IndentInfo arcType = ((dim + 1) == tree->AsArrElem()->gtArrRank) ? IIArcBottom : IIArc;
-                    gtDispChild(tree->AsArrElem()->gtArrInds[dim], indentStack, arcType, nullptr, topOnly);
+                    gtDispChild(arrElem->GetOp(i), i == arrElem->GetNumOps() - 1 ? IIArcBottom : IIArc);
                 }
             }
             break;
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif
-            gtDispCommonEndLine(tree);
+        case GT_BOUNDS_CHECK:
+            GenTreeBoundsChk* boundsChk;
+            boundsChk = tree->AsBoundsChk();
+            const char* kindName;
 
-            if (!topOnly)
+            switch (boundsChk->GetThrowKind())
             {
-                gtDispChild(tree->AsBoundsChk()->GetIndex(), indentStack, IIArc, nullptr, topOnly);
-                gtDispChild(tree->AsBoundsChk()->GetLength(), indentStack, IIArcBottom, nullptr, topOnly);
+                case ThrowHelperKind::IndexOutOfRange:
+                    kindName = "IndexOutOfRange";
+                    break;
+                case ThrowHelperKind::Argument:
+                    kindName = "Argument";
+                    break;
+                case ThrowHelperKind::ArgumentOutOfRange:
+                    kindName = "ArgumentOutOfRange";
+                    break;
+                default:
+                    kindName = "???";
+                    break;
             }
+
+            printf(" (%s", kindName);
+
+            if (boundsChk->GetThrowBlock() != nullptr)
+            {
+                printf(", " FMT_BB, tree->AsBoundsChk()->GetThrowBlock()->bbNum);
+            }
+
+            printf(")");
             break;
 
         case GT_STORE_OBJ:
@@ -8527,15 +8358,7 @@ void Compiler::gtDispTree(GenTree*     tree,
             {
                 printf(" (%s)", StructStoreKindName(tree->AsBlk()->GetKind()));
             }
-
-            gtDispCommonEndLine(tree);
-
-            if (!topOnly)
-            {
-                gtDispChild(tree->AsBlk()->GetValue(), indentStack, IIArc);
-                gtDispChild(tree->AsBlk()->GetAddr(), indentStack, IIArc);
-            }
-            return;
+            break;
 
         case GT_ARR_OFFSET:
         case GT_CMPXCHG:
@@ -8546,9 +8369,9 @@ void Compiler::gtDispTree(GenTree*     tree,
 
             if (!topOnly)
             {
-                gtDispChild(tree->AsTernaryOp()->GetOp(0), indentStack, IIArc);
-                gtDispChild(tree->AsTernaryOp()->GetOp(1), indentStack, IIArc);
-                gtDispChild(tree->AsTernaryOp()->GetOp(2), indentStack, IIArcBottom);
+                gtDispChild(tree->AsTernaryOp()->GetOp(0), IIArc);
+                gtDispChild(tree->AsTernaryOp()->GetOp(1), IIArc);
+                gtDispChild(tree->AsTernaryOp()->GetOp(2), IIArcBottom);
             }
             break;
 
@@ -8556,7 +8379,6 @@ void Compiler::gtDispTree(GenTree*     tree,
             if (!tree->OperIsSimple())
             {
                 printf("<DON'T KNOW HOW TO DISPLAY THIS NODE> :");
-                printf(""); // null string means flush
             }
             break;
     }
@@ -8569,13 +8391,12 @@ void Compiler::gtDispTree(GenTree*     tree,
         {
             if (tree->AsOp()->gtOp1 != nullptr)
             {
-                gtDispChild(tree->AsOp()->gtOp1, indentStack,
-                            (tree->gtGetOp2IfPresent() == nullptr) ? IIArcBottom : IIArc);
+                gtDispChild(tree->AsOp()->gtOp1, (tree->gtGetOp2IfPresent() == nullptr) ? IIArcBottom : IIArc);
             }
 
-            if (tree->gtGetOp2IfPresent())
+            if (tree->gtGetOp2IfPresent() != nullptr)
             {
-                gtDispChild(tree->AsOp()->gtOp2, indentStack, IIArcBottom);
+                gtDispChild(tree->AsOp()->gtOp2, IIArcBottom);
             }
         }
     }
@@ -8778,11 +8599,7 @@ void Compiler::gtDispLIRNode(GenTree* node)
         return;
     }
 
-    IndentStack indentStack(this);
-
-    const bool topOnly = true;
-    const bool isLIR   = true;
-    gtDispTree(node, &indentStack, nullptr, topOnly, isLIR);
+    gtDispTreeRec(node, nullptr, nullptr, true, true, true);
 }
 
 void Compiler::dmpNodeOperands(GenTree* node)
@@ -10418,7 +10235,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
         return tree;
     }
 
-    if (tree->OperIs(GT_NOP, GT_ALLOCOBJ, GT_RUNTIMELOOKUP))
+    if (tree->OperIs(GT_NOP, GT_ALLOCOBJ, GT_RUNTIMELOOKUP, GT_BOUNDS_CHECK))
     {
         return tree;
     }
