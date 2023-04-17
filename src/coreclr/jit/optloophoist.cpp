@@ -4,7 +4,7 @@
 #include "jitpch.h"
 
 using VNToBoolMap = JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, bool>;
-using VNSet       = VNToBoolMap;
+using VNSet       = JitHashSet<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>>;
 
 class LoopHoist
 {
@@ -51,7 +51,7 @@ private:
     bool optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* loopVnInvariantCache);
     void optPerformHoistExpr(GenTree* origExpr, unsigned lnum);
 
-    VNSet* GetHoistedInCurLoop()
+    VNSet* GetHoistedInCurrentLoop()
     {
         if (m_pHoistedInCurLoop == nullptr)
         {
@@ -62,7 +62,7 @@ private:
         return m_pHoistedInCurLoop;
     }
 
-    VNSet* ExtractHoistedInCurLoop()
+    VNSet* ExtractHoistedInCurrentLoop()
     {
         VNSet* res          = m_pHoistedInCurLoop;
         m_pHoistedInCurLoop = nullptr;
@@ -248,20 +248,17 @@ void LoopHoist::optHoistLoopNest(unsigned lnum)
 
     optHoistThisLoop(lnum);
 
-    VNSet* hoistedInCurLoop = ExtractHoistedInCurLoop();
+    VNSet* hoistedInCurLoop = ExtractHoistedInCurrentLoop();
 
     if (optLoopTable[lnum].lpChild != BasicBlock::NOT_IN_LOOP)
     {
         // Add the ones hoisted in "lnum" to "hoistedInParents" for any nested loops.
-        // TODO-Cleanup: we should have a set abstraction for loops.
         if (hoistedInCurLoop != nullptr)
         {
-            for (VNSet::KeyIterator keys = hoistedInCurLoop->Begin(); !keys.Equal(hoistedInCurLoop->End()); ++keys)
+            for (ValueNum vn : *hoistedInCurLoop)
             {
-                INDEBUG(bool b);
-                assert(!m_hoistedInParentLoops.Lookup(keys.Get(), &b));
-
-                m_hoistedInParentLoops.Set(keys.Get(), true);
+                INDEBUG(bool added =) m_hoistedInParentLoops.Add(vn);
+                assert(added);
             }
         }
 
@@ -272,13 +269,11 @@ void LoopHoist::optHoistLoopNest(unsigned lnum)
         }
 
         // Now remove them.
-        // TODO-Cleanup: we should have a set abstraction for loops.
         if (hoistedInCurLoop != nullptr)
         {
-            for (VNSet::KeyIterator keys = hoistedInCurLoop->Begin(); !keys.Equal(hoistedInCurLoop->End()); ++keys)
+            for (ValueNum vn : *hoistedInCurLoop)
             {
-                // Note that we asserted when we added these that they hadn't been members, so removing is appropriate.
-                m_hoistedInParentLoops.Remove(keys.Get());
+                m_hoistedInParentLoops.Remove(vn);
             }
         }
     }
@@ -1045,16 +1040,13 @@ void LoopHoist::optHoistCandidate(GenTree* tree, unsigned lnum)
         return;
     }
 
-    bool b;
-    if (m_hoistedInParentLoops.Lookup(tree->gtVNPair.GetLiberal(), &b))
+    if (m_hoistedInParentLoops.Contains(tree->GetLiberalVN()))
     {
-        // already hoisted in a parent loop, so don't hoist this expression.
         return;
     }
 
-    if (GetHoistedInCurLoop()->Lookup(tree->gtVNPair.GetLiberal(), &b))
+    if (GetHoistedInCurrentLoop()->Contains(tree->GetLiberalVN()))
     {
-        // already hoisted this expression in the current loop, so don't hoist this expression.
         return;
     }
 
@@ -1078,8 +1070,7 @@ void LoopHoist::optHoistCandidate(GenTree* tree, unsigned lnum)
         vnLoopTable[lnum].lpHoistedFPExprCount++;
     }
 
-    // Record the hoisted expression in hoistCtxt
-    GetHoistedInCurLoop()->Set(tree->gtVNPair.GetLiberal(), true);
+    GetHoistedInCurrentLoop()->Add(tree->GetLiberalVN());
 }
 
 bool LoopHoist::optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* loopVnInvariantCache)
