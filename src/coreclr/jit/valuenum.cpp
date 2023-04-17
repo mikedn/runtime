@@ -6779,9 +6779,9 @@ void ValueNumStore::vnDumpMapSelect(Compiler* comp, VNFuncApp* mapSelect)
     ValueNum indexVN = mapSelect->m_args[1];
 
     printf("MapSelect(");
-    comp->valueNumbering->vnPrint(mapVN, 0);
+    vnPrint(mapVN, 0);
     printf(", ");
-    comp->valueNumbering->vnPrint(indexVN, 0);
+    vnPrint(indexVN, 0);
     if (const char** name = m_vnNameMap.LookupPointer(indexVN))
     {
         printf(" (%s)", *name);
@@ -6799,15 +6799,15 @@ void ValueNumStore::vnDumpMapStore(Compiler* comp, VNFuncApp* mapStore)
     unsigned loopNum  = mapStore->m_args[3];
 
     printf("MapStore(");
-    comp->valueNumbering->vnPrint(mapVN, 0);
+    vnPrint(mapVN, 0);
     printf(", ");
-    comp->valueNumbering->vnPrint(indexVN, 0);
+    vnPrint(indexVN, 0);
     if (const char** name = m_vnNameMap.LookupPointer(indexVN))
     {
         printf(" (%s)", *name);
     }
     printf(", ");
-    comp->valueNumbering->vnPrint(newValVN, 0);
+    vnPrint(newValVN, 0);
     if (loopNum != BasicBlock::NOT_IN_LOOP)
     {
         printf(", " FMT_LP, loopNum);
@@ -6898,9 +6898,9 @@ void ValueNumStore::DumpPtrToArrElem(const VNFuncApp& elemAddr)
         printf("<%s>", elemLayout->GetClassName());
     }
     printf("), ");
-    m_pComp->valueNumbering->vnPrint(arrayVN, 1);
+    vnPrint(arrayVN, 1);
     printf(", ");
-    m_pComp->valueNumbering->vnPrint(indexVN, 1);
+    vnPrint(indexVN, 1);
     if (fieldSeq != nullptr)
     {
         printf(", ");
@@ -8410,7 +8410,7 @@ void ValueNumbering::fgValueNumberTree(GenTree* tree)
     {
         compiler->gtDispTree(tree, false, false);
         printf("        = ");
-        vnpPrint(tree->GetVNP(), 1);
+        vnStore->vnpPrint(tree->GetVNP(), 1);
         printf("\n");
     }
 #endif
@@ -9645,7 +9645,7 @@ void ValueNumbering::vnAddNodeExceptionSet(GenTree* node)
 
 #ifdef DEBUG
 
-void ValueNumbering::vnpPrint(ValueNumPair vnp, unsigned level)
+void ValueNumStore::vnpPrint(ValueNumPair vnp, unsigned level)
 {
     if (vnp.BothEqual())
     {
@@ -9661,18 +9661,18 @@ void ValueNumbering::vnpPrint(ValueNumPair vnp, unsigned level)
     }
 }
 
-void ValueNumbering::vnPrint(ValueNum vn, unsigned level)
+void ValueNumStore::vnPrint(ValueNum vn, unsigned level)
 {
-    if (ValueNumStore::isReservedVN(vn))
+    if (isReservedVN(vn))
     {
-        printf(ValueNumStore::reservedName(vn));
+        printf(reservedName(vn));
     }
     else
     {
         printf(FMT_VN, vn);
         if (level > 0)
         {
-            vnStore->vnDump(compiler, vn);
+            vnDump(m_pComp, vn);
         }
     }
 }
@@ -9682,7 +9682,7 @@ void ValueNumbering::vnTrace(ValueNum vn, const char* comment)
     if (compiler->verbose)
     {
         printf("    %s ", varTypeName(vnStore->TypeOfVN(vn)));
-        vnPrint(vn, 1);
+        vnStore->vnPrint(vn, 1);
 
         if (comment != nullptr)
         {
@@ -9698,7 +9698,7 @@ void ValueNumbering::vnTrace(ValueNumPair vnp, const char* comment)
     if (compiler->verbose)
     {
         printf("    %s ", varTypeName(vnStore->TypeOfVN(vnp.GetLiberal())));
-        vnpPrint(vnp, 1);
+        vnStore->vnpPrint(vnp, 1);
 
         if (comment != nullptr)
         {
@@ -9714,7 +9714,7 @@ void ValueNumbering::vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char*
     if (compiler->verbose)
     {
         printf("    V%02u = %s ", lclNum, varTypeName(vnStore->TypeOfVN(vnp.GetLiberal())));
-        vnpPrint(vnp, 1);
+        vnStore->vnpPrint(vnp, 1);
 
         if (comment != nullptr)
         {
@@ -9730,7 +9730,7 @@ void ValueNumbering::vnTraceMem(ValueNum vn, const char* comment)
     if (compiler->verbose)
     {
         printf("    Memory = %s ", varTypeName(vnStore->TypeOfVN(vn)));
-        vnPrint(vn, 1);
+        vnStore->vnPrint(vn, 1);
 
         if (comment != nullptr)
         {

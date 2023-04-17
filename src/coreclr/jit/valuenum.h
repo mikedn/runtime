@@ -918,6 +918,8 @@ public:
     // Returns the string name of "vn" when it is a reserved value number, nullptr otherwise
     static const char* reservedName(ValueNum vn);
 
+    void vnpPrint(ValueNumPair vnp, unsigned level);
+    void vnPrint(ValueNum vn, unsigned level);
 #endif // DEBUG
 
     // Returns true if "vn" is a reserved value number

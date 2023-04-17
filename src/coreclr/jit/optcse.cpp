@@ -616,7 +616,7 @@ public:
             if (compiler->verbose)
             {
                 printf(FMT_CSE " in " FMT_BB " VN ", index, block->bbNum);
-                compiler->valueNumbering->vnPrint(hashVN, 0);
+                vnStore->vnPrint(hashVN, 0);
                 printf("\n");
                 compiler->gtDispTree(expr);
                 printf("\n");

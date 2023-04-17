@@ -6607,10 +6607,10 @@ void Compiler::gtDispCommonEndLine(GenTree* tree)
 
     if (!compRationalIRForm)
     {
-        if ((valueNumbering != nullptr) && (tree->GetLiberalVN() != NoVN))
+        if ((vnStore != nullptr) && (tree->GetLiberalVN() != NoVN))
         {
             printf(" ");
-            valueNumbering->vnpPrint(tree->GetVNP(), 0);
+            vnStore->vnpPrint(tree->GetVNP(), 0);
         }
     }
     else
