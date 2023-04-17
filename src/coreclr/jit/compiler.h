@@ -6948,11 +6948,6 @@ public:
         return CompAllocator(compArenaAllocator, cmk);
     }
 
-    CompAllocator getAllocatorLoopHoist()
-    {
-        return getAllocator(CMK_LoopHoist);
-    }
-
 #ifdef DEBUG
     CompAllocator getAllocatorDebugOnly()
     {

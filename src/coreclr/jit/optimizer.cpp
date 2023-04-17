@@ -2806,7 +2806,7 @@ bool Compiler::optCanonicalizeLoop(unsigned loopInd)
     // a call to fgUpdateChangedFlowGraph which will recompute the reachability sets anyway.
 
     // Redirect the "bottom" of the current loop to "newT".
-    BlockToBlockMap* blockMap = new (getAllocatorLoopHoist()) BlockToBlockMap(getAllocatorLoopHoist());
+    BlockToBlockMap* blockMap = new (getAllocator(CMK_LoopOpt)) BlockToBlockMap(getAllocator(CMK_LoopOpt));
     blockMap->Set(t, newT);
     optRedirectBlock(b, blockMap);
 

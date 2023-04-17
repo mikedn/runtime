@@ -425,7 +425,7 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
     // Find the set of definitely-executed blocks.
     // Ideally, the definitely-executed blocks are the ones that post-dominate the entry block.
     // Until we have post-dominators, we'll special-case for single-exit blocks.
-    ArrayStack<BasicBlock*> defExec(compiler->getAllocatorLoopHoist());
+    ArrayStack<BasicBlock*> defExec(compiler->getAllocator(CMK_LoopHoist));
     if (pLoopDsc->lpFlags & LPFLG_ONE_EXIT)
     {
         assert(pLoopDsc->lpExit != nullptr);
