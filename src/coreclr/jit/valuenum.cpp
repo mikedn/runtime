@@ -9663,7 +9663,6 @@ void ValueNumbering::vnpPrint(ValueNumPair vnp, unsigned level)
 
 void ValueNumbering::vnPrint(ValueNum vn, unsigned level)
 {
-
     if (ValueNumStore::isReservedVN(vn))
     {
         printf(ValueNumStore::reservedName(vn));

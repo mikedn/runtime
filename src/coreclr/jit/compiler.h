@@ -3578,7 +3578,6 @@ public:
     void dmpNodeRegs(GenTree* node);
     void dmpNodeOperands(GenTree* node);
     void gtDispZeroFieldSeq(GenTree* tree);
-    void gtDispVN(GenTree* tree);
     void gtDispCommonEndLine(GenTree* tree);
     void gtDispTree(GenTree* tree, bool header = true, bool operands = true);
     void gtDispTreeRec(GenTree* tree, IndentStack* indentStack, const char* msg, bool topOnly, bool isLIR, bool header);

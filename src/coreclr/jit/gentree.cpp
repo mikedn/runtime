@@ -6601,33 +6601,17 @@ void Compiler::gtDispZeroFieldSeq(GenTree* tree)
     }
 }
 
-//------------------------------------------------------------------------
-// gtDispVN: Utility function that prints a tree's ValueNumber: gtVNPair
-//
-void Compiler::gtDispVN(GenTree* tree)
-{
-    if ((valueNumbering != nullptr) && (tree->GetLiberalVN() != NoVN))
-    {
-        printf(" ");
-        valueNumbering->vnpPrint(tree->GetVNP(), 0);
-    }
-}
-
-//------------------------------------------------------------------------
-// gtDispCommonEndLine
-//     Utility function that prints the following node information
-//       1: The associated zero field sequence (if any)
-//       2. The register assigned to this node (if any)
-//       2. The value number assigned (if any)
-//       3. A newline character
-//
 void Compiler::gtDispCommonEndLine(GenTree* tree)
 {
     gtDispZeroFieldSeq(tree);
 
     if (!compRationalIRForm)
     {
-        gtDispVN(tree);
+        if ((valueNumbering != nullptr) && (tree->GetLiberalVN() != NoVN))
+        {
+            printf(" ");
+            valueNumbering->vnpPrint(tree->GetVNP(), 0);
+        }
     }
     else
     {
