@@ -4542,44 +4542,6 @@ public:
     // Do value numbering (assign a value number to each tree node).
     void fgValueNumber();
 
-    struct VNLoop
-    {
-        typedef JitHashSet<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>> FieldHandleSet;
-        FieldHandleSet* lpFieldsModified; // This has entries (mappings to "true") for all static field and object
-                                          // instance fields modified
-                                          // in the loop.
-
-        // The set of array element types that are modified in the loop.
-        typedef JitHashSet<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>> TypeNumSet;
-        TypeNumSet* lpArrayElemTypesModified;
-
-        VARSET_TP lpVarInOut;  // The set of variables that are IN or OUT during the execution of this loop
-        VARSET_TP lpVarUseDef; // The set of variables that are USE or DEF during the execution of this loop
-
-        bool lpLoopHasMemoryHavoc : 1; // The loop contains an operation that we assume has arbitrary
-                                       // memory side effects.  If this is set, the fields below
-                                       // may not be accurate (since they become irrelevant.)
-        bool lpContainsCall : 1;       // True if executing the loop body *may* execute a call
-
-        // TODO-MIKE-CQ: We could record individual AX local access like we do for fields and arrays.
-        bool modifiesAddressExposedLocals : 1;
-
-        // TODO-MIKE-Cleanup: These have nothing to do with value numbering,
-        // they should be moved to LoopHoistContext.
-
-        int lpHoistedExprCount; // The register count for the non-FP expressions from inside this loop that have been
-                                // hoisted
-        int lpLoopVarCount;     // The register count for the non-FP LclVars that are read/written inside this loop
-        int lpVarInOutCount;    // The register count for the non-FP LclVars that are alive inside or across this loop
-
-        int lpHoistedFPExprCount; // The register count for the FP expressions from inside this loop that have been
-                                  // hoisted
-        int lpLoopVarFPCount;     // The register count for the FP LclVars that are read/written inside this loop
-        int lpVarInOutFPCount;    // The register count for the FP LclVars that are alive inside or across this loop
-
-        VNLoop(Compiler* compiler);
-    };
-
     bool isTrivialPointerSizedStruct(ClassLayout* layout) const;
     bool isNativePrimitiveStructType(ClassLayout* layout);
     var_types abiGetStructIntegerRegisterType(ClassLayout* layout);
@@ -5301,28 +5263,6 @@ private:
     // Requires "lnum" to be the index of an outermost loop in the loop table.  Traverses the body of that loop,
     // including all nested loops, and records the set of "side effects" of the loop: fields (object instance and
     // static) written to, and SZ-array element type equivalence classes updated.
-
-    class VNLoopMemorySummary
-    {
-        Compiler*       m_compiler;
-        ValueNumbering* m_valueNumbering;
-        unsigned        m_loopNum;
-
-    public:
-        bool m_memoryHavoc : 1;
-        bool m_containsCall : 1;
-        bool m_modifiesAddressExposedLocals : 1;
-
-        VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum);
-        void AddLocalLiveness(BasicBlock* block) const;
-        void AddMemoryHavoc();
-        void AddCall();
-        void AddAddressExposedLocal(unsigned lclNum);
-        void AddField(CORINFO_FIELD_HANDLE fieldHandle);
-        void AddArrayType(unsigned elemTypeNum);
-        bool IsComplete() const;
-        void UpdateLoops() const;
-    };
 
     // Hoist the expression "expr" out of loop "lnum".
     void optPerformHoistExpr(GenTree* expr, unsigned lnum);
@@ -7182,11 +7122,49 @@ public:
     bool killGCRefs(GenTree* tree);
 }; // end of class Compiler
 
+class VNLoopMemorySummary;
+
+struct VNLoop
+{
+    typedef JitHashSet<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>> FieldHandleSet;
+    FieldHandleSet* lpFieldsModified; // This has entries (mappings to "true") for all static field and object
+    // instance fields modified
+    // in the loop.
+
+    // The set of array element types that are modified in the loop.
+    typedef JitHashSet<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>> TypeNumSet;
+    TypeNumSet* lpArrayElemTypesModified;
+
+    VARSET_TP lpVarInOut;  // The set of variables that are IN or OUT during the execution of this loop
+    VARSET_TP lpVarUseDef; // The set of variables that are USE or DEF during the execution of this loop
+
+    bool lpLoopHasMemoryHavoc : 1; // The loop contains an operation that we assume has arbitrary
+    // memory side effects.  If this is set, the fields below
+    // may not be accurate (since they become irrelevant.)
+    bool lpContainsCall : 1; // True if executing the loop body *may* execute a call
+
+    // TODO-MIKE-CQ: We could record individual AX local access like we do for fields and arrays.
+    bool modifiesAddressExposedLocals : 1;
+
+    // TODO-MIKE-Cleanup: These have nothing to do with value numbering,
+    // they should be moved to LoopHoistContext.
+
+    int lpHoistedExprCount; // The register count for the non-FP expressions from inside this loop that have been
+    // hoisted
+    int lpLoopVarCount;  // The register count for the non-FP LclVars that are read/written inside this loop
+    int lpVarInOutCount; // The register count for the non-FP LclVars that are alive inside or across this loop
+
+    int lpHoistedFPExprCount; // The register count for the FP expressions from inside this loop that have been
+    // hoisted
+    int lpLoopVarFPCount;  // The register count for the FP LclVars that are read/written inside this loop
+    int lpVarInOutFPCount; // The register count for the FP LclVars that are alive inside or across this loop
+
+    VNLoop(Compiler* compiler);
+};
+
 class ValueNumbering
 {
-    using LoopDsc             = Compiler::LoopDsc;
-    using VNLoop              = Compiler::VNLoop;
-    using VNLoopMemorySummary = Compiler::VNLoopMemorySummary;
+    using LoopDsc = Compiler::LoopDsc;
 
     friend struct ValueNumberState;
     friend class VNLoopMemorySummary;

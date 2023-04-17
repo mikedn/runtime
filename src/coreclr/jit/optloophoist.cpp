@@ -8,7 +8,6 @@ using VNSet       = JitHashSet<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>>;
 
 class LoopHoist
 {
-    using VNLoop  = Compiler::VNLoop;
     using LoopDsc = Compiler::LoopDsc;
 
     Compiler* const      compiler;

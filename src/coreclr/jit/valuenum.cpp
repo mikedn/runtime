@@ -3790,6 +3790,28 @@ ValueNum ValueNumStore::FieldSeqVNAppend(ValueNum fieldSeqVN, FieldSeqNode* fiel
     return fieldSeqVN;
 }
 
+class VNLoopMemorySummary
+{
+    Compiler*       m_compiler;
+    ValueNumbering* m_valueNumbering;
+    unsigned        m_loopNum;
+
+public:
+    bool m_memoryHavoc : 1;
+    bool m_containsCall : 1;
+    bool m_modifiesAddressExposedLocals : 1;
+
+    VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum);
+    void AddLocalLiveness(BasicBlock* block) const;
+    void AddMemoryHavoc();
+    void AddCall();
+    void AddAddressExposedLocal(unsigned lclNum);
+    void AddField(CORINFO_FIELD_HANDLE fieldHandle);
+    void AddArrayType(unsigned elemTypeNum);
+    bool IsComplete() const;
+    void UpdateLoops() const;
+};
+
 ValueNum ValueNumbering::vnAddField(GenTreeOp* add)
 {
     assert(add->OperIs(GT_ADD) && !add->gtOverflow());
@@ -7677,7 +7699,7 @@ void ValueNumbering::fgValueNumberBlock(BasicBlock* blk)
     vnStore->SetCurrentBlock(nullptr);
 }
 
-Compiler::VNLoop::VNLoop(Compiler* compiler)
+VNLoop::VNLoop(Compiler* compiler)
     : lpFieldsModified(nullptr)
     , lpArrayElemTypesModified(nullptr)
     , lpVarInOut(VarSetOps::MakeEmpty(compiler))
@@ -7688,7 +7710,7 @@ Compiler::VNLoop::VNLoop(Compiler* compiler)
 {
 }
 
-Compiler::VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum)
+VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum)
     : m_compiler(compiler)
     , m_valueNumbering(valueNumbering)
     , m_loopNum(loopNum)
@@ -7699,7 +7721,7 @@ Compiler::VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, ValueNumb
     assert(loopNum < compiler->optLoopCount);
 }
 
-void ValueNumbering::VNLoopMemorySummary::AddLocalLiveness(BasicBlock* block) const
+void VNLoopMemorySummary::AddLocalLiveness(BasicBlock* block) const
 {
     for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
     {
@@ -7713,17 +7735,17 @@ void ValueNumbering::VNLoopMemorySummary::AddLocalLiveness(BasicBlock* block) co
     }
 }
 
-void ValueNumbering::VNLoopMemorySummary::AddMemoryHavoc()
+void VNLoopMemorySummary::AddMemoryHavoc()
 {
     m_memoryHavoc = true;
 }
 
-void ValueNumbering::VNLoopMemorySummary::AddCall()
+void VNLoopMemorySummary::AddCall()
 {
     m_containsCall = true;
 }
 
-void ValueNumbering::VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
+void VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
 {
     assert(m_compiler->lvaGetDesc(lclNum)->IsAddressExposed());
 
@@ -7747,7 +7769,7 @@ void ValueNumbering::VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum
     }
 }
 
-void ValueNumbering::VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
+void VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
 {
     for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
     {
@@ -7766,7 +7788,7 @@ void ValueNumbering::VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHan
     }
 }
 
-void ValueNumbering::VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
+void VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
 {
     for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
     {
@@ -7785,13 +7807,13 @@ void ValueNumbering::VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
     }
 }
 
-bool ValueNumbering::VNLoopMemorySummary::IsComplete() const
+bool VNLoopMemorySummary::IsComplete() const
 {
     // Once a loop is known to contain calls and memory havoc we can stop analyzing it.
     return m_memoryHavoc && m_containsCall;
 }
 
-void ValueNumbering::VNLoopMemorySummary::UpdateLoops() const
+void VNLoopMemorySummary::UpdateLoops() const
 {
     if (m_memoryHavoc || m_containsCall)
     {
@@ -7890,7 +7912,7 @@ ValueNum ValueNumbering::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned
     // Modify "base" by setting all the modified fields/field maps/array maps to unknown values.
 
     // First the fields/field maps.
-    Compiler::VNLoop::FieldHandleSet* fieldsMod = vnLoopTable[loopNum].lpFieldsModified;
+    VNLoop::FieldHandleSet* fieldsMod = vnLoopTable[loopNum].lpFieldsModified;
     if (fieldsMod != nullptr)
     {
         for (CORINFO_FIELD_HANDLE fieldHandle : *fieldsMod)
@@ -7908,7 +7930,7 @@ ValueNum ValueNumbering::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned
         }
     }
     // Now do the array maps.
-    Compiler::VNLoop::TypeNumSet* elemTypesMod = vnLoopTable[loopNum].lpArrayElemTypesModified;
+    VNLoop::TypeNumSet* elemTypesMod = vnLoopTable[loopNum].lpArrayElemTypesModified;
     if (elemTypesMod != nullptr)
     {
         for (unsigned elemTypeNum : *elemTypesMod)
