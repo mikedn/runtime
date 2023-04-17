@@ -76,6 +76,10 @@ class IndentStack;
 #endif
 struct LoopHoistContext;
 class SsaBuilder;
+class ValueNumbering;
+struct ValueNumberState;
+class CopyPropDomTreeVisitor;
+class Cse;
 class Lowering; // defined in lower.h
 
 // The following are defined in this file, Compiler.h
@@ -2817,6 +2821,7 @@ class Compiler
     friend class AssertionProp;
     friend struct Importer;
     friend class SIMDCoalescingBuffer;
+    friend class ValueNumbering;
 
 #ifdef FEATURE_HW_INTRINSICS
     friend struct HWIntrinsicInfo;
@@ -4529,60 +4534,12 @@ public:
     inline bool fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool bbIsReturn);
 
     // The value numbers for this compilation.
-    ValueNumStore* vnStore = nullptr;
+    ValueNumStore*  vnStore        = nullptr;
+    ValueNumbering* valueNumbering = nullptr;
 
 public:
     // Do value numbering (assign a value number to each tree node).
     void fgValueNumber();
-
-    void vnComma(GenTreeOp* comma);
-    void vnAssignment(GenTreeOp* asg);
-    ValueNum vnCastStruct(ValueNumKind         vnk,
-                          ValueNum             valueVN,
-                          CORINFO_CLASS_HANDLE fromClassHandle,
-                          CORINFO_CLASS_HANDLE toClassHandle);
-    ValueNum vnCastStruct(ValueNumKind vnk, ValueNum valueVN, ClassLayout* fromLayout, ClassLayout* toLayout);
-    ValueNumPair vnCastStruct(ValueNumPair valueVNP, ClassLayout* fromLayout, ClassLayout* toLayout);
-    ValueNum vnCoerceStoreValue(
-        GenTree* store, GenTree* value, ValueNumKind vnk, var_types fieldType, ClassLayout* fieldLayout);
-    var_types vnGetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout);
-    ValueNum vnInsertStructField(GenTree*      store,
-                                 GenTree*      value,
-                                 ValueNumKind  vnk,
-                                 ValueNum      structVN,
-                                 var_types     structType,
-                                 FieldSeqNode* fieldSeq);
-    ValueNum vnExtractStructField(GenTree* load, ValueNumKind vnk, ValueNum structVN, FieldSeqNode* fieldSeq);
-    ValueNumPair vnExtractStructField(GenTree* load, ValueNumPair structVN, FieldSeqNode* fieldSeq);
-    ValueNum vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types fieldType, ClassLayout* fieldLayout);
-    void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
-    void vnLocalDef(GenTreeLclDef* def);
-    void vnLocalLoad(GenTreeLclVar* load);
-    void vnLocalUse(GenTreeLclUse* use);
-    ValueNumPair vnLocalUse(GenTreeLclUse* use, GenTreeLclDef* def);
-    void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
-    void vnInsert(GenTreeInsert* insert);
-    void vnLocalFieldLoad(GenTreeLclFld* load);
-    void vnExtract(GenTreeExtract* extract);
-    ValueNum vnAddField(GenTreeOp* add);
-    void vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);
-    void vnIndirLoad(GenTreeIndir* load);
-    ValueNum vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSeq, GenTree* value);
-    ValueNum vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq);
-    ValueNum vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeqNode* fieldSeq, GenTree* value);
-    ValueNum vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNode* fieldSeq);
-    ValueNum vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAddr, GenTree* value);
-    ValueNum vnArrayElemLoad(GenTreeIndir* store, const VNFuncApp& elemAddr);
-    ValueNum vnAddressExposedLocalStore(GenTree* store, ValueNum lclAddrVN, GenTree* value);
-    void vnNullCheck(GenTreeIndir* node);
-    void vnArrayLength(GenTreeArrLen* node);
-    void vnCmpXchg(GenTreeCmpXchg* node);
-    void vnInterlocked(GenTreeOp* node);
-    ValueNum vnMemoryLoad(var_types type, ValueNum addrVN);
-
-    FieldSeqNode* vnIsFieldAddr(GenTree* addr, GenTree** obj);
-    FieldSeqNode* vnIsStaticStructFieldAddr(GenTree* addr);
-    bool vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
 
     struct VNLoop
     {
@@ -4622,92 +4579,11 @@ public:
         VNLoop(Compiler* compiler);
     };
 
-    VNLoop* vnLoopTable;
-
-    // Utility functions for fgValueNumber.
-
-    // Perform value-numbering for the trees in "blk".
-    void fgValueNumberBlock(BasicBlock* blk);
-
-    // Requires that "entryBlock" is the entry block of loop "loopNum", and that "loopNum" is the
-    // innermost loop of which "entryBlock" is the entry.  Returns the value number that should be
-    // assumed for the memoryKind at the start "entryBlk".
-    ValueNum vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned loopNum);
-
-    void vnClearMemory(GenTree* node DEBUGARG(const char* comment = nullptr));
-    void vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment = nullptr));
-
-    // The input 'tree' is a leaf node that is a constant
-    // Assign the proper value number to the tree
-    void fgValueNumberTreeConst(GenTree* tree);
-
-    // Assumes that all inputs to "tree" have had value numbers assigned; assigns a VN to tree.
-    // (With some exceptions: the VN of the lhs of an assignment is assigned as part of the
-    // assignment.)
-    void fgValueNumberTree(GenTree* tree);
-
-    void vnCast(GenTreeCast* cast);
-
-    // Does value-numbering for a bitcast tree.
-    void vnBitCast(GenTreeUnOp* tree);
-
-    // Does value-numbering for an intrinsic tree.
-    void vnIntrinsic(GenTreeIntrinsic* intrinsic);
-
-#ifdef FEATURE_HW_INTRINSICS
-    // Does value-numbering for a GT_HWINTRINSIC tree
-    void fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node);
-#endif // FEATURE_HW_INTRINSICS
-
-    // Does value-numbering for a call.  We interpret some helper calls.
-    void fgValueNumberCall(GenTreeCall* call);
-
-    // Does value-numbering for a helper "call" that has a VN function symbol "vnf".
-    void fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueNumPair vnpExc);
-
-    // Requires "helpCall" to be a helper call.  Assigns it a value number;
-    // we understand the semantics of some of the calls.  Returns "true" if
-    // the call may modify the heap (we assume arbitrary memory side effects if so).
-    bool fgValueNumberHelperCall(GenTreeCall* helpCall);
-
-    // Requires that "helpFunc" is one of the pure Jit Helper methods.
-    // Returns the corresponding VNFunc to use for value numbering
-    VNFunc fgValueNumberJitHelperMethodVNFunc(CorInfoHelpFunc helpFunc);
-
-    ValueNum vnGetBaseAddr(ValueNum addrVN);
-    ValueNum vnAddNullPtrExset(ValueNum addrVN);
-    ValueNumPair vnAddNullPtrExset(ValueNumPair addrVNP);
-    void vnAddNullPtrExset(GenTree* node, GenTree* addr);
-
-    // Adds the exception sets for the current tree node which is performing a division or modulus operation
-    void fgValueNumberAddExceptionSetForDivision(GenTree* tree);
-
-    // Adds the exception set for the current tree node which is performing a overflow checking operation
-    void fgValueNumberAddExceptionSetForOverflow(GenTree* tree);
-
-    void vnAddBoundsChkExceptionSet(GenTreeBoundsChk* tree);
-
-    void vnCkFinite(GenTreeUnOp* node);
-
-    // Adds the exception sets for the current tree node
-    void vnAddNodeExceptionSet(GenTree* tree);
-
     bool isTrivialPointerSizedStruct(ClassLayout* layout) const;
     bool isNativePrimitiveStructType(ClassLayout* layout);
     var_types abiGetStructIntegerRegisterType(ClassLayout* layout);
     StructPassing abiGetStructParamType(ClassLayout* layout, bool isVarArg);
     StructPassing abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv, bool isVarArgs);
-
-#ifdef DEBUG
-    // Print a representation of "vnp" or "vn" on standard output.
-    // If "level" is non-zero, we also print out a partial expansion of the value.
-    void vnpPrint(ValueNumPair vnp, unsigned level);
-    void vnPrint(ValueNum vn, unsigned level);
-    void vnTrace(ValueNum vn, const char* commenr = nullptr);
-    void vnTrace(ValueNumPair vnp, const char* commenr = nullptr);
-    void vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment = nullptr);
-    void vnTraceMem(ValueNum vn, const char* comment = nullptr);
-#endif
 
     bool fgDominate(BasicBlock* b1, BasicBlock* b2); // Return true if b1 dominates b2
 
@@ -5460,15 +5336,16 @@ private:
 
     class VNLoopMemorySummary
     {
-        Compiler* m_compiler;
-        unsigned  m_loopNum;
+        Compiler*       m_compiler;
+        ValueNumbering* m_valueNumbering;
+        unsigned        m_loopNum;
 
     public:
         bool m_memoryHavoc : 1;
         bool m_containsCall : 1;
         bool m_modifiesAddressExposedLocals : 1;
 
-        VNLoopMemorySummary(Compiler* compiler, unsigned loopNum);
+        VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum);
         void AddLocalLiveness(BasicBlock* block) const;
         void AddMemoryHavoc();
         void AddCall();
@@ -5478,18 +5355,6 @@ private:
         bool IsComplete() const;
         void UpdateLoops() const;
     };
-
-    void vnSummarizeLoopMemoryStores();
-    void vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopObjFieldMemoryStores(GenTreeIndir* store, FieldSeqNode* fieldSeq, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary);
-
-    bool vnBlockIsLoopEntry(BasicBlock* blk, unsigned* pLnum);
 
     // Hoist the expression "expr" out of loop "lnum".
     void optPerformHoistExpr(GenTree* expr, unsigned lnum);
@@ -5934,12 +5799,6 @@ public:
     bool optRedundantBranch(BasicBlock* const block);
     bool optJumpThread(BasicBlock* const block, BasicBlock* const domBlock);
     bool optReachable(BasicBlock* const fromBlock, BasicBlock* const toBlock, BasicBlock* const excludedBlock);
-
-    // This is the current value number for the memory implicit variable while doing
-    // value numbering.  This is the value number under the "liberal" interpretation
-    // of memory values; the "conservative" interpretation needs no VN, since every
-    // access of memory yields an unknown value.
-    ValueNum fgCurMemoryVN;
 
 #if ASSERTION_PROP
     /**************************************************************************
@@ -7359,6 +7218,133 @@ public:
 
     bool killGCRefs(GenTree* tree);
 }; // end of class Compiler
+
+class ValueNumbering
+{
+    using LoopDsc             = Compiler::LoopDsc;
+    using VNLoop              = Compiler::VNLoop;
+    using VNLoopMemorySummary = Compiler::VNLoopMemorySummary;
+
+    friend struct ValueNumberState;
+    friend class VNLoopMemorySummary;
+    friend class Compiler;
+    friend class CopyPropDomTreeVisitor;
+    friend class Cse;
+    friend class ValueNumStore;
+
+    Compiler*      compiler;
+    ValueNumStore* vnStore;
+    VNLoop*        vnLoopTable   = nullptr;
+    ValueNum       fgCurMemoryVN = NoVN;
+
+public:
+    ValueNumbering(Compiler* compiler);
+    void Run();
+
+private:
+    void vnSummarizeLoopMemoryStores();
+    void vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopObjFieldMemoryStores(GenTreeIndir* store, FieldSeqNode* fieldSeq, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary);
+    bool vnBlockIsLoopEntry(BasicBlock* blk, unsigned* pLnum);
+
+    void fgValueNumberBlock(BasicBlock* blk);
+    ValueNum vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned loopNum);
+    void vnClearMemory(GenTree* node DEBUGARG(const char* comment = nullptr));
+    void vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment = nullptr));
+    void fgValueNumberTreeConst(GenTree* tree);
+    void fgValueNumberTree(GenTree* tree);
+    void vnComma(GenTreeOp* comma);
+    void vnAssignment(GenTreeOp* asg);
+    ValueNum vnCastStruct(ValueNumKind         vnk,
+                          ValueNum             valueVN,
+                          CORINFO_CLASS_HANDLE fromClassHandle,
+                          CORINFO_CLASS_HANDLE toClassHandle);
+    ValueNum vnCastStruct(ValueNumKind vnk, ValueNum valueVN, ClassLayout* fromLayout, ClassLayout* toLayout);
+    ValueNumPair vnCastStruct(ValueNumPair valueVNP, ClassLayout* fromLayout, ClassLayout* toLayout);
+    ValueNum vnCoerceStoreValue(
+        GenTree* store, GenTree* value, ValueNumKind vnk, var_types fieldType, ClassLayout* fieldLayout);
+    var_types vnGetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout);
+    ValueNum vnInsertStructField(GenTree*      store,
+                                 GenTree*      value,
+                                 ValueNumKind  vnk,
+                                 ValueNum      structVN,
+                                 var_types     structType,
+                                 FieldSeqNode* fieldSeq);
+    ValueNum vnExtractStructField(GenTree* load, ValueNumKind vnk, ValueNum structVN, FieldSeqNode* fieldSeq);
+    ValueNumPair vnExtractStructField(GenTree* load, ValueNumPair structVN, FieldSeqNode* fieldSeq);
+    ValueNum vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types fieldType, ClassLayout* fieldLayout);
+    void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
+    void vnLocalDef(GenTreeLclDef* def);
+    void vnLocalLoad(GenTreeLclVar* load);
+    void vnLocalUse(GenTreeLclUse* use);
+    ValueNumPair vnLocalUse(GenTreeLclUse* use, GenTreeLclDef* def);
+    void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
+    void vnInsert(GenTreeInsert* insert);
+    void vnLocalFieldLoad(GenTreeLclFld* load);
+    void vnExtract(GenTreeExtract* extract);
+    ValueNum vnAddField(GenTreeOp* add);
+    void vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);
+    void vnIndirLoad(GenTreeIndir* load);
+    ValueNum vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSeq, GenTree* value);
+    ValueNum vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq);
+    ValueNum vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeqNode* fieldSeq, GenTree* value);
+    ValueNum vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNode* fieldSeq);
+    ValueNum vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAddr, GenTree* value);
+    ValueNum vnArrayElemLoad(GenTreeIndir* store, const VNFuncApp& elemAddr);
+    ValueNum vnAddressExposedLocalStore(GenTree* store, ValueNum lclAddrVN, GenTree* value);
+    void vnNullCheck(GenTreeIndir* node);
+    void vnArrayLength(GenTreeArrLen* node);
+    void vnCmpXchg(GenTreeCmpXchg* node);
+    void vnInterlocked(GenTreeOp* node);
+    ValueNum vnMemoryLoad(var_types type, ValueNum addrVN);
+    FieldSeqNode* vnIsFieldAddr(GenTree* addr, GenTree** obj);
+    FieldSeqNode* vnIsStaticStructFieldAddr(GenTree* addr);
+    bool vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
+    void vnCast(GenTreeCast* cast);
+    void vnBitCast(GenTreeUnOp* tree);
+    void vnIntrinsic(GenTreeIntrinsic* intrinsic);
+#ifdef FEATURE_HW_INTRINSICS
+    void fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node);
+#endif
+    void fgValueNumberCall(GenTreeCall* call);
+    void fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueNumPair vnpExc);
+    bool fgValueNumberHelperCall(GenTreeCall* helpCall);
+    VNFunc fgValueNumberJitHelperMethodVNFunc(CorInfoHelpFunc helpFunc);
+    ValueNum vnGetBaseAddr(ValueNum addrVN);
+    ValueNum vnAddNullPtrExset(ValueNum addrVN);
+    ValueNumPair vnAddNullPtrExset(ValueNumPair addrVNP);
+    void vnAddNullPtrExset(GenTree* node, GenTree* addr);
+    void fgValueNumberAddExceptionSetForDivision(GenTree* tree);
+    void fgValueNumberAddExceptionSetForOverflow(GenTree* tree);
+    void vnAddBoundsChkExceptionSet(GenTreeBoundsChk* tree);
+    void vnCkFinite(GenTreeUnOp* node);
+    void vnAddNodeExceptionSet(GenTree* tree);
+
+#ifdef DEBUG
+    void vnpPrint(ValueNumPair vnp, unsigned level);
+    void vnPrint(ValueNum vn, unsigned level);
+    void vnTrace(ValueNum vn, const char* commenr = nullptr);
+    void vnTrace(ValueNumPair vnp, const char* commenr = nullptr);
+    void vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment = nullptr);
+    void vnTraceMem(ValueNum vn, const char* comment = nullptr);
+#endif
+
+    LclVarDsc* lvaGetDesc(unsigned lclNum) const
+    {
+        return compiler->lvaGetDesc(lclNum);
+    }
+
+    LclVarDsc* lvaGetDesc(GenTreeLclVarCommon* lclNode) const
+    {
+        return compiler->lvaGetDesc(lclNode);
+    }
+};
 
 // This class is responsible for checking validity and profitability of struct promotion.
 // If it is both legal and profitable, then TryPromoteStructLocal promotes the struct and initializes

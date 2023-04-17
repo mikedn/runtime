@@ -2100,7 +2100,7 @@ ValueNum ValueNumStore::VNForMapStore(var_types type, ValueNum mapVN, ValueNum i
     assert(varTypeIsStruct(type));
 
     ValueNum vn = VNForFunc(type, VNF_MapStore, mapVN, indexVN, valueVN, m_currentBlock->bbNatLoopNum);
-    INDEBUG(m_pComp->vnTrace(vn));
+    INDEBUG(m_pComp->valueNumbering->vnTrace(vn));
     return vn;
 }
 
@@ -2116,7 +2116,7 @@ ValueNum ValueNumStore::VNForMapSelect(ValueNumKind vnk, var_types typ, ValueNum
     // The remaining budget should always be between [0..m_mapSelectBudget]
     assert((budget >= 0) && (budget <= m_mapSelectBudget));
 
-    INDEBUG(m_pComp->vnTrace(result));
+    INDEBUG(m_pComp->valueNumbering->vnTrace(result));
 
     return result;
 }
@@ -3756,7 +3756,7 @@ ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
 
     ValueNum fieldSeqVN = VNForFunc(TYP_I_IMPL, VNF_FieldSeq, VNForHostPtr(fieldSeq));
 
-    INDEBUG(m_pComp->vnTrace(fieldSeqVN));
+    INDEBUG(m_pComp->valueNumbering->vnTrace(fieldSeqVN));
 
     return fieldSeqVN;
 }
@@ -3785,12 +3785,12 @@ ValueNum ValueNumStore::FieldSeqVNAppend(ValueNum fieldSeqVN, FieldSeqNode* fiel
 {
     fieldSeqVN = VNForFieldSeq(m_pComp->GetFieldSeqStore()->Append(FieldSeqVNToFieldSeq(fieldSeqVN), fieldSeq));
 
-    INDEBUG(m_pComp->vnTrace(fieldSeqVN));
+    INDEBUG(m_pComp->valueNumbering->vnTrace(fieldSeqVN));
 
     return fieldSeqVN;
 }
 
-ValueNum Compiler::vnAddField(GenTreeOp* add)
+ValueNum ValueNumbering::vnAddField(GenTreeOp* add)
 {
     assert(add->OperIs(GT_ADD) && !add->gtOverflow());
 
@@ -3801,9 +3801,9 @@ ValueNum Compiler::vnAddField(GenTreeOp* add)
 
         FieldSeqNode* fieldSeq = arrInfo.m_elemOffsetConst->GetFieldSeq()->GetNext();
 
-        if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(add))
+        if (FieldSeqNode* zeroFieldSeq = compiler->GetZeroOffsetFieldSeq(add))
         {
-            fieldSeq = GetFieldSeqStore()->Append(fieldSeq, zeroFieldSeq);
+            fieldSeq = compiler->GetFieldSeqStore()->Append(fieldSeq, zeroFieldSeq);
         }
 
         ValueNum elemTypeVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
@@ -3834,7 +3834,7 @@ ValueNum Compiler::vnAddField(GenTreeOp* add)
     return NoVN;
 }
 
-FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
+FieldSeqNode* ValueNumbering::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
 {
     FieldSeqNode* fieldSeq     = nullptr;
     bool          mustBeStatic = false;
@@ -3862,7 +3862,7 @@ FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
             addr     = op1;
         }
     }
-    else if ((fieldSeq = GetZeroOffsetFieldSeq(addr)) != nullptr)
+    else if ((fieldSeq = compiler->GetZeroOffsetFieldSeq(addr)) != nullptr)
     {
         // Reference type objects can't have a field at offset 0 (that's where the method table
         // pointer is) so this can only be a static field. If it isn't then it means that it's
@@ -3884,7 +3884,7 @@ FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
         return nullptr;
     }
 
-    if (fieldSeq->IsField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()))
+    if (fieldSeq->IsField() && compiler->info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()))
     {
         *pObj = nullptr;
         return fieldSeq;
@@ -3902,7 +3902,7 @@ FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
         if (FieldSeqNode* staticStructFieldSeq = vnIsStaticStructFieldAddr(indir->GetAddr()->SkipComma()))
         {
             *pObj = nullptr;
-            return GetFieldSeqStore()->Append(staticStructFieldSeq, fieldSeq);
+            return compiler->GetFieldSeqStore()->Append(staticStructFieldSeq, fieldSeq);
         }
     }
 
@@ -3915,13 +3915,14 @@ FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
         return nullptr;
     }
 
-    assert(!info.compCompHnd->isValueClass(info.compCompHnd->getFieldClass(fieldSeq->GetFieldHandle())));
+    assert(!compiler->info.compCompHnd->isValueClass(
+        compiler->info.compCompHnd->getFieldClass(fieldSeq->GetFieldHandle())));
 
     *pObj = addr;
     return fieldSeq;
 }
 
-FieldSeqNode* Compiler::vnIsStaticStructFieldAddr(GenTree* addr)
+FieldSeqNode* ValueNumbering::vnIsStaticStructFieldAddr(GenTree* addr)
 {
     FieldSeqNode* fieldSeq = nullptr;
 
@@ -3942,12 +3943,12 @@ FieldSeqNode* Compiler::vnIsStaticStructFieldAddr(GenTree* addr)
     }
     else
     {
-        fieldSeq = GetZeroOffsetFieldSeq(addr);
+        fieldSeq = compiler->GetZeroOffsetFieldSeq(addr);
     }
 
     if ((fieldSeq == nullptr) || (fieldSeq->GetNext() != nullptr) || !fieldSeq->IsField() ||
-        !info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()) ||
-        (CorTypeToVarType(info.compCompHnd->getFieldType(fieldSeq->GetFieldHandle())) != TYP_STRUCT))
+        !compiler->info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()) ||
+        (CorTypeToVarType(compiler->info.compCompHnd->getFieldType(fieldSeq->GetFieldHandle())) != TYP_STRUCT))
     {
         return nullptr;
     }
@@ -3955,7 +3956,7 @@ FieldSeqNode* Compiler::vnIsStaticStructFieldAddr(GenTree* addr)
     return fieldSeq;
 }
 
-bool Compiler::vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
+bool ValueNumbering::vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
 {
     if (!addr->OperIs(GT_ADD) || !addr->TypeIs(TYP_BYREF))
     {
@@ -4003,7 +4004,7 @@ bool Compiler::vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
     arrayInfo->m_elemOffsetConst = offsetConst->AsIntCon();
     arrayInfo->m_elemTypeNum     = fieldSeq->GetArrayElementTypeNum();
 
-    if (!typIsLayoutNum(arrayInfo->m_elemTypeNum))
+    if (!compiler->typIsLayoutNum(arrayInfo->m_elemTypeNum))
     {
         var_types elemType = static_cast<var_types>(arrayInfo->m_elemTypeNum);
 
@@ -4248,7 +4249,7 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNum addrVN, FieldSeqNode* fieldSeq, tar
     return NoVN;
 }
 
-void Compiler::vnComma(GenTreeOp* comma)
+void ValueNumbering::vnComma(GenTreeOp* comma)
 {
     ValueNumPair op1vnp;
     ValueNumPair op1Xvnp;
@@ -4271,7 +4272,7 @@ void Compiler::vnComma(GenTreeOp* comma)
     comma->SetVNP(vnStore->VNPWithExc(op2vnp, vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp)));
 }
 
-void Compiler::vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary)
+void ValueNumbering::vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary)
 {
     GenTree* store = asg->GetOp(0)->SkipComma();
 
@@ -4285,7 +4286,7 @@ void Compiler::vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemor
     }
 }
 
-void Compiler::vnAssignment(GenTreeOp* asg)
+void ValueNumbering::vnAssignment(GenTreeOp* asg)
 {
     assert(asg->OperIs(GT_ASG));
 
@@ -4314,10 +4315,10 @@ void Compiler::vnAssignment(GenTreeOp* asg)
     }
 }
 
-ValueNum Compiler::vnCastStruct(ValueNumKind         vnk,
-                                ValueNum             valueVN,
-                                CORINFO_CLASS_HANDLE fromClassHandle,
-                                CORINFO_CLASS_HANDLE toClassHandle)
+ValueNum ValueNumbering::vnCastStruct(ValueNumKind         vnk,
+                                      ValueNum             valueVN,
+                                      CORINFO_CLASS_HANDLE fromClassHandle,
+                                      CORINFO_CLASS_HANDLE toClassHandle)
 {
     // IR allows assignment of structs with different layout. This is problematic for
     // value numbering because "maps" used to represent struct values are indexed by
@@ -4338,7 +4339,7 @@ ValueNum Compiler::vnCastStruct(ValueNumKind         vnk,
         return valueVN;
     }
 
-    ICorJitInfo* vm             = info.compCompHnd;
+    ICorJitInfo* vm             = compiler->info.compCompHnd;
     unsigned     fromFieldCount = vm->getClassNumInstanceFields(fromClassHandle);
     unsigned     toFieldCount   = vm->getClassNumInstanceFields(toClassHandle);
 
@@ -4399,7 +4400,10 @@ ValueNum Compiler::vnCastStruct(ValueNumKind         vnk,
     return allFieldHandlesEqual ? valueVN : castValueVN;
 }
 
-ValueNum Compiler::vnCastStruct(ValueNumKind vnk, ValueNum valueVN, ClassLayout* fromLayout, ClassLayout* toLayout)
+ValueNum ValueNumbering::vnCastStruct(ValueNumKind vnk,
+                                      ValueNum     valueVN,
+                                      ClassLayout* fromLayout,
+                                      ClassLayout* toLayout)
 {
     valueVN = vnCastStruct(vnk, valueVN, fromLayout->GetClassHandle(), toLayout->GetClassHandle());
 
@@ -4411,13 +4415,13 @@ ValueNum Compiler::vnCastStruct(ValueNumKind vnk, ValueNum valueVN, ClassLayout*
     return valueVN;
 }
 
-ValueNumPair Compiler::vnCastStruct(ValueNumPair valueVNP, ClassLayout* fromLayout, ClassLayout* toLayout)
+ValueNumPair ValueNumbering::vnCastStruct(ValueNumPair valueVNP, ClassLayout* fromLayout, ClassLayout* toLayout)
 {
     return {vnCastStruct(VNK_Liberal, valueVNP.GetLiberal(), fromLayout, toLayout),
             vnCastStruct(VNK_Conservative, valueVNP.GetConservative(), fromLayout, toLayout)};
 }
 
-ValueNum Compiler::vnCoerceStoreValue(
+ValueNum ValueNumbering::vnCoerceStoreValue(
     GenTree* store, GenTree* value, ValueNumKind vnk, var_types fieldType, ClassLayout* fieldLayout)
 {
     ValueNum  valueVN   = vnStore->VNNormalValue(value->GetVN(vnk));
@@ -4443,11 +4447,11 @@ ValueNum Compiler::vnCoerceStoreValue(
 
         if (GenTreeLclFld* lclFld = store->IsLclFld())
         {
-            storeLayout = lclFld->GetLayout(this);
+            storeLayout = lclFld->GetLayout(compiler);
         }
         else if (GenTreeInsert* insert = store->IsInsert())
         {
-            storeLayout = typGetLayoutByNum(insert->GetField().GetTypeNum());
+            storeLayout = compiler->typGetLayoutByNum(insert->GetField().GetTypeNum());
         }
         else
         {
@@ -4466,7 +4470,7 @@ ValueNum Compiler::vnCoerceStoreValue(
 
             if (value->TypeIs(TYP_STRUCT))
             {
-                ClassLayout* valueLayout = typGetStructLayout(value);
+                ClassLayout* valueLayout = compiler->typGetStructLayout(value);
 
                 if (valueLayout != fieldLayout)
                 {
@@ -4559,7 +4563,10 @@ ValueNum Compiler::vnCoerceStoreValue(
     return valueVN;
 }
 
-ValueNum Compiler::vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types fieldType, ClassLayout* fieldLayout)
+ValueNum ValueNumbering::vnCoerceLoadValue(GenTree*     load,
+                                           ValueNum     valueVN,
+                                           var_types    fieldType,
+                                           ClassLayout* fieldLayout)
 {
     assert(valueVN == vnStore->VNNormalValue(valueVN));
     assert(varActualType(fieldType) == varActualType(vnStore->TypeOfVN(valueVN)));
@@ -4572,11 +4579,11 @@ ValueNum Compiler::vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types 
 
         if (GenTreeLclFld* lclFld = load->IsLclFld())
         {
-            loadLayout = lclFld->GetLayout(this);
+            loadLayout = lclFld->GetLayout(compiler);
         }
         else if (GenTreeExtract* extract = load->IsExtract())
         {
-            loadLayout = typGetLayoutByNum(extract->GetField().GetLayoutNum());
+            loadLayout = compiler->typGetLayoutByNum(extract->GetField().GetLayoutNum());
         }
         else
         {
@@ -4615,15 +4622,15 @@ ValueNum Compiler::vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types 
     return vnStore->VNForExpr(varActualType(loadType));
 }
 
-var_types Compiler::vnGetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout)
+var_types ValueNumbering::vnGetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout)
 {
     CORINFO_CLASS_HANDLE typeHandle = NO_CLASS_HANDLE;
-    var_types            type       = CorTypeToVarType(info.compCompHnd->getFieldType(fieldHandle, &typeHandle));
+    var_types            type = CorTypeToVarType(compiler->info.compCompHnd->getFieldType(fieldHandle, &typeHandle));
 
     if (type == TYP_STRUCT)
     {
-        *fieldLayout = typGetObjLayout(typeHandle);
-        type         = typGetStructType(*fieldLayout);
+        *fieldLayout = compiler->typGetObjLayout(typeHandle);
+        type         = compiler->typGetStructType(*fieldLayout);
     }
     else
     {
@@ -4633,7 +4640,7 @@ var_types Compiler::vnGetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout
     return type;
 }
 
-ValueNum Compiler::vnInsertStructField(
+ValueNum ValueNumbering::vnInsertStructField(
     GenTree* store, GenTree* value, ValueNumKind vnk, ValueNum structVN, var_types structType, FieldSeqNode* fieldSeq)
 {
     assert(varTypeIsStruct(structType));
@@ -4686,7 +4693,10 @@ ValueNum Compiler::vnInsertStructField(
     return valueVN;
 }
 
-ValueNum Compiler::vnExtractStructField(GenTree* load, ValueNumKind vnk, ValueNum structVN, FieldSeqNode* fieldSeq)
+ValueNum ValueNumbering::vnExtractStructField(GenTree*      load,
+                                              ValueNumKind  vnk,
+                                              ValueNum      structVN,
+                                              FieldSeqNode* fieldSeq)
 {
     var_types    fieldType   = TYP_UNDEF;
     ClassLayout* fieldLayout = nullptr;
@@ -4705,7 +4715,7 @@ ValueNum Compiler::vnExtractStructField(GenTree* load, ValueNumKind vnk, ValueNu
     return vnCoerceLoadValue(load, structVN, fieldType, fieldLayout);
 }
 
-ValueNumPair Compiler::vnExtractStructField(GenTree* load, ValueNumPair structVNP, FieldSeqNode* fieldSeq)
+ValueNumPair ValueNumbering::vnExtractStructField(GenTree* load, ValueNumPair structVNP, FieldSeqNode* fieldSeq)
 {
     var_types    fieldType   = TYP_UNDEF;
     ClassLayout* fieldLayout = nullptr;
@@ -4729,9 +4739,9 @@ ValueNumPair Compiler::vnExtractStructField(GenTree* load, ValueNumPair structVN
     return structVNP;
 }
 
-void Compiler::vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store,
-                                                GenTreeOp*           asg,
-                                                VNLoopMemorySummary& summary)
+void ValueNumbering::vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store,
+                                                      GenTreeOp*           asg,
+                                                      VNLoopMemorySummary& summary)
 {
     if (lvaGetDesc(store)->IsAddressExposed())
     {
@@ -4739,7 +4749,7 @@ void Compiler::vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store,
     }
 }
 
-void Compiler::vnSummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary& summary)
+void ValueNumbering::vnSummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary& summary)
 {
     if (def->TypeIs(TYP_BYREF))
     {
@@ -4747,14 +4757,14 @@ void Compiler::vnSummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary&
     }
 }
 
-void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value)
+void ValueNumbering::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value)
 {
     assert(store->OperIs(GT_LCL_VAR) && ((store->gtFlags & GTF_VAR_DEF) != 0));
     assert(!lvaGetDesc(store)->IsSsa());
 
     if (!lvaGetDesc(store)->IsAddressExposed())
     {
-        assert(!GetMemorySsaMap()->Lookup(asg));
+        assert(!compiler->GetMemorySsaMap()->Lookup(asg));
 
         return;
     }
@@ -4767,7 +4777,7 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
     vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
 }
 
-void Compiler::vnLocalDef(GenTreeLclDef* def)
+void ValueNumbering::vnLocalDef(GenTreeLclDef* def)
 {
     LclVarDsc*   lcl   = lvaGetDesc(def->GetLclNum());
     GenTree*     value = def->GetValue();
@@ -4790,7 +4800,7 @@ void Compiler::vnLocalDef(GenTreeLclDef* def)
             // LCL_FLD stores.
             if (!value->IsInsert())
             {
-                ClassLayout* valueLayout = typGetStructLayout(value);
+                ClassLayout* valueLayout = compiler->typGetStructLayout(value);
 
                 if (valueLayout != lcl->GetLayout())
                 {
@@ -4845,7 +4855,7 @@ void Compiler::vnLocalDef(GenTreeLclDef* def)
     INDEBUG(vnTraceLocal(def->GetLclNum(), valueVNP));
 }
 
-void Compiler::vnLocalLoad(GenTreeLclVar* load)
+void ValueNumbering::vnLocalLoad(GenTreeLclVar* load)
 {
     assert(load->OperIs(GT_LCL_VAR) && ((load->gtFlags & GTF_VAR_DEF) == 0));
     assert(!lvaGetDesc(load)->IsSsa());
@@ -4867,14 +4877,14 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
     load->gtVNPair.SetBoth(vnMemoryLoad(load->GetType(), addrVN));
 }
 
-void Compiler::vnLocalUse(GenTreeLclUse* use)
+void ValueNumbering::vnLocalUse(GenTreeLclUse* use)
 {
     LclVarDsc* lcl = lvaGetDesc(use->GetDef()->GetLclNum());
 
     use->SetVNP(vnLocalUse(use, use->GetDef()));
 }
 
-ValueNumPair Compiler::vnLocalUse(GenTreeLclUse* use, GenTreeLclDef* def)
+ValueNumPair ValueNumbering::vnLocalUse(GenTreeLclUse* use, GenTreeLclDef* def)
 {
     LclVarDsc*   lcl = lvaGetDesc(def->GetLclNum());
     ValueNumPair vnp = def->GetVNP();
@@ -4902,7 +4912,7 @@ ValueNumPair Compiler::vnLocalUse(GenTreeLclUse* use, GenTreeLclDef* def)
     // A BYREF local may have a zero offset field sequence that needs to be added.
     if (use->TypeIs(TYP_BYREF))
     {
-        if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(use))
+        if (FieldSeqNode* fieldSeq = compiler->GetZeroOffsetFieldSeq(use))
         {
             ValueNum extendVN = vnStore->ExtendPtrVN(vnp.GetLiberal(), fieldSeq, 0);
 
@@ -4919,15 +4929,15 @@ ValueNumPair Compiler::vnLocalUse(GenTreeLclUse* use, GenTreeLclDef* def)
     return vnp;
 }
 
-void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value)
+void ValueNumbering::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value)
 {
     assert(store->OperIs(GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
-    assert(((store->gtFlags & GTF_VAR_USEASG) != 0) == store->IsPartialLclFld(this));
+    assert(((store->gtFlags & GTF_VAR_USEASG) != 0) == store->IsPartialLclFld(compiler));
     assert(!lvaGetDesc(store)->IsSsa());
 
     if (!lvaGetDesc(store)->IsAddressExposed())
     {
-        assert(!GetMemorySsaMap()->Lookup(asg));
+        assert(!compiler->GetMemorySsaMap()->Lookup(asg));
 
         return;
     }
@@ -4941,7 +4951,7 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
     vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
 }
 
-void Compiler::vnInsert(GenTreeInsert* insert)
+void ValueNumbering::vnInsert(GenTreeInsert* insert)
 {
     const FieldInfo& field = insert->GetField();
     ValueNumPair     valueVNP;
@@ -4988,7 +4998,7 @@ void Compiler::vnInsert(GenTreeInsert* insert)
     insert->SetVNP(valueVNP);
 }
 
-void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
+void ValueNumbering::vnLocalFieldLoad(GenTreeLclFld* load)
 {
     assert(load->OperIs(GT_LCL_FLD) && ((load->gtFlags & GTF_VAR_DEF) == 0));
     assert(!lvaGetDesc(load)->IsSsa());
@@ -5011,7 +5021,7 @@ void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
     load->SetConservativeVN(vnStore->VNForExpr(load->GetType()));
 }
 
-void Compiler::vnExtract(GenTreeExtract* extract)
+void ValueNumbering::vnExtract(GenTreeExtract* extract)
 {
     const FieldInfo& field = extract->GetField();
 
@@ -5030,7 +5040,7 @@ void Compiler::vnExtract(GenTreeExtract* extract)
     extract->SetVNP(vnp);
 }
 
-void Compiler::vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary)
+void ValueNumbering::vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary)
 {
     assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
     assert(asg->OperIs(GT_ASG));
@@ -5088,7 +5098,7 @@ void Compiler::vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* 
     summary.AddMemoryHavoc();
 }
 
-void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
+void ValueNumbering::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
 {
     assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
     assert(asg->OperIs(GT_ASG));
@@ -5152,7 +5162,7 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     vnClearMemory(asg DEBUGARG("indirect store"));
 }
 
-void Compiler::vnIndirLoad(GenTreeIndir* load)
+void ValueNumbering::vnIndirLoad(GenTreeIndir* load)
 {
     assert(load->OperIs(GT_IND, GT_OBJ, GT_BLK));
     assert((load->gtFlags & GTF_IND_ASG_LHS) == 0);
@@ -5274,7 +5284,7 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
     load->SetVNP(vnStore->VNPWithExc({valueVN, conservativeVN}, addrExcVNP));
 }
 
-ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSeq, GenTree* value)
+ValueNum ValueNumbering::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSeq, GenTree* value)
 {
     // TODO-MIKE-CQ: Currently struct stores are not handled.
     if (store->TypeIs(TYP_STRUCT))
@@ -5283,7 +5293,7 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
     }
 
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
-    assert(info.compCompHnd->isFieldStatic(fieldHandle));
+    assert(compiler->info.compCompHnd->isFieldStatic(fieldHandle));
 
     fieldSeq = fieldSeq->GetNext();
 
@@ -5322,10 +5332,10 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
     return vnStore->VNForMapStore(TYP_STRUCT, memVN, fieldVN, valueVN);
 }
 
-ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
+ValueNum ValueNumbering::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
 {
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
-    assert(info.compCompHnd->isFieldStatic(fieldHandle));
+    assert(compiler->info.compCompHnd->isFieldStatic(fieldHandle));
     ClassLayout* fieldLayout;
     var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
     ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
@@ -5370,9 +5380,9 @@ ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
     }
 }
 
-void Compiler::vnSummarizeLoopObjFieldMemoryStores(GenTreeIndir*        store,
-                                                   FieldSeqNode*        fieldSeq,
-                                                   VNLoopMemorySummary& summary)
+void ValueNumbering::vnSummarizeLoopObjFieldMemoryStores(GenTreeIndir*        store,
+                                                         FieldSeqNode*        fieldSeq,
+                                                         VNLoopMemorySummary& summary)
 {
     ClassLayout* fieldLayout;
     var_types    fieldType = vnGetFieldType(fieldSeq->GetTail()->GetFieldHandle(), &fieldLayout);
@@ -5390,7 +5400,7 @@ void Compiler::vnSummarizeLoopObjFieldMemoryStores(GenTreeIndir*        store,
     }
 }
 
-ValueNum Compiler::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeqNode* fieldSeq, GenTree* value)
+ValueNum ValueNumbering::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeqNode* fieldSeq, GenTree* value)
 {
     // TODO-MIKE-CQ: Currently struct stores are not handled.
     if (store->TypeIs(TYP_STRUCT))
@@ -5399,7 +5409,7 @@ ValueNum Compiler::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeq
     }
 
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
-    assert(!info.compCompHnd->isFieldStatic(fieldHandle));
+    assert(!compiler->info.compCompHnd->isFieldStatic(fieldHandle));
     fieldSeq = fieldSeq->GetNext();
     ClassLayout* fieldLayout;
     var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
@@ -5437,10 +5447,10 @@ ValueNum Compiler::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeq
     return vnStore->VNForMapStore(TYP_STRUCT, memVN, fieldVN, fieldMapVN);
 }
 
-ValueNum Compiler::vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNode* fieldSeq)
+ValueNum ValueNumbering::vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNode* fieldSeq)
 {
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
-    assert(!info.compCompHnd->isFieldStatic(fieldHandle));
+    assert(!compiler->info.compCompHnd->isFieldStatic(fieldHandle));
     ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
     fieldSeq         = fieldSeq->GetNext();
     ClassLayout* fieldLayout;
@@ -5462,7 +5472,7 @@ ValueNum Compiler::vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNo
     }
 }
 
-ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAddr, GenTree* value)
+ValueNum ValueNumbering::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAddr, GenTree* value)
 {
     assert(elemAddr.m_func == VNF_PtrToArrElem);
 
@@ -5478,8 +5488,10 @@ ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAd
     FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
 
     unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr.m_args[0]));
-    ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
-    var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
+    ClassLayout* elemLayout =
+        compiler->typIsLayoutNum(elemTypeNum) ? compiler->typGetLayoutByNum(elemTypeNum) : nullptr;
+    var_types elemType =
+        elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : compiler->typGetStructType(elemLayout);
 
     ValueNum memVN = fgCurMemoryVN;
     INDEBUG(vnTraceMem(memVN));
@@ -5528,7 +5540,7 @@ ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAd
     return vnStore->VNForMapStore(TYP_STRUCT, memVN, elemTypeVN, arrayTypeMapVN);
 }
 
-ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr)
+ValueNum ValueNumbering::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr)
 {
     assert(elemAddr.m_func == VNF_PtrToArrElem);
 
@@ -5538,8 +5550,10 @@ ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr
     FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
 
     unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr.m_args[0]));
-    ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
-    var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
+    ClassLayout* elemLayout =
+        compiler->typIsLayoutNum(elemTypeNum) ? compiler->typGetLayoutByNum(elemTypeNum) : nullptr;
+    var_types elemType =
+        elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : compiler->typGetStructType(elemLayout);
 
     ValueNum memVN = fgCurMemoryVN;
     INDEBUG(vnTraceMem(memVN));
@@ -5575,7 +5589,7 @@ ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr
     return valueVN;
 }
 
-ValueNum Compiler::vnAddressExposedLocalStore(GenTree* store, ValueNum lclAddrVN, GenTree* value)
+ValueNum ValueNumbering::vnAddressExposedLocalStore(GenTree* store, ValueNum lclAddrVN, GenTree* value)
 {
     INDEBUG(VNFuncApp funcApp);
     assert(vnStore->GetVNFunc(lclAddrVN, &funcApp) && (funcApp.m_func == VNF_LclAddr));
@@ -5598,7 +5612,7 @@ ValueNum Compiler::vnAddressExposedLocalStore(GenTree* store, ValueNum lclAddrVN
     return vnStore->VNForMapStore(TYP_STRUCT, memVN, lclAddrVN, valueVN);
 }
 
-void Compiler::vnNullCheck(GenTreeIndir* node)
+void ValueNumbering::vnNullCheck(GenTreeIndir* node)
 {
     assert(node->OperIs(GT_NULLCHECK));
 
@@ -5607,7 +5621,7 @@ void Compiler::vnNullCheck(GenTreeIndir* node)
     node->SetVNP(vnStore->VNPWithExc({value, value}, exset));
 }
 
-void Compiler::vnArrayLength(GenTreeArrLen* node)
+void ValueNumbering::vnArrayLength(GenTreeArrLen* node)
 {
     VNFunc vnf = GetVNFuncForNode(node);
     assert(ValueNumStore::VNFuncIsLegal(vnf));
@@ -5627,7 +5641,7 @@ void Compiler::vnArrayLength(GenTreeArrLen* node)
     node->SetVNP(vnStore->VNPWithExc(value, exset));
 }
 
-void Compiler::vnCmpXchg(GenTreeCmpXchg* node)
+void ValueNumbering::vnCmpXchg(GenTreeCmpXchg* node)
 {
     vnClearMemory(node DEBUGARG("cmpxchg intrinsic"));
 
@@ -5639,7 +5653,7 @@ void Compiler::vnCmpXchg(GenTreeCmpXchg* node)
     node->SetVNP(vnStore->VNPWithExc({value, value}, exset));
 }
 
-void Compiler::vnInterlocked(GenTreeOp* node)
+void ValueNumbering::vnInterlocked(GenTreeOp* node)
 {
     assert(node->OperIs(GT_XORR, GT_XAND, GT_XADD, GT_XCHG));
 
@@ -5652,7 +5666,7 @@ void Compiler::vnInterlocked(GenTreeOp* node)
     node->SetVNP(vnStore->VNPWithExc({value, value}, exset));
 }
 
-ValueNum Compiler::vnMemoryLoad(var_types type, ValueNum addrVN)
+ValueNum ValueNumbering::vnMemoryLoad(var_types type, ValueNum addrVN)
 {
     assert(addrVN == vnStore->VNNormalValue(addrVN));
 
@@ -6743,9 +6757,9 @@ void ValueNumStore::vnDumpMapSelect(Compiler* comp, VNFuncApp* mapSelect)
     ValueNum indexVN = mapSelect->m_args[1];
 
     printf("MapSelect(");
-    comp->vnPrint(mapVN, 0);
+    comp->valueNumbering->vnPrint(mapVN, 0);
     printf(", ");
-    comp->vnPrint(indexVN, 0);
+    comp->valueNumbering->vnPrint(indexVN, 0);
     if (const char** name = m_vnNameMap.LookupPointer(indexVN))
     {
         printf(" (%s)", *name);
@@ -6763,15 +6777,15 @@ void ValueNumStore::vnDumpMapStore(Compiler* comp, VNFuncApp* mapStore)
     unsigned loopNum  = mapStore->m_args[3];
 
     printf("MapStore(");
-    comp->vnPrint(mapVN, 0);
+    comp->valueNumbering->vnPrint(mapVN, 0);
     printf(", ");
-    comp->vnPrint(indexVN, 0);
+    comp->valueNumbering->vnPrint(indexVN, 0);
     if (const char** name = m_vnNameMap.LookupPointer(indexVN))
     {
         printf(" (%s)", *name);
     }
     printf(", ");
-    comp->vnPrint(newValVN, 0);
+    comp->valueNumbering->vnPrint(newValVN, 0);
     if (loopNum != BasicBlock::NOT_IN_LOOP)
     {
         printf(", " FMT_LP, loopNum);
@@ -6862,9 +6876,9 @@ void ValueNumStore::DumpPtrToArrElem(const VNFuncApp& elemAddr)
         printf("<%s>", elemLayout->GetClassName());
     }
     printf("), ");
-    m_pComp->vnPrint(arrayVN, 1);
+    m_pComp->valueNumbering->vnPrint(arrayVN, 1);
     printf(", ");
-    m_pComp->vnPrint(indexVN, 1);
+    m_pComp->valueNumbering->vnPrint(indexVN, 1);
     if (fieldSeq != nullptr)
     {
         printf(", ");
@@ -7072,7 +7086,8 @@ struct ValueNumberState
     ArrayStack<BasicBlock*> m_toDoAllPredsDone;
     ArrayStack<BasicBlock*> m_toDoNotAllPredsDone;
 
-    Compiler* m_comp;
+    Compiler*       m_comp;
+    ValueNumbering* valueNumbering;
 
     // TBD: This should really be a bitset...
     // For now:
@@ -7097,10 +7112,11 @@ struct ValueNumberState
         m_visited[bbNum] |= bvb;
     }
 
-    ValueNumberState(Compiler* comp)
+    ValueNumberState(Compiler* comp, ValueNumbering* valueNumbering)
         : m_toDoAllPredsDone(comp->getAllocator(CMK_ValueNumber))
         , m_toDoNotAllPredsDone(comp->getAllocator(CMK_ValueNumber))
         , m_comp(comp)
+        , valueNumbering(valueNumbering)
         , m_visited(new (comp, CMK_ValueNumber) BYTE[comp->fgBBNumMax + 1]())
     {
     }
@@ -7142,7 +7158,7 @@ struct ValueNumberState
 
             // See if "cand" is a loop entry.
             unsigned lnum;
-            if (m_comp->vnBlockIsLoopEntry(cand, &lnum))
+            if (valueNumbering->vnBlockIsLoopEntry(cand, &lnum))
             {
                 // "lnum" is the innermost loop of which "cand" is the entry; find the outermost.
                 unsigned lnumPar = m_comp->optLoopTable[lnum].lpParent;
@@ -7268,9 +7284,21 @@ void Compiler::fgValueNumber()
 
     assert(ssaForm && (vnStore == nullptr));
 
-    vnStore = new (getAllocator(CMK_ValueNumber)) ValueNumStore(this, getAllocator(CMK_ValueNumber));
+    valueNumbering = new (this, CMK_ValueNumber) ValueNumbering(this);
+    vnStore        = valueNumbering->vnStore;
+    valueNumbering->Run();
+}
 
-    if (optLoopCount > 0)
+ValueNumbering::ValueNumbering(Compiler* compiler)
+    : compiler(compiler)
+    , vnStore(new (compiler->getAllocator(CMK_ValueNumber))
+                  ValueNumStore(compiler, compiler->getAllocator(CMK_ValueNumber)))
+{
+}
+
+void ValueNumbering::Run()
+{
+    if (compiler->optLoopCount > 0)
     {
         vnSummarizeLoopMemoryStores();
     }
@@ -7289,12 +7317,12 @@ void Compiler::fgValueNumber()
 
     // The first block is expected to not be part of any loop so that
     // parameters and initial memory are treated as loop invariant.
-    assert(fgFirstBB->bbNatLoopNum == BasicBlock::NOT_IN_LOOP);
+    assert(compiler->fgFirstBB->bbNatLoopNum == BasicBlock::NOT_IN_LOOP);
 
-    for (GenTreeLclDef* def = m_initSsaDefs; def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
+    for (GenTreeLclDef* def = compiler->m_initSsaDefs; def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
     {
         unsigned   lclNum   = def->GetLclNum();
-        LclVarDsc* lcl      = lvaGetDesc(lclNum);
+        LclVarDsc* lcl      = compiler->lvaGetDesc(lclNum);
         var_types  type     = lcl->GetType();
         bool       isZeroed = false;
 
@@ -7302,17 +7330,17 @@ void Compiler::fgValueNumber()
 
         if (!lcl->IsParam())
         {
-            isZeroed = (info.compInitMem || lcl->lvMustInit);
+            isZeroed = (compiler->info.compInitMem || lcl->lvMustInit);
 
             // For OSR, locals or promoted fields of locals may be missing the initial def
             // because of partial importation. We can't assume they are zero.
-            if (lvaIsOSRLocal(lclNum))
+            if (compiler->lvaIsOSRLocal(lclNum))
             {
                 isZeroed = false;
             }
 
 #ifdef TARGET_X86
-            if (lclNum == lvaVarargsBaseOfStkArgs)
+            if (lclNum == compiler->lvaVarargsBaseOfStkArgs)
             {
                 isZeroed = false;
             }
@@ -7329,7 +7357,7 @@ void Compiler::fgValueNumber()
             }
         }
 
-        ValueNum initVN = isZeroed ? vnStore->VNZeroForType(type) : vnStore->VNForExpr(fgFirstBB, type);
+        ValueNum initVN = isZeroed ? vnStore->VNZeroForType(type) : vnStore->VNForExpr(compiler->fgFirstBB, type);
 
         lcl->GetPerSsaData(SsaConfig::FIRST_SSA_NUM)->SetVNP(ValueNumPair{initVN});
         def->SetVNP(ValueNumPair{initVN});
@@ -7338,12 +7366,12 @@ void Compiler::fgValueNumber()
     }
 
     // Give memory an initial value number (about which we know nothing).
-    GetMemoryPerSsaData(SsaConfig::FIRST_SSA_NUM)->m_vn = vnStore->VNForExpr(fgFirstBB, TYP_STRUCT);
+    compiler->GetMemoryPerSsaData(SsaConfig::FIRST_SSA_NUM)->m_vn = vnStore->VNForExpr(compiler->fgFirstBB, TYP_STRUCT);
 
-    ValueNumberState vs(this);
+    ValueNumberState vs(compiler, this);
 
     // Push the first block.  This has no preds.
-    vs.m_toDoAllPredsDone.Push(fgFirstBB);
+    vs.m_toDoAllPredsDone.Push(compiler->fgFirstBB);
 
     while (vs.ToDoExists())
     {
@@ -7372,13 +7400,16 @@ void Compiler::fgValueNumber()
     }
 }
 
-void Compiler::vnSummarizeLoopMemoryStores()
+void ValueNumbering::vnSummarizeLoopMemoryStores()
 {
-    vnLoopTable = getAllocator(CMK_ValueNumber).allocate<VNLoop>(optLoopCount);
+    LoopDsc* optLoopTable = compiler->optLoopTable;
+    unsigned optLoopCount = compiler->optLoopCount;
+
+    vnLoopTable = compiler->getAllocator(CMK_ValueNumber).allocate<VNLoop>(optLoopCount);
 
     for (unsigned loopNum = 0; loopNum < optLoopCount; loopNum++)
     {
-        new (&vnLoopTable[loopNum]) VNLoop(this);
+        new (&vnLoopTable[loopNum]) VNLoop(compiler);
     }
 
     for (unsigned loopNum = 0; loopNum < optLoopCount; loopNum++)
@@ -7401,7 +7432,7 @@ void Compiler::vnSummarizeLoopMemoryStores()
                 // but not marked correctly as being inside the loop.
                 // We conservatively mark this loop (and any outer loops) as having memory havoc
                 // side effects.
-                VNLoopMemorySummary summary(this, loopNum);
+                VNLoopMemorySummary summary(compiler, this, loopNum);
                 summary.AddMemoryHavoc();
                 summary.UpdateLoops();
 
@@ -7413,7 +7444,7 @@ void Compiler::vnSummarizeLoopMemoryStores()
                 break;
             }
 
-            VNLoopMemorySummary summary(this, block->bbNatLoopNum);
+            VNLoopMemorySummary summary(compiler, this, block->bbNatLoopNum);
             summary.AddLocalLiveness(block);
 
             if (!summary.IsComplete())
@@ -7427,7 +7458,7 @@ void Compiler::vnSummarizeLoopMemoryStores()
     JITDUMP("\n");
 }
 
-void Compiler::vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary)
+void ValueNumbering::vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary)
 {
     for (Statement* const stmt : block->NonPhiStatements())
     {
@@ -7448,8 +7479,10 @@ void Compiler::vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemoryS
     }
 }
 
-bool Compiler::vnBlockIsLoopEntry(BasicBlock* block, unsigned* loopNum)
+bool ValueNumbering::vnBlockIsLoopEntry(BasicBlock* block, unsigned* loopNum)
 {
+    LoopDsc* optLoopTable = compiler->optLoopTable;
+
     for (unsigned n = block->bbNatLoopNum; n != BasicBlock::NOT_IN_LOOP; n = optLoopTable[n].lpParent)
     {
         if (optLoopTable[n].lpFlags & LPFLG_REMOVED)
@@ -7467,7 +7500,7 @@ bool Compiler::vnBlockIsLoopEntry(BasicBlock* block, unsigned* loopNum)
     return false;
 }
 
-void Compiler::fgValueNumberBlock(BasicBlock* blk)
+void ValueNumbering::fgValueNumberBlock(BasicBlock* blk)
 {
     vnStore->SetCurrentBlock(blk);
 
@@ -7549,7 +7582,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
 
     if (blk->memoryPhi == nullptr)
     {
-        fgCurMemoryVN = GetMemoryPerSsaData(blk->memoryEntrySsaNum)->m_vn;
+        fgCurMemoryVN = compiler->GetMemoryPerSsaData(blk->memoryEntrySsaNum)->m_vn;
         assert(fgCurMemoryVN != ValueNumStore::NoVN);
     }
     else
@@ -7564,18 +7597,18 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
         {
             BasicBlock::MemoryPhiArg* phiArgs = blk->memoryPhi;
 
-            ValueNum sameMemoryVN = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
+            ValueNum sameMemoryVN = compiler->GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
             INDEBUG(vnTraceMem(sameMemoryVN, "predecessor memory"));
 
             ValueNum phiVN = vnStore->VNForIntCon(phiArgs->GetSsaNum());
             phiArgs        = phiArgs->m_nextArg;
             // There should be > 1 args to a phi.
             // But OSR might leave around "dead" try entry blocks...
-            assert((phiArgs != nullptr) || opts.IsOSR());
+            assert((phiArgs != nullptr) || compiler->opts.IsOSR());
 
             for (; phiArgs != nullptr; phiArgs = phiArgs->m_nextArg)
             {
-                ValueNum phiMemoryVN = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
+                ValueNum phiMemoryVN = compiler->GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
                 INDEBUG(vnTraceMem(phiMemoryVN, "predecessor memory"));
                 if (sameMemoryVN != phiMemoryVN)
                 {
@@ -7596,8 +7629,8 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
             }
         }
 
-        GetMemoryPerSsaData(blk->memoryEntrySsaNum)->m_vn = newMemoryVN;
-        fgCurMemoryVN                                     = newMemoryVN;
+        compiler->GetMemoryPerSsaData(blk->memoryEntrySsaNum)->m_vn = newMemoryVN;
+        fgCurMemoryVN                                               = newMemoryVN;
     }
 
     INDEBUG(vnTraceMem(fgCurMemoryVN));
@@ -7606,10 +7639,10 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
     for (; stmt != nullptr; stmt = stmt->GetNextStmt())
     {
 #ifdef DEBUG
-        if (verbose)
+        if (compiler->verbose)
         {
             printf("\n***** " FMT_BB ", " FMT_STMT "(before)\n", blk->bbNum, stmt->GetID());
-            gtDispTree(stmt->GetRootNode());
+            compiler->gtDispTree(stmt->GetRootNode());
             printf("\n");
         }
 #endif
@@ -7623,10 +7656,10 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
         vnStore->SetCurrentNode(nullptr);
 
 #ifdef DEBUG
-        if (verbose)
+        if (compiler->verbose)
         {
             printf("\n***** " FMT_BB ", " FMT_STMT "(after)\n", blk->bbNum, stmt->GetID());
-            gtDispTree(stmt->GetRootNode());
+            compiler->gtDispTree(stmt->GetRootNode());
             printf("\n");
             if (stmt->GetNextStmt() != nullptr)
             {
@@ -7638,7 +7671,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
 
     if (blk->memoryExitSsaNum != blk->memoryEntrySsaNum)
     {
-        GetMemoryPerSsaData(blk->memoryExitSsaNum)->m_vn = fgCurMemoryVN;
+        compiler->GetMemoryPerSsaData(blk->memoryExitSsaNum)->m_vn = fgCurMemoryVN;
     }
 
     vnStore->SetCurrentBlock(nullptr);
@@ -7655,21 +7688,22 @@ Compiler::VNLoop::VNLoop(Compiler* compiler)
 {
 }
 
-Compiler::VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, unsigned loopNum)
+Compiler::VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum)
     : m_compiler(compiler)
+    , m_valueNumbering(valueNumbering)
     , m_loopNum(loopNum)
-    , m_memoryHavoc(compiler->vnLoopTable[loopNum].lpLoopHasMemoryHavoc)
-    , m_containsCall(compiler->vnLoopTable[loopNum].lpContainsCall)
+    , m_memoryHavoc(valueNumbering->vnLoopTable[loopNum].lpLoopHasMemoryHavoc)
+    , m_containsCall(valueNumbering->vnLoopTable[loopNum].lpContainsCall)
     , m_modifiesAddressExposedLocals(false)
 {
     assert(loopNum < compiler->optLoopCount);
 }
 
-void Compiler::VNLoopMemorySummary::AddLocalLiveness(BasicBlock* block) const
+void ValueNumbering::VNLoopMemorySummary::AddLocalLiveness(BasicBlock* block) const
 {
     for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
     {
-        VNLoop& loop = m_compiler->vnLoopTable[n];
+        VNLoop& loop = m_valueNumbering->vnLoopTable[n];
 
         VarSetOps::UnionD(m_compiler, loop.lpVarInOut, block->bbLiveIn);
         VarSetOps::UnionD(m_compiler, loop.lpVarInOut, block->bbLiveOut);
@@ -7679,17 +7713,17 @@ void Compiler::VNLoopMemorySummary::AddLocalLiveness(BasicBlock* block) const
     }
 }
 
-void Compiler::VNLoopMemorySummary::AddMemoryHavoc()
+void ValueNumbering::VNLoopMemorySummary::AddMemoryHavoc()
 {
     m_memoryHavoc = true;
 }
 
-void Compiler::VNLoopMemorySummary::AddCall()
+void ValueNumbering::VNLoopMemorySummary::AddCall()
 {
     m_containsCall = true;
 }
 
-void Compiler::VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
+void ValueNumbering::VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
 {
     assert(m_compiler->lvaGetDesc(lclNum)->IsAddressExposed());
 
@@ -7702,7 +7736,7 @@ void Compiler::VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
 
     for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
     {
-        VNLoop& loop = m_compiler->vnLoopTable[n];
+        VNLoop& loop = m_valueNumbering->vnLoopTable[n];
 
         if (!loop.modifiesAddressExposedLocals)
         {
@@ -7713,11 +7747,11 @@ void Compiler::VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
     }
 }
 
-void Compiler::VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
+void ValueNumbering::VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
 {
     for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
     {
-        VNLoop& loop = m_compiler->vnLoopTable[n];
+        VNLoop& loop = m_valueNumbering->vnLoopTable[n];
 
         if (loop.lpFieldsModified == nullptr)
         {
@@ -7732,11 +7766,11 @@ void Compiler::VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
     }
 }
 
-void Compiler::VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
+void ValueNumbering::VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
 {
     for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
     {
-        VNLoop& loop = m_compiler->vnLoopTable[n];
+        VNLoop& loop = m_valueNumbering->vnLoopTable[n];
 
         if (loop.lpArrayElemTypesModified == nullptr)
         {
@@ -7751,19 +7785,19 @@ void Compiler::VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
     }
 }
 
-bool Compiler::VNLoopMemorySummary::IsComplete() const
+bool ValueNumbering::VNLoopMemorySummary::IsComplete() const
 {
     // Once a loop is known to contain calls and memory havoc we can stop analyzing it.
     return m_memoryHavoc && m_containsCall;
 }
 
-void Compiler::VNLoopMemorySummary::UpdateLoops() const
+void ValueNumbering::VNLoopMemorySummary::UpdateLoops() const
 {
     if (m_memoryHavoc || m_containsCall)
     {
         for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
         {
-            VNLoop& loop = m_compiler->vnLoopTable[n];
+            VNLoop& loop = m_valueNumbering->vnLoopTable[n];
 
             if (!loop.lpLoopHasMemoryHavoc && m_memoryHavoc)
             {
@@ -7794,8 +7828,10 @@ void Compiler::VNLoopMemorySummary::UpdateLoops() const
 #endif
 }
 
-ValueNum Compiler::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned innermostLoopNum)
+ValueNum ValueNumbering::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned innermostLoopNum)
 {
+    LoopDsc* optLoopTable = compiler->optLoopTable;
+
     // "loopNum" is the innermost loop for which "blk" is the entry; find the outermost one.
     assert(innermostLoopNum != BasicBlock::NOT_IN_LOOP);
     unsigned loopsInNest = innermostLoopNum;
@@ -7821,7 +7857,7 @@ ValueNum Compiler::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned inner
     // use a new unique VN.
     BasicBlock* nonLoopPred          = nullptr;
     bool        multipleNonLoopPreds = false;
-    for (flowList* pred = BlockPredsWithEH(entryBlock); pred != nullptr; pred = pred->flNext)
+    for (flowList* pred = compiler->BlockPredsWithEH(entryBlock); pred != nullptr; pred = pred->flNext)
     {
         BasicBlock* predBlock = pred->getBlock();
         if (!optLoopTable[loopNum].lpContains(predBlock))
@@ -7845,7 +7881,7 @@ ValueNum Compiler::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned inner
     // Otherwise, there is a single non-loop pred.
     assert(nonLoopPred != nullptr);
     // What is its memory post-state?
-    ValueNum newMemoryVN = GetMemoryPerSsaData(nonLoopPred->memoryExitSsaNum)->m_vn;
+    ValueNum newMemoryVN = compiler->GetMemoryPerSsaData(nonLoopPred->memoryExitSsaNum)->m_vn;
     assert(newMemoryVN != ValueNumStore::NoVN); // We must have processed the single non-loop pred before reaching the
                                                 // loop entry.
 
@@ -7862,9 +7898,9 @@ ValueNum Compiler::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned inner
             ValueNum  fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
             var_types fieldType = TYP_STRUCT;
 
-            if (info.compCompHnd->isFieldStatic(fieldHandle))
+            if (compiler->info.compCompHnd->isFieldStatic(fieldHandle))
             {
-                fieldType = CorTypeToVarType(info.compCompHnd->getFieldType(fieldHandle));
+                fieldType = CorTypeToVarType(compiler->info.compCompHnd->getFieldType(fieldHandle));
             }
 
             newMemoryVN =
@@ -7896,12 +7932,12 @@ ValueNum Compiler::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned inner
     return newMemoryVN;
 }
 
-void Compiler::vnClearMemory(GenTree* node DEBUGARG(const char* comment))
+void ValueNumbering::vnClearMemory(GenTree* node DEBUGARG(const char* comment))
 {
     vnUpdateMemory(node, vnStore->VNForExpr(TYP_STRUCT) DEBUGARG(comment));
 }
 
-void Compiler::vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment))
+void ValueNumbering::vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment))
 {
     assert(vnStore->GetCurrentBlock()->bbMemoryDef);
 
@@ -7910,14 +7946,14 @@ void Compiler::vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char*
 
     unsigned ssaNum;
 
-    if (GetMemorySsaMap()->Lookup(node, &ssaNum))
+    if (compiler->GetMemorySsaMap()->Lookup(node, &ssaNum))
     {
-        GetMemoryPerSsaData(ssaNum)->m_vn = memVN;
+        compiler->GetMemoryPerSsaData(ssaNum)->m_vn = memVN;
         JITDUMP("    Memory SSA def %u = " FMT_VN "\n", ssaNum, memVN);
     }
 }
 
-void Compiler::fgValueNumberTreeConst(GenTree* tree)
+void ValueNumbering::fgValueNumberTreeConst(GenTree* tree)
 {
     var_types type = varActualType(tree->GetType());
 
@@ -7980,7 +8016,7 @@ void Compiler::fgValueNumberTreeConst(GenTree* tree)
     }
 }
 
-void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary)
+void ValueNumbering::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary)
 {
     switch (node->GetOper())
     {
@@ -8078,7 +8114,7 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
     }
 }
 
-void Compiler::fgValueNumberTree(GenTree* tree)
+void ValueNumbering::fgValueNumberTree(GenTree* tree)
 {
     genTreeOps oper = tree->OperGet();
 
@@ -8166,7 +8202,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             {
                 vnIndirLoad(tree->AsIndir());
 
-                if (tree->OperMayThrow(this))
+                if (tree->OperMayThrow(compiler))
                 {
                     vnAddNullPtrExset(tree, tree->AsIndir()->GetAddr());
                 }
@@ -8325,7 +8361,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                 tree->gtVNPair = vnStore->VNPWithExc(vnStore->VNPairForFunc(tree->TypeGet(), vnf, op1VNP), op1VNPx);
 
-                assert(!tree->OperMayThrow(this));
+                assert(!tree->OperMayThrow(compiler));
             }
             else if (GenTree::OperIsBinary(oper))
             {
@@ -8360,9 +8396,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
     }
 
 #ifdef DEBUG
-    if (verbose && (tree->GetLiberalVN() != NoVN))
+    if (compiler->verbose && (tree->GetLiberalVN() != NoVN))
     {
-        gtDispTree(tree, false, false);
+        compiler->gtDispTree(tree, false, false);
         printf("        = ");
         vnpPrint(tree->GetVNP(), 1);
         printf("\n");
@@ -8370,7 +8406,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 #endif
 }
 
-void Compiler::vnIntrinsic(GenTreeIntrinsic* intrinsic)
+void ValueNumbering::vnIntrinsic(GenTreeIntrinsic* intrinsic)
 {
     // TODO: model the exceptions for Intrinsics
 
@@ -8385,7 +8421,7 @@ void Compiler::vnIntrinsic(GenTreeIntrinsic* intrinsic)
         vnStore->VNPUnpackExc(intrinsic->gtOp2->gtVNPair, &arg1VNP, &arg1VNPx);
     }
 
-    if (IsMathIntrinsic(intrinsic->GetIntrinsic()))
+    if (compiler->IsMathIntrinsic(intrinsic->GetIntrinsic()))
     {
         // GT_INTRINSIC is a currently a subtype of binary operators. But most of
         // the math intrinsics are actually unary operations.
@@ -8414,7 +8450,7 @@ void Compiler::vnIntrinsic(GenTreeIntrinsic* intrinsic)
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
+void ValueNumbering::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     if (node->OperIsMemoryStore())
     {
@@ -8509,7 +8545,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
 }
 #endif // FEATURE_HW_INTRINSICS
 
-void Compiler::vnBitCast(GenTreeUnOp* bitcast)
+void ValueNumbering::vnBitCast(GenTreeUnOp* bitcast)
 {
     assert(bitcast->OperIs(GT_BITCAST));
 
@@ -8565,7 +8601,7 @@ ValueNum ValueNumStore::VNForBitCast(ValueNum valueVN, var_types toType)
     return VNForFunc(toType, VNF_BitCast, valueVN, VNForBitCastOper(toType));
 }
 
-void Compiler::vnCast(GenTreeCast* cast)
+void ValueNumbering::vnCast(GenTreeCast* cast)
 {
     ValueNumPair valueVNP      = cast->GetOp(0)->GetVNP();
     var_types    fromType      = varActualType(cast->GetOp(0)->GetType());
@@ -8618,7 +8654,7 @@ ValueNum ValueNumStore::VNForCast(ValueNum valueVN, var_types toType)
     ValueNum castTypeVN = VNForCastOper(toType, false);
     ValueNum resultVN   = VNForFunc(varActualType(toType), VNF_Cast, valueVN, castTypeVN);
 
-    INDEBUG(m_pComp->vnTrace(resultVN));
+    INDEBUG(m_pComp->valueNumbering->vnTrace(resultVN));
 
     return resultVN;
 }
@@ -8629,7 +8665,7 @@ ValueNumPair ValueNumStore::VNForCast(ValueNumPair valueVNP, var_types toType)
     return VNPairForFunc(varActualType(toType), VNF_Cast, valueVNP, {castTypeVN, castTypeVN});
 }
 
-void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueNumPair vnpExc)
+void ValueNumbering::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueNumPair vnpExc)
 {
     assert(vnf != VNF_Boundary);
 
@@ -8704,7 +8740,7 @@ void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueN
             break;
 
         default:
-            assert(s_helperCallProperties.IsPure(eeGetHelperNum(call->gtCallMethHnd)));
+            assert(Compiler::s_helperCallProperties.IsPure(Compiler::eeGetHelperNum(call->GetMethodHandle())));
             break;
     }
 
@@ -8787,18 +8823,18 @@ void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueN
     call->SetVNP(vnStore->VNPWithExc(vnpCall, vnpExc));
 }
 
-void Compiler::vnSummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary)
+void ValueNumbering::vnSummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary)
 {
     summary.AddCall();
 
     if (call->gtCallType == CT_HELPER)
     {
-        CorInfoHelpFunc helpFunc = eeGetHelperNum(call->gtCallMethHnd);
-        if (s_helperCallProperties.MutatesHeap(helpFunc))
+        CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->gtCallMethHnd);
+        if (Compiler::s_helperCallProperties.MutatesHeap(helpFunc))
         {
             summary.AddMemoryHavoc();
         }
-        else if (s_helperCallProperties.MayRunCctor(helpFunc))
+        else if (Compiler::s_helperCallProperties.MayRunCctor(helpFunc))
         {
             // If the call is labeled as "Hoistable", then we've checked the
             // class that would be constructed, and it is not precise-init, so
@@ -8816,7 +8852,7 @@ void Compiler::vnSummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySu
     }
 }
 
-void Compiler::fgValueNumberCall(GenTreeCall* call)
+void ValueNumbering::fgValueNumberCall(GenTreeCall* call)
 {
     // Copy argument value numbers from actual arguments to ARGPLACE nodes.
     // TODO-MIKE-Review: Is this actually needed?
@@ -8860,9 +8896,9 @@ void Compiler::fgValueNumberCall(GenTreeCall* call)
     }
 }
 
-VNFunc Compiler::fgValueNumberJitHelperMethodVNFunc(CorInfoHelpFunc helpFunc)
+VNFunc ValueNumbering::fgValueNumberJitHelperMethodVNFunc(CorInfoHelpFunc helpFunc)
 {
-    assert(s_helperCallProperties.IsPure(helpFunc) || s_helperCallProperties.IsAllocator(helpFunc));
+    assert(Compiler::s_helperCallProperties.IsPure(helpFunc) || Compiler::s_helperCallProperties.IsAllocator(helpFunc));
 
     VNFunc vnf = VNF_Boundary; // An illegal value...
     switch (helpFunc)
@@ -9141,14 +9177,14 @@ VNFunc Compiler::fgValueNumberJitHelperMethodVNFunc(CorInfoHelpFunc helpFunc)
     return vnf;
 }
 
-bool Compiler::fgValueNumberHelperCall(GenTreeCall* call)
+bool ValueNumbering::fgValueNumberHelperCall(GenTreeCall* call)
 {
-    CorInfoHelpFunc helpFunc    = eeGetHelperNum(call->gtCallMethHnd);
-    bool            pure        = s_helperCallProperties.IsPure(helpFunc);
-    bool            isAlloc     = s_helperCallProperties.IsAllocator(helpFunc);
-    bool            modHeap     = s_helperCallProperties.MutatesHeap(helpFunc);
-    bool            mayRunCctor = s_helperCallProperties.MayRunCctor(helpFunc);
-    bool            noThrow     = s_helperCallProperties.NoThrow(helpFunc);
+    CorInfoHelpFunc helpFunc    = Compiler::eeGetHelperNum(call->GetMethodHandle());
+    bool            pure        = Compiler::s_helperCallProperties.IsPure(helpFunc);
+    bool            isAlloc     = Compiler::s_helperCallProperties.IsAllocator(helpFunc);
+    bool            modHeap     = Compiler::s_helperCallProperties.MutatesHeap(helpFunc);
+    bool            mayRunCctor = Compiler::s_helperCallProperties.MayRunCctor(helpFunc);
+    bool            noThrow     = Compiler::s_helperCallProperties.NoThrow(helpFunc);
 
     ValueNumPair vnpExc = ValueNumStore::VNPForEmptyExcSet();
 
@@ -9225,7 +9261,7 @@ bool Compiler::fgValueNumberHelperCall(GenTreeCall* call)
     return modHeap;
 }
 
-ValueNum Compiler::vnGetBaseAddr(ValueNum addrVN)
+ValueNum ValueNumbering::vnGetBaseAddr(ValueNum addrVN)
 {
     ValueNum  baseLVN = addrVN;
     ssize_t   offsetL = 0;
@@ -9252,7 +9288,7 @@ ValueNum Compiler::vnGetBaseAddr(ValueNum addrVN)
         }
 
         // TODO-MIKE-Review: This doesn't make a lot of sense...
-        if (fgIsBigOffset(offsetL))
+        if (compiler->fgIsBigOffset(offsetL))
         {
             baseLVN = addrVN;
             break;
@@ -9262,7 +9298,7 @@ ValueNum Compiler::vnGetBaseAddr(ValueNum addrVN)
     return baseLVN;
 }
 
-ValueNum Compiler::vnAddNullPtrExset(ValueNum addrVN)
+ValueNum ValueNumbering::vnAddNullPtrExset(ValueNum addrVN)
 {
     // Peel off constant offsets so that obj.x and obj.y get the same exception VN.
     addrVN = vnGetBaseAddr(addrVN);
@@ -9275,12 +9311,12 @@ ValueNum Compiler::vnAddNullPtrExset(ValueNum addrVN)
     return vnStore->VNExcSetUnion(nullPtrExset, addrExset);
 }
 
-ValueNumPair Compiler::vnAddNullPtrExset(ValueNumPair addrVNP)
+ValueNumPair ValueNumbering::vnAddNullPtrExset(ValueNumPair addrVNP)
 {
     return {vnAddNullPtrExset(addrVNP.GetLiberal()), vnAddNullPtrExset(addrVNP.GetConservative())};
 }
 
-void Compiler::vnAddNullPtrExset(GenTree* node, GenTree* addr)
+void ValueNumbering::vnAddNullPtrExset(GenTree* node, GenTree* addr)
 {
     assert(node->IsIndir() || node->OperIsImplicitIndir() || node->OperIs(GT_ARR_LENGTH));
 
@@ -9305,7 +9341,7 @@ void Compiler::vnAddNullPtrExset(GenTree* node, GenTree* addr)
 //                 We will omit one or both of them when the operation
 //                 has constants arguments that preclude the exception.
 //
-void Compiler::fgValueNumberAddExceptionSetForDivision(GenTree* tree)
+void ValueNumbering::fgValueNumberAddExceptionSetForDivision(GenTree* tree)
 {
     genTreeOps oper = tree->OperGet();
 
@@ -9485,7 +9521,7 @@ void Compiler::fgValueNumberAddExceptionSetForDivision(GenTree* tree)
 //               - The tree's gtVNPair is updated to include the VNF_OverflowExc
 //                 exception set, except for constant VNs and those produced from identities.
 //
-void Compiler::fgValueNumberAddExceptionSetForOverflow(GenTree* tree)
+void ValueNumbering::fgValueNumberAddExceptionSetForOverflow(GenTree* tree)
 {
     assert(tree->gtOverflowEx());
 
@@ -9540,7 +9576,7 @@ void Compiler::fgValueNumberAddExceptionSetForOverflow(GenTree* tree)
     }
 }
 
-void Compiler::vnAddBoundsChkExceptionSet(GenTreeBoundsChk* node)
+void ValueNumbering::vnAddBoundsChkExceptionSet(GenTreeBoundsChk* node)
 {
     ValueNumPair vnpIndex  = node->GetIndex()->GetVNP();
     ValueNumPair vnpLength = node->GetLength()->GetVNP();
@@ -9558,7 +9594,7 @@ void Compiler::vnAddBoundsChkExceptionSet(GenTreeBoundsChk* node)
     node->SetVNP(vnStore->VNPWithExc(vnpTreeNorm, newExcSet));
 }
 
-void Compiler::vnCkFinite(GenTreeUnOp* node)
+void ValueNumbering::vnCkFinite(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_CKFINITE));
 
@@ -9572,9 +9608,9 @@ void Compiler::vnCkFinite(GenTreeUnOp* node)
     node->SetVNP(vnStore->VNPWithExc(value, exset));
 }
 
-void Compiler::vnAddNodeExceptionSet(GenTree* node)
+void ValueNumbering::vnAddNodeExceptionSet(GenTree* node)
 {
-    if (!node->OperMayThrow(this))
+    if (!node->OperMayThrow(compiler))
     {
         return;
     }
@@ -9599,7 +9635,7 @@ void Compiler::vnAddNodeExceptionSet(GenTree* node)
 
 #ifdef DEBUG
 
-void Compiler::vnpPrint(ValueNumPair vnp, unsigned level)
+void ValueNumbering::vnpPrint(ValueNumPair vnp, unsigned level)
 {
     if (vnp.BothEqual())
     {
@@ -9615,7 +9651,7 @@ void Compiler::vnpPrint(ValueNumPair vnp, unsigned level)
     }
 }
 
-void Compiler::vnPrint(ValueNum vn, unsigned level)
+void ValueNumbering::vnPrint(ValueNum vn, unsigned level)
 {
 
     if (ValueNumStore::isReservedVN(vn))
@@ -9627,14 +9663,14 @@ void Compiler::vnPrint(ValueNum vn, unsigned level)
         printf(FMT_VN, vn);
         if (level > 0)
         {
-            vnStore->vnDump(this, vn);
+            vnStore->vnDump(compiler, vn);
         }
     }
 }
 
-void Compiler::vnTrace(ValueNum vn, const char* comment)
+void ValueNumbering::vnTrace(ValueNum vn, const char* comment)
 {
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("    %s ", varTypeName(vnStore->TypeOfVN(vn)));
         vnPrint(vn, 1);
@@ -9648,9 +9684,9 @@ void Compiler::vnTrace(ValueNum vn, const char* comment)
     }
 }
 
-void Compiler::vnTrace(ValueNumPair vnp, const char* comment)
+void ValueNumbering::vnTrace(ValueNumPair vnp, const char* comment)
 {
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("    %s ", varTypeName(vnStore->TypeOfVN(vnp.GetLiberal())));
         vnpPrint(vnp, 1);
@@ -9664,9 +9700,9 @@ void Compiler::vnTrace(ValueNumPair vnp, const char* comment)
     }
 }
 
-void Compiler::vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment)
+void ValueNumbering::vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment)
 {
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("    V%02u = %s ", lclNum, varTypeName(vnStore->TypeOfVN(vnp.GetLiberal())));
         vnpPrint(vnp, 1);
@@ -9680,9 +9716,9 @@ void Compiler::vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comme
     }
 }
 
-void Compiler::vnTraceMem(ValueNum vn, const char* comment)
+void ValueNumbering::vnTraceMem(ValueNum vn, const char* comment)
 {
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("    Memory = %s ", varTypeName(vnStore->TypeOfVN(vn)));
         vnPrint(vn, 1);

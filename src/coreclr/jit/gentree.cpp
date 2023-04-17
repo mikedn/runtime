@@ -6606,10 +6606,10 @@ void Compiler::gtDispZeroFieldSeq(GenTree* tree)
 //
 void Compiler::gtDispVN(GenTree* tree)
 {
-    if (tree->gtVNPair.GetLiberal() != ValueNumStore::NoVN)
+    if ((valueNumbering != nullptr) && (tree->GetLiberalVN() != NoVN))
     {
         printf(" ");
-        vnpPrint(tree->gtVNPair, 0);
+        valueNumbering->vnpPrint(tree->GetVNP(), 0);
     }
 }
 
@@ -10674,9 +10674,9 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         tree->SetType(TYP_BYREF);
                         tree->AsIntCon()->SetValue(0);
 
-                        if (vnStore != nullptr)
+                        if (valueNumbering != nullptr)
                         {
-                            fgValueNumberTreeConst(tree);
+                            valueNumbering->fgValueNumberTreeConst(tree);
                         }
 
                         JITDUMP("\nFolded to null byref:\n");
@@ -10890,9 +10890,10 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
             // has TYP_INT the result needs to be sign extended rather than zero extended.
             tree->AsIntCon()->SetValue(static_cast<int>(i1));
             tree->AsIntCon()->SetFieldSeq(fieldSeq);
-            if (vnStore != nullptr)
+
+            if (valueNumbering != nullptr)
             {
-                fgValueNumberTreeConst(tree);
+                valueNumbering->fgValueNumberTreeConst(tree);
             }
 
             JITDUMP("Bashed to int constant:\n");
@@ -11112,9 +11113,9 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 #ifdef TARGET_64BIT
             tree->AsIntCon()->SetFieldSeq(fieldSeq);
 #endif
-            if (vnStore != nullptr)
+            if (valueNumbering != nullptr)
             {
-                fgValueNumberTreeConst(tree);
+                valueNumbering->fgValueNumberTreeConst(tree);
             }
 
             JITDUMP("Bashed to long constant:\n");
@@ -11263,9 +11264,10 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
             tree->ChangeOperConst(GT_CNS_DBL);
             tree->AsDblCon()->gtDconVal = d1;
-            if (vnStore != nullptr)
+
+            if (valueNumbering != nullptr)
             {
-                fgValueNumberTreeConst(tree);
+                valueNumbering->fgValueNumberTreeConst(tree);
             }
 
             JITDUMP("Bashed to fp constant:\n");

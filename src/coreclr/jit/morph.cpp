@@ -681,9 +681,9 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                     commaOp2->SetType(TYP_INT);
                 }
 
-                if (vnStore != nullptr)
+                if (valueNumbering != nullptr)
                 {
-                    fgValueNumberTreeConst(commaOp2);
+                    valueNumbering->fgValueNumberTreeConst(commaOp2);
                 }
 
                 // Return the GT_COMMA node as the new tree
@@ -780,9 +780,10 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 tree->ChangeOperConst(GT_CNS_INT);
                 tree->gtType                = TYP_INT;
                 tree->AsIntCon()->gtIconVal = (int)lval;
-                if (vnStore != nullptr)
+
+                if (valueNumbering != nullptr)
                 {
-                    fgValueNumberTreeConst(tree);
+                    valueNumbering->fgValueNumberTreeConst(tree);
                 }
             }
 
@@ -832,9 +833,10 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
             {
                 tree->gtType                = TYP_INT;
                 tree->AsIntCon()->gtIconVal = (int)ival;
-                if (vnStore != nullptr)
+
+                if (valueNumbering != nullptr)
                 {
-                    fgValueNumberTreeConst(tree);
+                    valueNumbering->fgValueNumberTreeConst(tree);
                 }
             }
 #endif // TARGET_64BIT
@@ -11801,12 +11803,11 @@ DONE_MORPHING_CHILDREN:
 #endif // LEA_AVAILABLE
                 if (changeToShift)
                 {
-                    // vnStore is null before the ValueNumber phase has run
-                    if (vnStore != nullptr)
+                    if (valueNumbering != nullptr)
                     {
-                        // Update the ValueNumber for 'op2', as we just changed the constant
-                        fgValueNumberTreeConst(op2);
+                        valueNumbering->fgValueNumberTreeConst(op2);
                     }
+
                     oper = GT_LSH;
                     // Keep the old ValueNumber for 'tree' as the new expr
                     // will still compute the same value as before

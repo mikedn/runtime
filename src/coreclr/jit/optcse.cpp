@@ -616,7 +616,7 @@ public:
             if (compiler->verbose)
             {
                 printf(FMT_CSE " in " FMT_BB " VN ", index, block->bbNum);
-                compiler->vnPrint(hashVN, 0);
+                compiler->valueNumbering->vnPrint(hashVN, 0);
                 printf("\n");
                 compiler->gtDispTree(expr);
                 printf("\n");
@@ -2278,7 +2278,7 @@ public:
                 if (delta != 0)
                 {
                     GenTree* deltaNode = compiler->gtNewIconNode(delta, lclType);
-                    compiler->fgValueNumberTreeConst(deltaNode);
+                    compiler->valueNumbering->fgValueNumberTreeConst(deltaNode);
                     newExpr = compiler->gtNewOperNode(GT_ADD, lclType, newExpr, deltaNode);
                     newExpr->SetDoNotCSE(); // GTF_DONT_CSE also blocks VN const propagation.
                     newExpr->SetVNP(expr->GetVNP());

@@ -78,7 +78,6 @@ void Compiler::fgSsaReset()
     INDEBUG(fgLocalVarLivenessDone = false;)
     ssaForm          = false;
     vnStore          = nullptr;
-    vnLoopTable      = nullptr;
     apAssertionCount = 0;
     apAssertionTable = nullptr;
 

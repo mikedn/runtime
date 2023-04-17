@@ -296,7 +296,7 @@ public:
             }
 
             // The use must produce the same value number if we substitute the def.
-            if (m_compiler->vnLocalUse(use, newDef).GetConservative() != use->GetConservativeVN())
+            if (m_compiler->valueNumbering->vnLocalUse(use, newDef).GetConservative() != use->GetConservativeVN())
             {
                 continue;
             }

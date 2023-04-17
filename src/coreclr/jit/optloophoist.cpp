@@ -261,7 +261,7 @@ void Compiler::optHoistLoopNest(unsigned lnum, LoopHoistContext* hoistCtxt)
 void Compiler::optHoistThisLoop(unsigned lnum, LoopHoistContext* hoistCtxt)
 {
     LoopDsc* pLoopDsc = &optLoopTable[lnum];
-    VNLoop*  vnLoop   = &vnLoopTable[lnum];
+    VNLoop*  vnLoop   = &valueNumbering->vnLoopTable[lnum];
 
     /* If loop was removed continue */
 
@@ -430,7 +430,7 @@ void Compiler::optHoistThisLoop(unsigned lnum, LoopHoistContext* hoistCtxt)
 bool Compiler::optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum)
 {
     LoopDsc* pLoopDsc = &optLoopTable[lnum];
-    VNLoop*  vnLoop   = &vnLoopTable[lnum];
+    VNLoop*  vnLoop   = &valueNumbering->vnLoopTable[lnum];
 
     bool loopContainsCall = vnLoop->lpContainsCall;
 
@@ -1037,7 +1037,7 @@ void Compiler::optHoistCandidate(GenTree* tree, unsigned lnum, LoopHoistContext*
     // Increment lpHoistedExprCount or lpHoistedFPExprCount
     if (!varTypeIsFloating(tree->TypeGet()))
     {
-        vnLoopTable[lnum].lpHoistedExprCount++;
+        valueNumbering->vnLoopTable[lnum].lpHoistedExprCount++;
 #ifndef TARGET_64BIT
         // For our 32-bit targets Long types take two registers.
         if (varTypeIsLong(tree->TypeGet()))
@@ -1048,7 +1048,7 @@ void Compiler::optHoistCandidate(GenTree* tree, unsigned lnum, LoopHoistContext*
     }
     else // Floating point expr hoisted
     {
-        vnLoopTable[lnum].lpHoistedFPExprCount++;
+        valueNumbering->vnLoopTable[lnum].lpHoistedFPExprCount++;
     }
 
     // Record the hoisted expression in hoistCtxt
