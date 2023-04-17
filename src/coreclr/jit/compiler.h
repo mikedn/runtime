@@ -76,7 +76,6 @@ class IndentStack;
 #endif
 class SsaBuilder;
 class ValueNumbering;
-struct ValueNumberState;
 class CopyPropDomTreeVisitor;
 class LoopHoist;
 class Cse;
@@ -4862,7 +4861,6 @@ public:
 protected:
     friend class SsaBuilder;
     friend class EarlyProp;
-    friend struct ValueNumberState;
 
     //--------------------- Detect the basic blocks ---------------------------
 
@@ -7122,6 +7120,7 @@ public:
     bool killGCRefs(GenTree* tree);
 }; // end of class Compiler
 
+class ValueNumberState;
 class VNLoopMemorySummary;
 
 struct VNLoop
@@ -7166,7 +7165,7 @@ class ValueNumbering
 {
     using LoopDsc = Compiler::LoopDsc;
 
-    friend struct ValueNumberState;
+    friend class ValueNumberState;
     friend class VNLoopMemorySummary;
     friend class Compiler;
     friend class CopyPropDomTreeVisitor;

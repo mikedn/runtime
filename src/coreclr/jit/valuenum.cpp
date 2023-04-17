@@ -7097,17 +7097,8 @@ void ValueNumStore::RunTests(Compiler* comp)
 #endif // DEBUG
 
 // This represents the "to do" state of the value number computation.
-struct ValueNumberState
+class ValueNumberState
 {
-    // These two stacks collectively represent the set of blocks that are candidates for
-    // processing, because at least one predecessor has been processed.  Blocks on "m_toDoAllPredsDone"
-    // have had *all* predecessors processed, and thus are candidates for some extra optimizations.
-    // Blocks on "m_toDoNotAllPredsDone" have at least one predecessor that has not been processed.
-    // Blocks are initially on "m_toDoNotAllPredsDone" may be moved to "m_toDoAllPredsDone" when their last
-    // unprocessed predecessor is processed, thus maintaining the invariants.
-    ArrayStack<BasicBlock*> m_toDoAllPredsDone;
-    ArrayStack<BasicBlock*> m_toDoNotAllPredsDone;
-
     Compiler*       m_comp;
     ValueNumbering* valueNumbering;
 
@@ -7116,7 +7107,7 @@ struct ValueNumberState
     // first bit indicates completed,
     // second bit indicates that it's been pushed on all-done stack,
     // third bit indicates that it's been pushed on not-all-done stack.
-    BYTE* m_visited;
+    uint8_t* m_visited;
 
     enum BlockVisitBits
     {
@@ -7134,12 +7125,22 @@ struct ValueNumberState
         m_visited[bbNum] |= bvb;
     }
 
+public:
+    // These two stacks collectively represent the set of blocks that are candidates for
+    // processing, because at least one predecessor has been processed.  Blocks on "m_toDoAllPredsDone"
+    // have had *all* predecessors processed, and thus are candidates for some extra optimizations.
+    // Blocks on "m_toDoNotAllPredsDone" have at least one predecessor that has not been processed.
+    // Blocks are initially on "m_toDoNotAllPredsDone" may be moved to "m_toDoAllPredsDone" when their last
+    // unprocessed predecessor is processed, thus maintaining the invariants.
+    ArrayStack<BasicBlock*> m_toDoAllPredsDone;
+    ArrayStack<BasicBlock*> m_toDoNotAllPredsDone;
+
     ValueNumberState(Compiler* comp, ValueNumbering* valueNumbering)
-        : m_toDoAllPredsDone(comp->getAllocator(CMK_ValueNumber))
-        , m_toDoNotAllPredsDone(comp->getAllocator(CMK_ValueNumber))
-        , m_comp(comp)
+        : m_comp(comp)
         , valueNumbering(valueNumbering)
-        , m_visited(new (comp, CMK_ValueNumber) BYTE[comp->fgBBNumMax + 1]())
+        , m_visited(new (comp, CMK_ValueNumber) uint8_t[comp->fgBBNumMax + 1]())
+        , m_toDoAllPredsDone(comp->getAllocator(CMK_ValueNumber))
+        , m_toDoNotAllPredsDone(comp->getAllocator(CMK_ValueNumber))
     {
     }
 
@@ -7228,31 +7229,23 @@ struct ValueNumberState
         }
     }
 
-// Debugging output that is too detailed for a normal JIT dump...
-#define DEBUG_VN_VISIT 0
-
     // Record that "blk" has been visited, and add any unvisited successors of "blk" to the appropriate todo set.
     void FinishVisit(BasicBlock* blk)
     {
-#ifdef DEBUG_VN_VISIT
         JITDUMP("finish(" FMT_BB ").\n", blk->bbNum);
-#endif // DEBUG_VN_VISIT
 
         SetVisitBit(blk->bbNum, BVB_complete);
 
         for (BasicBlock* succ : blk->GetAllSuccs(m_comp))
         {
-#ifdef DEBUG_VN_VISIT
             JITDUMP("   Succ(" FMT_BB ").\n", succ->bbNum);
-#endif // DEBUG_VN_VISIT
 
             if (GetVisitBit(succ->bbNum, BVB_complete))
             {
                 continue;
             }
-#ifdef DEBUG_VN_VISIT
+
             JITDUMP("     Not yet completed.\n");
-#endif // DEBUG_VN_VISIT
 
             bool allPredsVisited = true;
             for (flowList* pred = m_comp->BlockPredsWithEH(succ); pred != nullptr; pred = pred->flNext)
@@ -7267,9 +7260,7 @@ struct ValueNumberState
 
             if (allPredsVisited)
             {
-#ifdef DEBUG_VN_VISIT
                 JITDUMP("     All preds complete, adding to allDone.\n");
-#endif // DEBUG_VN_VISIT
 
                 assert(!GetVisitBit(succ->bbNum, BVB_onAllDone)); // Only last completion of last succ should add to
                                                                   // this.
@@ -7278,15 +7269,12 @@ struct ValueNumberState
             }
             else
             {
-#ifdef DEBUG_VN_VISIT
                 JITDUMP("     Not all preds complete  Adding to notallDone, if necessary...\n");
-#endif // DEBUG_VN_VISIT
 
                 if (!GetVisitBit(succ->bbNum, BVB_onNotAllDone))
                 {
-#ifdef DEBUG_VN_VISIT
                     JITDUMP("       Was necessary.\n");
-#endif // DEBUG_VN_VISIT
+
                     m_toDoNotAllPredsDone.Push(succ);
                     SetVisitBit(succ->bbNum, BVB_onNotAllDone);
                 }
@@ -7294,7 +7282,7 @@ struct ValueNumberState
         }
     }
 
-    bool ToDoExists()
+    bool ToDoExists() const
     {
         return m_toDoAllPredsDone.Size() > 0 || m_toDoNotAllPredsDone.Size() > 0;
     }
