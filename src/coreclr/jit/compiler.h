@@ -74,11 +74,11 @@ class OptBoolsDsc;         // defined in optimizer.cpp
 #ifdef DEBUG
 class IndentStack;
 #endif
-struct LoopHoistContext;
 class SsaBuilder;
 class ValueNumbering;
 struct ValueNumberState;
 class CopyPropDomTreeVisitor;
+class LoopHoist;
 class Cse;
 class Lowering; // defined in lower.h
 
@@ -2822,6 +2822,7 @@ class Compiler
     friend struct Importer;
     friend class SIMDCoalescingBuffer;
     friend class ValueNumbering;
+    friend class LoopHoist;
 
 #ifdef FEATURE_HW_INTRINSICS
     friend struct HWIntrinsicInfo;
@@ -5296,39 +5297,6 @@ protected:
     // Do hoisting for all loops.
     void optHoistLoopCode();
 
-    // To represent sets of VN's that have already been hoisted in outer loops.
-    typedef JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, bool> VNToBoolMap;
-    typedef VNToBoolMap VNSet;
-
-    friend struct LoopHoistContext;
-
-    // Do hoisting for loop "lnum" (an index into the optLoopTable), and all loops nested within it.
-    // Tracks the expressions that have been hoisted by containing loops by temporary recording their
-    // value numbers in "m_hoistedInParentLoops".  This set is not modified by the call.
-    void optHoistLoopNest(unsigned lnum, LoopHoistContext* hoistCtxt);
-
-    // Do hoisting for a particular loop ("lnum" is an index into the optLoopTable.)
-    // Assumes that expressions have been hoisted in containing loops if their value numbers are in
-    // "m_hoistedInParentLoops".
-    //
-    void optHoistThisLoop(unsigned lnum, LoopHoistContext* hoistCtxt);
-
-    // Hoist all expressions in "blk" that are invariant in loop "lnum" (an index into the optLoopTable)
-    // outside of that loop.  Exempt expressions whose value number is in "m_hoistedInParentLoops"; add VN's of hoisted
-    // expressions to "hoistInLoop".
-    void optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blocks, LoopHoistContext* hoistContext);
-
-    // Return true if the tree looks profitable to hoist out of loop 'lnum'.
-    bool optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum);
-
-    // Performs the hoisting 'tree' into the PreHeader for loop 'lnum'
-    void optHoistCandidate(GenTree* tree, unsigned lnum, LoopHoistContext* hoistCtxt);
-
-    // Returns true iff the ValueNum "vn" represents a value that is loop-invariant in "lnum".
-    //   Constants and init values are always loop invariant.
-    //   VNPhi's connect VN's to the SSA definition, so we can know if the SSA def occurs in the loop.
-    bool optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* recordedVNs);
-
 private:
     // Requires "lnum" to be the index of an outermost loop in the loop table.  Traverses the body of that loop,
     // including all nested loops, and records the set of "side effects" of the loop: fields (object instance and
@@ -7231,6 +7199,7 @@ class ValueNumbering
     friend class CopyPropDomTreeVisitor;
     friend class Cse;
     friend class ValueNumStore;
+    friend class LoopHoist;
 
     Compiler*      compiler;
     ValueNumStore* vnStore;
