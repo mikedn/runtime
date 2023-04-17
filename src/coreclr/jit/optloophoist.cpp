@@ -5,7 +5,6 @@
 
 using VNToBoolMap = JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, bool>;
 using VNSet       = VNToBoolMap;
-class LoopHoistContext;
 
 class LoopHoist
 {
@@ -17,6 +16,17 @@ class LoopHoist
     VNLoop* const        vnLoopTable;
     LoopDsc* const       optLoopTable;
     unsigned const       optLoopCount;
+    // The set of variables hoisted in the current loop (or nullptr if there are none).
+    VNSet* m_pHoistedInCurLoop = nullptr;
+    // Value numbers of expressions that have been hoisted in parent loops in the loop nest.
+    VNSet m_hoistedInParentLoops;
+    // Value numbers of expressions that have been hoisted in the current (or most recent) loop in the nest.
+    // Previous decisions on loop-invariance of value numbers in the current loop.
+    VNToBoolMap m_curLoopVnInvariantCache;
+#ifndef TARGET_64BIT
+    VARSET_TP lvaLongVars; // set of long (64-bit) variables
+#endif
+    VARSET_TP lvaFloatVars; // set of floating-point (32-bit and 64-bit) variables
 
 public:
     LoopHoist(Compiler* compiler)
@@ -25,19 +35,39 @@ public:
         , vnLoopTable(compiler->valueNumbering->vnLoopTable)
         , optLoopTable(compiler->optLoopTable)
         , optLoopCount(compiler->optLoopCount)
+        , m_hoistedInParentLoops(compiler->getAllocator(CMK_LoopHoist))
+        , m_curLoopVnInvariantCache(compiler->getAllocator(CMK_LoopHoist))
     {
     }
 
     void Run();
 
 private:
-    void optHoistLoopNest(unsigned lnum, LoopHoistContext* hoistCtxt);
-    void optHoistThisLoop(unsigned lnum, LoopHoistContext* hoistCtxt);
+    void optHoistLoopNest(unsigned lnum);
+    void optHoistThisLoop(unsigned lnum);
     bool optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum);
-    void optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blocks, LoopHoistContext* hoistContext);
-    void optHoistCandidate(GenTree* tree, unsigned lnum, LoopHoistContext* hoistCtxt);
+    void optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blocks);
+    void optHoistCandidate(GenTree* tree, unsigned lnum);
     bool optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* loopVnInvariantCache);
     void optPerformHoistExpr(GenTree* origExpr, unsigned lnum);
+
+    VNSet* GetHoistedInCurLoop()
+    {
+        if (m_pHoistedInCurLoop == nullptr)
+        {
+            m_pHoistedInCurLoop =
+                new (compiler->getAllocator(CMK_LoopHoist)) VNSet(compiler->getAllocator(CMK_LoopHoist));
+        }
+
+        return m_pHoistedInCurLoop;
+    }
+
+    VNSet* ExtractHoistedInCurLoop()
+    {
+        VNSet* res          = m_pHoistedInCurLoop;
+        m_pHoistedInCurLoop = nullptr;
+        return res;
+    }
 };
 
 void LoopHoist::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
@@ -93,69 +123,6 @@ void LoopHoist::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
     compiler->m_totalHoistedExpressions++;
 #endif // LOOP_HOIST_STATS
 }
-
-class LoopHoistContext
-{
-    // The set of variables hoisted in the current loop (or nullptr if there are none).
-    VNSet* m_pHoistedInCurLoop;
-
-public:
-    // Value numbers of expressions that have been hoisted in parent loops in the loop nest.
-    VNSet m_hoistedInParentLoops;
-    // Value numbers of expressions that have been hoisted in the current (or most recent) loop in the nest.
-    // Previous decisions on loop-invariance of value numbers in the current loop.
-    VNToBoolMap m_curLoopVnInvariantCache;
-#ifndef TARGET_64BIT
-    VARSET_TP lvaLongVars; // set of long (64-bit) variables
-#endif
-    VARSET_TP lvaFloatVars; // set of floating-point (32-bit and 64-bit) variables
-
-    LoopHoistContext(Compiler* comp)
-        : m_pHoistedInCurLoop(nullptr)
-        , m_hoistedInParentLoops(comp->getAllocatorLoopHoist())
-        , m_curLoopVnInvariantCache(comp->getAllocatorLoopHoist())
-    {
-        VarSetOps::AssignNoCopy(comp, lvaFloatVars, VarSetOps::MakeEmpty(comp));
-#ifndef TARGET_64BIT
-        VarSetOps::AssignNoCopy(comp, lvaLongVars, VarSetOps::MakeEmpty(comp));
-#endif
-
-        for (unsigned i = 0; i < comp->lvaCount; i++)
-        {
-            LclVarDsc* lcl = comp->lvaGetDesc(i);
-
-            if (lcl->HasLiveness())
-            {
-                if (varTypeIsFloating(lcl->GetType()))
-                {
-                    VarSetOps::AddElemD(comp, lvaFloatVars, lcl->GetLivenessBitIndex());
-                }
-#ifndef TARGET_64BIT
-                else if (lcl->TypeIs(TYP_LONG))
-                {
-                    VarSetOps::AddElemD(comp, lvaLongVars, lcl->GetLivenessBitIndex());
-                }
-#endif
-            }
-        }
-    }
-
-    VNSet* GetHoistedInCurLoop(Compiler* comp)
-    {
-        if (m_pHoistedInCurLoop == nullptr)
-        {
-            m_pHoistedInCurLoop = new (comp->getAllocatorLoopHoist()) VNSet(comp->getAllocatorLoopHoist());
-        }
-        return m_pHoistedInCurLoop;
-    }
-
-    VNSet* ExtractHoistedInCurLoop()
-    {
-        VNSet* res          = m_pHoistedInCurLoop;
-        m_pHoistedInCurLoop = nullptr;
-        return res;
-    }
-};
 
 void Compiler::optHoistLoopCode()
 {
@@ -230,9 +197,30 @@ void Compiler::optHoistLoopCode()
 
 void LoopHoist::Run()
 {
-    // Consider all the loop nests, in outer-to-inner order (thus hoisting expressions outside the largest loop in which
-    // they are invariant.)
-    LoopHoistContext hoistCtxt(compiler);
+    VarSetOps::AssignNoCopy(compiler, lvaFloatVars, VarSetOps::MakeEmpty(compiler));
+#ifndef TARGET_64BIT
+    VarSetOps::AssignNoCopy(compiler, lvaLongVars, VarSetOps::MakeEmpty(compiler));
+#endif
+
+    for (unsigned i = 0; i < compiler->lvaCount; i++)
+    {
+        LclVarDsc* lcl = compiler->lvaGetDesc(i);
+
+        if (lcl->HasLiveness())
+        {
+            if (varTypeIsFloating(lcl->GetType()))
+            {
+                VarSetOps::AddElemD(compiler, lvaFloatVars, lcl->GetLivenessBitIndex());
+            }
+#ifndef TARGET_64BIT
+            else if (lcl->TypeIs(TYP_LONG))
+            {
+                VarSetOps::AddElemD(compiler, lvaLongVars, lcl->GetLivenessBitIndex());
+            }
+#endif
+        }
+    }
+
     for (unsigned lnum = 0; lnum < optLoopCount; lnum++)
     {
         if (optLoopTable[lnum].lpFlags & LPFLG_REMOVED)
@@ -242,12 +230,12 @@ void LoopHoist::Run()
 
         if (optLoopTable[lnum].lpParent == BasicBlock::NOT_IN_LOOP)
         {
-            optHoistLoopNest(lnum, &hoistCtxt);
+            optHoistLoopNest(lnum);
         }
     }
 }
 
-void LoopHoist::optHoistLoopNest(unsigned lnum, LoopHoistContext* hoistCtxt)
+void LoopHoist::optHoistLoopNest(unsigned lnum)
 {
     // Do this loop, then recursively do all nested loops.
     CLANG_FORMAT_COMMENT_ANCHOR;
@@ -258,9 +246,9 @@ void LoopHoist::optHoistLoopNest(unsigned lnum, LoopHoistContext* hoistCtxt)
     compiler->m_loopsConsidered++;
 #endif // LOOP_HOIST_STATS
 
-    optHoistThisLoop(lnum, hoistCtxt);
+    optHoistThisLoop(lnum);
 
-    VNSet* hoistedInCurLoop = hoistCtxt->ExtractHoistedInCurLoop();
+    VNSet* hoistedInCurLoop = ExtractHoistedInCurLoop();
 
     if (optLoopTable[lnum].lpChild != BasicBlock::NOT_IN_LOOP)
     {
@@ -270,18 +258,17 @@ void LoopHoist::optHoistLoopNest(unsigned lnum, LoopHoistContext* hoistCtxt)
         {
             for (VNSet::KeyIterator keys = hoistedInCurLoop->Begin(); !keys.Equal(hoistedInCurLoop->End()); ++keys)
             {
-#ifdef DEBUG
-                bool b;
-                assert(!hoistCtxt->m_hoistedInParentLoops.Lookup(keys.Get(), &b));
-#endif
-                hoistCtxt->m_hoistedInParentLoops.Set(keys.Get(), true);
+                INDEBUG(bool b);
+                assert(!m_hoistedInParentLoops.Lookup(keys.Get(), &b));
+
+                m_hoistedInParentLoops.Set(keys.Get(), true);
             }
         }
 
         for (unsigned child = optLoopTable[lnum].lpChild; child != BasicBlock::NOT_IN_LOOP;
              child          = optLoopTable[child].lpSibling)
         {
-            optHoistLoopNest(child, hoistCtxt);
+            optHoistLoopNest(child);
         }
 
         // Now remove them.
@@ -291,13 +278,13 @@ void LoopHoist::optHoistLoopNest(unsigned lnum, LoopHoistContext* hoistCtxt)
             for (VNSet::KeyIterator keys = hoistedInCurLoop->Begin(); !keys.Equal(hoistedInCurLoop->End()); ++keys)
             {
                 // Note that we asserted when we added these that they hadn't been members, so removing is appropriate.
-                hoistCtxt->m_hoistedInParentLoops.Remove(keys.Get());
+                m_hoistedInParentLoops.Remove(keys.Get());
             }
         }
     }
 }
 
-void LoopHoist::optHoistThisLoop(unsigned lnum, LoopHoistContext* hoistCtxt)
+void LoopHoist::optHoistThisLoop(unsigned lnum)
 {
     LoopDsc* pLoopDsc = &optLoopTable[lnum];
     VNLoop*  vnLoop   = &vnLoopTable[lnum];
@@ -346,7 +333,7 @@ void LoopHoist::optHoistThisLoop(unsigned lnum, LoopHoistContext* hoistCtxt)
     unsigned endn = tail->bbNum;
 
     // Ensure the per-loop sets/tables are empty.
-    hoistCtxt->m_curLoopVnInvariantCache.RemoveAll();
+    m_curLoopVnInvariantCache.RemoveAll();
 
 #ifdef DEBUG
     if (compiler->verbose)
@@ -401,12 +388,12 @@ void LoopHoist::optHoistThisLoop(unsigned lnum, LoopHoistContext* hoistCtxt)
     }
 #endif
 
-    unsigned floatVarsCount = VarSetOps::Count(compiler, hoistCtxt->lvaFloatVars);
+    unsigned floatVarsCount = VarSetOps::Count(compiler, lvaFloatVars);
 
     if (floatVarsCount > 0)
     {
-        VARSET_TP loopFPVars(VarSetOps::Intersection(compiler, loopVars, hoistCtxt->lvaFloatVars));
-        VARSET_TP inOutFPVars(VarSetOps::Intersection(compiler, vnLoop->lpVarInOut, hoistCtxt->lvaFloatVars));
+        VARSET_TP loopFPVars(VarSetOps::Intersection(compiler, loopVars, lvaFloatVars));
+        VARSET_TP inOutFPVars(VarSetOps::Intersection(compiler, vnLoop->lpVarInOut, lvaFloatVars));
 
         vnLoop->lpLoopVarFPCount     = VarSetOps::Count(compiler, loopFPVars);
         vnLoop->lpVarInOutFPCount    = VarSetOps::Count(compiler, inOutFPVars);
@@ -463,7 +450,7 @@ void LoopHoist::optHoistThisLoop(unsigned lnum, LoopHoistContext* hoistCtxt)
         defExec.Push(pLoopDsc->lpEntry);
     }
 
-    optHoistLoopBlocks(lnum, &defExec, hoistCtxt);
+    optHoistLoopBlocks(lnum, &defExec);
 }
 
 bool LoopHoist::optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum)
@@ -575,7 +562,7 @@ bool LoopHoist::optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum)
 //    the loop, in the execution order, starting with the loop entry
 //    block on top of the stack.
 //
-void LoopHoist::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blocks, LoopHoistContext* hoistContext)
+void LoopHoist::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blocks)
 {
     class HoistVisitor : public GenTreeVisitor<HoistVisitor>
     {
@@ -602,7 +589,6 @@ void LoopHoist::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* bl
         bool              m_beforeSideEffect;
         unsigned          m_loopNum;
         LoopHoist*        m_loopHoist;
-        LoopHoistContext* m_hoistContext;
 
         bool IsNodeHoistable(GenTree* node)
         {
@@ -621,7 +607,7 @@ void LoopHoist::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* bl
         {
             ValueNum vn = tree->gtVNPair.GetLiberal();
             bool     vnIsInvariant =
-                m_loopHoist->optVNIsLoopInvariant(vn, m_loopNum, &m_hoistContext->m_curLoopVnInvariantCache);
+                m_loopHoist->optVNIsLoopInvariant(vn, m_loopNum, &m_loopHoist->m_curLoopVnInvariantCache);
 
             // Even though VN is invariant in the loop (say a constant) its value may depend on position
             // of tree, so for loop hoisting we must also check that any memory read by tree
@@ -664,7 +650,7 @@ void LoopHoist::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* bl
                 ValueNum loopMemoryVN = m_compiler->GetMemoryPerSsaData(loopEntryBlock->memoryEntrySsaNum)->m_vn;
 
                 if (!m_loopHoist->optVNIsLoopInvariant(loopMemoryVN, m_loopNum,
-                                                       &m_hoistContext->m_curLoopVnInvariantCache))
+                                                       &m_loopHoist->m_curLoopVnInvariantCache))
                 {
                     return false;
                 }
@@ -683,13 +669,12 @@ void LoopHoist::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* bl
             UseExecutionOrder = true,
         };
 
-        HoistVisitor(Compiler* compiler, unsigned loopNum, LoopHoist* loopHoist, LoopHoistContext* hoistContext)
+        HoistVisitor(Compiler* compiler, unsigned loopNum, LoopHoist* loopHoist)
             : GenTreeVisitor(compiler)
             , m_valueStack(compiler->getAllocator(CMK_LoopHoist))
             , m_beforeSideEffect(true)
             , m_loopNum(loopNum)
             , m_loopHoist(loopHoist)
-            , m_hoistContext(hoistContext)
         {
         }
 
@@ -702,7 +687,7 @@ void LoopHoist::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* bl
 
                 if (m_valueStack.TopRef().m_hoistable)
                 {
-                    m_loopHoist->optHoistCandidate(stmt->GetRootNode(), m_loopNum, m_hoistContext);
+                    m_loopHoist->optHoistCandidate(stmt->GetRootNode(), m_loopNum);
                 }
 
                 m_valueStack.Clear();
@@ -1007,7 +992,7 @@ void LoopHoist::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* bl
                         value.m_hoistable = false;
                         value.m_invariant = false;
 
-                        m_loopHoist->optHoistCandidate(value.Node(), m_loopNum, m_hoistContext);
+                        m_loopHoist->optHoistCandidate(value.Node(), m_loopNum);
                     }
                 }
             }
@@ -1027,7 +1012,7 @@ void LoopHoist::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* bl
     LoopDsc* loopDsc = &optLoopTable[loopNum];
     assert(blocks->Top() == loopDsc->lpEntry);
 
-    HoistVisitor visitor(compiler, loopNum, this, hoistContext);
+    HoistVisitor visitor(compiler, loopNum, this);
 
     while (!blocks->Empty())
     {
@@ -1049,7 +1034,7 @@ void LoopHoist::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* bl
     }
 }
 
-void LoopHoist::optHoistCandidate(GenTree* tree, unsigned lnum, LoopHoistContext* hoistCtxt)
+void LoopHoist::optHoistCandidate(GenTree* tree, unsigned lnum)
 {
     assert(lnum != BasicBlock::NOT_IN_LOOP);
     assert((optLoopTable[lnum].lpFlags & LPFLG_HOISTABLE) != 0);
@@ -1061,13 +1046,13 @@ void LoopHoist::optHoistCandidate(GenTree* tree, unsigned lnum, LoopHoistContext
     }
 
     bool b;
-    if (hoistCtxt->m_hoistedInParentLoops.Lookup(tree->gtVNPair.GetLiberal(), &b))
+    if (m_hoistedInParentLoops.Lookup(tree->gtVNPair.GetLiberal(), &b))
     {
         // already hoisted in a parent loop, so don't hoist this expression.
         return;
     }
 
-    if (hoistCtxt->GetHoistedInCurLoop(compiler)->Lookup(tree->gtVNPair.GetLiberal(), &b))
+    if (GetHoistedInCurLoop()->Lookup(tree->gtVNPair.GetLiberal(), &b))
     {
         // already hoisted this expression in the current loop, so don't hoist this expression.
         return;
@@ -1094,7 +1079,7 @@ void LoopHoist::optHoistCandidate(GenTree* tree, unsigned lnum, LoopHoistContext
     }
 
     // Record the hoisted expression in hoistCtxt
-    hoistCtxt->GetHoistedInCurLoop(compiler)->Set(tree->gtVNPair.GetLiberal(), true);
+    GetHoistedInCurLoop()->Set(tree->gtVNPair.GetLiberal(), true);
 }
 
 bool LoopHoist::optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* loopVnInvariantCache)
