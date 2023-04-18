@@ -7129,10 +7129,6 @@ struct VNLoop
     FieldHandleSet* lpFieldsModified;
     TypeNumSet*     lpArrayElemTypesModified;
 
-    // TODO-MIKE-Cleanup: These have nothing to do with value numbering, they should be moved to LoopHoist::Stats.
-    VARSET_TP lpVarInOut;  // The set of variables that are IN or OUT during the execution of this loop
-    VARSET_TP lpVarUseDef; // The set of variables that are USE or DEF during the execution of this loop
-
     bool lpLoopHasMemoryHavoc : 1; // The loop contains an operation that we assume has arbitrary
     // memory side effects.  If this is set, the fields below
     // may not be accurate (since they become irrelevant.)

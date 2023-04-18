@@ -16,6 +16,8 @@ class LoopHoist
 
     struct LoopStats
     {
+        VARSET_TP lpVarInOut;
+        VARSET_TP lpVarUseDef;
         // The register count for the non-FP expressions from inside this loop that have been hoisted
         int lpHoistedExprCount;
         // The register count for the non-FP LclVars that are read/written inside this loop
@@ -58,6 +60,8 @@ public:
         , m_hoistedInParentLoops(compiler->getAllocator(CMK_LoopHoist))
         , m_curLoopVnInvariantCache(compiler->getAllocator(CMK_LoopHoist))
     {
+        stats.lpVarInOut  = VarSetOps::MakeEmpty(compiler);
+        stats.lpVarUseDef = VarSetOps::MakeEmpty(compiler);
     }
 
     void Run();
@@ -300,7 +304,6 @@ void LoopHoist::optHoistLoopNest(unsigned lnum)
 void LoopHoist::optHoistThisLoop(unsigned lnum)
 {
     LoopDsc* pLoopDsc = &optLoopTable[lnum];
-    VNLoop*  vnLoop   = &vnLoopTable[lnum];
 
     /* If loop was removed continue */
 
@@ -350,14 +353,39 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
     if (compiler->verbose)
     {
         printf("optHoistLoopCode for loop " FMT_LP " <" FMT_BB ".." FMT_BB ">:\n", lnum, begn, endn);
-        printf("  Loop body %s a call\n", vnLoop->lpContainsCall ? "contains" : "does not contain");
+        printf("  Loop body %s a call\n", vnLoopTable[lnum].lpContainsCall ? "contains" : "does not contain");
         printf("  Loop has %s\n", (pLoopDsc->lpFlags & LPFLG_ONE_EXIT) ? "single exit" : "multiple exits");
     }
 #endif
 
-    VARSET_TP loopVars(VarSetOps::Intersection(compiler, vnLoop->lpVarInOut, vnLoop->lpVarUseDef));
+    VarSetOps::ClearD(compiler, stats.lpVarInOut);
+    VarSetOps::ClearD(compiler, stats.lpVarUseDef);
 
-    stats.lpVarInOutCount    = VarSetOps::Count(compiler, vnLoop->lpVarInOut);
+    for (BasicBlock* const block : pLoopDsc->LoopBlocks())
+    {
+        if (block->bbNatLoopNum == BasicBlock::NOT_IN_LOOP)
+        {
+            // We encountered a block that was moved into the loop range (by fgReorderBlocks),
+            // but not marked correctly as being inside the loop.
+            // All done, no need to keep visiting more blocks.
+            //
+            // TODO-MIKE-Review: What about liveness?
+            // And in general this case is dubious. Why wasn't the block marked correctly?
+            // Is it a part of the loop or not? Why wasn't this fixed? Stupid JIT commenting
+            // as usual, write a bunch of crap that doesn't actually explain anything.
+            break;
+        }
+
+        VarSetOps::UnionD(compiler, stats.lpVarInOut, block->bbLiveIn);
+        VarSetOps::UnionD(compiler, stats.lpVarInOut, block->bbLiveOut);
+
+        VarSetOps::UnionD(compiler, stats.lpVarUseDef, block->bbVarUse);
+        VarSetOps::UnionD(compiler, stats.lpVarUseDef, block->bbVarDef);
+    }
+
+    VARSET_TP loopVars(VarSetOps::Intersection(compiler, stats.lpVarInOut, stats.lpVarUseDef));
+
+    stats.lpVarInOutCount    = VarSetOps::Count(compiler, stats.lpVarInOut);
     stats.lpLoopVarCount     = VarSetOps::Count(compiler, loopVars);
     stats.lpHoistedExprCount = 0;
 
@@ -370,7 +398,7 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
         //  the Counts such that each TYP_LONG variable counts twice.
         //
         VARSET_TP loopLongVars(VarSetOps::Intersection(compiler, loopVars, lvaLongVars));
-        VARSET_TP inOutLongVars(VarSetOps::Intersection(compiler, vnLoop->lpVarInOut, lvaLongVars));
+        VARSET_TP inOutLongVars(VarSetOps::Intersection(compiler, stats.lpVarInOut, lvaLongVars));
 
 #ifdef DEBUG
         if (compiler->verbose)
@@ -387,11 +415,11 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
 #ifdef DEBUG
     if (compiler->verbose)
     {
-        printf("\n  USEDEF  (%d)=", VarSetOps::Count(compiler, vnLoop->lpVarUseDef));
-        compiler->lvaDispVarSet(vnLoop->lpVarUseDef);
+        printf("\n  USEDEF  (%d)=", VarSetOps::Count(compiler, stats.lpVarUseDef));
+        compiler->lvaDispVarSet(stats.lpVarUseDef);
 
         printf("\n  INOUT   (%d)=", stats.lpVarInOutCount);
-        compiler->lvaDispVarSet(vnLoop->lpVarInOut);
+        compiler->lvaDispVarSet(stats.lpVarInOut);
 
         printf("\n  LOOPVARS(%d)=", stats.lpLoopVarCount);
         compiler->lvaDispVarSet(loopVars);
@@ -404,7 +432,7 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
     if (floatVarsCount > 0)
     {
         VARSET_TP loopFPVars(VarSetOps::Intersection(compiler, loopVars, lvaFloatVars));
-        VARSET_TP inOutFPVars(VarSetOps::Intersection(compiler, vnLoop->lpVarInOut, lvaFloatVars));
+        VARSET_TP inOutFPVars(VarSetOps::Intersection(compiler, stats.lpVarInOut, lvaFloatVars));
 
         stats.lpLoopVarFPCount     = VarSetOps::Count(compiler, loopFPVars);
         stats.lpVarInOutFPCount    = VarSetOps::Count(compiler, inOutFPVars);
@@ -466,11 +494,6 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
 
 bool LoopHoist::optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum)
 {
-    LoopDsc* pLoopDsc = &optLoopTable[lnum];
-    VNLoop*  vnLoop   = &vnLoopTable[lnum];
-
-    bool loopContainsCall = vnLoop->lpContainsCall;
-
     int availRegCount;
     int hoistedExprCount;
     int loopVarCount;
@@ -483,7 +506,7 @@ bool LoopHoist::optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum)
         varInOutCount    = stats.lpVarInOutFPCount;
 
         availRegCount = CNT_CALLEE_SAVED_FLOAT;
-        if (!loopContainsCall)
+        if (!vnLoopTable[lnum].lpContainsCall)
         {
             availRegCount += CNT_CALLEE_TRASH_FLOAT - 1;
         }
@@ -502,7 +525,7 @@ bool LoopHoist::optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum)
         varInOutCount    = stats.lpVarInOutCount;
 
         availRegCount = CNT_CALLEE_SAVED - 1;
-        if (!loopContainsCall)
+        if (!vnLoopTable[lnum].lpContainsCall)
         {
             availRegCount += CNT_CALLEE_TRASH - 1;
         }

@@ -3802,7 +3802,6 @@ public:
     bool m_modifiesAddressExposedLocals : 1;
 
     VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum);
-    void AddLocalLiveness(BasicBlock* block) const;
     void AddMemoryHavoc();
     void AddCall();
     void AddAddressExposedLocal(unsigned lclNum);
@@ -7447,7 +7446,7 @@ void ValueNumbering::vnSummarizeLoopMemoryStores()
                 summary.UpdateLoops();
 
                 // All done, no need to keep visiting more blocks.
-                // TODO-MIKE-Review: What about local liveness and calls?
+                // TODO-MIKE-Review: What about calls?
                 // And in general this case is dubious. Why wasn't the block marked correctly?
                 // Is it a part of the loop or not? Why wasn't this fixed? Stupid JIT commenting
                 // as usual, write a bunch of crap that doesn't actually explain anything.
@@ -7455,7 +7454,6 @@ void ValueNumbering::vnSummarizeLoopMemoryStores()
             }
 
             VNLoopMemorySummary summary(compiler, this, block->bbNatLoopNum);
-            summary.AddLocalLiveness(block);
 
             if (!summary.IsComplete())
             {
@@ -7690,8 +7688,6 @@ void ValueNumbering::fgValueNumberBlock(BasicBlock* blk)
 VNLoop::VNLoop(Compiler* compiler)
     : lpFieldsModified(nullptr)
     , lpArrayElemTypesModified(nullptr)
-    , lpVarInOut(VarSetOps::MakeEmpty(compiler))
-    , lpVarUseDef(VarSetOps::MakeEmpty(compiler))
     , lpLoopHasMemoryHavoc(false)
     , lpContainsCall(false)
     , modifiesAddressExposedLocals(false)
@@ -7707,20 +7703,6 @@ VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, ValueNumbering* val
     , m_modifiesAddressExposedLocals(false)
 {
     assert(loopNum < compiler->optLoopCount);
-}
-
-void VNLoopMemorySummary::AddLocalLiveness(BasicBlock* block) const
-{
-    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
-    {
-        VNLoop& loop = m_valueNumbering->vnLoopTable[n];
-
-        VarSetOps::UnionD(m_compiler, loop.lpVarInOut, block->bbLiveIn);
-        VarSetOps::UnionD(m_compiler, loop.lpVarInOut, block->bbLiveOut);
-
-        VarSetOps::UnionD(m_compiler, loop.lpVarUseDef, block->bbVarUse);
-        VarSetOps::UnionD(m_compiler, loop.lpVarUseDef, block->bbVarDef);
-    }
 }
 
 void VNLoopMemorySummary::AddMemoryHavoc()
