@@ -10,8 +10,25 @@ class LoopHoist
 {
     using LoopDsc = Compiler::LoopDsc;
 
+    struct LoopStats
+    {
+        // The register count for the non-FP expressions from inside this loop that have been hoisted
+        int lpHoistedExprCount;
+        // The register count for the non-FP LclVars that are read/written inside this loop
+        int lpLoopVarCount;
+        // The register count for the non-FP LclVars that are alive inside or across this loop
+        int lpVarInOutCount;
+        // The register count for the FP expressions from inside this loop that have been hoisted
+        int lpHoistedFPExprCount;
+        // The register count for the FP LclVars that are read/written inside this loop
+        int lpLoopVarFPCount;
+        // The register count for the FP LclVars that are alive inside or across this loop
+        int lpVarInOutFPCount;
+    };
+
     Compiler* const      compiler;
     ValueNumStore* const vnStore;
+    LoopStats* const     loopStats;
     VNLoop* const        vnLoopTable;
     LoopDsc* const       optLoopTable;
     unsigned const       optLoopCount;
@@ -31,6 +48,7 @@ public:
     LoopHoist(Compiler* compiler)
         : compiler(compiler)
         , vnStore(compiler->vnStore)
+        , loopStats(compiler->getAllocator(CMK_LoopHoist).allocate<LoopStats>(compiler->optLoopCount))
         , vnLoopTable(compiler->valueNumbering->vnLoopTable)
         , optLoopTable(compiler->optLoopTable)
         , optLoopCount(compiler->optLoopCount)
@@ -280,8 +298,9 @@ void LoopHoist::optHoistLoopNest(unsigned lnum)
 
 void LoopHoist::optHoistThisLoop(unsigned lnum)
 {
-    LoopDsc* pLoopDsc = &optLoopTable[lnum];
-    VNLoop*  vnLoop   = &vnLoopTable[lnum];
+    LoopDsc*   pLoopDsc = &optLoopTable[lnum];
+    VNLoop*    vnLoop   = &vnLoopTable[lnum];
+    LoopStats& stats    = loopStats[lnum];
 
     /* If loop was removed continue */
 
@@ -340,9 +359,9 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
 
     VARSET_TP loopVars(VarSetOps::Intersection(compiler, vnLoop->lpVarInOut, vnLoop->lpVarUseDef));
 
-    vnLoop->lpVarInOutCount    = VarSetOps::Count(compiler, vnLoop->lpVarInOut);
-    vnLoop->lpLoopVarCount     = VarSetOps::Count(compiler, loopVars);
-    vnLoop->lpHoistedExprCount = 0;
+    stats.lpVarInOutCount    = VarSetOps::Count(compiler, vnLoop->lpVarInOut);
+    stats.lpLoopVarCount     = VarSetOps::Count(compiler, loopVars);
+    stats.lpHoistedExprCount = 0;
 
 #ifndef TARGET_64BIT
     unsigned longVarsCount = VarSetOps::Count(compiler, lvaLongVars);
@@ -362,8 +381,8 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
             compiler->lvaDispVarSet(lvaLongVars);
         }
 #endif
-        vnLoop->lpLoopVarCount += VarSetOps::Count(compiler, loopLongVars);
-        vnLoop->lpVarInOutCount += VarSetOps::Count(compiler, inOutLongVars);
+        stats.lpLoopVarCount += VarSetOps::Count(compiler, loopLongVars);
+        stats.lpVarInOutCount += VarSetOps::Count(compiler, inOutLongVars);
     }
 #endif // !TARGET_64BIT
 
@@ -373,10 +392,10 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
         printf("\n  USEDEF  (%d)=", VarSetOps::Count(compiler, vnLoop->lpVarUseDef));
         compiler->lvaDispVarSet(vnLoop->lpVarUseDef);
 
-        printf("\n  INOUT   (%d)=", vnLoop->lpVarInOutCount);
+        printf("\n  INOUT   (%d)=", stats.lpVarInOutCount);
         compiler->lvaDispVarSet(vnLoop->lpVarInOut);
 
-        printf("\n  LOOPVARS(%d)=", vnLoop->lpLoopVarCount);
+        printf("\n  LOOPVARS(%d)=", stats.lpLoopVarCount);
         compiler->lvaDispVarSet(loopVars);
         printf("\n");
     }
@@ -389,20 +408,20 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
         VARSET_TP loopFPVars(VarSetOps::Intersection(compiler, loopVars, lvaFloatVars));
         VARSET_TP inOutFPVars(VarSetOps::Intersection(compiler, vnLoop->lpVarInOut, lvaFloatVars));
 
-        vnLoop->lpLoopVarFPCount     = VarSetOps::Count(compiler, loopFPVars);
-        vnLoop->lpVarInOutFPCount    = VarSetOps::Count(compiler, inOutFPVars);
-        vnLoop->lpHoistedFPExprCount = 0;
+        stats.lpLoopVarFPCount     = VarSetOps::Count(compiler, loopFPVars);
+        stats.lpVarInOutFPCount    = VarSetOps::Count(compiler, inOutFPVars);
+        stats.lpHoistedFPExprCount = 0;
 
-        vnLoop->lpLoopVarCount -= vnLoop->lpLoopVarFPCount;
-        vnLoop->lpVarInOutCount -= vnLoop->lpVarInOutFPCount;
+        stats.lpLoopVarCount -= stats.lpLoopVarFPCount;
+        stats.lpVarInOutCount -= stats.lpVarInOutFPCount;
 
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            printf("  INOUT-FP(%d)=", vnLoop->lpVarInOutFPCount);
+            printf("  INOUT-FP(%d)=", stats.lpVarInOutFPCount);
             compiler->lvaDispVarSet(inOutFPVars);
 
-            printf("\n  LOOPV-FP(%d)=", vnLoop->lpLoopVarFPCount);
+            printf("\n  LOOPV-FP(%d)=", stats.lpLoopVarFPCount);
             compiler->lvaDispVarSet(loopFPVars);
 
             printf("\n");
@@ -411,9 +430,9 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
     }
     else // (floatVarsCount == 0)
     {
-        vnLoop->lpLoopVarFPCount     = 0;
-        vnLoop->lpVarInOutFPCount    = 0;
-        vnLoop->lpHoistedFPExprCount = 0;
+        stats.lpLoopVarFPCount     = 0;
+        stats.lpVarInOutFPCount    = 0;
+        stats.lpHoistedFPExprCount = 0;
     }
 
     // Find the set of definitely-executed blocks.
@@ -449,8 +468,9 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
 
 bool LoopHoist::optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum)
 {
-    LoopDsc* pLoopDsc = &optLoopTable[lnum];
-    VNLoop*  vnLoop   = &vnLoopTable[lnum];
+    LoopDsc*   pLoopDsc = &optLoopTable[lnum];
+    VNLoop*    vnLoop   = &vnLoopTable[lnum];
+    LoopStats& stats    = loopStats[lnum];
 
     bool loopContainsCall = vnLoop->lpContainsCall;
 
@@ -461,9 +481,9 @@ bool LoopHoist::optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum)
 
     if (varTypeIsFloating(tree))
     {
-        hoistedExprCount = vnLoop->lpHoistedFPExprCount;
-        loopVarCount     = vnLoop->lpLoopVarFPCount;
-        varInOutCount    = vnLoop->lpVarInOutFPCount;
+        hoistedExprCount = stats.lpHoistedFPExprCount;
+        loopVarCount     = stats.lpLoopVarFPCount;
+        varInOutCount    = stats.lpVarInOutFPCount;
 
         availRegCount = CNT_CALLEE_SAVED_FLOAT;
         if (!loopContainsCall)
@@ -480,9 +500,9 @@ bool LoopHoist::optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum)
     }
     else
     {
-        hoistedExprCount = vnLoop->lpHoistedExprCount;
-        loopVarCount     = vnLoop->lpLoopVarCount;
-        varInOutCount    = vnLoop->lpVarInOutCount;
+        hoistedExprCount = stats.lpHoistedExprCount;
+        loopVarCount     = stats.lpLoopVarCount;
+        varInOutCount    = stats.lpVarInOutCount;
 
         availRegCount = CNT_CALLEE_SAVED - 1;
         if (!loopContainsCall)
@@ -1055,18 +1075,18 @@ void LoopHoist::optHoistCandidate(GenTree* tree, unsigned lnum)
     // Increment lpHoistedExprCount or lpHoistedFPExprCount
     if (!varTypeIsFloating(tree->TypeGet()))
     {
-        vnLoopTable[lnum].lpHoistedExprCount++;
+        loopStats[lnum].lpHoistedExprCount++;
 #ifndef TARGET_64BIT
         // For our 32-bit targets Long types take two registers.
         if (varTypeIsLong(tree->TypeGet()))
         {
-            vnLoopTable[lnum].lpHoistedExprCount++;
+            loopStats[lnum].lpHoistedExprCount++;
         }
 #endif
     }
     else // Floating point expr hoisted
     {
-        vnLoopTable[lnum].lpHoistedFPExprCount++;
+        loopStats[lnum].lpHoistedFPExprCount++;
     }
 
     GetHoistedInCurrentLoop()->Add(tree->GetLiberalVN());

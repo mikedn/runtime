@@ -7766,7 +7766,7 @@ void VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
         if (loop.lpFieldsModified == nullptr)
         {
             loop.lpFieldsModified = new (m_compiler->getAllocator(CMK_ValueNumber))
-                VNLoop::FieldHandleSet(m_compiler->getAllocator(CMK_ValueNumber));
+                FieldHandleSet(m_compiler->getAllocator(CMK_ValueNumber));
         }
 
         if (loop.lpFieldsModified->Add(fieldHandle))
@@ -7784,8 +7784,8 @@ void VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
 
         if (loop.lpArrayElemTypesModified == nullptr)
         {
-            loop.lpArrayElemTypesModified = new (m_compiler->getAllocator(CMK_ValueNumber))
-                VNLoop::TypeNumSet(m_compiler->getAllocator(CMK_ValueNumber));
+            loop.lpArrayElemTypesModified =
+                new (m_compiler->getAllocator(CMK_ValueNumber)) TypeNumSet(m_compiler->getAllocator(CMK_ValueNumber));
         }
 
         if (loop.lpArrayElemTypesModified->Add(elemTypeNum))
@@ -7900,7 +7900,7 @@ ValueNum ValueNumbering::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned
     // Modify "base" by setting all the modified fields/field maps/array maps to unknown values.
 
     // First the fields/field maps.
-    VNLoop::FieldHandleSet* fieldsMod = vnLoopTable[loopNum].lpFieldsModified;
+    FieldHandleSet* fieldsMod = vnLoopTable[loopNum].lpFieldsModified;
     if (fieldsMod != nullptr)
     {
         for (CORINFO_FIELD_HANDLE fieldHandle : *fieldsMod)
@@ -7918,7 +7918,7 @@ ValueNum ValueNumbering::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned
         }
     }
     // Now do the array maps.
-    VNLoop::TypeNumSet* elemTypesMod = vnLoopTable[loopNum].lpArrayElemTypesModified;
+    TypeNumSet* elemTypesMod = vnLoopTable[loopNum].lpArrayElemTypesModified;
     if (elemTypesMod != nullptr)
     {
         for (unsigned elemTypeNum : *elemTypesMod)

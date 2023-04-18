@@ -7122,17 +7122,15 @@ public:
 class ValueNumberState;
 class VNLoopMemorySummary;
 
+using FieldHandleSet = JitHashSet<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>>;
+using TypeNumSet     = JitHashSet<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>>;
+
 struct VNLoop
 {
-    typedef JitHashSet<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>> FieldHandleSet;
-    FieldHandleSet* lpFieldsModified; // This has entries (mappings to "true") for all static field and object
-    // instance fields modified
-    // in the loop.
+    FieldHandleSet* lpFieldsModified;
+    TypeNumSet*     lpArrayElemTypesModified;
 
-    // The set of array element types that are modified in the loop.
-    typedef JitHashSet<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>> TypeNumSet;
-    TypeNumSet* lpArrayElemTypesModified;
-
+    // TODO-MIKE-Cleanup: These have nothing to do with value numbering, they should be moved to LoopHoist::Stats.
     VARSET_TP lpVarInOut;  // The set of variables that are IN or OUT during the execution of this loop
     VARSET_TP lpVarUseDef; // The set of variables that are USE or DEF during the execution of this loop
 
@@ -7143,19 +7141,6 @@ struct VNLoop
 
     // TODO-MIKE-CQ: We could record individual AX local access like we do for fields and arrays.
     bool modifiesAddressExposedLocals : 1;
-
-    // TODO-MIKE-Cleanup: These have nothing to do with value numbering,
-    // they should be moved to LoopHoistContext.
-
-    int lpHoistedExprCount; // The register count for the non-FP expressions from inside this loop that have been
-    // hoisted
-    int lpLoopVarCount;  // The register count for the non-FP LclVars that are read/written inside this loop
-    int lpVarInOutCount; // The register count for the non-FP LclVars that are alive inside or across this loop
-
-    int lpHoistedFPExprCount; // The register count for the FP expressions from inside this loop that have been
-    // hoisted
-    int lpLoopVarFPCount;  // The register count for the FP LclVars that are read/written inside this loop
-    int lpVarInOutFPCount; // The register count for the FP LclVars that are alive inside or across this loop
 
     VNLoop(Compiler* compiler);
 };
