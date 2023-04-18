@@ -32,7 +32,6 @@ class LoopHoist
 
     Compiler* const      compiler;
     ValueNumStore* const vnStore;
-    LoopStats* const     loopStats;
     VNLoop* const        vnLoopTable;
     LoopDsc* const       optLoopTable;
     unsigned const       optLoopCount;
@@ -47,12 +46,12 @@ class LoopHoist
     VARSET_TP lvaLongVars; // set of long (64-bit) variables
 #endif
     VARSET_TP lvaFloatVars; // set of floating-point (32-bit and 64-bit) variables
+    LoopStats stats;
 
 public:
     LoopHoist(Compiler* compiler)
         : compiler(compiler)
         , vnStore(compiler->vnStore)
-        , loopStats(compiler->getAllocator(CMK_LoopHoist).allocate<LoopStats>(compiler->optLoopCount))
         , vnLoopTable(compiler->valueNumbering->vnLoopTable)
         , optLoopTable(compiler->optLoopTable)
         , optLoopCount(compiler->optLoopCount)
@@ -300,9 +299,8 @@ void LoopHoist::optHoistLoopNest(unsigned lnum)
 
 void LoopHoist::optHoistThisLoop(unsigned lnum)
 {
-    LoopDsc*   pLoopDsc = &optLoopTable[lnum];
-    VNLoop*    vnLoop   = &vnLoopTable[lnum];
-    LoopStats& stats    = loopStats[lnum];
+    LoopDsc* pLoopDsc = &optLoopTable[lnum];
+    VNLoop*  vnLoop   = &vnLoopTable[lnum];
 
     /* If loop was removed continue */
 
@@ -468,9 +466,8 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
 
 bool LoopHoist::optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum)
 {
-    LoopDsc*   pLoopDsc = &optLoopTable[lnum];
-    VNLoop*    vnLoop   = &vnLoopTable[lnum];
-    LoopStats& stats    = loopStats[lnum];
+    LoopDsc* pLoopDsc = &optLoopTable[lnum];
+    VNLoop*  vnLoop   = &vnLoopTable[lnum];
 
     bool loopContainsCall = vnLoop->lpContainsCall;
 
@@ -1070,18 +1067,18 @@ void LoopHoist::optHoistCandidate(GenTree* tree, unsigned lnum)
     // Increment lpHoistedExprCount or lpHoistedFPExprCount
     if (!varTypeIsFloating(tree->TypeGet()))
     {
-        loopStats[lnum].lpHoistedExprCount++;
+        stats.lpHoistedExprCount++;
 #ifndef TARGET_64BIT
         // For our 32-bit targets Long types take two registers.
         if (varTypeIsLong(tree->TypeGet()))
         {
-            loopStats[lnum].lpHoistedExprCount++;
+            stats.lpHoistedExprCount++;
         }
 #endif
     }
     else // Floating point expr hoisted
     {
-        loopStats[lnum].lpHoistedFPExprCount++;
+        stats.lpHoistedFPExprCount++;
     }
 
     GetHoistedInCurrentLoop()->Add(tree->GetLiberalVN());
