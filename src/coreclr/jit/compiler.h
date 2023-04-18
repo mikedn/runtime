@@ -1267,10 +1267,9 @@ enum LoopFlags : uint16_t
 {
     LPFLG_EMPTY = 0,
 
-    LPFLG_DO_WHILE  = 0x0001, // it's a do-while loop (i.e ENTRY is at the TOP)
-    LPFLG_ONE_EXIT  = 0x0002, // the loop has only one exit
-    LPFLG_ITER      = 0x0004, // loop of form: for (i = icon or lclVar; test_condition(); i++)
-    LPFLG_HOISTABLE = 0x0008, // the loop is in a form that is suitable for hoisting expressions
+    LPFLG_DO_WHILE = 0x0001, // it's a do-while loop (i.e ENTRY is at the TOP)
+    LPFLG_ONE_EXIT = 0x0002, // the loop has only one exit
+    LPFLG_ITER     = 0x0004, // loop of form: for (i = icon or lclVar; test_condition(); i++)
 
     LPFLG_CONST      = 0x0010, // loop of form: for (i=icon;i<icon;i++){ ... } - constant loop
     LPFLG_VAR_INIT   = 0x0020, // iterator is initialized with a local var (var # found in lpVarInit)

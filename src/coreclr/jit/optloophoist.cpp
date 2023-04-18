@@ -93,8 +93,6 @@ void LoopHoist::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
                 origExpr->GetID(), lnum, optLoopTable[lnum].lpFirst->bbNum, optLoopTable[lnum].lpBottom->bbNum);
     JITDUMP("\n");
 
-    // This loop has to be in a form that is approved for hoisting.
-    assert(optLoopTable[lnum].lpFlags & LPFLG_HOISTABLE);
     assert(!origExpr->OperIs(GT_ASG, GT_LCL_DEF, GT_STORE_LCL_VAR));
 
     // Create a copy of the expression and mark it for CSE's.
@@ -339,8 +337,6 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
     {
         return;
     }
-
-    pLoopDsc->lpFlags |= LPFLG_HOISTABLE;
 
     unsigned begn = lbeg->bbNum;
     unsigned endn = tail->bbNum;
@@ -1049,7 +1045,6 @@ void LoopHoist::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* bl
 void LoopHoist::optHoistCandidate(GenTree* tree, unsigned lnum)
 {
     assert(lnum != BasicBlock::NOT_IN_LOOP);
-    assert((optLoopTable[lnum].lpFlags & LPFLG_HOISTABLE) != 0);
 
     // It must pass the hoistable profitablity tests for this loop level
     if (!optIsProfitableToHoistableTree(tree, lnum))
