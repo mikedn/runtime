@@ -65,7 +65,7 @@ private:
     bool optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum);
     void optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blocks);
     void optHoistCandidate(GenTree* tree, unsigned lnum);
-    bool optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* loopVnInvariantCache);
+    bool optVNIsLoopInvariant(ValueNum vn, unsigned lnum);
     void optPerformHoistExpr(GenTree* origExpr, unsigned lnum);
 
     VNSet* GetHoistedInCurrentLoop()
@@ -619,9 +619,8 @@ void LoopHoist::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* bl
 
         bool IsTreeVNInvariant(GenTree* tree)
         {
-            ValueNum vn = tree->gtVNPair.GetLiberal();
-            bool     vnIsInvariant =
-                m_loopHoist->optVNIsLoopInvariant(vn, m_loopNum, &m_loopHoist->m_curLoopVnInvariantCache);
+            ValueNum vn            = tree->gtVNPair.GetLiberal();
+            bool     vnIsInvariant = m_loopHoist->optVNIsLoopInvariant(vn, m_loopNum);
 
             // Even though VN is invariant in the loop (say a constant) its value may depend on position
             // of tree, so for loop hoisting we must also check that any memory read by tree
@@ -663,8 +662,7 @@ void LoopHoist::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* bl
             {
                 ValueNum loopMemoryVN = m_compiler->GetMemoryPerSsaData(loopEntryBlock->memoryEntrySsaNum)->m_vn;
 
-                if (!m_loopHoist->optVNIsLoopInvariant(loopMemoryVN, m_loopNum,
-                                                       &m_loopHoist->m_curLoopVnInvariantCache))
+                if (!m_loopHoist->optVNIsLoopInvariant(loopMemoryVN, m_loopNum))
                 {
                     return false;
                 }
@@ -1092,7 +1090,7 @@ void LoopHoist::optHoistCandidate(GenTree* tree, unsigned lnum)
     GetHoistedInCurrentLoop()->Add(tree->GetLiberalVN());
 }
 
-bool LoopHoist::optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* loopVnInvariantCache)
+bool LoopHoist::optVNIsLoopInvariant(ValueNum vn, unsigned lnum)
 {
     // If it is not a VN, is not loop-invariant.
     if (vn == ValueNumStore::NoVN)
@@ -1108,7 +1106,7 @@ bool LoopHoist::optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* lo
 
     // If we've done this query previously, don't repeat.
     bool previousRes = false;
-    if (loopVnInvariantCache->Lookup(vn, &previousRes))
+    if (m_curLoopVnInvariantCache.Lookup(vn, &previousRes))
     {
         return previousRes;
     }
@@ -1143,7 +1141,7 @@ bool LoopHoist::optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* lo
                 // TODO-CQ: We need to either make sure that *all* VN functions
                 // always take VN args, or else have a list of arg positions to exempt, as implicitly
                 // constant.
-                if (!optVNIsLoopInvariant(funcApp.m_args[i], lnum, loopVnInvariantCache))
+                if (!optVNIsLoopInvariant(funcApp.m_args[i], lnum))
                 {
                     res = false;
                     break;
@@ -1152,7 +1150,7 @@ bool LoopHoist::optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* lo
         }
     }
 
-    loopVnInvariantCache->Set(vn, res);
+    m_curLoopVnInvariantCache.Set(vn, res);
     return res;
 }
 
