@@ -4862,7 +4862,7 @@ void GenTreeOp::CheckDivideByConstOptimized(Compiler* comp)
         gtFlags |= GTF_DIV_BY_CNS_OPT;
 
         // Now set DONT_CSE on the GT_CNS_INT divisor, note that
-        // with ValueNumbering we can have a non GT_CNS_INT divisior
+        // with value numbering we can have a non GT_CNS_INT divisior
         GenTree* divisor = GetOp(1)->SkipComma();
         if (divisor->OperIs(GT_CNS_INT))
         {

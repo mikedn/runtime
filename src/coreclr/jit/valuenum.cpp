@@ -1,21 +1,160 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           ValueNum                                        XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
+#include "valuenum.h"
+
+using LoopDsc = Compiler::LoopDsc;
+
+struct VNLoop
+{
+    FieldHandleSet* lpFieldsModified;
+    TypeNumSet*     lpArrayElemTypesModified;
+
+    bool lpLoopHasMemoryHavoc : 1; // The loop contains an operation that we assume has arbitrary
+    // memory side effects.  If this is set, the fields below
+    // may not be accurate (since they become irrelevant.)
+    // TODO-MIKE-CQ: We could record individual AX local access like we do for fields and arrays.
+    bool modifiesAddressExposedLocals : 1;
+
+    VNLoop(Compiler* compiler);
+};
+
+class VNLoopMemorySummary
+{
+    Compiler*       m_compiler;
+    ValueNumbering* m_valueNumbering;
+    unsigned        m_loopNum;
+
+public:
+    bool m_memoryHavoc : 1;
+    bool m_hasCall : 1;
+    bool m_modifiesAddressExposedLocals : 1;
+
+    VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum);
+    void AddMemoryHavoc();
+    void AddCall();
+    void AddAddressExposedLocal(unsigned lclNum);
+    void AddField(CORINFO_FIELD_HANDLE fieldHandle);
+    void AddArrayType(unsigned elemTypeNum);
+    bool IsComplete() const;
+    void UpdateLoops() const;
+};
+
+class ValueNumbering
+{
+    friend class ValueNumberState;
+    friend class VNLoopMemorySummary;
+    friend class ValueNumStore;
+
+    Compiler*      compiler;
+    ValueNumStore* vnStore;
+    VNLoop*        vnLoopTable   = nullptr;
+    ValueNum       fgCurMemoryVN = NoVN;
+
+public:
+    ValueNumbering(Compiler* compiler, ValueNumStore* vnStore);
+    void Run();
+
+private:
+    void vnSummarizeLoopMemoryStores();
+    void vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopObjFieldMemoryStores(GenTreeIndir* store, FieldSeqNode* fieldSeq, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary);
+    bool vnBlockIsLoopEntry(BasicBlock* blk, unsigned* pLnum);
+
+    void fgValueNumberBlock(BasicBlock* blk);
+    ValueNum vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned loopNum);
+    void vnClearMemory(GenTree* node DEBUGARG(const char* comment = nullptr));
+    void vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment = nullptr));
+    ValueNum vnIntCon(GenTreeIntCon* intCon);
+    void fgValueNumberTree(GenTree* tree);
+    void vnComma(GenTreeOp* comma);
+    void vnAssignment(GenTreeOp* asg);
+    ValueNum vnCastStruct(ValueNumKind         vnk,
+                          ValueNum             valueVN,
+                          CORINFO_CLASS_HANDLE fromClassHandle,
+                          CORINFO_CLASS_HANDLE toClassHandle);
+    ValueNum vnCastStruct(ValueNumKind vnk, ValueNum valueVN, ClassLayout* fromLayout, ClassLayout* toLayout);
+    ValueNumPair vnCastStruct(ValueNumPair valueVNP, ClassLayout* fromLayout, ClassLayout* toLayout);
+    ValueNum vnCoerceStoreValue(
+        GenTree* store, GenTree* value, ValueNumKind vnk, var_types fieldType, ClassLayout* fieldLayout);
+    var_types vnGetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout);
+    ValueNum vnInsertStructField(GenTree*      store,
+                                 GenTree*      value,
+                                 ValueNumKind  vnk,
+                                 ValueNum      structVN,
+                                 var_types     structType,
+                                 FieldSeqNode* fieldSeq);
+    ValueNum vnExtractStructField(GenTree* load, ValueNumKind vnk, ValueNum structVN, FieldSeqNode* fieldSeq);
+    ValueNumPair vnExtractStructField(GenTree* load, ValueNumPair structVN, FieldSeqNode* fieldSeq);
+    ValueNum vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types fieldType, ClassLayout* fieldLayout);
+    void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
+    void vnLocalDef(GenTreeLclDef* def);
+    void vnLocalLoad(GenTreeLclVar* load);
+    void vnLocalUse(GenTreeLclUse* use);
+    void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
+    void vnInsert(GenTreeInsert* insert);
+    void vnLocalFieldLoad(GenTreeLclFld* load);
+    void vnExtract(GenTreeExtract* extract);
+    ValueNum vnAddField(GenTreeOp* add);
+    void vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);
+    void vnIndirLoad(GenTreeIndir* load);
+    ValueNum vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSeq, GenTree* value);
+    ValueNum vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq);
+    ValueNum vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeqNode* fieldSeq, GenTree* value);
+    ValueNum vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNode* fieldSeq);
+    ValueNum vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAddr, GenTree* value);
+    ValueNum vnArrayElemLoad(GenTreeIndir* store, const VNFuncApp& elemAddr);
+    ValueNum vnAddressExposedLocalStore(GenTree* store, ValueNum lclAddrVN, GenTree* value);
+    void vnNullCheck(GenTreeIndir* node);
+    void vnArrayLength(GenTreeArrLen* node);
+    void vnCmpXchg(GenTreeCmpXchg* node);
+    void vnInterlocked(GenTreeOp* node);
+    ValueNum vnMemoryLoad(var_types type, ValueNum addrVN);
+    FieldSeqNode* vnIsFieldAddr(GenTree* addr, GenTree** obj);
+    FieldSeqNode* vnIsStaticStructFieldAddr(GenTree* addr);
+    bool vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
+    void vnCast(GenTreeCast* cast);
+    void vnBitCast(GenTreeUnOp* tree);
+    void vnIntrinsic(GenTreeIntrinsic* intrinsic);
+#ifdef FEATURE_HW_INTRINSICS
+    void fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node);
+#endif
+    void fgValueNumberCall(GenTreeCall* call);
+    void fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueNumPair vnpExc);
+    bool fgValueNumberHelperCall(GenTreeCall* helpCall);
+    VNFunc fgValueNumberJitHelperMethodVNFunc(CorInfoHelpFunc helpFunc);
+    ValueNum vnGetBaseAddr(ValueNum addrVN);
+    ValueNum vnAddNullPtrExset(ValueNum addrVN);
+    ValueNumPair vnAddNullPtrExset(ValueNumPair addrVNP);
+    void vnAddNullPtrExset(GenTree* node, GenTree* addr);
+    void fgValueNumberAddExceptionSetForDivision(GenTree* tree);
+    void fgValueNumberAddExceptionSetForOverflow(GenTree* tree);
+    void vnAddBoundsChkExceptionSet(GenTreeBoundsChk* tree);
+    void vnCkFinite(GenTreeUnOp* node);
+    void vnAddNodeExceptionSet(GenTree* tree);
+
+#ifdef DEBUG
+    void vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment = nullptr);
+    void vnTraceMem(ValueNum vn, const char* comment = nullptr);
 #endif
 
-#include "valuenum.h"
+    LclVarDsc* lvaGetDesc(unsigned lclNum) const
+    {
+        return compiler->lvaGetDesc(lclNum);
+    }
+
+    LclVarDsc* lvaGetDesc(GenTreeLclVarCommon* lclNode) const
+    {
+        return compiler->lvaGetDesc(lclNode);
+    }
+};
 
 // Windows x86 and Windows ARM/ARM64 may not define _isnanf() but they do define _isnan().
 // We will redirect the macros to these other functions if the macro is not defined for the
@@ -3717,27 +3856,6 @@ ValueNum ValueNumStore::FieldSeqVNAppend(ValueNum fieldSeqVN, FieldSeqNode* fiel
     INDEBUG(vnTrace(fieldSeqVN));
     return fieldSeqVN;
 }
-
-class VNLoopMemorySummary
-{
-    Compiler*       m_compiler;
-    ValueNumbering* m_valueNumbering;
-    unsigned        m_loopNum;
-
-public:
-    bool m_memoryHavoc : 1;
-    bool m_hasCall : 1;
-    bool m_modifiesAddressExposedLocals : 1;
-
-    VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum);
-    void AddMemoryHavoc();
-    void AddCall();
-    void AddAddressExposedLocal(unsigned lclNum);
-    void AddField(CORINFO_FIELD_HANDLE fieldHandle);
-    void AddArrayType(unsigned elemTypeNum);
-    bool IsComplete() const;
-    void UpdateLoops() const;
-};
 
 ValueNum ValueNumbering::vnAddField(GenTreeOp* add)
 {
