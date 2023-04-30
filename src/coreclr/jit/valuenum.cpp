@@ -1646,6 +1646,19 @@ ValueNum ValueNumStore::VNForDoubleCon(double cnsVal)
     return VnForConst(cnsVal, GetDoubleCnsMap(), TYP_DOUBLE);
 }
 
+ValueNum ValueNumStore::VNForDblCon(var_types type, double value)
+{
+    if (type == TYP_FLOAT)
+    {
+        return VnForConst(static_cast<float>(value), GetFloatCnsMap(), type);
+    }
+    else
+    {
+        assert(type == TYP_DOUBLE);
+        return VnForConst(value, GetDoubleCnsMap(), type);
+    }
+}
+
 ValueNum ValueNumStore::VNForByrefCon(target_size_t cnsVal)
 {
     return VnForConst(cnsVal, GetByrefCnsMap(), TYP_BYREF);
@@ -7945,63 +7958,53 @@ void ValueNumbering::vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const
     }
 }
 
-void ValueNumbering::fgValueNumberTreeConst(GenTree* tree)
+ValueNum ValueNumbering::vnIntCon(GenTreeIntCon* intCon)
 {
-    var_types type = varActualType(tree->GetType());
+    var_types type = varActualType(intCon->GetType());
 
     switch (type)
     {
+#ifdef TARGET_64BIT
         case TYP_LONG:
-        case TYP_INT:
-            if (tree->IsIntCon() && tree->IsIconHandle())
+            if (intCon->IsHandle())
             {
-                tree->gtVNPair.SetBoth(vnStore->VNForHandle(tree->AsIntCon()->GetValue(), tree->GetIconHandleFlag()));
+                return vnStore->VNForHandle(intCon->GetInt64Value(), intCon->GetHandleKind());
             }
-            else if (type == TYP_LONG)
-            {
-                tree->gtVNPair.SetBoth(vnStore->VNForLongCon(tree->AsIntConCommon()->LngValue()));
-            }
-            else
-            {
-                tree->gtVNPair.SetBoth(vnStore->VNForIntCon(tree->AsIntCon()->GetInt32Value()));
-            }
-            break;
 
-        case TYP_FLOAT:
-            tree->gtVNPair.SetBoth(vnStore->VNForFloatCon(tree->AsDblCon()->GetFloatValue()));
-            break;
-        case TYP_DOUBLE:
-            tree->gtVNPair.SetBoth(vnStore->VNForDoubleCon(tree->AsDblCon()->GetDoubleValue()));
-            break;
+            return vnStore->VNForLongCon(intCon->GetInt64Value());
+#endif
+
+        case TYP_INT:
+#ifndef TARGET_64BIT
+            if (intCon->IsHandle())
+            {
+                return vnStore->VNForHandle(intCon->GetInt32Value(), intCon->GetHandleKind());
+            }
+#endif
+
+            return vnStore->VNForIntCon(intCon->GetInt32Value());
 
         case TYP_REF:
-            if (tree->AsIntCon()->GetValue() == 0)
+            if (intCon->GetValue() == 0)
             {
-                tree->gtVNPair.SetBoth(ValueNumStore::VNForNull());
+                return ValueNumStore::VNForNull();
             }
-            else
-            {
-                assert(tree->IsIconHandle(GTF_ICON_STR_HDL)); // Constant object can be only frozen string.
 
-                tree->gtVNPair.SetBoth(vnStore->VNForHandle(tree->AsIntCon()->GetValue(), tree->GetIconHandleFlag()));
-            }
-            break;
+            assert(intCon->IsIconHandle(GTF_ICON_STR_HDL)); // Constant object can be only frozen string.
+            return vnStore->VNForHandle(intCon->GetValue(), intCon->GetHandleKind());
 
         case TYP_BYREF:
-            if (tree->AsIntCon()->GetValue() == 0)
+            if (intCon->GetValue() == 0)
             {
-                tree->gtVNPair.SetBoth(ValueNumStore::VNForNull());
+                return ValueNumStore::VNForNull();
             }
-            else if (tree->IsIconHandle())
+
+            if (intCon->IsHandle())
             {
-                tree->gtVNPair.SetBoth(vnStore->VNForHandle(tree->AsIntCon()->GetValue(), tree->GetIconHandleFlag()));
+                return vnStore->VNForHandle(intCon->GetValue(), intCon->GetHandleKind());
             }
-            else
-            {
-                tree->gtVNPair.SetBoth(
-                    vnStore->VNForByrefCon(static_cast<target_size_t>(tree->AsIntCon()->GetValue())));
-            }
-            break;
+
+            return vnStore->VNForByrefCon(static_cast<target_size_t>(intCon->GetValue()));
 
         default:
             unreached();
@@ -8108,14 +8111,22 @@ void ValueNumbering::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemory
 
 void ValueNumbering::fgValueNumberTree(GenTree* tree)
 {
-    genTreeOps oper = tree->OperGet();
+    genTreeOps oper = tree->GetOper();
 
     switch (oper)
     {
         case GT_CNS_INT:
+            tree->SetVNP(ValueNumPair{vnIntCon(tree->AsIntCon())});
+            break;
+
+#ifndef TARGET_64BIT
         case GT_CNS_LNG:
+            tree->SetVNP(ValueNumPair{vnStore->VNForLongCon(tree->AsLngCon()->GetValue())});
+            break;
+#endif
+
         case GT_CNS_DBL:
-            fgValueNumberTreeConst(tree);
+            tree->SetVNP(ValueNumPair{vnStore->VNForDblCon(tree->GetType(), tree->AsDblCon()->GetValue())});
             break;
 
         case GT_LCL_ADDR:

@@ -653,40 +653,43 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             break;
 
         case GT_COMMA:
-            // Check for cast of a GT_COMMA with a throw overflow
             if (fgIsCommaThrow(src))
             {
-                GenTree* commaOp2 = src->AsOp()->GetOp(1);
+                GenTree* val = src->AsOp()->GetOp(1);
 
-                // need type of oper to be same as cast
-                if (cast->TypeIs(TYP_LONG))
+                if (varTypeIsFloating(cast->GetType()))
                 {
-                    commaOp2->ChangeOperConst(GT_CNS_NATIVELONG);
-                    commaOp2->AsIntConCommon()->SetLngValue(0);
-                    src->SetType(TYP_LONG);
-                    commaOp2->SetType(TYP_LONG);
-                }
-                else if (varTypeIsFloating(cast->GetType()))
-                {
-                    commaOp2->ChangeOperConst(GT_CNS_DBL);
-                    commaOp2->AsDblCon()->SetValue(0.0);
+                    val->ChangeToDblCon(cast->GetType(), 0.0);
                     src->SetType(cast->GetType());
-                    commaOp2->SetType(cast->GetType());
+
+                    if (vnStore != nullptr)
+                    {
+                        val->SetVNP(ValueNumPair{vnStore->VNForDblCon(cast->GetType(), 0.0)});
+                    }
+                }
+                else if (cast->TypeIs(TYP_LONG))
+                {
+                    val->ChangeOperConst(GT_CNS_NATIVELONG);
+                    val->AsIntConCommon()->SetLngValue(0);
+                    val->SetType(TYP_LONG);
+                    src->SetType(TYP_LONG);
+
+                    if (vnStore != nullptr)
+                    {
+                        val->SetVNP(ValueNumPair{vnStore->VNForLongCon(0)});
+                    }
                 }
                 else
                 {
-                    commaOp2->ChangeOperConst(GT_CNS_INT);
-                    commaOp2->AsIntCon()->SetValue(0);
+                    val->ChangeToIntCon(TYP_INT, 0);
                     src->SetType(TYP_INT);
-                    commaOp2->SetType(TYP_INT);
+
+                    if (vnStore != nullptr)
+                    {
+                        val->SetVNP(ValueNumPair{vnStore->VNForIntCon(0)});
+                    }
                 }
 
-                if (valueNumbering != nullptr)
-                {
-                    valueNumbering->fgValueNumberTreeConst(commaOp2);
-                }
-
-                // Return the GT_COMMA node as the new tree
                 return src;
             }
             break;
@@ -777,13 +780,13 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
 
             if (doit)
             {
-                tree->ChangeOperConst(GT_CNS_INT);
-                tree->gtType                = TYP_INT;
-                tree->AsIntCon()->gtIconVal = (int)lval;
+                int32_t value = static_cast<int32_t>(lval);
 
-                if (valueNumbering != nullptr)
+                tree->ChangeToIntCon(TYP_INT, value);
+
+                if (vnStore != nullptr)
                 {
-                    valueNumbering->fgValueNumberTreeConst(tree);
+                    tree->SetVNP(ValueNumPair{vnStore->VNForIntCon(value)});
                 }
             }
 
@@ -831,12 +834,14 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
 #ifdef TARGET_64BIT
             if (doit)
             {
-                tree->gtType                = TYP_INT;
-                tree->AsIntCon()->gtIconVal = (int)ival;
+                int32_t value = static_cast<int32_t>(ival);
 
-                if (valueNumbering != nullptr)
+                tree->SetType(TYP_INT);
+                tree->AsIntCon()->SetValue(value);
+
+                if (vnStore != nullptr)
                 {
-                    valueNumbering->fgValueNumberTreeConst(tree);
+                    tree->SetVNP(ValueNumPair{vnStore->VNForIntCon(value)});
                 }
             }
 #endif // TARGET_64BIT
@@ -11718,31 +11723,25 @@ DONE_MORPHING_CHILDREN:
                     }
                 }
             }
-            /* See if we can fold GT_MUL by const nodes */
-            else if (oper == GT_MUL && op2->IsCnsIntOrI())
+            else if ((oper == GT_MUL) && op2->IsIntCon())
             {
-#ifndef TARGET_64BIT
-                noway_assert(typ <= TYP_UINT);
-#endif // TARGET_64BIT
+                noway_assert(typ == op2->GetType());
                 noway_assert(!tree->gtOverflow());
 
-                ssize_t mult = op2->AsIntConCommon()->IconValue();
+                ssize_t mult = op2->AsIntCon()->GetValue();
 
                 if (mult == 0)
                 {
-                    // We may be able to throw away op1 (unless it has side-effects)
-
                     if ((op1->gtFlags & GTF_SIDE_EFFECT) == 0)
                     {
                         DEBUG_DESTROY_NODE(op1);
                         DEBUG_DESTROY_NODE(tree);
-                        return op2; // Just return the "0" node
+
+                        return op2;
                     }
 
-                    // We need to keep op1 for the side-effects. Hang it off
-                    // a GT_COMMA node
-
                     tree->ChangeOper(GT_COMMA);
+
                     return tree;
                 }
 
@@ -11750,29 +11749,24 @@ DONE_MORPHING_CHILDREN:
                 size_t lowestBit     = genFindLowestBit(abs_mult);
                 bool   changeToShift = false;
 
-                // is it a power of two? (positive or negative)
                 if (abs_mult == lowestBit)
                 {
-                    // if negative negate (min-int does not need negation)
-                    if (mult < 0 && mult != SSIZE_T_MIN)
+                    if ((mult < 0) && (mult != SSIZE_T_MIN))
                     {
-                        // The type of the new GT_NEG node cannot just be op1->TypeGet().
-                        // Otherwise we may sign-extend incorrectly in cases where the GT_NEG
-                        // node ends up feeding directly a cast, for example in
-                        // GT_CAST<ubyte>(GT_MUL(-1, s_1.ubyte))
-                        tree->AsOp()->gtOp1 = op1 = gtNewOperNode(GT_NEG, genActualType(op1->TypeGet()), op1);
+                        op1 = gtNewOperNode(GT_NEG, typ, op1);
                         fgMorphTreeDone(op1);
+                        tree->AsOp()->SetOp(0, op1);
                     }
 
                     if (abs_mult == 1)
                     {
                         DEBUG_DESTROY_NODE(op2);
                         DEBUG_DESTROY_NODE(tree);
+
                         return op1;
                     }
 
-                    /* Change the multiplication into a shift by log2(val) bits */
-                    op2->AsIntConCommon()->SetIconValue(genLog2(abs_mult));
+                    op2->AsIntCon()->SetValue(genLog2(abs_mult));
                     changeToShift = true;
                 }
 #if LEA_AVAILABLE
@@ -11781,36 +11775,39 @@ DONE_MORPHING_CHILDREN:
                     int     shift  = genLog2(lowestBit);
                     ssize_t factor = abs_mult >> shift;
 
-                    if (factor == 3 || factor == 5 || factor == 9)
+                    if ((factor == 3) || (factor == 5) || (factor == 9))
                     {
-                        // if negative negate (min-int does not need negation)
-                        if (mult < 0 && mult != SSIZE_T_MIN)
+                        if ((mult < 0) && (mult != SSIZE_T_MIN))
                         {
-                            tree->AsOp()->gtOp1 = op1 = gtNewOperNode(GT_NEG, genActualType(op1->TypeGet()), op1);
+                            op1 = gtNewOperNode(GT_NEG, typ, op1);
                             fgMorphTreeDone(op1);
+                            tree->AsOp()->SetOp(0, op1);
                         }
 
-                        GenTree* factorIcon = gtNewIconNode(factor, TYP_I_IMPL);
-
-                        // change the multiplication into a smaller multiplication (by 3, 5 or 9) and a shift
-                        tree->AsOp()->gtOp1 = op1 = gtNewOperNode(GT_MUL, tree->gtType, op1, factorIcon);
+                        op1 = gtNewOperNode(GT_MUL, typ, op1, gtNewIconNode(factor, typ));
                         fgMorphTreeDone(op1);
+                        tree->AsOp()->SetOp(0, op1);
 
-                        op2->AsIntConCommon()->SetIconValue(shift);
+                        op2->AsIntCon()->SetValue(shift);
                         changeToShift = true;
                     }
                 }
 #endif // LEA_AVAILABLE
+
                 if (changeToShift)
                 {
-                    if (valueNumbering != nullptr)
+                    if (vnStore != nullptr)
                     {
-                        valueNumbering->fgValueNumberTreeConst(op2);
+#ifdef TARGET_64BIT
+                        op2->SetVNP(ValueNumPair{op2->TypeIs(TYP_LONG)
+                                                     ? vnStore->VNForLongCon(op2->AsIntCon()->GetInt64Value())
+                                                     : vnStore->VNForIntCon(op2->AsIntCon()->GetInt32Value())});
+#else
+                        op2->SetVNP(ValueNumPair{vnStore->VNForIntCon(op2->AsIntCon()->GetInt32Value())});
+#endif
                     }
 
                     oper = GT_LSH;
-                    // Keep the old ValueNumber for 'tree' as the new expr
-                    // will still compute the same value as before
                     tree->ChangeOper(oper, GenTree::PRESERVE_VN);
 
                     goto DONE_MORPHING_CHILDREN;

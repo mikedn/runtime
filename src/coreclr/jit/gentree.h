@@ -1090,6 +1090,16 @@ public:
         return gtFlags & GTF_ALL_EFFECT;
     }
 
+    bool HasAllSideEffects(GenTreeFlags sideEffects) const
+    {
+        return (gtFlags & sideEffects) == sideEffects;
+    }
+
+    bool HasAnySideEffect(GenTreeFlags sideEffects) const
+    {
+        return (gtFlags & sideEffects) != GTF_NONE;
+    }
+
     void SetSideEffects(GenTreeFlags sideEffects)
     {
         assert((sideEffects & ~GTF_ALL_EFFECT) == 0);
@@ -1819,7 +1829,7 @@ public:
     bool IsIconHandle() const
     {
         assert(gtOper == GT_CNS_INT);
-        return (gtFlags & GTF_ICON_HDL_MASK) ? true : false;
+        return (gtFlags & GTF_ICON_HDL_MASK) != 0;
     }
 
     bool IsIconHandle(GenTreeFlags handleType) const
@@ -2768,6 +2778,11 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     void SetFieldSeq(FieldSeqNode* fieldSeq)
     {
         m_fieldSeq = fieldSeq;
+    }
+
+    bool IsHandle() const
+    {
+        return (gtFlags & GTF_ICON_HDL_MASK) != 0;
     }
 
     GenTreeFlags GetHandleKind() const

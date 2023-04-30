@@ -2277,8 +2277,20 @@ public:
 
                 if (delta != 0)
                 {
-                    GenTree* deltaNode = compiler->gtNewIconNode(delta, lclType);
-                    compiler->valueNumbering->fgValueNumberTreeConst(deltaNode);
+                    GenTree* deltaNode;
+
+                    if (varTypeSize(lclType) < 64)
+                    {
+                        int value = static_cast<int32_t>(delta);
+                        deltaNode = compiler->gtNewIconNode(value);
+                        deltaNode->SetVNP(ValueNumPair{vnStore->VNForIntCon(value)});
+                    }
+                    else
+                    {
+                        deltaNode = compiler->gtNewLconNode(delta);
+                        deltaNode->SetVNP(ValueNumPair{vnStore->VNForLongCon(delta)});
+                    }
+
                     newExpr = compiler->gtNewOperNode(GT_ADD, lclType, newExpr, deltaNode);
                     newExpr->SetDoNotCSE(); // GTF_DONT_CSE also blocks VN const propagation.
                     newExpr->SetVNP(expr->GetVNP());

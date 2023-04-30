@@ -7177,7 +7177,7 @@ private:
     ValueNum vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned loopNum);
     void vnClearMemory(GenTree* node DEBUGARG(const char* comment = nullptr));
     void vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment = nullptr));
-    void fgValueNumberTreeConst(GenTree* tree);
+    ValueNum vnIntCon(GenTreeIntCon* intCon);
     void fgValueNumberTree(GenTree* tree);
     void vnComma(GenTreeOp* comma);
     void vnAssignment(GenTreeOp* asg);

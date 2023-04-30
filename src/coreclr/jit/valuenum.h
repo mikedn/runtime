@@ -385,6 +385,7 @@ public:
     ValueNum VNForLongCon(INT64 cnsVal);
     ValueNum VNForFloatCon(float cnsVal);
     ValueNum VNForDoubleCon(double cnsVal);
+    ValueNum VNForDblCon(var_types type, double value);
     ValueNum VNForByrefCon(target_size_t byrefVal);
 
 #ifdef TARGET_64BIT

@@ -10647,26 +10647,20 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
                 case GT_ADD:
                     noway_assert(!tree->TypeIs(TYP_REF));
+
                     // We only fold a GT_ADD that involves a null reference.
                     if ((op1->TypeIs(TYP_REF) && (i1 == 0)) || (op2->TypeIs(TYP_REF) && (i2 == 0)))
                     {
-                        JITDUMP("\nFolding operator with constant nodes into a constant:\n");
-                        DISPTREE(tree);
+                        JITDUMPTREE(tree, "\nFolding operator with constant nodes:\n");
 
-                        // Fold into GT_IND of null byref.
-                        tree->ChangeOperConst(GT_CNS_INT);
-                        tree->SetType(TYP_BYREF);
-                        tree->AsIntCon()->SetValue(0);
+                        tree->ChangeToIntCon(TYP_BYREF, 0);
 
-                        if (valueNumbering != nullptr)
+                        if (vnStore != nullptr)
                         {
-                            valueNumbering->fgValueNumberTreeConst(tree);
+                            tree->SetVNP(ValueNumPair{ValueNumStore::VNForNull()});
                         }
 
-                        JITDUMP("\nFolded to null byref:\n");
-                        DISPTREE(tree);
-
-                        goto DONE;
+                        JITDUMPTREE(tree, "into:\n");
                     }
                     break;
 
@@ -10857,33 +10851,27 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
             }
 
         // We get here after folding to a GT_CNS_INT type.
-        // change the node to the new type / value and make sure the node sizes are OK.
+        // Also all conditional folding jumps here since the node hanging from
+        // GT_JTRUE has to be a GT_CNS_INT - value 0 or 1.
         CNS_INT:
         FOLD_COND:
+            JITDUMPTREE(tree, "\nFolding operator with constant nodes:\n");
 
-            JITDUMP("\nFolding operator with constant nodes into a constant:\n");
-            DISPTREE(tree);
-
-            // Also all conditional folding jumps here since the node hanging from
-            // GT_JTRUE has to be a GT_CNS_INT - value 0 or 1.
-
-            tree->ChangeOperConst(GT_CNS_INT);
-            tree->SetType(TYP_INT);
             // Some operations are performed as 64 bit instead of 32 bit so the upper 32 bits
             // need to be discarded. Since constant values are stored as ssize_t and the node
             // has TYP_INT the result needs to be sign extended rather than zero extended.
-            tree->AsIntCon()->SetValue(static_cast<int>(i1));
+
+            tree->ChangeToIntCon(TYP_INT, static_cast<int32_t>(i1));
             tree->AsIntCon()->SetFieldSeq(fieldSeq);
 
-            if (valueNumbering != nullptr)
+            if (vnStore != nullptr)
             {
-                valueNumbering->fgValueNumberTreeConst(tree);
+                tree->SetVNP(ValueNumPair{vnStore->VNForIntCon(static_cast<int32_t>(i1))});
             }
 
-            JITDUMP("Bashed to int constant:\n");
-            DISPTREE(tree);
+            JITDUMPTREE(tree, "into:\n");
 
-            goto DONE;
+            return tree;
 
         // Fold constant LONG binary operator.
 
@@ -11081,31 +11069,22 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
             }
 
         CNS_LONG:
-
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("\nFolding long operator with constant nodes into a constant:\n");
-                gtDispTree(tree);
-            }
-#endif
-            assert((GenTree::s_gtNodeSizes[GT_CNS_NATIVELONG] == TREE_NODE_SZ_SMALL) ||
-                   (tree->gtDebugFlags & GTF_DEBUG_NODE_LARGE));
+            JITDUMPTREE(tree, "\nFolding operator with constant nodes:\n");
 
             tree->ChangeOperConst(GT_CNS_NATIVELONG);
             tree->AsIntConCommon()->SetLngValue(lval1);
 #ifdef TARGET_64BIT
             tree->AsIntCon()->SetFieldSeq(fieldSeq);
 #endif
-            if (valueNumbering != nullptr)
+
+            if (vnStore != nullptr)
             {
-                valueNumbering->fgValueNumberTreeConst(tree);
+                tree->SetVNP(ValueNumPair{vnStore->VNForLongCon(lval1)});
             }
 
-            JITDUMP("Bashed to long constant:\n");
-            DISPTREE(tree);
+            JITDUMPTREE(tree, "into:\n");
 
-            goto DONE;
+            return tree;
 
         // Fold constant FLOAT or DOUBLE binary operator
 
@@ -11239,36 +11218,21 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
             }
 
         CNS_DOUBLE:
+            JITDUMPTREE(tree, "\nFolding operator with constant nodes:\n");
 
-            JITDUMP("\nFolding fp operator with constant nodes into a fp constant:\n");
-            DISPTREE(tree);
+            tree->ChangeToDblCon(d1);
 
-            assert((GenTree::s_gtNodeSizes[GT_CNS_DBL] == TREE_NODE_SZ_SMALL) ||
-                   (tree->gtDebugFlags & GTF_DEBUG_NODE_LARGE));
-
-            tree->ChangeOperConst(GT_CNS_DBL);
-            tree->AsDblCon()->gtDconVal = d1;
-
-            if (valueNumbering != nullptr)
+            if (vnStore != nullptr)
             {
-                valueNumbering->fgValueNumberTreeConst(tree);
+                tree->SetVNP(ValueNumPair{vnStore->VNForDblCon(tree->GetType(), d1)});
             }
 
-            JITDUMP("Bashed to fp constant:\n");
-            DISPTREE(tree);
-
-            goto DONE;
+            JITDUMPTREE(tree, "into:\n");
+            break;
 
         default:
-            // Not a foldable type.
             return tree;
     }
-
-DONE:
-
-    // Make sure no side effect flags are set on this constant node.
-
-    tree->gtFlags &= ~GTF_ALL_EFFECT;
 
     return tree;
 
