@@ -603,7 +603,7 @@ private:
     }
 };
 
-void Compiler::optEarlyProp()
+void Compiler::phEarlyProp()
 {
     assert(ssaForm);
 

@@ -2700,43 +2700,43 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
             if (doSsa)
             {
-                DoPhase(this, PHASE_BUILD_SSA, &Compiler::fgSsaBuild);
+                DoPhase(this, PHASE_BUILD_SSA, &Compiler::phSsaBuild);
             }
 
             if (doEarlyProp)
             {
-                DoPhase(this, PHASE_EARLY_PROP, &Compiler::optEarlyProp);
+                DoPhase(this, PHASE_EARLY_PROP, &Compiler::phEarlyProp);
             }
 
             if (doValueNum)
             {
-                DoPhase(this, PHASE_VALUE_NUMBER, &Compiler::fgValueNumber);
+                DoPhase(this, PHASE_VALUE_NUMBER, &Compiler::phValueNumber);
             }
 
             if (doLoopHoisting)
             {
-                DoPhase(this, PHASE_HOIST_LOOP_CODE, &Compiler::optHoistLoopCode);
+                DoPhase(this, PHASE_HOIST_LOOP_CODE, &Compiler::phHoistLoopCode);
             }
 
             if (doCopyProp)
             {
-                DoPhase(this, PHASE_VN_COPY_PROP, &Compiler::optVnCopyProp);
+                DoPhase(this, PHASE_VN_COPY_PROP, &Compiler::phCopyProp);
             }
 
             if (doBranchOpt)
             {
-                DoPhase(this, PHASE_OPTIMIZE_BRANCHES, &Compiler::optRedundantBranches);
+                DoPhase(this, PHASE_OPTIMIZE_BRANCHES, &Compiler::phRedundantBranches);
             }
 
             if (doCse)
             {
-                DoPhase(this, PHASE_OPTIMIZE_VALNUM_CSES, &Compiler::cseMain);
+                DoPhase(this, PHASE_OPTIMIZE_VALNUM_CSES, &Compiler::phCse);
             }
 
 #if ASSERTION_PROP
             if (doAssertionProp)
             {
-                DoPhase(this, PHASE_ASSERTION_PROP_MAIN, &Compiler::apMain);
+                DoPhase(this, PHASE_ASSERTION_PROP_MAIN, &Compiler::phAssertionProp);
             }
 
             if (doRangeAnalysis)
@@ -2747,7 +2747,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
             if (doSsa)
             {
-                DoPhase(this, PHASE_DESTROY_SSA, &Compiler::fgSsaDestroy);
+                DoPhase(this, PHASE_DESTROY_SSA, &Compiler::phSsaDestroy);
             }
 
             if (fgModified)

@@ -616,7 +616,7 @@ public:
             if (compiler->verbose)
             {
                 printf(FMT_CSE " in " FMT_BB " VN ", index, block->bbNum);
-                vnStore->vnPrint(hashVN, 0);
+                vnStore->Print(hashVN, 0);
                 printf("\n");
                 compiler->gtDispTree(expr);
                 printf("\n");
@@ -705,7 +705,7 @@ public:
                         continue;
                     }
 
-                    if (ValueNumStore::isReservedVN(node->GetLiberalVN()))
+                    if (ValueNumStore::IsReservedVN(node->GetLiberalVN()))
                     {
                         continue;
                     }
@@ -2647,7 +2647,7 @@ public:
     }
 };
 
-void Compiler::cseMain()
+void Compiler::phCse()
 {
     assert(ssaForm && (vnStore != nullptr));
 

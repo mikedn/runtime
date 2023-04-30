@@ -6610,7 +6610,7 @@ void Compiler::gtDispCommonEndLine(GenTree* tree)
         if ((vnStore != nullptr) && (tree->GetLiberalVN() != NoVN))
         {
             printf(" ");
-            vnStore->vnpPrint(tree->GetVNP(), 0);
+            vnStore->Print(tree->GetVNP(), 0);
         }
     }
     else

@@ -282,7 +282,7 @@ bool RangeCheck::IsInBounds(const Range& range, ValueNum lengthVN, int lengthVal
 {
     JITDUMP("InBounds: %s in [0, " FMT_VN "]\n", ToString(range), lengthVN);
     JITDUMP("InBounds: length " FMT_VN " is: ", lengthVN);
-    DBEXEC(compiler->verbose, vnStore->vnDump(compiler, lengthVN));
+    DBEXEC(compiler->verbose, vnStore->Dump(compiler, lengthVN));
     JITDUMP("\n");
     JITDUMP("InBounds: length value is: %d\n", lengthVal);
 

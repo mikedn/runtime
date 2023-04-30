@@ -346,7 +346,7 @@ public:
     }
 };
 
-void Compiler::optVnCopyProp()
+void Compiler::phCopyProp()
 {
     assert(ssaForm && (vnStore != nullptr));
 

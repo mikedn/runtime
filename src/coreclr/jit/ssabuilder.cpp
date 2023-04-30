@@ -48,7 +48,7 @@ private:
     INDEBUG(void Print(BasicBlock** postOrder, int count);)
 };
 
-void Compiler::fgSsaBuild()
+void Compiler::phSsaBuild()
 {
     assert(!ssaForm);
 
@@ -973,7 +973,7 @@ void SsaBuilder::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, Bas
         extract->SetStructValue(use);
 
         // Block constant propagation when EXTRACT is used as a form of reinterpretation,
-        // we risk ending up with FP constants that fgSsaDestroy doesn't know how to handle.
+        // we risk ending up with FP constants that phSsaDestroy doesn't know how to handle.
         if (!use->TypeIs(TYP_STRUCT))
         {
             use->gtFlags |= GTF_DONT_CSE;
@@ -1741,7 +1741,7 @@ static void DestroyExtract(Statement* stmt, GenTreeExtract* extract)
     }
 }
 
-void Compiler::fgSsaDestroy()
+void Compiler::phSsaDestroy()
 {
     for (GenTree* def = m_initSsaDefs; def != nullptr; def = def->gtNext)
     {

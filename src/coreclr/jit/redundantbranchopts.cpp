@@ -3,21 +3,14 @@
 
 #include "jitpch.h"
 
-//------------------------------------------------------------------------
-// optRedundantBranches: try and optimize redundant branches in the method
-//
-// Returns:
-//   PhaseStatus indicating if anything changed.
-//
-PhaseStatus Compiler::optRedundantBranches()
+PhaseStatus Compiler::phRedundantBranches()
 {
-
 #if DEBUG
     if (verbose)
     {
         fgDispBasicBlocks(verboseTrees);
     }
-#endif // DEBUG
+#endif
 
     class OptRedundantBranchesDomTreeVisitor : public DomTreeVisitor<OptRedundantBranchesDomTreeVisitor>
     {

@@ -3723,7 +3723,7 @@ private:
 #endif // DEBUG
 };
 
-void Compiler::apMain()
+void Compiler::phAssertionProp()
 {
     assert(ssaForm && (vnStore != nullptr));
 

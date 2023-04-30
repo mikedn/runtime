@@ -4517,12 +4517,7 @@ public:
 
     GenTreeLclDef* m_initSsaDefs = nullptr;
 
-    // Performs SSA conversion.
-    void fgSsaBuild();
-    void fgSsaDestroy();
-
 #ifdef OPT_CONFIG
-    // Reset any data structures to the state expected by "fgSsaBuild", so it can be run again.
     void fgSsaReset();
 #endif
 
@@ -4536,9 +4531,6 @@ public:
     ValueNumStore* vnStore = nullptr;
 
 public:
-    // Do value numbering (assign a value number to each tree node).
-    void fgValueNumber();
-
     bool isTrivialPointerSizedStruct(ClassLayout* layout) const;
     bool isNativePrimitiveStructType(ClassLayout* layout);
     var_types abiGetStructIntegerRegisterType(ClassLayout* layout);
@@ -5251,10 +5243,6 @@ private:
 public:
     void optRemoveRangeCheck(GenTreeBoundsChk* check, GenTreeOp* comma, Statement* stmt);
 
-protected:
-    // Do hoisting for all loops.
-    void optHoistLoopCode();
-
 private:
     // Requires "lnum" to be the index of an outermost loop in the loop table.  Traverses the body of that loop,
     // including all nested loops, and records the set of "side effects" of the loop: fields (object instance and
@@ -5596,14 +5584,7 @@ public:
     }
 #endif
 
-    void cseMain();
-
 public:
-    void optVnCopyProp();
-
-/**************************************************************************
- *               Early value propagation
- *************************************************************************/
 #define OMF_HAS_NEWARRAY 0x00000001         // Method contains 'new' of an array
 #define OMF_HAS_NEWOBJ 0x00000002           // Method contains 'new' of an object type.
 #define OMF_HAS_ARRAYREF 0x00000004         // Method contains array element loads or stores.
@@ -5695,11 +5676,6 @@ public:
 
     unsigned optNoReturnCallCount = 0;
 
-    void optEarlyProp();
-
-    // Redundant branch opts
-    //
-    PhaseStatus optRedundantBranches();
     bool optRedundantBranch(BasicBlock* const block);
     bool optJumpThread(BasicBlock* const block, BasicBlock* const domBlock);
     bool optReachable(BasicBlock* const fromBlock, BasicBlock* const toBlock, BasicBlock* const excludedBlock);
@@ -5769,8 +5745,6 @@ private:
     void morphAssertionTrace(const MorphAssertion& assertion, GenTree* node, const char* message);
 #endif
 #endif
-
-    void apMain();
 
 public:
     BoundsAssertion apGetBoundsAssertion(unsigned bitIndex);
@@ -6771,8 +6745,17 @@ public:
     void        phRefCountLocals();
     void        phFindOperOrder();
     void        phSetBlockOrder();
-    void        phSetFullyInterruptible();
+    void        phSsaBuild();
+    void        phEarlyProp();
+    void        phValueNumber();
+    void        phHoistLoopCode();
+    void        phCopyProp();
+    PhaseStatus phRedundantBranches();
+    void        phCse();
+    void        phAssertionProp();
     void        phRemoveRangeCheck();
+    void        phSsaDestroy();
+    void        phSetFullyInterruptible();
     void        phUpdateFlowGraph();
     PhaseStatus phInsertGCPolls();
     void        phDetermineFirstColdBlock();
@@ -7117,9 +7100,6 @@ public:
 
     bool killGCRefs(GenTree* tree);
 }; // end of class Compiler
-
-using FieldHandleSet = JitHashSet<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>>;
-using TypeNumSet     = JitHashSet<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>>;
 
 // This class is responsible for checking validity and profitability of struct promotion.
 // If it is both legal and profitable, then TryPromoteStructLocal promotes the struct and initializes

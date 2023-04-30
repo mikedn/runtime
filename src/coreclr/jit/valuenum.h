@@ -19,21 +19,12 @@
 // after a dereference (since control flow continued because no exception was thrown); that an integer value
 // is restricted to some subrange in after a comparison test; etc.
 
-/*****************************************************************************/
-#ifndef _VALUENUM_H_
-#define _VALUENUM_H_
-/*****************************************************************************/
+#pragma once
 
 #include "vartype.h"
-// For "GT_COUNT"
 #include "gentree.h"
-// Defines the type ValueNum.
 #include "valuenumtype.h"
-// Defines the type SmallHashTable.
 #include "smallhash.h"
-
-// A "ValueNumStore" represents the "universe" of value numbers used in a single
-// compilation.
 
 // All members of the enumeration genTreeOps are also members of VNFunc.
 // (Though some of these may be labeled "illegal").
@@ -90,7 +81,6 @@ constexpr uint8_t VNFuncSimdSize(VNFunc vnf)
 #endif // FEATURE_HW_INTRINSICS
 
 // Given a GenTree node return the VNFunc that should be used when value numbering
-//
 VNFunc GetVNFuncForNode(GenTree* node);
 
 // An instance of this struct represents an application of the function symbol
@@ -134,62 +124,53 @@ struct VNFuncApp
 // This define is used with string concatenation to put this in printf format strings
 #define FMT_VN "$%x"
 
+using NodeBlockMap = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, BasicBlock*>;
+
+template <class Value, class KeyFuncs = JitLargePrimitiveKeyFuncs<Value>>
+class VNMap : public JitHashTable<Value, KeyFuncs, ValueNum>
+{
+public:
+    VNMap(CompAllocator alloc) : JitHashTable<Value, KeyFuncs, ValueNum>(alloc)
+    {
+    }
+
+    bool Set(Value value, ValueNum vn)
+    {
+        assert(vn != RecursiveVN);
+        return JitHashTable<Value, KeyFuncs, ValueNum>::Set(value, vn);
+    }
+
+    bool Lookup(Value value, ValueNum* vn = nullptr) const
+    {
+        bool result = JitHashTable<Value, KeyFuncs, ValueNum>::Lookup(value, vn);
+        assert(!result || *vn != RecursiveVN);
+        return result;
+    }
+};
+
 class ValueNumStore
 {
     Compiler*     m_pComp;
     CompAllocator m_alloc;
     BasicBlock*   m_currentBlock = nullptr;
     GenTree*      m_currentNode  = nullptr;
+
     // This map tracks nodes whose value numbers explicitly or implicitly depend on memory states.
     // The map provides the entry block of the most closely enclosing loop that
     // defines the memory region accessed when defining the nodes's VN.
-    //
     // This information should be consulted when considering hoisting node out of a loop, as the VN
     // for the node will only be valid within the indicated loop.
-    //
     // It is not fine-grained enough to track memory dependence within loops, so cannot be used
     // for more general code motion.
-    //
     // If a node does not have an entry in the map we currently assume the VN is not memory dependent
     // and so memory does not constrain hoisting.
-    //
-    typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, BasicBlock*> NodeToLoopMemoryBlockMap;
-    NodeToLoopMemoryBlockMap* m_nodeToLoopMemoryBlockMap = nullptr;
+    NodeBlockMap* m_nodeToLoopMemoryBlockMap = nullptr;
 
 public:
     // We will reserve "max unsigned" to represent "not a value number", for maps that might start uninitialized.
     static const ValueNum NoVN = ::NoVN;
     // A second special value, used to indicate that a function evaluation would cause infinite recursion.
-    static const ValueNum RecursiveVN = UINT32_MAX - 1;
-
-    // ==================================================================================================
-    // VNMap - map from something to ValueNum, where something is typically a constant value or a VNFunc
-    //         This class has two purposes - to abstract the implementation and to validate the ValueNums
-    //         being stored or retrieved.
-    template <class fromType, class keyfuncs = JitLargePrimitiveKeyFuncs<fromType>>
-    class VNMap : public JitHashTable<fromType, keyfuncs, ValueNum>
-    {
-    public:
-        VNMap(CompAllocator alloc) : JitHashTable<fromType, keyfuncs, ValueNum>(alloc)
-        {
-        }
-        ~VNMap()
-        {
-            ~VNMap<fromType, keyfuncs>::JitHashTable();
-        }
-
-        bool Set(fromType k, ValueNum val)
-        {
-            assert(val != RecursiveVN);
-            return JitHashTable<fromType, keyfuncs, ValueNum>::Set(k, val);
-        }
-        bool Lookup(fromType k, ValueNum* pVal = nullptr) const
-        {
-            bool result = JitHashTable<fromType, keyfuncs, ValueNum>::Lookup(k, pVal);
-            assert(!result || *pVal != RecursiveVN);
-            return result;
-        }
-    };
+    static const ValueNum RecursiveVN = ::RecursiveVN;
 
     void SetCurrentBlock(BasicBlock* block)
     {
@@ -282,7 +263,7 @@ private:
     template <typename T>
     static int EvalComparison(VNFunc vnf, T v0, T v1);
 
-    // Should only instantiate (in a non-trivial way) for "int" and "INT64".  Returns true iff dividing "v0" by "v1"
+    // Should only instantiate (in a non-trivial way) for "int" and "int64_t".  Returns true iff dividing "v0" by "v1"
     // would produce integer overflow (an ArithmeticException -- *not* division by zero, which is separate.)
     template <typename T>
     static bool IsOverflowIntDiv(T v0, T v1);
@@ -295,7 +276,7 @@ private:
 public:
     // Given an constant value number return its value.
     int GetConstantInt32(ValueNum argVN);
-    INT64 GetConstantInt64(ValueNum argVN);
+    int64_t GetConstantInt64(ValueNum argVN);
     double GetConstantDouble(ValueNum argVN);
     float GetConstantSingle(ValueNum argVN);
 
@@ -389,12 +370,12 @@ public:
     ValueNum VNForByrefCon(target_size_t value);
 
 #ifdef TARGET_64BIT
-    ValueNum VNForPtrSizeIntCon(INT64 cnsVal)
+    ValueNum VNForPtrSizeIntCon(int64_t cnsVal)
     {
         return VNForLongCon(cnsVal);
     }
 #else
-    ValueNum VNForPtrSizeIntCon(INT32 cnsVal)
+    ValueNum VNForPtrSizeIntCon(int32_t cnsVal)
     {
         return VNForIntCon(cnsVal);
     }
@@ -732,7 +713,7 @@ public:
     bool IsVNHandle(ValueNum vn) const;
 
     // Convert a vartype_t to the value number's storage type for that vartype_t.
-    // For example, ValueNum of type TYP_LONG are stored in a map of INT64 variables.
+    // For example, ValueNum of type TYP_LONG are stored in a map of int64_t variables.
     // Lang is the language (C++) type for the corresponding vartype_t.
     template <int N>
     struct VarTypConv
@@ -864,61 +845,30 @@ public:
     // the function application it represents; otherwise, return "false."
     VNFunc GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const;
 
-    // Returns "true" iff "vn" is a valid value number -- one that has been previously returned.
-    bool VNIsValid(ValueNum vn);
-
 #ifdef DEBUG
-// This controls whether we recursively call vnDump on function arguments.
-#define FEATURE_VN_DUMP_FUNC_ARGS 0
-
-    // Prints, to standard out, a representation of "vn".
-    void vnDump(Compiler* comp, ValueNum vn, bool isPtr = false);
-
-    // Requires "fieldSeq" to be a field sequence VNFuncApp.
-    // Prints a representation (comma-separated list of field names) on standard out.
-    void vnDumpFieldSeq(Compiler* comp, VNFuncApp* fieldSeq, bool isHead);
-
-    // Requires "mapSelect" to be a map select VNFuncApp.
-    // Prints a representation of a MapSelect operation on standard out.
-    void vnDumpMapSelect(Compiler* comp, VNFuncApp* mapSelect);
-
-    // Requires "mapStore" to be a map store VNFuncApp.
-    // Prints a representation of a MapStore operation on standard out.
-    void vnDumpMapStore(Compiler* comp, VNFuncApp* mapStore);
-
-    // Requires "memOpaque" to be a mem opaque VNFuncApp
-    // Prints a representation of a MemOpaque state on standard out.
-    void vnDumpMemOpaque(Compiler* comp, VNFuncApp* memOpaque);
-
-    // Requires "valWithExc" to be a value with an exeception set VNFuncApp.
-    // Prints a representation of the exeception set on standard out.
-    void vnDumpValWithExc(Compiler* comp, VNFuncApp* valWithExc);
-
-    void vnDumpLclAddr(Compiler* comp, VNFuncApp* lclAddr);
+    void Dump(Compiler* comp, ValueNum vn, bool isPtr = false);
+    void DumpFieldSeq(Compiler* comp, VNFuncApp* fieldSeq, bool isHead);
+    void DumpMapSelect(Compiler* comp, VNFuncApp* mapSelect);
+    void DumpMapStore(Compiler* comp, VNFuncApp* mapStore);
+    void DumpMemOpaque(Compiler* comp, VNFuncApp* memOpaque);
+    void DumpValWithExc(Compiler* comp, VNFuncApp* valWithExc);
+    void DumpLclAddr(Compiler* comp, VNFuncApp* lclAddr);
     void DumpBitCast(const VNFuncApp& cast);
     void DumpCast(const VNFuncApp& cast);
     void DumpPtrToArrElem(const VNFuncApp& elemAddr);
+    void DumpExcSeq(Compiler* comp, VNFuncApp* excSeq, bool isHead);
 
-    // Requires "excSeq" to be a ExcSetCons sequence.
-    // Prints a representation of the set of exceptions on standard out.
-    void vnDumpExcSeq(Compiler* comp, VNFuncApp* excSeq, bool isHead);
+    static const char* GetFuncName(VNFunc vnf);
+    static const char* GetReservedName(ValueNum vn);
 
-    // Returns the string name of "vnf".
-    static const char* VNFuncName(VNFunc vnf);
-    // Used in the implementation of the above.
-    static const char* VNFuncNameArr[];
-
-    // Returns the string name of "vn" when it is a reserved value number, nullptr otherwise
-    static const char* reservedName(ValueNum vn);
-
-    void vnTrace(ValueNum vn, const char* comment = nullptr);
-    void vnTrace(ValueNumPair vnp, const char* comment = nullptr);
-    void vnpPrint(ValueNumPair vnp, unsigned level);
-    void vnPrint(ValueNum vn, unsigned level);
+    void Trace(ValueNum vn, const char* comment = nullptr);
+    void Trace(ValueNumPair vnp, const char* comment = nullptr);
+    void Print(ValueNumPair vnp, unsigned level);
+    void Print(ValueNum vn, unsigned level);
 #endif // DEBUG
 
     // Returns true if "vn" is a reserved value number
-    static bool isReservedVN(ValueNum);
+    static bool IsReservedVN(ValueNum);
 
 private:
     // We will allocate value numbers in "chunks".  Each chunk will have the same type and "constness".
@@ -1194,10 +1144,6 @@ private:
         SRC_NumSpecialRefConsts
     };
 
-    // The "values" of special ref consts will be all be "null" -- their differing meanings will
-    // be carried by the distinct value numbers.
-    static class Object* s_specialRefConsts[SRC_NumSpecialRefConsts];
-
 #ifdef DEBUG
     // This helps test some performance pathologies related to "evaluation" of VNF_MapSelect terms,
     // especially relating to GcHeap/ByrefExposed.  We count the number of applications of such terms we consider,
@@ -1211,26 +1157,26 @@ private:
 template <>
 struct ValueNumStore::VarTypConv<TYP_INT>
 {
-    typedef INT32 Type;
-    typedef int   Lang;
+    typedef int32_t Type;
+    typedef int     Lang;
 };
 template <>
 struct ValueNumStore::VarTypConv<TYP_FLOAT>
 {
-    typedef INT32 Type;
-    typedef float Lang;
+    typedef int32_t Type;
+    typedef float   Lang;
 };
 template <>
 struct ValueNumStore::VarTypConv<TYP_LONG>
 {
-    typedef INT64 Type;
-    typedef INT64 Lang;
+    typedef int64_t Type;
+    typedef int64_t Lang;
 };
 template <>
 struct ValueNumStore::VarTypConv<TYP_DOUBLE>
 {
-    typedef INT64  Type;
-    typedef double Lang;
+    typedef int64_t Type;
+    typedef double  Lang;
 };
 template <>
 struct ValueNumStore::VarTypConv<TYP_BYREF>
@@ -1269,15 +1215,11 @@ FORCEINLINE T ValueNumStore::SafeGetConstantValue(Chunk* c, unsigned offset) con
     }
 }
 
-// Inline functions.
-
-// static
 inline bool ValueNumStore::GenTreeOpIsLegalVNFunc(genTreeOps gtOper)
 {
     return (VNFuncAttribs(static_cast<VNFunc>(gtOper)) & VNFOA_IllegalGenTreeOp) == 0;
 }
 
-// static
 inline bool ValueNumStore::VNFuncIsCommutative(VNFunc vnf)
 {
     return (VNFuncAttribs(vnf) & VNFOA_Commutative) != 0;
@@ -1308,7 +1250,3 @@ inline T ValueNumStore::CoerceTypRefToT(Chunk* c, unsigned offset)
     noway_assert(sizeof(T) >= sizeof(VarTypConv<TYP_REF>::Type));
     unreached();
 }
-
-/*****************************************************************************/
-#endif // _VALUENUM_H_
-/*****************************************************************************/

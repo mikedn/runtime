@@ -11412,7 +11412,7 @@ DONE_MORPHING_CHILDREN:
                         // being done here instead of codegen to begin with...
                         bool needsComma = !op1->OperIsLeaf() && !op1->OperIs(GT_LCL_VAR, GT_LCL_FLD);
                         // if op1 is not a leaf/local we have to introduce a temp via GT_COMMA.
-                        // Unfortunately, it's not optHoistLoopCode-friendly yet so let's do it later.
+                        // Unfortunately, it's not hoist loop code-friendly yet so let's do it later.
                         if (!needsComma || (fgOrder == FGOrderLinear))
                         {
                             // Fold "x*2.0" to "x+x"
