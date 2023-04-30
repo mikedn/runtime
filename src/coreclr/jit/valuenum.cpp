@@ -1615,12 +1615,17 @@ ValueNum ValueNumStore::VNForIntCon(int32_t value)
     {
         unsigned ind = value - SmallIntConstMin;
         ValueNum vn  = m_VNsForSmallIntConsts[ind];
-        if (vn != NoVN)
+
+        if (vn == NoVN)
         {
-            return vn;
+            Chunk*   chunk              = GetAllocChunk(TYP_INT, CEA_Const);
+            unsigned index              = chunk->AllocVN();
+            vn                          = chunk->m_baseVN + index;
+            int32_t* chunkDefs          = static_cast<int32_t*>(chunk->m_defs);
+            chunkDefs[index]            = value;
+            m_VNsForSmallIntConsts[ind] = vn;
         }
-        vn                          = VnForConst<int32_t, IntToValueNumMap>(value, GetIntCnsMap(), TYP_INT);
-        m_VNsForSmallIntConsts[ind] = vn;
+
         return vn;
     }
 
