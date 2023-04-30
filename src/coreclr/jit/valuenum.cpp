@@ -2028,7 +2028,7 @@ ValueNum ValueNumStore::VNForMapStore(var_types type, ValueNum mapVN, ValueNum i
     assert(varTypeIsStruct(type));
 
     ValueNum vn = VNForFunc(type, VNF_MapStore, mapVN, indexVN, valueVN, m_currentBlock->bbNatLoopNum);
-    INDEBUG(m_pComp->valueNumbering->vnTrace(vn));
+    INDEBUG(vnTrace(vn));
     return vn;
 }
 
@@ -2044,7 +2044,7 @@ ValueNum ValueNumStore::VNForMapSelect(ValueNumKind vnk, var_types typ, ValueNum
     // The remaining budget should always be between [0..m_mapSelectBudget]
     assert((budget >= 0) && (budget <= m_mapSelectBudget));
 
-    INDEBUG(m_pComp->valueNumbering->vnTrace(result));
+    INDEBUG(vnTrace(result));
 
     return result;
 }
@@ -3687,9 +3687,7 @@ ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
     }
 
     ValueNum fieldSeqVN = VNForFunc(TYP_I_IMPL, VNF_FieldSeq, VNForHostPtr(fieldSeq));
-
-    INDEBUG(m_pComp->valueNumbering->vnTrace(fieldSeqVN));
-
+    INDEBUG(vnTrace(fieldSeqVN));
     return fieldSeqVN;
 }
 
@@ -3716,9 +3714,7 @@ FieldSeqNode* ValueNumStore::FieldSeqVNToFieldSeq(ValueNum vn)
 ValueNum ValueNumStore::FieldSeqVNAppend(ValueNum fieldSeqVN, FieldSeqNode* fieldSeq)
 {
     fieldSeqVN = VNForFieldSeq(m_pComp->GetFieldSeqStore()->Append(FieldSeqVNToFieldSeq(fieldSeqVN), fieldSeq));
-
-    INDEBUG(m_pComp->valueNumbering->vnTrace(fieldSeqVN));
-
+    INDEBUG(vnTrace(fieldSeqVN));
     return fieldSeqVN;
 }
 
@@ -4510,7 +4506,7 @@ ValueNum ValueNumbering::vnCoerceStoreValue(
             valueVN = vnStore->VNForExpr(fieldType);
         }
 
-        INDEBUG(vnTrace(valueVN));
+        INDEBUG(vnStore->vnTrace(valueVN));
     }
 
     return valueVN;
@@ -4724,7 +4720,7 @@ void ValueNumbering::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree*
 
     ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
                                             vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
-    INDEBUG(vnTrace(lclAddrVN));
+    INDEBUG(vnStore->vnTrace(lclAddrVN));
 
     ValueNum memVN = vnAddressExposedLocalStore(store, lclAddrVN, value);
     vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
@@ -4898,7 +4894,7 @@ void ValueNumbering::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, Gen
     ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
                                             vnStore->VNForUPtrSizeIntCon(store->GetLclOffs()),
                                             vnStore->VNForFieldSeq(store->GetFieldSeq()));
-    INDEBUG(vnTrace(lclAddrVN));
+    INDEBUG(vnStore->vnTrace(lclAddrVN));
 
     ValueNum memVN = vnAddressExposedLocalStore(store, lclAddrVN, value);
     vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
@@ -7474,7 +7470,7 @@ void ValueNumbering::fgValueNumberBlock(BasicBlock* blk)
             else
             {
                 phiVNP = vnStore->VNPairForFunc(def->GetType(), VNF_Phi, ValueNumPair(phiArgSsaNumVN), phiVNP);
-                INDEBUG(vnTrace(phiVNP));
+                INDEBUG(vnStore->vnTrace(phiVNP));
 
                 if ((sameVNP.GetLiberal() != phiArgVNP.GetLiberal()) ||
                     (sameVNP.GetConservative() != phiArgVNP.GetConservative()))
@@ -7556,7 +7552,7 @@ void ValueNumbering::fgValueNumberBlock(BasicBlock* blk)
                 }
 
                 phiVN = vnStore->VNForFunc(TYP_STRUCT, VNF_Phi, vnStore->VNForIntCon(phiArgs->GetSsaNum()), phiVN);
-                INDEBUG(vnTrace(phiVN));
+                INDEBUG(vnStore->vnTrace(phiVN));
             }
 
             if (sameMemoryVN != NoVN)
@@ -7848,7 +7844,7 @@ ValueNum ValueNumbering::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned
         // We currently don't try to resolve address exposed loads to stores so do a dummy local store for now.
         ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(0),
                                                 vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
-        INDEBUG(vnTrace(lclAddrVN, "dummy loop address exposed local"));
+        INDEBUG(vnStore->vnTrace(lclAddrVN, "dummy loop address exposed local"));
         ValueNum uniqueVN = vnStore->VNForExpr(entryBlock, TYP_STRUCT);
         newMemoryVN       = vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, lclAddrVN, uniqueVN);
     }
@@ -8575,9 +8571,7 @@ ValueNum ValueNumStore::VNForCast(ValueNum valueVN, var_types toType)
 {
     ValueNum castTypeVN = VNForCastOper(toType, false);
     ValueNum resultVN   = VNForFunc(varActualType(toType), VNF_Cast, valueVN, castTypeVN);
-
-    INDEBUG(m_pComp->valueNumbering->vnTrace(resultVN));
-
+    INDEBUG(vnTrace(resultVN));
     return resultVN;
 }
 
@@ -9589,12 +9583,12 @@ void ValueNumStore::vnPrint(ValueNum vn, unsigned level)
     }
 }
 
-void ValueNumbering::vnTrace(ValueNum vn, const char* comment)
+void ValueNumStore::vnTrace(ValueNum vn, const char* comment)
 {
-    if (compiler->verbose)
+    if (m_pComp->verbose)
     {
-        printf("    %s ", varTypeName(vnStore->TypeOfVN(vn)));
-        vnStore->vnPrint(vn, 1);
+        printf("    %s ", varTypeName(TypeOfVN(vn)));
+        vnPrint(vn, 1);
 
         if (comment != nullptr)
         {
@@ -9605,12 +9599,12 @@ void ValueNumbering::vnTrace(ValueNum vn, const char* comment)
     }
 }
 
-void ValueNumbering::vnTrace(ValueNumPair vnp, const char* comment)
+void ValueNumStore::vnTrace(ValueNumPair vnp, const char* comment)
 {
-    if (compiler->verbose)
+    if (m_pComp->verbose)
     {
-        printf("    %s ", varTypeName(vnStore->TypeOfVN(vnp.GetLiberal())));
-        vnStore->vnpPrint(vnp, 1);
+        printf("    %s ", varTypeName(TypeOfVN(vnp.GetLiberal())));
+        vnpPrint(vnp, 1);
 
         if (comment != nullptr)
         {

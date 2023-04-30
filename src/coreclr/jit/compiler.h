@@ -7247,8 +7247,6 @@ private:
     void vnAddNodeExceptionSet(GenTree* tree);
 
 #ifdef DEBUG
-    void vnTrace(ValueNum vn, const char* commenr = nullptr);
-    void vnTrace(ValueNumPair vnp, const char* commenr = nullptr);
     void vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment = nullptr);
     void vnTraceMem(ValueNum vn, const char* comment = nullptr);
 #endif
