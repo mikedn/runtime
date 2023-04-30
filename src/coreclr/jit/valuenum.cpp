@@ -3726,7 +3726,7 @@ class VNLoopMemorySummary
 
 public:
     bool m_memoryHavoc : 1;
-    bool m_containsCall : 1;
+    bool m_hasCall : 1;
     bool m_modifiesAddressExposedLocals : 1;
 
     VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum);
@@ -7611,7 +7611,6 @@ VNLoop::VNLoop(Compiler* compiler)
     : lpFieldsModified(nullptr)
     , lpArrayElemTypesModified(nullptr)
     , lpLoopHasMemoryHavoc(false)
-    , lpContainsCall(false)
     , modifiesAddressExposedLocals(false)
 {
 }
@@ -7621,7 +7620,7 @@ VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, ValueNumbering* val
     , m_valueNumbering(valueNumbering)
     , m_loopNum(loopNum)
     , m_memoryHavoc(valueNumbering->vnLoopTable[loopNum].lpLoopHasMemoryHavoc)
-    , m_containsCall(valueNumbering->vnLoopTable[loopNum].lpContainsCall)
+    , m_hasCall((compiler->optLoopTable[loopNum].lpFlags & LPFLG_HAS_CALL) != 0)
     , m_modifiesAddressExposedLocals(false)
 {
     assert(loopNum < compiler->optLoopCount);
@@ -7634,7 +7633,7 @@ void VNLoopMemorySummary::AddMemoryHavoc()
 
 void VNLoopMemorySummary::AddCall()
 {
-    m_containsCall = true;
+    m_hasCall = true;
 }
 
 void VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
@@ -7702,14 +7701,16 @@ void VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
 bool VNLoopMemorySummary::IsComplete() const
 {
     // Once a loop is known to contain calls and memory havoc we can stop analyzing it.
-    return m_memoryHavoc && m_containsCall;
+    return m_memoryHavoc && m_hasCall;
 }
 
 void VNLoopMemorySummary::UpdateLoops() const
 {
-    if (m_memoryHavoc || m_containsCall)
+    Compiler::LoopDsc* optLoopTable = m_compiler->optLoopTable;
+
+    if (m_memoryHavoc || m_hasCall)
     {
-        for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
+        for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = optLoopTable[n].lpParent)
         {
             VNLoop& loop = m_valueNumbering->vnLoopTable[n];
 
@@ -7718,13 +7719,21 @@ void VNLoopMemorySummary::UpdateLoops() const
                 JITDUMP("Loop " FMT_LP " has memory havoc\n", n);
             }
 
-            if (!loop.lpContainsCall && m_containsCall)
-            {
-                JITDUMP("Loop " FMT_LP " has calls\n", n);
-            }
-
             loop.lpLoopHasMemoryHavoc |= m_memoryHavoc;
-            loop.lpContainsCall |= m_containsCall;
+
+            if (m_hasCall)
+            {
+                // TODO-MIKE-Cleanup: Only LoopHoist needs LPFLG_HAS_CALL, it could
+                // compute it cheaply based on BBF_HAS_CALL (which is also needed by
+                // CSE) but that flag is prematurely set by global morph.
+
+                if ((optLoopTable[n].lpFlags & LPFLG_HAS_CALL) == 0)
+                {
+                    JITDUMP("Loop " FMT_LP " has calls\n", n);
+                }
+
+                optLoopTable[n].lpFlags |= LPFLG_HAS_CALL;
+            }
         }
     }
 
@@ -7732,9 +7741,9 @@ void VNLoopMemorySummary::UpdateLoops() const
     // A loop having call will not likely benefit from alignment.
     // TODO-MIKE-Cleanup: This has nothing to do with VN but it looks like
     // there are no other places that traverse the entire loop IR.
-    if (m_containsCall && (m_compiler->optLoopTable[m_loopNum].lpChild == BasicBlock::NOT_IN_LOOP))
+    if (m_hasCall && (optLoopTable[m_loopNum].lpChild == BasicBlock::NOT_IN_LOOP))
     {
-        BasicBlock* first = m_compiler->optLoopTable[m_loopNum].lpFirst;
+        BasicBlock* first = optLoopTable[m_loopNum].lpFirst;
         first->bbFlags &= ~BBF_LOOP_ALIGN;
         JITDUMP("Removing LOOP_ALIGN flag for " FMT_LP " that starts at " FMT_BB " because loop has a call.\n",
                 m_loopNum, first->bbNum);

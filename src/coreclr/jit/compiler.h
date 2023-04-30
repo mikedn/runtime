@@ -1270,6 +1270,7 @@ enum LoopFlags : uint16_t
     LPFLG_DO_WHILE = 0x0001, // it's a do-while loop (i.e ENTRY is at the TOP)
     LPFLG_ONE_EXIT = 0x0002, // the loop has only one exit
     LPFLG_ITER     = 0x0004, // loop of form: for (i = icon or lclVar; test_condition(); i++)
+    LPFLG_HAS_CALL = 0x0008,
 
     LPFLG_CONST      = 0x0010, // loop of form: for (i=icon;i<icon;i++){ ... } - constant loop
     LPFLG_VAR_INIT   = 0x0020, // iterator is initialized with a local var (var # found in lpVarInit)
@@ -7132,8 +7133,6 @@ struct VNLoop
     bool lpLoopHasMemoryHavoc : 1; // The loop contains an operation that we assume has arbitrary
     // memory side effects.  If this is set, the fields below
     // may not be accurate (since they become irrelevant.)
-    bool lpContainsCall : 1; // True if executing the loop body *may* execute a call
-
     // TODO-MIKE-CQ: We could record individual AX local access like we do for fields and arrays.
     bool modifiesAddressExposedLocals : 1;
 

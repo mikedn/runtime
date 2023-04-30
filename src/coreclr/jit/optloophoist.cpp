@@ -34,7 +34,6 @@ class LoopHoist
 
     Compiler* const      compiler;
     ValueNumStore* const vnStore;
-    VNLoop* const        vnLoopTable;
     LoopDsc* const       optLoopTable;
     unsigned const       optLoopCount;
     // The set of variables hoisted in the current loop (or nullptr if there are none).
@@ -54,7 +53,6 @@ public:
     LoopHoist(Compiler* compiler)
         : compiler(compiler)
         , vnStore(compiler->vnStore)
-        , vnLoopTable(compiler->valueNumbering->vnLoopTable)
         , optLoopTable(compiler->optLoopTable)
         , optLoopCount(compiler->optLoopCount)
         , m_hoistedInParentLoops(compiler->getAllocator(CMK_LoopHoist))
@@ -353,7 +351,7 @@ void LoopHoist::optHoistThisLoop(unsigned lnum)
     if (compiler->verbose)
     {
         printf("optHoistLoopCode for loop " FMT_LP " <" FMT_BB ".." FMT_BB ">:\n", lnum, begn, endn);
-        printf("  Loop body %s a call\n", vnLoopTable[lnum].lpContainsCall ? "contains" : "does not contain");
+        printf("  Loop body %s a call\n", (pLoopDsc->lpFlags & LPFLG_HAS_CALL) ? "contains" : "does not contain");
         printf("  Loop has %s\n", (pLoopDsc->lpFlags & LPFLG_ONE_EXIT) ? "single exit" : "multiple exits");
     }
 #endif
@@ -506,7 +504,7 @@ bool LoopHoist::optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum)
         varInOutCount    = stats.lpVarInOutFPCount;
 
         availRegCount = CNT_CALLEE_SAVED_FLOAT;
-        if (!vnLoopTable[lnum].lpContainsCall)
+        if ((optLoopTable[lnum].lpFlags & LPFLG_HAS_CALL) == 0)
         {
             availRegCount += CNT_CALLEE_TRASH_FLOAT - 1;
         }
@@ -525,7 +523,7 @@ bool LoopHoist::optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum)
         varInOutCount    = stats.lpVarInOutCount;
 
         availRegCount = CNT_CALLEE_SAVED - 1;
-        if (!vnLoopTable[lnum].lpContainsCall)
+        if ((optLoopTable[lnum].lpFlags & LPFLG_HAS_CALL) == 0)
         {
             availRegCount += CNT_CALLEE_TRASH - 1;
         }
