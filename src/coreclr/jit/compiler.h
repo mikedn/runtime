@@ -74,6 +74,7 @@ class OptBoolsDsc;         // defined in optimizer.cpp
 #ifdef DEBUG
 class IndentStack;
 #endif
+class SsaOptimizer;
 class SsaBuilder;
 class ValueNumbering;
 class CopyPropDomTreeVisitor;
@@ -150,15 +151,7 @@ public:
     }
 };
 
-// This class stores information associated with a memory SSA definition.
-class SsaMemDef
-{
-public:
-    ValueNum m_vn = NoVN;
-};
-
-//------------------------------------------------------------------------
-// SsaDefArray: A resizable array of SSA definitions.
+// A resizable array of SSA definitions.
 //
 // Unlike an ordinary resizable array implementation, this allows only element
 // addition (by calling AllocSsaNum) and has special handling for RESERVED_SSA_NUM
@@ -1313,32 +1306,6 @@ inline LoopFlags& operator&=(LoopFlags& a, LoopFlags b)
 {
     return a = (LoopFlags)((uint16_t)a & (uint16_t)b);
 }
-
-struct AssertionDsc;
-
-class BoundsAssertion
-{
-    const AssertionDsc& assertion;
-
-public:
-    BoundsAssertion(const AssertionDsc& assertion) : assertion(assertion)
-    {
-    }
-
-    INDEBUG(const AssertionDsc& GetAssertion() const;)
-
-    bool IsBoundsAssertion() const;
-    bool IsEqual() const;
-    bool IsCompareCheckedBoundArith() const;
-    bool IsCompareCheckedBound() const;
-    bool IsRange() const;
-    bool IsConstant() const;
-
-    ValueNum GetVN() const;
-    ValueNum GetConstantVN() const;
-    int      GetRangeMin() const;
-    int      GetRangeMax() const;
-};
 
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -2806,6 +2773,9 @@ class Compiler
     friend class Rationalizer;
     friend class PhaseBase;
     friend class Lowering;
+    friend class SsaBuilder;
+    friend class SsaOptimizer;
+    friend class EarlyProp;
     friend class Cse;
     friend class CodeGenInterface;
     friend class CodeGen;
@@ -3999,18 +3969,7 @@ protected:
     void lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, Statement* stmt);
     bool IsDominatedByExceptionalEntry(BasicBlock* block);
 
-    // Keeps the mapping from SSA #'s to VN's for the implicit memory variables.
-    SsaDefArray<SsaMemDef> lvMemoryPerSsaData;
-
 public:
-    // Returns the address of the per-Ssa data for memory at the given ssaNum (which is required
-    // not to be the SsaConfig::RESERVED_SSA_NUM, which indicates that the variable is
-    // not an SSA variable).
-    SsaMemDef* GetMemoryPerSsaData(unsigned ssaNum)
-    {
-        return lvMemoryPerSsaData.GetSsaDef(ssaNum);
-    }
-
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -4170,10 +4129,6 @@ public:
                                                      // "entry" blocks plus EH handler begin blocks.
 
     jitstd::vector<flowList*>* fgPredListSortVector = nullptr;
-
-    // Dominator tree used by SSA construction and copy propagation (the two are expected to use the same tree
-    // in order to avoid the need for SSA reconstruction and an "out of SSA" phase).
-    DomTreeNode* fgSsaDomTree;
 
     // Allocate array like T* a = new T[fgBBNumMax + 1];
     // Using helper so we don't keep forgetting +1.
@@ -4513,14 +4468,6 @@ public:
         return BasicBlockRangeList(startBlock, endBlock);
     }
 
-    typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, unsigned> NodeToUnsignedMap;
-
-    GenTreeLclDef* m_initSsaDefs = nullptr;
-
-#ifdef OPT_CONFIG
-    void fgSsaReset();
-#endif
-
     // Returns "true" if this is a special variable that is never zero initialized in the prolog.
     bool lvaIsNeverZeroInitializedInProlog(unsigned lclNum);
 
@@ -4850,9 +4797,6 @@ public:
      *************************************************************************/
 
 protected:
-    friend class SsaBuilder;
-    friend class EarlyProp;
-
     //--------------------- Detect the basic blocks ---------------------------
 
     BasicBlock** fgBBs; // Table of pointers to the BBs
@@ -5557,14 +5501,7 @@ protected:
     bool optAvoidIntMult(void);
 
 public:
-    static const int MIN_CSE_COST = 2;
-
-    bool cseIsCandidate(GenTree* tree);
     bool cseCanSwapOrder(GenTree* tree1, GenTree* tree2);
-
-/**************************************************************************
- *                   Value Number based CSEs
- *************************************************************************/
 
 // String to use for formatting CSE numbers. Note that this is the positive number, e.g., from GET_CSE_INDEX().
 #define FMT_CSE "CSE%02u"
@@ -5582,6 +5519,8 @@ public:
     {
         return ((cseCount > 0) && (lclNum >= cseFirstLclNum) && (lclNum < cseFirstLclNum + cseCount));
     }
+
+    unsigned apAssertionCount = 0;
 #endif
 
 public:
@@ -5681,15 +5620,7 @@ public:
      *               Value/Assertion propagation
      *************************************************************************/
 protected:
-    AssertionDsc*  apAssertionTable;     // table that holds info about value assignments
-    AssertionIndex apAssertionCount = 0; // total number of assertions in the assertion table
-
 public:
-    AssertionIndex GetAssertionCount()
-    {
-        return apAssertionCount;
-    }
-
 #if LOCAL_ASSERTION_PROP
     struct MorphAssertion;
     struct MorphAssertionBitVecTraits;
@@ -5743,14 +5674,6 @@ private:
 #endif
 
 public:
-    BoundsAssertion apGetBoundsAssertion(unsigned bitIndex);
-
-#ifdef DEBUG
-    void apDumpAssertion(const AssertionDsc& assertion, unsigned index);
-    void apDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer);
-    void apDumpBoundsAssertion(BoundsAssertion assertion);
-#endif
-
     void optAddCopies();
 #endif // ASSERTION_PROP
 
@@ -6436,7 +6359,6 @@ public:
 
     bool fgNoStructPromotion       = false; // Set to true to turn off struct promotion for this method.
     bool optLoopsMarked            = false;
-    bool ssaForm                   = false;
     bool csePhase                  = false; // True when we are executing the CSE phase
     bool compRationalIRForm        = false;
     bool compUsesThrowHelper       = false; // There is a call to a THROW_HELPER for the compiled method.
@@ -6742,17 +6664,8 @@ public:
     void        phFindOperOrder();
     void        phSetBlockOrder();
     void        phSsaLiveness();
+    void        phSsaOpt();
     void        phRemoveRedundantZeroInits();
-    void        phSsaBuild();
-    void        phEarlyProp();
-    void        phValueNumber();
-    void        phHoistLoopCode();
-    void        phCopyProp();
-    PhaseStatus phRedundantBranches();
-    void        phCse();
-    void        phAssertionProp();
-    void        phRemoveRangeCheck();
-    void        phSsaDestroy();
     void        phSetFullyInterruptible();
     void        phUpdateFlowGraph();
     PhaseStatus phInsertGCPolls();
@@ -7007,22 +6920,6 @@ public:
     FieldSeqNode* GetZeroOffsetFieldSeq(GenTree* node);
     void CopyZeroOffsetFieldSeq(GenTree* from, GenTree* to);
     void AddZeroOffsetFieldSeq(GenTree* node, FieldSeqNode* fieldSeq);
-
-    NodeToUnsignedMap* m_memorySsaMap = nullptr;
-
-    // In some cases, we want to assign intermediate SSA #'s to memory states, and know what nodes create those memory
-    // states. (We do this for try blocks, where, if the try block doesn't do a call that loses track of the memory
-    // state, all the possible memory states are possible initial states of the corresponding catch block(s).)
-    NodeToUnsignedMap* GetMemorySsaMap()
-    {
-        Compiler* compRoot = impInlineRoot();
-        if (compRoot->m_memorySsaMap == nullptr)
-        {
-            CompAllocator ialloc(getAllocator(CMK_SSA));
-            compRoot->m_memorySsaMap = new (ialloc) NodeToUnsignedMap(ialloc);
-        }
-        return compRoot->m_memorySsaMap;
-    }
 
     // The Refany type is the only struct type whose structure is implicitly assumed by IL.  We need its fields.
     CORINFO_CLASS_HANDLE m_refAnyClass = NO_CLASS_HANDLE;

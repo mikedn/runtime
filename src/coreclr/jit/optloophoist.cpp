@@ -2,10 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
+#include "ssabuilder.h"
 
 using VNBoolMap = JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, bool>;
 using VNSet     = JitHashSet<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>>;
-using LoopDsc   = Compiler::LoopDsc;
 class LoopHoistTreeVisitor;
 
 class LoopHoist
@@ -44,6 +44,7 @@ class LoopHoist
         }
     };
 
+    SsaOptimizer&        ssa;
     Compiler* const      compiler;
     ValueNumStore* const vnStore;
     LoopDsc* const       loopTable;
@@ -54,11 +55,12 @@ class LoopHoist
     LoopStats            stats;
 
 public:
-    LoopHoist(Compiler* compiler)
-        : compiler(compiler)
-        , vnStore(compiler->vnStore)
-        , loopTable(compiler->optLoopTable)
-        , loopCount(compiler->optLoopCount)
+    LoopHoist(SsaOptimizer& ssa)
+        : ssa(ssa)
+        , compiler(ssa.GetCompiler())
+        , vnStore(ssa.GetVNStore())
+        , loopTable(ssa.GetLoopTable())
+        , loopCount(ssa.GetLoopCount())
         , hoistedInParentLoops(compiler->getAllocator(CMK_LoopHoist))
         , loopInvariantCache(compiler->getAllocator(CMK_LoopHoist))
         , stats(compiler)
@@ -494,12 +496,12 @@ bool LoopHoist::IsHoistingProfitable(GenTree* tree, unsigned lnum)
     // available when we enter the loop body, since a loop often defines a
     // LclVar on exit or there is often at least one LclVar that is worth
     // spilling to the stack to make way for this hoisted expression.
-    // So we are willing hoist an expression with GetCostEx() == MIN_CSE_COST
+    // So we are willing hoist an expression with GetCostEx() == MinCseCost
     //
     if (varInOutCount > availRegCount)
     {
-        // Don't hoist expressions that barely meet CSE cost requirements: tree->GetCostEx() == MIN_CSE_COST
-        if (tree->GetCostEx() <= Compiler::MIN_CSE_COST + 1)
+        // Don't hoist expressions that barely meet CSE cost requirements: tree->GetCostEx() == MinCseCost
+        if (tree->GetCostEx() <= SsaOptimizer::MinCseCost + 1)
         {
             return false;
         }
@@ -529,6 +531,7 @@ class LoopHoistTreeVisitor : public GenTreeVisitor<LoopHoistTreeVisitor>
         }
     };
 
+    SsaOptimizer&     ssa;
     ArrayStack<Value> m_valueStack;
     bool              m_beforeSideEffect;
     unsigned          m_loopNum;
@@ -544,7 +547,7 @@ class LoopHoistTreeVisitor : public GenTreeVisitor<LoopHoistTreeVisitor>
         }
 
         // Tree must be a suitable CSE candidate for us to be able to hoist it.
-        return m_compiler->cseIsCandidate(node);
+        return ssa.IsCseCandidate(node);
     }
 
     bool IsTreeVNInvariant(GenTree* tree)
@@ -590,7 +593,7 @@ class LoopHoistTreeVisitor : public GenTreeVisitor<LoopHoistTreeVisitor>
 
         if (BasicBlock* loopEntryBlock = m_compiler->vnStore->GetLoopMemoryBlock(tree))
         {
-            ValueNum loopMemoryVN = m_compiler->GetMemoryPerSsaData(loopEntryBlock->memoryEntrySsaNum)->m_vn;
+            ValueNum loopMemoryVN = ssa.GetMemorySsaDef(loopEntryBlock->memoryEntrySsaNum).vn;
 
             if (!m_loopHoist->IsLoopInvariant(loopMemoryVN, m_loopNum))
             {
@@ -611,9 +614,10 @@ public:
         UseExecutionOrder = true,
     };
 
-    LoopHoistTreeVisitor(Compiler* compiler, unsigned loopNum, LoopHoist* loopHoist)
-        : GenTreeVisitor(compiler)
-        , m_valueStack(compiler->getAllocator(CMK_LoopHoist))
+    LoopHoistTreeVisitor(SsaOptimizer& ssa, unsigned loopNum, LoopHoist* loopHoist)
+        : GenTreeVisitor(ssa.GetCompiler())
+        , ssa(ssa)
+        , m_valueStack(ssa.GetCompiler()->getAllocator(CMK_LoopHoist))
         , m_beforeSideEffect(true)
         , m_loopNum(loopNum)
         , m_loopHoist(loopHoist)
@@ -665,7 +669,7 @@ public:
             // Well, at least that's why this probably checks for NoSsaNum, but it seems unlikely
             // that loop hositing would hit dead code. We'll see.
 
-            bool isInvariant = !m_compiler->optLoopTable[m_loopNum].lpContains(use->GetDef()->GetBlock());
+            bool isInvariant = !ssa.GetLoop(m_loopNum)->lpContains(use->GetDef()->GetBlock());
 
             // TODO-CQ: This VN invariance check should not be necessary and in some cases it is conservative - it
             // is possible that the SSA def is outside the loop but VN does not understand what the node is doing
@@ -967,7 +971,7 @@ void LoopHoist::HoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* block
     LoopDsc* loop = &loopTable[loopNum];
     assert(blocks->Top() == loop->lpEntry);
 
-    LoopHoistTreeVisitor visitor(compiler, loopNum, this);
+    LoopHoistTreeVisitor visitor(ssa, loopNum, this);
 
     while (!blocks->Empty())
     {
@@ -1107,7 +1111,8 @@ bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
 
 void Compiler::fgCreateLoopPreHeader(unsigned lnum)
 {
-    LoopDsc* pLoopDsc = &optLoopTable[lnum];
+    LoopDsc* loopTable = optLoopTable;
+    LoopDsc* pLoopDsc  = &loopTable[lnum];
 
     /* This loop has to be a "do-while" loop */
 
@@ -1363,17 +1368,17 @@ void Compiler::fgCreateLoopPreHeader(unsigned lnum)
     {
         for (unsigned l = 0; l < optLoopCount; l++)
         {
-            if (optLoopTable[l].lpHead == head)
+            if (loopTable[l].lpHead == head)
             {
                 noway_assert(l != lnum); // pLoopDsc->lpHead was already changed from 'head' to 'preHead'
-                noway_assert(optLoopTable[l].lpEntry == top);
-                optUpdateLoopHead(l, optLoopTable[l].lpHead, preHead);
-                optLoopTable[l].lpFlags |= LPFLG_HAS_PREHEAD;
+                noway_assert(loopTable[l].lpEntry == top);
+                optUpdateLoopHead(l, loopTable[l].lpHead, preHead);
+                loopTable[l].lpFlags |= LPFLG_HAS_PREHEAD;
 #ifdef DEBUG
                 if (verbose)
                 {
                     printf("Same PreHeader (" FMT_BB ") can be used for loop " FMT_LP " (" FMT_BB " - " FMT_BB ")\n\n",
-                           preHead->bbNum, l, top->bbNum, optLoopTable[l].lpBottom->bbNum);
+                           preHead->bbNum, l, top->bbNum, loopTable[l].lpBottom->bbNum);
                 }
 #endif
             }
@@ -1381,9 +1386,9 @@ void Compiler::fgCreateLoopPreHeader(unsigned lnum)
     }
 }
 
-void Compiler::phHoistLoopCode()
+void SsaOptimizer::DoLoopHoist()
 {
-    if (optLoopCount == 0)
+    if (compiler->optLoopCount == 0)
     {
         return;
     }
@@ -1394,28 +1399,28 @@ void Compiler::phHoistLoopCode()
         return;
     }
 
-    if (verbose)
+    if (compiler->verbose)
     {
-        fgDispBasicBlocks(true);
+        compiler->fgDispBasicBlocks(true);
         printf("");
     }
 #endif
 
-    LoopHoist hoist(this);
+    LoopHoist hoist(*this);
     hoist.Run();
 
 #if DEBUG
-    if (fgModified)
+    if (compiler->fgModified)
     {
-        if (verbose)
+        if (compiler->verbose)
         {
             printf("Blocks/Trees after optHoistLoopCode() modified flowgraph\n");
-            fgDispBasicBlocks(true);
+            compiler->fgDispBasicBlocks(true);
             printf("");
         }
 
         // Make sure that the predecessor lists are accurate
-        fgDebugCheckBBlist();
+        compiler->fgDebugCheckBBlist();
     }
 #endif
 }

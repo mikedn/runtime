@@ -2,14 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
+#include "ssabuilder.h"
 
 class RedundantBranchesDomTreeVisitor : public DomTreeVisitor<RedundantBranchesDomTreeVisitor>
 {
 public:
     bool madeChanges;
 
-    RedundantBranchesDomTreeVisitor(Compiler* compiler)
-        : DomTreeVisitor(compiler, compiler->fgSsaDomTree), madeChanges(false)
+    RedundantBranchesDomTreeVisitor(SsaOptimizer& ssa)
+        : DomTreeVisitor(ssa.GetCompiler(), ssa.GetDomTree()), madeChanges(false)
     {
     }
 
@@ -643,9 +644,9 @@ bool RedundantBranchesDomTreeVisitor::IsReachable(BasicBlock* const fromBlock,
     return false;
 }
 
-PhaseStatus Compiler::phRedundantBranches()
+PhaseStatus SsaOptimizer::DoRedundantBranches()
 {
-    RedundantBranchesDomTreeVisitor visitor(this);
+    RedundantBranchesDomTreeVisitor visitor(*this);
     visitor.WalkTree();
     return visitor.madeChanges ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }

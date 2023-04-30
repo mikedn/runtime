@@ -2362,7 +2362,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     // JIT\HardwareIntrinsics\General\Vector128_1\Vector128_1_ro
     opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() == 2);
 #else
-    opts.compExpandCallsEarly      = (JitConfig.JitExpandCallsEarly() != 0);
+    opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() != 0);
 #endif
 }
 
@@ -2664,104 +2664,21 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     // And optRemoveRedundantZeroInits depends on the code not being fully interruptible.
     DoPhase(this, PHASE_SET_FULLY_INTERRUPTIBLE, &Compiler::phSetFullyInterruptible);
 
-    if (opts.OptimizationEnabled())
+    if (opts.OptimizationEnabled()
+#ifdef OPT_CONFIG
+        && (JitConfig.JitDoSsa() != 0)
+#endif
+            )
     {
-#ifdef OPT_CONFIG
-        const bool     doSsa           = (JitConfig.JitDoSsa() != 0);
-        const bool     doEarlyProp     = doSsa && (JitConfig.JitDoEarlyProp() != 0);
-        const bool     doValueNum      = doSsa && (JitConfig.JitDoValueNumber() != 0);
-        const bool     doLoopHoisting  = doValueNum && (JitConfig.JitDoLoopHoisting() != 0);
-        const bool     doCopyProp      = doValueNum && (JitConfig.JitDoCopyProp() != 0);
-        const bool     doBranchOpt     = doValueNum && (JitConfig.JitDoRedundantBranchOpts() != 0);
-        const bool     doCse           = doValueNum && (JitConfig.JitNoCSE() == 0);
-        const bool     doAssertionProp = doValueNum && (JitConfig.JitDoAssertionProp() != 0);
-        const bool     doRangeAnalysis = doAssertionProp && (JitConfig.JitDoRangeAnalysis() != 0);
-        const unsigned iterationCount  = !opts.optRepeat ? 1 : static_cast<unsigned>(JitConfig.JitOptRepeatCount());
+        phSsaOpt();
 
-        for (unsigned iteration = 0; iteration < iterationCount; iteration++)
-#else
-        const bool doSsa           = true;
-        const bool doEarlyProp     = true;
-        const bool doValueNum      = true;
-        const bool doLoopHoisting  = true;
-        const bool doCopyProp      = true;
-        const bool doBranchOpt     = true;
-        const bool doCse           = true;
-        const bool doAssertionProp = true;
-        const bool doRangeAnalysis = true;
-#endif
+        if (fgModified)
         {
-#ifdef OPT_CONFIG
-            if (iteration != 0)
-            {
-                fgSsaReset();
-            }
-#endif
-
-            if (doSsa)
-            {
-                fgEnsureDomTreeRoot();
-
-                DoPhase(this, PHASE_SSA_LIVENESS, &Compiler::phSsaLiveness);
-                DoPhase(this, PHASE_ZERO_INITS, &Compiler::phRemoveRedundantZeroInits);
-                DoPhase(this, PHASE_BUILD_SSA, &Compiler::phSsaBuild);
-            }
-
-            if (doEarlyProp)
-            {
-                DoPhase(this, PHASE_EARLY_PROP, &Compiler::phEarlyProp);
-            }
-
-            if (doValueNum)
-            {
-                DoPhase(this, PHASE_VALUE_NUMBER, &Compiler::phValueNumber);
-            }
-
-            if (doLoopHoisting)
-            {
-                DoPhase(this, PHASE_HOIST_LOOP_CODE, &Compiler::phHoistLoopCode);
-            }
-
-            if (doCopyProp)
-            {
-                DoPhase(this, PHASE_VN_COPY_PROP, &Compiler::phCopyProp);
-            }
-
-            if (doBranchOpt)
-            {
-                DoPhase(this, PHASE_OPTIMIZE_BRANCHES, &Compiler::phRedundantBranches);
-            }
-
-            if (doCse)
-            {
-                DoPhase(this, PHASE_OPTIMIZE_VALNUM_CSES, &Compiler::phCse);
-            }
-
-#if ASSERTION_PROP
-            if (doAssertionProp)
-            {
-                DoPhase(this, PHASE_ASSERTION_PROP_MAIN, &Compiler::phAssertionProp);
-            }
-
-            if (doRangeAnalysis)
-            {
-                DoPhase(this, PHASE_OPTIMIZE_INDEX_CHECKS, &Compiler::phRemoveRangeCheck);
-            }
-#endif // ASSERTION_PROP
-
-            if (doSsa)
-            {
-                DoPhase(this, PHASE_DESTROY_SSA, &Compiler::phSsaDestroy);
-            }
-
-            if (fgModified)
-            {
-                DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH, &Compiler::phUpdateFlowGraph);
-                DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS2, &Compiler::fgComputeEdgeWeights);
-            }
+            DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH, &Compiler::phUpdateFlowGraph);
+            DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS2, &Compiler::fgComputeEdgeWeights);
         }
 
-        ssaForm        = false;
+        // TODO-MIKE-Cleanup: These should be inside phSsaOpt.
         fgDomsComputed = false;
         vnStore        = nullptr;
     }

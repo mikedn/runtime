@@ -148,10 +148,13 @@ public:
     }
 };
 
+class SsaOptimizer;
+
 class ValueNumStore
 {
-    Compiler*     m_pComp;
-    CompAllocator m_alloc;
+    SsaOptimizer& ssa;
+    Compiler*     compiler;
+    CompAllocator alloc;
     BasicBlock*   m_currentBlock = nullptr;
     GenTree*      m_currentNode  = nullptr;
 
@@ -306,8 +309,7 @@ public:
     // Initializes any static variables of ValueNumStore.
     static void InitValueNumStoreStatics();
 
-    // Initialize an empty ValueNumStore.
-    ValueNumStore(Compiler* comp, CompAllocator allocator);
+    ValueNumStore(SsaOptimizer& ssa);
 
     // Returns "true" iff "vnf" (which may have been created by a cast from an integral value) represents
     // a legal value number function.

@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
+#include "ssabuilder.h"
 #include "ssarenamestate.h"
 
 // VN based copy propagation
@@ -48,11 +49,11 @@
 
 class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
 {
-    using SsaStack     = SsaRenameState::Stack;
-    using SsaStackNode = SsaRenameState::StackNode;
+    using SsaStack       = SsaRenameState::Stack;
+    using SsaStackNode   = SsaRenameState::StackNode;
+    using LclSsaStackMap = JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, SsaStack>;
 
-    typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, SsaStack> LclSsaStackMap;
-
+    SsaOptimizer&  ssa;
     LclSsaStackMap lclSsaStackMap;
     SsaStack*      stackListTail = nullptr;
     SsaStack       freeStack;
@@ -127,15 +128,16 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
     }
 
 public:
-    CopyPropDomTreeVisitor(Compiler* compiler)
-        : DomTreeVisitor(compiler, compiler->fgSsaDomTree), lclSsaStackMap(compiler->getAllocator(CMK_CopyProp))
+    CopyPropDomTreeVisitor(SsaOptimizer& ssa)
+        : DomTreeVisitor(ssa.GetCompiler(), ssa.GetDomTree())
+        , ssa(ssa)
+        , lclSsaStackMap(ssa.GetCompiler()->getAllocator(CMK_CopyProp))
     {
     }
 
     void Begin()
     {
-        for (GenTreeLclDef* def = m_compiler->m_initSsaDefs; def != nullptr;
-             def                = static_cast<GenTreeLclDef*>(def->gtNext))
+        for (GenTreeLclDef* def = ssa.GetInitSsaDefs(); def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
         {
             unsigned lclNum = def->GetLclNum();
 
@@ -346,10 +348,8 @@ public:
     }
 };
 
-void Compiler::phCopyProp()
+void SsaOptimizer::DoCopyProp()
 {
-    assert(ssaForm && (vnStore != nullptr));
-
-    CopyPropDomTreeVisitor visitor(this);
+    CopyPropDomTreeVisitor visitor(*this);
     visitor.WalkTree();
 }

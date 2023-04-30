@@ -2,9 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
+#include "ssabuilder.h"
 #include "valuenum.h"
 
-using LoopDsc        = Compiler::LoopDsc;
 using FieldHandleSet = JitHashSet<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>>;
 using TypeNumSet     = JitHashSet<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>>;
 
@@ -24,6 +24,7 @@ class VNLoopMemorySummary
 {
     Compiler*       m_compiler;
     ValueNumbering* m_valueNumbering;
+    LoopDsc*        m_loopTable;
     unsigned        m_loopNum;
 
 public:
@@ -47,13 +48,14 @@ class ValueNumbering
     friend class VNLoopMemorySummary;
     friend class ValueNumStore;
 
+    SsaOptimizer&  ssa;
     Compiler*      compiler;
     ValueNumStore* vnStore;
     VNLoop*        vnLoopTable   = nullptr;
     ValueNum       fgCurMemoryVN = NoVN;
 
 public:
-    ValueNumbering(Compiler* compiler, ValueNumStore* vnStore);
+    ValueNumbering(SsaOptimizer& ssa);
     void Run();
 
 private:
@@ -560,14 +562,15 @@ bool ValueNumStore::IsIntZero(T v)
     return false;
 }
 
-ValueNumStore::ValueNumStore(Compiler* comp, CompAllocator alloc)
-    : m_pComp(comp)
-    , m_alloc(alloc)
+ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
+    : ssa(ssa)
+    , compiler(ssa.GetCompiler())
+    , alloc(ssa.GetCompiler()->getAllocator(CMK_ValueNumber))
     , m_fixedPointMapSels(alloc)
     , m_checkedBoundVNs(alloc)
     , m_chunks(alloc)
 #ifdef DEBUG
-    , m_vnNameMap(comp->getAllocator(CMK_DebugOnly))
+    , m_vnNameMap(compiler->getAllocator(CMK_DebugOnly))
 #endif
 {
     // We have no current allocation chunks.
@@ -586,7 +589,7 @@ ValueNumStore::ValueNumStore(Compiler* comp, CompAllocator alloc)
 
     // We will reserve chunk 0 to hold some special constants, like the constant NULL,
     // the "exception" value, and the "zero map."
-    Chunk* specialConstChunk = new (m_alloc) Chunk(m_alloc, &m_nextChunkBase, TYP_REF, CEA_Const);
+    Chunk* specialConstChunk = new (alloc) Chunk(alloc, &m_nextChunkBase, TYP_REF, CEA_Const);
     // Implicitly allocate 0 ==> NULL, and 1 ==> Exception, 2 ==> ZeroMap.
     specialConstChunk->m_numUsed += SRC_NumSpecialRefConsts;
     assert(m_chunks.Size() == 0);
@@ -1701,7 +1704,7 @@ ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types typ, ChunkExtraAttr
         }
     }
     // Otherwise, must allocate a new one.
-    Chunk* chunk                = new (m_alloc) Chunk(m_alloc, &m_nextChunkBase, typ, attribs);
+    Chunk* chunk                = new (alloc) Chunk(alloc, &m_nextChunkBase, typ, attribs);
     m_curAllocChunk[typ][index] = m_chunks.Size();
     m_chunks.Push(chunk);
     return chunk;
@@ -1713,7 +1716,7 @@ ValueNum ValueNumStore::VNForHandle(ssize_t value, GenTreeFlags handleKind)
 
     if (m_handleMap == nullptr)
     {
-        m_handleMap = new (m_alloc) HandleVNMap(m_alloc);
+        m_handleMap = new (alloc) HandleVNMap(alloc);
     }
 
     VNHandle handle(value, handleKind);
@@ -1769,7 +1772,7 @@ ValueNum ValueNumStore::VNForIntCon(int32_t value)
 
     if (m_int32VNMap == nullptr)
     {
-        m_int32VNMap = new (m_alloc) Int32VNMap(m_alloc);
+        m_int32VNMap = new (alloc) Int32VNMap(alloc);
     }
 
     return VnForConst<int32_t, Int32VNMap>(value, m_int32VNMap, TYP_INT);
@@ -1779,7 +1782,7 @@ ValueNum ValueNumStore::VNForLongCon(int64_t value)
 {
     if (m_int64VNMap == nullptr)
     {
-        m_int64VNMap = new (m_alloc) Int64VNMap(m_alloc);
+        m_int64VNMap = new (alloc) Int64VNMap(alloc);
     }
 
     return VnForConst<int64_t, Int64VNMap>(value, m_int64VNMap, TYP_LONG);
@@ -1789,7 +1792,7 @@ ValueNum ValueNumStore::VNForFloatCon(float value)
 {
     if (m_floatVNMap == nullptr)
     {
-        m_floatVNMap = new (m_alloc) Int32VNMap(m_alloc);
+        m_floatVNMap = new (alloc) Int32VNMap(alloc);
     }
 
     return VnForConst<int32_t, Int32VNMap>(jitstd::bit_cast<int32_t>(value), m_floatVNMap, TYP_FLOAT);
@@ -1799,7 +1802,7 @@ ValueNum ValueNumStore::VNForDoubleCon(double value)
 {
     if (m_doubleVNMap == nullptr)
     {
-        m_doubleVNMap = new (m_alloc) Int64VNMap(m_alloc);
+        m_doubleVNMap = new (alloc) Int64VNMap(alloc);
     }
 
     return VnForConst<int64_t, Int64VNMap>(jitstd::bit_cast<int64_t>(value), m_doubleVNMap, TYP_DOUBLE);
@@ -1822,7 +1825,7 @@ ValueNum ValueNumStore::VNForByrefCon(target_size_t value)
 {
     if (m_byrefVNMap == nullptr)
     {
-        m_byrefVNMap = new (m_alloc) ByrefVNMap(m_alloc);
+        m_byrefVNMap = new (alloc) ByrefVNMap(alloc);
     }
 
     return VnForConst<target_size_t, ByrefVNMap>(value, m_byrefVNMap, TYP_BYREF);
@@ -1919,7 +1922,7 @@ ValueNum ValueNumStore::VNForReadOnlyMemoryMap()
 {
     if (m_readOnlyMemoryMap == NoVN)
     {
-        m_readOnlyMemoryMap = VNForExpr(m_pComp->fgFirstBB, TYP_STRUCT);
+        m_readOnlyMemoryMap = VNForExpr(compiler->fgFirstBB, TYP_STRUCT);
     }
 
     return m_readOnlyMemoryMap;
@@ -1959,7 +1962,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func)
 
     if (m_func0VNMap == nullptr)
     {
-        m_func0VNMap = new (m_alloc) Func0VNMap(m_alloc);
+        m_func0VNMap = new (alloc) Func0VNMap(alloc);
     }
 
     ValueNum* vn = m_func0VNMap->Emplace(func, NoVN);
@@ -1987,7 +1990,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
 
     if (m_func1VNMap == nullptr)
     {
-        m_func1VNMap = new (m_alloc) Func1VNMap(m_alloc);
+        m_func1VNMap = new (alloc) Func1VNMap(alloc);
     }
 
     VNDefFunc1Arg func1(func, arg0);
@@ -2087,7 +2090,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
 
     if (m_func2VNMap == nullptr)
     {
-        m_func2VNMap = new (m_alloc) Func2VNMap(m_alloc);
+        m_func2VNMap = new (alloc) Func2VNMap(alloc);
     }
 
     VNDefFunc2Arg func2(func, arg0, arg1);
@@ -2120,7 +2123,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
 
     if (m_func3VNMap == nullptr)
     {
-        m_func3VNMap = new (m_alloc) Func3VNMap(m_alloc);
+        m_func3VNMap = new (alloc) Func3VNMap(alloc);
     }
 
     VNDefFunc3Arg func3(func, arg0, arg1, arg2);
@@ -2149,7 +2152,7 @@ ValueNum ValueNumStore::VNForFunc(
 
     if (m_func4VNMap == nullptr)
     {
-        m_func4VNMap = new (m_alloc) Func4VNMap(m_alloc);
+        m_func4VNMap = new (alloc) Func4VNMap(alloc);
     }
 
     VNDefFunc4Arg func4(func, arg0, arg1, arg2, arg3);
@@ -2252,7 +2255,7 @@ TailCall:
 
     if (m_func2VNMap == nullptr)
     {
-        m_func2VNMap = new (m_alloc) Func2VNMap(m_alloc);
+        m_func2VNMap = new (alloc) Func2VNMap(alloc);
     }
     else if (m_func2VNMap->Lookup(fstruct, &res))
     {
@@ -2328,7 +2331,7 @@ TailCall:
 
         if (funcApp.m_func == VNF_PhiDef)
         {
-            lcl = m_pComp->lvaGetDesc(ConstantValue<unsigned>(funcApp[2]));
+            lcl = compiler->lvaGetDesc(ConstantValue<unsigned>(funcApp[2]));
         }
 
         if (GetVNFunc(phiVN, &funcApp))
@@ -2350,7 +2353,7 @@ TailCall:
             }
             else if (vnk == VNK_Liberal)
             {
-                phiArgVN = m_pComp->GetMemoryPerSsaData(phiArgSsaNum)->m_vn;
+                phiArgVN = ssa.GetMemorySsaDef(phiArgSsaNum).vn;
             }
             else
             {
@@ -2390,7 +2393,7 @@ TailCall:
                     }
                     else if (vnk == VNK_Liberal)
                     {
-                        phiArgVN = m_pComp->GetMemoryPerSsaData(phiArgSsaNum)->m_vn;
+                        phiArgVN = ssa.GetMemorySsaDef(phiArgSsaNum).vn;
                     }
                     else
                     {
@@ -2489,7 +2492,7 @@ void ValueNumStore::RecordLoopMemoryDependence(GenTree* node, BasicBlock* block,
         return;
     }
 
-    Compiler::LoopDsc* loopTable = m_pComp->optLoopTable;
+    LoopDsc* loopTable = ssa.GetLoopTable();
 
     // If the loop was removed, then record the dependence in the nearest enclosing loop, if any.
     while ((loopTable[updateLoopNum].lpFlags & LPFLG_REMOVED) != 0)
@@ -2513,7 +2516,7 @@ void ValueNumStore::RecordLoopMemoryDependence(GenTree* node, BasicBlock* block,
 
     // If the update block is not the the header of a loop containing
     // block, we can also ignore the update.
-    if (!m_pComp->optLoopContains(updateLoopNum, loopNum))
+    if (!compiler->optLoopContains(updateLoopNum, loopNum))
     {
         JITDUMP("      ==> Not updating loop memory dependence of [%06u]/" FMT_LP ", memory " FMT_VN "/" FMT_LP
                 " is not defined in an enclosing loop\n",
@@ -2527,7 +2530,7 @@ void ValueNumStore::RecordLoopMemoryDependence(GenTree* node, BasicBlock* block,
 
     if (m_nodeToLoopMemoryBlockMap == nullptr)
     {
-        m_nodeToLoopMemoryBlockMap = new (m_alloc) NodeBlockMap(m_alloc);
+        m_nodeToLoopMemoryBlockMap = new (alloc) NodeBlockMap(alloc);
     }
     else if (m_nodeToLoopMemoryBlockMap->Lookup(node, &mapBlock))
     {
@@ -2536,7 +2539,7 @@ void ValueNumStore::RecordLoopMemoryDependence(GenTree* node, BasicBlock* block,
         // If the update loop contains the existing map loop,
         // the existing map loop is more constraining.
         // So no update needed.
-        if (m_pComp->optLoopContains(updateLoopNum, mapLoopNum))
+        if (compiler->optLoopContains(updateLoopNum, mapLoopNum))
         {
             JITDUMP("      ==> Not updating loop memory dependence of [%06u]; alrady constrained to " FMT_LP
                     " nested in " FMT_LP "\n",
@@ -3774,13 +3777,13 @@ ValueNum ValueNumStore::VNForTypeNum(unsigned typeNum)
     ValueNum vn = VNForIntCon(static_cast<int32_t>(typeNum));
 
 #ifdef DEBUG
-    if (m_pComp->verbose && !m_vnNameMap.Lookup(vn))
+    if (compiler->verbose && !m_vnNameMap.Lookup(vn))
     {
         const char* name;
 
-        if (m_pComp->typIsLayoutNum(typeNum))
+        if (compiler->typIsLayoutNum(typeNum))
         {
-            name = m_pComp->typGetLayoutByNum(typeNum)->GetClassName();
+            name = compiler->typGetLayoutByNum(typeNum)->GetClassName();
         }
         else
         {
@@ -3799,10 +3802,10 @@ ValueNum ValueNumStore::VNForFieldSeqHandle(CORINFO_FIELD_HANDLE fieldHandle)
     ValueNum vn = VNForHostPtr(fieldHandle);
 
 #ifdef DEBUG
-    if (m_pComp->verbose && !m_vnNameMap.Lookup(vn))
+    if (compiler->verbose && !m_vnNameMap.Lookup(vn))
     {
         const char* className;
-        const char* fieldName = m_pComp->eeGetFieldName(fieldHandle, &className);
+        const char* fieldName = compiler->eeGetFieldName(fieldHandle, &className);
         size_t      length    = strlen(className) + strlen(fieldName) + 3;
         char*       name      = m_vnNameMap.GetAllocator().allocate<char>(length);
         _snprintf_s(name, length, _TRUNCATE, "%s::%s", className, fieldName);
@@ -3856,7 +3859,7 @@ FieldSeqNode* ValueNumStore::FieldSeqVNToFieldSeq(ValueNum vn)
 
 ValueNum ValueNumStore::FieldSeqVNAppend(ValueNum fieldSeqVN, FieldSeqNode* fieldSeq)
 {
-    fieldSeqVN = VNForFieldSeq(m_pComp->GetFieldSeqStore()->Append(FieldSeqVNToFieldSeq(fieldSeqVN), fieldSeq));
+    fieldSeqVN = VNForFieldSeq(compiler->GetFieldSeqStore()->Append(FieldSeqVNToFieldSeq(fieldSeqVN), fieldSeq));
     INDEBUG(Trace(fieldSeqVN));
     return fieldSeqVN;
 }
@@ -4098,9 +4101,9 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
 
     target_size_t elemSize;
 
-    if (m_pComp->typIsLayoutNum(arrayInfo.m_elemTypeNum))
+    if (compiler->typIsLayoutNum(arrayInfo.m_elemTypeNum))
     {
-        elemSize = m_pComp->typGetLayoutByNum(arrayInfo.m_elemTypeNum)->GetSize();
+        elemSize = compiler->typGetLayoutByNum(arrayInfo.m_elemTypeNum)->GetSize();
     }
     else
     {
@@ -4826,7 +4829,7 @@ void ValueNumbering::NumberLclStore(GenTreeLclVar* store, GenTreeOp* asg, GenTre
 
     if (!lvaGetDesc(store)->IsAddressExposed())
     {
-        assert(!compiler->GetMemorySsaMap()->Lookup(asg));
+        assert(ssa.GetMemorySsaNum(asg) == NoSsaNum);
 
         return;
     }
@@ -4993,7 +4996,7 @@ void ValueNumbering::NumberLclFldStore(GenTreeLclFld* store, GenTreeOp* asg, Gen
 
     if (!lvaGetDesc(store)->IsAddressExposed())
     {
-        assert(!compiler->GetMemorySsaMap()->Lookup(asg));
+        assert(ssa.GetMemorySsaNum(asg) == NoSsaNum);
 
         return;
     }
@@ -5952,12 +5955,12 @@ void ValueNumStore::SetVNIsCheckedBound(ValueNum vn)
 ValueNum ValueNumStore::EvalMathFuncUnary(var_types typ, NamedIntrinsic gtMathFN, ValueNum arg0VN)
 {
     assert(arg0VN == VNNormalValue(arg0VN));
-    assert(m_pComp->IsMathIntrinsic(gtMathFN));
+    assert(compiler->IsMathIntrinsic(gtMathFN));
 
     // If the math intrinsic is not implemented by target-specific instructions, such as implemented
     // by user calls, then don't do constant folding on it during ReadyToRun. This minimizes precision loss.
 
-    if (IsVNConstant(arg0VN) && (!m_pComp->opts.IsReadyToRun() || m_pComp->IsTargetIntrinsic(gtMathFN)))
+    if (IsVNConstant(arg0VN) && (!compiler->opts.IsReadyToRun() || compiler->IsTargetIntrinsic(gtMathFN)))
     {
         assert(varTypeIsFloating(TypeOfVN(arg0VN)));
 
@@ -6329,13 +6332,13 @@ ValueNum ValueNumStore::EvalMathFuncBinary(var_types typ, NamedIntrinsic gtMathF
     assert(varTypeIsFloating(typ));
     assert(arg0VN == VNNormalValue(arg0VN));
     assert(arg1VN == VNNormalValue(arg1VN));
-    assert(m_pComp->IsMathIntrinsic(gtMathFN));
+    assert(compiler->IsMathIntrinsic(gtMathFN));
 
     // If the math intrinsic is not implemented by target-specific instructions, such as implemented
     // by user calls, then don't do constant folding on it during ReadyToRun. This minimizes precision loss.
 
     if (IsVNConstant(arg0VN) && IsVNConstant(arg1VN) &&
-        (!m_pComp->opts.IsReadyToRun() || m_pComp->IsTargetIntrinsic(gtMathFN)))
+        (!compiler->opts.IsReadyToRun() || compiler->IsTargetIntrinsic(gtMathFN)))
     {
         if (typ == TYP_DOUBLE)
         {
@@ -6785,7 +6788,7 @@ void ValueNumStore::DumpFieldSeq(Compiler* comp, VNFuncApp* fieldSeq, bool isHea
     assert(fieldSeq->m_func == VNF_FieldSeq);
 
     printf("FieldSeq(");
-    m_pComp->dmpFieldSeqFields(ConstantHostPtr<FieldSeqNode>(fieldSeq->m_args[0]));
+    compiler->dmpFieldSeqFields(ConstantHostPtr<FieldSeqNode>(fieldSeq->m_args[0]));
     printf(")");
 }
 
@@ -6904,9 +6907,10 @@ void ValueNumStore::DumpPtrToArrElem(const VNFuncApp& elemAddr)
     FieldSeqNode* fieldSeq   = FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
 
     unsigned     elemTypeNum = static_cast<unsigned>(ConstantValue<int32_t>(elemAddr.m_args[0]));
-    ClassLayout* elemLayout  = m_pComp->typIsLayoutNum(elemTypeNum) ? m_pComp->typGetLayoutByNum(elemTypeNum) : nullptr;
-    var_types    elemType =
-        elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : m_pComp->typGetStructType(elemLayout);
+    ClassLayout* elemLayout =
+        compiler->typIsLayoutNum(elemTypeNum) ? compiler->typGetLayoutByNum(elemTypeNum) : nullptr;
+    var_types elemType =
+        elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : compiler->typGetStructType(elemLayout);
 
     printf("PtrToArrElem(");
     printf(FMT_VN, elemTypeVN);
@@ -6922,7 +6926,7 @@ void ValueNumStore::DumpPtrToArrElem(const VNFuncApp& elemAddr)
     if (fieldSeq != nullptr)
     {
         printf(", ");
-        m_pComp->dmpFieldSeqFields(fieldSeq);
+        compiler->dmpFieldSeqFields(fieldSeq);
     }
     printf(")");
 }
@@ -7055,7 +7059,9 @@ void ValueNumStore::RunTests(Compiler* comp)
 {
     VNFunc VNF_Add = GenTreeOpToVNFunc(GT_ADD);
 
-    ValueNumStore* vns    = new (comp->getAllocatorDebugOnly()) ValueNumStore(comp, comp->getAllocatorDebugOnly());
+    SsaOptimizer ssa(comp);
+
+    ValueNumStore* vns    = new (comp->getAllocatorDebugOnly()) ValueNumStore(ssa);
     ValueNum       vnNull = VNForNull();
     assert(vnNull == VNForNull());
 
@@ -7156,7 +7162,7 @@ public:
     {
     }
 
-    BasicBlock* ChooseFromNotAllPredsDone()
+    BasicBlock* ChooseFromNotAllPredsDone(SsaOptimizer& ssa)
     {
         assert(m_toDoAllPredsDone.Size() == 0);
         // If we have no blocks with all preds done, then (ideally, if all cycles have been captured by loops)
@@ -7195,11 +7201,14 @@ public:
             unsigned lnum;
             if (valueNumbering->BlockIsLoopEntry(cand, &lnum))
             {
+                LoopDsc* loopTable = ssa.GetLoopTable();
+
                 // "lnum" is the innermost loop of which "cand" is the entry; find the outermost.
-                unsigned lnumPar = m_comp->optLoopTable[lnum].lpParent;
-                while (lnumPar != BasicBlock::NOT_IN_LOOP)
+
+                for (unsigned lnumPar = loopTable[lnum].lpParent; lnumPar != BasicBlock::NOT_IN_LOOP;
+                     lnumPar          = loopTable[lnumPar].lpParent)
                 {
-                    if (m_comp->optLoopTable[lnumPar].lpEntry == cand)
+                    if (loopTable[lnumPar].lpEntry == cand)
                     {
                         lnum = lnumPar;
                     }
@@ -7207,14 +7216,14 @@ public:
                     {
                         break;
                     }
-                    lnumPar = m_comp->optLoopTable[lnumPar].lpParent;
                 }
 
                 bool allNonLoopPredsDone = true;
                 for (flowList* pred = m_comp->BlockPredsWithEH(cand); pred != nullptr; pred = pred->flNext)
                 {
                     BasicBlock* predBlock = pred->getBlock();
-                    if (!m_comp->optLoopTable[lnum].lpContains(predBlock))
+
+                    if (!loopTable[lnum].lpContains(predBlock))
                     {
                         if (!GetVisitBit(predBlock->bbNum, BVB_complete))
                         {
@@ -7222,6 +7231,7 @@ public:
                         }
                     }
                 }
+
                 if (allNonLoopPredsDone)
                 {
                     return cand;
@@ -7300,17 +7310,7 @@ public:
     }
 };
 
-void Compiler::phValueNumber()
-{
-    assert(ssaForm && (vnStore == nullptr));
-
-    vnStore = new (getAllocator(CMK_ValueNumber)) ValueNumStore(this, getAllocator(CMK_ValueNumber));
-
-    ValueNumbering valueNumbering(this, vnStore);
-    valueNumbering.Run();
-}
-
-ValueNumbering::ValueNumbering(Compiler* compiler, ValueNumStore* vnStore) : compiler(compiler), vnStore(vnStore)
+ValueNumbering::ValueNumbering(SsaOptimizer& ssa) : ssa(ssa), compiler(ssa.GetCompiler()), vnStore(ssa.GetVNStore())
 {
 }
 
@@ -7337,7 +7337,7 @@ void ValueNumbering::Run()
     // parameters and initial memory are treated as loop invariant.
     assert(compiler->fgFirstBB->bbNatLoopNum == BasicBlock::NOT_IN_LOOP);
 
-    for (GenTreeLclDef* def = compiler->m_initSsaDefs; def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
+    for (GenTreeLclDef* def = ssa.GetInitSsaDefs(); def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
     {
         unsigned   lclNum   = def->GetLclNum();
         LclVarDsc* lcl      = compiler->lvaGetDesc(lclNum);
@@ -7384,7 +7384,7 @@ void ValueNumbering::Run()
     }
 
     // Give memory an initial value number (about which we know nothing).
-    compiler->GetMemoryPerSsaData(SsaConfig::FIRST_SSA_NUM)->m_vn = vnStore->VNForExpr(compiler->fgFirstBB, TYP_STRUCT);
+    ssa.GetMemorySsaDef(SsaConfig::FIRST_SSA_NUM).vn = vnStore->VNForExpr(compiler->fgFirstBB, TYP_STRUCT);
 
     ValueNumberState vs(compiler, this);
 
@@ -7405,7 +7405,7 @@ void ValueNumbering::Run()
         // note that this is an "if", not a "while" loop.
         if (vs.m_toDoNotAllPredsDone.Size() > 0)
         {
-            BasicBlock* toDo = vs.ChooseFromNotAllPredsDone();
+            BasicBlock* toDo = vs.ChooseFromNotAllPredsDone(ssa);
             if (toDo == nullptr)
             {
                 continue; // We may have run out, because of completed blocks on the not-all-preds done list.
@@ -7420,29 +7420,29 @@ void ValueNumbering::Run()
 
 void ValueNumbering::SummarizeLoopMemoryStores()
 {
-    LoopDsc* optLoopTable = compiler->optLoopTable;
-    unsigned optLoopCount = compiler->optLoopCount;
+    LoopDsc* loopTable = ssa.GetLoopTable();
+    unsigned loopCount = ssa.GetLoopCount();
 
-    vnLoopTable = compiler->getAllocator(CMK_ValueNumber).allocate<VNLoop>(optLoopCount);
+    vnLoopTable = compiler->getAllocator(CMK_ValueNumber).allocate<VNLoop>(loopCount);
 
-    for (unsigned loopNum = 0; loopNum < optLoopCount; loopNum++)
+    for (unsigned loopNum = 0; loopNum < loopCount; loopNum++)
     {
         new (&vnLoopTable[loopNum]) VNLoop(compiler);
     }
 
-    for (unsigned loopNum = 0; loopNum < optLoopCount; loopNum++)
+    for (unsigned loopNum = 0; loopNum < loopCount; loopNum++)
     {
-        if (optLoopTable[loopNum].lpFlags & LPFLG_REMOVED)
+        if (loopTable[loopNum].lpFlags & LPFLG_REMOVED)
         {
             continue;
         }
 
-        if (optLoopTable[loopNum].lpParent != BasicBlock::NOT_IN_LOOP)
+        if (loopTable[loopNum].lpParent != BasicBlock::NOT_IN_LOOP)
         {
             continue;
         }
 
-        for (BasicBlock* const block : optLoopTable[loopNum].LoopBlocks())
+        for (BasicBlock* const block : loopTable[loopNum].LoopBlocks())
         {
             if (block->bbNatLoopNum == BasicBlock::NOT_IN_LOOP)
             {
@@ -7498,16 +7498,16 @@ void ValueNumbering::SummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMem
 
 bool ValueNumbering::BlockIsLoopEntry(BasicBlock* block, unsigned* loopNum)
 {
-    LoopDsc* optLoopTable = compiler->optLoopTable;
+    LoopDsc* loopTable = ssa.GetLoopTable();
 
-    for (unsigned n = block->bbNatLoopNum; n != BasicBlock::NOT_IN_LOOP; n = optLoopTable[n].lpParent)
+    for (unsigned n = block->bbNatLoopNum; n != BasicBlock::NOT_IN_LOOP; n = loopTable[n].lpParent)
     {
-        if (optLoopTable[n].lpFlags & LPFLG_REMOVED)
+        if (loopTable[n].lpFlags & LPFLG_REMOVED)
         {
             continue;
         }
 
-        if (optLoopTable[n].lpEntry == block)
+        if (loopTable[n].lpEntry == block)
         {
             *loopNum = n;
             return true;
@@ -7599,8 +7599,8 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
     if (block->memoryPhi == nullptr)
     {
-        fgCurMemoryVN = compiler->GetMemoryPerSsaData(block->memoryEntrySsaNum)->m_vn;
-        assert(fgCurMemoryVN != ValueNumStore::NoVN);
+        fgCurMemoryVN = ssa.GetMemorySsaDef(block->memoryEntrySsaNum).vn;
+        assert(fgCurMemoryVN != NoVN);
     }
     else
     {
@@ -7615,7 +7615,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
         {
             BasicBlock::MemoryPhiArg* phiArgs = block->memoryPhi;
 
-            ValueNum sameMemoryVN = compiler->GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
+            ValueNum sameMemoryVN = ssa.GetMemorySsaDef(phiArgs->GetSsaNum()).vn;
             INDEBUG(TraceMem(sameMemoryVN, "predecessor memory"));
 
             ValueNum phiVN = vnStore->VNForIntCon(phiArgs->GetSsaNum());
@@ -7626,7 +7626,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
             for (; phiArgs != nullptr; phiArgs = phiArgs->m_nextArg)
             {
-                ValueNum phiMemoryVN = compiler->GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
+                ValueNum phiMemoryVN = ssa.GetMemorySsaDef(phiArgs->GetSsaNum()).vn;
                 INDEBUG(TraceMem(phiMemoryVN, "predecessor memory"));
                 if (sameMemoryVN != phiMemoryVN)
                 {
@@ -7647,8 +7647,8 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
             }
         }
 
-        compiler->GetMemoryPerSsaData(block->memoryEntrySsaNum)->m_vn = newMemoryVN;
-        fgCurMemoryVN                                                 = newMemoryVN;
+        ssa.GetMemorySsaDef(block->memoryEntrySsaNum).vn = newMemoryVN;
+        fgCurMemoryVN                                    = newMemoryVN;
     }
 
     INDEBUG(TraceMem(fgCurMemoryVN));
@@ -7689,7 +7689,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
     if (block->memoryExitSsaNum != block->memoryEntrySsaNum)
     {
-        compiler->GetMemoryPerSsaData(block->memoryExitSsaNum)->m_vn = fgCurMemoryVN;
+        ssa.GetMemorySsaDef(block->memoryExitSsaNum).vn = fgCurMemoryVN;
     }
 
     vnStore->SetCurrentBlock(nullptr);
@@ -7706,9 +7706,10 @@ VNLoop::VNLoop(Compiler* compiler)
 VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum)
     : m_compiler(compiler)
     , m_valueNumbering(valueNumbering)
+    , m_loopTable(compiler->optLoopTable)
     , m_loopNum(loopNum)
     , m_memoryHavoc(valueNumbering->vnLoopTable[loopNum].hasMemoryHavoc)
-    , m_hasCall((compiler->optLoopTable[loopNum].lpFlags & LPFLG_HAS_CALL) != 0)
+    , m_hasCall((m_loopTable[loopNum].lpFlags & LPFLG_HAS_CALL) != 0)
     , m_modifiesAddressExposedLocals(false)
 {
     assert(loopNum < compiler->optLoopCount);
@@ -7735,7 +7736,7 @@ void VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
 
     m_modifiesAddressExposedLocals = true;
 
-    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
+    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_loopTable[n].lpParent)
     {
         VNLoop& loop = m_valueNumbering->vnLoopTable[n];
 
@@ -7750,7 +7751,7 @@ void VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
 
 void VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
 {
-    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
+    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_loopTable[n].lpParent)
     {
         VNLoop& loop = m_valueNumbering->vnLoopTable[n];
 
@@ -7769,7 +7770,7 @@ void VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
 
 void VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
 {
-    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
+    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_loopTable[n].lpParent)
     {
         VNLoop& loop = m_valueNumbering->vnLoopTable[n];
 
@@ -7794,11 +7795,9 @@ bool VNLoopMemorySummary::IsComplete() const
 
 void VNLoopMemorySummary::UpdateLoops() const
 {
-    Compiler::LoopDsc* optLoopTable = m_compiler->optLoopTable;
-
     if (m_memoryHavoc || m_hasCall)
     {
-        for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = optLoopTable[n].lpParent)
+        for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_loopTable[n].lpParent)
         {
             VNLoop& loop = m_valueNumbering->vnLoopTable[n];
 
@@ -7815,12 +7814,12 @@ void VNLoopMemorySummary::UpdateLoops() const
                 // compute it cheaply based on BBF_HAS_CALL (which is also needed by
                 // CSE) but that flag is prematurely set by global morph.
 
-                if ((optLoopTable[n].lpFlags & LPFLG_HAS_CALL) == 0)
+                if ((m_loopTable[n].lpFlags & LPFLG_HAS_CALL) == 0)
                 {
                     JITDUMP("Loop " FMT_LP " has calls\n", n);
                 }
 
-                optLoopTable[n].lpFlags |= LPFLG_HAS_CALL;
+                m_loopTable[n].lpFlags |= LPFLG_HAS_CALL;
             }
         }
     }
@@ -7829,10 +7828,11 @@ void VNLoopMemorySummary::UpdateLoops() const
     // A loop having call will not likely benefit from alignment.
     // TODO-MIKE-Cleanup: This has nothing to do with VN but it looks like
     // there are no other places that traverse the entire loop IR.
-    if (m_hasCall && (optLoopTable[m_loopNum].lpChild == BasicBlock::NOT_IN_LOOP))
+    if (m_hasCall && (m_loopTable[m_loopNum].lpChild == BasicBlock::NOT_IN_LOOP))
     {
-        BasicBlock* first = optLoopTable[m_loopNum].lpFirst;
+        BasicBlock* first = m_loopTable[m_loopNum].lpFirst;
         first->bbFlags &= ~BBF_LOOP_ALIGN;
+
         JITDUMP("Removing LOOP_ALIGN flag for " FMT_LP " that starts at " FMT_BB " because loop has a call.\n",
                 m_loopNum, first->bbNum);
     }
@@ -7841,7 +7841,7 @@ void VNLoopMemorySummary::UpdateLoops() const
 
 ValueNum ValueNumbering::BuildLoopEntryMemory(BasicBlock* entryBlock, unsigned innermostLoopNum)
 {
-    LoopDsc* optLoopTable = compiler->optLoopTable;
+    LoopDsc* loopTable = ssa.GetLoopTable();
 
     // "loopNum" is the innermost loop for which "blk" is the entry; find the outermost one.
     assert(innermostLoopNum != BasicBlock::NOT_IN_LOOP);
@@ -7849,12 +7849,12 @@ ValueNum ValueNumbering::BuildLoopEntryMemory(BasicBlock* entryBlock, unsigned i
     unsigned loopNum     = innermostLoopNum;
     while (loopsInNest != BasicBlock::NOT_IN_LOOP)
     {
-        if (optLoopTable[loopsInNest].lpEntry != entryBlock)
+        if (loopTable[loopsInNest].lpEntry != entryBlock)
         {
             break;
         }
         loopNum     = loopsInNest;
-        loopsInNest = optLoopTable[loopsInNest].lpParent;
+        loopsInNest = loopTable[loopsInNest].lpParent;
     }
 
     if (vnLoopTable[loopNum].hasMemoryHavoc)
@@ -7871,7 +7871,7 @@ ValueNum ValueNumbering::BuildLoopEntryMemory(BasicBlock* entryBlock, unsigned i
     for (flowList* pred = compiler->BlockPredsWithEH(entryBlock); pred != nullptr; pred = pred->flNext)
     {
         BasicBlock* predBlock = pred->getBlock();
-        if (!optLoopTable[loopNum].lpContains(predBlock))
+        if (!loopTable[loopNum].lpContains(predBlock))
         {
             if (nonLoopPred == nullptr)
             {
@@ -7892,9 +7892,9 @@ ValueNum ValueNumbering::BuildLoopEntryMemory(BasicBlock* entryBlock, unsigned i
     // Otherwise, there is a single non-loop pred.
     assert(nonLoopPred != nullptr);
     // What is its memory post-state?
-    ValueNum newMemoryVN = compiler->GetMemoryPerSsaData(nonLoopPred->memoryExitSsaNum)->m_vn;
-    assert(newMemoryVN != ValueNumStore::NoVN); // We must have processed the single non-loop pred before reaching the
-                                                // loop entry.
+    ValueNum newMemoryVN = ssa.GetMemorySsaDef(nonLoopPred->memoryExitSsaNum).vn;
+    assert(newMemoryVN != NoVN); // We must have processed the single non-loop pred before reaching the
+                                 // loop entry.
 
     INDEBUG(TraceMem(newMemoryVN DEBUGARG("loop entry memory")));
 
@@ -7955,11 +7955,11 @@ void ValueNumbering::UpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const c
     fgCurMemoryVN = memVN;
     INDEBUG(TraceMem(fgCurMemoryVN, comment));
 
-    unsigned ssaNum;
+    unsigned ssaNum = ssa.GetMemorySsaNum(node);
 
-    if (compiler->GetMemorySsaMap()->Lookup(node, &ssaNum))
+    if (ssaNum != NoSsaNum)
     {
-        compiler->GetMemoryPerSsaData(ssaNum)->m_vn = memVN;
+        ssa.GetMemorySsaDef(ssaNum).vn = memVN;
         JITDUMP("    Memory SSA def %u = " FMT_VN "\n", ssaNum, memVN);
     }
 }
@@ -9672,14 +9672,14 @@ void ValueNumStore::Print(ValueNum vn, unsigned level)
         printf(FMT_VN, vn);
         if (level > 0)
         {
-            Dump(m_pComp, vn);
+            Dump(compiler, vn);
         }
     }
 }
 
 void ValueNumStore::Trace(ValueNum vn, const char* comment)
 {
-    if (m_pComp->verbose)
+    if (compiler->verbose)
     {
         printf("    %s ", varTypeName(TypeOfVN(vn)));
         Print(vn, 1);
@@ -9695,7 +9695,7 @@ void ValueNumStore::Trace(ValueNum vn, const char* comment)
 
 void ValueNumStore::Trace(ValueNumPair vnp, const char* comment)
 {
-    if (m_pComp->verbose)
+    if (compiler->verbose)
     {
         printf("    %s ", varTypeName(TypeOfVN(vnp.GetLiberal())));
         Print(vnp, 1);
@@ -9742,3 +9742,12 @@ void ValueNumbering::TraceMem(ValueNum vn, const char* comment)
 }
 
 #endif // DEBUG
+
+void SsaOptimizer::DoValueNumber()
+{
+    vnStore           = new (compiler->getAllocator(CMK_ValueNumber)) ValueNumStore(*this);
+    compiler->vnStore = vnStore;
+
+    ValueNumbering valueNumbering(*this);
+    valueNumbering.Run();
+}

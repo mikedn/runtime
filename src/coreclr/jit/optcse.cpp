@@ -3,15 +3,16 @@
 
 #include "jitpch.h"
 #include "jitstd/algorithm.h"
+#include "ssabuilder.h"
 
-bool Compiler::cseIsCandidate(GenTree* node)
+bool SsaOptimizer::IsCseCandidate(GenTree* node)
 {
     if ((node->gtFlags & (GTF_ASG | GTF_DONT_CSE)) != 0)
     {
         return false;
     }
 
-    if (((compCodeOpt() == SMALL_CODE) ? node->GetCostSz() : node->GetCostEx()) < MIN_CSE_COST)
+    if (((compiler->compCodeOpt() == SMALL_CODE) ? node->GetCostSz() : node->GetCostEx()) < MinCseCost)
     {
         return false;
     }
@@ -62,8 +63,9 @@ bool Compiler::cseIsCandidate(GenTree* node)
             // If we don't mark CALL ALLOC_HELPER as a CSE candidate, we are able
             // to use GT_IND(x) in [2] as a CSE def.
             return node->IsHelperCall() &&
-                   !s_helperCallProperties.IsAllocator(eeGetHelperNum(node->AsCall()->GetMethodHandle())) &&
-                   !gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS, true);
+                   !Compiler::s_helperCallProperties.IsAllocator(
+                       Compiler::eeGetHelperNum(node->AsCall()->GetMethodHandle())) &&
+                   !compiler->gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS, true);
 
         case GT_IND:
             // TODO-MIKE-Review: This comment doesn't make a lot of sense, it should
@@ -276,6 +278,7 @@ class Cse
     static constexpr size_t HashBucketSize         = 4;
     static constexpr size_t HashGrowthFactor       = 2;
 
+    SsaOptimizer&  ssa;
     Compiler*      compiler;
     CompAllocator  allocator;
     ValueNumStore* vnStore;
@@ -313,10 +316,11 @@ class Cse
 #endif
 
 public:
-    Cse(Compiler* compiler)
-        : compiler(compiler)
+    Cse(SsaOptimizer& ssa)
+        : ssa(ssa)
+        , compiler(ssa.GetCompiler())
         , allocator(compiler->getAllocator(CMK_CSE))
-        , vnStore(compiler->vnStore)
+        , vnStore(ssa.GetVNStore())
         , hashBuckets(new (allocator) Value*[hashBucketCount]())
         , valueTable(nullptr)
         , valueCount(0)
@@ -700,7 +704,7 @@ public:
                         continue;
                     }
 
-                    if (!compiler->cseIsCandidate(node))
+                    if (!ssa.IsCseCandidate(node))
                     {
                         continue;
                     }
@@ -2647,10 +2651,8 @@ public:
     }
 };
 
-void Compiler::phCse()
+void SsaOptimizer::DoCse()
 {
-    assert(ssaForm && (vnStore != nullptr));
-
-    Cse cse(this);
+    Cse cse(*this);
     cse.Run();
 }

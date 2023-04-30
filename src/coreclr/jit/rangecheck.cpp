@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
+#include "ssabuilder.h"
 
 static bool IntAddOverflows(int x, int y)
 {
@@ -163,6 +164,7 @@ class RangeCheck
     // arrays of single-byte structures)."
     static constexpr int MaxArrayLength = 0x7FFFFFFF;
 
+    SsaOptimizer&        ssa;
     Compiler* const      compiler;
     ValueNumStore* const vnStore;
     JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, Range> rangeMap;
@@ -175,9 +177,10 @@ class RangeCheck
     GenTree* isMonotonicallyIncreasingExpr = nullptr;
 
 public:
-    RangeCheck(Compiler* compiler)
-        : compiler(compiler)
-        , vnStore(compiler->vnStore)
+    RangeCheck(SsaOptimizer& ssa)
+        : ssa(ssa)
+        , compiler(ssa.GetCompiler())
+        , vnStore(ssa.GetVNStore())
         , rangeMap(compiler->getAllocator(CMK_RangeCheck))
         , searchPath(compiler->getAllocator(CMK_RangeCheck))
     {
@@ -609,10 +612,10 @@ bool RangeCheck::HasAddOverflow() const
 
 void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Range* range) const
 {
-    BitVecTraits apTraits(compiler->GetAssertionCount(), compiler);
+    BitVecTraits apTraits(ssa.GetAssertionCount(), compiler);
     for (BitVecOps::Enumerator en(&apTraits, assertions); en.MoveNext();)
     {
-        BoundsAssertion assertion = compiler->apGetBoundsAssertion(en.Current());
+        BoundsAssertion assertion = ssa.GetBoundsAssertion(en.Current());
 
         if (!assertion.IsBoundsAssertion())
         {
@@ -726,7 +729,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
         }
 
         JITDUMP("Assertion: ");
-        DBEXEC(compiler->verbose, compiler->apDumpBoundsAssertion(assertion));
+        DBEXEC(compiler->verbose, ssa.DumpBoundsAssertion(assertion));
         assert(limit.IsVN() || limit.IsConstant());
         assert(cmpOper != GT_NONE);
 
@@ -808,7 +811,7 @@ void RangeCheck::MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Ra
 {
     JITDUMP("Range: " FMT_BB " [%06u] = %s\n", block->bbNum, use->GetID(), ToString(*range));
 
-    if (compiler->GetAssertionCount() == 0)
+    if (ssa.GetAssertionCount() == 0)
     {
         return;
     }
@@ -1256,11 +1259,10 @@ void RangeCheck::OptimizeRangeChecks()
     }
 }
 
-void Compiler::phRemoveRangeCheck()
+void SsaOptimizer::DoRemoveRangeCheck()
 {
-    assert(ssaForm && (vnStore != nullptr));
-    DBEXEC(verbose, fgDispBasicBlocks(true))
+    DBEXEC(compiler->verbose, compiler->fgDispBasicBlocks(true))
 
-    RangeCheck rangeCheck(this);
+    RangeCheck rangeCheck(*this);
     rangeCheck.OptimizeRangeChecks();
 }
