@@ -145,6 +145,15 @@ void SsaBuilder::Build()
 
     SetupBBRoot();
 
+    DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
+    m_pCompiler->lvaMarkLivenessTrackedLocals();
+    m_pCompiler->fgLocalVarLiveness();
+    m_pCompiler->EndPhase(PHASE_BUILD_SSA_LIVENESS);
+    DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
+
+    m_pCompiler->optRemoveRedundantZeroInits();
+    m_pCompiler->EndPhase(PHASE_ZERO_INITS);
+
     int blockCount = m_pCompiler->fgBBNumMax + 1;
 
     JITDUMP("[SsaBuilder] Max block count is %d.\n", blockCount);
@@ -182,15 +191,6 @@ void SsaBuilder::Build()
 
     m_pCompiler->fgSsaDomTree = m_pCompiler->fgBuildDomTree();
     m_pCompiler->EndPhase(PHASE_BUILD_SSA_DOMS);
-
-    DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
-    m_pCompiler->lvaMarkLivenessTrackedLocals();
-    m_pCompiler->fgLocalVarLiveness();
-    m_pCompiler->EndPhase(PHASE_BUILD_SSA_LIVENESS);
-    DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
-
-    m_pCompiler->optRemoveRedundantZeroInits();
-    m_pCompiler->EndPhase(PHASE_ZERO_INITS);
 
     for (unsigned lclNum = 0; lclNum < m_pCompiler->lvaCount; lclNum++)
     {
