@@ -6407,8 +6407,7 @@ void Compiler::optAddCopies()
     }
 }
 
-//------------------------------------------------------------------------------------------
-// optRemoveRedundantZeroInits: Remove redundant zero intializations.
+// Remove redundant zero intializations.
 //
 // Notes:
 //    This phase iterates over basic blocks starting with the first basic block until there is no unique
@@ -6427,11 +6426,9 @@ void Compiler::optAddCopies()
 //            either the local has no gc pointers or there are no gc-safe points between the prolog and the assignment,
 //         then the local is marked with lvHasExplicitInit which tells the codegen not to insert zero initialization
 //         for this local in the prolog.
-
-void Compiler::optRemoveRedundantZeroInits()
+//
+void Compiler::phRemoveRedundantZeroInits()
 {
-    JITDUMP("*************** In optRemoveRedundantZeroInits()\n");
-
     using LclVarRefCounts = JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, unsigned>;
 
     CompAllocator   allocator(getAllocator(CMK_ZeroInit));

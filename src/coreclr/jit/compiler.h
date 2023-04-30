@@ -5264,7 +5264,6 @@ public:
     void optCloneLoop(unsigned loopInd, LoopCloneContext* context);
     void optEnsureUniqueHead(unsigned loopInd, BasicBlock::weight_t ambientWeight);
     PhaseStatus optUnrollLoops(); // Unrolls loops (needs to have cost info)
-    void        optRemoveRedundantZeroInits();
 
     // A "LoopDsc" describes a ("natural") loop.  We (currently) require the body of a loop to be a contiguous (in
     // bbNext order) sequence of basic blocks.  (At times, we may require the blocks in a loop to be "properly numbered"
@@ -6742,6 +6741,8 @@ public:
     void        phRefCountLocals();
     void        phFindOperOrder();
     void        phSetBlockOrder();
+    void        phSsaLiveness();
+    void        phRemoveRedundantZeroInits();
     void        phSsaBuild();
     void        phEarlyProp();
     void        phValueNumber();

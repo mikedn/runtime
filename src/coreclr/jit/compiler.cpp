@@ -2700,6 +2700,10 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
             if (doSsa)
             {
+                fgEnsureDomTreeRoot();
+
+                DoPhase(this, PHASE_SSA_LIVENESS, &Compiler::phSsaLiveness);
+                DoPhase(this, PHASE_ZERO_INITS, &Compiler::phRemoveRedundantZeroInits);
                 DoPhase(this, PHASE_BUILD_SSA, &Compiler::phSsaBuild);
             }
 

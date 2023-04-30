@@ -133,27 +133,15 @@ void Compiler::fgSsaReset()
 SsaBuilder::SsaBuilder(Compiler* pCompiler)
     : m_pCompiler(pCompiler)
     , m_allocator(pCompiler->getAllocator(CMK_SSA))
-    , m_visitedTraits(0, pCompiler) // at this point we do not know the size, SetupBBRoot can add a block
+    , m_visitedTraits(m_pCompiler->fgBBNumMax + 1, pCompiler)
+    , m_visited(BitVecOps::MakeEmpty(&m_visitedTraits))
     , m_renameStack(m_allocator, pCompiler->lvaCount)
 {
 }
 
 void SsaBuilder::Build()
 {
-    JITDUMP("*************** In SsaBuilder::Build()\n");
-
-    m_pCompiler->fgEnsureDomTreeRoot();
-
-    DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
-    m_pCompiler->lvaMarkLivenessTrackedLocals();
-    m_pCompiler->fgLocalVarLiveness();
-    m_pCompiler->EndPhase(PHASE_BUILD_SSA_LIVENESS);
-    DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
-
-    m_pCompiler->optRemoveRedundantZeroInits();
-    m_pCompiler->EndPhase(PHASE_ZERO_INITS);
-
-    int blockCount = m_pCompiler->fgBBNumMax + 1;
+    unsigned blockCount = m_pCompiler->fgBBNumMax + 1;
 
     JITDUMP("[SsaBuilder] Max block count is %d.\n", blockCount);
 
@@ -167,9 +155,6 @@ void SsaBuilder::Build()
     {
         postOrder = (BasicBlock**)alloca(blockCount * sizeof(BasicBlock*));
     }
-
-    m_visitedTraits = BitVecTraits(blockCount, m_pCompiler);
-    m_visited       = BitVecOps::MakeEmpty(&m_visitedTraits);
 
     // TODO-Cleanup: We currently have two dominance computations happening.  We should unify them; for
     // now, at least forget the results of the first. Note that this does not clear fgDomTreePreOrder
