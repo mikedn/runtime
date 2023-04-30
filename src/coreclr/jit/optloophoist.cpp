@@ -170,16 +170,16 @@ void LoopHoist::Run()
         }
     }
 
-    for (unsigned lnum = 0; lnum < loopCount; lnum++)
+    for (unsigned i = 0; i < loopCount; i++)
     {
-        if (loopTable[lnum].lpFlags & LPFLG_REMOVED)
+        if ((loopTable[i].lpFlags & LPFLG_REMOVED) != 0)
         {
             continue;
         }
 
-        if (loopTable[lnum].lpParent == BasicBlock::NOT_IN_LOOP)
+        if (loopTable[i].lpParent == NoLoopNum)
         {
-            HoistLoopNest(lnum);
+            HoistLoopNest(i);
         }
     }
 }
@@ -199,7 +199,7 @@ void LoopHoist::HoistLoopNest(unsigned lnum)
 
     VNSet* hoistedInCurLoop = RemoveHoistedInCurrentLoop();
 
-    if (loopTable[lnum].lpChild != BasicBlock::NOT_IN_LOOP)
+    if (loopTable[lnum].lpChild != NoLoopNum)
     {
         // Add the ones hoisted in "lnum" to "hoistedInParents" for any nested loops.
         if (hoistedInCurLoop != nullptr)
@@ -211,8 +211,7 @@ void LoopHoist::HoistLoopNest(unsigned lnum)
             }
         }
 
-        for (unsigned child = loopTable[lnum].lpChild; child != BasicBlock::NOT_IN_LOOP;
-             child          = loopTable[child].lpSibling)
+        for (unsigned child = loopTable[lnum].lpChild; child != NoLoopNum; child = loopTable[child].lpSibling)
         {
             HoistLoopNest(child);
         }
@@ -290,7 +289,7 @@ void LoopHoist::HoistLoop(unsigned lnum)
 
     for (BasicBlock* const block : pLoopDsc->LoopBlocks())
     {
-        if (block->bbNatLoopNum == BasicBlock::NOT_IN_LOOP)
+        if (block->GetLoopNum() == NoLoopNum)
         {
             // We encountered a block that was moved into the loop range (by fgReorderBlocks),
             // but not marked correctly as being inside the loop.
@@ -995,7 +994,7 @@ void LoopHoist::HoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* block
 
 void LoopHoist::HoistCandidate(GenTree* tree, unsigned lnum)
 {
-    assert(lnum != BasicBlock::NOT_IN_LOOP);
+    assert(lnum != NoLoopNum);
 
     // It must pass the hoistable profitablity tests for this loop level
     if (!IsHoistingProfitable(tree, lnum))
@@ -1063,7 +1062,7 @@ bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
     {
         if ((funcApp.m_func == VNF_PhiDef) || (funcApp.m_func == VNF_PhiMemoryDef))
         {
-            res = !compiler->optLoopContains(lnum, vnStore->ConstantHostPtr<BasicBlock>(funcApp[1])->bbNatLoopNum);
+            res = !compiler->optLoopContains(lnum, vnStore->ConstantHostPtr<BasicBlock>(funcApp[1])->GetLoopNum());
         }
         else if (funcApp.m_func == VNF_MemOpaque)
         {
@@ -1173,7 +1172,7 @@ void Compiler::fgCreateLoopPreHeader(unsigned lnum)
 #endif
 
     // The preheader block is part of the containing loop (if any).
-    preHead->bbNatLoopNum = pLoopDsc->lpParent;
+    preHead->SetLoopNum(pLoopDsc->lpParent);
 
     if (fgIsUsingProfileWeights() && (head->bbJumpKind == BBJ_COND))
     {

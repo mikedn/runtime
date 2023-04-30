@@ -1413,13 +1413,8 @@ BasicBlock* Compiler::bbNewBasicBlock(BBjumpKinds jumpKind)
     block->memoryPhi         = nullptr;
     block->memoryEntrySsaNum = 0;
     block->memoryExitSsaNum  = 0;
-
-    // Make sure we reserve a NOT_IN_LOOP value that isn't a legal table index.
-    static_assert_no_msg(BasicBlock::MAX_LOOP_NUM < BasicBlock::NOT_IN_LOOP);
-
-    block->bbNatLoopNum = BasicBlock::NOT_IN_LOOP;
-
-    block->bbPredsWithEH = nullptr;
+    block->bbNatLoopNum      = NoLoopNum;
+    block->bbPredsWithEH     = nullptr;
 
     return block;
 }

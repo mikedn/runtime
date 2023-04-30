@@ -548,6 +548,11 @@ inline BasicBlockFlags& operator &=(BasicBlockFlags& a, BasicBlockFlags b)
 
 // clang-format on
 
+using LoopNum                 = uint8_t;
+constexpr unsigned NoLoopNum  = UINT8_MAX;
+constexpr unsigned MaxLoopNum = 64;
+static_assert_no_msg(MaxLoopNum < NoLoopNum);
+
 //------------------------------------------------------------------------
 // BasicBlock: describes a basic block in the flowgraph.
 //
@@ -1008,18 +1013,26 @@ struct BasicBlock : private LIR::Range
                              // range is not inclusive of the end offset. The count of IL bytes in the block
                              // is bbCodeOffsEnd - bbCodeOffs, assuming neither are BAD_IL_OFFSET.
 
-#ifdef DEBUG
-    void dspBlockILRange() const; // Display the block's IL range as [XXX...YYY), where XXX and YYY might be "???" for
-                                  // BAD_IL_OFFSET.
-#endif                            // DEBUG
+    // Display the block's IL range as [XXX...YYY), where XXX and YYY might be "???" for BAD_IL_OFFSET
+    INDEBUG(void dspBlockILRange() const;)
 
     // The following fields are used for loop detection
-    typedef unsigned char loopNumber;
-    static const unsigned NOT_IN_LOOP  = UCHAR_MAX;
-    static const unsigned MAX_LOOP_NUM = 64;
+    static const unsigned NOT_IN_LOOP  = NoLoopNum;
+    static const unsigned MAX_LOOP_NUM = MaxLoopNum;
 
-    loopNumber bbNatLoopNum; // Index, in optLoopTable, of most-nested loop that contains this block,
-                             // or else NOT_IN_LOOP if this block is not in a loop.
+    LoopNum bbNatLoopNum; // Index, in optLoopTable, of most-nested loop that contains this block,
+                          // or else NoLoopNum if this block is not in a loop.
+
+    LoopNum GetLoopNum() const
+    {
+        return bbNatLoopNum;
+    }
+
+    void SetLoopNum(LoopNum num)
+    {
+        assert((num <= MaxLoopNum) || (num == NoLoopNum));
+        bbNatLoopNum = num;
+    }
 
     bool spillCliquePredMember : 1;
     bool spillCliqueSuccMember : 1;

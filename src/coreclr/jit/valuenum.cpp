@@ -2173,7 +2173,7 @@ ValueNum ValueNumStore::VNForMapStore(var_types type, ValueNum mapVN, ValueNum i
 {
     assert(varTypeIsStruct(type));
 
-    ValueNum vn = VNForFunc(type, VNF_MapStore, mapVN, indexVN, valueVN, m_currentBlock->bbNatLoopNum);
+    ValueNum vn = VNForFunc(type, VNF_MapStore, mapVN, indexVN, valueVN, m_currentBlock->GetLoopNum());
     INDEBUG(Trace(vn));
     return vn;
 }
@@ -2472,19 +2472,19 @@ TailCall:
 void ValueNumStore::RecordLoopMemoryDependence(GenTree* node, BasicBlock* block, ValueNum memoryVN)
 {
     // If tree is not in a loop, we don't need to track its loop dependence.
-    unsigned const loopNum = block->bbNatLoopNum;
+    unsigned const loopNum = block->GetLoopNum();
 
-    if (loopNum == BasicBlock::NOT_IN_LOOP)
+    if (loopNum == NoLoopNum)
     {
         return;
     }
 
     unsigned updateLoopNum = LoopOfVN(memoryVN);
 
-    if (updateLoopNum >= BasicBlock::MAX_LOOP_NUM)
+    if (updateLoopNum >= MaxLoopNum)
     {
         // There should be only two special non-loop loop nums.
-        assert((updateLoopNum == BasicBlock::MAX_LOOP_NUM) || (updateLoopNum == BasicBlock::NOT_IN_LOOP));
+        assert((updateLoopNum == MaxLoopNum) || (updateLoopNum == NoLoopNum));
 
         // memoryVN defined outside of any loop, we can ignore.
         JITDUMP("      ==> Not updating loop memory dependence of [%06u], memory " FMT_VN " not defined in a loop\n",
@@ -2499,7 +2499,7 @@ void ValueNumStore::RecordLoopMemoryDependence(GenTree* node, BasicBlock* block,
     {
         unsigned const updateParentLoopNum = loopTable[updateLoopNum].lpParent;
 
-        if (updateParentLoopNum == BasicBlock::NOT_IN_LOOP)
+        if (updateParentLoopNum == NoLoopNum)
         {
             // Memory VN was defined in a loop, but no longer.
             JITDUMP("      ==> Not updating loop memory dependence of [%06u], memory " FMT_VN
@@ -2534,7 +2534,7 @@ void ValueNumStore::RecordLoopMemoryDependence(GenTree* node, BasicBlock* block,
     }
     else if (m_nodeToLoopMemoryBlockMap->Lookup(node, &mapBlock))
     {
-        unsigned const mapLoopNum = mapBlock->bbNatLoopNum;
+        unsigned const mapLoopNum = mapBlock->GetLoopNum();
 
         // If the update loop contains the existing map loop,
         // the existing map loop is more constraining.
@@ -3737,29 +3737,15 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types typ, VNFunc func, ValueN
 //    to itself, but not any other value number, and is annotated with the given
 //    type and block.
 
-ValueNum ValueNumStore::VNForExpr(BasicBlock* block, var_types typ)
+ValueNum ValueNumStore::VNForExpr(BasicBlock* block, var_types type)
 {
-    BasicBlock::loopNumber loopNum;
-    if (block == nullptr)
-    {
-        loopNum = BasicBlock::MAX_LOOP_NUM;
-    }
-    else
-    {
-        loopNum = block->bbNatLoopNum;
-    }
+    LoopNum loopNum = block == nullptr ? MaxLoopNum : block->GetLoopNum();
 
-    // VNForFunc(typ, func, vn) but bypasses looking in the cache
-    //
-    VNDefFunc1Arg        fstruct(VNF_MemOpaque, loopNum);
-    Chunk* const         c                 = GetAllocChunk(typ, CEA_Func1);
-    unsigned const       offsetWithinChunk = c->AllocVN();
-    VNDefFunc1Arg* const chunkSlots        = reinterpret_cast<VNDefFunc1Arg*>(c->m_defs);
+    Chunk*   chunk                                    = GetAllocChunk(type, CEA_Func1);
+    unsigned index                                    = chunk->AllocVN();
+    static_cast<VNDefFunc1Arg*>(chunk->m_defs)[index] = {VNF_MemOpaque, loopNum};
 
-    chunkSlots[offsetWithinChunk] = fstruct;
-
-    ValueNum resultVN = c->m_baseVN + offsetWithinChunk;
-    return resultVN;
+    return chunk->m_baseVN + index;
 }
 
 ValueNum ValueNumStore::VNForExpr(var_types type)
@@ -5759,35 +5745,35 @@ ValueNum ValueNumbering::LoadMemory(var_types type, ValueNum addrVN)
 //------------------------------------------------------------------------
 // LoopOfVN: If the given value number is VNF_MemOpaque, VNF_MapStore, or
 //    VNF_MemoryPhiDef, return the loop number where the memory update occurs,
-//    otherwise returns MAX_LOOP_NUM.
+//    otherwise returns MaxLoopNum.
 //
 // Arguments:
 //    vn - Value number to query
 //
 // Return Value:
-//    The memory loop number, which may be BasicBlock::NOT_IN_LOOP.
-//    Returns BasicBlock::MAX_LOOP_NUM if this VN is not a memory value number.
+//    The memory loop number, which may be NoLoopNum.
+//    Returns MaxLoopNum if this VN is not a memory value number.
 //
-BasicBlock::loopNumber ValueNumStore::LoopOfVN(ValueNum vn)
+LoopNum ValueNumStore::LoopOfVN(ValueNum vn)
 {
     VNFuncApp funcApp;
+
     if (GetVNFunc(vn, &funcApp))
     {
-        if (funcApp.m_func == VNF_MemOpaque)
+        switch (funcApp.m_func)
         {
-            return (BasicBlock::loopNumber)funcApp.m_args[0];
-        }
-        else if (funcApp.m_func == VNF_MapStore)
-        {
-            return (BasicBlock::loopNumber)funcApp.m_args[3];
-        }
-        else if (funcApp.m_func == VNF_PhiMemoryDef)
-        {
-            return ConstantHostPtr<BasicBlock>(funcApp[1])->bbNatLoopNum;
+            case VNF_MemOpaque:
+                return static_cast<LoopNum>(funcApp.m_args[0]);
+            case VNF_MapStore:
+                return static_cast<LoopNum>(funcApp.m_args[3]);
+            case VNF_PhiMemoryDef:
+                return ConstantHostPtr<BasicBlock>(funcApp[1])->GetLoopNum();
+            default:
+                break;
         }
     }
 
-    return BasicBlock::MAX_LOOP_NUM;
+    return MaxLoopNum;
 }
 
 var_types ValueNumStore::TypeOfVN(ValueNum vn) const
@@ -6829,7 +6815,7 @@ void ValueNumStore::DumpMapStore(Compiler* comp, VNFuncApp* mapStore)
     }
     printf(", ");
     Print(newValVN, 0);
-    if (loopNum != BasicBlock::NOT_IN_LOOP)
+    if (loopNum != NoLoopNum)
     {
         printf(", " FMT_LP, loopNum);
     }
@@ -6841,11 +6827,11 @@ void ValueNumStore::DumpMemOpaque(Compiler* comp, VNFuncApp* memOpaque)
     assert(memOpaque->m_func == VNF_MemOpaque); // Precondition.
     const unsigned loopNum = memOpaque->m_args[0];
 
-    if (loopNum == BasicBlock::NOT_IN_LOOP)
+    if (loopNum == NoLoopNum)
     {
         printf("MemOpaque:NotInLoop");
     }
-    else if (loopNum == BasicBlock::MAX_LOOP_NUM)
+    else if (loopNum == MaxLoopNum)
     {
         printf("MemOpaque:Indeterminate");
     }
@@ -7205,7 +7191,7 @@ public:
 
                 // "lnum" is the innermost loop of which "cand" is the entry; find the outermost.
 
-                for (unsigned lnumPar = loopTable[lnum].lpParent; lnumPar != BasicBlock::NOT_IN_LOOP;
+                for (unsigned lnumPar = loopTable[lnum].lpParent; lnumPar != NoLoopNum;
                      lnumPar          = loopTable[lnumPar].lpParent)
                 {
                     if (loopTable[lnumPar].lpEntry == cand)
@@ -7335,7 +7321,7 @@ void ValueNumbering::Run()
 
     // The first block is expected to not be part of any loop so that
     // parameters and initial memory are treated as loop invariant.
-    assert(compiler->fgFirstBB->bbNatLoopNum == BasicBlock::NOT_IN_LOOP);
+    assert(compiler->fgFirstBB->GetLoopNum() == NoLoopNum);
 
     for (GenTreeLclDef* def = ssa.GetInitSsaDefs(); def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
     {
@@ -7432,19 +7418,19 @@ void ValueNumbering::SummarizeLoopMemoryStores()
 
     for (unsigned loopNum = 0; loopNum < loopCount; loopNum++)
     {
-        if (loopTable[loopNum].lpFlags & LPFLG_REMOVED)
+        if ((loopTable[loopNum].lpFlags & LPFLG_REMOVED) != 0)
         {
             continue;
         }
 
-        if (loopTable[loopNum].lpParent != BasicBlock::NOT_IN_LOOP)
+        if (loopTable[loopNum].lpParent != NoLoopNum)
         {
             continue;
         }
 
         for (BasicBlock* const block : loopTable[loopNum].LoopBlocks())
         {
-            if (block->bbNatLoopNum == BasicBlock::NOT_IN_LOOP)
+            if (block->GetLoopNum() == NoLoopNum)
             {
                 // We encountered a block that was moved into the loop range (by fgReorderBlocks),
                 // but not marked correctly as being inside the loop.
@@ -7462,7 +7448,7 @@ void ValueNumbering::SummarizeLoopMemoryStores()
                 break;
             }
 
-            VNLoopMemorySummary summary(compiler, this, block->bbNatLoopNum);
+            VNLoopMemorySummary summary(compiler, this, block->GetLoopNum());
 
             if (!summary.IsComplete())
             {
@@ -7500,7 +7486,7 @@ bool ValueNumbering::BlockIsLoopEntry(BasicBlock* block, unsigned* loopNum)
 {
     LoopDsc* loopTable = ssa.GetLoopTable();
 
-    for (unsigned n = block->bbNatLoopNum; n != BasicBlock::NOT_IN_LOOP; n = loopTable[n].lpParent)
+    for (unsigned n = block->GetLoopNum(); n != NoLoopNum; n = loopTable[n].lpParent)
     {
         if (loopTable[n].lpFlags & LPFLG_REMOVED)
         {
@@ -7736,7 +7722,7 @@ void VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
 
     m_modifiesAddressExposedLocals = true;
 
-    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_loopTable[n].lpParent)
+    for (unsigned n = m_loopNum; n != NoLoopNum; n = m_loopTable[n].lpParent)
     {
         VNLoop& loop = m_valueNumbering->vnLoopTable[n];
 
@@ -7751,7 +7737,7 @@ void VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
 
 void VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
 {
-    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_loopTable[n].lpParent)
+    for (unsigned n = m_loopNum; n != NoLoopNum; n = m_loopTable[n].lpParent)
     {
         VNLoop& loop = m_valueNumbering->vnLoopTable[n];
 
@@ -7770,7 +7756,7 @@ void VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
 
 void VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
 {
-    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_loopTable[n].lpParent)
+    for (unsigned n = m_loopNum; n != NoLoopNum; n = m_loopTable[n].lpParent)
     {
         VNLoop& loop = m_valueNumbering->vnLoopTable[n];
 
@@ -7797,7 +7783,7 @@ void VNLoopMemorySummary::UpdateLoops() const
 {
     if (m_memoryHavoc || m_hasCall)
     {
-        for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_loopTable[n].lpParent)
+        for (unsigned n = m_loopNum; n != NoLoopNum; n = m_loopTable[n].lpParent)
         {
             VNLoop& loop = m_valueNumbering->vnLoopTable[n];
 
@@ -7828,7 +7814,7 @@ void VNLoopMemorySummary::UpdateLoops() const
     // A loop having call will not likely benefit from alignment.
     // TODO-MIKE-Cleanup: This has nothing to do with VN but it looks like
     // there are no other places that traverse the entire loop IR.
-    if (m_hasCall && (m_loopTable[m_loopNum].lpChild == BasicBlock::NOT_IN_LOOP))
+    if (m_hasCall && (m_loopTable[m_loopNum].lpChild == NoLoopNum))
     {
         BasicBlock* first = m_loopTable[m_loopNum].lpFirst;
         first->bbFlags &= ~BBF_LOOP_ALIGN;
@@ -7844,17 +7830,18 @@ ValueNum ValueNumbering::BuildLoopEntryMemory(BasicBlock* entryBlock, unsigned i
     LoopDsc* loopTable = ssa.GetLoopTable();
 
     // "loopNum" is the innermost loop for which "blk" is the entry; find the outermost one.
-    assert(innermostLoopNum != BasicBlock::NOT_IN_LOOP);
-    unsigned loopsInNest = innermostLoopNum;
-    unsigned loopNum     = innermostLoopNum;
-    while (loopsInNest != BasicBlock::NOT_IN_LOOP)
+    assert(innermostLoopNum != NoLoopNum);
+
+    unsigned loopNum = innermostLoopNum;
+
+    for (unsigned loopsInNest = innermostLoopNum; loopsInNest != NoLoopNum;
+         loopsInNest          = loopTable[loopsInNest].lpParent)
     {
         if (loopTable[loopsInNest].lpEntry != entryBlock)
         {
             break;
         }
-        loopNum     = loopsInNest;
-        loopsInNest = loopTable[loopsInNest].lpParent;
+        loopNum = loopsInNest;
     }
 
     if (vnLoopTable[loopNum].hasMemoryHavoc)

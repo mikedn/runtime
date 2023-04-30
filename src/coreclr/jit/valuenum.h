@@ -643,8 +643,8 @@ public:
 
     var_types TypeOfVN(ValueNum vn) const;
 
-    // Returns BasicBlock::MAX_LOOP_NUM if the given value number's loop nest is unknown or ill-defined.
-    BasicBlock::loopNumber LoopOfVN(ValueNum vn);
+    // Returns MaxLoopNum if the given value number's loop nest is unknown or ill-defined.
+    LoopNum LoopOfVN(ValueNum vn);
 
     // Returns true iff the VN represents a (non-handle) constant.
     var_types GetConstantType(ValueNum vn) const;

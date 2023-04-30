@@ -2478,7 +2478,7 @@ NO_MORE_LOOPS:
     {
         for (BasicBlock* const blk : optLoopTable[loopInd].LoopBlocks())
         {
-            blk->bbNatLoopNum = static_cast<BasicBlock::loopNumber>(loopInd);
+            blk->bbNatLoopNum = static_cast<LoopNum>(loopInd);
         }
     }
 
@@ -2881,7 +2881,7 @@ bool Compiler::optCanonicalizeLoop(unsigned loopInd)
     optLoopTable[loopInd].lpTop   = newT;
     optLoopTable[loopInd].lpFirst = newT;
 
-    newT->bbNatLoopNum = static_cast<BasicBlock::loopNumber>(loopInd);
+    newT->bbNatLoopNum = static_cast<LoopNum>(loopInd);
 
     JITDUMP("in optCanonicalizeLoop: made new block " FMT_BB " [%p] the new unique top of loop %d.\n", newT->bbNum,
             dspPtr(newT), loopInd);

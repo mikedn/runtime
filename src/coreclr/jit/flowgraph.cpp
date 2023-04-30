@@ -234,20 +234,20 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
     // For GCPOLL_INLINE we create two new blocks: Poll and Bottom.
     // The original block is called Top.
 
-    BasicBlock*            top             = block;
-    BasicBlock::loopNumber fallThroughLoop = BasicBlock::NOT_IN_LOOP;
+    BasicBlock* top             = block;
+    LoopNum     fallThroughLoop = NoLoopNum;
 
     if (top->bbJumpKind == BBJ_COND)
     {
-        fallThroughLoop = top->bbNext->bbNatLoopNum;
+        fallThroughLoop = top->bbNext->GetLoopNum();
     }
 
     BasicBlock* poll   = fgNewBBafter(BBJ_NONE, top, true);
     BasicBlock* bottom = fgNewBBafter(top->bbJumpKind, poll, true);
 
-    const BBjumpKinds            topKind  = top->bbJumpKind;
-    const BasicBlock::loopNumber topLoop  = top->bbNatLoopNum;
-    const BasicBlockFlags        topFlags = top->bbFlags | BBF_GC_SAFE_POINT;
+    const BBjumpKinds     topKind  = top->bbJumpKind;
+    const LoopNum         topLoop  = top->GetLoopNum();
+    const BasicBlockFlags topFlags = top->bbFlags | BBF_GC_SAFE_POINT;
 
     noway_assert(
         (topFlags & (BBF_SPLIT_NONEXIST &

@@ -5234,16 +5234,16 @@ public:
 
         LoopFlags lpFlags;
 
-        unsigned char lpExitCnt; // number of exits from the loop
+        uint8_t lpExitCnt; // number of exits from the loop
 
-        unsigned char lpParent;  // The index of the most-nested loop that completely contains this one,
-                                 // or else BasicBlock::NOT_IN_LOOP if no such loop exists.
-        unsigned char lpChild;   // The index of a nested loop, or else BasicBlock::NOT_IN_LOOP if no child exists.
-                                 // (Actually, an "immediately" nested loop --
-                                 // no other child of this loop is a parent of lpChild.)
-        unsigned char lpSibling; // The index of another loop that is an immediate child of lpParent,
-                                 // or else BasicBlock::NOT_IN_LOOP.  One can enumerate all the children of a loop
-                                 // by following "lpChild" then "lpSibling" links.
+        LoopNum lpParent;  // The index of the most-nested loop that completely contains this one,
+                           // or else NoLoopNum if no such loop exists.
+        LoopNum lpChild;   // The index of a nested loop, or else NoLoopNum if no child exists.
+                           // (Actually, an "immediately" nested loop --
+                           // no other child of this loop is a parent of lpChild.)
+        LoopNum lpSibling; // The index of another loop that is an immediate child of lpParent,
+                           // or else NoLoopNum.  One can enumerate all the children of a loop
+                           // by following "lpChild" then "lpSibling" links.
 
         /* The following values are set only for iterator loops, i.e. has the flag LPFLG_ITER set */
 

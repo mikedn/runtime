@@ -90,7 +90,7 @@ void SsaOptimizer::Reset()
     for (BasicBlock* block : compiler->Blocks())
     {
         block->bbFlags &= ~BBF_LOOP_FLAGS;
-        block->bbNatLoopNum      = BasicBlock::NOT_IN_LOOP;
+        block->SetLoopNum(NoLoopNum);
         block->bbPredsWithEH     = nullptr;
         block->memoryPhi         = nullptr;
         block->memoryEntrySsaNum = NoSsaNum;
