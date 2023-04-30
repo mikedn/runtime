@@ -4828,15 +4828,9 @@ void ValueNumbering::vnLocalLoad(GenTreeLclVar* load)
 
 void ValueNumbering::vnLocalUse(GenTreeLclUse* use)
 {
-    LclVarDsc* lcl = lvaGetDesc(use->GetDef()->GetLclNum());
-
-    use->SetVNP(vnLocalUse(use, use->GetDef()));
-}
-
-ValueNumPair ValueNumbering::vnLocalUse(GenTreeLclUse* use, GenTreeLclDef* def)
-{
-    LclVarDsc*   lcl = lvaGetDesc(def->GetLclNum());
-    ValueNumPair vnp = def->GetVNP();
+    GenTreeLclDef* def = use->GetDef();
+    LclVarDsc*     lcl = lvaGetDesc(def->GetLclNum());
+    ValueNumPair   vnp = def->GetVNP();
 
     assert(vnp.GetLiberal() != NoVN);
     assert(vnp == lcl->GetPerSsaData(def->GetSsaNum())->GetVNP());
@@ -4875,7 +4869,7 @@ ValueNumPair ValueNumbering::vnLocalUse(GenTreeLclUse* use, GenTreeLclDef* def)
         }
     }
 
-    return vnp;
+    use->SetVNP(vnp);
 }
 
 void ValueNumbering::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value)

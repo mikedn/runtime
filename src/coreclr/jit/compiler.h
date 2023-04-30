@@ -7147,7 +7147,6 @@ class ValueNumbering
     friend class ValueNumberState;
     friend class VNLoopMemorySummary;
     friend class Compiler;
-    friend class CopyPropDomTreeVisitor;
     friend class Cse;
     friend class ValueNumStore;
     friend class LoopHoist;
@@ -7203,7 +7202,6 @@ private:
     void vnLocalDef(GenTreeLclDef* def);
     void vnLocalLoad(GenTreeLclVar* load);
     void vnLocalUse(GenTreeLclUse* use);
-    ValueNumPair vnLocalUse(GenTreeLclUse* use, GenTreeLclDef* def);
     void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
     void vnInsert(GenTreeInsert* insert);
     void vnLocalFieldLoad(GenTreeLclFld* load);

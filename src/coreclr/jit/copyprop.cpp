@@ -238,6 +238,7 @@ public:
             return;
         }
 
+        ValueNum   defVN  = use->GetDef()->GetConservativeVN();
         unsigned   lclNum = use->GetDef()->GetLclNum();
         LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
 
@@ -262,6 +263,11 @@ public:
             LclVarDsc* newLcl = m_compiler->lvaGetDesc(newLclNum);
 
             if (varActualType(newLcl->GetType()) != varActualType(lcl->GetType()))
+            {
+                continue;
+            }
+
+            if (newDef->GetConservativeVN() != defVN)
             {
                 continue;
             }
@@ -291,12 +297,6 @@ public:
 
             if ((m_compiler->gsShadowVarInfo != nullptr) && newLcl->IsParam() &&
                 (m_compiler->gsShadowVarInfo[newLclNum].shadowLclNum == lclNum))
-            {
-                continue;
-            }
-
-            // The use must produce the same value number if we substitute the def.
-            if (m_compiler->valueNumbering->vnLocalUse(use, newDef).GetConservative() != use->GetConservativeVN())
             {
                 continue;
             }
