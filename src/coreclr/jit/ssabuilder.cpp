@@ -21,7 +21,6 @@ public:
     void Build();
 
 private:
-    void SetupBBRoot();
     bool IncludeInSsa(unsigned lclNum);
     int TopologicalSort(BasicBlock** postOrder, int count);
     static BasicBlock* IntersectDom(BasicBlock* finger1, BasicBlock* finger2);
@@ -143,7 +142,7 @@ void SsaBuilder::Build()
 {
     JITDUMP("*************** In SsaBuilder::Build()\n");
 
-    SetupBBRoot();
+    m_pCompiler->fgEnsureDomTreeRoot();
 
     DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
     m_pCompiler->lvaMarkLivenessTrackedLocals();
@@ -206,41 +205,6 @@ void SsaBuilder::Build()
     m_pCompiler->EndPhase(PHASE_BUILD_SSA_RENAME);
 
     DBEXEC(m_pCompiler->verboseSsa, Print(postOrder, count))
-}
-
-void SsaBuilder::SetupBBRoot()
-{
-    // Allocate a bbroot, if necessary.
-    // We need a unique block to be the root of the dominator tree.
-    // This can be violated if the first block is in a try, or if it is the first block of
-    // a loop (which would necessarily be an infinite loop) -- i.e., it has a predecessor.
-
-    // If neither condition holds, no reason to make a new block.
-    if (!m_pCompiler->fgFirstBB->hasTryIndex() && m_pCompiler->fgFirstBB->bbPreds == nullptr)
-    {
-        return;
-    }
-
-    BasicBlock* bbRoot = m_pCompiler->bbNewBasicBlock(BBJ_NONE);
-    bbRoot->bbFlags |= BBF_INTERNAL;
-
-    // May need to fix up preds list, so remember the old first block.
-    BasicBlock* oldFirst = m_pCompiler->fgFirstBB;
-
-    assert(!m_pCompiler->fgLocalVarLivenessDone);
-
-    // Copy the bbWeight.  (This is technically wrong, if the first block is a loop head, but
-    // it shouldn't matter...)
-    bbRoot->inheritWeight(oldFirst);
-
-    // There's an artifical incoming reference count for the first BB.  We're about to make it no longer
-    // the first BB, so decrement that.
-    assert(oldFirst->bbRefs > 0);
-    oldFirst->bbRefs--;
-
-    m_pCompiler->fgInsertBBbefore(m_pCompiler->fgFirstBB, bbRoot);
-    assert(m_pCompiler->fgFirstBB == bbRoot);
-    m_pCompiler->fgAddRefPred(oldFirst, bbRoot);
 }
 
 bool SsaBuilder::IncludeInSsa(unsigned lclNum)

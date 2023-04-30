@@ -4573,6 +4573,7 @@ protected:
 
     INDEBUG(void fgDispDomTree(DomTreeNode* domTree);) // Helper that prints out the Dominator Tree in debug builds.
 
+    void         fgEnsureDomTreeRoot();
     DomTreeNode* fgBuildDomTree(); // Once we compute all the immediate dominator sets for each node in the flow graph
                                    // (performed by fgComputeDoms), this procedure builds the dominance tree represented
                                    // adjacency lists.
