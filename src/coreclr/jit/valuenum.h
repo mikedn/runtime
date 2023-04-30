@@ -429,7 +429,7 @@ public:
 
     // We keep handle values in a separate pool, so we don't confuse a handle with an int constant
     // that happens to be the same...
-    ValueNum VNForHandle(ssize_t cnsVal, GenTreeFlags iconFlags);
+    ValueNum VNForHandle(ssize_t value, GenTreeFlags handleKind);
 
     ValueNum VNForFieldSeqHandle(CORINFO_FIELD_HANDLE fieldHandle);
 
@@ -575,17 +575,12 @@ public:
     // True "iff" vn is a value known to be non-null.  (For example, the result of an allocation...)
     bool IsKnownNonNull(ValueNum vn);
 
-    // VNForFunc: We have five overloads, for arities 0, 1, 2, 3 and 4
-    ValueNum VNForFunc(var_types typ, VNFunc func);
-    ValueNum VNForFunc(var_types typ, VNFunc func, ValueNum opVNwx);
-    ValueNum HasFunc(var_types typ, VNFunc func, ValueNum arg0VN);
-    // This must not be used for VNF_MapSelect applications; instead use VNForMapSelect, below.
-    ValueNum VNForFunc(var_types typ, VNFunc func, ValueNum op1VNwx, ValueNum op2VNwx);
-    ValueNum VNForFunc(var_types typ, VNFunc func, ValueNum op1VNwx, ValueNum op2VNwx, ValueNum op3VNwx);
-
-    // The following four-op VNForFunc is used for VNF_PtrToArrElem, elemTypeEqVN, arrVN, inxVN, fldSeqVN
-    ValueNum VNForFunc(
-        var_types typ, VNFunc func, ValueNum op1VNwx, ValueNum op2VNwx, ValueNum op3VNwx, ValueNum op4VNwx);
+    ValueNum VNForFunc(var_types type, VNFunc func);
+    ValueNum VNForFunc(var_types type, VNFunc func, ValueNum arg0);
+    ValueNum HasFunc(var_types type, VNFunc func, ValueNum arg0);
+    ValueNum VNForFunc(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1);
+    ValueNum VNForFunc(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2);
+    ValueNum VNForFunc(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2, ValueNum arg3);
 
     // This requires a "ValueNumKind" because it will attempt, given "select(phi(m1, ..., mk), ind)", to evaluate
     // "select(m1, ind)", ..., "select(mk, ind)" to see if they agree.  It needs to know which kind of value number
@@ -767,26 +762,22 @@ private:
             case TYP_REF:
                 assert(0 <= offset && offset <= 1); // Null or exception.
                 FALLTHROUGH;
-
             case TYP_BYREF:
-
 #ifdef _MSC_VER
-
                 assert(&typeid(T) == &typeid(size_t)); // We represent ref/byref constants as size_t's.
-
-#endif // _MSC_VER
+#endif
 
                 FALLTHROUGH;
-
             case TYP_INT:
             case TYP_LONG:
             case TYP_FLOAT:
             case TYP_DOUBLE:
                 if (c->m_attribs == CEA_Handle)
                 {
-                    C_ASSERT(offsetof(VNHandle, m_cnsVal) == 0);
-                    return (T) static_cast<VNHandle*>(c->m_defs)[offset].m_cnsVal;
+                    C_ASSERT(offsetof(VNHandle, value) == 0);
+                    return (T) static_cast<VNHandle*>(c->m_defs)[offset].value;
                 }
+
 #ifdef DEBUG
                 if (!coerce)
                 {
@@ -812,6 +803,7 @@ private:
                     }
                 }
 #endif
+
                 return SafeGetConstantValue<T>(c, offset);
 
             default:
@@ -950,7 +942,7 @@ private:
     }
 
     // The base VN of the next chunk to be allocated.  Should always be a multiple of ChunkSize.
-    ValueNum m_nextChunkBase;
+    ValueNum m_nextChunkBase = 0;
 
     enum ChunkExtraAttribs : BYTE
     {
@@ -1003,27 +995,28 @@ private:
 
     struct VNHandle : public JitKeyFuncsDefEquals<VNHandle>
     {
-        ssize_t      m_cnsVal;
-        GenTreeFlags m_flags;
-        // Don't use a constructor to use the default copy constructor for hashtable rehash.
-        static void Initialize(VNHandle* handle, ssize_t m_cnsVal, GenTreeFlags m_flags)
+        ssize_t      value;
+        GenTreeFlags kind;
+
+        VNHandle(ssize_t value, GenTreeFlags kind) : value(value), kind(kind)
         {
-            handle->m_cnsVal = m_cnsVal;
-            handle->m_flags  = m_flags;
         }
+
         bool operator==(const VNHandle& y) const
         {
-            return m_cnsVal == y.m_cnsVal && m_flags == y.m_flags;
+            return value == y.value && kind == y.kind;
         }
+
         static unsigned GetHashCode(const VNHandle& val)
         {
-            return static_cast<unsigned>(val.m_cnsVal);
+            return static_cast<unsigned>(val.value);
         }
     };
 
     struct VNDefFunc0Arg
     {
         VNFunc m_func;
+
         VNDefFunc0Arg(VNFunc func) : m_func(func)
         {
         }
@@ -1037,6 +1030,7 @@ private:
     struct VNDefFunc1Arg : public VNDefFunc0Arg
     {
         ValueNum m_arg0;
+
         VNDefFunc1Arg(VNFunc func, ValueNum arg0) : VNDefFunc0Arg(func), m_arg0(arg0)
         {
         }
@@ -1050,6 +1044,7 @@ private:
     struct VNDefFunc2Arg : public VNDefFunc1Arg
     {
         ValueNum m_arg1;
+
         VNDefFunc2Arg(VNFunc func, ValueNum arg0, ValueNum arg1) : VNDefFunc1Arg(func, arg0), m_arg1(arg1)
         {
         }
@@ -1063,6 +1058,7 @@ private:
     struct VNDefFunc3Arg : public VNDefFunc2Arg
     {
         ValueNum m_arg2;
+
         VNDefFunc3Arg(VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2)
             : VNDefFunc2Arg(func, arg0, arg1), m_arg2(arg2)
         {
@@ -1077,6 +1073,7 @@ private:
     struct VNDefFunc4Arg : public VNDefFunc3Arg
     {
         ValueNum m_arg3;
+
         VNDefFunc4Arg(VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2, ValueNum arg3)
             : VNDefFunc3Arg(func, arg0, arg1, arg2), m_arg3(arg3)
         {
@@ -1123,95 +1120,18 @@ private:
     static const int      SmallIntConstMin = -1;
     static const int      SmallIntConstMax = 10;
     static const unsigned SmallIntConstNum = SmallIntConstMax - SmallIntConstMin + 1;
+
     static bool IsSmallIntConst(int i)
     {
         return SmallIntConstMin <= i && i <= SmallIntConstMax;
     }
-    ValueNum m_VNsForSmallIntConsts[SmallIntConstNum];
 
-    typedef VNMap<int32_t> IntToValueNumMap;
-    IntToValueNumMap*      m_intCnsMap;
-    IntToValueNumMap*      GetIntCnsMap()
-    {
-        if (m_intCnsMap == nullptr)
-        {
-            m_intCnsMap = new (m_alloc) IntToValueNumMap(m_alloc);
-        }
-        return m_intCnsMap;
-    }
+    ValueNum m_smallInt32VNMap[SmallIntConstNum];
 
-    typedef VNMap<int64_t> LongToValueNumMap;
-    LongToValueNumMap*     m_longCnsMap;
-    LongToValueNumMap*     GetLongCnsMap()
-    {
-        if (m_longCnsMap == nullptr)
-        {
-            m_longCnsMap = new (m_alloc) LongToValueNumMap(m_alloc);
-        }
-        return m_longCnsMap;
-    }
-
-    typedef VNMap<VNHandle, VNHandle> HandleToValueNumMap;
-    HandleToValueNumMap* m_handleMap;
-    HandleToValueNumMap* GetHandleMap()
-    {
-        if (m_handleMap == nullptr)
-        {
-            m_handleMap = new (m_alloc) HandleToValueNumMap(m_alloc);
-        }
-        return m_handleMap;
-    }
-
-    typedef VNMap<int32_t> FloatToValueNumMap;
-    FloatToValueNumMap*     m_floatCnsMap;
-    FloatToValueNumMap*     GetFloatCnsMap()
-    {
-        if (m_floatCnsMap == nullptr)
-        {
-            m_floatCnsMap = new (m_alloc) FloatToValueNumMap(m_alloc);
-        }
-        return m_floatCnsMap;
-    }
-
-    typedef VNMap<int64_t> DoubleToValueNumMap;
-    DoubleToValueNumMap*    m_doubleCnsMap;
-    DoubleToValueNumMap*    GetDoubleCnsMap()
-    {
-        if (m_doubleCnsMap == nullptr)
-        {
-            m_doubleCnsMap = new (m_alloc) DoubleToValueNumMap(m_alloc);
-        }
-        return m_doubleCnsMap;
-    }
-
-    typedef VNMap<size_t> ByrefToValueNumMap;
-    ByrefToValueNumMap*   m_byrefCnsMap;
-    ByrefToValueNumMap*   GetByrefCnsMap()
-    {
-        if (m_byrefCnsMap == nullptr)
-        {
-            m_byrefCnsMap = new (m_alloc) ByrefToValueNumMap(m_alloc);
-        }
-        return m_byrefCnsMap;
-    }
-
-    struct VNDefFunc0ArgKeyFuncs : public JitKeyFuncsDefEquals<VNDefFunc1Arg>
-    {
-        static unsigned GetHashCode(VNDefFunc1Arg val)
-        {
-            return (val.m_func << 24) + val.m_arg0;
-        }
-    };
-    typedef VNMap<VNFunc> VNFunc0ToValueNumMap;
-    VNFunc0ToValueNumMap* m_VNFunc0Map;
-    VNFunc0ToValueNumMap* GetVNFunc0Map()
-    {
-        if (m_VNFunc0Map == nullptr)
-        {
-            m_VNFunc0Map = new (m_alloc) VNFunc0ToValueNumMap(m_alloc);
-        }
-        return m_VNFunc0Map;
-    }
+    using Int32VNMap  = VNMap<int32_t>;
+    using Int64VNMap  = VNMap<int64_t>;
+    using HandleVNMap = VNMap<VNHandle, VNHandle>;
+    using ByrefVNMap  = VNMap<size_t>;
 
     struct VNDefFunc1ArgKeyFuncs : public JitKeyFuncsDefEquals<VNDefFunc1Arg>
     {
@@ -1220,16 +1140,6 @@ private:
             return (val.m_func << 24) + val.m_arg0;
         }
     };
-    typedef VNMap<VNDefFunc1Arg, VNDefFunc1ArgKeyFuncs> VNFunc1ToValueNumMap;
-    VNFunc1ToValueNumMap* m_VNFunc1Map;
-    VNFunc1ToValueNumMap* GetVNFunc1Map()
-    {
-        if (m_VNFunc1Map == nullptr)
-        {
-            m_VNFunc1Map = new (m_alloc) VNFunc1ToValueNumMap(m_alloc);
-        }
-        return m_VNFunc1Map;
-    }
 
     struct VNDefFunc2ArgKeyFuncs : public JitKeyFuncsDefEquals<VNDefFunc2Arg>
     {
@@ -1238,16 +1148,6 @@ private:
             return (val.m_func << 24) + (val.m_arg0 << 8) + val.m_arg1;
         }
     };
-    typedef VNMap<VNDefFunc2Arg, VNDefFunc2ArgKeyFuncs> VNFunc2ToValueNumMap;
-    VNFunc2ToValueNumMap* m_VNFunc2Map;
-    VNFunc2ToValueNumMap* GetVNFunc2Map()
-    {
-        if (m_VNFunc2Map == nullptr)
-        {
-            m_VNFunc2Map = new (m_alloc) VNFunc2ToValueNumMap(m_alloc);
-        }
-        return m_VNFunc2Map;
-    }
 
     struct VNDefFunc3ArgKeyFuncs : public JitKeyFuncsDefEquals<VNDefFunc3Arg>
     {
@@ -1256,16 +1156,6 @@ private:
             return (val.m_func << 24) + (val.m_arg0 << 16) + (val.m_arg1 << 8) + val.m_arg2;
         }
     };
-    typedef VNMap<VNDefFunc3Arg, VNDefFunc3ArgKeyFuncs> VNFunc3ToValueNumMap;
-    VNFunc3ToValueNumMap* m_VNFunc3Map;
-    VNFunc3ToValueNumMap* GetVNFunc3Map()
-    {
-        if (m_VNFunc3Map == nullptr)
-        {
-            m_VNFunc3Map = new (m_alloc) VNFunc3ToValueNumMap(m_alloc);
-        }
-        return m_VNFunc3Map;
-    }
 
     struct VNDefFunc4ArgKeyFuncs : public JitKeyFuncsDefEquals<VNDefFunc4Arg>
     {
@@ -1274,16 +1164,24 @@ private:
             return (val.m_func << 24) + (val.m_arg0 << 16) + (val.m_arg1 << 8) + val.m_arg2 + (val.m_arg3 << 12);
         }
     };
-    typedef VNMap<VNDefFunc4Arg, VNDefFunc4ArgKeyFuncs> VNFunc4ToValueNumMap;
-    VNFunc4ToValueNumMap* m_VNFunc4Map;
-    VNFunc4ToValueNumMap* GetVNFunc4Map()
-    {
-        if (m_VNFunc4Map == nullptr)
-        {
-            m_VNFunc4Map = new (m_alloc) VNFunc4ToValueNumMap(m_alloc);
-        }
-        return m_VNFunc4Map;
-    }
+
+    using Func0VNMap = VNMap<VNFunc>;
+    using Func1VNMap = VNMap<VNDefFunc1Arg, VNDefFunc1ArgKeyFuncs>;
+    using Func2VNMap = VNMap<VNDefFunc2Arg, VNDefFunc2ArgKeyFuncs>;
+    using Func3VNMap = VNMap<VNDefFunc3Arg, VNDefFunc3ArgKeyFuncs>;
+    using Func4VNMap = VNMap<VNDefFunc4Arg, VNDefFunc4ArgKeyFuncs>;
+
+    Int32VNMap*  m_int32VNMap  = nullptr;
+    Int64VNMap*  m_int64VNMap  = nullptr;
+    HandleVNMap* m_handleMap   = nullptr;
+    Int32VNMap*  m_floatVNMap  = nullptr;
+    Int64VNMap*  m_doubleVNMap = nullptr;
+    ByrefVNMap*  m_byrefVNMap  = nullptr;
+    Func0VNMap*  m_func0VNMap  = nullptr;
+    Func1VNMap*  m_func1VNMap  = nullptr;
+    Func2VNMap*  m_func2VNMap  = nullptr;
+    Func3VNMap*  m_func3VNMap  = nullptr;
+    Func4VNMap*  m_func4VNMap  = nullptr;
 
     enum SpecialRefConsts
     {
@@ -1302,7 +1200,7 @@ private:
     // This helps test some performance pathologies related to "evaluation" of VNF_MapSelect terms,
     // especially relating to GcHeap/ByrefExposed.  We count the number of applications of such terms we consider,
     // and if this exceeds a limit, indicated by a COMPlus_ variable, we assert.
-    unsigned m_numMapSels;
+    unsigned m_numMapSels = 0;
 
     JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, const char*> m_vnNameMap;
 #endif
