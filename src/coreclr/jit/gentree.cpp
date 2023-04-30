@@ -7371,7 +7371,7 @@ void Compiler::gtDispConst(GenTree* tree)
 
                 if (tree->IsIconHandle())
                 {
-                    printf("%s%s", prefix, dmpGetHandleKindName(tree->GetIconHandleFlag()));
+                    printf("%s%s", prefix, dmpGetHandleKindName(tree->AsIntCon()->GetHandleKind()));
                     prefix = ", ";
                 }
 
