@@ -1595,11 +1595,8 @@ template <typename T, typename NumMap>
 ValueNum ValueNumStore::VnForConst(T cnsVal, NumMap* numMap, var_types varType)
 {
     ValueNum res;
-    if (numMap->Lookup(cnsVal, &res))
-    {
-        return res;
-    }
-    else
+
+    if (!numMap->Lookup(cnsVal, &res))
     {
         Chunk*   chunk               = GetAllocChunk(varType, CEA_Const);
         unsigned offsetWithinChunk   = chunk->AllocVN();
@@ -1607,61 +1604,60 @@ ValueNum ValueNumStore::VnForConst(T cnsVal, NumMap* numMap, var_types varType)
         T* chunkDefs                 = static_cast<T*>(chunk->m_defs);
         chunkDefs[offsetWithinChunk] = cnsVal;
         numMap->Set(cnsVal, res);
-        return res;
     }
+
+    return res;
 }
 
-ValueNum ValueNumStore::VNForIntCon(INT32 cnsVal)
+ValueNum ValueNumStore::VNForIntCon(int32_t value)
 {
-    if (IsSmallIntConst(cnsVal))
+    if (IsSmallIntConst(value))
     {
-        unsigned ind = cnsVal - SmallIntConstMin;
+        unsigned ind = value - SmallIntConstMin;
         ValueNum vn  = m_VNsForSmallIntConsts[ind];
         if (vn != NoVN)
         {
             return vn;
         }
-        vn                          = VnForConst(cnsVal, GetIntCnsMap(), TYP_INT);
+        vn                          = VnForConst<int32_t, IntToValueNumMap>(value, GetIntCnsMap(), TYP_INT);
         m_VNsForSmallIntConsts[ind] = vn;
         return vn;
     }
-    else
-    {
-        return VnForConst(cnsVal, GetIntCnsMap(), TYP_INT);
-    }
+
+    return VnForConst<int32_t, IntToValueNumMap>(value, GetIntCnsMap(), TYP_INT);
 }
 
-ValueNum ValueNumStore::VNForLongCon(INT64 cnsVal)
+ValueNum ValueNumStore::VNForLongCon(int64_t value)
 {
-    return VnForConst(cnsVal, GetLongCnsMap(), TYP_LONG);
+    return VnForConst<int64_t, LongToValueNumMap>(value, GetLongCnsMap(), TYP_LONG);
 }
 
-ValueNum ValueNumStore::VNForFloatCon(float cnsVal)
+ValueNum ValueNumStore::VNForFloatCon(float value)
 {
-    return VnForConst(cnsVal, GetFloatCnsMap(), TYP_FLOAT);
+    return VnForConst<int32_t, IntToValueNumMap>(jitstd::bit_cast<int32_t>(value), GetFloatCnsMap(), TYP_FLOAT);
 }
 
-ValueNum ValueNumStore::VNForDoubleCon(double cnsVal)
+ValueNum ValueNumStore::VNForDoubleCon(double value)
 {
-    return VnForConst(cnsVal, GetDoubleCnsMap(), TYP_DOUBLE);
+    return VnForConst<int64_t, LongToValueNumMap>(jitstd::bit_cast<int64_t>(value), GetDoubleCnsMap(), TYP_DOUBLE);
 }
 
 ValueNum ValueNumStore::VNForDblCon(var_types type, double value)
 {
     if (type == TYP_FLOAT)
     {
-        return VnForConst(static_cast<float>(value), GetFloatCnsMap(), type);
+        return VNForFloatCon(static_cast<float>(value));
     }
     else
     {
         assert(type == TYP_DOUBLE);
-        return VnForConst(value, GetDoubleCnsMap(), type);
+        return VNForDoubleCon(value);
     }
 }
 
-ValueNum ValueNumStore::VNForByrefCon(target_size_t cnsVal)
+ValueNum ValueNumStore::VNForByrefCon(target_size_t value)
 {
-    return VnForConst(cnsVal, GetByrefCnsMap(), TYP_BYREF);
+    return VnForConst<target_size_t, ByrefToValueNumMap>(value, GetByrefCnsMap(), TYP_BYREF);
 }
 
 ValueNum ValueNumStore::VNForBitCastOper(var_types castToType)

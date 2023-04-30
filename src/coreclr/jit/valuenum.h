@@ -381,12 +381,12 @@ public:
 #endif // DEBUG
 
     // This block of methods gets value numbers for constants of primitive types.
-    ValueNum VNForIntCon(INT32 cnsVal);
-    ValueNum VNForLongCon(INT64 cnsVal);
-    ValueNum VNForFloatCon(float cnsVal);
-    ValueNum VNForDoubleCon(double cnsVal);
+    ValueNum VNForIntCon(int32_t value);
+    ValueNum VNForLongCon(int64_t value);
+    ValueNum VNForFloatCon(float value);
+    ValueNum VNForDoubleCon(double value);
     ValueNum VNForDblCon(var_types type, double value);
-    ValueNum VNForByrefCon(target_size_t byrefVal);
+    ValueNum VNForByrefCon(target_size_t value);
 
 #ifdef TARGET_64BIT
     ValueNum VNForPtrSizeIntCon(INT64 cnsVal)
@@ -1129,9 +1129,9 @@ private:
     }
     ValueNum m_VNsForSmallIntConsts[SmallIntConstNum];
 
-    typedef VNMap<INT32> IntToValueNumMap;
-    IntToValueNumMap*    m_intCnsMap;
-    IntToValueNumMap*    GetIntCnsMap()
+    typedef VNMap<int32_t> IntToValueNumMap;
+    IntToValueNumMap*      m_intCnsMap;
+    IntToValueNumMap*      GetIntCnsMap()
     {
         if (m_intCnsMap == nullptr)
         {
@@ -1140,9 +1140,9 @@ private:
         return m_intCnsMap;
     }
 
-    typedef VNMap<INT64> LongToValueNumMap;
-    LongToValueNumMap*   m_longCnsMap;
-    LongToValueNumMap*   GetLongCnsMap()
+    typedef VNMap<int64_t> LongToValueNumMap;
+    LongToValueNumMap*     m_longCnsMap;
+    LongToValueNumMap*     GetLongCnsMap()
     {
         if (m_longCnsMap == nullptr)
         {
@@ -1162,17 +1162,9 @@ private:
         return m_handleMap;
     }
 
-    struct LargePrimitiveKeyFuncsFloat : public JitLargePrimitiveKeyFuncs<float>
-    {
-        static bool Equals(float x, float y)
-        {
-            return *(unsigned*)&x == *(unsigned*)&y;
-        }
-    };
-
-    typedef VNMap<float, LargePrimitiveKeyFuncsFloat> FloatToValueNumMap;
-    FloatToValueNumMap* m_floatCnsMap;
-    FloatToValueNumMap* GetFloatCnsMap()
+    typedef VNMap<int32_t> FloatToValueNumMap;
+    FloatToValueNumMap*     m_floatCnsMap;
+    FloatToValueNumMap*     GetFloatCnsMap()
     {
         if (m_floatCnsMap == nullptr)
         {
@@ -1181,18 +1173,9 @@ private:
         return m_floatCnsMap;
     }
 
-    // In the JIT we need to distinguish -0.0 and 0.0 for optimizations.
-    struct LargePrimitiveKeyFuncsDouble : public JitLargePrimitiveKeyFuncs<double>
-    {
-        static bool Equals(double x, double y)
-        {
-            return *(__int64*)&x == *(__int64*)&y;
-        }
-    };
-
-    typedef VNMap<double, LargePrimitiveKeyFuncsDouble> DoubleToValueNumMap;
-    DoubleToValueNumMap* m_doubleCnsMap;
-    DoubleToValueNumMap* GetDoubleCnsMap()
+    typedef VNMap<int64_t> DoubleToValueNumMap;
+    DoubleToValueNumMap*    m_doubleCnsMap;
+    DoubleToValueNumMap*    GetDoubleCnsMap()
     {
         if (m_doubleCnsMap == nullptr)
         {
