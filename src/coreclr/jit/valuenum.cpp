@@ -7215,15 +7215,13 @@ void Compiler::fgValueNumber()
 
     assert(ssaForm && (vnStore == nullptr));
 
-    valueNumbering = new (this, CMK_ValueNumber) ValueNumbering(this);
-    vnStore        = valueNumbering->vnStore;
-    valueNumbering->Run();
+    vnStore = new (getAllocator(CMK_ValueNumber)) ValueNumStore(this, getAllocator(CMK_ValueNumber));
+
+    ValueNumbering valueNumbering(this, vnStore);
+    valueNumbering.Run();
 }
 
-ValueNumbering::ValueNumbering(Compiler* compiler)
-    : compiler(compiler)
-    , vnStore(new (compiler->getAllocator(CMK_ValueNumber))
-                  ValueNumStore(compiler, compiler->getAllocator(CMK_ValueNumber)))
+ValueNumbering::ValueNumbering(Compiler* compiler, ValueNumStore* vnStore) : compiler(compiler), vnStore(vnStore)
 {
 }
 

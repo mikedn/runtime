@@ -4533,8 +4533,7 @@ public:
     inline bool fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool bbIsReturn);
 
     // The value numbers for this compilation.
-    ValueNumStore*  vnStore        = nullptr;
-    ValueNumbering* valueNumbering = nullptr;
+    ValueNumStore* vnStore = nullptr;
 
 public:
     // Do value numbering (assign a value number to each tree node).
@@ -7156,7 +7155,7 @@ class ValueNumbering
     ValueNum       fgCurMemoryVN = NoVN;
 
 public:
-    ValueNumbering(Compiler* compiler);
+    ValueNumbering(Compiler* compiler, ValueNumStore* vnStore);
     void Run();
 
 private:
