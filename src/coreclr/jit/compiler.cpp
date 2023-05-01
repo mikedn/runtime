@@ -421,15 +421,17 @@ const bool Compiler::Options::compNoPInvokeInlineCB = false;
 
 void Compiler::compStartup()
 {
-#if DISPLAY_SIZES
-    grossVMsize = grossNCsize = totalNCsize = 0;
-#endif
-
 #ifdef JIT32_GCENCODER
     InitGCEncoderLookupTable();
 #endif
 
-    compDisplayStaticSizes(jitstdout);
+#if DISPLAY_SIZES
+    grossVMsize = grossNCsize = totalNCsize = 0;
+#endif
+
+#if MEASURE_NODE_SIZE
+    GenTree::DumpNodeSizes(jitstdout);
+#endif
 }
 
 void Compiler::compShutdown()
@@ -777,13 +779,6 @@ void Compiler::compShutdown()
 #endif // DEBUG
     fprintf(fout, "   NYI:                 %u\n", fatal_NYI);
 #endif // MEASURE_FATAL
-}
-
-void Compiler::compDisplayStaticSizes(FILE* fout)
-{
-#if MEASURE_NODE_SIZE
-    GenTree::DumpNodeSizes(fout);
-#endif
 }
 
 INDEBUG(ConfigMethodRange fJitStressRange;)

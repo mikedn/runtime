@@ -278,7 +278,7 @@ private:
 public:
     ValueNumStore(SsaOptimizer& ssa);
 
-    static const struct VNFuncAttribs& VNFuncAttribs(VNFunc vnf);
+    static const struct VNFuncAttrs& VNFuncAttrs(VNFunc vnf);
     static bool VNFuncIsLegal(VNFunc vnf);
     static bool VNFuncIsOverflowArithmetic(VNFunc vnf);
     static bool VNFuncIsNumericCast(VNFunc vnf);

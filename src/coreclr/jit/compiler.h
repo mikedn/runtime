@@ -6638,8 +6638,6 @@ public:
     void compInitMethodName();
     void compInit();
 
-    static void compDisplayStaticSizes(FILE* fout);
-
     //------------ Some utility functions --------------
 
     void* compGetHelperFtn(CorInfoHelpFunc ftnNum,         /* IN  */

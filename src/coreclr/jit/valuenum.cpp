@@ -6909,7 +6909,7 @@ void ValueNumStore::DumpPtrToArrElem(const VNFuncApp& elemAddr)
 
 #endif // DEBUG
 
-struct VNFuncAttribs
+struct VNFuncAttrs
 {
     static constexpr unsigned MaxArity = 15;
 
@@ -6919,9 +6919,9 @@ struct VNFuncAttribs
     bool    knownNotNull : 1;
 };
 
-static_assert_no_msg(sizeof(VNFuncAttribs) == 1);
+static_assert_no_msg(sizeof(VNFuncAttrs) == 1);
 
-static VNFuncAttribs vnFuncAttribs[VNF_Count]{
+static const VNFuncAttrs vnFuncAttrs[VNF_Count]{
 #define GTNODE(n, s, k) {(((k)&GTK_BINOP) != 0) ? 2 : (((k)&GTK_UNOP) != 0), ((k)&GTK_COMMUTE) != 0, ((k)&GTK_VN) == 0},
 #include "gtlist.h"
     {}, // VNF_Boundary
@@ -6929,14 +6929,14 @@ static VNFuncAttribs vnFuncAttribs[VNF_Count]{
 #include "valuenumfuncs.h"
 };
 
-const VNFuncAttribs& ValueNumStore::VNFuncAttribs(VNFunc vnf)
+const VNFuncAttrs& ValueNumStore::VNFuncAttrs(VNFunc vnf)
 {
-    return vnFuncAttribs[VNFuncIndex(vnf)];
+    return vnFuncAttrs[VNFuncIndex(vnf)];
 }
 
 unsigned ValueNumStore::VNFuncArity(VNFunc vnf)
 {
-    return VNFuncAttribs(vnf).arity;
+    return VNFuncAttrs(vnf).arity;
 }
 
 bool ValueNumStore::VNFuncArityIsLegal(VNFunc vnf, unsigned arity)
@@ -6946,23 +6946,23 @@ bool ValueNumStore::VNFuncArityIsLegal(VNFunc vnf, unsigned arity)
 
 bool ValueNumStore::VNFuncArityIsVariable(VNFunc vnf)
 {
-    return VNFuncAttribs(vnf).arity == VNFuncAttribs::MaxArity;
+    return VNFuncAttrs(vnf).arity == VNFuncAttrs::MaxArity;
 }
 
 bool ValueNumStore::VNFuncIsCommutative(VNFunc vnf)
 {
-    return VNFuncAttribs(vnf).commutative;
+    return VNFuncAttrs(vnf).commutative;
 }
 
 bool ValueNumStore::IsLegalVNFuncOper(genTreeOps gtOper)
 {
-    return !VNFuncAttribs(static_cast<VNFunc>(gtOper)).illegal;
+    return !VNFuncAttrs(static_cast<VNFunc>(gtOper)).illegal;
 }
 
 bool ValueNumStore::IsKnownNonNull(ValueNum vn)
 {
     VNFuncApp funcApp;
-    return (vn != NoVN) && GetVNFunc(vn, &funcApp) && VNFuncAttribs(funcApp.m_func).knownNotNull;
+    return (vn != NoVN) && GetVNFunc(vn, &funcApp) && VNFuncAttrs(funcApp.m_func).knownNotNull;
 }
 
 bool ValueNumStore::VNFuncIsLegal(VNFunc vnf)
