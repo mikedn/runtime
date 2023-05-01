@@ -8192,6 +8192,10 @@ void ValueNumbering::NumberNode(GenTree* node)
             ClearMemory(node DEBUGARG("memory barrier"));
             break;
 
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+            ClearMemory(node DEBUGARG("dynamic sized init/copy block"));
+            FALLTHROUGH;
         case GT_ARGPLACE:
             // We'll give ARGPLACE the actual argument value number when the call
             // node itself is value numbered.
@@ -8216,12 +8220,6 @@ void ValueNumbering::NumberNode(GenTree* node)
                     AddNullRefExset(node, node->AsIndir()->GetAddr());
                 }
             }
-            break;
-
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            ClearMemory(node DEBUGARG("dynamic sized init/copy block"));
-            node->gtVNPair.SetBoth(vnStore->VNForVoid());
             break;
 
         case GT_CAST:
