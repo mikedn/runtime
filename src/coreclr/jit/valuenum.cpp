@@ -47,6 +47,7 @@ class ValueNumbering
 
     SsaOptimizer&  ssa;
     Compiler*      compiler;
+    ICorJitInfo*   vm;
     ValueNumStore* vnStore;
     VNLoop*        vnLoopTable   = nullptr;
     ValueNum       fgCurMemoryVN = NoVN;
@@ -3931,7 +3932,7 @@ FieldSeqNode* ValueNumbering::IsFieldAddr(GenTree* addr, GenTree** pObj)
         return nullptr;
     }
 
-    if (fieldSeq->IsField() && compiler->info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()))
+    if (fieldSeq->IsField() && vm->isFieldStatic(fieldSeq->GetFieldHandle()))
     {
         *pObj = nullptr;
         return fieldSeq;
@@ -3962,8 +3963,7 @@ FieldSeqNode* ValueNumbering::IsFieldAddr(GenTree* addr, GenTree** pObj)
         return nullptr;
     }
 
-    assert(!compiler->info.compCompHnd->isValueClass(
-        compiler->info.compCompHnd->getFieldClass(fieldSeq->GetFieldHandle())));
+    assert(!vm->isValueClass(vm->getFieldClass(fieldSeq->GetFieldHandle())));
 
     *pObj = addr;
     return fieldSeq;
@@ -3994,8 +3994,8 @@ FieldSeqNode* ValueNumbering::IsStaticStructFieldAddr(GenTree* addr)
     }
 
     if ((fieldSeq == nullptr) || (fieldSeq->GetNext() != nullptr) || !fieldSeq->IsField() ||
-        !compiler->info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()) ||
-        (CorTypeToVarType(compiler->info.compCompHnd->getFieldType(fieldSeq->GetFieldHandle())) != TYP_STRUCT))
+        !vm->isFieldStatic(fieldSeq->GetFieldHandle()) ||
+        (CorTypeToVarType(vm->getFieldType(fieldSeq->GetFieldHandle())) != TYP_STRUCT))
     {
         return nullptr;
     }
@@ -4386,9 +4386,8 @@ ValueNum ValueNumbering::CastStruct(ValueNumKind         vnk,
         return valueVN;
     }
 
-    ICorJitInfo* vm             = compiler->info.compCompHnd;
-    unsigned     fromFieldCount = vm->getClassNumInstanceFields(fromClassHandle);
-    unsigned     toFieldCount   = vm->getClassNumInstanceFields(toClassHandle);
+    unsigned fromFieldCount = vm->getClassNumInstanceFields(fromClassHandle);
+    unsigned toFieldCount   = vm->getClassNumInstanceFields(toClassHandle);
 
     if (fromFieldCount < toFieldCount)
     {
@@ -4666,7 +4665,7 @@ ValueNum ValueNumbering::CoerceLoadValue(GenTree* load, ValueNum valueVN, var_ty
 var_types ValueNumbering::GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout)
 {
     CORINFO_CLASS_HANDLE typeHandle = NO_CLASS_HANDLE;
-    var_types            type = CorTypeToVarType(compiler->info.compCompHnd->getFieldType(fieldHandle, &typeHandle));
+    var_types            type       = CorTypeToVarType(vm->getFieldType(fieldHandle, &typeHandle));
 
     if (type == TYP_STRUCT)
     {
@@ -5325,7 +5324,7 @@ ValueNum ValueNumbering::StoreStaticField(GenTreeIndir* store, FieldSeqNode* fie
     }
 
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
-    assert(compiler->info.compCompHnd->isFieldStatic(fieldHandle));
+    assert(vm->isFieldStatic(fieldHandle));
 
     fieldSeq = fieldSeq->GetNext();
 
@@ -5367,7 +5366,7 @@ ValueNum ValueNumbering::StoreStaticField(GenTreeIndir* store, FieldSeqNode* fie
 ValueNum ValueNumbering::LoadStaticField(GenTreeIndir* load, FieldSeqNode* fieldSeq)
 {
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
-    assert(compiler->info.compCompHnd->isFieldStatic(fieldHandle));
+    assert(vm->isFieldStatic(fieldHandle));
     ClassLayout* fieldLayout;
     var_types    fieldType = GetFieldType(fieldHandle, &fieldLayout);
     ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
@@ -5441,7 +5440,7 @@ ValueNum ValueNumbering::StoreObjField(GenTreeIndir* store, ValueNum objVN, Fiel
     }
 
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
-    assert(!compiler->info.compCompHnd->isFieldStatic(fieldHandle));
+    assert(!vm->isFieldStatic(fieldHandle));
     fieldSeq = fieldSeq->GetNext();
     ClassLayout* fieldLayout;
     var_types    fieldType = GetFieldType(fieldHandle, &fieldLayout);
@@ -5482,7 +5481,7 @@ ValueNum ValueNumbering::StoreObjField(GenTreeIndir* store, ValueNum objVN, Fiel
 ValueNum ValueNumbering::LoadObjField(GenTreeIndir* load, ValueNum objVN, FieldSeqNode* fieldSeq)
 {
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
-    assert(!compiler->info.compCompHnd->isFieldStatic(fieldHandle));
+    assert(!vm->isFieldStatic(fieldHandle));
     ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
     fieldSeq         = fieldSeq->GetNext();
     ClassLayout* fieldLayout;
@@ -7304,7 +7303,8 @@ public:
     }
 };
 
-ValueNumbering::ValueNumbering(SsaOptimizer& ssa) : ssa(ssa), compiler(ssa.GetCompiler()), vnStore(ssa.GetVNStore())
+ValueNumbering::ValueNumbering(SsaOptimizer& ssa)
+    : ssa(ssa), compiler(ssa.GetCompiler()), vm(ssa.GetCompiler()->info.compCompHnd), vnStore(ssa.GetVNStore())
 {
 }
 
@@ -7896,9 +7896,9 @@ ValueNum ValueNumbering::BuildLoopEntryMemory(BasicBlock* entryBlock, unsigned i
             ValueNum  fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
             var_types fieldType = TYP_STRUCT;
 
-            if (compiler->info.compCompHnd->isFieldStatic(fieldHandle))
+            if (vm->isFieldStatic(fieldHandle))
             {
-                fieldType = CorTypeToVarType(compiler->info.compCompHnd->getFieldType(fieldHandle));
+                fieldType = CorTypeToVarType(vm->getFieldType(fieldHandle));
             }
 
             newMemoryVN =
