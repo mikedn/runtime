@@ -6909,90 +6909,55 @@ void ValueNumStore::DumpPtrToArrElem(const VNFuncApp& elemAddr)
 
 #endif // DEBUG
 
-static uint8_t vnfOpAttribs[VNF_COUNT];
-
-// TODO-Cleanup: should transform "attribs" into a struct with bit fields.  That would be simpler...
-enum VNFOpAttrib
+struct VNFuncAttribs
 {
-    VNFOA_IllegalGenTreeOp = 0x1,  // corresponds to a genTreeOps value that is not a legal VN func.
-    VNFOA_Commutative      = 0x2,  // 1 iff the function is commutative.
-    VNFOA_Arity1           = 0x4,  // Bits 2,3,4 encode the arity.
-    VNFOA_Arity2           = 0x8,  // Bits 2,3,4 encode the arity.
-    VNFOA_Arity4           = 0x10, // Bits 2,3,4 encode the arity.
-    VNFOA_KnownNonNull     = 0x20, // 1 iff the result is known to be non-null.
+    static constexpr unsigned MaxArity = 15;
+
+    uint8_t arity : 4;
+    bool    commutative : 1;
+    bool    knownNotNull : 1;
+    bool    illegal : 1;
 };
 
-constexpr unsigned VNFOA_ArityShift = 2;
-constexpr unsigned VNFOA_ArityBits  = 3;
-constexpr unsigned VNFOA_MaxArity   = (1 << VNFOA_ArityBits) - 1; // Max arity we can represent.
-constexpr unsigned VNFOA_ArityMask  = (VNFOA_Arity4 | VNFOA_Arity2 | VNFOA_Arity1);
+static_assert_no_msg(sizeof(VNFuncAttribs) == 1);
+
+static VNFuncAttribs vnFuncAttribs[VNF_Count]{
+#define GTNODE(n, s, c, k) {((k & GTK_BINOP) != 0) ? 2 : ((k & GTK_BINOP) != 0), c},
+#include "gtlist.h"
+    {}, // VNF_Boundary
+#define ValueNumFuncDef(f, a, c, n, s) {static_cast<uint8_t>(a), c, n},
+#include "valuenumfuncs.h"
+};
 
 void InitValueNumStoreStatics()
 {
-    // Make sure we have the constants right...
-    assert(unsigned(VNFOA_Arity1) == (1 << VNFOA_ArityShift));
-    assert(VNFOA_ArityMask == (VNFOA_MaxArity << VNFOA_ArityShift));
+    static const genTreeOps illegalOpers[]{GT_QMARK,     GT_BOX,           GT_COMMA,     GT_BOUNDS_CHECK,
+                                           GT_CKFINITE,  GT_JTRUE,         GT_SWITCH,    GT_RETURN,
+                                           GT_RETFILT,   GT_NOP,           GT_ASG,       GT_LCL_DEF,
+                                           GT_LCL_USE,   GT_FIELD_ADDR,    GT_INSERT,    GT_EXTRACT,
+                                           GT_LCL_VAR,   GT_STORE_LCL_VAR, GT_LCL_FLD,   GT_STORE_LCL_FLD,
+                                           GT_NULLCHECK, GT_IND,           GT_STOREIND,  GT_OBJ,
+                                           GT_STORE_OBJ, GT_BLK,           GT_STORE_BLK, GT_COPY_BLK,
+                                           GT_INIT_BLK,  GT_LOCKADD,       GT_XADD,      GT_XORR,
+                                           GT_XAND,      GT_XCHG,          GT_CMPXCHG,   GT_LOCKADD,
+                                           GT_XADD,      GT_XORR,          GT_XAND,      GT_XCHG,
+                                           GT_CMPXCHG,   GT_LCLHEAP,       GT_CATCH_ARG, GT_CALL,
+                                           GT_LCL_ADDR};
 
-    for (unsigned i = 0; i < GT_COUNT; i++)
+    for (auto oper : illegalOpers)
     {
-        genTreeOps gtOper = static_cast<genTreeOps>(i);
-        unsigned   arity  = 0;
-
-        if (GenTree::OperIsUnary(gtOper))
-        {
-            arity = 1;
-        }
-        else if (GenTree::OperIsBinary(gtOper))
-        {
-            arity = 2;
-        }
-
-        vnfOpAttribs[i] |= ((arity << VNFOA_ArityShift) & VNFOA_ArityMask);
-
-        if (GenTree::OperIsCommutative(gtOper))
-        {
-            vnfOpAttribs[i] |= VNFOA_Commutative;
-        }
-    }
-
-    // I so wish this wasn't the best way to do this...
-
-    int vnfNum = VNF_Boundary + 1; // The macro definition below will update this after using it.
-
-#define ValueNumFuncDef(vnf, arity, commute, knownNonNull, sharedStatic)                                               \
-    if (commute)                                                                                                       \
-        vnfOpAttribs[vnfNum] |= VNFOA_Commutative;                                                                     \
-    if (knownNonNull)                                                                                                  \
-        vnfOpAttribs[vnfNum] |= VNFOA_KnownNonNull;                                                                    \
-    vnfOpAttribs[vnfNum] |= ((arity << VNFOA_ArityShift) & VNFOA_ArityMask);                                           \
-    vnfNum++;
-
-#include "valuenumfuncs.h"
-#undef ValueNumFuncDef
-
-    assert(vnfNum == VNF_COUNT);
-
-    genTreeOps genTreeOpsIllegalAsVNFunc[]{GT_IND,          GT_NULLCHECK, GT_QMARK, GT_LOCKADD, GT_XADD,   GT_XCHG,
-                                           GT_CMPXCHG,      GT_LCLHEAP,   GT_BOX,   GT_XORR,    GT_XAND,   GT_COMMA,
-                                           GT_BOUNDS_CHECK, GT_OBJ,       GT_BLK,   GT_JTRUE,   GT_RETURN, GT_SWITCH,
-                                           GT_RETFILT,      GT_CKFINITE,  GT_ASG,   GT_NOP};
-
-    for (auto oper : genTreeOpsIllegalAsVNFunc)
-    {
-        vnfOpAttribs[oper] |= VNFOA_IllegalGenTreeOp;
+        vnFuncAttribs[oper].illegal = true;
     }
 }
 
-uint8_t ValueNumStore::VNFuncAttribs(VNFunc vnf)
+const VNFuncAttribs& ValueNumStore::VNFuncAttribs(VNFunc vnf)
 {
-    return vnfOpAttribs[VNFuncIndex(vnf)];
+    return vnFuncAttribs[VNFuncIndex(vnf)];
 }
 
 unsigned ValueNumStore::VNFuncArity(VNFunc vnf)
 {
-    unsigned arity = (VNFuncAttribs(vnf) & VNFOA_ArityMask) >> VNFOA_ArityShift;
-    assert(arity != VNFOA_MaxArity);
-    return arity;
+    return VNFuncAttribs(vnf).arity;
 }
 
 bool ValueNumStore::VNFuncArityIsLegal(VNFunc vnf, unsigned arity)
@@ -7002,17 +6967,34 @@ bool ValueNumStore::VNFuncArityIsLegal(VNFunc vnf, unsigned arity)
 
 bool ValueNumStore::VNFuncArityIsVariable(VNFunc vnf)
 {
-    return ((VNFuncAttribs(vnf) & VNFOA_ArityMask) >> VNFOA_ArityShift) == VNFOA_MaxArity;
+    return VNFuncAttribs(vnf).arity == VNFuncAttribs::MaxArity;
 }
 
 bool ValueNumStore::VNFuncIsCommutative(VNFunc vnf)
 {
-    return (VNFuncAttribs(vnf) & VNFOA_Commutative) != 0;
+    return VNFuncAttribs(vnf).commutative;
 }
 
-bool ValueNumStore::GenTreeOpIsLegalVNFunc(genTreeOps gtOper)
+bool ValueNumStore::IsLegalVNFuncOper(genTreeOps gtOper)
 {
-    return (VNFuncAttribs(static_cast<VNFunc>(gtOper)) & VNFOA_IllegalGenTreeOp) == 0;
+    return !VNFuncAttribs(static_cast<VNFunc>(gtOper)).illegal;
+}
+
+bool ValueNumStore::IsKnownNonNull(ValueNum vn)
+{
+    VNFuncApp funcApp;
+    return (vn != NoVN) && GetVNFunc(vn, &funcApp) && VNFuncAttribs(funcApp.m_func).knownNotNull;
+}
+
+bool ValueNumStore::VNFuncIsLegal(VNFunc vnf)
+{
+    return (static_cast<unsigned>(vnf) > VNF_Boundary) || IsLegalVNFuncOper(static_cast<genTreeOps>(vnf));
+}
+
+VNFunc ValueNumStore::GenTreeOpToVNFunc(genTreeOps gtOper)
+{
+    assert(IsLegalVNFuncOper(gtOper));
+    return static_cast<VNFunc>(gtOper);
 }
 
 bool ValueNumStore::VNFuncIsComparison(VNFunc vnf)
@@ -7026,16 +7008,6 @@ bool ValueNumStore::VNFuncIsComparison(VNFunc vnf)
     }
     genTreeOps gtOp = genTreeOps(vnf);
     return GenTree::OperIsCompare(gtOp) != 0;
-}
-
-bool ValueNumStore::IsKnownNonNull(ValueNum vn)
-{
-    if (vn == NoVN)
-    {
-        return false;
-    }
-    VNFuncApp funcAttr;
-    return GetVNFunc(vn, &funcAttr) && ((VNFuncAttribs(funcAttr.m_func) & VNFOA_KnownNonNull) != 0);
 }
 
 #ifdef DEBUG

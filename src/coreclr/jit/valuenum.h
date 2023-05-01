@@ -34,7 +34,7 @@ enum VNFunc
     VNF_Boundary = GT_COUNT,
 #define ValueNumFuncDef(nm, arity, commute, knownNonNull, sharedStatic) VNF_##nm,
 #include "valuenumfuncs.h"
-    VNF_COUNT
+    VNF_Count
 };
 
 constexpr VNFunc VNFuncIndex(VNFunc vnf)
@@ -214,7 +214,7 @@ private:
 
     // Returns "true" iff gtOper is a legal value number function.
     // (Requires InitValueNumStoreStatics to have been run.)
-    static bool GenTreeOpIsLegalVNFunc(genTreeOps gtOper);
+    static bool IsLegalVNFuncOper(genTreeOps gtOper);
 
     // Returns "true" iff "vnf" is a commutative (and thus binary) operator.
     // (Requires InitValueNumStoreStatics to have been run.)
@@ -285,35 +285,17 @@ private:
 public:
     ValueNumStore(SsaOptimizer& ssa);
 
-    // Returns "true" iff "vnf" (which may have been created by a cast from an integral value) represents
-    // a legal value number function.
-    // (Requires InitValueNumStoreStatics to have been run.)
-    static bool VNFuncIsLegal(VNFunc vnf)
-    {
-        return unsigned(vnf) > VNF_Boundary || GenTreeOpIsLegalVNFunc(static_cast<genTreeOps>(vnf));
-    }
-
-    static uint8_t VNFuncAttribs(VNFunc vnf);
+    static const struct VNFuncAttribs& VNFuncAttribs(VNFunc vnf);
+    static bool VNFuncIsLegal(VNFunc vnf);
     static bool VNFuncIsOverflowArithmetic(VNFunc vnf);
     static bool VNFuncIsNumericCast(VNFunc vnf);
     static unsigned VNFuncArity(VNFunc vnf);
     static bool VNFuncArityIsLegal(VNFunc vnf, unsigned arity);
     static bool VNFuncArityIsVariable(VNFunc vnf);
+    static VNFunc GenTreeOpToVNFunc(genTreeOps oper);
 
-    // Requires "gtOper" to be a genTreeOps legally representing a VNFunc, and returns that
-    // VNFunc.
-    // (Requires InitValueNumStoreStatics to have been run.)
-    static VNFunc GenTreeOpToVNFunc(genTreeOps gtOper)
-    {
-        assert(GenTreeOpIsLegalVNFunc(gtOper));
-        return static_cast<VNFunc>(gtOper);
-    }
+    INDEBUG(static void RunTests(Compiler* comp);)
 
-#ifdef DEBUG
-    static void RunTests(Compiler* comp);
-#endif // DEBUG
-
-    // This block of methods gets value numbers for constants of primitive types.
     ValueNum VNForIntCon(int32_t value);
     ValueNum VNForLongCon(int64_t value);
     ValueNum VNForFloatCon(float value);
