@@ -429,8 +429,6 @@ void Compiler::compStartup()
     InitGCEncoderLookupTable();
 #endif
 
-    InitValueNumStoreStatics();
-
     compDisplayStaticSizes(jitstdout);
 }
 

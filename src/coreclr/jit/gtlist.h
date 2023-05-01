@@ -38,10 +38,10 @@ GTNODE(CNS_STR          , GenTreeStrCon       , GTK_LEAF)
 //  Unary  operators
 //-----------------------------------------------------------------------------
 
-GTNODE(NOT              , GenTreeOp           , GTK_UNOP)
+GTNODE(NOT              , GenTreeOp           , GTK_UNOP|GTK_VN)
 GTNODE(NOP              , GenTree             , GTK_UNOP|GTK_NOCONTAIN)
-GTNODE(NEG              , GenTreeOp           , GTK_UNOP)
-GTNODE(FNEG             , GenTreeOp           , GTK_UNOP)
+GTNODE(NEG              , GenTreeOp           , GTK_UNOP|GTK_VN)
+GTNODE(FNEG             , GenTreeOp           , GTK_UNOP|GTK_VN)
 
 GTNODE(COPY             , GenTreeCopyOrReload , GTK_UNOP) // Copies a variable from its current location to a register that satisfies
                                                           // code generation constraints. The child is the actual lclVar node.
@@ -57,17 +57,17 @@ GTNODE(XCHG             , GenTreeOp           , GTK_BINOP)
 GTNODE(CMPXCHG          , GenTreeCmpXchg      , GTK_SPECIAL)
 GTNODE(MEMORYBARRIER    , GenTree             , GTK_LEAF|GTK_NOVALUE)
 
-GTNODE(KEEPALIVE        , GenTree             , GTK_UNOP|GTK_NOVALUE)   // keep operand alive, generate no code, produce no result
+GTNODE(KEEPALIVE        , GenTree             , GTK_UNOP|GTK_NOVALUE|GTK_VN) // keep operand alive, generate no code, produce no result
 GTNODE(CAST             , GenTreeCast         , GTK_UNOP|GTK_EXOP)      // conversion to another type
 GTNODE(BITCAST          , GenTreeOp           , GTK_UNOP)               // reinterpretation of bits as another type
 GTNODE(CKFINITE         , GenTreeOp           , GTK_UNOP|GTK_NOCONTAIN) // Check for NaN
 GTNODE(LCLHEAP          , GenTreeOp           , GTK_UNOP|GTK_NOCONTAIN) // alloca()
 GTNODE(JMP              , GenTreeVal          , GTK_LEAF|GTK_NOVALUE)   // Jump to another function
 
-GTNODE(ARR_LENGTH       , GenTreeArrLen       , GTK_UNOP|GTK_EXOP)      // array-length
-GTNODE(NULLCHECK        , GenTreeIndir        , GTK_UNOP|GTK_NOVALUE)   // null checks the source
-GTNODE(IND              , GenTreeIndir        , GTK_UNOP)               // load indirection
-GTNODE(STOREIND         , GenTreeStoreInd     , GTK_BINOP|GTK_NOVALUE)  // store indirection
+GTNODE(ARR_LENGTH       , GenTreeArrLen       , GTK_UNOP|GTK_EXOP|GTK_VN) // array-length
+GTNODE(NULLCHECK        , GenTreeIndir        , GTK_UNOP|GTK_NOVALUE)     // null checks the source
+GTNODE(IND              , GenTreeIndir        , GTK_UNOP)                 // load indirection
+GTNODE(STOREIND         , GenTreeStoreInd     , GTK_BINOP|GTK_NOVALUE)    // store indirection
 GTNODE(OBJ              , GenTreeObj          , GTK_UNOP|GTK_EXOP)              // Object that MAY have gc pointers, and thus includes the relevant gc layout info.
 GTNODE(STORE_OBJ        , GenTreeObj          , GTK_BINOP|GTK_EXOP|GTK_NOVALUE) // Object that MAY have gc pointers, and thus includes the relevant gc layout info.
 GTNODE(BLK              , GenTreeBlk          , GTK_UNOP|GTK_EXOP)              // Block/object with no gc pointers, and with a known size (e.g. a struct with no gc fields)
@@ -81,37 +81,37 @@ GTNODE(INSERT           , GenTreeInsert       , GTK_BINOP|GTK_EXOP|GTK_NOTLIR)
 GTNODE(EXTRACT          , GenTreeExtract      , GTK_UNOP|GTK_EXOP|GTK_NOTLIR)
 GTNODE(BOUNDS_CHECK     , GenTreeBoundsChk    , GTK_BINOP|GTK_EXOP|GTK_NOVALUE)
 GTNODE(ALLOCOBJ         , GenTreeAllocObj     , GTK_UNOP|GTK_EXOP) // object allocator
-GTNODE(INIT_VAL         , GenTreeOp           , GTK_UNOP)          // Initialization value for an initBlk
+GTNODE(INIT_VAL         , GenTreeOp           , GTK_UNOP|GTK_VN)   // Initialization value for an initBlk
 GTNODE(RUNTIMELOOKUP    , GenTreeRuntimeLookup, GTK_UNOP|GTK_EXOP) // Runtime handle lookup
-GTNODE(BSWAP            , GenTreeOp           , GTK_UNOP)          // Byte swap (32-bit or 64-bit)
-GTNODE(BSWAP16          , GenTreeOp           , GTK_UNOP)          // Byte swap (16-bit)
+GTNODE(BSWAP            , GenTreeOp           , GTK_UNOP|GTK_VN)   // Byte swap (32-bit or 64-bit)
+GTNODE(BSWAP16          , GenTreeOp           , GTK_UNOP|GTK_VN)   // Byte swap (16-bit)
 GTNODE(INC_SATURATE     , GenTreeOp           , GTK_UNOP)          // saturating increment, used in division by a constant (LowerUnsignedDivOrMod)
 
 //-----------------------------------------------------------------------------
 //  Binary operators
 //-----------------------------------------------------------------------------
 
-GTNODE(FADD             , GenTreeOp           , GTK_BINOP|GTK_COMMUTE)
-GTNODE(FSUB             , GenTreeOp           , GTK_BINOP)
-GTNODE(FMUL             , GenTreeOp           , GTK_BINOP|GTK_COMMUTE)
-GTNODE(FDIV             , GenTreeOp           , GTK_BINOP)
-GTNODE(FMOD             , GenTreeOp           , GTK_BINOP)
+GTNODE(FADD             , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
+GTNODE(FSUB             , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(FMUL             , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
+GTNODE(FDIV             , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(FMOD             , GenTreeOp           , GTK_BINOP|GTK_VN)
 
-GTNODE(ADD              , GenTreeOp           , GTK_BINOP|GTK_COMMUTE)
-GTNODE(SUB              , GenTreeOp           , GTK_BINOP)
-GTNODE(MUL              , GenTreeOp           , GTK_BINOP|GTK_COMMUTE)
-GTNODE(DIV              , GenTreeOp           , GTK_BINOP)
-GTNODE(MOD              , GenTreeOp           , GTK_BINOP)
-GTNODE(UDIV             , GenTreeOp           , GTK_BINOP)
-GTNODE(UMOD             , GenTreeOp           , GTK_BINOP)
-GTNODE(OR               , GenTreeOp           , GTK_BINOP|GTK_COMMUTE)
-GTNODE(XOR              , GenTreeOp           , GTK_BINOP|GTK_COMMUTE)
-GTNODE(AND              , GenTreeOp           , GTK_BINOP|GTK_COMMUTE)
-GTNODE(LSH              , GenTreeOp           , GTK_BINOP)
-GTNODE(RSH              , GenTreeOp           , GTK_BINOP)
-GTNODE(RSZ              , GenTreeOp           , GTK_BINOP)
-GTNODE(ROL              , GenTreeOp           , GTK_BINOP)
-GTNODE(ROR              , GenTreeOp           , GTK_BINOP)
+GTNODE(ADD              , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
+GTNODE(SUB              , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(MUL              , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
+GTNODE(DIV              , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(MOD              , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(UDIV             , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(UMOD             , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(OR               , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
+GTNODE(XOR              , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
+GTNODE(AND              , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
+GTNODE(LSH              , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(RSH              , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(RSZ              , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(ROL              , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(ROR              , GenTreeOp           , GTK_BINOP|GTK_VN)
 
 // GT_MULHI is used in division by a constant (fgMorphDivByConst). We turn
 // the DIV into a MULHI + some adjustments. In codegen, we only use the
@@ -120,12 +120,12 @@ GTNODE(MULHI            , GenTreeOp           , GTK_BINOP|GTK_COMMUTE)
 
 GTNODE(ASG              , GenTreeOp           , GTK_BINOP|GTK_NOTLIR)
 
-GTNODE(EQ               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN)
-GTNODE(NE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN)
-GTNODE(LT               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN)
-GTNODE(LE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN)
-GTNODE(GE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN)
-GTNODE(GT               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN)
+GTNODE(EQ               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
+GTNODE(NE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
+GTNODE(LT               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
+GTNODE(LE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
+GTNODE(GE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
+GTNODE(GT               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
 
 // These are similar to GT_EQ/GT_NE but they generate "test" instead of "cmp" instructions.
 // Currently these are generated during lowering for code like ((x & y) eq|ne 0) only on
@@ -139,7 +139,7 @@ GTNODE(TEST_NE          , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN)
 
 GTNODE(COMMA            , GenTreeOp           , GTK_BINOP|GTK_NOTLIR)
 GTNODE(QMARK            , GenTreeQmark        , GTK_SPECIAL|GTK_NOTLIR)
-GTNODE(INDEX_ADDR       , GenTreeIndexAddr    , GTK_BINOP|GTK_EXOP) // addr of SZ-array-element;
+GTNODE(INDEX_ADDR       , GenTreeIndexAddr    , GTK_BINOP|GTK_EXOP|GTK_VN) // addr of SZ-array-element;
 GTNODE(MKREFANY         , GenTreeOp           , GTK_BINOP|GTK_NOTLIR)
 GTNODE(LEA              , GenTreeAddrMode     , GTK_BINOP|GTK_EXOP)
 

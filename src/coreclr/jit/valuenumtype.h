@@ -126,5 +126,4 @@ public:
 
 constexpr int DefaultVNMapSelectBudget = 100;
 
-void InitValueNumStoreStatics();
 INDEBUG(void RunValueNumStoreTests(class Compiler*);)

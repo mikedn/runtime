@@ -212,15 +212,8 @@ private:
         VCA_ReservedBits = 0x01, // i.e. (VCA_UnsignedSrc)
     };
 
-    // Returns "true" iff gtOper is a legal value number function.
-    // (Requires InitValueNumStoreStatics to have been run.)
     static bool IsLegalVNFuncOper(genTreeOps gtOper);
-
-    // Returns "true" iff "vnf" is a commutative (and thus binary) operator.
-    // (Requires InitValueNumStoreStatics to have been run.)
     static bool VNFuncIsCommutative(VNFunc vnf);
-
-    // Returns "true" iff "vnf" is a comparison (and thus binary) operator.
     static bool VNFuncIsComparison(VNFunc vnf);
 
     // Returns "true" iff "vnf" can be evaluated for constant arguments.

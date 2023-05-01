@@ -65,6 +65,7 @@ enum GenTreeKinds
     GTK_NOVALUE   = 0x0020, // Node does not produce a value
     GTK_NOTLIR    = 0x0040, // Node is not allowed in LIR
     GTK_NOCONTAIN = 0x0080, // Node cannot be contained
+    GTK_VN        = 0x0100, // Oper can be used as VNFunc
 
     GTK_SMPOP    = GTK_UNOP | GTK_BINOP,
     GTK_KINDMASK = GTK_LEAF | GTK_UNOP | GTK_BINOP,

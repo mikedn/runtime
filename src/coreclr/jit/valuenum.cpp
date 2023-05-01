@@ -6915,40 +6915,19 @@ struct VNFuncAttribs
 
     uint8_t arity : 4;
     bool    commutative : 1;
-    bool    knownNotNull : 1;
     bool    illegal : 1;
+    bool    knownNotNull : 1;
 };
 
 static_assert_no_msg(sizeof(VNFuncAttribs) == 1);
 
 static VNFuncAttribs vnFuncAttribs[VNF_Count]{
-#define GTNODE(n, s, k) {(((k)&GTK_BINOP) != 0) ? 2 : (((k)&GTK_UNOP) != 0), ((k)&GTK_COMMUTE) != 0},
+#define GTNODE(n, s, k) {(((k)&GTK_BINOP) != 0) ? 2 : (((k)&GTK_UNOP) != 0), ((k)&GTK_COMMUTE) != 0, ((k)&GTK_VN) == 0},
 #include "gtlist.h"
     {}, // VNF_Boundary
-#define ValueNumFuncDef(f, a, c, n, s) {static_cast<uint8_t>(a), c, n},
+#define ValueNumFuncDef(f, a, c, n, s) {static_cast<uint8_t>(a), c, false, n},
 #include "valuenumfuncs.h"
 };
-
-void InitValueNumStoreStatics()
-{
-    static const genTreeOps illegalOpers[]{GT_QMARK,     GT_BOX,           GT_COMMA,     GT_BOUNDS_CHECK,
-                                           GT_CKFINITE,  GT_JTRUE,         GT_SWITCH,    GT_RETURN,
-                                           GT_RETFILT,   GT_NOP,           GT_ASG,       GT_LCL_DEF,
-                                           GT_LCL_USE,   GT_FIELD_ADDR,    GT_INSERT,    GT_EXTRACT,
-                                           GT_LCL_VAR,   GT_STORE_LCL_VAR, GT_LCL_FLD,   GT_STORE_LCL_FLD,
-                                           GT_NULLCHECK, GT_IND,           GT_STOREIND,  GT_OBJ,
-                                           GT_STORE_OBJ, GT_BLK,           GT_STORE_BLK, GT_COPY_BLK,
-                                           GT_INIT_BLK,  GT_LOCKADD,       GT_XADD,      GT_XORR,
-                                           GT_XAND,      GT_XCHG,          GT_CMPXCHG,   GT_LOCKADD,
-                                           GT_XADD,      GT_XORR,          GT_XAND,      GT_XCHG,
-                                           GT_CMPXCHG,   GT_LCLHEAP,       GT_CATCH_ARG, GT_CALL,
-                                           GT_LCL_ADDR};
-
-    for (auto oper : illegalOpers)
-    {
-        vnFuncAttribs[oper].illegal = true;
-    }
-}
 
 const VNFuncAttribs& ValueNumStore::VNFuncAttribs(VNFunc vnf)
 {
