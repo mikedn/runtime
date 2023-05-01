@@ -10,14 +10,12 @@ using TypeNumSet     = JitHashSet<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>>
 
 struct VNLoop
 {
-    FieldHandleSet* modifiedFields;
-    TypeNumSet*     modifiedArrayElemTypes;
+    FieldHandleSet* modifiedFields         = nullptr;
+    TypeNumSet*     modifiedArrayElemTypes = nullptr;
 
-    bool hasMemoryHavoc : 1;
+    bool hasMemoryHavoc = false;
     // TODO-MIKE-CQ: We could record individual AX local access like we do for fields and arrays.
-    bool modifiesAddressExposedLocals : 1;
-
-    VNLoop(Compiler* compiler);
+    bool modifiesAddressExposedLocals = false;
 };
 
 class VNLoopMemorySummary
@@ -28,9 +26,9 @@ class VNLoopMemorySummary
     unsigned        m_loopNum;
 
 public:
-    bool m_memoryHavoc : 1;
-    bool m_hasCall : 1;
-    bool m_modifiesAddressExposedLocals : 1;
+    bool m_memoryHavoc;
+    bool m_hasCall;
+    bool m_modifiesAddressExposedLocals;
 
     VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum);
     void AddMemoryHavoc();
@@ -7424,7 +7422,7 @@ void ValueNumbering::SummarizeLoopMemoryStores()
 
     for (unsigned loopNum = 0; loopNum < loopCount; loopNum++)
     {
-        new (&vnLoopTable[loopNum]) VNLoop(compiler);
+        new (&vnLoopTable[loopNum]) VNLoop();
     }
 
     for (unsigned loopNum = 0; loopNum < loopCount; loopNum++)
@@ -7690,14 +7688,6 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
     }
 
     vnStore->SetCurrentBlock(nullptr);
-}
-
-VNLoop::VNLoop(Compiler* compiler)
-    : modifiedFields(nullptr)
-    , modifiedArrayElemTypes(nullptr)
-    , hasMemoryHavoc(false)
-    , modifiesAddressExposedLocals(false)
-{
 }
 
 VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum)
