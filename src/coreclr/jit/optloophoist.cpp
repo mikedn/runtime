@@ -1385,17 +1385,17 @@ void Compiler::fgCreateLoopPreHeader(unsigned lnum)
     }
 }
 
-void SsaOptimizer::DoLoopHoist()
+PhaseStatus SsaOptimizer::DoLoopHoist()
 {
     if (compiler->optLoopCount == 0)
     {
-        return;
+        return PhaseStatus::MODIFIED_NOTHING;
     }
 
 #ifdef DEBUG
     if (JitConfig.JitNoHoist() > 0)
     {
-        return;
+        return PhaseStatus::MODIFIED_NOTHING;
     }
 
     if (compiler->verbose)
@@ -1422,4 +1422,6 @@ void SsaOptimizer::DoLoopHoist()
         compiler->fgDebugCheckBBlist();
     }
 #endif
+
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }

@@ -2651,8 +2651,9 @@ public:
     }
 };
 
-void SsaOptimizer::DoCse()
+PhaseStatus SsaOptimizer::DoCse()
 {
     Cse cse(*this);
     cse.Run();
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }

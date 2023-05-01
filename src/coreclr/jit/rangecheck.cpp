@@ -1259,10 +1259,11 @@ void RangeCheck::OptimizeRangeChecks()
     }
 }
 
-void SsaOptimizer::DoRemoveRangeCheck()
+PhaseStatus SsaOptimizer::DoRemoveRangeCheck()
 {
     DBEXEC(compiler->verbose, compiler->fgDispBasicBlocks(true))
 
     RangeCheck rangeCheck(*this);
     rangeCheck.OptimizeRangeChecks();
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }

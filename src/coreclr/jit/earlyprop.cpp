@@ -604,8 +604,9 @@ private:
     }
 };
 
-void SsaOptimizer::DoEarlyProp()
+PhaseStatus SsaOptimizer::DoEarlyProp()
 {
     EarlyProp prop(compiler);
     prop.Run();
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }

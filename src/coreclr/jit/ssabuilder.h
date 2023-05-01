@@ -166,16 +166,16 @@ private:
     void Reset();
 #endif
 
-    void        DoSsaBuild();
-    void        DoEarlyProp();
-    void        DoValueNumber();
-    void        DoLoopHoist();
-    void        DoCopyProp();
+    PhaseStatus DoSsaBuild();
+    PhaseStatus DoEarlyProp();
+    PhaseStatus DoValueNumber();
+    PhaseStatus DoLoopHoist();
+    PhaseStatus DoCopyProp();
     PhaseStatus DoRedundantBranches();
-    void        DoCse();
-    void        DoAssertionProp();
-    void        DoRemoveRangeCheck();
-    void        DoSsaDestroy();
+    PhaseStatus DoCse();
+    PhaseStatus DoAssertionProp();
+    PhaseStatus DoRemoveRangeCheck();
+    PhaseStatus DoSsaDestroy();
 
     void DoPhase(Phases phaseId, PhaseStatus (SsaOptimizer::*action)())
     {
@@ -193,29 +193,6 @@ private:
             PhaseStatus DoPhase()
             {
                 return (ssa.*action)();
-            }
-        } phase(*this, phaseId, action);
-
-        phase.Run();
-    }
-
-    void DoPhase(Phases phaseId, void (SsaOptimizer::*action)())
-    {
-        class SsaPhase final : public Phase<SsaPhase>
-        {
-            SsaOptimizer& ssa;
-            void (SsaOptimizer::*action)();
-
-        public:
-            SsaPhase(SsaOptimizer& ssa, Phases phaseId, void (SsaOptimizer::*action)())
-                : Phase<SsaPhase>(ssa.compiler, phaseId), ssa(ssa), action(action)
-            {
-            }
-
-            PhaseStatus DoPhase()
-            {
-                (ssa.*action)();
-                return PhaseStatus::MODIFIED_EVERYTHING;
             }
         } phase(*this, phaseId, action);
 

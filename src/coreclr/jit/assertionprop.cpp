@@ -3725,10 +3725,11 @@ private:
 #endif // DEBUG
 };
 
-void SsaOptimizer::DoAssertionProp()
+PhaseStatus SsaOptimizer::DoAssertionProp()
 {
     AssertionProp ap(*this);
     ap.Run();
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }
 
 #ifdef DEBUG

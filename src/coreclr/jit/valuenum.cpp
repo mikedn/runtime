@@ -9730,11 +9730,13 @@ void ValueNumbering::TraceMem(ValueNum vn, const char* comment)
 
 #endif // DEBUG
 
-void SsaOptimizer::DoValueNumber()
+PhaseStatus SsaOptimizer::DoValueNumber()
 {
     vnStore           = new (compiler->getAllocator(CMK_ValueNumber)) ValueNumStore(*this);
     compiler->vnStore = vnStore;
 
     ValueNumbering valueNumbering(*this);
     valueNumbering.Run();
+
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }

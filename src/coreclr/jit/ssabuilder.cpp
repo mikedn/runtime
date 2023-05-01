@@ -49,7 +49,7 @@ private:
     INDEBUG(void Print(BasicBlock** postOrder, int count);)
 };
 
-void SsaOptimizer::DoSsaBuild()
+PhaseStatus SsaOptimizer::DoSsaBuild()
 {
     SsaBuilder builder(*this);
     builder.Build();
@@ -60,7 +60,9 @@ void SsaOptimizer::DoSsaBuild()
         JITDUMP("\nAfter fgSsaBuild:\n");
         compiler->fgDispBasicBlocks(/*dumpTrees*/ true);
     }
-#endif // DEBUG
+#endif
+
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }
 
 #ifdef OPT_CONFIG
@@ -1692,7 +1694,7 @@ static void DestroyExtract(Statement* stmt, GenTreeExtract* extract)
     }
 }
 
-void SsaOptimizer::DoSsaDestroy()
+PhaseStatus SsaOptimizer::DoSsaDestroy()
 {
     for (GenTree* def = initSsaDefs; def != nullptr; def = def->gtNext)
     {
@@ -1752,6 +1754,8 @@ void SsaOptimizer::DoSsaDestroy()
             }
         }
     }
+
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }
 
 void SsaOptimizer::Run()

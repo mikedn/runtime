@@ -348,8 +348,9 @@ public:
     }
 };
 
-void SsaOptimizer::DoCopyProp()
+PhaseStatus SsaOptimizer::DoCopyProp()
 {
     CopyPropDomTreeVisitor visitor(*this);
     visitor.WalkTree();
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }
