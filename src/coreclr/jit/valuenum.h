@@ -646,16 +646,45 @@ public:
     struct VarTypConv
     {
     };
+    template <>
+    struct VarTypConv<TYP_INT>
+    {
+        typedef int32_t Type;
+        typedef int     Lang;
+    };
+    template <>
+    struct VarTypConv<TYP_FLOAT>
+    {
+        typedef int32_t Type;
+        typedef float   Lang;
+    };
+    template <>
+    struct VarTypConv<TYP_LONG>
+    {
+        typedef int64_t Type;
+        typedef int64_t Lang;
+    };
+    template <>
+    struct VarTypConv<TYP_DOUBLE>
+    {
+        typedef int64_t Type;
+        typedef double  Lang;
+    };
+    template <>
+    struct VarTypConv<TYP_BYREF>
+    {
+        typedef size_t Type;
+        typedef void*  Lang;
+    };
+    template <>
+    struct VarTypConv<TYP_REF>
+    {
+        typedef class Object* Type;
+        typedef class Object* Lang;
+    };
 
 private:
     struct Chunk;
-
-    template <typename T>
-    static T CoerceTypRefToT(Chunk* c, unsigned offset);
-
-    // Get the actual value and coerce the actual type c->m_typ to the wanted type T.
-    template <typename T>
-    FORCEINLINE T SafeGetConstantValue(Chunk* c, unsigned offset) const;
 
     template <typename T>
     T ConstantValueInternal(ValueNum vn DEBUGARG(bool coerce)) const
@@ -1079,78 +1108,41 @@ private:
 
     JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, const char*> m_vnNameMap;
 #endif
-};
 
-template <>
-struct ValueNumStore::VarTypConv<TYP_INT>
-{
-    typedef int32_t Type;
-    typedef int     Lang;
-};
-template <>
-struct ValueNumStore::VarTypConv<TYP_FLOAT>
-{
-    typedef int32_t Type;
-    typedef float   Lang;
-};
-template <>
-struct ValueNumStore::VarTypConv<TYP_LONG>
-{
-    typedef int64_t Type;
-    typedef int64_t Lang;
-};
-template <>
-struct ValueNumStore::VarTypConv<TYP_DOUBLE>
-{
-    typedef int64_t Type;
-    typedef double  Lang;
-};
-template <>
-struct ValueNumStore::VarTypConv<TYP_BYREF>
-{
-    typedef size_t Type;
-    typedef void*  Lang;
-};
-template <>
-struct ValueNumStore::VarTypConv<TYP_REF>
-{
-    typedef class Object* Type;
-    typedef class Object* Lang;
-};
-
-// Get the actual value and coerce the actual type c->m_typ to the wanted type T.
-template <typename T>
-FORCEINLINE T ValueNumStore::SafeGetConstantValue(Chunk* c, unsigned offset) const
-{
-    switch (c->m_typ)
+    template <typename T>
+    static T CoerceTypRefToT(Chunk* c, unsigned offset)
     {
-        case TYP_REF:
-            return CoerceTypRefToT<T>(c, offset);
-        case TYP_BYREF:
-            return static_cast<T>(static_cast<VarTypConv<TYP_BYREF>::Type*>(c->m_defs)[offset]);
-        case TYP_INT:
-            return static_cast<T>(static_cast<VarTypConv<TYP_INT>::Type*>(c->m_defs)[offset]);
-        case TYP_LONG:
-            return static_cast<T>(static_cast<VarTypConv<TYP_LONG>::Type*>(c->m_defs)[offset]);
-        case TYP_FLOAT:
-            return static_cast<T>(static_cast<VarTypConv<TYP_FLOAT>::Lang*>(c->m_defs)[offset]);
-        case TYP_DOUBLE:
-            return static_cast<T>(static_cast<VarTypConv<TYP_DOUBLE>::Lang*>(c->m_defs)[offset]);
-        default:
-            assert(false);
-            return (T)0;
+        noway_assert(sizeof(T) >= sizeof(VarTypConv<TYP_REF>::Type));
+        unreached();
     }
-}
 
-template <>
-inline size_t ValueNumStore::CoerceTypRefToT(Chunk* c, unsigned offset)
-{
-    return reinterpret_cast<size_t>(static_cast<VarTypConv<TYP_REF>::Type*>(c->m_defs)[offset]);
-}
+    template <>
+    static size_t CoerceTypRefToT(Chunk* c, unsigned offset)
+    {
+        return reinterpret_cast<size_t>(static_cast<VarTypConv<TYP_REF>::Type*>(c->m_defs)[offset]);
+    }
 
-template <typename T>
-inline T ValueNumStore::CoerceTypRefToT(Chunk* c, unsigned offset)
-{
-    noway_assert(sizeof(T) >= sizeof(VarTypConv<TYP_REF>::Type));
-    unreached();
-}
+    // Get the actual value and coerce the actual type c->m_typ to the wanted type T.
+    template <typename T>
+    static FORCEINLINE T SafeGetConstantValue(Chunk* c, unsigned offset)
+    {
+        switch (c->m_typ)
+        {
+            case TYP_REF:
+                return CoerceTypRefToT<T>(c, offset);
+            case TYP_BYREF:
+                return static_cast<T>(static_cast<VarTypConv<TYP_BYREF>::Type*>(c->m_defs)[offset]);
+            case TYP_INT:
+                return static_cast<T>(static_cast<VarTypConv<TYP_INT>::Type*>(c->m_defs)[offset]);
+            case TYP_LONG:
+                return static_cast<T>(static_cast<VarTypConv<TYP_LONG>::Type*>(c->m_defs)[offset]);
+            case TYP_FLOAT:
+                return static_cast<T>(static_cast<VarTypConv<TYP_FLOAT>::Lang*>(c->m_defs)[offset]);
+            case TYP_DOUBLE:
+                return static_cast<T>(static_cast<VarTypConv<TYP_DOUBLE>::Lang*>(c->m_defs)[offset]);
+            default:
+                assert(false);
+                return (T)0;
+        }
+    }
+};
