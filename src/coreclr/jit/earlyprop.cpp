@@ -41,18 +41,21 @@ class EarlyProp
     BasicBlock*     currentBlock;
     Statement*      currentStatement;
     DefNullCheckMap nullCheckMap;
+    bool            madeChanges = false;
 
 public:
     EarlyProp(Compiler* compiler) : compiler(compiler), nullCheckMap(compiler->getAllocator(CMK_EarlyProp))
     {
     }
 
-    void Run()
+    bool Run()
     {
         if (DoEarlyPropForFunc())
         {
             DoEarlyProp();
         }
+
+        return madeChanges;
     }
 
 private:
@@ -120,17 +123,10 @@ private:
                 {
                     compiler->gtSetStmtInfo(stmt);
                     compiler->fgSetStmtSeq(stmt);
+                    madeChanges = true;
                 }
             }
         }
-
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            JITDUMP("\nAfter DoEarlyProp:\n");
-            compiler->fgDispBasicBlocks(/*dumpTrees*/ true);
-        }
-#endif
     }
 
     GenTree* PropagateArrayLength(GenTreeArrLen* arrLen)
@@ -324,6 +320,7 @@ private:
 
             compiler->gtSetStmtInfo(nullCheckStmt);
             compiler->fgSetStmtSeq(nullCheckStmt);
+            madeChanges = true;
         }
 
         if (indir->OperIs(GT_NULLCHECK) && indir->AsIndir()->GetAddr()->IsLclUse())
@@ -607,6 +604,5 @@ private:
 PhaseStatus SsaOptimizer::DoEarlyProp()
 {
     EarlyProp prop(compiler);
-    prop.Run();
-    return PhaseStatus::MODIFIED_EVERYTHING;
+    return prop.Run() ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }

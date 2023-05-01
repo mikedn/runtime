@@ -14,11 +14,6 @@ public:
     {
     }
 
-    void Begin()
-    {
-        DBEXEC(m_compiler->verbose, m_compiler->fgDispBasicBlocks(m_compiler->verboseTrees));
-    }
-
     void End()
     {
         for (BasicBlock* block : m_compiler->Blocks())

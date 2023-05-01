@@ -53,15 +53,6 @@ PhaseStatus SsaOptimizer::DoSsaBuild()
 {
     SsaBuilder builder(*this);
     builder.Build();
-
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        JITDUMP("\nAfter fgSsaBuild:\n");
-        compiler->fgDispBasicBlocks(/*dumpTrees*/ true);
-    }
-#endif
-
     return PhaseStatus::MODIFIED_EVERYTHING;
 }
 

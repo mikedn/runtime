@@ -59,6 +59,7 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
     SsaStack*      stackListTail = nullptr;
     SsaStack       freeStack;
     unsigned       thisParamLclNum = BAD_VAR_NUM;
+    unsigned       copyPropCount   = 0;
 
     template <class... Args>
     SsaStackNode* AllocStackNode(Args&&... args)
@@ -134,6 +135,11 @@ public:
         , ssa(ssa)
         , lclSsaStackMap(ssa.GetCompiler()->getAllocator(CMK_CopyProp))
     {
+    }
+
+    unsigned GetCopyPropCount() const
+    {
+        return copyPropCount;
     }
 
     void Begin()
@@ -324,6 +330,7 @@ public:
 
             use->GetDef()->RemoveUse(use);
             newDef->AddUse(use);
+            copyPropCount++;
 
             break;
         }
@@ -353,5 +360,5 @@ PhaseStatus SsaOptimizer::DoCopyProp()
 {
     CopyPropDomTreeVisitor visitor(*this);
     visitor.WalkTree();
-    return PhaseStatus::MODIFIED_EVERYTHING;
+    return visitor.GetCopyPropCount() != 0 ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }

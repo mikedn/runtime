@@ -289,6 +289,7 @@ class Cse
     Value**  hashBuckets;
     Value**  valueTable;
     unsigned valueCount;
+    unsigned cseCount = 0;
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
 
@@ -336,7 +337,7 @@ public:
         INDEBUG(compiler->cseFirstLclNum = compiler->lvaCount);
     }
 
-    void Run()
+    bool Run()
     {
         compiler->csePhase = true;
 
@@ -351,6 +352,8 @@ public:
         }
 
         compiler->csePhase = false;
+
+        return cseCount != 0;
     }
 
     void Configure()
@@ -2379,6 +2382,8 @@ public:
             // that we need costs post CSE...
             compiler->gtSetStmtInfo(stmt);
             compiler->fgSetStmtSeq(stmt);
+
+            cseCount++;
         }
 
         JITDUMP("\n");
@@ -2655,6 +2660,5 @@ public:
 PhaseStatus SsaOptimizer::DoCse()
 {
     Cse cse(*this);
-    cse.Run();
-    return PhaseStatus::MODIFIED_EVERYTHING;
+    return cse.Run() ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }

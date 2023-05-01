@@ -2532,13 +2532,6 @@ static volatile int bbTraverseLabel = 1;
 
 void Compiler::fgDebugCheckBBlist(bool checkBBNum /* = false */, bool checkBBRefs /* = true  */)
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgDebugCheckBBlist\n");
-    }
-#endif // DEBUG
-
     fgDebugCheckBlockLinks();
     fgFirstBBisScratch();
 

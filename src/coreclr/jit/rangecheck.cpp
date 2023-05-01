@@ -187,7 +187,7 @@ public:
     {
     }
 
-    void OptimizeRangeChecks();
+    bool Run();
 
 private:
     bool OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsChk);
@@ -1208,8 +1208,10 @@ Range* RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
     return range;
 }
 
-void RangeCheck::OptimizeRangeChecks()
+bool RangeCheck::Run()
 {
+    unsigned removedBoundsCheckCount = 0;
+
     for (BasicBlock* block : compiler->Blocks())
     {
         for (Statement* stmt : block->Statements())
@@ -1220,7 +1222,7 @@ void RangeCheck::OptimizeRangeChecks()
             {
                 if (budget <= 0)
                 {
-                    return;
+                    return removedBoundsCheckCount;
                 }
 
                 GenTreeOp* comma = nullptr;
@@ -1246,6 +1248,7 @@ void RangeCheck::OptimizeRangeChecks()
                     {
                         JITDUMP("Optimize: Removing range check\n");
                         compiler->optRemoveRangeCheck(boundsChk, comma, stmt);
+                        removedBoundsCheckCount++;
                         stmtModified = true;
                     }
                 }
@@ -1258,13 +1261,12 @@ void RangeCheck::OptimizeRangeChecks()
             }
         }
     }
+
+    return removedBoundsCheckCount != 0;
 }
 
 PhaseStatus SsaOptimizer::DoRemoveRangeCheck()
 {
-    DBEXEC(compiler->verbose, compiler->fgDispBasicBlocks(true))
-
     RangeCheck rangeCheck(*this);
-    rangeCheck.OptimizeRangeChecks();
-    return PhaseStatus::MODIFIED_EVERYTHING;
+    return rangeCheck.Run() ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }

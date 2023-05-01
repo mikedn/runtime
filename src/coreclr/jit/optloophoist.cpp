@@ -54,6 +54,7 @@ class LoopHoist
     VNSet                hoistedInParentLoops;
     VNBoolMap            loopInvariantCache;
     LoopStats            stats;
+    unsigned             hoistedCount = 0;
 
 public:
     LoopHoist(SsaOptimizer& ssa)
@@ -68,7 +69,7 @@ public:
     {
     }
 
-    void Run();
+    bool Run();
 
 private:
     void HoistLoopNest(unsigned loopNum);
@@ -134,6 +135,8 @@ void LoopHoist::HoistExpr(GenTree* expr, unsigned loopNum)
     compiler->gtSetStmtInfo(hoistStmt);
     compiler->fgSetStmtSeq(hoistStmt);
 
+    hoistedCount++;
+
 #ifdef DEBUG
     if (compiler->verbose)
     {
@@ -152,7 +155,7 @@ void LoopHoist::HoistExpr(GenTree* expr, unsigned loopNum)
 #endif // LOOP_HOIST_STATS
 }
 
-void LoopHoist::Run()
+bool LoopHoist::Run()
 {
     for (unsigned i = 0; i < compiler->lvaCount; i++)
     {
@@ -185,6 +188,8 @@ void LoopHoist::Run()
             HoistLoopNest(i);
         }
     }
+
+    return hoistedCount != 0;
 }
 
 void LoopHoist::HoistLoopNest(unsigned lnum)
@@ -1389,24 +1394,6 @@ PhaseStatus SsaOptimizer::DoLoopHoist()
         return PhaseStatus::MODIFIED_NOTHING;
     }
 
-    DBEXEC(compiler->verbose, compiler->fgDispBasicBlocks(true));
-
     LoopHoist hoist(*this);
-    hoist.Run();
-
-#if DEBUG
-    if (compiler->fgModified)
-    {
-        if (compiler->verbose)
-        {
-            printf("Blocks/Trees after optHoistLoopCode() modified flowgraph\n");
-            compiler->fgDispBasicBlocks(true);
-        }
-
-        // Make sure that the predecessor lists are accurate
-        compiler->fgDebugCheckBBlist();
-    }
-#endif
-
-    return PhaseStatus::MODIFIED_EVERYTHING;
+    return hoist.Run() ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }

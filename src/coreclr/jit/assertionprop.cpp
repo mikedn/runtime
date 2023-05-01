@@ -225,13 +225,8 @@ public:
     {
     }
 
-    void Run()
+    bool Run()
     {
-#ifdef DEBUG
-        DBEXEC(verbose, compiler->fgDispBasicBlocks(true);)
-        compiler->fgDebugCheckLinks();
-#endif
-
         Init();
         GenerateAssertions();
 
@@ -252,10 +247,7 @@ public:
 
         ssa.SetAssertionTable(assertionTable, assertionCount);
 
-#ifdef DEBUG
-        compiler->fgDebugCheckBBlist();
-        compiler->fgDebugCheckLinks();
-#endif
+        return true;
     }
 
 private:
@@ -3729,8 +3721,7 @@ private:
 PhaseStatus SsaOptimizer::DoAssertionProp()
 {
     AssertionProp ap(*this);
-    ap.Run();
-    return PhaseStatus::MODIFIED_EVERYTHING;
+    return ap.Run() ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }
 
 #ifdef DEBUG
