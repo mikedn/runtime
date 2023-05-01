@@ -1355,14 +1355,12 @@ void Compiler::fgCreateLoopPreHeader(unsigned lnum)
     flowList* const edgeFromPreHeader = fgAddRefPred(top, preHead);
     edgeFromPreHeader->setEdgeWeights(preHead->bbWeight, preHead->bbWeight, top);
 
-    /*
-        If we found at least one back-edge in the flowgraph pointing to the top/entry of the loop
-        (other than the back-edge of the loop we are considering) then we likely have nested
-        do-while loops with the same entry block and inserting the preheader block changes the head
-        of all the nested loops. Now we will update this piece of information in the loop table, and
-        mark all nested loops as having a preheader (the preheader block can be shared among all nested
-        do-while loops with the same entry block).
-    */
+    // If we found at least one back-edge in the flowgraph pointing to the top/entry of the loop
+    // (other than the back-edge of the loop we are considering) then we likely have nested
+    // do-while loops with the same entry block and inserting the preheader block changes the head
+    // of all the nested loops. Now we will update this piece of information in the loop table, and
+    // mark all nested loops as having a preheader (the preheader block can be shared among all nested
+    // do-while loops with the same entry block).
     if (checkNestedLoops)
     {
         for (unsigned l = 0; l < optLoopCount; l++)
@@ -1373,13 +1371,9 @@ void Compiler::fgCreateLoopPreHeader(unsigned lnum)
                 noway_assert(loopTable[l].lpEntry == top);
                 optUpdateLoopHead(l, loopTable[l].lpHead, preHead);
                 loopTable[l].lpFlags |= LPFLG_HAS_PREHEAD;
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("Same PreHeader (" FMT_BB ") can be used for loop " FMT_LP " (" FMT_BB " - " FMT_BB ")\n\n",
-                           preHead->bbNum, l, top->bbNum, loopTable[l].lpBottom->bbNum);
-                }
-#endif
+
+                JITDUMP("Same PreHeader (" FMT_BB ") can be used for loop " FMT_LP " (" FMT_BB " - " FMT_BB ")\n\n",
+                        preHead->bbNum, l, top->bbNum, loopTable[l].lpBottom->bbNum);
             }
         }
     }
@@ -1387,23 +1381,12 @@ void Compiler::fgCreateLoopPreHeader(unsigned lnum)
 
 PhaseStatus SsaOptimizer::DoLoopHoist()
 {
-    if (compiler->optLoopCount == 0)
+    if (loopCount == 0)
     {
         return PhaseStatus::MODIFIED_NOTHING;
     }
 
-#ifdef DEBUG
-    if (JitConfig.JitNoHoist() > 0)
-    {
-        return PhaseStatus::MODIFIED_NOTHING;
-    }
-
-    if (compiler->verbose)
-    {
-        compiler->fgDispBasicBlocks(true);
-        printf("");
-    }
-#endif
+    DBEXEC(compiler->verbose, compiler->fgDispBasicBlocks(true));
 
     LoopHoist hoist(*this);
     hoist.Run();
@@ -1415,7 +1398,6 @@ PhaseStatus SsaOptimizer::DoLoopHoist()
         {
             printf("Blocks/Trees after optHoistLoopCode() modified flowgraph\n");
             compiler->fgDispBasicBlocks(true);
-            printf("");
         }
 
         // Make sure that the predecessor lists are accurate
