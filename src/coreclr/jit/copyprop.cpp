@@ -4,6 +4,7 @@
 #include "jitpch.h"
 #include "ssabuilder.h"
 #include "ssarenamestate.h"
+#include "valuenum.h"
 
 // VN based copy propagation
 //

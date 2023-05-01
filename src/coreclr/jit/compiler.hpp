@@ -985,7 +985,7 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
     if (vnUpdate == CLEAR_VN)
     {
-        gtVNPair.SetBoth(ValueNumStore::NoVN);
+        gtVNPair.SetBoth(NoVN);
     }
 }
 

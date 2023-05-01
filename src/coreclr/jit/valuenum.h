@@ -295,9 +295,6 @@ private:
 
     ValueNum EvalUsingMathIdentity(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
 
-// This is the constant value used for the default value of m_mapSelectBudget
-#define DEFAULT_MAP_SELECT_BUDGET 100 // used by JitVNMapSelBudget
-
     // This is the maximum number of MapSelect terms that can be "considered" as part of evaluation of a top-level
     // MapSelect application.
     int m_mapSelectBudget;

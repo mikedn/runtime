@@ -39,7 +39,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "arraystack.h"
 #include "hashbv.h"
 #include "jitexpandarray.h"
-#include "valuenum.h"
 #include "namedintrinsiclist.h"
 #ifdef LATE_DISASM
 #include "disasm.h"
@@ -77,6 +76,7 @@ class IndentStack;
 class SsaOptimizer;
 class SsaBuilder;
 class ValueNumbering;
+class ValueNumStore;
 class CopyPropDomTreeVisitor;
 class LoopHoist;
 class Cse;

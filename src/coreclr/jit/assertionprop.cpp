@@ -3,6 +3,7 @@
 
 #include "jitpch.h"
 #include "ssabuilder.h"
+#include "valuenum.h"
 
 enum ApKind : uint8_t
 {

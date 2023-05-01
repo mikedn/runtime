@@ -11,11 +11,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
-#include "allocacheck.h" // for alloca
+#include "allocacheck.h"
+#include "valuenum.h"
 
 // Convert the given node into a call to the specified helper passing
 // the given argument list. Also tries to fold constants.

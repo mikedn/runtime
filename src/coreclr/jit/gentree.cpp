@@ -13,10 +13,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jitpch.h"
 #include "hwintrinsic.h"
 #include "simd.h"
-
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
+#include "valuenum.h"
 
 const unsigned short GenTree::gtOperKindTable[] = {
 #define GTNODE(en, st, cm, ok) (ok) + GTK_COMMUTE *cm,

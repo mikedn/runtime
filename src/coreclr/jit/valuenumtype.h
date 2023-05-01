@@ -10,6 +10,9 @@
 #ifndef _VALUENUMTYPE_H_
 #define _VALUENUMTYPE_H_
 
+// This is the constant value used for the default value of m_mapSelectBudget
+#define DEFAULT_MAP_SELECT_BUDGET 100 // used by JitVNMapSelBudget
+
 typedef uint32_t ValueNum;
 
 // TODO-MIKE-Cleanup: Why the crap isn't NoVN 0?

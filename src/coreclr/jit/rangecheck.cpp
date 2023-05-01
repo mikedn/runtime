@@ -3,6 +3,7 @@
 
 #include "jitpch.h"
 #include "ssabuilder.h"
+#include "valuenum.h"
 
 static bool IntAddOverflows(int x, int y)
 {

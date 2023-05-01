@@ -4,6 +4,7 @@
 #include "jitpch.h"
 #include "jitstd/algorithm.h"
 #include "ssabuilder.h"
+#include "valuenum.h"
 
 bool SsaOptimizer::IsCseCandidate(GenTree* node)
 {
