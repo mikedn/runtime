@@ -26,12 +26,11 @@
 #include "valuenumtype.h"
 #include "smallhash.h"
 
-// All members of the enumeration genTreeOps are also members of VNFunc.
-// (Though some of these may be labeled "illegal").
 enum VNFunc
 {
     VNF_None = GT_NONE,
-    // Implicitly, elements of genTreeOps here.
+    // All members of the enumeration genTreeOps are also members of VNFunc.
+    // (Though some of these may be labeled "illegal").
     VNF_Boundary = GT_COUNT,
 #define ValueNumFuncDef(nm, arity, commute, knownNonNull, sharedStatic) VNF_##nm,
 #include "valuenumfuncs.h"
@@ -204,22 +203,6 @@ public:
 private:
     void RecordLoopMemoryDependence(GenTree* tree, BasicBlock* block, ValueNum memoryVN);
 
-    // TODO-Cleanup: should transform "attribs" into a struct with bit fields.  That would be simpler...
-    enum VNFOpAttrib
-    {
-        VNFOA_IllegalGenTreeOp = 0x1,  // corresponds to a genTreeOps value that is not a legal VN func.
-        VNFOA_Commutative      = 0x2,  // 1 iff the function is commutative.
-        VNFOA_Arity1           = 0x4,  // Bits 2,3,4 encode the arity.
-        VNFOA_Arity2           = 0x8,  // Bits 2,3,4 encode the arity.
-        VNFOA_Arity4           = 0x10, // Bits 2,3,4 encode the arity.
-        VNFOA_KnownNonNull     = 0x20, // 1 iff the result is known to be non-null.
-    };
-
-    static const unsigned VNFOA_ArityShift = 2;
-    static const unsigned VNFOA_ArityBits  = 3;
-    static const unsigned VNFOA_MaxArity   = (1 << VNFOA_ArityBits) - 1; // Max arity we can represent.
-    static const unsigned VNFOA_ArityMask  = (VNFOA_Arity4 | VNFOA_Arity2 | VNFOA_Arity1);
-
     // These enum constants are used to encode the cast operation in the lowest bits by VNForCastOper
     enum VNFCastAttrib
     {
@@ -228,9 +211,6 @@ private:
         VCA_BitCount     = 1,    // the number of reserved bits
         VCA_ReservedBits = 0x01, // i.e. (VCA_UnsignedSrc)
     };
-
-    // An array of length GT_COUNT, mapping genTreeOp values to their VNFOpAttrib.
-    static UINT8* s_vnfOpAttribs;
 
     // Returns "true" iff gtOper is a legal value number function.
     // (Requires InitValueNumStoreStatics to have been run.)
@@ -303,9 +283,6 @@ private:
     inline ValueNum VnForConst(T cnsVal, NumMap* numMap, var_types varType);
 
 public:
-    // Initializes any static variables of ValueNumStore.
-    static void InitValueNumStoreStatics();
-
     ValueNumStore(SsaOptimizer& ssa);
 
     // Returns "true" iff "vnf" (which may have been created by a cast from an integral value) represents
@@ -316,36 +293,12 @@ public:
         return unsigned(vnf) > VNF_Boundary || GenTreeOpIsLegalVNFunc(static_cast<genTreeOps>(vnf));
     }
 
-    static uint8_t VNFuncAttribs(VNFunc vnf)
-    {
-        return s_vnfOpAttribs[VNFuncIndex(vnf)];
-    }
-
-    // Returns "true" iff "vnf" is one of:
-    // VNF_ADD_OVF, VNF_SUB_OVF, VNF_MUL_OVF,
-    // VNF_ADD_UN_OVF, VNF_SUB_UN_OVF, VNF_MUL_UN_OVF.
+    static uint8_t VNFuncAttribs(VNFunc vnf);
     static bool VNFuncIsOverflowArithmetic(VNFunc vnf);
-
-    // Returns "true" iff "vnf" is VNF_Cast or VNF_CastOvf.
     static bool VNFuncIsNumericCast(VNFunc vnf);
-
-    // Returns the arity of "vnf".
-    static unsigned VNFuncArity(VNFunc vnf)
-    {
-        unsigned arity = (VNFuncAttribs(vnf) & VNFOA_ArityMask) >> VNFOA_ArityShift;
-        assert(arity != VNFOA_MaxArity);
-        return arity;
-    }
-
-    static bool VNFuncArityIsLegal(VNFunc vnf, unsigned arity)
-    {
-        return VNFuncArityIsVariable(vnf) || (VNFuncArity(vnf) == arity);
-    }
-
-    static bool VNFuncArityIsVariable(VNFunc vnf)
-    {
-        return ((VNFuncAttribs(vnf) & VNFOA_ArityMask) >> VNFOA_ArityShift) == VNFOA_MaxArity;
-    }
+    static unsigned VNFuncArity(VNFunc vnf);
+    static bool VNFuncArityIsLegal(VNFunc vnf, unsigned arity);
+    static bool VNFuncArityIsVariable(VNFunc vnf);
 
     // Requires "gtOper" to be a genTreeOps legally representing a VNFunc, and returns that
     // VNFunc.
@@ -1212,29 +1165,6 @@ FORCEINLINE T ValueNumStore::SafeGetConstantValue(Chunk* c, unsigned offset) con
             assert(false);
             return (T)0;
     }
-}
-
-inline bool ValueNumStore::GenTreeOpIsLegalVNFunc(genTreeOps gtOper)
-{
-    return (VNFuncAttribs(static_cast<VNFunc>(gtOper)) & VNFOA_IllegalGenTreeOp) == 0;
-}
-
-inline bool ValueNumStore::VNFuncIsCommutative(VNFunc vnf)
-{
-    return (VNFuncAttribs(vnf) & VNFOA_Commutative) != 0;
-}
-
-inline bool ValueNumStore::VNFuncIsComparison(VNFunc vnf)
-{
-    if (vnf >= VNF_Boundary)
-    {
-        // For integer types we have unsigned comparisions, and
-        // for floating point types these are the unordered variants.
-        //
-        return ((vnf == VNF_LT_UN) || (vnf == VNF_LE_UN) || (vnf == VNF_GE_UN) || (vnf == VNF_GT_UN));
-    }
-    genTreeOps gtOp = genTreeOps(vnf);
-    return GenTree::OperIsCompare(gtOp) != 0;
 }
 
 template <>

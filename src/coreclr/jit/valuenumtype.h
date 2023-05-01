@@ -1,17 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-// Defines the type "ValueNum".
-
-// This file exists only to break an include file cycle -- had been in ValueNum.h.  But that
-// file wanted to include gentree.h to get GT_COUNT, and gentree.h wanted ton include ValueNum.h to
-// the ValueNum type.
-
-#ifndef _VALUENUMTYPE_H_
-#define _VALUENUMTYPE_H_
-
-// This is the constant value used for the default value of m_mapSelectBudget
-#define DEFAULT_MAP_SELECT_BUDGET 100 // used by JitVNMapSelBudget
+#pragma once
 
 typedef uint32_t ValueNum;
 
@@ -134,4 +124,7 @@ public:
     }
 };
 
-#endif // _VALUENUMTYPE_H_
+constexpr int DefaultVNMapSelectBudget = 100;
+
+void InitValueNumStoreStatics();
+INDEBUG(void RunValueNumStoreTests(class Compiler*);)

@@ -597,10 +597,10 @@ ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
 
     m_mapSelectBudget = (int)JitConfig.JitVNMapSelBudget(); // We cast the unsigned DWORD to a signed int.
 
-    // This value must be non-negative and non-zero, reset the value to DEFAULT_MAP_SELECT_BUDGET if it isn't.
+    // This value must be non-negative and non-zero, reset the value to DefaultVNMapSelectBudget if it isn't.
     if (m_mapSelectBudget <= 0)
     {
-        m_mapSelectBudget = DEFAULT_MAP_SELECT_BUDGET;
+        m_mapSelectBudget = DefaultVNMapSelectBudget;
     }
 }
 
@@ -1613,16 +1613,6 @@ ValueNumPair ValueNumStore::VNPWithExc(ValueNumPair vnp, ValueNumPair excSetVNP)
 {
     return ValueNumPair(VNWithExc(vnp.GetLiberal(), excSetVNP.GetLiberal()),
                         VNWithExc(vnp.GetConservative(), excSetVNP.GetConservative()));
-}
-
-bool ValueNumStore::IsKnownNonNull(ValueNum vn)
-{
-    if (vn == NoVN)
-    {
-        return false;
-    }
-    VNFuncApp funcAttr;
-    return GetVNFunc(vn, &funcAttr) && ((VNFuncAttribs(funcAttr.m_func) & VNFOA_KnownNonNull) != 0);
 }
 
 ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_types typ, ChunkExtraAttribs attribs)
@@ -6921,9 +6911,25 @@ void ValueNumStore::DumpPtrToArrElem(const VNFuncApp& elemAddr)
 
 static UINT8 vnfOpAttribs[VNF_COUNT];
 
-UINT8* ValueNumStore::s_vnfOpAttribs = nullptr;
+UINT8* s_vnfOpAttribs = nullptr;
 
-void ValueNumStore::InitValueNumStoreStatics()
+// TODO-Cleanup: should transform "attribs" into a struct with bit fields.  That would be simpler...
+enum VNFOpAttrib
+{
+    VNFOA_IllegalGenTreeOp = 0x1,  // corresponds to a genTreeOps value that is not a legal VN func.
+    VNFOA_Commutative      = 0x2,  // 1 iff the function is commutative.
+    VNFOA_Arity1           = 0x4,  // Bits 2,3,4 encode the arity.
+    VNFOA_Arity2           = 0x8,  // Bits 2,3,4 encode the arity.
+    VNFOA_Arity4           = 0x10, // Bits 2,3,4 encode the arity.
+    VNFOA_KnownNonNull     = 0x20, // 1 iff the result is known to be non-null.
+};
+
+static const unsigned VNFOA_ArityShift = 2;
+static const unsigned VNFOA_ArityBits  = 3;
+static const unsigned VNFOA_MaxArity   = (1 << VNFOA_ArityBits) - 1; // Max arity we can represent.
+static const unsigned VNFOA_ArityMask  = (VNFOA_Arity4 | VNFOA_Arity2 | VNFOA_Arity1);
+
+void InitValueNumStoreStatics()
 {
     // Make sure we have the constants right...
     assert(unsigned(VNFOA_Arity1) == (1 << VNFOA_ArityShift));
@@ -6978,6 +6984,61 @@ void ValueNumStore::InitValueNumStoreStatics()
     {
         vnfOpAttribs[oper] |= VNFOA_IllegalGenTreeOp;
     }
+}
+
+uint8_t ValueNumStore::VNFuncAttribs(VNFunc vnf)
+{
+    return s_vnfOpAttribs[VNFuncIndex(vnf)];
+}
+
+unsigned ValueNumStore::VNFuncArity(VNFunc vnf)
+{
+    unsigned arity = (VNFuncAttribs(vnf) & VNFOA_ArityMask) >> VNFOA_ArityShift;
+    assert(arity != VNFOA_MaxArity);
+    return arity;
+}
+
+bool ValueNumStore::VNFuncArityIsLegal(VNFunc vnf, unsigned arity)
+{
+    return VNFuncArityIsVariable(vnf) || (VNFuncArity(vnf) == arity);
+}
+
+bool ValueNumStore::VNFuncArityIsVariable(VNFunc vnf)
+{
+    return ((VNFuncAttribs(vnf) & VNFOA_ArityMask) >> VNFOA_ArityShift) == VNFOA_MaxArity;
+}
+
+bool ValueNumStore::VNFuncIsCommutative(VNFunc vnf)
+{
+    return (VNFuncAttribs(vnf) & VNFOA_Commutative) != 0;
+}
+
+bool ValueNumStore::GenTreeOpIsLegalVNFunc(genTreeOps gtOper)
+{
+    return (VNFuncAttribs(static_cast<VNFunc>(gtOper)) & VNFOA_IllegalGenTreeOp) == 0;
+}
+
+bool ValueNumStore::VNFuncIsComparison(VNFunc vnf)
+{
+    if (vnf >= VNF_Boundary)
+    {
+        // For integer types we have unsigned comparisions, and
+        // for floating point types these are the unordered variants.
+        //
+        return ((vnf == VNF_LT_UN) || (vnf == VNF_LE_UN) || (vnf == VNF_GE_UN) || (vnf == VNF_GT_UN));
+    }
+    genTreeOps gtOp = genTreeOps(vnf);
+    return GenTree::OperIsCompare(gtOp) != 0;
+}
+
+bool ValueNumStore::IsKnownNonNull(ValueNum vn)
+{
+    if (vn == NoVN)
+    {
+        return false;
+    }
+    VNFuncApp funcAttr;
+    return GetVNFunc(vn, &funcAttr) && ((VNFuncAttribs(funcAttr.m_func) & VNFOA_KnownNonNull) != 0);
 }
 
 #ifdef DEBUG
@@ -7094,6 +7155,11 @@ void ValueNumStore::RunTests(Compiler* comp)
     assert(vns->ConstantValue<int>(vnForFunc2b) == 101);
 
     // printf("Did ValueNumStore::RunTests.\n");
+}
+
+void RunValueNumStoreTests(Compiler* comp)
+{
+    ValueNumStore::RunTests(comp);
 }
 #endif // DEBUG
 

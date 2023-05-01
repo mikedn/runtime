@@ -12,7 +12,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jitpch.h"
 #include "hostallocator.h"
 #include "emit.h"
-#include "valuenum.h"
 #include "patchpointinfo.h"
 #include "jitstd/algorithm.h"
 
@@ -430,7 +429,7 @@ void Compiler::compStartup()
     InitGCEncoderLookupTable();
 #endif
 
-    ValueNumStore::InitValueNumStoreStatics();
+    InitValueNumStoreStatics();
 
     compDisplayStaticSizes(jitstdout);
 }
@@ -916,7 +915,7 @@ void Compiler::compDoComponentUnitTestsOnce()
     if (!DidComponentUnitTests)
     {
         DidComponentUnitTests = true;
-        ValueNumStore::RunTests(this);
+        RunValueNumStoreTests(this);
         BitSetSupport::TestSuite(getAllocatorDebugOnly());
     }
 }
