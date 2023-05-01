@@ -6925,7 +6925,7 @@ static const VNFuncAttrs vnFuncAttrs[VNF_Count]{
 #define GTNODE(n, s, k) {(((k)&GTK_BINOP) != 0) ? 2 : (((k)&GTK_UNOP) != 0), ((k)&GTK_COMMUTE) != 0, ((k)&GTK_VN) == 0},
 #include "gtlist.h"
     {}, // VNF_Boundary
-#define ValueNumFuncDef(f, a, c, n, s) {static_cast<uint8_t>(a), c, false, n},
+#define ValueNumFuncDef(f, a, c, n, s) {static_cast<uint8_t>(a & VNFuncAttrs::MaxArity), c, false, n},
 #include "valuenumfuncs.h"
 };
 

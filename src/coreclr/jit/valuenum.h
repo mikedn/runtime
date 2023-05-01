@@ -45,8 +45,6 @@ constexpr VNFunc VNFuncIndex(VNFunc vnf)
 #ifdef FEATURE_HW_INTRINSICS
 constexpr VNFunc VNFuncHWIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseType, unsigned simdSize)
 {
-    VNFunc vnf = VNFunc(VNF_HWI_FIRST + (intrinsic - NI_HW_INTRINSIC_START - 1));
-
     // TODO-MIKE-CQ: It may be useful to canonicalize the vector element type
     // somehow, as some SIMD operations are not affected by it (e.g. bitwise
     // operations). Old code sort of did this but apparently not for CQ reasons
@@ -54,10 +52,8 @@ constexpr VNFunc VNFuncHWIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseT
     // Such intrinsics are usually available for all element types so it's
     // unlikely that user code will reinterpret vectors in such a way that
     // we could see some benefit from canonicalization.
-    vnf = static_cast<VNFunc>(vnf | (static_cast<uint8_t>(simdBaseType) << 16));
-    vnf = static_cast<VNFunc>(vnf | (simdSize << 24));
-
-    return vnf;
+    return static_cast<VNFunc>((VNF_HWI_FIRST + (intrinsic - NI_HW_INTRINSIC_START - 1)) |
+                               (static_cast<uint8_t>(simdBaseType) << 16) | (simdSize << 24));
 }
 
 inline VNFunc VNFuncHWIntrinsic(GenTreeHWIntrinsic* node)
@@ -66,13 +62,13 @@ inline VNFunc VNFuncHWIntrinsic(GenTreeHWIntrinsic* node)
     return VNFuncHWIntrinsic(node->GetIntrinsic(), node->GetSimdBaseType(), node->GetSimdSize());
 }
 
-constexpr var_types VNFuncSimdBaseType(VNFunc vnf)
+inline var_types VNFuncSimdBaseType(VNFunc vnf)
 {
     assert(vnf >= VNF_HWI_FIRST);
     return static_cast<var_types>(vnf >> 16);
 }
 
-constexpr uint8_t VNFuncSimdSize(VNFunc vnf)
+inline uint8_t VNFuncSimdSize(VNFunc vnf)
 {
     assert(vnf >= VNF_HWI_FIRST);
     return static_cast<uint8_t>(vnf >> 24);
@@ -1110,21 +1106,21 @@ private:
 #endif
 
     template <typename T>
-    static T CoerceTypRefToT(Chunk* c, unsigned offset)
+    T CoerceTypRefToT(Chunk* c, unsigned offset) const
     {
         noway_assert(sizeof(T) >= sizeof(VarTypConv<TYP_REF>::Type));
         unreached();
     }
 
     template <>
-    static size_t CoerceTypRefToT(Chunk* c, unsigned offset)
+    size_t CoerceTypRefToT(Chunk* c, unsigned offset) const
     {
         return reinterpret_cast<size_t>(static_cast<VarTypConv<TYP_REF>::Type*>(c->m_defs)[offset]);
     }
 
     // Get the actual value and coerce the actual type c->m_typ to the wanted type T.
     template <typename T>
-    static FORCEINLINE T SafeGetConstantValue(Chunk* c, unsigned offset)
+    FORCEINLINE T SafeGetConstantValue(Chunk* c, unsigned offset) const
     {
         switch (c->m_typ)
         {
