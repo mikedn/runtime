@@ -538,7 +538,9 @@ void Compiler::gsParamsToShadows()
         dst->gtFlags |= GTF_DONT_CSE;
 
         fgEnsureFirstBBisScratch();
-        fgNewStmtAtBeg(fgFirstBB, fgMorphTree(gtNewAssignNode(dst, src)));
+        // TODO-MIKE-Review: Do we need to morph? This is a trivial assignment between
+        // 2 local variables. The destination is not promoted, could the source be?
+        fgNewStmtAtBeg(fgFirstBB, gtMorphTree(gtNewAssignNode(dst, src)));
     }
 
     // If the method has "Jmp CalleeMethod", then we need to copy shadow params back to original
@@ -568,7 +570,7 @@ void Compiler::gsParamsToShadows()
                 src->gtFlags |= GTF_DONT_CSE;
                 dst->gtFlags |= GTF_DONT_CSE;
 
-                fgNewStmtNearEnd(block, fgMorphTree(gtNewAssignNode(dst, src)));
+                fgNewStmtNearEnd(block, gtMorphTree(gtNewAssignNode(dst, src)));
             }
         }
     }

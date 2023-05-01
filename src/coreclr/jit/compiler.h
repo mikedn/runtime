@@ -5073,11 +5073,14 @@ private:
 #endif
 
 public:
-    GenTree* fgMorphTree(GenTree* tree, MorphAddrContext* mac = nullptr);
-
-    INDEBUG(void fgMorphClearDebugNodeMorphed(GenTree* tree);)
+    GenTree* gtMorphTree(GenTree* tree)
+    {
+        return fgMorphTree(tree);
+    }
 
 private:
+    GenTree* fgMorphTree(GenTree* tree, MorphAddrContext* mac = nullptr);
+    INDEBUG(void fgMorphClearDebugNodeMorphed(GenTree* tree);)
     void fgMorphTreeDone(GenTree* tree, GenTree* oldTree = nullptr DEBUGARG(int morphNum = 0));
 
     Statement*  fgGlobalMorphStmt = nullptr;

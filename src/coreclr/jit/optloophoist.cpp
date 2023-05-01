@@ -122,8 +122,10 @@ void LoopHoist::HoistExpr(GenTree* expr, unsigned loopNum)
     BasicBlock* preHead = loopTable[loopNum].lpHead;
     assert(preHead->bbJumpKind == BBJ_NONE);
 
+    // TODO-MIKE-Review: Is there anything to morph here? The hoisted tree
+    // is a clone of another tree that was already morphed.
     compiler->fgMorphBlock = preHead;
-    hoist                  = compiler->fgMorphTree(hoist);
+    hoist                  = compiler->gtMorphTree(hoist);
 
     Statement* hoistStmt = compiler->fgNewStmtAtEnd(preHead, hoist);
     hoistStmt->SetCompilerAdded();
