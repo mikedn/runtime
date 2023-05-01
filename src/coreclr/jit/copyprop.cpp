@@ -236,7 +236,7 @@ public:
 
     void CopyProp(BasicBlock* block, GenTreeLclUse* use)
     {
-        if (use->GetConservativeVN() == ValueNumStore::NoVN)
+        if (use->GetConservativeVN() == NoVN)
         {
             return;
         }

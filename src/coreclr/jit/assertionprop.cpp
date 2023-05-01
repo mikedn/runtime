@@ -405,7 +405,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        if ((assertion.op1.vn == ValueNumStore::NoVN) || (assertion.op1.vn == ValueNumStore::VNForVoid()))
+        if ((assertion.op1.vn == NoVN) || (assertion.op1.vn == ValueNumStore::VNForVoid()))
         {
             return NO_ASSERTION_INDEX;
         }

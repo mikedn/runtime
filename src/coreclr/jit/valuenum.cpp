@@ -2350,7 +2350,7 @@ TailCall:
                 phiArgVN = NoVN;
             }
 
-            if (phiArgVN != ValueNumStore::NoVN)
+            if (phiArgVN != NoVN)
             {
                 ValueNum argRest       = funcApp.m_args[1];
                 ValueNum sameSelResult = VNForMapSelectWork(vnk, typ, phiArgVN, indexVN, pBudget, pUsedRecursiveVN);
@@ -2359,7 +2359,7 @@ TailCall:
                 // so setup the default failure case now.
                 bool allSame = *pBudget > 0;
 
-                while (allSame && argRest != ValueNumStore::NoVN)
+                while (allSame && (argRest != NoVN))
                 {
                     ValueNum cur = argRest;
 
@@ -2372,7 +2372,7 @@ TailCall:
                     }
                     else
                     {
-                        argRest = ValueNumStore::NoVN; // Cause the loop to terminate.
+                        argRest = NoVN; // Cause the loop to terminate.
                     }
 
                     phiArgSsaNum = ConstantValue<unsigned>(cur);
@@ -2390,7 +2390,7 @@ TailCall:
                         phiArgVN = NoVN;
                     }
 
-                    if (phiArgVN == ValueNumStore::NoVN)
+                    if (phiArgVN == NoVN)
                     {
                         allSame = false;
                     }
@@ -2400,19 +2400,19 @@ TailCall:
                         ValueNum curResult = VNForMapSelectWork(vnk, typ, phiArgVN, indexVN, pBudget, &usedRecursiveVN);
                         *pUsedRecursiveVN |= usedRecursiveVN;
 
-                        if (sameSelResult == ValueNumStore::RecursiveVN)
+                        if (sameSelResult == RecursiveVN)
                         {
                             sameSelResult = curResult;
                         }
 
-                        if (curResult != ValueNumStore::RecursiveVN && curResult != sameSelResult)
+                        if ((curResult != RecursiveVN) && (curResult != sameSelResult))
                         {
                             allSame = false;
                         }
                     }
                 }
 
-                if (allSame && sameSelResult != ValueNumStore::RecursiveVN)
+                if (allSame && (sameSelResult != RecursiveVN))
                 {
                     assert(m_fixedPointMapSels.Top() == mapVN);
                     m_fixedPointMapSels.Pop();
@@ -7010,8 +7010,8 @@ const char* ValueNumStore::GetFuncName(VNFunc vnf)
 
 const char* ValueNumStore::GetReservedName(ValueNum vn)
 {
-    int val = vn - ValueNumStore::RecursiveVN;
-    int max = ValueNumStore::SRC_NumSpecialRefConsts - ValueNumStore::RecursiveVN;
+    int val = vn - RecursiveVN;
+    int max = ValueNumStore::SRC_NumSpecialRefConsts - RecursiveVN;
 
     if ((val < 0) || (val >= max))
     {
@@ -7036,8 +7036,8 @@ const char* ValueNumStore::GetReservedName(ValueNum vn)
 // static
 bool ValueNumStore::IsReservedVN(ValueNum vn)
 {
-    int val = vn - ValueNumStore::RecursiveVN; // Adding two, making 'RecursiveVN' equal to zero
-    int max = ValueNumStore::SRC_NumSpecialRefConsts - ValueNumStore::RecursiveVN;
+    int val = vn - RecursiveVN; // Adding two, making 'RecursiveVN' equal to zero
+    int max = ValueNumStore::SRC_NumSpecialRefConsts - RecursiveVN;
 
     if ((val >= 0) && (val < max))
     {
@@ -7539,7 +7539,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
             ValueNum phiArgSsaNumVN = vnStore->VNForIntCon(argDef->GetSsaNum());
 
-            if (phiVNP.GetLiberal() == ValueNumStore::NoVN)
+            if (phiVNP.GetLiberal() == NoVN)
             {
                 // This is the first PHI argument
                 phiVNP  = ValueNumPair(phiArgSsaNumVN, phiArgSsaNumVN);
@@ -7556,7 +7556,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
                     // If this argument's VNs are different from "same" then change "same" to NoVN.
                     // Note that this means that if any argument's VN is NoVN then the final result
                     // will also be NoVN, which is what we want.
-                    sameVNP.SetBoth(ValueNumStore::NoVN);
+                    sameVNP.SetBoth(NoVN);
                 }
             }
         }
@@ -8295,7 +8295,7 @@ void ValueNumbering::NumberNode(GenTree* node)
             // Record non-constant value numbers that are used as the length argument to bounds checks,
             // so that assertion prop will know that comparisons against them are worth analyzing.
             ValueNum lengthVN = node->AsBoundsChk()->GetLength()->GetConservativeVN();
-            if ((lengthVN != ValueNumStore::NoVN) && !vnStore->IsVNConstant(lengthVN))
+            if ((lengthVN != NoVN) && !vnStore->IsVNConstant(lengthVN))
             {
                 vnStore->SetVNIsCheckedBound(lengthVN);
             }
@@ -8346,7 +8346,7 @@ void ValueNumbering::NumberNode(GenTree* node)
             {
                 ValueNum addrVN = AddField(node->AsOp());
 
-                if (addrVN != ValueNumStore::NoVN)
+                if (addrVN != NoVN)
                 {
                     // We don't care about differences between liberal and conservative for pointer values.
                     // TODO-MIKE-Fix: That doesn't make a lot of sense, ExtendPtrVN only looks at the liberal VN.

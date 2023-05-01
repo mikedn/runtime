@@ -1701,7 +1701,7 @@ void Compiler::gtReverseRelop(GenTreeOp* relop)
 
     relop->gtOper = GenTree::ReverseRelop(relop->GetOper());
     // TODO-MIKE-Review: We could probably generate a proper VN.
-    relop->gtVNPair.SetBoth(ValueNumStore::NoVN);
+    relop->gtVNPair.SetBoth(NoVN);
 
     // Flip the GTF_RELOP_NAN_UN bit
     //     a ord b   === (a != NaN && b != NaN)

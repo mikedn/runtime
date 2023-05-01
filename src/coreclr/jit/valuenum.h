@@ -459,11 +459,6 @@ class ValueNumStore
 #endif
 
 public:
-    // We will reserve "max unsigned" to represent "not a value number", for maps that might start uninitialized.
-    static constexpr ValueNum NoVN = ::NoVN;
-    // A second special value, used to indicate that a function evaluation would cause infinite recursion.
-    static constexpr ValueNum RecursiveVN = ::RecursiveVN;
-
     void SetCurrentBlock(BasicBlock* block)
     {
         m_currentBlock = block;

@@ -5,8 +5,10 @@
 
 typedef uint32_t ValueNum;
 
+// We will reserve "max unsigned" to represent "not a value number", for maps that might start uninitialized.
 // TODO-MIKE-Cleanup: Why the crap isn't NoVN 0?
-constexpr ValueNum NoVN        = UINT32_MAX;
+constexpr ValueNum NoVN = UINT32_MAX;
+// A second special value, used to indicate that a function evaluation would cause infinite recursion.
 constexpr ValueNum RecursiveVN = UINT32_MAX - 1;
 
 // There are two "kinds" of value numbers, which differ in their modeling of the actions of other threads.

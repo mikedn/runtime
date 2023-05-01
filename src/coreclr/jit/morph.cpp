@@ -5214,9 +5214,8 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
             // We can only keep the old value number on new_op1 if both op1 and ad2
             // have the same non-NoVN value numbers. Since op is commutative, comparing
             // only ad2 and op1 is enough.
-            if ((op1->gtVNPair.GetLiberal() == ValueNumStore::NoVN) ||
-                (ad2->gtVNPair.GetLiberal() == ValueNumStore::NoVN) ||
-                (ad2->gtVNPair.GetLiberal() != op1->gtVNPair.GetLiberal()))
+            if ((op1->GetLiberalVN() == NoVN) || (ad2->GetLiberalVN() == NoVN) ||
+                (ad2->GetLiberalVN() != op1->GetLiberalVN()))
             {
                 new_op1->gtVNPair.SetBoth(vnStore->VNForExpr(nullptr, new_op1->TypeGet()));
             }

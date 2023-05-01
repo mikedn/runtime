@@ -1041,7 +1041,7 @@ void LoopHoist::HoistCandidate(GenTree* tree, unsigned lnum)
 bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
 {
     // If it is not a VN, is not loop-invariant.
-    if (vn == ValueNumStore::NoVN)
+    if (vn == NoVN)
     {
         return false;
     }
