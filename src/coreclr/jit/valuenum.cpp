@@ -20,17 +20,16 @@ struct VNLoop
 
 class VNLoopMemorySummary
 {
-    Compiler*       m_compiler;
-    ValueNumbering* m_valueNumbering;
-    LoopDsc*        m_loopTable;
-    unsigned        m_loopNum;
+    Compiler* m_compiler;
+    VNLoop*   m_vnLoopTable;
+    LoopDsc*  m_loopTable;
+    unsigned  m_loopNum;
+    bool      m_memoryHavoc;
+    bool      m_hasCall;
+    bool      m_modifiesAddressExposedLocals;
 
 public:
-    bool m_memoryHavoc;
-    bool m_hasCall;
-    bool m_modifiesAddressExposedLocals;
-
-    VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum);
+    VNLoopMemorySummary(ValueNumbering* valueNumbering, unsigned loopNum);
     void AddMemoryHavoc();
     void AddCall();
     void AddAddressExposedLocal(unsigned lclNum);
@@ -7445,7 +7444,7 @@ void ValueNumbering::SummarizeLoopMemoryStores()
                 // but not marked correctly as being inside the loop.
                 // We conservatively mark this loop (and any outer loops) as having memory havoc
                 // side effects.
-                VNLoopMemorySummary summary(compiler, this, loopNum);
+                VNLoopMemorySummary summary(this, loopNum);
                 summary.AddMemoryHavoc();
                 summary.UpdateLoops();
 
@@ -7457,7 +7456,7 @@ void ValueNumbering::SummarizeLoopMemoryStores()
                 break;
             }
 
-            VNLoopMemorySummary summary(compiler, this, block->GetLoopNum());
+            VNLoopMemorySummary summary(this, block->GetLoopNum());
 
             if (!summary.IsComplete())
             {
@@ -7690,16 +7689,16 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
     vnStore->SetCurrentBlock(nullptr);
 }
 
-VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, ValueNumbering* valueNumbering, unsigned loopNum)
-    : m_compiler(compiler)
-    , m_valueNumbering(valueNumbering)
-    , m_loopTable(compiler->optLoopTable)
+VNLoopMemorySummary::VNLoopMemorySummary(ValueNumbering* valueNumbering, unsigned loopNum)
+    : m_compiler(valueNumbering->compiler)
+    , m_vnLoopTable(valueNumbering->vnLoopTable)
+    , m_loopTable(valueNumbering->compiler->optLoopTable)
     , m_loopNum(loopNum)
     , m_memoryHavoc(valueNumbering->vnLoopTable[loopNum].hasMemoryHavoc)
     , m_hasCall((m_loopTable[loopNum].lpFlags & LPFLG_HAS_CALL) != 0)
     , m_modifiesAddressExposedLocals(false)
 {
-    assert(loopNum < compiler->optLoopCount);
+    assert(loopNum < valueNumbering->compiler->optLoopCount);
 }
 
 void VNLoopMemorySummary::AddMemoryHavoc()
@@ -7725,7 +7724,7 @@ void VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
 
     for (unsigned n = m_loopNum; n != NoLoopNum; n = m_loopTable[n].lpParent)
     {
-        VNLoop& loop = m_valueNumbering->vnLoopTable[n];
+        VNLoop& loop = m_vnLoopTable[n];
 
         if (!loop.modifiesAddressExposedLocals)
         {
@@ -7740,7 +7739,7 @@ void VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
 {
     for (unsigned n = m_loopNum; n != NoLoopNum; n = m_loopTable[n].lpParent)
     {
-        VNLoop& loop = m_valueNumbering->vnLoopTable[n];
+        VNLoop& loop = m_vnLoopTable[n];
 
         if (loop.modifiedFields == nullptr)
         {
@@ -7759,7 +7758,7 @@ void VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
 {
     for (unsigned n = m_loopNum; n != NoLoopNum; n = m_loopTable[n].lpParent)
     {
-        VNLoop& loop = m_valueNumbering->vnLoopTable[n];
+        VNLoop& loop = m_vnLoopTable[n];
 
         if (loop.modifiedArrayElemTypes == nullptr)
         {
@@ -7786,7 +7785,7 @@ void VNLoopMemorySummary::UpdateLoops() const
     {
         for (unsigned n = m_loopNum; n != NoLoopNum; n = m_loopTable[n].lpParent)
         {
-            VNLoop& loop = m_valueNumbering->vnLoopTable[n];
+            VNLoop& loop = m_vnLoopTable[n];
 
             if (!loop.hasMemoryHavoc && m_memoryHavoc)
             {
@@ -8823,7 +8822,7 @@ void ValueNumbering::SummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemo
 {
     summary.AddCall();
 
-    if (call->gtCallType == CT_HELPER)
+    if (call->IsHelperCall())
     {
         CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->gtCallMethHnd);
         if (Compiler::s_helperCallProperties.MutatesHeap(helpFunc))
