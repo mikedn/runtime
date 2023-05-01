@@ -2284,7 +2284,7 @@ public:
                 {
                     GenTree* deltaNode;
 
-                    if (varTypeSize(lclType) < 64)
+                    if (varTypeSize(lclType) < varTypeSize(TYP_LONG))
                     {
                         int value = static_cast<int32_t>(delta);
                         deltaNode = compiler->gtNewIconNode(value);
