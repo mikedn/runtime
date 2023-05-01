@@ -6934,6 +6934,7 @@ void ValueNumStore::InitValueNumStoreStatics()
     {
         genTreeOps gtOper = static_cast<genTreeOps>(i);
         unsigned   arity  = 0;
+
         if (GenTree::OperIsUnary(gtOper))
         {
             arity = 1;
@@ -6942,11 +6943,7 @@ void ValueNumStore::InitValueNumStoreStatics()
         {
             arity = 2;
         }
-        // Since GT_BOUNDS_CHECK is not currently GTK_BINOP
-        else if (gtOper == GT_BOUNDS_CHECK)
-        {
-            arity = 2;
-        }
+
         vnfOpAttribs[i] |= ((arity << VNFOA_ArityShift) & VNFOA_ArityMask);
 
         if (GenTree::OperIsCommutative(gtOper))
