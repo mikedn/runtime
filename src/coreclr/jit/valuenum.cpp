@@ -6909,9 +6909,7 @@ void ValueNumStore::DumpPtrToArrElem(const VNFuncApp& elemAddr)
 
 #endif // DEBUG
 
-static UINT8 vnfOpAttribs[VNF_COUNT];
-
-UINT8* s_vnfOpAttribs = nullptr;
+static uint8_t vnfOpAttribs[VNF_COUNT];
 
 // TODO-Cleanup: should transform "attribs" into a struct with bit fields.  That would be simpler...
 enum VNFOpAttrib
@@ -6924,10 +6922,10 @@ enum VNFOpAttrib
     VNFOA_KnownNonNull     = 0x20, // 1 iff the result is known to be non-null.
 };
 
-static const unsigned VNFOA_ArityShift = 2;
-static const unsigned VNFOA_ArityBits  = 3;
-static const unsigned VNFOA_MaxArity   = (1 << VNFOA_ArityBits) - 1; // Max arity we can represent.
-static const unsigned VNFOA_ArityMask  = (VNFOA_Arity4 | VNFOA_Arity2 | VNFOA_Arity1);
+constexpr unsigned VNFOA_ArityShift = 2;
+constexpr unsigned VNFOA_ArityBits  = 3;
+constexpr unsigned VNFOA_MaxArity   = (1 << VNFOA_ArityBits) - 1; // Max arity we can represent.
+constexpr unsigned VNFOA_ArityMask  = (VNFOA_Arity4 | VNFOA_Arity2 | VNFOA_Arity1);
 
 void InitValueNumStoreStatics()
 {
@@ -6935,7 +6933,6 @@ void InitValueNumStoreStatics()
     assert(unsigned(VNFOA_Arity1) == (1 << VNFOA_ArityShift));
     assert(VNFOA_ArityMask == (VNFOA_MaxArity << VNFOA_ArityShift));
 
-    s_vnfOpAttribs = &vnfOpAttribs[0];
     for (unsigned i = 0; i < GT_COUNT; i++)
     {
         genTreeOps gtOper = static_cast<genTreeOps>(i);
@@ -6988,7 +6985,7 @@ void InitValueNumStoreStatics()
 
 uint8_t ValueNumStore::VNFuncAttribs(VNFunc vnf)
 {
-    return s_vnfOpAttribs[VNFuncIndex(vnf)];
+    return vnfOpAttribs[VNFuncIndex(vnf)];
 }
 
 unsigned ValueNumStore::VNFuncArity(VNFunc vnf)
