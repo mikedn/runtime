@@ -15,11 +15,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "simd.h"
 #include "valuenum.h"
 
-const unsigned short GenTree::gtOperKindTable[] = {
-#define GTNODE(en, st, cm, ok) (ok) + GTK_COMMUTE *cm,
-#include "gtlist.h"
-};
-
 #ifdef DEBUG
 
 enum IndentKind
@@ -114,34 +109,42 @@ public:
 
 #endif
 
-#if defined(DEBUG) || NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS || DUMP_FLOWGRAPHS
-
-static const char* opNames[] = {
-#define GTNODE(en, st, cm, ok) #en,
+GenTreeKinds GenTree::OperKind(genTreeOps oper)
+{
+    static const uint16_t kinds[]{
+#define GTNODE(n, s, k) k,
 #include "gtlist.h"
-};
+    };
+
+    assert(oper < GT_COUNT);
+
+    return static_cast<GenTreeKinds>(kinds[oper]);
+}
+
+#if defined(DEBUG) || NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS || DUMP_FLOWGRAPHS
 
 const char* GenTree::OpName(genTreeOps op)
 {
-    assert((unsigned)op < _countof(opNames));
+    static const char* const names[]{
+#define GTNODE(n, s, k) #n,
+#include "gtlist.h"
+    };
 
-    return opNames[op];
+    return static_cast<unsigned>(op) < _countof(names) ? names[op] : "???";
 }
 
 #endif
 
 #if MEASURE_NODE_SIZE
 
-static const char* opStructNames[] = {
-#define GTNODE(en, st, cm, ok) #st,
-#include "gtlist.h"
-};
-
 const char* GenTree::OpStructName(genTreeOps op)
 {
-    assert((unsigned)op < _countof(opStructNames));
+    static const char* const names[]{
+#define GTNODE(n, s, k) #s,
+#include "gtlist.h"
+    };
 
-    return opStructNames[op];
+    return static_cast<unsigned>(op) < _countof(names) ? names[op] : "???";
 }
 
 #endif
@@ -168,14 +171,14 @@ constexpr uint8_t GetNodeAllocationSize(genTreeOps oper)
 
 // GT_COUNT'th oper is overloaded as 'undefined oper', so allocate storage for GT_COUNT'th oper also
 const uint8_t GenTree::s_gtNodeSizes[GT_COUNT + 1]{
-#define GTNODE(en, st, cm, ok) GetNodeAllocationSize<st>(GT_##en),
+#define GTNODE(n, s, k) GetNodeAllocationSize<s>(GT_##n),
 #include "gtlist.h"
     GetNodeAllocationSize<GenTree>(GT_COUNT)};
 
 #if NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
 
 const uint8_t GenTree::s_gtTrueSizes[GT_COUNT + 1]{
-#define GTNODE(en, st, cm, ok) sizeof(st),
+#define GTNODE(n, s, k) sizeof(s),
 #include "gtlist.h"
 };
 

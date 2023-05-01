@@ -31,14 +31,14 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #ifndef DEBUGGABLE_GENTREE
 #ifdef DEBUG
 #define DEBUGGABLE_GENTREE 1
-#else // !DEBUG
+#else
 #define DEBUGGABLE_GENTREE 0
-#endif // !DEBUG
-#endif // !DEBUGGABLE_GENTREE
+#endif
+#endif
 
-enum genTreeOps : BYTE
+enum genTreeOps : uint8_t
 {
-#define GTNODE(en, st, cm, ok) GT_##en,
+#define GTNODE(n, s, k) GT_##n,
 #include "gtlist.h"
 
     GT_COUNT,
@@ -56,18 +56,18 @@ enum genTreeOps : BYTE
 
 enum GenTreeKinds
 {
-    GTK_SPECIAL  = 0x0000, // Node may have operands and does not use GenTree(Un)Op
-    GTK_LEAF     = 0x0001, // Node has no operands
-    GTK_UNOP     = 0x0002, // Node struct is GenTreeUnOp or a derived struct that does not add new operands
-    GTK_BINOP    = 0x0004, // Node struct is GenTreeOp or a derived struct that doesn't add new operands
-    GTK_SMPOP    = GTK_UNOP | GTK_BINOP,
-    GTK_KINDMASK = GTK_LEAF | GTK_UNOP | GTK_BINOP,
-    GTK_EXOP     = 0x0008, // Node uses a GenTree(Un)Op derived struct that does not add new operands
-
+    GTK_SPECIAL   = 0x0000, // Node may have operands and does not use GenTree(Un)Op
+    GTK_LEAF      = 0x0001, // Node has no operands
+    GTK_UNOP      = 0x0002, // Node struct is GenTreeUnOp or a derived struct that does not add new operands
+    GTK_BINOP     = 0x0004, // Node struct is GenTreeOp or a derived struct that doesn't add new operands
+    GTK_EXOP      = 0x0008, // Node uses a GenTree(Un)Op derived struct that does not add new operands
     GTK_COMMUTE   = 0x0010, // Node is commutative
     GTK_NOVALUE   = 0x0020, // Node does not produce a value
     GTK_NOTLIR    = 0x0040, // Node is not allowed in LIR
     GTK_NOCONTAIN = 0x0080, // Node cannot be contained
+
+    GTK_SMPOP    = GTK_UNOP | GTK_BINOP,
+    GTK_KINDMASK = GTK_LEAF | GTK_UNOP | GTK_BINOP,
 };
 
 enum CallKind
@@ -655,8 +655,7 @@ constexpr unsigned GetCseIndex(CseInfo info)
 
 struct GenTree
 {
-    static const unsigned short gtOperKindTable[];
-    static const uint8_t        s_gtNodeSizes[];
+    static const uint8_t s_gtNodeSizes[];
 #if NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
     static const uint8_t s_gtTrueSizes[];
 #endif
@@ -1112,18 +1111,11 @@ public:
         gtFlags |= sideEffects;
     }
 
-    static unsigned OperKind(unsigned gtOper)
+    static GenTreeKinds OperKind(genTreeOps gtOper);
+
+    GenTreeKinds OperKind() const
     {
-        assert(gtOper < GT_COUNT);
-
-        return gtOperKindTable[gtOper];
-    }
-
-    unsigned OperKind() const
-    {
-        assert(gtOper < GT_COUNT);
-
-        return gtOperKindTable[gtOper];
+        return OperKind(gtOper);
     }
 
     static bool IsExOp(unsigned opKind)

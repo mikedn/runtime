@@ -6922,7 +6922,7 @@ struct VNFuncAttribs
 static_assert_no_msg(sizeof(VNFuncAttribs) == 1);
 
 static VNFuncAttribs vnFuncAttribs[VNF_Count]{
-#define GTNODE(n, s, c, k) {((k & GTK_BINOP) != 0) ? 2 : ((k & GTK_BINOP) != 0), c},
+#define GTNODE(n, s, k) {(((k)&GTK_BINOP) != 0) ? 2 : (((k)&GTK_UNOP) != 0), ((k)&GTK_COMMUTE) != 0},
 #include "gtlist.h"
     {}, // VNF_Boundary
 #define ValueNumFuncDef(f, a, c, n, s) {static_cast<uint8_t>(a), c, n},
