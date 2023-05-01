@@ -8195,6 +8195,8 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_ARGPLACE:
             // We'll give ARGPLACE the actual argument value number when the call
             // node itself is value numbered.
+            FALLTHROUGH;
+        case GT_KEEPALIVE:
             node->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
             break;
 

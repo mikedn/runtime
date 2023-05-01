@@ -57,7 +57,7 @@ GTNODE(XCHG             , GenTreeOp           , GTK_BINOP)
 GTNODE(CMPXCHG          , GenTreeCmpXchg      , GTK_SPECIAL)
 GTNODE(MEMORYBARRIER    , GenTree             , GTK_LEAF|GTK_NOVALUE)
 
-GTNODE(KEEPALIVE        , GenTree             , GTK_UNOP|GTK_NOVALUE|GTK_VN) // keep operand alive, generate no code, produce no result
+GTNODE(KEEPALIVE        , GenTree             , GTK_UNOP|GTK_NOVALUE)   // keep operand alive, generate no code, produce no result
 GTNODE(CAST             , GenTreeCast         , GTK_UNOP|GTK_EXOP)      // conversion to another type
 GTNODE(BITCAST          , GenTreeOp           , GTK_UNOP)               // reinterpretation of bits as another type
 GTNODE(CKFINITE         , GenTreeOp           , GTK_UNOP|GTK_NOCONTAIN) // Check for NaN
