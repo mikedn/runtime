@@ -1332,6 +1332,29 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
     return true;
 }
 
+#if DOUBLE_ALIGN
+enum CanDoubleAlign
+{
+    CANT_DOUBLE_ALIGN,
+    CAN_DOUBLE_ALIGN,
+    MUST_DOUBLE_ALIGN
+};
+
+static CanDoubleAlign getCanDoubleAlign(Compiler* compiler)
+{
+#ifdef DEBUG
+    if (compiler->compStressCompile(Compiler::STRESS_DBL_ALN, 20))
+    {
+        return MUST_DOUBLE_ALIGN;
+    }
+
+    return static_cast<CanDoubleAlign>(JitConfig.JitDoubleAlign());
+#else
+    return CAN_DOUBLE_ALIGN;
+#endif
+}
+#endif // DOUBLE_ALIGN
+
 // Identify locals & compiler temps that are register candidates
 
 void LinearScan::identifyCandidates()
@@ -1420,7 +1443,7 @@ void LinearScan::identifyCandidates()
     }
     else
     {
-        switch (compiler->getCanDoubleAlign())
+        switch (getCanDoubleAlign(compiler))
         {
             case MUST_DOUBLE_ALIGN:
                 doDoubleAlign    = true;

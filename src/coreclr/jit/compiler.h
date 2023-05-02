@@ -31,7 +31,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "inline.h"
 #include "jiteh.h"
 #include "instr.h"
-#include "regalloc.h"
 #include "cycletimer.h"
 #include "arraystack.h"
 #include "hashbv.h"
@@ -5951,7 +5950,6 @@ public:
     }
 
 #if DOUBLE_ALIGN
-    DWORD getCanDoubleAlign();
     bool shouldDoubleAlign(unsigned             refCntStk,
                            unsigned             refCntReg,
                            BasicBlock::weight_t refCntWtdReg,
