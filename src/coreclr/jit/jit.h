@@ -342,7 +342,6 @@ typedef ptrdiff_t ssize_t;
 
 //=============================================================================
 
-#define REDUNDANT_LOAD 1      // track locals in regs, suppress loads
 #define DUMP_FLOWGRAPHS DEBUG // Support for creating Xml Flowgraph reports in *.fgx files
 
 #define HANDLER_ENTRY_MUST_BE_IN_HOT_SECTION 1 // if 1 we must have all handler entry points in the Hot code section
@@ -410,18 +409,6 @@ typedef ptrdiff_t ssize_t;
 #ifdef TARGET_X86
 #define JIT32_GCENCODER
 #endif
-
-/*****************************************************************************/
-#if !defined(DEBUG)
-
-#if DUMP_GC_TABLES
-#pragma message("NOTE: this non-debug build has GC ptr table dumping always enabled!")
-const bool dspGCtbls = true;
-#endif
-
-#endif // !DEBUG
-
-/*****************************************************************************/
 
 #ifdef DEBUG
 #define JITDUMP(...)                                                                                                   \
@@ -524,10 +511,6 @@ inline bool IsUninitialized(T data);
 
 #ifdef NO_MISALIGNED_ACCESS
 
-#define MISALIGNED_RD_I2(src) (*castto(src, char*) | *castto(src + 1, char*) << 8)
-
-#define MISALIGNED_RD_U2(src) (*castto(src, char*) | *castto(src + 1, char*) << 8)
-
 #define MISALIGNED_WR_I2(dst, val)                                                                                     \
     *castto(dst, char*)     = val;                                                                                     \
     *castto(dst + 1, char*) = val >> 8;
@@ -539,9 +522,6 @@ inline bool IsUninitialized(T data);
     *castto(dst + 3, char*) = val >> 24;
 
 #else
-
-#define MISALIGNED_RD_I2(src) (*castto(src, short*))
-#define MISALIGNED_RD_U2(src) (*castto(src, unsigned short*))
 
 #define MISALIGNED_WR_I2(dst, val) *castto(dst, short*) = val;
 #define MISALIGNED_WR_I4(dst, val) *castto(dst, int*)   = val;
