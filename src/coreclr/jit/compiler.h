@@ -24,7 +24,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jit.h"
 #include "opcode.h"
 #include "varset.h"
-#include "jitstd.h"
 #include "jithashtable.h"
 #include "gentree.h"
 #include "lir.h"
@@ -33,9 +32,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jiteh.h"
 #include "instr.h"
 #include "regalloc.h"
-#include "sm.h"
 #include "cycletimer.h"
-#include "blockset.h"
 #include "arraystack.h"
 #include "hashbv.h"
 #include "jitexpandarray.h"
@@ -45,21 +42,11 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #endif
 
 #include "codegeninterface.h"
-#include "regset.h"
+#include "hwintrinsic.h"
 
 #if DUMP_GC_TABLES && defined(JIT32_GCENCODER)
 #include "gcdump.h"
 #endif
-
-#include "emit.h"
-
-#include "hwintrinsic.h"
-#include "simd.h"
-#include "simdashwintrinsic.h"
-
-/*****************************************************************************
- *                  Forward declarations
- */
 
 struct InfoHdr;            // defined in GCInfo.h
 struct escapeMapping_t;    // defined in fgdiagnostic.cpp

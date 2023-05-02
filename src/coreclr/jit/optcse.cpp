@@ -3,6 +3,7 @@
 
 #include "jitpch.h"
 #include "jitstd/algorithm.h"
+#include "dataflow.h"
 #include "ssabuilder.h"
 #include "valuenum.h"
 

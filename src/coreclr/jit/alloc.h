@@ -4,9 +4,10 @@
 #ifndef _ALLOC_H_
 #define _ALLOC_H_
 
-#if !defined(_HOST_H_)
+#include "iallocator.h"
+#ifndef _HOST_H_
 #include "host.h"
-#endif // defined(_HOST_H_)
+#endif
 
 // CompMemKind values are used to tag memory allocations performed via
 // the compiler's allocator so that the memory usage of various compiler

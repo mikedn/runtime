@@ -12,7 +12,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "jitpch.h"
 #include "hwintrinsic.h"
-#include "simd.h"
 #include "valuenum.h"
 
 #ifdef DEBUG

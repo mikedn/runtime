@@ -3,7 +3,6 @@
 
 #include "jitpch.h"
 #include "layout.h"
-#include "compiler.h"
 
 // Keeps track of layout objects associated to class handles or block sizes. A layout is usually
 // referenced by a pointer (ClassLayout*) but can also be referenced by a number (unsigned,

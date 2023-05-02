@@ -11,11 +11,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
-#include "gentree.h"
+#include "objectalloc.h"
 
 // Run analysis (if object stack allocation is enabled) and then
 // morph each GT_ALLOCOBJ node either into an allocation helper

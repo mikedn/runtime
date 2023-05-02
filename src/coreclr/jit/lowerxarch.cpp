@@ -16,13 +16,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
-#ifdef TARGET_XARCH // This file is only used for xarch
+#ifdef TARGET_XARCH
 
-#include "jit.h"
 #include "sideeffects.h"
 #include "lower.h"
 

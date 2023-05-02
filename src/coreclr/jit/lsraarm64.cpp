@@ -15,13 +15,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
 #ifdef TARGET_ARM64
 
-#include "jit.h"
 #include "sideeffects.h"
 #include "lower.h"
 

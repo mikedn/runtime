@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
+#include "dataflow.h"
 #include "ssabuilder.h"
 #include "valuenum.h"
 
