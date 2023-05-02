@@ -37,6 +37,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "hashbv.h"
 #include "jitexpandarray.h"
 #include "namedintrinsiclist.h"
+#include "phase.h"
 #ifdef LATE_DISASM
 #include "disasm.h"
 #endif
@@ -963,34 +964,6 @@ struct ArrayInfo
     ArrayInfo() : m_arrayExpr(nullptr), m_elemOffsetExpr(nullptr), m_elemOffsetConst(nullptr), m_elemTypeNum(0)
     {
     }
-};
-
-// This enumeration names the phases into which we divide compilation.  The phases should completely
-// partition a compilation.
-enum Phases : uint8_t
-{
-#define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) enum_nm,
-#include "compphases.h"
-    PHASE_NUMBER_OF
-};
-
-extern const char*   PhaseNames[];
-extern const char*   PhaseEnums[];
-extern const LPCWSTR PhaseShortNames[];
-
-// Specify which checks should be run after each phase
-//
-enum class PhaseChecks : uint8_t
-{
-    CHECK_NONE,
-    CHECK_ALL
-};
-
-// Specify compiler data that a phase might modify
-enum class PhaseStatus : unsigned
-{
-    MODIFIED_NOTHING,
-    MODIFIED_EVERYTHING
 };
 
 // The following enum provides a simple 1:1 mapping to CLR API's
