@@ -1307,33 +1307,6 @@ inline LoopFlags& operator&=(LoopFlags& a, LoopFlags b)
     return a = (LoopFlags)((uint16_t)a & (uint16_t)b);
 }
 
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX   The big guy. The sections are currently organized as :                  XX
-XX                                                                           XX
-XX    o  GenTree and BasicBlock                                              XX
-XX    o  LclVarsInfo                                                         XX
-XX    o  Importer                                                            XX
-XX    o  FlowGraph                                                           XX
-XX    o  Optimizer                                                           XX
-XX    o  RegAlloc                                                            XX
-XX    o  EEInterface                                                         XX
-XX    o  TempsInfo                                                           XX
-XX    o  GCInfo                                                              XX
-XX    o  Instruction                                                         XX
-XX    o  ScopeInfo                                                           XX
-XX    o  PrologScopeInfo                                                     XX
-XX    o  CodeGenerator                                                       XX
-XX    o  UnwindInfo                                                          XX
-XX    o  Compiler                                                            XX
-XX    o  typeInfo                                                            XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 struct HWIntrinsicInfo;
 
 enum CallInterf : uint8_t
