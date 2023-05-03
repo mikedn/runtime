@@ -7607,7 +7607,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
         }
         else
         {
-            BasicBlock::MemoryPhiArg* phiArgs = block->memoryPhi;
+            MemoryPhiArg* phiArgs = block->memoryPhi;
 
             ValueNum sameMemoryVN = ssa.GetMemorySsaDef(phiArgs->GetSsaNum()).vn;
             INDEBUG(TraceMem(sameMemoryVN, "predecessor memory"));

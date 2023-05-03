@@ -1052,32 +1052,8 @@ struct BasicBlock : private LIR::Range
     VARSET_TP bbLiveIn;  // variables live on entry
     VARSET_TP bbLiveOut; // variables live on exit
 
-    // We want to make phi functions for the special implicit var memory.  But since this is not a real
-    // lclVar, and thus has no local #, we can't use a GenTreePhiArg.  Instead, we use this struct.
-    struct MemoryPhiArg
-    {
-        unsigned      m_ssaNum;  // SSA# for incoming value.
-        MemoryPhiArg* m_nextArg; // Next arg in the list, else NULL.
-
-        MemoryPhiArg(unsigned ssaNum, MemoryPhiArg* nextArg) : m_ssaNum(ssaNum), m_nextArg(nextArg)
-        {
-        }
-
-        unsigned GetSsaNum() const
-        {
-            return m_ssaNum;
-        }
-
-        MemoryPhiArg* GetNext() const
-        {
-            return m_nextArg;
-        }
-
-        void* operator new(size_t sz, class Compiler* comp);
-    };
-
     // If the "in" Heap SSA var is not a phi definition, this value is null.
-    MemoryPhiArg* memoryPhi;
+    struct MemoryPhiArg* memoryPhi;
     // Otherwise, it is either the special value EmptyMemoryPhiDefn, to indicate
     // that Heap needs a phi definition on entry, or else it is the linked list
     // of the phi arguments.

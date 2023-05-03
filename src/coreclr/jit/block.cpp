@@ -709,12 +709,6 @@ const char* BasicBlock::dspToString(int blockNumPadding /* = 0 */)
 
 #endif // DEBUG
 
-// Allocation function for MemoryPhiArg.
-void* BasicBlock::MemoryPhiArg::operator new(size_t sz, Compiler* comp)
-{
-    return comp->getAllocator(CMK_MemoryPhiArg).allocate<char>(sz);
-}
-
 //------------------------------------------------------------------------
 // CloneBlockState: Try to populate `to` block with a copy of `from` block's statements, replacing
 //                  uses of local `varNum` with IntCns `varVal`.

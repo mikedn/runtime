@@ -640,7 +640,12 @@ void SsaBuilder::AddPhiArg(
 }
 
 // Special value to represent a to-be-filled in Memory Phi arg list.
-static BasicBlock::MemoryPhiArg EmptyMemoryPhiDef(0, nullptr);
+static MemoryPhiArg EmptyMemoryPhiDef(0, nullptr);
+
+void* MemoryPhiArg::operator new(size_t sz, Compiler* comp)
+{
+    return comp->getAllocator(CMK_MemoryPhiArg).allocate<char>(sz);
+}
 
 void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count, const BlockDFMap& mapDF)
 {
@@ -1028,7 +1033,7 @@ void SsaBuilder::AddMemoryDefToHandlerPhis(BasicBlock* block, unsigned ssaNum)
         if (handler->bbMemoryLiveIn)
         {
             // Add "ssaNum" to the phi args of memoryKind.
-            BasicBlock::MemoryPhiArg*& phiArg = handler->memoryPhi;
+            MemoryPhiArg*& phiArg = handler->memoryPhi;
 
             if (phiArg == &EmptyMemoryPhiDef)
             {
@@ -1042,7 +1047,7 @@ void SsaBuilder::AddMemoryDefToHandlerPhis(BasicBlock* block, unsigned ssaNum)
             }
 #endif
 
-            phiArg = new (compiler) BasicBlock::MemoryPhiArg(ssaNum, phiArg);
+            phiArg = new (compiler) MemoryPhiArg(ssaNum, phiArg);
 
             DBG_SSA_JITDUMP("   Added phi arg u:%u for Memory to phi defn in handler block " FMT_BB ".\n", ssaNum,
                             handler->bbNum);
@@ -1223,7 +1228,7 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
         }
 
         // Now handle memory.
-        BasicBlock::MemoryPhiArg*& succMemPhiArg = succ->memoryPhi;
+        MemoryPhiArg*& succMemPhiArg = succ->memoryPhi;
 
         if (succMemPhiArg != nullptr)
         {
@@ -1246,7 +1251,7 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
 
             if (!found)
             {
-                succMemPhiArg = new (compiler) BasicBlock::MemoryPhiArg(block->memoryExitSsaNum, succMemPhiArg);
+                succMemPhiArg = new (compiler) MemoryPhiArg(block->memoryExitSsaNum, succMemPhiArg);
             }
 
             DBG_SSA_JITDUMP("  Added phi arg for Memory u:%d from " FMT_BB " in " FMT_BB ".\n", block->memoryExitSsaNum,
@@ -1343,7 +1348,7 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
                 }
 
                 // Now handle memory.
-                BasicBlock::MemoryPhiArg*& memPhiArg = handlerStart->memoryPhi;
+                MemoryPhiArg*& memPhiArg = handlerStart->memoryPhi;
 
                 if (memPhiArg != nullptr)
                 {
@@ -1357,7 +1362,7 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
                     // due to nested try-begins each having preds with the same live-out memory def.
                     // Avoid doing quadratic processing on handler phis, and instead live with the
                     // occasional redundancy.
-                    memPhiArg = new (compiler) BasicBlock::MemoryPhiArg(block->memoryExitSsaNum, memPhiArg);
+                    memPhiArg = new (compiler) MemoryPhiArg(block->memoryExitSsaNum, memPhiArg);
 
                     DBG_SSA_JITDUMP("  Added phi arg for Memory u:%d from " FMT_BB " in " FMT_BB ".\n",
                                     block->memoryExitSsaNum, block->bbNum, handlerStart->bbNum);

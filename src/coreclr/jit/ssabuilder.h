@@ -39,6 +39,28 @@ public:
 using NodeSsaNumMap = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, unsigned>;
 using LoopDsc       = Compiler::LoopDsc;
 
+struct MemoryPhiArg
+{
+    unsigned      m_ssaNum;
+    MemoryPhiArg* m_nextArg;
+
+    MemoryPhiArg(unsigned ssaNum, MemoryPhiArg* nextArg) : m_ssaNum(ssaNum), m_nextArg(nextArg)
+    {
+    }
+
+    unsigned GetSsaNum() const
+    {
+        return m_ssaNum;
+    }
+
+    MemoryPhiArg* GetNext() const
+    {
+        return m_nextArg;
+    }
+
+    void* operator new(size_t sz, class Compiler* comp);
+};
+
 struct SsaMemDef
 {
     ValueNum vn = NoVN;
