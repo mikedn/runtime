@@ -7,12 +7,11 @@
 
 class SsaBuilder
 {
-    SsaOptimizer&  ssa;
-    Compiler*      compiler;
-    CompAllocator  alloc;
-    BitVecTraits   m_visitedTraits;
-    BitVec         m_visited;
-    SsaRenameState m_renameStack;
+    SsaOptimizer& ssa;
+    Compiler*     compiler;
+    CompAllocator alloc;
+    BitVecTraits  m_visitedTraits;
+    BitVec        m_visited;
 
     using BlockVector = jitstd::vector<BasicBlock*>;
     using BlockDFMap  = JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, BlockVector>;
@@ -121,7 +120,6 @@ SsaBuilder::SsaBuilder(SsaOptimizer& ssa)
     , alloc(compiler->getAllocator(CMK_SSA))
     , m_visitedTraits(compiler->fgBBNumMax + 1, compiler)
     , m_visited(BitVecOps::MakeEmpty(&m_visitedTraits))
-    , m_renameStack(alloc, compiler->lvaCount)
 {
 }
 
@@ -682,18 +680,85 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count, const Blo
 
 class SsaRenameDomTreeVisitor : public DomTreeVisitor<SsaRenameDomTreeVisitor>
 {
-    SsaOptimizer&   ssa;
-    SsaRenameState& renameStack;
+    SsaOptimizer&  ssa;
+    CompAllocator  alloc;
+    SsaRenameState renameStack;
 
 public:
-    SsaRenameDomTreeVisitor(SsaOptimizer& ssa, SsaRenameState& renameStack)
-        : DomTreeVisitor(ssa.GetCompiler(), ssa.GetDomTree()), ssa(ssa), renameStack(renameStack)
+    SsaRenameDomTreeVisitor(SsaOptimizer& ssa)
+        : DomTreeVisitor(ssa.GetCompiler(), ssa.GetDomTree())
+        , ssa(ssa)
+        , alloc(m_compiler->getAllocator(CMK_SSA))
+        , renameStack(alloc, m_compiler->lvaCount)
     {
     }
 
     void Begin()
     {
-        m_compiler->optMethodFlags &= ~(OMF_HAS_ARRAYREF | OMF_HAS_NEWARRAY | OMF_HAS_NULLCHECK);
+        Compiler*   compiler   = m_compiler;
+        BasicBlock* firstBlock = compiler->fgFirstBB;
+
+        // The first thing we do is treat parameters and must-init variables as if they have a
+        // virtual definition before entry -- they start out at SSA name 1.
+        GenTreeLclDef* firstInitSsaDef = nullptr;
+        GenTreeLclDef* lastInitSsaDef  = nullptr;
+
+        for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+        {
+            LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
+            if (lcl->IsSsa() && VarSetOps::IsMember(compiler, firstBlock->bbLiveIn, lcl->GetLivenessBitIndex()))
+            {
+                unsigned ssaNum = lcl->AllocSsaNum(alloc);
+                // HasImplicitSsaDef assumes that this is always the first SSA def.
+                assert(ssaNum == SsaConfig::FIRST_SSA_NUM);
+
+                // TODO-MIKE-SSA: Having a SSA_UNDEF oper might be better than using a LCL_VAR
+                // as a fake def value. It saves a bit of memory by not allocating an extra
+                // node and avoids the weird situation of still having LCL_VAR nodes for locals
+                // that are supposed to be in SSA form. Though these nodes are not part of any
+                // basic block so they're invisible to anything except SSA code, which can treat
+                // them specially (by basically ignoring them).
+
+                GenTreeLclVar* arg = compiler->gtNewLclvNode(lclNum, lcl->GetType());
+                GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lclNum, ssaNum);
+
+                renameStack.Push(firstBlock, lclNum, def);
+
+                if (firstInitSsaDef == nullptr)
+                {
+                    firstInitSsaDef = def;
+                    lastInitSsaDef  = def;
+                }
+                else
+                {
+                    lastInitSsaDef->gtNext = def;
+                    lastInitSsaDef         = def;
+                }
+            }
+        }
+
+        ssa.SetInitSsaDefs(firstInitSsaDef);
+
+        // In ValueNum we'd assume un-inited memory gets FIRST_SSA_NUM.
+        // The memory is a parameter.  Use FIRST_SSA_NUM as first SSA name.
+        unsigned initMemorySsaNum = ssa.AllocMemorySsaNum();
+        assert(initMemorySsaNum == SsaConfig::FIRST_SSA_NUM);
+
+        renameStack.PushMemory(firstBlock, initMemorySsaNum);
+
+        // Initialize the memory ssa numbers for unreachable blocks. ValueNum expects
+        // memory ssa numbers to have some intitial value.
+        for (BasicBlock* const block : compiler->Blocks())
+        {
+            if (block->bbIDom == nullptr)
+            {
+                block->memoryEntrySsaNum = initMemorySsaNum;
+                block->memoryExitSsaNum  = initMemorySsaNum;
+            }
+        }
+
+        compiler->optMethodFlags &= ~(OMF_HAS_ARRAYREF | OMF_HAS_NEWARRAY | OMF_HAS_NULLCHECK);
     }
 
     void PreOrderVisit(BasicBlock* block)
@@ -794,7 +859,7 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
             }
 
             GenTree* value  = asgNode->GetOp(1);
-            unsigned ssaNum = lcl->AllocSsaNum(m_compiler->getAllocator(CMK_SSA));
+            unsigned ssaNum = lcl->AllocSsaNum(alloc);
 
             if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
             {
@@ -913,7 +978,7 @@ void SsaRenameDomTreeVisitor::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block
     unsigned   lclNum = def->GetLclNum();
     LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
 
-    def->SetSsaNum(lcl->AllocSsaNum(m_compiler->getAllocator(CMK_SSA)));
+    def->SetSsaNum(lcl->AllocSsaNum(alloc));
     renameStack.Push(block, lclNum, def);
 }
 
@@ -1403,69 +1468,7 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
 
 void SsaBuilder::RenameVariables()
 {
-    JITDUMP("*************** In SsaBuilder::RenameVariables()\n");
-
-    // The first thing we do is treat parameters and must-init variables as if they have a
-    // virtual definition before entry -- they start out at SSA name 1.
-    GenTreeLclDef* firstInitSsaDef = nullptr;
-    GenTreeLclDef* lastInitSsaDef  = nullptr;
-
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
-    {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
-        if (lcl->IsSsa() && VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()))
-        {
-            unsigned ssaNum = lcl->AllocSsaNum(alloc);
-            // HasImplicitSsaDef assumes that this is always the first SSA def.
-            assert(ssaNum == SsaConfig::FIRST_SSA_NUM);
-
-            // TODO-MIKE-SSA: Having a SSA_UNDEF oper might be better than using a LCL_VAR
-            // as a fake def value. It saves a bit of memory by not allocating an extra
-            // node and avoids the weird situation of still having LCL_VAR nodes for locals
-            // that are supposed to be in SSA form. Though these nodes are not part of any
-            // basic block so they're invisible to anything except SSA code, which can treat
-            // them specially (by basically ignoring them).
-
-            GenTreeLclDef* def = new (compiler, GT_LCL_DEF)
-                GenTreeLclDef(compiler->gtNewLclvNode(lclNum, lcl->GetType()), compiler->fgFirstBB, lclNum, ssaNum);
-
-            m_renameStack.Push(compiler->fgFirstBB, lclNum, def);
-
-            if (firstInitSsaDef == nullptr)
-            {
-                firstInitSsaDef = def;
-                lastInitSsaDef  = def;
-            }
-            else
-            {
-                lastInitSsaDef->gtNext = def;
-                lastInitSsaDef         = def;
-            }
-        }
-    }
-
-    ssa.SetInitSsaDefs(firstInitSsaDef);
-
-    // In ValueNum we'd assume un-inited memory gets FIRST_SSA_NUM.
-    // The memory is a parameter.  Use FIRST_SSA_NUM as first SSA name.
-    unsigned initMemorySsaNum = ssa.AllocMemorySsaNum();
-    assert(initMemorySsaNum == SsaConfig::FIRST_SSA_NUM);
-
-    m_renameStack.PushMemory(compiler->fgFirstBB, initMemorySsaNum);
-
-    // Initialize the memory ssa numbers for unreachable blocks. ValueNum expects
-    // memory ssa numbers to have some intitial value.
-    for (BasicBlock* const block : compiler->Blocks())
-    {
-        if (block->bbIDom == nullptr)
-        {
-            block->memoryEntrySsaNum = initMemorySsaNum;
-            block->memoryExitSsaNum  = initMemorySsaNum;
-        }
-    }
-
-    SsaRenameDomTreeVisitor visitor(ssa, m_renameStack);
+    SsaRenameDomTreeVisitor visitor(ssa);
     visitor.WalkTree();
 }
 
