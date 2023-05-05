@@ -778,15 +778,16 @@ private:
     void RenamePhiDef(GenTreeLclDef* def, BasicBlock* block);
     void RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block);
 
-    void AddDefToHandlerPhis(BasicBlock* block, unsigned lclNum, GenTreeLclDef* def);
+    void AddDefToHandlerPhis(BasicBlock* block, GenTreeLclDef* def);
     void AddMemoryDefToHandlerPhis(BasicBlock* block, unsigned ssaNum);
     void AddPhiArgsToSuccessors(BasicBlock* block);
-    void AddPhiArg(
-        BasicBlock* block, Statement* stmt, GenTreePhi* phi, unsigned lclNum, GenTreeLclDef* def, BasicBlock* pred);
+    void AddPhiArg(BasicBlock* pred, GenTreeLclDef* def, Statement* stmt, GenTreePhi* phi DEBUGARG(BasicBlock* block));
 };
 
-void SsaRenameDomTreeVisitor::AddPhiArg(
-    BasicBlock* block, Statement* stmt, GenTreePhi* phi, unsigned lclNum, GenTreeLclDef* def, BasicBlock* pred)
+void SsaRenameDomTreeVisitor::AddPhiArg(BasicBlock*    pred,
+                                        GenTreeLclDef* def,
+                                        Statement*     stmt,
+                                        GenTreePhi* phi DEBUGARG(BasicBlock* block))
 {
 #ifdef DEBUG
     // Make sure it isn't already present: we should only add each definition once.
@@ -807,21 +808,21 @@ void SsaRenameDomTreeVisitor::AddPhiArg(
     // will be first in linear order as well.
     phi->m_uses = new (m_compiler, CMK_ASTNode) GenTreePhi::Use(use, phi->m_uses);
 
-    GenTree* head = stmt->GetTreeList();
+    GenTree* head = stmt->GetNodeList();
     assert(head->OperIs(GT_PHI, GT_LCL_USE));
-    stmt->SetTreeList(use);
+    stmt->SetNodeList(use);
     use->gtNext  = head;
     head->gtPrev = use;
 
 #ifdef DEBUG
     unsigned seqNum = 1;
-    for (GenTree* const node : stmt->TreeList())
+    for (GenTree* const node : stmt->Nodes())
     {
         node->gtSeqNum = seqNum++;
     }
 #endif // DEBUG
 
-    DBG_SSA_JITDUMP("Added PHI arg u:%d for V%02u from " FMT_BB " in " FMT_BB ".\n", def->GetSsaNum(), lclNum,
+    DBG_SSA_JITDUMP("Added PHI arg u:%d for V%02u from " FMT_BB " in " FMT_BB ".\n", def->GetSsaNum(), def->GetLclNum(),
                     pred->bbNum, block->bbNum);
 }
 
@@ -947,7 +948,7 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
             // not phi definitions.)
             if (!value->IsPhi())
             {
-                AddDefToHandlerPhis(block, lclNum, def->AsLclDef());
+                AddDefToHandlerPhis(block, def->AsLclDef());
             }
 
             return;
@@ -1050,17 +1051,17 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Stateme
     }
 }
 
-void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, unsigned lclNum, GenTreeLclDef* def)
+void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, GenTreeLclDef* def)
 {
-    assert(m_compiler->lvaGetDesc(lclNum)->HasLiveness());
-    unsigned lclIndex = m_compiler->lvaGetDesc(lclNum)->GetLivenessBitIndex();
+    assert(m_compiler->lvaGetDesc(def->GetLclNum())->HasLiveness());
+    unsigned lclIndex = m_compiler->lvaGetDesc(def->GetLclNum())->GetLivenessBitIndex();
 
     EHblkDsc* tryBlk = m_compiler->ehGetBlockExnFlowDsc(block);
     if (tryBlk != nullptr)
     {
         DBG_SSA_JITDUMP("Definition of local V%02u/d:%d in block " FMT_BB
                         " has exn handler; adding as phi arg to handlers.\n",
-                        lclNum, def->GetSsaNum(), block->bbNum);
+                        def->GetLclNum(), def->GetSsaNum(), block->bbNum);
         while (true)
         {
             BasicBlock* handler = tryBlk->ExFlowBlock();
@@ -1081,10 +1082,10 @@ void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, unsigned lc
                         break;
                     }
 
-                    if (tree->AsLclDef()->GetLclNum() == lclNum)
+                    if (tree->AsLclDef()->GetLclNum() == def->GetLclNum())
                     {
                         // It's the definition for the right local.  Add "ssaNum" to the RHS.
-                        AddPhiArg(handler, stmt, tree->AsLclDef()->GetValue()->AsPhi(), lclNum, def, block);
+                        AddPhiArg(block, def, stmt, tree->AsLclDef()->GetValue()->AsPhi() DEBUGARG(handler));
                         INDEBUG(phiFound = true);
                         break;
                     }
@@ -1299,6 +1300,7 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
 
             unsigned       lclNum = tree->AsLclDef()->GetLclNum();
             GenTreeLclDef* def    = renameStack.Top(lclNum);
+            assert(def->GetLclNum() == lclNum);
             // Search the arglist for an existing definition for ssaNum.
             // (Can we assert that its the head of the list?  This should only happen when we add
             // during renaming for a definition that occurs within a try, and then that's the last
@@ -1315,7 +1317,7 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
             }
             if (!found)
             {
-                AddPhiArg(succ, stmt, phi, lclNum, def, block);
+                AddPhiArg(block, def, stmt, phi DEBUGARG(succ));
             }
         }
 
@@ -1422,6 +1424,7 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
                     GenTreePhi* phi = tree->AsLclDef()->GetValue()->AsPhi();
 
                     GenTreeLclDef* def = renameStack.Top(lclNum);
+                    assert(def->GetLclNum() == lclNum);
 
                     // See if this ssaNum is already an arg to the phi.
                     bool alreadyArg = false;
@@ -1435,7 +1438,7 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
                     }
                     if (!alreadyArg)
                     {
-                        AddPhiArg(handlerStart, stmt, phi, lclNum, def, block);
+                        AddPhiArg(block, def, stmt, phi DEBUGARG(handlerStart));
                     }
                 }
 
