@@ -943,9 +943,6 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 
             renameStack.Push(block, lclNum, def->AsLclDef());
 
-            // If necessary, add "lclNum/ssaNum" to the arg list of a phi def in any
-            // handlers for try blocks that "block" is within.  (But only do this for "real" definitions,
-            // not phi definitions.)
             if (!value->IsPhi())
             {
                 AddDefToHandlerPhis(block, def->AsLclDef());
@@ -1053,54 +1050,43 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Stateme
 
 void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, GenTreeLclDef* def)
 {
-    assert(m_compiler->lvaGetDesc(def->GetLclNum())->HasLiveness());
-    unsigned lclIndex = m_compiler->lvaGetDesc(def->GetLclNum())->GetLivenessBitIndex();
+    unsigned  lclIndex  = m_compiler->lvaGetDesc(def->GetLclNum())->GetLivenessBitIndex();
+    EHblkDsc* tryRegion = m_compiler->ehGetBlockExnFlowDsc(block);
 
-    EHblkDsc* tryBlk = m_compiler->ehGetBlockExnFlowDsc(block);
-    if (tryBlk != nullptr)
+    while (tryRegion != nullptr)
     {
-        DBG_SSA_JITDUMP("Definition of local V%02u/d:%d in block " FMT_BB
-                        " has exn handler; adding as phi arg to handlers.\n",
-                        def->GetLclNum(), def->GetSsaNum(), block->bbNum);
-        while (true)
+        BasicBlock* handler = tryRegion->ExFlowBlock();
+
+        if (VarSetOps::IsMember(m_compiler, handler->bbLiveIn, lclIndex))
         {
-            BasicBlock* handler = tryBlk->ExFlowBlock();
+            DBG_SSA_JITDUMP("Adding PHI arg for def V%02u#%u in block " FMT_BB " to exception handler" FMT_BB ".\n",
+                            def->GetLclNum(), def->GetSsaNum(), block->bbNum, handler->bbNum);
 
-            // Is "lclNum" live on entry to the handler?
-            if (VarSetOps::IsMember(m_compiler, handler->bbLiveIn, lclIndex))
+            INDEBUG(bool phiFound = false);
+
+            for (Statement* const stmt : handler->Statements())
             {
-                INDEBUG(bool phiFound = false);
+                GenTree* tree = stmt->GetRootNode();
 
-                // A prefix of blocks statements will be SSA definitions.  Search those for "lclNum".
-                for (Statement* const stmt : handler->Statements())
+                if (!tree->IsPhiDef())
                 {
-                    GenTree* tree = stmt->GetRootNode();
-
-                    // If the tree is not an SSA def, break out of the loop: we're done.
-                    if (!tree->IsPhiDef())
-                    {
-                        break;
-                    }
-
-                    if (tree->AsLclDef()->GetLclNum() == def->GetLclNum())
-                    {
-                        // It's the definition for the right local.  Add "ssaNum" to the RHS.
-                        AddPhiArg(block, def, stmt, tree->AsLclDef()->GetValue()->AsPhi() DEBUGARG(handler));
-                        INDEBUG(phiFound = true);
-                        break;
-                    }
+                    break;
                 }
-                assert(phiFound);
+
+                if (tree->AsLclDef()->GetLclNum() == def->GetLclNum())
+                {
+                    AddPhiArg(block, def, stmt, tree->AsLclDef()->GetValue()->AsPhi() DEBUGARG(handler));
+                    INDEBUG(phiFound = true);
+                    break;
+                }
             }
 
-            unsigned nextTryIndex = tryBlk->ebdEnclosingTryIndex;
-            if (nextTryIndex == EHblkDsc::NO_ENCLOSING_INDEX)
-            {
-                break;
-            }
-
-            tryBlk = m_compiler->ehGetDsc(nextTryIndex);
+            assert(phiFound);
         }
+
+        tryRegion = tryRegion->ebdEnclosingTryIndex == EHblkDsc::NO_ENCLOSING_INDEX
+                        ? nullptr
+                        : m_compiler->ehGetDsc(tryRegion->ebdEnclosingTryIndex);
     }
 }
 
@@ -1109,23 +1095,22 @@ void SsaRenameDomTreeVisitor::AddMemoryDefToHandlerPhis(BasicBlock* block, unsig
     assert(m_compiler->ehBlockHasExnFlowDsc(block));
 
     // Don't do anything for a compiler-inserted BBJ_ALWAYS that is a "leave helper".
-    if ((block->bbFlags & BBF_INTERNAL) && block->isBBCallAlwaysPairTail())
+    if (((block->bbFlags & BBF_INTERNAL) != 0) && block->isBBCallAlwaysPairTail())
     {
         return;
     }
 
-    // Otherwise...
-    DBG_SSA_JITDUMP("Definition of Memory:%u in block " FMT_BB " has exn handler; adding as phi arg to handlers.\n",
-                    ssaNum, block->bbNum);
-    EHblkDsc* tryBlk = m_compiler->ehGetBlockExnFlowDsc(block);
-    while (true)
-    {
-        BasicBlock* handler = tryBlk->ExFlowBlock();
+    EHblkDsc* tryRegion = m_compiler->ehGetBlockExnFlowDsc(block);
 
-        // Is memoryKind live on entry to the handler?
+    while (tryRegion != nullptr)
+    {
+        BasicBlock* handler = tryRegion->ExFlowBlock();
+
         if (handler->bbMemoryLiveIn)
         {
-            // Add "ssaNum" to the phi args of memoryKind.
+            DBG_SSA_JITDUMP("Adding PHI arg for memory def %u in block " FMT_BB " to exception handler" FMT_BB ".\n",
+                            ssaNum, block->bbNum, handler->bbNum);
+
             MemoryPhiArg*& phiArg = handler->memoryPhi;
 
             if (phiArg == &EmptyMemoryPhiDef)
@@ -1134,35 +1119,29 @@ void SsaRenameDomTreeVisitor::AddMemoryDefToHandlerPhis(BasicBlock* block, unsig
             }
 
 #ifdef DEBUG
-            for (auto arg = phiArg; arg != nullptr; arg = arg->GetNext())
+            for (MemoryPhiArg* arg = phiArg; arg != nullptr; arg = arg->GetNext())
             {
                 assert(arg->GetSsaNum() != ssaNum);
             }
 #endif
 
             phiArg = new (m_compiler) MemoryPhiArg(ssaNum, phiArg);
+        }
 
-            DBG_SSA_JITDUMP("   Added phi arg u:%u for Memory to phi defn in handler block " FMT_BB ".\n", ssaNum,
-                            handler->bbNum);
-        }
-        unsigned tryInd = tryBlk->ebdEnclosingTryIndex;
-        if (tryInd == EHblkDsc::NO_ENCLOSING_INDEX)
-        {
-            break;
-        }
-        tryBlk = m_compiler->ehGetDsc(tryInd);
+        tryRegion = tryRegion->ebdEnclosingTryIndex == EHblkDsc::NO_ENCLOSING_INDEX
+                        ? nullptr
+                        : m_compiler->ehGetDsc(tryRegion->ebdEnclosingTryIndex);
     }
 }
 
 void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
 {
-    // First handle the incoming memory state.
     if (block->memoryPhi != nullptr)
     {
         unsigned ssaNum = ssa.AllocMemorySsaNum();
         renameStack.PushMemory(block, ssaNum);
 
-        DBG_SSA_JITDUMP("Ssa # for Memory phi on entry to " FMT_BB " is %d.\n", block->bbNum, ssaNum);
+        DBG_SSA_JITDUMP("Ssa # for Memory PHI on entry to " FMT_BB " is %u.\n", block->bbNum, ssaNum);
 
         block->memoryEntrySsaNum = ssaNum;
     }
@@ -1173,38 +1152,36 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
 
     BasicBlockFlags earlyPropBlockSummary = BBF_EMPTY;
 
-    // Walk the statements of the block and rename definitions and uses.
     for (Statement* const stmt : block->Statements())
     {
-        for (GenTree* const tree : stmt->Nodes())
+        for (GenTree* const node : stmt->Nodes())
         {
-            if (tree->OperIs(GT_ASG))
+            if (node->OperIs(GT_ASG))
             {
-                RenameDef(tree->AsOp(), block);
+                RenameDef(node->AsOp(), block);
             }
-            else if (tree->OperIs(GT_LCL_DEF))
+            else if (node->OperIs(GT_LCL_DEF))
             {
-                RenamePhiDef(tree->AsLclDef(), block);
+                RenamePhiDef(node->AsLclDef(), block);
             }
-            // PHI_ARG nodes already have SSA numbers so we only need to check LCL_VAR and LCL_FLD nodes.
-            else if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                if ((tree->gtFlags & GTF_VAR_DEF) == 0)
+                if ((node->gtFlags & GTF_VAR_DEF) == 0)
                 {
-                    RenameLclUse(tree->AsLclVarCommon(), stmt, block);
+                    RenameLclUse(node->AsLclVarCommon(), stmt, block);
                 }
             }
-            else if (tree->OperIs(GT_NULLCHECK))
+            else if (node->OperIs(GT_NULLCHECK))
             {
                 earlyPropBlockSummary |= BBF_HAS_NULLCHECK;
             }
-            else if (tree->OperIs(GT_ARR_LENGTH))
+            else if (node->OperIs(GT_ARR_LENGTH))
             {
                 earlyPropBlockSummary |= BBF_HAS_IDX_LEN;
             }
-            else if (tree->IsHelperCall())
+            else if (node->IsHelperCall())
             {
-                GenTreeCall*   call   = tree->AsCall();
+                GenTreeCall*   call   = node->AsCall();
                 GenTreeIntCon* length = nullptr;
 
                 switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
@@ -1255,8 +1232,6 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
         m_compiler->optMethodFlags |= OMF_HAS_NEWARRAY;
     }
 
-    // Now handle the final memory state.
-
     // If the block defines memory, allocate an SSA variable for the final memory state in the block.
     // (This may be redundant with the last SSA var explicitly created, but there's no harm in that.)
     if (block->bbMemoryDef)
@@ -1276,7 +1251,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
         block->memoryExitSsaNum = renameStack.TopMemory();
     }
 
-    DBG_SSA_JITDUMP("Ssa # for Memory on entry to " FMT_BB " is %d; on exit is %d.\n", block->bbNum,
+    DBG_SSA_JITDUMP("Ssa # for Memory on entry to " FMT_BB " is %u; on exit is %u.\n", block->bbNum,
                     block->memoryEntrySsaNum, block->memoryExitSsaNum);
 }
 
@@ -1284,29 +1259,20 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
 {
     for (BasicBlock* succ : block->GetAllSuccs(m_compiler))
     {
-        // Walk the statements for phi nodes.
         for (Statement* const stmt : succ->Statements())
         {
             GenTree* tree = stmt->GetRootNode();
 
-            // A prefix of the statements of the block are phi definition nodes. If we complete processing
-            // that prefix, exit.
             if (!tree->IsPhiDef())
             {
                 break;
             }
 
-            GenTreePhi* phi = tree->AsLclDef()->GetValue()->AsPhi();
-
-            unsigned       lclNum = tree->AsLclDef()->GetLclNum();
-            GenTreeLclDef* def    = renameStack.Top(lclNum);
-            assert(def->GetLclNum() == lclNum);
-            // Search the arglist for an existing definition for ssaNum.
-            // (Can we assert that its the head of the list?  This should only happen when we add
-            // during renaming for a definition that occurs within a try, and then that's the last
-            // value of the var within that basic block.)
+            GenTreePhi*    phi = tree->AsLclDef()->GetValue()->AsPhi();
+            GenTreeLclDef* def = renameStack.Top(tree->AsLclDef()->GetLclNum());
 
             bool found = false;
+
             for (GenTreePhi::Use& use : phi->Uses())
             {
                 if (use.GetNode()->GetDef() == def)
@@ -1315,26 +1281,25 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
                     break;
                 }
             }
+
             if (!found)
             {
                 AddPhiArg(block, def, stmt, phi DEBUGARG(succ));
             }
         }
 
-        // Now handle memory.
-        MemoryPhiArg*& succMemPhiArg = succ->memoryPhi;
+        MemoryPhiArg*& memPhiArg = succ->memoryPhi;
 
-        if (succMemPhiArg != nullptr)
+        if (memPhiArg != nullptr)
         {
-            if (succMemPhiArg == &EmptyMemoryPhiDef)
+            if (memPhiArg == &EmptyMemoryPhiDef)
             {
-                succMemPhiArg = nullptr;
+                memPhiArg = nullptr;
             }
 
-            // This is a quadratic algorithm. We might need to consider some switch over to a
-            // hash table representation for the arguments of a phi node, to make this linear.
             bool found = false;
-            for (auto arg = succMemPhiArg; arg != nullptr; arg = arg->GetNext())
+
+            for (auto arg = memPhiArg; arg != nullptr; arg = arg->GetNext())
             {
                 if (arg->m_ssaNum == block->memoryExitSsaNum)
                 {
@@ -1345,10 +1310,10 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
 
             if (!found)
             {
-                succMemPhiArg = new (m_compiler) MemoryPhiArg(block->memoryExitSsaNum, succMemPhiArg);
+                memPhiArg = new (m_compiler) MemoryPhiArg(block->memoryExitSsaNum, memPhiArg);
             }
 
-            DBG_SSA_JITDUMP("  Added phi arg for Memory u:%d from " FMT_BB " in " FMT_BB ".\n", block->memoryExitSsaNum,
+            DBG_SSA_JITDUMP("Added PHI arg for Memory u:%d from " FMT_BB " in " FMT_BB ".\n", block->memoryExitSsaNum,
                             block->bbNum, succ->bbNum);
         }
 
@@ -1402,7 +1367,6 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
                 {
                     GenTree* tree = stmt->GetRootNode();
 
-                    // Check if the first n of the statements are phi nodes. If not, exit.
                     if (!tree->IsPhiDef())
                     {
                         break;
@@ -1415,19 +1379,16 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
                     // var is one of the args of the phi node.  If not, go on.
                     LclVarDsc* lclVarDsc = m_compiler->lvaGetDesc(lclNum);
 
-                    if (!lclVarDsc->HasLiveness() ||
-                        !VarSetOps::IsMember(m_compiler, block->bbLiveOut, lclVarDsc->GetLivenessBitIndex()))
+                    if (!VarSetOps::IsMember(m_compiler, block->bbLiveOut, lclVarDsc->GetLivenessBitIndex()))
                     {
                         continue;
                     }
 
-                    GenTreePhi* phi = tree->AsLclDef()->GetValue()->AsPhi();
-
+                    GenTreePhi*    phi = tree->AsLclDef()->GetValue()->AsPhi();
                     GenTreeLclDef* def = renameStack.Top(lclNum);
-                    assert(def->GetLclNum() == lclNum);
 
-                    // See if this ssaNum is already an arg to the phi.
                     bool alreadyArg = false;
+
                     for (GenTreePhi::Use& use : phi->Uses())
                     {
                         if (use.GetNode()->GetDef() == def)
@@ -1436,13 +1397,13 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
                             break;
                         }
                     }
+
                     if (!alreadyArg)
                     {
                         AddPhiArg(block, def, stmt, phi DEBUGARG(handlerStart));
                     }
                 }
 
-                // Now handle memory.
                 MemoryPhiArg*& memPhiArg = handlerStart->memoryPhi;
 
                 if (memPhiArg != nullptr)
@@ -1459,7 +1420,7 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
                     // occasional redundancy.
                     memPhiArg = new (m_compiler) MemoryPhiArg(block->memoryExitSsaNum, memPhiArg);
 
-                    DBG_SSA_JITDUMP("  Added phi arg for Memory u:%d from " FMT_BB " in " FMT_BB ".\n",
+                    DBG_SSA_JITDUMP("Added PHI arg for Memory u:%u from " FMT_BB " in " FMT_BB ".\n",
                                     block->memoryExitSsaNum, block->bbNum, handlerStart->bbNum);
                 }
 
