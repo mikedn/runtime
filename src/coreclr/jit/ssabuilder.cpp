@@ -568,6 +568,12 @@ void SsaBuilder::InsertPhiFunctions()
         block->bbPostOrderNum = 0;
     }
 
+    if (compiler->fgBBcount == 1)
+    {
+        ssa.SetDomTree(compiler->fgBuildDomTree());
+        return;
+    }
+
     unsigned     blockCount = compiler->fgBBNumMax + 1;
     BasicBlock** postOrder;
 
