@@ -29,7 +29,7 @@ private:
     void ComputeDominanceFrontiers(BasicBlock** postOrder, int count, BlockDFMap* mapDF);
     void ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMap* mapDF, BlockVector* bIDF);
 
-    void InsertPhiFunctions(BasicBlock** postOrder, int count, const BlockDFMap& mapDF);
+    void               InsertPhiFunctions();
     static GenTreePhi* GetPhiNode(BasicBlock* block, unsigned lclNum);
     void InsertPhi(BasicBlock* block, unsigned lclNum);
 
@@ -125,51 +125,14 @@ SsaBuilder::SsaBuilder(SsaOptimizer& ssa)
 
 void SsaBuilder::Build()
 {
-    unsigned blockCount = compiler->fgBBNumMax + 1;
-
-    JITDUMP("[SsaBuilder] Max block count is %d.\n", blockCount);
-
-    BasicBlock** postOrder;
-
-    if (blockCount > DEFAULT_MIN_OPTS_BB_COUNT)
-    {
-        postOrder = new (alloc) BasicBlock*[blockCount];
-    }
-    else
-    {
-        postOrder = static_cast<BasicBlock**>(alloca(blockCount * sizeof(BasicBlock*)));
-    }
-
-    // TODO-Cleanup: We currently have two dominance computations happening.  We should unify them; for
-    // now, at least forget the results of the first. Note that this does not clear fgDomTreePreOrder
-    // and fgDomTreePostOrder nor does the subsequent code call fgNumberDomTree once the new dominator
-    // tree is built. The pre/post order numbers that were generated previously and used for loop
-    // recognition are still being used by optPerformHoistExpr via fgCreateLoopPreHeader. That's rather
-    // odd, considering that SetupBBRoot may have added a new block.
-    for (BasicBlock* const block : compiler->Blocks())
-    {
-        block->bbIDom         = nullptr;
-        block->bbPostOrderNum = 0;
-    }
-
-    int count = TopologicalSort(postOrder, blockCount);
-    compiler->EndPhase(PHASE_BUILD_SSA_TOPOSORT);
-
-    ComputeImmediateDom(postOrder, count);
-
-    ssa.SetDomTree(compiler->fgBuildDomTree());
-    compiler->EndPhase(PHASE_BUILD_SSA_DOMS);
-
     for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
     {
         compiler->lvaGetDesc(lclNum)->m_isSsa = IncludeInSsa(lclNum);
     }
 
-    BlockDFMap mapDF(alloc);
-    ComputeDominanceFrontiers(postOrder, count, &mapDF);
-    compiler->EndPhase(PHASE_BUILD_SSA_DF);
-    InsertPhiFunctions(postOrder, count, mapDF);
+    InsertPhiFunctions();
     compiler->EndPhase(PHASE_BUILD_SSA_INSERT_PHIS);
+
     RenameVariables();
     compiler->EndPhase(PHASE_BUILD_SSA_RENAME);
 }
@@ -281,8 +244,6 @@ int SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
 
     // In the absence of EH (because catch/finally have no preds), this should be valid.
     // assert(postIndex == (count - 1));
-
-    JITDUMP("[SsaBuilder] Topologically sorted the graph.\n");
 
     return postIndex;
 }
@@ -593,9 +554,42 @@ void* MemoryPhiArg::operator new(size_t sz, Compiler* comp)
     return comp->getAllocator(CMK_MemoryPhiArg).allocate<char>(sz);
 }
 
-void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count, const BlockDFMap& mapDF)
+void SsaBuilder::InsertPhiFunctions()
 {
-    JITDUMP("*************** In SsaBuilder::InsertPhiFunctions()\n");
+    // TODO-Cleanup: We currently have two dominance computations happening.  We should unify them; for
+    // now, at least forget the results of the first. Note that this does not clear fgDomTreePreOrder
+    // and fgDomTreePostOrder nor does the subsequent code call fgNumberDomTree once the new dominator
+    // tree is built. The pre/post order numbers that were generated previously and used for loop
+    // recognition are still being used by optPerformHoistExpr via fgCreateLoopPreHeader. That's rather
+    // odd, considering that SetupBBRoot may have added a new block.
+    for (BasicBlock* const block : compiler->Blocks())
+    {
+        block->bbIDom         = nullptr;
+        block->bbPostOrderNum = 0;
+    }
+
+    unsigned     blockCount = compiler->fgBBNumMax + 1;
+    BasicBlock** postOrder;
+
+    if (blockCount > DEFAULT_MIN_OPTS_BB_COUNT)
+    {
+        postOrder = new (alloc) BasicBlock*[blockCount];
+    }
+    else
+    {
+        postOrder = static_cast<BasicBlock**>(alloca(blockCount * sizeof(BasicBlock*)));
+    }
+
+    int count = TopologicalSort(postOrder, blockCount);
+    compiler->EndPhase(PHASE_BUILD_SSA_TOPOSORT);
+
+    ComputeImmediateDom(postOrder, count);
+    ssa.SetDomTree(compiler->fgBuildDomTree());
+    compiler->EndPhase(PHASE_BUILD_SSA_DOMS);
+
+    BlockDFMap mapDF(alloc);
+    ComputeDominanceFrontiers(postOrder, count, &mapDF);
+    compiler->EndPhase(PHASE_BUILD_SSA_DF);
 
     // Use the same IDF vector for all blocks to avoid unnecessary memory allocations
     BlockVector blockIDF(alloc);
