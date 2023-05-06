@@ -488,22 +488,7 @@ typedef ptrdiff_t ssize_t;
 #define DOUBLE_ALIGN 0 // no special handling for double alignment
 #endif
 
-#ifdef DEBUG
-
-// Forward declarations for UninitializedWord and IsUninitialized are needed by alloc.h
-template <typename T>
-inline T UninitializedWord(Compiler* comp);
-
-template <typename T>
-inline bool IsUninitialized(T data);
-
-#endif // DEBUG
-
-/*****************************************************************************/
-
 #define castto(var, typ) (*(typ*)&var)
-
-/*****************************************************************************/
 
 #ifdef NO_MISALIGNED_ACCESS
 
@@ -576,16 +561,20 @@ private:
 
 #endif // COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE
 
-/*****************************************************************************/
-
 #include "error.h"
-
-/*****************************************************************************/
 
 #if CHECK_STRUCT_PADDING
 #pragma warning(push)
 #pragma warning(default : 4820) // 'bytes' bytes padding added after construct 'member_name'
-#endif                          // CHECK_STRUCT_PADDING
+#endif
+
+#ifdef DEBUG
+
+template <typename T>
+inline T UninitializedWord(Compiler* comp);
+
+#endif // DEBUG
+
 #include "alloc.h"
 #include "target.h"
 
@@ -682,22 +671,6 @@ inline T UninitializedWord(Compiler* comp)
     assert(defaultFill <= 0xff);
     __int64 word = 0x0101010101010101LL * defaultFill;
     return (T)word;
-}
-
-//****************************************************************************
-//
-//  Tries to determine if this value is coming from uninitialized JIT memory
-//    - Returns true if the value matches what we initialized the memory to.
-//
-//  Notes:
-//    - Asserts that use this are assuming that the UninitializedWord value
-//      isn't a legal value for 'data'.  Thus using a default fill value of
-//      0x00 will often trigger such asserts.
-//
-template <typename T>
-inline bool IsUninitialized(T data)
-{
-    return data == UninitializedWord<T>(JitTls::GetCompiler());
 }
 
 #endif // !defined(DEBUG)

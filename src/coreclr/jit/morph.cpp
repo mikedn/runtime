@@ -8298,9 +8298,7 @@ GenTree* Compiler::fgMorphStrCon(GenTreeStrCon* tree, Statement* stmt, BasicBloc
         }
     }
 
-    assert(tree->gtScpHnd == info.compScopeHnd || !IsUninitialized(tree->gtScpHnd));
-
-    LPVOID         pValue;
+    void*          pValue;
     InfoAccessType iat = info.compCompHnd->constructStringLiteral(tree->gtScpHnd, tree->gtSconCPX, &pValue);
 
     return fgMorphTree(gtNewStringLiteralNode(iat, pValue));

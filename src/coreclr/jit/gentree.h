@@ -2945,8 +2945,6 @@ struct GenTreeDblCon : public GenTree
 #endif
 };
 
-/* gtStrCon -- string  constant (GT_CNS_STR) */
-
 struct GenTreeStrCon : public GenTree
 {
     unsigned              gtSconCPX;
@@ -2958,10 +2956,9 @@ struct GenTreeStrCon : public GenTree
         : GenTree(GT_CNS_STR, TYP_REF DEBUGARG(largeNode)), gtSconCPX(sconCPX), gtScpHnd(mod)
     {
     }
+
 #if DEBUGGABLE_GENTREE
-    GenTreeStrCon() : GenTree()
-    {
-    }
+    GenTreeStrCon() = default;
 #endif
 };
 

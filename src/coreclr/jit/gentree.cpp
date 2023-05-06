@@ -7832,9 +7832,9 @@ void Compiler::gtDispTree(GenTree* tree, bool header, bool operands)
 void Compiler::gtDispTreeRec(
     GenTree* tree, IndentStack* indentStack, const char* msg, bool topOnly, bool isLIR, bool header)
 {
-    if ((tree == nullptr) || IsUninitialized(tree))
+    if (tree == nullptr)
     {
-        printf("Invalid tree node %p\n", tree);
+        printf("null tree\n", tree);
         return;
     }
 

@@ -3243,12 +3243,12 @@ int CodeGenInterface::genSPtoFPdelta() const
 
 int CodeGenInterface::genTotalFrameSize() const
 {
+    assert(calleeRegsPushed != UINT_MAX);
+
     // For varargs functions, we home all the incoming register arguments. They are not
     // included in the compCalleeRegsPushed count. This is like prespill on ARM32, but
     // since we don't use "push" instructions to save them, we don't have to do the
     // save of these varargs register arguments as the first thing in the prolog.
-
-    assert(!IsUninitialized(calleeRegsPushed));
 
     int totalFrameSize = (compiler->info.compIsVarArgs ? MAX_REG_ARG * REGSIZE_BYTES : 0) +
                          calleeRegsPushed * REGSIZE_BYTES + lclFrameSize;
