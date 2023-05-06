@@ -3307,11 +3307,9 @@ AGAIN:
                     printf("[1] Dist excess [S] = %d  \n", extra);
                 }
             }
-            if (EMITVERBOSE)
-            {
-                printf("Estimate of fwd jump [%08X/%03u]: %04X -> %04X = %04X\n", dspPtr(jmp),
-                       jmp->idDebugOnlyInfo()->idNum, srcInstrOffs, dstOffs, jmpDist);
-            }
+
+            JITDUMP("Estimate of fwd jump IN%04x: %04X -> %04X = %04X\n", jmp->idDebugOnlyInfo()->idNum, srcInstrOffs,
+                    dstOffs, jmpDist);
 #endif // DEBUG_EMIT
 
             if (extra <= 0)
@@ -3350,11 +3348,9 @@ AGAIN:
                     printf("[2] Dist excess [S] = %d  \n", extra);
                 }
             }
-            if (EMITVERBOSE)
-            {
-                printf("Estimate of bwd jump [%08X/%03u]: %04X -> %04X = %04X\n", dspPtr(jmp),
-                       jmp->idDebugOnlyInfo()->idNum, srcInstrOffs, dstOffs, jmpDist);
-            }
+
+            JITDUMP("Estimate of bwd jump IN%04x: %04X -> %04X = %04X\n", jmp->idDebugOnlyInfo()->idNum, srcInstrOffs,
+                    dstOffs, jmpDist);
 #endif // DEBUG_EMIT
 
             if (extra <= 0)
@@ -3537,13 +3533,7 @@ AGAIN:
         /* Make sure the size of the jump is marked correctly */
 
         assert((0 == (jsz | jmpDist)) || (jsz == jmp->idCodeSize()));
-
-#ifdef DEBUG
-        if (EMITVERBOSE)
-        {
-            printf("Shrinking jump [%08X/%03u]\n", dspPtr(jmp), jmp->idDebugOnlyInfo()->idNum);
-        }
-#endif
+        JITDUMP("Shrinking jump IN%04x\n", jmp->idDebugOnlyInfo()->idNum);
         noway_assert((unsigned short)sizeDif == sizeDif);
 
         adjIG += sizeDif;
@@ -3572,13 +3562,10 @@ AGAIN:
             {
                 break;
             }
-#ifdef DEBUG
-            if (EMITVERBOSE)
-            {
-                printf("Adjusted offset of " FMT_BB " from %04X to %04X\n", lstIG->igNum, lstIG->igOffs,
-                       lstIG->igOffs - adjIG);
-            }
-#endif // DEBUG
+
+            JITDUMP("Adjusted offset of " FMT_BB " from %04X to %04X\n", lstIG->igNum, lstIG->igOffs,
+                    lstIG->igOffs - adjIG);
+
             lstIG->igOffs -= adjIG;
             assert(IsCodeAligned(lstIG->igOffs));
         }

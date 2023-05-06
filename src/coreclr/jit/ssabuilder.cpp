@@ -2,26 +2,26 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
+#include "ssabuilder.h"
 #include "ssarenamestate.h"
 
 class SsaBuilder
 {
-    Compiler*      m_pCompiler;
-    CompAllocator  m_allocator;
-    BitVecTraits   m_visitedTraits;
-    BitVec         m_visited;
-    SsaRenameState m_renameStack;
+    SsaOptimizer& ssa;
+    Compiler*     compiler;
+    CompAllocator alloc;
+    BitVecTraits  m_visitedTraits;
+    BitVec        m_visited;
 
     using BlockVector = jitstd::vector<BasicBlock*>;
     using BlockDFMap  = JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, BlockVector>;
 
 public:
-    SsaBuilder(Compiler* compiler);
+    SsaBuilder(SsaOptimizer& ssa);
 
     void Build();
 
 private:
-    void SetupBBRoot();
     bool IncludeInSsa(unsigned lclNum);
     int TopologicalSort(BasicBlock** postOrder, int count);
     static BasicBlock* IntersectDom(BasicBlock* finger1, BasicBlock* finger2);
@@ -29,71 +29,50 @@ private:
     void ComputeDominanceFrontiers(BasicBlock** postOrder, int count, BlockDFMap* mapDF);
     void ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMap* mapDF, BlockVector* bIDF);
 
-    void InsertPhiFunctions(BasicBlock** postOrder, int count, const BlockDFMap& mapDF);
+    void               InsertPhiFunctions();
     static GenTreePhi* GetPhiNode(BasicBlock* block, unsigned lclNum);
     void InsertPhi(BasicBlock* block, unsigned lclNum);
-    void AddPhiArg(
-        BasicBlock* block, Statement* stmt, GenTreePhi* phi, unsigned lclNum, GenTreeLclDef* def, BasicBlock* pred);
 
     void RenameVariables();
-    void BlockRenameVariables(BasicBlock* block);
-    void RenameDef(GenTreeOp* asgNode, BasicBlock* block);
-    void RenamePhiDef(GenTreeLclDef* def, BasicBlock* block);
-    void RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block);
-
-    void AddDefToHandlerPhis(BasicBlock* block, unsigned lclNum, GenTreeLclDef* def);
-    void AddMemoryDefToHandlerPhis(BasicBlock* block, unsigned ssaNum);
-    void AddPhiArgsToSuccessors(BasicBlock* block);
 
     INDEBUG(void Print(BasicBlock** postOrder, int count);)
 };
 
-void Compiler::fgSsaBuild()
+PhaseStatus SsaOptimizer::DoSsaBuild()
 {
-    assert(!ssaForm);
-
-    SsaBuilder builder(this);
+    SsaBuilder builder(*this);
     builder.Build();
-    ssaForm = true;
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        JITDUMP("\nAfter fgSsaBuild:\n");
-        fgDispBasicBlocks(/*dumpTrees*/ true);
-    }
-#endif // DEBUG
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }
 
 #ifdef OPT_CONFIG
 
-void Compiler::fgSsaReset()
+void SsaOptimizer::Reset()
 {
-    assert(opts.optRepeat);
+    assert(compiler->opts.optRepeat);
     assert(JitConfig.JitOptRepeatCount() > 0);
 
-    fgDomsComputed = false;
-    optLoopCount   = 0;
-    optLoopTable   = nullptr;
-    INDEBUG(fgLocalVarLivenessDone = false;)
-    ssaForm          = false;
-    vnStore          = nullptr;
-    vnLoopTable      = nullptr;
-    apAssertionCount = 0;
-    apAssertionTable = nullptr;
+    compiler->fgDomsComputed = false;
+    compiler->optLoopCount   = 0;
+    compiler->optLoopTable   = nullptr;
+    INDEBUG(compiler->fgLocalVarLivenessDone = false;)
+    vnStore           = nullptr;
+    compiler->vnStore = nullptr;
 
-    for (unsigned i = 0; i < lvaCount; ++i)
+    memorySsaMap.RemoveAll();
+    memorySsaDefs.Reset();
+    assertionCount = 0;
+    assertionTable = nullptr;
+
+    for (unsigned i = 0; i < compiler->lvaCount; ++i)
     {
-        lvaTable[i].ClearSsa();
+        compiler->lvaTable[i].ClearSsa();
     }
 
-    lvMemoryPerSsaData.Reset();
-    m_memorySsaMap = nullptr;
-
-    for (BasicBlock* block : Blocks())
+    for (BasicBlock* block : compiler->Blocks())
     {
         block->bbFlags &= ~BBF_LOOP_FLAGS;
-        block->bbNatLoopNum      = BasicBlock::NOT_IN_LOOP;
+        block->SetLoopNum(NoLoopNum);
         block->bbPredsWithEH     = nullptr;
         block->memoryPhi         = nullptr;
         block->memoryEntrySsaNum = NoSsaNum;
@@ -125,128 +104,42 @@ void Compiler::fgSsaReset()
         }
     }
 
-    fgComputeReachability();
-    fgComputeDoms();
-    optFindLoops();
+    compiler->fgComputeReachability();
+    compiler->fgComputeDoms();
+    compiler->optFindLoops();
+
+    loopTable = compiler->optLoopTable;
+    loopCount = compiler->optLoopCount;
 }
 
 #endif // OPT_CONFIG
 
-SsaBuilder::SsaBuilder(Compiler* pCompiler)
-    : m_pCompiler(pCompiler)
-    , m_allocator(pCompiler->getAllocator(CMK_SSA))
-    , m_visitedTraits(0, pCompiler) // at this point we do not know the size, SetupBBRoot can add a block
-    , m_renameStack(m_allocator, pCompiler->lvaCount)
+SsaBuilder::SsaBuilder(SsaOptimizer& ssa)
+    : ssa(ssa)
+    , compiler(ssa.GetCompiler())
+    , alloc(compiler->getAllocator(CMK_SSA))
+    , m_visitedTraits(compiler->fgBBNumMax + 1, compiler)
+    , m_visited(BitVecOps::MakeEmpty(&m_visitedTraits))
 {
 }
 
 void SsaBuilder::Build()
 {
-    JITDUMP("*************** In SsaBuilder::Build()\n");
-
-    SetupBBRoot();
-
-    int blockCount = m_pCompiler->fgBBNumMax + 1;
-
-    JITDUMP("[SsaBuilder] Max block count is %d.\n", blockCount);
-
-    BasicBlock** postOrder;
-
-    if (blockCount > DEFAULT_MIN_OPTS_BB_COUNT)
+    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
     {
-        postOrder = new (m_allocator) BasicBlock*[blockCount];
-    }
-    else
-    {
-        postOrder = (BasicBlock**)alloca(blockCount * sizeof(BasicBlock*));
+        compiler->lvaGetDesc(lclNum)->m_isSsa = IncludeInSsa(lclNum);
     }
 
-    m_visitedTraits = BitVecTraits(blockCount, m_pCompiler);
-    m_visited       = BitVecOps::MakeEmpty(&m_visitedTraits);
+    InsertPhiFunctions();
+    compiler->EndPhase(PHASE_BUILD_SSA_INSERT_PHIS);
 
-    // TODO-Cleanup: We currently have two dominance computations happening.  We should unify them; for
-    // now, at least forget the results of the first. Note that this does not clear fgDomTreePreOrder
-    // and fgDomTreePostOrder nor does the subsequent code call fgNumberDomTree once the new dominator
-    // tree is built. The pre/post order numbers that were generated previously and used for loop
-    // recognition are still being used by optPerformHoistExpr via fgCreateLoopPreHeader. That's rather
-    // odd, considering that SetupBBRoot may have added a new block.
-    for (BasicBlock* const block : m_pCompiler->Blocks())
-    {
-        block->bbIDom         = nullptr;
-        block->bbPostOrderNum = 0;
-    }
-
-    int count = TopologicalSort(postOrder, blockCount);
-    m_pCompiler->EndPhase(PHASE_BUILD_SSA_TOPOSORT);
-
-    ComputeImmediateDom(postOrder, count);
-
-    m_pCompiler->fgSsaDomTree = m_pCompiler->fgBuildDomTree();
-    m_pCompiler->EndPhase(PHASE_BUILD_SSA_DOMS);
-
-    DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
-    m_pCompiler->lvaMarkLivenessTrackedLocals();
-    m_pCompiler->fgLocalVarLiveness();
-    m_pCompiler->EndPhase(PHASE_BUILD_SSA_LIVENESS);
-    DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
-
-    m_pCompiler->optRemoveRedundantZeroInits();
-    m_pCompiler->EndPhase(PHASE_ZERO_INITS);
-
-    for (unsigned lclNum = 0; lclNum < m_pCompiler->lvaCount; lclNum++)
-    {
-        m_pCompiler->lvaGetDesc(lclNum)->m_isSsa = IncludeInSsa(lclNum);
-    }
-
-    BlockDFMap mapDF(m_allocator);
-    ComputeDominanceFrontiers(postOrder, count, &mapDF);
-    m_pCompiler->EndPhase(PHASE_BUILD_SSA_DF);
-    InsertPhiFunctions(postOrder, count, mapDF);
-    m_pCompiler->EndPhase(PHASE_BUILD_SSA_INSERT_PHIS);
     RenameVariables();
-    m_pCompiler->EndPhase(PHASE_BUILD_SSA_RENAME);
-
-    DBEXEC(m_pCompiler->verboseSsa, Print(postOrder, count))
-}
-
-void SsaBuilder::SetupBBRoot()
-{
-    // Allocate a bbroot, if necessary.
-    // We need a unique block to be the root of the dominator tree.
-    // This can be violated if the first block is in a try, or if it is the first block of
-    // a loop (which would necessarily be an infinite loop) -- i.e., it has a predecessor.
-
-    // If neither condition holds, no reason to make a new block.
-    if (!m_pCompiler->fgFirstBB->hasTryIndex() && m_pCompiler->fgFirstBB->bbPreds == nullptr)
-    {
-        return;
-    }
-
-    BasicBlock* bbRoot = m_pCompiler->bbNewBasicBlock(BBJ_NONE);
-    bbRoot->bbFlags |= BBF_INTERNAL;
-
-    // May need to fix up preds list, so remember the old first block.
-    BasicBlock* oldFirst = m_pCompiler->fgFirstBB;
-
-    assert(!m_pCompiler->fgLocalVarLivenessDone);
-
-    // Copy the bbWeight.  (This is technically wrong, if the first block is a loop head, but
-    // it shouldn't matter...)
-    bbRoot->inheritWeight(oldFirst);
-
-    // There's an artifical incoming reference count for the first BB.  We're about to make it no longer
-    // the first BB, so decrement that.
-    assert(oldFirst->bbRefs > 0);
-    oldFirst->bbRefs--;
-
-    m_pCompiler->fgInsertBBbefore(m_pCompiler->fgFirstBB, bbRoot);
-    assert(m_pCompiler->fgFirstBB == bbRoot);
-    m_pCompiler->fgAddRefPred(oldFirst, bbRoot);
+    compiler->EndPhase(PHASE_BUILD_SSA_RENAME);
 }
 
 bool SsaBuilder::IncludeInSsa(unsigned lclNum)
 {
-    LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
     if (!lcl->HasLiveness())
     {
@@ -263,7 +156,7 @@ bool SsaBuilder::IncludeInSsa(unsigned lclNum)
 
     if (lcl->IsPromotedField())
     {
-        LclVarDsc* parentLcl = m_pCompiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
+        LclVarDsc* parentLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
         if (parentLcl->IsDependentPromoted() || parentLcl->lvIsMultiRegRet)
         {
@@ -281,7 +174,7 @@ bool SsaBuilder::IncludeInSsa(unsigned lclNum)
 
 int SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
 {
-    Compiler* comp = m_pCompiler;
+    Compiler* comp = compiler;
 
     // TopologicalSort is called first so m_visited should already be empty
     assert(BitVecOps::IsEmpty(&m_visitedTraits, m_visited));
@@ -319,7 +212,7 @@ int SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
     BasicBlock* block     = comp->fgFirstBB;
     BitVecOps::AddElemD(&m_visitedTraits, m_visited, block->bbNum);
 
-    ArrayStack<AllSuccessorEnumerator> blocks(m_allocator);
+    ArrayStack<AllSuccessorEnumerator> blocks(alloc);
     blocks.Emplace(comp, block);
     DumpBlockAndSuccessors(comp, block);
 
@@ -351,8 +244,6 @@ int SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
 
     // In the absence of EH (because catch/finally have no preds), this should be valid.
     // assert(postIndex == (count - 1));
-
-    JITDUMP("[SsaBuilder] Topologically sorted the graph.\n");
 
     return postIndex;
 }
@@ -396,9 +287,9 @@ void SsaBuilder::ComputeImmediateDom(BasicBlock** postOrder, int count)
 
     // Add entry point to visited as its IDom is NULL.
     BitVecOps::ClearD(&m_visitedTraits, m_visited);
-    BitVecOps::AddElemD(&m_visitedTraits, m_visited, m_pCompiler->fgFirstBB->bbNum);
+    BitVecOps::AddElemD(&m_visitedTraits, m_visited, compiler->fgFirstBB->bbNum);
 
-    assert(postOrder[count - 1] == m_pCompiler->fgFirstBB);
+    assert(postOrder[count - 1] == compiler->fgFirstBB);
 
     bool changed = true;
     while (changed)
@@ -413,7 +304,7 @@ void SsaBuilder::ComputeImmediateDom(BasicBlock** postOrder, int count)
             DBG_SSA_JITDUMP("Visiting in reverse post order: " FMT_BB ".\n", block->bbNum);
 
             // Find the first processed predecessor block.
-            flowList*   predList  = m_pCompiler->BlockPredsWithEH(block);
+            flowList*   predList  = compiler->BlockPredsWithEH(block);
             BasicBlock* predBlock = nullptr;
             for (flowList* pred = predList; pred != nullptr; pred = pred->flNext)
             {
@@ -487,7 +378,7 @@ void SsaBuilder::ComputeDominanceFrontiers(BasicBlock** postOrder, int count, Bl
         // of its immediate predecessors.  If there are zero or one preds, then there
         // is no pred, or else the single pred dominates "block", so no B2 exists.
 
-        flowList* blockPreds = m_pCompiler->BlockPredsWithEH(block);
+        flowList* blockPreds = compiler->BlockPredsWithEH(block);
 
         // If block has 0/1 predecessor, skip.
         if ((blockPreds == nullptr) || (blockPreds->flNext == nullptr))
@@ -517,7 +408,7 @@ void SsaBuilder::ComputeDominanceFrontiers(BasicBlock** postOrder, int count, Bl
                 DBG_SSA_JITDUMP("      Adding " FMT_BB " to dom frontier of pred dom " FMT_BB ".\n", block->bbNum,
                                 b1->bbNum);
 
-                BlockVector& b1DF = *mapDF->Emplace(b1, m_allocator);
+                BlockVector& b1DF = *mapDF->Emplace(b1, alloc);
                 // It's possible to encounter the same DF multiple times, ensure that we don't add duplicates.
                 if (b1DF.empty() || (b1DF.back() != block))
                 {
@@ -528,7 +419,7 @@ void SsaBuilder::ComputeDominanceFrontiers(BasicBlock** postOrder, int count, Bl
     }
 
 #ifdef DEBUG
-    if (m_pCompiler->verboseSsa)
+    if (compiler->verboseSsa)
     {
         printf("\nComputed DF:\n");
         for (int i = 0; i < count; ++i)
@@ -593,7 +484,7 @@ void SsaBuilder::ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMa
     }
 
 #ifdef DEBUG
-    if (m_pCompiler->verboseSsa)
+    if (compiler->verboseSsa)
     {
         printf("IDF(" FMT_BB ") := {", b->bbNum);
         int index = 0;
@@ -628,16 +519,16 @@ GenTreePhi* SsaBuilder::GetPhiNode(BasicBlock* block, unsigned lclNum)
 
 void SsaBuilder::InsertPhi(BasicBlock* block, unsigned lclNum)
 {
-    var_types type = m_pCompiler->lvaGetDesc(lclNum)->GetType();
+    var_types type = compiler->lvaGetDesc(lclNum)->GetType();
 
-    GenTreePhi* phi = new (m_pCompiler, GT_PHI) GenTreePhi(type);
+    GenTreePhi* phi = new (compiler, GT_PHI) GenTreePhi(type);
     phi->SetCosts(0, 0);
 
-    GenTreeLclDef* def = new (m_pCompiler, GT_LCL_DEF) GenTreeLclDef(phi, block, lclNum, SsaConfig::RESERVED_SSA_NUM);
+    GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(phi, block, lclNum, SsaConfig::RESERVED_SSA_NUM);
     def->gtFlags       = GTF_VAR_DEF | GTF_ASG;
     def->SetCosts(0, 0);
 
-    Statement* stmt = m_pCompiler->gtNewStmt(def);
+    Statement* stmt = compiler->gtNewStmt(def);
     stmt->SetTreeList(phi);
     phi->gtNext = def;
     def->gtPrev = phi;
@@ -650,60 +541,64 @@ void SsaBuilder::InsertPhi(BasicBlock* block, unsigned lclNum)
     }
 #endif // DEBUG
 
-    m_pCompiler->fgInsertStmtAtBeg(block, stmt);
+    compiler->fgInsertStmtAtBeg(block, stmt);
 
     JITDUMP("Added PHI definition for V%02u at start of " FMT_BB ".\n", lclNum, block->bbNum);
 }
 
-void SsaBuilder::AddPhiArg(
-    BasicBlock* block, Statement* stmt, GenTreePhi* phi, unsigned lclNum, GenTreeLclDef* def, BasicBlock* pred)
+// Special value to represent a to-be-filled in Memory Phi arg list.
+static MemoryPhiArg EmptyMemoryPhiDef(0, nullptr);
+
+void* MemoryPhiArg::operator new(size_t sz, Compiler* comp)
 {
-#ifdef DEBUG
-    // Make sure it isn't already present: we should only add each definition once.
-    for (GenTreePhi::Use& use : phi->Uses())
-    {
-        assert(use.GetNode()->GetDef() != def);
-    }
-#endif // DEBUG
-
-    GenTreeLclUse* use = new (m_pCompiler, GT_LCL_USE) GenTreeLclUse(def, pred);
-    // We need to keep PHI args (e.g. we can't propagate a constant to a PHI arg).
-    // TODO-MIKE-SSA: This may be unreliable, only some transforms check GTF_DONT_CSE.
-    use->gtFlags |= GTF_DONT_CSE;
-    // Costs are not relevant for PHI args.
-    use->SetCosts(0, 0);
-    // The argument order doesn't matter so just insert at the front of the list because
-    // it's easier. It's also easier to insert in linear order since the first argument
-    // will be first in linear order as well.
-    phi->m_uses = new (m_pCompiler, CMK_ASTNode) GenTreePhi::Use(use, phi->m_uses);
-
-    GenTree* head = stmt->GetTreeList();
-    assert(head->OperIs(GT_PHI, GT_LCL_USE));
-    stmt->SetTreeList(use);
-    use->gtNext  = head;
-    head->gtPrev = use;
-
-#ifdef DEBUG
-    unsigned seqNum = 1;
-    for (GenTree* const node : stmt->TreeList())
-    {
-        node->gtSeqNum = seqNum++;
-    }
-#endif // DEBUG
-
-    DBG_SSA_JITDUMP("Added PHI arg u:%d for V%02u from " FMT_BB " in " FMT_BB ".\n", def->GetSsaNum(), lclNum,
-                    pred->bbNum, block->bbNum);
+    return comp->getAllocator(CMK_MemoryPhiArg).allocate<char>(sz);
 }
 
-// Special value to represent a to-be-filled in Memory Phi arg list.
-static BasicBlock::MemoryPhiArg EmptyMemoryPhiDef(0, nullptr);
-
-void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count, const BlockDFMap& mapDF)
+void SsaBuilder::InsertPhiFunctions()
 {
-    JITDUMP("*************** In SsaBuilder::InsertPhiFunctions()\n");
+    // TODO-Cleanup: We currently have two dominance computations happening.  We should unify them; for
+    // now, at least forget the results of the first. Note that this does not clear fgDomTreePreOrder
+    // and fgDomTreePostOrder nor does the subsequent code call fgNumberDomTree once the new dominator
+    // tree is built. The pre/post order numbers that were generated previously and used for loop
+    // recognition are still being used by optPerformHoistExpr via fgCreateLoopPreHeader. That's rather
+    // odd, considering that SetupBBRoot may have added a new block.
+    for (BasicBlock* const block : compiler->Blocks())
+    {
+        block->bbIDom         = nullptr;
+        block->bbPostOrderNum = 0;
+    }
+
+    if (compiler->fgBBcount == 1)
+    {
+        ssa.SetDomTree(compiler->fgBuildDomTree());
+        return;
+    }
+
+    unsigned     blockCount = compiler->fgBBNumMax + 1;
+    BasicBlock** postOrder;
+
+    if (blockCount > DEFAULT_MIN_OPTS_BB_COUNT)
+    {
+        postOrder = new (alloc) BasicBlock*[blockCount];
+    }
+    else
+    {
+        postOrder = static_cast<BasicBlock**>(alloca(blockCount * sizeof(BasicBlock*)));
+    }
+
+    int count = TopologicalSort(postOrder, blockCount);
+    compiler->EndPhase(PHASE_BUILD_SSA_TOPOSORT);
+
+    ComputeImmediateDom(postOrder, count);
+    ssa.SetDomTree(compiler->fgBuildDomTree());
+    compiler->EndPhase(PHASE_BUILD_SSA_DOMS);
+
+    BlockDFMap mapDF(alloc);
+    ComputeDominanceFrontiers(postOrder, count, &mapDF);
+    compiler->EndPhase(PHASE_BUILD_SSA_DF);
 
     // Use the same IDF vector for all blocks to avoid unnecessary memory allocations
-    BlockVector blockIDF(m_allocator);
+    BlockVector blockIDF(alloc);
 
     for (int i = 0; i < count; ++i)
     {
@@ -719,10 +614,10 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count, const Blo
         }
 
         // For each local var number "lclNum" that "block" assigns to...
-        for (VarSetOps::Enumerator en(m_pCompiler, block->bbVarDef); en.MoveNext();)
+        for (VarSetOps::Enumerator en(compiler, block->bbVarDef); en.MoveNext();)
         {
-            unsigned   lclNum = m_pCompiler->lvaTrackedIndexToLclNum(en.Current());
-            LclVarDsc* lcl    = m_pCompiler->lvaGetDesc(lclNum);
+            unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(en.Current());
+            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
             DBG_SSA_JITDUMP("  Considering local var V%02u:\n", lclNum);
 
             if (!lcl->IsSsa())
@@ -738,7 +633,7 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count, const Blo
                                 block->bbNum);
 
                 // Check if variable "lclNum" is live in block "*iterBlk".
-                if (!VarSetOps::IsMember(m_pCompiler, bbInDomFront->bbLiveIn, en.Current()))
+                if (!VarSetOps::IsMember(compiler, bbInDomFront->bbLiveIn, en.Current()))
                 {
                     continue;
                 }
@@ -781,7 +676,155 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count, const Blo
     }
 }
 
-void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
+class SsaRenameDomTreeVisitor : public DomTreeVisitor<SsaRenameDomTreeVisitor>
+{
+    SsaOptimizer&  ssa;
+    CompAllocator  alloc;
+    SsaRenameState renameStack;
+
+public:
+    SsaRenameDomTreeVisitor(SsaOptimizer& ssa)
+        : DomTreeVisitor(ssa.GetCompiler(), ssa.GetDomTree())
+        , ssa(ssa)
+        , alloc(m_compiler->getAllocator(CMK_SSA))
+        , renameStack(alloc, m_compiler->lvaCount)
+    {
+    }
+
+    void Begin()
+    {
+        Compiler*   compiler   = m_compiler;
+        BasicBlock* firstBlock = compiler->fgFirstBB;
+
+        // The first thing we do is treat parameters and must-init variables as if they have a
+        // virtual definition before entry -- they start out at SSA name 1.
+        GenTreeLclDef* firstInitSsaDef = nullptr;
+        GenTreeLclDef* lastInitSsaDef  = nullptr;
+
+        for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+        {
+            LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
+            if (lcl->IsSsa() && VarSetOps::IsMember(compiler, firstBlock->bbLiveIn, lcl->GetLivenessBitIndex()))
+            {
+                unsigned ssaNum = lcl->AllocSsaNum(alloc);
+                // HasImplicitSsaDef assumes that this is always the first SSA def.
+                assert(ssaNum == SsaConfig::FIRST_SSA_NUM);
+
+                // TODO-MIKE-SSA: Having a SSA_UNDEF oper might be better than using a LCL_VAR
+                // as a fake def value. It saves a bit of memory by not allocating an extra
+                // node and avoids the weird situation of still having LCL_VAR nodes for locals
+                // that are supposed to be in SSA form. Though these nodes are not part of any
+                // basic block so they're invisible to anything except SSA code, which can treat
+                // them specially (by basically ignoring them).
+
+                GenTreeLclVar* arg = compiler->gtNewLclvNode(lclNum, lcl->GetType());
+                GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lclNum, ssaNum);
+
+                renameStack.Push(firstBlock, lclNum, def);
+
+                if (firstInitSsaDef == nullptr)
+                {
+                    firstInitSsaDef = def;
+                    lastInitSsaDef  = def;
+                }
+                else
+                {
+                    lastInitSsaDef->gtNext = def;
+                    lastInitSsaDef         = def;
+                }
+            }
+        }
+
+        ssa.SetInitSsaDefs(firstInitSsaDef);
+
+        // In ValueNum we'd assume un-inited memory gets FIRST_SSA_NUM.
+        // The memory is a parameter.  Use FIRST_SSA_NUM as first SSA name.
+        unsigned initMemorySsaNum = ssa.AllocMemorySsaNum();
+        assert(initMemorySsaNum == SsaConfig::FIRST_SSA_NUM);
+
+        renameStack.PushMemory(firstBlock, initMemorySsaNum);
+
+        // Initialize the memory ssa numbers for unreachable blocks. ValueNum expects
+        // memory ssa numbers to have some intitial value.
+        for (BasicBlock* const block : compiler->Blocks())
+        {
+            if (block->bbIDom == nullptr)
+            {
+                block->memoryEntrySsaNum = initMemorySsaNum;
+                block->memoryExitSsaNum  = initMemorySsaNum;
+            }
+        }
+
+        compiler->optMethodFlags &= ~(OMF_HAS_ARRAYREF | OMF_HAS_NEWARRAY | OMF_HAS_NULLCHECK);
+    }
+
+    void PreOrderVisit(BasicBlock* block)
+    {
+        BlockRenameVariables(block);
+        AddPhiArgsToSuccessors(block);
+    }
+
+    void PostOrderVisit(BasicBlock* block)
+    {
+        renameStack.PopBlockStacks(block);
+    }
+
+private:
+    void BlockRenameVariables(BasicBlock* block);
+    void RenameDef(GenTreeOp* asgNode, BasicBlock* block);
+    void RenamePhiDef(GenTreeLclDef* def, BasicBlock* block);
+    void RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block);
+
+    void AddDefToHandlerPhis(BasicBlock* block, GenTreeLclDef* def);
+    void AddMemoryDefToHandlerPhis(BasicBlock* block, unsigned ssaNum);
+    void AddPhiArgsToSuccessors(BasicBlock* block);
+    void AddPhiArg(BasicBlock* pred, GenTreeLclDef* def, Statement* stmt, GenTreePhi* phi DEBUGARG(BasicBlock* block));
+};
+
+void SsaRenameDomTreeVisitor::AddPhiArg(BasicBlock*    pred,
+                                        GenTreeLclDef* def,
+                                        Statement*     stmt,
+                                        GenTreePhi* phi DEBUGARG(BasicBlock* block))
+{
+#ifdef DEBUG
+    // Make sure it isn't already present: we should only add each definition once.
+    for (GenTreePhi::Use& use : phi->Uses())
+    {
+        assert(use.GetNode()->GetDef() != def);
+    }
+#endif // DEBUG
+
+    GenTreeLclUse* use = new (m_compiler, GT_LCL_USE) GenTreeLclUse(def, pred);
+    // We need to keep PHI args (e.g. we can't propagate a constant to a PHI arg).
+    // TODO-MIKE-SSA: This may be unreliable, only some transforms check GTF_DONT_CSE.
+    use->gtFlags |= GTF_DONT_CSE;
+    // Costs are not relevant for PHI args.
+    use->SetCosts(0, 0);
+    // The argument order doesn't matter so just insert at the front of the list because
+    // it's easier. It's also easier to insert in linear order since the first argument
+    // will be first in linear order as well.
+    phi->m_uses = new (m_compiler, CMK_ASTNode) GenTreePhi::Use(use, phi->m_uses);
+
+    GenTree* head = stmt->GetNodeList();
+    assert(head->OperIs(GT_PHI, GT_LCL_USE));
+    stmt->SetNodeList(use);
+    use->gtNext  = head;
+    head->gtPrev = use;
+
+#ifdef DEBUG
+    unsigned seqNum = 1;
+    for (GenTree* const node : stmt->Nodes())
+    {
+        node->gtSeqNum = seqNum++;
+    }
+#endif // DEBUG
+
+    DBG_SSA_JITDUMP("Added PHI arg u:%d for V%02u from " FMT_BB " in " FMT_BB ".\n", def->GetSsaNum(), def->GetLclNum(),
+                    pred->bbNum, block->bbNum);
+}
+
+void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 {
     assert(asgNode->OperIs(GT_ASG));
 
@@ -791,7 +834,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
     {
         GenTreeLclVarCommon* lclNode = dst->AsLclVarCommon();
         unsigned             lclNum  = lclNode->GetLclNum();
-        LclVarDsc*           lcl     = m_pCompiler->lvaGetDesc(lclNum);
+        LclVarDsc*           lcl     = m_compiler->lvaGetDesc(lclNum);
 
         if (lcl->IsSsa())
         {
@@ -815,17 +858,17 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
             }
 
             GenTree* value  = asgNode->GetOp(1);
-            unsigned ssaNum = lcl->AllocSsaNum(m_allocator);
+            unsigned ssaNum = lcl->AllocSsaNum(alloc);
 
             if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
             {
                 GenTree* structValue;
 
-                if (lclFld->IsPartialLclFld(m_pCompiler))
+                if (lclFld->IsPartialLclFld(m_compiler))
                 {
                     assert((lclFld->gtFlags & GTF_VAR_USEASG) != 0);
 
-                    structValue = new (m_pCompiler, GT_LCL_USE) GenTreeLclUse(m_renameStack.Top(lclNum), block);
+                    structValue = new (m_compiler, GT_LCL_USE) GenTreeLclUse(renameStack.Top(lclNum), block);
                     // TODO-MIKE-SSA: This is messy, we can't allow 0 to propagate to this
                     // use because we drop it on the floor when we destroy the SSA form.
                     // Destroy SSA needs to deal with this by adding a STORE_LCL_VAR(lclNum, 0)
@@ -843,7 +886,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
                     // because it will simply insert the field value using the field seq
                     // into a zero map, and then cast the struct to the layout of the def.
                     // We won't be able to CSE the INSERT but we should not need that.
-                    structValue = m_pCompiler->gtNewIconNode(0, TYP_INT);
+                    structValue = m_compiler->gtNewIconNode(0, TYP_INT);
                 }
                 else
                 {
@@ -852,7 +895,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
                     // TODO-MIKE-SSA: Using INSERT/EXTRACT with non-STRUCT types is dubious,
                     // 64 bit BITCASTs on 32 bit targets and shift/bitwise ops for oddities
                     // like (((byte*)&int_local) + 1) = 42; should avoid this this mess.
-                    structValue = m_pCompiler->gtNewZeroConNode(lcl->GetType());
+                    structValue = m_compiler->gtNewZeroConNode(lcl->GetType());
                 }
 
                 structValue->SetCosts(0, 0);
@@ -896,14 +939,11 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
             def->SetType(lcl->lvNormalizeOnStore() ? varActualType(lcl->GetType()) : lcl->GetType());
             def->gtFlags = defFlags | value->GetSideEffects() | GTF_ASG;
 
-            m_renameStack.Push(block, lclNum, def->AsLclDef());
+            renameStack.Push(block, lclNum, def->AsLclDef());
 
-            // If necessary, add "lclNum/ssaNum" to the arg list of a phi def in any
-            // handlers for try blocks that "block" is within.  (But only do this for "real" definitions,
-            // not phi definitions.)
             if (!value->IsPhi())
             {
-                AddDefToHandlerPhis(block, lclNum, def->AsLclDef());
+                AddDefToHandlerPhis(block, def->AsLclDef());
             }
 
             return;
@@ -917,11 +957,11 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 
     // Figure out if "asgNode" may make a new GC heap state (if we care for this block).
     // TODO-MIKE-Review: Looks like this misses HWINTRINSIC memory stores...
-    if (!block->bbMemoryHavoc && m_pCompiler->ehBlockHasExnFlowDsc(block))
+    if (!block->bbMemoryHavoc && m_compiler->ehBlockHasExnFlowDsc(block))
     {
-        unsigned ssaNum = m_pCompiler->lvMemoryPerSsaData.AllocSsaNum(m_allocator);
-        m_renameStack.PushMemory(block, ssaNum);
-        m_pCompiler->GetMemorySsaMap()->Set(asgNode, ssaNum);
+        unsigned ssaNum = ssa.AllocMemorySsaNum();
+        renameStack.PushMemory(block, ssaNum);
+        ssa.SetMemorySsaNum(asgNode, ssaNum);
 
         DBG_SSA_JITDUMP("Node [%06u] in try block defines memory; SSA #%u.\n", asgNode->GetID(), ssaNum);
 
@@ -929,22 +969,22 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
     }
 }
 
-void SsaBuilder::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block)
+void SsaRenameDomTreeVisitor::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block)
 {
     unsigned   lclNum = def->GetLclNum();
-    LclVarDsc* lcl    = m_pCompiler->lvaGetDesc(lclNum);
+    LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
 
-    def->SetSsaNum(lcl->AllocSsaNum(m_allocator));
-    m_renameStack.Push(block, lclNum, def);
+    def->SetSsaNum(lcl->AllocSsaNum(alloc));
+    renameStack.Push(block, lclNum, def);
 }
 
-void SsaBuilder::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block)
+void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block)
 {
     assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
     assert((lclNode->gtFlags & GTF_VAR_DEF) == 0);
 
     unsigned   lclNum = lclNode->GetLclNum();
-    LclVarDsc* lcl    = m_pCompiler->lvaGetDesc(lclNum);
+    LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
 
     if (!lcl->IsSsa())
     {
@@ -954,11 +994,11 @@ void SsaBuilder::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, Bas
     // Promoted variables are not in SSA, only their fields are.
     assert(!lcl->IsPromoted());
 
-    GenTreeLclDef* def = m_renameStack.Top(lclNum);
+    GenTreeLclDef* def = renameStack.Top(lclNum);
 
     if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
     {
-        GenTreeLclUse* use = new (m_pCompiler, GT_LCL_USE) GenTreeLclUse(def, block);
+        GenTreeLclUse* use = new (m_compiler, GT_LCL_USE) GenTreeLclUse(def, block);
         use->SetCosts(0, 0);
         use->gtFlags |= lclNode->gtFlags & GTF_VAR_DEATH;
 
@@ -974,7 +1014,7 @@ void SsaBuilder::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, Bas
         extract->SetStructValue(use);
 
         // Block constant propagation when EXTRACT is used as a form of reinterpretation,
-        // we risk ending up with FP constants that fgSsaDestroy doesn't know how to handle.
+        // we risk ending up with FP constants that phSsaDestroy doesn't know how to handle.
         if (!use->TypeIs(TYP_STRUCT))
         {
             use->gtFlags |= GTF_DONT_CSE;
@@ -1006,85 +1046,70 @@ void SsaBuilder::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, Bas
     }
 }
 
-void SsaBuilder::AddDefToHandlerPhis(BasicBlock* block, unsigned lclNum, GenTreeLclDef* def)
+void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, GenTreeLclDef* def)
 {
-    assert(m_pCompiler->lvaTable[lclNum].lvTracked); // Precondition.
-    unsigned lclIndex = m_pCompiler->lvaTable[lclNum].lvVarIndex;
+    unsigned  lclIndex  = m_compiler->lvaGetDesc(def->GetLclNum())->GetLivenessBitIndex();
+    EHblkDsc* tryRegion = m_compiler->ehGetBlockExnFlowDsc(block);
 
-    EHblkDsc* tryBlk = m_pCompiler->ehGetBlockExnFlowDsc(block);
-    if (tryBlk != nullptr)
+    while (tryRegion != nullptr)
     {
-        DBG_SSA_JITDUMP("Definition of local V%02u/d:%d in block " FMT_BB
-                        " has exn handler; adding as phi arg to handlers.\n",
-                        lclNum, def->GetSsaNum(), block->bbNum);
-        while (true)
+        BasicBlock* handler = tryRegion->ExFlowBlock();
+
+        if (VarSetOps::IsMember(m_compiler, handler->bbLiveIn, lclIndex))
         {
-            BasicBlock* handler = tryBlk->ExFlowBlock();
+            DBG_SSA_JITDUMP("Adding PHI arg for def V%02u#%u in block " FMT_BB " to exception handler" FMT_BB ".\n",
+                            def->GetLclNum(), def->GetSsaNum(), block->bbNum, handler->bbNum);
 
-            // Is "lclNum" live on entry to the handler?
-            if (VarSetOps::IsMember(m_pCompiler, handler->bbLiveIn, lclIndex))
+            INDEBUG(bool phiFound = false);
+
+            for (Statement* const stmt : handler->Statements())
             {
-#ifdef DEBUG
-                bool phiFound = false;
-#endif
-                // A prefix of blocks statements will be SSA definitions.  Search those for "lclNum".
-                for (Statement* const stmt : handler->Statements())
+                GenTree* tree = stmt->GetRootNode();
+
+                if (!tree->IsPhiDef())
                 {
-                    GenTree* tree = stmt->GetRootNode();
-
-                    // If the tree is not an SSA def, break out of the loop: we're done.
-                    if (!tree->IsPhiDef())
-                    {
-                        break;
-                    }
-
-                    if (tree->AsLclDef()->GetLclNum() == lclNum)
-                    {
-                        // It's the definition for the right local.  Add "ssaNum" to the RHS.
-                        AddPhiArg(handler, stmt, tree->AsLclDef()->GetValue()->AsPhi(), lclNum, def, block);
-#ifdef DEBUG
-                        phiFound = true;
-#endif
-                        break;
-                    }
+                    break;
                 }
-                assert(phiFound);
+
+                if (tree->AsLclDef()->GetLclNum() == def->GetLclNum())
+                {
+                    AddPhiArg(block, def, stmt, tree->AsLclDef()->GetValue()->AsPhi() DEBUGARG(handler));
+                    INDEBUG(phiFound = true);
+                    break;
+                }
             }
 
-            unsigned nextTryIndex = tryBlk->ebdEnclosingTryIndex;
-            if (nextTryIndex == EHblkDsc::NO_ENCLOSING_INDEX)
-            {
-                break;
-            }
-
-            tryBlk = m_pCompiler->ehGetDsc(nextTryIndex);
+            assert(phiFound);
         }
+
+        tryRegion = tryRegion->ebdEnclosingTryIndex == EHblkDsc::NO_ENCLOSING_INDEX
+                        ? nullptr
+                        : m_compiler->ehGetDsc(tryRegion->ebdEnclosingTryIndex);
     }
 }
 
-void SsaBuilder::AddMemoryDefToHandlerPhis(BasicBlock* block, unsigned ssaNum)
+void SsaRenameDomTreeVisitor::AddMemoryDefToHandlerPhis(BasicBlock* block, unsigned ssaNum)
 {
-    assert(m_pCompiler->ehBlockHasExnFlowDsc(block));
+    assert(m_compiler->ehBlockHasExnFlowDsc(block));
 
     // Don't do anything for a compiler-inserted BBJ_ALWAYS that is a "leave helper".
-    if ((block->bbFlags & BBF_INTERNAL) && block->isBBCallAlwaysPairTail())
+    if (((block->bbFlags & BBF_INTERNAL) != 0) && block->isBBCallAlwaysPairTail())
     {
         return;
     }
 
-    // Otherwise...
-    DBG_SSA_JITDUMP("Definition of Memory:%u in block " FMT_BB " has exn handler; adding as phi arg to handlers.\n",
-                    ssaNum, block->bbNum);
-    EHblkDsc* tryBlk = m_pCompiler->ehGetBlockExnFlowDsc(block);
-    while (true)
-    {
-        BasicBlock* handler = tryBlk->ExFlowBlock();
+    EHblkDsc* tryRegion = m_compiler->ehGetBlockExnFlowDsc(block);
 
-        // Is memoryKind live on entry to the handler?
+    while (tryRegion != nullptr)
+    {
+        BasicBlock* handler = tryRegion->ExFlowBlock();
+
         if (handler->bbMemoryLiveIn)
         {
-            // Add "ssaNum" to the phi args of memoryKind.
-            BasicBlock::MemoryPhiArg*& phiArg = handler->memoryPhi;
+            DBG_SSA_JITDUMP("Adding PHI arg for memory def %u in block " FMT_BB " to exception handler" FMT_BB ".\n",
+                            ssaNum, block->bbNum, handler->bbNum);
+
+            MemoryPhiArg*& phiArg = handler->memoryPhi;
 
             if (phiArg == &EmptyMemoryPhiDef)
             {
@@ -1092,77 +1117,69 @@ void SsaBuilder::AddMemoryDefToHandlerPhis(BasicBlock* block, unsigned ssaNum)
             }
 
 #ifdef DEBUG
-            for (auto arg = phiArg; arg != nullptr; arg = arg->GetNext())
+            for (MemoryPhiArg* arg = phiArg; arg != nullptr; arg = arg->GetNext())
             {
                 assert(arg->GetSsaNum() != ssaNum);
             }
 #endif
 
-            phiArg = new (m_pCompiler) BasicBlock::MemoryPhiArg(ssaNum, phiArg);
+            phiArg = new (m_compiler) MemoryPhiArg(ssaNum, phiArg);
+        }
 
-            DBG_SSA_JITDUMP("   Added phi arg u:%u for Memory to phi defn in handler block " FMT_BB ".\n", ssaNum,
-                            handler->bbNum);
-        }
-        unsigned tryInd = tryBlk->ebdEnclosingTryIndex;
-        if (tryInd == EHblkDsc::NO_ENCLOSING_INDEX)
-        {
-            break;
-        }
-        tryBlk = m_pCompiler->ehGetDsc(tryInd);
+        tryRegion = tryRegion->ebdEnclosingTryIndex == EHblkDsc::NO_ENCLOSING_INDEX
+                        ? nullptr
+                        : m_compiler->ehGetDsc(tryRegion->ebdEnclosingTryIndex);
     }
 }
 
-void SsaBuilder::BlockRenameVariables(BasicBlock* block)
+void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
 {
-    // First handle the incoming memory state.
     if (block->memoryPhi != nullptr)
     {
-        unsigned ssaNum = m_pCompiler->lvMemoryPerSsaData.AllocSsaNum(m_allocator);
-        m_renameStack.PushMemory(block, ssaNum);
+        unsigned ssaNum = ssa.AllocMemorySsaNum();
+        renameStack.PushMemory(block, ssaNum);
 
-        DBG_SSA_JITDUMP("Ssa # for Memory phi on entry to " FMT_BB " is %d.\n", block->bbNum, ssaNum);
+        DBG_SSA_JITDUMP("Ssa # for Memory PHI on entry to " FMT_BB " is %u.\n", block->bbNum, ssaNum);
 
         block->memoryEntrySsaNum = ssaNum;
     }
     else
     {
-        block->memoryEntrySsaNum = m_renameStack.TopMemory();
+        block->memoryEntrySsaNum = renameStack.TopMemory();
     }
 
     BasicBlockFlags earlyPropBlockSummary = BBF_EMPTY;
 
-    // Walk the statements of the block and rename definitions and uses.
     for (Statement* const stmt : block->Statements())
     {
-        for (GenTree* const tree : stmt->Nodes())
+        for (GenTree* const node : stmt->Nodes())
         {
-            if (tree->OperIs(GT_ASG))
+            if (node->OperIs(GT_ASG))
             {
-                RenameDef(tree->AsOp(), block);
+                RenameDef(node->AsOp(), block);
             }
-            else if (tree->OperIs(GT_LCL_DEF))
+            else if (node->OperIs(GT_LCL_DEF))
             {
-                RenamePhiDef(tree->AsLclDef(), block);
+                RenamePhiDef(node->AsLclDef(), block);
             }
-            // PHI_ARG nodes already have SSA numbers so we only need to check LCL_VAR and LCL_FLD nodes.
-            else if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                if ((tree->gtFlags & GTF_VAR_DEF) == 0)
+                if ((node->gtFlags & GTF_VAR_DEF) == 0)
                 {
-                    RenameLclUse(tree->AsLclVarCommon(), stmt, block);
+                    RenameLclUse(node->AsLclVarCommon(), stmt, block);
                 }
             }
-            else if (tree->OperIs(GT_NULLCHECK))
+            else if (node->OperIs(GT_NULLCHECK))
             {
                 earlyPropBlockSummary |= BBF_HAS_NULLCHECK;
             }
-            else if (tree->OperIs(GT_ARR_LENGTH))
+            else if (node->OperIs(GT_ARR_LENGTH))
             {
                 earlyPropBlockSummary |= BBF_HAS_IDX_LEN;
             }
-            else if (tree->IsHelperCall())
+            else if (node->IsHelperCall())
             {
-                GenTreeCall*   call   = tree->AsCall();
+                GenTreeCall*   call   = node->AsCall();
                 GenTreeIntCon* length = nullptr;
 
                 switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
@@ -1200,29 +1217,27 @@ void SsaBuilder::BlockRenameVariables(BasicBlock* block)
 
     if ((earlyPropBlockSummary & BBF_HAS_NULLCHECK) != 0)
     {
-        m_pCompiler->optMethodFlags |= OMF_HAS_NULLCHECK;
+        m_compiler->optMethodFlags |= OMF_HAS_NULLCHECK;
     }
 
     if ((earlyPropBlockSummary & BBF_HAS_IDX_LEN) != 0)
     {
-        m_pCompiler->optMethodFlags |= OMF_HAS_ARRAYREF;
+        m_compiler->optMethodFlags |= OMF_HAS_ARRAYREF;
     }
 
     if ((earlyPropBlockSummary & BBF_HAS_NEWARRAY) != 0)
     {
-        m_pCompiler->optMethodFlags |= OMF_HAS_NEWARRAY;
+        m_compiler->optMethodFlags |= OMF_HAS_NEWARRAY;
     }
-
-    // Now handle the final memory state.
 
     // If the block defines memory, allocate an SSA variable for the final memory state in the block.
     // (This may be redundant with the last SSA var explicitly created, but there's no harm in that.)
     if (block->bbMemoryDef)
     {
-        unsigned ssaNum = m_pCompiler->lvMemoryPerSsaData.AllocSsaNum(m_allocator);
-        m_renameStack.PushMemory(block, ssaNum);
+        unsigned ssaNum = ssa.AllocMemorySsaNum();
+        renameStack.PushMemory(block, ssaNum);
 
-        if (m_pCompiler->ehBlockHasExnFlowDsc(block))
+        if (m_compiler->ehBlockHasExnFlowDsc(block))
         {
             AddMemoryDefToHandlerPhis(block, ssaNum);
         }
@@ -1231,39 +1246,31 @@ void SsaBuilder::BlockRenameVariables(BasicBlock* block)
     }
     else
     {
-        block->memoryExitSsaNum = m_renameStack.TopMemory();
+        block->memoryExitSsaNum = renameStack.TopMemory();
     }
 
-    DBG_SSA_JITDUMP("Ssa # for Memory on entry to " FMT_BB " is %d; on exit is %d.\n", block->bbNum,
+    DBG_SSA_JITDUMP("Ssa # for Memory on entry to " FMT_BB " is %u; on exit is %u.\n", block->bbNum,
                     block->memoryEntrySsaNum, block->memoryExitSsaNum);
 }
 
-void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
+void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
 {
-    for (BasicBlock* succ : block->GetAllSuccs(m_pCompiler))
+    for (BasicBlock* succ : block->GetAllSuccs(m_compiler))
     {
-        // Walk the statements for phi nodes.
         for (Statement* const stmt : succ->Statements())
         {
             GenTree* tree = stmt->GetRootNode();
 
-            // A prefix of the statements of the block are phi definition nodes. If we complete processing
-            // that prefix, exit.
             if (!tree->IsPhiDef())
             {
                 break;
             }
 
-            GenTreePhi* phi = tree->AsLclDef()->GetValue()->AsPhi();
-
-            unsigned       lclNum = tree->AsLclDef()->GetLclNum();
-            GenTreeLclDef* def    = m_renameStack.Top(lclNum);
-            // Search the arglist for an existing definition for ssaNum.
-            // (Can we assert that its the head of the list?  This should only happen when we add
-            // during renaming for a definition that occurs within a try, and then that's the last
-            // value of the var within that basic block.)
+            GenTreePhi*    phi = tree->AsLclDef()->GetValue()->AsPhi();
+            GenTreeLclDef* def = renameStack.Top(tree->AsLclDef()->GetLclNum());
 
             bool found = false;
+
             for (GenTreePhi::Use& use : phi->Uses())
             {
                 if (use.GetNode()->GetDef() == def)
@@ -1272,26 +1279,25 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
                     break;
                 }
             }
+
             if (!found)
             {
-                AddPhiArg(succ, stmt, phi, lclNum, def, block);
+                AddPhiArg(block, def, stmt, phi DEBUGARG(succ));
             }
         }
 
-        // Now handle memory.
-        BasicBlock::MemoryPhiArg*& succMemPhiArg = succ->memoryPhi;
+        MemoryPhiArg*& memPhiArg = succ->memoryPhi;
 
-        if (succMemPhiArg != nullptr)
+        if (memPhiArg != nullptr)
         {
-            if (succMemPhiArg == &EmptyMemoryPhiDef)
+            if (memPhiArg == &EmptyMemoryPhiDef)
             {
-                succMemPhiArg = nullptr;
+                memPhiArg = nullptr;
             }
 
-            // This is a quadratic algorithm. We might need to consider some switch over to a
-            // hash table representation for the arguments of a phi node, to make this linear.
             bool found = false;
-            for (auto arg = succMemPhiArg; arg != nullptr; arg = arg->GetNext())
+
+            for (auto arg = memPhiArg; arg != nullptr; arg = arg->GetNext())
             {
                 if (arg->m_ssaNum == block->memoryExitSsaNum)
                 {
@@ -1302,17 +1308,17 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
 
             if (!found)
             {
-                succMemPhiArg = new (m_pCompiler) BasicBlock::MemoryPhiArg(block->memoryExitSsaNum, succMemPhiArg);
+                memPhiArg = new (m_compiler) MemoryPhiArg(block->memoryExitSsaNum, memPhiArg);
             }
 
-            DBG_SSA_JITDUMP("  Added phi arg for Memory u:%d from " FMT_BB " in " FMT_BB ".\n", block->memoryExitSsaNum,
+            DBG_SSA_JITDUMP("Added PHI arg for Memory u:%d from " FMT_BB " in " FMT_BB ".\n", block->memoryExitSsaNum,
                             block->bbNum, succ->bbNum);
         }
 
         // If "succ" is the first block of a try block (and "block" is not also in that try block)
         // then we must look at the vars that have phi defs in the corresponding handler;
         // the current SSA name for such vars must be included as an argument to that phi.
-        if (m_pCompiler->bbIsTryBeg(succ))
+        if (m_compiler->bbIsTryBeg(succ))
         {
             assert(succ->hasTryIndex());
             unsigned tryInd = succ->getTryIndex();
@@ -1323,7 +1329,7 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
                 if (block->hasTryIndex())
                 {
                     for (unsigned blockTryInd = block->getTryIndex(); blockTryInd != EHblkDsc::NO_ENCLOSING_INDEX;
-                         blockTryInd          = m_pCompiler->ehGetEnclosingTryIndex(blockTryInd))
+                         blockTryInd          = m_compiler->ehGetEnclosingTryIndex(blockTryInd))
                     {
                         if (blockTryInd == tryInd)
                         {
@@ -1343,7 +1349,7 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
                     }
                 }
 
-                EHblkDsc* succTry = m_pCompiler->ehGetDsc(tryInd);
+                EHblkDsc* succTry = m_compiler->ehGetDsc(tryInd);
                 // This is necessarily true on the first iteration, but not
                 // necessarily on the second and subsequent.
                 if (succTry->ebdTryBeg != succ)
@@ -1359,7 +1365,6 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
                 {
                     GenTree* tree = stmt->GetRootNode();
 
-                    // Check if the first n of the statements are phi nodes. If not, exit.
                     if (!tree->IsPhiDef())
                     {
                         break;
@@ -1370,19 +1375,18 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
                     // If the variable is live-out of "blk", and is therefore live on entry to the try-block-start
                     // "succ", then we make sure the current SSA name for the
                     // var is one of the args of the phi node.  If not, go on.
-                    LclVarDsc* lclVarDsc = &m_pCompiler->lvaTable[lclNum];
-                    if (!lclVarDsc->lvTracked ||
-                        !VarSetOps::IsMember(m_pCompiler, block->bbLiveOut, lclVarDsc->lvVarIndex))
+                    LclVarDsc* lclVarDsc = m_compiler->lvaGetDesc(lclNum);
+
+                    if (!VarSetOps::IsMember(m_compiler, block->bbLiveOut, lclVarDsc->GetLivenessBitIndex()))
                     {
                         continue;
                     }
 
-                    GenTreePhi* phi = tree->AsLclDef()->GetValue()->AsPhi();
+                    GenTreePhi*    phi = tree->AsLclDef()->GetValue()->AsPhi();
+                    GenTreeLclDef* def = renameStack.Top(lclNum);
 
-                    GenTreeLclDef* def = m_renameStack.Top(lclNum);
-
-                    // See if this ssaNum is already an arg to the phi.
                     bool alreadyArg = false;
+
                     for (GenTreePhi::Use& use : phi->Uses())
                     {
                         if (use.GetNode()->GetDef() == def)
@@ -1391,14 +1395,14 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
                             break;
                         }
                     }
+
                     if (!alreadyArg)
                     {
-                        AddPhiArg(handlerStart, stmt, phi, lclNum, def, block);
+                        AddPhiArg(block, def, stmt, phi DEBUGARG(handlerStart));
                     }
                 }
 
-                // Now handle memory.
-                BasicBlock::MemoryPhiArg*& memPhiArg = handlerStart->memoryPhi;
+                MemoryPhiArg*& memPhiArg = handlerStart->memoryPhi;
 
                 if (memPhiArg != nullptr)
                 {
@@ -1412,9 +1416,9 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
                     // due to nested try-begins each having preds with the same live-out memory def.
                     // Avoid doing quadratic processing on handler phis, and instead live with the
                     // occasional redundancy.
-                    memPhiArg = new (m_pCompiler) BasicBlock::MemoryPhiArg(block->memoryExitSsaNum, memPhiArg);
+                    memPhiArg = new (m_compiler) MemoryPhiArg(block->memoryExitSsaNum, memPhiArg);
 
-                    DBG_SSA_JITDUMP("  Added phi arg for Memory u:%d from " FMT_BB " in " FMT_BB ".\n",
+                    DBG_SSA_JITDUMP("Added PHI arg for Memory u:%u from " FMT_BB " in " FMT_BB ".\n",
                                     block->memoryExitSsaNum, block->bbNum, handlerStart->bbNum);
                 }
 
@@ -1426,101 +1430,7 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
 
 void SsaBuilder::RenameVariables()
 {
-    JITDUMP("*************** In SsaBuilder::RenameVariables()\n");
-
-    // The first thing we do is treat parameters and must-init variables as if they have a
-    // virtual definition before entry -- they start out at SSA name 1.
-    GenTreeLclDef* firstInitSsaDef = nullptr;
-    GenTreeLclDef* lastInitSsaDef  = nullptr;
-
-    for (unsigned lclNum = 0; lclNum < m_pCompiler->lvaCount; lclNum++)
-    {
-        LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);
-
-        if (lcl->IsSsa() &&
-            VarSetOps::IsMember(m_pCompiler, m_pCompiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()))
-        {
-            unsigned ssaNum = lcl->AllocSsaNum(m_allocator);
-            // HasImplicitSsaDef assumes that this is always the first SSA def.
-            assert(ssaNum == SsaConfig::FIRST_SSA_NUM);
-
-            // TODO-MIKE-SSA: Having a SSA_UNDEF oper might be better than using a LCL_VAR
-            // as a fake def value. It saves a bit of memory by not allocating an extra
-            // node and avoids the weird situation of still having LCL_VAR nodes for locals
-            // that are supposed to be in SSA form. Though these nodes are not part of any
-            // basic block so they're invisible to anything except SSA code, which can treat
-            // them specially (by basically ignoring them).
-
-            GenTreeLclDef* def =
-                new (m_pCompiler, GT_LCL_DEF) GenTreeLclDef(m_pCompiler->gtNewLclvNode(lclNum, lcl->GetType()),
-                                                            m_pCompiler->fgFirstBB, lclNum, ssaNum);
-
-            m_renameStack.Push(m_pCompiler->fgFirstBB, lclNum, def);
-
-            if (firstInitSsaDef == nullptr)
-            {
-                firstInitSsaDef = def;
-                lastInitSsaDef  = def;
-            }
-            else
-            {
-                lastInitSsaDef->gtNext = def;
-                lastInitSsaDef         = def;
-            }
-        }
-    }
-
-    m_pCompiler->m_initSsaDefs = firstInitSsaDef;
-
-    // In ValueNum we'd assume un-inited memory gets FIRST_SSA_NUM.
-    // The memory is a parameter.  Use FIRST_SSA_NUM as first SSA name.
-    unsigned initMemorySsaNum = m_pCompiler->lvMemoryPerSsaData.AllocSsaNum(m_allocator);
-    assert(initMemorySsaNum == SsaConfig::FIRST_SSA_NUM);
-
-    m_renameStack.PushMemory(m_pCompiler->fgFirstBB, initMemorySsaNum);
-
-    // Initialize the memory ssa numbers for unreachable blocks. ValueNum expects
-    // memory ssa numbers to have some intitial value.
-    for (BasicBlock* const block : m_pCompiler->Blocks())
-    {
-        if (block->bbIDom == nullptr)
-        {
-            block->memoryEntrySsaNum = initMemorySsaNum;
-            block->memoryExitSsaNum  = initMemorySsaNum;
-        }
-    }
-
-    class SsaRenameDomTreeVisitor : public DomTreeVisitor<SsaRenameDomTreeVisitor>
-    {
-        SsaBuilder*     m_builder;
-        SsaRenameState* m_renameStack;
-        BasicBlockFlags m_earlyPropBlockSummary;
-
-    public:
-        SsaRenameDomTreeVisitor(Compiler* compiler, SsaBuilder* builder, SsaRenameState* renameStack)
-            : DomTreeVisitor(compiler, compiler->fgSsaDomTree), m_builder(builder), m_renameStack(renameStack)
-        {
-        }
-
-        void Begin()
-        {
-            m_compiler->optMethodFlags &= ~(OMF_HAS_ARRAYREF | OMF_HAS_NEWARRAY | OMF_HAS_NULLCHECK);
-        }
-
-        void PreOrderVisit(BasicBlock* block)
-        {
-            // TODO-Cleanup: Move these functions from SsaBuilder to this class.
-            m_builder->BlockRenameVariables(block);
-            m_builder->AddPhiArgsToSuccessors(block);
-        }
-
-        void PostOrderVisit(BasicBlock* block)
-        {
-            m_renameStack->PopBlockStacks(block);
-        }
-    };
-
-    SsaRenameDomTreeVisitor visitor(m_pCompiler, this, &m_renameStack);
+    SsaRenameDomTreeVisitor visitor(ssa);
     visitor.WalkTree();
 }
 
@@ -1530,7 +1440,7 @@ void SsaBuilder::Print(BasicBlock** postOrder, int count)
     for (int i = count - 1; i >= 0; --i)
     {
         printf("After SSA " FMT_BB ":\n", postOrder[i]->bbNum);
-        m_pCompiler->gtDispBlockStmts(postOrder[i]);
+        compiler->gtDispBlockStmts(postOrder[i]);
     }
 }
 #endif // DEBUG
@@ -1742,14 +1652,14 @@ static void DestroyExtract(Statement* stmt, GenTreeExtract* extract)
     }
 }
 
-void Compiler::fgSsaDestroy()
+PhaseStatus SsaOptimizer::DoSsaDestroy()
 {
-    for (GenTree* def = m_initSsaDefs; def != nullptr; def = def->gtNext)
+    for (GenTree* def = initSsaDefs; def != nullptr; def = def->gtNext)
     {
         DestroySsaUses(def->AsLclDef());
     }
 
-    for (BasicBlock* block : Blocks())
+    for (BasicBlock* block : compiler->Blocks())
     {
         Statement* lastPhiDef = nullptr;
 
@@ -1769,7 +1679,7 @@ void Compiler::fgSsaDestroy()
             {
                 if (GenTreeLclDef* def = node->IsLclDef())
                 {
-                    DestroySsaDef(this, def, stmt);
+                    DestroySsaDef(compiler, def, stmt);
                 }
                 else if (GenTreeExtract* extract = node->IsExtract())
                 {
@@ -1802,4 +1712,98 @@ void Compiler::fgSsaDestroy()
             }
         }
     }
+
+    return PhaseStatus::MODIFIED_EVERYTHING;
+}
+
+void SsaOptimizer::Run()
+{
+#ifdef OPT_CONFIG
+    const bool     doEarlyProp     = JitConfig.JitDoEarlyProp() != 0;
+    const bool     doValueNum      = JitConfig.JitDoValueNumber() != 0;
+    const bool     doLoopHoisting  = doValueNum && (JitConfig.JitDoLoopHoisting() != 0);
+    const bool     doCopyProp      = doValueNum && (JitConfig.JitDoCopyProp() != 0);
+    const bool     doBranchOpt     = doValueNum && (JitConfig.JitDoRedundantBranchOpts() != 0);
+    const bool     doCse           = doValueNum && (JitConfig.JitNoCSE() == 0);
+    const bool     doAssertionProp = doValueNum && (JitConfig.JitDoAssertionProp() != 0);
+    const bool     doRangeAnalysis = doAssertionProp && (JitConfig.JitDoRangeAnalysis() != 0);
+    const unsigned iterationCount =
+        !compiler->opts.optRepeat ? 1 : static_cast<unsigned>(JitConfig.JitOptRepeatCount());
+
+    for (unsigned iteration = 0; iteration < iterationCount; iteration++)
+#else
+    const bool doEarlyProp     = true;
+    const bool doValueNum      = true;
+    const bool doLoopHoisting  = true;
+    const bool doCopyProp      = true;
+    const bool doBranchOpt     = true;
+    const bool doCse           = true;
+    const bool doAssertionProp = true;
+    const bool doRangeAnalysis = true;
+#endif
+    {
+#ifdef OPT_CONFIG
+        if (iteration != 0)
+        {
+            Reset();
+        }
+#endif
+
+        compiler->fgEnsureDomTreeRoot();
+
+        ::DoPhase(compiler, PHASE_SSA_LIVENESS, &Compiler::phSsaLiveness);
+        ::DoPhase(compiler, PHASE_ZERO_INITS, &Compiler::phRemoveRedundantZeroInits);
+
+        DoPhase(PHASE_BUILD_SSA, &SsaOptimizer::DoSsaBuild);
+
+        if (doEarlyProp)
+        {
+            DoPhase(PHASE_EARLY_PROP, &SsaOptimizer::DoEarlyProp);
+        }
+
+        if (doValueNum)
+        {
+            DoPhase(PHASE_VALUE_NUMBER, &SsaOptimizer::DoValueNumber);
+        }
+
+        if (doLoopHoisting)
+        {
+            DoPhase(PHASE_HOIST_LOOP_CODE, &SsaOptimizer::DoLoopHoist);
+        }
+
+        if (doCopyProp)
+        {
+            DoPhase(PHASE_VN_COPY_PROP, &SsaOptimizer::DoCopyProp);
+        }
+
+        if (doBranchOpt)
+        {
+            DoPhase(PHASE_OPTIMIZE_BRANCHES, &SsaOptimizer::DoRedundantBranches);
+        }
+
+        if (doCse)
+        {
+            DoPhase(PHASE_OPTIMIZE_VALNUM_CSES, &SsaOptimizer::DoCse);
+        }
+
+#if ASSERTION_PROP
+        if (doAssertionProp)
+        {
+            DoPhase(PHASE_ASSERTION_PROP_MAIN, &SsaOptimizer::DoAssertionProp);
+        }
+
+        if (doRangeAnalysis)
+        {
+            DoPhase(PHASE_OPTIMIZE_INDEX_CHECKS, &SsaOptimizer::DoRemoveRangeCheck);
+        }
+#endif
+
+        DoPhase(PHASE_DESTROY_SSA, &SsaOptimizer::DoSsaDestroy);
+    }
+}
+
+void Compiler::phSsaOpt()
+{
+    SsaOptimizer ssa(this);
+    ssa.Run();
 }

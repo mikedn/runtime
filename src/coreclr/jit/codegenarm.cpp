@@ -1869,7 +1869,7 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
 
 int CodeGenInterface::genTotalFrameSize() const
 {
-    assert(!IsUninitialized(calleeRegsPushed));
+    assert(calleeRegsPushed != UINT_MAX);
 
     int totalFrameSize = calleeRegsPushed * REGSIZE_BYTES + lclFrameSize;
 

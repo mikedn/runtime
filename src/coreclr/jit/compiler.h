@@ -24,7 +24,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jit.h"
 #include "opcode.h"
 #include "varset.h"
-#include "jitstd.h"
 #include "jithashtable.h"
 #include "gentree.h"
 #include "lir.h"
@@ -32,35 +31,22 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "inline.h"
 #include "jiteh.h"
 #include "instr.h"
-#include "regalloc.h"
-#include "sm.h"
 #include "cycletimer.h"
-#include "blockset.h"
 #include "arraystack.h"
 #include "hashbv.h"
 #include "jitexpandarray.h"
-#include "valuenum.h"
 #include "namedintrinsiclist.h"
+#include "phase.h"
 #ifdef LATE_DISASM
 #include "disasm.h"
 #endif
 
 #include "codegeninterface.h"
-#include "regset.h"
+#include "hwintrinsic.h"
 
 #if DUMP_GC_TABLES && defined(JIT32_GCENCODER)
 #include "gcdump.h"
 #endif
-
-#include "emit.h"
-
-#include "hwintrinsic.h"
-#include "simd.h"
-#include "simdashwintrinsic.h"
-
-/*****************************************************************************
- *                  Forward declarations
- */
 
 struct InfoHdr;            // defined in GCInfo.h
 struct escapeMapping_t;    // defined in fgdiagnostic.cpp
@@ -74,8 +60,13 @@ class OptBoolsDsc;         // defined in optimizer.cpp
 #ifdef DEBUG
 class IndentStack;
 #endif
-struct LoopHoistContext;
+class SsaOptimizer;
 class SsaBuilder;
+class ValueNumbering;
+class ValueNumStore;
+class CopyPropDomTreeVisitor;
+class LoopHoist;
+class Cse;
 class Lowering; // defined in lower.h
 
 // The following are defined in this file, Compiler.h
@@ -147,15 +138,7 @@ public:
     }
 };
 
-// This class stores information associated with a memory SSA definition.
-class SsaMemDef
-{
-public:
-    ValueNum m_vn = NoVN;
-};
-
-//------------------------------------------------------------------------
-// SsaDefArray: A resizable array of SSA definitions.
+// A resizable array of SSA definitions.
 //
 // Unlike an ordinary resizable array implementation, this allows only element
 // addition (by calling AllocSsaNum) and has special handling for RESERVED_SSA_NUM
@@ -982,34 +965,6 @@ struct ArrayInfo
     }
 };
 
-// This enumeration names the phases into which we divide compilation.  The phases should completely
-// partition a compilation.
-enum Phases : uint8_t
-{
-#define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) enum_nm,
-#include "compphases.h"
-    PHASE_NUMBER_OF
-};
-
-extern const char*   PhaseNames[];
-extern const char*   PhaseEnums[];
-extern const LPCWSTR PhaseShortNames[];
-
-// Specify which checks should be run after each phase
-//
-enum class PhaseChecks : uint8_t
-{
-    CHECK_NONE,
-    CHECK_ALL
-};
-
-// Specify compiler data that a phase might modify
-enum class PhaseStatus : unsigned
-{
-    MODIFIED_NOTHING,
-    MODIFIED_EVERYTHING
-};
-
 // The following enum provides a simple 1:1 mapping to CLR API's
 enum API_ICorJitInfo_Names
 {
@@ -1264,10 +1219,10 @@ enum LoopFlags : uint16_t
 {
     LPFLG_EMPTY = 0,
 
-    LPFLG_DO_WHILE  = 0x0001, // it's a do-while loop (i.e ENTRY is at the TOP)
-    LPFLG_ONE_EXIT  = 0x0002, // the loop has only one exit
-    LPFLG_ITER      = 0x0004, // loop of form: for (i = icon or lclVar; test_condition(); i++)
-    LPFLG_HOISTABLE = 0x0008, // the loop is in a form that is suitable for hoisting expressions
+    LPFLG_DO_WHILE = 0x0001, // it's a do-while loop (i.e ENTRY is at the TOP)
+    LPFLG_ONE_EXIT = 0x0002, // the loop has only one exit
+    LPFLG_ITER     = 0x0004, // loop of form: for (i = icon or lclVar; test_condition(); i++)
+    LPFLG_HAS_CALL = 0x0008,
 
     LPFLG_CONST      = 0x0010, // loop of form: for (i=icon;i<icon;i++){ ... } - constant loop
     LPFLG_VAR_INIT   = 0x0020, // iterator is initialized with a local var (var # found in lpVarInit)
@@ -1310,59 +1265,6 @@ inline LoopFlags& operator&=(LoopFlags& a, LoopFlags b)
 {
     return a = (LoopFlags)((uint16_t)a & (uint16_t)b);
 }
-
-struct AssertionDsc;
-
-class BoundsAssertion
-{
-    const AssertionDsc& assertion;
-
-public:
-    BoundsAssertion(const AssertionDsc& assertion) : assertion(assertion)
-    {
-    }
-
-    INDEBUG(const AssertionDsc& GetAssertion() const;)
-
-    bool IsBoundsAssertion() const;
-    bool IsEqual() const;
-    bool IsCompareCheckedBoundArith() const;
-    bool IsCompareCheckedBound() const;
-    bool IsRange() const;
-    bool IsConstant() const;
-
-    ValueNum GetVN() const;
-    ValueNum GetConstantVN() const;
-    int      GetRangeMin() const;
-    int      GetRangeMax() const;
-};
-
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX   The big guy. The sections are currently organized as :                  XX
-XX                                                                           XX
-XX    o  GenTree and BasicBlock                                              XX
-XX    o  LclVarsInfo                                                         XX
-XX    o  Importer                                                            XX
-XX    o  FlowGraph                                                           XX
-XX    o  Optimizer                                                           XX
-XX    o  RegAlloc                                                            XX
-XX    o  EEInterface                                                         XX
-XX    o  TempsInfo                                                           XX
-XX    o  GCInfo                                                              XX
-XX    o  Instruction                                                         XX
-XX    o  ScopeInfo                                                           XX
-XX    o  PrologScopeInfo                                                     XX
-XX    o  CodeGenerator                                                       XX
-XX    o  UnwindInfo                                                          XX
-XX    o  Compiler                                                            XX
-XX    o  typeInfo                                                            XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
 
 struct HWIntrinsicInfo;
 
@@ -1486,6 +1388,18 @@ enum codeOptimize : uint8_t
     FAST_CODE,
 
     COUNT_OPT_CODE
+};
+
+enum OptFlags : uint8_t
+{
+    CLFLG_REGVAR        = 0x01,
+    CLFLG_TREETRANS     = 0x02,
+    CLFLG_INLINING      = 0x04,
+    CLFLG_STRUCTPROMOTE = 0x08,
+    CLFLG_CONSTANTFOLD  = 0x10,
+
+    CLFLG_MINOPT = CLFLG_TREETRANS,
+    CLFLG_MAXOPT = CLFLG_REGVAR | CLFLG_TREETRANS | CLFLG_INLINING | CLFLG_STRUCTPROMOTE | CLFLG_CONSTANTFOLD
 };
 
 struct CompilerOptions
@@ -2803,6 +2717,9 @@ class Compiler
     friend class Rationalizer;
     friend class PhaseBase;
     friend class Lowering;
+    friend class SsaBuilder;
+    friend class SsaOptimizer;
+    friend class EarlyProp;
     friend class Cse;
     friend class CodeGenInterface;
     friend class CodeGen;
@@ -2817,6 +2734,8 @@ class Compiler
     friend class AssertionProp;
     friend struct Importer;
     friend class SIMDCoalescingBuffer;
+    friend class ValueNumbering;
+    friend class LoopHoist;
 
 #ifdef FEATURE_HW_INTRINSICS
     friend struct HWIntrinsicInfo;
@@ -3573,7 +3492,6 @@ public:
     void dmpNodeRegs(GenTree* node);
     void dmpNodeOperands(GenTree* node);
     void gtDispZeroFieldSeq(GenTree* tree);
-    void gtDispVN(GenTree* tree);
     void gtDispCommonEndLine(GenTree* tree);
     void gtDispTree(GenTree* tree, bool header = true, bool operands = true);
     void gtDispTreeRec(GenTree* tree, IndentStack* indentStack, const char* msg, bool topOnly, bool isLIR, bool header);
@@ -3995,18 +3913,7 @@ protected:
     void lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, Statement* stmt);
     bool IsDominatedByExceptionalEntry(BasicBlock* block);
 
-    // Keeps the mapping from SSA #'s to VN's for the implicit memory variables.
-    SsaDefArray<SsaMemDef> lvMemoryPerSsaData;
-
 public:
-    // Returns the address of the per-Ssa data for memory at the given ssaNum (which is required
-    // not to be the SsaConfig::RESERVED_SSA_NUM, which indicates that the variable is
-    // not an SSA variable).
-    SsaMemDef* GetMemoryPerSsaData(unsigned ssaNum)
-    {
-        return lvMemoryPerSsaData.GetSsaDef(ssaNum);
-    }
-
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -4166,10 +4073,6 @@ public:
                                                      // "entry" blocks plus EH handler begin blocks.
 
     jitstd::vector<flowList*>* fgPredListSortVector = nullptr;
-
-    // Dominator tree used by SSA construction and copy propagation (the two are expected to use the same tree
-    // in order to avoid the need for SSA reconstruction and an "out of SSA" phase).
-    DomTreeNode* fgSsaDomTree;
 
     // Allocate array like T* a = new T[fgBBNumMax + 1];
     // Using helper so we don't keep forgetting +1.
@@ -4509,19 +4412,6 @@ public:
         return BasicBlockRangeList(startBlock, endBlock);
     }
 
-    typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, unsigned> NodeToUnsignedMap;
-
-    GenTreeLclDef* m_initSsaDefs = nullptr;
-
-    // Performs SSA conversion.
-    void fgSsaBuild();
-    void fgSsaDestroy();
-
-#ifdef OPT_CONFIG
-    // Reset any data structures to the state expected by "fgSsaBuild", so it can be run again.
-    void fgSsaReset();
-#endif
-
     // Returns "true" if this is a special variable that is never zero initialized in the prolog.
     bool lvaIsNeverZeroInitializedInProlog(unsigned lclNum);
 
@@ -4532,182 +4422,11 @@ public:
     ValueNumStore* vnStore = nullptr;
 
 public:
-    // Do value numbering (assign a value number to each tree node).
-    void fgValueNumber();
-
-    void vnComma(GenTreeOp* comma);
-    void vnAssignment(GenTreeOp* asg);
-    ValueNum vnCastStruct(ValueNumKind         vnk,
-                          ValueNum             valueVN,
-                          CORINFO_CLASS_HANDLE fromClassHandle,
-                          CORINFO_CLASS_HANDLE toClassHandle);
-    ValueNum vnCastStruct(ValueNumKind vnk, ValueNum valueVN, ClassLayout* fromLayout, ClassLayout* toLayout);
-    ValueNumPair vnCastStruct(ValueNumPair valueVNP, ClassLayout* fromLayout, ClassLayout* toLayout);
-    ValueNum vnCoerceStoreValue(
-        GenTree* store, GenTree* value, ValueNumKind vnk, var_types fieldType, ClassLayout* fieldLayout);
-    var_types vnGetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout);
-    ValueNum vnInsertStructField(GenTree*      store,
-                                 GenTree*      value,
-                                 ValueNumKind  vnk,
-                                 ValueNum      structVN,
-                                 var_types     structType,
-                                 FieldSeqNode* fieldSeq);
-    ValueNum vnExtractStructField(GenTree* load, ValueNumKind vnk, ValueNum structVN, FieldSeqNode* fieldSeq);
-    ValueNumPair vnExtractStructField(GenTree* load, ValueNumPair structVN, FieldSeqNode* fieldSeq);
-    ValueNum vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types fieldType, ClassLayout* fieldLayout);
-    void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
-    void vnLocalDef(GenTreeLclDef* def);
-    void vnLocalLoad(GenTreeLclVar* load);
-    void vnLocalUse(GenTreeLclUse* use);
-    ValueNumPair vnLocalUse(GenTreeLclUse* use, GenTreeLclDef* def);
-    void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
-    void vnInsert(GenTreeInsert* insert);
-    void vnLocalFieldLoad(GenTreeLclFld* load);
-    void vnExtract(GenTreeExtract* extract);
-    ValueNum vnAddField(GenTreeOp* add);
-    void vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);
-    void vnIndirLoad(GenTreeIndir* load);
-    ValueNum vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSeq, GenTree* value);
-    ValueNum vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq);
-    ValueNum vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeqNode* fieldSeq, GenTree* value);
-    ValueNum vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNode* fieldSeq);
-    ValueNum vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAddr, GenTree* value);
-    ValueNum vnArrayElemLoad(GenTreeIndir* store, const VNFuncApp& elemAddr);
-    ValueNum vnAddressExposedLocalStore(GenTree* store, ValueNum lclAddrVN, GenTree* value);
-    void vnNullCheck(GenTreeIndir* node);
-    void vnArrayLength(GenTreeArrLen* node);
-    void vnCmpXchg(GenTreeCmpXchg* node);
-    void vnInterlocked(GenTreeOp* node);
-    ValueNum vnMemoryLoad(var_types type, ValueNum addrVN);
-
-    FieldSeqNode* vnIsFieldAddr(GenTree* addr, GenTree** obj);
-    FieldSeqNode* vnIsStaticStructFieldAddr(GenTree* addr);
-    bool vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
-
-    struct VNLoop
-    {
-        typedef JitHashSet<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>> FieldHandleSet;
-        FieldHandleSet* lpFieldsModified; // This has entries (mappings to "true") for all static field and object
-                                          // instance fields modified
-                                          // in the loop.
-
-        // The set of array element types that are modified in the loop.
-        typedef JitHashSet<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>> TypeNumSet;
-        TypeNumSet* lpArrayElemTypesModified;
-
-        VARSET_TP lpVarInOut;  // The set of variables that are IN or OUT during the execution of this loop
-        VARSET_TP lpVarUseDef; // The set of variables that are USE or DEF during the execution of this loop
-
-        bool lpLoopHasMemoryHavoc : 1; // The loop contains an operation that we assume has arbitrary
-                                       // memory side effects.  If this is set, the fields below
-                                       // may not be accurate (since they become irrelevant.)
-        bool lpContainsCall : 1;       // True if executing the loop body *may* execute a call
-
-        // TODO-MIKE-CQ: We could record individual AX local access like we do for fields and arrays.
-        bool modifiesAddressExposedLocals : 1;
-
-        // TODO-MIKE-Cleanup: These have nothing to do with value numbering,
-        // they should be moved to LoopHoistContext.
-
-        int lpHoistedExprCount; // The register count for the non-FP expressions from inside this loop that have been
-                                // hoisted
-        int lpLoopVarCount;     // The register count for the non-FP LclVars that are read/written inside this loop
-        int lpVarInOutCount;    // The register count for the non-FP LclVars that are alive inside or across this loop
-
-        int lpHoistedFPExprCount; // The register count for the FP expressions from inside this loop that have been
-                                  // hoisted
-        int lpLoopVarFPCount;     // The register count for the FP LclVars that are read/written inside this loop
-        int lpVarInOutFPCount;    // The register count for the FP LclVars that are alive inside or across this loop
-
-        VNLoop(Compiler* compiler);
-    };
-
-    VNLoop* vnLoopTable;
-
-    // Utility functions for fgValueNumber.
-
-    // Perform value-numbering for the trees in "blk".
-    void fgValueNumberBlock(BasicBlock* blk);
-
-    // Requires that "entryBlock" is the entry block of loop "loopNum", and that "loopNum" is the
-    // innermost loop of which "entryBlock" is the entry.  Returns the value number that should be
-    // assumed for the memoryKind at the start "entryBlk".
-    ValueNum vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned loopNum);
-
-    void vnClearMemory(GenTree* node DEBUGARG(const char* comment = nullptr));
-    void vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment = nullptr));
-
-    // The input 'tree' is a leaf node that is a constant
-    // Assign the proper value number to the tree
-    void fgValueNumberTreeConst(GenTree* tree);
-
-    // Assumes that all inputs to "tree" have had value numbers assigned; assigns a VN to tree.
-    // (With some exceptions: the VN of the lhs of an assignment is assigned as part of the
-    // assignment.)
-    void fgValueNumberTree(GenTree* tree);
-
-    void vnCast(GenTreeCast* cast);
-
-    // Does value-numbering for a bitcast tree.
-    void vnBitCast(GenTreeUnOp* tree);
-
-    // Does value-numbering for an intrinsic tree.
-    void vnIntrinsic(GenTreeIntrinsic* intrinsic);
-
-#ifdef FEATURE_HW_INTRINSICS
-    // Does value-numbering for a GT_HWINTRINSIC tree
-    void fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node);
-#endif // FEATURE_HW_INTRINSICS
-
-    // Does value-numbering for a call.  We interpret some helper calls.
-    void fgValueNumberCall(GenTreeCall* call);
-
-    // Does value-numbering for a helper "call" that has a VN function symbol "vnf".
-    void fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueNumPair vnpExc);
-
-    // Requires "helpCall" to be a helper call.  Assigns it a value number;
-    // we understand the semantics of some of the calls.  Returns "true" if
-    // the call may modify the heap (we assume arbitrary memory side effects if so).
-    bool fgValueNumberHelperCall(GenTreeCall* helpCall);
-
-    // Requires that "helpFunc" is one of the pure Jit Helper methods.
-    // Returns the corresponding VNFunc to use for value numbering
-    VNFunc fgValueNumberJitHelperMethodVNFunc(CorInfoHelpFunc helpFunc);
-
-    ValueNum vnGetBaseAddr(ValueNum addrVN);
-    ValueNum vnAddNullPtrExset(ValueNum addrVN);
-    ValueNumPair vnAddNullPtrExset(ValueNumPair addrVNP);
-    void vnAddNullPtrExset(GenTree* node, GenTree* addr);
-
-    // Adds the exception sets for the current tree node which is performing a division or modulus operation
-    void fgValueNumberAddExceptionSetForDivision(GenTree* tree);
-
-    // Adds the exception set for the current tree node which is performing a overflow checking operation
-    void fgValueNumberAddExceptionSetForOverflow(GenTree* tree);
-
-    void vnAddBoundsChkExceptionSet(GenTreeBoundsChk* tree);
-
-    void vnCkFinite(GenTreeUnOp* node);
-
-    // Adds the exception sets for the current tree node
-    void vnAddNodeExceptionSet(GenTree* tree);
-
     bool isTrivialPointerSizedStruct(ClassLayout* layout) const;
     bool isNativePrimitiveStructType(ClassLayout* layout);
     var_types abiGetStructIntegerRegisterType(ClassLayout* layout);
     StructPassing abiGetStructParamType(ClassLayout* layout, bool isVarArg);
     StructPassing abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv, bool isVarArgs);
-
-#ifdef DEBUG
-    // Print a representation of "vnp" or "vn" on standard output.
-    // If "level" is non-zero, we also print out a partial expansion of the value.
-    void vnpPrint(ValueNumPair vnp, unsigned level);
-    void vnPrint(ValueNum vn, unsigned level);
-    void vnTrace(ValueNum vn, const char* commenr = nullptr);
-    void vnTrace(ValueNumPair vnp, const char* commenr = nullptr);
-    void vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment = nullptr);
-    void vnTraceMem(ValueNum vn, const char* comment = nullptr);
-#endif
 
     bool fgDominate(BasicBlock* b1, BasicBlock* b2); // Return true if b1 dominates b2
 
@@ -4745,6 +4464,7 @@ protected:
 
     INDEBUG(void fgDispDomTree(DomTreeNode* domTree);) // Helper that prints out the Dominator Tree in debug builds.
 
+    void         fgEnsureDomTreeRoot();
     DomTreeNode* fgBuildDomTree(); // Once we compute all the immediate dominator sets for each node in the flow graph
                                    // (performed by fgComputeDoms), this procedure builds the dominance tree represented
                                    // adjacency lists.
@@ -5021,10 +4741,6 @@ public:
      *************************************************************************/
 
 protected:
-    friend class SsaBuilder;
-    friend class EarlyProp;
-    friend struct ValueNumberState;
-
     //--------------------- Detect the basic blocks ---------------------------
 
     BasicBlock** fgBBs; // Table of pointers to the BBs
@@ -5301,11 +5017,14 @@ private:
 #endif
 
 public:
-    GenTree* fgMorphTree(GenTree* tree, MorphAddrContext* mac = nullptr);
-
-    INDEBUG(void fgMorphClearDebugNodeMorphed(GenTree* tree);)
+    GenTree* gtMorphTree(GenTree* tree)
+    {
+        return fgMorphTree(tree);
+    }
 
 private:
+    GenTree* fgMorphTree(GenTree* tree, MorphAddrContext* mac = nullptr);
+    INDEBUG(void fgMorphClearDebugNodeMorphed(GenTree* tree);)
     void fgMorphTreeDone(GenTree* tree, GenTree* oldTree = nullptr DEBUGARG(int morphNum = 0));
 
     Statement*  fgGlobalMorphStmt = nullptr;
@@ -5416,80 +5135,10 @@ private:
 public:
     void optRemoveRangeCheck(GenTreeBoundsChk* check, GenTreeOp* comma, Statement* stmt);
 
-protected:
-    // Do hoisting for all loops.
-    void optHoistLoopCode();
-
-    // To represent sets of VN's that have already been hoisted in outer loops.
-    typedef JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, bool> VNToBoolMap;
-    typedef VNToBoolMap VNSet;
-
-    friend struct LoopHoistContext;
-
-    // Do hoisting for loop "lnum" (an index into the optLoopTable), and all loops nested within it.
-    // Tracks the expressions that have been hoisted by containing loops by temporary recording their
-    // value numbers in "m_hoistedInParentLoops".  This set is not modified by the call.
-    void optHoistLoopNest(unsigned lnum, LoopHoistContext* hoistCtxt);
-
-    // Do hoisting for a particular loop ("lnum" is an index into the optLoopTable.)
-    // Assumes that expressions have been hoisted in containing loops if their value numbers are in
-    // "m_hoistedInParentLoops".
-    //
-    void optHoistThisLoop(unsigned lnum, LoopHoistContext* hoistCtxt);
-
-    // Hoist all expressions in "blk" that are invariant in loop "lnum" (an index into the optLoopTable)
-    // outside of that loop.  Exempt expressions whose value number is in "m_hoistedInParentLoops"; add VN's of hoisted
-    // expressions to "hoistInLoop".
-    void optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blocks, LoopHoistContext* hoistContext);
-
-    // Return true if the tree looks profitable to hoist out of loop 'lnum'.
-    bool optIsProfitableToHoistableTree(GenTree* tree, unsigned lnum);
-
-    // Performs the hoisting 'tree' into the PreHeader for loop 'lnum'
-    void optHoistCandidate(GenTree* tree, unsigned lnum, LoopHoistContext* hoistCtxt);
-
-    // Returns true iff the ValueNum "vn" represents a value that is loop-invariant in "lnum".
-    //   Constants and init values are always loop invariant.
-    //   VNPhi's connect VN's to the SSA definition, so we can know if the SSA def occurs in the loop.
-    bool optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* recordedVNs);
-
 private:
     // Requires "lnum" to be the index of an outermost loop in the loop table.  Traverses the body of that loop,
     // including all nested loops, and records the set of "side effects" of the loop: fields (object instance and
     // static) written to, and SZ-array element type equivalence classes updated.
-
-    class VNLoopMemorySummary
-    {
-        Compiler* m_compiler;
-        unsigned  m_loopNum;
-
-    public:
-        bool m_memoryHavoc : 1;
-        bool m_containsCall : 1;
-        bool m_modifiesAddressExposedLocals : 1;
-
-        VNLoopMemorySummary(Compiler* compiler, unsigned loopNum);
-        void AddLocalLiveness(BasicBlock* block) const;
-        void AddMemoryHavoc();
-        void AddCall();
-        void AddAddressExposedLocal(unsigned lclNum);
-        void AddField(CORINFO_FIELD_HANDLE fieldHandle);
-        void AddArrayType(unsigned elemTypeNum);
-        bool IsComplete() const;
-        void UpdateLoops() const;
-    };
-
-    void vnSummarizeLoopMemoryStores();
-    void vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopObjFieldMemoryStores(GenTreeIndir* store, FieldSeqNode* fieldSeq, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary);
-
-    bool vnBlockIsLoopEntry(BasicBlock* blk, unsigned* pLnum);
 
     // Hoist the expression "expr" out of loop "lnum".
     void optPerformHoistExpr(GenTree* expr, unsigned lnum);
@@ -5506,7 +5155,6 @@ public:
     void optCloneLoop(unsigned loopInd, LoopCloneContext* context);
     void optEnsureUniqueHead(unsigned loopInd, BasicBlock::weight_t ambientWeight);
     PhaseStatus optUnrollLoops(); // Unrolls loops (needs to have cost info)
-    void        optRemoveRedundantZeroInits();
 
     // A "LoopDsc" describes a ("natural") loop.  We (currently) require the body of a loop to be a contiguous (in
     // bbNext order) sequence of basic blocks.  (At times, we may require the blocks in a loop to be "properly numbered"
@@ -5533,16 +5181,16 @@ public:
 
         LoopFlags lpFlags;
 
-        unsigned char lpExitCnt; // number of exits from the loop
+        uint8_t lpExitCnt; // number of exits from the loop
 
-        unsigned char lpParent;  // The index of the most-nested loop that completely contains this one,
-                                 // or else BasicBlock::NOT_IN_LOOP if no such loop exists.
-        unsigned char lpChild;   // The index of a nested loop, or else BasicBlock::NOT_IN_LOOP if no child exists.
-                                 // (Actually, an "immediately" nested loop --
-                                 // no other child of this loop is a parent of lpChild.)
-        unsigned char lpSibling; // The index of another loop that is an immediate child of lpParent,
-                                 // or else BasicBlock::NOT_IN_LOOP.  One can enumerate all the children of a loop
-                                 // by following "lpChild" then "lpSibling" links.
+        LoopNum lpParent;  // The index of the most-nested loop that completely contains this one,
+                           // or else NoLoopNum if no such loop exists.
+        LoopNum lpChild;   // The index of a nested loop, or else NoLoopNum if no child exists.
+                           // (Actually, an "immediately" nested loop --
+                           // no other child of this loop is a parent of lpChild.)
+        LoopNum lpSibling; // The index of another loop that is an immediate child of lpParent,
+                           // or else NoLoopNum.  One can enumerate all the children of a loop
+                           // by following "lpChild" then "lpSibling" links.
 
         /* The following values are set only for iterator loops, i.e. has the flag LPFLG_ITER set */
 
@@ -5800,14 +5448,7 @@ protected:
     bool optAvoidIntMult(void);
 
 public:
-    static const int MIN_CSE_COST = 2;
-
-    bool cseIsCandidate(GenTree* tree);
     bool cseCanSwapOrder(GenTree* tree1, GenTree* tree2);
-
-/**************************************************************************
- *                   Value Number based CSEs
- *************************************************************************/
 
 // String to use for formatting CSE numbers. Note that this is the positive number, e.g., from GET_CSE_INDEX().
 #define FMT_CSE "CSE%02u"
@@ -5825,16 +5466,11 @@ public:
     {
         return ((cseCount > 0) && (lclNum >= cseFirstLclNum) && (lclNum < cseFirstLclNum + cseCount));
     }
+
+    unsigned apAssertionCount = 0;
 #endif
 
-    void cseMain();
-
 public:
-    void optVnCopyProp();
-
-/**************************************************************************
- *               Early value propagation
- *************************************************************************/
 #define OMF_HAS_NEWARRAY 0x00000001         // Method contains 'new' of an array
 #define OMF_HAS_NEWOBJ 0x00000002           // Method contains 'new' of an object type.
 #define OMF_HAS_ARRAYREF 0x00000004         // Method contains array element loads or stores.
@@ -5926,35 +5562,12 @@ public:
 
     unsigned optNoReturnCallCount = 0;
 
-    void optEarlyProp();
-
-    // Redundant branch opts
-    //
-    PhaseStatus optRedundantBranches();
-    bool optRedundantBranch(BasicBlock* const block);
-    bool optJumpThread(BasicBlock* const block, BasicBlock* const domBlock);
-    bool optReachable(BasicBlock* const fromBlock, BasicBlock* const toBlock, BasicBlock* const excludedBlock);
-
-    // This is the current value number for the memory implicit variable while doing
-    // value numbering.  This is the value number under the "liberal" interpretation
-    // of memory values; the "conservative" interpretation needs no VN, since every
-    // access of memory yields an unknown value.
-    ValueNum fgCurMemoryVN;
-
 #if ASSERTION_PROP
     /**************************************************************************
      *               Value/Assertion propagation
      *************************************************************************/
 protected:
-    AssertionDsc*  apAssertionTable;     // table that holds info about value assignments
-    AssertionIndex apAssertionCount = 0; // total number of assertions in the assertion table
-
 public:
-    AssertionIndex GetAssertionCount()
-    {
-        return apAssertionCount;
-    }
-
 #if LOCAL_ASSERTION_PROP
     struct MorphAssertion;
     struct MorphAssertionBitVecTraits;
@@ -6007,17 +5620,7 @@ private:
 #endif
 #endif
 
-    void apMain();
-
 public:
-    BoundsAssertion apGetBoundsAssertion(unsigned bitIndex);
-
-#ifdef DEBUG
-    void apDumpAssertion(const AssertionDsc& assertion, unsigned index);
-    void apDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer);
-    void apDumpBoundsAssertion(BoundsAssertion assertion);
-#endif
-
     void optAddCopies();
 #endif // ASSERTION_PROP
 
@@ -6359,7 +5962,6 @@ public:
     }
 
 #if DOUBLE_ALIGN
-    DWORD getCanDoubleAlign();
     bool shouldDoubleAlign(unsigned             refCntStk,
                            unsigned             refCntReg,
                            BasicBlock::weight_t refCntWtdReg,
@@ -6703,7 +6305,6 @@ public:
 
     bool fgNoStructPromotion       = false; // Set to true to turn off struct promotion for this method.
     bool optLoopsMarked            = false;
-    bool ssaForm                   = false;
     bool csePhase                  = false; // True when we are executing the CSE phase
     bool compRationalIRForm        = false;
     bool compUsesThrowHelper       = false; // There is a call to a THROW_HELPER for the compiled method.
@@ -6735,13 +6336,23 @@ public:
     template <typename T>
     T dspPtr(T p)
     {
-        return (p == ZERO) ? ZERO : (opts.dspDiffable ? T(0xD1FFAB1E) : p);
+        if (p && opts.disDiffable)
+        {
+            return T(0xD1FFAB1E);
+        }
+
+        return p;
     }
 
     template <typename T>
     T dspOffset(T o)
     {
-        return (o == ZERO) ? ZERO : (opts.dspDiffable ? T(0xD1FFAB1E) : o);
+        if (o && opts.dspDiffable)
+        {
+            return T(0xD1FFAB1E);
+        }
+
+        return o;
     }
 #pragma warning(pop)
 
@@ -6980,8 +6591,6 @@ public:
     void compInitMethodName();
     void compInit();
 
-    static void compDisplayStaticSizes(FILE* fout);
-
     //------------ Some utility functions --------------
 
     void* compGetHelperFtn(CorInfoHelpFunc ftnNum,         /* IN  */
@@ -7008,8 +6617,10 @@ public:
     void        phRefCountLocals();
     void        phFindOperOrder();
     void        phSetBlockOrder();
+    void        phSsaLiveness();
+    void        phSsaOpt();
+    void        phRemoveRedundantZeroInits();
     void        phSetFullyInterruptible();
-    void        phRemoveRangeCheck();
     void        phUpdateFlowGraph();
     PhaseStatus phInsertGCPolls();
     void        phDetermineFirstColdBlock();
@@ -7041,13 +6652,6 @@ public:
 #endif // LOOP_HOIST_STATS
 
     bool compIsForInlining() const;
-
-#ifdef DEBUG
-    // Get the default fill char value we randomize this value when JitStress is enabled.
-    static unsigned char compGetJitDefaultFill(Compiler* comp);
-#endif
-
-    //-------------------------------------------------------------------------
 
     VarScopeDsc** compEnterScopeList; // List has the offsets where variables enter scope, sorted by instr offset
     VarScopeDsc** compExitScopeList;  // List has the offsets where variables go out of scope, sorted by instr offset
@@ -7119,11 +6723,6 @@ public:
     CompAllocator getAllocator(CompMemKind cmk = CMK_Generic)
     {
         return CompAllocator(compArenaAllocator, cmk);
-    }
-
-    CompAllocator getAllocatorLoopHoist()
-    {
-        return getAllocator(CMK_LoopHoist);
     }
 
 #ifdef DEBUG
@@ -7269,22 +6868,6 @@ public:
     void CopyZeroOffsetFieldSeq(GenTree* from, GenTree* to);
     void AddZeroOffsetFieldSeq(GenTree* node, FieldSeqNode* fieldSeq);
 
-    NodeToUnsignedMap* m_memorySsaMap = nullptr;
-
-    // In some cases, we want to assign intermediate SSA #'s to memory states, and know what nodes create those memory
-    // states. (We do this for try blocks, where, if the try block doesn't do a call that loses track of the memory
-    // state, all the possible memory states are possible initial states of the corresponding catch block(s).)
-    NodeToUnsignedMap* GetMemorySsaMap()
-    {
-        Compiler* compRoot = impInlineRoot();
-        if (compRoot->m_memorySsaMap == nullptr)
-        {
-            CompAllocator ialloc(getAllocator(CMK_SSA));
-            compRoot->m_memorySsaMap = new (ialloc) NodeToUnsignedMap(ialloc);
-        }
-        return compRoot->m_memorySsaMap;
-    }
-
     // The Refany type is the only struct type whose structure is implicitly assumed by IL.  We need its fields.
     CORINFO_CLASS_HANDLE m_refAnyClass = NO_CLASS_HANDLE;
     FieldSeqNode*        GetRefanyValueField()
@@ -7359,6 +6942,26 @@ public:
 
     bool killGCRefs(GenTree* tree);
 }; // end of class Compiler
+
+template <typename T>
+T dspPtr(T p)
+{
+#ifdef DEBUG
+    return JitTls::GetCompiler()->dspPtr(p);
+#else
+    return p;
+#endif
+}
+
+template <typename T>
+T dspOffset(T o)
+{
+#ifdef DEBUG
+    return JitTls::GetCompiler()->dspOffset(o);
+#else
+    return o;
+#endif
+}
 
 // This class is responsible for checking validity and profitability of struct promotion.
 // If it is both legal and profitable, then TryPromoteStructLocal promotes the struct and initializes

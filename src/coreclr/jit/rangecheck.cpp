@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
+#include "ssabuilder.h"
+#include "valuenum.h"
 
 static bool IntAddOverflows(int x, int y)
 {
@@ -163,6 +165,7 @@ class RangeCheck
     // arrays of single-byte structures)."
     static constexpr int MaxArrayLength = 0x7FFFFFFF;
 
+    SsaOptimizer&        ssa;
     Compiler* const      compiler;
     ValueNumStore* const vnStore;
     JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, Range> rangeMap;
@@ -175,15 +178,16 @@ class RangeCheck
     GenTree* isMonotonicallyIncreasingExpr = nullptr;
 
 public:
-    RangeCheck(Compiler* compiler)
-        : compiler(compiler)
-        , vnStore(compiler->vnStore)
+    RangeCheck(SsaOptimizer& ssa)
+        : ssa(ssa)
+        , compiler(ssa.GetCompiler())
+        , vnStore(ssa.GetVNStore())
         , rangeMap(compiler->getAllocator(CMK_RangeCheck))
         , searchPath(compiler->getAllocator(CMK_RangeCheck))
     {
     }
 
-    void OptimizeRangeChecks();
+    bool Run();
 
 private:
     bool OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsChk);
@@ -282,7 +286,7 @@ bool RangeCheck::IsInBounds(const Range& range, ValueNum lengthVN, int lengthVal
 {
     JITDUMP("InBounds: %s in [0, " FMT_VN "]\n", ToString(range), lengthVN);
     JITDUMP("InBounds: length " FMT_VN " is: ", lengthVN);
-    DBEXEC(compiler->verbose, vnStore->vnDump(compiler, lengthVN));
+    DBEXEC(compiler->verbose, vnStore->Dump(compiler, lengthVN));
     JITDUMP("\n");
     JITDUMP("InBounds: length value is: %d\n", lengthVal);
 
@@ -609,10 +613,10 @@ bool RangeCheck::HasAddOverflow() const
 
 void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Range* range) const
 {
-    BitVecTraits apTraits(compiler->GetAssertionCount(), compiler);
+    BitVecTraits apTraits(ssa.GetAssertionCount(), compiler);
     for (BitVecOps::Enumerator en(&apTraits, assertions); en.MoveNext();)
     {
-        BoundsAssertion assertion = compiler->apGetBoundsAssertion(en.Current());
+        BoundsAssertion assertion = ssa.GetBoundsAssertion(en.Current());
 
         if (!assertion.IsBoundsAssertion())
         {
@@ -726,7 +730,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
         }
 
         JITDUMP("Assertion: ");
-        DBEXEC(compiler->verbose, compiler->apDumpBoundsAssertion(assertion));
+        DBEXEC(compiler->verbose, ssa.DumpBoundsAssertion(assertion));
         assert(limit.IsVN() || limit.IsConstant());
         assert(cmpOper != GT_NONE);
 
@@ -808,7 +812,7 @@ void RangeCheck::MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Ra
 {
     JITDUMP("Range: " FMT_BB " [%06u] = %s\n", block->bbNum, use->GetID(), ToString(*range));
 
-    if (compiler->GetAssertionCount() == 0)
+    if (ssa.GetAssertionCount() == 0)
     {
         return;
     }
@@ -1204,8 +1208,10 @@ Range* RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
     return range;
 }
 
-void RangeCheck::OptimizeRangeChecks()
+bool RangeCheck::Run()
 {
+    unsigned removedBoundsCheckCount = 0;
+
     for (BasicBlock* block : compiler->Blocks())
     {
         for (Statement* stmt : block->Statements())
@@ -1216,7 +1222,7 @@ void RangeCheck::OptimizeRangeChecks()
             {
                 if (budget <= 0)
                 {
-                    return;
+                    return removedBoundsCheckCount;
                 }
 
                 GenTreeOp* comma = nullptr;
@@ -1242,6 +1248,7 @@ void RangeCheck::OptimizeRangeChecks()
                     {
                         JITDUMP("Optimize: Removing range check\n");
                         compiler->optRemoveRangeCheck(boundsChk, comma, stmt);
+                        removedBoundsCheckCount++;
                         stmtModified = true;
                     }
                 }
@@ -1254,13 +1261,12 @@ void RangeCheck::OptimizeRangeChecks()
             }
         }
     }
+
+    return removedBoundsCheckCount != 0;
 }
 
-void Compiler::phRemoveRangeCheck()
+PhaseStatus SsaOptimizer::DoRemoveRangeCheck()
 {
-    assert(ssaForm && (vnStore != nullptr));
-    DBEXEC(verbose, fgDispBasicBlocks(true))
-
-    RangeCheck rangeCheck(this);
-    rangeCheck.OptimizeRangeChecks();
+    RangeCheck rangeCheck(*this);
+    return rangeCheck.Run() ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }

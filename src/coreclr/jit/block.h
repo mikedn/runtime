@@ -548,6 +548,11 @@ inline BasicBlockFlags& operator &=(BasicBlockFlags& a, BasicBlockFlags b)
 
 // clang-format on
 
+using LoopNum                 = uint8_t;
+constexpr unsigned NoLoopNum  = UINT8_MAX;
+constexpr unsigned MaxLoopNum = 64;
+static_assert_no_msg(MaxLoopNum < NoLoopNum);
+
 //------------------------------------------------------------------------
 // BasicBlock: describes a basic block in the flowgraph.
 //
@@ -1008,18 +1013,26 @@ struct BasicBlock : private LIR::Range
                              // range is not inclusive of the end offset. The count of IL bytes in the block
                              // is bbCodeOffsEnd - bbCodeOffs, assuming neither are BAD_IL_OFFSET.
 
-#ifdef DEBUG
-    void dspBlockILRange() const; // Display the block's IL range as [XXX...YYY), where XXX and YYY might be "???" for
-                                  // BAD_IL_OFFSET.
-#endif                            // DEBUG
+    // Display the block's IL range as [XXX...YYY), where XXX and YYY might be "???" for BAD_IL_OFFSET
+    INDEBUG(void dspBlockILRange() const;)
 
     // The following fields are used for loop detection
-    typedef unsigned char loopNumber;
-    static const unsigned NOT_IN_LOOP  = UCHAR_MAX;
-    static const unsigned MAX_LOOP_NUM = 64;
+    static const unsigned NOT_IN_LOOP  = NoLoopNum;
+    static const unsigned MAX_LOOP_NUM = MaxLoopNum;
 
-    loopNumber bbNatLoopNum; // Index, in optLoopTable, of most-nested loop that contains this block,
-                             // or else NOT_IN_LOOP if this block is not in a loop.
+    LoopNum bbNatLoopNum; // Index, in optLoopTable, of most-nested loop that contains this block,
+                          // or else NoLoopNum if this block is not in a loop.
+
+    LoopNum GetLoopNum() const
+    {
+        return bbNatLoopNum;
+    }
+
+    void SetLoopNum(LoopNum num)
+    {
+        assert((num <= MaxLoopNum) || (num == NoLoopNum));
+        bbNatLoopNum = num;
+    }
 
     bool spillCliquePredMember : 1;
     bool spillCliqueSuccMember : 1;
@@ -1039,32 +1052,8 @@ struct BasicBlock : private LIR::Range
     VARSET_TP bbLiveIn;  // variables live on entry
     VARSET_TP bbLiveOut; // variables live on exit
 
-    // We want to make phi functions for the special implicit var memory.  But since this is not a real
-    // lclVar, and thus has no local #, we can't use a GenTreePhiArg.  Instead, we use this struct.
-    struct MemoryPhiArg
-    {
-        unsigned      m_ssaNum;  // SSA# for incoming value.
-        MemoryPhiArg* m_nextArg; // Next arg in the list, else NULL.
-
-        MemoryPhiArg(unsigned ssaNum, MemoryPhiArg* nextArg) : m_ssaNum(ssaNum), m_nextArg(nextArg)
-        {
-        }
-
-        unsigned GetSsaNum() const
-        {
-            return m_ssaNum;
-        }
-
-        MemoryPhiArg* GetNext() const
-        {
-            return m_nextArg;
-        }
-
-        void* operator new(size_t sz, class Compiler* comp);
-    };
-
     // If the "in" Heap SSA var is not a phi definition, this value is null.
-    MemoryPhiArg* memoryPhi;
+    struct MemoryPhiArg* memoryPhi;
     // Otherwise, it is either the special value EmptyMemoryPhiDefn, to indicate
     // that Heap needs a phi definition on entry, or else it is the linked list
     // of the phi arguments.
@@ -1181,7 +1170,6 @@ struct BasicBlock : private LIR::Range
         return StatementList(FirstNonPhiDef());
     }
 
-    GenTree* firstNode() const;
     GenTree* lastNode() const;
 
     bool EndsWithJmp(Compiler* comp) const;

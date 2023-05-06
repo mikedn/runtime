@@ -965,6 +965,37 @@ void Compiler::fgComputeDoms()
     fgDomsComputed = true;
 }
 
+void Compiler::fgEnsureDomTreeRoot()
+{
+    assert(!fgLocalVarLivenessDone);
+
+    // We need a unique block to be the root of the dominator tree.
+    // This can be violated if the first block is in a try, or if it is the first block of
+    // a loop (which would necessarily be an infinite loop) -- i.e., it has a predecessor.
+    if (!fgFirstBB->hasTryIndex() && (fgFirstBB->bbPreds == nullptr))
+    {
+        return;
+    }
+
+    BasicBlock* root = bbNewBasicBlock(BBJ_NONE);
+    root->bbFlags |= BBF_INTERNAL;
+
+    BasicBlock* oldFirst = fgFirstBB;
+
+    // Copy the bbWeight. This is technically wrong, if the first block is a loop head,
+    // but it shouldn't matter...
+    root->inheritWeight(oldFirst);
+
+    // There's an artifical incoming reference count for the first BB. We're about to
+    // make it no longer the first BB, so decrement that.
+    assert(oldFirst->bbRefs > 0);
+    oldFirst->bbRefs--;
+
+    fgInsertBBbefore(fgFirstBB, root);
+    assert(fgFirstBB == root);
+    fgAddRefPred(oldFirst, root);
+}
+
 //------------------------------------------------------------------------
 // fgBuildDomTree: Build the dominator tree for the current flowgraph.
 //

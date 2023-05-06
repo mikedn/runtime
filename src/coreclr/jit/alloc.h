@@ -4,9 +4,10 @@
 #ifndef _ALLOC_H_
 #define _ALLOC_H_
 
-#if !defined(_HOST_H_)
+#include "iallocator.h"
+#ifndef _HOST_H_
 #include "host.h"
-#endif // defined(_HOST_H_)
+#endif
 
 // CompMemKind values are used to tag memory allocations performed via
 // the compiler's allocator so that the memory usage of various compiler
@@ -132,6 +133,8 @@ public:
     static void dumpAggregateMemStats(FILE* file);
 #endif // MEASURE_MEM_ALLOC
 
+    INDEBUG(int GetUninitializedByte();)
+
 public:
     ArenaAllocator();
 
@@ -194,9 +197,7 @@ inline void* ArenaAllocator::allocateMemory(size_t size)
         block = allocateNewPage(size);
     }
 
-#if defined(DEBUG)
-    memset(block, UninitializedWord<char>(nullptr), size);
-#endif
+    INDEBUG(memset(block, GetUninitializedByte(), size));
 
     return block;
 }

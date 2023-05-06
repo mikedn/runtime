@@ -119,14 +119,21 @@ void Compiler::fgLocalVarLivenessUntracked()
 
     // Since there are no tracked locals liveness basically never runs.
     INDEBUG(fgLocalVarLivenessDone = false;)
+}
 
-    EndPhase(PHASE_LCLVARLIVENESS);
+void Compiler::phSsaLiveness()
+{
+    assert(opts.OptimizationEnabled());
+    DBEXEC(verbose, lvaTableDump());
+
+    lvaMarkLivenessTrackedLocals();
+    fgLocalVarLiveness();
+
+    DBEXEC(verbose, lvaTableDump());
 }
 
 void Compiler::fgLocalVarLiveness()
 {
-    JITDUMP("*************** In fgLocalVarLiveness()\n");
-
     assert(opts.OptimizationEnabled());
 
     // TODO-MIKE-Review: See if we can simply reset these during liveness computation
@@ -171,8 +178,6 @@ void Compiler::fgLocalVarLiveness()
     }
 
     INDEBUG(fgLocalVarLivenessDone = true;)
-
-    EndPhase(PHASE_LCLVARLIVENESS);
 }
 
 void Compiler::livInitNewBlock(BasicBlock* block)

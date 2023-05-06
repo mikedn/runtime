@@ -15,7 +15,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #define _LOWER_H_
 
 #include "compiler.h"
-#include "phase.h"
 #include "lsra.h"
 #include "sideeffects.h"
 

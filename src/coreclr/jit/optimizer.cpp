@@ -2478,7 +2478,7 @@ NO_MORE_LOOPS:
     {
         for (BasicBlock* const blk : optLoopTable[loopInd].LoopBlocks())
         {
-            blk->bbNatLoopNum = static_cast<BasicBlock::loopNumber>(loopInd);
+            blk->bbNatLoopNum = static_cast<LoopNum>(loopInd);
         }
     }
 
@@ -2806,7 +2806,7 @@ bool Compiler::optCanonicalizeLoop(unsigned loopInd)
     // a call to fgUpdateChangedFlowGraph which will recompute the reachability sets anyway.
 
     // Redirect the "bottom" of the current loop to "newT".
-    BlockToBlockMap* blockMap = new (getAllocatorLoopHoist()) BlockToBlockMap(getAllocatorLoopHoist());
+    BlockToBlockMap* blockMap = new (getAllocator(CMK_LoopOpt)) BlockToBlockMap(getAllocator(CMK_LoopOpt));
     blockMap->Set(t, newT);
     optRedirectBlock(b, blockMap);
 
@@ -2881,7 +2881,7 @@ bool Compiler::optCanonicalizeLoop(unsigned loopInd)
     optLoopTable[loopInd].lpTop   = newT;
     optLoopTable[loopInd].lpFirst = newT;
 
-    newT->bbNatLoopNum = static_cast<BasicBlock::loopNumber>(loopInd);
+    newT->bbNatLoopNum = static_cast<LoopNum>(loopInd);
 
     JITDUMP("in optCanonicalizeLoop: made new block " FMT_BB " [%p] the new unique top of loop %d.\n", newT->bbNum,
             dspPtr(newT), loopInd);
@@ -6407,8 +6407,7 @@ void Compiler::optAddCopies()
     }
 }
 
-//------------------------------------------------------------------------------------------
-// optRemoveRedundantZeroInits: Remove redundant zero intializations.
+// Remove redundant zero intializations.
 //
 // Notes:
 //    This phase iterates over basic blocks starting with the first basic block until there is no unique
@@ -6427,11 +6426,9 @@ void Compiler::optAddCopies()
 //            either the local has no gc pointers or there are no gc-safe points between the prolog and the assignment,
 //         then the local is marked with lvHasExplicitInit which tells the codegen not to insert zero initialization
 //         for this local in the prolog.
-
-void Compiler::optRemoveRedundantZeroInits()
+//
+void Compiler::phRemoveRedundantZeroInits()
 {
-    JITDUMP("*************** In optRemoveRedundantZeroInits()\n");
-
     using LclVarRefCounts = JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, unsigned>;
 
     CompAllocator   allocator(getAllocator(CMK_ZeroInit));

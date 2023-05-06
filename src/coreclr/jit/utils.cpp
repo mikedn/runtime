@@ -153,13 +153,7 @@ const char* getRegName(unsigned reg) // this is for gcencode.cpp and disasm.cpp 
 }
 #endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
 
-#if defined(DEBUG)
-
-/*****************************************************************************
- *
- *  Displays a register set.
- *  TODO-ARM64-Cleanup: don't allow ip0, ip1 as part of a range.
- */
+#ifdef DEBUG
 
 void dspRegMask(regMaskTP regMask, size_t minSiz)
 {
@@ -324,47 +318,25 @@ void dspRegMask(regMaskTP regMask, size_t minSiz)
     }
 }
 
-//------------------------------------------------------------------------
-// dumpILBytes: Helper for dumpSingleInstr() to dump hex bytes of an IL stream,
-// aligning up to a minimum alignment width.
-//
-// Arguments:
-//    codeAddr  - Pointer to IL byte stream to display.
-//    codeSize  - Number of bytes of IL byte stream to display.
-//    alignSize - Pad out to this many characters, if fewer than this were written.
-//
-void dumpILBytes(const BYTE* const codeAddr,
-                 unsigned          codeSize,
-                 unsigned          alignSize) // number of characters to write, for alignment
+static void DumpILBytes(const uint8_t* const codeAddr, unsigned codeSize, unsigned alignSize)
 {
-    for (IL_OFFSET offs = 0; offs < codeSize; ++offs)
+    for (unsigned offs = 0; offs < codeSize; ++offs)
     {
         printf(" %02x", *(codeAddr + offs));
     }
 
     unsigned charsWritten = 3 * codeSize;
+
     for (unsigned i = charsWritten; i < alignSize; i++)
     {
         printf(" ");
     }
 }
 
-//------------------------------------------------------------------------
-// dumpSingleInstr: Display a single IL instruction.
-//
-// Arguments:
-//    codeAddr  - Base pointer to a stream of IL instructions.
-//    offs      - Offset from codeAddr of the IL instruction to display.
-//    prefix    - Optional string to prefix the IL instruction with (if nullptr, no prefix is output).
-//
-// Return Value:
-//    Size of the displayed IL instruction in the instruction stream, in bytes. (Add this to 'offs' to
-//    get to the next instruction.)
-//
-unsigned dumpSingleInstr(const BYTE* const codeAddr, IL_OFFSET offs, const char* prefix)
+static unsigned DumpILInstr(const uint8_t* const codeAddr, unsigned offs, const char* prefix)
 {
-    const BYTE*    opcodePtr      = codeAddr + offs;
-    const BYTE*    startOpcodePtr = opcodePtr;
+    const uint8_t* opcodePtr      = codeAddr + offs;
+    const uint8_t* startOpcodePtr = opcodePtr;
     const unsigned ALIGN_WIDTH    = 3 * 6; // assume 3 characters * (1 byte opcode + 4 bytes data + 1 prefix byte) for
                                            // most things
 
@@ -373,15 +345,13 @@ unsigned dumpSingleInstr(const BYTE* const codeAddr, IL_OFFSET offs, const char*
         printf("%s", prefix);
     }
 
-    OPCODE opcode = (OPCODE)getU1LittleEndian(opcodePtr);
-    opcodePtr += sizeof(__int8);
+    OPCODE opcode = static_cast<OPCODE>(getU1LittleEndian(opcodePtr++));
 
 DECODE_OPCODE:
-
     if (opcode >= CEE_COUNT)
     {
         printf("\nIllegal opcode: %02X\n", (int)opcode);
-        return (IL_OFFSET)(opcodePtr - startOpcodePtr);
+        return static_cast<unsigned>(opcodePtr - startOpcodePtr);
     }
 
     /* Get the size of additional parameters */
@@ -408,7 +378,7 @@ DECODE_OPCODE:
             switch (argKind)
             {
                 case InlineNone:
-                    dumpILBytes(startOpcodePtr, (unsigned)(opcodePtr - startOpcodePtr), ALIGN_WIDTH);
+                    DumpILBytes(startOpcodePtr, (unsigned)(opcodePtr - startOpcodePtr), ALIGN_WIDTH);
                     printf(" %-12s", opcodeNames[opcode]);
                     break;
 
@@ -436,7 +406,7 @@ DECODE_OPCODE:
                     goto INT_OP;
 
                 INT_OP:
-                    dumpILBytes(startOpcodePtr, (unsigned)((opcodePtr - startOpcodePtr) + sz), ALIGN_WIDTH);
+                    DumpILBytes(startOpcodePtr, (unsigned)((opcodePtr - startOpcodePtr) + sz), ALIGN_WIDTH);
                     printf(" %-12s 0x%X", opcodeNames[opcode], iOp);
                     break;
 
@@ -448,7 +418,7 @@ DECODE_OPCODE:
                     goto FLT_OP;
 
                 FLT_OP:
-                    dumpILBytes(startOpcodePtr, (unsigned)((opcodePtr - startOpcodePtr) + sz), ALIGN_WIDTH);
+                    DumpILBytes(startOpcodePtr, (unsigned)((opcodePtr - startOpcodePtr) + sz), ALIGN_WIDTH);
                     printf(" %-12s %f", opcodeNames[opcode], dOp);
                     break;
 
@@ -460,7 +430,7 @@ DECODE_OPCODE:
                     goto JMP_OP;
 
                 JMP_OP:
-                    dumpILBytes(startOpcodePtr, (unsigned)((opcodePtr - startOpcodePtr) + sz), ALIGN_WIDTH);
+                    DumpILBytes(startOpcodePtr, (unsigned)((opcodePtr - startOpcodePtr) + sz), ALIGN_WIDTH);
                     printf(" %-12s %d (IL_%04x)", opcodeNames[opcode], jOp, (int)(opcodePtr + sz - codeAddr) + jOp);
                     break;
 
@@ -468,7 +438,7 @@ DECODE_OPCODE:
                     jOp2 = getU4LittleEndian(opcodePtr);
                     opcodePtr += 4;
                     opcodePtr += jOp2 * 4; // Jump over the table
-                    dumpILBytes(startOpcodePtr, (unsigned)(opcodePtr - startOpcodePtr), ALIGN_WIDTH);
+                    DumpILBytes(startOpcodePtr, (unsigned)(opcodePtr - startOpcodePtr), ALIGN_WIDTH);
                     printf(" %-12s", opcodeNames[opcode]);
                     break;
 
@@ -476,7 +446,7 @@ DECODE_OPCODE:
                     jOp2 = getU1LittleEndian(opcodePtr);
                     opcodePtr += 1;
                     opcodePtr += jOp2 * 2; // Jump over the table
-                    dumpILBytes(startOpcodePtr, (unsigned)(opcodePtr - startOpcodePtr), ALIGN_WIDTH);
+                    DumpILBytes(startOpcodePtr, (unsigned)(opcodePtr - startOpcodePtr), ALIGN_WIDTH);
                     printf(" %-12s", opcodeNames[opcode]);
                     break;
 
@@ -490,24 +460,17 @@ DECODE_OPCODE:
     }
 
     printf("\n");
-    return (IL_OFFSET)(opcodePtr - startOpcodePtr);
+    return static_cast<unsigned>(opcodePtr - startOpcodePtr);
 }
 
-//------------------------------------------------------------------------
-// dumpILRange: Display a range of IL instructions from an IL instruction stream.
-//
-// Arguments:
-//    codeAddr  - Pointer to IL byte stream to display.
-//    codeSize  - Number of bytes of IL byte stream to display.
-//
-void dumpILRange(const BYTE* const codeAddr, unsigned codeSize) // in bytes
+void DumpILRange(const uint8_t* const codeAddr, unsigned codeSize)
 {
-    for (IL_OFFSET offs = 0; offs < codeSize;)
+    char prefix[100];
+
+    for (unsigned offs = 0; offs < codeSize;)
     {
-        char prefix[100];
         sprintf_s(prefix, _countof(prefix), "IL_%04x ", offs);
-        unsigned codeBytesDumped = dumpSingleInstr(codeAddr, offs, prefix);
-        offs += codeBytesDumped;
+        offs += DumpILInstr(codeAddr, offs, prefix);
     }
 }
 

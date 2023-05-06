@@ -709,12 +709,6 @@ const char* BasicBlock::dspToString(int blockNumPadding /* = 0 */)
 
 #endif // DEBUG
 
-// Allocation function for MemoryPhiArg.
-void* BasicBlock::MemoryPhiArg::operator new(size_t sz, Compiler* comp)
-{
-    return comp->getAllocator(CMK_MemoryPhiArg).allocate<char>(sz);
-}
-
 //------------------------------------------------------------------------
 // CloneBlockState: Try to populate `to` block with a copy of `from` block's statements, replacing
 //                  uses of local `varNum` with IntCns `varVal`.
@@ -856,17 +850,6 @@ void BasicBlock::SetStatements(Statement* first, Statement* last)
     first->SetPrevStmt(last);
 }
 
-//------------------------------------------------------------------------
-// BasicBlock::firstNode: Returns the first node in the block.
-//
-GenTree* BasicBlock::firstNode() const
-{
-    return IsLIR() ? GetFirstLIRNode() : Compiler::fgGetFirstNode(firstStmt()->GetRootNode());
-}
-
-//------------------------------------------------------------------------
-// BasicBlock::lastNode: Returns the last node in the block.
-//
 GenTree* BasicBlock::lastNode() const
 {
     return IsLIR() ? m_lastNode : lastStmt()->GetRootNode();
@@ -1413,13 +1396,8 @@ BasicBlock* Compiler::bbNewBasicBlock(BBjumpKinds jumpKind)
     block->memoryPhi         = nullptr;
     block->memoryEntrySsaNum = 0;
     block->memoryExitSsaNum  = 0;
-
-    // Make sure we reserve a NOT_IN_LOOP value that isn't a legal table index.
-    static_assert_no_msg(BasicBlock::MAX_LOOP_NUM < BasicBlock::NOT_IN_LOOP);
-
-    block->bbNatLoopNum = BasicBlock::NOT_IN_LOOP;
-
-    block->bbPredsWithEH = nullptr;
+    block->bbNatLoopNum      = NoLoopNum;
+    block->bbPredsWithEH     = nullptr;
 
     return block;
 }

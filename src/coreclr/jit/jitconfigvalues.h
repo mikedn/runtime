@@ -117,7 +117,7 @@ CONFIG_INTEGER(JitNoCSE2, W("JitNoCSE2"), 0)
 CONFIG_INTEGER(JitNoForceFallback, W("JitNoForceFallback"), 0) // Set to non-zero to prevent NOWAY assert testing.
                                                                // Overrides COMPlus_JitForceFallback and JIT stress
                                                                // flags.
-CONFIG_INTEGER(JitNoHoist, W("JitNoHoist"), 0)
+
 CONFIG_INTEGER(JitNoInline, W("JitNoInline"), 0)                 // Disables inlining of all methods
 CONFIG_INTEGER(JitNoMemoryBarriers, W("JitNoMemoryBarriers"), 0) // If 1, don't generate memory barriers
 CONFIG_INTEGER(JitNoRegLoc, W("JitNoRegLoc"), 0)
@@ -390,7 +390,7 @@ CONFIG_INTEGER(JitOptRepeatCount, W("JitOptRepeatCount"), 2) // Number of times 
 #endif                                                       // defined(OPT_CONFIG)
 
 // Max # of MapSelect's considered for a particular top-level invocation.
-CONFIG_INTEGER(JitVNMapSelBudget, W("JitVNMapSelBudget"), DEFAULT_MAP_SELECT_BUDGET)
+CONFIG_INTEGER(JitVNMapSelBudget, W("JitVNMapSelBudget"), DefaultVNMapSelectBudget)
 
 CONFIG_INTEGER(TailCallLoopOpt, W("TailCallLoopOpt"), 1) // Convert recursive tail calls to loops
 CONFIG_METHODSET(AltJit, W("AltJit"))         // Enables AltJit and selectively limits it to the specified methods.

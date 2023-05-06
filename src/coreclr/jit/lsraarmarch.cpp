@@ -14,13 +14,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
-#ifdef TARGET_ARMARCH // This file is ONLY used for ARM and ARM64 architectures
+#ifdef TARGET_ARMARCH
 
-#include "jit.h"
 #include "sideeffects.h"
 #include "lower.h"
 #include "lsra.h"

@@ -19,32 +19,22 @@
 // after a dereference (since control flow continued because no exception was thrown); that an integer value
 // is restricted to some subrange in after a comparison test; etc.
 
-/*****************************************************************************/
-#ifndef _VALUENUM_H_
-#define _VALUENUM_H_
-/*****************************************************************************/
+#pragma once
 
 #include "vartype.h"
-// For "GT_COUNT"
 #include "gentree.h"
-// Defines the type ValueNum.
 #include "valuenumtype.h"
-// Defines the type SmallHashTable.
 #include "smallhash.h"
 
-// A "ValueNumStore" represents the "universe" of value numbers used in a single
-// compilation.
-
-// All members of the enumeration genTreeOps are also members of VNFunc.
-// (Though some of these may be labeled "illegal").
 enum VNFunc
 {
     VNF_None = GT_NONE,
-    // Implicitly, elements of genTreeOps here.
+    // All members of the enumeration genTreeOps are also members of VNFunc.
+    // (Though some of these may be labeled "illegal").
     VNF_Boundary = GT_COUNT,
 #define ValueNumFuncDef(nm, arity, commute, knownNonNull, sharedStatic) VNF_##nm,
 #include "valuenumfuncs.h"
-    VNF_COUNT
+    VNF_Count
 };
 
 constexpr VNFunc VNFuncIndex(VNFunc vnf)
@@ -55,8 +45,6 @@ constexpr VNFunc VNFuncIndex(VNFunc vnf)
 #ifdef FEATURE_HW_INTRINSICS
 constexpr VNFunc VNFuncHWIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseType, unsigned simdSize)
 {
-    VNFunc vnf = VNFunc(VNF_HWI_FIRST + (intrinsic - NI_HW_INTRINSIC_START - 1));
-
     // TODO-MIKE-CQ: It may be useful to canonicalize the vector element type
     // somehow, as some SIMD operations are not affected by it (e.g. bitwise
     // operations). Old code sort of did this but apparently not for CQ reasons
@@ -64,10 +52,8 @@ constexpr VNFunc VNFuncHWIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseT
     // Such intrinsics are usually available for all element types so it's
     // unlikely that user code will reinterpret vectors in such a way that
     // we could see some benefit from canonicalization.
-    vnf = static_cast<VNFunc>(vnf | (static_cast<uint8_t>(simdBaseType) << 16));
-    vnf = static_cast<VNFunc>(vnf | (simdSize << 24));
-
-    return vnf;
+    return static_cast<VNFunc>((VNF_HWI_FIRST + (intrinsic - NI_HW_INTRINSIC_START - 1)) |
+                               (static_cast<uint8_t>(simdBaseType) << 16) | (simdSize << 24));
 }
 
 inline VNFunc VNFuncHWIntrinsic(GenTreeHWIntrinsic* node)
@@ -76,13 +62,13 @@ inline VNFunc VNFuncHWIntrinsic(GenTreeHWIntrinsic* node)
     return VNFuncHWIntrinsic(node->GetIntrinsic(), node->GetSimdBaseType(), node->GetSimdSize());
 }
 
-constexpr var_types VNFuncSimdBaseType(VNFunc vnf)
+inline var_types VNFuncSimdBaseType(VNFunc vnf)
 {
     assert(vnf >= VNF_HWI_FIRST);
     return static_cast<var_types>(vnf >> 16);
 }
 
-constexpr uint8_t VNFuncSimdSize(VNFunc vnf)
+inline uint8_t VNFuncSimdSize(VNFunc vnf)
 {
     assert(vnf >= VNF_HWI_FIRST);
     return static_cast<uint8_t>(vnf >> 24);
@@ -90,7 +76,6 @@ constexpr uint8_t VNFuncSimdSize(VNFunc vnf)
 #endif // FEATURE_HW_INTRINSICS
 
 // Given a GenTree node return the VNFunc that should be used when value numbering
-//
 VNFunc GetVNFuncForNode(GenTree* node);
 
 // An instance of this struct represents an application of the function symbol
@@ -134,63 +119,346 @@ struct VNFuncApp
 // This define is used with string concatenation to put this in printf format strings
 #define FMT_VN "$%x"
 
+using NodeBlockMap = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, BasicBlock*>;
+
+class SsaOptimizer;
+
 class ValueNumStore
 {
-    Compiler*     m_pComp;
-    CompAllocator m_alloc;
-    BasicBlock*   m_currentBlock = nullptr;
-    GenTree*      m_currentNode  = nullptr;
-    // This map tracks nodes whose value numbers explicitly or implicitly depend on memory states.
-    // The map provides the entry block of the most closely enclosing loop that
-    // defines the memory region accessed when defining the nodes's VN.
-    //
-    // This information should be consulted when considering hoisting node out of a loop, as the VN
-    // for the node will only be valid within the indicated loop.
-    //
-    // It is not fine-grained enough to track memory dependence within loops, so cannot be used
-    // for more general code motion.
-    //
-    // If a node does not have an entry in the map we currently assume the VN is not memory dependent
-    // and so memory does not constrain hoisting.
-    //
-    typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, BasicBlock*> NodeToLoopMemoryBlockMap;
-    NodeToLoopMemoryBlockMap* m_nodeToLoopMemoryBlockMap = nullptr;
-
-public:
-    // We will reserve "max unsigned" to represent "not a value number", for maps that might start uninitialized.
-    static const ValueNum NoVN = ::NoVN;
-    // A second special value, used to indicate that a function evaluation would cause infinite recursion.
-    static const ValueNum RecursiveVN = UINT32_MAX - 1;
-
-    // ==================================================================================================
-    // VNMap - map from something to ValueNum, where something is typically a constant value or a VNFunc
-    //         This class has two purposes - to abstract the implementation and to validate the ValueNums
-    //         being stored or retrieved.
-    template <class fromType, class keyfuncs = JitLargePrimitiveKeyFuncs<fromType>>
-    class VNMap : public JitHashTable<fromType, keyfuncs, ValueNum>
+    template <class Value, class KeyFuncs = JitLargePrimitiveKeyFuncs<Value>>
+    class VNMap : public JitHashTable<Value, KeyFuncs, ValueNum>
     {
     public:
-        VNMap(CompAllocator alloc) : JitHashTable<fromType, keyfuncs, ValueNum>(alloc)
+        VNMap(CompAllocator alloc) : JitHashTable<Value, KeyFuncs, ValueNum>(alloc)
         {
-        }
-        ~VNMap()
-        {
-            ~VNMap<fromType, keyfuncs>::JitHashTable();
         }
 
-        bool Set(fromType k, ValueNum val)
+        bool Set(Value value, ValueNum vn)
         {
-            assert(val != RecursiveVN);
-            return JitHashTable<fromType, keyfuncs, ValueNum>::Set(k, val);
+            assert(vn != RecursiveVN);
+            return JitHashTable<Value, KeyFuncs, ValueNum>::Set(value, vn);
         }
-        bool Lookup(fromType k, ValueNum* pVal = nullptr) const
+
+        bool Lookup(Value value, ValueNum* vn = nullptr) const
         {
-            bool result = JitHashTable<fromType, keyfuncs, ValueNum>::Lookup(k, pVal);
-            assert(!result || *pVal != RecursiveVN);
+            bool result = JitHashTable<Value, KeyFuncs, ValueNum>::Lookup(value, vn);
+            assert(!result || *vn != RecursiveVN);
             return result;
         }
     };
 
+    using Func0VNMap = VNMap<VNFunc>;
+
+    struct VNDefFunc0Arg
+    {
+        VNFunc m_func;
+
+        VNDefFunc0Arg(VNFunc func) : m_func(func)
+        {
+        }
+
+        bool operator==(const VNDefFunc0Arg& y) const
+        {
+            return m_func == y.m_func;
+        }
+    };
+
+    struct VNDefFunc1Arg : public VNDefFunc0Arg
+    {
+        ValueNum m_arg0;
+
+        VNDefFunc1Arg(VNFunc func, ValueNum arg0) : VNDefFunc0Arg(func), m_arg0(arg0)
+        {
+        }
+
+        bool operator==(const VNDefFunc1Arg& y) const
+        {
+            return VNDefFunc0Arg::operator==(y) && m_arg0 == y.m_arg0;
+        }
+    };
+
+    struct VNDefFunc1ArgKeyFuncs : public JitKeyFuncsDefEquals<VNDefFunc1Arg>
+    {
+        static unsigned GetHashCode(VNDefFunc1Arg val)
+        {
+            return (val.m_func << 24) + val.m_arg0;
+        }
+    };
+
+    using Func1VNMap = VNMap<VNDefFunc1Arg, VNDefFunc1ArgKeyFuncs>;
+
+    struct VNDefFunc2Arg : public VNDefFunc1Arg
+    {
+        ValueNum m_arg1;
+
+        VNDefFunc2Arg(VNFunc func, ValueNum arg0, ValueNum arg1) : VNDefFunc1Arg(func, arg0), m_arg1(arg1)
+        {
+        }
+
+        bool operator==(const VNDefFunc2Arg& y) const
+        {
+            return VNDefFunc1Arg::operator==(y) && m_arg1 == y.m_arg1;
+        }
+    };
+
+    struct VNDefFunc2ArgKeyFuncs : public JitKeyFuncsDefEquals<VNDefFunc2Arg>
+    {
+        static unsigned GetHashCode(const VNDefFunc2Arg& val)
+        {
+            return (val.m_func << 24) + (val.m_arg0 << 8) + val.m_arg1;
+        }
+    };
+
+    using Func2VNMap = VNMap<VNDefFunc2Arg, VNDefFunc2ArgKeyFuncs>;
+
+    struct VNDefFunc3Arg : public VNDefFunc2Arg
+    {
+        ValueNum m_arg2;
+
+        VNDefFunc3Arg(VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2)
+            : VNDefFunc2Arg(func, arg0, arg1), m_arg2(arg2)
+        {
+        }
+
+        bool operator==(const VNDefFunc3Arg& y) const
+        {
+            return VNDefFunc2Arg::operator==(y) && m_arg2 == y.m_arg2;
+        }
+    };
+
+    struct VNDefFunc3ArgKeyFuncs : public JitKeyFuncsDefEquals<VNDefFunc3Arg>
+    {
+        static unsigned GetHashCode(const VNDefFunc3Arg& val)
+        {
+            return (val.m_func << 24) + (val.m_arg0 << 16) + (val.m_arg1 << 8) + val.m_arg2;
+        }
+    };
+
+    using Func3VNMap = VNMap<VNDefFunc3Arg, VNDefFunc3ArgKeyFuncs>;
+
+    struct VNDefFunc4Arg : public VNDefFunc3Arg
+    {
+        ValueNum m_arg3;
+
+        VNDefFunc4Arg(VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2, ValueNum arg3)
+            : VNDefFunc3Arg(func, arg0, arg1, arg2), m_arg3(arg3)
+        {
+        }
+
+        bool operator==(const VNDefFunc4Arg& y) const
+        {
+            return VNDefFunc3Arg::operator==(y) && m_arg3 == y.m_arg3;
+        }
+    };
+
+    struct VNDefFunc4ArgKeyFuncs : public JitKeyFuncsDefEquals<VNDefFunc4Arg>
+    {
+        static unsigned GetHashCode(const VNDefFunc4Arg& val)
+        {
+            return (val.m_func << 24) + (val.m_arg0 << 16) + (val.m_arg1 << 8) + val.m_arg2 + (val.m_arg3 << 12);
+        }
+    };
+
+    using Func4VNMap = VNMap<VNDefFunc4Arg, VNDefFunc4ArgKeyFuncs>;
+
+    using Int32VNMap = VNMap<int32_t>;
+    using Int64VNMap = VNMap<int64_t>;
+    using ByrefVNMap = VNMap<size_t>;
+
+    // First, we need mechanisms for mapping from constants to value numbers.
+    // For small integers, we'll use an array.
+    static constexpr int      SmallIntConstMin = -1;
+    static constexpr int      SmallIntConstMax = 10;
+    static constexpr unsigned SmallIntConstNum = SmallIntConstMax - SmallIntConstMin + 1;
+
+    struct VNHandle : public JitKeyFuncsDefEquals<VNHandle>
+    {
+        ssize_t      value;
+        GenTreeFlags kind;
+
+        VNHandle(ssize_t value, GenTreeFlags kind) : value(value), kind(kind)
+        {
+        }
+
+        bool operator==(const VNHandle& y) const
+        {
+            return value == y.value && kind == y.kind;
+        }
+
+        static unsigned GetHashCode(const VNHandle& val)
+        {
+            return static_cast<unsigned>(val.value);
+        }
+    };
+
+    using HandleVNMap = VNMap<VNHandle, VNHandle>;
+
+    using CheckedBoundVNSet = SmallHashTable<ValueNum, bool, 8U>;
+
+    // A "ChunkNum" is a zero-based index naming a chunk in the Store, or else the special "NoChunk" value.
+    using ChunkNum                    = unsigned;
+    static constexpr ChunkNum NoChunk = UINT_MAX;
+
+    // Convert a vartype_t to the value number's storage type for that vartype_t.
+    // For example, ValueNum of type TYP_LONG are stored in a map of int64_t variables.
+    // Lang is the language (C++) type for the corresponding vartype_t.
+    template <int N>
+    struct VarTypConv
+    {
+    };
+    template <>
+    struct VarTypConv<TYP_INT>
+    {
+        typedef int32_t Type;
+        typedef int32_t Lang;
+    };
+    template <>
+    struct VarTypConv<TYP_FLOAT>
+    {
+        typedef int32_t Type;
+        typedef float   Lang;
+    };
+    template <>
+    struct VarTypConv<TYP_LONG>
+    {
+        typedef int64_t Type;
+        typedef int64_t Lang;
+    };
+    template <>
+    struct VarTypConv<TYP_DOUBLE>
+    {
+        typedef int64_t Type;
+        typedef double  Lang;
+    };
+    template <>
+    struct VarTypConv<TYP_BYREF>
+    {
+        typedef size_t Type;
+        typedef void*  Lang;
+    };
+    template <>
+    struct VarTypConv<TYP_REF>
+    {
+        typedef class Object* Type;
+        typedef class Object* Lang;
+    };
+
+    enum ChunkExtraAttribs : BYTE
+    {
+        CEA_Const,     // This chunk contains constant values.
+        CEA_Handle,    // This chunk contains handle constants.
+        CEA_NotAField, // This chunk contains "not a field" values.
+        CEA_Func0,     // Represents functions of arity 0.
+        CEA_Func1,     // ...arity 1.
+        CEA_Func2,     // ...arity 2.
+        CEA_Func3,     // ...arity 3.
+        CEA_Func4,     // ...arity 4.
+        CEA_Count
+    };
+
+    // A "Chunk" holds "ChunkSize" value numbers, starting at "m_baseVN".  All of these share the same
+    // "m_typ" and "m_attribs".  These properties determine the interpretation of "m_defs", as discussed below.
+    struct Chunk
+    {
+        // If "m_defs" is non-null, it is an array of size ChunkSize, whose element type is determined by the other
+        // members. The "m_numUsed" field indicates the number of elements of "m_defs" that are already consumed (the
+        // next one to allocate).
+        void*    m_defs;
+        unsigned m_numUsed;
+
+        // The value number of the first VN in the chunk.
+        ValueNum m_baseVN;
+
+        // The common attributes of this chunk.
+        var_types         m_typ;
+        ChunkExtraAttribs m_attribs;
+
+        // Initialize a chunk, starting at "*baseVN", for the given "typ", and "attribs", using "alloc" for allocations.
+        // (Increments "*baseVN" by ChunkSize.)
+        Chunk(CompAllocator alloc, ValueNum* baseVN, var_types typ, ChunkExtraAttribs attribs);
+
+        // Requires that "m_numUsed < ChunkSize."  Returns the offset of the allocated VN within the chunk; the
+        // actual VN is this added to the "m_baseVN" of the chunk.
+        unsigned AllocVN()
+        {
+            assert(m_numUsed < ChunkSize);
+            return m_numUsed++;
+        }
+
+        template <int N>
+        struct Alloc
+        {
+            typedef typename VarTypConv<N>::Type Type;
+        };
+    };
+
+    SsaOptimizer& ssa;
+    Compiler*     compiler;
+    CompAllocator alloc;
+    BasicBlock*   m_currentBlock = nullptr;
+    GenTree*      m_currentNode  = nullptr;
+
+    // This map tracks nodes whose value numbers explicitly or implicitly depend on memory states.
+    // The map provides the entry block of the most closely enclosing loop that
+    // defines the memory region accessed when defining the nodes's VN.
+    // This information should be consulted when considering hoisting node out of a loop, as the VN
+    // for the node will only be valid within the indicated loop.
+    // It is not fine-grained enough to track memory dependence within loops, so cannot be used
+    // for more general code motion.
+    // If a node does not have an entry in the map we currently assume the VN is not memory dependent
+    // and so memory does not constrain hoisting.
+    NodeBlockMap* m_nodeToLoopMemoryBlockMap = nullptr;
+    // This is the maximum number of MapSelect terms that can be "considered" as part of evaluation of a top-level
+    // MapSelect application.
+    int m_mapSelectBudget;
+    // The base VN of the next chunk to be allocated.  Should always be a multiple of ChunkSize.
+    ValueNum m_nextChunkBase = 0;
+    // When we evaluate "select(m, i)", if "m" is a the value of a phi definition, we look at
+    // all the values of the phi args, and see if doing the "select" on each of them yields identical
+    // results.  If so, that is the result of the entire "select" form.  We have to be careful, however,
+    // because phis may be recursive in the presence of loop structures -- the VN for the phi may be (or be
+    // part of the definition of) the VN's of some of the arguments.  But there will be at least one
+    // argument that does *not* depend on the outer phi VN -- after all, we had to get into the loop somehow.
+    // So we have to be careful about breaking infinite recursion.  We can ignore "recursive" results -- if all the
+    // non-recursive results are the same, the recursion indicates that the loop structure didn't alter the result.
+    // This stack represents the set of outer phis such that select(phi, ind) is being evaluated.
+    ArrayStack<ValueNum, 1> m_fixedPointMapSels;
+    // This is the set of value numbers that have been flagged as arguments to bounds checks, in the length position.
+    CheckedBoundVNSet m_checkedBoundVNs;
+    // This is a map from "chunk number" to the attributes of the chunk.
+    ArrayStack<Chunk*, 8> m_chunks;
+    // These entries indicate the current allocation chunk, if any, for each valid combination of <var_types,
+    // ChunkExtraAttribute>.
+    // If the value is NoChunk, it indicates that there is no current allocation chunk for that pair, otherwise
+    // it is the index in "m_chunks" of a chunk with the given attributes, in which the next allocation should
+    // be attempted.
+    ChunkNum m_curAllocChunk[TYP_COUNT][CEA_Count + 1];
+
+    ValueNum     m_zeroMap           = NoVN;
+    ValueNum     m_readOnlyMemoryMap = NoVN;
+    ValueNum     m_smallInt32VNMap[SmallIntConstNum];
+    Int32VNMap*  m_int32VNMap  = nullptr;
+    Int64VNMap*  m_int64VNMap  = nullptr;
+    HandleVNMap* m_handleMap   = nullptr;
+    Int32VNMap*  m_floatVNMap  = nullptr;
+    Int64VNMap*  m_doubleVNMap = nullptr;
+    ByrefVNMap*  m_byrefVNMap  = nullptr;
+    Func0VNMap*  m_func0VNMap  = nullptr;
+    Func1VNMap*  m_func1VNMap  = nullptr;
+    Func2VNMap*  m_func2VNMap  = nullptr;
+    Func3VNMap*  m_func3VNMap  = nullptr;
+    Func4VNMap*  m_func4VNMap  = nullptr;
+
+#ifdef DEBUG
+    // This helps test some performance pathologies related to "evaluation" of VNF_MapSelect terms,
+    // especially relating to GcHeap/ByrefExposed.  We count the number of applications of such terms we consider,
+    // and if this exceeds a limit, indicated by a COMPlus_ variable, we assert.
+    unsigned m_numMapSels = 0;
+
+    JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, const char*> m_vnNameMap;
+#endif
+
+public:
     void SetCurrentBlock(BasicBlock* block)
     {
         m_currentBlock = block;
@@ -220,22 +488,6 @@ public:
 private:
     void RecordLoopMemoryDependence(GenTree* tree, BasicBlock* block, ValueNum memoryVN);
 
-    // TODO-Cleanup: should transform "attribs" into a struct with bit fields.  That would be simpler...
-    enum VNFOpAttrib
-    {
-        VNFOA_IllegalGenTreeOp = 0x1,  // corresponds to a genTreeOps value that is not a legal VN func.
-        VNFOA_Commutative      = 0x2,  // 1 iff the function is commutative.
-        VNFOA_Arity1           = 0x4,  // Bits 2,3,4 encode the arity.
-        VNFOA_Arity2           = 0x8,  // Bits 2,3,4 encode the arity.
-        VNFOA_Arity4           = 0x10, // Bits 2,3,4 encode the arity.
-        VNFOA_KnownNonNull     = 0x20, // 1 iff the result is known to be non-null.
-    };
-
-    static const unsigned VNFOA_ArityShift = 2;
-    static const unsigned VNFOA_ArityBits  = 3;
-    static const unsigned VNFOA_MaxArity   = (1 << VNFOA_ArityBits) - 1; // Max arity we can represent.
-    static const unsigned VNFOA_ArityMask  = (VNFOA_Arity4 | VNFOA_Arity2 | VNFOA_Arity1);
-
     // These enum constants are used to encode the cast operation in the lowest bits by VNForCastOper
     enum VNFCastAttrib
     {
@@ -245,18 +497,8 @@ private:
         VCA_ReservedBits = 0x01, // i.e. (VCA_UnsignedSrc)
     };
 
-    // An array of length GT_COUNT, mapping genTreeOp values to their VNFOpAttrib.
-    static UINT8* s_vnfOpAttribs;
-
-    // Returns "true" iff gtOper is a legal value number function.
-    // (Requires InitValueNumStoreStatics to have been run.)
-    static bool GenTreeOpIsLegalVNFunc(genTreeOps gtOper);
-
-    // Returns "true" iff "vnf" is a commutative (and thus binary) operator.
-    // (Requires InitValueNumStoreStatics to have been run.)
+    static bool IsLegalVNFuncOper(genTreeOps gtOper);
     static bool VNFuncIsCommutative(VNFunc vnf);
-
-    // Returns "true" iff "vnf" is a comparison (and thus binary) operator.
     static bool VNFuncIsComparison(VNFunc vnf);
 
     // Returns "true" iff "vnf" can be evaluated for constant arguments.
@@ -282,7 +524,7 @@ private:
     template <typename T>
     static int EvalComparison(VNFunc vnf, T v0, T v1);
 
-    // Should only instantiate (in a non-trivial way) for "int" and "INT64".  Returns true iff dividing "v0" by "v1"
+    // Should only instantiate (in a non-trivial way) for "int" and "int64_t".  Returns true iff dividing "v0" by "v1"
     // would produce integer overflow (an ArithmeticException -- *not* division by zero, which is separate.)
     template <typename T>
     static bool IsOverflowIntDiv(T v0, T v1);
@@ -295,7 +537,7 @@ private:
 public:
     // Given an constant value number return its value.
     int GetConstantInt32(ValueNum argVN);
-    INT64 GetConstantInt64(ValueNum argVN);
+    int64_t GetConstantInt64(ValueNum argVN);
     double GetConstantDouble(ValueNum argVN);
     float GetConstantSingle(ValueNum argVN);
 
@@ -311,89 +553,37 @@ private:
 
     ValueNum EvalUsingMathIdentity(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
 
-// This is the constant value used for the default value of m_mapSelectBudget
-#define DEFAULT_MAP_SELECT_BUDGET 100 // used by JitVNMapSelBudget
-
-    // This is the maximum number of MapSelect terms that can be "considered" as part of evaluation of a top-level
-    // MapSelect application.
-    int m_mapSelectBudget;
-
     template <typename T, typename NumMap>
     inline ValueNum VnForConst(T cnsVal, NumMap* numMap, var_types varType);
 
 public:
-    // Initializes any static variables of ValueNumStore.
-    static void InitValueNumStoreStatics();
+    ValueNumStore(SsaOptimizer& ssa);
 
-    // Initialize an empty ValueNumStore.
-    ValueNumStore(Compiler* comp, CompAllocator allocator);
-
-    // Returns "true" iff "vnf" (which may have been created by a cast from an integral value) represents
-    // a legal value number function.
-    // (Requires InitValueNumStoreStatics to have been run.)
-    static bool VNFuncIsLegal(VNFunc vnf)
-    {
-        return unsigned(vnf) > VNF_Boundary || GenTreeOpIsLegalVNFunc(static_cast<genTreeOps>(vnf));
-    }
-
-    static uint8_t VNFuncAttribs(VNFunc vnf)
-    {
-        return s_vnfOpAttribs[VNFuncIndex(vnf)];
-    }
-
-    // Returns "true" iff "vnf" is one of:
-    // VNF_ADD_OVF, VNF_SUB_OVF, VNF_MUL_OVF,
-    // VNF_ADD_UN_OVF, VNF_SUB_UN_OVF, VNF_MUL_UN_OVF.
+    static const struct VNFuncAttrs& VNFuncAttrs(VNFunc vnf);
+    static bool VNFuncIsLegal(VNFunc vnf);
     static bool VNFuncIsOverflowArithmetic(VNFunc vnf);
-
-    // Returns "true" iff "vnf" is VNF_Cast or VNF_CastOvf.
     static bool VNFuncIsNumericCast(VNFunc vnf);
+    static unsigned VNFuncArity(VNFunc vnf);
+    static bool VNFuncArityIsLegal(VNFunc vnf, unsigned arity);
+    static bool VNFuncArityIsVariable(VNFunc vnf);
+    static VNFunc GenTreeOpToVNFunc(genTreeOps oper);
 
-    // Returns the arity of "vnf".
-    static unsigned VNFuncArity(VNFunc vnf)
-    {
-        unsigned arity = (VNFuncAttribs(vnf) & VNFOA_ArityMask) >> VNFOA_ArityShift;
-        assert(arity != VNFOA_MaxArity);
-        return arity;
-    }
+    INDEBUG(static void RunTests(Compiler* comp);)
 
-    static bool VNFuncArityIsLegal(VNFunc vnf, unsigned arity)
-    {
-        return VNFuncArityIsVariable(vnf) || (VNFuncArity(vnf) == arity);
-    }
-
-    static bool VNFuncArityIsVariable(VNFunc vnf)
-    {
-        return ((VNFuncAttribs(vnf) & VNFOA_ArityMask) >> VNFOA_ArityShift) == VNFOA_MaxArity;
-    }
-
-    // Requires "gtOper" to be a genTreeOps legally representing a VNFunc, and returns that
-    // VNFunc.
-    // (Requires InitValueNumStoreStatics to have been run.)
-    static VNFunc GenTreeOpToVNFunc(genTreeOps gtOper)
-    {
-        assert(GenTreeOpIsLegalVNFunc(gtOper));
-        return static_cast<VNFunc>(gtOper);
-    }
-
-#ifdef DEBUG
-    static void RunTests(Compiler* comp);
-#endif // DEBUG
-
-    // This block of methods gets value numbers for constants of primitive types.
-    ValueNum VNForIntCon(INT32 cnsVal);
-    ValueNum VNForLongCon(INT64 cnsVal);
-    ValueNum VNForFloatCon(float cnsVal);
-    ValueNum VNForDoubleCon(double cnsVal);
-    ValueNum VNForByrefCon(target_size_t byrefVal);
+    ValueNum VNForIntCon(int32_t value);
+    ValueNum VNForLongCon(int64_t value);
+    ValueNum VNForFloatCon(float value);
+    ValueNum VNForDoubleCon(double value);
+    ValueNum VNForDblCon(var_types type, double value);
+    ValueNum VNForByrefCon(target_size_t value);
 
 #ifdef TARGET_64BIT
-    ValueNum VNForPtrSizeIntCon(INT64 cnsVal)
+    ValueNum VNForPtrSizeIntCon(int64_t cnsVal)
     {
         return VNForLongCon(cnsVal);
     }
 #else
-    ValueNum VNForPtrSizeIntCon(INT32 cnsVal)
+    ValueNum VNForPtrSizeIntCon(int32_t cnsVal)
     {
         return VNForIntCon(cnsVal);
     }
@@ -428,7 +618,7 @@ public:
 
     // We keep handle values in a separate pool, so we don't confuse a handle with an int constant
     // that happens to be the same...
-    ValueNum VNForHandle(ssize_t cnsVal, GenTreeFlags iconFlags);
+    ValueNum VNForHandle(ssize_t value, GenTreeFlags handleKind);
 
     ValueNum VNForFieldSeqHandle(CORINFO_FIELD_HANDLE fieldHandle);
 
@@ -574,17 +764,12 @@ public:
     // True "iff" vn is a value known to be non-null.  (For example, the result of an allocation...)
     bool IsKnownNonNull(ValueNum vn);
 
-    // VNForFunc: We have five overloads, for arities 0, 1, 2, 3 and 4
-    ValueNum VNForFunc(var_types typ, VNFunc func);
-    ValueNum VNForFunc(var_types typ, VNFunc func, ValueNum opVNwx);
-    ValueNum HasFunc(var_types typ, VNFunc func, ValueNum arg0VN);
-    // This must not be used for VNF_MapSelect applications; instead use VNForMapSelect, below.
-    ValueNum VNForFunc(var_types typ, VNFunc func, ValueNum op1VNwx, ValueNum op2VNwx);
-    ValueNum VNForFunc(var_types typ, VNFunc func, ValueNum op1VNwx, ValueNum op2VNwx, ValueNum op3VNwx);
-
-    // The following four-op VNForFunc is used for VNF_PtrToArrElem, elemTypeEqVN, arrVN, inxVN, fldSeqVN
-    ValueNum VNForFunc(
-        var_types typ, VNFunc func, ValueNum op1VNwx, ValueNum op2VNwx, ValueNum op3VNwx, ValueNum op4VNwx);
+    ValueNum VNForFunc(var_types type, VNFunc func);
+    ValueNum VNForFunc(var_types type, VNFunc func, ValueNum arg0);
+    ValueNum HasFunc(var_types type, VNFunc func, ValueNum arg0);
+    ValueNum VNForFunc(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1);
+    ValueNum VNForFunc(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2);
+    ValueNum VNForFunc(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2, ValueNum arg3);
 
     // This requires a "ValueNumKind" because it will attempt, given "select(phi(m1, ..., mk), ind)", to evaluate
     // "select(m1, ind)", ..., "select(mk, ind)" to see if they agree.  It needs to know which kind of value number
@@ -664,16 +849,14 @@ public:
 
     var_types TypeOfVN(ValueNum vn) const;
 
-    // Returns BasicBlock::MAX_LOOP_NUM if the given value number's loop nest is unknown or ill-defined.
-    BasicBlock::loopNumber LoopOfVN(ValueNum vn);
+    // Returns MaxLoopNum if the given value number's loop nest is unknown or ill-defined.
+    LoopNum LoopOfVN(ValueNum vn);
 
     // Returns true iff the VN represents a (non-handle) constant.
     var_types GetConstantType(ValueNum vn) const;
     bool IsVNConstant(ValueNum vn) const;
     bool IsVNInt32Constant(ValueNum vn) const;
     bool IsIntegralConstant(ValueNum vn, ssize_t* value) const;
-
-    typedef SmallHashTable<ValueNum, bool, 8U> CheckedBoundVNSet;
 
     // Returns true if the VN is known or likely to appear as the conservative value number
     // of the length argument to a GT_BOUNDS_CHECK node.
@@ -735,24 +918,7 @@ public:
     // Returns true iff the VN represents a handle constant.
     bool IsVNHandle(ValueNum vn) const;
 
-    // Convert a vartype_t to the value number's storage type for that vartype_t.
-    // For example, ValueNum of type TYP_LONG are stored in a map of INT64 variables.
-    // Lang is the language (C++) type for the corresponding vartype_t.
-    template <int N>
-    struct VarTypConv
-    {
-    };
-
 private:
-    struct Chunk;
-
-    template <typename T>
-    static T CoerceTypRefToT(Chunk* c, unsigned offset);
-
-    // Get the actual value and coerce the actual type c->m_typ to the wanted type T.
-    template <typename T>
-    FORCEINLINE T SafeGetConstantValue(Chunk* c, unsigned offset) const;
-
     template <typename T>
     T ConstantValueInternal(ValueNum vn DEBUGARG(bool coerce)) const
     {
@@ -766,26 +932,22 @@ private:
             case TYP_REF:
                 assert(0 <= offset && offset <= 1); // Null or exception.
                 FALLTHROUGH;
-
             case TYP_BYREF:
-
 #ifdef _MSC_VER
-
                 assert(&typeid(T) == &typeid(size_t)); // We represent ref/byref constants as size_t's.
-
-#endif // _MSC_VER
+#endif
 
                 FALLTHROUGH;
-
             case TYP_INT:
             case TYP_LONG:
             case TYP_FLOAT:
             case TYP_DOUBLE:
                 if (c->m_attribs == CEA_Handle)
                 {
-                    C_ASSERT(offsetof(VNHandle, m_cnsVal) == 0);
-                    return (T) static_cast<VNHandle*>(c->m_defs)[offset].m_cnsVal;
+                    C_ASSERT(offsetof(VNHandle, value) == 0);
+                    return (T) static_cast<VNHandle*>(c->m_defs)[offset].value;
                 }
+
 #ifdef DEBUG
                 if (!coerce)
                 {
@@ -811,6 +973,7 @@ private:
                     }
                 }
 #endif
+
                 return SafeGetConstantValue<T>(c, offset);
 
             default:
@@ -871,67 +1034,36 @@ public:
     // the function application it represents; otherwise, return "false."
     VNFunc GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const;
 
-    // Returns "true" iff "vn" is a valid value number -- one that has been previously returned.
-    bool VNIsValid(ValueNum vn);
-
 #ifdef DEBUG
-// This controls whether we recursively call vnDump on function arguments.
-#define FEATURE_VN_DUMP_FUNC_ARGS 0
-
-    // Prints, to standard out, a representation of "vn".
-    void vnDump(Compiler* comp, ValueNum vn, bool isPtr = false);
-
-    // Requires "fieldSeq" to be a field sequence VNFuncApp.
-    // Prints a representation (comma-separated list of field names) on standard out.
-    void vnDumpFieldSeq(Compiler* comp, VNFuncApp* fieldSeq, bool isHead);
-
-    // Requires "mapSelect" to be a map select VNFuncApp.
-    // Prints a representation of a MapSelect operation on standard out.
-    void vnDumpMapSelect(Compiler* comp, VNFuncApp* mapSelect);
-
-    // Requires "mapStore" to be a map store VNFuncApp.
-    // Prints a representation of a MapStore operation on standard out.
-    void vnDumpMapStore(Compiler* comp, VNFuncApp* mapStore);
-
-    // Requires "memOpaque" to be a mem opaque VNFuncApp
-    // Prints a representation of a MemOpaque state on standard out.
-    void vnDumpMemOpaque(Compiler* comp, VNFuncApp* memOpaque);
-
-    // Requires "valWithExc" to be a value with an exeception set VNFuncApp.
-    // Prints a representation of the exeception set on standard out.
-    void vnDumpValWithExc(Compiler* comp, VNFuncApp* valWithExc);
-
-    void vnDumpLclAddr(Compiler* comp, VNFuncApp* lclAddr);
+    void Dump(Compiler* comp, ValueNum vn, bool isPtr = false);
+    void DumpFieldSeq(Compiler* comp, VNFuncApp* fieldSeq, bool isHead);
+    void DumpMapSelect(Compiler* comp, VNFuncApp* mapSelect);
+    void DumpMapStore(Compiler* comp, VNFuncApp* mapStore);
+    void DumpMemOpaque(Compiler* comp, VNFuncApp* memOpaque);
+    void DumpValWithExc(Compiler* comp, VNFuncApp* valWithExc);
+    void DumpLclAddr(Compiler* comp, VNFuncApp* lclAddr);
     void DumpBitCast(const VNFuncApp& cast);
     void DumpCast(const VNFuncApp& cast);
     void DumpPtrToArrElem(const VNFuncApp& elemAddr);
+    void DumpExcSeq(Compiler* comp, VNFuncApp* excSeq, bool isHead);
 
-    // Requires "excSeq" to be a ExcSetCons sequence.
-    // Prints a representation of the set of exceptions on standard out.
-    void vnDumpExcSeq(Compiler* comp, VNFuncApp* excSeq, bool isHead);
+    static const char* GetFuncName(VNFunc vnf);
+    static const char* GetReservedName(ValueNum vn);
 
-    // Returns the string name of "vnf".
-    static const char* VNFuncName(VNFunc vnf);
-    // Used in the implementation of the above.
-    static const char* VNFuncNameArr[];
-
-    // Returns the string name of "vn" when it is a reserved value number, nullptr otherwise
-    static const char* reservedName(ValueNum vn);
-
+    void Trace(ValueNum vn, const char* comment = nullptr);
+    void Trace(ValueNumPair vnp, const char* comment = nullptr);
+    void Print(ValueNumPair vnp, unsigned level);
+    void Print(ValueNum vn, unsigned level);
 #endif // DEBUG
 
     // Returns true if "vn" is a reserved value number
-    static bool isReservedVN(ValueNum);
+    static bool IsReservedVN(ValueNum);
 
 private:
     // We will allocate value numbers in "chunks".  Each chunk will have the same type and "constness".
-    static const unsigned LogChunkSize    = 6;
-    static const unsigned ChunkSize       = 1 << LogChunkSize;
-    static const unsigned ChunkOffsetMask = ChunkSize - 1;
-
-    // A "ChunkNum" is a zero-based index naming a chunk in the Store, or else the special "NoChunk" value.
-    typedef UINT32        ChunkNum;
-    static const ChunkNum NoChunk = UINT32_MAX;
+    static constexpr unsigned LogChunkSize    = 6;
+    static constexpr unsigned ChunkSize       = 1 << LogChunkSize;
+    static constexpr unsigned ChunkOffsetMask = ChunkSize - 1;
 
     // Returns the ChunkNum of the Chunk that holds "vn" (which is required to be a valid
     // value number, i.e., one returned by some VN-producing method of this class).
@@ -946,357 +1078,12 @@ private:
         return vn & ChunkOffsetMask;
     }
 
-    // The base VN of the next chunk to be allocated.  Should always be a multiple of ChunkSize.
-    ValueNum m_nextChunkBase;
-
-    enum ChunkExtraAttribs : BYTE
-    {
-        CEA_Const,     // This chunk contains constant values.
-        CEA_Handle,    // This chunk contains handle constants.
-        CEA_NotAField, // This chunk contains "not a field" values.
-        CEA_Func0,     // Represents functions of arity 0.
-        CEA_Func1,     // ...arity 1.
-        CEA_Func2,     // ...arity 2.
-        CEA_Func3,     // ...arity 3.
-        CEA_Func4,     // ...arity 4.
-        CEA_Count
-    };
-
-    // A "Chunk" holds "ChunkSize" value numbers, starting at "m_baseVN".  All of these share the same
-    // "m_typ" and "m_attribs".  These properties determine the interpretation of "m_defs", as discussed below.
-    struct Chunk
-    {
-        // If "m_defs" is non-null, it is an array of size ChunkSize, whose element type is determined by the other
-        // members. The "m_numUsed" field indicates the number of elements of "m_defs" that are already consumed (the
-        // next one to allocate).
-        void*    m_defs;
-        unsigned m_numUsed;
-
-        // The value number of the first VN in the chunk.
-        ValueNum m_baseVN;
-
-        // The common attributes of this chunk.
-        var_types         m_typ;
-        ChunkExtraAttribs m_attribs;
-
-        // Initialize a chunk, starting at "*baseVN", for the given "typ", and "attribs", using "alloc" for allocations.
-        // (Increments "*baseVN" by ChunkSize.)
-        Chunk(CompAllocator alloc, ValueNum* baseVN, var_types typ, ChunkExtraAttribs attribs);
-
-        // Requires that "m_numUsed < ChunkSize."  Returns the offset of the allocated VN within the chunk; the
-        // actual VN is this added to the "m_baseVN" of the chunk.
-        unsigned AllocVN()
-        {
-            assert(m_numUsed < ChunkSize);
-            return m_numUsed++;
-        }
-
-        template <int N>
-        struct Alloc
-        {
-            typedef typename ValueNumStore::VarTypConv<N>::Type Type;
-        };
-    };
-
-    struct VNHandle : public JitKeyFuncsDefEquals<VNHandle>
-    {
-        ssize_t      m_cnsVal;
-        GenTreeFlags m_flags;
-        // Don't use a constructor to use the default copy constructor for hashtable rehash.
-        static void Initialize(VNHandle* handle, ssize_t m_cnsVal, GenTreeFlags m_flags)
-        {
-            handle->m_cnsVal = m_cnsVal;
-            handle->m_flags  = m_flags;
-        }
-        bool operator==(const VNHandle& y) const
-        {
-            return m_cnsVal == y.m_cnsVal && m_flags == y.m_flags;
-        }
-        static unsigned GetHashCode(const VNHandle& val)
-        {
-            return static_cast<unsigned>(val.m_cnsVal);
-        }
-    };
-
-    struct VNDefFunc0Arg
-    {
-        VNFunc m_func;
-        VNDefFunc0Arg(VNFunc func) : m_func(func)
-        {
-        }
-
-        bool operator==(const VNDefFunc0Arg& y) const
-        {
-            return m_func == y.m_func;
-        }
-    };
-
-    struct VNDefFunc1Arg : public VNDefFunc0Arg
-    {
-        ValueNum m_arg0;
-        VNDefFunc1Arg(VNFunc func, ValueNum arg0) : VNDefFunc0Arg(func), m_arg0(arg0)
-        {
-        }
-
-        bool operator==(const VNDefFunc1Arg& y) const
-        {
-            return VNDefFunc0Arg::operator==(y) && m_arg0 == y.m_arg0;
-        }
-    };
-
-    struct VNDefFunc2Arg : public VNDefFunc1Arg
-    {
-        ValueNum m_arg1;
-        VNDefFunc2Arg(VNFunc func, ValueNum arg0, ValueNum arg1) : VNDefFunc1Arg(func, arg0), m_arg1(arg1)
-        {
-        }
-
-        bool operator==(const VNDefFunc2Arg& y) const
-        {
-            return VNDefFunc1Arg::operator==(y) && m_arg1 == y.m_arg1;
-        }
-    };
-
-    struct VNDefFunc3Arg : public VNDefFunc2Arg
-    {
-        ValueNum m_arg2;
-        VNDefFunc3Arg(VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2)
-            : VNDefFunc2Arg(func, arg0, arg1), m_arg2(arg2)
-        {
-        }
-
-        bool operator==(const VNDefFunc3Arg& y) const
-        {
-            return VNDefFunc2Arg::operator==(y) && m_arg2 == y.m_arg2;
-        }
-    };
-
-    struct VNDefFunc4Arg : public VNDefFunc3Arg
-    {
-        ValueNum m_arg3;
-        VNDefFunc4Arg(VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2, ValueNum arg3)
-            : VNDefFunc3Arg(func, arg0, arg1, arg2), m_arg3(arg3)
-        {
-        }
-
-        bool operator==(const VNDefFunc4Arg& y) const
-        {
-            return VNDefFunc3Arg::operator==(y) && m_arg3 == y.m_arg3;
-        }
-    };
-
-    // When we evaluate "select(m, i)", if "m" is a the value of a phi definition, we look at
-    // all the values of the phi args, and see if doing the "select" on each of them yields identical
-    // results.  If so, that is the result of the entire "select" form.  We have to be careful, however,
-    // because phis may be recursive in the presence of loop structures -- the VN for the phi may be (or be
-    // part of the definition of) the VN's of some of the arguments.  But there will be at least one
-    // argument that does *not* depend on the outer phi VN -- after all, we had to get into the loop somehow.
-    // So we have to be careful about breaking infinite recursion.  We can ignore "recursive" results -- if all the
-    // non-recursive results are the same, the recursion indicates that the loop structure didn't alter the result.
-    // This stack represents the set of outer phis such that select(phi, ind) is being evaluated.
-    ArrayStack<ValueNum, 1> m_fixedPointMapSels;
-
-    // This is the set of value numbers that have been flagged as arguments to bounds checks, in the length position.
-    CheckedBoundVNSet m_checkedBoundVNs;
-
-    // This is a map from "chunk number" to the attributes of the chunk.
-    ArrayStack<Chunk*, 8> m_chunks;
-
-    // These entries indicate the current allocation chunk, if any, for each valid combination of <var_types,
-    // ChunkExtraAttribute>.
-    // If the value is NoChunk, it indicates that there is no current allocation chunk for that pair, otherwise
-    // it is the index in "m_chunks" of a chunk with the given attributes, in which the next allocation should
-    // be attempted.
-    ChunkNum m_curAllocChunk[TYP_COUNT][CEA_Count + 1];
-
     // Returns a (pointer to a) chunk in which a new value number may be allocated.
     Chunk* GetAllocChunk(var_types typ, ChunkExtraAttribs attribs);
 
-    ValueNum m_zeroMap           = NoVN;
-    ValueNum m_readOnlyMemoryMap = NoVN;
-
-    // First, we need mechanisms for mapping from constants to value numbers.
-    // For small integers, we'll use an array.
-    static const int      SmallIntConstMin = -1;
-    static const int      SmallIntConstMax = 10;
-    static const unsigned SmallIntConstNum = SmallIntConstMax - SmallIntConstMin + 1;
     static bool IsSmallIntConst(int i)
     {
         return SmallIntConstMin <= i && i <= SmallIntConstMax;
-    }
-    ValueNum m_VNsForSmallIntConsts[SmallIntConstNum];
-
-    typedef VNMap<INT32> IntToValueNumMap;
-    IntToValueNumMap*    m_intCnsMap;
-    IntToValueNumMap*    GetIntCnsMap()
-    {
-        if (m_intCnsMap == nullptr)
-        {
-            m_intCnsMap = new (m_alloc) IntToValueNumMap(m_alloc);
-        }
-        return m_intCnsMap;
-    }
-
-    typedef VNMap<INT64> LongToValueNumMap;
-    LongToValueNumMap*   m_longCnsMap;
-    LongToValueNumMap*   GetLongCnsMap()
-    {
-        if (m_longCnsMap == nullptr)
-        {
-            m_longCnsMap = new (m_alloc) LongToValueNumMap(m_alloc);
-        }
-        return m_longCnsMap;
-    }
-
-    typedef VNMap<VNHandle, VNHandle> HandleToValueNumMap;
-    HandleToValueNumMap* m_handleMap;
-    HandleToValueNumMap* GetHandleMap()
-    {
-        if (m_handleMap == nullptr)
-        {
-            m_handleMap = new (m_alloc) HandleToValueNumMap(m_alloc);
-        }
-        return m_handleMap;
-    }
-
-    struct LargePrimitiveKeyFuncsFloat : public JitLargePrimitiveKeyFuncs<float>
-    {
-        static bool Equals(float x, float y)
-        {
-            return *(unsigned*)&x == *(unsigned*)&y;
-        }
-    };
-
-    typedef VNMap<float, LargePrimitiveKeyFuncsFloat> FloatToValueNumMap;
-    FloatToValueNumMap* m_floatCnsMap;
-    FloatToValueNumMap* GetFloatCnsMap()
-    {
-        if (m_floatCnsMap == nullptr)
-        {
-            m_floatCnsMap = new (m_alloc) FloatToValueNumMap(m_alloc);
-        }
-        return m_floatCnsMap;
-    }
-
-    // In the JIT we need to distinguish -0.0 and 0.0 for optimizations.
-    struct LargePrimitiveKeyFuncsDouble : public JitLargePrimitiveKeyFuncs<double>
-    {
-        static bool Equals(double x, double y)
-        {
-            return *(__int64*)&x == *(__int64*)&y;
-        }
-    };
-
-    typedef VNMap<double, LargePrimitiveKeyFuncsDouble> DoubleToValueNumMap;
-    DoubleToValueNumMap* m_doubleCnsMap;
-    DoubleToValueNumMap* GetDoubleCnsMap()
-    {
-        if (m_doubleCnsMap == nullptr)
-        {
-            m_doubleCnsMap = new (m_alloc) DoubleToValueNumMap(m_alloc);
-        }
-        return m_doubleCnsMap;
-    }
-
-    typedef VNMap<size_t> ByrefToValueNumMap;
-    ByrefToValueNumMap*   m_byrefCnsMap;
-    ByrefToValueNumMap*   GetByrefCnsMap()
-    {
-        if (m_byrefCnsMap == nullptr)
-        {
-            m_byrefCnsMap = new (m_alloc) ByrefToValueNumMap(m_alloc);
-        }
-        return m_byrefCnsMap;
-    }
-
-    struct VNDefFunc0ArgKeyFuncs : public JitKeyFuncsDefEquals<VNDefFunc1Arg>
-    {
-        static unsigned GetHashCode(VNDefFunc1Arg val)
-        {
-            return (val.m_func << 24) + val.m_arg0;
-        }
-    };
-    typedef VNMap<VNFunc> VNFunc0ToValueNumMap;
-    VNFunc0ToValueNumMap* m_VNFunc0Map;
-    VNFunc0ToValueNumMap* GetVNFunc0Map()
-    {
-        if (m_VNFunc0Map == nullptr)
-        {
-            m_VNFunc0Map = new (m_alloc) VNFunc0ToValueNumMap(m_alloc);
-        }
-        return m_VNFunc0Map;
-    }
-
-    struct VNDefFunc1ArgKeyFuncs : public JitKeyFuncsDefEquals<VNDefFunc1Arg>
-    {
-        static unsigned GetHashCode(VNDefFunc1Arg val)
-        {
-            return (val.m_func << 24) + val.m_arg0;
-        }
-    };
-    typedef VNMap<VNDefFunc1Arg, VNDefFunc1ArgKeyFuncs> VNFunc1ToValueNumMap;
-    VNFunc1ToValueNumMap* m_VNFunc1Map;
-    VNFunc1ToValueNumMap* GetVNFunc1Map()
-    {
-        if (m_VNFunc1Map == nullptr)
-        {
-            m_VNFunc1Map = new (m_alloc) VNFunc1ToValueNumMap(m_alloc);
-        }
-        return m_VNFunc1Map;
-    }
-
-    struct VNDefFunc2ArgKeyFuncs : public JitKeyFuncsDefEquals<VNDefFunc2Arg>
-    {
-        static unsigned GetHashCode(const VNDefFunc2Arg& val)
-        {
-            return (val.m_func << 24) + (val.m_arg0 << 8) + val.m_arg1;
-        }
-    };
-    typedef VNMap<VNDefFunc2Arg, VNDefFunc2ArgKeyFuncs> VNFunc2ToValueNumMap;
-    VNFunc2ToValueNumMap* m_VNFunc2Map;
-    VNFunc2ToValueNumMap* GetVNFunc2Map()
-    {
-        if (m_VNFunc2Map == nullptr)
-        {
-            m_VNFunc2Map = new (m_alloc) VNFunc2ToValueNumMap(m_alloc);
-        }
-        return m_VNFunc2Map;
-    }
-
-    struct VNDefFunc3ArgKeyFuncs : public JitKeyFuncsDefEquals<VNDefFunc3Arg>
-    {
-        static unsigned GetHashCode(const VNDefFunc3Arg& val)
-        {
-            return (val.m_func << 24) + (val.m_arg0 << 16) + (val.m_arg1 << 8) + val.m_arg2;
-        }
-    };
-    typedef VNMap<VNDefFunc3Arg, VNDefFunc3ArgKeyFuncs> VNFunc3ToValueNumMap;
-    VNFunc3ToValueNumMap* m_VNFunc3Map;
-    VNFunc3ToValueNumMap* GetVNFunc3Map()
-    {
-        if (m_VNFunc3Map == nullptr)
-        {
-            m_VNFunc3Map = new (m_alloc) VNFunc3ToValueNumMap(m_alloc);
-        }
-        return m_VNFunc3Map;
-    }
-
-    struct VNDefFunc4ArgKeyFuncs : public JitKeyFuncsDefEquals<VNDefFunc4Arg>
-    {
-        static unsigned GetHashCode(const VNDefFunc4Arg& val)
-        {
-            return (val.m_func << 24) + (val.m_arg0 << 16) + (val.m_arg1 << 8) + val.m_arg2 + (val.m_arg3 << 12);
-        }
-    };
-    typedef VNMap<VNDefFunc4Arg, VNDefFunc4ArgKeyFuncs> VNFunc4ToValueNumMap;
-    VNFunc4ToValueNumMap* m_VNFunc4Map;
-    VNFunc4ToValueNumMap* GetVNFunc4Map()
-    {
-        if (m_VNFunc4Map == nullptr)
-        {
-            m_VNFunc4Map = new (m_alloc) VNFunc4ToValueNumMap(m_alloc);
-        }
-        return m_VNFunc4Map;
     }
 
     enum SpecialRefConsts
@@ -1308,121 +1095,40 @@ private:
         SRC_NumSpecialRefConsts
     };
 
-    // The "values" of special ref consts will be all be "null" -- their differing meanings will
-    // be carried by the distinct value numbers.
-    static class Object* s_specialRefConsts[SRC_NumSpecialRefConsts];
-
-#ifdef DEBUG
-    // This helps test some performance pathologies related to "evaluation" of VNF_MapSelect terms,
-    // especially relating to GcHeap/ByrefExposed.  We count the number of applications of such terms we consider,
-    // and if this exceeds a limit, indicated by a COMPlus_ variable, we assert.
-    unsigned m_numMapSels;
-
-    JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, const char*> m_vnNameMap;
-#endif
-};
-
-template <>
-struct ValueNumStore::VarTypConv<TYP_INT>
-{
-    typedef INT32 Type;
-    typedef int   Lang;
-};
-template <>
-struct ValueNumStore::VarTypConv<TYP_FLOAT>
-{
-    typedef INT32 Type;
-    typedef float Lang;
-};
-template <>
-struct ValueNumStore::VarTypConv<TYP_LONG>
-{
-    typedef INT64 Type;
-    typedef INT64 Lang;
-};
-template <>
-struct ValueNumStore::VarTypConv<TYP_DOUBLE>
-{
-    typedef INT64  Type;
-    typedef double Lang;
-};
-template <>
-struct ValueNumStore::VarTypConv<TYP_BYREF>
-{
-    typedef size_t Type;
-    typedef void*  Lang;
-};
-template <>
-struct ValueNumStore::VarTypConv<TYP_REF>
-{
-    typedef class Object* Type;
-    typedef class Object* Lang;
-};
-
-// Get the actual value and coerce the actual type c->m_typ to the wanted type T.
-template <typename T>
-FORCEINLINE T ValueNumStore::SafeGetConstantValue(Chunk* c, unsigned offset) const
-{
-    switch (c->m_typ)
+    template <typename T>
+    T CoerceTypRefToT(Chunk* c, unsigned offset) const
     {
-        case TYP_REF:
-            return CoerceTypRefToT<T>(c, offset);
-        case TYP_BYREF:
-            return static_cast<T>(static_cast<VarTypConv<TYP_BYREF>::Type*>(c->m_defs)[offset]);
-        case TYP_INT:
-            return static_cast<T>(static_cast<VarTypConv<TYP_INT>::Type*>(c->m_defs)[offset]);
-        case TYP_LONG:
-            return static_cast<T>(static_cast<VarTypConv<TYP_LONG>::Type*>(c->m_defs)[offset]);
-        case TYP_FLOAT:
-            return static_cast<T>(static_cast<VarTypConv<TYP_FLOAT>::Lang*>(c->m_defs)[offset]);
-        case TYP_DOUBLE:
-            return static_cast<T>(static_cast<VarTypConv<TYP_DOUBLE>::Lang*>(c->m_defs)[offset]);
-        default:
-            assert(false);
-            return (T)0;
+        noway_assert(sizeof(T) >= sizeof(VarTypConv<TYP_REF>::Type));
+        unreached();
     }
-}
 
-// Inline functions.
-
-// static
-inline bool ValueNumStore::GenTreeOpIsLegalVNFunc(genTreeOps gtOper)
-{
-    return (VNFuncAttribs(static_cast<VNFunc>(gtOper)) & VNFOA_IllegalGenTreeOp) == 0;
-}
-
-// static
-inline bool ValueNumStore::VNFuncIsCommutative(VNFunc vnf)
-{
-    return (VNFuncAttribs(vnf) & VNFOA_Commutative) != 0;
-}
-
-inline bool ValueNumStore::VNFuncIsComparison(VNFunc vnf)
-{
-    if (vnf >= VNF_Boundary)
+    template <>
+    size_t CoerceTypRefToT(Chunk* c, unsigned offset) const
     {
-        // For integer types we have unsigned comparisions, and
-        // for floating point types these are the unordered variants.
-        //
-        return ((vnf == VNF_LT_UN) || (vnf == VNF_LE_UN) || (vnf == VNF_GE_UN) || (vnf == VNF_GT_UN));
+        return reinterpret_cast<size_t>(static_cast<VarTypConv<TYP_REF>::Type*>(c->m_defs)[offset]);
     }
-    genTreeOps gtOp = genTreeOps(vnf);
-    return GenTree::OperIsCompare(gtOp) != 0;
-}
 
-template <>
-inline size_t ValueNumStore::CoerceTypRefToT(Chunk* c, unsigned offset)
-{
-    return reinterpret_cast<size_t>(static_cast<VarTypConv<TYP_REF>::Type*>(c->m_defs)[offset]);
-}
-
-template <typename T>
-inline T ValueNumStore::CoerceTypRefToT(Chunk* c, unsigned offset)
-{
-    noway_assert(sizeof(T) >= sizeof(VarTypConv<TYP_REF>::Type));
-    unreached();
-}
-
-/*****************************************************************************/
-#endif // _VALUENUM_H_
-/*****************************************************************************/
+    // Get the actual value and coerce the actual type c->m_typ to the wanted type T.
+    template <typename T>
+    FORCEINLINE T SafeGetConstantValue(Chunk* c, unsigned offset) const
+    {
+        switch (c->m_typ)
+        {
+            case TYP_REF:
+                return CoerceTypRefToT<T>(c, offset);
+            case TYP_BYREF:
+                return static_cast<T>(static_cast<VarTypConv<TYP_BYREF>::Type*>(c->m_defs)[offset]);
+            case TYP_INT:
+                return static_cast<T>(static_cast<VarTypConv<TYP_INT>::Type*>(c->m_defs)[offset]);
+            case TYP_LONG:
+                return static_cast<T>(static_cast<VarTypConv<TYP_LONG>::Type*>(c->m_defs)[offset]);
+            case TYP_FLOAT:
+                return static_cast<T>(static_cast<VarTypConv<TYP_FLOAT>::Lang*>(c->m_defs)[offset]);
+            case TYP_DOUBLE:
+                return static_cast<T>(static_cast<VarTypConv<TYP_DOUBLE>::Lang*>(c->m_defs)[offset]);
+            default:
+                assert(false);
+                return (T)0;
+        }
+    }
+};

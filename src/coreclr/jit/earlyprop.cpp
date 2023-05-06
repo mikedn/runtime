@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
+#include "ssabuilder.h"
 
 // This phase performs an SSA-based value propagation optimization that currently only
 // applies to array lengths and explicit null checks.
@@ -40,18 +41,21 @@ class EarlyProp
     BasicBlock*     currentBlock;
     Statement*      currentStatement;
     DefNullCheckMap nullCheckMap;
+    bool            madeChanges = false;
 
 public:
     EarlyProp(Compiler* compiler) : compiler(compiler), nullCheckMap(compiler->getAllocator(CMK_EarlyProp))
     {
     }
 
-    void Run()
+    bool Run()
     {
         if (DoEarlyPropForFunc())
         {
             DoEarlyProp();
         }
+
+        return madeChanges;
     }
 
 private:
@@ -119,17 +123,10 @@ private:
                 {
                     compiler->gtSetStmtInfo(stmt);
                     compiler->fgSetStmtSeq(stmt);
+                    madeChanges = true;
                 }
             }
         }
-
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            JITDUMP("\nAfter DoEarlyProp:\n");
-            compiler->fgDispBasicBlocks(/*dumpTrees*/ true);
-        }
-#endif
     }
 
     GenTree* PropagateArrayLength(GenTreeArrLen* arrLen)
@@ -323,6 +320,7 @@ private:
 
             compiler->gtSetStmtInfo(nullCheckStmt);
             compiler->fgSetStmtSeq(nullCheckStmt);
+            madeChanges = true;
         }
 
         if (indir->OperIs(GT_NULLCHECK) && indir->AsIndir()->GetAddr()->IsLclUse())
@@ -603,10 +601,8 @@ private:
     }
 };
 
-void Compiler::optEarlyProp()
+PhaseStatus SsaOptimizer::DoEarlyProp()
 {
-    assert(ssaForm);
-
-    EarlyProp prop(this);
-    prop.Run();
+    EarlyProp prop(compiler);
+    return prop.Run() ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }

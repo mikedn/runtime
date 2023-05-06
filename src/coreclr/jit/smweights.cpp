@@ -10,6 +10,7 @@
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 #include "jitpch.h"
+#include "sm.h"
 
 #define DEFAULT_WEIGHT_VALUE 65 // This is the average of all the weights.
 

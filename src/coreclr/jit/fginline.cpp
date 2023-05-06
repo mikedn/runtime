@@ -668,7 +668,7 @@ void Compiler::inlMain()
     if (verbose)
     {
         printf("IL to import:\n");
-        dumpILRange(info.compCode, info.compILCodeSize);
+        DumpILRange(info.compCode, info.compILCodeSize);
     }
 #endif
 

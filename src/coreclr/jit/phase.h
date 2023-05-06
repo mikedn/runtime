@@ -3,6 +3,33 @@
 
 #pragma once
 
+// This enumeration names the phases into which we divide compilation.  The phases should completely
+// partition a compilation.
+enum Phases : uint8_t
+{
+#define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) enum_nm,
+#include "compphases.h"
+    PHASE_NUMBER_OF
+};
+
+extern const char*   PhaseNames[];
+extern const char*   PhaseEnums[];
+extern const LPCWSTR PhaseShortNames[];
+
+enum class PhaseChecks : uint8_t
+{
+    CHECK_NONE,
+    CHECK_ALL
+};
+
+enum class PhaseStatus : unsigned
+{
+    MODIFIED_NOTHING,
+    MODIFIED_EVERYTHING
+};
+
+class Compiler;
+
 // A phase encapsulates a part of the compilation pipeline for a method.
 class PhaseBase
 {

@@ -2,7 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
+#include "ssabuilder.h"
 #include "ssarenamestate.h"
+#include "valuenum.h"
 
 // VN based copy propagation
 //
@@ -48,15 +50,16 @@
 
 class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
 {
-    using SsaStack     = SsaRenameState::Stack;
-    using SsaStackNode = SsaRenameState::StackNode;
+    using SsaStack       = SsaRenameState::Stack;
+    using SsaStackNode   = SsaRenameState::StackNode;
+    using LclSsaStackMap = JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, SsaStack>;
 
-    typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, SsaStack> LclSsaStackMap;
-
+    SsaOptimizer&  ssa;
     LclSsaStackMap lclSsaStackMap;
     SsaStack*      stackListTail = nullptr;
     SsaStack       freeStack;
     unsigned       thisParamLclNum = BAD_VAR_NUM;
+    unsigned       copyPropCount   = 0;
 
     template <class... Args>
     SsaStackNode* AllocStackNode(Args&&... args)
@@ -127,15 +130,21 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
     }
 
 public:
-    CopyPropDomTreeVisitor(Compiler* compiler)
-        : DomTreeVisitor(compiler, compiler->fgSsaDomTree), lclSsaStackMap(compiler->getAllocator(CMK_CopyProp))
+    CopyPropDomTreeVisitor(SsaOptimizer& ssa)
+        : DomTreeVisitor(ssa.GetCompiler(), ssa.GetDomTree())
+        , ssa(ssa)
+        , lclSsaStackMap(ssa.GetCompiler()->getAllocator(CMK_CopyProp))
     {
+    }
+
+    unsigned GetCopyPropCount() const
+    {
+        return copyPropCount;
     }
 
     void Begin()
     {
-        for (GenTreeLclDef* def = m_compiler->m_initSsaDefs; def != nullptr;
-             def                = static_cast<GenTreeLclDef*>(def->gtNext))
+        for (GenTreeLclDef* def = ssa.GetInitSsaDefs(); def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
         {
             unsigned lclNum = def->GetLclNum();
 
@@ -233,11 +242,12 @@ public:
 
     void CopyProp(BasicBlock* block, GenTreeLclUse* use)
     {
-        if (use->GetConservativeVN() == ValueNumStore::NoVN)
+        if (use->GetConservativeVN() == NoVN)
         {
             return;
         }
 
+        ValueNum   defVN  = use->GetDef()->GetConservativeVN();
         unsigned   lclNum = use->GetDef()->GetLclNum();
         LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
 
@@ -262,6 +272,11 @@ public:
             LclVarDsc* newLcl = m_compiler->lvaGetDesc(newLclNum);
 
             if (varActualType(newLcl->GetType()) != varActualType(lcl->GetType()))
+            {
+                continue;
+            }
+
+            if (newDef->GetConservativeVN() != defVN)
             {
                 continue;
             }
@@ -295,12 +310,6 @@ public:
                 continue;
             }
 
-            // The use must produce the same value number if we substitute the def.
-            if (m_compiler->vnLocalUse(use, newDef).GetConservative() != use->GetConservativeVN())
-            {
-                continue;
-            }
-
             if (!IsAlwaysLiveThisParam(newLclNum) && (pair.value.Top()->m_block != block) &&
                 !VarSetOps::IsMember(m_compiler, block->bbLiveIn, newLcl->GetLivenessBitIndex()))
             {
@@ -321,6 +330,7 @@ public:
 
             use->GetDef()->RemoveUse(use);
             newDef->AddUse(use);
+            copyPropCount++;
 
             break;
         }
@@ -346,10 +356,9 @@ public:
     }
 };
 
-void Compiler::optVnCopyProp()
+PhaseStatus SsaOptimizer::DoCopyProp()
 {
-    assert(ssaForm && (vnStore != nullptr));
-
-    CopyPropDomTreeVisitor visitor(this);
+    CopyPropDomTreeVisitor visitor(*this);
     visitor.WalkTree();
+    return visitor.GetCopyPropCount() != 0 ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }

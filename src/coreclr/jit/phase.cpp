@@ -21,9 +21,8 @@ void PhaseBase::PrePhase()
     //
     // Currently the list is just the set of phases that have custom
     // derivations from the Phase class.
-    static const Phases s_allowlist[]{PHASE_BUILD_SSA, PHASE_OPTIMIZE_VALNUM_CSES, PHASE_RATIONALIZE, PHASE_LOWERING,
-                                      PHASE_STACK_LEVEL_SETTER};
-    bool doPrePhase = false;
+    static const Phases s_allowlist[]{PHASE_BUILD_SSA, PHASE_RATIONALIZE, PHASE_LOWERING, PHASE_STACK_LEVEL_SETTER};
+    bool                doPrePhase = false;
 
     for (size_t i = 0; i < _countof(s_allowlist); i++)
     {
@@ -34,7 +33,7 @@ void PhaseBase::PrePhase()
         }
     }
 
-    if (VERBOSE)
+    if (comp->verbose)
     {
         if (doPrePhase)
         {
@@ -44,12 +43,12 @@ void PhaseBase::PrePhase()
 
         if (comp->compIsForInlining())
         {
-            printf("\n*************** Inline @[%06u] Starting PHASE %s\n",
+            printf("\n*************** Inline @[%06u] Starting PHASE \"%s\"\n",
                    Compiler::dspTreeID(comp->impInlineInfo->iciCall), PhaseNames[m_phaseId]);
         }
         else
         {
-            printf("\n*************** Starting PHASE %s\n", PhaseNames[m_phaseId]);
+            printf("\n*************** Starting PHASE \"%s\"\n", PhaseNames[m_phaseId]);
         }
     }
 
@@ -76,7 +75,7 @@ void PhaseBase::PostPhase(PhaseStatus status)
     // Don't dump or check post phase unless the phase made changes.
 
     const bool        madeChanges   = (status != PhaseStatus::MODIFIED_NOTHING);
-    const char* const statusMessage = madeChanges ? "" : " [no changes]";
+    const char* const statusMessage = madeChanges ? " [changes]" : " [no changes]";
     bool              doPostPhase   = false;
 
     if (madeChanges)
@@ -95,16 +94,34 @@ void PhaseBase::PostPhase(PhaseStatus status)
         // well as the new-style phases that have been updated to return
         // PhaseStatus from their DoPhase methods.
 
-        static const Phases s_allowlist[]{PHASE_IMPORTATION,      PHASE_IBCINSTR,
-                                          PHASE_IBCPREP,          PHASE_INCPROFILE,
-                                          PHASE_INDXCALL,         PHASE_MORPH_INLINE,
-                                          PHASE_ALLOCATE_OBJECTS, PHASE_EMPTY_TRY,
-                                          PHASE_EMPTY_FINALLY,    PHASE_MERGE_FINALLY_CHAINS,
-                                          PHASE_CLONE_FINALLY,    PHASE_MERGE_THROWS,
-                                          PHASE_MORPH_GLOBAL,     PHASE_INVERT_LOOPS,
-                                          PHASE_OPTIMIZE_LAYOUT,  PHASE_FIND_LOOPS,
-                                          PHASE_BUILD_SSA,        PHASE_RATIONALIZE,
-                                          PHASE_LOWERING,         PHASE_STACK_LEVEL_SETTER};
+        static const Phases s_allowlist[]{PHASE_IMPORTATION,
+                                          PHASE_IBCINSTR,
+                                          PHASE_IBCPREP,
+                                          PHASE_INCPROFILE,
+                                          PHASE_INDXCALL,
+                                          PHASE_MORPH_INLINE,
+                                          PHASE_ALLOCATE_OBJECTS,
+                                          PHASE_EMPTY_TRY,
+                                          PHASE_EMPTY_FINALLY,
+                                          PHASE_MERGE_FINALLY_CHAINS,
+                                          PHASE_CLONE_FINALLY,
+                                          PHASE_MERGE_THROWS,
+                                          PHASE_MORPH_GLOBAL,
+                                          PHASE_INVERT_LOOPS,
+                                          PHASE_OPTIMIZE_LAYOUT,
+                                          PHASE_FIND_LOOPS,
+                                          PHASE_BUILD_SSA,
+                                          PHASE_EARLY_PROP,
+                                          PHASE_VALUE_NUMBER,
+                                          PHASE_VN_COPY_PROP,
+                                          PHASE_HOIST_LOOP_CODE,
+                                          PHASE_OPTIMIZE_VALNUM_CSES,
+                                          PHASE_ASSERTION_PROP_MAIN,
+                                          PHASE_OPTIMIZE_INDEX_CHECKS,
+                                          PHASE_DESTROY_SSA,
+                                          PHASE_RATIONALIZE,
+                                          PHASE_LOWERING,
+                                          PHASE_STACK_LEVEL_SETTER};
 
         for (size_t i = 0; i < _countof(s_allowlist); i++)
         {
@@ -116,21 +133,20 @@ void PhaseBase::PostPhase(PhaseStatus status)
         }
     }
 
-    if (VERBOSE)
+    if (comp->verbose)
     {
         if (comp->compIsForInlining())
         {
-            printf("\n*************** Inline @[%06u] Finishing PHASE %s%s\n",
+            printf("\n*************** Inline @[%06u] Finishing PHASE \"%s\"%s\n",
                    Compiler::dspTreeID(comp->impInlineInfo->iciCall), PhaseNames[m_phaseId], statusMessage);
         }
         else
         {
-            printf("\n*************** Finishing PHASE %s%s\n", PhaseNames[m_phaseId], statusMessage);
+            printf("\n*************** Finishing PHASE \"%s\"%s\n", PhaseNames[m_phaseId], statusMessage);
         }
 
         if (doPostPhase)
         {
-            printf("Trees after %s\n", PhaseNames[m_phaseId]);
             comp->fgDispBasicBlocks(true);
         }
     }

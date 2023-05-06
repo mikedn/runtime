@@ -126,7 +126,7 @@ public:
     // Count of callee-saved regs we pushed in the prolog.
     // Does not include EBP for isFramePointerUsed() and double-aligned frames.
     // In case of Amd64 this doesn't include float regs saved on stack.
-    unsigned calleeRegsPushed;
+    unsigned calleeRegsPushed = UINT_MAX;
 
     // Callee saved registers that are modified by the compiled method, and thus
     // need to be saved in prolog and restored in epilog.

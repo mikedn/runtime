@@ -3,15 +3,18 @@
 
 #include "jitpch.h"
 #include "jitstd/algorithm.h"
+#include "dataflow.h"
+#include "ssabuilder.h"
+#include "valuenum.h"
 
-bool Compiler::cseIsCandidate(GenTree* node)
+bool SsaOptimizer::IsCseCandidate(GenTree* node)
 {
     if ((node->gtFlags & (GTF_ASG | GTF_DONT_CSE)) != 0)
     {
         return false;
     }
 
-    if (((compCodeOpt() == SMALL_CODE) ? node->GetCostSz() : node->GetCostEx()) < MIN_CSE_COST)
+    if (((compiler->compCodeOpt() == SMALL_CODE) ? node->GetCostSz() : node->GetCostEx()) < MinCseCost)
     {
         return false;
     }
@@ -62,8 +65,9 @@ bool Compiler::cseIsCandidate(GenTree* node)
             // If we don't mark CALL ALLOC_HELPER as a CSE candidate, we are able
             // to use GT_IND(x) in [2] as a CSE def.
             return node->IsHelperCall() &&
-                   !s_helperCallProperties.IsAllocator(eeGetHelperNum(node->AsCall()->GetMethodHandle())) &&
-                   !gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS, true);
+                   !Compiler::s_helperCallProperties.IsAllocator(
+                       Compiler::eeGetHelperNum(node->AsCall()->GetMethodHandle())) &&
+                   !compiler->gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS, true);
 
         case GT_IND:
             // TODO-MIKE-Review: This comment doesn't make a lot of sense, it should
@@ -276,6 +280,7 @@ class Cse
     static constexpr size_t HashBucketSize         = 4;
     static constexpr size_t HashGrowthFactor       = 2;
 
+    SsaOptimizer&  ssa;
     Compiler*      compiler;
     CompAllocator  allocator;
     ValueNumStore* vnStore;
@@ -285,6 +290,7 @@ class Cse
     Value**  hashBuckets;
     Value**  valueTable;
     unsigned valueCount;
+    unsigned cseCount = 0;
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
 
@@ -313,10 +319,11 @@ class Cse
 #endif
 
 public:
-    Cse(Compiler* compiler)
-        : compiler(compiler)
+    Cse(SsaOptimizer& ssa)
+        : ssa(ssa)
+        , compiler(ssa.GetCompiler())
         , allocator(compiler->getAllocator(CMK_CSE))
-        , vnStore(compiler->vnStore)
+        , vnStore(ssa.GetVNStore())
         , hashBuckets(new (allocator) Value*[hashBucketCount]())
         , valueTable(nullptr)
         , valueCount(0)
@@ -331,7 +338,7 @@ public:
         INDEBUG(compiler->cseFirstLclNum = compiler->lvaCount);
     }
 
-    void Run()
+    bool Run()
     {
         compiler->csePhase = true;
 
@@ -346,6 +353,8 @@ public:
         }
 
         compiler->csePhase = false;
+
+        return cseCount != 0;
     }
 
     void Configure()
@@ -616,7 +625,7 @@ public:
             if (compiler->verbose)
             {
                 printf(FMT_CSE " in " FMT_BB " VN ", index, block->bbNum);
-                compiler->vnPrint(hashVN, 0);
+                vnStore->Print(hashVN, 0);
                 printf("\n");
                 compiler->gtDispTree(expr);
                 printf("\n");
@@ -700,12 +709,12 @@ public:
                         continue;
                     }
 
-                    if (!compiler->cseIsCandidate(node))
+                    if (!ssa.IsCseCandidate(node))
                     {
                         continue;
                     }
 
-                    if (ValueNumStore::isReservedVN(node->GetLiberalVN()))
+                    if (ValueNumStore::IsReservedVN(node->GetLiberalVN()))
                     {
                         continue;
                     }
@@ -2277,8 +2286,20 @@ public:
 
                 if (delta != 0)
                 {
-                    GenTree* deltaNode = compiler->gtNewIconNode(delta, lclType);
-                    compiler->fgValueNumberTreeConst(deltaNode);
+                    GenTree* deltaNode;
+
+                    if (varTypeSize(lclType) < varTypeSize(TYP_LONG))
+                    {
+                        int value = static_cast<int32_t>(delta);
+                        deltaNode = compiler->gtNewIconNode(value);
+                        deltaNode->SetVNP(ValueNumPair{vnStore->VNForIntCon(value)});
+                    }
+                    else
+                    {
+                        deltaNode = compiler->gtNewLconNode(delta);
+                        deltaNode->SetVNP(ValueNumPair{vnStore->VNForLongCon(delta)});
+                    }
+
                     newExpr = compiler->gtNewOperNode(GT_ADD, lclType, newExpr, deltaNode);
                     newExpr->SetDoNotCSE(); // GTF_DONT_CSE also blocks VN const propagation.
                     newExpr->SetVNP(expr->GetVNP());
@@ -2362,6 +2383,8 @@ public:
             // that we need costs post CSE...
             compiler->gtSetStmtInfo(stmt);
             compiler->fgSetStmtSeq(stmt);
+
+            cseCount++;
         }
 
         JITDUMP("\n");
@@ -2635,10 +2658,8 @@ public:
     }
 };
 
-void Compiler::cseMain()
+PhaseStatus SsaOptimizer::DoCse()
 {
-    assert(ssaForm && (vnStore != nullptr));
-
-    Cse cse(this);
-    cse.Run();
+    Cse cse(*this);
+    return cse.Run() ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }

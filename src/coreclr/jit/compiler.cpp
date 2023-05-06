@@ -12,7 +12,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jitpch.h"
 #include "hostallocator.h"
 #include "emit.h"
-#include "valuenum.h"
 #include "patchpointinfo.h"
 #include "jitstd/algorithm.h"
 
@@ -422,17 +421,17 @@ const bool Compiler::Options::compNoPInvokeInlineCB = false;
 
 void Compiler::compStartup()
 {
-#if DISPLAY_SIZES
-    grossVMsize = grossNCsize = totalNCsize = 0;
-#endif
-
 #ifdef JIT32_GCENCODER
     InitGCEncoderLookupTable();
 #endif
 
-    ValueNumStore::InitValueNumStoreStatics();
+#if DISPLAY_SIZES
+    grossVMsize = grossNCsize = totalNCsize = 0;
+#endif
 
-    compDisplayStaticSizes(jitstdout);
+#if MEASURE_NODE_SIZE
+    GenTree::DumpNodeSizes(jitstdout);
+#endif
 }
 
 void Compiler::compShutdown()
@@ -782,13 +781,6 @@ void Compiler::compShutdown()
 #endif // MEASURE_FATAL
 }
 
-void Compiler::compDisplayStaticSizes(FILE* fout)
-{
-#if MEASURE_NODE_SIZE
-    GenTree::DumpNodeSizes(fout);
-#endif
-}
-
 INDEBUG(ConfigMethodRange fJitStressRange;)
 
 CompiledMethodInfo::CompiledMethodInfo(CORINFO_METHOD_INFO*   methodInfo,
@@ -916,52 +908,9 @@ void Compiler::compDoComponentUnitTestsOnce()
     if (!DidComponentUnitTests)
     {
         DidComponentUnitTests = true;
-        ValueNumStore::RunTests(this);
+        RunValueNumStoreTests(this);
         BitSetSupport::TestSuite(getAllocatorDebugOnly());
     }
-}
-
-//------------------------------------------------------------------------
-// compGetJitDefaultFill:
-//
-// Return Value:
-//    An unsigned char value used to initizalize memory allocated by the JIT.
-//    The default value is taken from COMPLUS_JitDefaultFill,  if is not set
-//    the value will be 0xdd.  When JitStress is active a random value based
-//    on the method hash is used.
-//
-// Notes:
-//    Note that we can't use small values like zero, because we have some
-//    asserts that can fire for such values.
-//
-// static
-unsigned char Compiler::compGetJitDefaultFill(Compiler* comp)
-{
-    unsigned char defaultFill = (unsigned char)JitConfig.JitDefaultFill();
-
-    if (comp != nullptr && comp->compStressCompile(STRESS_GENERIC_VARN, 50))
-    {
-        unsigned temp;
-        temp = comp->info.compMethodHash();
-        temp = (temp >> 16) ^ temp;
-        temp = (temp >> 8) ^ temp;
-        temp = temp & 0xff;
-        // asserts like this: assert(!IsUninitialized(stkLvl));
-        // mean that small values for defaultFill are problematic
-        // so we make the value larger in that case.
-        if (temp < 0x20)
-        {
-            temp |= 0x80;
-        }
-
-        // Make a misaligned pointer value to reduce probability of getting a valid value and firing
-        // assert(!IsUninitialized(pointer)).
-        temp |= 0x1;
-
-        defaultFill = (unsigned char)temp;
-    }
-
-    return defaultFill;
 }
 
 #endif // DEBUG
@@ -2362,7 +2311,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     // JIT\HardwareIntrinsics\General\Vector128_1\Vector128_1_ro
     opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() == 2);
 #else
-    opts.compExpandCallsEarly      = (JitConfig.JitExpandCallsEarly() != 0);
+    opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() != 0);
 #endif
 }
 
@@ -2664,101 +2613,23 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     // And optRemoveRedundantZeroInits depends on the code not being fully interruptible.
     DoPhase(this, PHASE_SET_FULLY_INTERRUPTIBLE, &Compiler::phSetFullyInterruptible);
 
-    if (opts.OptimizationEnabled())
+    if (opts.OptimizationEnabled()
+#ifdef OPT_CONFIG
+        && (JitConfig.JitDoSsa() != 0)
+#endif
+            )
     {
-#ifdef OPT_CONFIG
-        const bool     doSsa           = (JitConfig.JitDoSsa() != 0);
-        const bool     doEarlyProp     = doSsa && (JitConfig.JitDoEarlyProp() != 0);
-        const bool     doValueNum      = doSsa && (JitConfig.JitDoValueNumber() != 0);
-        const bool     doLoopHoisting  = doValueNum && (JitConfig.JitDoLoopHoisting() != 0);
-        const bool     doCopyProp      = doValueNum && (JitConfig.JitDoCopyProp() != 0);
-        const bool     doBranchOpt     = doValueNum && (JitConfig.JitDoRedundantBranchOpts() != 0);
-        const bool     doCse           = doValueNum && (JitConfig.JitNoCSE() == 0);
-        const bool     doAssertionProp = doValueNum && (JitConfig.JitDoAssertionProp() != 0);
-        const bool     doRangeAnalysis = doAssertionProp && (JitConfig.JitDoRangeAnalysis() != 0);
-        const unsigned iterationCount  = !opts.optRepeat ? 1 : static_cast<unsigned>(JitConfig.JitOptRepeatCount());
+        phSsaOpt();
 
-        for (unsigned iteration = 0; iteration < iterationCount; iteration++)
-#else
-        const bool doSsa           = true;
-        const bool doEarlyProp     = true;
-        const bool doValueNum      = true;
-        const bool doLoopHoisting  = true;
-        const bool doCopyProp      = true;
-        const bool doBranchOpt     = true;
-        const bool doCse           = true;
-        const bool doAssertionProp = true;
-        const bool doRangeAnalysis = true;
-#endif
+        if (fgModified)
         {
-#ifdef OPT_CONFIG
-            if (iteration != 0)
-            {
-                fgSsaReset();
-            }
-#endif
-
-            if (doSsa)
-            {
-                DoPhase(this, PHASE_BUILD_SSA, &Compiler::fgSsaBuild);
-            }
-
-            if (doEarlyProp)
-            {
-                DoPhase(this, PHASE_EARLY_PROP, &Compiler::optEarlyProp);
-            }
-
-            if (doValueNum)
-            {
-                DoPhase(this, PHASE_VALUE_NUMBER, &Compiler::fgValueNumber);
-            }
-
-            if (doLoopHoisting)
-            {
-                DoPhase(this, PHASE_HOIST_LOOP_CODE, &Compiler::optHoistLoopCode);
-            }
-
-            if (doCopyProp)
-            {
-                DoPhase(this, PHASE_VN_COPY_PROP, &Compiler::optVnCopyProp);
-            }
-
-            if (doBranchOpt)
-            {
-                DoPhase(this, PHASE_OPTIMIZE_BRANCHES, &Compiler::optRedundantBranches);
-            }
-
-            if (doCse)
-            {
-                DoPhase(this, PHASE_OPTIMIZE_VALNUM_CSES, &Compiler::cseMain);
-            }
-
-#if ASSERTION_PROP
-            if (doAssertionProp)
-            {
-                DoPhase(this, PHASE_ASSERTION_PROP_MAIN, &Compiler::apMain);
-            }
-
-            if (doRangeAnalysis)
-            {
-                DoPhase(this, PHASE_OPTIMIZE_INDEX_CHECKS, &Compiler::phRemoveRangeCheck);
-            }
-#endif // ASSERTION_PROP
-
-            if (doSsa)
-            {
-                DoPhase(this, PHASE_DESTROY_SSA, &Compiler::fgSsaDestroy);
-            }
-
-            if (fgModified)
-            {
-                DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH, &Compiler::phUpdateFlowGraph);
-                DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS2, &Compiler::fgComputeEdgeWeights);
-            }
+            DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH, &Compiler::phUpdateFlowGraph);
+            DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS2, &Compiler::fgComputeEdgeWeights);
         }
 
-        ssaForm        = false;
+        // TODO-MIKE-Cleanup: These should be inside phSsaOpt.
         fgDomsComputed = false;
+        vnStore        = nullptr;
     }
 
     assert(!fgDomsComputed);
@@ -3503,7 +3374,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     if (verbose)
     {
         printf("IL to import:\n");
-        dumpILRange(info.compCode, info.compILCodeSize);
+        DumpILRange(info.compCode, info.compILCodeSize);
     }
 #endif
 
@@ -3721,110 +3592,6 @@ public:
 };
 
 #endif // MEASURE_CLRAPI_CALLS
-
-/*****************************************************************************/
-
-// Compile a single method
-
-CorJitResult jitNativeCode(ICorJitInfo*         jitInfo,
-                           CORINFO_METHOD_INFO* methodInfo,
-                           void**               nativeCode,
-                           uint32_t*            nativeCodeSize,
-                           JitFlags*            jitFlags)
-{
-    bool jitFallbackCompile = false;
-
-START:
-    struct Param : ErrorTrapParam
-    {
-        ArenaAllocator       allocator;
-        Compiler*            compiler     = nullptr;
-        Compiler*            prevCompiler = nullptr;
-        bool                 jitFallbackCompile;
-        CORINFO_METHOD_INFO* methodInfo;
-        void**               nativeCode;
-        uint32_t*            nativeCodeSize;
-        JitFlags*            jitFlags;
-        CorJitResult         result = CORJIT_INTERNALERROR;
-        CORINFO_EE_INFO      eeInfo;
-    } param;
-
-    param.jitInfo            = jitInfo;
-    param.jitFallbackCompile = jitFallbackCompile;
-    param.methodInfo         = methodInfo;
-    param.nativeCode         = nativeCode;
-    param.nativeCodeSize     = nativeCodeSize;
-    param.jitFlags           = jitFlags;
-
-    PAL_TRY(Param&, p, param)
-    {
-        NestedErrorTrapParam<Param&> param2(p);
-
-        PAL_TRY(NestedErrorTrapParam<Param&>&, p2, param2)
-        {
-            Param& p = p2.param;
-
-            p.jitInfo->getEEInfo(&p.eeInfo);
-
-            p.compiler = static_cast<Compiler*>(p.allocator.allocateMemory(sizeof(Compiler)));
-            new (p.compiler) Compiler(&p.allocator, &p.eeInfo, p.methodInfo, p.jitInfo);
-            p.prevCompiler = JitTls::GetCompiler();
-            JitTls::SetCompiler(p.compiler);
-            INDEBUG(JitTls::SetLogCompiler(p.compiler));
-
-#if MEASURE_CLRAPI_CALLS
-            if (!p.jitFallbackCompile)
-            {
-                WrapICorJitInfo::WrapJitInfo(p.compiler);
-            }
-#endif
-
-            p.compiler->compInitMethodName();
-            p.compiler->compInit();
-            INDEBUG(p.compiler->jitFallbackCompile = p.jitFallbackCompile;)
-            p.result = p.compiler->compCompileMain(p.nativeCode, p.nativeCodeSize, p.jitFlags);
-        }
-        PAL_FINALLY
-        {
-            // If OOM is thrown when allocating the Compiler object, we will
-            // end up here and p.compiler will be nullptr.
-
-            if (p.compiler != nullptr)
-            {
-                p.compiler->info.compCode = nullptr;
-
-                assert(JitTls::GetCompiler() == p.compiler);
-                JitTls::SetCompiler(p.prevCompiler);
-            }
-
-            p.allocator.destroy();
-        }
-        PAL_ENDTRY
-    }
-    PAL_EXCEPT_FILTER(JitErrorTrapFilter)
-    {
-        param.result = param.error;
-    }
-    PAL_ENDTRY
-
-    CorJitResult result = param.result;
-
-    if (!jitFallbackCompile &&
-        ((result == CORJIT_INTERNALERROR) || (result == CORJIT_RECOVERABLEERROR) || (result == CORJIT_IMPLLIMITATION)))
-    {
-        // If we failed the JIT, reattempt with debuggable code.
-        jitFallbackCompile = true;
-
-        // Update the flags for 'safer' code generation.
-        jitFlags->Set(JitFlags::JIT_FLAG_MIN_OPT);
-        jitFlags->Clear(JitFlags::JIT_FLAG_SIZE_OPT);
-        jitFlags->Clear(JitFlags::JIT_FLAG_SPEED_OPT);
-
-        goto START;
-    }
-
-    return result;
-}
 
 // JIT time end to end, and by phases.
 

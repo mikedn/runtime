@@ -2,6 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
+#include "dataflow.h"
+#include "ssabuilder.h"
+#include "valuenum.h"
 
 enum ApKind : uint8_t
 {
@@ -192,6 +195,7 @@ class AssertionProp
 {
     typedef JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, ASSERT_TP> ValueNumToAssertsMap;
 
+    SsaOptimizer&  ssa;
     Compiler*      compiler;
     ValueNumStore* vnStore;
 
@@ -210,9 +214,10 @@ class AssertionProp
 #endif
 
 public:
-    AssertionProp(Compiler* compiler)
-        : compiler(compiler)
-        , vnStore(compiler->vnStore)
+    AssertionProp(SsaOptimizer& ssa)
+        : ssa(ssa)
+        , compiler(ssa.GetCompiler())
+        , vnStore(ssa.GetVNStore())
         , sizeTraits(0, compiler)
         , countTraits(0, compiler)
 #ifdef DEBUG
@@ -221,13 +226,8 @@ public:
     {
     }
 
-    void Run()
+    bool Run()
     {
-#ifdef DEBUG
-        DBEXEC(verbose, compiler->fgDispBasicBlocks(true);)
-        compiler->fgDebugCheckLinks();
-#endif
-
         Init();
         GenerateAssertions();
 
@@ -246,13 +246,9 @@ public:
             }
         }
 
-        compiler->apAssertionTable = assertionTable;
-        compiler->apAssertionCount = assertionCount;
+        ssa.SetAssertionTable(assertionTable, assertionCount);
 
-#ifdef DEBUG
-        compiler->fgDebugCheckBBlist();
-        compiler->fgDebugCheckLinks();
-#endif
+        return true;
     }
 
 private:
@@ -402,7 +398,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        if ((assertion.op1.vn == ValueNumStore::NoVN) || (assertion.op1.vn == ValueNumStore::VNForVoid()))
+        if ((assertion.op1.vn == NoVN) || (assertion.op1.vn == ValueNumStore::VNForVoid()))
         {
             return NO_ASSERTION_INDEX;
         }
@@ -3713,27 +3709,25 @@ private:
 
     void DumpAssertion(const AssertionDsc& assertion) const
     {
-        compiler->apDumpAssertion(assertion, static_cast<unsigned>(&assertion - assertionTable));
+        ssa.DumpAssertion(assertion, static_cast<unsigned>(&assertion - assertionTable));
     }
 
     void DumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer) const
     {
-        compiler->apDumpAssertionIndices(header, assertions, footer);
+        ssa.DumpAssertionIndices(header, assertions, footer);
     }
 #endif // DEBUG
 };
 
-void Compiler::apMain()
+PhaseStatus SsaOptimizer::DoAssertionProp()
 {
-    assert(ssaForm && (vnStore != nullptr));
-
-    AssertionProp ap(this);
-    ap.Run();
+    AssertionProp ap(*this);
+    return ap.Run() ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }
 
 #ifdef DEBUG
 
-void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
+void SsaOptimizer::DumpAssertion(const AssertionDsc& assertion, unsigned index)
 {
     const auto  kind = assertion.kind;
     const auto& op1  = assertion.op1;
@@ -3816,9 +3810,9 @@ void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
     }
 }
 
-void Compiler::apDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer)
+void SsaOptimizer::DumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer)
 {
-    if (!verbose)
+    if (!compiler->verbose)
     {
         return;
     }
@@ -3831,7 +3825,7 @@ void Compiler::apDumpAssertionIndices(const char* header, ASSERT_TP assertions, 
     printf("{");
     const char* separator = "";
 
-    BitVecTraits apTraits(apAssertionCount, this);
+    BitVecTraits apTraits(assertionCount, compiler);
     for (BitVecOps::Enumerator en(&apTraits, assertions); en.MoveNext();)
     {
         printf("%sA%02u", separator, en.Current());
@@ -3900,11 +3894,11 @@ int BoundsAssertion::GetRangeMax() const
     return static_cast<int>(assertion.op2.range.max);
 }
 
-BoundsAssertion Compiler::apGetBoundsAssertion(unsigned bitIndex)
+BoundsAssertion SsaOptimizer::GetBoundsAssertion(unsigned bitIndex) const
 {
-    assert(bitIndex < apAssertionCount);
+    assert(bitIndex < assertionCount);
 
-    return apAssertionTable[bitIndex];
+    return assertionTable[bitIndex];
 }
 
 #ifdef DEBUG
@@ -3913,9 +3907,9 @@ const AssertionDsc& BoundsAssertion::GetAssertion() const
     return assertion;
 }
 
-void Compiler::apDumpBoundsAssertion(BoundsAssertion assertion)
+void SsaOptimizer::DumpBoundsAssertion(BoundsAssertion assertion)
 {
-    apDumpAssertion(assertion.GetAssertion(), static_cast<unsigned>(&assertion.GetAssertion() - apAssertionTable));
+    DumpAssertion(assertion.GetAssertion(), static_cast<unsigned>(&assertion.GetAssertion() - assertionTable));
     printf("\n");
 }
 #endif

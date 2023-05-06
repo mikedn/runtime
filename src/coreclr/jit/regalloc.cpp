@@ -13,23 +13,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-#include "regalloc.h"
 
 #if DOUBLE_ALIGN
-DWORD Compiler::getCanDoubleAlign()
-{
-#ifdef DEBUG
-    if (compStressCompile(STRESS_DBL_ALN, 20))
-        return MUST_DOUBLE_ALIGN;
-
-    return JitConfig.JitDoubleAlign();
-#else
-    return DEFAULT_DOUBLE_ALIGN;
-#endif
-}
 
 //------------------------------------------------------------------------
 // shouldDoubleAlign: Determine whether to double-align the frame
@@ -74,10 +59,14 @@ bool Compiler::shouldDoubleAlign(unsigned             refCntStk,
     unsigned misaligned_weight = 4;
 
     if (compCodeOpt() == SMALL_CODE)
+    {
         misaligned_weight = 0;
+    }
 
     if (compCodeOpt() == FAST_CODE)
+    {
         misaligned_weight *= 4;
+    }
 
     JITDUMP("\nDouble alignment:\n");
     JITDUMP("  Bytes that could be saved by not using EBP frame: %i\n", bytesUsed);

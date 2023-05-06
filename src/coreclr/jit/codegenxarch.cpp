@@ -6433,7 +6433,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
 // For x86, this doesn't include the frame pointer if isFramePointerUsed is true.
 int CodeGenInterface::genTotalFrameSize() const
 {
-    assert(!IsUninitialized(calleeRegsPushed));
+    assert(calleeRegsPushed != UINT_MAX);
 
     int totalFrameSize = calleeRegsPushed * REGSIZE_BYTES + lclFrameSize;
 

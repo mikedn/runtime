@@ -9,6 +9,8 @@
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 #include "jitpch.h"
+#include "sm.h"
+
 //
 // States in the state machine
 //

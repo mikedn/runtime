@@ -4742,6 +4742,7 @@ void Lowering::Run()
         comp->lvaComputeLclRefCounts();
         comp->lvaMarkLivenessTrackedLocals();
         comp->fgLocalVarLiveness();
+        comp->EndPhase(PHASE_LIR_LIVENESS);
 
         // Liveness can delete code, which may create empty blocks.
         comp->optLoopsMarked = false;
@@ -4750,6 +4751,7 @@ void Lowering::Run()
         {
             JITDUMP("Flowgraph was modified, running liveness again\n");
             comp->fgLocalVarLiveness();
+            comp->EndPhase(PHASE_LIR_LIVENESS);
         }
 
         // Recompute local var ref counts again after liveness to reflect

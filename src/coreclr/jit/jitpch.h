@@ -15,15 +15,4 @@
 #include <intrin.h>
 
 #include "jitconfig.h"
-#include "jit.h"
-#include "iallocator.h"
-#include "hashbv.h"
 #include "compiler.h"
-#include "dataflow.h"
-#include "block.h"
-#include "jiteh.h"
-#include "jitstd.h"
-#include "blockset.h"
-#include "bitvec.h"
-#include "inline.h"
-#include "objectalloc.h"

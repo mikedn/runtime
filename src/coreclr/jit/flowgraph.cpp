@@ -234,20 +234,20 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
     // For GCPOLL_INLINE we create two new blocks: Poll and Bottom.
     // The original block is called Top.
 
-    BasicBlock*            top             = block;
-    BasicBlock::loopNumber fallThroughLoop = BasicBlock::NOT_IN_LOOP;
+    BasicBlock* top             = block;
+    LoopNum     fallThroughLoop = NoLoopNum;
 
     if (top->bbJumpKind == BBJ_COND)
     {
-        fallThroughLoop = top->bbNext->bbNatLoopNum;
+        fallThroughLoop = top->bbNext->GetLoopNum();
     }
 
     BasicBlock* poll   = fgNewBBafter(BBJ_NONE, top, true);
     BasicBlock* bottom = fgNewBBafter(top->bbJumpKind, poll, true);
 
-    const BBjumpKinds            topKind  = top->bbJumpKind;
-    const BasicBlock::loopNumber topLoop  = top->bbNatLoopNum;
-    const BasicBlockFlags        topFlags = top->bbFlags | BBF_GC_SAFE_POINT;
+    const BBjumpKinds     topKind  = top->bbJumpKind;
+    const LoopNum         topLoop  = top->GetLoopNum();
+    const BasicBlockFlags topFlags = top->bbFlags | BBF_GC_SAFE_POINT;
 
     noway_assert(
         (topFlags & (BBF_SPLIT_NONEXIST &
@@ -487,27 +487,15 @@ bool Compiler::fgIsBlockCold(BasicBlock* blk)
     return ((blk->bbFlags & BBF_COLD) != 0);
 }
 
-/*****************************************************************************
- * This function returns true if tree is a GT_COMMA node with a call
- * that unconditionally throws an exception
- */
-
-bool Compiler::fgIsCommaThrow(GenTree* tree, bool forFolding /* = false */)
+bool Compiler::fgIsCommaThrow(GenTree* tree, bool forFolding)
 {
-    // Instead of always folding comma throws,
-    // with stress enabled we only fold half the time
-
     if (forFolding && compStressCompile(STRESS_FOLD, 50))
     {
-        return false; /* Don't fold */
+        return false;
     }
 
-    /* Check for cast of a GT_COMMA with a throw overflow */
-    if ((tree->gtOper == GT_COMMA) && (tree->gtFlags & GTF_CALL) && (tree->gtFlags & GTF_EXCEPT))
-    {
-        return (fgIsThrow(tree->AsOp()->gtOp1));
-    }
-    return false;
+    return tree->OperIs(GT_COMMA) && tree->HasAllSideEffects(GTF_CALL | GTF_EXCEPT) &&
+           fgIsThrow(tree->AsOp()->GetOp(0));
 }
 
 bool Compiler::fgAddrCouldBeNull(GenTree* addr)

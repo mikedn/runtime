@@ -21,10 +21,6 @@
 // ifdef. This macro allows us to anchor the comments to the regular flow of code.
 #define CLANG_FORMAT_COMMENT_ANCHOR ;
 
-// Clang-tidy replaces 0 with nullptr in some templated functions, causing a build
-// break. Replacing those instances with ZERO avoids this change
-#define ZERO 0
-
 #ifdef _MSC_VER
 #define CHECK_STRUCT_PADDING 0 // Set this to '1' to enable warning C4820 "'bytes' bytes padding added after
                                // construct 'member_name'" on interesting structs/classes
@@ -342,7 +338,6 @@ typedef ptrdiff_t ssize_t;
 
 //=============================================================================
 
-#define REDUNDANT_LOAD 1      // track locals in regs, suppress loads
 #define DUMP_FLOWGRAPHS DEBUG // Support for creating Xml Flowgraph reports in *.fgx files
 
 #define HANDLER_ENTRY_MUST_BE_IN_HOT_SECTION 1 // if 1 we must have all handler entry points in the Hot code section
@@ -410,18 +405,6 @@ typedef ptrdiff_t ssize_t;
 #ifdef TARGET_X86
 #define JIT32_GCENCODER
 #endif
-
-/*****************************************************************************/
-#if !defined(DEBUG)
-
-#if DUMP_GC_TABLES
-#pragma message("NOTE: this non-debug build has GC ptr table dumping always enabled!")
-const bool dspGCtbls = true;
-#endif
-
-#endif // !DEBUG
-
-/*****************************************************************************/
 
 #ifdef DEBUG
 #define JITDUMP(...)                                                                                                   \
@@ -505,28 +488,9 @@ const bool dspGCtbls = true;
 #define DOUBLE_ALIGN 0 // no special handling for double alignment
 #endif
 
-#ifdef DEBUG
-
-// Forward declarations for UninitializedWord and IsUninitialized are needed by alloc.h
-template <typename T>
-inline T UninitializedWord(Compiler* comp);
-
-template <typename T>
-inline bool IsUninitialized(T data);
-
-#endif // DEBUG
-
-/*****************************************************************************/
-
 #define castto(var, typ) (*(typ*)&var)
 
-/*****************************************************************************/
-
 #ifdef NO_MISALIGNED_ACCESS
-
-#define MISALIGNED_RD_I2(src) (*castto(src, char*) | *castto(src + 1, char*) << 8)
-
-#define MISALIGNED_RD_U2(src) (*castto(src, char*) | *castto(src + 1, char*) << 8)
 
 #define MISALIGNED_WR_I2(dst, val)                                                                                     \
     *castto(dst, char*)     = val;                                                                                     \
@@ -539,9 +503,6 @@ inline bool IsUninitialized(T data);
     *castto(dst + 3, char*) = val >> 24;
 
 #else
-
-#define MISALIGNED_RD_I2(src) (*castto(src, short*))
-#define MISALIGNED_RD_U2(src) (*castto(src, unsigned short*))
 
 #define MISALIGNED_WR_I2(dst, val) *castto(dst, short*) = val;
 #define MISALIGNED_WR_I4(dst, val) *castto(dst, int*)   = val;
@@ -600,16 +561,12 @@ private:
 
 #endif // COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE
 
-/*****************************************************************************/
-
-#include "error.h"
-
-/*****************************************************************************/
-
 #if CHECK_STRUCT_PADDING
 #pragma warning(push)
 #pragma warning(default : 4820) // 'bytes' bytes padding added after construct 'member_name'
-#endif                          // CHECK_STRUCT_PADDING
+#endif
+
+#include "error.h"
 #include "alloc.h"
 #include "target.h"
 
@@ -631,34 +588,6 @@ private:
 #else
 #define FEATURE_LOOP_ALIGN 0
 #endif
-
-enum OptFlags : uint8_t
-{
-    CLFLG_REGVAR        = 0x01,
-    CLFLG_TREETRANS     = 0x02,
-    CLFLG_INLINING      = 0x04,
-    CLFLG_STRUCTPROMOTE = 0x08,
-    CLFLG_CONSTANTFOLD  = 0x10,
-
-    CLFLG_MINOPT = CLFLG_TREETRANS,
-    CLFLG_MAXOPT = CLFLG_REGVAR | CLFLG_TREETRANS | CLFLG_INLINING | CLFLG_STRUCTPROMOTE | CLFLG_CONSTANTFOLD
-};
-
-/*****************************************************************************/
-
-extern void dumpILBytes(const BYTE* const codeAddr, unsigned codeSize, unsigned alignSize);
-
-extern unsigned dumpSingleInstr(const BYTE* const codeAddr, IL_OFFSET offs, const char* prefix = nullptr);
-
-extern void dumpILRange(const BYTE* const codeAddr, unsigned codeSize); // in bytes
-
-/*****************************************************************************/
-
-extern CorJitResult jitNativeCode(ICorJitInfo*         jitInfo,
-                                  CORINFO_METHOD_INFO* methodInfo,
-                                  void**               nativeCode,
-                                  uint32_t*            nativeCodeSize,
-                                  JitFlags*            jitFlags);
 
 class Compiler;
 
@@ -685,86 +614,6 @@ public:
     static void SetCompiler(Compiler* compiler);
 };
 
-#if defined(DEBUG)
-//  Include the definition of Compiler for use by these template functions
-//
-#include "compiler.h"
-
-//****************************************************************************
-//
-//  Returns a word filled with the JITs allocator default fill value.
-//
-template <typename T>
-inline T UninitializedWord(Compiler* comp)
-{
-    unsigned char defaultFill = 0xdd;
-    if (comp == nullptr)
-    {
-        comp = JitTls::GetCompiler();
-    }
-    defaultFill = Compiler::compGetJitDefaultFill(comp);
-    assert(defaultFill <= 0xff);
-    __int64 word = 0x0101010101010101LL * defaultFill;
-    return (T)word;
-}
-
-//****************************************************************************
-//
-//  Tries to determine if this value is coming from uninitialized JIT memory
-//    - Returns true if the value matches what we initialized the memory to.
-//
-//  Notes:
-//    - Asserts that use this are assuming that the UninitializedWord value
-//      isn't a legal value for 'data'.  Thus using a default fill value of
-//      0x00 will often trigger such asserts.
-//
-template <typename T>
-inline bool IsUninitialized(T data)
-{
-    return data == UninitializedWord<T>(JitTls::GetCompiler());
-}
-
-#pragma warning(push)
-#pragma warning(disable : 4312)
-//****************************************************************************
-//
-//  Debug template definitions for dspPtr, dspOffset
-//    - Used to format pointer/offset values for diffable Disasm
-//
-template <typename T>
-T dspPtr(T p)
-{
-    return (p == ZERO) ? ZERO : (JitTls::GetCompiler()->opts.dspDiffable ? T(0xD1FFAB1E) : p);
-}
-
-template <typename T>
-T dspOffset(T o)
-{
-    return (o == ZERO) ? ZERO : (JitTls::GetCompiler()->opts.dspDiffable ? T(0xD1FFAB1E) : o);
-}
-#pragma warning(pop)
-
-#else // !defined(DEBUG)
-
-//****************************************************************************
-//
-//  Non-Debug template definitions for dspPtr, dspOffset
-//    - This is a nop in non-Debug builds
-//
-template <typename T>
-T dspPtr(T p)
-{
-    return p;
-}
-
-template <typename T>
-T dspOffset(T o)
-{
-    return o;
-}
-
-#endif // !defined(DEBUG)
-
 extern "C" CORINFO_CLASS_HANDLE WINAPI getLikelyClass(ICorJitInfo::PgoInstrumentationSchema* schema,
                                                       UINT32                                 countSchemaItems,
                                                       BYTE*                                  pInstrumentationData,
@@ -772,6 +621,4 @@ extern "C" CORINFO_CLASS_HANDLE WINAPI getLikelyClass(ICorJitInfo::PgoInstrument
                                                       UINT32*                                pLikelihood,
                                                       UINT32*                                pNumberOfClasses);
 
-/*****************************************************************************/
 #endif //_JIT_H_
-/*****************************************************************************/

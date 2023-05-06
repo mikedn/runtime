@@ -1,19 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-// Defines the type "ValueNum".
-
-// This file exists only to break an include file cycle -- had been in ValueNum.h.  But that
-// file wanted to include gentree.h to get GT_COUNT, and gentree.h wanted ton include ValueNum.h to
-// the ValueNum type.
-
-#ifndef _VALUENUMTYPE_H_
-#define _VALUENUMTYPE_H_
+#pragma once
 
 typedef uint32_t ValueNum;
 
+// We will reserve "max unsigned" to represent "not a value number", for maps that might start uninitialized.
 // TODO-MIKE-Cleanup: Why the crap isn't NoVN 0?
 constexpr ValueNum NoVN = UINT32_MAX;
+// A second special value, used to indicate that a function evaluation would cause infinite recursion.
+constexpr ValueNum RecursiveVN = UINT32_MAX - 1;
 
 // There are two "kinds" of value numbers, which differ in their modeling of the actions of other threads.
 // "Liberal" value numbers assume that the other threads change contents of memory locations only at
@@ -130,4 +126,6 @@ public:
     }
 };
 
-#endif // _VALUENUMTYPE_H_
+constexpr int DefaultVNMapSelectBudget = 100;
+
+INDEBUG(void RunValueNumStoreTests(class Compiler*);)

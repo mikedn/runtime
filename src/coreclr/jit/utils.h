@@ -278,7 +278,8 @@ int SimpleSprintf_s(__in_ecount(cbBufSize - (pWriteStart - pBufStart)) char* pWr
 
 #ifdef DEBUG
 void hexDump(FILE* dmpf, const char* name, BYTE* addr, size_t size);
-#endif // DEBUG
+void DumpILRange(const uint8_t* codeAddr, unsigned codeSize);
+#endif
 
 /******************************************************************************
  * ScopedSetVariable: A simple class to set and restore a variable within a scope.

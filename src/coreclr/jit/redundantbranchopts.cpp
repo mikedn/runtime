@@ -2,85 +2,52 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
+#include "ssabuilder.h"
 
-//------------------------------------------------------------------------
-// optRedundantBranches: try and optimize redundant branches in the method
-//
-// Returns:
-//   PhaseStatus indicating if anything changed.
-//
-PhaseStatus Compiler::optRedundantBranches()
+class RedundantBranchesDomTreeVisitor : public DomTreeVisitor<RedundantBranchesDomTreeVisitor>
 {
+public:
+    bool madeChanges;
 
-#if DEBUG
-    if (verbose)
+    RedundantBranchesDomTreeVisitor(SsaOptimizer& ssa)
+        : DomTreeVisitor(ssa.GetCompiler(), ssa.GetDomTree()), madeChanges(false)
     {
-        fgDispBasicBlocks(verboseTrees);
-    }
-#endif // DEBUG
-
-    class OptRedundantBranchesDomTreeVisitor : public DomTreeVisitor<OptRedundantBranchesDomTreeVisitor>
-    {
-    public:
-        bool madeChanges;
-
-        OptRedundantBranchesDomTreeVisitor(Compiler* compiler)
-            : DomTreeVisitor(compiler, compiler->fgSsaDomTree), madeChanges(false)
-        {
-        }
-
-        void PreOrderVisit(BasicBlock* block)
-        {
-        }
-
-        void PostOrderVisit(BasicBlock* block)
-        {
-            // Skip over any removed blocks.
-            //
-            if ((block->bbFlags & BBF_REMOVED) != 0)
-            {
-                return;
-            }
-
-            // We currently can optimize some BBJ_CONDs.
-            //
-            if (block->bbJumpKind == BBJ_COND)
-            {
-                madeChanges |= m_compiler->optRedundantBranch(block);
-            }
-        }
-    };
-
-    OptRedundantBranchesDomTreeVisitor visitor(this);
-    visitor.WalkTree();
-
-    // Reset visited flags, in case we set any.
-    //
-    for (BasicBlock* const block : Blocks())
-    {
-        block->bbFlags &= ~BBF_VISITED;
     }
 
-#if DEBUG
-    if (verbose && visitor.madeChanges)
+    void End()
     {
-        fgDispBasicBlocks(verboseTrees);
+        for (BasicBlock* block : m_compiler->Blocks())
+        {
+            block->bbFlags &= ~BBF_VISITED;
+        }
+
+        DBEXEC(m_compiler->verbose && madeChanges, m_compiler->fgDispBasicBlocks(m_compiler->verboseTrees));
     }
-#endif // DEBUG
 
-    return visitor.madeChanges ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
-}
+    void PreOrderVisit(BasicBlock* block)
+    {
+    }
 
-//------------------------------------------------------------------------
-// optRedundantBranch: try and optimize a possibly redundant branch
-//
-// Arguments:
-//   block - block with branch to optimize
-//
-// Returns:
-//   True if the branch was optimized.
-//
-bool Compiler::optRedundantBranch(BasicBlock* const block)
+    void PostOrderVisit(BasicBlock* block)
+    {
+        if ((block->bbFlags & BBF_REMOVED) != 0)
+        {
+            return;
+        }
+
+        if (block->bbJumpKind == BBJ_COND)
+        {
+            madeChanges |= VisitBranch(block);
+        }
+    }
+
+private:
+    bool VisitBranch(BasicBlock* block);
+    bool JumpThread(BasicBlock* block, BasicBlock* domBlock);
+    bool IsReachable(BasicBlock* fromBlock, BasicBlock* toBlock, BasicBlock* excludedBlock);
+};
+
+bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
 {
     Statement* const stmt = block->lastStmt();
 
@@ -151,8 +118,8 @@ bool Compiler::optRedundantBranch(BasicBlock* const block)
 
                     BasicBlock* const trueSuccessor  = domBlock->bbJumpDest;
                     BasicBlock* const falseSuccessor = domBlock->bbNext;
-                    const bool        trueReaches    = optReachable(trueSuccessor, block, domBlock);
-                    const bool        falseReaches   = optReachable(falseSuccessor, block, domBlock);
+                    const bool        trueReaches    = IsReachable(trueSuccessor, block, domBlock);
+                    const bool        falseReaches   = IsReachable(falseSuccessor, block, domBlock);
 
                     if (trueReaches && falseReaches)
                     {
@@ -162,7 +129,7 @@ bool Compiler::optRedundantBranch(BasicBlock* const block)
                         // However we may be able to update the flow from block's predecessors so they
                         // bypass block and instead transfer control to jump's successors (aka jump threading).
                         //
-                        const bool wasThreaded = optJumpThread(block, domBlock);
+                        const bool wasThreaded = JumpThread(block, domBlock);
 
                         if (wasThreaded)
                         {
@@ -191,7 +158,7 @@ bool Compiler::optRedundantBranch(BasicBlock* const block)
                     {
                         // No apparent path from the dominating BB.
                         //
-                        // We should rarely see this given that optReachable is returning
+                        // We should rarely see this given that IsReachable is returning
                         // up to date results, but as we optimize we create unreachable blocks,
                         // and that can lead to cases where we can't find paths. That means we may be
                         // optimizing code that is now unreachable, but attempts to fix or avoid
@@ -249,32 +216,12 @@ bool Compiler::optRedundantBranch(BasicBlock* const block)
     tree->ChangeOperConst(GT_CNS_INT);
     tree->AsIntCon()->gtIconVal = relopValue;
 
-    fgMorphBlockStmt(block, stmt DEBUGARG(__FUNCTION__));
+    m_compiler->fgMorphBlockStmt(block, stmt DEBUGARG(__FUNCTION__));
+
     return true;
 }
 
-//------------------------------------------------------------------------
-// optJumpThread: try and bypass the current block by rerouting
-//   flow from predecessors directly to successors.
-//
-// Arguments:
-//   block - block with branch to optimize
-//   domBlock - a dominating block that has an equivalent branch
-//
-// Returns:
-//   True if the branch was optimized.
-//
-// Notes:
-//
-//    A       B          A     B
-//     \     /           |     |
-//      \   /            |     |
-//      block     ==>    |     |
-//      /   \            |     |
-//     /     \           |     |
-//    C       D          C     D
-//
-bool Compiler::optJumpThread(BasicBlock* const block, BasicBlock* const domBlock)
+bool RedundantBranchesDomTreeVisitor::JumpThread(BasicBlock* const block, BasicBlock* const domBlock)
 {
     assert(block->bbJumpKind == BBJ_COND);
     assert(domBlock->bbJumpKind == BBJ_COND);
@@ -314,7 +261,7 @@ bool Compiler::optJumpThread(BasicBlock* const block, BasicBlock* const domBlock
             domBlock->bbNum, block->bbNum);
 
     // If the block is the first block of try-region, then skip jump threading
-    if (bbIsTryBeg(block))
+    if (m_compiler->bbIsTryBeg(block))
     {
         JITDUMP(FMT_BB " is first block of try-region; no threading\n", block->bbNum);
         return false;
@@ -426,15 +373,15 @@ bool Compiler::optJumpThread(BasicBlock* const block, BasicBlock* const domBlock
         }
 
         const bool isTruePred =
-            ((predBlock == domBlock) && (trueSuccessor == block)) || optReachable(trueSuccessor, predBlock, domBlock);
+            ((predBlock == domBlock) && (trueSuccessor == block)) || IsReachable(trueSuccessor, predBlock, domBlock);
         const bool isFalsePred =
-            ((predBlock == domBlock) && (falseSuccessor == block)) || optReachable(falseSuccessor, predBlock, domBlock);
+            ((predBlock == domBlock) && (falseSuccessor == block)) || IsReachable(falseSuccessor, predBlock, domBlock);
 
         if (isTruePred == isFalsePred)
         {
             // Either both reach, or neither reaches.
             //
-            // We should rarely see (false,false) given that optReachable is returning
+            // We should rarely see (false,false) given that IsReachable is returning
             // up to date results, but as we optimize we create unreachable blocks,
             // and that can lead to cases where we can't find paths. That means we may be
             // optimizing code that is now unreachable, but attempts to fix or avoid doing that
@@ -542,9 +489,9 @@ bool Compiler::optJumpThread(BasicBlock* const block, BasicBlock* const domBlock
         }
 
         const bool isTruePred =
-            ((predBlock == domBlock) && (trueSuccessor == block)) || optReachable(trueSuccessor, predBlock, domBlock);
+            ((predBlock == domBlock) && (trueSuccessor == block)) || IsReachable(trueSuccessor, predBlock, domBlock);
         const bool isFalsePred =
-            ((predBlock == domBlock) && (falseSuccessor == block)) || optReachable(falseSuccessor, predBlock, domBlock);
+            ((predBlock == domBlock) && (falseSuccessor == block)) || IsReachable(falseSuccessor, predBlock, domBlock);
 
         if (isTruePred == isFalsePred)
         {
@@ -572,14 +519,14 @@ bool Compiler::optJumpThread(BasicBlock* const block, BasicBlock* const domBlock
             // Clean out the terminal branch statement; we are going to repurpose this block
             //
             Statement* lastStmt = block->lastStmt();
-            fgRemoveStmt(block, lastStmt);
+            m_compiler->fgRemoveStmt(block, lastStmt);
 
             if (isTruePred)
             {
                 JITDUMP("Fall through flow from pred " FMT_BB " -> " FMT_BB " implies predicate true\n",
                         predBlock->bbNum, block->bbNum);
                 JITDUMP("  repurposing " FMT_BB " to always jump to " FMT_BB "\n", block->bbNum, trueTarget->bbNum);
-                fgRemoveRefPred(block->bbNext, block);
+                m_compiler->fgRemoveRefPred(block->bbNext, block);
                 block->bbJumpKind = BBJ_ALWAYS;
             }
             else
@@ -589,7 +536,7 @@ bool Compiler::optJumpThread(BasicBlock* const block, BasicBlock* const domBlock
                         predBlock->bbNum, block->bbNum);
                 JITDUMP("  repurposing " FMT_BB " to always fall through to " FMT_BB "\n", block->bbNum,
                         falseTarget->bbNum);
-                fgRemoveRefPred(block->bbJumpDest, block);
+                m_compiler->fgRemoveRefPred(block->bbJumpDest, block);
                 block->bbJumpKind = BBJ_NONE;
             }
         }
@@ -598,14 +545,14 @@ bool Compiler::optJumpThread(BasicBlock* const block, BasicBlock* const domBlock
             assert(predBlock->bbNext != block);
             if (isTruePred)
             {
-                assert(!optReachable(falseSuccessor, predBlock, domBlock));
+                assert(!IsReachable(falseSuccessor, predBlock, domBlock));
                 JITDUMP("Jump flow from pred " FMT_BB " -> " FMT_BB
                         " implies predicate true; we can safely redirect flow to be " FMT_BB " -> " FMT_BB "\n",
                         predBlock->bbNum, block->bbNum, predBlock->bbNum, trueTarget->bbNum);
 
-                fgRemoveRefPred(block, predBlock);
-                fgReplaceJumpTarget(predBlock, trueTarget, block);
-                fgAddRefPred(trueTarget, predBlock);
+                m_compiler->fgRemoveRefPred(block, predBlock);
+                m_compiler->fgReplaceJumpTarget(predBlock, trueTarget, block);
+                m_compiler->fgAddRefPred(trueTarget, predBlock);
             }
             else
             {
@@ -614,21 +561,20 @@ bool Compiler::optJumpThread(BasicBlock* const block, BasicBlock* const domBlock
                         " implies predicate false; we can safely redirect flow to be " FMT_BB " -> " FMT_BB "\n",
                         predBlock->bbNum, block->bbNum, predBlock->bbNum, falseTarget->bbNum);
 
-                fgRemoveRefPred(block, predBlock);
-                fgReplaceJumpTarget(predBlock, falseTarget, block);
-                fgAddRefPred(falseTarget, predBlock);
+                m_compiler->fgRemoveRefPred(block, predBlock);
+                m_compiler->fgReplaceJumpTarget(predBlock, falseTarget, block);
+                m_compiler->fgAddRefPred(falseTarget, predBlock);
             }
         }
     }
 
-    // We optimized.
-    //
-    fgModified = true;
+    m_compiler->fgModified = true;
+
     return true;
 }
 
 //------------------------------------------------------------------------
-// optReachable: see if there's a path from one block to another,
+// IsReachable: see if there's a path from one block to another,
 //   including paths involving EH flow.
 //
 // Arguments:
@@ -646,19 +592,21 @@ bool Compiler::optJumpThread(BasicBlock* const block, BasicBlock* const domBlock
 //    This may overstate "true" reachability in methods where there are
 //    finallies with multiple continuations.
 //
-bool Compiler::optReachable(BasicBlock* const fromBlock, BasicBlock* const toBlock, BasicBlock* const excludedBlock)
+bool RedundantBranchesDomTreeVisitor::IsReachable(BasicBlock* const fromBlock,
+                                                  BasicBlock* const toBlock,
+                                                  BasicBlock* const excludedBlock)
 {
     if (fromBlock == toBlock)
     {
         return true;
     }
 
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* const block : m_compiler->Blocks())
     {
         block->bbFlags &= ~BBF_VISITED;
     }
 
-    ArrayStack<BasicBlock*> stack(getAllocator(CMK_Reachability));
+    ArrayStack<BasicBlock*> stack(m_compiler->getAllocator(CMK_Reachability));
     stack.Push(fromBlock);
 
     while (!stack.Empty())
@@ -672,7 +620,7 @@ bool Compiler::optReachable(BasicBlock* const fromBlock, BasicBlock* const toBlo
             continue;
         }
 
-        for (BasicBlock* succ : nextBlock->GetAllSuccs(this))
+        for (BasicBlock* succ : nextBlock->GetAllSuccs(m_compiler))
         {
             if (succ == toBlock)
             {
@@ -689,4 +637,11 @@ bool Compiler::optReachable(BasicBlock* const fromBlock, BasicBlock* const toBlo
     }
 
     return false;
+}
+
+PhaseStatus SsaOptimizer::DoRedundantBranches()
+{
+    RedundantBranchesDomTreeVisitor visitor(*this);
+    visitor.WalkTree();
+    return visitor.madeChanges ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }
