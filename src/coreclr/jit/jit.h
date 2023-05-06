@@ -21,10 +21,6 @@
 // ifdef. This macro allows us to anchor the comments to the regular flow of code.
 #define CLANG_FORMAT_COMMENT_ANCHOR ;
 
-// Clang-tidy replaces 0 with nullptr in some templated functions, causing a build
-// break. Replacing those instances with ZERO avoids this change
-#define ZERO 0
-
 #ifdef _MSC_VER
 #define CHECK_STRUCT_PADDING 0 // Set this to '1' to enable warning C4820 "'bytes' bytes padding added after
                                // construct 'member_name'" on interesting structs/classes
@@ -702,45 +698,6 @@ template <typename T>
 inline bool IsUninitialized(T data)
 {
     return data == UninitializedWord<T>(JitTls::GetCompiler());
-}
-
-#pragma warning(push)
-#pragma warning(disable : 4312)
-//****************************************************************************
-//
-//  Debug template definitions for dspPtr, dspOffset
-//    - Used to format pointer/offset values for diffable Disasm
-//
-template <typename T>
-T dspPtr(T p)
-{
-    return (p == ZERO) ? ZERO : (JitTls::GetCompiler()->opts.dspDiffable ? T(0xD1FFAB1E) : p);
-}
-
-template <typename T>
-T dspOffset(T o)
-{
-    return (o == ZERO) ? ZERO : (JitTls::GetCompiler()->opts.dspDiffable ? T(0xD1FFAB1E) : o);
-}
-#pragma warning(pop)
-
-#else // !defined(DEBUG)
-
-//****************************************************************************
-//
-//  Non-Debug template definitions for dspPtr, dspOffset
-//    - This is a nop in non-Debug builds
-//
-template <typename T>
-T dspPtr(T p)
-{
-    return p;
-}
-
-template <typename T>
-T dspOffset(T o)
-{
-    return o;
 }
 
 #endif // !defined(DEBUG)

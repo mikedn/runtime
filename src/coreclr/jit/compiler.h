@@ -6324,13 +6324,23 @@ public:
     template <typename T>
     T dspPtr(T p)
     {
-        return (p == ZERO) ? ZERO : (opts.dspDiffable ? T(0xD1FFAB1E) : p);
+        if (p && opts.disDiffable)
+        {
+            return T(0xD1FFAB1E);
+        }
+
+        return p;
     }
 
     template <typename T>
     T dspOffset(T o)
     {
-        return (o == ZERO) ? ZERO : (opts.dspDiffable ? T(0xD1FFAB1E) : o);
+        if (o && opts.dspDiffable)
+        {
+            return T(0xD1FFAB1E);
+        }
+
+        return o;
     }
 #pragma warning(pop)
 
@@ -6927,6 +6937,26 @@ public:
 
     bool killGCRefs(GenTree* tree);
 }; // end of class Compiler
+
+template <typename T>
+T dspPtr(T p)
+{
+#ifdef DEBUG
+    return JitTls::GetCompiler()->dspPtr(p);
+#else
+    return p;
+#endif
+}
+
+template <typename T>
+T dspOffset(T o)
+{
+#ifdef DEBUG
+    return JitTls::GetCompiler()->dspOffset(o);
+#else
+    return o;
+#endif
+}
 
 // This class is responsible for checking validity and profitability of struct promotion.
 // If it is both legal and profitable, then TryPromoteStructLocal promotes the struct and initializes
