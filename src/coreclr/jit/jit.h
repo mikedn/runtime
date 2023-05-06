@@ -601,21 +601,11 @@ enum OptFlags : uint8_t
     CLFLG_MAXOPT = CLFLG_REGVAR | CLFLG_TREETRANS | CLFLG_INLINING | CLFLG_STRUCTPROMOTE | CLFLG_CONSTANTFOLD
 };
 
-/*****************************************************************************/
-
-extern void dumpILBytes(const BYTE* const codeAddr, unsigned codeSize, unsigned alignSize);
-
-extern unsigned dumpSingleInstr(const BYTE* const codeAddr, IL_OFFSET offs, const char* prefix = nullptr);
-
-extern void dumpILRange(const BYTE* const codeAddr, unsigned codeSize); // in bytes
-
-/*****************************************************************************/
-
-extern CorJitResult jitNativeCode(ICorJitInfo*         jitInfo,
-                                  CORINFO_METHOD_INFO* methodInfo,
-                                  void**               nativeCode,
-                                  uint32_t*            nativeCodeSize,
-                                  JitFlags*            jitFlags);
+CorJitResult jitNativeCode(ICorJitInfo*         jitInfo,
+                           CORINFO_METHOD_INFO* methodInfo,
+                           void**               nativeCode,
+                           uint32_t*            nativeCodeSize,
+                           JitFlags*            jitFlags);
 
 class Compiler;
 

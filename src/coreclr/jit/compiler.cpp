@@ -3374,7 +3374,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     if (verbose)
     {
         printf("IL to import:\n");
-        dumpILRange(info.compCode, info.compILCodeSize);
+        DumpILRange(info.compCode, info.compILCodeSize);
     }
 #endif
 
