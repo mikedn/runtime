@@ -601,12 +601,6 @@ enum OptFlags : uint8_t
     CLFLG_MAXOPT = CLFLG_REGVAR | CLFLG_TREETRANS | CLFLG_INLINING | CLFLG_STRUCTPROMOTE | CLFLG_CONSTANTFOLD
 };
 
-CorJitResult jitNativeCode(ICorJitInfo*         jitInfo,
-                           CORINFO_METHOD_INFO* methodInfo,
-                           void**               nativeCode,
-                           uint32_t*            nativeCodeSize,
-                           JitFlags*            jitFlags);
-
 class Compiler;
 
 class JitTls

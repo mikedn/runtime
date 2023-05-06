@@ -265,6 +265,106 @@ void JitTls::SetCompiler(Compiler* compiler)
 
 #endif // !defined(DEBUG)
 
+static CorJitResult jitNativeCode(ICorJitInfo*         jitInfo,
+                                  CORINFO_METHOD_INFO* methodInfo,
+                                  void**               nativeCode,
+                                  uint32_t*            nativeCodeSize,
+                                  JitFlags*            jitFlags)
+{
+    bool jitFallbackCompile = false;
+
+START:
+    struct Param : ErrorTrapParam
+    {
+        ArenaAllocator       allocator;
+        Compiler*            compiler     = nullptr;
+        Compiler*            prevCompiler = nullptr;
+        bool                 jitFallbackCompile;
+        CORINFO_METHOD_INFO* methodInfo;
+        void**               nativeCode;
+        uint32_t*            nativeCodeSize;
+        JitFlags*            jitFlags;
+        CorJitResult         result = CORJIT_INTERNALERROR;
+        CORINFO_EE_INFO      eeInfo;
+    } param;
+
+    param.jitInfo            = jitInfo;
+    param.jitFallbackCompile = jitFallbackCompile;
+    param.methodInfo         = methodInfo;
+    param.nativeCode         = nativeCode;
+    param.nativeCodeSize     = nativeCodeSize;
+    param.jitFlags           = jitFlags;
+
+    PAL_TRY(Param&, p, param)
+    {
+        NestedErrorTrapParam<Param&> param2(p);
+
+        PAL_TRY(NestedErrorTrapParam<Param&>&, p2, param2)
+        {
+            Param& p = p2.param;
+
+            p.jitInfo->getEEInfo(&p.eeInfo);
+
+            p.compiler = static_cast<Compiler*>(p.allocator.allocateMemory(sizeof(Compiler)));
+            new (p.compiler) Compiler(&p.allocator, &p.eeInfo, p.methodInfo, p.jitInfo);
+            p.prevCompiler = JitTls::GetCompiler();
+            JitTls::SetCompiler(p.compiler);
+            INDEBUG(JitTls::SetLogCompiler(p.compiler));
+
+#if MEASURE_CLRAPI_CALLS
+            if (!p.jitFallbackCompile)
+            {
+                WrapICorJitInfo::WrapJitInfo(p.compiler);
+            }
+#endif
+
+            p.compiler->compInitMethodName();
+            p.compiler->compInit();
+            INDEBUG(p.compiler->jitFallbackCompile = p.jitFallbackCompile;)
+            p.result = p.compiler->compCompileMain(p.nativeCode, p.nativeCodeSize, p.jitFlags);
+        }
+        PAL_FINALLY
+        {
+            // If OOM is thrown when allocating the Compiler object, we will
+            // end up here and p.compiler will be nullptr.
+
+            if (p.compiler != nullptr)
+            {
+                p.compiler->info.compCode = nullptr;
+
+                assert(JitTls::GetCompiler() == p.compiler);
+                JitTls::SetCompiler(p.prevCompiler);
+            }
+
+            p.allocator.destroy();
+        }
+        PAL_ENDTRY
+    }
+    PAL_EXCEPT_FILTER(JitErrorTrapFilter)
+    {
+        param.result = param.error;
+    }
+    PAL_ENDTRY
+
+    CorJitResult result = param.result;
+
+    if (!jitFallbackCompile &&
+        ((result == CORJIT_INTERNALERROR) || (result == CORJIT_RECOVERABLEERROR) || (result == CORJIT_IMPLLIMITATION)))
+    {
+        // If we failed the JIT, reattempt with debuggable code.
+        jitFallbackCompile = true;
+
+        // Update the flags for 'safer' code generation.
+        jitFlags->Set(JitFlags::JIT_FLAG_MIN_OPT);
+        jitFlags->Clear(JitFlags::JIT_FLAG_SIZE_OPT);
+        jitFlags->Clear(JitFlags::JIT_FLAG_SPEED_OPT);
+
+        goto START;
+    }
+
+    return result;
+}
+
 CorJitResult CILJit::compileMethod(ICorJitInfo*         jitInfo,
                                    CORINFO_METHOD_INFO* methodInfo,
                                    unsigned             flags,
