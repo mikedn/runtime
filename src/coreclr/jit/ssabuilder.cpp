@@ -172,8 +172,6 @@ void SsaBuilder::Build()
     compiler->EndPhase(PHASE_BUILD_SSA_INSERT_PHIS);
     RenameVariables();
     compiler->EndPhase(PHASE_BUILD_SSA_RENAME);
-
-    DBEXEC(compiler->verboseSsa, Print(postOrder, count))
 }
 
 bool SsaBuilder::IncludeInSsa(unsigned lclNum)
