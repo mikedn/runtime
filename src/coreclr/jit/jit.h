@@ -561,15 +561,12 @@ private:
 
 #endif // COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE
 
-#include "error.h"
-
 #if CHECK_STRUCT_PADDING
 #pragma warning(push)
 #pragma warning(default : 4820) // 'bytes' bytes padding added after construct 'member_name'
 #endif
 
-INDEBUG(int UninitializedByte();)
-
+#include "error.h"
 #include "alloc.h"
 #include "target.h"
 

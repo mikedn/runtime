@@ -133,6 +133,8 @@ public:
     static void dumpAggregateMemStats(FILE* file);
 #endif // MEASURE_MEM_ALLOC
 
+    INDEBUG(int GetUninitializedByte();)
+
 public:
     ArenaAllocator();
 
@@ -195,7 +197,7 @@ inline void* ArenaAllocator::allocateMemory(size_t size)
         block = allocateNewPage(size);
     }
 
-    INDEBUG(memset(block, UninitializedByte(), size));
+    INDEBUG(memset(block, GetUninitializedByte(), size));
 
     return block;
 }

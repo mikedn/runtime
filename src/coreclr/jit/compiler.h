@@ -6641,13 +6641,6 @@ public:
 
     bool compIsForInlining() const;
 
-#ifdef DEBUG
-    // Get the default fill char value we randomize this value when JitStress is enabled.
-    static unsigned char compGetJitDefaultFill(Compiler* comp);
-#endif
-
-    //-------------------------------------------------------------------------
-
     VarScopeDsc** compEnterScopeList; // List has the offsets where variables enter scope, sorted by instr offset
     VarScopeDsc** compExitScopeList;  // List has the offsets where variables go out of scope, sorted by instr offset
     unsigned      compNextEnterScope;

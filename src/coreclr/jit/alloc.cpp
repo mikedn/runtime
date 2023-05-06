@@ -322,8 +322,33 @@ void ArenaAllocator::dumpMaxMemStats(FILE* file)
 #endif // MEASURE_MEM_ALLOC
 
 #ifdef DEBUG
-int UninitializedByte()
+int ArenaAllocator::GetUninitializedByte()
 {
-    return Compiler::compGetJitDefaultFill(JitTls::GetCompiler());
+    uint8_t   defaultFill = static_cast<uint8_t>(JitConfig.JitDefaultFill() & 0xFF);
+    Compiler* comp        = JitTls::GetCompiler();
+
+    if ((comp != nullptr) && comp->compStressCompile(Compiler::STRESS_GENERIC_VARN, 50))
+    {
+        unsigned temp = comp->info.compMethodHash();
+
+        temp = (temp >> 16) ^ temp;
+        temp = (temp >> 8) ^ temp;
+        temp = temp & 0xff;
+        // asserts like this: assert(!IsUninitialized(stkLvl));
+        // mean that small values for defaultFill are problematic
+        // so we make the value larger in that case.
+        if (temp < 0x20)
+        {
+            temp |= 0x80;
+        }
+
+        // Make a misaligned pointer value to reduce probability of getting a valid value and firing
+        // assert(!IsUninitialized(pointer)).
+        temp |= 0x1;
+
+        defaultFill = static_cast<uint8_t>(temp & 0xFF);
+    }
+
+    return defaultFill;
 }
 #endif
