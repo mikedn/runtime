@@ -195,9 +195,7 @@ inline void* ArenaAllocator::allocateMemory(size_t size)
         block = allocateNewPage(size);
     }
 
-#if defined(DEBUG)
-    memset(block, UninitializedWord<char>(nullptr), size);
-#endif
+    INDEBUG(memset(block, UninitializedByte(), size));
 
     return block;
 }

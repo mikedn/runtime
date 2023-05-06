@@ -320,3 +320,10 @@ void ArenaAllocator::dumpMaxMemStats(FILE* file)
     s_maxStats.Print(file);
 }
 #endif // MEASURE_MEM_ALLOC
+
+#ifdef DEBUG
+int UninitializedByte()
+{
+    return Compiler::compGetJitDefaultFill(JitTls::GetCompiler());
+}
+#endif

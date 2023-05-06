@@ -568,12 +568,7 @@ private:
 #pragma warning(default : 4820) // 'bytes' bytes padding added after construct 'member_name'
 #endif
 
-#ifdef DEBUG
-
-template <typename T>
-inline T UninitializedWord(Compiler* comp);
-
-#endif // DEBUG
+INDEBUG(int UninitializedByte();)
 
 #include "alloc.h"
 #include "target.h"
@@ -650,31 +645,6 @@ public:
     static void SetCompiler(Compiler* compiler);
 };
 
-#if defined(DEBUG)
-//  Include the definition of Compiler for use by these template functions
-//
-#include "compiler.h"
-
-//****************************************************************************
-//
-//  Returns a word filled with the JITs allocator default fill value.
-//
-template <typename T>
-inline T UninitializedWord(Compiler* comp)
-{
-    unsigned char defaultFill = 0xdd;
-    if (comp == nullptr)
-    {
-        comp = JitTls::GetCompiler();
-    }
-    defaultFill = Compiler::compGetJitDefaultFill(comp);
-    assert(defaultFill <= 0xff);
-    __int64 word = 0x0101010101010101LL * defaultFill;
-    return (T)word;
-}
-
-#endif // !defined(DEBUG)
-
 extern "C" CORINFO_CLASS_HANDLE WINAPI getLikelyClass(ICorJitInfo::PgoInstrumentationSchema* schema,
                                                       UINT32                                 countSchemaItems,
                                                       BYTE*                                  pInstrumentationData,
@@ -682,6 +652,4 @@ extern "C" CORINFO_CLASS_HANDLE WINAPI getLikelyClass(ICorJitInfo::PgoInstrument
                                                       UINT32*                                pLikelihood,
                                                       UINT32*                                pNumberOfClasses);
 
-/*****************************************************************************/
 #endif //_JIT_H_
-/*****************************************************************************/
