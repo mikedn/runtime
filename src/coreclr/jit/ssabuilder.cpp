@@ -65,7 +65,7 @@ void SsaOptimizer::Reset()
 
     for (unsigned i = 0; i < compiler->lvaCount; ++i)
     {
-        compiler->lvaTable[i].ClearSsa();
+        compiler->lvaTable[i].m_isSsa = false;
     }
 
     for (BasicBlock* block : compiler->Blocks())
@@ -706,8 +706,6 @@ public:
 
             if (lcl->IsSsa() && VarSetOps::IsMember(compiler, firstBlock->bbLiveIn, lcl->GetLivenessBitIndex()))
             {
-                lcl->AddSsaDef();
-
                 // TODO-MIKE-SSA: Having a SSA_UNDEF oper might be better than using a LCL_VAR
                 // as a fake def value. It saves a bit of memory by not allocating an extra
                 // node and avoids the weird situation of still having LCL_VAR nodes for locals
@@ -850,7 +848,6 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
             }
 
             GenTree* value = asgNode->GetOp(1);
-            lcl->AddSsaDef();
 
             if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
             {
@@ -962,7 +959,6 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 void SsaRenameDomTreeVisitor::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block)
 {
     unsigned lclNum = def->GetLclNum();
-    m_compiler->lvaGetDesc(lclNum)->AddSsaDef();
     renameStack.Push(block, lclNum, def);
 }
 

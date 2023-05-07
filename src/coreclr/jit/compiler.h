@@ -704,7 +704,10 @@ public:
     Statement* lvDefStmt;   // Pointer to the statement with the single definition
 #endif
 private:
-    unsigned m_ssaDefCount;
+    unsigned m_dummy; // Keep the old LclVarDsc size (104 on x64), removing it results in a significant PIN regression
+                      // because both MSVC and Clang use a LEA/SHL sequence for the new size (96) instead of IMUL.
+                      // In theory LEA/SHL saves one cycle of latency but it's far from clear that the increase in code
+                      // size is worth it.
 
 public:
     var_types GetType() const
@@ -795,23 +798,6 @@ public:
     {
         assert(varTypeIsStruct(lvType));
         m_layout = layout;
-    }
-
-    void AddSsaDef()
-    {
-        assert(m_isSsa);
-        m_ssaDefCount++;
-    }
-
-    bool HasSingleSsaDef() const
-    {
-        return m_ssaDefCount == 1;
-    }
-
-    void ClearSsa()
-    {
-        m_isSsa       = false;
-        m_ssaDefCount = 0;
     }
 
     var_types GetRegisterType(const GenTreeLclVarCommon* tree) const;
