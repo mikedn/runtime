@@ -2939,9 +2939,7 @@ struct GenTreeDblCon : public GenTree
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeDblCon() : GenTree()
-    {
-    }
+    GenTreeDblCon() = default;
 #endif
 };
 
@@ -2961,20 +2959,6 @@ struct GenTreeStrCon : public GenTree
     GenTreeStrCon() = default;
 #endif
 };
-
-namespace SsaConfig
-{
-// FIRST ssa num is given to the first definition of a variable which can either be:
-// 1. A regular definition in the program.
-// 2. Or initialization by compInitMem.
-static const int FIRST_SSA_NUM = 1;
-
-// Sentinel value to indicate variable not touched by SSA.
-static const int RESERVED_SSA_NUM = 0;
-
-} // end of namespace SsaConfig
-
-static constexpr int NoSsaNum = SsaConfig::RESERVED_SSA_NUM;
 
 // Common supertype of LCL_VAR, LCL_FLD, REG_VAR, PHI_ARG
 // This inherits from UnOp because lclvar stores are Unops
@@ -3012,9 +2996,7 @@ public:
     uint16_t GetLclOffs() const;
 
 #if DEBUGGABLE_GENTREE
-    GenTreeLclVarCommon() : GenTreeUnOp()
-    {
-    }
+    GenTreeLclVarCommon() = default;
 #endif
 };
 
@@ -3055,9 +3037,7 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeLclVar() : GenTreeLclVarCommon()
-    {
-    }
+    GenTreeLclVar() = default;
 #endif
 };
 
@@ -3153,9 +3133,7 @@ public:
 #endif
 
 #if DEBUGGABLE_GENTREE
-    GenTreeLclFld() : GenTreeLclVarCommon()
-    {
-    }
+    GenTreeLclFld() = default;
 #endif
 };
 

@@ -36,21 +36,28 @@ public:
     int      GetRangeMax() const;
 };
 
-using NodeSsaNumMap = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, unsigned>;
-using LoopDsc       = Compiler::LoopDsc;
+using LoopDsc = Compiler::LoopDsc;
+
+struct SsaMemDef
+{
+    ValueNum vn = NoVN;
+    INDEBUG(unsigned num = 1;)
+};
+
+using NodeMemDefMap = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, SsaMemDef*>;
 
 struct MemoryPhiArg
 {
-    unsigned      m_ssaNum;
+    SsaMemDef*    m_def;
     MemoryPhiArg* m_nextArg;
 
-    MemoryPhiArg(unsigned ssaNum, MemoryPhiArg* nextArg) : m_ssaNum(ssaNum), m_nextArg(nextArg)
+    MemoryPhiArg(SsaMemDef* def, MemoryPhiArg* nextArg) : m_def(def), m_nextArg(nextArg)
     {
     }
 
-    unsigned GetSsaNum() const
+    SsaMemDef* GetDef() const
     {
-        return m_ssaNum;
+        return m_def;
     }
 
     MemoryPhiArg* GetNext() const
@@ -61,28 +68,24 @@ struct MemoryPhiArg
     void* operator new(size_t sz, class Compiler* comp);
 };
 
-struct SsaMemDef
-{
-    ValueNum vn = NoVN;
-};
-
 class SsaOptimizer
 {
-    Compiler* const        compiler;
-    SsaDefArray<SsaMemDef> memorySsaDefs;
-    NodeSsaNumMap          memorySsaMap;
-    LoopDsc*               loopTable      = nullptr;
-    unsigned               loopCount      = 0;
-    DomTreeNode*           domTree        = nullptr;
-    GenTreeLclDef*         initSsaDefs    = nullptr;
-    ValueNumStore*         vnStore        = nullptr;
-    AssertionDsc*          assertionTable = nullptr;
-    AssertionIndex         assertionCount = 0;
+    Compiler* const compiler;
+    NodeMemDefMap   memoryDefMap;
+    LoopDsc*        loopTable      = nullptr;
+    unsigned        loopCount      = 0;
+    DomTreeNode*    domTree        = nullptr;
+    GenTreeLclDef*  initLclDefs    = nullptr;
+    SsaMemDef*      initMemDef     = nullptr;
+    ValueNumStore*  vnStore        = nullptr;
+    AssertionDsc*   assertionTable = nullptr;
+    AssertionIndex  assertionCount = 0;
+    INDEBUG(unsigned memDefCount = 0;)
 
 public:
     SsaOptimizer(Compiler* compiler)
         : compiler(compiler)
-        , memorySsaMap(compiler->getAllocator(CMK_SSA))
+        , memoryDefMap(compiler->getAllocator(CMK_SSA))
         , loopTable(compiler->optLoopTable)
         , loopCount(compiler->optLoopCount)
     {
@@ -121,41 +124,48 @@ public:
         domTree = tree;
     }
 
-    void SetInitSsaDefs(GenTreeLclDef* defs)
+    void SetInitLclDefs(GenTreeLclDef* defs)
     {
-        initSsaDefs = defs;
+        initLclDefs = defs;
     }
 
-    unsigned AllocMemorySsaNum()
+    GenTreeLclDef* GetInitLclDefs() const
     {
-        return memorySsaDefs.AllocSsaNum(compiler->getAllocator(CMK_SSA));
+        return initLclDefs;
     }
 
-    SsaMemDef& GetMemorySsaDef(unsigned ssaNum)
+    SsaMemDef* AllocMemoryDef()
     {
-        return *memorySsaDefs.GetSsaDef(ssaNum);
+        SsaMemDef* def = new (compiler->getAllocator(CMK_SSA)) SsaMemDef();
+        INDEBUG(def->num = ++memDefCount);
+        return def;
     }
 
-    void SetMemorySsaNum(GenTree* node, unsigned ssaNum)
+    void SetMemoryDef(GenTree* node, SsaMemDef* def)
     {
-        assert(ssaNum != NoSsaNum);
-        memorySsaMap.Set(node, ssaNum);
+        assert(def != nullptr);
+        memoryDefMap.Set(node, def);
     }
 
-    unsigned GetMemorySsaNum(GenTree* node) const
+    SsaMemDef* GetMemoryDef(GenTree* node) const
     {
-        unsigned ssaNum;
-        return memorySsaMap.Lookup(node, &ssaNum) ? ssaNum : NoSsaNum;
+        SsaMemDef* def;
+        return memoryDefMap.Lookup(node, &def) ? def : nullptr;
+    }
+
+    SsaMemDef* GetInitMemoryDef() const
+    {
+        return initMemDef;
+    }
+
+    void SetInitMemoryDef(SsaMemDef* def)
+    {
+        initMemDef = def;
     }
 
     ValueNumStore* GetVNStore() const
     {
         return vnStore;
-    }
-
-    GenTreeLclDef* GetInitSsaDefs() const
-    {
-        return initSsaDefs;
     }
 
     static constexpr unsigned MinCseCost = 2;

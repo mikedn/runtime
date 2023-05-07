@@ -98,7 +98,7 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
         {
             // If we already have a stack node for this block then simply update
             // update the def, the previous one is no longer needed.
-            top->m_def = def;
+            top->m_lclDef = def;
         }
     }
 
@@ -109,7 +109,7 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
         const char* prefix = "";
         for (const auto& pair : lclSsaStackMap)
         {
-            if (GenTreeLclDef* def = pair.value.Top()->m_def)
+            if (GenTreeLclDef* def = pair.value.Top()->m_lclDef)
             {
                 printf("%sV%02u [%06u] " FMT_VN, prefix, pair.key, def->GetID(), def->GetConservativeVN());
                 prefix = ", ";
@@ -144,7 +144,7 @@ public:
 
     void Begin()
     {
-        for (GenTreeLclDef* def = ssa.GetInitSsaDefs(); def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
+        for (GenTreeLclDef* def = ssa.GetInitLclDefs(); def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
         {
             unsigned lclNum = def->GetLclNum();
 
@@ -262,7 +262,7 @@ public:
         for (const auto& pair : lclSsaStackMap)
         {
             unsigned       newLclNum = pair.key;
-            GenTreeLclDef* newDef    = pair.value.Top()->m_def;
+            GenTreeLclDef* newDef    = pair.value.Top()->m_lclDef;
 
             if ((lclNum == newLclNum) || (newDef == nullptr))
             {

@@ -3,6 +3,7 @@
 
 #include "jitpch.h"
 #include "ssarenamestate.h"
+#include "ssabuilder.h"
 
 //------------------------------------------------------------------------
 // SsaRenameState: Initialize SsaRenameState
@@ -48,8 +49,8 @@ GenTreeLclDef* SsaRenameState::Top(unsigned lclNum)
     noway_assert(m_stacks != nullptr);
     StackNode* top = m_stacks[lclNum].Top();
     noway_assert(top != nullptr);
-    assert(top->m_def->GetLclNum() == lclNum);
-    return top->m_def;
+    assert(top->m_lclDef->GetLclNum() == lclNum);
+    return top->m_lclDef;
 }
 
 //------------------------------------------------------------------------
@@ -68,21 +69,13 @@ void SsaRenameState::Push(BasicBlock* block, unsigned lclNum, GenTreeLclDef* def
     Push(&m_stacks[lclNum], block, def);
 }
 
-//------------------------------------------------------------------------
-// Push: Push a SSA number onto a stack
-//
-// Arguments:
-//    stack  - The stack to push to
-//    block  - The block where the SSA definition occurs
-//    ssaNum - The SSA number
-//
-void SsaRenameState::Push(Stack* stack, BasicBlock* block, unsigned ssaNum)
+void SsaRenameState::Push(Stack* stack, BasicBlock* block, SsaMemDef* def)
 {
     StackNode* top = stack->Top();
 
     if ((top == nullptr) || (top->m_block != block))
     {
-        stack->Push(AllocStackNode(m_stackListTail, block, ssaNum));
+        stack->Push(AllocStackNode(m_stackListTail, block, def));
         // Append the stack to the stack list. The stack list allows PopBlockStacks
         // to easily find stacks that need popping.
         m_stackListTail = stack;
@@ -91,7 +84,7 @@ void SsaRenameState::Push(Stack* stack, BasicBlock* block, unsigned ssaNum)
     {
         // If we already have a stack node for this block then simply update
         // update the SSA number, the previous one is no longer needed.
-        top->m_ssaNum = ssaNum;
+        top->m_memDef = def;
     }
 
     INDEBUG(DumpStack(stack));
@@ -112,7 +105,7 @@ void SsaRenameState::Push(Stack* stack, BasicBlock* block, GenTreeLclDef* def)
     {
         // If we already have a stack node for this block then simply
         // update the SSA def, the previous one is no longer needed.
-        top->m_def = def;
+        top->m_lclDef = def;
     }
 
     INDEBUG(DumpStack(stack));
@@ -170,11 +163,12 @@ void SsaRenameState::DumpStack(Stack* stack)
         {
             if (stack == &m_memoryStack)
             {
-                printf("%s<" FMT_BB ", %u>", (i == stack->Top()) ? "" : ", ", i->m_block->bbNum, i->m_ssaNum);
+                printf("%s<" FMT_BB ", %u>", (i == stack->Top()) ? "" : ", ", i->m_block->bbNum, i->m_memDef->num);
             }
             else
             {
-                printf("%s<" FMT_BB ", [%06u]>", (i == stack->Top()) ? "" : ", ", i->m_block->bbNum, i->m_def->GetID());
+                printf("%s<" FMT_BB ", [%06u]>", (i == stack->Top()) ? "" : ", ", i->m_block->bbNum,
+                       i->m_lclDef->GetID());
             }
         }
 

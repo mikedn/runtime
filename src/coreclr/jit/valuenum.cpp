@@ -2341,7 +2341,7 @@ TailCall:
             }
             else if (vnk == VNK_Liberal)
             {
-                phiArgVN = ssa.GetMemorySsaDef(static_cast<MemoryPhiArg*>(phiArg)->m_ssaNum).vn;
+                phiArgVN = static_cast<MemoryPhiArg*>(phiArg)->GetDef()->vn;
             }
             else
             {
@@ -2381,7 +2381,7 @@ TailCall:
                     }
                     else if (vnk == VNK_Liberal)
                     {
-                        phiArgVN = ssa.GetMemorySsaDef(static_cast<MemoryPhiArg*>(phiArg)->m_ssaNum).vn;
+                        phiArgVN = static_cast<MemoryPhiArg*>(phiArg)->GetDef()->vn;
                     }
                     else
                     {
@@ -4801,7 +4801,7 @@ void ValueNumbering::NumberLclStore(GenTreeLclVar* store, GenTreeOp* asg, GenTre
 
     if (!lvaGetDesc(store)->IsAddressExposed())
     {
-        assert(ssa.GetMemorySsaNum(asg) == NoSsaNum);
+        assert(ssa.GetMemoryDef(asg) == nullptr);
 
         return;
     }
@@ -4966,7 +4966,7 @@ void ValueNumbering::NumberLclFldStore(GenTreeLclFld* store, GenTreeOp* asg, Gen
 
     if (!lvaGetDesc(store)->IsAddressExposed())
     {
-        assert(ssa.GetMemorySsaNum(asg) == NoSsaNum);
+        assert(ssa.GetMemoryDef(asg) == nullptr);
 
         return;
     }
@@ -7329,7 +7329,7 @@ void ValueNumbering::Run()
     // parameters and initial memory are treated as loop invariant.
     assert(compiler->fgFirstBB->GetLoopNum() == NoLoopNum);
 
-    for (GenTreeLclDef* def = ssa.GetInitSsaDefs(); def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
+    for (GenTreeLclDef* def = ssa.GetInitLclDefs(); def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
     {
         unsigned   lclNum   = def->GetLclNum();
         LclVarDsc* lcl      = compiler->lvaGetDesc(lclNum);
@@ -7371,7 +7371,7 @@ void ValueNumbering::Run()
     }
 
     // Give memory an initial value number (about which we know nothing).
-    ssa.GetMemorySsaDef(SsaConfig::FIRST_SSA_NUM).vn = vnStore->VNForExpr(compiler->fgFirstBB, TYP_STRUCT);
+    ssa.GetInitMemoryDef()->vn = vnStore->VNForExpr(compiler->fgFirstBB, TYP_STRUCT);
 
     ValueNumberState vs(compiler, this);
 
@@ -7586,7 +7586,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
     if (block->memoryPhi == nullptr)
     {
-        fgCurMemoryVN = ssa.GetMemorySsaDef(block->memoryEntrySsaNum).vn;
+        fgCurMemoryVN = block->memoryEntryDef->vn;
         assert(fgCurMemoryVN != NoVN);
     }
     else
@@ -7602,7 +7602,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
         {
             MemoryPhiArg* phiArgs = block->memoryPhi;
 
-            ValueNum sameMemoryVN = ssa.GetMemorySsaDef(phiArgs->GetSsaNum()).vn;
+            ValueNum sameMemoryVN = phiArgs->GetDef()->vn;
             INDEBUG(TraceMem(sameMemoryVN, "predecessor memory"));
 
             ValueNum phiVN = vnStore->VNForHostPtr(phiArgs);
@@ -7613,7 +7613,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
             for (; phiArgs != nullptr; phiArgs = phiArgs->m_nextArg)
             {
-                ValueNum phiMemoryVN = ssa.GetMemorySsaDef(phiArgs->GetSsaNum()).vn;
+                ValueNum phiMemoryVN = phiArgs->GetDef()->vn;
                 INDEBUG(TraceMem(phiMemoryVN, "predecessor memory"));
                 if (sameMemoryVN != phiMemoryVN)
                 {
@@ -7634,8 +7634,8 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
             }
         }
 
-        ssa.GetMemorySsaDef(block->memoryEntrySsaNum).vn = newMemoryVN;
-        fgCurMemoryVN                                    = newMemoryVN;
+        block->memoryEntryDef->vn = newMemoryVN;
+        fgCurMemoryVN             = newMemoryVN;
     }
 
     INDEBUG(TraceMem(fgCurMemoryVN));
@@ -7674,9 +7674,9 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 #endif
     }
 
-    if (block->memoryExitSsaNum != block->memoryEntrySsaNum)
+    if (block->memoryExitDef != block->memoryEntryDef)
     {
-        ssa.GetMemorySsaDef(block->memoryExitSsaNum).vn = fgCurMemoryVN;
+        block->memoryExitDef->vn = fgCurMemoryVN;
     }
 
     vnStore->SetCurrentBlock(nullptr);
@@ -7872,7 +7872,7 @@ ValueNum ValueNumbering::BuildLoopEntryMemory(BasicBlock* entryBlock, unsigned i
     // Otherwise, there is a single non-loop pred.
     assert(nonLoopPred != nullptr);
     // What is its memory post-state?
-    ValueNum newMemoryVN = ssa.GetMemorySsaDef(nonLoopPred->memoryExitSsaNum).vn;
+    ValueNum newMemoryVN = nonLoopPred->memoryExitDef->vn;
     assert(newMemoryVN != NoVN); // We must have processed the single non-loop pred before reaching the
                                  // loop entry.
 
@@ -7935,12 +7935,12 @@ void ValueNumbering::UpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const c
     fgCurMemoryVN = memVN;
     INDEBUG(TraceMem(fgCurMemoryVN, comment));
 
-    unsigned ssaNum = ssa.GetMemorySsaNum(node);
+    SsaMemDef* def = ssa.GetMemoryDef(node);
 
-    if (ssaNum != NoSsaNum)
+    if (def != nullptr)
     {
-        ssa.GetMemorySsaDef(ssaNum).vn = memVN;
-        JITDUMP("    Memory SSA def %u = " FMT_VN "\n", ssaNum, memVN);
+        def->vn = memVN;
+        JITDUMP("    Memory SSA def %u = " FMT_VN "\n", def->num, memVN);
     }
 }
 
