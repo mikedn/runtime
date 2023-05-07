@@ -7712,7 +7712,6 @@ void Compiler::dmpSsaDefUse(GenTree* node)
     GenTreeLclUse* use    = node->IsLclUse();
     GenTreeLclDef* def    = use != nullptr ? use->GetDef() : node->IsLclDef();
     unsigned       lclNum = def->GetLclNum();
-    unsigned       ssaNum = def->GetSsaNum();
     LclVarDsc*     lcl    = lvaGetDesc(lclNum);
 
     printf(" V%02u ", lclNum);
@@ -7720,7 +7719,7 @@ void Compiler::dmpSsaDefUse(GenTree* node)
     int         nameLength = dmpLclName(lclNum);
     const char* prefix     = nameLength > 0 ? " (" : "(";
 
-    printf("%s#%u", prefix, ssaNum);
+    printf("%s[%06u]", prefix, def->GetID());
     prefix = ", ";
 
     if (BasicBlock* block = (use != nullptr) ? use->GetBlock() : def->GetBlock())

@@ -1053,12 +1053,13 @@ struct BasicBlock : private LIR::Range
     VARSET_TP bbLiveOut; // variables live on exit
 
     // If the "in" Heap SSA var is not a phi definition, this value is null.
-    struct MemoryPhiArg* memoryPhi;
     // Otherwise, it is either the special value EmptyMemoryPhiDefn, to indicate
     // that Heap needs a phi definition on entry, or else it is the linked list
     // of the phi arguments.
-    unsigned memoryEntrySsaNum; // The SSA # of memory on entry to the block.
-    unsigned memoryExitSsaNum;  // The SSA # of memory on exit from the block.
+    struct MemoryPhiArg* memoryPhi;
+
+    struct SsaMemDef* memoryEntryDef; // The memory def on entry to the block.
+    struct SsaMemDef* memoryExitDef;  // The memory def on exit from the block.
 
     /* The following are the standard bit sets for dataflow analysis.
      *  We perform CSE and range-checks at the same time

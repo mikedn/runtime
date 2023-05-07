@@ -2234,10 +2234,9 @@ public:
 
         if (singleDefOccurence != nullptr)
         {
-            lcl->m_isSsa    = true;
-            unsigned ssaNum = lcl->AllocSsaNum(compiler->getAllocator(CMK_SSA));
-            singleDef       = new (compiler, GT_LCL_DEF)
-                GenTreeLclDef(singleDefOccurence->expr, singleDefOccurence->block, lclNum, ssaNum);
+            lcl->m_isSsa = true;
+            singleDef =
+                new (compiler, GT_LCL_DEF) GenTreeLclDef(singleDefOccurence->expr, singleDefOccurence->block, lclNum);
         }
 
         for (const Occurrence* occ = &value->firstOccurrence; occ != nullptr; occ = occ->next)

@@ -1393,11 +1393,11 @@ BasicBlock* Compiler::bbNewBasicBlock(BBjumpKinds jumpKind)
 
     livInitNewBlock(block);
 
-    block->memoryPhi         = nullptr;
-    block->memoryEntrySsaNum = 0;
-    block->memoryExitSsaNum  = 0;
-    block->bbNatLoopNum      = NoLoopNum;
-    block->bbPredsWithEH     = nullptr;
+    block->memoryPhi      = nullptr;
+    block->memoryEntryDef = nullptr;
+    block->memoryExitDef  = nullptr;
+    block->bbNatLoopNum   = NoLoopNum;
+    block->bbPredsWithEH  = nullptr;
 
     return block;
 }

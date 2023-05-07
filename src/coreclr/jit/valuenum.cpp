@@ -2332,16 +2332,16 @@ TailCall:
             // We need to be careful about breaking infinite recursion.  Record the outer map.
             m_fixedPointMapSels.Push(mapVN);
 
-            unsigned phiArgSsaNum = ConstantValue<unsigned>(funcApp[0]);
+            void*    phiArg = ConstantHostPtr<void*>(funcApp[0]);
             ValueNum phiArgVN;
 
             if (lcl != nullptr)
             {
-                phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->GetVNP().Get(vnk);
+                phiArgVN = static_cast<GenTreeLclDef*>(phiArg)->GetVN(vnk);
             }
             else if (vnk == VNK_Liberal)
             {
-                phiArgVN = ssa.GetMemorySsaDef(phiArgSsaNum).vn;
+                phiArgVN = static_cast<MemoryPhiArg*>(phiArg)->GetDef()->vn;
             }
             else
             {
@@ -2373,15 +2373,15 @@ TailCall:
                         argRest = NoVN; // Cause the loop to terminate.
                     }
 
-                    phiArgSsaNum = ConstantValue<unsigned>(cur);
+                    phiArg = ConstantHostPtr<void*>(cur);
 
                     if (lcl != nullptr)
                     {
-                        phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->GetVNP().Get(vnk);
+                        phiArgVN = static_cast<GenTreeLclDef*>(phiArg)->GetVN(vnk);
                     }
                     else if (vnk == VNK_Liberal)
                     {
-                        phiArgVN = ssa.GetMemorySsaDef(phiArgSsaNum).vn;
+                        phiArgVN = static_cast<MemoryPhiArg*>(phiArg)->GetDef()->vn;
                     }
                     else
                     {
@@ -4801,7 +4801,7 @@ void ValueNumbering::NumberLclStore(GenTreeLclVar* store, GenTreeOp* asg, GenTre
 
     if (!lvaGetDesc(store)->IsAddressExposed())
     {
-        assert(ssa.GetMemorySsaNum(asg) == NoSsaNum);
+        assert(ssa.GetMemoryDef(asg) == nullptr);
 
         return;
     }
@@ -4886,7 +4886,6 @@ void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
         }
     }
 
-    lcl->GetPerSsaData(def->GetSsaNum())->SetVNP(valueVNP);
     def->SetVNP(valueVNP);
 
     INDEBUG(TraceLocal(def->GetLclNum(), valueVNP));
@@ -4921,7 +4920,6 @@ void ValueNumbering::NumberLclUse(GenTreeLclUse* use)
     ValueNumPair   vnp = def->GetVNP();
 
     assert(vnp.GetLiberal() != NoVN);
-    assert(vnp == lcl->GetPerSsaData(def->GetSsaNum())->GetVNP());
 
     unsigned valSize = varTypeSize(varActualType(use->GetType()));
     unsigned lclSize = varTypeSize(varActualType(lcl->GetType()));
@@ -4968,7 +4966,7 @@ void ValueNumbering::NumberLclFldStore(GenTreeLclFld* store, GenTreeOp* asg, Gen
 
     if (!lvaGetDesc(store)->IsAddressExposed())
     {
-        assert(ssa.GetMemorySsaNum(asg) == NoSsaNum);
+        assert(ssa.GetMemoryDef(asg) == nullptr);
 
         return;
     }
@@ -7331,14 +7329,12 @@ void ValueNumbering::Run()
     // parameters and initial memory are treated as loop invariant.
     assert(compiler->fgFirstBB->GetLoopNum() == NoLoopNum);
 
-    for (GenTreeLclDef* def = ssa.GetInitSsaDefs(); def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
+    for (GenTreeLclDef* def = ssa.GetInitLclDefs(); def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
     {
         unsigned   lclNum   = def->GetLclNum();
         LclVarDsc* lcl      = compiler->lvaGetDesc(lclNum);
         var_types  type     = lcl->GetType();
         bool       isZeroed = false;
-
-        assert(def->GetSsaNum() == SsaConfig::FIRST_SSA_NUM);
 
         if (!lcl->IsParam())
         {
@@ -7370,15 +7366,12 @@ void ValueNumbering::Run()
         }
 
         ValueNum initVN = isZeroed ? vnStore->VNZeroForType(type) : vnStore->VNForExpr(compiler->fgFirstBB, type);
-
-        lcl->GetPerSsaData(SsaConfig::FIRST_SSA_NUM)->SetVNP(ValueNumPair{initVN});
         def->SetVNP(ValueNumPair{initVN});
-
         INDEBUG(TraceLocal(lclNum, def->GetVNP()));
     }
 
     // Give memory an initial value number (about which we know nothing).
-    ssa.GetMemorySsaDef(SsaConfig::FIRST_SSA_NUM).vn = vnStore->VNForExpr(compiler->fgFirstBB, TYP_STRUCT);
+    ssa.GetInitMemoryDef()->vn = vnStore->VNForExpr(compiler->fgFirstBB, TYP_STRUCT);
 
     ValueNumberState vs(compiler, this);
 
@@ -7534,7 +7527,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
             phiArg->SetVNP(phiArgVNP);
 
-            ValueNum phiArgSsaNumVN = vnStore->VNForIntCon(argDef->GetSsaNum());
+            ValueNum phiArgSsaNumVN = vnStore->VNForHostPtr(argDef);
 
             if (phiVNP.GetLiberal() == NoVN)
             {
@@ -7585,7 +7578,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
         def->SetVNP(phiDefVNP);
         phi->SetVNP(phiDefVNP);
-        lvaGetDesc(def->GetLclNum())->GetPerSsaData(def->GetSsaNum())->SetVNP(phiDefVNP);
+
         INDEBUG(TraceLocal(def->GetLclNum(), phiDefVNP));
     }
 
@@ -7593,7 +7586,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
     if (block->memoryPhi == nullptr)
     {
-        fgCurMemoryVN = ssa.GetMemorySsaDef(block->memoryEntrySsaNum).vn;
+        fgCurMemoryVN = block->memoryEntryDef->vn;
         assert(fgCurMemoryVN != NoVN);
     }
     else
@@ -7609,10 +7602,10 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
         {
             MemoryPhiArg* phiArgs = block->memoryPhi;
 
-            ValueNum sameMemoryVN = ssa.GetMemorySsaDef(phiArgs->GetSsaNum()).vn;
+            ValueNum sameMemoryVN = phiArgs->GetDef()->vn;
             INDEBUG(TraceMem(sameMemoryVN, "predecessor memory"));
 
-            ValueNum phiVN = vnStore->VNForIntCon(phiArgs->GetSsaNum());
+            ValueNum phiVN = vnStore->VNForHostPtr(phiArgs);
             phiArgs        = phiArgs->m_nextArg;
             // There should be > 1 args to a phi.
             // But OSR might leave around "dead" try entry blocks...
@@ -7620,14 +7613,14 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
             for (; phiArgs != nullptr; phiArgs = phiArgs->m_nextArg)
             {
-                ValueNum phiMemoryVN = ssa.GetMemorySsaDef(phiArgs->GetSsaNum()).vn;
+                ValueNum phiMemoryVN = phiArgs->GetDef()->vn;
                 INDEBUG(TraceMem(phiMemoryVN, "predecessor memory"));
                 if (sameMemoryVN != phiMemoryVN)
                 {
                     sameMemoryVN = NoVN;
                 }
 
-                phiVN = vnStore->VNForFunc(TYP_STRUCT, VNF_Phi, vnStore->VNForIntCon(phiArgs->GetSsaNum()), phiVN);
+                phiVN = vnStore->VNForFunc(TYP_STRUCT, VNF_Phi, vnStore->VNForHostPtr(phiArgs), phiVN);
                 INDEBUG(vnStore->Trace(phiVN));
             }
 
@@ -7641,8 +7634,8 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
             }
         }
 
-        ssa.GetMemorySsaDef(block->memoryEntrySsaNum).vn = newMemoryVN;
-        fgCurMemoryVN                                    = newMemoryVN;
+        block->memoryEntryDef->vn = newMemoryVN;
+        fgCurMemoryVN             = newMemoryVN;
     }
 
     INDEBUG(TraceMem(fgCurMemoryVN));
@@ -7681,9 +7674,9 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 #endif
     }
 
-    if (block->memoryExitSsaNum != block->memoryEntrySsaNum)
+    if (block->memoryExitDef != block->memoryEntryDef)
     {
-        ssa.GetMemorySsaDef(block->memoryExitSsaNum).vn = fgCurMemoryVN;
+        block->memoryExitDef->vn = fgCurMemoryVN;
     }
 
     vnStore->SetCurrentBlock(nullptr);
@@ -7879,7 +7872,7 @@ ValueNum ValueNumbering::BuildLoopEntryMemory(BasicBlock* entryBlock, unsigned i
     // Otherwise, there is a single non-loop pred.
     assert(nonLoopPred != nullptr);
     // What is its memory post-state?
-    ValueNum newMemoryVN = ssa.GetMemorySsaDef(nonLoopPred->memoryExitSsaNum).vn;
+    ValueNum newMemoryVN = nonLoopPred->memoryExitDef->vn;
     assert(newMemoryVN != NoVN); // We must have processed the single non-loop pred before reaching the
                                  // loop entry.
 
@@ -7942,12 +7935,12 @@ void ValueNumbering::UpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const c
     fgCurMemoryVN = memVN;
     INDEBUG(TraceMem(fgCurMemoryVN, comment));
 
-    unsigned ssaNum = ssa.GetMemorySsaNum(node);
+    SsaMemDef* def = ssa.GetMemoryDef(node);
 
-    if (ssaNum != NoSsaNum)
+    if (def != nullptr)
     {
-        ssa.GetMemorySsaDef(ssaNum).vn = memVN;
-        JITDUMP("    Memory SSA def %u = " FMT_VN "\n", ssaNum, memVN);
+        def->vn = memVN;
+        JITDUMP("    Memory SSA def %u = " FMT_VN "\n", def->num, memVN);
     }
 }
 

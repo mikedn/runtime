@@ -121,122 +121,6 @@ struct VarScopeDsc
     INDEBUG(const char* vsdName;) // name of the var
 };
 
-// This class stores information associated with a LclVar SSA definition.
-class LclSsaVarDsc
-{
-    ValueNumPair m_vnp;
-
-public:
-    ValueNumPair GetVNP() const
-    {
-        return m_vnp;
-    }
-
-    void SetVNP(ValueNumPair vnp)
-    {
-        m_vnp = vnp;
-    }
-};
-
-// A resizable array of SSA definitions.
-//
-// Unlike an ordinary resizable array implementation, this allows only element
-// addition (by calling AllocSsaNum) and has special handling for RESERVED_SSA_NUM
-// (basically it's a 1-based array). The array doesn't impose any particular
-// requirements on the elements it stores and AllocSsaNum forwards its arguments
-// to the array element constructor, this way the array supports both LclSsaVarDsc
-// and SsaMemDef elements.
-//
-template <typename T>
-class SsaDefArray
-{
-    T*       m_array;
-    unsigned m_arraySize;
-    unsigned m_count;
-
-    static_assert_no_msg(SsaConfig::RESERVED_SSA_NUM == 0);
-    static_assert_no_msg(SsaConfig::FIRST_SSA_NUM == 1);
-
-    // Get the minimum valid SSA number.
-    unsigned GetMinSsaNum() const
-    {
-        return SsaConfig::FIRST_SSA_NUM;
-    }
-
-    // Increase (double) the size of the array.
-    void GrowArray(CompAllocator alloc)
-    {
-        unsigned oldSize = m_arraySize;
-        unsigned newSize = max(2, oldSize * 2);
-
-        T* newArray = alloc.allocate<T>(newSize);
-
-        for (unsigned i = 0; i < oldSize; i++)
-        {
-            newArray[i] = m_array[i];
-        }
-
-        m_array     = newArray;
-        m_arraySize = newSize;
-    }
-
-public:
-    // Construct an empty SsaDefArray.
-    SsaDefArray() : m_array(nullptr), m_arraySize(0), m_count(0)
-    {
-    }
-
-    // Reset the array (used only if the SSA form is reconstructed).
-    void Reset()
-    {
-        m_count = 0;
-    }
-
-    // Allocate a new SSA number (starting with SsaConfig::FIRST_SSA_NUM).
-    template <class... Args>
-    unsigned AllocSsaNum(CompAllocator alloc, Args&&... args)
-    {
-        if (m_count == m_arraySize)
-        {
-            GrowArray(alloc);
-        }
-
-        unsigned ssaNum    = GetMinSsaNum() + m_count;
-        m_array[m_count++] = T(std::forward<Args>(args)...);
-
-        // Ensure that the first SSA number we allocate is SsaConfig::FIRST_SSA_NUM
-        assert((ssaNum == SsaConfig::FIRST_SSA_NUM) || (m_count > 1));
-
-        return ssaNum;
-    }
-
-    // Get the number of SSA definitions in the array.
-    unsigned GetCount() const
-    {
-        return m_count;
-    }
-
-    // Get a pointer to the SSA definition at the specified index.
-    T* GetSsaDefByIndex(unsigned index) const
-    {
-        assert(index < m_count);
-        return &m_array[index];
-    }
-
-    // Check if the specified SSA number is valid.
-    bool IsValidSsaNum(unsigned ssaNum) const
-    {
-        return (GetMinSsaNum() <= ssaNum) && (ssaNum < (GetMinSsaNum() + m_count));
-    }
-
-    // Get a pointer to the SSA definition associated with the specified SSA number.
-    T* GetSsaDef(unsigned ssaNum) const
-    {
-        assert(ssaNum != SsaConfig::RESERVED_SSA_NUM);
-        return GetSsaDefByIndex(ssaNum - GetMinSsaNum());
-    }
-};
-
 enum RefCountState : uint8_t
 {
     RCS_INVALID, // not valid to get/set ref counts
@@ -820,7 +704,10 @@ public:
     Statement* lvDefStmt;   // Pointer to the statement with the single definition
 #endif
 private:
-    SsaDefArray<LclSsaVarDsc> m_ssaDefs;
+    unsigned m_dummy; // Keep the old LclVarDsc size (104 on x64), removing it results in a significant PIN regression
+                      // because both MSVC and Clang use a LEA/SHL sequence for the new size (96) instead of IMUL.
+                      // In theory LEA/SHL saves one cycle of latency but it's far from clear that the increase in code
+                      // size is worth it.
 
 public:
     var_types GetType() const
@@ -911,28 +798,6 @@ public:
     {
         assert(varTypeIsStruct(lvType));
         m_layout = layout;
-    }
-
-    unsigned AllocSsaNum(CompAllocator alloc)
-    {
-        assert(m_isSsa);
-        return m_ssaDefs.AllocSsaNum(alloc);
-    }
-
-    LclSsaVarDsc* GetPerSsaData(unsigned ssaNum)
-    {
-        return m_ssaDefs.GetSsaDef(ssaNum);
-    }
-
-    bool HasSingleSsaDef() const
-    {
-        return m_ssaDefs.GetCount() == 1;
-    }
-
-    void ClearSsa()
-    {
-        m_isSsa = false;
-        m_ssaDefs.Reset();
     }
 
     var_types GetRegisterType(const GenTreeLclVarCommon* tree) const;

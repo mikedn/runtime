@@ -44,19 +44,19 @@ public:
         Stack* m_listPrev;
         // The basic block (used only when popping blocks)
         BasicBlock* m_block;
-        // The actual information StackNode stores - the SSA number for memory or GenTreeLclDef* for locals.
+        // The actual information StackNode stores
         union {
-            unsigned       m_ssaNum;
-            GenTreeLclDef* m_def;
+            SsaMemDef*     m_memDef;
+            GenTreeLclDef* m_lclDef;
         };
 
-        StackNode(Stack* listPrev, BasicBlock* block, unsigned ssaNum)
-            : m_listPrev(listPrev), m_block(block), m_ssaNum(ssaNum)
+        StackNode(Stack* listPrev, BasicBlock* block, SsaMemDef* def)
+            : m_listPrev(listPrev), m_block(block), m_memDef(def)
         {
         }
 
         StackNode(Stack* listPrev, BasicBlock* block, GenTreeLclDef* def)
-            : m_listPrev(listPrev), m_block(block), m_def(def)
+            : m_listPrev(listPrev), m_block(block), m_lclDef(def)
         {
         }
     };
@@ -88,14 +88,14 @@ public:
     void PopBlockStacks(BasicBlock* block);
 
     // Similar functions for the special implicit memory variable.
-    unsigned TopMemory()
+    SsaMemDef* TopMemory()
     {
-        return m_memoryStack.Top()->m_ssaNum;
+        return m_memoryStack.Top()->m_memDef;
     }
 
-    void PushMemory(BasicBlock* block, unsigned ssaNum)
+    void PushMemory(BasicBlock* block, SsaMemDef* def)
     {
-        Push(&m_memoryStack, block, ssaNum);
+        Push(&m_memoryStack, block, def);
     }
 
 private:
@@ -119,8 +119,7 @@ private:
         return new (stack) StackNode(std::forward<Args>(args)...);
     }
 
-    // Push a SSA number onto a stack
-    void Push(Stack* stack, BasicBlock* block, unsigned ssaNum);
+    void Push(Stack* stack, BasicBlock* block, SsaMemDef* def);
     void Push(Stack* stack, BasicBlock* block, GenTreeLclDef* def);
 
     INDEBUG(void DumpStack(Stack* stack);)

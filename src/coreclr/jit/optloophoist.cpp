@@ -600,7 +600,7 @@ class LoopHoistTreeVisitor : public GenTreeVisitor<LoopHoistTreeVisitor>
 
         if (BasicBlock* loopEntryBlock = m_compiler->vnStore->GetLoopMemoryBlock(tree))
         {
-            ValueNum loopMemoryVN = ssa.GetMemorySsaDef(loopEntryBlock->memoryEntrySsaNum).vn;
+            ValueNum loopMemoryVN = loopEntryBlock->memoryEntryDef->vn;
 
             if (!m_loopHoist->IsLoopInvariant(loopMemoryVN, m_loopNum))
             {
