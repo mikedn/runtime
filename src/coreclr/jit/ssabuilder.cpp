@@ -950,9 +950,8 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
     // TODO-MIKE-Review: Looks like this misses HWINTRINSIC memory stores...
     if (!block->bbMemoryHavoc && m_compiler->ehBlockHasExnFlowDsc(block))
     {
-        SsaMemDef* def = ssa.AllocMemoryDef();
+        SsaMemDef* def = ssa.AllocNodeMemoryDef(asgNode);
         renameStack.PushMemory(block, def);
-        ssa.SetMemoryDef(asgNode, def);
 
         DBG_SSA_JITDUMP("Node [%06u] in try block defines memory; SSA #%u.\n", asgNode->GetID(), def->num);
 

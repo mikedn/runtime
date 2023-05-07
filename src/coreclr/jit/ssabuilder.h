@@ -41,10 +41,10 @@ using LoopDsc = Compiler::LoopDsc;
 struct SsaMemDef
 {
     ValueNum vn = NoVN;
-    INDEBUG(unsigned num = 1;)
+    INDEBUG(unsigned num = 0;)
 };
 
-using NodeMemDefMap = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, SsaMemDef*>;
+using NodeMemDefMap = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, SsaMemDef>;
 
 struct MemoryPhiArg
 {
@@ -141,16 +141,17 @@ public:
         return def;
     }
 
-    void SetMemoryDef(GenTree* node, SsaMemDef* def)
+    SsaMemDef* AllocNodeMemoryDef(GenTree* node)
     {
-        assert(def != nullptr);
-        memoryDefMap.Set(node, def);
+        SsaMemDef* def = memoryDefMap.Emplace(node);
+        assert(def->num == 0);
+        INDEBUG(def->num = ++memDefCount);
+        return def;
     }
 
     SsaMemDef* GetMemoryDef(GenTree* node) const
     {
-        SsaMemDef* def;
-        return memoryDefMap.Lookup(node, &def) ? def : nullptr;
+        return memoryDefMap.LookupPointer(node);
     }
 
     SsaMemDef* GetInitMemoryDef() const
