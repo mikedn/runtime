@@ -803,7 +803,7 @@ public:
     Statement* lvDefStmt;   // Pointer to the statement with the single definition
 #endif
 private:
-    SsaDefArray<unsigned> m_ssaDefs;
+    unsigned m_ssaDefCount;
 
 public:
     var_types GetType() const
@@ -896,21 +896,21 @@ public:
         m_layout = layout;
     }
 
-    unsigned AllocSsaNum(CompAllocator alloc)
+    void AddSsaDef()
     {
         assert(m_isSsa);
-        return m_ssaDefs.AllocSsaNum(alloc);
+        m_ssaDefCount++;
     }
 
     bool HasSingleSsaDef() const
     {
-        return m_ssaDefs.GetCount() == 1;
+        return m_ssaDefCount == 1;
     }
 
     void ClearSsa()
     {
-        m_isSsa = false;
-        m_ssaDefs.Reset();
+        m_isSsa       = false;
+        m_ssaDefCount = 0;
     }
 
     var_types GetRegisterType(const GenTreeLclVarCommon* tree) const;

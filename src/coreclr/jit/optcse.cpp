@@ -2235,7 +2235,7 @@ public:
         if (singleDefOccurence != nullptr)
         {
             lcl->m_isSsa = true;
-            lcl->AllocSsaNum(compiler->getAllocator(CMK_SSA));
+            lcl->AddSsaDef();
             singleDef =
                 new (compiler, GT_LCL_DEF) GenTreeLclDef(singleDefOccurence->expr, singleDefOccurence->block, lclNum);
         }

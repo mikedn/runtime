@@ -707,9 +707,7 @@ public:
 
             if (lcl->IsSsa() && VarSetOps::IsMember(compiler, firstBlock->bbLiveIn, lcl->GetLivenessBitIndex()))
             {
-                unsigned ssaNum = lcl->AllocSsaNum(alloc);
-                // HasImplicitSsaDef assumes that this is always the first SSA def.
-                assert(ssaNum == SsaConfig::FIRST_SSA_NUM);
+                lcl->AddSsaDef();
 
                 // TODO-MIKE-SSA: Having a SSA_UNDEF oper might be better than using a LCL_VAR
                 // as a fake def value. It saves a bit of memory by not allocating an extra
@@ -857,8 +855,8 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
                 lclNode->gtNext->gtPrev = lclNode->gtPrev;
             }
 
-            GenTree* value  = asgNode->GetOp(1);
-            unsigned ssaNum = lcl->AllocSsaNum(alloc);
+            GenTree* value = asgNode->GetOp(1);
+            lcl->AddSsaDef();
 
             if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
             {
@@ -970,10 +968,8 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 
 void SsaRenameDomTreeVisitor::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block)
 {
-    unsigned   lclNum = def->GetLclNum();
-    LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
-
-    lcl->AllocSsaNum(alloc);
+    unsigned lclNum = def->GetLclNum();
+    m_compiler->lvaGetDesc(lclNum)->AddSsaDef();
     renameStack.Push(block, lclNum, def);
 }
 
