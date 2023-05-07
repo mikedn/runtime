@@ -524,7 +524,7 @@ void SsaBuilder::InsertPhi(BasicBlock* block, unsigned lclNum)
     GenTreePhi* phi = new (compiler, GT_PHI) GenTreePhi(type);
     phi->SetCosts(0, 0);
 
-    GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(phi, block, lclNum, SsaConfig::RESERVED_SSA_NUM);
+    GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(phi, block, lclNum);
     def->gtFlags       = GTF_VAR_DEF | GTF_ASG;
     def->SetCosts(0, 0);
 
@@ -719,7 +719,7 @@ public:
                 // them specially (by basically ignoring them).
 
                 GenTreeLclVar* arg = compiler->gtNewLclvNode(lclNum, lcl->GetType());
-                GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lclNum, ssaNum);
+                GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lclNum);
 
                 renameStack.Push(firstBlock, lclNum, def);
 
@@ -820,7 +820,7 @@ void SsaRenameDomTreeVisitor::AddPhiArg(BasicBlock*    pred,
     }
 #endif // DEBUG
 
-    DBG_SSA_JITDUMP("Added PHI arg u:%d for V%02u from " FMT_BB " in " FMT_BB ".\n", def->GetSsaNum(), def->GetLclNum(),
+    DBG_SSA_JITDUMP("Added PHI arg for V%02u from [%06u] " FMT_BB " in " FMT_BB ".\n", def->GetLclNum(), def->GetID(),
                     pred->bbNum, block->bbNum);
 }
 
@@ -933,7 +933,6 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
             def->SetOper(GT_LCL_DEF);
             def->AsLclDef()->Init();
             def->AsLclDef()->SetLclNum(lclNum);
-            def->AsLclDef()->SetSsaNum(ssaNum);
             def->AsLclDef()->SetBlock(block);
             def->AsLclDef()->SetValue(value);
             def->SetType(lcl->lvNormalizeOnStore() ? varActualType(lcl->GetType()) : lcl->GetType());
@@ -974,7 +973,7 @@ void SsaRenameDomTreeVisitor::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block
     unsigned   lclNum = def->GetLclNum();
     LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
 
-    def->SetSsaNum(lcl->AllocSsaNum(alloc));
+    lcl->AllocSsaNum(alloc);
     renameStack.Push(block, lclNum, def);
 }
 
@@ -1057,8 +1056,8 @@ void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, GenTreeLclD
 
         if (VarSetOps::IsMember(m_compiler, handler->bbLiveIn, lclIndex))
         {
-            DBG_SSA_JITDUMP("Adding PHI arg for def V%02u#%u in block " FMT_BB " to exception handler" FMT_BB ".\n",
-                            def->GetLclNum(), def->GetSsaNum(), block->bbNum, handler->bbNum);
+            DBG_SSA_JITDUMP("Adding PHI arg for V%02u from [%06u] " FMT_BB " to exception handler" FMT_BB ".\n",
+                            def->GetLclNum(), def->GetID(), block->bbNum, handler->bbNum);
 
             INDEBUG(bool phiFound = false);
 

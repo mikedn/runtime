@@ -3225,22 +3225,18 @@ struct GenTreeLclDef final : public GenTreeUnOp
 
 private:
     unsigned       m_lclNum;
-    unsigned       m_ssaNum;
     BasicBlock*    m_block;
     GenTreeLclUse* m_uses = nullptr;
 
 public:
-    GenTreeLclDef(GenTree* value, BasicBlock* block, unsigned lclNum, unsigned ssaNum)
-        : GenTreeUnOp(GT_LCL_DEF, value->GetType(), value), m_lclNum(lclNum), m_ssaNum(ssaNum), m_block(block)
+    GenTreeLclDef(GenTree* value, BasicBlock* block, unsigned lclNum)
+        : GenTreeUnOp(GT_LCL_DEF, value->GetType(), value), m_lclNum(lclNum), m_block(block)
     {
         gtFlags |= GTF_ASG;
     }
 
     GenTreeLclDef(const GenTreeLclDef* copyFrom)
-        : GenTreeUnOp(GT_LCL_DEF, copyFrom->GetType(), copyFrom->gtOp1)
-        , m_lclNum(copyFrom->m_lclNum)
-        , m_ssaNum(copyFrom->m_ssaNum)
-        , m_block(nullptr)
+        : GenTreeUnOp(GT_LCL_DEF, copyFrom->GetType(), copyFrom->gtOp1), m_lclNum(copyFrom->m_lclNum), m_block(nullptr)
     {
         // TODO-MIKE-Consider: Maybe this should just assert. SSA defs can't really
         // be cloned, at least not with the simplistic CloneExpr mechanism. Existing
@@ -3262,17 +3258,6 @@ public:
         assert(lclNum != BAD_VAR_NUM);
 
         m_lclNum = lclNum;
-        m_ssaNum = NoSsaNum;
-    }
-
-    unsigned GetSsaNum() const
-    {
-        return m_ssaNum;
-    }
-
-    void SetSsaNum(unsigned ssaNum)
-    {
-        m_ssaNum = ssaNum;
     }
 
     GenTree* GetValue() const

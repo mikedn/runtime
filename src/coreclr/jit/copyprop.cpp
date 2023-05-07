@@ -111,7 +111,7 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
         {
             if (GenTreeLclDef* def = pair.value.Top()->m_def)
             {
-                printf("%sV%02u#%u " FMT_VN, prefix, pair.key, def->GetSsaNum(), def->GetConservativeVN());
+                printf("%sV%02u [%06u] " FMT_VN, prefix, pair.key, def->GetID(), def->GetConservativeVN());
                 prefix = ", ";
             }
         }
@@ -325,8 +325,8 @@ public:
                 continue;
             }
 
-            JITDUMP("[%06u] replacing V%02u#%u by V%02u#%u\n", use->GetID(), use->GetDef()->GetLclNum(),
-                    use->GetDef()->GetSsaNum(), newLclNum, newDef->GetSsaNum());
+            JITDUMP("[%06u] replacing V%02u def [%06u] by V%02u def [%06u]\n", use->GetID(), use->GetDef()->GetLclNum(),
+                    use->GetDef()->GetID(), newLclNum, newDef->GetID());
 
             use->GetDef()->RemoveUse(use);
             newDef->AddUse(use);

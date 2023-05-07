@@ -4886,7 +4886,6 @@ void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
         }
     }
 
-    lcl->GetPerSsaData(def->GetSsaNum())->SetVNP(valueVNP);
     def->SetVNP(valueVNP);
 
     INDEBUG(TraceLocal(def->GetLclNum(), valueVNP));
@@ -4921,7 +4920,6 @@ void ValueNumbering::NumberLclUse(GenTreeLclUse* use)
     ValueNumPair   vnp = def->GetVNP();
 
     assert(vnp.GetLiberal() != NoVN);
-    assert(vnp == lcl->GetPerSsaData(def->GetSsaNum())->GetVNP());
 
     unsigned valSize = varTypeSize(varActualType(use->GetType()));
     unsigned lclSize = varTypeSize(varActualType(lcl->GetType()));
@@ -7338,8 +7336,6 @@ void ValueNumbering::Run()
         var_types  type     = lcl->GetType();
         bool       isZeroed = false;
 
-        assert(def->GetSsaNum() == SsaConfig::FIRST_SSA_NUM);
-
         if (!lcl->IsParam())
         {
             isZeroed = (compiler->info.compInitMem || lcl->lvMustInit);
@@ -7370,10 +7366,7 @@ void ValueNumbering::Run()
         }
 
         ValueNum initVN = isZeroed ? vnStore->VNZeroForType(type) : vnStore->VNForExpr(compiler->fgFirstBB, type);
-
-        lcl->GetPerSsaData(SsaConfig::FIRST_SSA_NUM)->SetVNP(ValueNumPair{initVN});
         def->SetVNP(ValueNumPair{initVN});
-
         INDEBUG(TraceLocal(lclNum, def->GetVNP()));
     }
 
@@ -7585,7 +7578,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
         def->SetVNP(phiDefVNP);
         phi->SetVNP(phiDefVNP);
-        lvaGetDesc(def->GetLclNum())->GetPerSsaData(def->GetSsaNum())->SetVNP(phiDefVNP);
+
         INDEBUG(TraceLocal(def->GetLclNum(), phiDefVNP));
     }
 

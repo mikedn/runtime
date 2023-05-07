@@ -121,23 +121,6 @@ struct VarScopeDsc
     INDEBUG(const char* vsdName;) // name of the var
 };
 
-// This class stores information associated with a LclVar SSA definition.
-class LclSsaVarDsc
-{
-    ValueNumPair m_vnp;
-
-public:
-    ValueNumPair GetVNP() const
-    {
-        return m_vnp;
-    }
-
-    void SetVNP(ValueNumPair vnp)
-    {
-        m_vnp = vnp;
-    }
-};
-
 // A resizable array of SSA definitions.
 //
 // Unlike an ordinary resizable array implementation, this allows only element
@@ -820,7 +803,7 @@ public:
     Statement* lvDefStmt;   // Pointer to the statement with the single definition
 #endif
 private:
-    SsaDefArray<LclSsaVarDsc> m_ssaDefs;
+    SsaDefArray<unsigned> m_ssaDefs;
 
 public:
     var_types GetType() const
@@ -917,11 +900,6 @@ public:
     {
         assert(m_isSsa);
         return m_ssaDefs.AllocSsaNum(alloc);
-    }
-
-    LclSsaVarDsc* GetPerSsaData(unsigned ssaNum)
-    {
-        return m_ssaDefs.GetSsaDef(ssaNum);
     }
 
     bool HasSingleSsaDef() const
