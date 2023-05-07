@@ -2332,16 +2332,16 @@ TailCall:
             // We need to be careful about breaking infinite recursion.  Record the outer map.
             m_fixedPointMapSels.Push(mapVN);
 
-            unsigned phiArgSsaNum = ConstantValue<unsigned>(funcApp[0]);
+            void*    phiArg = ConstantHostPtr<void*>(funcApp[0]);
             ValueNum phiArgVN;
 
             if (lcl != nullptr)
             {
-                phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->GetVNP().Get(vnk);
+                phiArgVN = static_cast<GenTreeLclDef*>(phiArg)->GetVN(vnk);
             }
             else if (vnk == VNK_Liberal)
             {
-                phiArgVN = ssa.GetMemorySsaDef(phiArgSsaNum).vn;
+                phiArgVN = ssa.GetMemorySsaDef(static_cast<MemoryPhiArg*>(phiArg)->m_ssaNum).vn;
             }
             else
             {
@@ -2373,15 +2373,15 @@ TailCall:
                         argRest = NoVN; // Cause the loop to terminate.
                     }
 
-                    phiArgSsaNum = ConstantValue<unsigned>(cur);
+                    phiArg = ConstantHostPtr<void*>(cur);
 
                     if (lcl != nullptr)
                     {
-                        phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->GetVNP().Get(vnk);
+                        phiArgVN = static_cast<GenTreeLclDef*>(phiArg)->GetVN(vnk);
                     }
                     else if (vnk == VNK_Liberal)
                     {
-                        phiArgVN = ssa.GetMemorySsaDef(phiArgSsaNum).vn;
+                        phiArgVN = ssa.GetMemorySsaDef(static_cast<MemoryPhiArg*>(phiArg)->m_ssaNum).vn;
                     }
                     else
                     {
@@ -7534,7 +7534,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
             phiArg->SetVNP(phiArgVNP);
 
-            ValueNum phiArgSsaNumVN = vnStore->VNForIntCon(argDef->GetSsaNum());
+            ValueNum phiArgSsaNumVN = vnStore->VNForHostPtr(argDef);
 
             if (phiVNP.GetLiberal() == NoVN)
             {
@@ -7612,7 +7612,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
             ValueNum sameMemoryVN = ssa.GetMemorySsaDef(phiArgs->GetSsaNum()).vn;
             INDEBUG(TraceMem(sameMemoryVN, "predecessor memory"));
 
-            ValueNum phiVN = vnStore->VNForIntCon(phiArgs->GetSsaNum());
+            ValueNum phiVN = vnStore->VNForHostPtr(phiArgs);
             phiArgs        = phiArgs->m_nextArg;
             // There should be > 1 args to a phi.
             // But OSR might leave around "dead" try entry blocks...
@@ -7627,7 +7627,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
                     sameMemoryVN = NoVN;
                 }
 
-                phiVN = vnStore->VNForFunc(TYP_STRUCT, VNF_Phi, vnStore->VNForIntCon(phiArgs->GetSsaNum()), phiVN);
+                phiVN = vnStore->VNForFunc(TYP_STRUCT, VNF_Phi, vnStore->VNForHostPtr(phiArgs), phiVN);
                 INDEBUG(vnStore->Trace(phiVN));
             }
 
