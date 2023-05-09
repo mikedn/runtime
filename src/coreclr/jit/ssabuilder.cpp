@@ -142,6 +142,19 @@ bool SsaBuilder::IncludeInSsa(unsigned lclNum)
 
     if (!lcl->HasLiveness())
     {
+        if (lcl->IsIndependentPromoted() && !lcl->IsParam() && !lcl->lvIsMultiRegRet)
+        {
+            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+            {
+                LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+
+                fieldLcl->lvIsStructField  = false;
+                fieldLcl->lvWasStructField = true;
+            }
+
+            lcl->lvPromoted = false;
+        }
+
         return false;
     }
 

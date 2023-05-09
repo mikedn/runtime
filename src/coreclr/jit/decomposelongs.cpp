@@ -2063,12 +2063,8 @@ void DecomposeLongs::PromoteLongVars()
     {
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
 
-        if (!varDsc->TypeIs(TYP_LONG))
-        {
-            continue;
-        }
-
-        if ((varDsc->lvRefCnt() == 0) || varDsc->lvDoNotEnregister || varDsc->IsPromotedField())
+        if (!varDsc->TypeIs(TYP_LONG) || (varDsc->lvRefCnt() == 0) || varDsc->lvDoNotEnregister ||
+            varDsc->IsPromotedField() || varDsc->lvWasStructField)
         {
             continue;
         }
