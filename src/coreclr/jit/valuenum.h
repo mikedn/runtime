@@ -359,6 +359,8 @@ class ValueNumStore
         Count
     };
 
+    static constexpr unsigned MaxFuncArity = 4;
+
     struct Chunk
     {
         void*     m_defs  = nullptr;
@@ -427,11 +429,18 @@ class ValueNumStore
     // This is a map from "chunk number" to the attributes of the chunk.
     ArrayStack<Chunk*, 8> m_chunks;
     // These entries indicate the current allocation chunk, if any, for each valid combination of <var_types,
-    // ChunkExtraAttribute>.
+    // ChunkKind>.
     // If the value is NoChunk, it indicates that there is no current allocation chunk for that pair, otherwise
     // it is the index in "m_chunks" of a chunk with the given attributes, in which the next allocation should
     // be attempted.
-    ChunkNum m_curAllocChunk[TYP_COUNT][static_cast<unsigned>(ChunkKind::Count)];
+    ChunkNum m_currentInt32ConstChunk  = NoChunk;
+    ChunkNum m_currentInt64ConstChunk  = NoChunk;
+    ChunkNum m_currentFloatConstChunk  = NoChunk;
+    ChunkNum m_currentDoubleConstChunk = NoChunk;
+    ChunkNum m_currentByrefConstChunk  = NoChunk;
+    ChunkNum m_currentHandleChunk      = NoChunk;
+    ChunkNum m_currentNotAFieldChunk   = NoChunk;
+    ChunkNum m_currentFuncChunk[MaxFuncArity + 1][TYP_COUNT];
 
     ValueNum     m_zeroMap           = NoVN;
     ValueNum     m_readOnlyMemoryMap = NoVN;
@@ -553,7 +562,7 @@ private:
     ValueNum EvalUsingMathIdentity(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
 
     template <typename T, typename NumMap>
-    inline ValueNum VnForConst(T cnsVal, NumMap* numMap, var_types varType);
+    inline ValueNum VnForConst(T cnsVal, NumMap* numMap, var_types varType, ChunkNum& currentChunk);
 
 public:
     ValueNumStore(SsaOptimizer& ssa);
@@ -1079,6 +1088,7 @@ private:
 
     // Returns a (pointer to a) chunk in which a new value number may be allocated.
     Chunk* GetAllocChunk(var_types type, ChunkKind kind);
+    Chunk* GetAllocChunk(var_types type, ChunkKind kind, ChunkNum& current);
 
     static bool IsSmallIntConst(int i)
     {

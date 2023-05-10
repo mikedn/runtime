@@ -571,11 +571,11 @@ ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
     , m_vnNameMap(compiler->getAllocator(CMK_DebugOnly))
 #endif
 {
-    for (unsigned i = 0; i < _countof(m_curAllocChunk); i++)
+    for (unsigned i = 0; i < _countof(m_currentFuncChunk); i++)
     {
-        for (unsigned j = 0; j <= _countof(m_curAllocChunk[i]); j++)
+        for (unsigned j = 0; j <= _countof(m_currentFuncChunk[i]); j++)
         {
-            m_curAllocChunk[i][j] = NoChunk;
+            m_currentFuncChunk[i][j] = NoChunk;
         }
     }
 
@@ -1650,20 +1650,27 @@ ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_type
 
 ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types type, ChunkKind kind)
 {
+    unsigned arity = static_cast<unsigned>(kind) - static_cast<unsigned>(ChunkKind::Func0);
+    assert(arity <= _countof(m_currentFuncChunk));
+    assert(type <= _countof(m_currentFuncChunk[arity]));
+    return GetAllocChunk(type, kind, m_currentFuncChunk[arity][type]);
+}
+
+ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types type, ChunkKind kind, ChunkNum& current)
+{
     assert(kind != ChunkKind::Count);
 
-    ChunkNum cn = m_curAllocChunk[type][static_cast<unsigned>(kind)];
-    if (cn != NoChunk)
+    if (current != NoChunk)
     {
-        Chunk* chunk = m_chunks.Get(cn);
+        Chunk* chunk = m_chunks.Get(current);
         if (chunk->m_count < ChunkSize)
         {
             return chunk;
         }
     }
 
-    Chunk* chunk                                       = new (alloc) Chunk(alloc, &m_nextChunkBase, type, kind);
-    m_curAllocChunk[type][static_cast<unsigned>(kind)] = m_chunks.Size();
+    Chunk* chunk = new (alloc) Chunk(alloc, &m_nextChunkBase, type, kind);
+    current      = m_chunks.Size();
     m_chunks.Push(chunk);
     return chunk;
 }
@@ -1682,20 +1689,20 @@ ValueNum ValueNumStore::VNForHandle(ssize_t value, GenTreeFlags handleKind)
 
     if (*vn == NoVN)
     {
-        *vn = GetAllocChunk(TYP_I_IMPL, ChunkKind::Handle)->AllocVN(handle);
+        *vn = GetAllocChunk(TYP_I_IMPL, ChunkKind::Handle, m_currentHandleChunk)->AllocVN(handle);
     }
 
     return *vn;
 }
 
 template <typename T, typename NumMap>
-ValueNum ValueNumStore::VnForConst(T cnsVal, NumMap* numMap, var_types varType)
+ValueNum ValueNumStore::VnForConst(T cnsVal, NumMap* numMap, var_types varType, ChunkNum& currentChunk)
 {
     ValueNum* vn = numMap->Emplace(cnsVal, NoVN);
 
     if (*vn == NoVN)
     {
-        *vn = GetAllocChunk(varType, ChunkKind::Const)->AllocVN<T>(cnsVal);
+        *vn = GetAllocChunk(varType, ChunkKind::Const, currentChunk)->AllocVN<T>(cnsVal);
     }
 
     return *vn;
@@ -1709,7 +1716,8 @@ ValueNum ValueNumStore::VNForIntCon(int32_t value)
 
         if (m_smallInt32VNMap[index] == NoVN)
         {
-            m_smallInt32VNMap[index] = GetAllocChunk(TYP_INT, ChunkKind::Const)->AllocVN<int32_t>(value);
+            m_smallInt32VNMap[index] =
+                GetAllocChunk(TYP_INT, ChunkKind::Const, m_currentInt32ConstChunk)->AllocVN<int32_t>(value);
         }
 
         return m_smallInt32VNMap[index];
@@ -1720,7 +1728,7 @@ ValueNum ValueNumStore::VNForIntCon(int32_t value)
         m_int32VNMap = new (alloc) Int32VNMap(alloc);
     }
 
-    return VnForConst<int32_t, Int32VNMap>(value, m_int32VNMap, TYP_INT);
+    return VnForConst<int32_t, Int32VNMap>(value, m_int32VNMap, TYP_INT, m_currentInt32ConstChunk);
 }
 
 ValueNum ValueNumStore::VNForLongCon(int64_t value)
@@ -1730,7 +1738,7 @@ ValueNum ValueNumStore::VNForLongCon(int64_t value)
         m_int64VNMap = new (alloc) Int64VNMap(alloc);
     }
 
-    return VnForConst<int64_t, Int64VNMap>(value, m_int64VNMap, TYP_LONG);
+    return VnForConst<int64_t, Int64VNMap>(value, m_int64VNMap, TYP_LONG, m_currentInt64ConstChunk);
 }
 
 ValueNum ValueNumStore::VNForFloatCon(float value)
@@ -1740,7 +1748,8 @@ ValueNum ValueNumStore::VNForFloatCon(float value)
         m_floatVNMap = new (alloc) Int32VNMap(alloc);
     }
 
-    return VnForConst<int32_t, Int32VNMap>(jitstd::bit_cast<int32_t>(value), m_floatVNMap, TYP_FLOAT);
+    int32_t bits = jitstd::bit_cast<int32_t>(value);
+    return VnForConst<int32_t, Int32VNMap>(bits, m_floatVNMap, TYP_FLOAT, m_currentFloatConstChunk);
 }
 
 ValueNum ValueNumStore::VNForDoubleCon(double value)
@@ -1750,7 +1759,8 @@ ValueNum ValueNumStore::VNForDoubleCon(double value)
         m_doubleVNMap = new (alloc) Int64VNMap(alloc);
     }
 
-    return VnForConst<int64_t, Int64VNMap>(jitstd::bit_cast<int64_t>(value), m_doubleVNMap, TYP_DOUBLE);
+    int64_t bits = jitstd::bit_cast<int64_t>(value);
+    return VnForConst<int64_t, Int64VNMap>(bits, m_doubleVNMap, TYP_DOUBLE, m_currentDoubleConstChunk);
 }
 
 ValueNum ValueNumStore::VNForDblCon(var_types type, double value)
@@ -1773,7 +1783,7 @@ ValueNum ValueNumStore::VNForByrefCon(target_size_t value)
         m_byrefVNMap = new (alloc) ByrefVNMap(alloc);
     }
 
-    return VnForConst<target_size_t, ByrefVNMap>(value, m_byrefVNMap, TYP_BYREF);
+    return VnForConst<target_size_t, ByrefVNMap>(value, m_byrefVNMap, TYP_BYREF, m_currentByrefConstChunk);
 }
 
 ValueNum ValueNumStore::VNForBitCastOper(var_types castToType)
@@ -3706,7 +3716,7 @@ ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
     if (fieldSeq == FieldSeqStore::NotAField())
     {
         // We always allocate a new, unique VN so that "Not a field" addresses are distinct.
-        return GetAllocChunk(TYP_I_IMPL, ChunkKind::NotAField)->AllocVN();
+        return GetAllocChunk(TYP_I_IMPL, ChunkKind::NotAField, m_currentNotAFieldChunk)->AllocVN();
     }
 
     ValueNum fieldSeqVN = VNForFunc(TYP_I_IMPL, VNF_FieldSeq, VNForHostPtr(fieldSeq));
