@@ -571,14 +571,6 @@ ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
     , m_vnNameMap(compiler->getAllocator(CMK_DebugOnly))
 #endif
 {
-    for (unsigned i = 0; i < _countof(m_currentFuncChunk); i++)
-    {
-        for (unsigned j = 0; j <= _countof(m_currentFuncChunk[i]); j++)
-        {
-            m_currentFuncChunk[i][j] = NoChunk;
-        }
-    }
-
     for (unsigned i = 0; i < _countof(m_smallInt32VNMap); i++)
     {
         m_smallInt32VNMap[i] = NoVN;
@@ -1656,11 +1648,12 @@ ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types type, ChunkKind kin
     return GetAllocChunk(type, kind, m_currentFuncChunk[arity][type]);
 }
 
-ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types type, ChunkKind kind, ChunkNum& current)
+ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types type, ChunkKind kind, unsigned& current)
 {
     assert(kind != ChunkKind::Count);
+    assert(m_chunks.Size() != 0); // The special chunk is always allocated before normal chunks.
 
-    if (current != NoChunk)
+    if (current != 0)
     {
         Chunk* chunk = m_chunks.Get(current);
         if (chunk->m_count < ChunkSize)
@@ -1696,7 +1689,7 @@ ValueNum ValueNumStore::VNForHandle(ssize_t value, GenTreeFlags handleKind)
 }
 
 template <typename T, typename NumMap>
-ValueNum ValueNumStore::VnForConst(T cnsVal, NumMap* numMap, var_types varType, ChunkNum& currentChunk)
+ValueNum ValueNumStore::VnForConst(T cnsVal, NumMap* numMap, var_types varType, unsigned& currentChunk)
 {
     ValueNum* vn = numMap->Emplace(cnsVal, NoVN);
 

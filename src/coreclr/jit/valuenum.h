@@ -298,10 +298,6 @@ class ValueNumStore
 
     using CheckedBoundVNSet = SmallHashTable<ValueNum, bool, 8U>;
 
-    // A "ChunkNum" is a zero-based index naming a chunk in the Store, or else the special "NoChunk" value.
-    using ChunkNum                    = unsigned;
-    static constexpr ChunkNum NoChunk = UINT_MAX;
-
     // Convert a vartype_t to the value number's storage type for that vartype_t.
     // For example, ValueNum of type TYP_LONG are stored in a map of int64_t variables.
     // Lang is the language (C++) type for the corresponding vartype_t.
@@ -433,14 +429,14 @@ class ValueNumStore
     // If the value is NoChunk, it indicates that there is no current allocation chunk for that pair, otherwise
     // it is the index in "m_chunks" of a chunk with the given attributes, in which the next allocation should
     // be attempted.
-    ChunkNum m_currentInt32ConstChunk  = NoChunk;
-    ChunkNum m_currentInt64ConstChunk  = NoChunk;
-    ChunkNum m_currentFloatConstChunk  = NoChunk;
-    ChunkNum m_currentDoubleConstChunk = NoChunk;
-    ChunkNum m_currentByrefConstChunk  = NoChunk;
-    ChunkNum m_currentHandleChunk      = NoChunk;
-    ChunkNum m_currentNotAFieldChunk   = NoChunk;
-    ChunkNum m_currentFuncChunk[MaxFuncArity + 1][TYP_COUNT];
+    unsigned m_currentInt32ConstChunk  = 0;
+    unsigned m_currentInt64ConstChunk  = 0;
+    unsigned m_currentFloatConstChunk  = 0;
+    unsigned m_currentDoubleConstChunk = 0;
+    unsigned m_currentByrefConstChunk  = 0;
+    unsigned m_currentHandleChunk      = 0;
+    unsigned m_currentNotAFieldChunk   = 0;
+    unsigned m_currentFuncChunk[MaxFuncArity + 1][TYP_COUNT]{};
 
     ValueNum     m_zeroMap           = NoVN;
     ValueNum     m_readOnlyMemoryMap = NoVN;
@@ -562,7 +558,7 @@ private:
     ValueNum EvalUsingMathIdentity(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
 
     template <typename T, typename NumMap>
-    inline ValueNum VnForConst(T cnsVal, NumMap* numMap, var_types varType, ChunkNum& currentChunk);
+    inline ValueNum VnForConst(T cnsVal, NumMap* numMap, var_types varType, unsigned& currentChunk);
 
 public:
     ValueNumStore(SsaOptimizer& ssa);
@@ -1075,7 +1071,7 @@ private:
 
     // Returns the ChunkNum of the Chunk that holds "vn" (which is required to be a valid
     // value number, i.e., one returned by some VN-producing method of this class).
-    static ChunkNum GetChunkNum(ValueNum vn)
+    static unsigned GetChunkNum(ValueNum vn)
     {
         return vn >> LogChunkSize;
     }
@@ -1088,7 +1084,7 @@ private:
 
     // Returns a (pointer to a) chunk in which a new value number may be allocated.
     Chunk* GetAllocChunk(var_types type, ChunkKind kind);
-    Chunk* GetAllocChunk(var_types type, ChunkKind kind, ChunkNum& current);
+    Chunk* GetAllocChunk(var_types type, ChunkKind kind, unsigned& current);
 
     static bool IsSmallIntConst(int i)
     {
