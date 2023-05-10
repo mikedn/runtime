@@ -346,7 +346,7 @@ class ValueNumStore
         typedef class Object* Lang;
     };
 
-    enum ChunkExtraAttribs : BYTE
+    enum ChunkExtraAttribs : uint8_t
     {
         CEA_Const,     // This chunk contains constant values.
         CEA_Handle,    // This chunk contains handle constants.
@@ -366,8 +366,8 @@ class ValueNumStore
         // If "m_defs" is non-null, it is an array of size ChunkSize, whose element type is determined by the other
         // members. The "m_numUsed" field indicates the number of elements of "m_defs" that are already consumed (the
         // next one to allocate).
-        void*    m_defs;
-        unsigned m_numUsed;
+        void*    m_defs    = nullptr;
+        unsigned m_numUsed = 0;
 
         // The value number of the first VN in the chunk.
         ValueNum m_baseVN;
@@ -385,7 +385,16 @@ class ValueNumStore
         unsigned AllocVN()
         {
             assert(m_numUsed < ChunkSize);
-            return m_numUsed++;
+            return m_baseVN + m_numUsed++;
+        }
+
+        template <typename T>
+        unsigned AllocVN(const T& value)
+        {
+            assert(m_numUsed < ChunkSize);
+            unsigned index                 = m_numUsed++;
+            static_cast<T*>(m_defs)[index] = value;
+            return m_baseVN + index;
         }
 
         template <int N>

@@ -1586,7 +1586,7 @@ ValueNumPair ValueNumStore::VNPWithExc(ValueNumPair vnp, ValueNumPair excSetVNP)
 }
 
 ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_types typ, ChunkExtraAttribs attribs)
-    : m_defs(nullptr), m_numUsed(0), m_baseVN(*pNextBaseVN), m_typ(typ), m_attribs(attribs)
+    : m_baseVN(*pNextBaseVN), m_typ(typ), m_attribs(attribs)
 {
     // The "values" of special ref consts will be all be "null" -- their differing meanings will
     // be carried by the distinct value numbers.
@@ -1679,55 +1679,42 @@ ValueNum ValueNumStore::VNForHandle(ssize_t value, GenTreeFlags handleKind)
         m_handleMap = new (alloc) HandleVNMap(alloc);
     }
 
-    VNHandle handle(value, handleKind);
-    ValueNum vn;
+    VNHandle  handle(value, handleKind);
+    ValueNum* vn = m_handleMap->Emplace(handle, NoVN);
 
-    if (!m_handleMap->Lookup(handle, &vn))
+    if (*vn == NoVN)
     {
-        Chunk*   chunk                               = GetAllocChunk(TYP_I_IMPL, CEA_Handle);
-        unsigned index                               = chunk->AllocVN();
-        vn                                           = chunk->m_baseVN + index;
-        static_cast<VNHandle*>(chunk->m_defs)[index] = handle;
-        m_handleMap->Set(handle, vn);
+        *vn = GetAllocChunk(TYP_I_IMPL, CEA_Handle)->AllocVN(handle);
     }
 
-    return vn;
+    return *vn;
 }
 
 template <typename T, typename NumMap>
 ValueNum ValueNumStore::VnForConst(T cnsVal, NumMap* numMap, var_types varType)
 {
-    ValueNum vn;
+    ValueNum* vn = numMap->Emplace(cnsVal, NoVN);
 
-    if (!numMap->Lookup(cnsVal, &vn))
+    if (*vn == NoVN)
     {
-        Chunk*   chunk                        = GetAllocChunk(varType, CEA_Const);
-        unsigned index                        = chunk->AllocVN();
-        vn                                    = chunk->m_baseVN + index;
-        static_cast<T*>(chunk->m_defs)[index] = cnsVal;
-        numMap->Set(cnsVal, vn);
+        *vn = GetAllocChunk(varType, CEA_Const)->AllocVN<T>(cnsVal);
     }
 
-    return vn;
+    return *vn;
 }
 
 ValueNum ValueNumStore::VNForIntCon(int32_t value)
 {
     if (IsSmallIntConst(value))
     {
-        unsigned ind = value - SmallIntConstMin;
-        ValueNum vn  = m_smallInt32VNMap[ind];
+        unsigned index = value - SmallIntConstMin;
 
-        if (vn == NoVN)
+        if (m_smallInt32VNMap[index] == NoVN)
         {
-            Chunk*   chunk                              = GetAllocChunk(TYP_INT, CEA_Const);
-            unsigned index                              = chunk->AllocVN();
-            vn                                          = chunk->m_baseVN + index;
-            static_cast<int32_t*>(chunk->m_defs)[index] = value;
-            m_smallInt32VNMap[ind]                      = vn;
+            m_smallInt32VNMap[index] = GetAllocChunk(TYP_INT, CEA_Const)->AllocVN<int32_t>(value);
         }
 
-        return vn;
+        return m_smallInt32VNMap[index];
     }
 
     if (m_int32VNMap == nullptr)
@@ -1929,10 +1916,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func)
 
     if (*vn == NoVN)
     {
-        Chunk*   chunk                             = GetAllocChunk(type, CEA_Func0);
-        unsigned index                             = chunk->AllocVN();
-        *vn                                        = chunk->m_baseVN + index;
-        static_cast<VNFunc*>(chunk->m_defs)[index] = func;
+        *vn = GetAllocChunk(type, CEA_Func0)->AllocVN(func);
     }
 
     return *vn;
@@ -1958,10 +1942,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
 
     if (*vn == NoVN)
     {
-        Chunk*   chunk                                    = GetAllocChunk(type, CEA_Func1);
-        unsigned index                                    = chunk->AllocVN();
-        *vn                                               = chunk->m_baseVN + index;
-        static_cast<VNDefFunc1Arg*>(chunk->m_defs)[index] = func1;
+        *vn = GetAllocChunk(type, CEA_Func1)->AllocVN(func1);
     }
 
     return *vn;
@@ -2062,10 +2043,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
 
         if ((vn == NoVN) || (TypeOfVN(vn) != type))
         {
-            Chunk*   chunk                                    = GetAllocChunk(type, CEA_Func2);
-            unsigned index                                    = chunk->AllocVN();
-            vn                                                = chunk->m_baseVN + index;
-            static_cast<VNDefFunc2Arg*>(chunk->m_defs)[index] = func2;
+            vn = GetAllocChunk(type, CEA_Func2)->AllocVN(func2);
             m_func2VNMap->Set(func2, vn);
         }
     }
@@ -2091,10 +2069,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
 
     if (*vn == NoVN)
     {
-        Chunk*   chunk                                    = GetAllocChunk(type, CEA_Func3);
-        unsigned index                                    = chunk->AllocVN();
-        *vn                                               = chunk->m_baseVN + index;
-        static_cast<VNDefFunc3Arg*>(chunk->m_defs)[index] = func3;
+        *vn = GetAllocChunk(type, CEA_Func3)->AllocVN(func3);
     }
 
     return *vn;
@@ -2120,10 +2095,7 @@ ValueNum ValueNumStore::VNForFunc(
 
     if (*vn == NoVN)
     {
-        Chunk*   chunk                                    = GetAllocChunk(type, CEA_Func4);
-        unsigned index                                    = chunk->AllocVN();
-        *vn                                               = chunk->m_baseVN + index;
-        static_cast<VNDefFunc4Arg*>(chunk->m_defs)[index] = func4;
+        *vn = GetAllocChunk(type, CEA_Func4)->AllocVN(func4);
     }
 
     return *vn;
@@ -2197,10 +2169,6 @@ TailCall:
 #ifdef DEBUG
     // Provide a mechanism for writing tests that ensure we don't call this ridiculously often.
     m_numMapSels++;
-#if 1
-// This printing is sometimes useful in debugging.
-// if ((m_numMapSels % 1000) == 0) printf("%d VNF_MapSelect applications.\n", m_numMapSels);
-#endif
     unsigned selLim = JitConfig.JitVNMapSelLimit();
     assert(selLim == 0 || m_numMapSels < selLim);
 #endif
@@ -2211,15 +2179,14 @@ TailCall:
     }
 
     VNDefFunc2Arg fstruct(VNF_MapSelect, mapVN, indexVN);
-    ValueNum      res;
 
     if (m_func2VNMap == nullptr)
     {
         m_func2VNMap = new (alloc) Func2VNMap(alloc);
     }
-    else if (m_func2VNMap->Lookup(fstruct, &res))
+    else if (ValueNum* cached = m_func2VNMap->LookupPointer(fstruct))
     {
-        return res;
+        return *cached;
     }
 
     // Give up if we've run out of budget.
@@ -2230,9 +2197,9 @@ TailCall:
         // the IR may "evaluate" to this same VNForExpr, so it is not "unique" in the sense
         // that permits the BasicBlock attribution.
         // TODO-MIKE-Review: This should probably be MapSelect from the current map.
-        res = VNForExpr(nullptr, typ);
-        m_func2VNMap->Set(fstruct, res);
-        return res;
+        ValueNum uniqueVN = VNForExpr(nullptr, typ);
+        m_func2VNMap->Set(fstruct, uniqueVN);
+        return uniqueVN;
     }
 
     // Reduce our budget by one
@@ -2387,17 +2354,15 @@ TailCall:
         assert((func == VNF_MemOpaque) || (func == VNF_MapSelect) || varTypeIsSIMD(TypeOfVN(mapVN)));
     }
 
+    ValueNum* vn = m_func2VNMap->Emplace(fstruct, NoVN);
+
     // We may have run out of budget and already assigned a result
-    if (!m_func2VNMap->Lookup(fstruct, &res))
+    if (*vn == NoVN)
     {
-        Chunk*   c                                                = GetAllocChunk(typ, CEA_Func2);
-        unsigned offsetWithinChunk                                = c->AllocVN();
-        res                                                       = c->m_baseVN + offsetWithinChunk;
-        static_cast<VNDefFunc2Arg*>(c->m_defs)[offsetWithinChunk] = fstruct;
-        m_func2VNMap->Set(fstruct, res);
+        *vn = GetAllocChunk(typ, CEA_Func2)->AllocVN(fstruct);
     }
 
-    return res;
+    return *vn;
 }
 
 // Record that tree's value number is dependent on a particular memory VN.
@@ -3676,11 +3641,7 @@ ValueNum ValueNumStore::VNForExpr(BasicBlock* block, var_types type)
 {
     LoopNum loopNum = block == nullptr ? MaxLoopNum : block->GetLoopNum();
 
-    Chunk*   chunk                                    = GetAllocChunk(type, CEA_Func1);
-    unsigned index                                    = chunk->AllocVN();
-    static_cast<VNDefFunc1Arg*>(chunk->m_defs)[index] = {VNF_MemOpaque, loopNum};
-
-    return chunk->m_baseVN + index;
+    return GetAllocChunk(type, CEA_Func1)->AllocVN(VNDefFunc1Arg{VNF_MemOpaque, loopNum});
 }
 
 ValueNum ValueNumStore::VNForExpr(var_types type)
@@ -3747,10 +3708,7 @@ ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
     if (fieldSeq == FieldSeqStore::NotAField())
     {
         // We always allocate a new, unique VN so that "Not a field" addresses are distinct.
-        Chunk*   c                 = GetAllocChunk(TYP_I_IMPL, CEA_NotAField);
-        unsigned offsetWithinChunk = c->AllocVN();
-        ValueNum result            = c->m_baseVN + offsetWithinChunk;
-        return result;
+        return GetAllocChunk(TYP_I_IMPL, CEA_NotAField)->AllocVN();
     }
 
     ValueNum fieldSeqVN = VNForFunc(TYP_I_IMPL, VNF_FieldSeq, VNForHostPtr(fieldSeq));
