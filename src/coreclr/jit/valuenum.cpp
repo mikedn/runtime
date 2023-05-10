@@ -571,10 +571,9 @@ ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
     , m_vnNameMap(compiler->getAllocator(CMK_DebugOnly))
 #endif
 {
-    // We have no current allocation chunks.
-    for (unsigned i = 0; i < TYP_COUNT; i++)
+    for (unsigned i = 0; i < _countof(m_curAllocChunk); i++)
     {
-        for (unsigned j = CEA_Const; j <= CEA_Count; j++)
+        for (unsigned j = 0; j <= _countof(m_curAllocChunk[i]); j++)
         {
             m_curAllocChunk[i][j] = NoChunk;
         }
@@ -587,9 +586,9 @@ ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
 
     // We will reserve chunk 0 to hold some special constants, like the constant NULL,
     // the "exception" value, and the "zero map."
-    Chunk* specialConstChunk = new (alloc) Chunk(alloc, &m_nextChunkBase, TYP_REF, CEA_Const);
+    Chunk* specialConstChunk = new (alloc) Chunk(alloc, &m_nextChunkBase, TYP_REF, ChunkKind::Const);
     // Implicitly allocate 0 ==> NULL, and 1 ==> Exception, 2 ==> ZeroMap.
-    specialConstChunk->m_numUsed += SRC_NumSpecialRefConsts;
+    specialConstChunk->m_count += SRC_NumSpecialRefConsts;
     assert(m_chunks.Size() == 0);
     m_chunks.Push(specialConstChunk);
 
@@ -1585,20 +1584,20 @@ ValueNumPair ValueNumStore::VNPWithExc(ValueNumPair vnp, ValueNumPair excSetVNP)
             VNWithExc(vnp.GetConservative(), excSetVNP.GetConservative())};
 }
 
-ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_types typ, ChunkExtraAttribs attribs)
-    : m_baseVN(*pNextBaseVN), m_typ(typ), m_attribs(attribs)
+ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_types type, ChunkKind kind)
+    : m_baseVN(*pNextBaseVN), m_type(type), m_kind(kind)
 {
     // The "values" of special ref consts will be all be "null" -- their differing meanings will
     // be carried by the distinct value numbers.
     static class Object* specialRefConsts[SRC_NumSpecialRefConsts];
 
     // Allocate "m_defs" here, according to the typ/attribs pair.
-    switch (attribs)
+    switch (kind)
     {
-        case CEA_NotAField:
+        case ChunkKind::NotAField:
             break; // Nothing to do.
-        case CEA_Const:
-            switch (typ)
+        case ChunkKind::Const:
+            switch (type)
             {
                 case TYP_INT:
                     m_defs = alloc.allocate<Alloc<TYP_INT>::Type>(ChunkSize);
@@ -1625,24 +1624,22 @@ ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_type
             }
             break;
 
-        case CEA_Handle:
+        case ChunkKind::Handle:
             m_defs = alloc.allocate<VNHandle>(ChunkSize);
             break;
-
-        case CEA_Func0:
+        case ChunkKind::Func0:
             m_defs = alloc.allocate<VNFunc>(ChunkSize);
             break;
-
-        case CEA_Func1:
+        case ChunkKind::Func1:
             m_defs = alloc.allocate<VNDefFunc1Arg>(ChunkSize);
             break;
-        case CEA_Func2:
+        case ChunkKind::Func2:
             m_defs = alloc.allocate<VNDefFunc2Arg>(ChunkSize);
             break;
-        case CEA_Func3:
+        case ChunkKind::Func3:
             m_defs = alloc.allocate<VNDefFunc3Arg>(ChunkSize);
             break;
-        case CEA_Func4:
+        case ChunkKind::Func4:
             m_defs = alloc.allocate<VNDefFunc4Arg>(ChunkSize);
             break;
         default:
@@ -1651,21 +1648,22 @@ ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_type
     *pNextBaseVN += ChunkSize;
 }
 
-ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types typ, ChunkExtraAttribs attribs)
+ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types type, ChunkKind kind)
 {
-    unsigned index = attribs;
-    ChunkNum cn    = m_curAllocChunk[typ][index];
+    assert(kind != ChunkKind::Count);
+
+    ChunkNum cn = m_curAllocChunk[type][static_cast<unsigned>(kind)];
     if (cn != NoChunk)
     {
         Chunk* chunk = m_chunks.Get(cn);
-        if (chunk->m_numUsed < ChunkSize)
+        if (chunk->m_count < ChunkSize)
         {
             return chunk;
         }
     }
-    // Otherwise, must allocate a new one.
-    Chunk* chunk                = new (alloc) Chunk(alloc, &m_nextChunkBase, typ, attribs);
-    m_curAllocChunk[typ][index] = m_chunks.Size();
+
+    Chunk* chunk                                       = new (alloc) Chunk(alloc, &m_nextChunkBase, type, kind);
+    m_curAllocChunk[type][static_cast<unsigned>(kind)] = m_chunks.Size();
     m_chunks.Push(chunk);
     return chunk;
 }
@@ -1684,7 +1682,7 @@ ValueNum ValueNumStore::VNForHandle(ssize_t value, GenTreeFlags handleKind)
 
     if (*vn == NoVN)
     {
-        *vn = GetAllocChunk(TYP_I_IMPL, CEA_Handle)->AllocVN(handle);
+        *vn = GetAllocChunk(TYP_I_IMPL, ChunkKind::Handle)->AllocVN(handle);
     }
 
     return *vn;
@@ -1697,7 +1695,7 @@ ValueNum ValueNumStore::VnForConst(T cnsVal, NumMap* numMap, var_types varType)
 
     if (*vn == NoVN)
     {
-        *vn = GetAllocChunk(varType, CEA_Const)->AllocVN<T>(cnsVal);
+        *vn = GetAllocChunk(varType, ChunkKind::Const)->AllocVN<T>(cnsVal);
     }
 
     return *vn;
@@ -1711,7 +1709,7 @@ ValueNum ValueNumStore::VNForIntCon(int32_t value)
 
         if (m_smallInt32VNMap[index] == NoVN)
         {
-            m_smallInt32VNMap[index] = GetAllocChunk(TYP_INT, CEA_Const)->AllocVN<int32_t>(value);
+            m_smallInt32VNMap[index] = GetAllocChunk(TYP_INT, ChunkKind::Const)->AllocVN<int32_t>(value);
         }
 
         return m_smallInt32VNMap[index];
@@ -1916,7 +1914,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func)
 
     if (*vn == NoVN)
     {
-        *vn = GetAllocChunk(type, CEA_Func0)->AllocVN(func);
+        *vn = GetAllocChunk(type, ChunkKind::Func0)->AllocVN(func);
     }
 
     return *vn;
@@ -1942,7 +1940,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
 
     if (*vn == NoVN)
     {
-        *vn = GetAllocChunk(type, CEA_Func1)->AllocVN(func1);
+        *vn = GetAllocChunk(type, ChunkKind::Func1)->AllocVN(func1);
     }
 
     return *vn;
@@ -2043,7 +2041,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
 
         if ((vn == NoVN) || (TypeOfVN(vn) != type))
         {
-            vn = GetAllocChunk(type, CEA_Func2)->AllocVN(func2);
+            vn = GetAllocChunk(type, ChunkKind::Func2)->AllocVN(func2);
             m_func2VNMap->Set(func2, vn);
         }
     }
@@ -2069,7 +2067,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
 
     if (*vn == NoVN)
     {
-        *vn = GetAllocChunk(type, CEA_Func3)->AllocVN(func3);
+        *vn = GetAllocChunk(type, ChunkKind::Func3)->AllocVN(func3);
     }
 
     return *vn;
@@ -2095,7 +2093,7 @@ ValueNum ValueNumStore::VNForFunc(
 
     if (*vn == NoVN)
     {
-        *vn = GetAllocChunk(type, CEA_Func4)->AllocVN(func4);
+        *vn = GetAllocChunk(type, ChunkKind::Func4)->AllocVN(func4);
     }
 
     return *vn;
@@ -2359,7 +2357,7 @@ TailCall:
     // We may have run out of budget and already assigned a result
     if (*vn == NoVN)
     {
-        *vn = GetAllocChunk(typ, CEA_Func2)->AllocVN(fstruct);
+        *vn = GetAllocChunk(typ, ChunkKind::Func2)->AllocVN(fstruct);
     }
 
     return *vn;
@@ -3641,7 +3639,7 @@ ValueNum ValueNumStore::VNForExpr(BasicBlock* block, var_types type)
 {
     LoopNum loopNum = block == nullptr ? MaxLoopNum : block->GetLoopNum();
 
-    return GetAllocChunk(type, CEA_Func1)->AllocVN(VNDefFunc1Arg{VNF_MemOpaque, loopNum});
+    return GetAllocChunk(type, ChunkKind::Func1)->AllocVN(VNDefFunc1Arg{VNF_MemOpaque, loopNum});
 }
 
 ValueNum ValueNumStore::VNForExpr(var_types type)
@@ -3708,7 +3706,7 @@ ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
     if (fieldSeq == FieldSeqStore::NotAField())
     {
         // We always allocate a new, unique VN so that "Not a field" addresses are distinct.
-        return GetAllocChunk(TYP_I_IMPL, CEA_NotAField)->AllocVN();
+        return GetAllocChunk(TYP_I_IMPL, ChunkKind::NotAField)->AllocVN();
     }
 
     ValueNum fieldSeqVN = VNForFunc(TYP_I_IMPL, VNF_FieldSeq, VNForHostPtr(fieldSeq));
@@ -5660,7 +5658,7 @@ LoopNum ValueNumStore::LoopOfVN(ValueNum vn)
 
 var_types ValueNumStore::TypeOfVN(ValueNum vn) const
 {
-    return vn == NoVN ? TYP_UNDEF : m_chunks.Get(GetChunkNum(vn))->m_typ;
+    return vn == NoVN ? TYP_UNDEF : m_chunks.Get(GetChunkNum(vn))->m_type;
 }
 
 var_types ValueNumStore::GetConstantType(ValueNum vn) const
@@ -5671,7 +5669,7 @@ var_types ValueNumStore::GetConstantType(ValueNum vn) const
     }
 
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    return (c->m_attribs == CEA_Const || c->m_attribs == CEA_Handle) ? c->m_typ : TYP_UNDEF;
+    return (c->m_kind == ChunkKind::Const || c->m_kind == ChunkKind::Handle) ? c->m_type : TYP_UNDEF;
 }
 
 bool ValueNumStore::IsVNConstant(ValueNum vn) const
@@ -5714,7 +5712,7 @@ GenTreeFlags ValueNumStore::GetHandleFlags(ValueNum vn) const
 
 bool ValueNumStore::IsVNHandle(ValueNum vn) const
 {
-    return (vn != NoVN) && (m_chunks.Get(GetChunkNum(vn))->m_attribs == CEA_Handle);
+    return (vn != NoVN) && (m_chunks.Get(GetChunkNum(vn))->m_kind == ChunkKind::Handle);
 }
 
 bool ValueNumStore::IsVNCompareCheckedBound(const VNFuncApp& funcApp)
@@ -6326,10 +6324,11 @@ VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const
 
     Chunk*   c      = m_chunks.Get(GetChunkNum(vn));
     unsigned offset = ChunkOffset(vn);
-    assert(offset < c->m_numUsed);
-    switch (c->m_attribs)
+    assert(offset < c->m_count);
+
+    switch (c->m_kind)
     {
-        case CEA_Func4:
+        case ChunkKind::Func4:
         {
             VNDefFunc4Arg* farg4 = &static_cast<VNDefFunc4Arg*>(c->m_defs)[offset];
             funcApp->m_func      = farg4->m_func;
@@ -6340,7 +6339,7 @@ VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const
             funcApp->m_args[3]   = farg4->m_arg3;
             return funcApp->m_func;
         }
-        case CEA_Func3:
+        case ChunkKind::Func3:
         {
             VNDefFunc3Arg* farg3 = &static_cast<VNDefFunc3Arg*>(c->m_defs)[offset];
             funcApp->m_func      = farg3->m_func;
@@ -6350,7 +6349,7 @@ VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const
             funcApp->m_args[2]   = farg3->m_arg2;
             return funcApp->m_func;
         }
-        case CEA_Func2:
+        case ChunkKind::Func2:
         {
             VNDefFunc2Arg* farg2 = &static_cast<VNDefFunc2Arg*>(c->m_defs)[offset];
             funcApp->m_func      = farg2->m_func;
@@ -6359,7 +6358,7 @@ VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const
             funcApp->m_args[1]   = farg2->m_arg1;
             return funcApp->m_func;
         }
-        case CEA_Func1:
+        case ChunkKind::Func1:
         {
             VNDefFunc1Arg* farg1 = &static_cast<VNDefFunc1Arg*>(c->m_defs)[offset];
             funcApp->m_func      = farg1->m_func;
@@ -6367,14 +6366,14 @@ VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const
             funcApp->m_args[0]   = farg1->m_arg0;
             return funcApp->m_func;
         }
-        case CEA_Func0:
+        case ChunkKind::Func0:
         {
             VNDefFunc0Arg* farg0 = &static_cast<VNDefFunc0Arg*>(c->m_defs)[offset];
             funcApp->m_func      = farg0->m_func;
             funcApp->m_arity     = 0;
             return funcApp->m_func;
         }
-        case CEA_NotAField:
+        case ChunkKind::NotAField:
             funcApp->m_func  = VNF_NotAField;
             funcApp->m_arity = 0;
             return VNF_NotAField;

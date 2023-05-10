@@ -346,53 +346,40 @@ class ValueNumStore
         typedef class Object* Lang;
     };
 
-    enum ChunkExtraAttribs : uint8_t
+    enum class ChunkKind : uint8_t
     {
-        CEA_Const,     // This chunk contains constant values.
-        CEA_Handle,    // This chunk contains handle constants.
-        CEA_NotAField, // This chunk contains "not a field" values.
-        CEA_Func0,     // Represents functions of arity 0.
-        CEA_Func1,     // ...arity 1.
-        CEA_Func2,     // ...arity 2.
-        CEA_Func3,     // ...arity 3.
-        CEA_Func4,     // ...arity 4.
-        CEA_Count
+        Const,     // This chunk contains constant values.
+        Handle,    // This chunk contains handle constants.
+        NotAField, // This chunk contains "not a field" values.
+        Func0,     // Represents functions of arity 0.
+        Func1,     // ...arity 1.
+        Func2,     // ...arity 2.
+        Func3,     // ...arity 3.
+        Func4,     // ...arity 4.
+        Count
     };
 
-    // A "Chunk" holds "ChunkSize" value numbers, starting at "m_baseVN".  All of these share the same
-    // "m_typ" and "m_attribs".  These properties determine the interpretation of "m_defs", as discussed below.
     struct Chunk
     {
-        // If "m_defs" is non-null, it is an array of size ChunkSize, whose element type is determined by the other
-        // members. The "m_numUsed" field indicates the number of elements of "m_defs" that are already consumed (the
-        // next one to allocate).
-        void*    m_defs    = nullptr;
-        unsigned m_numUsed = 0;
+        void*     m_defs  = nullptr;
+        unsigned  m_count = 0;
+        ValueNum  m_baseVN;
+        var_types m_type;
+        ChunkKind m_kind;
 
-        // The value number of the first VN in the chunk.
-        ValueNum m_baseVN;
+        Chunk(CompAllocator alloc, ValueNum* baseVN, var_types type, ChunkKind kind);
 
-        // The common attributes of this chunk.
-        var_types         m_typ;
-        ChunkExtraAttribs m_attribs;
-
-        // Initialize a chunk, starting at "*baseVN", for the given "typ", and "attribs", using "alloc" for allocations.
-        // (Increments "*baseVN" by ChunkSize.)
-        Chunk(CompAllocator alloc, ValueNum* baseVN, var_types typ, ChunkExtraAttribs attribs);
-
-        // Requires that "m_numUsed < ChunkSize."  Returns the offset of the allocated VN within the chunk; the
-        // actual VN is this added to the "m_baseVN" of the chunk.
         unsigned AllocVN()
         {
-            assert(m_numUsed < ChunkSize);
-            return m_baseVN + m_numUsed++;
+            assert(m_count < ChunkSize);
+            return m_baseVN + m_count++;
         }
 
         template <typename T>
         unsigned AllocVN(const T& value)
         {
-            assert(m_numUsed < ChunkSize);
-            unsigned index                 = m_numUsed++;
+            assert(m_count < ChunkSize);
+            unsigned index                 = m_count++;
             static_cast<T*>(m_defs)[index] = value;
             return m_baseVN + index;
         }
@@ -444,7 +431,7 @@ class ValueNumStore
     // If the value is NoChunk, it indicates that there is no current allocation chunk for that pair, otherwise
     // it is the index in "m_chunks" of a chunk with the given attributes, in which the next allocation should
     // be attempted.
-    ChunkNum m_curAllocChunk[TYP_COUNT][CEA_Count + 1];
+    ChunkNum m_curAllocChunk[TYP_COUNT][static_cast<unsigned>(ChunkKind::Count)];
 
     ValueNum     m_zeroMap           = NoVN;
     ValueNum     m_readOnlyMemoryMap = NoVN;
@@ -935,11 +922,11 @@ private:
     T ConstantValueInternal(ValueNum vn DEBUGARG(bool coerce)) const
     {
         Chunk* c = m_chunks.Get(GetChunkNum(vn));
-        assert(c->m_attribs == CEA_Const || c->m_attribs == CEA_Handle);
+        assert(c->m_kind == ChunkKind::Const || c->m_kind == ChunkKind::Handle);
 
         unsigned offset = ChunkOffset(vn);
 
-        switch (c->m_typ)
+        switch (c->m_type)
         {
             case TYP_REF:
                 assert(0 <= offset && offset <= 1); // Null or exception.
@@ -954,7 +941,7 @@ private:
             case TYP_LONG:
             case TYP_FLOAT:
             case TYP_DOUBLE:
-                if (c->m_attribs == CEA_Handle)
+                if (c->m_kind == ChunkKind::Handle)
                 {
                     C_ASSERT(offsetof(VNHandle, value) == 0);
                     return (T) static_cast<VNHandle*>(c->m_defs)[offset].value;
@@ -969,7 +956,7 @@ private:
                     // Detect if there is a mismatch between the VN storage type and explicitly
                     // passed-in type T.
                     bool mismatch = false;
-                    if (varTypeIsFloating(c->m_typ))
+                    if (varTypeIsFloating(c->m_type))
                     {
                         mismatch = (memcmp(&val1, &val2, sizeof(val1)) != 0);
                     }
@@ -1091,7 +1078,7 @@ private:
     }
 
     // Returns a (pointer to a) chunk in which a new value number may be allocated.
-    Chunk* GetAllocChunk(var_types typ, ChunkExtraAttribs attribs);
+    Chunk* GetAllocChunk(var_types type, ChunkKind kind);
 
     static bool IsSmallIntConst(int i)
     {
@@ -1124,7 +1111,7 @@ private:
     template <typename T>
     FORCEINLINE T SafeGetConstantValue(Chunk* c, unsigned offset) const
     {
-        switch (c->m_typ)
+        switch (c->m_type)
         {
             case TYP_REF:
                 return CoerceTypRefToT<T>(c, offset);
