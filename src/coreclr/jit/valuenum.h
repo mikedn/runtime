@@ -644,9 +644,10 @@ public:
         // We reserve Chunk 0 for "special" VNs.  Let SRC_Void (== 4) be the value for "void".
         return ValueNum(SRC_Void);
     }
+
     static ValueNumPair VNPForVoid()
     {
-        return ValueNumPair(VNForVoid(), VNForVoid());
+        return {VNForVoid(), VNForVoid()};
     }
 
     // A special value number for the empty set of exceptions.
@@ -656,9 +657,10 @@ public:
         // exceptions.
         return ValueNum(SRC_EmptyExcSet);
     }
+
     static ValueNumPair VNPForEmptyExcSet()
     {
-        return ValueNumPair(VNForEmptyExcSet(), VNForEmptyExcSet());
+        return {VNForEmptyExcSet(), VNForEmptyExcSet()};
     }
 
     // Returns the value number for zero of the given "typ".
@@ -676,7 +678,7 @@ public:
 
     // Returns true if the current pair of items are in ascending order and they are not duplicates.
     // Used to verify that exception sets are in ascending order when processing them.
-    bool VNCheckAscending(ValueNum item, ValueNum xs1);
+    INDEBUG(bool VNCheckAscending(ValueNum item, ValueNum xs1);)
 
     // Returns the VN representing the union of the two exception sets "xs0" and "xs1".
     // These must be VNForEmtpyExcSet() or applications of VNF_ExcSetCons, obeying
@@ -701,7 +703,7 @@ public:
     bool VNHasExc(ValueNum vn)
     {
         VNFuncApp funcApp;
-        return GetVNFunc(vn, &funcApp) && funcApp.m_func == VNF_ValWithExc;
+        return GetVNFunc(vn, &funcApp) == VNF_ValWithExc;
     }
 
     // If vn "excSet" is "VNForEmptyExcSet()" we just return "vn"
@@ -795,26 +797,24 @@ public:
     }
     ValueNumPair VNPairForFunc(var_types typ, VNFunc func, ValueNumPair opVN)
     {
-        return ValueNumPair(VNForFunc(typ, func, opVN.GetLiberal()), VNForFunc(typ, func, opVN.GetConservative()));
+        return {VNForFunc(typ, func, opVN.GetLiberal()), VNForFunc(typ, func, opVN.GetConservative())};
     }
     ValueNumPair VNPairForFunc(var_types typ, VNFunc func, ValueNumPair op1VN, ValueNumPair op2VN)
     {
-        return ValueNumPair(VNForFunc(typ, func, op1VN.GetLiberal(), op2VN.GetLiberal()),
-                            VNForFunc(typ, func, op1VN.GetConservative(), op2VN.GetConservative()));
+        return {VNForFunc(typ, func, op1VN.GetLiberal(), op2VN.GetLiberal()),
+                VNForFunc(typ, func, op1VN.GetConservative(), op2VN.GetConservative())};
     }
     ValueNumPair VNPairForFunc(var_types typ, VNFunc func, ValueNumPair op1VN, ValueNumPair op2VN, ValueNumPair op3VN)
     {
-        return ValueNumPair(VNForFunc(typ, func, op1VN.GetLiberal(), op2VN.GetLiberal(), op3VN.GetLiberal()),
-                            VNForFunc(typ, func, op1VN.GetConservative(), op2VN.GetConservative(),
-                                      op3VN.GetConservative()));
+        return {VNForFunc(typ, func, op1VN.GetLiberal(), op2VN.GetLiberal(), op3VN.GetLiberal()),
+                VNForFunc(typ, func, op1VN.GetConservative(), op2VN.GetConservative(), op3VN.GetConservative())};
     }
     ValueNumPair VNPairForFunc(
         var_types typ, VNFunc func, ValueNumPair op1VN, ValueNumPair op2VN, ValueNumPair op3VN, ValueNumPair op4VN)
     {
-        return ValueNumPair(VNForFunc(typ, func, op1VN.GetLiberal(), op2VN.GetLiberal(), op3VN.GetLiberal(),
-                                      op4VN.GetLiberal()),
-                            VNForFunc(typ, func, op1VN.GetConservative(), op2VN.GetConservative(),
-                                      op3VN.GetConservative(), op4VN.GetConservative()));
+        return {VNForFunc(typ, func, op1VN.GetLiberal(), op2VN.GetLiberal(), op3VN.GetLiberal(), op4VN.GetLiberal()),
+                VNForFunc(typ, func, op1VN.GetConservative(), op2VN.GetConservative(), op3VN.GetConservative(),
+                          op4VN.GetConservative())};
     }
 
     // Get a new, unique value number for an expression that we're not equating to some function,
@@ -1020,14 +1020,14 @@ public:
 
     ValueNumPair EvalMathFuncUnary(var_types typ, NamedIntrinsic mthFunc, ValueNumPair arg0VNP)
     {
-        return ValueNumPair(EvalMathFuncUnary(typ, mthFunc, arg0VNP.GetLiberal()),
-                            EvalMathFuncUnary(typ, mthFunc, arg0VNP.GetConservative()));
+        return {EvalMathFuncUnary(typ, mthFunc, arg0VNP.GetLiberal()),
+                EvalMathFuncUnary(typ, mthFunc, arg0VNP.GetConservative())};
     }
 
     ValueNumPair EvalMathFuncBinary(var_types typ, NamedIntrinsic mthFunc, ValueNumPair arg0VNP, ValueNumPair arg1VNP)
     {
-        return ValueNumPair(EvalMathFuncBinary(typ, mthFunc, arg0VNP.GetLiberal(), arg1VNP.GetLiberal()),
-                            EvalMathFuncBinary(typ, mthFunc, arg0VNP.GetConservative(), arg1VNP.GetConservative()));
+        return {EvalMathFuncBinary(typ, mthFunc, arg0VNP.GetLiberal(), arg1VNP.GetLiberal()),
+                EvalMathFuncBinary(typ, mthFunc, arg0VNP.GetConservative(), arg1VNP.GetConservative())};
     }
 
     // If "vn" represents a function application, returns "true" and set "*funcApp" to
@@ -1035,17 +1035,17 @@ public:
     VNFunc GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const;
 
 #ifdef DEBUG
-    void Dump(Compiler* comp, ValueNum vn, bool isPtr = false);
-    void DumpFieldSeq(Compiler* comp, VNFuncApp* fieldSeq, bool isHead);
-    void DumpMapSelect(Compiler* comp, VNFuncApp* mapSelect);
-    void DumpMapStore(Compiler* comp, VNFuncApp* mapStore);
-    void DumpMemOpaque(Compiler* comp, VNFuncApp* memOpaque);
-    void DumpValWithExc(Compiler* comp, VNFuncApp* valWithExc);
-    void DumpLclAddr(Compiler* comp, VNFuncApp* lclAddr);
+    void Dump(ValueNum vn, bool isPtr = false);
+    void DumpFieldSeq(const VNFuncApp& fieldSeq, bool isHead);
+    void DumpMapSelect(const VNFuncApp& mapSelect);
+    void DumpMapStore(const VNFuncApp& mapStore);
+    void DumpMemOpaque(const VNFuncApp& memOpaque);
+    void DumpValWithExc(const VNFuncApp& valWithExc);
+    void DumpLclAddr(const VNFuncApp& lclAddr);
     void DumpBitCast(const VNFuncApp& cast);
     void DumpCast(const VNFuncApp& cast);
     void DumpPtrToArrElem(const VNFuncApp& elemAddr);
-    void DumpExcSeq(Compiler* comp, VNFuncApp* excSeq, bool isHead);
+    void DumpExcSeq(const VNFuncApp& excSeq, bool isHead);
 
     static const char* GetFuncName(VNFunc vnf);
     static const char* GetReservedName(ValueNum vn);

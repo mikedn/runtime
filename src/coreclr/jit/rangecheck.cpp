@@ -259,7 +259,7 @@ int RangeCheck::GetArrayLength(ValueNum vn) const
 {
     VNFuncApp funcApp;
 
-    if (!vnStore->GetVNFunc(vn, &funcApp) || !funcApp.Is(GT_ARR_LENGTH))
+    if (vnStore->GetVNFunc(vn, &funcApp) != GT_ARR_LENGTH)
     {
         return -1;
     }
@@ -286,7 +286,7 @@ bool RangeCheck::IsInBounds(const Range& range, ValueNum lengthVN, int lengthVal
 {
     JITDUMP("InBounds: %s in [0, " FMT_VN "]\n", ToString(range), lengthVN);
     JITDUMP("InBounds: length " FMT_VN " is: ", lengthVN);
-    DBEXEC(compiler->verbose, vnStore->Dump(compiler, lengthVN));
+    DBEXEC(compiler->verbose, vnStore->Dump(lengthVN));
     JITDUMP("\n");
     JITDUMP("InBounds: length value is: %d\n", lengthVal);
 

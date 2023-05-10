@@ -1076,7 +1076,7 @@ bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
     {
         for (unsigned i = 0; i < funcApp.m_arity; i++)
         {
-            if (funcApp.m_func == VNF_MapStore)
+            if (func == VNF_MapStore)
             {
                 assert(funcApp.m_arity == 4);
 
