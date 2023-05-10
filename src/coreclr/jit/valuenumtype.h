@@ -124,6 +124,11 @@ public:
     {
         return (m_liberal == vnp.m_liberal) && (m_conservative == vnp.m_conservative);
     }
+
+    bool operator!=(const ValueNumPair& vnp)
+    {
+        return (m_liberal != vnp.m_liberal) || (m_conservative != vnp.m_conservative);
+    }
 };
 
 constexpr int DefaultVNMapSelectBudget = 100;

@@ -1045,66 +1045,60 @@ void LoopHoist::HoistCandidate(GenTree* tree, unsigned lnum)
 
 bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
 {
-    // If it is not a VN, is not loop-invariant.
     if (vn == NoVN)
     {
         return false;
     }
 
-    // We'll always short-circuit constants.
-    if (vnStore->IsVNConstant(vn) || vn == vnStore->VNForVoid())
+    if (vnStore->IsVNConstant(vn) || (vn == ValueNumStore::VNForVoid()))
     {
         return true;
     }
 
-    // If we've done this query previously, don't repeat.
-    bool previousRes = false;
-    if (loopInvariantCache.Lookup(vn, &previousRes))
+    if (bool* cached = loopInvariantCache.LookupPointer(vn))
     {
-        return previousRes;
+        return *cached;
     }
 
-    bool      res = true;
-    VNFuncApp funcApp;
-    if (vnStore->GetVNFunc(vn, &funcApp))
+    bool         invariant = true;
+    VNFuncApp    funcApp;
+    const VNFunc func = vnStore->GetVNFunc(vn, &funcApp);
+
+    if ((func == VNF_PhiDef) || (func == VNF_PhiMemoryDef))
     {
-        if ((funcApp.m_func == VNF_PhiDef) || (funcApp.m_func == VNF_PhiMemoryDef))
+        invariant = !compiler->optLoopContains(lnum, vnStore->ConstantHostPtr<BasicBlock>(funcApp[1])->GetLoopNum());
+    }
+    else if (func == VNF_MemOpaque)
+    {
+        invariant = !compiler->optLoopContains(lnum, funcApp[0]);
+    }
+    else if (func != VNF_None)
+    {
+        for (unsigned i = 0; i < funcApp.m_arity; i++)
         {
-            res = !compiler->optLoopContains(lnum, vnStore->ConstantHostPtr<BasicBlock>(funcApp[1])->GetLoopNum());
-        }
-        else if (funcApp.m_func == VNF_MemOpaque)
-        {
-            res = !compiler->optLoopContains(lnum, funcApp[0]);
-        }
-        else
-        {
-            for (unsigned i = 0; i < funcApp.m_arity; i++)
+            if (funcApp.m_func == VNF_MapStore)
             {
-                if (funcApp.m_func == VNF_MapStore)
-                {
-                    assert(funcApp.m_arity == 4);
+                assert(funcApp.m_arity == 4);
 
-                    if (i == 3)
-                    {
-                        res = !compiler->optLoopContains(lnum, funcApp[3]);
-                        break;
-                    }
-                }
-
-                // TODO-CQ: We need to either make sure that *all* VN functions
-                // always take VN args, or else have a list of arg positions to exempt, as implicitly
-                // constant.
-                if (!IsLoopInvariant(funcApp.m_args[i], lnum))
+                if (i == 3)
                 {
-                    res = false;
+                    invariant = !compiler->optLoopContains(lnum, funcApp[3]);
                     break;
                 }
+            }
+
+            // TODO-CQ: We need to either make sure that *all* VN functions always take VN args,
+            // or else have a list of arg positions to exempt, as implicitly constant.
+            if (!IsLoopInvariant(funcApp[i], lnum))
+            {
+                invariant = false;
+                break;
             }
         }
     }
 
-    loopInvariantCache.Set(vn, res);
-    return res;
+    loopInvariantCache.Set(vn, invariant);
+    return invariant;
 }
 
 /*****************************************************************************
