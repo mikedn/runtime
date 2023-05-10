@@ -2314,13 +2314,8 @@ TailCall:
     }
     else if ((funcApp.m_func == VNF_PhiDef) || (funcApp.m_func == VNF_PhiMemoryDef))
     {
-        ValueNum   phiVN = funcApp[0];
-        LclVarDsc* lcl   = nullptr;
-
-        if (funcApp.m_func == VNF_PhiDef)
-        {
-            lcl = compiler->lvaGetDesc(ConstantValue<unsigned>(funcApp[2]));
-        }
+        ValueNum phiVN    = funcApp[0];
+        bool     isLclDef = funcApp.m_func == VNF_PhiDef;
 
         if (GetVNFunc(phiVN, &funcApp))
         {
@@ -2335,7 +2330,7 @@ TailCall:
             void*    phiArg = ConstantHostPtr<void*>(funcApp[0]);
             ValueNum phiArgVN;
 
-            if (lcl != nullptr)
+            if (isLclDef)
             {
                 phiArgVN = static_cast<GenTreeLclDef*>(phiArg)->GetVN(vnk);
             }
@@ -2375,7 +2370,7 @@ TailCall:
 
                     phiArg = ConstantHostPtr<void*>(cur);
 
-                    if (lcl != nullptr)
+                    if (isLclDef)
                     {
                         phiArgVN = static_cast<GenTreeLclDef*>(phiArg)->GetVN(vnk);
                     }
