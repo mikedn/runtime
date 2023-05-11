@@ -1028,10 +1028,9 @@ public:
 #endif
         }
 
-        // Merge CSE values into the first exception handler/filter block.
         // We can jump to the handler from any instruction in the try region.
         // It means we can propagate only CSE that are valid for the whole try region.
-        void MergeHandler(BasicBlock* block, BasicBlock* firstTryBlock, BasicBlock* lastTryBlock)
+        void MergeHandler(BasicBlock* block)
         {
             // TODO-CQ: Add CSE for handler blocks.
         }
