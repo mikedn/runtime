@@ -1699,7 +1699,7 @@ void Compiler::fgDispReach()
     }
 }
 
-void Compiler::fgDispDoms()
+void Compiler::fgDispDoms(BasicBlock** postOrder)
 {
     // Don't bother printing this when we have a large number of BasicBlocks in the method
     if (fgBBcount > 256)
@@ -1713,7 +1713,7 @@ void Compiler::fgDispDoms()
 
     for (unsigned i = 1; i <= fgBBNumMax; ++i)
     {
-        BasicBlock* current = fgBBInvPostOrder[i];
+        BasicBlock* current = postOrder[i];
         printf(FMT_BB ":  ", current->bbNum);
         while (current != current->bbIDom)
         {
