@@ -1371,35 +1371,19 @@ BasicBlock* Compiler::bbNewBasicBlock(BBjumpKinds jumpKind)
         block->bbFlags |= BBF_IS_LIR;
     }
 
-    block->bbRefs   = 1;
-    block->bbWeight = BB_UNITY_WEIGHT;
-
-    block->bbEntryState = nullptr;
-    block->bbExitState  = nullptr;
-
-    /* Record the jump kind in the block */
-
-    block->bbJumpKind = jumpKind;
+    block->bbRefs       = 1;
+    block->bbWeight     = BB_UNITY_WEIGHT;
+    block->bbJumpKind   = jumpKind;
+    block->bbNatLoopNum = NoLoopNum;
 
     if (jumpKind == BBJ_THROW)
     {
         block->bbSetRunRarely();
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("New Basic Block %s created.\n", block->dspToString());
-    }
-#endif
-
     livInitNewBlock(block);
 
-    block->memoryPhi      = nullptr;
-    block->memoryEntryDef = nullptr;
-    block->memoryExitDef  = nullptr;
-    block->bbNatLoopNum   = NoLoopNum;
-    block->bbPredsWithEH  = nullptr;
+    JITDUMP("New Basic Block %s created.\n", block->dspToString());
 
     return block;
 }
