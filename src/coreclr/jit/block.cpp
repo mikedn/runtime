@@ -1208,21 +1208,17 @@ unsigned BasicBlock::NumSucc(Compiler* comp)
 BasicBlock* BasicBlock::GetSucc(unsigned i, Compiler* comp)
 {
     assert(comp != nullptr);
+    assert(i < NumSucc(comp));
 
-    assert(i < NumSucc(comp)); // Index bounds check.
     switch (bbJumpKind)
     {
-        case BBJ_EHFILTERRET:
-        {
-            // Handler is the (sole) normal successor of the filter.
-            assert(comp->fgFirstBlockOfHandler(this) == bbJumpDest);
-            return bbJumpDest;
-        }
-
         case BBJ_EHFINALLYRET:
             // Note: the following call is expensive.
             return comp->fgSuccOfFinallyRet(this, i);
 
+        case BBJ_EHFILTERRET:
+            assert(comp->fgFirstBlockOfHandler(this) == bbJumpDest);
+            FALLTHROUGH;
         case BBJ_CALLFINALLY:
         case BBJ_ALWAYS:
         case BBJ_EHCATCHRET:
