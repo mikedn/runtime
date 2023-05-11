@@ -145,10 +145,19 @@ static flowList emptyBlockPredsWithEH(nullptr, nullptr);
 
 flowList* Compiler::BlockPredsWithEH(BasicBlock* blk)
 {
-    unsigned tryIndex;
-    if (!bbIsExFlowBlock(blk, &tryIndex))
+    flowList* res = blk->bbPreds;
+
+    if (!blk->hasHndIndex())
     {
-        return blk->bbPreds;
+        return res;
+    }
+
+    unsigned  tryIndex = blk->getHndIndex();
+    EHblkDsc* ehblk    = ehGetDsc(tryIndex);
+
+    if (blk != ehblk->ExFlowBlock())
+    {
+        return res;
     }
 
     if (blk->bbPredsWithEH != nullptr)
@@ -156,10 +165,7 @@ flowList* Compiler::BlockPredsWithEH(BasicBlock* blk)
         return blk->bbPredsWithEH == &emptyBlockPredsWithEH ? nullptr : blk->bbPredsWithEH;
     }
 
-    flowList* res = blk->bbPreds;
-
     // Find the first block of the try.
-    EHblkDsc*   ehblk    = ehGetDsc(tryIndex);
     BasicBlock* tryStart = ehblk->ebdTryBeg;
     for (BasicBlock* const tryStartPredBlock : tryStart->PredBlocks())
     {

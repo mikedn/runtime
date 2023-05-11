@@ -30,6 +30,7 @@ void ForwardDataFlow(TCallback&& callback, Compiler* compiler)
         worklist.erase(worklist.begin());
 
         callback.StartMerge(block);
+
         if (compiler->bbIsHandlerBeg(block))
         {
             EHblkDsc* ehDsc = compiler->ehGetBlockHndDsc(block);
@@ -37,8 +38,9 @@ void ForwardDataFlow(TCallback&& callback, Compiler* compiler)
         }
         else
         {
-            flowList* preds = compiler->BlockPredsWithEH(block);
-            for (flowList* pred = preds; pred; pred = pred->flNext)
+            assert(block->bbPreds == compiler->BlockPredsWithEH(block));
+
+            for (flowList* pred = block->bbPreds; pred; pred = pred->flNext)
             {
                 callback.Merge(block, pred->getBlock(), pred->flDupCount);
             }
