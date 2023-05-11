@@ -72,6 +72,8 @@ private:
     void ClearMemory(GenTree* node DEBUGARG(const char* comment = nullptr));
     void UpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment = nullptr));
 
+    void NumberInitDefs();
+    void NumberBlocks();
     void NumberBlock(BasicBlock* block);
     void NumberNode(GenTree* node);
     void NumberComma(GenTreeOp* comma);
@@ -7038,7 +7040,7 @@ public:
         m_toDoAllPredsDone.Push(comp->fgFirstBB);
     }
 
-    BasicBlock* GetNextBlock(SsaOptimizer& ssa)
+    BasicBlock* GetNextBlock(const SsaOptimizer& ssa)
     {
         if (m_toDoAllPredsDone.Empty() && !m_toDoNotAllPredsDone.Empty())
         {
@@ -7056,7 +7058,7 @@ public:
         return nullptr;
     }
 
-    BasicBlock* ChooseFromNotAllPredsDone(SsaOptimizer& ssa)
+    BasicBlock* ChooseFromNotAllPredsDone(const SsaOptimizer& ssa)
     {
         assert(m_toDoAllPredsDone.Empty());
 
@@ -7205,6 +7207,12 @@ void ValueNumbering::Run()
         SummarizeLoopMemoryStores();
     }
 
+    NumberInitDefs();
+    NumberBlocks();
+}
+
+void ValueNumbering::NumberInitDefs()
+{
     // At the block level, we will use a modified worklist algorithm.  We will have two
     // "todo" sets of unvisited blocks.  Blocks (other than the entry block) are put in a
     // todo set only when some predecessor has been visited, so all blocks have at least one
@@ -7264,7 +7272,10 @@ void ValueNumbering::Run()
 
     // Give memory an initial value number (about which we know nothing).
     ssa.GetInitMemoryDef()->vn = vnStore->VNForExpr(compiler->fgFirstBB, TYP_STRUCT);
+}
 
+void ValueNumbering::NumberBlocks()
+{
     ValueNumberState vs(compiler, this);
 
     while (BasicBlock* block = vs.GetNextBlock(ssa))
