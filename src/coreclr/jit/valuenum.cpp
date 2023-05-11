@@ -7005,15 +7005,11 @@ void RunValueNumStoreTests(Compiler* comp)
 // This represents the "to do" state of the value number computation.
 class ValueNumberState
 {
-    Compiler*       m_comp;
-    ValueNumbering* valueNumbering;
-
-    // TBD: This should really be a bitset...
-    // For now:
-    // first bit indicates completed,
-    // second bit indicates that it's been pushed on all-done stack,
-    // third bit indicates that it's been pushed on not-all-done stack.
-    uint8_t* m_visited;
+    Compiler*               m_comp;
+    ValueNumbering*         valueNumbering;
+    uint8_t*                m_visited;
+    ArrayStack<BasicBlock*> m_toDoAllPredsDone;
+    ArrayStack<BasicBlock*> m_toDoNotAllPredsDone;
 
     enum BlockVisitBits
     {
@@ -7026,21 +7022,13 @@ class ValueNumberState
     {
         return (m_visited[bbNum] & bvb) != 0;
     }
+
     void SetVisitBit(unsigned bbNum, BlockVisitBits bvb)
     {
         m_visited[bbNum] |= bvb;
     }
 
 public:
-    // These two stacks collectively represent the set of blocks that are candidates for
-    // processing, because at least one predecessor has been processed.  Blocks on "m_toDoAllPredsDone"
-    // have had *all* predecessors processed, and thus are candidates for some extra optimizations.
-    // Blocks on "m_toDoNotAllPredsDone" have at least one predecessor that has not been processed.
-    // Blocks are initially on "m_toDoNotAllPredsDone" may be moved to "m_toDoAllPredsDone" when their last
-    // unprocessed predecessor is processed, thus maintaining the invariants.
-    ArrayStack<BasicBlock*> m_toDoAllPredsDone;
-    ArrayStack<BasicBlock*> m_toDoNotAllPredsDone;
-
     ValueNumberState(Compiler* comp, ValueNumbering* valueNumbering)
         : m_comp(comp)
         , valueNumbering(valueNumbering)
@@ -7048,11 +7036,31 @@ public:
         , m_toDoAllPredsDone(comp->getAllocator(CMK_ValueNumber))
         , m_toDoNotAllPredsDone(comp->getAllocator(CMK_ValueNumber))
     {
+        m_toDoAllPredsDone.Push(comp->fgFirstBB);
+    }
+
+    BasicBlock* GetNextBlock(SsaOptimizer& ssa)
+    {
+        if (m_toDoAllPredsDone.Empty() && !m_toDoNotAllPredsDone.Empty())
+        {
+            if (BasicBlock* block = ChooseFromNotAllPredsDone(ssa))
+            {
+                return block;
+            }
+        }
+
+        if (!m_toDoAllPredsDone.Empty())
+        {
+            return m_toDoAllPredsDone.Pop();
+        }
+
+        return nullptr;
     }
 
     BasicBlock* ChooseFromNotAllPredsDone(SsaOptimizer& ssa)
     {
-        assert(m_toDoAllPredsDone.Size() == 0);
+        assert(m_toDoAllPredsDone.Empty());
+
         // If we have no blocks with all preds done, then (ideally, if all cycles have been captured by loops)
         // we must have at least one block within a loop.  We want to do the loops first.  Doing a loop entry block
         // should break the cycle, making the rest of the body of the loop (unless there's a nested loop) doable by the
@@ -7127,16 +7135,9 @@ public:
             }
         }
 
-        // If we didn't find a loop entry block with all non-loop preds done above, then return a random member (if
-        // there is one).
-        if (m_toDoNotAllPredsDone.Size() == 0)
-        {
-            return nullptr;
-        }
-        else
-        {
-            return m_toDoNotAllPredsDone.Pop();
-        }
+        // If we didn't find a loop entry block with all non-loop preds done above,
+        // then return a random member (if there is one).
+        return m_toDoNotAllPredsDone.Empty() ? nullptr : m_toDoNotAllPredsDone.Pop();
     }
 
     // Record that "blk" has been visited, and add any unvisited successors of "blk" to the appropriate todo set.
@@ -7190,11 +7191,6 @@ public:
                 }
             }
         }
-    }
-
-    bool ToDoExists() const
-    {
-        return m_toDoAllPredsDone.Size() > 0 || m_toDoNotAllPredsDone.Size() > 0;
     }
 };
 
@@ -7272,33 +7268,10 @@ void ValueNumbering::Run()
 
     ValueNumberState vs(compiler, this);
 
-    // Push the first block.  This has no preds.
-    vs.m_toDoAllPredsDone.Push(compiler->fgFirstBB);
-
-    while (vs.ToDoExists())
+    while (BasicBlock* block = vs.GetNextBlock(ssa))
     {
-        while (vs.m_toDoAllPredsDone.Size() > 0)
-        {
-            BasicBlock* toDo = vs.m_toDoAllPredsDone.Pop();
-            NumberBlock(toDo);
-            // Record that we've visited "toDo", and add successors to the right sets.
-            vs.FinishVisit(toDo);
-        }
-        // OK, we've run out of blocks whose predecessors are done.  Pick one whose predecessors are not all done,
-        // process that.  This may make more "all-done" blocks, so we'll go around the outer loop again --
-        // note that this is an "if", not a "while" loop.
-        if (vs.m_toDoNotAllPredsDone.Size() > 0)
-        {
-            BasicBlock* toDo = vs.ChooseFromNotAllPredsDone(ssa);
-            if (toDo == nullptr)
-            {
-                continue; // We may have run out, because of completed blocks on the not-all-preds done list.
-            }
-
-            NumberBlock(toDo);
-            // Record that we've visited "toDo", and add successors to the right sest.
-            vs.FinishVisit(toDo);
-        }
+        NumberBlock(block);
+        vs.FinishVisit(block);
     }
 }
 

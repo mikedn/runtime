@@ -119,7 +119,7 @@ public:
         return m_size;
     }
 
-    bool Empty()
+    bool Empty() const
     {
         return m_size == 0;
     }
