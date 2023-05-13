@@ -2251,82 +2251,86 @@ TailCall:
             goto TailCall;
         }
     }
-    else if ((func == VNF_PhiDef) || (func == VNF_PhiMemoryDef))
+    else if ((func == VNF_Phi) || ((func == VNF_MemoryPhi) && (vnk == VNK_Liberal)))
     {
         GetVNFunc(funcApp[0], &funcApp);
-        assert(funcApp.m_func == VNF_Phi);
+        assert(funcApp.m_func == VNF_PhiArgs);
+        ValueNum argVN     = funcApp[0];
+        ValueNum argListVN = funcApp[1];
 
         // select(phi(m1, m2), x): if select(m1, x) == select(m2, x), return that, else new fresh.
 
-        void*    phiArg   = ConstantHostPtr<void*>(funcApp[0]);
-        ValueNum phiArgVN = NoVN;
-
-        if (func == VNF_PhiDef)
+        if (GetVNFunc(argVN, &funcApp) == VNF_PhiArgDef)
         {
-            phiArgVN = static_cast<GenTreeLclDef*>(phiArg)->GetVN(vnk);
-        }
-        else if (vnk == VNK_Liberal)
-        {
-            phiArgVN = static_cast<MemoryPhiArg*>(phiArg)->GetDef()->vn;
+            void* def = ConstantHostPtr<void*>(funcApp[0]);
+
+            if (func == VNF_Phi)
+            {
+                argVN = static_cast<GenTreeLclDef*>(def)->GetVN(vnk);
+            }
+            else
+            {
+                argVN = static_cast<MemoryPhiArg*>(def)->GetDef()->vn;
+            }
         }
 
-        if (phiArgVN != NoVN)
+        if (argVN != NoVN)
         {
             // We need to be careful about breaking infinite recursion. Record the outer map.
             m_fixedPointMapSels.Push(mapVN);
 
-            ValueNum sameValueVN = VNForMapSelectWork(vnk, typ, phiArgVN, indexVN, pBudget, pUsedRecursiveVN);
+            ValueNum sameValueVN = VNForMapSelectWork(vnk, typ, argVN, indexVN, pBudget, pUsedRecursiveVN);
 
-            // We don't have any budget remaining to verify that all phiArgs are the same
+            // We don't have any budget remaining to verify that all PHI args are the same
             // so setup the default failure case now.
             bool allSame = *pBudget > 0;
 
-            for (ValueNum argRest = funcApp[1]; (argRest != NoVN) && allSame;)
+            while ((argListVN != NoVN) && allSame)
             {
-                if (GetVNFunc(argRest, &funcApp))
+                if (GetVNFunc(argListVN, &funcApp) == VNF_PhiArgs)
                 {
-                    assert(funcApp.m_func == VNF_Phi);
-
-                    phiArgVN = funcApp[0];
-                    argRest  = funcApp[1];
+                    argVN     = funcApp[0];
+                    argListVN = funcApp[1];
                 }
                 else
                 {
-                    phiArgVN = argRest;
-                    argRest  = NoVN;
+                    argVN     = argListVN;
+                    argListVN = NoVN;
                 }
 
-                phiArg = ConstantHostPtr<void*>(phiArgVN);
+                if (GetVNFunc(argVN, &funcApp) == VNF_PhiArgDef)
+                {
+                    void* def = ConstantHostPtr<void*>(funcApp[0]);
 
-                if (func == VNF_PhiDef)
-                {
-                    phiArgVN = static_cast<GenTreeLclDef*>(phiArg)->GetVN(vnk);
-                }
-                else
-                {
-                    assert(vnk == VNK_Liberal);
-                    phiArgVN = static_cast<MemoryPhiArg*>(phiArg)->GetDef()->vn;
-                }
-
-                if (phiArgVN == NoVN)
-                {
-                    allSame = false;
-                }
-                else
-                {
-                    bool     usedRecursiveVN = false;
-                    ValueNum valueVN = VNForMapSelectWork(vnk, typ, phiArgVN, indexVN, pBudget, &usedRecursiveVN);
-                    *pUsedRecursiveVN |= usedRecursiveVN;
-
-                    if (sameValueVN == RecursiveVN)
+                    if (func == VNF_Phi)
                     {
-                        sameValueVN = valueVN;
+                        argVN = static_cast<GenTreeLclDef*>(def)->GetVN(vnk);
+                    }
+                    else
+                    {
+                        argVN = static_cast<MemoryPhiArg*>(def)->GetDef()->vn;
                     }
 
-                    if ((valueVN != RecursiveVN) && (valueVN != sameValueVN))
+                    if (argVN == NoVN)
                     {
                         allSame = false;
+                        break;
                     }
+                }
+
+                bool     usedRecursiveVN = false;
+                ValueNum valueVN         = VNForMapSelectWork(vnk, typ, argVN, indexVN, pBudget, &usedRecursiveVN);
+                *pUsedRecursiveVN |= usedRecursiveVN;
+
+                if (sameValueVN == RecursiveVN)
+                {
+                    sameValueVN = valueVN;
+                }
+
+                if ((valueVN != RecursiveVN) && (valueVN != sameValueVN))
+                {
+                    allSame = false;
+                    break;
                 }
             }
 
@@ -2346,14 +2350,15 @@ TailCall:
 
                 return sameValueVN;
             }
-
-            // Otherwise, fall through to creating the select(phi(m1, m2), x) function application.
         }
+
+        // Otherwise, fall through to creating the select(phi(m1, m2), x) function application.
     }
     else
     {
         // TODO-MIKE-Consider: Using maps for SIMD values is questionable...
-        assert((func == VNF_MemOpaque) || (func == VNF_MapSelect) || varTypeIsSIMD(TypeOfVN(mapVN)));
+        assert(((func == VNF_MemoryPhi) && (vnk == VNK_Conservative)) || (func == VNF_MemOpaque) ||
+               (func == VNF_MapSelect) || varTypeIsSIMD(TypeOfVN(mapVN)));
     }
 
     ValueNum* vn = m_func2VNMap->Emplace(fstruct, NoVN);
@@ -5653,7 +5658,7 @@ LoopNum ValueNumStore::LoopOfVN(ValueNum vn)
             return static_cast<LoopNum>(funcApp[0]);
         case VNF_MapStore:
             return static_cast<LoopNum>(funcApp[3]);
-        case VNF_PhiMemoryDef:
+        case VNF_MemoryPhi:
             return ConstantHostPtr<BasicBlock>(funcApp[1])->GetLoopNum();
         default:
             return MaxLoopNum;
@@ -7391,14 +7396,12 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
     Statement* stmt    = block->firstStmt();
     ValueNum   blockVN = NoVN;
 
-    // First: visit phi's.  If "newVNForPhis", give them new VN's.  If not,
-    // first check to see if all phi args have the same value.
     for (; (stmt != nullptr) && stmt->GetRootNode()->IsPhiDef(); stmt = stmt->GetNextStmt())
     {
         GenTreeLclDef* def = stmt->GetRootNode()->AsLclDef();
         GenTreePhi*    phi = def->GetValue()->AsPhi();
         ValueNumPair   phiVNP;
-        ValueNumPair   phiDefVNP;
+        ValueNumPair   argsVNP;
         bool           isMeaningless = true;
 
         for (GenTreePhi::Use& use : phi->Uses())
@@ -7407,28 +7410,32 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
             GenTreeLclDef* argDef = arg->GetDef();
             ValueNumPair   argVNP = argDef->GetVNP();
 
+            if (argVNP.GetLiberal() == NoVN)
+            {
+                argVNP.SetBoth(vnStore->VNForFunc(def->GetType(), VNF_PhiArgDef, vnStore->VNForHostPtr(argDef)));
+                INDEBUG(vnStore->Trace(argVNP));
+            }
+
             arg->SetVNP(argVNP);
 
-            ValueNum argDefVN = vnStore->VNForHostPtr(argDef);
-
-            if (phiVNP.GetLiberal() == NoVN)
+            if (argsVNP.GetLiberal() == NoVN)
             {
-                phiDefVNP = argVNP;
-                phiVNP    = ValueNumPair{argDefVN};
+                phiVNP  = argVNP;
+                argsVNP = argVNP;
             }
             else
             {
-                isMeaningless &= (phiDefVNP == argVNP);
-                phiVNP = vnStore->VNPairForFunc(def->GetType(), VNF_Phi, ValueNumPair{argDefVN}, phiVNP);
-                INDEBUG(vnStore->Trace(phiVNP));
+                isMeaningless &= (phiVNP == argVNP);
+                argsVNP = vnStore->VNPairForFunc(def->GetType(), VNF_PhiArgs, argVNP, argsVNP);
+                INDEBUG(vnStore->Trace(argsVNP));
             }
         }
 
         if (!isMeaningless)
         {
-            INDEBUG(VNFuncApp phiFunc);
-            assert(vnStore->GetVNFunc(phiVNP.GetLiberal(), &phiFunc) == VNF_Phi);
-            assert(vnStore->GetVNFunc(phiVNP.GetConservative(), &phiFunc) == VNF_Phi);
+            INDEBUG(VNFuncApp argsFunc);
+            assert(vnStore->GetVNFunc(argsVNP.GetLiberal(), &argsFunc) == VNF_PhiArgs);
+            assert(vnStore->GetVNFunc(argsVNP.GetConservative(), &argsFunc) == VNF_PhiArgs);
 
             if (blockVN == NoVN)
             {
@@ -7437,77 +7444,74 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
             ValueNum lclNumVN = vnStore->VNForIntCon(def->GetLclNum());
 
-            phiDefVNP = vnStore->VNPairForFunc(def->GetType(), VNF_PhiDef, phiVNP, ValueNumPair{blockVN},
-                                               ValueNumPair{lclNumVN});
+            phiVNP =
+                vnStore->VNPairForFunc(def->GetType(), VNF_Phi, argsVNP, ValueNumPair{blockVN}, ValueNumPair{lclNumVN});
         }
 
-        def->SetVNP(phiDefVNP);
-        phi->SetVNP(phiDefVNP);
+        def->SetVNP(phiVNP);
+        phi->SetVNP(phiVNP);
 
-        INDEBUG(TraceLocal(def->GetLclNum(), phiDefVNP));
+        INDEBUG(TraceLocal(def->GetLclNum(), phiVNP));
     }
 
     // Now do the same for memory.
 
-    if (block->memoryPhi == nullptr)
+    if (block->memoryPhi != nullptr)
     {
-        fgCurMemoryVN = block->memoryEntryDef->vn;
-        assert(fgCurMemoryVN != NoVN);
-    }
-    else
-    {
+        ValueNum phiVN = NoVN;
         unsigned loopNum;
-        ValueNum newMemoryVN;
 
         if (BlockIsLoopEntry(block, &loopNum))
         {
-            newMemoryVN = BuildLoopEntryMemory(block, loopNum);
+            phiVN = BuildLoopEntryMemory(block, loopNum);
         }
         else
         {
-            MemoryPhiArg* phiArgs = block->memoryPhi;
+            ValueNum argsVN        = NoVN;
+            bool     isMeaningless = true;
 
-            ValueNum sameMemoryVN = phiArgs->GetDef()->vn;
-            INDEBUG(TraceMem(sameMemoryVN, "predecessor memory"));
-
-            ValueNum phiVN = vnStore->VNForHostPtr(phiArgs);
-            phiArgs        = phiArgs->m_nextArg;
-            // There should be > 1 args to a phi.
-            // But OSR might leave around "dead" try entry blocks...
-            assert((phiArgs != nullptr) || compiler->opts.IsOSR());
-
-            for (; phiArgs != nullptr; phiArgs = phiArgs->m_nextArg)
+            for (MemoryPhiArg* arg = block->memoryPhi; arg != nullptr; arg = arg->m_nextArg)
             {
-                ValueNum phiMemoryVN = phiArgs->GetDef()->vn;
-                INDEBUG(TraceMem(phiMemoryVN, "predecessor memory"));
-                if (sameMemoryVN != phiMemoryVN)
+                ValueNum argVN = arg->GetDef()->vn;
+                INDEBUG(TraceMem(argVN, "predecessor memory"));
+
+                if (argVN == NoVN)
                 {
-                    sameMemoryVN = NoVN;
+                    argVN = vnStore->VNForFunc(TYP_STRUCT, VNF_PhiArgDef, vnStore->VNForHostPtr(arg));
                 }
 
-                phiVN = vnStore->VNForFunc(TYP_STRUCT, VNF_Phi, vnStore->VNForHostPtr(phiArgs), phiVN);
-                INDEBUG(vnStore->Trace(phiVN));
+                if (argsVN == NoVN)
+                {
+                    phiVN  = argVN;
+                    argsVN = argVN;
+                }
+                else
+                {
+                    isMeaningless &= (phiVN == argVN);
+                    argsVN = vnStore->VNForFunc(TYP_STRUCT, VNF_PhiArgs, argVN, argsVN);
+                    INDEBUG(vnStore->Trace(argsVN));
+                }
             }
 
-            if (sameMemoryVN != NoVN)
+            if (!isMeaningless)
             {
-                newMemoryVN = sameMemoryVN;
-            }
-            else
-            {
+                INDEBUG(VNFuncApp argsFunc);
+                assert(vnStore->GetVNFunc(argsVN, &argsFunc) == VNF_PhiArgs);
+
                 if (blockVN == NoVN)
                 {
                     blockVN = vnStore->VNForHostPtr(block);
                 }
 
-                newMemoryVN = vnStore->VNForFunc(TYP_STRUCT, VNF_PhiMemoryDef, phiVN, blockVN);
+                phiVN = vnStore->VNForFunc(TYP_STRUCT, VNF_MemoryPhi, argsVN, blockVN);
             }
         }
 
-        block->memoryEntryDef->vn = newMemoryVN;
-        fgCurMemoryVN             = newMemoryVN;
+        block->memoryEntryDef->vn = phiVN;
     }
 
+    fgCurMemoryVN = block->memoryEntryDef->vn;
+    assert(fgCurMemoryVN != NoVN);
     INDEBUG(TraceMem(fgCurMemoryVN));
 
     // Now iterate over the remaining statements, and their trees.

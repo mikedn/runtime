@@ -1064,7 +1064,7 @@ bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
     VNFuncApp    funcApp;
     const VNFunc func = vnStore->GetVNFunc(vn, &funcApp);
 
-    if ((func == VNF_PhiDef) || (func == VNF_PhiMemoryDef))
+    if ((func == VNF_Phi) || (func == VNF_MemoryPhi))
     {
         invariant = !compiler->optLoopContains(lnum, vnStore->ConstantHostPtr<BasicBlock>(funcApp[1])->GetLoopNum());
     }

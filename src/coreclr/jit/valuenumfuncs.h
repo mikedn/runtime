@@ -19,11 +19,15 @@ ValueNumFuncDef(LclAddr, 3, false, true, false)       // Address of a local vari
 ValueNumFuncDef(PtrToArrElem, 4, false, false, false) // Pointer (byref) to an array element.  Args: 0: array elem type num, 1: array, 2: index, 3: FieldSeq.
 ValueNumFuncDef(PtrToStatic, 1, false, true, false)   // Pointer (byref) to a static variable (or possibly a field thereof, if the static variable is a struct).  Args: 0: FieldSeq, first element
                                                       // of which is the static var.
-ValueNumFuncDef(Phi, 2, false, false, false)          // A phi function.  Only occurs as arg of PhiDef or PhiMemoryDef.
-                                                      // Arguments are GenTreeLclDef* or MemoryPhiArg*.
-ValueNumFuncDef(PhiDef, 3, false, false, false)       // Args: 0: VNF_Phi, 1: BasicBlock*, 2: lclNum
-ValueNumFuncDef(PhiMemoryDef, 2, false, false, false) // Args: 0: VNF_Phi, 1: BasicBlock*
 
+// PHI local function - (VNF_PhiArgs, BasicBlock*, lclNum)
+ValueNumFuncDef(Phi, 3, false, false, false)
+// PHI memory function - (VNF_PhiArgs, BasicBlock*)
+ValueNumFuncDef(MemoryPhi, 2, false, false, false)
+// PHI argument list node - VNF_PhiArgs(arg1, VNF_PhiArgs(arg2, VNF_PhiArgs(arg3, ...)))
+ValueNumFuncDef(PhiArgs, 2, false, false, false)
+// PHI argument value for definitions that have not been value numbered yet - VNF_PhiArgDef(GenTreeLclDef*/MemoryPhiArg*)
+ValueNumFuncDef(PhiArgDef, 1, false, false, false)
 
 
 ValueNumFuncDef(BitCast, 2, false, false, false)        // VNF_BitCast: Bitcast operation retypes values without changing them.
