@@ -14,7 +14,7 @@
 //  public:
 //      void StartMerge(BasicBlock* block);
 //      void Merge(BasicBlock* block, BasicBlock* pred, unsigned dupCount);
-//      void MergeHandler(BasicBlock* block, BasicBlock* firstTryBlock, BasicBlock* lastTryBlock);
+//      void MergeHandler(BasicBlock* block, EHblkDsc* ehDsc);
 //      bool EndMerge(BasicBlock* block);
 //  };
 
@@ -30,15 +30,16 @@ void ForwardDataFlow(TCallback&& callback, Compiler* compiler)
         worklist.erase(worklist.begin());
 
         callback.StartMerge(block);
+
         if (compiler->bbIsHandlerBeg(block))
         {
-            EHblkDsc* ehDsc = compiler->ehGetBlockHndDsc(block);
-            callback.MergeHandler(block, ehDsc->ebdTryBeg, ehDsc->ebdTryLast);
+            callback.MergeHandler(block);
         }
         else
         {
-            flowList* preds = compiler->BlockPredsWithEH(block);
-            for (flowList* pred = preds; pred; pred = pred->flNext)
+            assert(block->bbPreds == compiler->BlockPredsWithEH(block));
+
+            for (flowList* pred = block->bbPreds; pred; pred = pred->flNext)
             {
                 callback.Merge(block, pred->getBlock(), pred->flDupCount);
             }

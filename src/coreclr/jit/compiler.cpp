@@ -4599,7 +4599,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
  *      cBlockPreds, dBlockPreds    : Display a block's predecessors (call block->dspPreds()).
  *      cBlockSuccs, dBlockSuccs    : Display a block's successors (call block->dspSuccs(compiler)).
  *      cReach,      dReach         : Display all block reachability (call fgDispReach()).
- *      cDoms,       dDoms          : Display all block dominators (call fgDispDoms()).
  *      cLiveness,   dLiveness      : Display per-block variable liveness (call fgDispBBLiveness()).
  *      cCVarSet,    dCVarSet       : Display a "converted" VARSET_TP: the varset is assumed to be tracked variable
  *                                    indices. These are converted to variable numbers and sorted. (Calls
@@ -4719,13 +4718,6 @@ void cReach(Compiler* comp)
     comp->fgDispReach();
 }
 
-void cDoms(Compiler* comp)
-{
-    static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
-    printf("===================================================================== *Doms %u\n", sequenceNumber++);
-    comp->fgDispDoms();
-}
-
 void cLiveness(Compiler* comp)
 {
     static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
@@ -4835,11 +4827,6 @@ void dBlockSuccs(BasicBlock* block)
 void dReach()
 {
     cReach(JitTls::GetCompiler());
-}
-
-void dDoms()
-{
-    cDoms(JitTls::GetCompiler());
 }
 
 void dLiveness()

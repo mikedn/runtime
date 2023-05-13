@@ -1699,7 +1699,7 @@ void Compiler::fgDispReach()
     }
 }
 
-void Compiler::fgDispDoms()
+void Compiler::fgDispDoms(BasicBlock** postOrder)
 {
     // Don't bother printing this when we have a large number of BasicBlocks in the method
     if (fgBBcount > 256)
@@ -1713,7 +1713,7 @@ void Compiler::fgDispDoms()
 
     for (unsigned i = 1; i <= fgBBNumMax; ++i)
     {
-        BasicBlock* current = fgBBInvPostOrder[i];
+        BasicBlock* current = postOrder[i];
         printf(FMT_BB ":  ", current->bbNum);
         while (current != current->bbIDom)
         {
@@ -1902,7 +1902,8 @@ void Compiler::fgTableDispBasicBlock(BasicBlock* block, int ibcColWidth /* = 0 *
                 break;
 
             case BBJ_EHFILTERRET:
-                printf("%*s        (fltret)", maxBlockNumWidth - 2, "");
+                printf("-> " FMT_BB "%*s (fltret)", block->bbJumpDest->bbNum,
+                       maxBlockNumWidth - max(CountDigits(block->bbJumpDest->bbNum), 2), "");
                 break;
 
             case BBJ_EHCATCHRET:

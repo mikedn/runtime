@@ -23,7 +23,7 @@ public:
 
 private:
     bool IncludeInSsa(unsigned lclNum);
-    int TopologicalSort(BasicBlock** postOrder, int count);
+    unsigned TopologicalSort(BasicBlock** postOrder, int count);
     static BasicBlock* IntersectDom(BasicBlock* finger1, BasicBlock* finger2);
     void ComputeImmediateDom(BasicBlock** postOrder, int count);
     void ComputeDominanceFrontiers(BasicBlock** postOrder, int count, BlockDFMap* mapDF);
@@ -171,14 +171,13 @@ bool SsaBuilder::IncludeInSsa(unsigned lclNum)
     return true;
 }
 
-int SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
+unsigned SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
 {
-    Compiler* comp = compiler;
-
     // TopologicalSort is called first so m_visited should already be empty
     assert(BitVecOps::IsEmpty(&m_visitedTraits, m_visited));
 
-    // Display basic blocks.
+    Compiler* comp = compiler;
+
     DBEXEC(VERBOSE, comp->fgDispBasicBlocks());
     DBEXEC(VERBOSE, comp->fgDispHandlerTab());
 
@@ -206,14 +205,12 @@ int SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
 #endif
     };
 
-    // Compute order.
-    int         postIndex = 0;
-    BasicBlock* block     = comp->fgFirstBB;
-    BitVecOps::AddElemD(&m_visitedTraits, m_visited, block->bbNum);
-
+    BasicBlock* firstBlock = comp->fgFirstBB;
+    BitVecOps::AddElemD(&m_visitedTraits, m_visited, firstBlock->bbNum);
     ArrayStack<AllSuccessorEnumerator> blocks(alloc);
-    blocks.Emplace(comp, block);
-    DumpBlockAndSuccessors(comp, block);
+    blocks.Emplace(comp, firstBlock);
+    DumpBlockAndSuccessors(comp, firstBlock);
+    unsigned postIndex = 0;
 
     while (!blocks.Empty())
     {
@@ -237,7 +234,7 @@ int SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
             DBG_SSA_JITDUMP("[SsaBuilder::TopologicalSort] postOrder[%d] = " FMT_BB "\n", postIndex, block->bbNum);
             postOrder[postIndex]  = block;
             block->bbPostOrderNum = postIndex;
-            postIndex += 1;
+            postIndex++;
         }
     }
 
@@ -585,21 +582,21 @@ void SsaBuilder::InsertPhiFunctions()
         postOrder = static_cast<BasicBlock**>(alloca(blockCount * sizeof(BasicBlock*)));
     }
 
-    int count = TopologicalSort(postOrder, blockCount);
+    blockCount = TopologicalSort(postOrder, blockCount);
     compiler->EndPhase(PHASE_BUILD_SSA_TOPOSORT);
 
-    ComputeImmediateDom(postOrder, count);
+    ComputeImmediateDom(postOrder, blockCount);
     ssa.SetDomTree(compiler->fgBuildDomTree());
     compiler->EndPhase(PHASE_BUILD_SSA_DOMS);
 
     BlockDFMap mapDF(alloc);
-    ComputeDominanceFrontiers(postOrder, count, &mapDF);
+    ComputeDominanceFrontiers(postOrder, blockCount, &mapDF);
     compiler->EndPhase(PHASE_BUILD_SSA_DF);
 
     // Use the same IDF vector for all blocks to avoid unnecessary memory allocations
     BlockVector blockIDF(alloc);
 
-    for (int i = 0; i < count; ++i)
+    for (unsigned i = 0; i < blockCount; ++i)
     {
         BasicBlock* block = postOrder[i];
         DBG_SSA_JITDUMP("Considering dominance frontier of block " FMT_BB ":\n", block->bbNum);

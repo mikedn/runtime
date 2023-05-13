@@ -37,14 +37,7 @@ BasicBlock* EHblkDsc::BBFilterLast()
 
 BasicBlock* EHblkDsc::ExFlowBlock()
 {
-    if (HasFilter())
-    {
-        return ebdFilter;
-    }
-    else
-    {
-        return ebdHndBeg;
-    }
+    return HasFilter() ? ebdFilter : ebdHndBeg;
 }
 
 bool EHblkDsc::InTryRegionILRange(BasicBlock* pBlk)
@@ -587,19 +580,6 @@ bool Compiler::bbIsHandlerBeg(BasicBlock* block)
 {
     EHblkDsc* ehDsc = ehGetBlockHndDsc(block);
     return (ehDsc != nullptr) && ((block == ehDsc->ebdHndBeg) || (ehDsc->HasFilter() && (block == ehDsc->ebdFilter)));
-}
-
-bool Compiler::bbIsExFlowBlock(BasicBlock* block, unsigned* regionIndex)
-{
-    if (block->hasHndIndex())
-    {
-        *regionIndex = block->getHndIndex();
-        return block == ehGetDsc(*regionIndex)->ExFlowBlock();
-    }
-    else
-    {
-        return false;
-    }
 }
 
 bool Compiler::ehHasCallableHandlers()

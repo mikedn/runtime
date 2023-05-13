@@ -2778,12 +2778,6 @@ public:
     // Returns true if "block" is the start of a handler or filter region.
     bool bbIsHandlerBeg(BasicBlock* block);
 
-    // Returns true iff "block" is where control flows if an exception is raised in the
-    // try region, and sets "*regionIndex" to the index of the try for the handler.
-    // Differs from "IsHandlerBeg" in the case of filters, where this is true for the first
-    // block of the filter, but not for the filter's handler.
-    bool bbIsExFlowBlock(BasicBlock* block, unsigned* regionIndex);
-
     bool ehHasCallableHandlers();
 
     // Return the EH descriptor for the given region index.
@@ -3920,10 +3914,8 @@ public:
 #ifdef DEBUG
     unsigned fgBBcountAtCodegen = 0; // # of BBs in the method at the start of codegen
 #endif
-    unsigned     fgBBNumMax   = 0; // The max bbNum that has been assigned to basic blocks
-    unsigned     fgDomBBcount = 0; // # of BBs for which we have dominator and reachability information
-    BasicBlock** fgBBInvPostOrder; // The flow graph stored in an array sorted in topological order, needed to compute
-                                   // dominance. Indexed by block number. Size: fgBBNumMax + 1.
+    unsigned fgBBNumMax   = 0; // The max bbNum that has been assigned to basic blocks
+    unsigned fgDomBBcount = 0; // # of BBs for which we have dominator and reachability information
 
     // After the dominance tree is computed, we cache a DFS preorder number and DFS postorder number to compute
     // dominance queries in O(1). fgDomTreePreOrder and fgDomTreePostOrder are arrays giving the block's preorder and
@@ -4303,7 +4295,7 @@ protected:
     // Compute immediate dominators, the dominator tree and and its pre/post-order travsersal numbers.
     void fgComputeDoms();
 
-    void fgCompDominatedByExceptionalEntryBlocks();
+    void fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder);
 
     BlockSet_ValRet_T fgGetDominatorSet(BasicBlock* block); // Returns a set of blocks that dominate the given block.
     // Note: this is relatively slow compared to calling fgDominate(),
@@ -4319,10 +4311,8 @@ protected:
 
     BasicBlock* fgIntersectDom(BasicBlock* a, BasicBlock* b); // Intersect two immediate dominator sets.
 
-    void fgDfsInvPostOrder(); // In order to compute dominance using fgIntersectDom, the flow graph nodes must be
-                              // processed in topological sort, this function takes care of that.
-
-    void fgDfsInvPostOrderHelper(BasicBlock* block, BlockSet& visited, unsigned* count);
+    BasicBlock** fgDfsInvPostOrder();
+    void fgDfsInvPostOrderHelper(BasicBlock** postOrder, BasicBlock* block, BlockSet& visited, unsigned* count);
 
     BlockSet_ValRet_T fgDomFindStartNodes(); // Computes which basic blocks don't have incoming edges in the flow graph.
                                              // Returns this as a set.
@@ -4567,7 +4557,7 @@ public:
 #endif // DUMP_FLOWGRAPHS
 
 #ifdef DEBUG
-    void fgDispDoms();
+    void fgDispDoms(BasicBlock** postOrder);
     void fgDispReach();
     void fgDispBBLocalLiveness(BasicBlock* block);
     void fgDispBBLiveness(BasicBlock* block);

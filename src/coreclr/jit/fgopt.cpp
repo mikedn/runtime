@@ -597,13 +597,9 @@ void Compiler::fgComputeReachability()
 // build the dominance sets using the partial order induced by the DFS sorting.  With this precondition not
 // holding true, the algorithm doesn't work properly.
 //
-void Compiler::fgDfsInvPostOrder()
+BasicBlock** Compiler::fgDfsInvPostOrder()
 {
     // NOTE: This algorithm only pays attention to the actual blocks. It ignores the imaginary entry block.
-
-    // visited   :  Once we run the DFS post order sort recursive algorithm, we mark the nodes we visited to avoid
-    //              backtracking.
-    BlockSet visited(BlockSetOps::MakeEmpty(this));
 
     // We begin by figuring out which basic blocks don't have incoming edges and mark them as
     // start nodes.  Later on we run the recursive algorithm for each node that we
@@ -633,6 +629,9 @@ void Compiler::fgDfsInvPostOrder()
 
     assert(BlockSetOps::IsMember(this, startNodes, fgFirstBB->bbNum));
 
+    BasicBlock** postOrder = new (this, CMK_DominatorMemory) BasicBlock*[fgBBNumMax + 1]{};
+    BlockSet     visited   = BlockSetOps::MakeEmpty(this);
+
     // Call the flowgraph DFS traversal helper.
     unsigned postIndex = 1;
     for (BasicBlock* const block : Blocks())
@@ -642,7 +641,7 @@ void Compiler::fgDfsInvPostOrder()
         if (BlockSetOps::IsMember(this, startNodes, block->bbNum) &&
             !BlockSetOps::IsMember(this, visited, block->bbNum))
         {
-            fgDfsInvPostOrderHelper(block, visited, &postIndex);
+            fgDfsInvPostOrderHelper(postOrder, block, visited, &postIndex);
         }
     }
 
@@ -656,11 +655,13 @@ void Compiler::fgDfsInvPostOrder()
         printf("\nAfter doing a post order traversal of the BB graph, this is the ordering:\n");
         for (unsigned i = 1; i <= fgBBNumMax; ++i)
         {
-            printf("%02u -> " FMT_BB "\n", i, fgBBInvPostOrder[i]->bbNum);
+            printf("%02u -> " FMT_BB "\n", i, postOrder[i]->bbNum);
         }
         printf("\n");
     }
 #endif // DEBUG
+
+    return postOrder;
 }
 
 //-------------------------------------------------------------
@@ -713,7 +714,7 @@ BlockSet_ValRet_T Compiler::fgDomFindStartNodes()
 //    Compute a non-recursive DFS traversal of the flow graph using an
 //    evaluation stack to assign post-order numbers.
 //
-void Compiler::fgDfsInvPostOrderHelper(BasicBlock* block, BlockSet& visited, unsigned* count)
+void Compiler::fgDfsInvPostOrderHelper(BasicBlock** postOrder, BasicBlock* block, BlockSet& visited, unsigned* count)
 {
     // Assume we haven't visited this node yet (callers ensure this).
     assert(!BlockSetOps::IsMember(this, visited, block->bbNum));
@@ -767,7 +768,7 @@ void Compiler::fgDfsInvPostOrderHelper(BasicBlock* block, BlockSet& visited, uns
 
             unsigned invCount = fgBBcount - *count + 1;
             assert(1 <= invCount && invCount <= fgBBNumMax);
-            fgBBInvPostOrder[invCount]   = currentBlock;
+            postOrder[invCount]          = currentBlock;
             currentBlock->bbPostOrderNum = invCount;
             ++(*count);
         }
@@ -787,31 +788,19 @@ void Compiler::fgDfsInvPostOrderHelper(BasicBlock* block, BlockSet& visited, uns
 //
 void Compiler::fgComputeDoms()
 {
+    JITDUMP("*************** In fgComputeDoms\n");
     assert(!fgCheapPredsValid);
 
 #ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgComputeDoms\n");
-    }
-
     fgVerifyHandlerTab();
-
-    // Make sure that the predecessor lists are accurate.
-    // Also check that the blocks are properly, densely numbered (so calling fgRenumberBlocks is not necessary).
     fgDebugCheckBBlist(true);
+#endif
 
-    // Assert things related to the BlockSet epoch.
     assert(fgBBcount == fgBBNumMax);
     assert(BasicBlockBitSetTraits::GetSize(this) == fgBBNumMax + 1);
-#endif // DEBUG
 
-    BlockSet processedBlks(BlockSetOps::MakeEmpty(this));
-
-    fgBBInvPostOrder = new (this, CMK_DominatorMemory) BasicBlock*[fgBBNumMax + 1]{};
-
-    fgDfsInvPostOrder();
-    noway_assert(fgBBInvPostOrder[0] == nullptr);
+    BasicBlock** postOrder = fgDfsInvPostOrder();
+    noway_assert(postOrder[0] == nullptr);
 
     // flRoot and bbRoot represent an imaginary unique entry point in the flow graph.
     // All the orphaned EH blocks and fgFirstBB will temporarily have its predecessors list
@@ -829,8 +818,9 @@ void Compiler::fgComputeDoms()
 
     flowList flRoot(&bbRoot, nullptr);
 
-    fgBBInvPostOrder[0] = &bbRoot;
+    postOrder[0] = &bbRoot;
 
+    BlockSet processedBlks = BlockSetOps::MakeEmpty(this);
     // Mark both bbRoot and fgFirstBB processed
     BlockSetOps::AddElemD(this, processedBlks, 0); // bbRoot    == block #0
     BlockSetOps::AddElemD(this, processedBlks, 1); // fgFirstBB == block #1
@@ -883,7 +873,7 @@ void Compiler::fgComputeDoms()
         {
             flowList*   first   = nullptr;
             BasicBlock* newidom = nullptr;
-            block               = fgBBInvPostOrder[i];
+            block               = postOrder[i];
 
             // If we have a block that has bbRoot as its bbIDom
             // it means we flag it as processed and as an entry block so
@@ -946,23 +936,16 @@ void Compiler::fgComputeDoms()
         }
     }
 
-    fgCompDominatedByExceptionalEntryBlocks();
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        fgDispDoms();
-    }
-#endif
-
+    fgCompDominatedByExceptionalEntryBlocks(postOrder);
+    DBEXEC(verbose, fgDispDoms(postOrder));
     fgNumberDomTree(fgBuildDomTree());
 
-    fgModified   = false;
-    fgDomBBcount = fgBBcount;
+    fgModified     = false;
+    fgDomBBcount   = fgBBcount;
+    fgDomsComputed = true;
+
     assert(fgBBcount == fgBBNumMax);
     assert(BasicBlockBitSetTraits::GetSize(this) == fgDomBBcount + 1);
-
-    fgDomsComputed = true;
 }
 
 void Compiler::fgEnsureDomTreeRoot()
@@ -5924,18 +5907,16 @@ unsigned Compiler::fgMeasureIR()
 
 #endif // FEATURE_JIT_METHOD_PERF
 
-//------------------------------------------------------------------------
-// fgCompDominatedByExceptionalEntryBlocks: compute blocks that are
-// dominated by not normal entry.
-//
-void Compiler::fgCompDominatedByExceptionalEntryBlocks()
+// Compute blocks that are dominated by not normal entry.
+void Compiler::fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder)
 {
     assert(fgEnterBlksSetValid);
+
     if (BlockSetOps::Count(this, fgEnterBlks) != 1) // There are exception entries.
     {
         for (unsigned i = 1; i <= fgBBNumMax; ++i)
         {
-            BasicBlock* block = fgBBInvPostOrder[i];
+            BasicBlock* block = postOrder[i];
             if (BlockSetOps::IsMember(this, fgEnterBlks, block->bbNum))
             {
                 if (fgFirstBB != block) // skip the normal entry.

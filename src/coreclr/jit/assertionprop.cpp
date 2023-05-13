@@ -367,7 +367,7 @@ private:
             ValueNum  vn = vnStore->VNNormalValue(addr->GetConservativeVN());
             VNFuncApp funcApp;
 
-            while (vnStore->GetVNFunc(vn, &funcApp) && funcApp.Is(GT_ADD) && (vnStore->TypeOfVN(vn) == TYP_BYREF))
+            while ((vnStore->GetVNFunc(vn, &funcApp) == VNOP_ADD) && (vnStore->TypeOfVN(vn) == TYP_BYREF))
             {
                 if (vnStore->IsVNConstant(funcApp[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[1])))
                 {
@@ -896,20 +896,21 @@ private:
     AssertionInfo GenerateJTrueUnsignedBoundAssertions(ValueNum vn)
     {
         VNFuncApp funcApp;
+        VNFunc    func = vnStore->GetVNFunc(vn, &funcApp);
 
-        if (!vnStore->GetVNFunc(vn, &funcApp))
+        if (func == VNF_None)
         {
             return NO_ASSERTION_INDEX;
         }
 
         // Conditions like "(uint)i < (uint)length" generate BoundsChk or Range assertions.
 
-        if ((funcApp.m_func == VNF_GT_UN) || (funcApp.m_func == VNF_LE_UN))
+        if ((func == VNF_GT_UN) || (func == VNF_LE_UN))
         {
-            funcApp.m_func = funcApp.m_func == VNF_GT_UN ? VNF_LT_UN : VNF_GE_UN;
+            func = func == VNF_GT_UN ? VNF_LT_UN : VNF_GE_UN;
             std::swap(funcApp.m_args[0], funcApp.m_args[1]);
         }
-        else if ((funcApp.m_func != VNF_LT_UN) && (funcApp.m_func != VNF_GE_UN))
+        else if ((func != VNF_LT_UN) && (func != VNF_GE_UN))
         {
             return NO_ASSERTION_INDEX;
         }
@@ -937,7 +938,7 @@ private:
                 index = AddRangeAssertion(funcApp[1], constVal + 1, INT32_MAX);
             }
 
-            isTrue = funcApp.m_func == VNF_LT_UN;
+            isTrue = func == VNF_LT_UN;
         }
         else if (vnStore->IsVNCheckedBound(funcApp[0]) && vnStore->IsVNInt32Constant(funcApp[1]))
         {
@@ -950,7 +951,7 @@ private:
             }
 
             index  = AddRangeAssertion(funcApp[0], constVal, INT32_MAX);
-            isTrue = funcApp.m_func == VNF_GE_UN;
+            isTrue = func == VNF_GE_UN;
         }
         else
         {
@@ -1963,7 +1964,7 @@ private:
 
         ValueNum baseVN = vn;
 
-        for (VNFuncApp funcApp; vnStore->GetVNFunc(baseVN, &funcApp) && funcApp.Is(GT_ADD);)
+        for (VNFuncApp funcApp; vnStore->GetVNFunc(baseVN, &funcApp) == VNOP_ADD;)
         {
             if (vnStore->IsVNConstant(funcApp[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[1])))
             {
@@ -2597,19 +2598,14 @@ private:
             BitVecOps::IntersectionD(apTraits, block->bbAssertionIn, assertionOut);
         }
 
-        //------------------------------------------------------------------------
-        // MergeHandler: Merge assertions into the first exception handler/filter block.
-        //
-        // Arguments:
-        //   block         - the block that is the start of a handler or filter;
-        //   firstTryBlock - the first block of the try for "block" handler;
-        //   lastTryBlock  - the last block of the try for "block" handler;.
-        //
-        // Notes:
-        //   We can jump to the handler from any instruction in the try region.
-        //   It means we can propagate only assertions that are valid for the whole try region.
-        void MergeHandler(BasicBlock* block, BasicBlock* firstTryBlock, BasicBlock* lastTryBlock)
+        // We can jump to the handler from any instruction in the try region.
+        // It means we can propagate only assertions that are valid for the whole try region.
+        void MergeHandler(BasicBlock* block)
         {
+            EHblkDsc*   ehDsc         = ap.compiler->ehGetBlockHndDsc(block);
+            BasicBlock* firstTryBlock = ehDsc->ebdTryBeg;
+            BasicBlock* lastTryBlock  = ehDsc->ebdTryLast;
+
 #ifdef DEBUG
             if (VerboseDataflow())
             {
@@ -3011,7 +3007,7 @@ private:
             VNFuncApp localAddr;
             bool      isLocalAddr = false;
 
-            if (m_vnStore->GetVNFunc(addr->gtVNPair.GetConservative(), &localAddr) && (localAddr.m_func == VNF_LclAddr))
+            if (m_vnStore->GetVNFunc(addr->GetConservativeVN(), &localAddr) == VNF_LclAddr)
             {
                 isLocalAddr = true;
             }
@@ -3176,7 +3172,7 @@ private:
                 ValueNum  vn = m_vnStore->VNConservativeNormalValue(tree->gtVNPair);
                 VNFuncApp func;
 
-                if (m_vnStore->GetVNFunc(vn, &func) && (VNFuncIndex(func.m_func) == VNF_HWI_Vector128_get_Zero))
+                if (VNFuncIndex(m_vnStore->GetVNFunc(vn, &func)) == VNF_HWI_Vector128_get_Zero)
                 {
                     // Due to poor const register reuse in LSRA, attempting to propagate SIMD zero
                     // isn't always an improvement - we simply end up with more XORPS instructions.
@@ -3332,8 +3328,8 @@ private:
 
                 VNFuncApp lclAddr;
 
-                if (m_vnStore->GetVNFunc(tree->gtVNPair.GetConservative(), &lclAddr) &&
-                    (lclAddr.m_func == VNF_LclAddr) && ChangeToLocalAddress(tree, lclAddr))
+                if ((m_vnStore->GetVNFunc(tree->gtVNPair.GetConservative(), &lclAddr) == VNF_LclAddr) &&
+                    ChangeToLocalAddress(tree, lclAddr))
                 {
                     return Compiler::WALK_SKIP_SUBTREES;
                 }
@@ -3473,9 +3469,9 @@ private:
             // This really should be done via SSA. But for now it's good enough to remove a bunch of
             // LEAs that the JIT has been generating from the dawn of time.
 
-            unsigned      lclNum   = m_vnStore->ConstantValue<unsigned>(lclAddr.m_args[0]);
-            target_size_t offset   = m_vnStore->ConstantValue<target_size_t>(lclAddr.m_args[1]);
-            FieldSeqNode* fieldSeq = m_vnStore->FieldSeqVNToFieldSeq(lclAddr.m_args[2]);
+            unsigned      lclNum   = m_vnStore->ConstantValue<unsigned>(lclAddr[0]);
+            target_size_t offset   = m_vnStore->ConstantValue<target_size_t>(lclAddr[1]);
+            FieldSeqNode* fieldSeq = m_vnStore->FieldSeqVNToFieldSeq(lclAddr[2]);
 
             if ((offset > UINT16_MAX) || (offset >= m_compiler->lvaGetDesc(lclNum)->GetTypeSize()))
             {

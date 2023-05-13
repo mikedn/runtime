@@ -145,10 +145,19 @@ static flowList emptyBlockPredsWithEH(nullptr, nullptr);
 
 flowList* Compiler::BlockPredsWithEH(BasicBlock* blk)
 {
-    unsigned tryIndex;
-    if (!bbIsExFlowBlock(blk, &tryIndex))
+    flowList* res = blk->bbPreds;
+
+    if (!blk->hasHndIndex())
     {
-        return blk->bbPreds;
+        return res;
+    }
+
+    unsigned  tryIndex = blk->getHndIndex();
+    EHblkDsc* ehblk    = ehGetDsc(tryIndex);
+
+    if (blk != ehblk->ExFlowBlock())
+    {
+        return res;
     }
 
     if (blk->bbPredsWithEH != nullptr)
@@ -156,10 +165,7 @@ flowList* Compiler::BlockPredsWithEH(BasicBlock* blk)
         return blk->bbPredsWithEH == &emptyBlockPredsWithEH ? nullptr : blk->bbPredsWithEH;
     }
 
-    flowList* res = blk->bbPreds;
-
     // Find the first block of the try.
-    EHblkDsc*   ehblk    = ehGetDsc(tryIndex);
     BasicBlock* tryStart = ehblk->ebdTryBeg;
     for (BasicBlock* const tryStartPredBlock : tryStart->PredBlocks())
     {
@@ -1202,21 +1208,17 @@ unsigned BasicBlock::NumSucc(Compiler* comp)
 BasicBlock* BasicBlock::GetSucc(unsigned i, Compiler* comp)
 {
     assert(comp != nullptr);
+    assert(i < NumSucc(comp));
 
-    assert(i < NumSucc(comp)); // Index bounds check.
     switch (bbJumpKind)
     {
-        case BBJ_EHFILTERRET:
-        {
-            // Handler is the (sole) normal successor of the filter.
-            assert(comp->fgFirstBlockOfHandler(this) == bbJumpDest);
-            return bbJumpDest;
-        }
-
         case BBJ_EHFINALLYRET:
             // Note: the following call is expensive.
             return comp->fgSuccOfFinallyRet(this, i);
 
+        case BBJ_EHFILTERRET:
+            assert(comp->fgFirstBlockOfHandler(this) == bbJumpDest);
+            FALLTHROUGH;
         case BBJ_CALLFINALLY:
         case BBJ_ALWAYS:
         case BBJ_EHCATCHRET:
@@ -1369,35 +1371,19 @@ BasicBlock* Compiler::bbNewBasicBlock(BBjumpKinds jumpKind)
         block->bbFlags |= BBF_IS_LIR;
     }
 
-    block->bbRefs   = 1;
-    block->bbWeight = BB_UNITY_WEIGHT;
-
-    block->bbEntryState = nullptr;
-    block->bbExitState  = nullptr;
-
-    /* Record the jump kind in the block */
-
-    block->bbJumpKind = jumpKind;
+    block->bbRefs       = 1;
+    block->bbWeight     = BB_UNITY_WEIGHT;
+    block->bbJumpKind   = jumpKind;
+    block->bbNatLoopNum = NoLoopNum;
 
     if (jumpKind == BBJ_THROW)
     {
         block->bbSetRunRarely();
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("New Basic Block %s created.\n", block->dspToString());
-    }
-#endif
-
     livInitNewBlock(block);
 
-    block->memoryPhi      = nullptr;
-    block->memoryEntryDef = nullptr;
-    block->memoryExitDef  = nullptr;
-    block->bbNatLoopNum   = NoLoopNum;
-    block->bbPredsWithEH  = nullptr;
+    JITDUMP("New Basic Block %s created.\n", block->dspToString());
 
     return block;
 }
