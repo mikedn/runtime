@@ -1650,7 +1650,6 @@ ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types type, ChunkKind kin
 
 ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types type, ChunkKind kind, unsigned& current)
 {
-    assert(kind != ChunkKind::Count);
     assert(m_chunks.Size() != 0); // The special chunk is always allocated before normal chunks.
 
     if (current != 0)

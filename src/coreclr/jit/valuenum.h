@@ -352,7 +352,6 @@ class ValueNumStore
         Func2,     // ...arity 2.
         Func3,     // ...arity 3.
         Func4,     // ...arity 4.
-        Count
     };
 
     static constexpr unsigned MaxFuncArity = 4;
