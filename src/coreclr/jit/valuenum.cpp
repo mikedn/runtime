@@ -1625,16 +1625,16 @@ ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_type
             m_defs = alloc.allocate<VNFunc>(ChunkSize);
             break;
         case ChunkKind::Func1:
-            m_defs = alloc.allocate<VNDefFunc1Arg>(ChunkSize);
+            m_defs = alloc.allocate<VNFuncDef1>(ChunkSize);
             break;
         case ChunkKind::Func2:
-            m_defs = alloc.allocate<VNDefFunc2Arg>(ChunkSize);
+            m_defs = alloc.allocate<VNFuncDef2>(ChunkSize);
             break;
         case ChunkKind::Func3:
-            m_defs = alloc.allocate<VNDefFunc3Arg>(ChunkSize);
+            m_defs = alloc.allocate<VNFuncDef3>(ChunkSize);
             break;
         case ChunkKind::Func4:
-            m_defs = alloc.allocate<VNDefFunc4Arg>(ChunkSize);
+            m_defs = alloc.allocate<VNFuncDef4>(ChunkSize);
             break;
         default:
             unreached();
@@ -1939,8 +1939,8 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
         m_func1VNMap = new (alloc) Func1VNMap(alloc);
     }
 
-    VNDefFunc1Arg func1(func, arg0);
-    ValueNum*     vn = m_func1VNMap->Emplace(func1, NoVN);
+    VNFuncDef1 func1(func, arg0);
+    ValueNum*  vn = m_func1VNMap->Emplace(func1, NoVN);
 
     if (*vn == NoVN)
     {
@@ -2036,8 +2036,8 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
         m_func2VNMap = new (alloc) Func2VNMap(alloc);
     }
 
-    VNDefFunc2Arg func2(func, arg0, arg1);
-    ValueNum      vn;
+    VNFuncDef2 func2(func, arg0, arg1);
+    ValueNum   vn;
 
     if (!m_func2VNMap->Lookup(func2, &vn))
     {
@@ -2066,8 +2066,8 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
         m_func3VNMap = new (alloc) Func3VNMap(alloc);
     }
 
-    VNDefFunc3Arg func3(func, arg0, arg1, arg2);
-    ValueNum*     vn = m_func3VNMap->Emplace(func3, NoVN);
+    VNFuncDef3 func3(func, arg0, arg1, arg2);
+    ValueNum*  vn = m_func3VNMap->Emplace(func3, NoVN);
 
     if (*vn == NoVN)
     {
@@ -2092,8 +2092,8 @@ ValueNum ValueNumStore::VNForFunc(
         m_func4VNMap = new (alloc) Func4VNMap(alloc);
     }
 
-    VNDefFunc4Arg func4(func, arg0, arg1, arg2, arg3);
-    ValueNum*     vn = m_func4VNMap->Emplace(func4, NoVN);
+    VNFuncDef4 func4(func, arg0, arg1, arg2, arg3);
+    ValueNum*  vn = m_func4VNMap->Emplace(func4, NoVN);
 
     if (*vn == NoVN)
     {
@@ -2180,7 +2180,7 @@ TailCall:
         return VNZeroForType(typ);
     }
 
-    VNDefFunc2Arg fstruct(VNF_MapSelect, mapVN, indexVN);
+    VNFuncDef2 fstruct(VNF_MapSelect, mapVN, indexVN);
 
     if (m_func2VNMap == nullptr)
     {
@@ -2260,9 +2260,9 @@ TailCall:
 
         // select(phi(m1, m2), x): if select(m1, x) == select(m2, x), return that, else new fresh.
 
-        if (GetVNFunc(argVN, &funcApp) == VNF_PhiArgDef)
+        if (const VNFuncDef1* f = IsVNFunc<VNFuncDef1>(argVN, VNF_PhiArgDef))
         {
-            void* def = ConstantHostPtr<void*>(funcApp[0]);
+            void* def = ConstantHostPtr<void*>(f->m_arg0);
 
             if (func == VNF_Phi)
             {
@@ -2287,10 +2287,10 @@ TailCall:
 
             while ((argListVN != NoVN) && allSame)
             {
-                if (GetVNFunc(argListVN, &funcApp) == VNF_PhiArgs)
+                if (const VNFuncDef2* f = IsVNFunc<VNFuncDef2>(argListVN, VNF_PhiArgs))
                 {
-                    argVN     = funcApp[0];
-                    argListVN = funcApp[1];
+                    argVN     = f->m_arg0;
+                    argListVN = f->m_arg1;
                 }
                 else
                 {
@@ -2298,9 +2298,9 @@ TailCall:
                     argListVN = NoVN;
                 }
 
-                if (GetVNFunc(argVN, &funcApp) == VNF_PhiArgDef)
+                if (const VNFuncDef1* f = IsVNFunc<VNFuncDef1>(argVN, VNF_PhiArgDef))
                 {
-                    void* def = ConstantHostPtr<void*>(funcApp[0]);
+                    void* def = ConstantHostPtr<void*>(f->m_arg0);
 
                     if (func == VNF_Phi)
                     {
@@ -3648,7 +3648,7 @@ ValueNum ValueNumStore::VNForExpr(BasicBlock* block, var_types type)
 {
     LoopNum loopNum = block == nullptr ? MaxLoopNum : block->GetLoopNum();
 
-    return GetAllocChunk(type, ChunkKind::Func1)->AllocVN(VNDefFunc1Arg{VNF_MemOpaque, loopNum});
+    return GetAllocChunk(type, ChunkKind::Func1)->AllocVN(VNFuncDef1{VNF_MemOpaque, loopNum});
 }
 
 ValueNum ValueNumStore::VNForExpr(var_types type)
@@ -6339,47 +6339,47 @@ VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const
     {
         case ChunkKind::Func4:
         {
-            VNDefFunc4Arg* farg4 = &static_cast<VNDefFunc4Arg*>(c->m_defs)[offset];
-            funcApp->m_func      = farg4->m_func;
-            funcApp->m_arity     = 4;
-            funcApp->m_args[0]   = farg4->m_arg0;
-            funcApp->m_args[1]   = farg4->m_arg1;
-            funcApp->m_args[2]   = farg4->m_arg2;
-            funcApp->m_args[3]   = farg4->m_arg3;
+            VNFuncDef4* farg4  = &static_cast<VNFuncDef4*>(c->m_defs)[offset];
+            funcApp->m_func    = farg4->m_func;
+            funcApp->m_arity   = 4;
+            funcApp->m_args[0] = farg4->m_arg0;
+            funcApp->m_args[1] = farg4->m_arg1;
+            funcApp->m_args[2] = farg4->m_arg2;
+            funcApp->m_args[3] = farg4->m_arg3;
             return funcApp->m_func;
         }
         case ChunkKind::Func3:
         {
-            VNDefFunc3Arg* farg3 = &static_cast<VNDefFunc3Arg*>(c->m_defs)[offset];
-            funcApp->m_func      = farg3->m_func;
-            funcApp->m_arity     = 3;
-            funcApp->m_args[0]   = farg3->m_arg0;
-            funcApp->m_args[1]   = farg3->m_arg1;
-            funcApp->m_args[2]   = farg3->m_arg2;
+            VNFuncDef3* farg3  = &static_cast<VNFuncDef3*>(c->m_defs)[offset];
+            funcApp->m_func    = farg3->m_func;
+            funcApp->m_arity   = 3;
+            funcApp->m_args[0] = farg3->m_arg0;
+            funcApp->m_args[1] = farg3->m_arg1;
+            funcApp->m_args[2] = farg3->m_arg2;
             return funcApp->m_func;
         }
         case ChunkKind::Func2:
         {
-            VNDefFunc2Arg* farg2 = &static_cast<VNDefFunc2Arg*>(c->m_defs)[offset];
-            funcApp->m_func      = farg2->m_func;
-            funcApp->m_arity     = 2;
-            funcApp->m_args[0]   = farg2->m_arg0;
-            funcApp->m_args[1]   = farg2->m_arg1;
+            VNFuncDef2* farg2  = &static_cast<VNFuncDef2*>(c->m_defs)[offset];
+            funcApp->m_func    = farg2->m_func;
+            funcApp->m_arity   = 2;
+            funcApp->m_args[0] = farg2->m_arg0;
+            funcApp->m_args[1] = farg2->m_arg1;
             return funcApp->m_func;
         }
         case ChunkKind::Func1:
         {
-            VNDefFunc1Arg* farg1 = &static_cast<VNDefFunc1Arg*>(c->m_defs)[offset];
-            funcApp->m_func      = farg1->m_func;
-            funcApp->m_arity     = 1;
-            funcApp->m_args[0]   = farg1->m_arg0;
+            VNFuncDef1* farg1  = &static_cast<VNFuncDef1*>(c->m_defs)[offset];
+            funcApp->m_func    = farg1->m_func;
+            funcApp->m_arity   = 1;
+            funcApp->m_args[0] = farg1->m_arg0;
             return funcApp->m_func;
         }
         case ChunkKind::Func0:
         {
-            VNDefFunc0Arg* farg0 = &static_cast<VNDefFunc0Arg*>(c->m_defs)[offset];
-            funcApp->m_func      = farg0->m_func;
-            funcApp->m_arity     = 0;
+            VNFuncDef0* farg0 = &static_cast<VNFuncDef0*>(c->m_defs)[offset];
+            funcApp->m_func   = farg0->m_func;
+            funcApp->m_arity  = 0;
             return funcApp->m_func;
         }
         case ChunkKind::NotAField:
