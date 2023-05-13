@@ -259,7 +259,7 @@ int RangeCheck::GetArrayLength(ValueNum vn) const
 {
     VNFuncApp funcApp;
 
-    if (vnStore->GetVNFunc(vn, &funcApp) != GT_ARR_LENGTH)
+    if (vnStore->GetVNFunc(vn, &funcApp) != VNOP_ARR_LENGTH)
     {
         return -1;
     }

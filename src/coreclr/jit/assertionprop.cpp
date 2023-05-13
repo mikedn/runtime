@@ -367,7 +367,7 @@ private:
             ValueNum  vn = vnStore->VNNormalValue(addr->GetConservativeVN());
             VNFuncApp funcApp;
 
-            while ((vnStore->GetVNFunc(vn, &funcApp) == GT_ADD) && (vnStore->TypeOfVN(vn) == TYP_BYREF))
+            while ((vnStore->GetVNFunc(vn, &funcApp) == VNOP_ADD) && (vnStore->TypeOfVN(vn) == TYP_BYREF))
             {
                 if (vnStore->IsVNConstant(funcApp[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[1])))
                 {
@@ -1964,7 +1964,7 @@ private:
 
         ValueNum baseVN = vn;
 
-        for (VNFuncApp funcApp; vnStore->GetVNFunc(baseVN, &funcApp) == GT_ADD;)
+        for (VNFuncApp funcApp; vnStore->GetVNFunc(baseVN, &funcApp) == VNOP_ADD;)
         {
             if (vnStore->IsVNConstant(funcApp[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[1])))
             {

@@ -28,14 +28,17 @@
 
 enum VNFunc
 {
-    VNF_None = GT_NONE,
-    // All members of the enumeration genTreeOps are also members of VNFunc.
-    // (Though some of these may be labeled "illegal").
-    VNF_Boundary = GT_COUNT,
+#define GTNODE(n, s, k) VNOP_##n,
+#include "gtlist.h"
+    VNF_Boundary,
 #define ValueNumFuncDef(nm, arity, commute, knownNonNull, sharedStatic) VNF_##nm,
 #include "valuenumfuncs.h"
-    VNF_Count
+    VNF_Count,
+    VNF_None = VNOP_NONE
 };
+
+static_assert_no_msg(static_cast<unsigned>(GT_NONE) == static_cast<unsigned>(VNOP_NONE));
+static_assert_no_msg(static_cast<unsigned>(GT_COUNT) == static_cast<unsigned>(VNF_Boundary));
 
 constexpr VNFunc VNFuncIndex(VNFunc vnf)
 {

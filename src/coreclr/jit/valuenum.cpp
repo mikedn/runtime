@@ -2531,8 +2531,8 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
             // If arg0 has a possible exception, it wouldn't have been constant.
             assert(!VNHasExc(arg0VN));
             // Otherwise...
-            assert(arg0VN == VNForNull());         // Only other REF constant.
-            assert(func == VNFunc(GT_ARR_LENGTH)); // Only function we can apply to a REF constant!
+            assert(arg0VN == VNForNull());   // Only other REF constant.
+            assert(func == VNOP_ARR_LENGTH); // Only function we can apply to a REF constant!
             return VNWithExc(VNForVoid(), VNExcSetSingleton(VNForFunc(TYP_REF, VNF_NullPtrExc, VNForNull())));
         }
         default:
@@ -4117,7 +4117,7 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
         ValueNum      unscaledOffsetVN;
         target_size_t scale;
 
-        if (offsetVNFunc.m_func == VNFunc(GT_MUL))
+        if (offsetVNFunc.m_func == VNOP_MUL)
         {
             ValueNum scaleVN;
 
@@ -4138,7 +4138,7 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
 
             scale = CoercedConstantValue<target_size_t>(scaleVN);
         }
-        else if (offsetVNFunc.m_func == VNFunc(GT_LSH))
+        else if (offsetVNFunc.m_func == VNOP_LSH)
         {
             ValueNum scaleVN;
 
@@ -4172,7 +4172,7 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
         }
         else if ((scale > elemSize) && (scale % elemSize == 0))
         {
-            offsetVN = VNForFunc(TYP_I_IMPL, VNFunc(GT_MUL), unscaledOffsetVN, VNForUPtrSizeIntCon(scale / elemSize));
+            offsetVN = VNForFunc(TYP_I_IMPL, VNOP_MUL, unscaledOffsetVN, VNForUPtrSizeIntCon(scale / elemSize));
             elemSize = 1;
         }
         else
@@ -4197,12 +4197,12 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
     }
     else
     {
-        indexVN = VNForFunc(TYP_I_IMPL, VNFunc(GT_DIV), offsetVN, VNForUPtrSizeIntCon(elemSize));
+        indexVN = VNForFunc(TYP_I_IMPL, VNOP_DIV, offsetVN, VNForUPtrSizeIntCon(elemSize));
     }
 
     if (index != 0)
     {
-        indexVN = VNForFunc(TYP_I_IMPL, VNFunc(GT_ADD), indexVN, VNForUPtrSizeIntCon(index));
+        indexVN = VNForFunc(TYP_I_IMPL, VNOP_ADD, indexVN, VNForUPtrSizeIntCon(index));
     }
 
     return indexVN;
@@ -5848,7 +5848,7 @@ bool ValueNumStore::IsVNCheckedBound(ValueNum vn)
     // directly used in a bounds check, and having the map entry will let us update
     // the compare's VN so that OptimizeRangeChecks can recognize such compares.
     VNFuncApp funcApp;
-    return GetVNFunc(vn, &funcApp) == GT_ARR_LENGTH;
+    return GetVNFunc(vn, &funcApp) == VNOP_ARR_LENGTH;
 }
 
 void ValueNumStore::SetVNIsCheckedBound(ValueNum vn)
@@ -8820,44 +8820,44 @@ VNFunc ValueNumbering::GetHelperCallFunc(CorInfoHelpFunc helpFunc)
     {
         // These translate to other function symbols:
         case CORINFO_HELP_DIV:
-            vnf = VNFunc(GT_DIV);
+            vnf = VNOP_DIV;
             break;
         case CORINFO_HELP_MOD:
-            vnf = VNFunc(GT_MOD);
+            vnf = VNOP_MOD;
             break;
         case CORINFO_HELP_UDIV:
-            vnf = VNFunc(GT_UDIV);
+            vnf = VNOP_UDIV;
             break;
         case CORINFO_HELP_UMOD:
-            vnf = VNFunc(GT_UMOD);
+            vnf = VNOP_UMOD;
             break;
         case CORINFO_HELP_LLSH:
-            vnf = VNFunc(GT_LSH);
+            vnf = VNOP_LSH;
             break;
         case CORINFO_HELP_LRSH:
-            vnf = VNFunc(GT_RSH);
+            vnf = VNOP_RSH;
             break;
         case CORINFO_HELP_LRSZ:
-            vnf = VNFunc(GT_RSZ);
+            vnf = VNOP_RSZ;
             break;
         case CORINFO_HELP_LMUL:
         case CORINFO_HELP_LMUL_OVF:
-            vnf = VNFunc(GT_MUL);
+            vnf = VNOP_MUL;
             break;
         case CORINFO_HELP_ULMUL_OVF:
-            vnf = VNFunc(GT_MUL);
+            vnf = VNOP_MUL;
             break; // Is this the right thing?
         case CORINFO_HELP_LDIV:
-            vnf = VNFunc(GT_DIV);
+            vnf = VNOP_DIV;
             break;
         case CORINFO_HELP_LMOD:
-            vnf = VNFunc(GT_MOD);
+            vnf = VNOP_MOD;
             break;
         case CORINFO_HELP_ULDIV:
-            vnf = VNFunc(GT_UDIV);
+            vnf = VNOP_UDIV;
             break;
         case CORINFO_HELP_ULMOD:
-            vnf = VNFunc(GT_UMOD);
+            vnf = VNOP_UMOD;
             break;
 
         case CORINFO_HELP_LNG2DBL:
@@ -8891,10 +8891,10 @@ VNFunc ValueNumbering::GetHelperCallFunc(CorInfoHelpFunc helpFunc)
             vnf = VNF_Dbl2ULng;
             break;
         case CORINFO_HELP_FLTREM:
-            vnf = VNFunc(GT_FMOD);
+            vnf = VNOP_FMOD;
             break;
         case CORINFO_HELP_DBLREM:
-            vnf = VNFunc(GT_FMOD);
+            vnf = VNOP_FMOD;
             break;
         case CORINFO_HELP_FLTROUND:
             vnf = VNF_FltRound;
@@ -9184,7 +9184,7 @@ ValueNum ValueNumbering::GetBaseAddr(ValueNum addrVN)
     ssize_t   offset = 0;
     VNFuncApp funcApp;
 
-    while ((vnStore->GetVNFunc(baseVN, &funcApp) == GT_ADD) && (vnStore->TypeOfVN(baseVN) == TYP_BYREF))
+    while ((vnStore->GetVNFunc(baseVN, &funcApp) == VNOP_ADD) && (vnStore->TypeOfVN(baseVN) == TYP_BYREF))
     {
         // The arguments in value numbering functions are sorted in increasing order
         // Thus either arg could be the constant.
