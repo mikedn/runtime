@@ -19,12 +19,8 @@ ValueNumFuncDef(LclAddr, 3, false, true, false)       // Address of a local vari
 ValueNumFuncDef(PtrToArrElem, 4, false, false, false) // Pointer (byref) to an array element.  Args: 0: array elem type num, 1: array, 2: index, 3: FieldSeq.
 ValueNumFuncDef(PtrToStatic, 1, false, true, false)   // Pointer (byref) to a static variable (or possibly a field thereof, if the static variable is a struct).  Args: 0: FieldSeq, first element
                                                       // of which is the static var.
-ValueNumFuncDef(Phi, 2, false, false, false)          // A phi function.  Only occurs as arg of PhiDef or PhiMemoryDef.  Arguments are SSA numbers of var being defined.
-// TODO-MIKE-Cleanup: PhiDef & PhiMemoryDef need only the loop number, not the BasicBlock.
-// Using the BasicBlock causes issues because the resulting PHI def VN is different in every
-// BasicBlock, even if the PHI VN arg is the same. Well, using the loop number doesn't avoid
-// the issue, 2 different loops with the same entry memory VN would still get different PHI
-// def VNs, but that's less likely to happen.
+ValueNumFuncDef(Phi, 2, false, false, false)          // A phi function.  Only occurs as arg of PhiDef or PhiMemoryDef.
+                                                      // Arguments are GenTreeLclDef* or MemoryPhiArg*.
 ValueNumFuncDef(PhiDef, 3, false, false, false)       // Args: 0: VNF_Phi, 1: BasicBlock*, 2: lclNum
 ValueNumFuncDef(PhiMemoryDef, 2, false, false, false) // Args: 0: VNF_Phi, 1: BasicBlock*
 
