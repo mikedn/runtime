@@ -11335,6 +11335,13 @@ regMaskTP LinearScan::RegisterSelection::select(Interval*    currentInterval,
         if (currentInterval->isWriteThru)
         {
             // We'll only prefer a callee-save register if it's already been used.
+            // TODO-MIKE-Review: It's not obvious why this is done. It doesn't make
+            // a lot of sense to do it without considering at least the weight of
+            // the refs - just because a local has EH uses doesn't mean it can't be
+            // used in performance sensitive code. This is more or less responsible
+            // for the regressions introduced by the removal of optAddCopies. Doing
+            // this only for small weights fixes those regressions but produces new
+            // regressions in other methods that didn't even have copies added.
             regMaskTP unusedCalleeSaves = calleeSaveCandidates & ~linearScan->m_allocateRegs;
             callerCalleePrefs           = calleeSaveCandidates & ~unusedCalleeSaves;
             preferences &= ~unusedCalleeSaves;
