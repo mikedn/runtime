@@ -272,7 +272,6 @@ public:
 #endif
     unsigned char lvSingleDef : 1; // variable has a single def
                                    // before lvaMarkLocalVars: identifies ref type locals that can get type updates
-                                   // after lvaMarkLocalVars: identifies locals that are suitable for optAddCopies
 
     unsigned char lvSingleDefRegCandidate : 1; // variable has a single def and hence is a register candidate
                                                // Currently, this is only used to decide if an EH variable can be
@@ -287,10 +286,6 @@ public:
                                           // Note: We cannot reuse lvSingleDefRegCandidate because it is set
                                           // in earlier phase and the information might not be appropriate
                                           // in LSRA.
-
-#if ASSERTION_PROP
-    unsigned char lvDisqualifyAddCopy : 1; // local isn't a candidate for optAddCopies
-#endif
 
     unsigned char lvEHLive : 1; // local has EH references
 
@@ -698,16 +693,14 @@ public:
 private:
     ClassLayout*  m_layout;   // layout info for structs
     FieldSeqNode* m_fieldSeq; // field sequence for promoted struct fields
-public:
-#if ASSERTION_PROP
-    BlockSet   lvUseBlocks; // Set of blocks that contain uses
-    Statement* lvDefStmt;   // Pointer to the statement with the single definition
-#endif
-private:
-    unsigned m_dummy; // Keep the old LclVarDsc size (104 on x64), removing it results in a significant PIN regression
-                      // because both MSVC and Clang use a LEA/SHL sequence for the new size (96) instead of IMUL.
-                      // In theory LEA/SHL saves one cycle of latency but it's far from clear that the increase in code
-                      // size is worth it.
+
+    // Keep the old LclVarDsc size (104 on x64), removing it results in a significant PIN regression
+    // because both MSVC and Clang use a LEA/SHL sequence for the new size (96) instead of IMUL.
+    // In theory LEA/SHL saves one cycle of latency but it's far from clear that the increase in code
+    // size is worth it.
+    void*    m_dummy1;
+    void*    m_dummy2;
+    unsigned m_dummy3;
 
 public:
     var_types GetType() const
@@ -4297,10 +4290,6 @@ protected:
 
     void fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder);
 
-    BlockSet_ValRet_T fgGetDominatorSet(BasicBlock* block); // Returns a set of blocks that dominate the given block.
-    // Note: this is relatively slow compared to calling fgDominate(),
-    // especially if dealing with a single block versus block check.
-
     void fgComputeReachabilitySets(); // Compute bbReach sets. (Also sets BBF_GC_SAFE_POINT flag on blocks.)
 
     void fgComputeEnterBlocksSet(); // Compute the set of entry blocks, 'fgEnterBlks'.
@@ -5474,9 +5463,6 @@ private:
     void morphAssertionTrace(const MorphAssertion& assertion, GenTree* node, const char* message);
 #endif
 #endif
-
-public:
-    void optAddCopies();
 #endif // ASSERTION_PROP
 
 public:

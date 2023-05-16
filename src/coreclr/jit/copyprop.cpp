@@ -288,7 +288,9 @@ public:
             // turns out to make things worse and the cost of unaligned access is usually small on modern
             // CPUs. And the overall approach is dubious anyway since such parameters can be enregistered.
             // If spilling is needed then it would make more sense to just spill into a local slot instead
-            // of the parameter's home. See also local copy assertion propagation and optAddCopies.
+            // of the parameter's home. See also local copy assertion propagation.
+            // "optAddCopies" also used to add a copy for such params, probably with the intention that
+            // copy prop will pick it up, but that didn't seem to work as intended.
             if (lcl->TypeIs(TYP_DOUBLE) && !lcl->IsParam() && newLcl->IsParam())
             {
                 continue;

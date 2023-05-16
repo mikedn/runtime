@@ -2596,7 +2596,6 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     else
     {
         DoPhase(this, PHASE_REF_COUNT_LOCAL_VARS, &Compiler::phRefCountLocals);
-        DoPhase(this, PHASE_ADD_COPIES, &Compiler::optAddCopies);
         DoPhase(this, PHASE_OPTIMIZE_BOOLS, &Compiler::optOptimizeBools);
 
         // optOptimizeBools() might have changed the number of blocks;

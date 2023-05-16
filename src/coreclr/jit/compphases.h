@@ -63,9 +63,6 @@ CompPhaseNameMacro(PHASE_HOIST_LOOP_CODE,        "Hoist loop code",             
 CompPhaseNameMacro(PHASE_ADD_LOCAL_VARS,         "Add local vars",                 "ADD-LCL",  false, -1, false)
 CompPhaseNameMacro(PHASE_IMPLICIT_REF_LOCAL_VARS,"Implicit ref local vars",        "IMPL-LCL", false, -1, false)
 CompPhaseNameMacro(PHASE_REF_COUNT_LOCAL_VARS,   "Ref count local vars",           "REF-LCL",  false, -1, false)
-#if ASSERTION_PROP
-CompPhaseNameMacro(PHASE_ADD_COPIES,             "Add copies",                     "ADD_COPY", false, -1, false)
-#endif
 CompPhaseNameMacro(PHASE_OPTIMIZE_BOOLS,         "Optimize bools",                 "OPT-BOOL", false, -1, false)
 CompPhaseNameMacro(PHASE_FIND_OPER_ORDER,        "Find oper order",                "OPER-ORD", false, -1, false)
 CompPhaseNameMacro(PHASE_SET_FULLY_INTERRUPTIBLE,"Set fully interruptible",        "FULLY-INT",false, -1, true)

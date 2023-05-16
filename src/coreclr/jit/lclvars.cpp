@@ -2466,9 +2466,6 @@ void Compiler::lvaComputeRefCountsHIR()
                 {
                     LclVarDsc* lcl = m_compiler->lvaGetDesc(node->AsLclAddr());
                     assert(lcl->IsAddressExposed());
-#if ASSERTION_PROP
-                    DisqualifyAddCopy(lcl);
-#endif
                     m_compiler->lvaAddRef(lcl, 0);
                 }
                 break;
@@ -2495,9 +2492,6 @@ void Compiler::lvaComputeRefCountsHIR()
             if (lcl->IsAddressExposed() || node->OperIs(GT_LCL_FLD))
             {
                 lcl->lvIsBoolean = false;
-#if ASSERTION_PROP
-                DisqualifyAddCopy(lcl);
-#endif
             }
 
             if (node->OperIs(GT_LCL_FLD))
@@ -2524,39 +2518,6 @@ void Compiler::lvaComputeRefCountsHIR()
             {
                 lcl->lvEHLive = true;
             }
-
-#if ASSERTION_PROP
-            if (!lcl->lvDisqualifyAddCopy)
-            {
-                if ((node->gtFlags & GTF_VAR_DEF) != 0)
-                {
-                    // TODO-MIKE-Consider: "single def" doesn't apply to address exposed locals.
-                    // There's a pretty good chance that a local that's not AX will be in SSA,
-                    // can we simply check the SSA def count instead?
-
-                    if (lcl->lvSingleDef)
-                    {
-                        // It's already single-def so this must be a second def.
-                        DisqualifyAddCopy(lcl);
-                    }
-                    else
-                    {
-                        // It's neither single-def nor disqualified, this must be the first def.
-                        lcl->lvSingleDef = true;
-                        lcl->lvDefStmt   = m_stmt;
-                    }
-                }
-                else
-                {
-                    if (BlockSetOps::MayBeUninit(lcl->lvUseBlocks))
-                    {
-                        lcl->lvUseBlocks = BlockSetOps::MakeEmpty(m_compiler);
-                    }
-
-                    BlockSetOps::AddElemD(m_compiler, lcl->lvUseBlocks, m_block->bbNum);
-                }
-            }
-#endif // ASSERTION_PROP
 
             if (!lcl->lvDisqualifySingleDefRegCandidate && ((node->gtFlags & GTF_VAR_DEF) != 0))
             {
@@ -2596,15 +2557,6 @@ void Compiler::lvaComputeRefCountsHIR()
                     }
                 }
             }
-        }
-
-        void DisqualifyAddCopy(LclVarDsc* lcl)
-        {
-#if ASSERTION_PROP
-            lcl->lvDisqualifyAddCopy = true;
-            lcl->lvSingleDef         = false;
-            lcl->lvDefStmt           = nullptr;
-#endif
         }
     };
 
@@ -2857,14 +2809,13 @@ void Compiler::lvaComputeLclRefCounts()
             lcl->SetRefWeight(BB_ZERO_WEIGHT);
         }
 
-        // TODO-MIKE-Review: lvSingleDef isn't used in LIR so we might as well set it and be done with it.
-        // lvSingleDefRegCandidate is bizarre. It's mainly a LSRA thing yet we're computing it before LIR.
-        // It can influence DNER so computing it early may be a good thing but it's still a bit odd that
-        // it is not recomputed. Are we guaranteed that there's transform that introduces new defs? Loop
-        // cloning/unrolling could do that, but it looks like this loop defs aren't candidates.
+        // TODO-MIKE-Review: lvSingleDefRegCandidate is bizarre. It's mainly a LSRA thing yet we're
+        // computing it before LIR. It can influence DNER so computing it early may be a good thing
+        // but it's still a bit odd that it is not recomputed. Are we guaranteed that there's no
+        // transform that introduces new defs? Loop cloning/unrolling could do that, but it looks
+        // like this loop defs aren't candidates.
         if (!compRationalIRForm)
         {
-            lcl->lvSingleDef             = lcl->IsParam() || info.compInitMem;
             lcl->lvSingleDefRegCandidate = lcl->IsParam();
         }
     }

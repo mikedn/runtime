@@ -972,7 +972,7 @@ GenTree* Compiler::morphAssertionPropagateLclVarCopy(const MorphAssertion& asser
     // turns out to make things worse and the cost of unaligned access is usually small on modern
     // CPUs. And the overall approach is dubious anyway since such parameters can be enregistered.
     // If spilling is needed then it would make more sense to just spill into a local slot instead
-    // of the parameter's home. See also VN copy prop and optAddCopies.
+    // of the parameter's home. See also VN copy prop (and old optAddCopies).
     if (lcl->TypeIs(TYP_DOUBLE))
     {
         if (lcl->IsParam())
