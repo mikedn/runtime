@@ -4780,7 +4780,7 @@ void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
                 valueVNP.SetLiberal(vnStore->VNForBitCast(valueVNP.GetLiberal(), def->GetType()));
                 valueVNP.SetConservative(vnStore->VNForBitCast(valueVNP.GetConservative(), def->GetType()));
             }
-            else
+            else if (varActualType(valueType) != defType)
             {
                 // TODO-MIKE-CQ: This inserts superfluous casts for all sort of small int/INT mismatches,
                 // these ultimately impact CSE because they make the stored value appear to be different
