@@ -164,10 +164,10 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
             // what the local var is typed as, so auto-promote it here
             // unless it is a field of a promoted struct
             // TODO-CQ: if the field is promoted shouldn't we also be able to do this?
-            if (!varDsc->lvIsStructField && !varDsc->lvWasStructField)
+            if (!varDsc->IsPromotedField())
             {
-                store->gtType = TYP_INT;
-                con->SetIconValue(ival);
+                store->SetType(TYP_INT);
+                con->SetValue(ival);
             }
         }
     }

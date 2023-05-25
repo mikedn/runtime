@@ -148,8 +148,7 @@ bool SsaBuilder::IncludeInSsa(unsigned lclNum)
             {
                 LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-                fieldLcl->lvIsStructField  = false;
-                fieldLcl->lvWasStructField = true;
+                fieldLcl->lvIsStructField = false;
             }
 
             lcl->lvPromoted = false;
