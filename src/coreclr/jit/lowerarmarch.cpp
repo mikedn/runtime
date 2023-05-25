@@ -126,48 +126,41 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    GenTree* src = store->GetOp(0);
-
-    if (src->OperIs(GT_CNS_INT))
+    if (GenTreeIntCon* con = store->GetOp(0)->IsIntCon())
     {
-        // Try to widen the ops if they are going into a local var.
-        GenTreeIntCon* con    = src->AsIntCon();
-        ssize_t        ival   = con->gtIconVal;
-        unsigned       varNum = store->GetLclNum();
-        LclVarDsc*     varDsc = comp->lvaGetDesc(varNum);
+        LclVarDsc* lcl = comp->lvaGetDesc(store);
 
-        unsigned size = genTypeSize(store);
-        // If we are storing a constant into a local variable
-        // we extend the size of the store here
-        if ((size < 4) && !varTypeIsStruct(varDsc))
+        // TODO-MIKE-Review: This code is likely useless on ARM64, str and strh/strb
+        // have the same encoding size. Also, the imm adjustment appears to have been
+        // mindlessly copied from x86.
+
+        if (varTypeIsSmall(store->GetType()) && !lcl->IsPromotedField())
         {
-            if (!varTypeIsUnsigned(varDsc))
+            var_types type = store->GetType();
+            store->SetType(TYP_INT);
+
+            if (!varTypeIsUnsigned(lcl->GetType()))
             {
-                if (genTypeSize(store) == 1)
+                ssize_t value = con->GetValue();
+
+                if (varTypeIsByte(type))
                 {
-                    if ((ival & 0x7f) != ival)
+                    if ((value & 0x7f) != value)
                     {
-                        ival = ival | 0xffffff00;
+                        value |= 0xffffff00;
                     }
                 }
                 else
                 {
-                    assert(genTypeSize(store) == 2);
-                    if ((ival & 0x7fff) != ival)
+                    assert(varTypeIsShort(type));
+
+                    if ((value & 0x7fff) != value)
                     {
-                        ival = ival | 0xffff0000;
+                        value |= 0xffff0000;
                     }
                 }
-            }
 
-            // A local stack slot is at least 4 bytes in size, regardless of
-            // what the local var is typed as, so auto-promote it here
-            // unless it is a field of a promoted struct
-            // TODO-CQ: if the field is promoted shouldn't we also be able to do this?
-            if (!varDsc->IsPromotedField())
-            {
-                store->SetType(TYP_INT);
-                con->SetValue(ival);
+                con->SetValue(value);
             }
         }
     }
