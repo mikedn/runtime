@@ -3285,8 +3285,14 @@ private:
                     }
                     break;
 
-                // TODO-MIKE-CQ: This doesn't handle some helper calls that can be evaluated to
-                // constants, like CORINFO_HELP_FLTREM and CORINFO_HELP_DBLREM.
+#ifndef TARGET_64BIT
+                case GT_CALL:
+                    if (!tree->AsCall()->IsHelperCall() || !IsPureHelperCall(tree->AsCall()))
+                    {
+                        return Compiler::WALK_CONTINUE;
+                    }
+                    break;
+#endif
 
                 default:
                     return Compiler::WALK_CONTINUE;
@@ -3338,9 +3344,27 @@ private:
             return Compiler::WALK_CONTINUE;
         }
 
+#ifndef TARGET_64BIT
+        bool IsPureHelperCall(GenTreeCall* call)
+        {
+            assert(call->IsHelperCall());
+
+            // TODO-MIKE-CQ: See what other helper calls benefit from this.
+            // Also, perhaps use Compiler::s_helperCallProperties?
+
+            switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
+            {
+                case CORINFO_HELP_LMUL:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+#endif
+
         GenTree* GetConstNode(GenTree* tree)
         {
-            ValueNum vn = m_vnStore->VNConservativeNormalValue(tree->gtVNPair);
+            ValueNum vn = m_vnStore->VNNormalValue(tree->GetConservativeVN());
 
             if (!m_vnStore->IsVNConstant(vn))
             {
@@ -3435,7 +3459,7 @@ private:
             }
 
             // Do a sanity check to ensure persistent side effects aren't discarded.
-            assert(!m_compiler->gtNodeHasSideEffects(tree, GTF_PERSISTENT_SIDE_EFFECTS));
+            assert(!m_compiler->gtNodeHasSideEffects(tree, GTF_PERSISTENT_SIDE_EFFECTS) || tree->IsHelperCall());
 
             // Exception side effects on root may be ignored because the root is known to be a constant
             // (e.g. VN may evaluate a DIV/MOD node to a constant and the node may still
