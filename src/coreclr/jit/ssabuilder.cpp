@@ -149,6 +149,11 @@ bool SsaBuilder::IncludeInSsa(unsigned lclNum)
                 LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
                 fieldLcl->lvIsStructField = false;
+
+                if (varTypeIsSmall(fieldLcl->GetType()))
+                {
+                    fieldLcl->SetType(TYP_INT);
+                }
             }
 
             lcl->lvPromoted = false;
