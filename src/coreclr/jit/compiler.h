@@ -307,7 +307,8 @@ public:
                                   // 32-bit target.  For implicit byref parameters, this gets hijacked between
     // lvaRetypeImplicitByRefParams and lvaDemoteImplicitByRefParams to indicate whether
     // references to the arg are being rewritten as references to a promoted shadow local.
-    unsigned char lvIsStructField : 1;     // Is this local var a field of a promoted struct local?
+    unsigned char lvIsStructField : 1; // Is this local var a field of a promoted struct local?
+    unsigned char lvWasStructField : 1;
     unsigned char lvOverlappingFields : 1; // True when we have a struct with possibly overlapping fields
     unsigned char lvContainsHoles : 1;     // True when we have a promoted struct that contains holes
     unsigned char lvCustomLayout : 1;      // True when this struct has "CustomLayout"
@@ -770,14 +771,14 @@ public:
     {
         return varTypeIsSmall(lvType) &&
                // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclVarStore.
-               (lvIsParam || lvAddrExposed || lvIsStructField);
+               (lvIsParam || lvAddrExposed || lvIsStructField || lvWasStructField);
     }
 
     bool lvNormalizeOnStore() const
     {
         return varTypeIsSmall(lvType) &&
                // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclVarStore.
-               !(lvIsParam || lvAddrExposed || lvIsStructField);
+               !(lvIsParam || lvAddrExposed || lvIsStructField || lvWasStructField);
     }
 
     // Returns true if this variable contains GC pointers (including being a GC pointer itself).

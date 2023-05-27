@@ -142,6 +142,26 @@ bool SsaBuilder::IncludeInSsa(unsigned lclNum)
 
     if (!lcl->HasLiveness())
     {
+        if (lcl->IsIndependentPromoted() && !lcl->IsParam() && !lcl->lvIsMultiRegRet)
+        {
+            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+            {
+                LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+
+                fieldLcl->lvIsStructField = false;
+                // TODO-MIKE-CQ: Remove this. Causes all sorts of diffs due to small int "normalization"
+                // changes, and promotion of LONG fields on 32 bit targets.
+                // Diffs are mostly an improvement but there are also some significant regressions, due
+                // to extra CSEs (some with bogus defs) and poor register allocation, especially on x86
+                // where low number of available registers impacts LONG field promotion.
+                // Poor decomposition appears to make things worse (e.g. load/store decomposition does
+                // not attempt to fold the 4 byte offset with an existing offset).
+                fieldLcl->lvWasStructField = true;
+            }
+
+            lcl->lvPromoted = false;
+        }
+
         return false;
     }
 

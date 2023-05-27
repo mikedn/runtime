@@ -34,47 +34,47 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
 
     GenTree* src = store->GetOp(0);
 
-    if (src->OperIs(GT_CNS_INT))
+    if (GenTreeIntCon* con = src->IsIntCon())
     {
-        GenTreeIntCon* con  = src->AsIntCon();
-        ssize_t        ival = con->gtIconVal;
+        LclVarDsc* lcl = comp->lvaGetDesc(store);
 
-        unsigned   varNum = store->GetLclNum();
-        LclVarDsc* varDsc = comp->lvaTable + varNum;
+        // TODO-MIKE-Review: Is there any point in widening byte stores?
+        // For short stores we avoid a 66h prefix but for byte store we
+        // just end up with a 32 bit imm for no obvious reason.
+        // And the imm adjustment is as dubious as it gets, such a store
+        // will use a 32 bit imm anyway, unlike other 32 bit instructions
+        // that may use a 8 bit sign extended imm. It doesn't even do it
+        // correctly on x64, only the lower 32 bits are adjusted...
 
-        unsigned size = genTypeSize(store);
-        // If we are storing a constant into a local variable
-        // we extend the size of the store here
-        if ((size < 4) && !varTypeIsStruct(varDsc))
+        if (varTypeIsSmall(store->GetType()) && !lcl->IsPromotedField() && !lcl->lvWasStructField)
         {
-            if (!varTypeIsUnsigned(varDsc))
+            assert(varActualTypeIsInt(lcl->GetType()));
+
+            if (!varTypeIsUnsigned(lcl->GetType()))
             {
-                if (genTypeSize(store) == 1)
+                ssize_t value = con->GetValue();
+
+                if (varTypeIsByte(store->GetType()))
                 {
-                    if ((ival & 0x7f) != ival)
+                    if ((value & 0x7f) != value)
                     {
-                        ival = ival | 0xffffff00;
+                        value |= 0xffffff00;
                     }
                 }
                 else
                 {
-                    assert(genTypeSize(store) == 2);
-                    if ((ival & 0x7fff) != ival)
+                    assert(varTypeIsShort(store->GetType()));
+
+                    if ((value & 0x7fff) != value)
                     {
-                        ival = ival | 0xffff0000;
+                        value |= 0xffff0000;
                     }
                 }
+
+                con->SetValue(value);
             }
 
-            // A local stack slot is at least 4 bytes in size, regardless of
-            // what the local var is typed as, so auto-promote it here
-            // unless it is a field of a promoted struct
-            // TODO-XArch-CQ: if the field is promoted shouldn't we also be able to do this?
-            if (!varDsc->lvIsStructField)
-            {
-                store->gtType = TYP_INT;
-                con->SetIconValue(ival);
-            }
+            store->SetType(TYP_INT);
         }
     }
 
