@@ -508,17 +508,22 @@ private:
         {
             GenTree* dst = node->AsOp()->GetOp(0);
 
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+            if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD) &&
+                compiler->lvaGetDesc(dst->AsLclVarCommon())->lvIsImplicitByRefArgTemp)
+            {
+                return true;
+            }
+#endif
+
             if (isInsideTry)
             {
                 // Inside try we allow only assignments to locals not live in handlers.
                 // TODO-MIKE-Review: This should probably check AX too.
                 return dst->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(dst->AsLclVar())->lvEHLive;
             }
-            else
-            {
-                // We disallow only assignments to global memory.
-                return (dst->gtFlags & GTF_GLOB_REF) == 0;
-            }
+
+            return (dst->gtFlags & GTF_GLOB_REF) == 0;
         }
 
         if (GenTreeLclDef* def = node->IsLclDef())
@@ -526,15 +531,13 @@ private:
             if (isInsideTry)
             {
                 // TODO-MIKE-Review: This IsInsert check is probably bogus, it's here because the
-                // old code specifically checked for LCL_VAR, rejecting LCL_FLD ASG destionations.
+                // old code specifically checked for LCL_VAR, rejecting LCL_FLD ASG destinations.
                 // Also, what we really care about here is if this particular definition of the
                 // local has EH uses, all other defs are irrelevant.
                 return !def->GetValue()->IsInsert() && !compiler->lvaGetDesc(def->GetLclNum())->lvEHLive;
             }
-            else
-            {
-                return true;
-            }
+
+            return true;
         }
 
         return !isInsideTry && (!node->OperRequiresAsgFlag() || ((node->gtFlags & GTF_GLOB_REF) == 0));
@@ -569,11 +572,8 @@ private:
                 // TODO-MIKE-Review: This should probably check AX too.
                 return dst->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(dst->AsLclVar())->lvEHLive;
             }
-            else
-            {
-                // We disallow only assignments to global memory.
-                return (dst->gtFlags & GTF_GLOB_REF) == 0;
-            }
+
+            return (dst->gtFlags & GTF_GLOB_REF) == 0;
         }
 
         if (GenTreeLclDef* def = node->IsLclDef())
@@ -591,10 +591,8 @@ private:
                 // local has EH uses, all other defs are irrelevant.
                 return !def->GetValue()->IsInsert() && !compiler->lvaGetDesc(def->GetLclNum())->lvEHLive;
             }
-            else
-            {
-                return true;
-            }
+
+            return true;
         }
 
         return !isInsideTry && ((node->gtFlags & GTF_GLOB_REF) == 0);

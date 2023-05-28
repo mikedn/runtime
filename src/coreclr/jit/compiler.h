@@ -165,7 +165,9 @@ public:
                                          // struct promotion.
     unsigned char lvLiveInOutOfHndlr : 1; // The variable is live in or out of an exception handler, and therefore must
                                           // be on the stack (at least at those boundaries.)
-
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+    unsigned char lvIsImplicitByRefArgTemp : 1;
+#endif
     unsigned char m_isSsa : 1; // The variable is in SSA form (set by SsaBuilder)
 
 #ifdef DEBUG
@@ -6787,13 +6789,13 @@ public:
     GenTree* abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize);
     GenTree* abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg);
 #endif
-#ifndef TARGET_X86
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_ARM)
     unsigned abiAllocateStructArgTemp(ClassLayout* argLayout);
     void abiFreeAllStructArgTemps();
-#if TARGET_64BIT
+#endif
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     void abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
-#endif // !TARGET_X86
     void abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val);
 
     bool killGCRefs(GenTree* tree);

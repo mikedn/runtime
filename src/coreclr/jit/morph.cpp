@@ -1411,7 +1411,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
             // TODO-MIKE-Review: This check seems overly conservative. If an arg contains an
             // assignment then it only needs a temp if it will be moved to the late arg list
             // (because, say, it's a register arg), so the assignment doesn't reorder with
-            // subsequent args that may use whatver location the assignment changes.
+            // subsequent args that may use whatever location the assignment changes.
             //
             // Likewise, previous arguments only need temps if they're going to be moved to
             // the late arg list.
@@ -1529,7 +1529,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
     //     to the outgoing area since stack allocation moves the outgoing area. But:
     //     - The same is true on x86 - once args have been pushed, no stack allocation
     //       can be done. This was lumped together with GTF_EXCEPT checks but the two
-    //       are slighly different.
+    //       are slightly different.
     //     - Introducing a temp for the arg that uses LCLHEAP solves only one part of
     //       the problem. Temps must also be introduced for any previous stack args.
     //     - But IL requires the stack be empty before localalloc so it's not clear
@@ -1544,7 +1544,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
     //     That's because they're going to be moved to the late arg list so we need to
     //     ensure that the exception is still thrown at the right time. But:
     //     - What about non-x86 targets? These too have reg args that get moved to the
-    //       late arg list. Well, that's simple - exception are incorectly reordered on
+    //       late arg list. Well, that's simple - exception are incorrectly reordered on
     //       such targets: Sink(x, y, z, x / y, a[x]); throws DivByZero on x86 and NullRef
     //       on all other targets.
     //     - Also, such temps are not always required. They're only needed if subsequent
@@ -4931,7 +4931,7 @@ GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* ar
 
 #endif // FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
 
-#ifndef TARGET_X86
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_ARM)
 
 unsigned Compiler::abiAllocateStructArgTemp(ClassLayout* argLayout)
 {
@@ -4963,8 +4963,18 @@ unsigned Compiler::abiAllocateStructArgTemp(ClassLayout* argLayout)
 
     if (tempLclNum == BAD_VAR_NUM)
     {
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+        tempLclNum = lvaGrabTemp(true DEBUGARG("implicit-by-ref arg temp"));
+#else
         tempLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
-        lvaSetStruct(tempLclNum, argLayout, false);
+#endif
+
+        LclVarDsc* lcl = lvaGetDesc(tempLclNum);
+        lvaSetStruct(lcl, argLayout, false);
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+        lvaSetAddressExposed(lcl);
+        lcl->lvIsImplicitByRefArgTemp = true;
+#endif
 
         if (m_abiStructArgTemps != nullptr)
         {
@@ -4988,7 +4998,7 @@ void Compiler::abiFreeAllStructArgTemps()
     }
 }
 
-#endif // !TARGET_X86
+#endif // defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_ARM)
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
 
@@ -5060,11 +5070,6 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     unsigned   tempLclNum = abiAllocateStructArgTemp(argLayout);
     LclVarDsc* tempLcl    = lvaGetDesc(tempLclNum);
 
-    // These temps are passed by reference so they're always address taken.
-    // TODO-MIKE-Cleanup: Aren't they actually address exposed? If we only
-    // make them DNER they may still be tracked unnecessarily.
-    lvaSetDoNotEnregister(tempLcl DEBUGARG(DNER_IsStructArg));
-
     // Replace the argument with an assignment to the temp, EvalArgsToTemps will later add
     // a use of the temp to the late arg list.
 
@@ -5093,6 +5098,8 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     {
         dest = gtNewLclvNode(tempLclNum, tempLcl->GetType());
     }
+
+    dest->gtFlags |= GTF_GLOB_REF;
 
     GenTree* asg = gtNewAssignNode(dest, arg);
 
@@ -14085,7 +14092,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         GenTree* oldTree     = stmt->GetRootNode();
         GenTree* morphedTree = fgMorphTree(oldTree);
 
-#ifndef TARGET_X86
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_ARM)
         // Mark any outgoing arg temps as free so we can reuse them in the next statement.
         abiFreeAllStructArgTemps();
 #endif
