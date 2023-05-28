@@ -1883,8 +1883,12 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
 #ifndef TARGET_X86
             else if (arg->OperIs(GT_MKREFANY))
             {
+#ifdef WINDOWS_AMD64_ABI
+                unreached();
+#else
                 compiler->lvaSetStruct(tempLclNum, compiler->impGetRefAnyClass(), false);
                 setupArg = compiler->abiMorphMkRefAnyToStore(tempLclNum, arg->AsOp());
+#endif
             }
 #endif
             else
@@ -2455,7 +2459,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef UNIX_AMD64_ABI
             size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
 #else
-            size = 1;
+            size         = 1;
 #endif
 #elif defined(TARGET_ARM64)
             if (hfaType != TYP_UNDEF)
@@ -3824,12 +3828,17 @@ GenTree* Compiler::abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkref
 {
     GenTreeLclFld* destPtrField = gtNewLclFldNode(tempLclNum, TYP_BYREF, OFFSETOF__CORINFO_TypedReference__dataPtr);
     destPtrField->SetFieldSeq(GetRefanyValueField());
-    GenTree* asgPtrField = gtNewAssignNode(destPtrField, mkrefany->GetOp(0));
-
     GenTreeLclFld* destTypeField = gtNewLclFldNode(tempLclNum, TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__type);
     destTypeField->SetFieldSeq(GetRefanyTypeField());
-    GenTree* asgTypeField = gtNewAssignNode(destTypeField, mkrefany->GetOp(1));
 
+#ifdef WINDOWS_AMD64_ABI
+    assert(lvaGetDesc(tempLclNum)->lvIsImplicitByRefArgTemp);
+    destPtrField->gtFlags |= GTF_GLOB_REF;
+    destTypeField->gtFlags |= GTF_GLOB_REF;
+#endif
+
+    GenTree* asgPtrField  = gtNewAssignNode(destPtrField, mkrefany->GetOp(0));
+    GenTree* asgTypeField = gtNewAssignNode(destTypeField, mkrefany->GetOp(1));
     return gtNewCommaNode(asgPtrField, asgTypeField);
 }
 
@@ -5013,11 +5022,15 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
     if (arg->OperIs(GT_MKREFANY))
     {
+#if defined(WINDOWS_AMD64_ABI)
         unsigned tempLclNum = abiAllocateStructArgTemp(typGetObjLayout(impGetRefAnyClass()));
         argInfo->SetNode(abiMorphMkRefAnyToStore(tempLclNum, arg->AsOp()));
         argInfo->SetTempLclNum(tempLclNum);
 
         return;
+#else
+        unreached();
+#endif
     }
 
     // If we're optimizing, see if we can avoid making a copy.
