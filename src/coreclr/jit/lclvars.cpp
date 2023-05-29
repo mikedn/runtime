@@ -2500,6 +2500,33 @@ void Compiler::lvaComputeRefCountsHIR()
 #endif
             }
 
+            if (m_compiler->fgDomsComputed && m_compiler->IsDominatedByExceptionalEntry(m_block))
+            {
+                // TODO-MIKE-Review: Old code ignored LCL_FLDs, that's probably bogus. lvHasEHRefs
+                // is used only for AddCopies and CopyProp heuristics so it probably doesn't matter.
+                if (node->OperIs(GT_LCL_VAR))
+                {
+                    lcl->lvHasEHRefs = true;
+                }
+
+                if ((node->gtFlags & (GTF_VAR_DEF | GTF_VAR_USEASG)) != GTF_VAR_DEF)
+                {
+                    lcl->lvHasEHUses = true;
+
+                    if (lcl->IsPromotedField())
+                    {
+                        m_compiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum())->lvHasEHUses = true;
+                    }
+                    else if (lcl->IsPromoted())
+                    {
+                        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+                        {
+                            m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i))->lvHasEHUses = true;
+                        }
+                    }
+                }
+            }
+
             if (node->OperIs(GT_LCL_FLD))
             {
                 assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
@@ -2519,11 +2546,6 @@ void Compiler::lvaComputeRefCountsHIR()
                          (node->TypeIs(TYP_BYREF) && lcl->TypeIs(TYP_I_IMPL)) ||
                          (node->TypeIs(TYP_I_IMPL) && lcl->TypeIs(TYP_BYREF)) ||
                          (node->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG) && (node->gtFlags & GTF_VAR_DEF) == 0));
-
-            if (m_compiler->fgDomsComputed && m_compiler->IsDominatedByExceptionalEntry(m_block))
-            {
-                lcl->lvEHLive = true;
-            }
 
 #if ASSERTION_PROP
             if (!lcl->lvDisqualifyAddCopy)

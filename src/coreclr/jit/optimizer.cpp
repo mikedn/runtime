@@ -6052,7 +6052,7 @@ void Compiler::optAddCopies()
         isFloatParam = varDsc->IsParam() && varTypeIsFloating(typ);
 #endif
 
-        if (!isFloatParam && !varDsc->lvEHLive)
+        if (!isFloatParam && !varDsc->lvHasEHRefs)
         {
             continue;
         }
@@ -6185,7 +6185,7 @@ void Compiler::optAddCopies()
         // we require that we have a floating point parameter
         // or an EH live variable that is always reached from the first BB
         // and we have at least one block available in paramImportantUseDom
-        bool doCopy = (isFloatParam || (isDominatedByFirstBB && varDsc->lvEHLive)) &&
+        bool doCopy = (isFloatParam || (isDominatedByFirstBB && varDsc->lvHasEHRefs)) &&
                       !BlockSetOps::IsEmpty(this, paramImportantUseDom);
 
         // Under stress mode we expand the number of candidates

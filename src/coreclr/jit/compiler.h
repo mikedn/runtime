@@ -294,7 +294,8 @@ public:
     unsigned char lvDisqualifyAddCopy : 1; // local isn't a candidate for optAddCopies
 #endif
 
-    unsigned char lvEHLive : 1; // local has EH references
+    unsigned char lvHasEHRefs : 1; // local has EH references
+    unsigned char lvHasEHUses : 1; // local has EH uses
 
 #ifndef TARGET_64BIT
     unsigned char lvStructDoubleAlign : 1; // Must we double align this struct?

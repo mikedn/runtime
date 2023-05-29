@@ -454,8 +454,10 @@ private:
                 *nullCheckUser = node;
             }
 
-            if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastNode(node, isInsideTry))
+            if ((nodesWalked++ > maxNodesWalked) ||
+                (node->HasAnySideEffect(GTF_SIDE_EFFECT) && !CanMoveNullCheckPastNode(node, isInsideTry)))
             {
+                JITDUMP("Cannot move NULLCHECK [%06u] past node [%06u].\n", nullCheck->GetID(), node->GetID());
                 return false;
             }
 
@@ -464,8 +466,10 @@ private:
 
         for (GenTree* node = indir->gtPrev; node != nullptr; node = node->gtPrev)
         {
-            if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastNode(node, isInsideTry))
+            if ((nodesWalked++ > maxNodesWalked) ||
+                (node->HasAnySideEffect(GTF_SIDE_EFFECT) && !CanMoveNullCheckPastNode(node, isInsideTry)))
             {
+                JITDUMP("Cannot move NULLCHECK [%06u] past node [%06u].\n", nullCheck->GetID(), node->GetID());
                 return false;
             }
         }
@@ -474,8 +478,12 @@ private:
 
         for (; stmt->GetRootNode() != nullCheckStatementRoot; stmt = stmt->GetPrevStmt())
         {
-            if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastStmt(stmt, isInsideTry))
+            GenTree* root = stmt->GetRootNode();
+
+            if ((nodesWalked++ > maxNodesWalked) ||
+                (root->HasAnySideEffect(GTF_SIDE_EFFECT) && !CanMoveNullCheckPastTree(root, isInsideTry)))
             {
+                JITDUMP("Cannot move NULLCHECK [%06u] past tree [%06u].\n", nullCheck->GetID(), root->GetID());
                 return false;
             }
         }
@@ -499,63 +507,39 @@ private:
             return false;
         }
 
-        if ((node->gtFlags & GTF_ASG) == 0)
+        if ((node->gtFlags & GTF_ASG) != 0)
         {
-            return true;
-        }
-
-        if (node->OperIs(GT_ASG))
-        {
-            GenTree* dst = node->AsOp()->GetOp(0);
-
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-            if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD) &&
-                compiler->lvaGetDesc(dst->AsLclVarCommon())->lvIsImplicitByRefArgTemp)
+            if (node->OperIs(GT_ASG))
             {
-                return true;
-            }
-#endif
+                GenTree* dst = node->AsOp()->GetOp(0);
 
-            if (isInsideTry)
-            {
-                // Inside try we allow only assignments to locals not live in handlers.
-                // TODO-MIKE-Review: This should probably check AX too.
-                return dst->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(dst->AsLclVar())->lvEHLive;
+                if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+                {
+                    return CanMoveNullCheckPastLclStore(dst->AsLclVarCommon(), isInsideTry);
+                }
+
+                return false;
             }
 
-            return (dst->gtFlags & GTF_GLOB_REF) == 0;
-        }
-
-        if (GenTreeLclDef* def = node->IsLclDef())
-        {
-            if (isInsideTry)
+            if (GenTreeLclDef* def = node->IsLclDef())
             {
-                // TODO-MIKE-Review: This IsInsert check is probably bogus, it's here because the
-                // old code specifically checked for LCL_VAR, rejecting LCL_FLD ASG destinations.
-                // Also, what we really care about here is if this particular definition of the
-                // local has EH uses, all other defs are irrelevant.
-                return !def->GetValue()->IsInsert() && !compiler->lvaGetDesc(def->GetLclNum())->lvEHLive;
+                return CanMoveNullCheckPastLclDef(def, isInsideTry);
             }
 
-            return true;
+            return !node->OperRequiresAsgFlag();
         }
 
-        return !isInsideTry && (!node->OperRequiresAsgFlag() || ((node->gtFlags & GTF_GLOB_REF) == 0));
+        return true;
     }
 
-    bool CanMoveNullCheckPastStmt(Statement* stmt, bool isInsideTry)
+    bool CanMoveNullCheckPastTree(GenTree* node, bool isInsideTry)
     {
-        GenTree* node = stmt->GetRootNode();
-
         if ((node->gtFlags & (GTF_CALL | GTF_EXCEPT)) != 0)
         {
             return false;
         }
 
-        if ((node->gtFlags & GTF_ASG) == 0)
-        {
-            return true;
-        }
+        assert((node->gtFlags & GTF_ASG) != 0);
 
         if (node->OperIs(GT_ASG))
         {
@@ -566,14 +550,12 @@ private:
 
             GenTree* dst = node->AsOp()->GetOp(0);
 
-            if (isInsideTry)
+            if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                // Inside try we allow only assignments to locals not live in handlers.
-                // TODO-MIKE-Review: This should probably check AX too.
-                return dst->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(dst->AsLclVar())->lvEHLive;
+                return CanMoveNullCheckPastLclStore(dst->AsLclVarCommon(), isInsideTry);
             }
 
-            return (dst->gtFlags & GTF_GLOB_REF) == 0;
+            return false;
         }
 
         if (GenTreeLclDef* def = node->IsLclDef())
@@ -583,19 +565,36 @@ private:
                 return false;
             }
 
-            if (isInsideTry)
-            {
-                // TODO-MIKE-Review: This IsInsert check is probably bogus, it's here because the
-                // old code specifically checked for LCL_VAR, rejecting LCL_FLD ASG destionations.
-                // Also, what we really care about here is if this particular definition of the
-                // local has EH uses, all other defs are irrelevant.
-                return !def->GetValue()->IsInsert() && !compiler->lvaGetDesc(def->GetLclNum())->lvEHLive;
-            }
-
-            return true;
+            return CanMoveNullCheckPastLclDef(def, isInsideTry);
         }
 
-        return !isInsideTry && ((node->gtFlags & GTF_GLOB_REF) == 0);
+        return false;
+    }
+
+    bool CanMoveNullCheckPastLclStore(GenTreeLclVarCommon* store, bool isInsideTry)
+    {
+        LclVarDsc* lcl = compiler->lvaGetDesc(store);
+
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+        if (lcl->lvIsImplicitByRefArgTemp)
+        {
+            // Implicit-by-ref arg temps are address exposed but they're only
+            // "used" by a subsequent call so we can completely ignore them.
+            return true;
+        }
+#endif
+
+        if (lcl->IsAddressExposed())
+        {
+            return false;
+        }
+
+        return !isInsideTry || !lcl->lvHasEHUses;
+    }
+
+    bool CanMoveNullCheckPastLclDef(GenTreeLclDef* def, bool isInsideTry)
+    {
+        return !isInsideTry || !compiler->lvaGetDesc(def->GetLclNum())->lvHasEHUses;
     }
 };
 

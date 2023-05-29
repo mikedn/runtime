@@ -277,7 +277,7 @@ public:
                 continue;
             }
 
-            if (!lcl->lvEHLive && newLcl->lvEHLive)
+            if (!lcl->lvHasEHRefs && newLcl->lvHasEHRefs)
             {
                 continue;
             }
