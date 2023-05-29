@@ -4824,6 +4824,7 @@ private:
     GenTree* fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt);
     GenTree* fgGetStubAddrArg(GenTreeCall* call);
     void fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCall* recursiveTailCall);
+    void fgMorphCreateLclInit(unsigned lclNum, BasicBlock* block, Statement* beforeStmt, IL_OFFSETX ilOffset);
     Statement* fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
                                                      fgArgTabEntry* argTabEntry,
                                                      BasicBlock*    block,

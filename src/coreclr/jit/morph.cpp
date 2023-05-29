@@ -7770,40 +7770,26 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
     // Liveness phase will remove unnecessary initializations.
     if (info.compInitMem || compSuppressedZeroInit)
     {
-        unsigned   varNum;
-        LclVarDsc* varDsc;
-        for (varNum = 0, varDsc = lvaTable; varNum < lvaCount; varNum++, varDsc++)
+        for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
         {
 #if FEATURE_FIXED_OUT_ARGS
-            if (varNum == lvaOutgoingArgSpaceVar)
+            if (lclNum == lvaOutgoingArgSpaceVar)
             {
                 continue;
             }
 #endif
 
-            if (!varDsc->IsParam())
+            LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+            if (!lcl->IsParam())
             {
-                var_types lclType            = varDsc->GetType();
-                bool      isUserLocal        = (varNum < info.compLocalsCount);
-                bool      structWithGCFields = ((lclType == TYP_STRUCT) && varDsc->GetLayout()->HasGCPtr());
-                bool      hadSuppressedInit  = varDsc->lvSuppressedZeroInit;
+                bool isUserLocal        = lclNum < info.compLocalsCount;
+                bool structWithGCFields = lcl->TypeIs(TYP_STRUCT) && lcl->GetLayout()->HasGCPtr();
+                bool hadSuppressedInit  = lcl->lvSuppressedZeroInit;
 
                 if ((info.compInitMem && (isUserLocal || structWithGCFields)) || hadSuppressedInit)
                 {
-                    GenTree* lcl  = gtNewLclvNode(varNum, lclType);
-                    GenTree* init = nullptr;
-                    if (varTypeIsStruct(lclType))
-                    {
-                        init = gtNewAssignNode(lcl, gtNewIconNode(0));
-                        init = fgMorphInitStruct(init->AsOp());
-                    }
-                    else
-                    {
-                        GenTree* zero = gtNewZeroConNode(genActualType(lclType));
-                        init          = gtNewAssignNode(lcl, zero);
-                    }
-                    Statement* initStmt = gtNewStmt(init, callILOffset);
-                    fgInsertStmtBefore(block, lastStmt, initStmt);
+                    fgMorphCreateLclInit(lclNum, block, lastStmt, callILOffset);
                 }
             }
         }
@@ -7834,6 +7820,42 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
     block->bbJumpKind = BBJ_ALWAYS;
     fgAddRefPred(block->bbJumpDest, block);
     block->bbFlags &= ~BBF_HAS_JMP;
+}
+
+void Compiler::fgMorphCreateLclInit(unsigned lclNum, BasicBlock* block, Statement* beforeStmt, IL_OFFSETX ilOffset)
+{
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+    if (lcl->IsIndependentPromoted())
+    {
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+        {
+            fgMorphCreateLclInit(lcl->GetPromotedFieldLclNum(i), block, beforeStmt, ilOffset);
+        }
+
+        return;
+    }
+
+    var_types lclType = lcl->GetType();
+    GenTree*  init    = nullptr;
+
+    if (!varTypeIsStruct(lclType))
+    {
+        init = gtNewZeroConNode(varActualType(lclType));
+    }
+#ifdef FEATURE_SIMD
+    else if (varTypeIsSIMD(lclType))
+    {
+        init = gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
+    }
+#endif
+    else
+    {
+        init = gtNewIconNode(0);
+    }
+
+    init = gtNewAssignNode(gtNewLclvNode(lclNum, lclType), init);
+    fgInsertStmtBefore(block, beforeStmt, gtNewStmt(init, ilOffset));
 }
 
 //------------------------------------------------------------------------------
