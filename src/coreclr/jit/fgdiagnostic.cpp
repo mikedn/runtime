@@ -3400,14 +3400,7 @@ void Compiler::fgDebugCheckStmtsList(BasicBlock* block, bool morphTrees)
             noway_assert(block->lastStmt() == stmt);
         }
 
-        /* For each statement check that the exception flags are properly set */
-
-        noway_assert(stmt->GetRootNode());
-
-        if (verbose && 0)
-        {
-            gtDispTree(stmt->GetRootNode());
-        }
+        noway_assert(stmt->GetRootNode() != nullptr);
 
         fgDebugCheckFlags(stmt->GetRootNode());
 

@@ -6663,6 +6663,7 @@ public:
 #endif
         , m_compilerAdded(false)
     {
+        assert(expr != nullptr);
     }
 
     GenTree* GetRootNode() const

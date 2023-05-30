@@ -8416,27 +8416,6 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
     return tree;
 }
 
-//------------------------------------------------------------------------
-// fgMorphInitStruct: Morph a block initialization assignment tree.
-//
-// Arguments:
-//    tree - A GT_ASG tree that performs block initialization
-//
-// Return Value:
-//    If the destination is a promoted struct local variable then we will try to
-//    perform a field by field assignment for each of the promoted struct fields.
-//    This is not always possible (e.g. if the struct has holes and custom layout).
-//
-//    If the destination is a non-struct local variable then fgMorphInitStruct
-//    attempts to convert block initialization to simpler scalar or SIMD assignment.
-//
-//    Otherwise the orginal GT_ASG tree is returned unmodified (always correct but
-//    least desirable because it prevents enregistration and/or blocks independent
-//    struct promotion).
-//
-// Assumptions:
-//    GT_ASG's children have already been morphed.
-//
 GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
 {
     JITDUMPTREE(asg, "\nfgMorphInitStruct (before):\n");
@@ -8514,11 +8493,11 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
     {
         unsigned destLclVarSize = destLclVar->GetTypeSize();
 
-        if (destLclVar->lvPromoted && (destLclOffs == 0) && (destSize == destLclVarSize))
+        if (destLclVar->IsPromoted() && (destLclOffs == 0) && (destSize == destLclVarSize))
         {
             assert(varTypeIsStruct(destLclVar->GetType()));
 
-            GenTree* promotedTree = fgMorphPromoteLocalInitStruct(destLclVar, initVal);
+            GenTree* promotedTree = fgMorphPromoteLocalInitStruct(asg, destLclVar, initVal);
 
             if (promotedTree != nullptr)
             {
@@ -8815,50 +8794,10 @@ GenTree* Compiler::fgMorphInitStructConstant(GenTreeIntCon* initVal,
     return initVal;
 }
 
-//------------------------------------------------------------------------
-// fgMorphPromoteLocalInitStruct: Attempts to promote a local struct init tree
-// to a tree of promoted field initialization assignments.
-//
-// Arguments:
-//    destLclVar - The destination LclVar
-//    initVal - The initialization value
-//
-// Return Value:
-//    A tree that performs field by field initialization of the destination
-//    struct variable if various conditions are met, nullptr otherwise.
-//
-// Notes:
-//    This transforms a single block initialization assignment like:
-//
-//    *  ASG       struct (init)
-//    +--*  BLK(12)   struct
-//    |  \--*  ADDR      long
-//    |     \--*  LCL_VAR   struct(P) V02 loc0
-//    |     \--*    int    V02.a (offs=0x00) -> V06 tmp3
-//    |     \--*    ubyte  V02.c (offs=0x04) -> V07 tmp4
-//    |     \--*    float  V02.d (offs=0x08) -> V08 tmp5
-//    \--*  INIT_VAL  int
-//       \--*  CNS_INT   int    42
-//
-//    into a COMMA tree of assignments that initialize each promoted struct
-//    field:
-//
-//    *  COMMA     void
-//    +--*  COMMA     void
-//    |  +--*  ASG       int
-//    |  |  +--*  LCL_VAR   int    V06 tmp3
-//    |  |  \--*  CNS_INT   int    0x2A2A2A2A
-//    |  \--*  ASG       ubyte
-//    |     +--*  LCL_VAR   ubyte  V07 tmp4
-//    |     \--*  CNS_INT   int    42
-//    \--*  ASG       float
-//       +--*  LCL_VAR   float  V08 tmp5
-//       \--*  CNS_DBL   float  1.5113661732714390e-13
-//
-GenTree* Compiler::fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree* initVal)
+GenTree* Compiler::fgMorphPromoteLocalInitStruct(GenTreeOp* asg, LclVarDsc* destLclVar, GenTree* initVal)
 {
     assert(varTypeIsStruct(destLclVar->GetType()));
-    assert(destLclVar->lvPromoted);
+    assert(destLclVar->IsPromoted());
 
     if (destLclVar->lvDoNotEnregister && (destLclVar->GetPromotedFieldCount() > 1))
     {
@@ -8866,7 +8805,7 @@ GenTree* Compiler::fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree*
         return nullptr;
     }
 
-    if (destLclVar->lvAddrExposed && destLclVar->lvContainsHoles)
+    if (destLclVar->IsAddressExposed() && destLclVar->lvContainsHoles)
     {
         JITDUMP(" dest is address exposed and contains holes.\n");
         return nullptr;
@@ -8902,9 +8841,10 @@ GenTree* Compiler::fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree*
 
     JITDUMP(" using field by field initialization.\n");
 
-    GenTree* tree = nullptr;
+    const bool isStmtRoot = (fgGlobalMorphStmt != nullptr) && (fgGlobalMorphStmt->GetRootNode() == asg);
+    GenTree*   tree       = nullptr;
 
-    for (unsigned i = 0; i < destLclVar->GetPromotedFieldCount(); ++i)
+    for (unsigned i = 0, fieldCount = destLclVar->GetPromotedFieldCount(); i < fieldCount; ++i)
     {
         unsigned   destFieldLclNum = destLclVar->GetPromotedFieldLclNum(i);
         LclVarDsc* destFieldLcl    = lvaGetDesc(destFieldLclNum);
@@ -8915,24 +8855,29 @@ GenTree* Compiler::fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree*
         var_types type     = destFieldLcl->GetType();
         var_types baseType = varTypeIsSIMD(type) ? destFieldLcl->GetLayout()->GetElementType() : TYP_UNDEF;
 
-        GenTree* asg =
-            gtNewAssignNode(destField, fgMorphInitStructConstant(gtNewIconNode(initVal->AsIntCon()->GetValue()), type,
-                                                                 destFieldLcl->lvNormalizeOnStore(), baseType));
+        GenTree* value = fgMorphInitStructConstant(gtNewIconNode(initVal->AsIntCon()->GetValue()), type,
+                                                   destFieldLcl->lvNormalizeOnStore(), baseType);
+        GenTree* asgField = gtNewAssignNode(destField, value);
 
 #if LOCAL_ASSERTION_PROP
         if (morphAssertionTable != nullptr)
         {
-            morphAssertionGenerate(asg);
+            morphAssertionGenerate(asgField);
         }
 #endif
 
-        if (tree != nullptr)
+        if (isStmtRoot && (i < fieldCount - 1))
         {
-            tree = gtNewCommaNode(tree, asg);
+            Statement* stmt = gtNewStmt(asgField, fgGlobalMorphStmt->GetILOffsetX());
+            fgInsertStmtBefore(fgMorphBlock, fgGlobalMorphStmt, stmt);
+        }
+        else if (tree != nullptr)
+        {
+            tree = gtNewCommaNode(tree, asgField);
         }
         else
         {
-            tree = asg;
+            tree = asgField;
         }
     }
 
@@ -9147,7 +9092,8 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
         }
     }
 
-    GenTreeOp* comma = nullptr;
+    bool       isStmtRoot = (fgGlobalMorphStmt != nullptr) && (fgGlobalMorphStmt->GetRootNode() == asg);
+    GenTreeOp* comma      = nullptr;
 
     if (!srcIsZero && !srcIsCreate && !src->OperIs(GT_LCL_VAR))
     {
@@ -9156,9 +9102,16 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
         dstLcl = lvaGetDesc(dstLclNum);
         comma  = gtNewAssignNode(gtNewLclvNode(tempLclNum, src->GetType()), src);
         src    = gtNewLclvNode(tempLclNum, src->GetType());
+
+        if (isStmtRoot)
+        {
+            Statement* stmt = gtNewStmt(comma, fgGlobalMorphStmt->GetILOffsetX());
+            fgInsertStmtBefore(fgMorphBlock, fgGlobalMorphStmt, stmt);
+            comma = nullptr;
+        }
     }
 
-    for (unsigned i = 0; i < dstLcl->GetPromotedFieldCount(); i++)
+    for (unsigned i = 0, fieldCount = dstLcl->GetPromotedFieldCount(); i < fieldCount; i++)
     {
         unsigned fieldIndex  = dstLcl->GetPromotedFieldCount() - 1 - i;
         unsigned fieldLclNum = dstLcl->GetPromotedFieldLclNum(fieldIndex);
@@ -9190,7 +9143,12 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
         }
 #endif
 
-        if (comma == nullptr)
+        if (isStmtRoot && (i < fieldCount - 1))
+        {
+            Statement* stmt = gtNewStmt(fieldAsg, fgGlobalMorphStmt->GetILOffsetX());
+            fgInsertStmtBefore(fgMorphBlock, fgGlobalMorphStmt, stmt);
+        }
+        else if (comma == nullptr)
         {
             comma = fieldAsg;
         }
@@ -9285,26 +9243,6 @@ GenTree* Compiler::fgMorphBlockAssignment(GenTreeOp* asg)
     return asg;
 }
 
-//------------------------------------------------------------------------
-// fgMorphCopyStruct: Morph a struct copy.
-//
-// Arguments:
-//    asg - a struct copy (i.e. an assignment with a struct typed destination).
-//
-// Return Value:
-//    The original assignment or a tree of assignments that performs field by
-//    field copying of promoted structs to avoid dependent promotion.
-//
-// Assumptions:
-//    The source and destination have already been morphed.
-//
-// Notes:
-//    If we leave it as a struct copy we will call lvaSetVarDoNotEnregister() on both Source() and Dest().
-//    When performing a field by field assignment we can have one of Source() or Dest treated as a blob of bytes
-//    and in such cases we will call lvaSetVarDoNotEnregister() on the one treated as a blob of bytes.
-//    if the Source() or Dest() is a a struct that has a "CustomLayout" and "ConstainsHoles" then we
-//    can not use a field by field assignment and must leave the orginal struct copy unmodified.
-//
 GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 {
     JITDUMPTREE(asg, "\nfgMorphCopyBlock: (before)\n");
@@ -9797,6 +9735,8 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         PromoteLocal(srcFields, srcLclVar);
     }
 
+    bool isStmtRoot = (fgGlobalMorphStmt != nullptr) && (fgGlobalMorphStmt->GetRootNode() == asg);
+
     if (!destPromote || !srcPromote)
     {
         unsigned  promotedLclNum;
@@ -9823,6 +9763,13 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         else
         {
             asgFieldCommaTree = SplitIndir(splitNodeFields, splitNode->AsIndir(), promotedLclNum, destPromote);
+
+            if (isStmtRoot && (asgFieldCommaTree != nullptr))
+            {
+                Statement* stmt = gtNewStmt(asgFieldCommaTree, fgGlobalMorphStmt->GetILOffsetX());
+                fgInsertStmtBefore(fgMorphBlock, fgGlobalMorphStmt, stmt);
+                asgFieldCommaTree = nullptr;
+            }
         }
     }
 
@@ -9842,7 +9789,12 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         }
 #endif
 
-        if (asgFieldCommaTree != nullptr)
+        if (isStmtRoot && (i < fieldCount - 1))
+        {
+            Statement* stmt = gtNewStmt(asgField, fgGlobalMorphStmt->GetILOffsetX());
+            fgInsertStmtBefore(fgMorphBlock, fgGlobalMorphStmt, stmt);
+        }
+        else if (asgFieldCommaTree != nullptr)
         {
             asgFieldCommaTree = gtNewCommaNode(asgFieldCommaTree, asgField);
         }

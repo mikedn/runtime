@@ -4837,7 +4837,7 @@ private:
     GenTree* fgMorphLeaf(GenTree* tree);
     void gtAssignSetVarDef(GenTreeLclVarCommon* dst);
     GenTree* fgMorphInitStruct(GenTreeOp* asg);
-    GenTree* fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree* initVal);
+    GenTree* fgMorphPromoteLocalInitStruct(GenTreeOp* asg, LclVarDsc* destLclVar, GenTree* initVal);
     GenTree* fgMorphInitStructConstant(GenTreeIntCon* initVal,
                                        var_types      type,
                                        bool           extendToActualType,
