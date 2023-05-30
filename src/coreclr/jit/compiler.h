@@ -4851,6 +4851,10 @@ private:
     GenTree* fgMorphDynBlk(GenTreeDynBlk* dynBlk);
     GenTree* fgMorphBlockAssignment(GenTreeOp* asg);
     GenTree* fgMorphCopyStruct(GenTreeOp* asg);
+    GenTreeOp* fgMorphPromoteStore(GenTreeOp*  store,
+                                   GenTreeOp*  tempStore,
+                                   GenTreeOp** fieldStores,
+                                   unsigned    fieldCount);
     GenTree* fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
