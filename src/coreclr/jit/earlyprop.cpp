@@ -534,14 +534,6 @@ private:
 
     bool CanMoveNullCheckPastTree(GenTree* node, bool isInsideTry)
     {
-        if (node->OperIs(GT_COMMA))
-        {
-            return (!node->AsOp()->GetOp(0)->HasAnySideEffect(GTF_SIDE_EFFECT) ||
-                    CanMoveNullCheckPastTree(node->AsOp()->GetOp(0), isInsideTry)) &&
-                   (!node->AsOp()->GetOp(1)->HasAnySideEffect(GTF_SIDE_EFFECT) ||
-                    CanMoveNullCheckPastTree(node->AsOp()->GetOp(1), isInsideTry));
-        }
-
         if ((node->gtFlags & (GTF_CALL | GTF_EXCEPT)) != 0)
         {
             return false;
