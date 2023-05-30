@@ -9738,33 +9738,49 @@ GenTreeOp* Compiler::fgMorphPromoteStore(GenTreeOp*  store,
     const bool isStmtRoot = (fgGlobalMorphStmt != nullptr) && (fgGlobalMorphStmt->GetRootNode() == store);
     GenTreeOp* tree       = tempStore;
 
+    if (tree == nullptr)
+    {
+        tree = fieldStores[0];
+        fieldStores++;
+        fieldCount--;
+    }
+
     for (unsigned i = 0; i < fieldCount; i++)
     {
         GenTreeOp* fieldStore = fieldStores[i];
         assert(fieldStore->OperIs(GT_ASG));
 
-        if (tree == nullptr)
-        {
-            tree = fieldStore;
-        }
-        else if (isStmtRoot)
+        if (isStmtRoot)
         {
             Statement* stmt = gtNewStmt(tree, fgGlobalMorphStmt->GetILOffsetX());
             fgInsertStmtBefore(fgMorphBlock, fgGlobalMorphStmt, stmt);
             JITDUMPTREE(tree, "Promoted struct field store statement " FMT_STMT ":\n", stmt->GetID());
+
+#if LOCAL_ASSERTION_PROP
+            if (morphAssertionTable != nullptr)
+            {
+                morphAssertionGenerate(tree);
+            }
+#endif
+
             tree = fieldStore;
         }
         else
         {
+#if LOCAL_ASSERTION_PROP
+            if (morphAssertionTable != nullptr)
+            {
+                if (tree->OperIs(GT_ASG))
+                {
+                    morphAssertionGenerate(tree);
+                }
+
+                morphAssertionGenerate(fieldStore);
+            }
+#endif
+
             tree = gtNewCommaNode(tree, fieldStore);
         }
-
-#if LOCAL_ASSERTION_PROP
-        if (morphAssertionTable != nullptr)
-        {
-            morphAssertionGenerate(fieldStore);
-        }
-#endif
     }
 
     INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
