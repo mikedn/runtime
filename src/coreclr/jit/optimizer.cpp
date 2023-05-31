@@ -6660,7 +6660,7 @@ void Compiler::phRemoveRedundantZeroInits()
                                     }
                                 }
 
-                                JITDUMP("Marking L%02u as having an explicit init\n", lclNum);
+                                JITDUMP("Marking V%02u as having an explicit init\n", lclNum);
                             }
                         }
                         break;

@@ -6727,7 +6727,7 @@ void ValueNumStore::DumpMemOpaque(const VNFuncApp& memOpaque)
     }
     else
     {
-        printf("MemOpaque:L%02u", loopNum);
+        printf("MemOpaque:" FMT_LP, loopNum);
     }
 }
 
