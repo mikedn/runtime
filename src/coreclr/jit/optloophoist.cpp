@@ -885,9 +885,14 @@ public:
             }
             else if (tree->OperIs(GT_ASG))
             {
-                // If the LHS of the assignment has a global reference, then assume it's a global side effect.
-                GenTree* lhs = tree->AsOp()->gtOp1;
-                if (lhs->gtFlags & GTF_GLOB_REF)
+                GenTree* dst = tree->AsOp()->GetOp(0);
+
+                if (dst->HasAnySideEffect(GTF_GLOB_REF)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+                    && (!dst->OperIs(GT_LCL_FLD, GT_LCL_VAR) ||
+                        !m_compiler->lvaGetDesc(dst->AsLclVarCommon())->lvIsImplicitByRefArgTemp)
+#endif
+                        )
                 {
                     m_beforeSideEffect = false;
                 }

@@ -1411,7 +1411,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
             // TODO-MIKE-Review: This check seems overly conservative. If an arg contains an
             // assignment then it only needs a temp if it will be moved to the late arg list
             // (because, say, it's a register arg), so the assignment doesn't reorder with
-            // subsequent args that may use whatver location the assignment changes.
+            // subsequent args that may use whatever location the assignment changes.
             //
             // Likewise, previous arguments only need temps if they're going to be moved to
             // the late arg list.
@@ -1529,7 +1529,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
     //     to the outgoing area since stack allocation moves the outgoing area. But:
     //     - The same is true on x86 - once args have been pushed, no stack allocation
     //       can be done. This was lumped together with GTF_EXCEPT checks but the two
-    //       are slighly different.
+    //       are slightly different.
     //     - Introducing a temp for the arg that uses LCLHEAP solves only one part of
     //       the problem. Temps must also be introduced for any previous stack args.
     //     - But IL requires the stack be empty before localalloc so it's not clear
@@ -1544,7 +1544,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
     //     That's because they're going to be moved to the late arg list so we need to
     //     ensure that the exception is still thrown at the right time. But:
     //     - What about non-x86 targets? These too have reg args that get moved to the
-    //       late arg list. Well, that's simple - exception are incorectly reordered on
+    //       late arg list. Well, that's simple - exception are incorrectly reordered on
     //       such targets: Sink(x, y, z, x / y, a[x]); throws DivByZero on x86 and NullRef
     //       on all other targets.
     //     - Also, such temps are not always required. They're only needed if subsequent
@@ -1883,8 +1883,12 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
 #ifndef TARGET_X86
             else if (arg->OperIs(GT_MKREFANY))
             {
+#ifdef WINDOWS_AMD64_ABI
+                unreached();
+#else
                 compiler->lvaSetStruct(tempLclNum, compiler->impGetRefAnyClass(), false);
                 setupArg = compiler->abiMorphMkRefAnyToStore(tempLclNum, arg->AsOp());
+#endif
             }
 #endif
             else
@@ -2455,7 +2459,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef UNIX_AMD64_ABI
             size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
 #else
-            size = 1;
+            size         = 1;
 #endif
 #elif defined(TARGET_ARM64)
             if (hfaType != TYP_UNDEF)
@@ -3824,12 +3828,17 @@ GenTree* Compiler::abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkref
 {
     GenTreeLclFld* destPtrField = gtNewLclFldNode(tempLclNum, TYP_BYREF, OFFSETOF__CORINFO_TypedReference__dataPtr);
     destPtrField->SetFieldSeq(GetRefanyValueField());
-    GenTree* asgPtrField = gtNewAssignNode(destPtrField, mkrefany->GetOp(0));
-
     GenTreeLclFld* destTypeField = gtNewLclFldNode(tempLclNum, TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__type);
     destTypeField->SetFieldSeq(GetRefanyTypeField());
-    GenTree* asgTypeField = gtNewAssignNode(destTypeField, mkrefany->GetOp(1));
 
+#ifdef WINDOWS_AMD64_ABI
+    assert(lvaGetDesc(tempLclNum)->lvIsImplicitByRefArgTemp);
+    destPtrField->gtFlags |= GTF_GLOB_REF;
+    destTypeField->gtFlags |= GTF_GLOB_REF;
+#endif
+
+    GenTree* asgPtrField  = gtNewAssignNode(destPtrField, mkrefany->GetOp(0));
+    GenTree* asgTypeField = gtNewAssignNode(destTypeField, mkrefany->GetOp(1));
     return gtNewCommaNode(asgPtrField, asgTypeField);
 }
 
@@ -4931,7 +4940,7 @@ GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* ar
 
 #endif // FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
 
-#ifndef TARGET_X86
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_ARM)
 
 unsigned Compiler::abiAllocateStructArgTemp(ClassLayout* argLayout)
 {
@@ -4963,8 +4972,18 @@ unsigned Compiler::abiAllocateStructArgTemp(ClassLayout* argLayout)
 
     if (tempLclNum == BAD_VAR_NUM)
     {
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+        tempLclNum = lvaGrabTemp(true DEBUGARG("implicit-by-ref arg temp"));
+#else
         tempLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
-        lvaSetStruct(tempLclNum, argLayout, false);
+#endif
+
+        LclVarDsc* lcl = lvaGetDesc(tempLclNum);
+        lvaSetStruct(lcl, argLayout, false);
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+        lvaSetAddressExposed(lcl);
+        lcl->lvIsImplicitByRefArgTemp = true;
+#endif
 
         if (m_abiStructArgTemps != nullptr)
         {
@@ -4988,7 +5007,7 @@ void Compiler::abiFreeAllStructArgTemps()
     }
 }
 
-#endif // !TARGET_X86
+#endif // defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_ARM)
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
 
@@ -5003,11 +5022,15 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
     if (arg->OperIs(GT_MKREFANY))
     {
+#if defined(WINDOWS_AMD64_ABI)
         unsigned tempLclNum = abiAllocateStructArgTemp(typGetObjLayout(impGetRefAnyClass()));
         argInfo->SetNode(abiMorphMkRefAnyToStore(tempLclNum, arg->AsOp()));
         argInfo->SetTempLclNum(tempLclNum);
 
         return;
+#else
+        unreached();
+#endif
     }
 
     // If we're optimizing, see if we can avoid making a copy.
@@ -5060,11 +5083,6 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     unsigned   tempLclNum = abiAllocateStructArgTemp(argLayout);
     LclVarDsc* tempLcl    = lvaGetDesc(tempLclNum);
 
-    // These temps are passed by reference so they're always address taken.
-    // TODO-MIKE-Cleanup: Aren't they actually address exposed? If we only
-    // make them DNER they may still be tracked unnecessarily.
-    lvaSetDoNotEnregister(tempLcl DEBUGARG(DNER_IsStructArg));
-
     // Replace the argument with an assignment to the temp, EvalArgsToTemps will later add
     // a use of the temp to the late arg list.
 
@@ -5093,6 +5111,8 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     {
         dest = gtNewLclvNode(tempLclNum, tempLcl->GetType());
     }
+
+    dest->gtFlags |= GTF_GLOB_REF;
 
     GenTree* asg = gtNewAssignNode(dest, arg);
 
@@ -7750,40 +7770,26 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
     // Liveness phase will remove unnecessary initializations.
     if (info.compInitMem || compSuppressedZeroInit)
     {
-        unsigned   varNum;
-        LclVarDsc* varDsc;
-        for (varNum = 0, varDsc = lvaTable; varNum < lvaCount; varNum++, varDsc++)
+        for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
         {
 #if FEATURE_FIXED_OUT_ARGS
-            if (varNum == lvaOutgoingArgSpaceVar)
+            if (lclNum == lvaOutgoingArgSpaceVar)
             {
                 continue;
             }
 #endif
 
-            if (!varDsc->IsParam())
+            LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+            if (!lcl->IsParam())
             {
-                var_types lclType            = varDsc->GetType();
-                bool      isUserLocal        = (varNum < info.compLocalsCount);
-                bool      structWithGCFields = ((lclType == TYP_STRUCT) && varDsc->GetLayout()->HasGCPtr());
-                bool      hadSuppressedInit  = varDsc->lvSuppressedZeroInit;
+                bool isUserLocal        = lclNum < info.compLocalsCount;
+                bool structWithGCFields = lcl->TypeIs(TYP_STRUCT) && lcl->GetLayout()->HasGCPtr();
+                bool hadSuppressedInit  = lcl->lvSuppressedZeroInit;
 
                 if ((info.compInitMem && (isUserLocal || structWithGCFields)) || hadSuppressedInit)
                 {
-                    GenTree* lcl  = gtNewLclvNode(varNum, lclType);
-                    GenTree* init = nullptr;
-                    if (varTypeIsStruct(lclType))
-                    {
-                        init = gtNewAssignNode(lcl, gtNewIconNode(0));
-                        init = fgMorphInitStruct(init->AsOp());
-                    }
-                    else
-                    {
-                        GenTree* zero = gtNewZeroConNode(genActualType(lclType));
-                        init          = gtNewAssignNode(lcl, zero);
-                    }
-                    Statement* initStmt = gtNewStmt(init, callILOffset);
-                    fgInsertStmtBefore(block, lastStmt, initStmt);
+                    fgMorphCreateLclInit(lclNum, block, lastStmt, callILOffset);
                 }
             }
         }
@@ -7814,6 +7820,42 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
     block->bbJumpKind = BBJ_ALWAYS;
     fgAddRefPred(block->bbJumpDest, block);
     block->bbFlags &= ~BBF_HAS_JMP;
+}
+
+void Compiler::fgMorphCreateLclInit(unsigned lclNum, BasicBlock* block, Statement* beforeStmt, IL_OFFSETX ilOffset)
+{
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+    if (lcl->IsIndependentPromoted())
+    {
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+        {
+            fgMorphCreateLclInit(lcl->GetPromotedFieldLclNum(i), block, beforeStmt, ilOffset);
+        }
+
+        return;
+    }
+
+    var_types lclType = lcl->GetType();
+    GenTree*  init    = nullptr;
+
+    if (!varTypeIsStruct(lclType))
+    {
+        init = gtNewZeroConNode(varActualType(lclType));
+    }
+#ifdef FEATURE_SIMD
+    else if (varTypeIsSIMD(lclType))
+    {
+        init = gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
+    }
+#endif
+    else
+    {
+        init = gtNewIconNode(0);
+    }
+
+    init = gtNewAssignNode(gtNewLclvNode(lclNum, lclType), init);
+    fgInsertStmtBefore(block, beforeStmt, gtNewStmt(init, ilOffset));
 }
 
 //------------------------------------------------------------------------------
@@ -8374,27 +8416,6 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
     return tree;
 }
 
-//------------------------------------------------------------------------
-// fgMorphInitStruct: Morph a block initialization assignment tree.
-//
-// Arguments:
-//    tree - A GT_ASG tree that performs block initialization
-//
-// Return Value:
-//    If the destination is a promoted struct local variable then we will try to
-//    perform a field by field assignment for each of the promoted struct fields.
-//    This is not always possible (e.g. if the struct has holes and custom layout).
-//
-//    If the destination is a non-struct local variable then fgMorphInitStruct
-//    attempts to convert block initialization to simpler scalar or SIMD assignment.
-//
-//    Otherwise the orginal GT_ASG tree is returned unmodified (always correct but
-//    least desirable because it prevents enregistration and/or blocks independent
-//    struct promotion).
-//
-// Assumptions:
-//    GT_ASG's children have already been morphed.
-//
 GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
 {
     JITDUMPTREE(asg, "\nfgMorphInitStruct (before):\n");
@@ -8472,16 +8493,14 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
     {
         unsigned destLclVarSize = destLclVar->GetTypeSize();
 
-        if (destLclVar->lvPromoted && (destLclOffs == 0) && (destSize == destLclVarSize))
+        if (destLclVar->IsPromoted() && (destLclOffs == 0) && (destSize == destLclVarSize))
         {
             assert(varTypeIsStruct(destLclVar->GetType()));
 
-            GenTree* promotedTree = fgMorphPromoteLocalInitStruct(destLclVar, initVal);
+            GenTree* promotedTree = fgMorphPromoteLocalInitStruct(asg, destLclVar, initVal);
 
             if (promotedTree != nullptr)
             {
-                INDEBUG(promotedTree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-                JITDUMPTREE(promotedTree, "fgMorphInitStruct (after promotion):\n");
                 return promotedTree;
             }
         }
@@ -8773,50 +8792,10 @@ GenTree* Compiler::fgMorphInitStructConstant(GenTreeIntCon* initVal,
     return initVal;
 }
 
-//------------------------------------------------------------------------
-// fgMorphPromoteLocalInitStruct: Attempts to promote a local struct init tree
-// to a tree of promoted field initialization assignments.
-//
-// Arguments:
-//    destLclVar - The destination LclVar
-//    initVal - The initialization value
-//
-// Return Value:
-//    A tree that performs field by field initialization of the destination
-//    struct variable if various conditions are met, nullptr otherwise.
-//
-// Notes:
-//    This transforms a single block initialization assignment like:
-//
-//    *  ASG       struct (init)
-//    +--*  BLK(12)   struct
-//    |  \--*  ADDR      long
-//    |     \--*  LCL_VAR   struct(P) V02 loc0
-//    |     \--*    int    V02.a (offs=0x00) -> V06 tmp3
-//    |     \--*    ubyte  V02.c (offs=0x04) -> V07 tmp4
-//    |     \--*    float  V02.d (offs=0x08) -> V08 tmp5
-//    \--*  INIT_VAL  int
-//       \--*  CNS_INT   int    42
-//
-//    into a COMMA tree of assignments that initialize each promoted struct
-//    field:
-//
-//    *  COMMA     void
-//    +--*  COMMA     void
-//    |  +--*  ASG       int
-//    |  |  +--*  LCL_VAR   int    V06 tmp3
-//    |  |  \--*  CNS_INT   int    0x2A2A2A2A
-//    |  \--*  ASG       ubyte
-//    |     +--*  LCL_VAR   ubyte  V07 tmp4
-//    |     \--*  CNS_INT   int    42
-//    \--*  ASG       float
-//       +--*  LCL_VAR   float  V08 tmp5
-//       \--*  CNS_DBL   float  1.5113661732714390e-13
-//
-GenTree* Compiler::fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree* initVal)
+GenTree* Compiler::fgMorphPromoteLocalInitStruct(GenTreeOp* asg, LclVarDsc* destLclVar, GenTree* initVal)
 {
     assert(varTypeIsStruct(destLclVar->GetType()));
-    assert(destLclVar->lvPromoted);
+    assert(destLclVar->IsPromoted());
 
     if (destLclVar->lvDoNotEnregister && (destLclVar->GetPromotedFieldCount() > 1))
     {
@@ -8824,7 +8803,7 @@ GenTree* Compiler::fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree*
         return nullptr;
     }
 
-    if (destLclVar->lvAddrExposed && destLclVar->lvContainsHoles)
+    if (destLclVar->IsAddressExposed() && destLclVar->lvContainsHoles)
     {
         JITDUMP(" dest is address exposed and contains holes.\n");
         return nullptr;
@@ -8860,41 +8839,27 @@ GenTree* Compiler::fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree*
 
     JITDUMP(" using field by field initialization.\n");
 
-    GenTree* tree = nullptr;
+    const unsigned fieldCount = destLclVar->GetPromotedFieldCount();
+    GenTreeOp*     fieldStores[StructPromotionHelper::GetMaxFieldCount()];
 
-    for (unsigned i = 0; i < destLclVar->GetPromotedFieldCount(); ++i)
+    for (unsigned i = 0; i < fieldCount; ++i)
     {
         unsigned   destFieldLclNum = destLclVar->GetPromotedFieldLclNum(i);
         LclVarDsc* destFieldLcl    = lvaGetDesc(destFieldLclNum);
 
         GenTree* destField = gtNewLclvNode(destFieldLclNum, destFieldLcl->GetType());
-        destField->gtFlags |= destFieldLcl->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY;
+        destField->gtFlags |= destFieldLcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_EMPTY;
 
         var_types type     = destFieldLcl->GetType();
         var_types baseType = varTypeIsSIMD(type) ? destFieldLcl->GetLayout()->GetElementType() : TYP_UNDEF;
 
-        GenTree* asg =
-            gtNewAssignNode(destField, fgMorphInitStructConstant(gtNewIconNode(initVal->AsIntCon()->GetValue()), type,
-                                                                 destFieldLcl->lvNormalizeOnStore(), baseType));
+        GenTree* value = fgMorphInitStructConstant(gtNewIconNode(initVal->AsIntCon()->GetValue()), type,
+                                                   destFieldLcl->lvNormalizeOnStore(), baseType);
 
-#if LOCAL_ASSERTION_PROP
-        if (morphAssertionTable != nullptr)
-        {
-            morphAssertionGenerate(asg);
-        }
-#endif
-
-        if (tree != nullptr)
-        {
-            tree = gtNewCommaNode(tree, asg);
-        }
-        else
-        {
-            tree = asg;
-        }
+        fieldStores[i] = gtNewAssignNode(destField, value);
     }
 
-    return tree;
+    return fgMorphPromoteStore(asg, nullptr, fieldStores, destLclVar->GetPromotedFieldCount());
 }
 
 GenTree* Compiler::fgMorphStructComma(GenTree* tree)
@@ -9105,18 +9070,21 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
         }
     }
 
-    GenTreeOp* comma = nullptr;
+    GenTreeOp* tempStore = nullptr;
 
     if (!srcIsZero && !srcIsCreate && !src->OperIs(GT_LCL_VAR))
     {
         unsigned tempLclNum = lvaNewTemp(src, true DEBUGARG("promoted SIMD copy temp"));
 
-        dstLcl = lvaGetDesc(dstLclNum);
-        comma  = gtNewAssignNode(gtNewLclvNode(tempLclNum, src->GetType()), src);
-        src    = gtNewLclvNode(tempLclNum, src->GetType());
+        dstLcl    = lvaGetDesc(dstLclNum);
+        tempStore = gtNewAssignNode(gtNewLclvNode(tempLclNum, src->GetType()), src);
+        src       = gtNewLclvNode(tempLclNum, src->GetType());
     }
 
-    for (unsigned i = 0; i < dstLcl->GetPromotedFieldCount(); i++)
+    GenTreeOp*     fieldStores[StructPromotionHelper::GetMaxFieldCount()];
+    const unsigned fieldCount = dstLcl->GetPromotedFieldCount();
+
+    for (unsigned i = 0; i < fieldCount; i++)
     {
         unsigned fieldIndex  = dstLcl->GetPromotedFieldCount() - 1 - i;
         unsigned fieldLclNum = dstLcl->GetPromotedFieldLclNum(fieldIndex);
@@ -9138,30 +9106,12 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
             fieldSrc = gtNewSimdGetElementNode(src->GetType(), TYP_FLOAT, src, gtNewIconNode(fieldIndex));
         }
 
-        GenTree*   fieldDst = gtNewLclvNode(fieldLclNum, TYP_FLOAT);
-        GenTreeOp* fieldAsg = gtNewAssignNode(fieldDst, fieldSrc);
+        GenTree* fieldDst = gtNewLclvNode(fieldLclNum, TYP_FLOAT);
 
-#if LOCAL_ASSERTION_PROP
-        if (morphAssertionTable != nullptr)
-        {
-            morphAssertionGenerate(fieldAsg);
-        }
-#endif
-
-        if (comma == nullptr)
-        {
-            comma = fieldAsg;
-        }
-        else
-        {
-            comma = gtNewCommaNode(comma, fieldAsg);
-        }
+        fieldStores[i] = gtNewAssignNode(fieldDst, fieldSrc);
     }
 
-    INDEBUG(comma->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-    JITDUMPTREE(comma, "fgMorphCopyStruct (after SIMD destination promotion):\n\n");
-
-    return comma;
+    return fgMorphPromoteStore(asg, tempStore, fieldStores, fieldCount);
 }
 
 #endif // FEATURE_SIMD
@@ -9243,26 +9193,6 @@ GenTree* Compiler::fgMorphBlockAssignment(GenTreeOp* asg)
     return asg;
 }
 
-//------------------------------------------------------------------------
-// fgMorphCopyStruct: Morph a struct copy.
-//
-// Arguments:
-//    asg - a struct copy (i.e. an assignment with a struct typed destination).
-//
-// Return Value:
-//    The original assignment or a tree of assignments that performs field by
-//    field copying of promoted structs to avoid dependent promotion.
-//
-// Assumptions:
-//    The source and destination have already been morphed.
-//
-// Notes:
-//    If we leave it as a struct copy we will call lvaSetVarDoNotEnregister() on both Source() and Dest().
-//    When performing a field by field assignment we can have one of Source() or Dest treated as a blob of bytes
-//    and in such cases we will call lvaSetVarDoNotEnregister() on the one treated as a blob of bytes.
-//    if the Source() or Dest() is a a struct that has a "CustomLayout" and "ConstainsHoles" then we
-//    can not use a field by field assignment and must leave the orginal struct copy unmodified.
-//
 GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 {
     JITDUMPTREE(asg, "\nfgMorphCopyBlock: (before)\n");
@@ -9624,13 +9554,13 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     };
 
     auto SplitIndir = [this](GenTree* fields[], GenTreeIndir* indir, unsigned promotedLclNum,
-                             bool isPromotedLclStore) -> GenTree* {
+                             bool isPromotedLclStore) -> GenTreeOp* {
         GenTree*      addr            = indir->GetAddr();
         LclVarDsc*    promotedLcl     = lvaGetDesc(promotedLclNum);
         unsigned      addrSpillLclNum = BAD_VAR_NUM;
         unsigned      addrOffset      = 0;
         FieldSeqNode* addrFieldSeq    = FieldSeqNode::NotAField();
-        GenTree*      addrAssign      = nullptr;
+        GenTreeOp*    addrAssign      = nullptr;
 
         if (promotedLcl->GetPromotedFieldCount() > 1)
         {
@@ -9741,7 +9671,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     unsigned fieldCount = 0;
     GenTree* srcFields[StructPromotionHelper::GetMaxFieldCount()];
     GenTree* destFields[StructPromotionHelper::GetMaxFieldCount()];
-    GenTree* asgFieldCommaTree = nullptr;
 
     if (destPromote)
     {
@@ -9754,6 +9683,8 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         fieldCount = srcLclVar->GetPromotedFieldCount();
         PromoteLocal(srcFields, srcLclVar);
     }
+
+    GenTreeOp* tempStore = nullptr;
 
     if (!destPromote || !srcPromote)
     {
@@ -9780,9 +9711,11 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         }
         else
         {
-            asgFieldCommaTree = SplitIndir(splitNodeFields, splitNode->AsIndir(), promotedLclNum, destPromote);
+            tempStore = SplitIndir(splitNodeFields, splitNode->AsIndir(), promotedLclNum, destPromote);
         }
     }
+
+    GenTreeOp* fieldStores[StructPromotionHelper::GetMaxFieldCount()];
 
     for (unsigned i = 0; i < fieldCount; ++i)
     {
@@ -9791,30 +9724,69 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 
         assert(destField->GetType() == srcField->GetType());
 
-        GenTreeOp* asgField = gtNewAssignNode(destField, srcField);
+        fieldStores[i] = gtNewAssignNode(destField, srcField);
+    }
+
+    return fgMorphPromoteStore(asg, tempStore, fieldStores, fieldCount);
+}
+
+GenTreeOp* Compiler::fgMorphPromoteStore(GenTreeOp*  store,
+                                         GenTreeOp*  tempStore,
+                                         GenTreeOp** fieldStores,
+                                         unsigned    fieldCount)
+{
+    const bool isStmtRoot = (fgGlobalMorphStmt != nullptr) && (fgGlobalMorphStmt->GetRootNode() == store);
+    GenTreeOp* tree       = tempStore;
+
+    if (tree == nullptr)
+    {
+        tree = fieldStores[0];
+        fieldStores++;
+        fieldCount--;
+    }
+
+    for (unsigned i = 0; i < fieldCount; i++)
+    {
+        GenTreeOp* fieldStore = fieldStores[i];
+        assert(fieldStore->OperIs(GT_ASG));
+
+        if (isStmtRoot)
+        {
+            Statement* stmt = gtNewStmt(tree, fgGlobalMorphStmt->GetILOffsetX());
+            fgInsertStmtBefore(fgMorphBlock, fgGlobalMorphStmt, stmt);
+            JITDUMPTREE(tree, "Promoted struct field store statement " FMT_STMT ":\n", stmt->GetID());
 
 #if LOCAL_ASSERTION_PROP
-        if (morphAssertionTable != nullptr)
-        {
-            morphAssertionGenerate(asgField);
-        }
+            if (morphAssertionTable != nullptr)
+            {
+                morphAssertionGenerate(tree);
+            }
 #endif
 
-        if (asgFieldCommaTree != nullptr)
-        {
-            asgFieldCommaTree = gtNewCommaNode(asgFieldCommaTree, asgField);
+            tree = fieldStore;
         }
         else
         {
-            asgFieldCommaTree = asgField;
+#if LOCAL_ASSERTION_PROP
+            if (morphAssertionTable != nullptr)
+            {
+                if (tree->OperIs(GT_ASG))
+                {
+                    morphAssertionGenerate(tree);
+                }
+
+                morphAssertionGenerate(fieldStore);
+            }
+#endif
+
+            tree = gtNewCommaNode(tree, fieldStore);
         }
     }
 
-    INDEBUG(asgFieldCommaTree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    JITDUMPTREE(tree, "Promoted struct store:\n");
 
-    JITDUMPTREE(asgFieldCommaTree, "fgMorphCopyStruct (after promotion):\n\n");
-
-    return asgFieldCommaTree;
+    return tree;
 }
 
 //------------------------------------------------------------------------------
@@ -14085,7 +14057,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         GenTree* oldTree     = stmt->GetRootNode();
         GenTree* morphedTree = fgMorphTree(oldTree);
 
-#ifndef TARGET_X86
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_ARM)
         // Mark any outgoing arg temps as free so we can reuse them in the next statement.
         abiFreeAllStructArgTemps();
 #endif

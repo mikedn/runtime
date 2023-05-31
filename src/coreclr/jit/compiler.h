@@ -165,7 +165,9 @@ public:
                                          // struct promotion.
     unsigned char lvLiveInOutOfHndlr : 1; // The variable is live in or out of an exception handler, and therefore must
                                           // be on the stack (at least at those boundaries.)
-
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+    unsigned char lvIsImplicitByRefArgTemp : 1;
+#endif
     unsigned char m_isSsa : 1; // The variable is in SSA form (set by SsaBuilder)
 
 #ifdef DEBUG
@@ -292,7 +294,8 @@ public:
     unsigned char lvDisqualifyAddCopy : 1; // local isn't a candidate for optAddCopies
 #endif
 
-    unsigned char lvEHLive : 1; // local has EH references
+    unsigned char lvHasEHRefs : 1; // local has EH references
+    unsigned char lvHasEHUses : 1; // local has EH uses
 
 #ifndef TARGET_64BIT
     unsigned char lvStructDoubleAlign : 1; // Must we double align this struct?
@@ -4821,6 +4824,7 @@ private:
     GenTree* fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt);
     GenTree* fgGetStubAddrArg(GenTreeCall* call);
     void fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCall* recursiveTailCall);
+    void fgMorphCreateLclInit(unsigned lclNum, BasicBlock* block, Statement* beforeStmt, IL_OFFSETX ilOffset);
     Statement* fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
                                                      fgArgTabEntry* argTabEntry,
                                                      BasicBlock*    block,
@@ -4833,7 +4837,7 @@ private:
     GenTree* fgMorphLeaf(GenTree* tree);
     void gtAssignSetVarDef(GenTreeLclVarCommon* dst);
     GenTree* fgMorphInitStruct(GenTreeOp* asg);
-    GenTree* fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree* initVal);
+    GenTree* fgMorphPromoteLocalInitStruct(GenTreeOp* asg, LclVarDsc* destLclVar, GenTree* initVal);
     GenTree* fgMorphInitStructConstant(GenTreeIntCon* initVal,
                                        var_types      type,
                                        bool           extendToActualType,
@@ -4847,6 +4851,10 @@ private:
     GenTree* fgMorphDynBlk(GenTreeDynBlk* dynBlk);
     GenTree* fgMorphBlockAssignment(GenTreeOp* asg);
     GenTree* fgMorphCopyStruct(GenTreeOp* asg);
+    GenTreeOp* fgMorphPromoteStore(GenTreeOp*  store,
+                                   GenTreeOp*  tempStore,
+                                   GenTreeOp** fieldStores,
+                                   unsigned    fieldCount);
     GenTree* fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
@@ -6787,13 +6795,13 @@ public:
     GenTree* abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize);
     GenTree* abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg);
 #endif
-#ifndef TARGET_X86
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_ARM)
     unsigned abiAllocateStructArgTemp(ClassLayout* argLayout);
     void abiFreeAllStructArgTemps();
-#if TARGET_64BIT
+#endif
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     void abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
-#endif // !TARGET_X86
     void abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val);
 
     bool killGCRefs(GenTree* tree);
