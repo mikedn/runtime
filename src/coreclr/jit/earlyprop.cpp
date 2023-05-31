@@ -17,13 +17,13 @@
 // Null check folding tries to find NULLCHECK nodes followed by indirections that would
 // throw the same NullReferenceException, making NULLCHECKs redundant.
 //
-//   - NULLCHECK(addr + offset1)
+//   - NULLCHECK(LCL_USE(x))
 //     any code that does not interfere with the NULLCHECK thrown exception
-//     IND(addr)
+//     IND(LCL_USE(x) + offset)
 //
-//   - SSA_DEF(x, COMMA(NULLCHECK(y), ADD(y, offset1)))
+//   - LCL_DEF(x, COMMA(NULLCHECK(y), ADD(y, offset1)))
 //     any code that does not interfere with the NULLCHECK thrown exception
-//     IND(ADD(SSA_USE(x), offset2))
+//     IND(ADD(LCL_USE(x), offset2))
 //
 // We can eliminate a NULLCHECK only if there are no interfering side effects between
 // the NULLCHECK node and the indir. For example, we can't eliminate the NULLCHECK if
@@ -189,7 +189,7 @@ private:
                         {
                             *use = comma->AsOp()->GetOp(1);
 
-                            // COMMA and ARR_LEN remain in the statment until we finish traversing the statement,
+                            // COMMA and ARR_LEN remain in the statement until we finish traversing the statement,
                             // remove all side effects so they don't interfere with null check folding.
                             comma->ChangeToNothingNode();
                             arrLen->ChangeToNothingNode();
@@ -500,8 +500,10 @@ private:
             return false;
         }
 
-        // TODO-MIKE-Review: Perhaps we can move a null check past another null check,
-        // they should always throw NullReferenceException.
+        // TODO-MIKE-Review: Perhaps we can move a NULLCHECK past another NULLCHECK,
+        // they usually throw NullReferenceException. But they can also throw
+        // AccessViolationException so it's more complicated. Maybe do it only if
+        // the address can be traced back to a REF?
         if (((node->gtFlags & GTF_EXCEPT) != 0) && node->OperMayThrow(compiler))
         {
             return false;
@@ -584,6 +586,12 @@ private:
         }
 #endif
 
+        // TODO-MIKE-Review: This may be overly conservative outside try regions.
+        // If an exception is thrown it's unlikely that someone would expect to observe
+        // the value of this local. But it turns out that it's possible for handlers up
+        // the call stack to see it because unwinding happens rather late. Still, it's
+        // very very unlikely that any sane code would depend on this. And the ECMA
+        // spec doesn't seem to be very clear about when exactly unwinding happens.
         if (lcl->IsAddressExposed())
         {
             return false;
