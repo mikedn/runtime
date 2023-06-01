@@ -511,11 +511,6 @@ private:
 
         if ((node->gtFlags & GTF_ASG) != 0)
         {
-            if (node->OperIs(GT_ASG))
-            {
-                return false;
-            }
-
             if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
             {
                 return CanMoveNullCheckPastLclStore(node->AsLclVarCommon(), isInsideTry);
@@ -540,16 +535,6 @@ private:
         }
 
         assert((node->gtFlags & GTF_ASG) != 0);
-
-        if (node->OperIs(GT_ASG))
-        {
-            if ((node->AsOp()->GetOp(1)->gtFlags & GTF_ASG) != 0)
-            {
-                return false;
-            }
-
-            return false;
-        }
 
         if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
         {
