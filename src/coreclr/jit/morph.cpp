@@ -3042,7 +3042,7 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
 
         if (argInfo->HasLateUse())
         {
-            assert(arg->OperIs(GT_ARGPLACE, GT_ASG, GT_LCL_DEF, GT_STORE_LCL_VAR) ||
+            assert(arg->OperIs(GT_ARGPLACE, GT_ASG, GT_LCL_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
                    (arg->OperIs(GT_COMMA) && arg->TypeIs(TYP_VOID)));
 
             argsSideEffects |= arg->gtFlags;

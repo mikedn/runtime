@@ -845,6 +845,18 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
         unsigned             lclNum  = lclNode->GetLclNum();
         LclVarDsc*           lcl     = m_compiler->lvaGetDesc(lclNum);
 
+        if (dst->gtPrev != nullptr)
+        {
+            dst->gtPrev->gtNext = dst->gtNext;
+        }
+
+        if (dst->gtNext != nullptr)
+        {
+            dst->gtNext->gtPrev = dst->gtPrev;
+        }
+
+        GenTree* value = asgNode->GetOp(1);
+
         if (lcl->IsSsa())
         {
             // Promoted variables are not in SSA, only their fields are.
@@ -855,18 +867,6 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
             assert((lclNode->gtFlags & GTF_VAR_DEF) != 0);
 
             GenTreeFlags defFlags = lclNode->gtFlags & ~GTF_DONT_CSE;
-
-            if (lclNode->gtPrev != nullptr)
-            {
-                lclNode->gtPrev->gtNext = lclNode->gtNext;
-            }
-
-            if (lclNode->gtNext != nullptr)
-            {
-                lclNode->gtNext->gtPrev = lclNode->gtPrev;
-            }
-
-            GenTree* value = asgNode->GetOp(1);
 
             if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
             {
@@ -954,6 +954,23 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
             }
 
             return;
+        }
+
+        asgNode->ChangeOper(dst->OperIs(GT_LCL_FLD) ? GT_STORE_LCL_FLD : GT_STORE_LCL_VAR);
+
+        GenTreeLclVarCommon* store = asgNode->AsLclVarCommon();
+        store->SetType(dst->GetType());
+        store->SetLclNum(lclNum);
+        store->SetOp(0, value);
+        store->SetSideEffects(GTF_ASG | value->GetSideEffects() | (dst->gtFlags & GTF_GLOB_REF));
+        store->gtFlags &= ~GTF_REVERSE_OPS;
+        store->gtFlags |= dst->gtFlags & GTF_SPECIFIC_MASK;
+
+        if (dst->OperIs(GT_LCL_FLD))
+        {
+            store->AsLclFld()->SetLclOffs(dst->AsLclFld()->GetLclOffs());
+            store->AsLclFld()->SetFieldSeq(dst->AsLclFld()->GetFieldSeq());
+            store->AsLclFld()->SetLayoutNum(dst->AsLclFld()->GetLayoutNum());
         }
 
         if (!lcl->IsAddressExposed())

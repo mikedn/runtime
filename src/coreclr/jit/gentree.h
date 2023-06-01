@@ -375,6 +375,8 @@ enum GenTreeFlags : unsigned
     GTF_USE_FLAGS             = 0x00004000, // Generated instruction uses the condition flags
     GTF_COMMON_MASK           = 0x0000FFFF, // Mask of all the flags above
 
+    GTF_SPECIFIC_MASK         = 0xFFFF0000, // Mask of all the flags below
+
     // LCL_VAR & co. specific flags
                               
     GTF_VAR_DEF               = 0x80000000, // Definition of a local (LCL_VAR|FLD ASG LHS or STORE_LCL_VAR|FLD)
@@ -386,7 +388,7 @@ enum GenTreeFlags : unsigned
     GTF_VAR_MULTIREG          = 0x02000000, // Struct or (on 32-bit platforms) LONG local store with a multireg source
                                             // (CALLs and some LONG operations on 32 bit - MUL_LONG, BITCAST)
                                             // returns its result in multiple registers such as a long multiply)
-    GTF_VAR_CLONED            = 0x00400000, // Node has been cloned (used by inlined to detect single use params)
+    GTF_VAR_CLONED            = 0x00400000, // Node has been cloned (used by inliner to detect single use params)
     GTF_VAR_CONTEXT           = 0x00200000, // Node is part of a runtime lookup tree (LCL_VAR)
                               
     // CALL specific flags

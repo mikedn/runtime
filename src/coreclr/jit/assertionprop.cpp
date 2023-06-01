@@ -3141,26 +3141,37 @@ private:
                 // can be done when the struct fits in a register. Otherwise we may
                 // need a STRUCT typed constant node instead of abusing GT_CNS_INT.
 
-                if ((user != nullptr) &&
-                    ((user->OperIs(GT_ASG) && (user->AsOp()->GetOp(1) == tree)) || user->IsInsert()) &&
-                    ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
+                if ((user != nullptr) && ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
                     (m_vnStore->ExtractValue(tree->GetConservativeVN()) == m_vnStore->ZeroMapVN()))
                 {
                     if (user->OperIs(GT_ASG))
                     {
-                        user->AsOp()->SetOp(1, m_compiler->gtNewIconNode(0));
+                        if (user->AsOp()->GetOp(1) == tree)
+                        {
+                            user->AsOp()->SetOp(1, m_compiler->gtNewIconNode(0));
+                            m_stmtMorphPending = true;
+                        }
                     }
-                    else if (user->AsInsert()->GetStructValue() == tree)
+                    else if (user->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
                     {
-                        user->AsInsert()->SetStructValue(m_compiler->gtNewIconNode(0));
+                        assert(user->AsLclVarCommon()->GetOp(0) == tree);
+                        user->AsOp()->SetOp(0, m_compiler->gtNewIconNode(0));
+                        m_stmtMorphPending = true;
                     }
-                    else
+                    else if (GenTreeInsert* insert = user->IsInsert())
                     {
-                        assert(user->AsInsert()->GetFieldValue() == tree);
-                        user->AsInsert()->SetFieldValue(m_compiler->gtNewIconNode(0));
+                        if (user->AsInsert()->GetStructValue() == tree)
+                        {
+                            user->AsInsert()->SetStructValue(m_compiler->gtNewIconNode(0));
+                            m_stmtMorphPending = true;
+                        }
+                        else
+                        {
+                            assert(user->AsInsert()->GetFieldValue() == tree);
+                            user->AsInsert()->SetFieldValue(m_compiler->gtNewIconNode(0));
+                            m_stmtMorphPending = true;
+                        }
                     }
-
-                    m_stmtMorphPending = true;
                 }
 
                 return Compiler::WALK_CONTINUE;

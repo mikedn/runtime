@@ -11748,7 +11748,7 @@ bool GenTree::IsPhiDef() const
 
 bool GenTree::IsPartialLclFld(Compiler* comp)
 {
-    if (gtOper != GT_LCL_FLD)
+    if ((gtOper != GT_LCL_FLD) && (gtOper != GT_STORE_LCL_FLD))
     {
         return false;
     }
