@@ -2703,14 +2703,14 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         GenTree* addr = op1->SkipComma();
 
                         if (addr->OperIs(GT_ADD) && !addr->gtOverflow() &&
-                            gtMarkAddrMode(addr, &costEx, &costSz, tree->TypeGet()))
+                            gtMarkAddrMode(addr, &costEx, &costSz, tree->GetType()))
                         {
                             while (op1 != addr)
                             {
                                 // TODO-MIKE-CQ: Marking COMMAs with GTF_ADDRMODE_NO_CSE sometimes interferes with
                                 // redundant range check elimination done via CSE.
                                 // Normally CSE can't eliminate range checks because it uses liberal value numbers
-                                // and that makes it senstive to race conditions in user code. However, if the
+                                // and that makes it sensitive to race conditions in user code. However, if the
                                 // entire array element address tree is CSEd, including the range check, then race
                                 // conditions aren't an issue.
                                 //
@@ -2728,6 +2728,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                                 // IND(COMMA(...)) morphing code not applying to OBJs as well.
 
                                 op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
+                                costEx += op1->AsOp()->GetOp(0)->GetCostEx();
+                                costSz += op1->AsOp()->GetOp(0)->GetCostSz();
                                 op1 = op1->AsOp()->GetOp(1);
                             }
 
