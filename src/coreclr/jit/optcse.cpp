@@ -79,10 +79,15 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
             // the second would not allow it
             return !node->AsIndir()->GetAddr()->OperIs(GT_ARR_ELEM);
 
+        case GT_COMMA:
+            if (node->AsOp()->GetOp(1)->GetLiberalVN() == node->GetLiberalVN())
+            {
+                return false;
+            }
+            FALLTHROUGH;
         case GT_ADD:
         case GT_LSH:
         case GT_MUL:
-        case GT_COMMA:
             return (node->gtFlags & GTF_ADDRMODE_NO_CSE) == 0;
 
         case GT_LCL_VAR:
