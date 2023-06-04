@@ -815,12 +815,6 @@ void LoopCloneContext::PerformStaticOptimizations(unsigned loopNum)
         if (GenTreeBoundsChk* boundsChk = comma->GetOp(0)->IsBoundsChk())
         {
             compiler->optRemoveRangeCheck(boundsChk, comma, arrIndexInfo->stmt);
-
-            // TODO-MIKE-Cleanup: Turns out that CSE is dumb and it will make CSE def out of
-            // COMMA(NOP, x) and a CSE use out x, because they have the same value numbers.
-            // Can we just make CSE ignore COMMA(NOP, x)? Or remove it altogether somewhere
-            // along the way?
-            comma->gtFlags |= GTF_DONT_CSE;
         }
         else
         {
