@@ -544,17 +544,9 @@ class LoopHoistTreeVisitor : public GenTreeVisitor<LoopHoistTreeVisitor>
     unsigned          m_loopNum;
     LoopHoist*        m_loopHoist;
 
-    bool IsNodeHoistable(GenTree* node)
+    bool IsNodeHoistable(GenTree* node) const
     {
-        // TODO-CQ: This is a more restrictive version of a check that cseIsCandidate already does - it allows
-        // a struct typed node if a class handle can be recovered from it.
-        if (node->TypeGet() == TYP_STRUCT)
-        {
-            return false;
-        }
-
-        // Tree must be a suitable CSE candidate for us to be able to hoist it.
-        return ssa.IsCseCandidate(node);
+        return !node->TypeIs(TYP_STRUCT) && !node->HasAnySideEffect(GTF_ASG) && ssa.IsCseCandidate(node);
     }
 
     bool IsTreeVNInvariant(GenTree* tree)

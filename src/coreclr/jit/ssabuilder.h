@@ -171,7 +171,7 @@ public:
 
     static constexpr unsigned MinCseCost = 2;
 
-    bool IsCseCandidate(GenTree* tree);
+    bool IsCseCandidate(GenTree* tree) const;
 
     void SetAssertionTable(AssertionDsc* table, unsigned count)
     {

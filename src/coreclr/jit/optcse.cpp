@@ -7,9 +7,9 @@
 #include "ssabuilder.h"
 #include "valuenum.h"
 
-bool SsaOptimizer::IsCseCandidate(GenTree* node)
+bool SsaOptimizer::IsCseCandidate(GenTree* node) const
 {
-    if ((node->gtFlags & (GTF_ASG | GTF_DONT_CSE)) != 0)
+    if ((node->gtFlags & GTF_DONT_CSE) != 0)
     {
         return false;
     }
