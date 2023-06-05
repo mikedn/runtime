@@ -11959,10 +11959,12 @@ DONE_MORPHING_CHILDREN:
     // If the tree always throws an exception we can drop most of it, except, of course
     // the exception throwing parts. But we cannot remove assignments as that will mess
     // up call arg setup, which expects an assignment tree and doesn't know that the
-    // tree will always throw an exception.
+    // tree will always throw an exception. Likewise, we cannot remove indirections as
+    // they could be assignment destinations.
     // TODO-MIKE-Review: Why bother do anything here to begin with? Can't we just set
     // fgRemoveRestOfBlock and have fgMorphTree callers deal with it?
-    if ((oper != GT_ASG) && (oper != GT_LCL_DEF) && (oper != GT_STORE_LCL_VAR))
+    if ((oper != GT_ASG) && (oper != GT_LCL_DEF) && (oper != GT_STORE_LCL_VAR) && (oper != GT_IND) &&
+        (oper != GT_OBJ) && (oper != GT_BLK))
     {
         /* Check for op1 as a GT_COMMA with a unconditional throw node */
         if (op1 && fgIsCommaThrow(op1, true))
