@@ -11848,8 +11848,8 @@ DONE_MORPHING_CHILDREN:
             }
             break;
 
-        case GT_IND:
 #ifdef TARGET_ARM
+        case GT_IND:
             // Check for a misalignment floating point indirection.
             // TODO-MIKE-Cleanup: This should be moved to lowering
             // (or perhaps decomposition to deal with DOUBLE).
@@ -11865,53 +11865,8 @@ DONE_MORPHING_CHILDREN:
                     }
                 }
             }
-#endif // TARGET_ARM
-
-            // Only do this optimization when we are in the global optimizer. Doing this after value numbering
-            // could result in an invalid value number for the newly generated GT_IND node.
-            if (op1->OperIs(GT_COMMA) && fgGlobalMorph)
-            {
-                // Perform the transform IND(COMMA(x, ..., z)) == COMMA(x, ..., IND(z)).
-                //
-                // TBD: this transformation is currently necessary for correctness -- it might
-                // be good to analyze the failures that result if we don't do this, and fix them
-                // in other ways.  Ideally, this should be optional.
-
-                ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
-                for (GenTree* comma = op1; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
-                {
-                    commas.Push(comma->AsOp());
-                }
-
-                GenTreeOp* lastComma = commas.Top();
-                GenTree*   addr      = lastComma->GetOp(1);
-                tree->AsIndir()->SetAddr(addr);
-
-                GenTreeFlags sideEffects = tree->GetSideEffects() & (GTF_GLOB_REF | GTF_ORDER_SIDEEFF);
-
-                if ((tree->gtFlags & GTF_IND_NONFAULTING) == 0)
-                {
-                    sideEffects |= GTF_EXCEPT;
-                }
-
-                tree->SetSideEffects(sideEffects | addr->GetSideEffects());
-
-                lastComma->SetOp(1, tree);
-
-                while (!commas.Empty())
-                {
-                    GenTreeOp* comma = commas.Pop();
-                    comma->SetType(typ);
-                    comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
-                }
-
-                op1->gtFlags |= tree->gtFlags & GTF_DONT_CSE;
-                INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-
-                return op1;
-            }
-
             break;
+#endif // TARGET_ARM
 
         case GT_COMMA:
             // Special case: trees that don't produce a value
