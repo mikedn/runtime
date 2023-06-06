@@ -99,6 +99,7 @@ private:
     bool NumberHelperCall(GenTreeCall* call);
     void NumberIntrinsic(GenTreeIntrinsic* intrinsic);
     void NumberBoundsCheck(GenTreeBoundsChk* check);
+    void NumberDivMod(GenTreeOp* node);
 #ifdef FEATURE_HW_INTRINSICS
     void NumberHWIntrinsic(GenTreeHWIntrinsic* node);
 #endif
@@ -139,10 +140,8 @@ private:
     ValueNum AddNullRefExset(ValueNum addrVN);
     ValueNumPair AddNullRefExset(ValueNumPair addrVNP);
     void AddNullRefExset(GenTree* node, GenTree* addr);
-    void AddDivExset(GenTree* tree);
-    void AddOverflowExset(GenTree* tree);
+    void AddOverflowExset(GenTreeOp* node);
     void NumbeCkFinite(GenTreeUnOp* node);
-    void AddNodeExset(GenTree* tree);
 
 #ifdef DEBUG
     void TraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment = nullptr);
@@ -8180,6 +8179,13 @@ void ValueNumbering::NumberNode(GenTree* node)
             }
             break;
 
+        case GT_DIV:
+        case GT_UDIV:
+        case GT_MOD:
+        case GT_UMOD:
+            NumberDivMod(node->AsOp());
+            break;
+
         case GT_ADD:
             if (!node->gtOverflow())
             {
@@ -8225,7 +8231,14 @@ void ValueNumbering::NumberNode(GenTree* node)
                 ValueNumPair normalPair = vnStore->VNPairForFunc(node->GetType(), vnf, op1vnp, op2vnp);
                 node->SetVNP(vnStore->VNPWithExc(normalPair, excSetPair));
 
-                AddNodeExset(node);
+                if (node->OperIs(GT_ADD, GT_SUB, GT_MUL) && node->gtOverflow())
+                {
+                    AddOverflowExset(node->AsOp());
+                }
+                else
+                {
+                    assert(!node->OperMayThrow(compiler));
+                }
             }
             else
             {
@@ -9171,218 +9184,99 @@ void ValueNumbering::AddNullRefExset(GenTree* node, GenTree* addr)
     node->SetVNP(vnStore->VNPWithExc(vnStore->VNPNormalPair(node->GetVNP()), {libExset, conExset}));
 }
 
-//--------------------------------------------------------------------------------
-// fgValueNumberAddExceptionSetForDivison
-//         - Adds the exception sets for the current tree node
-//           which is performing an integer division operation
-//
-// Arguments:
-//    tree       - The current GenTree node,
-//                 It must be a node that performs an integer division
-//
-// Return Value:
-//               - The tree's gtVNPair is updated to include
-//                 VNF_DivideByZeroExc and VNF_ArithmeticExc,
-//                 We will omit one or both of them when the operation
-//                 has constants arguments that preclude the exception.
-//
-void ValueNumbering::AddDivExset(GenTree* tree)
+void ValueNumbering::NumberDivMod(GenTreeOp* node)
 {
-    genTreeOps oper = tree->OperGet();
+    assert(node->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD));
+    assert(ValueNumStore::VNFuncIsLegal(static_cast<VNFunc>(node->GetOper())));
 
-    // A Divide By Zero exception may be possible.
-    // The divisor is held in tree->AsOp()->gtOp2
-    //
-    bool isUnsignedOper         = (oper == GT_UDIV) || (oper == GT_UMOD);
-    bool needDivideByZeroExcLib = true;
-    bool needDivideByZeroExcCon = true;
-    bool needArithmeticExcLib   = !isUnsignedOper; // Overflow isn't possible for unsigned divide
-    bool needArithmeticExcCon   = !isUnsignedOper;
+    ValueNumPair exset1;
+    ValueNumPair vnp1 = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset1);
+    ValueNumPair exset2;
+    ValueNumPair vnp2  = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
+    ValueNumPair vnp   = vnStore->VNPairForFunc(node->GetType(), static_cast<VNFunc>(node->GetOper()), vnp1, vnp2);
+    ValueNumPair exset = vnStore->VNPExcSetUnion(exset1, exset2);
 
-    // Determine if we have a 32-bit or 64-bit divide operation
-    var_types typ = genActualType(tree->TypeGet());
-    assert((typ == TYP_INT) || (typ == TYP_LONG));
+    const bool      isSigned = node->OperIs(GT_DIV, GT_MOD);
+    const var_types type     = varActualType(node->GetType());
+    assert((type == TYP_INT) || (type == TYP_LONG));
 
-    // Retrieve the Norm VN for op2 to use it for the DivideByZeroExc
-    ValueNumPair vnpOp2Norm   = vnStore->VNPNormalPair(tree->AsOp()->GetOp(1)->GetVNP());
-    ValueNum     vnOp2NormLib = vnpOp2Norm.GetLiberal();
-    ValueNum     vnOp2NormCon = vnpOp2Norm.GetConservative();
-
-    if (typ == TYP_INT)
+    const ValueNumKind vnKinds[]{VNK_Liberal, VNK_Conservative};
+    for (ValueNumKind kind : vnKinds)
     {
-        if (vnStore->IsVNConstant(vnOp2NormLib))
-        {
-            int32_t kVal = vnStore->ConstantValue<int32_t>(vnOp2NormLib);
-            if (kVal != 0)
-            {
-                needDivideByZeroExcLib = false;
-            }
-            if (!isUnsignedOper && (kVal != -1))
-            {
-                needArithmeticExcLib = false;
-            }
-        }
-        if (vnStore->IsVNConstant(vnOp2NormCon))
-        {
-            int32_t kVal = vnStore->ConstantValue<int32_t>(vnOp2NormCon);
-            if (kVal != 0)
-            {
-                needDivideByZeroExcCon = false;
-            }
-            if (!isUnsignedOper && (kVal != -1))
-            {
-                needArithmeticExcCon = false;
-            }
-        }
-    }
-    else // (typ == TYP_LONG)
-    {
-        if (vnStore->IsVNConstant(vnOp2NormLib))
-        {
-            int64_t kVal = vnStore->ConstantValue<int64_t>(vnOp2NormLib);
-            if (kVal != 0)
-            {
-                needDivideByZeroExcLib = false;
-            }
-            if (!isUnsignedOper && (kVal != -1))
-            {
-                needArithmeticExcLib = false;
-            }
-        }
-        if (vnStore->IsVNConstant(vnOp2NormCon))
-        {
-            int64_t kVal = vnStore->ConstantValue<int64_t>(vnOp2NormCon);
-            if (kVal != 0)
-            {
-                needDivideByZeroExcCon = false;
-            }
-            if (!isUnsignedOper && (kVal != -1))
-            {
-                needArithmeticExcCon = false;
-            }
-        }
-    }
+        bool needDivideByZeroExc = true;
+        bool needArithmeticExc   = isSigned;
 
-    // Retrieve the Norm VN for op1 to use it for the ArithmeticExc
-    ValueNumPair vnpOp1Norm   = vnStore->VNPNormalPair(tree->AsOp()->GetOp(0)->GetVNP());
-    ValueNum     vnOp1NormLib = vnpOp1Norm.GetLiberal();
-    ValueNum     vnOp1NormCon = vnpOp1Norm.GetConservative();
-
-    if (needArithmeticExcLib || needArithmeticExcCon)
-    {
-        if (typ == TYP_INT)
+        if (vnStore->IsVNConstant(vnp2.Get(kind)))
         {
-            if (vnStore->IsVNConstant(vnOp1NormLib))
-            {
-                int32_t kVal = vnStore->ConstantValue<int32_t>(vnOp1NormLib);
+            int64_t val = (type == TYP_INT) ? vnStore->ConstantValue<int32_t>(vnp2.Get(kind))
+                                            : vnStore->ConstantValue<int64_t>(vnp2.Get(kind));
 
-                if (!isUnsignedOper && (kVal != INT32_MIN))
+            if (val != 0)
+            {
+                needDivideByZeroExc = false;
+            }
+
+            if (isSigned && (val != -1))
+            {
+                needArithmeticExc = false;
+            }
+        }
+
+        if (needArithmeticExc)
+        {
+            if (vnStore->IsVNConstant(vnp1.Get(kind)))
+            {
+                if ((type == TYP_INT) ? (vnStore->ConstantValue<int32_t>(vnp1.Get(kind)) != INT32_MIN)
+                                      : (vnStore->ConstantValue<int64_t>(vnp1.Get(kind)) != INT64_MIN))
                 {
-                    needArithmeticExcLib = false;
+                    needArithmeticExc = false;
                 }
             }
-            if (vnStore->IsVNConstant(vnOp1NormCon))
-            {
-                int32_t kVal = vnStore->ConstantValue<int32_t>(vnOp1NormCon);
 
-                if (!isUnsignedOper && (kVal != INT32_MIN))
+            if (vnStore->IsVNConstant(vnp1.Get(kind)))
+            {
+                if ((type == TYP_INT) ? (vnStore->ConstantValue<int32_t>(vnp1.Get(kind)) != INT32_MIN)
+                                      : (vnStore->ConstantValue<int64_t>(vnp1.Get(kind)) != INT64_MIN))
                 {
-                    needArithmeticExcCon = false;
+                    needArithmeticExc = false;
                 }
             }
         }
-        else // (typ == TYP_LONG)
+
+        if (needDivideByZeroExc)
         {
-            if (vnStore->IsVNConstant(vnOp1NormLib))
-            {
-                int64_t kVal = vnStore->ConstantValue<int64_t>(vnOp1NormLib);
+            ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_DivideByZeroExc, vnp2.Get(kind));
+            exset.Set(kind, vnStore->VNExcSetUnion(exset.Get(kind), vnStore->VNExcSetSingleton(ex)));
+        }
 
-                if (!isUnsignedOper && (kVal != INT64_MIN))
-                {
-                    needArithmeticExcLib = false;
-                }
-            }
-            if (vnStore->IsVNConstant(vnOp1NormCon))
-            {
-                int64_t kVal = vnStore->ConstantValue<int64_t>(vnOp1NormCon);
-
-                if (!isUnsignedOper && (kVal != INT64_MIN))
-                {
-                    needArithmeticExcCon = false;
-                }
-            }
+        if (needArithmeticExc)
+        {
+            ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ArithmeticExc, vnp1.Get(kind), vnp2.Get(kind));
+            exset.Set(kind, vnStore->VNExcSetUnion(exset.Get(kind), vnStore->VNExcSetSingleton(ex)));
         }
     }
 
-    // Unpack, Norm,Exc for the tree's VN
-    ValueNumPair vnpTreeNorm;
-    ValueNumPair vnpTreeExc;
-    ValueNumPair vnpDivZeroExc = ValueNumStore::VNPForEmptyExcSet();
-    ValueNumPair vnpArithmExc  = ValueNumStore::VNPForEmptyExcSet();
-
-    vnStore->VNPUnpackExc(tree->GetVNP(), &vnpTreeNorm, &vnpTreeExc);
-
-    if (needDivideByZeroExcLib)
-    {
-        vnpDivZeroExc.SetLiberal(
-            vnStore->VNExcSetSingleton(vnStore->VNForFunc(TYP_REF, VNF_DivideByZeroExc, vnOp2NormLib)));
-    }
-    if (needDivideByZeroExcCon)
-    {
-        vnpDivZeroExc.SetConservative(
-            vnStore->VNExcSetSingleton(vnStore->VNForFunc(TYP_REF, VNF_DivideByZeroExc, vnOp2NormCon)));
-    }
-    if (needArithmeticExcLib)
-    {
-        vnpArithmExc.SetLiberal(
-            vnStore->VNExcSetSingleton(vnStore->VNForFunc(TYP_REF, VNF_ArithmeticExc, vnOp1NormLib, vnOp2NormLib)));
-    }
-    if (needArithmeticExcCon)
-    {
-        vnpArithmExc.SetConservative(
-            vnStore->VNExcSetSingleton(vnStore->VNForFunc(TYP_REF, VNF_ArithmeticExc, vnOp1NormLib, vnOp2NormCon)));
-    }
-
-    ValueNumPair newExcSet = vnStore->VNPExcSetUnion(vnpTreeExc, vnpDivZeroExc);
-    newExcSet              = vnStore->VNPExcSetUnion(newExcSet, vnpArithmExc);
-    tree->SetVNP(vnStore->VNPWithExc(vnpTreeNorm, newExcSet));
+    node->SetVNP(vnStore->VNPWithExc(vnp, exset));
 }
 
-//--------------------------------------------------------------------------------
-// AddOverflowExset
-//         - Adds the exception set for the current tree node
-//           which is performing an overflow checking math operation
-//
-// Arguments:
-//    tree       - The current GenTree node,
-//                 It must be a node that performs an overflow
-//                 checking math operation
-//
-// Return Value:
-//               - The tree's gtVNPair is updated to include the VNF_OverflowExc
-//                 exception set, except for constant VNs and those produced from identities.
-//
-void ValueNumbering::AddOverflowExset(GenTree* tree)
+void ValueNumbering::AddOverflowExset(GenTreeOp* node)
 {
-    assert(tree->gtOverflowEx());
+    assert(node->OperIs(GT_ADD, GT_SUB, GT_MUL) && node->gtOverflow());
 
-    // We should only be dealing with an Overflow checking ALU operation.
-    VNFunc vnf = GetVNFuncForNode(tree);
+    VNFunc vnf = GetVNFuncForNode(node);
     assert(ValueNumStore::VNFuncIsOverflowArithmetic(vnf));
 
-    ValueNumKind vnKinds[2] = {VNK_Liberal, VNK_Conservative};
-    for (ValueNumKind vnKind : vnKinds)
-    {
-        ValueNum vn = tree->GetVN(vnKind);
+    ValueNumPair vnp = node->GetVNP();
 
-        // Unpack Norm, Exc for the current VN.
-        ValueNum vnNorm;
-        ValueNum vnExcSet;
-        vnStore->VNUnpackExc(vn, &vnNorm, &vnExcSet);
+    const ValueNumKind vnKinds[]{VNK_Liberal, VNK_Conservative};
+    for (ValueNumKind kind : vnKinds)
+    {
+        ValueNum exset;
+        ValueNum vn = vnStore->UnpackExset(vnp.Get(kind), &exset);
 
         // Don't add exceptions if the normal VN represents a constant.
         // We only fold to constant VNs for operations that provably cannot overflow.
-        if (vnStore->IsVNConstant(vnNorm))
+        if (vnStore->IsVNConstant(vn))
         {
             continue;
         }
@@ -9390,29 +9284,21 @@ void ValueNumbering::AddOverflowExset(GenTree* tree)
         // Don't add exceptions if the tree's normal VN has been derived from an identity.
         // This takes care of x + 0 == x, 0 + x == x, x - 0 == x, x * 1 == x, 1 * x == x.
         // The x - x == 0 and x * 0 == 0, 0 * x == 0 cases are handled by the "IsVNConstant" check above.
-        if ((vnNorm == vnStore->VNNormalValue(tree->gtGetOp1()->GetVN(vnKind))) ||
-            (vnNorm == vnStore->VNNormalValue(tree->gtGetOp2()->GetVN(vnKind))))
+        if ((vnStore->VNNormalValue(node->GetOp(0)->GetVN(kind)) == vn) ||
+            (vnStore->VNNormalValue(node->GetOp(1)->GetVN(kind))) == vn)
         {
-            // TODO-Review: would it be acceptable to make ValueNumStore::EvalUsingMathIdentity
-            // public just to assert here?
             continue;
         }
 
         // The normal value number function should now be the same overflow checking ALU operation as 'vnf'.
-        INDEBUG(VNFuncApp normFuncApp);
-        assert(vnStore->GetVNFunc(vnNorm, &normFuncApp) == vnf);
+        INDEBUG(VNFuncApp funcApp);
+        assert(vnStore->GetVNFunc(vn, &funcApp) == vnf);
 
-        // Overflow-checking operations add an overflow exception.
-        // The normal result is used as the input argument for the OverflowExc.
-        ValueNum vnOverflowExc = vnStore->VNExcSetSingleton(vnStore->VNForFunc(TYP_REF, VNF_OverflowExc, vnNorm));
-
-        // Combine the new Overflow exception with the original exception set.
-        vnExcSet = vnStore->VNExcSetUnion(vnExcSet, vnOverflowExc);
-
-        // Update the VN to include the Overflow exception.
-        ValueNum newVN = vnStore->VNWithExc(vnNorm, vnExcSet);
-        tree->SetVN(vnKind, newVN);
+        ValueNum overflowExset = vnStore->VNExcSetSingleton(vnStore->VNForFunc(TYP_REF, VNF_OverflowExc, vn));
+        vnp.Set(kind, vnStore->VNWithExc(vn, vnStore->VNExcSetUnion(exset, overflowExset)));
     }
+
+    node->SetVNP(vnp);
 }
 
 void ValueNumbering::NumberBoundsCheck(GenTreeBoundsChk* check)
@@ -9450,31 +9336,6 @@ void ValueNumbering::NumbeCkFinite(GenTreeUnOp* node)
     exset           = vnStore->VNPExcSetUnion(exset, vnStore->VNPExcSetSingleton(ex));
 
     node->SetVNP(vnStore->VNPWithExc(value, exset));
-}
-
-void ValueNumbering::AddNodeExset(GenTree* node)
-{
-    if (!node->OperMayThrow(compiler))
-    {
-        return;
-    }
-
-    switch (node->GetOper())
-    {
-        case GT_ADD:
-        case GT_SUB:
-        case GT_MUL:
-            AddOverflowExset(node);
-            return;
-        case GT_DIV:
-        case GT_UDIV:
-        case GT_MOD:
-        case GT_UMOD:
-            AddDivExset(node);
-            return;
-        default:
-            unreached();
-    }
 }
 
 #ifdef DEBUG
