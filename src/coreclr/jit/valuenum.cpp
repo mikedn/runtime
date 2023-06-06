@@ -4249,14 +4249,14 @@ void ValueNumbering::NumberAssignment(GenTreeOp* asg)
     assert(asg->OperIs(GT_ASG));
 
     // TODO-MIKE-Fix: This is missing operand exceptions...
-    asg->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
+    asg->SetVNP(ValueNumStore::VNPForVoid());
 
     GenTree* store = asg->GetOp(0);
     GenTree* value = asg->GetOp(1);
 
     for (; store->OperIs(GT_COMMA); store = store->AsOp()->GetOp(1))
     {
-        store->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
+        store->SetVNP(ValueNumStore::VNPForVoid());
     }
 
     if (store->OperIs(GT_LCL_VAR))
@@ -4808,7 +4808,7 @@ void ValueNumbering::NumberLclLoad(GenTreeLclVar* load)
 
     if (!lvaGetDesc(load)->IsAddressExposed())
     {
-        load->gtVNPair.SetBoth(vnStore->VNForExpr(load->GetType()));
+        load->SetVNP(ValueNumPair{vnStore->VNForExpr(load->GetType())});
 
         return;
     }
@@ -4820,7 +4820,7 @@ void ValueNumbering::NumberLclLoad(GenTreeLclVar* load)
     // Well, the chance that an address-exposed local is modified by another thread
     // is slim so perhaps this is fine as it is but then NumberIndirStore should do the
     // same for local addresses.
-    load->gtVNPair.SetBoth(LoadMemory(load->GetType(), addrVN));
+    load->SetVNP(ValueNumPair{LoadMemory(load->GetType(), addrVN)});
 }
 
 void ValueNumbering::NumberLclUse(GenTreeLclUse* use)
@@ -4944,7 +4944,7 @@ void ValueNumbering::NumberLclFldLoad(GenTreeLclFld* load)
 
     if (!lvaGetDesc(load)->IsAddressExposed())
     {
-        load->gtVNPair.SetBoth(vnStore->VNForExpr(load->GetType()));
+        load->SetVNP(ValueNumPair{vnStore->VNForExpr(load->GetType())});
 
         return;
     }
@@ -4966,7 +4966,7 @@ void ValueNumbering::NumberExtract(GenTreeExtract* extract)
 
     if (!field.HasFieldSeq())
     {
-        extract->gtVNPair.SetBoth(vnStore->VNForExpr(extract->GetType()));
+        extract->SetVNP(ValueNumPair{vnStore->VNForExpr(extract->GetType())});
 
         return;
     }
@@ -7993,15 +7993,15 @@ void ValueNumbering::NumberNode(GenTree* node)
             assert(lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
             // TODO-MIKE-CQ: If the local is a promoted field we should use the parent instead,
             // so that byref exposed loads don't unnecessarily produce different value numbers.
-            node->gtVNPair.SetBoth(vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr,
-                                                      vnStore->VNForIntCon(node->AsLclAddr()->GetLclNum()),
-                                                      vnStore->VNForUPtrSizeIntCon(node->AsLclAddr()->GetLclOffs()),
-                                                      vnStore->VNForFieldSeq(node->AsLclAddr()->GetFieldSeq())));
+            node->SetVNP(ValueNumPair{vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr,
+                                                         vnStore->VNForIntCon(node->AsLclAddr()->GetLclNum()),
+                                                         vnStore->VNForUPtrSizeIntCon(node->AsLclAddr()->GetLclOffs()),
+                                                         vnStore->VNForFieldSeq(node->AsLclAddr()->GetFieldSeq()))});
             break;
 
         case GT_CLS_VAR_ADDR:
-            node->gtVNPair.SetBoth(vnStore->VNForFunc(node->GetType(), VNF_PtrToStatic,
-                                                      vnStore->VNForFieldSeq(node->AsClsVar()->GetFieldSeq())));
+            node->SetVNP(ValueNumPair{vnStore->VNForFunc(node->GetType(), VNF_PtrToStatic,
+                                                         vnStore->VNForFieldSeq(node->AsClsVar()->GetFieldSeq()))});
             break;
 
         case GT_LCL_VAR:
@@ -8036,12 +8036,13 @@ void ValueNumbering::NumberNode(GenTree* node)
 
         case GT_FTN_ADDR:
             // Use the value of the function pointer (actually, a method handle.)
-            node->gtVNPair.SetBoth(vnStore->VNForHandle(ssize_t(node->AsFptrVal()->gtFptrMethod), GTF_ICON_METHOD_HDL));
+            node->SetVNP(
+                ValueNumPair{vnStore->VNForHandle(ssize_t(node->AsFptrVal()->gtFptrMethod), GTF_ICON_METHOD_HDL)});
             break;
 
         case GT_CATCH_ARG:
             // We know nothing about the value of a caught expression.
-            node->gtVNPair.SetBoth(vnStore->VNForExpr(node->GetType()));
+            node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
             break;
 
         case GT_MEMORYBARRIER:
@@ -8057,7 +8058,7 @@ void ValueNumbering::NumberNode(GenTree* node)
             // node itself is value numbered.
             FALLTHROUGH;
         case GT_KEEPALIVE:
-            node->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
+            node->SetVNP(ValueNumStore::VNPForVoid());
             break;
 
         case GT_ASG:
@@ -8122,7 +8123,7 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_END_LFIN:
 #endif
             // These nodes never need to have a ValueNumber
-            node->gtVNPair.SetBoth(NoVN);
+            node->SetVNP({});
             break;
 
         case GT_BOX:
@@ -8156,7 +8157,7 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_LCLHEAP:
         // It is not necessary to model the StackOverflow exception for LCLHEAP
         case GT_LABEL:
-            node->gtVNPair.SetBoth(vnStore->VNForExpr(node->GetType()));
+            node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
             break;
 
         case GT_CKFINITE:
@@ -8165,13 +8166,13 @@ void ValueNumbering::NumberNode(GenTree* node)
 
         case GT_NO_OP:
             assert(node->TypeIs(TYP_VOID));
-            node->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
+            node->SetVNP(ValueNumStore::VNPForVoid());
             break;
 
         case GT_NOP:
             if (node->AsUnOp()->gtOp1 == nullptr)
             {
-                node->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
+                node->SetVNP(ValueNumStore::VNPForVoid());
             }
             else
             {
@@ -8188,7 +8189,7 @@ void ValueNumbering::NumberNode(GenTree* node)
                 {
                     // We don't care about differences between liberal and conservative for pointer values.
                     // TODO-MIKE-Fix: That doesn't make a lot of sense, ExtendPtrVN only looks at the liberal VN.
-                    node->gtVNPair.SetBoth(addrVN);
+                    node->SetVNP({addrVN, addrVN});
                     break;
                 }
             }
@@ -8234,7 +8235,7 @@ void ValueNumbering::NumberNode(GenTree* node)
                 // Also, it might be better to explicitly list all the opers in this switch so
                 // we don't accidentally miss one that may have some sort of side effects that
                 // need special handling.
-                node->gtVNPair.SetBoth(vnStore->VNForExpr(node->GetType()));
+                node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
             }
             break;
     }
@@ -8307,7 +8308,7 @@ void ValueNumbering::NumberHWIntrinsic(GenTreeHWIntrinsic* node)
         // TODO-MIKE-CQ: We can't generate a proper VN for nodes that use the auxiliary
         // type because the type is simply ignored and we end up doing invalid CSE, see
         // vn-add-saturate-scalar.cs.
-        node->gtVNPair.SetBoth(vnStore->VNForExpr(node->GetType()));
+        node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
         return;
     }
 
@@ -8320,7 +8321,7 @@ void ValueNumbering::NumberHWIntrinsic(GenTreeHWIntrinsic* node)
             // For now we will generate a unique value number for loads with more
             // than one operand (i.e. GatherVector128)
             // TODO-MIKE-Fix: Using VNForExpr with the current block for loads is suspect...
-            node->gtVNPair.SetBoth(vnStore->VNForExpr(node->GetType()));
+            node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
             return;
         }
 
@@ -8350,7 +8351,7 @@ void ValueNumbering::NumberHWIntrinsic(GenTreeHWIntrinsic* node)
 
     if (arity > 4)
     {
-        node->gtVNPair.SetBoth(vnStore->VNForExpr(node->GetType()));
+        node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
         return;
     }
 
@@ -8517,7 +8518,7 @@ void ValueNumbering::NumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueNu
     if (argCount == 0)
     {
         // TODO-MIKE-Review: This drops vnpExc unlike the case with arguments below...
-        call->gtVNPair.SetBoth(vnStore->VNForFunc(call->GetType(), vnf));
+        call->SetVNP(ValueNumPair{vnStore->VNForFunc(call->GetType(), vnf)});
 
         return;
     }
@@ -8724,7 +8725,7 @@ void ValueNumbering::NumberCall(GenTreeCall* call)
     {
         if (call->TypeIs(TYP_VOID))
         {
-            call->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
+            call->SetVNP(ValueNumStore::VNPForVoid());
         }
         else
         {
@@ -8732,7 +8733,7 @@ void ValueNumbering::NumberCall(GenTreeCall* call)
             // The call may return a value obtained by loading from memory defined
             // by a different block. This only works because calls have special
             // handling in loop hoisting.
-            call->gtVNPair.SetBoth(vnStore->VNForExpr(call->GetType()));
+            call->SetVNP(ValueNumPair{vnStore->VNForExpr(call->GetType())});
         }
 
         ClearMemory(call DEBUGARG("user call"));

@@ -691,9 +691,10 @@ private:
 #endif
     };
 
+    ValueNumPair m_vnp;
+
 public:
     GenTreeFlags gtFlags = GTF_EMPTY;
-    ValueNumPair gtVNPair;
     regMaskTP    gtRsvdRegs;
     GenTree*     gtNext = nullptr;
     GenTree*     gtPrev = nullptr;
@@ -1022,42 +1023,42 @@ public:
 
     ValueNumPair GetVNP() const
     {
-        return gtVNPair;
+        return m_vnp;
     }
 
     ValueNum GetLiberalVN() const
     {
-        return gtVNPair.GetLiberal();
+        return m_vnp.GetLiberal();
     }
 
     void SetLiberalVN(ValueNum vn)
     {
-        gtVNPair.SetLiberal(vn);
+        m_vnp.SetLiberal(vn);
     }
 
     void SetConservativeVN(ValueNum vn)
     {
-        gtVNPair.SetConservative(vn);
+        m_vnp.SetConservative(vn);
     }
 
     ValueNum GetConservativeVN() const
     {
-        return gtVNPair.GetConservative();
+        return m_vnp.GetConservative();
     }
 
     void SetVNP(ValueNumPair vnp)
     {
-        gtVNPair = vnp;
+        m_vnp = vnp;
     }
 
     ValueNum GetVN(ValueNumKind vnk) const
     {
-        return gtVNPair.Get(vnk);
+        return m_vnp.Get(vnk);
     }
 
     void SetVN(ValueNumKind vnk, ValueNum vn)
     {
-        gtVNPair.Set(vnk, vn);
+        m_vnp.Set(vnk, vn);
     }
 
     GenTreeFlags GetSideEffects() const

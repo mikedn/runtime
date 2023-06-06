@@ -1700,7 +1700,7 @@ void Compiler::gtReverseRelop(GenTreeOp* relop)
 
     relop->gtOper = GenTree::ReverseRelop(relop->GetOper());
     // TODO-MIKE-Review: We could probably generate a proper VN.
-    relop->gtVNPair.SetBoth(NoVN);
+    relop->SetVNP({});
 
     // Flip the GTF_RELOP_NAN_UN bit
     //     a ord b   === (a != NaN && b != NaN)
@@ -11270,7 +11270,7 @@ INTEGRAL_OVF:
     op1            = type == TYP_LONG ? gtNewLconNode(0) : gtNewIconNode(0);
     if (vnStore != nullptr)
     {
-        op1->gtVNPair.SetBoth(vnStore->VNZeroForType(type));
+        op1->SetVNP(ValueNumPair{vnStore->VNZeroForType(type)});
     }
 
     JITDUMP("\nFolding binary operator with constant nodes into a comma throw:\n");
@@ -11404,9 +11404,9 @@ GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
     // 'list' and 'expr' should have value numbers defined for both or for neither one (unless we are remorphing,
     // in which case a prior transform involving either node may have discarded or otherwise invalidated the value
     // numbers).
-    assert((list->gtVNPair.BothDefined() == expr->gtVNPair.BothDefined()) || !fgGlobalMorph);
+    assert((list->GetVNP().BothDefined() == expr->GetVNP().BothDefined()) || !fgGlobalMorph);
 
-    if (list->gtVNPair.BothDefined() && expr->gtVNPair.BothDefined())
+    if (list->GetVNP().BothDefined() && expr->GetVNP().BothDefined())
     {
         ValueNumPair exset1 = vnStore->VNPExceptionSet(expr->GetVNP());
         ValueNumPair exset2;

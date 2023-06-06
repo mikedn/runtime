@@ -5237,7 +5237,7 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
             if ((op1->GetLiberalVN() == NoVN) || (ad2->GetLiberalVN() == NoVN) ||
                 (ad2->GetLiberalVN() != op1->GetLiberalVN()))
             {
-                new_op1->gtVNPair.SetBoth(vnStore->VNForExpr(nullptr, new_op1->TypeGet()));
+                new_op1->SetVNP(ValueNumPair{vnStore->VNForExpr(nullptr, new_op1->GetType())});
             }
         }
 
@@ -11278,7 +11278,7 @@ DONE_MORPHING_CHILDREN:
 
                 if (vnStore != nullptr)
                 {
-                    op2->gtVNPair.SetBoth(vnStore->VNZeroForType(op2->GetType()));
+                    op2->SetVNP(ValueNumPair{vnStore->VNZeroForType(op2->GetType())});
                 }
             }
             break;

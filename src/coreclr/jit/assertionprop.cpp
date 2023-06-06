@@ -1356,7 +1356,7 @@ private:
 
         assert(vnStore->IsVNConstant(val.vn));
 
-        conNode->gtVNPair.SetBoth(val.vn);
+        conNode->SetVNP({val.vn, val.vn});
 
         return UpdateTree(conNode, lclVar, stmt);
     }
@@ -1424,7 +1424,7 @@ private:
 
         assert(vnStore->IsVNConstant(val.vn));
 
-        conNode->gtVNPair.SetBoth(val.vn);
+        conNode->SetVNP({val.vn, val.vn});
 
         return UpdateTree(conNode, use, stmt);
     }
@@ -1734,7 +1734,7 @@ private:
         }
 
         relop->ChangeToIntCon(isTrue);
-        relop->gtVNPair.SetBoth(vnStore->VNForIntCon(isTrue));
+        relop->SetVNP(ValueNumPair{vnStore->VNForIntCon(isTrue)});
         return UpdateTree(relop, relop, stmt);
     }
 
