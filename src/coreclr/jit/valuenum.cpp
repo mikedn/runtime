@@ -98,6 +98,7 @@ private:
     void NumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueNumPair vnpExc);
     bool NumberHelperCall(GenTreeCall* call);
     void NumberIntrinsic(GenTreeIntrinsic* intrinsic);
+    void NumberBoundsCheck(GenTreeBoundsChk* check);
 #ifdef FEATURE_HW_INTRINSICS
     void NumberHWIntrinsic(GenTreeHWIntrinsic* node);
 #endif
@@ -140,7 +141,6 @@ private:
     void AddNullRefExset(GenTree* node, GenTree* addr);
     void AddDivExset(GenTree* tree);
     void AddOverflowExset(GenTree* tree);
-    void AddBoundsCheckExset(GenTreeBoundsChk* tree);
     void NumbeCkFinite(GenTreeUnOp* node);
     void AddNodeExset(GenTree* tree);
 
@@ -8137,26 +8137,8 @@ void ValueNumbering::NumberNode(GenTree* node)
             break;
 
         case GT_BOUNDS_CHECK:
-        {
-            ValueNumPair vnpIndex  = node->AsBoundsChk()->GetIndex()->GetVNP();
-            ValueNumPair vnpArrLen = node->AsBoundsChk()->GetLength()->GetVNP();
-
-            ValueNumPair vnpExcSet = ValueNumStore::VNPForEmptyExcSet();
-            vnpExcSet              = vnStore->VNPUnionExcSet(vnpIndex, vnpExcSet);
-            vnpExcSet              = vnStore->VNPUnionExcSet(vnpArrLen, vnpExcSet);
-            node->SetVNP(vnStore->VNPWithExc(vnStore->VNPForVoid(), vnpExcSet));
-
-            AddBoundsCheckExset(node->AsBoundsChk());
-
-            // Record non-constant value numbers that are used as the length argument to bounds checks,
-            // so that assertion prop will know that comparisons against them are worth analyzing.
-            ValueNum lengthVN = node->AsBoundsChk()->GetLength()->GetConservativeVN();
-            if ((lengthVN != NoVN) && !vnStore->IsVNConstant(lengthVN))
-            {
-                vnStore->SetVNIsCheckedBound(lengthVN);
-            }
-        }
-        break;
+            NumberBoundsCheck(node->AsBoundsChk());
+            break;
 
         case GT_CMPXCHG:
             NumberCmpXchg(node->AsCmpXchg());
@@ -9437,22 +9419,27 @@ void ValueNumbering::AddOverflowExset(GenTree* tree)
     }
 }
 
-void ValueNumbering::AddBoundsCheckExset(GenTreeBoundsChk* node)
+void ValueNumbering::NumberBoundsCheck(GenTreeBoundsChk* check)
 {
-    ValueNumPair vnpIndex  = node->GetIndex()->GetVNP();
-    ValueNumPair vnpLength = node->GetLength()->GetVNP();
+    ValueNumPair indexExset;
+    ValueNumPair indexVNP = vnStore->UnpackExset(check->GetIndex()->GetVNP(), &indexExset);
+    ValueNumPair lengthExset;
+    ValueNumPair lengthVNP    = vnStore->UnpackExset(check->GetIndex()->GetVNP(), &lengthExset);
+    ValueNumPair outOfRangeEx = vnStore->VNPairForFunc(TYP_REF, VNF_IndexOutOfRangeExc, indexVNP, lengthVNP);
 
-    ValueNumPair vnpTreeNorm;
-    ValueNumPair vnpTreeExc;
-    vnStore->VNPUnpackExc(node->GetVNP(), &vnpTreeNorm, &vnpTreeExc);
+    ValueNumPair exset = vnStore->VNPExcSetUnion(indexExset, lengthExset);
+    exset              = vnStore->VNPExcSetUnion(exset, vnStore->VNPExcSetSingleton(outOfRangeEx));
 
-    ValueNumPair boundsChkExcSet = vnStore->VNPExcSetSingleton(
-        vnStore->VNPairForFunc(TYP_REF, VNF_IndexOutOfRangeExc, vnStore->VNPNormalPair(vnpIndex),
-                               vnStore->VNPNormalPair(vnpLength)));
+    check->SetVNP(vnStore->VNPWithExc(ValueNumStore::VNPForVoid(), exset));
 
-    ValueNumPair newExcSet = vnStore->VNPExcSetUnion(vnpTreeExc, boundsChkExcSet);
-
-    node->SetVNP(vnStore->VNPWithExc(vnpTreeNorm, newExcSet));
+    // Record non-constant value numbers that are used as the length argument to bounds checks,
+    // so that assertion prop will know that comparisons against them are worth analyzing.
+    // TODO-MIKE-Review: Shouldn't this extract the normal value from the conservative VN?
+    ValueNum lengthVN = check->GetLength()->GetConservativeVN();
+    if ((lengthVN != NoVN) && !vnStore->IsVNConstant(lengthVN))
+    {
+        vnStore->SetVNIsCheckedBound(lengthVN);
+    }
 }
 
 void ValueNumbering::NumbeCkFinite(GenTreeUnOp* node)
