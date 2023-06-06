@@ -529,7 +529,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                             // We're changing the type here so we need to update the VN;
                             // in other cases we discard the cast without modifying oper
                             // so the VN doesn't change.
-                            src->SetVNsFromNode(cast);
+                            src->SetVNP(cast->GetVNP());
                             goto REMOVE_CAST;
                         default:
                             break;
@@ -568,9 +568,9 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         {
             // Try to narrow the operand of the cast and discard the cast
             if (!cast->gtOverflow() && opts.OptEnabled(CLFLG_TREETRANS) &&
-                optNarrowTree(src, srcType, dstType, cast->gtVNPair, false))
+                optNarrowTree(src, srcType, dstType, cast->GetVNP(), false))
             {
-                optNarrowTree(src, srcType, dstType, cast->gtVNPair, true);
+                optNarrowTree(src, srcType, dstType, cast->GetVNP(), true);
 
                 // If oper is changed into a cast to TYP_INT, or to a GT_NOP, we may need to discard it
                 if (src->OperIs(GT_CAST) &&
@@ -857,7 +857,7 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
             if (doit)
             {
                 tree->SetType(varTypeToSigned(dstt));
-                tree->SetVNs(vnpNarrow);
+                tree->SetVNP(vnpNarrow);
             }
 
             return true;
@@ -907,8 +907,8 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
             {
                 if (doit)
                 {
-                    tree->gtType = genActualType(dstt);
-                    tree->SetVNs(vnpNarrow);
+                    tree->SetType(varActualType(dstt));
+                    tree->SetVNP(vnpNarrow);
 
                     optNarrowTree(opToNarrow, srct, dstt, ValueNumPair(), true);
                     // We may also need to cast away the upper bits of *otherOpPtr
@@ -977,7 +977,7 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
 #endif
 
                 tree->SetType(varActualType(dstt));
-                tree->SetVNs(vnpNarrow);
+                tree->SetVNP(vnpNarrow);
             }
 
             return true;
@@ -996,8 +996,8 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                     dstt = varTypeToSigned(dstt);
                 }
 
-                tree->gtType = dstt;
-                tree->SetVNs(vnpNarrow);
+                tree->SetType(dstt);
+                tree->SetVNP(vnpNarrow);
             }
 
             return true;
@@ -1063,7 +1063,7 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
 
                     tree->CastToType() = dstt;
                     tree->SetType(varActualType(dstt));
-                    tree->SetVNs(vnpNarrow);
+                    tree->SetVNP(vnpNarrow);
                 }
             }
 
@@ -1078,8 +1078,8 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
 
             if (doit)
             {
-                tree->gtType = genActualType(dstt);
-                tree->SetVNs(vnpNarrow);
+                tree->SetType(varActualType(dstt));
+                tree->SetVNP(vnpNarrow);
             }
 
             return true;
@@ -9849,11 +9849,11 @@ GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
     auto foldedCns = folded->AsIntCon();
 
     cns1->SetValue(foldedCns->GetValue());
-    cns1->SetVNsFromNode(foldedCns);
+    cns1->SetVNP(foldedCns->GetVNP());
     cns1->SetFieldSeq(foldedCns->GetFieldSeq());
 
     op1 = tree->gtGetOp1();
-    op1->SetVNsFromNode(tree);
+    op1->SetVNP(tree->GetVNP());
 
     DEBUG_DESTROY_NODE(tree);
     DEBUG_DESTROY_NODE(cns2);

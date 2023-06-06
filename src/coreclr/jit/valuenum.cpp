@@ -4224,7 +4224,7 @@ void ValueNumbering::NumberComma(GenTreeOp* comma)
     }
     else
     {
-        vnStore->VNPUnpackExc(op2->gtVNPair, &op2vnp, &op2Xvnp);
+        vnStore->VNPUnpackExc(op2->GetVNP(), &op2vnp, &op2Xvnp);
     }
 
     comma->SetVNP(vnStore->VNPWithExc(op2vnp, vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp)));
@@ -8201,9 +8201,9 @@ void ValueNumbering::NumberNode(GenTree* node)
 
                 ValueNumPair op1VNP;
                 ValueNumPair op1VNPx;
-                vnStore->VNPUnpackExc(node->AsOp()->gtOp1->gtVNPair, &op1VNP, &op1VNPx);
+                vnStore->VNPUnpackExc(node->AsOp()->GetOp(0)->GetVNP(), &op1VNP, &op1VNPx);
 
-                node->gtVNPair = vnStore->VNPWithExc(vnStore->VNPairForFunc(node->TypeGet(), vnf, op1VNP), op1VNPx);
+                node->SetVNP(vnStore->VNPWithExc(vnStore->VNPairForFunc(node->GetType(), vnf, op1VNP), op1VNPx));
 
                 assert(!node->OperMayThrow(compiler));
             }
@@ -8272,16 +8272,15 @@ void ValueNumbering::NumberIntrinsic(GenTreeIntrinsic* intrinsic)
 
         if (intrinsic->AsOp()->gtOp2 == nullptr)
         {
-            intrinsic->gtVNPair = vnStore->VNPWithExc(vnStore->EvalMathFuncUnary(intrinsic->GetType(),
-                                                                                 intrinsic->GetIntrinsic(), arg0VNP),
-                                                      arg0VNPx);
+            intrinsic->SetVNP(vnStore->VNPWithExc(vnStore->EvalMathFuncUnary(intrinsic->GetType(),
+                                                                             intrinsic->GetIntrinsic(), arg0VNP),
+                                                  arg0VNPx));
         }
         else
         {
             ValueNumPair newVNP =
                 vnStore->EvalMathFuncBinary(intrinsic->GetType(), intrinsic->GetIntrinsic(), arg0VNP, arg1VNP);
-            ValueNumPair excSet = vnStore->VNPExcSetUnion(arg0VNPx, arg1VNPx);
-            intrinsic->gtVNPair = vnStore->VNPWithExc(newVNP, excSet);
+            intrinsic->SetVNP(vnStore->VNPWithExc(newVNP, vnStore->VNPExcSetUnion(arg0VNPx, arg1VNPx)));
         }
     }
     else
@@ -8327,7 +8326,7 @@ void ValueNumbering::NumberHWIntrinsic(GenTreeHWIntrinsic* node)
 
         ValueNumPair addrVNP;
         ValueNumPair addrXVNP;
-        vnStore->VNPUnpackExc(node->GetOp(0)->gtVNPair, &addrVNP, &addrXVNP);
+        vnStore->VNPUnpackExc(node->GetOp(0)->GetVNP(), &addrVNP, &addrXVNP);
 
         // The addrVN incorporates both addr's ValueNumber and the func operation
         // The func is used because operations such as LoadLow and LoadHigh perform
@@ -8338,10 +8337,10 @@ void ValueNumbering::NumberHWIntrinsic(GenTreeHWIntrinsic* node)
         // The address could point anywhere, so it is an ByrefExposed load.
         ValueNum loadVN = LoadMemory(node->GetType(), addrVN);
 
-        node->gtVNPair.SetLiberal(loadVN);
+        node->SetLiberalVN(loadVN);
         // TODO-MIKE-Fix: Using VNForExpr with the current block for loads is suspect...
-        node->gtVNPair.SetConservative(vnStore->VNForExpr(node->GetType()));
-        node->gtVNPair = vnStore->VNPWithExc(node->gtVNPair, addrXVNP);
+        node->SetConservativeVN(vnStore->VNForExpr(node->GetType()));
+        node->SetVNP(vnStore->VNPWithExc(node->GetVNP(), addrXVNP));
         AddNullRefExset(node, node->GetOp(0));
 
         return;
@@ -8361,7 +8360,7 @@ void ValueNumbering::NumberHWIntrinsic(GenTreeHWIntrinsic* node)
     for (unsigned i = 0; i < arity; i++)
     {
         ValueNumPair opXvnp;
-        vnStore->VNPUnpackExc(node->GetOp(i)->gtVNPair, &opsVnp[i], &opXvnp);
+        vnStore->VNPUnpackExc(node->GetOp(i)->GetVNP(), &opsVnp[i], &opXvnp);
         xvnp = vnStore->VNPExcSetUnion(xvnp, opXvnp);
     }
 
@@ -8387,7 +8386,7 @@ void ValueNumbering::NumberHWIntrinsic(GenTreeHWIntrinsic* node)
             break;
     }
 
-    node->SetVNs(vnStore->VNPWithExc(vnp, xvnp));
+    node->SetVNP(vnStore->VNPWithExc(vnp, xvnp));
 }
 #endif // FEATURE_HW_INTRINSICS
 
@@ -8601,7 +8600,7 @@ void ValueNumbering::NumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueNu
 
         if (argCount == 0)
         {
-            call->gtVNPair = vnStore->VNPairForFunc(call->GetType(), vnf, vnpUniqueArg);
+            call->SetVNP(vnStore->VNPairForFunc(call->GetType(), vnf, vnpUniqueArg));
             // TODO-MIKE-Review: This drops vnpExc unlike the case with arguments below...
 
             return;
@@ -9204,7 +9203,7 @@ void ValueNumbering::AddDivExset(GenTree* tree)
     assert((typ == TYP_INT) || (typ == TYP_LONG));
 
     // Retrieve the Norm VN for op2 to use it for the DivideByZeroExc
-    ValueNumPair vnpOp2Norm   = vnStore->VNPNormalPair(tree->AsOp()->gtOp2->gtVNPair);
+    ValueNumPair vnpOp2Norm   = vnStore->VNPNormalPair(tree->AsOp()->GetOp(1)->GetVNP());
     ValueNum     vnOp2NormLib = vnpOp2Norm.GetLiberal();
     ValueNum     vnOp2NormCon = vnpOp2Norm.GetConservative();
 
@@ -9264,7 +9263,7 @@ void ValueNumbering::AddDivExset(GenTree* tree)
     }
 
     // Retrieve the Norm VN for op1 to use it for the ArithmeticExc
-    ValueNumPair vnpOp1Norm   = vnStore->VNPNormalPair(tree->AsOp()->gtOp1->gtVNPair);
+    ValueNumPair vnpOp1Norm   = vnStore->VNPNormalPair(tree->AsOp()->GetOp(0)->GetVNP());
     ValueNum     vnOp1NormLib = vnpOp1Norm.GetLiberal();
     ValueNum     vnOp1NormCon = vnpOp1Norm.GetConservative();
 
@@ -9320,7 +9319,7 @@ void ValueNumbering::AddDivExset(GenTree* tree)
     ValueNumPair vnpDivZeroExc = ValueNumStore::VNPForEmptyExcSet();
     ValueNumPair vnpArithmExc  = ValueNumStore::VNPForEmptyExcSet();
 
-    vnStore->VNPUnpackExc(tree->gtVNPair, &vnpTreeNorm, &vnpTreeExc);
+    vnStore->VNPUnpackExc(tree->GetVNP(), &vnpTreeNorm, &vnpTreeExc);
 
     if (needDivideByZeroExcLib)
     {
@@ -9343,13 +9342,9 @@ void ValueNumbering::AddDivExset(GenTree* tree)
             vnStore->VNExcSetSingleton(vnStore->VNForFunc(TYP_REF, VNF_ArithmeticExc, vnOp1NormLib, vnOp2NormCon)));
     }
 
-    // Combine vnpDivZeroExc with the exception set of tree
     ValueNumPair newExcSet = vnStore->VNPExcSetUnion(vnpTreeExc, vnpDivZeroExc);
-    // Combine vnpArithmExc with the newExcSet
-    newExcSet = vnStore->VNPExcSetUnion(newExcSet, vnpArithmExc);
-
-    // Updated VN for tree, it now includes DivideByZeroExc and/or ArithmeticExc
-    tree->gtVNPair = vnStore->VNPWithExc(vnpTreeNorm, newExcSet);
+    newExcSet              = vnStore->VNPExcSetUnion(newExcSet, vnpArithmExc);
+    tree->SetVNP(vnStore->VNPWithExc(vnpTreeNorm, newExcSet));
 }
 
 //--------------------------------------------------------------------------------

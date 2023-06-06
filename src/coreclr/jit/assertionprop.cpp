@@ -2836,14 +2836,14 @@ private:
         // Transform the relop into EQ|NE(0, 0)
         ValueNum vnZero = vnStore->VNForIntCon(0);
         GenTree* op1    = compiler->gtNewIconNode(0);
-        op1->SetVNs(ValueNumPair(vnZero, vnZero));
+        op1->SetVNP({vnZero, vnZero});
         relop->AsOp()->SetOp(0, op1);
         GenTree* op2 = compiler->gtNewIconNode(0);
-        op2->SetVNs(ValueNumPair(vnZero, vnZero));
+        op2->SetVNP({vnZero, vnZero});
         relop->AsOp()->SetOp(1, op2);
         relop->SetOper(vnStore->CoercedConstantValue<int64_t>(relopVN) != 0 ? GT_EQ : GT_NE);
         ValueNum vnLib = vnStore->VNNormalValue(relop->GetLiberalVN());
-        relop->SetVNs(ValueNumPair(vnLib, relopVN));
+        relop->SetVNP({vnLib, relopVN});
 
         while (sideEffects != nullptr)
         {
@@ -2982,7 +2982,7 @@ private:
             GenTree* thisArg = call->GetThisArg();
             noway_assert(thisArg != nullptr);
 
-            if (!m_vnStore->IsKnownNonNull(thisArg->gtVNPair.GetConservative()))
+            if (!m_vnStore->IsKnownNonNull(thisArg->GetConservativeVN()))
             {
                 return;
             }
@@ -3018,7 +3018,7 @@ private:
                     addr = addr->AsOp()->GetOp(0);
                 }
 
-                if (!m_vnStore->IsKnownNonNull(addr->gtVNPair.GetConservative()))
+                if (!m_vnStore->IsKnownNonNull(addr->GetConservativeVN()))
                 {
                     return;
                 }
@@ -3062,7 +3062,7 @@ private:
                 return stmt;
             }
 
-            ValueNum vn = m_vnStore->VNConservativeNormalValue(relop->gtVNPair);
+            ValueNum vn = m_vnStore->VNNormalValue(relop->GetConservativeVN());
 
             if (!m_vnStore->IsVNConstant(vn))
             {
@@ -3085,7 +3085,7 @@ private:
             int32_t value = m_vnStore->CoercedConstantValue<int64_t>(vn) != 0 ? 1 : 0;
             relop->AsIntCon()->SetValue(value);
             vn = m_vnStore->VNForIntCon(value);
-            relop->SetVNs(ValueNumPair(vn, vn));
+            relop->SetVNP({vn, vn});
 
             JITDUMP("After JTRUE constant propagation on " FMT_TREEID ":\n", relop->GetID());
             DBEXEC(VERBOSE, m_compiler->gtDispStmt(stmt));
@@ -3169,7 +3169,7 @@ private:
             if (varTypeIsSIMD(tree->GetType()))
             {
 #ifdef FEATURE_HW_INTRINSICS
-                ValueNum  vn = m_vnStore->VNConservativeNormalValue(tree->gtVNPair);
+                ValueNum  vn = m_vnStore->VNNormalValue(tree->GetConservativeVN());
                 VNFuncApp func;
 
                 if (VNFuncIndex(m_vnStore->GetVNFunc(vn, &func)) == VNF_HWI_Vector128_get_Zero)
@@ -3328,7 +3328,7 @@ private:
 
                 VNFuncApp lclAddr;
 
-                if ((m_vnStore->GetVNFunc(tree->gtVNPair.GetConservative(), &lclAddr) == VNF_LclAddr) &&
+                if ((m_vnStore->GetVNFunc(tree->GetConservativeVN(), &lclAddr) == VNF_LclAddr) &&
                     ChangeToLocalAddress(tree, lclAddr))
                 {
                     return Compiler::WALK_SKIP_SUBTREES;
@@ -3340,7 +3340,7 @@ private:
 
         GenTree* GetConstNode(GenTree* tree)
         {
-            ValueNum vn = m_vnStore->VNConservativeNormalValue(tree->gtVNPair);
+            ValueNum vn = m_vnStore->VNNormalValue(tree->GetConservativeVN());
 
             if (!m_vnStore->IsVNConstant(vn))
             {
@@ -3412,7 +3412,7 @@ private:
                 return nullptr;
             }
 
-            newTree->SetVNs(ValueNumPair(vn, vn));
+            newTree->SetVNP({vn, vn});
 
             GenTree* sideEffects = ExtractConstTreeSideEffects(tree);
 
@@ -3421,7 +3421,7 @@ private:
                 assert((sideEffects->gtFlags & GTF_SIDE_EFFECT) != 0);
 
                 newTree = m_compiler->gtNewCommaNode(sideEffects, newTree);
-                newTree->SetVNs(tree->gtVNPair);
+                newTree->SetVNP(tree->GetVNP());
             }
 
             return newTree;
@@ -3440,7 +3440,7 @@ private:
             // Exception side effects on root may be ignored because the root is known to be a constant
             // (e.g. VN may evaluate a DIV/MOD node to a constant and the node may still
             // have GTF_EXCEPT set, even if it does not actually throw any exceptions).
-            assert(m_vnStore->IsVNConstant(m_vnStore->VNConservativeNormalValue(tree->gtVNPair)));
+            assert(m_vnStore->IsVNConstant(m_vnStore->VNNormalValue(tree->GetConservativeVN())));
 
             return m_compiler->gtExtractSideEffList(tree, GTF_SIDE_EFFECT, /* ignoreRoot */ true);
         }

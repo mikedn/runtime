@@ -551,8 +551,7 @@ class LoopHoistTreeVisitor : public GenTreeVisitor<LoopHoistTreeVisitor>
 
     bool IsTreeVNInvariant(GenTree* tree)
     {
-        ValueNum vn            = tree->gtVNPair.GetLiberal();
-        bool     vnIsInvariant = m_loopHoist->IsLoopInvariant(vn, m_loopNum);
+        bool vnIsInvariant = m_loopHoist->IsLoopInvariant(tree->GetLiberalVN(), m_loopNum);
 
         // Even though VN is invariant in the loop (say a constant) its value may depend on position
         // of tree, so for loop hoisting we must also check that any memory read by tree

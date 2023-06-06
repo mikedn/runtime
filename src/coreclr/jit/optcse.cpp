@@ -759,7 +759,7 @@ public:
     {
         assert(compare->OperIsCompare());
 
-        ValueNum  compareVN = compare->gtVNPair.GetConservative();
+        ValueNum  compareVN = compare->GetConservativeVN();
         VNFuncApp cmpVNFuncApp;
 
         if (!vnStore->GetVNFunc(compareVN, &cmpVNFuncApp) || (cmpVNFuncApp.m_func != GetVNFuncForNode(compare)))
@@ -814,14 +814,14 @@ public:
             // conservative value number matches the one from the compare VN.
 
             GenTree* child1 = boundParent->gtGetOp1();
-            if ((info.vnBound == child1->gtVNPair.GetConservative()) && child1->HasCseInfo())
+            if ((info.vnBound == child1->GetConservativeVN()) && child1->HasCseInfo())
             {
                 bound = child1;
             }
             else
             {
                 GenTree* child2 = boundParent->gtGetOp2();
-                if ((info.vnBound == child2->gtVNPair.GetConservative()) && child2->HasCseInfo())
+                if ((info.vnBound == child2->GetConservativeVN()) && child2->HasCseInfo())
                 {
                     bound = child2;
                 }

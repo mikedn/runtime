@@ -1020,11 +1020,6 @@ public:
     regNumber ExtractTempReg(regMaskTP mask = (regMaskTP)-1);
     bool HasTempReg(regNumber reg) const;
 
-    void SetVNsFromNode(GenTree* tree)
-    {
-        gtVNPair = tree->gtVNPair;
-    }
-
     ValueNumPair GetVNP() const
     {
         return gtVNPair;
@@ -1057,31 +1052,12 @@ public:
 
     ValueNum GetVN(ValueNumKind vnk) const
     {
-        if (vnk == VNK_Liberal)
-        {
-            return gtVNPair.GetLiberal();
-        }
-        else
-        {
-            assert(vnk == VNK_Conservative);
-            return gtVNPair.GetConservative();
-        }
+        return gtVNPair.Get(vnk);
     }
+
     void SetVN(ValueNumKind vnk, ValueNum vn)
     {
-        if (vnk == VNK_Liberal)
-        {
-            return gtVNPair.SetLiberal(vn);
-        }
-        else
-        {
-            assert(vnk == VNK_Conservative);
-            return gtVNPair.SetConservative(vn);
-        }
-    }
-    void SetVNs(ValueNumPair vnp)
-    {
-        gtVNPair = vnp;
+        gtVNPair.Set(vnk, vn);
     }
 
     GenTreeFlags GetSideEffects() const

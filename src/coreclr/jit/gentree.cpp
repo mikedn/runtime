@@ -4764,7 +4764,7 @@ bool GenTreeOp::UsesDivideByConstOptimized(Compiler* comp)
     }
     else
     {
-        ValueNum vn = divisor->gtVNPair.GetLiberal();
+        ValueNum vn = divisor->GetLiberalVN();
         if (comp->vnStore->IsVNConstant(vn))
         {
             divisorValue = comp->vnStore->CoercedConstantValue<ssize_t>(vn);
@@ -5568,7 +5568,7 @@ DONE:
         CopyZeroOffsetFieldSeq(tree, copy);
     }
 
-    copy->gtVNPair = tree->gtVNPair; // A cloned tree gets the orginal's Value number pair
+    copy->SetVNP(tree->GetVNP());
 
     if (copy->gtOper == oper)
     {
@@ -11291,9 +11291,10 @@ INTEGRAL_OVF:
 
     if (vnStore != nullptr)
     {
-        op1->gtVNPair = vnStore->VNPWithExc(ValueNumPair(ValueNumStore::VNForVoid(), ValueNumStore::VNForVoid()),
-                                            vnStore->VNPExcSetSingleton(vnStore->VNPairForFunc(TYP_REF, VNF_OverflowExc,
-                                                                                               vnStore->VNPForVoid())));
+        op1->SetVNP(
+            vnStore->VNPWithExc(ValueNumStore::VNPForVoid(),
+                                vnStore->VNPExcSetSingleton(
+                                    vnStore->VNPairForFunc(TYP_REF, VNF_OverflowExc, ValueNumStore::VNPForVoid()))));
     }
 
     tree = gtNewCommaNode(op1, op2);

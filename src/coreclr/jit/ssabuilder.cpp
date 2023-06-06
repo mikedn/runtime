@@ -93,7 +93,7 @@ void SsaOptimizer::Reset()
         {
             for (GenTree* node : stmt->Nodes())
             {
-                node->SetVNs({NoVN, NoVN});
+                node->SetVNP({NoVN, NoVN});
 
                 if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                 {

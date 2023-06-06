@@ -60,7 +60,7 @@ public:
         return &m_conservative;
     }
 
-    ValueNum Get(ValueNumKind vnk)
+    ValueNum Get(ValueNumKind vnk) const
     {
         if (vnk == VNK_Liberal)
         {
