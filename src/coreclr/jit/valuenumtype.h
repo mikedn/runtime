@@ -34,6 +34,18 @@ private:
     ValueNum m_conservative;
 
 public:
+    ValueNumPair() : m_liberal(NoVN), m_conservative(NoVN)
+    {
+    }
+
+    explicit ValueNumPair(ValueNum vn) : m_liberal(vn), m_conservative(vn)
+    {
+    }
+
+    ValueNumPair(ValueNum lib, ValueNum cons) : m_liberal(lib), m_conservative(cons)
+    {
+    }
+
     ValueNum GetLiberal() const
     {
         return m_liberal;
@@ -96,18 +108,6 @@ public:
     {
         m_liberal      = vn2.m_liberal;
         m_conservative = vn2.m_conservative;
-    }
-
-    ValueNumPair() : m_liberal(NoVN), m_conservative(NoVN)
-    {
-    }
-
-    explicit ValueNumPair(ValueNum vn) : m_liberal(vn), m_conservative(vn)
-    {
-    }
-
-    ValueNumPair(ValueNum lib, ValueNum cons) : m_liberal(lib), m_conservative(cons)
-    {
     }
 
     bool BothDefined() const

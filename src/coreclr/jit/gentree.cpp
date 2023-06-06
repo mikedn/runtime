@@ -10657,7 +10657,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
                         if (vnStore != nullptr)
                         {
-                            tree->SetVNP(ValueNumPair{ValueNumStore::VNForNull()});
+                            tree->SetVNP(ValueNumPair{ValueNumStore::NullVN()});
                         }
 
                         JITDUMPTREE(tree, "into:\n");
@@ -11291,10 +11291,8 @@ INTEGRAL_OVF:
 
     if (vnStore != nullptr)
     {
-        op1->SetVNP(
-            vnStore->VNPWithExc(ValueNumStore::VNPForVoid(),
-                                vnStore->VNPExcSetSingleton(
-                                    vnStore->VNPairForFunc(TYP_REF, VNF_OverflowExc, ValueNumStore::VNPForVoid()))));
+        ValueNumPair overflowEx = vnStore->VNPairForFunc(TYP_REF, VNF_OverflowExc, ValueNumStore::VoidVNP());
+        op1->SetVNP(vnStore->PackExset(ValueNumStore::VoidVNP(), vnStore->ExsetCreate(overflowEx)));
     }
 
     tree = gtNewCommaNode(op1, op2);
@@ -11408,11 +11406,11 @@ GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
 
     if (list->GetVNP().BothDefined() && expr->GetVNP().BothDefined())
     {
-        ValueNumPair exset1 = vnStore->VNPExceptionSet(expr->GetVNP());
+        ValueNumPair exset1 = vnStore->ExtractExset(expr->GetVNP());
         ValueNumPair exset2;
         ValueNumPair value = vnStore->UnpackExset(list->GetVNP(), &exset2);
 
-        result->SetVNP(vnStore->VNPWithExc(value, vnStore->VNPExcSetUnion(exset1, exset2)));
+        result->SetVNP(vnStore->PackExset(value, vnStore->ExsetUnion(exset1, exset2)));
     }
 
     return result;

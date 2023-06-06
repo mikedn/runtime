@@ -58,11 +58,11 @@ ValueNumFuncDef(GetSyncFromClassHandle, 1, false, true, false)        // Args: 0
 ValueNumFuncDef(LoopCloneChoiceAddr, 0, false, true, false)
 
 // How we represent values of expressions with exceptional side effects:
-ValueNumFuncDef(ValWithExc, 2, false, false, false)         // Args: 0: value number from normal execution; 1: VN for set of possible exceptions.
-ValueNumFuncDef(ExcSetCons, 2, false, false, false)         // Args: 0: exception; 1: exception set (including EmptyExcSet).  Invariant: "car"s are always in ascending order.
+ValueNumFuncDef(ValWithExset, 2, false, false, false)      // Args: 0: value number from normal execution; 1: VN for set of possible exceptions.
+ValueNumFuncDef(ExsetCons, 2, false, false, false)         // Args: 0: exception; 1: exception set (including EmptyExcSet).  Invariant: "car"s are always in ascending order.
 
 // Various functions that are used to indicate that an exceptions may occur
-// Curremtly  when the execution is always thrown, the value VNForVoid() is used as Arg0 by OverflowExc and DivideByZeroExc
+// Curremtly  when the execution is always thrown, the value VoidVN() is used as Arg0 by OverflowExc and DivideByZeroExc
 //
 ValueNumFuncDef(NullPtrExc, 1, false, false, false)         // Null pointer exception check.  Args: 0: address value,  throws when it is null
 ValueNumFuncDef(ArithmeticExc, 2, false, false, false)      // Arithmetic exception check, ckfinite and integer division overflow, Args: 0: expression value,

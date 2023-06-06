@@ -642,43 +642,36 @@ public:
 
     ValueNum VNForTypeNum(unsigned typeNum);
 
-    // And the single constant for an object reference type.
-    static ValueNum VNForNull()
-    {
-        // We reserve Chunk 0 for "special" VNs.  SRC_Null (== 0) is the VN of "null".
-        return ValueNum(SRC_Null);
-    }
-
     // The zero map is the map that returns a zero "for the appropriate type" when indexed at any index.
-    ValueNum VNForZeroMap();
+    ValueNum ZeroMapVN();
 
     // The ROH map is the map for "read-only memory".  We assume that this is never mutated, and always
     // has the same value number.
-    ValueNum VNForReadOnlyMemoryMap();
+    ValueNum ReadOnlyMemoryMapVN();
 
-    // A special value number for "void".
-    static ValueNum VNForVoid()
+    static ValueNum NullVN()
     {
-        // We reserve Chunk 0 for "special" VNs.  Let SRC_Void (== 4) be the value for "void".
+        return ValueNum(SRC_Null);
+    }
+
+    static ValueNum VoidVN()
+    {
         return ValueNum(SRC_Void);
     }
 
-    static ValueNumPair VNPForVoid()
+    static ValueNumPair VoidVNP()
     {
-        return {VNForVoid(), VNForVoid()};
+        return {VoidVN(), VoidVN()};
     }
 
-    // A special value number for the empty set of exceptions.
-    static ValueNum VNForEmptyExcSet()
+    static ValueNum EmptyExsetVN()
     {
-        // We reserve Chunk 0 for "special" VNs.  Let SRC_EmptyExcSet (== 5) be the value for the empty set of
-        // exceptions.
-        return ValueNum(SRC_EmptyExcSet);
+        return ValueNum(SRC_EmptyExset);
     }
 
-    static ValueNumPair VNPForEmptyExcSet()
+    static ValueNumPair EmptyExsetVNP()
     {
-        return {VNForEmptyExcSet(), VNForEmptyExcSet()};
+        return {EmptyExsetVN(), EmptyExsetVN()};
     }
 
     // Returns the value number for zero of the given "typ".
@@ -689,83 +682,23 @@ public:
     // It returns NoVN for a "typ" that has no one value, such as TYP_REF.
     ValueNum VNOneForType(var_types typ);
 
-    // Create or return the existimg value number representing a singleton exception set
-    // for the the exception value "x".
-    ValueNum VNExcSetSingleton(ValueNum x);
-    ValueNumPair VNPExcSetSingleton(ValueNumPair x);
-
-    // Returns true if the current pair of items are in ascending order and they are not duplicates.
-    // Used to verify that exception sets are in ascending order when processing them.
-    INDEBUG(bool VNCheckAscending(ValueNum item, ValueNum xs1);)
-
-    // Returns the VN representing the union of the two exception sets "xs0" and "xs1".
-    // These must be VNForEmtpyExcSet() or applications of VNF_ExcSetCons, obeying
-    // the ascending order invariant. (which is preserved in the result)
-    ValueNum VNExcSetUnion(ValueNum xs0, ValueNum xs1);
-
-    ValueNumPair VNPExcSetUnion(ValueNumPair xs0vnp, ValueNumPair xs1vnp);
-
-    // Returns the VN representing the intersection of the two exception sets "xs0" and "xs1".
-    // These must be applications of VNF_ExcSetCons or the empty set. (i.e VNForEmptyExcSet())
-    // and also must be in ascending order.
-    ValueNum VNExcSetIntersection(ValueNum xs0, ValueNum xs1);
-
-    ValueNumPair VNPExcSetIntersection(ValueNumPair xs0vnp, ValueNumPair xs1vnp);
-
-    // Returns true if every exeception singleton in the vnCandidateSet is also present
-    // in the vnFullSet.
-    // Both arguments must be either VNForEmptyExcSet() or applications of VNF_ExcSetCons.
+    ValueNum ExsetCreate(ValueNum x);
+    ValueNumPair ExsetCreate(ValueNumPair x);
+    INDEBUG(bool ExsetIsOrdered(ValueNum item, ValueNum xs1);)
+    ValueNum ExsetUnion(ValueNum xs0, ValueNum xs1);
+    ValueNumPair ExsetUnion(ValueNumPair xs0vnp, ValueNumPair xs1vnp);
+    ValueNum ExsetIntersection(ValueNum xs0, ValueNum xs1);
+    ValueNumPair ExsetIntersection(ValueNumPair xs0vnp, ValueNumPair xs1vnp);
     bool ExsetIsSubset(ValueNum vnCandidateSet, ValueNum vnFullSet);
-
-    // Returns "true" iff "vn" is an application of "VNF_ValWithExc".
-    bool VNHasExc(ValueNum vn)
-    {
-        VNFuncApp funcApp;
-        return GetVNFunc(vn, &funcApp) == VNF_ValWithExc;
-    }
-
-    // If vn "excSet" is "VNForEmptyExcSet()" we just return "vn"
-    // otherwise we use VNExcSetUnion to combine the exception sets of both "vn" and "excSet"
-    // and return that ValueNum
-    ValueNum VNWithExc(ValueNum vn, ValueNum excSet);
     ValueNum PackExset(ValueNum vn, ValueNum exset);
-
-    ValueNumPair VNPWithExc(ValueNumPair vnp, ValueNumPair excSetVNP);
-
-    // This sets "*pvn" to the Normal value and sets "*pvnx" to Exception set value.
-    // "pvnx" represents the set of all exceptions that can happen for the expression
-    void VNUnpackExc(ValueNum vnWx, ValueNum* pvn, ValueNum* pvnx);
+    ValueNumPair PackExset(ValueNumPair vnp, ValueNumPair exset);
     ValueNum UnpackExset(ValueNum vn, ValueNum* exset);
     ValueNumPair UnpackExset(ValueNumPair vnp, ValueNumPair* exset);
-
-    void VNPUnpackExc(ValueNumPair vnWx, ValueNumPair* pvn, ValueNumPair* pvnx);
-
-    // This returns the Union of exceptions from vnWx and vnExcSet
-    ValueNum VNUnionExcSet(ValueNum vnWx, ValueNum vnExcSet);
-
-    // This returns the Union of exceptions from vnpWx and vnpExcSet
-    ValueNumPair VNPUnionExcSet(ValueNumPair vnpWx, ValueNumPair vnpExcSet);
-
-    // If "vn" is a "VNF_ValWithExc(norm, excSet)" value, returns the "norm" argument; otherwise,
-    // just returns "vn".
-    // The Normal value is the value number of the expression when no exceptions occurred
-    ValueNum VNNormalValue(ValueNum vn) const;
-
-    // Given a "vnp", get the ValueNum kind based upon vnk,
-    // then call VNNormalValue on that ValueNum
-    // The Normal value is the value number of the expression when no exceptions occurred
-    ValueNum VNNormalValue(ValueNumPair vnp, ValueNumKind vnk);
-
-    // Given a "vnp", get the Normal values for both the liberal and conservative parts of "vnp"
-    // The Normal value is the value number of the expression when no exceptions occurred
-    ValueNumPair VNPNormalPair(ValueNumPair vnp);
-
-    // If "vn" is a "VNF_ValWithExc(norm, excSet)" value, returns the "excSet" argument; otherwise,
-    // we return a special Value Number representing the empty exception set.
-    // The exeception set value is the value number of the set of possible exceptions.
-    ValueNum VNExceptionSet(ValueNum vn);
-
-    ValueNumPair VNPExceptionSet(ValueNumPair vn);
+    ValueNum ExtractValue(ValueNum vn) const;
+    ValueNumPair ExtractValue(ValueNumPair vnp);
+    ValueNum ExtractExset(ValueNum vn);
+    ValueNumPair ExtractExset(ValueNumPair vn);
+    INDEBUG(bool HasExset(ValueNum vn) const;)
 
     // True "iff" vn is a value known to be non-null.  (For example, the result of an allocation...)
     bool IsKnownNonNull(ValueNum vn);
@@ -1116,8 +1049,7 @@ private:
     {
         SRC_Null,
         SRC_Void,
-        SRC_EmptyExcSet,
-
+        SRC_EmptyExset,
         SRC_NumSpecialRefConsts
     };
 

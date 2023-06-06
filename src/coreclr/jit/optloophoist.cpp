@@ -1046,7 +1046,7 @@ bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
         return false;
     }
 
-    if (vnStore->IsVNConstant(vn) || (vn == ValueNumStore::VNForVoid()))
+    if (vnStore->IsVNConstant(vn) || (vn == ValueNumStore::VoidVN()))
     {
         return true;
     }
