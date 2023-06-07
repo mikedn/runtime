@@ -1124,14 +1124,10 @@ bool Compiler::optRecordLoop(BasicBlock* head,
     optLoopTable[loopInd].lpEntry   = entry;
     optLoopTable[loopInd].lpExit    = exit;
     optLoopTable[loopInd].lpExitCnt = static_cast<uint8_t>(exitCnt);
-
     optLoopTable[loopInd].lpParent  = BasicBlock::NOT_IN_LOOP;
     optLoopTable[loopInd].lpChild   = BasicBlock::NOT_IN_LOOP;
     optLoopTable[loopInd].lpSibling = BasicBlock::NOT_IN_LOOP;
-
-    optLoopTable[loopInd].lpAsgVars = AllVarSetOps::UninitVal();
-
-    optLoopTable[loopInd].lpFlags = LPFLG_EMPTY;
+    optLoopTable[loopInd].lpFlags   = LPFLG_EMPTY;
 
     // We haven't yet recorded any side effects.
 
@@ -4697,48 +4693,36 @@ CallInterf optCallInterf(GenTreeCall* call)
     }
 }
 
-/*****************************************************************************
- *
- *  The following logic figures out whether the given variable is assigned
- *  somewhere in a list of basic blocks (or in an entire loop).
- */
-
+// The following logic figures out whether the given variable is assigned
+// somewhere in a list of basic blocks (or in an entire loop).
 Compiler::fgWalkResult Compiler::optIsVarAssgCB(GenTree** pTree, fgWalkData* data)
 {
-    GenTree* tree = *pTree;
+    GenTree*      tree = *pTree;
+    isVarAssgDsc* desc = static_cast<isVarAssgDsc*>(data->pCallbackData);
 
     if (tree->OperIs(GT_ASG))
     {
-        GenTree* dest = tree->AsOp()->gtOp1;
-
-        isVarAssgDsc* desc = (isVarAssgDsc*)data->pCallbackData;
-        assert(desc && desc->ivaSelf == desc);
+        GenTree* dest = tree->AsOp()->GetOp(0);
 
         if (dest->OperIs(GT_LCL_VAR))
         {
-            unsigned tvar = dest->AsLclVar()->GetLclNum();
-            if (tvar < lclMAX_ALLSET_TRACKED)
+            unsigned lclNum = dest->AsLclVar()->GetLclNum();
+
+            if (lclNum < lclMAX_ALLSET_TRACKED)
             {
-                AllVarSetOps::AddElemD(data->compiler, desc->ivaMaskVal, tvar);
-            }
-            else
-            {
-                desc->ivaMaskIncomplete = true;
+                AllVarSetOps::AddElemD(data->compiler, desc->ivaMaskVal, lclNum);
             }
 
-            if (tvar == desc->ivaVar)
+            if ((lclNum == desc->ivaVar) && (tree != desc->ivaSkip))
             {
-                if (tree != desc->ivaSkip)
-                {
-                    return WALK_ABORT;
-                }
+                return WALK_ABORT;
             }
         }
         else if (dest->OperIs(GT_LCL_FLD))
         {
-            /* We can't track every field of every var. Moreover, indirections
-               may access different parts of the var as different (but
-               overlapping) fields. So just treat them as indirect accesses */
+            // We can't track every field of every var. Moreover, indirections
+            // may access different parts of the var as different (but
+            // overlapping) fields. So just treat them as indirect accesses */
 
             // unsigned    lclNum = dest->AsLclFld()->GetLclNum();
             // noway_assert(lvaTable[lclNum].lvAddrTaken);
@@ -4755,59 +4739,46 @@ Compiler::fgWalkResult Compiler::optIsVarAssgCB(GenTree** pTree, fgWalkData* dat
 
             if (!tree->TypeIs(TYP_STRUCT))
             {
-                varRefKinds refs = varTypeIsGC(tree->TypeGet()) ? VR_IND_REF : VR_IND_SCL;
-                desc->ivaMaskInd = varRefKinds(desc->ivaMaskInd | refs);
+                varRefKinds refs = varTypeIsGC(tree->GetType()) ? VR_IND_REF : VR_IND_SCL;
+                desc->ivaMaskInd = static_cast<varRefKinds>(desc->ivaMaskInd | refs);
             }
         }
         else if (dest->OperIs(GT_IND))
         {
             if (dest->AsIndir()->GetAddr()->OperIs(GT_CLS_VAR_ADDR))
             {
-                desc->ivaMaskInd = varRefKinds(desc->ivaMaskInd | VR_GLB_VAR);
+                desc->ivaMaskInd = static_cast<varRefKinds>(desc->ivaMaskInd | VR_GLB_VAR);
             }
             else
             {
-                varRefKinds refs = varTypeIsGC(tree->TypeGet()) ? VR_IND_REF : VR_IND_SCL;
-                desc->ivaMaskInd = varRefKinds(desc->ivaMaskInd | refs);
+                varRefKinds refs = varTypeIsGC(tree->GetType()) ? VR_IND_REF : VR_IND_SCL;
+                desc->ivaMaskInd = static_cast<varRefKinds>(desc->ivaMaskInd | refs);
             }
         }
     }
     else if (tree->OperIs(GT_CALL))
     {
-        isVarAssgDsc* desc = (isVarAssgDsc*)data->pCallbackData;
-        assert(desc && desc->ivaSelf == desc);
-
         desc->ivaMaskCall = optCallInterf(tree->AsCall());
     }
 
     return WALK_CONTINUE;
 }
 
-/*****************************************************************************/
-
-bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned var)
+bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned lclNum)
 {
-    bool         result;
     isVarAssgDsc desc;
-
     desc.ivaSkip = skip;
-#ifdef DEBUG
-    desc.ivaSelf = &desc;
-#endif
-    desc.ivaVar      = var;
-    desc.ivaMaskCall = CALLINT_NONE;
-    AllVarSetOps::AssignNoCopy(this, desc.ivaMaskVal, AllVarSetOps::MakeEmpty(this));
+    desc.ivaVar  = lclNum;
 
     for (;;)
     {
         noway_assert(beg != nullptr);
 
-        for (Statement* const stmt : beg->Statements())
+        for (Statement* stmt : beg->Statements())
         {
             if (fgWalkTreePre(stmt->GetRootNodePointer(), optIsVarAssgCB, &desc) != WALK_CONTINUE)
             {
-                result = true;
-                goto DONE;
+                return true;
             }
         }
 
@@ -4819,11 +4790,7 @@ bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip,
         beg = beg->bbNext;
     }
 
-    result = false;
-
-DONE:
-
-    return result;
+    return false;
 }
 
 void Compiler::optRemoveRangeCheck(GenTreeBoundsChk* check, GenTreeOp* comma, Statement* stmt)

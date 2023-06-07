@@ -2039,158 +2039,66 @@ void Compiler::optCloneLoop(unsigned loopInd, LoopCloneContext* context)
     loop.lpFlags |= LPFLG_DONT_UNROLL;
 }
 
-//-------------------------------------------------------------------------
-//  optIsStackLocalInvariant: Is stack local invariant in loop.
-//
-//  Arguments:
-//      loopNum      The loop in which the variable is tested for invariance.
-//      lclNum       The local that is tested for invariance in the loop.
-//
-//  Return Value:
-//      Returns true if the variable is loop invariant in loopNum.
-//
-bool Compiler::optIsStackLocalInvariant(unsigned loopNum, unsigned lclNum)
+bool Compiler::optIsLclLoopInvariant(LoopCloneVisitorInfo& info, unsigned lclNum)
 {
-    if (lvaGetDesc(lclNum)->IsAddressExposed())
-    {
-        return false;
-    }
-    if (optIsVarAssgLoop(loopNum, lclNum))
-    {
-        return false;
-    }
-    return true;
+    return !lvaGetDesc(lclNum)->IsAddressExposed() && !optIsLclAssignedInLoop(info, lclNum);
 }
 
-/*****************************************************************************
- *  Is "var" assigned in the loop "lnum" ?
- */
-
-bool Compiler::optIsVarAssgLoop(unsigned lnum, unsigned var)
+bool Compiler::optIsLclAssignedInLoop(LoopCloneVisitorInfo& info, unsigned lclNum)
 {
-    assert(lnum < optLoopCount);
-    if (var < lclMAX_ALLSET_TRACKED)
+    if (lclNum < lclMAX_ALLSET_TRACKED)
     {
-        ALLVARSET_TP vs(AllVarSetOps::MakeSingleton(this, var));
-        return optIsSetAssgLoop(lnum, vs) != 0;
+        return optIsTrackedLclAssignedInLoop(info, AllVarSetOps::MakeSingleton(this, lclNum)) != 0;
     }
-    else
-    {
-        return optIsVarAssigned(optLoopTable[lnum].lpHead->bbNext, optLoopTable[lnum].lpBottom, nullptr, var);
-    }
+
+    return optIsVarAssigned(info.loop.lpHead->bbNext, info.loop.lpBottom, nullptr, lclNum);
 }
 
-/*****************************************************************************/
-int Compiler::optIsSetAssgLoop(unsigned lnum, ALLVARSET_VALARG_TP vars, varRefKinds inds)
+bool Compiler::optIsTrackedLclAssignedInLoop(LoopCloneVisitorInfo& info, ALLVARSET_VALARG_TP vars)
 {
-    noway_assert(lnum < optLoopCount);
-    LoopDsc* loop = &optLoopTable[lnum];
-
-    /* Do we already know what variables are assigned within this loop? */
-
-    if (!(loop->lpFlags & LPFLG_ASGVARS_YES))
+    if (!info.hasLoopSummary)
     {
         isVarAssgDsc desc;
+        desc.ivaVar      = BAD_VAR_NUM;
+        desc.ivaSkip     = nullptr;
+        desc.ivaMaskVal  = AllVarSetOps::MakeEmpty(this);
+        desc.ivaMaskInd  = VR_NONE;
+        desc.ivaMaskCall = CALLINT_NONE;
 
-        /* Prepare the descriptor used by the tree walker call-back */
-
-        desc.ivaVar  = (unsigned)-1;
-        desc.ivaSkip = nullptr;
-#ifdef DEBUG
-        desc.ivaSelf = &desc;
-#endif
-        AllVarSetOps::AssignNoCopy(this, desc.ivaMaskVal, AllVarSetOps::MakeEmpty(this));
-        desc.ivaMaskInd        = VR_NONE;
-        desc.ivaMaskCall       = CALLINT_NONE;
-        desc.ivaMaskIncomplete = false;
-
-        /* Now walk all the statements of the loop */
-
-        for (BasicBlock* const block : loop->LoopBlocks())
+        for (BasicBlock* block : info.loop.LoopBlocks())
         {
-            for (Statement* const stmt : block->NonPhiStatements())
+            for (Statement* stmt : block->Statements())
             {
                 fgWalkTreePre(stmt->GetRootNodePointer(), optIsVarAssgCB, &desc);
-
-                if (desc.ivaMaskIncomplete)
-                {
-                    loop->lpFlags |= LPFLG_ASGVARS_INC;
-                }
             }
         }
 
-        AllVarSetOps::Assign(this, loop->lpAsgVars, desc.ivaMaskVal);
-        loop->lpAsgInds = desc.ivaMaskInd;
-        loop->lpAsgCall = desc.ivaMaskCall;
-
-        /* Now we know what variables are assigned in the loop */
-
-        loop->lpFlags |= LPFLG_ASGVARS_YES;
+        info.lpAsgVars      = desc.ivaMaskVal;
+        info.lpAsgInds      = desc.ivaMaskInd;
+        info.lpAsgCall      = desc.ivaMaskCall;
+        info.hasLoopSummary = true;
     }
 
-    /* Now we can finally test the caller's mask against the loop's */
-    if (!AllVarSetOps::IsEmptyIntersection(this, loop->lpAsgVars, vars) || (loop->lpAsgInds & inds))
+    if (!AllVarSetOps::IsEmptyIntersection(this, info.lpAsgVars, vars))
     {
-        return 1;
+        return true;
     }
 
-    switch (loop->lpAsgCall)
+    switch (info.lpAsgCall)
     {
         case CALLINT_ALL:
-
-            /* Can't hoist if the call might have side effect on an indirection. */
-
-            if (loop->lpAsgInds != VR_NONE)
-            {
-                return 1;
-            }
-
-            break;
-
+            return info.lpAsgInds != VR_NONE;
         case CALLINT_REF_INDIRS:
-
-            /* Can't hoist if the call might have side effect on an ref indirection. */
-
-            if (loop->lpAsgInds & VR_IND_REF)
-            {
-                return 1;
-            }
-
-            break;
-
+            return (info.lpAsgInds & VR_IND_REF) != 0;
         case CALLINT_SCL_INDIRS:
-
-            /* Can't hoist if the call might have side effect on an non-ref indirection. */
-
-            if (loop->lpAsgInds & VR_IND_SCL)
-            {
-                return 1;
-            }
-
-            break;
-
+            return (info.lpAsgInds & VR_IND_SCL) != 0;
         case CALLINT_ALL_INDIRS:
-
-            /* Can't hoist if the call might have side effect on any indirection. */
-
-            if (loop->lpAsgInds & (VR_IND_REF | VR_IND_SCL))
-            {
-                return 1;
-            }
-
-            break;
-
+            return (info.lpAsgInds & (VR_IND_REF | VR_IND_SCL)) != 0;
         case CALLINT_NONE:
-
-            /* Other helpers kill nothing */
-
-            break;
-
+            return false;
         default:
-            noway_assert(!"Unexpected lpAsgCall value");
+            unreached();
     }
-
-    return 0;
 }
 
 //---------------------------------------------------------------------------------------------------------------
@@ -2380,7 +2288,7 @@ bool Compiler::optReconstructArrIndex(GenTree* tree, ArrIndex* result, unsigned 
 //  Return Value:
 //      Skip sub trees if the optimization candidate is identified or else continue walking
 //
-Compiler::fgWalkResult Compiler::optCanOptimizeByLoopCloning(GenTree* tree, LoopCloneVisitorInfo* info)
+Compiler::fgWalkResult Compiler::optCanOptimizeByLoopCloning(GenTree* tree, LoopCloneVisitorInfo& info)
 {
     ArrIndex arrIndex(getAllocator(CMK_LoopClone));
 
@@ -2392,8 +2300,8 @@ Compiler::fgWalkResult Compiler::optCanOptimizeByLoopCloning(GenTree* tree, Loop
 #ifdef DEBUG
         if (verbose)
         {
-            printf("Found ArrIndex at " FMT_BB " " FMT_STMT " tree [%06u] which is equivalent to: ", info->block->bbNum,
-                   info->stmt->GetID(), tree->GetID());
+            printf("Found ArrIndex at " FMT_BB " " FMT_STMT " tree [%06u] which is equivalent to: ", info.block->bbNum,
+                   info.stmt->GetID(), tree->GetID());
             arrIndex.Print();
             printf(", bounds check nodes: ");
             arrIndex.PrintBoundsCheckNodes();
@@ -2402,45 +2310,44 @@ Compiler::fgWalkResult Compiler::optCanOptimizeByLoopCloning(GenTree* tree, Loop
 #endif
 
         // Check that the array object local variable is invariant within the loop body.
-        if (!optIsStackLocalInvariant(info->loopNum, arrIndex.arrLcl))
+        if (!optIsLclLoopInvariant(info, arrIndex.arrLcl))
         {
-            JITDUMP("V%02d is not loop invariant\n", arrIndex.arrLcl);
+            JITDUMP("V%02u is not loop invariant\n", arrIndex.arrLcl);
             return WALK_SKIP_SUBTREES;
         }
 
-        INDEBUG(arrIndex.useBlock = info->block;)
+        INDEBUG(arrIndex.useBlock = info.block;)
 
         // Walk the dimensions and see if iterVar of the loop is used as index.
         for (unsigned dim = 0; dim < arrIndex.rank; ++dim)
         {
             // Is index variable also used as the loop iter var?
-            if (arrIndex.indLcls[dim] == optLoopTable[info->loopNum].lpIterVar())
+            if (arrIndex.indLcls[dim] == info.loop.lpIterVar())
             {
                 // Check the previous indices are all loop invariant.
                 for (unsigned dim2 = 0; dim2 < dim; ++dim2)
                 {
-                    if (optIsVarAssgLoop(info->loopNum, arrIndex.indLcls[dim2]))
+                    if (optIsLclAssignedInLoop(info, arrIndex.indLcls[dim2]))
                     {
-                        JITDUMP("V%02d is assigned in loop\n", arrIndex.indLcls[dim2]);
+                        JITDUMP("V%02u is assigned in loop\n", arrIndex.indLcls[dim2]);
                         return WALK_SKIP_SUBTREES;
                     }
                 }
 #ifdef DEBUG
                 if (verbose)
                 {
-                    printf("Loop " FMT_LP " can be cloned for ArrIndex ", info->loopNum);
+                    printf("Loop " FMT_LP " can be cloned for ArrIndex ", info.loopNum);
                     arrIndex.Print();
                     printf(" on dim %d\n", dim);
                 }
 #endif
                 // Update the loop context.
-                info->context->EnsureLoopOptInfo(info->loopNum)
-                    ->Push(new (this, CMK_LoopOpt) LcJaggedArrayOptInfo(arrIndex, dim, info->stmt));
+                info.context.EnsureLoopOptInfo(info.loopNum)
+                    ->Push(new (this, CMK_LoopOpt) LcJaggedArrayOptInfo(arrIndex, dim, info.stmt));
             }
             else
             {
-                JITDUMP("Induction V%02d is not used as index on dim %d\n", optLoopTable[info->loopNum].lpIterVar(),
-                        dim);
+                JITDUMP("Induction V%02d is not used as index on dim %d\n", info.loop.lpIterVar(), dim);
             }
         }
         return WALK_SKIP_SUBTREES;
@@ -2453,10 +2360,10 @@ Compiler::fgWalkResult Compiler::optCanOptimizeByLoopCloning(GenTree* tree, Loop
     return WALK_CONTINUE;
 }
 
-/* static */
 Compiler::fgWalkResult Compiler::optCanOptimizeByLoopCloningVisitor(GenTree** pTree, Compiler::fgWalkData* data)
 {
-    return data->compiler->optCanOptimizeByLoopCloning(*pTree, (LoopCloneVisitorInfo*)data->pCallbackData);
+    return data->compiler->optCanOptimizeByLoopCloning(*pTree,
+                                                       *static_cast<LoopCloneVisitorInfo*>(data->pCallbackData));
 }
 
 //------------------------------------------------------------------------
@@ -2477,13 +2384,13 @@ Compiler::fgWalkResult Compiler::optCanOptimizeByLoopCloningVisitor(GenTree** pT
 //      optimization candidates and update the "context" parameter with all the
 //      contextual information necessary to perform the optimization later.
 //
-bool Compiler::optIdentifyLoopOptInfo(unsigned loopNum, LoopCloneContext* context)
+bool Compiler::optIdentifyLoopOptInfo(unsigned loopNum, LoopCloneContext& context)
 {
     JITDUMP("Checking loop " FMT_LP " for optimization candidates\n", loopNum);
 
     const LoopDsc& loop = optLoopTable[loopNum];
 
-    LoopCloneVisitorInfo info(context, loopNum);
+    LoopCloneVisitorInfo info(context, loop, loopNum);
     for (BasicBlock* const block : loop.LoopBlocks())
     {
         info.block = block;
@@ -2509,7 +2416,7 @@ bool Compiler::optIdentifyLoopOptInfo(unsigned loopNum, LoopCloneContext* contex
 // Returns:
 //   true if there are any clonable loops.
 //
-bool Compiler::optObtainLoopCloningOpts(LoopCloneContext* context)
+bool Compiler::optObtainLoopCloningOpts(LoopCloneContext& context)
 {
     bool result = false;
     for (unsigned i = 0; i < optLoopCount; i++)
@@ -2580,7 +2487,7 @@ PhaseStatus Compiler::optCloneLoops()
     LoopCloneContext context(optLoopCount, getAllocator(CMK_LoopClone));
 
     // Obtain array optimization candidates in the context.
-    if (!optObtainLoopCloningOpts(&context))
+    if (!optObtainLoopCloningOpts(context))
     {
         JITDUMP("  No clonable loops\n");
         // TODO: if we can verify that the IR was not modified, we can return PhaseStatus::MODIFIED_NOTHING

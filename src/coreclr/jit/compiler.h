@@ -1105,9 +1105,6 @@ enum LoopFlags : uint16_t
 
     LPFLG_REMOVED     = 0x1000, // has been removed from the loop table (unrolled or optimized away)
     LPFLG_DONT_UNROLL = 0x2000, // do not unroll this loop
-    LPFLG_ASGVARS_YES = 0x4000, // "lpAsgVars" has been computed
-    LPFLG_ASGVARS_INC = 0x8000, // "lpAsgVars" is incomplete -- vars beyond those representable in an AllVarSet
-                                // type are assigned to.
 };
 
 inline constexpr LoopFlags operator~(LoopFlags a)
@@ -5039,10 +5036,6 @@ public:
         BasicBlock* lpBottom; // loop BOTTOM (from here we have a back edge to the TOP)
         BasicBlock* lpExit;   // if a single exit loop this is the EXIT (in most cases BOTTOM)
 
-        ALLVARSET_TP lpAsgVars; // set of vars assigned within the loop (all vars, not just tracked)
-        CallInterf   lpAsgCall; // "callInterf" for calls in the loop
-        varRefKinds  lpAsgInds; // set of inds modified within the loop
-
         LoopFlags lpFlags;
 
         uint8_t lpExitCnt; // number of exits from the loop
@@ -5297,24 +5290,16 @@ private:
     struct isVarAssgDsc
     {
         GenTree*     ivaSkip;
-        ALLVARSET_TP ivaMaskVal; // Set of variables assigned to.  This is a set of all vars, not tracked vars.
-#ifdef DEBUG
-        void* ivaSelf;
-#endif
-        unsigned    ivaVar;            // Variable we are interested in, or -1
-        varRefKinds ivaMaskInd;        // What kind of indirect assignments are there?
-        CallInterf  ivaMaskCall;       // What kind of calls are there?
-        bool        ivaMaskIncomplete; // Variables not representable in ivaMaskVal were assigned to.
+        ALLVARSET_TP ivaMaskVal;  // Set of variables assigned to.  This is a set of all vars, not tracked vars.
+        unsigned     ivaVar;      // Variable we are interested in, or -1
+        varRefKinds  ivaMaskInd;  // What kind of indirect assignments are there?
+        CallInterf   ivaMaskCall; // What kind of calls are there?
     };
 
     static fgWalkPreFn optIsVarAssgCB;
 
 protected:
-    bool optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned var);
-
-    bool optIsVarAssgLoop(unsigned lnum, unsigned var);
-
-    int optIsSetAssgLoop(unsigned lnum, ALLVARSET_VALARG_TP vars, varRefKinds inds = VR_NONE);
+    bool optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned lclNum);
 
     bool optNarrowTree(GenTree* tree, var_types srct, var_types dstt, ValueNumPair vnpNarrow, bool doit);
 
@@ -5504,23 +5489,31 @@ public:
 public:
     struct LoopCloneVisitorInfo
     {
-        LoopCloneContext* context;
-        unsigned          loopNum;
-        Statement*        stmt  = nullptr;
-        BasicBlock*       block = nullptr;
+        LoopCloneContext& context;
+        const LoopDsc&    loop;
+        const unsigned    loopNum;
+        Statement*        stmt           = nullptr;
+        BasicBlock*       block          = nullptr;
+        bool              hasLoopSummary = false;
+        ALLVARSET_TP      lpAsgVars; // set of vars assigned within the loop (all vars, not just tracked)
+        CallInterf        lpAsgCall; // "callInterf" for calls in the loop
+        varRefKinds       lpAsgInds; // set of inds modified within the loop
 
-        LoopCloneVisitorInfo(LoopCloneContext* context, unsigned loopNum) : context(context), loopNum(loopNum)
+        LoopCloneVisitorInfo(LoopCloneContext& context, const LoopDsc& loop, unsigned loopNum)
+            : context(context), loop(loop), loopNum(loopNum)
         {
         }
     };
 
-    bool optIsStackLocalInvariant(unsigned loopNum, unsigned lclNum);
+    bool optIsLclLoopInvariant(LoopCloneVisitorInfo& info, unsigned lclNum);
+    bool optIsLclAssignedInLoop(LoopCloneVisitorInfo& info, unsigned lclNum);
+    bool optIsTrackedLclAssignedInLoop(LoopCloneVisitorInfo& info, ALLVARSET_VALARG_TP vars);
     bool optExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum);
     bool optReconstructArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum);
-    bool optIdentifyLoopOptInfo(unsigned loopNum, LoopCloneContext* context);
+    bool optIdentifyLoopOptInfo(unsigned loopNum, LoopCloneContext& context);
     static fgWalkPreFn optCanOptimizeByLoopCloningVisitor;
-    fgWalkResult optCanOptimizeByLoopCloning(GenTree* tree, LoopCloneVisitorInfo* info);
-    bool optObtainLoopCloningOpts(LoopCloneContext* context);
+    fgWalkResult optCanOptimizeByLoopCloning(GenTree* tree, LoopCloneVisitorInfo& info);
+    bool optObtainLoopCloningOpts(LoopCloneContext& context);
     bool optIsLoopClonable(unsigned loopInd);
 
     bool optLoopCloningEnabled();
