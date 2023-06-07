@@ -1243,6 +1243,15 @@ public:
                     {
                         if (exprExset != ValueNumStore::EmptyExsetVN())
                         {
+                            // TODO-MIKE-CQ: This stuff is suspect. If the use has extra exceptions
+                            // we should still do the CSE but keep whatever exception side effects
+                            // the use has that the def doesn't. This may need a bit of care to avoid
+                            // ending up with an use that must be entirely kept but that's unlikely.
+                            // See DateTimeFormatInfoScanner:ArrayElementsBeginWithDigit for a case
+                            // where CSE fails because some BOUNDS_CHECKs were eliminated earlier by
+                            // loop cloning. Some subsequent loads of the same array element still
+                            // have the checks and cannot be CSEd due to the extra exception.
+
                             if ((value->defExset != NoVN) && !vnStore->ExsetIsSubset(exprExset, value->defExset))
                             {
                                 expr->ClearCseInfo();
