@@ -914,6 +914,28 @@ LC_Deref* LC_Deref::Find(JitExpandArrayStack<LC_Deref*>* children, unsigned lcl)
     return nullptr;
 }
 
+bool Compiler::LoopDsc::lpArrLenLimit(Compiler* comp, ArrIndex* index) const
+{
+    VERIFY_lpTestTree();
+    assert(lpFlags & LPFLG_ARRLEN_LIMIT);
+
+    GenTree* limit = lpLimit();
+
+    // Check if we have a.length or a[i][j].length
+    if (limit->AsArrLen()->GetArray()->OperIs(GT_LCL_VAR))
+    {
+        index->arrLcl = limit->AsArrLen()->GetArray()->AsLclVar()->GetLclNum();
+        index->rank   = 0;
+        return true;
+    }
+    // We have a[i].length, extract a[i] pattern.
+    else if (limit->AsArrLen()->GetArray()->OperIs(GT_COMMA))
+    {
+        return comp->optReconstructArrIndex(limit->AsArrLen()->GetArray(), index, BAD_VAR_NUM);
+    }
+    return false;
+}
+
 //------------------------------------------------------------------------
 // optDeriveLoopCloningConditions: Derive loop cloning conditions.
 //
@@ -2039,6 +2061,35 @@ void Compiler::optCloneLoop(unsigned loopInd, LoopCloneContext* context)
     loop.lpFlags |= LPFLG_DONT_UNROLL;
 }
 
+using LoopDsc = Compiler::LoopDsc;
+
+enum varRefKinds : uint8_t
+{
+    VR_INVARIANT = 0x00, // an invariant value
+    VR_NONE      = 0x00,
+    VR_IND_REF   = 0x01, // an object reference
+    VR_IND_SCL   = 0x02, // a non-object reference
+    VR_GLB_VAR   = 0x04, // a global (clsVar)
+};
+
+struct LoopCloneVisitorInfo
+{
+    LoopCloneContext& context;
+    const LoopDsc&    loop;
+    const unsigned    loopNum;
+    Statement*        stmt           = nullptr;
+    BasicBlock*       block          = nullptr;
+    bool              hasLoopSummary = false;
+    ALLVARSET_TP      lpAsgVars; // set of vars assigned within the loop (all vars, not just tracked)
+    CallInterf        lpAsgCall; // "callInterf" for calls in the loop
+    varRefKinds       lpAsgInds; // set of inds modified within the loop
+
+    LoopCloneVisitorInfo(LoopCloneContext& context, const LoopDsc& loop, unsigned loopNum)
+        : context(context), loop(loop), loopNum(loopNum)
+    {
+    }
+};
+
 bool Compiler::optIsLclLoopInvariant(LoopCloneVisitorInfo& info, unsigned lclNum)
 {
     return !lvaGetDesc(lclNum)->IsAddressExposed() && !optIsLclAssignedInLoop(info, lclNum);
@@ -2058,24 +2109,18 @@ bool Compiler::optIsTrackedLclAssignedInLoop(LoopCloneVisitorInfo& info, ALLVARS
 {
     if (!info.hasLoopSummary)
     {
-        isVarAssgDsc desc;
-        desc.ivaVar      = BAD_VAR_NUM;
-        desc.ivaSkip     = nullptr;
-        desc.ivaMaskVal  = AllVarSetOps::MakeEmpty(this);
-        desc.ivaMaskInd  = VR_NONE;
-        desc.ivaMaskCall = CALLINT_NONE;
+        info.lpAsgVars = AllVarSetOps::MakeEmpty(this);
+        info.lpAsgInds = VR_NONE;
+        info.lpAsgCall = CALLINT_NONE;
 
         for (BasicBlock* block : info.loop.LoopBlocks())
         {
             for (Statement* stmt : block->Statements())
             {
-                fgWalkTreePre(stmt->GetRootNodePointer(), optIsVarAssgCB, &desc);
+                fgWalkTreePre(stmt->GetRootNodePointer(), optIsVarAssgCB, &info);
             }
         }
 
-        info.lpAsgVars      = desc.ivaMaskVal;
-        info.lpAsgInds      = desc.ivaMaskInd;
-        info.lpAsgCall      = desc.ivaMaskCall;
         info.hasLoopSummary = true;
     }
 
@@ -2099,6 +2144,107 @@ bool Compiler::optIsTrackedLclAssignedInLoop(LoopCloneVisitorInfo& info, ALLVARS
         default:
             unreached();
     }
+}
+
+static CallInterf optCallInterf(GenTreeCall* call)
+{
+    // if not a helper, kills everything
+    if (call->gtCallType != CT_HELPER)
+    {
+        return CALLINT_ALL;
+    }
+
+    // setfield and array address store kill all indirections
+    switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
+    {
+        case CORINFO_HELP_ASSIGN_REF:         // Not strictly needed as we don't make a GT_CALL with this
+        case CORINFO_HELP_CHECKED_ASSIGN_REF: // Not strictly needed as we don't make a GT_CALL with this
+        case CORINFO_HELP_ASSIGN_BYREF:       // Not strictly needed as we don't make a GT_CALL with this
+        case CORINFO_HELP_SETFIELDOBJ:
+        case CORINFO_HELP_ARRADDR_ST:
+            return CALLINT_REF_INDIRS;
+
+        case CORINFO_HELP_SETFIELDFLOAT:
+        case CORINFO_HELP_SETFIELDDOUBLE:
+        case CORINFO_HELP_SETFIELD8:
+        case CORINFO_HELP_SETFIELD16:
+        case CORINFO_HELP_SETFIELD32:
+        case CORINFO_HELP_SETFIELD64:
+            return CALLINT_SCL_INDIRS;
+
+        case CORINFO_HELP_ASSIGN_STRUCT: // Not strictly needed as we don't use this
+        case CORINFO_HELP_MEMSET:        // Not strictly needed as we don't make a GT_CALL with this
+        case CORINFO_HELP_MEMCPY:        // Not strictly needed as we don't make a GT_CALL with this
+        case CORINFO_HELP_SETFIELDSTRUCT:
+            return CALLINT_ALL_INDIRS;
+
+        default:
+            return CALLINT_NONE;
+    }
+}
+
+Compiler::fgWalkResult Compiler::optIsVarAssgCB(GenTree** use, fgWalkData* data)
+{
+    GenTree*              tree = *use;
+    LoopCloneVisitorInfo* info = static_cast<LoopCloneVisitorInfo*>(data->pCallbackData);
+
+    if (tree->OperIs(GT_ASG))
+    {
+        GenTree* dest = tree->AsOp()->GetOp(0);
+
+        if (dest->OperIs(GT_LCL_VAR))
+        {
+            unsigned lclNum = dest->AsLclVar()->GetLclNum();
+
+            if (lclNum < lclMAX_ALLSET_TRACKED)
+            {
+                AllVarSetOps::AddElemD(data->compiler, info->lpAsgVars, lclNum);
+            }
+        }
+        else if (dest->OperIs(GT_LCL_FLD))
+        {
+            // We can't track every field of every var. Moreover, indirections
+            // may access different parts of the var as different (but
+            // overlapping) fields. So just treat them as indirect accesses */
+
+            // unsigned    lclNum = dest->AsLclFld()->GetLclNum();
+            // noway_assert(lvaTable[lclNum].lvAddrTaken);
+
+            // TODO-MIKE-Cleanup: TYP_STRUCT LCL_FLDs are excluded because they were previously wrapped
+            // in OBJ/BLK indirs which optIsVarAssgCB simply ignores. So continue to ignore such stores.
+            //
+            // But this doesn't explain why LCL_FLDs are treated as indirections instead of simply being
+            // treated as local stores. Or what assigning to CLS_VAR has to do with local variables. Or
+            // what assignment to IND has to do with call interference. Complete nonsense.
+            //
+            // The only reason why it works at all is that the callers are only interested in TYP_INT
+            // variables and it's unlikely that these are updated via OBJ indirections.
+
+            if (!tree->TypeIs(TYP_STRUCT))
+            {
+                varRefKinds refs = varTypeIsGC(tree->GetType()) ? VR_IND_REF : VR_IND_SCL;
+                info->lpAsgInds  = static_cast<varRefKinds>(info->lpAsgInds | refs);
+            }
+        }
+        else if (dest->OperIs(GT_IND))
+        {
+            if (dest->AsIndir()->GetAddr()->OperIs(GT_CLS_VAR_ADDR))
+            {
+                info->lpAsgInds = static_cast<varRefKinds>(info->lpAsgInds | VR_GLB_VAR);
+            }
+            else
+            {
+                varRefKinds refs = varTypeIsGC(tree->GetType()) ? VR_IND_REF : VR_IND_SCL;
+                info->lpAsgInds  = static_cast<varRefKinds>(info->lpAsgInds | refs);
+            }
+        }
+    }
+    else if (tree->OperIs(GT_CALL))
+    {
+        info->lpAsgCall = optCallInterf(tree->AsCall());
+    }
+
+    return WALK_CONTINUE;
 }
 
 //---------------------------------------------------------------------------------------------------------------

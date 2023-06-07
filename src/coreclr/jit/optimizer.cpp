@@ -4651,124 +4651,13 @@ PhaseStatus Compiler::optFindLoops()
     return PhaseStatus::MODIFIED_EVERYTHING;
 }
 
-/*****************************************************************************
- *
- *  Determine the kind of interference for the call.
- */
-
-CallInterf optCallInterf(GenTreeCall* call)
-{
-    // if not a helper, kills everything
-    if (call->gtCallType != CT_HELPER)
-    {
-        return CALLINT_ALL;
-    }
-
-    // setfield and array address store kill all indirections
-    switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
-    {
-        case CORINFO_HELP_ASSIGN_REF:         // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_CHECKED_ASSIGN_REF: // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_ASSIGN_BYREF:       // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_SETFIELDOBJ:
-        case CORINFO_HELP_ARRADDR_ST:
-            return CALLINT_REF_INDIRS;
-
-        case CORINFO_HELP_SETFIELDFLOAT:
-        case CORINFO_HELP_SETFIELDDOUBLE:
-        case CORINFO_HELP_SETFIELD8:
-        case CORINFO_HELP_SETFIELD16:
-        case CORINFO_HELP_SETFIELD32:
-        case CORINFO_HELP_SETFIELD64:
-            return CALLINT_SCL_INDIRS;
-
-        case CORINFO_HELP_ASSIGN_STRUCT: // Not strictly needed as we don't use this
-        case CORINFO_HELP_MEMSET:        // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_MEMCPY:        // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_SETFIELDSTRUCT:
-            return CALLINT_ALL_INDIRS;
-
-        default:
-            return CALLINT_NONE;
-    }
-}
-
-// The following logic figures out whether the given variable is assigned
-// somewhere in a list of basic blocks (or in an entire loop).
-Compiler::fgWalkResult Compiler::optIsVarAssgCB(GenTree** pTree, fgWalkData* data)
-{
-    GenTree*      tree = *pTree;
-    isVarAssgDsc* desc = static_cast<isVarAssgDsc*>(data->pCallbackData);
-
-    if (tree->OperIs(GT_ASG))
-    {
-        GenTree* dest = tree->AsOp()->GetOp(0);
-
-        if (dest->OperIs(GT_LCL_VAR))
-        {
-            unsigned lclNum = dest->AsLclVar()->GetLclNum();
-
-            if (lclNum < lclMAX_ALLSET_TRACKED)
-            {
-                AllVarSetOps::AddElemD(data->compiler, desc->ivaMaskVal, lclNum);
-            }
-
-            if ((lclNum == desc->ivaVar) && (tree != desc->ivaSkip))
-            {
-                return WALK_ABORT;
-            }
-        }
-        else if (dest->OperIs(GT_LCL_FLD))
-        {
-            // We can't track every field of every var. Moreover, indirections
-            // may access different parts of the var as different (but
-            // overlapping) fields. So just treat them as indirect accesses */
-
-            // unsigned    lclNum = dest->AsLclFld()->GetLclNum();
-            // noway_assert(lvaTable[lclNum].lvAddrTaken);
-
-            // TODO-MIKE-Cleanup: TYP_STRUCT LCL_FLDs are excluded because they were previously wrapped
-            // in OBJ/BLK indirs which optIsVarAssgCB simply ignores. So continue to ignore such stores.
-            //
-            // But this doesn't explain why LCL_FLDs are treated as indirections instead of simply being
-            // treated as local stores. Or what assigning to CLS_VAR has to do with local variables. Or
-            // what assignment to IND has to do with call interference. Complete nonsense.
-            //
-            // The only reason why it works at all is that the callers are only interested in TYP_INT
-            // variables and it's unlikely that these are updated via OBJ indirections.
-
-            if (!tree->TypeIs(TYP_STRUCT))
-            {
-                varRefKinds refs = varTypeIsGC(tree->GetType()) ? VR_IND_REF : VR_IND_SCL;
-                desc->ivaMaskInd = static_cast<varRefKinds>(desc->ivaMaskInd | refs);
-            }
-        }
-        else if (dest->OperIs(GT_IND))
-        {
-            if (dest->AsIndir()->GetAddr()->OperIs(GT_CLS_VAR_ADDR))
-            {
-                desc->ivaMaskInd = static_cast<varRefKinds>(desc->ivaMaskInd | VR_GLB_VAR);
-            }
-            else
-            {
-                varRefKinds refs = varTypeIsGC(tree->GetType()) ? VR_IND_REF : VR_IND_SCL;
-                desc->ivaMaskInd = static_cast<varRefKinds>(desc->ivaMaskInd | refs);
-            }
-        }
-    }
-    else if (tree->OperIs(GT_CALL))
-    {
-        desc->ivaMaskCall = optCallInterf(tree->AsCall());
-    }
-
-    return WALK_CONTINUE;
-}
-
 bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned lclNum)
 {
-    isVarAssgDsc desc;
-    desc.ivaSkip = skip;
-    desc.ivaVar  = lclNum;
+    struct WalkData
+    {
+        GenTree* skip;
+        unsigned lclNum;
+    } walkData{skip, lclNum};
 
     for (;;)
     {
@@ -4776,7 +4665,28 @@ bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip,
 
         for (Statement* stmt : beg->Statements())
         {
-            if (fgWalkTreePre(stmt->GetRootNodePointer(), optIsVarAssgCB, &desc) != WALK_CONTINUE)
+            if (fgWalkTreePre(stmt->GetRootNodePointer(),
+                              [](GenTree** use, Compiler::fgWalkData* data) {
+                                  GenTree*  tree = *use;
+                                  WalkData* desc = static_cast<WalkData*>(data->pCallbackData);
+
+                                  if (tree->OperIs(GT_ASG))
+                                  {
+                                      GenTree* dest = tree->AsOp()->GetOp(0);
+
+                                      // TODO-MIKE-Cleanup: Why the crap are LCL_FLD assignments ignored?
+                                      // This is likely used only for INT locals but then you can actually
+                                      // modify an INT local with a LCL_FLD...
+                                      if (dest->OperIs(GT_LCL_VAR) && (dest->AsLclVar()->GetLclNum() == desc->lclNum) &&
+                                          (tree != desc->skip))
+                                      {
+                                          return Compiler::WALK_ABORT;
+                                      }
+                                  }
+
+                                  return Compiler::WALK_CONTINUE;
+                              },
+                              &walkData) != WALK_CONTINUE)
             {
                 return true;
             }

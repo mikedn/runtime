@@ -1941,30 +1941,6 @@ inline unsigned Compiler::LoopDsc::lpVarLimit() const
     return limit->AsLclVar()->GetLclNum();
 }
 
-//-----------------------------------------------------------------------------
-
-inline bool Compiler::LoopDsc::lpArrLenLimit(Compiler* comp, ArrIndex* index) const
-{
-    VERIFY_lpTestTree();
-    assert(lpFlags & LPFLG_ARRLEN_LIMIT);
-
-    GenTree* limit = lpLimit();
-
-    // Check if we have a.length or a[i][j].length
-    if (limit->AsArrLen()->GetArray()->OperIs(GT_LCL_VAR))
-    {
-        index->arrLcl = limit->AsArrLen()->GetArray()->AsLclVar()->GetLclNum();
-        index->rank   = 0;
-        return true;
-    }
-    // We have a[i].length, extract a[i] pattern.
-    else if (limit->AsArrLen()->GetArray()->OperIs(GT_COMMA))
-    {
-        return comp->optReconstructArrIndex(limit->AsArrLen()->GetArray(), index, BAD_VAR_NUM);
-    }
-    return false;
-}
-
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

@@ -48,18 +48,16 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "gcdump.h"
 #endif
 
-struct InfoHdr;            // defined in GCInfo.h
-struct escapeMapping_t;    // defined in fgdiagnostic.cpp
-class emitter;             // defined in emit.h
-struct ShadowParamVarInfo; // defined in GSChecks.cpp
-struct ParamAllocInfo;     // defined in register_arg_convention.h
-class FgStack;             // defined in fgbasic.cpp
-class Instrumentor;        // defined in fgprofile.cpp
-class SpanningTreeVisitor; // defined in fgprofile.cpp
-class OptBoolsDsc;         // defined in optimizer.cpp
-#ifdef DEBUG
-class IndentStack;
-#endif
+struct InfoHdr;
+struct escapeMapping_t;
+class emitter;
+struct ShadowParamVarInfo;
+struct ParamAllocInfo;
+class FgStack;
+class Instrumentor;
+class SpanningTreeVisitor;
+class OptBoolsDsc;
+struct LoopCloneVisitorInfo;
 class SsaOptimizer;
 class SsaBuilder;
 class ValueNumbering;
@@ -67,11 +65,9 @@ class ValueNumStore;
 class CopyPropDomTreeVisitor;
 class LoopHoist;
 class Cse;
-class Lowering; // defined in lower.h
-
-// The following are defined in this file, Compiler.h
-
+class Lowering;
 class Compiler;
+INDEBUG(class IndentStack;)
 
 /*****************************************************************************
  *                  Unwind info
@@ -5287,15 +5283,6 @@ private:
                            bool       dupCond,
                            unsigned*  iterCount);
 
-    struct isVarAssgDsc
-    {
-        GenTree*     ivaSkip;
-        ALLVARSET_TP ivaMaskVal;  // Set of variables assigned to.  This is a set of all vars, not tracked vars.
-        unsigned     ivaVar;      // Variable we are interested in, or -1
-        varRefKinds  ivaMaskInd;  // What kind of indirect assignments are there?
-        CallInterf   ivaMaskCall; // What kind of calls are there?
-    };
-
     static fgWalkPreFn optIsVarAssgCB;
 
 protected:
@@ -5487,24 +5474,6 @@ public:
 #endif // ASSERTION_PROP
 
 public:
-    struct LoopCloneVisitorInfo
-    {
-        LoopCloneContext& context;
-        const LoopDsc&    loop;
-        const unsigned    loopNum;
-        Statement*        stmt           = nullptr;
-        BasicBlock*       block          = nullptr;
-        bool              hasLoopSummary = false;
-        ALLVARSET_TP      lpAsgVars; // set of vars assigned within the loop (all vars, not just tracked)
-        CallInterf        lpAsgCall; // "callInterf" for calls in the loop
-        varRefKinds       lpAsgInds; // set of inds modified within the loop
-
-        LoopCloneVisitorInfo(LoopCloneContext& context, const LoopDsc& loop, unsigned loopNum)
-            : context(context), loop(loop), loopNum(loopNum)
-        {
-        }
-    };
-
     bool optIsLclLoopInvariant(LoopCloneVisitorInfo& info, unsigned lclNum);
     bool optIsLclAssignedInLoop(LoopCloneVisitorInfo& info, unsigned lclNum);
     bool optIsTrackedLclAssignedInLoop(LoopCloneVisitorInfo& info, ALLVARSET_VALARG_TP vars);
