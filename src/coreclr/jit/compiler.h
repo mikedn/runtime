@@ -5294,6 +5294,19 @@ private:
                            bool       dupCond,
                            unsigned*  iterCount);
 
+    struct isVarAssgDsc
+    {
+        GenTree*     ivaSkip;
+        ALLVARSET_TP ivaMaskVal; // Set of variables assigned to.  This is a set of all vars, not tracked vars.
+#ifdef DEBUG
+        void* ivaSelf;
+#endif
+        unsigned    ivaVar;            // Variable we are interested in, or -1
+        varRefKinds ivaMaskInd;        // What kind of indirect assignments are there?
+        CallInterf  ivaMaskCall;       // What kind of calls are there?
+        bool        ivaMaskIncomplete; // Variables not representable in ivaMaskVal were assigned to.
+    };
+
     static fgWalkPreFn optIsVarAssgCB;
 
 protected:

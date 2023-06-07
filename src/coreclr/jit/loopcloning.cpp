@@ -2062,6 +2062,137 @@ bool Compiler::optIsStackLocalInvariant(unsigned loopNum, unsigned lclNum)
     return true;
 }
 
+/*****************************************************************************
+ *  Is "var" assigned in the loop "lnum" ?
+ */
+
+bool Compiler::optIsVarAssgLoop(unsigned lnum, unsigned var)
+{
+    assert(lnum < optLoopCount);
+    if (var < lclMAX_ALLSET_TRACKED)
+    {
+        ALLVARSET_TP vs(AllVarSetOps::MakeSingleton(this, var));
+        return optIsSetAssgLoop(lnum, vs) != 0;
+    }
+    else
+    {
+        return optIsVarAssigned(optLoopTable[lnum].lpHead->bbNext, optLoopTable[lnum].lpBottom, nullptr, var);
+    }
+}
+
+/*****************************************************************************/
+int Compiler::optIsSetAssgLoop(unsigned lnum, ALLVARSET_VALARG_TP vars, varRefKinds inds)
+{
+    noway_assert(lnum < optLoopCount);
+    LoopDsc* loop = &optLoopTable[lnum];
+
+    /* Do we already know what variables are assigned within this loop? */
+
+    if (!(loop->lpFlags & LPFLG_ASGVARS_YES))
+    {
+        isVarAssgDsc desc;
+
+        /* Prepare the descriptor used by the tree walker call-back */
+
+        desc.ivaVar  = (unsigned)-1;
+        desc.ivaSkip = nullptr;
+#ifdef DEBUG
+        desc.ivaSelf = &desc;
+#endif
+        AllVarSetOps::AssignNoCopy(this, desc.ivaMaskVal, AllVarSetOps::MakeEmpty(this));
+        desc.ivaMaskInd        = VR_NONE;
+        desc.ivaMaskCall       = CALLINT_NONE;
+        desc.ivaMaskIncomplete = false;
+
+        /* Now walk all the statements of the loop */
+
+        for (BasicBlock* const block : loop->LoopBlocks())
+        {
+            for (Statement* const stmt : block->NonPhiStatements())
+            {
+                fgWalkTreePre(stmt->GetRootNodePointer(), optIsVarAssgCB, &desc);
+
+                if (desc.ivaMaskIncomplete)
+                {
+                    loop->lpFlags |= LPFLG_ASGVARS_INC;
+                }
+            }
+        }
+
+        AllVarSetOps::Assign(this, loop->lpAsgVars, desc.ivaMaskVal);
+        loop->lpAsgInds = desc.ivaMaskInd;
+        loop->lpAsgCall = desc.ivaMaskCall;
+
+        /* Now we know what variables are assigned in the loop */
+
+        loop->lpFlags |= LPFLG_ASGVARS_YES;
+    }
+
+    /* Now we can finally test the caller's mask against the loop's */
+    if (!AllVarSetOps::IsEmptyIntersection(this, loop->lpAsgVars, vars) || (loop->lpAsgInds & inds))
+    {
+        return 1;
+    }
+
+    switch (loop->lpAsgCall)
+    {
+        case CALLINT_ALL:
+
+            /* Can't hoist if the call might have side effect on an indirection. */
+
+            if (loop->lpAsgInds != VR_NONE)
+            {
+                return 1;
+            }
+
+            break;
+
+        case CALLINT_REF_INDIRS:
+
+            /* Can't hoist if the call might have side effect on an ref indirection. */
+
+            if (loop->lpAsgInds & VR_IND_REF)
+            {
+                return 1;
+            }
+
+            break;
+
+        case CALLINT_SCL_INDIRS:
+
+            /* Can't hoist if the call might have side effect on an non-ref indirection. */
+
+            if (loop->lpAsgInds & VR_IND_SCL)
+            {
+                return 1;
+            }
+
+            break;
+
+        case CALLINT_ALL_INDIRS:
+
+            /* Can't hoist if the call might have side effect on any indirection. */
+
+            if (loop->lpAsgInds & (VR_IND_REF | VR_IND_SCL))
+            {
+                return 1;
+            }
+
+            break;
+
+        case CALLINT_NONE:
+
+            /* Other helpers kill nothing */
+
+            break;
+
+        default:
+            noway_assert(!"Unexpected lpAsgCall value");
+    }
+
+    return 0;
+}
+
 //---------------------------------------------------------------------------------------------------------------
 //  optExtractArrIndex: Try to extract the array index from "tree".
 //
