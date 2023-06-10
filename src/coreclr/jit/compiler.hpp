@@ -1773,7 +1773,7 @@ inline void Compiler::LoopDsc::VERIFY_lpIterTree() const
     const GenTreeLclVar* lhs = lpIterTree->GetOp(0)->AsLclVar();
     const GenTreeOp*     rhs = lpIterTree->GetOp(1)->AsOp();
     assert(lhs->OperIs(GT_LCL_VAR));
-    assert(rhs->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_RSH, GT_LSH));
+    assert(rhs->OperIs(GT_ADD, GT_SUB));
     assert(rhs->gtOp1->OperIs(GT_LCL_VAR));
     assert(rhs->gtOp1->AsLclVar()->GetLclNum() == lhs->GetLclNum());
     assert(rhs->gtOp2->OperIs(GT_CNS_INT));

@@ -745,7 +745,7 @@ GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock*
 //     whether gtSetEvalOrder will already have put the lclVar on the lhs in
 //     the cases of interest.
 
-unsigned Compiler::optIsLclVarUpdateTree(GenTree* tree, GenTree** pOtherTree, genTreeOps* pOper)
+unsigned Compiler::optIsLclVarUpdateTree(GenTree* tree, GenTree** pOtherTree, GenTree** update)
 {
     unsigned lclNum = BAD_VAR_NUM;
     if (tree->OperIs(GT_ASG))
@@ -765,7 +765,7 @@ unsigned Compiler::optIsLclVarUpdateTree(GenTree* tree, GenTree** pOtherTree, ge
             {
                 lclNum      = lhsLclNum;
                 *pOtherTree = rhsOp2;
-                *pOper      = rhs->OperGet();
+                *update     = rhs;
             }
         }
     }
@@ -789,33 +789,14 @@ unsigned Compiler::optIsLclVarUpdateTree(GenTree* tree, GenTree** pOtherTree, ge
 //
 unsigned Compiler::optIsLoopIncrTree(GenTree* incr)
 {
-    GenTree*   incrVal;
-    genTreeOps updateOper;
-    unsigned   iterVar = optIsLclVarUpdateTree(incr, &incrVal, &updateOper);
-    if (iterVar != BAD_VAR_NUM)
-    {
-        // We have v = v op y type asg node.
-        switch (updateOper)
-        {
-            case GT_ADD:
-            case GT_SUB:
-            case GT_MUL:
-            case GT_RSH:
-            case GT_LSH:
-                break;
-            default:
-                return BAD_VAR_NUM;
-        }
+    GenTree* incrVal;
+    GenTree* update;
+    unsigned iterVar = optIsLclVarUpdateTree(incr, &incrVal, &update);
 
-        // Increment should be by a const int.
-        // TODO-CQ: CLONE: allow variable increments.
-        if ((incrVal->gtOper != GT_CNS_INT) || (incrVal->TypeGet() != TYP_INT))
-        {
-            return BAD_VAR_NUM;
-        }
-    }
-
-    return iterVar;
+    return (iterVar != BAD_VAR_NUM) && update->OperIs(GT_ADD, GT_SUB) && incrVal->OperIs(GT_CNS_INT) &&
+                   incrVal->TypeIs(TYP_INT)
+               ? iterVar
+               : BAD_VAR_NUM;
 }
 
 //----------------------------------------------------------------------------------
@@ -1145,7 +1126,7 @@ bool Compiler::optRecordLoop(BasicBlock* head,
     // We have the following restrictions:
     //     1. The loop condition must be a simple one i.e. only one JTRUE node
     //     2. There must be a loop iterator (a local var) that is
-    //        incremented (decremented or lsh, rsh, mul) with a constant value
+    //        incremented (decremented) with a constant value
     //     3. The iterator is incremented exactly once
     //     4. The loop condition must use the iterator.
     //
@@ -1158,6 +1139,8 @@ bool Compiler::optRecordLoop(BasicBlock* head,
         {
             goto DONE_LOOP;
         }
+
+        assert(incr->GetOp(1)->OperIs(GT_ADD, GT_SUB));
 
         unsigned iterVar = BAD_VAR_NUM;
         if (!optComputeIterInfo(incr, head->bbNext, bottom, &iterVar))
@@ -3209,13 +3192,6 @@ bool Compiler::optComputeLoopRep(int        constInit,
                     *iterCount = loopCount;
                     return true;
 
-                case GT_MUL:
-                case GT_DIV:
-                case GT_RSH:
-                case GT_LSH:
-                case GT_UDIV:
-                    return false;
-
                 default:
                     unreached();
             }
@@ -3254,13 +3230,6 @@ bool Compiler::optComputeLoopRep(int        constInit,
 
                     *iterCount = loopCount;
                     return true;
-
-                case GT_MUL:
-                case GT_DIV:
-                case GT_RSH:
-                case GT_LSH:
-                case GT_UDIV:
-                    return false;
 
                 default:
                     unreached();
@@ -3301,13 +3270,6 @@ bool Compiler::optComputeLoopRep(int        constInit,
                     *iterCount = loopCount;
                     return true;
 
-                case GT_MUL:
-                case GT_DIV:
-                case GT_RSH:
-                case GT_LSH:
-                case GT_UDIV:
-                    return false;
-
                 default:
                     unreached();
             }
@@ -3347,13 +3309,6 @@ bool Compiler::optComputeLoopRep(int        constInit,
                     *iterCount = loopCount;
                     return true;
 
-                case GT_MUL:
-                case GT_DIV:
-                case GT_RSH:
-                case GT_LSH:
-                case GT_UDIV:
-                    return false;
-
                 default:
                     unreached();
             }
@@ -3392,13 +3347,6 @@ bool Compiler::optComputeLoopRep(int        constInit,
 
                     *iterCount = loopCount;
                     return true;
-
-                case GT_MUL:
-                case GT_DIV:
-                case GT_RSH:
-                case GT_LSH:
-                case GT_UDIV:
-                    return false;
 
                 default:
                     unreached();
@@ -3784,19 +3732,11 @@ PhaseStatus Compiler::phUnrollLoops()
                     case GT_ADD:
                         lval += iterInc;
                         break;
-
                     case GT_SUB:
                         lval -= iterInc;
                         break;
-
-                    case GT_RSH:
-                    case GT_LSH:
-                        noway_assert(!"Unrolling not implemented for this loop iterator");
-                        goto DONE_LOOP;
-
                     default:
-                        noway_assert(!"Unknown operator for constant loop iterator");
-                        goto DONE_LOOP;
+                        unreached();
                 }
             }
 

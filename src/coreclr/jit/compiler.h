@@ -5198,7 +5198,7 @@ protected:
     bool optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTestStmt);
     // Determine whether this is an assignment tree of the form X = X (op) Y,
     // where Y is an arbitrary tree, and X is a lclVar.
-    unsigned optIsLclVarUpdateTree(GenTree* tree, GenTree** otherTree, genTreeOps* updateOper);
+    unsigned optIsLclVarUpdateTree(GenTree* tree, GenTree** otherTree, GenTree** update);
     unsigned optIsLoopIncrTree(GenTree* incr);
     GenTreeOp* optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock* from, BasicBlock* to, unsigned iterVar);
     bool optComputeIterInfo(GenTree* incr, BasicBlock* from, BasicBlock* to, unsigned* pIterVar);
