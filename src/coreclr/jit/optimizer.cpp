@@ -733,6 +733,11 @@ unsigned Compiler::optIsLoopIncrTree(GenTree* incr)
     GenTree* dst = incr->AsOp()->GetOp(0);
     GenTree* src = incr->AsOp()->GetOp(1);
 
+    // TODO-MIKE-Cleanup: It might be good to check if the dst and src LCL_VARs have type INT.
+    // Normally morph inserts "normalization" casts for small int typed locals but such casts
+    // aren't actually necessary if the local is AX/DNER. And while we can't do anything with
+    // an AX local, DNER may be a possibility.
+
     if (!dst->OperIs(GT_LCL_VAR) || !src->OperIs(GT_ADD, GT_SUB) || !src->TypeIs(TYP_INT))
     {
         return BAD_VAR_NUM;
@@ -2947,7 +2952,7 @@ bool Compiler::optComputeLoopRep(int        constInit,
                                  bool       dupCond,
                                  unsigned*  iterCount)
 {
-    noway_assert(genActualType(iterOperType) == TYP_INT);
+    noway_assert(iterOperType == TYP_INT);
 
     int64_t constInitX;
     int64_t constLimitX;
@@ -3373,14 +3378,13 @@ PhaseStatus Compiler::phUnrollLoops()
         noway_assert(head);
         BasicBlock* const bottom = optLoopTable[lnum].lpBottom;
         noway_assert(bottom);
-        const int        lbeg         = optLoopTable[lnum].lpConstInit;
-        const int        llim         = optLoopTable[lnum].lpConstLimit();
-        const genTreeOps testOper     = optLoopTable[lnum].lpTestOper();
-        const unsigned   lvar         = optLoopTable[lnum].lpIterVar();
-        const int        iterInc      = optLoopTable[lnum].lpIterConst();
-        const genTreeOps iterOper     = optLoopTable[lnum].lpIterOper();
-        const var_types  iterOperType = optLoopTable[lnum].lpIterOperType();
-        const bool       unsTest      = optLoopTable[lnum].lpTestTree->IsUnsigned();
+        const int        lbeg     = optLoopTable[lnum].lpConstInit;
+        const int        llim     = optLoopTable[lnum].lpConstLimit();
+        const genTreeOps testOper = optLoopTable[lnum].lpTestOper();
+        const unsigned   lvar     = optLoopTable[lnum].lpIterVar();
+        const int        iterInc  = optLoopTable[lnum].lpIterConst();
+        const genTreeOps iterOper = optLoopTable[lnum].lpIterOper();
+        const bool       unsTest  = optLoopTable[lnum].lpTestTree->IsUnsigned();
 
         if (lvaGetDesc(lvar)->IsAddressExposed())
         {
@@ -3420,7 +3424,7 @@ PhaseStatus Compiler::phUnrollLoops()
 
         unsigned totalIter; // total number of iterations in the constant loop
 
-        if (!optComputeLoopRep(lbeg, llim, iterInc, iterOper, iterOperType, testOper, unsTest, dupCond, &totalIter))
+        if (!optComputeLoopRep(lbeg, llim, iterInc, iterOper, TYP_INT, testOper, unsTest, dupCond, &totalIter))
         {
             continue;
         }

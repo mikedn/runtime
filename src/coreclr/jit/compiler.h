@@ -5060,7 +5060,6 @@ public:
         genTreeOps lpIterOper() const;  // the type of the operation on the iterator (ASG_ADD, ASG_SUB, etc.)
         void       VERIFY_lpIterTree() const;
 
-        var_types  lpIterOperType() const; // For overflow instructions
         genTreeOps lpTestOper() const; // the type of the comparison between the iterator and the limit (GT_LE, GT_GE,
                                        // etc.)
         void VERIFY_lpTestTree() const;

@@ -1798,15 +1798,6 @@ inline genTreeOps Compiler::LoopDsc::lpIterOper() const
     return lpIterTree->GetOp(1)->GetOper();
 }
 
-inline var_types Compiler::LoopDsc::lpIterOperType() const
-{
-    VERIFY_lpIterTree();
-
-    var_types type = lpIterTree->GetType();
-    assert(varActualType(type) == TYP_INT);
-    return (lpIterTree->IsUnsigned() && (type == TYP_INT)) ? TYP_UINT : type;
-}
-
 inline void Compiler::LoopDsc::VERIFY_lpTestTree() const
 {
 #ifdef DEBUG
