@@ -5196,15 +5196,11 @@ protected:
     void optUpdateLoopsBeforeRemoveBlock(BasicBlock* block, bool skipUnmarkLoop = false);
 
     bool optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTestStmt);
-    // Determine whether this is an assignment tree of the form X = X (op) Y,
-    // where Y is an arbitrary tree, and X is a lclVar.
-    unsigned optIsLclVarUpdateTree(GenTree* tree, GenTree** otherTree, GenTree** update);
     unsigned optIsLoopIncrTree(GenTree* incr);
     GenTreeOp* optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock* from, BasicBlock* to, unsigned iterVar);
-    bool optComputeIterInfo(GenTree* incr, BasicBlock* from, BasicBlock* to, unsigned* pIterVar);
     bool optPopulateInitInfo(unsigned loopInd, GenTree* init, unsigned iterVar);
-    bool optExtractInitTestIncr(
-        BasicBlock* head, BasicBlock* bottom, BasicBlock* exit, GenTree** ppInit, GenTree** ppTest, GenTreeOp** ppIncr);
+    GenTreeOp* optExtractInitTestIncr(
+        BasicBlock* head, BasicBlock* bottom, BasicBlock* exit, GenTree** init, GenTree** test);
 
     void optFindNaturalLoops();
 

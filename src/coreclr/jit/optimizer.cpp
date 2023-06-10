@@ -723,114 +723,35 @@ GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock*
     return relop;
 }
 
-//------------------------------------------------------------------------
-// IsLclVarUpdateTree: Determine whether this is an assignment tree of the
-//                     form Vn = Vn 'oper' 'otherTree' where Vn is a lclVar
-//
-// Arguments:
-//    pOtherTree - An "out" argument in which 'otherTree' will be returned.
-//    pOper      - An "out" argument in which 'oper' will be returned.
-//
-// Return Value:
-//    If the tree is of the above form, the lclNum of the variable being
-//    updated is returned, and 'pOtherTree' and 'pOper' are set.
-//    Otherwise, returns BAD_VAR_NUM.
-//
-// Notes:
-//    'otherTree' can have any shape.
-//     We avoid worrying about whether the op is commutative by only considering the
-//     first operand of the rhs. It is expected that most trees of this form will
-//     already have the lclVar on the lhs.
-//     TODO-CQ: Evaluate whether there are missed opportunities due to this, or
-//     whether gtSetEvalOrder will already have put the lclVar on the lhs in
-//     the cases of interest.
-
-unsigned Compiler::optIsLclVarUpdateTree(GenTree* tree, GenTree** pOtherTree, GenTree** update)
-{
-    unsigned lclNum = BAD_VAR_NUM;
-    if (tree->OperIs(GT_ASG))
-    {
-        GenTree* lhs = tree->AsOp()->gtOp1;
-        GenTree* rhs = tree->AsOp()->gtOp2;
-        if (lhs->OperIs(GT_LCL_VAR) && rhs->OperIsBinary())
-        {
-            unsigned lhsLclNum = lhs->AsLclVar()->GetLclNum();
-            GenTree* rhsOp1    = rhs->AsOp()->gtOp1;
-            GenTree* rhsOp2    = rhs->AsOp()->gtOp2;
-
-            // Some operators, such as HWINTRINSIC, are currently declared as binary but
-            // may not have two operands. We must check that both operands actually exist.
-            if ((rhsOp1 != nullptr) && (rhsOp2 != nullptr) && rhsOp1->OperIs(GT_LCL_VAR) &&
-                (rhsOp1->AsLclVar()->GetLclNum() == lhsLclNum))
-            {
-                lclNum      = lhsLclNum;
-                *pOtherTree = rhsOp2;
-                *update     = rhs;
-            }
-        }
-    }
-    return lclNum;
-}
-
-//----------------------------------------------------------------------------------
-// optIsLoopIncrTree: Check if loop is a tree of form v += 1 or v = v + 1
-//
-// Arguments:
-//      incr        The incr tree to be checked. Whether incr tree is
-//                  oper-equal(+=, -=...) type nodes or v=v+1 type ASG nodes.
-//
-//  Operation:
-//      The test tree is parsed to check if "iterVar" matches the lhs of the condition
-//      and the rhs limit is extracted from the "test" tree. The limit information is
-//      added to the loop table.
-//
-//  Return Value:
-//      iterVar local num if the iterVar is found, otherwise BAD_VAR_NUM.
-//
 unsigned Compiler::optIsLoopIncrTree(GenTree* incr)
 {
-    GenTree* incrVal;
-    GenTree* update;
-    unsigned iterVar = optIsLclVarUpdateTree(incr, &incrVal, &update);
-
-    return (iterVar != BAD_VAR_NUM) && update->OperIs(GT_ADD, GT_SUB) && incrVal->OperIs(GT_CNS_INT) &&
-                   incrVal->TypeIs(TYP_INT)
-               ? iterVar
-               : BAD_VAR_NUM;
-}
-
-//----------------------------------------------------------------------------------
-// optComputeIterInfo: Check tree is loop increment of a lcl that is loop-invariant.
-//
-// Arguments:
-//      from, to    - are blocks (beg, end) which are part of the loop.
-//      incr        - tree that increments the loop iterator. v+=1 or v=v+1.
-//      pIterVar    - see return value.
-//
-//  Return Value:
-//      Returns true if iterVar "v" can be returned in "pIterVar", otherwise returns
-//      false.
-//
-//  Operation:
-//      Check if the "incr" tree is a "v=v+1 or v+=1" type tree and make sure it is not
-//      assigned in the loop.
-//
-bool Compiler::optComputeIterInfo(GenTree* incr, BasicBlock* from, BasicBlock* to, unsigned* pIterVar)
-{
-
-    unsigned iterVar = optIsLoopIncrTree(incr);
-    if (iterVar == BAD_VAR_NUM)
+    if (!incr->OperIs(GT_ASG) || !incr->TypeIs(TYP_INT))
     {
-        return false;
-    }
-    if (optIsVarAssigned(from, to, incr, iterVar))
-    {
-        JITDUMP("iterVar is assigned in loop\n");
-        return false;
+        return BAD_VAR_NUM;
     }
 
-    *pIterVar = iterVar;
-    return true;
+    GenTree* dst = incr->AsOp()->GetOp(0);
+    GenTree* src = incr->AsOp()->GetOp(1);
+
+    if (!dst->OperIs(GT_LCL_VAR) || !src->OperIs(GT_ADD, GT_SUB) || !src->TypeIs(TYP_INT))
+    {
+        return BAD_VAR_NUM;
+    }
+
+    GenTree* step = src->AsOp()->GetOp(1);
+    src           = src->AsOp()->GetOp(0);
+
+    if (!src->OperIs(GT_LCL_VAR) || (src->AsLclVar()->GetLclNum() != dst->AsLclVar()->GetLclNum()))
+    {
+        return BAD_VAR_NUM;
+    }
+
+    if (!step->OperIs(GT_CNS_INT))
+    {
+        return BAD_VAR_NUM;
+    }
+
+    return dst->AsLclVar()->GetLclNum();
 }
 
 //----------------------------------------------------------------------------------
@@ -936,12 +857,11 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
 //      This method just retrieves what it thinks is the "test" node,
 //      the callers are expected to verify that "iterVar" is used in the test.
 //
-bool Compiler::optExtractInitTestIncr(
-    BasicBlock* head, BasicBlock* bottom, BasicBlock* top, GenTree** ppInit, GenTree** ppTest, GenTreeOp** ppIncr)
+GenTreeOp* Compiler::optExtractInitTestIncr(
+    BasicBlock* head, BasicBlock* bottom, BasicBlock* top, GenTree** ppInit, GenTree** ppTest)
 {
     assert(ppInit != nullptr);
     assert(ppTest != nullptr);
-    assert(ppIncr != nullptr);
 
     // Check if last two statements in the loop body are the increment of the iterator
     // and the loop termination test.
@@ -962,18 +882,14 @@ bool Compiler::optExtractInitTestIncr(
     {
         if (top == nullptr || top->bbStmtList == nullptr || top->bbStmtList->GetPrevStmt() == nullptr)
         {
-            return false;
+            return nullptr;
         }
 
         // If the prev stmt to loop test is not incr, then check if we have loop test evaluated into a tmp.
-        Statement* toplastStmt = top->lastStmt();
-        if (optIsLoopIncrTree(toplastStmt->GetRootNode()) != BAD_VAR_NUM)
+        incrStmt = top->lastStmt();
+        if (optIsLoopIncrTree(incrStmt->GetRootNode()) == BAD_VAR_NUM)
         {
-            incrStmt = toplastStmt;
-        }
-        else
-        {
-            return false;
+            return nullptr;
         }
     }
 
@@ -984,7 +900,7 @@ bool Compiler::optExtractInitTestIncr(
     Statement* phdrStmt = head->firstStmt();
     if (phdrStmt == nullptr)
     {
-        return false;
+        return nullptr;
     }
 
     Statement* initStmt = phdrStmt->GetPrevStmt();
@@ -1016,9 +932,7 @@ bool Compiler::optExtractInitTestIncr(
 
     *ppInit = initStmt->GetRootNode();
     *ppTest = testStmt->GetRootNode();
-    *ppIncr = incrStmt->GetRootNode()->AsOp();
-
-    return true;
+    return incrStmt->GetRootNode()->AsOp();
 }
 
 /*****************************************************************************
@@ -1134,17 +1048,20 @@ bool Compiler::optRecordLoop(BasicBlock* head,
     {
         GenTree*   init;
         GenTree*   test;
-        GenTreeOp* incr;
-        if (!optExtractInitTestIncr(head, bottom, top, &init, &test, &incr))
+        GenTreeOp* incr = optExtractInitTestIncr(head, bottom, top, &init, &test);
+
+        if (incr == nullptr)
         {
             goto DONE_LOOP;
         }
 
+        unsigned iterVar = incr->AsOp()->GetOp(0)->AsLclVar()->GetLclNum();
+        assert(optIsLoopIncrTree(incr) == iterVar);
         assert(incr->GetOp(1)->OperIs(GT_ADD, GT_SUB));
 
-        unsigned iterVar = BAD_VAR_NUM;
-        if (!optComputeIterInfo(incr, head->bbNext, bottom, &iterVar))
+        if (optIsVarAssigned(head->bbNext, bottom, incr, iterVar))
         {
+            JITDUMP("iterVar is assigned in loop\n");
             goto DONE_LOOP;
         }
 
