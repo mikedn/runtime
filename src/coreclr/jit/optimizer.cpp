@@ -698,9 +698,6 @@ GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock*
         return nullptr;
     }
 
-    // Mark the iterator node.
-    iterOp->gtFlags |= GTF_VAR_ITERATOR;
-
     // Check what type of limit we have - constant, variable or arr-len.
     if (limitOp->OperIs(GT_CNS_INT))
     {
@@ -714,7 +711,7 @@ GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock*
     {
         optLoopTable[loopInd].lpFlags |= LPFLG_VAR_LIMIT;
     }
-    else if (limitOp->gtOper == GT_ARR_LENGTH)
+    else if (limitOp->OperIs(GT_ARR_LENGTH))
     {
         optLoopTable[loopInd].lpFlags |= LPFLG_ARRLEN_LIMIT;
     }

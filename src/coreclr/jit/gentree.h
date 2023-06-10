@@ -385,7 +385,6 @@ enum GenTreeFlags : unsigned
     GTF_VAR_MULTIREG          = 0x02000000, // Struct or (on 32-bit platforms) LONG local store with a multireg source
                                             // (CALLs and some LONG operations on 32 bit - MUL_LONG, BITCAST)
                                             // returns its result in multiple registers such as a long multiply)
-    GTF_VAR_ITERATOR          = 0x00800000, // Loop induction local variable used in loop test (LCL_VAR)
     GTF_VAR_CLONED            = 0x00400000, // Node has been cloned (used by inlined to detect single use params)
     GTF_VAR_CONTEXT           = 0x00200000, // Node is part of a runtime lookup tree (LCL_VAR)
                               

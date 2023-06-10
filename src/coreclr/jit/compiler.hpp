@@ -1815,13 +1815,14 @@ inline void Compiler::LoopDsc::VERIFY_lpTestTree() const
     GenTree* iterator = lpTestTree->GetOp(0);
     GenTree* limit    = lpTestTree->GetOp(1);
 
-    if (limit->OperIs(GT_LCL_VAR) && ((limit->gtFlags & GTF_VAR_ITERATOR) != 0))
+    if (limit->OperIs(GT_LCL_VAR) && (limit->AsLclVar()->GetLclNum() == lpIterTree->GetOp(0)->AsLclVar()->GetLclNum()))
     {
         std::swap(iterator, limit);
     }
     else
     {
-        assert(iterator->OperIs(GT_LCL_VAR) && ((iterator->gtFlags & GTF_VAR_ITERATOR) != 0));
+        assert(iterator->OperIs(GT_LCL_VAR) &&
+               (iterator->AsLclVar()->GetLclNum() == lpIterTree->GetOp(0)->AsLclVar()->GetLclNum()));
     }
 
     if (lpFlags & LPFLG_CONST_LIMIT)
@@ -1843,7 +1844,8 @@ inline bool Compiler::LoopDsc::lpIsReversed() const
 {
     VERIFY_lpTestTree();
 
-    return (lpTestTree->GetOp(1)->OperIs(GT_LCL_VAR) && (lpTestTree->GetOp(1)->gtFlags & GTF_VAR_ITERATOR) != 0);
+    return lpTestTree->GetOp(1)->OperIs(GT_LCL_VAR) &&
+           (lpTestTree->GetOp(1)->AsLclVar()->GetLclNum() == lpIterTree->GetOp(0)->AsLclVar()->GetLclNum());
 }
 
 inline genTreeOps Compiler::LoopDsc::lpTestOper() const
