@@ -110,6 +110,8 @@ void PhaseBase::PostPhase(PhaseStatus status)
                                           PHASE_INVERT_LOOPS,
                                           PHASE_OPTIMIZE_LAYOUT,
                                           PHASE_FIND_LOOPS,
+                                          PHASE_CLONE_LOOPS,
+                                          PHASE_UNROLL_LOOPS,
                                           PHASE_BUILD_SSA,
                                           PHASE_EARLY_PROP,
                                           PHASE_VALUE_NUMBER,

@@ -2580,9 +2580,9 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
         DoPhase(this, PHASE_OPTIMIZE_LAYOUT, &Compiler::optOptimizeLayout);
         DoPhase(this, PHASE_COMPUTE_REACHABILITY, &Compiler::fgComputeReachability);
         DoPhase(this, PHASE_COMPUTE_DOMINATORS, &Compiler::fgComputeDoms);
-        DoPhase(this, PHASE_FIND_LOOPS, &Compiler::optFindLoops);
-        DoPhase(this, PHASE_CLONE_LOOPS, &Compiler::optCloneLoops);
-        DoPhase(this, PHASE_UNROLL_LOOPS, &Compiler::optUnrollLoops);
+        DoPhase(this, PHASE_FIND_LOOPS, &Compiler::phFindLoops);
+        DoPhase(this, PHASE_CLONE_LOOPS, &Compiler::phCloneLoops);
+        DoPhase(this, PHASE_UNROLL_LOOPS, &Compiler::phUnrollLoops);
     }
 
     INDEBUG(fgDebugCheckLinks());

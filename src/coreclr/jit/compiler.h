@@ -5004,12 +5004,12 @@ public:
 public:
     PhaseStatus optInvertLoops();    // Invert loops so they're entered at top and tested at bottom.
     PhaseStatus optOptimizeLayout(); // Optimize the BasicBlock layout of the method
-    PhaseStatus optFindLoops();      // Finds loops and records them in the loop table
+    PhaseStatus phFindLoops();       // Finds loops and records them in the loop table
 
-    PhaseStatus optCloneLoops();
+    PhaseStatus phCloneLoops();
     void optCloneLoop(unsigned loopInd, LoopCloneContext* context);
     void optEnsureUniqueHead(unsigned loopInd, BasicBlock::weight_t ambientWeight);
-    PhaseStatus optUnrollLoops(); // Unrolls loops (needs to have cost info)
+    PhaseStatus phUnrollLoops(); // Unrolls loops (needs to have cost info)
 
     // A "LoopDsc" describes a ("natural") loop.  We (currently) require the body of a loop to be a contiguous (in
     // bbNext order) sequence of basic blocks.  (At times, we may require the blocks in a loop to be "properly numbered"
@@ -5479,8 +5479,6 @@ public:
     fgWalkResult optCanOptimizeByLoopCloning(GenTree* tree, LoopCloneVisitorInfo& info);
     bool optObtainLoopCloningOpts(LoopCloneContext& context);
     bool optIsLoopClonable(unsigned loopInd);
-
-    bool optLoopCloningEnabled();
 
 #ifdef DEBUG
     void optDebugLogLoopCloning(BasicBlock* block, Statement* insertBefore);

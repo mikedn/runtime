@@ -2581,63 +2581,28 @@ bool Compiler::optObtainLoopCloningOpts(LoopCloneContext& context)
     return result;
 }
 
-//----------------------------------------------------------------------------
-// optLoopCloningEnabled: Determine whether loop cloning is allowed. It is allowed
-// in release builds. For debug builds, use the value of the COMPlus_JitCloneLoops
-// flag (which defaults to 1, or allowed).
-//
-// Return Value:
-//      true if loop cloning is allowed, false if disallowed.
-//
-bool Compiler::optLoopCloningEnabled()
+PhaseStatus Compiler::phCloneLoops()
 {
-#ifdef DEBUG
-    return JitConfig.JitCloneLoops() != 0;
-#else
-    return true;
-#endif
-}
-
-//------------------------------------------------------------------------
-// optCloneLoops: Implements loop cloning optimization.
-//
-// Identify loop cloning opportunities, derive loop cloning conditions,
-// perform loop cloning, use the derived conditions to choose which
-// path to take.
-//
-// Returns:
-//   suitable phase status
-//
-PhaseStatus Compiler::optCloneLoops()
-{
-    JITDUMP("\n*************** In optCloneLoops()\n");
     if (optLoopCount == 0)
     {
         JITDUMP("  No loops to clone\n");
         return PhaseStatus::MODIFIED_NOTHING;
     }
-    if (!optLoopCloningEnabled())
+
+#ifdef DEBUG
+    if (JitConfig.JitCloneLoops() == 0)
     {
         JITDUMP("  Loop cloning disabled\n");
         return PhaseStatus::MODIFIED_NOTHING;
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nBefore loop cloning:\n");
-        fgDispBasicBlocks(/*dumpTrees*/ true);
     }
 #endif
 
     LoopCloneContext context(optLoopCount, getAllocator(CMK_LoopClone));
 
-    // Obtain array optimization candidates in the context.
     if (!optObtainLoopCloningOpts(context))
     {
         JITDUMP("  No clonable loops\n");
-        // TODO: if we can verify that the IR was not modified, we can return PhaseStatus::MODIFIED_NOTHING
-        return PhaseStatus::MODIFIED_EVERYTHING;
+        return PhaseStatus::MODIFIED_NOTHING;
     }
 
     unsigned optStaticallyOptimizedLoops = 0;
@@ -2679,34 +2644,8 @@ PhaseStatus Compiler::optCloneLoops()
         }
     }
 
-#if 0
-    // The code in this #if has been useful in debugging loop cloning issues, by
-    // enabling selective enablement of the loop cloning optimization according to
-    // method hash.
-#ifdef DEBUG
-    unsigned methHash = info.compMethodHash();
-    char* lostr = getenv("loopclonehashlo");
-    unsigned methHashLo = 0;
-    if (lostr != NULL)
-    {
-        sscanf_s(lostr, "%x", &methHashLo);
-        // methHashLo = (unsigned(atoi(lostr)) << 2);  // So we don't have to use negative numbers.
-    }
-    char* histr = getenv("loopclonehashhi");
-    unsigned methHashHi = UINT32_MAX;
-    if (histr != NULL)
-    {
-        sscanf_s(histr, "%x", &methHashHi);
-        // methHashHi = (unsigned(atoi(histr)) << 2);  // So we don't have to use negative numbers.
-    }
-    if (methHash < methHashLo || methHash > methHashHi)
-    {
-        return PhaseStatus::MODIFIED_EVERYTHING;
-    }
-#endif
-#endif
-
     assert(optLoopsCloned == 0); // It should be initialized, but not yet changed.
+
     for (unsigned i = 0; i < optLoopCount; ++i)
     {
         if (context.GetLoopOptInfo(i) != nullptr)
@@ -2730,12 +2669,11 @@ PhaseStatus Compiler::optCloneLoops()
     {
         printf("Loops cloned: %d\n", optLoopsCloned);
         printf("Loops statically optimized: %d\n", optStaticallyOptimizedLoops);
-        printf("After loop cloning:\n");
-        fgDispBasicBlocks(/*dumpTrees*/ true);
     }
 
     fgDebugCheckLoopTable();
 #endif
 
-    return PhaseStatus::MODIFIED_EVERYTHING;
+    return (optStaticallyOptimizedLoops + optLoopsCloned) != 0 ? PhaseStatus::MODIFIED_EVERYTHING
+                                                               : PhaseStatus::MODIFIED_NOTHING;
 }

@@ -3049,8 +3049,8 @@ bool Compiler::optComputeLoopRep(int        constInit,
 {
     noway_assert(genActualType(iterOperType) == TYP_INT);
 
-    __int64 constInitX;
-    __int64 constLimitX;
+    int64_t constInitX;
+    int64_t constLimitX;
 
     unsigned loopCount;
     int      iterSign;
@@ -3058,21 +3058,19 @@ bool Compiler::optComputeLoopRep(int        constInit,
     // Using this, we can just do a signed comparison with other 32 bit values.
     if (unsTest)
     {
-        constLimitX = (unsigned int)constLimit;
+        constLimitX = static_cast<unsigned>(constLimit);
     }
     else
     {
-        constLimitX = (signed int)constLimit;
+        constLimitX = constLimit;
     }
-
-    switch (iterOperType)
-    {
-// For small types, the iteration operator will narrow these values if big
 
 #define INIT_ITER_BY_TYPE(type)                                                                                        \
     constInitX = (type)constInit;                                                                                      \
     iterInc    = (type)iterInc;
 
+    switch (iterOperType)
+    {
         case TYP_BYTE:
             INIT_ITER_BY_TYPE(signed char);
             break;
@@ -3086,23 +3084,20 @@ bool Compiler::optComputeLoopRep(int        constInit,
             INIT_ITER_BY_TYPE(unsigned short);
             break;
 
-        // For the big types, 32 bit arithmetic is performed
-
         case TYP_INT:
         case TYP_UINT:
             if (unsTest)
             {
-                constInitX = (unsigned int)constInit;
+                constInitX = static_cast<unsigned>(constInit);
             }
             else
             {
-                constInitX = (signed int)constInit;
+                constInitX = constInit;
             }
             break;
 
         default:
-            noway_assert(!"Bad type");
-            NO_WAY("Bad type");
+            unreached();
     }
 
     // If iterInc is zero we have an infinite loop.
@@ -3141,11 +3136,9 @@ bool Compiler::optComputeLoopRep(int        constInit,
         return false;
     }
 
-    // Compute the number of repetitions.
-
     switch (testOper)
     {
-        __int64 iterAtExitX;
+        int64_t iterAtExitX;
 
         case GT_EQ:
             // Something like "for (i=init; i == lim; i++)" doesn't make any sense.
@@ -3224,8 +3217,7 @@ bool Compiler::optComputeLoopRep(int        constInit,
                     return false;
 
                 default:
-                    noway_assert(!"Unknown operator for loop iterator");
-                    return false;
+                    unreached();
             }
 
         case GT_LT:
@@ -3271,8 +3263,7 @@ bool Compiler::optComputeLoopRep(int        constInit,
                     return false;
 
                 default:
-                    noway_assert(!"Unknown operator for loop iterator");
-                    return false;
+                    unreached();
             }
 
         case GT_LE:
@@ -3318,8 +3309,7 @@ bool Compiler::optComputeLoopRep(int        constInit,
                     return false;
 
                 default:
-                    noway_assert(!"Unknown operator for loop iterator");
-                    return false;
+                    unreached();
             }
 
         case GT_GT:
@@ -3365,8 +3355,7 @@ bool Compiler::optComputeLoopRep(int        constInit,
                     return false;
 
                 default:
-                    noway_assert(!"Unknown operator for loop iterator");
-                    return false;
+                    unreached();
             }
 
         case GT_GE:
@@ -3412,15 +3401,12 @@ bool Compiler::optComputeLoopRep(int        constInit,
                     return false;
 
                 default:
-                    noway_assert(!"Unknown operator for loop iterator");
-                    return false;
+                    unreached();
             }
 
         default:
-            noway_assert(!"Unknown operator for loop condition");
+            unreached();
     }
-
-    return false;
 }
 
 #ifdef _PREFAST_
@@ -3428,8 +3414,7 @@ bool Compiler::optComputeLoopRep(int        constInit,
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
 
-//-----------------------------------------------------------------------------
-// optUnrollLoops: Look for loop unrolling candidates and unroll them.
+// Look for loop unrolling candidates and unroll them.
 //
 // Loops must be of the form:
 //   for (i=icon; i<icon; i++) { ... }
@@ -3451,7 +3436,7 @@ bool Compiler::optComputeLoopRep(int        constInit,
 // Returns:
 //   suitable phase status
 //
-PhaseStatus Compiler::optUnrollLoops()
+PhaseStatus Compiler::phUnrollLoops()
 {
     if (compCodeOpt() == SMALL_CODE)
     {
@@ -3470,26 +3455,21 @@ PhaseStatus Compiler::optUnrollLoops()
     }
 #endif
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In optUnrollLoops()\n");
-    }
-#endif
-
-    /* Look for loop unrolling candidates */
-
-    bool change = false;
-
-    static const unsigned ITER_LIMIT[COUNT_OPT_CODE + 1] = {
+    static const unsigned ITER_LIMIT[COUNT_OPT_CODE]{
         10, // BLENDED_CODE
         0,  // SMALL_CODE
-        20, // FAST_CODE
-        0   // COUNT_OPT_CODE
+        20  // FAST_CODE
     };
 
-    assert(ITER_LIMIT[SMALL_CODE] == 0);
-    assert(ITER_LIMIT[COUNT_OPT_CODE] == 0);
+    assert(ITER_LIMIT[BLENDED_CODE] == 10);
+
+    static const int UNROLL_LIMIT_SZ[COUNT_OPT_CODE]{
+        300, // BLENDED_CODE
+        0,   // SMALL_CODE
+        600  // FAST_CODE
+    };
+
+    assert(UNROLL_LIMIT_SZ[BLENDED_CODE] == 300);
 
     unsigned iterLimit = ITER_LIMIT[compCodeOpt()];
 
@@ -3500,37 +3480,11 @@ PhaseStatus Compiler::optUnrollLoops()
     }
 #endif
 
-    static const int UNROLL_LIMIT_SZ[COUNT_OPT_CODE + 1] = {
-        300, // BLENDED_CODE
-        0,   // SMALL_CODE
-        600, // FAST_CODE
-        0    // COUNT_OPT_CODE
-    };
-
-    assert(UNROLL_LIMIT_SZ[SMALL_CODE] == 0);
-    assert(UNROLL_LIMIT_SZ[COUNT_OPT_CODE] == 0);
+    bool change = false;
 
     // Visit loops from highest to lowest number to visit them in innermost to outermost order.
     for (unsigned lnum = optLoopCount - 1; lnum != UINT_MAX; --lnum)
     {
-        BasicBlock* block;
-        BasicBlock* head;
-        BasicBlock* bottom;
-
-        bool       dupCond;
-        int        lval;
-        int        lbeg;         // initial value for iterator
-        int        llim;         // limit value for iterator
-        unsigned   lvar;         // iterator lclVar #
-        int        iterInc;      // value to increment the iterator
-        genTreeOps iterOper;     // type of iterator increment (i.e. ADD, SUB, etc.)
-        var_types  iterOperType; // type result of the oper (for overflow instrs)
-        genTreeOps testOper;     // type of loop test (i.e. GT_LE, GT_GE, etc.)
-        bool       unsTest;      // Is the comparison unsigned?
-
-        unsigned loopRetCount; // number of BBJ_RETURN blocks in loop
-        unsigned totalIter;    // total number of iterations in the constant loop
-
         const unsigned loopFlags = optLoopTable[lnum].lpFlags;
 
         // Check for required flags:
@@ -3545,45 +3499,31 @@ PhaseStatus Compiler::optUnrollLoops()
             continue;
         }
 
-        // Ignore if removed or marked as not unrollable.
-
-        if (loopFlags & (LPFLG_DONT_UNROLL | LPFLG_REMOVED))
+        if ((loopFlags & (LPFLG_DONT_UNROLL | LPFLG_REMOVED)) != 0)
         {
             continue;
         }
 
-        head = optLoopTable[lnum].lpHead;
+        BasicBlock* const head = optLoopTable[lnum].lpHead;
         noway_assert(head);
-        bottom = optLoopTable[lnum].lpBottom;
+        BasicBlock* const bottom = optLoopTable[lnum].lpBottom;
         noway_assert(bottom);
+        const int        lbeg         = optLoopTable[lnum].lpConstInit;
+        const int        llim         = optLoopTable[lnum].lpConstLimit();
+        const genTreeOps testOper     = optLoopTable[lnum].lpTestOper();
+        const unsigned   lvar         = optLoopTable[lnum].lpIterVar();
+        const int        iterInc      = optLoopTable[lnum].lpIterConst();
+        const genTreeOps iterOper     = optLoopTable[lnum].lpIterOper();
+        const var_types  iterOperType = optLoopTable[lnum].lpIterOperType();
+        const bool       unsTest      = optLoopTable[lnum].lpTestTree->IsUnsigned();
 
-        // Get the loop data:
-        //  - initial constant
-        //  - limit constant
-        //  - iterator
-        //  - iterator increment
-        //  - increment operation type (i.e. ADD, SUB, etc...)
-        //  - loop test type (i.e. GT_GE, GT_LT, etc...)
-
-        lbeg     = optLoopTable[lnum].lpConstInit;
-        llim     = optLoopTable[lnum].lpConstLimit();
-        testOper = optLoopTable[lnum].lpTestOper();
-
-        lvar     = optLoopTable[lnum].lpIterVar();
-        iterInc  = optLoopTable[lnum].lpIterConst();
-        iterOper = optLoopTable[lnum].lpIterOper();
-
-        iterOperType = optLoopTable[lnum].lpIterOperType();
-        unsTest      = (optLoopTable[lnum].lpTestTree->gtFlags & GTF_UNSIGNED) != 0;
-
-        if (lvaTable[lvar].lvAddrExposed)
+        if (lvaGetDesc(lvar)->IsAddressExposed())
         {
-            // If the loop iteration variable is address-exposed then bail
             continue;
         }
-        if (lvaTable[lvar].lvIsStructField)
+
+        if (lvaGetDesc(lvar)->IsPromotedField())
         {
-            // If the loop iteration variable is a promoted field from a struct then bail
             continue;
         }
 
@@ -3596,6 +3536,8 @@ PhaseStatus Compiler::optUnrollLoops()
 
         Statement* incrStmt = testStmt->GetPrevStmt();
         noway_assert(incrStmt != nullptr);
+
+        bool dupCond;
 
         if (initStmt->IsCompilerAdded())
         {
@@ -3611,7 +3553,7 @@ PhaseStatus Compiler::optUnrollLoops()
             dupCond = false;
         }
 
-        // Find the number of iterations - the function returns false if not a constant number.
+        unsigned totalIter; // total number of iterations in the constant loop
 
         if (!optComputeLoopRep(lbeg, llim, iterInc, iterOper, iterOperType, testOper, unsTest, dupCond, &totalIter))
         {
@@ -3638,7 +3580,7 @@ PhaseStatus Compiler::optUnrollLoops()
             // No limit for single iteration loops
             unrollLimitSz = INT_MAX;
         }
-        else if (!(loopFlags & LPFLG_SIMD_LIMIT))
+        else if ((loopFlags & LPFLG_SIMD_LIMIT) == 0)
         {
             // Otherwise unroll only if limit is Vector_.Length
             // (as a heuristic, not for correctness/structural reasons)
@@ -3679,19 +3621,22 @@ PhaseStatus Compiler::optUnrollLoops()
 
         // Heuristic: Estimated cost in code size of the unrolled loop.
 
+        unsigned loopRetCount = 0; // number of BBJ_RETURN blocks in loop
+
         {
             ClrSafeInt<unsigned> loopCostSz; // Cost is size of one iteration
 
-            block         = head->bbNext;
-            auto tryIndex = block->bbTryIndex;
+            BasicBlock* block    = head->bbNext;
+            uint16_t    tryIndex = block->bbTryIndex;
+            bool        hasEH    = false;
 
-            loopRetCount = 0;
             for (;; block = block->bbNext)
             {
                 if (block->bbTryIndex != tryIndex)
                 {
                     // Unrolling would require cloning EH regions
-                    goto DONE_LOOP;
+                    hasEH = true;
+                    break;
                 }
 
                 if (block->bbJumpKind == BBJ_RETURN)
@@ -3711,11 +3656,16 @@ PhaseStatus Compiler::optUnrollLoops()
                 }
             }
 
+            if (hasEH)
+            {
+                continue;
+            }
+
 #ifdef JIT32_GCENCODER
             if (fgReturnCount + loopRetCount * (totalIter - 1) > SET_EPILOGCNT_MAX)
             {
                 // Jit32 GC encoder can't report more than SET_EPILOGCNT_MAX epilogs.
-                goto DONE_LOOP;
+                continue;
             }
 #endif // !JIT32_GCENCODER
 
@@ -3730,11 +3680,8 @@ PhaseStatus Compiler::optUnrollLoops()
 
             if (unrollCostSz.IsOverflow() || (unrollCostSz.Value() > unrollLimitSz))
             {
-                goto DONE_LOOP;
+                continue;
             }
-
-            // Looks like a good idea to unroll this loop, let's do it!
-            CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
             if (verbose)
@@ -3750,7 +3697,7 @@ PhaseStatus Compiler::optUnrollLoops()
         }
 
 #if FEATURE_LOOP_ALIGN
-        for (block = head->bbNext;; block = block->bbNext)
+        for (BasicBlock* block = head->bbNext;; block = block->bbNext)
         {
             if (block->isLoopAlign())
             {
@@ -3767,12 +3714,12 @@ PhaseStatus Compiler::optUnrollLoops()
 
         // Create the unrolled loop statement list.
         {
-            BlockToBlockMap blockMap(getAllocator(CMK_LoopOpt));
+            BlockToBlockMap blockMap(getAllocator(CMK_LoopUnroll));
             BasicBlock*     insertAfter = bottom;
 
-            for (lval = lbeg; totalIter; totalIter--)
+            for (int lval = lbeg; totalIter; totalIter--)
             {
-                for (block = head->bbNext;; block = block->bbNext)
+                for (BasicBlock* block = head->bbNext;; block = block->bbNext)
                 {
                     BasicBlock* newBlock = insertAfter =
                         fgNewBBafter(block->bbJumpKind, insertAfter, /*extendRegion*/ true);
@@ -3823,7 +3770,7 @@ PhaseStatus Compiler::optUnrollLoops()
                 }
 
                 // Now redirect any branches within the newly-cloned iteration
-                for (block = head->bbNext; block != bottom; block = block->bbNext)
+                for (BasicBlock* block = head->bbNext; block != bottom; block = block->bbNext)
                 {
                     BasicBlock* newBlock = blockMap[block];
                     optCopyBlkDest(block, newBlock);
@@ -3853,8 +3800,8 @@ PhaseStatus Compiler::optUnrollLoops()
                 }
             }
 
-            // Gut the old loop body
-            for (block = head->bbNext;; block = block->bbNext)
+            // Remove the old loop body
+            for (BasicBlock* block = head->bbNext;; block = block->bbNext)
             {
                 block->bbStmtList = nullptr;
                 block->bbJumpKind = BBJ_NONE;
@@ -3930,11 +3877,9 @@ PhaseStatus Compiler::optUnrollLoops()
         fgComputeDoms();
     }
 
-#ifdef DEBUG
-    fgDebugCheckBBlist(true);
-#endif
+    INDEBUG(fgDebugCheckBBlist(true));
 
-    return PhaseStatus::MODIFIED_EVERYTHING;
+    return change ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }
 #ifdef _PREFAST_
 #pragma warning(pop)
@@ -4500,14 +4445,13 @@ PhaseStatus Compiler::optOptimizeLayout()
     return madeChanges ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }
 
-//-----------------------------------------------------------------------------
-// optFindLoops: find and classify natural loops
+// Find and classify natural loops
 //
 // Notes:
 //  Also (re)sets all non-IBC block weights, and marks loops potentially needing
 //  alignment padding.
 //
-PhaseStatus Compiler::optFindLoops()
+PhaseStatus Compiler::phFindLoops()
 {
     noway_assert(opts.OptimizationEnabled());
 
