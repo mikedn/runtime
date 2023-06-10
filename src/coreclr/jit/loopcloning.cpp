@@ -1417,9 +1417,9 @@ bool Compiler::optIsLoopClonable(unsigned loopInd)
 {
     const LoopDsc& loop = optLoopTable[loopInd];
 
-    if (!(loop.lpFlags & LPFLG_ITER))
+    if (loop.lpIterTree == nullptr)
     {
-        JITDUMP("Loop cloning: rejecting loop " FMT_LP ". No LPFLG_ITER flag.\n", loopInd);
+        JITDUMP("Loop cloning: rejecting loop " FMT_LP ". No iterator.\n", loopInd);
         return false;
     }
 

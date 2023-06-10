@@ -1086,10 +1086,8 @@ enum LoopFlags : uint16_t
 
     LPFLG_DO_WHILE = 0x0001, // it's a do-while loop (i.e ENTRY is at the TOP)
     LPFLG_ONE_EXIT = 0x0002, // the loop has only one exit
-    LPFLG_ITER     = 0x0004, // loop of form: for (i = icon or lclVar; test_condition(); i++)
     LPFLG_HAS_CALL = 0x0008,
 
-    LPFLG_CONST      = 0x0010, // loop of form: for (i=icon;i<icon;i++){ ... } - constant loop
     LPFLG_VAR_INIT   = 0x0020, // iterator is initialized with a local var (var # found in lpVarInit)
     LPFLG_CONST_INIT = 0x0040, // iterator is initialized with a constant (found in lpConstInit)
     LPFLG_SIMD_LIMIT = 0x0080, // iterator is compared with vector element count (found in lpConstLimit)
@@ -5045,7 +5043,7 @@ public:
                            // or else NoLoopNum.  One can enumerate all the children of a loop
                            // by following "lpChild" then "lpSibling" links.
 
-        /* The following values are set only for iterator loops, i.e. has the flag LPFLG_ITER set */
+        /* The following values are set only for iterator loops, i.e. has non null lpIterTree*/
 
         union {
             int lpConstInit;    // initial constant value of iterator
@@ -5054,18 +5052,15 @@ public:
                                 // : Valid if LPFLG_VAR_INIT
         };
 
-        GenTree* lpIterTree; // The "i = i <op> const" tree
-        GenTree* lpTestTree; // pointer to the node containing the loop test
+        GenTreeOp* lpIterTree; // The "i = i <op> const" tree
+        GenTreeOp* lpTestTree; // pointer to the node containing the loop test
 
         unsigned   lpIterVar() const;   // iterator variable #
         int        lpIterConst() const; // the constant with which the iterator is incremented
         genTreeOps lpIterOper() const;  // the type of the operation on the iterator (ASG_ADD, ASG_SUB, etc.)
         void       VERIFY_lpIterTree() const;
 
-        var_types lpIterOperType() const; // For overflow instructions
-
-        // The following is for LPFLG_ITER loops only (i.e. the loop condition is "i RELOP const or var"
-
+        var_types  lpIterOperType() const; // For overflow instructions
         genTreeOps lpTestOper() const; // the type of the comparison between the iterator and the limit (GT_LE, GT_GE,
                                        // etc.)
         void VERIFY_lpTestTree() const;
@@ -5205,11 +5200,11 @@ protected:
     // where Y is an arbitrary tree, and X is a lclVar.
     unsigned optIsLclVarUpdateTree(GenTree* tree, GenTree** otherTree, genTreeOps* updateOper);
     unsigned optIsLoopIncrTree(GenTree* incr);
-    bool optCheckIterInLoopTest(unsigned loopInd, GenTree* test, BasicBlock* from, BasicBlock* to, unsigned iterVar);
+    GenTreeOp* optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock* from, BasicBlock* to, unsigned iterVar);
     bool optComputeIterInfo(GenTree* incr, BasicBlock* from, BasicBlock* to, unsigned* pIterVar);
     bool optPopulateInitInfo(unsigned loopInd, GenTree* init, unsigned iterVar);
     bool optExtractInitTestIncr(
-        BasicBlock* head, BasicBlock* bottom, BasicBlock* exit, GenTree** ppInit, GenTree** ppTest, GenTree** ppIncr);
+        BasicBlock* head, BasicBlock* bottom, BasicBlock* exit, GenTree** ppInit, GenTree** ppTest, GenTreeOp** ppIncr);
 
     void optFindNaturalLoops();
 

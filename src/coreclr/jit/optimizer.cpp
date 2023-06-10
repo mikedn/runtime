@@ -653,22 +653,20 @@ bool Compiler::optPopulateInitInfo(unsigned loopInd, GenTree* init, unsigned ite
 //      added to the loop table.
 //
 //  Return Value:
-//      "false" if the loop table could not be populated with the loop test info or
-//      if the test condition doesn't involve iterVar.
+//      The loop test tree
 //
-bool Compiler::optCheckIterInLoopTest(
-    unsigned loopInd, GenTree* test, BasicBlock* from, BasicBlock* to, unsigned iterVar)
+GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock* from, BasicBlock* to, unsigned iterVar)
 {
-    // Obtain the relop from the "test" tree.
-    GenTree* relop;
-    if (test->gtOper == GT_JTRUE)
+    GenTreeOp* relop;
+
+    if (test->OperIs(GT_JTRUE))
     {
-        relop = test->gtGetOp1();
+        relop = test->AsUnOp()->GetOp(0)->AsOp();
     }
     else
     {
-        assert(test->gtOper == GT_ASG);
-        relop = test->gtGetOp2();
+        assert(test->OperIs(GT_ASG));
+        relop = test->AsOp()->GetOp(1)->AsOp();
     }
 
     noway_assert(relop->OperIsCompare());
@@ -692,12 +690,12 @@ bool Compiler::optCheckIterInLoopTest(
     }
     else
     {
-        return false;
+        return nullptr;
     }
 
     if (iterOp->gtType != TYP_INT)
     {
-        return false;
+        return nullptr;
     }
 
     // Mark the iterator node.
@@ -722,11 +720,10 @@ bool Compiler::optCheckIterInLoopTest(
     }
     else
     {
-        return false;
+        return nullptr;
     }
-    // Save the type of the comparison between the iterator and the limit.
-    optLoopTable[loopInd].lpTestTree = relop;
-    return true;
+
+    return relop;
 }
 
 //------------------------------------------------------------------------
@@ -962,7 +959,7 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
 //      the callers are expected to verify that "iterVar" is used in the test.
 //
 bool Compiler::optExtractInitTestIncr(
-    BasicBlock* head, BasicBlock* bottom, BasicBlock* top, GenTree** ppInit, GenTree** ppTest, GenTree** ppIncr)
+    BasicBlock* head, BasicBlock* bottom, BasicBlock* top, GenTree** ppInit, GenTree** ppTest, GenTreeOp** ppIncr)
 {
     assert(ppInit != nullptr);
     assert(ppTest != nullptr);
@@ -1041,7 +1038,7 @@ bool Compiler::optExtractInitTestIncr(
 
     *ppInit = initStmt->GetRootNode();
     *ppTest = testStmt->GetRootNode();
-    *ppIncr = incrStmt->GetRootNode();
+    *ppIncr = incrStmt->GetRootNode()->AsOp();
 
     return true;
 }
@@ -1117,17 +1114,19 @@ bool Compiler::optRecordLoop(BasicBlock* head,
     }
 #endif // DEBUG
 
-    optLoopTable[loopInd].lpHead    = head;
-    optLoopTable[loopInd].lpFirst   = first;
-    optLoopTable[loopInd].lpTop     = top;
-    optLoopTable[loopInd].lpBottom  = bottom;
-    optLoopTable[loopInd].lpEntry   = entry;
-    optLoopTable[loopInd].lpExit    = exit;
-    optLoopTable[loopInd].lpExitCnt = static_cast<uint8_t>(exitCnt);
-    optLoopTable[loopInd].lpParent  = BasicBlock::NOT_IN_LOOP;
-    optLoopTable[loopInd].lpChild   = BasicBlock::NOT_IN_LOOP;
-    optLoopTable[loopInd].lpSibling = BasicBlock::NOT_IN_LOOP;
-    optLoopTable[loopInd].lpFlags   = LPFLG_EMPTY;
+    optLoopTable[loopInd].lpHead     = head;
+    optLoopTable[loopInd].lpFirst    = first;
+    optLoopTable[loopInd].lpTop      = top;
+    optLoopTable[loopInd].lpBottom   = bottom;
+    optLoopTable[loopInd].lpEntry    = entry;
+    optLoopTable[loopInd].lpExit     = exit;
+    optLoopTable[loopInd].lpExitCnt  = static_cast<uint8_t>(exitCnt);
+    optLoopTable[loopInd].lpParent   = BasicBlock::NOT_IN_LOOP;
+    optLoopTable[loopInd].lpChild    = BasicBlock::NOT_IN_LOOP;
+    optLoopTable[loopInd].lpSibling  = BasicBlock::NOT_IN_LOOP;
+    optLoopTable[loopInd].lpFlags    = LPFLG_EMPTY;
+    optLoopTable[loopInd].lpIterTree = nullptr;
+    optLoopTable[loopInd].lpTestTree = nullptr;
 
     // We haven't yet recorded any side effects.
 
@@ -1155,9 +1154,9 @@ bool Compiler::optRecordLoop(BasicBlock* head,
     //
     if (bottom->bbJumpKind == BBJ_COND)
     {
-        GenTree* init;
-        GenTree* test;
-        GenTree* incr;
+        GenTree*   init;
+        GenTree*   test;
+        GenTreeOp* incr;
         if (!optExtractInitTestIncr(head, bottom, top, &init, &test, &incr))
         {
             goto DONE_LOOP;
@@ -1184,65 +1183,47 @@ bool Compiler::optRecordLoop(BasicBlock* head,
             goto DONE_LOOP;
         }
 
-        // Check that the iterator is used in the loop condition.
-        if (!optCheckIterInLoopTest(loopInd, test, head->bbNext, bottom, iterVar))
+        if (GenTreeOp* testTree = optGetLoopTest(loopInd, test, head->bbNext, bottom, iterVar))
         {
-            goto DONE_LOOP;
-        }
-
-        // We know the loop has an iterator at this point ->flag it as LPFLG_ITER
-        // Record the iterator, the pointer to the test node
-        // and the initial value of the iterator (constant or local var)
-        optLoopTable[loopInd].lpFlags |= LPFLG_ITER;
-
-        // Record iterator.
-        optLoopTable[loopInd].lpIterTree = incr;
+            optLoopTable[loopInd].lpIterTree = incr;
+            optLoopTable[loopInd].lpTestTree = testTree;
 
 #if COUNT_LOOPS
-        // Save the initial value of the iterator - can be lclVar or constant
-        // Flag the loop accordingly.
+            iterLoopCount++;
+            simpleTestLoopCount++;
 
-        iterLoopCount++;
+            if ((optLoopTable[loopInd].lpFlags & (LPFLG_CONST_INIT | LPFLG_CONST_LIMIT)) ==
+                (LPFLG_CONST_INIT | LPFLG_CONST_LIMIT))
+            {
+                constIterLoopCount++;
+            }
 #endif
-
-#if COUNT_LOOPS
-        simpleTestLoopCount++;
-#endif
-
-        // Check if a constant iteration loop.
-        if ((optLoopTable[loopInd].lpFlags & LPFLG_CONST_INIT) && (optLoopTable[loopInd].lpFlags & LPFLG_CONST_LIMIT))
-        {
-            // This is a constant loop.
-            optLoopTable[loopInd].lpFlags |= LPFLG_CONST;
-#if COUNT_LOOPS
-            constIterLoopCount++;
-#endif
-        }
 
 #ifdef DEBUG
-        if (verbose && 0)
-        {
-            printf("\nConstant loop initializer:\n");
-            gtDispTree(init);
-
-            printf("\nConstant loop body:\n");
-
-            BasicBlock* block = head;
-            do
+            if (verbose && 0)
             {
-                block = block->bbNext;
-                for (Statement* const stmt : block->Statements())
+                printf("\nConstant loop initializer:\n");
+                gtDispTree(init);
+
+                printf("\nConstant loop body:\n");
+
+                BasicBlock* block = head;
+                do
                 {
-                    if (stmt->GetRootNode() == incr)
+                    block = block->bbNext;
+                    for (Statement* const stmt : block->Statements())
                     {
-                        break;
+                        if (stmt->GetRootNode() == incr)
+                        {
+                            break;
+                        }
+                        printf("\n");
+                        gtDispTree(stmt->GetRootNode());
                     }
-                    printf("\n");
-                    gtDispTree(stmt->GetRootNode());
-                }
-            } while (block != bottom);
-        }
+                } while (block != bottom);
+            }
 #endif // DEBUG
+        }
     }
 
 DONE_LOOP:
@@ -1267,7 +1248,7 @@ void Compiler::optPrintLoopRecording(unsigned loopInd) const
                      loop.lpHead, loop.lpFirst, loop.lpTop, loop.lpEntry, loop.lpBottom, loop.lpExitCnt, loop.lpExit);
 
     // If an iterator loop print the iterator and the initialization.
-    if (loop.lpFlags & LPFLG_ITER)
+    if (loop.lpIterTree != nullptr)
     {
         printf(" [over V%02u", loop.lpIterVar());
         printf(" (");
@@ -3557,8 +3538,8 @@ PhaseStatus Compiler::optUnrollLoops()
 
         // Check for required flags:
         // LPFLG_DO_WHILE - required because this transform only handles loops of this form
-        // LPFLG_CONST    - required because this transform only handles full unrolls
-        const unsigned requiredFlags = LPFLG_DO_WHILE | LPFLG_CONST;
+        // LPFLG_CONST_INIT & LPFLG_CONST_LIMIT - required because this transform only handles full unrolls
+        const unsigned requiredFlags = LPFLG_DO_WHILE | LPFLG_CONST_INIT | LPFLG_CONST_LIMIT;
 
         // Ignore the loop if we don't have a do-while that has a constant number of iterations.
 
