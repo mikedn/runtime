@@ -1225,6 +1225,46 @@ void Compiler::optCheckPreds()
     }
 }
 
+void Compiler::LoopDsc::VerifyIterator() const
+{
+    assert((lpIterTree != nullptr) && lpIterTree->OperIs(GT_ASG));
+    assert((lpTestTree != nullptr) && lpTestTree->OperIsCompare());
+
+    GenTreeLclVar* lhs = lpIterTree->GetOp(0)->AsLclVar();
+    GenTreeOp*     rhs = lpIterTree->GetOp(1)->AsOp();
+
+    assert(lhs->OperIs(GT_LCL_VAR));
+    assert(rhs->OperIs(GT_ADD, GT_SUB));
+    assert(rhs->gtOp1->OperIs(GT_LCL_VAR));
+    assert(rhs->gtOp1->AsLclVar()->GetLclNum() == lhs->GetLclNum());
+    assert(rhs->gtOp2->OperIs(GT_CNS_INT));
+
+    GenTree* iterator = lpTestTree->GetOp(0);
+    GenTree* limit    = lpTestTree->GetOp(1);
+
+    if (limit->OperIs(GT_LCL_VAR) && (limit->AsLclVar()->GetLclNum() == lpIterTree->GetOp(0)->AsLclVar()->GetLclNum()))
+    {
+        std::swap(iterator, limit);
+    }
+    else
+    {
+        assert(iterator->OperIs(GT_LCL_VAR) &&
+               (iterator->AsLclVar()->GetLclNum() == lpIterTree->GetOp(0)->AsLclVar()->GetLclNum()));
+    }
+
+    if (lpFlags & LPFLG_CONST_LIMIT)
+    {
+        assert(limit->OperIsConst());
+    }
+    else if (lpFlags & LPFLG_VAR_LIMIT)
+    {
+        assert(limit->OperIs(GT_LCL_VAR));
+    }
+    else if (lpFlags & LPFLG_ARRLEN_LIMIT)
+    {
+        assert(limit->OperIs(GT_ARR_LENGTH));
+    }
+}
 #endif // DEBUG
 
 namespace

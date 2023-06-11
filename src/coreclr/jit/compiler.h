@@ -5055,12 +5055,10 @@ public:
         unsigned   lpIterVar() const;   // iterator variable #
         int        lpIterConst() const; // the constant with which the iterator is incremented
         genTreeOps lpIterOper() const;  // the type of the operation on the iterator (ASG_ADD, ASG_SUB, etc.)
-        void       VERIFY_lpIterTree() const;
+        INDEBUG(void VerifyIterator() const;)
 
         genTreeOps lpTestOper() const; // the type of the comparison between the iterator and the limit (GT_LE, GT_GE,
                                        // etc.)
-        void VERIFY_lpTestTree() const;
-
         bool     lpIsReversed() const; // true if the iterator node is the second operand in the loop condition
         GenTree* lpIterator() const;   // the iterator node in the loop test
         GenTree* lpLimit() const;      // the limit node in the loop test

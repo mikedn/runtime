@@ -1766,103 +1766,52 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-inline void Compiler::LoopDsc::VERIFY_lpIterTree() const
-{
-#ifdef DEBUG
-    assert((lpIterTree != nullptr) && lpIterTree->OperIs(GT_ASG));
-    const GenTreeLclVar* lhs = lpIterTree->GetOp(0)->AsLclVar();
-    const GenTreeOp*     rhs = lpIterTree->GetOp(1)->AsOp();
-    assert(lhs->OperIs(GT_LCL_VAR));
-    assert(rhs->OperIs(GT_ADD, GT_SUB));
-    assert(rhs->gtOp1->OperIs(GT_LCL_VAR));
-    assert(rhs->gtOp1->AsLclVar()->GetLclNum() == lhs->GetLclNum());
-    assert(rhs->gtOp2->OperIs(GT_CNS_INT));
-#endif
-}
-
 inline unsigned Compiler::LoopDsc::lpIterVar() const
 {
-    VERIFY_lpIterTree();
+    INDEBUG(VerifyIterator());
     return lpIterTree->GetOp(0)->AsLclVar()->GetLclNum();
 }
 
 inline int Compiler::LoopDsc::lpIterConst() const
 {
-    VERIFY_lpIterTree();
+    INDEBUG(VerifyIterator());
     return lpIterTree->GetOp(1)->AsOp()->GetOp(1)->AsIntCon()->GetInt32Value();
 }
 
 inline genTreeOps Compiler::LoopDsc::lpIterOper() const
 {
-    VERIFY_lpIterTree();
+    INDEBUG(VerifyIterator());
     return lpIterTree->GetOp(1)->GetOper();
-}
-
-inline void Compiler::LoopDsc::VERIFY_lpTestTree() const
-{
-#ifdef DEBUG
-    assert((lpTestTree != nullptr) && lpTestTree->OperIsCompare());
-
-    GenTree* iterator = lpTestTree->GetOp(0);
-    GenTree* limit    = lpTestTree->GetOp(1);
-
-    if (limit->OperIs(GT_LCL_VAR) && (limit->AsLclVar()->GetLclNum() == lpIterTree->GetOp(0)->AsLclVar()->GetLclNum()))
-    {
-        std::swap(iterator, limit);
-    }
-    else
-    {
-        assert(iterator->OperIs(GT_LCL_VAR) &&
-               (iterator->AsLclVar()->GetLclNum() == lpIterTree->GetOp(0)->AsLclVar()->GetLclNum()));
-    }
-
-    if (lpFlags & LPFLG_CONST_LIMIT)
-    {
-        assert(limit->OperIsConst());
-    }
-    else if (lpFlags & LPFLG_VAR_LIMIT)
-    {
-        assert(limit->OperIs(GT_LCL_VAR));
-    }
-    else if (lpFlags & LPFLG_ARRLEN_LIMIT)
-    {
-        assert(limit->OperIs(GT_ARR_LENGTH));
-    }
-#endif
 }
 
 inline bool Compiler::LoopDsc::lpIsReversed() const
 {
-    VERIFY_lpTestTree();
-
+    INDEBUG(VerifyIterator());
     return lpTestTree->GetOp(1)->OperIs(GT_LCL_VAR) &&
            (lpTestTree->GetOp(1)->AsLclVar()->GetLclNum() == lpIterTree->GetOp(0)->AsLclVar()->GetLclNum());
 }
 
 inline genTreeOps Compiler::LoopDsc::lpTestOper() const
 {
-    VERIFY_lpTestTree();
-
+    INDEBUG(VerifyIterator());
     return lpIsReversed() ? GenTree::SwapRelop(lpTestTree->GetOper()) : lpTestTree->GetOper();
 }
 
 inline GenTree* Compiler::LoopDsc::lpIterator() const
 {
-    VERIFY_lpTestTree();
-
+    INDEBUG(VerifyIterator());
     return lpIsReversed() ? lpTestTree->GetOp(1) : lpTestTree->AsOp()->GetOp(0);
 }
 
 inline GenTree* Compiler::LoopDsc::lpLimit() const
 {
-    VERIFY_lpTestTree();
-
+    INDEBUG(VerifyIterator());
     return lpIsReversed() ? lpTestTree->GetOp(0) : lpTestTree->GetOp(1);
 }
 
 inline int Compiler::LoopDsc::lpConstLimit() const
 {
-    VERIFY_lpTestTree();
+    INDEBUG(VerifyIterator());
     assert(lpFlags & LPFLG_CONST_LIMIT);
 
     GenTree* limit = lpLimit();
@@ -1871,7 +1820,7 @@ inline int Compiler::LoopDsc::lpConstLimit() const
 
 inline unsigned Compiler::LoopDsc::lpVarLimit() const
 {
-    VERIFY_lpTestTree();
+    INDEBUG(VerifyIterator());
     assert(lpFlags & LPFLG_VAR_LIMIT);
 
     GenTree* limit = lpLimit();

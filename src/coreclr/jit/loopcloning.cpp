@@ -1648,7 +1648,7 @@ LC_Deref* LC_Deref::Find(JitExpandArrayStack<LC_Deref*>* children, unsigned lcl)
 
 bool LoopCloneContext::ArrLenLimit(const LoopDsc& loop, ArrIndex* index)
 {
-    loop.VERIFY_lpTestTree();
+    INDEBUG(loop.VerifyIterator());
     assert(loop.lpFlags & LPFLG_ARRLEN_LIMIT);
 
     GenTree* limit = loop.lpLimit();
