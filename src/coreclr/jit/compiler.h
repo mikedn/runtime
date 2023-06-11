@@ -57,7 +57,9 @@ class FgStack;
 class Instrumentor;
 class SpanningTreeVisitor;
 class OptBoolsDsc;
+struct LoopCloneContext;
 struct LoopCloneVisitorInfo;
+struct ArrIndex;
 class SsaOptimizer;
 class SsaBuilder;
 class ValueNumbering;
@@ -78,9 +80,6 @@ INDEBUG(class IndentStack;)
 // Declare global operator new overloads that use the compiler's arena allocator
 void* __cdecl operator new(size_t n, Compiler* context, CompMemKind cmk);
 void* __cdecl operator new[](size_t n, Compiler* context, CompMemKind cmk);
-
-// Requires the definitions of "operator new" so including "LoopCloning.h" after the definitions.
-#include "loopcloning.h"
 
 /*****************************************************************************/
 
@@ -4284,7 +4283,6 @@ public:
 
     // Dominator computation member functions
     // Not exposed outside Compiler
-protected:
     bool fgReachable(BasicBlock* b1, BasicBlock* b2); // Returns true if block b1 can reach block b2
 
     // Compute immediate dominators, the dominator tree and and its pre/post-order travsersal numbers.
@@ -5007,7 +5005,6 @@ public:
     PhaseStatus phFindLoops();       // Finds loops and records them in the loop table
 
     PhaseStatus phCloneLoops();
-    void optCloneLoop(unsigned loopInd, LoopCloneContext* context);
     void optEnsureUniqueHead(unsigned loopInd, BasicBlock::weight_t ambientWeight);
     PhaseStatus phUnrollLoops(); // Unrolls loops (needs to have cost info)
 
@@ -5075,10 +5072,6 @@ public:
         // The lclVar # in the loop condition ( "i RELOP lclVar" )
         // : Valid if LPFLG_VAR_LIMIT
         unsigned lpVarLimit() const;
-
-        // The array length in the loop condition ( "i RELOP arr.len" or "i RELOP arr[i][j].len" )
-        // : Valid if LPFLG_ARRLEN_LIMIT
-        bool lpArrLenLimit(Compiler* comp, ArrIndex* index) const;
 
         // Returns "true" iff "*this" contains the blk.
         bool lpContains(BasicBlock* blk) const
@@ -5164,7 +5157,6 @@ public:
                        BasicBlock* exit,
                        unsigned    exitCnt);
 
-protected:
     unsigned optCallCount         = 0; // number of calls made in the method
     unsigned optIndirectCallCount = 0; // number of virtual, interface and indirect calls made in the method
     unsigned optNativeCallCount   = 0; // number of Pinvoke/Native calls made in the method
@@ -5219,7 +5211,6 @@ public:
     // iff "l2" is not NOT_IN_LOOP, and "l1" contains "l2".
     bool optLoopContains(unsigned l1, unsigned l2);
 
-private:
     // Updates the loop table by changing loop "loopInd", whose head is required
     // to be "from", to be "to".  Also performs this transformation for any
     // loop nested in "loopInd" that shares the same head as "loopInd".
@@ -5234,6 +5225,7 @@ private:
     // Returns true if 'block' is an entry block for any loop in 'optLoopTable'
     bool optIsLoopEntry(BasicBlock* block) const;
 
+public:
     // The depth of the loop described by "lnum" (an index into the loop table.) (0 == top level)
     unsigned optLoopDepth(unsigned lnum)
     {
@@ -5273,9 +5265,7 @@ private:
                            bool       dupCond,
                            unsigned*  iterCount);
 
-    static fgWalkPreFn optIsVarAssgCB;
-
-protected:
+public:
     bool optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned lclNum);
 
     bool optNarrowTree(GenTree* tree, var_types srct, var_types dstt, ValueNumPair vnpNarrow, bool doit);
@@ -5286,7 +5276,6 @@ protected:
 
     bool optAvoidIntMult(void);
 
-public:
     bool cseCanSwapOrder(GenTree* tree1, GenTree* tree2);
 
 // String to use for formatting CSE numbers. Note that this is the positive number, e.g., from GET_CSE_INDEX().
@@ -5462,29 +5451,6 @@ private:
 public:
     void optAddCopies();
 #endif // ASSERTION_PROP
-
-public:
-    bool optIsLclLoopInvariant(LoopCloneVisitorInfo& info, unsigned lclNum);
-    bool optIsLclAssignedInLoop(LoopCloneVisitorInfo& info, unsigned lclNum);
-    bool optIsTrackedLclAssignedInLoop(LoopCloneVisitorInfo& info, ALLVARSET_VALARG_TP vars);
-    bool optExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum);
-    bool optReconstructArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum);
-    bool optIdentifyLoopOptInfo(unsigned loopNum, LoopCloneContext& context);
-    static fgWalkPreFn optCanOptimizeByLoopCloningVisitor;
-    fgWalkResult optCanOptimizeByLoopCloning(GenTree* tree, LoopCloneVisitorInfo& info);
-    bool optObtainLoopCloningOpts(LoopCloneContext& context);
-    bool optIsLoopClonable(unsigned loopInd);
-
-#ifdef DEBUG
-    void optDebugLogLoopCloning(BasicBlock* block, Statement* insertBefore);
-#endif
-    void optPerformStaticOptimizations(unsigned loopNum, LoopCloneContext* context DEBUGARG(bool fastPath));
-    bool optComputeDerefConditions(unsigned loopNum, LoopCloneContext* context);
-    bool optDeriveLoopCloningConditions(unsigned loopNum, LoopCloneContext* context);
-    BasicBlock* optInsertLoopChoiceConditions(LoopCloneContext* context,
-                                              unsigned          loopNum,
-                                              BasicBlock*       head,
-                                              BasicBlock*       slow);
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

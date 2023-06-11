@@ -652,6 +652,8 @@ struct LC_Deref
 #endif
 };
 
+using LoopDsc = Compiler::LoopDsc;
+
 /**
  *
  *  The "context" represents data that is used for making loop-cloning decisions.
@@ -669,7 +671,11 @@ struct LC_Deref
  */
 struct LoopCloneContext
 {
-    CompAllocator alloc; // The allocator
+    Compiler* const compiler;
+    LoopDsc* const  optLoopTable;
+    unsigned const  optLoopCount;
+    INDEBUG(bool const verbose;)
+    CompAllocator alloc;
 
     // The array of optimization opportunities found in each loop. (loop x optimization-opportunities)
     jitstd::vector<JitExpandArrayStack<LcOptInfo*>*> optInfo;
@@ -683,13 +689,23 @@ struct LoopCloneContext
     // The array of block levels of conditions for each loop. (loop x level x conditions)
     jitstd::vector<JitExpandArrayStack<JitExpandArrayStack<LC_Condition>*>*> blockConditions;
 
-    LoopCloneContext(unsigned loopCount, CompAllocator alloc)
-        : alloc(alloc), optInfo(alloc), conditions(alloc), derefs(alloc), blockConditions(alloc)
+    LoopCloneContext(Compiler* compiler)
+        : compiler(compiler)
+        , optLoopTable(compiler->optLoopTable)
+        , optLoopCount(compiler->optLoopCount)
+#ifdef DEBUG
+        , verbose(compiler->verbose)
+#endif
+        , alloc(compiler->getAllocator(CMK_LoopClone))
+        , optInfo(alloc)
+        , conditions(alloc)
+        , derefs(alloc)
+        , blockConditions(alloc)
     {
-        optInfo.resize(loopCount, nullptr);
-        conditions.resize(loopCount, nullptr);
-        derefs.resize(loopCount, nullptr);
-        blockConditions.resize(loopCount, nullptr);
+        optInfo.resize(optLoopCount, nullptr);
+        conditions.resize(optLoopCount, nullptr);
+        derefs.resize(optLoopCount, nullptr);
+        blockConditions.resize(optLoopCount, nullptr);
     }
 
     // Evaluate conditions into a JTRUE stmt and put it in the block. Reverse condition if 'reverse' is true.
@@ -746,18 +762,25 @@ struct LoopCloneContext
     // If neither `*pAllTrue` nor `*pAnyFalse` is true, then the evaluation of some conditions are statically unknown.
     //
     // Assumes the conditions involve an AND join operator.
-    void EvaluateConditions(unsigned loopNum, bool* pAllTrue, bool* pAnyFalse DEBUGARG(bool verbose));
+    void EvaluateConditions(unsigned loopNum, bool* pAllTrue, bool* pAnyFalse);
 
-private:
     void OptimizeConditions(JitExpandArrayStack<LC_Condition>& conds);
+    void OptimizeConditions(unsigned loopNum);
+    void OptimizeBlockConditions(unsigned loopNum);
+    INDEBUG(void PrintConditions(unsigned loopNum);)
 
-public:
-    // Optimize conditions to remove redundant conditions.
-    void OptimizeConditions(unsigned loopNum DEBUGARG(bool verbose));
-
-    void OptimizeBlockConditions(unsigned loopNum DEBUGARG(bool verbose));
-
-#ifdef DEBUG
-    void PrintConditions(unsigned loopNum);
-#endif
+    bool ObtainLoopCloningOpts();
+    bool IsLoopClonable(unsigned loopInd);
+    bool IdentifyLoopOptInfo(unsigned loopNum);
+    Compiler::fgWalkResult CanOptimizeByLoopCloning(GenTree* tree, LoopCloneVisitorInfo& info);
+    bool ExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum);
+    bool ReconstructArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum);
+    bool ArrLenLimit(const LoopDsc& loop, ArrIndex* index);
+    void PerformStaticOptimizations(unsigned loopNum DEBUGARG(bool fastPath));
+    bool ComputeDerefConditions(unsigned loopNum);
+    bool DeriveLoopCloningConditions(unsigned loopNum);
+    BasicBlock* InsertLoopChoiceConditions(unsigned loopNum, BasicBlock* head, BasicBlock* slow);
+    INDEBUG(void DebugLogLoopCloning(BasicBlock* block, Statement* insertBefore);)
+    void CloneLoop(unsigned loopInd);
+    bool Run();
 };
