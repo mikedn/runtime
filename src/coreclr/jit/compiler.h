@@ -1127,15 +1127,6 @@ inline LoopFlags& operator&=(LoopFlags& a, LoopFlags b)
 
 struct HWIntrinsicInfo;
 
-enum CallInterf : uint8_t
-{
-    CALLINT_NONE,       // no interference                               (most helpers)
-    CALLINT_REF_INDIRS, // kills GC ref indirections                     (SETFIELD OBJ)
-    CALLINT_SCL_INDIRS, // kills non GC ref indirections                 (SETFIELD non-OBJ)
-    CALLINT_ALL_INDIRS, // kills both GC ref and non GC ref indirections (SETFIELD STRUCT)
-    CALLINT_ALL,        // kills everything                              (normal method call)
-};
-
 struct CompiledMethodInfo
 {
     ICorJitInfo*          compCompHnd;
