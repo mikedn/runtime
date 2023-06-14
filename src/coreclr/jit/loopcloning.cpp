@@ -561,20 +561,7 @@ struct LcDeref
         return level == 0 ? array.arrIndex->arrLcl : array.arrIndex->indLcls[level - 1];
     }
 
-    LcDeref* Find(unsigned lcl) const
-    {
-        return Find(children, lcl);
-    }
-
     static LcDeref* Find(JitExpandArrayStack<LcDeref*>* children, unsigned lcl);
-
-    void EnsureChildren(CompAllocator alloc)
-    {
-        if (children == nullptr)
-        {
-            children = new (alloc) JitExpandArrayStack<LcDeref*>(alloc);
-        }
-    }
 
     void DeriveLevelConditions(JitExpandArrayStack<JitExpandArrayStack<LcCondition>*>& conds);
 
@@ -620,8 +607,6 @@ struct LoopCloneContext
     jitstd::vector<JitExpandArrayStack<LcOptInfo*>*> optInfo;
     // The array of conditions that influence which path to take for each loop. (loop x cloning-conditions)
     jitstd::vector<JitExpandArrayStack<LcCondition>*> conditions;
-    // The array of dereference conditions found in each loop. (loop x deref-conditions)
-    jitstd::vector<JitExpandArrayStack<LcArray>*> derefs;
     // The array of block levels of conditions for each loop. (loop x level x conditions)
     jitstd::vector<JitExpandArrayStack<JitExpandArrayStack<LcCondition>*>*> blockConditions;
 
@@ -635,12 +620,10 @@ struct LoopCloneContext
         , alloc(compiler->getAllocator(CMK_LoopClone))
         , optInfo(alloc)
         , conditions(alloc)
-        , derefs(alloc)
         , blockConditions(alloc)
     {
         optInfo.resize(loopCount, nullptr);
         conditions.resize(loopCount, nullptr);
-        derefs.resize(loopCount, nullptr);
         blockConditions.resize(loopCount, nullptr);
     }
 
@@ -656,7 +639,7 @@ struct LoopCloneContext
     bool ReconstructArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum);
     bool ArrLenLimit(const LoopDsc& loop, ArrIndex* index);
     void PerformStaticOptimizations(unsigned loopNum);
-    bool ComputeDerefConditions(unsigned loopNum);
+    bool ComputeDerefConditions(const ArrayStack<LcArray>& derefs, unsigned loopNum);
     bool DeriveLoopCloningConditions(unsigned loopNum);
     BasicBlock* InsertLoopChoiceConditions(unsigned loopNum, BasicBlock* head, BasicBlock* slow);
     void CloneLoop(unsigned loopNum);
@@ -698,34 +681,6 @@ struct LoopCloneContext
         }
 
         return conditions[loopNum];
-    }
-
-    JitExpandArrayStack<LcArray>* EnsureDerefs(unsigned loopNum)
-    {
-        if (derefs[loopNum] == nullptr)
-        {
-            derefs[loopNum] = new (alloc) JitExpandArrayStack<LcArray>(alloc, 4);
-        }
-
-        return derefs[loopNum];
-    }
-
-    JitExpandArrayStack<JitExpandArrayStack<LcCondition>*>* EnsureBlockConditions(unsigned loopNum, unsigned condBlocks)
-    {
-        if (blockConditions[loopNum] == nullptr)
-        {
-            blockConditions[loopNum] =
-                new (alloc) JitExpandArrayStack<JitExpandArrayStack<LcCondition>*>(alloc, condBlocks);
-        }
-
-        JitExpandArrayStack<JitExpandArrayStack<LcCondition>*>* levelCond = blockConditions[loopNum];
-
-        for (unsigned i = 0; i < condBlocks; ++i)
-        {
-            levelCond->Set(i, new (alloc) JitExpandArrayStack<LcCondition>(alloc));
-        }
-
-        return levelCond;
     }
 
     bool HasBlockConditions(unsigned loopNum)
@@ -1181,11 +1136,6 @@ void LcDeref::DeriveLevelConditions(JitExpandArrayStack<JitExpandArrayStack<LcCo
 
 LcDeref* LcDeref::Find(JitExpandArrayStack<LcDeref*>* children, unsigned lcl)
 {
-    if (children == nullptr)
-    {
-        return nullptr;
-    }
-
     for (unsigned i = 0; i < children->Size(); ++i)
     {
         if ((*children)[i]->Lcl() == lcl)
@@ -1276,7 +1226,8 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
     }
 
     // Limit Conditions
-    LcIdent ident;
+    LcIdent             ident;
+    ArrayStack<LcArray> derefs(alloc);
 
     if (loop.lpFlags & LPFLG_CONST_LIMIT)
     {
@@ -1309,7 +1260,7 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
         ident = LcIdent(LcArray(LcArray::Jagged, index, LcArray::ArrLen));
 
         // Ensure that this array must be dereference-able, before executing the actual condition.
-        EnsureDerefs(loopNum)->Push(LcArray(LcArray::Jagged, index, LcArray::None));
+        derefs.Emplace(LcArray::Jagged, index, LcArray::None);
     }
     else
     {
@@ -1332,8 +1283,7 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
                     LcCondition(GT_LE, LcExpr(ident), LcExpr(LcIdent(LcArray(LcArray::Jagged, &arrIndexInfo->arrIndex,
                                                                              arrIndexInfo->dim, LcArray::ArrLen)))));
 
-                EnsureDerefs(loopNum)->Push(
-                    LcArray(LcArray::Jagged, &arrIndexInfo->arrIndex, arrIndexInfo->dim, LcArray::None));
+                derefs.Emplace(LcArray::Jagged, &arrIndexInfo->arrIndex, arrIndexInfo->dim, LcArray::None);
             }
             break;
 
@@ -1358,7 +1308,7 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
     DBEXEC(verbose, PrintConditions(loopNum));
     JITDUMP("\n");
 
-    return true;
+    return (derefs.Size() == 0) || ComputeDerefConditions(derefs, loopNum);
 }
 
 // To be able to check for the loop cloning condition that (limitVar <= a.len)
@@ -1453,9 +1403,11 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
 //
 //   and so on.
 //
-bool LoopCloneContext::ComputeDerefConditions(unsigned loopNum)
+bool LoopCloneContext::ComputeDerefConditions(const ArrayStack<LcArray>& derefs, unsigned loopNum)
 {
-    JitExpandArrayStack<LcArray>& deref = *EnsureDerefs(loopNum);
+    assert(!derefs.Empty());
+    assert(blockConditions[loopNum] == nullptr);
+
     JitExpandArrayStack<LcDeref*> nodes(alloc);
     int                           maxRank = -1;
 
@@ -1463,9 +1415,9 @@ bool LoopCloneContext::ComputeDerefConditions(unsigned loopNum)
     // where the nodes are array and index variables and an edge 'u-v'
     // exists if a node 'v' indexes node 'u' directly as in u[v] or an edge
     // 'u-v-w' transitively if u[v][w] occurs.
-    for (unsigned i = 0; i < deref.Size(); ++i)
+    for (unsigned i = 0; i < derefs.Size(); ++i)
     {
-        LcArray& array = deref[i];
+        LcArray& array = derefs.GetRef(i);
 
         // First populate the array base variable.
         LcDeref* node = LcDeref::Find(&nodes, array.arrIndex->arrLcl);
@@ -1482,8 +1434,16 @@ bool LoopCloneContext::ComputeDerefConditions(unsigned loopNum)
 
         for (unsigned i = 0; i < rank; ++i)
         {
-            node->EnsureChildren(alloc);
-            LcDeref* tmp = node->Find(array.arrIndex->indLcls[i]);
+            LcDeref* tmp = nullptr;
+
+            if (node->children == nullptr)
+            {
+                node->children = new (alloc) JitExpandArrayStack<LcDeref*>(alloc);
+            }
+            else
+            {
+                tmp = LcDeref::Find(node->children, array.arrIndex->indLcls[i]);
+            }
 
             if (tmp == nullptr)
             {
@@ -1534,11 +1494,20 @@ bool LoopCloneContext::ComputeDerefConditions(unsigned loopNum)
     }
 
     // Derive conditions into an 'array of level x array of conditions' i.e., levelCond[levels][conds]
-    JitExpandArrayStack<JitExpandArrayStack<LcCondition>*>& levelCond = *EnsureBlockConditions(loopNum, condBlocks);
+
+    JitExpandArrayStack<JitExpandArrayStack<LcCondition>*>* levelCond =
+        new (alloc) JitExpandArrayStack<JitExpandArrayStack<LcCondition>*>(alloc, condBlocks);
+
+    for (unsigned i = 0; i < condBlocks; ++i)
+    {
+        levelCond->Set(i, new (alloc) JitExpandArrayStack<LcCondition>(alloc));
+    }
+
+    blockConditions[loopNum] = levelCond;
 
     for (unsigned i = 0; i < nodes.Size(); ++i)
     {
-        nodes[i]->DeriveLevelConditions(levelCond);
+        nodes[i]->DeriveLevelConditions(*levelCond);
     }
 
     DBEXEC(verbose, PrintBlockConditions(loopNum));
@@ -2627,7 +2596,7 @@ bool LoopCloneContext::Run()
             continue;
         }
 
-        if (!DeriveLoopCloningConditions(i) || !ComputeDerefConditions(i))
+        if (!DeriveLoopCloningConditions(i))
         {
             JITDUMP("Conditions could not be obtained\n");
             CancelLoopOptInfo(i);
