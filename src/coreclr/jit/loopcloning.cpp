@@ -683,7 +683,7 @@ struct LoopCloneContext
         return conditions[loopNum];
     }
 
-    bool HasBlockConditions(unsigned loopNum)
+    bool HasBlockConditions(unsigned loopNum) const
     {
         JitExpandArrayStack<JitExpandArrayStack<LcCondition>*>* levelCond = blockConditions[loopNum];
 
@@ -701,12 +701,6 @@ struct LoopCloneContext
         }
 
         return false;
-    }
-
-    JitExpandArrayStack<JitExpandArrayStack<LcCondition>*>* GetBlockConditions(unsigned loopNum)
-    {
-        assert(HasBlockConditions(loopNum));
-        return blockConditions[loopNum];
     }
 
 #ifdef DEBUG
@@ -1761,15 +1755,15 @@ BasicBlock* LoopCloneContext::InsertLoopChoiceConditions(unsigned loopNum, Basic
     assert(HasBlockConditions(loopNum));
     assert(head->bbJumpKind == BBJ_COND);
 
-    JitExpandArrayStack<JitExpandArrayStack<LcCondition>*>& blockConditions = *GetBlockConditions(loopNum);
-    BasicBlock*                                             condBlock       = head;
+    JitExpandArrayStack<JitExpandArrayStack<LcCondition>*>& loopBlockConditions = *blockConditions[loopNum];
+    BasicBlock*                                             condBlock           = head;
 
-    for (unsigned i = 0; i < blockConditions.Size(); ++i)
+    for (unsigned i = 0; i < loopBlockConditions.Size(); ++i)
     {
         JITDUMP("Adding loop " FMT_LP " level %u block conditions to " FMT_BB "\n    ", loopNum, i, condBlock->bbNum);
 
         const bool                        isHeaderBlock   = condBlock == head;
-        JitExpandArrayStack<LcCondition>* levelConditions = blockConditions[i];
+        JitExpandArrayStack<LcCondition>* levelConditions = loopBlockConditions[i];
 
         DBEXEC(verbose, PrintBlockLevelConditions(i, levelConditions));
         CondToStmtInBlock(*levelConditions, condBlock, /*reverse*/ isHeaderBlock);
