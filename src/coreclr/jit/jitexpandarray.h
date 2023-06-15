@@ -284,52 +284,6 @@ public:
     }
 
     //------------------------------------------------------------------------
-    // Pop: Remove the top element of the stack.
-    //
-    // Return Value:
-    //    A copy of the removed element.
-    //
-    // Assumptions:
-    //    The stack must not be empty.
-    //
-    T Pop()
-    {
-        assert(Size() > 0);
-        m_used--;
-        return this->m_members[m_used];
-    }
-
-    //------------------------------------------------------------------------
-    // Top: Get a copy of the top element.
-    //
-    // Return Value:
-    //    A copy of the top element.
-    //
-    // Assumptions:
-    //    The stack must not be empty.
-    //
-    T Top() const
-    {
-        assert(Size() > 0);
-        return this->m_members[m_used - 1];
-    }
-
-    //------------------------------------------------------------------------
-    // TopRef: Get a reference to the top element.
-    //
-    // Return Value:
-    //    A reference to the top element.
-    //
-    // Assumptions:
-    //    The stack must not be empty.
-    //
-    T& TopRef()
-    {
-        assert(Size() > 0);
-        return this->m_members[m_used - 1];
-    }
-
-    //------------------------------------------------------------------------
     // GetNoExpand: Get a copy of the element at index `idx`.
     //
     // Arguments:
