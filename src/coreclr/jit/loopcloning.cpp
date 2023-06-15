@@ -606,18 +606,19 @@ struct LoopCloneContext
         return conditions[loopNum];
     }
 
+#ifdef DEBUG
     bool HasBlockConditions(unsigned loopNum) const
     {
-        JitVector<JitVector<LcCondition>*>* levelCond = blockConditions[loopNum];
+        JitVector<JitVector<LcCondition>*>* loopBlockConditions = blockConditions[loopNum];
 
-        if (levelCond == nullptr)
+        if (loopBlockConditions == nullptr)
         {
             return false;
         }
 
-        for (unsigned i = 0; i < levelCond->Size(); ++i)
+        for (unsigned i = 0; i < loopBlockConditions->Size(); ++i)
         {
-            if ((*levelCond)[i]->Size() > 0)
+            if ((*loopBlockConditions)[i]->Size() > 0)
             {
                 return true;
             }
@@ -626,22 +627,21 @@ struct LoopCloneContext
         return false;
     }
 
-#ifdef DEBUG
     void PrintBlockConditions(unsigned loopNum)
     {
         printf("Block conditions:\n");
 
-        JitVector<JitVector<LcCondition>*>* blockConds = blockConditions[loopNum];
+        JitVector<JitVector<LcCondition>*>* loopBlockConditions = blockConditions[loopNum];
 
-        if (blockConds == nullptr || blockConds->Size() == 0)
+        if ((loopBlockConditions == nullptr) || loopBlockConditions->Empty())
         {
             printf("No block conditions\n");
             return;
         }
 
-        for (unsigned i = 0; i < blockConds->Size(); ++i)
+        for (unsigned i = 0; i < loopBlockConditions->Size(); ++i)
         {
-            PrintBlockLevelConditions(i, *(*blockConds)[i]);
+            PrintBlockLevelConditions(i, *(*loopBlockConditions)[i]);
         }
     }
 
@@ -894,23 +894,23 @@ void LoopCloneContext::OptimizeConditions(JitVector<LcCondition>& conds)
 
 void LoopCloneContext::OptimizeBlockConditions(unsigned loopNum)
 {
-    if (!HasBlockConditions(loopNum))
+    JitVector<JitVector<LcCondition>*>* loopBlockConditions = blockConditions[loopNum];
+
+    if ((loopBlockConditions == nullptr) || loopBlockConditions->Empty())
     {
         return;
     }
 
-    JitVector<JitVector<LcCondition>*>& levelCond = *blockConditions[loopNum];
-
-    for (unsigned i = 0; i < levelCond.Size(); ++i)
+    for (unsigned i = 0; i < loopBlockConditions->Size(); ++i)
     {
-        OptimizeConditions(*levelCond[i]);
+        OptimizeConditions(*(*loopBlockConditions)[i]);
     }
 
 #ifdef DEBUG
     if (verbose)
     {
         printf("After optimizing block-level cloning conditions\n\t");
-        PrintConditions(loopNum);
+        PrintBlockConditions(loopNum);
         printf("\n");
     }
 #endif
