@@ -516,7 +516,7 @@ struct LcCondition
     }
 
     bool Evaluate(bool* result);
-    bool Combine(const LcCondition& cond, LcCondition* newCond);
+    bool operator==(const LcCondition& cond) const;
 
     GenTree* ToGenTree(Compiler* comp);
 
@@ -856,18 +856,16 @@ bool LcCondition::Evaluate(bool* result)
     }
 }
 
-bool LcCondition::Combine(const LcCondition& cond, LcCondition* newCond)
+bool LcCondition::operator==(const LcCondition& cond) const
 {
     if (oper == cond.oper && op1 == cond.op1 && op2 == cond.op2)
     {
-        *newCond = *this;
         return true;
     }
 
     if ((oper == GT_LT || oper == GT_LE || oper == GT_GT || oper == GT_GE) &&
         GenTree::ReverseRelop(oper) == cond.oper && op1 == cond.op2 && op2 == cond.op1)
     {
-        *newCond = *this;
         return true;
     }
 
@@ -947,9 +945,6 @@ void LoopCloneContext::EvaluateConditions(unsigned loopNum, bool* pAllTrue, bool
 // Similarly, conditions like "V02 > V02" will evaluate to "false". In this case abort loop cloning
 // optimization for the loop.
 //
-// Sometimes, two conditions will combine together to yield a single condition, then remove a
-// duplicate condition.
-//
 void LoopCloneContext::OptimizeConditions(JitExpandArrayStack<LcCondition>& conds)
 {
     for (unsigned i = 0; i < conds.Size(); ++i)
@@ -971,29 +966,14 @@ void LoopCloneContext::OptimizeConditions(JitExpandArrayStack<LcCondition>& cond
 
         for (unsigned j = i + 1; j < conds.Size(); ++j)
         {
-            LcCondition newCond;
-
-            if (conds[i].Combine(conds[j], &newCond))
+            if (conds[i] == conds[j])
             {
                 conds.Remove(j);
-                conds[i] = newCond;
-                i        = -1;
+                i = -1;
                 break;
             }
         }
     }
-
-#ifdef DEBUG
-    // Make sure we didn't miss some combining.
-    for (unsigned i = 0; i < conds.Size(); ++i)
-    {
-        for (unsigned j = 0; j < conds.Size(); ++j)
-        {
-            LcCondition newCond;
-            assert((i == j) || !conds[i].Combine(conds[j], &newCond));
-        }
-    }
-#endif
 }
 
 void LoopCloneContext::OptimizeBlockConditions(unsigned loopNum)
