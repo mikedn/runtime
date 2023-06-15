@@ -195,28 +195,6 @@ public:
 
         m_members[idx] = val;
     }
-
-    //------------------------------------------------------------------------
-    // operator[]: Get a reference to the element at index `idx`.
-    //
-    // Arguments:
-    //    idx - the element index
-    //
-    // Return Value:
-    //    A reference to the element at index `idx`.
-    //
-    // Notes:
-    //    Same as `GetRef`.
-    //
-    T& operator[](unsigned idx)
-    {
-        if (idx >= m_size)
-        {
-            EnsureCoversInd(idx);
-        }
-
-        return m_members[idx];
-    }
 };
 
 template <class T>
@@ -283,25 +261,10 @@ public:
         return res;
     }
 
-    //------------------------------------------------------------------------
-    // GetNoExpand: Get a copy of the element at index `idx`.
-    //
-    // Arguments:
-    //    idx - the element index
-    //
-    // Return Value:
-    //    A copy of the element at index `idx`.
-    //
-    // Notes:
-    //    Unlike `Get` this does not expand the array if the index is not valid.
-    //
-    // Assumptions:
-    //    The element index does not exceed the current stack depth.
-    //
-    T GetNoExpand(unsigned idx) const
+    T& operator[](unsigned i) const
     {
-        assert(idx < m_used);
-        return this->m_members[idx];
+        assert(i < m_used);
+        return m_members[i];
     }
 
     //------------------------------------------------------------------------

@@ -208,17 +208,17 @@ struct ArrIndex
     {
         printf("V%02u", arrLcl);
 
-        for (unsigned i = 0; i < (dim == UINT_MAX ? rank : dim); ++i)
+        for (unsigned i = 0; i < Min(rank, dim); ++i)
         {
-            printf("[V%02u]", indLcls.Get(i));
+            printf("[V%02u]", indLcls[i]);
         }
     }
 
     void PrintBoundsCheckNodes(unsigned dim = UINT_MAX)
     {
-        for (unsigned i = 0; i < (dim == UINT_MAX ? rank : dim); ++i)
+        for (unsigned i = 0; i < Min(rank, dim); ++i)
         {
-            printf("[%06u]", bndsChks.Get(i)->GetID());
+            printf("[%06u]", bndsChks[i]->GetID());
         }
     }
 #endif
@@ -561,7 +561,7 @@ struct LcDeref
         return level == 0 ? array.arrIndex->arrLcl : array.arrIndex->indLcls[level - 1];
     }
 
-    static LcDeref* Find(JitExpandArrayStack<LcDeref*>* children, unsigned lcl);
+    static LcDeref* Find(JitExpandArrayStack<LcDeref*>& children, unsigned lcl);
 
     void DeriveLevelConditions(JitExpandArrayStack<JitExpandArrayStack<LcCondition>*>& conds);
 
@@ -581,11 +581,7 @@ struct LcDeref
                 }
                 printf("\n");
 
-#ifdef _MSC_VER
                 (*children)[i]->Print(indent + 1);
-#else
-                (*((JitExpandArray<LcDeref*>*)children))[i]->Print(indent + 1);
-#endif
             }
         }
 
@@ -718,22 +714,22 @@ struct LoopCloneContext
 
         for (unsigned i = 0; i < blockConds->Size(); ++i)
         {
-            PrintBlockLevelConditions(i, (*blockConds)[i]);
+            PrintBlockLevelConditions(i, *(*blockConds)[i]);
         }
     }
 
-    void PrintBlockLevelConditions(unsigned level, JitExpandArrayStack<LcCondition>* levelCond)
+    void PrintBlockLevelConditions(unsigned level, JitExpandArrayStack<LcCondition>& levelCond)
     {
         printf("%u = ", level);
 
-        for (unsigned j = 0; j < levelCond->Size(); ++j)
+        for (unsigned j = 0; j < levelCond.Size(); ++j)
         {
             if (j != 0)
             {
                 printf(" & ");
             }
 
-            (*levelCond)[j].Print();
+            levelCond[j].Print();
         }
 
         printf("\n");
@@ -753,11 +749,11 @@ GenTree* LcArray::ToGenTree(Compiler* comp)
 
     for (int i = 0; i < rank; ++i)
     {
-        GenTreeIndexAddr* addr =
-            comp->gtNewArrayIndexAddr(arr, comp->gtNewLclvNode(arrIndex->indLcls[i],
-                                                               comp->lvaGetDesc(arrIndex->indLcls[i])->GetType()),
-                                      TYP_REF);
+        unsigned indexLclNum = arrIndex->indLcls[i];
 
+        GenTreeIndexAddr* addr =
+            comp->gtNewArrayIndexAddr(arr, comp->gtNewLclvNode(indexLclNum, comp->lvaGetDesc(indexLclNum)->GetType()),
+                                      TYP_REF);
         // Clear the range check flag and mark the index as non-faulting: we guarantee that all necessary range
         // checking has already been done by the time this array index expression is invoked.
         arr->gtFlags &= ~(GTF_INX_RNGCHK | GTF_EXCEPT);
@@ -1107,13 +1103,13 @@ void LcDeref::DeriveLevelConditions(JitExpandArrayStack<JitExpandArrayStack<LcCo
     }
 }
 
-LcDeref* LcDeref::Find(JitExpandArrayStack<LcDeref*>* children, unsigned lcl)
+LcDeref* LcDeref::Find(JitExpandArrayStack<LcDeref*>& children, unsigned lcl)
 {
-    for (unsigned i = 0; i < children->Size(); ++i)
+    for (unsigned i = 0; i < children.Size(); ++i)
     {
-        if ((*children)[i]->Lcl() == lcl)
+        if (children[i]->Lcl() == lcl)
         {
-            return (*children)[i];
+            return children[i];
         }
     }
 
@@ -1244,7 +1240,7 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
 
     for (unsigned i = 0; i < optInfos->Size(); ++i)
     {
-        LcOptInfo* optInfo = optInfos->Get(i);
+        LcOptInfo* optInfo = (*optInfos)[i];
 
         switch (optInfo->kind)
         {
@@ -1393,7 +1389,7 @@ bool LoopCloneContext::ComputeDerefConditions(const ArrayStack<LcArray>& derefs,
         LcArray& array = derefs.GetRef(i);
 
         // First populate the array base variable.
-        LcDeref* node = LcDeref::Find(&nodes, array.arrIndex->arrLcl);
+        LcDeref* node = LcDeref::Find(nodes, array.arrIndex->arrLcl);
 
         if (node == nullptr)
         {
@@ -1415,7 +1411,7 @@ bool LoopCloneContext::ComputeDerefConditions(const ArrayStack<LcArray>& derefs,
             }
             else
             {
-                tmp = LcDeref::Find(node->children, array.arrIndex->indLcls[i]);
+                tmp = LcDeref::Find(*node->children, array.arrIndex->indLcls[i]);
             }
 
             if (tmp == nullptr)
@@ -1504,7 +1500,7 @@ void LoopCloneContext::PerformStaticOptimizations(unsigned loopNum)
 
     for (unsigned i = 0; i < optInfos->Size(); ++i)
     {
-        LcOptInfo* optInfo = optInfos->Get(i);
+        LcOptInfo* optInfo = (*optInfos)[i];
 
         if (optInfo->kind == LcOptInfo::LcJaggedArray)
         {
@@ -1742,10 +1738,10 @@ BasicBlock* LoopCloneContext::InsertLoopChoiceConditions(unsigned loopNum, Basic
         JITDUMP("Adding loop " FMT_LP " level %u block conditions to " FMT_BB "\n    ", loopNum, i, condBlock->bbNum);
 
         const bool                        isHeaderBlock   = condBlock == head;
-        JitExpandArrayStack<LcCondition>* levelConditions = loopBlockConditions[i];
+        JitExpandArrayStack<LcCondition>& levelConditions = *loopBlockConditions[i];
 
         DBEXEC(verbose, PrintBlockLevelConditions(i, levelConditions));
-        CondToStmtInBlock(*levelConditions, condBlock, /*reverse*/ isHeaderBlock);
+        CondToStmtInBlock(levelConditions, condBlock, /*reverse*/ isHeaderBlock);
 
         BasicBlock* tmp = compiler->fgNewBBafter(BBJ_COND, isHeaderBlock ? slowHead : condBlock, /*extendRegion*/ true);
         tmp->inheritWeight(head);
