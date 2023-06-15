@@ -2354,8 +2354,8 @@ void LoopCloneVisitorInfo::AddArrayIndex(GenTree* tree, ArrIndex& arrIndex)
 #ifdef DEBUG
     if (context.verbose)
     {
-        printf("Found ArrIndex at " FMT_BB " " FMT_STMT " tree [%06u] which is equivalent to: ", block->bbNum,
-               stmt->GetID(), tree->GetID());
+        printf("Found ArrIndex at " FMT_BB " " FMT_STMT " [%06u] which is equivalent to: ", block->bbNum, stmt->GetID(),
+               tree->GetID());
         arrIndex.Print();
         printf(", bounds check nodes: ");
         arrIndex.PrintBoundsCheckNodes();
@@ -2365,38 +2365,43 @@ void LoopCloneVisitorInfo::AddArrayIndex(GenTree* tree, ArrIndex& arrIndex)
 
     if (!IsLclLoopInvariant(arrIndex.arrLcl))
     {
-        JITDUMP("V%02u is not loop invariant\n", arrIndex.arrLcl);
+        JITDUMP("Array V%02u is not loop invariant\n", arrIndex.arrLcl);
         return;
     }
 
-    for (unsigned dim = 0; dim < arrIndex.rank; ++dim)
-    {
-        if (arrIndex.indLcls[dim] != loop.lpIterVar())
-        {
-            JITDUMP("Induction V%02u is not used as index on dim %u\n", loop.lpIterVar(), dim);
-            continue;
-        }
+    unsigned ivLclNum = loop.lpIterVar();
+    unsigned dim      = 0;
 
-        for (unsigned dim2 = 0; dim2 < dim; ++dim2)
+    while ((dim < arrIndex.rank) && (arrIndex.indLcls[dim] != ivLclNum))
+    {
+        dim++;
+    }
+
+    if (dim >= arrIndex.rank)
+    {
+        JITDUMP("Induction V%02u is not used as index\n", ivLclNum);
+        return;
+    }
+
+    for (unsigned i = 0; i < dim; i++)
+    {
+        if (IsLclAssignedInLoop(arrIndex.indLcls[i]))
         {
-            if (IsLclAssignedInLoop(arrIndex.indLcls[dim2]))
-            {
-                JITDUMP("V%02u is assigned in loop\n", arrIndex.indLcls[dim2]);
-                return;
-            }
+            JITDUMP("Index V%02u is not loop invariant\n", arrIndex.indLcls[i]);
+            return;
         }
+    }
 
 #ifdef DEBUG
-        if (context.verbose)
-        {
-            printf("Loop " FMT_LP " can be cloned for ArrIndex ", loopNum);
-            arrIndex.Print();
-            printf(" on dim %u\n", dim);
-        }
+    if (context.verbose)
+    {
+        printf("Loop " FMT_LP " can be cloned for ArrIndex ", loopNum);
+        arrIndex.Print();
+        printf(" on dim %u\n", dim);
+    }
 #endif
 
-        context.AddArrayIndex(loopNum, arrIndex, dim, stmt);
-    }
+    context.AddArrayIndex(loopNum, arrIndex, dim, stmt);
 }
 
 void LoopCloneContext::IdentifyLoopOptInfo(unsigned loopNum)
