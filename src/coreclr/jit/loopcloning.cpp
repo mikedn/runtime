@@ -224,15 +224,12 @@ struct ArrIndex
 #endif
 };
 
-#define LC_OPT(en) struct en##OptInfo;
-#include "loopcloningopts.h"
-
 struct LcOptInfo
 {
     enum Kind
     {
-#define LC_OPT(en) en,
-#include "loopcloningopts.h"
+        JaggedArray,
+        MDArray
     };
 
     const Kind kind;
@@ -240,14 +237,6 @@ struct LcOptInfo
     LcOptInfo(Kind kind) : kind(kind)
     {
     }
-
-#define LC_OPT(en)                                                                                                     \
-    en##OptInfo* As##en##OptInfo()                                                                                     \
-    {                                                                                                                  \
-        assert(kind == en);                                                                                            \
-        return reinterpret_cast<en##OptInfo*>(this);                                                                   \
-    }
-#include "loopcloningopts.h"
 };
 
 // Optimization info for a jagged array.
@@ -260,7 +249,7 @@ struct LcJaggedArrayOptInfo : public LcOptInfo
     Statement* stmt;
 
     LcJaggedArrayOptInfo(const ArrIndex& arrIndex, unsigned dim, Statement* stmt)
-        : LcOptInfo(LcJaggedArray), dim(dim), arrIndex(arrIndex), stmt(stmt)
+        : LcOptInfo(JaggedArray), dim(dim), arrIndex(arrIndex), stmt(stmt)
     {
     }
 };
@@ -274,7 +263,7 @@ struct LcMdArrayOptInfo : public LcOptInfo
     // For example, a[i,j,k] could be the MD array "arrElem" but if "dim" is 2,
     // then this node is treated as though it were a[i,j]
 
-    LcMdArrayOptInfo(GenTreeArrElem* arrElem, unsigned dim) : LcOptInfo(LcMdArray), arrElem(arrElem), dim(dim)
+    LcMdArrayOptInfo(GenTreeArrElem* arrElem, unsigned dim) : LcOptInfo(MDArray), arrElem(arrElem), dim(dim)
     {
     }
 
@@ -1239,9 +1228,9 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
 
         switch (optInfo->kind)
         {
-            case LcOptInfo::LcJaggedArray:
+            case LcOptInfo::JaggedArray:
             {
-                LcJaggedArrayOptInfo* arrIndexInfo = optInfo->AsLcJaggedArrayOptInfo();
+                LcJaggedArrayOptInfo* arrIndexInfo = static_cast<LcJaggedArrayOptInfo*>(optInfo);
 
                 EnsureConditions(loopNum)->Emplace(GT_LE, LcExpr(ident),
                                                    LcExpr(LcIdent(LcArray(LcArray::Jagged, &arrIndexInfo->arrIndex,
@@ -1251,9 +1240,9 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
             }
             break;
 
-            case LcOptInfo::LcMdArray:
+            case LcOptInfo::MDArray:
             {
-                LcMdArrayOptInfo* mdArrInfo = optInfo->AsLcMdArrayOptInfo();
+                LcMdArrayOptInfo* mdArrInfo = static_cast<LcMdArrayOptInfo*>(optInfo);
 
                 EnsureConditions(loopNum)->Emplace(GT_LE, LcExpr(ident),
                                                    LcExpr(LcIdent(LcArray(LcArray::MdArray,
@@ -1497,9 +1486,9 @@ void LoopCloneContext::PerformStaticOptimizations(unsigned loopNum)
     {
         LcOptInfo* optInfo = (*optInfos)[i];
 
-        if (optInfo->kind == LcOptInfo::LcJaggedArray)
+        if (optInfo->kind == LcOptInfo::JaggedArray)
         {
-            LcJaggedArrayOptInfo* arrIndexInfo = optInfo->AsLcJaggedArrayOptInfo();
+            LcJaggedArrayOptInfo* arrIndexInfo = static_cast<LcJaggedArrayOptInfo*>(optInfo);
 
             // Remove all bounds checks for this array up to (and including) `arrIndexInfo->dim`. So, if that is 1,
             // Remove rank 0 and 1 bounds checks.
