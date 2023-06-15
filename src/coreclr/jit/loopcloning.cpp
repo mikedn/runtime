@@ -260,8 +260,7 @@ struct LcArray
     enum Kind : uint8_t
     {
         Invalid,
-        Jagged,
-        MdArray
+        Jagged
     };
 
     enum Oper : uint8_t
@@ -415,28 +414,15 @@ struct LcIdent
 // Symbolic representation of an expr that involves an "LcIdent"
 struct LcExpr
 {
-    enum Kind
-    {
-        Invalid,
-        Ident
-    };
-
-    Kind    kind;
     LcIdent ident;
 
-    LcExpr() : kind(Invalid)
-    {
-    }
-
-    explicit LcExpr(const LcIdent& ident) : kind(Ident), ident(ident)
+    explicit LcExpr(const LcIdent& ident) : ident(ident)
     {
     }
 
     bool operator==(const LcExpr& that) const
     {
-        assert(kind != Invalid && that.kind != Invalid);
-
-        return (kind == that.kind) && (ident == that.ident);
+        return ident == that.ident;
     }
 
     GenTree* ToGenTree(Compiler* comp);
@@ -444,14 +430,7 @@ struct LcExpr
 #ifdef DEBUG
     void Print()
     {
-        if (kind == Ident)
-        {
-            ident.Print();
-        }
-        else
-        {
-            printf("INVALID");
-        }
+        ident.Print();
     }
 #endif
 };
@@ -463,10 +442,6 @@ struct LcCondition
     LcExpr     op1;
     LcExpr     op2;
     genTreeOps oper;
-
-    LcCondition()
-    {
-    }
 
     LcCondition(genTreeOps oper, const LcExpr& op1, const LcExpr& op2) : op1(op1), op2(op2), oper(oper)
     {
@@ -756,13 +731,7 @@ GenTree* LcIdent::ToGenTree(Compiler* comp)
 
 GenTree* LcExpr::ToGenTree(Compiler* comp)
 {
-    switch (kind)
-    {
-        case Ident:
-            return ident.ToGenTree(comp);
-        default:
-            unreached();
-    }
+    return ident.ToGenTree(comp);
 }
 
 GenTree* LcCondition::ToGenTree(Compiler* comp)
