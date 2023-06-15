@@ -228,8 +228,7 @@ struct LcOptInfo
 {
     enum Kind
     {
-        JaggedArray,
-        MDArray
+        JaggedArray
     };
 
     const Kind kind;
@@ -251,37 +250,6 @@ struct LcJaggedArrayOptInfo : public LcOptInfo
     LcJaggedArrayOptInfo(const ArrIndex& arrIndex, unsigned dim, Statement* stmt)
         : LcOptInfo(JaggedArray), dim(dim), arrIndex(arrIndex), stmt(stmt)
     {
-    }
-};
-
-// Optimization info for a multi-dimensional array.
-struct LcMdArrayOptInfo : public LcOptInfo
-{
-    GenTreeArrElem* arrElem;
-    ArrIndex*       index = nullptr;
-    unsigned        dim; // "dim" represents up to what level of the rank this optimization applies to.
-    // For example, a[i,j,k] could be the MD array "arrElem" but if "dim" is 2,
-    // then this node is treated as though it were a[i,j]
-
-    LcMdArrayOptInfo(GenTreeArrElem* arrElem, unsigned dim) : LcOptInfo(MDArray), arrElem(arrElem), dim(dim)
-    {
-    }
-
-    ArrIndex* GetArrIndexForDim(CompAllocator alloc)
-    {
-        if (index == nullptr)
-        {
-            index         = new (alloc) ArrIndex(alloc);
-            index->rank   = arrElem->GetRank();
-            index->arrLcl = arrElem->GetArray()->AsLclVar()->GetLclNum();
-
-            for (unsigned i = 0; i < dim; ++i)
-            {
-                index->indLcls.Add(arrElem->GetIndex(i)->AsLclVar()->GetLclNum());
-            }
-        }
-
-        return index;
     }
 };
 
@@ -1225,36 +1193,14 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
     for (unsigned i = 0; i < optInfos->Size(); ++i)
     {
         LcOptInfo* optInfo = (*optInfos)[i];
+        assert(optInfo->kind == LcOptInfo::JaggedArray);
+        LcJaggedArrayOptInfo* arrIndexInfo = static_cast<LcJaggedArrayOptInfo*>(optInfo);
 
-        switch (optInfo->kind)
-        {
-            case LcOptInfo::JaggedArray:
-            {
-                LcJaggedArrayOptInfo* arrIndexInfo = static_cast<LcJaggedArrayOptInfo*>(optInfo);
+        EnsureConditions(loopNum)->Emplace(GT_LE, LcExpr(ident),
+                                           LcExpr(LcIdent(LcArray(LcArray::Jagged, &arrIndexInfo->arrIndex,
+                                                                  arrIndexInfo->dim, LcArray::ArrLen))));
 
-                EnsureConditions(loopNum)->Emplace(GT_LE, LcExpr(ident),
-                                                   LcExpr(LcIdent(LcArray(LcArray::Jagged, &arrIndexInfo->arrIndex,
-                                                                          arrIndexInfo->dim, LcArray::ArrLen))));
-
-                derefs.Emplace(LcArray::Jagged, &arrIndexInfo->arrIndex, arrIndexInfo->dim, LcArray::None);
-            }
-            break;
-
-            case LcOptInfo::MDArray:
-            {
-                LcMdArrayOptInfo* mdArrInfo = static_cast<LcMdArrayOptInfo*>(optInfo);
-
-                EnsureConditions(loopNum)->Emplace(GT_LE, LcExpr(ident),
-                                                   LcExpr(LcIdent(LcArray(LcArray::MdArray,
-                                                                          mdArrInfo->GetArrIndexForDim(alloc),
-                                                                          mdArrInfo->dim, LcArray::None))));
-            }
-            break;
-
-            default:
-                JITDUMP("Unknown opt\n");
-                return false;
-        }
+        derefs.Emplace(LcArray::Jagged, &arrIndexInfo->arrIndex, arrIndexInfo->dim, LcArray::None);
     }
 
     JITDUMP("Conditions: ");
@@ -1485,59 +1431,56 @@ void LoopCloneContext::PerformStaticOptimizations(unsigned loopNum)
     for (unsigned i = 0; i < optInfos->Size(); ++i)
     {
         LcOptInfo* optInfo = (*optInfos)[i];
+        assert(optInfo->kind == LcOptInfo::JaggedArray);
+        LcJaggedArrayOptInfo* arrIndexInfo = static_cast<LcJaggedArrayOptInfo*>(optInfo);
 
-        if (optInfo->kind == LcOptInfo::JaggedArray)
+        // Remove all bounds checks for this array up to (and including) `arrIndexInfo->dim`. So, if that is 1,
+        // Remove rank 0 and 1 bounds checks.
+
+        for (unsigned dim = 0; dim <= arrIndexInfo->dim; dim++)
         {
-            LcJaggedArrayOptInfo* arrIndexInfo = static_cast<LcJaggedArrayOptInfo*>(optInfo);
-
-            // Remove all bounds checks for this array up to (and including) `arrIndexInfo->dim`. So, if that is 1,
-            // Remove rank 0 and 1 bounds checks.
-
-            for (unsigned dim = 0; dim <= arrIndexInfo->dim; dim++)
-            {
-                GenTreeOp* comma = arrIndexInfo->arrIndex.bndsChks[dim];
+            GenTreeOp* comma = arrIndexInfo->arrIndex.bndsChks[dim];
 
 #ifdef DEBUG
-                if (verbose)
-                {
-                    printf("Remove bounds check [%06u]", comma->GetOp(0)->GetID());
-                    printf(" for " FMT_STMT ", dim% d, ", arrIndexInfo->stmt->GetID(), dim);
-                    arrIndexInfo->arrIndex.Print();
-                    printf(", bounds check nodes: ");
-                    arrIndexInfo->arrIndex.PrintBoundsCheckNodes();
-                    printf("\n");
-                }
+            if (verbose)
+            {
+                printf("Remove bounds check [%06u]", comma->GetOp(0)->GetID());
+                printf(" for " FMT_STMT ", dim% d, ", arrIndexInfo->stmt->GetID(), dim);
+                arrIndexInfo->arrIndex.Print();
+                printf(", bounds check nodes: ");
+                arrIndexInfo->arrIndex.PrintBoundsCheckNodes();
+                printf("\n");
+            }
 #endif
 
-                if (GenTreeBoundsChk* boundsChk = comma->GetOp(0)->IsBoundsChk())
-                {
-                    // This COMMA node will only represent a bounds check if we've haven't already removed this
-                    // bounds check in some other nesting cloned loop. For example, consider:
-                    //   for (i = 0; i < x; i++)
-                    //      for (j = 0; j < y; j++)
-                    //         a[i][j] = i + j;
-                    // If the outer loop is cloned first, it will remove the a[i] bounds check from the optimized
-                    // path. Later, when the inner loop is cloned, we want to remove the a[i][j] bounds check. If
-                    // we clone the inner loop, we know that the a[i] bounds check isn't required because we'll add
-                    // it to the loop cloning conditions. On the other hand, we can clone a loop where we get rid of
-                    // the nested bounds check but nobody has gotten rid of the outer bounds check. As before, we
-                    // know the outer bounds check is not needed because it's been added to the cloning conditions,
-                    // so we can get rid of the bounds check here.
-                    compiler->optRemoveRangeCheck(boundsChk, comma, arrIndexInfo->stmt);
+            if (GenTreeBoundsChk* boundsChk = comma->GetOp(0)->IsBoundsChk())
+            {
+                // This COMMA node will only represent a bounds check if we've haven't already removed this
+                // bounds check in some other nesting cloned loop. For example, consider:
+                //   for (i = 0; i < x; i++)
+                //      for (j = 0; j < y; j++)
+                //         a[i][j] = i + j;
+                // If the outer loop is cloned first, it will remove the a[i] bounds check from the optimized
+                // path. Later, when the inner loop is cloned, we want to remove the a[i][j] bounds check. If
+                // we clone the inner loop, we know that the a[i] bounds check isn't required because we'll add
+                // it to the loop cloning conditions. On the other hand, we can clone a loop where we get rid of
+                // the nested bounds check but nobody has gotten rid of the outer bounds check. As before, we
+                // know the outer bounds check is not needed because it's been added to the cloning conditions,
+                // so we can get rid of the bounds check here.
+                compiler->optRemoveRangeCheck(boundsChk, comma, arrIndexInfo->stmt);
 
-                    // TODO-MIKE-Cleanup: Turns out that CSE is dumb and it will make CSE def out of
-                    // COMMA(NOP, x) and a CSE use out x, because they have the same value numbers.
-                    // Can we just make CSE ignore COMMA(NOP, x)? Or remove it altogether somewhere
-                    // along the way?
-                    comma->gtFlags |= GTF_DONT_CSE;
-                }
-                else
-                {
-                    JITDUMP("  Bounds check already removed\n");
+                // TODO-MIKE-Cleanup: Turns out that CSE is dumb and it will make CSE def out of
+                // COMMA(NOP, x) and a CSE use out x, because they have the same value numbers.
+                // Can we just make CSE ignore COMMA(NOP, x)? Or remove it altogether somewhere
+                // along the way?
+                comma->gtFlags |= GTF_DONT_CSE;
+            }
+            else
+            {
+                JITDUMP("  Bounds check already removed\n");
 
-                    // If the bounds check node isn't there, it better have been converted to a GT_NOP.
-                    assert(comma->GetOp(0)->OperIs(GT_NOP));
-                }
+                // If the bounds check node isn't there, it better have been converted to a GT_NOP.
+                assert(comma->GetOp(0)->OperIs(GT_NOP));
             }
         }
     }
