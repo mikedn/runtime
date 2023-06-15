@@ -232,7 +232,7 @@ BitVec& Compiler::morphAssertionGetDependent(unsigned lclNum)
 {
     assert(lclNum < lvaCount);
 
-    BitVec& dep = morphAssertionDep->GetRef(lclNum);
+    BitVec& dep = (*morphAssertionDep)[lclNum];
 
     if (DepBitVecOps::MayBeUninit(dep))
     {

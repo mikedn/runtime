@@ -6,123 +6,145 @@
 template <class T>
 class JitExpandArray
 {
-protected:
     CompAllocator m_alloc;
-    T*            m_data;
-    unsigned      m_size;
+    T*            m_data = nullptr;
+    unsigned      m_size = 0;
     unsigned      m_minSize;
 
-    void EnsureCoversInd(unsigned idx);
-
-    void InitializeRange(unsigned low, unsigned high)
+    void EnsureSize(unsigned size)
     {
-        assert(m_data != nullptr);
-        assert((low <= high) && (high <= m_size));
-        for (unsigned i = low; i < high; i++)
+        assert(size >= m_size);
+
+        unsigned oldSize = m_size;
+        T*       oldData = m_data;
+        unsigned newSize = Max(size, Max(m_minSize, oldSize * 2));
+        T*       newData = m_alloc.allocate<T>(newSize);
+
+        if (oldData != nullptr)
         {
-            m_data[i] = T();
+            for (unsigned i = 0; i < oldSize; i++)
+            {
+                newData[i] = oldData[i];
+            }
+
+            m_alloc.deallocate(oldData);
         }
+
+        for (unsigned i = oldSize; i < newSize; i++)
+        {
+            newData[i] = T();
+        }
+
+        m_data = newData;
+        m_size = newSize;
     }
 
 public:
-    JitExpandArray(CompAllocator alloc, unsigned minSize = 1)
-        : m_alloc(alloc), m_data(nullptr), m_size(0), m_minSize(minSize)
+    JitExpandArray(CompAllocator alloc, unsigned minSize) : m_alloc(alloc), m_minSize(minSize)
     {
-        assert(minSize > 0);
     }
 
-    T& GetRef(unsigned idx)
+    T& operator[](unsigned i)
     {
-        if (idx >= m_size)
+        if (i >= m_size)
         {
-            EnsureCoversInd(idx);
+            EnsureSize(i + 1);
         }
 
-        return m_data[idx];
+        return m_data[i];
     }
 };
 
 template <class T>
-class JitExpandArrayStack : public JitExpandArray<T>
+class JitVector
 {
-    unsigned m_used;
+    CompAllocator m_alloc;
+    T*            m_data     = nullptr;
+    unsigned      m_size     = 0;
+    unsigned      m_capacity = 0;
+
+    void EnsureCapacity(unsigned newCapacity)
+    {
+        assert(newCapacity >= m_capacity);
+
+        newCapacity = Max(newCapacity, Max(m_capacity * 2, 4u));
+
+        T* oldData = m_data;
+        T* newData = m_alloc.allocate<T>(newCapacity);
+
+        if (oldData != nullptr)
+        {
+            for (unsigned i = 0; i < m_size; i++)
+            {
+                newData[i] = oldData[i];
+            }
+
+            m_alloc.deallocate(oldData);
+        }
+
+        m_data     = newData;
+        m_capacity = newCapacity;
+    }
 
 public:
-    JitExpandArrayStack(CompAllocator alloc, unsigned minSize = 1) : JitExpandArray<T>(alloc, minSize), m_used(0)
+    JitVector(CompAllocator alloc) : m_alloc(alloc)
     {
-    }
-
-    void Set(unsigned idx, T val)
-    {
-        if (idx >= m_size)
-        {
-            EnsureCoversInd(idx);
-        }
-
-        m_data[idx] = val;
-        m_used      = max((idx + 1), m_used);
-    }
-
-    void Reset()
-    {
-        if (m_minSize > m_size)
-        {
-            EnsureCoversInd(m_minSize - 1);
-        }
-
-        InitializeRange(0, m_size);
-
-        m_used = 0;
-    }
-
-    void Push(T val)
-    {
-        unsigned res = m_used;
-
-        if (m_used >= m_size)
-        {
-            EnsureCoversInd(m_used);
-        }
-
-        m_data[m_used] = val;
-        m_used++;
-    }
-
-    T& operator[](unsigned i) const
-    {
-        assert(i < m_used);
-        return m_data[i];
-    }
-
-    void Remove(unsigned idx)
-    {
-        assert(idx < m_used);
-        if (idx < m_used - 1)
-        {
-            memmove(&m_data[idx], &m_data[idx + 1], (m_used - idx - 1) * sizeof(T));
-        }
-        m_used--;
     }
 
     unsigned Size() const
     {
-        return m_used;
+        return m_size;
+    }
+
+    void Clear()
+    {
+        m_size = 0;
+    }
+
+    T& operator[](unsigned i)
+    {
+        assert(i < m_size);
+        return m_data[i];
+    }
+
+    void Reserve(unsigned capacity)
+    {
+        if (capacity > m_capacity)
+        {
+            EnsureCapacity(capacity);
+        }
+    }
+
+    void Add(const T& value)
+    {
+        if (m_size == m_capacity)
+        {
+            EnsureCapacity(m_capacity + 1);
+        }
+
+        m_data[m_size++] = value;
+    }
+
+    template <typename... Args>
+    void Emplace(Args&&... args)
+    {
+        if (m_size == m_capacity)
+        {
+            EnsureCapacity(m_capacity + 1);
+        }
+
+        new (&m_data[m_size++]) T(std::forward<Args>(args)...);
+    }
+
+    void Remove(unsigned i)
+    {
+        assert(i < m_size);
+
+        for (unsigned j = i + 1; j < m_size; j++)
+        {
+            m_data[j - 1] = m_data[j];
+        }
+
+        m_size--;
     }
 };
-
-template <class T>
-NOINLINE void JitExpandArray<T>::EnsureCoversInd(unsigned idx)
-{
-    assert(idx >= m_size);
-
-    unsigned oldSize    = m_size;
-    T*       oldMembers = m_data;
-    m_size              = max(idx + 1, max(m_minSize, m_size * 2));
-    m_data              = m_alloc.allocate<T>(m_size);
-    if (oldMembers != nullptr)
-    {
-        memcpy(m_data, oldMembers, oldSize * sizeof(T));
-        m_alloc.deallocate(oldMembers);
-    }
-    InitializeRange(oldSize, m_size);
-}

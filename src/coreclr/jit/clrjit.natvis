@@ -219,18 +219,18 @@ Documentation for VS debugger format specifiers: https://docs.microsoft.com/en-u
     <Expand>
       <ArrayItems>
         <Size>m_size</Size>
-        <ValuePointer>m_members</ValuePointer>
+        <ValuePointer>m_data</ValuePointer>
       </ArrayItems>
     </Expand>
   </Type>
 
-  <Type Name="JitExpandArrayStack&lt;*&gt;">
-    <DisplayString Condition="m_size > 0">size={m_size,d} used={m_used,d}</DisplayString>
+  <Type Name="JitVector&lt;*&gt;">
+    <DisplayString Condition="m_size > 0">size={m_size,d}</DisplayString>
     <DisplayString Condition="m_size == 0">Empty</DisplayString>
     <Expand>
       <ArrayItems>
-        <Size>m_used</Size>
-        <ValuePointer>m_members</ValuePointer>
+        <Size>m_size</Size>
+        <ValuePointer>m_data</ValuePointer>
       </ArrayItems>
     </Expand>
   </Type>
@@ -239,10 +239,10 @@ Documentation for VS debugger format specifiers: https://docs.microsoft.com/en-u
 
   <!-- LcOptInfo is really one of its derived types, so figure out which one. Set Inheritable=false to prevent recursion. -->
   <Type Name="LcOptInfo" Inheritable="false">
-    <DisplayString>{optType,en}</DisplayString>
+    <DisplayString>{kind,en}</DisplayString>
     <Expand>
-      <ExpandedItem Condition="optType == LcOptInfo::OptType::LcJaggedArray">(LcJaggedArrayOptInfo*)this,nd</ExpandedItem>
-      <ExpandedItem Condition="optType == LcOptInfo::OptType::LcMdArray">(LcMdArrayOptInfo*)this,nd</ExpandedItem>
+      <ExpandedItem Condition="kind == LcOptInfo::Kind::LcJaggedArray">(LcJaggedArrayOptInfo*)this,nd</ExpandedItem>
+      <ExpandedItem Condition="kind == LcOptInfo::Kind::LcMdArray">(LcMdArrayOptInfo*)this,nd</ExpandedItem>
     </Expand>
   </Type>
 
