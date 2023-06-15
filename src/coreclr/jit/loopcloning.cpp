@@ -969,8 +969,7 @@ void LoopCloneContext::OptimizeConditions(JitExpandArrayStack<LcCondition>& cond
             if (conds[i] == conds[j])
             {
                 conds.Remove(j);
-                i = -1;
-                break;
+                --j;
             }
         }
     }
