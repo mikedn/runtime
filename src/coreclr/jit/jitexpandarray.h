@@ -112,6 +112,12 @@ public:
         return m_data[i];
     }
 
+    const T& operator[](unsigned i) const
+    {
+        assert(i < m_size);
+        return m_data[i];
+    }
+
     void Reserve(unsigned capacity)
     {
         if (capacity > m_capacity)

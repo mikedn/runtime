@@ -204,7 +204,7 @@ struct ArrIndex
     }
 
 #ifdef DEBUG
-    void Print(unsigned dim = UINT_MAX)
+    void Print(unsigned dim = UINT_MAX) const
     {
         printf("V%02u", arrLcl);
 
@@ -214,9 +214,9 @@ struct ArrIndex
         }
     }
 
-    void PrintBoundsCheckNodes(unsigned dim = UINT_MAX)
+    void PrintBoundsCheckNodes() const
     {
-        for (unsigned i = 0; i < Min(rank, dim); ++i)
+        for (unsigned i = 0; i < rank; ++i)
         {
             printf("[%06u]", bndsChks[i]->GetID());
         }
@@ -320,10 +320,10 @@ struct LcArray
         return true;
     }
 
-    GenTree* ToGenTree(Compiler* comp);
+    GenTree* ToGenTree(Compiler* comp) const;
 
 #ifdef DEBUG
-    void Print()
+    void Print() const
     {
         arrIndex->Print(dim);
 
@@ -384,10 +384,10 @@ struct LcIdent
         }
     }
 
-    GenTree* ToGenTree(Compiler* comp);
+    GenTree* ToGenTree(Compiler* comp) const;
 
 #ifdef DEBUG
-    void Print()
+    void Print() const
     {
         switch (kind)
         {
@@ -425,10 +425,10 @@ struct LcExpr
         return ident == that.ident;
     }
 
-    GenTree* ToGenTree(Compiler* comp);
+    GenTree* ToGenTree(Compiler* comp) const;
 
 #ifdef DEBUG
-    void Print()
+    void Print() const
     {
         ident.Print();
     }
@@ -447,10 +447,10 @@ struct LcCondition
     {
     }
 
-    bool Evaluate(bool* result);
+    bool Evaluate(bool* result) const;
     bool operator==(const LcCondition& cond) const;
 
-    GenTree* ToGenTree(Compiler* comp);
+    GenTree* ToGenTree(Compiler* comp) const;
 
 #ifdef DEBUG
     void Print()
@@ -555,17 +555,17 @@ struct LoopCloneContext
         blockConditions.resize(loopCount, nullptr);
     }
 
-    void CondToStmtInBlock(JitVector<LcCondition>& conds, BasicBlock* block, bool reverse);
+    void CondToStmtInBlock(JitVector<LcCondition>& conds, BasicBlock* block, bool reverse) const;
     void EvaluateConditions(unsigned loopNum, bool* pAllTrue, bool* pAnyFalse);
     void OptimizeConditions(JitVector<LcCondition>& conds);
     void OptimizeConditions(unsigned loopNum);
     void OptimizeBlockConditions(unsigned loopNum);
-    bool IsLoopClonable(unsigned loopNum);
+    bool IsLoopClonable(unsigned loopNum) const;
     void IdentifyLoopOptInfo(unsigned loopNum);
     Compiler::fgWalkResult CanOptimizeByLoopCloning(GenTree* tree, LoopCloneVisitorInfo& info);
-    bool ExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned tempArrayLclNum);
-    bool ReconstructArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum);
-    bool ArrLenLimit(const LoopDsc& loop, ArrIndex* index);
+    bool ExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned tempArrayLclNum) const;
+    bool ReconstructArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum) const;
+    bool ArrLenLimit(const LoopDsc& loop, ArrIndex* index) const;
     void PerformStaticOptimizations(unsigned loopNum);
     bool ComputeDerefConditions(const ArrayStack<LcArray>& derefs, unsigned loopNum);
     bool DeriveLoopCloningConditions(unsigned loopNum);
@@ -662,11 +662,11 @@ struct LoopCloneContext
         printf("\n");
     }
 
-    void PrintConditions(unsigned loopNum);
+    void PrintConditions(unsigned loopNum) const;
 #endif
 };
 
-GenTree* LcArray::ToGenTree(Compiler* comp)
+GenTree* LcArray::ToGenTree(Compiler* comp) const
 {
     assert(kind == Jagged);
 
@@ -711,7 +711,7 @@ GenTree* LcArray::ToGenTree(Compiler* comp)
     return arr;
 }
 
-GenTree* LcIdent::ToGenTree(Compiler* comp)
+GenTree* LcIdent::ToGenTree(Compiler* comp) const
 {
     switch (kind)
     {
@@ -729,12 +729,12 @@ GenTree* LcIdent::ToGenTree(Compiler* comp)
     }
 }
 
-GenTree* LcExpr::ToGenTree(Compiler* comp)
+GenTree* LcExpr::ToGenTree(Compiler* comp) const
 {
     return ident.ToGenTree(comp);
 }
 
-GenTree* LcCondition::ToGenTree(Compiler* comp)
+GenTree* LcCondition::ToGenTree(Compiler* comp) const
 {
     GenTree* op1Tree = op1.ToGenTree(comp);
     GenTree* op2Tree = op2.ToGenTree(comp);
@@ -744,7 +744,7 @@ GenTree* LcCondition::ToGenTree(Compiler* comp)
     return comp->gtNewOperNode(oper, TYP_INT, op1Tree, op2Tree);
 }
 
-bool LcCondition::Evaluate(bool* result)
+bool LcCondition::Evaluate(bool* result) const
 {
     switch (oper)
     {
@@ -940,7 +940,7 @@ void LoopCloneContext::OptimizeConditions(unsigned loopNum)
 }
 
 #ifdef DEBUG
-void LoopCloneContext::PrintConditions(unsigned loopNum)
+void LoopCloneContext::PrintConditions(unsigned loopNum) const
 {
     JitVector<LcCondition>* loopConditions = conditions[loopNum];
 
@@ -968,7 +968,7 @@ void LoopCloneContext::PrintConditions(unsigned loopNum)
 }
 #endif
 
-void LoopCloneContext::CondToStmtInBlock(JitVector<LcCondition>& conds, BasicBlock* block, bool reverse)
+void LoopCloneContext::CondToStmtInBlock(JitVector<LcCondition>& conds, BasicBlock* block, bool reverse) const
 {
     noway_assert(conds.Size() > 0);
 
@@ -1037,7 +1037,7 @@ LcDeref* LcDeref::Find(JitVector<LcDeref*>& children, unsigned lcl)
     return nullptr;
 }
 
-bool LoopCloneContext::ArrLenLimit(const LoopDsc& loop, ArrIndex* index)
+bool LoopCloneContext::ArrLenLimit(const LoopDsc& loop, ArrIndex* index) const
 {
     INDEBUG(loop.VerifyIterator());
     assert(loop.lpFlags & LPFLG_ARRLEN_LIMIT);
@@ -1285,7 +1285,7 @@ bool LoopCloneContext::ComputeDerefConditions(const ArrayStack<LcArray>& derefs,
     // 'u-v-w' transitively if u[v][w] occurs.
     for (unsigned i = 0; i < derefs.Size(); ++i)
     {
-        LcArray& array = derefs.GetRef(i);
+        const LcArray& array = derefs.GetRef(i);
 
         // First populate the array base variable.
         LcDeref* node = LcDeref::Find(nodes, array.arrIndex->arrLcl);
@@ -1455,7 +1455,7 @@ void LoopCloneContext::PerformStaticOptimizations(unsigned loopNum)
     }
 }
 
-bool LoopCloneContext::IsLoopClonable(unsigned loopNum)
+bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
 {
     const LoopDsc& loop = loopTable[loopNum];
 
@@ -2263,7 +2263,7 @@ void LoopCloneVisitorInfo::IsLclAssignedVisitor(GenTree* tree)
     }
 }
 
-bool LoopCloneContext::ExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned tempArrayLclNum)
+bool LoopCloneContext::ExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned tempArrayLclNum) const
 {
     if (!tree->OperIs(GT_COMMA))
     {
@@ -2309,7 +2309,7 @@ bool LoopCloneContext::ExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned
     return true;
 }
 
-bool LoopCloneContext::ReconstructArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum)
+bool LoopCloneContext::ReconstructArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum) const
 {
     if (ExtractArrIndex(tree, result, lhsNum))
     {
