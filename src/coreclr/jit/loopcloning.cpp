@@ -1399,6 +1399,12 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
 {
     const LoopDsc& loop = loopTable[loopNum];
 
+    if (loop.lpFlags & LPFLG_REMOVED)
+    {
+        JITDUMP("Rejecting loop. It is marked LPFLG_REMOVED.\n");
+        return false;
+    }
+
     if (loop.lpIterTree == nullptr)
     {
         JITDUMP("Rejecting loop. No iterator.\n");
@@ -1407,9 +1413,48 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
 
     assert(!compiler->lvaGetDesc(loop.lpIterVar())->IsAddressExposed());
 
-    if (loop.lpFlags & LPFLG_REMOVED)
+    if ((loop.lpFlags & (LPFLG_CONST_LIMIT | LPFLG_VAR_LIMIT | LPFLG_ARRLEN_LIMIT)) == 0)
     {
-        JITDUMP("Rejecting loop. It is marked LPFLG_REMOVED.\n");
+        JITDUMP("Rejecting loop. Loop limit is neither constant, variable or array length.\n");
+        return false;
+    }
+
+    // TODO-CQ: CLONE: Mark increasing or decreasing loops.
+    if ((loop.lpIterOper() != GT_ADD) || (loop.lpIterConst() != 1))
+    {
+        JITDUMP("Rejecting loop. Loop iteration operator not matching.\n");
+        return false;
+    }
+
+    if (!((GenTree::StaticOperIs(loop.lpTestOper(), GT_LT, GT_LE) && (loop.lpIterOper() == GT_ADD)) ||
+          (GenTree::StaticOperIs(loop.lpTestOper(), GT_GT, GT_GE) && (loop.lpIterOper() == GT_SUB))))
+    {
+        JITDUMP("Rejecting loop. Loop test (%s) doesn't agree with the direction (%s) of the loop.\n",
+                GenTree::OpName(loop.lpTestOper()), GenTree::OpName(loop.lpIterOper()));
+        return false;
+    }
+
+    // TODO-MIKE-Review: Why do we check for null "a" in a "a.Length" limit if loop version is required?
+    if (!loop.lpTestTree->OperIsCompare() || ((loop.lpTestTree->gtFlags & GTF_RELOP_ZTT) == 0))
+    {
+        JITDUMP("Rejecting loop. Loop inversion NOT present, loop test [%06u] may not protect entry from head.\n",
+                loop.lpTestTree->GetID());
+        return false;
+    }
+
+    BasicBlock* const head = loop.lpHead;
+    BasicBlock* const end  = loop.lpBottom;
+    BasicBlock* const beg  = head->bbNext;
+
+    if (end->bbJumpKind != BBJ_COND)
+    {
+        JITDUMP("Rejecting loop. Couldn't find termination test.\n");
+        return false;
+    }
+
+    if (end->bbJumpDest != beg)
+    {
+        JITDUMP("Rejecting loop. Branch at loop 'end' not looping to 'begin'.\n");
         return false;
     }
 
@@ -1481,50 +1526,6 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
         JITDUMP("Rejecting loop. It has %u returns; if added to previously existing %u returns, it would exceed the "
                 "limit of %u.\n",
                 loopRetCount, compiler->fgReturnCount, epilogLimit);
-        return false;
-    }
-
-    BasicBlock* head = loop.lpHead;
-    BasicBlock* end  = loop.lpBottom;
-    BasicBlock* beg  = head->bbNext;
-
-    if (end->bbJumpKind != BBJ_COND)
-    {
-        JITDUMP("Rejecting loop. Couldn't find termination test.\n");
-        return false;
-    }
-
-    if (end->bbJumpDest != beg)
-    {
-        JITDUMP("Rejecting loop. Branch at loop 'end' not looping to 'begin'.\n");
-        return false;
-    }
-
-    // TODO-CQ: CLONE: Mark increasing or decreasing loops.
-    if ((loop.lpIterOper() != GT_ADD) || (loop.lpIterConst() != 1))
-    {
-        JITDUMP("Rejecting loop. Loop iteration operator not matching.\n");
-        return false;
-    }
-
-    if ((loop.lpFlags & (LPFLG_CONST_LIMIT | LPFLG_VAR_LIMIT | LPFLG_ARRLEN_LIMIT)) == 0)
-    {
-        JITDUMP("Rejecting loop. Loop limit is neither constant, variable or array length.\n");
-        return false;
-    }
-
-    if (!((GenTree::StaticOperIs(loop.lpTestOper(), GT_LT, GT_LE) && (loop.lpIterOper() == GT_ADD)) ||
-          (GenTree::StaticOperIs(loop.lpTestOper(), GT_GT, GT_GE) && (loop.lpIterOper() == GT_SUB))))
-    {
-        JITDUMP("Rejecting loop. Loop test (%s) doesn't agree with the direction (%s) of the loop.\n",
-                GenTree::OpName(loop.lpTestOper()), GenTree::OpName(loop.lpIterOper()));
-        return false;
-    }
-
-    if (!loop.lpTestTree->OperIsCompare() || ((loop.lpTestTree->gtFlags & GTF_RELOP_ZTT) == 0))
-    {
-        JITDUMP("Rejecting loop. Loop inversion NOT present, loop test [%06u] may not protect entry from head.\n",
-                loop.lpTestTree->GetID());
         return false;
     }
 
