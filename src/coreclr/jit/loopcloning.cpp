@@ -197,7 +197,6 @@ struct ArrIndex
     JitVector<unsigned>   indLcls;              // The indices local nums
     JitVector<GenTreeOp*> bndsChks;             // The bounds check COMMA nodes along each dimension.
     unsigned              arrLcl = BAD_VAR_NUM; // The array base local num
-    unsigned              rank   = 0;           // Rank of the array
 
     ArrIndex(CompAllocator alloc) : indLcls(alloc), bndsChks(alloc)
     {
@@ -208,7 +207,7 @@ struct ArrIndex
     {
         printf("V%02u", arrLcl);
 
-        for (unsigned i = 0; i < Min(rank, dim); ++i)
+        for (unsigned i = 0; i < Min(indLcls.Size(), dim); ++i)
         {
             printf("[V%02u]", indLcls[i]);
         }
@@ -216,7 +215,7 @@ struct ArrIndex
 
     void PrintBoundsCheckNodes() const
     {
-        for (unsigned i = 0; i < rank; ++i)
+        for (unsigned i = 0; i < indLcls.Size(); ++i)
         {
             printf("[%06u]", bndsChks[i]->GetID());
         }
@@ -269,14 +268,12 @@ struct LcArray
         ArrLen,
     };
 
-    Kind kind;
-    Oper oper;
-    int  dim; // "dim" = which index to invoke arrLen on, if -1 invoke on the whole array
-    // Example 1: a[0][1][2] and dim =  2 implies a[0][1].length
-    // Example 2: a[0][1][2] and dim = -1 implies a[0][1][2].length
+    Kind      kind;
+    Oper      oper;
+    unsigned  dim;
     ArrIndex* arrIndex;
 
-    LcArray() : kind(Invalid), dim(-1)
+    LcArray() : kind(Invalid), dim(0)
     {
     }
 
@@ -284,32 +281,21 @@ struct LcArray
     {
     }
 
-    LcArray(Kind kind, ArrIndex* arrIndex, Oper oper) : kind(kind), oper(oper), dim(-1), arrIndex(arrIndex)
+    LcArray(Kind kind, ArrIndex* arrIndex, Oper oper)
+        : kind(kind), oper(oper), dim(arrIndex->indLcls.Size()), arrIndex(arrIndex)
     {
-    }
-
-    int GetDimRank() const
-    {
-        return dim < 0 ? static_cast<int>(arrIndex->rank) : dim;
     }
 
     bool operator==(const LcArray& that) const
     {
         assert(kind != Invalid && that.kind != Invalid);
 
-        if (kind != that.kind || oper != that.oper || arrIndex->arrLcl != that.arrIndex->arrLcl)
+        if (kind != that.kind || oper != that.oper || arrIndex->arrLcl != that.arrIndex->arrLcl || dim != that.dim)
         {
             return false;
         }
 
-        int rank = GetDimRank();
-
-        if (rank != that.GetDimRank())
-        {
-            return false;
-        }
-
-        for (int i = 0; i < rank; ++i)
+        for (unsigned i = 0; i < dim; ++i)
         {
             if (arrIndex->indLcls[i] != that.arrIndex->indLcls[i])
             {
@@ -671,10 +657,9 @@ GenTree* LcArray::ToGenTree(Compiler* comp) const
     assert(kind == Jagged);
 
     // Create a a[i][j][k].length type node.
-    GenTree* arr  = comp->gtNewLclvNode(arrIndex->arrLcl, comp->lvaGetDesc(arrIndex->arrLcl)->GetType());
-    int      rank = GetDimRank();
+    GenTree* arr = comp->gtNewLclvNode(arrIndex->arrLcl, comp->lvaGetDesc(arrIndex->arrLcl)->GetType());
 
-    for (int i = 0; i < rank; ++i)
+    for (unsigned i = 0; i < dim; ++i)
     {
         unsigned indexLclNum = arrIndex->indLcls[i];
 
@@ -1047,7 +1032,6 @@ bool LoopCloneContext::ArrLenLimit(const LoopDsc& loop, ArrIndex* index) const
     if (array->OperIs(GT_LCL_VAR))
     {
         index->arrLcl = array->AsLclVar()->GetLclNum();
-        index->rank   = 0;
 
         return true;
     }
@@ -1277,7 +1261,7 @@ bool LoopCloneContext::ComputeDerefConditions(const ArrayStack<LcArray>& derefs,
     assert(blockConditions[loopNum] == nullptr);
 
     JitVector<LcDeref*> nodes(alloc);
-    int                 maxRank = -1;
+    unsigned            maxRank = 0;
 
     // For each array in the dereference list, construct a tree,
     // where the nodes are array and index variables and an edge 'u-v'
@@ -1298,9 +1282,8 @@ bool LoopCloneContext::ComputeDerefConditions(const ArrayStack<LcArray>& derefs,
 
         // For each dimension (level) for the array, populate the tree with the variable
         // from that dimension.
-        unsigned rank = static_cast<unsigned>(array.GetDimRank());
 
-        for (unsigned i = 0; i < rank; ++i)
+        for (unsigned i = 0; i < array.dim; ++i)
         {
             LcDeref* tmp = nullptr;
 
@@ -1324,7 +1307,7 @@ bool LoopCloneContext::ComputeDerefConditions(const ArrayStack<LcArray>& derefs,
         }
 
         // Keep the maxRank of all array dereferences.
-        maxRank = Max(static_cast<int>(rank), maxRank);
+        maxRank = Max(array.dim, maxRank);
     }
 
 #ifdef DEBUG
@@ -1340,15 +1323,9 @@ bool LoopCloneContext::ComputeDerefConditions(const ArrayStack<LcArray>& derefs,
     }
 #endif
 
-    if (maxRank == -1)
-    {
-        JITDUMP("> maxRank undefined\n");
-        return false;
-    }
-
     // First level will always yield the null-check, since it is made of the array base variables.
     // All other levels (dimensions) will yield two conditions ex: (i < a.length && a[i] != null)
-    const unsigned condBlocks = 1 + static_cast<unsigned>(maxRank) * 2;
+    const unsigned condBlocks = 1 + maxRank * 2;
 
     // Heuristic to not create too many blocks. Defining as 3 allows, effectively, loop cloning on
     // doubly-nested loops.
@@ -2304,7 +2281,6 @@ bool LoopCloneContext::ExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned
 
     result->indLcls.Add(indexLclNum);
     result->bndsChks.Add(tree->AsOp());
-    result->rank++;
 
     return true;
 }
@@ -2372,12 +2348,12 @@ void LoopCloneVisitorInfo::AddArrayIndex(GenTree* tree, ArrIndex& arrIndex)
     unsigned ivLclNum = loop.lpIterVar();
     unsigned dim      = 0;
 
-    while ((dim < arrIndex.rank) && (arrIndex.indLcls[dim] != ivLclNum))
+    while ((dim < arrIndex.indLcls.Size()) && (arrIndex.indLcls[dim] != ivLclNum))
     {
         dim++;
     }
 
-    if (dim >= arrIndex.rank)
+    if (dim >= arrIndex.indLcls.Size())
     {
         JITDUMP("Induction V%02u is not used as index\n", ivLclNum);
         return;
