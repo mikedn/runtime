@@ -1064,7 +1064,8 @@ bool Compiler::optRecordLoop(BasicBlock* head,
         assert(optIsLoopIncrTree(incr) == iterVar);
         assert(incr->GetOp(1)->OperIs(GT_ADD, GT_SUB));
 
-        if (optIsVarAssigned(head->bbNext, bottom, incr, iterVar))
+        // TODO-MIKE-Cleanup: optIsVarAssigned should check AX.
+        if (lvaGetDesc(iterVar)->IsAddressExposed() || optIsVarAssigned(head->bbNext, bottom, incr, iterVar))
         {
             JITDUMP("iterVar is assigned in loop\n");
             goto DONE_LOOP;
@@ -3426,10 +3427,7 @@ PhaseStatus Compiler::phUnrollLoops()
         const genTreeOps iterOper = optLoopTable[lnum].lpIterOper();
         const bool       unsTest  = optLoopTable[lnum].lpTestTree->IsUnsigned();
 
-        if (lvaGetDesc(lvar)->IsAddressExposed())
-        {
-            continue;
-        }
+        assert(!lvaGetDesc(lvar)->IsAddressExposed());
 
         if (lvaGetDesc(lvar)->IsPromotedField())
         {
@@ -4476,6 +4474,11 @@ PhaseStatus Compiler::phFindLoops()
 
 bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned lclNum)
 {
+    // TODO-MIKE-Fix: This should reject AX locals. This results in some diffs, in some cases
+    // the limit is AX but it happens so that the local isn't modified inside the loop so it
+    // works correctly. But it is probably possible to construct code that behaves incorrectly
+    // due to this.
+
     struct WalkData
     {
         GenTree* skip;

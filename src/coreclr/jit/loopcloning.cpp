@@ -1405,6 +1405,8 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
         return false;
     }
 
+    assert(!compiler->lvaGetDesc(loop.lpIterVar())->IsAddressExposed());
+
     if (loop.lpFlags & LPFLG_REMOVED)
     {
         JITDUMP("Rejecting loop. It is marked LPFLG_REMOVED.\n");
@@ -1482,13 +1484,6 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
         return false;
     }
 
-    unsigned ivLclNum = loop.lpIterVar();
-    if (compiler->lvaGetDesc(ivLclNum)->IsAddressExposed())
-    {
-        JITDUMP("Rejecting loop. Rejected V%02u as iter var because is address-exposed.\n", ivLclNum);
-        return false;
-    }
-
     BasicBlock* head = loop.lpHead;
     BasicBlock* end  = loop.lpBottom;
     BasicBlock* beg  = head->bbNext;
@@ -1532,9 +1527,6 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
                 loop.lpTestTree->GetID());
         return false;
     }
-
-    INDEBUG(GenTree* op1 = loop.lpIterator());
-    assert(op1->OperIs(GT_LCL_VAR) && (op1->AsLclVar()->GetLclNum() == ivLclNum));
 
     // Otherwise, we're going to add those return blocks.
     // TODO-MIKE-Review: Why the crap does this update fgReturnCount before we actually clone the loop?
