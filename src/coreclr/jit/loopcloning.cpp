@@ -482,30 +482,6 @@ struct LcDeref
     static LcDeref* Find(JitVector<LcDeref*>& children, unsigned lcl);
 
     void DeriveLevelConditions(JitVector<JitVector<LcCondition>*>& conds);
-
-#ifdef DEBUG
-    void Print(unsigned indent = 0)
-    {
-        unsigned tab = 4 * indent;
-        printf("%*sV%02u, level %u => {", tab, "", Lcl(), level);
-
-        if (children != nullptr)
-        {
-            for (unsigned i = 0; i < children->Size(); ++i)
-            {
-                if (i > 0)
-                {
-                    printf(",");
-                }
-                printf("\n");
-
-                (*children)[i]->Print(indent + 1);
-            }
-        }
-
-        printf("\n%*s}", tab, "");
-    }
-#endif
 };
 
 using LoopDsc = Compiler::LoopDsc;
@@ -1309,19 +1285,6 @@ bool LoopCloneContext::ComputeDerefConditions(const ArrayStack<LcArray>& derefs,
         // Keep the maxRank of all array dereferences.
         maxRank = Max(array.dim, maxRank);
     }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("Deref condition tree:\n");
-
-        for (unsigned i = 0; i < nodes.Size(); ++i)
-        {
-            nodes[i]->Print();
-            printf("\n");
-        }
-    }
-#endif
 
     // First level will always yield the null-check, since it is made of the array base variables.
     // All other levels (dimensions) will yield two conditions ex: (i < a.length && a[i] != null)
