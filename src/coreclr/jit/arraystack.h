@@ -141,4 +141,24 @@ public:
 
         return false;
     }
+
+    T* begin()
+    {
+        return m_data;
+    }
+
+    const T* begin() const
+    {
+        return m_data;
+    }
+
+    T* end()
+    {
+        return m_data + m_size;
+    }
+
+    const T* end() const
+    {
+        return m_data + m_size;
+    }
 };

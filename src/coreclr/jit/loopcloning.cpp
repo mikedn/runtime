@@ -776,19 +776,19 @@ void LoopCloneContext::EvaluateConditions(unsigned loopNum, bool* pAllTrue, bool
     bool allTrue  = true;
     bool anyFalse = false;
 
-    for (unsigned i = 0; i < conds.Size(); ++i)
+    for (LcCondition& cond : conds)
     {
 #ifdef DEBUG
         if (verbose)
         {
-            printf("Considering condition %u: (", i);
-            conds[i].Print();
+            printf("Considering condition: (");
+            cond.Print();
         }
 #endif
 
         bool res = false;
 
-        if (conds[i].Evaluate(&res))
+        if (cond.Evaluate(&res))
         {
             JITDUMP(") evaluates to %s\n", dspBool(res));
 
@@ -862,9 +862,9 @@ void LoopCloneContext::OptimizeBlockConditions(unsigned loopNum)
         return;
     }
 
-    for (unsigned i = 0; i < loopBlockConditions->Size(); ++i)
+    for (JitVector<LcCondition>* conds : *loopBlockConditions)
     {
-        OptimizeConditions(*(*loopBlockConditions)[i]);
+        OptimizeConditions(*conds);
     }
 
 #ifdef DEBUG
@@ -911,7 +911,7 @@ void LoopCloneContext::PrintConditions(unsigned loopNum) const
         return;
     }
 
-    if (loopConditions->Size() == 0)
+    if (loopConditions->Empty())
     {
         printf("Conditions were optimized away! Will always take cloned path.");
         return;
@@ -931,7 +931,7 @@ void LoopCloneContext::PrintConditions(unsigned loopNum) const
 
 void LoopCloneContext::CondToStmtInBlock(JitVector<LcCondition>& conds, BasicBlock* block, bool reverse) const
 {
-    noway_assert(conds.Size() > 0);
+    noway_assert(!conds.Empty());
 
     GenTree* cond = conds[0].ToGenTree(compiler);
 
@@ -978,20 +978,20 @@ void LcDeref::DeriveLevelConditions(JitVector<JitVector<LcCondition>*>& conds)
 
     if (children != nullptr)
     {
-        for (unsigned i = 0; i < children->Size(); ++i)
+        for (LcDeref* deref : *children)
         {
-            (*children)[i]->DeriveLevelConditions(conds);
+            deref->DeriveLevelConditions(conds);
         }
     }
 }
 
 LcDeref* LcDeref::Find(JitVector<LcDeref*>& children, unsigned lcl)
 {
-    for (unsigned i = 0; i < children.Size(); ++i)
+    for (LcDeref* deref : children)
     {
-        if (children[i]->Lcl() == lcl)
+        if (deref->Lcl() == lcl)
         {
-            return children[i];
+            return deref;
         }
     }
 
@@ -1119,9 +1119,8 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
         return false;
     }
 
-    for (unsigned i = 0; i < optInfos->Size(); ++i)
+    for (LcOptInfo* optInfo : *optInfos)
     {
-        LcOptInfo* optInfo = (*optInfos)[i];
         assert(optInfo->kind == LcOptInfo::JaggedArray);
         LcJaggedArrayOptInfo* arrIndexInfo = static_cast<LcJaggedArrayOptInfo*>(optInfo);
 
@@ -1136,7 +1135,7 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
     DBEXEC(verbose, PrintConditions(loopNum));
     JITDUMP("\n");
 
-    return (derefs.Size() == 0) || ComputeDerefConditions(derefs, loopNum);
+    return derefs.Empty() || ComputeDerefConditions(derefs, loopNum);
 }
 
 // To be able to check for the loop cloning condition that (limitVar <= a.len)
@@ -1243,10 +1242,8 @@ bool LoopCloneContext::ComputeDerefConditions(const ArrayStack<LcArray>& derefs,
     // where the nodes are array and index variables and an edge 'u-v'
     // exists if a node 'v' indexes node 'u' directly as in u[v] or an edge
     // 'u-v-w' transitively if u[v][w] occurs.
-    for (unsigned i = 0; i < derefs.Size(); ++i)
+    for (const LcArray& array : derefs)
     {
-        const LcArray& array = derefs.GetRef(i);
-
         // First populate the array base variable.
         LcDeref* node = LcDeref::Find(nodes, array.arrIndex->arrLcl);
 
@@ -1313,9 +1310,9 @@ bool LoopCloneContext::ComputeDerefConditions(const ArrayStack<LcArray>& derefs,
 
     blockConditions[loopNum] = levelCond;
 
-    for (unsigned i = 0; i < nodes.Size(); ++i)
+    for (LcDeref* deref : nodes)
     {
-        nodes[i]->DeriveLevelConditions(*levelCond);
+        deref->DeriveLevelConditions(*levelCond);
     }
 
     DBEXEC(verbose, PrintBlockConditions(loopNum));
@@ -1337,9 +1334,8 @@ void LoopCloneContext::PerformStaticOptimizations(unsigned loopNum)
 {
     JitVector<LcOptInfo*>* optInfos = GetLoopOptInfo(loopNum);
 
-    for (unsigned i = 0; i < optInfos->Size(); ++i)
+    for (LcOptInfo* optInfo : *optInfos)
     {
-        LcOptInfo* optInfo = (*optInfos)[i];
         assert(optInfo->kind == LcOptInfo::JaggedArray);
         LcJaggedArrayOptInfo* arrIndexInfo = static_cast<LcJaggedArrayOptInfo*>(optInfo);
 
