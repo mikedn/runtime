@@ -2037,7 +2037,44 @@ bool LoopCloneVisitorInfo::IsLclAssignedInLoop(unsigned lclNum)
         return IsTrackedLclAssignedInLoop(AllVarSetOps::MakeSingleton(context.compiler, lclNum)) != 0;
     }
 
-    return context.compiler->optIsVarAssigned(loop.lpHead->bbNext, loop.lpBottom, nullptr, lclNum);
+    struct WalkData
+    {
+        unsigned lclNum;
+    } walkData{lclNum};
+
+    for (BasicBlock* block : loop.LoopBlocks())
+    {
+        for (Statement* stmt : block->Statements())
+        {
+            if (context.compiler->fgWalkTreePre(stmt->GetRootNodePointer(),
+                                                [](GenTree** use, Compiler::fgWalkData* data) {
+                                                    GenTree*  node = *use;
+                                                    WalkData* desc = static_cast<WalkData*>(data->pCallbackData);
+
+                                                    if (node->OperIs(GT_ASG))
+                                                    {
+                                                        GenTree* dest = node->AsOp()->GetOp(0);
+
+                                                        // TODO-MIKE-Cleanup: Why the crap are LCL_FLD assignments
+                                                        // ignored? This is likely used only for INT locals but then
+                                                        // you can actually modify an INT local with a LCL_FLD...
+                                                        if (dest->OperIs(GT_LCL_VAR) &&
+                                                            (dest->AsLclVar()->GetLclNum() == desc->lclNum))
+                                                        {
+                                                            return Compiler::WALK_ABORT;
+                                                        }
+                                                    }
+
+                                                    return Compiler::WALK_CONTINUE;
+                                                },
+                                                &walkData) != Compiler::WALK_CONTINUE)
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 bool LoopCloneVisitorInfo::IsTrackedLclAssignedInLoop(ALLVARSET_VALARG_TP vars)
