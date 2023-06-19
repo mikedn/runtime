@@ -2126,39 +2126,19 @@ bool LoopCloneVisitorInfo::IsTrackedLclAssignedInLoop(ALLVARSET_VALARG_TP vars)
 
 static CallInterf optCallInterf(GenTreeCall* call)
 {
-    // if not a helper, kills everything
-    if (call->gtCallType != CT_HELPER)
+    if (!call->IsHelperCall())
     {
         return CALLINT_ALL;
     }
 
-    // setfield and array address store kill all indirections
-    switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
+    CorInfoHelpFunc helper = Compiler::eeGetHelperNum(call->GetMethodHandle());
+
+    if (helper == CORINFO_HELP_ARRADDR_ST)
     {
-        case CORINFO_HELP_ASSIGN_REF:         // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_CHECKED_ASSIGN_REF: // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_ASSIGN_BYREF:       // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_SETFIELDOBJ:
-        case CORINFO_HELP_ARRADDR_ST:
-            return CALLINT_REF_INDIRS;
-
-        case CORINFO_HELP_SETFIELDFLOAT:
-        case CORINFO_HELP_SETFIELDDOUBLE:
-        case CORINFO_HELP_SETFIELD8:
-        case CORINFO_HELP_SETFIELD16:
-        case CORINFO_HELP_SETFIELD32:
-        case CORINFO_HELP_SETFIELD64:
-            return CALLINT_SCL_INDIRS;
-
-        case CORINFO_HELP_ASSIGN_STRUCT: // Not strictly needed as we don't use this
-        case CORINFO_HELP_MEMSET:        // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_MEMCPY:        // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_SETFIELDSTRUCT:
-            return CALLINT_ALL_INDIRS;
-
-        default:
-            return CALLINT_NONE;
+        return CALLINT_REF_INDIRS;
     }
+
+    return Compiler::s_helperCallProperties.MutatesHeap(helper) ? CALLINT_ALL_INDIRS : CALLINT_NONE;
 }
 
 void LoopCloneVisitorInfo::IsLclAssignedVisitor(GenTree* tree)
