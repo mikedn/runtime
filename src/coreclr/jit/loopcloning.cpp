@@ -1035,70 +1035,38 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
     JITDUMP("------------------------------------------------------------\n");
     JITDUMP("Deriving cloning conditions for " FMT_LP "\n", loopNum);
 
-    const LoopDsc&         loop     = loopTable[loopNum];
-    JitVector<LcOptInfo*>* optInfos = GetLoopOptInfo(loopNum);
+    const LoopDsc& loop = loopTable[loopNum];
 
-    if (loop.lpTestOper() != GT_LT)
+    assert(loop.lpTestOper() == GT_LT);
+    assert((loop.lpFlags & (LPFLG_CONST_INIT | LPFLG_VAR_INIT)) != 0);
+    assert((loop.lpFlags & (LPFLG_CONST_LIMIT | LPFLG_VAR_LIMIT | LPFLG_ARRLEN_LIMIT)) != 0);
+    assert(((loop.lpFlags & LPFLG_CONST_INIT) == 0) || (loop.lpIterConst() > 0));
+
+    if ((loop.lpFlags & LPFLG_VAR_INIT) != 0)
     {
-        return false;
-    }
-
-    // Stride conditions
-    if (loop.lpIterConst() <= 0)
-    {
-        JITDUMP("> Stride %d is invalid\n", loop.lpIterConst());
-        return false;
-    }
-
-    // Init conditions
-    if (loop.lpFlags & LPFLG_CONST_INIT)
-    {
-        // Only allowing non-negative const init at this time.
-        // REVIEW: why?
-
-        if (loop.lpConstInit < 0)
-        {
-            JITDUMP("> Init %d is invalid\n", loop.lpConstInit);
-
-            return false;
-        }
-    }
-    else if (loop.lpFlags & LPFLG_VAR_INIT)
-    {
-        // initVar >= 0
         EnsureConditions(loopNum)->Emplace(GT_GE, LcExpr(LcIdent(loop.lpVarInit, LcIdent::Lcl)),
                                            LcExpr(LcIdent(0, LcIdent::Const)));
     }
-    else
-    {
-        JITDUMP("> Not variable init\n");
-        return false;
-    }
 
-    // Limit Conditions
-    LcIdent             ident;
+    LcIdent             limit;
     ArrayStack<LcArray> derefs(alloc);
 
-    if (loop.lpFlags & LPFLG_CONST_LIMIT)
+    if ((loop.lpFlags & LPFLG_CONST_LIMIT) != 0)
     {
-        int limit = loop.lpConstLimit();
+        assert(loop.lpConstLimit() > 0);
 
-        if (limit < 0)
-        {
-            JITDUMP("> limit %d is invalid\n", limit);
-            return false;
-        }
-
-        ident = LcIdent(static_cast<unsigned>(limit), LcIdent::Const);
+        limit = LcIdent(static_cast<unsigned>(loop.lpConstLimit()), LcIdent::Const);
     }
-    else if (loop.lpFlags & LPFLG_VAR_LIMIT)
+    else if ((loop.lpFlags & LPFLG_VAR_LIMIT) != 0)
     {
-        ident = LcIdent(loop.lpVarLimit(), LcIdent::Lcl);
+        limit = LcIdent(loop.lpVarLimit(), LcIdent::Lcl);
 
-        EnsureConditions(loopNum)->Emplace(GT_GE, LcExpr(ident), LcExpr(LcIdent(0, LcIdent::Const)));
+        EnsureConditions(loopNum)->Emplace(GT_GE, LcExpr(limit), LcExpr(LcIdent(0, LcIdent::Const)));
     }
-    else if (loop.lpFlags & LPFLG_ARRLEN_LIMIT)
+    else
     {
+        assert((loop.lpFlags & LPFLG_ARRLEN_LIMIT) != 0);
+
         ArrIndex* index = new (alloc) ArrIndex(alloc);
 
         if (!ArrLenLimit(loop, index))
@@ -1107,28 +1075,19 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
             return false;
         }
 
-        ident = LcIdent(LcArray(LcArray::Jagged, index, LcArray::ArrLen));
-
-        // Ensure that this array must be dereference-able, before executing the actual condition.
         derefs.Emplace(LcArray::Jagged, index, LcArray::None);
-    }
-    else
-    {
-        JITDUMP("> Undetected limit\n");
-
-        return false;
+        limit = LcIdent(LcArray(LcArray::Jagged, index, LcArray::ArrLen));
     }
 
-    for (LcOptInfo* optInfo : *optInfos)
+    for (LcOptInfo* optInfo : *GetLoopOptInfo(loopNum))
     {
         assert(optInfo->kind == LcOptInfo::JaggedArray);
         LcJaggedArrayOptInfo* arrIndexInfo = static_cast<LcJaggedArrayOptInfo*>(optInfo);
 
-        EnsureConditions(loopNum)->Emplace(GT_LE, LcExpr(ident),
+        derefs.Emplace(LcArray::Jagged, &arrIndexInfo->arrIndex, arrIndexInfo->dim, LcArray::None);
+        EnsureConditions(loopNum)->Emplace(GT_LE, LcExpr(limit),
                                            LcExpr(LcIdent(LcArray(LcArray::Jagged, &arrIndexInfo->arrIndex,
                                                                   arrIndexInfo->dim, LcArray::ArrLen))));
-
-        derefs.Emplace(LcArray::Jagged, &arrIndexInfo->arrIndex, arrIndexInfo->dim, LcArray::None);
     }
 
     JITDUMP("Conditions: ");
@@ -1409,24 +1368,41 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
 
     assert(!compiler->lvaGetDesc(loop.lpIterVar())->IsAddressExposed());
 
-    if ((loop.lpFlags & (LPFLG_CONST_LIMIT | LPFLG_VAR_LIMIT | LPFLG_ARRLEN_LIMIT)) == 0)
+    if ((loop.lpFlags & (LPFLG_CONST_INIT | LPFLG_VAR_INIT)) == 0)
     {
-        JITDUMP("Rejecting loop. Loop limit is neither constant, variable or array length.\n");
+        JITDUMP("Rejecting loop. IV init is neither constant or local.\n");
         return false;
     }
 
-    // TODO-CQ: CLONE: Mark increasing or decreasing loops.
+    if ((loop.lpFlags & (LPFLG_CONST_LIMIT | LPFLG_VAR_LIMIT | LPFLG_ARRLEN_LIMIT)) == 0)
+    {
+        JITDUMP("Rejecting loop. IV limit is neither constant, variable or array length.\n");
+        return false;
+    }
+
+    if (((loop.lpFlags & LPFLG_CONST_INIT) != 0) && (loop.lpConstInit < 0))
+    {
+        JITDUMP("Rejecting loop. IV init value %d is invalid.\n", loop.lpConstInit);
+        return false;
+    }
+
+    if (((loop.lpFlags & LPFLG_CONST_LIMIT) != 0) && (loop.lpConstLimit() <= 0))
+    {
+        JITDUMP("Rejecting loop. IV limit value %d is invalid.\n", loop.lpConstLimit());
+        return false;
+    }
+
+    if (loop.lpTestOper() != GT_LT)
+    {
+        JITDUMP("Rejecting loop. Unsupported test oper.\n");
+        return false;
+    }
+
+    // TODO-CQ: Handle decreasing IVs. Also, step can be greater than 1 for arrays because
+    // the maximum array length is less than INT_MAX.
     if ((loop.lpIterOper() != GT_ADD) || (loop.lpIterConst() != 1))
     {
         JITDUMP("Rejecting loop. Loop iteration operator not matching.\n");
-        return false;
-    }
-
-    if (!((GenTree::StaticOperIs(loop.lpTestOper(), GT_LT, GT_LE) && (loop.lpIterOper() == GT_ADD)) ||
-          (GenTree::StaticOperIs(loop.lpTestOper(), GT_GT, GT_GE) && (loop.lpIterOper() == GT_SUB))))
-    {
-        JITDUMP("Rejecting loop. Loop test (%s) doesn't agree with the direction (%s) of the loop.\n",
-                GenTree::OpName(loop.lpTestOper()), GenTree::OpName(loop.lpIterOper()));
         return false;
     }
 
@@ -2360,8 +2336,6 @@ void LoopCloneContext::IdentifyLoopOptInfo(unsigned loopNum)
 
 bool LoopCloneContext::Run()
 {
-    bool hasClonableLoops = false;
-
     for (unsigned i = 0; i < loopCount; i++)
     {
         JITDUMP("Considering loop " FMT_LP " to clone for optimizations.\n", i);
@@ -2369,19 +2343,12 @@ bool LoopCloneContext::Run()
         if (IsLoopClonable(i))
         {
             IdentifyLoopOptInfo(i);
-            hasClonableLoops = true;
         }
 
         JITDUMP("------------------------------------------------------------\n");
     }
 
     JITDUMP("\n");
-
-    if (!hasClonableLoops)
-    {
-        JITDUMP("No clonable loops\n");
-        return false;
-    }
 
     unsigned staticallyOptimizedLoops = 0;
 
