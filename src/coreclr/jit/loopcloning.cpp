@@ -441,8 +441,9 @@ struct LcCondition
 #ifdef DEBUG
     void Print()
     {
+        printf("%s ", GenTree::OpName(oper));
         op1.Print();
-        printf(" %s ", GenTree::OpName(oper));
+        printf(", ");
         op2.Print();
     }
 #endif
@@ -609,7 +610,7 @@ struct LoopCloneContext
 
     void PrintBlockLevelConditions(unsigned level, JitVector<LcCondition>& levelCond)
     {
-        printf("%u = ", level);
+        printf("%u: ", level);
 
         for (unsigned j = 0; j < levelCond.Size(); ++j)
         {
@@ -870,7 +871,7 @@ void LoopCloneContext::OptimizeBlockConditions(unsigned loopNum)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("After optimizing block-level cloning conditions\n\t");
+        printf("After optimizing block-level cloning conditions:\n");
         PrintBlockConditions(loopNum);
         printf("\n");
     }
@@ -882,7 +883,7 @@ void LoopCloneContext::OptimizeConditions(unsigned loopNum)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("Before optimizing cloning conditions\n\t");
+        printf("Before optimizing cloning conditions:\n");
         PrintConditions(loopNum);
         printf("\n");
     }
@@ -893,7 +894,7 @@ void LoopCloneContext::OptimizeConditions(unsigned loopNum)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("After optimizing cloning conditions\n\t");
+        printf("After optimizing cloning conditions:\n");
         PrintConditions(loopNum);
         printf("\n");
     }
