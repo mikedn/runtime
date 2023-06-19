@@ -528,7 +528,7 @@ struct LoopCloneContext
     Compiler::fgWalkResult CanOptimizeByLoopCloning(GenTree* tree, LoopCloneVisitorInfo& info);
     bool ExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned tempArrayLclNum) const;
     bool ReconstructArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum) const;
-    bool ArrLenLimit(const LoopDsc& loop, ArrIndex* index) const;
+    bool ExtractArrLenLimit(GenTreeArrLen* limit, ArrIndex* index) const;
     void PerformStaticOptimizations(unsigned loopNum);
     bool ComputeDerefConditions(const ArrayStack<LcArray>& derefs, unsigned loopNum);
     bool DeriveLoopCloningConditions(unsigned loopNum);
@@ -536,7 +536,7 @@ struct LoopCloneContext
     void CloneLoop(unsigned loopNum);
     bool Run();
 
-    void AddArrayIndex(unsigned loopNum, ArrIndex& index, int dim, Statement* stmt)
+    void AddArrayIndex(unsigned loopNum, const ArrIndex& index, int dim, Statement* stmt)
     {
         if (optInfo[loopNum] == nullptr)
         {
@@ -999,12 +999,9 @@ LcDeref* LcDeref::Find(JitVector<LcDeref*>& children, unsigned lcl)
     return nullptr;
 }
 
-bool LoopCloneContext::ArrLenLimit(const LoopDsc& loop, ArrIndex* index) const
+bool LoopCloneContext::ExtractArrLenLimit(GenTreeArrLen* limit, ArrIndex* index) const
 {
-    INDEBUG(loop.VerifyIterator());
-    assert(loop.lpFlags & LPFLG_ARRLEN_LIMIT);
-
-    GenTree* array = loop.lpLimit()->AsArrLen()->GetArray();
+    GenTree* array = limit->GetArray();
 
     if (array->OperIs(GT_LCL_VAR))
     {
@@ -1070,7 +1067,7 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
 
         ArrIndex* index = new (alloc) ArrIndex(alloc);
 
-        if (!ArrLenLimit(loop, index))
+        if (!ExtractArrLenLimit(loop.lpLimit()->AsArrLen(), index))
         {
             JITDUMP("> ArrLen not matching");
             return false;
