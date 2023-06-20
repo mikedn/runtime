@@ -2995,68 +2995,32 @@ bool Compiler::optComputeLoopRep(int        constInit,
 {
     noway_assert(iterOperType == TYP_INT);
 
-    int64_t constInitX;
-    int64_t constLimitX;
-
-    unsigned loopCount;
-    int      iterSign;
-
-    // Using this, we can just do a signed comparison with other 32 bit values.
-    if (unsTest)
-    {
-        constLimitX = static_cast<unsigned>(constLimit);
-    }
-    else
-    {
-        constLimitX = constLimit;
-    }
-
-#define INIT_ITER_BY_TYPE(type)                                                                                        \
-    constInitX = (type)constInit;                                                                                      \
-    iterInc    = (type)iterInc;
-
-    switch (iterOperType)
-    {
-        case TYP_BYTE:
-            INIT_ITER_BY_TYPE(signed char);
-            break;
-        case TYP_UBYTE:
-            INIT_ITER_BY_TYPE(unsigned char);
-            break;
-        case TYP_SHORT:
-            INIT_ITER_BY_TYPE(signed short);
-            break;
-        case TYP_USHORT:
-            INIT_ITER_BY_TYPE(unsigned short);
-            break;
-
-        case TYP_INT:
-        case TYP_UINT:
-            if (unsTest)
-            {
-                constInitX = static_cast<unsigned>(constInit);
-            }
-            else
-            {
-                constInitX = constInit;
-            }
-            break;
-
-        default:
-            unreached();
-    }
-
     // If iterInc is zero we have an infinite loop.
     if (iterInc == 0)
     {
         return false;
     }
 
+    int64_t constInitX;
+    int64_t constLimitX;
+
+    // Using this, we can just do a signed comparison with other 32 bit values.
+    if (unsTest)
+    {
+        constInitX  = static_cast<unsigned>(constInit);
+        constLimitX = static_cast<unsigned>(constLimit);
+    }
+    else
+    {
+        constInitX  = constInit;
+        constLimitX = constLimit;
+    }
+
     // Set iterSign to +1 for positive iterInc and -1 for negative iterInc.
-    iterSign = (iterInc > 0) ? +1 : -1;
+    int iterSign = (iterInc > 0) ? +1 : -1;
 
     // Initialize loopCount to zero.
-    loopCount = 0;
+    unsigned loopCount = 0;
 
     // If dupCond is true then the loop head contains a test which skips
     // this loop, if the constInit does not pass the loop test.
