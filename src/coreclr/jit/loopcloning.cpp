@@ -2006,9 +2006,9 @@ struct LoopCloneVisitorInfo
     Statement*        stmt           = nullptr;
     BasicBlock*       block          = nullptr;
     bool              hasLoopSummary = false;
-    ALLVARSET_TP      lpAsgVars; // set of vars assigned within the loop (all vars, not just tracked)
-    CallInterf        lpAsgCall; // "callInterf" for calls in the loop
-    varRefKinds       lpAsgInds; // set of inds modified within the loop
+    uint64_t          lpAsgVars; // TODO-MIKE-Cleanup: This should be a BitVec
+    CallInterf        lpAsgCall;
+    varRefKinds       lpAsgInds;
 
     LoopCloneVisitorInfo(LoopCloneContext& context, const LoopDsc& loop, unsigned loopNum)
         : context(context), loop(loop), loopNum(loopNum)
@@ -2029,7 +2029,7 @@ bool LoopCloneVisitorInfo::IsLclLoopInvariant(unsigned lclNum)
 
 bool LoopCloneVisitorInfo::IsLclAssignedInLoop(unsigned lclNum)
 {
-    if (lclNum < lclMAX_ALLSET_TRACKED)
+    if (lclNum < sizeof(lpAsgVars) * CHAR_BIT)
     {
         return IsTrackedLclAssignedInLoop(lclNum) != 0;
     }
@@ -2076,9 +2076,11 @@ bool LoopCloneVisitorInfo::IsLclAssignedInLoop(unsigned lclNum)
 
 bool LoopCloneVisitorInfo::IsTrackedLclAssignedInLoop(unsigned lclNum)
 {
+    assert(lclNum < sizeof(lpAsgVars) * CHAR_BIT);
+
     if (!hasLoopSummary)
     {
-        lpAsgVars = AllVarSetOps::MakeEmpty(context.compiler);
+        lpAsgVars = 0;
         lpAsgInds = VR_NONE;
         lpAsgCall = CALLINT_NONE;
 
@@ -2099,8 +2101,7 @@ bool LoopCloneVisitorInfo::IsTrackedLclAssignedInLoop(unsigned lclNum)
         hasLoopSummary = true;
     }
 
-    if (!AllVarSetOps::IsEmptyIntersection(context.compiler, lpAsgVars,
-                                           AllVarSetOps::MakeSingleton(context.compiler, lclNum)))
+    if ((lpAsgVars & (1ull << lclNum)) != 0)
     {
         return true;
     }
@@ -2149,9 +2150,9 @@ void LoopCloneVisitorInfo::IsLclAssignedVisitor(GenTree* tree)
         {
             unsigned lclNum = dest->AsLclVar()->GetLclNum();
 
-            if (lclNum < lclMAX_ALLSET_TRACKED)
+            if (lclNum < sizeof(lpAsgVars) * CHAR_BIT)
             {
-                AllVarSetOps::AddElemD(context.compiler, lpAsgVars, lclNum);
+                lpAsgVars |= (1ull << lclNum);
             }
         }
         else if (dest->OperIs(GT_LCL_FLD))
