@@ -2018,7 +2018,7 @@ struct LoopCloneVisitorInfo
     void AddArrayIndex(GenTree* tree, ArrIndex& index);
     bool IsLclLoopInvariant(unsigned lclNum);
     bool IsLclAssignedInLoop(unsigned lclNum);
-    bool IsTrackedLclAssignedInLoop(ALLVARSET_VALARG_TP vars);
+    bool IsTrackedLclAssignedInLoop(unsigned lclNum);
     void IsLclAssignedVisitor(GenTree* node);
 };
 
@@ -2031,7 +2031,7 @@ bool LoopCloneVisitorInfo::IsLclAssignedInLoop(unsigned lclNum)
 {
     if (lclNum < lclMAX_ALLSET_TRACKED)
     {
-        return IsTrackedLclAssignedInLoop(AllVarSetOps::MakeSingleton(context.compiler, lclNum)) != 0;
+        return IsTrackedLclAssignedInLoop(lclNum) != 0;
     }
 
     struct WalkData
@@ -2074,7 +2074,7 @@ bool LoopCloneVisitorInfo::IsLclAssignedInLoop(unsigned lclNum)
     return false;
 }
 
-bool LoopCloneVisitorInfo::IsTrackedLclAssignedInLoop(ALLVARSET_VALARG_TP vars)
+bool LoopCloneVisitorInfo::IsTrackedLclAssignedInLoop(unsigned lclNum)
 {
     if (!hasLoopSummary)
     {
@@ -2099,7 +2099,8 @@ bool LoopCloneVisitorInfo::IsTrackedLclAssignedInLoop(ALLVARSET_VALARG_TP vars)
         hasLoopSummary = true;
     }
 
-    if (!AllVarSetOps::IsEmptyIntersection(context.compiler, lpAsgVars, vars))
+    if (!AllVarSetOps::IsEmptyIntersection(context.compiler, lpAsgVars,
+                                           AllVarSetOps::MakeSingleton(context.compiler, lclNum)))
     {
         return true;
     }
