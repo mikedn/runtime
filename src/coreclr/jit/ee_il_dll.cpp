@@ -1116,20 +1116,21 @@ void CodeGen::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
 // Same parameters as ICorStaticInfo::setVars().
 void CodeGen::eeDispVars(CORINFO_METHOD_HANDLE ftn, ULONG32 cVars, ICorDebugInfo::NativeVarInfo* vars)
 {
-    // Estimate number of unique vars with debug info
-    //
-    ALLVARSET_TP uniqueVars(AllVarSetOps::MakeEmpty(compiler));
+    BitVecTraits varTraits(compiler->lvaCount, compiler);
+    BitVec       uniqueVars = BitVecOps::MakeEmpty(&varTraits);
+    unsigned     varCount   = 0;
+
     for (unsigned i = 0; i < cVars; i++)
     {
-        // ignore "special vars" and out of bounds vars
-        if ((((int)vars[i].varNumber) >= 0) && (vars[i].varNumber < lclMAX_ALLSET_TRACKED))
+        if ((vars[i].varNumber < compiler->lvaCount) &&
+            BitVecOps::TryAddElemD(&varTraits, uniqueVars, vars[i].varNumber))
         {
-            AllVarSetOps::AddElemD(compiler, uniqueVars, vars[i].varNumber);
+            varCount++;
         }
     }
 
-    printf("; Variable debug info: %d live ranges, %d vars for method %s\n", cVars,
-           AllVarSetOps::Count(compiler, uniqueVars), compiler->info.compFullName);
+    printf("; Variable debug info: %d live ranges, %d vars for method %s\n", cVars, varCount,
+           compiler->info.compFullName);
 
     for (unsigned i = 0; i < cVars; i++)
     {

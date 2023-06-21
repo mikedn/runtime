@@ -49,28 +49,6 @@ public:
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// AllVarBitSetTraits
-//
-// This class is customizes the bit set to represent sets of all local vars (tracked or not) --
-// at least up to some maximum index.  (This index is private to the Compiler, and it is
-// the responsibility of the compiler not to use indices >= this maximum.)
-// We rely on the fact that variables are never deleted, and therefore use the
-// total # of locals as the epoch number (up to the maximum).
-//
-class AllVarBitSetTraits : public CompAllocBitSetTraits
-{
-public:
-    static inline unsigned GetSize(Compiler* comp);
-
-    static inline unsigned GetArrSize(Compiler* comp, unsigned elemSize);
-
-    static inline unsigned GetEpoch(class Compiler* comp);
-
-    static inline BitSetSupport::BitSetOpCounter* GetOpCounter(Compiler* comp);
-};
-
-///////////////////////////////////////////////////////////////////////////////
-//
 // BasicBlockBitSetTraits
 //
 // This class is customizes the bit set to represent sets of BasicBlocks.

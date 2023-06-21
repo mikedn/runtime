@@ -64,40 +64,6 @@ BitSetSupport::BitSetOpCounter* TrackedVarBitSetTraits::GetOpCounter(Compiler* c
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// AllVarBitSetTraits
-//
-///////////////////////////////////////////////////////////////////////////////
-
-// static
-unsigned AllVarBitSetTraits::GetSize(Compiler* comp)
-{
-    return min(comp->lvaCount, lclMAX_ALLSET_TRACKED);
-}
-
-// static
-unsigned AllVarBitSetTraits::GetArrSize(Compiler* comp, unsigned elemSize)
-{
-    return roundUp(GetSize(comp), elemSize);
-}
-
-// static
-unsigned AllVarBitSetTraits::GetEpoch(Compiler* comp)
-{
-    return GetSize(comp);
-}
-
-// static
-BitSetSupport::BitSetOpCounter* AllVarBitSetTraits::GetOpCounter(Compiler* comp)
-{
-#if ALLVARSET_COUNTOPS
-    return &Compiler::m_allvarsetOpCounter;
-#else
-    return nullptr;
-#endif
-}
-
-///////////////////////////////////////////////////////////////////////////////
-//
 // BasicBlockBitSetTraits
 //
 ///////////////////////////////////////////////////////////////////////////////
