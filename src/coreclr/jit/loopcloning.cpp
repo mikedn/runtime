@@ -494,6 +494,8 @@ struct LoopCloneContext
     unsigned const  loopCount;
     INDEBUG(bool const verbose;)
     CompAllocator alloc;
+    BitVecTraits  modifiedLocalsTraits;
+    BitVec        modifiedLocals = nullptr;
     // The array of optimization opportunities found in each loop. (loop x optimization-opportunities)
     jitstd::vector<JitVector<LcOptInfo*>*> optInfo;
     // The array of conditions that influence which path to take for each loop. (loop x cloning-conditions)
@@ -509,6 +511,7 @@ struct LoopCloneContext
         , verbose(compiler->verbose)
 #endif
         , alloc(compiler->getAllocator(CMK_LoopClone))
+        , modifiedLocalsTraits(compiler->lvaCount, compiler)
         , optInfo(alloc)
         , conditions(alloc)
         , blockConditions(alloc)
@@ -2006,12 +2009,12 @@ struct LoopCloneVisitorInfo
     Statement*        stmt           = nullptr;
     BasicBlock*       block          = nullptr;
     bool              hasLoopSummary = false;
-    uint64_t          lpAsgVars; // TODO-MIKE-Cleanup: This should be a BitVec
+    BitVec            modifiedLocals = nullptr;
     CallInterf        lpAsgCall;
     varRefKinds       lpAsgInds;
 
     LoopCloneVisitorInfo(LoopCloneContext& context, const LoopDsc& loop, unsigned loopNum)
-        : context(context), loop(loop), loopNum(loopNum)
+        : context(context), loop(loop), loopNum(loopNum), modifiedLocals(context.modifiedLocals)
     {
     }
 
@@ -2029,7 +2032,10 @@ bool LoopCloneVisitorInfo::IsLclLoopInvariant(unsigned lclNum)
 
 bool LoopCloneVisitorInfo::IsLclAssignedInLoop(unsigned lclNum)
 {
-    if (lclNum < sizeof(lpAsgVars) * CHAR_BIT)
+    // TODO-MIKE-Cleanup: Remove this bogus limit (it should be GetSize(&modifiedLocalsTraits)
+    // like in IsLclAssignedVisitor). This results in diffs due to discrepancies between
+    // IsLclAssignedVisitor and the below visitor code.
+    if (lclNum < 64)
     {
         return IsTrackedLclAssignedInLoop(lclNum) != 0;
     }
@@ -2076,11 +2082,20 @@ bool LoopCloneVisitorInfo::IsLclAssignedInLoop(unsigned lclNum)
 
 bool LoopCloneVisitorInfo::IsTrackedLclAssignedInLoop(unsigned lclNum)
 {
-    assert(lclNum < sizeof(lpAsgVars) * CHAR_BIT);
+    assert(lclNum < 64);
 
     if (!hasLoopSummary)
     {
-        lpAsgVars = 0;
+        if (modifiedLocals == nullptr)
+        {
+            modifiedLocals         = BitVecOps::MakeEmpty(&context.modifiedLocalsTraits);
+            context.modifiedLocals = modifiedLocals;
+        }
+        else
+        {
+            BitVecOps::ClearD(&context.modifiedLocalsTraits, modifiedLocals);
+        }
+
         lpAsgInds = VR_NONE;
         lpAsgCall = CALLINT_NONE;
 
@@ -2101,7 +2116,7 @@ bool LoopCloneVisitorInfo::IsTrackedLclAssignedInLoop(unsigned lclNum)
         hasLoopSummary = true;
     }
 
-    if ((lpAsgVars & (1ull << lclNum)) != 0)
+    if (BitVecOps::IsMember(&context.modifiedLocalsTraits, modifiedLocals, lclNum))
     {
         return true;
     }
@@ -2150,9 +2165,11 @@ void LoopCloneVisitorInfo::IsLclAssignedVisitor(GenTree* tree)
         {
             unsigned lclNum = dest->AsLclVar()->GetLclNum();
 
-            if (lclNum < sizeof(lpAsgVars) * CHAR_BIT)
+            // We currently don't add any locals during loop cloning but in case it
+            // happens just be conservative and treat any new locals as modified.
+            if (lclNum < BitVecTraits::GetSize(&context.modifiedLocalsTraits))
             {
-                lpAsgVars |= (1ull << lclNum);
+                BitVecOps::AddElemD(&context.modifiedLocalsTraits, modifiedLocals, lclNum);
             }
         }
         else if (dest->OperIs(GT_LCL_FLD))
