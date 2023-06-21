@@ -11,27 +11,14 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-/*****************************************************************************/
 #ifndef _BLOCK_H_
 #define _BLOCK_H_
-/*****************************************************************************/
 
-#include "vartype.h" // For "var_types.h"
+#include "vartype.h"
 #include "_typeinfo.h"
-/*****************************************************************************/
-
-// Defines VARSET_TP
-#include "varset.h"
-
-#include "blockset.h"
-#include "jitstd.h"
 #include "bitvec.h"
+#include "jitstd.h"
 #include "jithashtable.h"
-
-/*****************************************************************************/
-typedef BitVec          ASSERT_TP;
-typedef BitVec_ValArg_T ASSERT_VALARG_TP;
-typedef BitVec_ValRet_T ASSERT_VALRET_TP;
 
 // We use the following format when printing the BasicBlock number: bbNum
 // This define is used with string concatenation to put this in printf format strings  (Note that %u means unsigned int)

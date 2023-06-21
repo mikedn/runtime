@@ -3,9 +3,163 @@
 
 #pragma once
 
-#include "compilerbitsettraits.h"
+#include "bitsetasshortlong.h"
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// CompAllocBitSetTraits: a base class for other BitSet traits classes.
+//
+// The classes in this file define "BitSetTraits" arguments to the "BitSetOps" type, ones that assume that
+// Compiler* is the "Env" type.
+//
+// This class just wraps the compiler's allocator.
+//
+class CompAllocBitSetTraits
+{
+public:
+    static inline void* Alloc(Compiler* comp, size_t byteSize);
+
+#ifdef DEBUG
+    static inline void* DebugAlloc(Compiler* comp, size_t byteSize);
+#endif // DEBUG
+};
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// TrackedVarBitSetTraits
+//
+// This class is customizes the bit set to represent sets of tracked local vars.
+// The size of the bitset is determined by the # of tracked locals (up to some internal
+// maximum), and the Compiler* tracks the tracked local epochs.
+//
+class TrackedVarBitSetTraits : public CompAllocBitSetTraits
+{
+public:
+    static inline unsigned GetSize(Compiler* comp);
+
+    static inline unsigned GetArrSize(Compiler* comp, unsigned elemSize);
+
+    static inline unsigned GetEpoch(class Compiler* comp);
+
+    static inline BitSetSupport::BitSetOpCounter* GetOpCounter(Compiler* comp);
+};
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// BasicBlockBitSetTraits
+//
+// This class is customizes the bit set to represent sets of BasicBlocks.
+// The size of the bitset is determined by maximum assigned BasicBlock number
+// (Compiler::fgBBNumMax) (Note that fgBBcount is not equal to this during inlining,
+// when fgBBcount is the number of blocks in the inlined function, but the assigned
+// block numbers are higher than the inliner function. fgBBNumMax counts both.
+// Thus, if you only care about the inlinee, during inlining, this bit set will waste
+// the lower numbered block bits.) The Compiler* tracks the BasicBlock epochs.
+//
+class BasicBlockBitSetTraits : public CompAllocBitSetTraits
+{
+public:
+    static inline unsigned GetSize(Compiler* comp);
+
+    static inline unsigned GetArrSize(Compiler* comp, unsigned elemSize);
+
+    static inline unsigned GetEpoch(class Compiler* comp);
+
+    static inline BitSetSupport::BitSetOpCounter* GetOpCounter(Compiler* comp);
+};
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// BitVecTraits
+//
+// This class simplifies creation and usage of "ShortLong" bitsets.
+//
+struct BitVecTraits
+{
+private:
+    unsigned  size;
+    Compiler* comp;
+
+public:
+    BitVecTraits(unsigned size, Compiler* comp) : size(size), comp(comp)
+    {
+    }
+
+    static inline void* Alloc(BitVecTraits* b, size_t byteSize);
+
+#ifdef DEBUG
+    static inline void* DebugAlloc(BitVecTraits* b, size_t byteSize);
+#endif // DEBUG
+
+    static inline unsigned GetSize(BitVecTraits* b);
+
+    static inline unsigned GetArrSize(BitVecTraits* b, unsigned elemSize);
+
+    static inline unsigned GetEpoch(BitVecTraits* b);
+
+    static inline BitSetSupport::BitSetOpCounter* GetOpCounter(BitVecTraits* b);
+};
 
 using BitVec          = BitSetShortLongRep;
 using BitVecOps       = BitSetOps<BitVec, BSShortLong, BitVecTraits*, BitVecTraits>;
 using BitVec_ValArg_T = BitVecOps::ValArgType;
 using BitVec_ValRet_T = BitVecOps::RetValType;
+
+using ASSERT_TP        = BitVec;
+using ASSERT_VALARG_TP = BitVec_ValArg_T;
+using ASSERT_VALRET_TP = BitVec_ValRet_T;
+
+// A VARSET_TP is a set of (small) integers representing local variables.
+//
+// The set of tracked variables may change during a compilation, and variables may be
+// re-sorted, so the tracked variable index of a variable is decidedly *not* stable.
+// The bitset abstraction supports labeling of bitsets with "epochs", and supports a
+// debugging mode in which live bitsets must have the current epoch. To use this feature,
+// divide a compilation up into epochs, during which tracked variable indices are
+// stable.
+
+// Some implementations of BitSet may use a level of indirection. Therefore, we
+// must be careful about about assignment and initialization. We often want to
+// reason about VARSET_TP as immutable values, and just copying the contents would
+// introduce sharing in the indirect case, which is usually not what's desired.
+// On the other hand, there are many cases in which the RHS value has just been
+// created functionally, and the initialization/assignment is obviously its last
+// use. In these cases, allocating a new indirect representation for the lhs (if
+// it does not already have one) would be unnecessary and wasteful. Thus, for both
+// initialization and assignment, we have normal versions, which do make copies to
+// prevent sharing and definitely preserve value semantics, and "NOCOPY" versions,
+// which do not. Obviously, the latter should be used with care.
+
+using VARSET_TP        = BitSetShortLongRep;
+using VarSetOps        = BitSetOps<VARSET_TP, BSShortLong, Compiler*, TrackedVarBitSetTraits>;
+using VARSET_VALARG_TP = VarSetOps::ValArgType;
+using VARSET_VALRET_TP = VarSetOps::RetValType;
+
+// A BlockSet is a set of BasicBlocks, represented by the BasicBlock number (bbNum).
+//
+// Note that BasicBlocks in the JIT are numbered starting at 1. We always just waste the
+// 0th bit to avoid having to do "bbNum - 1" calculations everywhere (at the BlockSet call
+// sites). This makes reading the code easier, and avoids potential problems of forgetting
+// to do a "- 1" somewhere.
+//
+// Basic blocks can be renumbered during compilation, so it is important to not mix
+// BlockSets created before and after a renumbering. Every time the blocks are renumbered
+// creates a different "epoch", during which the basic block numbers are stable.
+
+using BlockSet = BitSetShortLongRep;
+
+class BlockSetOps : public BitSetOps<BlockSet, BSShortLong, Compiler*, BasicBlockBitSetTraits>
+{
+public:
+    // Specialize BlockSetOps::MakeFull(). Since we number basic blocks from one, we
+    // remove bit zero from the block set. Otherwise, IsEmpty() would never return true.
+    static BlockSet MakeFull(Compiler* env)
+    {
+        BlockSet retval = BitSetOps<BitSetShortLongRep, BSShortLong, Compiler*, BasicBlockBitSetTraits>::MakeFull(env);
+        RemoveElemD(env, retval, 0);
+        return retval;
+    }
+};
+
+typedef BlockSetOps::ValArgType BlockSet_ValArg_T;
+typedef BlockSetOps::RetValType BlockSet_ValRet_T;

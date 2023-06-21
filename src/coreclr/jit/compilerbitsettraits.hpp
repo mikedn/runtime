@@ -1,11 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#ifndef CompilerBitSetTraits_HPP_DEFINED
-#define CompilerBitSetTraits_HPP_DEFINED 1
-
-#include "compilerbitsettraits.h"
-#include "compiler.h"
+#pragma once
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -142,5 +138,3 @@ BitSetSupport::BitSetOpCounter* BitVecTraits::GetOpCounter(BitVecTraits* b)
 {
     return nullptr;
 }
-
-#endif // CompilerBitSetTraits_HPP_DEFINED
