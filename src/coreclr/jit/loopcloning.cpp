@@ -2088,12 +2088,12 @@ bool LoopCloneVisitorInfo::IsTrackedLclAssignedInLoop(unsigned lclNum)
     {
         if (modifiedLocals == nullptr)
         {
-            modifiedLocals         = BitVecOps::MakeEmpty(&context.modifiedLocalsTraits);
+            modifiedLocals         = BitVecOps::MakeEmpty(context.modifiedLocalsTraits);
             context.modifiedLocals = modifiedLocals;
         }
         else
         {
-            BitVecOps::ClearD(&context.modifiedLocalsTraits, modifiedLocals);
+            BitVecOps::ClearD(context.modifiedLocalsTraits, modifiedLocals);
         }
 
         lpAsgInds = VR_NONE;
@@ -2116,7 +2116,7 @@ bool LoopCloneVisitorInfo::IsTrackedLclAssignedInLoop(unsigned lclNum)
         hasLoopSummary = true;
     }
 
-    if (BitVecOps::IsMember(&context.modifiedLocalsTraits, modifiedLocals, lclNum))
+    if (BitVecOps::IsMember(context.modifiedLocalsTraits, modifiedLocals, lclNum))
     {
         return true;
     }
@@ -2169,7 +2169,7 @@ void LoopCloneVisitorInfo::IsLclAssignedVisitor(GenTree* tree)
             // happens just be conservative and treat any new locals as modified.
             if (lclNum < BitVecTraits::GetSize(&context.modifiedLocalsTraits))
             {
-                BitVecOps::AddElemD(&context.modifiedLocalsTraits, modifiedLocals, lclNum);
+                BitVecOps::AddElemD(context.modifiedLocalsTraits, modifiedLocals, lclNum);
             }
         }
         else if (dest->OperIs(GT_LCL_FLD))

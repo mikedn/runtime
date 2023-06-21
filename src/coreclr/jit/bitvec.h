@@ -11,20 +11,41 @@ class BitVecTraits
     Compiler* comp;
 
 public:
-    using Env = BitVecTraits*;
+    // TODO-MIKE-Cleanup: This should not be needed but there's a ton of code
+    // that insists on passing a pointer to traits instead of a saner reference.
+    // In fact, it may be even better to pass by value, since all these functions
+    // are supposed to be inlined. Just beware that MSVC might do stupid things
+    // with struct copies.
+    struct Env
+    {
+        const BitVecTraits* traits;
+
+        Env(const BitVecTraits* traits) : traits(traits)
+        {
+        }
+
+        Env(const BitVecTraits& traits) : traits(&traits)
+        {
+        }
+
+        operator const BitVecTraits*() const
+        {
+            return traits;
+        }
+    };
 
     BitVecTraits(unsigned size, Compiler* comp) : size(size), comp(comp)
     {
     }
 
-    static void* Alloc(BitVecTraits* b, size_t byteSize);
+    static void* Alloc(const BitVecTraits* b, size_t byteSize);
 
-    static unsigned GetSize(BitVecTraits* b)
+    static unsigned GetSize(const BitVecTraits* b)
     {
         return b->size;
     }
 
-    static unsigned GetArrSize(BitVecTraits* b, unsigned elemSize)
+    static unsigned GetArrSize(const BitVecTraits* b, unsigned elemSize)
     {
         assert(elemSize == sizeof(size_t));
         unsigned elemBits = 8 * elemSize;
@@ -32,9 +53,9 @@ public:
     }
 
 #ifdef DEBUG
-    static void* DebugAlloc(BitVecTraits* b, size_t byteSize);
+    static void* DebugAlloc(const BitVecTraits* b, size_t byteSize);
 
-    static unsigned GetEpoch(BitVecTraits* b)
+    static unsigned GetEpoch(const BitVecTraits* b)
     {
         return b->size;
     }

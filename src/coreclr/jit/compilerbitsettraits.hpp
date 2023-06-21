@@ -53,13 +53,13 @@ inline unsigned BasicBlockBitSetTraits::GetEpoch(Compiler* comp)
 }
 #endif
 
-inline void* BitVecTraits::Alloc(BitVecTraits* b, size_t byteSize)
+inline void* BitVecTraits::Alloc(const BitVecTraits* b, size_t byteSize)
 {
     return b->comp->getAllocator(CMK_bitset).allocate<char>(byteSize);
 }
 
 #ifdef DEBUG
-inline void* BitVecTraits::DebugAlloc(BitVecTraits* b, size_t byteSize)
+inline void* BitVecTraits::DebugAlloc(const BitVecTraits* b, size_t byteSize)
 {
     return b->comp->getAllocator(CMK_DebugOnly).allocate<char>(byteSize);
 }
