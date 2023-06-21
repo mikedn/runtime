@@ -123,7 +123,6 @@ void BitSetSupport::TestSuite(CompAllocator env)
     BitSetSupport::RunTests<BitSetUint64<CompAllocator, TestBitSetTraits>, BSUInt64Class, CompAllocator,
                             TestBitSetTraits>(env);
 }
-#endif
 
 const char* BitSetSupport::OpNames[BitSetSupport::BSOP_NUMOPS] = {
 #define BSOPNAME(x) #x,
@@ -182,3 +181,5 @@ void BitSetSupport::BitSetOpCounter::RecordOp(BitSetSupport::Operation op)
         }
     }
 }
+
+#endif // DEBUG

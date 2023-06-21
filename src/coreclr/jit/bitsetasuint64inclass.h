@@ -38,9 +38,7 @@ private:
 
     void CheckEpoch(Env env) const
     {
-#ifdef DEBUG
         assert(m_epoch == BitSetTraits::GetEpoch(env));
-#endif
     }
 
     bool operator==(const BitSetUint64& bs) const

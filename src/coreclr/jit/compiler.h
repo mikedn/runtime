@@ -6681,11 +6681,10 @@ public:
         return fieldStore->Append(fieldStore->CreateSingleton(byRefFieldHandle), valueFieldHandle);
     }
 
+#ifdef DEBUG
 #if VARSET_COUNTOPS
     static BitSetSupport::BitSetOpCounter m_varsetOpCounter;
 #endif
-#if ALLVARSET_COUNTOPS
-    static BitSetSupport::BitSetOpCounter m_allvarsetOpCounter;
 #endif
 
     const static HelperCallProperties s_helperCallProperties;

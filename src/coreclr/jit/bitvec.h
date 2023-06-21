@@ -5,78 +5,8 @@
 
 #include "bitsetasshortlong.h"
 
-///////////////////////////////////////////////////////////////////////////////
-//
-// CompAllocBitSetTraits: a base class for other BitSet traits classes.
-//
-// The classes in this file define "BitSetTraits" arguments to the "BitSetOps" type, ones that assume that
-// Compiler* is the "Env" type.
-//
-// This class just wraps the compiler's allocator.
-//
-class CompAllocBitSetTraits
+class BitVecTraits
 {
-public:
-    static inline void* Alloc(Compiler* comp, size_t byteSize);
-
-#ifdef DEBUG
-    static inline void* DebugAlloc(Compiler* comp, size_t byteSize);
-#endif // DEBUG
-};
-
-///////////////////////////////////////////////////////////////////////////////
-//
-// TrackedVarBitSetTraits
-//
-// This class is customizes the bit set to represent sets of tracked local vars.
-// The size of the bitset is determined by the # of tracked locals (up to some internal
-// maximum), and the Compiler* tracks the tracked local epochs.
-//
-class TrackedVarBitSetTraits : public CompAllocBitSetTraits
-{
-public:
-    static inline unsigned GetSize(Compiler* comp);
-
-    static inline unsigned GetArrSize(Compiler* comp, unsigned elemSize);
-
-    static inline unsigned GetEpoch(class Compiler* comp);
-
-    static inline BitSetSupport::BitSetOpCounter* GetOpCounter(Compiler* comp);
-};
-
-///////////////////////////////////////////////////////////////////////////////
-//
-// BasicBlockBitSetTraits
-//
-// This class is customizes the bit set to represent sets of BasicBlocks.
-// The size of the bitset is determined by maximum assigned BasicBlock number
-// (Compiler::fgBBNumMax) (Note that fgBBcount is not equal to this during inlining,
-// when fgBBcount is the number of blocks in the inlined function, but the assigned
-// block numbers are higher than the inliner function. fgBBNumMax counts both.
-// Thus, if you only care about the inlinee, during inlining, this bit set will waste
-// the lower numbered block bits.) The Compiler* tracks the BasicBlock epochs.
-//
-class BasicBlockBitSetTraits : public CompAllocBitSetTraits
-{
-public:
-    static inline unsigned GetSize(Compiler* comp);
-
-    static inline unsigned GetArrSize(Compiler* comp, unsigned elemSize);
-
-    static inline unsigned GetEpoch(class Compiler* comp);
-
-    static inline BitSetSupport::BitSetOpCounter* GetOpCounter(Compiler* comp);
-};
-
-///////////////////////////////////////////////////////////////////////////////
-//
-// BitVecTraits
-//
-// This class simplifies creation and usage of "ShortLong" bitsets.
-//
-struct BitVecTraits
-{
-private:
     unsigned  size;
     Compiler* comp;
 
@@ -85,19 +15,33 @@ public:
     {
     }
 
-    static inline void* Alloc(BitVecTraits* b, size_t byteSize);
+    static void* Alloc(BitVecTraits* b, size_t byteSize);
+
+    static unsigned GetSize(BitVecTraits* b)
+    {
+        return b->size;
+    }
+
+    static unsigned GetArrSize(BitVecTraits* b, unsigned elemSize)
+    {
+        assert(elemSize == sizeof(size_t));
+        unsigned elemBits = 8 * elemSize;
+        return roundUp(b->size, elemBits) / elemBits;
+    }
 
 #ifdef DEBUG
-    static inline void* DebugAlloc(BitVecTraits* b, size_t byteSize);
-#endif // DEBUG
+    static void* DebugAlloc(BitVecTraits* b, size_t byteSize);
 
-    static inline unsigned GetSize(BitVecTraits* b);
+    static unsigned GetEpoch(BitVecTraits* b)
+    {
+        return b->size;
+    }
 
-    static inline unsigned GetArrSize(BitVecTraits* b, unsigned elemSize);
-
-    static inline unsigned GetEpoch(BitVecTraits* b);
-
-    static inline BitSetSupport::BitSetOpCounter* GetOpCounter(BitVecTraits* b);
+    static BitSetSupport::BitSetOpCounter* GetOpCounter(BitVecTraits* b)
+    {
+        return nullptr;
+    }
+#endif
 };
 
 using BitVec          = BitSetShortLongRep;
@@ -108,6 +52,16 @@ using BitVec_ValRet_T = BitVecOps::RetValType;
 using ASSERT_TP        = BitVec;
 using ASSERT_VALARG_TP = BitVec_ValArg_T;
 using ASSERT_VALRET_TP = BitVec_ValRet_T;
+
+class CompAllocBitSetTraits
+{
+public:
+    static void* Alloc(Compiler* comp, size_t byteSize);
+
+#ifdef DEBUG
+    static void* DebugAlloc(Compiler* comp, size_t byteSize);
+#endif
+};
 
 // A VARSET_TP is a set of (small) integers representing local variables.
 //
@@ -130,6 +84,21 @@ using ASSERT_VALRET_TP = BitVec_ValRet_T;
 // prevent sharing and definitely preserve value semantics, and "NOCOPY" versions,
 // which do not. Obviously, the latter should be used with care.
 
+// This class is customizes the bit set to represent sets of tracked local vars.
+// The size of the bitset is determined by the # of tracked locals (up to some internal
+// maximum), and the Compiler* tracks the tracked local epochs.
+class TrackedVarBitSetTraits : public CompAllocBitSetTraits
+{
+public:
+    static unsigned GetSize(Compiler* comp);
+    static unsigned GetArrSize(Compiler* comp, unsigned elemSize);
+
+#ifdef DEBUG
+    static unsigned GetEpoch(class Compiler* comp);
+    static BitSetSupport::BitSetOpCounter* GetOpCounter(Compiler* comp);
+#endif
+};
+
 using VARSET_TP        = BitSetShortLongRep;
 using VarSetOps        = BitSetOps<VARSET_TP, BSShortLong, Compiler*, TrackedVarBitSetTraits>;
 using VARSET_VALARG_TP = VarSetOps::ValArgType;
@@ -146,6 +115,25 @@ using VARSET_VALRET_TP = VarSetOps::RetValType;
 // BlockSets created before and after a renumbering. Every time the blocks are renumbered
 // creates a different "epoch", during which the basic block numbers are stable.
 
+// This class is customizes the bit set to represent sets of BasicBlocks.
+// The size of the bitset is determined by maximum assigned BasicBlock number
+// (Compiler::fgBBNumMax) (Note that fgBBcount is not equal to this during inlining,
+// when fgBBcount is the number of blocks in the inlined function, but the assigned
+// block numbers are higher than the inliner function. fgBBNumMax counts both.
+// Thus, if you only care about the inlinee, during inlining, this bit set will waste
+// the lower numbered block bits.) The Compiler* tracks the BasicBlock epochs.
+class BasicBlockBitSetTraits : public CompAllocBitSetTraits
+{
+public:
+    static unsigned GetSize(Compiler* comp);
+    static unsigned GetArrSize(Compiler* comp, unsigned elemSize);
+
+#ifdef DEBUG
+    static unsigned GetEpoch(class Compiler* comp);
+    static BitSetSupport::BitSetOpCounter* GetOpCounter(Compiler* comp);
+#endif
+};
+
 using BlockSet = BitSetShortLongRep;
 
 class BlockSetOps : public BitSetOps<BlockSet, BSShortLong, Compiler*, BasicBlockBitSetTraits>
@@ -155,7 +143,7 @@ public:
     // remove bit zero from the block set. Otherwise, IsEmpty() would never return true.
     static BlockSet MakeFull(Compiler* env)
     {
-        BlockSet retval = BitSetOps<BitSetShortLongRep, BSShortLong, Compiler*, BasicBlockBitSetTraits>::MakeFull(env);
+        BlockSet retval = BitSetOps<BlockSet, BSShortLong, Compiler*, BasicBlockBitSetTraits>::MakeFull(env);
         RemoveElemD(env, retval, 0);
         return retval;
     }
