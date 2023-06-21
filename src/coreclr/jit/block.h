@@ -17,7 +17,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "vartype.h"
 #include "_typeinfo.h"
 #include "bitvec.h"
-#include "jitstd.h"
+#include "list.h"
+#include "vector.h"
 #include "jithashtable.h"
 
 // We use the following format when printing the BasicBlock number: bbNum

@@ -23,7 +23,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "jit.h"
 #include "opcode.h"
-#include "varset.h"
 #include "jithashtable.h"
 #include "gentree.h"
 #include "lir.h"
