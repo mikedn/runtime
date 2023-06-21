@@ -7,10 +7,7 @@
 #include "bitset.h"
 
 template <typename Env, typename BitSetTraits>
-class BitSetOps</*BitSetType*/ UINT64,
-                /*Brand*/ BSUInt64,
-                /*Env*/ Env,
-                /*BitSetTraits*/ BitSetTraits>
+class BitSetOps<UINT64, Env, BitSetTraits>
 {
 public:
     typedef UINT64 Rep;

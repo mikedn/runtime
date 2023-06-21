@@ -45,7 +45,7 @@ public:
 };
 
 using BitVec          = BitSetShortLongRep;
-using BitVecOps       = BitSetOps<BitVec, BSShortLong, BitVecTraits*, BitVecTraits>;
+using BitVecOps       = BitSetOps<BitVec, BitVecTraits*, BitVecTraits>;
 using BitVec_ValArg_T = BitVecOps::ValArgType;
 using BitVec_ValRet_T = BitVecOps::RetValType;
 
@@ -100,7 +100,7 @@ public:
 };
 
 using VARSET_TP        = BitSetShortLongRep;
-using VarSetOps        = BitSetOps<VARSET_TP, BSShortLong, Compiler*, TrackedVarBitSetTraits>;
+using VarSetOps        = BitSetOps<VARSET_TP, Compiler*, TrackedVarBitSetTraits>;
 using VARSET_VALARG_TP = VarSetOps::ValArgType;
 using VARSET_VALRET_TP = VarSetOps::RetValType;
 
@@ -136,14 +136,14 @@ public:
 
 using BlockSet = BitSetShortLongRep;
 
-class BlockSetOps : public BitSetOps<BlockSet, BSShortLong, Compiler*, BasicBlockBitSetTraits>
+class BlockSetOps : public BitSetOps<BlockSet, Compiler*, BasicBlockBitSetTraits>
 {
 public:
     // Specialize BlockSetOps::MakeFull(). Since we number basic blocks from one, we
     // remove bit zero from the block set. Otherwise, IsEmpty() would never return true.
     static BlockSet MakeFull(Compiler* env)
     {
-        BlockSet retval = BitSetOps<BlockSet, BSShortLong, Compiler*, BasicBlockBitSetTraits>::MakeFull(env);
+        BlockSet retval = BitSetOps<BlockSet, Compiler*, BasicBlockBitSetTraits>::MakeFull(env);
         RemoveElemD(env, retval, 0);
         return retval;
     }

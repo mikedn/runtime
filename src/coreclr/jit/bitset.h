@@ -13,7 +13,7 @@
 class BitSetSupport
 {
 #ifdef DEBUG
-    template <typename BitSetType, unsigned Brand, typename Env, typename BitSetTraits>
+    template <typename BitSetType, typename Env, typename BitSetTraits>
     static void RunTests(Env env);
 #endif
 
@@ -126,11 +126,6 @@ FORCEINLINE unsigned BitSetSupport::CountBitsInIntegral<uint32_t>(uint32_t c)
 // An instantiation requires:
 //    typename BitSetType:         the representation type of this kind of BitSet.
 //
-//    unsigned Brand:              an integer constant.  This is unused by the implementation; it exists
-//                                 *only* to ensure that we can have, if desired, multiple distinct BitSetOps
-//                                 implementations for the same BitSetType, by instantiating these with different
-//                                 values for Brand (thus "branding" them so that they are distinct from one another.)
-//
 //    typename Env:                a type that determines the (current) size of the given BitSet type, as well
 //                                 as an allocation function, and the current epoch (integer that changes when
 //                                 "universe" of the BitSet changes) -- all via static methods of the "BitSetTraits"
@@ -165,7 +160,7 @@ FORCEINLINE unsigned BitSetSupport::CountBitsInIntegral<uint32_t>(uint32_t c)
 // however, ValArgType may need to be "const BitSetType&", and RetValArg may need to be a helper class, if the
 // class hides default copy constructors and assignment operators to detect erroneous usage.
 //
-template <typename BitSetType, unsigned Brand, typename Env, typename BitSetTraits>
+template <typename BitSetType, typename Env, typename BitSetTraits>
 class BitSetOps
 {
 #if 0
@@ -286,7 +281,6 @@ class BitSetOps
 };
 
 template <typename BitSetType,
-          unsigned Brand,
           typename Env,
           typename BitSetTraits,
           typename BitSetValueArgType,
@@ -294,7 +288,7 @@ template <typename BitSetType,
           typename BaseIter>
 class BitSetOpsWithCounter
 {
-    typedef BitSetOps<BitSetType, Brand, Env, BitSetTraits> BSO;
+    typedef BitSetOps<BitSetType, Env, BitSetTraits> BSO;
 
 public:
     static BitSetValueRetType UninitVal()
@@ -450,12 +444,6 @@ public:
         }
     };
 };
-
-// We define symbolic names for the various bitset implementations available, to allow choices between them.
-
-static constexpr unsigned BSUInt64      = 0;
-static constexpr unsigned BSShortLong   = 1;
-static constexpr unsigned BSUInt64Class = 2;
 
 template <typename T>
 inline T genFindLowestBit(T value)

@@ -18,11 +18,11 @@ unsigned BitSetSupport::BitCountTable[16] = { 0, 1, 1, 2,
 // clang-format on
 
 #ifdef DEBUG
-template <typename BitSetType, unsigned Uniq, typename Env, typename BitSetTraits>
+template <typename BitSetType, typename Env, typename BitSetTraits>
 void BitSetSupport::RunTests(Env env)
 {
 
-    typedef BitSetOps<BitSetType, Uniq, Env, BitSetTraits> LclBitSetOps;
+    typedef BitSetOps<BitSetType, Env, BitSetTraits> LclBitSetOps;
 
     // The tests require that the Size is at least 52...
     assert(BitSetTraits::GetSize(env) > 51);
@@ -118,10 +118,9 @@ public:
 
 void BitSetSupport::TestSuite(CompAllocator env)
 {
-    BitSetSupport::RunTests<UINT64, BSUInt64, CompAllocator, TestBitSetTraits>(env);
-    BitSetSupport::RunTests<BitSetShortLongRep, BSShortLong, CompAllocator, TestBitSetTraits>(env);
-    BitSetSupport::RunTests<BitSetUint64<CompAllocator, TestBitSetTraits>, BSUInt64Class, CompAllocator,
-                            TestBitSetTraits>(env);
+    BitSetSupport::RunTests<UINT64, CompAllocator, TestBitSetTraits>(env);
+    BitSetSupport::RunTests<BitSetShortLongRep, CompAllocator, TestBitSetTraits>(env);
+    BitSetSupport::RunTests<BitSetUint64<CompAllocator, TestBitSetTraits>, CompAllocator, TestBitSetTraits>(env);
 }
 
 const char* BitSetSupport::OpNames[BitSetSupport::BSOP_NUMOPS] = {

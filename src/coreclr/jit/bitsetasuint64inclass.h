@@ -21,10 +21,7 @@ public:
     typedef BitSetUint64<Env, BitSetTraits> Rep;
 
 private:
-    friend class BitSetOps</*BitSetType*/ BitSetUint64<Env, BitSetTraits>,
-                           /*Brand*/ BSUInt64Class,
-                           /*Env*/ Env,
-                           /*BitSetTraits*/ BitSetTraits>;
+    friend class BitSetOps<BitSetUint64<Env, BitSetTraits>, Env, BitSetTraits>;
 
     friend class BitSetUint64ValueRetType<Env, BitSetTraits>;
 
@@ -34,7 +31,7 @@ private:
     unsigned m_epoch;
 #endif
 
-    typedef BitSetOps<UINT64, BSUInt64, Env, BitSetTraits> Uint64BitSetOps;
+    typedef BitSetOps<UINT64, Env, BitSetTraits> Uint64BitSetOps;
 
     void CheckEpoch(Env env) const
     {
@@ -269,10 +266,7 @@ BitSetUint64<Env, BitSetTraits>::BitSetUint64(const BitSetUint64ValueRetType<Env
 }
 
 template <typename Env, typename BitSetTraits>
-class BitSetOps</*BitSetType*/ BitSetUint64<Env, BitSetTraits>,
-                /*Brand*/ BSUInt64Class,
-                /*Env*/ Env,
-                /*BitSetTraits*/ BitSetTraits>
+class BitSetOps<BitSetUint64<Env, BitSetTraits>, Env, BitSetTraits>
 {
     typedef BitSetUint64<Env, BitSetTraits>             BST;
     typedef const BitSetUint64<Env, BitSetTraits>&      BSTValArg;

@@ -164,7 +164,7 @@ struct Compiler::MorphAssertionBitVecTraits
 // could be used to link assertions directly to locals and entirely avoid the bit vector stuff, not
 // to mention the stupid linear search that's probably one of the reasons the max assertion count is
 // limited to 64 now.
-using DepBitVecOps = BitSetOps<BitSetShortLongRep, BSShortLong, Compiler*, Compiler::MorphAssertionBitVecTraits>;
+using DepBitVecOps = BitSetOps<BitSetShortLongRep, Compiler*, Compiler::MorphAssertionBitVecTraits>;
 
 void Compiler::morphAssertionInit()
 {

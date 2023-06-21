@@ -13,7 +13,7 @@
 typedef size_t* BitSetShortLongRep;
 
 template <typename Env, typename BitSetTraits>
-class BitSetOps<BitSetShortLongRep, BSShortLong, Env, BitSetTraits>
+class BitSetOps<BitSetShortLongRep, Env, BitSetTraits>
 {
 public:
     typedef BitSetShortLongRep        Rep;
