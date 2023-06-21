@@ -5387,8 +5387,6 @@ protected:
 public:
 #if LOCAL_ASSERTION_PROP
     struct MorphAssertion;
-    struct MorphAssertionBitVecTraits;
-    friend MorphAssertionBitVecTraits;
 
     static constexpr unsigned morphAssertionMaxCount = 64;
     unsigned                  morphAssertionCount;

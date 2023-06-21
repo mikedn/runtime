@@ -1,37 +1,35 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#ifndef bitSetAsUint64InClass_DEFINED
-#define bitSetAsUint64InClass_DEFINED 1
+#pragma once
 
 #include "bitset.h"
 #include "bitsetasuint64.h"
 #include "stdmacros.h"
 
-template <typename Env, typename BitSetTraits>
+template <typename BitSetTraits>
 class BitSetUint64ValueRetType;
 
-template <typename Env, typename BitSetTraits>
+template <typename BitSetTraits>
 class BitSetUint64Iter;
 
-template <typename Env, typename BitSetTraits>
+template <typename BitSetTraits>
 class BitSetUint64
 {
+    friend class BitSetOps<BitSetUint64<BitSetTraits>, BitSetTraits>;
+    friend class BitSetUint64ValueRetType<BitSetTraits>;
+
 public:
-    typedef BitSetUint64<Env, BitSetTraits> Rep;
+    using Env = typename BitSetTraits::Env;
+    using Rep = BitSetUint64<BitSetTraits>;
 
 private:
-    friend class BitSetOps<BitSetUint64<Env, BitSetTraits>, Env, BitSetTraits>;
+    using Uint64BitSetOps = BitSetOps<uint64_t, BitSetTraits>;
 
-    friend class BitSetUint64ValueRetType<Env, BitSetTraits>;
-
-    UINT64 m_bits;
-
+    uint64_t m_bits;
 #ifdef DEBUG
     unsigned m_epoch;
 #endif
-
-    typedef BitSetOps<UINT64, Env, BitSetTraits> Uint64BitSetOps;
 
     void CheckEpoch(Env env) const
     {
@@ -231,7 +229,7 @@ public:
         }
     }
 
-    inline BitSetUint64(const BitSetUint64ValueRetType<Env, BitSetTraits>& rt);
+    inline BitSetUint64(const BitSetUint64ValueRetType<BitSetTraits>& rt);
 
     BitSetUint64(Env env, unsigned bitNum)
         : m_bits(Uint64BitSetOps::MakeSingleton(env, bitNum))
@@ -243,21 +241,21 @@ public:
     }
 };
 
-template <typename Env, typename BitSetTraits>
+template <typename BitSetTraits>
 class BitSetUint64ValueRetType
 {
-    friend class BitSetUint64<Env, BitSetTraits>;
+    friend class BitSetUint64<BitSetTraits>;
 
-    BitSetUint64<Env, BitSetTraits> m_bs;
+    BitSetUint64<BitSetTraits> m_bs;
 
 public:
-    BitSetUint64ValueRetType(const BitSetUint64<Env, BitSetTraits>& bs) : m_bs(bs)
+    BitSetUint64ValueRetType(const BitSetUint64<BitSetTraits>& bs) : m_bs(bs)
     {
     }
 };
 
-template <typename Env, typename BitSetTraits>
-BitSetUint64<Env, BitSetTraits>::BitSetUint64(const BitSetUint64ValueRetType<Env, BitSetTraits>& rt)
+template <typename BitSetTraits>
+BitSetUint64<BitSetTraits>::BitSetUint64(const BitSetUint64ValueRetType<BitSetTraits>& rt)
     : m_bits(rt.m_bs.m_bits)
 #ifdef DEBUG
     , m_epoch(rt.m_bs.m_epoch)
@@ -265,12 +263,15 @@ BitSetUint64<Env, BitSetTraits>::BitSetUint64(const BitSetUint64ValueRetType<Env
 {
 }
 
-template <typename Env, typename BitSetTraits>
-class BitSetOps<BitSetUint64<Env, BitSetTraits>, Env, BitSetTraits>
+template <typename BitSetTraits>
+class BitSetOps<BitSetUint64<BitSetTraits>, BitSetTraits>
 {
-    typedef BitSetUint64<Env, BitSetTraits>             BST;
-    typedef const BitSetUint64<Env, BitSetTraits>&      BSTValArg;
-    typedef BitSetUint64ValueRetType<Env, BitSetTraits> BSTRetVal;
+    using Env        = typename BitSetTraits::Env;
+    using BST        = BitSetUint64<BitSetTraits>;
+    using BSTValArg  = const BitSetUint64<BitSetTraits>&;
+    using BSTRetVal  = BitSetUint64ValueRetType<BitSetTraits>;
+    using ValArgType = const BitSetUint64<BitSetTraits>&;
+    using RetValType = BitSetUint64ValueRetType<BitSetTraits>;
 
 public:
     static BSTRetVal UninitVal()
@@ -439,11 +440,11 @@ public:
     // bitset during bit iteration.
     class Iter
     {
-        UINT64   m_bits;
+        uint64_t m_bits;
         unsigned m_bitNum;
 
     public:
-        Iter(Env env, const BitSetUint64<Env, BitSetTraits>& bs) : m_bits(bs.m_bits), m_bitNum(0)
+        Iter(Env env, const BitSetUint64<BitSetTraits>& bs) : m_bits(bs.m_bits), m_bitNum(0)
         {
         }
 
@@ -485,8 +486,4 @@ public:
             }
         }
     };
-
-    typedef const BitSetUint64<Env, BitSetTraits>&      ValArgType;
-    typedef BitSetUint64ValueRetType<Env, BitSetTraits> RetValType;
 };
-#endif // bitSetAsUint64InClass_DEFINED

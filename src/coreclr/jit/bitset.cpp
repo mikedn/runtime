@@ -2,27 +2,18 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 #include "bitset.h"
 #include "bitsetasuint64.h"
 #include "bitsetasshortlong.h"
 #include "bitsetasuint64inclass.h"
 
-// clang-format off
-unsigned BitSetSupport::BitCountTable[16] = { 0, 1, 1, 2,
-                                              1, 2, 2, 3,
-                                              1, 2, 2, 3,
-                                              2, 3, 3, 4 };
-// clang-format on
+const unsigned BitSetSupport::BitCountTable[16]{0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4};
 
 #ifdef DEBUG
-template <typename BitSetType, typename Env, typename BitSetTraits>
-void BitSetSupport::RunTests(Env env)
+template <typename BitSetType, typename BitSetTraits>
+void BitSetSupport::RunTests(typename BitSetTraits::Env env)
 {
-
-    typedef BitSetOps<BitSetType, Env, BitSetTraits> LclBitSetOps;
+    using LclBitSetOps = BitSetOps<BitSetType, BitSetTraits>;
 
     // The tests require that the Size is at least 52...
     assert(BitSetTraits::GetSize(env) > 51);
@@ -97,6 +88,8 @@ void BitSetSupport::RunTests(Env env)
 class TestBitSetTraits
 {
 public:
+    using Env = CompAllocator;
+
     static void* Alloc(CompAllocator alloc, size_t byteSize)
     {
         return alloc.allocate<char>(byteSize);
@@ -118,9 +111,9 @@ public:
 
 void BitSetSupport::TestSuite(CompAllocator env)
 {
-    BitSetSupport::RunTests<UINT64, CompAllocator, TestBitSetTraits>(env);
-    BitSetSupport::RunTests<BitSetShortLongRep, CompAllocator, TestBitSetTraits>(env);
-    BitSetSupport::RunTests<BitSetUint64<CompAllocator, TestBitSetTraits>, CompAllocator, TestBitSetTraits>(env);
+    BitSetSupport::RunTests<UINT64, TestBitSetTraits>(env);
+    BitSetSupport::RunTests<BitSetShortLongRep, TestBitSetTraits>(env);
+    BitSetSupport::RunTests<BitSetUint64<TestBitSetTraits>, TestBitSetTraits>(env);
 }
 
 const char* BitSetSupport::OpNames[BitSetSupport::BSOP_NUMOPS] = {

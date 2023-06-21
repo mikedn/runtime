@@ -11,6 +11,8 @@ class BitVecTraits
     Compiler* comp;
 
 public:
+    using Env = BitVecTraits*;
+
     BitVecTraits(unsigned size, Compiler* comp) : size(size), comp(comp)
     {
     }
@@ -44,8 +46,8 @@ public:
 #endif
 };
 
-using BitVec          = BitSetShortLongRep;
-using BitVecOps       = BitSetOps<BitVec, BitVecTraits*, BitVecTraits>;
+using BitVecOps       = BitSetOps<BitSetShortLongRep, BitVecTraits>;
+using BitVec          = BitVecOps::Rep;
 using BitVec_ValArg_T = BitVecOps::ValArgType;
 using BitVec_ValRet_T = BitVecOps::RetValType;
 
@@ -90,6 +92,8 @@ public:
 class TrackedVarBitSetTraits : public CompAllocBitSetTraits
 {
 public:
+    using Env = Compiler*;
+
     static unsigned GetSize(Compiler* comp);
     static unsigned GetArrSize(Compiler* comp, unsigned elemSize);
 
@@ -99,8 +103,8 @@ public:
 #endif
 };
 
-using VARSET_TP        = BitSetShortLongRep;
-using VarSetOps        = BitSetOps<VARSET_TP, Compiler*, TrackedVarBitSetTraits>;
+using VarSetOps        = BitSetOps<BitSetShortLongRep, TrackedVarBitSetTraits>;
+using VARSET_TP        = VarSetOps::Rep;
 using VARSET_VALARG_TP = VarSetOps::ValArgType;
 using VARSET_VALRET_TP = VarSetOps::RetValType;
 
@@ -125,6 +129,8 @@ using VARSET_VALRET_TP = VarSetOps::RetValType;
 class BasicBlockBitSetTraits : public CompAllocBitSetTraits
 {
 public:
+    using Env = Compiler*;
+
     static unsigned GetSize(Compiler* comp);
     static unsigned GetArrSize(Compiler* comp, unsigned elemSize);
 
@@ -134,20 +140,19 @@ public:
 #endif
 };
 
-using BlockSet = BitSetShortLongRep;
-
-class BlockSetOps : public BitSetOps<BlockSet, Compiler*, BasicBlockBitSetTraits>
+class BlockSetOps : public BitSetOps<BitSetShortLongRep, BasicBlockBitSetTraits>
 {
 public:
     // Specialize BlockSetOps::MakeFull(). Since we number basic blocks from one, we
     // remove bit zero from the block set. Otherwise, IsEmpty() would never return true.
-    static BlockSet MakeFull(Compiler* env)
+    static Rep MakeFull(Compiler* env)
     {
-        BlockSet retval = BitSetOps<BlockSet, Compiler*, BasicBlockBitSetTraits>::MakeFull(env);
+        Rep retval = BitSetOps<BitSetShortLongRep, BasicBlockBitSetTraits>::MakeFull(env);
         RemoveElemD(env, retval, 0);
         return retval;
     }
 };
 
-typedef BlockSetOps::ValArgType BlockSet_ValArg_T;
-typedef BlockSetOps::RetValType BlockSet_ValRet_T;
+using BlockSet          = BlockSetOps::Rep;
+using BlockSet_ValArg_T = BlockSetOps::ValArgType;
+using BlockSet_ValRet_T = BlockSetOps::RetValType;

@@ -1,27 +1,18 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-// A set of integers in the range [0..N], for some given N.
+#pragma once
 
-/*****************************************************************************/
-#ifndef _BITSET_H_
-#define _BITSET_H_
-/*****************************************************************************/
-
-// This class provides some constant declarations and some static utility methods useful
-// for bitset implementations.
 class BitSetSupport
 {
 #ifdef DEBUG
-    template <typename BitSetType, typename Env, typename BitSetTraits>
-    static void RunTests(Env env);
+    template <typename BitSetType, typename BitSetTraits>
+    static void RunTests(typename BitSetTraits::Env env);
 #endif
 
 public:
-    static const unsigned BitsInByte = 8;
-
     // This maps 4-bit ("nibble") values into the number of 1 bits they contain.
-    static unsigned BitCountTable[16];
+    static const unsigned BitCountTable[16];
 
     // Returns the number of 1 bits in the binary representation of "u".
     template <typename T>
@@ -126,11 +117,6 @@ FORCEINLINE unsigned BitSetSupport::CountBitsInIntegral<uint32_t>(uint32_t c)
 // An instantiation requires:
 //    typename BitSetType:         the representation type of this kind of BitSet.
 //
-//    typename Env:                a type that determines the (current) size of the given BitSet type, as well
-//                                 as an allocation function, and the current epoch (integer that changes when
-//                                 "universe" of the BitSet changes) -- all via static methods of the "BitSetTraits"
-//                                 type.
-//
 //    typename BitSetTraits:
 //      An "adapter" class that provides methods that retrieves things from the Env:
 //        static void* Alloc(Env, size_t byteSize): Allocates memory the BitSet implementation can use.
@@ -160,7 +146,7 @@ FORCEINLINE unsigned BitSetSupport::CountBitsInIntegral<uint32_t>(uint32_t c)
 // however, ValArgType may need to be "const BitSetType&", and RetValArg may need to be a helper class, if the
 // class hides default copy constructors and assignment operators to detect erroneous usage.
 //
-template <typename BitSetType, typename Env, typename BitSetTraits>
+template <typename BitSetType, typename BitSetTraits>
 class BitSetOps
 {
 #if 0
@@ -276,19 +262,17 @@ class BitSetOps
 
     typename ValArgType;
     typename RetValType;
-#endif // 0 -- the above is #if'd out, since it's really just an extended comment on what an instantiation
-       // should provide.
+#endif
 };
 
-template <typename BitSetType,
-          typename Env,
-          typename BitSetTraits,
-          typename BitSetValueArgType,
-          typename BitSetValueRetType,
-          typename BaseIter>
+#ifdef DEBUG
+template <typename BitSetType, typename BitSetTraits>
 class BitSetOpsWithCounter
 {
-    typedef BitSetOps<BitSetType, Env, BitSetTraits> BSO;
+    using BSO                = BitSetOps<BitSetType, BitSetTraits>;
+    using Env                = typename BitSetTraits::Env;
+    using BitSetValueArgType = typename BSO::ValArgType;
+    using BitSetValueRetType = typename BSO::RetValType;
 
 public:
     static BitSetValueRetType UninitVal()
@@ -429,8 +413,8 @@ public:
 
     class Iter
     {
-        BaseIter m_iter;
-        Env      m_env;
+        typename BSO::Iter m_iter;
+        Env                m_env;
 
     public:
         Iter(Env env, BitSetValueArgType bs) : m_iter(env, bs), m_env(env)
@@ -444,6 +428,7 @@ public:
         }
     };
 };
+#endif // DEBUG
 
 template <typename T>
 inline T genFindLowestBit(T value)
@@ -476,5 +461,3 @@ inline unsigned genCountBits<uint32_t>(uint32_t c)
 {
     return BitSetSupport::CountBitsInIntegral(c);
 }
-
-#endif // _BITSET_H_

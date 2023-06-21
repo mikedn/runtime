@@ -1,184 +1,186 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#ifndef bitSetAsUint64_DEFINED
-#define bitSetAsUint64_DEFINED 1
+#pragma once
 
 #include "bitset.h"
 
-template <typename Env, typename BitSetTraits>
-class BitSetOps<UINT64, Env, BitSetTraits>
+template <typename BitSetTraits>
+class BitSetOps<uint64_t, BitSetTraits>
 {
 public:
-    typedef UINT64 Rep;
+    using Env        = typename BitSetTraits::Env;
+    using Rep        = uint64_t;
+    using ValArgType = const uint64_t;
+    using RetValType = uint64_t;
 
 private:
-    static UINT64 Singleton(unsigned bitNum)
+    static uint64_t Singleton(unsigned bitNum)
     {
-        assert(bitNum < sizeof(UINT64) * BitSetSupport::BitsInByte);
-        return (UINT64)1 << bitNum;
+        assert(bitNum < sizeof(uint64_t) * CHAR_BIT);
+        return (uint64_t)1 << bitNum;
     }
 
 public:
-    static void Assign(Env env, UINT64& lhs, UINT64 rhs)
+    static void Assign(Env env, uint64_t& lhs, uint64_t rhs)
     {
         lhs = rhs;
     }
 
-    static void AssignNouninit(Env env, UINT64& lhs, UINT64 rhs)
+    static void AssignNouninit(Env env, uint64_t& lhs, uint64_t rhs)
     {
         lhs = rhs;
     }
 
-    static void AssignAllowUninitRhs(Env env, UINT64& lhs, UINT64 rhs)
+    static void AssignAllowUninitRhs(Env env, uint64_t& lhs, uint64_t rhs)
     {
         lhs = rhs;
     }
 
-    static void AssignNoCopy(Env env, UINT64& lhs, UINT64 rhs)
+    static void AssignNoCopy(Env env, uint64_t& lhs, uint64_t rhs)
     {
         lhs = rhs;
     }
 
-    static void ClearD(Env env, UINT64& bs)
+    static void ClearD(Env env, uint64_t& bs)
     {
         bs = 0;
     }
 
-    static UINT64 MakeSingleton(Env env, unsigned bitNum)
+    static uint64_t MakeSingleton(Env env, unsigned bitNum)
     {
         assert(bitNum < BitSetTraits::GetSize(env));
         return Singleton(bitNum);
     }
 
-    static UINT64 MakeCopy(Env env, UINT64 bs)
+    static uint64_t MakeCopy(Env env, uint64_t bs)
     {
         return bs;
     }
 
-    static bool IsEmpty(Env env, UINT64 bs)
+    static bool IsEmpty(Env env, uint64_t bs)
     {
         return bs == 0;
     }
 
-    static unsigned Count(Env env, UINT64 bs)
+    static unsigned Count(Env env, uint64_t bs)
     {
         return BitSetSupport::CountBitsInIntegral(bs);
     }
 
-    static bool IsEmptyUnion(Env env, UINT64 bs1, UINT64 bs2)
+    static bool IsEmptyUnion(Env env, uint64_t bs1, uint64_t bs2)
     {
         return (bs1 | bs2) == 0;
     }
 
-    static void UnionD(Env env, UINT64& bs1, UINT64 bs2)
+    static void UnionD(Env env, uint64_t& bs1, uint64_t bs2)
     {
         bs1 |= bs2;
     }
 
-    static UINT64 Union(Env env, UINT64& bs1, UINT64 bs2)
+    static uint64_t Union(Env env, uint64_t& bs1, uint64_t bs2)
     {
         return bs1 | bs2;
     }
 
-    static void DiffD(Env env, UINT64& bs1, UINT64 bs2)
+    static void DiffD(Env env, uint64_t& bs1, uint64_t bs2)
     {
         bs1 = bs1 & ~bs2;
     }
 
-    static UINT64 Diff(Env env, UINT64 bs1, UINT64 bs2)
+    static uint64_t Diff(Env env, uint64_t bs1, uint64_t bs2)
     {
         return bs1 & ~bs2;
     }
 
-    static void RemoveElemD(Env env, UINT64& bs1, unsigned i)
+    static void RemoveElemD(Env env, uint64_t& bs1, unsigned i)
     {
         assert(i < BitSetTraits::GetSize(env));
         bs1 &= ~Singleton(i);
     }
 
-    static UINT64 RemoveElem(Env env, UINT64 bs1, unsigned i)
+    static uint64_t RemoveElem(Env env, uint64_t bs1, unsigned i)
     {
         return bs1 & ~Singleton(i);
     }
 
-    static void AddElemD(Env env, UINT64& bs1, unsigned i)
+    static void AddElemD(Env env, uint64_t& bs1, unsigned i)
     {
         assert(i < BitSetTraits::GetSize(env));
         bs1 |= Singleton(i);
     }
 
-    static UINT64 AddElem(Env env, UINT64 bs1, unsigned i)
+    static uint64_t AddElem(Env env, uint64_t bs1, unsigned i)
     {
         assert(i < BitSetTraits::GetSize(env));
         return bs1 | Singleton(i);
     }
 
-    static bool IsMember(Env env, const UINT64 bs1, unsigned i)
+    static bool IsMember(Env env, const uint64_t bs1, unsigned i)
     {
         assert(i < BitSetTraits::GetSize(env));
         return (bs1 & Singleton(i)) != 0;
     }
 
-    static void IntersectionD(Env env, UINT64& bs1, UINT64 bs2)
+    static void IntersectionD(Env env, uint64_t& bs1, uint64_t bs2)
     {
         bs1 &= bs2;
     }
 
-    static UINT64 Intersection(Env env, UINT64 bs1, UINT64 bs2)
+    static uint64_t Intersection(Env env, uint64_t bs1, uint64_t bs2)
     {
         return bs1 & bs2;
     }
 
-    static bool IsEmptyIntersection(Env env, UINT64 bs1, UINT64 bs2)
+    static bool IsEmptyIntersection(Env env, uint64_t bs1, uint64_t bs2)
     {
         return (bs1 & bs2) == 0;
     }
 
-    static void LivenessD(Env env, UINT64& in, const UINT64 def, const UINT64 use, const UINT64 out)
+    static void LivenessD(Env env, uint64_t& in, const uint64_t def, const uint64_t use, const uint64_t out)
     {
         in = use | (out & ~def);
     }
 
-    static bool IsSubset(Env env, UINT64 bs1, UINT64 bs2)
+    static bool IsSubset(Env env, uint64_t bs1, uint64_t bs2)
     {
         return ((bs1 & bs2) == bs1);
     }
 
-    static bool Equal(Env env, UINT64 bs1, UINT64 bs2)
+    static bool Equal(Env env, uint64_t bs1, uint64_t bs2)
     {
         return bs1 == bs2;
     }
 
-    static UINT64 MakeEmpty(Env env)
+    static uint64_t MakeEmpty(Env env)
     {
         return 0;
     }
 
-    static UINT64 MakeFull(Env env)
+    static uint64_t MakeFull(Env env)
     {
         unsigned sz = BitSetTraits::GetSize(env);
-        if (sz == sizeof(UINT64) * 8)
+        if (sz == sizeof(uint64_t) * 8)
         {
-            return UINT64(-1);
+            return uint64_t(-1);
         }
         else
         {
-            return (UINT64(1) << sz) - 1;
+            return (uint64_t(1) << sz) - 1;
         }
     }
 
 #ifdef DEBUG
-    static const char* ToString(Env env, UINT64 bs)
+    static const char* ToString(Env env, uint64_t bs)
     {
-        const int CharsForUINT64 = sizeof(UINT64) * 2;
+        const int CharsForUINT64 = sizeof(uint64_t) * 2;
         char*     res            = nullptr;
         const int AllocSize      = CharsForUINT64 + 4;
         res                      = (char*)BitSetTraits::DebugAlloc(env, AllocSize);
-        UINT64   bits            = bs;
+        uint64_t bits            = bs;
         unsigned remaining       = AllocSize;
         char*    ptr             = res;
-        for (unsigned bytesDone = 0; bytesDone < sizeof(UINT64); bytesDone += sizeof(unsigned))
+        for (unsigned bytesDone = 0; bytesDone < sizeof(uint64_t); bytesDone += sizeof(unsigned))
         {
             unsigned bits0 = (unsigned)bits;
             sprintf_s(ptr, remaining, "%08X", bits0);
@@ -194,25 +196,25 @@ public:
     }
 #endif
 
-    static UINT64 UninitVal()
+    static uint64_t UninitVal()
     {
         return 0;
     }
 
-    static bool MayBeUninit(UINT64 bs)
+    static bool MayBeUninit(uint64_t bs)
     {
         return bs == UninitVal();
     }
 
     class Iter
     {
-        UINT64 m_bits;
+        uint64_t m_bits;
 
         // The number of bits that have already been iterated over (set or clear).
         unsigned m_bitNum;
 
     public:
-        Iter(Env env, const UINT64& bits) : m_bits(bits), m_bitNum(0)
+        Iter(Env env, const uint64_t& bits) : m_bits(bits), m_bitNum(0)
         {
         }
 
@@ -238,9 +240,4 @@ public:
             }
         }
     };
-
-    typedef const UINT64 ValArgType;
-    typedef UINT64       RetValType;
 };
-
-#endif // bitSetAsUint64_DEFINED
