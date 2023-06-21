@@ -453,9 +453,9 @@ public:
 
 // We define symbolic names for the various bitset implementations available, to allow choices between them.
 
-#define BSUInt64 0
-#define BSShortLong 1
-#define BSUInt64Class 2
+static constexpr unsigned BSUInt64      = 0;
+static constexpr unsigned BSShortLong   = 1;
+static constexpr unsigned BSUInt64Class = 2;
 
 template <typename T>
 inline T genFindLowestBit(T value)

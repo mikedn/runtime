@@ -6,19 +6,14 @@
 // Represented as a pointer-sized item.  If N bits can fit in this item, the representation is "direct"; otherwise,
 // the item is a pointer to an array of K size_t's, where K is the number of size_t's necessary to hold N bits.
 
-#ifndef bitSetAsShortLong_DEFINED
-#define bitSetAsShortLong_DEFINED 1
+#pragma once
 
 #include "bitset.h"
-#include "compilerbitsettraits.h"
 
 typedef size_t* BitSetShortLongRep;
 
 template <typename Env, typename BitSetTraits>
-class BitSetOps</*BitSetType*/ BitSetShortLongRep,
-                /*Brand*/ BSShortLong,
-                /*Env*/ Env,
-                /*BitSetTraits*/ BitSetTraits>
+class BitSetOps<BitSetShortLongRep, BSShortLong, Env, BitSetTraits>
 {
 public:
     typedef BitSetShortLongRep        Rep;
@@ -922,5 +917,3 @@ private:
     }
 #endif
 };
-
-#endif // bitSetAsShortLong_DEFINED
