@@ -11,9 +11,6 @@ template <typename BitSetTraits>
 class BitSetUint64ValueRetType;
 
 template <typename BitSetTraits>
-class BitSetUint64Iter;
-
-template <typename BitSetTraits>
 class BitSetUint64
 {
     friend class BitSetOps<BitSetUint64<BitSetTraits>, BitSetTraits>;
@@ -276,7 +273,7 @@ class BitSetOps<BitSetUint64<BitSetTraits>, BitSetTraits>
 public:
     static BSTRetVal UninitVal()
     {
-        return BitSetUint64<Env, BitSetTraits>();
+        return BitSetUint64<BitSetTraits>();
     }
 
     static bool MayBeUninit(BSTValArg bs)

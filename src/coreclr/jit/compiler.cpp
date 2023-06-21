@@ -5430,10 +5430,6 @@ void dTreeFlags(GenTree* tree)
     cTreeFlags(JitTls::GetCompiler(), tree);
 }
 
-#if VARSET_COUNTOPS
-BitSetSupport::BitSetOpCounter Compiler::m_varsetOpCounter("VarSetOpCounts.log");
-#endif
-
 #endif // DEBUG
 
 // static

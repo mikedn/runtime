@@ -6679,12 +6679,6 @@ public:
         return fieldStore->Append(fieldStore->CreateSingleton(byRefFieldHandle), valueFieldHandle);
     }
 
-#ifdef DEBUG
-#if VARSET_COUNTOPS
-    static BitSetSupport::BitSetOpCounter m_varsetOpCounter;
-#endif
-#endif
-
     const static HelperCallProperties s_helperCallProperties;
 
     bool abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg);

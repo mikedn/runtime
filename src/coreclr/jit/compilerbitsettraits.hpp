@@ -29,15 +29,6 @@ inline unsigned TrackedVarBitSetTraits::GetEpoch(Compiler* comp)
 {
     return comp->GetCurLVEpoch();
 }
-
-inline BitSetSupport::BitSetOpCounter* TrackedVarBitSetTraits::GetOpCounter(Compiler* comp)
-{
-#if VARSET_COUNTOPS
-    return &Compiler::m_varsetOpCounter;
-#else
-    return nullptr;
-#endif
-}
 #endif
 
 inline unsigned BasicBlockBitSetTraits::GetSize(Compiler* comp)
@@ -59,11 +50,6 @@ inline unsigned BasicBlockBitSetTraits::GetArrSize(Compiler* comp, unsigned elem
 inline unsigned BasicBlockBitSetTraits::GetEpoch(Compiler* comp)
 {
     return comp->GetCurBasicBlockEpoch();
-}
-
-inline BitSetSupport::BitSetOpCounter* BasicBlockBitSetTraits::GetOpCounter(Compiler* comp)
-{
-    return nullptr;
 }
 #endif
 

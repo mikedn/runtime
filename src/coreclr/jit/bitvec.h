@@ -38,11 +38,6 @@ public:
     {
         return b->size;
     }
-
-    static BitSetSupport::BitSetOpCounter* GetOpCounter(BitVecTraits* b)
-    {
-        return nullptr;
-    }
 #endif
 };
 
@@ -99,7 +94,6 @@ public:
 
 #ifdef DEBUG
     static unsigned GetEpoch(class Compiler* comp);
-    static BitSetSupport::BitSetOpCounter* GetOpCounter(Compiler* comp);
 #endif
 };
 
@@ -136,7 +130,6 @@ public:
 
 #ifdef DEBUG
     static unsigned GetEpoch(class Compiler* comp);
-    static BitSetSupport::BitSetOpCounter* GetOpCounter(Compiler* comp);
 #endif
 };
 
