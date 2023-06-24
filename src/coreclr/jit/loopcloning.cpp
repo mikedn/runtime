@@ -1457,8 +1457,8 @@ struct LoopCloneVisitorInfo
     void AddArrayIndex(GenTree* tree, ArrIndex& index);
     bool IsLclLoopInvariant(unsigned lclNum);
     bool IsLclAssignedInLoop(unsigned lclNum);
-    bool IsTrackedLclAssignedInLoop(unsigned lclNum);
-    void IsLclAssignedVisitor(GenTree* node);
+    void SummarizeLocalStores(unsigned lclNum);
+    void SummarizeLocalStoresVisitor(GenTreeOp* asg);
 };
 
 bool LoopCloneVisitorInfo::IsLclLoopInvariant(unsigned lclNum)
@@ -1468,105 +1468,98 @@ bool LoopCloneVisitorInfo::IsLclLoopInvariant(unsigned lclNum)
 
 bool LoopCloneVisitorInfo::IsLclAssignedInLoop(unsigned lclNum)
 {
-    // TODO-MIKE-Cleanup: Remove this bogus limit (it should be GetSize(&modifiedLocalsTraits)
-    // like in IsLclAssignedVisitor). This results in diffs due to discrepancies between
-    // IsLclAssignedVisitor and the below visitor code.
-    if (lclNum < 64)
+    // We currently don't add any locals during loop cloning but in case it
+    // happens just be conservative and treat any new locals as modified.
+    if (lclNum >= BitVecTraits::GetSize(&context.modifiedLocalsTraits))
     {
-        return IsTrackedLclAssignedInLoop(lclNum) != 0;
+        return true;
     }
-
-    struct WalkData
-    {
-        unsigned lclNum;
-    } walkData{lclNum};
-
-    for (BasicBlock* block : loop.LoopBlocks())
-    {
-        for (Statement* stmt : block->Statements())
-        {
-            if (context.compiler->fgWalkTreePre(stmt->GetRootNodePointer(),
-                                                [](GenTree** use, Compiler::fgWalkData* data) {
-                                                    GenTree*  node = *use;
-                                                    WalkData* desc = static_cast<WalkData*>(data->pCallbackData);
-
-                                                    if (node->OperIs(GT_ASG))
-                                                    {
-                                                        GenTree* dest = node->AsOp()->GetOp(0);
-
-                                                        // TODO-MIKE-Cleanup: Why the crap are LCL_FLD assignments
-                                                        // ignored? This is likely used only for INT locals but then
-                                                        // you can actually modify an INT local with a LCL_FLD...
-                                                        if (dest->OperIs(GT_LCL_VAR) &&
-                                                            (dest->AsLclVar()->GetLclNum() == desc->lclNum))
-                                                        {
-                                                            return Compiler::WALK_ABORT;
-                                                        }
-                                                    }
-
-                                                    return Compiler::WALK_CONTINUE;
-                                                },
-                                                &walkData) != Compiler::WALK_CONTINUE)
-            {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-bool LoopCloneVisitorInfo::IsTrackedLclAssignedInLoop(unsigned lclNum)
-{
-    assert(lclNum < 64);
 
     if (!hasLoopSummary)
     {
-        if (modifiedLocals == nullptr)
-        {
-            modifiedLocals         = BitVecOps::MakeEmpty(context.modifiedLocalsTraits);
-            context.modifiedLocals = modifiedLocals;
-        }
-        else
-        {
-            BitVecOps::ClearD(context.modifiedLocalsTraits, modifiedLocals);
-        }
-
-        for (BasicBlock* block : loop.LoopBlocks())
-        {
-            for (Statement* stmt : block->Statements())
-            {
-                context.compiler->fgWalkTreePre(stmt->GetRootNodePointer(),
-                                                [](GenTree** use, Compiler::fgWalkData* data) {
-                                                    static_cast<LoopCloneVisitorInfo*>(data->pCallbackData)
-                                                        ->IsLclAssignedVisitor(*use);
-                                                    return Compiler::WALK_CONTINUE;
-                                                },
-                                                this);
-            }
-        }
-
+        SummarizeLocalStores(lclNum);
         hasLoopSummary = true;
     }
 
     return BitVecOps::IsMember(context.modifiedLocalsTraits, modifiedLocals, lclNum);
 }
 
-void LoopCloneVisitorInfo::IsLclAssignedVisitor(GenTree* tree)
+void LoopCloneVisitorInfo::SummarizeLocalStores(unsigned lclNum)
 {
-    if (tree->OperIs(GT_ASG))
+    assert(!hasLoopSummary);
+
+    if (modifiedLocals == nullptr)
     {
-        GenTree* dest = tree->AsOp()->GetOp(0);
+        modifiedLocals         = BitVecOps::MakeEmpty(context.modifiedLocalsTraits);
+        context.modifiedLocals = modifiedLocals;
+    }
+    else
+    {
+        BitVecOps::ClearD(context.modifiedLocalsTraits, modifiedLocals);
+    }
 
-        if (dest->OperIs(GT_LCL_VAR))
+    for (BasicBlock* block : loop.LoopBlocks())
+    {
+        for (Statement* stmt : block->Statements())
         {
-            unsigned lclNum = dest->AsLclVar()->GetLclNum();
+            context.compiler->fgWalkTreePre(stmt->GetRootNodePointer(),
+                                            [](GenTree** use, Compiler::fgWalkData* data) {
+                                                LoopCloneVisitorInfo* info =
+                                                    static_cast<LoopCloneVisitorInfo*>(data->pCallbackData);
+                                                GenTree* asg = *use;
 
-            // We currently don't add any locals during loop cloning but in case it
-            // happens just be conservative and treat any new locals as modified.
-            if (lclNum < BitVecTraits::GetSize(&context.modifiedLocalsTraits))
+                                                if (asg->OperIs(GT_ASG))
+                                                {
+                                                    info->SummarizeLocalStoresVisitor(asg->AsOp());
+                                                }
+
+                                                return Compiler::WALK_CONTINUE;
+                                            },
+                                            this);
+        }
+    }
+}
+
+void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeOp* asg)
+{
+    assert(asg->OperIs(GT_ASG));
+
+    GenTree* dest = asg->GetOp(0);
+
+    if (!dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        return;
+    }
+
+    unsigned lclNum = dest->AsLclVarCommon()->GetLclNum();
+
+    // We currently don't add any locals during loop cloning but in case it
+    // happens just be conservative and treat any new locals as modified.
+    if (lclNum < BitVecTraits::GetSize(&context.modifiedLocalsTraits))
+    {
+        BitVecOps::AddElemD(context.modifiedLocalsTraits, modifiedLocals, lclNum);
+    }
+
+    // Assigning a promoted local modifies all its fields. This is somewhat conservative,
+    // a LCL_FLD could modify only some of the fields. But that's rare, most of the time
+    // LCL_FLDs are used only to load from promoted locals (mostly for ABI related stuff).
+    //
+    // Note that the opposite can also be true - we may have an assignment to a promoted
+    // field, which implies that the parent struct is modified as well. But we only care
+    // about scalar locals in loop cloning (INT indices and REF arrays) so we can ignore
+    // this case.
+
+    LclVarDsc* lcl = context.compiler->lvaGetDesc(lclNum);
+
+    if (lcl->IsPromoted())
+    {
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+        {
+            unsigned fieldLclNum = lcl->GetPromotedFieldLclNum(i);
+
+            if (fieldLclNum < BitVecTraits::GetSize(&context.modifiedLocalsTraits))
             {
-                BitVecOps::AddElemD(context.modifiedLocalsTraits, modifiedLocals, lclNum);
+                BitVecOps::AddElemD(context.modifiedLocalsTraits, modifiedLocals, fieldLclNum);
             }
         }
     }
