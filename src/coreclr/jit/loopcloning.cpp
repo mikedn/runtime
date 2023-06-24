@@ -3,231 +3,48 @@
 
 #include "jitpch.h"
 
-// Loop cloning is an optimization which duplicates a loop to create two versions.
-// One copy is optimized by hoisting out various dynamic checks, such as array bounds
-// checks that can't be statically eliminated. The checks are dynamically run. If
-// they fail, the original copy of the loop is executed. If they pass, the
-// optimized copy of the loop is executed, knowing that the bounds checks are
-// dynamically unnecessary.
-//
-// The optimization can reduce the amount of code executed within a loop body.
-//
-// For example:
-//
-//     public static int f(int[] a, int l)
-//     {
-//         int sum = 0;
-//         for (int i = 0; i < l; i++)
-//         {
-//             sum += a[i];     // This array bounds check must be executed in the loop
-//         }
-//     }
-//
-// This can be transformed to (in pseudo-code):
-//
-//     public static int f(int[] a, int l)
-//     {
-//         int sum = 0;
-//         if (a != null && l <= a.Length)
-//         {
-//             for (int i = 0; i < l; i++)
-//             {
-//                 sum += a[i]; // no bounds check needed
-//             }
-//         }
-//         else
-//         {
-//             for (int i = 0; i < l; i++)
-//             {
-//                 // bounds check needed. We need to do the normal computation (esp., side effects) before the
-//                 // exception occurs.
-//                 sum += a[i];
-//             }
-//         }
-//     }
-//
-// One generalization of this is "loop unswitching".
-//
-// Because code is duplicated, this is a code size expanding optimization, and
-// therefore we need to be careful to avoid duplicating too much code unnecessarily.
-//
-// Also, there is a risk that we can duplicate the loops and later, downstream
-// phases optimize away the bounds checks even on the un-optimized copy of the loop.
-//
-// Loop cloning is implemented with the following steps:
-//
-// 1. Loop detection logic, which is existing logic in the JIT that records
-//    loop information with loop flags.
-//
-// 2. Identify loop optimization candidates. This is done by optObtainLoopCloningOpts.
-//    The loop context variable is updated with all the necessary information (for example:
-//    block, stmt, tree information) to do the optimization later.
-//         a) This involves checking if the loop is well-formed with respect to
-//         the optimization being performed.
-//         b) In array bounds check case, reconstructing the morphed GT_INDEX_ADDR
-//         nodes back to their array representation.
-//             i) The array index is stored in the "context" variable with
-//             additional block, tree, stmt info.
-//
-// 3. Once the optimization candidates are identified, we derive cloning conditions.
-//    For example: to clone a simple "for (i=0; i<n; ++i) { a[i] }" loop, we need the
-//    following conditions:
-//           (a != null) && (n >= 0) && (n <= a.length) && (stride > 0)
-//    Note that "&&" implies a short-circuiting operator. This requires each condition
-//    to be in its own block with its own comparison and branch instruction. This can
-//    be optimized if there are no dependent conditions in a block by using a bitwise
-//    AND instead of a short-circuit AND. The (a != null) condition needs to occur before
-//    "a.length" is checked. But otherwise, the last three conditions can be computed in
-//    the same block, as:
-//           (a != null) && ((n >= 0) & (n <= a.length) & (stride > 0))
-//    Since we're optimizing for the expected fast path case, where all the conditions
-//    are true, we expect all the conditions to be executed most of the time. Thus, it
-//    is advantageous to make as many as possible non-short-circuiting to reduce the
-//    number of compare/branch/blocks needed.
-//
-//    In the above case, stride == 1, so we statically know stride > 0.
-//
-//    If we had "for (i=0; i<=n; ++i) { a[i] }", we would need:
-//           (a != null) && (n >= 0) && (a.length >= 1) && (n <= a.length - 1) && (stride > 0)
-//    This is more complicated. The loop is equivalent (except for possible overflow) to:
-//           for (i=0; i<n+1; ++i) { a[i] }"
-//    (`n+1` due to the `++i` stride). We'd have to worry about overflow doing this conversion, though.
-//
-//    REVIEW: why do we need the (n >= 0) condition? We do need to know
-//    "array index var initialization value >= array lower bound (0)".
-//
-//           a) Conditions that need to be in their own blocks to enable short-circuit are called block
-//           conditions or deref-conditions.
-//              i) For a doubly nested loop on i, j, we would then have conditions like
-//                  (a != null) && (i < a.len) && (a[i] != null) && (j < a[i].len)
-//              all short-circuiting creating blocks.
-//
-//              Advantage:
-//                 All conditions are checked before we enter the fast path. So fast
-//                 path gets as fast as it can be.
-//
-//              Disadvantage:
-//                 Creation of blocks.
-//
-//              Heuristic:
-//                 Therefore we will not clone if we exceed creating 4 blocks.
-//                 Note: this means we never clone more than 2-dimension a[i][j] expressions
-//                 (see optComputeDerefConditions()).
-//                 REVIEW: make this heuristic defined by a COMPlus variable, for easier
-//                 experimentation, and make it more dynamic and based on potential benefit?
-//
-//           b) The other conditions called cloning conditions are transformed into LcCondition
-//           structs which are then optimized.
-//              i) Optimization of conditions involves removing redundant condition checks.
-//              ii) If some conditions evaluate to true statically, then they are removed.
-//              iii) If any condition evaluates to false statically, then loop cloning is
-//              aborted for that loop.
-//
-// 4. Then the block splitting occurs and loop cloning conditions are transformed into
-//    GenTree and added to the loop cloning choice block (the block that determines which
-//    copy of the loop is executed).
-//
-// Preconditions
-//
-// 1. Loop detection has completed and the loop table is populated.
-//
-// 2. The loops that will be considered are the ones with the LPFLG_ITER flag:
-//    "for (i = icon or lclVar; test_condition(); i++)"
-//
-// Limitations
-//
-// 1. For array based optimizations the loop choice condition is checked
-//    before the loop body. This implies that the loop initializer statement
-//    has not executed at the time of the check. So any loop cloning condition
-//    involving the initial value of the loop counter cannot be condition checked
-//    as it hasn't been assigned yet at the time of condition checking. Therefore
-//    the initial value has to be statically known. This can be fixed with further
-//    effort.
-//
-// 2. Loops containing nested exception handling regions are not cloned. (Cloning them
-//    would require creating new exception handling regions for the cloned loop, which
-//    is "hard".) There are a few other EH-related edge conditions that also cause us to
-//    reject cloning.
-//
-// 3. If the loop contains RETURN blocks, and cloning those would push us over the maximum
-//    number of allowed RETURN blocks in the function (either due to GC info encoding limitations
-//    or otherwise), we reject cloning.
-//
-// 4. Loop increment must be `i += 1`
-//
-// 5. Loop test must be `i < x` where `x` is a constant, a variable, or `a.Length` for array `a`
-//
-// (There is some implementation support for decrementing loops, but it is incomplete.
-// There is some implementation support for `i <= x` conditions, but it is incomplete
-// (Compiler::optDeriveLoopCloningConditions() only handles GT_LT conditions))
-//
-// 6. Loop must have been converted to a do-while form.
-//
-// 7. There are a few other loop well-formedness conditions.
-//
-// 8. Multi-dimensional (non-jagged) loop index checking is only partially implemented.
-//
-// 9. Constant initializations and constant limits must be non-negative (REVIEW: why? The
-//    implementation does use `unsigned` to represent them.)
-//
-// 10. The cloned loop (the slow path) is not added to the loop table, meaning certain
-//    downstream optimization passes do not see them. See
-//    https://github.com/dotnet/runtime/issues/43713.
-//
-// Assumptions
-//
-// 1. The assumption is that the optimization candidates collected during the
-//    identification phase will be the ones that will be optimized. In other words,
-//    the loop that is present originally will be the fast path. The cloned
-//    path will be the slow path and will be unoptimized. This allows us to
-//    collect additional information at the same time as identifying the optimization
-//    candidates. This later helps us to perform the optimizations during actual cloning.
-//
-// 2. All loop cloning choice conditions will automatically be "AND"-ed. These are bitwise AND operations.
-//
-// 3. Perform short circuit AND for (array != null) side effect check
-//   before hoisting (limit <= a.length) check.
-
-// Represents an array access and associated bounds checks.
-// Array access is required to have the array and indices in local variables.
-// This struct is constructed using a GT_INDEX_ADDR node that is broken into
-// its sub trees.
 struct ArrIndex
 {
-    JitVector<unsigned>   indLcls;              // The indices local nums
-    JitVector<GenTreeOp*> bndsChks;             // The bounds check COMMA nodes along each dimension.
-    unsigned              arrLcl = BAD_VAR_NUM; // The array base local num
-
-    ArrIndex(CompAllocator alloc) : indLcls(alloc), bndsChks(alloc)
-    {
-    }
+    unsigned   arrayLclNum = BAD_VAR_NUM;
+    unsigned   indexLclNum = BAD_VAR_NUM;
+    GenTreeOp* boundsCheck = nullptr;
 
 #ifdef DEBUG
-    void Print(unsigned dim = UINT_MAX) const
+    void Print() const
     {
-        printf("V%02u", arrLcl);
-
-        for (unsigned i = 0; i < Min(indLcls.Size(), dim); ++i)
-        {
-            printf("[V%02u]", indLcls[i]);
-        }
+        printf("V%02u[V%02u]", arrayLclNum, indexLclNum);
     }
 
     void PrintBoundsCheckNodes() const
     {
-        for (unsigned i = 0; i < indLcls.Size(); ++i)
-        {
-            printf("[%06u]", bndsChks[i]->GetID());
-        }
+        printf("[%06u]", boundsCheck->GetID());
     }
 #endif
 };
 
+// TODO-MIKE-Consider: Old code attempted to optimize "jagged" arrays but it was beyond broken.
+// Optimizing a[i][j] via loop cloning requires inserting "limit < a[i].Length" checks before
+// the loop and in turn that requires a[i] loop memory invariance checks. Old code only did
+// some nonsensical memory store checks, which it then ignored anyway. And even if a[i] does
+// not change within the loop, it still could be changed by a different thread, so the only way
+// to do this optimization in a thread safe manner is to actually hoist a[i] out of the loop.
+// And having an a[i].Length IV limit will probably add more gas to the fire, as that too will
+// need to be hoisted.
+// On top of this, the old code didn't account for loop nests and happily cloned a[i][j] just
+// because i is loop invariant, not because i is the IV of the parent loop. That's not wrong
+// but then if we bother to deal with an invariant a[i] why not also deal with an invariant
+// class object field? We more or less need to do the same interference checks and hoisting.
+// Ideally loop cloning would run after loop hoisting, but that's not quite the same thing
+// as loop cloning doing its own hoisting because the current loop hoisting won't hoist loop
+// code that's not guaranteed to execute, while loop cloning doesn't care about any control
+// flow within the loop.
+// Anyway, there were only 2-3 cases of a[i][j] in the entire FX diff so it's far from obvious
+// that dealing with it is worthwhile.
 struct LcOptInfo
 {
     enum Kind
     {
-        JaggedArray
+        SZArray
     };
 
     const Kind kind;
@@ -237,29 +54,24 @@ struct LcOptInfo
     }
 };
 
-// Optimization info for a jagged array.
-struct LcJaggedArrayOptInfo : public LcOptInfo
+struct LcSZArrayOptInfo : public LcOptInfo
 {
-    unsigned dim; // "dim" represents up to what level of the rank this optimization applies to.
-    // For example, a[i][j][k] could be the jagged array but if "dim" is 2,
-    // then this node is treated as though it were a[i][j]
     ArrIndex   arrIndex;
     Statement* stmt;
 
-    LcJaggedArrayOptInfo(const ArrIndex& arrIndex, unsigned dim, Statement* stmt)
-        : LcOptInfo(JaggedArray), dim(dim), arrIndex(arrIndex), stmt(stmt)
+    LcSZArrayOptInfo(const ArrIndex& arrIndex, Statement* stmt) : LcOptInfo(SZArray), arrIndex(arrIndex), stmt(stmt)
     {
     }
 };
 
-// Symbolic representation of a.length, or a[i][j].length or a[i,j].length and so on.
-// OperType decides whether "arrLength" is invoked on the array or if it is just an array.
+// Symbolic representation of a.Length.
+// Oper decides whether "ARR_LENGTH" is invoked on the array or if it is just an array.
 struct LcArray
 {
     enum Kind : uint8_t
     {
         Invalid,
-        Jagged
+        SZArray
     };
 
     enum Oper : uint8_t
@@ -268,42 +80,23 @@ struct LcArray
         ArrLen,
     };
 
-    Kind      kind;
-    Oper      oper;
-    unsigned  dim;
-    ArrIndex* arrIndex;
+    Kind     kind;
+    Oper     oper;
+    unsigned lclNum;
 
-    LcArray() : kind(Invalid), dim(0)
+    LcArray() : kind(Invalid)
     {
     }
 
-    LcArray(Kind kind, ArrIndex* arrIndex, int dim, Oper oper) : kind(kind), oper(oper), dim(dim), arrIndex(arrIndex)
-    {
-    }
-
-    LcArray(Kind kind, ArrIndex* arrIndex, Oper oper)
-        : kind(kind), oper(oper), dim(arrIndex->indLcls.Size()), arrIndex(arrIndex)
+    LcArray(Kind kind, unsigned lclNum, Oper oper) : kind(kind), oper(oper), lclNum(lclNum)
     {
     }
 
     bool operator==(const LcArray& that) const
     {
-        assert(kind != Invalid && that.kind != Invalid);
+        assert((kind != Invalid) && (that.kind != Invalid));
 
-        if (kind != that.kind || oper != that.oper || arrIndex->arrLcl != that.arrIndex->arrLcl || dim != that.dim)
-        {
-            return false;
-        }
-
-        for (unsigned i = 0; i < dim; ++i)
-        {
-            if (arrIndex->indLcls[i] != that.arrIndex->indLcls[i])
-            {
-                return false;
-            }
-        }
-
-        return true;
+        return (kind == that.kind) && (oper == that.oper) && (lclNum == that.lclNum);
     }
 
     GenTree* ToGenTree(Compiler* comp) const;
@@ -311,7 +104,7 @@ struct LcArray
 #ifdef DEBUG
     void Print() const
     {
-        arrIndex->Print(dim);
+        printf("V%02u", lclNum);
 
         if (oper == ArrLen)
         {
@@ -439,7 +232,7 @@ struct LcCondition
     GenTree* ToGenTree(Compiler* comp) const;
 
 #ifdef DEBUG
-    void Print()
+    void Print() const
     {
         printf("%s ", GenTree::OpName(oper));
         op1.Print();
@@ -447,42 +240,6 @@ struct LcCondition
         op2.Print();
     }
 #endif
-};
-
-// A deref tree of an array expression.
-// a[i][j][k], b[i] and a[i][y][k] are the occurrences in the loop, then, the tree would be:
-//     a => {
-//         i => {
-//             j => {
-//                 k => {}
-//             },
-//             y => {
-//                 k => {}
-//             },
-//         }
-//     },
-//     b => {
-//         i => {}
-//     }
-//
-struct LcDeref
-{
-    const LcArray        array;
-    JitVector<LcDeref*>* children = nullptr;
-    const unsigned       level;
-
-    LcDeref(const LcArray& array, unsigned level) : array(array), level(level)
-    {
-    }
-
-    unsigned Lcl() const
-    {
-        return level == 0 ? array.arrIndex->arrLcl : array.arrIndex->indLcls[level - 1];
-    }
-
-    static LcDeref* Find(JitVector<LcDeref*>& children, unsigned lcl);
-
-    void DeriveLevelConditions(JitVector<JitVector<LcCondition>*>& conds);
 };
 
 using LoopDsc = Compiler::LoopDsc;
@@ -501,7 +258,7 @@ struct LoopCloneContext
     // The array of conditions that influence which path to take for each loop. (loop x cloning-conditions)
     jitstd::vector<JitVector<LcCondition>*> conditions;
     // The array of block levels of conditions for each loop. (loop x level x conditions)
-    jitstd::vector<JitVector<JitVector<LcCondition>*>*> blockConditions;
+    jitstd::vector<JitVector<LcCondition>*> blockConditions;
 
     LoopCloneContext(Compiler* compiler)
         : compiler(compiler)
@@ -529,24 +286,22 @@ struct LoopCloneContext
     bool IsLoopClonable(unsigned loopNum) const;
     void IdentifyLoopOptInfo(unsigned loopNum);
     Compiler::fgWalkResult CanOptimizeByLoopCloning(GenTree* tree, LoopCloneVisitorInfo& info);
-    bool ExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned tempArrayLclNum) const;
-    bool ReconstructArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum) const;
-    bool ExtractArrLenLimit(GenTreeArrLen* limit, ArrIndex* index) const;
+    bool ExtractArrIndex(GenTree* tree, ArrIndex* result) const;
     void PerformStaticOptimizations(unsigned loopNum);
-    bool ComputeDerefConditions(const ArrayStack<LcArray>& derefs, unsigned loopNum);
+    bool ComputeDerefConditions(const ArrayStack<unsigned>& derefs, unsigned loopNum);
     bool DeriveLoopCloningConditions(unsigned loopNum);
     BasicBlock* InsertLoopChoiceConditions(unsigned loopNum, BasicBlock* head, BasicBlock* slow);
     void CloneLoop(unsigned loopNum);
     bool Run();
 
-    void AddArrayIndex(unsigned loopNum, const ArrIndex& index, int dim, Statement* stmt)
+    void AddArrayIndex(unsigned loopNum, const ArrIndex& index, Statement* stmt)
     {
         if (optInfo[loopNum] == nullptr)
         {
             optInfo[loopNum] = new (alloc) JitVector<LcOptInfo*>(alloc);
         }
 
-        optInfo[loopNum]->Add(new (alloc) LcJaggedArrayOptInfo(index, dim, stmt));
+        optInfo[loopNum]->Add(new (alloc) LcSZArrayOptInfo(index, stmt));
     }
 
     JitVector<LcOptInfo*>* GetLoopOptInfo(unsigned loopNum)
@@ -575,54 +330,34 @@ struct LoopCloneContext
 #ifdef DEBUG
     bool HasBlockConditions(unsigned loopNum) const
     {
-        JitVector<JitVector<LcCondition>*>* loopBlockConditions = blockConditions[loopNum];
+        JitVector<LcCondition>* loopBlockConditions = blockConditions[loopNum];
 
-        if (loopBlockConditions == nullptr)
-        {
-            return false;
-        }
-
-        for (unsigned i = 0; i < loopBlockConditions->Size(); ++i)
-        {
-            if ((*loopBlockConditions)[i]->Size() > 0)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return (loopBlockConditions != nullptr) && !loopBlockConditions->Empty();
     }
 
     void PrintBlockConditions(unsigned loopNum)
     {
         printf("Block conditions:\n");
 
-        JitVector<JitVector<LcCondition>*>* loopBlockConditions = blockConditions[loopNum];
-
-        if ((loopBlockConditions == nullptr) || loopBlockConditions->Empty())
+        if (!HasBlockConditions(loopNum))
         {
             printf("No block conditions\n");
             return;
         }
 
-        for (unsigned i = 0; i < loopBlockConditions->Size(); ++i)
-        {
-            PrintBlockLevelConditions(i, *(*loopBlockConditions)[i]);
-        }
+        PrintBlockConditions(*blockConditions[loopNum]);
     }
 
-    void PrintBlockLevelConditions(unsigned level, JitVector<LcCondition>& levelCond)
+    void PrintBlockConditions(const JitVector<LcCondition>& levelCond)
     {
-        printf("%u: ", level);
-
-        for (unsigned j = 0; j < levelCond.Size(); ++j)
+        for (unsigned i = 0; i < levelCond.Size(); ++i)
         {
-            if (j != 0)
+            if (i != 0)
             {
                 printf(" & ");
             }
 
-            levelCond[j].Print();
+            levelCond[i].Print();
         }
 
         printf("\n");
@@ -634,30 +369,14 @@ struct LoopCloneContext
 
 GenTree* LcArray::ToGenTree(Compiler* comp) const
 {
-    assert(kind == Jagged);
+    assert(kind == SZArray);
 
-    // Create a a[i][j][k].length type node.
-    GenTree* arr = comp->gtNewLclvNode(arrIndex->arrLcl, comp->lvaGetDesc(arrIndex->arrLcl)->GetType());
-
-    for (unsigned i = 0; i < dim; ++i)
-    {
-        unsigned indexLclNum = arrIndex->indLcls[i];
-
-        GenTreeIndexAddr* addr =
-            comp->gtNewArrayIndexAddr(arr, comp->gtNewLclvNode(indexLclNum, comp->lvaGetDesc(indexLclNum)->GetType()),
-                                      TYP_REF);
-        // Clear the range check flag and mark the index as non-faulting: we guarantee that all necessary range
-        // checking has already been done by the time this array index expression is invoked.
-        arr->gtFlags &= ~(GTF_INX_RNGCHK | GTF_EXCEPT);
-        arr = comp->gtNewIndexIndir(TYP_REF, addr);
-        arr->gtFlags &= ~GTF_EXCEPT;
-        arr->gtFlags |= GTF_IND_NONFAULTING;
-        arr->AsIndir()->SetAddr(comp->fgMorphIndexAddr(addr));
-    }
+    assert(comp->lvaGetDesc(lclNum)->TypeIs(TYP_REF));
+    GenTree* array = comp->gtNewLclvNode(lclNum, TYP_REF);
 
     if (oper == ArrLen)
     {
-        GenTree* arrLen = comp->gtNewArrLen(arr, OFFSETOF__CORINFO_Array__length);
+        GenTree* arrLen = comp->gtNewArrLen(array, OFFSETOF__CORINFO_Array__length);
 
         // We already guaranteed (by a sequence of preceding checks) that the array length operator will not
         // throw an exception because we null checked the base array.
@@ -673,7 +392,7 @@ GenTree* LcArray::ToGenTree(Compiler* comp) const
 
     assert(oper == None);
 
-    return arr;
+    return array;
 }
 
 GenTree* LcIdent::ToGenTree(Compiler* comp) const
@@ -859,17 +578,7 @@ void LoopCloneContext::OptimizeConditions(JitVector<LcCondition>& conds)
 
 void LoopCloneContext::OptimizeBlockConditions(unsigned loopNum)
 {
-    JitVector<JitVector<LcCondition>*>* loopBlockConditions = blockConditions[loopNum];
-
-    if ((loopBlockConditions == nullptr) || loopBlockConditions->Empty())
-    {
-        return;
-    }
-
-    for (JitVector<LcCondition>* conds : *loopBlockConditions)
-    {
-        OptimizeConditions(*conds);
-    }
+    OptimizeConditions(*blockConditions[loopNum]);
 
 #ifdef DEBUG
     if (verbose)
@@ -937,6 +646,9 @@ void LoopCloneContext::CondToStmtInBlock(JitVector<LcCondition>& conds, BasicBlo
 {
     noway_assert(!conds.Empty());
 
+    DBEXEC(verbose, conds);
+    JITDUMP("\n");
+
     GenTree* cond = conds[0].ToGenTree(compiler);
 
     for (unsigned i = 1; i < conds.Size(); ++i)
@@ -955,70 +667,6 @@ void LoopCloneContext::CondToStmtInBlock(JitVector<LcCondition>& conds, BasicBlo
     JITDUMP("\n");
 
     compiler->fgMorphBlockStmt(block, stmt DEBUGARG("Loop cloning condition"));
-}
-
-void LcDeref::DeriveLevelConditions(JitVector<JitVector<LcCondition>*>& conds)
-{
-    if (level == 0)
-    {
-        // For level 0, just push (a != null).
-        conds[level]->Emplace(GT_NE, LcExpr(LcIdent(Lcl(), LcIdent::Lcl)), LcExpr(LcIdent(LcIdent::Null)));
-    }
-    else
-    {
-        // Adjust for level 0 having just 1 condition and push condition (i < a.len).
-        LcArray arrLen = array;
-        arrLen.oper    = LcArray::ArrLen;
-        arrLen.dim     = level - 1;
-
-        conds[level * 2 - 1]->Emplace(GT_LT, LcExpr(LcIdent(Lcl(), LcIdent::Lcl)), LcExpr(LcIdent(arrLen)));
-
-        // Push condition (a[i] != null)
-        LcArray arrTmp = array;
-        arrTmp.dim     = level;
-
-        conds[level * 2]->Emplace(GT_NE, LcExpr(LcIdent(arrTmp)), LcExpr(LcIdent(LcIdent::Null)));
-    }
-
-    if (children != nullptr)
-    {
-        for (LcDeref* deref : *children)
-        {
-            deref->DeriveLevelConditions(conds);
-        }
-    }
-}
-
-LcDeref* LcDeref::Find(JitVector<LcDeref*>& children, unsigned lcl)
-{
-    for (LcDeref* deref : children)
-    {
-        if (deref->Lcl() == lcl)
-        {
-            return deref;
-        }
-    }
-
-    return nullptr;
-}
-
-bool LoopCloneContext::ExtractArrLenLimit(GenTreeArrLen* limit, ArrIndex* index) const
-{
-    GenTree* array = limit->GetArray();
-
-    if (array->OperIs(GT_LCL_VAR))
-    {
-        index->arrLcl = array->AsLclVar()->GetLclNum();
-
-        return true;
-    }
-
-    if (array->OperIs(GT_COMMA))
-    {
-        return ReconstructArrIndex(array, index, BAD_VAR_NUM);
-    }
-
-    return false;
 }
 
 // Inspect the loop cloning optimization candidates and populate the conditions necessary
@@ -1049,8 +697,8 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
                                            LcExpr(LcIdent(0, LcIdent::Const)));
     }
 
-    LcIdent             limit;
-    ArrayStack<LcArray> derefs(alloc);
+    LcIdent              limit;
+    ArrayStack<unsigned> derefs(alloc);
 
     if ((loop.lpFlags & LPFLG_CONST_LIMIT) != 0)
     {
@@ -1068,27 +716,29 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
     {
         assert((loop.lpFlags & LPFLG_ARRLEN_LIMIT) != 0);
 
-        ArrIndex* index = new (alloc) ArrIndex(alloc);
+        GenTree* array = loop.lpLimit()->AsArrLen()->GetArray();
 
-        if (!ExtractArrLenLimit(loop.lpLimit()->AsArrLen(), index))
+        if (!array->OperIs(GT_LCL_VAR))
         {
             JITDUMP("> ArrLen not matching");
             return false;
         }
 
-        derefs.Emplace(LcArray::Jagged, index, LcArray::None);
-        limit = LcIdent(LcArray(LcArray::Jagged, index, LcArray::ArrLen));
+        // TODO-MIKE-Review: Why do we check for null "a" in a "a.Length" limit if GTF_RELOP_ZTT is required?
+        derefs.Emplace(array->AsLclVar()->GetLclNum());
+
+        limit = LcIdent(LcArray(LcArray::SZArray, array->AsLclVar()->GetLclNum(), LcArray::ArrLen));
     }
 
     for (LcOptInfo* optInfo : *GetLoopOptInfo(loopNum))
     {
-        assert(optInfo->kind == LcOptInfo::JaggedArray);
-        LcJaggedArrayOptInfo* arrIndexInfo = static_cast<LcJaggedArrayOptInfo*>(optInfo);
+        assert(optInfo->kind == LcOptInfo::SZArray);
+        LcSZArrayOptInfo* arrIndexInfo = static_cast<LcSZArrayOptInfo*>(optInfo);
 
-        derefs.Emplace(LcArray::Jagged, &arrIndexInfo->arrIndex, arrIndexInfo->dim, LcArray::None);
+        derefs.Emplace(arrIndexInfo->arrIndex.arrayLclNum);
         EnsureConditions(loopNum)->Emplace(GT_LE, LcExpr(limit),
-                                           LcExpr(LcIdent(LcArray(LcArray::Jagged, &arrIndexInfo->arrIndex,
-                                                                  arrIndexInfo->dim, LcArray::ArrLen))));
+                                           LcExpr(LcIdent(LcArray(LcArray::SZArray, arrIndexInfo->arrIndex.arrayLclNum,
+                                                                  LcArray::ArrLen))));
     }
 
     JITDUMP("Conditions: ");
@@ -1098,182 +748,34 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
     return derefs.Empty() || ComputeDerefConditions(derefs, loopNum);
 }
 
-// To be able to check for the loop cloning condition that (limitVar <= a.len)
-// we should first be able to dereference "a". i.e., "a" is non-null.
-//
-// Example:
-//
-// for (i in 0..n)
-//   for (j in 0..n)
-//     for (k in 0..n)      // Inner most loop is being cloned. Cloning needs to check if
-//                          // (n <= a[i][j].len) and other safer conditions to take the fast path
-//       a[i][j][k] = 0
-//
-// Now, we want to deref a[i][j] to invoke length operator on it to perform the cloning fast path check.
-// This involves deref of (a), (a[i]), (a[i][j]), therefore, the following should first
-// be true to do the deref.
-//
-// (a != null) && (i < a.len) && (a[i] != null) && (j < a[i].len) && (a[i][j] != null) --> condition set (1)
-//
-// Note the short circuiting AND. Implication: these conditions should be performed in separate
-// blocks each of which will branch to slow path if the condition evaluates to false.
-//
-// Now, imagine a situation where, in the inner loop above, in addition to "a[i][j][k] = 0" we
-// also have:
-//    a[x][y][k] = 20
-// where x and y are parameters, then our conditions will have to include:
-//    (x < a.len) &&
-//    (y < a[x].len)
-// in addition to the above conditions (1) to get rid of bounds check on index 'k'
-//
-// But these conditions can be checked together with conditions
-// (i < a.len) without a need for a separate block. In summary, the conditions will be:
-//
-// (a != null) &&
-// ((i < a.len) & (x < a.len)) &&      <-- Note the bitwise AND here.
-// (a[i] != null & a[x] != null) &&    <-- Note the bitwise AND here.
-// (j < a[i].len & y < a[x].len) &&    <-- Note the bitwise AND here.
-// (a[i][j] != null & a[x][y] != null) <-- Note the bitwise AND here.
-//
-// This naturally yields a tree style pattern, where the nodes of the tree are
-// the array and indices respectively.
-//
-// Example:
-//     a => {
-//         i => {
-//             j => {
-//                 k => {}
-//             }
-//         },
-//         x => {
-//             y => {
-//                 k => {}
-//             }
-//         }
-//     }
-//
-//     Notice that the variables in the same levels can have their conditions combined in the
-//     same block with a bitwise AND. Whereas, the conditions in consecutive levels will be
-//     combined with a short-circuiting AND (i.e., different basic blocks).
-//
-// Operation:
-//   Construct a tree of array indices and the array which will generate the optimal
-//   conditions for loop cloning.
-//
-//   a[i][j][k], b[i] and a[i][y][k] are the occurrences in the loop. Then, the tree should be:
-//
-//   a => {
-//       i => {
-//           j => {
-//               k => {}
-//           },
-//           y => {
-//               k => {}
-//           },
-//       }
-//   },
-//   b => {
-//       i => {}
-//   }
-//
-//   In this method, we will construct such a tree by descending depth first into the array
-//   index operation and forming a tree structure as we encounter the array or the index variables.
-//
-//   This tree structure will then be used to generate conditions like below:
-//   (a != null) & (b != null) &&       // from the first level of the tree.
-//
-//   (i < a.len) & (i < b.len) &&       // from the second level of the tree. Levels can be combined.
-//   (a[i] != null) & (b[i] != null) && // from the second level of the tree.
-//
-//   (j < a[i].len) & (y < a[i].len) &&       // from the third level.
-//   (a[i][j] != null) & (a[i][y] != null) && // from the third level.
-//
-//   and so on.
-//
-bool LoopCloneContext::ComputeDerefConditions(const ArrayStack<LcArray>& derefs, unsigned loopNum)
+bool LoopCloneContext::ComputeDerefConditions(const ArrayStack<unsigned>& arrays, unsigned loopNum)
 {
-    assert(!derefs.Empty());
+    assert(!arrays.Empty());
     assert(blockConditions[loopNum] == nullptr);
 
-    JitVector<LcDeref*> nodes(alloc);
-    unsigned            maxRank = 0;
+    JitVector<LcCondition>* conditions = new (alloc) JitVector<LcCondition>(alloc);
+    ArrayStack<unsigned>    uniqueArrays(alloc);
 
-    // For each array in the dereference list, construct a tree,
-    // where the nodes are array and index variables and an edge 'u-v'
-    // exists if a node 'v' indexes node 'u' directly as in u[v] or an edge
-    // 'u-v-w' transitively if u[v][w] occurs.
-    for (const LcArray& array : derefs)
+    for (unsigned arrayLclNum : arrays)
     {
-        // First populate the array base variable.
-        LcDeref* node = LcDeref::Find(nodes, array.arrIndex->arrLcl);
+        bool alreadyAdded = false;
 
-        if (node == nullptr)
+        for (unsigned lclNum : uniqueArrays)
         {
-            node = new (alloc) LcDeref(array, /*level*/ 0);
-            nodes.Add(node);
+            if (lclNum == arrayLclNum)
+            {
+                alreadyAdded = true;
+                break;
+            }
         }
 
-        // For each dimension (level) for the array, populate the tree with the variable
-        // from that dimension.
-
-        for (unsigned i = 0; i < array.dim; ++i)
+        if (!alreadyAdded)
         {
-            LcDeref* tmp = nullptr;
-
-            if (node->children == nullptr)
-            {
-                node->children = new (alloc) JitVector<LcDeref*>(alloc);
-            }
-            else
-            {
-                tmp = LcDeref::Find(*node->children, array.arrIndex->indLcls[i]);
-            }
-
-            if (tmp == nullptr)
-            {
-                tmp = new (alloc) LcDeref(array, node->level + 1);
-                node->children->Add(tmp);
-            }
-
-            // Descend one level down.
-            node = tmp;
+            conditions->Emplace(GT_NE, LcExpr(LcIdent(arrayLclNum, LcIdent::Lcl)), LcExpr(LcIdent(LcIdent::Null)));
         }
-
-        // Keep the maxRank of all array dereferences.
-        maxRank = Max(array.dim, maxRank);
     }
 
-    // First level will always yield the null-check, since it is made of the array base variables.
-    // All other levels (dimensions) will yield two conditions ex: (i < a.length && a[i] != null)
-    const unsigned condBlocks = 1 + maxRank * 2;
-
-    // Heuristic to not create too many blocks. Defining as 3 allows, effectively, loop cloning on
-    // doubly-nested loops.
-    // REVIEW: make this based on a COMPlus configuration, at least for debug?
-    const unsigned maxAllowedCondBlocks = 3;
-
-    if (condBlocks > maxAllowedCondBlocks)
-    {
-        JITDUMP("> Too many condition blocks (%u > %u)\n", condBlocks, maxAllowedCondBlocks);
-        return false;
-    }
-
-    // Derive conditions into an 'array of level x array of conditions' i.e., levelCond[levels][conds]
-
-    JitVector<JitVector<LcCondition>*>* levelCond = new (alloc) JitVector<JitVector<LcCondition>*>(alloc);
-    levelCond->Reserve(condBlocks);
-
-    for (unsigned i = 0; i < condBlocks; ++i)
-    {
-        levelCond->Add(new (alloc) JitVector<LcCondition>(alloc));
-    }
-
-    blockConditions[loopNum] = levelCond;
-
-    for (LcDeref* deref : nodes)
-    {
-        deref->DeriveLevelConditions(*levelCond);
-    }
+    blockConditions[loopNum] = conditions;
 
     DBEXEC(verbose, PrintBlockConditions(loopNum));
 
@@ -1296,57 +798,38 @@ void LoopCloneContext::PerformStaticOptimizations(unsigned loopNum)
 
     for (LcOptInfo* optInfo : *optInfos)
     {
-        assert(optInfo->kind == LcOptInfo::JaggedArray);
-        LcJaggedArrayOptInfo* arrIndexInfo = static_cast<LcJaggedArrayOptInfo*>(optInfo);
-
-        // Remove all bounds checks for this array up to (and including) `arrIndexInfo->dim`. So, if that is 1,
-        // Remove rank 0 and 1 bounds checks.
-
-        for (unsigned dim = 0; dim <= arrIndexInfo->dim; dim++)
-        {
-            GenTreeOp* comma = arrIndexInfo->arrIndex.bndsChks[dim];
+        assert(optInfo->kind == LcOptInfo::SZArray);
+        LcSZArrayOptInfo* arrIndexInfo = static_cast<LcSZArrayOptInfo*>(optInfo);
+        GenTreeOp*        comma        = arrIndexInfo->arrIndex.boundsCheck;
 
 #ifdef DEBUG
-            if (verbose)
-            {
-                printf("Remove bounds check [%06u]", comma->GetOp(0)->GetID());
-                printf(" for " FMT_STMT ", dim% d, ", arrIndexInfo->stmt->GetID(), dim);
-                arrIndexInfo->arrIndex.Print();
-                printf(", bounds check nodes: ");
-                arrIndexInfo->arrIndex.PrintBoundsCheckNodes();
-                printf("\n");
-            }
+        if (verbose)
+        {
+            printf("Remove bounds check [%06u]", comma->GetOp(0)->GetID());
+            printf(" from " FMT_STMT ", ", arrIndexInfo->stmt->GetID());
+            arrIndexInfo->arrIndex.Print();
+            printf("\n");
+        }
 #endif
 
-            if (GenTreeBoundsChk* boundsChk = comma->GetOp(0)->IsBoundsChk())
-            {
-                // This COMMA node will only represent a bounds check if we've haven't already removed this
-                // bounds check in some other nesting cloned loop. For example, consider:
-                //   for (i = 0; i < x; i++)
-                //      for (j = 0; j < y; j++)
-                //         a[i][j] = i + j;
-                // If the outer loop is cloned first, it will remove the a[i] bounds check from the optimized
-                // path. Later, when the inner loop is cloned, we want to remove the a[i][j] bounds check. If
-                // we clone the inner loop, we know that the a[i] bounds check isn't required because we'll add
-                // it to the loop cloning conditions. On the other hand, we can clone a loop where we get rid of
-                // the nested bounds check but nobody has gotten rid of the outer bounds check. As before, we
-                // know the outer bounds check is not needed because it's been added to the cloning conditions,
-                // so we can get rid of the bounds check here.
-                compiler->optRemoveRangeCheck(boundsChk, comma, arrIndexInfo->stmt);
+        // This COMMA node will only represent a bounds check if we've haven't already
+        // removed this bounds check in some other nesting cloned loop.
+        if (GenTreeBoundsChk* boundsChk = comma->GetOp(0)->IsBoundsChk())
+        {
+            compiler->optRemoveRangeCheck(boundsChk, comma, arrIndexInfo->stmt);
 
-                // TODO-MIKE-Cleanup: Turns out that CSE is dumb and it will make CSE def out of
-                // COMMA(NOP, x) and a CSE use out x, because they have the same value numbers.
-                // Can we just make CSE ignore COMMA(NOP, x)? Or remove it altogether somewhere
-                // along the way?
-                comma->gtFlags |= GTF_DONT_CSE;
-            }
-            else
-            {
-                JITDUMP("  Bounds check already removed\n");
+            // TODO-MIKE-Cleanup: Turns out that CSE is dumb and it will make CSE def out of
+            // COMMA(NOP, x) and a CSE use out x, because they have the same value numbers.
+            // Can we just make CSE ignore COMMA(NOP, x)? Or remove it altogether somewhere
+            // along the way?
+            comma->gtFlags |= GTF_DONT_CSE;
+        }
+        else
+        {
+            JITDUMP("Bounds check already removed\n");
 
-                // If the bounds check node isn't there, it better have been converted to a GT_NOP.
-                assert(comma->GetOp(0)->OperIs(GT_NOP));
-            }
+            // If the bounds check node isn't there, it better have been converted to a NOP.
+            assert(comma->GetOp(0)->OperIs(GT_NOP));
         }
     }
 }
@@ -1407,7 +890,6 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
         return false;
     }
 
-    // TODO-MIKE-Review: Why do we check for null "a" in a "a.Length" limit if loop version is required?
     if (!loop.lpTestTree->OperIsCompare() || ((loop.lpTestTree->gtFlags & GTF_RELOP_ZTT) == 0))
     {
         JITDUMP("Rejecting loop. Loop inversion NOT present, loop test [%06u] may not protect entry from head.\n",
@@ -1532,43 +1014,16 @@ BasicBlock* LoopCloneContext::InsertLoopChoiceConditions(unsigned loopNum, Basic
     assert(HasBlockConditions(loopNum));
     assert(head->bbJumpKind == BBJ_COND);
 
-    JitVector<JitVector<LcCondition>*>& loopBlockConditions = *blockConditions[loopNum];
-    BasicBlock*                         condBlock           = head;
+    JITDUMP("Adding loop " FMT_LP " block conditions to " FMT_BB "\n    ", loopNum, head->bbNum);
+    CondToStmtInBlock(*blockConditions[loopNum], head, /*reverse*/ true);
 
-    for (unsigned i = 0; i < loopBlockConditions.Size(); ++i)
-    {
-        JITDUMP("Adding loop " FMT_LP " level %u block conditions to " FMT_BB "\n    ", loopNum, i, condBlock->bbNum);
-
-        const bool              isHeaderBlock   = condBlock == head;
-        JitVector<LcCondition>& levelConditions = *loopBlockConditions[i];
-
-        DBEXEC(verbose, PrintBlockLevelConditions(i, levelConditions));
-        CondToStmtInBlock(levelConditions, condBlock, /*reverse*/ isHeaderBlock);
-
-        BasicBlock* tmp = compiler->fgNewBBafter(BBJ_COND, isHeaderBlock ? slowHead : condBlock, /*extendRegion*/ true);
-        tmp->inheritWeight(head);
-        tmp->bbNatLoopNum = head->bbNatLoopNum;
-
-        condBlock->bbJumpDest = isHeaderBlock ? tmp : slowHead;
-
-        JITDUMP("Adding " FMT_BB " -> " FMT_BB "\n", condBlock->bbNum, condBlock->bbJumpDest->bbNum);
-        compiler->fgAddRefPred(condBlock->bbJumpDest, condBlock);
-
-        if (!isHeaderBlock)
-        {
-            JITDUMP("Adding " FMT_BB " -> " FMT_BB "\n", condBlock->bbNum, tmp->bbNum);
-            compiler->fgAddRefPred(tmp, condBlock);
-        }
-
-        condBlock = tmp;
-    }
-
-    // Finally insert cloning conditions after all deref conditions have been inserted.
-
+    BasicBlock* condBlock = compiler->fgNewBBafter(BBJ_COND, slowHead, /*extendRegion*/ true);
     JITDUMP("Adding loop " FMT_LP " cloning conditions to " FMT_BB "\n", loopNum, condBlock->bbNum);
-    JITDUMP("    ");
-    DBEXEC(verbose, PrintConditions(loopNum));
-    JITDUMP("\n");
+    condBlock->inheritWeight(head);
+    condBlock->bbNatLoopNum = head->bbNatLoopNum;
+    head->bbJumpDest        = condBlock;
+    JITDUMP("Adding " FMT_BB " -> " FMT_BB "\n", head->bbNum, condBlock->bbNum);
+    compiler->fgAddRefPred(condBlock, head);
 
     CondToStmtInBlock(*conditions[loopNum], condBlock, /*reverse*/ false);
 
@@ -2202,7 +1657,7 @@ void LoopCloneVisitorInfo::IsLclAssignedVisitor(GenTree* tree)
     }
 }
 
-bool LoopCloneContext::ExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned tempArrayLclNum) const
+bool LoopCloneContext::ExtractArrIndex(GenTree* tree, ArrIndex* result) const
 {
     if (!tree->OperIs(GT_COMMA))
     {
@@ -2229,55 +1684,18 @@ bool LoopCloneContext::ExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned
         return false;
     }
 
-    unsigned arrayLclNum = length->GetArray()->AsLclVar()->GetLclNum();
-    unsigned indexLclNum = index->AsLclVar()->GetLclNum();
-
-    if (tempArrayLclNum == BAD_VAR_NUM)
-    {
-        result->arrLcl = arrayLclNum;
-    }
-    else if (arrayLclNum != tempArrayLclNum)
-    {
-        return false;
-    }
-
-    result->indLcls.Add(indexLclNum);
-    result->bndsChks.Add(tree->AsOp());
+    result->arrayLclNum = length->GetArray()->AsLclVar()->GetLclNum();
+    result->indexLclNum = index->AsLclVar()->GetLclNum();
+    result->boundsCheck = tree->AsOp();
 
     return true;
 }
 
-bool LoopCloneContext::ReconstructArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum) const
-{
-    if (ExtractArrIndex(tree, result, lhsNum))
-    {
-        return true;
-    }
-
-    if (tree->OperIs(GT_COMMA))
-    {
-        GenTree* asg = tree->AsOp()->GetOp(0);
-
-        if (!asg->OperIs(GT_ASG))
-        {
-            return false;
-        }
-
-        GenTree* dst = asg->AsOp()->GetOp(0);
-        GenTree* src = asg->AsOp()->GetOp(1);
-
-        return dst->OperIs(GT_LCL_VAR) && ReconstructArrIndex(src, result, lhsNum) &&
-               ExtractArrIndex(tree->AsOp()->GetOp(1), result, dst->AsLclVar()->GetLclNum());
-    }
-
-    return false;
-}
-
 Compiler::fgWalkResult LoopCloneContext::CanOptimizeByLoopCloning(GenTree* tree, LoopCloneVisitorInfo& info)
 {
-    ArrIndex arrIndex(alloc);
+    ArrIndex arrIndex;
 
-    if (ReconstructArrIndex(tree, &arrIndex, BAD_VAR_NUM))
+    if (ExtractArrIndex(tree, &arrIndex))
     {
         info.AddArrayIndex(tree, arrIndex);
     }
@@ -2295,39 +1713,22 @@ void LoopCloneVisitorInfo::AddArrayIndex(GenTree* tree, ArrIndex& arrIndex)
         printf("Found ArrIndex at " FMT_BB " " FMT_STMT " [%06u] which is equivalent to: ", block->bbNum, stmt->GetID(),
                tree->GetID());
         arrIndex.Print();
-        printf(", bounds check nodes: ");
+        printf(", bounds check node: ");
         arrIndex.PrintBoundsCheckNodes();
         printf("\n");
     }
 #endif
 
-    if (!IsLclLoopInvariant(arrIndex.arrLcl))
+    if (!IsLclLoopInvariant(arrIndex.arrayLclNum))
     {
-        JITDUMP("Array V%02u is not loop invariant\n", arrIndex.arrLcl);
+        JITDUMP("Array V%02u is not loop invariant\n", arrIndex.arrayLclNum);
         return;
     }
 
-    unsigned ivLclNum = loop.lpIterVar();
-    unsigned dim      = 0;
-
-    while ((dim < arrIndex.indLcls.Size()) && (arrIndex.indLcls[dim] != ivLclNum))
+    if (arrIndex.indexLclNum != loop.lpIterVar())
     {
-        dim++;
-    }
-
-    if (dim >= arrIndex.indLcls.Size())
-    {
-        JITDUMP("Induction V%02u is not used as index\n", ivLclNum);
+        JITDUMP("Index V%02u is not loop IV\n", loop.lpIterVar());
         return;
-    }
-
-    for (unsigned i = 0; i < dim; i++)
-    {
-        if (IsLclAssignedInLoop(arrIndex.indLcls[i]))
-        {
-            JITDUMP("Index V%02u is not loop invariant\n", arrIndex.indLcls[i]);
-            return;
-        }
     }
 
 #ifdef DEBUG
@@ -2335,11 +1736,10 @@ void LoopCloneVisitorInfo::AddArrayIndex(GenTree* tree, ArrIndex& arrIndex)
     {
         printf("Loop " FMT_LP " can be cloned for ArrIndex ", loopNum);
         arrIndex.Print();
-        printf(" on dim %u\n", dim);
     }
 #endif
 
-    context.AddArrayIndex(loopNum, arrIndex, dim, stmt);
+    context.AddArrayIndex(loopNum, arrIndex, stmt);
 }
 
 void LoopCloneContext::IdentifyLoopOptInfo(unsigned loopNum)
