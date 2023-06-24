@@ -870,10 +870,21 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
         return false;
     }
 
-    if (((loop.lpFlags & LPFLG_CONST_LIMIT) != 0) && (loop.lpConstLimit() <= 0))
+    if ((loop.lpFlags & LPFLG_CONST_LIMIT) != 0)
     {
-        JITDUMP("Rejecting loop. IV limit value %d is invalid.\n", loop.lpConstLimit());
-        return false;
+        if (loop.lpConstLimit() <= 0)
+        {
+            JITDUMP("Rejecting loop. IV limit value %d is invalid.\n", loop.lpConstLimit());
+            return false;
+        }
+    }
+    else if ((loop.lpFlags & LPFLG_VAR_LIMIT) != 0)
+    {
+        if (compiler->lvaGetDesc(loop.lpVarLimit())->IsAddressExposed())
+        {
+            JITDUMP("Rejecting loop. IV limit V%02u is address exposed.\n", loop.lpVarLimit());
+            return false;
+        }
     }
 
     if (loop.lpTestOper() != GT_LT)
