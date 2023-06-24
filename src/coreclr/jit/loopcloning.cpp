@@ -1439,23 +1439,6 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
     loop.lpFlags |= LPFLG_DONT_UNROLL;
 }
 
-enum CallInterf
-{
-    CALLINT_NONE,       // no interference                               (most helpers)
-    CALLINT_REF_INDIRS, // kills GC ref indirections                     (SETFIELD OBJ)
-    CALLINT_SCL_INDIRS, // kills non GC ref indirections                 (SETFIELD non-OBJ)
-    CALLINT_ALL_INDIRS, // kills both GC ref and non GC ref indirections (SETFIELD STRUCT)
-    CALLINT_ALL,        // kills everything                              (normal method call)
-};
-
-enum varRefKinds
-{
-    VR_NONE    = 0x00,
-    VR_IND_REF = 0x01, // an object reference
-    VR_IND_SCL = 0x02, // a non-object reference
-    VR_GLB_VAR = 0x04, // a global (clsVar)
-};
-
 struct LoopCloneVisitorInfo
 {
     LoopCloneContext& context;
@@ -1465,8 +1448,6 @@ struct LoopCloneVisitorInfo
     BasicBlock*       block          = nullptr;
     bool              hasLoopSummary = false;
     BitVec            modifiedLocals = nullptr;
-    CallInterf        lpAsgCall;
-    varRefKinds       lpAsgInds;
 
     LoopCloneVisitorInfo(LoopCloneContext& context, const LoopDsc& loop, unsigned loopNum)
         : context(context), loop(loop), loopNum(loopNum), modifiedLocals(context.modifiedLocals)
@@ -1551,9 +1532,6 @@ bool LoopCloneVisitorInfo::IsTrackedLclAssignedInLoop(unsigned lclNum)
             BitVecOps::ClearD(context.modifiedLocalsTraits, modifiedLocals);
         }
 
-        lpAsgInds = VR_NONE;
-        lpAsgCall = CALLINT_NONE;
-
         for (BasicBlock* block : loop.LoopBlocks())
         {
             for (Statement* stmt : block->Statements())
@@ -1571,43 +1549,7 @@ bool LoopCloneVisitorInfo::IsTrackedLclAssignedInLoop(unsigned lclNum)
         hasLoopSummary = true;
     }
 
-    if (BitVecOps::IsMember(context.modifiedLocalsTraits, modifiedLocals, lclNum))
-    {
-        return true;
-    }
-
-    switch (lpAsgCall)
-    {
-        case CALLINT_ALL:
-            return lpAsgInds != VR_NONE;
-        case CALLINT_REF_INDIRS:
-            return (lpAsgInds & VR_IND_REF) != 0;
-        case CALLINT_SCL_INDIRS:
-            return (lpAsgInds & VR_IND_SCL) != 0;
-        case CALLINT_ALL_INDIRS:
-            return (lpAsgInds & (VR_IND_REF | VR_IND_SCL)) != 0;
-        case CALLINT_NONE:
-            return false;
-        default:
-            unreached();
-    }
-}
-
-static CallInterf optCallInterf(GenTreeCall* call)
-{
-    if (!call->IsHelperCall())
-    {
-        return CALLINT_ALL;
-    }
-
-    CorInfoHelpFunc helper = Compiler::eeGetHelperNum(call->GetMethodHandle());
-
-    if (helper == CORINFO_HELP_ARRADDR_ST)
-    {
-        return CALLINT_REF_INDIRS;
-    }
-
-    return Compiler::s_helperCallProperties.MutatesHeap(helper) ? CALLINT_ALL_INDIRS : CALLINT_NONE;
+    return BitVecOps::IsMember(context.modifiedLocalsTraits, modifiedLocals, lclNum);
 }
 
 void LoopCloneVisitorInfo::IsLclAssignedVisitor(GenTree* tree)
@@ -1627,33 +1569,6 @@ void LoopCloneVisitorInfo::IsLclAssignedVisitor(GenTree* tree)
                 BitVecOps::AddElemD(context.modifiedLocalsTraits, modifiedLocals, lclNum);
             }
         }
-        else if (dest->OperIs(GT_LCL_FLD))
-        {
-            // TODO-MIKE-Cleanup: This stuff is bonkers. It should simply be treated like LCL_VAR above.
-            // Also, the LCL_VAR code is missing the promoted local case...
-
-            if (!tree->TypeIs(TYP_STRUCT))
-            {
-                varRefKinds refs = varTypeIsGC(tree->GetType()) ? VR_IND_REF : VR_IND_SCL;
-                lpAsgInds        = static_cast<varRefKinds>(lpAsgInds | refs);
-            }
-        }
-        else if (dest->OperIs(GT_IND))
-        {
-            if (dest->AsIndir()->GetAddr()->OperIs(GT_CLS_VAR_ADDR))
-            {
-                lpAsgInds = static_cast<varRefKinds>(lpAsgInds | VR_GLB_VAR);
-            }
-            else
-            {
-                varRefKinds refs = varTypeIsGC(tree->GetType()) ? VR_IND_REF : VR_IND_SCL;
-                lpAsgInds        = static_cast<varRefKinds>(lpAsgInds | refs);
-            }
-        }
-    }
-    else if (tree->OperIs(GT_CALL))
-    {
-        lpAsgCall = optCallInterf(tree->AsCall());
     }
 }
 
