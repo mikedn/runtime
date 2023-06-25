@@ -285,8 +285,6 @@ struct LoopCloneContext
     void OptimizeBlockConditions(unsigned loopNum);
     bool IsLoopClonable(unsigned loopNum) const;
     void IdentifyLoopOptInfo(unsigned loopNum);
-    Compiler::fgWalkResult CanOptimizeByLoopCloning(GenTree* tree, LoopCloneVisitorInfo& info);
-    bool ExtractArrIndex(GenTree* tree, ArrIndex* result) const;
     void PerformStaticOptimizations(unsigned loopNum);
     bool ComputeDerefConditions(const ArrayStack<unsigned>& derefs, unsigned loopNum);
     bool DeriveLoopCloningConditions(unsigned loopNum);
@@ -1458,14 +1456,15 @@ struct LoopCloneVisitorInfo
     Statement*        stmt           = nullptr;
     BasicBlock*       block          = nullptr;
     bool              hasLoopSummary = false;
-    BitVec            modifiedLocals = nullptr;
 
     LoopCloneVisitorInfo(LoopCloneContext& context, const LoopDsc& loop, unsigned loopNum)
-        : context(context), loop(loop), loopNum(loopNum), modifiedLocals(context.modifiedLocals)
+        : context(context), loop(loop), loopNum(loopNum)
     {
     }
 
-    void AddArrayIndex(GenTree* tree, ArrIndex& index);
+    void ArrayIndexVisitor(GenTreeOp* comma);
+    bool ExtractArrayIndex(GenTreeOp* comma, ArrIndex* result) const;
+    void AddArrayIndex(const ArrIndex& index);
     bool IsLclLoopInvariant(unsigned lclNum);
     bool IsLclAssignedInLoop(unsigned lclNum);
     void SummarizeLocalStores(unsigned lclNum);
@@ -1492,21 +1491,20 @@ bool LoopCloneVisitorInfo::IsLclAssignedInLoop(unsigned lclNum)
         hasLoopSummary = true;
     }
 
-    return BitVecOps::IsMember(context.modifiedLocalsTraits, modifiedLocals, lclNum);
+    return BitVecOps::IsMember(context.modifiedLocalsTraits, context.modifiedLocals, lclNum);
 }
 
 void LoopCloneVisitorInfo::SummarizeLocalStores(unsigned lclNum)
 {
     assert(!hasLoopSummary);
 
-    if (modifiedLocals == nullptr)
+    if (context.modifiedLocals == nullptr)
     {
-        modifiedLocals         = BitVecOps::MakeEmpty(context.modifiedLocalsTraits);
-        context.modifiedLocals = modifiedLocals;
+        context.modifiedLocals = BitVecOps::MakeEmpty(context.modifiedLocalsTraits);
     }
     else
     {
-        BitVecOps::ClearD(context.modifiedLocalsTraits, modifiedLocals);
+        BitVecOps::ClearD(context.modifiedLocalsTraits, context.modifiedLocals);
     }
 
     for (BasicBlock* block : loop.LoopBlocks())
@@ -1548,7 +1546,7 @@ void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeOp* asg)
     // happens just be conservative and treat any new locals as modified.
     if (lclNum < BitVecTraits::GetSize(&context.modifiedLocalsTraits))
     {
-        BitVecOps::AddElemD(context.modifiedLocalsTraits, modifiedLocals, lclNum);
+        BitVecOps::AddElemD(context.modifiedLocalsTraits, context.modifiedLocals, lclNum);
     }
 
     // Assigning a promoted local modifies all its fields. This is somewhat conservative,
@@ -1570,20 +1568,17 @@ void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeOp* asg)
 
             if (fieldLclNum < BitVecTraits::GetSize(&context.modifiedLocalsTraits))
             {
-                BitVecOps::AddElemD(context.modifiedLocalsTraits, modifiedLocals, fieldLclNum);
+                BitVecOps::AddElemD(context.modifiedLocalsTraits, context.modifiedLocals, fieldLclNum);
             }
         }
     }
 }
 
-bool LoopCloneContext::ExtractArrIndex(GenTree* tree, ArrIndex* result) const
+bool LoopCloneVisitorInfo::ExtractArrayIndex(GenTreeOp* comma, ArrIndex* result) const
 {
-    if (!tree->OperIs(GT_COMMA))
-    {
-        return false;
-    }
+    assert(comma->OperIs(GT_COMMA));
 
-    GenTreeBoundsChk* boundsCheck = tree->AsOp()->GetOp(0)->IsBoundsChk();
+    GenTreeBoundsChk* boundsCheck = comma->GetOp(0)->IsBoundsChk();
 
     if (boundsCheck == nullptr)
     {
@@ -1605,32 +1600,20 @@ bool LoopCloneContext::ExtractArrIndex(GenTree* tree, ArrIndex* result) const
 
     result->arrayLclNum = length->GetArray()->AsLclVar()->GetLclNum();
     result->indexLclNum = index->AsLclVar()->GetLclNum();
-    result->boundsCheck = tree->AsOp();
+    result->boundsCheck = comma;
 
     return true;
 }
 
-Compiler::fgWalkResult LoopCloneContext::CanOptimizeByLoopCloning(GenTree* tree, LoopCloneVisitorInfo& info)
+void LoopCloneVisitorInfo::AddArrayIndex(const ArrIndex& arrIndex)
 {
-    ArrIndex arrIndex;
-
-    if (ExtractArrIndex(tree, &arrIndex))
-    {
-        info.AddArrayIndex(tree, arrIndex);
-    }
-
-    return Compiler::WALK_CONTINUE;
-}
-
-void LoopCloneVisitorInfo::AddArrayIndex(GenTree* tree, ArrIndex& arrIndex)
-{
-    assert(tree->OperIs(GT_COMMA));
+    assert(arrIndex.boundsCheck->OperIs(GT_COMMA));
 
 #ifdef DEBUG
     if (context.verbose)
     {
         printf("Found ArrIndex at " FMT_BB " " FMT_STMT " [%06u] which is equivalent to: ", block->bbNum, stmt->GetID(),
-               tree->GetID());
+               arrIndex.boundsCheck->GetID());
         arrIndex.Print();
         printf(", bounds check node: ");
         arrIndex.PrintBoundsCheckNodes();
@@ -1661,6 +1644,16 @@ void LoopCloneVisitorInfo::AddArrayIndex(GenTree* tree, ArrIndex& arrIndex)
     context.AddArrayIndex(loopNum, arrIndex, stmt);
 }
 
+void LoopCloneVisitorInfo::ArrayIndexVisitor(GenTreeOp* comma)
+{
+    ArrIndex arrIndex;
+
+    if (ExtractArrayIndex(comma, &arrIndex))
+    {
+        AddArrayIndex(arrIndex);
+    }
+}
+
 void LoopCloneContext::IdentifyLoopOptInfo(unsigned loopNum)
 {
     JITDUMP("Checking loop for optimization candidates\n");
@@ -1680,7 +1673,14 @@ void LoopCloneContext::IdentifyLoopOptInfo(unsigned loopNum)
                                     [](GenTree** use, Compiler::fgWalkData* data) {
                                         LoopCloneVisitorInfo* info =
                                             static_cast<LoopCloneVisitorInfo*>(data->pCallbackData);
-                                        return info->context.CanOptimizeByLoopCloning(*use, *info);
+                                        GenTree* comma = *use;
+
+                                        if (comma->OperIs(GT_COMMA))
+                                        {
+                                            info->ArrayIndexVisitor(comma->AsOp());
+                                        }
+
+                                        return Compiler::WALK_CONTINUE;
                                     },
                                     &info);
         }
