@@ -837,6 +837,8 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 
     GenTree* dst = asgNode->GetOp(0);
 
+    assert(!dst->OperIs(GT_COMMA));
+
     if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         GenTreeLclVarCommon* lclNode = dst->AsLclVarCommon();

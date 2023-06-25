@@ -3937,7 +3937,7 @@ void ValueNumbering::NumberComma(GenTreeOp* comma)
 
 void ValueNumbering::SummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary)
 {
-    GenTree* store = asg->GetOp(0)->SkipComma();
+    GenTree* store = asg->GetOp(0);
 
     if (store->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
@@ -3958,11 +3958,6 @@ void ValueNumbering::NumberAssignment(GenTreeOp* asg)
 
     GenTree* store = asg->GetOp(0);
     GenTree* value = asg->GetOp(1);
-
-    for (; store->OperIs(GT_COMMA); store = store->AsOp()->GetOp(1))
-    {
-        store->SetVNP(ValueNumStore::VoidVNP());
-    }
 
     if (store->OperIs(GT_LCL_VAR))
     {
