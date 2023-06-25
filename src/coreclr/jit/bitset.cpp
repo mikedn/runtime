@@ -2,27 +2,18 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 #include "bitset.h"
 #include "bitsetasuint64.h"
 #include "bitsetasshortlong.h"
 #include "bitsetasuint64inclass.h"
 
-// clang-format off
-unsigned BitSetSupport::BitCountTable[16] = { 0, 1, 1, 2,
-                                              1, 2, 2, 3,
-                                              1, 2, 2, 3,
-                                              2, 3, 3, 4 };
-// clang-format on
+const unsigned BitSetSupport::BitCountTable[16]{0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4};
 
 #ifdef DEBUG
-template <typename BitSetType, unsigned Uniq, typename Env, typename BitSetTraits>
-void BitSetSupport::RunTests(Env env)
+template <typename BitSetType, typename BitSetTraits>
+void BitSetSupport::RunTests(typename BitSetTraits::Env env)
 {
-
-    typedef BitSetOps<BitSetType, Uniq, Env, BitSetTraits> LclBitSetOps;
+    using LclBitSetOps = BitSetOps<BitSetType, BitSetTraits>;
 
     // The tests require that the Size is at least 52...
     assert(BitSetTraits::GetSize(env) > 51);
@@ -97,6 +88,8 @@ void BitSetSupport::RunTests(Env env)
 class TestBitSetTraits
 {
 public:
+    using Env = CompAllocator;
+
     static void* Alloc(CompAllocator alloc, size_t byteSize)
     {
         return alloc.allocate<char>(byteSize);
@@ -118,67 +111,9 @@ public:
 
 void BitSetSupport::TestSuite(CompAllocator env)
 {
-    BitSetSupport::RunTests<UINT64, BSUInt64, CompAllocator, TestBitSetTraits>(env);
-    BitSetSupport::RunTests<BitSetShortLongRep, BSShortLong, CompAllocator, TestBitSetTraits>(env);
-    BitSetSupport::RunTests<BitSetUint64<CompAllocator, TestBitSetTraits>, BSUInt64Class, CompAllocator,
-                            TestBitSetTraits>(env);
+    BitSetSupport::RunTests<UINT64, TestBitSetTraits>(env);
+    BitSetSupport::RunTests<BitSetShortLongRep, TestBitSetTraits>(env);
+    BitSetSupport::RunTests<BitSetUint64<TestBitSetTraits>, TestBitSetTraits>(env);
 }
-#endif
 
-const char* BitSetSupport::OpNames[BitSetSupport::BSOP_NUMOPS] = {
-#define BSOPNAME(x) #x,
-#include "bitsetops.h"
-#undef BSOPNAME
-};
-
-void BitSetSupport::BitSetOpCounter::RecordOp(BitSetSupport::Operation op)
-{
-    OpCounts[op]++;
-    TotalOps++;
-
-    if ((TotalOps % 1000000) == 0)
-    {
-        if (OpOutputFile == nullptr)
-        {
-            OpOutputFile = fopen(m_fileName, "a");
-        }
-        fprintf(OpOutputFile, "@ %d total ops.\n", TotalOps);
-
-        unsigned OpOrder[BSOP_NUMOPS];
-        bool     OpOrdered[BSOP_NUMOPS];
-
-        // First sort by total operations (into an index permutation array, using a simple n^2 sort).
-        for (unsigned k = 0; k < BitSetSupport::BSOP_NUMOPS; k++)
-        {
-            OpOrdered[k] = false;
-        }
-        for (unsigned k = 0; k < BitSetSupport::BSOP_NUMOPS; k++)
-        {
-            bool     candSet = false;
-            unsigned cand    = 0;
-            unsigned candInd = 0;
-            for (unsigned j = 0; j < BitSetSupport::BSOP_NUMOPS; j++)
-            {
-                if (OpOrdered[j])
-                {
-                    continue;
-                }
-                if (!candSet || OpCounts[j] > cand)
-                {
-                    candInd = j;
-                    cand    = OpCounts[j];
-                    candSet = true;
-                }
-            }
-            assert(candSet);
-            OpOrder[k]         = candInd;
-            OpOrdered[candInd] = true;
-        }
-
-        for (unsigned ii = 0; ii < BitSetSupport::BSOP_NUMOPS; ii++)
-        {
-            unsigned i = OpOrder[ii];
-            fprintf(OpOutputFile, "   Op %40s: %8d\n", OpNames[i], OpCounts[i]);
-        }
-    }
-}
+#endif // DEBUG

@@ -6,30 +6,25 @@
 // Represented as a pointer-sized item.  If N bits can fit in this item, the representation is "direct"; otherwise,
 // the item is a pointer to an array of K size_t's, where K is the number of size_t's necessary to hold N bits.
 
-#ifndef bitSetAsShortLong_DEFINED
-#define bitSetAsShortLong_DEFINED 1
+#pragma once
 
 #include "bitset.h"
-#include "compilerbitsettraits.h"
 
-typedef size_t* BitSetShortLongRep;
+using BitSetShortLongRep = size_t*;
 
-template <typename Env, typename BitSetTraits>
-class BitSetOps</*BitSetType*/ BitSetShortLongRep,
-                /*Brand*/ BSShortLong,
-                /*Env*/ Env,
-                /*BitSetTraits*/ BitSetTraits>
+template <typename BitSetTraits>
+class BitSetOps<BitSetShortLongRep, BitSetTraits>
 {
 public:
-    typedef BitSetShortLongRep        Rep;
-    typedef const BitSetShortLongRep& ValArgType;
-    typedef BitSetShortLongRep        RetValType;
-
-    using Set      = BitSetShortLongRep;
-    using ConstSet = const size_t*;
+    using Env        = typename BitSetTraits::Env;
+    using Rep        = BitSetShortLongRep;
+    using Set        = BitSetShortLongRep;
+    using ConstSet   = const size_t*;
+    using ValArgType = const BitSetShortLongRep&;
+    using RetValType = BitSetShortLongRep;
 
 private:
-    static const unsigned BitsInSizeT = sizeof(size_t) * BitSetSupport::BitsInByte;
+    static const unsigned BitsInSizeT = sizeof(size_t) * CHAR_BIT;
 
     inline static bool IsShort(Env env)
     {
@@ -519,7 +514,7 @@ public:
                     }
 
                     // If we get here, it's not a short type, so get the next size_t element.
-                    m_bitNum += sizeof(size_t) * BitSetSupport::BitsInByte;
+                    m_bitNum += sizeof(size_t) * CHAR_BIT;
                     m_bits = *m_bs;
                 }
             }
@@ -922,5 +917,3 @@ private:
     }
 #endif
 };
-
-#endif // bitSetAsShortLong_DEFINED

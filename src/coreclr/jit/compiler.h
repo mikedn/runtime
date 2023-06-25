@@ -23,7 +23,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "jit.h"
 #include "opcode.h"
-#include "varset.h"
 #include "jithashtable.h"
 #include "gentree.h"
 #include "lir.h"
@@ -48,18 +47,18 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "gcdump.h"
 #endif
 
-struct InfoHdr;            // defined in GCInfo.h
-struct escapeMapping_t;    // defined in fgdiagnostic.cpp
-class emitter;             // defined in emit.h
-struct ShadowParamVarInfo; // defined in GSChecks.cpp
-struct ParamAllocInfo;     // defined in register_arg_convention.h
-class FgStack;             // defined in fgbasic.cpp
-class Instrumentor;        // defined in fgprofile.cpp
-class SpanningTreeVisitor; // defined in fgprofile.cpp
-class OptBoolsDsc;         // defined in optimizer.cpp
-#ifdef DEBUG
-class IndentStack;
-#endif
+struct InfoHdr;
+struct escapeMapping_t;
+class emitter;
+struct ShadowParamVarInfo;
+struct ParamAllocInfo;
+class FgStack;
+class Instrumentor;
+class SpanningTreeVisitor;
+class OptBoolsDsc;
+struct LoopCloneContext;
+struct LoopCloneVisitorInfo;
+struct ArrIndex;
 class SsaOptimizer;
 class SsaBuilder;
 class ValueNumbering;
@@ -67,11 +66,9 @@ class ValueNumStore;
 class CopyPropDomTreeVisitor;
 class LoopHoist;
 class Cse;
-class Lowering; // defined in lower.h
-
-// The following are defined in this file, Compiler.h
-
+class Lowering;
 class Compiler;
+INDEBUG(class IndentStack;)
 
 /*****************************************************************************
  *                  Unwind info
@@ -82,9 +79,6 @@ class Compiler;
 // Declare global operator new overloads that use the compiler's arena allocator
 void* __cdecl operator new(size_t n, Compiler* context, CompMemKind cmk);
 void* __cdecl operator new[](size_t n, Compiler* context, CompMemKind cmk);
-
-// Requires the definitions of "operator new" so including "LoopCloning.h" after the definitions.
-#include "loopcloning.h"
 
 /*****************************************************************************/
 
@@ -1090,10 +1084,8 @@ enum LoopFlags : uint16_t
 
     LPFLG_DO_WHILE = 0x0001, // it's a do-while loop (i.e ENTRY is at the TOP)
     LPFLG_ONE_EXIT = 0x0002, // the loop has only one exit
-    LPFLG_ITER     = 0x0004, // loop of form: for (i = icon or lclVar; test_condition(); i++)
     LPFLG_HAS_CALL = 0x0008,
 
-    LPFLG_CONST      = 0x0010, // loop of form: for (i=icon;i<icon;i++){ ... } - constant loop
     LPFLG_VAR_INIT   = 0x0020, // iterator is initialized with a local var (var # found in lpVarInit)
     LPFLG_CONST_INIT = 0x0040, // iterator is initialized with a constant (found in lpConstInit)
     LPFLG_SIMD_LIMIT = 0x0080, // iterator is compared with vector element count (found in lpConstLimit)
@@ -1105,9 +1097,6 @@ enum LoopFlags : uint16_t
 
     LPFLG_REMOVED     = 0x1000, // has been removed from the loop table (unrolled or optimized away)
     LPFLG_DONT_UNROLL = 0x2000, // do not unroll this loop
-    LPFLG_ASGVARS_YES = 0x4000, // "lpAsgVars" has been computed
-    LPFLG_ASGVARS_INC = 0x8000, // "lpAsgVars" is incomplete -- vars beyond those representable in an AllVarSet
-                                // type are assigned to.
 };
 
 inline constexpr LoopFlags operator~(LoopFlags a)
@@ -1136,15 +1125,6 @@ inline LoopFlags& operator&=(LoopFlags& a, LoopFlags b)
 }
 
 struct HWIntrinsicInfo;
-
-enum CallInterf : uint8_t
-{
-    CALLINT_NONE,       // no interference                               (most helpers)
-    CALLINT_REF_INDIRS, // kills GC ref indirections                     (SETFIELD OBJ)
-    CALLINT_SCL_INDIRS, // kills non GC ref indirections                 (SETFIELD non-OBJ)
-    CALLINT_ALL_INDIRS, // kills both GC ref and non GC ref indirections (SETFIELD STRUCT)
-    CALLINT_ALL,        // kills everything                              (normal method call)
-};
 
 struct CompiledMethodInfo
 {
@@ -4293,7 +4273,6 @@ public:
 
     // Dominator computation member functions
     // Not exposed outside Compiler
-protected:
     bool fgReachable(BasicBlock* b1, BasicBlock* b2); // Returns true if block b1 can reach block b2
 
     // Compute immediate dominators, the dominator tree and and its pre/post-order travsersal numbers.
@@ -5013,12 +4992,11 @@ public:
 public:
     PhaseStatus optInvertLoops();    // Invert loops so they're entered at top and tested at bottom.
     PhaseStatus optOptimizeLayout(); // Optimize the BasicBlock layout of the method
-    PhaseStatus optFindLoops();      // Finds loops and records them in the loop table
+    PhaseStatus phFindLoops();       // Finds loops and records them in the loop table
 
-    PhaseStatus optCloneLoops();
-    void optCloneLoop(unsigned loopInd, LoopCloneContext* context);
+    PhaseStatus phCloneLoops();
     void optEnsureUniqueHead(unsigned loopInd, BasicBlock::weight_t ambientWeight);
-    PhaseStatus optUnrollLoops(); // Unrolls loops (needs to have cost info)
+    PhaseStatus phUnrollLoops(); // Unrolls loops (needs to have cost info)
 
     // A "LoopDsc" describes a ("natural") loop.  We (currently) require the body of a loop to be a contiguous (in
     // bbNext order) sequence of basic blocks.  (At times, we may require the blocks in a loop to be "properly numbered"
@@ -5039,10 +5017,6 @@ public:
         BasicBlock* lpBottom; // loop BOTTOM (from here we have a back edge to the TOP)
         BasicBlock* lpExit;   // if a single exit loop this is the EXIT (in most cases BOTTOM)
 
-        ALLVARSET_TP lpAsgVars; // set of vars assigned within the loop (all vars, not just tracked)
-        CallInterf   lpAsgCall; // "callInterf" for calls in the loop
-        varRefKinds  lpAsgInds; // set of inds modified within the loop
-
         LoopFlags lpFlags;
 
         uint8_t lpExitCnt; // number of exits from the loop
@@ -5056,7 +5030,7 @@ public:
                            // or else NoLoopNum.  One can enumerate all the children of a loop
                            // by following "lpChild" then "lpSibling" links.
 
-        /* The following values are set only for iterator loops, i.e. has the flag LPFLG_ITER set */
+        /* The following values are set only for iterator loops, i.e. has non null lpIterTree*/
 
         union {
             int lpConstInit;    // initial constant value of iterator
@@ -5065,22 +5039,16 @@ public:
                                 // : Valid if LPFLG_VAR_INIT
         };
 
-        GenTree* lpIterTree; // The "i = i <op> const" tree
-        GenTree* lpTestTree; // pointer to the node containing the loop test
+        GenTreeOp* lpIterTree; // The "i = i <op> const" tree
+        GenTreeOp* lpTestTree; // pointer to the node containing the loop test
 
         unsigned   lpIterVar() const;   // iterator variable #
         int        lpIterConst() const; // the constant with which the iterator is incremented
         genTreeOps lpIterOper() const;  // the type of the operation on the iterator (ASG_ADD, ASG_SUB, etc.)
-        void       VERIFY_lpIterTree() const;
-
-        var_types lpIterOperType() const; // For overflow instructions
-
-        // The following is for LPFLG_ITER loops only (i.e. the loop condition is "i RELOP const or var"
+        INDEBUG(void VerifyIterator() const;)
 
         genTreeOps lpTestOper() const; // the type of the comparison between the iterator and the limit (GT_LE, GT_GE,
                                        // etc.)
-        void VERIFY_lpTestTree() const;
-
         bool     lpIsReversed() const; // true if the iterator node is the second operand in the loop condition
         GenTree* lpIterator() const;   // the iterator node in the loop test
         GenTree* lpLimit() const;      // the limit node in the loop test
@@ -5092,10 +5060,6 @@ public:
         // The lclVar # in the loop condition ( "i RELOP lclVar" )
         // : Valid if LPFLG_VAR_LIMIT
         unsigned lpVarLimit() const;
-
-        // The array length in the loop condition ( "i RELOP arr.len" or "i RELOP arr[i][j].len" )
-        // : Valid if LPFLG_ARRLEN_LIMIT
-        bool lpArrLenLimit(Compiler* comp, ArrIndex* index) const;
 
         // Returns "true" iff "*this" contains the blk.
         bool lpContains(BasicBlock* blk) const
@@ -5181,7 +5145,6 @@ public:
                        BasicBlock* exit,
                        unsigned    exitCnt);
 
-protected:
     unsigned optCallCount         = 0; // number of calls made in the method
     unsigned optIndirectCallCount = 0; // number of virtual, interface and indirect calls made in the method
     unsigned optNativeCallCount   = 0; // number of Pinvoke/Native calls made in the method
@@ -5212,15 +5175,11 @@ protected:
     void optUpdateLoopsBeforeRemoveBlock(BasicBlock* block, bool skipUnmarkLoop = false);
 
     bool optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTestStmt);
-    // Determine whether this is an assignment tree of the form X = X (op) Y,
-    // where Y is an arbitrary tree, and X is a lclVar.
-    unsigned optIsLclVarUpdateTree(GenTree* tree, GenTree** otherTree, genTreeOps* updateOper);
     unsigned optIsLoopIncrTree(GenTree* incr);
-    bool optCheckIterInLoopTest(unsigned loopInd, GenTree* test, BasicBlock* from, BasicBlock* to, unsigned iterVar);
-    bool optComputeIterInfo(GenTree* incr, BasicBlock* from, BasicBlock* to, unsigned* pIterVar);
+    GenTreeOp* optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock* from, BasicBlock* to, unsigned iterVar);
     bool optPopulateInitInfo(unsigned loopInd, GenTree* init, unsigned iterVar);
-    bool optExtractInitTestIncr(
-        BasicBlock* head, BasicBlock* bottom, BasicBlock* exit, GenTree** ppInit, GenTree** ppTest, GenTree** ppIncr);
+    GenTreeOp* optExtractInitTestIncr(
+        BasicBlock* head, BasicBlock* bottom, BasicBlock* exit, GenTree** init, GenTree** test);
 
     void optFindNaturalLoops();
 
@@ -5240,7 +5199,6 @@ public:
     // iff "l2" is not NOT_IN_LOOP, and "l1" contains "l2".
     bool optLoopContains(unsigned l1, unsigned l2);
 
-private:
     // Updates the loop table by changing loop "loopInd", whose head is required
     // to be "from", to be "to".  Also performs this transformation for any
     // loop nested in "loopInd" that shares the same head as "loopInd".
@@ -5255,6 +5213,7 @@ private:
     // Returns true if 'block' is an entry block for any loop in 'optLoopTable'
     bool optIsLoopEntry(BasicBlock* block) const;
 
+public:
     // The depth of the loop described by "lnum" (an index into the loop table.) (0 == top level)
     unsigned optLoopDepth(unsigned lnum)
     {
@@ -5294,14 +5253,8 @@ private:
                            bool       dupCond,
                            unsigned*  iterCount);
 
-    static fgWalkPreFn optIsVarAssgCB;
-
-protected:
-    bool optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned var);
-
-    bool optIsVarAssgLoop(unsigned lnum, unsigned var);
-
-    int optIsSetAssgLoop(unsigned lnum, ALLVARSET_VALARG_TP vars, varRefKinds inds = VR_NONE);
+public:
+    bool optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned lclNum);
 
     bool optNarrowTree(GenTree* tree, var_types srct, var_types dstt, ValueNumPair vnpNarrow, bool doit);
 
@@ -5311,7 +5264,6 @@ protected:
 
     bool optAvoidIntMult(void);
 
-public:
     bool cseCanSwapOrder(GenTree* tree1, GenTree* tree2);
 
 // String to use for formatting CSE numbers. Note that this is the positive number, e.g., from GET_CSE_INDEX().
@@ -5434,8 +5386,6 @@ protected:
 public:
 #if LOCAL_ASSERTION_PROP
     struct MorphAssertion;
-    struct MorphAssertionBitVecTraits;
-    friend MorphAssertionBitVecTraits;
 
     static constexpr unsigned morphAssertionMaxCount = 64;
     unsigned                  morphAssertionCount;
@@ -5487,41 +5437,6 @@ private:
 public:
     void optAddCopies();
 #endif // ASSERTION_PROP
-
-public:
-    struct LoopCloneVisitorInfo
-    {
-        LoopCloneContext* context;
-        unsigned          loopNum;
-        Statement*        stmt  = nullptr;
-        BasicBlock*       block = nullptr;
-
-        LoopCloneVisitorInfo(LoopCloneContext* context, unsigned loopNum) : context(context), loopNum(loopNum)
-        {
-        }
-    };
-
-    bool optIsStackLocalInvariant(unsigned loopNum, unsigned lclNum);
-    bool optExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum);
-    bool optReconstructArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsNum);
-    bool optIdentifyLoopOptInfo(unsigned loopNum, LoopCloneContext* context);
-    static fgWalkPreFn optCanOptimizeByLoopCloningVisitor;
-    fgWalkResult optCanOptimizeByLoopCloning(GenTree* tree, LoopCloneVisitorInfo* info);
-    bool optObtainLoopCloningOpts(LoopCloneContext* context);
-    bool optIsLoopClonable(unsigned loopInd);
-
-    bool optLoopCloningEnabled();
-
-#ifdef DEBUG
-    void optDebugLogLoopCloning(BasicBlock* block, Statement* insertBefore);
-#endif
-    void optPerformStaticOptimizations(unsigned loopNum, LoopCloneContext* context DEBUGARG(bool fastPath));
-    bool optComputeDerefConditions(unsigned loopNum, LoopCloneContext* context);
-    bool optDeriveLoopCloningConditions(unsigned loopNum, LoopCloneContext* context);
-    BasicBlock* optInsertLoopChoiceConditions(LoopCloneContext* context,
-                                              unsigned          loopNum,
-                                              BasicBlock*       head,
-                                              BasicBlock*       slow);
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -6762,13 +6677,6 @@ public:
         FieldSeqStore* fieldStore = GetFieldSeqStore();
         return fieldStore->Append(fieldStore->CreateSingleton(byRefFieldHandle), valueFieldHandle);
     }
-
-#if VARSET_COUNTOPS
-    static BitSetSupport::BitSetOpCounter m_varsetOpCounter;
-#endif
-#if ALLVARSET_COUNTOPS
-    static BitSetSupport::BitSetOpCounter m_allvarsetOpCounter;
-#endif
 
     const static HelperCallProperties s_helperCallProperties;
 

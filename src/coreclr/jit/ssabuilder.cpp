@@ -105,7 +105,7 @@ void SsaOptimizer::Reset()
 
     compiler->fgComputeReachability();
     compiler->fgComputeDoms();
-    compiler->optFindLoops();
+    compiler->phFindLoops();
 
     loopTable = compiler->optLoopTable;
     loopCount = compiler->optLoopCount;

@@ -653,22 +653,20 @@ bool Compiler::optPopulateInitInfo(unsigned loopInd, GenTree* init, unsigned ite
 //      added to the loop table.
 //
 //  Return Value:
-//      "false" if the loop table could not be populated with the loop test info or
-//      if the test condition doesn't involve iterVar.
+//      The loop test tree
 //
-bool Compiler::optCheckIterInLoopTest(
-    unsigned loopInd, GenTree* test, BasicBlock* from, BasicBlock* to, unsigned iterVar)
+GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock* from, BasicBlock* to, unsigned iterVar)
 {
-    // Obtain the relop from the "test" tree.
-    GenTree* relop;
-    if (test->gtOper == GT_JTRUE)
+    GenTreeOp* relop;
+
+    if (test->OperIs(GT_JTRUE))
     {
-        relop = test->gtGetOp1();
+        relop = test->AsUnOp()->GetOp(0)->AsOp();
     }
     else
     {
-        assert(test->gtOper == GT_ASG);
-        relop = test->gtGetOp2();
+        assert(test->OperIs(GT_ASG));
+        relop = test->AsOp()->GetOp(1)->AsOp();
     }
 
     noway_assert(relop->OperIsCompare());
@@ -692,16 +690,13 @@ bool Compiler::optCheckIterInLoopTest(
     }
     else
     {
-        return false;
+        return nullptr;
     }
 
     if (iterOp->gtType != TYP_INT)
     {
-        return false;
+        return nullptr;
     }
-
-    // Mark the iterator node.
-    iterOp->gtFlags |= GTF_VAR_ITERATOR;
 
     // Check what type of limit we have - constant, variable or arr-len.
     if (limitOp->OperIs(GT_CNS_INT))
@@ -716,146 +711,52 @@ bool Compiler::optCheckIterInLoopTest(
     {
         optLoopTable[loopInd].lpFlags |= LPFLG_VAR_LIMIT;
     }
-    else if (limitOp->gtOper == GT_ARR_LENGTH)
+    else if (limitOp->OperIs(GT_ARR_LENGTH))
     {
         optLoopTable[loopInd].lpFlags |= LPFLG_ARRLEN_LIMIT;
     }
     else
     {
-        return false;
+        return nullptr;
     }
-    // Save the type of the comparison between the iterator and the limit.
-    optLoopTable[loopInd].lpTestTree = relop;
-    return true;
+
+    return relop;
 }
 
-//------------------------------------------------------------------------
-// IsLclVarUpdateTree: Determine whether this is an assignment tree of the
-//                     form Vn = Vn 'oper' 'otherTree' where Vn is a lclVar
-//
-// Arguments:
-//    pOtherTree - An "out" argument in which 'otherTree' will be returned.
-//    pOper      - An "out" argument in which 'oper' will be returned.
-//
-// Return Value:
-//    If the tree is of the above form, the lclNum of the variable being
-//    updated is returned, and 'pOtherTree' and 'pOper' are set.
-//    Otherwise, returns BAD_VAR_NUM.
-//
-// Notes:
-//    'otherTree' can have any shape.
-//     We avoid worrying about whether the op is commutative by only considering the
-//     first operand of the rhs. It is expected that most trees of this form will
-//     already have the lclVar on the lhs.
-//     TODO-CQ: Evaluate whether there are missed opportunities due to this, or
-//     whether gtSetEvalOrder will already have put the lclVar on the lhs in
-//     the cases of interest.
-
-unsigned Compiler::optIsLclVarUpdateTree(GenTree* tree, GenTree** pOtherTree, genTreeOps* pOper)
-{
-    unsigned lclNum = BAD_VAR_NUM;
-    if (tree->OperIs(GT_ASG))
-    {
-        GenTree* lhs = tree->AsOp()->gtOp1;
-        GenTree* rhs = tree->AsOp()->gtOp2;
-        if (lhs->OperIs(GT_LCL_VAR) && rhs->OperIsBinary())
-        {
-            unsigned lhsLclNum = lhs->AsLclVar()->GetLclNum();
-            GenTree* rhsOp1    = rhs->AsOp()->gtOp1;
-            GenTree* rhsOp2    = rhs->AsOp()->gtOp2;
-
-            // Some operators, such as HWINTRINSIC, are currently declared as binary but
-            // may not have two operands. We must check that both operands actually exist.
-            if ((rhsOp1 != nullptr) && (rhsOp2 != nullptr) && rhsOp1->OperIs(GT_LCL_VAR) &&
-                (rhsOp1->AsLclVar()->GetLclNum() == lhsLclNum))
-            {
-                lclNum      = lhsLclNum;
-                *pOtherTree = rhsOp2;
-                *pOper      = rhs->OperGet();
-            }
-        }
-    }
-    return lclNum;
-}
-
-//----------------------------------------------------------------------------------
-// optIsLoopIncrTree: Check if loop is a tree of form v += 1 or v = v + 1
-//
-// Arguments:
-//      incr        The incr tree to be checked. Whether incr tree is
-//                  oper-equal(+=, -=...) type nodes or v=v+1 type ASG nodes.
-//
-//  Operation:
-//      The test tree is parsed to check if "iterVar" matches the lhs of the condition
-//      and the rhs limit is extracted from the "test" tree. The limit information is
-//      added to the loop table.
-//
-//  Return Value:
-//      iterVar local num if the iterVar is found, otherwise BAD_VAR_NUM.
-//
 unsigned Compiler::optIsLoopIncrTree(GenTree* incr)
 {
-    GenTree*   incrVal;
-    genTreeOps updateOper;
-    unsigned   iterVar = optIsLclVarUpdateTree(incr, &incrVal, &updateOper);
-    if (iterVar != BAD_VAR_NUM)
+    if (!incr->OperIs(GT_ASG) || !incr->TypeIs(TYP_INT))
     {
-        // We have v = v op y type asg node.
-        switch (updateOper)
-        {
-            case GT_ADD:
-            case GT_SUB:
-            case GT_MUL:
-            case GT_RSH:
-            case GT_LSH:
-                break;
-            default:
-                return BAD_VAR_NUM;
-        }
-
-        // Increment should be by a const int.
-        // TODO-CQ: CLONE: allow variable increments.
-        if ((incrVal->gtOper != GT_CNS_INT) || (incrVal->TypeGet() != TYP_INT))
-        {
-            return BAD_VAR_NUM;
-        }
+        return BAD_VAR_NUM;
     }
 
-    return iterVar;
-}
+    GenTree* dst = incr->AsOp()->GetOp(0);
+    GenTree* src = incr->AsOp()->GetOp(1);
 
-//----------------------------------------------------------------------------------
-// optComputeIterInfo: Check tree is loop increment of a lcl that is loop-invariant.
-//
-// Arguments:
-//      from, to    - are blocks (beg, end) which are part of the loop.
-//      incr        - tree that increments the loop iterator. v+=1 or v=v+1.
-//      pIterVar    - see return value.
-//
-//  Return Value:
-//      Returns true if iterVar "v" can be returned in "pIterVar", otherwise returns
-//      false.
-//
-//  Operation:
-//      Check if the "incr" tree is a "v=v+1 or v+=1" type tree and make sure it is not
-//      assigned in the loop.
-//
-bool Compiler::optComputeIterInfo(GenTree* incr, BasicBlock* from, BasicBlock* to, unsigned* pIterVar)
-{
+    // TODO-MIKE-Cleanup: It might be good to check if the dst and src LCL_VARs have type INT.
+    // Normally morph inserts "normalization" casts for small int typed locals but such casts
+    // aren't actually necessary if the local is AX/DNER. And while we can't do anything with
+    // an AX local, DNER may be a possibility.
 
-    unsigned iterVar = optIsLoopIncrTree(incr);
-    if (iterVar == BAD_VAR_NUM)
+    if (!dst->OperIs(GT_LCL_VAR) || !src->OperIs(GT_ADD, GT_SUB) || !src->TypeIs(TYP_INT))
     {
-        return false;
-    }
-    if (optIsVarAssigned(from, to, incr, iterVar))
-    {
-        JITDUMP("iterVar is assigned in loop\n");
-        return false;
+        return BAD_VAR_NUM;
     }
 
-    *pIterVar = iterVar;
-    return true;
+    GenTree* step = src->AsOp()->GetOp(1);
+    src           = src->AsOp()->GetOp(0);
+
+    if (!src->OperIs(GT_LCL_VAR) || (src->AsLclVar()->GetLclNum() != dst->AsLclVar()->GetLclNum()))
+    {
+        return BAD_VAR_NUM;
+    }
+
+    if (!step->OperIs(GT_CNS_INT))
+    {
+        return BAD_VAR_NUM;
+    }
+
+    return dst->AsLclVar()->GetLclNum();
 }
 
 //----------------------------------------------------------------------------------
@@ -961,12 +862,11 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
 //      This method just retrieves what it thinks is the "test" node,
 //      the callers are expected to verify that "iterVar" is used in the test.
 //
-bool Compiler::optExtractInitTestIncr(
-    BasicBlock* head, BasicBlock* bottom, BasicBlock* top, GenTree** ppInit, GenTree** ppTest, GenTree** ppIncr)
+GenTreeOp* Compiler::optExtractInitTestIncr(
+    BasicBlock* head, BasicBlock* bottom, BasicBlock* top, GenTree** ppInit, GenTree** ppTest)
 {
     assert(ppInit != nullptr);
     assert(ppTest != nullptr);
-    assert(ppIncr != nullptr);
 
     // Check if last two statements in the loop body are the increment of the iterator
     // and the loop termination test.
@@ -987,18 +887,14 @@ bool Compiler::optExtractInitTestIncr(
     {
         if (top == nullptr || top->bbStmtList == nullptr || top->bbStmtList->GetPrevStmt() == nullptr)
         {
-            return false;
+            return nullptr;
         }
 
         // If the prev stmt to loop test is not incr, then check if we have loop test evaluated into a tmp.
-        Statement* toplastStmt = top->lastStmt();
-        if (optIsLoopIncrTree(toplastStmt->GetRootNode()) != BAD_VAR_NUM)
+        incrStmt = top->lastStmt();
+        if (optIsLoopIncrTree(incrStmt->GetRootNode()) == BAD_VAR_NUM)
         {
-            incrStmt = toplastStmt;
-        }
-        else
-        {
-            return false;
+            return nullptr;
         }
     }
 
@@ -1009,7 +905,7 @@ bool Compiler::optExtractInitTestIncr(
     Statement* phdrStmt = head->firstStmt();
     if (phdrStmt == nullptr)
     {
-        return false;
+        return nullptr;
     }
 
     Statement* initStmt = phdrStmt->GetPrevStmt();
@@ -1041,9 +937,7 @@ bool Compiler::optExtractInitTestIncr(
 
     *ppInit = initStmt->GetRootNode();
     *ppTest = testStmt->GetRootNode();
-    *ppIncr = incrStmt->GetRootNode();
-
-    return true;
+    return incrStmt->GetRootNode()->AsOp();
 }
 
 /*****************************************************************************
@@ -1117,21 +1011,19 @@ bool Compiler::optRecordLoop(BasicBlock* head,
     }
 #endif // DEBUG
 
-    optLoopTable[loopInd].lpHead    = head;
-    optLoopTable[loopInd].lpFirst   = first;
-    optLoopTable[loopInd].lpTop     = top;
-    optLoopTable[loopInd].lpBottom  = bottom;
-    optLoopTable[loopInd].lpEntry   = entry;
-    optLoopTable[loopInd].lpExit    = exit;
-    optLoopTable[loopInd].lpExitCnt = static_cast<uint8_t>(exitCnt);
-
-    optLoopTable[loopInd].lpParent  = BasicBlock::NOT_IN_LOOP;
-    optLoopTable[loopInd].lpChild   = BasicBlock::NOT_IN_LOOP;
-    optLoopTable[loopInd].lpSibling = BasicBlock::NOT_IN_LOOP;
-
-    optLoopTable[loopInd].lpAsgVars = AllVarSetOps::UninitVal();
-
-    optLoopTable[loopInd].lpFlags = LPFLG_EMPTY;
+    optLoopTable[loopInd].lpHead     = head;
+    optLoopTable[loopInd].lpFirst    = first;
+    optLoopTable[loopInd].lpTop      = top;
+    optLoopTable[loopInd].lpBottom   = bottom;
+    optLoopTable[loopInd].lpEntry    = entry;
+    optLoopTable[loopInd].lpExit     = exit;
+    optLoopTable[loopInd].lpExitCnt  = static_cast<uint8_t>(exitCnt);
+    optLoopTable[loopInd].lpParent   = BasicBlock::NOT_IN_LOOP;
+    optLoopTable[loopInd].lpChild    = BasicBlock::NOT_IN_LOOP;
+    optLoopTable[loopInd].lpSibling  = BasicBlock::NOT_IN_LOOP;
+    optLoopTable[loopInd].lpFlags    = LPFLG_EMPTY;
+    optLoopTable[loopInd].lpIterTree = nullptr;
+    optLoopTable[loopInd].lpTestTree = nullptr;
 
     // We haven't yet recorded any side effects.
 
@@ -1153,23 +1045,29 @@ bool Compiler::optRecordLoop(BasicBlock* head,
     // We have the following restrictions:
     //     1. The loop condition must be a simple one i.e. only one JTRUE node
     //     2. There must be a loop iterator (a local var) that is
-    //        incremented (decremented or lsh, rsh, mul) with a constant value
+    //        incremented (decremented) with a constant value
     //     3. The iterator is incremented exactly once
     //     4. The loop condition must use the iterator.
     //
     if (bottom->bbJumpKind == BBJ_COND)
     {
-        GenTree* init;
-        GenTree* test;
-        GenTree* incr;
-        if (!optExtractInitTestIncr(head, bottom, top, &init, &test, &incr))
+        GenTree*   init;
+        GenTree*   test;
+        GenTreeOp* incr = optExtractInitTestIncr(head, bottom, top, &init, &test);
+
+        if (incr == nullptr)
         {
             goto DONE_LOOP;
         }
 
-        unsigned iterVar = BAD_VAR_NUM;
-        if (!optComputeIterInfo(incr, head->bbNext, bottom, &iterVar))
+        unsigned iterVar = incr->AsOp()->GetOp(0)->AsLclVar()->GetLclNum();
+        assert(optIsLoopIncrTree(incr) == iterVar);
+        assert(incr->GetOp(1)->OperIs(GT_ADD, GT_SUB));
+
+        // TODO-MIKE-Cleanup: optIsVarAssigned should check AX.
+        if (lvaGetDesc(iterVar)->IsAddressExposed() || optIsVarAssigned(head->bbNext, bottom, incr, iterVar))
         {
+            JITDUMP("iterVar is assigned in loop\n");
             goto DONE_LOOP;
         }
 
@@ -1188,65 +1086,47 @@ bool Compiler::optRecordLoop(BasicBlock* head,
             goto DONE_LOOP;
         }
 
-        // Check that the iterator is used in the loop condition.
-        if (!optCheckIterInLoopTest(loopInd, test, head->bbNext, bottom, iterVar))
+        if (GenTreeOp* testTree = optGetLoopTest(loopInd, test, head->bbNext, bottom, iterVar))
         {
-            goto DONE_LOOP;
-        }
-
-        // We know the loop has an iterator at this point ->flag it as LPFLG_ITER
-        // Record the iterator, the pointer to the test node
-        // and the initial value of the iterator (constant or local var)
-        optLoopTable[loopInd].lpFlags |= LPFLG_ITER;
-
-        // Record iterator.
-        optLoopTable[loopInd].lpIterTree = incr;
+            optLoopTable[loopInd].lpIterTree = incr;
+            optLoopTable[loopInd].lpTestTree = testTree;
 
 #if COUNT_LOOPS
-        // Save the initial value of the iterator - can be lclVar or constant
-        // Flag the loop accordingly.
+            iterLoopCount++;
+            simpleTestLoopCount++;
 
-        iterLoopCount++;
+            if ((optLoopTable[loopInd].lpFlags & (LPFLG_CONST_INIT | LPFLG_CONST_LIMIT)) ==
+                (LPFLG_CONST_INIT | LPFLG_CONST_LIMIT))
+            {
+                constIterLoopCount++;
+            }
 #endif
-
-#if COUNT_LOOPS
-        simpleTestLoopCount++;
-#endif
-
-        // Check if a constant iteration loop.
-        if ((optLoopTable[loopInd].lpFlags & LPFLG_CONST_INIT) && (optLoopTable[loopInd].lpFlags & LPFLG_CONST_LIMIT))
-        {
-            // This is a constant loop.
-            optLoopTable[loopInd].lpFlags |= LPFLG_CONST;
-#if COUNT_LOOPS
-            constIterLoopCount++;
-#endif
-        }
 
 #ifdef DEBUG
-        if (verbose && 0)
-        {
-            printf("\nConstant loop initializer:\n");
-            gtDispTree(init);
-
-            printf("\nConstant loop body:\n");
-
-            BasicBlock* block = head;
-            do
+            if (verbose && 0)
             {
-                block = block->bbNext;
-                for (Statement* const stmt : block->Statements())
+                printf("\nConstant loop initializer:\n");
+                gtDispTree(init);
+
+                printf("\nConstant loop body:\n");
+
+                BasicBlock* block = head;
+                do
                 {
-                    if (stmt->GetRootNode() == incr)
+                    block = block->bbNext;
+                    for (Statement* const stmt : block->Statements())
                     {
-                        break;
+                        if (stmt->GetRootNode() == incr)
+                        {
+                            break;
+                        }
+                        printf("\n");
+                        gtDispTree(stmt->GetRootNode());
                     }
-                    printf("\n");
-                    gtDispTree(stmt->GetRootNode());
-                }
-            } while (block != bottom);
-        }
+                } while (block != bottom);
+            }
 #endif // DEBUG
+        }
     }
 
 DONE_LOOP:
@@ -1271,7 +1151,7 @@ void Compiler::optPrintLoopRecording(unsigned loopInd) const
                      loop.lpHead, loop.lpFirst, loop.lpTop, loop.lpEntry, loop.lpBottom, loop.lpExitCnt, loop.lpExit);
 
     // If an iterator loop print the iterator and the initialization.
-    if (loop.lpFlags & LPFLG_ITER)
+    if (loop.lpIterTree != nullptr)
     {
         printf(" [over V%02u", loop.lpIterVar());
         printf(" (");
@@ -1346,6 +1226,46 @@ void Compiler::optCheckPreds()
     }
 }
 
+void Compiler::LoopDsc::VerifyIterator() const
+{
+    assert((lpIterTree != nullptr) && lpIterTree->OperIs(GT_ASG));
+    assert((lpTestTree != nullptr) && lpTestTree->OperIsCompare());
+
+    GenTreeLclVar* lhs = lpIterTree->GetOp(0)->AsLclVar();
+    GenTreeOp*     rhs = lpIterTree->GetOp(1)->AsOp();
+
+    assert(lhs->OperIs(GT_LCL_VAR));
+    assert(rhs->OperIs(GT_ADD, GT_SUB));
+    assert(rhs->gtOp1->OperIs(GT_LCL_VAR));
+    assert(rhs->gtOp1->AsLclVar()->GetLclNum() == lhs->GetLclNum());
+    assert(rhs->gtOp2->OperIs(GT_CNS_INT));
+
+    GenTree* iterator = lpTestTree->GetOp(0);
+    GenTree* limit    = lpTestTree->GetOp(1);
+
+    if (limit->OperIs(GT_LCL_VAR) && (limit->AsLclVar()->GetLclNum() == lpIterTree->GetOp(0)->AsLclVar()->GetLclNum()))
+    {
+        std::swap(iterator, limit);
+    }
+    else
+    {
+        assert(iterator->OperIs(GT_LCL_VAR) &&
+               (iterator->AsLclVar()->GetLclNum() == lpIterTree->GetOp(0)->AsLclVar()->GetLclNum()));
+    }
+
+    if (lpFlags & LPFLG_CONST_LIMIT)
+    {
+        assert(limit->OperIsConst());
+    }
+    else if (lpFlags & LPFLG_VAR_LIMIT)
+    {
+        assert(limit->OperIs(GT_LCL_VAR));
+    }
+    else if (lpFlags & LPFLG_ARRLEN_LIMIT)
+    {
+        assert(limit->OperIs(GT_ARR_LENGTH));
+    }
+}
 #endif // DEBUG
 
 namespace
@@ -3073,63 +2993,7 @@ bool Compiler::optComputeLoopRep(int        constInit,
                                  bool       dupCond,
                                  unsigned*  iterCount)
 {
-    noway_assert(genActualType(iterOperType) == TYP_INT);
-
-    __int64 constInitX;
-    __int64 constLimitX;
-
-    unsigned loopCount;
-    int      iterSign;
-
-    // Using this, we can just do a signed comparison with other 32 bit values.
-    if (unsTest)
-    {
-        constLimitX = (unsigned int)constLimit;
-    }
-    else
-    {
-        constLimitX = (signed int)constLimit;
-    }
-
-    switch (iterOperType)
-    {
-// For small types, the iteration operator will narrow these values if big
-
-#define INIT_ITER_BY_TYPE(type)                                                                                        \
-    constInitX = (type)constInit;                                                                                      \
-    iterInc    = (type)iterInc;
-
-        case TYP_BYTE:
-            INIT_ITER_BY_TYPE(signed char);
-            break;
-        case TYP_UBYTE:
-            INIT_ITER_BY_TYPE(unsigned char);
-            break;
-        case TYP_SHORT:
-            INIT_ITER_BY_TYPE(signed short);
-            break;
-        case TYP_USHORT:
-            INIT_ITER_BY_TYPE(unsigned short);
-            break;
-
-        // For the big types, 32 bit arithmetic is performed
-
-        case TYP_INT:
-        case TYP_UINT:
-            if (unsTest)
-            {
-                constInitX = (unsigned int)constInit;
-            }
-            else
-            {
-                constInitX = (signed int)constInit;
-            }
-            break;
-
-        default:
-            noway_assert(!"Bad type");
-            NO_WAY("Bad type");
-    }
+    noway_assert(iterOperType == TYP_INT);
 
     // If iterInc is zero we have an infinite loop.
     if (iterInc == 0)
@@ -3137,11 +3001,26 @@ bool Compiler::optComputeLoopRep(int        constInit,
         return false;
     }
 
+    int64_t constInitX;
+    int64_t constLimitX;
+
+    // Using this, we can just do a signed comparison with other 32 bit values.
+    if (unsTest)
+    {
+        constInitX  = static_cast<unsigned>(constInit);
+        constLimitX = static_cast<unsigned>(constLimit);
+    }
+    else
+    {
+        constInitX  = constInit;
+        constLimitX = constLimit;
+    }
+
     // Set iterSign to +1 for positive iterInc and -1 for negative iterInc.
-    iterSign = (iterInc > 0) ? +1 : -1;
+    int iterSign = (iterInc > 0) ? +1 : -1;
 
     // Initialize loopCount to zero.
-    loopCount = 0;
+    unsigned loopCount = 0;
 
     // If dupCond is true then the loop head contains a test which skips
     // this loop, if the constInit does not pass the loop test.
@@ -3167,11 +3046,9 @@ bool Compiler::optComputeLoopRep(int        constInit,
         return false;
     }
 
-    // Compute the number of repetitions.
-
     switch (testOper)
     {
-        __int64 iterAtExitX;
+        int64_t iterAtExitX;
 
         case GT_EQ:
             // Something like "for (i=init; i == lim; i++)" doesn't make any sense.
@@ -3242,16 +3119,8 @@ bool Compiler::optComputeLoopRep(int        constInit,
                     *iterCount = loopCount;
                     return true;
 
-                case GT_MUL:
-                case GT_DIV:
-                case GT_RSH:
-                case GT_LSH:
-                case GT_UDIV:
-                    return false;
-
                 default:
-                    noway_assert(!"Unknown operator for loop iterator");
-                    return false;
+                    unreached();
             }
 
         case GT_LT:
@@ -3289,16 +3158,8 @@ bool Compiler::optComputeLoopRep(int        constInit,
                     *iterCount = loopCount;
                     return true;
 
-                case GT_MUL:
-                case GT_DIV:
-                case GT_RSH:
-                case GT_LSH:
-                case GT_UDIV:
-                    return false;
-
                 default:
-                    noway_assert(!"Unknown operator for loop iterator");
-                    return false;
+                    unreached();
             }
 
         case GT_LE:
@@ -3336,16 +3197,8 @@ bool Compiler::optComputeLoopRep(int        constInit,
                     *iterCount = loopCount;
                     return true;
 
-                case GT_MUL:
-                case GT_DIV:
-                case GT_RSH:
-                case GT_LSH:
-                case GT_UDIV:
-                    return false;
-
                 default:
-                    noway_assert(!"Unknown operator for loop iterator");
-                    return false;
+                    unreached();
             }
 
         case GT_GT:
@@ -3383,16 +3236,8 @@ bool Compiler::optComputeLoopRep(int        constInit,
                     *iterCount = loopCount;
                     return true;
 
-                case GT_MUL:
-                case GT_DIV:
-                case GT_RSH:
-                case GT_LSH:
-                case GT_UDIV:
-                    return false;
-
                 default:
-                    noway_assert(!"Unknown operator for loop iterator");
-                    return false;
+                    unreached();
             }
 
         case GT_GE:
@@ -3430,23 +3275,13 @@ bool Compiler::optComputeLoopRep(int        constInit,
                     *iterCount = loopCount;
                     return true;
 
-                case GT_MUL:
-                case GT_DIV:
-                case GT_RSH:
-                case GT_LSH:
-                case GT_UDIV:
-                    return false;
-
                 default:
-                    noway_assert(!"Unknown operator for loop iterator");
-                    return false;
+                    unreached();
             }
 
         default:
-            noway_assert(!"Unknown operator for loop condition");
+            unreached();
     }
-
-    return false;
 }
 
 #ifdef _PREFAST_
@@ -3454,8 +3289,7 @@ bool Compiler::optComputeLoopRep(int        constInit,
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
 
-//-----------------------------------------------------------------------------
-// optUnrollLoops: Look for loop unrolling candidates and unroll them.
+// Look for loop unrolling candidates and unroll them.
 //
 // Loops must be of the form:
 //   for (i=icon; i<icon; i++) { ... }
@@ -3477,7 +3311,7 @@ bool Compiler::optComputeLoopRep(int        constInit,
 // Returns:
 //   suitable phase status
 //
-PhaseStatus Compiler::optUnrollLoops()
+PhaseStatus Compiler::phUnrollLoops()
 {
     if (compCodeOpt() == SMALL_CODE)
     {
@@ -3496,26 +3330,21 @@ PhaseStatus Compiler::optUnrollLoops()
     }
 #endif
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In optUnrollLoops()\n");
-    }
-#endif
-
-    /* Look for loop unrolling candidates */
-
-    bool change = false;
-
-    static const unsigned ITER_LIMIT[COUNT_OPT_CODE + 1] = {
+    static const unsigned ITER_LIMIT[COUNT_OPT_CODE]{
         10, // BLENDED_CODE
         0,  // SMALL_CODE
-        20, // FAST_CODE
-        0   // COUNT_OPT_CODE
+        20  // FAST_CODE
     };
 
-    assert(ITER_LIMIT[SMALL_CODE] == 0);
-    assert(ITER_LIMIT[COUNT_OPT_CODE] == 0);
+    assert(ITER_LIMIT[BLENDED_CODE] == 10);
+
+    static const int UNROLL_LIMIT_SZ[COUNT_OPT_CODE]{
+        300, // BLENDED_CODE
+        0,   // SMALL_CODE
+        600  // FAST_CODE
+    };
+
+    assert(UNROLL_LIMIT_SZ[BLENDED_CODE] == 300);
 
     unsigned iterLimit = ITER_LIMIT[compCodeOpt()];
 
@@ -3526,43 +3355,17 @@ PhaseStatus Compiler::optUnrollLoops()
     }
 #endif
 
-    static const int UNROLL_LIMIT_SZ[COUNT_OPT_CODE + 1] = {
-        300, // BLENDED_CODE
-        0,   // SMALL_CODE
-        600, // FAST_CODE
-        0    // COUNT_OPT_CODE
-    };
-
-    assert(UNROLL_LIMIT_SZ[SMALL_CODE] == 0);
-    assert(UNROLL_LIMIT_SZ[COUNT_OPT_CODE] == 0);
+    bool change = false;
 
     // Visit loops from highest to lowest number to visit them in innermost to outermost order.
     for (unsigned lnum = optLoopCount - 1; lnum != UINT_MAX; --lnum)
     {
-        BasicBlock* block;
-        BasicBlock* head;
-        BasicBlock* bottom;
-
-        bool       dupCond;
-        int        lval;
-        int        lbeg;         // initial value for iterator
-        int        llim;         // limit value for iterator
-        unsigned   lvar;         // iterator lclVar #
-        int        iterInc;      // value to increment the iterator
-        genTreeOps iterOper;     // type of iterator increment (i.e. ADD, SUB, etc.)
-        var_types  iterOperType; // type result of the oper (for overflow instrs)
-        genTreeOps testOper;     // type of loop test (i.e. GT_LE, GT_GE, etc.)
-        bool       unsTest;      // Is the comparison unsigned?
-
-        unsigned loopRetCount; // number of BBJ_RETURN blocks in loop
-        unsigned totalIter;    // total number of iterations in the constant loop
-
         const unsigned loopFlags = optLoopTable[lnum].lpFlags;
 
         // Check for required flags:
         // LPFLG_DO_WHILE - required because this transform only handles loops of this form
-        // LPFLG_CONST    - required because this transform only handles full unrolls
-        const unsigned requiredFlags = LPFLG_DO_WHILE | LPFLG_CONST;
+        // LPFLG_CONST_INIT & LPFLG_CONST_LIMIT - required because this transform only handles full unrolls
+        const unsigned requiredFlags = LPFLG_DO_WHILE | LPFLG_CONST_INIT | LPFLG_CONST_LIMIT;
 
         // Ignore the loop if we don't have a do-while that has a constant number of iterations.
 
@@ -3571,45 +3374,27 @@ PhaseStatus Compiler::optUnrollLoops()
             continue;
         }
 
-        // Ignore if removed or marked as not unrollable.
-
-        if (loopFlags & (LPFLG_DONT_UNROLL | LPFLG_REMOVED))
+        if ((loopFlags & (LPFLG_DONT_UNROLL | LPFLG_REMOVED)) != 0)
         {
             continue;
         }
 
-        head = optLoopTable[lnum].lpHead;
+        BasicBlock* const head = optLoopTable[lnum].lpHead;
         noway_assert(head);
-        bottom = optLoopTable[lnum].lpBottom;
+        BasicBlock* const bottom = optLoopTable[lnum].lpBottom;
         noway_assert(bottom);
+        const int        lbeg     = optLoopTable[lnum].lpConstInit;
+        const int        llim     = optLoopTable[lnum].lpConstLimit();
+        const genTreeOps testOper = optLoopTable[lnum].lpTestOper();
+        const unsigned   lvar     = optLoopTable[lnum].lpIterVar();
+        const int        iterInc  = optLoopTable[lnum].lpIterConst();
+        const genTreeOps iterOper = optLoopTable[lnum].lpIterOper();
+        const bool       unsTest  = optLoopTable[lnum].lpTestTree->IsUnsigned();
 
-        // Get the loop data:
-        //  - initial constant
-        //  - limit constant
-        //  - iterator
-        //  - iterator increment
-        //  - increment operation type (i.e. ADD, SUB, etc...)
-        //  - loop test type (i.e. GT_GE, GT_LT, etc...)
+        assert(!lvaGetDesc(lvar)->IsAddressExposed());
 
-        lbeg     = optLoopTable[lnum].lpConstInit;
-        llim     = optLoopTable[lnum].lpConstLimit();
-        testOper = optLoopTable[lnum].lpTestOper();
-
-        lvar     = optLoopTable[lnum].lpIterVar();
-        iterInc  = optLoopTable[lnum].lpIterConst();
-        iterOper = optLoopTable[lnum].lpIterOper();
-
-        iterOperType = optLoopTable[lnum].lpIterOperType();
-        unsTest      = (optLoopTable[lnum].lpTestTree->gtFlags & GTF_UNSIGNED) != 0;
-
-        if (lvaTable[lvar].lvAddrExposed)
+        if (lvaGetDesc(lvar)->IsPromotedField())
         {
-            // If the loop iteration variable is address-exposed then bail
-            continue;
-        }
-        if (lvaTable[lvar].lvIsStructField)
-        {
-            // If the loop iteration variable is a promoted field from a struct then bail
             continue;
         }
 
@@ -3622,6 +3407,8 @@ PhaseStatus Compiler::optUnrollLoops()
 
         Statement* incrStmt = testStmt->GetPrevStmt();
         noway_assert(incrStmt != nullptr);
+
+        bool dupCond;
 
         if (initStmt->IsCompilerAdded())
         {
@@ -3637,9 +3424,9 @@ PhaseStatus Compiler::optUnrollLoops()
             dupCond = false;
         }
 
-        // Find the number of iterations - the function returns false if not a constant number.
+        unsigned totalIter; // total number of iterations in the constant loop
 
-        if (!optComputeLoopRep(lbeg, llim, iterInc, iterOper, iterOperType, testOper, unsTest, dupCond, &totalIter))
+        if (!optComputeLoopRep(lbeg, llim, iterInc, iterOper, TYP_INT, testOper, unsTest, dupCond, &totalIter))
         {
             continue;
         }
@@ -3664,7 +3451,7 @@ PhaseStatus Compiler::optUnrollLoops()
             // No limit for single iteration loops
             unrollLimitSz = INT_MAX;
         }
-        else if (!(loopFlags & LPFLG_SIMD_LIMIT))
+        else if ((loopFlags & LPFLG_SIMD_LIMIT) == 0)
         {
             // Otherwise unroll only if limit is Vector_.Length
             // (as a heuristic, not for correctness/structural reasons)
@@ -3705,19 +3492,22 @@ PhaseStatus Compiler::optUnrollLoops()
 
         // Heuristic: Estimated cost in code size of the unrolled loop.
 
+        unsigned loopRetCount = 0; // number of BBJ_RETURN blocks in loop
+
         {
             ClrSafeInt<unsigned> loopCostSz; // Cost is size of one iteration
 
-            block         = head->bbNext;
-            auto tryIndex = block->bbTryIndex;
+            BasicBlock* block    = head->bbNext;
+            uint16_t    tryIndex = block->bbTryIndex;
+            bool        hasEH    = false;
 
-            loopRetCount = 0;
             for (;; block = block->bbNext)
             {
                 if (block->bbTryIndex != tryIndex)
                 {
                     // Unrolling would require cloning EH regions
-                    goto DONE_LOOP;
+                    hasEH = true;
+                    break;
                 }
 
                 if (block->bbJumpKind == BBJ_RETURN)
@@ -3737,11 +3527,16 @@ PhaseStatus Compiler::optUnrollLoops()
                 }
             }
 
+            if (hasEH)
+            {
+                continue;
+            }
+
 #ifdef JIT32_GCENCODER
             if (fgReturnCount + loopRetCount * (totalIter - 1) > SET_EPILOGCNT_MAX)
             {
                 // Jit32 GC encoder can't report more than SET_EPILOGCNT_MAX epilogs.
-                goto DONE_LOOP;
+                continue;
             }
 #endif // !JIT32_GCENCODER
 
@@ -3756,11 +3551,8 @@ PhaseStatus Compiler::optUnrollLoops()
 
             if (unrollCostSz.IsOverflow() || (unrollCostSz.Value() > unrollLimitSz))
             {
-                goto DONE_LOOP;
+                continue;
             }
-
-            // Looks like a good idea to unroll this loop, let's do it!
-            CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
             if (verbose)
@@ -3776,7 +3568,7 @@ PhaseStatus Compiler::optUnrollLoops()
         }
 
 #if FEATURE_LOOP_ALIGN
-        for (block = head->bbNext;; block = block->bbNext)
+        for (BasicBlock* block = head->bbNext;; block = block->bbNext)
         {
             if (block->isLoopAlign())
             {
@@ -3793,12 +3585,12 @@ PhaseStatus Compiler::optUnrollLoops()
 
         // Create the unrolled loop statement list.
         {
-            BlockToBlockMap blockMap(getAllocator(CMK_LoopOpt));
+            BlockToBlockMap blockMap(getAllocator(CMK_LoopUnroll));
             BasicBlock*     insertAfter = bottom;
 
-            for (lval = lbeg; totalIter; totalIter--)
+            for (int lval = lbeg; totalIter; totalIter--)
             {
-                for (block = head->bbNext;; block = block->bbNext)
+                for (BasicBlock* block = head->bbNext;; block = block->bbNext)
                 {
                     BasicBlock* newBlock = insertAfter =
                         fgNewBBafter(block->bbJumpKind, insertAfter, /*extendRegion*/ true);
@@ -3849,7 +3641,7 @@ PhaseStatus Compiler::optUnrollLoops()
                 }
 
                 // Now redirect any branches within the newly-cloned iteration
-                for (block = head->bbNext; block != bottom; block = block->bbNext)
+                for (BasicBlock* block = head->bbNext; block != bottom; block = block->bbNext)
                 {
                     BasicBlock* newBlock = blockMap[block];
                     optCopyBlkDest(block, newBlock);
@@ -3863,24 +3655,16 @@ PhaseStatus Compiler::optUnrollLoops()
                     case GT_ADD:
                         lval += iterInc;
                         break;
-
                     case GT_SUB:
                         lval -= iterInc;
                         break;
-
-                    case GT_RSH:
-                    case GT_LSH:
-                        noway_assert(!"Unrolling not implemented for this loop iterator");
-                        goto DONE_LOOP;
-
                     default:
-                        noway_assert(!"Unknown operator for constant loop iterator");
-                        goto DONE_LOOP;
+                        unreached();
                 }
             }
 
-            // Gut the old loop body
-            for (block = head->bbNext;; block = block->bbNext)
+            // Remove the old loop body
+            for (BasicBlock* block = head->bbNext;; block = block->bbNext)
             {
                 block->bbStmtList = nullptr;
                 block->bbJumpKind = BBJ_NONE;
@@ -3956,11 +3740,9 @@ PhaseStatus Compiler::optUnrollLoops()
         fgComputeDoms();
     }
 
-#ifdef DEBUG
-    fgDebugCheckBBlist(true);
-#endif
+    INDEBUG(fgDebugCheckBBlist(true));
 
-    return PhaseStatus::MODIFIED_EVERYTHING;
+    return change ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }
 #ifdef _PREFAST_
 #pragma warning(pop)
@@ -4526,14 +4308,13 @@ PhaseStatus Compiler::optOptimizeLayout()
     return madeChanges ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }
 
-//-----------------------------------------------------------------------------
-// optFindLoops: find and classify natural loops
+// Find and classify natural loops
 //
 // Notes:
 //  Also (re)sets all non-IBC block weights, and marks loops potentially needing
 //  alignment padding.
 //
-PhaseStatus Compiler::optFindLoops()
+PhaseStatus Compiler::phFindLoops()
 {
     noway_assert(opts.OptimizationEnabled());
 
@@ -4655,172 +4436,49 @@ PhaseStatus Compiler::optFindLoops()
     return PhaseStatus::MODIFIED_EVERYTHING;
 }
 
-/*****************************************************************************
- *
- *  Determine the kind of interference for the call.
- */
-
-CallInterf optCallInterf(GenTreeCall* call)
+bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned lclNum)
 {
-    // if not a helper, kills everything
-    if (call->gtCallType != CT_HELPER)
+    // TODO-MIKE-Fix: This should reject AX locals. This results in some diffs, in some cases
+    // the limit is AX but it happens so that the local isn't modified inside the loop so it
+    // works correctly. But it is probably possible to construct code that behaves incorrectly
+    // due to this.
+
+    struct WalkData
     {
-        return CALLINT_ALL;
-    }
-
-    // setfield and array address store kill all indirections
-    switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
-    {
-        case CORINFO_HELP_ASSIGN_REF:         // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_CHECKED_ASSIGN_REF: // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_ASSIGN_BYREF:       // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_SETFIELDOBJ:
-        case CORINFO_HELP_ARRADDR_ST:
-            return CALLINT_REF_INDIRS;
-
-        case CORINFO_HELP_SETFIELDFLOAT:
-        case CORINFO_HELP_SETFIELDDOUBLE:
-        case CORINFO_HELP_SETFIELD8:
-        case CORINFO_HELP_SETFIELD16:
-        case CORINFO_HELP_SETFIELD32:
-        case CORINFO_HELP_SETFIELD64:
-            return CALLINT_SCL_INDIRS;
-
-        case CORINFO_HELP_ASSIGN_STRUCT: // Not strictly needed as we don't use this
-        case CORINFO_HELP_MEMSET:        // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_MEMCPY:        // Not strictly needed as we don't make a GT_CALL with this
-        case CORINFO_HELP_SETFIELDSTRUCT:
-            return CALLINT_ALL_INDIRS;
-
-        default:
-            return CALLINT_NONE;
-    }
-}
-
-struct isVarAssgDsc
-{
-    GenTree*     ivaSkip;
-    ALLVARSET_TP ivaMaskVal; // Set of variables assigned to.  This is a set of all vars, not tracked vars.
-#ifdef DEBUG
-    void* ivaSelf;
-#endif
-    unsigned    ivaVar;            // Variable we are interested in, or -1
-    varRefKinds ivaMaskInd;        // What kind of indirect assignments are there?
-    CallInterf  ivaMaskCall;       // What kind of calls are there?
-    bool        ivaMaskIncomplete; // Variables not representable in ivaMaskVal were assigned to.
-};
-
-/*****************************************************************************
- *
- *  The following logic figures out whether the given variable is assigned
- *  somewhere in a list of basic blocks (or in an entire loop).
- */
-
-Compiler::fgWalkResult Compiler::optIsVarAssgCB(GenTree** pTree, fgWalkData* data)
-{
-    GenTree* tree = *pTree;
-
-    if (tree->OperIs(GT_ASG))
-    {
-        GenTree* dest = tree->AsOp()->gtOp1;
-
-        isVarAssgDsc* desc = (isVarAssgDsc*)data->pCallbackData;
-        assert(desc && desc->ivaSelf == desc);
-
-        if (dest->OperIs(GT_LCL_VAR))
-        {
-            unsigned tvar = dest->AsLclVar()->GetLclNum();
-            if (tvar < lclMAX_ALLSET_TRACKED)
-            {
-                AllVarSetOps::AddElemD(data->compiler, desc->ivaMaskVal, tvar);
-            }
-            else
-            {
-                desc->ivaMaskIncomplete = true;
-            }
-
-            if (tvar == desc->ivaVar)
-            {
-                if (tree != desc->ivaSkip)
-                {
-                    return WALK_ABORT;
-                }
-            }
-        }
-        else if (dest->OperIs(GT_LCL_FLD))
-        {
-            /* We can't track every field of every var. Moreover, indirections
-               may access different parts of the var as different (but
-               overlapping) fields. So just treat them as indirect accesses */
-
-            // unsigned    lclNum = dest->AsLclFld()->GetLclNum();
-            // noway_assert(lvaTable[lclNum].lvAddrTaken);
-
-            // TODO-MIKE-Cleanup: TYP_STRUCT LCL_FLDs are excluded because they were previously wrapped
-            // in OBJ/BLK indirs which optIsVarAssgCB simply ignores. So continue to ignore such stores.
-            //
-            // But this doesn't explain why LCL_FLDs are treated as indirections instead of simply being
-            // treated as local stores. Or what assigning to CLS_VAR has to do with local variables. Or
-            // what assignment to IND has to do with call interference. Complete nonsense.
-            //
-            // The only reason why it works at all is that the callers are only interested in TYP_INT
-            // variables and it's unlikely that these are updated via OBJ indirections.
-
-            if (!tree->TypeIs(TYP_STRUCT))
-            {
-                varRefKinds refs = varTypeIsGC(tree->TypeGet()) ? VR_IND_REF : VR_IND_SCL;
-                desc->ivaMaskInd = varRefKinds(desc->ivaMaskInd | refs);
-            }
-        }
-        else if (dest->OperIs(GT_IND))
-        {
-            if (dest->AsIndir()->GetAddr()->OperIs(GT_CLS_VAR_ADDR))
-            {
-                desc->ivaMaskInd = varRefKinds(desc->ivaMaskInd | VR_GLB_VAR);
-            }
-            else
-            {
-                varRefKinds refs = varTypeIsGC(tree->TypeGet()) ? VR_IND_REF : VR_IND_SCL;
-                desc->ivaMaskInd = varRefKinds(desc->ivaMaskInd | refs);
-            }
-        }
-    }
-    else if (tree->OperIs(GT_CALL))
-    {
-        isVarAssgDsc* desc = (isVarAssgDsc*)data->pCallbackData;
-        assert(desc && desc->ivaSelf == desc);
-
-        desc->ivaMaskCall = optCallInterf(tree->AsCall());
-    }
-
-    return WALK_CONTINUE;
-}
-
-/*****************************************************************************/
-
-bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned var)
-{
-    bool         result;
-    isVarAssgDsc desc;
-
-    desc.ivaSkip = skip;
-#ifdef DEBUG
-    desc.ivaSelf = &desc;
-#endif
-    desc.ivaVar      = var;
-    desc.ivaMaskCall = CALLINT_NONE;
-    AllVarSetOps::AssignNoCopy(this, desc.ivaMaskVal, AllVarSetOps::MakeEmpty(this));
+        GenTree* skip;
+        unsigned lclNum;
+    } walkData{skip, lclNum};
 
     for (;;)
     {
         noway_assert(beg != nullptr);
 
-        for (Statement* const stmt : beg->Statements())
+        for (Statement* stmt : beg->Statements())
         {
-            if (fgWalkTreePre(stmt->GetRootNodePointer(), optIsVarAssgCB, &desc) != WALK_CONTINUE)
+            if (fgWalkTreePre(stmt->GetRootNodePointer(),
+                              [](GenTree** use, Compiler::fgWalkData* data) {
+                                  GenTree*  tree = *use;
+                                  WalkData* desc = static_cast<WalkData*>(data->pCallbackData);
+
+                                  if (tree->OperIs(GT_ASG))
+                                  {
+                                      GenTree* dest = tree->AsOp()->GetOp(0);
+
+                                      // TODO-MIKE-Cleanup: Why the crap are LCL_FLD assignments ignored?
+                                      // This is likely used only for INT locals but then you can actually
+                                      // modify an INT local with a LCL_FLD...
+                                      if (dest->OperIs(GT_LCL_VAR) && (dest->AsLclVar()->GetLclNum() == desc->lclNum) &&
+                                          (tree != desc->skip))
+                                      {
+                                          return Compiler::WALK_ABORT;
+                                      }
+                                  }
+
+                                  return Compiler::WALK_CONTINUE;
+                              },
+                              &walkData) != WALK_CONTINUE)
             {
-                result = true;
-                goto DONE;
+                return true;
             }
         }
 
@@ -4832,142 +4490,7 @@ bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip,
         beg = beg->bbNext;
     }
 
-    result = false;
-
-DONE:
-
-    return result;
-}
-
-/*****************************************************************************
- *  Is "var" assigned in the loop "lnum" ?
- */
-
-bool Compiler::optIsVarAssgLoop(unsigned lnum, unsigned var)
-{
-    assert(lnum < optLoopCount);
-    if (var < lclMAX_ALLSET_TRACKED)
-    {
-        ALLVARSET_TP vs(AllVarSetOps::MakeSingleton(this, var));
-        return optIsSetAssgLoop(lnum, vs) != 0;
-    }
-    else
-    {
-        return optIsVarAssigned(optLoopTable[lnum].lpHead->bbNext, optLoopTable[lnum].lpBottom, nullptr, var);
-    }
-}
-
-/*****************************************************************************/
-int Compiler::optIsSetAssgLoop(unsigned lnum, ALLVARSET_VALARG_TP vars, varRefKinds inds)
-{
-    noway_assert(lnum < optLoopCount);
-    LoopDsc* loop = &optLoopTable[lnum];
-
-    /* Do we already know what variables are assigned within this loop? */
-
-    if (!(loop->lpFlags & LPFLG_ASGVARS_YES))
-    {
-        isVarAssgDsc desc;
-
-        /* Prepare the descriptor used by the tree walker call-back */
-
-        desc.ivaVar  = (unsigned)-1;
-        desc.ivaSkip = nullptr;
-#ifdef DEBUG
-        desc.ivaSelf = &desc;
-#endif
-        AllVarSetOps::AssignNoCopy(this, desc.ivaMaskVal, AllVarSetOps::MakeEmpty(this));
-        desc.ivaMaskInd        = VR_NONE;
-        desc.ivaMaskCall       = CALLINT_NONE;
-        desc.ivaMaskIncomplete = false;
-
-        /* Now walk all the statements of the loop */
-
-        for (BasicBlock* const block : loop->LoopBlocks())
-        {
-            for (Statement* const stmt : block->NonPhiStatements())
-            {
-                fgWalkTreePre(stmt->GetRootNodePointer(), optIsVarAssgCB, &desc);
-
-                if (desc.ivaMaskIncomplete)
-                {
-                    loop->lpFlags |= LPFLG_ASGVARS_INC;
-                }
-            }
-        }
-
-        AllVarSetOps::Assign(this, loop->lpAsgVars, desc.ivaMaskVal);
-        loop->lpAsgInds = desc.ivaMaskInd;
-        loop->lpAsgCall = desc.ivaMaskCall;
-
-        /* Now we know what variables are assigned in the loop */
-
-        loop->lpFlags |= LPFLG_ASGVARS_YES;
-    }
-
-    /* Now we can finally test the caller's mask against the loop's */
-    if (!AllVarSetOps::IsEmptyIntersection(this, loop->lpAsgVars, vars) || (loop->lpAsgInds & inds))
-    {
-        return 1;
-    }
-
-    switch (loop->lpAsgCall)
-    {
-        case CALLINT_ALL:
-
-            /* Can't hoist if the call might have side effect on an indirection. */
-
-            if (loop->lpAsgInds != VR_NONE)
-            {
-                return 1;
-            }
-
-            break;
-
-        case CALLINT_REF_INDIRS:
-
-            /* Can't hoist if the call might have side effect on an ref indirection. */
-
-            if (loop->lpAsgInds & VR_IND_REF)
-            {
-                return 1;
-            }
-
-            break;
-
-        case CALLINT_SCL_INDIRS:
-
-            /* Can't hoist if the call might have side effect on an non-ref indirection. */
-
-            if (loop->lpAsgInds & VR_IND_SCL)
-            {
-                return 1;
-            }
-
-            break;
-
-        case CALLINT_ALL_INDIRS:
-
-            /* Can't hoist if the call might have side effect on any indirection. */
-
-            if (loop->lpAsgInds & (VR_IND_REF | VR_IND_SCL))
-            {
-                return 1;
-            }
-
-            break;
-
-        case CALLINT_NONE:
-
-            /* Other helpers kill nothing */
-
-            break;
-
-        default:
-            noway_assert(!"Unexpected lpAsgCall value");
-    }
-
-    return 0;
+    return false;
 }
 
 void Compiler::optRemoveRangeCheck(GenTreeBoundsChk* check, GenTreeOp* comma, Statement* stmt)

@@ -18,7 +18,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "vartype.h"
 #include "target.h"
 #include "valuenumtype.h"
-#include "jitstd.h"
+#include "jitstd/new.h"
+#include "jitstd/utility.h"
 #include "jithashtable.h"
 #include "namedintrinsiclist.h"
 #include "layout.h"
@@ -385,7 +386,6 @@ enum GenTreeFlags : unsigned
     GTF_VAR_MULTIREG          = 0x02000000, // Struct or (on 32-bit platforms) LONG local store with a multireg source
                                             // (CALLs and some LONG operations on 32 bit - MUL_LONG, BITCAST)
                                             // returns its result in multiple registers such as a long multiply)
-    GTF_VAR_ITERATOR          = 0x00800000, // Loop induction local variable used in loop test (LCL_VAR)
     GTF_VAR_CLONED            = 0x00400000, // Node has been cloned (used by inlined to detect single use params)
     GTF_VAR_CONTEXT           = 0x00200000, // Node is part of a runtime lookup tree (LCL_VAR)
                               
@@ -7890,12 +7890,3 @@ inline var_types& GenTree::CastToType()
 
 const size_t TREE_NODE_SZ_SMALL = sizeof(GenTreeLclFld);
 const size_t TREE_NODE_SZ_LARGE = sizeof(GenTreeCall);
-
-enum varRefKinds : uint8_t
-{
-    VR_INVARIANT = 0x00, // an invariant value
-    VR_NONE      = 0x00,
-    VR_IND_REF   = 0x01, // an object reference
-    VR_IND_SCL   = 0x02, // a non-object reference
-    VR_GLB_VAR   = 0x04, // a global (clsVar)
-};

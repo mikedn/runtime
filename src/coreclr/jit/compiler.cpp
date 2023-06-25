@@ -2580,9 +2580,9 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
         DoPhase(this, PHASE_OPTIMIZE_LAYOUT, &Compiler::optOptimizeLayout);
         DoPhase(this, PHASE_COMPUTE_REACHABILITY, &Compiler::fgComputeReachability);
         DoPhase(this, PHASE_COMPUTE_DOMINATORS, &Compiler::fgComputeDoms);
-        DoPhase(this, PHASE_FIND_LOOPS, &Compiler::optFindLoops);
-        DoPhase(this, PHASE_CLONE_LOOPS, &Compiler::optCloneLoops);
-        DoPhase(this, PHASE_UNROLL_LOOPS, &Compiler::optUnrollLoops);
+        DoPhase(this, PHASE_FIND_LOOPS, &Compiler::phFindLoops);
+        DoPhase(this, PHASE_CLONE_LOOPS, &Compiler::phCloneLoops);
+        DoPhase(this, PHASE_UNROLL_LOOPS, &Compiler::phUnrollLoops);
     }
 
     INDEBUG(fgDebugCheckLinks());
@@ -5021,10 +5021,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[VAR_USEASG]");
                 }
-                if (tree->gtFlags & GTF_VAR_ITERATOR)
-                {
-                    chars += printf("[VAR_ITERATOR]");
-                }
                 if (tree->gtFlags & GTF_VAR_DEATH)
                 {
                     chars += printf("[VAR_DEATH]");
@@ -5435,15 +5431,6 @@ void dTreeFlags(GenTree* tree)
 }
 
 #endif // DEBUG
-
-#if VARSET_COUNTOPS
-// static
-BitSetSupport::BitSetOpCounter Compiler::m_varsetOpCounter("VarSetOpCounts.log");
-#endif
-#if ALLVARSET_COUNTOPS
-// static
-BitSetSupport::BitSetOpCounter Compiler::m_allvarsetOpCounter("AllVarSetOpCounts.log");
-#endif
 
 // static
 const HelperCallProperties Compiler::s_helperCallProperties;
