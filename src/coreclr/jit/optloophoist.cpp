@@ -544,23 +544,14 @@ class LoopHoistTreeVisitor : public GenTreeVisitor<LoopHoistTreeVisitor>
     unsigned          m_loopNum;
     LoopHoist*        m_loopHoist;
 
-    bool IsNodeHoistable(GenTree* node)
+    bool IsNodeHoistable(GenTree* node) const
     {
-        // TODO-CQ: This is a more restrictive version of a check that cseIsCandidate already does - it allows
-        // a struct typed node if a class handle can be recovered from it.
-        if (node->TypeGet() == TYP_STRUCT)
-        {
-            return false;
-        }
-
-        // Tree must be a suitable CSE candidate for us to be able to hoist it.
-        return ssa.IsCseCandidate(node);
+        return !node->TypeIs(TYP_STRUCT) && !node->HasAnySideEffect(GTF_ASG) && ssa.IsCseCandidate(node);
     }
 
     bool IsTreeVNInvariant(GenTree* tree)
     {
-        ValueNum vn            = tree->gtVNPair.GetLiberal();
-        bool     vnIsInvariant = m_loopHoist->IsLoopInvariant(vn, m_loopNum);
+        bool vnIsInvariant = m_loopHoist->IsLoopInvariant(tree->GetLiberalVN(), m_loopNum);
 
         // Even though VN is invariant in the loop (say a constant) its value may depend on position
         // of tree, so for loop hoisting we must also check that any memory read by tree
@@ -1055,7 +1046,7 @@ bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
         return false;
     }
 
-    if (vnStore->IsVNConstant(vn) || (vn == ValueNumStore::VNForVoid()))
+    if (vnStore->IsVNConstant(vn) || (vn == ValueNumStore::VoidVN()))
     {
         return true;
     }

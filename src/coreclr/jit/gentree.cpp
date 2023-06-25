@@ -1700,7 +1700,7 @@ void Compiler::gtReverseRelop(GenTreeOp* relop)
 
     relop->gtOper = GenTree::ReverseRelop(relop->GetOper());
     // TODO-MIKE-Review: We could probably generate a proper VN.
-    relop->gtVNPair.SetBoth(NoVN);
+    relop->SetVNP({});
 
     // Flip the GTF_RELOP_NAN_UN bit
     //     a ord b   === (a != NaN && b != NaN)
@@ -2703,14 +2703,14 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         GenTree* addr = op1->SkipComma();
 
                         if (addr->OperIs(GT_ADD) && !addr->gtOverflow() &&
-                            gtMarkAddrMode(addr, &costEx, &costSz, tree->TypeGet()))
+                            gtMarkAddrMode(addr, &costEx, &costSz, tree->GetType()))
                         {
                             while (op1 != addr)
                             {
                                 // TODO-MIKE-CQ: Marking COMMAs with GTF_ADDRMODE_NO_CSE sometimes interferes with
                                 // redundant range check elimination done via CSE.
                                 // Normally CSE can't eliminate range checks because it uses liberal value numbers
-                                // and that makes it senstive to race conditions in user code. However, if the
+                                // and that makes it sensitive to race conditions in user code. However, if the
                                 // entire array element address tree is CSEd, including the range check, then race
                                 // conditions aren't an issue.
                                 //
@@ -2728,6 +2728,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                                 // IND(COMMA(...)) morphing code not applying to OBJs as well.
 
                                 op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
+                                costEx += op1->AsOp()->GetOp(0)->GetCostEx();
+                                costSz += op1->AsOp()->GetOp(0)->GetCostSz();
                                 op1 = op1->AsOp()->GetOp(1);
                             }
 
@@ -4762,7 +4764,7 @@ bool GenTreeOp::UsesDivideByConstOptimized(Compiler* comp)
     }
     else
     {
-        ValueNum vn = divisor->gtVNPair.GetLiberal();
+        ValueNum vn = divisor->GetLiberalVN();
         if (comp->vnStore->IsVNConstant(vn))
         {
             divisorValue = comp->vnStore->CoercedConstantValue<ssize_t>(vn);
@@ -5566,7 +5568,7 @@ DONE:
         CopyZeroOffsetFieldSeq(tree, copy);
     }
 
-    copy->gtVNPair = tree->gtVNPair; // A cloned tree gets the orginal's Value number pair
+    copy->SetVNP(tree->GetVNP());
 
     if (copy->gtOper == oper)
     {
@@ -10655,7 +10657,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
                         if (vnStore != nullptr)
                         {
-                            tree->SetVNP(ValueNumPair{ValueNumStore::VNForNull()});
+                            tree->SetVNP(ValueNumPair{ValueNumStore::NullVN()});
                         }
 
                         JITDUMPTREE(tree, "into:\n");
@@ -11268,7 +11270,7 @@ INTEGRAL_OVF:
     op1            = type == TYP_LONG ? gtNewLconNode(0) : gtNewIconNode(0);
     if (vnStore != nullptr)
     {
-        op1->gtVNPair.SetBoth(vnStore->VNZeroForType(type));
+        op1->SetVNP(ValueNumPair{vnStore->VNZeroForType(type)});
     }
 
     JITDUMP("\nFolding binary operator with constant nodes into a comma throw:\n");
@@ -11289,9 +11291,8 @@ INTEGRAL_OVF:
 
     if (vnStore != nullptr)
     {
-        op1->gtVNPair = vnStore->VNPWithExc(ValueNumPair(ValueNumStore::VNForVoid(), ValueNumStore::VNForVoid()),
-                                            vnStore->VNPExcSetSingleton(vnStore->VNPairForFunc(TYP_REF, VNF_OverflowExc,
-                                                                                               vnStore->VNPForVoid())));
+        ValueNumPair overflowEx = vnStore->VNPairForFunc(TYP_REF, VNF_OverflowExc, ValueNumStore::VoidVNP());
+        op1->SetVNP(vnStore->PackExset(ValueNumStore::VoidVNP(), vnStore->ExsetCreate(overflowEx)));
     }
 
     tree = gtNewCommaNode(op1, op2);
@@ -11401,15 +11402,15 @@ GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
     // 'list' and 'expr' should have value numbers defined for both or for neither one (unless we are remorphing,
     // in which case a prior transform involving either node may have discarded or otherwise invalidated the value
     // numbers).
-    assert((list->gtVNPair.BothDefined() == expr->gtVNPair.BothDefined()) || !fgGlobalMorph);
+    assert((list->GetVNP().BothDefined() == expr->GetVNP().BothDefined()) || !fgGlobalMorph);
 
-    if (list->gtVNPair.BothDefined() && expr->gtVNPair.BothDefined())
+    if (list->GetVNP().BothDefined() && expr->GetVNP().BothDefined())
     {
-        ValueNumPair exset1 = vnStore->VNPExceptionSet(expr->GetVNP());
+        ValueNumPair exset1 = vnStore->ExtractExset(expr->GetVNP());
         ValueNumPair exset2;
         ValueNumPair value = vnStore->UnpackExset(list->GetVNP(), &exset2);
 
-        result->SetVNP(vnStore->VNPWithExc(value, vnStore->VNPExcSetUnion(exset1, exset2)));
+        result->SetVNP(vnStore->PackExset(value, vnStore->ExsetUnion(exset1, exset2)));
     }
 
     return result;

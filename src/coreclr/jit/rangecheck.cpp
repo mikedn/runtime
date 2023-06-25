@@ -329,7 +329,7 @@ bool RangeCheck::IsInBounds(const Range& range, ValueNum lengthVN, int lengthVal
 bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsChk)
 {
     GenTree* lengthExpr = boundsChk->GetLength()->SkipComma();
-    ValueNum lengthVN   = vnStore->VNNormalValue(lengthExpr->GetConservativeVN());
+    ValueNum lengthVN   = vnStore->ExtractValue(lengthExpr->GetConservativeVN());
     ssize_t  lengthVal  = 0;
 
     if (vnStore->IsIntegralConstant(lengthVN, &lengthVal))
@@ -363,7 +363,7 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
     }
 
     GenTree* indexExpr = boundsChk->GetIndex()->SkipComma();
-    ValueNum indexVN   = vnStore->VNNormalValue(indexExpr->GetConservativeVN());
+    ValueNum indexVN   = vnStore->ExtractValue(indexExpr->GetConservativeVN());
     ssize_t  indexVal;
 
     if ((lengthVal > 0) && vnStore->IsIntegralConstant(indexVN, &indexVal) && (0 <= indexVal) && (indexVal < lengthVal))
@@ -831,7 +831,7 @@ void RangeCheck::MergePhiArgAssertions(BasicBlock* block, GenTreeLclUse* use, Ra
 
     if (!BitVecOps::MayBeUninit(assertions))
     {
-        ValueNum valueVN = vnStore->VNNormalValue(use->GetDef()->GetConservativeVN());
+        ValueNum valueVN = vnStore->ExtractValue(use->GetDef()->GetConservativeVN());
         assert(valueVN != NoVN);
         MergeEdgeAssertions(valueVN, assertions, range);
     }
@@ -844,7 +844,7 @@ void RangeCheck::MergeLclUseAssertions(BasicBlock* block, GenTreeLclUse* use, Ra
 
     if (!BitVecOps::MayBeUninit(assertions))
     {
-        ValueNum valueVN = vnStore->VNNormalValue(def->GetConservativeVN());
+        ValueNum valueVN = vnStore->ExtractValue(def->GetConservativeVN());
         assert(valueVN != NoVN);
         MergeEdgeAssertions(valueVN, assertions, range);
     }
@@ -1012,7 +1012,7 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
 
         if (useRange == nullptr)
         {
-            ValueNum useVN = vnStore->VNNormalValue(useNode->GetConservativeVN());
+            ValueNum useVN = vnStore->ExtractValue(useNode->GetConservativeVN());
 
             if (vnStore->IsVNInt32Constant(useVN))
             {
@@ -1143,7 +1143,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
 {
     assert(!expr->OperIs(GT_COMMA) && (varActualType(expr->GetType()) == TYP_INT));
 
-    ValueNum vn = vnStore->VNNormalValue(expr->GetConservativeVN());
+    ValueNum vn = vnStore->ExtractValue(expr->GetConservativeVN());
 
     if (var_types type = vnStore->GetConstantType(vn))
     {

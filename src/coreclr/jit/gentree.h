@@ -691,9 +691,10 @@ private:
 #endif
     };
 
+    ValueNumPair m_vnp;
+
 public:
     GenTreeFlags gtFlags = GTF_EMPTY;
-    ValueNumPair gtVNPair;
     regMaskTP    gtRsvdRegs;
     GenTree*     gtNext = nullptr;
     GenTree*     gtPrev = nullptr;
@@ -1020,68 +1021,44 @@ public:
     regNumber ExtractTempReg(regMaskTP mask = (regMaskTP)-1);
     bool HasTempReg(regNumber reg) const;
 
-    void SetVNsFromNode(GenTree* tree)
-    {
-        gtVNPair = tree->gtVNPair;
-    }
-
     ValueNumPair GetVNP() const
     {
-        return gtVNPair;
+        return m_vnp;
     }
 
     ValueNum GetLiberalVN() const
     {
-        return gtVNPair.GetLiberal();
+        return m_vnp.GetLiberal();
     }
 
     void SetLiberalVN(ValueNum vn)
     {
-        gtVNPair.SetLiberal(vn);
+        m_vnp.SetLiberal(vn);
     }
 
     void SetConservativeVN(ValueNum vn)
     {
-        gtVNPair.SetConservative(vn);
+        m_vnp.SetConservative(vn);
     }
 
     ValueNum GetConservativeVN() const
     {
-        return gtVNPair.GetConservative();
+        return m_vnp.GetConservative();
     }
 
     void SetVNP(ValueNumPair vnp)
     {
-        gtVNPair = vnp;
+        m_vnp = vnp;
     }
 
     ValueNum GetVN(ValueNumKind vnk) const
     {
-        if (vnk == VNK_Liberal)
-        {
-            return gtVNPair.GetLiberal();
-        }
-        else
-        {
-            assert(vnk == VNK_Conservative);
-            return gtVNPair.GetConservative();
-        }
+        return m_vnp.Get(vnk);
     }
+
     void SetVN(ValueNumKind vnk, ValueNum vn)
     {
-        if (vnk == VNK_Liberal)
-        {
-            return gtVNPair.SetLiberal(vn);
-        }
-        else
-        {
-            assert(vnk == VNK_Conservative);
-            return gtVNPair.SetConservative(vn);
-        }
-    }
-    void SetVNs(ValueNumPair vnp)
-    {
-        gtVNPair = vnp;
+        m_vnp.Set(vnk, vn);
     }
 
     GenTreeFlags GetSideEffects() const

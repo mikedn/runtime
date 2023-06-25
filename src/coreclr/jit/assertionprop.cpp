@@ -286,8 +286,8 @@ private:
 
     AssertionIndex GenerateBoundsChkAssertion(GenTreeBoundsChk* boundsChk)
     {
-        ValueNum indexVN  = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
-        ValueNum lengthVN = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
+        ValueNum indexVN  = vnStore->ExtractValue(boundsChk->GetIndex()->GetConservativeVN());
+        ValueNum lengthVN = vnStore->ExtractValue(boundsChk->GetLength()->GetConservativeVN());
 
         if ((indexVN == NoVN) || (lengthVN == NoVN))
         {
@@ -364,7 +364,7 @@ private:
         }
         else if (lcl->TypeIs(TYP_BYREF))
         {
-            ValueNum  vn = vnStore->VNNormalValue(addr->GetConservativeVN());
+            ValueNum  vn = vnStore->ExtractValue(addr->GetConservativeVN());
             VNFuncApp funcApp;
 
             while ((vnStore->GetVNFunc(vn, &funcApp) == VNOP_ADD) && (vnStore->TypeOfVN(vn) == TYP_BYREF))
@@ -398,14 +398,14 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        if ((assertion.op1.vn == NoVN) || (assertion.op1.vn == ValueNumStore::VNForVoid()))
+        if ((assertion.op1.vn == NoVN) || (assertion.op1.vn == ValueNumStore::VoidVN()))
         {
             return NO_ASSERTION_INDEX;
         }
 
         assertion.kind             = OAK_NOT_EQUAL;
         assertion.op2.kind         = O2K_CONST_INT;
-        assertion.op2.vn           = ValueNumStore::VNForNull();
+        assertion.op2.vn           = ValueNumStore::NullVN();
         assertion.op2.intCon.value = 0;
         assertion.op2.intCon.flags = GTF_EMPTY;
 
@@ -820,7 +820,7 @@ private:
         GenTree* op1 = relop->GetOp(0);
         GenTree* op2 = relop->GetOp(1);
 
-        ValueNum relopVN = vnStore->VNNormalValue(relop->GetConservativeVN());
+        ValueNum relopVN = vnStore->ExtractValue(relop->GetConservativeVN());
         ValueNum boundVN;
 
         ApKind kind;
@@ -828,7 +828,7 @@ private:
         if (relop->OperIs(GT_EQ, GT_NE) && op2->IsIntegralConst(0))
         {
             kind    = relop->OperIs(GT_EQ) ? OAK_EQUAL : OAK_NOT_EQUAL;
-            boundVN = vnStore->VNNormalValue(op1->GetConservativeVN());
+            boundVN = vnStore->ExtractValue(op1->GetConservativeVN());
         }
         else
         {
@@ -1025,8 +1025,8 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        ValueNum op1VN = vnStore->VNNormalValue(op1->GetConservativeVN());
-        ValueNum op2VN = vnStore->VNNormalValue(op2->GetConservativeVN());
+        ValueNum op1VN = vnStore->ExtractValue(op1->GetConservativeVN());
+        ValueNum op2VN = vnStore->ExtractValue(op2->GetConservativeVN());
 
         if (vnStore->IsVNCheckedBound(op1VN) && vnStore->IsVNInt32Constant(op2VN))
         {
@@ -1095,9 +1095,9 @@ private:
 
         assertion.kind     = assertionKind;
         assertion.op1.kind = O1K_VALUE_NUMBER;
-        assertion.op1.vn   = vnStore->VNNormalValue(op1->GetConservativeVN());
+        assertion.op1.vn   = vnStore->ExtractValue(op1->GetConservativeVN());
         assertion.op2.kind = O2K_VALUE_NUMBER;
-        assertion.op2.vn   = vnStore->VNNormalValue(op2->GetConservativeVN());
+        assertion.op2.vn   = vnStore->ExtractValue(op2->GetConservativeVN());
 
         return AddEqualityAssertions(assertion);
     }
@@ -1121,8 +1121,8 @@ private:
                 return NO_ASSERTION_INDEX;
             }
 
-            ValueNum objMTVN = vnStore->VNNormalValue(op1->GetConservativeVN());
-            ValueNum mtVN    = vnStore->VNNormalValue(op2->GetConservativeVN());
+            ValueNum objMTVN = vnStore->ExtractValue(op1->GetConservativeVN());
+            ValueNum mtVN    = vnStore->ExtractValue(op2->GetConservativeVN());
 
             if ((objMTVN == NoVN) || (mtVN == NoVN))
             {
@@ -1179,7 +1179,7 @@ private:
             }
 
             ValueNum objVN = objectArg->GetConservativeVN();
-            ValueNum mtVN  = vnStore->VNNormalValue(mtArg->GetConservativeVN());
+            ValueNum mtVN  = vnStore->ExtractValue(mtArg->GetConservativeVN());
 
             if ((objVN == NoVN) || (mtVN == NoVN))
             {
@@ -1356,7 +1356,7 @@ private:
 
         assert(vnStore->IsVNConstant(val.vn));
 
-        conNode->gtVNPair.SetBoth(val.vn);
+        conNode->SetVNP({val.vn, val.vn});
 
         return UpdateTree(conNode, lclVar, stmt);
     }
@@ -1424,7 +1424,7 @@ private:
 
         assert(vnStore->IsVNConstant(val.vn));
 
-        conNode->gtVNPair.SetBoth(val.vn);
+        conNode->SetVNP({val.vn, val.vn});
 
         return UpdateTree(conNode, use, stmt);
     }
@@ -1547,8 +1547,8 @@ private:
 
     const AssertionDsc* FindEqualityAssertion(const ASSERT_TP assertions, GenTree* op1, GenTree* op2)
     {
-        ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
-        ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
+        ValueNum vn1 = vnStore->ExtractValue(op1->GetConservativeVN());
+        ValueNum vn2 = vnStore->ExtractValue(op2->GetConservativeVN());
 
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
@@ -1566,7 +1566,7 @@ private:
 
     const AssertionDsc* FindZeroEqualityAssertion(const ASSERT_TP assertions, ValueNum vn, var_types type)
     {
-        ValueNum vn1 = vnStore->VNNormalValue(vn);
+        ValueNum vn1 = vnStore->ExtractValue(vn);
         ValueNum vn2 = vnStore->VNZeroForType(type);
 
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
@@ -1704,8 +1704,8 @@ private:
         else if (!relop->IsUnsigned() && varActualTypeIsInt(relop->GetOp(0)))
         {
             genTreeOps oper    = relop->GetOper();
-            ValueNum   vn      = vnStore->VNNormalValue(relop->GetOp(0)->GetConservativeVN());
-            ValueNum   limitVN = vnStore->VNNormalValue(relop->GetOp(1)->GetConservativeVN());
+            ValueNum   vn      = vnStore->ExtractValue(relop->GetOp(0)->GetConservativeVN());
+            ValueNum   limitVN = vnStore->ExtractValue(relop->GetOp(1)->GetConservativeVN());
 
             if (vnStore->IsVNInt32Constant(vn))
             {
@@ -1734,7 +1734,7 @@ private:
         }
 
         relop->ChangeToIntCon(isTrue);
-        relop->gtVNPair.SetBoth(vnStore->VNForIntCon(isTrue));
+        relop->SetVNP(ValueNumPair{vnStore->VNForIntCon(isTrue)});
         return UpdateTree(relop, relop, stmt);
     }
 
@@ -1801,7 +1801,7 @@ private:
         }
         else
         {
-            vn = vnStore->VNNormalValue(actualOp1->GetConservativeVN());
+            vn = vnStore->ExtractValue(actualOp1->GetConservativeVN());
         }
 
         ssize_t min;
@@ -1879,7 +1879,7 @@ private:
     {
         assert(div->OperIs(GT_DIV, GT_MOD) && div->TypeIs(TYP_INT));
 
-        ValueNum divisorVN = vnStore->VNNormalValue(div->GetOp(1)->GetConservativeVN());
+        ValueNum divisorVN = vnStore->ExtractValue(div->GetOp(1)->GetConservativeVN());
 
         if (!vnStore->IsVNInt32Constant(divisorVN))
         {
@@ -1893,7 +1893,7 @@ private:
             return nullptr;
         }
 
-        ValueNum dividendVN = vnStore->VNNormalValue(div->GetOp(0)->GetConservativeVN());
+        ValueNum dividendVN = vnStore->ExtractValue(div->GetOp(0)->GetConservativeVN());
 
         const AssertionDsc* assertion = FindPositiveIntAssertion(assertions, dividendVN);
 
@@ -1960,7 +1960,7 @@ private:
 
     const AssertionDsc* FindNotNullAssertion(const ASSERT_TP assertions, ValueNum vn)
     {
-        vn = vnStore->VNNormalValue(vn);
+        vn = vnStore->ExtractValue(vn);
 
         ValueNum baseVN = vn;
 
@@ -1989,7 +1989,7 @@ private:
                 continue;
             }
 
-            if (assertion.op2.vn != ValueNumStore::VNForNull())
+            if (assertion.op2.vn != ValueNumStore::NullVN())
             {
                 continue;
             }
@@ -2085,7 +2085,7 @@ private:
         }
 
         ValueNum objectVN      = objectArg->GetConservativeVN();
-        ValueNum methodTableVN = vnStore->VNNormalValue(call->GetArgNodeByArgNum(0)->GetConservativeVN());
+        ValueNum methodTableVN = vnStore->ExtractValue(call->GetArgNodeByArgNum(0)->GetConservativeVN());
 
         const AssertionDsc* assertion = FindInstanceOfAssertion(assertions, objectVN, methodTableVN);
 
@@ -2117,8 +2117,8 @@ private:
         }
 #endif
 
-        ValueNum indexVN      = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
-        ValueNum lengthVN     = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
+        ValueNum indexVN      = vnStore->ExtractValue(boundsChk->GetIndex()->GetConservativeVN());
+        ValueNum lengthVN     = vnStore->ExtractValue(boundsChk->GetLength()->GetConservativeVN());
         ssize_t  indexVal     = vnStore->IsVNInt32Constant(indexVN) ? vnStore->ConstantValue<int>(indexVN) : -1;
         ssize_t  lengthVal    = vnStore->IsVNInt32Constant(lengthVN) ? vnStore->ConstantValue<int>(lengthVN) : -1;
         ssize_t  indexMinVal  = INT32_MIN;
@@ -2791,7 +2791,7 @@ private:
 
     GenTree* ExtractConstantSideEffects(GenTree* tree)
     {
-        assert(vnStore->IsVNConstant(vnStore->VNNormalValue(tree->GetConservativeVN())));
+        assert(vnStore->IsVNConstant(vnStore->ExtractValue(tree->GetConservativeVN())));
 
         if ((tree->gtFlags & GTF_SIDE_EFFECT) == 0)
         {
@@ -2824,7 +2824,7 @@ private:
 
         assert((relop->gtFlags & GTF_RELOP_JMP_USED) != 0);
 
-        ValueNum relopVN = vnStore->VNNormalValue(relop->GetConservativeVN());
+        ValueNum relopVN = vnStore->ExtractValue(relop->GetConservativeVN());
 
         if (!vnStore->IsVNConstant(relopVN))
         {
@@ -2836,14 +2836,14 @@ private:
         // Transform the relop into EQ|NE(0, 0)
         ValueNum vnZero = vnStore->VNForIntCon(0);
         GenTree* op1    = compiler->gtNewIconNode(0);
-        op1->SetVNs(ValueNumPair(vnZero, vnZero));
+        op1->SetVNP({vnZero, vnZero});
         relop->AsOp()->SetOp(0, op1);
         GenTree* op2 = compiler->gtNewIconNode(0);
-        op2->SetVNs(ValueNumPair(vnZero, vnZero));
+        op2->SetVNP({vnZero, vnZero});
         relop->AsOp()->SetOp(1, op2);
         relop->SetOper(vnStore->CoercedConstantValue<int64_t>(relopVN) != 0 ? GT_EQ : GT_NE);
-        ValueNum vnLib = vnStore->VNNormalValue(relop->GetLiberalVN());
-        relop->SetVNs(ValueNumPair(vnLib, relopVN));
+        ValueNum vnLib = vnStore->ExtractValue(relop->GetLiberalVN());
+        relop->SetVNP({vnLib, relopVN});
 
         while (sideEffects != nullptr)
         {
@@ -2982,7 +2982,7 @@ private:
             GenTree* thisArg = call->GetThisArg();
             noway_assert(thisArg != nullptr);
 
-            if (!m_vnStore->IsKnownNonNull(thisArg->gtVNPair.GetConservative()))
+            if (!m_vnStore->IsKnownNonNull(thisArg->GetConservativeVN()))
             {
                 return;
             }
@@ -3018,7 +3018,7 @@ private:
                     addr = addr->AsOp()->GetOp(0);
                 }
 
-                if (!m_vnStore->IsKnownNonNull(addr->gtVNPair.GetConservative()))
+                if (!m_vnStore->IsKnownNonNull(addr->GetConservativeVN()))
                 {
                     return;
                 }
@@ -3062,7 +3062,7 @@ private:
                 return stmt;
             }
 
-            ValueNum vn = m_vnStore->VNConservativeNormalValue(relop->gtVNPair);
+            ValueNum vn = m_vnStore->ExtractValue(relop->GetConservativeVN());
 
             if (!m_vnStore->IsVNConstant(vn))
             {
@@ -3085,7 +3085,7 @@ private:
             int32_t value = m_vnStore->CoercedConstantValue<int64_t>(vn) != 0 ? 1 : 0;
             relop->AsIntCon()->SetValue(value);
             vn = m_vnStore->VNForIntCon(value);
-            relop->SetVNs(ValueNumPair(vn, vn));
+            relop->SetVNP({vn, vn});
 
             JITDUMP("After JTRUE constant propagation on " FMT_TREEID ":\n", relop->GetID());
             DBEXEC(VERBOSE, m_compiler->gtDispStmt(stmt));
@@ -3144,7 +3144,7 @@ private:
                 if ((user != nullptr) &&
                     ((user->OperIs(GT_ASG) && (user->AsOp()->GetOp(1) == tree)) || user->IsInsert()) &&
                     ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
-                    (m_vnStore->VNNormalValue(tree->GetConservativeVN()) == m_vnStore->VNForZeroMap()))
+                    (m_vnStore->ExtractValue(tree->GetConservativeVN()) == m_vnStore->ZeroMapVN()))
                 {
                     if (user->OperIs(GT_ASG))
                     {
@@ -3169,7 +3169,7 @@ private:
             if (varTypeIsSIMD(tree->GetType()))
             {
 #ifdef FEATURE_HW_INTRINSICS
-                ValueNum  vn = m_vnStore->VNConservativeNormalValue(tree->gtVNPair);
+                ValueNum  vn = m_vnStore->ExtractValue(tree->GetConservativeVN());
                 VNFuncApp func;
 
                 if (VNFuncIndex(m_vnStore->GetVNFunc(vn, &func)) == VNF_HWI_Vector128_get_Zero)
@@ -3328,7 +3328,7 @@ private:
 
                 VNFuncApp lclAddr;
 
-                if ((m_vnStore->GetVNFunc(tree->gtVNPair.GetConservative(), &lclAddr) == VNF_LclAddr) &&
+                if ((m_vnStore->GetVNFunc(tree->GetConservativeVN(), &lclAddr) == VNF_LclAddr) &&
                     ChangeToLocalAddress(tree, lclAddr))
                 {
                     return Compiler::WALK_SKIP_SUBTREES;
@@ -3340,7 +3340,7 @@ private:
 
         GenTree* GetConstNode(GenTree* tree)
         {
-            ValueNum vn = m_vnStore->VNConservativeNormalValue(tree->gtVNPair);
+            ValueNum vn = m_vnStore->ExtractValue(tree->GetConservativeVN());
 
             if (!m_vnStore->IsVNConstant(vn))
             {
@@ -3412,7 +3412,7 @@ private:
                 return nullptr;
             }
 
-            newTree->SetVNs(ValueNumPair(vn, vn));
+            newTree->SetVNP({vn, vn});
 
             GenTree* sideEffects = ExtractConstTreeSideEffects(tree);
 
@@ -3421,7 +3421,7 @@ private:
                 assert((sideEffects->gtFlags & GTF_SIDE_EFFECT) != 0);
 
                 newTree = m_compiler->gtNewCommaNode(sideEffects, newTree);
-                newTree->SetVNs(tree->gtVNPair);
+                newTree->SetVNP(tree->GetVNP());
             }
 
             return newTree;
@@ -3440,7 +3440,7 @@ private:
             // Exception side effects on root may be ignored because the root is known to be a constant
             // (e.g. VN may evaluate a DIV/MOD node to a constant and the node may still
             // have GTF_EXCEPT set, even if it does not actually throw any exceptions).
-            assert(m_vnStore->IsVNConstant(m_vnStore->VNConservativeNormalValue(tree->gtVNPair)));
+            assert(m_vnStore->IsVNConstant(m_vnStore->ExtractValue(tree->GetConservativeVN())));
 
             return m_compiler->gtExtractSideEffList(tree, GTF_SIDE_EFFECT, /* ignoreRoot */ true);
         }

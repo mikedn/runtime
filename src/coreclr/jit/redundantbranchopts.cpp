@@ -98,14 +98,14 @@ bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
                 // We can use liberal VNs as bounds checks are not yet
                 // manifest explicitly as relops.
                 //
-                ValueNum domCmpVN = domCmpTree->GetVN(VNK_Liberal);
+                ValueNum domCmpVN = domCmpTree->GetLiberalVN();
 
                 // Note we could also infer the tree relop's value from similar relops higher in the dom tree.
                 // For example, (x >= 0) dominating (x > 0), or (x < 0) dominating (x > 0).
                 //
                 // That is left as a future enhancement.
                 //
-                if (domCmpVN == tree->GetVN(VNK_Liberal))
+                if (domCmpVN == tree->GetLiberalVN())
                 {
                     // The compare in "tree" is redundant.
                     // Is there a unique path from the dominating compare?
