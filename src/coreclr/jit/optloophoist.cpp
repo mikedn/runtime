@@ -105,7 +105,7 @@ void LoopHoist::HoistExpr(GenTree* expr, unsigned loopNum)
                 expr->GetID(), loopNum, loopTable[loopNum].lpFirst->bbNum, loopTable[loopNum].lpBottom->bbNum);
     JITDUMP("\n");
 
-    assert(!expr->OperIs(GT_ASG, GT_LCL_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(!expr->OperIs(GT_LCL_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
 
     // Create a copy of the expression and mark it for CSE's.
     GenTree* hoistExpr = compiler->gtCloneExpr(expr, GTF_MAKE_CSE);
@@ -874,14 +874,9 @@ public:
                     }
                 }
             }
-            else if (tree->OperIs(GT_ASG))
+            else if (tree->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK))
             {
-                // If the LHS of the assignment has a global reference, then assume it's a global side effect.
-                GenTree* lhs = tree->AsOp()->gtOp1;
-                if (lhs->gtFlags & GTF_GLOB_REF)
-                {
-                    m_beforeSideEffect = false;
-                }
+                m_beforeSideEffect = false;
             }
             else if (tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
             {

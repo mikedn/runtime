@@ -10105,6 +10105,36 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
+        case GT_STOREIND:
+        case GT_STORE_OBJ:
+            if (op1->OperIs(GT_LCL_ADDR) && !tree->AsIndir()->IsVolatile())
+            {
+                ClassLayout* layout = tree->IsObj() ? tree->AsObj()->GetLayout() : nullptr;
+
+                // Just change it to a LCL_FLD. Since these locals are already address exposed
+                // it's not worth the complication to figure out if the types match and change
+                // to a LCL_VAR instead. Also don't bother with field sequences for the same
+                // reason, VN doesn't do anything interesting for address exposed locals.
+
+                tree->ChangeOper(GT_STORE_LCL_FLD);
+                tree->AsLclFld()->SetLclNum(op1->AsLclAddr()->GetLclNum());
+                tree->AsLclFld()->SetLclOffs(op1->AsLclAddr()->GetLclOffs());
+                tree->AsLclFld()->SetLayout(layout, this);
+                tree->AsLclFld()->SetOp(0, op2);
+                tree->SetSideEffects(GTF_ASG | GTF_GLOB_REF | op2->GetSideEffects());
+                tree->gtFlags &= ~GTF_REVERSE_OPS;
+
+                oper = GT_STORE_LCL_FLD;
+                op1  = op2;
+                op2  = nullptr;
+            }
+            else if (((tree->gtFlags & GTF_IND_NONFAULTING) != 0) && !op1->HasAnySideEffect(GTF_EXCEPT) &&
+                     !op2->HasAnySideEffect(GTF_EXCEPT))
+            {
+                tree->gtFlags &= ~GTF_EXCEPT;
+            }
+            break;
+
         case GT_IND:
         case GT_OBJ:
             if (op1->OperIs(GT_LCL_ADDR) && !tree->AsIndir()->IsVolatile())

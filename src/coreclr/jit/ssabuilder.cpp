@@ -835,27 +835,26 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 {
     assert(asgNode->OperIs(GT_ASG));
 
-    GenTree* dst = asgNode->GetOp(0);
+    GenTree* dst   = asgNode->GetOp(0);
+    GenTree* value = asgNode->GetOp(1);
 
     assert(!dst->OperIs(GT_COMMA));
+
+    if (dst->gtPrev != nullptr)
+    {
+        dst->gtPrev->gtNext = dst->gtNext;
+    }
+
+    if (dst->gtNext != nullptr)
+    {
+        dst->gtNext->gtPrev = dst->gtPrev;
+    }
 
     if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         GenTreeLclVarCommon* lclNode = dst->AsLclVarCommon();
         unsigned             lclNum  = lclNode->GetLclNum();
         LclVarDsc*           lcl     = m_compiler->lvaGetDesc(lclNum);
-
-        if (dst->gtPrev != nullptr)
-        {
-            dst->gtPrev->gtNext = dst->gtNext;
-        }
-
-        if (dst->gtNext != nullptr)
-        {
-            dst->gtNext->gtPrev = dst->gtPrev;
-        }
-
-        GenTree* value = asgNode->GetOp(1);
 
         if (lcl->IsSsa())
         {
@@ -977,6 +976,24 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
         {
             return;
         }
+    }
+    else
+    {
+        if (dst->OperIs(GT_IND))
+        {
+            asgNode->ChangeOper(GT_STOREIND);
+        }
+        else
+        {
+            asgNode->ChangeOper(dst->OperIs(GT_BLK) ? GT_STORE_BLK : GT_STORE_OBJ);
+            asgNode->AsBlk()->SetLayout(dst->AsBlk()->GetLayout());
+        }
+
+        GenTreeIndir* store = asgNode->AsIndir();
+        store->SetType(dst->GetType());
+        store->SetAddr(dst->AsIndir()->GetAddr());
+        store->SetValue(value);
+        store->gtFlags |= dst->gtFlags & GTF_IND_FLAGS;
     }
 
     // Figure out if "asgNode" may make a new GC heap state (if we care for this block).

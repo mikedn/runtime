@@ -1236,10 +1236,13 @@ private:
                 assertionInfo = GenerateBoundsChkAssertion(node->AsBoundsChk());
                 break;
 
+            case GT_STORE_BLK:
+            case GT_STORE_OBJ:
             case GT_BLK:
             case GT_OBJ:
                 assert(node->AsBlk()->GetLayout()->GetSize() != 0);
                 FALLTHROUGH;
+            case GT_STOREIND:
             case GT_IND:
             case GT_NULLCHECK:
                 assertionInfo = CreateNotNullAssertion(node->AsIndir()->GetAddr());
@@ -2348,6 +2351,9 @@ private:
                     return nullptr;
                 }
                 return PropagateSsaUse(assertions, node->AsLclUse(), stmt);
+            case GT_STOREIND:
+            case GT_STORE_OBJ:
+            case GT_STORE_BLK:
             case GT_OBJ:
             case GT_BLK:
             case GT_IND:
@@ -3144,13 +3150,11 @@ private:
                 if ((user != nullptr) && ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
                     (m_vnStore->ExtractValue(tree->GetConservativeVN()) == m_vnStore->ZeroMapVN()))
                 {
-                    if (user->OperIs(GT_ASG))
+                    if (user->OperIs(GT_STORE_OBJ, GT_STORE_BLK))
                     {
-                        if (user->AsOp()->GetOp(1) == tree)
-                        {
-                            user->AsOp()->SetOp(1, m_compiler->gtNewIconNode(0));
-                            m_stmtMorphPending = true;
-                        }
+                        assert(user->AsIndir()->GetValue() == tree);
+                        user->AsIndir()->SetValue(m_compiler->gtNewIconNode(0));
+                        m_stmtMorphPending = true;
                     }
                     else if (user->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
                     {
@@ -3189,7 +3193,7 @@ private:
                     // isn't always an improvement - we simply end up with more XORPS instructions.
                     // Still, there's at least on special case where propagation helps, SIMD12
                     // memory stores. If codegen sees that the stored value is 0 then it can
-                    // omit the shuffling required to exract the upper SIMD12 element. We can
+                    // omit the shuffling required to extract the upper SIMD12 element. We can
                     // still end up with an extra XORPS if we propagate but that's better than
                     // unnecessary shuffling.
                     // Note that this pattern tends to arise due to the use of `default` to get a
@@ -3202,11 +3206,20 @@ private:
                     // with constant operands or get_AllBitsSet) but it's not clear how useful
                     // would that be.
 
-                    if ((user != nullptr) && user->OperIs(GT_ASG) && (user->AsOp()->GetOp(1) == tree) &&
-                        user->AsOp()->GetOp(0)->OperIs(GT_IND, GT_OBJ, GT_LCL_FLD) &&
-                        user->AsOp()->GetOp(0)->TypeIs(TYP_SIMD12) && ((tree->gtFlags & GTF_SIDE_EFFECT) == 0))
+                    if ((user != nullptr) && ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
+                        user->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_LCL_FLD) && user->TypeIs(TYP_SIMD12))
                     {
-                        user->AsOp()->SetOp(1, m_compiler->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD12, TYP_FLOAT));
+                        GenTree* zero = m_compiler->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD12, TYP_FLOAT);
+
+                        if (user->OperIs(GT_STORE_LCL_FLD))
+                        {
+                            user->AsLclVarCommon()->SetOp(0, zero);
+                        }
+                        else
+                        {
+                            user->AsIndir()->SetValue(zero);
+                        }
+
                         m_stmtMorphPending = true;
                     }
                 }

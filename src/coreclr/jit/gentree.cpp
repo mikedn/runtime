@@ -2890,6 +2890,13 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 }
                 goto DONE_OP1;
 
+            case GT_STOREIND:
+            case GT_STORE_OBJ:
+            case GT_STORE_BLK:
+                costEx++;
+                costSz++;
+                break;
+
             case GT_BOUNDS_CHECK:
                 costEx = 4; // cmp reg,reg and jae throw (not taken)
                 costSz = 7; // jump to cold section
@@ -2991,6 +2998,22 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                 default:
                     break;
+            }
+        }
+        else if ((oper == GT_STOREIND) || (oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK))
+        {
+            // TODO-MIKE-Cleanup: This stuff is a complete mess. Also, it doesn't mark the store
+            // address mode like IND above. But since indirect stores are introduced only in SSA
+            // this doesn't currently matter, as no new stores are introduced in SSA. And again,
+            // it's a complete mess...
+
+            if ((!csePhase || cseCanSwapOrder(op1, op2)) &&
+                (tree->AsIndir()->GetAddr()->IsLocalAddrExpr() ||
+                 (!tree->AsIndir()->GetAddr()->HasAnySideEffect(GTF_ALL_EFFECT) && !op2->HasAnySideEffect(GTF_ASG) &&
+                  !op2->OperIsLeaf())))
+            {
+                bReverseInAssignment = true;
+                tree->gtFlags |= GTF_REVERSE_OPS;
             }
         }
         else if (GenTree::OperIsCompare(oper))
@@ -3097,6 +3120,14 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         {
             // Assignments are special, we want the reverseops flags
             // so if possible it was set above.
+            tryToSwap = false;
+        }
+        else if (((oper == GT_STOREIND) || (oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK)) &&
+                 op2->HasAnySideEffect(GTF_GLOB_REF | GTF_EXCEPT))
+        {
+            // TODO-MIKE-CQ: Old code failed to swap ASG(IND, IND) when both operands had side effects.
+            // That was bogus because the LHS side effects might have come from the IND itself, in which
+            // case those side effects took place at ASG, not at IND. Keep doing it for now to avoid diffs.
             tryToSwap = false;
         }
         else if ((oper == GT_INTRINSIC) && IsIntrinsicImplementedByUserCall(tree->AsIntrinsic()->GetIntrinsic()))
@@ -3636,7 +3667,7 @@ GenTreeRetExpr::GenTreeRetExpr(GenTreeCall* call)
 
 bool GenTree::OperRequiresAsgFlag()
 {
-    if (OperIs(GT_ASG, GT_LCL_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
+    if (OperIs(GT_ASG, GT_LCL_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK) ||
         OperIs(GT_XADD, GT_XORR, GT_XAND, GT_XCHG, GT_LOCKADD, GT_CMPXCHG, GT_MEMORYBARRIER, GT_COPY_BLK, GT_INIT_BLK))
     {
         return true;
@@ -3790,12 +3821,19 @@ bool GenTree::OperMayThrow(Compiler* comp)
             return !AsCall()->IsHelperCall() ||
                    !Compiler::s_helperCallProperties.NoThrow(Compiler::eeGetHelperNum(AsCall()->GetMethodHandle()));
 
+        case GT_STORE_BLK:
+        case GT_STORE_OBJ:
+            if (AsBlk()->GetLayout()->GetSize() == 0)
+            {
+                return false;
+            }
+            FALLTHROUGH;
+        case GT_STOREIND:
         case GT_IND:
         case GT_BLK:
         case GT_OBJ:
-        case GT_STORE_BLK:
         case GT_NULLCHECK:
-            return (((this->gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(this->AsIndir()->Addr()));
+            return (((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(AsIndir()->Addr()));
 
         case GT_COPY_BLK:
         case GT_INIT_BLK:
@@ -3990,14 +4028,18 @@ GenTreeOp* Compiler::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
     assert(op1 != nullptr);
     assert(op2 != nullptr);
 
+    // TODO-MIKE-Review: Use GTK_NOVALUE?
+    bool isValue = !op2->OperIs(GT_ASG, GT_LCL_DEF, GT_NULLCHECK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND,
+                                GT_STORE_OBJ, GT_STORE_BLK);
+
     if (type == TYP_UNDEF)
     {
         // Some nodes have non VOID types but they don't actually
         // produce a value. Don't propagate the type through COMMAs.
-        type = op2->OperIs(GT_ASG, GT_LCL_DEF, GT_NULLCHECK) ? TYP_VOID : op2->GetType();
+        type = isValue ? op2->GetType() : TYP_VOID;
     }
 
-    assert(!op2->OperIs(GT_NULLCHECK, GT_ASG, GT_LCL_DEF) || (type == TYP_VOID));
+    assert(isValue || (type == TYP_VOID));
 
     return new (this, GT_COMMA) GenTreeOp(GT_COMMA, type, op1, op2);
 }
@@ -6464,13 +6506,20 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
         addr = AsArrLen()->GetArray();
     }
 
-    if ((addr->gtFlags & GTF_EXCEPT) != 0)
+    gtFlags &= ~GTF_EXCEPT;
+
+    if (addr->HasAnySideEffect(GTF_EXCEPT))
     {
         gtFlags |= GTF_EXCEPT;
     }
-    else
+
+    if (OperIs(GT_STOREIND, GT_STORE_BLK, GT_STORE_OBJ) && AsIndir()->GetValue()->HasAnySideEffect(GTF_EXCEPT))
     {
-        gtFlags &= ~GTF_EXCEPT;
+        gtFlags |= GTF_EXCEPT;
+    }
+
+    if ((gtFlags & GTF_EXCEPT) == 0)
+    {
         gtFlags |= GTF_IND_NONFAULTING;
     }
 }
@@ -10219,7 +10268,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
         return tree;
     }
 
-    if (tree->OperIs(GT_NOP, GT_ALLOCOBJ, GT_RUNTIMELOOKUP, GT_BOUNDS_CHECK))
+    if (tree->OperIs(GT_NOP, GT_ALLOCOBJ, GT_RUNTIMELOOKUP, GT_BOUNDS_CHECK, GT_STOREIND, GT_STORE_BLK, GT_STORE_OBJ))
     {
         return tree;
     }
@@ -11312,7 +11361,8 @@ bool Compiler::gtNodeHasSideEffects(GenTree* node, GenTreeFlags flags, bool igno
     // will simply be dropped is they are ever subject to an "extract side effects" operation.
     // It is possible that the reason no bugs have yet been observed in this area is that the
     // other nodes are likely to always be tree roots.
-    if (((flags & GTF_ASG) != 0) && node->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_LCL_DEF))
+    if (((flags & GTF_ASG) != 0) &&
+        node->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_LCL_DEF, GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK))
     {
         return true;
     }

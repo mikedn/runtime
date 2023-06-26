@@ -61,7 +61,7 @@ private:
     void SummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary);
     void SummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary);
     void SummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary& summary);
-    void SummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void SummarizeLoopIndirMemoryStores(GenTreeIndir* store, VNLoopMemorySummary& summary);
     void SummarizeLoopObjFieldMemoryStores(GenTreeIndir* store, FieldSeqNode* fieldSeq, VNLoopMemorySummary& summary);
     void SummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, VNLoopMemorySummary& summary);
     void SummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary);
@@ -80,12 +80,11 @@ private:
     void NumberLclUse(GenTreeLclUse* use);
     void NumberInsert(GenTreeInsert* insert);
     void NumberExtract(GenTreeExtract* extract);
-    void NumberAssignment(GenTreeOp* asg);
     void NumberLclStore(GenTreeLclVar* store);
     void NumberLclLoad(GenTreeLclVar* load);
     void NumberLclFldStore(GenTreeLclFld* store);
     void NumberLclFldLoad(GenTreeLclFld* load);
-    void NumberIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);
+    void NumberIndirStore(GenTreeIndir* store);
     void NumberIndirLoad(GenTreeIndir* load);
     void NumberNullCheck(GenTreeIndir* node);
     void NumberArrLen(GenTreeArrLen* node);
@@ -3927,8 +3926,7 @@ void ValueNumbering::NumberComma(GenTreeOp* comma)
     ValueNumPair exset2 = ValueNumStore::EmptyExsetVNP();
     ValueNumPair vnp;
 
-    if ((op2->OperIsIndir() && ((op2->gtFlags & GTF_IND_ASG_LHS) != 0)) ||
-        op2->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (op2->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK))
     {
         vnp = ValueNumStore::VoidVNP();
     }
@@ -3938,19 +3936,6 @@ void ValueNumbering::NumberComma(GenTreeOp* comma)
     }
 
     comma->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
-}
-
-void ValueNumbering::NumberAssignment(GenTreeOp* asg)
-{
-    assert(asg->OperIs(GT_ASG));
-
-    // TODO-MIKE-Fix: This is missing operand exceptions...
-    asg->SetVNP(ValueNumStore::VoidVNP());
-
-    GenTree* store = asg->GetOp(0);
-    GenTree* value = asg->GetOp(1);
-
-    NumberIndirStore(store->AsIndir(), asg, value);
 }
 
 ValueNum ValueNumbering::CastStruct(ValueNumKind         vnk,
@@ -4657,10 +4642,9 @@ void ValueNumbering::NumberExtract(GenTreeExtract* extract)
     extract->SetVNP(vnp);
 }
 
-void ValueNumbering::SummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary)
+void ValueNumbering::SummarizeLoopIndirMemoryStores(GenTreeIndir* store, VNLoopMemorySummary& summary)
 {
-    assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
-    assert(asg->OperIs(GT_ASG));
+    assert(store->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
 
     if (store->IsVolatile())
     {
@@ -4715,10 +4699,12 @@ void ValueNumbering::SummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTree
     summary.AddMemoryHavoc();
 }
 
-void ValueNumbering::NumberIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
+void ValueNumbering::NumberIndirStore(GenTreeIndir* store)
 {
-    assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
-    assert(asg->OperIs(GT_ASG));
+    assert(store->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
+
+    // TODO-MIKE-Fix: This is missing operand exceptions...
+    store->SetVNP(ValueNumStore::VoidVNP());
 
     if (store->IsVolatile())
     {
@@ -4727,6 +4713,7 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTr
         ClearMemory(store DEBUGARG("volatile store"));
     }
 
+    GenTree*  value  = store->GetValue();
     GenTree*  addr   = store->GetAddr();
     ValueNum  addrVN = vnStore->ExtractValue(addr->GetLiberalVN());
     VNFuncApp funcApp;
@@ -4735,7 +4722,7 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTr
     if (func == VNF_PtrToStatic)
     {
         ValueNum memVN = StoreStaticField(store, vnStore->FieldSeqVNToFieldSeq(funcApp[0]), value);
-        UpdateMemory(asg, memVN DEBUGARG("static field store"));
+        UpdateMemory(store, memVN DEBUGARG("static field store"));
 
         return;
     }
@@ -4743,7 +4730,7 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTr
     if (func == VNF_PtrToArrElem)
     {
         ValueNum memVN = StoreArrayElem(store, funcApp, value);
-        UpdateMemory(asg, memVN DEBUGARG("array element store"));
+        UpdateMemory(store, memVN DEBUGARG("array element store"));
 
         return;
     }
@@ -4752,7 +4739,7 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTr
     {
         assert(lvaGetDesc(vnStore->ConstantValue<int32_t>(funcApp[0]))->IsAddressExposed());
         ValueNum memVN = StoreAddressExposedLocal(store, addrVN, value);
-        UpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
+        UpdateMemory(store, memVN DEBUGARG("address-exposed local store"));
 
         return;
     }
@@ -4771,12 +4758,12 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTr
             memVN = StoreObjField(store, vnStore->ExtractValue(obj->GetLiberalVN()), fieldSeq, value);
         }
 
-        UpdateMemory(asg, memVN DEBUGARG(obj == nullptr ? "static field store" : "object field store"));
+        UpdateMemory(store, memVN DEBUGARG(obj == nullptr ? "static field store" : "object field store"));
 
         return;
     }
 
-    ClearMemory(asg DEBUGARG("indirect store"));
+    ClearMemory(store DEBUGARG("indirect store"));
 }
 
 void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
@@ -7522,8 +7509,10 @@ void ValueNumbering::SummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySu
 {
     switch (node->GetOper())
     {
-        case GT_ASG:
-            SummarizeLoopIndirMemoryStores(node->AsOp()->GetOp(0)->SkipComma()->AsIndir(), node->AsOp(), summary);
+        case GT_STOREIND:
+        case GT_STORE_OBJ:
+        case GT_STORE_BLK:
+            SummarizeLoopIndirMemoryStores(node->AsIndir(), summary);
             break;
 
         case GT_STORE_LCL_VAR:
@@ -7712,8 +7701,10 @@ void ValueNumbering::NumberNode(GenTree* node)
             node->SetVNP(ValueNumStore::VoidVNP());
             break;
 
-        case GT_ASG:
-            NumberAssignment(node->AsOp());
+        case GT_STOREIND:
+        case GT_STORE_OBJ:
+        case GT_STORE_BLK:
+            NumberIndirStore(node->AsIndir());
             break;
         case GT_STORE_LCL_VAR:
             NumberLclStore(node->AsLclVar());
