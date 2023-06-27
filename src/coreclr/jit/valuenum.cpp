@@ -7645,17 +7645,11 @@ void ValueNumbering::NumberNode(GenTree* node)
             break;
 
         case GT_LCL_VAR:
-            if ((node->gtFlags & GTF_VAR_DEF) == 0)
-            {
-                NumberLclLoad(node->AsLclVar());
-            }
+            NumberLclLoad(node->AsLclVar());
             break;
 
         case GT_LCL_FLD:
-            if ((node->gtFlags & GTF_VAR_DEF) == 0)
-            {
-                NumberLclFldLoad(node->AsLclFld());
-            }
+            NumberLclFldLoad(node->AsLclFld());
             break;
 
         case GT_LCL_DEF:
@@ -7716,14 +7710,11 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_IND:
         case GT_OBJ:
         case GT_BLK:
-            if ((node->gtFlags & GTF_IND_ASG_LHS) == 0)
-            {
-                NumberIndirLoad(node->AsIndir());
+            NumberIndirLoad(node->AsIndir());
 
-                if (node->OperMayThrow(compiler))
-                {
-                    AddNullRefExset(node, node->AsIndir()->GetAddr());
-                }
+            if (node->OperMayThrow(compiler))
+            {
+                AddNullRefExset(node, node->AsIndir()->GetAddr());
             }
             break;
 

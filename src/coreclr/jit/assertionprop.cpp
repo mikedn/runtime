@@ -1468,7 +1468,7 @@ private:
         return nullptr;
     }
 
-    GenTree* PropagateLclVarUse(const ASSERT_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
+    GenTree* PropagateLclLoad(const ASSERT_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
     {
         assert(lclVar->OperIs(GT_LCL_VAR) && ((lclVar->gtFlags & GTF_VAR_DEF) == 0));
 
@@ -1512,7 +1512,7 @@ private:
         return PropagateLclVarConst(*assertion, lclVar, stmt);
     }
 
-    GenTree* PropagateSsaUse(const ASSERT_TP assertions, GenTreeLclUse* use, Statement* stmt)
+    GenTree* PropagateLclUse(const ASSERT_TP assertions, GenTreeLclUse* use, Statement* stmt)
     {
         unsigned   lclNum = use->GetDef()->GetLclNum();
         LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
@@ -2340,17 +2340,17 @@ private:
         switch (node->GetOper())
         {
             case GT_LCL_VAR:
-                if ((node->gtFlags & (GTF_VAR_DEF | GTF_DONT_CSE)) != 0)
+                if ((node->gtFlags & GTF_DONT_CSE) != 0)
                 {
                     return nullptr;
                 }
-                return PropagateLclVarUse(assertions, node->AsLclVar(), stmt);
+                return PropagateLclLoad(assertions, node->AsLclVar(), stmt);
             case GT_LCL_USE:
                 if ((node->gtFlags & GTF_DONT_CSE) != 0)
                 {
                     return nullptr;
                 }
-                return PropagateSsaUse(assertions, node->AsLclUse(), stmt);
+                return PropagateLclUse(assertions, node->AsLclUse(), stmt);
             case GT_STOREIND:
             case GT_STORE_OBJ:
             case GT_STORE_BLK:
@@ -3243,17 +3243,11 @@ private:
             switch (tree->GetOper())
             {
                 case GT_LCL_VAR:
-                    if ((tree->gtFlags & GTF_VAR_DEF) != 0)
-                    {
-                        return Compiler::WALK_CONTINUE;
-                    }
-
                     // Don't undo constant CSEs.
                     if (m_compiler->lvaGetDesc(tree->AsLclVar())->lvIsCSE)
                     {
                         return Compiler::WALK_CONTINUE;
                     }
-
                     break;
 
                 case GT_LCL_USE:
