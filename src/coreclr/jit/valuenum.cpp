@@ -4768,12 +4768,17 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store)
 
 void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
 {
-    assert(load->OperIs(GT_IND, GT_OBJ, GT_BLK));
-    assert((load->gtFlags & GTF_IND_ASG_LHS) == 0);
+    assert(load->OperIs(GT_IND, GT_OBJ, GT_BLK) && ((load->gtFlags & GTF_IND_ASG_LHS) == 0));
 
     GenTree*     addr = load->GetAddr();
-    ValueNumPair addrExcVNP;
-    ValueNumPair addrVNP = vnStore->UnpackExset(addr->GetVNP(), &addrExcVNP);
+    ValueNumPair addrExset;
+    ValueNumPair addrVNP = vnStore->UnpackExset(addr->GetVNP(), &addrExset);
+
+    if (load->OperMayThrow(compiler))
+    {
+        addrExset = AddNullRefExset(addr->GetVNP());
+    }
+
     VNFuncApp    funcApp;
     ValueNumPair vnp;
 
@@ -4875,12 +4880,7 @@ void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
         vnp = {valueVN, conservativeVN};
     }
 
-    load->SetVNP(vnStore->PackExset(vnp, addrExcVNP));
-
-    if (load->OperMayThrow(compiler))
-    {
-        AddNullRefExset(load, addr);
-    }
+    load->SetVNP(vnStore->PackExset(vnp, addrExset));
 }
 
 ValueNum ValueNumbering::StoreStaticField(GenTreeIndir* store, FieldSeqNode* fieldSeq, GenTree* value)
