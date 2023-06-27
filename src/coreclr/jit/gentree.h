@@ -7508,71 +7508,25 @@ inline GenTree* GenTree::gtGetOp1() const
 }
 
 #ifdef DEBUG
-/* static */
 inline bool GenTree::RequiresNonNullOp2(genTreeOps oper)
 {
-    switch (oper)
-    {
-        case GT_FADD:
-        case GT_FSUB:
-        case GT_FMUL:
-        case GT_FDIV:
-        case GT_FMOD:
-        case GT_ADD:
-        case GT_SUB:
-        case GT_MUL:
-        case GT_DIV:
-        case GT_MOD:
-        case GT_UDIV:
-        case GT_UMOD:
-        case GT_OR:
-        case GT_XOR:
-        case GT_AND:
-        case GT_LSH:
-        case GT_RSH:
-        case GT_RSZ:
-        case GT_ROL:
-        case GT_ROR:
-        case GT_INDEX_ADDR:
-        case GT_ASG:
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GE:
-        case GT_GT:
-        case GT_COMMA:
-        case GT_MKREFANY:
-            return true;
-        default:
-            return false;
-    }
+    return GenTree::OperIsBinary(oper) && (oper != GT_LEA) && (oper != GT_INTRINSIC);
 }
-#endif // DEBUG
+#endif
 
 inline GenTree* GenTree::gtGetOp2() const
 {
     assert(OperIsBinary());
 
     GenTree* op2 = AsOp()->gtOp2;
-
-    // Only allow null op2 if the node type allows it, e.g. GT_LEA.
     assert((op2 != nullptr) || !RequiresNonNullOp2(gtOper));
-
     return op2;
 }
 
 inline GenTree* GenTree::gtGetOp2IfPresent() const
 {
-    /* AsOp()->gtOp2 is only valid for GTK_BINOP nodes. */
-
     GenTree* op2 = OperIsBinary() ? AsOp()->gtOp2 : nullptr;
-
-    // This documents the genTreeOps for which AsOp()->gtOp2 cannot be nullptr.
-    // This helps prefix in its analysis of code which calls gtGetOp2()
-
     assert((op2 != nullptr) || !RequiresNonNullOp2(gtOper));
-
     return op2;
 }
 
