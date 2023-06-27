@@ -2926,23 +2926,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         case GT_IND:
                         case GT_BLK:
                         case GT_OBJ:
-                            // In an indirection, the destination address is evaluated prior to the source.
-                            // If we have any side effects on the target indirection,
-                            // we have to evaluate op1 first.
-                            // However, if the LHS is a lclVar address, SSA relies on using evaluation order for its
-                            // renaming, and therefore the RHS must be evaluated first.
-                            // If we have an assignment involving a lclVar address, the LHS may be marked as having
-                            // side-effects.
-                            // However the side-effects won't require that we evaluate the LHS address first:
-                            // - The GTF_GLOB_REF might have been conservatively set on a field of a local.
-                            // - The local might be address-exposed, but that side-effect happens at the actual
-                            // assignment (not
-                            //   when its address is "evaluated") so it doesn't change the side effect to "evaluate" the
-                            //   address
-                            //   after the RHS (note that in this case it won't be renamed by SSA anyway, but the
-                            //   reordering is
-                            //   safe).
-
+                            // TODO-MIKE-Cleanup: This stuff is a complete mess.
                             if (!op1->AsIndir()->GetAddr()->IsLocalAddrExpr() &&
                                 (op1->AsIndir()->GetAddr()->HasAnySideEffect(GTF_ALL_EFFECT) ||
                                  op2->HasAnySideEffect(GTF_ASG) || op2->OperIsLeaf()))
