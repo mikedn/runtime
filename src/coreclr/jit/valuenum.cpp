@@ -7685,6 +7685,7 @@ void ValueNumbering::NumberNode(GenTree* node)
 
         case GT_COPY_BLK:
         case GT_INIT_BLK:
+            // TODO-MIKE-Review: These are missing exceptions, both from operands and NullRefException as well.
             ClearMemory(node DEBUGARG("dynamic sized init/copy block"));
             FALLTHROUGH;
         case GT_ARGPLACE:
