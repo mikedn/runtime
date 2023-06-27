@@ -3647,44 +3647,20 @@ GenTreeRetExpr::GenTreeRetExpr(GenTreeCall* call)
     gtFlags |= GTF_CALL;
 }
 
-//------------------------------------------------------------------------------
-// OperRequiresAsgFlag : Check whether the operation requires GTF_ASG flag regardless
-//                       of the children's flags.
-//
-
-bool GenTree::OperRequiresAsgFlag()
+bool GenTree::OperRequiresAsgFlag() const
 {
-    if (OperIs(GT_ASG, GT_LCL_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK) ||
-        OperIs(GT_XADD, GT_XORR, GT_XAND, GT_XCHG, GT_LOCKADD, GT_CMPXCHG, GT_MEMORYBARRIER, GT_COPY_BLK, GT_INIT_BLK))
-    {
-        return true;
-    }
+    return OperIs(GT_ASG, GT_LCL_DEF, GT_MEMORYBARRIER) || OperIsStore() || OperIsAtomicOp()
 #ifdef FEATURE_HW_INTRINSICS
-    if (gtOper == GT_HWINTRINSIC)
-    {
-        GenTreeHWIntrinsic* hwIntrinsicNode = this->AsHWIntrinsic();
-        if (hwIntrinsicNode->OperIsMemoryStore())
-        {
-            // A MemoryStore operation is an assignment
-            return true;
-        }
-    }
-#endif // FEATURE_HW_INTRINSICS
-    return false;
+           || (OperIs(GT_HWINTRINSIC) && AsHWIntrinsic()->OperIsMemoryStore())
+#endif
+        ;
 }
 
-//------------------------------------------------------------------------------
-// OperRequiresCallFlag : Check whether the operation requires GTF_CALL flag regardless
-//                        of the children's flags.
-//
-
-bool GenTree::OperRequiresCallFlag(Compiler* comp)
+bool GenTree::OperRequiresCallFlag(Compiler* comp) const
 {
     switch (gtOper)
     {
         case GT_CALL:
-            return true;
-
         case GT_KEEPALIVE:
             return true;
 
@@ -3695,7 +3671,6 @@ bool GenTree::OperRequiresCallFlag(Compiler* comp)
         case GT_LSH:
         case GT_RSH:
         case GT_RSZ:
-
             // Variable shifts of a long end up being helper calls, so mark the tree as such in morph.
             // This is potentially too conservative, since they'll get treated as having side effects.
             // It is important to mark them as calls so if they are part of an argument list,
@@ -3704,26 +3679,13 @@ bool GenTree::OperRequiresCallFlag(Compiler* comp)
             // could mark the trees just before argument processing, but it would require a full
             // tree walk of the argument tree, so we just do it when morphing, instead, even though we'll
             // mark non-argument trees (that will still get converted to calls, anyway).
-            return (this->TypeGet() == TYP_LONG) && (gtGetOp2()->OperGet() != GT_CNS_INT);
-#endif // FEATURE_FIXED_OUT_ARGS && !TARGET_64BIT
+            return TypeIs(TYP_LONG) && !AsOp()->GetOp(1)->OperIs(GT_CNS_INT);
+#endif
 
         default:
             return false;
     }
 }
-
-//------------------------------------------------------------------------------
-// OperIsImplicitIndir : Check whether the operation contains an implicit
-//                       indirection.
-// Arguments:
-//    this      -  a GenTree node
-//
-// Return Value:
-//    True if the given node contains an implicit indirection
-//
-// Note that for the GT_HWINTRINSIC node we have to examine the
-// details of the node to determine its result.
-//
 
 bool GenTree::OperIsImplicitIndir() const
 {
@@ -3750,37 +3712,17 @@ bool GenTree::OperIsImplicitIndir() const
     }
 }
 
-//------------------------------------------------------------------------------
-// OperMayThrow : Check whether the operation may throw.
-//
-//
-// Arguments:
-//    comp      -  Compiler instance
-//
-// Return Value:
-//    True if the given operator may cause an exception
-
-bool GenTree::OperMayThrow(Compiler* comp)
+bool GenTree::OperMayThrow(Compiler* comp) const
 {
-    GenTree* op;
-
     switch (gtOper)
     {
         case GT_MOD:
         case GT_DIV:
         case GT_UMOD:
         case GT_UDIV:
-
-            /* Division with a non-zero, non-minus-one constant does not throw an exception */
-
-            op = AsOp()->gtOp2;
-
-            // For integers only division by 0 or by -1 can throw
-            if (op->IsIntegralConst() && !op->IsIntegralConst(0) && !op->IsIntegralConst(-1))
-            {
-                return false;
-            }
-            return true;
+            GenTree* divisor;
+            divisor = AsOp()->GetOp(1);
+            return !divisor->IsIntegralConst() || divisor->IsIntegralConst(0) || divisor->IsIntegralConst(-1);
 
         case GT_INTRINSIC:
             // If this is an intrinsic that represents the object.GetType(), it can throw an NullReferenceException.
@@ -3788,14 +3730,9 @@ bool GenTree::OperMayThrow(Compiler* comp)
             // Note: Some of the rest of the existing intrinsics could potentially throw an exception (for example
             //       the array and string element access ones). They are handled differently than the GetType intrinsic
             //       and are not marked with GTF_EXCEPT. If these are revisited at some point to be marked as
-            //       GTF_EXCEPT,
-            //       the code below might need to be specialized to handle them properly.
-            if ((this->gtFlags & GTF_EXCEPT) != 0)
-            {
-                return true;
-            }
-
-            break;
+            //       GTF_EXCEPT, the code below might need to be specialized to handle them properly.
+            // TODO-MIKE-Review: This looks bogus, GTF_EXCEPT might have been inherited from operands...
+            return HasAnySideEffect(GTF_EXCEPT);
 
         case GT_CALL:
             return !AsCall()->IsHelperCall() ||
@@ -3803,7 +3740,7 @@ bool GenTree::OperMayThrow(Compiler* comp)
 
         case GT_STORE_BLK:
         case GT_STORE_OBJ:
-        case GT_IND:
+        case GT_OBJ:
         case GT_BLK:
             if (AsBlk()->GetLayout()->GetSize() == 0)
             {
@@ -3811,9 +3748,9 @@ bool GenTree::OperMayThrow(Compiler* comp)
             }
             FALLTHROUGH;
         case GT_STOREIND:
-        case GT_OBJ:
+        case GT_IND:
         case GT_NULLCHECK:
-            return (((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(AsIndir()->Addr()));
+            return (((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(AsIndir()->GetAddr()));
 
         case GT_COPY_BLK:
         case GT_INIT_BLK:
@@ -3823,7 +3760,8 @@ bool GenTree::OperMayThrow(Compiler* comp)
             return ((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(AsArrLen()->GetArray());
 
         case GT_ARR_ELEM:
-            return comp->fgAddrCouldBeNull(this->AsArrElem()->gtArrObj);
+            // TODO-MIKE-Review: What the crap is this? This can throw an IndexOutOfRangeException...
+            return comp->fgAddrCouldBeNull(AsArrElem()->GetArray());
 
         case GT_FIELD_ADDR:
             return comp->fgAddrCouldBeNull(AsFieldAddr()->GetAddr());
@@ -3842,18 +3780,10 @@ bool GenTree::OperMayThrow(Compiler* comp)
         case GT_HWINTRINSIC:
             return AsHWIntrinsic()->OperIsMemoryLoadOrStore();
 #endif
+
         default:
-            break;
+            return gtOverflowEx();
     }
-
-    /* Overflow arithmetic operations also throw exceptions */
-
-    if (gtOverflowEx())
-    {
-        return true;
-    }
-
-    return false;
 }
 
 unsigned GenTreeLclVar::GetMultiRegCount(Compiler* compiler) const

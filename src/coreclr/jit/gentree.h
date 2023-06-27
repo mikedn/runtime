@@ -1625,11 +1625,11 @@ public:
     // Returns true if it is a GT_COPY or GT_RELOAD of a multi-reg call node
     inline bool IsCopyOrReloadOfMultiRegCall() const;
 
-    bool OperRequiresAsgFlag();
+    bool OperRequiresAsgFlag() const;
 
-    bool OperRequiresCallFlag(Compiler* comp);
+    bool OperRequiresCallFlag(Compiler* comp) const;
 
-    bool OperMayThrow(Compiler* comp);
+    bool OperMayThrow(Compiler* comp) const;
 
     size_t GetNodeSize() const;
 
@@ -5314,7 +5314,7 @@ public:
     {
     }
 
-    NamedIntrinsic GetIntrinsic()
+    NamedIntrinsic GetIntrinsic() const
     {
         return m_intrinsicName;
     }

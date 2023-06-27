@@ -891,7 +891,7 @@ public:
                     m_beforeSideEffect = false;
                 }
             }
-            else if (tree->OperIs(GT_XADD, GT_XORR, GT_XAND, GT_XCHG, GT_LOCKADD, GT_CMPXCHG, GT_MEMORYBARRIER))
+            else if (tree->OperIsAtomicOp() || tree->OperIs(GT_MEMORYBARRIER))
             {
                 // If this node is a MEMORYBARRIER or an Atomic operation
                 // then don't hoist and stop any further hoisting after this node
