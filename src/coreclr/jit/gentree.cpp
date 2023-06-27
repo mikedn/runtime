@@ -3803,14 +3803,14 @@ bool GenTree::OperMayThrow(Compiler* comp)
 
         case GT_STORE_BLK:
         case GT_STORE_OBJ:
+        case GT_IND:
+        case GT_BLK:
             if (AsBlk()->GetLayout()->GetSize() == 0)
             {
                 return false;
             }
             FALLTHROUGH;
         case GT_STOREIND:
-        case GT_IND:
-        case GT_BLK:
         case GT_OBJ:
         case GT_NULLCHECK:
             return (((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(AsIndir()->Addr()));
