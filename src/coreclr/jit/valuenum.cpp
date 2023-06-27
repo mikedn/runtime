@@ -4774,13 +4774,12 @@ void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
     GenTree*     addr = load->GetAddr();
     ValueNumPair addrExcVNP;
     ValueNumPair addrVNP = vnStore->UnpackExset(addr->GetVNP(), &addrExcVNP);
+    VNFuncApp    funcApp;
+    ValueNumPair vnp;
 
     if (addr->TypeIs(TYP_REF) && load->TypeIs(TYP_I_IMPL))
     {
         assert(load->OperIs(GT_IND) && !load->IsVolatile());
-
-        ValueNumPair vnp;
-        VNFuncApp    funcApp;
 
         if (addrVNP.BothEqual() && (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) == VNF_JitNew))
         {
@@ -4790,17 +4789,10 @@ void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
         {
             vnp = vnStore->VNPairForFunc(TYP_I_IMPL, VNF_ObjMT, addrVNP);
         }
-
-        load->SetVNP(vnStore->PackExset(vnp, addrExcVNP));
-
-        return;
     }
-
-    if (load->IsInvariant())
+    else if (load->IsInvariant())
     {
         assert(!load->IsVolatile());
-
-        ValueNumPair vnp;
 
         if ((load->gtFlags & GTF_IND_NONNULL) != 0)
         {
@@ -4811,80 +4803,84 @@ void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
             vnp.SetBoth(vnStore->ReadOnlyMemoryMapVN());
             vnp = vnStore->VNForMapSelect(load->GetType(), vnp, addrVNP);
         }
-
-        load->SetVNP(vnStore->PackExset(vnp, addrExcVNP));
-
-        return;
-    }
-
-    // The conservative VN of a load is always a new, unique VN.
-    ValueNum  conservativeVN = vnStore->VNForExpr(load->GetType());
-    ValueNum  valueVN;
-    VNFuncApp funcApp;
-    GenTree*  obj;
-
-    if (load->IsVolatile())
-    {
-        // We just mutate memory for volatile loads, and then do the load as normal.
-        //
-        // This allows:
-        //   1: read s;
-        //   2: volatile read s;
-        //   3: read s;
-        //
-        // We should never assume that the values loaded by 1 and 2 are the same (because memory was
-        // mutated in between them) but we *should* be able to prove that the values loaded by 2 and
-        // 3 are the same.
-
-        ClearMemory(load DEBUGARG("volatile load"));
-
-        valueVN = conservativeVN;
-    }
-    else if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) == VNF_PtrToStatic)
-    {
-        // TODO-MIKE-CQ: Static fields are a mess. The address is sometimes CLS_VAR_ADDR,
-        // sometimes CNS_INT. The later generates a VNHandle instead of VNF_PtrToStatic
-        // and the handle can be recognized as being a static address but it lacks the
-        // field handle/sequence so we can't do much with it. Ideally CNS_INT would also
-        // generate VNF_PtrToStatic but then CSE barfs because it expects constant VNs
-        // for constant nodes and VNF_PtrToStatic isn't a constant.
-        // In the case of STRUCT static fields, CLS_VAR_ADDR is rare, the C# compiler
-        // seems to prefer LDSFLDA-LDFLDA-LDFLD to LDSFLD-LDFLD-LDFLD and the importer
-        // always uses CNS_INT for LDSFLDA. Not good for testing. Moreover, VN doesn't
-        // seem to recognize CNS_INT on its own, it only recognizes it together with a
-        // subsequent STRUCT field access, which does not involve VNF_PtrToStatic.
-        // This is somewhat risky because no matter what the IR pattern is we should end
-        // up using the same field sequence in all cases, otherwise we may end up with
-        // loads not correctly seeing previously stored values.
-
-        valueVN = LoadStaticField(load, vnStore->FieldSeqVNToFieldSeq(funcApp[0]));
-    }
-    else if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) == VNF_PtrToArrElem)
-    {
-        valueVN = LoadArrayElem(load, funcApp);
-
-        // TODO-CQ: what to do here about exceptions? We don't have the array and index conservative
-        // values, so we don't have their exceptions. Maybe we should.
-        // TODO-MIKE-Fix: Actually we do have the liberal array and index and that's pretty much all
-        // that matters for exceptions. But then this is only relevant if range checks are disabled...
-    }
-    else if (FieldSeqNode* fieldSeq = IsFieldAddr(addr, &obj))
-    {
-        if (obj == nullptr)
-        {
-            valueVN = LoadStaticField(load, fieldSeq);
-        }
-        else
-        {
-            valueVN = LoadObjField(load, vnStore->ExtractValue(obj->GetLiberalVN()), fieldSeq);
-        }
     }
     else
     {
-        valueVN = LoadMemory(load->GetType(), addrVNP.GetLiberal());
+        // The conservative VN of a load is always a new, unique VN.
+        ValueNum conservativeVN = vnStore->VNForExpr(load->GetType());
+        ValueNum valueVN;
+        GenTree* obj;
+
+        if (load->IsVolatile())
+        {
+            // We just mutate memory for volatile loads, and then do the load as normal.
+            //
+            // This allows:
+            //   1: read s;
+            //   2: volatile read s;
+            //   3: read s;
+            //
+            // We should never assume that the values loaded by 1 and 2 are the same (because memory was
+            // mutated in between them) but we *should* be able to prove that the values loaded by 2 and
+            // 3 are the same.
+
+            ClearMemory(load DEBUGARG("volatile load"));
+
+            valueVN = conservativeVN;
+        }
+        else if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) == VNF_PtrToStatic)
+        {
+            // TODO-MIKE-CQ: Static fields are a mess. The address is sometimes CLS_VAR_ADDR,
+            // sometimes CNS_INT. The later generates a VNHandle instead of VNF_PtrToStatic
+            // and the handle can be recognized as being a static address but it lacks the
+            // field handle/sequence so we can't do much with it. Ideally CNS_INT would also
+            // generate VNF_PtrToStatic but then CSE barfs because it expects constant VNs
+            // for constant nodes and VNF_PtrToStatic isn't a constant.
+            // In the case of STRUCT static fields, CLS_VAR_ADDR is rare, the C# compiler
+            // seems to prefer LDSFLDA-LDFLDA-LDFLD to LDSFLD-LDFLD-LDFLD and the importer
+            // always uses CNS_INT for LDSFLDA. Not good for testing. Moreover, VN doesn't
+            // seem to recognize CNS_INT on its own, it only recognizes it together with a
+            // subsequent STRUCT field access, which does not involve VNF_PtrToStatic.
+            // This is somewhat risky because no matter what the IR pattern is we should end
+            // up using the same field sequence in all cases, otherwise we may end up with
+            // loads not correctly seeing previously stored values.
+
+            valueVN = LoadStaticField(load, vnStore->FieldSeqVNToFieldSeq(funcApp[0]));
+        }
+        else if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) == VNF_PtrToArrElem)
+        {
+            valueVN = LoadArrayElem(load, funcApp);
+
+            // TODO-CQ: what to do here about exceptions? We don't have the array and index conservative
+            // values, so we don't have their exceptions. Maybe we should.
+            // TODO-MIKE-Fix: Actually we do have the liberal array and index and that's pretty much all
+            // that matters for exceptions. But then this is only relevant if range checks are disabled...
+        }
+        else if (FieldSeqNode* fieldSeq = IsFieldAddr(addr, &obj))
+        {
+            if (obj == nullptr)
+            {
+                valueVN = LoadStaticField(load, fieldSeq);
+            }
+            else
+            {
+                valueVN = LoadObjField(load, vnStore->ExtractValue(obj->GetLiberalVN()), fieldSeq);
+            }
+        }
+        else
+        {
+            valueVN = LoadMemory(load->GetType(), addrVNP.GetLiberal());
+        }
+
+        vnp = {valueVN, conservativeVN};
     }
 
-    load->SetVNP(vnStore->PackExset({valueVN, conservativeVN}, addrExcVNP));
+    load->SetVNP(vnStore->PackExset(vnp, addrExcVNP));
+
+    if (load->OperMayThrow(compiler))
+    {
+        AddNullRefExset(load, addr);
+    }
 }
 
 ValueNum ValueNumbering::StoreStaticField(GenTreeIndir* store, FieldSeqNode* fieldSeq, GenTree* value)
@@ -7712,11 +7708,6 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_OBJ:
         case GT_BLK:
             NumberIndirLoad(node->AsIndir());
-
-            if (node->OperMayThrow(compiler))
-            {
-                AddNullRefExset(node, node->AsIndir()->GetAddr());
-            }
             break;
 
         case GT_CAST:
