@@ -2774,12 +2774,6 @@ void Compiler::fgDebugCheckBBlist(bool checkBBNum /* = false */, bool checkBBRef
     }
 }
 
-/*****************************************************************************
- *
- * A DEBUG routine to check the that the exception flags are correctly set.
- *
- ****************************************************************************/
-
 void Compiler::fgDebugCheckFlags(GenTree* tree)
 {
     const genTreeOps   oper      = tree->GetOper();
@@ -2802,8 +2796,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
         chkFlags |= GTF_ASG;
     }
 
-    /* Is this a leaf node? */
-
     if (kind & GTK_LEAF)
     {
         switch (oper)
@@ -2820,9 +2812,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 break;
         }
     }
-
-    /* Is it a 'simple' unary/binary operator? */
-
     else if (kind & GTK_SMPOP)
     {
         GenTree* op1 = tree->AsOp()->gtOp1;
@@ -2845,87 +2834,44 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 break;
 
             case GT_IND:
-                // Do we have a constant integer address as op1?
-                //
-                if (op1->OperIs(GT_CNS_INT))
+                if (GenTreeIntCon* addr = op1->IsIntCon())
                 {
-                    // Is this constant a handle of some kind?
-                    //
-                    unsigned handleKind = (op1->gtFlags & GTF_ICON_HDL_MASK);
-                    if (handleKind != 0)
+                    GenTreeFlags handleKind = addr->GetHandleKind();
+
+                    if (handleKind != GTF_NONE)
                     {
-                        // Is the GTF_IND_INVARIANT flag set or unset?
-                        //
-                        bool invariantFlag = (tree->gtFlags & GTF_IND_INVARIANT) != 0;
-                        if (invariantFlag)
+                        if ((tree->gtFlags & GTF_IND_INVARIANT) != 0)
                         {
-                            // Record the state of the GTF_IND_INVARIANT flags into 'chkFlags'
                             chkFlags |= GTF_IND_INVARIANT;
                         }
 
-                        // Is the GTF_IND_NONFAULTING flag set or unset?
-                        //
-                        bool nonFaultingFlag = (tree->gtFlags & GTF_IND_NONFAULTING) != 0;
-                        if (nonFaultingFlag)
-                        {
-                            // Record the state of the GTF_IND_NONFAULTING flags into 'chkFlags'
-                            chkFlags |= GTF_IND_NONFAULTING;
-                        }
-                        assert(nonFaultingFlag); // Currently this should always be set for all handle kinds
+                        // We currently expect all handle kinds to be non-faulting
+                        assert((tree->gtFlags & GTF_IND_NONFAULTING) != 0);
 
-                        // Some of these aren't handles to invariant data...
-                        //
-                        if ((handleKind == GTF_ICON_STATIC_HDL) || // Pointer to a mutable class Static variable
-                            (handleKind == GTF_ICON_BBC_PTR) ||    // Pointer to a mutable basic block count value
-                            (handleKind == GTF_ICON_GLOBAL_PTR))   // Pointer to mutable data from the VM state
+                        treeFlags |= GTF_IND_NONFAULTING;
+                        chkFlags |= GTF_IND_NONFAULTING;
 
+                        if ((handleKind != GTF_ICON_STATIC_HDL) && (handleKind != GTF_ICON_BBC_PTR) &&
+                            (handleKind != GTF_ICON_GLOBAL_PTR))
                         {
-                            // We expect the Invariant flag to be unset for this handleKind
-                            // If it is set then we will assert with "unexpected GTF_IND_INVARIANT flag set ...
-                            //
-                            if (handleKind == GTF_ICON_STATIC_HDL)
-                            {
-                                // We expect the GTF_GLOB_REF flag to be set for this handleKind
-                                // If it is not set then we will assert with "Missing flags on tree"
-                                //
-                                treeFlags |= GTF_GLOB_REF;
-                            }
-                        }
-                        else // All the other handle indirections are considered invariant
-                        {
-                            // We expect the Invariant flag to be set for this handleKind
-                            // If it is not set then we will assert with "Missing flags on tree"
-                            //
                             treeFlags |= GTF_IND_INVARIANT;
                         }
 
-                        // We currently expect all handle kinds to be nonFaulting
-                        //
-                        treeFlags |= GTF_IND_NONFAULTING;
-
-                        // Matrix for GTF_IND_INVARIANT (treeFlags and chkFlags)
-                        //
-                        //                    chkFlags INVARIANT value
-                        //                       0                 1
-                        //                 +--------------+----------------+
-                        //  treeFlags   0  |    OK        |  Missing Flag  |
-                        //  INVARIANT      +--------------+----------------+
-                        //  value:      1  |  Extra Flag  |       OK       |
-                        //                 +--------------+----------------+
+                        if (handleKind == GTF_ICON_STATIC_HDL)
+                        {
+                            treeFlags |= GTF_GLOB_REF;
+                        }
                     }
                 }
                 break;
 
             case GT_ASG:
-                // Can't CSE dst.
                 assert((tree->AsOp()->GetOp(0)->gtFlags & GTF_DONT_CSE) != 0);
                 break;
 
             default:
                 break;
         }
-
-        /* Recursively check the subtrees */
 
         if (op1 != nullptr)
         {
@@ -2939,9 +2885,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
             chkFlags |= op2->GetSideEffects();
         }
     }
-
-    /* See what kind of a special operator we have here */
-
     else
     {
         switch (tree->GetOper())

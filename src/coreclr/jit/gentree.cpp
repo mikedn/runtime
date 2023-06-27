@@ -1067,8 +1067,6 @@ AGAIN:
         return false;
     }
 
-    /* Is this a leaf node? */
-
     if (kind & GTK_LEAF)
     {
         switch (oper)
@@ -1090,8 +1088,6 @@ AGAIN:
 
         return false;
     }
-
-    /* Is it a 'simple' unary/binary operator? */
 
     if (kind & GTK_UNOP)
     {
@@ -1222,8 +1218,6 @@ AGAIN:
             goto AGAIN;
         }
     }
-
-    /* See what kind of a special operator we have here */
 
     switch (oper)
     {
@@ -1390,8 +1384,6 @@ AGAIN:
         goto DONE;
     }
 
-    /* Is it a 'simple' unary/binary operator? */
-
     GenTree* op1;
 
     if (kind & GTK_UNOP)
@@ -1516,7 +1508,6 @@ AGAIN:
         goto AGAIN;
     }
 
-    /* See what kind of a special operator we have here */
     switch (tree->gtOper)
     {
         case GT_ARR_ELEM:
@@ -2409,8 +2400,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         goto DONE;
     }
 
-    /* Is it a 'simple' unary/binary operator? */
-
     if (kind & GTK_SMPOP)
     {
         int      lvlb; // preference for op2
@@ -3242,8 +3231,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
         goto DONE;
     }
-
-    /* See what kind of a special operator we have here */
 
     switch (oper)
     {
@@ -5511,8 +5498,6 @@ GenTree* Compiler::gtCloneExpr(
 
         goto DONE;
     }
-
-    /* See what kind of a special operator we have here */
 
     switch (oper)
     {
