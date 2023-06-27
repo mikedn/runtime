@@ -2823,6 +2823,8 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
         GenTree* op1 = tree->AsOp()->gtOp1;
         GenTree* op2 = tree->gtGetOp2IfPresent();
 
+        assert(!tree->IsReverseOp() || ((op1 != nullptr) && (op2 != nullptr)));
+
         switch (oper)
         {
             case GT_QMARK:
@@ -2937,41 +2939,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
         if (op2)
         {
             chkFlags |= (op2->gtFlags & GTF_ALL_EFFECT);
-        }
-
-        // We reuse the value of GTF_REVERSE_OPS for a GT_IND-specific flag,
-        // so exempt that (unary) operator.
-        if (tree->OperGet() != GT_IND && tree->gtFlags & GTF_REVERSE_OPS)
-        {
-            /* Must have two operands if GTF_REVERSE is set */
-            noway_assert(op1 && op2);
-
-            /* Make sure that the order of side effects has not been swapped. */
-
-            /* However CSE may introduce an assignment after the reverse flag
-               was set and thus GTF_ASG cannot be considered here. */
-
-            /* For a GT_ASG(GT_IND(x), y) we are interested in the side effects of x */
-            GenTree* op1p;
-            if ((oper == GT_ASG) && (op1->gtOper == GT_IND))
-            {
-                op1p = op1->AsOp()->gtOp1;
-            }
-            else
-            {
-                op1p = op1;
-            }
-
-            /* This isn't true any more with the sticky GTF_REVERSE */
-            /*
-            // if op1p has side effects, then op2 cannot have side effects
-            if (op1p->gtFlags & (GTF_SIDE_EFFECT & ~GTF_ASG))
-            {
-                if (op2->gtFlags & (GTF_SIDE_EFFECT & ~GTF_ASG))
-                    gtDispTree(tree);
-                noway_assert(!(op2->gtFlags & (GTF_SIDE_EFFECT & ~GTF_ASG)));
-            }
-            */
         }
 
         if (tree->OperRequiresAsgFlag())
