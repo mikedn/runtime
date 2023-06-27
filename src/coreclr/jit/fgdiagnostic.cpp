@@ -2823,33 +2823,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
         GenTree* op1 = tree->AsOp()->gtOp1;
         GenTree* op2 = tree->gtGetOp2IfPresent();
 
-        // During GS work, we make shadow copies for params.
-        // In gsParamsToShadows(), we create a shadow var of TYP_INT for every small type param.
-        // Then in gsReplaceShadowParams(), we change the gtLclNum to the shadow var.
-        // We also change the types of the local var tree and the assignment tree to TYP_INT if necessary.
-        // However, since we don't morph the tree at this late stage. Manually propagating
-        // TYP_INT up to the GT_ASG tree is only correct if we don't need to propagate the TYP_INT back up.
-        // The following checks will ensure this.
-
-        // Is the left child of "tree" a GT_ASG?
-        //
-        // If parent is a TYP_VOID, we don't no need to propagate TYP_INT up. We are fine.
-        // (or) If GT_ASG is the left child of a GT_COMMA, the type of the GT_COMMA node will
-        // be determined by its right child. So we don't need to propagate TYP_INT up either. We are fine.
-        if (op1 && op1->gtOper == GT_ASG)
-        {
-            assert(tree->gtType == TYP_VOID || tree->gtOper == GT_COMMA);
-        }
-
-        // Is the right child of "tree" a GT_ASG?
-        //
-        // If parent is a TYP_VOID, we don't no need to propagate TYP_INT up. We are fine.
-        if (op2 && op2->gtOper == GT_ASG)
-        {
-            // We can have ASGs on the RHS of COMMAs in setup arguments to a call.
-            assert(tree->gtType == TYP_VOID || tree->gtOper == GT_COMMA);
-        }
-
         switch (oper)
         {
             case GT_QMARK:
