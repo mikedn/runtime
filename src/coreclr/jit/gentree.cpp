@@ -2857,11 +2857,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                 goto DONE;
 
-            case GT_LCL_DEF:
-                costEx = 0;
-                costSz = 0;
-                break;
-
             case GT_ASG:
                 /* Assignments need a bit of special handling */
                 /* Process the target */
