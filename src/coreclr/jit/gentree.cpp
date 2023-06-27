@@ -2402,7 +2402,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
     if (kind & GTK_SMPOP)
     {
-        int      lvlb; // preference for op2
         unsigned lvl2; // scratch variable
 
         GenTree* op1 = tree->AsOp()->gtOp1;
@@ -2737,8 +2736,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
         /* Binary operator - check for certain special cases */
 
-        lvlb = 0;
-
         /* Default Binary ops have a cost of 1,1 */
         costEx = 1;
         costSz = 1;
@@ -2757,6 +2754,9 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             costSz += 3;
         }
 #endif
+
+        int lvlb = 0;
+
         switch (oper)
         {
             case GT_MOD:
@@ -2858,20 +2858,17 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 goto DONE;
 
             case GT_ASG:
-                /* Assignments need a bit of special handling */
-                /* Process the target */
                 level = gtSetEvalOrder(op1);
 
                 if (gtIsLikelyRegVar(op1))
                 {
                     assert(lvlb == 0);
-                    lvl2 = gtSetEvalOrder(op2);
-
-                    /* Assignment to an enregistered LCL_VAR */
+                    lvl2   = gtSetEvalOrder(op2);
                     costEx = op2->GetCostEx();
                     costSz = max(3, op2->GetCostSz()); // 3 is an estimate for a reg-reg assignment
                     goto DONE_OP1_AFTER_COST;
                 }
+
                 goto DONE_OP1;
 
             case GT_STOREIND:
@@ -2902,125 +2899,113 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 break;
         }
 
-        /* Process the sub-operands */
-
         level = gtSetEvalOrder(op1);
+
         if (lvlb < 0)
         {
-            level -= lvlb; // lvlb is negative, so this increases level
+            level -= lvlb;
             lvlb = 0;
         }
 
     DONE_OP1:
         assert(lvlb >= 0);
         lvl2 = gtSetEvalOrder(op2) + lvlb;
-
-        costEx += (op1->GetCostEx() + op2->GetCostEx());
-        costSz += (op1->GetCostSz() + op2->GetCostSz());
+        costEx += op1->GetCostEx() + op2->GetCostEx();
+        costSz += op1->GetCostSz() + op2->GetCostSz();
 
     DONE_OP1_AFTER_COST:
-
-        bool bReverseInAssignment = false;
-        if (oper == GT_ASG && (!csePhase || cseCanSwapOrder(op1, op2)))
-        {
-            GenTree* op1Val = op1;
-
-            switch (op1Val->GetOper())
-            {
-                case GT_IND:
-                case GT_BLK:
-                case GT_OBJ:
-                    // In an indirection, the destination address is evaluated prior to the source.
-                    // If we have any side effects on the target indirection,
-                    // we have to evaluate op1 first.
-                    // However, if the LHS is a lclVar address, SSA relies on using evaluation order for its
-                    // renaming, and therefore the RHS must be evaluated first.
-                    // If we have an assignment involving a lclVar address, the LHS may be marked as having
-                    // side-effects.
-                    // However the side-effects won't require that we evaluate the LHS address first:
-                    // - The GTF_GLOB_REF might have been conservatively set on a field of a local.
-                    // - The local might be address-exposed, but that side-effect happens at the actual assignment (not
-                    //   when its address is "evaluated") so it doesn't change the side effect to "evaluate" the address
-                    //   after the RHS (note that in this case it won't be renamed by SSA anyway, but the reordering is
-                    //   safe).
-                    //
-                    if (op1Val->AsIndir()->GetAddr()->IsLocalAddrExpr())
-                    {
-                        bReverseInAssignment = true;
-                        tree->gtFlags |= GTF_REVERSE_OPS;
-                        break;
-                    }
-
-                    if (op1Val->AsIndir()->GetAddr()->gtFlags & GTF_ALL_EFFECT)
-                    {
-                        break;
-                    }
-
-                    // In case op2 assigns to a local var that is used in op1Val, we have to evaluate op1Val first.
-                    if (op2->gtFlags & GTF_ASG)
-                    {
-                        break;
-                    }
-
-                    // If op2 is simple then evaluate op1 first
-
-                    if (op2->OperKind() & GTK_LEAF)
-                    {
-                        break;
-                    }
-
-                    // fall through and set GTF_REVERSE_OPS
-                    FALLTHROUGH;
-
-                case GT_LCL_VAR:
-                case GT_LCL_FLD:
-
-                    // We evaluate op2 before op1
-                    bReverseInAssignment = true;
-                    tree->gtFlags |= GTF_REVERSE_OPS;
-                    break;
-
-                default:
-                    break;
-            }
-        }
-        else if ((oper == GT_STOREIND) || (oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK))
-        {
-            // TODO-MIKE-Cleanup: This stuff is a complete mess. Also, it doesn't mark the store
-            // address mode like IND above. But since indirect stores are introduced only in SSA
-            // this doesn't currently matter, as no new stores are introduced in SSA. And again,
-            // it's a complete mess...
-
-            if ((!csePhase || cseCanSwapOrder(op1, op2)) &&
-                (tree->AsIndir()->GetAddr()->IsLocalAddrExpr() ||
-                 (!tree->AsIndir()->GetAddr()->HasAnySideEffect(GTF_ALL_EFFECT) && !op2->HasAnySideEffect(GTF_ASG) &&
-                  !op2->OperIsLeaf())))
-            {
-                bReverseInAssignment = true;
-                tree->gtFlags |= GTF_REVERSE_OPS;
-            }
-        }
-        else if (GenTree::OperIsCompare(oper))
-        {
-            /* Float compares remove both operands from the FP stack */
-            /* Also FP comparison uses EAX for flags */
-
-            if (varTypeIsFloating(op1->TypeGet()))
-            {
-                level++;
-                lvl2++;
-            }
-            if ((tree->gtFlags & GTF_RELOP_JMP_USED) == 0)
-            {
-                /* Using a setcc instruction is more expensive */
-                costEx += 3;
-            }
-        }
-
-        /* Check for other interesting cases */
+        bool reverseInAssignment = false;
 
         switch (oper)
         {
+            case GT_ASG:
+                if (!csePhase || cseCanSwapOrder(op1, op2))
+                {
+                    switch (op1->GetOper())
+                    {
+                        case GT_IND:
+                        case GT_BLK:
+                        case GT_OBJ:
+                            // In an indirection, the destination address is evaluated prior to the source.
+                            // If we have any side effects on the target indirection,
+                            // we have to evaluate op1 first.
+                            // However, if the LHS is a lclVar address, SSA relies on using evaluation order for its
+                            // renaming, and therefore the RHS must be evaluated first.
+                            // If we have an assignment involving a lclVar address, the LHS may be marked as having
+                            // side-effects.
+                            // However the side-effects won't require that we evaluate the LHS address first:
+                            // - The GTF_GLOB_REF might have been conservatively set on a field of a local.
+                            // - The local might be address-exposed, but that side-effect happens at the actual
+                            // assignment (not
+                            //   when its address is "evaluated") so it doesn't change the side effect to "evaluate" the
+                            //   address
+                            //   after the RHS (note that in this case it won't be renamed by SSA anyway, but the
+                            //   reordering is
+                            //   safe).
+
+                            if (!op1->AsIndir()->GetAddr()->IsLocalAddrExpr() &&
+                                (op1->AsIndir()->GetAddr()->HasAnySideEffect(GTF_ALL_EFFECT) ||
+                                 op2->HasAnySideEffect(GTF_ASG) || op2->OperIsLeaf()))
+                            {
+                                break;
+                            }
+
+                            FALLTHROUGH;
+                        case GT_LCL_VAR:
+                        case GT_LCL_FLD:
+                            reverseInAssignment = true;
+                            tree->gtFlags |= GTF_REVERSE_OPS;
+                            break;
+
+                        default:
+                            break;
+                    }
+                }
+                break;
+
+            case GT_STOREIND:
+            case GT_STORE_OBJ:
+            case GT_STORE_BLK:
+                // TODO-MIKE-Cleanup: This stuff is a complete mess. Also, it doesn't mark the store
+                // address mode like IND above. But since indirect stores are introduced only in SSA
+                // this doesn't currently matter, as no new stores are introduced in SSA. And again,
+                // it's a complete mess...
+                if (!csePhase || cseCanSwapOrder(op1, op2))
+                {
+                    if (!tree->AsIndir()->GetAddr()->IsLocalAddrExpr() &&
+                        (tree->AsIndir()->GetAddr()->HasAnySideEffect(GTF_ALL_EFFECT) ||
+                         op2->HasAnySideEffect(GTF_ASG) || op2->OperIsLeaf()))
+                    {
+                        break;
+                    }
+
+                    reverseInAssignment = true;
+                    tree->gtFlags |= GTF_REVERSE_OPS;
+                }
+                break;
+
+            case GT_EQ:
+            case GT_NE:
+            case GT_LT:
+            case GT_GT:
+            case GT_LE:
+            case GT_GE:
+                // Float compares remove both operands from the FP stack.
+                // Also FP comparison uses EAX for flags.
+                // TODO-MIKE-Review: This looks like a leftover from x87...
+                if (varTypeIsFloating(op1->GetType()))
+                {
+                    level++;
+                    lvl2++;
+                }
+
+                if ((tree->gtFlags & GTF_RELOP_JMP_USED) == 0)
+                {
+                    // Using a setcc instruction is more expensive
+                    costEx += 3;
+                }
+                break;
+
             case GT_LSH:
             case GT_RSH:
             case GT_RSZ:
@@ -3084,7 +3069,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         GenTree* opA;
         GenTree* opB;
 
-        if (tree->gtFlags & GTF_REVERSE_OPS)
+        if (tree->IsReverseOp())
         {
             opA = op2;
             opB = op1;
@@ -3100,7 +3085,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             // Don't swap anything if we're in linear order; we're really just interested in the costs.
             tryToSwap = false;
         }
-        else if (bReverseInAssignment)
+        else if (reverseInAssignment)
         {
             // Assignments are special, we want the reverseops flags
             // so if possible it was set above.
