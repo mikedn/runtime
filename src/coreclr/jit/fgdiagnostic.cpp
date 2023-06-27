@@ -2797,6 +2797,11 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
         chkFlags |= GTF_CALL;
     }
 
+    if (tree->OperRequiresAsgFlag())
+    {
+        chkFlags |= GTF_ASG;
+    }
+
     /* Is this a leaf node? */
 
     if (kind & GTK_LEAF)
@@ -2940,11 +2945,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
         {
             chkFlags |= (op2->gtFlags & GTF_ALL_EFFECT);
         }
-
-        if (tree->OperRequiresAsgFlag())
-        {
-            chkFlags |= GTF_ASG;
-        }
     }
 
     /* See what kind of a special operator we have here */
@@ -3061,10 +3061,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
 
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:
-                if (tree->OperRequiresAsgFlag())
-                {
-                    chkFlags |= GTF_ASG;
-                }
                 for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
                 {
                     fgDebugCheckFlags(use.GetNode());
