@@ -835,7 +835,20 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 {
     assert(asgNode->OperIs(GT_ASG));
 
-    GenTree* dst = asgNode->GetOp(0);
+    GenTree* dst   = asgNode->GetOp(0);
+    GenTree* value = asgNode->GetOp(1);
+
+    assert(!dst->OperIs(GT_COMMA));
+
+    if (dst->gtPrev != nullptr)
+    {
+        dst->gtPrev->gtNext = dst->gtNext;
+    }
+
+    if (dst->gtNext != nullptr)
+    {
+        dst->gtNext->gtPrev = dst->gtPrev;
+    }
 
     if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
@@ -853,18 +866,6 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
             assert((lclNode->gtFlags & GTF_VAR_DEF) != 0);
 
             GenTreeFlags defFlags = lclNode->gtFlags & ~GTF_DONT_CSE;
-
-            if (lclNode->gtPrev != nullptr)
-            {
-                lclNode->gtPrev->gtNext = lclNode->gtNext;
-            }
-
-            if (lclNode->gtNext != nullptr)
-            {
-                lclNode->gtNext->gtPrev = lclNode->gtPrev;
-            }
-
-            GenTree* value = asgNode->GetOp(1);
 
             if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
             {
@@ -954,10 +955,45 @@ void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
             return;
         }
 
+        asgNode->ChangeOper(dst->OperIs(GT_LCL_FLD) ? GT_STORE_LCL_FLD : GT_STORE_LCL_VAR);
+
+        GenTreeLclVarCommon* store = asgNode->AsLclVarCommon();
+        store->SetType(dst->GetType());
+        store->SetLclNum(lclNum);
+        store->SetOp(0, value);
+        store->SetSideEffects(GTF_ASG | value->GetSideEffects() | (dst->gtFlags & GTF_GLOB_REF));
+        store->gtFlags &= ~GTF_REVERSE_OPS;
+        store->gtFlags |= dst->gtFlags & GTF_SPECIFIC_MASK;
+
+        if (dst->OperIs(GT_LCL_FLD))
+        {
+            store->AsLclFld()->SetLclOffs(dst->AsLclFld()->GetLclOffs());
+            store->AsLclFld()->SetFieldSeq(dst->AsLclFld()->GetFieldSeq());
+            store->AsLclFld()->SetLayoutNum(dst->AsLclFld()->GetLayoutNum());
+        }
+
         if (!lcl->IsAddressExposed())
         {
             return;
         }
+    }
+    else
+    {
+        if (dst->OperIs(GT_IND))
+        {
+            asgNode->ChangeOper(GT_STOREIND);
+        }
+        else
+        {
+            asgNode->ChangeOper(dst->OperIs(GT_BLK) ? GT_STORE_BLK : GT_STORE_OBJ);
+            asgNode->AsBlk()->SetLayout(dst->AsBlk()->GetLayout());
+        }
+
+        GenTreeIndir* store = asgNode->AsIndir();
+        store->SetType(dst->GetType());
+        store->SetAddr(dst->AsIndir()->GetAddr());
+        store->SetValue(value);
+        store->gtFlags |= dst->gtFlags & GTF_IND_FLAGS;
     }
 
     // Figure out if "asgNode" may make a new GC heap state (if we care for this block).

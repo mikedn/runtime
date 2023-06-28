@@ -60,11 +60,10 @@ private:
     void SummarizeLoopMemoryStores();
     void SummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary);
     void SummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary);
-    void SummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary);
     void SummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary& summary);
-    void SummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void SummarizeLoopIndirMemoryStores(GenTreeIndir* store, VNLoopMemorySummary& summary);
     void SummarizeLoopObjFieldMemoryStores(GenTreeIndir* store, FieldSeqNode* fieldSeq, VNLoopMemorySummary& summary);
-    void SummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void SummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, VNLoopMemorySummary& summary);
     void SummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary);
     bool BlockIsLoopEntry(BasicBlock* block, unsigned* loopNum);
 
@@ -81,12 +80,11 @@ private:
     void NumberLclUse(GenTreeLclUse* use);
     void NumberInsert(GenTreeInsert* insert);
     void NumberExtract(GenTreeExtract* extract);
-    void NumberAssignment(GenTreeOp* asg);
-    void NumberLclStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
+    void NumberLclStore(GenTreeLclVar* store);
     void NumberLclLoad(GenTreeLclVar* load);
-    void NumberLclFldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
+    void NumberLclFldStore(GenTreeLclFld* store);
     void NumberLclFldLoad(GenTreeLclFld* load);
-    void NumberIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);
+    void NumberIndirStore(GenTreeIndir* store);
     void NumberIndirLoad(GenTreeIndir* load);
     void NumberNullCheck(GenTreeIndir* node);
     void NumberArrLen(GenTreeArrLen* node);
@@ -3917,65 +3915,27 @@ void ValueNumbering::NumberComma(GenTreeOp* comma)
     GenTree* op1 = comma->GetOp(0);
     GenTree* op2 = comma->GetOp(1);
 
+    if (op1->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    {
+        op1 = op1->AsLclVarCommon()->GetOp(0);
+    }
+
     ValueNumPair exset1;
-    ValueNumPair vnp1 = vnStore->UnpackExset(op1->GetVNP(), &exset1);
+    vnStore->UnpackExset(op1->GetVNP(), &exset1);
 
     ValueNumPair exset2 = ValueNumStore::EmptyExsetVNP();
-    ValueNumPair vnp2;
+    ValueNumPair vnp;
 
-    if (op2->OperIsIndir() && ((op2->gtFlags & GTF_IND_ASG_LHS) != 0))
+    if (op2->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK))
     {
-        vnp2 = ValueNumStore::VoidVNP();
+        vnp = ValueNumStore::VoidVNP();
     }
     else
     {
-        vnp2 = vnStore->UnpackExset(op2->GetVNP(), &exset2);
+        vnp = vnStore->UnpackExset(op2->GetVNP(), &exset2);
     }
 
-    comma->SetVNP(vnStore->PackExset(vnp2, vnStore->ExsetUnion(exset1, exset2)));
-}
-
-void ValueNumbering::SummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary)
-{
-    GenTree* store = asg->GetOp(0)->SkipComma();
-
-    if (store->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-    {
-        SummarizeLoopLocalMemoryStores(store->AsLclVarCommon(), asg, summary);
-    }
-    else
-    {
-        SummarizeLoopIndirMemoryStores(store->AsIndir(), asg, summary);
-    }
-}
-
-void ValueNumbering::NumberAssignment(GenTreeOp* asg)
-{
-    assert(asg->OperIs(GT_ASG));
-
-    // TODO-MIKE-Fix: This is missing operand exceptions...
-    asg->SetVNP(ValueNumStore::VoidVNP());
-
-    GenTree* store = asg->GetOp(0);
-    GenTree* value = asg->GetOp(1);
-
-    for (; store->OperIs(GT_COMMA); store = store->AsOp()->GetOp(1))
-    {
-        store->SetVNP(ValueNumStore::VoidVNP());
-    }
-
-    if (store->OperIs(GT_LCL_VAR))
-    {
-        NumberLclStore(store->AsLclVar(), asg, value);
-    }
-    else if (store->OperIs(GT_LCL_FLD))
-    {
-        NumberLclFldStore(store->AsLclFld(), asg, value);
-    }
-    else
-    {
-        NumberIndirStore(store->AsIndir(), asg, value);
-    }
+    comma->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
 }
 
 ValueNum ValueNumbering::CastStruct(ValueNumKind         vnk,
@@ -4391,9 +4351,7 @@ ValueNumPair ValueNumbering::ExtractStructField(GenTree* load, ValueNumPair stru
     return structVNP;
 }
 
-void ValueNumbering::SummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store,
-                                                    GenTreeOp*           asg,
-                                                    VNLoopMemorySummary& summary)
+void ValueNumbering::SummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, VNLoopMemorySummary& summary)
 {
     if (lvaGetDesc(store)->IsAddressExposed())
     {
@@ -4409,14 +4367,14 @@ void ValueNumbering::SummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySumm
     }
 }
 
-void ValueNumbering::NumberLclStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value)
+void ValueNumbering::NumberLclStore(GenTreeLclVar* store)
 {
-    assert(store->OperIs(GT_LCL_VAR) && ((store->gtFlags & GTF_VAR_DEF) != 0));
+    assert(store->OperIs(GT_STORE_LCL_VAR) && ((store->gtFlags & GTF_VAR_DEF) != 0));
     assert(!lvaGetDesc(store)->IsSsa());
 
     if (!lvaGetDesc(store)->IsAddressExposed())
     {
-        assert(ssa.GetMemoryDef(asg) == nullptr);
+        assert(ssa.GetMemoryDef(store) == nullptr);
 
         return;
     }
@@ -4425,8 +4383,8 @@ void ValueNumbering::NumberLclStore(GenTreeLclVar* store, GenTreeOp* asg, GenTre
                                             vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
     INDEBUG(vnStore->Trace(lclAddrVN));
 
-    ValueNum memVN = StoreAddressExposedLocal(store, lclAddrVN, value);
-    UpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
+    ValueNum memVN = StoreAddressExposedLocal(store, lclAddrVN, store->GetOp(0));
+    UpdateMemory(store, memVN DEBUGARG("address-exposed local store"));
 }
 
 void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
@@ -4573,15 +4531,15 @@ void ValueNumbering::NumberLclUse(GenTreeLclUse* use)
     use->SetVNP(vnp);
 }
 
-void ValueNumbering::NumberLclFldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value)
+void ValueNumbering::NumberLclFldStore(GenTreeLclFld* store)
 {
-    assert(store->OperIs(GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
+    assert(store->OperIs(GT_STORE_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
     assert(((store->gtFlags & GTF_VAR_USEASG) != 0) == store->IsPartialLclFld(compiler));
     assert(!lvaGetDesc(store)->IsSsa());
 
     if (!lvaGetDesc(store)->IsAddressExposed())
     {
-        assert(ssa.GetMemoryDef(asg) == nullptr);
+        assert(ssa.GetMemoryDef(store) == nullptr);
 
         return;
     }
@@ -4591,8 +4549,8 @@ void ValueNumbering::NumberLclFldStore(GenTreeLclFld* store, GenTreeOp* asg, Gen
                                             vnStore->VNForFieldSeq(store->GetFieldSeq()));
     INDEBUG(vnStore->Trace(lclAddrVN));
 
-    ValueNum memVN = StoreAddressExposedLocal(store, lclAddrVN, value);
-    UpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
+    ValueNum memVN = StoreAddressExposedLocal(store, lclAddrVN, store->GetOp(0));
+    UpdateMemory(store, memVN DEBUGARG("address-exposed local store"));
 }
 
 void ValueNumbering::NumberInsert(GenTreeInsert* insert)
@@ -4684,10 +4642,9 @@ void ValueNumbering::NumberExtract(GenTreeExtract* extract)
     extract->SetVNP(vnp);
 }
 
-void ValueNumbering::SummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary)
+void ValueNumbering::SummarizeLoopIndirMemoryStores(GenTreeIndir* store, VNLoopMemorySummary& summary)
 {
-    assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
-    assert(asg->OperIs(GT_ASG));
+    assert(store->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
 
     if (store->IsVolatile())
     {
@@ -4742,10 +4699,12 @@ void ValueNumbering::SummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTree
     summary.AddMemoryHavoc();
 }
 
-void ValueNumbering::NumberIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
+void ValueNumbering::NumberIndirStore(GenTreeIndir* store)
 {
-    assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
-    assert(asg->OperIs(GT_ASG));
+    assert(store->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
+
+    // TODO-MIKE-Fix: This is missing operand exceptions...
+    store->SetVNP(ValueNumStore::VoidVNP());
 
     if (store->IsVolatile())
     {
@@ -4754,6 +4713,7 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTr
         ClearMemory(store DEBUGARG("volatile store"));
     }
 
+    GenTree*  value  = store->GetValue();
     GenTree*  addr   = store->GetAddr();
     ValueNum  addrVN = vnStore->ExtractValue(addr->GetLiberalVN());
     VNFuncApp funcApp;
@@ -4762,7 +4722,7 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTr
     if (func == VNF_PtrToStatic)
     {
         ValueNum memVN = StoreStaticField(store, vnStore->FieldSeqVNToFieldSeq(funcApp[0]), value);
-        UpdateMemory(asg, memVN DEBUGARG("static field store"));
+        UpdateMemory(store, memVN DEBUGARG("static field store"));
 
         return;
     }
@@ -4770,7 +4730,7 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTr
     if (func == VNF_PtrToArrElem)
     {
         ValueNum memVN = StoreArrayElem(store, funcApp, value);
-        UpdateMemory(asg, memVN DEBUGARG("array element store"));
+        UpdateMemory(store, memVN DEBUGARG("array element store"));
 
         return;
     }
@@ -4779,7 +4739,7 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTr
     {
         assert(lvaGetDesc(vnStore->ConstantValue<int32_t>(funcApp[0]))->IsAddressExposed());
         ValueNum memVN = StoreAddressExposedLocal(store, addrVN, value);
-        UpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
+        UpdateMemory(store, memVN DEBUGARG("address-exposed local store"));
 
         return;
     }
@@ -4798,29 +4758,33 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTr
             memVN = StoreObjField(store, vnStore->ExtractValue(obj->GetLiberalVN()), fieldSeq, value);
         }
 
-        UpdateMemory(asg, memVN DEBUGARG(obj == nullptr ? "static field store" : "object field store"));
+        UpdateMemory(store, memVN DEBUGARG(obj == nullptr ? "static field store" : "object field store"));
 
         return;
     }
 
-    ClearMemory(asg DEBUGARG("indirect store"));
+    ClearMemory(store DEBUGARG("indirect store"));
 }
 
 void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
 {
-    assert(load->OperIs(GT_IND, GT_OBJ, GT_BLK));
-    assert((load->gtFlags & GTF_IND_ASG_LHS) == 0);
+    assert(load->OperIs(GT_IND, GT_OBJ, GT_BLK) && ((load->gtFlags & GTF_IND_ASG_LHS) == 0));
 
     GenTree*     addr = load->GetAddr();
-    ValueNumPair addrExcVNP;
-    ValueNumPair addrVNP = vnStore->UnpackExset(addr->GetVNP(), &addrExcVNP);
+    ValueNumPair addrExset;
+    ValueNumPair addrVNP = vnStore->UnpackExset(addr->GetVNP(), &addrExset);
+
+    if (load->OperMayThrow(compiler))
+    {
+        addrExset = AddNullRefExset(addr->GetVNP());
+    }
+
+    VNFuncApp    funcApp;
+    ValueNumPair vnp;
 
     if (addr->TypeIs(TYP_REF) && load->TypeIs(TYP_I_IMPL))
     {
         assert(load->OperIs(GT_IND) && !load->IsVolatile());
-
-        ValueNumPair vnp;
-        VNFuncApp    funcApp;
 
         if (addrVNP.BothEqual() && (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) == VNF_JitNew))
         {
@@ -4830,17 +4794,10 @@ void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
         {
             vnp = vnStore->VNPairForFunc(TYP_I_IMPL, VNF_ObjMT, addrVNP);
         }
-
-        load->SetVNP(vnStore->PackExset(vnp, addrExcVNP));
-
-        return;
     }
-
-    if (load->IsInvariant())
+    else if (load->IsInvariant())
     {
         assert(!load->IsVolatile());
-
-        ValueNumPair vnp;
 
         if ((load->gtFlags & GTF_IND_NONNULL) != 0)
         {
@@ -4851,80 +4808,79 @@ void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
             vnp.SetBoth(vnStore->ReadOnlyMemoryMapVN());
             vnp = vnStore->VNForMapSelect(load->GetType(), vnp, addrVNP);
         }
-
-        load->SetVNP(vnStore->PackExset(vnp, addrExcVNP));
-
-        return;
-    }
-
-    // The conservative VN of a load is always a new, unique VN.
-    ValueNum  conservativeVN = vnStore->VNForExpr(load->GetType());
-    ValueNum  valueVN;
-    VNFuncApp funcApp;
-    GenTree*  obj;
-
-    if (load->IsVolatile())
-    {
-        // We just mutate memory for volatile loads, and then do the load as normal.
-        //
-        // This allows:
-        //   1: read s;
-        //   2: volatile read s;
-        //   3: read s;
-        //
-        // We should never assume that the values loaded by 1 and 2 are the same (because memory was
-        // mutated in between them) but we *should* be able to prove that the values loaded by 2 and
-        // 3 are the same.
-
-        ClearMemory(load DEBUGARG("volatile load"));
-
-        valueVN = conservativeVN;
-    }
-    else if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) == VNF_PtrToStatic)
-    {
-        // TODO-MIKE-CQ: Static fields are a mess. The address is sometimes CLS_VAR_ADDR,
-        // sometimes CNS_INT. The later generates a VNHandle instead of VNF_PtrToStatic
-        // and the handle can be recognized as being a static address but it lacks the
-        // field handle/sequence so we can't do much with it. Ideally CNS_INT would also
-        // generate VNF_PtrToStatic but then CSE barfs because it expects constant VNs
-        // for constant nodes and VNF_PtrToStatic isn't a constant.
-        // In the case of STRUCT static fields, CLS_VAR_ADDR is rare, the C# compiler
-        // seems to prefer LDSFLDA-LDFLDA-LDFLD to LDSFLD-LDFLD-LDFLD and the importer
-        // always uses CNS_INT for LDSFLDA. Not good for testing. Moreover, VN doesn't
-        // seem to recognize CNS_INT on its own, it only recognizes it together with a
-        // subsequent STRUCT field access, which does not involve VNF_PtrToStatic.
-        // This is somewhat risky because no matter what the IR pattern is we should end
-        // up using the same field sequence in all cases, otherwise we may end up with
-        // loads not correctly seeing previously stored values.
-
-        valueVN = LoadStaticField(load, vnStore->FieldSeqVNToFieldSeq(funcApp[0]));
-    }
-    else if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) == VNF_PtrToArrElem)
-    {
-        valueVN = LoadArrayElem(load, funcApp);
-
-        // TODO-CQ: what to do here about exceptions? We don't have the array and index conservative
-        // values, so we don't have their exceptions. Maybe we should.
-        // TODO-MIKE-Fix: Actually we do have the liberal array and index and that's pretty much all
-        // that matters for exceptions. But then this is only relevant if range checks are disabled...
-    }
-    else if (FieldSeqNode* fieldSeq = IsFieldAddr(addr, &obj))
-    {
-        if (obj == nullptr)
-        {
-            valueVN = LoadStaticField(load, fieldSeq);
-        }
-        else
-        {
-            valueVN = LoadObjField(load, vnStore->ExtractValue(obj->GetLiberalVN()), fieldSeq);
-        }
     }
     else
     {
-        valueVN = LoadMemory(load->GetType(), addrVNP.GetLiberal());
+        // The conservative VN of a load is always a new, unique VN.
+        ValueNum conservativeVN = vnStore->VNForExpr(load->GetType());
+        ValueNum valueVN;
+        GenTree* obj;
+
+        if (load->IsVolatile())
+        {
+            // We just mutate memory for volatile loads, and then do the load as normal.
+            //
+            // This allows:
+            //   1: read s;
+            //   2: volatile read s;
+            //   3: read s;
+            //
+            // We should never assume that the values loaded by 1 and 2 are the same (because memory was
+            // mutated in between them) but we *should* be able to prove that the values loaded by 2 and
+            // 3 are the same.
+
+            ClearMemory(load DEBUGARG("volatile load"));
+
+            valueVN = conservativeVN;
+        }
+        else if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) == VNF_PtrToStatic)
+        {
+            // TODO-MIKE-CQ: Static fields are a mess. The address is sometimes CLS_VAR_ADDR,
+            // sometimes CNS_INT. The later generates a VNHandle instead of VNF_PtrToStatic
+            // and the handle can be recognized as being a static address but it lacks the
+            // field handle/sequence so we can't do much with it. Ideally CNS_INT would also
+            // generate VNF_PtrToStatic but then CSE barfs because it expects constant VNs
+            // for constant nodes and VNF_PtrToStatic isn't a constant.
+            // In the case of STRUCT static fields, CLS_VAR_ADDR is rare, the C# compiler
+            // seems to prefer LDSFLDA-LDFLDA-LDFLD to LDSFLD-LDFLD-LDFLD and the importer
+            // always uses CNS_INT for LDSFLDA. Not good for testing. Moreover, VN doesn't
+            // seem to recognize CNS_INT on its own, it only recognizes it together with a
+            // subsequent STRUCT field access, which does not involve VNF_PtrToStatic.
+            // This is somewhat risky because no matter what the IR pattern is we should end
+            // up using the same field sequence in all cases, otherwise we may end up with
+            // loads not correctly seeing previously stored values.
+
+            valueVN = LoadStaticField(load, vnStore->FieldSeqVNToFieldSeq(funcApp[0]));
+        }
+        else if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) == VNF_PtrToArrElem)
+        {
+            valueVN = LoadArrayElem(load, funcApp);
+
+            // TODO-CQ: what to do here about exceptions? We don't have the array and index conservative
+            // values, so we don't have their exceptions. Maybe we should.
+            // TODO-MIKE-Fix: Actually we do have the liberal array and index and that's pretty much all
+            // that matters for exceptions. But then this is only relevant if range checks are disabled...
+        }
+        else if (FieldSeqNode* fieldSeq = IsFieldAddr(addr, &obj))
+        {
+            if (obj == nullptr)
+            {
+                valueVN = LoadStaticField(load, fieldSeq);
+            }
+            else
+            {
+                valueVN = LoadObjField(load, vnStore->ExtractValue(obj->GetLiberalVN()), fieldSeq);
+            }
+        }
+        else
+        {
+            valueVN = LoadMemory(load->GetType(), addrVNP.GetLiberal());
+        }
+
+        vnp = {valueVN, conservativeVN};
     }
 
-    load->SetVNP(vnStore->PackExset({valueVN, conservativeVN}, addrExcVNP));
+    load->SetVNP(vnStore->PackExset(vnp, addrExset));
 }
 
 ValueNum ValueNumbering::StoreStaticField(GenTreeIndir* store, FieldSeqNode* fieldSeq, GenTree* value)
@@ -7549,8 +7505,15 @@ void ValueNumbering::SummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySu
 {
     switch (node->GetOper())
     {
-        case GT_ASG:
-            SummarizeLoopAssignmentMemoryStores(node->AsOp(), summary);
+        case GT_STOREIND:
+        case GT_STORE_OBJ:
+        case GT_STORE_BLK:
+            SummarizeLoopIndirMemoryStores(node->AsIndir(), summary);
+            break;
+
+        case GT_STORE_LCL_VAR:
+        case GT_STORE_LCL_FLD:
+            SummarizeLoopLocalMemoryStores(node->AsLclVarCommon(), summary);
             break;
 
         case GT_LCL_DEF:
@@ -7678,17 +7641,11 @@ void ValueNumbering::NumberNode(GenTree* node)
             break;
 
         case GT_LCL_VAR:
-            if ((node->gtFlags & GTF_VAR_DEF) == 0)
-            {
-                NumberLclLoad(node->AsLclVar());
-            }
+            NumberLclLoad(node->AsLclVar());
             break;
 
         case GT_LCL_FLD:
-            if ((node->gtFlags & GTF_VAR_DEF) == 0)
-            {
-                NumberLclFldLoad(node->AsLclFld());
-            }
+            NumberLclFldLoad(node->AsLclFld());
             break;
 
         case GT_LCL_DEF:
@@ -7724,6 +7681,7 @@ void ValueNumbering::NumberNode(GenTree* node)
 
         case GT_COPY_BLK:
         case GT_INIT_BLK:
+            // TODO-MIKE-Review: These are missing exceptions, both from operands and NullRefException as well.
             ClearMemory(node DEBUGARG("dynamic sized init/copy block"));
             FALLTHROUGH;
         case GT_ARGPLACE:
@@ -7734,22 +7692,22 @@ void ValueNumbering::NumberNode(GenTree* node)
             node->SetVNP(ValueNumStore::VoidVNP());
             break;
 
-        case GT_ASG:
-            NumberAssignment(node->AsOp());
+        case GT_STOREIND:
+        case GT_STORE_OBJ:
+        case GT_STORE_BLK:
+            NumberIndirStore(node->AsIndir());
+            break;
+        case GT_STORE_LCL_VAR:
+            NumberLclStore(node->AsLclVar());
+            break;
+        case GT_STORE_LCL_FLD:
+            NumberLclFldStore(node->AsLclFld());
             break;
 
         case GT_IND:
         case GT_OBJ:
         case GT_BLK:
-            if ((node->gtFlags & GTF_IND_ASG_LHS) == 0)
-            {
-                NumberIndirLoad(node->AsIndir());
-
-                if (node->OperMayThrow(compiler))
-                {
-                    AddNullRefExset(node, node->AsIndir()->GetAddr());
-                }
-            }
+            NumberIndirLoad(node->AsIndir());
             break;
 
         case GT_CAST:

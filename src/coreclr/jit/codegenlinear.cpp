@@ -654,10 +654,11 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
     LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
 
     assert(lcl->IsRegCandidate());
+    assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
     assert(lclVar->IsRegSpill(0));
 
     // We don't actually need to spill if it is already living in memory
-    bool needsSpill = ((lclVar->gtFlags & GTF_VAR_DEF) == 0) && (lcl->GetRegNum() != REG_STK);
+    bool needsSpill = lclVar->OperIs(GT_LCL_VAR) && (lcl->GetRegNum() != REG_STK);
 
     if (needsSpill)
     {
@@ -699,7 +700,7 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
     {
         // We only have SPILL and SPILLED on a def of a write-thru lclVar
         // or a single-def var that is to be spilled at its definition.
-        assert(lcl->IsAlwaysAliveInMemory() && ((lclVar->gtFlags & GTF_VAR_DEF) != 0));
+        assert(lcl->IsAlwaysAliveInMemory() && lclVar->OperIs(GT_STORE_LCL_VAR));
     }
 
 #ifdef USING_VARIABLE_LIVE_RANGE

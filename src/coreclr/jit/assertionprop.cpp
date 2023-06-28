@@ -1236,10 +1236,13 @@ private:
                 assertionInfo = GenerateBoundsChkAssertion(node->AsBoundsChk());
                 break;
 
+            case GT_STORE_BLK:
+            case GT_STORE_OBJ:
             case GT_BLK:
             case GT_OBJ:
                 assert(node->AsBlk()->GetLayout()->GetSize() != 0);
                 FALLTHROUGH;
+            case GT_STOREIND:
             case GT_IND:
             case GT_NULLCHECK:
                 assertionInfo = CreateNotNullAssertion(node->AsIndir()->GetAddr());
@@ -1465,7 +1468,7 @@ private:
         return nullptr;
     }
 
-    GenTree* PropagateLclVarUse(const ASSERT_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
+    GenTree* PropagateLclLoad(const ASSERT_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
     {
         assert(lclVar->OperIs(GT_LCL_VAR) && ((lclVar->gtFlags & GTF_VAR_DEF) == 0));
 
@@ -1509,7 +1512,7 @@ private:
         return PropagateLclVarConst(*assertion, lclVar, stmt);
     }
 
-    GenTree* PropagateSsaUse(const ASSERT_TP assertions, GenTreeLclUse* use, Statement* stmt)
+    GenTree* PropagateLclUse(const ASSERT_TP assertions, GenTreeLclUse* use, Statement* stmt)
     {
         unsigned   lclNum = use->GetDef()->GetLclNum();
         LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
@@ -2337,17 +2340,20 @@ private:
         switch (node->GetOper())
         {
             case GT_LCL_VAR:
-                if ((node->gtFlags & (GTF_VAR_DEF | GTF_DONT_CSE)) != 0)
+                if ((node->gtFlags & GTF_DONT_CSE) != 0)
                 {
                     return nullptr;
                 }
-                return PropagateLclVarUse(assertions, node->AsLclVar(), stmt);
+                return PropagateLclLoad(assertions, node->AsLclVar(), stmt);
             case GT_LCL_USE:
                 if ((node->gtFlags & GTF_DONT_CSE) != 0)
                 {
                     return nullptr;
                 }
-                return PropagateSsaUse(assertions, node->AsLclUse(), stmt);
+                return PropagateLclUse(assertions, node->AsLclUse(), stmt);
+            case GT_STOREIND:
+            case GT_STORE_OBJ:
+            case GT_STORE_BLK:
             case GT_OBJ:
             case GT_BLK:
             case GT_IND:
@@ -3141,26 +3147,35 @@ private:
                 // can be done when the struct fits in a register. Otherwise we may
                 // need a STRUCT typed constant node instead of abusing GT_CNS_INT.
 
-                if ((user != nullptr) &&
-                    ((user->OperIs(GT_ASG) && (user->AsOp()->GetOp(1) == tree)) || user->IsInsert()) &&
-                    ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
+                if ((user != nullptr) && ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
                     (m_vnStore->ExtractValue(tree->GetConservativeVN()) == m_vnStore->ZeroMapVN()))
                 {
-                    if (user->OperIs(GT_ASG))
+                    if (user->OperIs(GT_STORE_OBJ, GT_STORE_BLK))
                     {
-                        user->AsOp()->SetOp(1, m_compiler->gtNewIconNode(0));
+                        assert(user->AsIndir()->GetValue() == tree);
+                        user->AsIndir()->SetValue(m_compiler->gtNewIconNode(0));
+                        m_stmtMorphPending = true;
                     }
-                    else if (user->AsInsert()->GetStructValue() == tree)
+                    else if (user->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
                     {
-                        user->AsInsert()->SetStructValue(m_compiler->gtNewIconNode(0));
+                        assert(user->AsLclVarCommon()->GetOp(0) == tree);
+                        user->AsOp()->SetOp(0, m_compiler->gtNewIconNode(0));
+                        m_stmtMorphPending = true;
                     }
-                    else
+                    else if (GenTreeInsert* insert = user->IsInsert())
                     {
-                        assert(user->AsInsert()->GetFieldValue() == tree);
-                        user->AsInsert()->SetFieldValue(m_compiler->gtNewIconNode(0));
+                        if (user->AsInsert()->GetStructValue() == tree)
+                        {
+                            user->AsInsert()->SetStructValue(m_compiler->gtNewIconNode(0));
+                            m_stmtMorphPending = true;
+                        }
+                        else
+                        {
+                            assert(user->AsInsert()->GetFieldValue() == tree);
+                            user->AsInsert()->SetFieldValue(m_compiler->gtNewIconNode(0));
+                            m_stmtMorphPending = true;
+                        }
                     }
-
-                    m_stmtMorphPending = true;
                 }
 
                 return Compiler::WALK_CONTINUE;
@@ -3178,7 +3193,7 @@ private:
                     // isn't always an improvement - we simply end up with more XORPS instructions.
                     // Still, there's at least on special case where propagation helps, SIMD12
                     // memory stores. If codegen sees that the stored value is 0 then it can
-                    // omit the shuffling required to exract the upper SIMD12 element. We can
+                    // omit the shuffling required to extract the upper SIMD12 element. We can
                     // still end up with an extra XORPS if we propagate but that's better than
                     // unnecessary shuffling.
                     // Note that this pattern tends to arise due to the use of `default` to get a
@@ -3191,11 +3206,20 @@ private:
                     // with constant operands or get_AllBitsSet) but it's not clear how useful
                     // would that be.
 
-                    if ((user != nullptr) && user->OperIs(GT_ASG) && (user->AsOp()->GetOp(1) == tree) &&
-                        user->AsOp()->GetOp(0)->OperIs(GT_IND, GT_OBJ, GT_LCL_FLD) &&
-                        user->AsOp()->GetOp(0)->TypeIs(TYP_SIMD12) && ((tree->gtFlags & GTF_SIDE_EFFECT) == 0))
+                    if ((user != nullptr) && ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
+                        user->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_LCL_FLD) && user->TypeIs(TYP_SIMD12))
                     {
-                        user->AsOp()->SetOp(1, m_compiler->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD12, TYP_FLOAT));
+                        GenTree* zero = m_compiler->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD12, TYP_FLOAT);
+
+                        if (user->OperIs(GT_STORE_LCL_FLD))
+                        {
+                            user->AsLclVarCommon()->SetOp(0, zero);
+                        }
+                        else
+                        {
+                            user->AsIndir()->SetValue(zero);
+                        }
+
                         m_stmtMorphPending = true;
                     }
                 }
@@ -3219,17 +3243,11 @@ private:
             switch (tree->GetOper())
             {
                 case GT_LCL_VAR:
-                    if ((tree->gtFlags & GTF_VAR_DEF) != 0)
-                    {
-                        return Compiler::WALK_CONTINUE;
-                    }
-
                     // Don't undo constant CSEs.
                     if (m_compiler->lvaGetDesc(tree->AsLclVar())->lvIsCSE)
                     {
                         return Compiler::WALK_CONTINUE;
                     }
-
                     break;
 
                 case GT_LCL_USE:

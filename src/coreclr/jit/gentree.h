@@ -375,6 +375,8 @@ enum GenTreeFlags : unsigned
     GTF_USE_FLAGS             = 0x00004000, // Generated instruction uses the condition flags
     GTF_COMMON_MASK           = 0x0000FFFF, // Mask of all the flags above
 
+    GTF_SPECIFIC_MASK         = 0xFFFF0000, // Mask of all the flags below
+
     // LCL_VAR & co. specific flags
                               
     GTF_VAR_DEF               = 0x80000000, // Definition of a local (LCL_VAR|FLD ASG LHS or STORE_LCL_VAR|FLD)
@@ -386,7 +388,7 @@ enum GenTreeFlags : unsigned
     GTF_VAR_MULTIREG          = 0x02000000, // Struct or (on 32-bit platforms) LONG local store with a multireg source
                                             // (CALLs and some LONG operations on 32 bit - MUL_LONG, BITCAST)
                                             // returns its result in multiple registers such as a long multiply)
-    GTF_VAR_CLONED            = 0x00400000, // Node has been cloned (used by inlined to detect single use params)
+    GTF_VAR_CLONED            = 0x00400000, // Node has been cloned (used by inliner to detect single use params)
     GTF_VAR_CONTEXT           = 0x00200000, // Node is part of a runtime lookup tree (LCL_VAR)
                               
     // CALL specific flags
@@ -1623,11 +1625,11 @@ public:
     // Returns true if it is a GT_COPY or GT_RELOAD of a multi-reg call node
     inline bool IsCopyOrReloadOfMultiRegCall() const;
 
-    bool OperRequiresAsgFlag();
+    bool OperRequiresAsgFlag() const;
 
-    bool OperRequiresCallFlag(Compiler* comp);
+    bool OperRequiresCallFlag(Compiler* comp) const;
 
-    bool OperMayThrow(Compiler* comp);
+    bool OperMayThrow(Compiler* comp) const;
 
     size_t GetNodeSize() const;
 
@@ -5312,7 +5314,7 @@ public:
     {
     }
 
-    NamedIntrinsic GetIntrinsic()
+    NamedIntrinsic GetIntrinsic() const
     {
         return m_intrinsicName;
     }
@@ -7506,71 +7508,25 @@ inline GenTree* GenTree::gtGetOp1() const
 }
 
 #ifdef DEBUG
-/* static */
 inline bool GenTree::RequiresNonNullOp2(genTreeOps oper)
 {
-    switch (oper)
-    {
-        case GT_FADD:
-        case GT_FSUB:
-        case GT_FMUL:
-        case GT_FDIV:
-        case GT_FMOD:
-        case GT_ADD:
-        case GT_SUB:
-        case GT_MUL:
-        case GT_DIV:
-        case GT_MOD:
-        case GT_UDIV:
-        case GT_UMOD:
-        case GT_OR:
-        case GT_XOR:
-        case GT_AND:
-        case GT_LSH:
-        case GT_RSH:
-        case GT_RSZ:
-        case GT_ROL:
-        case GT_ROR:
-        case GT_INDEX_ADDR:
-        case GT_ASG:
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GE:
-        case GT_GT:
-        case GT_COMMA:
-        case GT_MKREFANY:
-            return true;
-        default:
-            return false;
-    }
+    return GenTree::OperIsBinary(oper) && (oper != GT_LEA) && (oper != GT_INTRINSIC);
 }
-#endif // DEBUG
+#endif
 
 inline GenTree* GenTree::gtGetOp2() const
 {
     assert(OperIsBinary());
 
     GenTree* op2 = AsOp()->gtOp2;
-
-    // Only allow null op2 if the node type allows it, e.g. GT_LEA.
     assert((op2 != nullptr) || !RequiresNonNullOp2(gtOper));
-
     return op2;
 }
 
 inline GenTree* GenTree::gtGetOp2IfPresent() const
 {
-    /* AsOp()->gtOp2 is only valid for GTK_BINOP nodes. */
-
     GenTree* op2 = OperIsBinary() ? AsOp()->gtOp2 : nullptr;
-
-    // This documents the genTreeOps for which AsOp()->gtOp2 cannot be nullptr.
-    // This helps prefix in its analysis of code which calls gtGetOp2()
-
     assert((op2 != nullptr) || !RequiresNonNullOp2(gtOper));
-
     return op2;
 }
 

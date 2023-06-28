@@ -511,16 +511,9 @@ private:
 
         if ((node->gtFlags & GTF_ASG) != 0)
         {
-            if (node->OperIs(GT_ASG))
+            if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
             {
-                GenTree* dst = node->AsOp()->GetOp(0);
-
-                if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-                {
-                    return CanMoveNullCheckPastLclStore(dst->AsLclVarCommon(), isInsideTry);
-                }
-
-                return false;
+                return CanMoveNullCheckPastLclStore(node->AsLclVarCommon(), isInsideTry);
             }
 
             if (GenTreeLclDef* def = node->IsLclDef())
@@ -543,21 +536,14 @@ private:
 
         assert((node->gtFlags & GTF_ASG) != 0);
 
-        if (node->OperIs(GT_ASG))
+        if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
         {
-            if ((node->AsOp()->GetOp(1)->gtFlags & GTF_ASG) != 0)
+            if ((node->AsLclVarCommon()->GetOp(0)->gtFlags & GTF_ASG) != 0)
             {
                 return false;
             }
 
-            GenTree* dst = node->AsOp()->GetOp(0);
-
-            if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-            {
-                return CanMoveNullCheckPastLclStore(dst->AsLclVarCommon(), isInsideTry);
-            }
-
-            return false;
+            return CanMoveNullCheckPastLclStore(node->AsLclVarCommon(), isInsideTry);
         }
 
         if (GenTreeLclDef* def = node->IsLclDef())
@@ -575,6 +561,7 @@ private:
 
     bool CanMoveNullCheckPastLclStore(GenTreeLclVarCommon* store, bool isInsideTry)
     {
+        assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
         LclVarDsc* lcl = compiler->lvaGetDesc(store);
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)

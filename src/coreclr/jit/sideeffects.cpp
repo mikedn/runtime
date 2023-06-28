@@ -138,6 +138,8 @@ AliasSet::AliasSet()
 AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
     : m_compiler(compiler), m_node(node), m_flags(0), m_lclNum(0)
 {
+    assert(!node->OperIs(GT_ASG));
+
     if (node->IsCall())
     {
         // Calls are treated as reads and writes of addressable locations unless they are known to be pure.
@@ -157,32 +159,20 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
         return;
     }
 
-    // Is the operation a write? If so, set `node` to the location that is being written to.
-    bool isWrite = false;
-    if (node->OperIs(GT_ASG))
-    {
-        isWrite = true;
-        node    = node->gtGetOp1();
-    }
-    else if (node->OperIsStore())
-    {
-        isWrite = true;
-    }
-
     // `node` is the location being accessed. Determine whether or not it is a memory or local variable access, and if
     // it is the latter, get the number of the lclVar.
     bool     isMemoryAccess = false;
     bool     isLclVarAccess = false;
     unsigned lclNum         = 0;
-    if (node->OperIsIndir())
+
+    if (GenTreeIndir* indir = node->IsIndir())
     {
         // If the indirection targets a lclVar, we can be more precise with regards to aliasing by treating the
         // indirection as a lclVar access.
-        GenTree* address = node->AsIndir()->GetAddr();
-        if (address->OperIs(GT_LCL_ADDR))
+        if (GenTreeLclAddr* lclAddr = indir->GetAddr()->IsLclAddr())
         {
             isLclVarAccess = true;
-            lclNum         = address->AsLclAddr()->GetLclNum();
+            lclNum         = lclAddr->GetLclNum();
         }
         else
         {
@@ -211,7 +201,8 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
     // memory or a lclVar, determine whther or not the location is addressable and udpate the alias set.
     const bool isAddressableLocation = isMemoryAccess || compiler->lvaTable[lclNum].lvAddrExposed;
 
-    if (!isWrite)
+    // TODO-MIKE-Review: Is this missing HWINTRINSIC stores?
+    if (!node->OperIsStore())
     {
         if (isAddressableLocation)
         {

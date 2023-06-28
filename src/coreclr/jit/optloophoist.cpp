@@ -105,7 +105,7 @@ void LoopHoist::HoistExpr(GenTree* expr, unsigned loopNum)
                 expr->GetID(), loopNum, loopTable[loopNum].lpFirst->bbNum, loopTable[loopNum].lpBottom->bbNum);
     JITDUMP("\n");
 
-    assert(!expr->OperIs(GT_ASG, GT_LCL_DEF, GT_STORE_LCL_VAR));
+    assert(!expr->OperIs(GT_LCL_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
 
     // Create a copy of the expression and mark it for CSE's.
     GenTree* hoistExpr = compiler->gtCloneExpr(expr, GTF_MAKE_CSE);
@@ -874,21 +874,24 @@ public:
                     }
                 }
             }
-            else if (tree->OperIs(GT_ASG))
+            else if (tree->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK))
             {
-                GenTree* dst = tree->AsOp()->GetOp(0);
+                m_beforeSideEffect = false;
+            }
+            else if (tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+            {
+                LclVarDsc* lcl = m_compiler->lvaGetDesc(tree->AsLclVarCommon());
 
-                if (dst->HasAnySideEffect(GTF_GLOB_REF)
+                if (lcl->IsAddressExposed()
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-                    && (!dst->OperIs(GT_LCL_FLD, GT_LCL_VAR) ||
-                        !m_compiler->lvaGetDesc(dst->AsLclVarCommon())->lvIsImplicitByRefArgTemp)
+                    && !lcl->lvIsImplicitByRefArgTemp
 #endif
-                        )
+                    )
                 {
                     m_beforeSideEffect = false;
                 }
             }
-            else if (tree->OperIs(GT_XADD, GT_XORR, GT_XAND, GT_XCHG, GT_LOCKADD, GT_CMPXCHG, GT_MEMORYBARRIER))
+            else if (tree->OperIsAtomicOp() || tree->OperIs(GT_MEMORYBARRIER))
             {
                 // If this node is a MEMORYBARRIER or an Atomic operation
                 // then don't hoist and stop any further hoisting after this node
