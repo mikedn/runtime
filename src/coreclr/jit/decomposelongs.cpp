@@ -537,14 +537,13 @@ GenTree* DecomposeLongs::DecomposeStoreLclFld(LIR::Use& use)
 GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
 {
     assert(use.IsInitialized());
-    assert(use.Def()->OperGet() == GT_CAST);
 
-    GenTree* cast     = use.Def()->AsCast();
-    GenTree* loResult = nullptr;
-    GenTree* hiResult = nullptr;
+    GenTreeCast* cast     = use.Def()->AsCast();
+    GenTree*     loResult = nullptr;
+    GenTree*     hiResult = nullptr;
 
-    var_types srcType = cast->CastFromType();
-    var_types dstType = cast->CastToType();
+    var_types srcType = cast->GetOp(0)->GetType();
+    var_types dstType = cast->GetCastType();
 
     if ((cast->gtFlags & GTF_UNSIGNED) != 0)
     {
@@ -1780,15 +1779,15 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
 //    Because "nextNode" usually is "cast", and this method may remove "cast"
 //    from the linear order, it needs to return the updated "nextNode". Instead
 //    of receiving it as an argument, it could assume that "nextNode" is always
-//    "cast->CastOp()->gtNext", but not making that assumption seems better.
+//    "cast->GetOp(0)->gtNext", but not making that assumption seems better.
 //
 GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTree* nextNode)
 {
-    GenTreeOp* src     = cast->CastOp()->AsOp();
-    var_types  dstType = cast->CastToType();
+    GenTreeOp* src     = cast->GetOp(0)->AsOp();
+    var_types  dstType = cast->GetCastType();
 
     assert(src->OperIs(GT_LONG));
-    assert(genActualType(dstType) == TYP_INT);
+    assert(varActualTypeIsInt(dstType));
 
     if (cast->gtOverflow())
     {
@@ -1822,7 +1821,7 @@ GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTr
     if (varTypeIsSmall(dstType))
     {
         JITDUMP("Cast is to a small type, keeping it, the new source is [%06u]\n", loSrc->gtTreeID);
-        cast->CastOp() = loSrc;
+        cast->SetOp(0, loSrc);
     }
     else
     {

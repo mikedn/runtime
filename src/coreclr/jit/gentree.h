@@ -1816,8 +1816,6 @@ public:
     bool gtOverflow() const;
     bool gtOverflowEx() const;
 
-    // cast operations
-    inline var_types  CastFromType();
     inline var_types& CastToType();
 
     bool IsPhiDef() const;
@@ -3636,10 +3634,6 @@ public:
 
 struct GenTreeCast : public GenTreeOp
 {
-    GenTree*& CastOp()
-    {
-        return gtOp1;
-    }
     var_types gtCastType;
 
     GenTreeCast(var_types type, GenTree* op, bool fromUnsigned, var_types castType DEBUGARG(bool largeNode = false))
@@ -3647,7 +3641,7 @@ struct GenTreeCast : public GenTreeOp
     {
         // We do not allow casts from floating point types to be treated as from
         // unsigned to avoid bugs related to wrong GTF_UNSIGNED in case the
-        // CastOp's type changes.
+        // operand's type changes.
         assert(!varTypeIsFloating(op) || !fromUnsigned);
 
         gtFlags |= fromUnsigned ? GTF_UNSIGNED : GTF_EMPTY;
@@ -7804,10 +7798,6 @@ inline bool GenTree::IsHelperCall()
     return OperGet() == GT_CALL && AsCall()->gtCallType == CT_HELPER;
 }
 
-inline var_types GenTree::CastFromType()
-{
-    return this->AsCast()->CastOp()->TypeGet();
-}
 inline var_types& GenTree::CastToType()
 {
     return this->AsCast()->gtCastType;

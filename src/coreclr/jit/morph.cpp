@@ -11213,13 +11213,12 @@ DONE_MORPHING_CHILDREN:
             {
                 /* Another interesting case: cast from int */
 
-                if (op1->gtOper == GT_CAST && op1->CastFromType() == TYP_INT &&
-                    !op1->gtOverflow()) // cannot be an overflow checking cast
+                if (op1->IsCast() && op1->AsCast()->GetOp(0)->TypeIs(TYP_INT) && !op1->gtOverflow())
                 {
                     /* Simply make this into an integer comparison */
 
-                    tree->AsOp()->gtOp1 = op1->AsCast()->CastOp();
-                    tree->AsOp()->gtOp2 = gtNewIconNode((int)cns2->AsIntConCommon()->LngValue(), TYP_INT);
+                    tree->AsOp()->SetOp(0, op1->AsCast()->GetOp(0));
+                    tree->AsOp()->SetOp(1, gtNewIconNode((int)cns2->AsIntConCommon()->LngValue(), TYP_INT));
                 }
 
                 noway_assert(tree->OperIsCompare());

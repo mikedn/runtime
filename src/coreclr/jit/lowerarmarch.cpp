@@ -567,7 +567,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
         // lowering? And if that does happen then how can the cast be removed without
         // checking anything? Overflow, cast from float, widening cast?!?!?!
 
-        castOp = op1->AsCast()->CastOp();
+        castOp = op1->AsCast()->GetOp(0);
         op1    = castOp;
     }
 
