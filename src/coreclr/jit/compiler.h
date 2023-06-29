@@ -4814,7 +4814,6 @@ private:
     GenTree* fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* value);
     GenTree* fgExpandVirtualVtableCallTarget(GenTreeCall* call);
     GenTree* fgMorphLeaf(GenTree* tree);
-    void gtAssignSetVarDef(GenTreeLclVarCommon* dst);
     GenTree* fgMorphInitStruct(GenTreeOp* asg);
     GenTree* fgMorphPromoteLocalInitStruct(GenTreeOp* asg, LclVarDsc* destLclVar, GenTree* initVal);
     GenTree* fgMorphInitStructConstant(GenTreeIntCon* initVal,

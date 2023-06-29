@@ -10070,19 +10070,32 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         int helper;
 
         case GT_ASG:
-            if (fgGlobalMorph && op1->OperIs(GT_LCL_VAR))
+            // Ensure that the destination tree has all the necessary flags before it is morphed,
+            // gtNewAssignNode should have set these flags but there may be bozo code that uses
+            // gtNewOperNode, or SetOper and doesn't update the flags as needed.
+            // We also need to add the small int local "normalization" cast so it is morphed too.
+            if (op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
-            }
+                op1->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
 
-            if (GenTreeLclVarCommon* lclVar = op1->SkipComma()->IsLclVarCommon())
+                if (op1->OperIs(GT_LCL_VAR))
+                {
+                    if (fgGlobalMorph)
+                    {
+                        op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
+                    }
+                }
+                else if (op1->IsPartialLclFld(this))
+                {
+                    op1->gtFlags |= GTF_VAR_USEASG;
+                }
+            }
+            else
             {
-                lclVar->gtFlags |= GTF_VAR_DEF;
-            }
+                assert(op1->OperIs(GT_IND, GT_OBJ, GT_BLK));
 
-            assert(!op1->OperIsHWIntrinsic());
-            // op1 of a ASG is an l-value. Only r-values can be CSEed
-            op1->gtFlags |= GTF_DONT_CSE;
+                op1->gtFlags |= GTF_IND_ASG_LHS | GTF_DONT_CSE;
+            }
             break;
 
         case GT_JTRUE:
@@ -10123,6 +10136,12 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 tree->AsLclFld()->SetOp(0, op2);
                 tree->SetSideEffects(GTF_ASG | GTF_GLOB_REF | op2->GetSideEffects());
                 tree->gtFlags &= ~GTF_REVERSE_OPS;
+                tree->gtFlags |= GTF_VAR_DEF;
+
+                if (tree->IsPartialLclFld(this))
+                {
+                    tree->gtFlags |= GTF_VAR_USEASG;
+                }
 
                 oper = GT_STORE_LCL_FLD;
                 op1  = op2;
@@ -10139,6 +10158,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_OBJ:
             if (op1->OperIs(GT_LCL_ADDR) && !tree->AsIndir()->IsVolatile())
             {
+                bool         isDef  = (tree->gtFlags & GTF_IND_ASG_LHS) != 0;
                 ClassLayout* layout = tree->IsObj() ? tree->AsObj()->GetLayout() : nullptr;
 
                 // Just change it to a LCL_FLD. Since these locals are already address exposed
@@ -10151,6 +10171,16 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 tree->AsLclFld()->SetLclNum(op1->AsLclAddr()->GetLclNum());
                 tree->AsLclFld()->SetLclOffs(op1->AsLclAddr()->GetLclOffs());
                 tree->AsLclFld()->SetLayout(layout, this);
+
+                if (isDef)
+                {
+                    tree->gtFlags |= GTF_VAR_DEF;
+
+                    if (tree->IsPartialLclFld(this))
+                    {
+                        tree->gtFlags |= GTF_VAR_USEASG;
+                    }
+                }
 
                 return tree;
             }
@@ -10795,16 +10825,6 @@ DONE_MORPHING_CHILDREN:
         case GT_ASG:
             dst = op1->SkipComma();
 
-            if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-            {
-                gtAssignSetVarDef(dst->AsLclVarCommon());
-            }
-            else
-            {
-                assert(dst->OperIs(GT_IND, GT_OBJ, GT_BLK));
-                dst->gtFlags |= GTF_IND_ASG_LHS | GTF_DONT_CSE;
-            }
-
             // If we are storing a small type, we might be able to omit a cast.
             // We may also omit a cast when storing to a "normalize on load"
             // local since we know that a load from that local has to cast anyway.
@@ -10832,7 +10852,47 @@ DONE_MORPHING_CHILDREN:
                 return fgMorphStructAssignment(tree->AsOp());
             }
 
-            break;
+            if (typ == TYP_LONG)
+            {
+                return tree;
+            }
+
+            if (op2->gtFlags & GTF_ASG)
+            {
+                return tree;
+            }
+
+            if ((op2->gtFlags & GTF_CALL) && (op1->gtFlags & GTF_ALL_EFFECT))
+            {
+                return tree;
+            }
+
+            /* Special case: a cast that can be thrown away */
+
+            // TODO-Cleanup: fgMorphSmp does a similar optimization. However, it removes only
+            // one cast and sometimes there is another one after it that gets removed by this
+            // code. fgMorphSmp should be improved to remove all redundant casts so this code
+            // can be removed.
+
+            if (op1->gtOper == GT_IND && op2->gtOper == GT_CAST && !op2->gtOverflow())
+            {
+                var_types srct;
+                var_types cast;
+                var_types dstt;
+
+                srct = op2->AsCast()->CastOp()->TypeGet();
+                cast = (var_types)op2->CastToType();
+                dstt = op1->TypeGet();
+
+                /* Make sure these are all ints and precision is not lost */
+
+                if (genTypeSize(cast) >= genTypeSize(dstt) && dstt <= TYP_INT && srct <= TYP_INT)
+                {
+                    op2 = tree->AsOp()->gtOp2 = op2->AsCast()->CastOp();
+                }
+            }
+
+            return tree;
 
         case GT_RETURN:
             if (varTypeIsStruct(tree->GetType()))
@@ -12419,49 +12479,6 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
     // Perform optional oper-specific postorder morphing
     switch (oper)
     {
-        case GT_ASG:
-            if (typ == TYP_LONG)
-            {
-                break;
-            }
-
-            if (op2->gtFlags & GTF_ASG)
-            {
-                break;
-            }
-
-            if ((op2->gtFlags & GTF_CALL) && (op1->gtFlags & GTF_ALL_EFFECT))
-            {
-                break;
-            }
-
-            /* Special case: a cast that can be thrown away */
-
-            // TODO-Cleanup: fgMorphSmp does a similar optimization. However, it removes only
-            // one cast and sometimes there is another one after it that gets removed by this
-            // code. fgMorphSmp should be improved to remove all redundant casts so this code
-            // can be removed.
-
-            if (op1->gtOper == GT_IND && op2->gtOper == GT_CAST && !op2->gtOverflow())
-            {
-                var_types srct;
-                var_types cast;
-                var_types dstt;
-
-                srct = op2->AsCast()->CastOp()->TypeGet();
-                cast = (var_types)op2->CastToType();
-                dstt = op1->TypeGet();
-
-                /* Make sure these are all ints and precision is not lost */
-
-                if (genTypeSize(cast) >= genTypeSize(dstt) && dstt <= TYP_INT && srct <= TYP_INT)
-                {
-                    op2 = tree->gtOp2 = op2->AsCast()->CastOp();
-                }
-            }
-
-            break;
-
         case GT_MUL:
 
             /* Check for the case "(val + icon) * icon" */
