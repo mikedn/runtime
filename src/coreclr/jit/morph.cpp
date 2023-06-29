@@ -10846,6 +10846,14 @@ DONE_MORPHING_CHILDREN:
 
             return tree;
 
+        case GT_INIT_VAL:
+            if (op1->IsIntegralConst(0))
+            {
+                tree = op1;
+            }
+
+            return tree;
+
         case GT_RETURN:
             if (varTypeIsStruct(tree->GetType()))
             {
@@ -12001,11 +12009,13 @@ DONE_MORPHING_CHILDREN:
     // the exception throwing parts. But we cannot remove assignments as that will mess
     // up call arg setup, which expects an assignment tree and doesn't know that the
     // tree will always throw an exception. Likewise, we cannot remove indirections as
-    // they could be assignment destinations.
+    // they could be assignment destinations. We cannot remove INIT_VAL either since it
+    // can be the source of an BLK assignment source, which does not expect the throwing
+    // COMMA thing.
     // TODO-MIKE-Review: Why bother do anything here to begin with? Can't we just set
     // fgRemoveRestOfBlock and have fgMorphTree callers deal with it?
     if ((oper != GT_ASG) && (oper != GT_LCL_DEF) && (oper != GT_STORE_LCL_VAR) && (oper != GT_IND) &&
-        (oper != GT_OBJ) && (oper != GT_BLK))
+        (oper != GT_OBJ) && (oper != GT_BLK) && (oper != GT_INIT_VAL))
     {
         /* Check for op1 as a GT_COMMA with a unconditional throw node */
         if (op1 && fgIsCommaThrow(op1, true))
@@ -12539,16 +12549,6 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
                 gtReverseRelop(op1->AsOp());
                 DEBUG_DESTROY_NODE(op2);
                 DEBUG_DESTROY_NODE(tree);
-                return op1;
-            }
-            break;
-
-        case GT_INIT_VAL:
-            // Initialization values for initBlk have special semantics - their lower
-            // byte is used to fill the struct. However, we allow 0 as a "bare" value,
-            // which enables them to get a VNForZero, and be propagated.
-            if (op1->IsIntegralConst(0))
-            {
                 return op1;
             }
             break;
