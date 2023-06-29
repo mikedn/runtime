@@ -8428,15 +8428,6 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
     assert(varTypeIsStruct(dest->GetType()));
     assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
 
-    if (dest->OperIs(GT_COMMA))
-    {
-        dest = fgMorphStructComma(dest);
-        asg->SetOp(0, dest);
-        asg->SetType(dest->GetType());
-
-        JITDUMPTREE(asg, "fgMorphInitStruct (after fgMorphStructComma):\n");
-    }
-
     unsigned             destSize     = 0;
     GenTreeLclVarCommon* destLclNode  = nullptr;
     unsigned             destLclNum   = BAD_VAR_NUM;
@@ -8458,13 +8449,13 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
             }
             else
             {
-                destSize = genTypeSize(destLclVar->GetType());
+                destSize = varTypeSize(destLclVar->GetType());
             }
         }
         else
         {
             destSize =
-                dest->TypeIs(TYP_STRUCT) ? dest->AsLclFld()->GetLayout(this)->GetSize() : genTypeSize(dest->GetType());
+                dest->TypeIs(TYP_STRUCT) ? dest->AsLclFld()->GetLayout(this)->GetSize() : varTypeSize(dest->GetType());
             destLclOffs  = dest->AsLclFld()->GetLclOffs();
             destFieldSeq = dest->AsLclFld()->GetFieldSeq();
         }
@@ -9241,12 +9232,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             asg->SetOp(1, src);
         }
 #endif
-    }
-
-    if (dest->OperIs(GT_COMMA))
-    {
-        dest = fgMorphStructComma(dest);
-        asg->SetOp(0, dest);
     }
 
     if (src->OperIs(GT_COMMA))
