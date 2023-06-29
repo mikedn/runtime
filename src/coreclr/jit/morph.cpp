@@ -8917,11 +8917,6 @@ GenTree* Compiler::fgMorphStructAssignment(GenTreeOp* asg)
     assert(asg->OperIs(GT_ASG));
     assert(varTypeIsStruct(asg->GetOp(0)->GetType()));
 
-    if (asg->GetOp(0)->OperIs(GT_BLK))
-    {
-        return fgMorphBlockAssignment(asg);
-    }
-
     if (asg->GetOp(1)->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
         return fgMorphInitStruct(asg);
@@ -10804,6 +10799,11 @@ DONE_MORPHING_CHILDREN:
         size_t   ival1, ival2;
 
         case GT_ASG:
+            if (op1->OperIs(GT_BLK))
+            {
+                return fgMorphBlockAssignment(tree->AsOp());
+            }
+
             if (varTypeIsStruct(op1->GetType()))
             {
                 return fgMorphStructAssignment(tree->AsOp());
