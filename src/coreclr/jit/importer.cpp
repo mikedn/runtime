@@ -16384,7 +16384,7 @@ void Importer::impImportInitBlk(unsigned prefixFlags)
 
         if (!initValue->IsIntegralConst(0))
         {
-            initValue = gtNewOperNode(GT_INIT_VAL, TYP_INT, initValue);
+            initValue = gtNewOperNode(GT_INIT_VAL, TYP_STRUCT, initValue);
         }
 
         init = gtNewAssignNode(dst, initValue);
