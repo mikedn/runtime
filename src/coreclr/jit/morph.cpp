@@ -10846,16 +10846,6 @@ DONE_MORPHING_CHILDREN:
                 }
             }
 
-            if (op2->HasAnySideEffect(GTF_ASG))
-            {
-                return tree;
-            }
-
-            if (op2->HasAnySideEffect(GTF_CALL) && op1->HasAnySideEffect(GTF_ALL_EFFECT))
-            {
-                return tree;
-            }
-
             if (op1->OperIs(GT_IND) && op2->IsCast() && !op2->gtOverflow())
             {
                 var_types valueType = op2->AsCast()->GetOp(0)->GetType();
