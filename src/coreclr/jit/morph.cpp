@@ -10817,78 +10817,55 @@ DONE_MORPHING_CHILDREN:
     // Perform the required oper-specific postorder morphing
     switch (oper)
     {
-        GenTree* dst;
         GenTree* cns1;
         GenTree* cns2;
         size_t   ival1, ival2;
 
         case GT_ASG:
-            dst = op1->SkipComma();
-
-            // If we are storing a small type, we might be able to omit a cast.
-            // We may also omit a cast when storing to a "normalize on load"
-            // local since we know that a load from that local has to cast anyway.
-            if (varTypeIsSmall(dst->GetType()) &&
-                (dst->OperIs(GT_IND, GT_LCL_FLD) ||
-                 (dst->OperIs(GT_LCL_VAR) && lvaGetDesc(dst->AsLclVar())->lvNormalizeOnLoad())))
-            {
-                if (op2->OperIs(GT_CAST) && varTypeIsIntegral(op2->AsCast()->CastOp()) && !op2->gtOverflow())
-                {
-                    var_types castType = op2->CastToType();
-
-                    // If we are performing a narrowing cast and
-                    // castType is larger or the same as op1's type
-                    // then we can discard the cast.
-
-                    if (varTypeIsSmall(castType) && (genTypeSize(castType) >= genTypeSize(dst)))
-                    {
-                        tree->AsOp()->gtOp2 = op2 = op2->AsCast()->CastOp();
-                    }
-                }
-            }
-
-            if (varTypeIsStruct(typ))
+            if (varTypeIsStruct(op1->GetType()))
             {
                 return fgMorphStructAssignment(tree->AsOp());
             }
 
-            if (typ == TYP_LONG)
+            // If we are storing a small type, we might be able to omit a cast.
+            // We may also omit a cast when storing to a "normalize on load"
+            // local since we know that a load from that local has to cast anyway.
+            if (varTypeIsSmall(op1->GetType()) &&
+                (op1->OperIs(GT_IND, GT_LCL_FLD) ||
+                 (op1->OperIs(GT_LCL_VAR) && lvaGetDesc(op1->AsLclVar())->lvNormalizeOnLoad())))
             {
-                return tree;
-            }
-
-            if (op2->gtFlags & GTF_ASG)
-            {
-                return tree;
-            }
-
-            if ((op2->gtFlags & GTF_CALL) && (op1->gtFlags & GTF_ALL_EFFECT))
-            {
-                return tree;
-            }
-
-            /* Special case: a cast that can be thrown away */
-
-            // TODO-Cleanup: fgMorphSmp does a similar optimization. However, it removes only
-            // one cast and sometimes there is another one after it that gets removed by this
-            // code. fgMorphSmp should be improved to remove all redundant casts so this code
-            // can be removed.
-
-            if (op1->gtOper == GT_IND && op2->gtOper == GT_CAST && !op2->gtOverflow())
-            {
-                var_types srct;
-                var_types cast;
-                var_types dstt;
-
-                srct = op2->AsCast()->CastOp()->TypeGet();
-                cast = (var_types)op2->CastToType();
-                dstt = op1->TypeGet();
-
-                /* Make sure these are all ints and precision is not lost */
-
-                if (genTypeSize(cast) >= genTypeSize(dstt) && dstt <= TYP_INT && srct <= TYP_INT)
+                if (op2->IsCast() && varTypeIsIntegral(op2->AsCast()->GetOp(0)) && !op2->gtOverflow())
                 {
-                    op2 = tree->AsOp()->gtOp2 = op2->AsCast()->CastOp();
+                    var_types castType = op2->AsCast()->GetCastType();
+
+                    if (varTypeIsSmall(castType) && (varTypeSize(castType) >= varTypeSize(op1->GetType())))
+                    {
+                        op2 = op2->AsCast()->GetOp(0);
+                        tree->AsOp()->SetOp(1, op2);
+                    }
+                }
+            }
+
+            if (op2->HasAnySideEffect(GTF_ASG))
+            {
+                return tree;
+            }
+
+            if (op2->HasAnySideEffect(GTF_CALL) && op1->HasAnySideEffect(GTF_ALL_EFFECT))
+            {
+                return tree;
+            }
+
+            if (op1->OperIs(GT_IND) && op2->IsCast() && !op2->gtOverflow())
+            {
+                var_types valueType = op2->AsCast()->GetOp(0)->GetType();
+                var_types castType  = op2->AsCast()->GetCastType();
+                var_types storeType = op1->GetType();
+
+                if (varActualTypeIsInt(storeType) && varActualTypeIsInt(valueType) &&
+                    (varTypeSize(castType) >= varTypeSize(valueType)))
+                {
+                    tree->AsOp()->SetOp(1, op2->AsCast()->GetOp(0));
                 }
             }
 
