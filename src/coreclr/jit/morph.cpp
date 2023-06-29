@@ -10804,13 +10804,10 @@ DONE_MORPHING_CHILDREN:
         return tree;
     }
 
-    /* gtFoldExpr could have used setOper to change the oper */
-    oper = tree->OperGet();
-    typ  = tree->TypeGet();
-
-    /* gtFoldExpr could have changed op1 and op2 */
-    op1 = tree->AsOp()->gtOp1;
-    op2 = tree->gtGetOp2IfPresent();
+    oper = tree->GetOper();
+    typ  = tree->GetType();
+    op1  = tree->AsOp()->gtOp1;
+    op2  = tree->gtGetOp2IfPresent();
 
     BasicBlock* currentBlock = fgMorphBlock;
 
@@ -10830,6 +10827,7 @@ DONE_MORPHING_CHILDREN:
             // If we are storing a small type, we might be able to omit a cast.
             // We may also omit a cast when storing to a "normalize on load"
             // local since we know that a load from that local has to cast anyway.
+
             if (varTypeIsSmall(op1->GetType()) &&
                 (op1->OperIs(GT_IND, GT_LCL_FLD) ||
                  (op1->OperIs(GT_LCL_VAR) && lvaGetDesc(op1->AsLclVar())->lvNormalizeOnLoad())))
@@ -10843,19 +10841,6 @@ DONE_MORPHING_CHILDREN:
                         op2 = op2->AsCast()->GetOp(0);
                         tree->AsOp()->SetOp(1, op2);
                     }
-                }
-            }
-
-            if (op1->OperIs(GT_IND) && op2->IsCast() && !op2->gtOverflow())
-            {
-                var_types valueType = op2->AsCast()->GetOp(0)->GetType();
-                var_types castType  = op2->AsCast()->GetCastType();
-                var_types storeType = op1->GetType();
-
-                if (varActualTypeIsInt(storeType) && varActualTypeIsInt(valueType) &&
-                    (varTypeSize(castType) >= varTypeSize(valueType)))
-                {
-                    tree->AsOp()->SetOp(1, op2->AsCast()->GetOp(0));
                 }
             }
 
