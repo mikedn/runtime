@@ -12350,10 +12350,9 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 
 GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
 {
-    genTreeOps oper = tree->gtOper;
+    genTreeOps oper = tree->GetOper();
     GenTree*   op1  = tree->gtOp1;
     GenTree*   op2  = tree->gtOp2;
-    var_types  typ  = tree->TypeGet();
 
     if (fgGlobalMorph && GenTree::OperIsCommutative(oper))
     {
@@ -12387,7 +12386,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
     // Don't reorder floating-point operations.
 
     if (fgGlobalMorph && (oper == GT_ADD) && !tree->gtOverflow() && (op1->gtOper == GT_ADD) && !op1->gtOverflow() &&
-        varTypeIsIntegralOrI(typ))
+        varTypeIsIntegralOrI(tree->GetType()))
     {
         GenTree* ad1 = op1->AsOp()->gtOp1;
         GenTree* ad2 = op1->AsOp()->gtOp2;
@@ -12463,17 +12462,6 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
                 }
             }
 
-            break;
-
-        case GT_DIV:
-
-            /* For "val / 1", just return "val" */
-
-            if (op2->IsIntegralConst(1))
-            {
-                DEBUG_DESTROY_NODE(tree);
-                return op1;
-            }
             break;
 
         case GT_UDIV:

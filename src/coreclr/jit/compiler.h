@@ -3278,7 +3278,7 @@ public:
 
     GenTree* gtFoldExpr(GenTree* tree);
     GenTree* gtFoldExprConst(GenTree* tree);
-    GenTree* gtFoldExprSpecial(GenTree* tree);
+    GenTree* gtFoldExprSpecial(GenTreeOp* tree);
     GenTree* gtFoldBoxNullable(GenTree* tree);
     GenTree* gtFoldExprCompare(GenTree* tree);
     GenTree* gtCreateHandleCompare(genTreeOps             oper,

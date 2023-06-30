@@ -8584,12 +8584,10 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
         return tree;
     }
 
-    if (!(kind & GTK_SMPOP))
+    if (!tree->OperIsSimple() || tree->OperIsAtomicOp())
     {
         return tree;
     }
-
-    GenTree* op1 = tree->AsOp()->gtOp1;
 
     /* Filter out non-foldable trees that can have constant children */
 
@@ -8608,24 +8606,30 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
             break;
     }
 
+    GenTree* op1 = tree->AsOp()->gtOp1;
+    GenTree* op2 = tree->AsOp()->gtOp2;
+
+    if (op1 == nullptr)
+    {
+        return tree;
+    }
+
     /* try to fold the current node */
 
-    if ((kind & GTK_UNOP) && op1)
+    if (kind & GTK_UNOP)
     {
         if (op1->OperIsConst())
         {
             return gtFoldExprConst(tree);
         }
     }
-    else if ((kind & GTK_BINOP) && op1 && tree->AsOp()->gtOp2 &&
+    else if ((kind & GTK_BINOP) && op1 && (op2 != nullptr) &&
              // Don't take out conditionals for debugging
              (opts.OptimizationEnabled() || !tree->OperIsCompare()))
     {
-        GenTree* op2 = tree->AsOp()->gtOp2;
-
         // The atomic operations are exempted here because they are never computable statically;
         // one of their arguments is an address.
-        if (op1->OperIsConst() && op2->OperIsConst() && !tree->OperIsAtomicOp())
+        if (op1->OperIsConst() && op2->OperIsConst())
         {
             /* both nodes are constants - fold the expression */
             return gtFoldExprConst(tree);
@@ -8636,7 +8640,7 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
              * special operator that can use only one constant
              * to fold - e.g. booleans */
 
-            return gtFoldExprSpecial(tree);
+            return gtFoldExprSpecial(tree->AsOp());
         }
         else if (tree->OperIsCompare())
         {
@@ -9190,46 +9194,27 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperArgClassHandle(GenTree* tree)
 //   Tree (possibly modified at root or below), or a new tree
 //   Any new tree is fully morphed, if necessary.
 //
-GenTree* Compiler::gtFoldExprSpecial(GenTree* tree)
+GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
 {
-    if (GenTreeQmark* qmark = tree->IsQmark())
-    {
-        if (GenTreeIntCon* cond = qmark->GetCondition()->IsIntCon())
-        {
-            JITDUMPTREE(tree, "Folding QMARK \n");
-            GenTree* result = cond->GetValue() != 0 ? qmark->GetThen() : qmark->GetElse();
-            JITDUMPTREE(result, "to \n");
-            return result;
-        }
+    assert(tree->OperIsBinary());
 
-        return qmark;
-    }
+    GenTree*   op1  = tree->GetOp(0);
+    GenTree*   op2  = tree->GetOp(1);
+    genTreeOps oper = tree->GetOper();
 
-    GenTree*   op1  = tree->AsOp()->gtOp1;
-    GenTree*   op2  = tree->AsOp()->gtOp2;
-    genTreeOps oper = tree->OperGet();
-
-    GenTree* op;
-    GenTree* cons;
-    ssize_t  val;
-
-    assert(tree->OperKind() & GTK_BINOP);
-
-    /* Filter out operators that cannot be folded here */
-    if (oper == GT_CAST)
-    {
-        return tree;
-    }
+    assert(op1->OperIsConst() ^ op2->OperIsConst());
 
     /* We only consider TYP_INT for folding
      * Do not fold pointer arithmetic (e.g. addressing modes!) */
 
-    if (oper != GT_QMARK && !varTypeIsIntOrI(tree->gtType))
+    if (!varTypeIsIntOrI(tree->gtType))
     {
         return tree;
     }
 
     /* Find out which is the constant node */
+    GenTree* op;
+    GenTree* cons;
 
     if (op1->IsCnsIntOrI())
     {
@@ -9248,7 +9233,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTree* tree)
 
     /* Get the constant value */
 
-    val = cons->AsIntConCommon()->IconValue();
+    ssize_t val = cons->AsIntConCommon()->IconValue();
 
     // Transforms that would drop op cannot be performed if op has side effects
     bool opHasSideEffects = (op->gtFlags & GTF_SIDE_EFFECT) != 0;
@@ -9395,14 +9380,14 @@ GenTree* Compiler::gtFoldExprSpecial(GenTree* tree)
 
         case GT_DIV:
         case GT_UDIV:
-            if ((op2 == cons) && (val == 1) && !op1->OperIsConst())
+            if ((op2 == cons) && (val == 1))
             {
                 goto DONE_FOLD;
             }
             break;
 
         case GT_SUB:
-            if ((op2 == cons) && (val == 0) && !op1->OperIsConst())
+            if ((op2 == cons) && (val == 0))
             {
                 goto DONE_FOLD;
             }
