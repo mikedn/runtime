@@ -4226,7 +4226,7 @@ public:
     bool fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt, BasicBlock* block);
     bool fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
 
-    GenTree* fgRemoveDeadStore(GenTreeOp* asgNode, Statement* stmt, BasicBlock* block);
+    GenTree* fgRemoveDeadStore(GenTreeLclVarCommon* store, Statement* stmt, BasicBlock* block);
 
     void fgInterBlockLocalVarLivenessUntracked();
     bool fgInterBlockLocalVarLiveness();
@@ -4823,16 +4823,13 @@ private:
     GenTree* fgMorphStructComma(GenTree* tree);
     GenTree* fgMorphStructAssignment(GenTreeOp* asg);
 #ifdef FEATURE_SIMD
-    GenTreeOp* fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, unsigned srcLclNum);
-    GenTreeOp* fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned destLclNum);
+    GenTree* fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, unsigned srcLclNum);
+    GenTree* fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned destLclNum);
 #endif
     GenTree* fgMorphDynBlk(GenTreeDynBlk* dynBlk);
     GenTree* fgMorphBlockAssignment(GenTreeOp* asg);
     GenTree* fgMorphCopyStruct(GenTreeOp* asg);
-    GenTreeOp* fgMorphPromoteStore(GenTreeOp*  store,
-                                   GenTreeOp*  tempStore,
-                                   GenTreeOp** fieldStores,
-                                   unsigned    fieldCount);
+    GenTree* fgMorphPromoteStore(GenTreeOp* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount);
     GenTree* fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
@@ -5038,8 +5035,8 @@ public:
                                 // : Valid if LPFLG_VAR_INIT
         };
 
-        GenTreeOp* lpIterTree; // The "i = i <op> const" tree
-        GenTreeOp* lpTestTree; // pointer to the node containing the loop test
+        GenTreeLclVar* lpIterTree; // The "i = i <op> const" tree
+        GenTreeOp*     lpTestTree; // pointer to the node containing the loop test
 
         unsigned   lpIterVar() const;   // iterator variable #
         int        lpIterConst() const; // the constant with which the iterator is incremented
@@ -5177,7 +5174,7 @@ public:
     unsigned optIsLoopIncrTree(GenTree* incr);
     GenTreeOp* optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock* from, BasicBlock* to, unsigned iterVar);
     bool optPopulateInitInfo(unsigned loopInd, GenTree* init, unsigned iterVar);
-    GenTreeOp* optExtractInitTestIncr(
+    GenTreeLclVar* optExtractInitTestIncr(
         BasicBlock* head, BasicBlock* bottom, BasicBlock* exit, GenTree** init, GenTree** test);
 
     void optFindNaturalLoops();
@@ -5410,7 +5407,7 @@ public:
 private:
     BitVec& morphAssertionGetDependent(unsigned lclNum);
     void morphAssertionGenerateNotNull(GenTree* op1);
-    void morphAssertionGenerateEqual(GenTreeLclVar* op1, GenTree* op2);
+    void morphAssertionGenerateEqual(GenTreeLclVar* store, GenTree* value);
     void morphAssertionAdd(MorphAssertion& assertion);
     const MorphAssertion& morphAssertionGet(unsigned index);
     void morphAssertionRemove(unsigned index);

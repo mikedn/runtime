@@ -1780,7 +1780,7 @@ LclVarDsc* Compiler::gtIsLikelyRegVar(GenTree* tree)
 {
     unsigned lclNum;
 
-    if (tree->OperIs(GT_LCL_VAR))
+    if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
         lclNum = tree->AsLclVar()->GetLclNum();
     }
@@ -1802,7 +1802,7 @@ LclVarDsc* Compiler::gtIsLikelyRegVar(GenTree* tree)
 
     // If this is an EH-live var, return false if it is a def,
     // as it will have to go to memory.
-    if (lcl->lvLiveInOutOfHndlr && ((tree->gtFlags & GTF_VAR_DEF) != 0))
+    if (lcl->lvLiveInOutOfHndlr && tree->OperIs(GT_STORE_LCL_VAR))
     {
         return nullptr;
     }
@@ -2458,6 +2458,20 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costSz = 5;
                     break;
 
+                case GT_STORE_LCL_VAR:
+                case GT_LCL_DEF:
+                    if (gtIsLikelyRegVar(tree))
+                    {
+                        costEx = op1->GetCostEx();
+                        costSz = max(3, op1->GetCostSz()); // 3 is an estimate for a reg-reg assignment
+                        goto DONE;
+                    }
+                    FALLTHROUGH;
+                case GT_STORE_LCL_FLD:
+                    costEx = 4;
+                    costSz = 3;
+                    break;
+
                 case GT_INSERT:
                     costEx = 0;
                     costSz = 0;
@@ -2866,14 +2880,96 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     lvl2   = gtSetEvalOrder(op2);
                     costEx = op2->GetCostEx();
                     costSz = max(3, op2->GetCostSz()); // 3 is an estimate for a reg-reg assignment
-                    goto DONE_OP1_AFTER_COST;
+                    goto DONE_OP2_COSTS;
                 }
 
                 goto DONE_OP1;
 
-            case GT_STOREIND:
             case GT_STORE_OBJ:
+                // We estimate the cost of a OBJ to be two loads (INDs)
+                costEx += 2 * IND_COST_EX;
+                costSz += 2 * 2;
+                break;
+
             case GT_STORE_BLK:
+            case GT_STOREIND:
+                costEx += IND_COST_EX;
+                costSz += 2;
+
+                if (varTypeIsSmall(tree->TypeGet()))
+                {
+                    costEx += 1;
+                    costSz += 1;
+                }
+
+                if (isflt)
+                {
+                    if (tree->TypeGet() == TYP_DOUBLE)
+                    {
+                        costEx += 1;
+                    }
+#ifdef TARGET_ARM
+                    costSz += 2;
+#endif
+                }
+
+                if (gtIsLikelyRegVar(op1))
+                {
+                    break;
+                }
+#ifdef TARGET_XARCH
+                else if (op1->IsCnsIntOrI())
+                {
+                    costEx -= 1;
+                }
+                else if (op1->OperIs(GT_CLS_VAR_ADDR))
+                {
+                    op1->SetDoNotCSE();
+                    costEx -= 1;
+                    costSz -= 2;
+                }
+#endif
+                else
+                {
+                    level = gtSetEvalOrder(op1);
+
+                    GenTree* addr = op1->SkipComma();
+
+                    if (addr->OperIs(GT_ADD) && !addr->gtOverflow() &&
+                        gtMarkAddrMode(addr, &costEx, &costSz, tree->GetType()))
+                    {
+                        while (op1 != addr)
+                        {
+                            // TODO-MIKE-CQ: Marking COMMAs with GTF_ADDRMODE_NO_CSE sometimes interferes with
+                            // redundant range check elimination done via CSE.
+                            // Normally CSE can't eliminate range checks because it uses liberal value numbers
+                            // and that makes it sensitive to race conditions in user code. However, if the
+                            // entire array element address tree is CSEd, including the range check, then race
+                            // conditions aren't an issue.
+                            //
+                            // So we have a choice between blocking CSE to allow address mode formation and
+                            // allowing CSE in he hope that redundant range checks may get CSEd. We'll block
+                            // CSE for now.
+                            //
+                            // CSE is anyway not guaranteed while address mode formation more or less is. And
+                            // such address modes avoid slow 3 component LEAs.
+                            // Also, this is a rather rare case, involving arrays of structs. Normally the COMMA
+                            // is above the indir - COMMA(range check, IND(addr)) - and this avoids the whole
+                            // issue. Sort of, as placing the COMMA like that probably makes it less likely for
+                            // to be CSEd. But that's how it works in the typical case.
+                            // With structs we may end up with IND(COMMA(range check, addr)), thanks in part to
+                            // IND(COMMA(...)) morphing code not applying to OBJs as well.
+
+                            op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
+                            costEx += op1->AsOp()->GetOp(0)->GetCostEx();
+                            costSz += op1->AsOp()->GetOp(0)->GetCostSz();
+                            op1 = op1->AsOp()->GetOp(1);
+                        }
+
+                        goto DONE_OP1_COSTS;
+                    }
+                }
+
                 costEx++;
                 costSz++;
                 break;
@@ -2908,12 +3004,14 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         }
 
     DONE_OP1:
+        costEx += op1->GetCostEx();
+        costSz += op1->GetCostSz();
+    DONE_OP1_COSTS:
         assert(lvlb >= 0);
         lvl2 = gtSetEvalOrder(op2) + lvlb;
-        costEx += op1->GetCostEx() + op2->GetCostEx();
-        costSz += op1->GetCostSz() + op2->GetCostSz();
-
-    DONE_OP1_AFTER_COST:
+        costEx += op2->GetCostEx();
+        costSz += op2->GetCostSz();
+    DONE_OP2_COSTS:
         bool reverseInAssignment = false;
 
         switch (oper)
@@ -2950,10 +3048,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             case GT_STOREIND:
             case GT_STORE_OBJ:
             case GT_STORE_BLK:
-                // TODO-MIKE-Cleanup: This stuff is a complete mess. Also, it doesn't mark the store
-                // address mode like IND above. But since indirect stores are introduced only in SSA
-                // this doesn't currently matter, as no new stores are introduced in SSA. And again,
-                // it's a complete mess...
+                // TODO-MIKE-Cleanup: This stuff is a complete mess...
                 if (!csePhase || cseCanSwapOrder(op1, op2))
                 {
                     if (!tree->AsIndir()->GetAddr()->IsLocalAddrExpr() &&
@@ -3076,7 +3171,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             tryToSwap = false;
         }
         else if (((oper == GT_STOREIND) || (oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK)) &&
-                 op2->HasAnySideEffect(GTF_GLOB_REF | GTF_EXCEPT))
+                 op2->HasAnySideEffect(GTF_GLOB_REF | GTF_EXCEPT | GTF_ASG))
         {
             // TODO-MIKE-CQ: Old code failed to swap ASG(IND, IND) when both operands had side effects.
             // That was bogus because the LHS side effects might have come from the IND itself, in which
@@ -5261,6 +5356,12 @@ GenTree* Compiler::gtCloneExpr(
                                     tree->AsArrIndex()->gtArrElemType);
                 break;
 
+            case GT_STORE_LCL_VAR:
+                copy = new (this, GT_STORE_LCL_VAR) GenTreeLclVar(tree->AsLclVar());
+                break;
+            case GT_STORE_LCL_FLD:
+                copy = new (this, GT_STORE_LCL_FLD) GenTreeLclFld(tree->AsLclFld());
+                break;
             case GT_LCL_DEF:
                 copy = new (this, GT_LCL_DEF) GenTreeLclDef(tree->AsLclDef());
                 break;
@@ -9655,7 +9756,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
     Statement* copyStmt = box->gtCopyStmtWhenInlinedBoxValue;
 
     JITDUMP("gtTryRemoveBoxUpstreamEffects: %s to %s of BOX (valuetype)"
-            " [%06u] (assign/newobj " FMT_STMT " copy " FMT_STMT "\n",
+            " [%06u] (newobj " FMT_STMT " copy " FMT_STMT "\n",
             (options == BR_DONT_REMOVE) ? "checking if it is possible" : "attempting",
             (options == BR_MAKE_LOCAL_COPY) ? "make local unboxed version" : "remove side effects", box->GetID(),
             asgStmt->GetID(), copyStmt->GetID());
@@ -9665,7 +9766,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
 
     // If we don't recognize the form of the assign, bail.
     GenTree* asg = asgStmt->GetRootNode();
-    if (asg->gtOper != GT_ASG)
+    if (!asg->OperIs(GT_ASG, GT_STORE_LCL_VAR))
     {
         JITDUMP(" bailing; unexpected assignment op %s\n", GenTree::OpName(asg->gtOper));
         return nullptr;
@@ -9675,7 +9776,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
     GenTree* boxTypeHandle = nullptr;
     if ((options == BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE) || (options == BR_DONT_REMOVE_WANT_TYPE_HANDLE))
     {
-        GenTree*   asgSrc     = asg->AsOp()->gtOp2;
+        GenTree*   asgSrc     = asg->OperIs(GT_ASG) ? asg->AsOp()->gtOp2 : asg->AsLclVar()->GetOp(0);
         genTreeOps asgSrcOper = asgSrc->OperGet();
 
         // Allocation may be via AllocObj or via helper call, depending
@@ -9712,7 +9813,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
 
     // If we don't recognize the form of the copy, bail.
     GenTree* copy = copyStmt->GetRootNode();
-    if (copy->gtOper != GT_ASG)
+    if (!copy->OperIs(GT_ASG, GT_STOREIND, GT_STORE_OBJ))
     {
         // GT_RET_EXPR is a tolerable temporary failure.
         // The jit will revisit this optimization after
@@ -9743,20 +9844,32 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
         assert(boxTempLclDsc->TypeGet() == TYP_REF);
         assert(boxTempLclDsc->lvClassHnd != nullptr);
 
-        // Verify that the copyDst has the expected shape
-        // (blk|obj|ind (add (boxTempLclNum, ptr-size)))
-        //
-        // The shape here is constrained to the patterns we produce
-        // over in impImportAndPushBox for the inlined box case.
-        GenTree* copyDst = copy->AsOp()->gtOp1;
+        GenTree*  copyDstAddr;
+        var_types storeType;
 
-        if (!copyDst->OperIs(GT_BLK, GT_IND, GT_OBJ))
+        if (copy->OperIs(GT_ASG))
         {
-            JITDUMP("Unexpected copy dest operator %s\n", GenTree::OpName(copyDst->gtOper));
-            return nullptr;
+            // Verify that the copyDst has the expected shape
+            // (obj|ind (add (boxTempLclNum, ptr-size)))
+            //
+            // The shape here is constrained to the patterns we produce
+            // over in impImportAndPushBox for the inlined box case.
+            GenTree* copyDst = copy->AsOp()->gtOp1;
+            if (!copyDst->OperIs(GT_IND, GT_OBJ))
+            {
+                JITDUMP("Unexpected copy dest operator %s\n", GenTree::OpName(copyDst->gtOper));
+                return nullptr;
+            }
+
+            copyDstAddr = copyDst->AsIndir()->GetAddr();
+            storeType   = copyDst->GetType();
+        }
+        else
+        {
+            copyDstAddr = copy->AsIndir()->GetAddr();
+            storeType   = copy->GetType();
         }
 
-        GenTree* copyDstAddr = copyDst->AsOp()->gtOp1;
         if (copyDstAddr->OperGet() != GT_ADD)
         {
             JITDUMP("Unexpected copy dest address tree\n");
@@ -9784,22 +9897,35 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
         JITDUMP("Bashing NEWOBJ [%06u] to NOP\n", dspTreeID(asg));
         asg->ChangeToNothingNode();
 
-        if (varTypeIsStruct(copyDst->GetType()))
+        if (varTypeIsStruct(storeType))
         {
             JITDUMP("Retyping box temp V%02u to struct %s\n", boxTempLclNum, eeGetClassName(boxTempLclDsc->lvClassHnd));
             lvaSetStruct(boxTempLclNum, boxTempLclDsc->lvClassHnd, /* checkUnsafeBuffer */ false);
         }
         else
         {
-            assert(copyDst->GetType() == JITtype2varType(info.compCompHnd->asCorInfoType(boxTempLclDsc->lvClassHnd)));
-            JITDUMP("Retyping box temp V%02u to primitive %s\n", boxTempLclNum, varTypeName(copyDst->GetType()));
-            boxTempLclDsc->SetType(copyDst->GetType());
+            assert(storeType == JITtype2varType(info.compCompHnd->asCorInfoType(boxTempLclDsc->lvClassHnd)));
+            JITDUMP("Retyping box temp V%02u to primitive %s\n", boxTempLclNum, varTypeName(storeType));
+            boxTempLclDsc->SetType(storeType);
         }
 
-        copyDst->ChangeOper(GT_LCL_VAR);
-        copyDst->gtFlags |= GTF_VAR_DEF;
-        copyDst->gtFlags &= ~GTF_ALL_EFFECT;
-        copyDst->AsLclVar()->SetLclNum(boxTempLclNum);
+        if (copy->OperIs(GT_ASG))
+        {
+            GenTree* copyDst = copy->AsOp()->GetOp(0);
+            copyDst->ChangeOper(GT_LCL_VAR);
+            copyDst->gtFlags |= GTF_VAR_DEF;
+            copyDst->gtFlags &= ~GTF_ALL_EFFECT;
+            copyDst->AsLclVar()->SetLclNum(boxTempLclNum);
+        }
+        else
+        {
+            GenTree* value = copy->AsIndir()->GetValue();
+            copy->ChangeOper(GT_STORE_LCL_VAR);
+            copy->AsLclVar()->SetOp(0, value);
+            copy->AsLclVar()->SetLclNum(boxTempLclNum);
+            copy->gtFlags |= GTF_VAR_DEF;
+            copy->SetSideEffects(value->GetSideEffects() | GTF_GLOB_REF);
+        }
 
         DISPSTMT(copyStmt);
 
@@ -9809,7 +9935,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
 
     // If the copy is a struct copy, make sure we know how to isolate
     // any source side effects.
-    GenTree* copySrc = copy->AsOp()->gtOp2;
+    GenTree* copySrc = copy->OperIs(GT_ASG) ? copy->AsOp()->gtOp2 : copy->AsIndir()->GetValue();
 
     // If the copy source is from a pending inline, wait for it to resolve.
     if (copySrc->gtOper == GT_RET_EXPR)
@@ -10060,9 +10186,19 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     else
     {
         unsigned   thisTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag this temp"));
-        GenTree*   thisAsg     = gtNewAssignNode(gtNewLclvNode(thisTmp, type), thisVal);
         Statement* thisAsgStmt = thisOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
-        thisAsgStmt->SetRootNode(thisAsg);
+        GenTree*   store;
+
+        if (thisAsgStmt->GetRootNode()->OperIs(GT_ASG))
+        {
+            store = gtNewAssignNode(gtNewLclvNode(thisTmp, type), thisVal);
+        }
+        else
+        {
+            store = gtNewStoreLclVar(thisTmp, type, thisVal);
+        }
+
+        thisAsgStmt->SetRootNode(store);
         thisValOpt = gtNewLclvNode(thisTmp, type);
     }
 
@@ -10076,9 +10212,19 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     else
     {
         unsigned   flagTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag flag temp"));
-        GenTree*   flagAsg     = gtNewAssignNode(gtNewLclvNode(flagTmp, type), flagVal);
         Statement* flagAsgStmt = flagOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
-        flagAsgStmt->SetRootNode(flagAsg);
+        GenTree*   store;
+
+        if (flagAsgStmt->GetRootNode()->OperIs(GT_ASG))
+        {
+            store = gtNewAssignNode(gtNewLclvNode(flagTmp, type), flagVal);
+        }
+        else
+        {
+            store = gtNewStoreLclVar(flagTmp, type, flagVal);
+        }
+
+        flagAsgStmt->SetRootNode(store);
         flagValOpt     = gtNewLclvNode(flagTmp, type);
         flagValOptCopy = gtNewLclvNode(flagTmp, type);
     }
@@ -11206,11 +11352,10 @@ INTEGRAL_OVF:
 
 bool Compiler::gtNodeHasSideEffects(GenTree* node, GenTreeFlags flags, bool ignoreCctors)
 {
-    // TODO-Cleanup: This only checks for GT_ASG but according to OperRequiresAsgFlag there
-    // are many more opers that are considered to have an assignment side effect: atomic ops
-    // (GT_CMPXCHG & co.), GT_MEMORYBARRIER (not classified as an atomic op) and HW intrinsic
-    // memory stores. Atomic ops have special handling in gtExtractSideEffList but the others
-    // will simply be dropped is they are ever subject to an "extract side effects" operation.
+    // TODO-MIKE-Cleanup: This only checks certain opers but according to OperRequiresAsgFlag
+    // there are many more opers that are considered to have an assignment side effect.
+    // Atomic ops have special handling in gtExtractSideEffList but the others will simply be
+    // dropped if they are ever subject to an "extract side effects" operation.
     // It is possible that the reason no bugs have yet been observed in this area is that the
     // other nodes are likely to always be tree roots.
     if (((flags & GTF_ASG) != 0) &&

@@ -1462,7 +1462,7 @@ struct LoopCloneVisitorInfo
     bool IsLclLoopInvariant(unsigned lclNum);
     bool IsLclAssignedInLoop(unsigned lclNum);
     void SummarizeLocalStores(unsigned lclNum);
-    void SummarizeLocalStoresVisitor(GenTreeOp* asg);
+    void SummarizeLocalStoresVisitor(GenTreeLclVarCommon* store);
 };
 
 bool LoopCloneVisitorInfo::IsLclLoopInvariant(unsigned lclNum)
@@ -1509,11 +1509,11 @@ void LoopCloneVisitorInfo::SummarizeLocalStores(unsigned lclNum)
                                             [](GenTree** use, Compiler::fgWalkData* data) {
                                                 LoopCloneVisitorInfo* info =
                                                     static_cast<LoopCloneVisitorInfo*>(data->pCallbackData);
-                                                GenTree* asg = *use;
+                                                GenTree* node = *use;
 
-                                                if (asg->OperIs(GT_ASG))
+                                                if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
                                                 {
-                                                    info->SummarizeLocalStoresVisitor(asg->AsOp());
+                                                    info->SummarizeLocalStoresVisitor(node->AsLclVarCommon());
                                                 }
 
                                                 return Compiler::WALK_CONTINUE;
@@ -1523,18 +1523,11 @@ void LoopCloneVisitorInfo::SummarizeLocalStores(unsigned lclNum)
     }
 }
 
-void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeOp* asg)
+void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeLclVarCommon* store)
 {
-    assert(asg->OperIs(GT_ASG));
+    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-    GenTree* dest = asg->GetOp(0);
-
-    if (!dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-    {
-        return;
-    }
-
-    unsigned lclNum = dest->AsLclVarCommon()->GetLclNum();
+    unsigned lclNum = store->AsLclVarCommon()->GetLclNum();
 
     // We currently don't add any locals during loop cloning but in case it
     // happens just be conservative and treat any new locals as modified.

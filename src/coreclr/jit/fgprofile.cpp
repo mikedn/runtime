@@ -1365,8 +1365,8 @@ public:
         GenTree* const tmpNode2      = compiler->gtNewLclvNode(tmpNum, TYP_REF);
         GenTree* const callCommaNode = compiler->gtNewCommaNode(helperCallNode, tmpNode2);
         GenTree* const tmpNode3      = compiler->gtNewLclvNode(tmpNum, TYP_REF);
-        GenTree* const asgNode = compiler->gtNewOperNode(GT_ASG, TYP_REF, tmpNode3, call->gtCallThisArg->GetNode());
-        GenTree* const asgCommaNode = compiler->gtNewCommaNode(asgNode, callCommaNode);
+        GenTree* const asgNode       = compiler->gtNewAssignNode(tmpNode3, call->gtCallThisArg->GetNode());
+        GenTree* const asgCommaNode  = compiler->gtNewCommaNode(asgNode, callCommaNode);
 
         // Update the call
         //

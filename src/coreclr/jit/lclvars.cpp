@@ -2447,20 +2447,23 @@ void Compiler::lvaComputeRefCountsHIR()
 
             switch (node->GetOper())
             {
+                case GT_STORE_LCL_VAR:
 #if OPT_BOOL_OPS
-                case GT_ASG:
                 {
-                    GenTree* op1 = node->AsOp()->GetOp(0);
-                    GenTree* op2 = node->AsOp()->GetOp(1);
+                    GenTree* value = node->AsLclVar()->GetOp(0);
 
-                    if (op1->OperIs(GT_LCL_VAR) && !op2->TypeIs(TYP_BOOL) && !op2->OperIsCompare() &&
-                        !op2->IsIntegralConst(0) && !op2->IsIntegralConst(1))
+                    if (!value->TypeIs(TYP_BOOL) && !value->OperIsCompare() && !value->IsIntegralConst(0) &&
+                        !value->IsIntegralConst(1))
                     {
-                        m_compiler->lvaGetDesc(op1->AsLclVar())->lvIsBoolean = false;
+                        m_compiler->lvaGetDesc(node->AsLclVar())->lvIsBoolean = false;
                     }
                 }
-                break;
+                    FALLTHROUGH;
 #endif
+                case GT_STORE_LCL_FLD:
+                    assert((node->gtFlags & GTF_VAR_DEF) != 0);
+                    MarkLclRefs(node->AsLclVarCommon(), user);
+                    break;
 
                 case GT_LCL_ADDR:
                 {
@@ -2475,10 +2478,12 @@ void Compiler::lvaComputeRefCountsHIR()
 
                 case GT_LCL_VAR:
                 case GT_LCL_FLD:
+                    assert((node->gtFlags & GTF_VAR_DEF) == 0);
                     MarkLclRefs(node->AsLclVarCommon(), user);
                     break;
 
                 default:
+                    assert(!node->OperIs(GT_ASG));
                     break;
             }
 
@@ -2492,7 +2497,7 @@ void Compiler::lvaComputeRefCountsHIR()
 
             m_compiler->lvaAddRef(lcl, m_weight);
 
-            if (lcl->IsAddressExposed() || node->OperIs(GT_LCL_FLD))
+            if (lcl->IsAddressExposed() || node->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
             {
                 lcl->lvIsBoolean = false;
 #if ASSERTION_PROP
@@ -2504,12 +2509,12 @@ void Compiler::lvaComputeRefCountsHIR()
             {
                 // TODO-MIKE-Review: Old code ignored LCL_FLDs, that's probably bogus. lvHasEHRefs
                 // is used only for AddCopies and CopyProp heuristics so it probably doesn't matter.
-                if (node->OperIs(GT_LCL_VAR))
+                if (node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
                 {
                     lcl->lvHasEHRefs = true;
                 }
 
-                if ((node->gtFlags & (GTF_VAR_DEF | GTF_VAR_USEASG)) != GTF_VAR_DEF)
+                if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD) || ((node->gtFlags & GTF_VAR_USEASG) != 0))
                 {
                     lcl->lvHasEHUses = true;
 
@@ -2527,7 +2532,7 @@ void Compiler::lvaComputeRefCountsHIR()
                 }
             }
 
-            if (node->OperIs(GT_LCL_FLD))
+            if (node->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
             {
                 assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
 
@@ -2550,7 +2555,7 @@ void Compiler::lvaComputeRefCountsHIR()
 #if ASSERTION_PROP
             if (!lcl->lvDisqualifyAddCopy)
             {
-                if ((node->gtFlags & GTF_VAR_DEF) != 0)
+                if (node->OperIs(GT_STORE_LCL_VAR))
                 {
                     // TODO-MIKE-Consider: "single def" doesn't apply to address exposed locals.
                     // There's a pretty good chance that a local that's not AX will be in SSA,
@@ -2580,7 +2585,7 @@ void Compiler::lvaComputeRefCountsHIR()
             }
 #endif // ASSERTION_PROP
 
-            if (!lcl->lvDisqualifySingleDefRegCandidate && ((node->gtFlags & GTF_VAR_DEF) != 0))
+            if (!lcl->lvDisqualifySingleDefRegCandidate && node->OperIs(GT_STORE_LCL_VAR))
             {
                 bool bbInALoop  = (m_block->bbFlags & BBF_BACKWARD_JUMP) != 0;
                 bool bbIsReturn = m_block->bbJumpKind == BBJ_RETURN;

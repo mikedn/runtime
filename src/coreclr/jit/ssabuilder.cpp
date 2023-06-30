@@ -779,7 +779,8 @@ public:
 
 private:
     void BlockRenameVariables(BasicBlock* block);
-    void RenameDef(GenTreeOp* asgNode, BasicBlock* block);
+    void RenameLclStore(GenTreeLclVarCommon* store, BasicBlock* block);
+    void RenameMemoryStore(GenTreeIndir* store, BasicBlock* block);
     void RenamePhiDef(GenTreeLclDef* def, BasicBlock* block);
     void RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block);
 
@@ -831,179 +832,139 @@ void SsaRenameDomTreeVisitor::AddPhiArg(BasicBlock*    pred,
                     pred->bbNum, block->bbNum);
 }
 
-void SsaRenameDomTreeVisitor::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
+void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBlock* block)
 {
-    assert(asgNode->OperIs(GT_ASG));
+    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
 
-    GenTree* dst   = asgNode->GetOp(0);
-    GenTree* value = asgNode->GetOp(1);
+    GenTree*   value  = store->GetOp(0);
+    unsigned   lclNum = store->GetLclNum();
+    LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
 
-    assert(!dst->OperIs(GT_COMMA));
-
-    if (dst->gtPrev != nullptr)
+    if (lcl->IsSsa())
     {
-        dst->gtPrev->gtNext = dst->gtNext;
-    }
+        // Promoted variables are not in SSA, only their fields are.
+        assert(!lcl->IsPromoted());
+        // If it's a SSA local then it cannot be address exposed and thus does not define SSA memory.
+        assert(!lcl->IsAddressExposed());
 
-    if (dst->gtNext != nullptr)
-    {
-        dst->gtNext->gtPrev = dst->gtPrev;
-    }
+        GenTreeFlags defFlags = store->gtFlags & ~GTF_DONT_CSE;
 
-    if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-    {
-        GenTreeLclVarCommon* lclNode = dst->AsLclVarCommon();
-        unsigned             lclNum  = lclNode->GetLclNum();
-        LclVarDsc*           lcl     = m_compiler->lvaGetDesc(lclNum);
-
-        if (lcl->IsSsa())
+        if (GenTreeLclFld* lclFld = store->IsLclFld())
         {
-            // Promoted variables are not in SSA, only their fields are.
-            assert(!lcl->IsPromoted());
-            // If it's a SSA local then it cannot be address exposed and thus does not define SSA memory.
-            assert(!lcl->IsAddressExposed());
-            // This should have been marked as defintion.
-            assert((lclNode->gtFlags & GTF_VAR_DEF) != 0);
+            GenTree* structValue;
 
-            GenTreeFlags defFlags = lclNode->gtFlags & ~GTF_DONT_CSE;
-
-            if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
+            if (lclFld->IsPartialLclFld(m_compiler))
             {
-                GenTree* structValue;
+                assert((lclFld->gtFlags & GTF_VAR_USEASG) != 0);
 
-                if (lclFld->IsPartialLclFld(m_compiler))
-                {
-                    assert((lclFld->gtFlags & GTF_VAR_USEASG) != 0);
+                structValue = new (m_compiler, GT_LCL_USE) GenTreeLclUse(renameStack.Top(lclNum), block);
+                // TODO-MIKE-SSA: This is messy, we can't allow 0 to propagate to this
+                // use because we drop it on the floor when we destroy the SSA form.
+                // Destroy SSA needs to deal with this by adding a STORE_LCL_VAR(lclNum, 0)
+                // before the STORE_LCL_FLD it generates now. But it needs to check if
+                // the insert is really a partial def, otherwise we need to continue to
+                // drop this to cover the case below.
+                structValue->SetDoNotCSE();
+            }
+            else if (lcl->TypeIs(TYP_STRUCT))
+            {
+                assert((lclFld->gtFlags & GTF_VAR_USEASG) == 0);
 
-                    structValue = new (m_compiler, GT_LCL_USE) GenTreeLclUse(renameStack.Top(lclNum), block);
-                    // TODO-MIKE-SSA: This is messy, we can't allow 0 to propagate to this
-                    // use because we drop it on the floor when we destroy the SSA form.
-                    // Destroy SSA needs to deal with this by adding a STORE_LCL_VAR(lclNum, 0)
-                    // before the STORE_LCL_FLD it generates now. But it needs to check if
-                    // the insert is really a partial def, otherwise we need to continue to
-                    // drop this to cover the case below.
-                    structValue->SetDoNotCSE();
-                }
-                else if (lcl->TypeIs(TYP_STRUCT))
-                {
-                    assert((lclFld->gtFlags & GTF_VAR_USEASG) == 0);
-
-                    // TODO-MIKE-SSA: This leaves us with an STRUCT INSERT from which we
-                    // cannot recover the struct layout. In VN we might get away with it
-                    // because it will simply insert the field value using the field seq
-                    // into a zero map, and then cast the struct to the layout of the def.
-                    // We won't be able to CSE the INSERT but we should not need that.
-                    structValue = m_compiler->gtNewIconNode(0, TYP_INT);
-                }
-                else
-                {
-                    assert((lclFld->gtFlags & GTF_VAR_USEASG) == 0);
-
-                    // TODO-MIKE-SSA: Using INSERT/EXTRACT with non-STRUCT types is dubious,
-                    // 64 bit BITCASTs on 32 bit targets and shift/bitwise ops for oddities
-                    // like (((byte*)&int_local) + 1) = 42; should avoid this this mess.
-                    structValue = m_compiler->gtNewZeroConNode(lcl->GetType());
-                }
-
-                structValue->SetCosts(0, 0);
-
-                unsigned      fieldTypeNum = varTypeToTypeNum(lclFld->GetType(), lclFld->GetLayoutNum());
-                unsigned      fieldOffs    = lclFld->GetLclOffs();
-                FieldSeqNode* fieldSeq     = lclFld->GetFieldSeq();
-
-                GenTree* insert = lclFld;
-                insert->SetOper(GT_INSERT);
-                insert->SetType(lcl->GetType());
-                insert->AsInsert()->SetStructValue(structValue);
-                insert->AsInsert()->SetFieldValue(value);
-                insert->AsInsert()->SetField(fieldTypeNum, fieldOffs, fieldSeq);
-                insert->gtFlags = GTF_DONT_CSE;
-                insert->SetSideEffects(value->GetSideEffects());
-
-                // TODO-MIKE-SSA: Pff, manual node linking sucks.
-
-                asgNode->gtPrev->gtNext = structValue;
-                structValue->gtPrev     = asgNode->gtPrev;
-                structValue->gtNext     = insert;
-                insert->gtPrev          = structValue;
-                insert->gtNext          = asgNode;
-                asgNode->gtPrev         = insert;
-
-                value = insert;
+                // TODO-MIKE-SSA: This leaves us with an STRUCT INSERT from which we
+                // cannot recover the struct layout. In VN we might get away with it
+                // because it will simply insert the field value using the field seq
+                // into a zero map, and then cast the struct to the layout of the def.
+                // We won't be able to CSE the INSERT but we should not need that.
+                structValue = m_compiler->gtNewIconNode(0, TYP_INT);
             }
             else
             {
-                assert((lclNode->gtFlags & GTF_VAR_USEASG) == 0);
+                assert((lclFld->gtFlags & GTF_VAR_USEASG) == 0);
+
+                // TODO-MIKE-SSA: Using INSERT/EXTRACT with non-STRUCT types is dubious,
+                // 64 bit BITCASTs on 32 bit targets and shift/bitwise ops for oddities
+                // like (((byte*)&int_local) + 1) = 42; should avoid this this mess.
+                structValue = m_compiler->gtNewZeroConNode(lcl->GetType());
             }
 
-            GenTree* def = asgNode;
-            def->SetOper(GT_LCL_DEF);
-            def->AsLclDef()->Init();
-            def->AsLclDef()->SetLclNum(lclNum);
-            def->AsLclDef()->SetBlock(block);
-            def->AsLclDef()->SetValue(value);
-            def->SetType(lcl->lvNormalizeOnStore() ? varActualType(lcl->GetType()) : lcl->GetType());
-            def->gtFlags = defFlags | value->GetSideEffects() | GTF_ASG;
+            structValue->SetCosts(0, 0);
 
-            renameStack.Push(block, lclNum, def->AsLclDef());
+            unsigned      fieldTypeNum = varTypeToTypeNum(lclFld->GetType(), lclFld->GetLayoutNum());
+            unsigned      fieldOffs    = lclFld->GetLclOffs();
+            FieldSeqNode* fieldSeq     = lclFld->GetFieldSeq();
 
-            if (!value->IsPhi())
-            {
-                AddDefToHandlerPhis(block, def->AsLclDef());
-            }
+            GenTree* insert =
+                new (m_compiler, GT_INSERT) GenTreeInsert(value, structValue, fieldTypeNum, fieldOffs, fieldSeq);
+            insert->SetType(lcl->GetType());
+            insert->SetCosts(0, 0);
+            insert->gtFlags = GTF_DONT_CSE;
+            insert->SetSideEffects(value->GetSideEffects());
 
-            return;
-        }
+            // TODO-MIKE-SSA: Pff, manual node linking sucks.
 
-        asgNode->ChangeOper(dst->OperIs(GT_LCL_FLD) ? GT_STORE_LCL_FLD : GT_STORE_LCL_VAR);
+            store->gtPrev->gtNext = structValue;
+            structValue->gtPrev   = store->gtPrev;
+            structValue->gtNext   = insert;
+            insert->gtPrev        = structValue;
+            insert->gtNext        = store;
+            store->gtPrev         = insert;
 
-        GenTreeLclVarCommon* store = asgNode->AsLclVarCommon();
-        store->SetType(dst->GetType());
-        store->SetLclNum(lclNum);
-        store->SetOp(0, value);
-        store->SetSideEffects(GTF_ASG | value->GetSideEffects() | (dst->gtFlags & GTF_GLOB_REF));
-        store->gtFlags &= ~GTF_REVERSE_OPS;
-        store->gtFlags |= dst->gtFlags & GTF_SPECIFIC_MASK;
-
-        if (dst->OperIs(GT_LCL_FLD))
-        {
-            store->AsLclFld()->SetLclOffs(dst->AsLclFld()->GetLclOffs());
-            store->AsLclFld()->SetFieldSeq(dst->AsLclFld()->GetFieldSeq());
-            store->AsLclFld()->SetLayoutNum(dst->AsLclFld()->GetLayoutNum());
-        }
-
-        if (!lcl->IsAddressExposed())
-        {
-            return;
-        }
-    }
-    else
-    {
-        if (dst->OperIs(GT_IND))
-        {
-            asgNode->ChangeOper(GT_STOREIND);
+            value = insert;
         }
         else
         {
-            asgNode->ChangeOper(dst->OperIs(GT_BLK) ? GT_STORE_BLK : GT_STORE_OBJ);
-            asgNode->AsBlk()->SetLayout(dst->AsBlk()->GetLayout());
+            assert((store->gtFlags & GTF_VAR_USEASG) == 0);
         }
 
-        GenTreeIndir* store = asgNode->AsIndir();
-        store->SetType(dst->GetType());
-        store->SetAddr(dst->AsIndir()->GetAddr());
-        store->SetValue(value);
-        store->gtFlags |= dst->gtFlags & GTF_IND_FLAGS;
+        GenTree* def = store;
+        def->SetOper(GT_LCL_DEF);
+        def->AsLclDef()->Init();
+        def->AsLclDef()->SetLclNum(lclNum);
+        def->AsLclDef()->SetBlock(block);
+        def->AsLclDef()->SetValue(value);
+        def->SetType(lcl->lvNormalizeOnStore() ? varActualType(lcl->GetType()) : lcl->GetType());
+        def->gtFlags = defFlags | value->GetSideEffects() | GTF_ASG;
+
+        renameStack.Push(block, lclNum, def->AsLclDef());
+
+        if (!value->IsPhi())
+        {
+            AddDefToHandlerPhis(block, def->AsLclDef());
+        }
+
+        return;
+    }
+
+    if (!lcl->IsAddressExposed())
+    {
+        return;
     }
 
     // Figure out if "asgNode" may make a new GC heap state (if we care for this block).
     // TODO-MIKE-Review: Looks like this misses HWINTRINSIC memory stores...
     if (!block->bbMemoryHavoc && m_compiler->ehBlockHasExnFlowDsc(block))
     {
-        SsaMemDef* def = ssa.AllocNodeMemoryDef(asgNode);
+        SsaMemDef* def = ssa.AllocNodeMemoryDef(store);
         renameStack.PushMemory(block, def);
 
-        DBG_SSA_JITDUMP("Node [%06u] in try block defines memory; SSA #%u.\n", asgNode->GetID(), def->num);
+        DBG_SSA_JITDUMP("Node [%06u] in try block defines memory; SSA #%u.\n", store->GetID(), def->num);
+
+        AddMemoryDefToHandlerPhis(block, def);
+    }
+}
+
+void SsaRenameDomTreeVisitor::RenameMemoryStore(GenTreeIndir* store, BasicBlock* block)
+{
+    assert(store->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
+
+    // Figure out if "asgNode" may make a new GC heap state (if we care for this block).
+    // TODO-MIKE-Review: Looks like this misses HWINTRINSIC memory stores...
+    if (!block->bbMemoryHavoc && m_compiler->ehBlockHasExnFlowDsc(block))
+    {
+        SsaMemDef* def = ssa.AllocNodeMemoryDef(store);
+        renameStack.PushMemory(block, def);
+
+        DBG_SSA_JITDUMP("Node [%06u] in try block defines memory; SSA #%u.\n", store->GetID(), def->num);
 
         AddMemoryDefToHandlerPhis(block, def);
     }
@@ -1017,8 +978,7 @@ void SsaRenameDomTreeVisitor::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block
 
 void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block)
 {
-    assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-    assert((lclNode->gtFlags & GTF_VAR_DEF) == 0);
+    assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((lclNode->gtFlags & GTF_VAR_DEF) == 0));
 
     unsigned   lclNum = lclNode->GetLclNum();
     LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
@@ -1191,9 +1151,15 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
     {
         for (GenTree* const node : stmt->Nodes())
         {
-            if (node->OperIs(GT_ASG))
+            assert(!node->OperIs(GT_ASG));
+
+            if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
             {
-                RenameDef(node->AsOp(), block);
+                RenameLclStore(node->AsLclVarCommon(), block);
+            }
+            else if (node->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK))
+            {
+                RenameMemoryStore(node->AsIndir(), block);
             }
             else if (node->OperIs(GT_LCL_DEF))
             {
@@ -1201,10 +1167,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
             }
             else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                if ((node->gtFlags & GTF_VAR_DEF) == 0)
-                {
-                    RenameLclUse(node->AsLclVarCommon(), stmt, block);
-                }
+                RenameLclUse(node->AsLclVarCommon(), stmt, block);
             }
             else if (node->OperIs(GT_NULLCHECK))
             {

@@ -32,8 +32,6 @@ private:
                            GenTreeCall::Use* args);
 
     void RewriteIntrinsicAsUserCall(GenTree** use, ArrayStack<GenTree*>& parents);
-    void RewriteAssignment(LIR::Use& use);
-    void RewriteLocalAssignment(GenTreeOp* assignment, GenTreeLclVarCommon* location);
 
     Compiler::fgWalkResult RewriteNode(GenTree** useEdge, GenTree* user);
 };
@@ -122,77 +120,6 @@ void Rationalizer::RewriteIntrinsicAsUserCall(GenTree** use, ArrayStack<GenTree*
                       args);
 }
 
-void Rationalizer::RewriteLocalAssignment(GenTreeOp* assignment, GenTreeLclVarCommon* location)
-{
-    assert(assignment->OperIs(GT_ASG));
-    assert(location->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-
-    GenTree* value = assignment->GetOp(1);
-
-    assignment->ChangeOper(location->OperIs(GT_LCL_VAR) ? GT_STORE_LCL_VAR : GT_STORE_LCL_FLD);
-
-    GenTreeLclVarCommon* store = assignment->AsLclVarCommon();
-    store->SetType(location->GetType());
-    store->SetOp(0, value);
-    store->SetLclNum(location->GetLclNum());
-
-    if (store->OperIs(GT_STORE_LCL_FLD))
-    {
-        store->AsLclFld()->SetLclOffs(location->AsLclFld()->GetLclOffs());
-        store->AsLclFld()->SetFieldSeq(location->AsLclFld()->GetFieldSeq());
-        store->AsLclFld()->SetLayoutNum(location->AsLclFld()->GetLayoutNum());
-        store->gtFlags |= location->gtFlags & GTF_VAR_USEASG;
-    }
-
-    store->gtFlags |= GTF_VAR_DEF;
-    store->gtFlags &= ~GTF_EXCEPT;
-}
-
-void Rationalizer::RewriteAssignment(LIR::Use& use)
-{
-    assert(use.IsInitialized());
-
-    GenTreeOp* assignment = use.Def()->AsOp();
-    assert(assignment->OperIs(GT_ASG));
-    assert((assignment->gtFlags & GTF_ASG) != 0);
-
-    GenTree* location = assignment->GetOp(0);
-    GenTree* value    = assignment->GetOp(1);
-
-    switch (location->GetOper())
-    {
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
-            RewriteLocalAssignment(assignment, location->AsLclVarCommon());
-            break;
-
-        case GT_IND:
-            assignment->ChangeOper(GT_STOREIND);
-            assignment->SetType(location->GetType());
-            assignment->AsIndir()->SetAddr(location->AsIndir()->GetAddr());
-            assignment->AsIndir()->SetValue(value);
-            assignment->gtFlags |= location->gtFlags & GTF_IND_FLAGS;
-            break;
-
-        case GT_BLK:
-        case GT_OBJ:
-            assignment->ChangeOper(location->OperIs(GT_BLK) ? GT_STORE_BLK : GT_STORE_OBJ);
-            assignment->SetType(location->GetType());
-            assignment->AsBlk()->SetLayout(location->AsBlk()->GetLayout());
-            assignment->AsBlk()->SetKind(StructStoreKind::Invalid);
-
-            assignment->AsIndir()->SetAddr(location->AsIndir()->GetAddr());
-            assignment->AsIndir()->SetValue(value);
-            assignment->gtFlags |= location->gtFlags & GTF_IND_FLAGS;
-            break;
-
-        default:
-            unreached();
-    }
-
-    BlockRange().Remove(location);
-}
-
 Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
 {
     assert(useEdge != nullptr);
@@ -214,12 +141,8 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
     }
 
     assert(node == use.Def());
-    switch (node->OperGet())
+    switch (node->GetOper())
     {
-        case GT_ASG:
-            RewriteAssignment(use);
-            break;
-
         case GT_BOX:
             // GT_BOX at this level just passes through so get rid of it
             use.ReplaceWith(comp, node->gtGetOp1());

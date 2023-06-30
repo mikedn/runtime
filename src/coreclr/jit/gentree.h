@@ -3005,7 +3005,7 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     GenTreeLclVar(var_types type, unsigned lclNum, GenTree* value DEBUGARG(bool largeNode = false))
         : GenTreeLclVarCommon(GT_STORE_LCL_VAR, type, lclNum DEBUGARG(largeNode))
     {
-        gtFlags |= GTF_ASG | GTF_VAR_DEF;
+        gtFlags |= GTF_ASG | GTF_VAR_DEF | value->GetSideEffects();
         SetOp(0, value);
     }
 
@@ -3044,7 +3044,7 @@ public:
     {
         assert(lclOffs <= UINT16_MAX);
 
-        gtFlags |= GTF_ASG | GTF_VAR_DEF;
+        gtFlags |= GTF_ASG | GTF_VAR_DEF | value->GetSideEffects();
         SetOp(0, value);
     }
 

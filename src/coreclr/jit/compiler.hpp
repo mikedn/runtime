@@ -1769,26 +1769,26 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 inline unsigned Compiler::LoopDsc::lpIterVar() const
 {
     INDEBUG(VerifyIterator());
-    return lpIterTree->GetOp(0)->AsLclVar()->GetLclNum();
+    return lpIterTree->GetLclNum();
 }
 
 inline int Compiler::LoopDsc::lpIterConst() const
 {
     INDEBUG(VerifyIterator());
-    return lpIterTree->GetOp(1)->AsOp()->GetOp(1)->AsIntCon()->GetInt32Value();
+    return lpIterTree->GetOp(0)->AsOp()->GetOp(1)->AsIntCon()->GetInt32Value();
 }
 
 inline genTreeOps Compiler::LoopDsc::lpIterOper() const
 {
     INDEBUG(VerifyIterator());
-    return lpIterTree->GetOp(1)->GetOper();
+    return lpIterTree->GetOp(0)->GetOper();
 }
 
 inline bool Compiler::LoopDsc::lpIsReversed() const
 {
     INDEBUG(VerifyIterator());
     return lpTestTree->GetOp(1)->OperIs(GT_LCL_VAR) &&
-           (lpTestTree->GetOp(1)->AsLclVar()->GetLclNum() == lpIterTree->GetOp(0)->AsLclVar()->GetLclNum());
+           (lpTestTree->GetOp(1)->AsLclVar()->GetLclNum() == lpIterTree->GetLclNum());
 }
 
 inline genTreeOps Compiler::LoopDsc::lpTestOper() const

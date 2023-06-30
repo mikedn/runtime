@@ -202,17 +202,15 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
     {
         case GT_LCL_VAR:
         case GT_LCL_FLD:
-            if ((tree->gtFlags & GTF_VAR_DEF) == 0)
+            assert((tree->gtFlags & GTF_VAR_DEF) == 0);
+
+            if (lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed())
             {
-                if (lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed())
-                {
-                    state.fgCurMemoryUse = true;
-                }
-                else
-                {
-                    fgMarkUseDef(state, tree->AsLclVarCommon());
-                }
+                state.fgCurMemoryUse = true;
+                break;
             }
+
+            fgMarkUseDef(state, tree->AsLclVarCommon());
             break;
 
         case GT_LCL_ADDR:
@@ -232,20 +230,14 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
                 state.fgCurMemoryDef = true;
             }
 
-            // If the GT_IND is the lhs of an assignment, we'll handle it
-            // as a memory def, when we get to assignment.
-            // Otherwise, we treat it as a use here.
-            if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
+            assert((tree->gtFlags & GTF_IND_ASG_LHS) == 0);
+
+            if (GenTreeLclAddr* lclNode = tree->AsIndir()->GetAddr()->SkipComma()->IsLocalAddrExpr())
             {
-                GenTree* addr = tree->AsIndir()->GetAddr()->SkipComma();
-
-                if (GenTreeLclAddr* lclNode = addr->IsLocalAddrExpr())
-                {
-                    assert(lvaGetDesc(lclNode)->IsAddressExposed());
-                }
-
-                state.fgCurMemoryUse = true;
+                assert(lvaGetDesc(lclNode)->IsAddressExposed());
             }
+
+            state.fgCurMemoryUse = true;
             break;
 
         // We'll assume these are use-then-defs of memory.
@@ -309,41 +301,32 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
             break;
         }
 
-        case GT_ASG:
-            if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        case GT_STORE_LCL_VAR:
+        case GT_STORE_LCL_FLD:
+            assert((tree->gtFlags & GTF_VAR_DEF) != 0);
+
+            if (lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed())
             {
-                GenTreeLclVarCommon* lclNode = tree->AsOp()->GetOp(0)->AsLclVarCommon();
-
-                if (lvaGetDesc(lclNode)->IsAddressExposed())
-                {
-                    state.fgCurMemoryDef = true;
-                    break;
-                }
-
-                fgMarkUseDef(state, lclNode);
+                state.fgCurMemoryDef = true;
                 break;
             }
 
-            if (GenTreeIndir* indir = tree->AsOp()->GetOp(0)->IsIndir())
+            fgMarkUseDef(state, tree->AsLclVarCommon());
+            break;
+
+        case GT_STOREIND:
+        case GT_STORE_OBJ:
+        case GT_STORE_BLK:
+            if (GenTreeLclAddr* lclNode = tree->AsIndir()->GetAddr()->SkipComma()->IsLocalAddrExpr())
             {
-                if (GenTreeLclAddr* lclNode = indir->GetAddr()->IsLocalAddrExpr())
-                {
-                    assert(lvaGetDesc(lclNode)->IsAddressExposed());
-                }
+                assert(lvaGetDesc(lclNode)->IsAddressExposed());
             }
 
             state.fgCurMemoryDef = true;
             break;
 
-        case GT_QMARK:
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
-        case GT_STORE_OBJ:
-        case GT_STORE_BLK:
-        case GT_STOREIND:
-            unreached();
-
         default:
+            assert(!tree->OperIs(GT_ASG, GT_QMARK));
             break;
     }
 }
@@ -880,8 +863,10 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
 
     for (GenTree* node = stmt->GetRootNode(); node != nullptr;)
     {
-        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((node->gtFlags & GTF_VAR_DEF) == 0))
+        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
+            assert((node->gtFlags & GTF_VAR_DEF) == 0);
+
             GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
             LclVarDsc*           lcl     = lvaGetDesc(lclNode);
 
@@ -895,64 +880,62 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
                 assert(!isDeadStore);
             }
         }
-        else if (node->OperIs(GT_ASG))
+        else if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
         {
-            if (GenTreeLclVarCommon* lclNode = node->AsOp()->GetOp(0)->SkipComma()->IsLclVarCommon())
+            assert((node->gtFlags & GTF_VAR_DEF) != 0);
+
+            GenTreeLclVarCommon* lclNode     = node->AsLclVarCommon();
+            LclVarDsc*           lcl         = lvaGetDesc(lclNode);
+            bool                 isDeadStore = false;
+
+            if (lcl->HasLiveness())
             {
-                assert((lclNode->gtFlags & GTF_VAR_DEF) != 0);
+                isDeadStore = fgComputeLifeTrackedLocalDef(liveOut, keepAlive, lcl, lclNode);
+            }
+            else if (lcl->IsPromoted() && !lcl->IsAddressExposed())
+            {
+                isDeadStore = fgComputeLifePromotedLocal(liveOut, keepAlive, lcl, lclNode);
+            }
 
-                LclVarDsc* lcl         = lvaGetDesc(lclNode);
-                bool       isDeadStore = false;
+            if (isDeadStore)
+            {
+                GenTree* nextNode = fgRemoveDeadStore(lclNode, stmt, block);
 
-                if (lcl->HasLiveness())
+                if (nextNode == nullptr)
                 {
-                    isDeadStore = fgComputeLifeTrackedLocalDef(liveOut, keepAlive, lcl, lclNode);
+                    // The entire statement was removed, we're done.
+
+                    // TODO-MIKE-Review: Why do we care about an entire statement being removed
+                    // but not about the other cases where only some nodes are removed? Those
+                    // could affect liveness as well.
+
+                    return true;
                 }
-                else if (lcl->IsPromoted() && !lcl->IsAddressExposed())
+
+                if (nextNode == stmt->GetRootNode())
                 {
-                    isDeadStore = fgComputeLifePromotedLocal(liveOut, keepAlive, lcl, lclNode);
-                }
+                    // The statement root was replaced, sequence the entire statement
+                    // and start over.
 
-                if (isDeadStore)
+                    updateStmt = false;
+                    gtSetStmtInfo(stmt);
+                }
+                else
                 {
-                    GenTree* nextNode = fgRemoveDeadStore(node->AsOp(), stmt, block);
+                    // The statement was modified. We need to sequence it so we can
+                    // continue the current linear order traversal but we can't call
+                    // gtSetStmtInfo because that would change evaluation order and
+                    // mess up the current traversal. Instead, call gtSetStmtInfo
+                    // after traversal is complete.
 
-                    if (nextNode == nullptr)
-                    {
-                        // The entire statement was removed, we're done.
-
-                        // TODO-MIKE-Review: Why do we care about an entire statement being removed
-                        // but not about the other cases where only some nodes are removed? Those
-                        // could affect liveness as well.
-
-                        return true;
-                    }
-
-                    if (nextNode == stmt->GetRootNode())
-                    {
-                        // The statement root was replaced, sequence the entire statement
-                        // and start over.
-
-                        updateStmt = false;
-                        gtSetStmtInfo(stmt);
-                    }
-                    else
-                    {
-                        // The statement was modified. We need to sequence it so we can
-                        // continue the current linear order traversal but we can't call
-                        // gtSetStmtInfo because that would change evaluation order and
-                        // mess up the current traversal. Instead, call gtSetStmtInfo
-                        // after traversal is complete.
-
-                        updateStmt = true;
-                    }
-
-                    INDEBUG(modified = true;)
-                    fgSetStmtSeq(stmt);
-                    node = nextNode;
-
-                    continue;
+                    updateStmt = true;
                 }
+
+                INDEBUG(modified = true;)
+                fgSetStmtSeq(stmt);
+                node = nextNode;
+
+                continue;
             }
         }
 
@@ -1240,18 +1223,18 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 }
 
 // Remove a dead assignment. Returns true if the entire statement was removed.
-GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode, Statement* stmt, BasicBlock* block)
+GenTree* Compiler::fgRemoveDeadStore(GenTreeLclVarCommon* store, Statement* stmt, BasicBlock* block)
 {
     assert(!compRationalIRForm);
-    assert(asgNode->OperIs(GT_ASG));
+    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-    JITDUMPTREE(asgNode, "Dead assignment:\n");
+    JITDUMPTREE(store, "Dead store:\n");
 
     GenTree* sideEffects = nullptr;
 
-    if ((asgNode->GetOp(1)->gtFlags & GTF_SIDE_EFFECT) != 0)
+    if ((store->GetOp(0)->gtFlags & GTF_SIDE_EFFECT) != 0)
     {
-        sideEffects = gtExtractSideEffList(asgNode->GetOp(1));
+        sideEffects = gtExtractSideEffList(store->GetOp(0));
 
         if (sideEffects != nullptr)
         {
@@ -1260,12 +1243,12 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode, Statement* stmt, BasicB
         }
     }
 
-    if (asgNode->gtNext == nullptr)
+    if (store->gtNext == nullptr)
     {
-        // This is a top level assignment, we can remove the entire statement
+        // This is a top level store, we can remove the entire statement
         // if there are no side effects.
 
-        noway_assert(stmt->GetRootNode() == asgNode);
+        noway_assert(stmt->GetRootNode() == store);
 
         if (sideEffects == nullptr)
         {
@@ -1284,38 +1267,32 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode, Statement* stmt, BasicB
 
     if (sideEffects == nullptr)
     {
-        asgNode->ChangeToNothingNode();
-    }
-    else if (sideEffects->OperIs(GT_ASG))
-    {
-        asgNode->SetOp(0, sideEffects->AsOp()->GetOp(0));
-        asgNode->SetOp(1, sideEffects->AsOp()->GetOp(1));
-        asgNode->SetType(sideEffects->GetType());
-        asgNode->SetSideEffects(sideEffects->GetSideEffects());
-        asgNode->SetReverseOps(sideEffects->IsReverseOp());
+        store->ChangeToNothingNode();
     }
     else
     {
-        asgNode->SetOper(GT_COMMA);
-        asgNode->SetType(TYP_VOID);
+        store->SetOper(GT_COMMA);
+        store->SetType(TYP_VOID);
+
+        GenTreeOp* comma = store->AsOp();
 
         if (sideEffects->OperIs(GT_COMMA))
         {
-            asgNode->SetOp(0, sideEffects->AsOp()->GetOp(0));
-            asgNode->SetOp(1, sideEffects->AsOp()->GetOp(1));
-            asgNode->SetReverseOps(sideEffects->IsReverseOp());
+            comma->SetOp(0, sideEffects->AsOp()->GetOp(0));
+            comma->SetOp(1, sideEffects->AsOp()->GetOp(1));
+            comma->SetReverseOps(sideEffects->IsReverseOp());
         }
         else
         {
-            asgNode->SetOp(0, sideEffects);
-            asgNode->SetOp(1, gtNewNothingNode());
-            asgNode->SetReverseOps(false);
+            comma->SetOp(0, sideEffects);
+            comma->SetOp(1, gtNewNothingNode());
+            comma->SetReverseOps(false);
         }
 
-        asgNode->SetSideEffects(sideEffects->GetSideEffects());
+        comma->SetSideEffects(sideEffects->GetSideEffects());
     }
 
-    return asgNode;
+    return store;
 }
 
 void Compiler::fgInterBlockLocalVarLivenessUntracked()
