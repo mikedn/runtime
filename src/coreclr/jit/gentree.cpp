@@ -2871,20 +2871,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                 goto DONE;
 
-            case GT_ASG:
-                level = gtSetEvalOrder(op1);
-
-                if (gtIsLikelyRegVar(op1))
-                {
-                    assert(lvlb == 0);
-                    lvl2   = gtSetEvalOrder(op2);
-                    costEx = op2->GetCostEx();
-                    costSz = max(3, op2->GetCostSz()); // 3 is an estimate for a reg-reg assignment
-                    goto DONE_OP2_COSTS;
-                }
-
-                goto DONE_OP1;
-
             case GT_STORE_OBJ:
                 // We estimate the cost of a OBJ to be two loads (INDs)
                 costEx += 2 * IND_COST_EX;
@@ -2992,6 +2978,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 goto DONE;
 
             default:
+                assert(!tree->OperIs(GT_ASG));
                 break;
         }
 
@@ -3003,7 +2990,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             lvlb = 0;
         }
 
-    DONE_OP1:
         costEx += op1->GetCostEx();
         costSz += op1->GetCostSz();
     DONE_OP1_COSTS:
@@ -3011,40 +2997,11 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         lvl2 = gtSetEvalOrder(op2) + lvlb;
         costEx += op2->GetCostEx();
         costSz += op2->GetCostSz();
-    DONE_OP2_COSTS:
+
         bool reverseInAssignment = false;
 
         switch (oper)
         {
-            case GT_ASG:
-                if (!csePhase || cseCanSwapOrder(op1, op2))
-                {
-                    switch (op1->GetOper())
-                    {
-                        case GT_IND:
-                        case GT_BLK:
-                        case GT_OBJ:
-                            // TODO-MIKE-Cleanup: This stuff is a complete mess.
-                            if (!op1->AsIndir()->GetAddr()->IsLocalAddrExpr() &&
-                                (op1->AsIndir()->GetAddr()->HasAnySideEffect(GTF_ALL_EFFECT) ||
-                                 op2->HasAnySideEffect(GTF_ASG) || op2->OperIsLeaf()))
-                            {
-                                break;
-                            }
-
-                            FALLTHROUGH;
-                        case GT_LCL_VAR:
-                        case GT_LCL_FLD:
-                            reverseInAssignment = true;
-                            tree->gtFlags |= GTF_REVERSE_OPS;
-                            break;
-
-                        default:
-                            break;
-                    }
-                }
-                break;
-
             case GT_STOREIND:
             case GT_STORE_OBJ:
             case GT_STORE_BLK:
