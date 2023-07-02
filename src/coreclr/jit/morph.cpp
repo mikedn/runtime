@@ -5445,7 +5445,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
 
 GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
 {
-    assert(lclVar->OperIs(GT_LCL_VAR));
+    assert(lclVar->OperIs(GT_LCL_VAR) && ((lclVar->gtFlags & GTF_VAR_DEF) == 0));
 
     LclVarDsc* lcl = lvaGetDesc(lclVar);
 
@@ -5458,7 +5458,7 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
     // We may need to insert a widening cast, if assertion propagation doesn't tell us
     // that the value previously stored in the local isn't already widened.
 
-    if (!fgGlobalMorph || ((lclVar->gtFlags & GTF_VAR_DEF) != 0) || !lcl->lvNormalizeOnLoad())
+    if (!fgGlobalMorph || !lcl->lvNormalizeOnLoad())
     {
         return lclVar;
     }
@@ -10206,13 +10206,21 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             {
                 op1->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
 
-                if (op1->OperIs(GT_LCL_VAR))
+                LclVarDsc* lcl = lvaGetDesc(op1->AsLclVarCommon());
+
+                if (lcl->IsAddressExposed())
                 {
-                    if (fgGlobalMorph)
-                    {
-                        op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
-                    }
+                    tree->AddSideEffects(GTF_GLOB_REF);
+                    op1->AddSideEffects(GTF_GLOB_REF);
                 }
+
+                if (fgGlobalMorph && op1->OperIs(GT_LCL_VAR))
+                {
+                    op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
+                }
+
+                // Skip morphing op1 so we don't need to deal with a GTF_VAR_DEF local node.
+                op1 = nullptr;
             }
             else
             {

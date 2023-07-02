@@ -1400,27 +1400,10 @@ GenTree* Compiler::morphAssertionPropagate(GenTree* tree)
         switch (tree->GetOper())
         {
             case GT_LCL_VAR:
-                // TODO-MIKE-ASG: This needs to be removed. The problem is that morph calls
-                // this before morphing so we still see VAR_DEF nodes. We need to stop
-                // morphing the ASG LHS, anyway it doesn't do anything useful.
-                if ((tree->gtFlags & GTF_VAR_DEF) == 0)
-                {
-                    newTree = morphAssertionPropagateLclVar(tree->AsLclVar());
-                }
-                else
-                {
-                    newTree = nullptr;
-                }
+                newTree = morphAssertionPropagateLclVar(tree->AsLclVar());
                 break;
             case GT_LCL_FLD:
-                if ((tree->gtFlags & GTF_VAR_DEF) == 0)
-                {
-                    newTree = morphAssertionPropagateLclFld(tree->AsLclFld());
-                }
-                else
-                {
-                    newTree = nullptr;
-                }
+                newTree = morphAssertionPropagateLclFld(tree->AsLclFld());
                 break;
             case GT_OBJ:
             case GT_STORE_OBJ:
