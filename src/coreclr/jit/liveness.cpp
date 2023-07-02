@@ -21,7 +21,7 @@ void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclVarCommon* node)
         lcl->SetRefCount(1);
     }
 
-    const bool isDef = (node->gtFlags & GTF_VAR_DEF) != 0;
+    const bool isDef = node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD);
     const bool isUse = !isDef || (node->OperIs(GT_STORE_LCL_FLD) && node->IsPartialLclFld(this));
 
     assert(isDef || isUse);
@@ -784,7 +784,7 @@ bool Compiler::fgComputeLifePromotedLocal(VARSET_TP&           liveOut,
                                                                : varTypeSize(lclFld->GetType()));
     }
 
-    bool isDef     = ((node->gtFlags & GTF_VAR_DEF) != 0);
+    bool isDef     = node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD);
     bool isLastUse = true;
 
     for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)

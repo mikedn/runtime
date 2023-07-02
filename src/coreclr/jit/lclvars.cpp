@@ -2551,7 +2551,7 @@ void Compiler::lvaComputeRefCountsHIR()
                          (node->TypeIs(TYP_UBYTE) && lcl->TypeIs(TYP_BOOL)) ||
                          (node->TypeIs(TYP_BYREF) && lcl->TypeIs(TYP_I_IMPL)) ||
                          (node->TypeIs(TYP_I_IMPL) && lcl->TypeIs(TYP_BYREF)) ||
-                         (node->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG) && (node->gtFlags & GTF_VAR_DEF) == 0));
+                         (node->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG) && node->OperIs(GT_LCL_VAR)));
 
 #if ASSERTION_PROP
             if (!lcl->lvDisqualifyAddCopy)
