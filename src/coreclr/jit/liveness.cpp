@@ -228,8 +228,6 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
                 state.fgCurMemoryDef = true;
             }
 
-            assert((tree->gtFlags & GTF_IND_ASG_LHS) == 0);
-
             if (GenTreeLclAddr* lclNode = tree->AsIndir()->GetAddr()->SkipComma()->IsLocalAddrExpr())
             {
                 assert(lvaGetDesc(lclNode)->IsAddressExposed());

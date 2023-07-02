@@ -4597,16 +4597,8 @@ GenTreeOp* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
 {
     assert(!src->TypeIs(TYP_VOID));
 
-    if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-    {
-        dst->gtFlags |= GTF_DONT_CSE;
-    }
-    else
-    {
-        assert(dst->OperIs(GT_IND, GT_OBJ, GT_BLK));
-
-        dst->gtFlags |= GTF_IND_ASG_LHS | GTF_DONT_CSE;
-    }
+    // TODO-MIKE-Review: This is probably useless now...
+    dst->gtFlags |= GTF_DONT_CSE;
 
     GenTreeOp* asg = gtNewOperNode(GT_ASG, dst->GetType(), dst, src);
     asg->gtFlags |= GTF_ASG;
@@ -6660,10 +6652,6 @@ int Compiler::dmpNodeFlags(GenTree* tree)
             else if (flags & GTF_IND_NONFAULTING)
             {
                 operFlag = 'n';
-            }
-            else if (flags & GTF_IND_ASG_LHS)
-            {
-                operFlag = 'D';
             }
             else if (flags & GTF_IND_NONNULL)
             {

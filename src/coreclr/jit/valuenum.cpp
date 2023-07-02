@@ -4767,7 +4767,7 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store)
 
 void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
 {
-    assert(load->OperIs(GT_IND, GT_OBJ, GT_BLK) && ((load->gtFlags & GTF_IND_ASG_LHS) == 0));
+    assert(load->OperIs(GT_IND, GT_OBJ, GT_BLK));
 
     GenTree*     addr = load->GetAddr();
     ValueNumPair addrExset;

@@ -5060,10 +5060,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[IND_TGT_NOT_HEAP]");
                 }
-                if (tree->gtFlags & GTF_IND_ASG_LHS)
-                {
-                    chars += printf("[IND_ASG_LHS]");
-                }
                 if (tree->gtFlags & GTF_IND_INVARIANT)
                 {
                     chars += printf("[IND_INVARIANT]");

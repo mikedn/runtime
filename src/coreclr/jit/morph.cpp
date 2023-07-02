@@ -10198,14 +10198,15 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         int helper;
 
         case GT_ASG:
+            // TODO-MIKE-Review: This is probably useless now...
+            op1->gtFlags |= GTF_DONT_CSE;
+
             // Ensure that the destination tree has all the necessary flags before it is morphed,
             // gtNewAssignNode should have set these flags but there may be bozo code that uses
             // gtNewOperNode, or SetOper and doesn't update the flags as needed.
             // We also need to add the small int local "normalization" cast so it is morphed too.
             if (op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                op1->gtFlags |= GTF_DONT_CSE;
-
                 LclVarDsc* lcl = lvaGetDesc(op1->AsLclVarCommon());
 
                 if (lcl->IsAddressExposed())
@@ -10225,8 +10226,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             else
             {
                 assert(op1->OperIs(GT_IND, GT_OBJ, GT_BLK));
-
-                op1->gtFlags |= GTF_IND_ASG_LHS | GTF_DONT_CSE;
             }
             break;
 

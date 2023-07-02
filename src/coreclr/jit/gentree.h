@@ -426,7 +426,6 @@ enum GenTreeFlags : unsigned
     GTF_IND_VOLATILE          = 0x40000000, // Volatile load/store
     GTF_IND_NONFAULTING       = 0x20000000, // Address is known to be non-null
     GTF_IND_TGT_HEAP          = 0x10000000, // Address is known to point inside the GC heap
-    GTF_IND_ASG_LHS           = 0x04000000, // Node is the LHS of an ASG node (HIR only)
     GTF_IND_UNALIGNED         = 0x02000000, // Unaligned load/store (1 byte aligned)
     GTF_IND_INVARIANT         = 0x01000000, // Load produces the same value throughout the method
     GTF_IND_NONNULL           = 0x00400000, // Load always produces a non-null value
