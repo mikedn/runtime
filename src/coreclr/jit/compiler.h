@@ -3181,21 +3181,10 @@ public:
 
     GenTree* gtClone(GenTree* tree, bool complexOK = false);
 
-    // If `tree` is a lclVar with lclNum `varNum`, return an IntCns with value `varVal`; otherwise,
-    // create a copy of `tree`, adding specified flags, replacing uses of lclVar `deepVarNum` with
-    // IntCnses with value `deepVarVal`.
-    GenTree* gtCloneExpr(
-        GenTree* tree, GenTreeFlags addFlags, unsigned varNum, int varVal, unsigned deepVarNum, int deepVarVal);
-
-    // Create a copy of `tree`, optionally adding specifed flags, and optionally mapping uses of local
-    // `varNum` to int constants with value `varVal`.
     GenTree* gtCloneExpr(GenTree*     tree,
                          GenTreeFlags addFlags = GTF_EMPTY,
                          unsigned     varNum   = BAD_VAR_NUM,
-                         int          varVal   = 0)
-    {
-        return gtCloneExpr(tree, addFlags, varNum, varVal, varNum, varVal);
-    }
+                         int          varVal   = 0);
 
     Statement* gtCloneStmt(Statement* stmt)
     {
