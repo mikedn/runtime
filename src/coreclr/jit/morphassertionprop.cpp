@@ -503,7 +503,7 @@ void Compiler::morphAssertionGenerateNotNull(GenTree* addr)
 
 void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* store, GenTree* val)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR) && ((store->gtFlags & GTF_VAR_DEF) != 0));
+    assert(store->OperIs(GT_STORE_LCL_VAR));
 
     unsigned   lclNum = store->GetLclNum();
     LclVarDsc* lcl    = lvaGetDesc(lclNum);
@@ -1005,7 +1005,7 @@ GenTree* Compiler::morphAssertionPropagateLclVarCopy(const MorphAssertion& asser
 
 GenTree* Compiler::morphAssertionPropagateLclVar(GenTreeLclVar* lclVar)
 {
-    assert(lclVar->OperIs(GT_LCL_VAR) && ((lclVar->gtFlags & GTF_VAR_DEF) == 0));
+    assert(lclVar->OperIs(GT_LCL_VAR));
 
     // GTF_DONT_CSE is also used to block constant/copy propagation, not just CSE.
     if ((lclVar->gtFlags & GTF_DONT_CSE) != 0)
@@ -1057,7 +1057,7 @@ GenTree* Compiler::morphAssertionPropagateLclVar(GenTreeLclVar* lclVar)
 
 GenTree* Compiler::morphAssertionPropagateLclFld(GenTreeLclFld* lclFld)
 {
-    assert(lclFld->OperIs(GT_LCL_FLD) && ((lclFld->gtFlags & GTF_VAR_DEF) == 0));
+    assert(lclFld->OperIs(GT_LCL_FLD));
 
     // GTF_DONT_CSE is also used to block constant/copy propagation, not just CSE.
     if ((lclFld->gtFlags & GTF_DONT_CSE) != 0)

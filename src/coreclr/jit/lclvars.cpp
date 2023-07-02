@@ -2461,7 +2461,6 @@ void Compiler::lvaComputeRefCountsHIR()
                     FALLTHROUGH;
 #endif
                 case GT_STORE_LCL_FLD:
-                    assert((node->gtFlags & GTF_VAR_DEF) != 0);
                     MarkLclRefs(node->AsLclVarCommon(), user);
                     break;
 
@@ -2478,7 +2477,6 @@ void Compiler::lvaComputeRefCountsHIR()
 
                 case GT_LCL_VAR:
                 case GT_LCL_FLD:
-                    assert((node->gtFlags & GTF_VAR_DEF) == 0);
                     MarkLclRefs(node->AsLclVarCommon(), user);
                     break;
 

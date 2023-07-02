@@ -1374,7 +1374,7 @@ private:
                             indir->ChangeOper(GT_LCL_VAR);
                             indir->SetType(lclType);
                             indir->AsLclVar()->SetLclNum(val.LclNum());
-                            indir->gtFlags = GTF_VAR_DEF | GTF_DONT_CSE;
+                            indir->gtFlags = GTF_DONT_CSE;
                         }
                     }
                     else if (varTypeIsSmall(indirType) && (varTypeIsUnsigned(indirType) != varTypeIsUnsigned(lclType)))
@@ -1456,7 +1456,7 @@ private:
 
                 if (isDef)
                 {
-                    indir->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
+                    indir->gtFlags |= GTF_DONT_CSE;
 
                     if (varTypeIsSmall(varDsc->GetType()))
                     {
@@ -1515,7 +1515,7 @@ private:
                 indir->ChangeOper(GT_LCL_VAR);
                 indir->SetType(varDsc->GetType());
                 indir->AsLclVar()->SetLclNum(val.LclNum());
-                indir->gtFlags = GTF_VAR_DEF | GTF_DONT_CSE;
+                indir->gtFlags = GTF_DONT_CSE;
 
                 user->AsOp()->SetOp(1, NewInsertElement(varDsc->GetType(), val.Offset() / 4, TYP_FLOAT,
                                                         NewLclVarNode(varDsc->GetType(), val.LclNum()),
@@ -1635,7 +1635,7 @@ private:
 
         if (user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir))
         {
-            flags |= GTF_VAR_DEF | GTF_DONT_CSE;
+            flags |= GTF_DONT_CSE;
         }
         else if (indir->TypeIs(TYP_STRUCT) && user->IsCall())
         {

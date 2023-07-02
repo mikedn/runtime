@@ -379,7 +379,6 @@ enum GenTreeFlags : unsigned
 
     // LCL_VAR & co. specific flags
                               
-    GTF_VAR_DEF               = 0x80000000, // Definition of a local (LCL_VAR|FLD ASG LHS or STORE_LCL_VAR|FLD)
     GTF_VAR_DEATH             = 0x04000000, // Last-use of a local (LCL_VAR|FLD or dead stores if they're not removed)
     GTF_VAR_FIELD_DEATH0      = 0x04000000, // Last-use bits for up to 4 promoted fields
     GTF_VAR_FIELD_DEATH_MASK  = 0x3C000000,
@@ -3003,7 +3002,7 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     GenTreeLclVar(var_types type, unsigned lclNum, GenTree* value DEBUGARG(bool largeNode = false))
         : GenTreeLclVarCommon(GT_STORE_LCL_VAR, type, lclNum DEBUGARG(largeNode))
     {
-        gtFlags |= GTF_ASG | GTF_VAR_DEF | value->GetSideEffects();
+        gtFlags |= GTF_ASG | value->GetSideEffects();
         SetOp(0, value);
     }
 
@@ -3042,7 +3041,7 @@ public:
     {
         assert(lclOffs <= UINT16_MAX);
 
-        gtFlags |= GTF_ASG | GTF_VAR_DEF | value->GetSideEffects();
+        gtFlags |= GTF_ASG | value->GetSideEffects();
         SetOp(0, value);
     }
 

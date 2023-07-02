@@ -1470,7 +1470,7 @@ private:
 
     GenTree* PropagateLclLoad(const ASSERT_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
     {
-        assert(lclVar->OperIs(GT_LCL_VAR) && ((lclVar->gtFlags & GTF_VAR_DEF) == 0));
+        assert(lclVar->OperIs(GT_LCL_VAR));
 
         LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
 

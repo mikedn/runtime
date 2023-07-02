@@ -4599,7 +4599,7 @@ GenTreeOp* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
 
     if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        dst->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
+        dst->gtFlags |= GTF_DONT_CSE;
     }
     else
     {
@@ -6729,11 +6729,7 @@ int Compiler::dmpNodeFlags(GenTree* tree)
         case GT_LCL_VAR:
         case GT_LCL_FLD:
         case GT_STORE_LCL_FLD:
-            if (flags & GTF_VAR_DEF)
-            {
-                operFlag = 'D';
-            }
-            else if (flags & GTF_VAR_CONTEXT)
+            if (flags & GTF_VAR_CONTEXT)
             {
                 operFlag = '!';
             }
@@ -9842,7 +9838,6 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
         {
             GenTree* copyDst = copy->AsOp()->GetOp(0);
             copyDst->ChangeOper(GT_LCL_VAR);
-            copyDst->gtFlags |= GTF_VAR_DEF;
             copyDst->gtFlags &= ~GTF_ALL_EFFECT;
             copyDst->AsLclVar()->SetLclNum(boxTempLclNum);
         }
@@ -9852,7 +9847,6 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
             copy->ChangeOper(GT_STORE_LCL_VAR);
             copy->AsLclVar()->SetOp(0, value);
             copy->AsLclVar()->SetLclNum(boxTempLclNum);
-            copy->gtFlags |= GTF_VAR_DEF;
             copy->SetSideEffects(value->GetSideEffects() | GTF_GLOB_REF);
         }
 

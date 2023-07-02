@@ -202,8 +202,6 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
     {
         case GT_LCL_VAR:
         case GT_LCL_FLD:
-            assert((tree->gtFlags & GTF_VAR_DEF) == 0);
-
             if (lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed())
             {
                 state.fgCurMemoryUse = true;
@@ -303,8 +301,6 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
 
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
-            assert((tree->gtFlags & GTF_VAR_DEF) != 0);
-
             if (lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed())
             {
                 state.fgCurMemoryDef = true;
@@ -719,7 +715,6 @@ void Compiler::fgLiveVarAnalysis()
 void Compiler::fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclVarCommon* node)
 {
     assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-    assert((node->gtFlags & GTF_VAR_DEF) == 0);
 
     if (VarSetOps::TryAddElemD(this, liveOut, lcl->GetLivenessBitIndex()))
     {
@@ -736,7 +731,7 @@ bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
                                             LclVarDsc*           lcl,
                                             GenTreeLclVarCommon* node)
 {
-    assert(node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && ((node->gtFlags & GTF_VAR_DEF) != 0));
+    assert(node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
     const unsigned index = lcl->GetLivenessBitIndex();
 
@@ -864,8 +859,6 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
     {
         if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            assert((node->gtFlags & GTF_VAR_DEF) == 0);
-
             GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
             LclVarDsc*           lcl     = lvaGetDesc(lclNode);
 
@@ -881,8 +874,6 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
         }
         else if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
         {
-            assert((node->gtFlags & GTF_VAR_DEF) != 0);
-
             GenTreeLclVarCommon* lclNode     = node->AsLclVarCommon();
             LclVarDsc*           lcl         = lvaGetDesc(lclNode);
             bool                 isDeadStore = false;

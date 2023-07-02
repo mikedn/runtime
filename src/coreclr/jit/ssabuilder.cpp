@@ -541,7 +541,7 @@ void SsaBuilder::InsertPhi(BasicBlock* block, unsigned lclNum)
     phi->SetCosts(0, 0);
 
     GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(phi, block, lclNum);
-    def->gtFlags       = GTF_VAR_DEF | GTF_ASG;
+    def->gtFlags       = GTF_ASG;
     def->SetCosts(0, 0);
 
     Statement* stmt = compiler->gtNewStmt(def);
@@ -834,7 +834,7 @@ void SsaRenameDomTreeVisitor::AddPhiArg(BasicBlock*    pred,
 
 void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBlock* block)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
+    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
     GenTree*   value  = store->GetOp(0);
     unsigned   lclNum = store->GetLclNum();
@@ -968,7 +968,7 @@ void SsaRenameDomTreeVisitor::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block
 
 void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block)
 {
-    assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((lclNode->gtFlags & GTF_VAR_DEF) == 0));
+    assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
     unsigned   lclNum = lclNode->GetLclNum();
     LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
@@ -1569,7 +1569,6 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
         store->AsLclFld()->SetLclOffs(field.GetOffset());
         store->AsLclFld()->SetFieldSeq(field.GetFieldSeq());
         store->AsLclFld()->SetLclNum(lclNum);
-        store->gtFlags |= GTF_VAR_DEF;
 
         structValue->gtNext->gtPrev = structValue->gtPrev;
 
@@ -1590,7 +1589,6 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
     {
         store->SetOper(GT_STORE_LCL_VAR);
         store->AsLclVar()->SetLclNum(lclNum);
-        store->gtFlags |= GTF_VAR_DEF;
     }
 }
 

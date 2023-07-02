@@ -5445,7 +5445,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
 
 GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
 {
-    assert(lclVar->OperIs(GT_LCL_VAR) && ((lclVar->gtFlags & GTF_VAR_DEF) == 0));
+    assert(lclVar->OperIs(GT_LCL_VAR));
 
     LclVarDsc* lcl = lvaGetDesc(lclVar);
 
@@ -8618,7 +8618,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
                 destLclNode->SetType(initType);
                 destLclNode->AsLclVarCommon()->SetLclNum(destLclNum);
 
-                destFlags |= GTF_DONT_CSE | GTF_VAR_DEF | (destLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY);
+                destFlags |= GTF_DONT_CSE | (destLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY);
 
                 if (destLclNode->OperIs(GT_LCL_FLD))
                 {
@@ -9834,13 +9834,13 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         if (destField->OperIs(GT_LCL_VAR))
         {
             destField->gtOper = GT_STORE_LCL_VAR;
-            destField->gtFlags |= GTF_ASG | GTF_VAR_DEF;
+            destField->gtFlags |= GTF_ASG;
             destField->AsLclVar()->SetOp(0, srcField);
         }
         else if (destField->OperIs(GT_LCL_FLD))
         {
             destField->gtOper = GT_STORE_LCL_FLD;
-            destField->gtFlags |= GTF_ASG | GTF_VAR_DEF;
+            destField->gtFlags |= GTF_ASG;
             destField->AsLclFld()->SetOp(0, srcField);
         }
         else
@@ -10204,7 +10204,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             // We also need to add the small int local "normalization" cast so it is morphed too.
             if (op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                op1->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
+                op1->gtFlags |= GTF_DONT_CSE;
 
                 LclVarDsc* lcl = lvaGetDesc(op1->AsLclVarCommon());
 
@@ -10219,7 +10219,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                     op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
                 }
 
-                // Skip morphing op1 so we don't need to deal with a GTF_VAR_DEF local node.
+                // Skip morphing op1 so we don't need to deal with a "def" local node.
                 op1 = nullptr;
             }
             else
@@ -10268,7 +10268,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 tree->AsLclFld()->SetOp(0, op2);
                 tree->SetSideEffects(GTF_ASG | GTF_GLOB_REF | op2->GetSideEffects());
                 tree->gtFlags &= ~GTF_REVERSE_OPS;
-                tree->gtFlags |= GTF_VAR_DEF;
 
                 oper = GT_STORE_LCL_FLD;
                 op1  = op2;
@@ -10285,7 +10284,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_OBJ:
             if (op1->OperIs(GT_LCL_ADDR) && !tree->AsIndir()->IsVolatile())
             {
-                bool         isDef  = (tree->gtFlags & GTF_IND_ASG_LHS) != 0;
                 ClassLayout* layout = tree->IsObj() ? tree->AsObj()->GetLayout() : nullptr;
 
                 // Just change it to a LCL_FLD. Since these locals are already address exposed
@@ -10298,11 +10296,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 tree->AsLclFld()->SetLclNum(op1->AsLclAddr()->GetLclNum());
                 tree->AsLclFld()->SetLclOffs(op1->AsLclAddr()->GetLclOffs());
                 tree->AsLclFld()->SetLayout(layout, this);
-
-                if (isDef)
-                {
-                    tree->gtFlags |= GTF_VAR_DEF;
-                }
 
                 return tree;
             }
