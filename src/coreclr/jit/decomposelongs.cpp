@@ -788,7 +788,7 @@ GenTree* DecomposeLongs::DecomposeStoreInd(LIR::Use& use)
     GenTree* addrBaseHigh = m_compiler->gtNewLclvNode(addrBase->GetLclNum(), addrBase->GetType());
     GenTree* addrHigh     = new (m_compiler, GT_LEA) GenTreeAddrMode(addrBase->GetType(), addrBaseHigh, nullptr, 0, 4);
     GenTree* storeIndHigh = new (m_compiler, GT_STOREIND) GenTreeStoreInd(TYP_INT, addrHigh, dataHigh);
-    storeIndHigh->gtFlags = (storeIndLow->gtFlags & (GTF_ALL_EFFECT | GTF_IND_FLAGS));
+    storeIndHigh->gtFlags = (storeIndLow->gtFlags & (GTF_ALL_EFFECT | GTF_SPECIFIC_MASK));
 
     Range().InsertAfter(storeIndLow, dataHigh, addrBaseHigh, addrHigh, storeIndHigh);
 
@@ -823,7 +823,7 @@ GenTree* DecomposeLongs::DecomposeInd(LIR::Use& use)
     GenTree* addrBaseHigh = m_compiler->gtNewLclvNode(addrBase->GetLclNum(), addrBase->GetType());
     GenTree* addrHigh     = new (m_compiler, GT_LEA) GenTreeAddrMode(addrBase->GetType(), addrBaseHigh, nullptr, 0, 4);
     GenTree* indHigh      = new (m_compiler, GT_IND) GenTreeIndir(GT_IND, TYP_INT, addrHigh, nullptr);
-    indHigh->gtFlags |= (indLow->gtFlags & (GTF_GLOB_REF | GTF_EXCEPT | GTF_IND_FLAGS));
+    indHigh->gtFlags |= (indLow->gtFlags & (GTF_GLOB_REF | GTF_EXCEPT | GTF_SPECIFIC_MASK));
 
     Range().InsertAfter(indLow, addrBaseHigh, addrHigh, indHigh);
 

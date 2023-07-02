@@ -429,13 +429,6 @@ enum GenTreeFlags : unsigned
     GTF_IND_UNALIGNED         = 0x02000000, // Unaligned load/store (1 byte aligned)
     GTF_IND_INVARIANT         = 0x01000000, // Load produces the same value throughout the method
     GTF_IND_NONNULL           = 0x00400000, // Load always produces a non-null value
-    GTF_IND_FLAGS             = GTF_IND_TGT_NOT_HEAP |
-                                GTF_IND_VOLATILE |
-                                GTF_IND_NONFAULTING |
-                                GTF_IND_TGT_HEAP |
-                                GTF_IND_UNALIGNED |
-                                GTF_IND_INVARIANT |
-                                GTF_IND_NONNULL,
 
     // CNS_INT specific flags
 
