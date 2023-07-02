@@ -380,8 +380,6 @@ enum GenTreeFlags : unsigned
     // LCL_VAR & co. specific flags
                               
     GTF_VAR_DEF               = 0x80000000, // Definition of a local (LCL_VAR|FLD ASG LHS or STORE_LCL_VAR|FLD)
-    GTF_VAR_USEASG            = 0x40000000, // Partial definition of a local, a use of the previous definition is implied
-                                            // (LCL_FLD ASG LHS or STORE_LCL_FLD)
     GTF_VAR_DEATH             = 0x04000000, // Last-use of a local (LCL_VAR|FLD or dead stores if they're not removed)
     GTF_VAR_FIELD_DEATH0      = 0x04000000, // Last-use bits for up to 4 promoted fields
     GTF_VAR_FIELD_DEATH_MASK  = 0x3C000000,

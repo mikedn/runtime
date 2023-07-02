@@ -4534,7 +4534,6 @@ void ValueNumbering::NumberLclUse(GenTreeLclUse* use)
 void ValueNumbering::NumberLclFldStore(GenTreeLclFld* store)
 {
     assert(store->OperIs(GT_STORE_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
-    assert(((store->gtFlags & GTF_VAR_USEASG) != 0) == store->IsPartialLclFld(compiler));
     assert(!lvaGetDesc(store)->IsSsa());
 
     if (!lvaGetDesc(store)->IsAddressExposed())

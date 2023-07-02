@@ -4600,11 +4600,6 @@ GenTreeOp* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
     if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         dst->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
-
-        if (dst->IsPartialLclFld(this))
-        {
-            dst->gtFlags |= GTF_VAR_USEASG;
-        }
     }
     else
     {
@@ -6734,11 +6729,7 @@ int Compiler::dmpNodeFlags(GenTree* tree)
         case GT_LCL_VAR:
         case GT_LCL_FLD:
         case GT_STORE_LCL_FLD:
-            if (flags & GTF_VAR_USEASG)
-            {
-                operFlag = 'U';
-            }
-            else if (flags & GTF_VAR_DEF)
+            if (flags & GTF_VAR_DEF)
             {
                 operFlag = 'D';
             }

@@ -3826,12 +3826,10 @@ GenTree* Compiler::abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkref
 {
     GenTreeLclFld* storePtrField =
         gtNewStoreLclFld(TYP_BYREF, tempLclNum, OFFSETOF__CORINFO_TypedReference__dataPtr, mkrefany->GetOp(0));
-    storePtrField->gtFlags |= GTF_VAR_USEASG;
     storePtrField->SetFieldSeq(GetRefanyValueField());
     GenTreeLclFld* storeTypeField =
         gtNewStoreLclFld(TYP_I_IMPL, tempLclNum, OFFSETOF__CORINFO_TypedReference__type, mkrefany->GetOp(1));
     storeTypeField->SetFieldSeq(GetRefanyTypeField());
-    storeTypeField->gtFlags |= GTF_VAR_USEASG;
 
 #ifdef WINDOWS_AMD64_ABI
     assert(lvaGetDesc(tempLclNum)->lvIsImplicitByRefArgTemp);
@@ -8625,12 +8623,6 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
                 if (destLclNode->OperIs(GT_LCL_FLD))
                 {
                     lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_LocalField));
-
-                    if ((destLclNode->AsLclFld()->GetLclOffs() > 0) ||
-                        (varTypeSize(destLclNode->GetType()) < destLclVarSize))
-                    {
-                        destFlags |= GTF_VAR_USEASG;
-                    }
                 }
 
                 destLclNode->gtFlags = destFlags;
@@ -9850,11 +9842,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             destField->gtOper = GT_STORE_LCL_FLD;
             destField->gtFlags |= GTF_ASG | GTF_VAR_DEF;
             destField->AsLclFld()->SetOp(0, srcField);
-
-            if (destField->AsLclFld()->IsPartialLclFld(this))
-            {
-                destField->gtFlags |= GTF_VAR_USEASG;
-            }
         }
         else
         {
@@ -10226,10 +10213,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                         op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
                     }
                 }
-                else if (op1->IsPartialLclFld(this))
-                {
-                    op1->gtFlags |= GTF_VAR_USEASG;
-                }
             }
             else
             {
@@ -10279,11 +10262,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 tree->gtFlags &= ~GTF_REVERSE_OPS;
                 tree->gtFlags |= GTF_VAR_DEF;
 
-                if (tree->IsPartialLclFld(this))
-                {
-                    tree->gtFlags |= GTF_VAR_USEASG;
-                }
-
                 oper = GT_STORE_LCL_FLD;
                 op1  = op2;
                 op2  = nullptr;
@@ -10316,11 +10294,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 if (isDef)
                 {
                     tree->gtFlags |= GTF_VAR_DEF;
-
-                    if (tree->IsPartialLclFld(this))
-                    {
-                        tree->gtFlags |= GTF_VAR_USEASG;
-                    }
                 }
 
                 return tree;
@@ -14535,11 +14508,6 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
         {
             GenTreeLclFld* store = gtNewStoreLclFld(value->GetType(), lclNum, 0, value);
             lastStmt->SetRootNode(store);
-
-            if (store->IsPartialLclFld(this))
-            {
-                store->gtFlags |= GTF_VAR_USEASG;
-            }
         }
         else
         {

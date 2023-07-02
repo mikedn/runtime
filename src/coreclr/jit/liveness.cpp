@@ -22,7 +22,7 @@ void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclVarCommon* node)
     }
 
     const bool isDef = (node->gtFlags & GTF_VAR_DEF) != 0;
-    const bool isUse = !isDef || ((node->gtFlags & GTF_VAR_USEASG) != 0);
+    const bool isUse = !isDef || (node->OperIs(GT_STORE_LCL_FLD) && node->IsPartialLclFld(this));
 
     assert(isDef || isUse);
 
@@ -736,14 +736,13 @@ bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
                                             LclVarDsc*           lcl,
                                             GenTreeLclVarCommon* node)
 {
-    assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
-    assert((node->gtFlags & GTF_VAR_DEF) != 0);
+    assert(node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && ((node->gtFlags & GTF_VAR_DEF) != 0));
 
     const unsigned index = lcl->GetLivenessBitIndex();
 
     if (VarSetOps::IsMember(this, liveOut, index))
     {
-        if ((node->gtFlags & GTF_VAR_USEASG) == 0)
+        if (node->OperIs(GT_STORE_LCL_VAR) || !node->IsPartialLclFld(this))
         {
             if (!VarSetOps::IsMember(this, keepAlive, index))
             {

@@ -1098,7 +1098,6 @@ private:
 
         node->ChangeOper(GT_LCL_VAR);
         node->AsLclVar()->SetLclNum(fieldLclNum);
-        node->gtFlags &= ~GTF_VAR_USEASG;
 
         INDEBUG(m_stmtModified = true;)
 
@@ -1459,11 +1458,6 @@ private:
                 {
                     indir->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
 
-                    if (varTypeSize(indirType) < varTypeSize(lclType))
-                    {
-                        indir->gtFlags |= GTF_VAR_USEASG;
-                    }
-
                     if (varTypeIsSmall(varDsc->GetType()))
                     {
                         // If LCL_FLD is used to store to a small type local then "normalize on store"
@@ -1642,14 +1636,6 @@ private:
         if (user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir))
         {
             flags |= GTF_VAR_DEF | GTF_DONT_CSE;
-
-            if (indir->OperIs(GT_LCL_FLD))
-            {
-                if ((val.Offset() != 0) || (indirSize < m_compiler->lvaGetDesc(val.LclNum())->GetTypeSize()))
-                {
-                    flags |= GTF_VAR_USEASG;
-                }
-            }
         }
         else if (indir->TypeIs(TYP_STRUCT) && user->IsCall())
         {

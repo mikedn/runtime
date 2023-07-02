@@ -855,8 +855,6 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
 
             if (lclFld->IsPartialLclFld(m_compiler))
             {
-                assert((lclFld->gtFlags & GTF_VAR_USEASG) != 0);
-
                 structValue = new (m_compiler, GT_LCL_USE) GenTreeLclUse(renameStack.Top(lclNum), block);
                 // TODO-MIKE-SSA: This is messy, we can't allow 0 to propagate to this
                 // use because we drop it on the floor when we destroy the SSA form.
@@ -868,8 +866,6 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
             }
             else if (lcl->TypeIs(TYP_STRUCT))
             {
-                assert((lclFld->gtFlags & GTF_VAR_USEASG) == 0);
-
                 // TODO-MIKE-SSA: This leaves us with an STRUCT INSERT from which we
                 // cannot recover the struct layout. In VN we might get away with it
                 // because it will simply insert the field value using the field seq
@@ -879,8 +875,6 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
             }
             else
             {
-                assert((lclFld->gtFlags & GTF_VAR_USEASG) == 0);
-
                 // TODO-MIKE-SSA: Using INSERT/EXTRACT with non-STRUCT types is dubious,
                 // 64 bit BITCASTs on 32 bit targets and shift/bitwise ops for oddities
                 // like (((byte*)&int_local) + 1) = 42; should avoid this this mess.
@@ -910,10 +904,6 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
             store->gtPrev         = insert;
 
             value = insert;
-        }
-        else
-        {
-            assert((store->gtFlags & GTF_VAR_USEASG) == 0);
         }
 
         GenTree* def = store;
@@ -1580,11 +1570,6 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
         store->AsLclFld()->SetFieldSeq(field.GetFieldSeq());
         store->AsLclFld()->SetLclNum(lclNum);
         store->gtFlags |= GTF_VAR_DEF;
-
-        if (store->IsPartialLclFld(compiler))
-        {
-            store->gtFlags |= GTF_VAR_USEASG;
-        }
 
         structValue->gtNext->gtPrev = structValue->gtPrev;
 

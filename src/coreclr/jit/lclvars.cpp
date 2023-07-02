@@ -2514,7 +2514,8 @@ void Compiler::lvaComputeRefCountsHIR()
                     lcl->lvHasEHRefs = true;
                 }
 
-                if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD) || ((node->gtFlags & GTF_VAR_USEASG) != 0))
+                if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD) ||
+                    (node->OperIs(GT_STORE_LCL_FLD) && node->IsPartialLclFld(m_compiler)))
                 {
                     lcl->lvHasEHUses = true;
 

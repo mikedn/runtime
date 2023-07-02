@@ -5997,7 +5997,7 @@ void Compiler::phRemoveRedundantZeroInits()
                         // We need to count the number of tracked var defs in the block
                         // so that we can update block->bbVarDef if we remove any tracked var defs.
 
-                        if (lclDsc->lvTracked)
+                        if (lclDsc->HasLiveness())
                         {
                             unsigned* pDefsCount = defsInBlock.LookupPointer(lclNum);
                             if (pDefsCount != nullptr)
@@ -6009,14 +6009,14 @@ void Compiler::phRemoveRedundantZeroInits()
                                 defsInBlock.Set(lclNum, 1);
                             }
                         }
-                        else if (varTypeIsStruct(lclDsc) && ((tree->gtFlags & GTF_VAR_USEASG) == 0) &&
-                                 lclDsc->IsPromoted())
+                        else if (lclDsc->IsPromoted() &&
+                                 (tree->OperIs(GT_STORE_LCL_VAR) || !tree->IsPartialLclFld(this)))
                         {
                             for (unsigned i = 0; i < lclDsc->GetPromotedFieldCount(); ++i)
                             {
                                 unsigned fieldLclNum = lclDsc->GetPromotedFieldLclNum(i);
 
-                                if (lvaGetDesc(fieldLclNum)->lvTracked)
+                                if (lvaGetDesc(fieldLclNum)->HasLiveness())
                                 {
                                     unsigned* pDefsCount = defsInBlock.LookupPointer(fieldLclNum);
 
