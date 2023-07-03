@@ -5898,7 +5898,7 @@ void Compiler::optAddCopies()
     }
 }
 
-// Remove redundant zero intializations.
+// Remove redundant zero initializations.
 //
 // Notes:
 //    This phase iterates over basic blocks starting with the first basic block until there is no unique
@@ -5925,12 +5925,12 @@ void Compiler::phRemoveRedundantZeroInits()
     using LclVarRefCounts = JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, unsigned>;
 
     CompAllocator   allocator(getAllocator(CMK_ZeroInit));
-    LclVarRefCounts refCounts(allocator);
     LclVarRefCounts defsInBlock(allocator);
     BitVecTraits    bitVecTraits(lvaCount, this);
-    BitVec          zeroInitLocals = BitVecOps::MakeEmpty(&bitVecTraits);
-    bool            hasGCSafePoint = false;
-    bool            canThrow       = false;
+    BitVec          zeroInitLocals   = BitVecOps::MakeEmpty(&bitVecTraits);
+    BitVec          referencedLocals = BitVecOps::MakeEmpty(&bitVecTraits);
+    bool            hasGCSafePoint   = false;
+    bool            canThrow         = false;
 
     for (BasicBlock* block = fgFirstBB; (block != nullptr) && ((block->bbFlags & BBF_MARKED) == 0);
          block             = block->GetUniqueSucc())
@@ -5960,7 +5960,7 @@ void Compiler::phRemoveRedundantZeroInits()
                     case GT_LCL_ADDR:
                     case GT_LCL_VAR:
                     case GT_LCL_FLD:
-                        (*refCounts.Emplace(node->AsLclVarCommon()->GetLclNum(), 0))++;
+                        BitVecOps::AddElemD(bitVecTraits, referencedLocals, node->AsLclVarCommon()->GetLclNum());
                         break;
 
                     case GT_STORE_LCL_VAR:
@@ -5994,43 +5994,30 @@ void Compiler::phRemoveRedundantZeroInits()
                         // TODO-MIKE-CQ: This could also recognize indirect local stores.
                         // Though they're so rare that's hardly worth the trouble...
 
-                        unsigned* refCount = refCounts.LookupPointer(lclNum);
-
-                        if (refCount != nullptr)
+                        if (!BitVecOps::TryAddElemD(bitVecTraits, referencedLocals, lclNum))
                         {
-                            (*refCount)++;
-
-                            if (*refCount > 1)
-                            {
-                                break;
-                            }
-                        }
-                        else
-                        {
-                            refCount = refCounts.Emplace(lclNum, 1);
+                            break;
                         }
 
                         if (lcl->IsPromotedField())
                         {
-                            unsigned parentRefCount = 0;
-
-                            if (refCounts.Lookup(lcl->GetPromotedFieldParentLclNum(), &parentRefCount) &&
-                                (parentRefCount != 0))
+                            if (BitVecOps::IsMember(bitVecTraits, referencedLocals,
+                                                    lcl->GetPromotedFieldParentLclNum()))
                             {
                                 break;
                             }
                         }
-
-                        if (lcl->IsPromoted())
+                        else if (lcl->IsPromoted())
                         {
-                            unsigned fieldRefCount = 0;
+                            bool hasFieldReferences = false;
 
-                            for (unsigned i = 0; (fieldRefCount == 0) && (i < lcl->GetPromotedFieldCount()); ++i)
+                            for (unsigned i = 0; !hasFieldReferences && (i < lcl->GetPromotedFieldCount()); ++i)
                             {
-                                refCounts.Lookup(lcl->GetPromotedFieldLclNum(i), &fieldRefCount);
+                                hasFieldReferences =
+                                    BitVecOps::IsMember(bitVecTraits, referencedLocals, lcl->GetPromotedFieldLclNum(i));
                             }
 
-                            if (fieldRefCount != 0)
+                            if (hasFieldReferences)
                             {
                                 break;
                             }
@@ -6077,7 +6064,7 @@ void Compiler::phRemoveRedundantZeroInits()
                                     BitVecOps::AddElemD(&bitVecTraits, zeroInitLocals, lclNum);
                                 }
 
-                                *refCount = 0;
+                                BitVecOps::RemoveElemD(bitVecTraits, referencedLocals, lclNum);
                             }
                         }
 
