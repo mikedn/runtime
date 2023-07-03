@@ -512,13 +512,11 @@ GenTree* DecomposeLongs::DecomposeStoreLclFld(LIR::Use& use)
     GenTreeLclFld* loStore = store;
     loStore->gtOp1         = value->gtOp1;
     loStore->gtType        = TYP_INT;
-    loStore->gtFlags |= GTF_VAR_USEASG;
 
     // Create the store for the upper half of the GT_LONG and insert it after the low store.
     GenTreeLclFld* hiStore = m_compiler->gtNewLclFldNode(loStore->GetLclNum(), TYP_INT, loStore->GetLclOffs() + 4);
     hiStore->SetOper(GT_STORE_LCL_FLD);
     hiStore->gtOp1 = value->gtOp2;
-    hiStore->gtFlags |= (GTF_VAR_DEF | GTF_VAR_USEASG);
 
     Range().InsertAfter(loStore, hiStore);
 
@@ -537,14 +535,13 @@ GenTree* DecomposeLongs::DecomposeStoreLclFld(LIR::Use& use)
 GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
 {
     assert(use.IsInitialized());
-    assert(use.Def()->OperGet() == GT_CAST);
 
-    GenTree* cast     = use.Def()->AsCast();
-    GenTree* loResult = nullptr;
-    GenTree* hiResult = nullptr;
+    GenTreeCast* cast     = use.Def()->AsCast();
+    GenTree*     loResult = nullptr;
+    GenTree*     hiResult = nullptr;
 
-    var_types srcType = cast->CastFromType();
-    var_types dstType = cast->CastToType();
+    var_types srcType = cast->GetOp(0)->GetType();
+    var_types dstType = cast->GetCastType();
 
     if ((cast->gtFlags & GTF_UNSIGNED) != 0)
     {
@@ -791,7 +788,7 @@ GenTree* DecomposeLongs::DecomposeStoreInd(LIR::Use& use)
     GenTree* addrBaseHigh = m_compiler->gtNewLclvNode(addrBase->GetLclNum(), addrBase->GetType());
     GenTree* addrHigh     = new (m_compiler, GT_LEA) GenTreeAddrMode(addrBase->GetType(), addrBaseHigh, nullptr, 0, 4);
     GenTree* storeIndHigh = new (m_compiler, GT_STOREIND) GenTreeStoreInd(TYP_INT, addrHigh, dataHigh);
-    storeIndHigh->gtFlags = (storeIndLow->gtFlags & (GTF_ALL_EFFECT | GTF_IND_FLAGS));
+    storeIndHigh->gtFlags = (storeIndLow->gtFlags & (GTF_ALL_EFFECT | GTF_SPECIFIC_MASK));
 
     Range().InsertAfter(storeIndLow, dataHigh, addrBaseHigh, addrHigh, storeIndHigh);
 
@@ -826,7 +823,7 @@ GenTree* DecomposeLongs::DecomposeInd(LIR::Use& use)
     GenTree* addrBaseHigh = m_compiler->gtNewLclvNode(addrBase->GetLclNum(), addrBase->GetType());
     GenTree* addrHigh     = new (m_compiler, GT_LEA) GenTreeAddrMode(addrBase->GetType(), addrBaseHigh, nullptr, 0, 4);
     GenTree* indHigh      = new (m_compiler, GT_IND) GenTreeIndir(GT_IND, TYP_INT, addrHigh, nullptr);
-    indHigh->gtFlags |= (indLow->gtFlags & (GTF_GLOB_REF | GTF_EXCEPT | GTF_IND_FLAGS));
+    indHigh->gtFlags |= (indLow->gtFlags & (GTF_GLOB_REF | GTF_EXCEPT | GTF_SPECIFIC_MASK));
 
     Range().InsertAfter(indLow, addrBaseHigh, addrHigh, indHigh);
 
@@ -1780,15 +1777,15 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
 //    Because "nextNode" usually is "cast", and this method may remove "cast"
 //    from the linear order, it needs to return the updated "nextNode". Instead
 //    of receiving it as an argument, it could assume that "nextNode" is always
-//    "cast->CastOp()->gtNext", but not making that assumption seems better.
+//    "cast->GetOp(0)->gtNext", but not making that assumption seems better.
 //
 GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTree* nextNode)
 {
-    GenTreeOp* src     = cast->CastOp()->AsOp();
-    var_types  dstType = cast->CastToType();
+    GenTreeOp* src     = cast->GetOp(0)->AsOp();
+    var_types  dstType = cast->GetCastType();
 
     assert(src->OperIs(GT_LONG));
-    assert(genActualType(dstType) == TYP_INT);
+    assert(varActualTypeIsInt(dstType));
 
     if (cast->gtOverflow())
     {
@@ -1822,7 +1819,7 @@ GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTr
     if (varTypeIsSmall(dstType))
     {
         JITDUMP("Cast is to a small type, keeping it, the new source is [%06u]\n", loSrc->gtTreeID);
-        cast->CastOp() = loSrc;
+        cast->SetOp(0, loSrc);
     }
     else
     {

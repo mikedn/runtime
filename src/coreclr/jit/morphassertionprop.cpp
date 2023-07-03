@@ -501,9 +501,11 @@ void Compiler::morphAssertionGenerateNotNull(GenTree* addr)
     morphAssertionAdd(assertion);
 }
 
-void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* lclVar, GenTree* val)
+void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* store, GenTree* val)
 {
-    unsigned   lclNum = lclVar->GetLclNum();
+    assert(store->OperIs(GT_STORE_LCL_VAR));
+
+    unsigned   lclNum = store->GetLclNum();
     LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
     if (lcl->IsAddressExposed())
@@ -553,7 +555,7 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* lclVar, GenTree* val)
 
 #ifndef TARGET_64BIT
         case GT_CNS_LNG:
-            assert(lcl->TypeIs(TYP_LONG) && lclVar->TypeIs(TYP_LONG) && val->TypeIs(TYP_LONG));
+            assert(lcl->TypeIs(TYP_LONG) && store->TypeIs(TYP_LONG) && val->TypeIs(TYP_LONG));
 
             assertion.kind             = Kind::Equal;
             assertion.valKind          = ValueKind::LngCon;
@@ -562,7 +564,7 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* lclVar, GenTree* val)
 #endif
 
         case GT_CNS_DBL:
-            assert((lcl->GetType() == lclVar->GetType()) && (lcl->GetType() == val->GetType()));
+            assert((lcl->GetType() == store->GetType()) && (lcl->GetType() == val->GetType()));
 
             if (_isnan(val->AsDblCon()->GetValue()))
             {
@@ -722,18 +724,18 @@ void Compiler::morphAssertionGenerate(GenTree* tree)
 
     switch (tree->GetOper())
     {
-        case GT_ASG:
-            if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR))
-            {
-                morphAssertionGenerateEqual(tree->AsOp()->GetOp(0)->AsLclVar(), tree->AsOp()->GetOp(1));
-            }
+        case GT_STORE_LCL_VAR:
+            morphAssertionGenerateEqual(tree->AsLclVar(), tree->AsLclVar()->GetOp(0));
             break;
 
-        case GT_BLK:
         case GT_OBJ:
+        case GT_STORE_OBJ:
+        case GT_BLK:
+        case GT_STORE_BLK:
             assert(tree->AsBlk()->GetLayout()->GetSize() != 0);
             FALLTHROUGH;
         case GT_IND:
+        case GT_STOREIND:
         case GT_NULLCHECK:
             morphAssertionGenerateNotNull(tree->AsIndir()->GetAddr());
             break;
@@ -1006,7 +1008,7 @@ GenTree* Compiler::morphAssertionPropagateLclVar(GenTreeLclVar* lclVar)
     assert(lclVar->OperIs(GT_LCL_VAR));
 
     // GTF_DONT_CSE is also used to block constant/copy propagation, not just CSE.
-    if ((lclVar->gtFlags & (GTF_VAR_DEF | GTF_DONT_CSE)) != 0)
+    if ((lclVar->gtFlags & GTF_DONT_CSE) != 0)
     {
         return nullptr;
     }
@@ -1058,7 +1060,7 @@ GenTree* Compiler::morphAssertionPropagateLclFld(GenTreeLclFld* lclFld)
     assert(lclFld->OperIs(GT_LCL_FLD));
 
     // GTF_DONT_CSE is also used to block constant/copy propagation, not just CSE.
-    if ((lclFld->gtFlags & (GTF_VAR_DEF | GTF_DONT_CSE)) != 0)
+    if ((lclFld->gtFlags & GTF_DONT_CSE) != 0)
     {
         return nullptr;
     }
@@ -1404,8 +1406,11 @@ GenTree* Compiler::morphAssertionPropagate(GenTree* tree)
                 newTree = morphAssertionPropagateLclFld(tree->AsLclFld());
                 break;
             case GT_OBJ:
+            case GT_STORE_OBJ:
             case GT_BLK:
+            case GT_STORE_BLK:
             case GT_IND:
+            case GT_STOREIND:
             case GT_NULLCHECK:
                 newTree = morphAssertionPropagateIndir(tree->AsIndir());
                 break;

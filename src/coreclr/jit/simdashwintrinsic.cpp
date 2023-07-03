@@ -2958,16 +2958,6 @@ void SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree* tree, va
         tree->SetType(simdType);
         tree->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
 
-        // This may have changed a partial local field into full local field
-        if (tree->IsPartialLclFld(compiler))
-        {
-            tree->gtFlags |= GTF_VAR_USEASG;
-        }
-        else
-        {
-            tree->gtFlags &= ~GTF_VAR_USEASG;
-        }
-
         return;
     }
 

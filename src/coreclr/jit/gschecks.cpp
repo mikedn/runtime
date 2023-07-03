@@ -238,28 +238,28 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
             }
             return WALK_SKIP_SUBTREES;
 
-        case GT_ASG:
+        case GT_STOREIND:
+        case GT_STORE_BLK:
+        case GT_STORE_OBJ:
         {
-            GenTreeOp* asg = tree->AsOp();
-            GenTree*   dst = asg->gtGetOp1();
-            GenTree*   src = asg->gtGetOp2();
-            // Assignments - track assign groups and *p defs.
+            GenTreeIndir* store   = tree->AsIndir();
+            GenTree*      addr    = store->GetAddr();
+            GenTree*      value   = store->GetValue();
+            newState.isUnderIndir = true;
+            comp->fgWalkTreePre(&addr, comp->gsMarkPtrsAndAssignGroups, &newState);
+            newState.isUnderIndir = false;
+            comp->fgWalkTreePre(&value, comp->gsMarkPtrsAndAssignGroups, &newState);
+            return WALK_SKIP_SUBTREES;
+        }
 
-            // Walk dst side
-            comp->fgWalkTreePre(&dst, comp->gsMarkPtrsAndAssignGroups, &newState);
-
-            // Now handle src side
-            if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-            {
-                unsigned lclNum      = dst->AsLclVarCommon()->GetLclNum();
-                newState.lvAssignDef = lclNum;
-                newState.isAssignSrc = true;
-            }
-
-            comp->fgWalkTreePre(&src, comp->gsMarkPtrsAndAssignGroups, &newState);
-            assert(dst == asg->gtGetOp1());
-            assert(src == asg->gtGetOp2());
-
+        case GT_STORE_LCL_VAR:
+        case GT_STORE_LCL_FLD:
+        {
+            GenTreeLclVarCommon* store = tree->AsLclVarCommon();
+            GenTree*             value = store->GetOp(0);
+            newState.lvAssignDef       = store->GetLclNum();
+            newState.isAssignSrc       = true;
+            comp->fgWalkTreePre(&value, comp->gsMarkPtrsAndAssignGroups, &newState);
             return WALK_SKIP_SUBTREES;
         }
 
@@ -495,17 +495,9 @@ void Compiler::gsParamsToShadows()
 
                 tree->AsLclVarCommon()->SetLclNum(shadowLclNum);
 
-                if (varTypeIsSmall(lcl->GetType()))
+                if (varTypeIsSmall(lcl->GetType()) && tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
                 {
-                    if (tree->OperIs(GT_LCL_VAR))
-                    {
-                        tree->SetType(TYP_INT);
-
-                        if (user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == tree))
-                        {
-                            user->SetType(TYP_INT);
-                        }
-                    }
+                    tree->SetType(TYP_INT);
                 }
             }
 

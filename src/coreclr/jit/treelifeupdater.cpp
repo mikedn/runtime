@@ -178,7 +178,8 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
         return;
     }
 
-    bool isBorn  = ((lclNode->gtFlags & GTF_VAR_DEF) != 0) && ((lclNode->gtFlags & GTF_VAR_USEASG) == 0);
+    bool isBorn =
+        lclNode->OperIs(GT_STORE_LCL_VAR) || (lclNode->OperIs(GT_STORE_LCL_FLD) && !lclNode->IsPartialLclFld(compiler));
     bool isDying = (lclNode->gtFlags & GTF_VAR_DEATH) != 0;
     bool spill   = lclNode->IsAnyRegSpill();
 
@@ -274,7 +275,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
 void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar* lclNode)
 {
-    assert(lclNode->OperIs(GT_STORE_LCL_VAR) && ((lclNode->gtFlags & GTF_VAR_USEASG) == 0));
+    assert(lclNode->OperIs(GT_STORE_LCL_VAR));
 
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, liveGCLcl);)

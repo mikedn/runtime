@@ -605,37 +605,31 @@ void Compiler::optPrintLoopInfo(unsigned lnum) const
 //
 bool Compiler::optPopulateInitInfo(unsigned loopInd, GenTree* init, unsigned iterVar)
 {
-    // Operator should be =
-    if (init->gtOper != GT_ASG)
+    if (!init->OperIs(GT_STORE_LCL_VAR) || (init->AsLclVar()->GetLclNum() != iterVar))
     {
         return false;
     }
 
-    GenTree* lhs = init->AsOp()->gtOp1;
-    GenTree* rhs = init->AsOp()->gtOp2;
-    // LHS has to be local and should equal iterVar.
-    if (!lhs->OperIs(GT_LCL_VAR) || (lhs->AsLclVar()->GetLclNum() != iterVar))
-    {
-        return false;
-    }
+    GenTree* value = init->AsLclVar()->GetOp(0);
 
-    // RHS can be constant or local var.
     // TODO-CQ: CLONE: Add arr length for descending loops.
-    if (rhs->OperIs(GT_CNS_INT) && rhs->TypeIs(TYP_INT))
+    if (value->OperIs(GT_CNS_INT) && value->TypeIs(TYP_INT))
     {
         optLoopTable[loopInd].lpFlags |= LPFLG_CONST_INIT;
-        optLoopTable[loopInd].lpConstInit = rhs->AsIntCon()->GetInt32Value();
+        optLoopTable[loopInd].lpConstInit = value->AsIntCon()->GetInt32Value();
+
+        return true;
     }
-    else if (rhs->OperIs(GT_LCL_VAR))
+
+    if (value->OperIs(GT_LCL_VAR))
     {
         optLoopTable[loopInd].lpFlags |= LPFLG_VAR_INIT;
-        optLoopTable[loopInd].lpVarInit = rhs->AsLclVar()->GetLclNum();
+        optLoopTable[loopInd].lpVarInit = value->AsLclVar()->GetLclNum();
+
+        return true;
     }
-    else
-    {
-        return false;
-    }
-    return true;
+
+    return false;
 }
 
 //----------------------------------------------------------------------------------
@@ -665,14 +659,14 @@ GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock*
     }
     else
     {
-        assert(test->OperIs(GT_ASG));
-        relop = test->AsOp()->GetOp(1)->AsOp();
+        assert(test->OperIs(GT_STORE_LCL_VAR));
+        relop = test->AsLclVar()->GetOp(0)->AsOp();
     }
 
     noway_assert(relop->OperIsCompare());
 
-    GenTree* opr1 = relop->AsOp()->gtOp1;
-    GenTree* opr2 = relop->AsOp()->gtOp2;
+    GenTree* opr1 = relop->GetOp(0);
+    GenTree* opr2 = relop->GetOp(1);
 
     GenTree* iterOp;
     GenTree* limitOp;
@@ -725,28 +719,27 @@ GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock*
 
 unsigned Compiler::optIsLoopIncrTree(GenTree* incr)
 {
-    if (!incr->OperIs(GT_ASG) || !incr->TypeIs(TYP_INT))
+    if (!incr->OperIs(GT_STORE_LCL_VAR) || !incr->TypeIs(TYP_INT))
     {
         return BAD_VAR_NUM;
     }
 
-    GenTree* dst = incr->AsOp()->GetOp(0);
-    GenTree* src = incr->AsOp()->GetOp(1);
+    GenTree* value = incr->AsLclVar()->GetOp(0);
 
-    // TODO-MIKE-Cleanup: It might be good to check if the dst and src LCL_VARs have type INT.
+    // TODO-MIKE-Cleanup: It might be good to check if the locals have type INT.
     // Normally morph inserts "normalization" casts for small int typed locals but such casts
     // aren't actually necessary if the local is AX/DNER. And while we can't do anything with
     // an AX local, DNER may be a possibility.
 
-    if (!dst->OperIs(GT_LCL_VAR) || !src->OperIs(GT_ADD, GT_SUB) || !src->TypeIs(TYP_INT))
+    if (!value->OperIs(GT_ADD, GT_SUB) || !value->TypeIs(TYP_INT))
     {
         return BAD_VAR_NUM;
     }
 
-    GenTree* step = src->AsOp()->GetOp(1);
-    src           = src->AsOp()->GetOp(0);
+    GenTree* step = value->AsOp()->GetOp(1);
+    value         = value->AsOp()->GetOp(0);
 
-    if (!src->OperIs(GT_LCL_VAR) || (src->AsLclVar()->GetLclNum() != dst->AsLclVar()->GetLclNum()))
+    if (!value->OperIs(GT_LCL_VAR) || (value->AsLclVar()->GetLclNum() != incr->AsLclVar()->GetLclNum()))
     {
         return BAD_VAR_NUM;
     }
@@ -756,7 +749,7 @@ unsigned Compiler::optIsLoopIncrTree(GenTree* incr)
         return BAD_VAR_NUM;
     }
 
-    return dst->AsLclVar()->GetLclNum();
+    return incr->AsLclVar()->GetLclNum();
 }
 
 //----------------------------------------------------------------------------------
@@ -785,16 +778,15 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
 {
     GenTree* test = testStmt->GetRootNode();
 
-    if (test->gtOper != GT_JTRUE)
+    if (!test->OperIs(GT_JTRUE))
     {
         return false;
     }
 
-    GenTree* relop = test->gtGetOp1();
+    GenTreeOp* relop = test->AsUnOp()->GetOp(0)->AsOp();
     noway_assert(relop->OperIsCompare());
-
-    GenTree* opr1 = relop->AsOp()->gtOp1;
-    GenTree* opr2 = relop->AsOp()->gtOp2;
+    GenTree* opr1 = relop->GetOp(0);
+    GenTree* opr2 = relop->GetOp(1);
 
     // Make sure we have jtrue (vtmp != 0)
     if (relop->OperIs(GT_NE) && opr1->OperIs(GT_LCL_VAR) && opr2->OperIs(GT_CNS_INT) && opr2->IsIntegralConst(0))
@@ -808,15 +800,14 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
         }
 
         GenTree* tree = prevStmt->GetRootNode();
-        if (tree->OperIs(GT_ASG))
-        {
-            GenTree* lhs = tree->AsOp()->gtOp1;
-            GenTree* rhs = tree->AsOp()->gtOp2;
 
-            // Return as the new test node.
-            if (lhs->OperIs(GT_LCL_VAR) && (lhs->AsLclVar()->GetLclNum() == opr1->AsLclVar()->GetLclNum()))
+        if (tree->OperIs(GT_STORE_LCL_VAR))
+        {
+            GenTree* value = tree->AsLclVar()->GetOp(0);
+
+            if ((tree->AsLclVar()->GetLclNum() == opr1->AsLclVar()->GetLclNum()))
             {
-                if (rhs->OperIsCompare())
+                if (value->OperIsCompare())
                 {
                     *newTestStmt = prevStmt;
                     return true;
@@ -824,6 +815,7 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
             }
         }
     }
+
     return false;
 }
 
@@ -862,7 +854,7 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
 //      This method just retrieves what it thinks is the "test" node,
 //      the callers are expected to verify that "iterVar" is used in the test.
 //
-GenTreeOp* Compiler::optExtractInitTestIncr(
+GenTreeLclVar* Compiler::optExtractInitTestIncr(
     BasicBlock* head, BasicBlock* bottom, BasicBlock* top, GenTree** ppInit, GenTree** ppTest)
 {
     assert(ppInit != nullptr);
@@ -937,7 +929,7 @@ GenTreeOp* Compiler::optExtractInitTestIncr(
 
     *ppInit = initStmt->GetRootNode();
     *ppTest = testStmt->GetRootNode();
-    return incrStmt->GetRootNode()->AsOp();
+    return incrStmt->GetRootNode()->AsLclVar();
 }
 
 /*****************************************************************************
@@ -1051,18 +1043,18 @@ bool Compiler::optRecordLoop(BasicBlock* head,
     //
     if (bottom->bbJumpKind == BBJ_COND)
     {
-        GenTree*   init;
-        GenTree*   test;
-        GenTreeOp* incr = optExtractInitTestIncr(head, bottom, top, &init, &test);
+        GenTree*       init;
+        GenTree*       test;
+        GenTreeLclVar* incr = optExtractInitTestIncr(head, bottom, top, &init, &test);
 
         if (incr == nullptr)
         {
             goto DONE_LOOP;
         }
 
-        unsigned iterVar = incr->AsOp()->GetOp(0)->AsLclVar()->GetLclNum();
+        unsigned iterVar = incr->GetLclNum();
         assert(optIsLoopIncrTree(incr) == iterVar);
-        assert(incr->GetOp(1)->OperIs(GT_ADD, GT_SUB));
+        assert(incr->GetOp(0)->OperIs(GT_ADD, GT_SUB));
 
         // TODO-MIKE-Cleanup: optIsVarAssigned should check AX.
         if (lvaGetDesc(iterVar)->IsAddressExposed() || optIsVarAssigned(head->bbNext, bottom, incr, iterVar))
@@ -1228,29 +1220,26 @@ void Compiler::optCheckPreds()
 
 void Compiler::LoopDsc::VerifyIterator() const
 {
-    assert((lpIterTree != nullptr) && lpIterTree->OperIs(GT_ASG));
+    assert((lpIterTree != nullptr) && lpIterTree->OperIs(GT_STORE_LCL_VAR));
     assert((lpTestTree != nullptr) && lpTestTree->OperIsCompare());
 
-    GenTreeLclVar* lhs = lpIterTree->GetOp(0)->AsLclVar();
-    GenTreeOp*     rhs = lpIterTree->GetOp(1)->AsOp();
+    GenTreeOp* value = lpIterTree->GetOp(0)->AsOp();
 
-    assert(lhs->OperIs(GT_LCL_VAR));
-    assert(rhs->OperIs(GT_ADD, GT_SUB));
-    assert(rhs->gtOp1->OperIs(GT_LCL_VAR));
-    assert(rhs->gtOp1->AsLclVar()->GetLclNum() == lhs->GetLclNum());
-    assert(rhs->gtOp2->OperIs(GT_CNS_INT));
+    assert(value->OperIs(GT_ADD, GT_SUB));
+    assert(value->GetOp(0)->OperIs(GT_LCL_VAR));
+    assert(value->GetOp(0)->AsLclVar()->GetLclNum() == lpIterTree->GetLclNum());
+    assert(value->GetOp(1)->IsIntCon());
 
     GenTree* iterator = lpTestTree->GetOp(0);
     GenTree* limit    = lpTestTree->GetOp(1);
 
-    if (limit->OperIs(GT_LCL_VAR) && (limit->AsLclVar()->GetLclNum() == lpIterTree->GetOp(0)->AsLclVar()->GetLclNum()))
+    if (limit->OperIs(GT_LCL_VAR) && (limit->AsLclVar()->GetLclNum() == lpIterTree->GetLclNum()))
     {
         std::swap(iterator, limit);
     }
     else
     {
-        assert(iterator->OperIs(GT_LCL_VAR) &&
-               (iterator->AsLclVar()->GetLclNum() == lpIterTree->GetOp(0)->AsLclVar()->GetLclNum()));
+        assert(iterator->OperIs(GT_LCL_VAR) && (iterator->AsLclVar()->GetLclNum() == lpIterTree->GetLclNum()));
     }
 
     if (lpFlags & LPFLG_CONST_LIMIT)
@@ -3460,30 +3449,24 @@ PhaseStatus Compiler::phUnrollLoops()
 
         GenTree* incr = incrStmt->GetRootNode();
 
-        // Don't unroll loops we don't understand.
-        if (incr->gtOper != GT_ASG)
+        if (!incr->OperIs(GT_STORE_LCL_VAR))
         {
             continue;
         }
-        incr = incr->AsOp()->gtOp2;
+
+        incr = incr->AsLclVar()->GetOp(0);
 
         GenTree* init = initStmt->GetRootNode();
 
-        // Make sure everything looks ok.
         // clang-format off
-        if ((init->gtOper != GT_ASG) ||
-            (init->AsOp()->gtOp1->gtOper != GT_LCL_VAR) ||
-            (init->AsOp()->gtOp1->AsLclVar()->GetLclNum() != lvar) ||
-            (init->AsOp()->gtOp2->gtOper != GT_CNS_INT) ||
-            (init->AsOp()->gtOp2->AsIntCon()->gtIconVal != lbeg) ||
-
-            !((incr->gtOper == GT_ADD) || (incr->gtOper == GT_SUB)) ||
-            (incr->AsOp()->gtOp1->gtOper != GT_LCL_VAR) ||
-            (incr->AsOp()->gtOp1->AsLclVar()->GetLclNum() != lvar) ||
-            (incr->AsOp()->gtOp2->gtOper != GT_CNS_INT) ||
-            (incr->AsOp()->gtOp2->AsIntCon()->gtIconVal != iterInc) ||
-
-            (testStmt->GetRootNode()->gtOper != GT_JTRUE))
+        if (!init->OperIs(GT_STORE_LCL_VAR) || (init->AsLclVar()->GetLclNum() != lvar) ||
+            !init->AsLclVar()->GetOp(0)->IsIntCon() || (init->AsLclVar()->GetOp(0)->AsIntCon()->GetValue() != lbeg) ||
+            !incr->OperIs(GT_ADD, GT_SUB) ||
+            !incr->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR) ||
+            (incr->AsOp()->GetOp(0)->AsLclVar()->GetLclNum() != lvar) ||
+            !incr->AsOp()->GetOp(1)->IsIntCon() ||
+            (incr->AsOp()->GetOp(1)->AsIntCon()->GetValue() != iterInc) ||
+            !testStmt->GetRootNode()->OperIs(GT_JTRUE))
         {
             noway_assert(!"Bad precondition in Compiler::optUnrollLoops()");
             continue;
@@ -4460,21 +4443,13 @@ bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip,
                                   GenTree*  tree = *use;
                                   WalkData* desc = static_cast<WalkData*>(data->pCallbackData);
 
-                                  if (tree->OperIs(GT_ASG))
-                                  {
-                                      GenTree* dest = tree->AsOp()->GetOp(0);
-
-                                      // TODO-MIKE-Cleanup: Why the crap are LCL_FLD assignments ignored?
-                                      // This is likely used only for INT locals but then you can actually
-                                      // modify an INT local with a LCL_FLD...
-                                      if (dest->OperIs(GT_LCL_VAR) && (dest->AsLclVar()->GetLclNum() == desc->lclNum) &&
-                                          (tree != desc->skip))
-                                      {
-                                          return Compiler::WALK_ABORT;
-                                      }
-                                  }
-
-                                  return Compiler::WALK_CONTINUE;
+                                  // TODO-MIKE-Cleanup: Why the crap are STORE_LCL_FLDs ignored?
+                                  // This is likely used only for INT locals but then you can actually
+                                  // modify an INT local with a LCL_FLD...
+                                  return tree->OperIs(GT_STORE_LCL_VAR) &&
+                                                 (tree->AsLclVar()->GetLclNum() == desc->lclNum) && (tree != desc->skip)
+                                             ? Compiler::WALK_ABORT
+                                             : Compiler::WALK_CONTINUE;
                               },
                               &walkData) != WALK_CONTINUE)
             {
@@ -5753,7 +5728,7 @@ void Compiler::optAddCopies()
             noway_assert((varDsc->lvDefStmt == nullptr) || varDsc->lvIsStructField);
 
             // Create a new copy assignment tree
-            GenTree* copyAsgn = gtNewAssignNode(gtNewLclvNode(copyLclNum, typ), gtNewLclvNode(lclNum, typ));
+            GenTree* copyAsgn = gtNewStoreLclVar(copyLclNum, typ, gtNewLclvNode(lclNum, typ));
 
             /* Find the best block to insert the new assignment     */
             /* We will choose the lowest weighted block, and within */
@@ -5897,14 +5872,7 @@ void Compiler::optAddCopies()
 
             for (GenTree* node = stmt->GetRootNode(); node != nullptr; node = node->gtPrev)
             {
-                if (!node->OperIs(GT_ASG))
-                {
-                    continue;
-                }
-
-                GenTree* dest = node->AsOp()->GetOp(0);
-
-                if (!dest->OperIs(GT_LCL_VAR) || (dest->AsLclVar()->GetLclNum() != lclNum))
+                if (!node->OperIs(GT_STORE_LCL_VAR) || (node->AsLclVar()->GetLclNum() != lclNum))
                 {
                     continue;
                 }
@@ -5915,8 +5883,8 @@ void Compiler::optAddCopies()
 
             noway_assert(tree != nullptr);
 
-            GenTree* newAsg  = gtNewAssignNode(gtNewLclvNode(copyLclNum, typ), tree->GetOp(1));
-            GenTree* copyAsg = gtNewAssignNode(tree->GetOp(0), gtNewLclvNode(copyLclNum, typ));
+            GenTree* newAsg  = gtNewStoreLclVar(copyLclNum, typ, tree->GetOp(0));
+            GenTree* copyAsg = gtNewStoreLclVar(lclNum, typ, gtNewLclvNode(copyLclNum, typ));
 
             tree->ChangeOper(GT_COMMA);
             tree->SetOp(0, newAsg);
@@ -5930,7 +5898,7 @@ void Compiler::optAddCopies()
     }
 }
 
-// Remove redundant zero intializations.
+// Remove redundant zero initializations.
 //
 // Notes:
 //    This phase iterates over basic blocks starting with the first basic block until there is no unique
@@ -5952,173 +5920,114 @@ void Compiler::optAddCopies()
 //
 void Compiler::phRemoveRedundantZeroInits()
 {
+    assert(fgStmtListThreaded);
+
     using LclVarRefCounts = JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, unsigned>;
 
     CompAllocator   allocator(getAllocator(CMK_ZeroInit));
-    LclVarRefCounts refCounts(allocator);
+    LclVarRefCounts defsInBlock(allocator);
     BitVecTraits    bitVecTraits(lvaCount, this);
-    BitVec          zeroInitLocals = BitVecOps::MakeEmpty(&bitVecTraits);
-    bool            hasGCSafePoint = false;
-    bool            canThrow       = false;
-
-    assert(fgStmtListThreaded);
+    BitVec          zeroInitLocals   = BitVecOps::MakeEmpty(&bitVecTraits);
+    BitVec          referencedLocals = BitVecOps::MakeEmpty(&bitVecTraits);
+    bool            hasGCSafePoint   = false;
+    bool            canThrow         = false;
 
     for (BasicBlock* block = fgFirstBB; (block != nullptr) && ((block->bbFlags & BBF_MARKED) == 0);
          block             = block->GetUniqueSucc())
     {
         block->bbFlags |= BBF_MARKED;
-        CompAllocator   allocator(getAllocator(CMK_ZeroInit));
-        LclVarRefCounts defsInBlock(allocator);
-        bool            removedTrackedDefs = false;
-        for (Statement* stmt = block->FirstNonPhiDef(); stmt != nullptr;)
+        defsInBlock.RemoveAll();
+        bool removedTrackedDefs = false;
+
+        for (Statement *next, *stmt = block->FirstNonPhiDef(); stmt != nullptr; stmt = next)
         {
-            Statement* next = stmt->GetNextStmt();
-            for (GenTree* const tree : stmt->TreeList())
+            next = stmt->GetNextStmt();
+
+            for (GenTree* node : stmt->Nodes())
             {
-                if (((tree->gtFlags & GTF_CALL) != 0))
+                if (((node->gtFlags & GTF_CALL) != 0))
                 {
                     hasGCSafePoint = true;
                 }
 
-                if ((tree->gtFlags & GTF_EXCEPT) != 0)
+                if ((node->gtFlags & GTF_EXCEPT) != 0)
                 {
                     canThrow = true;
                 }
 
-                switch (tree->gtOper)
+                switch (node->GetOper())
                 {
                     case GT_LCL_ADDR:
-                    {
-                        unsigned  lclNum    = tree->AsLclAddr()->GetLclNum();
-                        unsigned* pRefCount = refCounts.LookupPointer(lclNum);
-                        if (pRefCount != nullptr)
-                        {
-                            *pRefCount = (*pRefCount) + 1;
-                        }
-                        else
-                        {
-                            refCounts.Set(lclNum, 1);
-                        }
-                        break;
-                    }
-
                     case GT_LCL_VAR:
                     case GT_LCL_FLD:
-                    {
-                        unsigned  lclNum    = tree->AsLclVarCommon()->GetLclNum();
-                        unsigned* pRefCount = refCounts.LookupPointer(lclNum);
-                        if (pRefCount != nullptr)
-                        {
-                            *pRefCount = (*pRefCount) + 1;
-                        }
-                        else
-                        {
-                            refCounts.Set(lclNum, 1);
-                        }
+                        BitVecOps::AddElemD(bitVecTraits, referencedLocals, node->AsLclVarCommon()->GetLclNum());
+                        break;
 
-                        if ((tree->gtFlags & GTF_VAR_DEF) == 0)
-                        {
-                            break;
-                        }
+                    case GT_STORE_LCL_VAR:
+                    case GT_STORE_LCL_FLD:
+                    {
+                        GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
+                        unsigned             lclNum  = lclNode->GetLclNum();
+                        LclVarDsc*           lcl     = lvaGetDesc(lclNum);
 
                         // We need to count the number of tracked var defs in the block
                         // so that we can update block->bbVarDef if we remove any tracked var defs.
 
-                        LclVarDsc* const lclDsc = lvaGetDesc(lclNum);
-                        if (lclDsc->lvTracked)
+                        if (lcl->HasLiveness())
                         {
-                            unsigned* pDefsCount = defsInBlock.LookupPointer(lclNum);
-                            if (pDefsCount != nullptr)
-                            {
-                                *pDefsCount = (*pDefsCount) + 1;
-                            }
-                            else
-                            {
-                                defsInBlock.Set(lclNum, 1);
-                            }
+                            (*defsInBlock.Emplace(lclNum, 0))++;
                         }
-                        else if (varTypeIsStruct(lclDsc) && ((tree->gtFlags & GTF_VAR_USEASG) == 0) &&
-                                 lclDsc->IsPromoted())
+                        else if (lcl->IsPromoted() &&
+                                 (lclNode->OperIs(GT_STORE_LCL_VAR) || !lclNode->IsPartialLclFld(this)))
                         {
-                            for (unsigned i = 0; i < lclDsc->GetPromotedFieldCount(); ++i)
+                            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
                             {
-                                unsigned fieldLclNum = lclDsc->GetPromotedFieldLclNum(i);
+                                unsigned fieldLclNum = lcl->GetPromotedFieldLclNum(i);
 
-                                if (lvaGetDesc(fieldLclNum)->lvTracked)
+                                if (lvaGetDesc(fieldLclNum)->HasLiveness())
                                 {
-                                    unsigned* pDefsCount = defsInBlock.LookupPointer(fieldLclNum);
-
-                                    if (pDefsCount != nullptr)
-                                    {
-                                        (*pDefsCount)++;
-                                    }
-                                    else
-                                    {
-                                        defsInBlock.Set(fieldLclNum, 1);
-                                    }
+                                    (*defsInBlock.Emplace(fieldLclNum, 0))++;
                                 }
                             }
-                        }
-
-                        break;
-                    }
-                    case GT_ASG:
-                    {
-                        GenTreeLclVarCommon* lclNode = nullptr;
-
-                        if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-                        {
-                            lclNode = tree->AsOp()->GetOp(0)->AsLclVarCommon();
                         }
 
                         // TODO-MIKE-CQ: This could also recognize indirect local stores.
                         // Though they're so rare that's hardly worth the trouble...
 
-                        if (lclNode == nullptr)
+                        if (!BitVecOps::TryAddElemD(bitVecTraits, referencedLocals, lclNum))
                         {
                             break;
                         }
 
-                        const unsigned lclNum = lclNode->GetLclNum();
-
-                        LclVarDsc* const lclDsc    = lvaGetDesc(lclNum);
-                        unsigned*        pRefCount = refCounts.LookupPointer(lclNum);
-
-                        // pRefCount can't be null because the local node on the lhs of the assignment
-                        // must have already been seen.
-                        assert(pRefCount != nullptr);
-                        if (*pRefCount != 1)
+                        if (lcl->IsPromotedField())
                         {
-                            break;
-                        }
-
-                        unsigned parentRefCount = 0;
-                        if (lclDsc->lvIsStructField && refCounts.Lookup(lclDsc->lvParentLcl, &parentRefCount) &&
-                            (parentRefCount != 0))
-                        {
-                            break;
-                        }
-
-                        unsigned fieldRefCount = 0;
-                        if (lclDsc->lvPromoted)
-                        {
-                            for (unsigned i = lclDsc->lvFieldLclStart;
-                                 (fieldRefCount == 0) && (i < lclDsc->lvFieldLclStart + lclDsc->lvFieldCnt); ++i)
+                            if (BitVecOps::IsMember(bitVecTraits, referencedLocals,
+                                                    lcl->GetPromotedFieldParentLclNum()))
                             {
-                                refCounts.Lookup(i, &fieldRefCount);
+                                break;
                             }
                         }
-
-                        if (fieldRefCount != 0)
+                        else if (lcl->IsPromoted())
                         {
-                            break;
+                            bool hasFieldReferences = false;
+
+                            for (unsigned i = 0; !hasFieldReferences && (i < lcl->GetPromotedFieldCount()); ++i)
+                            {
+                                hasFieldReferences =
+                                    BitVecOps::IsMember(bitVecTraits, referencedLocals, lcl->GetPromotedFieldLclNum(i));
+                            }
+
+                            if (hasFieldReferences)
+                            {
+                                break;
+                            }
                         }
 
                         // The local hasn't been referenced before this assignment.
                         bool removedExplicitZeroInit = false;
                         bool totalOverlap            = !lclNode->IsPartialLclFld(this);
 
-                        if (tree->AsOp()->GetOp(1)->IsIntegralConst(0))
+                        if (lclNode->GetOp(0)->IsIntegralConst(0))
                         {
                             bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
                             bool bbIsReturn = block->bbJumpKind == BBJ_RETURN;
@@ -6126,26 +6035,26 @@ void Compiler::phRemoveRedundantZeroInits()
                             if (!bbInALoop || bbIsReturn)
                             {
                                 if (BitVecOps::IsMember(&bitVecTraits, zeroInitLocals, lclNum) ||
-                                    (lclDsc->lvIsStructField &&
-                                     BitVecOps::IsMember(&bitVecTraits, zeroInitLocals, lclDsc->lvParentLcl)) ||
-                                    ((!lclDsc->lvTracked || !totalOverlap) &&
+                                    (lcl->IsPromotedField() &&
+                                     BitVecOps::IsMember(&bitVecTraits, zeroInitLocals,
+                                                         lcl->GetPromotedFieldParentLclNum())) ||
+                                    ((!lcl->HasLiveness() || !totalOverlap) &&
                                      !fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn)))
                                 {
                                     // We are guaranteed to have a zero initialization in the prolog or a
                                     // dominating explicit zero initialization and the local hasn't been redefined
                                     // between the prolog and this explicit zero initialization so the assignment
                                     // can be safely removed.
-                                    if (tree == stmt->GetRootNode())
+                                    if (lclNode == stmt->GetRootNode())
                                     {
                                         fgRemoveStmt(block, stmt);
-                                        removedExplicitZeroInit      = true;
-                                        lclDsc->lvSuppressedZeroInit = 1;
+                                        removedExplicitZeroInit   = true;
+                                        lcl->lvSuppressedZeroInit = 1;
 
-                                        if (lclDsc->lvTracked)
+                                        if (lcl->HasLiveness())
                                         {
-                                            removedTrackedDefs   = true;
-                                            unsigned* pDefsCount = defsInBlock.LookupPointer(lclNum);
-                                            *pDefsCount          = (*pDefsCount) - 1;
+                                            removedTrackedDefs = true;
+                                            (*defsInBlock.LookupPointer(lclNum))--;
                                         }
                                     }
                                 }
@@ -6154,30 +6063,31 @@ void Compiler::phRemoveRedundantZeroInits()
                                 {
                                     BitVecOps::AddElemD(&bitVecTraits, zeroInitLocals, lclNum);
                                 }
-                                *pRefCount = 0;
+
+                                BitVecOps::RemoveElemD(bitVecTraits, referencedLocals, lclNum);
                             }
                         }
 
-                        if (!removedExplicitZeroInit && totalOverlap && (!canThrow || !lclDsc->lvLiveInOutOfHndlr))
+                        if (!removedExplicitZeroInit && totalOverlap && (!canThrow || !lcl->lvLiveInOutOfHndlr))
                         {
                             // If compMethodRequiresPInvokeFrame() returns true, lower may later
                             // insert a call to CORINFO_HELP_INIT_PINVOKE_FRAME which is a gc-safe point.
-                            if (!lclDsc->HasGCPtr() ||
+                            if (!lcl->HasGCPtr() ||
                                 (!codeGen->GetInterruptible() && !hasGCSafePoint && !compMethodRequiresPInvokeFrame()))
                             {
                                 // The local hasn't been used and won't be reported to the gc between
-                                // the prolog and this explicit intialization. Therefore, it doesn't
+                                // the prolog and this explicit initialization. Therefore, it doesn't
                                 // require zero initialization in the prolog.
-                                lclDsc->lvHasExplicitInit = 1;
+                                lcl->lvHasExplicitInit = 1;
 
                                 // If the local is the only field of a promoted struct local then the
                                 // promoted struct local also doesn't require zero initialization in
                                 // the prolog.
-                                if (lclDsc->IsPromotedField())
+                                if (lcl->IsPromotedField())
                                 {
-                                    LclVarDsc* parentLcl = lvaGetDesc(lclDsc->GetPromotedFieldParentLclNum());
+                                    LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
-                                    if (parentLcl->GetLayout()->GetSize() == varTypeSize(lclDsc->GetType()))
+                                    if (parentLcl->GetLayout()->GetSize() == varTypeSize(lcl->GetType()))
                                     {
                                         parentLcl->lvHasExplicitInit = 1;
                                     }
@@ -6186,25 +6096,23 @@ void Compiler::phRemoveRedundantZeroInits()
                                 JITDUMP("Marking V%02u as having an explicit init\n", lclNum);
                             }
                         }
+
                         break;
                     }
+
                     default:
                         break;
                 }
             }
-            stmt = next;
         }
 
         if (removedTrackedDefs)
         {
-            LclVarRefCounts::KeyIterator iter(defsInBlock.Begin());
-            LclVarRefCounts::KeyIterator end(defsInBlock.End());
-            for (; !iter.Equal(end); ++iter)
+            for (const auto& pair : defsInBlock)
             {
-                unsigned int lclNum = iter.Get();
-                if (defsInBlock[lclNum] == 0)
+                if (pair.value == 0)
                 {
-                    VarSetOps::RemoveElemD(this, block->bbVarDef, lvaGetDesc(lclNum)->lvVarIndex);
+                    VarSetOps::RemoveElemD(this, block->bbVarDef, lvaGetDesc(pair.key)->GetLivenessBitIndex());
                 }
             }
         }

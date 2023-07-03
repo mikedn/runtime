@@ -379,9 +379,6 @@ enum GenTreeFlags : unsigned
 
     // LCL_VAR & co. specific flags
                               
-    GTF_VAR_DEF               = 0x80000000, // Definition of a local (LCL_VAR|FLD ASG LHS or STORE_LCL_VAR|FLD)
-    GTF_VAR_USEASG            = 0x40000000, // Partial definition of a local, a use of the previous definition is implied
-                                            // (LCL_FLD ASG LHS or STORE_LCL_FLD)
     GTF_VAR_DEATH             = 0x04000000, // Last-use of a local (LCL_VAR|FLD or dead stores if they're not removed)
     GTF_VAR_FIELD_DEATH0      = 0x04000000, // Last-use bits for up to 4 promoted fields
     GTF_VAR_FIELD_DEATH_MASK  = 0x3C000000,
@@ -429,17 +426,9 @@ enum GenTreeFlags : unsigned
     GTF_IND_VOLATILE          = 0x40000000, // Volatile load/store
     GTF_IND_NONFAULTING       = 0x20000000, // Address is known to be non-null
     GTF_IND_TGT_HEAP          = 0x10000000, // Address is known to point inside the GC heap
-    GTF_IND_ASG_LHS           = 0x04000000, // Node is the LHS of an ASG node (HIR only)
     GTF_IND_UNALIGNED         = 0x02000000, // Unaligned load/store (1 byte aligned)
     GTF_IND_INVARIANT         = 0x01000000, // Load produces the same value throughout the method
     GTF_IND_NONNULL           = 0x00400000, // Load always produces a non-null value
-    GTF_IND_FLAGS             = GTF_IND_TGT_NOT_HEAP |
-                                GTF_IND_VOLATILE |
-                                GTF_IND_NONFAULTING |
-                                GTF_IND_TGT_HEAP |
-                                GTF_IND_UNALIGNED |
-                                GTF_IND_INVARIANT |
-                                GTF_IND_NONNULL,
 
     // CNS_INT specific flags
 
@@ -1816,8 +1805,6 @@ public:
     bool gtOverflow() const;
     bool gtOverflowEx() const;
 
-    // cast operations
-    inline var_types  CastFromType();
     inline var_types& CastToType();
 
     bool IsPhiDef() const;
@@ -3007,7 +2994,7 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     GenTreeLclVar(var_types type, unsigned lclNum, GenTree* value DEBUGARG(bool largeNode = false))
         : GenTreeLclVarCommon(GT_STORE_LCL_VAR, type, lclNum DEBUGARG(largeNode))
     {
-        gtFlags |= GTF_ASG | GTF_VAR_DEF;
+        gtFlags |= GTF_ASG | value->GetSideEffects();
         SetOp(0, value);
     }
 
@@ -3046,7 +3033,7 @@ public:
     {
         assert(lclOffs <= UINT16_MAX);
 
-        gtFlags |= GTF_ASG | GTF_VAR_DEF;
+        gtFlags |= GTF_ASG | value->GetSideEffects();
         SetOp(0, value);
     }
 
@@ -3636,10 +3623,6 @@ public:
 
 struct GenTreeCast : public GenTreeOp
 {
-    GenTree*& CastOp()
-    {
-        return gtOp1;
-    }
     var_types gtCastType;
 
     GenTreeCast(var_types type, GenTree* op, bool fromUnsigned, var_types castType DEBUGARG(bool largeNode = false))
@@ -3647,7 +3630,7 @@ struct GenTreeCast : public GenTreeOp
     {
         // We do not allow casts from floating point types to be treated as from
         // unsigned to avoid bugs related to wrong GTF_UNSIGNED in case the
-        // CastOp's type changes.
+        // operand's type changes.
         assert(!varTypeIsFloating(op) || !fromUnsigned);
 
         gtFlags |= fromUnsigned ? GTF_UNSIGNED : GTF_EMPTY;
@@ -7804,10 +7787,6 @@ inline bool GenTree::IsHelperCall()
     return OperGet() == GT_CALL && AsCall()->gtCallType == CT_HELPER;
 }
 
-inline var_types GenTree::CastFromType()
-{
-    return this->AsCast()->CastOp()->TypeGet();
-}
 inline var_types& GenTree::CastToType()
 {
     return this->AsCast()->gtCastType;

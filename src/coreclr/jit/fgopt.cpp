@@ -2926,27 +2926,22 @@ bool Compiler::fgBlockEndFavorsTailDuplication(BasicBlock* block, unsigned lclNu
     {
         count++;
         GenTree* const tree = stmt->GetRootNode();
-        if (tree->OperIs(GT_ASG) && !varTypeIsStruct(tree->AsOp()->GetOp(0)))
+        if (tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && !varTypeIsStruct(tree->GetType()))
         {
-            GenTree* const op1 = tree->AsOp()->gtOp1;
-
             // TODO-MIKE-Review: Old code used the stupid IsLocal and might have allowed
             // LCL_FLD by accident. We're probably really looking for an assignment to
             // the variable that's used in the condition but if we allow LCL_FLD we don't
             // know which field is assigned to and which field is used in the condition.
             // This does not appear to be a correctness issue though.
-            if (op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            const unsigned op1LclNum = tree->AsLclVarCommon()->GetLclNum();
+
+            if (op1LclNum == lclNum)
             {
-                const unsigned op1LclNum = op1->AsLclVarCommon()->GetLclNum();
+                GenTree* const value = tree->AsLclVarCommon()->GetOp(0);
 
-                if (op1LclNum == lclNum)
+                if (value->OperIs(GT_ARR_LENGTH) || value->OperIsConst() || value->OperIsCompare())
                 {
-                    GenTree* const op2 = tree->AsOp()->gtOp2;
-
-                    if (op2->OperIs(GT_ARR_LENGTH) || op2->OperIsConst() || op2->OperIsCompare())
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
         }

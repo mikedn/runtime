@@ -5013,14 +5013,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
             case GT_LCL_FLD:
             case GT_STORE_LCL_FLD:
             case GT_STORE_LCL_VAR:
-                if (tree->gtFlags & GTF_VAR_DEF)
-                {
-                    chars += printf("[VAR_DEF]");
-                }
-                if (tree->gtFlags & GTF_VAR_USEASG)
-                {
-                    chars += printf("[VAR_USEASG]");
-                }
                 if (tree->gtFlags & GTF_VAR_DEATH)
                 {
                     chars += printf("[VAR_DEATH]");
@@ -5067,10 +5059,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 if (tree->gtFlags & GTF_IND_TGT_NOT_HEAP)
                 {
                     chars += printf("[IND_TGT_NOT_HEAP]");
-                }
-                if (tree->gtFlags & GTF_IND_ASG_LHS)
-                {
-                    chars += printf("[IND_ASG_LHS]");
                 }
                 if (tree->gtFlags & GTF_IND_INVARIANT)
                 {

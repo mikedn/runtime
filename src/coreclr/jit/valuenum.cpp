@@ -4369,7 +4369,7 @@ void ValueNumbering::SummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySumm
 
 void ValueNumbering::NumberLclStore(GenTreeLclVar* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR) && ((store->gtFlags & GTF_VAR_DEF) != 0));
+    assert(store->OperIs(GT_STORE_LCL_VAR));
     assert(!lvaGetDesc(store)->IsSsa());
 
     if (!lvaGetDesc(store)->IsAddressExposed())
@@ -4466,7 +4466,7 @@ void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
 
 void ValueNumbering::NumberLclLoad(GenTreeLclVar* load)
 {
-    assert(load->OperIs(GT_LCL_VAR) && ((load->gtFlags & GTF_VAR_DEF) == 0));
+    assert(load->OperIs(GT_LCL_VAR));
     assert(!lvaGetDesc(load)->IsSsa());
 
     if (!lvaGetDesc(load)->IsAddressExposed())
@@ -4533,8 +4533,7 @@ void ValueNumbering::NumberLclUse(GenTreeLclUse* use)
 
 void ValueNumbering::NumberLclFldStore(GenTreeLclFld* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
-    assert(((store->gtFlags & GTF_VAR_USEASG) != 0) == store->IsPartialLclFld(compiler));
+    assert(store->OperIs(GT_STORE_LCL_FLD));
     assert(!lvaGetDesc(store)->IsSsa());
 
     if (!lvaGetDesc(store)->IsAddressExposed())
@@ -4602,7 +4601,7 @@ void ValueNumbering::NumberInsert(GenTreeInsert* insert)
 
 void ValueNumbering::NumberLclFldLoad(GenTreeLclFld* load)
 {
-    assert(load->OperIs(GT_LCL_FLD) && ((load->gtFlags & GTF_VAR_DEF) == 0));
+    assert(load->OperIs(GT_LCL_FLD));
     assert(!lvaGetDesc(load)->IsSsa());
 
     if (!lvaGetDesc(load)->IsAddressExposed())
@@ -4768,7 +4767,7 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store)
 
 void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
 {
-    assert(load->OperIs(GT_IND, GT_OBJ, GT_BLK) && ((load->gtFlags & GTF_IND_ASG_LHS) == 0));
+    assert(load->OperIs(GT_IND, GT_OBJ, GT_BLK));
 
     GenTree*     addr = load->GetAddr();
     ValueNumPair addrExset;

@@ -16384,7 +16384,7 @@ void Importer::impImportInitBlk(unsigned prefixFlags)
 
         if (!initValue->IsIntegralConst(0))
         {
-            initValue = gtNewOperNode(GT_INIT_VAL, TYP_INT, initValue);
+            initValue = gtNewOperNode(GT_INIT_VAL, TYP_STRUCT, initValue);
         }
 
         init = gtNewAssignNode(dst, initValue);
@@ -17913,7 +17913,15 @@ GenTree* Importer::gtFoldExprConst(GenTree* tree)
 
 GenTreeLclVar* Importer::fgInsertCommaFormTemp(GenTree** use)
 {
-    return comp->fgInsertCommaFormTemp(use);
+    GenTree* tree = *use;
+    assert(!varTypeIsStruct(tree->GetType()));
+
+    var_types type   = varActualType(tree->GetType());
+    unsigned  lclNum = lvaNewTemp(type, true DEBUGARG("fgInsertCommaFormTemp temp"));
+    GenTree*  store  = gtNewAssignNode(gtNewLclvNode(lclNum, type), tree);
+    GenTree*  load   = gtNewLclvNode(lclNum, type);
+    *use             = gtNewCommaNode(store, load, type);
+    return gtNewLclvNode(lclNum, type);
 }
 
 void Importer::gtChangeOperToNullCheck(GenTree* tree)
