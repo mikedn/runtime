@@ -5920,114 +5920,73 @@ void Compiler::optAddCopies()
 //
 void Compiler::phRemoveRedundantZeroInits()
 {
+    assert(fgStmtListThreaded);
+
     using LclVarRefCounts = JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, unsigned>;
 
     CompAllocator   allocator(getAllocator(CMK_ZeroInit));
     LclVarRefCounts refCounts(allocator);
+    LclVarRefCounts defsInBlock(allocator);
     BitVecTraits    bitVecTraits(lvaCount, this);
     BitVec          zeroInitLocals = BitVecOps::MakeEmpty(&bitVecTraits);
     bool            hasGCSafePoint = false;
     bool            canThrow       = false;
 
-    assert(fgStmtListThreaded);
-
     for (BasicBlock* block = fgFirstBB; (block != nullptr) && ((block->bbFlags & BBF_MARKED) == 0);
          block             = block->GetUniqueSucc())
     {
         block->bbFlags |= BBF_MARKED;
-        CompAllocator   allocator(getAllocator(CMK_ZeroInit));
-        LclVarRefCounts defsInBlock(allocator);
-        bool            removedTrackedDefs = false;
-        for (Statement* stmt = block->FirstNonPhiDef(); stmt != nullptr;)
+        defsInBlock.RemoveAll();
+        bool removedTrackedDefs = false;
+
+        for (Statement *next, *stmt = block->FirstNonPhiDef(); stmt != nullptr; stmt = next)
         {
-            Statement* next = stmt->GetNextStmt();
-            for (GenTree* const tree : stmt->TreeList())
+            next = stmt->GetNextStmt();
+
+            for (GenTree* node : stmt->Nodes())
             {
-                if (((tree->gtFlags & GTF_CALL) != 0))
+                if (((node->gtFlags & GTF_CALL) != 0))
                 {
                     hasGCSafePoint = true;
                 }
 
-                if ((tree->gtFlags & GTF_EXCEPT) != 0)
+                if ((node->gtFlags & GTF_EXCEPT) != 0)
                 {
                     canThrow = true;
                 }
 
-                switch (tree->gtOper)
+                switch (node->GetOper())
                 {
                     case GT_LCL_ADDR:
-                    {
-                        unsigned  lclNum    = tree->AsLclAddr()->GetLclNum();
-                        unsigned* pRefCount = refCounts.LookupPointer(lclNum);
-                        if (pRefCount != nullptr)
-                        {
-                            *pRefCount = (*pRefCount) + 1;
-                        }
-                        else
-                        {
-                            refCounts.Set(lclNum, 1);
-                        }
-                        break;
-                    }
-
                     case GT_LCL_VAR:
                     case GT_LCL_FLD:
-                    {
-                        unsigned  lclNum    = tree->AsLclVarCommon()->GetLclNum();
-                        unsigned* pRefCount = refCounts.LookupPointer(lclNum);
-                        if (pRefCount != nullptr)
-                        {
-                            *pRefCount = (*pRefCount) + 1;
-                        }
-                        else
-                        {
-                            refCounts.Set(lclNum, 1);
-                        }
-
+                        (*refCounts.Emplace(node->AsLclVarCommon()->GetLclNum(), 0))++;
                         break;
-                    }
 
                     case GT_STORE_LCL_VAR:
                     case GT_STORE_LCL_FLD:
                     {
-                        GenTreeLclVarCommon* lclNode = tree->AsLclVarCommon();
-                        const unsigned       lclNum  = lclNode->GetLclNum();
-                        LclVarDsc* const     lclDsc  = lvaGetDesc(lclNum);
+                        GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
+                        unsigned             lclNum  = lclNode->GetLclNum();
+                        LclVarDsc*           lcl     = lvaGetDesc(lclNum);
 
                         // We need to count the number of tracked var defs in the block
                         // so that we can update block->bbVarDef if we remove any tracked var defs.
 
-                        if (lclDsc->HasLiveness())
+                        if (lcl->HasLiveness())
                         {
-                            unsigned* pDefsCount = defsInBlock.LookupPointer(lclNum);
-                            if (pDefsCount != nullptr)
-                            {
-                                *pDefsCount = (*pDefsCount) + 1;
-                            }
-                            else
-                            {
-                                defsInBlock.Set(lclNum, 1);
-                            }
+                            (*defsInBlock.Emplace(lclNum, 0))++;
                         }
-                        else if (lclDsc->IsPromoted() &&
-                                 (tree->OperIs(GT_STORE_LCL_VAR) || !tree->IsPartialLclFld(this)))
+                        else if (lcl->IsPromoted() &&
+                                 (lclNode->OperIs(GT_STORE_LCL_VAR) || !lclNode->IsPartialLclFld(this)))
                         {
-                            for (unsigned i = 0; i < lclDsc->GetPromotedFieldCount(); ++i)
+                            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
                             {
-                                unsigned fieldLclNum = lclDsc->GetPromotedFieldLclNum(i);
+                                unsigned fieldLclNum = lcl->GetPromotedFieldLclNum(i);
 
                                 if (lvaGetDesc(fieldLclNum)->HasLiveness())
                                 {
-                                    unsigned* pDefsCount = defsInBlock.LookupPointer(fieldLclNum);
-
-                                    if (pDefsCount != nullptr)
-                                    {
-                                        (*pDefsCount)++;
-                                    }
-                                    else
-                                    {
-                                        defsInBlock.Set(fieldLclNum, 1);
-                                    }
+                                    (*defsInBlock.Emplace(fieldLclNum, 0))++;
                                 }
                             }
                         }
@@ -6035,46 +5994,46 @@ void Compiler::phRemoveRedundantZeroInits()
                         // TODO-MIKE-CQ: This could also recognize indirect local stores.
                         // Though they're so rare that's hardly worth the trouble...
 
-                        unsigned* pRefCount = refCounts.LookupPointer(lclNum);
-                        if (pRefCount != nullptr)
+                        unsigned* refCount = refCounts.LookupPointer(lclNum);
+
+                        if (refCount != nullptr)
                         {
-                            *pRefCount = (*pRefCount) + 1;
+                            (*refCount)++;
+
+                            if (*refCount > 1)
+                            {
+                                break;
+                            }
                         }
                         else
                         {
-                            refCounts.Set(lclNum, 1);
+                            refCount = refCounts.Emplace(lclNum, 1);
                         }
 
-                        pRefCount = refCounts.LookupPointer(lclNum);
-
-                        // pRefCount can't be null because the local node on the lhs of the assignment
-                        // must have already been seen.
-                        assert(pRefCount != nullptr);
-                        if (*pRefCount != 1)
+                        if (lcl->IsPromotedField())
                         {
-                            break;
-                        }
+                            unsigned parentRefCount = 0;
 
-                        unsigned parentRefCount = 0;
-                        if (lclDsc->lvIsStructField && refCounts.Lookup(lclDsc->lvParentLcl, &parentRefCount) &&
-                            (parentRefCount != 0))
-                        {
-                            break;
-                        }
-
-                        unsigned fieldRefCount = 0;
-                        if (lclDsc->lvPromoted)
-                        {
-                            for (unsigned i = lclDsc->lvFieldLclStart;
-                                 (fieldRefCount == 0) && (i < lclDsc->lvFieldLclStart + lclDsc->lvFieldCnt); ++i)
+                            if (refCounts.Lookup(lcl->GetPromotedFieldParentLclNum(), &parentRefCount) &&
+                                (parentRefCount != 0))
                             {
-                                refCounts.Lookup(i, &fieldRefCount);
+                                break;
                             }
                         }
 
-                        if (fieldRefCount != 0)
+                        if (lcl->IsPromoted())
                         {
-                            break;
+                            unsigned fieldRefCount = 0;
+
+                            for (unsigned i = 0; (fieldRefCount == 0) && (i < lcl->GetPromotedFieldCount()); ++i)
+                            {
+                                refCounts.Lookup(lcl->GetPromotedFieldLclNum(i), &fieldRefCount);
+                            }
+
+                            if (fieldRefCount != 0)
+                            {
+                                break;
+                            }
                         }
 
                         // The local hasn't been referenced before this assignment.
@@ -6089,26 +6048,26 @@ void Compiler::phRemoveRedundantZeroInits()
                             if (!bbInALoop || bbIsReturn)
                             {
                                 if (BitVecOps::IsMember(&bitVecTraits, zeroInitLocals, lclNum) ||
-                                    (lclDsc->lvIsStructField &&
-                                     BitVecOps::IsMember(&bitVecTraits, zeroInitLocals, lclDsc->lvParentLcl)) ||
-                                    ((!lclDsc->lvTracked || !totalOverlap) &&
+                                    (lcl->IsPromotedField() &&
+                                     BitVecOps::IsMember(&bitVecTraits, zeroInitLocals,
+                                                         lcl->GetPromotedFieldParentLclNum())) ||
+                                    ((!lcl->HasLiveness() || !totalOverlap) &&
                                      !fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn)))
                                 {
                                     // We are guaranteed to have a zero initialization in the prolog or a
                                     // dominating explicit zero initialization and the local hasn't been redefined
                                     // between the prolog and this explicit zero initialization so the assignment
                                     // can be safely removed.
-                                    if (tree == stmt->GetRootNode())
+                                    if (lclNode == stmt->GetRootNode())
                                     {
                                         fgRemoveStmt(block, stmt);
-                                        removedExplicitZeroInit      = true;
-                                        lclDsc->lvSuppressedZeroInit = 1;
+                                        removedExplicitZeroInit   = true;
+                                        lcl->lvSuppressedZeroInit = 1;
 
-                                        if (lclDsc->lvTracked)
+                                        if (lcl->HasLiveness())
                                         {
-                                            removedTrackedDefs   = true;
-                                            unsigned* pDefsCount = defsInBlock.LookupPointer(lclNum);
-                                            *pDefsCount          = (*pDefsCount) - 1;
+                                            removedTrackedDefs = true;
+                                            (*defsInBlock.LookupPointer(lclNum))--;
                                         }
                                     }
                                 }
@@ -6117,30 +6076,31 @@ void Compiler::phRemoveRedundantZeroInits()
                                 {
                                     BitVecOps::AddElemD(&bitVecTraits, zeroInitLocals, lclNum);
                                 }
-                                *pRefCount = 0;
+
+                                *refCount = 0;
                             }
                         }
 
-                        if (!removedExplicitZeroInit && totalOverlap && (!canThrow || !lclDsc->lvLiveInOutOfHndlr))
+                        if (!removedExplicitZeroInit && totalOverlap && (!canThrow || !lcl->lvLiveInOutOfHndlr))
                         {
                             // If compMethodRequiresPInvokeFrame() returns true, lower may later
                             // insert a call to CORINFO_HELP_INIT_PINVOKE_FRAME which is a gc-safe point.
-                            if (!lclDsc->HasGCPtr() ||
+                            if (!lcl->HasGCPtr() ||
                                 (!codeGen->GetInterruptible() && !hasGCSafePoint && !compMethodRequiresPInvokeFrame()))
                             {
                                 // The local hasn't been used and won't be reported to the gc between
-                                // the prolog and this explicit intialization. Therefore, it doesn't
+                                // the prolog and this explicit initialization. Therefore, it doesn't
                                 // require zero initialization in the prolog.
-                                lclDsc->lvHasExplicitInit = 1;
+                                lcl->lvHasExplicitInit = 1;
 
                                 // If the local is the only field of a promoted struct local then the
                                 // promoted struct local also doesn't require zero initialization in
                                 // the prolog.
-                                if (lclDsc->IsPromotedField())
+                                if (lcl->IsPromotedField())
                                 {
-                                    LclVarDsc* parentLcl = lvaGetDesc(lclDsc->GetPromotedFieldParentLclNum());
+                                    LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
-                                    if (parentLcl->GetLayout()->GetSize() == varTypeSize(lclDsc->GetType()))
+                                    if (parentLcl->GetLayout()->GetSize() == varTypeSize(lcl->GetType()))
                                     {
                                         parentLcl->lvHasExplicitInit = 1;
                                     }
@@ -6149,25 +6109,23 @@ void Compiler::phRemoveRedundantZeroInits()
                                 JITDUMP("Marking V%02u as having an explicit init\n", lclNum);
                             }
                         }
+
                         break;
                     }
+
                     default:
                         break;
                 }
             }
-            stmt = next;
         }
 
         if (removedTrackedDefs)
         {
-            LclVarRefCounts::KeyIterator iter(defsInBlock.Begin());
-            LclVarRefCounts::KeyIterator end(defsInBlock.End());
-            for (; !iter.Equal(end); ++iter)
+            for (const auto& pair : defsInBlock)
             {
-                unsigned int lclNum = iter.Get();
-                if (defsInBlock[lclNum] == 0)
+                if (pair.value == 0)
                 {
-                    VarSetOps::RemoveElemD(this, block->bbVarDef, lvaGetDesc(lclNum)->lvVarIndex);
+                    VarSetOps::RemoveElemD(this, block->bbVarDef, lvaGetDesc(pair.key)->GetLivenessBitIndex());
                 }
             }
         }
