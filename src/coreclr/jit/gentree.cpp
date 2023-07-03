@@ -2470,6 +2470,13 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 case GT_STORE_LCL_FLD:
                     costEx = 4;
                     costSz = 3;
+#ifndef TARGET_64BIT
+                    if (varTypeIsLong(tree->GetType()))
+                    {
+                        costEx += 3;
+                        costSz += 3;
+                    }
+#endif
                     break;
 
                 case GT_INSERT:
@@ -2879,23 +2886,29 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
             case GT_STORE_BLK:
             case GT_STOREIND:
-                costEx += IND_COST_EX;
-                costSz += 2;
+                costEx = IND_COST_EX + 1;
+                costSz = 3;
 
-                if (varTypeIsSmall(tree->TypeGet()))
+                if (varTypeIsSmall(tree->GetType()))
                 {
                     costEx += 1;
                     costSz += 1;
                 }
-
-                if (isflt)
+#ifndef TARGET_64BIT
+                else if (varTypeIsLong(tree->GetType()))
                 {
-                    if (tree->TypeGet() == TYP_DOUBLE)
+                    costEx += 3;
+                    costSz += 3;
+                }
+#endif
+                else if (varTypeIsFloating(tree->GetType()))
+                {
+                    if (tree->TypeIs(TYP_DOUBLE))
                     {
                         costEx += 1;
                     }
 #ifdef TARGET_ARM
-                    costSz += 2;
+                    costSz += 4;
 #endif
                 }
 
