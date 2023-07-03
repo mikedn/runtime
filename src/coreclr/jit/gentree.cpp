@@ -8065,9 +8065,7 @@ void Compiler::gtDispTreeRec(
             {
                 for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
                 {
-                    char block[32];
-                    sprintf_s(block, sizeof(block), "pred " FMT_BB, use.GetNode()->GetBlock()->bbNum);
-                    gtDispChild(use.GetNode(), (use.GetNext() == nullptr) ? IIArcBottom : IIArc, block);
+                    gtDispChild(use.GetNode(), (use.GetNext() == nullptr) ? IIArcBottom : IIArc);
                 }
             }
             break;
