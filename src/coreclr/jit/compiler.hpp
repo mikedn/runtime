@@ -928,11 +928,6 @@ inline GenTree* Compiler::gtUnusedValNode(GenTree* expr)
     return gtNewCommaNode(expr, gtNewNothingNode());
 }
 
-inline void Compiler::gtSetStmtInfo(Statement* stmt)
-{
-    gtSetEvalOrder(stmt->GetRootNode());
-}
-
 inline GenTreeCast* Compiler::gtNewCastNode(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType)
 {
     return new (this, GT_CAST) GenTreeCast(typ, op1, fromUnsigned, castType);

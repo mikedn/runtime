@@ -3229,7 +3229,6 @@ public:
     // Returns true iff the secondNode can be swapped with firstNode.
     bool gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode);
 
-    void gtSetEvalOrder(GenTree* tree);
     unsigned gtSetOrder(GenTree* tree);
     unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args);
     void gtSetCosts(GenTree* tree);
