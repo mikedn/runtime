@@ -321,7 +321,6 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
     GenTree* trapEq = gtNewOperNode(GT_EQ, TYP_INT, indir, gtNewIconNode(0, TYP_INT));
     trapEq->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
     GenTree* trapCheck = gtNewOperNode(GT_JTRUE, TYP_VOID, trapEq);
-    gtSetEvalOrder(trapCheck);
     Statement* trapCheckStmt = fgNewStmtAtEnd(top, trapCheck);
 
     if (fgStmtListThreaded)
