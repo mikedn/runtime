@@ -1731,21 +1731,15 @@ GenTree* Compiler::gtReverseCond(GenTree* tree)
     return tree;
 }
 
-unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz)
+void Compiler::gtSetCallArgsCosts(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz)
 {
-    unsigned level  = 0;
     unsigned costEx = 0;
     unsigned costSz = 0;
 
     for (GenTreeCall::Use& use : args)
     {
-        GenTree* argNode  = use.GetNode();
-        unsigned argLevel = gtSetEvalOrder(argNode);
-
-        if (argLevel > level)
-        {
-            level = argLevel;
-        }
+        GenTree* argNode = use.GetNode();
+        gtSetCosts(argNode);
 
         if (argNode->GetCostEx() != 0)
         {
@@ -1767,6 +1761,22 @@ unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lat
 
     *callCostEx += costEx;
     *callCostSz += costSz;
+}
+
+unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args)
+{
+    unsigned level = 0;
+
+    for (GenTreeCall::Use& use : args)
+    {
+        GenTree* argNode  = use.GetNode();
+        unsigned argLevel = gtSetOrder(argNode);
+
+        if (argLevel > level)
+        {
+            level = argLevel;
+        }
+    }
 
     return level;
 }
@@ -1900,13 +1910,6 @@ bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
     return canSwap;
 }
 
-// Given an address expression, compute its costs and addressing mode
-// opportunities, and mark addressing mode candidates as GTF_DONT_CSE.
-// Returns true if it finds an addressing mode.
-//
-// TODO-Throughput - Consider actually instantiating these early, to avoid
-// having to re-run the algorithm that looks for them (might also improve CQ).
-//
 bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz, var_types indirType)
 {
     AddrMode am(addr);
@@ -2009,7 +2012,13 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
-unsigned Compiler::gtSetEvalOrder(GenTree* tree)
+void Compiler::gtSetEvalOrder(GenTree* tree)
+{
+    gtSetOrder(tree);
+    gtSetCosts(tree);
+}
+
+void Compiler::gtSetCosts(GenTree* tree)
 {
     assert(tree);
 
@@ -2029,9 +2038,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
     /* Assume no fixed registers will be trashed */
 
-    unsigned level;
-    int      costEx;
-    int      costSz;
+    int costEx;
+    int costSz;
 
 #ifdef DEBUG
     costEx = -1;
@@ -2044,8 +2052,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
     {
         switch (oper)
         {
-            // Note that CNS_STR does not normally reach gtSetEvalOrder, it's morphed to IND/CNS_INT/CALL.
-            // Give it some costs, just in case gtSetEvalOrder is called before morphing.
+            // Note that CNS_STR does not normally reach gtSetCosts, it's morphed to IND/CNS_INT/CALL.
+            // Give it some costs, just in case gtSetCosts is called before morphing.
             case GT_CNS_STR:
 #if defined(TARGET_ARMARCH)
                 costSz = 8;
@@ -2059,7 +2067,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 #else
 #error Unknown TARGET
 #endif
-                level = 0;
                 break;
 
 #ifdef TARGET_ARM
@@ -2099,7 +2106,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         costEx += 1;
                     }
                 }
-                level = 0;
                 break;
             }
 
@@ -2136,7 +2142,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costSz = 8;
                     costEx = 2;
                 }
-                level = 0;
                 break;
             }
 
@@ -2163,7 +2168,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                 costSz += fitsInVal ? 1 : 4;
                 costEx += 1;
-                level = 0;
                 break;
             }
 #endif // TARGET_X86
@@ -2194,8 +2198,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costSz = 4;
                     costEx = 1;
                 }
-
-                level = 0;
                 break;
             }
 
@@ -2255,7 +2257,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costEx = instructionCount;
                     costSz = 4 * instructionCount;
                 }
-                level = 0;
                 break;
             }
 #else
@@ -2264,7 +2265,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
             case GT_CNS_DBL:
             {
-                level = 0;
 #if defined(TARGET_XARCH)
                 /* We use fldz and fld1 to load 0.0 and 1.0, but all other  */
                 /* floating point constants are loaded using an indirection */
@@ -2352,13 +2352,10 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     }
                 }
 #endif
-
-                level = 1;
             }
             break;
 
             case GT_CLS_VAR_ADDR:
-                level = 1;
 #ifdef TARGET_ARM
                 // We generate movw/movt
                 costEx = 2;
@@ -2369,7 +2366,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 #endif
                 break;
             case GT_LCL_FLD:
-                level  = 1;
                 costEx = IND_COST_EX;
                 costSz = 4;
                 if (varTypeIsSmall(tree->TypeGet()))
@@ -2380,19 +2376,16 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 break;
 
             case GT_LCL_ADDR:
-                level  = 1;
                 costEx = 3;
                 costSz = 3;
                 break;
 
             case GT_ARGPLACE:
-                level  = 0;
                 costEx = 0;
                 costSz = 0;
                 break;
 
             default:
-                level  = 1;
                 costEx = 1;
                 costSz = 1;
                 break;
@@ -2402,8 +2395,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
     if (kind & GTK_SMPOP)
     {
-        unsigned lvl2; // scratch variable
-
         GenTree* op1 = tree->AsOp()->gtOp1;
         GenTree* op2 = tree->gtGetOp2IfPresent();
 
@@ -2425,8 +2416,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         {
             assert(op2 == nullptr);
 
-            level = 0;
-
             goto DONE;
         }
 
@@ -2440,7 +2429,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             costEx = 1;
             costSz = 1;
 
-            level = gtSetEvalOrder(op1);
+            gtSetCosts(op1);
 
             GenTreeIntrinsic* intrinsic;
 
@@ -2617,27 +2606,14 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                             break;
                         }
                     }
-
-                    level++;
                     break;
 
                 case GT_NOT:
                 case GT_NEG:
                 case GT_FNEG:
-                    // We need to ensure that -x is evaluated before x or else
-                    // we get burned while adjusting genFPstkLevel in x*-x where
-                    // the rhs x is the last use of the enregistered x.
-                    //
-                    // Even in the integer case we want to prefer to
-                    // evaluate the side without the GT_NEG node, all other things
-                    // being equal.  Also a GT_NOT requires a scratch register
-
-                    level++;
                     break;
 
                 case GT_ARR_LENGTH:
-                    level++;
-
                     /* Array Len should be the same as an indirections, which have a costEx of IND_COST_EX */
                     costEx = IND_COST_EX - 1;
                     costSz = 2;
@@ -2658,16 +2634,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                 case GT_BLK:
                 case GT_IND:
-
-                    /* An indirection should always have a non-zero level.
-                     * Only constant leaf nodes have level 0.
-                     */
-
-                    if (level == 0)
-                    {
-                        level = 1;
-                    }
-
                     /* Indirections have a costEx of IND_COST_EX */
                     costEx = IND_COST_EX;
                     costSz = 2;
@@ -2776,8 +2742,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         }
 #endif
 
-        int lvlb = 0;
-
         switch (oper)
         {
             case GT_MOD:
@@ -2801,8 +2765,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             case GT_UDIV:
                 costEx += 19;
                 costSz += 2;
-                // Encourage the first operand to be evaluated (into EAX/EDX) first
-                lvlb -= 3;
                 break;
 
             case GT_MUL:
@@ -2819,10 +2781,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 #ifdef TARGET_X86
                 if ((tree->gtType == TYP_LONG) || tree->gtOverflow())
                 {
-                    /* We use imulEAX for TYP_LONG and overflow multiplications */
-                    // Encourage the first operand to be evaluated (into EAX/EDX) first */
-                    lvlb -= 4;
-
                     /* The 64-bit imul instruction costs more */
                     costEx += 4;
                 }
@@ -2851,8 +2809,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 break;
 
             case GT_COMMA:
-                gtSetEvalOrder(op1);
-                level = gtSetEvalOrder(op2);
+                gtSetCosts(op1);
+                gtSetCosts(op2);
 
                 // TODO-MIKE-Cleanup: ADDR costing code was bogus, it managed to add operand's costs
                 // twice for ADDR(IND(x)) trees. Most ADDRs were removed during global morphing but
@@ -2930,7 +2888,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 #endif
                 else
                 {
-                    level = gtSetEvalOrder(op1);
+                    gtSetCosts(op1);
 
                     GenTree* addr = op1->SkipComma();
 
@@ -2976,16 +2934,10 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             case GT_BOUNDS_CHECK:
                 costEx = 4; // cmp reg,reg and jae throw (not taken)
                 costSz = 7; // jump to cold section
-
-                level = gtSetEvalOrder(tree->AsBoundsChk()->GetIndex());
+                gtSetCosts(tree->AsBoundsChk()->GetIndex());
                 costEx += tree->AsBoundsChk()->GetIndex()->GetCostEx();
                 costSz += tree->AsBoundsChk()->GetIndex()->GetCostSz();
-
-                lvl2 = gtSetEvalOrder(tree->AsBoundsChk()->GetLength());
-                if (level < lvl2)
-                {
-                    level = lvl2;
-                }
+                gtSetCosts(tree->AsBoundsChk()->GetLength());
                 costEx += tree->AsBoundsChk()->GetLength()->GetCostEx();
                 costSz += tree->AsBoundsChk()->GetLength()->GetCostSz();
                 goto DONE;
@@ -2995,7 +2947,554 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 break;
         }
 
-        level = gtSetEvalOrder(op1);
+        gtSetCosts(op1);
+
+        costEx += op1->GetCostEx();
+        costSz += op1->GetCostSz();
+    DONE_OP1_COSTS:
+        gtSetCosts(op2);
+        costEx += op2->GetCostEx();
+        costSz += op2->GetCostSz();
+
+        bool reverseInAssignment = false;
+
+        switch (oper)
+        {
+            case GT_STOREIND:
+            case GT_STORE_OBJ:
+            case GT_STORE_BLK:
+                // TODO-MIKE-Cleanup: This stuff is a complete mess...
+                if (!csePhase || cseCanSwapOrder(op1, op2))
+                {
+                    if (!tree->AsIndir()->GetAddr()->IsLocalAddrExpr() &&
+                        (tree->AsIndir()->GetAddr()->HasAnySideEffect(GTF_ALL_EFFECT) ||
+                         op2->HasAnySideEffect(GTF_ASG) || op2->OperIsLeaf()))
+                    {
+                        break;
+                    }
+
+                    reverseInAssignment = true;
+                    tree->gtFlags |= GTF_REVERSE_OPS;
+                }
+                break;
+
+            case GT_EQ:
+            case GT_NE:
+            case GT_LT:
+            case GT_GT:
+            case GT_LE:
+            case GT_GE:
+                if ((tree->gtFlags & GTF_RELOP_JMP_USED) == 0)
+                {
+                    // Using a setcc instruction is more expensive
+                    costEx += 3;
+                }
+                break;
+
+            case GT_LSH:
+            case GT_RSH:
+            case GT_RSZ:
+            case GT_ROL:
+            case GT_ROR:
+                /* Variable sized shifts are more expensive and use REG_SHIFT */
+
+                if (!op2->IsCnsIntOrI())
+                {
+                    costEx += 3;
+#ifndef TARGET_64BIT
+                    // Variable sized LONG shifts require the use of a helper call
+                    //
+                    if (tree->gtType == TYP_LONG)
+                    {
+                        costEx += 3 * IND_COST_EX;
+                        costSz += 4;
+                    }
+#endif // !TARGET_64BIT
+                }
+                break;
+
+            default:
+                break;
+        }
+
+        goto DONE;
+    }
+
+    switch (oper)
+    {
+        case GT_CALL:
+
+            assert(tree->gtFlags & GTF_CALL);
+
+            costEx = 5;
+            costSz = 2;
+
+            GenTreeCall* call;
+            call = tree->AsCall();
+
+            /* Evaluate the 'this' argument, if present */
+
+            if (tree->AsCall()->gtCallThisArg != nullptr)
+            {
+                GenTree* thisVal = tree->AsCall()->gtCallThisArg->GetNode();
+                gtSetCosts(thisVal);
+                costEx += thisVal->GetCostEx();
+                costSz += thisVal->GetCostSz() + 1;
+            }
+
+            /* Evaluate the arguments, right to left */
+
+            if (call->gtCallArgs != nullptr)
+            {
+                const bool lateArgs = false;
+                gtSetCallArgsCosts(call->Args(), lateArgs, &costEx, &costSz);
+            }
+
+            /* Evaluate the temp register arguments list
+             * This is a "hidden" list and its only purpose is to
+             * extend the life of temps until we make the call */
+
+            if (call->gtCallLateArgs != nullptr)
+            {
+                const bool lateArgs = true;
+                gtSetCallArgsCosts(call->LateArgs(), lateArgs, &costEx, &costSz);
+            }
+
+            if (call->IsIndirectCall())
+            {
+                GenTree* indirect = call->gtCallAddr;
+
+                gtSetCosts(indirect);
+                costEx += indirect->GetCostEx() + IND_COST_EX;
+                costSz += indirect->GetCostSz();
+            }
+            else
+            {
+                if (call->IsVirtual())
+                {
+                    GenTree* controlExpr = call->gtControlExpr;
+                    if (controlExpr != nullptr)
+                    {
+                        gtSetCosts(controlExpr);
+                        costEx += controlExpr->GetCostEx();
+                        costSz += controlExpr->GetCostSz();
+                    }
+                }
+#ifdef TARGET_ARM
+                if (call->IsVirtualStub())
+                {
+                    // We generate movw/movt/ldr
+                    costEx += (1 + IND_COST_EX);
+                    costSz += 8;
+                    if (call->gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT)
+                    {
+                        // Must use R12 for the ldr target -- REG_JUMP_THUNK_PARAM
+                        costSz += 2;
+                    }
+                }
+                else if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+                {
+                    costEx += 2;
+                    costSz += 6;
+                }
+                costSz += 2;
+#endif
+
+#ifdef TARGET_XARCH
+                costSz += 3;
+#endif
+            }
+
+            /* Virtual calls are a bit more expensive */
+            if (call->IsVirtual())
+            {
+                costEx += 2 * IND_COST_EX;
+                costSz += 2;
+            }
+
+            costEx += 3 * IND_COST_EX;
+            break;
+
+        case GT_ARR_ELEM:
+        {
+            GenTreeArrElem* arrElem = tree->AsArrElem();
+
+            gtSetCosts(arrElem->gtArrObj);
+            costEx = arrElem->gtArrObj->GetCostEx();
+            costSz = arrElem->gtArrObj->GetCostSz();
+
+            for (unsigned dim = 0; dim < arrElem->gtArrRank; dim++)
+            {
+                gtSetCosts(arrElem->gtArrInds[dim]);
+                costEx += arrElem->gtArrInds[dim]->GetCostEx();
+                costSz += arrElem->gtArrInds[dim]->GetCostSz();
+            }
+
+            costEx += 2 + (arrElem->gtArrRank * (IND_COST_EX + 1));
+            costSz += 2 + (arrElem->gtArrRank * 2);
+        }
+        break;
+
+        case GT_PHI:
+            for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
+            {
+                gtSetCosts(use.GetNode());
+                // PHI args should always have cost 0 and level 0
+                assert(use.GetNode()->GetCostEx() == 0);
+                assert(use.GetNode()->GetCostSz() == 0);
+            }
+
+            costEx = 0;
+            costSz = 0;
+            break;
+
+        case GT_FIELD_LIST:
+            costEx = 0;
+            costSz = 0;
+            for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
+            {
+                gtSetCosts(use.GetNode());
+                gtSetCosts(use.GetNode());
+                costEx += use.GetNode()->GetCostEx();
+                costSz += use.GetNode()->GetCostSz();
+            }
+            break;
+
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+#ifdef TARGET_XARCH
+            if (tree->AsHWIntrinsic()->IsUnary() && tree->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
+            {
+                gtSetCosts(tree->AsHWIntrinsic()->GetOp(0));
+                costEx = IND_COST_EX;
+                costSz = 2;
+                // See if we can form a complex addressing mode.
+
+                GenTree* addr = tree->AsHWIntrinsic()->GetOp(0)->gtEffectiveVal();
+
+                if (addr->OperIs(GT_ADD) && gtMarkAddrMode(addr, &costEx, &costSz, tree->TypeGet()))
+                {
+                    goto DONE;
+                }
+            }
+#endif // TARGET_XARCH
+
+            if (tree->AsHWIntrinsic()->IsBinary())
+            {
+                GenTree* op1 = tree->AsHWIntrinsic()->GetOp(0);
+                GenTree* op2 = tree->AsHWIntrinsic()->GetOp(1);
+                gtSetCosts(op1);
+                gtSetCosts(op2);
+                costEx = op1->GetCostEx() + op2->GetCostEx() + 1;
+                costSz = op1->GetCostSz() + op2->GetCostSz() + 1;
+            }
+            else
+            {
+                costEx = 1;
+                costSz = 1;
+
+                for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
+                {
+                    gtSetCosts(use.GetNode());
+                    costEx += use.GetNode()->GetCostEx();
+                    costSz += use.GetNode()->GetCostSz();
+                }
+            }
+            break;
+#endif // FEATURE_HW_INTRINSICS
+
+        case GT_INSTR:
+            costEx = 1;
+            costSz = 1;
+
+            for (GenTreeInstr::Use& use : tree->AsInstr()->Uses())
+            {
+                gtSetCosts(use.GetNode());
+                costEx += use.GetNode()->GetCostEx();
+                costSz += use.GetNode()->GetCostSz();
+            }
+            break;
+
+        case GT_ARR_OFFSET:
+        case GT_CMPXCHG:
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+            if (tree->OperIs(GT_CMPXCHG))
+            {
+                costEx = MAX_COST; // Seriously, what could be more expensive than lock cmpxchg?
+                costSz = 5;        // size of lock cmpxchg [reg+C], reg
+            }
+            else
+            {
+                // TODO-MIKE-Cleanup: We should some set costs on ARR_OFFSET and COPY|INIT_BLK
+                // for the sake of clarity. It's unlikely to matter otherwise.
+                costEx = 0;
+                costSz = 0;
+            }
+
+            for (unsigned i = 0; i < 3; i++)
+            {
+                gtSetCosts(tree->AsTernaryOp()->GetOp(i));
+            }
+
+            for (unsigned i = 0; i < 3; i++)
+            {
+                costEx += tree->AsTernaryOp()->GetOp(i)->GetCostEx();
+                costSz += tree->AsTernaryOp()->GetOp(i)->GetCostSz();
+            }
+            break;
+
+        case GT_INDEX_ADDR:
+            costEx = 6; // cmp reg,reg; jae throw; mov reg, [addrmode]  (not taken)
+            costSz = 9; // jump to cold section
+            gtSetCosts(tree->AsIndexAddr()->GetIndex());
+            costEx += tree->AsIndexAddr()->GetIndex()->GetCostEx();
+            costSz += tree->AsIndexAddr()->GetIndex()->GetCostSz();
+            gtSetCosts(tree->AsIndexAddr()->GetArray());
+            costEx += tree->AsIndexAddr()->GetArray()->GetCostEx();
+            costSz += tree->AsIndexAddr()->GetArray()->GetCostSz();
+            break;
+
+        default:
+            JITDUMP("unexpected operator in this tree:\n");
+            DISPTREE(tree);
+
+            NO_WAY("unexpected operator");
+    }
+
+DONE:
+
+    // Some path through this function must have set the costs.
+    assert(costEx != -1);
+    assert(costSz != -1);
+
+    tree->SetCosts(costEx, costSz);
+}
+
+unsigned Compiler::gtSetOrder(GenTree* tree)
+{
+    assert(tree);
+
+#ifdef DEBUG
+    /* Clear the GTF_DEBUG_NODE_MORPHED flag as well */
+    tree->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
+#endif
+
+    /* Figure out what kind of a node we have */
+
+    const genTreeOps oper = tree->OperGet();
+    const unsigned   kind = tree->OperKind();
+
+    /* Assume no fixed registers will be trashed */
+
+    unsigned level;
+
+    /* Is this a constant or a leaf node? */
+
+    if (kind & GTK_LEAF)
+    {
+        switch (oper)
+        {
+            case GT_CNS_STR:
+            case GT_CNS_INT:
+            case GT_CNS_LNG:
+            case GT_CNS_DBL:
+            case GT_ARGPLACE:
+                level = 0;
+                break;
+            default:
+                level = 1;
+                break;
+        }
+        goto DONE;
+    }
+
+    if (kind & GTK_SMPOP)
+    {
+        unsigned lvl2; // scratch variable
+
+        GenTree* op1 = tree->AsOp()->gtOp1;
+        GenTree* op2 = tree->gtGetOp2IfPresent();
+
+        if (tree->IsAddrMode())
+        {
+            if (op1 == nullptr)
+            {
+                op1 = op2;
+                op2 = nullptr;
+            }
+        }
+
+        /* Check for a nilary operator */
+
+        if (op1 == nullptr)
+        {
+            assert(op2 == nullptr);
+
+            level = 0;
+
+            goto DONE;
+        }
+
+        /* Is this a unary operator? */
+
+        if (op2 == nullptr)
+        {
+            /* Process the operand of the operator */
+
+            level = gtSetOrder(op1);
+
+            /* Special handling for some operators */
+
+            switch (oper)
+            {
+                case GT_JTRUE:
+                case GT_SWITCH:
+                    break;
+
+                case GT_STORE_LCL_VAR:
+                case GT_LCL_DEF:
+                    if (gtIsLikelyRegVar(tree))
+                    {
+                        goto DONE;
+                    }
+                    FALLTHROUGH;
+                case GT_STORE_LCL_FLD:
+                case GT_INSERT:
+                    break;
+                case GT_EXTRACT:
+                    if (op1->OperIs(GT_LCL_USE))
+                    {
+                        goto DONE;
+                    }
+                    break;
+
+                case GT_CAST:
+                case GT_NOP:
+                    break;
+
+                case GT_INTRINSIC:
+                    level++;
+                    break;
+
+                case GT_NOT:
+                case GT_NEG:
+                case GT_FNEG:
+                    // We need to ensure that -x is evaluated before x or else
+                    // we get burned while adjusting genFPstkLevel in x*-x where
+                    // the rhs x is the last use of the enregistered x.
+                    //
+                    // Even in the integer case we want to prefer to
+                    // evaluate the side without the GT_NEG node, all other things
+                    // being equal.  Also a GT_NOT requires a scratch register
+
+                    level++;
+                    break;
+
+                case GT_ARR_LENGTH:
+                    level++;
+                    break;
+
+                case GT_MKREFANY:
+                case GT_OBJ:
+                case GT_BOX:
+                case GT_BLK:
+                case GT_IND:
+
+                    /* An indirection should always have a non-zero level.
+                     * Only constant leaf nodes have level 0.
+                     */
+
+                    if (level == 0)
+                    {
+                        level = 1;
+                    }
+                    break;
+
+                default:
+                    break;
+            }
+
+            goto DONE;
+        }
+
+        /* Binary operator - check for certain special cases */
+
+        int lvlb = 0;
+
+        switch (oper)
+        {
+            case GT_MOD:
+            case GT_UMOD:
+
+                /* Modulo by a power of 2 is easy */
+
+                if (op2->IsCnsIntOrI())
+                {
+                    size_t ival = op2->AsIntConCommon()->IconValue();
+
+                    if (ival > 0 && ival == genFindLowestBit(ival))
+                    {
+                        break;
+                    }
+                }
+
+                FALLTHROUGH;
+
+            case GT_DIV:
+            case GT_UDIV:
+                // Encourage the first operand to be evaluated (into EAX/EDX) first
+                lvlb -= 3;
+                break;
+
+            case GT_MUL:
+#ifdef TARGET_X86
+                if ((tree->gtType == TYP_LONG) || tree->gtOverflow())
+                {
+                    /* We use imulEAX for TYP_LONG and overflow multiplications */
+                    // Encourage the first operand to be evaluated (into EAX/EDX) first */
+                    lvlb -= 4;
+                }
+#endif //  TARGET_X86
+                break;
+
+            case GT_ADD:
+            case GT_SUB:
+                break;
+
+            case GT_FADD:
+            case GT_FSUB:
+            case GT_FMUL:
+                break;
+
+            case GT_FDIV:
+                break;
+
+            case GT_COMMA:
+                gtSetOrder(op1);
+                level = gtSetOrder(op2);
+                goto DONE;
+
+            case GT_STORE_OBJ:
+            case GT_STORE_BLK:
+            case GT_STOREIND:
+                break;
+
+            case GT_BOUNDS_CHECK:
+                level = gtSetOrder(tree->AsBoundsChk()->GetIndex());
+                lvl2  = gtSetOrder(tree->AsBoundsChk()->GetLength());
+                if (level < lvl2)
+                {
+                    level = lvl2;
+                }
+                goto DONE;
+
+            default:
+                assert(!tree->OperIs(GT_ASG));
+                break;
+        }
+
+        level = gtSetOrder(op1);
 
         if (lvlb < 0)
         {
@@ -3003,13 +3502,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             lvlb = 0;
         }
 
-        costEx += op1->GetCostEx();
-        costSz += op1->GetCostSz();
-    DONE_OP1_COSTS:
         assert(lvlb >= 0);
-        lvl2 = gtSetEvalOrder(op2) + lvlb;
-        costEx += op2->GetCostEx();
-        costSz += op2->GetCostSz();
+        lvl2 = gtSetOrder(op2) + lvlb;
 
         bool reverseInAssignment = false;
 
@@ -3047,12 +3541,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     level++;
                     lvl2++;
                 }
-
-                if ((tree->gtFlags & GTF_RELOP_JMP_USED) == 0)
-                {
-                    // Using a setcc instruction is more expensive
-                    costEx += 3;
-                }
                 break;
 
             case GT_LSH:
@@ -3064,7 +3552,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                 if (!op2->IsCnsIntOrI())
                 {
-                    costEx += 3;
 #ifndef TARGET_64BIT
                     // Variable sized LONG shifts require the use of a helper call
                     //
@@ -3072,8 +3559,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     {
                         level += 5;
                         lvl2 += 5;
-                        costEx += 3 * IND_COST_EX;
-                        costSz += 4;
                     }
 #endif // !TARGET_64BIT
                 }
@@ -3269,9 +3754,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
             assert(tree->gtFlags & GTF_CALL);
 
-            level  = 0;
-            costEx = 5;
-            costSz = 2;
+            level = 0;
 
             GenTreeCall* call;
             call = tree->AsCall();
@@ -3282,21 +3765,18 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             {
                 GenTree* thisVal = tree->AsCall()->gtCallThisArg->GetNode();
 
-                lvl2 = gtSetEvalOrder(thisVal);
+                lvl2 = gtSetOrder(thisVal);
                 if (level < lvl2)
                 {
                     level = lvl2;
                 }
-                costEx += thisVal->GetCostEx();
-                costSz += thisVal->GetCostSz() + 1;
             }
 
             /* Evaluate the arguments, right to left */
 
             if (call->gtCallArgs != nullptr)
             {
-                const bool lateArgs = false;
-                lvl2                = gtSetCallArgsOrder(call->Args(), lateArgs, &costEx, &costSz);
+                lvl2 = gtSetCallArgsOrder(call->Args());
                 if (level < lvl2)
                 {
                     level = lvl2;
@@ -3309,8 +3789,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
             if (call->gtCallLateArgs != nullptr)
             {
-                const bool lateArgs = true;
-                lvl2                = gtSetCallArgsOrder(call->LateArgs(), lateArgs, &costEx, &costSz);
+                lvl2 = gtSetCallArgsOrder(call->LateArgs());
                 if (level < lvl2)
                 {
                     level = lvl2;
@@ -3321,13 +3800,11 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             {
                 GenTree* indirect = call->gtCallAddr;
 
-                lvl2 = gtSetEvalOrder(indirect);
+                lvl2 = gtSetOrder(indirect);
                 if (level < lvl2)
                 {
                     level = lvl2;
                 }
-                costEx += indirect->GetCostEx() + IND_COST_EX;
-                costSz += indirect->GetCostSz();
             }
             else
             {
@@ -3336,104 +3813,55 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     GenTree* controlExpr = call->gtControlExpr;
                     if (controlExpr != nullptr)
                     {
-                        lvl2 = gtSetEvalOrder(controlExpr);
+                        lvl2 = gtSetOrder(controlExpr);
                         if (level < lvl2)
                         {
                             level = lvl2;
                         }
-                        costEx += controlExpr->GetCostEx();
-                        costSz += controlExpr->GetCostSz();
                     }
                 }
-#ifdef TARGET_ARM
-                if (call->IsVirtualStub())
-                {
-                    // We generate movw/movt/ldr
-                    costEx += (1 + IND_COST_EX);
-                    costSz += 8;
-                    if (call->gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT)
-                    {
-                        // Must use R12 for the ldr target -- REG_JUMP_THUNK_PARAM
-                        costSz += 2;
-                    }
-                }
-                else if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
-                {
-                    costEx += 2;
-                    costSz += 6;
-                }
-                costSz += 2;
-#endif
-
-#ifdef TARGET_XARCH
-                costSz += 3;
-#endif
             }
 
-            level += 1;
-
-            /* Virtual calls are a bit more expensive */
-            if (call->IsVirtual())
-            {
-                costEx += 2 * IND_COST_EX;
-                costSz += 2;
-            }
-
-            level += 5;
-            costEx += 3 * IND_COST_EX;
+            level += 6;
             break;
 
         case GT_ARR_ELEM:
         {
             GenTreeArrElem* arrElem = tree->AsArrElem();
 
-            level  = gtSetEvalOrder(arrElem->gtArrObj);
-            costEx = arrElem->gtArrObj->GetCostEx();
-            costSz = arrElem->gtArrObj->GetCostSz();
+            level = gtSetOrder(arrElem->gtArrObj);
 
             for (unsigned dim = 0; dim < arrElem->gtArrRank; dim++)
             {
-                lvl2 = gtSetEvalOrder(arrElem->gtArrInds[dim]);
+                lvl2 = gtSetOrder(arrElem->gtArrInds[dim]);
                 if (level < lvl2)
                 {
                     level = lvl2;
                 }
-                costEx += arrElem->gtArrInds[dim]->GetCostEx();
-                costSz += arrElem->gtArrInds[dim]->GetCostSz();
             }
 
             level += arrElem->gtArrRank;
-            costEx += 2 + (arrElem->gtArrRank * (IND_COST_EX + 1));
-            costSz += 2 + (arrElem->gtArrRank * 2);
         }
         break;
 
         case GT_PHI:
             for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
             {
-                lvl2 = gtSetEvalOrder(use.GetNode());
-                // PHI args should always have cost 0 and level 0
+                lvl2 = gtSetOrder(use.GetNode());
+                // PHI args should always have level 0
                 assert(lvl2 == 0);
-                assert(use.GetNode()->GetCostEx() == 0);
-                assert(use.GetNode()->GetCostSz() == 0);
             }
 
-            level  = 0;
-            costEx = 0;
-            costSz = 0;
+            level = 0;
             break;
 
         case GT_FIELD_LIST:
-            level  = 0;
-            costEx = 0;
-            costSz = 0;
+            level = 0;
             for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
             {
-                unsigned opLevel = gtSetEvalOrder(use.GetNode());
+                unsigned opLevel = gtSetOrder(use.GetNode());
                 level            = max(level, opLevel);
-                gtSetEvalOrder(use.GetNode());
-                costEx += use.GetNode()->GetCostEx();
-                costSz += use.GetNode()->GetCostSz();
+                gtSetOrder(use.GetNode());
             }
             break;
 
@@ -3442,17 +3870,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 #ifdef TARGET_XARCH
             if (tree->AsHWIntrinsic()->IsUnary() && tree->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
             {
-                level  = gtSetEvalOrder(tree->AsHWIntrinsic()->GetOp(0));
-                costEx = IND_COST_EX;
-                costSz = 2;
-                // See if we can form a complex addressing mode.
-
-                GenTree* addr = tree->AsHWIntrinsic()->GetOp(0)->gtEffectiveVal();
-
-                if (addr->OperIs(GT_ADD) && gtMarkAddrMode(addr, &costEx, &costSz, tree->TypeGet()))
-                {
-                    goto DONE;
-                }
+                level = gtSetOrder(tree->AsHWIntrinsic()->GetOp(0));
+                break;
             }
 #endif // TARGET_XARCH
 
@@ -3466,8 +3885,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     std::swap(op1, op2);
                 }
 
-                level = gtSetEvalOrder(op1);
-                lvl2  = gtSetEvalOrder(op2);
+                level = gtSetOrder(op1);
+                lvl2  = gtSetOrder(op2);
 
                 if ((fgOrder == FGOrderTree) && (level < lvl2) && gtCanSwapOrder(op1, op2)
 #ifndef TARGET_64BIT
@@ -3492,21 +3911,14 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 {
                     level += 1;
                 }
-
-                costEx = op1->GetCostEx() + op2->GetCostEx() + 1;
-                costSz = op1->GetCostSz() + op2->GetCostSz() + 1;
             }
             else
             {
-                level  = 0;
-                costEx = 1;
-                costSz = 1;
+                level = 0;
 
                 for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
                 {
-                    level = max(level, gtSetEvalOrder(use.GetNode()));
-                    costEx += use.GetNode()->GetCostEx();
-                    costSz += use.GetNode()->GetCostSz();
+                    level = max(level, gtSetOrder(use.GetNode()));
                 }
 
                 level++;
@@ -3515,15 +3927,11 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 #endif // FEATURE_HW_INTRINSICS
 
         case GT_INSTR:
-            level  = 0;
-            costEx = 1;
-            costSz = 1;
+            level = 0;
 
             for (GenTreeInstr::Use& use : tree->AsInstr()->Uses())
             {
-                level = max(level, gtSetEvalOrder(use.GetNode()));
-                costEx += use.GetNode()->GetCostEx();
-                costSz += use.GetNode()->GetCostSz();
+                level = max(level, gtSetOrder(use.GetNode()));
             }
 
             level++;
@@ -3534,47 +3942,19 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         case GT_COPY_BLK:
         case GT_INIT_BLK:
             level = 0;
-
-            if (tree->OperIs(GT_CMPXCHG))
-            {
-                costEx = MAX_COST; // Seriously, what could be more expensive than lock cmpxchg?
-                costSz = 5;        // size of lock cmpxchg [reg+C], reg
-            }
-            else
-            {
-                // TODO-MIKE-Cleanup: We should some set costs on ARR_OFFSET and COPY|INIT_BLK
-                // for the sake of clarity. It's unlikely to matter otherwise.
-                costEx = 0;
-                costSz = 0;
-            }
-
             for (unsigned i = 0; i < 3; i++)
             {
-                level = Max(level, gtSetEvalOrder(tree->AsTernaryOp()->GetOp(i)));
-            }
-
-            for (unsigned i = 0; i < 3; i++)
-            {
-                costEx += tree->AsTernaryOp()->GetOp(i)->GetCostEx();
-                costSz += tree->AsTernaryOp()->GetOp(i)->GetCostSz();
+                level = Max(level, gtSetOrder(tree->AsTernaryOp()->GetOp(i)));
             }
             break;
 
         case GT_INDEX_ADDR:
-            costEx = 6; // cmp reg,reg; jae throw; mov reg, [addrmode]  (not taken)
-            costSz = 9; // jump to cold section
-
-            level = gtSetEvalOrder(tree->AsIndexAddr()->GetIndex());
-            costEx += tree->AsIndexAddr()->GetIndex()->GetCostEx();
-            costSz += tree->AsIndexAddr()->GetIndex()->GetCostSz();
-
-            lvl2 = gtSetEvalOrder(tree->AsIndexAddr()->GetArray());
+            level = gtSetOrder(tree->AsIndexAddr()->GetIndex());
+            lvl2  = gtSetOrder(tree->AsIndexAddr()->GetArray());
             if (level < lvl2)
             {
                 level = lvl2;
             }
-            costEx += tree->AsIndexAddr()->GetArray()->GetCostEx();
-            costSz += tree->AsIndexAddr()->GetArray()->GetCostSz();
             break;
 
         default:
@@ -3585,13 +3965,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
     }
 
 DONE:
-
-    // Some path through this function must have set the costs.
-    assert(costEx != -1);
-    assert(costSz != -1);
-
-    tree->SetCosts(costEx, costSz);
-
     return level;
 }
 #ifdef _PREFAST_

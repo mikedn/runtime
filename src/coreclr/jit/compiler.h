@@ -3222,8 +3222,6 @@ public:
     static void gtReverseRelop(GenTreeOp* relop);
     GenTree* gtReverseCond(GenTree* tree);
 
-    unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz);
-
     INDEBUG(unsigned gtHashValue(GenTree* tree);)
 
     void gtPrepareCost(GenTree* tree);
@@ -3232,9 +3230,12 @@ public:
     // Returns true iff the secondNode can be swapped with firstNode.
     bool gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode);
 
+    void gtSetEvalOrder(GenTree* tree);
+    unsigned gtSetOrder(GenTree* tree);
+    unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args);
+    void gtSetCosts(GenTree* tree);
+    void gtSetCallArgsCosts(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz);
     bool gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz, var_types indirType);
-
-    unsigned gtSetEvalOrder(GenTree* tree);
 
     void gtSetStmtInfo(Statement* stmt);
 
