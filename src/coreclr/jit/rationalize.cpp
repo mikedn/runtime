@@ -77,7 +77,6 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
         *use = call;
     }
 
-    comp->gtSetEvalOrder(call);
     BlockRange().InsertAfter(insertionPoint, LIR::Range(comp->fgSetTreeSeq(call), call));
 
     // Propagate flags of "call" to its parents.
