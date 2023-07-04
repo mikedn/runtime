@@ -1763,24 +1763,6 @@ void Compiler::gtSetCallArgsCosts(const GenTreeCall::UseList& args, bool lateArg
     *callCostSz += costSz;
 }
 
-unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args)
-{
-    unsigned level = 0;
-
-    for (GenTreeCall::Use& use : args)
-    {
-        GenTree* argNode  = use.GetNode();
-        unsigned argLevel = gtSetOrder(argNode);
-
-        if (argLevel > level)
-        {
-            level = argLevel;
-        }
-    }
-
-    return level;
-}
-
 void Compiler::gtPrepareCost(GenTree* tree)
 {
     gtSetEvalOrder(tree);
@@ -2014,7 +1996,11 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
 #endif
 void Compiler::gtSetEvalOrder(GenTree* tree)
 {
-    gtSetOrder(tree);
+    if (fgOrder == FGOrderTree)
+    {
+        gtSetOrder(tree);
+    }
+
     gtSetCosts(tree);
 }
 
@@ -3262,126 +3248,49 @@ DONE:
 
 unsigned Compiler::gtSetOrder(GenTree* tree)
 {
-    assert(tree);
+    assert(fgOrder == FGOrderTree);
 
-#ifdef DEBUG
-    /* Clear the GTF_DEBUG_NODE_MORPHED flag as well */
-    tree->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
-#endif
+    INDEBUG(tree->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED);
 
-    /* Figure out what kind of a node we have */
+    genTreeOps oper = tree->GetOper();
 
-    const genTreeOps oper = tree->OperGet();
-    const unsigned   kind = tree->OperKind();
-
-    /* Assume no fixed registers will be trashed */
-
-    unsigned level;
-
-    /* Is this a constant or a leaf node? */
-
-    if (kind & GTK_LEAF)
+    if (tree->OperIsSimple())
     {
-        switch (oper)
-        {
-            case GT_CNS_STR:
-            case GT_CNS_INT:
-            case GT_CNS_LNG:
-            case GT_CNS_DBL:
-            case GT_ARGPLACE:
-                level = 0;
-                break;
-            default:
-                level = 1;
-                break;
-        }
-        goto DONE;
-    }
-
-    if (kind & GTK_SMPOP)
-    {
-        unsigned lvl2; // scratch variable
-
         GenTree* op1 = tree->AsOp()->gtOp1;
         GenTree* op2 = tree->gtGetOp2IfPresent();
 
-        if (tree->IsAddrMode())
+        if (tree->IsAddrMode() && (op1 == nullptr))
         {
-            if (op1 == nullptr)
-            {
-                op1 = op2;
-                op2 = nullptr;
-            }
+            op1 = op2;
+            op2 = nullptr;
         }
-
-        /* Check for a nilary operator */
 
         if (op1 == nullptr)
         {
             assert(op2 == nullptr);
 
-            level = 0;
-
-            goto DONE;
+            return 0;
         }
 
-        /* Is this a unary operator? */
+        unsigned level1 = gtSetOrder(op1);
 
         if (op2 == nullptr)
         {
-            /* Process the operand of the operator */
-
-            level = gtSetOrder(op1);
-
-            /* Special handling for some operators */
-
             switch (oper)
             {
-                case GT_JTRUE:
-                case GT_SWITCH:
-                    break;
-
-                case GT_STORE_LCL_VAR:
-                case GT_LCL_DEF:
-                    if (gtIsLikelyRegVar(tree))
-                    {
-                        goto DONE;
-                    }
-                    FALLTHROUGH;
-                case GT_STORE_LCL_FLD:
-                case GT_INSERT:
-                    break;
-                case GT_EXTRACT:
-                    if (op1->OperIs(GT_LCL_USE))
-                    {
-                        goto DONE;
-                    }
-                    break;
-
-                case GT_CAST:
-                case GT_NOP:
-                    break;
-
                 case GT_INTRINSIC:
-                    level++;
-                    break;
-
+                case GT_ARR_LENGTH:
+                // We need to ensure that -x is evaluated before x or else
+                // we get burned while adjusting genFPstkLevel in x*-x where
+                // the rhs x is the last use of the enregistered x.
+                // TODO-MIKE-Review: What the crap is this talking about? x87?
+                // Even in the integer case we want to prefer to
+                // evaluate the side without the NEG node, all other things
+                // being equal. Also a NOT requires a scratch register.
                 case GT_NOT:
                 case GT_NEG:
                 case GT_FNEG:
-                    // We need to ensure that -x is evaluated before x or else
-                    // we get burned while adjusting genFPstkLevel in x*-x where
-                    // the rhs x is the last use of the enregistered x.
-                    //
-                    // Even in the integer case we want to prefer to
-                    // evaluate the side without the GT_NEG node, all other things
-                    // being equal.  Also a GT_NOT requires a scratch register
-
-                    level++;
-                    break;
-
-                case GT_ARR_LENGTH:
-                    level++;
+                    level1++;
                     break;
 
                 case GT_MKREFANY:
@@ -3389,130 +3298,100 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                 case GT_BOX:
                 case GT_BLK:
                 case GT_IND:
-
-                    /* An indirection should always have a non-zero level.
-                     * Only constant leaf nodes have level 0.
-                     */
-
-                    if (level == 0)
-                    {
-                        level = 1;
-                    }
+                    level1 = Max(1u, level1);
                     break;
 
                 default:
                     break;
             }
 
-            goto DONE;
+            return level1;
         }
 
-        /* Binary operator - check for certain special cases */
-
-        int lvlb = 0;
+        unsigned level2    = gtSetOrder(op2);
+        bool     allowSwap = true;
 
         switch (oper)
         {
-            case GT_MOD:
-            case GT_UMOD:
-
-                /* Modulo by a power of 2 is easy */
-
-                if (op2->IsCnsIntOrI())
-                {
-                    size_t ival = op2->AsIntConCommon()->IconValue();
-
-                    if (ival > 0 && ival == genFindLowestBit(ival))
-                    {
-                        break;
-                    }
-                }
-
-                FALLTHROUGH;
-
-            case GT_DIV:
-            case GT_UDIV:
-                // Encourage the first operand to be evaluated (into EAX/EDX) first
-                lvlb -= 3;
-                break;
-
-            case GT_MUL:
-#ifdef TARGET_X86
-                if ((tree->gtType == TYP_LONG) || tree->gtOverflow())
-                {
-                    /* We use imulEAX for TYP_LONG and overflow multiplications */
-                    // Encourage the first operand to be evaluated (into EAX/EDX) first */
-                    lvlb -= 4;
-                }
-#endif //  TARGET_X86
-                break;
-
-            case GT_ADD:
-            case GT_SUB:
-                break;
-
-            case GT_FADD:
-            case GT_FSUB:
-            case GT_FMUL:
-                break;
-
-            case GT_FDIV:
-                break;
-
             case GT_COMMA:
-                gtSetOrder(op1);
-                level = gtSetOrder(op2);
-                goto DONE;
-
-            case GT_STORE_OBJ:
-            case GT_STORE_BLK:
-            case GT_STOREIND:
-                break;
+                return level2;
 
             case GT_BOUNDS_CHECK:
-                level = gtSetOrder(tree->AsBoundsChk()->GetIndex());
-                lvl2  = gtSetOrder(tree->AsBoundsChk()->GetLength());
-                if (level < lvl2)
-                {
-                    level = lvl2;
-                }
-                goto DONE;
+                // TODO-MIKE-Review: Why isn't this treated like a compare?
+                return Max(level1, level2);
 
-            default:
-                assert(!tree->OperIs(GT_ASG));
+            case GT_MKREFANY:
+                allowSwap = false;
                 break;
-        }
 
-        level = gtSetOrder(op1);
-
-        if (lvlb < 0)
-        {
-            level -= lvlb;
-            lvlb = 0;
-        }
-
-        assert(lvlb >= 0);
-        lvl2 = gtSetOrder(op2) + lvlb;
-
-        bool reverseInAssignment = false;
-
-        switch (oper)
-        {
             case GT_STOREIND:
             case GT_STORE_OBJ:
             case GT_STORE_BLK:
                 // TODO-MIKE-Cleanup: This stuff is a complete mess...
                 if (!csePhase || cseCanSwapOrder(op1, op2))
                 {
-                    if (!tree->AsIndir()->GetAddr()->IsLocalAddrExpr() &&
-                        (tree->AsIndir()->GetAddr()->HasAnySideEffect(GTF_ALL_EFFECT) ||
-                         op2->HasAnySideEffect(GTF_ASG) || op2->OperIsLeaf()))
+                    if (tree->AsIndir()->GetAddr()->IsLocalAddrExpr() ||
+                        (!tree->AsIndir()->GetAddr()->HasAnySideEffect(GTF_ALL_EFFECT) &&
+                         !op2->HasAnySideEffect(GTF_ASG) && !op2->OperIsLeaf()))
                     {
-                        break;
+                        allowSwap = false;
+                        tree->gtFlags |= GTF_REVERSE_OPS;
                     }
+                }
 
-                    reverseInAssignment = true;
-                    tree->gtFlags |= GTF_REVERSE_OPS;
+                // TODO-MIKE-CQ: Old code failed to swap ASG(IND, IND) when both operands had side effects.
+                // That was bogus because the LHS side effects might have come from the IND itself, in which
+                // case those side effects took place at ASG, not at IND. Keep doing it for now to avoid diffs.
+                if (op2->HasAnySideEffect(GTF_GLOB_REF | GTF_EXCEPT | GTF_ASG))
+                {
+                    allowSwap = false;
+                }
+                break;
+
+            case GT_INSERT:
+                // INSERT's second operand must always be evaluated last, to match the semantics of STORE_LCL_FLD.
+                allowSwap = false;
+                break;
+
+            case GT_MOD:
+            case GT_UMOD:
+                if (op2->IsIntCon() && isPow2(op2->AsIntCon()->GetValue()))
+                {
+                    break;
+                }
+                FALLTHROUGH;
+            case GT_DIV:
+            case GT_UDIV:
+                // Encourage the first operand to be evaluated (into EAX/EDX) first
+                level1 += 3;
+                break;
+
+            case GT_LSH:
+            case GT_RSH:
+            case GT_RSZ:
+            case GT_ROL:
+            case GT_ROR:
+#ifndef TARGET_64BIT
+                // Variable sized LONG shifts require the use of a helper call
+                if (!op2->IsIntCon() && tree->TypeIs(TYP_LONG))
+                {
+                    level1 += 5;
+                    level2 += 5;
+                }
+#endif
+                break;
+
+            case GT_INTRINSIC:
+                assert((tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Atan2) ||
+                       (tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Pow));
+
+                level1 += 2;
+
+                if (IsIntrinsicImplementedByUserCall(tree->AsIntrinsic()->GetIntrinsic()))
+                {
+                    // Do not swap operand execution order for intrinsics that are implemented by user calls
+                    // because of trickiness around ensuring the execution order does not change during rationalization.
+                    allowSwap = false;
                 }
                 break;
 
@@ -3527,139 +3406,57 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                 // TODO-MIKE-Review: This looks like a leftover from x87...
                 if (varTypeIsFloating(op1->GetType()))
                 {
-                    level++;
-                    lvl2++;
+                    level1++;
+                    level2++;
                 }
-                break;
-
-            case GT_LSH:
-            case GT_RSH:
-            case GT_RSZ:
-            case GT_ROL:
-            case GT_ROR:
-                /* Variable sized shifts are more expensive and use REG_SHIFT */
-
-                if (!op2->IsCnsIntOrI())
+                // We need to evaluate constants later as many places in codegen
+                // can't handle op1 being a constant. This is normally naturally
+                // enforced as constants have the least level of 0. However,
+                // sometimes we end up with a tree like "cns1 < nop(cns2)". In
+                // such cases, both sides have a level of 0. So encourage constants
+                // to be evaluated last in such cases.
+                else if (((level1 + level2) == 0) && op1->OperIsConst())
                 {
-#ifndef TARGET_64BIT
-                    // Variable sized LONG shifts require the use of a helper call
-                    //
-                    if (tree->gtType == TYP_LONG)
-                    {
-                        level += 5;
-                        lvl2 += 5;
-                    }
-#endif // !TARGET_64BIT
+                    level2++;
                 }
                 break;
 
-            case GT_INTRINSIC:
-                switch (tree->AsIntrinsic()->GetIntrinsic())
+            case GT_MUL:
+#ifdef TARGET_X86
+                if (tree->TypeIs(TYP_LONG) || tree->gtOverflow())
                 {
-                    case NI_System_Math_Atan2:
-                    case NI_System_Math_Pow:
-                        // These math intrinsics are actually implemented by user calls.
-                        // Increase the Sethi 'complexity' by two to reflect the argument
-                        // register requirement.
-                        level += 2;
-                        break;
-                    default:
-                        assert(!"Unknown binary GT_INTRINSIC operator");
-                        break;
+                    level1 += 4;
                 }
-
-                break;
-
+#endif
+                FALLTHROUGH;
             default:
+                assert(!tree->OperIs(GT_ASG));
+
+                if (((level1 + level2) == 0) && op1->OperIsConst() && tree->OperIsCommutative())
+                {
+                    level2++;
+                }
                 break;
         }
-
-        /* We need to evalutate constants later as many places in codegen
-           can't handle op1 being a constant. This is normally naturally
-           enforced as constants have the least level of 0. However,
-           sometimes we end up with a tree like "cns1 < nop(cns2)". In
-           such cases, both sides have a level of 0. So encourage constants
-           to be evaluated last in such cases */
-
-        if ((level == 0) && (level == lvl2) && op1->OperIsConst() &&
-            (tree->OperIsCommutative() || tree->OperIsCompare()))
-        {
-            lvl2++;
-        }
-
-        /* We try to swap operands if the second one is more expensive */
-        bool     tryToSwap;
-        GenTree* opA;
-        GenTree* opB;
 
         if (tree->IsReverseOp())
         {
-            opA = op2;
-            opB = op1;
-        }
-        else
-        {
-            opA = op1;
-            opB = op2;
+            std::swap(level1, level2);
         }
 
-        if (fgOrder == FGOrderLinear)
+        if (allowSwap && ((level1 < level2) ||
+                          (compStressCompile(STRESS_REVERSE_FLAG, 60) && !tree->IsReverseOp() && !op2->OperIsConst())))
         {
-            // Don't swap anything if we're in linear order; we're really just interested in the costs.
-            tryToSwap = false;
-        }
-        else if (reverseInAssignment)
-        {
-            // Assignments are special, we want the reverseops flags
-            // so if possible it was set above.
-            tryToSwap = false;
-        }
-        else if (((oper == GT_STOREIND) || (oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK)) &&
-                 op2->HasAnySideEffect(GTF_GLOB_REF | GTF_EXCEPT | GTF_ASG))
-        {
-            // TODO-MIKE-CQ: Old code failed to swap ASG(IND, IND) when both operands had side effects.
-            // That was bogus because the LHS side effects might have come from the IND itself, in which
-            // case those side effects took place at ASG, not at IND. Keep doing it for now to avoid diffs.
-            tryToSwap = false;
-        }
-        else if ((oper == GT_INTRINSIC) && IsIntrinsicImplementedByUserCall(tree->AsIntrinsic()->GetIntrinsic()))
-        {
-            // We do not swap operand execution order for intrinsics that are implemented by user calls
-            // because of trickiness around ensuring the execution order does not change during rationalization.
-            tryToSwap = false;
-        }
-        else if (oper == GT_INSERT)
-        {
-            // INSERT's second operand must always be evaluated last, to match the semantics of STORE_LCL_FLD.
-            tryToSwap = false;
-        }
-        else
-        {
-            if (tree->gtFlags & GTF_REVERSE_OPS)
+            GenTree* opA = op1;
+            GenTree* opB = op2;
+
+            if (tree->IsReverseOp())
             {
-                tryToSwap = (level > lvl2);
-            }
-            else
-            {
-                tryToSwap = (level < lvl2);
+                std::swap(opA, opB);
             }
 
-            // Try to force extra swapping when in the stress mode:
-            if (compStressCompile(STRESS_REVERSE_FLAG, 60) && ((tree->gtFlags & GTF_REVERSE_OPS) == 0) &&
-                !op2->OperIsConst())
+            if (gtCanSwapOrder(opA, opB))
             {
-                tryToSwap = true;
-            }
-        }
-
-        if (tryToSwap)
-        {
-            bool canSwap = gtCanSwapOrder(opA, opB);
-
-            if (canSwap)
-            {
-                /* Can we swap the order by commuting the operands? */
-
                 switch (oper)
                 {
                     case GT_EQ:
@@ -3672,212 +3469,114 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                         {
                             tree->SetOper(GenTree::SwapRelop(oper), GenTree::PRESERVE_VN);
                         }
-
                         FALLTHROUGH;
-
                     case GT_FADD:
                     case GT_FMUL:
-
                     case GT_ADD:
                     case GT_MUL:
-
                     case GT_OR:
                     case GT_XOR:
                     case GT_AND:
-
-                        /* Swap the operands */
-
-                        tree->AsOp()->gtOp1 = op2;
-                        tree->AsOp()->gtOp2 = op1;
-                        break;
-
-                    case GT_MKREFANY:
+                        tree->AsOp()->SetOp(0, op2);
+                        tree->AsOp()->SetOp(1, op1);
                         break;
 
                     default:
-
-                        /* Mark the operand's evaluation order to be swapped */
-                        if (tree->gtFlags & GTF_REVERSE_OPS)
-                        {
-                            tree->gtFlags &= ~GTF_REVERSE_OPS;
-                        }
-                        else
-                        {
-                            tree->gtFlags |= GTF_REVERSE_OPS;
-                        }
-
+                        tree->gtFlags ^= GTF_REVERSE_OPS;
+                        std::swap(level1, level2);
                         break;
                 }
             }
         }
 
-        /* Swap the level counts */
-        if (tree->gtFlags & GTF_REVERSE_OPS)
+        if (level1 == 0)
         {
-            unsigned tmpl;
-
-            tmpl  = level;
-            level = lvl2;
-            lvl2  = tmpl;
+            level1 = level2;
+        }
+        else if (level1 == level2)
+        {
+            level1++;
         }
 
-        /* Compute the sethi number for this binary operator */
-
-        if (level < 1)
-        {
-            level = lvl2;
-        }
-        else if (level == lvl2)
-        {
-            level += 1;
-        }
-
-        goto DONE;
+        return level1;
     }
 
     switch (oper)
     {
-        unsigned lvl2; // Scratch variable
+        case GT_CNS_STR:
+        case GT_CNS_INT:
+        case GT_CNS_LNG:
+        case GT_CNS_DBL:
+        case GT_ARGPLACE:
+        case GT_PHI:
+            return 0;
 
         case GT_CALL:
+        {
+            GenTreeCall* call  = tree->AsCall();
+            unsigned     level = 0;
 
-            assert(tree->gtFlags & GTF_CALL);
-
-            level = 0;
-
-            GenTreeCall* call;
-            call = tree->AsCall();
-
-            /* Evaluate the 'this' argument, if present */
-
-            if (tree->AsCall()->gtCallThisArg != nullptr)
+            if (call->gtCallThisArg != nullptr)
             {
-                GenTree* thisVal = tree->AsCall()->gtCallThisArg->GetNode();
-
-                lvl2 = gtSetOrder(thisVal);
-                if (level < lvl2)
-                {
-                    level = lvl2;
-                }
+                level = Max(level, gtSetOrder(call->gtCallThisArg->GetNode()));
             }
-
-            /* Evaluate the arguments, right to left */
 
             if (call->gtCallArgs != nullptr)
             {
-                lvl2 = gtSetCallArgsOrder(call->Args());
-                if (level < lvl2)
-                {
-                    level = lvl2;
-                }
+                level = Max(level, gtSetCallArgsOrder(call->Args()));
             }
-
-            /* Evaluate the temp register arguments list
-             * This is a "hidden" list and its only purpose is to
-             * extend the life of temps until we make the call */
 
             if (call->gtCallLateArgs != nullptr)
             {
-                lvl2 = gtSetCallArgsOrder(call->LateArgs());
-                if (level < lvl2)
-                {
-                    level = lvl2;
-                }
+                level = Max(level, gtSetCallArgsOrder(call->LateArgs()));
             }
 
             if (call->IsIndirectCall())
             {
-                GenTree* indirect = call->gtCallAddr;
-
-                lvl2 = gtSetOrder(indirect);
-                if (level < lvl2)
-                {
-                    level = lvl2;
-                }
+                level = Max(level, gtSetOrder(call->gtCallAddr));
             }
-            else
+            else if (call->IsVirtual() && (call->gtControlExpr != nullptr))
             {
-                if (call->IsVirtual())
-                {
-                    GenTree* controlExpr = call->gtControlExpr;
-                    if (controlExpr != nullptr)
-                    {
-                        lvl2 = gtSetOrder(controlExpr);
-                        if (level < lvl2)
-                        {
-                            level = lvl2;
-                        }
-                    }
-                }
+                level = Max(level, gtSetOrder(call->gtControlExpr));
             }
 
-            level += 6;
-            break;
+            return level + 6;
+        }
 
         case GT_ARR_ELEM:
         {
             GenTreeArrElem* arrElem = tree->AsArrElem();
 
-            level = gtSetOrder(arrElem->gtArrObj);
+            unsigned level = gtSetOrder(arrElem->GetArray());
 
-            for (unsigned dim = 0; dim < arrElem->gtArrRank; dim++)
+            for (unsigned dim = 0; dim < arrElem->GetRank(); dim++)
             {
-                lvl2 = gtSetOrder(arrElem->gtArrInds[dim]);
-                if (level < lvl2)
-                {
-                    level = lvl2;
-                }
+                level = Max(level, gtSetOrder(arrElem->GetIndex(dim)));
             }
 
-            level += arrElem->gtArrRank;
+            return level + arrElem->GetRank();
         }
-        break;
-
-        case GT_PHI:
-            for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
-            {
-                lvl2 = gtSetOrder(use.GetNode());
-                // PHI args should always have level 0
-                assert(lvl2 == 0);
-            }
-
-            level = 0;
-            break;
-
-        case GT_FIELD_LIST:
-            level = 0;
-            for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
-            {
-                unsigned opLevel = gtSetOrder(use.GetNode());
-                level            = max(level, opLevel);
-                gtSetOrder(use.GetNode());
-            }
-            break;
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
+        {
 #ifdef TARGET_XARCH
+            // TODO-MIKE-Review: Something's bogus here, only loads are unary...
             if (tree->AsHWIntrinsic()->IsUnary() && tree->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
             {
-                level = gtSetOrder(tree->AsHWIntrinsic()->GetOp(0));
-                break;
+                return gtSetOrder(tree->AsHWIntrinsic()->GetOp(0));
             }
-#endif // TARGET_XARCH
+#endif
 
             if (tree->AsHWIntrinsic()->IsBinary())
             {
                 GenTree* op1 = tree->AsHWIntrinsic()->GetOp(0);
                 GenTree* op2 = tree->AsHWIntrinsic()->GetOp(1);
 
-                if (tree->IsReverseOp())
-                {
-                    std::swap(op1, op2);
-                }
+                unsigned level1 = gtSetOrder(op1);
+                unsigned level2 = gtSetOrder(op2);
 
-                level = gtSetOrder(op1);
-                lvl2  = gtSetOrder(op2);
-
-                if ((fgOrder == FGOrderTree) && (level < lvl2) && gtCanSwapOrder(op1, op2)
+                if ((level1 < level2) && gtCanSwapOrder(op1, op2)
 #ifndef TARGET_64BIT
                     // Create lowering depends on the evaluation ordering matching the operand order
                     // if there are more than 2 operands. Vector128.Create<long> starts with 2 operands
@@ -3889,67 +3588,91 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                         )
                 {
                     tree->gtFlags ^= GTF_REVERSE_OPS;
-                    std::swap(level, lvl2);
+                    std::swap(level1, level2);
                 }
 
-                if (level == 0)
+                if (level1 == 0)
                 {
-                    level = lvl2;
+                    level1 = level2;
                 }
-                else if (level == lvl2)
+                else if (level1 == level2)
                 {
-                    level += 1;
+                    level1++;
                 }
+
+                return level1;
             }
-            else
+
+            unsigned level = 0;
+
+            for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
             {
-                level = 0;
-
-                for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
-                {
-                    level = max(level, gtSetOrder(use.GetNode()));
-                }
-
-                level++;
+                level = Max(level, gtSetOrder(use.GetNode()));
             }
-            break;
+
+            return level + 1;
+        }
 #endif // FEATURE_HW_INTRINSICS
-
-        case GT_INSTR:
-            level = 0;
-
-            for (GenTreeInstr::Use& use : tree->AsInstr()->Uses())
-            {
-                level = max(level, gtSetOrder(use.GetNode()));
-            }
-
-            level++;
-            break;
 
         case GT_ARR_OFFSET:
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-            level = 0;
+        {
+            unsigned level = 0;
+
             for (unsigned i = 0; i < 3; i++)
             {
                 level = Max(level, gtSetOrder(tree->AsTernaryOp()->GetOp(i)));
             }
-            break;
+
+            return level;
+        }
+
+        case GT_FIELD_LIST:
+        {
+            unsigned level = 0;
+
+            for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
+            {
+                level = Max(level, gtSetOrder(use.GetNode()));
+            }
+
+            return level;
+        }
+
+        case GT_INSTR:
+        {
+            unsigned level = 0;
+
+            for (GenTreeInstr::Use& use : tree->AsInstr()->Uses())
+            {
+                level = Max(level, gtSetOrder(use.GetNode()));
+            }
+
+            return level + 1;
+        }
 
         default:
-            JITDUMP("unexpected operator in this tree:\n");
-            DISPTREE(tree);
-
-            NO_WAY("unexpected operator");
+            assert(tree->OperIsLeaf());
+            return 1;
     }
-
-DONE:
-    return level;
 }
 #ifdef _PREFAST_
 #pragma warning(pop)
 #endif
+
+unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args)
+{
+    unsigned level = 0;
+
+    for (GenTreeCall::Use& use : args)
+    {
+        level = Max(level, gtSetOrder(use.GetNode()));
+    }
+
+    return level;
+}
 
 //------------------------------------------------------------------------
 // FindUse: Find the use of a node within this node.
