@@ -1718,7 +1718,7 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** arg
             }
             else
             {
-                compiler->gtPrepareCost(arg);
+                compiler->gtSetCosts(arg);
             }
         }
 
@@ -4785,7 +4785,7 @@ GenTree* Compiler::abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOf
 
     if (!addrTempRequired)
     {
-        gtPrepareCost(addr);
+        gtSetCosts(addr);
         addrTempRequired = addr->GetCostEx() > 4 * IND_COST_EX;
     }
 

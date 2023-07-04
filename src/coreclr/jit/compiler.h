@@ -3224,7 +3224,6 @@ public:
 
     INDEBUG(unsigned gtHashValue(GenTree* tree);)
 
-    void gtPrepareCost(GenTree* tree);
     LclVarDsc* gtIsLikelyRegVar(GenTree* tree);
 
     // Returns true iff the secondNode can be swapped with firstNode.

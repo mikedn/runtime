@@ -3391,9 +3391,9 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
     unsigned estDupCostSz = 0;
     for (Statement* const stmt : bDest->Statements())
     {
-        // We want to compute the costs of the statement. Unfortunately, gtPrepareCost() / gtSetStmtInfo()
-        // call gtSetEvalOrder(), which can reorder nodes. If it does so, we need to re-thread the gtNext/gtPrev
-        // links. We don't know if it does or doesn't reorder nodes, so we end up always re-threading the links.
+        // We want to compute the costs of the statement. Unfortunately, gtSetStmtInfo() calls gtSetEvalOrder(),
+        // which can reorder nodes. If it does so, we need to re-thread the gtNext/gtPrev links. We don't know
+        // if it does or doesn't reorder nodes, so we end up always re-threading the links.
 
         gtSetStmtInfo(stmt);
         if (fgStmtListThreaded)

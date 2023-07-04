@@ -1766,11 +1766,6 @@ void Compiler::gtSetCallArgsCosts(const GenTreeCall::UseList& args,
     *callCostSz += costSz;
 }
 
-void Compiler::gtPrepareCost(GenTree* tree)
-{
-    gtSetEvalOrder(tree);
-}
-
 LclVarDsc* Compiler::gtIsLikelyRegVar(GenTree* tree)
 {
     unsigned lclNum;

@@ -3879,16 +3879,13 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
     // We might consider flagging blocks with hoistable helper calls
     // during importation, so we can avoid the helper search and
     // implement an early bail out for large blocks with no helper calls.
-    //
-    // Note that gtPrepareCost can cause operand swapping, so we must
-    // return `true` (possible IR change) from here on.
 
     unsigned estDupCostSz = 0;
 
     for (Statement* const stmt : bTest->Statements())
     {
         GenTree* tree = stmt->GetRootNode();
-        gtPrepareCost(tree);
+        gtSetCosts(tree);
         estDupCostSz += tree->GetCostSz();
     }
 
@@ -4280,7 +4277,7 @@ PhaseStatus Compiler::optOptimizeLayout()
     madeChanges |= fgUpdateFlowGraph();
 
     // fgReorderBlocks can cause IR changes even if it does not modify
-    // the flow graph. It calls gtPrepareCost which can cause operand swapping.
+    // the flow graph. It calls gtSetOrder which can cause operand swapping.
     // Work around this for now.
     //
     // Note phase status only impacts dumping and checking done post-phase,
@@ -4896,15 +4893,8 @@ bool OptBoolsDsc::optOptimizeBoolsChkTypeCostCond()
     }
 
     // The second condition must not be too expensive
-
-    m_comp->gtPrepareCost(m_c2);
-
-    if (m_c2->GetCostEx() > 12)
-    {
-        return false;
-    }
-
-    return true;
+    m_comp->gtSetCosts(m_c2);
+    return m_c2->GetCostEx() <= 12;
 }
 
 //-----------------------------------------------------------------------------
