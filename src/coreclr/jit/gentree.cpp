@@ -3244,17 +3244,6 @@ void Compiler::gtSetCosts(GenTree* tree)
             }
             break;
 
-        case GT_INDEX_ADDR:
-            costEx = 6; // cmp reg,reg; jae throw; mov reg, [addrmode]  (not taken)
-            costSz = 9; // jump to cold section
-            gtSetCosts(tree->AsIndexAddr()->GetIndex());
-            costEx += tree->AsIndexAddr()->GetIndex()->GetCostEx();
-            costSz += tree->AsIndexAddr()->GetIndex()->GetCostSz();
-            gtSetCosts(tree->AsIndexAddr()->GetArray());
-            costEx += tree->AsIndexAddr()->GetArray()->GetCostEx();
-            costSz += tree->AsIndexAddr()->GetArray()->GetCostSz();
-            break;
-
         default:
             JITDUMP("unexpected operator in this tree:\n");
             DISPTREE(tree);
@@ -3945,15 +3934,6 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
             for (unsigned i = 0; i < 3; i++)
             {
                 level = Max(level, gtSetOrder(tree->AsTernaryOp()->GetOp(i)));
-            }
-            break;
-
-        case GT_INDEX_ADDR:
-            level = gtSetOrder(tree->AsIndexAddr()->GetIndex());
-            lvl2  = gtSetOrder(tree->AsIndexAddr()->GetArray());
-            if (level < lvl2)
-            {
-                level = lvl2;
             }
             break;
 
