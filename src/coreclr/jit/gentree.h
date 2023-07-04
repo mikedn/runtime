@@ -822,13 +822,13 @@ public:
     }
 #endif
 
-    uint8_t GetCostEx() const
+    unsigned GetCostEx() const
     {
         assert((gtDebugFlags & GTF_DEBUG_HAS_COSTS) != 0);
         return m_costEx;
     }
 
-    uint8_t GetCostSz() const
+    unsigned GetCostSz() const
     {
         assert((gtDebugFlags & GTF_DEBUG_HAS_COSTS) != 0);
         return m_costSz;
@@ -6733,12 +6733,12 @@ public:
         m_compilerAdded = true;
     }
 
-    unsigned char GetCostSz() const
+    unsigned GetCostSz() const
     {
         return m_rootNode->GetCostSz();
     }
 
-    unsigned char GetCostEx() const
+    unsigned GetCostEx() const
     {
         return m_rootNode->GetCostEx();
     }

@@ -1731,7 +1731,10 @@ GenTree* Compiler::gtReverseCond(GenTree* tree)
     return tree;
 }
 
-void Compiler::gtSetCallArgsCosts(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz)
+void Compiler::gtSetCallArgsCosts(const GenTreeCall::UseList& args,
+                                  bool                        lateArgs,
+                                  unsigned*                   callCostEx,
+                                  unsigned*                   callCostSz)
 {
     unsigned costEx = 0;
     unsigned costSz = 0;
@@ -1892,7 +1895,7 @@ bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
     return canSwap;
 }
 
-bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz, var_types indirType)
+bool Compiler::gtMarkAddrMode(GenTree* addr, var_types indirType, unsigned* indirCostEx, unsigned* indirCostSz)
 {
     AddrMode am(addr);
     am.Extract(this);
@@ -2006,380 +2009,12 @@ void Compiler::gtSetEvalOrder(GenTree* tree)
 
 void Compiler::gtSetCosts(GenTree* tree)
 {
-    assert(tree);
+    const genTreeOps oper = tree->GetOper();
 
-#ifdef DEBUG
-    /* Clear the GTF_DEBUG_NODE_MORPHED flag as well */
-    tree->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
-#endif
+    unsigned costEx;
+    unsigned costSz;
 
-    /* Is this a FP value? */
-
-    bool isflt = varTypeIsFloating(tree->TypeGet());
-
-    /* Figure out what kind of a node we have */
-
-    const genTreeOps oper = tree->OperGet();
-    const unsigned   kind = tree->OperKind();
-
-    /* Assume no fixed registers will be trashed */
-
-    int costEx;
-    int costSz;
-
-#ifdef DEBUG
-    costEx = -1;
-    costSz = -1;
-#endif
-
-    /* Is this a constant or a leaf node? */
-
-    if (kind & GTK_LEAF)
-    {
-        switch (oper)
-        {
-            // Note that CNS_STR does not normally reach gtSetCosts, it's morphed to IND/CNS_INT/CALL.
-            // Give it some costs, just in case gtSetCosts is called before morphing.
-            case GT_CNS_STR:
-#if defined(TARGET_ARMARCH)
-                costSz = 8;
-                costEx = 2;
-#elif defined(TARGET_AMD64)
-                costSz = 10;
-                costEx = 2;
-#elif defined(TARGET_X86)
-                costSz = 4;
-                costEx = 1;
-#else
-#error Unknown TARGET
-#endif
-                break;
-
-#ifdef TARGET_ARM
-            case GT_CNS_LNG:
-            {
-                GenTreeIntConCommon* con = tree->AsIntConCommon();
-
-                INT64 lngVal = con->LngValue();
-                INT32 loVal  = (INT32)(lngVal & 0xffffffff);
-                INT32 hiVal  = (INT32)(lngVal >> 32);
-
-                if (lngVal == 0)
-                {
-                    costSz = 1;
-                    costEx = 1;
-                }
-                else
-                {
-                    // Minimum of one instruction to setup hiVal,
-                    // and one instruction to setup loVal
-                    costSz = 4 + 4;
-                    costEx = 1 + 1;
-
-                    if (!emitter::validImmForInstr(INS_mov, (target_ssize_t)hiVal) &&
-                        !emitter::validImmForInstr(INS_mvn, (target_ssize_t)hiVal))
-                    {
-                        // Needs extra instruction: movw/movt
-                        costSz += 4;
-                        costEx += 1;
-                    }
-
-                    if (!emitter::validImmForInstr(INS_mov, (target_ssize_t)loVal) &&
-                        !emitter::validImmForInstr(INS_mvn, (target_ssize_t)loVal))
-                    {
-                        // Needs extra instruction: movw/movt
-                        costSz += 4;
-                        costEx += 1;
-                    }
-                }
-                break;
-            }
-
-            case GT_CNS_INT:
-            {
-                // If the constant is a handle then it will need to have a relocation
-                //  applied to it.
-                // Any constant that requires a reloc must use the movw/movt sequence
-                //
-                GenTreeIntCon* con    = tree->AsIntCon();
-                target_ssize_t conVal = (target_ssize_t)con->IconValue();
-
-                if (con->ImmedValNeedsReloc(this))
-                {
-                    // Requires movw/movt
-                    costSz = 8;
-                    costEx = 2;
-                }
-                else if (emitter::validImmForInstr(INS_add, conVal))
-                {
-                    // Typically included with parent oper
-                    costSz = 2;
-                    costEx = 1;
-                }
-                else if (emitter::validImmForInstr(INS_mov, conVal) || emitter::validImmForInstr(INS_mvn, conVal))
-                {
-                    // Uses mov or mvn
-                    costSz = 4;
-                    costEx = 1;
-                }
-                else
-                {
-                    // Needs movw/movt
-                    costSz = 8;
-                    costEx = 2;
-                }
-                break;
-            }
-
-#elif defined TARGET_XARCH
-#ifdef TARGET_X86
-            case GT_CNS_LNG:
-            {
-                GenTreeLngCon* con    = tree->AsLngCon();
-                int64_t        lngVal = con->LngValue();
-                // TODO-MIKE-Review: This truncates to 32 bits only when running on a 32 bit host.
-                ssize_t conVal    = (ssize_t)lngVal; // truncate to 32-bits
-                bool    fitsInVal = (int64_t)conVal == lngVal;
-
-                if (fitsInVal && GenTreeIntConCommon::FitsInI8(conVal))
-                {
-                    costSz = 1;
-                    costEx = 1;
-                }
-                else
-                {
-                    costSz = 4;
-                    costEx = 1;
-                }
-
-                costSz += fitsInVal ? 1 : 4;
-                costEx += 1;
-                break;
-            }
-#endif // TARGET_X86
-            case GT_CNS_INT:
-            {
-                GenTreeIntCon* con    = tree->AsIntCon();
-                ssize_t        conVal = con->GetValue();
-
-                if (con->ImmedValNeedsReloc(this))
-                {
-                    costSz = 4;
-                    costEx = 1;
-                }
-                else if (GenTreeIntConCommon::FitsInI8(conVal))
-                {
-                    costSz = 1;
-                    costEx = 1;
-                }
-#ifdef TARGET_AMD64
-                else if (!GenTreeIntConCommon::FitsInI32(conVal))
-                {
-                    costSz = 10;
-                    costEx = 2;
-                }
-#endif // TARGET_AMD64
-                else
-                {
-                    costSz = 4;
-                    costEx = 1;
-                }
-                break;
-            }
-
-#elif defined(TARGET_ARM64)
-            case GT_CNS_INT:
-            {
-                GenTreeIntCon* con  = tree->AsIntCon();
-                ssize_t        imm  = con->GetValue();
-                emitAttr       size = EA_SIZE(emitActualTypeSize(tree->GetType()));
-
-                if (con->ImmedValNeedsReloc(this))
-                {
-                    costSz = 8;
-                    costEx = 2;
-                }
-                else if (emitter::emitIns_valid_imm_for_add(imm, size))
-                {
-                    costSz = 2;
-                    costEx = 1;
-                }
-                else if (emitter::emitIns_valid_imm_for_mov(imm, size))
-                {
-                    costSz = 4;
-                    costEx = 1;
-                }
-                else
-                {
-                    // Arm64 allows any arbitrary 16-bit constant to be loaded into a register halfword
-                    // There are three forms
-                    //    movk which loads into any halfword preserving the remaining halfwords
-                    //    movz which loads into any halfword zeroing the remaining halfwords
-                    //    movn which loads into any halfword zeroing the remaining halfwords then bitwise inverting
-                    //    the register
-                    // In some cases it is preferable to use movn, because it has the side effect of filling the
-                    // other halfwords
-                    // with ones
-
-                    // Determine whether movn or movz will require the fewest instructions to populate the immediate
-                    bool preferMovz       = false;
-                    bool preferMovn       = false;
-                    int  instructionCount = 4;
-
-                    for (int i = (size == EA_8BYTE) ? 48 : 16; i >= 0; i -= 16)
-                    {
-                        if (!preferMovn && (uint16_t(imm >> i) == 0x0000))
-                        {
-                            preferMovz = true; // by using a movk to start we can save one instruction
-                            instructionCount--;
-                        }
-                        else if (!preferMovz && (uint16_t(imm >> i) == 0xffff))
-                        {
-                            preferMovn = true; // by using a movn to start we can save one instruction
-                            instructionCount--;
-                        }
-                    }
-
-                    costEx = instructionCount;
-                    costSz = 4 * instructionCount;
-                }
-                break;
-            }
-#else
-#error "Unknown TARGET"
-#endif
-
-            case GT_CNS_DBL:
-            {
-#if defined(TARGET_XARCH)
-                /* We use fldz and fld1 to load 0.0 and 1.0, but all other  */
-                /* floating point constants are loaded using an indirection */
-                if ((*((__int64*)&(tree->AsDblCon()->gtDconVal)) == 0) ||
-                    (*((__int64*)&(tree->AsDblCon()->gtDconVal)) == I64(0x3ff0000000000000)))
-                {
-                    costEx = 1;
-                    costSz = 1;
-                }
-                else
-                {
-                    costEx = IND_COST_EX;
-                    costSz = 4;
-                }
-#elif defined(TARGET_ARM)
-                var_types targetType = tree->TypeGet();
-                if (targetType == TYP_FLOAT)
-                {
-                    costEx = 1 + 2;
-                    costSz = 2 + 4;
-                }
-                else
-                {
-                    assert(targetType == TYP_DOUBLE);
-                    costEx = 1 + 4;
-                    costSz = 2 + 8;
-                }
-#elif defined(TARGET_ARM64)
-                if ((*((__int64*)&(tree->AsDblCon()->gtDconVal)) == 0) ||
-                    emitter::emitIns_valid_imm_for_fmov(tree->AsDblCon()->gtDconVal))
-                {
-                    costEx = 1;
-                    costSz = 1;
-                }
-                else
-                {
-                    costEx = IND_COST_EX;
-                    costSz = 4;
-                }
-#else
-#error "Unknown TARGET"
-#endif
-            }
-            break;
-
-            case GT_LCL_USE:
-            case GT_LCL_VAR:
-            {
-                // TODO-MIKE-Cleanup: Probably only SSA_USE needs this, since LCL_VARs
-                // are not in SSA that usually means that they don't have liveness
-                // so they cannot be register candidates.
-                LclVarDsc* lcl = gtIsLikelyRegVar(tree);
-
-                if (lcl != nullptr)
-                {
-                    costEx = 1;
-                    costSz = 1;
-
-                    if (lcl->lvNormalizeOnLoad())
-                    {
-                        costEx += 1;
-                        costSz += 1;
-                    }
-                }
-                else
-                {
-                    costEx = IND_COST_EX;
-                    costSz = 2;
-
-                    if (varTypeIsSmall(tree->GetType()))
-                    {
-                        costEx += 1;
-                        costSz += 1;
-                    }
-                }
-
-#ifdef TARGET_AMD64
-                if (isflt)
-                {
-                    costSz += 1;
-
-                    if (lcl == nullptr)
-                    {
-                        costSz += 1;
-                    }
-                }
-#endif
-            }
-            break;
-
-            case GT_CLS_VAR_ADDR:
-#ifdef TARGET_ARM
-                // We generate movw/movt
-                costEx = 2;
-                costSz = 4 + 4;
-#else
-                costEx     = 1;
-                costSz     = 4;
-#endif
-                break;
-            case GT_LCL_FLD:
-                costEx = IND_COST_EX;
-                costSz = 4;
-                if (varTypeIsSmall(tree->TypeGet()))
-                {
-                    costEx += 1;
-                    costSz += 1;
-                }
-                break;
-
-            case GT_LCL_ADDR:
-                costEx = 3;
-                costSz = 3;
-                break;
-
-            case GT_ARGPLACE:
-                costEx = 0;
-                costSz = 0;
-                break;
-
-            default:
-                costEx = 1;
-                costSz = 1;
-                break;
-        }
-        goto DONE;
-    }
-
-    if (kind & GTK_SMPOP)
+    if (tree->OperIsSimple())
     {
         GenTree* op1 = tree->AsOp()->gtOp1;
         GenTree* op2 = tree->gtGetOp2IfPresent();
@@ -2387,16 +2022,11 @@ void Compiler::gtSetCosts(GenTree* tree)
         costEx = 0;
         costSz = 0;
 
-        if (tree->IsAddrMode())
+        if (tree->IsAddrMode() && (op1 == nullptr))
         {
-            if (op1 == nullptr)
-            {
-                op1 = op2;
-                op2 = nullptr;
-            }
+            op1 = op2;
+            op2 = nullptr;
         }
-
-        /* Check for a nilary operator */
 
         if (op1 == nullptr)
         {
@@ -2405,22 +2035,10 @@ void Compiler::gtSetCosts(GenTree* tree)
             goto DONE;
         }
 
-        /* Is this a unary operator? */
+        gtSetCosts(op1);
 
         if (op2 == nullptr)
         {
-            /* Process the operand of the operator */
-
-            /* Most Unary ops have costEx of 1 */
-            costEx = 1;
-            costSz = 1;
-
-            gtSetCosts(op1);
-
-            GenTreeIntrinsic* intrinsic;
-
-            /* Special handling for some operators */
-
             switch (oper)
             {
                 case GT_JTRUE:
@@ -2438,34 +2056,40 @@ void Compiler::gtSetCosts(GenTree* tree)
                     if (gtIsLikelyRegVar(tree))
                     {
                         costEx = op1->GetCostEx();
-                        costSz = max(3, op1->GetCostSz()); // 3 is an estimate for a reg-reg assignment
+                        costSz = Max(3u, op1->GetCostSz()); // 3 is an estimate for a reg-reg assignment
                         goto DONE;
                     }
+
                     FALLTHROUGH;
                 case GT_STORE_LCL_FLD:
-                    costEx = 4;
-                    costSz = 3;
 #ifndef TARGET_64BIT
                     if (varTypeIsLong(tree->GetType()))
                     {
-                        costEx += 3;
-                        costSz += 3;
+                        costEx = 7;
+                        costSz = 6;
+                        break;
                     }
 #endif
+                    costEx = 4;
+                    costSz = 3;
                     break;
 
                 case GT_INSERT:
+                case GT_NOP:
                     costEx = 0;
                     costSz = 0;
                     break;
 
                 case GT_EXTRACT:
-                    costEx = IND_COST_EX;
-                    costSz = 4;
                     if (varTypeIsSmall(tree->GetType()))
                     {
-                        costEx += 1;
-                        costSz += 1;
+                        costEx = IND_COST_EX + 1;
+                        costSz = 4 + 1;
+                    }
+                    else
+                    {
+                        costEx = IND_COST_EX;
+                        costSz = 4;
                     }
 
                     // We need EXTRACT(SSA_USE) to have the same costs as a LCL_FLD, skip adding op1 costs.
@@ -2476,411 +2100,144 @@ void Compiler::gtSetCosts(GenTree* tree)
                     break;
 
                 case GT_CAST:
+                    if (varTypeIsFloating(tree->GetType()) || varTypeIsFloating(op1->GetType()))
 #if defined(TARGET_ARM)
-                    costEx = 1;
-                    costSz = 1;
-                    if (isflt || varTypeIsFloating(op1->TypeGet()))
                     {
                         costEx = 3;
                         costSz = 4;
                     }
+                    else
+                    {
+                        costEx = 1;
+                        costSz = 1;
+                    }
 #elif defined(TARGET_ARM64)
-                    costEx = 1;
-                    costSz = 2;
-                    if (isflt || varTypeIsFloating(op1->TypeGet()))
                     {
                         costEx = 2;
                         costSz = 4;
                     }
-#elif defined(TARGET_XARCH)
-                    costEx = 1;
-                    costSz = 2;
-
-                    if (isflt || varTypeIsFloating(op1->TypeGet()))
+                    else
                     {
-                        /* cast involving floats always go through memory */
+                        costEx = 1;
+                        costSz = 2;
+                    }
+#elif defined(TARGET_XARCH)
+                    {
                         costEx = IND_COST_EX * 2;
                         costSz = 6;
+                    }
+                    else
+                    {
+                        costEx = 1;
+                        costSz = 2;
                     }
 #else
 #error "Unknown TARGET"
 #endif
 
-                    /* Overflow casts are a lot more expensive */
                     if (tree->gtOverflow())
                     {
                         costEx += 6;
                         costSz += 6;
                     }
-
-                    break;
-
-                case GT_NOP:
-                    costEx = 0;
-                    costSz = 0;
                     break;
 
                 case GT_INTRINSIC:
-                    intrinsic = tree->AsIntrinsic();
-
-                    // GT_INTRINSIC intrinsics Sin, Cos, Sqrt, Abs ... have higher costs.
                     // TODO: tune these costs target specific as some of these are
                     // target intrinsics and would cost less to generate code.
-                    switch (intrinsic->GetIntrinsic())
+                    if (tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Abs)
                     {
-                        default:
-                            assert(!"missing case for gtIntrinsicName");
-                            costEx = 12;
-                            costSz = 12;
-                            break;
-
-                        case NI_CORINFO_INTRINSIC_Object_GetType:
-                            // Giving a large fixed execution cost is because we'd like to CSE them,
-                            // even if they are implemented by calls. This is different from modeling
-                            // user calls since we never CSE user calls.
-                            costEx = 36;
-                            costSz = 4;
-                            break;
-
-                        case NI_System_Math_Abs:
-                            costEx = 5;
-                            costSz = 15;
-                            break;
-
-                        case NI_System_Math_Acos:
-                        case NI_System_Math_Acosh:
-                        case NI_System_Math_Asin:
-                        case NI_System_Math_Asinh:
-                        case NI_System_Math_Atan:
-                        case NI_System_Math_Atanh:
-                        case NI_System_Math_Atan2:
-                        case NI_System_Math_Cbrt:
-                        case NI_System_Math_Ceiling:
-                        case NI_System_Math_Cos:
-                        case NI_System_Math_Cosh:
-                        case NI_System_Math_Exp:
-                        case NI_System_Math_Floor:
-                        case NI_System_Math_FMod:
-                        case NI_System_Math_FusedMultiplyAdd:
-                        case NI_System_Math_ILogB:
-                        case NI_System_Math_Log:
-                        case NI_System_Math_Log2:
-                        case NI_System_Math_Log10:
-                        case NI_System_Math_Pow:
-                        case NI_System_Math_Round:
-                        case NI_System_Math_Sin:
-                        case NI_System_Math_Sinh:
-                        case NI_System_Math_Sqrt:
-                        case NI_System_Math_Tan:
-                        case NI_System_Math_Tanh:
-                        {
-                            // Giving intrinsics a large fixed execution cost is because we'd like to CSE
-                            // them, even if they are implemented by calls. This is different from modeling
-                            // user calls since we never CSE user calls. We don't do this for target intrinsics
-                            // however as they typically represent single instruction calls
-
-                            if (IsIntrinsicImplementedByUserCall(intrinsic->GetIntrinsic()))
-                            {
-                                costEx = 36;
-                                costSz = 4;
-                            }
-                            else
-                            {
-                                costEx = 3;
-                                costSz = 4;
-                            }
-                            break;
-                        }
+                        costEx = 5;
+                        costSz = 15;
+                    }
+                    else if (IsIntrinsicImplementedByUserCall(tree->AsIntrinsic()->GetIntrinsic()))
+                    {
+                        costEx = 36;
+                        costSz = 4;
+                    }
+                    else
+                    {
+                        costEx = 3;
+                        costSz = 4;
                     }
                     break;
 
-                case GT_NOT:
-                case GT_NEG:
-                case GT_FNEG:
-                    break;
-
                 case GT_ARR_LENGTH:
-                    /* Array Len should be the same as an indirections, which have a costEx of IND_COST_EX */
                     costEx = IND_COST_EX - 1;
                     costSz = 2;
                     break;
 
                 case GT_MKREFANY:
-                case GT_OBJ:
-                    // We estimate the cost of a GT_OBJ or GT_MKREFANY to be two loads (GT_INDs)
-                    costEx = 2 * IND_COST_EX;
-                    costSz = 2 * 2;
-                    break;
-
                 case GT_BOX:
-                    // We estimate the cost of a GT_BOX to be two stores (GT_INDs)
+                case GT_OBJ:
+                    // TODO-MIKE-Cleanup: OBJ cost is obviously bogus - it should depend
+                    // on the object size and it should mark address modes for unrolled
+                    // copies.
                     costEx = 2 * IND_COST_EX;
                     costSz = 2 * 2;
                     break;
 
                 case GT_BLK:
+                // TODO-MIKE-Cleanup: BLK cost is obviously bogus - it should depend
+                // on the object size for unrolled copies and it should NOT mark
+                // address modes for helper copies.
                 case GT_IND:
-                    /* Indirections have a costEx of IND_COST_EX */
                     costEx = IND_COST_EX;
                     costSz = 2;
 
-                    /* If we have to sign-extend or zero-extend, bump the cost */
-                    if (varTypeIsSmall(tree->TypeGet()))
+                    if (varTypeIsSmall(tree->GetType()))
                     {
                         costEx += 1;
                         costSz += 1;
                     }
-
-                    if (isflt)
+                    else if (tree->TypeIs(TYP_DOUBLE))
                     {
-                        if (tree->TypeGet() == TYP_DOUBLE)
-                        {
-                            costEx += 1;
-                        }
+                        costEx += 1;
 #ifdef TARGET_ARM
                         costSz += 2;
-#endif // TARGET_ARM
+#endif
                     }
+#ifdef TARGET_ARM
+                    else if (tree->TypeIs(TYP_FLOAT))
+                    {
+                        costSz += 2;
+                    }
+#endif
+
+// TODO-MIKE-Review: The following checks don't account for COMMAs, maybe they should.
+
+#ifdef TARGET_XARCH
+                    if (op1->IsIntCon())
+                    {
+                        costEx -= 1;
+                        break;
+                    }
+
+                    if (op1->OperIs(GT_CLS_VAR_ADDR))
+                    {
+                        op1->SetDoNotCSE();
+
+                        costEx -= 1;
+                        costSz -= 2;
+
+                        break;
+                    }
+#endif
 
                     if (gtIsLikelyRegVar(op1))
                     {
-                        // Indirection of an enregister LCL_VAR, don't increase costEx/costSz
                         goto DONE;
                     }
-#ifdef TARGET_XARCH
-                    else if (op1->IsCnsIntOrI())
-                    {
-                        costEx -= 1;
-                    }
-                    else if (op1->OperIs(GT_CLS_VAR_ADDR))
-                    {
-                        op1->SetDoNotCSE();
-                        costEx -= 1;
-                        costSz -= 2;
-                    }
-#endif
-                    else
+
                     {
                         GenTree* addr = op1->SkipComma();
 
-                        if (addr->OperIs(GT_ADD) && !addr->gtOverflow() &&
-                            gtMarkAddrMode(addr, &costEx, &costSz, tree->GetType()))
+                        if (!addr->OperIs(GT_ADD) || addr->gtOverflow() ||
+                            !gtMarkAddrMode(addr, tree->GetType(), &costEx, &costSz))
                         {
-                            while (op1 != addr)
-                            {
-                                // TODO-MIKE-CQ: Marking COMMAs with GTF_ADDRMODE_NO_CSE sometimes interferes with
-                                // redundant range check elimination done via CSE.
-                                // Normally CSE can't eliminate range checks because it uses liberal value numbers
-                                // and that makes it sensitive to race conditions in user code. However, if the
-                                // entire array element address tree is CSEd, including the range check, then race
-                                // conditions aren't an issue.
-                                //
-                                // So we have a choice between blocking CSE to allow address mode formation and
-                                // allowing CSE in he hope that redundant range checks may get CSEd. We'll block
-                                // CSE for now.
-                                //
-                                // CSE is anyway not guaranteed while address mode formation more or less is. And
-                                // such address modes avoid slow 3 component LEAs.
-                                // Also, this is a rather rare case, involving arrays of structs. Normally the COMMA
-                                // is above the indir - COMMA(range check, IND(addr)) - and this avoids the whole
-                                // issue. Sort of, as placing the COMMA like that probably makes it less likely for
-                                // to be CSEd. But that's how it works in the typical case.
-                                // With structs we may end up with IND(COMMA(range check, addr)), thanks in part to
-                                // IND(COMMA(...)) morphing code not applying to OBJs as well.
-
-                                op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-                                costEx += op1->AsOp()->GetOp(0)->GetCostEx();
-                                costSz += op1->AsOp()->GetOp(0)->GetCostSz();
-                                op1 = op1->AsOp()->GetOp(1);
-                            }
-
-                            goto DONE;
+                            break;
                         }
-                    }
-                    break;
 
-                default:
-                    break;
-            }
-            costEx += op1->GetCostEx();
-            costSz += op1->GetCostSz();
-            goto DONE;
-        }
-
-        /* Binary operator - check for certain special cases */
-
-        /* Default Binary ops have a cost of 1,1 */
-        costEx = 1;
-        costSz = 1;
-
-#ifdef TARGET_ARM
-        if (isflt)
-        {
-            costSz += 2;
-        }
-#endif
-#ifndef TARGET_64BIT
-        if (varTypeIsLong(op1->TypeGet()))
-        {
-            /* Operations on longs are more expensive */
-            costEx += 3;
-            costSz += 3;
-        }
-#endif
-
-        switch (oper)
-        {
-            case GT_MOD:
-            case GT_UMOD:
-
-                /* Modulo by a power of 2 is easy */
-
-                if (op2->IsCnsIntOrI())
-                {
-                    size_t ival = op2->AsIntConCommon()->IconValue();
-
-                    if (ival > 0 && ival == genFindLowestBit(ival))
-                    {
-                        break;
-                    }
-                }
-
-                FALLTHROUGH;
-
-            case GT_DIV:
-            case GT_UDIV:
-                costEx += 19;
-                costSz += 2;
-                break;
-
-            case GT_MUL:
-                costEx += 3;
-                costSz += 2;
-
-                if (tree->gtOverflow())
-                {
-                    /* Overflow check are more expensive */
-                    costEx += 3;
-                    costSz += 3;
-                }
-
-#ifdef TARGET_X86
-                if ((tree->gtType == TYP_LONG) || tree->gtOverflow())
-                {
-                    /* The 64-bit imul instruction costs more */
-                    costEx += 4;
-                }
-#endif //  TARGET_X86
-                break;
-
-            case GT_ADD:
-            case GT_SUB:
-                if (tree->gtOverflow())
-                {
-                    costEx += 3;
-                    costSz += 3;
-                }
-                break;
-
-            case GT_FADD:
-            case GT_FSUB:
-            case GT_FMUL:
-                costEx += 4;
-                costSz += 3;
-                break;
-
-            case GT_FDIV:
-                costEx += 35;
-                costSz += 3;
-                break;
-
-            case GT_COMMA:
-                gtSetCosts(op1);
-                gtSetCosts(op2);
-
-                // TODO-MIKE-Cleanup: ADDR costing code was bogus, it managed to add operand's costs
-                // twice for ADDR(IND(x)) trees. Most ADDRs were removed during global morphing but
-                // the ones computing array element addresses were not. So, in order to reduce diffs,
-                // double op2's costs when the COMMA looks like an array element address.
-                //
-                // Also, address mode marking code managed to mark in ADDR(IND(x)) even though the
-                // IND is fake and disappears before codegen, so there isn't really an address mode
-                // to mark here. We'll mark it for now to reduce diffs, even if this increases the
-                // chance of producing 3 component LEAs that may be slow on many older CPUs.
-
-                if (op1->IsBoundsChk() && op2->TypeIs(TYP_BYREF) && op2->OperIs(GT_ADD) && !op2->gtOverflow())
-                {
-                    op2->SetCosts(op2->GetCostEx() * 2, op2->GetCostSz() * 2);
-
-                    int indirCostEx = 0;
-                    int indirCostSz = 0;
-                    gtMarkAddrMode(op2, &indirCostEx, &indirCostSz, TYP_STRUCT);
-                }
-
-                costEx = op1->GetCostEx() + op2->GetCostEx();
-                costSz = op1->GetCostSz() + op2->GetCostSz();
-
-                goto DONE;
-
-            case GT_STORE_OBJ:
-                // We estimate the cost of a OBJ to be two loads (INDs)
-                costEx += 2 * IND_COST_EX;
-                costSz += 2 * 2;
-                break;
-
-            case GT_STORE_BLK:
-            case GT_STOREIND:
-                costEx = IND_COST_EX + 1;
-                costSz = 3;
-
-                if (varTypeIsSmall(tree->GetType()))
-                {
-                    costEx += 1;
-                    costSz += 1;
-                }
-#ifndef TARGET_64BIT
-                else if (varTypeIsLong(tree->GetType()))
-                {
-                    costEx += 3;
-                    costSz += 3;
-                }
-#endif
-                else if (varTypeIsFloating(tree->GetType()))
-                {
-                    if (tree->TypeIs(TYP_DOUBLE))
-                    {
-                        costEx += 1;
-                    }
-#ifdef TARGET_ARM
-                    costSz += 4;
-#endif
-                }
-
-                if (gtIsLikelyRegVar(op1))
-                {
-                    break;
-                }
-#ifdef TARGET_XARCH
-                else if (op1->IsCnsIntOrI())
-                {
-                    costEx -= 1;
-                }
-                else if (op1->OperIs(GT_CLS_VAR_ADDR))
-                {
-                    op1->SetDoNotCSE();
-                    costEx -= 1;
-                    costSz -= 2;
-                }
-#endif
-                else
-                {
-                    gtSetCosts(op1);
-
-                    GenTree* addr = op1->SkipComma();
-
-                    if (addr->OperIs(GT_ADD) && !addr->gtOverflow() &&
-                        gtMarkAddrMode(addr, &costEx, &costSz, tree->GetType()))
-                    {
                         while (op1 != addr)
                         {
                             // TODO-MIKE-CQ: Marking COMMAs with GTF_ADDRMODE_NO_CSE sometimes interferes with
@@ -2909,58 +2266,76 @@ void Compiler::gtSetCosts(GenTree* tree)
                             op1 = op1->AsOp()->GetOp(1);
                         }
 
-                        goto DONE_OP1_COSTS;
+                        goto DONE;
                     }
-                }
+                    break;
 
-                costEx++;
-                costSz++;
-                break;
+                default:
+                    costEx = 1;
+                    costSz = 1;
+                    break;
+            }
 
-            case GT_BOUNDS_CHECK:
-                costEx = 4; // cmp reg,reg and jae throw (not taken)
-                costSz = 7; // jump to cold section
-                gtSetCosts(tree->AsBoundsChk()->GetIndex());
-                costEx += tree->AsBoundsChk()->GetIndex()->GetCostEx();
-                costSz += tree->AsBoundsChk()->GetIndex()->GetCostSz();
-                gtSetCosts(tree->AsBoundsChk()->GetLength());
-                costEx += tree->AsBoundsChk()->GetLength()->GetCostEx();
-                costSz += tree->AsBoundsChk()->GetLength()->GetCostSz();
-                goto DONE;
+            costEx += op1->GetCostEx();
+            costSz += op1->GetCostSz();
 
-            default:
-                assert(!tree->OperIs(GT_ASG));
-                break;
+            goto DONE;
         }
 
-        gtSetCosts(op1);
-
-        costEx += op1->GetCostEx();
-        costSz += op1->GetCostSz();
-    DONE_OP1_COSTS:
         gtSetCosts(op2);
-        costEx += op2->GetCostEx();
-        costSz += op2->GetCostSz();
 
-        bool reverseInAssignment = false;
+        costEx = 1;
+        costSz = 1;
+
+#ifdef TARGET_ARM
+        if (varTypeIsFloating(tree->GetType()))
+        {
+            costSz += 2;
+        }
+#endif
+
+#ifndef TARGET_64BIT
+        // TODO-MIKE-Review: Why does this check op1's type instead of tree's type?
+        if (varTypeIsLong(op1->GetType()))
+        {
+            costEx += 3;
+            costSz += 3;
+        }
+#endif
 
         switch (oper)
         {
-            case GT_STOREIND:
-            case GT_STORE_OBJ:
-            case GT_STORE_BLK:
-                // TODO-MIKE-Cleanup: This stuff is a complete mess...
-                if (!csePhase || cseCanSwapOrder(op1, op2))
+            case GT_MOD:
+            case GT_UMOD:
+                if (op2->IsIntCon() && isPow2(op2->AsIntCon()->GetValue()))
                 {
-                    if (!tree->AsIndir()->GetAddr()->IsLocalAddrExpr() &&
-                        (tree->AsIndir()->GetAddr()->HasAnySideEffect(GTF_ALL_EFFECT) ||
-                         op2->HasAnySideEffect(GTF_ASG) || op2->OperIsLeaf()))
-                    {
-                        break;
-                    }
+                    break;
+                }
+                FALLTHROUGH;
+            case GT_DIV:
+            case GT_UDIV:
+                costEx += 19;
+                costSz += 2;
+                break;
 
-                    reverseInAssignment = true;
-                    tree->gtFlags |= GTF_REVERSE_OPS;
+            case GT_MUL:
+                costEx += 3;
+                costSz += 2;
+
+#ifdef TARGET_X86
+                // TODO-MIKE-Review: This adds the overflow check cost twice...
+                if (tree->TypeIs(TYP_LONG) || tree->gtOverflow())
+                {
+                    costEx += 4;
+                }
+#endif
+                FALLTHROUGH;
+            case GT_ADD:
+            case GT_SUB:
+                if (tree->gtOverflow())
+                {
+                    costEx += 3;
+                    costSz += 3;
                 }
                 break;
 
@@ -2972,7 +2347,8 @@ void Compiler::gtSetCosts(GenTree* tree)
             case GT_GE:
                 if ((tree->gtFlags & GTF_RELOP_JMP_USED) == 0)
                 {
-                    // Using a setcc instruction is more expensive
+                    // Using a setcc instruction is more expensive.
+                    // TODO-MIKE-Review: And setcc has 0 size?
                     costEx += 3;
                 }
                 break;
@@ -2982,200 +2358,617 @@ void Compiler::gtSetCosts(GenTree* tree)
             case GT_RSZ:
             case GT_ROL:
             case GT_ROR:
-                /* Variable sized shifts are more expensive and use REG_SHIFT */
-
-                if (!op2->IsCnsIntOrI())
+                // Variable sized shifts are more expensive.
+                if (!op2->IsIntCon())
                 {
                     costEx += 3;
+
 #ifndef TARGET_64BIT
-                    // Variable sized LONG shifts require the use of a helper call
-                    //
-                    if (tree->gtType == TYP_LONG)
+                    // Variable sized LONG shifts require the use of a helper call.
+                    if (tree->TypeIs(TYP_LONG))
                     {
                         costEx += 3 * IND_COST_EX;
                         costSz += 4;
                     }
-#endif // !TARGET_64BIT
+#endif
                 }
                 break;
 
-            default:
+            case GT_FADD:
+            case GT_FSUB:
+            case GT_FMUL:
+                costEx += 4;
+                costSz += 3;
                 break;
-        }
 
-        goto DONE;
-    }
+            case GT_FDIV:
+                costEx += 35;
+                costSz += 3;
+                break;
 
-    switch (oper)
-    {
-        case GT_CALL:
+            case GT_COMMA:
+                // TODO-MIKE-Cleanup: ADDR costing code was bogus, it managed to add operand's costs
+                // twice for ADDR(IND(x)) trees. Most ADDRs were removed during global morphing but
+                // the ones computing array element addresses were not. So, in order to reduce diffs,
+                // double op2's costs when the COMMA looks like an array element address.
+                //
+                // Also, address mode marking code managed to mark in ADDR(IND(x)) even though the
+                // IND is fake and disappears before codegen, so there isn't really an address mode
+                // to mark here. We'll mark it for now to reduce diffs, even if this increases the
+                // chance of producing 3 component LEAs that may be slow on many older CPUs.
 
-            assert(tree->gtFlags & GTF_CALL);
-
-            costEx = 5;
-            costSz = 2;
-
-            GenTreeCall* call;
-            call = tree->AsCall();
-
-            /* Evaluate the 'this' argument, if present */
-
-            if (tree->AsCall()->gtCallThisArg != nullptr)
-            {
-                GenTree* thisVal = tree->AsCall()->gtCallThisArg->GetNode();
-                gtSetCosts(thisVal);
-                costEx += thisVal->GetCostEx();
-                costSz += thisVal->GetCostSz() + 1;
-            }
-
-            /* Evaluate the arguments, right to left */
-
-            if (call->gtCallArgs != nullptr)
-            {
-                const bool lateArgs = false;
-                gtSetCallArgsCosts(call->Args(), lateArgs, &costEx, &costSz);
-            }
-
-            /* Evaluate the temp register arguments list
-             * This is a "hidden" list and its only purpose is to
-             * extend the life of temps until we make the call */
-
-            if (call->gtCallLateArgs != nullptr)
-            {
-                const bool lateArgs = true;
-                gtSetCallArgsCosts(call->LateArgs(), lateArgs, &costEx, &costSz);
-            }
-
-            if (call->IsIndirectCall())
-            {
-                GenTree* indirect = call->gtCallAddr;
-
-                gtSetCosts(indirect);
-                costEx += indirect->GetCostEx() + IND_COST_EX;
-                costSz += indirect->GetCostSz();
-            }
-            else
-            {
-                if (call->IsVirtual())
+                if (op1->IsBoundsChk() && op2->TypeIs(TYP_BYREF) && op2->OperIs(GT_ADD) && !op2->gtOverflow())
                 {
-                    GenTree* controlExpr = call->gtControlExpr;
-                    if (controlExpr != nullptr)
-                    {
-                        gtSetCosts(controlExpr);
-                        costEx += controlExpr->GetCostEx();
-                        costSz += controlExpr->GetCostSz();
-                    }
+                    op2->SetCosts(op2->GetCostEx() * 2, op2->GetCostSz() * 2);
+
+                    unsigned indirCostEx = 0;
+                    unsigned indirCostSz = 0;
+                    gtMarkAddrMode(op2, TYP_STRUCT, &indirCostEx, &indirCostSz);
+                }
+
+                costEx = 0;
+                costSz = 0;
+                break;
+
+            case GT_BOUNDS_CHECK:
+                costEx = 4;
+                costSz = 7;
+                break;
+
+            case GT_STORE_OBJ:
+                costEx += 2 * IND_COST_EX;
+                costSz += 2 * 2;
+                break;
+
+            case GT_STORE_BLK:
+            case GT_STOREIND:
+                costEx = IND_COST_EX + 1;
+                costSz = 3;
+
+                if (varTypeIsSmall(tree->GetType()))
+                {
+                    costEx += 1;
+                    costSz += 1;
+                }
+#ifndef TARGET_64BIT
+                else if (varTypeIsLong(tree->GetType()))
+                {
+                    costEx += 3;
+                    costSz += 3;
+                }
+#endif
+                else if (tree->TypeIs(TYP_DOUBLE))
+                {
+                    costEx += 1;
+#ifdef TARGET_ARM
+                    costSz += 4;
+#endif
                 }
 #ifdef TARGET_ARM
-                if (call->IsVirtualStub())
+                else if (tree->TypeIs(TYP_FLOAT))
                 {
-                    // We generate movw/movt/ldr
-                    costEx += (1 + IND_COST_EX);
-                    costSz += 8;
-                    if (call->gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT)
+                    costSz += 4;
+                }
+#endif
+
+#ifdef TARGET_XARCH
+                if (op1->IsIntCon())
+                {
+                    costEx -= 1;
+                    break;
+                }
+
+                if (op1->OperIs(GT_CLS_VAR_ADDR))
+                {
+                    op1->SetDoNotCSE();
+
+                    costEx -= 1;
+                    costSz -= 2;
+
+                    break;
+                }
+#endif
+
+                if (gtIsLikelyRegVar(op1))
+                {
+                    break;
+                }
+
+                {
+                    GenTree* addr = op1->SkipComma();
+
+                    if (!addr->OperIs(GT_ADD) || addr->gtOverflow() ||
+                        !gtMarkAddrMode(addr, tree->GetType(), &costEx, &costSz))
                     {
-                        // Must use R12 for the ldr target -- REG_JUMP_THUNK_PARAM
-                        costSz += 2;
+                        costEx += 1;
+                        costSz += 1;
+                        break;
+                    }
+
+                    while (op1 != addr)
+                    {
+                        // TODO-MIKE-CQ: Marking COMMAs with GTF_ADDRMODE_NO_CSE sometimes interferes with
+                        // redundant range check elimination done via CSE.
+                        // Normally CSE can't eliminate range checks because it uses liberal value numbers
+                        // and that makes it sensitive to race conditions in user code. However, if the
+                        // entire array element address tree is CSEd, including the range check, then race
+                        // conditions aren't an issue.
+                        //
+                        // So we have a choice between blocking CSE to allow address mode formation and
+                        // allowing CSE in he hope that redundant range checks may get CSEd. We'll block
+                        // CSE for now.
+                        //
+                        // CSE is anyway not guaranteed while address mode formation more or less is. And
+                        // such address modes avoid slow 3 component LEAs.
+                        // Also, this is a rather rare case, involving arrays of structs. Normally the COMMA
+                        // is above the indir - COMMA(range check, IND(addr)) - and this avoids the whole
+                        // issue. Sort of, as placing the COMMA like that probably makes it less likely for
+                        // to be CSEd. But that's how it works in the typical case.
+                        // With structs we may end up with IND(COMMA(range check, addr)), thanks in part to
+                        // IND(COMMA(...)) morphing code not applying to OBJs as well.
+
+                        op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
+                        costEx += op1->AsOp()->GetOp(0)->GetCostEx();
+                        costSz += op1->AsOp()->GetOp(0)->GetCostSz();
+                        op1 = op1->AsOp()->GetOp(1);
+                    }
+
+                    goto DONE_OP1_COSTS;
+                }
+
+            default:
+                assert(!tree->OperIs(GT_ASG));
+                break;
+        }
+
+        costEx += op1->GetCostEx();
+        costSz += op1->GetCostSz();
+    DONE_OP1_COSTS:
+        costEx += op2->GetCostEx();
+        costSz += op2->GetCostSz();
+    }
+    else
+    {
+        switch (oper)
+        {
+#if defined(TARGET_ARM)
+            case GT_CNS_INT:
+                if (!tree->AsIntCon()->ImmedValNeedsReloc(this))
+                {
+                    assert(varTypeSize(tree->GetType()) == 4);
+                    int32_t value = tree->AsIntCon()->GetInt32Value();
+
+                    if (emitter::validImmForInstr(INS_add, value))
+                    {
+                        // Typically included with parent oper
+                        costSz = 2;
+                        costEx = 1;
+                        break;
+                    }
+
+                    if (emitter::validImmForInstr(INS_mov, value) || emitter::validImmForInstr(INS_mvn, value))
+                    {
+                        // Uses mov or mvn
+                        costSz = 4;
+                        costEx = 1;
+                        break;
                     }
                 }
-                else if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+                FALLTHROUGH;
+            case GT_CNS_STR:
+            case GT_CLS_VAR_ADDR:
+                // Requires movw/movt
+                costSz = 8;
+                costEx = 2;
+                break;
+
+            case GT_CNS_LNG:
+            {
+                GenTreeLngCon* con   = tree->AsLngCon();
+                int64_t        value = con->GetValue();
+                int32_t        loVal = static_cast<int32_t>(value & UINT_MAX);
+                int32_t        hiVal = static_cast<int32_t>(value >> 32);
+
+                if (value == 0)
                 {
-                    costEx += 2;
-                    costSz += 6;
+                    costSz = 1;
+                    costEx = 1;
+                    break;
                 }
-                costSz += 2;
+
+                // Minimum of one instruction to setup hiVal, and one instruction to setup loVal.
+                costSz = 4 + 4;
+                costEx = 1 + 1;
+
+                if (!emitter::validImmForInstr(INS_mov, static_cast<target_ssize_t>(hiVal)) &&
+                    !emitter::validImmForInstr(INS_mvn, static_cast<target_ssize_t>(hiVal)))
+                {
+                    // Needs extra instruction: movw/movt
+                    costSz += 4;
+                    costEx += 1;
+                }
+
+                if (!emitter::validImmForInstr(INS_mov, static_cast<target_ssize_t>(loVal)) &&
+                    !emitter::validImmForInstr(INS_mvn, static_cast<target_ssize_t>(loVal)))
+                {
+                    // Needs extra instruction: movw/movt
+                    costSz += 4;
+                    costEx += 1;
+                }
+                break;
+            }
+
+            case GT_CNS_DBL:
+                if (tree->TypeIs(TYP_FLOAT))
+                {
+                    costEx = 1 + 2;
+                    costSz = 2 + 4;
+                }
+                else
+                {
+                    assert(tree->TypeIs(TYP_DOUBLE));
+                    costEx = 1 + 4;
+                    costSz = 2 + 8;
+                }
+                break;
+#elif defined(TARGET_ARM64)
+            case GT_CNS_INT:
+            {
+                if (!tree->AsIntCon()->ImmedValNeedsReloc(this))
+                {
+                    ssize_t  value = tree->AsIntCon()->GetValue();
+                    emitAttr size  = EA_SIZE(emitActualTypeSize(tree->GetType()));
+
+                    if (emitter::emitIns_valid_imm_for_add(value, size))
+                    {
+                        costSz = 2;
+                        costEx = 1;
+                        break;
+                    }
+
+                    if (emitter::emitIns_valid_imm_for_mov(value, size))
+                    {
+                        costSz = 4;
+                        costEx = 1;
+                        break;
+                    }
+
+                    bool preferMovz       = false;
+                    bool preferMovn       = false;
+                    int  instructionCount = 4;
+
+                    for (int i = (size == EA_8BYTE) ? 48 : 16; i >= 0; i -= 16)
+                    {
+                        if (!preferMovn && (((value >> i) & 0xFFFF) == 0x0000))
+                        {
+                            preferMovz = true; // by using a movk to start we can save one instruction
+                            instructionCount--;
+                        }
+                        else if (!preferMovz && (((value >> i) & 0xFFFF) == 0xFFFF))
+                        {
+                            preferMovn = true; // by using a movn to start we can save one instruction
+                            instructionCount--;
+                        }
+                    }
+
+                    costEx = instructionCount;
+                    costSz = 4 * instructionCount;
+                    break;
+                }
+
+                costSz = 8;
+                costEx = 2;
+                break;
+            }
+
+            case GT_CNS_STR:
+            case GT_CLS_VAR_ADDR:
+                costEx = 1;
+                costSz = 4;
+                break;
+
+            case GT_CNS_DBL:
+                if ((tree->AsDblCon()->GetBits() == 0) ||
+                    emitter::emitIns_valid_imm_for_fmov(tree->AsDblCon()->GetValue()))
+                {
+                    costEx = 1;
+                    costSz = 1;
+                    break;
+                }
+
+                costEx = IND_COST_EX;
+                costSz = 4;
+                break;
+#elif defined(TARGET_XARCH)
+            case GT_CNS_INT:
+                if (!tree->AsIntCon()->ImmedValNeedsReloc(this))
+                {
+                    if (FitsIn<int8_t>(tree->AsIntCon()->GetValue()))
+                    {
+                        costSz = 1;
+                        costEx = 1;
+                        break;
+                    }
+
+#ifdef TARGET_AMD64
+                    if (!GenTreeIntConCommon::FitsInI32(tree->AsIntCon()->GetValue()))
+                    {
+                        costSz = 10;
+                        costEx = 2;
+                        break;
+                    }
+#endif
+                }
+                FALLTHROUGH;
+            case GT_CLS_VAR_ADDR:
+            case GT_CNS_STR:
+                costEx = 1;
+                costSz = 4;
+                break;
+
+#ifdef TARGET_X86
+            case GT_CNS_LNG:
+            {
+                GenTreeLngCon* con   = tree->AsLngCon();
+                int64_t        value = con->GetValue();
+
+                // TODO-MIKE-Review: This truncates to 32 bits only when running on a 32 bit host.
+                ssize_t conVal    = static_cast<ssize_t>(value); // truncate to 32-bits
+                bool    fitsInVal = conVal == value;
+
+                if (fitsInVal && GenTreeIntConCommon::FitsInI8(conVal))
+                {
+                    costSz = 2;
+                    costEx = 2;
+                    break;
+                }
+
+                costSz = 4 + (fitsInVal ? 1 : 4);
+                costEx = 2;
+                break;
+            }
+
 #endif
 
-#ifdef TARGET_XARCH
-                costSz += 3;
+            case GT_CNS_DBL:
+                // TODO-MIKE-Review: the 1.0 case is likely bogus, inherited from x87...
+                if ((tree->AsDblCon()->GetBits() == 0) || (tree->AsDblCon()->GetBits() == 0x3ff0000000000000ull))
+                {
+                    costEx = 1;
+                    costSz = 1;
+                    break;
+                }
+
+                costEx = IND_COST_EX;
+                costSz = 4;
+                break;
+#else
+#error Unknown TARGET
 #endif
-            }
 
-            /* Virtual calls are a bit more expensive */
-            if (call->IsVirtual())
-            {
-                costEx += 2 * IND_COST_EX;
-                costSz += 2;
-            }
+            case GT_LCL_USE:
+            case GT_LCL_VAR:
+                if (LclVarDsc* lcl = gtIsLikelyRegVar(tree))
+                {
+                    if (lcl->lvNormalizeOnLoad())
+                    {
+                        costEx = 2;
+                        costSz = 2;
+                        break;
+                    }
 
-            costEx += 3 * IND_COST_EX;
-            break;
+#ifdef TARGET_AMD64
+                    // TODO-MIKE-Review: This likely applies to x86 too, x87 leftover?
+                    if (varTypeIsFloating(tree->GetType()))
+                    {
+                        costEx = 1;
+                        costSz = 2;
+                        break;
+                    }
+#endif
 
-        case GT_ARR_ELEM:
-        {
-            GenTreeArrElem* arrElem = tree->AsArrElem();
+                    costEx = 1;
+                    costSz = 1;
+                    break;
+                }
 
-            gtSetCosts(arrElem->gtArrObj);
-            costEx = arrElem->gtArrObj->GetCostEx();
-            costSz = arrElem->gtArrObj->GetCostSz();
+                if (varTypeIsSmall(tree->GetType()))
+                {
+                    costEx = IND_COST_EX + 1;
+                    costSz = 2 + 1;
+                    break;
+                }
 
-            for (unsigned dim = 0; dim < arrElem->gtArrRank; dim++)
-            {
-                gtSetCosts(arrElem->gtArrInds[dim]);
-                costEx += arrElem->gtArrInds[dim]->GetCostEx();
-                costSz += arrElem->gtArrInds[dim]->GetCostSz();
-            }
-
-            costEx += 2 + (arrElem->gtArrRank * (IND_COST_EX + 1));
-            costSz += 2 + (arrElem->gtArrRank * 2);
-        }
-        break;
-
-        case GT_PHI:
-            for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
-            {
-                gtSetCosts(use.GetNode());
-                // PHI args should always have cost 0 and level 0
-                assert(use.GetNode()->GetCostEx() == 0);
-                assert(use.GetNode()->GetCostSz() == 0);
-            }
-
-            costEx = 0;
-            costSz = 0;
-            break;
-
-        case GT_FIELD_LIST:
-            costEx = 0;
-            costSz = 0;
-            for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
-            {
-                gtSetCosts(use.GetNode());
-                gtSetCosts(use.GetNode());
-                costEx += use.GetNode()->GetCostEx();
-                costSz += use.GetNode()->GetCostSz();
-            }
-            break;
-
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-#ifdef TARGET_XARCH
-            if (tree->AsHWIntrinsic()->IsUnary() && tree->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
-            {
-                gtSetCosts(tree->AsHWIntrinsic()->GetOp(0));
+#ifdef TARGET_AMD64
+                // TODO-MIKE-Review: This likely applies to x86 too, x87 leftover?
+                if (varTypeIsFloating(tree->GetType()))
+                {
+                    costEx = IND_COST_EX;
+                    costSz = 4;
+                    break;
+                }
+#endif
                 costEx = IND_COST_EX;
                 costSz = 2;
-                // See if we can form a complex addressing mode.
+                break;
 
-                GenTree* addr = tree->AsHWIntrinsic()->GetOp(0)->gtEffectiveVal();
-
-                if (addr->OperIs(GT_ADD) && gtMarkAddrMode(addr, &costEx, &costSz, tree->TypeGet()))
+            case GT_LCL_FLD:
+                if (varTypeIsSmall(tree->GetType()))
                 {
-                    goto DONE;
+                    costEx = IND_COST_EX + 1;
+                    costSz = 4 + 1;
+                    break;
                 }
+
+                costEx = IND_COST_EX;
+                costSz = 4;
+                break;
+
+            case GT_LCL_ADDR:
+                costEx = 3;
+                costSz = 3;
+                break;
+
+            case GT_ARGPLACE:
+                costEx = 0;
+                costSz = 0;
+                break;
+
+            case GT_CALL:
+            {
+                GenTreeCall* call = tree->AsCall();
+
+                costEx = 5;
+                costSz = 2;
+
+                if (call->gtCallThisArg != nullptr)
+                {
+                    GenTree* thisVal = call->gtCallThisArg->GetNode();
+
+                    gtSetCosts(thisVal);
+                    costEx += thisVal->GetCostEx();
+                    costSz += thisVal->GetCostSz() + 1;
+                }
+
+                if (call->gtCallArgs != nullptr)
+                {
+                    const bool lateArgs = false;
+                    gtSetCallArgsCosts(call->Args(), lateArgs, &costEx, &costSz);
+                }
+
+                if (call->gtCallLateArgs != nullptr)
+                {
+                    const bool lateArgs = true;
+                    gtSetCallArgsCosts(call->LateArgs(), lateArgs, &costEx, &costSz);
+                }
+
+                if (call->IsIndirectCall())
+                {
+                    GenTree* indirect = call->gtCallAddr;
+
+                    gtSetCosts(indirect);
+                    costEx += indirect->GetCostEx() + IND_COST_EX;
+                    costSz += indirect->GetCostSz();
+                }
+                else
+                {
+                    if (call->IsVirtual())
+                    {
+                        GenTree* controlExpr = call->gtControlExpr;
+
+                        if (controlExpr != nullptr)
+                        {
+                            gtSetCosts(controlExpr);
+                            costEx += controlExpr->GetCostEx();
+                            costSz += controlExpr->GetCostSz();
+                        }
+                    }
+
+#ifdef TARGET_XARCH
+                    costSz += 3;
+#endif
+
+#ifdef TARGET_ARM
+                    costSz += 2;
+
+                    if (call->IsVirtualStub())
+                    {
+                        // We generate movw/movt/ldr
+                        costEx += (1 + IND_COST_EX);
+                        costSz += 8;
+
+                        if (call->gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT)
+                        {
+                            // Must use R12 for the ldr target -- REG_JUMP_THUNK_PARAM
+                            costSz += 2;
+                        }
+                    }
+                    else if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+                    {
+                        costEx += 2;
+                        costSz += 6;
+                    }
+#endif // TARGET_ARM
+                }
+
+                if (call->IsVirtual())
+                {
+                    costEx += 2 * IND_COST_EX;
+                    costSz += 2;
+                }
+
+                costEx += 3 * IND_COST_EX;
+                break;
             }
+
+            case GT_ARR_ELEM:
+            {
+                GenTreeArrElem* arrElem = tree->AsArrElem();
+                GenTree*        array   = arrElem->GetArray();
+
+                gtSetCosts(array);
+                costEx = array->GetCostEx();
+                costSz = array->GetCostSz();
+
+                unsigned rank = arrElem->GetRank();
+
+                for (unsigned dim = 0; dim < rank; dim++)
+                {
+                    GenTree* index = arrElem->GetIndex(dim);
+
+                    gtSetCosts(index);
+                    costEx += index->GetCostEx();
+                    costSz += index->GetCostSz();
+                }
+
+                costEx += 2 + (rank * (IND_COST_EX + 1));
+                costSz += 2 + (rank * 2);
+            }
+            break;
+
+            case GT_PHI:
+                costEx = 0;
+                costSz = 0;
+
+                for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
+                {
+                    assert(use.GetNode()->OperIs(GT_LCL_USE));
+                    use.GetNode()->SetCosts(0, 0);
+                }
+                break;
+
+            case GT_FIELD_LIST:
+                costEx = 0;
+                costSz = 0;
+
+                for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
+                {
+                    gtSetCosts(use.GetNode());
+                    costEx += use.GetNode()->GetCostEx();
+                    costSz += use.GetNode()->GetCostSz();
+                }
+                break;
+
+#ifdef FEATURE_HW_INTRINSICS
+            case GT_HWINTRINSIC:
+#ifdef TARGET_XARCH
+                // TODO-MIKE-Review: Something's bogus here, only loads are unary and stores need address modes...
+                if (tree->AsHWIntrinsic()->IsUnary() && tree->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
+                {
+                    gtSetCosts(tree->AsHWIntrinsic()->GetOp(0));
+
+                    costEx = IND_COST_EX;
+                    costSz = 2;
+
+                    GenTree* addr = tree->AsHWIntrinsic()->GetOp(0)->SkipComma();
+
+                    if (addr->OperIs(GT_ADD) && gtMarkAddrMode(addr, tree->GetType(), &costEx, &costSz))
+                    {
+                        break;
+                    }
+                }
 #endif // TARGET_XARCH
 
-            if (tree->AsHWIntrinsic()->IsBinary())
-            {
-                GenTree* op1 = tree->AsHWIntrinsic()->GetOp(0);
-                GenTree* op2 = tree->AsHWIntrinsic()->GetOp(1);
-                gtSetCosts(op1);
-                gtSetCosts(op2);
-                costEx = op1->GetCostEx() + op2->GetCostEx() + 1;
-                costSz = op1->GetCostSz() + op2->GetCostSz() + 1;
-            }
-            else
-            {
                 costEx = 1;
                 costSz = 1;
 
@@ -3185,64 +2978,59 @@ void Compiler::gtSetCosts(GenTree* tree)
                     costEx += use.GetNode()->GetCostEx();
                     costSz += use.GetNode()->GetCostSz();
                 }
-            }
-            break;
+                break;
 #endif // FEATURE_HW_INTRINSICS
 
-        case GT_INSTR:
-            costEx = 1;
-            costSz = 1;
+            case GT_INSTR:
+                costEx = 1;
+                costSz = 1;
 
-            for (GenTreeInstr::Use& use : tree->AsInstr()->Uses())
-            {
-                gtSetCosts(use.GetNode());
-                costEx += use.GetNode()->GetCostEx();
-                costSz += use.GetNode()->GetCostSz();
-            }
-            break;
+                for (GenTreeInstr::Use& use : tree->AsInstr()->Uses())
+                {
+                    gtSetCosts(use.GetNode());
+                    costEx += use.GetNode()->GetCostEx();
+                    costSz += use.GetNode()->GetCostSz();
+                }
+                break;
 
-        case GT_ARR_OFFSET:
-        case GT_CMPXCHG:
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            if (tree->OperIs(GT_CMPXCHG))
-            {
-                costEx = MAX_COST; // Seriously, what could be more expensive than lock cmpxchg?
-                costSz = 5;        // size of lock cmpxchg [reg+C], reg
-            }
-            else
-            {
-                // TODO-MIKE-Cleanup: We should some set costs on ARR_OFFSET and COPY|INIT_BLK
-                // for the sake of clarity. It's unlikely to matter otherwise.
-                costEx = 0;
-                costSz = 0;
-            }
+            case GT_CMPXCHG:
+            case GT_ARR_OFFSET:
+            case GT_COPY_BLK:
+            case GT_INIT_BLK:
+                if (tree->OperIs(GT_CMPXCHG))
+                {
+                    costEx = MAX_COST;
+                    costSz = 5;
+                }
+                else
+                {
+                    // TODO-MIKE-Cleanup: We should some set costs on ARR_OFFSET and COPY|INIT_BLK
+                    // for the sake of clarity. It's unlikely to matter otherwise.
+                    costEx = 0;
+                    costSz = 0;
+                }
 
-            for (unsigned i = 0; i < 3; i++)
-            {
-                gtSetCosts(tree->AsTernaryOp()->GetOp(i));
-            }
+                for (unsigned i = 0; i < 3; i++)
+                {
+                    gtSetCosts(tree->AsTernaryOp()->GetOp(i));
+                }
 
-            for (unsigned i = 0; i < 3; i++)
-            {
-                costEx += tree->AsTernaryOp()->GetOp(i)->GetCostEx();
-                costSz += tree->AsTernaryOp()->GetOp(i)->GetCostSz();
-            }
-            break;
+                for (unsigned i = 0; i < 3; i++)
+                {
+                    costEx += tree->AsTernaryOp()->GetOp(i)->GetCostEx();
+                    costSz += tree->AsTernaryOp()->GetOp(i)->GetCostSz();
+                }
+                break;
 
-        default:
-            JITDUMP("unexpected operator in this tree:\n");
-            DISPTREE(tree);
-
-            NO_WAY("unexpected operator");
+            default:
+                assert(tree->OperIsLeaf());
+                costEx = 1;
+                costSz = 1;
+                break;
+        }
     }
 
 DONE:
-
-    // Some path through this function must have set the costs.
-    assert(costEx != -1);
-    assert(costSz != -1);
-
     tree->SetCosts(costEx, costSz);
 }
 

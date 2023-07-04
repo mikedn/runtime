@@ -3234,8 +3234,11 @@ public:
     unsigned gtSetOrder(GenTree* tree);
     unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args);
     void gtSetCosts(GenTree* tree);
-    void gtSetCallArgsCosts(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz);
-    bool gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz, var_types indirType);
+    void gtSetCallArgsCosts(const GenTreeCall::UseList& args,
+                            bool                        lateArgs,
+                            unsigned*                   callCostEx,
+                            unsigned*                   callCostSz);
+    bool gtMarkAddrMode(GenTree* addr, var_types indirType, unsigned* indirCostEx, unsigned* indirCostSz);
 
     void gtSetStmtInfo(Statement* stmt);
 
