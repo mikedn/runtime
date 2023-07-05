@@ -1945,18 +1945,6 @@ void Compiler::fgAddInternal()
 #endif
 }
 
-void Compiler::phFindOperOrder()
-{
-    for (BasicBlock* block : Blocks())
-    {
-        for (Statement* stmt : block->Statements())
-        {
-            gtSetOrder(stmt->GetRootNode());
-            gtSetCosts(stmt->GetRootNode());
-        }
-    }
-}
-
 /*****************************************************************************************************
  *
  *  Function to return the last basic block in the main part of the function. With funclets, it is
@@ -2943,6 +2931,13 @@ void Compiler::fgSequenceBlockStatements(BasicBlock* block)
 {
     for (Statement* stmt : block->Statements())
     {
+        // TODO-MIKE-Cleanup: We don't really need costs until LoopHoist/CSE.
+        // Moving this results in a few diffs - costs are dependent on DNER
+        // and liveness may make new DNER locals due to EH, so we get higher
+        // costs after liveness and thus extra CSEs.
+        gtSetCosts(stmt->GetRootNode());
+
+        gtSetOrder(stmt->GetRootNode());
         fgSetStmtSeq(stmt);
 
         if (stmt->GetNextStmt() == nullptr)

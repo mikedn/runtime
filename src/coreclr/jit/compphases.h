@@ -67,7 +67,6 @@ CompPhaseNameMacro(PHASE_REF_COUNT_LOCAL_VARS,   "Ref count local vars",        
 CompPhaseNameMacro(PHASE_ADD_COPIES,             "Add copies",                     "ADD_COPY", false, -1, false)
 #endif
 CompPhaseNameMacro(PHASE_OPTIMIZE_BOOLS,         "Optimize bools",                 "OPT-BOOL", false, -1, false)
-CompPhaseNameMacro(PHASE_FIND_OPER_ORDER,        "Find oper order",                "OPER-ORD", false, -1, false)
 CompPhaseNameMacro(PHASE_SET_FULLY_INTERRUPTIBLE,"Set fully interruptible",        "FULLY-INT",false, -1, true)
 CompPhaseNameMacro(PHASE_SET_BLOCK_ORDER,        "Set block order",                "BLK-ORD",  false, -1, true)
 CompPhaseNameMacro(PHASE_SSA_LIVENESS,           "SSA local var liveness",         "SSA-LIVE", false, -1, false)

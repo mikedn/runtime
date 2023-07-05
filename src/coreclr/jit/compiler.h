@@ -6379,7 +6379,6 @@ public:
     void        phAddSpecialLocals();
     void        phImplicitRefLocals();
     void        phRefCountLocals();
-    void        phFindOperOrder();
     void        phSetBlockOrder();
     void        phSsaLiveness();
     void        phSsaOpt();

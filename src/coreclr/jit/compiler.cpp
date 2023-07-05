@@ -2604,7 +2604,6 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
         // TODO-MIKE-Review: So should fgDomsComputed be set to false?
     }
 
-    DoPhase(this, PHASE_FIND_OPER_ORDER, &Compiler::phFindOperOrder);
     DoPhase(this, PHASE_SET_BLOCK_ORDER, &Compiler::phSetBlockOrder);
 
     // TODO-MIKE-Review: Can this be done after the SSA optimizations? Those can remove
