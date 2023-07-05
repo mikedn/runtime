@@ -2223,6 +2223,49 @@ void Compiler::fgCreateFunclets()
 
 #endif // defined(FEATURE_EH_FUNCLETS)
 
+unsigned Compiler::fgGetCodeSizeEstimate(BasicBlock* block)
+{
+    unsigned costSz = 0;
+
+    switch (block->bbJumpKind)
+    {
+        case BBJ_NONE:
+            costSz = 0;
+            break;
+        case BBJ_ALWAYS:
+        case BBJ_EHCATCHRET:
+        case BBJ_LEAVE:
+        case BBJ_COND:
+            costSz = 2;
+            break;
+        case BBJ_CALLFINALLY:
+            costSz = 5;
+            break;
+        case BBJ_SWITCH:
+            costSz = 10;
+            break;
+        case BBJ_THROW:
+            costSz = 1; // We place a int3 after the code for a throw block
+            break;
+        case BBJ_EHFINALLYRET:
+        case BBJ_EHFILTERRET:
+            costSz = 1;
+            break;
+        case BBJ_RETURN:
+            costSz = 3;
+            break;
+        default:
+            unreached();
+    }
+
+    for (Statement* stmt : block->NonPhiStatements())
+    {
+        costSz += stmt->GetCostSz();
+    }
+
+    return costSz;
+}
+
 // Walk the basic blocks list to determine the first block to place in the
 // cold section. This would be the first of a series of rarely executed blocks
 // such that no succeeding blocks are in a try region or an exception handler
@@ -2294,7 +2337,7 @@ void Compiler::phDetermineFirstColdBlock()
                 // so the code size for block needs be large
                 // enough to make it worth our while
                 //
-                if ((lblk == nullptr) || (lblk->bbJumpKind != BBJ_COND) || (fgGetCodeEstimate(block) >= 8))
+                if ((lblk == nullptr) || (lblk->bbJumpKind != BBJ_COND) || (fgGetCodeSizeEstimate(block) >= 8))
                 {
                     // This block is now a candidate for first cold block
                     // Also remember the predecessor to this block
@@ -2332,7 +2375,7 @@ void Compiler::phDetermineFirstColdBlock()
             // If the size of the cold block is 7 or less
             // then we will keep it in the Hot section.
             //
-            if (fgGetCodeEstimate(firstColdBlock) < 8)
+            if (fgGetCodeSizeEstimate(firstColdBlock) < 8)
             {
                 firstColdBlock = nullptr;
                 goto EXIT;

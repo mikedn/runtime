@@ -5810,60 +5810,6 @@ bool Compiler::fgUpdateFlowGraph(Lowering* lowering, bool doTailDuplication)
 #pragma warning(pop)
 #endif
 
-//-------------------------------------------------------------
-// fgGetCodeEstimate: Compute a code size estimate for the block, including all statements
-// and block control flow.
-//
-// Arguments:
-//    block - block to consider
-//
-// Returns:
-//    Code size estimate for block
-//
-unsigned Compiler::fgGetCodeEstimate(BasicBlock* block)
-{
-    unsigned costSz = 0; // estimate of block's code size cost
-
-    switch (block->bbJumpKind)
-    {
-        case BBJ_NONE:
-            costSz = 0;
-            break;
-        case BBJ_ALWAYS:
-        case BBJ_EHCATCHRET:
-        case BBJ_LEAVE:
-        case BBJ_COND:
-            costSz = 2;
-            break;
-        case BBJ_CALLFINALLY:
-            costSz = 5;
-            break;
-        case BBJ_SWITCH:
-            costSz = 10;
-            break;
-        case BBJ_THROW:
-            costSz = 1; // We place a int3 after the code for a throw block
-            break;
-        case BBJ_EHFINALLYRET:
-        case BBJ_EHFILTERRET:
-            costSz = 1;
-            break;
-        case BBJ_RETURN: // return from method
-            costSz = 3;
-            break;
-        default:
-            noway_assert(!"Bad bbJumpKind");
-            break;
-    }
-
-    for (Statement* stmt : block->NonPhiStatements())
-    {
-        costSz += stmt->GetCostSz();
-    }
-
-    return costSz;
-}
-
 #ifdef FEATURE_JIT_METHOD_PERF
 
 //------------------------------------------------------------------------

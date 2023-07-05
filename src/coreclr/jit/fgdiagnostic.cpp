@@ -946,8 +946,6 @@ bool Compiler::fgDumpFlowGraph(Phases phase, PhasePosition pos)
 
             fprintf(fgxFile, "\n            weight=");
             fprintfDouble(fgxFile, ((double)block->bbWeight) / weightDivisor);
-            // fgGetCodeEstimate() will assert if the costs have not yet been initialized.
-            // fprintf(fgxFile, "\n            codeEstimate=\"%d\"", fgGetCodeEstimate(block));
             fprintf(fgxFile, "\n            startOffset=\"%d\"", block->bbCodeOffs);
             fprintf(fgxFile, "\n            rootTreeOp=\"%s\"", rootTreeOpName);
             fprintf(fgxFile, "\n            endOffset=\"%d\"", block->bbCodeOffsEnd);
