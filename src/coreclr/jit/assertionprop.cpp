@@ -2878,7 +2878,7 @@ private:
 
             if (!removedStmt)
             {
-                compiler->gtSetStmtInfo(newStmt);
+                compiler->gtSetOrder(newStmt->GetRootNode());
                 compiler->fgSetStmtSeq(newStmt);
             }
         }
@@ -2952,7 +2952,7 @@ private:
 
                 if (!removedStmt)
                 {
-                    m_compiler->gtSetStmtInfo(stmt);
+                    m_compiler->gtSetOrder(stmt->GetRootNode());
                     m_compiler->fgSetStmtSeq(stmt);
                 }
 
@@ -3649,7 +3649,7 @@ private:
 
                     if (!removedStmt)
                     {
-                        compiler->gtSetStmtInfo(stmt);
+                        compiler->gtSetOrder(stmt->GetRootNode());
                         compiler->fgSetStmtSeq(stmt);
                     }
                 }

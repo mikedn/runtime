@@ -2265,6 +2265,7 @@ unsigned Compiler::fgGetCodeSizeEstimate(BasicBlock* block, unsigned limit)
             break;
         }
 
+        gtSetCosts(stmt->GetRootNode());
         costSz += stmt->GetCostSz();
     }
 
