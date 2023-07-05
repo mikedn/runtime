@@ -906,14 +906,16 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
                     // and start over.
 
                     updateStmt = false;
-                    gtSetStmtInfo(stmt);
+
+                    gtSetOrder(stmt->GetRootNode());
+                    gtSetCosts(stmt->GetRootNode());
                 }
                 else
                 {
                     // The statement was modified. We need to sequence it so we can
                     // continue the current linear order traversal but we can't call
-                    // gtSetStmtInfo because that would change evaluation order and
-                    // mess up the current traversal. Instead, call gtSetStmtInfo
+                    // gtSetOrder because that would change evaluation order and
+                    // mess up the current traversal. Instead, call gtSetOrder
                     // after traversal is complete.
 
                     updateStmt = true;
@@ -932,7 +934,8 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
 
     if (updateStmt)
     {
-        gtSetStmtInfo(stmt);
+        gtSetOrder(stmt->GetRootNode());
+        gtSetCosts(stmt->GetRootNode());
         fgSetStmtSeq(stmt);
         gtUpdateStmtSideEffects(stmt);
     }

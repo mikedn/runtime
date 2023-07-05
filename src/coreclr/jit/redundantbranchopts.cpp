@@ -221,7 +221,8 @@ bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
 
     if (!removedStmt)
     {
-        m_compiler->gtSetStmtInfo(stmt);
+        m_compiler->gtSetOrder(stmt->GetRootNode());
+        m_compiler->gtSetCosts(stmt->GetRootNode());
         m_compiler->fgSetStmtSeq(stmt);
     }
 

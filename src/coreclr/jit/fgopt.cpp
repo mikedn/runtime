@@ -2220,7 +2220,8 @@ void Compiler::fgRemoveConditionalJump(BasicBlock* block)
 
             if (fgStmtListThreaded)
             {
-                gtSetStmtInfo(test);
+                gtSetOrder(test->GetRootNode());
+                gtSetCosts(test->GetRootNode());
                 fgSetStmtSeq(test);
             }
         }
@@ -2533,8 +2534,9 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
                         else
                         {
                             Statement* nopStmt = fgNewStmtAtEnd(block, nop);
+                            gtSetOrder(nopStmt->GetRootNode());
+                            gtSetCosts(nopStmt->GetRootNode());
                             fgSetStmtSeq(nopStmt);
-                            gtSetStmtInfo(nopStmt);
                         }
 
                         JITDUMP("\nKeeping empty block " FMT_BB " - it is the target of a catch return\n",
@@ -2787,7 +2789,8 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
 
                 if (fgStmtListThreaded)
                 {
-                    gtSetStmtInfo(switchStmt);
+                    gtSetCosts(switchStmt->GetRootNode());
+                    gtSetOrder(switchStmt->GetRootNode());
                     fgSetStmtSeq(switchStmt);
                 }
             }
@@ -2857,7 +2860,8 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         }
         else if (fgStmtListThreaded)
         {
-            gtSetStmtInfo(switchStmt);
+            gtSetCosts(switchStmt->GetRootNode());
+            gtSetOrder(switchStmt->GetRootNode());
             fgSetStmtSeq(switchStmt);
         }
 
@@ -3160,7 +3164,9 @@ bool Compiler::fgOptimizeUncondBranchToSimpleCond(BasicBlock* block, BasicBlock*
 
     if (fgStmtListThreaded)
     {
-        gtSetStmtInfo(jmpStmt);
+        gtSetCosts(jmpStmt->GetRootNode());
+        gtSetOrder(jmpStmt->GetRootNode());
+        // TODO-MIKE-Review: Doesn't this sequencing? And if it doesn't, why bother with order?
     }
 
     fgInsertStmtAtEnd(block, jmpStmt);
@@ -3290,7 +3296,8 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
 
                     if (fgStmtListThreaded)
                     {
-                        gtSetStmtInfo(condStmt);
+                        gtSetOrder(condStmt->GetRootNode());
+                        gtSetCosts(condStmt->GetRootNode());
                         fgSetStmtSeq(condStmt);
                     }
                 }
@@ -3391,11 +3398,11 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
     unsigned estDupCostSz = 0;
     for (Statement* const stmt : bDest->Statements())
     {
-        // We want to compute the costs of the statement. Unfortunately, gtSetStmtInfo() calls gtSetEvalOrder(),
-        // which can reorder nodes. If it does so, we need to re-thread the gtNext/gtPrev links. We don't know
-        // if it does or doesn't reorder nodes, so we end up always re-threading the links.
+        // TODO-MIKE-Review: Looks like this only needs the costs, without ordering.
+        // Even if it does need ordering, it should do that only if fgStmtListThreaded.
+        gtSetCosts(stmt->GetRootNode());
+        gtSetOrder(stmt->GetRootNode());
 
-        gtSetStmtInfo(stmt);
         if (fgStmtListThreaded)
         {
             fgSetStmtSeq(stmt);
@@ -3512,7 +3519,8 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
 
         if (fgStmtListThreaded)
         {
-            gtSetStmtInfo(stmt);
+            gtSetCosts(stmt->GetRootNode());
+            gtSetOrder(stmt->GetRootNode());
             fgSetStmtSeq(stmt);
         }
 

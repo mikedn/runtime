@@ -3238,8 +3238,6 @@ public:
                             unsigned*                   callCostSz);
     bool gtMarkAddrMode(GenTree* addr, var_types indirType, unsigned* indirCostEx, unsigned* indirCostSz);
 
-    void gtSetStmtInfo(Statement* stmt);
-
     // Returns "true" iff "node" has any of the side effects in "flags".
     bool gtNodeHasSideEffects(GenTree* node, GenTreeFlags flags, bool ignoreCctors = false);
 

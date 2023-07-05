@@ -207,7 +207,8 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
         if (fgStmtListThreaded)
         {
-            gtSetStmtInfo(newStmt);
+            gtSetOrder(newStmt->GetRootNode());
+            gtSetCosts(newStmt->GetRootNode());
             fgSetStmtSeq(newStmt);
         }
 
@@ -280,7 +281,8 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
     if (fgStmtListThreaded)
     {
-        gtSetStmtInfo(pollStmt);
+        gtSetOrder(pollStmt->GetRootNode());
+        gtSetCosts(pollStmt->GetRootNode());
         fgSetStmtSeq(pollStmt);
     }
 
@@ -320,12 +322,13 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
     GenTree* trapEq = gtNewOperNode(GT_EQ, TYP_INT, indir, gtNewIconNode(0, TYP_INT));
     trapEq->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
-    GenTree* trapCheck = gtNewOperNode(GT_JTRUE, TYP_VOID, trapEq);
+    GenTree*   trapCheck     = gtNewOperNode(GT_JTRUE, TYP_VOID, trapEq);
     Statement* trapCheckStmt = fgNewStmtAtEnd(top, trapCheck);
 
     if (fgStmtListThreaded)
     {
-        gtSetStmtInfo(trapCheckStmt);
+        gtSetOrder(trapCheckStmt->GetRootNode());
+        gtSetCosts(trapCheckStmt->GetRootNode());
         fgSetStmtSeq(trapCheckStmt);
     }
 
@@ -1948,7 +1951,8 @@ void Compiler::phFindOperOrder()
     {
         for (Statement* stmt : block->Statements())
         {
-            gtSetStmtInfo(stmt);
+            gtSetOrder(stmt->GetRootNode());
+            gtSetCosts(stmt->GetRootNode());
         }
     }
 }

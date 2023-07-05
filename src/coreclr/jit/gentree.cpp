@@ -1992,16 +1992,6 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, var_types indirType, unsigned* indi
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
-void Compiler::gtSetStmtInfo(Statement* stmt)
-{
-    if (fgOrder == FGOrderTree)
-    {
-        gtSetOrder(stmt->GetRootNode());
-    }
-
-    gtSetCosts(stmt->GetRootNode());
-}
-
 void Compiler::gtSetCosts(GenTree* tree)
 {
     const genTreeOps oper = tree->GetOper();
