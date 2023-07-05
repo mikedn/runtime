@@ -3395,23 +3395,6 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
     assert(!bJump->IsLIR());
     assert(!bDest->IsLIR());
 
-    unsigned estDupCostSz = 0;
-    for (Statement* const stmt : bDest->Statements())
-    {
-        // TODO-MIKE-Review: Looks like this only needs the costs, without ordering.
-        // Even if it does need ordering, it should do that only if fgStmtListThreaded.
-        gtSetCosts(stmt->GetRootNode());
-        gtSetOrder(stmt->GetRootNode());
-
-        if (fgStmtListThreaded)
-        {
-            fgSetStmtSeq(stmt);
-        }
-
-        GenTree* expr = stmt->GetRootNode();
-        estDupCostSz += expr->GetCostSz();
-    }
-
     bool                 allProfileWeightsAreValid = false;
     BasicBlock::weight_t weightJump                = bJump->bbWeight;
     BasicBlock::weight_t weightDest                = bDest->bbWeight;
@@ -3481,6 +3464,22 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
     }
 
     // If the compare has too high cost then we don't want to dup
+
+    unsigned estDupCostSz = 0;
+    for (Statement* const stmt : bDest->Statements())
+    {
+        if (!fgStmtListThreaded)
+        {
+            gtSetCosts(stmt->GetRootNode());
+        }
+
+        estDupCostSz += stmt->GetRootNode()->GetCostSz();
+
+        if (estDupCostSz > maxDupCostSz)
+        {
+            break;
+        }
+    }
 
     bool costIsTooHigh = (estDupCostSz > maxDupCostSz);
 
