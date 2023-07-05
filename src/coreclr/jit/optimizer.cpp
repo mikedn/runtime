@@ -3500,8 +3500,8 @@ PhaseStatus Compiler::phUnrollLoops()
 
                 for (Statement* const stmt : block->Statements())
                 {
-                    gtSetStmtInfo(stmt);
-                    loopCostSz += stmt->GetCostSz();
+                    gtSetCosts(stmt->GetRootNode());
+                    loopCostSz += stmt->GetRootNode()->GetCostSz();
                 }
 
                 if (block == bottom)
