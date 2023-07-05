@@ -2223,7 +2223,7 @@ void Compiler::fgCreateFunclets()
 
 #endif // defined(FEATURE_EH_FUNCLETS)
 
-unsigned Compiler::fgGetCodeSizeEstimate(BasicBlock* block)
+unsigned Compiler::fgGetCodeSizeEstimate(BasicBlock* block, unsigned limit)
 {
     unsigned costSz = 0;
 
@@ -2260,6 +2260,11 @@ unsigned Compiler::fgGetCodeSizeEstimate(BasicBlock* block)
 
     for (Statement* stmt : block->NonPhiStatements())
     {
+        if (costSz > limit)
+        {
+            break;
+        }
+
         costSz += stmt->GetCostSz();
     }
 
@@ -2337,7 +2342,7 @@ void Compiler::phDetermineFirstColdBlock()
                 // so the code size for block needs be large
                 // enough to make it worth our while
                 //
-                if ((lblk == nullptr) || (lblk->bbJumpKind != BBJ_COND) || (fgGetCodeSizeEstimate(block) >= 8))
+                if ((lblk == nullptr) || (lblk->bbJumpKind != BBJ_COND) || (fgGetCodeSizeEstimate(block, 8) >= 8))
                 {
                     // This block is now a candidate for first cold block
                     // Also remember the predecessor to this block
@@ -2375,7 +2380,7 @@ void Compiler::phDetermineFirstColdBlock()
             // If the size of the cold block is 7 or less
             // then we will keep it in the Hot section.
             //
-            if (fgGetCodeSizeEstimate(firstColdBlock) < 8)
+            if (fgGetCodeSizeEstimate(firstColdBlock, 8) < 8)
             {
                 firstColdBlock = nullptr;
                 goto EXIT;

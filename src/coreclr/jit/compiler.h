@@ -4516,7 +4516,7 @@ public:
     bool fgReachWithoutCall(BasicBlock* srcBB, BasicBlock* dstBB);
     void fgLoopCallMark();
 
-    static unsigned fgGetCodeSizeEstimate(BasicBlock* block);
+    static unsigned fgGetCodeSizeEstimate(BasicBlock* block, unsigned limit);
 
 #if DUMP_FLOWGRAPHS
     enum class PhasePosition
