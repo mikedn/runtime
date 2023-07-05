@@ -2874,7 +2874,13 @@ private:
             // doing constant propagation so we may morph again if they contains
             // constants.
 
-            compiler->fgMorphBlockStmt(block, newStmt DEBUGARG(__FUNCTION__));
+            bool removedStmt = compiler->fgMorphBlockStmt(block, newStmt DEBUGARG(__FUNCTION__));
+
+            if (!removedStmt)
+            {
+                compiler->gtSetStmtInfo(newStmt);
+                compiler->fgSetStmtSeq(newStmt);
+            }
         }
 
         return jtrue;
@@ -2940,9 +2946,15 @@ private:
                 // Morph may remove the statement, get the previous one so we know where
                 // to continue from. This also works in case morph inserts new statements
                 // before or after this one, but that's unlikely.
-                Statement* prev = (stmt == block->GetFirstStatement()) ? nullptr : stmt->GetPrevStmt();
-                m_compiler->fgMorphBlockStmt(block, stmt DEBUGARG("VNConstPropVisitor::VisitStmt"));
-                Statement* next = (prev == nullptr) ? block->GetFirstStatement() : prev->GetNextStmt();
+                Statement* prev  = (stmt == block->GetFirstStatement()) ? nullptr : stmt->GetPrevStmt();
+                bool removedStmt = m_compiler->fgMorphBlockStmt(block, stmt DEBUGARG("VNConstPropVisitor::VisitStmt"));
+                Statement* next  = (prev == nullptr) ? block->GetFirstStatement() : prev->GetNextStmt();
+
+                if (!removedStmt)
+                {
+                    m_compiler->gtSetStmtInfo(stmt);
+                    m_compiler->fgSetStmtSeq(stmt);
+                }
 
                 // Morph didn't add/remove any statements, we're done.
                 if (next == stmt)
@@ -3096,8 +3108,9 @@ private:
             JITDUMP("After JTRUE constant propagation on " FMT_TREEID ":\n", relop->GetID());
             DBEXEC(VERBOSE, m_compiler->gtDispStmt(stmt));
 
-            bool removed = m_compiler->fgMorphBlockStmt(m_block, stmt DEBUGARG(__FUNCTION__));
-            assert(removed);
+            // TODO-MIKE-Review: Why bother with fgMorphBlockStmt?
+            bool removedStmt = m_compiler->fgMorphBlockStmt(m_block, stmt DEBUGARG(__FUNCTION__));
+            assert(removedStmt);
             assert(m_block->bbJumpKind != BBJ_COND);
 
             if (sideEffects == nullptr)
@@ -3632,7 +3645,13 @@ private:
                 if (stmtMorphPending)
                 {
                     JITDUMP("\nMorphing statement " FMT_STMT "\n", stmt->GetID())
-                    compiler->fgMorphBlockStmt(block, stmt DEBUGARG(__FUNCTION__));
+                    bool removedStmt = compiler->fgMorphBlockStmt(block, stmt DEBUGARG(__FUNCTION__));
+
+                    if (!removedStmt)
+                    {
+                        compiler->gtSetStmtInfo(stmt);
+                        compiler->fgSetStmtSeq(stmt);
+                    }
                 }
 
                 // Check if propagation removed statements starting from current stmt.

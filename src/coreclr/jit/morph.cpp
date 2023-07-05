@@ -14054,15 +14054,6 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
         }
     }
 
-    if (!removedStmt)
-    {
-        // Have to re-do the evaluation order since for example some later code does not expect constants as op1
-        gtSetStmtInfo(stmt);
-
-        // Have to re-link the nodes for this statement
-        fgSetStmtSeq(stmt);
-    }
-
 #ifdef DEBUG
     if (verbose)
     {

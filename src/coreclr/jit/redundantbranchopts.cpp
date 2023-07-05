@@ -216,7 +216,14 @@ bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
     tree->ChangeOperConst(GT_CNS_INT);
     tree->AsIntCon()->gtIconVal = relopValue;
 
-    m_compiler->fgMorphBlockStmt(block, stmt DEBUGARG(__FUNCTION__));
+    // TODO-MIKE-Review: Why bother with fgMorphBlockStmt?
+    bool removedStmt = m_compiler->fgMorphBlockStmt(block, stmt DEBUGARG(__FUNCTION__));
+
+    if (!removedStmt)
+    {
+        m_compiler->gtSetStmtInfo(stmt);
+        m_compiler->fgSetStmtSeq(stmt);
+    }
 
     return true;
 }

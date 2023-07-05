@@ -3278,6 +3278,9 @@ void Compiler::fgDebugCheckStmtsList(BasicBlock* block, bool morphTrees)
                 fgDebugCheckStmtsList(block, morphTrees);
                 break;
             }
+
+            gtSetStmtInfo(stmt);
+            fgSetStmtSeq(stmt);
         }
 
         // For each statement check that the nodes are threaded correctly - m_treeList.
