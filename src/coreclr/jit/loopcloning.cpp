@@ -668,8 +668,10 @@ void LoopCloneContext::CondToStmtInBlock(JitVector<LcCondition>& conds, BasicBlo
 
     if (!removedStmt)
     {
-        compiler->gtSetStmtInfo(stmt);
-        compiler->fgSetStmtSeq(stmt);
+        // TODO-MIKE-Review: This shouldn't be needed as we haven't run phFindOperOrder yet.
+        // But removing it causes a few diffs, it's likely that something depends on GTF_REVERSE_OPS
+        // or that running multiple ordering passes results in a different order.
+        compiler->gtSetOrder(stmt->GetRootNode());
     }
 }
 
