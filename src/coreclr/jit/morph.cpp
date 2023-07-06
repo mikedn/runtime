@@ -14149,29 +14149,6 @@ void Compiler::fgMorphStmts(BasicBlock* block)
 
     if (fgRemoveRestOfBlock)
     {
-        if (block->KindIs(BBJ_COND, BBJ_SWITCH))
-        {
-            Statement* first = block->firstStmt();
-            noway_assert(first);
-            Statement* lastStmt = block->lastStmt();
-            noway_assert(lastStmt && lastStmt->GetNextStmt() == nullptr);
-            GenTree* last = lastStmt->GetRootNode();
-
-            if (((block->bbJumpKind == BBJ_COND) && (last->gtOper == GT_JTRUE)) ||
-                ((block->bbJumpKind == BBJ_SWITCH) && (last->gtOper == GT_SWITCH)))
-            {
-                GenTree* op1 = last->AsOp()->gtOp1;
-
-                if (op1->OperIsCompare())
-                {
-                    /* Unmark the comparison node with GTF_RELOP_JMP_USED */
-                    op1->gtFlags &= ~GTF_RELOP_JMP_USED;
-                }
-
-                lastStmt->SetRootNode(fgMorphTree(op1));
-            }
-        }
-
         fgConvertBBToThrowBB(block);
     }
     else if (block->KindIs(BBJ_COND, BBJ_SWITCH) && opts.OptimizationEnabled())
