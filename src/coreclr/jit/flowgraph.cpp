@@ -2916,47 +2916,42 @@ void Compiler::phSetBlockOrder()
 {
     for (BasicBlock* block : Blocks())
     {
-        fgSequenceBlockStatements(block);
+        for (Statement* stmt : block->Statements())
+        {
+            // TODO-MIKE-Cleanup: We don't really need costs until LoopHoist/CSE.
+            // Moving this results in a few diffs - costs are dependent on DNER
+            // and liveness may make new DNER locals due to EH, so we get higher
+            // costs after liveness and thus extra CSEs.
+            gtSetCosts(stmt->GetRootNode());
+
+            gtSetOrder(stmt->GetRootNode());
+            fgSetStmtSeq(stmt);
+
+            if (stmt->GetNextStmt() == nullptr)
+            {
+                noway_assert(block->lastStmt() == stmt);
+
+                break;
+            }
+
+#ifdef DEBUG
+            if (block->bbStmtList == stmt)
+            {
+                assert(stmt->GetPrevStmt()->GetNextStmt() == nullptr);
+            }
+            else
+            {
+                assert(stmt->GetPrevStmt()->GetNextStmt() == stmt);
+            }
+
+            assert(stmt->GetNextStmt()->GetPrevStmt() == stmt);
+#endif
+        }
     }
 
     fgStmtListThreaded = true;
 
     INDEBUG(fgDebugCheckLinks());
-}
-
-void Compiler::fgSequenceBlockStatements(BasicBlock* block)
-{
-    for (Statement* stmt : block->Statements())
-    {
-        // TODO-MIKE-Cleanup: We don't really need costs until LoopHoist/CSE.
-        // Moving this results in a few diffs - costs are dependent on DNER
-        // and liveness may make new DNER locals due to EH, so we get higher
-        // costs after liveness and thus extra CSEs.
-        gtSetCosts(stmt->GetRootNode());
-
-        gtSetOrder(stmt->GetRootNode());
-        fgSetStmtSeq(stmt);
-
-        if (stmt->GetNextStmt() == nullptr)
-        {
-            noway_assert(block->lastStmt() == stmt);
-
-            break;
-        }
-
-#ifdef DEBUG
-        if (block->bbStmtList == stmt)
-        {
-            assert(stmt->GetPrevStmt()->GetNextStmt() == nullptr);
-        }
-        else
-        {
-            assert(stmt->GetPrevStmt()->GetNextStmt() == stmt);
-        }
-
-        assert(stmt->GetNextStmt()->GetPrevStmt() == stmt);
-#endif
-    }
 }
 
 //------------------------------------------------------------------------
