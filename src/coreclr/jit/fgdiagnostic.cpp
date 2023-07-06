@@ -3242,27 +3242,25 @@ void Compiler::fgDebugCheckStmtsList(BasicBlock* block, bool morphTrees)
         // Note that for the statements list, the GetPrevStmt() list is circular.
         // The GetNextStmt() list is not: GetNextStmt() of the last statement in a block is nullptr.
 
-        noway_assert(stmt->GetPrevStmt() != nullptr);
+        assert(stmt->GetPrevStmt() != nullptr);
 
         if (stmt == block->bbStmtList)
         {
-            noway_assert(stmt->GetPrevStmt()->GetNextStmt() == nullptr);
+            assert(stmt->GetPrevStmt()->GetNextStmt() == nullptr);
         }
         else
         {
-            noway_assert(stmt->GetPrevStmt()->GetNextStmt() == stmt);
+            assert(stmt->GetPrevStmt()->GetNextStmt() == stmt);
         }
 
         if (stmt->GetNextStmt() != nullptr)
         {
-            noway_assert(stmt->GetNextStmt()->GetPrevStmt() == stmt);
+            assert(stmt->GetNextStmt()->GetPrevStmt() == stmt);
         }
         else
         {
-            noway_assert(block->lastStmt() == stmt);
+            assert(block->lastStmt() == stmt);
         }
-
-        noway_assert(stmt->GetRootNode() != nullptr);
 
         fgDebugCheckFlags(stmt->GetRootNode());
 
