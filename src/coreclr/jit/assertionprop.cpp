@@ -3096,20 +3096,14 @@ private:
             // propagation on X.
 
             GenTree* sideEffects = ExtractConstTreeSideEffects(relop);
+            assert(sideEffects != relop);
 
-            relop->ChangeOperConst(GT_CNS_INT);
-            relop->SetType(TYP_INT);
-            int32_t value = m_vnStore->CoercedConstantValue<int64_t>(vn) != 0 ? 1 : 0;
-            relop->AsIntCon()->SetValue(value);
-            vn = m_vnStore->VNForIntCon(value);
-            relop->SetVNP({vn, vn});
+            relop->ChangeToIntCon(m_vnStore->CoercedConstantValue<int64_t>(vn) != 0 ? 1 : 0);
+            JITDUMP("After JTRUE constant propagation:\n");
+            DBEXEC(m_compiler->verbose, m_compiler->gtDispStmt(stmt));
 
-            JITDUMP("After JTRUE constant propagation on " FMT_TREEID ":\n", relop->GetID());
-            DBEXEC(VERBOSE, m_compiler->gtDispStmt(stmt));
-
-            // TODO-MIKE-Review: Why bother with fgMorphBlockStmt?
-            bool removedStmt = m_compiler->fgMorphBlockStmt(m_block, stmt DEBUGARG(__FUNCTION__));
-            assert(removedStmt);
+            bool folded = m_compiler->fgFoldConditional(m_block);
+            assert(folded);
             assert(m_block->bbJumpKind != BBJ_COND);
 
             if (sideEffects == nullptr)
