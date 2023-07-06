@@ -4927,7 +4927,7 @@ private:
 
     void fgMarkAddressExposedLocals();
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_X86)
     // Rewrite appearances of implicit byrefs (manifest the implied additional level of indirection)
     // or stack params of x86 varargs methods.
     void fgMorphIndirectParams(Statement* stmt);

@@ -229,9 +229,6 @@
 #define MULTIREG_HAS_SECOND_GC_RET_ONLY(x)
 #endif // defined(UNIX_AMD64_ABI)
 
-// To get rid of warning 4701 : local variable may be used without being initialized
-#define DUMMY_INIT(x) (x)
-
 #define REGEN_SHORTCUTS 0
 #define REGEN_CALLPAT 0
 

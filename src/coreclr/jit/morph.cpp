@@ -14035,16 +14035,17 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         fgGlobalMorphStmt = stmt;
 
 #ifdef DEBUG
-        unsigned oldHash = verbose ? gtHashValue(stmt->GetRootNode()) : DUMMY_INIT(~0);
+        unsigned oldHash = 0;
 
         if (verbose)
         {
+            oldHash = gtHashValue(stmt->GetRootNode());
             printf("\nfgMorphTree " FMT_BB ", " FMT_STMT " (before)\n", block->bbNum, stmt->GetID());
             gtDispTree(stmt->GetRootNode());
         }
 #endif
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_X86)
         fgMorphIndirectParams(stmt);
 #endif
 
@@ -14116,8 +14117,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         /* If the hash value changes. we modified the tree during morphing */
         if (verbose)
         {
-            unsigned newHash = gtHashValue(morphedTree);
-            if (newHash != oldHash)
+            if (gtHashValue(morphedTree) != oldHash)
             {
                 printf("\nfgMorphTree " FMT_BB ", " FMT_STMT " (after)\n", block->bbNum, stmt->GetID());
                 gtDispTree(morphedTree);
