@@ -596,7 +596,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             // Did we get a comma throw as a result of gtFoldExprConst?
             if (folded != cast)
             {
-                noway_assert(fgIsCommaThrow(folded));
+                noway_assert(fgIsCommaThrow(folded DEBUGARG(false)));
                 folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
                 INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
                 return folded;
@@ -650,7 +650,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             break;
 
         case GT_COMMA:
-            if (fgIsCommaThrow(src))
+            if (fgIsCommaThrow(src DEBUGARG(false)))
             {
                 GenTree* val = src->AsOp()->GetOp(1);
 
@@ -10047,7 +10047,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         return fgMorphTree(result);
     }
 
-    if (fgIsCommaThrow(condExpr, true))
+    if (fgIsCommaThrow(condExpr DEBUGARG(true)))
     {
         fgRemoveRestOfBlock = true;
         assert(condExpr->OperIs(GT_COMMA));
@@ -10663,7 +10663,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             // Did we fold it into a comma node with throw?
             if (tree->gtOper == GT_COMMA)
             {
-                noway_assert(fgIsCommaThrow(tree));
+                noway_assert(fgIsCommaThrow(tree DEBUGARG(false)));
                 return fgMorphTree(tree);
             }
         }
@@ -10904,7 +10904,7 @@ DONE_MORPHING_CHILDREN:
         }
 
         /* If we created a comma-throw tree then we need to morph op1 */
-        if (fgIsCommaThrow(tree))
+        if (fgIsCommaThrow(tree DEBUGARG(false)))
         {
             tree->AsOp()->gtOp1 = fgMorphTree(tree->AsOp()->gtOp1);
             INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
@@ -12111,7 +12111,7 @@ DONE_MORPHING_CHILDREN:
             /* Special case if fgRemoveRestOfBlock is set to true */
             if (fgRemoveRestOfBlock)
             {
-                if (fgIsCommaThrow(op1, true))
+                if (fgIsCommaThrow(op1 DEBUGARG(true)))
                 {
                     GenTree* throwNode = op1->AsOp()->gtOp1;
 
@@ -12164,7 +12164,7 @@ DONE_MORPHING_CHILDREN:
         (oper != GT_OBJ) && (oper != GT_BLK) && (oper != GT_INIT_VAL))
     {
         /* Check for op1 as a GT_COMMA with a unconditional throw node */
-        if (op1 && fgIsCommaThrow(op1, true))
+        if (op1 && fgIsCommaThrow(op1 DEBUGARG(true)))
         {
             /* We can safely throw out the rest of the statements */
             fgRemoveRestOfBlock = true;
@@ -12233,7 +12233,7 @@ DONE_MORPHING_CHILDREN:
             }
         }
 
-        if ((op2 != nullptr) && fgIsCommaThrow(op2, true))
+        if ((op2 != nullptr) && fgIsCommaThrow(op2 DEBUGARG(true)))
         {
             fgRemoveRestOfBlock = true;
 
@@ -12887,7 +12887,7 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
 
         if (!con->IsLngCon())
         {
-            noway_assert(fgIsCommaThrow(con));
+            noway_assert(fgIsCommaThrow(con DEBUGARG(false)));
             con = fgMorphTree(con);
         }
 
@@ -13621,435 +13621,340 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
     INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 }
 
-/*****************************************************************************
- *
- *  Check and fold blocks of type BBJ_COND and BBJ_SWITCH on constants
- *  Returns true if we modified the flow graph
- */
-
+// Check and fold blocks of type BBJ_COND and BBJ_SWITCH on constants
+// Returns true if we modified the flow graph
 bool Compiler::fgFoldConditional(BasicBlock* block)
 {
-    bool result = false;
-
-    // We don't want to make any code unreachable
-    if (opts.OptimizationDisabled())
-    {
-        return false;
-    }
+    assert(opts.OptimizationEnabled());
 
     if (block->bbJumpKind == BBJ_COND)
     {
-        noway_assert(block->bbStmtList != nullptr && block->bbStmtList->GetPrevStmt() != nullptr);
-
-        Statement* lastStmt = block->lastStmt();
-
+        noway_assert((block->bbStmtList != nullptr) && (block->bbStmtList->GetPrevStmt() != nullptr));
+        Statement* lastStmt = block->GetLastStatement();
         noway_assert(lastStmt->GetNextStmt() == nullptr);
 
-        if (lastStmt->GetRootNode()->gtOper == GT_CALL)
+        if (!lastStmt->GetRootNode()->OperIs(GT_JTRUE))
         {
+            noway_assert(lastStmt->GetRootNode()->OperIs(GT_CALL));
             noway_assert(fgRemoveRestOfBlock);
 
-            /* Unconditional throw - transform the basic block into a BBJ_THROW */
             fgConvertBBToThrowBB(block);
+            JITDUMP("\nConditional folded at " FMT_BB "\n" FMT_BB " becomes a BBJ_THROW\n", block->bbNum, block->bbNum);
 
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("\nConditional folded at " FMT_BB "\n", block->bbNum);
-                printf(FMT_BB " becomes a BBJ_THROW\n", block->bbNum);
-            }
-#endif
-            goto DONE_COND;
+            return true;
         }
 
-        noway_assert(lastStmt->GetRootNode()->gtOper == GT_JTRUE);
+        GenTree* condTree = lastStmt->GetRootNode()->AsUnOp()->GetOp(0);
+        GenTree* cond     = condTree->SkipComma();
 
-        /* Did we fold the conditional */
-
-        noway_assert(lastStmt->GetRootNode()->AsOp()->gtOp1);
-        GenTree* condTree;
-        condTree = lastStmt->GetRootNode()->AsOp()->gtOp1;
-        GenTree* cond;
-        cond = condTree->SkipComma();
-
-        if (cond->OperIsConst())
+        if (!cond->IsIntCon())
         {
-            /* Yupee - we folded the conditional!
-             * Remove the conditional statement */
+            return false;
+        }
 
-            noway_assert(cond->gtOper == GT_CNS_INT);
-            noway_assert((block->bbNext->countOfInEdges() > 0) && (block->bbJumpDest->countOfInEdges() > 0));
+        noway_assert((block->bbNext->countOfInEdges() > 0) && (block->bbJumpDest->countOfInEdges() > 0));
 
-            if (condTree != cond)
+        if (condTree != cond)
+        {
+            assert(condTree->OperIs(GT_COMMA));
+            lastStmt->SetRootNode(condTree);
+        }
+        else
+        {
+            fgRemoveStmt(block, lastStmt);
+        }
+
+        BasicBlock* bTaken;
+        BasicBlock* bNotTaken;
+
+        if (cond->AsIntCon()->GetValue() != 0)
+        {
+            block->bbJumpKind = BBJ_ALWAYS;
+            bTaken            = block->bbJumpDest;
+            bNotTaken         = block->bbNext;
+        }
+        else
+        {
+            // Unmark the loop if we are removing a backwards branch
+            // dest block must also be marked as a loop head and
+            // We must be able to reach the backedge block
+            if ((block->bbJumpDest->isLoopHead()) && (block->bbJumpDest->bbNum <= block->bbNum) &&
+                fgReachable(block->bbJumpDest, block))
             {
-                // Preserve any side effects
-                assert(condTree->OperIs(GT_COMMA));
-                lastStmt->SetRootNode(condTree);
+                optUnmarkLoopBlocks(block->bbJumpDest, block);
             }
-            else
-            {
-                // no side effects, remove the jump entirely
-                fgRemoveStmt(block, lastStmt);
-            }
-            // block is a BBJ_COND that we are folding the conditional for.
-            // bTaken is the path that will always be taken from block.
-            // bNotTaken is the path that will never be taken from block.
+
+            block->bbJumpKind = BBJ_NONE;
+            bTaken            = block->bbNext;
+            bNotTaken         = block->bbJumpDest;
+        }
+
+        if (fgHaveValidEdgeWeights)
+        {
+            // We are removing an edge from block to bNotTaken
+            // and we have already computed the edge weights, so
+            // we will try to adjust some of the weights
             //
-            BasicBlock* bTaken;
-            BasicBlock* bNotTaken;
+            flowList*   edgeTaken = fgGetPredForBlock(bTaken, block);
+            BasicBlock* bUpdated  = nullptr; // non-NULL if we updated the weight of an internal block
 
-            if (cond->AsIntCon()->gtIconVal != 0)
+            // We examine the taken edge (block -> bTaken)
+            // if block has valid profile weight and bTaken does not we try to adjust bTaken's weight
+            // else if bTaken has valid profile weight and block does not we try to adjust block's weight
+            // We can only adjust the block weights when (the edge block -> bTaken) is the only edge into bTaken
+            //
+            if (block->hasProfileWeight())
             {
-                /* JTRUE 1 - transform the basic block into a BBJ_ALWAYS */
-                block->bbJumpKind = BBJ_ALWAYS;
-                bTaken            = block->bbJumpDest;
-                bNotTaken         = block->bbNext;
-            }
-            else
-            {
-                /* Unmark the loop if we are removing a backwards branch */
-                /* dest block must also be marked as a loop head and     */
-                /* We must be able to reach the backedge block           */
-                if ((block->bbJumpDest->isLoopHead()) && (block->bbJumpDest->bbNum <= block->bbNum) &&
-                    fgReachable(block->bbJumpDest, block))
+                // The edge weights for (block -> bTaken) are 100% of block's weight
+
+                edgeTaken->setEdgeWeights(block->bbWeight, block->bbWeight, bTaken);
+
+                if (!bTaken->hasProfileWeight())
                 {
-                    optUnmarkLoopBlocks(block->bbJumpDest, block);
-                }
-
-                /* JTRUE 0 - transform the basic block into a BBJ_NONE   */
-                block->bbJumpKind = BBJ_NONE;
-                bTaken            = block->bbNext;
-                bNotTaken         = block->bbJumpDest;
-            }
-
-            if (fgHaveValidEdgeWeights)
-            {
-                // We are removing an edge from block to bNotTaken
-                // and we have already computed the edge weights, so
-                // we will try to adjust some of the weights
-                //
-                flowList*   edgeTaken = fgGetPredForBlock(bTaken, block);
-                BasicBlock* bUpdated  = nullptr; // non-NULL if we updated the weight of an internal block
-
-                // We examine the taken edge (block -> bTaken)
-                // if block has valid profile weight and bTaken does not we try to adjust bTaken's weight
-                // else if bTaken has valid profile weight and block does not we try to adjust block's weight
-                // We can only adjust the block weights when (the edge block -> bTaken) is the only edge into bTaken
-                //
-                if (block->hasProfileWeight())
-                {
-                    // The edge weights for (block -> bTaken) are 100% of block's weight
-
-                    edgeTaken->setEdgeWeights(block->bbWeight, block->bbWeight, bTaken);
-
-                    if (!bTaken->hasProfileWeight())
+                    if ((bTaken->countOfInEdges() == 1) || (bTaken->bbWeight < block->bbWeight))
                     {
-                        if ((bTaken->countOfInEdges() == 1) || (bTaken->bbWeight < block->bbWeight))
-                        {
-                            // Update the weight of bTaken
-                            bTaken->inheritWeight(block);
-                            bUpdated = bTaken;
-                        }
-                    }
-                }
-                else if (bTaken->hasProfileWeight())
-                {
-                    if (bTaken->countOfInEdges() == 1)
-                    {
-                        // There is only one in edge to bTaken
-                        edgeTaken->setEdgeWeights(bTaken->bbWeight, bTaken->bbWeight, bTaken);
-
-                        // Update the weight of block
-                        block->inheritWeight(bTaken);
-                        bUpdated = block;
-                    }
-                }
-
-                if (bUpdated != nullptr)
-                {
-                    BasicBlock::weight_t newMinWeight;
-                    BasicBlock::weight_t newMaxWeight;
-
-                    flowList* edge;
-                    // Now fix the weights of the edges out of 'bUpdated'
-                    switch (bUpdated->bbJumpKind)
-                    {
-                        case BBJ_NONE:
-                            edge         = fgGetPredForBlock(bUpdated->bbNext, bUpdated);
-                            newMaxWeight = bUpdated->bbWeight;
-                            newMinWeight = min(edge->edgeWeightMin(), newMaxWeight);
-                            edge->setEdgeWeights(newMinWeight, newMaxWeight, bUpdated->bbNext);
-                            break;
-
-                        case BBJ_COND:
-                            edge         = fgGetPredForBlock(bUpdated->bbNext, bUpdated);
-                            newMaxWeight = bUpdated->bbWeight;
-                            newMinWeight = min(edge->edgeWeightMin(), newMaxWeight);
-                            edge->setEdgeWeights(newMinWeight, newMaxWeight, bUpdated->bbNext);
-                            FALLTHROUGH;
-
-                        case BBJ_ALWAYS:
-                            edge         = fgGetPredForBlock(bUpdated->bbJumpDest, bUpdated);
-                            newMaxWeight = bUpdated->bbWeight;
-                            newMinWeight = min(edge->edgeWeightMin(), newMaxWeight);
-                            edge->setEdgeWeights(newMinWeight, newMaxWeight, bUpdated->bbNext);
-                            break;
-
-                        default:
-                            // We don't handle BBJ_SWITCH
-                            break;
+                        // Update the weight of bTaken
+                        bTaken->inheritWeight(block);
+                        bUpdated = bTaken;
                     }
                 }
             }
-
-            /* modify the flow graph */
-
-            /* Remove 'block' from the predecessor list of 'bNotTaken' */
-            fgRemoveRefPred(bNotTaken, block);
-
-#ifdef DEBUG
-            if (verbose)
+            else if (bTaken->hasProfileWeight())
             {
-                printf("\nConditional folded at " FMT_BB "\n", block->bbNum);
-                printf(FMT_BB " becomes a %s", block->bbNum,
-                       block->bbJumpKind == BBJ_ALWAYS ? "BBJ_ALWAYS" : "BBJ_NONE");
-                if (block->bbJumpKind == BBJ_ALWAYS)
+                if (bTaken->countOfInEdges() == 1)
                 {
-                    printf(" to " FMT_BB, block->bbJumpDest->bbNum);
-                }
-                printf("\n");
-            }
-#endif
+                    // There is only one in edge to bTaken
+                    edgeTaken->setEdgeWeights(bTaken->bbWeight, bTaken->bbWeight, bTaken);
 
-            /* if the block was a loop condition we may have to modify
-             * the loop table */
-
-            for (unsigned loopNum = 0; loopNum < optLoopCount; loopNum++)
-            {
-                /* Some loops may have been already removed by
-                 * loop unrolling or conditional folding */
-
-                if (optLoopTable[loopNum].lpFlags & LPFLG_REMOVED)
-                {
-                    continue;
-                }
-
-                /* We are only interested in the loop bottom */
-
-                if (optLoopTable[loopNum].lpBottom == block)
-                {
-                    if (cond->AsIntCon()->gtIconVal == 0)
-                    {
-                        /* This was a bogus loop (condition always false)
-                         * Remove the loop from the table */
-
-                        optLoopTable[loopNum].lpFlags |= LPFLG_REMOVED;
-#if FEATURE_LOOP_ALIGN
-                        optLoopTable[loopNum].lpFirst->bbFlags &= ~BBF_LOOP_ALIGN;
-                        JITDUMP("Removing LOOP_ALIGN flag from bogus loop in " FMT_BB "\n",
-                                optLoopTable[loopNum].lpFirst->bbNum);
-#endif
-
-#ifdef DEBUG
-                        if (verbose)
-                        {
-                            printf("Removing loop " FMT_LP " (from " FMT_BB " to " FMT_BB ")\n\n", loopNum,
-                                   optLoopTable[loopNum].lpFirst->bbNum, optLoopTable[loopNum].lpBottom->bbNum);
-                        }
-#endif
-                    }
+                    // Update the weight of block
+                    block->inheritWeight(bTaken);
+                    bUpdated = block;
                 }
             }
-        DONE_COND:
-            result = true;
+
+            if (bUpdated != nullptr)
+            {
+                BasicBlock::weight_t newMinWeight;
+                BasicBlock::weight_t newMaxWeight;
+
+                flowList* edge;
+                // Now fix the weights of the edges out of 'bUpdated'
+                switch (bUpdated->bbJumpKind)
+                {
+                    case BBJ_NONE:
+                        edge         = fgGetPredForBlock(bUpdated->bbNext, bUpdated);
+                        newMaxWeight = bUpdated->bbWeight;
+                        newMinWeight = min(edge->edgeWeightMin(), newMaxWeight);
+                        edge->setEdgeWeights(newMinWeight, newMaxWeight, bUpdated->bbNext);
+                        break;
+
+                    case BBJ_COND:
+                        edge         = fgGetPredForBlock(bUpdated->bbNext, bUpdated);
+                        newMaxWeight = bUpdated->bbWeight;
+                        newMinWeight = min(edge->edgeWeightMin(), newMaxWeight);
+                        edge->setEdgeWeights(newMinWeight, newMaxWeight, bUpdated->bbNext);
+                        FALLTHROUGH;
+
+                    case BBJ_ALWAYS:
+                        edge         = fgGetPredForBlock(bUpdated->bbJumpDest, bUpdated);
+                        newMaxWeight = bUpdated->bbWeight;
+                        newMinWeight = min(edge->edgeWeightMin(), newMaxWeight);
+                        edge->setEdgeWeights(newMinWeight, newMaxWeight, bUpdated->bbNext);
+                        break;
+
+                    default:
+                        // We don't handle BBJ_SWITCH
+                        break;
+                }
+            }
         }
+
+        fgRemoveRefPred(bNotTaken, block);
+
+#ifdef DEBUG
+        if (verbose)
+        {
+            printf("\nConditional folded at " FMT_BB "\n", block->bbNum);
+            printf(FMT_BB " becomes a %s", block->bbNum, block->bbJumpKind == BBJ_ALWAYS ? "BBJ_ALWAYS" : "BBJ_NONE");
+            if (block->bbJumpKind == BBJ_ALWAYS)
+            {
+                printf(" to " FMT_BB, block->bbJumpDest->bbNum);
+            }
+            printf("\n");
+        }
+#endif
+
+        // If the block was a loop condition we may have to modify the loop table.
+        for (unsigned loopNum = 0; loopNum < optLoopCount; loopNum++)
+        {
+            /* Some loops may have been already removed by
+             * loop unrolling or conditional folding */
+
+            if (optLoopTable[loopNum].lpFlags & LPFLG_REMOVED)
+            {
+                continue;
+            }
+
+            /* We are only interested in the loop bottom */
+
+            if (optLoopTable[loopNum].lpBottom == block)
+            {
+                if (cond->AsIntCon()->gtIconVal == 0)
+                {
+                    /* This was a bogus loop (condition always false)
+                     * Remove the loop from the table */
+
+                    optLoopTable[loopNum].lpFlags |= LPFLG_REMOVED;
+#if FEATURE_LOOP_ALIGN
+                    optLoopTable[loopNum].lpFirst->bbFlags &= ~BBF_LOOP_ALIGN;
+                    JITDUMP("Removing LOOP_ALIGN flag from bogus loop in " FMT_BB "\n",
+                            optLoopTable[loopNum].lpFirst->bbNum);
+#endif
+
+#ifdef DEBUG
+                    if (verbose)
+                    {
+                        printf("Removing loop " FMT_LP " (from " FMT_BB " to " FMT_BB ")\n\n", loopNum,
+                               optLoopTable[loopNum].lpFirst->bbNum, optLoopTable[loopNum].lpBottom->bbNum);
+                    }
+#endif
+                }
+            }
+        }
+
+        return true;
     }
-    else if (block->bbJumpKind == BBJ_SWITCH)
+
+    if (block->bbJumpKind == BBJ_SWITCH)
     {
-        noway_assert(block->bbStmtList != nullptr && block->bbStmtList->GetPrevStmt() != nullptr);
-
-        Statement* lastStmt = block->lastStmt();
-
+        noway_assert((block->bbStmtList != nullptr) && (block->bbStmtList->GetPrevStmt() != nullptr));
+        Statement* lastStmt = block->GetLastStatement();
         noway_assert(lastStmt->GetNextStmt() == nullptr);
 
-        if (lastStmt->GetRootNode()->gtOper == GT_CALL)
+        if (!lastStmt->GetRootNode()->OperIs(GT_SWITCH))
         {
+            noway_assert(lastStmt->GetRootNode()->OperIs(GT_CALL));
             noway_assert(fgRemoveRestOfBlock);
 
-            /* Unconditional throw - transform the basic block into a BBJ_THROW */
             fgConvertBBToThrowBB(block);
+            JITDUMP("\nConditional folded at " FMT_BB "\n" FMT_BB " becomes a BBJ_THROW\n", block->bbNum, block->bbNum);
 
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("\nConditional folded at " FMT_BB "\n", block->bbNum);
-                printf(FMT_BB " becomes a BBJ_THROW\n", block->bbNum);
-            }
-#endif
-            goto DONE_SWITCH;
+            return true;
         }
 
-        noway_assert(lastStmt->GetRootNode()->gtOper == GT_SWITCH);
+        GenTree* condTree = lastStmt->GetRootNode()->AsUnOp()->GetOp(0);
+        GenTree* cond     = condTree->SkipComma();
 
-        /* Did we fold the conditional */
-
-        noway_assert(lastStmt->GetRootNode()->AsOp()->gtOp1);
-        GenTree* condTree;
-        condTree = lastStmt->GetRootNode()->AsOp()->gtOp1;
-        GenTree* cond;
-        cond = condTree->SkipComma();
-
-        if (cond->OperIsConst())
+        if (!cond->IsIntCon())
         {
-            /* Yupee - we folded the conditional!
-             * Remove the conditional statement */
+            return false;
+        }
 
-            noway_assert(cond->gtOper == GT_CNS_INT);
+        if (condTree != cond)
+        {
+            assert(condTree->OperIs(GT_COMMA));
+            lastStmt->SetRootNode(condTree);
+        }
+        else
+        {
+            fgRemoveStmt(block, lastStmt);
+        }
 
-            if (condTree != cond)
+        unsigned const     switchVal = cond->AsIntCon()->GetUInt32Value();
+        unsigned const     jumpCnt   = block->bbJumpSwt->bbsCount;
+        BasicBlock** const jumpTab   = block->bbJumpSwt->bbsDstTab;
+        bool               foundVal  = false;
+
+        for (unsigned val = 0; val < jumpCnt; val++)
+        {
+            BasicBlock* curJump = jumpTab[val];
+
+            assert(curJump->countOfInEdges() > 0);
+
+            // If val matches switchVal or we are at the last entry and
+            // we never found the switch value then set the new jump dest
+
+            if ((val == switchVal) || (!foundVal && (val == jumpCnt - 1)))
             {
-                // Preserve any side effects
-                assert(condTree->OperIs(GT_COMMA));
-                lastStmt->SetRootNode(condTree);
-            }
-            else
-            {
-                // no side effects, remove the switch entirely
-                fgRemoveStmt(block, lastStmt);
-            }
-
-            /* modify the flow graph */
-
-            /* Find the actual jump target */
-            unsigned switchVal;
-            switchVal = (unsigned)cond->AsIntCon()->gtIconVal;
-            unsigned jumpCnt;
-            jumpCnt = block->bbJumpSwt->bbsCount;
-            BasicBlock** jumpTab;
-            jumpTab = block->bbJumpSwt->bbsDstTab;
-            bool foundVal;
-            foundVal = false;
-
-            for (unsigned val = 0; val < jumpCnt; val++, jumpTab++)
-            {
-                BasicBlock* curJump = *jumpTab;
-
-                assert(curJump->countOfInEdges() > 0);
-
-                // If val matches switchVal or we are at the last entry and
-                // we never found the switch value then set the new jump dest
-
-                if ((val == switchVal) || (!foundVal && (val == jumpCnt - 1)))
+                if (curJump != block->bbNext)
                 {
-                    if (curJump != block->bbNext)
-                    {
-                        /* transform the basic block into a BBJ_ALWAYS */
-                        block->bbJumpKind = BBJ_ALWAYS;
-                        block->bbJumpDest = curJump;
-                    }
-                    else
-                    {
-                        /* transform the basic block into a BBJ_NONE */
-                        block->bbJumpKind = BBJ_NONE;
-                    }
-                    foundVal = true;
+                    block->bbJumpKind = BBJ_ALWAYS;
+                    block->bbJumpDest = curJump;
                 }
                 else
                 {
-                    /* Remove 'block' from the predecessor list of 'curJump' */
-                    fgRemoveRefPred(curJump, block);
+                    block->bbJumpKind = BBJ_NONE;
                 }
-            }
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("\nConditional folded at " FMT_BB "\n", block->bbNum);
-                printf(FMT_BB " becomes a %s", block->bbNum,
-                       block->bbJumpKind == BBJ_ALWAYS ? "BBJ_ALWAYS" : "BBJ_NONE");
-                if (block->bbJumpKind == BBJ_ALWAYS)
-                {
-                    printf(" to " FMT_BB, block->bbJumpDest->bbNum);
-                }
-                printf("\n");
-            }
-#endif
-        DONE_SWITCH:
-            result = true;
-        }
-    }
-    return result;
-}
 
-bool Compiler::fgIsThrow(GenTree* tree)
-{
-    if (!tree->IsCall())
-    {
-        return false;
-    }
-    GenTreeCall* call = tree->AsCall();
-    if ((call->gtCallType == CT_HELPER) && s_helperCallProperties.AlwaysThrow(eeGetHelperNum(call->gtCallMethHnd)))
-    {
-        noway_assert(call->gtFlags & GTF_EXCEPT);
+                foundVal = true;
+            }
+            else
+            {
+                fgRemoveRefPred(curJump, block);
+            }
+        }
+
+#ifdef DEBUG
+        if (verbose)
+        {
+            printf("\nConditional folded at " FMT_BB "\n", block->bbNum);
+            printf(FMT_BB " becomes a %s", block->bbNum, block->bbJumpKind == BBJ_ALWAYS ? "BBJ_ALWAYS" : "BBJ_NONE");
+            if (block->bbJumpKind == BBJ_ALWAYS)
+            {
+                printf(" to " FMT_BB, block->bbJumpDest->bbNum);
+            }
+            printf("\n");
+        }
+#endif
+
         return true;
     }
+
     return false;
 }
 
-bool Compiler::fgIsCommaThrow(GenTree* tree, bool forFolding)
+GenTreeCall* Compiler::fgIsThrow(GenTree* tree)
 {
+    return tree->IsHelperCall() && s_helperCallProperties.AlwaysThrow(eeGetHelperNum(tree->AsCall()->GetMethodHandle()))
+               ? tree->AsCall()
+               : nullptr;
+}
+
+GenTreeOp* Compiler::fgIsCommaThrow(GenTree* tree DEBUGARG(bool forFolding))
+{
+#ifdef DEBUG
     if (forFolding && compStressCompile(STRESS_FOLD, 50))
     {
-        return false;
+        return nullptr;
     }
-
-    return tree->OperIs(GT_COMMA) && tree->HasAllSideEffects(GTF_CALL | GTF_EXCEPT) &&
-           fgIsThrow(tree->AsOp()->GetOp(0));
-}
-
-static bool OperIsControlFlow(genTreeOps oper)
-{
-    switch (oper)
-    {
-        case GT_JTRUE:
-        case GT_JCMP:
-        case GT_JCC:
-        case GT_SWITCH:
-        case GT_LABEL:
-        case GT_CALL:
-        case GT_JMP:
-        case GT_RETURN:
-        case GT_RETFILT:
-#ifndef FEATURE_EH_FUNCLETS
-        case GT_END_LFIN:
 #endif
-            return true;
-        default:
-            return false;
-    }
+
+    return tree->OperIs(GT_COMMA) && tree->HasAllSideEffects(GTF_CALL | GTF_EXCEPT) && fgIsThrow(tree->AsOp()->GetOp(0))
+               ? tree->AsOp()
+               : nullptr;
 }
 
-bool Compiler::fgCheckRemoveStmt(BasicBlock* block, Statement* stmt)
+bool Compiler::fgMorphRemoveUselessStmt(BasicBlock* block, Statement* stmt)
 {
     if (opts.compDbgCode)
     {
         return false;
     }
 
-    GenTree*   tree = stmt->GetRootNode();
-    genTreeOps oper = tree->OperGet();
+    GenTree* tree = stmt->GetRootNode();
 
-    if (OperIsControlFlow(oper) || GenTree::OperIsHWIntrinsic(oper) || oper == GT_NO_OP)
+    if (tree->IsControlFlow() || tree->OperIsHWIntrinsic() || tree->OperIs(GT_NO_OP))
     {
         return false;
     }
 
-    // TODO: Use a recursive version of gtNodeHasSideEffects()
-    if (tree->gtFlags & GTF_SIDE_EFFECT)
+    if (tree->HasAnySideEffect(GTF_SIDE_EFFECT))
     {
         return false;
     }
 
     fgRemoveStmt(block, stmt);
+
     return true;
 }
 
@@ -14074,93 +13979,52 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
     assert(stmt != nullptr);
     assert(!csePhase);
 
-    // Reset some ambient state
     fgRemoveRestOfBlock = false;
     fgMorphBlock        = block;
 
     GenTree* morph = fgMorphTree(stmt->GetRootNode());
 
-    // Check for morph as a GT_COMMA with an unconditional throw
-    if (fgIsCommaThrow(morph, true))
+    if (GenTreeOp* comma = fgIsCommaThrow(morph DEBUGARG(true)))
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Folding a top-level fgIsCommaThrow stmt\n");
-            printf("Removing thenExpr as unreachable:\n");
-            gtDispTree(morph->AsOp()->gtOp2);
-            printf("\n");
-        }
-#endif
-        // Use the call as the new stmt
-        morph = morph->AsOp()->gtOp1;
-        noway_assert(morph->gtOper == GT_CALL);
+        JITDUMPTREE(comma->GetOp(1), "Removing unreachable tree from COMMA throw:\n");
+        morph               = comma->GetOp(0)->AsCall();
+        fgRemoveRestOfBlock = true;
     }
-
-    // we can get a throw as a statement root
-    if (fgIsThrow(morph))
+    else if (fgIsThrow(morph))
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("We have a top-level fgIsThrow stmt\n");
-            printf("Removing the rest of block as unreachable:\n");
-        }
-#endif
         fgRemoveRestOfBlock = true;
     }
 
     stmt->SetRootNode(morph);
 
-    // Can the entire tree be removed?
-    bool removedStmt = fgCheckRemoveStmt(block, stmt);
+    bool removedStmt = fgMorphRemoveUselessStmt(block, stmt);
 
-    // Or this is the last statement of a conditional branch that was just folded?
-    if (!removedStmt && (stmt->GetNextStmt() == nullptr) && !fgRemoveRestOfBlock)
+    if (!fgRemoveRestOfBlock && !removedStmt && (stmt->GetNextStmt() == nullptr) && opts.OptimizationEnabled())
     {
-        if (fgFoldConditional(block))
-        {
-            if (block->bbJumpKind != BBJ_THROW)
-            {
-                removedStmt = true;
-            }
-        }
+        removedStmt = fgFoldConditional(block);
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("%s %s tree:\n", msg, (removedStmt ? "removed" : "morphed"));
-        gtDispTree(morph);
-        printf("\n");
-    }
-#endif
+    JITDUMPTREE(morph, "%s %s tree:\n", msg, removedStmt ? "removed" : "morphed");
 
     if (fgRemoveRestOfBlock)
     {
-        // Remove the rest of the stmts in the block
+        JITDUMP("\n%s Block " FMT_BB " becomes a throw block.\n", msg, block->bbNum);
+
+        fgRemoveRestOfBlock = false;
+
         for (Statement* removeStmt : StatementList(stmt->GetNextStmt()))
         {
             fgRemoveStmt(block, removeStmt);
         }
 
         // The rest of block has been removed and we will always throw an exception.
-        //
         // For compDbgCode, we prepend an empty BB as the firstBB, it is BBJ_NONE.
-        // We should not convert it to a ThrowBB.
+        // We should not convert it to a BBJ_THROW.
+
         if ((block != fgFirstBB) || ((fgFirstBB->bbFlags & BBF_INTERNAL) == 0))
         {
-            // Convert block to a throw bb
             fgConvertBBToThrowBB(block);
         }
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\n%s Block " FMT_BB " becomes a throw block.\n", msg, block->bbNum);
-        }
-#endif
-        fgRemoveRestOfBlock = false;
     }
 
     return removedStmt;
@@ -14281,13 +14145,10 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         }
 #endif
 
-        /* Check for morphedTree as a GT_COMMA with an unconditional throw */
-        if (fgIsCommaThrow(morphedTree, true))
+        if (GenTreeOp* comma = fgIsCommaThrow(morphedTree DEBUGARG(true)))
         {
-            /* Use the call as the new stmt */
-            morphedTree = morphedTree->AsOp()->gtOp1;
-            noway_assert(morphedTree->gtOper == GT_CALL);
-
+            JITDUMPTREE(comma->GetOp(1), "Removing unreachable tree from COMMA throw:\n");
+            morphedTree         = comma->GetOp(0)->AsCall();
             fgRemoveRestOfBlock = true;
         }
 
@@ -14300,12 +14161,15 @@ void Compiler::fgMorphStmts(BasicBlock* block)
 
         /* Has the statement been optimized away */
 
-        if (fgCheckRemoveStmt(block, stmt))
+        if (fgMorphRemoveUselessStmt(block, stmt))
         {
             continue;
         }
 
-        fgFoldConditional(block);
+        if (opts.OptimizationEnabled())
+        {
+            fgFoldConditional(block);
+        }
     }
 
     if (fgRemoveRestOfBlock)

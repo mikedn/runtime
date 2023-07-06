@@ -1512,6 +1512,28 @@ public:
         return (gtOper == GT_JTRUE) || (gtOper == GT_JCMP) || (gtOper == GT_JCC);
     }
 
+    bool IsControlFlow() const
+    {
+        switch (gtOper)
+        {
+            case GT_JTRUE:
+            case GT_JCMP:
+            case GT_JCC:
+            case GT_SWITCH:
+            case GT_LABEL:
+            case GT_CALL:
+            case GT_JMP:
+            case GT_RETURN:
+            case GT_RETFILT:
+#ifndef FEATURE_EH_FUNCLETS
+            case GT_END_LFIN:
+#endif
+                return true;
+            default:
+                return false;
+        }
+    }
+
 #ifdef DEBUG
     bool NullOp1Legal() const
     {

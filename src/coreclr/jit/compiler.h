@@ -4148,8 +4148,8 @@ public:
 
     void fgMergeBlockReturn(BasicBlock* block);
 
-    bool fgIsCommaThrow(GenTree* tree, bool forFolding = false);
-    bool fgIsThrow(GenTree* tree);
+    GenTreeOp* fgIsCommaThrow(GenTree* tree DEBUGARG(bool forFolding));
+    GenTreeCall* fgIsThrow(GenTree* tree);
     bool fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(const char* msg));
 
 #ifdef DEBUG
@@ -4421,7 +4421,7 @@ public:
 
     void fgUnlinkStmt(BasicBlock* block, Statement* stmt);
 
-    bool fgCheckRemoveStmt(BasicBlock* block, Statement* stmt);
+    bool fgMorphRemoveUselessStmt(BasicBlock* block, Statement* stmt);
 
     void fgCreateLoopPreHeader(unsigned lnum);
 
