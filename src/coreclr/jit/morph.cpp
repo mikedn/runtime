@@ -13632,17 +13632,7 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
         noway_assert((block->bbStmtList != nullptr) && (block->bbStmtList->GetPrevStmt() != nullptr));
         Statement* lastStmt = block->GetLastStatement();
         noway_assert(lastStmt->GetNextStmt() == nullptr);
-
-        if (!lastStmt->GetRootNode()->OperIs(GT_JTRUE))
-        {
-            noway_assert(lastStmt->GetRootNode()->OperIs(GT_CALL));
-            noway_assert(fgRemoveRestOfBlock);
-
-            fgConvertBBToThrowBB(block);
-            JITDUMP("\nConditional folded at " FMT_BB "\n" FMT_BB " becomes a BBJ_THROW\n", block->bbNum, block->bbNum);
-
-            return true;
-        }
+        noway_assert(lastStmt->GetRootNode()->OperIs(GT_JTRUE));
 
         GenTree* condTree = lastStmt->GetRootNode()->AsUnOp()->GetOp(0);
         GenTree* cond     = condTree->SkipComma();
@@ -13830,17 +13820,7 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
         noway_assert((block->bbStmtList != nullptr) && (block->bbStmtList->GetPrevStmt() != nullptr));
         Statement* lastStmt = block->GetLastStatement();
         noway_assert(lastStmt->GetNextStmt() == nullptr);
-
-        if (!lastStmt->GetRootNode()->OperIs(GT_SWITCH))
-        {
-            noway_assert(lastStmt->GetRootNode()->OperIs(GT_CALL));
-            noway_assert(fgRemoveRestOfBlock);
-
-            fgConvertBBToThrowBB(block);
-            JITDUMP("\nConditional folded at " FMT_BB "\n" FMT_BB " becomes a BBJ_THROW\n", block->bbNum, block->bbNum);
-
-            return true;
-        }
+        noway_assert(lastStmt->GetRootNode()->OperIs(GT_SWITCH));
 
         GenTree* condTree = lastStmt->GetRootNode()->AsUnOp()->GetOp(0);
         GenTree* cond     = condTree->SkipComma();
@@ -13999,11 +13979,6 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
 
     bool removedStmt = fgMorphRemoveUselessStmt(block, stmt);
 
-    if (!fgRemoveRestOfBlock && !removedStmt && (stmt->GetNextStmt() == nullptr) && opts.OptimizationEnabled())
-    {
-        removedStmt = fgFoldConditional(block);
-    }
-
     JITDUMPTREE(morph, "%s %s tree:\n", msg, removedStmt ? "removed" : "morphed");
 
     if (fgRemoveRestOfBlock)
@@ -14025,6 +14000,11 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
         {
             fgConvertBBToThrowBB(block);
         }
+    }
+    else if (morph->OperIs(GT_JTRUE, GT_SWITCH) && opts.OptimizationEnabled())
+    {
+        assert(!removedStmt);
+        removedStmt = fgFoldConditional(block);
     }
 
     return removedStmt;
@@ -14165,16 +14145,11 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         {
             continue;
         }
-
-        if (opts.OptimizationEnabled())
-        {
-            fgFoldConditional(block);
-        }
     }
 
     if (fgRemoveRestOfBlock)
     {
-        if ((block->bbJumpKind == BBJ_COND) || (block->bbJumpKind == BBJ_SWITCH))
+        if (block->KindIs(BBJ_COND, BBJ_SWITCH))
         {
             Statement* first = block->firstStmt();
             noway_assert(first);
@@ -14197,8 +14172,11 @@ void Compiler::fgMorphStmts(BasicBlock* block)
             }
         }
 
-        /* Mark block as a BBJ_THROW block */
         fgConvertBBToThrowBB(block);
+    }
+    else if (block->KindIs(BBJ_COND, BBJ_SWITCH) && opts.OptimizationEnabled())
+    {
+        fgFoldConditional(block);
     }
 
 #if FEATURE_FASTTAILCALL
