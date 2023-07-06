@@ -3234,6 +3234,8 @@ void Compiler::fgDebugCheckLinks(bool morphTrees)
 
 void Compiler::fgDebugCheckStmtsList(BasicBlock* block, bool morphTrees)
 {
+    assert(!block->IsLIR());
+
     for (Statement* const stmt : block->Statements())
     {
         // Verify that bbStmtList is threaded correctly.
@@ -3277,20 +3279,19 @@ void Compiler::fgDebugCheckStmtsList(BasicBlock* block, bool morphTrees)
                 break;
             }
 
-            gtSetOrder(stmt->GetRootNode());
-            gtSetCosts(stmt->GetRootNode());
-            fgSetStmtSeq(stmt);
+            if (fgStmtListThreaded)
+            {
+                gtSetOrder(stmt->GetRootNode());
+                gtSetCosts(stmt->GetRootNode());
+                fgSetStmtSeq(stmt);
+            }
         }
 
         // For each statement check that the nodes are threaded correctly - m_treeList.
         if (fgStmtListThreaded)
         {
             fgDebugCheckNodeLinks(block, stmt);
-
-            if (!block->IsLIR())
-            {
-                INDEBUG(fgCheckTreeSeq(stmt->GetRootNode(), false);)
-            }
+            fgCheckTreeSeq(stmt->GetRootNode(), false);
         }
     }
 }
