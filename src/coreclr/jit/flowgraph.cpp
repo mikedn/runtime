@@ -279,13 +279,6 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
     Statement* pollStmt = fgNewStmtAtEnd(poll, call);
 
-    if (fgStmtListThreaded)
-    {
-        gtSetOrder(pollStmt->GetRootNode());
-        gtSetCosts(pollStmt->GetRootNode());
-        fgSetStmtSeq(pollStmt);
-    }
-
     if ((topKind == BBJ_COND) || (topKind == BBJ_RETURN) || (topKind == BBJ_THROW))
     {
         Statement* stmt = top->firstStmt();
@@ -327,6 +320,10 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
     if (fgStmtListThreaded)
     {
+        gtSetOrder(pollStmt->GetRootNode());
+        gtSetCosts(pollStmt->GetRootNode());
+        fgSetStmtSeq(pollStmt);
+
         gtSetOrder(trapCheckStmt->GetRootNode());
         gtSetCosts(trapCheckStmt->GetRootNode());
         fgSetStmtSeq(trapCheckStmt);
