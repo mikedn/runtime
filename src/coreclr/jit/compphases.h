@@ -68,7 +68,7 @@ CompPhaseNameMacro(PHASE_ADD_COPIES,             "Add copies",                  
 #endif
 CompPhaseNameMacro(PHASE_OPTIMIZE_BOOLS,         "Optimize bools",                 "OPT-BOOL", false, -1, false)
 CompPhaseNameMacro(PHASE_SET_FULLY_INTERRUPTIBLE,"Set fully interruptible",        "FULLY-INT",false, -1, true)
-CompPhaseNameMacro(PHASE_SET_BLOCK_ORDER,        "Set block order",                "BLK-ORD",  false, -1, true)
+CompPhaseNameMacro(PHASE_SET_EVAL_ORDER,         "Set eval order",                 "EVAL-ORD", false, -1, true)
 CompPhaseNameMacro(PHASE_SSA_LIVENESS,           "SSA local var liveness",         "SSA-LIVE", false, -1, false)
 CompPhaseNameMacro(PHASE_ZERO_INITS,             "Redundant zero Inits",           "ZERO-INIT",false, -1, false)
 CompPhaseNameMacro(PHASE_BUILD_SSA,              "Build SSA representation",       "SSA",      true,  -1, false)

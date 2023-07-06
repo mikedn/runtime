@@ -1257,7 +1257,7 @@ bool RangeCheck::Run()
             if (stmtModified)
             {
                 compiler->gtSetOrder(stmt->GetRootNode());
-                compiler->fgSetStmtSeq(stmt);
+                compiler->gtSetStmtSeq(stmt);
             }
         }
     }

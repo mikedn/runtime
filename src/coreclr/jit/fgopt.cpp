@@ -2222,7 +2222,7 @@ void Compiler::fgRemoveConditionalJump(BasicBlock* block)
             {
                 gtSetOrder(test->GetRootNode());
                 gtSetCosts(test->GetRootNode());
-                fgSetStmtSeq(test);
+                gtSetStmtSeq(test);
             }
         }
     }
@@ -2536,7 +2536,7 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
                             Statement* nopStmt = fgNewStmtAtEnd(block, nop);
                             gtSetOrder(nopStmt->GetRootNode());
                             gtSetCosts(nopStmt->GetRootNode());
-                            fgSetStmtSeq(nopStmt);
+                            gtSetStmtSeq(nopStmt);
                         }
 
                         JITDUMP("\nKeeping empty block " FMT_BB " - it is the target of a catch return\n",
@@ -2791,7 +2791,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
                 {
                     gtSetCosts(switchStmt->GetRootNode());
                     gtSetOrder(switchStmt->GetRootNode());
-                    fgSetStmtSeq(switchStmt);
+                    gtSetStmtSeq(switchStmt);
                 }
             }
             else
@@ -2862,7 +2862,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         {
             gtSetCosts(switchStmt->GetRootNode());
             gtSetOrder(switchStmt->GetRootNode());
-            fgSetStmtSeq(switchStmt);
+            gtSetStmtSeq(switchStmt);
         }
 
         return true;
@@ -3298,7 +3298,7 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
                     {
                         gtSetOrder(condStmt->GetRootNode());
                         gtSetCosts(condStmt->GetRootNode());
-                        fgSetStmtSeq(condStmt);
+                        gtSetStmtSeq(condStmt);
                     }
                 }
             }
@@ -3520,7 +3520,7 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
         {
             gtSetCosts(stmt->GetRootNode());
             gtSetOrder(stmt->GetRootNode());
-            fgSetStmtSeq(stmt);
+            gtSetStmtSeq(stmt);
         }
 
         /* Append the expression to our list */

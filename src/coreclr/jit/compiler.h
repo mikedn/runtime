@@ -3229,6 +3229,10 @@ public:
     // Returns true iff the secondNode can be swapped with firstNode.
     bool gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode);
 
+    static GenTree* gtGetFirstNode(GenTree* tree);
+    GenTree* gtSetTreeSeq(GenTree* tree, bool isLIR = false);
+    INDEBUG(void gtCheckTreeSeq(GenTree* tree, bool isLIR = false);)
+    void gtSetStmtSeq(Statement* stmt);
     unsigned gtSetOrder(GenTree* tree);
     unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args);
     void gtSetCosts(GenTree* tree);
@@ -4563,8 +4567,6 @@ public:
     bool fgProfileWeightsEqual(BasicBlock::weight_t weight1, BasicBlock::weight_t weight2);
     bool fgProfileWeightsConsistent(BasicBlock::weight_t weight1, BasicBlock::weight_t weight2);
 
-    static GenTree* fgGetFirstNode(GenTree* tree);
-
     /**************************************************************************
      *                          PROTECTED
      *************************************************************************/
@@ -4703,16 +4705,6 @@ private:
     GenTreeOp* fgRecognizeAndMorphLongMul(GenTreeOp* mul);
     GenTreeOp* fgMorphLongMul(GenTreeOp* mul);
 #endif
-
-    //-------- Determine the order in which the trees will be evaluated -------
-
-    GenTree* fgSetTreeSeq(GenTree* tree, bool isLIR = false);
-#ifdef DEBUG
-    void fgCheckTreeSeq(GenTree* tree, bool isLIR = false);
-#endif
-
-public:
-    void fgSetStmtSeq(Statement* stmt);
 
 private:
 #ifndef TARGET_X86
@@ -6378,7 +6370,7 @@ public:
     void        phAddSpecialLocals();
     void        phImplicitRefLocals();
     void        phRefCountLocals();
-    void        phSetBlockOrder();
+    void        phSetEvalOrder();
     void        phSsaLiveness();
     void        phSsaOpt();
     void        phRemoveRedundantZeroInits();

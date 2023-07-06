@@ -918,7 +918,7 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
     {
         gtSetCosts(stmt->GetRootNode());
         gtSetOrder(stmt->GetRootNode());
-        fgSetStmtSeq(stmt);
+        gtSetStmtSeq(stmt);
 
         // We removed dead nested stores, we need to remove inherited GTF_ASG flags.
         gtUpdateStmtSideEffects(stmt);
@@ -1252,7 +1252,7 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeLclVarCommon* store, Statement* stmt
             comma->SetSideEffects(sideEffects->GetSideEffects());
         }
 
-        fgSetStmtSeq(stmt);
+        gtSetStmtSeq(stmt);
 
         return store;
     }
@@ -1263,7 +1263,7 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeLclVarCommon* store, Statement* stmt
 
         gtSetCosts(sideEffects);
         gtSetOrder(sideEffects);
-        fgSetStmtSeq(stmt);
+        gtSetStmtSeq(stmt);
 
         return sideEffects;
     }

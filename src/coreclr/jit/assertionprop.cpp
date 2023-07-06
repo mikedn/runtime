@@ -2869,7 +2869,7 @@ private:
             // for example when it decides to fgRemoveRestOfBlock.
 
             // TODO-MIKE-Review: Do we really need to remorph? Seems like simply
-            // fgSetStmtSeq should suffice here. Also, this morphs trees before
+            // gtSetStmtSeq should suffice here. Also, this morphs trees before
             // doing constant propagation so we may morph again if they contains
             // constants.
 
@@ -2878,7 +2878,7 @@ private:
             if (!removedStmt)
             {
                 compiler->gtSetOrder(newStmt->GetRootNode());
-                compiler->fgSetStmtSeq(newStmt);
+                compiler->gtSetStmtSeq(newStmt);
             }
         }
 
@@ -2952,7 +2952,7 @@ private:
                 if (!removedStmt)
                 {
                     m_compiler->gtSetOrder(stmt->GetRootNode());
-                    m_compiler->fgSetStmtSeq(stmt);
+                    m_compiler->gtSetStmtSeq(stmt);
                 }
 
                 // Morph didn't add/remove any statements, we're done.
@@ -3643,7 +3643,7 @@ private:
                     if (!removedStmt)
                     {
                         compiler->gtSetOrder(stmt->GetRootNode());
-                        compiler->fgSetStmtSeq(stmt);
+                        compiler->gtSetStmtSeq(stmt);
                     }
                 }
 

@@ -1731,6 +1731,218 @@ GenTree* Compiler::gtReverseCond(GenTree* tree)
     return tree;
 }
 
+void Compiler::phSetEvalOrder()
+{
+    assert(!fgStmtListThreaded);
+
+    for (BasicBlock* block : Blocks())
+    {
+        for (Statement* stmt : block->Statements())
+        {
+            // TODO-MIKE-Cleanup: We don't really need costs until LoopHoist/CSE.
+            // Moving this results in a few diffs - costs are dependent on DNER
+            // and liveness may make new DNER locals due to EH, so we get higher
+            // costs after liveness and thus extra CSEs.
+            gtSetCosts(stmt->GetRootNode());
+
+            gtSetOrder(stmt->GetRootNode());
+            gtSetStmtSeq(stmt);
+        }
+    }
+
+    fgStmtListThreaded = true;
+
+    INDEBUG(fgDebugCheckLinks());
+}
+
+GenTree* Compiler::gtGetFirstNode(GenTree* tree)
+{
+    GenTreeOperandIterator i = tree->OperandsBegin();
+
+    while (i != tree->OperandsEnd())
+    {
+        tree = *i;
+        i    = tree->OperandsBegin();
+    }
+
+    return tree;
+}
+
+// Tree visitor that traverse the entire tree and links nodes in linear execution order.
+class SequenceVisitor : public GenTreeVisitor<SequenceVisitor>
+{
+    GenTree  m_dummyHead;
+    GenTree* m_tail;
+    bool     m_isLIR;
+    INDEBUG(unsigned m_seqNum;)
+
+public:
+    enum
+    {
+        DoPostOrder       = true,
+        UseExecutionOrder = true
+    };
+
+    SequenceVisitor(Compiler* compiler, bool isLIR)
+        : GenTreeVisitor(compiler)
+        , m_tail(&m_dummyHead)
+        , m_isLIR(isLIR)
+#ifdef DEBUG
+        , m_seqNum(0)
+#endif
+    {
+    }
+
+    GenTree* Sequence(GenTree* tree)
+    {
+        WalkTree(&tree, nullptr);
+
+        m_tail->gtNext = nullptr;
+
+        GenTree* head = m_dummyHead.gtNext;
+        head->gtPrev  = nullptr;
+        assert(head->gtSeqNum == 1);
+        return head;
+    }
+
+    fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+    {
+        GenTree* node = *use;
+
+        // If we are sequencing for LIR:
+        // - Clear the reverse ops flag
+        // - If we are processing a node that does not appear in LIR, do not add it to the list.
+        if (m_isLIR)
+        {
+            node->gtFlags &= ~GTF_REVERSE_OPS;
+
+            if (node->OperIs(GT_ARGPLACE))
+            {
+                return Compiler::WALK_CONTINUE;
+            }
+        }
+
+        node->gtPrev   = m_tail;
+        m_tail->gtNext = node;
+        m_tail         = node;
+
+        INDEBUG(node->gtSeqNum = ++m_seqNum;)
+
+        return Compiler::WALK_CONTINUE;
+    }
+};
+
+#ifdef DEBUG
+class SequenceDebugCheckVisitor : public GenTreeVisitor<SequenceDebugCheckVisitor>
+{
+    GenTree*             m_head;
+    GenTree*             m_tail;
+    bool                 m_isLIR;
+    unsigned             m_seqNum;
+    ArrayStack<GenTree*> m_nodeStack;
+    ArrayStack<GenTree*> m_operands;
+
+public:
+    enum
+    {
+        DoPreOrder        = true,
+        DoPostOrder       = true,
+        UseExecutionOrder = true
+    };
+
+    SequenceDebugCheckVisitor(Compiler* compiler, bool isLIR)
+        : GenTreeVisitor(compiler)
+        , m_head(nullptr)
+        , m_tail(nullptr)
+        , m_isLIR(isLIR)
+        , m_seqNum(0)
+        , m_nodeStack(compiler->getAllocator(CMK_DebugOnly))
+        , m_operands(compiler->getAllocator(CMK_DebugOnly))
+    {
+    }
+
+    void CheckSequence(GenTree* tree)
+    {
+        WalkTree(&tree, nullptr);
+
+        assert(m_head->gtPrev == nullptr);
+        assert(m_tail->gtNext == nullptr);
+        assert(m_head->gtSeqNum == 1);
+    }
+
+    fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+    {
+        m_nodeStack.Push(*use);
+        return Compiler::WALK_CONTINUE;
+    }
+
+    fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+    {
+        GenTree* node = *use;
+
+        // GTF_REVERSE_OPS is never set in LIR.
+        assert(!m_isLIR || !node->IsReverseOp());
+
+        // Placeholders are not linked in LIR.
+        if (m_isLIR && node->OperIs(GT_ARGPLACE))
+        {
+            return Compiler::WALK_CONTINUE;
+        }
+
+        // Check if the gtNext/gtPrev links are valid.
+        assert(node->gtSeqNum == ++m_seqNum);
+        assert(node->gtPrev == m_tail);
+        assert((m_tail == nullptr) || (m_tail->gtNext == node));
+
+        if (m_head == nullptr)
+        {
+            m_head = node;
+        }
+
+        m_tail = node;
+
+        // Now check if GenTree::Operands() returns the operands in the correct order.
+        m_operands.Clear();
+
+        // The operands have been pushed by PreOrderVisit onto the node stack but they're
+        // reversed, the last operand is on top of the stack. Move them to another stack
+        // to get the correct order.
+        while (m_nodeStack.Top(0) != node)
+        {
+            m_operands.Push(m_nodeStack.Pop());
+        }
+
+        for (GenTree* op : node->Operands())
+        {
+            assert(m_operands.Top() == op);
+            m_operands.Pop();
+        }
+
+        return Compiler::WALK_CONTINUE;
+    }
+};
+
+void Compiler::gtCheckTreeSeq(GenTree* tree, bool isLIR)
+{
+    SequenceDebugCheckVisitor check(this, isLIR);
+    check.CheckSequence(tree);
+}
+
+#endif // DEBUG
+
+GenTree* Compiler::gtSetTreeSeq(GenTree* tree, bool isLIR)
+{
+    SequenceVisitor visitor(this, isLIR);
+    GenTree*        firstNode = visitor.Sequence(tree);
+    INDEBUG(gtCheckTreeSeq(tree, isLIR));
+    return firstNode;
+}
+
+void Compiler::gtSetStmtSeq(Statement* stmt)
+{
+    stmt->SetTreeList(gtSetTreeSeq(stmt->GetRootNode(), false));
+}
+
 void Compiler::gtSetCallArgsCosts(const GenTreeCall::UseList& args,
                                   bool                        lateArgs,
                                   unsigned*                   callCostEx,
@@ -9856,8 +10068,8 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
 
     if (fgStmtListThreaded)
     {
-        fgSetStmtSeq(asgStmt);
-        fgSetStmtSeq(copyStmt);
+        gtSetStmtSeq(asgStmt);
+        gtSetStmtSeq(copyStmt);
     }
 
     // Box effects were successfully optimized.

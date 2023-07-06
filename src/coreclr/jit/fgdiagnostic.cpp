@@ -3281,7 +3281,7 @@ void Compiler::fgDebugCheckStmtsList(BasicBlock* block, bool morphTrees)
             {
                 gtSetOrder(stmt->GetRootNode());
                 gtSetCosts(stmt->GetRootNode());
-                fgSetStmtSeq(stmt);
+                gtSetStmtSeq(stmt);
             }
         }
 
@@ -3289,7 +3289,7 @@ void Compiler::fgDebugCheckStmtsList(BasicBlock* block, bool morphTrees)
         if (fgStmtListThreaded)
         {
             fgDebugCheckNodeLinks(block, stmt);
-            fgCheckTreeSeq(stmt->GetRootNode(), false);
+            gtCheckTreeSeq(stmt->GetRootNode(), false);
         }
     }
 }

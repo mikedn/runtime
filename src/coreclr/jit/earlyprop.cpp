@@ -123,7 +123,7 @@ private:
                 {
                     compiler->gtSetOrder(stmt->GetRootNode());
                     compiler->gtSetCosts(stmt->GetRootNode());
-                    compiler->fgSetStmtSeq(stmt);
+                    compiler->gtSetStmtSeq(stmt);
                     madeChanges = true;
                 }
             }
@@ -321,7 +321,7 @@ private:
 
             compiler->gtSetOrder(nullCheckStmt->GetRootNode());
             compiler->gtSetCosts(nullCheckStmt->GetRootNode());
-            compiler->fgSetStmtSeq(nullCheckStmt);
+            compiler->gtSetStmtSeq(nullCheckStmt);
             madeChanges = true;
         }
 

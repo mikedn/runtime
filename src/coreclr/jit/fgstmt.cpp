@@ -378,7 +378,7 @@ Statement* Compiler::fgNewStmtFromTree(GenTree* tree, BasicBlock* block, IL_OFFS
     {
         gtSetCosts(stmt->GetRootNode());
         gtSetOrder(stmt->GetRootNode());
-        fgSetStmtSeq(stmt);
+        gtSetStmtSeq(stmt);
     }
 
 #if DEBUG

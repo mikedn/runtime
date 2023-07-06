@@ -2394,7 +2394,7 @@ public:
             // we do CSE, since doing CSE lowers the cost of any parent CSEs.
             compiler->gtSetOrder(stmt->GetRootNode());
             compiler->gtSetCosts(stmt->GetRootNode());
-            compiler->fgSetStmtSeq(stmt);
+            compiler->gtSetStmtSeq(stmt);
 
             cseCount++;
         }

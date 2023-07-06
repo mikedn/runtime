@@ -134,7 +134,7 @@ void LoopHoist::HoistExpr(GenTree* expr, unsigned loopNum)
 
     compiler->gtSetOrder(hoistStmt->GetRootNode());
     compiler->gtSetCosts(hoistStmt->GetRootNode());
-    compiler->fgSetStmtSeq(hoistStmt);
+    compiler->gtSetStmtSeq(hoistStmt);
 
     hoistedCount++;
 
