@@ -2914,6 +2914,8 @@ void Compiler::phSetFullyInterruptible()
 
 void Compiler::phSetBlockOrder()
 {
+    assert(!fgStmtListThreaded);
+
     for (BasicBlock* block : Blocks())
     {
         for (Statement* stmt : block->Statements())
@@ -2926,26 +2928,6 @@ void Compiler::phSetBlockOrder()
 
             gtSetOrder(stmt->GetRootNode());
             fgSetStmtSeq(stmt);
-
-            if (stmt->GetNextStmt() == nullptr)
-            {
-                noway_assert(block->lastStmt() == stmt);
-
-                break;
-            }
-
-#ifdef DEBUG
-            if (block->bbStmtList == stmt)
-            {
-                assert(stmt->GetPrevStmt()->GetNextStmt() == nullptr);
-            }
-            else
-            {
-                assert(stmt->GetPrevStmt()->GetNextStmt() == stmt);
-            }
-
-            assert(stmt->GetNextStmt()->GetPrevStmt() == stmt);
-#endif
         }
     }
 
@@ -2967,7 +2949,6 @@ void Compiler::phSetBlockOrder()
 //     'tree' must either be a leaf, or all of its constituent nodes must be contiguous
 //     in execution order. SequenceDebugCheckVisitor checks this.
 //
-/* static */
 GenTree* Compiler::fgGetFirstNode(GenTree* tree)
 {
     GenTreeOperandIterator i = tree->OperandsBegin();
