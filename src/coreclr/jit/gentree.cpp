@@ -3664,6 +3664,54 @@ bool GenTree::OperMayThrow(Compiler* comp) const
     }
 }
 
+bool Compiler::fgAddrCouldBeNull(GenTree* addr)
+{
+    addr = addr->gtEffectiveVal();
+
+    if (addr->OperIs(GT_ADD))
+    {
+        GenTree* op1 = addr->AsOp()->GetOp(0);
+        GenTree* op2 = addr->AsOp()->GetOp(1);
+
+        if (GenTreeIntCon* const2 = op2->IsIntCon())
+        {
+            // Static struct field boxed instances cannot be null.
+            if ((const2->GetFieldSeq() != nullptr) && (const2->GetFieldSeq()->IsBoxedValueField()))
+            {
+                assert(const2->GetValue() >= TARGET_POINTER_SIZE);
+                return !op1->TypeIs(TYP_REF);
+            }
+        }
+
+        return true;
+    }
+
+    if (addr->OperIs(GT_CNS_INT))
+    {
+        // TODO-MIKE-Review: It's not clear what this has to do with handles. Any
+        // non 0 constant is obviously not null. It may be an invalid address but
+        // it's not like the spec requires detecting such addresses.
+
+        return !addr->IsIconHandle();
+    }
+
+    if (addr->OperIs(GT_CNS_STR, GT_FIELD_ADDR, GT_INDEX_ADDR, GT_LCL_ADDR, GT_CLS_VAR_ADDR))
+    {
+        return false;
+    }
+
+    if (addr->OperIs(GT_LCL_VAR))
+    {
+        // TODO-MIKE-CQ: The return buffer addres is supposed to be non null too.
+        // But surprise, the JIT ABI is broken and the address may be null.
+        // Oh well, given how the address is used it probably doesn't matter.
+
+        return !lvaGetDesc(addr->AsLclVar())->IsImplicitByRefParam();
+    }
+
+    return true;
+}
+
 unsigned GenTreeLclVar::GetMultiRegCount(Compiler* compiler) const
 {
     assert(IsMultiReg());

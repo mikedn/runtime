@@ -13980,6 +13980,79 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
     return result;
 }
 
+bool Compiler::fgIsThrow(GenTree* tree)
+{
+    if (!tree->IsCall())
+    {
+        return false;
+    }
+    GenTreeCall* call = tree->AsCall();
+    if ((call->gtCallType == CT_HELPER) && s_helperCallProperties.AlwaysThrow(eeGetHelperNum(call->gtCallMethHnd)))
+    {
+        noway_assert(call->gtFlags & GTF_EXCEPT);
+        return true;
+    }
+    return false;
+}
+
+bool Compiler::fgIsCommaThrow(GenTree* tree, bool forFolding)
+{
+    if (forFolding && compStressCompile(STRESS_FOLD, 50))
+    {
+        return false;
+    }
+
+    return tree->OperIs(GT_COMMA) && tree->HasAllSideEffects(GTF_CALL | GTF_EXCEPT) &&
+           fgIsThrow(tree->AsOp()->GetOp(0));
+}
+
+static bool OperIsControlFlow(genTreeOps oper)
+{
+    switch (oper)
+    {
+        case GT_JTRUE:
+        case GT_JCMP:
+        case GT_JCC:
+        case GT_SWITCH:
+        case GT_LABEL:
+        case GT_CALL:
+        case GT_JMP:
+        case GT_RETURN:
+        case GT_RETFILT:
+#ifndef FEATURE_EH_FUNCLETS
+        case GT_END_LFIN:
+#endif
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool Compiler::fgCheckRemoveStmt(BasicBlock* block, Statement* stmt)
+{
+    if (opts.compDbgCode)
+    {
+        return false;
+    }
+
+    GenTree*   tree = stmt->GetRootNode();
+    genTreeOps oper = tree->OperGet();
+
+    if (OperIsControlFlow(oper) || GenTree::OperIsHWIntrinsic(oper) || oper == GT_NO_OP)
+    {
+        return false;
+    }
+
+    // TODO: Use a recursive version of gtNodeHasSideEffects()
+    if (tree->gtFlags & GTF_SIDE_EFFECT)
+    {
+        return false;
+    }
+
+    fgRemoveStmt(block, stmt);
+    return true;
+}
+
 //------------------------------------------------------------------------
 // fgMorphBlockStmt: morph a single statement in a block.
 //

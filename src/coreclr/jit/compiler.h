@@ -4148,6 +4148,8 @@ public:
 
     void fgMergeBlockReturn(BasicBlock* block);
 
+    bool fgIsCommaThrow(GenTree* tree, bool forFolding = false);
+    bool fgIsThrow(GenTree* tree);
     bool fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(const char* msg));
 
 #ifdef DEBUG
@@ -4719,10 +4721,6 @@ private:
 #endif
 
     void fgMoveOpsLeft(GenTree* tree);
-
-    bool fgIsCommaThrow(GenTree* tree, bool forFolding = false);
-
-    bool fgIsThrow(GenTree* tree);
 
     bool fgInDifferentRegions(BasicBlock* blk1, BasicBlock* blk2);
     bool fgIsBlockCold(BasicBlock* block);
