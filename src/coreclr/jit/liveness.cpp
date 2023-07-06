@@ -887,9 +887,11 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
 
             if (isDeadStore)
             {
-                GenTree* nextNode = fgRemoveDeadStore(lclNode, stmt, block);
+                INDEBUG(modified = true);
 
-                if (nextNode == nullptr)
+                GenTree* prevNode = fgRemoveDeadStore(lclNode, stmt, block);
+
+                if (prevNode == nullptr)
                 {
                     // The entire statement was removed, we're done.
 
@@ -900,30 +902,10 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
                     return true;
                 }
 
-                if (nextNode == stmt->GetRootNode())
-                {
-                    // The statement root was replaced, sequence the entire statement
-                    // and start over.
-
-                    updateStmt = false;
-
-                    gtSetOrder(stmt->GetRootNode());
-                    gtSetCosts(stmt->GetRootNode());
-                }
-                else
-                {
-                    // The statement was modified. We need to sequence it so we can
-                    // continue the current linear order traversal but we can't call
-                    // gtSetOrder because that would change evaluation order and
-                    // mess up the current traversal. Instead, call gtSetOrder
-                    // after traversal is complete.
-
-                    updateStmt = true;
-                }
-
-                INDEBUG(modified = true;)
-                fgSetStmtSeq(stmt);
-                node = nextNode;
+                // When we have a nested store we have to postpone node reordering
+                // until the current backward liveness traversal is complete.
+                updateStmt = prevNode != stmt->GetRootNode();
+                node       = prevNode;
 
                 continue;
             }
@@ -934,9 +916,11 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
 
     if (updateStmt)
     {
-        gtSetOrder(stmt->GetRootNode());
         gtSetCosts(stmt->GetRootNode());
+        gtSetOrder(stmt->GetRootNode());
         fgSetStmtSeq(stmt);
+
+        // We removed dead nested stores, we need to remove inherited GTF_ASG flags.
         gtUpdateStmtSideEffects(stmt);
     }
 
@@ -1213,7 +1197,6 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
     return useDefRemoved;
 }
 
-// Remove a dead assignment. Returns true if the entire statement was removed.
 GenTree* Compiler::fgRemoveDeadStore(GenTreeLclVarCommon* store, Statement* stmt, BasicBlock* block)
 {
     assert(!compRationalIRForm);
@@ -1229,61 +1212,65 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeLclVarCommon* store, Statement* stmt
 
         if (sideEffects != nullptr)
         {
-            JITDUMPTREE(sideEffects, "Extracted dead assignment side effects:\n");
+            JITDUMPTREE(sideEffects, "Extracted dead store side effects:\n");
             noway_assert((sideEffects->gtFlags & GTF_SIDE_EFFECT) != 0);
         }
     }
 
-    if (store->gtNext == nullptr)
+    if (stmt->GetRootNode() != store)
     {
-        // This is a top level store, we can remove the entire statement
-        // if there are no side effects.
-
-        noway_assert(stmt->GetRootNode() == store);
+        // This is a nested store, we can change it to a NOP/COMMA to avoid
+        // having to find the user (which would usually be a COMMA that now
+        // becomes useless). But we need to be careful about sequencing, we
+        // need to continue the backward traversal so we need to preserve
+        // the original node order - we cannot call gtSetOrder like usual.
 
         if (sideEffects == nullptr)
         {
-            fgRemoveStmt(block, stmt DEBUGARG(false));
-
-            return nullptr;
-        }
-
-        // Replace the assignment statement with the list of side effects
-        // and process the statement again.
-        stmt->SetRootNode(sideEffects);
-        return sideEffects;
-    }
-
-    // This is a nested assignment, we can change it to a NOP/COMMA.
-
-    if (sideEffects == nullptr)
-    {
-        store->ChangeToNothingNode();
-    }
-    else
-    {
-        store->SetOper(GT_COMMA);
-        store->SetType(TYP_VOID);
-
-        GenTreeOp* comma = store->AsOp();
-
-        if (sideEffects->OperIs(GT_COMMA))
-        {
-            comma->SetOp(0, sideEffects->AsOp()->GetOp(0));
-            comma->SetOp(1, sideEffects->AsOp()->GetOp(1));
-            comma->SetReverseOps(sideEffects->IsReverseOp());
+            store->ChangeToNothingNode();
         }
         else
         {
-            comma->SetOp(0, sideEffects);
-            comma->SetOp(1, gtNewNothingNode());
-            comma->SetReverseOps(false);
+            store->SetOper(GT_COMMA);
+            store->SetType(TYP_VOID);
+
+            GenTreeOp* comma = store->AsOp();
+
+            if (sideEffects->OperIs(GT_COMMA))
+            {
+                comma->SetOp(0, sideEffects->AsOp()->GetOp(0));
+                comma->SetOp(1, sideEffects->AsOp()->GetOp(1));
+                comma->SetReverseOps(sideEffects->IsReverseOp());
+            }
+            else
+            {
+                comma->SetOp(0, sideEffects);
+                comma->SetOp(1, gtNewNothingNode());
+                comma->SetReverseOps(false);
+            }
+
+            comma->SetSideEffects(sideEffects->GetSideEffects());
         }
 
-        comma->SetSideEffects(sideEffects->GetSideEffects());
+        fgSetStmtSeq(stmt);
+
+        return store;
     }
 
-    return store;
+    if (sideEffects != nullptr)
+    {
+        stmt->SetRootNode(sideEffects);
+
+        gtSetCosts(sideEffects);
+        gtSetOrder(sideEffects);
+        fgSetStmtSeq(stmt);
+
+        return sideEffects;
+    }
+
+    fgRemoveStmt(block, stmt DEBUGARG(false));
+
+    return nullptr;
 }
 
 void Compiler::fgInterBlockLocalVarLivenessUntracked()
