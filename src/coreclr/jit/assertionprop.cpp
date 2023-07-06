@@ -2104,7 +2104,6 @@ private:
         if (sideEffects != nullptr)
         {
             objectArg = compiler->gtNewCommaNode(sideEffects, objectArg);
-            compiler->fgSetTreeSeq(objectArg);
         }
 
         return UpdateTree(objectArg, call, stmt);
