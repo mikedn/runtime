@@ -130,21 +130,13 @@ void LoopHoist::HoistExpr(GenTree* expr, unsigned loopNum)
     hoist                  = compiler->gtMorphTree(hoist);
 
     Statement* hoistStmt = compiler->fgNewStmtAtEnd(preHead, hoist);
-    hoistStmt->SetCompilerAdded();
-
     compiler->gtSetOrder(hoistStmt->GetRootNode());
     compiler->gtSetCosts(hoistStmt->GetRootNode());
     compiler->gtSetStmtSeq(hoistStmt);
 
     hoistedCount++;
 
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("This hoisted copy placed in PreHeader (" FMT_BB "):\n", preHead->bbNum);
-        compiler->gtDispTree(hoist);
-    }
-#endif
+    JITDUMPTREE(hoist, "This hoisted copy placed in PreHeader (" FMT_BB "):\n", preHead->bbNum);
 
 #if LOOP_HOIST_STATS
     if (!compiler->m_curLoopHasHoistedExpression)

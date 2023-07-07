@@ -208,7 +208,6 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
         if (fgStmtListThreaded)
         {
             gtSetOrder(newStmt->GetRootNode());
-            gtSetCosts(newStmt->GetRootNode());
             gtSetStmtSeq(newStmt);
         }
 
@@ -321,11 +320,9 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
     if (fgStmtListThreaded)
     {
         gtSetOrder(pollStmt->GetRootNode());
-        gtSetCosts(pollStmt->GetRootNode());
         gtSetStmtSeq(pollStmt);
 
         gtSetOrder(trapCheckStmt->GetRootNode());
-        gtSetCosts(trapCheckStmt->GetRootNode());
         gtSetStmtSeq(trapCheckStmt);
     }
 
