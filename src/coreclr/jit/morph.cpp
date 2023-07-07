@@ -11571,10 +11571,14 @@ DONE_MORPHING_CHILDREN:
                         // TODO-MIKE-Review: Allowing LCL_FLD (or DNER LCL_VAR) may result in poor CQ
                         // if CSE doesn't pick it up. But then the question is why the crap is this
                         // being done here instead of codegen to begin with...
+                        // P.S. So this will add a COMMA if it ever runs in LIR?!? Dumbness never ends...
+                        // Basically this only works because morphing does not normally run in LIR
+                        // and it's only useful if this node happens to appear in the argument tree
+                        // of an INTRINSIC call, which is morphed during rationalization.
                         bool needsComma = !op1->OperIsLeaf() && !op1->OperIs(GT_LCL_VAR, GT_LCL_FLD);
                         // if op1 is not a leaf/local we have to introduce a temp via GT_COMMA.
                         // Unfortunately, it's not hoist loop code-friendly yet so let's do it later.
-                        if (!needsComma || (fgOrder == FGOrderLinear))
+                        if (!needsComma || ((currentBlock->bbFlags & BBF_IS_LIR) != 0))
                         {
                             // Fold "x*2.0" to "x+x"
                             op2  = fgMakeMultiUse(&tree->AsOp()->gtOp1);

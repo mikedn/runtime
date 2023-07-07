@@ -28,7 +28,6 @@ enum IndentKind
 //
 // Notes:
 //    The mode of printing is set in the Constructor, using its 'compiler' argument.
-//    Currently it only prints arcs when fgOrder == fgOrderLinear.
 //    The type of arc to print is specified by the IndentInfo enum, and is controlled
 //    by the caller of the Push() method.
 class IndentStack
@@ -3233,7 +3232,7 @@ DONE:
 
 unsigned Compiler::gtSetOrder(GenTree* tree)
 {
-    assert(fgOrder == FGOrderTree);
+    assert(!fgLinearOrder);
 
     INDEBUG(tree->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED);
 

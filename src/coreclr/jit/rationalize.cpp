@@ -433,7 +433,7 @@ void Rationalizer::Run()
         }
     };
 
-    comp->fgOrder = Compiler::FGOrderLinear;
+    INDEBUG(comp->fgLinearOrder = true);
 
     RationalizeVisitor visitor(*this);
     for (BasicBlock* const block : comp->Blocks())

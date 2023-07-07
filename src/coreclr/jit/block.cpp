@@ -780,8 +780,7 @@ void BasicBlock::MakeLIR(GenTree* firstNode, GenTree* lastNode)
 bool BasicBlock::IsLIR() const
 {
     assert(isValid());
-    const bool isLIR = ((bbFlags & BBF_IS_LIR) != 0);
-    return isLIR;
+    return (bbFlags & BBF_IS_LIR) != 0;
 }
 
 //------------------------------------------------------------------------

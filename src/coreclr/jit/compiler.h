@@ -4028,22 +4028,10 @@ public:
 #ifdef DEBUG
     bool fgReachabilitySetsValid = false; // Are the bbReach sets valid?
     bool fgEnterBlksSetValid     = false; // Is the fgEnterBlks set valid?
+    bool fgLinearOrder           = false;
 #endif
 
     bool fgRemoveRestOfBlock; // true if we know that we will throw
-
-    // There are two modes for ordering of the trees.
-    //  - In FGOrderTree, the dominant ordering is the tree order, and the nodes contained in
-    //    each tree and sub-tree are contiguous, and can be traversed (in gtNext/gtPrev order)
-    //    by traversing the tree according to the order of the operands.
-    //  - In FGOrderLinear, the dominant ordering is the linear order.
-
-    enum FlowGraphOrder : uint8_t
-    {
-        FGOrderTree,
-        FGOrderLinear
-    };
-    FlowGraphOrder fgOrder = FGOrderTree;
 
     // The following are boolean flags that keep track of the state of internal data structures
 

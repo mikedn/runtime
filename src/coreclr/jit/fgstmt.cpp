@@ -168,8 +168,7 @@ Statement* Compiler::fgNewStmtAtEnd(BasicBlock* block, GenTree* tree)
 //
 void Compiler::fgInsertStmtNearEnd(BasicBlock* block, Statement* stmt)
 {
-    // This routine can only be used when in tree order.
-    assert(fgOrder == FGOrderTree);
+    assert(!fgLinearOrder);
 
     if ((block->bbJumpKind == BBJ_COND) || (block->bbJumpKind == BBJ_SWITCH) || (block->bbJumpKind == BBJ_RETURN))
     {
@@ -426,7 +425,7 @@ void Compiler::fgUnlinkStmt(BasicBlock* block, Statement* stmt)
 
 void Compiler::fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dumpStmt /* = true */))
 {
-    assert(fgOrder == FGOrderTree);
+    assert(!fgLinearOrder);
 
 #ifdef DEBUG
     if (verbose && dumpStmt)
