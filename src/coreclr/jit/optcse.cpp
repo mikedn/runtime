@@ -2392,9 +2392,8 @@ public:
             // and we can no longer use FindUser, instead we need to traverse the entire statement
             // tree to find the user and that's more expensive. We may also need to update costs as
             // we do CSE, since doing CSE lowers the cost of any parent CSEs.
-            compiler->gtSetOrder(stmt->GetRootNode());
-            compiler->gtSetCosts(stmt->GetRootNode());
             compiler->gtSetStmtSeq(stmt);
+            compiler->gtSetCosts(stmt->GetRootNode());
 
             cseCount++;
         }
