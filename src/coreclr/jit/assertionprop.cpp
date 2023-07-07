@@ -2373,8 +2373,6 @@ private:
             case GT_GT:
             case GT_GE:
                 return PropagateRelop(assertions, node->AsOp(), stmt);
-            case GT_JTRUE:
-                return PropagateJTrue(block, node->AsUnOp());
             case GT_DIV:
             case GT_MOD:
                 return node->TypeIs(TYP_INT) ? PropagateSignedDivision(assertions, node->AsOp(), stmt) : nullptr;
@@ -2815,74 +2813,6 @@ private:
         GenTree* sideEffects = compiler->gtExtractSideEffList(tree, GTF_SIDE_EFFECT, ignoreRoot);
         JITDUMPTREE(sideEffects, "Extracted side effects from constant tree [%06u]:\n", tree->GetID());
         return sideEffects;
-    }
-
-    GenTree* PropagateJTrue(BasicBlock* block, GenTreeUnOp* jtrue)
-    {
-        GenTree* relop = jtrue->GetOp(0);
-
-        // VN based assertion non-null on this relop has been performed.
-        if (!relop->OperIsCompare())
-        {
-            return nullptr;
-        }
-
-        assert((relop->gtFlags & GTF_RELOP_JMP_USED) != 0);
-
-        ValueNum relopVN = vnStore->ExtractValue(relop->GetConservativeVN());
-
-        if (!vnStore->IsVNConstant(relopVN))
-        {
-            return nullptr;
-        }
-
-        GenTree* sideEffects = ExtractConstantSideEffects(relop);
-
-        // Transform the relop into EQ|NE(0, 0)
-        ValueNum vnZero = vnStore->VNForIntCon(0);
-        GenTree* op1    = compiler->gtNewIconNode(0);
-        op1->SetVNP({vnZero, vnZero});
-        relop->AsOp()->SetOp(0, op1);
-        GenTree* op2 = compiler->gtNewIconNode(0);
-        op2->SetVNP({vnZero, vnZero});
-        relop->AsOp()->SetOp(1, op2);
-        relop->SetOper(vnStore->CoercedConstantValue<int64_t>(relopVN) != 0 ? GT_EQ : GT_NE);
-        ValueNum vnLib = vnStore->ExtractValue(relop->GetLiberalVN());
-        relop->SetVNP({vnLib, relopVN});
-
-        while (sideEffects != nullptr)
-        {
-            Statement* newStmt;
-
-            if (sideEffects->OperIs(GT_COMMA))
-            {
-                newStmt     = compiler->fgNewStmtNearEnd(block, sideEffects->AsOp()->GetOp(0));
-                sideEffects = sideEffects->AsOp()->GetOp(1);
-            }
-            else
-            {
-                newStmt     = compiler->fgNewStmtNearEnd(block, sideEffects);
-                sideEffects = nullptr;
-            }
-
-            // fgMorphBlockStmt could potentially affect stmts after the current one,
-            // for example when it decides to fgRemoveRestOfBlock.
-
-            // TODO-MIKE-Review: Do we really need to remorph? Seems like simply
-            // gtSetStmtSeq should suffice here. Also, this morphs trees before
-            // doing constant propagation so we may morph again if they contains
-            // constants.
-
-            bool removedStmt = compiler->fgMorphBlockStmt(block, newStmt DEBUGARG(__FUNCTION__));
-
-            if (!removedStmt)
-            {
-                compiler->gtSetOrder(newStmt->GetRootNode());
-                compiler->gtSetStmtSeq(newStmt);
-            }
-        }
-
-        return jtrue;
     }
 
     class VNConstPropVisitor final : public GenTreeVisitor<VNConstPropVisitor>
