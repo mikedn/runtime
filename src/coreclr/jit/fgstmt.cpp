@@ -376,8 +376,7 @@ Statement* Compiler::fgNewStmtFromTree(GenTree* tree, BasicBlock* block, IL_OFFS
     if (fgStmtListThreaded)
     {
         gtSetCosts(stmt->GetRootNode());
-        gtSetOrder(stmt->GetRootNode());
-        gtSetStmtSeq(stmt);
+        gtSetStmtOrder(stmt);
     }
 
 #if DEBUG

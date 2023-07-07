@@ -3279,9 +3279,8 @@ void Compiler::fgDebugCheckStmtsList(BasicBlock* block, bool morphTrees)
 
             if (fgStmtListThreaded)
             {
-                gtSetOrder(stmt->GetRootNode());
                 gtSetCosts(stmt->GetRootNode());
-                gtSetStmtSeq(stmt);
+                gtSetStmtOrder(stmt);
             }
         }
 

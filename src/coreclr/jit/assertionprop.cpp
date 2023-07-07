@@ -2881,8 +2881,7 @@ private:
 
                 if (!removedStmt)
                 {
-                    m_compiler->gtSetOrder(stmt->GetRootNode());
-                    m_compiler->gtSetStmtSeq(stmt);
+                    m_compiler->gtSetStmtOrder(stmt);
                 }
 
                 // Morph didn't add/remove any statements, we're done.
@@ -3572,8 +3571,7 @@ private:
 
                     if (!removedStmt)
                     {
-                        compiler->gtSetOrder(stmt->GetRootNode());
-                        compiler->gtSetStmtSeq(stmt);
+                        compiler->gtSetStmtOrder(stmt);
                     }
                 }
 

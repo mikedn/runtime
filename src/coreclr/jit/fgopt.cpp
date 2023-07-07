@@ -2220,9 +2220,8 @@ void Compiler::fgRemoveConditionalJump(BasicBlock* block)
 
             if (fgStmtListThreaded)
             {
-                gtSetOrder(test->GetRootNode());
                 gtSetCosts(test->GetRootNode());
-                gtSetStmtSeq(test);
+                gtSetStmtOrder(test);
             }
         }
     }
@@ -2534,9 +2533,8 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
                         else
                         {
                             Statement* nopStmt = fgNewStmtAtEnd(block, nop);
-                            gtSetOrder(nopStmt->GetRootNode());
                             gtSetCosts(nopStmt->GetRootNode());
-                            gtSetStmtSeq(nopStmt);
+                            gtSetStmtOrder(nopStmt);
                         }
 
                         JITDUMP("\nKeeping empty block " FMT_BB " - it is the target of a catch return\n",
@@ -2790,8 +2788,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
                 if (fgStmtListThreaded)
                 {
                     gtSetCosts(switchStmt->GetRootNode());
-                    gtSetOrder(switchStmt->GetRootNode());
-                    gtSetStmtSeq(switchStmt);
+                    gtSetStmtOrder(switchStmt);
                 }
             }
             else
@@ -2861,8 +2858,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         else if (fgStmtListThreaded)
         {
             gtSetCosts(switchStmt->GetRootNode());
-            gtSetOrder(switchStmt->GetRootNode());
-            gtSetStmtSeq(switchStmt);
+            gtSetStmtOrder(switchStmt);
         }
 
         return true;
@@ -3296,9 +3292,8 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
 
                     if (fgStmtListThreaded)
                     {
-                        gtSetOrder(condStmt->GetRootNode());
                         gtSetCosts(condStmt->GetRootNode());
-                        gtSetStmtSeq(condStmt);
+                        gtSetStmtOrder(condStmt);
                     }
                 }
             }
@@ -3519,8 +3514,7 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
         if (fgStmtListThreaded)
         {
             gtSetCosts(stmt->GetRootNode());
-            gtSetOrder(stmt->GetRootNode());
-            gtSetStmtSeq(stmt);
+            gtSetStmtOrder(stmt);
         }
 
         /* Append the expression to our list */

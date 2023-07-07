@@ -130,9 +130,8 @@ void LoopHoist::HoistExpr(GenTree* expr, unsigned loopNum)
     hoist                  = compiler->gtMorphTree(hoist);
 
     Statement* hoistStmt = compiler->fgNewStmtAtEnd(preHead, hoist);
-    compiler->gtSetOrder(hoistStmt->GetRootNode());
     compiler->gtSetCosts(hoistStmt->GetRootNode());
-    compiler->gtSetStmtSeq(hoistStmt);
+    compiler->gtSetStmtOrder(hoistStmt);
 
     hoistedCount++;
 

@@ -1744,8 +1744,7 @@ void Compiler::phSetEvalOrder()
             // costs after liveness and thus extra CSEs.
             gtSetCosts(stmt->GetRootNode());
 
-            gtSetOrder(stmt->GetRootNode());
-            gtSetStmtSeq(stmt);
+            gtSetStmtOrder(stmt);
         }
     }
 
@@ -1935,6 +1934,13 @@ GenTree* Compiler::gtSetTreeSeq(GenTree* tree, bool isLIR)
     GenTree*        firstNode = visitor.Sequence(tree);
     INDEBUG(gtCheckTreeSeq(tree, isLIR));
     return firstNode;
+}
+
+void Compiler::gtSetStmtOrder(Statement* stmt)
+{
+    GenTree* tree = stmt->GetRootNode();
+    gtSetOrder(tree);
+    stmt->SetTreeList(gtSetTreeSeq(tree, false));
 }
 
 void Compiler::gtSetStmtSeq(Statement* stmt)

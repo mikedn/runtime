@@ -916,8 +916,7 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
 
     if (updateStmt)
     {
-        gtSetOrder(stmt->GetRootNode());
-        gtSetStmtSeq(stmt);
+        gtSetStmtOrder(stmt);
 
         // We removed dead nested stores, we need to remove inherited GTF_ASG flags.
         gtUpdateStmtSideEffects(stmt);
@@ -1222,7 +1221,7 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeLclVarCommon* store, Statement* stmt
         // having to find the user (which would usually be a COMMA that now
         // becomes useless). But we need to be careful about sequencing, we
         // need to continue the backward traversal so we need to preserve
-        // the original node order - we cannot call gtSetOrder like usual.
+        // the original node order - we cannot call gtSetStmtOrder like usual.
 
         if (sideEffects == nullptr)
         {
@@ -1259,9 +1258,7 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeLclVarCommon* store, Statement* stmt
     if (sideEffects != nullptr)
     {
         stmt->SetRootNode(sideEffects);
-
-        gtSetOrder(sideEffects);
-        gtSetStmtSeq(stmt);
+        gtSetStmtOrder(stmt);
 
         return sideEffects;
     }

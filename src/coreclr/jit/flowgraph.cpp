@@ -207,8 +207,7 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
         if (fgStmtListThreaded)
         {
-            gtSetOrder(newStmt->GetRootNode());
-            gtSetStmtSeq(newStmt);
+            gtSetStmtOrder(newStmt);
         }
 
         block->bbFlags |= BBF_GC_SAFE_POINT;
@@ -319,11 +318,8 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
     if (fgStmtListThreaded)
     {
-        gtSetOrder(pollStmt->GetRootNode());
-        gtSetStmtSeq(pollStmt);
-
-        gtSetOrder(trapCheckStmt->GetRootNode());
-        gtSetStmtSeq(trapCheckStmt);
+        gtSetStmtOrder(pollStmt);
+        gtSetStmtOrder(trapCheckStmt);
     }
 
 #ifdef DEBUG

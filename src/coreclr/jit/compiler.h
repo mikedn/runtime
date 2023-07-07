@@ -3232,6 +3232,7 @@ public:
     static GenTree* gtGetFirstNode(GenTree* tree);
     GenTree* gtSetTreeSeq(GenTree* tree, bool isLIR = false);
     INDEBUG(void gtCheckTreeSeq(GenTree* tree, bool isLIR = false);)
+    void gtSetStmtOrder(Statement* stmt);
     void gtSetStmtSeq(Statement* stmt);
     unsigned gtSetOrder(GenTree* tree);
     unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args);
