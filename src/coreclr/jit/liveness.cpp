@@ -849,7 +849,7 @@ bool Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_VALARG_TP keepAlive, B
 bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt, BasicBlock* block)
 {
     bool updateStmt = false;
-    INDEBUG(bool modified = false;)
+    bool modified   = false;
 
     noway_assert(VarSetOps::IsSubset(this, keepAlive, liveOut));
 
@@ -887,7 +887,7 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
 
             if (isDeadStore)
             {
-                INDEBUG(modified = true);
+                modified = true;
 
                 GenTree* prevNode = fgRemoveDeadStore(lclNode, stmt, block);
 
@@ -916,7 +916,6 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
 
     if (updateStmt)
     {
-        gtSetCosts(stmt->GetRootNode());
         gtSetOrder(stmt->GetRootNode());
         gtSetStmtSeq(stmt);
 
@@ -924,12 +923,12 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
         gtUpdateStmtSideEffects(stmt);
     }
 
-#ifdef DEBUG
     if (modified)
     {
+        gtSetCosts(stmt->GetRootNode());
+
         JITDUMPTREE(stmt->GetRootNode(), "\nfgComputeLifeStmt modified tree:\n");
     }
-#endif
 
     return false;
 }
@@ -1261,7 +1260,6 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeLclVarCommon* store, Statement* stmt
     {
         stmt->SetRootNode(sideEffects);
 
-        gtSetCosts(sideEffects);
         gtSetOrder(sideEffects);
         gtSetStmtSeq(stmt);
 
