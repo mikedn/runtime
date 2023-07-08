@@ -766,14 +766,12 @@ bool BasicBlock::CloneBlockState(
 }
 
 // LIR helpers
-void BasicBlock::MakeLIR(GenTree* firstNode, GenTree* lastNode)
+void BasicBlock::MakeLIR()
 {
     assert(!IsLIR());
-    assert((firstNode == nullptr) == (lastNode == nullptr));
-    assert((firstNode == lastNode) || firstNode->Precedes(lastNode));
 
-    m_firstNode = firstNode;
-    m_lastNode  = lastNode;
+    m_firstNode = nullptr;
+    m_lastNode  = nullptr;
     bbFlags |= BBF_IS_LIR;
 }
 

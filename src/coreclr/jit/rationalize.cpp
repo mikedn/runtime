@@ -440,16 +440,7 @@ void Rationalizer::Run()
     {
         m_block = block;
 
-        block->MakeLIR(nullptr, nullptr);
-
-        // Establish the first and last nodes for the block. This is necessary in order for the LIR
-        // utilities that hang off the BasicBlock type to work correctly.
-        Statement* firstStatement = block->firstStmt();
-        if (firstStatement == nullptr)
-        {
-            // No statements in this block; skip it.
-            continue;
-        }
+        block->MakeLIR();
 
         IL_OFFSETX currentILOffset = BAD_IL_OFFSET;
 

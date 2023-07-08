@@ -1360,7 +1360,7 @@ struct BasicBlock : private LIR::Range
     static bool CloneBlockState(
         Compiler* compiler, BasicBlock* to, const BasicBlock* from, unsigned varNum = (unsigned)-1, int varVal = 0);
 
-    void MakeLIR(GenTree* firstNode, GenTree* lastNode);
+    void MakeLIR();
     bool IsLIR() const;
 
     void SetDominatedByExceptionalEntryFlag()
