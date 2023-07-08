@@ -760,28 +760,25 @@ bool BasicBlock::CloneBlockState(
             // return `false` to the caller to indicate that cloning was unsuccessful.
             return false;
         }
-        compiler->fgInsertStmtAtEnd(to, compiler->fgNewStmtFromTree(newExpr));
+        compiler->fgInsertStmtAtEnd(to, compiler->gtNewStmt(newExpr));
     }
     return true;
 }
 
 // LIR helpers
-void BasicBlock::MakeLIR(GenTree* firstNode, GenTree* lastNode)
+void BasicBlock::MakeLIR()
 {
     assert(!IsLIR());
-    assert((firstNode == nullptr) == (lastNode == nullptr));
-    assert((firstNode == lastNode) || firstNode->Precedes(lastNode));
 
-    m_firstNode = firstNode;
-    m_lastNode  = lastNode;
+    m_firstNode = nullptr;
+    m_lastNode  = nullptr;
     bbFlags |= BBF_IS_LIR;
 }
 
 bool BasicBlock::IsLIR() const
 {
     assert(isValid());
-    const bool isLIR = ((bbFlags & BBF_IS_LIR) != 0);
-    return isLIR;
+    return (bbFlags & BBF_IS_LIR) != 0;
 }
 
 //------------------------------------------------------------------------

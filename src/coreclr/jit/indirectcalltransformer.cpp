@@ -359,7 +359,7 @@ private:
             GenTree*   zero            = new (compiler, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, 0);
             GenTree*   fatPointerCmp   = compiler->gtNewOperNode(GT_NE, TYP_INT, fatPointerAnd, zero);
             GenTree*   jmpTree         = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, fatPointerCmp);
-            Statement* jmpStmt         = compiler->fgNewStmtFromTree(jmpTree, stmt->GetILOffsetX());
+            Statement* jmpStmt         = compiler->gtNewStmt(jmpTree, stmt->GetILOffsetX());
             compiler->fgInsertStmtAtEnd(checkBlock, jmpStmt);
         }
 
@@ -603,7 +603,7 @@ private:
                 thisLclNum = compiler->lvaNewTemp(TYP_REF, true DEBUGARG("guarded devirt this temp"));
 
                 GenTree*   asgTree = compiler->gtNewAssignNode(compiler->gtNewLclvNode(thisLclNum, TYP_REF), thisTree);
-                Statement* asgStmt = compiler->fgNewStmtFromTree(asgTree, stmt->GetILOffsetX());
+                Statement* asgStmt = compiler->gtNewStmt(asgTree, stmt->GetILOffsetX());
                 compiler->fgInsertStmtAtEnd(checkBlock, asgStmt);
 
                 origCall->gtCallThisArg->SetNode(compiler->gtNewLclvNode(thisLclNum, TYP_REF));
@@ -629,7 +629,7 @@ private:
             //
             GenTree*   methodTableCompare = compiler->gtNewOperNode(GT_NE, TYP_INT, targetMethodTable, methodTable);
             GenTree*   jmpTree            = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, methodTableCompare);
-            Statement* jmpStmt            = compiler->fgNewStmtFromTree(jmpTree, stmt->GetILOffsetX());
+            Statement* jmpStmt            = compiler->gtNewStmt(jmpTree, stmt->GetILOffsetX());
             compiler->fgInsertStmtAtEnd(checkBlock, jmpStmt);
         }
 
@@ -1179,13 +1179,13 @@ private:
 
             assert(sizeCheck->OperIs(GT_LE));
             GenTree*   sizeJmpTree = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, sizeCheck);
-            Statement* sizeJmpStmt = compiler->fgNewStmtFromTree(sizeJmpTree, stmt->GetILOffsetX());
+            Statement* sizeJmpStmt = compiler->gtNewStmt(sizeJmpTree, stmt->GetILOffsetX());
             compiler->fgInsertStmtAtEnd(checkBlock, sizeJmpStmt);
 
             checkBlock2 = CreateAndInsertBasicBlock(BBJ_COND, checkBlock);
             assert(nullCheck->OperIs(GT_EQ));
             GenTree*   nullJmpTree = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, nullCheck);
-            Statement* nullJmpStmt = compiler->fgNewStmtFromTree(nullJmpTree, stmt->GetILOffsetX());
+            Statement* nullJmpStmt = compiler->gtNewStmt(nullJmpTree, stmt->GetILOffsetX());
             compiler->fgInsertStmtAtEnd(checkBlock2, nullJmpStmt);
         }
 

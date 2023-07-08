@@ -2921,7 +2921,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, const in
             unsigned argNum;
             unsigned argCnt    = call->argCount;
             DWORD    argBytes  = 0;
-            BYTE*    pArgBytes = DUMMY_INIT(NULL);
+            BYTE*    pArgBytes = nullptr;
 
             if (mask != 0)
             {
@@ -3247,7 +3247,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
 
                 DWORD pndCount = pasStk.EnumGCoffsCount();
                 DWORD pndSize  = 0;
-                BYTE* pPndSize = DUMMY_INIT(NULL);
+                BYTE* pPndSize = nullptr;
 
                 if (mask)
                 {

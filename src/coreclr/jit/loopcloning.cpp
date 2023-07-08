@@ -657,14 +657,22 @@ void LoopCloneContext::CondToStmtInBlock(JitVector<LcCondition>& conds, BasicBlo
     cond = compiler->gtNewOperNode(reverse ? GT_NE : GT_EQ, TYP_INT, cond, compiler->gtNewIconNode(0));
 
     GenTree*   jtrue = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, cond);
-    Statement* stmt  = compiler->fgNewStmtFromTree(jtrue);
+    Statement* stmt  = compiler->gtNewStmt(jtrue);
 
     compiler->fgInsertStmtAtEnd(block, stmt);
 
     JITDUMPTREE(jtrue, "Loop cloning condition tree before morphing:\n");
     JITDUMP("\n");
 
-    compiler->fgMorphBlockStmt(block, stmt DEBUGARG("Loop cloning condition"));
+    bool removedStmt = compiler->fgMorphBlockStmt(block, stmt DEBUGARG("Loop cloning condition"));
+
+    if (!removedStmt)
+    {
+        // TODO-MIKE-Review: This shouldn't be needed as we haven't run phSetBlockOrder yet.
+        // But removing it causes a few diffs, it's likely that something depends on GTF_REVERSE_OPS
+        // or that running multiple ordering passes results in a different order.
+        compiler->gtSetOrder(stmt->GetRootNode());
+    }
 }
 
 // Inspect the loop cloning optimization candidates and populate the conditions necessary

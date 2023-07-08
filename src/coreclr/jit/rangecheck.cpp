@@ -1256,8 +1256,7 @@ bool RangeCheck::Run()
 
             if (stmtModified)
             {
-                compiler->gtSetStmtInfo(stmt);
-                compiler->fgSetStmtSeq(stmt);
+                compiler->gtSetStmtOrder(stmt);
             }
         }
     }

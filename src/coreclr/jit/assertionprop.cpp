@@ -2104,7 +2104,6 @@ private:
         if (sideEffects != nullptr)
         {
             objectArg = compiler->gtNewCommaNode(sideEffects, objectArg);
-            compiler->fgSetTreeSeq(objectArg);
         }
 
         return UpdateTree(objectArg, call, stmt);
@@ -2374,8 +2373,6 @@ private:
             case GT_GT:
             case GT_GE:
                 return PropagateRelop(assertions, node->AsOp(), stmt);
-            case GT_JTRUE:
-                return PropagateJTrue(block, node->AsUnOp());
             case GT_DIV:
             case GT_MOD:
                 return node->TypeIs(TYP_INT) ? PropagateSignedDivision(assertions, node->AsOp(), stmt) : nullptr;
@@ -2818,68 +2815,6 @@ private:
         return sideEffects;
     }
 
-    GenTree* PropagateJTrue(BasicBlock* block, GenTreeUnOp* jtrue)
-    {
-        GenTree* relop = jtrue->GetOp(0);
-
-        // VN based assertion non-null on this relop has been performed.
-        if (!relop->OperIsCompare())
-        {
-            return nullptr;
-        }
-
-        assert((relop->gtFlags & GTF_RELOP_JMP_USED) != 0);
-
-        ValueNum relopVN = vnStore->ExtractValue(relop->GetConservativeVN());
-
-        if (!vnStore->IsVNConstant(relopVN))
-        {
-            return nullptr;
-        }
-
-        GenTree* sideEffects = ExtractConstantSideEffects(relop);
-
-        // Transform the relop into EQ|NE(0, 0)
-        ValueNum vnZero = vnStore->VNForIntCon(0);
-        GenTree* op1    = compiler->gtNewIconNode(0);
-        op1->SetVNP({vnZero, vnZero});
-        relop->AsOp()->SetOp(0, op1);
-        GenTree* op2 = compiler->gtNewIconNode(0);
-        op2->SetVNP({vnZero, vnZero});
-        relop->AsOp()->SetOp(1, op2);
-        relop->SetOper(vnStore->CoercedConstantValue<int64_t>(relopVN) != 0 ? GT_EQ : GT_NE);
-        ValueNum vnLib = vnStore->ExtractValue(relop->GetLiberalVN());
-        relop->SetVNP({vnLib, relopVN});
-
-        while (sideEffects != nullptr)
-        {
-            Statement* newStmt;
-
-            if (sideEffects->OperIs(GT_COMMA))
-            {
-                newStmt     = compiler->fgNewStmtNearEnd(block, sideEffects->AsOp()->GetOp(0));
-                sideEffects = sideEffects->AsOp()->GetOp(1);
-            }
-            else
-            {
-                newStmt     = compiler->fgNewStmtNearEnd(block, sideEffects);
-                sideEffects = nullptr;
-            }
-
-            // fgMorphBlockStmt could potentially affect stmts after the current one,
-            // for example when it decides to fgRemoveRestOfBlock.
-
-            // TODO-MIKE-Review: Do we really need to remorph? Seems like simply
-            // fgSetStmtSeq should suffice here. Also, this morphs trees before
-            // doing constant propagation so we may morph again if they contains
-            // constants.
-
-            compiler->fgMorphBlockStmt(block, newStmt DEBUGARG(__FUNCTION__));
-        }
-
-        return jtrue;
-    }
-
     class VNConstPropVisitor final : public GenTreeVisitor<VNConstPropVisitor>
     {
         ValueNumStore* m_vnStore;
@@ -2940,9 +2875,14 @@ private:
                 // Morph may remove the statement, get the previous one so we know where
                 // to continue from. This also works in case morph inserts new statements
                 // before or after this one, but that's unlikely.
-                Statement* prev = (stmt == block->GetFirstStatement()) ? nullptr : stmt->GetPrevStmt();
-                m_compiler->fgMorphBlockStmt(block, stmt DEBUGARG("VNConstPropVisitor::VisitStmt"));
-                Statement* next = (prev == nullptr) ? block->GetFirstStatement() : prev->GetNextStmt();
+                Statement* prev  = (stmt == block->GetFirstStatement()) ? nullptr : stmt->GetPrevStmt();
+                bool removedStmt = m_compiler->fgMorphBlockStmt(block, stmt DEBUGARG("VNConstPropVisitor::VisitStmt"));
+                Statement* next  = (prev == nullptr) ? block->GetFirstStatement() : prev->GetNextStmt();
+
+                if (!removedStmt)
+                {
+                    m_compiler->gtSetStmtOrder(stmt);
+                }
 
                 // Morph didn't add/remove any statements, we're done.
                 if (next == stmt)
@@ -3085,19 +3025,14 @@ private:
             // propagation on X.
 
             GenTree* sideEffects = ExtractConstTreeSideEffects(relop);
+            assert(sideEffects != relop);
 
-            relop->ChangeOperConst(GT_CNS_INT);
-            relop->SetType(TYP_INT);
-            int32_t value = m_vnStore->CoercedConstantValue<int64_t>(vn) != 0 ? 1 : 0;
-            relop->AsIntCon()->SetValue(value);
-            vn = m_vnStore->VNForIntCon(value);
-            relop->SetVNP({vn, vn});
+            relop->ChangeToIntCon(m_vnStore->CoercedConstantValue<int64_t>(vn) != 0 ? 1 : 0);
+            JITDUMP("After JTRUE constant propagation:\n");
+            DBEXEC(m_compiler->verbose, m_compiler->gtDispStmt(stmt));
 
-            JITDUMP("After JTRUE constant propagation on " FMT_TREEID ":\n", relop->GetID());
-            DBEXEC(VERBOSE, m_compiler->gtDispStmt(stmt));
-
-            bool removed = m_compiler->fgMorphBlockStmt(m_block, stmt DEBUGARG(__FUNCTION__));
-            assert(removed);
+            bool folded = m_compiler->fgFoldConditional(m_block);
+            assert(folded);
             assert(m_block->bbJumpKind != BBJ_COND);
 
             if (sideEffects == nullptr)
@@ -3632,7 +3567,12 @@ private:
                 if (stmtMorphPending)
                 {
                     JITDUMP("\nMorphing statement " FMT_STMT "\n", stmt->GetID())
-                    compiler->fgMorphBlockStmt(block, stmt DEBUGARG(__FUNCTION__));
+                    bool removedStmt = compiler->fgMorphBlockStmt(block, stmt DEBUGARG(__FUNCTION__));
+
+                    if (!removedStmt)
+                    {
+                        compiler->gtSetStmtOrder(stmt);
+                    }
                 }
 
                 // Check if propagation removed statements starting from current stmt.

@@ -7585,7 +7585,7 @@ void Importer::impImportLeave(BasicBlock* block)
     assert(block->bbJumpKind == BBJ_LEAVE);
     assert(comp->fgBBs == (BasicBlock**)0xCDCD || fgLookupBB(jmpAddr) != NULL); // should be a BB boundary
 
-    BasicBlock* step         = DUMMY_INIT(NULL);
+    BasicBlock* step         = nullptr;
     unsigned    encFinallies = 0; // Number of enclosing finallies.
     GenTree*    endCatches   = nullptr;
     Statement*  endLFinStmt  = nullptr; // The statement tree to indicate the end of locally-invoked finally.
@@ -7652,7 +7652,7 @@ void Importer::impImportLeave(BasicBlock* block)
 
             if (encFinallies == 0)
             {
-                assert(step == DUMMY_INIT(NULL));
+                assert(step == nullptr);
                 callBlock             = block;
                 callBlock->bbJumpKind = BBJ_CALLFINALLY; // convert the BBJ_LEAVE to BBJ_CALLFINALLY
 
@@ -7672,7 +7672,7 @@ void Importer::impImportLeave(BasicBlock* block)
             }
             else
             {
-                assert(step != DUMMY_INIT(NULL));
+                assert(step != nullptr);
 
                 /* Calling the finally block */
                 callBlock = fgNewBBinRegion(BBJ_CALLFINALLY, XTnum + 1, 0, step);
@@ -7742,7 +7742,7 @@ void Importer::impImportLeave(BasicBlock* block)
 
     if (encFinallies == 0)
     {
-        assert(step == DUMMY_INIT(NULL));
+        assert(step == nullptr);
         block->bbJumpKind = BBJ_ALWAYS; // convert the BBJ_LEAVE to a BBJ_ALWAYS
 
         if (endCatches)

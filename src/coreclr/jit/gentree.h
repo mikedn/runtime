@@ -822,13 +822,13 @@ public:
     }
 #endif
 
-    uint8_t GetCostEx() const
+    unsigned GetCostEx() const
     {
         assert((gtDebugFlags & GTF_DEBUG_HAS_COSTS) != 0);
         return m_costEx;
     }
 
-    uint8_t GetCostSz() const
+    unsigned GetCostSz() const
     {
         assert((gtDebugFlags & GTF_DEBUG_HAS_COSTS) != 0);
         return m_costSz;
@@ -1510,6 +1510,28 @@ public:
     bool OperIsConditionalJump() const
     {
         return (gtOper == GT_JTRUE) || (gtOper == GT_JCMP) || (gtOper == GT_JCC);
+    }
+
+    bool IsControlFlow() const
+    {
+        switch (gtOper)
+        {
+            case GT_JTRUE:
+            case GT_JCMP:
+            case GT_JCC:
+            case GT_SWITCH:
+            case GT_LABEL:
+            case GT_CALL:
+            case GT_JMP:
+            case GT_RETURN:
+            case GT_RETFILT:
+#ifndef FEATURE_EH_FUNCLETS
+            case GT_END_LFIN:
+#endif
+                return true;
+            default:
+                return false;
+        }
     }
 
 #ifdef DEBUG
@@ -6733,12 +6755,12 @@ public:
         m_compilerAdded = true;
     }
 
-    unsigned char GetCostSz() const
+    unsigned GetCostSz() const
     {
         return m_rootNode->GetCostSz();
     }
 
-    unsigned char GetCostEx() const
+    unsigned GetCostEx() const
     {
         return m_rootNode->GetCostEx();
     }

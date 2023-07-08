@@ -49,7 +49,7 @@ private:
 
 bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
 {
-    Statement* const stmt = block->lastStmt();
+    Statement* const stmt = block->GetLastStatement();
 
     if (stmt == nullptr)
     {
@@ -63,9 +63,9 @@ bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
         return false;
     }
 
-    GenTree* const tree = jumpTree->AsOp()->gtOp1;
+    GenTree* const compare = jumpTree->AsUnOp()->GetOp(0);
 
-    if (!tree->OperIsCompare())
+    if (!compare->OperIsCompare())
     {
         return false;
     }
@@ -105,7 +105,7 @@ bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
                 //
                 // That is left as a future enhancement.
                 //
-                if (domCmpVN == tree->GetLiberalVN())
+                if (domCmpVN == compare->GetLiberalVN())
                 {
                     // The compare in "tree" is redundant.
                     // Is there a unique path from the dominating compare?
@@ -114,7 +114,7 @@ bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
                             block->bbNum);
                     DISPTREE(domCmpTree);
                     JITDUMP(" Redundant compare; current relop:\n");
-                    DISPTREE(tree);
+                    DISPTREE(compare);
 
                     BasicBlock* const trueSuccessor  = domBlock->bbJumpDest;
                     BasicBlock* const falseSuccessor = domBlock->bbNext;
@@ -191,11 +191,11 @@ bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
     // Note we really shouldn't get here if the tree has non-exception effects,
     // as they should have impacted the value number.
     //
-    if ((tree->gtFlags & GTF_SIDE_EFFECT) != 0)
+    if ((compare->gtFlags & GTF_SIDE_EFFECT) != 0)
     {
         // Bail if there is a non-exception effect.
         //
-        if ((tree->gtFlags & GTF_SIDE_EFFECT) != GTF_EXCEPT)
+        if ((compare->gtFlags & GTF_SIDE_EFFECT) != GTF_EXCEPT)
         {
             JITDUMP("Current relop has non-exception side effects, so we won't optimize\n");
             return false;
@@ -213,11 +213,10 @@ bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
 
     JITDUMP("\nRedundant branch opt in " FMT_BB ":\n", block->bbNum);
 
-    tree->ChangeOperConst(GT_CNS_INT);
-    tree->AsIntCon()->gtIconVal = relopValue;
+    compare->ChangeToIntCon(relopValue);
 
-    m_compiler->fgMorphBlockStmt(block, stmt DEBUGARG(__FUNCTION__));
-
+    bool folded = m_compiler->fgFoldConditional(block);
+    assert(folded);
     return true;
 }
 

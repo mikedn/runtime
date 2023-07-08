@@ -946,8 +946,6 @@ bool Compiler::fgDumpFlowGraph(Phases phase, PhasePosition pos)
 
             fprintf(fgxFile, "\n            weight=");
             fprintfDouble(fgxFile, ((double)block->bbWeight) / weightDivisor);
-            // fgGetCodeEstimate() will assert if the costs have not yet been initialized.
-            // fprintf(fgxFile, "\n            codeEstimate=\"%d\"", fgGetCodeEstimate(block));
             fprintf(fgxFile, "\n            startOffset=\"%d\"", block->bbCodeOffs);
             fprintf(fgxFile, "\n            rootTreeOp=\"%s\"", rootTreeOpName);
             fprintf(fgxFile, "\n            endOffset=\"%d\"", block->bbCodeOffsEnd);
@@ -3236,33 +3234,33 @@ void Compiler::fgDebugCheckLinks(bool morphTrees)
 
 void Compiler::fgDebugCheckStmtsList(BasicBlock* block, bool morphTrees)
 {
+    assert(!block->IsLIR());
+
     for (Statement* const stmt : block->Statements())
     {
         // Verify that bbStmtList is threaded correctly.
         // Note that for the statements list, the GetPrevStmt() list is circular.
         // The GetNextStmt() list is not: GetNextStmt() of the last statement in a block is nullptr.
 
-        noway_assert(stmt->GetPrevStmt() != nullptr);
+        assert(stmt->GetPrevStmt() != nullptr);
 
         if (stmt == block->bbStmtList)
         {
-            noway_assert(stmt->GetPrevStmt()->GetNextStmt() == nullptr);
+            assert(stmt->GetPrevStmt()->GetNextStmt() == nullptr);
         }
         else
         {
-            noway_assert(stmt->GetPrevStmt()->GetNextStmt() == stmt);
+            assert(stmt->GetPrevStmt()->GetNextStmt() == stmt);
         }
 
         if (stmt->GetNextStmt() != nullptr)
         {
-            noway_assert(stmt->GetNextStmt()->GetPrevStmt() == stmt);
+            assert(stmt->GetNextStmt()->GetPrevStmt() == stmt);
         }
         else
         {
-            noway_assert(block->lastStmt() == stmt);
+            assert(block->lastStmt() == stmt);
         }
-
-        noway_assert(stmt->GetRootNode() != nullptr);
 
         fgDebugCheckFlags(stmt->GetRootNode());
 
@@ -3278,17 +3276,19 @@ void Compiler::fgDebugCheckStmtsList(BasicBlock* block, bool morphTrees)
                 fgDebugCheckStmtsList(block, morphTrees);
                 break;
             }
+
+            if (fgStmtListThreaded)
+            {
+                gtSetCosts(stmt->GetRootNode());
+                gtSetStmtOrder(stmt);
+            }
         }
 
         // For each statement check that the nodes are threaded correctly - m_treeList.
         if (fgStmtListThreaded)
         {
             fgDebugCheckNodeLinks(block, stmt);
-
-            if (!block->IsLIR())
-            {
-                INDEBUG(fgCheckTreeSeq(stmt->GetRootNode(), false);)
-            }
+            gtCheckTreeSeq(stmt->GetRootNode(), false);
         }
     }
 }

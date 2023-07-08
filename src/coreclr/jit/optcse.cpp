@@ -2390,11 +2390,10 @@ public:
             // multiple CSEs. Ideally we'd first do all CSE replacements and then sequence affected
             // statements. One drawback may be that without resequencing the linear order is broken
             // and we can no longer use FindUser, instead we need to traverse the entire statement
-            // tree to find the user and that's more expensive.
-            // Another problem is that gtSetEvalOrder computes both costs and order and it's unlikely
-            // that we need costs post CSE...
-            compiler->gtSetStmtInfo(stmt);
-            compiler->fgSetStmtSeq(stmt);
+            // tree to find the user and that's more expensive. We may also need to update costs as
+            // we do CSE, since doing CSE lowers the cost of any parent CSEs.
+            compiler->gtSetStmtSeq(stmt);
+            compiler->gtSetCosts(stmt->GetRootNode());
 
             cseCount++;
         }

@@ -207,8 +207,7 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
         if (fgStmtListThreaded)
         {
-            gtSetStmtInfo(newStmt);
-            fgSetStmtSeq(newStmt);
+            gtSetStmtOrder(newStmt);
         }
 
         block->bbFlags |= BBF_GC_SAFE_POINT;
@@ -278,12 +277,6 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
     Statement* pollStmt = fgNewStmtAtEnd(poll, call);
 
-    if (fgStmtListThreaded)
-    {
-        gtSetStmtInfo(pollStmt);
-        fgSetStmtSeq(pollStmt);
-    }
-
     if ((topKind == BBJ_COND) || (topKind == BBJ_RETURN) || (topKind == BBJ_THROW))
     {
         Statement* stmt = top->firstStmt();
@@ -320,14 +313,13 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
     GenTree* trapEq = gtNewOperNode(GT_EQ, TYP_INT, indir, gtNewIconNode(0, TYP_INT));
     trapEq->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
-    GenTree* trapCheck = gtNewOperNode(GT_JTRUE, TYP_VOID, trapEq);
-    gtSetEvalOrder(trapCheck);
+    GenTree*   trapCheck     = gtNewOperNode(GT_JTRUE, TYP_VOID, trapEq);
     Statement* trapCheckStmt = fgNewStmtAtEnd(top, trapCheck);
 
     if (fgStmtListThreaded)
     {
-        gtSetStmtInfo(trapCheckStmt);
-        fgSetStmtSeq(trapCheckStmt);
+        gtSetStmtOrder(pollStmt);
+        gtSetStmtOrder(trapCheckStmt);
     }
 
 #ifdef DEBUG
@@ -437,26 +429,6 @@ PhaseStatus Compiler::fgImport()
 }
 
 /*****************************************************************************
- * This function returns true if tree is a node with a call
- * that unconditionally throws an exception
- */
-
-bool Compiler::fgIsThrow(GenTree* tree)
-{
-    if (!tree->IsCall())
-    {
-        return false;
-    }
-    GenTreeCall* call = tree->AsCall();
-    if ((call->gtCallType == CT_HELPER) && s_helperCallProperties.AlwaysThrow(eeGetHelperNum(call->gtCallMethHnd)))
-    {
-        noway_assert(call->gtFlags & GTF_EXCEPT);
-        return true;
-    }
-    return false;
-}
-
-/*****************************************************************************
  * This function returns true for blocks that are in different hot-cold regions.
  * It returns false when the blocks are both in the same regions
  */
@@ -485,65 +457,6 @@ bool Compiler::fgIsBlockCold(BasicBlock* blk)
     }
 
     return ((blk->bbFlags & BBF_COLD) != 0);
-}
-
-bool Compiler::fgIsCommaThrow(GenTree* tree, bool forFolding)
-{
-    if (forFolding && compStressCompile(STRESS_FOLD, 50))
-    {
-        return false;
-    }
-
-    return tree->OperIs(GT_COMMA) && tree->HasAllSideEffects(GTF_CALL | GTF_EXCEPT) &&
-           fgIsThrow(tree->AsOp()->GetOp(0));
-}
-
-bool Compiler::fgAddrCouldBeNull(GenTree* addr)
-{
-    addr = addr->gtEffectiveVal();
-
-    if (addr->OperIs(GT_ADD))
-    {
-        GenTree* op1 = addr->AsOp()->GetOp(0);
-        GenTree* op2 = addr->AsOp()->GetOp(1);
-
-        if (GenTreeIntCon* const2 = op2->IsIntCon())
-        {
-            // Static struct field boxed instances cannot be null.
-            if ((const2->GetFieldSeq() != nullptr) && (const2->GetFieldSeq()->IsBoxedValueField()))
-            {
-                assert(const2->GetValue() >= TARGET_POINTER_SIZE);
-                return !op1->TypeIs(TYP_REF);
-            }
-        }
-
-        return true;
-    }
-
-    if (addr->OperIs(GT_CNS_INT))
-    {
-        // TODO-MIKE-Review: It's not clear what this has to do with handles. Any
-        // non 0 constant is obviously not null. It may be an invalid address but
-        // it's not like the spec requires detecting such addresses.
-
-        return !addr->IsIconHandle();
-    }
-
-    if (addr->OperIs(GT_CNS_STR, GT_FIELD_ADDR, GT_INDEX_ADDR, GT_LCL_ADDR, GT_CLS_VAR_ADDR))
-    {
-        return false;
-    }
-
-    if (addr->OperIs(GT_LCL_VAR))
-    {
-        // TODO-MIKE-CQ: The return buffer addres is supposed to be non null too.
-        // But surprise, the JIT ABI is broken and the address may be null.
-        // Oh well, given how the address is used it probably doesn't matter.
-
-        return !lvaGetDesc(addr->AsLclVar())->IsImplicitByRefParam();
-    }
-
-    return true;
 }
 
 //------------------------------------------------------------------------------
@@ -1943,17 +1856,6 @@ void Compiler::fgAddInternal()
 #endif
 }
 
-void Compiler::phFindOperOrder()
-{
-    for (BasicBlock* block : Blocks())
-    {
-        for (Statement* stmt : block->Statements())
-        {
-            gtSetStmtInfo(stmt);
-        }
-    }
-}
-
 /*****************************************************************************************************
  *
  *  Function to return the last basic block in the main part of the function. With funclets, it is
@@ -2224,6 +2126,55 @@ void Compiler::fgCreateFunclets()
 
 #endif // defined(FEATURE_EH_FUNCLETS)
 
+unsigned Compiler::fgGetCodeSizeEstimate(BasicBlock* block, unsigned limit)
+{
+    unsigned costSz = 0;
+
+    switch (block->bbJumpKind)
+    {
+        case BBJ_NONE:
+            costSz = 0;
+            break;
+        case BBJ_ALWAYS:
+        case BBJ_EHCATCHRET:
+        case BBJ_LEAVE:
+        case BBJ_COND:
+            costSz = 2;
+            break;
+        case BBJ_CALLFINALLY:
+            costSz = 5;
+            break;
+        case BBJ_SWITCH:
+            costSz = 10;
+            break;
+        case BBJ_THROW:
+            costSz = 1; // We place a int3 after the code for a throw block
+            break;
+        case BBJ_EHFINALLYRET:
+        case BBJ_EHFILTERRET:
+            costSz = 1;
+            break;
+        case BBJ_RETURN:
+            costSz = 3;
+            break;
+        default:
+            unreached();
+    }
+
+    for (Statement* stmt : block->NonPhiStatements())
+    {
+        if (costSz > limit)
+        {
+            break;
+        }
+
+        gtSetCosts(stmt->GetRootNode());
+        costSz += stmt->GetCostSz();
+    }
+
+    return costSz;
+}
+
 // Walk the basic blocks list to determine the first block to place in the
 // cold section. This would be the first of a series of rarely executed blocks
 // such that no succeeding blocks are in a try region or an exception handler
@@ -2295,7 +2246,7 @@ void Compiler::phDetermineFirstColdBlock()
                 // so the code size for block needs be large
                 // enough to make it worth our while
                 //
-                if ((lblk == nullptr) || (lblk->bbJumpKind != BBJ_COND) || (fgGetCodeEstimate(block) >= 8))
+                if ((lblk == nullptr) || (lblk->bbJumpKind != BBJ_COND) || (fgGetCodeSizeEstimate(block, 8) >= 8))
                 {
                     // This block is now a candidate for first cold block
                     // Also remember the predecessor to this block
@@ -2333,7 +2284,7 @@ void Compiler::phDetermineFirstColdBlock()
             // If the size of the cold block is 7 or less
             // then we will keep it in the Hot section.
             //
-            if (fgGetCodeEstimate(firstColdBlock) < 8)
+            if (fgGetCodeSizeEstimate(firstColdBlock, 8) < 8)
             {
                 firstColdBlock = nullptr;
                 goto EXIT;
@@ -2538,9 +2489,15 @@ BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* th
 
     if (!throwBlock->IsLIR())
     {
-        fgInsertStmtAtEnd(helperBlock, fgNewStmtFromTree(call));
+        Statement* stmt = gtNewStmt(call);
+        fgInsertStmtAtEnd(helperBlock, stmt);
         // These helpers have no args but fgMorphArgs may have other has side effects.
         fgMorphArgs(call);
+
+        if (fgStmtListThreaded)
+        {
+            gtSetStmtSeq(stmt);
+        }
     }
     else
     {
@@ -2873,262 +2830,4 @@ void Compiler::phSetFullyInterruptible()
             }
         }
     }
-}
-
-void Compiler::phSetBlockOrder()
-{
-    for (BasicBlock* block : Blocks())
-    {
-        fgSequenceBlockStatements(block);
-    }
-
-    fgStmtListThreaded = true;
-
-    INDEBUG(fgDebugCheckLinks());
-}
-
-void Compiler::fgSequenceBlockStatements(BasicBlock* block)
-{
-    for (Statement* stmt : block->Statements())
-    {
-        fgSetStmtSeq(stmt);
-
-        if (stmt->GetNextStmt() == nullptr)
-        {
-            noway_assert(block->lastStmt() == stmt);
-
-            break;
-        }
-
-#ifdef DEBUG
-        if (block->bbStmtList == stmt)
-        {
-            assert(stmt->GetPrevStmt()->GetNextStmt() == nullptr);
-        }
-        else
-        {
-            assert(stmt->GetPrevStmt()->GetNextStmt() == stmt);
-        }
-
-        assert(stmt->GetNextStmt()->GetPrevStmt() == stmt);
-#endif
-    }
-}
-
-//------------------------------------------------------------------------
-// fgGetFirstNode: Get the first node in the tree, in execution order
-//
-// Arguments:
-//    tree - The top node of the tree of interest
-//
-// Return Value:
-//    The first node in execution order, that belongs to tree.
-//
-// Assumptions:
-//     'tree' must either be a leaf, or all of its constituent nodes must be contiguous
-//     in execution order. SequenceDebugCheckVisitor checks this.
-//
-/* static */
-GenTree* Compiler::fgGetFirstNode(GenTree* tree)
-{
-    GenTreeOperandIterator i = tree->OperandsBegin();
-
-    while (i != tree->OperandsEnd())
-    {
-        tree = *i;
-        i    = tree->OperandsBegin();
-    }
-
-    return tree;
-}
-
-// Tree visitor that traverse the entire tree and links nodes in linear execution order.
-class SequenceVisitor : public GenTreeVisitor<SequenceVisitor>
-{
-    GenTree  m_dummyHead;
-    GenTree* m_tail;
-    bool     m_isLIR;
-    INDEBUG(unsigned m_seqNum;)
-
-public:
-    enum
-    {
-        DoPostOrder       = true,
-        UseExecutionOrder = true
-    };
-
-    SequenceVisitor(Compiler* compiler, bool isLIR)
-        : GenTreeVisitor(compiler)
-        , m_tail(&m_dummyHead)
-        , m_isLIR(isLIR)
-#ifdef DEBUG
-        , m_seqNum(0)
-#endif
-    {
-    }
-
-    GenTree* Sequence(GenTree* tree)
-    {
-        WalkTree(&tree, nullptr);
-
-        m_tail->gtNext = nullptr;
-
-        GenTree* head = m_dummyHead.gtNext;
-        head->gtPrev  = nullptr;
-        assert(head->gtSeqNum == 1);
-        return head;
-    }
-
-    fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
-    {
-        GenTree* node = *use;
-
-        // If we are sequencing for LIR:
-        // - Clear the reverse ops flag
-        // - If we are processing a node that does not appear in LIR, do not add it to the list.
-        if (m_isLIR)
-        {
-            node->gtFlags &= ~GTF_REVERSE_OPS;
-
-            if (node->OperIs(GT_ARGPLACE))
-            {
-                return Compiler::WALK_CONTINUE;
-            }
-        }
-
-        node->gtPrev   = m_tail;
-        m_tail->gtNext = node;
-        m_tail         = node;
-
-        INDEBUG(node->gtSeqNum = ++m_seqNum;)
-
-        return Compiler::WALK_CONTINUE;
-    }
-};
-
-#ifdef DEBUG
-class SequenceDebugCheckVisitor : public GenTreeVisitor<SequenceDebugCheckVisitor>
-{
-    GenTree*             m_head;
-    GenTree*             m_tail;
-    bool                 m_isLIR;
-    unsigned             m_seqNum;
-    ArrayStack<GenTree*> m_nodeStack;
-    ArrayStack<GenTree*> m_operands;
-
-public:
-    enum
-    {
-        DoPreOrder        = true,
-        DoPostOrder       = true,
-        UseExecutionOrder = true
-    };
-
-    SequenceDebugCheckVisitor(Compiler* compiler, bool isLIR)
-        : GenTreeVisitor(compiler)
-        , m_head(nullptr)
-        , m_tail(nullptr)
-        , m_isLIR(isLIR)
-        , m_seqNum(0)
-        , m_nodeStack(compiler->getAllocator(CMK_DebugOnly))
-        , m_operands(compiler->getAllocator(CMK_DebugOnly))
-    {
-    }
-
-    void CheckSequence(GenTree* tree)
-    {
-        WalkTree(&tree, nullptr);
-
-        assert(m_head->gtPrev == nullptr);
-        assert(m_tail->gtNext == nullptr);
-        assert(m_head->gtSeqNum == 1);
-    }
-
-    fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
-    {
-        m_nodeStack.Push(*use);
-        return Compiler::WALK_CONTINUE;
-    }
-
-    fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
-    {
-        GenTree* node = *use;
-
-        // GTF_REVERSE_OPS is never set in LIR.
-        assert(!m_isLIR || !node->IsReverseOp());
-
-        // Placeholders are not linked in LIR.
-        if (m_isLIR && node->OperIs(GT_ARGPLACE))
-        {
-            return Compiler::WALK_CONTINUE;
-        }
-
-        // Check if the gtNext/gtPrev links are valid.
-        assert(node->gtSeqNum == ++m_seqNum);
-        assert(node->gtPrev == m_tail);
-        assert((m_tail == nullptr) || (m_tail->gtNext == node));
-
-        if (m_head == nullptr)
-        {
-            m_head = node;
-        }
-
-        m_tail = node;
-
-        // Now check if GenTree::Operands() returns the operands in the correct order.
-        m_operands.Clear();
-
-        // The operands have been pushed by PreOrderVisit onto the node stack but they're
-        // reversed, the last operand is on top of the stack. Move them to another stack
-        // to get the correct order.
-        while (m_nodeStack.Top(0) != node)
-        {
-            m_operands.Push(m_nodeStack.Pop());
-        }
-
-        for (GenTree* op : node->Operands())
-        {
-            assert(m_operands.Top() == op);
-            m_operands.Pop();
-        }
-
-        return Compiler::WALK_CONTINUE;
-    }
-};
-
-void Compiler::fgCheckTreeSeq(GenTree* tree, bool isLIR)
-{
-    SequenceDebugCheckVisitor check(this, isLIR);
-    check.CheckSequence(tree);
-}
-
-#endif // DEBUG
-
-//------------------------------------------------------------------------
-// fgSetTreeSeq: Sequence a tree.
-//
-// Arguments:
-//    tree - The tree to sequence
-//    isLIR - Do LIR mode sequencing (reset GTF_REVERSE_OPS and skip nodes like GT_ARGPLACE)
-//
-// Return Value:
-//    Returns the first node (execution order) in the sequenced tree.
-//
-GenTree* Compiler::fgSetTreeSeq(GenTree* tree, bool isLIR)
-{
-    SequenceVisitor visitor(this, isLIR);
-    GenTree*        firstNode = visitor.Sequence(tree);
-    INDEBUG(fgCheckTreeSeq(tree, isLIR);)
-    return firstNode;
-}
-
-//------------------------------------------------------------------------
-// fgSetStmtSeq: Sequence a statement.
-//
-// Arguments:
-//    stmt - The statement to sequence
-//
-void Compiler::fgSetStmtSeq(Statement* stmt)
-{
-    stmt->SetTreeList(fgSetTreeSeq(stmt->GetRootNode(), false));
 }

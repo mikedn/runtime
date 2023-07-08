@@ -130,20 +130,12 @@ void LoopHoist::HoistExpr(GenTree* expr, unsigned loopNum)
     hoist                  = compiler->gtMorphTree(hoist);
 
     Statement* hoistStmt = compiler->fgNewStmtAtEnd(preHead, hoist);
-    hoistStmt->SetCompilerAdded();
-
-    compiler->gtSetStmtInfo(hoistStmt);
-    compiler->fgSetStmtSeq(hoistStmt);
+    compiler->gtSetCosts(hoistStmt->GetRootNode());
+    compiler->gtSetStmtOrder(hoistStmt);
 
     hoistedCount++;
 
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("This hoisted copy placed in PreHeader (" FMT_BB "):\n", preHead->bbNum);
-        compiler->gtDispTree(hoist);
-    }
-#endif
+    JITDUMPTREE(hoist, "This hoisted copy placed in PreHeader (" FMT_BB "):\n", preHead->bbNum);
 
 #if LOOP_HOIST_STATS
     if (!compiler->m_curLoopHasHoistedExpression)
@@ -1382,6 +1374,18 @@ void Compiler::fgCreateLoopPreHeader(unsigned lnum)
 
 PhaseStatus SsaOptimizer::DoLoopHoist()
 {
+    // TODO-MIKE-Cleanup: Only CSE needs costs for all trees, loop hoisting only needs
+    // costs for candidates, which are far fewer. At least in theory, CSE could compute
+    // costs on the fly, as it traverses trees to find CSE candidates. Though right now
+    // it uses the linear order for traversal...
+    for (BasicBlock* block : compiler->Blocks())
+    {
+        for (Statement* stmt : block->Statements())
+        {
+            compiler->gtSetCosts(stmt->GetRootNode());
+        }
+    }
+
     if (loopCount == 0)
     {
         return PhaseStatus::MODIFIED_NOTHING;

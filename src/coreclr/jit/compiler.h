@@ -3222,21 +3222,26 @@ public:
     static void gtReverseRelop(GenTreeOp* relop);
     GenTree* gtReverseCond(GenTree* tree);
 
-    unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz);
-
     INDEBUG(unsigned gtHashValue(GenTree* tree);)
 
-    void gtPrepareCost(GenTree* tree);
     LclVarDsc* gtIsLikelyRegVar(GenTree* tree);
 
-    // Returns true iff the secondNode can be swapped with firstNode.
-    bool gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode);
+    // Returns true iff tree2 can be executed before tree1.
+    bool gtCanSwapOrder(GenTree* tree1, GenTree* tree2);
 
-    bool gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz, var_types indirType);
-
-    unsigned gtSetEvalOrder(GenTree* tree);
-
-    void gtSetStmtInfo(Statement* stmt);
+    static GenTree* gtGetFirstNode(GenTree* tree);
+    GenTree* gtSetTreeSeq(GenTree* tree, bool isLIR = false);
+    INDEBUG(void gtCheckTreeSeq(GenTree* tree, bool isLIR = false);)
+    void gtSetStmtOrder(Statement* stmt);
+    void gtSetStmtSeq(Statement* stmt);
+    unsigned gtSetOrder(GenTree* tree);
+    unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args);
+    void gtSetCosts(GenTree* tree);
+    void gtSetCallArgsCosts(const GenTreeCall::UseList& args,
+                            bool                        lateArgs,
+                            unsigned*                   callCostEx,
+                            unsigned*                   callCostSz);
+    bool gtMarkAddrMode(GenTree* addr, var_types indirType, unsigned* indirCostEx, unsigned* indirCostSz);
 
     // Returns "true" iff "node" has any of the side effects in "flags".
     bool gtNodeHasSideEffects(GenTree* node, GenTreeFlags flags, bool ignoreCctors = false);
@@ -4024,22 +4029,10 @@ public:
 #ifdef DEBUG
     bool fgReachabilitySetsValid = false; // Are the bbReach sets valid?
     bool fgEnterBlksSetValid     = false; // Is the fgEnterBlks set valid?
+    bool fgLinearOrder           = false;
 #endif
 
     bool fgRemoveRestOfBlock; // true if we know that we will throw
-
-    // There are two modes for ordering of the trees.
-    //  - In FGOrderTree, the dominant ordering is the tree order, and the nodes contained in
-    //    each tree and sub-tree are contiguous, and can be traversed (in gtNext/gtPrev order)
-    //    by traversing the tree according to the order of the operands.
-    //  - In FGOrderLinear, the dominant ordering is the linear order.
-
-    enum FlowGraphOrder : uint8_t
-    {
-        FGOrderTree,
-        FGOrderLinear
-    };
-    FlowGraphOrder fgOrder = FGOrderTree;
 
     // The following are boolean flags that keep track of the state of internal data structures
 
@@ -4148,6 +4141,8 @@ public:
 
     void fgMergeBlockReturn(BasicBlock* block);
 
+    GenTreeOp* fgIsCommaThrow(GenTree* tree DEBUGARG(bool forFolding));
+    GenTreeCall* fgIsThrow(GenTree* tree);
     bool fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(const char* msg));
 
 #ifdef DEBUG
@@ -4163,11 +4158,6 @@ public:
     BasicBlock* fgSplitBlockAfterStatement(BasicBlock* curr, Statement* stmt);
     BasicBlock* fgSplitBlockAfterNode(BasicBlock* curr, GenTree* node); // for LIR
     BasicBlock* fgSplitEdge(BasicBlock* curr, BasicBlock* succ);
-
-    Statement* fgNewStmtFromTree(GenTree* tree, BasicBlock* block, IL_OFFSETX offs);
-    Statement* fgNewStmtFromTree(GenTree* tree);
-    Statement* fgNewStmtFromTree(GenTree* tree, BasicBlock* block);
-    Statement* fgNewStmtFromTree(GenTree* tree, IL_OFFSETX offs);
 
     GenTreeQmark* fgGetTopLevelQmark(GenTree* expr, GenTreeLclVar** destLclVar);
     void fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt);
@@ -4419,7 +4409,7 @@ public:
 
     void fgUnlinkStmt(BasicBlock* block, Statement* stmt);
 
-    bool fgCheckRemoveStmt(BasicBlock* block, Statement* stmt);
+    bool fgMorphRemoveUselessStmt(BasicBlock* block, Statement* stmt);
 
     void fgCreateLoopPreHeader(unsigned lnum);
 
@@ -4514,7 +4504,7 @@ public:
     bool fgReachWithoutCall(BasicBlock* srcBB, BasicBlock* dstBB);
     void fgLoopCallMark();
 
-    unsigned fgGetCodeEstimate(BasicBlock* block);
+    unsigned fgGetCodeSizeEstimate(BasicBlock* block, unsigned limit);
 
 #if DUMP_FLOWGRAPHS
     enum class PhasePosition
@@ -4560,8 +4550,6 @@ public:
 
     bool fgProfileWeightsEqual(BasicBlock::weight_t weight1, BasicBlock::weight_t weight2);
     bool fgProfileWeightsConsistent(BasicBlock::weight_t weight1, BasicBlock::weight_t weight2);
-
-    static GenTree* fgGetFirstNode(GenTree* tree);
 
     /**************************************************************************
      *                          PROTECTED
@@ -4702,15 +4690,6 @@ private:
     GenTreeOp* fgMorphLongMul(GenTreeOp* mul);
 #endif
 
-    //-------- Determine the order in which the trees will be evaluated -------
-
-    GenTree* fgSetTreeSeq(GenTree* tree, bool isLIR = false);
-    void fgCheckTreeSeq(GenTree* tree, bool isLIR = false);
-    void fgSequenceBlockStatements(BasicBlock* block);
-
-public:
-    void fgSetStmtSeq(Statement* stmt);
-
 private:
 #ifndef TARGET_X86
     hashBv* m_abiStructArgTemps      = nullptr;
@@ -4718,10 +4697,6 @@ private:
 #endif
 
     void fgMoveOpsLeft(GenTree* tree);
-
-    bool fgIsCommaThrow(GenTree* tree, bool forFolding = false);
-
-    bool fgIsThrow(GenTree* tree);
 
     bool fgInDifferentRegions(BasicBlock* blk1, BasicBlock* blk2);
     bool fgIsBlockCold(BasicBlock* block);
@@ -4928,7 +4903,7 @@ private:
 
     void fgMarkAddressExposedLocals();
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_X86)
     // Rewrite appearances of implicit byrefs (manifest the implied additional level of indirection)
     // or stack params of x86 varargs methods.
     void fgMorphIndirectParams(Statement* stmt);
@@ -5212,15 +5187,6 @@ public:
             return 1 + optLoopDepth(par);
         }
     }
-
-    // Struct used in optInvertWhileLoop to count interesting constructs to boost the profitability score.
-    struct OptInvertCountTreeInfoType
-    {
-        int sharedStaticHelperCount;
-        int arrayLengthCount;
-    };
-
-    static fgWalkResult optInvertCountTreeInfo(GenTree** pTree, fgWalkData* data);
 
     bool optInvertWhileLoop(BasicBlock* block);
 
@@ -6379,8 +6345,7 @@ public:
     void        phAddSpecialLocals();
     void        phImplicitRefLocals();
     void        phRefCountLocals();
-    void        phFindOperOrder();
-    void        phSetBlockOrder();
+    void        phSetEvalOrder();
     void        phSsaLiveness();
     void        phSsaOpt();
     void        phRemoveRedundantZeroInits();

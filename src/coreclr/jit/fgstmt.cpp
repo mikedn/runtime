@@ -168,8 +168,7 @@ Statement* Compiler::fgNewStmtAtEnd(BasicBlock* block, GenTree* tree)
 //
 void Compiler::fgInsertStmtNearEnd(BasicBlock* block, Statement* stmt)
 {
-    // This routine can only be used when in tree order.
-    assert(fgOrder == FGOrderTree);
+    assert(!fgLinearOrder);
 
     if ((block->bbJumpKind == BBJ_COND) || (block->bbJumpKind == BBJ_SWITCH) || (block->bbJumpKind == BBJ_RETURN))
     {
@@ -366,45 +365,6 @@ Statement* Compiler::fgInsertStmtListAfter(BasicBlock* block, Statement* stmtAft
     return stmtLast;
 }
 
-/*****************************************************************************
- *
- *  Create a new statement from tree and wire the links up.
- */
-Statement* Compiler::fgNewStmtFromTree(GenTree* tree, BasicBlock* block, IL_OFFSETX offs)
-{
-    Statement* stmt = gtNewStmt(tree, offs);
-
-    if (fgStmtListThreaded)
-    {
-        gtSetStmtInfo(stmt);
-        fgSetStmtSeq(stmt);
-    }
-
-#if DEBUG
-    if (block != nullptr)
-    {
-        fgDebugCheckNodeLinks(block, stmt);
-    }
-#endif
-
-    return stmt;
-}
-
-Statement* Compiler::fgNewStmtFromTree(GenTree* tree)
-{
-    return fgNewStmtFromTree(tree, nullptr, BAD_IL_OFFSET);
-}
-
-Statement* Compiler::fgNewStmtFromTree(GenTree* tree, BasicBlock* block)
-{
-    return fgNewStmtFromTree(tree, block, BAD_IL_OFFSET);
-}
-
-Statement* Compiler::fgNewStmtFromTree(GenTree* tree, IL_OFFSETX offs)
-{
-    return fgNewStmtFromTree(tree, nullptr, offs);
-}
-
 //------------------------------------------------------------------------
 // fgUnlinkStmt: unlink a statement from a block's statement list
 //
@@ -425,7 +385,7 @@ void Compiler::fgUnlinkStmt(BasicBlock* block, Statement* stmt)
 
 void Compiler::fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dumpStmt /* = true */))
 {
-    assert(fgOrder == FGOrderTree);
+    assert(!fgLinearOrder);
 
 #ifdef DEBUG
     if (verbose && dumpStmt)
@@ -483,63 +443,4 @@ void Compiler::fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dum
         }
     }
 #endif // DEBUG
-}
-
-/******************************************************************************/
-// Returns true if the operator is involved in control-flow
-// TODO-Cleanup: Move this into genTreeKinds in genTree.h
-
-inline bool OperIsControlFlow(genTreeOps oper)
-{
-    switch (oper)
-    {
-        case GT_JTRUE:
-        case GT_JCMP:
-        case GT_JCC:
-        case GT_SWITCH:
-        case GT_LABEL:
-
-        case GT_CALL:
-        case GT_JMP:
-
-        case GT_RETURN:
-        case GT_RETFILT:
-#if !defined(FEATURE_EH_FUNCLETS)
-        case GT_END_LFIN:
-#endif // !FEATURE_EH_FUNCLETS
-            return true;
-
-        default:
-            return false;
-    }
-}
-
-/******************************************************************************
- *  Tries to throw away a stmt. The statement can be anywhere in block->bbStmtList.
- *  Returns true if it did remove the statement.
- */
-
-bool Compiler::fgCheckRemoveStmt(BasicBlock* block, Statement* stmt)
-{
-    if (opts.compDbgCode)
-    {
-        return false;
-    }
-
-    GenTree*   tree = stmt->GetRootNode();
-    genTreeOps oper = tree->OperGet();
-
-    if (OperIsControlFlow(oper) || GenTree::OperIsHWIntrinsic(oper) || oper == GT_NO_OP)
-    {
-        return false;
-    }
-
-    // TODO: Use a recursive version of gtNodeHasSideEffects()
-    if (tree->gtFlags & GTF_SIDE_EFFECT)
-    {
-        return false;
-    }
-
-    fgRemoveStmt(block, stmt);
-    return true;
 }

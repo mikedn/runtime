@@ -45,7 +45,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
                                      GenTreeCall::Use* args)
 {
     GenTree* const tree           = *use;
-    GenTree* const treeFirstNode  = comp->fgGetFirstNode(tree);
+    GenTree* const treeFirstNode  = comp->gtGetFirstNode(tree);
     GenTree* const insertionPoint = treeFirstNode->gtPrev;
 
     BlockRange().Remove(treeFirstNode, tree);
@@ -77,8 +77,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
         *use = call;
     }
 
-    comp->gtSetEvalOrder(call);
-    BlockRange().InsertAfter(insertionPoint, LIR::Range(comp->fgSetTreeSeq(call), call));
+    BlockRange().InsertAfter(insertionPoint, LIR::Range(comp->gtSetTreeSeq(call), call));
 
     // Propagate flags of "call" to its parents.
     // 0 is current node, so start at 1
@@ -434,23 +433,14 @@ void Rationalizer::Run()
         }
     };
 
-    comp->fgOrder = Compiler::FGOrderLinear;
+    INDEBUG(comp->fgLinearOrder = true);
 
     RationalizeVisitor visitor(*this);
     for (BasicBlock* const block : comp->Blocks())
     {
         m_block = block;
 
-        block->MakeLIR(nullptr, nullptr);
-
-        // Establish the first and last nodes for the block. This is necessary in order for the LIR
-        // utilities that hang off the BasicBlock type to work correctly.
-        Statement* firstStatement = block->firstStmt();
-        if (firstStatement == nullptr)
-        {
-            // No statements in this block; skip it.
-            continue;
-        }
+        block->MakeLIR();
 
         IL_OFFSETX currentILOffset = BAD_IL_OFFSET;
 

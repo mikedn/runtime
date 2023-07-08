@@ -2778,7 +2778,7 @@ bool Compiler::optCanonicalizeLoop(unsigned loopInd)
         newT->bbJumpKind = BBJ_ALWAYS;
         newT->bbJumpDest = t;
         newT->bbStmtList = nullptr;
-        fgInsertStmtAtEnd(newT, fgNewStmtFromTree(gtNewOperNode(GT_NOP, TYP_VOID, nullptr)));
+        fgInsertStmtAtEnd(newT, gtNewStmt(gtNewOperNode(GT_NOP, TYP_VOID, nullptr)));
     }
 
     // If it had been a do-while loop (top == entry), update entry, as well.
@@ -2807,7 +2807,7 @@ bool Compiler::optCanonicalizeLoop(unsigned loopInd)
         optLoopTable[loopInd].lpHead = h2;
         h2->bbJumpDest               = optLoopTable[loopInd].lpEntry;
         h2->bbStmtList               = nullptr;
-        fgInsertStmtAtEnd(h2, fgNewStmtFromTree(gtNewOperNode(GT_NOP, TYP_VOID, nullptr)));
+        fgInsertStmtAtEnd(h2, gtNewStmt(gtNewOperNode(GT_NOP, TYP_VOID, nullptr)));
     }
 
     // If any loops nested in "loopInd" have the same head and entry as "loopInd",
@@ -3500,8 +3500,8 @@ PhaseStatus Compiler::phUnrollLoops()
 
                 for (Statement* const stmt : block->Statements())
                 {
-                    gtSetStmtInfo(stmt);
-                    loopCostSz += stmt->GetCostSz();
+                    gtSetCosts(stmt->GetRootNode());
+                    loopCostSz += stmt->GetRootNode()->GetCostSz();
                 }
 
                 if (block == bottom)
@@ -3731,8 +3731,14 @@ PhaseStatus Compiler::phUnrollLoops()
 #pragma warning(pop)
 #endif
 
-// static
-Compiler::fgWalkResult Compiler::optInvertCountTreeInfo(GenTree** pTree, fgWalkData* data)
+// Struct used in optInvertWhileLoop to count interesting constructs to boost the profitability score.
+struct OptInvertCountTreeInfoType
+{
+    unsigned sharedStaticHelperCount = 0;
+    unsigned arrayLengthCount        = 0;
+};
+
+static Compiler::fgWalkResult optInvertCountTreeInfo(GenTree** pTree, Compiler::fgWalkData* data)
 {
     OptInvertCountTreeInfoType* o = (OptInvertCountTreeInfoType*)data->pCallbackData;
 
@@ -3746,7 +3752,7 @@ Compiler::fgWalkResult Compiler::optInvertCountTreeInfo(GenTree** pTree, fgWalkD
         o->arrayLengthCount += 1;
     }
 
-    return WALK_CONTINUE;
+    return Compiler::WALK_CONTINUE;
 }
 
 //-----------------------------------------------------------------------------
@@ -3869,29 +3875,6 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
         return false;
     }
 
-    // Estimate the cost of cloning the entire test block.
-    //
-    // Note: it would help throughput to compute the maximum cost
-    // first and early out for large bTest blocks, as we are doing two
-    // tree walks per tree. But because of this helper call scan, the
-    // maximum cost depends on the trees in the block.
-    //
-    // We might consider flagging blocks with hoistable helper calls
-    // during importation, so we can avoid the helper search and
-    // implement an early bail out for large blocks with no helper calls.
-    //
-    // Note that gtPrepareCost can cause operand swapping, so we must
-    // return `true` (possible IR change) from here on.
-
-    unsigned estDupCostSz = 0;
-
-    for (Statement* const stmt : bTest->Statements())
-    {
-        GenTree* tree = stmt->GetRootNode();
-        gtPrepareCost(tree);
-        estDupCostSz += tree->GetCostSz();
-    }
-
     BasicBlock::weight_t       loopIterations            = BB_LOOP_WEIGHT_SCALE;
     bool                       allProfileWeightsAreValid = false;
     BasicBlock::weight_t const weightBlock               = block->bbWeight;
@@ -3958,11 +3941,32 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
         }
     }
 
+    // Estimate the cost of cloning the entire test block.
+    //
+    // Note: it would help throughput to compute the maximum cost
+    // first and early out for large bTest blocks, as we are doing two
+    // tree walks per tree. But because of this helper call scan, the
+    // maximum cost depends on the trees in the block.
+    //
+    // We might consider flagging blocks with hoistable helper calls
+    // during importation, so we can avoid the helper search and
+    // implement an early bail out for large blocks with no helper calls.
+
+    unsigned estDupCostSz = 0;
+
+    for (Statement* const stmt : bTest->Statements())
+    {
+        GenTree* tree = stmt->GetRootNode();
+        gtSetCosts(tree);
+        estDupCostSz += tree->GetCostSz();
+    }
+
     // If the compare has too high cost then we don't want to dup.
 
     bool costIsTooHigh = (estDupCostSz > maxDupCostSz);
 
-    OptInvertCountTreeInfoType optInvertTotalInfo = {};
+    OptInvertCountTreeInfoType optInvertTotalInfo;
+
     if (costIsTooHigh)
     {
         // If we already know that the cost is acceptable, then don't waste time walking the tree
@@ -3978,8 +3982,8 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
         {
             GenTree* tree = stmt->GetRootNode();
 
-            OptInvertCountTreeInfoType optInvertInfo = {};
-            fgWalkTreePre(&tree, Compiler::optInvertCountTreeInfo, &optInvertInfo);
+            OptInvertCountTreeInfoType optInvertInfo;
+            fgWalkTreePre(&tree, optInvertCountTreeInfo, &optInvertInfo);
             optInvertTotalInfo.sharedStaticHelperCount += optInvertInfo.sharedStaticHelperCount;
             optInvertTotalInfo.arrayLengthCount += optInvertInfo.arrayLengthCount;
 
@@ -3987,18 +3991,19 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
             {
                 // Calculate a new maximum cost. We might be able to early exit.
 
-                unsigned newMaxDupCostSz =
-                    maxDupCostSz + 24 * min(optInvertTotalInfo.sharedStaticHelperCount, (int)(loopIterations + 1.5)) +
-                    8 * optInvertTotalInfo.arrayLengthCount;
+                unsigned newMaxDupCostSz = maxDupCostSz +
+                                           24 * Min(optInvertTotalInfo.sharedStaticHelperCount,
+                                                    (static_cast<unsigned>(loopIterations + 1.5f))) +
+                                           8 * optInvertTotalInfo.arrayLengthCount;
 
-                // Is the cost too high now?
                 costIsTooHigh = (estDupCostSz > newMaxDupCostSz);
+
                 if (!costIsTooHigh)
                 {
                     // No need counting any more trees; we're going to do the transformation.
                     JITDUMP("Decided to duplicate loop condition block after counting helpers in tree [%06u] in "
                             "block " FMT_BB,
-                            dspTreeID(tree), bTest->bbNum);
+                            tree->GetID(), bTest->bbNum);
                     maxDupCostSz = newMaxDupCostSz; // for the JitDump output below
                     break;
                 }
@@ -4014,7 +4019,7 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
         printf(
             "\nDuplication of loop condition [%06u] is %s, because the cost of duplication (%i) is %s than %i,"
             "\n   loopIterations = %7.3f, optInvertTotalInfo.sharedStaticHelperCount >= %d, validProfileWeights = %s\n",
-            dspTreeID(condTree), costIsTooHigh ? "not done" : "performed", estDupCostSz,
+            condTree->GetID(), costIsTooHigh ? "not done" : "performed", estDupCostSz,
             costIsTooHigh ? "greater" : "less or equal", maxDupCostSz, loopIterations,
             optInvertTotalInfo.sharedStaticHelperCount, dspBool(allProfileWeightsAreValid));
     }
@@ -4280,7 +4285,7 @@ PhaseStatus Compiler::optOptimizeLayout()
     madeChanges |= fgUpdateFlowGraph();
 
     // fgReorderBlocks can cause IR changes even if it does not modify
-    // the flow graph. It calls gtPrepareCost which can cause operand swapping.
+    // the flow graph. It calls gtSetOrder which can cause operand swapping.
     // Work around this for now.
     //
     // Note phase status only impacts dumping and checking done post-phase,
@@ -4896,15 +4901,8 @@ bool OptBoolsDsc::optOptimizeBoolsChkTypeCostCond()
     }
 
     // The second condition must not be too expensive
-
-    m_comp->gtPrepareCost(m_c2);
-
-    if (m_c2->GetCostEx() > 12)
-    {
-        return false;
-    }
-
-    return true;
+    m_comp->gtSetCosts(m_c2);
+    return m_c2->GetCostEx() <= 12;
 }
 
 //-----------------------------------------------------------------------------

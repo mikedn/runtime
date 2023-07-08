@@ -2220,8 +2220,7 @@ void Compiler::fgRemoveConditionalJump(BasicBlock* block)
 
             if (fgStmtListThreaded)
             {
-                gtSetStmtInfo(test);
-                fgSetStmtSeq(test);
+                gtSetStmtOrder(test);
             }
         }
     }
@@ -2533,8 +2532,7 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
                         else
                         {
                             Statement* nopStmt = fgNewStmtAtEnd(block, nop);
-                            fgSetStmtSeq(nopStmt);
-                            gtSetStmtInfo(nopStmt);
+                            gtSetStmtOrder(nopStmt);
                         }
 
                         JITDUMP("\nKeeping empty block " FMT_BB " - it is the target of a catch return\n",
@@ -2787,8 +2785,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
 
                 if (fgStmtListThreaded)
                 {
-                    gtSetStmtInfo(switchStmt);
-                    fgSetStmtSeq(switchStmt);
+                    gtSetStmtOrder(switchStmt);
                 }
             }
             else
@@ -2857,8 +2854,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         }
         else if (fgStmtListThreaded)
         {
-            gtSetStmtInfo(switchStmt);
-            fgSetStmtSeq(switchStmt);
+            gtSetStmtOrder(switchStmt);
         }
 
         return true;
@@ -3160,7 +3156,8 @@ bool Compiler::fgOptimizeUncondBranchToSimpleCond(BasicBlock* block, BasicBlock*
 
     if (fgStmtListThreaded)
     {
-        gtSetStmtInfo(jmpStmt);
+        gtSetOrder(jmpStmt->GetRootNode());
+        // TODO-MIKE-Review: Doesn't this sequencing? And if it doesn't, why bother with order?
     }
 
     fgInsertStmtAtEnd(block, jmpStmt);
@@ -3290,8 +3287,7 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
 
                     if (fgStmtListThreaded)
                     {
-                        gtSetStmtInfo(condStmt);
-                        fgSetStmtSeq(condStmt);
+                        gtSetStmtOrder(condStmt);
                     }
                 }
             }
@@ -3388,23 +3384,6 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
     assert(!bJump->IsLIR());
     assert(!bDest->IsLIR());
 
-    unsigned estDupCostSz = 0;
-    for (Statement* const stmt : bDest->Statements())
-    {
-        // We want to compute the costs of the statement. Unfortunately, gtPrepareCost() / gtSetStmtInfo()
-        // call gtSetEvalOrder(), which can reorder nodes. If it does so, we need to re-thread the gtNext/gtPrev
-        // links. We don't know if it does or doesn't reorder nodes, so we end up always re-threading the links.
-
-        gtSetStmtInfo(stmt);
-        if (fgStmtListThreaded)
-        {
-            fgSetStmtSeq(stmt);
-        }
-
-        GenTree* expr = stmt->GetRootNode();
-        estDupCostSz += expr->GetCostSz();
-    }
-
     bool                 allProfileWeightsAreValid = false;
     BasicBlock::weight_t weightJump                = bJump->bbWeight;
     BasicBlock::weight_t weightDest                = bDest->bbWeight;
@@ -3475,6 +3454,18 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
 
     // If the compare has too high cost then we don't want to dup
 
+    unsigned estDupCostSz = 0;
+    for (Statement* const stmt : bDest->Statements())
+    {
+        gtSetCosts(stmt->GetRootNode());
+        estDupCostSz += stmt->GetRootNode()->GetCostSz();
+
+        if (estDupCostSz > maxDupCostSz)
+        {
+            break;
+        }
+    }
+
     bool costIsTooHigh = (estDupCostSz > maxDupCostSz);
 
 #ifdef DEBUG
@@ -3512,8 +3503,7 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
 
         if (fgStmtListThreaded)
         {
-            gtSetStmtInfo(stmt);
-            fgSetStmtSeq(stmt);
+            gtSetStmtOrder(stmt);
         }
 
         /* Append the expression to our list */
@@ -3709,9 +3699,14 @@ bool Compiler::fgOptimizeSwitchJumps()
         //
         GenTree* const   dominantCaseCompare = gtNewOperNode(GT_EQ, TYP_INT, switchValue, gtNewIconNode(dominantCase));
         GenTree* const   jmpTree             = gtNewOperNode(GT_JTRUE, TYP_VOID, dominantCaseCompare);
-        Statement* const jmpStmt             = fgNewStmtFromTree(jmpTree, switchStmt->GetILOffsetX());
+        Statement* const jmpStmt             = gtNewStmt(jmpTree, switchStmt->GetILOffsetX());
         fgInsertStmtAtEnd(block, jmpStmt);
 
+        if (fgStmtListThreaded)
+        {
+            gtSetStmtOrder(jmpStmt);
+        }
+        
         // Reattach switch value to the switch. This may introduce a comma
         // in the upstream compare tree, if the switch value expression is complex.
         //
@@ -5809,61 +5804,6 @@ bool Compiler::fgUpdateFlowGraph(Lowering* lowering, bool doTailDuplication)
 #ifdef _PREFAST_
 #pragma warning(pop)
 #endif
-
-//-------------------------------------------------------------
-// fgGetCodeEstimate: Compute a code size estimate for the block, including all statements
-// and block control flow.
-//
-// Arguments:
-//    block - block to consider
-//
-// Returns:
-//    Code size estimate for block
-//
-unsigned Compiler::fgGetCodeEstimate(BasicBlock* block)
-{
-    unsigned costSz = 0; // estimate of block's code size cost
-
-    switch (block->bbJumpKind)
-    {
-        case BBJ_NONE:
-            costSz = 0;
-            break;
-        case BBJ_ALWAYS:
-        case BBJ_EHCATCHRET:
-        case BBJ_LEAVE:
-        case BBJ_COND:
-            costSz = 2;
-            break;
-        case BBJ_CALLFINALLY:
-            costSz = 5;
-            break;
-        case BBJ_SWITCH:
-            costSz = 10;
-            break;
-        case BBJ_THROW:
-            costSz = 1; // We place a int3 after the code for a throw block
-            break;
-        case BBJ_EHFINALLYRET:
-        case BBJ_EHFILTERRET:
-            costSz = 1;
-            break;
-        case BBJ_RETURN: // return from method
-            costSz = 3;
-            break;
-        default:
-            noway_assert(!"Bad bbJumpKind");
-            break;
-    }
-
-    for (Statement* const stmt : block->NonPhiStatements())
-    {
-        unsigned char cost = stmt->GetCostSz();
-        costSz += cost;
-    }
-
-    return costSz;
-}
 
 #ifdef FEATURE_JIT_METHOD_PERF
 

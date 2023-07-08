@@ -121,8 +121,7 @@ private:
 
                 if (stmtModified)
                 {
-                    compiler->gtSetStmtInfo(stmt);
-                    compiler->fgSetStmtSeq(stmt);
+                    compiler->gtSetStmtOrder(stmt);
                     madeChanges = true;
                 }
             }
@@ -318,8 +317,7 @@ private:
                 }
             }
 
-            compiler->gtSetStmtInfo(nullCheckStmt);
-            compiler->fgSetStmtSeq(nullCheckStmt);
+            compiler->gtSetStmtOrder(nullCheckStmt);
             madeChanges = true;
         }
 
