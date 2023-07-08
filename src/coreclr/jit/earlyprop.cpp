@@ -121,7 +121,6 @@ private:
 
                 if (stmtModified)
                 {
-                    compiler->gtSetCosts(stmt->GetRootNode());
                     compiler->gtSetStmtOrder(stmt);
                     madeChanges = true;
                 }
@@ -318,7 +317,6 @@ private:
                 }
             }
 
-            compiler->gtSetCosts(nullCheckStmt->GetRootNode());
             compiler->gtSetStmtOrder(nullCheckStmt);
             madeChanges = true;
         }

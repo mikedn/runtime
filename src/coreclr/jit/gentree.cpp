@@ -1738,12 +1738,6 @@ void Compiler::phSetEvalOrder()
     {
         for (Statement* stmt : block->Statements())
         {
-            // TODO-MIKE-Cleanup: We don't really need costs until LoopHoist/CSE.
-            // Moving this results in a few diffs - costs are dependent on DNER
-            // and liveness may make new DNER locals due to EH, so we get higher
-            // costs after liveness and thus extra CSEs.
-            gtSetCosts(stmt->GetRootNode());
-
             gtSetStmtOrder(stmt);
         }
     }
