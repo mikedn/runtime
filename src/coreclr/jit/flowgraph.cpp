@@ -2496,7 +2496,6 @@ BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* th
 
         if (fgStmtListThreaded)
         {
-            gtSetCosts(call);
             gtSetStmtSeq(stmt);
         }
     }

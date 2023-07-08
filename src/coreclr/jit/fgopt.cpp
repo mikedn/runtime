@@ -2220,7 +2220,6 @@ void Compiler::fgRemoveConditionalJump(BasicBlock* block)
 
             if (fgStmtListThreaded)
             {
-                gtSetCosts(test->GetRootNode());
                 gtSetStmtOrder(test);
             }
         }
@@ -2533,7 +2532,6 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
                         else
                         {
                             Statement* nopStmt = fgNewStmtAtEnd(block, nop);
-                            gtSetCosts(nopStmt->GetRootNode());
                             gtSetStmtOrder(nopStmt);
                         }
 
@@ -2787,7 +2785,6 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
 
                 if (fgStmtListThreaded)
                 {
-                    gtSetCosts(switchStmt->GetRootNode());
                     gtSetStmtOrder(switchStmt);
                 }
             }
@@ -2857,7 +2854,6 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         }
         else if (fgStmtListThreaded)
         {
-            gtSetCosts(switchStmt->GetRootNode());
             gtSetStmtOrder(switchStmt);
         }
 
@@ -3160,7 +3156,6 @@ bool Compiler::fgOptimizeUncondBranchToSimpleCond(BasicBlock* block, BasicBlock*
 
     if (fgStmtListThreaded)
     {
-        gtSetCosts(jmpStmt->GetRootNode());
         gtSetOrder(jmpStmt->GetRootNode());
         // TODO-MIKE-Review: Doesn't this sequencing? And if it doesn't, why bother with order?
     }
@@ -3292,7 +3287,6 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
 
                     if (fgStmtListThreaded)
                     {
-                        gtSetCosts(condStmt->GetRootNode());
                         gtSetStmtOrder(condStmt);
                     }
                 }
@@ -3509,7 +3503,6 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
 
         if (fgStmtListThreaded)
         {
-            gtSetCosts(stmt->GetRootNode());
             gtSetStmtOrder(stmt);
         }
 
@@ -3711,7 +3704,6 @@ bool Compiler::fgOptimizeSwitchJumps()
 
         if (fgStmtListThreaded)
         {
-            gtSetCosts(jmpTree);
             gtSetStmtOrder(jmpStmt);
         }
         
