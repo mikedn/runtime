@@ -3463,11 +3463,7 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
     unsigned estDupCostSz = 0;
     for (Statement* const stmt : bDest->Statements())
     {
-        if (!fgStmtListThreaded)
-        {
-            gtSetCosts(stmt->GetRootNode());
-        }
-
+        gtSetCosts(stmt->GetRootNode());
         estDupCostSz += stmt->GetRootNode()->GetCostSz();
 
         if (estDupCostSz > maxDupCostSz)
