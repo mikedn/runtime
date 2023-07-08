@@ -4159,11 +4159,6 @@ public:
     BasicBlock* fgSplitBlockAfterNode(BasicBlock* curr, GenTree* node); // for LIR
     BasicBlock* fgSplitEdge(BasicBlock* curr, BasicBlock* succ);
 
-    Statement* fgNewStmtFromTree(GenTree* tree, BasicBlock* block, IL_OFFSETX offs);
-    Statement* fgNewStmtFromTree(GenTree* tree);
-    Statement* fgNewStmtFromTree(GenTree* tree, BasicBlock* block);
-    Statement* fgNewStmtFromTree(GenTree* tree, IL_OFFSETX offs);
-
     GenTreeQmark* fgGetTopLevelQmark(GenTree* expr, GenTreeLclVar** destLclVar);
     void fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt);
     void fgExpandQmarkStmt(BasicBlock* block, Statement* stmt);

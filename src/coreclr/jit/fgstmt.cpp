@@ -365,45 +365,6 @@ Statement* Compiler::fgInsertStmtListAfter(BasicBlock* block, Statement* stmtAft
     return stmtLast;
 }
 
-/*****************************************************************************
- *
- *  Create a new statement from tree and wire the links up.
- */
-Statement* Compiler::fgNewStmtFromTree(GenTree* tree, BasicBlock* block, IL_OFFSETX offs)
-{
-    Statement* stmt = gtNewStmt(tree, offs);
-
-    if (fgStmtListThreaded)
-    {
-        gtSetCosts(stmt->GetRootNode());
-        gtSetStmtOrder(stmt);
-    }
-
-#if DEBUG
-    if (block != nullptr)
-    {
-        fgDebugCheckNodeLinks(block, stmt);
-    }
-#endif
-
-    return stmt;
-}
-
-Statement* Compiler::fgNewStmtFromTree(GenTree* tree)
-{
-    return fgNewStmtFromTree(tree, nullptr, BAD_IL_OFFSET);
-}
-
-Statement* Compiler::fgNewStmtFromTree(GenTree* tree, BasicBlock* block)
-{
-    return fgNewStmtFromTree(tree, block, BAD_IL_OFFSET);
-}
-
-Statement* Compiler::fgNewStmtFromTree(GenTree* tree, IL_OFFSETX offs)
-{
-    return fgNewStmtFromTree(tree, nullptr, offs);
-}
-
 //------------------------------------------------------------------------
 // fgUnlinkStmt: unlink a statement from a block's statement list
 //

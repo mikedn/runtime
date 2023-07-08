@@ -3710,9 +3710,15 @@ bool Compiler::fgOptimizeSwitchJumps()
         //
         GenTree* const   dominantCaseCompare = gtNewOperNode(GT_EQ, TYP_INT, switchValue, gtNewIconNode(dominantCase));
         GenTree* const   jmpTree             = gtNewOperNode(GT_JTRUE, TYP_VOID, dominantCaseCompare);
-        Statement* const jmpStmt             = fgNewStmtFromTree(jmpTree, switchStmt->GetILOffsetX());
+        Statement* const jmpStmt             = gtNewStmt(jmpTree, switchStmt->GetILOffsetX());
         fgInsertStmtAtEnd(block, jmpStmt);
 
+        if (fgStmtListThreaded)
+        {
+            gtSetCosts(jmpTree);
+            gtSetStmtOrder(jmpStmt);
+        }
+        
         // Reattach switch value to the switch. This may introduce a comma
         // in the upstream compare tree, if the switch value expression is complex.
         //

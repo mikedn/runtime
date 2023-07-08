@@ -14633,12 +14633,12 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 
     // Append cond1 as JTRUE to cond1Block
     GenTree*   jmpTree = gtNewOperNode(GT_JTRUE, TYP_VOID, condExpr);
-    Statement* jmpStmt = fgNewStmtFromTree(jmpTree, stmt->GetILOffsetX());
+    Statement* jmpStmt = gtNewStmt(jmpTree, stmt->GetILOffsetX());
     fgInsertStmtAtEnd(cond1Block, jmpStmt);
 
     // Append cond2 as JTRUE to cond2Block
     jmpTree = gtNewOperNode(GT_JTRUE, TYP_VOID, cond2Expr);
-    jmpStmt = fgNewStmtFromTree(jmpTree, stmt->GetILOffsetX());
+    jmpStmt = gtNewStmt(jmpTree, stmt->GetILOffsetX());
     fgInsertStmtAtEnd(cond2Block, jmpStmt);
 
     unsigned  dstLclNum = dst->GetLclNum();
@@ -14648,7 +14648,7 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 
     // AsgBlock should get tmp = op1 assignment.
     trueExpr = gtNewStoreLclVar(dstLclNum, dstType, trueExpr);
-    fgInsertStmtAtEnd(asgBlock, fgNewStmtFromTree(trueExpr, stmt->GetILOffsetX()));
+    fgInsertStmtAtEnd(asgBlock, gtNewStmt(trueExpr, stmt->GetILOffsetX()));
 
     // Since we are adding helper in the JTRUE false path, reverse the cond2 and add the helper.
     gtReverseCond(cond2Expr);
@@ -14662,7 +14662,7 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
         true2Expr = gtNewStoreLclVar(dstLclNum, dstType, true2Expr);
     }
 
-    fgInsertStmtAtEnd(helperBlock, fgNewStmtFromTree(true2Expr, stmt->GetILOffsetX()));
+    fgInsertStmtAtEnd(helperBlock, gtNewStmt(true2Expr, stmt->GetILOffsetX()));
     fgRemoveStmt(block, stmt);
 
 #ifdef DEBUG
@@ -14852,7 +14852,7 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     }
 
     GenTree*   jmpTree = gtNewOperNode(GT_JTRUE, TYP_VOID, qmark->GetCondition());
-    Statement* jmpStmt = fgNewStmtFromTree(jmpTree, stmt->GetILOffsetX());
+    Statement* jmpStmt = gtNewStmt(jmpTree, stmt->GetILOffsetX());
     fgInsertStmtAtEnd(condBlock, jmpStmt);
 
     // Remove the original qmark statement.
@@ -14886,12 +14886,12 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
 
     if (hasTrueExpr)
     {
-        fgInsertStmtAtEnd(thenBlock, fgNewStmtFromTree(trueExpr, stmt->GetILOffsetX()));
+        fgInsertStmtAtEnd(thenBlock, gtNewStmt(trueExpr, stmt->GetILOffsetX()));
     }
 
     if (hasFalseExpr)
     {
-        fgInsertStmtAtEnd(elseBlock, fgNewStmtFromTree(falseExpr, stmt->GetILOffsetX()));
+        fgInsertStmtAtEnd(elseBlock, gtNewStmt(falseExpr, stmt->GetILOffsetX()));
     }
 
 #ifdef DEBUG

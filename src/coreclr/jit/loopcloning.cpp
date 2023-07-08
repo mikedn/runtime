@@ -657,7 +657,7 @@ void LoopCloneContext::CondToStmtInBlock(JitVector<LcCondition>& conds, BasicBlo
     cond = compiler->gtNewOperNode(reverse ? GT_NE : GT_EQ, TYP_INT, cond, compiler->gtNewIconNode(0));
 
     GenTree*   jtrue = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, cond);
-    Statement* stmt  = compiler->fgNewStmtFromTree(jtrue);
+    Statement* stmt  = compiler->gtNewStmt(jtrue);
 
     compiler->fgInsertStmtAtEnd(block, stmt);
 

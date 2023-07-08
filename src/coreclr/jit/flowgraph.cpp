@@ -2489,9 +2489,16 @@ BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* th
 
     if (!throwBlock->IsLIR())
     {
-        fgInsertStmtAtEnd(helperBlock, fgNewStmtFromTree(call));
+        Statement* stmt = gtNewStmt(call);
+        fgInsertStmtAtEnd(helperBlock, stmt);
         // These helpers have no args but fgMorphArgs may have other has side effects.
         fgMorphArgs(call);
+
+        if (fgStmtListThreaded)
+        {
+            gtSetCosts(call);
+            gtSetStmtSeq(stmt);
+        }
     }
     else
     {
