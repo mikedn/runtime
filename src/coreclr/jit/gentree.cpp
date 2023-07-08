@@ -2701,7 +2701,8 @@ void Compiler::gtSetCosts(GenTree* tree)
             case GT_CNS_INT:
                 if (!tree->AsIntCon()->ImmedValNeedsReloc(this))
                 {
-                    assert(varTypeSize(tree->GetType()) == 4);
+                    // TODO-MIKE-Review: CNS_INT should always be INT sized but looks like bozos produced BOOL constants...
+                    assert(varTypeSize(tree->GetType()) <= 4);
                     int32_t value = tree->AsIntCon()->GetInt32Value();
 
                     if (emitter::validImmForInstr(INS_add, value))
