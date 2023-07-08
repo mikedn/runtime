@@ -2167,27 +2167,12 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, var_types indirType, unsigned* indi
     return true;
 }
 
-/*****************************************************************************
- *
- *  Given a tree, figure out the order in which its sub-operands should be
- *  evaluated. If the second operand of a binary operator is more expensive
- *  than the first operand, then try to swap the operand trees. Updates the
- *  GTF_REVERSE_OPS bit if necessary in this case.
- *
- *  Returns the Sethi 'complexity' estimate for this tree (the higher
- *  the number, the higher is the tree's resources requirement).
- *
- *  This function sets:
- *      1. GetCostEx() to the execution complexity estimate
- *      2. GetCostSz() to the code size estimate
- *      3. Sometimes sets GTF_ADDRMODE_NO_CSE on nodes in the tree.
- *      4. DEBUG-only: clears GTF_DEBUG_NODE_MORPHED.
- */
-
 #ifdef _PREFAST_
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
+// Estimates the execution cost and code size of the given tree.
+// Marks load/store address modes to prevent them from being CSEd.
 void Compiler::gtSetCosts(GenTree* tree)
 {
     const genTreeOps oper = tree->GetOper();
@@ -2844,6 +2829,7 @@ void Compiler::gtSetCosts(GenTree* tree)
 
             case GT_CNS_STR:
             case GT_CLS_VAR_ADDR:
+                // TODO-MIKE-Review: These seem bogus, usually they need 2-3 instructions.
                 costEx = 1;
                 costSz = 4;
                 break;
@@ -3133,7 +3119,9 @@ void Compiler::gtSetCosts(GenTree* tree)
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:
 #ifdef TARGET_XARCH
-                // TODO-MIKE-Review: Something's bogus here, only loads are unary and stores need address modes...
+                // TODO-MIKE-Review: Something's bogus here, only loads are unary and stores need address modes.
+                // And if an address mode isn't marked the costs revert to the default of 1, even if these are
+                // still load/stores...
                 if (tree->AsHWIntrinsic()->IsUnary() && tree->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
                 {
                     gtSetCosts(tree->AsHWIntrinsic()->GetOp(0));
@@ -3215,6 +3203,8 @@ DONE:
     tree->SetCosts(costEx, costSz);
 }
 
+// Figure out the order of execution of a tree using an approximation
+// of the Sethi–Ullman algorithm.
 unsigned Compiler::gtSetOrder(GenTree* tree)
 {
     assert(!fgLinearOrder);
@@ -3249,13 +3239,9 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
             {
                 case GT_INTRINSIC:
                 case GT_ARR_LENGTH:
-                // We need to ensure that -x is evaluated before x or else
-                // we get burned while adjusting genFPstkLevel in x*-x where
-                // the rhs x is the last use of the enregistered x.
-                // TODO-MIKE-Review: What the crap is this talking about? x87?
-                // Even in the integer case we want to prefer to
-                // evaluate the side without the NEG node, all other things
-                // being equal. Also a NOT requires a scratch register.
+                // TODO-MIKE-Review: These might only need a register when the operand
+                // is an enregistered local, otherwise they'd simply use the operand
+                // register as destination. Also, what about INTRINSIC?
                 case GT_NOT:
                 case GT_NEG:
                 case GT_FNEG:
@@ -3331,7 +3317,8 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                 FALLTHROUGH;
             case GT_DIV:
             case GT_UDIV:
-                // Encourage the first operand to be evaluated (into EAX/EDX) first
+                // Encourage the first operand to be evaluated (into EAX/EDX) first.
+                // TODO-MIKE-Review: Does ARMARCH need this?
                 level1 += 3;
                 break;
 
@@ -3378,12 +3365,9 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                     level1++;
                     level2++;
                 }
-                // We need to evaluate constants later as many places in codegen
-                // can't handle op1 being a constant. This is normally naturally
-                // enforced as constants have the least level of 0. However,
-                // sometimes we end up with a tree like "cns1 < nop(cns2)". In
-                // such cases, both sides have a level of 0. So encourage constants
-                // to be evaluated last in such cases.
+                // Encourage constants to be evaluated last in such cases.
+                // TODO-MIKE-Review: Shouldn't we simply force a swap if op1
+                // is const and ignore costs?
                 else if (((level1 + level2) == 0) && op1->OperIsConst())
                 {
                     level2++;
@@ -3401,6 +3385,8 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
             default:
                 assert(!tree->OperIs(GT_ASG));
 
+                // TODO-MIKE-Review: Shouldn't we simply force a swap if op1
+                // is const and ignore costs?
                 if (((level1 + level2) == 0) && op1->OperIsConst() && tree->OperIsCommutative())
                 {
                     level2++;
