@@ -5188,15 +5188,6 @@ public:
         }
     }
 
-    // Struct used in optInvertWhileLoop to count interesting constructs to boost the profitability score.
-    struct OptInvertCountTreeInfoType
-    {
-        int sharedStaticHelperCount;
-        int arrayLengthCount;
-    };
-
-    static fgWalkResult optInvertCountTreeInfo(GenTree** pTree, fgWalkData* data);
-
     bool optInvertWhileLoop(BasicBlock* block);
 
 private:

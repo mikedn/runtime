@@ -3731,8 +3731,14 @@ PhaseStatus Compiler::phUnrollLoops()
 #pragma warning(pop)
 #endif
 
-// static
-Compiler::fgWalkResult Compiler::optInvertCountTreeInfo(GenTree** pTree, fgWalkData* data)
+// Struct used in optInvertWhileLoop to count interesting constructs to boost the profitability score.
+struct OptInvertCountTreeInfoType
+{
+    unsigned sharedStaticHelperCount = 0;
+    unsigned arrayLengthCount        = 0;
+};
+
+static Compiler::fgWalkResult optInvertCountTreeInfo(GenTree** pTree, Compiler::fgWalkData* data)
 {
     OptInvertCountTreeInfoType* o = (OptInvertCountTreeInfoType*)data->pCallbackData;
 
@@ -3746,7 +3752,7 @@ Compiler::fgWalkResult Compiler::optInvertCountTreeInfo(GenTree** pTree, fgWalkD
         o->arrayLengthCount += 1;
     }
 
-    return WALK_CONTINUE;
+    return Compiler::WALK_CONTINUE;
 }
 
 //-----------------------------------------------------------------------------
@@ -3869,26 +3875,6 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
         return false;
     }
 
-    // Estimate the cost of cloning the entire test block.
-    //
-    // Note: it would help throughput to compute the maximum cost
-    // first and early out for large bTest blocks, as we are doing two
-    // tree walks per tree. But because of this helper call scan, the
-    // maximum cost depends on the trees in the block.
-    //
-    // We might consider flagging blocks with hoistable helper calls
-    // during importation, so we can avoid the helper search and
-    // implement an early bail out for large blocks with no helper calls.
-
-    unsigned estDupCostSz = 0;
-
-    for (Statement* const stmt : bTest->Statements())
-    {
-        GenTree* tree = stmt->GetRootNode();
-        gtSetCosts(tree);
-        estDupCostSz += tree->GetCostSz();
-    }
-
     BasicBlock::weight_t       loopIterations            = BB_LOOP_WEIGHT_SCALE;
     bool                       allProfileWeightsAreValid = false;
     BasicBlock::weight_t const weightBlock               = block->bbWeight;
@@ -3955,11 +3941,32 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
         }
     }
 
+    // Estimate the cost of cloning the entire test block.
+    //
+    // Note: it would help throughput to compute the maximum cost
+    // first and early out for large bTest blocks, as we are doing two
+    // tree walks per tree. But because of this helper call scan, the
+    // maximum cost depends on the trees in the block.
+    //
+    // We might consider flagging blocks with hoistable helper calls
+    // during importation, so we can avoid the helper search and
+    // implement an early bail out for large blocks with no helper calls.
+
+    unsigned estDupCostSz = 0;
+
+    for (Statement* const stmt : bTest->Statements())
+    {
+        GenTree* tree = stmt->GetRootNode();
+        gtSetCosts(tree);
+        estDupCostSz += tree->GetCostSz();
+    }
+
     // If the compare has too high cost then we don't want to dup.
 
     bool costIsTooHigh = (estDupCostSz > maxDupCostSz);
 
-    OptInvertCountTreeInfoType optInvertTotalInfo = {};
+    OptInvertCountTreeInfoType optInvertTotalInfo;
+
     if (costIsTooHigh)
     {
         // If we already know that the cost is acceptable, then don't waste time walking the tree
@@ -3975,8 +3982,8 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
         {
             GenTree* tree = stmt->GetRootNode();
 
-            OptInvertCountTreeInfoType optInvertInfo = {};
-            fgWalkTreePre(&tree, Compiler::optInvertCountTreeInfo, &optInvertInfo);
+            OptInvertCountTreeInfoType optInvertInfo;
+            fgWalkTreePre(&tree, optInvertCountTreeInfo, &optInvertInfo);
             optInvertTotalInfo.sharedStaticHelperCount += optInvertInfo.sharedStaticHelperCount;
             optInvertTotalInfo.arrayLengthCount += optInvertInfo.arrayLengthCount;
 
@@ -3984,18 +3991,19 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
             {
                 // Calculate a new maximum cost. We might be able to early exit.
 
-                unsigned newMaxDupCostSz =
-                    maxDupCostSz + 24 * min(optInvertTotalInfo.sharedStaticHelperCount, (int)(loopIterations + 1.5)) +
-                    8 * optInvertTotalInfo.arrayLengthCount;
+                unsigned newMaxDupCostSz = maxDupCostSz +
+                                           24 * Min(optInvertTotalInfo.sharedStaticHelperCount,
+                                                    (static_cast<unsigned>(loopIterations + 1.5f))) +
+                                           8 * optInvertTotalInfo.arrayLengthCount;
 
-                // Is the cost too high now?
                 costIsTooHigh = (estDupCostSz > newMaxDupCostSz);
+
                 if (!costIsTooHigh)
                 {
                     // No need counting any more trees; we're going to do the transformation.
                     JITDUMP("Decided to duplicate loop condition block after counting helpers in tree [%06u] in "
                             "block " FMT_BB,
-                            dspTreeID(tree), bTest->bbNum);
+                            tree->GetID(), bTest->bbNum);
                     maxDupCostSz = newMaxDupCostSz; // for the JitDump output below
                     break;
                 }
@@ -4011,7 +4019,7 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
         printf(
             "\nDuplication of loop condition [%06u] is %s, because the cost of duplication (%i) is %s than %i,"
             "\n   loopIterations = %7.3f, optInvertTotalInfo.sharedStaticHelperCount >= %d, validProfileWeights = %s\n",
-            dspTreeID(condTree), costIsTooHigh ? "not done" : "performed", estDupCostSz,
+            condTree->GetID(), costIsTooHigh ? "not done" : "performed", estDupCostSz,
             costIsTooHigh ? "greater" : "less or equal", maxDupCostSz, loopIterations,
             optInvertTotalInfo.sharedStaticHelperCount, dspBool(allProfileWeightsAreValid));
     }
