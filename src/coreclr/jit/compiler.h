@@ -3226,8 +3226,8 @@ public:
 
     LclVarDsc* gtIsLikelyRegVar(GenTree* tree);
 
-    // Returns true iff the secondNode can be swapped with firstNode.
-    bool gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode);
+    // Returns true iff tree2 can be executed before tree1.
+    bool gtCanSwapOrder(GenTree* tree1, GenTree* tree2);
 
     static GenTree* gtGetFirstNode(GenTree* tree);
     GenTree* gtSetTreeSeq(GenTree* tree, bool isLIR = false);

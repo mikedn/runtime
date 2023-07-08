@@ -2043,68 +2043,53 @@ LclVarDsc* Compiler::gtIsLikelyRegVar(GenTree* tree)
     return lcl;
 }
 
-//------------------------------------------------------------------------
-// gtCanSwapOrder: Returns true iff the secondNode can be swapped with firstNode.
-//
-// Arguments:
-//    firstNode  - An operand of a tree that can have GTF_REVERSE_OPS set.
-//    secondNode - The other operand of the tree.
-//
-// Return Value:
-//    Returns a boolean indicating whether it is safe to reverse the execution
-//    order of the two trees, considering any exception, global effects, or
-//    ordering constraints.
-//
-bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
+// Checks whether it is safe to reverse the execution order of the two trees,
+// considering any exception, global effects, or ordering constraints.
+bool Compiler::gtCanSwapOrder(GenTree* tree1, GenTree* tree2)
 {
-    // Relative of order of global / side effects can't be swapped.
-
-    bool canSwap = true;
-
-    if (csePhase)
+    if (csePhase && !cseCanSwapOrder(tree1, tree2))
     {
-        canSwap = cseCanSwapOrder(firstNode, secondNode);
+        return false;
     }
 
-    // We cannot swap in the presence of special side effects such as GT_CATCH_ARG.
-
-    if (canSwap && (firstNode->gtFlags & GTF_ORDER_SIDEEFF))
+    // We cannot swap in the presence of special side effects such as CATCH_ARG.
+    // TODO-MIKE-Review: Why does it check only the fist tree? Comment mentions,
+    // CATCH_ARG, that would fit because CATCH_ARG will normally appear only in
+    // the first tree, by construction, and this check is enough to keep it there.
+    // But what about other uses of GTF_ORDER_SIDEEFF - GTF_IND_NONFAULTING and
+    // GTF_IND_VOLATILE? Those are likely covered by GTF_GLOB_REF, but then why
+    // use GTF_ORDER_SIDEEFF in such cases?
+    // Problem is - we should be able to swap 2 trees that have only GTF_GLOB_REF.
+    // There's nothing preventing 2 memory loads from being reordered, uneless
+    // they are volatile. So we do need GTF_ORDER_SIDEEFF on volatile loads.
+    if (tree1->HasAnySideEffect(GTF_ORDER_SIDEEFF))
     {
-        canSwap = false;
+        return false;
     }
 
-    // When strict side effect order is disabled we allow GTF_REVERSE_OPS to be set
-    // when one or both sides contains a GTF_CALL or GTF_EXCEPT.
-    // Currently only the C and C++ languages allow non strict side effect order.
-
-    unsigned strictEffects = GTF_GLOB_EFFECT;
-
-    if (canSwap && (firstNode->gtFlags & strictEffects))
+    if (!tree1->HasAnySideEffect(GTF_GLOB_EFFECT))
     {
-        // op1 has side efects that can't be reordered.
-        // Check for some special cases where we still may be able to swap.
-
-        if (secondNode->gtFlags & strictEffects)
-        {
-            // op2 has also has non reorderable side effects - can't swap.
-            canSwap = false;
-        }
-        else
-        {
-            // No side effects in op2 - we can swap iff op1 has no way of modifying op2,
-            // i.e. through byref assignments or calls or op2 is a constant.
-
-            if (firstNode->gtFlags & strictEffects & GTF_PERSISTENT_SIDE_EFFECTS)
-            {
-                // We have to be conservative - can swap iff op2 is constant.
-                if (!secondNode->OperIsConst())
-                {
-                    canSwap = false;
-                }
-            }
-        }
+        return true;
     }
-    return canSwap;
+
+    if (tree2->HasAnySideEffect(GTF_GLOB_EFFECT))
+    {
+        return false;
+    }
+
+    // TODO-MIKE-Review: GTF_CALL appears to be overly conservative. If a call modifies
+    // a local the second tree may depend on, then that local should be address exposed
+    // and thus GTF_GLOB_REF, which is caught by the previous check.
+    // We do need to be conservative about GTF_ASG though, it may be an assignment to
+    // a non AX local and then the second tree would have no side effect even if it
+    // depends on that local. But then we do allow swapping if the first tree doesn't
+    // have any side effects?!? It could use a local that the second tree modifies...
+    if (tree1->HasAnySideEffect(GTF_ASG | GTF_CALL) && !tree2->OperIsConst())
+    {
+        return false;
+    }
+
+    return true;
 }
 
 bool Compiler::gtMarkAddrMode(GenTree* addr, var_types indirType, unsigned* indirCostEx, unsigned* indirCostSz)
