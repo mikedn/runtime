@@ -4351,40 +4351,12 @@ ValueNumPair ValueNumbering::ExtractStructField(GenTree* load, ValueNumPair stru
     return structVNP;
 }
 
-void ValueNumbering::SummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, VNLoopMemorySummary& summary)
-{
-    if (lvaGetDesc(store)->IsAddressExposed())
-    {
-        summary.AddAddressExposedLocal(store->GetLclNum());
-    }
-}
-
 void ValueNumbering::SummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary& summary)
 {
     if (def->TypeIs(TYP_BYREF))
     {
         def->SetLiberalVN(def->GetValue()->GetLiberalVN());
     }
-}
-
-void ValueNumbering::NumberLclStore(GenTreeLclVar* store)
-{
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-    assert(!lvaGetDesc(store)->IsSsa());
-
-    if (!lvaGetDesc(store)->IsAddressExposed())
-    {
-        assert(ssa.GetMemoryDef(store) == nullptr);
-
-        return;
-    }
-
-    ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
-                                            vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
-    INDEBUG(vnStore->Trace(lclAddrVN));
-
-    ValueNum memVN = StoreAddressExposedLocal(store, lclAddrVN, store->GetOp(0));
-    UpdateMemory(store, memVN DEBUGARG("address-exposed local store"));
 }
 
 void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
@@ -4464,28 +4436,6 @@ void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
     INDEBUG(TraceLocal(def->GetLclNum(), valueVNP));
 }
 
-void ValueNumbering::NumberLclLoad(GenTreeLclVar* load)
-{
-    assert(load->OperIs(GT_LCL_VAR));
-    assert(!lvaGetDesc(load)->IsSsa());
-
-    if (!lvaGetDesc(load)->IsAddressExposed())
-    {
-        load->SetVNP(ValueNumPair{vnStore->VNForExpr(load->GetType())});
-
-        return;
-    }
-
-    ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
-                                         vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
-
-    // TODO-MIKE-Review: Setting the conservative VN to a non unique VN is suspect.
-    // Well, the chance that an address-exposed local is modified by another thread
-    // is slim so perhaps this is fine as it is but then NumberIndirStore should do the
-    // same for local addresses.
-    load->SetVNP(ValueNumPair{LoadMemory(load->GetType(), addrVN)});
-}
-
 void ValueNumbering::NumberLclUse(GenTreeLclUse* use)
 {
     GenTreeLclDef* def = use->GetDef();
@@ -4531,27 +4481,6 @@ void ValueNumbering::NumberLclUse(GenTreeLclUse* use)
     use->SetVNP(vnp);
 }
 
-void ValueNumbering::NumberLclFldStore(GenTreeLclFld* store)
-{
-    assert(store->OperIs(GT_STORE_LCL_FLD));
-    assert(!lvaGetDesc(store)->IsSsa());
-
-    if (!lvaGetDesc(store)->IsAddressExposed())
-    {
-        assert(ssa.GetMemoryDef(store) == nullptr);
-
-        return;
-    }
-
-    ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
-                                            vnStore->VNForUPtrSizeIntCon(store->GetLclOffs()),
-                                            vnStore->VNForFieldSeq(store->GetFieldSeq()));
-    INDEBUG(vnStore->Trace(lclAddrVN));
-
-    ValueNum memVN = StoreAddressExposedLocal(store, lclAddrVN, store->GetOp(0));
-    UpdateMemory(store, memVN DEBUGARG("address-exposed local store"));
-}
-
 void ValueNumbering::NumberInsert(GenTreeInsert* insert)
 {
     const FieldInfo& field = insert->GetField();
@@ -4563,8 +4492,8 @@ void ValueNumbering::NumberInsert(GenTreeInsert* insert)
     }
     else
     {
-        GenTree*     structValue = insert->GetStructValue();
-        GenTree*     fieldValue  = insert->GetFieldValue();
+        GenTree* structValue = insert->GetStructValue();
+        GenTree* fieldValue = insert->GetFieldValue();
         ValueNumPair currentVNP;
 
         if (structValue->IsIntegralConst(0))
@@ -4577,7 +4506,7 @@ void ValueNumbering::NumberInsert(GenTreeInsert* insert)
         }
 
         FieldSeqNode* fieldSeq = field.GetFieldSeq();
-        var_types     lclType  = insert->GetType();
+        var_types     lclType = insert->GetType();
 
         valueVNP.SetLiberal(
             InsertStructField(insert, fieldValue, VNK_Liberal, currentVNP.GetLiberal(), lclType, fieldSeq));
@@ -4597,6 +4526,96 @@ void ValueNumbering::NumberInsert(GenTreeInsert* insert)
     }
 
     insert->SetVNP(valueVNP);
+}
+
+void ValueNumbering::NumberExtract(GenTreeExtract* extract)
+{
+    const FieldInfo& field = extract->GetField();
+
+    if (!field.HasFieldSeq())
+    {
+        extract->SetVNP(ValueNumPair{ vnStore->VNForExpr(extract->GetType()) });
+
+        return;
+    }
+
+    GenTree* structValue = extract->GetStructValue();
+    assert(varTypeIsStruct(structValue->GetType()));
+
+    ValueNumPair vnp = structValue->GetVNP();
+    vnp = ExtractStructField(extract, vnp, field.GetFieldSeq());
+    extract->SetVNP(vnp);
+}
+
+void ValueNumbering::SummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, VNLoopMemorySummary& summary)
+{
+    if (lvaGetDesc(store)->IsAddressExposed())
+    {
+        summary.AddAddressExposedLocal(store->GetLclNum());
+    }
+}
+
+void ValueNumbering::NumberLclStore(GenTreeLclVar* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_VAR));
+    assert(!lvaGetDesc(store)->IsSsa());
+
+    if (!lvaGetDesc(store)->IsAddressExposed())
+    {
+        assert(ssa.GetMemoryDef(store) == nullptr);
+
+        return;
+    }
+
+    ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
+        vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
+    INDEBUG(vnStore->Trace(lclAddrVN));
+
+    ValueNum memVN = StoreAddressExposedLocal(store, lclAddrVN, store->GetOp(0));
+    UpdateMemory(store, memVN DEBUGARG("address-exposed local store"));
+}
+
+void ValueNumbering::NumberLclLoad(GenTreeLclVar* load)
+{
+    assert(load->OperIs(GT_LCL_VAR));
+    assert(!lvaGetDesc(load)->IsSsa());
+
+    if (!lvaGetDesc(load)->IsAddressExposed())
+    {
+        load->SetVNP(ValueNumPair{ vnStore->VNForExpr(load->GetType()) });
+
+        return;
+    }
+
+    ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
+        vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
+
+    // TODO-MIKE-Review: Setting the conservative VN to a non unique VN is suspect.
+    // Well, the chance that an address-exposed local is modified by another thread
+    // is slim so perhaps this is fine as it is but then NumberIndirStore should do the
+    // same for local addresses.
+    load->SetVNP(ValueNumPair{ LoadMemory(load->GetType(), addrVN) });
+}
+
+void ValueNumbering::NumberLclFldStore(GenTreeLclFld* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_FLD));
+    assert(!lvaGetDesc(store)->IsSsa());
+
+    if (!lvaGetDesc(store)->IsAddressExposed())
+    {
+        assert(ssa.GetMemoryDef(store) == nullptr);
+
+        return;
+    }
+
+    ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
+                                            vnStore->VNForUPtrSizeIntCon(store->GetLclOffs()),
+                                            vnStore->VNForFieldSeq(store->GetFieldSeq()));
+    INDEBUG(vnStore->Trace(lclAddrVN));
+
+    ValueNum memVN = StoreAddressExposedLocal(store, lclAddrVN, store->GetOp(0));
+    UpdateMemory(store, memVN DEBUGARG("address-exposed local store"));
 }
 
 void ValueNumbering::NumberLclFldLoad(GenTreeLclFld* load)
@@ -4620,25 +4639,6 @@ void ValueNumbering::NumberLclFldLoad(GenTreeLclFld* load)
 
     load->SetLiberalVN(LoadMemory(load->GetType(), addrVN));
     load->SetConservativeVN(vnStore->VNForExpr(load->GetType()));
-}
-
-void ValueNumbering::NumberExtract(GenTreeExtract* extract)
-{
-    const FieldInfo& field = extract->GetField();
-
-    if (!field.HasFieldSeq())
-    {
-        extract->SetVNP(ValueNumPair{vnStore->VNForExpr(extract->GetType())});
-
-        return;
-    }
-
-    GenTree* structValue = extract->GetStructValue();
-    assert(varTypeIsStruct(structValue->GetType()));
-
-    ValueNumPair vnp = structValue->GetVNP();
-    vnp              = ExtractStructField(extract, vnp, field.GetFieldSeq());
-    extract->SetVNP(vnp);
 }
 
 void ValueNumbering::SummarizeLoopIndirMemoryStores(GenTreeIndir* store, VNLoopMemorySummary& summary)
