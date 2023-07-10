@@ -162,8 +162,7 @@ class ValueNumStore
         Func4,     // ...arity 4.
     };
 
-    using Func0VNMap = VNMap<VNFunc>;
-
+public:
     struct VNFuncDef0
     {
         static constexpr ChunkKind Kind  = ChunkKind::Func0;
@@ -198,16 +197,6 @@ class ValueNumStore
         }
     };
 
-    struct VNDefFunc1ArgKeyFuncs : public JitKeyFuncsDefEquals<VNFuncDef1>
-    {
-        static unsigned GetHashCode(VNFuncDef1 val)
-        {
-            return (val.m_func << 24) + val.m_arg0;
-        }
-    };
-
-    using Func1VNMap = VNMap<VNFuncDef1, VNDefFunc1ArgKeyFuncs>;
-
     struct VNFuncDef2 : public VNFuncDef1
     {
         static constexpr ChunkKind Kind  = ChunkKind::Func2;
@@ -224,16 +213,6 @@ class ValueNumStore
             return VNFuncDef1::operator==(y) && m_arg1 == y.m_arg1;
         }
     };
-
-    struct VNDefFunc2ArgKeyFuncs : public JitKeyFuncsDefEquals<VNFuncDef2>
-    {
-        static unsigned GetHashCode(const VNFuncDef2& val)
-        {
-            return (val.m_func << 24) + (val.m_arg0 << 8) + val.m_arg1;
-        }
-    };
-
-    using Func2VNMap = VNMap<VNFuncDef2, VNDefFunc2ArgKeyFuncs>;
 
     struct VNFuncDef3 : public VNFuncDef2
     {
@@ -253,16 +232,6 @@ class ValueNumStore
         }
     };
 
-    struct VNDefFunc3ArgKeyFuncs : public JitKeyFuncsDefEquals<VNFuncDef3>
-    {
-        static unsigned GetHashCode(const VNFuncDef3& val)
-        {
-            return (val.m_func << 24) + (val.m_arg0 << 16) + (val.m_arg1 << 8) + val.m_arg2;
-        }
-    };
-
-    using Func3VNMap = VNMap<VNFuncDef3, VNDefFunc3ArgKeyFuncs>;
-
     struct VNFuncDef4 : public VNFuncDef3
     {
         static constexpr ChunkKind Kind  = ChunkKind::Func4;
@@ -281,6 +250,31 @@ class ValueNumStore
         }
     };
 
+private:
+    struct VNDefFunc1ArgKeyFuncs : public JitKeyFuncsDefEquals<VNFuncDef1>
+    {
+        static unsigned GetHashCode(VNFuncDef1 val)
+        {
+            return (val.m_func << 24) + val.m_arg0;
+        }
+    };
+
+    struct VNDefFunc2ArgKeyFuncs : public JitKeyFuncsDefEquals<VNFuncDef2>
+    {
+        static unsigned GetHashCode(const VNFuncDef2& val)
+        {
+            return (val.m_func << 24) + (val.m_arg0 << 8) + val.m_arg1;
+        }
+    };
+
+    struct VNDefFunc3ArgKeyFuncs : public JitKeyFuncsDefEquals<VNFuncDef3>
+    {
+        static unsigned GetHashCode(const VNFuncDef3& val)
+        {
+            return (val.m_func << 24) + (val.m_arg0 << 16) + (val.m_arg1 << 8) + val.m_arg2;
+        }
+    };
+
     struct VNDefFunc4ArgKeyFuncs : public JitKeyFuncsDefEquals<VNFuncDef4>
     {
         static unsigned GetHashCode(const VNFuncDef4& val)
@@ -289,8 +283,11 @@ class ValueNumStore
         }
     };
 
+    using Func0VNMap = VNMap<VNFunc>;
+    using Func1VNMap = VNMap<VNFuncDef1, VNDefFunc1ArgKeyFuncs>;
+    using Func2VNMap = VNMap<VNFuncDef2, VNDefFunc2ArgKeyFuncs>;
+    using Func3VNMap = VNMap<VNFuncDef3, VNDefFunc3ArgKeyFuncs>;
     using Func4VNMap = VNMap<VNFuncDef4, VNDefFunc4ArgKeyFuncs>;
-
     using Int32VNMap = VNMap<int32_t>;
     using Int64VNMap = VNMap<int64_t>;
     using ByrefVNMap = VNMap<size_t>;
@@ -990,6 +987,26 @@ public:
 
         const T* def = &static_cast<T*>(chunk->m_defs)[index];
         return def->m_func == func ? def : nullptr;
+    }
+
+    const VNFuncDef1* IsVNFunc1(ValueNum vn, VNFunc func) const
+    {
+        return IsVNFunc<VNFuncDef1>(vn, func);
+    }
+
+    const VNFuncDef2* IsVNFunc2(ValueNum vn, VNFunc func) const
+    {
+        return IsVNFunc<VNFuncDef2>(vn, func);
+    }
+
+    const VNFuncDef3* IsVNFunc3(ValueNum vn, VNFunc func) const
+    {
+        return IsVNFunc<VNFuncDef3>(vn, func);
+    }
+
+    const VNFuncDef4* IsVNFunc4(ValueNum vn, VNFunc func) const
+    {
+        return IsVNFunc<VNFuncDef4>(vn, func);
     }
 
 #ifdef DEBUG

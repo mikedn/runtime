@@ -45,6 +45,11 @@ class ValueNumbering
     friend class VNLoopMemorySummary;
     friend class ValueNumStore;
 
+    using VNFuncDef1 = ValueNumStore::VNFuncDef1;
+    using VNFuncDef2 = ValueNumStore::VNFuncDef2;
+    using VNFuncDef3 = ValueNumStore::VNFuncDef3;
+    using VNFuncDef4 = ValueNumStore::VNFuncDef4;
+
     SsaOptimizer&  ssa;
     Compiler*      compiler;
     ICorJitInfo*   vm;
@@ -108,8 +113,8 @@ private:
     ValueNum LoadStaticField(GenTreeIndir* load, FieldSeqNode* fieldSeq);
     ValueNum StoreObjField(GenTreeIndir* store, ValueNum objVN, FieldSeqNode* fieldSeq, GenTree* value);
     ValueNum LoadObjField(GenTreeIndir* load, ValueNum objVN, FieldSeqNode* fieldSeq);
-    ValueNum StoreArrayElem(GenTreeIndir* store, const VNFuncApp& elemAddr, GenTree* value);
-    ValueNum LoadArrayElem(GenTreeIndir* store, const VNFuncApp& elemAddr);
+    ValueNum StoreArrayElem(GenTreeIndir* store, const VNFuncDef4* elemAddr, GenTree* value);
+    ValueNum LoadArrayElem(GenTreeIndir* store, const VNFuncDef4* elemAddr);
     ValueNum StoreAddressExposedLocal(GenTree* store, ValueNum lclAddrVN, GenTree* value);
     ValueNum CastStruct(ValueNumKind         vnk,
                         ValueNum             valueVN,
@@ -3881,30 +3886,31 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNum addrVN, FieldSeqNode* fieldSeq, tar
     assert(!HasExset(addrVN));
     assert((fieldSeq != nullptr) && !fieldSeq->IsArrayElement());
 
-    VNFuncApp funcApp;
-    VNFunc    func = GetVNFunc(addrVN, &funcApp);
-
-    if (func == VNF_LclAddr)
+    if (const VNFuncDef3* lclAddr = IsVNFunc3(addrVN, VNF_LclAddr))
     {
-        ValueNum newOffsetVN   = VNForUPtrSizeIntCon(ConstantValue<target_size_t>(funcApp[1]) + offset);
-        ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp[2], fieldSeq);
+        ValueNum newOffsetVN   = VNForUPtrSizeIntCon(ConstantValue<target_size_t>(lclAddr->m_arg1) + offset);
+        ValueNum newFieldSeqVN = FieldSeqVNAppend(lclAddr->m_arg2, fieldSeq);
 
-        return VNForFunc(TYP_I_IMPL, func, funcApp[0], newOffsetVN, newFieldSeqVN);
+        return VNForFunc(TYP_I_IMPL, VNF_LclAddr, lclAddr->m_arg0, newOffsetVN, newFieldSeqVN);
     }
 
-    if (func == VNF_PtrToArrElem)
+    if (const VNFuncDef4* elemAddr = IsVNFunc4(addrVN, VNF_PtrToArrElem))
     {
-        ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp[3], fieldSeq);
+        ValueNum newFieldSeqVN = FieldSeqVNAppend(elemAddr->m_arg3, fieldSeq);
 
-        return VNForFunc(TYP_BYREF, func, funcApp[0], funcApp[1], funcApp[2], newFieldSeqVN);
+        return VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemAddr->m_arg0, elemAddr->m_arg1, elemAddr->m_arg2,
+                         newFieldSeqVN);
     }
 
-    // TODO-MIKE-CQ: We could separate the static field handle and struct field sequence in VNF_PtrToStatic.
-    // Then even if the field sequence is NotAField we could still know that the store doesn't alias any
-    // other static fields, instance fields etc. But having NotAField for a static field is probably rare.
-    if ((func == VNF_PtrToStatic) && (fieldSeq != FieldSeqStore::NotAField()))
+    if (const VNFuncDef1* staticAddr = IsVNFunc1(addrVN, VNF_PtrToStatic))
     {
-        return VNForFunc(TYP_BYREF, func, FieldSeqVNAppend(funcApp[0], fieldSeq));
+        // TODO-MIKE-CQ: We could separate the static field handle and struct field sequence in VNF_PtrToStatic.
+        // Then even if the field sequence is NotAField we could still know that the store doesn't alias any
+        // other static fields, instance fields etc. But having NotAField for a static field is probably rare.
+        if (fieldSeq != FieldSeqStore::NotAField())
+        {
+            return VNForFunc(TYP_BYREF, VNF_PtrToStatic, FieldSeqVNAppend(staticAddr->m_arg0, fieldSeq));
+        }
     }
 
     return NoVN;
@@ -4492,8 +4498,8 @@ void ValueNumbering::NumberInsert(GenTreeInsert* insert)
     }
     else
     {
-        GenTree* structValue = insert->GetStructValue();
-        GenTree* fieldValue = insert->GetFieldValue();
+        GenTree*     structValue = insert->GetStructValue();
+        GenTree*     fieldValue  = insert->GetFieldValue();
         ValueNumPair currentVNP;
 
         if (structValue->IsIntegralConst(0))
@@ -4506,7 +4512,7 @@ void ValueNumbering::NumberInsert(GenTreeInsert* insert)
         }
 
         FieldSeqNode* fieldSeq = field.GetFieldSeq();
-        var_types     lclType = insert->GetType();
+        var_types     lclType  = insert->GetType();
 
         valueVNP.SetLiberal(
             InsertStructField(insert, fieldValue, VNK_Liberal, currentVNP.GetLiberal(), lclType, fieldSeq));
@@ -4534,7 +4540,7 @@ void ValueNumbering::NumberExtract(GenTreeExtract* extract)
 
     if (!field.HasFieldSeq())
     {
-        extract->SetVNP(ValueNumPair{ vnStore->VNForExpr(extract->GetType()) });
+        extract->SetVNP(ValueNumPair{vnStore->VNForExpr(extract->GetType())});
 
         return;
     }
@@ -4543,7 +4549,7 @@ void ValueNumbering::NumberExtract(GenTreeExtract* extract)
     assert(varTypeIsStruct(structValue->GetType()));
 
     ValueNumPair vnp = structValue->GetVNP();
-    vnp = ExtractStructField(extract, vnp, field.GetFieldSeq());
+    vnp              = ExtractStructField(extract, vnp, field.GetFieldSeq());
     extract->SetVNP(vnp);
 }
 
@@ -4568,7 +4574,7 @@ void ValueNumbering::NumberLclStore(GenTreeLclVar* store)
     }
 
     ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
-        vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
+                                            vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
     INDEBUG(vnStore->Trace(lclAddrVN));
 
     ValueNum memVN = StoreAddressExposedLocal(store, lclAddrVN, store->GetOp(0));
@@ -4582,19 +4588,19 @@ void ValueNumbering::NumberLclLoad(GenTreeLclVar* load)
 
     if (!lvaGetDesc(load)->IsAddressExposed())
     {
-        load->SetVNP(ValueNumPair{ vnStore->VNForExpr(load->GetType()) });
+        load->SetVNP(ValueNumPair{vnStore->VNForExpr(load->GetType())});
 
         return;
     }
 
     ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
-        vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
+                                         vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
 
     // TODO-MIKE-Review: Setting the conservative VN to a non unique VN is suspect.
     // Well, the chance that an address-exposed local is modified by another thread
     // is slim so perhaps this is fine as it is but then NumberIndirStore should do the
     // same for local addresses.
-    load->SetVNP(ValueNumPair{ LoadMemory(load->GetType(), addrVN) });
+    load->SetVNP(ValueNumPair{LoadMemory(load->GetType(), addrVN)});
 }
 
 void ValueNumbering::NumberLclFldStore(GenTreeLclFld* store)
@@ -4651,30 +4657,28 @@ void ValueNumbering::SummarizeLoopIndirMemoryStores(GenTreeIndir* store, VNLoopM
         return;
     }
 
-    GenTree*  addr   = store->GetAddr();
-    ValueNum  addrVN = addr->GetLiberalVN();
-    VNFuncApp funcApp;
-    VNFunc    func = vnStore->GetVNFunc(addrVN, &funcApp);
+    GenTree* addr   = store->GetAddr();
+    ValueNum addrVN = addr->GetLiberalVN();
 
-    if (func == VNF_PtrToStatic)
+    if (const VNFuncDef1* staticAddr = vnStore->IsVNFunc1(addrVN, VNF_PtrToStatic))
     {
-        FieldSeqNode* fieldSeq = vnStore->FieldSeqVNToFieldSeq(funcApp[0]);
+        FieldSeqNode* fieldSeq = vnStore->FieldSeqVNToFieldSeq(staticAddr->m_arg0);
         summary.AddField(fieldSeq->GetFieldHandle());
 
         return;
     }
 
-    if (func == VNF_PtrToArrElem)
+    if (const VNFuncDef4* elemAddr = vnStore->IsVNFunc4(addrVN, VNF_PtrToArrElem))
     {
-        unsigned elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp[0]));
+        unsigned elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr->m_arg0));
         summary.AddArrayType(elemTypeNum);
 
         return;
     }
 
-    if (func == VNF_LclAddr)
+    if (const VNFuncDef3* lclAddr = vnStore->IsVNFunc3(addrVN, VNF_LclAddr))
     {
-        unsigned lclNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp[0]));
+        unsigned lclNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(lclAddr->m_arg0));
         summary.AddAddressExposedLocal(lclNum);
 
         return;
@@ -4712,31 +4716,29 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store)
         ClearMemory(store DEBUGARG("volatile store"));
     }
 
-    GenTree*  value  = store->GetValue();
-    GenTree*  addr   = store->GetAddr();
-    ValueNum  addrVN = vnStore->ExtractValue(addr->GetLiberalVN());
-    VNFuncApp funcApp;
-    VNFunc    func = vnStore->GetVNFunc(addrVN, &funcApp);
+    GenTree* value  = store->GetValue();
+    GenTree* addr   = store->GetAddr();
+    ValueNum addrVN = vnStore->ExtractValue(addr->GetLiberalVN());
 
-    if (func == VNF_PtrToStatic)
+    if (const VNFuncDef1* staticAddr = vnStore->IsVNFunc<VNFuncDef1>(addrVN, VNF_PtrToStatic))
     {
-        ValueNum memVN = StoreStaticField(store, vnStore->FieldSeqVNToFieldSeq(funcApp[0]), value);
+        ValueNum memVN = StoreStaticField(store, vnStore->FieldSeqVNToFieldSeq(staticAddr->m_arg0), value);
         UpdateMemory(store, memVN DEBUGARG("static field store"));
 
         return;
     }
 
-    if (func == VNF_PtrToArrElem)
+    if (const VNFuncDef4* elemAddr = vnStore->IsVNFunc<VNFuncDef4>(addrVN, VNF_PtrToArrElem))
     {
-        ValueNum memVN = StoreArrayElem(store, funcApp, value);
+        ValueNum memVN = StoreArrayElem(store, elemAddr, value);
         UpdateMemory(store, memVN DEBUGARG("array element store"));
 
         return;
     }
 
-    if (func == VNF_LclAddr)
+    if (const VNFuncDef3* lclAddr = vnStore->IsVNFunc<VNFuncDef3>(addrVN, VNF_LclAddr))
     {
-        assert(lvaGetDesc(vnStore->ConstantValue<int32_t>(funcApp[0]))->IsAddressExposed());
+        assert(lvaGetDesc(vnStore->ConstantValue<int32_t>(lclAddr->m_arg0))->IsAddressExposed());
         ValueNum memVN = StoreAddressExposedLocal(store, addrVN, value);
         UpdateMemory(store, memVN DEBUGARG("address-exposed local store"));
 
@@ -4778,16 +4780,16 @@ void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
         addrExset = AddNullRefExset(addr->GetVNP());
     }
 
-    VNFuncApp    funcApp;
     ValueNumPair vnp;
 
     if (addr->TypeIs(TYP_REF) && load->TypeIs(TYP_I_IMPL))
     {
         assert(load->OperIs(GT_IND) && !load->IsVolatile());
 
-        if (addrVNP.BothEqual() && (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) == VNF_JitNew))
+        const VNFuncDef2* newFunc;
+        if (addrVNP.BothEqual() && ((newFunc = vnStore->IsVNFunc2(addrVNP.GetLiberal(), VNF_JitNew)) != nullptr))
         {
-            vnp.SetBoth(funcApp[0]);
+            vnp.SetBoth(newFunc->m_arg0);
         }
         else
         {
@@ -4832,7 +4834,7 @@ void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
 
             valueVN = conservativeVN;
         }
-        else if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) == VNF_PtrToStatic)
+        else if (const VNFuncDef1* staticAddr = vnStore->IsVNFunc1(addrVNP.GetLiberal(), VNF_PtrToStatic))
         {
             // TODO-MIKE-CQ: Static fields are a mess. The address is sometimes CLS_VAR_ADDR,
             // sometimes CNS_INT. The later generates a VNHandle instead of VNF_PtrToStatic
@@ -4849,11 +4851,11 @@ void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
             // up using the same field sequence in all cases, otherwise we may end up with
             // loads not correctly seeing previously stored values.
 
-            valueVN = LoadStaticField(load, vnStore->FieldSeqVNToFieldSeq(funcApp[0]));
+            valueVN = LoadStaticField(load, vnStore->FieldSeqVNToFieldSeq(staticAddr->m_arg0));
         }
-        else if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) == VNF_PtrToArrElem)
+        else if (const VNFuncDef4* elemAddr = vnStore->IsVNFunc4(addrVNP.GetLiberal(), VNF_PtrToArrElem))
         {
-            valueVN = LoadArrayElem(load, funcApp);
+            valueVN = LoadArrayElem(load, elemAddr);
 
             // TODO-CQ: what to do here about exceptions? We don't have the array and index conservative
             // values, so we don't have their exceptions. Maybe we should.
@@ -5070,9 +5072,9 @@ ValueNum ValueNumbering::LoadObjField(GenTreeIndir* load, ValueNum objVN, FieldS
     }
 }
 
-ValueNum ValueNumbering::StoreArrayElem(GenTreeIndir* store, const VNFuncApp& elemAddr, GenTree* value)
+ValueNum ValueNumbering::StoreArrayElem(GenTreeIndir* store, const VNFuncDef4* elemAddr, GenTree* value)
 {
-    assert(elemAddr.m_func == VNF_PtrToArrElem);
+    assert(elemAddr->m_func == VNF_PtrToArrElem);
 
     // TODO-MIKE-CQ: Currently struct stores are not handled.
     if (store->TypeIs(TYP_STRUCT))
@@ -5080,12 +5082,12 @@ ValueNum ValueNumbering::StoreArrayElem(GenTreeIndir* store, const VNFuncApp& el
         return vnStore->VNForExpr(TYP_STRUCT);
     }
 
-    ValueNum      elemTypeVN = elemAddr[0];
-    ValueNum      arrayVN    = elemAddr[1];
-    ValueNum      indexVN    = elemAddr[2];
-    FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr[3]);
+    ValueNum      elemTypeVN = elemAddr->m_arg0;
+    ValueNum      arrayVN    = elemAddr->m_arg1;
+    ValueNum      indexVN    = elemAddr->m_arg2;
+    FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr->m_arg3);
 
-    unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr[0]));
+    unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr->m_arg0));
     ClassLayout* elemLayout =
         compiler->typIsLayoutNum(elemTypeNum) ? compiler->typGetLayoutByNum(elemTypeNum) : nullptr;
     var_types elemType =
@@ -5138,16 +5140,16 @@ ValueNum ValueNumbering::StoreArrayElem(GenTreeIndir* store, const VNFuncApp& el
     return vnStore->VNForMapStore(TYP_STRUCT, memVN, elemTypeVN, arrayTypeMapVN);
 }
 
-ValueNum ValueNumbering::LoadArrayElem(GenTreeIndir* load, const VNFuncApp& elemAddr)
+ValueNum ValueNumbering::LoadArrayElem(GenTreeIndir* load, const VNFuncDef4* elemAddr)
 {
-    assert(elemAddr.m_func == VNF_PtrToArrElem);
+    assert(elemAddr->m_func == VNF_PtrToArrElem);
 
-    ValueNum      elemTypeVN = elemAddr[0];
-    ValueNum      arrayVN    = elemAddr[1];
-    ValueNum      indexVN    = elemAddr[2];
-    FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr[3]);
+    ValueNum      elemTypeVN = elemAddr->m_arg0;
+    ValueNum      arrayVN    = elemAddr->m_arg1;
+    ValueNum      indexVN    = elemAddr->m_arg2;
+    FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr->m_arg3);
 
-    unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr[0]));
+    unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr->m_arg0));
     ClassLayout* elemLayout =
         compiler->typIsLayoutNum(elemTypeNum) ? compiler->typGetLayoutByNum(elemTypeNum) : nullptr;
     var_types elemType =
