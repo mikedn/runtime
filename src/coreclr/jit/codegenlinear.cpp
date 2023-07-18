@@ -1607,9 +1607,8 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
     {
         if (lcl->IsRegCandidate())
         {
-            unsigned  lclNum    = lclVar->GetLclNum();
             var_types spillType = lcl->GetRegisterType(lclVar);
-            SpillLclVarReg(lclNum, spillType, lclVar, lclVar->GetRegNum());
+            SpillLclVarReg(lclVar->GetLclNum(), spillType, lclVar, lclVar->GetRegNum());
         }
         else
         {
