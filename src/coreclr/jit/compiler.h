@@ -800,7 +800,6 @@ public:
 
     var_types GetRegisterType(const GenTreeLclVarCommon* tree) const;
     var_types GetRegisterType() const;
-    var_types GetActualRegisterType() const;
 
     //-----------------------------------------------------------------------------
     //  IsAlwaysAliveInMemory: Determines if this variable's value is always

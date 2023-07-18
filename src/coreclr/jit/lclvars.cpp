@@ -2327,17 +2327,6 @@ var_types LclVarDsc::GetRegisterType() const
     return m_layout->GetRegisterType();
 }
 
-//------------------------------------------------------------------------
-// GetActualRegisterType: Determine an actual register type for this local var.
-//
-// Return Value:
-//    TYP_UNDEF if the layout is not enregistrable, the register type otherwise.
-//
-var_types LclVarDsc::GetActualRegisterType() const
-{
-    return genActualType(GetRegisterType());
-}
-
 void Compiler::lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propagate)
 {
     assert(opts.OptimizationEnabled());

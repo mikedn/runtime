@@ -679,7 +679,7 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
             // In fact, not performing store normalization can lead to problems on architectures where
             // a local may be allocated to a register that is not addressable at the granularity of the
             // local's defined type (e.g. x86).
-            var_types   type = lcl->GetActualRegisterType();
+            var_types   type = varActualType(lcl->GetRegisterType());
             instruction ins  = ins_Store(type, IsSimdLocalAligned(lclNum));
 
             GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), lclVar->GetRegNum(), lclNum, 0);
@@ -968,9 +968,9 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     // later used as a long, we will have incorrectly truncated the long.
     // In the normalizeOnLoad case ins_Load will return an appropriate sign- or zero-
     // extending load.
-    var_types lclActualType = lcl->GetActualRegisterType();
+    var_types lclActualType = varActualType(lcl->GetRegisterType());
     assert(lclActualType != TYP_UNDEF);
-    if (regType != lclActualType && !varTypeIsGC(regType) && !lcl->lvNormalizeOnLoad())
+    if ((regType != lclActualType) && !varTypeIsGC(regType) && !lcl->lvNormalizeOnLoad())
     {
         assert(!varTypeIsGC(lcl->GetType()));
         regType = lclActualType;
@@ -1635,7 +1635,7 @@ void CodeGen::SpillLclVarReg(unsigned lclNum, var_types type, GenTreeLclVar* lcl
     assert(lclVar->OperIs(GT_STORE_LCL_VAR, GT_LCL_VAR));
 
     LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-    assert(!lcl->lvNormalizeOnStore() || (type == lcl->GetActualRegisterType()));
+    assert(!lcl->lvNormalizeOnStore() || (type == varActualType(lcl->GetRegisterType())));
 
     // We have a register candidate local that is marked with SPILL.
     // This flag generally means that we need to spill this local.
