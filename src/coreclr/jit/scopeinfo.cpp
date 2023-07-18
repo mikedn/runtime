@@ -257,28 +257,18 @@ bool CodeGenInterface::siVarLoc::Equals(const siVarLoc* lhs, const siVarLoc* rhs
     }
 }
 
-//------------------------------------------------------------------------
-// siFillStackVarLoc: Fill "siVarLoc" struct indicating the stack position of the variable
-// using "LclVarDsc" and "baseReg"/"offset".
-//
-// Arguments:
-//    varDsc    - a "LclVarDsc *" to the variable it is desired to build the "siVarLoc".
-//    varLoc    - a "siVarLoc &" to fill with the data of the "varDsc".
-//    type      - a "var_types" which indicate the type of the variable.
-//    baseReg   - a "regNumber" use as a base for the offset.
-//    offset    - a signed amount of bytes distance from "baseReg" for the position of the variable.
-//    isFramePointerUsed - a boolean variable
-//
-// Notes:
-//    The "varLoc" argument is filled depending of the "type" argument but as a VLT_STK... variation.
-//    "baseReg" and "offset" are used to indicate the position of the variable in the stack.
 void CodeGenInterface::siVarLoc::siFillStackVarLoc(
-    const LclVarDsc* varDsc, var_types type, regNumber baseReg, int offset, bool isFramePointerUsed)
+    const LclVarDsc* lcl, var_types type, regNumber baseReg, int offset, bool isFramePointerUsed)
 {
     assert(offset != BAD_STK_OFFS);
 
     switch (type)
     {
+        case TYP_BOOL:
+        case TYP_BYTE:
+        case TYP_UBYTE:
+        case TYP_SHORT:
+        case TYP_USHORT:
         case TYP_INT:
         case TYP_REF:
         case TYP_BYREF:
@@ -294,7 +284,7 @@ void CodeGenInterface::siVarLoc::siFillStackVarLoc(
 #ifdef TARGET_64BIT
         case TYP_LONG:
         case TYP_DOUBLE:
-#endif // TARGET_64BIT
+#endif
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
             // In the AMD64 ABI we are supposed to pass a struct by reference when its
             // size is not 1, 2, 4 or 8 bytes in size. During fgMorph, the compiler modifies
@@ -307,151 +297,121 @@ void CodeGenInterface::siVarLoc::siFillStackVarLoc(
             //
             // Now, the VM expects a special enum for these type of local vars: VLT_STK_BYREF
             // to accomodate for this situation.
-            if (varDsc->IsImplicitByRefParam())
+            if (lcl->IsImplicitByRefParam())
             {
-                assert(varDsc->IsParam() || varDsc->TypeIs(TYP_BYREF));
+                assert(lcl->IsParam() || lcl->TypeIs(TYP_BYREF));
 
-                this->vlType = VLT_STK_BYREF;
+                vlType = VLT_STK_BYREF;
             }
             else
 #endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
             {
-                this->vlType = VLT_STK;
+                vlType = VLT_STK;
             }
-            this->vlStk.vlsBaseReg = baseReg;
-            this->vlStk.vlsOffset  = offset;
-            if (!isFramePointerUsed && this->vlStk.vlsBaseReg == REG_SPBASE)
+
+            vlStk.vlsBaseReg = baseReg;
+            vlStk.vlsOffset  = offset;
+
+            if (!isFramePointerUsed && vlStk.vlsBaseReg == REG_SPBASE)
             {
-                this->vlStk.vlsBaseReg = (regNumber)ICorDebugInfo::REGNUM_AMBIENT_SP;
+                vlStk.vlsBaseReg = static_cast<regNumber>(ICorDebugInfo::REGNUM_AMBIENT_SP);
             }
             break;
 
 #ifndef TARGET_64BIT
         case TYP_LONG:
         case TYP_DOUBLE:
-            this->vlType             = VLT_STK2;
-            this->vlStk2.vls2BaseReg = baseReg;
-            this->vlStk2.vls2Offset  = offset;
-            if (!isFramePointerUsed && this->vlStk2.vls2BaseReg == REG_SPBASE)
+            vlType             = VLT_STK2;
+            vlStk2.vls2BaseReg = baseReg;
+            vlStk2.vls2Offset  = offset;
+            if (!isFramePointerUsed && vlStk2.vls2BaseReg == REG_SPBASE)
             {
-                this->vlStk2.vls2BaseReg = (regNumber)ICorDebugInfo::REGNUM_AMBIENT_SP;
+                vlStk2.vls2BaseReg = static_cast<regNumber>(ICorDebugInfo::REGNUM_AMBIENT_SP);
             }
             break;
 #endif // !TARGET_64BIT
 
         default:
-            noway_assert(!"Invalid type");
+            unreached();
     }
 }
 
-//------------------------------------------------------------------------
-// siFillRegisterVarLoc: Fill "siVarLoc" struct indicating the register position of the variable
-// using "LclVarDsc" and "baseReg"/"offset" if it has a part in the stack (x64 bit float or long).
-//
-// Arguments:
-//    varDsc    - a "LclVarDsc *" to the variable it is desired to build the "siVarLoc".
-//    varLoc    - a "siVarLoc &" to fill with the data of the "varDsc".
-//    type      - a "var_types" which indicate the type of the variable.
-//    baseReg   - a "regNumber" use as a base for the offset.
-//    offset    - a signed amount of bytes distance from "baseReg" for the position of the variable.
-//    isFramePointerUsed    - a boolean indicating whether the current method sets up an
-//    explicit stack frame or not.
-//
-// Notes:
-//    The "varLoc" argument is filled depending of the "type" argument but as a VLT_REG... variation.
-//    "baseReg" and "offset" are used .for not 64 bit and values that are splitted in two parts.
 void CodeGenInterface::siVarLoc::siFillRegisterVarLoc(
-    const LclVarDsc* varDsc, var_types type, regNumber baseReg, int offset, bool isFramePointerUsed)
+    const LclVarDsc* lcl, var_types type, regNumber baseReg, int offset, bool isFramePointerUsed)
 {
     switch (type)
     {
+        case TYP_BOOL:
+        case TYP_BYTE:
+        case TYP_UBYTE:
+        case TYP_SHORT:
+        case TYP_USHORT:
         case TYP_INT:
         case TYP_REF:
         case TYP_BYREF:
 #ifdef TARGET_64BIT
         case TYP_LONG:
-#endif // TARGET_64BIT
-            this->vlType       = VLT_REG;
-            this->vlReg.vlrReg = varDsc->GetRegNum();
+#endif
+            vlType       = VLT_REG;
+            vlReg.vlrReg = lcl->GetRegNum();
             break;
 
 #ifndef TARGET_64BIT
         case TYP_LONG:
-            this->vlType                        = VLT_REG_STK;
-            this->vlRegStk.vlrsReg              = varDsc->GetRegNum();
-            this->vlRegStk.vlrsStk.vlrssBaseReg = baseReg;
-            if (isFramePointerUsed && this->vlRegStk.vlrsStk.vlrssBaseReg == REG_SPBASE)
+            vlType                        = VLT_REG_STK;
+            vlRegStk.vlrsReg              = lcl->GetRegNum();
+            vlRegStk.vlrsStk.vlrssBaseReg = baseReg;
+            if (isFramePointerUsed && vlRegStk.vlrsStk.vlrssBaseReg == REG_SPBASE)
             {
-                this->vlRegStk.vlrsStk.vlrssBaseReg = (regNumber)ICorDebugInfo::REGNUM_AMBIENT_SP;
+                vlRegStk.vlrsStk.vlrssBaseReg = static_cast<regNumber>(ICorDebugInfo::REGNUM_AMBIENT_SP);
             }
-            this->vlRegStk.vlrsStk.vlrssOffset = offset + sizeof(int);
+            vlRegStk.vlrsStk.vlrssOffset = offset + sizeof(int);
             break;
 #endif // !TARGET_64BIT
 
-#ifdef TARGET_64BIT
         case TYP_FLOAT:
         case TYP_DOUBLE:
+#ifdef TARGET_64BIT
             // TODO-AMD64-Bug: ndp\clr\src\inc\corinfo.h has a definition of RegNum that only goes up to R15,
             // so no XMM registers can get debug information.
-            this->vlType       = VLT_REG_FP;
-            this->vlReg.vlrReg = varDsc->GetRegNum();
+            vlType       = VLT_REG_FP;
+            vlReg.vlrReg = lcl->GetRegNum();
+#else
+            vlType         = VLT_FPSTK;
+            vlFPstk.vlfReg = lcl->GetRegNum();
+#endif
             break;
-
-#else // !TARGET_64BIT
-
-        case TYP_FLOAT:
-        case TYP_DOUBLE:
-            if (varTypeUsesFloatReg(type))
-            {
-                this->vlType         = VLT_FPSTK;
-                this->vlFPstk.vlfReg = varDsc->GetRegNum();
-            }
-            break;
-
-#endif // !TARGET_64BIT
 
 #ifdef FEATURE_SIMD
         case TYP_SIMD8:
         case TYP_SIMD12:
         case TYP_SIMD16:
         case TYP_SIMD32:
-            this->vlType = VLT_REG_FP;
+            vlType = VLT_REG_FP;
 
             // TODO-AMD64-Bug: ndp\clr\src\inc\corinfo.h has a definition of RegNum that only goes up to R15,
             // so no XMM registers can get debug information.
             //
             // Note: Need to initialize vlrReg field, otherwise during jit dump hitting an assert
             // in eeDispVar() --> getRegName() that regNumber is valid.
-            this->vlReg.vlrReg = varDsc->GetRegNum();
+            vlReg.vlrReg = lcl->GetRegNum();
             break;
 #endif // FEATURE_SIMD
 
         default:
-            noway_assert(!"Invalid type");
+            unreached();
     }
 }
 
-//------------------------------------------------------------------------
-// siVarLoc: Non-empty constructor of siVarLoc struct
-// Arguments:
-//    varDsc    - a "LclVarDsc *" to the variable it is desired to build the "siVarLoc".
-//    baseReg   - a "regNumber" use as a base for the offset.
-//    offset    - a signed amount of bytes distance from "baseReg" for the position of the variable.
-//    isFramePointerUsed - a boolean variable
-//
-// Notes:
-//    Called for every psiScope in "psiScopeList" codegen.h
-CodeGenInterface::siVarLoc::siVarLoc(const LclVarDsc* varDsc, regNumber baseReg, int offset, bool isFramePointerUsed)
+CodeGenInterface::siVarLoc::siVarLoc(const LclVarDsc* lcl, regNumber baseReg, int offset, bool isFramePointerUsed)
 {
-    if (varDsc->lvIsInReg())
+    if (lcl->lvIsInReg())
     {
-        var_types regType = varActualType(varDsc->GetRegisterType());
-        siFillRegisterVarLoc(varDsc, regType, baseReg, offset, isFramePointerUsed);
+        siFillRegisterVarLoc(lcl, lcl->GetRegisterType(), baseReg, offset, isFramePointerUsed);
     }
     else
     {
-        var_types stackType = genActualType(varDsc->TypeGet());
-        siFillStackVarLoc(varDsc, stackType, baseReg, offset, isFramePointerUsed);
+        siFillStackVarLoc(lcl, lcl->GetType(), baseReg, offset, isFramePointerUsed);
     }
 }
 
