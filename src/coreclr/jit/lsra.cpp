@@ -1559,12 +1559,8 @@ void LinearScan::identifyCandidates()
 
         varDsc->lvLRACandidate = true;
 
-        var_types type = varActualType(varDsc->GetRegisterType());
-        if (varTypeUsesFloatReg(type))
-        {
-            compiler->compFloatingPointUsed = true;
-        }
-        Interval* newInt = newInterval(type);
+        var_types type   = varDsc->GetRegisterType();
+        Interval* newInt = newInterval(varActualType(type));
         newInt->setLocalNumber(compiler, lclNum, this);
         VarSetOps::AddElemD(compiler, registerCandidateVars, varDsc->lvVarIndex);
 
@@ -1595,6 +1591,8 @@ void LinearScan::identifyCandidates()
         // LargeVectorType vars.
         if (Compiler::varTypeNeedsPartialCalleeSave(varDsc->GetRegisterType()))
         {
+            assert(varTypeUsesFloatReg(type));
+            compiler->compFloatingPointUsed = true;
             largeVectorVarCount++;
             VarSetOps::AddElemD(compiler, largeVectorVars, varDsc->lvVarIndex);
             BasicBlock::weight_t refCntWtd = varDsc->lvRefCntWtd();
@@ -1605,8 +1603,9 @@ void LinearScan::identifyCandidates()
         }
         else
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-            if (regType(type) == FloatRegisterType)
+            if (varTypeUsesFloatReg(type))
         {
+            compiler->compFloatingPointUsed = true;
             floatVarCount++;
             BasicBlock::weight_t refCntWtd = varDsc->lvRefCntWtd();
 
