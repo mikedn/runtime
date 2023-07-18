@@ -2272,59 +2272,44 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         roundUp(lvaTrackedCount, static_cast<unsigned>(sizeof(size_t) * 8)) / static_cast<unsigned>(sizeof(size_t) * 8);
 }
 
-//------------------------------------------------------------------------
-// GetRegisterType: Determine register type for this local var.
-//
-// Arguments:
-//    tree - node that uses the local, its type is checked first.
-//
-// Return Value:
-//    TYP_UNDEF if the layout is not enregistrable, the register type otherwise.
-//
-var_types LclVarDsc::GetRegisterType(const GenTreeLclVarCommon* tree) const
+var_types LclVarDsc::GetRegisterType(const GenTreeLclVarCommon* node) const
 {
-    var_types targetType = tree->gtType;
-    var_types lclVarType = TypeGet();
+    var_types regType = node->GetType();
 
-    if (targetType == TYP_STRUCT)
+    if (regType == TYP_STRUCT)
     {
-        if (lclVarType == TYP_STRUCT)
+        if (lvType == TYP_STRUCT)
         {
-            assert(!tree->IsLclFld() && "do not expect struct local fields.");
-            lclVarType = GetLayout()->GetRegisterType();
+            assert(!node->IsLclFld());
+            return GetLayout()->GetRegisterType();
         }
-        targetType = lclVarType;
+        else
+        {
+            return lvType;
+        }
     }
 
-#ifdef DEBUG
-    if ((targetType != TYP_UNDEF) && tree->OperIs(GT_STORE_LCL_VAR) && lvNormalizeOnStore())
-    {
-        assert(targetType == varActualType(lclVarType));
-    }
-#endif
-    return targetType;
+    assert(!node->OperIs(GT_STORE_LCL_VAR) || !lvNormalizeOnStore() || (regType == varActualType(lvType)));
+
+    return regType;
 }
 
-//------------------------------------------------------------------------
-// GetRegisterType: Determine register type for this local var.
-//
-// Return Value:
-//    TYP_UNDEF if the layout is not enregistrable, the register type otherwise.
-//
 var_types LclVarDsc::GetRegisterType() const
 {
-    if (TypeGet() != TYP_STRUCT)
+    if (lvType == TYP_STRUCT)
     {
-#if !defined(TARGET_64BIT)
-        if (TypeGet() == TYP_LONG)
-        {
-            return TYP_UNDEF;
-        }
-#endif
-        return TypeGet();
+        assert(m_layout != nullptr);
+        return m_layout->GetRegisterType();
     }
-    assert(m_layout != nullptr);
-    return m_layout->GetRegisterType();
+
+#ifndef TARGET_64BIT
+    if (lvType == TYP_LONG)
+    {
+        return TYP_UNDEF;
+    }
+#endif
+
+    return lvType;
 }
 
 void Compiler::lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propagate)
