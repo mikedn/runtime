@@ -2336,7 +2336,7 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
     }
     else
     {
-        var_types lclVarType = lcl->GetRegisterType(lclVar);
+        var_types lclVarType = lclVar->GetRegType(lcl);
         assert(lclVarType != TYP_UNDEF);
         lclVar->SetType(lclVarType);
 

@@ -3201,7 +3201,7 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
         regMaskTP srcCandidates = RBM_NONE;
 
 #ifdef TARGET_X86
-        if (varTypeIsByte(store->OperIs(GT_STORE_LCL_FLD) ? store->GetType() : lcl->GetRegisterType(store)))
+        if (varTypeIsByte(store->OperIs(GT_STORE_LCL_FLD) ? store->GetType() : store->AsLclVar()->GetRegType(lcl)))
         {
             srcCandidates = allByteRegs();
         }

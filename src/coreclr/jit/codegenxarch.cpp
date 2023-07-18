@@ -4051,7 +4051,7 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
     }
 #endif
 
-    var_types   type = lcl->GetRegisterType(load);
+    var_types   type = load->GetRegType(lcl);
     instruction ins  = ins_Load(type, IsSimdLocalAligned(load->GetLclNum()));
     emitAttr    attr = emitTypeSize(type);
 
@@ -4148,7 +4148,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     }
 #endif
 
-    var_types lclRegType = lcl->GetRegisterType(store);
+    var_types lclRegType = store->GetType();
 
 #ifdef DEBUG
     {
@@ -4158,7 +4158,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         {
             GenTreeLclVar* srcLclVar = src->AsLclVar();
 
-            srcRegType = compiler->lvaGetDesc(srcLclVar)->GetRegisterType(srcLclVar);
+            srcRegType = srcLclVar->GetRegType(compiler->lvaGetDesc(srcLclVar));
         }
 
         assert(varTypeUsesFloatReg(lclRegType) == varTypeUsesFloatReg(srcRegType));

@@ -2272,24 +2272,25 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         roundUp(lvaTrackedCount, static_cast<unsigned>(sizeof(size_t) * 8)) / static_cast<unsigned>(sizeof(size_t) * 8);
 }
 
-var_types LclVarDsc::GetRegisterType(const GenTreeLclVarCommon* node) const
+var_types GenTreeLclVar::GetRegType(const LclVarDsc* lcl) const
 {
-    var_types regType = node->GetType();
+    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+
+    var_types regType = GetType();
 
     if (regType == TYP_STRUCT)
     {
-        if (lvType == TYP_STRUCT)
+        if (lcl->TypeIs(TYP_STRUCT))
         {
-            assert(!node->IsLclFld());
-            return GetLayout()->GetRegisterType();
+            return lcl->GetLayout()->GetRegisterType();
         }
         else
         {
-            return lvType;
+            return lcl->GetType();
         }
     }
 
-    assert(!node->OperIs(GT_STORE_LCL_VAR) || !lvNormalizeOnStore() || (regType == varActualType(lvType)));
+    assert(OperIs(GT_LCL_VAR) || !lcl->lvNormalizeOnStore() || (regType == varActualType(lcl->GetType())));
 
     return regType;
 }

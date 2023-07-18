@@ -764,7 +764,7 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
         return;
     }
 
-    var_types   type = lcl->GetRegisterType(load);
+    var_types   type = load->GetRegType(lcl);
     instruction ins  = ins_Load(type);
     emitAttr    attr = emitTypeSize(type);
 
@@ -858,22 +858,21 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    var_types lclRegType = lcl->GetRegisterType(store);
-
-    regNumber srcReg = genConsumeReg(src);
-    regNumber dstReg = store->GetRegNum();
+    var_types regType = store->GetType();
+    regNumber srcReg  = genConsumeReg(src);
+    regNumber dstReg  = store->GetRegNum();
 
     if (dstReg == REG_NA)
     {
         unsigned lclNum = store->GetLclNum();
-        GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitTypeSize(lclRegType), srcReg, lclNum, 0);
+        GetEmitter()->emitIns_S_R(ins_Store(regType), emitTypeSize(regType), srcReg, lclNum, 0);
         genUpdateLife(store);
         lcl->SetRegNum(REG_STK);
 
         return;
     }
 
-    GetEmitter()->emitIns_Mov(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg, /*canSkip*/ true);
+    GetEmitter()->emitIns_Mov(ins_Copy(regType), emitActualTypeSize(regType), dstReg, srcReg, /*canSkip*/ true);
 
     DefLclVarReg(store);
 }

@@ -1092,7 +1092,7 @@ private:
         {
             assert(node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
             GenTreeLclVar* lclVar = node->AsLclVar();
-            type                  = compiler->lvaGetDesc(lclVar)->GetRegisterType(lclVar);
+            type                  = lclVar->GetRegType(compiler->lvaGetDesc(lclVar));
         }
         assert(type != TYP_UNDEF && type != TYP_STRUCT);
         return type;

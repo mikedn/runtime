@@ -798,7 +798,6 @@ public:
         m_layout = layout;
     }
 
-    var_types GetRegisterType(const GenTreeLclVarCommon* tree) const;
     var_types GetRegisterType() const;
 
     //-----------------------------------------------------------------------------

@@ -5885,7 +5885,7 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
         {
             assert(compiler->compEnregStructLocals());
             assert(tree->OperIs(GT_LCL_VAR));
-            regType = compiler->lvaGetDesc(tree->AsLclVar())->GetRegisterType(tree->AsLclVar());
+            regType = tree->AsLclVar()->GetRegType(compiler->lvaGetDesc(tree->AsLclVar()));
             assert(regType != TYP_UNDEF);
         }
 

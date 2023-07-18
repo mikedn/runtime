@@ -3007,6 +3007,7 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
 
     unsigned GetMultiRegCount(Compiler* compiler) const;
     var_types GetMultiRegType(Compiler* compiler, unsigned regIndex);
+    var_types GetRegType(const class LclVarDsc* lcl) const;
 
     GenTreeLclVar(var_types type, unsigned lclNum DEBUGARG(bool largeNode = false))
         : GenTreeLclVarCommon(GT_LCL_VAR, type, lclNum DEBUGARG(largeNode))

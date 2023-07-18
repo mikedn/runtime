@@ -837,8 +837,7 @@ regNumber CodeGen::UseRegCandidateLclVar(GenTreeLclVar* node)
     // because if it's on the stack it will always get reloaded into tree->GetRegNum()).
     if (lcl->GetRegNum() != REG_STK)
     {
-        var_types dstType = lcl->GetRegisterType(node->AsLclVar());
-        inst_Mov(dstType, node->GetRegNum(), lcl->GetRegNum(), /* canSkip */ true);
+        inst_Mov(node->GetRegType(lcl), node->GetRegNum(), lcl->GetRegNum(), /* canSkip */ true);
     }
 
     if (node->IsAnyRegSpilled())
@@ -950,7 +949,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     node->SetRegSpilled(0, false);
 
     LclVarDsc* lcl     = compiler->lvaGetDesc(node);
-    var_types  regType = lcl->GetRegisterType(node);
+    var_types  regType = node->GetRegType(lcl);
 
     assert(regType != TYP_UNDEF);
 
@@ -1607,8 +1606,7 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
     {
         if (lcl->IsRegCandidate())
         {
-            var_types spillType = lcl->GetRegisterType(lclVar);
-            SpillLclVarReg(lclVar->GetLclNum(), spillType, lclVar, lclVar->GetRegNum());
+            SpillLclVarReg(lclVar->GetLclNum(), lclVar->GetRegType(lcl), lclVar, lclVar->GetRegNum());
         }
         else
         {

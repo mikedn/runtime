@@ -1845,7 +1845,7 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 
     // TODO-MIKE-Review: Does this need special TYP_SIMD12 handling of params on OSX?
 
-    var_types   type = lcl->GetRegisterType(load);
+    var_types   type = load->GetRegType(lcl);
     instruction ins  = ins_Load(type);
     emitAttr    attr = emitActualTypeSize(type);
 
@@ -1947,10 +1947,10 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    var_types lclRegType = lcl->GetRegisterType(store);
+    var_types regType = store->GetRegType(lcl);
 
 #ifdef FEATURE_SIMD
-    if (lclRegType == TYP_SIMD12)
+    if (regType == TYP_SIMD12)
     {
         genStoreSIMD12(store, src);
         // TODO-MIKE-Review: Doesn't this need a DefLclVarReg call?
@@ -1977,15 +1977,15 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     {
         unsigned lclNum = store->GetLclNum();
 
-        if ((srcReg == REG_ZR) && (lclRegType == TYP_SIMD16))
+        if ((srcReg == REG_ZR) && (regType == TYP_SIMD16))
         {
             GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, srcReg, srcReg, lclNum, 0);
         }
         else
         {
-            assert((srcReg != REG_ZR) || (varTypeSize(lclRegType) <= REGSIZE_BYTES));
+            assert((srcReg != REG_ZR) || (varTypeSize(regType) <= REGSIZE_BYTES));
 
-            GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitActualTypeSize(lclRegType), srcReg, lclNum, 0);
+            GetEmitter()->emitIns_S_R(ins_Store(regType), emitActualTypeSize(regType), srcReg, lclNum, 0);
         }
 
         genUpdateLife(store);
@@ -2000,7 +2000,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     }
     else
     {
-        GetEmitter()->emitIns_Mov(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg,
+        GetEmitter()->emitIns_Mov(ins_Copy(regType), emitActualTypeSize(regType), dstReg, srcReg,
                                   /* canSkip */ true);
     }
 
