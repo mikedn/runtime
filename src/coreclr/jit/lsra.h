@@ -1085,15 +1085,14 @@ private:
     void freeRegisters(regMaskTP regsToFree);
 
     // Get the type that this tree defines.
-    var_types getDefType(GenTree* tree)
+    var_types getDefType(GenTree* node)
     {
-        var_types type = tree->TypeGet();
+        var_types type = node->GetType();
         if (type == TYP_STRUCT)
         {
-            assert(tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
-            GenTreeLclVar* lclVar = tree->AsLclVar();
-            LclVarDsc*     varDsc = compiler->lvaGetDesc(lclVar);
-            type                  = varDsc->GetRegisterType(lclVar);
+            assert(node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+            GenTreeLclVar* lclVar = node->AsLclVar();
+            type                  = compiler->lvaGetDesc(lclVar)->GetRegisterType(lclVar);
         }
         assert(type != TYP_UNDEF && type != TYP_STRUCT);
         return type;

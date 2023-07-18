@@ -124,7 +124,7 @@ bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
 
 void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
+    assert(store->OperIs(GT_STORE_LCL_VAR) && !store->TypeIs(TYP_STRUCT));
 
     GenTree* src = store->GetOp(0);
 
@@ -1098,24 +1098,9 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 
 void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && !store->TypeIs(TYP_STRUCT));
 
-    GenTree* src = store->gtGetOp1();
-
-#ifdef TARGET_XARCH
-    if (src->OperIs(GT_BITCAST))
-    {
-        // If we know that the source of the bitcast will be in a register, then we can make
-        // the bitcast itself contained. This will allow us to store directly from the other
-        // type if this node doesn't get a register.
-        GenTree* bitCastSrc = src->AsUnOp()->GetOp(0);
-        if (!bitCastSrc->isContained() && !bitCastSrc->IsRegOptional())
-        {
-            src->SetContained();
-            return;
-        }
-    }
-#endif
+    GenTree* src = store->GetOp(0);
 
 #ifdef TARGET_ARM64
     if (src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero())
@@ -1139,14 +1124,14 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
     }
 #endif
 
-    // If the source is a containable immediate, make it contained, unless it is
-    // an int-size or larger store of zero to memory, because we can generate smaller code
-    // by zeroing a register and then storing it.
-    var_types type = comp->lvaGetDesc(store)->GetRegisterType(store);
+    // If the source is a containable immediate, make it contained, unless it is an int-size
+    // or larger store of zero to memory, because we can generate smaller code by zeroing a
+    // register and then storing it.
 
-    if (IsContainableImmed(store, src) && (!src->IsIntegralConst(0) || varTypeIsSmall(type)))
+    if (IsContainableImmed(store, src) && (!src->IsIntegralConst(0) || varTypeIsSmall(store->GetType())))
     {
         src->SetContained();
+        return;
     }
 }
 

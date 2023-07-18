@@ -30,7 +30,7 @@ void Lowering::LowerRotate(GenTree* tree)
 
 void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
+    assert(store->OperIs(GT_STORE_LCL_VAR) && !store->TypeIs(TYP_STRUCT));
 
     GenTree* src = store->GetOp(0);
 
@@ -3684,8 +3684,9 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 
 void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
-    GenTree* src = store->gtGetOp1();
+    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && !store->TypeIs(TYP_STRUCT));
+
+    GenTree* src = store->GetOp(0);
 
     if (src->OperIs(GT_BITCAST))
     {
@@ -3728,13 +3729,11 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
     }
 #endif
 
-    // If the source is a containable immediate, make it contained, unless it is
-    // an int-size or larger store of zero to memory, because we can generate smaller code
-    // by zeroing a register and then storing it.
+    // If the source is a containable immediate, make it contained, unless it is an int-size
+    // or larger store of zero to memory, because we can generate smaller code by zeroing a
+    // register and then storing it.
 
-    var_types type = comp->lvaGetDesc(store)->GetRegisterType(store);
-
-    if (IsContainableImmed(store, src) && (!src->IsIntegralConst(0) || varTypeIsSmall(type)))
+    if (IsContainableImmed(store, src) && (!src->IsIntegralConst(0) || varTypeIsSmall(store->GetType())))
     {
         src->SetContained();
         return;
@@ -3790,6 +3789,8 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
                 op2->ClearContained();
                 op2->ClearRegOptional();
             }
+
+            return;
         }
     }
 }
