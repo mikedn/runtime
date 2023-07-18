@@ -9274,7 +9274,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
 
                     lclNum = inlGetInlineeLocal(impInlineInfo, lclNum);
-                    lclTyp = lvaGetDesc(lclNum)->GetType();
                 }
                 else
                 {
@@ -9284,18 +9283,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
 
                     lclNum += info.compArgsCount;
-
-                STLCL:
-                    LclVarDsc* lcl = lvaGetDesc(lclNum);
-                    lclTyp         = lcl->GetType();
-
-                    if (!lcl->lvNormalizeOnLoad())
-                    {
-                        lclTyp = varActualType(lclTyp);
-                    }
                 }
 
                 {
+                STLCL:
                     StackEntry se = impPopStack();
                     clsHnd        = se.seTypeInfo.GetClassHandle();
                     op1           = se.val;
@@ -9343,9 +9334,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                // Create and append the assignment statement
-
-                op2 = gtNewLclvNode(lclNum, lclTyp);
+                lclTyp = lvaGetDesc(lclNum)->GetType();
+                op2    = gtNewLclvNode(lclNum, lclTyp);
 
                 if (varTypeIsStruct(lclTyp))
                 {
@@ -12841,15 +12831,9 @@ void Importer::impLoadLoc(unsigned ilLocNum)
 // lclNum is an index into lvaTable *NOT* the arg/lcl index in the IL
 void Importer::impPushLclVar(unsigned lclNum)
 {
-    LclVarDsc* lcl  = lvaGetDesc(lclNum);
-    var_types  type = lcl->GetType();
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-    if (!lcl->lvNormalizeOnLoad())
-    {
-        type = varActualType(type);
-    }
-
-    impPushOnStack(gtNewLclvNode(lclNum, type), lcl->lvImpTypeInfo);
+    impPushOnStack(gtNewLclvNode(lclNum, lcl->GetType()), lcl->lvImpTypeInfo);
 }
 
 //------------------------------------------------------------------------

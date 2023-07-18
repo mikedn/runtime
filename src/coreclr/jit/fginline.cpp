@@ -1865,11 +1865,23 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         //
         // Use the caller-supplied node if this is the first use.
 
-        unsigned lclNum;
+        var_types type = argInfo.paramType;
+        unsigned  lclNum;
 
         if (argNode->OperIs(GT_LCL_VAR))
         {
             lclNum = argNode->AsLclVar()->GetLclNum();
+
+            if ((argNode->GetType() != argInfo.paramType) && varTypeIsSmall(argNode->GetType()))
+            {
+                // If the argument is small int we need to keep its type when the parameter
+                // has a larger integral type, the argument will produce an INT value anyway.
+                // Note that we do tolerate other type mismatches (e.g. I_IMPL argument and
+                // BYREF param or viceversa).
+                assert(varActualType(argInfo.paramType) == TYP_INT);
+
+                type = argNode->GetType();
+            }
 
             // The arg node shouldn't have any flags. The importer may change it to LCL_ADDR
             // and remove all flags. If inlining is aborted then we won't be able to restore
@@ -1892,16 +1904,9 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         // Note argument type mismatches that prevent inlining should
         // have been caught in inlAnalyzeInlineeArgs.
 
-        if ((argInfo.paramLclNum != BAD_VAR_NUM) || (argNode->GetType() != argInfo.paramType))
+        if ((argInfo.paramLclNum != BAD_VAR_NUM) || (argNode->GetType() != type))
         {
-            var_types paramType = argInfo.paramType;
-
-            if (!lvaGetDesc(lclNum)->lvNormalizeOnLoad())
-            {
-                paramType = varActualType(paramType);
-            }
-
-            argNode = gtNewLclvNode(lclNum, paramType);
+            argNode = gtNewLclvNode(lclNum, type);
         }
 
         argInfo.paramLclNum = lclNum;
@@ -1913,7 +1918,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     {
         // We already allocated a temp for this argument, use it.
 
-        argNode = gtNewLclvNode(argInfo.paramLclNum, varActualType(argInfo.paramType));
+        argNode = gtNewLclvNode(argInfo.paramLclNum, argInfo.paramType);
 
         // This is the second or later use of the this argument,
         // so we have to use the temp (instead of the actual arg).
@@ -1988,14 +1993,14 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     if (varTypeIsStruct(argInfo.paramType) || argInfo.argHasSideEff || argInfo.argHasGlobRef ||
         argInfo.paramIsAddressTaken || argInfo.paramHasStores)
     {
-        argNode = gtNewLclvNode(tmpLclNum, varActualType(argInfo.paramType));
+        argNode = gtNewLclvNode(tmpLclNum, argInfo.paramType);
     }
     else
     {
         // Allocate a large LCL_VAR node so we can replace it with any
         // other node if it turns out to be single use.
 
-        argNode = gtNewLclVarLargeNode(tmpLclNum, varActualType(argInfo.paramType));
+        argNode = gtNewLclVarLargeNode(tmpLclNum, argInfo.paramType);
 
         // Record argNode as the very first use of this argument.
         // If there are no further uses of the arg, we may be
