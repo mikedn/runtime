@@ -5451,7 +5451,12 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
 
     if (lcl->IsAddressExposed())
     {
+        assert(varTypeSize(lclVar->GetType()) == varTypeSize(lcl->GetType()) ||
+               (lclVar->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG)));
+
         lclVar->AddSideEffects(GTF_GLOB_REF);
+
+        return lclVar;
     }
 
     // Small int params, address exposed locals and promoted fields are widened on load.
@@ -5479,9 +5484,9 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
     }
 #endif
 
-    // TODO-MIKE-Review: Doing this for P-DEP fields is dubious. And this should not
-    // be needed for address exposed locals, we could just keeep the small int typed
-    // LCL_VAR as it performs implicit widening like LCL_FLD and INT do.
+    // TODO-MIKE-Review: Doing this for P-DEP fields is dubious. Problem is, we don't
+    // know yet which fields are P-DEP, they might be P-INDEP now and become P-DEP
+    // later when the local is used as a call argument.
     lclVar->SetType(TYP_INT);
     fgMorphTreeDone(lclVar);
 
