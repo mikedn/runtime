@@ -5458,10 +5458,19 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
     // We may need to insert a widening cast, if assertion propagation doesn't tell us
     // that the value previously stored in the local isn't already widened.
 
-    if (!fgGlobalMorph || !lcl->lvNormalizeOnLoad())
+    if (!fgGlobalMorph || !varTypeIsSmall(lcl->GetType()))
     {
         return lclVar;
     }
+
+    if (lcl->lvNormalizeOnStore())
+    {
+        lclVar->SetType(TYP_INT);
+
+        return lclVar;
+    }
+
+    assert(lcl->lvNormalizeOnLoad());
 
 #if LOCAL_ASSERTION_PROP
     if ((morphAssertionCount != 0) && morphAssertionIsTypeRange(lclVar, lcl->GetType()))
