@@ -567,8 +567,7 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
             // check provided by codegen.
             //
 
-            const bool signExtend = (cast->gtFlags & GTF_UNSIGNED) == 0;
-            loResult              = EnsureIntSized(loSrcOp, signExtend);
+            loResult = loSrcOp;
 
             hiResult                       = cast;
             hiResult->gtType               = TYP_INT;
@@ -614,9 +613,7 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
             }
             else if (varTypeIsUnsigned(srcType))
             {
-                const bool signExtend = (cast->gtFlags & GTF_UNSIGNED) == 0;
-                loResult              = EnsureIntSized(cast->gtGetOp1(), signExtend);
-
+                loResult = cast->gtGetOp1();
                 hiResult = m_compiler->gtNewZeroConNode(TYP_INT);
 
                 Range().InsertAfter(cast, hiResult);
@@ -1936,38 +1933,6 @@ GenTreeLclVar* DecomposeLongs::RepresentOpAsLocalVar(GenTree* op, GenTree* user,
     LIR::Use opUse(Range(), edge, user);
     opUse.ReplaceWithLclVar(m_compiler);
     return (*edge)->AsLclVar();
-}
-
-//------------------------------------------------------------------------
-// DecomposeLongs::EnsureIntSized:
-//    Checks to see if the given node produces an int-sized value and
-//    performs the appropriate widening if it does not.
-//
-// Arguments:
-//    node       - The node that may need to be widened.
-//    signExtend - True if the value should be sign-extended; false if it
-//                 should be zero-extended.
-//
-// Return Value:
-//    The node that produces the widened value.
-GenTree* DecomposeLongs::EnsureIntSized(GenTree* node, bool signExtend)
-{
-    assert(node != nullptr);
-    if (!varTypeIsSmall(node))
-    {
-        assert(genTypeSize(node) == genTypeSize(TYP_INT));
-        return node;
-    }
-
-    if (node->OperIs(GT_LCL_VAR) && !m_compiler->lvaGetDesc(node->AsLclVar())->lvNormalizeOnLoad())
-    {
-        node->gtType = TYP_INT;
-        return node;
-    }
-
-    GenTree* const cast = m_compiler->gtNewCastNode(TYP_INT, node, !signExtend, node->TypeGet());
-    Range().InsertAfter(node, cast);
-    return cast;
 }
 
 //------------------------------------------------------------------------

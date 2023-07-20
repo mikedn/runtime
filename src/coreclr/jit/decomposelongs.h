@@ -68,7 +68,6 @@ private:
     // Helper functions
     GenTree* FinalizeDecomposition(LIR::Use& use, GenTree* loResult, GenTree* hiResult, GenTree* insertResultAfter);
     GenTreeLclVar* RepresentOpAsLocalVar(GenTree* op, GenTree* user, GenTree** edge);
-    GenTree* EnsureIntSized(GenTree* node, bool signExtend);
 
     GenTree* StoreMultiRegNodeToLcl(LIR::Use& use);
     static genTreeOps GetHiOper(genTreeOps oper);
