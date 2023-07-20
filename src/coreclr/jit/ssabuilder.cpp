@@ -894,6 +894,8 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
             insert->gtFlags = GTF_DONT_CSE;
             insert->SetSideEffects(value->GetSideEffects());
 
+            store->SetType(lcl->GetType());
+
             // TODO-MIKE-SSA: Pff, manual node linking sucks.
 
             store->gtPrev->gtNext = structValue;
@@ -912,7 +914,6 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
         def->AsLclDef()->SetLclNum(lclNum);
         def->AsLclDef()->SetBlock(block);
         def->AsLclDef()->SetValue(value);
-        def->SetType(lcl->lvNormalizeOnStore() ? varActualType(lcl->GetType()) : lcl->GetType());
         def->gtFlags = defFlags | value->GetSideEffects() | GTF_ASG;
 
         renameStack.Push(block, lclNum, def->AsLclDef());
