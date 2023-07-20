@@ -1604,16 +1604,14 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
 
     if (lclVar->IsAnyRegSpill())
     {
-        if (lcl->IsRegCandidate())
-        {
-            SpillLclVarReg(lclVar->GetLclNum(), lclVar->GetRegType(lcl), lclVar, lclVar->GetRegNum());
-        }
-        else
+        if (!lcl->IsRegCandidate())
         {
             SpillNodeReg(lclVar, lclVar->GetType(), 0);
 
             return;
         }
+
+        SpillLclVarReg(lclVar);
     }
 
     if (lclVar->OperIs(GT_STORE_LCL_VAR))
@@ -1627,11 +1625,15 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
     }
 }
 
-void CodeGen::SpillLclVarReg(unsigned lclNum, var_types type, GenTreeLclVar* lclVar, regNumber reg)
+void CodeGen::SpillLclVarReg(GenTreeLclVar* lclVar)
 {
-    assert(lclVar->OperIs(GT_STORE_LCL_VAR, GT_LCL_VAR));
+    assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && !lclVar->IsMultiReg());
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+    unsigned   lclNum = lclVar->GetLclNum();
+    LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+    var_types  type   = lclVar->GetRegType(lcl);
+
+    assert(lcl->IsRegCandidate());
     assert(!lcl->lvNormalizeOnStore() || (type == varActualType(lcl->GetRegisterType())));
 
     // We have a register candidate local that is marked with SPILL.
@@ -1645,6 +1647,8 @@ void CodeGen::SpillLclVarReg(unsigned lclNum, var_types type, GenTreeLclVar* lcl
     {
         return;
     }
+
+    regNumber reg = lclVar->GetRegNum();
 
     GetEmitter()->emitIns_S_R(ins_Store(type, IsSimdLocalAligned(lclNum)), emitTypeSize(type), reg, lclNum, 0);
 }

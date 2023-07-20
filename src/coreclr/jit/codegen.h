@@ -1080,7 +1080,7 @@ protected:
 #ifndef TARGET_64BIT
     void DefLongRegs(GenTree* node);
 #endif
-    void SpillLclVarReg(unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum);
+    void SpillLclVarReg(GenTreeLclVar* lclNode);
     void UnspillRegIfNeeded(GenTree* node);
     void UnspillRegCandidateLclVar(GenTreeLclVar* node);
     void UnspillRegIfNeeded(GenTree* node, unsigned regIndex);
