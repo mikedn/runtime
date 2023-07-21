@@ -5484,10 +5484,6 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
     }
 #endif
 
-    // TODO-MIKE-Review: Doing this for P-DEP fields is dubious. Problem is, we don't
-    // know yet which fields are P-DEP, they might be P-INDEP now and become P-DEP
-    // later when the local is used as a call argument.
-    lclVar->SetType(TYP_INT);
     fgMorphTreeDone(lclVar);
 
     GenTreeCast* cast = gtNewCastNode(TYP_INT, lclVar, false, lcl->GetType());
