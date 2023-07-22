@@ -1827,8 +1827,6 @@ public:
     bool gtOverflow() const;
     bool gtOverflowEx() const;
 
-    inline var_types& CastToType();
-
     bool IsPhiDef() const;
 
     // Because of the fact that we hid the assignment operator of "BitSet" (in DEBUG),
@@ -3641,39 +3639,46 @@ public:
 #endif
 };
 
-/* gtCast -- conversion to a different type  (GT_CAST) */
-
 struct GenTreeCast : public GenTreeOp
 {
-    var_types gtCastType;
+private:
+    var_types castType;
 
-    GenTreeCast(var_types type, GenTree* op, bool fromUnsigned, var_types castType DEBUGARG(bool largeNode = false))
-        : GenTreeOp(GT_CAST, type, op, nullptr DEBUGARG(largeNode)), gtCastType(castType)
+public:
+    GenTreeCast(var_types castType, GenTree* op, bool fromUnsigned DEBUGARG(bool largeNode = false))
+        : GenTreeOp(GT_CAST, varCastType(castType), op, nullptr DEBUGARG(largeNode)), castType(castType)
     {
+        assert(varTypeIsArithmetic(castType));
         // We do not allow casts from floating point types to be treated as from
         // unsigned to avoid bugs related to wrong GTF_UNSIGNED in case the
         // operand's type changes.
-        assert(!varTypeIsFloating(op) || !fromUnsigned);
+        assert(!varTypeIsFloating(op->GetType()) || !fromUnsigned);
 
         gtFlags |= fromUnsigned ? GTF_UNSIGNED : GTF_EMPTY;
     }
 
+    GenTreeCast(const GenTreeCast* copyFrom DEBUGARG(bool largeNode = false))
+        : GenTreeOp(GT_CAST, copyFrom->GetType(), copyFrom->GetOp(0), nullptr DEBUGARG(largeNode))
+        , castType(copyFrom->castType)
+    {
+        gtFlags |= copyFrom->gtFlags & GTF_UNSIGNED;
+    }
+
     var_types GetCastType() const
     {
-        return gtCastType;
+        return castType;
     }
 
     void SetCastType(var_types type)
     {
         assert(varTypeIsArithmetic(type));
-        SetType(varActualType(type));
-        gtCastType = type;
+
+        castType = type;
+        SetType(varCastType(type));
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeCast() : GenTreeOp()
-    {
-    }
+    GenTreeCast() = default;
 #endif
 };
 
@@ -7809,18 +7814,9 @@ inline bool GenTree::IsHelperCall()
     return OperGet() == GT_CALL && AsCall()->gtCallType == CT_HELPER;
 }
 
-inline var_types& GenTree::CastToType()
-{
-    return this->AsCast()->gtCastType;
-}
-
-/*****************************************************************************/
-
 #ifndef HOST_64BIT
 #include <poppack.h>
 #endif
-
-/*****************************************************************************/
 
 const size_t TREE_NODE_SZ_SMALL = sizeof(GenTreeLclFld);
 const size_t TREE_NODE_SZ_LARGE = sizeof(GenTreeCall);

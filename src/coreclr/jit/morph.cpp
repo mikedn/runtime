@@ -51,8 +51,7 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
     // cast nodes somehow combine into one and one is large and the other small then the
     // combining code would need to be careful to preserve the large node, not the small
     // node. Cast morphing code is convoluted enough as it is.
-    GenTree* call = new (this, GT_CALL)
-        GenTreeCast(cast->GetType(), src, cast->IsUnsigned(), cast->GetCastType() DEBUGARG(/*largeNode*/ true));
+    GenTree* call = new (this, GT_CALL) GenTreeCast(cast DEBUGARG(/*largeNode*/ true));
     INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
     return fgMorphIntoHelperCall(call, helper, gtNewCallArgs(src));
 }
@@ -1012,10 +1011,10 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
 
         case GT_CAST:
         {
-            GenTree*  src     = tree->AsOp()->GetOp(0);
-            var_types cast    = tree->CastToType();
+            GenTree*  src     = tree->AsCast()->GetOp(0);
+            var_types cast    = tree->AsCast()->GetCastType();
             var_types oprt    = src->GetType();
-            unsigned  oprSize = genTypeSize(oprt);
+            unsigned  oprSize = varTypeSize(oprt);
 
             if (cast != srct)
             {
@@ -1061,8 +1060,7 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 {
                     // oprSize is smaller or there is a signedness mismatch for small types
 
-                    tree->CastToType() = dstt;
-                    tree->SetType(varActualType(dstt));
+                    tree->AsCast()->SetCastType(dstt);
                     tree->SetVNP(vnpNarrow);
                 }
             }

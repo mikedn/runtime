@@ -1099,7 +1099,7 @@ AGAIN:
                 case GT_ARR_LENGTH:
                     break;
                 case GT_CAST:
-                    if (op1->AsCast()->gtCastType != op2->AsCast()->gtCastType)
+                    if (op1->AsCast()->GetCastType() != op2->AsCast()->GetCastType())
                     {
                         return false;
                     }
@@ -1399,7 +1399,7 @@ AGAIN:
                 case GT_ARR_LENGTH:
                     break;
                 case GT_CAST:
-                    hash ^= tree->AsCast()->gtCastType;
+                    hash ^= static_cast<unsigned>(tree->AsCast()->GetCastType());
                     break;
                 case GT_INDEX_ADDR:
                     hash += tree->AsIndexAddr()->GetElemSize();
@@ -5340,8 +5340,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
                 break;
 
             case GT_CAST:
-                copy = new (this, GT_CAST) GenTreeCast(tree->GetType(), tree->AsCast()->GetOp(0), tree->IsUnsigned(),
-                                                       tree->AsCast()->GetCastType());
+                copy = new (this, GT_CAST) GenTreeCast(tree->AsCast());
                 break;
 
             case GT_FIELD_ADDR:
@@ -10326,15 +10325,16 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         return tree;
 
                     case GT_CAST:
-                        // assert (genActualType(tree->CastToType()) == tree->TypeGet());
+                        assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
 
                         if (tree->gtOverflow() &&
-                            CheckedOps::CastFromIntOverflows((INT32)i1, tree->CastToType(), tree->IsUnsigned()))
+                            CheckedOps::CastFromIntOverflows(static_cast<int32_t>(i1), tree->AsCast()->GetCastType(),
+                                                             tree->IsUnsigned()))
                         {
                             goto INTEGRAL_OVF;
                         }
 
-                        switch (tree->CastToType())
+                        switch (tree->AsCast()->GetCastType())
                         {
                             case TYP_BYTE:
                                 i1 = INT32(INT8(i1));
@@ -10450,15 +10450,15 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         return tree;
 
                     case GT_CAST:
-                        assert(tree->TypeIs(genActualType(tree->CastToType())));
+                        assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
 
                         if (tree->gtOverflow() &&
-                            CheckedOps::CastFromLongOverflows(lval1, tree->CastToType(), tree->IsUnsigned()))
+                            CheckedOps::CastFromLongOverflows(lval1, tree->AsCast()->GetCastType(), tree->IsUnsigned()))
                         {
                             goto INTEGRAL_OVF;
                         }
 
-                        switch (tree->CastToType())
+                        switch (tree->AsCast()->GetCastType())
                         {
                             case TYP_BYTE:
                                 i1 = INT32(INT8(lval1));
@@ -10492,16 +10492,16 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                             case TYP_DOUBLE:
                                 if (tree->IsUnsigned() && (lval1 < 0))
                                 {
-                                    d1 = FloatingPointUtils::convertUInt64ToDouble((unsigned __int64)lval1);
+                                    d1 = FloatingPointUtils::convertUInt64ToDouble(static_cast<uint64_t>(lval1));
                                 }
                                 else
                                 {
                                     d1 = (double)lval1;
                                 }
 
-                                if (tree->CastToType() == TYP_FLOAT)
+                                if (tree->AsCast()->GetCastType() == TYP_FLOAT)
                                 {
-                                    f1 = forceCastToFloat(d1); // truncate precision
+                                    f1 = forceCastToFloat(d1);
                                     d1 = f1;
                                 }
                                 goto CNS_DOUBLE;
@@ -10548,8 +10548,10 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     case GT_CAST:
                         f1 = forceCastToFloat(d1);
 
-                        if ((op1->TypeIs(TYP_DOUBLE) && CheckedOps::CastFromDoubleOverflows(d1, tree->CastToType())) ||
-                            (op1->TypeIs(TYP_FLOAT) && CheckedOps::CastFromFloatOverflows(f1, tree->CastToType())))
+                        if ((op1->TypeIs(TYP_DOUBLE) &&
+                             CheckedOps::CastFromDoubleOverflows(d1, tree->AsCast()->GetCastType())) ||
+                            (op1->TypeIs(TYP_FLOAT) &&
+                             CheckedOps::CastFromFloatOverflows(f1, tree->AsCast()->GetCastType())))
                         {
                             // The conversion overflows. The ECMA spec says, in III 3.27, that
                             // "...if overflow occurs converting a floating point type to an integer, ...,
@@ -10565,9 +10567,9 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                             return tree;
                         }
 
-                        assert(tree->TypeIs(genActualType(tree->CastToType())));
+                        assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
 
-                        switch (tree->CastToType())
+                        switch (tree->AsCast()->GetCastType())
                         {
                             case TYP_BYTE:
                                 i1 = INT32(INT8(d1));

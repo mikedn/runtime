@@ -3906,8 +3906,8 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             {
 #ifdef TARGET_ARMARCH
                 divMod->SetOper(GT_CAST);
-                divMod->gtFlags |= GTF_UNSIGNED;
-                divMod->AsCast()->gtCastType = TYP_UINT;
+                divMod->SetUnsigned();
+                divMod->AsCast()->SetCastType(TYP_UINT);
 #else
                 divMod->SetOper(GT_BITCAST);
 #endif
@@ -5136,6 +5136,8 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
     GenTree*  src     = cast->GetOp(0);
     var_types dstType = cast->GetCastType();
     var_types srcType = src->GetType();
+
+    assert(varCastType(dstType) == cast->GetType());
 
     if (!cast->gtOverflow())
     {

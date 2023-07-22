@@ -843,13 +843,12 @@ protected:
 #endif
 
 #ifdef TARGET_ARM
-    void genCodeForMulLong(GenTreeOp* treeNode);
+    void genCodeForMulLong(GenTreeOp* mul);
 #endif
 
 #ifndef TARGET_64BIT
-    void genLongToIntCast(GenTree* treeNode);
+    void genLongToIntCast(GenTreeCast* cast);
 #endif
-
     void genCodeForBitCast(GenTreeUnOp* bitcast);
 
     // Generate the instruction to move a value between register files

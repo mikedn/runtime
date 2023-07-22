@@ -570,11 +570,10 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
             const bool signExtend = (cast->gtFlags & GTF_UNSIGNED) == 0;
             loResult              = EnsureIntSized(loSrcOp, signExtend);
 
-            hiResult                       = cast;
-            hiResult->gtType               = TYP_INT;
-            hiResult->AsCast()->gtCastType = TYP_UINT;
-            hiResult->gtFlags &= ~GTF_UNSIGNED;
-            hiResult->AsOp()->gtOp1 = hiSrcOp;
+            hiResult = cast;
+            cast->SetCastType(TYP_UINT);
+            cast->ClearUnsigned();
+            cast->SetOp(0, hiSrcOp);
 
             Range().Remove(srcOp);
         }
@@ -593,9 +592,8 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
             // by codegen and then zero extend the resulting uint to ulong.
             //
 
-            loResult                       = cast;
-            loResult->AsCast()->gtCastType = TYP_UINT;
-            loResult->gtType               = TYP_INT;
+            loResult = cast;
+            cast->SetCastType(TYP_UINT);
 
             hiResult = m_compiler->gtNewZeroConNode(TYP_INT);
 

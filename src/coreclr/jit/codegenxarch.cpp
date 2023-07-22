@@ -5910,17 +5910,15 @@ void CodeGen::genCompareInt(GenTree* treeNode)
 //    The cast node and its sources (via GT_LONG) must have been assigned registers.
 //    The destination cannot be a floating point type or a small integer type.
 //
-void CodeGen::genLongToIntCast(GenTree* cast)
+void CodeGen::genLongToIntCast(GenTreeCast* cast)
 {
-    assert(cast->OperGet() == GT_CAST);
+    GenTreeOp* src = cast->GetOp(0)->AsOp();
+    noway_assert(src->OperIs(GT_LONG));
 
-    GenTree* src = cast->gtGetOp1();
-    noway_assert(src->OperGet() == GT_LONG);
-
-    var_types srcType  = ((cast->gtFlags & GTF_UNSIGNED) != 0) ? TYP_ULONG : TYP_LONG;
-    var_types dstType  = cast->CastToType();
-    regNumber loSrcReg = UseReg(src->gtGetOp1());
-    regNumber hiSrcReg = UseReg(src->gtGetOp2());
+    var_types srcType  = cast->IsUnsigned() ? TYP_ULONG : TYP_LONG;
+    var_types dstType  = cast->GetCastType();
+    regNumber loSrcReg = UseReg(src->GetOp(0));
+    regNumber hiSrcReg = UseReg(src->GetOp(1));
     regNumber dstReg   = cast->GetRegNum();
 
     assert((dstType == TYP_INT) || (dstType == TYP_UINT));

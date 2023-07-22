@@ -8071,7 +8071,7 @@ void ValueNumbering::NumberCast(GenTreeCast* cast)
     var_types toType        = cast->GetCastType();
     bool      checkOverflow = cast->gtOverflow();
 
-    assert(varActualType(toType) == varActualType(cast->GetType()));
+    assert(varCastType(toType) == cast->GetType());
 
     // Sometimes GTF_UNSIGNED is unnecessarily set on CAST nodes, ignore it.
     // TODO-MIKE-Cleanup: Why is this here? Just don't set it in the first place or remove it in morph.

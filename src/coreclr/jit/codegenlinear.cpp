@@ -1797,20 +1797,21 @@ CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)
 {
     GenTree* src = cast->GetOp(0);
 
-    const var_types srcType      = genActualType(src->TypeGet());
+    const var_types srcType      = varActualType(src->GetType());
     const bool      srcUnsigned  = cast->IsUnsigned();
-    const unsigned  srcSize      = genTypeSize(srcType);
-    const var_types castType     = cast->gtCastType;
+    const unsigned  srcSize      = varTypeSize(srcType);
+    const var_types castType     = cast->GetCastType();
     const bool      castUnsigned = varTypeIsUnsigned(castType);
-    const unsigned  castSize     = genTypeSize(castType);
-    const var_types dstType      = genActualType(cast->TypeGet());
-    const unsigned  dstSize      = genTypeSize(dstType);
+    const unsigned  castSize     = varTypeSize(castType);
+    const var_types dstType      = varActualType(cast->GetType());
+    const unsigned  dstSize      = varTypeSize(dstType);
     const bool      overflow     = cast->gtOverflow();
 
-    assert((srcSize == 4) || (srcSize == genTypeSize(TYP_I_IMPL)));
-    assert((dstSize == 4) || (dstSize == genTypeSize(TYP_I_IMPL)));
+    assert(cast->GetType() == varCastType(castType));
+    assert((srcSize == 4) || (srcSize == varTypeSize(TYP_I_IMPL)));
+    assert((dstSize == 4) || (dstSize == varTypeSize(TYP_I_IMPL)));
 
-    assert(dstSize == genTypeSize(genActualType(castType)));
+    assert(dstSize == varTypeSize(varActualType(castType)));
 
     if (castSize < 4) // Cast to small int type
     {

@@ -98,7 +98,7 @@ private:
     GenTree* DecomposeLongCompare(GenTree* cmp);
 #endif
 #ifndef TARGET_ARM64
-    GenTree* OptimizeConstCompare(GenTree* cmp);
+    GenTree* OptimizeConstCompare(GenTreeOp* cmp);
     GenTree* LowerCompare(GenTreeOp* cmp);
 #endif
     GenTree* LowerJTrue(GenTreeUnOp* jtrue);

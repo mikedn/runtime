@@ -633,10 +633,10 @@ int LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* lay
 //
 int LinearScan::BuildCast(GenTreeCast* cast)
 {
-    GenTree* src = cast->gtGetOp1();
+    GenTree* src = cast->GetOp(0);
 
-    const var_types srcType  = genActualType(src->TypeGet());
-    const var_types castType = cast->gtCastType;
+    const var_types srcType  = varActualType(src->GetType());
+    const var_types castType = cast->GetCastType();
 
 #ifdef TARGET_ARM
     assert(!varTypeIsLong(srcType) || (src->OperIs(GT_LONG) && src->isContained()));

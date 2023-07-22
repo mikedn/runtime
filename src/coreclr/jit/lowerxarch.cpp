@@ -703,15 +703,15 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 //      condition flags appropriately (XARCH/ARM64 specific but could be extended
 //      to ARM32 as well if ARM32 codegen supports GTF_SET_FLAGS).
 //
-GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
+GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
 {
-    assert(cmp->gtGetOp2()->IsIntegralConst());
+    assert(cmp->GetOp(1)->IsIntegralConst());
 
-    GenTree*       op1      = cmp->gtGetOp1();
-    GenTreeIntCon* op2      = cmp->gtGetOp2()->AsIntCon();
-    ssize_t        op2Value = op2->IconValue();
+    GenTree*       op1      = cmp->GetOp(0);
+    GenTreeIntCon* op2      = cmp->GetOp(1)->AsIntCon();
+    var_types      op1Type  = op1->GetType();
+    ssize_t        op2Value = op2->GetValue();
 
-    var_types op1Type = op1->TypeGet();
     if (IsContainableMemoryOp(op1) && varTypeIsSmall(op1Type) && genSmallTypeCanRepresentValue(op1Type, op2Value))
     {
         //
@@ -723,11 +723,11 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
 
         op2->gtType = op1Type;
     }
-    else if (op1->OperIs(GT_CAST) && !op1->gtOverflow())
+    else if (op1->IsCast() && !op1->gtOverflow())
     {
         GenTreeCast* cast       = op1->AsCast();
-        var_types    castToType = cast->CastToType();
-        GenTree*     castOp     = cast->gtGetOp1();
+        var_types    castToType = cast->GetCastType();
+        GenTree*     castOp     = cast->GetOp(0);
 
         if (((castToType == TYP_BOOL) || (castToType == TYP_UBYTE)) && FitsIn<UINT8>(op2Value))
         {

@@ -930,7 +930,7 @@ inline GenTree* Compiler::gtUnusedValNode(GenTree* expr)
 
 inline GenTreeCast* Compiler::gtNewCastNode(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType)
 {
-    return new (this, GT_CAST) GenTreeCast(typ, op1, fromUnsigned, castType);
+    return new (this, GT_CAST) GenTreeCast(castType, op1, fromUnsigned);
 }
 
 inline GenTreeIndir* Compiler::gtNewMethodTableLookup(GenTree* object)
