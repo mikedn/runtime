@@ -2738,34 +2738,33 @@ void Compiler::fgDebugCheckBBlist(bool checkBBNum /* = false */, bool checkBBRef
 
     if (info.compIsStatic)
     {
-        // For static method, should have never grabbed the temp.
-        assert(lvaArg0Var == BAD_VAR_NUM);
+        assert(lvaThisLclNum == BAD_VAR_NUM);
     }
     else
     {
 #ifndef JIT32_GCENCODER
         // The general encoder/decoder (currently) only reports "this" as a generics context as a stack location,
         // so we mark info.compThisArg as lvAddrTaken to ensure that it is not enregistered. Otherwise, it should
-        // not be address-taken.  This variable determines if the address-taken-ness of "thisArg" is "OK".
-        const bool copiedForGenericsCtxt = ((info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0);
+        // not be address-taken. This variable determines if the address-taken-ness of this param is OK.
+        const bool genericsContextIsThis = info.ThisParamIsGenericsContext();
 #else
-        const bool copiedForGenericsCtxt = false;
+        const bool genericsContextIsThis = false;
 #endif
 
-        LclVarDsc* thisArg = lvaGetDesc(info.compThisArg);
-        LclVarDsc* arg0    = lvaGetDesc(lvaArg0Var);
+        LclVarDsc* thisParam = lvaGetDesc(info.GetThisParamLclNum());
+        LclVarDsc* thisLcl   = lvaGetDesc(lvaThisLclNum);
 
-        bool compThisArgAddrExposedOK = !thisArg->IsAddressExposed();
+        bool thisAddrExposedOK = !thisParam->IsAddressExposed();
 #ifndef JIT32_GCENCODER
-        compThisArgAddrExposedOK = compThisArgAddrExposedOK || copiedForGenericsCtxt;
+        thisAddrExposedOK = thisAddrExposedOK || genericsContextIsThis;
 #endif
 
-        // Should never expose the address of arg 0 or write to arg 0.
-        // In addition, lvArg0Var should remain 0 if arg0 is not
-        // written to or address-exposed.
-        assert(compThisArgAddrExposedOK && !thisArg->lvHasILStoreOp &&
-               ((lvaArg0Var == info.compThisArg) ||
-                (arg0->IsAddressExposed() || arg0->lvHasILStoreOp || copiedForGenericsCtxt)));
+        // This param should never be address taken or stored to.
+        // In addition, lvaThisLclNum should remain 0 if this param
+        // is not address taken or stored to.
+        assert(thisAddrExposedOK && !thisParam->lvHasILStoreOp &&
+               ((lvaThisLclNum == info.GetThisParamLclNum()) ||
+                (thisLcl->IsAddressExposed() || thisLcl->lvHasILStoreOp || genericsContextIsThis)));
     }
 }
 

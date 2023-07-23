@@ -1171,7 +1171,7 @@ struct CompiledMethodInfo
 
     unsigned compRetBuffArg;  // position of hidden return param var (0, 1) (BAD_VAR_NUM means not present);
     unsigned compTypeCtxtArg; // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)
-    unsigned compThisArg;     // position of implicit this pointer param (not to be confused with lvaArg0Var)
+    unsigned compThisArg;     // position of implicit this pointer param (not to be confused with lvaThisLclNum)
     unsigned compLocalsCount; // Number of vars : args + locals (incl. implicit and     hidden)
     unsigned compTotalHotCodeSize                   = 0; // Total number of bytes of Hot Code in the method
     unsigned compTotalColdCodeSize                  = 0; // Total number of bytes of Cold Code in the method
@@ -1219,6 +1219,16 @@ struct CompiledMethodInfo
     unsigned GetParamCount() const
     {
         return compArgsCount;
+    }
+
+    unsigned GetThisParamLclNum() const
+    {
+        return compThisArg;
+    }
+
+    bool ThisParamIsGenericsContext() const
+    {
+        return (compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0;
     }
 
     INDEBUG(bool SkipMethod() const;)
@@ -2346,7 +2356,7 @@ struct Importer
     LclVarDsc* lvaGetDesc(unsigned lclNum);
     LclVarDsc* lvaGetDesc(GenTreeLclVarCommon* lclNode);
     LclVarDsc* lvaGetDesc(GenTreeLclAddr* lclAddr);
-    bool lvaIsOriginalThisArg(unsigned lclNum);
+    bool lvaIsOriginalThisParam(unsigned lclNum);
     bool lvaHaveManyLocals();
     bool fgVarNeedsExplicitZeroInit(unsigned lclNum, bool blockIsInLoop, bool blockIsReturn);
     unsigned compMapILargNum(unsigned ilArgNum);
@@ -3524,9 +3534,9 @@ public:
     unsigned lvaMonAcquired            = BAD_VAR_NUM; // boolean variable introduced into in synchronized methods
                                                       // that tracks whether the lock has been taken
 
-    unsigned lvaArg0Var = BAD_VAR_NUM; // The lclNum of arg0. Normally this will be info.compThisArg.
-                                       // However, if there is a "ldarga 0" or "starg 0" in the IL,
-                                       // we will redirect all "ldarg(a) 0" and "starg 0" to this temp.
+    // Same as info.compThisArg, except when "this" is address taken or stored to - in which
+    // case this is a temp local initialized from the "this" arg at the start of the method.
+    unsigned lvaThisLclNum = BAD_VAR_NUM;
 
 #if FEATURE_FIXED_OUT_ARGS
     unsigned lvaOutgoingArgSpaceVar = BAD_VAR_NUM; // TYP_BLK local for fixed outgoing argument space
@@ -3691,11 +3701,11 @@ public:
 
     int lvaFrameAddress(int varNum, bool* pFPbased);
 
-    bool lvaIsOriginalThisArg(unsigned varNum); // Is this varNum the original this argument?
+    bool lvaIsOriginalThisParam(unsigned lclNum);
 
-    bool lvaIsImplicitByRefLocal(unsigned varNum)
+    bool lvaIsImplicitByRefLocal(unsigned lclNum)
     {
-        return lvaGetDesc(varNum)->IsImplicitByRefParam();
+        return lvaGetDesc(lclNum)->IsImplicitByRefParam();
     }
 
     void lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer);
@@ -4579,7 +4589,7 @@ protected:
 
     void fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, InlineInfo* inlineInfo);
 
-    void fgAdjustForAddressExposedOrWrittenThis();
+    void fgAdjustForAddressTakenOrStoredThis();
 
     unsigned fgStressBBProf()
     {

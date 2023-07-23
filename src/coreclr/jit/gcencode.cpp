@@ -338,7 +338,7 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
         if (varTypeIsGC(lcl->GetType()))
         {
 #ifndef FEATURE_EH_FUNCLETS
-            if (compiler->lvaIsOriginalThisArg(lclNum) && compiler->lvaKeepAliveAndReportThis())
+            if (compiler->lvaIsOriginalThisParam(lclNum) && compiler->lvaKeepAliveAndReportThis())
             {
                 // "this" is untracked, but encoding of untracked variables does not support
                 // reporting "this". So report it as a tracked variable with a liveness extending

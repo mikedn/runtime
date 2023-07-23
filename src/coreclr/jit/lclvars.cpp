@@ -441,7 +441,7 @@ void Compiler::lvaInitThisParam(ParamAllocInfo& paramInfo)
     assert(paramInfo.intRegIndex == 0);
     assert(paramInfo.stackOffset == 0);
 
-    lvaArg0Var       = 0;
+    lvaThisLclNum    = 0;
     info.compThisArg = 0;
 
     LclVarDsc* lcl = lvaGetDesc(paramInfo.lclNum);
@@ -2008,33 +2008,32 @@ BasicBlock::weight_t BasicBlock::getBBWeight(Compiler* comp)
     }
 }
 
-bool Compiler::lvaIsOriginalThisArg(unsigned varNum)
+bool Compiler::lvaIsOriginalThisParam(unsigned lclNum)
 {
-    assert(varNum < lvaCount);
+    assert(lclNum < lvaCount);
 
-    bool isOriginalThisArg = !info.compIsStatic && (varNum == info.compThisArg);
+    bool isOriginalThisParam = !info.compIsStatic && (lclNum == info.GetThisParamLclNum());
 
 #ifdef DEBUG
-    if (isOriginalThisArg)
+    if (isOriginalThisParam)
     {
-        // Should never write to or take the address of the original 'this' arg
-
-        LclVarDsc* lcl = lvaGetDesc(varNum);
+        LclVarDsc* thisParam = lvaGetDesc(lclNum);
 
 #ifndef JIT32_GCENCODER
         // The general encoder/decoder (currently) only reports "this" as a generics context as a stack location,
         // so we mark info.compThisArg as lvAddrTaken to ensure that it is not enregistered. Otherwise, it should
-        // not be address-taken.  This variable determines if the address-taken-ness of "thisArg" is "OK".
-        const bool copiedForGenericsCtxt = ((info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0);
+        // not be address-taken. This variable determines if the address-taken-ness of this param is OK.
+        const bool genericsContextIsThis = info.ThisParamIsGenericsContext();
 #else
-        const bool copiedForGenericsCtxt = false;
+        const bool genericsContextIsThis = false;
 #endif
 
-        assert(!lcl->lvHasILStoreOp && (!lcl->IsAddressExposed() || copiedForGenericsCtxt));
+        // Should never write to or take the address of the original 'this' param
+        assert(!thisParam->lvHasILStoreOp && (!thisParam->IsAddressExposed() || genericsContextIsThis));
     }
 #endif
 
-    return isOriginalThisArg;
+    return isOriginalThisParam;
 }
 
 // Is this a synchronized instance method? If so, we will need to report "this"
@@ -2052,12 +2051,12 @@ bool Compiler::lvaIsOriginalThisArg(unsigned varNum)
 //
 bool Compiler::lvaKeepAliveAndReportThis()
 {
-    if (info.compIsStatic || lvaTable[0].TypeGet() != TYP_REF)
+    if (info.compIsStatic || !lvaGetDesc(0u)->TypeIs(TYP_REF))
     {
         return false;
     }
 
-    const bool genericsContextIsThis = (info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0;
+    const bool genericsContextIsThis = info.ThisParamIsGenericsContext();
 
 #ifdef JIT32_GCENCODER
     if ((info.compFlags & CORINFO_FLG_SYNCH) != 0)
@@ -2374,7 +2373,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         }
 
 #if defined(JIT32_GCENCODER) && defined(FEATURE_EH_FUNCLETS)
-        if (lvaIsOriginalThisArg(lclNum) && (info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0)
+        if (lvaIsOriginalThisParam(lclNum) && info.ThisParamIsGenericsContext())
         {
             // For x86/Linux, we need to track "this". However we cannot have it in tracked locals,
             // so we make "this" pointer always untracked.

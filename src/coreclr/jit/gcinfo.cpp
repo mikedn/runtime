@@ -39,7 +39,7 @@ void GCInfo::Begin()
 
     if (compiler->lvaKeepAliveAndReportThis())
     {
-        assert(compiler->lvaIsOriginalThisArg(0));
+        assert(compiler->lvaIsOriginalThisParam(0));
 
         LclVarDsc* thisLcl = compiler->lvaGetDesc(0u);
 

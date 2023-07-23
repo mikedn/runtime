@@ -7761,16 +7761,15 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
         }
     }
 
-    // If the method has starg.s 0 or ldarga.s 0 a special local (lvaArg0Var) is created so that
+    // If the method has starg.s 0 or ldarga.s 0 a special local (lvaThisLclNum) is created so that
     // compThisArg stays immutable. Normally it's assigned in fgFirstBBScratch block. Since that
     // block won't be in the loop (it's assumed to have no predecessors), we need to update the special local here.
-    if (!info.compIsStatic && (lvaArg0Var != info.compThisArg))
+    if (!info.compIsStatic && (lvaThisLclNum != info.GetThisParamLclNum()))
     {
-        var_types  thisType           = lvaGetDesc(info.compThisArg)->GetType();
-        GenTree*   thisValue          = gtNewLclvNode(info.compThisArg, thisType);
-        GenTree*   arg0Assignment     = gtNewStoreLclVar(lvaArg0Var, thisType, thisValue);
-        Statement* arg0AssignmentStmt = gtNewStmt(arg0Assignment, callILOffset);
-        fgInsertStmtBefore(block, paramAssignmentInsertionPoint, arg0AssignmentStmt);
+        var_types type  = lvaGetDesc(info.GetThisParamLclNum())->GetType();
+        GenTree*  value = gtNewLclvNode(info.GetThisParamLclNum(), type);
+        GenTree*  store = gtNewStoreLclVar(lvaThisLclNum, type, value);
+        fgInsertStmtBefore(block, paramAssignmentInsertionPoint, gtNewStmt(store, callILOffset));
     }
 
     // If compInitMem is set, we may need to zero-initialize some locals. Normally it's done in the prolog

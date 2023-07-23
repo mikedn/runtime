@@ -9239,9 +9239,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     lclNum = compMapILargNum(lclNum);
 
-                    if (lclNum == info.compThisArg)
+                    if (lclNum == info.GetThisParamLclNum())
                     {
-                        lclNum = comp->lvaArg0Var;
+                        lclNum = comp->lvaThisLclNum;
                     }
 
                     assert(lvaGetDesc(lclNum)->lvHasILStoreOp);
@@ -9492,9 +9492,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 lclNum = compMapILargNum(lclNum); // account for possible hidden param
 
-                if (lclNum == info.compThisArg)
+                if (lclNum == info.GetThisParamLclNum())
                 {
-                    lclNum = comp->lvaArg0Var;
+                    lclNum = comp->lvaThisLclNum;
                 }
 
             ADRVAR:
@@ -12798,9 +12798,9 @@ void Importer::impLoadArg(unsigned ilArgNum)
 
         unsigned lclNum = compMapILargNum(ilArgNum); // account for possible hidden param
 
-        if (lclNum == info.compThisArg)
+        if (lclNum == info.GetThisParamLclNum())
         {
-            lclNum = comp->lvaArg0Var;
+            lclNum = comp->lvaThisLclNum;
         }
 
         impPushLclVar(lclNum);
@@ -16817,11 +16817,11 @@ GenTree* Importer::impCheckForNullPointer(GenTree* obj)
 
 // Check for the special case where the object is the methods original 'this' pointer.
 // Note that, the original 'this' pointer is always local var 0 for non-static method,
-// even if we might have created the copy of 'this' pointer in lvaArg0Var.
+// even if we might have created the copy of 'this' pointer in lvaThisLclNum.
 bool Compiler::impIsThis(GenTree* obj)
 {
     return (obj != nullptr) && obj->OperIs(GT_LCL_VAR) &&
-           impInlineRoot()->lvaIsOriginalThisArg(obj->AsLclVar()->GetLclNum());
+           impInlineRoot()->lvaIsOriginalThisParam(obj->AsLclVar()->GetLclNum());
 }
 
 bool Importer::impIsPrimitive(CorInfoType jitType)
@@ -17413,9 +17413,9 @@ LclVarDsc* Importer::lvaGetDesc(GenTreeLclAddr* lclAddr)
     return comp->lvaGetDesc(lclAddr);
 }
 
-bool Importer::lvaIsOriginalThisArg(unsigned lclNum)
+bool Importer::lvaIsOriginalThisParam(unsigned lclNum)
 {
-    return comp->lvaIsOriginalThisArg(lclNum);
+    return comp->lvaIsOriginalThisParam(lclNum);
 }
 
 bool Importer::lvaHaveManyLocals()
