@@ -1851,13 +1851,13 @@ void Compiler::fgAdjustForAddressExposedOrWrittenThis()
     }
 
     // If this is exposed or written to, create a temp for the modifiable this
-    if (thisLcl->lvAddrExposed || thisLcl->lvHasILStoreOp)
+    if (thisLcl->IsAddressExposed() || thisLcl->lvHasILStoreOp)
     {
         lvaArg0Var = lvaNewTemp(thisLcl->GetType(), false DEBUGARG("'this' copy"));
 
         LclVarDsc* thisCopyLcl = lvaGetDesc(lvaArg0Var);
 
-        thisCopyLcl->lvAddrExposed     = thisLcl->lvAddrExposed;
+        thisCopyLcl->lvAddrExposed     = thisLcl->IsAddressExposed();
         thisCopyLcl->lvDoNotEnregister = thisLcl->lvDoNotEnregister;
         thisCopyLcl->lvHasILStoreOp    = thisLcl->lvHasILStoreOp;
 #ifdef DEBUG

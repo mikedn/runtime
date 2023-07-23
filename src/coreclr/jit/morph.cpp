@@ -6315,7 +6315,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             // A tail call removes the method from the stack, which means the pinning
             // goes away for the callee. Pinning locals are treated as address taken
             // by the importer so we can skip an explicit check.
-            assert(!lcl->lvPinned || lcl->lvHasLdAddrOp);
+            assert(!lcl->IsPinning() || lcl->lvHasLdAddrOp);
 
             // TODO-MIKE-Review: Shouldn't this check only lvAddrExposed? This is likely
             // the same issue fgCallHasMustCopyByrefParameter has that it can't use
@@ -6326,13 +6326,13 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
                 return nullptr;
             }
 
-            if (lcl->lvAddrExposed)
+            if (lcl->IsAddressExposed())
             {
                 failTailCall("Local address taken", lclNum);
                 return nullptr;
             }
 
-            if (lcl->lvPromoted && lcl->IsParam())
+            if (lcl->IsPromoted() && lcl->IsParam())
             {
                 failTailCall("Has Struct Promoted Param", lclNum);
                 return nullptr;
@@ -8355,68 +8355,61 @@ GenTree* Compiler::fgMorphStrCon(GenTreeStrCon* tree, Statement* stmt, BasicBloc
 
 GenTree* Compiler::fgMorphLeaf(GenTree* tree)
 {
-    assert(tree->OperKind() & GTK_LEAF);
+    assert(tree->OperIsLeaf());
 
-    if (tree->gtOper == GT_LCL_VAR)
+    if (tree->OperIs(GT_LCL_VAR))
     {
         return fgMorphLclVar(tree->AsLclVar());
     }
-    else if (tree->gtOper == GT_LCL_FLD)
+
+    if (tree->OperIs(GT_LCL_FLD))
     {
-        if (lvaGetDesc(tree->AsLclFld())->lvAddrExposed)
+        if (lvaGetDesc(tree->AsLclFld())->IsAddressExposed())
         {
             tree->gtFlags |= GTF_GLOB_REF;
         }
+
+        return tree;
     }
-    else if (tree->gtOper == GT_FTN_ADDR)
+
+    if (GenTreeFptrVal* fptr = tree->IsFptrVal())
     {
         CORINFO_CONST_LOOKUP addrInfo;
 
 #ifdef FEATURE_READYTORUN_COMPILER
-        if (tree->AsFptrVal()->gtEntryPoint.addr != nullptr)
+        if (fptr->gtEntryPoint.addr != nullptr)
         {
-            addrInfo = tree->AsFptrVal()->gtEntryPoint;
+            addrInfo = fptr->gtEntryPoint;
         }
         else
 #endif
         {
-            info.compCompHnd->getFunctionFixedEntryPoint(tree->AsFptrVal()->gtFptrMethod, &addrInfo);
+            info.compCompHnd->getFunctionFixedEntryPoint(fptr->gtFptrMethod, &addrInfo);
         }
 
-        GenTree* indNode = nullptr;
+        ssize_t handle = reinterpret_cast<size_t>(addrInfo.handle);
+
         switch (addrInfo.accessType)
         {
             case IAT_PPVALUE:
-                indNode = gtNewIndOfIconHandleNode(TYP_I_IMPL, (size_t)addrInfo.handle, GTF_ICON_CONST_PTR, true);
-
-                // Add the second indirection
+                GenTree* indNode;
+                indNode = gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, GTF_ICON_CONST_PTR, true);
                 indNode = gtNewOperNode(GT_IND, TYP_I_IMPL, indNode);
-                // This indirection won't cause an exception.
-                indNode->gtFlags |= GTF_IND_NONFAULTING;
-                // This indirection also is invariant.
-                indNode->gtFlags |= GTF_IND_INVARIANT;
-                break;
+                indNode->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
+                DEBUG_DESTROY_NODE(tree);
+                return fgMorphTree(indNode);
 
             case IAT_PVALUE:
-                indNode = gtNewIndOfIconHandleNode(TYP_I_IMPL, (size_t)addrInfo.handle, GTF_ICON_FTN_ADDR, true);
-                break;
+                DEBUG_DESTROY_NODE(tree);
+                return fgMorphTree(gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, GTF_ICON_FTN_ADDR, true));
 
             case IAT_VALUE:
                 // Refer to gtNewIconHandleNode() as the template for constructing a constant handle
-                //
-                tree->SetOper(GT_CNS_INT);
-                tree->AsIntConCommon()->SetIconValue(ssize_t(addrInfo.handle));
+                tree->ChangeToIntCon(handle);
                 tree->gtFlags |= GTF_ICON_FTN_ADDR;
-                break;
-
+                return tree;
             default:
-                noway_assert(!"Unknown addrInfo.accessType");
-        }
-
-        if (indNode != nullptr)
-        {
-            DEBUG_DESTROY_NODE(tree);
-            tree = fgMorphTree(indNode);
+                unreached();
         }
     }
 
@@ -8619,7 +8612,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
                 destLclNode->SetType(initType);
                 destLclNode->AsLclVarCommon()->SetLclNum(destLclNum);
 
-                destFlags |= GTF_DONT_CSE | (destLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY);
+                destFlags |= GTF_DONT_CSE | (destLclVar->IsAddressExposed() ? GTF_GLOB_REF : GTF_EMPTY);
 
                 if (destLclNode->OperIs(GT_LCL_FLD))
                 {

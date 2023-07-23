@@ -1092,7 +1092,7 @@ public:
     // We currently apply a hard limit of '4' to all other targets (see
     // the other uses of SET_EPILOGCNT_MAX), though it would be good
     // to revisit that decision based on CQ analysis.
-    const static unsigned ReturnCountHardLimit = 4;
+    const static unsigned ReturnCountHardLimit      = 4;
 #endif // JIT32_GCENCODER
 
 private:
@@ -1618,51 +1618,37 @@ void Compiler::fgAddInternal()
     In this case, we will redirect all "ldarg(a)/starg(a) 0" to a temp lvaTable[lvaArg0Var]
     */
 
-    if (!info.compIsStatic)
+    if (!info.compIsStatic && (lvaArg0Var != info.compThisArg))
     {
-        if (lvaArg0Var != info.compThisArg)
-        {
-            // When we're using the general encoder, we mark compThisArg address-taken to ensure that it is not
-            // enregistered (since the decoder always reports a stack location for "this" for generics
-            // context vars).
-            bool lva0CopiedForGenericsCtxt;
 #ifndef JIT32_GCENCODER
-            lva0CopiedForGenericsCtxt = ((info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0);
-#else  // JIT32_GCENCODER
-            lva0CopiedForGenericsCtxt          = false;
-#endif // JIT32_GCENCODER
-            noway_assert(lva0CopiedForGenericsCtxt || !lvaTable[info.compThisArg].lvAddrExposed);
-            noway_assert(!lvaTable[info.compThisArg].lvHasILStoreOp);
-            noway_assert(lvaTable[lvaArg0Var].lvAddrExposed || lvaTable[lvaArg0Var].lvHasILStoreOp ||
-                         lva0CopiedForGenericsCtxt);
+        // When we're using the general encoder, we mark compThisArg address-taken to ensure that it is not
+        // enregistered (since the decoder always reports a stack location for "this" for generics
+        // context vars).
+        const bool lva0CopiedForGenericsCtxt = (info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0;
+#else
+        const bool        lva0CopiedForGenericsCtxt = false;
+#endif
+        LclVarDsc* thisArg = lvaGetDesc(info.compThisArg);
+        LclVarDsc* arg0    = lvaGetDesc(lvaArg0Var);
 
-            var_types thisType = lvaTable[info.compThisArg].TypeGet();
+        noway_assert(lva0CopiedForGenericsCtxt || !thisArg->IsAddressExposed());
+        noway_assert(!thisArg->lvHasILStoreOp);
+        noway_assert(arg0->IsAddressExposed() || arg0->lvHasILStoreOp || lva0CopiedForGenericsCtxt);
 
-            // Now assign the original input "this" to the temp
+        var_types thisType = thisArg->GetType();
+        GenTree* tree = gtNewAssignNode(gtNewLclvNode(lvaArg0Var, thisType), gtNewLclvNode(info.compThisArg, thisType));
 
-            GenTree* tree;
-
-            tree = gtNewLclvNode(lvaArg0Var, thisType);
-
-            tree = gtNewAssignNode(tree,                                     // dst
-                                   gtNewLclvNode(info.compThisArg, thisType) // src
-                                   );
-
-            /* Create a new basic block and stick the assignment in it */
-
-            fgEnsureFirstBBisScratch();
-
-            fgNewStmtAtEnd(fgFirstBB, tree);
+        fgEnsureFirstBBisScratch();
+        fgNewStmtAtEnd(fgFirstBB, tree);
 
 #ifdef DEBUG
-            if (verbose)
-            {
-                printf("\nCopy \"this\" to lvaArg0Var in first basic block %s\n", fgFirstBB->dspToString());
-                gtDispTree(tree);
-                printf("\n");
-            }
-#endif
+        if (verbose)
+        {
+            printf("\nCopy \"this\" to lvaArg0Var in first basic block %s\n", fgFirstBB->dspToString());
+            gtDispTree(tree);
+            printf("\n");
         }
+#endif
     }
 
     // Merge return points if required or beneficial

@@ -731,11 +731,11 @@ bool Compiler::fgDumpFlowGraph(Phases phase, PhasePosition pos)
     const bool constrained  = JitConfig.JitDumpFgConstrained() != 0;
     const bool useBlockId   = JitConfig.JitDumpFgBlockID() != 0;
 #else  // !DEBUG
-    const bool createDotFile = true;
-    const bool includeEH     = false;
-    const bool includeLoops  = false;
-    const bool constrained   = true;
-    const bool useBlockId    = false;
+    const bool     createDotFile         = true;
+    const bool     includeEH             = false;
+    const bool     includeLoops          = false;
+    const bool     constrained           = true;
+    const bool     useBlockId            = false;
 #endif // !DEBUG
 
     FILE* fgxFile = fgOpenFlowGraphFile(&dontClose, phase, pos, createDotFile ? W("dot") : W("fgx"));
@@ -2736,17 +2736,6 @@ void Compiler::fgDebugCheckBBlist(bool checkBBNum /* = false */, bool checkBBRef
         assert(genReturnBB->GetFirstLIRNode() != nullptr || genReturnBB->bbStmtList != nullptr);
     }
 
-    // The general encoder/decoder (currently) only reports "this" as a generics context as a stack location,
-    // so we mark info.compThisArg as lvAddrTaken to ensure that it is not enregistered. Otherwise, it should
-    // not be address-taken.  This variable determines if the address-taken-ness of "thisArg" is "OK".
-    bool copiedForGenericsCtxt;
-#ifndef JIT32_GCENCODER
-    copiedForGenericsCtxt = ((info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0);
-#else  // JIT32_GCENCODER
-    copiedForGenericsCtxt    = false;
-#endif // JIT32_GCENCODER
-
-    // This if only in support of the noway_asserts it contains.
     if (info.compIsStatic)
     {
         // For static method, should have never grabbed the temp.
@@ -2754,21 +2743,29 @@ void Compiler::fgDebugCheckBBlist(bool checkBBNum /* = false */, bool checkBBRef
     }
     else
     {
-        // For instance method:
-        assert(info.compThisArg != BAD_VAR_NUM);
-        bool compThisArgAddrExposedOK = !lvaTable[info.compThisArg].lvAddrExposed;
+#ifndef JIT32_GCENCODER
+        // The general encoder/decoder (currently) only reports "this" as a generics context as a stack location,
+        // so we mark info.compThisArg as lvAddrTaken to ensure that it is not enregistered. Otherwise, it should
+        // not be address-taken.  This variable determines if the address-taken-ness of "thisArg" is "OK".
+        const bool copiedForGenericsCtxt = ((info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0);
+#else
+        const bool copiedForGenericsCtxt = false;
+#endif
 
+        LclVarDsc* thisArg = lvaGetDesc(info.compThisArg);
+        LclVarDsc* arg0    = lvaGetDesc(lvaArg0Var);
+
+        bool compThisArgAddrExposedOK = !thisArg->IsAddressExposed();
 #ifndef JIT32_GCENCODER
         compThisArgAddrExposedOK = compThisArgAddrExposedOK || copiedForGenericsCtxt;
-#endif // !JIT32_GCENCODER
+#endif
 
         // Should never expose the address of arg 0 or write to arg 0.
         // In addition, lvArg0Var should remain 0 if arg0 is not
         // written to or address-exposed.
-        assert(compThisArgAddrExposedOK && !lvaTable[info.compThisArg].lvHasILStoreOp &&
-               (lvaArg0Var == info.compThisArg ||
-                (lvaArg0Var != info.compThisArg && (lvaTable[lvaArg0Var].lvAddrExposed ||
-                                                    lvaTable[lvaArg0Var].lvHasILStoreOp || copiedForGenericsCtxt))));
+        assert(compThisArgAddrExposedOK && !thisArg->lvHasILStoreOp &&
+               ((lvaArg0Var == info.compThisArg) ||
+                (arg0->IsAddressExposed() || arg0->lvHasILStoreOp || copiedForGenericsCtxt)));
     }
 }
 

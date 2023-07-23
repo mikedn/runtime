@@ -3622,21 +3622,20 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
                 lcl = lvaGetDesc(lclNum);
 
-                LclVarDsc* structLcl       = lvaGetDesc(structLclNum);
-                structLcl->lvPromoted      = true;
-                structLcl->lvFieldLclStart = lcl->lvFieldLclStart;
-                structLcl->lvFieldCnt      = lcl->lvFieldCnt;
+                LclVarDsc* structLcl = lvaGetDesc(structLclNum);
 
+                structLcl->lvPromoted        = true;
+                structLcl->lvFieldLclStart   = lcl->lvFieldLclStart;
+                structLcl->lvFieldCnt        = lcl->lvFieldCnt;
                 structLcl->lvContainsHoles   = lcl->lvContainsHoles;
                 structLcl->lvCustomLayout    = lcl->lvCustomLayout;
-                structLcl->lvAddrExposed     = lcl->lvAddrExposed;
+                structLcl->lvAddrExposed     = lcl->IsAddressExposed();
                 structLcl->lvDoNotEnregister = lcl->lvDoNotEnregister;
-
 #ifdef DEBUG
                 structLcl->lvLclBlockOpAddr   = lcl->lvLclBlockOpAddr;
                 structLcl->lvLclFieldExpr     = lcl->lvLclFieldExpr;
                 structLcl->lvLiveInOutOfHndlr = lcl->lvLiveInOutOfHndlr;
-#endif // DEBUG
+#endif
 
                 fgEnsureFirstBBisScratch();
                 GenTree* lhs  = gtNewLclvNode(structLclNum, lcl->GetType());

@@ -180,8 +180,8 @@ void Compiler::lvaInitLocals()
         {
             if ((corType == CORINFO_TYPE_CLASS) || (corType == CORINFO_TYPE_BYREF))
             {
-                JITDUMP("Setting lvPinned for V%02u\n", lclNum);
-                lcl->lvPinned = true;
+                JITDUMP("V%02u is pinning\n", lclNum);
+                lcl->m_pinning = true;
                 // These have to be treated as "address taken" during import so we
                 // don't sink load/stores out of pinning regions. A load/store may
                 // use an unmanaged pointer to a pinned object, which effectively
@@ -1312,7 +1312,7 @@ void Compiler::lvaSetAddressExposed(unsigned lclNum)
 
 void Compiler::lvaSetAddressExposed(LclVarDsc* lcl)
 {
-    lcl->lvAddrExposed = 1;
+    lcl->lvAddrExposed = true;
     lvaSetDoNotEnregister(lcl DEBUGARG(DNER_AddrExposed));
 
     // For promoted locals we make all fields address exposed. However, if the local
@@ -1326,7 +1326,7 @@ void Compiler::lvaSetAddressExposed(LclVarDsc* lcl)
         {
             LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-            fieldLcl->lvAddrExposed = 1;
+            fieldLcl->lvAddrExposed = true;
             lvaSetDoNotEnregister(fieldLcl DEBUGARG(DNER_AddrExposed));
         }
     }
@@ -5309,7 +5309,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
     if (varDsc->lvDoNotEnregister)
     {
         printf(" do-not-enreg[");
-        if (varDsc->lvAddrExposed)
+        if (varDsc->IsAddressExposed())
         {
             printf("X");
         }
@@ -5338,7 +5338,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
             printf("R");
         }
 #ifdef JIT32_GCENCODER
-        if (varDsc->lvPinned)
+        if (varDsc->IsPinning())
         {
             printf("P");
         }
@@ -5358,7 +5358,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
     {
         printf(" must-init");
     }
-    if (varDsc->lvAddrExposed)
+    if (varDsc->IsAddressExposed())
     {
         printf(" addr-exposed");
     }
@@ -5366,7 +5366,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
     {
         printf(" ld-addr-op");
     }
-    if (varDsc->lvPinned)
+    if (varDsc->IsPinning())
     {
         printf(" pinned");
     }

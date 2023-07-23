@@ -1480,25 +1480,25 @@ inline bool Compiler::lvaIsOriginalThisArg(unsigned varNum)
 {
     assert(varNum < lvaCount);
 
-    bool isOriginalThisArg = (varNum == info.compThisArg) && (info.compIsStatic == false);
+    bool isOriginalThisArg = !info.compIsStatic && (varNum == info.compThisArg);
 
 #ifdef DEBUG
     if (isOriginalThisArg)
     {
-        LclVarDsc* varDsc = lvaTable + varNum;
         // Should never write to or take the address of the original 'this' arg
-        CLANG_FORMAT_COMMENT_ANCHOR;
+
+        LclVarDsc* lcl = lvaGetDesc(varNum);
 
 #ifndef JIT32_GCENCODER
-        // With the general encoder/decoder, when the original 'this' arg is needed as a generics context param, we
-        // copy to a new local, and mark the original as DoNotEnregister, to
-        // ensure that it is stack-allocated.  It should not be the case that the original one can be modified -- it
-        // should not be written to, or address-exposed.
-        assert(!varDsc->lvHasILStoreOp &&
-               (!varDsc->lvAddrExposed || ((info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0)));
+        // The general encoder/decoder (currently) only reports "this" as a generics context as a stack location,
+        // so we mark info.compThisArg as lvAddrTaken to ensure that it is not enregistered. Otherwise, it should
+        // not be address-taken.  This variable determines if the address-taken-ness of "thisArg" is "OK".
+        const bool copiedForGenericsCtxt = ((info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0);
 #else
-        assert(!varDsc->lvHasILStoreOp && !varDsc->lvAddrExposed);
+        const bool copiedForGenericsCtxt = false;
 #endif
+
+        assert(!lcl->lvHasILStoreOp && (!lcl->IsAddressExposed() || copiedForGenericsCtxt));
     }
 #endif
 

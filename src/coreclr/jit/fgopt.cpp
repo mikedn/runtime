@@ -2890,11 +2890,7 @@ bool Compiler::fgBlockEndFavorsTailDuplication(BasicBlock* block, unsigned lclNu
         return false;
     }
 
-    // If the local is address exposed, we currently can't optimize.
-    //
-    LclVarDsc* const lclDsc = lvaGetDesc(lclNum);
-
-    if (lclDsc->lvAddrExposed)
+    if (lvaGetDesc(lclNum)->IsAddressExposed())
     {
         return false;
     }
@@ -3706,7 +3702,7 @@ bool Compiler::fgOptimizeSwitchJumps()
         {
             gtSetStmtOrder(jmpStmt);
         }
-        
+
         // Reattach switch value to the switch. This may introduce a comma
         // in the upstream compare tree, if the switch value expression is complex.
         //

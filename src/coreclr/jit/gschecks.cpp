@@ -456,7 +456,7 @@ void Compiler::gsParamsToShadows()
             shadowLcl->SetType(type);
         }
 
-        shadowLcl->lvAddrExposed     = lcl->lvAddrExposed;
+        shadowLcl->lvAddrExposed     = lcl->IsAddressExposed();
         shadowLcl->lvDoNotEnregister = lcl->lvDoNotEnregister;
         shadowLcl->lvIsUnsafeBuffer  = lcl->lvIsUnsafeBuffer;
         shadowLcl->lvIsPtr           = lcl->lvIsPtr;

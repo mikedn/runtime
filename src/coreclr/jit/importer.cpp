@@ -16173,7 +16173,7 @@ bool Importer::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
         {
             unsigned valueLcl = valueIndex->AsLclVar()->GetLclNum();
             unsigned arrayLcl = array->AsLclVar()->GetLclNum();
-            if ((valueLcl == arrayLcl) && !lvaGetDesc(arrayLcl)->lvAddrExposed)
+            if ((valueLcl == arrayLcl) && !lvaGetDesc(arrayLcl)->IsAddressExposed())
             {
                 JITDUMP("\nstelem of ref from same array: skipping covariant store check\n");
                 return true;
