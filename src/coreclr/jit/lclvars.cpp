@@ -186,8 +186,16 @@ void Compiler::lvaInitLocals()
                 // don't sink load/stores out of pinning regions. A load/store may
                 // use an unmanaged pointer to a pinned object, which effectively
                 // becomes invalid after an "unpin" store. We can't easily detect
-                // such loads/stores so we relly on spilling GTF_GLOB_REF trees.
-                lcl->lvHasLdAddrOp = true;
+                // such loads/stores so we relay on spilling GTF_GLOB_REF trees.
+                // TODO-MIKE-Review: Maybe should be AX too, though that's a bit
+                // conservative (GC only loads this local, it never stores to it)
+                // and blocks local assertion propagation.
+                // But then the question is - is there anything else that prevents
+                // optimization from moving code outside of the pinning region?
+                // It may be this only works because no such optimizations exist,
+                // not because they're specifically blocked by something.
+                lcl->lvHasLdAddrOp     = true;
+                lcl->lvDoNotEnregister = true;
             }
             else
             {
