@@ -5599,7 +5599,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
     }
     if (varDsc->IsPinning())
     {
-        printf(" pinned");
+        printf(" pinning");
     }
     if (varDsc->lvClassHnd != NO_CLASS_HANDLE)
     {
