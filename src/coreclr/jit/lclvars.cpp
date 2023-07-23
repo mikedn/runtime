@@ -2056,18 +2056,18 @@ bool Compiler::lvaKeepAliveAndReportThis()
         return false;
     }
 
-    const bool genericsContextIsThis = info.ThisParamIsGenericsContext();
-
 #ifdef JIT32_GCENCODER
     if ((info.compFlags & CORINFO_FLG_SYNCH) != 0)
     {
         return true;
     }
+#endif
 
-    if (genericsContextIsThis)
+    if (info.ThisParamIsGenericsContext())
     {
-        // TODO: Check if any of the exception clauses are
-        // typed using a generic type. Else, we do not need to report this.
+#ifdef JIT32_GCENCODER
+        // TODO: Check if any of the exception clauses are typed using a generic type.
+        // Else, we do not need to report this.
         if (info.compXcptnsCount > 0)
         {
             return true;
@@ -2077,29 +2077,25 @@ bool Compiler::lvaKeepAliveAndReportThis()
         {
             return true;
         }
+#else
+        // If the generics context is the this pointer we need to report it if either
+        // the VM requires us to keep the generics context alive or it is used in a look-up.
+        // We keep it alive in the lookup scenario, even when the VM didn't ask us to,
+        // because collectible types need the generics context when GC-ing.
+
+        if ((info.compMethodInfo->options & CORINFO_GENERICS_CTXT_KEEP_ALIVE) != 0)
+        {
+            JITDUMP("Reporting this as generic context: %s\n", "must keep");
+            return true;
+        }
+#endif
 
         if (lvaGenericsContextInUse)
         {
-            JITDUMP("Reporting this as generic context\n");
+            JITDUMP("Reporting this as generic context: %s\n", "referenced");
             return true;
         }
     }
-#else // !JIT32_GCENCODER
-    // If the generics context is the this pointer we need to report it if either
-    // the VM requires us to keep the generics context alive or it is used in a look-up.
-    // We keep it alive in the lookup scenario, even when the VM didn't ask us to,
-    // because collectible types need the generics context when gc-ing.
-    if (genericsContextIsThis)
-    {
-        const bool mustKeep = (info.compMethodInfo->options & CORINFO_GENERICS_CTXT_KEEP_ALIVE) != 0;
-
-        if (lvaGenericsContextInUse || mustKeep)
-        {
-            JITDUMP("Reporting this as generic context: %s\n", mustKeep ? "must keep" : "referenced");
-            return true;
-        }
-    }
-#endif
 
     return false;
 }
