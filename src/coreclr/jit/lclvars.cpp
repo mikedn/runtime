@@ -194,6 +194,9 @@ void Compiler::lvaInitLocals()
                 // optimization from moving code outside of the pinning region?
                 // It may be this only works because no such optimizations exist,
                 // not because they're specifically blocked by something.
+                // TODO-MIKE-Review: It also looks like there's a bug in Roslyn,
+                // see pin-roslyn-bug.cs. There's probably nothing the JIT can do
+                // to avoid that.
                 lcl->lvHasLdAddrOp     = true;
                 lcl->lvDoNotEnregister = true;
             }
