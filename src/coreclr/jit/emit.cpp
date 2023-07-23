@@ -549,10 +549,10 @@ void emitter::emitFinishIG(bool extend)
     ig->igInsCnt = static_cast<uint8_t>(emitCurIGinsCnt);
     ig->igSize   = static_cast<uint16_t>(emitCurIGsize);
 
-    if (instrSize != 0)
+    uint8_t* lastInsData = reinterpret_cast<uint8_t*>(emitLastIns);
+
+    if ((emitCurIGfreeBase <= lastInsData) && (lastInsData < emitCurIGfreeNext))
     {
-        uint8_t* lastInsData = reinterpret_cast<uint8_t*>(emitLastIns);
-        assert(emitCurIGfreeBase <= lastInsData && lastInsData < emitCurIGfreeNext);
         emitLastIns = reinterpret_cast<instrDesc*>(data + (lastInsData - emitCurIGfreeBase));
     }
 
@@ -833,6 +833,8 @@ int emitter::instrDesc::idAddrUnion::iiaGetJitDataOffset() const
 //
 float emitter::insEvaluateExecutionCost(instrDesc* id)
 {
+    assert(id->idInsFmt() != IF_GC_REG);
+
     insExecutionCharacteristics result        = getInsExecutionCharacteristics(id);
     float                       throughput    = result.insThroughput;
     float                       latency       = result.insLatency;
@@ -1021,9 +1023,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
         emitExtendIG();
     }
 
-    /* Grab the space for the instruction */
-
-    emitLastIns = id = (instrDesc*)emitCurIGfreeNext;
+    id = reinterpret_cast<instrDesc*>(emitCurIGfreeNext);
     emitCurIGfreeNext += sz;
 
     assert(sz >= sizeof(void*));
@@ -1036,6 +1036,8 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
     assert(id->idCodeSize() == 0);
 #endif
 
+    emitLastIns   = id;
+    emitLastInsIG = emitCurIG;
     emitInsCount++;
 
     INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(emitInsCount, sz)));
@@ -1097,6 +1099,33 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
         emitCurIG->igBlocks.push_back(emitCurIG->lastGeneratedBlock);
     }
 #endif
+
+    return id;
+}
+
+emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
+{
+    assert(EA_IS_GCREF_OR_BYREF(attr));
+    assert(isGeneralRegister(reg));
+
+    if ((codeGen->liveness.GetGCRegs(attr) & genRegMask(reg)) != RBM_NONE)
+    {
+        return nullptr;
+    }
+
+    instrDesc* lastIns   = emitLastIns;
+    insGroup*  lastInsIG = emitLastInsIG;
+
+    instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(SMALL_IDSC_SIZE, attr));
+
+    emitLastIns   = lastIns;
+    emitLastInsIG = lastInsIG;
+
+    id->idSetIsSmallDsc();
+    id->idIns(INS_mov);
+    id->idInsFmt(IF_GC_REG);
+    id->idReg1(reg);
+    id->idReg2(reg);
 
     return id;
 }
@@ -2663,6 +2692,8 @@ void emitter::emitDispIGlist(bool verbose)
 
 size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
 {
+    assert(id->idInsFmt() != IF_GC_REG);
+
     size_t is;
 
     /* Record the beginning offset of the instruction */
@@ -4691,7 +4722,16 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             instrDesc* curInstrDesc = id;
 #endif
 
-            castto(id, BYTE*) += emitIssue1Instr(ig, id, &cp);
+            if (id->idInsFmt() == IF_GC_REG)
+            {
+                emitGCregLiveUpd(id->idGCref(), id->idReg1(), cp);
+                assert(id->idIsSmallDsc());
+                id = reinterpret_cast<instrDesc*>(reinterpret_cast<uint8_t*>(id) + SMALL_IDSC_SIZE);
+            }
+            else
+            {
+                castto(id, BYTE*) += emitIssue1Instr(ig, id, &cp);
+            }
 
 #ifdef DEBUG
             if (emitComp->verbose || emitComp->opts.disasmWithGC)

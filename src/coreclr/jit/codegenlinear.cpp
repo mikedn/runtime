@@ -448,7 +448,7 @@ void CodeGen::genCodeForBBlist()
         //    be slightly different from what the OS considers an epilog, and it is the OS-reported epilog that matters
         //    here.)
         // We handle case #1 here, and case #2 in the emitter.
-        if (GetEmitter()->emitIsLastInsCall())
+        if (GetEmitter()->IsLastInsCall())
         {
             // Ok, the last instruction generated is a call instruction. Do any of the other conditions hold?
             // Note: we may be generating a few too many NOPs for the case of call preceding an epilog. Technically,

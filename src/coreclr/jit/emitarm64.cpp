@@ -1014,6 +1014,7 @@ bool emitter::emitInsMayWriteToGCReg(instrDesc* id)
             return true;
 
         default:
+            assert(fmt != IF_GC_REG);
             return false;
     }
 }
@@ -3963,6 +3964,12 @@ void emitter::emitIns_Mov(
         {
             assert(insOptsNone(opt));
 
+            if (EA_IS_GCREF_OR_BYREF(attr) && (dstReg == srcReg))
+            {
+                emitNewInstrGCReg(attr, dstReg);
+                return;
+            }
+
             if (IsRedundantMov(ins, size, dstReg, srcReg, canSkip))
             {
                 // These instructions have no side effect and can be skipped
@@ -4091,11 +4098,9 @@ void emitter::emitIns_Mov(
     assert(fmt != IF_NONE);
 
     instrDesc* id = emitNewInstrSmall(attr);
-
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
-
     id->idReg1(dstReg);
     id->idReg2(srcReg);
 
@@ -10757,13 +10762,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         }
     }
 
+    assert((*dp != dst) || InstrHasNoCode(id));
+
 #ifdef DEBUG
     /* Make sure we set the instruction descriptor size correctly */
 
     size_t expected = emitSizeOfInsDsc(id);
     assert(sz == expected);
 
-    if (emitComp->opts.disAsm || emitComp->verbose)
+    if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
     {
         emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(odst), *dp, (dst - *dp), ig);
     }
@@ -10778,10 +10785,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         }
     }
 #endif
-
-    /* All instructions are expected to generate code */
-
-    assert(*dp != dst);
 
     *dp = dst;
 
@@ -14384,19 +14387,22 @@ bool emitter::IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regN
         }
     }
 
-    bool isFirstInstrInBlock = (emitCurIGinsCnt == 0) && ((emitCurIG->igFlags & IGF_EXTEND) == 0);
+    if (!IsLastInsInCurrentGroup())
+    {
+        return false;
+    }
 
-    if (!isFirstInstrInBlock && // Don't optimize if instruction is not the first instruction in IG.
-        (emitLastIns != nullptr) &&
-        (emitLastIns->idIns() == INS_mov) && // Don't optimize if last instruction was not 'mov'.
-        (emitLastIns->idOpSize() == size))   // Don't optimize if operand size is different than previous instruction.
+    instrDesc* lastIns = emitLastIns;
+
+    if ((lastIns != nullptr) && (lastIns->idIns() == INS_mov) && // Don't optimize if last instruction was not 'mov'.
+        (lastIns->idOpSize() == size)) // Don't optimize if operand size is different than previous instruction.
     {
         // Check if we did same move in prev instruction except dst/src were switched.
-        regNumber prevDst    = emitLastIns->idReg1();
-        regNumber prevSrc    = emitLastIns->idReg2();
-        insFormat lastInsfmt = emitLastIns->idInsFmt();
+        regNumber prevDst    = lastIns->idReg1();
+        regNumber prevSrc    = lastIns->idReg2();
+        insFormat lastInsfmt = lastIns->idInsFmt();
 
-        // Sometimes emitLastIns can be a mov with single register e.g. "mov reg, #imm". So ensure to
+        // Sometimes lastIns can be a mov with single register e.g. "mov reg, #imm". So ensure to
         // optimize formats that does vector-to-vector or scalar-to-scalar register movs.
         //
         const bool isValidLastInsFormats =
@@ -14404,7 +14410,7 @@ bool emitter::IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regN
 
         if (isValidLastInsFormats && (prevDst == dst) && (prevSrc == src))
         {
-            assert(emitLastIns->idOpSize() == size);
+            assert(lastIns->idOpSize() == size);
             JITDUMP("\n -- suppressing mov because previous instruction already moved from src to dst register.\n");
             return true;
         }
@@ -14466,18 +14472,23 @@ bool emitter::IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regN
 bool emitter::IsRedundantLdStr(
     instruction ins, regNumber reg1, regNumber reg2, ssize_t imm, emitAttr size, insFormat fmt)
 {
-    bool isFirstInstrInBlock = (emitCurIGinsCnt == 0) && ((emitCurIG->igFlags & IGF_EXTEND) == 0);
-
-    if (((ins != INS_ldr) && (ins != INS_str)) || (isFirstInstrInBlock) || (emitLastIns == nullptr))
+    if (!IsLastInsInCurrentGroup())
     {
         return false;
     }
 
-    regNumber prevReg1   = emitLastIns->idReg1();
-    regNumber prevReg2   = emitLastIns->idReg2();
-    insFormat lastInsfmt = emitLastIns->idInsFmt();
-    emitAttr  prevSize   = emitLastIns->idOpSize();
-    ssize_t prevImm = emitLastIns->idIsLargeCns() ? ((instrDescCns*)emitLastIns)->idcCnsVal : emitLastIns->idSmallCns();
+    instrDesc* lastIns = emitLastIns;
+
+    if ((lastIns == nullptr) || ((ins != INS_ldr) && (ins != INS_str)))
+    {
+        return false;
+    }
+
+    regNumber prevReg1   = lastIns->idReg1();
+    regNumber prevReg2   = lastIns->idReg2();
+    insFormat lastInsfmt = lastIns->idInsFmt();
+    emitAttr  prevSize   = lastIns->idOpSize();
+    ssize_t prevImm = lastIns->idIsLargeCns() ? static_cast<instrDescCns*>(lastIns)->idcCnsVal : lastIns->idSmallCns();
 
     // Only optimize if:
     // 1. "base" or "base plus immediate offset" addressing modes.
@@ -14488,7 +14499,7 @@ bool emitter::IsRedundantLdStr(
         return false;
     }
 
-    if ((ins == INS_ldr) && (emitLastIns->idIns() == INS_str))
+    if ((ins == INS_ldr) && (lastIns->idIns() == INS_str))
     {
         // If reg1 is of size less than 8-bytes, then eliminating the 'ldr'
         // will not zero the upper bits of reg1.
@@ -14509,7 +14520,7 @@ bool emitter::IsRedundantLdStr(
             return true;
         }
     }
-    else if ((ins == INS_str) && (emitLastIns->idIns() == INS_ldr))
+    else if ((ins == INS_str) && (lastIns->idIns() == INS_ldr))
     {
         // Make sure src and dst registers are not same.
         //  ldr x0, [x0, #4]

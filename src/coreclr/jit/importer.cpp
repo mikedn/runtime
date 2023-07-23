@@ -9407,18 +9407,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             }
                         }
                     }
-                    else if (lclTyp == TYP_BYREF)
-                    {
-                        // The code generator generates GC tracking information
-                        // based on the RHS of the assignment.  Later the LHS (which is
-                        // is a BYREF) gets used and the emitter checks that that variable
-                        // is being tracked.  It is not (since the RHS was an int and did
-                        // not need tracking).  To keep this assert happy, we change the RHS
-                        if (!varTypeIsGC(op1->GetType()))
-                        {
-                            op1->SetType(TYP_BYREF);
-                        }
-                    }
                     else if (varTypeIsFloating(lclTyp) && varTypeIsFloating(op1->GetType()) &&
                              (lclTyp != op1->GetType()))
                     {

@@ -337,20 +337,16 @@ bool emitter::IsFlagsAlwaysModified(instrDesc* id)
 
 bool emitter::AreUpper32BitsZero(regNumber reg)
 {
-    // If there are no instructions in this IG, we can look back at
-    // the previous IG's instructions if this IG is an extension.
-    //
-    if ((emitCurIGinsCnt == 0) && ((emitCurIG->igFlags & IGF_EXTEND) == 0))
+    if (!IsLastInsInCurrentGroup())
     {
         return false;
     }
 
-    instrDesc* id  = emitLastIns;
-    insFormat  fmt = id->idInsFmt();
+    instrDesc* id = emitLastIns;
 
     // This isn't meant to be a comprehensive check. Just look for what
     // seems to be common.
-    switch (fmt)
+    switch (id->idInsFmt())
     {
         case IF_RWR_CNS:
         case IF_RRW_CNS:
@@ -415,18 +411,15 @@ bool emitter::AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps tr
 {
     assert(reg != REG_NA);
 
-    // Don't look back across IG boundaries (possible control flow)
-    if (emitCurIGinsCnt == 0 && ((emitCurIG->igFlags & IGF_EXTEND) == 0))
+    if (!IsLastInsInCurrentGroup())
     {
         return false;
     }
 
-    instrDesc*  id      = emitLastIns;
-    instruction lastIns = id->idIns();
-    insFormat   fmt     = id->idInsFmt();
+    instrDesc* id = emitLastIns;
 
     // make sure op1 is a reg
-    switch (fmt)
+    switch (id->idInsFmt())
     {
         case IF_RWR_CNS:
         case IF_RRW_CNS:
@@ -454,14 +447,14 @@ bool emitter::AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps tr
     // Certain instruction like and, or and xor modifies exactly same flags
     // as "test" instruction.
     // They reset OF and CF to 0 and modifies SF, ZF and PF.
-    if (DoesResetOverflowAndCarryFlags(lastIns))
+    if (DoesResetOverflowAndCarryFlags(id->idIns()))
     {
         return id->idOpSize() == opSize;
     }
 
     if ((treeOps == GT_EQ) || (treeOps == GT_NE))
     {
-        if (DoesWriteZeroFlag(lastIns) && IsFlagsAlwaysModified(id))
+        if (DoesWriteZeroFlag(id->idIns()) && IsFlagsAlwaysModified(id))
         {
             return id->idOpSize() == opSize;
         }
@@ -1119,18 +1112,6 @@ unsigned emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, BYTE* dst, c
 }
 
 #ifdef TARGET_AMD64
-/*****************************************************************************
- * Is the last instruction emitted a call instruction?
- */
-bool emitter::emitIsLastInsCall()
-{
-    if ((emitLastIns != nullptr) && (emitLastIns->idIns() == INS_call))
-    {
-        return true;
-    }
-
-    return false;
-}
 
 /*****************************************************************************
  * We're about to create an epilog. If the last instruction we output was a 'call',
@@ -1138,7 +1119,7 @@ bool emitter::emitIsLastInsCall()
  */
 void emitter::emitOutputPreEpilogNOP()
 {
-    if (emitIsLastInsCall())
+    if (IsLastInsCall())
     {
         emitIns(INS_nop);
     }
@@ -1962,21 +1943,6 @@ const emitJumpKind emitReverseJumpKinds[] = {
 {
     assert(jumpKind < EJ_COUNT);
     return emitReverseJumpKinds[jumpKind];
-}
-
-/*****************************************************************************
- * The size for these instructions is less than EA_4BYTE,
- * but the target register need not be byte-addressable
- */
-
-inline bool emitInstHasNoCode(instruction ins)
-{
-    if (ins == INS_align)
-    {
-        return true;
-    }
-
-    return false;
 }
 
 /*****************************************************************************
@@ -3913,22 +3879,25 @@ bool emitter::IsRedundantMov(
         return true;
     }
 
-    bool isFirstInstrInBlock = (emitCurIGinsCnt == 0) && ((emitCurIG->igFlags & IGF_EXTEND) == 0);
-
-    // TODO-XArch-CQ: Certain instructions, such as movaps vs movups, are equivalent in
-    // functionality even if their actual identifier differs and we should optimize these
-
-    if (isFirstInstrInBlock ||               // Don't optimize if instruction is the first instruction in IG.
-        (emitLastIns == nullptr) ||          // or if a last instruction doesn't exist
-        (emitLastIns->idIns() != ins) ||     // or if the instruction is different from the last instruction
-        (emitLastIns->idOpSize() != size) || // or if the operand size is different from the last instruction
-        (emitLastIns->idInsFmt() != fmt))    // or if the format is different from the last instruction
+    if (!IsLastInsInCurrentGroup())
     {
         return false;
     }
 
-    regNumber lastDst = emitLastIns->idReg1();
-    regNumber lastSrc = emitLastIns->idReg2();
+    instrDesc* lastIns = emitLastIns;
+
+    // TODO-XArch-CQ: Certain instructions, such as movaps vs movups, are equivalent in
+    // functionality even if their actual identifier differs and we should optimize these
+
+    if ((lastIns->idIns() != ins) ||     // or if the instruction is different from the last instruction
+        (lastIns->idOpSize() != size) || // or if the operand size is different from the last instruction
+        (lastIns->idInsFmt() != fmt))    // or if the format is different from the last instruction
+    {
+        return false;
+    }
+
+    regNumber lastDst = lastIns->idReg1();
+    regNumber lastSrc = lastIns->idReg2();
 
     // Check if we did same move in last instruction, side effects don't matter since they already happened
     if ((lastDst == dst) && (lastSrc == src))
@@ -3962,6 +3931,13 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
 {
     // Only move instructions can use emitIns_Mov
     assert(IsMovInstruction(ins));
+
+    if (EA_IS_GCREF_OR_BYREF(attr) && (ins == INS_mov) && (dstReg == srcReg))
+    {
+        emitNewInstrGCReg(attr, dstReg);
+
+        return;
+    }
 
 #if DEBUG
     switch (ins)
@@ -4019,7 +3995,6 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
     assert(size <= EA_32BYTE);
     noway_assert(emitVerifyEncodable(ins, size, dstReg, srcReg));
 
-    unsigned  sz  = emitInsSizeRR(ins, dstReg, srcReg, attr);
     insFormat fmt = emitInsModeFormat(ins, IF_RRD_RRD);
 
     if (IsRedundantMov(ins, fmt, attr, dstReg, srcReg, canSkip))
@@ -4032,8 +4007,9 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
     id->idInsFmt(fmt);
     id->idReg1(dstReg);
     id->idReg2(srcReg);
-    id->idCodeSize(sz);
 
+    unsigned sz = emitInsSizeRR(ins, dstReg, srcReg, attr);
+    id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -7102,9 +7078,7 @@ void emitter::emitDispIns(
         printf(" ");
     }
 
-    /* By now the size better be set to something */
-
-    assert(id->idCodeSize() || emitInstHasNoCode(ins));
+    assert((id->idCodeSize() != 0) || InstrHasNoCode(id));
 
     /* Figure out the operand size */
 
@@ -12488,13 +12462,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     assert(emitCurStackLvl <= INT32_MAX);
 #endif // !FEATURE_FIXED_OUT_ARGS
 
-    // Only epilog "instructions" and some pseudo-instrs
-    // are allowed not to generate any code
-
-    assert(*dp != dst || emitInstHasNoCode(ins));
+    assert((*dp != dst) || InstrHasNoCode(id));
 
 #ifdef DEBUG
-    if (emitComp->opts.disAsm || emitComp->verbose)
+    if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
     {
         emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, (dst - *dp));
     }

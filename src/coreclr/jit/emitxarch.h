@@ -513,9 +513,6 @@ void emitIns_Call(EmitCallType          kind,
                   bool      isJump  = false);
 
 #ifdef TARGET_AMD64
-// Is the last instruction emitted a call instruction?
-bool emitIsLastInsCall();
-
 // Insert a NOP at the end of the the current instruction group if the last emitted instruction was a 'call',
 // because the next instruction group will be an epilog.
 void emitOutputPreEpilogNOP();

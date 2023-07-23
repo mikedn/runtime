@@ -445,6 +445,7 @@ private:
 
     enum insSize : unsigned
     {
+        ISZ_NONE,
         ISZ_16BIT,
         ISZ_32BIT,
         ISZ_48BIT // pseudo-instruction for conditional branch with imm24 range,
@@ -810,32 +811,24 @@ private:
 #elif defined(TARGET_ARM64)
         unsigned idCodeSize() const
         {
-            int size = 4;
             switch (idInsFmt())
             {
-                case IF_LARGEADR:
-                // adrp + add
-                case IF_LARGEJMP:
-                    // b<cond> + b<uncond>
-                    size = 8;
-                    break;
+                case IF_LARGEADR: // adrp + add
+                case IF_LARGEJMP: // b<cond> + b<uncond>
+                    return 8;
                 case IF_LARGELDC:
                     if (isVectorRegister(idReg1()))
                     {
                         // adrp + ldr + fmov
-                        size = 12;
+                        return 12;
                     }
-                    else
-                    {
-                        // adrp + ldr
-                        size = 8;
-                    }
-                    break;
+                    // adrp + ldr
+                    return 8;
+                case IF_GC_REG:
+                    return 0;
                 default:
-                    break;
+                    return 4;
             }
-
-            return size;
         }
 
 #elif defined(TARGET_ARM)
@@ -846,8 +839,18 @@ private:
         }
         unsigned idCodeSize() const
         {
-            unsigned result = (_idInsSize == ISZ_16BIT) ? 2 : (_idInsSize == ISZ_32BIT) ? 4 : 6;
-            return result;
+            switch (_idInsSize)
+            {
+                case ISZ_NONE:
+                    return 0;
+                case ISZ_16BIT:
+                    return 2;
+                case ISZ_32BIT:
+                    return 4;
+                default:
+                    assert(_idInsSize == ISZ_48BIT);
+                    return 6;
+            }
         }
         insSize idInsSize() const
         {
@@ -1135,6 +1138,17 @@ private:
 #endif
         }
     }; // End of  struct instrDesc
+
+#ifdef DEBUG
+    bool InstrHasNoCode(const instrDesc* id)
+    {
+        return (id->idInsFmt() == IF_GC_REG)
+#ifdef TARGET_XARCH
+               || (id->idIns() == INS_align)
+#endif
+            ;
+    }
+#endif
 
 #if defined(TARGET_XARCH)
     insFormat getMemoryOperation(instrDesc* id);
@@ -1678,7 +1692,20 @@ private:
         return (emitCurIG != nullptr) && (emitCurIGfreeNext > emitCurIGfreeBase);
     }
 
-    instrDesc* emitLastIns = nullptr;
+    instrDesc* emitLastIns   = nullptr;
+    insGroup*  emitLastInsIG = nullptr;
+
+    bool IsLastInsInCurrentGroup() const
+    {
+        return (emitLastIns != nullptr) && (emitLastInsIG == emitCurIG);
+    }
+
+#ifdef TARGET_AMD64
+    bool IsLastInsCall() const
+    {
+        return (emitLastIns != nullptr) && (emitLastIns->idIns() == INS_call);
+    }
+#endif
 
 #ifdef DEBUG
     void emitCheckIGoffsets();
@@ -1776,6 +1803,8 @@ private:
 #endif // EMITTER_STATS
         return (instrDescCGCA*)emitAllocAnyInstr(sizeof(instrDescCGCA), attr);
     }
+
+    instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
 
 #if FEATURE_LOOP_ALIGN
     instrDescAlign* emitAllocInstrAlign()
