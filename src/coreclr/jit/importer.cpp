@@ -16175,8 +16175,12 @@ bool Importer::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
             unsigned valueLcl = valueIndex->AsLclVar()->GetLclNum();
             unsigned arrayLcl = array->AsLclVar()->GetLclNum();
 
-            // TODO-MIKE-Cleanup: Checking IsAddressExposed here is nonsense,
-            // it's rarely set during import.
+            // TODO-MIKE-Cleanup: Checking IsAddressExposed here is nonsense, it's rarely set
+            // during import. Besides, the check is probably overly conservative, there's a
+            // reasonable good chance that index trees do not interefere with AX locals. During
+            // import stores typically end up in their own statements rather than being hidden
+            // under COMMAs so the only source of intereference are probably calls. Then we
+            // could check for GTF_CALL and lvHasLdAddrOp.
 
             if ((valueLcl == arrayLcl) && !lvaGetDesc(arrayLcl)->IsAddressExposed())
             {
