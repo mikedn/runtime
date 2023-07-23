@@ -922,7 +922,7 @@ void Compiler::fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, un
 
         // Anything with side effects needs to stay inside the synchronized region.
         // That should include address exposed locals, even if the chance that such
-        // locals are used by another thread is slim. But we haven't yet dermined
+        // locals are used by another thread is slim. But we haven't yet determined
         // which locals are address exposed so GTF_GLOB_REF may not be present,
         // fall back to address taken.
 

@@ -354,18 +354,15 @@ void Importer::AppendStmtCheck(GenTree* tree, unsigned chkLevel)
         }
     }
 
-    if (tree->gtOper == GT_ASG)
+    if (tree->OperIs(GT_ASG))
     {
         // For an assignment to a local variable, all references of that
         // variable have to be spilled. If it is aliased, all calls and
         // indirect accesses have to be spilled.
 
-        // TODO-MIKE-Cleanup: Checking IsAddressExposed here is nonsense,
-        // it's rarely set during import.
-
         if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
-            unsigned   lclNum = tree->AsOp()->gtOp1->AsLclVar()->GetLclNum();
+            unsigned   lclNum = tree->AsOp()->GetOp(0)->AsLclVar()->GetLclNum();
             LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
             for (unsigned level = 0; level < chkLevel; level++)
@@ -373,13 +370,17 @@ void Importer::AppendStmtCheck(GenTree* tree, unsigned chkLevel)
                 GenTree* val = verCurrentState.esStack[level].val;
 
                 assert(!impHasLclRef(val, lclNum) || impIsAddressInLocal(val));
+
+                // TODO-MIKE-Cleanup: Checking IsAddressExposed here is nonsense,
+                // it's rarely set during import.
+
                 assert(!lcl->IsAddressExposed() || ((val->gtFlags & GTF_SIDE_EFFECT) == 0));
             }
         }
 
         // If the access may be to global memory, all side effects have to be spilled.
 
-        else if (tree->AsOp()->gtOp1->gtFlags & GTF_GLOB_REF)
+        else if (tree->AsOp()->GetOp(0)->HasAnySideEffect(GTF_GLOB_REF))
         {
             for (unsigned level = 0; level < chkLevel; level++)
             {
@@ -9317,7 +9318,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     LclVarDsc*   lcl              = lvaGetDesc(lclNum);
                     GenTreeFlags spillSideEffects = GTF_EMPTY;
 
-                    if (lcl->IsAddressExposed() || lcl->lvHasLdAddrOp)
+                    if (lcl->lvHasLdAddrOp)
                     {
                         spillSideEffects = GTF_GLOB_EFFECT;
                     }
@@ -16173,6 +16174,10 @@ bool Importer::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
         {
             unsigned valueLcl = valueIndex->AsLclVar()->GetLclNum();
             unsigned arrayLcl = array->AsLclVar()->GetLclNum();
+
+            // TODO-MIKE-Cleanup: Checking IsAddressExposed here is nonsense,
+            // it's rarely set during import.
+
             if ((valueLcl == arrayLcl) && !lvaGetDesc(arrayLcl)->IsAddressExposed())
             {
                 JITDUMP("\nstelem of ref from same array: skipping covariant store check\n");
@@ -16738,7 +16743,7 @@ bool Compiler::impHasAddressTakenLocals(GenTree* tree)
         {
             LclVarDsc* lcl = data->compiler->lvaGetDesc(node->AsLclAddr());
 
-            if (lcl->lvHasLdAddrOp || lcl->IsAddressExposed())
+            if (lcl->lvHasLdAddrOp)
             {
                 return WALK_ABORT;
             }
@@ -16747,7 +16752,7 @@ bool Compiler::impHasAddressTakenLocals(GenTree* tree)
         {
             LclVarDsc* lcl = data->compiler->lvaGetDesc(node->AsLclVarCommon());
 
-            if (lcl->lvHasLdAddrOp || lcl->IsAddressExposed())
+            if (lcl->lvHasLdAddrOp)
             {
                 return WALK_ABORT;
             }

@@ -1496,7 +1496,7 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
     {
         LclVarDsc* lcl = lvaGetDesc(argInfo.argNode->AsLclVar());
 
-        if (!lcl->lvHasLdAddrOp && !lcl->IsAddressExposed())
+        if (!lcl->lvHasLdAddrOp)
         {
             argInfo.argIsUnaliasedLclVar = true;
 

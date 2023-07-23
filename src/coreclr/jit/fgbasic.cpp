@@ -1850,8 +1850,8 @@ void Compiler::fgAdjustForAddressExposedOrWrittenThis()
         thisLcl->lvHasILStoreOp = true;
     }
 
-    // If this is exposed or written to, create a temp for the modifiable this
-    if (thisLcl->IsAddressExposed() || thisLcl->lvHasILStoreOp)
+    // If this is address taken or written to, create a temp for the modifiable this.
+    if (thisLcl->lvHasLdAddrOp || thisLcl->lvHasILStoreOp)
     {
         lvaArg0Var = lvaNewTemp(thisLcl->GetType(), false DEBUGARG("'this' copy"));
 
@@ -1859,6 +1859,7 @@ void Compiler::fgAdjustForAddressExposedOrWrittenThis()
 
         thisCopyLcl->lvAddrExposed     = thisLcl->IsAddressExposed();
         thisCopyLcl->lvDoNotEnregister = thisLcl->lvDoNotEnregister;
+        thisCopyLcl->lvHasLdAddrOp     = thisLcl->lvHasLdAddrOp;
         thisCopyLcl->lvHasILStoreOp    = thisLcl->lvHasILStoreOp;
 #ifdef DEBUG
         thisCopyLcl->lvLiveInOutOfHndlr = thisLcl->lvLiveInOutOfHndlr;
@@ -1866,6 +1867,7 @@ void Compiler::fgAdjustForAddressExposedOrWrittenThis()
 #endif
 
         thisLcl->lvAddrExposed  = false;
+        thisLcl->lvHasLdAddrOp  = false;
         thisLcl->lvHasILStoreOp = false;
     }
 }
