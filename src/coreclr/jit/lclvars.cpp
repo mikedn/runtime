@@ -5567,12 +5567,10 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
         {
             printf("R");
         }
-#ifdef JIT32_GCENCODER
         if (varDsc->IsPinning())
         {
             printf("P");
         }
-#endif
         printf("]");
     }
 
