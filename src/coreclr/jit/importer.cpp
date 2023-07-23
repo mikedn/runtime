@@ -9317,7 +9317,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     LclVarDsc*   lcl              = lvaGetDesc(lclNum);
                     GenTreeFlags spillSideEffects = GTF_EMPTY;
 
-                    if (lcl->IsAddressExposed() || lcl->lvHasLdAddrOp || lcl->lvPinned)
+                    if (lcl->IsAddressExposed() || lcl->lvHasLdAddrOp)
                     {
                         spillSideEffects = GTF_GLOB_EFFECT;
                     }

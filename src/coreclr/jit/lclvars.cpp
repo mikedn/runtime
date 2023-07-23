@@ -182,6 +182,12 @@ void Compiler::lvaInitLocals()
             {
                 JITDUMP("Setting lvPinned for V%02u\n", lclNum);
                 lcl->lvPinned = true;
+                // These have to be treated as "address taken" during import so we
+                // don't sink load/stores out of pinning regions. A load/store may
+                // use an unmanaged pointer to a pinned object, which effectively
+                // becomes invalid after an "unpin" store. We can't easily detect
+                // such loads/stores so we relly on spilling GTF_GLOB_REF trees.
+                lcl->lvHasLdAddrOp = true;
             }
             else
             {

@@ -6154,8 +6154,9 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
 
                 // TODO-MIKE-CQ: lvHasLdAddrOp is likely overly conservative. lvAddrExposed should be
                 // used instead but that one gets reset in lvaRetypeImplicitByRefParams.
-                // Maybe lvaRetypeImplicitByRefParams could copy lvAddrExposed somewhere so we can use it
-                // here, though care needs to be taken because nothing will ever update it.
+                // Maybe lvaRetypeImplicitByRefParams could copy lvAddrExposed somewhere so we can use
+                // it here, though care needs to be taken because nothing will ever update it.
+                // Or use lvHasLdAddrOp for implicit byref params and lvAddrExposed for anything else.
 
                 JITDUMP("V%02u is address exposed\n", lclNode->GetLclNum());
                 return true;
@@ -6311,6 +6312,14 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
         // so that we won't transform the recursive tail call into a loop.
         if (isImplicitOrStressTailCall)
         {
+            // A tail call removes the method from the stack, which means the pinning
+            // goes away for the callee. Pinning locals are treated as address taken
+            // by the importer so we can skip an explicit check.
+            assert(!lcl->lvPinned || lcl->lvHasLdAddrOp);
+
+            // TODO-MIKE-Review: Shouldn't this check only lvAddrExposed? This is likely
+            // the same issue fgCallHasMustCopyByrefParameter has that it can't use
+            // lvAddrExposed because it's reset by lvaRetypeImplicitByRefParams.
             if (lcl->lvHasLdAddrOp && !lcl->IsImplicitByRefParam())
             {
                 failTailCall("Local address taken", lclNum);
@@ -6326,14 +6335,6 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             if (lcl->lvPromoted && lcl->IsParam())
             {
                 failTailCall("Has Struct Promoted Param", lclNum);
-                return nullptr;
-            }
-
-            if (lcl->lvPinned)
-            {
-                // A tail call removes the method from the stack, which means the pinning
-                // goes away for the callee.  We can't allow that.
-                failTailCall("Has Pinned Vars", lclNum);
                 return nullptr;
             }
         }
