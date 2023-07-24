@@ -964,8 +964,6 @@ void emitter::emitDispInsOffs(unsigned offs, bool doffs)
 
 void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
 {
-    instrDesc* id;
-
 #ifdef DEBUG
     // Under STRESS_EMITTER, put every instruction in its own instruction group.
     // We can't do this for a prolog, epilog, funclet prolog, or funclet epilog,
@@ -1023,7 +1021,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
         emitExtendIG();
     }
 
-    id = reinterpret_cast<instrDesc*>(emitCurIGfreeNext);
+    instrDesc* id = reinterpret_cast<instrDesc*>(emitCurIGfreeNext);
     emitCurIGfreeNext += sz;
 
     assert(sz >= sizeof(void*));
@@ -1038,9 +1036,8 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
 
     emitLastIns   = id;
     emitLastInsIG = emitCurIG;
-    emitInsCount++;
 
-    INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(emitInsCount, sz)));
+    INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz)));
 
     /* Store the size and handle the two special values
        that indicate GCref and ByRef */

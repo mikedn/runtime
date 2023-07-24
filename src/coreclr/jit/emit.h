@@ -1400,7 +1400,6 @@ private:
 #endif
 
     cnsval_ssize_t emitGetInsSC(instrDesc* id);
-    unsigned emitInsCount = 0;
 
     /************************************************************************/
     /*           A few routines used for debug display purposes             */
@@ -1415,6 +1414,8 @@ private:
 #endif // defined(DEBUG) || EMITTER_STATS
 
 #ifdef DEBUG
+    unsigned emitInsCount = 0;
+
     static const char* emitRegName(regNumber reg, emitAttr size = EA_PTRSIZE);
 
     void GetGCDeltaDumpHeader(char* buffer, size_t count);
