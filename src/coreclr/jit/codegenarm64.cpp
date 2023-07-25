@@ -3046,11 +3046,11 @@ void CodeGen::genFloatToIntCast(GenTreeCast* cast)
 //
 void CodeGen::genCkfinite(GenTree* treeNode)
 {
-    assert(treeNode->OperGet() == GT_CKFINITE);
+    assert(treeNode->OperIs(GT_CKFINITE));
 
-    GenTree*  op1         = treeNode->AsOp()->gtOp1;
-    var_types targetType  = treeNode->TypeGet();
-    int       expMask     = (targetType == TYP_FLOAT) ? 0x7F8 : 0x7FF; // Bit mask to extract exponent.
+    GenTree*  op1         = treeNode->AsUnOp()->GetOp(0);
+    var_types targetType  = treeNode->GetType();
+    int       expMask     = targetType == TYP_FLOAT ? 0x7F8 : 0x7FF; // Bit mask to extract exponent.
     int       shiftAmount = targetType == TYP_FLOAT ? 20 : 52;
 
     emitter* emit = GetEmitter();
@@ -3059,7 +3059,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     regNumber intReg = treeNode->GetSingleTempReg();
     regNumber fpReg  = genConsumeReg(op1);
 
-    inst_Mov(targetType, intReg, fpReg, /* canSkip */ false, emitActualTypeSize(treeNode));
+    inst_Mov(targetType, intReg, fpReg, /* canSkip */ false);
     emit->emitIns_R_R_I(INS_lsr, emitActualTypeSize(targetType), intReg, intReg, shiftAmount);
 
     // Mask of exponent with all 1's and check if the exponent is all 1's

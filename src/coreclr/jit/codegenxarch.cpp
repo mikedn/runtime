@@ -6334,11 +6334,11 @@ void CodeGen::genFloatToIntCast(GenTreeCast* cast)
 //
 void CodeGen::genCkfinite(GenTree* treeNode)
 {
-    assert(treeNode->OperGet() == GT_CKFINITE);
+    assert(treeNode->OperIs(GT_CKFINITE));
 
-    GenTree*  op1        = treeNode->AsOp()->gtOp1;
-    var_types targetType = treeNode->TypeGet();
-    int       expMask    = (targetType == TYP_FLOAT) ? 0x7F800000 : 0x7FF00000; // Bit mask to extract exponent.
+    GenTree*  op1        = treeNode->AsUnOp()->GetOp(0);
+    var_types targetType = treeNode->GetType();
+    int       expMask    = targetType == TYP_FLOAT ? 0x7F800000 : 0x7FF00000; // Bit mask to extract exponent.
     regNumber targetReg  = treeNode->GetRegNum();
 
     // Extract exponent into a register.
@@ -6347,13 +6347,13 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     genConsumeReg(op1);
 
 #ifdef TARGET_64BIT
-
     // Copy the floating-point shift to an integer register. If we copied a float to a long, then
     // right-shift the shift so the high 32 bits of the floating-point shift sit in the low 32
     // bits of the integer register.
-    regNumber srcReg        = op1->GetRegNum();
-    var_types targetIntType = ((targetType == TYP_FLOAT) ? TYP_INT : TYP_LONG);
-    inst_Mov(targetIntType, tmpReg, srcReg, /* canSkip */ false, emitActualTypeSize(targetType));
+    regNumber srcReg = op1->GetRegNum();
+
+    inst_Mov(targetType == TYP_FLOAT ? TYP_INT : TYP_LONG, tmpReg, srcReg, /* canSkip */ false);
+
     if (targetType == TYP_DOUBLE)
     {
         // right shift by 32 bits to get to exponent.
@@ -6416,7 +6416,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
 
     // Copy only the low 32 bits. This will be the high order 32 bits of the floating-point
     // shift, no matter the floating-point type.
-    inst_Mov(TYP_INT, tmpReg, copyToTmpSrcReg, /* canSkip */ false, emitActualTypeSize(TYP_FLOAT));
+    inst_Mov(TYP_INT, tmpReg, copyToTmpSrcReg, /* canSkip */ false);
 
     // Mask exponent with all 1's and check if the exponent is all 1's
     inst_RV_IV(INS_and, tmpReg, expMask, EA_4BYTE);
@@ -8203,12 +8203,12 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 
         if (compiler->info.compIsVarArgs && varTypeIsFloating(type))
         {
-            regNumber intArgReg = MapVarargsParamFloatRegToIntReg(reg);
-            inst_Mov(TYP_LONG, intArgReg, reg, /* canSkip */ false, emitActualTypeSize(type));
+            GetEmitter()->emitIns_Mov(INS_movd, emitTypeSize(type), MapVarargsParamFloatRegToIntReg(reg), reg,
+                                      /*canSkip*/ false);
         }
     }
 
-    // If initReg is one of RBM_CALLEE_TRASH, then it needs to be zero'ed before using.
+    // If initReg is one of RBM_CALLEE_TRASH, then it needs to be zeroed before using.
     if ((RBM_CALLEE_TRASH & genRegMask(initReg)) != 0)
     {
         *pInitRegZeroed = false;
@@ -9612,11 +9612,11 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 #endif // TARGET_X86
 }
 
-instruction CodeGen::ins_Copy(var_types dstType)
+instruction CodeGen::ins_Copy(var_types type)
 {
-    assert(emitTypeActSz[dstType] != 0);
+    assert(emitTypeActSz[type] != 0);
 
-    return varTypeUsesFloatReg(dstType) ? INS_movaps : INS_mov;
+    return varTypeUsesFloatReg(type) ? INS_movaps : INS_mov;
 }
 
 instruction CodeGen::ins_Copy(regNumber srcReg, var_types dstType)

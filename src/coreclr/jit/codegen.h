@@ -1309,13 +1309,7 @@ public:
     void inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock);
     void inst_SET(emitJumpKind condition, regNumber reg);
     void inst_RV(instruction ins, regNumber reg, var_types type, emitAttr size = EA_UNKNOWN);
-
-    void inst_Mov(var_types dstType,
-                  regNumber dstReg,
-                  regNumber srcReg,
-                  bool      canSkip,
-                  emitAttr size = EA_UNKNOWN ARM_ARG(insFlags flags = INS_FLAGS_DONT_CARE));
-
+    void inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip);
     void inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type, emitAttr size = EA_UNKNOWN);
     void inst_RV_RV_RV(instruction ins, regNumber reg1, regNumber reg2, regNumber reg3, emitAttr size);
     void inst_IV(instruction ins, cnsval_ssize_t val);
@@ -1421,7 +1415,7 @@ public:
     instruction ins_Load(var_types srcType, bool aligned = false);
     instruction ins_Store(var_types dstType, bool aligned = false);
     instruction ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned = false);
-    instruction ins_Copy(var_types dstType);
+    instruction ins_Copy(var_types type);
     instruction ins_Copy(regNumber srcReg, var_types dstType);
 #ifdef TARGET_XARCH
     instruction ins_Move_Extend(var_types type);

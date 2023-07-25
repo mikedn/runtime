@@ -892,12 +892,12 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 //
 void CodeGen::genCkfinite(GenTree* treeNode)
 {
-    assert(treeNode->OperGet() == GT_CKFINITE);
+    assert(treeNode->OperIs(GT_CKFINITE));
 
     emitter*  emit       = GetEmitter();
-    var_types targetType = treeNode->TypeGet();
+    var_types targetType = treeNode->GetType();
     regNumber intReg     = treeNode->GetSingleTempReg();
-    regNumber fpReg      = genConsumeReg(treeNode->AsOp()->gtOp1);
+    regNumber fpReg      = genConsumeReg(treeNode->AsUnOp()->GetOp(0));
     regNumber targetReg  = treeNode->GetRegNum();
 
     // Extract and sign-extend the exponent into an integer register
@@ -918,7 +918,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     genJumpToThrowHlpBlk(EJ_eq, ThrowHelperKind::Arithmetic);
 
     // If it's a finite value, copy it to targetReg
-    inst_Mov(targetType, targetReg, fpReg, /* canSkip */ true, emitTypeSize(treeNode));
+    inst_Mov(targetType, targetReg, fpReg, /* canSkip */ true);
 
     genProduceReg(treeNode);
 }

@@ -3530,11 +3530,11 @@ void CodeGen::genCodeForNegNot(GenTreeUnOp* node)
     DefReg(node);
 }
 
-instruction CodeGen::ins_Copy(var_types dstType)
+instruction CodeGen::ins_Copy(var_types type)
 {
-    assert(emitTypeActSz[dstType] != 0);
+    assert(emitTypeActSz[type] != 0);
 
-    if (varTypeIsFloating(dstType))
+    if (varTypeIsFloating(type))
     {
 #ifdef TARGET_ARM64
         return INS_fmov;
