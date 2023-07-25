@@ -197,28 +197,6 @@ void CodeGen::inst_Mov(
 #endif
 }
 
-// Generate a "mov reg1, reg2" instruction.
-void CodeGen::inst_Mov_Extend(var_types srcType,
-                              bool      srcInReg,
-                              regNumber dstReg,
-                              regNumber srcReg,
-                              bool      canSkip,
-                              emitAttr size ARM_ARG(insFlags flags))
-{
-    instruction ins = ins_Move_Extend(srcType, srcInReg);
-
-    if (size == EA_UNKNOWN)
-    {
-        size = emitActualTypeSize(srcType);
-    }
-
-#ifdef TARGET_ARM
-    GetEmitter()->emitIns_Mov(ins, size, dstReg, srcReg, canSkip, flags);
-#else
-    GetEmitter()->emitIns_Mov(ins, size, dstReg, srcReg, canSkip);
-#endif
-}
-
 void CodeGen::inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type, emitAttr size)
 {
     if (size == EA_UNKNOWN)

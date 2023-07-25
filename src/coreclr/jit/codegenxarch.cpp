@@ -4278,7 +4278,10 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     {
         assert(src->GetRegNum() != REG_NA);
 
-        inst_Mov_Extend(lclRegType, true, dstReg, src->GetRegNum(), /* canSkip */ true, emitTypeSize(lclRegType));
+        instruction ins  = ins_Move_Extend(lclRegType, true);
+        emitAttr    size = emitTypeSize(lclRegType);
+
+        GetEmitter()->emitIns_Mov(ins, size, dstReg, src->GetRegNum(), /*canSkip*/ true);
     }
 
     DefLclVarReg(store);

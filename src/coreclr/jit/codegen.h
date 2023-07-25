@@ -1313,13 +1313,6 @@ public:
                   bool      canSkip,
                   emitAttr size = EA_UNKNOWN ARM_ARG(insFlags flags = INS_FLAGS_DONT_CARE));
 
-    void inst_Mov_Extend(var_types srcType,
-                         bool      srcInReg,
-                         regNumber dstReg,
-                         regNumber srcReg,
-                         bool      canSkip,
-                         emitAttr size = EA_UNKNOWN ARM_ARG(insFlags flags = INS_FLAGS_DONT_CARE));
-
     void inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type, emitAttr size = EA_UNKNOWN);
     void inst_RV_RV_RV(instruction ins, regNumber reg1, regNumber reg2, regNumber reg3, emitAttr size);
     void inst_IV(instruction ins, cnsval_ssize_t val);
