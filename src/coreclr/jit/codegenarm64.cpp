@@ -1968,7 +1968,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     }
     else
     {
-        srcReg = genConsumeReg(src);
+        srcReg = UseReg(src);
     }
 
     regNumber dstReg = store->GetRegNum();

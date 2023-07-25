@@ -3140,18 +3140,6 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
         }
 #endif
     }
-    else if (src->isContained() && src->OperIs(GT_BITCAST))
-    {
-        GenTree*  bitCastSrc   = src->AsUnOp()->GetOp(0);
-        var_types registerType = bitCastSrc->GetType();
-
-        singleUseRef = BuildUse(bitCastSrc, allRegs(registerType));
-
-        Interval* srcInterval = singleUseRef->getInterval();
-        assert(srcInterval->registerType == registerType);
-
-        srcCount = 1;
-    }
 #ifndef TARGET_64BIT
     else if (varTypeIsLong(src->GetType()))
     {
@@ -3170,7 +3158,19 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
         srcCount = 0;
 
 #ifdef TARGET_XARCH
-        if (src->OperIsRMWMemOp())
+        if (src->OperIs(GT_BITCAST))
+        {
+            GenTree*  bitCastSrc   = src->AsUnOp()->GetOp(0);
+            var_types registerType = bitCastSrc->GetType();
+
+            singleUseRef = BuildUse(bitCastSrc, allRegs(registerType));
+
+            Interval* srcInterval = singleUseRef->getInterval();
+            assert(srcInterval->registerType == registerType);
+
+            srcCount = 1;
+        }
+        else if (src->OperIsRMWMemOp())
         {
             if (src->OperIsBinary() && !src->AsOp()->GetOp(1)->isContained())
             {

@@ -4199,38 +4199,25 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     regNumber dstReg = store->GetRegNum();
     unsigned  lclNum = store->GetLclNum();
 
-    if (src->OperIs(GT_BITCAST) && src->isContained())
-    {
-        GenTree*  bitCastSrc     = src->AsUnOp()->GetOp(0);
-        var_types bitCastSrcType = bitCastSrc->GetType();
-        regNumber bitCastSrcReg  = genConsumeReg(bitCastSrc);
-
-        if (dstReg == REG_NA)
-        {
-            GetEmitter()->emitIns_S_R(ins_Store(bitCastSrcType, IsSimdLocalAligned(lclNum)), emitTypeSize(lclRegType),
-                                      bitCastSrcReg, lclNum, 0);
-
-            genUpdateLife(store);
-            lcl->SetRegNum(REG_STK);
-        }
-        else
-        {
-            inst_BitCast(lclRegType, dstReg, bitCastSrcType, bitCastSrc->GetRegNum());
-
-            DefLclVarReg(store);
-        }
-
-        return;
-    }
-
     if (dstReg == REG_NA)
     {
-        instruction ins  = ins_Store(lclRegType, IsSimdLocalAligned(lclNum));
-        emitAttr    attr = emitTypeSize(lclRegType);
+        bool        isAligned = IsSimdLocalAligned(lclNum);
+        instruction ins       = ins_Store(lclRegType, isAligned);
+        emitAttr    attr      = emitTypeSize(lclRegType);
 
         if (src->isContained())
         {
-            if (src->OperIsRMWMemOp())
+            if (src->OperIs(GT_BITCAST))
+            {
+                GenTree*  bitCastSrc     = src->AsUnOp()->GetOp(0);
+                var_types bitCastSrcType = bitCastSrc->GetType();
+                regNumber bitCastSrcReg  = genConsumeReg(bitCastSrc);
+
+                ins = ins_Store(bitCastSrcType, isAligned);
+
+                GetEmitter()->emitIns_S_R(ins, attr, bitCastSrcReg, lclNum, 0);
+            }
+            else if (src->OperIsRMWMemOp())
             {
                 GenStoreLclRMW(lclRegType, lclNum, 0, src);
             }
@@ -4241,7 +4228,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         }
         else
         {
-            regNumber srcReg = genConsumeReg(src);
+            regNumber srcReg = UseReg(src);
 
             GetEmitter()->emitIns_S_R(ins, attr, srcReg, store->GetLclNum(), 0);
         }
@@ -4252,10 +4239,8 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    genConsumeRegs(src);
-
     // Look for the case where we have a constant zero which we've marked for reuse,
-    // but which isn't actually in the register we want.  In that case, it's better to create
+    // but which isn't actually in the register we want. In that case, it's better to create
     // zero in the target register, because an xor is smaller than a copy. Note that we could
     // potentially handle this in the register allocator, but we can't always catch it there
     // because the target may not have a register allocated for it yet.
@@ -4263,23 +4248,25 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     if (src->isUsedFromReg() && (src->GetRegNum() != dstReg) &&
         (src->IsIntegralConst(0) || src->IsDblConPositiveZero()))
     {
+        UseReg(src);
         src->SetRegNum(REG_NA);
         src->ResetReuseRegVal();
         src->SetContained();
     }
 
-    if (!src->isUsedFromReg())
+    if (src->isContained())
     {
         assert(src->GetRegNum() == REG_NA);
 
-        // Currently, we assume that the non-reg source of a GT_STORE_LCL_VAR writing to a register
-        // must be a constant. However, in the future we might want to support an operand used from
-        // memory. This is a bit tricky because we have to decide it can be used from memory before
-        // register allocation, and this would be a case where, once that's done, we need to mark
-        // that node as always requiring a register - which we always assume now anyway, but once we
-        // "optimize" that we'll have to take cases like this into account.
+        if (src->OperIs(GT_BITCAST))
+        {
+            GenTree*  bitCastSrc     = src->AsUnOp()->GetOp(0);
+            var_types bitCastSrcType = bitCastSrc->GetType();
+            regNumber bitCastSrcReg  = genConsumeReg(bitCastSrc);
 
-        if (GenTreeIntCon* intCon = src->IsIntCon())
+            inst_BitCast(lclRegType, dstReg, bitCastSrcType, bitCastSrc->GetRegNum());
+        }
+        else if (GenTreeIntCon* intCon = src->IsIntCon())
         {
             GenIntCon(intCon, dstReg, lclRegType);
         }
@@ -4290,12 +4277,23 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     }
     else
     {
-        assert(src->GetRegNum() != REG_NA);
+        // TODO-MIKE-Review: ARM and ARM64 don't seem to be doing the "extend" thing.
+        // Stores to "NormalizeOnStore" locals should have been widened to INT and
+        // "NormalizeOnLoad" locals are usually not register candidates. With the
+        // exception of parameters, but those being "NormalizeOnLoad" have widening
+        // casts on loads, so widening here is redundant.
 
         instruction ins  = ins_Move_Extend(lclRegType);
-        emitAttr    size = emitTypeSize(lclRegType);
+        emitAttr    attr = emitTypeSize(lclRegType);
 
-        GetEmitter()->emitIns_Mov(ins, size, dstReg, src->GetRegNum(), /*canSkip*/ true);
+        // Note that src cannot be "reg optional", we don't know in advance if this local
+        // will be allocated a register so we could end up with a mem-to-mem copy and
+        // need a temporary register, which too must be requested before knowing if this
+        // local gets a register or not. Hopefully this doesn't actually matter, if the
+        // src node is spilled LSRA should reload it directly in our dstReg.
+        regNumber srcReg = UseReg(src);
+
+        GetEmitter()->emitIns_Mov(ins, attr, dstReg, srcReg, /*canSkip*/ true);
     }
 
     DefLclVarReg(store);

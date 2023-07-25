@@ -860,7 +860,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     var_types lclRegType = lcl->GetRegisterType(store);
 
-    regNumber srcReg = genConsumeReg(src);
+    regNumber srcReg = UseReg(src);
     regNumber dstReg = store->GetRegNum();
 
     if (dstReg == REG_NA)
