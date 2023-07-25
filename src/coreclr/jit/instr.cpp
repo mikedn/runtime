@@ -169,17 +169,11 @@ void CodeGen::inst_SET(emitJumpKind condition, regNumber reg)
 #endif
 }
 
-void CodeGen::inst_RV(instruction ins, regNumber reg, var_types type, emitAttr size)
+void CodeGen::inst_RV(instruction ins, regNumber reg, var_types type)
 {
-    if (size == EA_UNKNOWN)
-    {
-        size = emitActualTypeSize(type);
-    }
-
-    GetEmitter()->emitIns_R(ins, size, reg);
+    GetEmitter()->emitIns_R(ins, emitActualTypeSize(type), reg);
 }
 
-// Generate a "mov reg1, reg2" instruction.
 void CodeGen::inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip)
 {
     GetEmitter()->emitIns_Mov(ins_Copy(srcReg, dstType), emitActualTypeSize(dstType), dstReg, srcReg, canSkip);
