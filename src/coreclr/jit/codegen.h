@@ -1310,8 +1310,7 @@ public:
     void inst_SET(emitJumpKind condition, regNumber reg);
     void inst_RV(instruction ins, regNumber reg, var_types type, emitAttr size = EA_UNKNOWN);
     void inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip);
-    void inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type, emitAttr size = EA_UNKNOWN);
-    void inst_RV_RV_RV(instruction ins, regNumber reg1, regNumber reg2, regNumber reg3, emitAttr size);
+    void inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type);
     void inst_IV(instruction ins, cnsval_ssize_t val);
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
 

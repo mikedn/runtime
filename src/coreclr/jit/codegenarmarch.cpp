@@ -953,7 +953,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
         regNumber srcReg  = UseReg(src);
         regNumber dstReg1 = bitcast->GetRegNum(0);
         regNumber dstReg2 = bitcast->GetRegNum(1);
-        inst_RV_RV_RV(INS_vmov_d2i, dstReg1, dstReg2, srcReg, EA_8BYTE);
+        GetEmitter()->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, dstReg1, dstReg2, srcReg);
         DefLongRegs(bitcast);
     }
     else if ((genTypeSize(dstType) > REGSIZE_BYTES) || (genTypeSize(src->GetType()) > REGSIZE_BYTES))
@@ -2719,7 +2719,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #ifdef TARGET_ARM
             if (compiler->opts.compUseSoftFP && (returnType == TYP_DOUBLE))
             {
-                inst_RV_RV_RV(INS_vmov_i2d, call->GetRegNum(), REG_R0, REG_R1, EA_8BYTE);
+                GetEmitter()->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, call->GetRegNum(), REG_R0, REG_R1);
             }
             else if (compiler->opts.compUseSoftFP && (returnType == TYP_FLOAT))
             {

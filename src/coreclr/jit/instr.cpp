@@ -185,19 +185,9 @@ void CodeGen::inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bo
     GetEmitter()->emitIns_Mov(ins_Copy(srcReg, dstType), emitActualTypeSize(dstType), dstReg, srcReg, canSkip);
 }
 
-void CodeGen::inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type, emitAttr size)
+void CodeGen::inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type)
 {
-    if (size == EA_UNKNOWN)
-    {
-        size = emitActualTypeSize(type);
-    }
-
-    GetEmitter()->emitIns_R_R(ins, size, reg1, reg2);
-}
-
-void CodeGen::inst_RV_RV_RV(instruction ins, regNumber reg1, regNumber reg2, regNumber reg3, emitAttr size)
-{
-    GetEmitter()->emitIns_R_R_R(ins, size, reg1, reg2, reg3);
+    GetEmitter()->emitIns_R_R(ins, emitActualTypeSize(type), reg1, reg2);
 }
 
 void CodeGen::inst_IV(instruction ins, cnsval_ssize_t val)

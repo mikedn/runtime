@@ -4791,9 +4791,12 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
     {
         // If the type specified to the emitter is a GC type, it will swap the GC-ness of the registers.
         // Otherwise it will leave them alone, which is correct if they have the same GC-ness.
+        // TODO-MIKE-Review: Check what the emitter does in this case. And LSRA too, presumably it only
+        // uses XCHG if GCness matches?
         size = EA_GCREF;
     }
-    inst_RV_RV(INS_xchg, oldOp1Reg, oldOp2Reg, TYP_I_IMPL, size);
+
+    GetEmitter()->emitIns_R_R(INS_xchg, size, oldOp1Reg, oldOp2Reg);
 
     // Manually remove these regs for the gc sets (mostly to avoid confusing duplicative dump output)
     liveness.SetGCRegs(TYP_BYREF, liveness.GetGCRegs(TYP_BYREF) & ~(oldOp1RegMask | oldOp2RegMask));
@@ -5922,10 +5925,10 @@ void CodeGen::genLongToIntCast(GenTree* cast)
             BasicBlock* allOne  = genCreateTempLabel();
             BasicBlock* success = genCreateTempLabel();
 
-            inst_RV_RV(INS_test, loSrcReg, loSrcReg, TYP_INT, EA_4BYTE);
+            inst_RV_RV(INS_test, loSrcReg, loSrcReg, TYP_INT);
             inst_JMP(EJ_js, allOne);
 
-            inst_RV_RV(INS_test, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
+            inst_RV_RV(INS_test, hiSrcReg, hiSrcReg, TYP_INT);
             genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
             inst_JMP(EJ_jmp, success);
 
@@ -5939,11 +5942,11 @@ void CodeGen::genLongToIntCast(GenTree* cast)
         {
             if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
             {
-                inst_RV_RV(INS_test, loSrcReg, loSrcReg, TYP_INT, EA_4BYTE);
+                inst_RV_RV(INS_test, loSrcReg, loSrcReg, TYP_INT);
                 genJumpToThrowHlpBlk(EJ_js, ThrowHelperKind::Overflow);
             }
 
-            inst_RV_RV(INS_test, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
+            inst_RV_RV(INS_test, hiSrcReg, hiSrcReg, TYP_INT);
             genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
         }
     }

@@ -1109,9 +1109,9 @@ void CodeGen::genLongToIntCast(GenTree* cast)
             BasicBlock* allOne  = genCreateTempLabel();
             BasicBlock* success = genCreateTempLabel();
 
-            inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT, EA_4BYTE);
+            inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT);
             inst_JMP(EJ_mi, allOne);
-            inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
+            inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT);
             genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
             inst_JMP(EJ_jmp, success);
 
@@ -1125,11 +1125,11 @@ void CodeGen::genLongToIntCast(GenTree* cast)
         {
             if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
             {
-                inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT, EA_4BYTE);
+                inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT);
                 genJumpToThrowHlpBlk(EJ_mi, ThrowHelperKind::Overflow);
             }
 
-            inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
+            inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT);
             genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
         }
     }
