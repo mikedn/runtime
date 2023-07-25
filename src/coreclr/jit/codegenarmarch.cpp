@@ -3530,7 +3530,48 @@ void CodeGen::genCodeForNegNot(GenTreeUnOp* node)
     DefReg(node);
 }
 
-// Get the machine dependent instruction for performing a load for srcType
+instruction CodeGen::ins_Copy(var_types dstType)
+{
+    assert(emitTypeActSz[dstType] != 0);
+
+    if (varTypeIsFloating(dstType))
+    {
+#ifdef TARGET_ARM64
+        return INS_fmov;
+#else
+        return INS_vmov;
+#endif
+    }
+
+    return INS_mov;
+}
+
+instruction CodeGen::ins_Copy(regNumber srcReg, var_types dstType)
+{
+    bool dstIsFloatReg = varTypeUsesFloatReg(dstType);
+    bool srcIsFloatReg = genIsValidFloatReg(srcReg);
+
+    if (srcIsFloatReg == dstIsFloatReg)
+    {
+        return ins_Copy(dstType);
+    }
+
+#ifdef TARGET_ARM64
+    return dstIsFloatReg ? INS_fmov : INS_mov;
+#else
+    if (dstIsFloatReg)
+    {
+        assert(dstType == TYP_FLOAT);
+        return INS_vmov_i2f;
+    }
+    else
+    {
+        assert(dstType == TYP_INT);
+        return INS_vmov_f2i;
+    }
+#endif
+}
+
 instruction CodeGen::ins_Load(var_types srcType, bool aligned)
 {
     assert(srcType != TYP_STRUCT);
@@ -3539,6 +3580,7 @@ instruction CodeGen::ins_Load(var_types srcType, bool aligned)
     if (varTypeUsesFloatReg(srcType))
     {
         assert(!varTypeIsSIMD(srcType));
+
         return INS_vldr;
     }
 #endif
@@ -3557,49 +3599,6 @@ instruction CodeGen::ins_Load(var_types srcType, bool aligned)
     return INS_ldr;
 }
 
-// Get the machine dependent instruction for performing a reg-reg copy for dstType
-instruction CodeGen::ins_Copy(var_types dstType)
-{
-    assert(emitTypeActSz[dstType] != 0);
-
-#ifdef TARGET_ARM64
-    return varTypeIsFloating(dstType) ? INS_fmov : INS_mov;
-#else
-    return varTypeIsFloating(dstType) ? INS_vmov : INS_mov;
-#endif
-}
-
-// Get the machine dependent instruction for performing a reg-reg copy from srcReg
-// to a register of dstType.
-instruction CodeGen::ins_Copy(regNumber srcReg, var_types dstType)
-{
-    bool dstIsFloatReg = varTypeUsesFloatReg(dstType);
-    bool srcIsFloatReg = genIsValidFloatReg(srcReg);
-
-    if (srcIsFloatReg == dstIsFloatReg)
-    {
-        return ins_Copy(dstType);
-    }
-
-#ifdef TARGET_ARM64
-    return dstIsFloatReg ? INS_fmov : INS_mov;
-#else
-    if (dstIsFloatReg)
-    {
-        // Can't have LONG in a register.
-        assert(dstType == TYP_FLOAT);
-        return INS_vmov_i2f;
-    }
-    else
-    {
-        // Can't have LONG in a register.
-        assert(dstType == TYP_INT);
-        return INS_vmov_f2i;
-    }
-#endif
-}
-
-// Get the machine dependent instruction for performing a store for dstType
 instruction CodeGen::ins_Store(var_types dstType, bool aligned)
 {
 #ifdef TARGET_ARM

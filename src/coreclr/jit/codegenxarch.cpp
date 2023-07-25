@@ -1774,13 +1774,8 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_MEMORYBARRIER:
-        {
-            CodeGen::BarrierKind barrierKind =
-                treeNode->gtFlags & GTF_MEMORYBARRIER_LOAD ? BARRIER_LOAD_ONLY : BARRIER_FULL;
-
-            instGen_MemoryBarrier(barrierKind);
+            GenMemoryBarrier(treeNode);
             break;
-        }
 
         case GT_CMPXCHG:
             genCodeForCmpXchg(treeNode->AsCmpXchg());
@@ -3561,8 +3556,10 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* tree)
     genProduceReg(tree);
 }
 
-void CodeGen::instGen_MemoryBarrier(BarrierKind barrierKind)
+void CodeGen::GenMemoryBarrier(GenTree* barrier)
 {
+    assert(barrier->OperIs(GT_MEMORYBARRIER));
+
 #ifdef DEBUG
     if (JitConfig.JitNoMemoryBarriers() == 1)
     {
@@ -3570,8 +3567,8 @@ void CodeGen::instGen_MemoryBarrier(BarrierKind barrierKind)
     }
 #endif
 
-    // Only full barrier needs to be emitted on Xarch
-    if (barrierKind == BARRIER_FULL)
+    // Only full barrier needs to be emitted on x86/64
+    if ((barrier->gtFlags & GTF_MEMORYBARRIER_LOAD) == 0)
     {
         instGen(INS_lock);
         GetEmitter()->emitIns_AR_I(INS_or, EA_4BYTE, REG_SPBASE, 0, 0);
@@ -4295,7 +4292,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     {
         assert(src->GetRegNum() != REG_NA);
 
-        instruction ins  = ins_Move_Extend(lclRegType, true);
+        instruction ins  = ins_Move_Extend(lclRegType);
         emitAttr    size = emitTypeSize(lclRegType);
 
         GetEmitter()->emitIns_Mov(ins, size, dstReg, src->GetRegNum(), /*canSkip*/ true);
@@ -9615,79 +9612,6 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 #endif // TARGET_X86
 }
 
-// Get the machine dependent instruction for performing sign/zero extension.
-instruction CodeGen::ins_Move_Extend(var_types srcType, bool srcInReg)
-{
-    if (varTypeIsSIMD(srcType))
-    {
-        // SSE2/AVX requires destination to be a reg always.
-        // If src is in reg means, it is a reg-reg move.
-        //
-        // SSE2 Note: always prefer movaps/movups over movapd/movupd since the
-        // former doesn't require 66h prefix and one byte smaller than the
-        // latter.
-        //
-        // TODO-CQ: based on whether src type is aligned use movaps instead
-
-        return srcInReg ? INS_movaps : INS_movups;
-    }
-
-    if (varTypeIsFloating(srcType))
-    {
-        if (!srcInReg)
-        {
-            return srcType == TYP_DOUBLE ? INS_movsdsse2 : INS_movss;
-        }
-
-        return INS_movaps;
-    }
-
-    if (varTypeIsSmall(srcType))
-    {
-        return varTypeIsUnsigned(srcType) ? INS_movzx : INS_movsx;
-    }
-
-    return INS_mov;
-}
-
-// Get the machine dependent instruction for performing a load for srcType
-instruction CodeGen::ins_Load(var_types srcType, bool aligned)
-{
-    assert(srcType != TYP_STRUCT);
-
-    if (varTypeIsSIMD(srcType))
-    {
-#ifdef FEATURE_SIMD
-        if (srcType == TYP_SIMD8)
-        {
-            return INS_movsdsse2;
-        }
-#endif
-        if (compiler->canUseVexEncoding())
-        {
-            return aligned ? INS_movapd : INS_movupd;
-        }
-
-        // SSE2 Note: always prefer movaps/movups over movapd/movupd since the
-        // former doesn't require 66h prefix and one byte smaller than the
-        // latter.
-        return aligned ? INS_movaps : INS_movups;
-    }
-
-    if (varTypeIsFloating(srcType))
-    {
-        return (srcType == TYP_DOUBLE) ? INS_movsdsse2 : INS_movss;
-    }
-
-    if (varTypeIsSmall(srcType))
-    {
-        return varTypeIsUnsigned(srcType) ? INS_movzx : INS_movsx;
-    }
-
-    return INS_mov;
-}
-
-// Get the machine dependent instruction for performing a reg-reg copy for dstType
 instruction CodeGen::ins_Copy(var_types dstType)
 {
     assert(emitTypeActSz[dstType] != 0);
@@ -9695,46 +9619,86 @@ instruction CodeGen::ins_Copy(var_types dstType)
     return varTypeUsesFloatReg(dstType) ? INS_movaps : INS_mov;
 }
 
-// Get the machine dependent instruction for performing a reg-reg copy from srcReg
-// to a register of dstType.
 instruction CodeGen::ins_Copy(regNumber srcReg, var_types dstType)
 {
-    bool dstIsFloatReg = varTypeUsesFloatReg(dstType);
-    bool srcIsFloatReg = genIsValidFloatReg(srcReg);
-
-    if (srcIsFloatReg == dstIsFloatReg)
-    {
-        return ins_Copy(dstType);
-    }
-
-    return INS_movd;
+    return varTypeUsesFloatReg(dstType) != genIsValidFloatReg(srcReg) ? INS_movd : ins_Copy(dstType);
 }
 
-// Get the machine dependent instruction for performing a store for dstType
-instruction CodeGen::ins_Store(var_types dstType, bool aligned)
+instruction CodeGen::ins_Move_Extend(var_types type)
 {
-    if (varTypeIsSIMD(dstType))
+    if (varTypeUsesFloatReg(type))
     {
+        return INS_movaps;
+    }
+
+    if (varTypeIsSmall(type))
+    {
+        return varTypeIsUnsigned(type) ? INS_movzx : INS_movsx;
+    }
+
+    return INS_mov;
+}
+
+instruction CodeGen::ins_Load(var_types srcType, bool aligned)
+{
+    assert(srcType != TYP_STRUCT);
+
 #ifdef FEATURE_SIMD
-        if (dstType == TYP_SIMD8)
+    if (varTypeIsSIMD(srcType))
+    {
+        if (srcType == TYP_SIMD8)
         {
             return INS_movsdsse2;
         }
-#endif
+
         if (compiler->canUseVexEncoding())
         {
             return aligned ? INS_movapd : INS_movupd;
         }
-
-        // SSE2 Note: always prefer movaps/movups over movapd/movupd since the
-        // former doesn't require 66h prefix and one byte smaller than the
-        // latter.
-        return aligned ? INS_movaps : INS_movups;
+        else
+        {
+            return aligned ? INS_movaps : INS_movups;
+        }
     }
+#endif
+
+    if (varTypeIsFloating(srcType))
+    {
+        return srcType == TYP_DOUBLE ? INS_movsdsse2 : INS_movss;
+    }
+
+    if (varTypeIsSmall(srcType))
+    {
+        return varTypeIsUnsigned(srcType) ? INS_movzx : INS_movsx;
+    }
+
+    return INS_mov;
+}
+
+instruction CodeGen::ins_Store(var_types dstType, bool aligned)
+{
+#ifdef FEATURE_SIMD
+    if (varTypeIsSIMD(dstType))
+    {
+        if (dstType == TYP_SIMD8)
+        {
+            return INS_movsdsse2;
+        }
+
+        if (compiler->canUseVexEncoding())
+        {
+            return aligned ? INS_movapd : INS_movupd;
+        }
+        else
+        {
+            return aligned ? INS_movaps : INS_movups;
+        }
+    }
+#endif
 
     if (varTypeIsFloating(dstType))
     {
-        return (dstType == TYP_DOUBLE) ? INS_movsdsse2 : INS_movss;
+        return dstType == TYP_DOUBLE ? INS_movsdsse2 : INS_movss;
     }
 
     return INS_mov;

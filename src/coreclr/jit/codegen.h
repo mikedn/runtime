@@ -836,15 +836,17 @@ protected:
     void genCodeForMulHi(GenTreeOp* treeNode);
     void genLeaInstruction(GenTreeAddrMode* lea);
 
-#if defined(TARGET_ARMARCH)
+#ifdef TARGET_ARMARCH
     void genScaledAdd(emitAttr attr, regNumber targetReg, regNumber baseReg, regNumber indexReg, int scale);
-#endif // TARGET_ARMARCH
+    enum BarrierKind{BARRIER_FULL, BARRIER_LOAD_ONLY};
+    void instGen_MemoryBarrier(BarrierKind barrierKind = BARRIER_FULL);
+#endif
 
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
     void genCodeForMulLong(GenTreeOp* treeNode);
-#endif // TARGET_ARM
+#endif
 
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
     void genLongToIntCast(GenTree* treeNode);
 #endif
 
@@ -1151,6 +1153,7 @@ protected:
     void genCodeForPhysReg(GenTreePhysReg* tree);
     void genCodeForNullCheck(GenTreeIndir* tree);
     void genCodeForCmpXchg(GenTreeCmpXchg* tree);
+    void GenMemoryBarrier(GenTree* barrier);
     void genCodeForInstr(GenTreeInstr* instr);
 
     void genAlignStackBeforeCall(GenTreePutArgStk* putArgStk);
@@ -1421,18 +1424,10 @@ public:
     instruction ins_Copy(var_types dstType);
     instruction ins_Copy(regNumber srcReg, var_types dstType);
 #ifdef TARGET_XARCH
-    instruction ins_Move_Extend(var_types srcType, bool srcInReg);
+    instruction ins_Move_Extend(var_types type);
     instruction ins_FloatCompare(var_types type);
     instruction ins_FloatSqrt(var_types type);
 #endif
-
-    enum BarrierKind
-    {
-        BARRIER_FULL,      // full barrier
-        BARRIER_LOAD_ONLY, // load barier
-    };
-
-    void instGen_MemoryBarrier(BarrierKind barrierKind = BARRIER_FULL);
 
     void instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg);
     void instGen_Set_Reg_To_Imm(emitAttr  size,
