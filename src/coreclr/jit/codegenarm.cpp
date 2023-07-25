@@ -873,7 +873,10 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    GetEmitter()->emitIns_Mov(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg, /*canSkip*/ true);
+    if ((dstReg != srcReg) || (varActualType(lclRegType) != varActualType(src->GetType())))
+    {
+        GetEmitter()->emitIns_Mov(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg, /*canSkip*/ true);
+    }
 
     DefLclVarReg(store);
 }

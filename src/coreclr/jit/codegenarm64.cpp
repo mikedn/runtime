@@ -1998,7 +1998,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     {
         GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, dstReg, 0x00, INS_OPTS_16B);
     }
-    else
+    else if ((dstReg != srcReg) || (varActualType(lclRegType) != varActualType(src->GetType())))
     {
         GetEmitter()->emitIns_Mov(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg,
                                   /* canSkip */ true);

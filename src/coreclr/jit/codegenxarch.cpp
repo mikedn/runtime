@@ -4277,15 +4277,6 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     }
     else
     {
-        // TODO-MIKE-Review: ARM and ARM64 don't seem to be doing the "extend" thing.
-        // Stores to "NormalizeOnStore" locals should have been widened to INT and
-        // "NormalizeOnLoad" locals are usually not register candidates. With the
-        // exception of parameters, but those being "NormalizeOnLoad" have widening
-        // casts on loads, so widening here is redundant.
-
-        instruction ins  = ins_Move_Extend(lclRegType);
-        emitAttr    attr = emitTypeSize(lclRegType);
-
         // Note that src cannot be "reg optional", we don't know in advance if this local
         // will be allocated a register so we could end up with a mem-to-mem copy and
         // need a temporary register, which too must be requested before knowing if this
@@ -4293,7 +4284,38 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         // src node is spilled LSRA should reload it directly in our dstReg.
         regNumber srcReg = UseReg(src);
 
-        GetEmitter()->emitIns_Mov(ins, attr, dstReg, srcReg, /*canSkip*/ true);
+        // TODO-MIKE-Cleanup: emitIns_Mov tries to skip generating useless mov reg, reg
+        // instructions but cannot do it properly because it doesn't know the source reg
+        // type. If the destination type is a GC type then it tries to check GC liveness
+        // to figure out if the destination reg will need to be recorded in GC info, but
+        // then GC liveness is out of sync in at least one common case:
+        //
+        //   mov rdi, ... ; src node loads a value into a reg
+        //   mov rdi, rdi ; store node is normally useless, unless src wasn't a GC ref
+        //                ; but UseReg removes rdi from GC liveness and the emitter now
+        //                ; thinks that rdi isn't a GC ref, according to GC liveness and
+        //                ; emits a useless IF_GC_REG instruction
+        //
+        // Deal with this here, where we can check the source type. This should probably
+        // be moved to inst_Mov, but first the "extend" crap needs to be dealt with, so
+        // code can be more easily shared with ARM and ARM64 and other places that may
+        // need this (basically all reg-to-reg copies).
+        //
+        // Alternative: never generate STORE_LCL_VAR with mismatched source GC type.
+        // Use BITCAST when this happens (rarely anyway) and let it deal with it.
+
+        if ((dstReg != srcReg) || (lclRegType != varActualType(src->GetType())) || varTypeIsSmall(lclRegType))
+        {
+            // TODO-MIKE-Review: ARM and ARM64 don't seem to be doing the "extend" thing.
+            // Stores to "NormalizeOnStore" locals should have been widened to INT and
+            // "NormalizeOnLoad" locals are usually not register candidates. With the
+            // exception of parameters, but those being "NormalizeOnLoad" have widening
+            // casts on loads, so widening here is redundant.
+            instruction ins  = ins_Move_Extend(lclRegType);
+            emitAttr    attr = emitTypeSize(lclRegType);
+
+            GetEmitter()->emitIns_Mov(ins, attr, dstReg, srcReg, /*canSkip*/ true);
+        }
     }
 
     DefLclVarReg(store);
