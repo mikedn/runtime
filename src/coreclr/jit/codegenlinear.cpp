@@ -180,6 +180,13 @@ void CodeGen::genCodeForBBlist()
 
                 needLabel = true;
             }
+            else if ((block->bbPrev != nullptr) && !block->bbPrev->bbFallsThrough())
+            {
+                // TODO-MIKE-Cleanup: Some dead blocks aren't removed. If they don't have a label we
+                // may end up with an insGroup without GC information and crash due to null gcLcls.
+                // Ideally such blocks should be removed but for now just avoid crashing.
+                needLabel = true;
+            }
             else if ((block->bbPrev != nullptr) && (block->bbPrev->bbJumpKind == BBJ_COND) &&
                      (block->bbWeight != block->bbPrev->bbWeight))
             {
