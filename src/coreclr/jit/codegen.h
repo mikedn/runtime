@@ -1414,7 +1414,6 @@ public:
     void inst_AM_R(instruction ins, emitAttr size, regNumber reg, const GenAddrMode& addrMode, unsigned offset = 0);
 
     bool isMoveIns(instruction ins);
-    instruction ins_Move_Extend(var_types srcType, bool srcInReg);
 
     instruction ins_Load(var_types srcType, bool aligned = false);
     instruction ins_Store(var_types dstType, bool aligned = false);
@@ -1422,6 +1421,7 @@ public:
     instruction ins_Copy(var_types dstType);
     instruction ins_Copy(regNumber srcReg, var_types dstType);
 #ifdef TARGET_XARCH
+    instruction ins_Move_Extend(var_types srcType, bool srcInReg);
     instruction ins_FloatCompare(var_types type);
     instruction ins_FloatSqrt(var_types type);
 #endif

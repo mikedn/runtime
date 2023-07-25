@@ -1527,6 +1527,23 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
     DefReg(node);
 }
 
+void CodeGen::instGen_MemoryBarrier(BarrierKind barrierKind)
+{
+#ifdef DEBUG
+    if (JitConfig.JitNoMemoryBarriers() == 1)
+    {
+        return;
+    }
+#endif
+
+#ifdef TARGET_ARM
+    // ARM has only full barriers, so all barriers need to be emitted as full.
+    GetEmitter()->emitIns_I(INS_dmb, EA_4BYTE, 0xf);
+#else
+    GetEmitter()->emitIns_BARR(INS_dmb, barrierKind == BARRIER_LOAD_ONLY ? INS_BARRIER_ISHLD : INS_BARRIER_ISH);
+#endif
+}
+
 void CodeGen::GenDynBlk(GenTreeDynBlk* store)
 {
     ConsumeDynBlk(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
@@ -3511,6 +3528,94 @@ void CodeGen::genCodeForNegNot(GenTreeUnOp* node)
 #endif
 
     DefReg(node);
+}
+
+// Get the machine dependent instruction for performing a load for srcType
+instruction CodeGen::ins_Load(var_types srcType, bool aligned)
+{
+    assert(srcType != TYP_STRUCT);
+
+#ifdef TARGET_ARM
+    if (varTypeUsesFloatReg(srcType))
+    {
+        assert(!varTypeIsSIMD(srcType));
+        return INS_vldr;
+    }
+#endif
+
+    if (varTypeIsSmall(srcType))
+    {
+        if (varTypeIsByte(srcType))
+        {
+            return varTypeIsUnsigned(srcType) ? INS_ldrb : INS_ldrsb;
+        }
+
+        assert(varTypeIsShort(srcType));
+        return varTypeIsUnsigned(srcType) ? INS_ldrh : INS_ldrsh;
+    }
+
+    return INS_ldr;
+}
+
+// Get the machine dependent instruction for performing a reg-reg copy for dstType
+instruction CodeGen::ins_Copy(var_types dstType)
+{
+    assert(emitTypeActSz[dstType] != 0);
+
+#ifdef TARGET_ARM64
+    return varTypeIsFloating(dstType) ? INS_fmov : INS_mov;
+#else
+    return varTypeIsFloating(dstType) ? INS_vmov : INS_mov;
+#endif
+}
+
+// Get the machine dependent instruction for performing a reg-reg copy from srcReg
+// to a register of dstType.
+instruction CodeGen::ins_Copy(regNumber srcReg, var_types dstType)
+{
+    bool dstIsFloatReg = varTypeUsesFloatReg(dstType);
+    bool srcIsFloatReg = genIsValidFloatReg(srcReg);
+
+    if (srcIsFloatReg == dstIsFloatReg)
+    {
+        return ins_Copy(dstType);
+    }
+
+#ifdef TARGET_ARM64
+    return dstIsFloatReg ? INS_fmov : INS_mov;
+#else
+    if (dstIsFloatReg)
+    {
+        // Can't have LONG in a register.
+        assert(dstType == TYP_FLOAT);
+        return INS_vmov_i2f;
+    }
+    else
+    {
+        // Can't have LONG in a register.
+        assert(dstType == TYP_INT);
+        return INS_vmov_f2i;
+    }
+#endif
+}
+
+// Get the machine dependent instruction for performing a store for dstType
+instruction CodeGen::ins_Store(var_types dstType, bool aligned)
+{
+#ifdef TARGET_ARM
+    if (varTypeUsesFloatReg(dstType))
+    {
+        assert(!varTypeIsSIMD(dstType));
+        return INS_vstr;
+    }
+#endif
+
+    if (varTypeIsSmall(dstType))
+    {
+        return varTypeIsByte(dstType) ? INS_strb : INS_strh;
+    }
+
+    return INS_str;
 }
 
 #endif // TARGET_ARMARCH
