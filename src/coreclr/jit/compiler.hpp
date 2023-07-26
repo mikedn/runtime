@@ -1504,28 +1504,6 @@ inline regMaskTP genMapFloatRegArgNumToRegMask(unsigned argNum)
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                          Liveness                                         XX
-XX                      Inline functions                                     XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-/*****************************************************************************
- *
- *  We stash cookies in basic blocks for the code emitter; this call retrieves
- *  the cookie associated with the given basic block.
- */
-
-inline void* emitCodeGetCookie(BasicBlock* block)
-{
-    assert(block);
-    return block->bbEmitCookie;
-}
-
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XX                          Optimizer                                        XX
 XX                      Inline functions                                     XX
 XX                                                                           XX

@@ -1727,6 +1727,11 @@ private:
     const char* emitLabelString(insGroup* ig);
 #endif
 
+    inline insGroup* emitCodeGetCookie(BasicBlock* block)
+    {
+        return static_cast<insGroup*>(block->bbEmitCookie);
+    }
+
 #ifdef TARGET_ARMARCH
 
     void emitGetInstrDescs(insGroup* ig, instrDesc** id, int* insCnt);

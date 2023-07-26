@@ -4195,29 +4195,21 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
 
     if (!id->idjKeepLong)
     {
-        insGroup* tgt = NULL;
+        insGroup* tgt = nullptr;
 
-        /* Can we guess at the jump distance? */
-
-        if (dst != NULL)
+        if (dst != nullptr)
         {
-            tgt = (insGroup*)emitCodeGetCookie(dst);
+            tgt = emitCodeGetCookie(dst);
         }
 
-        if (tgt)
+        if (tgt != nullptr)
         {
-            UNATIVE_OFFSET srcOffs;
-            int            jmpDist;
-
             assert(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
 
-            /* This is a backward jump - figure out the distance */
+            // This is a backward jump - figure out the distance.
 
-            srcOffs = emitCurCodeOffset + emitCurIGsize;
-
-            /* Compute the distance estimate */
-
-            jmpDist = srcOffs - tgt->igOffs;
+            unsigned srcOffs = emitCurCodeOffset + emitCurIGsize;
+            int      jmpDist = srcOffs - tgt->igOffs;
             assert(jmpDist >= 0);
             jmpDist += 4; // Adjustment for ARM PC
 
@@ -6740,25 +6732,16 @@ void emitter::emitDispInsHelp(
                 if (id->idIns() == INS_movt)
                 {
                     unsigned     cnt = jdsc->dsSize / TARGET_POINTER_SIZE;
-                    BasicBlock** bbp = (BasicBlock**)jdsc->dsCont;
+                    BasicBlock** bbp = reinterpret_cast<BasicBlock**>(jdsc->dsCont);
 
-                    bool isBound = (emitCodeGetCookie(*bbp) != NULL);
-
-                    if (isBound)
+                    if (emitCodeGetCookie(*bbp) != nullptr)
                     {
                         printf("\n\n    J_M%03u_DS%02u LABEL   DWORD", emitComp->compMethodID, imm);
 
-                        /* Display the label table (it's stored as "BasicBlock*" values) */
-
                         do
                         {
-                            insGroup* lab;
-
-                            /* Convert the BasicBlock* value to an IG address */
-
-                            lab = (insGroup*)emitCodeGetCookie(*bbp++);
-                            assert(lab);
-
+                            insGroup* lab = emitCodeGetCookie(*bbp++);
+                            assert(lab != nullptr);
                             printf("\n            DD      %s", emitLabelString(lab));
                         } while (--cnt);
                     }

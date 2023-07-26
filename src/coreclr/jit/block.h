@@ -1093,10 +1093,9 @@ struct BasicBlock : private LIR::Range
     };
 
     void* bbEmitCookie;
-
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
     void* bbUnwindNopEmitCookie;
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#endif
 
 #if MEASURE_BLOCK_SIZE
     static size_t s_Size;
@@ -1823,14 +1822,6 @@ struct DfsBlockEntry
     {
     }
 };
-
-/*****************************************************************************
- *
- *  The following call-backs supplied by the client; it's used by the code
- *  emitter to convert a basic block to its corresponding emitter cookie.
- */
-
-void* emitCodeGetCookie(BasicBlock* block);
 
 AllSuccessorIterPosition::AllSuccessorIterPosition(Compiler* comp, BasicBlock* block)
     : m_numNormSuccs(block->NumSucc(comp)), m_remainingNormSucc(m_numNormSuccs), m_ehIter(comp, block)

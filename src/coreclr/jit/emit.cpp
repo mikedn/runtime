@@ -3217,7 +3217,7 @@ AGAIN:
             }
 #endif // DEBUG
 
-            tgtIG = (insGroup*)emitCodeGetCookie(jmp->idAddr()->iiaBBlabel);
+            tgtIG = emitCodeGetCookie(jmp->idAddr()->iiaBBlabel);
 
 #ifdef DEBUG
             if (EMITVERBOSE)
@@ -5463,26 +5463,26 @@ void emitter::emitOutputDataSec(dataSecDsc* sec, BYTE* dst)
             assert(dscSize && dscSize % TARGET_POINTER_SIZE == 0);
             size_t         numElems = dscSize / TARGET_POINTER_SIZE;
             target_size_t* bDstRW   = (target_size_t*)dstRW;
+            BasicBlock**   blocks   = reinterpret_cast<BasicBlock**>(dsc->dsCont);
+
             for (unsigned i = 0; i < numElems; i++)
             {
-                BasicBlock* block = ((BasicBlock**)dsc->dsCont)[i];
-
-                // Convert the BasicBlock* value to an IG address
-                insGroup* lab = (insGroup*)emitCodeGetCookie(block);
+                insGroup* lab = emitCodeGetCookie(blocks[i]);
 
                 // Append the appropriate address to the destination
                 BYTE* target = emitOffsetToPtr(lab->igOffs);
-
 #ifdef TARGET_ARM
                 target = (BYTE*)((size_t)target | 1); // Or in thumb bit
 #endif
+
                 bDstRW[i] = (target_size_t)(size_t)target;
+
                 if (emitComp->opts.compReloc)
                 {
                     emitRecordRelocation(&(bDstRW[i]), target, IMAGE_REL_BASED_HIGHLOW);
                 }
 
-                JITDUMP("  " FMT_BB ": 0x%p\n", block->bbNum, bDstRW[i]);
+                JITDUMP("  " FMT_BB ": 0x%p\n", blocks[i]->bbNum, bDstRW[i]);
             }
         }
         // relative label table
@@ -5490,21 +5490,19 @@ void emitter::emitOutputDataSec(dataSecDsc* sec, BYTE* dst)
         {
             JITDUMP("  section %u, size %u, block relative addr\n", secNum++, dscSize);
 
-            size_t    numElems = dscSize / 4;
-            unsigned* uDstRW   = (unsigned*)dstRW;
-            insGroup* labFirst = (insGroup*)emitCodeGetCookie(emitComp->fgFirstBB);
+            size_t       numElems = dscSize / 4;
+            unsigned*    uDstRW   = (unsigned*)dstRW;
+            insGroup*    labFirst = emitCodeGetCookie(emitComp->fgFirstBB);
+            BasicBlock** blocks   = reinterpret_cast<BasicBlock**>(dsc->dsCont);
 
             for (unsigned i = 0; i < numElems; i++)
             {
-                BasicBlock* block = ((BasicBlock**)dsc->dsCont)[i];
-
-                // Convert the BasicBlock* value to an IG address
-                insGroup* lab = (insGroup*)emitCodeGetCookie(block);
+                insGroup* lab = emitCodeGetCookie(blocks[i]);
 
                 assert(FitsIn<uint32_t>(lab->igOffs - labFirst->igOffs));
                 uDstRW[i] = lab->igOffs - labFirst->igOffs;
 
-                JITDUMP("  " FMT_BB ": 0x%x\n", block->bbNum, uDstRW[i]);
+                JITDUMP("  " FMT_BB ": 0x%x\n", blocks[i]->bbNum, uDstRW[i]);
             }
         }
         else
@@ -5577,9 +5575,10 @@ void emitter::emitDispDataSec(dataSecDsc* section)
 
         if ((data->dsType == dataSection::blockRelative32) || (data->dsType == dataSection::blockAbsoluteAddr))
         {
-            insGroup* igFirst    = static_cast<insGroup*>(emitCodeGetCookie(emitComp->fgFirstBB));
-            bool      isRelative = (data->dsType == dataSection::blockRelative32);
-            size_t    blockCount = data->dsSize / (isRelative ? 4 : TARGET_POINTER_SIZE);
+            insGroup*    igFirst    = emitCodeGetCookie(emitComp->fgFirstBB);
+            bool         isRelative = (data->dsType == dataSection::blockRelative32);
+            size_t       blockCount = data->dsSize / (isRelative ? 4 : TARGET_POINTER_SIZE);
+            BasicBlock** blocks     = reinterpret_cast<BasicBlock**>(data->dsCont);
 
             for (unsigned i = 0; i < blockCount; i++)
             {
@@ -5588,8 +5587,7 @@ void emitter::emitDispDataSec(dataSecDsc* section)
                     printf(labelFormat, "");
                 }
 
-                BasicBlock* block = reinterpret_cast<BasicBlock**>(data->dsCont)[i];
-                insGroup*   ig    = static_cast<insGroup*>(emitCodeGetCookie(block));
+                insGroup* ig = emitCodeGetCookie(blocks[i]);
 
                 const char* blockLabel = emitLabelString(ig);
                 const char* firstLabel = emitLabelString(igFirst);

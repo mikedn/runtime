@@ -5749,17 +5749,15 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
 
         if (dst != nullptr)
         {
-            /* This is a jump - assume the worst */
-            sz = (ins == INS_jmp) ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
-            /* Can we guess at the jump distance? */
-            tgt = (insGroup*)emitCodeGetCookie(dst);
+            sz  = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
+            tgt = emitCodeGetCookie(dst);
         }
         else
         {
             sz = JMP_SIZE_SMALL;
         }
 
-        if (tgt)
+        if (tgt != nullptr)
         {
             int            extra;
             UNATIVE_OFFSET srcOffs;
@@ -6794,7 +6792,7 @@ void emitter::emitDispAddrMode(instrDesc* id, bool noDetail)
     if (jdsc && !noDetail)
     {
         unsigned     cnt = (jdsc->dsSize - 1) / TARGET_POINTER_SIZE;
-        BasicBlock** bbp = (BasicBlock**)jdsc->dsCont;
+        BasicBlock** bbp = reinterpret_cast<BasicBlock**>(jdsc->dsCont);
 
 #ifdef TARGET_AMD64
 #define SIZE_LETTER "Q"
@@ -6803,17 +6801,10 @@ void emitter::emitDispAddrMode(instrDesc* id, bool noDetail)
 #endif
         printf("\n\n    J_M%03u_DS%02u LABEL   " SIZE_LETTER "WORD", emitComp->compMethodID, jtno);
 
-        /* Display the label table (it's stored as "BasicBlock*" values) */
-
         do
         {
-            insGroup* lab;
-
-            /* Convert the BasicBlock* value to an IG address */
-
-            lab = (insGroup*)emitCodeGetCookie(*bbp++);
-            assert(lab);
-
+            insGroup* lab = emitCodeGetCookie(*bbp++);
+            assert(lab != nullptr);
             printf("\n            D" SIZE_LETTER "      %s", emitLabelString(lab));
         } while (--cnt);
     }
