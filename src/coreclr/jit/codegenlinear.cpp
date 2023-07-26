@@ -494,6 +494,14 @@ void CodeGen::genCodeForBBlist()
                 FALLTHROUGH;
             case BBJ_EHFINALLYRET:
             case BBJ_EHFILTERRET:
+#ifdef TARGET_AMD64
+                // We're about to create an epilog. If the last instruction we output was a 'call',
+                // then we need to insert a NOP, to allow for proper exception - handling behavior.
+                if (GetEmitter()->IsLastInsCall())
+                {
+                    GetEmitter()->emitIns(INS_nop);
+                }
+#endif
                 GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_EPILOG, block);
                 break;
 #else
@@ -515,7 +523,7 @@ void CodeGen::genCodeForBBlist()
                 //    an epilog might be slightly different from what the OS considers an epilog, and it is
                 //    the OS-reported epilog that matters here.
                 //
-                // We handle case #1 here, and case #2 in the emitter.
+                // We handle case #1 here, and case #2 when handling return blocks.
 
                 // Note: we may be generating a few too many NOPs for the case of call preceding an epilog.
                 // Technically, if the next block is a BBJ_RETURN, an epilog will be generated, but there
@@ -539,14 +547,18 @@ void CodeGen::genCodeForBBlist()
                 break;
 
             case BBJ_SWITCH:
+#ifdef TARGET_AMD64
                 assert(!GetEmitter()->IsLastInsCall());
+#endif
                 break;
 
             case BBJ_ALWAYS:
                 inst_JMP(EJ_jmp, block->bbJumpDest);
                 FALLTHROUGH;
             case BBJ_COND:
+#ifdef TARGET_AMD64
                 assert(!GetEmitter()->IsLastInsCall());
+#endif
 #if FEATURE_LOOP_ALIGN
                 // This is the last place where we operate on blocks and after this, we operate
                 // on IG. Hence, if we know that the destination of "block" is the first block
@@ -625,6 +637,15 @@ void CodeGen::genExitCode(BasicBlock* block)
         EpilogGSCookieCheck();
 #endif
     }
+
+#ifdef TARGET_AMD64
+    // We're about to create an epilog. If the last instruction we output was a 'call',
+    // then we need to insert a NOP, to allow for proper exception - handling behavior.
+    if (GetEmitter()->IsLastInsCall())
+    {
+        GetEmitter()->emitIns(INS_nop);
+    }
+#endif
 
     GetEmitter()->emitCreatePlaceholderIG(IGPT_EPILOG, block);
 }

@@ -1257,15 +1257,6 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         assert(igType == IGPT_EPILOG);
 #endif
 
-#ifdef TARGET_AMD64
-        // We're about to create an epilog. If the last instruction we output was a 'call',
-        // then we need to insert a NOP, to allow for proper exception - handling behavior.
-        if (IsLastInsCall())
-        {
-            emitIns(INS_nop);
-        }
-#endif
-
         JITDUMP("Reserving %sepilog IG for block " FMT_BB "\n", igType != IGPT_EPILOG ? "funclet " : "", igBB->bbNum);
 
         if (emitCurIGnonEmpty())
