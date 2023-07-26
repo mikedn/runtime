@@ -1252,11 +1252,11 @@ protected:
     void GenJCmp(GenTreeOp* jcmp, BasicBlock* block);
 #endif
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     void genEHCatchRet(BasicBlock* block);
-#else  // !FEATURE_EH_FUNCLETS
+#else
     void genEHFinallyOrFilterRet(BasicBlock* block);
-#endif // !FEATURE_EH_FUNCLETS
+#endif
 
 #ifndef WINDOWS_AMD64_ABI
     void genMultiRegStructReturn(GenTree* src);

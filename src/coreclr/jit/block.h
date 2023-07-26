@@ -756,6 +756,11 @@ struct BasicBlock : private LIR::Range
         BBswtDesc*  bbJumpSwt;  // switch descriptor
     };
 
+    BBjumpKinds GetKind() const
+    {
+        return bbJumpKind;
+    }
+
     bool KindIs(BBjumpKinds kind) const
     {
         return bbJumpKind == kind;

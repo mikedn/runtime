@@ -254,7 +254,7 @@ void CodeGen::SetStackLevel(unsigned newStackLevel)
 
 BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
 {
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     // Generate a call to the finally, like this:
     //      mov         rcx,qword ptr [rbp + 20H]       // Load rcx with PSPSym
     //      call        finally-funclet
@@ -269,7 +269,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     {
 #ifndef UNIX_X86_ABI
         inst_Mov(TYP_I_IMPL, REG_ARG_0, REG_SPBASE, /* canSkip */ false);
-#endif // !UNIX_X86_ABI
+#endif
     }
     else
     {
@@ -298,7 +298,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
         // after the call is not (can not be) correct in cases where a variable has a last use in the
         // handler.  So turn off GC reporting for this single instruction.
         GetEmitter()->emitDisableGC();
-#endif // JIT32_GCENCODER
+#endif
 
         // Now go to where the finally funclet needs to return to.
         if (block->bbNext->bbJumpDest == block->bbNext->bbNext)
@@ -316,7 +316,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
 
 #ifndef JIT32_GCENCODER
         GetEmitter()->emitEnableGC();
-#endif // JIT32_GCENCODER
+#endif
     }
 
 #else // !FEATURE_EH_FUNCLETS
@@ -386,7 +386,8 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     return block;
 }
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
+
 void CodeGen::genEHCatchRet(BasicBlock* block)
 {
     // Set RAX to the address the VM should return to after the catch.
