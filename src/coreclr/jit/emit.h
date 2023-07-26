@@ -1582,6 +1582,7 @@ public:
 #endif
 
     insGroup* emitCurIG;
+    insGroup* emitCurLabel = nullptr;
 
     void emitSetShortJump(instrDescJmp* id);
     void emitSetMediumJump(instrDescJmp* id);
@@ -1693,12 +1694,12 @@ private:
         return (emitCurIG != nullptr) && (emitCurIGfreeNext > emitCurIGfreeBase);
     }
 
-    instrDesc* emitLastIns   = nullptr;
-    insGroup*  emitLastInsIG = nullptr;
+    instrDesc* emitLastIns      = nullptr;
+    insGroup*  emitLastInsLabel = nullptr;
 
-    bool IsLastInsInCurrentGroup() const
+    instrDesc* GetLastInsInCurrentBlock() const
     {
-        return (emitLastIns != nullptr) && (emitLastInsIG == emitCurIG);
+        return (emitLastIns != nullptr) && (emitLastInsLabel == emitCurLabel) ? emitLastIns : nullptr;
     }
 
 #ifdef TARGET_AMD64

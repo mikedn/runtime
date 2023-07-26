@@ -337,12 +337,12 @@ bool emitter::IsFlagsAlwaysModified(instrDesc* id)
 
 bool emitter::AreUpper32BitsZero(regNumber reg)
 {
-    if (!IsLastInsInCurrentGroup())
+    instrDesc* id = GetLastInsInCurrentBlock();
+
+    if (id == nullptr)
     {
         return false;
     }
-
-    instrDesc* id = emitLastIns;
 
     // This isn't meant to be a comprehensive check. Just look for what
     // seems to be common.
@@ -411,12 +411,12 @@ bool emitter::AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps tr
 {
     assert(reg != REG_NA);
 
-    if (!IsLastInsInCurrentGroup())
+    instrDesc* id = GetLastInsInCurrentBlock();
+
+    if (id == nullptr)
     {
         return false;
     }
-
-    instrDesc* id = emitLastIns;
 
     // make sure op1 is a reg
     switch (id->idInsFmt())
@@ -3863,19 +3863,13 @@ bool emitter::IsRedundantMov(
         return true;
     }
 
-    if (!IsLastInsInCurrentGroup())
-    {
-        return false;
-    }
-
-    instrDesc* lastIns = emitLastIns;
+    instrDesc* lastIns = GetLastInsInCurrentBlock();
 
     // TODO-XArch-CQ: Certain instructions, such as movaps vs movups, are equivalent in
     // functionality even if their actual identifier differs and we should optimize these
 
-    if ((lastIns->idIns() != ins) ||     // or if the instruction is different from the last instruction
-        (lastIns->idOpSize() != size) || // or if the operand size is different from the last instruction
-        (lastIns->idInsFmt() != fmt))    // or if the format is different from the last instruction
+    if ((lastIns == nullptr) || (lastIns->idIns() != ins) || (lastIns->idOpSize() != size) ||
+        (lastIns->idInsFmt() != fmt))
     {
         return false;
     }

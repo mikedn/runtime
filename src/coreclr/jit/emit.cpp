@@ -1034,8 +1034,8 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
     assert(id->idCodeSize() == 0);
 #endif
 
-    emitLastIns   = id;
-    emitLastInsIG = emitCurIG;
+    emitLastIns      = id;
+    emitLastInsLabel = emitCurLabel;
 
     INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz)));
 
@@ -1110,13 +1110,13 @@ emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
         return nullptr;
     }
 
-    instrDesc* lastIns   = emitLastIns;
-    insGroup*  lastInsIG = emitLastInsIG;
+    instrDesc* lastIns      = emitLastIns;
+    insGroup*  lastInsLabel = emitLastInsLabel;
 
     instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(SMALL_IDSC_SIZE, attr));
 
-    emitLastIns   = lastIns;
-    emitLastInsIG = lastInsIG;
+    emitLastIns      = lastIns;
+    emitLastInsLabel = lastInsLabel;
 
     id->idSetIsSmallDsc();
     id->idIns(INS_mov);
@@ -1619,6 +1619,8 @@ insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
     }
 #endif
 
+    emitCurLabel = emitCurIG;
+
     return emitCurIG;
 }
 
@@ -1628,6 +1630,8 @@ insGroup* emitter::emitAddInlineLabel()
     {
         emitExtendIG();
     }
+
+    emitCurLabel = emitCurIG;
 
     return emitCurIG;
 }

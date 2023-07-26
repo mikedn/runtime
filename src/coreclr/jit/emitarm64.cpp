@@ -14387,60 +14387,56 @@ bool emitter::IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regN
         }
     }
 
-    if (!IsLastInsInCurrentGroup())
+    instrDesc* lastIns = GetLastInsInCurrentBlock();
+
+    if ((lastIns == nullptr) || (lastIns->idIns() != INS_mov) || (lastIns->idOpSize() != size))
     {
         return false;
     }
 
-    instrDesc* lastIns = emitLastIns;
+    // Check if we did same move in prev instruction except dst/src were switched.
+    regNumber prevDst    = lastIns->idReg1();
+    regNumber prevSrc    = lastIns->idReg2();
+    insFormat lastInsfmt = lastIns->idInsFmt();
 
-    if ((lastIns != nullptr) && (lastIns->idIns() == INS_mov) && // Don't optimize if last instruction was not 'mov'.
-        (lastIns->idOpSize() == size)) // Don't optimize if operand size is different than previous instruction.
+    // Sometimes lastIns can be a mov with single register e.g. "mov reg, #imm". So ensure to
+    // optimize formats that does vector-to-vector or scalar-to-scalar register movs.
+    //
+    const bool isValidLastInsFormats =
+        ((lastInsfmt == IF_DV_3C) || (lastInsfmt == IF_DR_2G) || (lastInsfmt == IF_DR_2E));
+
+    if (isValidLastInsFormats && (prevDst == dst) && (prevSrc == src))
     {
-        // Check if we did same move in prev instruction except dst/src were switched.
-        regNumber prevDst    = lastIns->idReg1();
-        regNumber prevSrc    = lastIns->idReg2();
-        insFormat lastInsfmt = lastIns->idInsFmt();
+        assert(lastIns->idOpSize() == size);
+        JITDUMP("\n -- suppressing mov because previous instruction already moved from src to dst register.\n");
+        return true;
+    }
 
-        // Sometimes lastIns can be a mov with single register e.g. "mov reg, #imm". So ensure to
-        // optimize formats that does vector-to-vector or scalar-to-scalar register movs.
-        //
-        const bool isValidLastInsFormats =
-            ((lastInsfmt == IF_DV_3C) || (lastInsfmt == IF_DR_2G) || (lastInsfmt == IF_DR_2E));
-
-        if (isValidLastInsFormats && (prevDst == dst) && (prevSrc == src))
+    if ((prevDst == src) && (prevSrc == dst) && isValidLastInsFormats)
+    {
+        // For mov with EA_8BYTE, ensure src/dst are both scalar or both vector.
+        if (size == EA_8BYTE)
         {
-            assert(lastIns->idOpSize() == size);
-            JITDUMP("\n -- suppressing mov because previous instruction already moved from src to dst register.\n");
+            if (isVectorRegister(src) == isVectorRegister(dst))
+            {
+                JITDUMP("\n -- suppressing mov because previous instruction already did an opposite move from dst "
+                        "to src register.\n");
+                return true;
+            }
+        }
+
+        // For mov with EA_16BYTE, both src/dst will be vector.
+        else if (size == EA_16BYTE)
+        {
+            assert(isVectorRegister(src) && isVectorRegister(dst));
+            assert(lastInsfmt == IF_DV_3C);
+
+            JITDUMP("\n -- suppressing mov because previous instruction already did an opposite move from dst to "
+                    "src register.\n");
             return true;
         }
 
-        if ((prevDst == src) && (prevSrc == dst) && isValidLastInsFormats)
-        {
-            // For mov with EA_8BYTE, ensure src/dst are both scalar or both vector.
-            if (size == EA_8BYTE)
-            {
-                if (isVectorRegister(src) == isVectorRegister(dst))
-                {
-                    JITDUMP("\n -- suppressing mov because previous instruction already did an opposite move from dst "
-                            "to src register.\n");
-                    return true;
-                }
-            }
-
-            // For mov with EA_16BYTE, both src/dst will be vector.
-            else if (size == EA_16BYTE)
-            {
-                assert(isVectorRegister(src) && isVectorRegister(dst));
-                assert(lastInsfmt == IF_DV_3C);
-
-                JITDUMP("\n -- suppressing mov because previous instruction already did an opposite move from dst to "
-                        "src register.\n");
-                return true;
-            }
-
-            // For mov of other sizes, don't optimize because it has side-effect of clearing the upper bits.
-        }
+        // For mov of other sizes, don't optimize because it has side-effect of clearing the upper bits.
     }
 
     return false;
@@ -14472,12 +14468,7 @@ bool emitter::IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regN
 bool emitter::IsRedundantLdStr(
     instruction ins, regNumber reg1, regNumber reg2, ssize_t imm, emitAttr size, insFormat fmt)
 {
-    if (!IsLastInsInCurrentGroup())
-    {
-        return false;
-    }
-
-    instrDesc* lastIns = emitLastIns;
+    instrDesc* lastIns = GetLastInsInCurrentBlock();
 
     if ((lastIns == nullptr) || ((ins != INS_ldr) && (ins != INS_str)))
     {
