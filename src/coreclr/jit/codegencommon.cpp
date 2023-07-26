@@ -590,35 +590,6 @@ void AddrMode::Extract(Compiler* compiler)
     assert((base != nullptr) || ((index != nullptr) && (scale > 1)));
 }
 
-/*****************************************************************************
- *
- *  Generate an exit sequence for a return from a method (note: when compiling
- *  for speed there might be multiple exit points).
- */
-
-void CodeGen::genExitCode(BasicBlock* block)
-{
-    /* Just wrote the first instruction of the epilog - inform debugger
-       Note that this may result in a duplicate IPmapping entry, and
-       that this is ok  */
-
-    // For non-optimized debuggable code, there is only one epilog.
-    genIPmappingAdd((IL_OFFSETX)ICorDebugInfo::EPILOG, true);
-
-    if (compiler->getNeedsGSSecurityCookie())
-    {
-        bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
-
-#ifdef TARGET_XARCH
-        EpilogGSCookieCheck(jmpEpilog);
-#else
-        EpilogGSCookieCheck();
-#endif
-    }
-
-    GetEmitter()->emitCreatePlaceholderIG(IGPT_EPILOG, block);
-}
-
 //------------------------------------------------------------------------
 // genJumpToThrowHlpBlk: Generate code for an out-of-line exception.
 //

@@ -646,6 +646,27 @@ void CodeGen::genCodeForBBlist()
     liveness.End(this);
 }
 
+void CodeGen::genExitCode(BasicBlock* block)
+{
+    // Just wrote the first instruction of the epilog - inform debugger
+    // Note that this may result in a duplicate IPmapping entry, and
+    // that this is ok.
+
+    // For non-optimized debuggable code, there is only one epilog.
+    genIPmappingAdd(static_cast<IL_OFFSETX>(ICorDebugInfo::EPILOG), true);
+
+    if (compiler->getNeedsGSSecurityCookie())
+    {
+#ifdef TARGET_XARCH
+        EpilogGSCookieCheck((block->bbFlags & BBF_HAS_JMP) != 0);
+#else
+        EpilogGSCookieCheck();
+#endif
+    }
+
+    GetEmitter()->emitCreatePlaceholderIG(IGPT_EPILOG, block);
+}
+
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
