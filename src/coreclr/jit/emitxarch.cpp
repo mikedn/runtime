@@ -1111,22 +1111,6 @@ unsigned emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, BYTE* dst, c
     return 0;
 }
 
-#ifdef TARGET_AMD64
-
-/*****************************************************************************
- * We're about to create an epilog. If the last instruction we output was a 'call',
- * then we need to insert a NOP, to allow for proper exception-handling behavior.
- */
-void emitter::emitOutputPreEpilogNOP()
-{
-    if (IsLastInsCall())
-    {
-        emitIns(INS_nop);
-    }
-}
-
-#endif // TARGET_AMD64
-
 // Size of rex prefix in bytes
 unsigned emitter::emitGetRexPrefixSize(instruction ins)
 {
