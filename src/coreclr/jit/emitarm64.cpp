@@ -11377,6 +11377,11 @@ void emitter::emitDispInsHex(instrDesc* id, BYTE* code, size_t sz)
 void emitter::emitDispIns(
     instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, BYTE* pCode, size_t sz, insGroup* ig)
 {
+    if (id->idInsFmt() == IF_GC_REG)
+    {
+        return;
+    }
+
     if (EMITVERBOSE)
     {
         unsigned idNum =

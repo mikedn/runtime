@@ -7148,6 +7148,11 @@ void emitter::emitDispIns(
 {
     insFormat fmt = id->idInsFmt();
 
+    if (fmt == IF_GC_REG)
+    {
+        return;
+    }
+
     /* Special-case IF_LARGEJMP */
 
     if ((fmt == IF_LARGEJMP) && id->idIsBound())

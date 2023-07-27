@@ -6889,9 +6889,13 @@ const char* emitSizeStr(emitAttr attr)
 void emitter::emitDispIns(
     instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, BYTE* code, size_t sz, insGroup* ig)
 {
+    if (id->idInsFmt() == IF_GC_REG)
+    {
+        return;
+    }
+
     emitAttr    attr;
     const char* sstr;
-
     instruction ins = id->idIns();
 
     if (emitComp->verbose)
