@@ -2058,9 +2058,9 @@ void CodeGen::GenJTrue(GenTreeUnOp* jtrue, BasicBlock* block)
 void CodeGen::GenJCC(GenTreeCC* jcc, BasicBlock* block)
 {
     assert(jcc->OperIs(GT_JCC));
-    assert(block->bbJumpKind == BBJ_COND);
+    assert(block->KindIs(BBJ_COND));
 
-    inst_JCC(jcc->gtCondition, block->bbJumpDest);
+    inst_JCC(jcc->GetCondition(), block->bbJumpDest);
 }
 
 //------------------------------------------------------------------------
@@ -2092,17 +2092,11 @@ void CodeGen::inst_JCC(GenCondition condition, BasicBlock* target)
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForSetcc: Generate code for a GT_SETCC node.
-//
-// Arguments:
-//    setcc - The node
-//
 void CodeGen::genCodeForSetcc(GenTreeCC* setcc)
 {
     assert(setcc->OperIs(GT_SETCC));
 
-    inst_SETCC(setcc->gtCondition, setcc->TypeGet(), setcc->GetRegNum());
+    inst_SETCC(setcc->GetCondition(), setcc->GetType(), setcc->GetRegNum());
     genProduceReg(setcc);
 }
 

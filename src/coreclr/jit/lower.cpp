@@ -1745,42 +1745,31 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
 }
 
 #ifndef TARGET_64BIT
-//------------------------------------------------------------------------
-// Lowering::DecomposeLongCompare: Decomposes a TYP_LONG compare node.
-//
-// Arguments:
-//    cmp - the compare node
-//
-// Return Value:
-//    The next node to lower.
-//
-// Notes:
-//    This is done during lowering because DecomposeLongs handles only nodes
-//    that produce TYP_LONG values. Compare nodes may consume TYP_LONG values
-//    but produce TYP_INT values.
-//
-GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
+// Decomposes a LONG compare node.
+// This is done during lowering because DecomposeLongs handles only nodes
+// that produce LONG values. Compare nodes may consume LONG values but
+// produce INT values.
+GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
 {
-    assert(cmp->gtGetOp1()->TypeGet() == TYP_LONG);
+    assert(cmp->GetOp(0)->TypeIs(TYP_LONG));
 
-    GenTree* src1 = cmp->gtGetOp1();
-    GenTree* src2 = cmp->gtGetOp2();
+    GenTreeOp* src1 = cmp->GetOp(0)->AsOp();
+    GenTreeOp* src2 = cmp->GetOp(1)->AsOp();
     assert(src1->OperIs(GT_LONG));
     assert(src2->OperIs(GT_LONG));
-    GenTree* loSrc1 = src1->gtGetOp1();
-    GenTree* hiSrc1 = src1->gtGetOp2();
-    GenTree* loSrc2 = src2->gtGetOp1();
-    GenTree* hiSrc2 = src2->gtGetOp2();
+    GenTree* loSrc1 = src1->GetOp(0);
+    GenTree* hiSrc1 = src1->GetOp(1);
+    GenTree* loSrc2 = src2->GetOp(0);
+    GenTree* hiSrc2 = src2->GetOp(1);
     BlockRange().Remove(src1);
     BlockRange().Remove(src2);
 
-    genTreeOps condition = cmp->OperGet();
+    genTreeOps condition = cmp->GetOper();
     GenTree*   loCmp;
     GenTree*   hiCmp;
 
     if (cmp->OperIs(GT_EQ, GT_NE))
     {
-        //
         // Transform (x EQ|NE y) into (((x.lo XOR y.lo) OR (x.hi XOR y.hi)) EQ|NE 0). If y is 0 then this can
         // be reduced to just ((x.lo OR x.hi) EQ|NE 0). The OR is expected to set the condition flags so we
         // don't need to generate a redundant compare against 0, we only generate a SETCC|JCC instruction.
@@ -1789,7 +1778,6 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
         // the first happens to be a constant. Usually only the second compare operand is a constant but it's
         // still possible to have a constant on the left side. For example, when src1 is a uint->ulong cast
         // then hiSrc1 would be 0.
-        //
 
         if (loSrc1->OperIs(GT_CNS_INT))
         {
@@ -1808,7 +1796,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
             ContainCheckBinary(loCmp->AsOp());
         }
 
-        if (hiSrc1->OperIs(GT_CNS_INT))
+        if (hiSrc1->IsIntCon())
         {
             std::swap(hiSrc1, hiSrc2);
         }
@@ -1833,7 +1821,6 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
     {
         assert(cmp->OperIs(GT_LT, GT_LE, GT_GE, GT_GT));
 
-        //
         // If the compare is signed then (x LT|GE y) can be transformed into ((x SUB y) LT|GE 0).
         // If the compare is unsigned we can still use SUB but we need to check the Carry flag,
         // not the actual result. In both cases we can simply check the appropiate condition flags
@@ -1854,16 +1841,15 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
         // moves to the first operand where it cannot be contained and thus needs a register. This can
         // be avoided by changing the constant such that LE|GT becomes LT|GE:
         //     (x LE|GT 41) becomes (x LT|GE 42)
-        //
 
         if (cmp->OperIs(GT_LE, GT_GT))
         {
             bool mustSwap = true;
 
-            if (loSrc2->OperIs(GT_CNS_INT) && hiSrc2->OperIs(GT_CNS_INT))
+            if (loSrc2->IsIntCon() && hiSrc2->IsIntCon())
             {
-                uint32_t loValue  = static_cast<uint32_t>(loSrc2->AsIntCon()->IconValue());
-                uint32_t hiValue  = static_cast<uint32_t>(hiSrc2->AsIntCon()->IconValue());
+                uint32_t loValue  = static_cast<uint32_t>(loSrc2->AsIntCon()->GetValue());
+                uint32_t hiValue  = static_cast<uint32_t>(hiSrc2->AsIntCon()->GetValue());
                 uint64_t value    = static_cast<uint64_t>(loValue) | (static_cast<uint64_t>(hiValue) << 32);
                 uint64_t maxValue = cmp->IsUnsigned() ? UINT64_MAX : INT64_MAX;
 
@@ -1872,8 +1858,8 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
                     value++;
                     loValue = value & UINT32_MAX;
                     hiValue = (value >> 32) & UINT32_MAX;
-                    loSrc2->AsIntCon()->SetIconValue(loValue);
-                    hiSrc2->AsIntCon()->SetIconValue(hiValue);
+                    loSrc2->AsIntCon()->SetValue(loValue);
+                    hiSrc2->AsIntCon()->SetValue(hiValue);
 
                     condition = cmp->OperIs(GT_LE) ? GT_LT : GT_GE;
                     mustSwap  = false;
@@ -1917,13 +1903,11 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
             ContainCheckCompare(loCmp->AsOp());
             ContainCheckBinary(hiCmp->AsOp());
 
-            //
             // Try to move the first SUB_HI operands right in front of it, this allows using
             // a single temporary register instead of 2 (one for CMP and one for SUB_HI). Do
             // this only for locals as they won't change condition flags. Note that we could
             // move constants (except 0 which generates XOR reg, reg) but it's extremely rare
             // to have a constant as the first operand.
-            //
 
             if (hiSrc1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
@@ -1934,6 +1918,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
     }
 
     hiCmp->gtFlags |= GTF_SET_FLAGS;
+
     if (hiCmp->IsValue())
     {
         hiCmp->SetUnusedValue();
@@ -1948,7 +1933,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
         jcc->AsOp()->gtOp1 = nullptr;
         jcc->ChangeOper(GT_JCC);
         jcc->gtFlags |= GTF_USE_FLAGS;
-        jcc->AsCC()->gtCondition = GenCondition::FromIntegralRelop(condition, cmp->IsUnsigned());
+        jcc->AsCC()->SetCondition(GenCondition::FromIntegralRelop(condition, cmp->IsUnsigned()));
     }
     else
     {
@@ -1956,7 +1941,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
         cmp->AsOp()->gtOp2 = nullptr;
         cmp->ChangeOper(GT_SETCC);
         cmp->gtFlags |= GTF_USE_FLAGS;
-        cmp->AsCC()->gtCondition = GenCondition::FromIntegralRelop(condition, cmp->IsUnsigned());
+        cmp->AsCC()->SetCondition(GenCondition::FromIntegralRelop(condition, cmp->IsUnsigned()));
     }
 
     return cmp->gtNext;

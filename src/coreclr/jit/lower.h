@@ -95,7 +95,7 @@ private:
 
     void LowerCall(GenTreeCall* call);
 #ifndef TARGET_64BIT
-    GenTree* DecomposeLongCompare(GenTree* cmp);
+    GenTree* DecomposeLongCompare(GenTreeOp* cmp);
 #endif
 #ifndef TARGET_ARM64
     GenTree* OptimizeConstCompare(GenTreeOp* cmp);

@@ -1260,16 +1260,6 @@ public:
         return OperIsCompare(gtOper);
     }
 
-    static bool OperIsLogical(genTreeOps gtOper)
-    {
-        return (gtOper == GT_AND) || (gtOper == GT_OR) || (gtOper == GT_XOR);
-    }
-
-    bool OperIsLogical() const
-    {
-        return OperIsLogical(gtOper);
-    }
-
     static bool OperIsShift(genTreeOps gtOper)
     {
         return (gtOper == GT_LSH) || (gtOper == GT_RSH) || (gtOper == GT_RSZ);
@@ -7329,6 +7319,16 @@ public:
     {
     }
 
+    bool operator==(Code code) const
+    {
+        return m_code == code;
+    }
+
+    bool operator!=(Code code) const
+    {
+        return m_code != code;
+    }
+
     static_assert((GT_NE - GT_EQ) == (NE & ~Unsigned), "bad relop");
     static_assert((GT_LT - GT_EQ) == SLT, "bad relop");
     static_assert((GT_LE - GT_EQ) == SLE, "bad relop");
@@ -7434,19 +7434,29 @@ public:
 
 struct GenTreeCC final : public GenTree
 {
-    GenCondition gtCondition;
+private:
+    GenCondition condition;
 
+public:
     GenTreeCC(genTreeOps oper, GenCondition condition, var_types type = TYP_VOID)
-        : GenTree(oper, type DEBUGARG(/*largeNode*/ FALSE)), gtCondition(condition)
+        : GenTree(oper, type DEBUGARG(/*largeNode*/ false)), condition(condition)
     {
         assert(OperIs(GT_JCC, GT_SETCC));
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeCC() : GenTree()
+    GenCondition GetCondition() const
     {
+        return condition;
     }
-#endif // DEBUGGABLE_GENTREE
+
+    void SetCondition(GenCondition cond)
+    {
+        condition = cond;
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeCC() = default;
+#endif
 };
 
 //------------------------------------------------------------------------

@@ -705,23 +705,19 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 //
 GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
 {
-    assert(cmp->GetOp(1)->IsIntegralConst());
-
     GenTree*       op1      = cmp->GetOp(0);
     GenTreeIntCon* op2      = cmp->GetOp(1)->AsIntCon();
     var_types      op1Type  = op1->GetType();
     ssize_t        op2Value = op2->GetValue();
 
-    if (IsContainableMemoryOp(op1) && varTypeIsSmall(op1Type) && genSmallTypeCanRepresentValue(op1Type, op2Value))
+    if (IsContainableMemoryOp(op1) && varTypeIsSmall(op1Type) && varTypeSmallIntCanRepresentValue(op1Type, op2Value))
     {
-        //
         // If op1's type is small then try to narrow op2 so it has the same type as op1.
         // Small types are usually used by memory loads and if both compare operands have
         // the same type then the memory load can be contained. In certain situations
         // (e.g "cmp ubyte, 200") we also get a smaller instruction encoding.
-        //
 
-        op2->gtType = op1Type;
+        op2->SetType(op1Type);
     }
     else if (op1->IsCast() && !op1->gtOverflow())
     {
@@ -729,22 +725,18 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
         var_types    castToType = cast->GetCastType();
         GenTree*     castOp     = cast->GetOp(0);
 
-        if (((castToType == TYP_BOOL) || (castToType == TYP_UBYTE)) && FitsIn<UINT8>(op2Value))
+        if (((castToType == TYP_BOOL) || (castToType == TYP_UBYTE)) && FitsIn<uint8_t>(op2Value))
         {
-            //
             // Since we're going to remove the cast we need to be able to narrow the cast operand
             // to the cast type. This can be done safely only for certain opers (e.g AND, OR, XOR).
             // Some opers just can't be narrowed (e.g DIV, MUL) while other could be narrowed but
             // doing so would produce incorrect results (e.g. RSZ, RSH).
             //
             // The below list of handled opers is conservative but enough to handle the most common
-            // situations. In particular this include CALL, sometimes the JIT unnecessarilly widens
+            // situations. In particular this include CALL, sometimes the JIT unnecessarily widens
             // the result of bool returning calls.
-            //
-            bool removeCast =
-                (castOp->OperIs(GT_CALL, GT_LCL_VAR) || castOp->OperIsLogical() || IsContainableMemoryOp(castOp));
 
-            if (removeCast)
+            if (castOp->OperIs(GT_CALL, GT_LCL_VAR, GT_AND, GT_OR, GT_XOR) || IsContainableMemoryOp(castOp))
             {
                 assert(!castOp->gtOverflowEx()); // Must not be an overflow checking operation
 
@@ -752,20 +744,24 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
                 op2->SetType(castToType);
 
                 // If we have any contained memory ops on castOp, they must now not be contained.
-                if (castOp->OperIsLogical())
+                if (castOp->OperIs(GT_AND, GT_OR, GT_XOR))
                 {
-                    GenTree* op1 = castOp->gtGetOp1();
-                    if ((op1 != nullptr) && !op1->IsCnsIntOrI())
+                    GenTree* op1 = castOp->AsOp()->GetOp(0);
+
+                    if (!op1->IsIntCon())
                     {
                         op1->ClearContained();
                     }
-                    GenTree* op2 = castOp->gtGetOp2();
-                    if ((op2 != nullptr) && !op2->IsCnsIntOrI())
+
+                    GenTree* op2 = castOp->AsOp()->GetOp(1);
+
+                    if (!op2->IsIntCon())
                     {
                         op2->ClearContained();
                     }
                 }
-                cmp->AsOp()->gtOp1 = castOp;
+
+                cmp->SetOp(0, castOp);
 
                 BlockRange().Remove(cast);
             }
@@ -773,25 +769,21 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
     }
     else if (op1->OperIs(GT_AND) && cmp->OperIs(GT_EQ, GT_NE))
     {
-        //
         // Transform ((x AND y) EQ|NE 0) into (x TEST_EQ|TEST_NE y) when possible.
-        //
 
-        GenTree* andOp1 = op1->gtGetOp1();
-        GenTree* andOp2 = op1->gtGetOp2();
+        GenTree* andOp1 = op1->AsOp()->GetOp(0);
+        GenTree* andOp2 = op1->AsOp()->GetOp(1);
 
         if (op2Value != 0)
         {
-            //
             // If we don't have a 0 compare we can get one by transforming ((x AND mask) EQ|NE mask)
             // into ((x AND mask) NE|EQ 0) when mask is a single bit.
-            //
 
-            if (isPow2<target_size_t>(static_cast<target_size_t>(op2Value)) && andOp2->IsIntegralConst(op2Value))
+            if (isPow2<target_size_t>(static_cast<target_size_t>(op2Value)) && andOp2->IsIntCon(op2Value))
             {
                 op2Value = 0;
-                op2->SetIconValue(0);
-                cmp->SetOperRaw(GenTree::ReverseRelop(cmp->OperGet()));
+                op2->SetValue(0);
+                cmp->SetOperRaw(GenTree::ReverseRelop(cmp->GetOper()));
             }
         }
 
@@ -801,15 +793,14 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
             BlockRange().Remove(op2);
 
             cmp->SetOperRaw(cmp->OperIs(GT_EQ) ? GT_TEST_EQ : GT_TEST_NE);
-            cmp->AsOp()->gtOp1 = andOp1;
-            cmp->AsOp()->gtOp2 = andOp2;
+            cmp->SetOp(0, andOp1);
+            cmp->SetOp(1, andOp2);
             // We will re-evaluate containment below
             andOp1->ClearContained();
             andOp2->ClearContained();
 
-            if (IsContainableMemoryOp(andOp1) && andOp2->IsIntegralConst())
+            if (IsContainableMemoryOp(andOp1) && andOp2->IsIntCon())
             {
-                //
                 // For "test" we only care about the bits that are set in the second operand (mask).
                 // If the mask fits in a small type then we can narrow both operands to generate a "test"
                 // instruction with a smaller encoding ("test" does not have a r/m32, imm8 form) and avoid
@@ -823,19 +814,18 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
                 // We could also do this for 64 bit masks that fit into 32 bit but it doesn't help.
                 // In such cases morph narrows down the existing GT_AND by inserting a cast between it and
                 // the memory operand so we'd need to add more code to recognize and eliminate that cast.
-                //
 
-                size_t mask = static_cast<size_t>(andOp2->AsIntCon()->IconValue());
+                size_t mask = static_cast<size_t>(andOp2->AsIntCon()->GetValue());
 
                 if (FitsIn<UINT8>(mask))
                 {
-                    andOp1->gtType = TYP_UBYTE;
-                    andOp2->gtType = TYP_UBYTE;
+                    andOp1->SetType(TYP_UBYTE);
+                    andOp2->SetType(TYP_UBYTE);
                 }
-                else if (FitsIn<UINT16>(mask) && genTypeSize(andOp1) == 2)
+                else if (FitsIn<UINT16>(mask) && varTypeIsShort(andOp1->GetType()))
                 {
-                    andOp1->gtType = TYP_USHORT;
-                    andOp2->gtType = TYP_USHORT;
+                    andOp1->SetType(TYP_USHORT);
+                    andOp2->SetType(TYP_USHORT);
                 }
             }
         }
@@ -843,29 +833,27 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
 
     if (cmp->OperIs(GT_TEST_EQ, GT_TEST_NE))
     {
-        //
         // Transform TEST_EQ|NE(x, LSH(1, y)) into BT(x, y) when possible. Using BT
         // results in smaller and faster code. It also doesn't have special register
         // requirements, unlike LSH that requires the shift count to be in ECX.
         // Note that BT has the same behavior as LSH when the bit index exceeds the
         // operand bit size - it uses (bit_index MOD bit_size).
-        //
 
-        GenTree* lsh = cmp->gtGetOp2();
+        GenTree* lsh = cmp->GetOp(1);
         LIR::Use cmpUse;
 
-        if (lsh->OperIs(GT_LSH) && varTypeIsIntOrI(lsh->TypeGet()) && lsh->gtGetOp1()->IsIntegralConst(1) &&
+        if (lsh->OperIs(GT_LSH) && varTypeIsIntOrI(lsh->GetType()) && lsh->AsOp()->GetOp(0)->IsIntCon(1) &&
             BlockRange().TryGetUse(cmp, &cmpUse))
         {
             GenCondition condition = cmp->OperIs(GT_TEST_NE) ? GenCondition::C : GenCondition::NC;
 
             cmp->SetOper(GT_BT);
-            cmp->gtType = TYP_VOID;
+            cmp->SetType(TYP_VOID);
             cmp->gtFlags |= GTF_SET_FLAGS;
-            cmp->AsOp()->gtOp2 = lsh->gtGetOp2();
-            cmp->gtGetOp2()->ClearContained();
+            cmp->AsOp()->SetOp(1, lsh->AsOp()->GetOp(1));
+            cmp->GetOp(1)->ClearContained();
 
-            BlockRange().Remove(lsh->gtGetOp1());
+            BlockRange().Remove(lsh->AsOp()->GetOp(0));
             BlockRange().Remove(lsh);
 
             GenTreeCC* cc;
@@ -873,8 +861,8 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
             if (cmpUse.User()->OperIs(GT_JTRUE))
             {
                 cmpUse.User()->ChangeOper(GT_JCC);
-                cc              = cmpUse.User()->AsCC();
-                cc->gtCondition = condition;
+                cc = cmpUse.User()->AsCC();
+                cc->SetCondition(condition);
             }
             else
             {
@@ -890,8 +878,8 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
     }
     else if (cmp->OperIs(GT_EQ, GT_NE))
     {
-        GenTree* op1 = cmp->gtGetOp1();
-        GenTree* op2 = cmp->gtGetOp2();
+        GenTree* op1 = cmp->GetOp(0);
+        GenTree* op2 = cmp->GetOp(1);
 
         // TODO-CQ: right now the below peep is inexpensive and gets the benefit in most
         // cases because in majority of cases op1, op2 and cmp would be in that order in
@@ -913,7 +901,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
             LIR::Use   cmpUse;
 
             // Fast check for the common case - relop used by a JTRUE that immediately follows it.
-            if ((next != nullptr) && next->OperIs(GT_JTRUE) && (next->gtGetOp1() == cmp))
+            if ((next != nullptr) && next->OperIs(GT_JTRUE) && (next->AsUnOp()->GetOp(0) == cmp))
             {
                 cc   = next;
                 ccOp = GT_JCC;
@@ -937,7 +925,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
 
             GenCondition condition = GenCondition::FromIntegralRelop(cmp);
             cc->ChangeOper(ccOp);
-            cc->AsCC()->gtCondition = condition;
+            cc->AsCC()->SetCondition(condition);
             cc->gtFlags |= GTF_USE_FLAGS;
 
             return next;
@@ -956,7 +944,7 @@ GenTree* Lowering::LowerCompare(GenTreeOp* cmp)
     }
 #endif
 
-    if (cmp->GetOp(1)->IsIntegralConst() && !comp->opts.MinOpts())
+    if (cmp->GetOp(1)->IsIntegralConst() && comp->opts.OptimizationEnabled())
     {
         GenTree* next = OptimizeConstCompare(cmp);
 
@@ -1032,8 +1020,8 @@ GenTreeCC* Lowering::LowerNodeCC(GenTree* node, GenCondition condition)
     GenTree* next = first;
 
     while ((next != nullptr) && next->IsIntegralConst(0) && (next->gtNext != nullptr) &&
-           next->gtNext->OperIs(GT_EQ, GT_NE) && (next->gtNext->AsOp()->gtGetOp1() == relop) &&
-           (next->gtNext->AsOp()->gtGetOp2() == next))
+           next->gtNext->OperIs(GT_EQ, GT_NE) && (next->gtNext->AsOp()->GetOp(0) == relop) &&
+           (next->gtNext->AsOp()->GetOp(1) == next))
     {
         relop = next->gtNext;
         next  = relop->gtNext;
@@ -1056,13 +1044,13 @@ GenTreeCC* Lowering::LowerNodeCC(GenTree* node, GenCondition condition)
             // constructed IL (the setting of a condition code should always immediately precede its
             // use, since the JIT doesn't track dataflow for condition codes). Still, if it happens
             // it's not our problem, it simply means that `node` is not used and can be removed.
-            if (next->AsUnOp()->gtGetOp1() == relop)
+            if (next->AsUnOp()->GetOp(0) == relop)
             {
                 assert(relop->OperIsCompare());
 
                 next->ChangeOper(GT_JCC);
-                cc              = next->AsCC();
-                cc->gtCondition = condition;
+                cc = next->AsCC();
+                cc->SetCondition(condition);
             }
         }
         else
@@ -1135,20 +1123,20 @@ void Lowering::LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIn
             //     containment.
             //   - Allow swapping for containment purposes only if this doesn't result in a non-"preferred"
             //     condition being generated.
-            if ((cc != nullptr) && cc->gtCondition.PreferSwap())
+            if ((cc != nullptr) && cc->GetCondition().PreferSwap())
             {
                 swapOperands = true;
             }
             else
             {
-                canSwapOperands = (cc == nullptr) || !GenCondition::Swap(cc->gtCondition).PreferSwap();
+                canSwapOperands = (cc == nullptr) || !GenCondition::Swap(cc->GetCondition()).PreferSwap();
             }
             break;
 
         case NI_SSE41_PTEST:
         case NI_AVX_PTEST:
             // If we need the Carry flag then we can't swap operands.
-            canSwapOperands = (cc == nullptr) || cc->gtCondition.Is(GenCondition::EQ, GenCondition::NE);
+            canSwapOperands = (cc == nullptr) || cc->GetCondition().Is(GenCondition::EQ, GenCondition::NE);
             break;
 
         default:
@@ -1174,7 +1162,7 @@ void Lowering::LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIn
 
         if (cc != nullptr)
         {
-            cc->gtCondition = GenCondition::Swap(cc->gtCondition);
+            cc->SetCondition(GenCondition::Swap(cc->GetCondition()));
         }
     }
 }

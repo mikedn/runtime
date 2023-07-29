@@ -340,8 +340,8 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 #ifdef TARGET_ARM64
         case GT_TEST_EQ:
         case GT_TEST_NE:
-#endif // TARGET_ARM64
-            genCodeForCompare(treeNode->AsOp());
+#endif
+            GenCompare(treeNode->AsOp());
             break;
 
         case GT_JTRUE:

@@ -822,6 +822,10 @@ protected:
     void genCodeForBinary(GenTreeOp* treeNode);
     void GenFloatNegate(GenTreeUnOp* node);
     void GenFloatBinaryOp(GenTreeOp* node);
+#ifdef TARGET_XARCH
+    void GenFloatCompare(GenTreeOp* cmp);
+    void GenIntCompare(GenTreeOp* cmp);
+#endif
 
 #ifdef TARGET_X86
     void genCodeForLongUMod(GenTreeOp* node);
@@ -953,7 +957,7 @@ protected:
     void genIntToFloatCast(GenTreeCast* cast);
 
     void genCkfinite(GenTree* treeNode);
-    void genCodeForCompare(GenTreeOp* tree);
+    void GenCompare(GenTreeOp* tree);
     void genIntrinsic(GenTreeIntrinsic* node);
     void genPutArgReg(GenTreeUnOp* putArg);
     void genPutArgStk(GenTreePutArgStk* treeNode);
@@ -963,9 +967,6 @@ protected:
 #if FEATURE_ARG_SPLIT
     void genPutArgSplit(GenTreePutArgSplit* treeNode);
 #endif
-
-    void genCompareFloat(GenTree* treeNode);
-    void genCompareInt(GenTree* treeNode);
 
 #ifdef FEATURE_SIMD
     void genSIMDUpperSpill(GenTreeUnOp* node);

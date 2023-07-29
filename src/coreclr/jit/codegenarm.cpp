@@ -875,7 +875,8 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     if ((dstReg != srcReg) || (varActualType(lclRegType) != varActualType(src->GetType())))
     {
-        GetEmitter()->emitIns_Mov(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg, /*canSkip*/ true);
+        GetEmitter()->emitIns_Mov(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg,
+                                  /*canSkip*/ true);
     }
 
     DefLclVarReg(store);
@@ -926,37 +927,30 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     genProduceReg(treeNode);
 }
 
-//------------------------------------------------------------------------
-// genCodeForCompare: Produce code for a GT_EQ/GT_NE/GT_LT/GT_LE/GT_GE/GT_GT/GT_CMP node.
-//
-// Arguments:
-//    tree - the node
-//
-void CodeGen::genCodeForCompare(GenTreeOp* tree)
+void CodeGen::GenCompare(GenTreeOp* cmp)
 {
     // TODO-ARM-CQ: Check if we can use the currently set flags.
     // TODO-ARM-CQ: Check for the case where we can simply transfer the carry bit to a register
     //         (signed < or >= where targetReg != REG_NA)
 
-    GenTree*  op1     = tree->gtOp1;
-    GenTree*  op2     = tree->gtOp2;
-    var_types op1Type = op1->TypeGet();
-    var_types op2Type = op2->TypeGet();
+    GenTree*  op1   = cmp->GetOp(0);
+    GenTree*  op2   = cmp->GetOp(1);
+    var_types type1 = op1->GetType();
+    var_types type2 = op2->GetType();
+    regNumber reg1  = UseReg(op1);
+    regNumber reg2  = op2->isContained() ? REG_NA : UseReg(op2);
 
-    assert(!varTypeIsLong(op1Type));
-    assert(!varTypeIsLong(op2Type));
+    assert(!varTypeIsLong(type1));
+    assert(!varTypeIsLong(type2));
 
-    regNumber targetReg = tree->GetRegNum();
-    emitter*  emit      = GetEmitter();
+    emitter* emit = GetEmitter();
 
-    genConsumeIfReg(op1);
-    genConsumeIfReg(op2);
-
-    if (varTypeIsFloating(op1Type))
+    if (varTypeIsFloating(type1))
     {
-        assert(op1Type == op2Type);
-        assert(!tree->OperIs(GT_CMP));
-        emit->emitIns_R_R(INS_vcmp, emitTypeSize(op1Type), op1->GetRegNum(), op2->GetRegNum());
+        assert(type1 == type2);
+        assert(!cmp->OperIs(GT_CMP));
+
+        emit->emitIns_R_R(INS_vcmp, emitTypeSize(type1), op1->GetRegNum(), op2->GetRegNum());
         // vmrs with register 0xf has special meaning of transferring flags
         emit->emitIns_R(INS_vmrs, EA_4BYTE, REG_R15);
     }
@@ -969,12 +963,13 @@ void CodeGen::genCodeForCompare(GenTreeOp* tree)
         emit->emitIns_R_R(INS_cmp, EA_4BYTE, op1->GetRegNum(), op2->GetRegNum());
     }
 
-    // Are we evaluating this into a register?
-    if (targetReg != REG_NA)
+    if (cmp->GetRegNum() == REG_NA)
     {
-        inst_SETCC(GenCondition::FromRelop(tree), tree->TypeGet(), targetReg);
-        genProduceReg(tree);
+        return;
     }
+
+    inst_SETCC(GenCondition::FromRelop(cmp), cmp->GetType(), cmp->GetRegNum());
+    DefReg(cmp);
 }
 
 //------------------------------------------------------------------------

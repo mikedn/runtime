@@ -1710,8 +1710,8 @@ GenTree* Compiler::gtReverseCond(GenTree* tree)
     }
     else if (tree->OperIs(GT_JCC, GT_SETCC))
     {
-        GenTreeCC* cc   = tree->AsCC();
-        cc->gtCondition = GenCondition::Reverse(cc->gtCondition);
+        GenTreeCC* cc = tree->AsCC();
+        cc->SetCondition(GenCondition::Reverse(cc->GetCondition()));
     }
     else if (tree->OperIs(GT_JCMP))
     {
@@ -7589,7 +7589,7 @@ void Compiler::gtDispLeaf(GenTree* tree)
 
         case GT_JCC:
         case GT_SETCC:
-            printf(" cond=%s", tree->AsCC()->gtCondition.Name());
+            printf(" cond=%s", tree->AsCC()->GetCondition().Name());
             break;
         case GT_JCMP:
             printf(" cond=%s%s", (tree->gtFlags & GTF_JCMP_TST) ? "TEST_" : "",
