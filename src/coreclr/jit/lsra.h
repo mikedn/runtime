@@ -1914,7 +1914,7 @@ private:
 #endif
     int BuildPutArgReg(GenTreeUnOp* node);
     int BuildCall(GenTreeCall* call);
-    int BuildCmp(GenTree* tree);
+    int BuildCmp(GenTreeOp* cmp);
     int BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
     int BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout);
     int BuildStoreDynBlk(GenTreeDynBlk* store);

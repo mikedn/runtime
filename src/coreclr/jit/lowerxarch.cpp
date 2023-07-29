@@ -828,55 +828,55 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
                     andOp2->SetType(TYP_USHORT);
                 }
             }
+
+            // Transform TEST_EQ|NE(x, LSH(1, y)) into BT(x, y) when possible. Using BT
+            // results in smaller and faster code. It also doesn't have special register
+            // requirements, unlike LSH that requires the shift count to be in ECX.
+            // Note that BT has the same behavior as LSH when the bit index exceeds the
+            // operand bit size - it uses (bit_index MOD bit_size).
+
+            GenTree* lsh = cmp->GetOp(1);
+            LIR::Use cmpUse;
+
+            if (lsh->OperIs(GT_LSH) && varTypeIsIntOrI(lsh->GetType()) && lsh->AsOp()->GetOp(0)->IsIntCon(1) &&
+                BlockRange().TryGetUse(cmp, &cmpUse))
+            {
+                GenCondition condition = cmp->OperIs(GT_TEST_NE) ? GenCondition::C : GenCondition::NC;
+
+                cmp->SetOper(GT_BT);
+                cmp->SetType(TYP_VOID);
+                cmp->gtFlags |= GTF_SET_FLAGS;
+                cmp->AsOp()->SetOp(1, lsh->AsOp()->GetOp(1));
+                cmp->GetOp(1)->ClearContained();
+
+                BlockRange().Remove(lsh->AsOp()->GetOp(0));
+                BlockRange().Remove(lsh);
+
+                GenTreeCC* cc;
+
+                if (cmpUse.User()->OperIs(GT_JTRUE))
+                {
+                    cmpUse.User()->ChangeOper(GT_JCC);
+                    cc = cmpUse.User()->AsCC();
+                    cc->SetCondition(condition);
+                }
+                else
+                {
+                    cc = new (comp, GT_SETCC) GenTreeCC(GT_SETCC, condition, TYP_INT);
+                    BlockRange().InsertAfter(cmp, cc);
+                    cmpUse.ReplaceWith(comp, cc);
+                }
+
+                cc->gtFlags |= GTF_USE_FLAGS;
+
+                return cmp->gtNext;
+            }
+
+            return cmp;
         }
     }
 
-    if (cmp->OperIs(GT_TEST_EQ, GT_TEST_NE))
-    {
-        // Transform TEST_EQ|NE(x, LSH(1, y)) into BT(x, y) when possible. Using BT
-        // results in smaller and faster code. It also doesn't have special register
-        // requirements, unlike LSH that requires the shift count to be in ECX.
-        // Note that BT has the same behavior as LSH when the bit index exceeds the
-        // operand bit size - it uses (bit_index MOD bit_size).
-
-        GenTree* lsh = cmp->GetOp(1);
-        LIR::Use cmpUse;
-
-        if (lsh->OperIs(GT_LSH) && varTypeIsIntOrI(lsh->GetType()) && lsh->AsOp()->GetOp(0)->IsIntCon(1) &&
-            BlockRange().TryGetUse(cmp, &cmpUse))
-        {
-            GenCondition condition = cmp->OperIs(GT_TEST_NE) ? GenCondition::C : GenCondition::NC;
-
-            cmp->SetOper(GT_BT);
-            cmp->SetType(TYP_VOID);
-            cmp->gtFlags |= GTF_SET_FLAGS;
-            cmp->AsOp()->SetOp(1, lsh->AsOp()->GetOp(1));
-            cmp->GetOp(1)->ClearContained();
-
-            BlockRange().Remove(lsh->AsOp()->GetOp(0));
-            BlockRange().Remove(lsh);
-
-            GenTreeCC* cc;
-
-            if (cmpUse.User()->OperIs(GT_JTRUE))
-            {
-                cmpUse.User()->ChangeOper(GT_JCC);
-                cc = cmpUse.User()->AsCC();
-                cc->SetCondition(condition);
-            }
-            else
-            {
-                cc = new (comp, GT_SETCC) GenTreeCC(GT_SETCC, condition, TYP_INT);
-                BlockRange().InsertAfter(cmp, cc);
-                cmpUse.ReplaceWith(comp, cc);
-            }
-
-            cc->gtFlags |= GTF_USE_FLAGS;
-
-            return cmp->gtNext;
-        }
-    }
-    else if (cmp->OperIs(GT_EQ, GT_NE))
+    if (cmp->OperIs(GT_EQ, GT_NE))
     {
         GenTree* op1 = cmp->GetOp(0);
         GenTree* op2 = cmp->GetOp(1);

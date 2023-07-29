@@ -3525,59 +3525,53 @@ int LinearScan::BuildGCWriteBarrier(GenTreeStoreInd* store)
 // Return Value:
 //    None.
 //
-int LinearScan::BuildCmp(GenTree* tree)
+int LinearScan::BuildCmp(GenTreeOp* cmp)
 {
-    assert(tree->OperIsCompare() || tree->OperIs(GT_CMP) || tree->OperIs(GT_JCMP));
+    assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP, GT_JCMP));
+
     regMaskTP dstCandidates = RBM_NONE;
     regMaskTP op1Candidates = RBM_NONE;
     regMaskTP op2Candidates = RBM_NONE;
-    GenTree*  op1           = tree->gtGetOp1();
-    GenTree*  op2           = tree->gtGetOp2();
+    GenTree*  op1           = cmp->GetOp(0);
+    GenTree*  op2           = cmp->GetOp(1);
 
 #ifdef TARGET_X86
-    // If the compare is used by a jump, we just need to set the condition codes. If not, then we need
-    // to store the result into the low byte of a register, which requires the dst be a byteable register.
-    if (tree->TypeGet() != TYP_VOID)
+    // If the compare is not used by a jump then we need to generate a SETcc instruction,
+    // which requires the dst be a byte register.
+    if (!cmp->TypeIs(TYP_VOID))
     {
         dstCandidates = allByteRegs();
     }
+
     bool needByteRegs = false;
-    if (varTypeIsByte(tree))
+
+    if (varTypeIsByte(cmp->GetType()))
     {
-        if (!varTypeIsFloating(op1))
+        if (!varTypeIsFloating(op1->GetType()))
         {
             needByteRegs = true;
         }
     }
-    // Example1: GT_EQ(int, op1 of type ubyte, op2 of type ubyte) - in this case codegen uses
-    // ubyte as the result of comparison and if the result needs to be materialized into a reg
-    // simply zero extend it to TYP_INT size.  Here is an example of generated code:
-    //         cmp dl, byte ptr[addr mode]
-    //         movzx edx, dl
-    else if (varTypeIsByte(op1) && varTypeIsByte(op2))
+    else if (varTypeIsByte(op1->GetType()) && varTypeIsByte(op2->GetType()))
     {
         needByteRegs = true;
     }
-    // Example2: GT_EQ(int, op1 of type ubyte, op2 is GT_CNS_INT) - in this case codegen uses
-    // ubyte as the result of the comparison and if the result needs to be materialized into a reg
-    // simply zero extend it to TYP_INT size.
-    else if (varTypeIsByte(op1) && op2->IsCnsIntOrI())
+    else if (varTypeIsByte(op1->GetType()) && op2->IsIntCon())
     {
         needByteRegs = true;
     }
-    // Example3: GT_EQ(int, op1 is GT_CNS_INT, op2 of type ubyte) - in this case codegen uses
-    // ubyte as the result of the comparison and if the result needs to be materialized into a reg
-    // simply zero extend it to TYP_INT size.
-    else if (op1->IsCnsIntOrI() && varTypeIsByte(op2))
+    else if (op1->IsIntCon() && varTypeIsByte(op2->GetType()))
     {
         needByteRegs = true;
     }
+
     if (needByteRegs)
     {
         if (!op1->isContained())
         {
             op1Candidates = allByteRegs();
         }
+
         if (!op2->isContained())
         {
             op2Candidates = allByteRegs();
@@ -3587,10 +3581,12 @@ int LinearScan::BuildCmp(GenTree* tree)
 
     int srcCount = BuildOperandUses(op1, op1Candidates);
     srcCount += BuildOperandUses(op2, op2Candidates);
-    if (tree->TypeGet() != TYP_VOID)
+
+    if (!cmp->TypeIs(TYP_VOID))
     {
-        BuildDef(tree, dstCandidates);
+        BuildDef(cmp, dstCandidates);
     }
+
     return srcCount;
 }
 
