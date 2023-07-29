@@ -281,15 +281,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildPutArgStk: Set the NodeInfo for a GT_PUTARG_STK node
-//
-// Arguments:
-//    putArg - a GT_PUTARG_STK node
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
 {
     GenTree* src = putArg->GetOp(0);
@@ -344,15 +335,6 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
 }
 
 #if FEATURE_ARG_SPLIT
-//------------------------------------------------------------------------
-// BuildPutArgSplit: Set the NodeInfo for a GT_PUTARG_SPLIT node
-//
-// Arguments:
-//    putArg - a GT_PUTARG_SPLIT node
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 {
     CallArgInfo* argInfo    = putArg->GetArgInfo();
@@ -622,15 +604,6 @@ int LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* lay
 #endif
 }
 
-//------------------------------------------------------------------------
-// BuildCast: Set the NodeInfo for a GT_CAST.
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildCast(GenTreeCast* cast)
 {
     GenTree* src = cast->GetOp(0);

@@ -823,15 +823,6 @@ int LinearScan::BuildRMWUses(GenTreeOp* node, regMaskTP candidates)
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildShiftRotate: Set the NodeInfo for a shift or rotate.
-//
-// Arguments:
-//    tree      - The node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildShiftRotate(GenTree* tree)
 {
     // For shift operations, we need that the number
@@ -1365,15 +1356,6 @@ int LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* lay
 #endif
 }
 
-//------------------------------------------------------------------------
-// BuildPutArgStk: Set the NodeInfo for a GT_PUTARG_STK.
-//
-// Arguments:
-//    putArgStk - The node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 {
     GenTree* src = putArgStk->GetOp(0);
@@ -1603,15 +1585,6 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     return BuildOperandUses(src);
 }
 
-//------------------------------------------------------------------------
-// BuildLclHeap: Set the NodeInfo for a GT_LCLHEAP.
-//
-// Arguments:
-//    tree      - The node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildLclHeap(GenTree* tree)
 {
     int srcCount = 1;
@@ -1690,15 +1663,6 @@ int LinearScan::BuildLclHeap(GenTree* tree)
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildModDiv: Set the NodeInfo for GT_MOD/GT_DIV/GT_UMOD/GT_UDIV.
-//
-// Arguments:
-//    tree      - The node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildModDiv(GenTree* tree)
 {
     assert(tree->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD) && varTypeIsIntegral(tree->GetType()));
@@ -1810,15 +1774,6 @@ int LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-//------------------------------------------------------------------------
-// BuildHWIntrinsic: Set the NodeInfo for a GT_HWINTRINSIC tree.
-//
-// Arguments:
-//    tree       - The GT_HWINTRINSIC node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 {
     NamedIntrinsic      intrinsicId = intrinsicTree->GetIntrinsic();
@@ -2229,15 +2184,6 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 }
 #endif
 
-//------------------------------------------------------------------------
-// BuildCast: Set the NodeInfo for a GT_CAST.
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildCast(GenTreeCast* cast)
 {
     GenTree* src = cast->GetOp(0);
