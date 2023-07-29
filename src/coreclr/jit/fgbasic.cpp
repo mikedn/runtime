@@ -1828,45 +1828,41 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
 #pragma warning(pop)
 #endif
 
-//------------------------------------------------------------------------
-// fgAdjustForAddressExposedOrWrittenThis: update var table for cases
-//   where the this pointer value can change.
-//
-// Notes:
-//    Modifies lvaArg0Var to refer to a temp if the value of 'this' can
-//    change. The original this (info.compThisArg) then remains
-//    unmodified in the method.  fgAddInternal is reponsible for
-//    adding the code to copy the initial this into the temp.
-
-void Compiler::fgAdjustForAddressExposedOrWrittenThis()
+// Modifies lvaThisLclNum to refer to a temp if the value of 'this' can
+// change. The original this (info.compThisArg) then remains unmodified
+// in the method. fgAddInternal is reponsible for adding the code to copy
+// the initial this into the temp.
+void Compiler::fgAdjustForAddressTakenOrStoredThis()
 {
     assert(!compIsForInlining());
 
-    LclVarDsc* thisLcl = lvaGetDesc(info.compThisArg);
+    LclVarDsc* thisParam = lvaGetDesc(info.GetThisParamLclNum());
 
     // Optionally enable adjustment during stress.
     if (compStressCompile(STRESS_GENERIC_VARN, 15))
     {
-        thisLcl->lvHasILStoreOp = true;
+        thisParam->lvHasILStoreOp = true;
     }
 
-    // If this is exposed or written to, create a temp for the modifiable this
-    if (thisLcl->lvAddrExposed || thisLcl->lvHasILStoreOp)
+    // If this is address taken or written to, create a temp for the modifiable this.
+    if (thisParam->lvHasLdAddrOp || thisParam->lvHasILStoreOp)
     {
-        lvaArg0Var = lvaNewTemp(thisLcl->GetType(), false DEBUGARG("'this' copy"));
+        lvaThisLclNum = lvaNewTemp(thisParam->GetType(), false DEBUGARG("'this' copy"));
 
-        LclVarDsc* thisCopyLcl = lvaGetDesc(lvaArg0Var);
+        LclVarDsc* thisLcl = lvaGetDesc(lvaThisLclNum);
 
-        thisCopyLcl->lvAddrExposed     = thisLcl->lvAddrExposed;
-        thisCopyLcl->lvDoNotEnregister = thisLcl->lvDoNotEnregister;
-        thisCopyLcl->lvHasILStoreOp    = thisLcl->lvHasILStoreOp;
+        thisLcl->lvAddrExposed     = thisParam->IsAddressExposed();
+        thisLcl->lvDoNotEnregister = thisParam->lvDoNotEnregister;
+        thisLcl->lvHasLdAddrOp     = thisParam->lvHasLdAddrOp;
+        thisLcl->lvHasILStoreOp    = thisParam->lvHasILStoreOp;
 #ifdef DEBUG
-        thisCopyLcl->lvLiveInOutOfHndlr = thisLcl->lvLiveInOutOfHndlr;
-        thisCopyLcl->lvLclFieldExpr     = thisLcl->lvLclFieldExpr;
+        thisLcl->lvLiveInOutOfHndlr = thisParam->lvLiveInOutOfHndlr;
+        thisLcl->lvLclFieldExpr     = thisParam->lvLclFieldExpr;
 #endif
 
-        thisLcl->lvAddrExposed  = false;
-        thisLcl->lvHasILStoreOp = false;
+        thisParam->lvAddrExposed  = false;
+        thisParam->lvHasLdAddrOp  = false;
+        thisParam->lvHasILStoreOp = false;
     }
 }
 
@@ -2422,7 +2418,7 @@ void Compiler::compCreateBasicBlocks(ILStats& ilStats)
 
     if (!info.compIsStatic)
     {
-        fgAdjustForAddressExposedOrWrittenThis();
+        fgAdjustForAddressTakenOrStoredThis();
     }
 
     // Now that we've seen the IL, set lvSingleDef for root method

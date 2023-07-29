@@ -922,7 +922,7 @@ void Compiler::fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, un
 
         // Anything with side effects needs to stay inside the synchronized region.
         // That should include address exposed locals, even if the chance that such
-        // locals are used by another thread is slim. But we haven't yet dermined
+        // locals are used by another thread is slim. But we haven't yet determined
         // which locals are address exposed so GTF_GLOB_REF may not be present,
         // fall back to address taken.
 
@@ -1092,7 +1092,7 @@ public:
     // We currently apply a hard limit of '4' to all other targets (see
     // the other uses of SET_EPILOGCNT_MAX), though it would be good
     // to revisit that decision based on CQ analysis.
-    const static unsigned ReturnCountHardLimit = 4;
+    const static unsigned ReturnCountHardLimit  = 4;
 #endif // JIT32_GCENCODER
 
 private:
@@ -1604,65 +1604,48 @@ void Compiler::fgAddInternal()
         fgFirstBB->bbFlags |= BBF_DONT_REMOVE;
     }
 
-    /*
-    <BUGNUM> VSW441487 </BUGNUM>
+    // The "this" pointer is implicitly used in the following cases:
+    // 1. Locking of synchronized methods
+    // 2. Dictionary access of shared generics code
+    // 3. If a method has "catch(FooException<T>)", the EH code accesses "this" to determine T.
+    // 4. Initializing the type from generic methods which require precise cctor semantics
+    // 5. Verifier does special handling of "this" in the .ctor
+    //
+    // However, we might overwrite it with a "starg 0".
+    // In this case, we will redirect all "ldarg(a)/starg(a) 0" to a temp lvaTable[lvaThisLclNum]
 
-    The "this" pointer is implicitly used in the following cases:
-    1. Locking of synchronized methods
-    2. Dictionary access of shared generics code
-    3. If a method has "catch(FooException<T>)", the EH code accesses "this" to determine T.
-    4. Initializing the type from generic methods which require precise cctor semantics
-    5. Verifier does special handling of "this" in the .ctor
-
-    However, we might overwrite it with a "starg 0".
-    In this case, we will redirect all "ldarg(a)/starg(a) 0" to a temp lvaTable[lvaArg0Var]
-    */
-
-    if (!info.compIsStatic)
+    if (!info.compIsStatic && (lvaThisLclNum != info.GetThisParamLclNum()))
     {
-        if (lvaArg0Var != info.compThisArg)
-        {
-            // When we're using the general encoder, we mark compThisArg address-taken to ensure that it is not
-            // enregistered (since the decoder always reports a stack location for "this" for generics
-            // context vars).
-            bool lva0CopiedForGenericsCtxt;
 #ifndef JIT32_GCENCODER
-            lva0CopiedForGenericsCtxt = ((info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0);
-#else  // JIT32_GCENCODER
-            lva0CopiedForGenericsCtxt          = false;
-#endif // JIT32_GCENCODER
-            noway_assert(lva0CopiedForGenericsCtxt || !lvaTable[info.compThisArg].lvAddrExposed);
-            noway_assert(!lvaTable[info.compThisArg].lvHasILStoreOp);
-            noway_assert(lvaTable[lvaArg0Var].lvAddrExposed || lvaTable[lvaArg0Var].lvHasILStoreOp ||
-                         lva0CopiedForGenericsCtxt);
+        // When we're using the general encoder, we mark compThisArg address-taken to ensure that it is not
+        // enregistered (since the decoder always reports a stack location for "this" for generics
+        // context vars).
+        const bool genericsContextIsThis = info.ThisParamIsGenericsContext();
+#else
+        const bool        genericsContextIsThis = false;
+#endif
+        LclVarDsc* thisParam = lvaGetDesc(info.GetThisParamLclNum());
+        LclVarDsc* thisLcl   = lvaGetDesc(lvaThisLclNum);
 
-            var_types thisType = lvaTable[info.compThisArg].TypeGet();
+        noway_assert(genericsContextIsThis || !thisParam->IsAddressExposed());
+        noway_assert(!thisParam->lvHasILStoreOp);
+        noway_assert(thisLcl->IsAddressExposed() || thisLcl->lvHasILStoreOp || genericsContextIsThis);
 
-            // Now assign the original input "this" to the temp
+        var_types type = thisParam->GetType();
+        GenTree*  tree =
+            gtNewAssignNode(gtNewLclvNode(lvaThisLclNum, type), gtNewLclvNode(info.GetThisParamLclNum(), type));
 
-            GenTree* tree;
-
-            tree = gtNewLclvNode(lvaArg0Var, thisType);
-
-            tree = gtNewAssignNode(tree,                                     // dst
-                                   gtNewLclvNode(info.compThisArg, thisType) // src
-                                   );
-
-            /* Create a new basic block and stick the assignment in it */
-
-            fgEnsureFirstBBisScratch();
-
-            fgNewStmtAtEnd(fgFirstBB, tree);
+        fgEnsureFirstBBisScratch();
+        fgNewStmtAtEnd(fgFirstBB, tree);
 
 #ifdef DEBUG
-            if (verbose)
-            {
-                printf("\nCopy \"this\" to lvaArg0Var in first basic block %s\n", fgFirstBB->dspToString());
-                gtDispTree(tree);
-                printf("\n");
-            }
-#endif
+        if (verbose)
+        {
+            printf("\nCopy \"this\" to lvaThisLclNum in first basic block %s\n", fgFirstBB->dspToString());
+            gtDispTree(tree);
+            printf("\n");
         }
+#endif
     }
 
     // Merge return points if required or beneficial

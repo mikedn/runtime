@@ -2701,7 +2701,8 @@ void Compiler::gtSetCosts(GenTree* tree)
             case GT_CNS_INT:
                 if (!tree->AsIntCon()->ImmedValNeedsReloc(this))
                 {
-                    // TODO-MIKE-Review: CNS_INT should always be INT sized but looks like bozos produced BOOL constants...
+                    // TODO-MIKE-Review: CNS_INT should always be INT sized but looks like bozos produced BOOL
+                    // constants...
                     assert(varTypeSize(tree->GetType()) <= 4);
                     int32_t value = tree->AsIntCon()->GetInt32Value();
 
@@ -7623,7 +7624,7 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node)
     int         nameLength = dmpLclName(lclNum);
     const char* prefix     = nameLength > 0 ? " (" : "(";
 
-    if (lcl->lvAddrExposed)
+    if (lcl->IsAddressExposed())
     {
         printf("%sAX", prefix);
         prefix = ", ";

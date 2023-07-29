@@ -115,6 +115,22 @@ public:
         }
     }
 
+    regMaskTP GetGCRegs(emitAttr attr) const
+    {
+        if (EA_IS_GCREF(attr))
+        {
+            return liveGCRefRegs;
+        }
+
+        if (EA_IS_BYREF(attr))
+        {
+            return liveGCByRefRegs;
+        }
+
+        assert(!"Bad GC type");
+        return RBM_NONE;
+    }
+
     regMaskTP GetGCRegs() const
     {
         return liveGCRefRegs | liveGCByRefRegs;

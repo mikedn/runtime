@@ -860,7 +860,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     var_types lclRegType = lcl->GetRegisterType(store);
 
-    regNumber srcReg = genConsumeReg(src);
+    regNumber srcReg = UseReg(src);
     regNumber dstReg = store->GetRegNum();
 
     if (dstReg == REG_NA)
@@ -873,7 +873,10 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    GetEmitter()->emitIns_Mov(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg, /*canSkip*/ true);
+    if ((dstReg != srcReg) || (varActualType(lclRegType) != varActualType(src->GetType())))
+    {
+        GetEmitter()->emitIns_Mov(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg, /*canSkip*/ true);
+    }
 
     DefLclVarReg(store);
 }
@@ -892,12 +895,12 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 //
 void CodeGen::genCkfinite(GenTree* treeNode)
 {
-    assert(treeNode->OperGet() == GT_CKFINITE);
+    assert(treeNode->OperIs(GT_CKFINITE));
 
     emitter*  emit       = GetEmitter();
-    var_types targetType = treeNode->TypeGet();
+    var_types targetType = treeNode->GetType();
     regNumber intReg     = treeNode->GetSingleTempReg();
-    regNumber fpReg      = genConsumeReg(treeNode->AsOp()->gtOp1);
+    regNumber fpReg      = genConsumeReg(treeNode->AsUnOp()->GetOp(0));
     regNumber targetReg  = treeNode->GetRegNum();
 
     // Extract and sign-extend the exponent into an integer register
@@ -918,7 +921,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     genJumpToThrowHlpBlk(EJ_eq, ThrowHelperKind::Arithmetic);
 
     // If it's a finite value, copy it to targetReg
-    inst_Mov(targetType, targetReg, fpReg, /* canSkip */ true, emitTypeSize(treeNode));
+    inst_Mov(targetType, targetReg, fpReg, /* canSkip */ true);
 
     genProduceReg(treeNode);
 }
@@ -1109,9 +1112,9 @@ void CodeGen::genLongToIntCast(GenTree* cast)
             BasicBlock* allOne  = genCreateTempLabel();
             BasicBlock* success = genCreateTempLabel();
 
-            inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT, EA_4BYTE);
+            inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT);
             inst_JMP(EJ_mi, allOne);
-            inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
+            inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT);
             genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
             inst_JMP(EJ_jmp, success);
 
@@ -1125,11 +1128,11 @@ void CodeGen::genLongToIntCast(GenTree* cast)
         {
             if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
             {
-                inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT, EA_4BYTE);
+                inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT);
                 genJumpToThrowHlpBlk(EJ_mi, ThrowHelperKind::Overflow);
             }
 
-            inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
+            inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT);
             genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
         }
     }

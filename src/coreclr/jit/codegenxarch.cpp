@@ -254,7 +254,7 @@ void CodeGen::SetStackLevel(unsigned newStackLevel)
 
 BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
 {
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     // Generate a call to the finally, like this:
     //      mov         rcx,qword ptr [rbp + 20H]       // Load rcx with PSPSym
     //      call        finally-funclet
@@ -269,7 +269,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     {
 #ifndef UNIX_X86_ABI
         inst_Mov(TYP_I_IMPL, REG_ARG_0, REG_SPBASE, /* canSkip */ false);
-#endif // !UNIX_X86_ABI
+#endif
     }
     else
     {
@@ -298,7 +298,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
         // after the call is not (can not be) correct in cases where a variable has a last use in the
         // handler.  So turn off GC reporting for this single instruction.
         GetEmitter()->emitDisableGC();
-#endif // JIT32_GCENCODER
+#endif
 
         // Now go to where the finally funclet needs to return to.
         if (block->bbNext->bbJumpDest == block->bbNext->bbNext)
@@ -316,7 +316,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
 
 #ifndef JIT32_GCENCODER
         GetEmitter()->emitEnableGC();
-#endif // JIT32_GCENCODER
+#endif
     }
 
 #else // !FEATURE_EH_FUNCLETS
@@ -386,7 +386,8 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     return block;
 }
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
+
 void CodeGen::genEHCatchRet(BasicBlock* block)
 {
     // Set RAX to the address the VM should return to after the catch.
@@ -1774,13 +1775,8 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_MEMORYBARRIER:
-        {
-            CodeGen::BarrierKind barrierKind =
-                treeNode->gtFlags & GTF_MEMORYBARRIER_LOAD ? BARRIER_LOAD_ONLY : BARRIER_FULL;
-
-            instGen_MemoryBarrier(barrierKind);
+            GenMemoryBarrier(treeNode);
             break;
-        }
 
         case GT_CMPXCHG:
             genCodeForCmpXchg(treeNode->AsCmpXchg());
@@ -3561,6 +3557,25 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* tree)
     genProduceReg(tree);
 }
 
+void CodeGen::GenMemoryBarrier(GenTree* barrier)
+{
+    assert(barrier->OperIs(GT_MEMORYBARRIER));
+
+#ifdef DEBUG
+    if (JitConfig.JitNoMemoryBarriers() == 1)
+    {
+        return;
+    }
+#endif
+
+    // Only full barrier needs to be emitted on x86/64
+    if ((barrier->gtFlags & GTF_MEMORYBARRIER_LOAD) == 0)
+    {
+        instGen(INS_lock);
+        GetEmitter()->emitIns_AR_I(INS_or, EA_4BYTE, REG_SPBASE, 0, 0);
+    }
+}
+
 void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
 {
     GenTree* arrIndex = bndsChk->GetIndex();
@@ -4185,38 +4200,25 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     regNumber dstReg = store->GetRegNum();
     unsigned  lclNum = store->GetLclNum();
 
-    if (src->OperIs(GT_BITCAST) && src->isContained())
-    {
-        GenTree*  bitCastSrc     = src->AsUnOp()->GetOp(0);
-        var_types bitCastSrcType = bitCastSrc->GetType();
-        regNumber bitCastSrcReg  = genConsumeReg(bitCastSrc);
-
-        if (dstReg == REG_NA)
-        {
-            GetEmitter()->emitIns_S_R(ins_Store(bitCastSrcType, IsSimdLocalAligned(lclNum)), emitTypeSize(lclRegType),
-                                      bitCastSrcReg, lclNum, 0);
-
-            genUpdateLife(store);
-            lcl->SetRegNum(REG_STK);
-        }
-        else
-        {
-            inst_BitCast(lclRegType, dstReg, bitCastSrcType, bitCastSrc->GetRegNum());
-
-            DefLclVarReg(store);
-        }
-
-        return;
-    }
-
     if (dstReg == REG_NA)
     {
-        instruction ins  = ins_Store(lclRegType, IsSimdLocalAligned(lclNum));
-        emitAttr    attr = emitTypeSize(lclRegType);
+        bool        isAligned = IsSimdLocalAligned(lclNum);
+        instruction ins       = ins_Store(lclRegType, isAligned);
+        emitAttr    attr      = emitTypeSize(lclRegType);
 
         if (src->isContained())
         {
-            if (src->OperIsRMWMemOp())
+            if (src->OperIs(GT_BITCAST))
+            {
+                GenTree*  bitCastSrc     = src->AsUnOp()->GetOp(0);
+                var_types bitCastSrcType = bitCastSrc->GetType();
+                regNumber bitCastSrcReg  = genConsumeReg(bitCastSrc);
+
+                ins = ins_Store(bitCastSrcType, isAligned);
+
+                GetEmitter()->emitIns_S_R(ins, attr, bitCastSrcReg, lclNum, 0);
+            }
+            else if (src->OperIsRMWMemOp())
             {
                 GenStoreLclRMW(lclRegType, lclNum, 0, src);
             }
@@ -4227,7 +4229,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         }
         else
         {
-            regNumber srcReg = genConsumeReg(src);
+            regNumber srcReg = UseReg(src);
 
             GetEmitter()->emitIns_S_R(ins, attr, srcReg, store->GetLclNum(), 0);
         }
@@ -4238,10 +4240,8 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    genConsumeRegs(src);
-
     // Look for the case where we have a constant zero which we've marked for reuse,
-    // but which isn't actually in the register we want.  In that case, it's better to create
+    // but which isn't actually in the register we want. In that case, it's better to create
     // zero in the target register, because an xor is smaller than a copy. Note that we could
     // potentially handle this in the register allocator, but we can't always catch it there
     // because the target may not have a register allocated for it yet.
@@ -4249,23 +4249,25 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     if (src->isUsedFromReg() && (src->GetRegNum() != dstReg) &&
         (src->IsIntegralConst(0) || src->IsDblConPositiveZero()))
     {
+        UseReg(src);
         src->SetRegNum(REG_NA);
         src->ResetReuseRegVal();
         src->SetContained();
     }
 
-    if (!src->isUsedFromReg())
+    if (src->isContained())
     {
         assert(src->GetRegNum() == REG_NA);
 
-        // Currently, we assume that the non-reg source of a GT_STORE_LCL_VAR writing to a register
-        // must be a constant. However, in the future we might want to support an operand used from
-        // memory. This is a bit tricky because we have to decide it can be used from memory before
-        // register allocation, and this would be a case where, once that's done, we need to mark
-        // that node as always requiring a register - which we always assume now anyway, but once we
-        // "optimize" that we'll have to take cases like this into account.
+        if (src->OperIs(GT_BITCAST))
+        {
+            GenTree*  bitCastSrc     = src->AsUnOp()->GetOp(0);
+            var_types bitCastSrcType = bitCastSrc->GetType();
+            regNumber bitCastSrcReg  = genConsumeReg(bitCastSrc);
 
-        if (GenTreeIntCon* intCon = src->IsIntCon())
+            inst_BitCast(lclRegType, dstReg, bitCastSrcType, bitCastSrc->GetRegNum());
+        }
+        else if (GenTreeIntCon* intCon = src->IsIntCon())
         {
             GenIntCon(intCon, dstReg, lclRegType);
         }
@@ -4276,9 +4278,45 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     }
     else
     {
-        assert(src->GetRegNum() != REG_NA);
+        // Note that src cannot be "reg optional", we don't know in advance if this local
+        // will be allocated a register so we could end up with a mem-to-mem copy and
+        // need a temporary register, which too must be requested before knowing if this
+        // local gets a register or not. Hopefully this doesn't actually matter, if the
+        // src node is spilled LSRA should reload it directly in our dstReg.
+        regNumber srcReg = UseReg(src);
 
-        inst_Mov_Extend(lclRegType, true, dstReg, src->GetRegNum(), /* canSkip */ true, emitTypeSize(lclRegType));
+        // TODO-MIKE-Cleanup: emitIns_Mov tries to skip generating useless mov reg, reg
+        // instructions but cannot do it properly because it doesn't know the source reg
+        // type. If the destination type is a GC type then it tries to check GC liveness
+        // to figure out if the destination reg will need to be recorded in GC info, but
+        // then GC liveness is out of sync in at least one common case:
+        //
+        //   mov rdi, ... ; src node loads a value into a reg
+        //   mov rdi, rdi ; store node is normally useless, unless src wasn't a GC ref
+        //                ; but UseReg removes rdi from GC liveness and the emitter now
+        //                ; thinks that rdi isn't a GC ref, according to GC liveness and
+        //                ; emits a useless IF_GC_REG instruction
+        //
+        // Deal with this here, where we can check the source type. This should probably
+        // be moved to inst_Mov, but first the "extend" crap needs to be dealt with, so
+        // code can be more easily shared with ARM and ARM64 and other places that may
+        // need this (basically all reg-to-reg copies).
+        //
+        // Alternative: never generate STORE_LCL_VAR with mismatched source GC type.
+        // Use BITCAST when this happens (rarely anyway) and let it deal with it.
+
+        if ((dstReg != srcReg) || (lclRegType != varActualType(src->GetType())) || varTypeIsSmall(lclRegType))
+        {
+            // TODO-MIKE-Review: ARM and ARM64 don't seem to be doing the "extend" thing.
+            // Stores to "NormalizeOnStore" locals should have been widened to INT and
+            // "NormalizeOnLoad" locals are usually not register candidates. With the
+            // exception of parameters, but those being "NormalizeOnLoad" have widening
+            // casts on loads, so widening here is redundant.
+            instruction ins  = ins_Move_Extend(lclRegType);
+            emitAttr    attr = emitTypeSize(lclRegType);
+
+            GetEmitter()->emitIns_Mov(ins, attr, dstReg, srcReg, /*canSkip*/ true);
+        }
     }
 
     DefLclVarReg(store);
@@ -4774,9 +4812,12 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
     {
         // If the type specified to the emitter is a GC type, it will swap the GC-ness of the registers.
         // Otherwise it will leave them alone, which is correct if they have the same GC-ness.
+        // TODO-MIKE-Review: Check what the emitter does in this case. And LSRA too, presumably it only
+        // uses XCHG if GCness matches?
         size = EA_GCREF;
     }
-    inst_RV_RV(INS_xchg, oldOp1Reg, oldOp2Reg, TYP_I_IMPL, size);
+
+    GetEmitter()->emitIns_R_R(INS_xchg, size, oldOp1Reg, oldOp2Reg);
 
     // Manually remove these regs for the gc sets (mostly to avoid confusing duplicative dump output)
     liveness.SetGCRegs(TYP_BYREF, liveness.GetGCRegs(TYP_BYREF) & ~(oldOp1RegMask | oldOp2RegMask));
@@ -5905,10 +5946,10 @@ void CodeGen::genLongToIntCast(GenTree* cast)
             BasicBlock* allOne  = genCreateTempLabel();
             BasicBlock* success = genCreateTempLabel();
 
-            inst_RV_RV(INS_test, loSrcReg, loSrcReg, TYP_INT, EA_4BYTE);
+            inst_RV_RV(INS_test, loSrcReg, loSrcReg, TYP_INT);
             inst_JMP(EJ_js, allOne);
 
-            inst_RV_RV(INS_test, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
+            inst_RV_RV(INS_test, hiSrcReg, hiSrcReg, TYP_INT);
             genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
             inst_JMP(EJ_jmp, success);
 
@@ -5922,11 +5963,11 @@ void CodeGen::genLongToIntCast(GenTree* cast)
         {
             if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
             {
-                inst_RV_RV(INS_test, loSrcReg, loSrcReg, TYP_INT, EA_4BYTE);
+                inst_RV_RV(INS_test, loSrcReg, loSrcReg, TYP_INT);
                 genJumpToThrowHlpBlk(EJ_js, ThrowHelperKind::Overflow);
             }
 
-            inst_RV_RV(INS_test, hiSrcReg, hiSrcReg, TYP_INT, EA_4BYTE);
+            inst_RV_RV(INS_test, hiSrcReg, hiSrcReg, TYP_INT);
             genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
         }
     }
@@ -6317,11 +6358,11 @@ void CodeGen::genFloatToIntCast(GenTreeCast* cast)
 //
 void CodeGen::genCkfinite(GenTree* treeNode)
 {
-    assert(treeNode->OperGet() == GT_CKFINITE);
+    assert(treeNode->OperIs(GT_CKFINITE));
 
-    GenTree*  op1        = treeNode->AsOp()->gtOp1;
-    var_types targetType = treeNode->TypeGet();
-    int       expMask    = (targetType == TYP_FLOAT) ? 0x7F800000 : 0x7FF00000; // Bit mask to extract exponent.
+    GenTree*  op1        = treeNode->AsUnOp()->GetOp(0);
+    var_types targetType = treeNode->GetType();
+    int       expMask    = targetType == TYP_FLOAT ? 0x7F800000 : 0x7FF00000; // Bit mask to extract exponent.
     regNumber targetReg  = treeNode->GetRegNum();
 
     // Extract exponent into a register.
@@ -6330,13 +6371,13 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     genConsumeReg(op1);
 
 #ifdef TARGET_64BIT
-
     // Copy the floating-point shift to an integer register. If we copied a float to a long, then
     // right-shift the shift so the high 32 bits of the floating-point shift sit in the low 32
     // bits of the integer register.
-    regNumber srcReg        = op1->GetRegNum();
-    var_types targetIntType = ((targetType == TYP_FLOAT) ? TYP_INT : TYP_LONG);
-    inst_Mov(targetIntType, tmpReg, srcReg, /* canSkip */ false, emitActualTypeSize(targetType));
+    regNumber srcReg = op1->GetRegNum();
+
+    inst_Mov(targetType == TYP_FLOAT ? TYP_INT : TYP_LONG, tmpReg, srcReg, /* canSkip */ false);
+
     if (targetType == TYP_DOUBLE)
     {
         // right shift by 32 bits to get to exponent.
@@ -6399,7 +6440,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
 
     // Copy only the low 32 bits. This will be the high order 32 bits of the floating-point
     // shift, no matter the floating-point type.
-    inst_Mov(TYP_INT, tmpReg, copyToTmpSrcReg, /* canSkip */ false, emitActualTypeSize(TYP_FLOAT));
+    inst_Mov(TYP_INT, tmpReg, copyToTmpSrcReg, /* canSkip */ false);
 
     // Mask exponent with all 1's and check if the exponent is all 1's
     inst_RV_IV(INS_and, tmpReg, expMask, EA_4BYTE);
@@ -8186,12 +8227,12 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 
         if (compiler->info.compIsVarArgs && varTypeIsFloating(type))
         {
-            regNumber intArgReg = MapVarargsParamFloatRegToIntReg(reg);
-            inst_Mov(TYP_LONG, intArgReg, reg, /* canSkip */ false, emitActualTypeSize(type));
+            GetEmitter()->emitIns_Mov(INS_movd, emitTypeSize(type), MapVarargsParamFloatRegToIntReg(reg), reg,
+                                      /*canSkip*/ false);
         }
     }
 
-    // If initReg is one of RBM_CALLEE_TRASH, then it needs to be zero'ed before using.
+    // If initReg is one of RBM_CALLEE_TRASH, then it needs to be zeroed before using.
     if ((RBM_CALLEE_TRASH & genRegMask(initReg)) != 0)
     {
         *pInitRegZeroed = false;
@@ -9593,6 +9634,98 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         GetEmitter()->emitIns_I(INS_ret, EA_4BYTE, paramsStackSize);
     }
 #endif // TARGET_X86
+}
+
+instruction CodeGen::ins_Copy(var_types type)
+{
+    assert(emitTypeActSz[type] != 0);
+
+    return varTypeUsesFloatReg(type) ? INS_movaps : INS_mov;
+}
+
+instruction CodeGen::ins_Copy(regNumber srcReg, var_types dstType)
+{
+    return varTypeUsesFloatReg(dstType) != genIsValidFloatReg(srcReg) ? INS_movd : ins_Copy(dstType);
+}
+
+instruction CodeGen::ins_Move_Extend(var_types type)
+{
+    if (varTypeUsesFloatReg(type))
+    {
+        return INS_movaps;
+    }
+
+    if (varTypeIsSmall(type))
+    {
+        return varTypeIsUnsigned(type) ? INS_movzx : INS_movsx;
+    }
+
+    return INS_mov;
+}
+
+instruction CodeGen::ins_Load(var_types srcType, bool aligned)
+{
+    assert(srcType != TYP_STRUCT);
+
+#ifdef FEATURE_SIMD
+    if (varTypeIsSIMD(srcType))
+    {
+        if (srcType == TYP_SIMD8)
+        {
+            return INS_movsdsse2;
+        }
+
+        if (compiler->canUseVexEncoding())
+        {
+            return aligned ? INS_movapd : INS_movupd;
+        }
+        else
+        {
+            return aligned ? INS_movaps : INS_movups;
+        }
+    }
+#endif
+
+    if (varTypeIsFloating(srcType))
+    {
+        return srcType == TYP_DOUBLE ? INS_movsdsse2 : INS_movss;
+    }
+
+    if (varTypeIsSmall(srcType))
+    {
+        return varTypeIsUnsigned(srcType) ? INS_movzx : INS_movsx;
+    }
+
+    return INS_mov;
+}
+
+instruction CodeGen::ins_Store(var_types dstType, bool aligned)
+{
+#ifdef FEATURE_SIMD
+    if (varTypeIsSIMD(dstType))
+    {
+        if (dstType == TYP_SIMD8)
+        {
+            return INS_movsdsse2;
+        }
+
+        if (compiler->canUseVexEncoding())
+        {
+            return aligned ? INS_movapd : INS_movupd;
+        }
+        else
+        {
+            return aligned ? INS_movaps : INS_movups;
+        }
+    }
+#endif
+
+    if (varTypeIsFloating(dstType))
+    {
+        return dstType == TYP_DOUBLE ? INS_movsdsse2 : INS_movss;
+    }
+
+    return INS_mov;
 }
 
 #endif // TARGET_XARCH

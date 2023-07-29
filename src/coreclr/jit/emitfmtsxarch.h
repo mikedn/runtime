@@ -76,7 +76,7 @@ enum ID_OPS : uint8_t
 //////////////////////////////////////////////////////////////////////////////
 
 IF_DEF(NONE,        IS_NONE,                    NONE)     // no operands
-
+IF_DEF(GC_REG,      IS_NONE,                    NONE)     // GC reg update
 IF_DEF(LABEL,       IS_NONE,                    JMP )     // label
 IF_DEF(RWR_LABEL,   IS_R1_WR,                   JMP )     // write label to register
 

@@ -546,7 +546,6 @@ bool emitter::emitInsMayWriteToGCReg(instrDesc* id)
             // Similarly, PUSH has a target register, indicating the start of the set of registers to push.  POP
             // *does* write to at least one register, so we do not make that a special case.
             // Various compare/test instructions do not write (except to the flags). Technically "teq" does not need to
-            // be
             // be in this list because it has no forms matched above, but I'm putting it here for completeness.
             switch (ins)
             {
@@ -580,6 +579,7 @@ bool emitter::emitInsMayWriteToGCReg(instrDesc* id)
             return (ins == INS_vmov_d2i);
 
         default:
+            assert(fmt != IF_GC_REG);
             return false;
     }
 }
@@ -1162,6 +1162,9 @@ emitter::insSize emitter::emitInsSize(insFormat insFmt)
 
     if (insFmt == IF_LARGEJMP)
         return ISZ_48BIT;
+
+    if (insFmt == IF_GC_REG)
+        return ISZ_NONE;
 
     assert(!"Invalid insFormat");
     return ISZ_48BIT;
@@ -2079,6 +2082,12 @@ void emitter::emitIns_Mov(instruction ins,
         {
             if (insDoesNotSetFlags(flags))
             {
+                if (EA_IS_GCREF_OR_BYREF(attr) && (dstReg == srcReg))
+                {
+                    emitNewInstrGCReg(attr, dstReg);
+                    return;
+                }
+
                 if (canSkip && (dstReg == srcReg))
                 {
                     // These instructions have no side effect and can be skipped
@@ -2198,16 +2207,12 @@ void emitter::emitIns_Mov(instruction ins,
         }
     }
 
-    assert((fmt == IF_T1_D0) || (fmt == IF_T1_E) || (fmt == IF_T2_C3) || (fmt == IF_T2_VFP2) || (fmt == IF_T2_VMOVS));
-
     assert(sf != INS_FLAGS_DONT_CARE);
 
-    instrDesc* id  = emitNewInstrSmall(attr);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstrSmall(attr);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsSize(emitInsSize(fmt));
     id->idInsFlags(sf);
     id->idReg1(dstReg);
     id->idReg2(srcReg);
@@ -4190,29 +4195,21 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
 
     if (!id->idjKeepLong)
     {
-        insGroup* tgt = NULL;
+        insGroup* tgt = nullptr;
 
-        /* Can we guess at the jump distance? */
-
-        if (dst != NULL)
+        if (dst != nullptr)
         {
-            tgt = (insGroup*)emitCodeGetCookie(dst);
+            tgt = emitCodeGetCookie(dst);
         }
 
-        if (tgt)
+        if (tgt != nullptr)
         {
-            UNATIVE_OFFSET srcOffs;
-            int            jmpDist;
-
             assert(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
 
-            /* This is a backward jump - figure out the distance */
+            // This is a backward jump - figure out the distance.
 
-            srcOffs = emitCurCodeOffset + emitCurIGsize;
-
-            /* Compute the distance estimate */
-
-            jmpDist = srcOffs - tgt->igOffs;
+            unsigned srcOffs = emitCurCodeOffset + emitCurIGsize;
+            int      jmpDist = srcOffs - tgt->igOffs;
             assert(jmpDist >= 0);
             jmpDist += 4; // Adjustment for ARM PC
 
@@ -6128,13 +6125,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         }
     }
 
+    assert((*dp != dst) || InstrHasNoCode(id));
+
 #ifdef DEBUG
     /* Make sure we set the instruction descriptor size correctly */
 
     size_t expected = emitSizeOfInsDsc(id);
     assert(sz == expected);
 
-    if (emitComp->opts.disAsm || emitComp->verbose)
+    if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
     {
         emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(odst), *dp, (dst - *dp), ig);
     }
@@ -6159,10 +6158,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         }
     }
 #endif
-
-    /* All instructions are expected to generate code */
-
-    assert(*dp != dst);
 
     *dp = dst;
 
@@ -6737,25 +6732,16 @@ void emitter::emitDispInsHelp(
                 if (id->idIns() == INS_movt)
                 {
                     unsigned     cnt = jdsc->dsSize / TARGET_POINTER_SIZE;
-                    BasicBlock** bbp = (BasicBlock**)jdsc->dsCont;
+                    BasicBlock** bbp = reinterpret_cast<BasicBlock**>(jdsc->dsCont);
 
-                    bool isBound = (emitCodeGetCookie(*bbp) != NULL);
-
-                    if (isBound)
+                    if (emitCodeGetCookie(*bbp) != nullptr)
                     {
                         printf("\n\n    J_M%03u_DS%02u LABEL   DWORD", emitComp->compMethodID, imm);
 
-                        /* Display the label table (it's stored as "BasicBlock*" values) */
-
                         do
                         {
-                            insGroup* lab;
-
-                            /* Convert the BasicBlock* value to an IG address */
-
-                            lab = (insGroup*)emitCodeGetCookie(*bbp++);
-                            assert(lab);
-
+                            insGroup* lab = emitCodeGetCookie(*bbp++);
+                            assert(lab != nullptr);
                             printf("\n            DD      %s", emitLabelString(lab));
                         } while (--cnt);
                     }
@@ -7161,6 +7147,11 @@ void emitter::emitDispIns(
     instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, BYTE* code, size_t sz, insGroup* ig)
 {
     insFormat fmt = id->idInsFmt();
+
+    if (fmt == IF_GC_REG)
+    {
+        return;
+    }
 
     /* Special-case IF_LARGEJMP */
 

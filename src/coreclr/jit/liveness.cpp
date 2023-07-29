@@ -1006,13 +1006,13 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
                     // TODO-MIKE-Review: Should implicitly referenced locals be excluded here?
 
-                    if ((lcl->lvRefCnt() == 1) && !lcl->lvPinned)
+                    if ((lcl->GetRefCount() == 1) && !lcl->IsPinning())
                     {
                         if (lcl->IsPromotedField())
                         {
                             LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
-                            if ((parentLcl->lvRefCnt() == 1) && parentLcl->IsDependentPromoted())
+                            if ((parentLcl->GetRefCount() == 1) && parentLcl->IsDependentPromoted())
                             {
                                 isDeadStore = true;
                             }

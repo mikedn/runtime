@@ -180,6 +180,13 @@ void CodeGen::genCodeForBBlist()
 
                 needLabel = true;
             }
+            else if ((block->bbPrev != nullptr) && !block->bbPrev->bbFallsThrough())
+            {
+                // TODO-MIKE-Cleanup: Some dead blocks aren't removed. If they don't have a label we
+                // may end up with an insGroup without GC information and crash due to null gcLcls.
+                // Ideally such blocks should be removed but for now just avoid crashing.
+                needLabel = true;
+            }
             else if ((block->bbPrev != nullptr) && (block->bbPrev->bbJumpKind == BBJ_COND) &&
                      (block->bbWeight != block->bbPrev->bbWeight))
             {
@@ -438,69 +445,7 @@ void CodeGen::genCodeForBBlist()
         noway_assert(genStackLevel == 0);
 #endif
 
-#ifdef TARGET_AMD64
-        // On AMD64, we need to generate a NOP after a call that is the last instruction of the block, in several
-        // situations, to support proper exception handling semantics. This is mostly to ensure that when the stack
-        // walker computes an instruction pointer for a frame, that instruction pointer is in the correct EH region.
-        // The document "X64 and ARM ABIs.docx" has more details. The situations:
-        // 1. If the call instruction is in a different EH region as the instruction that follows it.
-        // 2. If the call immediately precedes an OS epilog. (Note that what the JIT or VM consider an epilog might
-        //    be slightly different from what the OS considers an epilog, and it is the OS-reported epilog that matters
-        //    here.)
-        // We handle case #1 here, and case #2 in the emitter.
-        if (GetEmitter()->emitIsLastInsCall())
-        {
-            // Ok, the last instruction generated is a call instruction. Do any of the other conditions hold?
-            // Note: we may be generating a few too many NOPs for the case of call preceding an epilog. Technically,
-            // if the next block is a BBJ_RETURN, an epilog will be generated, but there may be some instructions
-            // generated before the OS epilog starts, such as a GS cookie check.
-            if ((block->bbNext == nullptr) || !BasicBlock::sameEHRegion(block, block->bbNext))
-            {
-                // We only need the NOP if we're not going to generate any more code as part of the block end.
-
-                switch (block->bbJumpKind)
-                {
-                    case BBJ_ALWAYS:
-                    case BBJ_THROW:
-                    case BBJ_CALLFINALLY:
-                    case BBJ_EHCATCHRET:
-                    // We're going to generate more code below anyway, so no need for the NOP.
-
-                    case BBJ_RETURN:
-                    case BBJ_EHFINALLYRET:
-                    case BBJ_EHFILTERRET:
-                        // These are the "epilog follows" case, handled in the emitter.
-
-                        break;
-
-                    case BBJ_NONE:
-                        if (block->bbNext == nullptr)
-                        {
-                            // Call immediately before the end of the code; we should never get here    .
-                            instGen(INS_BREAKPOINT); // This should never get executed
-                        }
-                        else
-                        {
-                            // We need the NOP
-                            instGen(INS_nop);
-                        }
-                        break;
-
-                    case BBJ_COND:
-                    case BBJ_SWITCH:
-                    // These can't have a call as the last instruction!
-
-                    default:
-                        noway_assert(!"Unexpected bbJumpKind");
-                        break;
-                }
-            }
-        }
-#endif // TARGET_AMD64
-
-        /* Do we need to generate a jump or return? */
-
-        switch (block->bbJumpKind)
+        switch (block->GetKind())
         {
             case BBJ_RETURN:
                 genExitCode(block);
@@ -508,15 +453,15 @@ void CodeGen::genCodeForBBlist()
 
             case BBJ_THROW:
                 // If we have a throw at the end of a function or funclet, we need to emit another instruction
-                // afterwards to help the OS unwinder determine the correct context during unwind.
-                // We insert an unexecuted breakpoint instruction in several situations
-                // following a throw instruction:
+                // afterwards to help the OS unwinder determine the correct context during unwind. We insert an
+                // unexecuted breakpoint instruction in several situations following a throw instruction:
                 // 1. If the throw is the last instruction of the function or funclet. This helps
                 //    the OS unwinder determine the correct context during an unwind from the
                 //    thrown exception.
                 // 2. If this is this is the last block of the hot section.
                 // 3. If the subsequent block is a special throw block.
                 // 4. On AMD64, if the next block is in a different EH region.
+
                 if ((block->bbNext == nullptr) || (block->bbNext->bbFlags & BBF_FUNCLET_BEG) ||
                     !BasicBlock::sameEHRegion(block, block->bbNext) ||
                     (!isFramePointerUsed() && compiler->fgIsThrowHelperBlock(block->bbNext)) ||
@@ -532,15 +477,11 @@ void CodeGen::genCodeForBBlist()
                 {
                     GenTree* call = block->lastNode();
 
-                    if ((call != nullptr) && (call->gtOper == GT_CALL))
+                    if ((call != nullptr) && call->IsCall() && call->AsCall()->IsNoReturn())
                     {
-                        if ((call->AsCall()->gtCallMoreFlags & GTF_CALL_M_DOES_NOT_RETURN) != 0)
-                        {
-                            instGen(INS_BREAKPOINT); // This should never get executed
-                        }
+                        instGen(INS_BREAKPOINT); // This should never get executed
                     }
                 }
-
                 break;
 
             case BBJ_CALLFINALLY:
@@ -553,12 +494,17 @@ void CodeGen::genCodeForBBlist()
                 FALLTHROUGH;
             case BBJ_EHFINALLYRET:
             case BBJ_EHFILTERRET:
+#ifdef TARGET_AMD64
+                // We're about to create an epilog. If the last instruction we output was a 'call',
+                // then we need to insert a NOP, to allow for proper exception - handling behavior.
+                if (GetEmitter()->IsLastInsCall())
+                {
+                    GetEmitter()->emitIns(INS_nop);
+                }
+#endif
                 GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_EPILOG, block);
                 break;
 #else
-            case BBJ_EHCATCHRET:
-                noway_assert(!"Unexpected BBJ_EHCATCHRET"); // not used on x86
-                break;
             case BBJ_EHFINALLYRET:
             case BBJ_EHFILTERRET:
                 genEHFinallyOrFilterRet(block);
@@ -566,15 +512,53 @@ void CodeGen::genCodeForBBlist()
 #endif
 
             case BBJ_NONE:
+#ifdef TARGET_AMD64
+                // On AMD64, we need to generate a NOP after a call that is the last instruction of the block,
+                // in several situations, to support proper exception handling semantics. This is mostly to
+                // ensure that when the stack walker computes an instruction pointer for a frame, that the
+                // instruction pointer is in the correct EH region.
+                //
+                // 1. If the call instruction is in a different EH region as the instruction that follows it.
+                // 2. If the call immediately precedes an OS epilog. Note that what the JIT or VM consider
+                //    an epilog might be slightly different from what the OS considers an epilog, and it is
+                //    the OS-reported epilog that matters here.
+                //
+                // We handle case #1 here, and case #2 when handling return blocks.
+
+                // Note: we may be generating a few too many NOPs for the case of call preceding an epilog.
+                // Technically, if the next block is a BBJ_RETURN, an epilog will be generated, but there
+                // may be some instructions generated before the OS epilog starts, such as a GS cookie check.
+                // We only need the NOP if we're not going to generate any more code as part of the block end.
+
+                if (GetEmitter()->IsLastInsCall())
+                {
+                    if (block->bbNext == nullptr)
+                    {
+                        // Call immediately before the end of the code; we should never get here.
+                        instGen(INS_BREAKPOINT);
+                    }
+                    else if (!BasicBlock::sameEHRegion(block, block->bbNext))
+                    {
+                        // We need the NOP for EH.
+                        instGen(INS_nop);
+                    }
+                }
+#endif // TARGET_AMD64
+                break;
+
             case BBJ_SWITCH:
+#ifdef TARGET_AMD64
+                assert(!GetEmitter()->IsLastInsCall());
+#endif
                 break;
 
             case BBJ_ALWAYS:
                 inst_JMP(EJ_jmp, block->bbJumpDest);
                 FALLTHROUGH;
-
             case BBJ_COND:
-
+#ifdef TARGET_AMD64
+                assert(!GetEmitter()->IsLastInsCall());
+#endif
 #if FEATURE_LOOP_ALIGN
                 // This is the last place where we operate on blocks and after this, we operate
                 // on IG. Hence, if we know that the destination of "block" is the first block
@@ -600,16 +584,13 @@ void CodeGen::genCodeForBBlist()
                     }
                 }
 #endif // FEATURE_LOOP_ALIGN
-
                 break;
 
             default:
-                noway_assert(!"Unexpected bbJumpKind");
-                break;
+                unreached();
         }
 
 #if FEATURE_LOOP_ALIGN
-
         // If next block is the first block of a loop (identified by BBF_LOOP_ALIGN),
         // then need to add align instruction in current "block". Also mark the
         // corresponding IG with IGF_LOOP_ALIGN to know that there will be align
@@ -637,6 +618,36 @@ void CodeGen::genCodeForBBlist()
 
     m_currentBlock = nullptr;
     liveness.End(this);
+}
+
+void CodeGen::genExitCode(BasicBlock* block)
+{
+    // Just wrote the first instruction of the epilog - inform debugger
+    // Note that this may result in a duplicate IPmapping entry, and
+    // that this is ok.
+
+    // For non-optimized debuggable code, there is only one epilog.
+    genIPmappingAdd(static_cast<IL_OFFSETX>(ICorDebugInfo::EPILOG), true);
+
+    if (compiler->getNeedsGSSecurityCookie())
+    {
+#ifdef TARGET_XARCH
+        EpilogGSCookieCheck((block->bbFlags & BBF_HAS_JMP) != 0);
+#else
+        EpilogGSCookieCheck();
+#endif
+    }
+
+#ifdef TARGET_AMD64
+    // We're about to create an epilog. If the last instruction we output was a 'call',
+    // then we need to insert a NOP, to allow for proper exception - handling behavior.
+    if (GetEmitter()->IsLastInsCall())
+    {
+        GetEmitter()->emitIns(INS_nop);
+    }
+#endif
+
+    GetEmitter()->emitCreatePlaceholderIG(IGPT_EPILOG, block);
 }
 
 /*

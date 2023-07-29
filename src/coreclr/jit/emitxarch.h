@@ -512,20 +512,6 @@ void emitIns_Call(EmitCallType          kind,
                   int32_t   amDisp  = 0,
                   bool      isJump  = false);
 
-#ifdef TARGET_AMD64
-// Is the last instruction emitted a call instruction?
-bool emitIsLastInsCall();
-
-// Insert a NOP at the end of the the current instruction group if the last emitted instruction was a 'call',
-// because the next instruction group will be an epilog.
-void emitOutputPreEpilogNOP();
-#endif // TARGET_AMD64
-
-/*****************************************************************************
- *
- *  Given a jump, return true if it's a conditional jump.
- */
-
 inline bool emitIsCondJump(instrDesc* jmp)
 {
     instruction ins = jmp->idIns();
@@ -534,11 +520,6 @@ inline bool emitIsCondJump(instrDesc* jmp)
 
     return (ins != INS_call && ins != INS_jmp);
 }
-
-/*****************************************************************************
- *
- *  Given a jump, return true if it's an unconditional jump.
- */
 
 inline bool emitIsUncondJump(instrDesc* jmp)
 {

@@ -191,15 +191,15 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
         }
     };
 
-    for (unsigned int lclNum = 0; lclNum < comp->lvaCount; ++lclNum)
+    for (unsigned lclNum = 0; lclNum < comp->lvaCount; ++lclNum)
     {
-        var_types type = comp->lvaTable[lclNum].TypeGet();
+        LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
 
-        if (type == TYP_REF || genActualType(type) == TYP_I_IMPL || type == TYP_BYREF)
+        if (lcl->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL))
         {
             m_ConnGraphAdjacencyMatrix[lclNum] = BitVecOps::MakeEmpty(&m_bitVecTraits);
 
-            if (comp->lvaTable[lclNum].lvAddrExposed)
+            if (lcl->IsAddressExposed())
             {
                 JITDUMP("   V%02u is address exposed\n", lclNum);
                 MarkLclVarAsEscaping(lclNum);
@@ -280,12 +280,11 @@ void ObjectAllocator::ComputeStackObjectPointers(BitVecTraits* bitVecTraits)
     while (changed)
     {
         changed = false;
-        for (unsigned int lclNum = 0; lclNum < comp->lvaCount; ++lclNum)
+        for (unsigned lclNum = 0; lclNum < comp->lvaCount; ++lclNum)
         {
-            LclVarDsc* lclVarDsc = comp->lvaTable + lclNum;
-            var_types  type      = lclVarDsc->TypeGet();
+            LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
 
-            if (type == TYP_REF || type == TYP_I_IMPL || type == TYP_BYREF)
+            if (lcl->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL))
             {
                 if (!MayLclVarPointToStack(lclNum) &&
                     !BitVecOps::IsEmptyIntersection(bitVecTraits, m_PossiblyStackPointingPointers,
@@ -295,7 +294,7 @@ void ObjectAllocator::ComputeStackObjectPointers(BitVecTraits* bitVecTraits)
                     MarkLclVarAsPossiblyStackPointing(lclNum);
 
                     // Check if this pointer always points to the stack.
-                    if (lclVarDsc->lvSingleDef == 1)
+                    if (lcl->lvSingleDef == 1)
                     {
                         // Check if we know what is assigned to this pointer.
                         unsigned bitCount = BitVecOps::Count(bitVecTraits, m_ConnGraphAdjacencyMatrix[lclNum]);

@@ -953,7 +953,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
         regNumber srcReg  = UseReg(src);
         regNumber dstReg1 = bitcast->GetRegNum(0);
         regNumber dstReg2 = bitcast->GetRegNum(1);
-        inst_RV_RV_RV(INS_vmov_d2i, dstReg1, dstReg2, srcReg, EA_8BYTE);
+        GetEmitter()->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, dstReg1, dstReg2, srcReg);
         DefLongRegs(bitcast);
     }
     else if ((genTypeSize(dstType) > REGSIZE_BYTES) || (genTypeSize(src->GetType()) > REGSIZE_BYTES))
@@ -1525,6 +1525,23 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
     liveness.RemoveGCRegs(genRegMask(baseReg));
 
     DefReg(node);
+}
+
+void CodeGen::instGen_MemoryBarrier(BarrierKind barrierKind)
+{
+#ifdef DEBUG
+    if (JitConfig.JitNoMemoryBarriers() == 1)
+    {
+        return;
+    }
+#endif
+
+#ifdef TARGET_ARM
+    // ARM has only full barriers, so all barriers need to be emitted as full.
+    GetEmitter()->emitIns_I(INS_dmb, EA_4BYTE, 0xf);
+#else
+    GetEmitter()->emitIns_BARR(INS_dmb, barrierKind == BARRIER_LOAD_ONLY ? INS_BARRIER_ISHLD : INS_BARRIER_ISH);
+#endif
 }
 
 void CodeGen::GenDynBlk(GenTreeDynBlk* store)
@@ -2702,7 +2719,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #ifdef TARGET_ARM
             if (compiler->opts.compUseSoftFP && (returnType == TYP_DOUBLE))
             {
-                inst_RV_RV_RV(INS_vmov_i2d, call->GetRegNum(), REG_R0, REG_R1, EA_8BYTE);
+                GetEmitter()->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, call->GetRegNum(), REG_R0, REG_R1);
             }
             else if (compiler->opts.compUseSoftFP && (returnType == TYP_FLOAT))
             {
@@ -3511,6 +3528,93 @@ void CodeGen::genCodeForNegNot(GenTreeUnOp* node)
 #endif
 
     DefReg(node);
+}
+
+instruction CodeGen::ins_Copy(var_types type)
+{
+    assert(emitTypeActSz[type] != 0);
+
+    if (varTypeIsFloating(type))
+    {
+#ifdef TARGET_ARM64
+        return INS_fmov;
+#else
+        return INS_vmov;
+#endif
+    }
+
+    return INS_mov;
+}
+
+instruction CodeGen::ins_Copy(regNumber srcReg, var_types dstType)
+{
+    bool dstIsFloatReg = varTypeUsesFloatReg(dstType);
+    bool srcIsFloatReg = genIsValidFloatReg(srcReg);
+
+    if (srcIsFloatReg == dstIsFloatReg)
+    {
+        return ins_Copy(dstType);
+    }
+
+#ifdef TARGET_ARM64
+    return dstIsFloatReg ? INS_fmov : INS_mov;
+#else
+    if (dstIsFloatReg)
+    {
+        assert(dstType == TYP_FLOAT);
+        return INS_vmov_i2f;
+    }
+    else
+    {
+        assert(dstType == TYP_INT);
+        return INS_vmov_f2i;
+    }
+#endif
+}
+
+instruction CodeGen::ins_Load(var_types srcType, bool aligned)
+{
+    assert(srcType != TYP_STRUCT);
+
+#ifdef TARGET_ARM
+    if (varTypeUsesFloatReg(srcType))
+    {
+        assert(!varTypeIsSIMD(srcType));
+
+        return INS_vldr;
+    }
+#endif
+
+    if (varTypeIsSmall(srcType))
+    {
+        if (varTypeIsByte(srcType))
+        {
+            return varTypeIsUnsigned(srcType) ? INS_ldrb : INS_ldrsb;
+        }
+
+        assert(varTypeIsShort(srcType));
+        return varTypeIsUnsigned(srcType) ? INS_ldrh : INS_ldrsh;
+    }
+
+    return INS_ldr;
+}
+
+instruction CodeGen::ins_Store(var_types dstType, bool aligned)
+{
+#ifdef TARGET_ARM
+    if (varTypeUsesFloatReg(dstType))
+    {
+        assert(!varTypeIsSIMD(dstType));
+        return INS_vstr;
+    }
+#endif
+
+    if (varTypeIsSmall(dstType))
+    {
+        return varTypeIsByte(dstType) ? INS_strb : INS_strh;
+    }
+
+    return INS_str;
 }
 
 #endif // TARGET_ARMARCH

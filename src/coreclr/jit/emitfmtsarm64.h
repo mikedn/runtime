@@ -42,6 +42,7 @@ IF_DEF(LABEL, IS_NONE, JMP)    // label
 IF_DEF(LARGEJMP, IS_NONE, JMP) // large conditional branch pseudo-op (cond branch + uncond branch)
 IF_DEF(LARGEADR, IS_NONE, JMP) // large address pseudo-op (adrp + add)
 IF_DEF(LARGELDC, IS_NONE, JMP) // large constant pseudo-op (adrp + ldr)
+IF_DEF(GC_REG, IS_NONE, NONE)  // GC reg update
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 

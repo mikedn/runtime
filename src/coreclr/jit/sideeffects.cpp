@@ -199,7 +199,7 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
 
     // Now that we've determined whether or not this access is a read or a write and whether the accessed location is
     // memory or a lclVar, determine whther or not the location is addressable and udpate the alias set.
-    const bool isAddressableLocation = isMemoryAccess || compiler->lvaTable[lclNum].lvAddrExposed;
+    const bool isAddressableLocation = isMemoryAccess || compiler->lvaGetDesc(lclNum)->IsAddressExposed();
 
     // TODO-MIKE-Review: Is this missing HWINTRINSIC stores?
     if (!node->OperIsStore())
@@ -246,17 +246,20 @@ void AliasSet::AddNode(Compiler* compiler, GenTree* node)
         if (operand->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             const unsigned lclNum = operand->AsLclVarCommon()->GetLclNum();
-            if (compiler->lvaTable[lclNum].lvAddrExposed)
+
+            if (compiler->lvaGetDesc(lclNum)->IsAddressExposed())
             {
                 m_readsAddressableLocation = true;
             }
 
             m_lclVarReads.Add(compiler, lclNum);
         }
+
         if (!operand->OperIs(GT_ARGPLACE) && operand->isContained())
         {
             AddNode(compiler, operand);
         }
+
         return GenTree::VisitResult::Continue;
     });
 
@@ -339,6 +342,7 @@ bool AliasSet::InterferesWith(const NodeInfo& other) const
     if (m_writesAddressableLocation || !m_lclVarWrites.IsEmpty())
     {
         Compiler* compiler = other.TheCompiler();
+
         for (GenTree* operand : other.Node()->Operands())
         {
             if (operand->OperIs(GT_LCL_VAR, GT_LCL_FLD))
@@ -346,7 +350,8 @@ bool AliasSet::InterferesWith(const NodeInfo& other) const
                 // If this set writes any addressable location and the node uses an address-exposed lclVar,
                 // the set interferes with the node.
                 const unsigned lclNum = operand->AsLclVarCommon()->GetLclNum();
-                if (compiler->lvaTable[lclNum].lvAddrExposed && m_writesAddressableLocation)
+
+                if (compiler->lvaGetDesc(lclNum)->IsAddressExposed() && m_writesAddressableLocation)
                 {
                     return true;
                 }

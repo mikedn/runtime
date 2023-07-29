@@ -354,18 +354,15 @@ void Importer::AppendStmtCheck(GenTree* tree, unsigned chkLevel)
         }
     }
 
-    if (tree->gtOper == GT_ASG)
+    if (tree->OperIs(GT_ASG))
     {
         // For an assignment to a local variable, all references of that
         // variable have to be spilled. If it is aliased, all calls and
         // indirect accesses have to be spilled.
 
-        // TODO-MIKE-Cleanup: Checking IsAddressExposed here is nonsense,
-        // it's rarely set during import.
-
         if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
-            unsigned   lclNum = tree->AsOp()->gtOp1->AsLclVar()->GetLclNum();
+            unsigned   lclNum = tree->AsOp()->GetOp(0)->AsLclVar()->GetLclNum();
             LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
             for (unsigned level = 0; level < chkLevel; level++)
@@ -373,13 +370,17 @@ void Importer::AppendStmtCheck(GenTree* tree, unsigned chkLevel)
                 GenTree* val = verCurrentState.esStack[level].val;
 
                 assert(!impHasLclRef(val, lclNum) || impIsAddressInLocal(val));
+
+                // TODO-MIKE-Cleanup: Checking IsAddressExposed here is nonsense,
+                // it's rarely set during import.
+
                 assert(!lcl->IsAddressExposed() || ((val->gtFlags & GTF_SIDE_EFFECT) == 0));
             }
         }
 
         // If the access may be to global memory, all side effects have to be spilled.
 
-        else if (tree->AsOp()->gtOp1->gtFlags & GTF_GLOB_REF)
+        else if (tree->AsOp()->GetOp(0)->HasAnySideEffect(GTF_GLOB_REF))
         {
             for (unsigned level = 0; level < chkLevel; level++)
             {
@@ -9238,9 +9239,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     lclNum = compMapILargNum(lclNum);
 
-                    if (lclNum == info.compThisArg)
+                    if (lclNum == info.GetThisParamLclNum())
                     {
-                        lclNum = comp->lvaArg0Var;
+                        lclNum = comp->lvaThisLclNum;
                     }
 
                     assert(lvaGetDesc(lclNum)->lvHasILStoreOp);
@@ -9317,7 +9318,38 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     LclVarDsc*   lcl              = lvaGetDesc(lclNum);
                     GenTreeFlags spillSideEffects = GTF_EMPTY;
 
-                    if (lcl->IsAddressExposed() || lcl->lvHasLdAddrOp || lcl->lvPinned)
+                    if (lcl->IsPinning())
+                    {
+                        // Don't move anything past pinning stores, it's potentially unsafe.
+                        // Load/stores and calls obviously can't be moved, as they depend on
+                        // native pointers within the pinned object. Pure expressions that
+                        // don't depend on such native pointers can be moved but it's not
+                        // easy to detect those. Pure expressions that do depend on native
+                        // pointers should be safe but it's not clear if there's aren't odd
+                        // cases (e.g. expressions computing an intermediary address outside
+                        // of the pinned object).
+                        //
+                        // TODO-MIKE-Review: Is there anything that prevents other JIT
+                        // transforms doing this kind of code motion? Pinning locals aren't
+                        // included in liveness but they're not address exposed so it's not
+                        // clear what would prevent a load/store from moving, probably just
+                        // the fact that the JIT doesn't do such optimizations.
+                        // CSE is one interesting case. Every time a managed pointer is
+                        // converted to a native pointer we basically obtain a NEW value,
+                        // since the managed object might have moved and the native pointer
+                        // is not updated. Interestingly, the C# generates code that gets
+                        // the native pointer out of the pinning local, which is ignored by
+                        // SSA and always gets a new VN so any CSEs issues are avoided.
+                        // But the IL spec doesn't seem to say anywhere that you transform
+                        // the original managed pointer into a native pointer using conv.u.
+                        //
+                        // TODO-MIKE-Review: It also looks like there's a bug in Roslyn,
+                        // see pin-roslyn-bug.cs. There's probably nothing the JIT can do
+                        // to avoid that.
+
+                        EnsureStackSpilled(true DEBUGARG("Pinning store"));
+                    }
+                    else if (lcl->lvHasLdAddrOp)
                     {
                         spillSideEffects = GTF_GLOB_EFFECT;
                     }
@@ -9406,18 +9438,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             }
                         }
                     }
-                    else if (lclTyp == TYP_BYREF)
-                    {
-                        // The code generator generates GC tracking information
-                        // based on the RHS of the assignment.  Later the LHS (which is
-                        // is a BYREF) gets used and the emitter checks that that variable
-                        // is being tracked.  It is not (since the RHS was an int and did
-                        // not need tracking).  To keep this assert happy, we change the RHS
-                        if (!varTypeIsGC(op1->GetType()))
-                        {
-                            op1->SetType(TYP_BYREF);
-                        }
-                    }
                     else if (varTypeIsFloating(lclTyp) && varTypeIsFloating(op1->GetType()) &&
                              (lclTyp != op1->GetType()))
                     {
@@ -9491,9 +9511,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 lclNum = compMapILargNum(lclNum); // account for possible hidden param
 
-                if (lclNum == info.compThisArg)
+                if (lclNum == info.GetThisParamLclNum())
                 {
-                    lclNum = comp->lvaArg0Var;
+                    lclNum = comp->lvaThisLclNum;
                 }
 
             ADRVAR:
@@ -12797,9 +12817,9 @@ void Importer::impLoadArg(unsigned ilArgNum)
 
         unsigned lclNum = compMapILargNum(ilArgNum); // account for possible hidden param
 
-        if (lclNum == info.compThisArg)
+        if (lclNum == info.GetThisParamLclNum())
         {
-            lclNum = comp->lvaArg0Var;
+            lclNum = comp->lvaThisLclNum;
         }
 
         impPushLclVar(lclNum);
@@ -16173,7 +16193,15 @@ bool Importer::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
         {
             unsigned valueLcl = valueIndex->AsLclVar()->GetLclNum();
             unsigned arrayLcl = array->AsLclVar()->GetLclNum();
-            if ((valueLcl == arrayLcl) && !lvaGetDesc(arrayLcl)->lvAddrExposed)
+
+            // TODO-MIKE-Cleanup: Checking IsAddressExposed here is nonsense, it's rarely set
+            // during import. Besides, the check is probably overly conservative, there's a
+            // reasonable good chance that index trees do not interefere with AX locals. During
+            // import stores typically end up in their own statements rather than being hidden
+            // under COMMAs so the only source of intereference are probably calls. Then we
+            // could check for GTF_CALL and lvHasLdAddrOp.
+
+            if ((valueLcl == arrayLcl) && !lvaGetDesc(arrayLcl)->IsAddressExposed())
             {
                 JITDUMP("\nstelem of ref from same array: skipping covariant store check\n");
                 return true;
@@ -16738,7 +16766,7 @@ bool Compiler::impHasAddressTakenLocals(GenTree* tree)
         {
             LclVarDsc* lcl = data->compiler->lvaGetDesc(node->AsLclAddr());
 
-            if (lcl->lvHasLdAddrOp || lcl->IsAddressExposed())
+            if (lcl->lvHasLdAddrOp)
             {
                 return WALK_ABORT;
             }
@@ -16747,7 +16775,7 @@ bool Compiler::impHasAddressTakenLocals(GenTree* tree)
         {
             LclVarDsc* lcl = data->compiler->lvaGetDesc(node->AsLclVarCommon());
 
-            if (lcl->lvHasLdAddrOp || lcl->IsAddressExposed())
+            if (lcl->lvHasLdAddrOp)
             {
                 return WALK_ABORT;
             }
@@ -16812,11 +16840,11 @@ GenTree* Importer::impCheckForNullPointer(GenTree* obj)
 
 // Check for the special case where the object is the methods original 'this' pointer.
 // Note that, the original 'this' pointer is always local var 0 for non-static method,
-// even if we might have created the copy of 'this' pointer in lvaArg0Var.
+// even if we might have created the copy of 'this' pointer in lvaThisLclNum.
 bool Compiler::impIsThis(GenTree* obj)
 {
     return (obj != nullptr) && obj->OperIs(GT_LCL_VAR) &&
-           impInlineRoot()->lvaIsOriginalThisArg(obj->AsLclVar()->GetLclNum());
+           impInlineRoot()->lvaIsOriginalThisParam(obj->AsLclVar()->GetLclNum());
 }
 
 bool Importer::impIsPrimitive(CorInfoType jitType)
@@ -17408,9 +17436,9 @@ LclVarDsc* Importer::lvaGetDesc(GenTreeLclAddr* lclAddr)
     return comp->lvaGetDesc(lclAddr);
 }
 
-bool Importer::lvaIsOriginalThisArg(unsigned lclNum)
+bool Importer::lvaIsOriginalThisParam(unsigned lclNum)
 {
-    return comp->lvaIsOriginalThisArg(lclNum);
+    return comp->lvaIsOriginalThisParam(lclNum);
 }
 
 bool Importer::lvaHaveManyLocals()

@@ -180,8 +180,9 @@ void Compiler::lvaInitLocals()
         {
             if ((corType == CORINFO_TYPE_CLASS) || (corType == CORINFO_TYPE_BYREF))
             {
-                JITDUMP("Setting lvPinned for V%02u\n", lclNum);
-                lcl->lvPinned = true;
+                JITDUMP("V%02u is pinning\n", lclNum);
+                lcl->m_pinning         = true;
+                lcl->lvDoNotEnregister = true;
             }
             else
             {
@@ -435,7 +436,7 @@ void Compiler::lvaInitThisParam(ParamAllocInfo& paramInfo)
     assert(paramInfo.intRegIndex == 0);
     assert(paramInfo.stackOffset == 0);
 
-    lvaArg0Var       = 0;
+    lvaThisLclNum    = 0;
     info.compThisArg = 0;
 
     LclVarDsc* lcl = lvaGetDesc(paramInfo.lclNum);
@@ -1263,6 +1264,111 @@ unsigned Compiler::compMap2ILvarNum(unsigned varNum) const
     return varNum;
 }
 
+unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason))
+{
+    if (compIsForInlining())
+    {
+        Compiler* pComp = impInlineInfo->InlinerCompiler;
+
+        if (pComp->lvaHaveManyLocals())
+        {
+            compInlineResult->NoteFatal(InlineObservation::CALLSITE_TOO_MANY_LOCALS);
+        }
+
+        unsigned lclNum = pComp->lvaGrabTemp(shortLifetime DEBUGARG(reason));
+
+        lvaTable     = pComp->lvaTable;
+        lvaCount     = pComp->lvaCount;
+        lvaTableSize = pComp->lvaTableSize;
+
+        return lclNum;
+    }
+
+    // You cannot allocate more space after frame layout!
+    noway_assert(lvaDoneFrameLayout < FINAL_FRAME_LAYOUT);
+
+    if (lvaCount + 1 > lvaTableSize)
+    {
+        lvaResizeTable(lvaCount + (lvaCount / 2) + 1);
+    }
+
+    unsigned lclNum = lvaCount++;
+
+    LclVarDsc* lcl = new (&lvaTable[lclNum]) LclVarDsc();
+    lcl->lvIsTemp  = shortLifetime;
+    INDEBUG(lcl->lvReason = reason;)
+
+    // TODO-MIKE-Review: Minopts needs this because it does not do a ref count,
+    // though we could probably just set the ref count to 1 after lowering.
+    // It's not clear if there's any need to also do this if optimizations are
+    // enabled. Anyway the ref count is likely wrong, a typical temp will have
+    // one def and at least one use.
+    // And then minopts shouldn't really need any ref count values, it's just
+    // that code like raMarkStkVars ignores lvImplicitlyReferenced.
+
+    if (lvaLocalVarRefCounted())
+    {
+        if (opts.OptimizationDisabled())
+        {
+            lcl->lvImplicitlyReferenced = true;
+            lcl->lvDoNotEnregister      = true;
+        }
+
+        lcl->SetRefCount(1);
+        lcl->SetRefWeight(BB_UNITY_WEIGHT);
+    }
+
+    JITDUMP("\nAllocated %stemp V%02u for \"%s\"\n", shortLifetime ? "" : "long lifetime ", lclNum, reason);
+
+    return lclNum;
+}
+
+unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
+{
+    if (compIsForInlining())
+    {
+        // TODO-MIKE-Cleanup: Why doesn't this check for too many locals like lvaGrabTemp?
+
+        unsigned lclNum = impInlineInfo->InlinerCompiler->lvaGrabTemps(count DEBUGARG(reason));
+
+        lvaTable     = impInlineInfo->InlinerCompiler->lvaTable;
+        lvaCount     = impInlineInfo->InlinerCompiler->lvaCount;
+        lvaTableSize = impInlineInfo->InlinerCompiler->lvaTableSize;
+
+        return lclNum;
+    }
+
+    noway_assert(lvaDoneFrameLayout < FINAL_FRAME_LAYOUT);
+
+    if (lvaCount + count > lvaTableSize)
+    {
+        lvaResizeTable(lvaCount + max(lvaCount / 2 + 1, count));
+    }
+
+    unsigned lclNum = lvaCount;
+    lvaCount += count;
+
+    for (unsigned i = 0; i < count; i++)
+    {
+        LclVarDsc* lcl = new (&lvaTable[lclNum + i]) LclVarDsc();
+        assert(!lcl->lvIsTemp);
+        INDEBUG(lcl->lvReason = reason;)
+
+        if (opts.OptimizationDisabled())
+        {
+            lcl->lvImplicitlyReferenced = true;
+            lcl->lvDoNotEnregister      = true;
+        }
+    }
+
+    // Could handle this like in lvaGrabTemp probably...
+    assert(!lvaLocalVarRefCounted());
+
+    JITDUMP("\nAllocated %u long lifetime temps V%02u..V%02u for \"%s\"\n", count, lclNum, lclNum + count - 1, reason);
+
+    return lclNum;
+}
+
 void Compiler::lvaResizeTable(unsigned newSize)
 {
     // Check for overflow
@@ -1306,7 +1412,7 @@ void Compiler::lvaSetAddressExposed(unsigned lclNum)
 
 void Compiler::lvaSetAddressExposed(LclVarDsc* lcl)
 {
-    lcl->lvAddrExposed = 1;
+    lcl->lvAddrExposed = true;
     lvaSetDoNotEnregister(lcl DEBUGARG(DNER_AddrExposed));
 
     // For promoted locals we make all fields address exposed. However, if the local
@@ -1320,7 +1426,7 @@ void Compiler::lvaSetAddressExposed(LclVarDsc* lcl)
         {
             LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-            fieldLcl->lvAddrExposed = 1;
+            fieldLcl->lvAddrExposed = true;
             lvaSetDoNotEnregister(fieldLcl DEBUGARG(DNER_AddrExposed));
         }
     }
@@ -1897,6 +2003,123 @@ BasicBlock::weight_t BasicBlock::getBBWeight(Compiler* comp)
     }
 }
 
+bool Compiler::lvaIsOriginalThisParam(unsigned lclNum)
+{
+    assert(lclNum < lvaCount);
+
+    bool isOriginalThisParam = !info.compIsStatic && (lclNum == info.GetThisParamLclNum());
+
+#ifdef DEBUG
+    if (isOriginalThisParam)
+    {
+        LclVarDsc* thisParam = lvaGetDesc(lclNum);
+
+#ifndef JIT32_GCENCODER
+        // The general encoder/decoder (currently) only reports "this" as a generics context as a stack location,
+        // so we mark info.compThisArg as lvAddrTaken to ensure that it is not enregistered. Otherwise, it should
+        // not be address-taken. This variable determines if the address-taken-ness of this param is OK.
+        const bool genericsContextIsThis = info.ThisParamIsGenericsContext();
+#else
+        const bool genericsContextIsThis = false;
+#endif
+
+        // Should never write to or take the address of the original 'this' param
+        assert(!thisParam->lvHasILStoreOp && (!thisParam->IsAddressExposed() || genericsContextIsThis));
+    }
+#endif
+
+    return isOriginalThisParam;
+}
+
+// Is this a synchronized instance method? If so, we will need to report "this"
+// in the GC information, so that the EE can release the object lock
+// in case of an exception
+//
+// We also need to report "this" and keep it alive for all shared generic
+// code that gets the actual generic context from the "this" pointer and
+// has exception handlers.
+//
+// For example, if List<T>::m() is shared between T = object and T = string,
+// then inside m() an exception handler "catch E<T>" needs to be able to fetch
+// the 'this' pointer to find out what 'T' is in order to tell if we
+// should catch the exception or not.
+//
+bool Compiler::lvaKeepAliveAndReportThis()
+{
+    if (info.compIsStatic || !lvaGetDesc(0u)->TypeIs(TYP_REF))
+    {
+        return false;
+    }
+
+#ifdef JIT32_GCENCODER
+    if ((info.compFlags & CORINFO_FLG_SYNCH) != 0)
+    {
+        return true;
+    }
+#endif
+
+    if (info.ThisParamIsGenericsContext())
+    {
+#ifdef JIT32_GCENCODER
+        // TODO: Check if any of the exception clauses are typed using a generic type.
+        // Else, we do not need to report this.
+        if (info.compXcptnsCount > 0)
+        {
+            return true;
+        }
+
+        if (opts.compDbgCode)
+        {
+            return true;
+        }
+#else
+        // If the generics context is the this pointer we need to report it if either
+        // the VM requires us to keep the generics context alive or it is used in a look-up.
+        // We keep it alive in the lookup scenario, even when the VM didn't ask us to,
+        // because collectible types need the generics context when GC-ing.
+
+        if ((info.compMethodInfo->options & CORINFO_GENERICS_CTXT_KEEP_ALIVE) != 0)
+        {
+            JITDUMP("Reporting this as generic context: %s\n", "must keep");
+            return true;
+        }
+#endif
+
+        if (lvaGenericsContextInUse)
+        {
+            JITDUMP("Reporting this as generic context: %s\n", "referenced");
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool Compiler::lvaReportParamTypeArg()
+{
+    if (info.compMethodInfo->options & (CORINFO_GENERICS_CTXT_FROM_METHODDESC | CORINFO_GENERICS_CTXT_FROM_METHODTABLE))
+    {
+        assert(info.compTypeCtxtArg != BAD_VAR_NUM);
+
+        // If the VM requires us to keep the generics context alive and report it (for example, if any catch
+        // clause catches a type that uses a generic parameter of this method) this flag will be set.
+        if ((info.compMethodInfo->options & CORINFO_GENERICS_CTXT_KEEP_ALIVE) != 0)
+        {
+            return true;
+        }
+
+        // Otherwise, if an exact type parameter is needed in the body, report the generics context.
+        // We do this because collectible types needs the generics context when gc-ing.
+        if (lvaGenericsContextInUse)
+        {
+            return true;
+        }
+    }
+
+    // Otherwise, we don't need to report it -- the generics context parameter is unused.
+    return false;
+}
+
 // LclVarDsc "less" comparer used to compare the weight of two locals, when optimizing for small code.
 class LclVarDsc_SmallCode_Less
 {
@@ -2141,7 +2364,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         }
 
 #if defined(JIT32_GCENCODER) && defined(FEATURE_EH_FUNCLETS)
-        if (lvaIsOriginalThisArg(lclNum) && (info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0)
+        if (lvaIsOriginalThisParam(lclNum) && info.ThisParamIsGenericsContext())
         {
             // For x86/Linux, we need to track "this". However we cannot have it in tracked locals,
             // so we make "this" pointer always untracked.
@@ -3874,8 +4097,8 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
         stkOffs -= floatRegsSaveAreaSize;
     }
 #elif defined(TARGET_X86)
-    const int preSpillSize    = 0;
-    bool      mustDoubleAlign = false;
+    const int      preSpillSize          = 0;
+    bool           mustDoubleAlign       = false;
 
 #if DOUBLE_ALIGN
     if (codeGen->doDoubleAlign())
@@ -5303,7 +5526,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
     if (varDsc->lvDoNotEnregister)
     {
         printf(" do-not-enreg[");
-        if (varDsc->lvAddrExposed)
+        if (varDsc->IsAddressExposed())
         {
             printf("X");
         }
@@ -5331,12 +5554,10 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
         {
             printf("R");
         }
-#ifdef JIT32_GCENCODER
-        if (varDsc->lvPinned)
+        if (varDsc->IsPinning())
         {
             printf("P");
         }
-#endif
         printf("]");
     }
 
@@ -5352,7 +5573,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
     {
         printf(" must-init");
     }
-    if (varDsc->lvAddrExposed)
+    if (varDsc->IsAddressExposed())
     {
         printf(" addr-exposed");
     }
@@ -5360,9 +5581,9 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
     {
         printf(" ld-addr-op");
     }
-    if (varDsc->lvPinned)
+    if (varDsc->IsPinning())
     {
-        printf(" pinned");
+        printf(" pinning");
     }
     if (varDsc->lvClassHnd != NO_CLASS_HANDLE)
     {

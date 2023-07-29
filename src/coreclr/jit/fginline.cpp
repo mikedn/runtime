@@ -1496,7 +1496,7 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
     {
         LclVarDsc* lcl = lvaGetDesc(argInfo.argNode->AsLclVar());
 
-        if (!lcl->lvHasLdAddrOp && !lcl->lvAddrExposed)
+        if (!lcl->lvHasLdAddrOp)
         {
             argInfo.argIsUnaliasedLclVar = true;
 
@@ -1618,7 +1618,7 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
         CORINFO_CLASS_HANDLE lclClass;
         CorInfoTypeWithMod   lclCorType       = info.compCompHnd->getArgType(&localsSig, localHandle, &lclClass);
         var_types            lclType          = JITtype2varType(strip(lclCorType));
-        bool                 lclIsPinned      = false;
+        bool                 lclIsPinning     = false;
         bool                 lclHasNormedType = false;
 
         if (varTypeIsGC(lclType))
@@ -1641,9 +1641,9 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
                     return false;
                 }
 
-                JITDUMP("Inlinee local #%02u is pinned\n", i);
+                JITDUMP("Inlinee local #%02u is pinning\n", i);
 
-                lclIsPinned = true;
+                lclIsPinning = true;
             }
 
             inlineInfo->hasGCRefLocals = true;
@@ -1699,7 +1699,7 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
             lclHasNormedType = true;
         }
 
-        new (&inlineInfo->ilLocInfo[i]) InlLocInfo(lclType, lclClass, lclIsPinned, lclHasNormedType);
+        new (&inlineInfo->ilLocInfo[i]) InlLocInfo(lclType, lclClass, lclIsPinning, lclHasNormedType);
     }
 
 #ifdef FEATURE_SIMD
@@ -1764,7 +1764,7 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 
     LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-    lcl->lvPinned               = lclInfo.lclIsPinned;
+    lcl->m_pinning              = lclInfo.lclIsPinned;
     lcl->lvHasLdAddrOp          = lclInfo.lclHasLdlocaOp;
     lcl->lvHasILStoreOp         = lclInfo.lclHasStlocOp;
     lcl->lvHasMultipleILStoreOp = lclInfo.lclHasMultipleStlocOp;

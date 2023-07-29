@@ -836,15 +836,17 @@ protected:
     void genCodeForMulHi(GenTreeOp* treeNode);
     void genLeaInstruction(GenTreeAddrMode* lea);
 
-#if defined(TARGET_ARMARCH)
+#ifdef TARGET_ARMARCH
     void genScaledAdd(emitAttr attr, regNumber targetReg, regNumber baseReg, regNumber indexReg, int scale);
-#endif // TARGET_ARMARCH
+    enum BarrierKind{BARRIER_FULL, BARRIER_LOAD_ONLY};
+    void instGen_MemoryBarrier(BarrierKind barrierKind = BARRIER_FULL);
+#endif
 
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
     void genCodeForMulLong(GenTreeOp* treeNode);
-#endif // TARGET_ARM
+#endif
 
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
     void genLongToIntCast(GenTree* treeNode);
 #endif
 
@@ -1151,6 +1153,7 @@ protected:
     void genCodeForPhysReg(GenTreePhysReg* tree);
     void genCodeForNullCheck(GenTreeIndir* tree);
     void genCodeForCmpXchg(GenTreeCmpXchg* tree);
+    void GenMemoryBarrier(GenTree* barrier);
     void genCodeForInstr(GenTreeInstr* instr);
 
     void genAlignStackBeforeCall(GenTreePutArgStk* putArgStk);
@@ -1249,11 +1252,11 @@ protected:
     void GenJCmp(GenTreeOp* jcmp, BasicBlock* block);
 #endif
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     void genEHCatchRet(BasicBlock* block);
-#else  // !FEATURE_EH_FUNCLETS
+#else
     void genEHFinallyOrFilterRet(BasicBlock* block);
-#endif // !FEATURE_EH_FUNCLETS
+#endif
 
 #ifndef WINDOWS_AMD64_ABI
     void genMultiRegStructReturn(GenTree* src);
@@ -1305,23 +1308,9 @@ public:
     void instGen(instruction ins);
     void inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock);
     void inst_SET(emitJumpKind condition, regNumber reg);
-    void inst_RV(instruction ins, regNumber reg, var_types type, emitAttr size = EA_UNKNOWN);
-
-    void inst_Mov(var_types dstType,
-                  regNumber dstReg,
-                  regNumber srcReg,
-                  bool      canSkip,
-                  emitAttr size = EA_UNKNOWN ARM_ARG(insFlags flags = INS_FLAGS_DONT_CARE));
-
-    void inst_Mov_Extend(var_types srcType,
-                         bool      srcInReg,
-                         regNumber dstReg,
-                         regNumber srcReg,
-                         bool      canSkip,
-                         emitAttr size = EA_UNKNOWN ARM_ARG(insFlags flags = INS_FLAGS_DONT_CARE));
-
-    void inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type, emitAttr size = EA_UNKNOWN);
-    void inst_RV_RV_RV(instruction ins, regNumber reg1, regNumber reg2, regNumber reg3, emitAttr size);
+    void inst_RV(instruction ins, regNumber reg, var_types type);
+    void inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip);
+    void inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type);
     void inst_IV(instruction ins, cnsval_ssize_t val);
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
 
@@ -1421,25 +1410,17 @@ public:
     void inst_AM_R(instruction ins, emitAttr size, regNumber reg, const GenAddrMode& addrMode, unsigned offset = 0);
 
     bool isMoveIns(instruction ins);
-    instruction ins_Move_Extend(var_types srcType, bool srcInReg);
 
     instruction ins_Load(var_types srcType, bool aligned = false);
     instruction ins_Store(var_types dstType, bool aligned = false);
     instruction ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned = false);
-    instruction ins_Copy(var_types dstType);
+    instruction ins_Copy(var_types type);
     instruction ins_Copy(regNumber srcReg, var_types dstType);
 #ifdef TARGET_XARCH
+    instruction ins_Move_Extend(var_types type);
     instruction ins_FloatCompare(var_types type);
     instruction ins_FloatSqrt(var_types type);
 #endif
-
-    enum BarrierKind
-    {
-        BARRIER_FULL,      // full barrier
-        BARRIER_LOAD_ONLY, // load barier
-    };
-
-    void instGen_MemoryBarrier(BarrierKind barrierKind = BARRIER_FULL);
 
     void instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg);
     void instGen_Set_Reg_To_Imm(emitAttr  size,

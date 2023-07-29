@@ -1109,6 +1109,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
         // the bitcast itself contained. This will allow us to store directly from the other
         // type if this node doesn't get a register.
         GenTree* bitCastSrc = src->AsUnOp()->GetOp(0);
+
         if (!bitCastSrc->isContained() && !bitCastSrc->IsRegOptional())
         {
             src->SetContained();

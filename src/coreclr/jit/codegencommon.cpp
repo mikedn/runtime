@@ -590,35 +590,6 @@ void AddrMode::Extract(Compiler* compiler)
     assert((base != nullptr) || ((index != nullptr) && (scale > 1)));
 }
 
-/*****************************************************************************
- *
- *  Generate an exit sequence for a return from a method (note: when compiling
- *  for speed there might be multiple exit points).
- */
-
-void CodeGen::genExitCode(BasicBlock* block)
-{
-    /* Just wrote the first instruction of the epilog - inform debugger
-       Note that this may result in a duplicate IPmapping entry, and
-       that this is ok  */
-
-    // For non-optimized debuggable code, there is only one epilog.
-    genIPmappingAdd((IL_OFFSETX)ICorDebugInfo::EPILOG, true);
-
-    if (compiler->getNeedsGSSecurityCookie())
-    {
-        bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
-
-#ifdef TARGET_XARCH
-        EpilogGSCookieCheck(jmpEpilog);
-#else
-        EpilogGSCookieCheck();
-#endif
-    }
-
-    GetEmitter()->emitCreatePlaceholderIG(IGPT_EPILOG, block);
-}
-
 //------------------------------------------------------------------------
 // genJumpToThrowHlpBlk: Generate code for an out-of-line exception.
 //
@@ -2882,11 +2853,9 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                     continue;
                 }
 
-                // Move it to the new register
-
+#ifdef TARGET_ARM64
                 emitAttr size = emitActualTypeSize(destMemType);
 
-#ifdef TARGET_ARM64
                 if (varTypeIsSIMD(lcl->GetType()) && (paramRegIndex < paramRegCount - 1) &&
                     (paramRegs[paramRegIndex + 1].regIndex == 1))
                 {
@@ -2897,9 +2866,11 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
 
                     size = EA_8BYTE;
                 }
-#endif
 
-                inst_Mov(destMemType, destRegNum, regNum, /* canSkip */ false, size);
+                GetEmitter()->emitIns_Mov(ins_Copy(regNum, destMemType), size, destRegNum, regNum, /*canSkip*/ false);
+#else
+                inst_Mov(destMemType, destRegNum, regNum, /*canSkip*/ false);
+#endif
 
 #ifdef USING_SCOPE_INFO
                 psiMoveToReg(lclNum);
@@ -5698,11 +5669,11 @@ void CodeGen::GenReturn(GenTree* ret, BasicBlock* block)
 
         regNumber retReg = compiler->info.retDesc.GetRegNum(0);
 
-        inst_Mov(retType, retReg, srcReg, /* canSkip */ true, emitTypeSize(retType));
+        inst_Mov(retType, retReg, srcReg, /* canSkip */ true);
     }
 
     // Usually the epilog code follow right after the return code and since epilogs
-    // aren't interruptuble we don't need to report GC pointers in return registers.
+    // aren't interruptible we don't need to report GC pointers in return registers.
     // But there are all sorts of special cases that need extra code inserted after
     // the RETURN code (GS checks, SP checks, profiler calls, EH NOPs) and such code
     // is interruptible and may have calls and temp labels.

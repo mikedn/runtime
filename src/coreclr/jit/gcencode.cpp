@@ -338,7 +338,7 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
         if (varTypeIsGC(lcl->GetType()))
         {
 #ifndef FEATURE_EH_FUNCLETS
-            if (compiler->lvaIsOriginalThisArg(lclNum) && compiler->lvaKeepAliveAndReportThis())
+            if (compiler->lvaIsOriginalThisParam(lclNum) && compiler->lvaKeepAliveAndReportThis())
             {
                 // "this" is untracked, but encoding of untracked variables does not support
                 // reporting "this". So report it as a tracked variable with a liveness extending
@@ -2309,7 +2309,7 @@ unsigned GCEncoder::AddUntrackedStackSlots(uint8_t* dest, const int mask)
                 offset |= byref_OFFSET_FLAG;
             }
 
-            if (lcl->lvPinned)
+            if (lcl->IsPinning())
             {
                 offset |= pinned_OFFSET_FLAG;
             }
@@ -4255,7 +4255,7 @@ void GCEncoder::AddUntrackedStackSlots()
                 slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
             }
 
-            if (lcl->lvPinned)
+            if (lcl->IsPinning())
             {
                 slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_PINNED);
             }

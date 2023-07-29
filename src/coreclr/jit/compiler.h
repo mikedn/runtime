@@ -148,7 +148,7 @@ public:
                                   // variable is in the same register for the entire function.
     unsigned char lvTracked : 1;  // is this a tracked variable?
     unsigned char m_hasGCLiveness : 1;
-    unsigned char lvPinned : 1; // is this a pinned variable?
+    unsigned char m_pinning : 1;
 
     unsigned char lvMustInit : 1;    // must be initialized
     unsigned char lvAddrExposed : 1; // The address of this variable is "exposed" -- passed as an argument, stored in a
@@ -159,19 +159,15 @@ public:
                                          // struct promotion.
     unsigned char lvLiveInOutOfHndlr : 1; // The variable is live in or out of an exception handler, and therefore must
                                           // be on the stack (at least at those boundaries.)
+#ifdef DEBUG
+    unsigned char lvLclFieldExpr : 1;   // The variable has (STORE_)LCL_FLD accesses.
+    unsigned char lvLclBlockOpAddr : 1; // The variable was written to via a block operation.
+#endif
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     unsigned char lvIsImplicitByRefArgTemp : 1;
 #endif
     unsigned char m_isSsa : 1; // The variable is in SSA form (set by SsaBuilder)
 
-#ifdef DEBUG
-    // These further document the reasons for setting "lvDoNotEnregister".  (Note that "lvAddrExposed" is one of the
-    // reasons;
-    // also, lvType == TYP_STRUCT prevents enregistration.  At least one of the reasons should be true.
-    unsigned char lvLclFieldExpr : 1;   // The variable is not a struct, but was accessed like one (e.g., reading a
-                                        // particular byte from an int).
-    unsigned char lvLclBlockOpAddr : 1; // The variable was written to via a block operation that took its address.
-#endif
     unsigned char lvIsCSE : 1;                // Indicates if this LclVar is a CSE variable.
     unsigned char lvHasLdAddrOp : 1;          // has ldloca or ldarga opcode on this local.
     unsigned char lvHasILStoreOp : 1;         // there is at least one STLOC or STARG on this local
@@ -250,7 +246,7 @@ public:
 
     bool IsPinning() const
     {
-        return lvPinned;
+        return m_pinning;
     }
 
     bool IsAddressExposed() const
@@ -1175,7 +1171,7 @@ struct CompiledMethodInfo
 
     unsigned compRetBuffArg;  // position of hidden return param var (0, 1) (BAD_VAR_NUM means not present);
     unsigned compTypeCtxtArg; // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)
-    unsigned compThisArg;     // position of implicit this pointer param (not to be confused with lvaArg0Var)
+    unsigned compThisArg;     // position of implicit this pointer param (not to be confused with lvaThisLclNum)
     unsigned compLocalsCount; // Number of vars : args + locals (incl. implicit and     hidden)
     unsigned compTotalHotCodeSize                   = 0; // Total number of bytes of Hot Code in the method
     unsigned compTotalColdCodeSize                  = 0; // Total number of bytes of Cold Code in the method
@@ -1223,6 +1219,16 @@ struct CompiledMethodInfo
     unsigned GetParamCount() const
     {
         return compArgsCount;
+    }
+
+    unsigned GetThisParamLclNum() const
+    {
+        return compThisArg;
+    }
+
+    bool ThisParamIsGenericsContext() const
+    {
+        return (compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0;
     }
 
     INDEBUG(bool SkipMethod() const;)
@@ -2350,7 +2356,7 @@ struct Importer
     LclVarDsc* lvaGetDesc(unsigned lclNum);
     LclVarDsc* lvaGetDesc(GenTreeLclVarCommon* lclNode);
     LclVarDsc* lvaGetDesc(GenTreeLclAddr* lclAddr);
-    bool lvaIsOriginalThisArg(unsigned lclNum);
+    bool lvaIsOriginalThisParam(unsigned lclNum);
     bool lvaHaveManyLocals();
     bool fgVarNeedsExplicitZeroInit(unsigned lclNum, bool blockIsInLoop, bool blockIsReturn);
     unsigned compMapILargNum(unsigned ilArgNum);
@@ -3528,9 +3534,9 @@ public:
     unsigned lvaMonAcquired            = BAD_VAR_NUM; // boolean variable introduced into in synchronized methods
                                                       // that tracks whether the lock has been taken
 
-    unsigned lvaArg0Var = BAD_VAR_NUM; // The lclNum of arg0. Normally this will be info.compThisArg.
-                                       // However, if there is a "ldarga 0" or "starg 0" in the IL,
-                                       // we will redirect all "ldarg(a) 0" and "starg 0" to this temp.
+    // Same as info.compThisArg, except when "this" is address taken or stored to - in which
+    // case this is a temp local initialized from the "this" arg at the start of the method.
+    unsigned lvaThisLclNum = BAD_VAR_NUM;
 
 #if FEATURE_FIXED_OUT_ARGS
     unsigned lvaOutgoingArgSpaceVar = BAD_VAR_NUM; // TYP_BLK local for fixed outgoing argument space
@@ -3695,11 +3701,11 @@ public:
 
     int lvaFrameAddress(int varNum, bool* pFPbased);
 
-    bool lvaIsOriginalThisArg(unsigned varNum); // Is this varNum the original this argument?
+    bool lvaIsOriginalThisParam(unsigned lclNum);
 
-    bool lvaIsImplicitByRefLocal(unsigned varNum)
+    bool lvaIsImplicitByRefLocal(unsigned lclNum)
     {
-        return lvaGetDesc(varNum)->IsImplicitByRefParam();
+        return lvaGetDesc(lclNum)->IsImplicitByRefParam();
     }
 
     void lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer);
@@ -4583,7 +4589,7 @@ protected:
 
     void fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, InlineInfo* inlineInfo);
 
-    void fgAdjustForAddressExposedOrWrittenThis();
+    void fgAdjustForAddressTakenOrStoredThis();
 
     unsigned fgStressBBProf()
     {
