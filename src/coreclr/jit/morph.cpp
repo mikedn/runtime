@@ -6312,11 +6312,6 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
         // so that we won't transform the recursive tail call into a loop.
         if (isImplicitOrStressTailCall)
         {
-            // A tail call removes the method from the stack, which means the pinning
-            // goes away for the callee. Pinning locals are treated as address taken
-            // by the importer so we can skip an explicit check.
-            assert(!lcl->IsPinning() || lcl->lvHasLdAddrOp);
-
             // TODO-MIKE-Review: Shouldn't this check only lvAddrExposed? This is likely
             // the same issue fgCallHasMustCopyByrefParameter has that it can't use
             // lvAddrExposed because it's reset by lvaRetypeImplicitByRefParams.
@@ -6335,6 +6330,14 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             if (lcl->IsPromoted() && lcl->IsParam())
             {
                 failTailCall("Has Struct Promoted Param", lclNum);
+                return nullptr;
+            }
+
+            // A tail call removes the method from the stack, which means the pinning
+            // goes away for the callee.
+            if (lcl->IsPinning())
+            {
+                failTailCall("Has pinning local", lclNum);
                 return nullptr;
             }
         }

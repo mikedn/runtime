@@ -181,23 +181,7 @@ void Compiler::lvaInitLocals()
             if ((corType == CORINFO_TYPE_CLASS) || (corType == CORINFO_TYPE_BYREF))
             {
                 JITDUMP("V%02u is pinning\n", lclNum);
-                lcl->m_pinning = true;
-                // These have to be treated as "address taken" during import so we
-                // don't sink load/stores out of pinning regions. A load/store may
-                // use an unmanaged pointer to a pinned object, which effectively
-                // becomes invalid after an "unpin" store. We can't easily detect
-                // such loads/stores so we relay on spilling GTF_GLOB_REF trees.
-                // TODO-MIKE-Review: Maybe should be AX too, though that's a bit
-                // conservative (GC only loads this local, it never stores to it)
-                // and blocks local assertion propagation.
-                // But then the question is - is there anything else that prevents
-                // optimization from moving code outside of the pinning region?
-                // It may be this only works because no such optimizations exist,
-                // not because they're specifically blocked by something.
-                // TODO-MIKE-Review: It also looks like there's a bug in Roslyn,
-                // see pin-roslyn-bug.cs. There's probably nothing the JIT can do
-                // to avoid that.
-                lcl->lvHasLdAddrOp     = true;
+                lcl->m_pinning         = true;
                 lcl->lvDoNotEnregister = true;
             }
             else

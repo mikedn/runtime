@@ -9318,7 +9318,38 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     LclVarDsc*   lcl              = lvaGetDesc(lclNum);
                     GenTreeFlags spillSideEffects = GTF_EMPTY;
 
-                    if (lcl->lvHasLdAddrOp)
+                    if (lcl->IsPinning())
+                    {
+                        // Don't move anything past pinning stores, it's potentially unsafe.
+                        // Load/stores and calls obviously can't be moved, as they depend on
+                        // native pointers within the pinned object. Pure expressions that
+                        // don't depend on such native pointers can be moved but it's not
+                        // easy to detect those. Pure expressions that do depend on native
+                        // pointers should be safe but it's not clear if there's aren't odd
+                        // cases (e.g. expressions computing an intermediary address outside
+                        // of the pinned object).
+                        //
+                        // TODO-MIKE-Review: Is there anything that prevents other JIT
+                        // transforms doing this kind of code motion? Pinning locals aren't
+                        // included in liveness but they're not address exposed so it's not
+                        // clear what would prevent a load/store from moving, probably just
+                        // the fact that the JIT doesn't do such optimizations.
+                        // CSE is one interesting case. Every time a managed pointer is
+                        // converted to a native pointer we basically obtain a NEW value,
+                        // since the managed object might have moved and the native pointer
+                        // is not updated. Interestingly, the C# generates code that gets
+                        // the native pointer out of the pinning local, which is ignored by
+                        // SSA and always gets a new VN so any CSEs issues are avoided.
+                        // But the IL spec doesn't seem to say anywhere that you transform
+                        // the original managed pointer into a native pointer using conv.u.
+                        //
+                        // TODO-MIKE-Review: It also looks like there's a bug in Roslyn,
+                        // see pin-roslyn-bug.cs. There's probably nothing the JIT can do
+                        // to avoid that.
+
+                        EnsureStackSpilled(true DEBUGARG("Pinning store"));
+                    }
+                    else if (lcl->lvHasLdAddrOp)
                     {
                         spillSideEffects = GTF_GLOB_EFFECT;
                     }

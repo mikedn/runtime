@@ -1764,8 +1764,8 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 
     LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-    lcl->m_pinning               = lclInfo.lclIsPinned;
-    lcl->lvHasLdAddrOp          = lclInfo.lclHasLdlocaOp || lclInfo.lclIsPinned;
+    lcl->m_pinning              = lclInfo.lclIsPinned;
+    lcl->lvHasLdAddrOp          = lclInfo.lclHasLdlocaOp;
     lcl->lvHasILStoreOp         = lclInfo.lclHasStlocOp;
     lcl->lvHasMultipleILStoreOp = lclInfo.lclHasMultipleStlocOp;
 
