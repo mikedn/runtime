@@ -1460,7 +1460,7 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
 
             GenCondition condition = GenCondition::FromIntegralRelop(cmp);
             cc->ChangeOper(ccOp);
-            cc->AsCC()->gtCondition = condition;
+            cc->AsCC()->SetCondition(condition);
             cc->gtFlags |= GTF_USE_FLAGS;
 
             return next;

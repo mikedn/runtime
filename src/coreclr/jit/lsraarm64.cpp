@@ -317,7 +317,7 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_TEST_EQ:
         case GT_TEST_NE:
         case GT_JCMP:
-            srcCount = BuildCmp(tree);
+            srcCount = BuildCmp(tree->AsOp());
             break;
 
         case GT_CKFINITE:
