@@ -4668,7 +4668,7 @@ bool OptBoolsDsc::optOptimizeBoolsCondBlock()
 
     genTreeOps foldOp;
     genTreeOps cmpOp;
-    var_types  foldType = m_c1->TypeGet();
+    var_types  foldType = varActualType(m_c1->GetType());
     if (varTypeIsGC(foldType))
     {
         foldType = TYP_I_IMPL;
@@ -4858,49 +4858,37 @@ Statement* OptBoolsDsc::optOptimizeBoolsChkBlkCond()
     return s1;
 }
 
-//-----------------------------------------------------------------------------
-// optOptimizeBoolsChkTypeCostCond: Checks if type conditions meet the folding condition, and
-//                                  if cost to fold is not too expensive
-//
-// Return:
-//      True if it meets type conditions and cost conditions.	Else false.
-//
+// Checks if type conditions meet the folding condition, and if cost to fold is not too expensive.
 bool OptBoolsDsc::optOptimizeBoolsChkTypeCostCond()
 {
-    assert(m_testInfo1.compTree->OperIs(GT_EQ, GT_NE) && m_testInfo1.compTree->AsOp()->gtOp1 == m_c1);
-    assert(m_testInfo2.compTree->OperIs(GT_EQ, GT_NE) && m_testInfo2.compTree->AsOp()->gtOp1 == m_c2);
+    assert(m_testInfo1.compTree->OperIs(GT_EQ, GT_NE) && (m_testInfo1.compTree->AsOp()->GetOp(0) == m_c1));
+    assert(m_testInfo2.compTree->OperIs(GT_EQ, GT_NE) && (m_testInfo2.compTree->AsOp()->GetOp(0) == m_c2));
 
-    //
-    // Leave out floats where the bit-representation is more complicated
-    // - there are two representations for 0.
-    //
-    if (varTypeIsFloating(m_c1->TypeGet()) || varTypeIsFloating(m_c2->TypeGet()))
+    var_types type1 = m_c1->GetType();
+    var_types type2 = m_c2->GetType();
+
+    // Leave out floats where the bit-representation is more complicated, there
+    // are two representations for 0 and one of them is a non-zero bit pattern.
+    if (varTypeIsFloating(type1) || varTypeIsFloating(type2))
     {
         return false;
     }
 
-    // Make sure the types involved are of the same sizes
-    if (genTypeSize(m_c1->TypeGet()) != genTypeSize(m_c2->TypeGet()))
-    {
-        return false;
-    }
-    if (genTypeSize(m_testInfo1.compTree->TypeGet()) != genTypeSize(m_testInfo2.compTree->TypeGet()))
-    {
-        return false;
-    }
-#ifdef TARGET_ARMARCH
-    // Skip the small operand which we cannot encode.
-    if (varTypeIsSmall(m_c1->TypeGet()))
-        return false;
-#endif
-    // The second condition must not contain side effects
-
-    if (m_c2->gtFlags & GTF_GLOB_EFFECT)
+    if (varTypeSize(varActualType(type1)) != varTypeSize(varActualType(type2)))
     {
         return false;
     }
 
-    // The second condition must not be too expensive
+    if (varActualType(m_testInfo1.compTree->GetType()) != varActualType(m_testInfo2.compTree->GetType()))
+    {
+        return false;
+    }
+
+    if (m_c2->HasAnySideEffect(GTF_GLOB_EFFECT))
+    {
+        return false;
+    }
+
     m_comp->gtSetCosts(m_c2);
     return m_c2->GetCostEx() <= 12;
 }
