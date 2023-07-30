@@ -3847,92 +3847,62 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckCompare: determine whether the sources of a compare node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckCompare(GenTreeOp* cmp)
 {
     assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP));
 
-    GenTree*  op1     = cmp->AsOp()->gtOp1;
-    GenTree*  op2     = cmp->AsOp()->gtOp2;
-    var_types op1Type = op1->TypeGet();
-    var_types op2Type = op2->TypeGet();
+    GenTree*  op1   = cmp->GetOp(0);
+    GenTree*  op2   = cmp->GetOp(1);
+    var_types type1 = op1->GetType();
+    var_types type2 = op2->GetType();
 
-    // If either of op1 or op2 is floating point values, then we need to use
-    // ucomiss or ucomisd to compare, both of which support the following form:
-    //     ucomis[s|d] xmm, xmm/mem
-    // That is only the second operand can be a memory op.
-    //
-    // Second operand is a memory Op:  Note that depending on comparison operator,
-    // the operands of ucomis[s|d] need to be reversed.  Therefore, either op1 or
-    // op2 can be a memory op depending on the comparison operator.
-    if (varTypeIsFloating(op1Type))
+    if (varTypeIsFloating(type1))
     {
-        // The type of the operands has to be the same and no implicit conversions at this stage.
-        assert(op1Type == op2Type);
+        assert(type1 == type2);
 
-        GenTree* otherOp;
-        if (GenCondition::FromFloatRelop(cmp).PreferSwap())
-        {
-            otherOp = op1;
-        }
-        else
-        {
-            otherOp = op2;
-        }
+        GenTree* otherOp                = GenCondition::FromFloatRelop(cmp).PreferSwap() ? op1 : op2;
+        bool     isSafeToContainOtherOp = true;
 
-        assert(otherOp != nullptr);
-        bool isSafeToContainOtherOp = true;
-        if (otherOp->IsCnsNonZeroFltOrDbl())
+        if (otherOp->IsDblConNonPositiveZero())
         {
-            MakeSrcContained(cmp, otherOp);
+            otherOp->SetContained();
         }
         else if (IsContainableMemoryOp(otherOp))
         {
             isSafeToContainOtherOp = IsSafeToContainMem(cmp, otherOp);
+
             if (isSafeToContainOtherOp)
             {
-                MakeSrcContained(cmp, otherOp);
+                otherOp->SetContained();
             }
         }
 
         if (!otherOp->isContained() && isSafeToContainOtherOp && IsSafeToContainMem(cmp, otherOp))
         {
-            // SSE2 allows only otherOp to be a memory-op. Since otherOp is not
-            // contained, we can mark it reg-optional.
-            // IsSafeToContainMem is expensive so we call it at most once for otherOp.
-            // If we already called IsSafeToContainMem, it must have returned false;
-            // otherwise, otherOp would be contained.
             otherOp->SetRegOptional();
         }
 
         return;
     }
 
-    // TODO-XArch-CQ: factor out cmp optimization in 'genCondSetFlags' to be used here
-    // or in other backend.
-
     if (CheckImmedAndMakeContained(cmp, op2))
     {
-        // If the types are the same, or if the constant is of the correct size,
-        // we can treat the MemoryOp as contained.
-        if (op1Type == op2Type)
+        if (type1 == type2)
         {
             if (IsContainableMemoryOp(op1))
             {
-                MakeSrcContained(cmp, op1);
+                op1->SetContained();
             }
             else
             {
                 op1->SetRegOptional();
             }
         }
+
+        return;
     }
-    else if (op1Type == op2Type)
+
+    if (type1 == type2)
     {
         // Note that TEST does not have a r,rm encoding like CMP has but we can still
         // contain the second operand because the emitter maps both r,rm and rm,r to
@@ -3944,18 +3914,20 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
         if (IsContainableMemoryOp(op2))
         {
             isSafeToContainOp2 = IsSafeToContainMem(cmp, op2);
+
             if (isSafeToContainOp2)
             {
-                MakeSrcContained(cmp, op2);
+                op2->SetContained();
             }
         }
 
         if (!op2->isContained() && IsContainableMemoryOp(op1))
         {
             isSafeToContainOp1 = IsSafeToContainMem(cmp, op1);
+
             if (isSafeToContainOp1)
             {
-                MakeSrcContained(cmp, op1);
+                op1->SetContained();
             }
         }
 
@@ -3964,14 +3936,15 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
             // One of op1 or op2 could be marked as reg optional
             // to indicate that codegen can still generate code
             // if one of them is on stack.
-            GenTree* regOptionalCandidate = op1->IsCnsIntOrI() ? op2 : PreferredRegOptionalOperand(cmp);
+
+            GenTree* regOptionalCandidate = op1->IsIntCon() ? op2 : PreferredRegOptionalOperand(cmp);
 
             // IsSafeToContainMem is expensive so we call it at most once for each operand
             // in this method. If we already called IsSafeToContainMem, it must have returned false;
             // otherwise, the corresponding operand (op1 or op2) would be contained.
-            bool setRegOptional = (regOptionalCandidate == op1) ? isSafeToContainOp1 && IsSafeToContainMem(cmp, op1)
-                                                                : isSafeToContainOp2 && IsSafeToContainMem(cmp, op2);
-            if (setRegOptional)
+
+            if (regOptionalCandidate == op1 ? isSafeToContainOp1 && IsSafeToContainMem(cmp, op1)
+                                            : isSafeToContainOp2 && IsSafeToContainMem(cmp, op2))
             {
                 regOptionalCandidate->SetRegOptional();
             }
@@ -4253,16 +4226,14 @@ void Lowering::ContainCheckIntrinsic(GenTreeIntrinsic* node)
         case NI_System_Math_Round:
         case NI_System_Math_Sqrt:
         {
-            GenTree* op1 = node->gtGetOp1();
+            GenTree* op1 = node->GetOp(0);
 
-            if (IsContainableMemoryOp(op1) || op1->IsCnsNonZeroFltOrDbl())
+            if (IsContainableMemoryOp(op1) || op1->IsDblConNonPositiveZero())
             {
-                MakeSrcContained(node, op1);
+                op1->SetContained();
             }
             else
             {
-                // Mark the operand as reg optional since codegen can still
-                // generate code if op1 is on stack.
                 op1->SetRegOptional();
             }
         }
@@ -5253,16 +5224,17 @@ void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
     bool isSafeToContainOp1 = true;
     bool isSafeToContainOp2 = true;
 
-    if (op2->IsCnsNonZeroFltOrDbl())
+    if (op2->IsDblConNonPositiveZero())
     {
-        MakeSrcContained(node, op2);
+        op2->SetContained();
     }
     else if (IsContainableMemoryOp(op2))
     {
         isSafeToContainOp2 = IsSafeToContainMem(node, op2);
+
         if (isSafeToContainOp2)
         {
-            MakeSrcContained(node, op2);
+            op2->SetContained();
         }
     }
 
@@ -5277,16 +5249,17 @@ void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
         //      movss op1Reg, [memOp]; addss/sd targetReg, Op2Reg  (if op1Reg == targetReg) OR
         //      movss op1Reg, [memOp]; movaps targetReg, op1Reg, addss/sd targetReg, Op2Reg
 
-        if (op1->IsCnsNonZeroFltOrDbl())
+        if (op1->IsDblConNonPositiveZero())
         {
-            MakeSrcContained(node, op1);
+            op1->SetContained();
         }
         else if (IsContainableMemoryOp(op1))
         {
             isSafeToContainOp1 = IsSafeToContainMem(node, op1);
+
             if (isSafeToContainOp1)
             {
-                MakeSrcContained(node, op1);
+                op1->SetContained();
             }
         }
     }

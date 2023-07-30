@@ -57,7 +57,6 @@ private:
     void LowerLclHeap(GenTreeUnOp* node);
     void ContainCheckRet(GenTreeUnOp* ret);
     void ContainCheckJTrue(GenTreeUnOp* node);
-
     void ContainCheckCallOperands(GenTreeCall* call);
     void ContainCheckIndir(GenTreeIndir* indirNode);
     void ContainCheckStoreIndir(GenTreeStoreInd* store);
@@ -65,30 +64,30 @@ private:
     void ContainCheckShiftRotate(GenTreeOp* node);
     void ContainCheckStoreLcl(GenTreeLclVarCommon* store);
     void ContainCheckCast(GenTreeCast* node);
-    void ContainCheckCompare(GenTreeOp* node);
+    void ContainCheckCompare(GenTreeOp* cmp);
     void ContainCheckBinary(GenTreeOp* node);
     void ContainCheckBoundsChk(GenTreeBoundsChk* node);
 #ifdef TARGET_XARCH
     void ContainCheckFloatBinary(GenTreeOp* node);
     void ContainCheckIntrinsic(GenTreeIntrinsic* node);
-#endif // TARGET_XARCH
+#endif
 #ifdef FEATURE_SIMD
     bool ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value);
-#endif // FEATURE_SIMD
+#endif
 #ifdef FEATURE_HW_INTRINSICS
     void ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* addr);
     void ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node);
 #ifdef TARGET_XARCH
     void ContainHWIntrinsicOperand(GenTreeHWIntrinsic* node, GenTree* op);
 #endif
-#endif // FEATURE_HW_INTRINSICS
+#endif
 
 #ifdef DEBUG
     void CheckCallArg(GenTree* arg);
     void CheckCall(GenTreeCall* call);
     void CheckNode(GenTree* node);
     bool CheckBlock(BasicBlock* block);
-#endif // DEBUG
+#endif
 
     void LowerBlock(BasicBlock* block);
     GenTree* LowerNode(GenTree* node);

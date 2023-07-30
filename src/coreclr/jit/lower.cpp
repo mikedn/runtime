@@ -44,28 +44,17 @@ void Lowering::MakeSrcContained(GenTree* parentNode, GenTree* childNode) const
     assert(childNode->isContained());
 }
 
-//------------------------------------------------------------------------
-// CheckImmedAndMakeContained: Checks if the 'childNode' is a containable immediate
-//    and, if so, makes it contained.
-//
-// Arguments:
-//    parentNode - is any non-leaf node
-//    childNode  - is an child op of 'parentNode'
-//
-// Return value:
-//     true if we are able to make childNode a contained immediate
-//
-bool Lowering::CheckImmedAndMakeContained(GenTree* parentNode, GenTree* childNode)
+bool Lowering::CheckImmedAndMakeContained(GenTree* instr, GenTree* operand)
 {
-    assert(!parentNode->OperIsLeaf());
-    // If childNode is a containable immediate
-    if (IsContainableImmed(parentNode, childNode))
+    assert(!instr->OperIsLeaf());
+
+    if (!IsContainableImmed(instr, operand))
     {
-        // then make it contained within the parentNode
-        MakeSrcContained(parentNode, childNode);
-        return true;
+        return false;
     }
-    return false;
+
+    operand->SetContained();
+    return true;
 }
 
 bool Lowering::IsSafeToMoveForward(GenTree* move, GenTree* before)

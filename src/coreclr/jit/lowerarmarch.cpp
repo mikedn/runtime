@@ -1232,23 +1232,11 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckCompare: determine whether the sources of a compare node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckCompare(GenTreeOp* cmp)
 {
-    CheckImmedAndMakeContained(cmp, cmp->gtOp2);
+    CheckImmedAndMakeContained(cmp, cmp->GetOp(1));
 }
 
-//------------------------------------------------------------------------
-// ContainCheckBoundsChk: determine whether any source of a bounds check node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
 {
     if (!CheckImmedAndMakeContained(node, node->GetIndex()))
@@ -1259,12 +1247,6 @@ void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
 
 #ifdef FEATURE_HW_INTRINSICS
 
-//----------------------------------------------------------------------------------------------
-// ContainCheckHWIntrinsic: Perform containment analysis for a hardware intrinsic node.
-//
-//  Arguments:
-//     node - The hardware intrinsic node.
-//
 void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     // TODO-MIKE-CQ: It seems that there's no support for generating vector immediate ORR/BIC.

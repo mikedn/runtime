@@ -1565,6 +1565,7 @@ public:
 #endif // DEBUG
 
     bool IsDblConPositiveZero() const;
+    bool IsDblConNonPositiveZero() const;
     bool IsHWIntrinsicZero() const;
     bool IsIntegralConst(ssize_t constVal) const;
 
@@ -1796,7 +1797,6 @@ public:
     bool IsIntegralConst() const;
     bool IsIntCnsFitsInI32();
     bool IsCnsFltOrDbl() const;
-    bool IsCnsNonZeroFltOrDbl();
 
     bool IsIconHandle() const
     {
@@ -7459,15 +7459,14 @@ public:
 #endif
 };
 
-//------------------------------------------------------------------------
-// IsDblConPositiveZero: Checks whether this is a floating point constant with value +0.0
-//
-// Return Value:
-//    Returns true iff the tree is an GT_CNS_DBL, with value of +0.0.
-
 inline bool GenTree::IsDblConPositiveZero() const
 {
     return OperIs(GT_CNS_DBL) && AsDblCon()->IsPositiveZero();
+}
+
+inline bool GenTree::IsDblConNonPositiveZero() const
+{
+    return OperIs(GT_CNS_DBL) && !AsDblCon()->IsPositiveZero();
 }
 
 inline bool GenTree::IsHWIntrinsicZero() const
@@ -7806,17 +7805,6 @@ inline bool GenTree::IsIntCnsFitsInI32()
 inline bool GenTree::IsCnsFltOrDbl() const
 {
     return OperGet() == GT_CNS_DBL;
-}
-
-inline bool GenTree::IsCnsNonZeroFltOrDbl()
-{
-    if (OperGet() == GT_CNS_DBL)
-    {
-        double constValue = AsDblCon()->gtDconVal;
-        return *(__int64*)&constValue != 0;
-    }
-
-    return false;
 }
 
 inline bool GenTree::IsHelperCall()
