@@ -880,14 +880,9 @@ public:
         return IsAnyRegSpilled() && ((gtFlags & GTF_NOREG_AT_USE) != 0);
     }
 
-    bool isMemoryOp() const
-    {
-        return OperIs(GT_IND, GT_STOREIND, GT_LCL_FLD, GT_STORE_LCL_FLD);
-    }
-
     bool isUsedFromMemory() const
     {
-        return isUsedFromSpillTemp() || (isContained() && (isMemoryOp() || OperIs(GT_LCL_VAR, GT_CNS_DBL)));
+        return isUsedFromSpillTemp() || (isContained() && OperIs(GT_IND, GT_LCL_FLD, GT_LCL_VAR, GT_CNS_DBL));
     }
 
     bool isUsedFromReg() const

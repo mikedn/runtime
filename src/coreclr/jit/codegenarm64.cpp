@@ -2674,10 +2674,6 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
         noway_assert(exResultReg != REG_NA);
         noway_assert(exResultReg != targetReg);
 
-        assert(addr->isUsedFromReg());
-        assert(data->isUsedFromReg());
-        assert(!comparand->isUsedFromMemory());
-
         // Store exclusive unpredictable cases must be avoided
         noway_assert(exResultReg != dataReg);
         noway_assert(exResultReg != addrReg);
@@ -2712,16 +2708,15 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
         // The following instruction includes a acquire half barrier
         GetEmitter()->emitIns_R_R(INS_ldaxr, emitTypeSize(treeNode), targetReg, addrReg);
 
-        if (comparand->isContainedIntOrIImmed())
+        if (GenTreeIntCon* con = comparand->IsContainedIntCon())
         {
-            if (comparand->IsIntegralConst(0))
+            if (con->GetValue() == 0)
             {
                 GetEmitter()->emitIns_J_R(INS_cbnz, emitActualTypeSize(treeNode), labelCompareFail, targetReg);
             }
             else
             {
-                GetEmitter()->emitIns_R_I(INS_cmp, emitActualTypeSize(treeNode), targetReg,
-                                          comparand->AsIntConCommon()->IconValue());
+                GetEmitter()->emitIns_R_I(INS_cmp, emitActualTypeSize(treeNode), targetReg, con->GetValue());
                 GetEmitter()->emitIns_J(INS_bne, labelCompareFail);
             }
         }
@@ -3168,8 +3163,6 @@ void CodeGen::GenJCmp(GenTreeOp* tree, BasicBlock* block)
     GenTree* op2 = tree->gtGetOp2();
 
     assert(!varTypeIsFloating(tree));
-    assert(!op1->isUsedFromMemory());
-    assert(!op2->isUsedFromMemory());
     assert(op2->IsCnsIntOrI());
     assert(op2->isContained());
 

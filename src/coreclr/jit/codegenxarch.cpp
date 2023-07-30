@@ -6560,8 +6560,7 @@ void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
     assert(varTypeIsFloating(srcNode));
     assert(srcNode->TypeGet() == treeNode->TypeGet());
 
-    // iv) treeNode is not used from memory
-    assert(!treeNode->isUsedFromMemory());
+    assert(treeNode->isUsedFromReg());
 
     genConsumeRegs(srcNode);
 
