@@ -426,9 +426,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        var_types toType = cast->GetCastType();
-
-        if (!varTypeIsSmall(toType))
+        if (!varTypeIsSmall(cast->GetType()))
         {
             return NO_ASSERTION_INDEX;
         }
@@ -450,7 +448,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        const auto& range = GetSmallTypeRange(toType);
+        const auto& range = GetSmallTypeRange(cast->GetType());
 
         return AddRangeAssertion(value->GetConservativeVN(), range.min, range.max);
     }
@@ -1769,9 +1767,11 @@ private:
 
     GenTree* PropagateCast(const ASSERT_TP assertions, GenTreeCast* cast, Statement* stmt)
     {
+        assert(cast->GetType() == varCastType(cast->GetCastType()));
+
         GenTree*  op1      = cast->GetOp(0);
         var_types fromType = op1->GetType();
-        var_types toType   = cast->GetCastType();
+        var_types toType   = cast->GetType();
 
         if (!varTypeIsIntegral(toType) || !varTypeIsIntegral(fromType))
         {

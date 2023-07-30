@@ -1077,7 +1077,7 @@ Range RangeCheck::ComputeLeafRange(GenTree* expr) const
 {
     if (expr->OperIs(GT_IND, GT_LCL_FLD, GT_LCL_VAR, GT_CAST))
     {
-        switch (expr->IsCast() ? expr->AsCast()->GetCastType() : expr->GetType())
+        switch (expr->GetType())
         {
             case TYP_BOOL:
             case TYP_UBYTE:

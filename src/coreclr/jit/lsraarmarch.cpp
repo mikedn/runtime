@@ -608,16 +608,16 @@ int LinearScan::BuildCast(GenTreeCast* cast)
 {
     GenTree* src = cast->GetOp(0);
 
-    const var_types srcType  = varActualType(src->GetType());
-    const var_types castType = cast->GetCastType();
-
 #ifdef TARGET_ARM
+    var_types srcType = varActualType(src->GetType());
+    var_types dstType = cast->GetType();
+
     assert(!varTypeIsLong(srcType) || (src->OperIs(GT_LONG) && src->isContained()));
 
     // Floating point to integer casts requires a temporary register.
-    if (varTypeIsFloating(srcType) && !varTypeIsFloating(castType))
+    if (varTypeIsFloating(srcType) && !varTypeIsFloating(dstType))
     {
-        buildInternalFloatRegisterDefForNode(cast, RBM_ALLFLOAT);
+        BuildInternalFloatDef(cast, RBM_ALLFLOAT);
         setInternalRegsDelayFree = true;
     }
 #endif

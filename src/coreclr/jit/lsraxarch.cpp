@@ -2186,27 +2186,24 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
 int LinearScan::BuildCast(GenTreeCast* cast)
 {
-    GenTree* src = cast->GetOp(0);
-
-    const var_types srcType  = varActualType(src->GetType());
-    const var_types castType = cast->GetCastType();
-
+    GenTree*  src        = cast->GetOp(0);
     regMaskTP candidates = RBM_NONE;
+
 #ifdef TARGET_X86
-    if (varTypeIsByte(castType))
+    if (varTypeIsByte(cast->GetType()))
     {
         candidates = allByteRegs();
     }
 
-    assert(!varTypeIsLong(srcType) || (src->OperIs(GT_LONG) && src->isContained()));
+    assert(!varTypeIsLong(src->GetType()) || (src->OperIs(GT_LONG) && src->isContained()));
 #else
     // Overflow checking cast from TYP_(U)LONG to TYP_UINT requires a temporary
     // register to extract the upper 32 bits of the 64 bit source register.
-    if (cast->gtOverflow() && varTypeIsLong(srcType) && (castType == TYP_UINT))
+    if (cast->gtOverflow() && varTypeIsLong(src->GetType()) && (cast->GetCastType() == TYP_UINT))
     {
         // Here we don't need internal register to be different from targetReg,
         // rather require it to be different from operand's reg.
-        buildInternalIntRegisterDefForNode(cast);
+        BuildInternalIntDef(cast);
 
         // If the cast operand ends up being in memory then the value will be loaded directly
         // into the destination register and thus the internal register has to be different.

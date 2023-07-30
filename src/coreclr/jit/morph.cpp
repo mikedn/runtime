@@ -136,7 +136,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetCastType();
 
-    if ((dstType == TYP_FLOAT) && (srcType == TYP_DOUBLE) && src->OperIs(GT_CAST))
+    if (cast->TypeIs(TYP_FLOAT) && src->TypeIs(TYP_DOUBLE) && src->OperIs(GT_CAST))
     {
         // Optimization: conv.r4(conv.r8(?)) -> conv.r4(d)
         // This happens semi-frequently because there is no IL 'conv.r4.un'
@@ -148,8 +148,8 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         srcType = varActualType(src->GetType());
     }
 
-    if (varTypeIsSmall(dstType) && src->IsCast() && varTypeIsSmall(src->AsCast()->GetCastType()) &&
-        (varTypeSize(src->AsCast()->GetCastType()) >= varTypeSize(dstType)) && !cast->gtOverflow() && !src->gtOverflow()
+    if (varTypeIsSmall(dstType) && src->IsCast() && varTypeIsSmall(src->GetType()) &&
+        (varTypeSize(src->GetType()) >= varTypeSize(dstType)) && !cast->gtOverflow() && !src->gtOverflow()
 #ifndef TARGET_64BIT
         && !src->AsCast()->GetOp(0)->TypeIs(TYP_LONG)
 #endif
@@ -3049,8 +3049,8 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
 
         if (!varTypeIsStruct(arg->GetType()) && (!arg->IsIntegralConst(0) || !paramIsStruct))
         {
-            if (paramIsStruct && arg->IsCast() && !arg->gtOverflow() && varTypeIsSmall(arg->AsCast()->GetCastType()) &&
-                (varTypeSize(arg->AsCast()->GetCastType()) == typGetLayoutByNum(argUse->GetSigTypeNum())->GetSize()))
+            if (paramIsStruct && arg->IsCast() && !arg->gtOverflow() && varTypeIsSmall(arg->GetType()) &&
+                (varTypeSize(arg->GetType()) == typGetLayoutByNum(argUse->GetSigTypeNum())->GetSize()))
             {
                 // This is a struct arg that became a primitive type arg due to struct promotion.
                 // Promoted struct fields are "normalized on load" but we don't need normalization
@@ -10945,15 +10945,11 @@ DONE_MORPHING_CHILDREN:
                 (op1->OperIs(GT_IND, GT_LCL_FLD) ||
                  (op1->OperIs(GT_LCL_VAR) && lvaGetDesc(op1->AsLclVar())->lvNormalizeOnLoad())))
             {
-                if (op2->IsCast() && varTypeIsIntegral(op2->AsCast()->GetOp(0)) && !op2->gtOverflow())
+                if (op2->IsCast() && varTypeIsIntegral(op2->AsCast()->GetOp(0)) && !op2->gtOverflow() &&
+                    varTypeIsSmall(op2->GetType()) && (varTypeSize(op2->GetType()) >= varTypeSize(op1->GetType())))
                 {
-                    var_types castType = op2->AsCast()->GetCastType();
-
-                    if (varTypeIsSmall(castType) && (varTypeSize(castType) >= varTypeSize(op1->GetType())))
-                    {
-                        op2 = op2->AsCast()->GetOp(0);
-                        tree->AsOp()->SetOp(1, op2);
-                    }
+                    op2 = op2->AsCast()->GetOp(0);
+                    tree->AsOp()->SetOp(1, op2);
                 }
             }
 

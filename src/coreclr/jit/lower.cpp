@@ -4255,20 +4255,18 @@ void Lowering::LowerShift(GenTreeOp* shift)
                     break;
                 }
 
-                var_types castType = cast->GetCastType();
-
                 // A (U)LONG - (U)LONG cast would normally produce 64 bits but since it
                 // has no effect we make it produce 32 bits to keep the check simple.
                 // Anyway such a cast should have been removed earlier.
-                unsigned producedBits = varTypeIsSmall(castType) ? varTypeBitSize(castType) : 32;
+                unsigned producedBits = varTypeIsSmall(cast->GetType()) ? varTypeBitSize(cast->GetType()) : 32;
 
                 if (consumedBits > producedBits)
                 {
                     break;
                 }
 
-                JITDUMP("Removing CAST [%06d] producing %u bits from LSH [%06d] consuming %u bits\n", cast->gtTreeID,
-                        producedBits, shift->gtTreeID, consumedBits);
+                JITDUMP("Removing CAST [%06d] producing %u bits from LSH [%06d] consuming %u bits\n", cast->GetID(),
+                        producedBits, shift->GetID(), consumedBits);
 
                 BlockRange().Remove(src);
                 src = cast->GetOp(0);
@@ -5096,15 +5094,6 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
     return next;
 }
 
-//------------------------------------------------------------------------
-// LowerCast: Lower GT_CAST nodes.
-//
-// Arguments:
-//    cast - GT_CAST node to be lowered
-//
-// Return Value:
-//    The next node to lower.
-//
 GenTree* Lowering::LowerCast(GenTreeCast* cast)
 {
     GenTree*  src     = cast->GetOp(0);

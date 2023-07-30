@@ -7926,7 +7926,7 @@ void Compiler::gtDispTreeRec(
 
         case GT_CAST:
         {
-            var_types fromType = genActualType(tree->AsUnOp()->GetOp(0)->GetType());
+            var_types fromType = varActualType(tree->AsUnOp()->GetOp(0)->GetType());
             var_types toType   = tree->AsCast()->GetCastType();
 
             if (tree->IsUnsigned())
@@ -10284,13 +10284,10 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
     {
         assert(op1->OperIsConst());
 
-        switch (op1->gtType)
+        switch (op1->GetType())
         {
             case TYP_INT:
-
-                // Fold constant INT unary operator.
-
-                if (!op1->AsIntCon()->ImmedValCanBeFolded(this, tree->OperGet()))
+                if (!op1->AsIntCon()->ImmedValCanBeFolded(this, tree->GetOper()))
                 {
                     return tree;
                 }
@@ -10414,17 +10411,14 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                 goto CNS_INT;
 
             case TYP_LONG:
-
-                // Fold constant LONG unary operator.
-
-                if (!op1->AsIntConCommon()->ImmedValCanBeFolded(this, tree->OperGet()))
+                if (!op1->AsIntConCommon()->ImmedValCanBeFolded(this, tree->GetOper()))
                 {
                     return tree;
                 }
 
                 lval1 = op1->AsIntConCommon()->LngValue();
 
-                switch (tree->OperGet())
+                switch (tree->GetOper())
                 {
                     case GT_NOT:
                         lval1 = ~lval1;
@@ -10496,15 +10490,16 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                                 }
                                 else
                                 {
-                                    d1 = (double)lval1;
+                                    d1 = static_cast<double>(lval1);
                                 }
 
-                                if (tree->AsCast()->GetCastType() == TYP_FLOAT)
+                                if (tree->AsCast()->GetType() == TYP_FLOAT)
                                 {
                                     f1 = forceCastToFloat(d1);
                                     d1 = f1;
                                 }
                                 goto CNS_DOUBLE;
+
                             default:
                                 assert(!"Bad CastToType() in gtFoldExprConst() for a cast from long");
                                 return tree;
@@ -10518,13 +10513,9 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
             case TYP_FLOAT:
             case TYP_DOUBLE:
-                assert(op1->OperIs(GT_CNS_DBL));
+                d1 = op1->AsDblCon()->GetValue();
 
-                // Fold constant DOUBLE unary operator.
-
-                d1 = op1->AsDblCon()->gtDconVal;
-
-                switch (tree->OperGet())
+                switch (tree->GetOper())
                 {
                     case GT_FNEG:
                         d1 = -d1;
@@ -10610,9 +10601,9 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                             case TYP_DOUBLE:
                                 if (op1->TypeIs(TYP_FLOAT))
                                 {
-                                    d1 = forceCastToFloat(d1); // Truncate precision.
+                                    d1 = forceCastToFloat(d1);
                                 }
-                                goto CNS_DOUBLE; // Redundant cast.
+                                goto CNS_DOUBLE;
 
                             default:
                                 assert(!"Bad CastToType() in gtFoldExprConst() for a cast from double/float");
@@ -10623,10 +10614,10 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     default:
                         return tree;
                 }
+
                 goto CNS_DOUBLE;
 
             default:
-                // Not a foldable typ - e.g. RET const.
                 return tree;
         }
     }
@@ -13606,13 +13597,7 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
 
     assert(varTypeIsIntegral(fromType));
 
-    if (GenTreeCast* cast = tree->IsCast())
-    {
-        // Casts to small int types have type INT, use the cast type instead.
-
-        fromType = cast->GetCastType();
-    }
-    else if (GenTreeCall* call = tree->IsCall())
+    if (GenTreeCall* call = tree->IsCall())
     {
         // Calls have "actual" type, use the signature type instead.
         // Note that this works only in the managed ABI (and only when we're not compiling

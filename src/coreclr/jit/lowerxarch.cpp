@@ -721,11 +721,10 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
     }
     else if (op1->IsCast() && !op1->gtOverflow())
     {
-        GenTreeCast* cast       = op1->AsCast();
-        var_types    castToType = cast->GetCastType();
-        GenTree*     castOp     = cast->GetOp(0);
+        GenTreeCast* cast   = op1->AsCast();
+        GenTree*     castOp = cast->GetOp(0);
 
-        if (((castToType == TYP_BOOL) || (castToType == TYP_UBYTE)) && FitsIn<uint8_t>(op2Value))
+        if (cast->TypeIs(TYP_UBYTE) && FitsIn<uint8_t>(op2Value))
         {
             // Since we're going to remove the cast we need to be able to narrow the cast operand
             // to the cast type. This can be done safely only for certain opers (e.g AND, OR, XOR).
@@ -740,8 +739,8 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
             {
                 assert(!castOp->gtOverflowEx()); // Must not be an overflow checking operation
 
-                castOp->SetType(castToType);
-                op2->SetType(castToType);
+                castOp->SetType(TYP_UBYTE);
+                op2->SetType(TYP_UBYTE);
 
                 // If we have any contained memory ops on castOp, they must now not be contained.
                 if (castOp->OperIs(GT_AND, GT_OR, GT_XOR))
@@ -3794,10 +3793,7 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
 #endif
 
-    var_types srcType = src->GetType();
-    var_types dstType = cast->GetCastType();
-
-    if (varTypeIsIntegral(dstType) && varTypeIsIntegral(srcType))
+    if (varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(src->GetType()))
     {
         if (IsContainableMemoryOp(src) && (!cast->gtOverflow() || IsSafeToContainMem(cast, src)))
         {
@@ -3816,7 +3812,7 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
             src->SetRegOptional();
         }
     }
-    else if (varTypeIsFloating(dstType) || varTypeIsFloating(srcType))
+    else if (varTypeIsFloating(cast->GetType()) || varTypeIsFloating(src->GetType()))
     {
         assert(!cast->gtOverflow());
 
@@ -3825,7 +3821,8 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
         // "normalize on store" local reg-optional but it's probably not worth the extra work.
         // Also, ULONG to DOUBLE/FLOAT casts require checking the sign of the source so allowing
         // a memory operand would result in 2 loads instead of 1.
-        if (!varTypeIsSmall(srcType) && ((srcType != TYP_LONG) || !cast->IsUnsigned()))
+
+        if (!varTypeIsSmall(src->GetType()) && (!src->TypeIs(TYP_LONG) || !cast->IsUnsigned()))
         {
             if (IsContainableMemoryOp(src))
             {

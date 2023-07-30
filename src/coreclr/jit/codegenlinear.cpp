@@ -1761,12 +1761,6 @@ void CodeGen::DefLongRegs(GenTree* node)
 }
 #endif // TARGET_64BIT
 
-//------------------------------------------------------------------------
-// genCodeForCast: Generates the code for GT_CAST.
-//
-// Arguments:
-//    cast - the GT_CAST node.
-//
 void CodeGen::genCodeForCast(GenTreeCast* cast)
 {
     if (varTypeIsFloating(cast->GetType()) && varTypeIsFloating(cast->GetOp(0)->GetType()))

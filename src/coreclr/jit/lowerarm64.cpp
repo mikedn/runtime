@@ -710,7 +710,7 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
         unsigned bitFieldWidth = 0;
         bool     isUnsigned    = false;
 
-        if (varTypeIsSmall(cast->GetCastType()))
+        if (varTypeIsSmall(cast->GetType()))
         {
             // Currently the JIT IR doesn't allow direct extension from small int types to LONG.
             // This code likely works fine with such casts but it cannot be tested.
@@ -726,12 +726,10 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
             // be folded together with AND(x, mask) but nothing in the JIT seems to be
             // doing this so code like "(x_byte & 3) << 6" also generates an extra uxtb.
 
-            assert(varActualType(cast->GetType()) == TYP_INT);
-
-            bitFieldWidth = varTypeBitSize(cast->GetCastType());
-            isUnsigned    = varTypeIsUnsigned(cast->GetCastType());
+            bitFieldWidth = varTypeBitSize(cast->GetType());
+            isUnsigned    = varTypeIsUnsigned(cast->GetType());
         }
-        else if (varTypeIsLong(cast->GetCastType()) && !cast->GetOp(0)->TypeIs(TYP_LONG))
+        else if (cast->TypeIs(TYP_LONG) && !cast->GetOp(0)->TypeIs(TYP_LONG))
         {
             assert(size == EA_8BYTE);
 
@@ -856,7 +854,7 @@ insOpts GetEquivalentExtendOption(GenTree* node)
 {
     if (node->IsCast() && !node->gtOverflow() && varTypeIsIntegral(node->AsCast()->GetOp(0)->GetType()))
     {
-        switch (node->AsCast()->GetCastType())
+        switch (node->GetType())
         {
             case TYP_BOOL:
             case TYP_UBYTE:
@@ -867,7 +865,6 @@ insOpts GetEquivalentExtendOption(GenTree* node)
                 return INS_OPTS_UXTH;
             case TYP_SHORT:
                 return INS_OPTS_SXTH;
-            case TYP_ULONG:
             case TYP_LONG:
                 if (!node->AsCast()->GetOp(0)->TypeIs(TYP_LONG))
                 {
@@ -1132,9 +1129,9 @@ GenTreeCast* IsIntToLongCast(GenTree* node)
 {
     if (GenTreeCast* cast = node->IsCast())
     {
-        if (!cast->gtOverflow() && cast->TypeIs(TYP_LONG) && (varActualType(cast->GetOp(0)->GetType()) == TYP_INT))
+        if (!cast->gtOverflow() && cast->TypeIs(TYP_LONG) && varActualTypeIsInt(cast->GetOp(0)->GetType()))
         {
-            assert((cast->GetCastType() == TYP_LONG) || (cast->GetCastType() == TYP_ULONG));
+            assert(varTypeIsLong(cast->GetCastType()));
             return cast;
         }
     }
@@ -1302,7 +1299,7 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
     if (cmp->OperIs(GT_EQ, GT_NE, GT_GT) && (op2Value == 0) && op1->IsCast() && !op1->gtOverflow() &&
         varTypeIsIntegral(op1->AsCast()->GetOp(0)->GetType()))
     {
-        var_types castType = op1->AsCast()->GetCastType();
+        var_types castType = op1->GetType();
 
         if (varTypeIsSmall(castType) && (varTypeIsUnsigned(castType) || !cmp->OperIs(GT_GT)))
         {

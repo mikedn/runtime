@@ -2945,25 +2945,19 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     emitInsStore(ins, emitActualTypeSize(type), dataReg, tree);
 }
 
-//------------------------------------------------------------------------
-// genIntToFloatCast: Generate code to cast an int/long to float/double
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
 void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 {
+    assert(cast->GetType() == cast->GetCastType());
     assert(!cast->gtOverflow());
 
     GenTree*  src     = cast->GetOp(0);
     var_types srcType = varActualType(src->GetType());
-    var_types dstType = cast->GetCastType();
+    var_types dstType = cast->GetType();
 
     noway_assert((srcType == TYP_INT) || (srcType == TYP_LONG));
     assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
-    assert(cast->GetType() == dstType);
 
-    regNumber srcReg = genConsumeReg(src);
+    regNumber srcReg = UseReg(src);
     regNumber dstReg = cast->GetRegNum();
 
     assert(genIsValidIntReg(srcReg) && genIsValidFloatReg(dstReg));
@@ -2986,12 +2980,6 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-//------------------------------------------------------------------------
-// genFloatToIntCast: Generate code to cast float/double to int/long
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
 void CodeGen::genFloatToIntCast(GenTreeCast* cast)
 {
     assert(!cast->gtOverflow());
