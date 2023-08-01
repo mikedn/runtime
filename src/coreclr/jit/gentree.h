@@ -2538,8 +2538,6 @@ struct GenTreeIntConCommon : public GenTree
 #endif
     }
 
-    bool ImmedValCanBeFolded(Compiler* comp, genTreeOps op);
-
 #if DEBUGGABLE_GENTREE
     GenTreeIntConCommon() : GenTree()
     {
@@ -2746,6 +2744,7 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     }
 
     bool ImmedValNeedsReloc(Compiler* comp);
+    bool ImmedValCanBeFolded(Compiler* comp, genTreeOps op);
 
 #ifdef TARGET_XARCH
     bool AddrNeedsReloc(Compiler* comp);
