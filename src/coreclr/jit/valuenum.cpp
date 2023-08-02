@@ -499,50 +499,6 @@ bool ValueNumStore::VNFuncIsNumericCast(VNFunc vnf)
     return (vnf == VNF_Cast) || (vnf == VNF_CastOvf);
 }
 
-template <>
-bool ValueNumStore::IsOverflowIntDiv(int v0, int v1)
-{
-    return (v1 == -1) && (v0 == INT32_MIN);
-}
-
-template <>
-bool ValueNumStore::IsOverflowIntDiv(int64_t v0, int64_t v1)
-{
-    return (v1 == -1) && (v0 == INT64_MIN);
-}
-
-template <typename T>
-bool ValueNumStore::IsOverflowIntDiv(T v0, T v1)
-{
-    return false;
-}
-
-template <>
-bool ValueNumStore::IsIntZero(int v)
-{
-    return v == 0;
-}
-template <>
-bool ValueNumStore::IsIntZero(unsigned v)
-{
-    return v == 0;
-}
-template <>
-bool ValueNumStore::IsIntZero(int64_t v)
-{
-    return v == 0;
-}
-template <>
-bool ValueNumStore::IsIntZero(UINT64 v)
-{
-    return v == 0;
-}
-template <typename T>
-bool ValueNumStore::IsIntZero(T v)
-{
-    return false;
-}
-
 ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
     : ssa(ssa)
     , compiler(ssa.GetCompiler())
@@ -577,33 +533,40 @@ ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
 }
 
 template <typename T>
-T ValueNumStore::EvalOp(VNFunc vnf, T v0)
+static bool IsOverflowIntDiv(T v0, T v1)
 {
-    switch (vnf)
-    {
-        case VNOP_NEG:
-        case VNOP_FNEG:
-            return -v0;
-
-        default:
-            return EvalOpSpecialized(vnf, v0);
-    }
+    return false;
 }
 
 template <>
-double ValueNumStore::EvalOpSpecialized<double>(VNFunc vnf, double v0)
+bool IsOverflowIntDiv(int32_t v0, int32_t v1)
+{
+    return (v1 == -1) && (v0 == INT32_MIN);
+}
+
+template <>
+bool IsOverflowIntDiv(int64_t v0, int64_t v1)
+{
+    return (v1 == -1) && (v0 == INT64_MIN);
+}
+
+template <typename T>
+static T EvalOpSpecialized(VNFunc vnf, T v0);
+
+template <>
+double EvalOpSpecialized<double>(VNFunc vnf, double v0)
 {
     unreached();
 }
 
 template <>
-float ValueNumStore::EvalOpSpecialized<float>(VNFunc vnf, float v0)
+float EvalOpSpecialized<float>(VNFunc vnf, float v0)
 {
     unreached();
 }
 
 template <typename T>
-T ValueNumStore::EvalOpSpecialized(VNFunc vnf, T v0)
+static T EvalOpSpecialized(VNFunc vnf, T v0)
 {
     static_assert_no_msg((std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value));
 
@@ -623,10 +586,21 @@ T ValueNumStore::EvalOpSpecialized(VNFunc vnf, T v0)
 }
 
 template <typename T>
-T ValueNumStore::EvalOp(VNFunc vnf, T v0, T v1)
+static T EvalOp(VNFunc vnf, T v0)
 {
-    return EvalOpSpecialized(vnf, v0, v1);
+    switch (vnf)
+    {
+        case VNOP_NEG:
+        case VNOP_FNEG:
+            return -v0;
+
+        default:
+            return EvalOpSpecialized(vnf, v0);
+    }
 }
+
+template <typename T>
+static T EvalOpSpecialized(VNFunc vnf, T v0, T v1);
 
 template <typename T, typename Traits>
 static T EvalBinaryFloat(VNFunc vnf, T v0, T v1)
@@ -651,19 +625,19 @@ static T EvalBinaryFloat(VNFunc vnf, T v0, T v1)
 }
 
 template <>
-double ValueNumStore::EvalOpSpecialized<double>(VNFunc vnf, double v0, double v1)
+double EvalOpSpecialized<double>(VNFunc vnf, double v0, double v1)
 {
     return EvalBinaryFloat<double, DoubleTraits>(vnf, v0, v1);
 }
 
 template <>
-float ValueNumStore::EvalOpSpecialized<float>(VNFunc vnf, float v0, float v1)
+float EvalOpSpecialized<float>(VNFunc vnf, float v0, float v1)
 {
     return EvalBinaryFloat<float, FloatTraits>(vnf, v0, v1);
 }
 
 template <typename T>
-T ValueNumStore::EvalOpSpecialized(VNFunc vnf, T v0, T v1)
+T EvalOpSpecialized(VNFunc vnf, T v0, T v1)
 {
     // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
     // need to figure out what effect that may have on sign sensitive operations.
@@ -696,21 +670,21 @@ T ValueNumStore::EvalOpSpecialized(VNFunc vnf, T v0, T v1)
             return v0 * v1;
 
         case VNOP_DIV:
-            assert(!IsIntZero(v1));
+            assert(v1 != 0);
             assert(!IsOverflowIntDiv(v0, v1));
             return v0 / v1;
 
         case VNOP_MOD:
-            assert(!IsIntZero(v1));
+            assert(v1 != 0);
             assert(!IsOverflowIntDiv(v0, v1));
             return v0 % v1;
 
         case VNOP_UDIV:
-            assert(!IsIntZero(v1));
+            assert(v1 != 0);
             return static_cast<T>(static_cast<UT>(v0) / static_cast<UT>(v1));
 
         case VNOP_UMOD:
-            assert(!IsIntZero(v1));
+            assert(v1 != 0);
             return static_cast<T>(static_cast<UT>(v0) % static_cast<UT>(v1));
 
         case VNOP_AND:
@@ -735,6 +709,49 @@ T ValueNumStore::EvalOpSpecialized(VNFunc vnf, T v0, T v1)
         case VNOP_ROR:
             return static_cast<T>(jitstd::rotr(static_cast<UT>(v0), static_cast<int>(v1)));
 
+        default:
+            unreached();
+    }
+}
+
+template <typename T>
+static T EvalOp(VNFunc vnf, T v0, T v1)
+{
+    return EvalOpSpecialized(vnf, v0, v1);
+}
+
+template <typename T>
+static int EvalComparison(VNFunc vnf, T v0, T v1)
+{
+    // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
+    // need to figure out what effect that may have on sign sensitive operations.
+    static_assert_no_msg(
+        (std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value || std::is_same<T, size_t>::value));
+
+    using UT = std::make_unsigned<T>::type;
+
+    switch (vnf)
+    {
+        case VNOP_EQ:
+            return v0 == v1;
+        case VNOP_NE:
+            return v0 != v1;
+        case VNOP_GT:
+            return v0 > v1;
+        case VNOP_GE:
+            return v0 >= v1;
+        case VNOP_LT:
+            return v0 < v1;
+        case VNOP_LE:
+            return v0 <= v1;
+        case VNF_GT_UN:
+            return static_cast<UT>(v0) > static_cast<UT>(v1);
+        case VNF_GE_UN:
+            return static_cast<UT>(v0) >= static_cast<UT>(v1);
+        case VNF_LT_UN:
+            return static_cast<UT>(v0) < static_cast<UT>(v1);
+        case VNF_LE_UN:
+            return static_cast<UT>(v0) <= static_cast<UT>(v1);
         default:
             unreached();
     }
@@ -772,52 +789,15 @@ static int EvalFloatComparison(VNFunc vnf, T v0, T v1)
 }
 
 template <>
-int ValueNumStore::EvalComparison<double>(VNFunc vnf, double v0, double v1)
+int EvalComparison<double>(VNFunc vnf, double v0, double v1)
 {
     return EvalFloatComparison<double, DoubleTraits>(vnf, v0, v1);
 }
 
 template <>
-int ValueNumStore::EvalComparison<float>(VNFunc vnf, float v0, float v1)
+int EvalComparison<float>(VNFunc vnf, float v0, float v1)
 {
     return EvalFloatComparison<float, FloatTraits>(vnf, v0, v1);
-}
-
-template <typename T>
-int ValueNumStore::EvalComparison(VNFunc vnf, T v0, T v1)
-{
-    // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
-    // need to figure out what effect that may have on sign sensitive operations.
-    static_assert_no_msg(
-        (std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value || std::is_same<T, size_t>::value));
-
-    using UT = std::make_unsigned<T>::type;
-
-    switch (vnf)
-    {
-        case VNOP_EQ:
-            return v0 == v1;
-        case VNOP_NE:
-            return v0 != v1;
-        case VNOP_GT:
-            return v0 > v1;
-        case VNOP_GE:
-            return v0 >= v1;
-        case VNOP_LT:
-            return v0 < v1;
-        case VNOP_LE:
-            return v0 <= v1;
-        case VNF_GT_UN:
-            return static_cast<UT>(v0) > static_cast<UT>(v1);
-        case VNF_GE_UN:
-            return static_cast<UT>(v0) >= static_cast<UT>(v1);
-        case VNF_LT_UN:
-            return static_cast<UT>(v0) < static_cast<UT>(v1);
-        case VNF_LE_UN:
-            return static_cast<UT>(v0) <= static_cast<UT>(v1);
-        default:
-            unreached();
-    }
 }
 
 ValueNum ValueNumStore::ExsetCreate(ValueNum x)
