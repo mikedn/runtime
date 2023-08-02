@@ -573,7 +573,7 @@ static T EvalOp(VNFunc vnf, T v0, T v1)
     static_assert_no_msg(
         (std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value || std::is_same<T, size_t>::value));
 
-    using UT = std::make_unsigned<T>::type;
+    using UT = typename std::make_unsigned<T>::type;
 
     switch (vnf)
     {
@@ -685,7 +685,7 @@ static int EvalComparison(VNFunc vnf, T v0, T v1)
     static_assert_no_msg(
         (std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value || std::is_same<T, size_t>::value));
 
-    using UT = std::make_unsigned<T>::type;
+    using UT = typename std::make_unsigned<T>::type;
 
     switch (vnf)
     {
