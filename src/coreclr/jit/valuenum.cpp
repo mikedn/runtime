@@ -499,39 +499,6 @@ bool ValueNumStore::VNFuncIsNumericCast(VNFunc vnf)
     return (vnf == VNF_Cast) || (vnf == VNF_CastOvf);
 }
 
-ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
-    : ssa(ssa)
-    , compiler(ssa.GetCompiler())
-    , alloc(ssa.GetCompiler()->getAllocator(CMK_ValueNumber))
-    , m_fixedPointMapSels(alloc)
-    , m_checkedBoundVNs(alloc)
-    , m_chunks(alloc)
-#ifdef DEBUG
-    , m_vnNameMap(compiler->getAllocator(CMK_DebugOnly))
-#endif
-{
-    for (unsigned i = 0; i < _countof(m_smallInt32VNMap); i++)
-    {
-        m_smallInt32VNMap[i] = NoVN;
-    }
-
-    // We will reserve chunk 0 to hold some special constants, like the constant NULL,
-    // the "exception" value, and the "zero map."
-    Chunk* specialConstChunk = new (alloc) Chunk(alloc, &m_nextChunkBase, TYP_REF, ChunkKind::Const);
-    // Implicitly allocate 0 ==> NULL, and 1 ==> Exception, 2 ==> ZeroMap.
-    specialConstChunk->m_count += SRC_NumSpecialRefConsts;
-    assert(m_chunks.Size() == 0);
-    m_chunks.Push(specialConstChunk);
-
-    m_mapSelectBudget = (int)JitConfig.JitVNMapSelBudget(); // We cast the unsigned DWORD to a signed int.
-
-    // This value must be non-negative and non-zero, reset the value to DefaultVNMapSelectBudget if it isn't.
-    if (m_mapSelectBudget <= 0)
-    {
-        m_mapSelectBudget = DefaultVNMapSelectBudget;
-    }
-}
-
 template <typename T>
 static bool IsOverflowIntDiv(T v0, T v1)
 {
@@ -551,22 +518,7 @@ bool IsOverflowIntDiv(int64_t v0, int64_t v1)
 }
 
 template <typename T>
-static T EvalOpSpecialized(VNFunc vnf, T v0);
-
-template <>
-double EvalOpSpecialized<double>(VNFunc vnf, double v0)
-{
-    unreached();
-}
-
-template <>
-float EvalOpSpecialized<float>(VNFunc vnf, float v0)
-{
-    unreached();
-}
-
-template <typename T>
-static T EvalOpSpecialized(VNFunc vnf, T v0)
+static T EvalOp(VNFunc vnf, T v0)
 {
     static_assert_no_msg((std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value));
 
@@ -585,59 +537,34 @@ static T EvalOpSpecialized(VNFunc vnf, T v0)
     }
 }
 
-template <typename T>
-static T EvalOp(VNFunc vnf, T v0)
-{
-    switch (vnf)
-    {
-        case VNOP_NEG:
-        case VNOP_FNEG:
-            return -v0;
-
-        default:
-            return EvalOpSpecialized(vnf, v0);
-    }
-}
-
-template <typename T>
-static T EvalOpSpecialized(VNFunc vnf, T v0, T v1);
-
 template <typename T, typename Traits>
-static T EvalBinaryFloat(VNFunc vnf, T v0, T v1)
+static T EvalFloatOp(VNFunc vnf, T v0)
 {
     static_assert_no_msg((std::is_same<T, float>::value || std::is_same<T, double>::value));
 
     switch (vnf)
     {
-        case VNOP_FADD:
-            return FpAdd<T, Traits>(v0, v1);
-        case VNOP_FSUB:
-            return FpSub<T, Traits>(v0, v1);
-        case VNOP_FMUL:
-            return FpMul<T, Traits>(v0, v1);
-        case VNOP_FDIV:
-            return FpDiv<T, Traits>(v0, v1);
-        case VNOP_FMOD:
-            return FpRem<T, Traits>(v0, v1);
+        case VNOP_FNEG:
+            return -v0;
         default:
             unreached();
     }
 }
 
 template <>
-double EvalOpSpecialized<double>(VNFunc vnf, double v0, double v1)
+float EvalOp<float>(VNFunc vnf, float v0)
 {
-    return EvalBinaryFloat<double, DoubleTraits>(vnf, v0, v1);
+    return EvalFloatOp<float, FloatTraits>(vnf, v0);
 }
 
 template <>
-float EvalOpSpecialized<float>(VNFunc vnf, float v0, float v1)
+double EvalOp<double>(VNFunc vnf, double v0)
 {
-    return EvalBinaryFloat<float, FloatTraits>(vnf, v0, v1);
+    return EvalFloatOp<double, DoubleTraits>(vnf, v0);
 }
 
 template <typename T>
-T EvalOpSpecialized(VNFunc vnf, T v0, T v1)
+static T EvalOp(VNFunc vnf, T v0, T v1)
 {
     // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
     // need to figure out what effect that may have on sign sensitive operations.
@@ -714,10 +641,38 @@ T EvalOpSpecialized(VNFunc vnf, T v0, T v1)
     }
 }
 
-template <typename T>
-static T EvalOp(VNFunc vnf, T v0, T v1)
+template <typename T, typename Traits>
+static T EvalFloatOp(VNFunc vnf, T v0, T v1)
 {
-    return EvalOpSpecialized(vnf, v0, v1);
+    static_assert_no_msg((std::is_same<T, float>::value || std::is_same<T, double>::value));
+
+    switch (vnf)
+    {
+        case VNOP_FADD:
+            return FpAdd<T, Traits>(v0, v1);
+        case VNOP_FSUB:
+            return FpSub<T, Traits>(v0, v1);
+        case VNOP_FMUL:
+            return FpMul<T, Traits>(v0, v1);
+        case VNOP_FDIV:
+            return FpDiv<T, Traits>(v0, v1);
+        case VNOP_FMOD:
+            return FpRem<T, Traits>(v0, v1);
+        default:
+            unreached();
+    }
+}
+
+template <>
+double EvalOp<double>(VNFunc vnf, double v0, double v1)
+{
+    return EvalFloatOp<double, DoubleTraits>(vnf, v0, v1);
+}
+
+template <>
+float EvalOp<float>(VNFunc vnf, float v0, float v1)
+{
+    return EvalFloatOp<float, FloatTraits>(vnf, v0, v1);
 }
 
 template <typename T>
@@ -760,6 +715,8 @@ static int EvalComparison(VNFunc vnf, T v0, T v1)
 template <typename T, typename Traits>
 static int EvalFloatComparison(VNFunc vnf, T v0, T v1)
 {
+    static_assert_no_msg((std::is_same<T, float>::value || std::is_same<T, double>::value));
+
     if (Traits::IsNaN(v0) || Traits::IsNaN(v1))
     {
         return (vnf == VNOP_NE) || (vnf == VNF_GT_UN) || (vnf == VNF_GE_UN) || (vnf == VNF_LT_UN) || (vnf == VNF_LE_UN);
@@ -798,6 +755,39 @@ template <>
 int EvalComparison<float>(VNFunc vnf, float v0, float v1)
 {
     return EvalFloatComparison<float, FloatTraits>(vnf, v0, v1);
+}
+
+ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
+    : ssa(ssa)
+    , compiler(ssa.GetCompiler())
+    , alloc(ssa.GetCompiler()->getAllocator(CMK_ValueNumber))
+    , m_fixedPointMapSels(alloc)
+    , m_checkedBoundVNs(alloc)
+    , m_chunks(alloc)
+#ifdef DEBUG
+    , m_vnNameMap(compiler->getAllocator(CMK_DebugOnly))
+#endif
+{
+    for (unsigned i = 0; i < _countof(m_smallInt32VNMap); i++)
+    {
+        m_smallInt32VNMap[i] = NoVN;
+    }
+
+    // We will reserve chunk 0 to hold some special constants, like the constant NULL,
+    // the "exception" value, and the "zero map."
+    Chunk* specialConstChunk = new (alloc) Chunk(alloc, &m_nextChunkBase, TYP_REF, ChunkKind::Const);
+    // Implicitly allocate 0 ==> NULL, and 1 ==> Exception, 2 ==> ZeroMap.
+    specialConstChunk->m_count += SRC_NumSpecialRefConsts;
+    assert(m_chunks.Size() == 0);
+    m_chunks.Push(specialConstChunk);
+
+    m_mapSelectBudget = (int)JitConfig.JitVNMapSelBudget(); // We cast the unsigned DWORD to a signed int.
+
+    // This value must be non-negative and non-zero, reset the value to DefaultVNMapSelectBudget if it isn't.
+    if (m_mapSelectBudget <= 0)
+    {
+        m_mapSelectBudget = DefaultVNMapSelectBudget;
+    }
 }
 
 ValueNum ValueNumStore::ExsetCreate(ValueNum x)
