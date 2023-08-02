@@ -5096,15 +5096,14 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
 
 GenTree* Lowering::LowerCast(GenTreeCast* cast)
 {
-    GenTree*  src     = cast->GetOp(0);
-    var_types dstType = cast->GetCastType();
-    var_types srcType = src->GetType();
-
-    assert(varCastType(dstType) == cast->GetType());
+    assert(varCastType(cast->GetCastType()) == cast->GetType());
 
     if (!cast->gtOverflow())
     {
-        bool remove = false;
+        GenTree*  src     = cast->GetOp(0);
+        var_types dstType = cast->GetType();
+        var_types srcType = src->GetType();
+        bool      remove  = false;
 
 #ifdef TARGET_64BIT
         if ((srcType == TYP_LONG) && src->OperIs(GT_LCL_VAR) && varActualTypeIsInt(dstType))
@@ -5115,7 +5114,7 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
 #else
         if (srcType == TYP_LONG)
         {
-            assert((dstType == TYP_INT) || (dstType == TYP_UINT));
+            assert(dstType == TYP_INT);
 
             BlockRange().Remove(src);
             src->AsOp()->GetOp(1)->SetUnusedValue();
@@ -5133,21 +5132,6 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
             // TODO-MIKE-Cleanup: fgMorphCast does something similar but more restrictive. It's not clear
             // if there are any advantages in doing such a transform earlier (in fact there may be one
             // disadvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
-
-            if (dstType == TYP_UINT)
-            {
-                dstType = TYP_INT;
-            }
-            else if (dstType == TYP_ULONG)
-            {
-                dstType = TYP_LONG;
-            }
-
-            if (src->OperIs(GT_LCL_VAR))
-            {
-                src->ChangeOper(GT_LCL_FLD);
-                comp->lvaSetVarDoNotEnregister(src->AsLclFld()->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
-            }
 
             src->SetType(dstType);
             remove = true;
@@ -5670,12 +5654,12 @@ GenTree* Lowering::TryRemoveCastIfPresent(var_types expectedType, GenTree* op)
         return op;
     }
 
-    if (varTypeSize(op->AsCast()->GetCastType()) > varTypeSize(varActualType(castOp->GetType())))
+    if (varTypeSize(op->GetType()) > varTypeSize(varActualType(castOp->GetType())))
     {
         return op;
     }
 
-    if (varTypeSize(op->AsCast()->GetCastType()) < varTypeSize(expectedType))
+    if (varTypeSize(op->GetType()) < varTypeSize(expectedType))
     {
         return op;
     }

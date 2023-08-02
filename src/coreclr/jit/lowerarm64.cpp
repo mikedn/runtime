@@ -558,7 +558,7 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
                 break;
             }
 
-            var_types castType = cast->GetCastType();
+            var_types castType = cast->GetType();
 
             // A (U)LONG - (U)LONG cast would normally produce 64 bits but since it
             // has no effect we make it produce 32 bits to keep the check simple.
@@ -570,8 +570,8 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
                 break;
             }
 
-            JITDUMP("Removing CAST [%06d] producing %u bits from LSH [%06d] consuming %u bits\n", cast->gtTreeID,
-                    producedBits, shift->gtTreeID, consumedBits);
+            JITDUMP("Removing CAST [%06u] producing %u bits from LSH [%06u] consuming %u bits\n", cast->GetID(),
+                    producedBits, shift->GetID(), consumedBits);
 
             assert(IsLegalToMoveUseForward(cast, shift, op1));
 

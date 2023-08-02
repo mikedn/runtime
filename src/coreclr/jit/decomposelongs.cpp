@@ -1780,7 +1780,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
 GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTree* nextNode)
 {
     GenTreeOp* src     = cast->GetOp(0)->AsOp();
-    var_types  dstType = cast->GetCastType();
+    var_types  dstType = cast->GetType();
 
     assert(src->OperIs(GT_LONG));
     assert(varActualTypeIsInt(dstType));
@@ -1790,23 +1790,23 @@ GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTr
         return nextNode;
     }
 
-    GenTree* loSrc = src->gtGetOp1();
-    GenTree* hiSrc = src->gtGetOp2();
+    GenTree* loSrc = src->GetOp(0);
+    GenTree* hiSrc = src->GetOp(1);
 
-    JITDUMP("Optimizing a truncating cast [%06u] from decomposed LONG [%06u]\n", cast->gtTreeID, src->gtTreeID);
+    JITDUMP("Optimizing a truncating cast [%06u] from decomposed LONG [%06u]\n", cast->GetID(), src->GetID());
     INDEBUG(GenTree* treeToDisplay = cast);
 
     // TODO-CQ: we could go perform this removal transitively.
     // See also identical code in shift decomposition.
     if ((hiSrc->gtFlags & (GTF_ALL_EFFECT | GTF_SET_FLAGS)) == 0)
     {
-        JITDUMP("Removing the HI part of [%06u] and marking its operands unused:\n", src->gtTreeID);
+        JITDUMP("Removing the HI part of [%06u] and marking its operands unused:\n", src->GetID());
         DISPNODE(hiSrc);
         Range().Remove(hiSrc, /* markOperandsUnused */ true);
     }
     else
     {
-        JITDUMP("The HI part of [%06u] has side effects, marking it unused\n", src->gtTreeID);
+        JITDUMP("The HI part of [%06u] has side effects, marking it unused\n", src->GetID());
         hiSrc->SetUnusedValue();
     }
 
@@ -1816,7 +1816,7 @@ GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTr
 
     if (varTypeIsSmall(dstType))
     {
-        JITDUMP("Cast is to a small type, keeping it, the new source is [%06u]\n", loSrc->gtTreeID);
+        JITDUMP("Cast is to a small type, keeping it, the new source is [%06u]\n", loSrc->GetID());
         cast->SetOp(0, loSrc);
     }
     else
