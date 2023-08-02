@@ -4,6 +4,7 @@
 #include "jitpch.h"
 #include "ssabuilder.h"
 #include "valuenum.h"
+#include "clr_std/type_traits"
 
 using FieldHandleSet = JitHashSet<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>>;
 using TypeNumSet     = JitHashSet<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>>;
@@ -581,483 +582,273 @@ ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
     }
 }
 
-//
-// Unary EvalOp
-//
-
 template <typename T>
 T ValueNumStore::EvalOp(VNFunc vnf, T v0)
 {
-    genTreeOps oper = genTreeOps(vnf);
-
-    // Here we handle unary ops that are the same for all types.
-    switch (oper)
+    switch (vnf)
     {
-        case GT_NEG:
-        case GT_FNEG:
+        case VNOP_NEG:
+        case VNOP_FNEG:
             return -v0;
 
         default:
-            break;
+            return EvalOpSpecialized(vnf, v0);
     }
-
-    // Otherwise must be handled by the type specific method
-    return EvalOpSpecialized(vnf, v0);
 }
 
 template <>
 double ValueNumStore::EvalOpSpecialized<double>(VNFunc vnf, double v0)
 {
-    // Here we handle specialized double unary ops.
-    noway_assert(!"EvalOpSpecialized<double> - unary");
-    return 0.0;
+    unreached();
 }
 
 template <>
 float ValueNumStore::EvalOpSpecialized<float>(VNFunc vnf, float v0)
 {
-    // Here we handle specialized float unary ops.
-    noway_assert(!"EvalOpSpecialized<float> - unary");
-    return 0.0f;
+    unreached();
 }
 
 template <typename T>
 T ValueNumStore::EvalOpSpecialized(VNFunc vnf, T v0)
 {
-    if (vnf < VNF_Boundary)
+    static_assert_no_msg((std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value));
+
+    switch (vnf)
     {
-        genTreeOps oper = genTreeOps(vnf);
-
-        switch (oper)
-        {
-            case GT_NEG:
-                return -v0;
-
-            case GT_NOT:
-                return ~v0;
-
-            case GT_BSWAP16:
-            {
-                UINT16 v0_unsigned = UINT16(v0);
-
-                v0_unsigned = ((v0_unsigned >> 8) & 0xFF) | ((v0_unsigned << 8) & 0xFF00);
-                return T(v0_unsigned);
-            }
-
-            case GT_BSWAP:
-                if (sizeof(T) == 4)
-                {
-                    UINT32 v0_unsigned = UINT32(v0);
-
-                    v0_unsigned = ((v0_unsigned >> 24) & 0xFF) | ((v0_unsigned >> 8) & 0xFF00) |
-                                  ((v0_unsigned << 8) & 0xFF0000) | ((v0_unsigned << 24) & 0xFF000000);
-                    return T(v0_unsigned);
-                }
-                else if (sizeof(T) == 8)
-                {
-                    UINT64 v0_unsigned = UINT64(v0);
-
-                    v0_unsigned = ((v0_unsigned >> 56) & 0xFF) | ((v0_unsigned >> 40) & 0xFF00) |
-                                  ((v0_unsigned >> 24) & 0xFF0000) | ((v0_unsigned >> 8) & 0xFF000000) |
-                                  ((v0_unsigned << 8) & 0xFF00000000) | ((v0_unsigned << 24) & 0xFF0000000000) |
-                                  ((v0_unsigned << 40) & 0xFF000000000000) | ((v0_unsigned << 56) & 0xFF00000000000000);
-                    return T(v0_unsigned);
-                }
-                else
-                {
-                    break; // unknown primitive
-                }
-
-            default:
-                break;
-        }
+        case VNOP_NEG:
+            return -v0;
+        case VNOP_NOT:
+            return ~v0;
+        case VNOP_BSWAP16:
+            return static_cast<T>(jitstd::byteswap(static_cast<uint16_t>(v0)));
+        case VNOP_BSWAP:
+            return jitstd::byteswap(v0);
+        default:
+            unreached();
     }
-
-    noway_assert(!"Unhandled operation in EvalOpSpecialized<T> - unary");
-    return v0;
 }
-
-//
-// Binary EvalOp
-//
 
 template <typename T>
 T ValueNumStore::EvalOp(VNFunc vnf, T v0, T v1)
 {
-    // Here we handle the binary ops that are the same for all types.
-
-    // Currently there are none (due to floating point NaN representations)
-
-    // Otherwise must be handled by the type specific method
     return EvalOpSpecialized(vnf, v0, v1);
 }
 
 template <>
 double ValueNumStore::EvalOpSpecialized<double>(VNFunc vnf, double v0, double v1)
 {
-    // Here we handle specialized double binary ops.
-    if (vnf < VNF_Boundary)
+    switch (vnf)
     {
-        genTreeOps oper = genTreeOps(vnf);
-
-        // Here we handle
-        switch (oper)
-        {
-            case GT_FADD:
-                return FpAdd<double, DoubleTraits>(v0, v1);
-            case GT_FSUB:
-                return FpSub<double, DoubleTraits>(v0, v1);
-            case GT_FMUL:
-                return FpMul<double, DoubleTraits>(v0, v1);
-            case GT_FDIV:
-                return FpDiv<double, DoubleTraits>(v0, v1);
-            case GT_FMOD:
-                return FpRem<double, DoubleTraits>(v0, v1);
-
-            default:
-                // For any other value of 'oper', we will assert below
-                break;
-        }
+        case VNOP_FADD:
+            return FpAdd<double, DoubleTraits>(v0, v1);
+        case VNOP_FSUB:
+            return FpSub<double, DoubleTraits>(v0, v1);
+        case VNOP_FMUL:
+            return FpMul<double, DoubleTraits>(v0, v1);
+        case VNOP_FDIV:
+            return FpDiv<double, DoubleTraits>(v0, v1);
+        case VNOP_FMOD:
+            return FpRem<double, DoubleTraits>(v0, v1);
+        default:
+            unreached();
     }
-
-    noway_assert(!"EvalOpSpecialized<double> - binary");
-    return v0;
 }
 
 template <>
 float ValueNumStore::EvalOpSpecialized<float>(VNFunc vnf, float v0, float v1)
 {
-    // Here we handle specialized float binary ops.
-    if (vnf < VNF_Boundary)
+    switch (vnf)
     {
-        genTreeOps oper = genTreeOps(vnf);
-
-        // Here we handle
-        switch (oper)
-        {
-            case GT_FADD:
-                return FpAdd<float, FloatTraits>(v0, v1);
-            case GT_FSUB:
-                return FpSub<float, FloatTraits>(v0, v1);
-            case GT_FMUL:
-                return FpMul<float, FloatTraits>(v0, v1);
-            case GT_FDIV:
-                return FpDiv<float, FloatTraits>(v0, v1);
-            case GT_FMOD:
-                return FpRem<float, FloatTraits>(v0, v1);
-
-            default:
-                // For any other value of 'oper', we will assert below
-                break;
-        }
+        case VNOP_FADD:
+            return FpAdd<float, FloatTraits>(v0, v1);
+        case VNOP_FSUB:
+            return FpSub<float, FloatTraits>(v0, v1);
+        case VNOP_FMUL:
+            return FpMul<float, FloatTraits>(v0, v1);
+        case VNOP_FDIV:
+            return FpDiv<float, FloatTraits>(v0, v1);
+        case VNOP_FMOD:
+            return FpRem<float, FloatTraits>(v0, v1);
+        default:
+            unreached();
     }
-    assert(!"EvalOpSpecialized<float> - binary");
-    return v0;
 }
 
 template <typename T>
 T ValueNumStore::EvalOpSpecialized(VNFunc vnf, T v0, T v1)
 {
-    typedef typename std::make_unsigned<T>::type UT;
+    // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
+    // need to figure out what effect that may have on sign sensitive operations.
+    static_assert_no_msg(
+        (std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value || std::is_same<T, size_t>::value));
 
-    assert((sizeof(T) == 4) || (sizeof(T) == 8));
+    using UT = std::make_unsigned<T>::type;
 
-    // Here we handle binary ops that are the same for all integer types
-    if (vnf < VNF_Boundary)
+    switch (vnf)
     {
-        genTreeOps oper = genTreeOps(vnf);
+        case VNF_ADD_OVF:
+        case VNF_ADD_UN_OVF:
+            assert(!CheckedOps::AddOverflows(v0, v1, vnf == VNF_ADD_UN_OVF));
+            FALLTHROUGH;
+        case VNOP_ADD:
+            return v0 + v1;
 
-        switch (oper)
-        {
-            case GT_ADD:
-                return v0 + v1;
-            case GT_SUB:
-                return v0 - v1;
-            case GT_MUL:
-                return v0 * v1;
+        case VNF_SUB_OVF:
+        case VNF_SUB_UN_OVF:
+            assert(!CheckedOps::SubOverflows(v0, v1, vnf == VNF_SUB_UN_OVF));
+            FALLTHROUGH;
+        case VNOP_SUB:
+            return v0 - v1;
 
-            case GT_DIV:
-                assert(IsIntZero(v1) == false);
-                assert(IsOverflowIntDiv(v0, v1) == false);
-                return v0 / v1;
+        case VNF_MUL_OVF:
+        case VNF_MUL_UN_OVF:
+            assert(!CheckedOps::MulOverflows(v0, v1, vnf == VNF_MUL_UN_OVF));
+            FALLTHROUGH;
+        case VNOP_MUL:
+            return v0 * v1;
 
-            case GT_MOD:
-                assert(IsIntZero(v1) == false);
-                assert(IsOverflowIntDiv(v0, v1) == false);
-                return v0 % v1;
+        case VNOP_DIV:
+            assert(!IsIntZero(v1));
+            assert(!IsOverflowIntDiv(v0, v1));
+            return v0 / v1;
 
-            case GT_UDIV:
-                assert(IsIntZero(v1) == false);
-                return T(UT(v0) / UT(v1));
+        case VNOP_MOD:
+            assert(!IsIntZero(v1));
+            assert(!IsOverflowIntDiv(v0, v1));
+            return v0 % v1;
 
-            case GT_UMOD:
-                assert(IsIntZero(v1) == false);
-                return T(UT(v0) % UT(v1));
+        case VNOP_UDIV:
+            assert(!IsIntZero(v1));
+            return static_cast<T>(static_cast<UT>(v0) / static_cast<UT>(v1));
 
-            case GT_AND:
-                return v0 & v1;
-            case GT_OR:
-                return v0 | v1;
-            case GT_XOR:
-                return v0 ^ v1;
+        case VNOP_UMOD:
+            assert(!IsIntZero(v1));
+            return static_cast<T>(static_cast<UT>(v0) % static_cast<UT>(v1));
 
-            case GT_LSH:
-                if (sizeof(T) == 8)
-                {
-                    return v0 << (v1 & 0x3F);
-                }
-                else
-                {
-                    return v0 << v1;
-                }
-            case GT_RSH:
-                if (sizeof(T) == 8)
-                {
-                    return v0 >> (v1 & 0x3F);
-                }
-                else
-                {
-                    return v0 >> v1;
-                }
-            case GT_RSZ:
-                if (sizeof(T) == 8)
-                {
-                    return UINT64(v0) >> (v1 & 0x3F);
-                }
-                else
-                {
-                    return UINT32(v0) >> v1;
-                }
-            case GT_ROL:
-                if (sizeof(T) == 8)
-                {
-                    return (v0 << v1) | (UINT64(v0) >> (64 - v1));
-                }
-                else
-                {
-                    return (v0 << v1) | (UINT32(v0) >> (32 - v1));
-                }
+        case VNOP_AND:
+            return v0 & v1;
+        case VNOP_OR:
+            return v0 | v1;
+        case VNOP_XOR:
+            return v0 ^ v1;
 
-            case GT_ROR:
-                if (sizeof(T) == 8)
-                {
-                    return (v0 << (64 - v1)) | (UINT64(v0) >> v1);
-                }
-                else
-                {
-                    return (v0 << (32 - v1)) | (UINT32(v0) >> v1);
-                }
+        case VNOP_LSH:
+            // TODO-MIKE-Review: Why does this mask the shift amount for 64 bit but not for 32 bit shifts?
+            // And why does it do it on ARM?
+            return (sizeof(T) == 8) ? (v0 << (v1 & 63)) : (v0 << v1);
+        case VNOP_RSH:
+            return (sizeof(T) == 8) ? (v0 >> (v1 & 63)) : (v0 >> v1);
+        case VNOP_RSZ:
+            return (sizeof(T) == 8) ? static_cast<T>(static_cast<UT>(v0) >> (v1 & 63))
+                                    : static_cast<T>(static_cast<UT>(v0) >> v1);
 
-            default:
-                // For any other value of 'oper', we will assert below
-                break;
-        }
+        case VNOP_ROL:
+            return static_cast<T>(jitstd::rotl(static_cast<UT>(v0), static_cast<int>(v1)));
+        case VNOP_ROR:
+            return static_cast<T>(jitstd::rotr(static_cast<UT>(v0), static_cast<int>(v1)));
+
+        default:
+            unreached();
     }
-    else // must be a VNF_ function
-    {
-        switch (vnf)
-        {
-            // Here we handle those that are the same for all integer types.
-            case VNF_ADD_OVF:
-            case VNF_ADD_UN_OVF:
-                assert(!CheckedOps::AddOverflows(v0, v1, vnf == VNF_ADD_UN_OVF));
-                return v0 + v1;
-
-            case VNF_SUB_OVF:
-            case VNF_SUB_UN_OVF:
-                assert(!CheckedOps::SubOverflows(v0, v1, vnf == VNF_SUB_UN_OVF));
-                return v0 - v1;
-
-            case VNF_MUL_OVF:
-            case VNF_MUL_UN_OVF:
-                assert(!CheckedOps::MulOverflows(v0, v1, vnf == VNF_MUL_UN_OVF));
-                return v0 * v1;
-
-            default:
-                // For any other value of 'vnf', we will assert below
-                break;
-        }
-    }
-
-    noway_assert(!"Unhandled operation in EvalOpSpecialized<T> - binary");
-    return v0;
 }
 
 template <>
 int ValueNumStore::EvalComparison<double>(VNFunc vnf, double v0, double v1)
 {
-    // Here we handle specialized double comparisons.
-
-    // We must check for a NaN argument as they they need special handling
-    bool hasNanArg = (_isnan(v0) || _isnan(v1));
-
-    if (vnf < VNF_Boundary)
+    if (_isnan(v0) || _isnan(v1))
     {
-        genTreeOps oper = genTreeOps(vnf);
-
-        if (hasNanArg)
-        {
-            // return false in all cases except for GT_NE;
-            return (oper == GT_NE);
-        }
-
-        switch (oper)
-        {
-            case GT_EQ:
-                return v0 == v1;
-            case GT_NE:
-                return v0 != v1;
-            case GT_GT:
-                return v0 > v1;
-            case GT_GE:
-                return v0 >= v1;
-            case GT_LT:
-                return v0 < v1;
-            case GT_LE:
-                return v0 <= v1;
-            default:
-                // For any other value of 'oper', we will assert below
-                break;
-        }
+        return (vnf == VNOP_NE) || (vnf == VNF_GT_UN) || (vnf == VNF_GE_UN) || (vnf == VNF_LT_UN) || (vnf == VNF_LE_UN);
     }
-    else // must be a VNF_ function
+
+    switch (vnf)
     {
-        if (hasNanArg)
-        {
-            // unordered comparisons with NaNs always return true
-            return true;
-        }
-
-        switch (vnf)
-        {
-            case VNF_GT_UN:
-                return v0 > v1;
-            case VNF_GE_UN:
-                return v0 >= v1;
-            case VNF_LT_UN:
-                return v0 < v1;
-            case VNF_LE_UN:
-                return v0 <= v1;
-            default:
-                // For any other value of 'vnf', we will assert below
-                break;
-        }
+        case VNOP_EQ:
+            return v0 == v1;
+        case VNOP_NE:
+            return v0 != v1;
+        case VNOP_GT:
+        case VNF_GT_UN:
+            return v0 > v1;
+        case VNOP_GE:
+        case VNF_GE_UN:
+            return v0 >= v1;
+        case VNOP_LT:
+        case VNF_LT_UN:
+            return v0 < v1;
+        case VNOP_LE:
+        case VNF_LE_UN:
+            return v0 <= v1;
+        default:
+            unreached();
     }
-    noway_assert(!"Unhandled operation in EvalComparison<double>");
-    return 0;
 }
 
 template <>
 int ValueNumStore::EvalComparison<float>(VNFunc vnf, float v0, float v1)
 {
-    // Here we handle specialized float comparisons.
-
-    // We must check for a NaN argument as they they need special handling
-    bool hasNanArg = (_isnanf(v0) || _isnanf(v1));
-
-    if (vnf < VNF_Boundary)
+    if (_isnanf(v0) || _isnanf(v1))
     {
-        genTreeOps oper = genTreeOps(vnf);
-
-        if (hasNanArg)
-        {
-            // return false in all cases except for GT_NE;
-            return (oper == GT_NE);
-        }
-
-        switch (oper)
-        {
-            case GT_EQ:
-                return v0 == v1;
-            case GT_NE:
-                return v0 != v1;
-            case GT_GT:
-                return v0 > v1;
-            case GT_GE:
-                return v0 >= v1;
-            case GT_LT:
-                return v0 < v1;
-            case GT_LE:
-                return v0 <= v1;
-            default:
-                // For any other value of 'oper', we will assert below
-                break;
-        }
+        return (vnf == VNOP_NE) || (vnf == VNF_GT_UN) || (vnf == VNF_GE_UN) || (vnf == VNF_LT_UN) || (vnf == VNF_LE_UN);
     }
-    else // must be a VNF_ function
+
+    switch (vnf)
     {
-        if (hasNanArg)
-        {
-            // unordered comparisons with NaNs always return true
-            return true;
-        }
-
-        switch (vnf)
-        {
-            case VNF_GT_UN:
-                return v0 > v1;
-            case VNF_GE_UN:
-                return v0 >= v1;
-            case VNF_LT_UN:
-                return v0 < v1;
-            case VNF_LE_UN:
-                return v0 <= v1;
-            default:
-                // For any other value of 'vnf', we will assert below
-                break;
-        }
+        case VNOP_EQ:
+            return v0 == v1;
+        case VNOP_NE:
+            return v0 != v1;
+        case VNOP_GT:
+        case VNF_GT_UN:
+            return v0 > v1;
+        case VNOP_GE:
+        case VNF_GE_UN:
+            return v0 >= v1;
+        case VNOP_LT:
+        case VNF_LT_UN:
+            return v0 < v1;
+        case VNOP_LE:
+        case VNF_LE_UN:
+            return v0 <= v1;
+        default:
+            unreached();
     }
-    noway_assert(!"Unhandled operation in EvalComparison<float>");
-    return 0;
 }
 
 template <typename T>
 int ValueNumStore::EvalComparison(VNFunc vnf, T v0, T v1)
 {
-    typedef typename std::make_unsigned<T>::type UT;
+    // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
+    // need to figure out what effect that may have on sign sensitive operations.
+    static_assert_no_msg(
+        (std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value || std::is_same<T, size_t>::value));
 
-    // Here we handle the compare ops that are the same for all integer types.
-    if (vnf < VNF_Boundary)
+    using UT = std::make_unsigned<T>::type;
+
+    switch (vnf)
     {
-        genTreeOps oper = genTreeOps(vnf);
-        switch (oper)
-        {
-            case GT_EQ:
-                return v0 == v1;
-            case GT_NE:
-                return v0 != v1;
-            case GT_GT:
-                return v0 > v1;
-            case GT_GE:
-                return v0 >= v1;
-            case GT_LT:
-                return v0 < v1;
-            case GT_LE:
-                return v0 <= v1;
-            default:
-                // For any other value of 'oper', we will assert below
-                break;
-        }
+        case VNOP_EQ:
+            return v0 == v1;
+        case VNOP_NE:
+            return v0 != v1;
+        case VNOP_GT:
+            return v0 > v1;
+        case VNOP_GE:
+            return v0 >= v1;
+        case VNOP_LT:
+            return v0 < v1;
+        case VNOP_LE:
+            return v0 <= v1;
+        case VNF_GT_UN:
+            return static_cast<UT>(v0) > static_cast<UT>(v1);
+        case VNF_GE_UN:
+            return static_cast<UT>(v0) >= static_cast<UT>(v1);
+        case VNF_LT_UN:
+            return static_cast<UT>(v0) < static_cast<UT>(v1);
+        case VNF_LE_UN:
+            return static_cast<UT>(v0) <= static_cast<UT>(v1);
+        default:
+            unreached();
     }
-    else // must be a VNF_ function
-    {
-        switch (vnf)
-        {
-            case VNF_GT_UN:
-                return T(UT(v0) > UT(v1));
-            case VNF_GE_UN:
-                return T(UT(v0) >= UT(v1));
-            case VNF_LT_UN:
-                return T(UT(v0) < UT(v1));
-            case VNF_LE_UN:
-                return T(UT(v0) <= UT(v1));
-            default:
-                // For any other value of 'vnf', we will assert below
-                break;
-        }
-    }
-    noway_assert(!"Unhandled operation in EvalComparison<T>");
-    return 0;
 }
 
 ValueNum ValueNumStore::ExsetCreate(ValueNum x)
@@ -2496,21 +2287,15 @@ ValueNum ValueNumStore::EvalFuncForConstantFPArgs(var_types typ, VNFunc func, Va
     return result;
 }
 
-// Compute the proper value number for a VNF_Cast with constant arguments
-// This essentially must perform constant folding at value numbering time
-//
 ValueNum ValueNumStore::EvalCastForConstantArgs(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
 {
     assert(VNFuncIsNumericCast(func));
     assert(IsVNConstant(arg0VN) && IsVNConstant(arg1VN));
 
-    // Stack-normalize the result type.
     if (varTypeIsSmall(typ))
     {
         typ = TYP_INT;
     }
-
-    var_types arg0VNtyp = TypeOfVN(arg0VN);
 
     if (IsVNHandle(arg0VN))
     {
@@ -2518,14 +2303,13 @@ ValueNum ValueNumStore::EvalCastForConstantArgs(var_types typ, VNFunc func, Valu
         assert(typ == TYP_I_IMPL);
     }
 
-    // We previously encoded the castToType operation using VNForCastOper().
     var_types castToType;
     bool      srcIsUnsigned;
     GetCastOperFromVN(arg1VN, &castToType, &srcIsUnsigned);
-    var_types castFromType = arg0VNtyp;
-    bool      checkedCast  = func == VNF_CastOvf;
 
-    switch (castFromType) // GT_CAST source type
+    bool checkedCast = func == VNF_CastOvf;
+
+    switch (TypeOfVN(arg0VN))
     {
 #ifndef TARGET_64BIT
         case TYP_REF:
@@ -2533,7 +2317,7 @@ ValueNum ValueNumStore::EvalCastForConstantArgs(var_types typ, VNFunc func, Valu
 #endif
         case TYP_INT:
         {
-            int arg0Val = GetConstantInt32(arg0VN);
+            int32_t arg0Val = GetConstantInt32(arg0VN);
             assert(!checkedCast || !CheckedOps::CastFromIntOverflows(arg0Val, castToType, srcIsUnsigned));
 
             switch (castToType)
@@ -2610,67 +2394,67 @@ ValueNum ValueNumStore::EvalCastForConstantArgs(var_types typ, VNFunc func, Valu
             }
             break;
         }
-            {
 #ifdef TARGET_64BIT
-                case TYP_REF:
-                case TYP_BYREF:
+        case TYP_REF:
+        case TYP_BYREF:
 #endif
-                case TYP_LONG:
-                    int64_t arg0Val = GetConstantInt64(arg0VN);
-                    assert(!checkedCast || !CheckedOps::CastFromLongOverflows(arg0Val, castToType, srcIsUnsigned));
+        case TYP_LONG:
+        {
+            int64_t arg0Val = GetConstantInt64(arg0VN);
+            assert(!checkedCast || !CheckedOps::CastFromLongOverflows(arg0Val, castToType, srcIsUnsigned));
 
-                    switch (castToType)
+            switch (castToType)
+            {
+                case TYP_BYTE:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(INT8(arg0Val));
+                case TYP_BOOL:
+                case TYP_UBYTE:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(UINT8(arg0Val));
+                case TYP_SHORT:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(INT16(arg0Val));
+                case TYP_USHORT:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(UINT16(arg0Val));
+                case TYP_INT:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(int32_t(arg0Val));
+                case TYP_UINT:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(UINT32(arg0Val));
+                case TYP_LONG:
+                case TYP_ULONG:
+                    assert(typ == TYP_LONG);
+                    return arg0VN;
+                case TYP_BYREF:
+                    assert(typ == TYP_BYREF);
+                    return VNForByrefCon((target_size_t)arg0Val);
+                case TYP_FLOAT:
+                    assert(typ == TYP_FLOAT);
+                    if (srcIsUnsigned)
                     {
-                        case TYP_BYTE:
-                            assert(typ == TYP_INT);
-                            return VNForIntCon(INT8(arg0Val));
-                        case TYP_BOOL:
-                        case TYP_UBYTE:
-                            assert(typ == TYP_INT);
-                            return VNForIntCon(UINT8(arg0Val));
-                        case TYP_SHORT:
-                            assert(typ == TYP_INT);
-                            return VNForIntCon(INT16(arg0Val));
-                        case TYP_USHORT:
-                            assert(typ == TYP_INT);
-                            return VNForIntCon(UINT16(arg0Val));
-                        case TYP_INT:
-                            assert(typ == TYP_INT);
-                            return VNForIntCon(int32_t(arg0Val));
-                        case TYP_UINT:
-                            assert(typ == TYP_INT);
-                            return VNForIntCon(UINT32(arg0Val));
-                        case TYP_LONG:
-                        case TYP_ULONG:
-                            assert(typ == TYP_LONG);
-                            return arg0VN;
-                        case TYP_BYREF:
-                            assert(typ == TYP_BYREF);
-                            return VNForByrefCon((target_size_t)arg0Val);
-                        case TYP_FLOAT:
-                            assert(typ == TYP_FLOAT);
-                            if (srcIsUnsigned)
-                            {
-                                return VNForFloatCon(FloatingPointUtils::convertUInt64ToFloat(UINT64(arg0Val)));
-                            }
-                            else
-                            {
-                                return VNForFloatCon(float(arg0Val));
-                            }
-                        case TYP_DOUBLE:
-                            assert(typ == TYP_DOUBLE);
-                            if (srcIsUnsigned)
-                            {
-                                return VNForDoubleCon(FloatingPointUtils::convertUInt64ToDouble(UINT64(arg0Val)));
-                            }
-                            else
-                            {
-                                return VNForDoubleCon(double(arg0Val));
-                            }
-                        default:
-                            unreached();
+                        return VNForFloatCon(FloatingPointUtils::convertUInt64ToFloat(UINT64(arg0Val)));
                     }
+                    else
+                    {
+                        return VNForFloatCon(float(arg0Val));
+                    }
+                case TYP_DOUBLE:
+                    assert(typ == TYP_DOUBLE);
+                    if (srcIsUnsigned)
+                    {
+                        return VNForDoubleCon(FloatingPointUtils::convertUInt64ToDouble(UINT64(arg0Val)));
+                    }
+                    else
+                    {
+                        return VNForDoubleCon(double(arg0Val));
+                    }
+                default:
+                    unreached();
             }
+        }
         case TYP_FLOAT:
         {
             float arg0Val = GetConstantSingle(arg0VN);
@@ -2760,108 +2544,56 @@ ValueNum ValueNumStore::EvalCastForConstantArgs(var_types typ, VNFunc func, Valu
     }
 }
 
-//-----------------------------------------------------------------------------------
-// CanEvalForConstantArgs:  - Given a VNFunc value return true when we can perform
-//                            compile-time constant folding for the operation.
-//
-// Arguments:
-//    vnf        - The VNFunc that we are inquiring about
-//
-// Return Value:
-//               - Returns true if we can always compute a constant result
-//                 when given all constant args.
-//
-// Notes:        - When this method returns true, the logic to compute the
-//                 compile-time result must also be added to EvalOP,
-//                 EvalOpspecialized or EvalComparison
-//
 bool ValueNumStore::CanEvalForConstantArgs(VNFunc vnf)
 {
-    if (vnf < VNF_Boundary)
+    switch (vnf)
     {
-        genTreeOps oper = genTreeOps(vnf);
-
-        switch (oper)
-        {
-            // Only return true for the node kinds that have code that supports
-            // them in EvalOP, EvalOpspecialized or EvalComparison
-
-            // Unary Ops
-            case GT_NEG:
-            case GT_NOT:
-            case GT_BSWAP16:
-            case GT_BSWAP:
-
-            // Binary Ops
-            case GT_ADD:
-            case GT_SUB:
-            case GT_MUL:
-            case GT_DIV:
-            case GT_MOD:
-
-            case GT_UDIV:
-            case GT_UMOD:
-
-            case GT_AND:
-            case GT_OR:
-            case GT_XOR:
-
-            case GT_LSH:
-            case GT_RSH:
-            case GT_RSZ:
-            case GT_ROL:
-            case GT_ROR:
-
-            // Float ops
-            case GT_FADD:
-            case GT_FSUB:
-            case GT_FMUL:
-            case GT_FDIV:
-            case GT_FMOD:
-            case GT_FNEG:
-
-            // Equality Ops
-            case GT_EQ:
-            case GT_NE:
-            case GT_GT:
-            case GT_GE:
-            case GT_LT:
-            case GT_LE:
-
-                // We can evaluate these.
-                return true;
-
-            default:
-                // We can not evaluate these.
-                return false;
-        }
-    }
-    else
-    {
-        // some VNF_ that we can evaluate
-        switch (vnf)
-        {
-            case VNF_GT_UN:
-            case VNF_GE_UN:
-            case VNF_LT_UN:
-            case VNF_LE_UN:
-
-            case VNF_ADD_OVF:
-            case VNF_SUB_OVF:
-            case VNF_MUL_OVF:
-            case VNF_ADD_UN_OVF:
-            case VNF_SUB_UN_OVF:
-            case VNF_MUL_UN_OVF:
-
-            case VNF_Cast:
-            case VNF_CastOvf:
-                // We can evaluate these.
-                return true;
-
-            default:
-                // We can not evaluate these.
-                return false;
-        }
+        case VNOP_NEG:
+        case VNOP_NOT:
+        case VNOP_BSWAP16:
+        case VNOP_BSWAP:
+        case VNOP_ADD:
+        case VNOP_SUB:
+        case VNOP_MUL:
+        case VNOP_DIV:
+        case VNOP_MOD:
+        case VNOP_UDIV:
+        case VNOP_UMOD:
+        case VNOP_AND:
+        case VNOP_OR:
+        case VNOP_XOR:
+        case VNOP_LSH:
+        case VNOP_RSH:
+        case VNOP_RSZ:
+        case VNOP_ROL:
+        case VNOP_ROR:
+        case VNOP_FADD:
+        case VNOP_FSUB:
+        case VNOP_FMUL:
+        case VNOP_FDIV:
+        case VNOP_FMOD:
+        case VNOP_FNEG:
+        case VNOP_EQ:
+        case VNOP_NE:
+        case VNOP_GT:
+        case VNOP_GE:
+        case VNOP_LT:
+        case VNOP_LE:
+        case VNF_GT_UN:
+        case VNF_GE_UN:
+        case VNF_LT_UN:
+        case VNF_LE_UN:
+        case VNF_ADD_OVF:
+        case VNF_SUB_OVF:
+        case VNF_MUL_OVF:
+        case VNF_ADD_UN_OVF:
+        case VNF_SUB_UN_OVF:
+        case VNF_MUL_UN_OVF:
+        case VNF_Cast:
+        case VNF_CastOvf:
+            return true;
+        default:
+            return false;
     }
 }
 

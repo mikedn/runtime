@@ -10959,6 +10959,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     goto CNS_INT;
 
                 case GT_FADD:
+                    // TODO-MIKE-Review: Why doesn't this use FpAdd & co. like VN?
                     f = f1 + f2;
                     goto CNS_FLOAT;
 
