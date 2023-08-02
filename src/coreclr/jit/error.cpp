@@ -239,7 +239,7 @@ void debugError(const char* msg, const char* file, unsigned line)
     BreakIfDebuggerPresent();
 }
 
-extern "C" void __cdecl assertAbort(const char* why, const char* file, unsigned line)
+void assertAbort(const char* why, const char* file, unsigned line)
 {
     const char* msg         = why;
     Compiler*   logCompiler = JitTls::GetLogCompiler();
