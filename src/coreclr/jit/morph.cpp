@@ -41,7 +41,7 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
     if (src->TypeIs(TYP_FLOAT))
     {
         // All floating point cast helpers work only with DOUBLE.
-        src = gtNewCastNode(TYP_DOUBLE, src, false, TYP_DOUBLE);
+        src = gtNewCastNode(src, false, TYP_DOUBLE);
     }
 
     // GenTreeCast nodes are small so they cannot be converted to calls in place. It may
@@ -190,7 +190,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         // CodeGen doesn't support casting from floating point types, or long types on
         // 32 bit targets, directly to small int types. Cast the source to INT first.
 
-        src = gtNewCastNode(TYP_INT, src, cast->IsUnsigned(), TYP_INT);
+        src = gtNewCastNode(src, cast->IsUnsigned(), TYP_INT);
         src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
         cast->SetOp(0, src);
         srcType = TYP_INT;
@@ -252,7 +252,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
             if (srcType == TYP_INT)
             {
-                src = gtNewCastNode(TYP_LONG, src, true, TYP_LONG);
+                src = gtNewCastNode(src, true, TYP_LONG);
                 cast->SetOp(0, src);
                 cast->gtFlags &= ~GTF_UNSIGNED;
                 srcType = TYP_LONG;
@@ -265,7 +265,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         {
             // There is no support for UINT to FP casts so first cast the source
             // to LONG and then use a helper call to cast to FP.
-            src = gtNewCastNode(TYP_LONG, src, true, TYP_LONG);
+            src = gtNewCastNode(src, true, TYP_LONG);
             cast->SetOp(0, src);
             cast->gtFlags &= ~GTF_UNSIGNED;
             srcType = TYP_LONG;
@@ -283,7 +283,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
             if (dstType == TYP_FLOAT)
             {
-                helper = gtNewCastNode(TYP_FLOAT, helper, false, TYP_FLOAT);
+                helper = gtNewCastNode(helper, false, TYP_FLOAT);
                 INDEBUG(helper->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
             }
 
@@ -413,11 +413,11 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                 DEBUG_DESTROY_NODE(cast);
 
                 // Insert narrowing casts for op1 and op2.
-                src->AsOp()->SetOp(0, gtNewCastNode(TYP_INT, src->AsOp()->GetOp(0), false, dstType));
+                src->AsOp()->SetOp(0, gtNewCastNode(src->AsOp()->GetOp(0), false, TYP_INT));
 
                 if (src->AsOp()->gtOp2 != nullptr)
                 {
-                    src->AsOp()->SetOp(1, gtNewCastNode(TYP_INT, src->AsOp()->GetOp(1), false, dstType));
+                    src->AsOp()->SetOp(1, gtNewCastNode(src->AsOp()->GetOp(1), false, TYP_INT));
                 }
 
 #ifndef TARGET_64BIT
@@ -913,8 +913,8 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                     // We may also need to cast away the upper bits of *otherOpPtr
                     if (srcSize == 8)
                     {
-                        assert(tree->gtType == TYP_INT);
-                        GenTree* castOp = gtNewCastNode(TYP_INT, *otherOpPtr, false, TYP_INT);
+                        assert(tree->TypeIs(TYP_INT));
+                        GenTree* castOp = gtNewCastNode(*otherOpPtr, false, TYP_INT);
                         INDEBUG(castOp->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
                         *otherOpPtr = castOp;
                     }
@@ -3750,7 +3750,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
 #endif
                     {
                         field->SetType(TYP_INT);
-                        field = gtNewCastNode(TYP_INT, field, false, type);
+                        field = gtNewCastNode(field, false, type);
                     }
                 }
             }
@@ -3777,7 +3777,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
 #ifdef TARGET_64BIT
             if (newArgType == TYP_LONG)
             {
-                field = gtNewCastNode(TYP_LONG, field, true, TYP_LONG);
+                field = gtNewCastNode(field, true, TYP_LONG);
             }
 #endif
 
@@ -3798,7 +3798,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
 #ifdef TARGET_64BIT
                 if (newArg->GetType() != newArgType)
                 {
-                    newArg = gtNewCastNode(TYP_LONG, newArg, true, TYP_LONG);
+                    newArg = gtNewCastNode(newArg, true, TYP_LONG);
                 }
 #endif
 
@@ -4819,7 +4819,7 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
     };
     auto Or = [&](GenTree* op1, GenTree* op2) { return gtNewOperNode(GT_OR, varActualType(op1->GetType()), op1, op2); };
     auto Clone  = [&](GenTree* expr) { return gtCloneExpr(expr); };
-    auto Extend = [&](GenTree* value) { return gtNewCastNode(TYP_LONG, value, true, TYP_LONG); };
+    auto Extend = [&](GenTree* value) { return gtNewCastNode(value, true, TYP_LONG); };
 
     if (indirSize == 1)
     {
@@ -5351,7 +5351,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
         // the comparison will have to be widen to 64 bits.
         if (index->TypeIs(TYP_LONG))
         {
-            arrLen = gtNewCastNode(TYP_LONG, arrLen, false, TYP_LONG);
+            arrLen = gtNewCastNode(arrLen, false, TYP_LONG);
         }
 #endif
 
@@ -5388,7 +5388,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
         }
         else
         {
-            offset = gtNewCastNode(TYP_LONG, offset, false, TYP_LONG);
+            offset = gtNewCastNode(offset, false, TYP_LONG);
         }
     }
 #endif
@@ -5474,7 +5474,7 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
     lclVar->SetType(TYP_INT);
     fgMorphTreeDone(lclVar);
 
-    GenTreeCast* cast = gtNewCastNode(TYP_INT, lclVar, false, lcl->GetType());
+    GenTreeCast* cast = gtNewCastNode(lclVar, false, lcl->GetType());
     INDEBUG(cast->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
     return cast;
 }
@@ -9993,7 +9993,7 @@ GenTree* Compiler::fgMorphNormalizeLclVarStore(GenTreeOp* asg)
     GenTree* op1 = asg->GetOp(0);
     GenTree* op2 = asg->GetOp(1);
 
-    if (varActualType(op1->GetType()) == TYP_INT)
+    if (varActualTypeIsInt(op1->GetType()))
     {
         LclVarDsc* lcl = lvaGetDesc(op1->AsLclVar());
 
@@ -10003,7 +10003,7 @@ GenTree* Compiler::fgMorphNormalizeLclVarStore(GenTreeOp* asg)
 
             if (gtIsSmallIntCastNeeded(op2, lcl->GetType()))
             {
-                op2 = gtNewCastNode(TYP_INT, op2, false, lcl->GetType());
+                op2 = gtNewCastNode(op2, false, lcl->GetType());
                 asg->SetOp(1, op2);
             }
         }
@@ -10619,13 +10619,13 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 }
                 else
                 {
-                    op1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
+                    op1 = gtNewCastNode(op1, false, TYP_DOUBLE);
                     tree->AsOp()->SetOp(0, op1);
                 }
             }
             else if (op2->TypeIs(TYP_FLOAT))
             {
-                op2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
+                op2 = gtNewCastNode(op2, false, TYP_DOUBLE);
                 tree->AsOp()->SetOp(1, op2);
             }
 
@@ -10668,7 +10668,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             {
                 // Small-typed return values are extended by the callee.
 
-                op1 = gtNewCastNode(TYP_INT, op1, false, info.compRetType);
+                op1 = gtNewCastNode(op1, false, info.compRetType);
                 op1 = fgMorphTree(op1);
 
                 tree->AsUnOp()->SetOp(0, op1);
@@ -11366,7 +11366,7 @@ DONE_MORPHING_CHILDREN:
                 }
                 else
                 {
-                    op1->AsOp()->gtOp1 = gtNewCastNode(TYP_INT, op1->AsOp()->gtGetOp1(), false, TYP_INT);
+                    op1->AsOp()->gtOp1 = gtNewCastNode(op1->AsOp()->gtGetOp1(), false, TYP_INT);
                 }
 
                 // now replace the mask node (AsOp()->gtOp2 of AND node).
@@ -12915,13 +12915,13 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
     if (GenTreeLngCon* longConst1 = op1->IsLngCon())
     {
         op1->ChangeToIntCon(TYP_INT, static_cast<int32_t>(longConst1->GetValue()));
-        op1 = gtNewCastNode(TYP_LONG, op1, op2->AsCast()->IsUnsigned(), TYP_LONG);
+        op1 = gtNewCastNode(op1, op2->AsCast()->IsUnsigned(), TYP_LONG);
         mul->SetOp(0, op1);
     }
     else if (GenTreeLngCon* longConst2 = op2->IsLngCon())
     {
         op2->ChangeToIntCon(TYP_INT, static_cast<int32_t>(longConst2->GetValue()));
-        op2 = gtNewCastNode(TYP_LONG, op2, op1->AsCast()->IsUnsigned(), TYP_LONG);
+        op2 = gtNewCastNode(op2, op1->AsCast()->IsUnsigned(), TYP_LONG);
         mul->SetOp(1, op2);
     }
 

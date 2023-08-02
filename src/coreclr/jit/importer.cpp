@@ -196,7 +196,7 @@ GenTree* Importer::impPopStackCoerceArg(var_types signatureType)
 #endif
                 )
         {
-            tree = gtNewCastNode(signatureType, tree, false, signatureType);
+            tree = gtNewCastNode(tree, false, signatureType);
         }
         else if ((signatureType == TYP_BYREF) && (stackType == TYP_I_IMPL))
         {
@@ -731,7 +731,7 @@ GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
         BADCODE("the call argument has a type that can't be implicitly converted to the parameter type");
     }
 
-    return castType == argType ? arg : gtNewCastNode(castType, arg, false, castType);
+    return castType == argType ? arg : gtNewCastNode(arg, false, castType);
 }
 
 #ifdef TARGET_X86
@@ -1301,7 +1301,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
 
         GenTree* slot = gtNewLclvNode(slotLclNum, TYP_I_IMPL);
 #ifdef TARGET_64BIT
-        slot = gtNewCastNode(TYP_INT, slot, false, TYP_INT);
+        slot = gtNewCastNode(slot, false, TYP_INT);
 #endif
         // Use a GT_AND to check for the lowest bit and indirect if it is set
         GenTree* test  = gtNewOperNode(GT_AND, TYP_INT, slot, gtNewIconNode(1));
@@ -1999,39 +1999,36 @@ void Importer::impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 /* = nullptr */
     }
 }
 
-/*****************************************************************************
- *  TYP_INT and TYP_I_IMPL can be used almost interchangeably, but we want
- *  to make that an explicit cast in our trees, so any implicit casts that
- *  exist in the IL (at least on 64-bit where TYP_I_IMPL != TYP_INT) are
- *  turned into explicit casts here.
- *  We also allow an implicit conversion of a ldnull into a TYP_I_IMPL(0)
- */
-
+// INT and I_IMPL can be used almost interchangeably, but we want
+// to make that an explicit cast in our trees, so any implicit casts
+// that exist in the IL (at least on 64-bit where I_IMPL != INT) are
+// turned into explicit casts here.
+// We also allow an implicit conversion of a ldnull into a I_IMPL(0)
 GenTree* Importer::impImplicitIorI4Cast(GenTree* tree, var_types dstTyp)
 {
-    var_types currType   = genActualType(tree->gtType);
-    var_types wantedType = genActualType(dstTyp);
+    var_types currType   = varActualType(tree->GetType());
+    var_types wantedType = varActualType(dstTyp);
 
     if (wantedType != currType)
     {
         // Automatic upcast for a GT_CNS_INT into TYP_I_IMPL
-        if ((tree->OperGet() == GT_CNS_INT) && varTypeIsI(dstTyp))
+        if (tree->IsIntCon() && varTypeIsI(dstTyp))
         {
-            if (!varTypeIsI(tree->gtType) || ((tree->gtType == TYP_REF) && (tree->AsIntCon()->gtIconVal == 0)))
+            if (!varTypeIsI(tree->GetType()) || (tree->TypeIs(TYP_REF) && (tree->AsIntCon()->GetValue() == 0)))
             {
-                tree->gtType = TYP_I_IMPL;
+                tree->SetType(TYP_I_IMPL);
             }
         }
 #ifdef TARGET_64BIT
         else if (varTypeIsI(wantedType) && (currType == TYP_INT))
         {
             // Note that this allows TYP_INT to be cast to a TYP_I_IMPL when wantedType is a TYP_BYREF or TYP_REF
-            tree = gtNewCastNode(TYP_LONG, tree, false, TYP_LONG);
+            tree = gtNewCastNode(tree, false, TYP_LONG);
         }
         else if ((wantedType == TYP_INT) && varTypeIsI(currType))
         {
             // Note that this allows TYP_BYREF or TYP_REF to be cast to a TYP_INT
-            tree = gtNewCastNode(TYP_INT, tree, false, TYP_INT);
+            tree = gtNewCastNode(tree, false, TYP_INT);
         }
 #endif // TARGET_64BIT
     }
@@ -2039,17 +2036,14 @@ GenTree* Importer::impImplicitIorI4Cast(GenTree* tree, var_types dstTyp)
     return tree;
 }
 
-/*****************************************************************************
- *  TYP_FLOAT and TYP_DOUBLE can be used almost interchangeably in some cases,
- *  but we want to make that an explicit cast in our trees, so any implicit casts
- *  that exist in the IL are turned into explicit casts here.
- */
-
+// FLOAT and DOUBLE can be used almost interchangeably in some cases,
+// but we want to make that an explicit cast in our trees, so any implicit
+// casts that exist in the IL are turned into explicit casts here.
 GenTree* Importer::impImplicitR4orR8Cast(GenTree* tree, var_types dstTyp)
 {
-    if (varTypeIsFloating(tree) && varTypeIsFloating(dstTyp) && (dstTyp != tree->gtType))
+    if (varTypeIsFloating(tree->GetType()) && varTypeIsFloating(dstTyp) && (dstTyp != tree->GetType()))
     {
-        tree = gtNewCastNode(dstTyp, tree, false, dstTyp);
+        tree = gtNewCastNode(tree, false, dstTyp);
     }
 
     return tree;
@@ -3222,8 +3216,8 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             {
                 case CorInfoType::CORINFO_TYPE_SHORT:
                 case CorInfoType::CORINFO_TYPE_USHORT:
-                    retNode =
-                        gtNewCastNode(TYP_INT, gtNewOperNode(GT_BSWAP16, TYP_INT, impPopStack().val), false, callType);
+                    retNode = gtNewOperNode(GT_BSWAP16, TYP_INT, impPopStack().val);
+                    retNode = gtNewCastNode(retNode, false, callType);
                     break;
 
                 case CorInfoType::CORINFO_TYPE_INT:
@@ -3231,7 +3225,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 #ifdef TARGET_64BIT
                 case CorInfoType::CORINFO_TYPE_LONG:
                 case CorInfoType::CORINFO_TYPE_ULONG:
-#endif // TARGET_64BIT
+#endif
                     retNode = gtNewOperNode(GT_BSWAP, callType, impPopStack().val);
                     break;
 
@@ -3459,7 +3453,7 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                     // TODO-MIKE-Review: This is messed up, it casts to the method's
                     // return type instead of casting to the parameter type. This
                     // would probably blow in some cases involving ILogB.
-                    op1 = gtNewCastNode(callType, op1, false, callType);
+                    op1 = gtNewCastNode(op1, false, callType);
                 }
 
                 break;
@@ -3474,7 +3468,7 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                 if (op1->TypeGet() != genActualType(op1Type))
                 {
                     assert(varTypeIsFloating(op1));
-                    op1 = gtNewCastNode(callType, op1, false, callType);
+                    op1 = gtNewCastNode(op1, false, callType);
                 }
 
                 arg     = info.compCompHnd->getArgNext(arg);
@@ -3483,7 +3477,7 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                 if (op2->TypeGet() != genActualType(op2Type))
                 {
                     assert(varTypeIsFloating(op2));
-                    op2 = gtNewCastNode(callType, op2, false, callType);
+                    op2 = gtNewCastNode(op2, false, callType);
                 }
 
                 break;
@@ -4698,7 +4692,8 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
             {
                 assert((varTypeIsFloating(srcTyp) && varTypeIsFloating(dstTyp)) ||
                        (varTypeIsIntegral(srcTyp) && varTypeIsIntegral(dstTyp)));
-                exprToBox = gtNewCastNode(dstTyp, exprToBox, false, dstTyp);
+
+                exprToBox = gtNewCastNode(exprToBox, false, dstTyp);
             }
             op1 = gtNewAssignNode(gtNewOperNode(GT_IND, lclTyp, op1), exprToBox);
         }
@@ -6110,7 +6105,7 @@ GenTree* Importer::impConvertFieldStoreValue(var_types storeType, GenTree* value
     // Implicit narrowing from LONG to INT for x86 JIT compatiblity.
     if (varTypeIsI(value->GetType()) && varActualTypeIsInt(storeType))
     {
-        value = gtNewCastNode(TYP_INT, value, false, TYP_INT);
+        value = gtNewCastNode(value, false, TYP_INT);
     }
     // Implicit widening from INT to LONG for x86 JIT compatiblity.
     else if (varActualTypeIsInt(value->GetType()) && varTypeIsI(storeType))
@@ -6121,14 +6116,14 @@ GenTree* Importer::impConvertFieldStoreValue(var_types storeType, GenTree* value
         }
         else
         {
-            value = gtNewCastNode(TYP_LONG, value, false, TYP_LONG);
+            value = gtNewCastNode(value, false, TYP_LONG);
         }
     }
 #endif
     // FLOAT/DOUBLE implicit conversions.
     else if (varTypeIsFloating(value->GetType()) && varTypeIsFloating(storeType))
     {
-        value = gtNewCastNode(storeType, value, false, storeType);
+        value = gtNewCastNode(value, false, storeType);
     }
 
     return value;
@@ -7049,7 +7044,7 @@ PUSH_CALL:
 
     if (varTypeIsSmall(callRetTyp) && (opts.IsReadyToRun() || call->IsUnmanaged()))
     {
-        value = gtNewCastNode(TYP_INT, value, false, callRetTyp);
+        value = gtNewCastNode(value, false, callRetTyp);
     }
 
 PUSH_VALUE:
@@ -8434,7 +8429,7 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, G
         {
             assert(varTypeIsIntegralOrI(op->GetType()));
 
-            return gtNewCastNode(TYP_LONG, op, fromUnsigned, TYP_LONG);
+            return gtNewCastNode(op, fromUnsigned, TYP_LONG);
         }
     };
 #endif
@@ -8536,19 +8531,15 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, G
 
     if (op1->TypeIs(TYP_FLOAT) && !op2->TypeIs(TYP_FLOAT))
     {
-        // float + double = double
-
         assert(op2->TypeIs(TYP_DOUBLE));
-        *pOp1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
+        *pOp1 = gtNewCastNode(op1, false, TYP_DOUBLE);
         return TYP_DOUBLE;
     }
 
     if (op1->TypeIs(TYP_DOUBLE) && !op2->TypeIs(TYP_DOUBLE))
     {
-        // double + float = double
-
         assert(op2->TypeIs(TYP_FLOAT));
-        *pOp2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
+        *pOp2 = gtNewCastNode(op2, false, TYP_DOUBLE);
         return TYP_DOUBLE;
     }
 
@@ -8569,21 +8560,21 @@ void Importer::impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenT
 
         if (op1->TypeIs(TYP_DOUBLE))
         {
-            op2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
+            op2 = gtNewCastNode(op2, false, TYP_DOUBLE);
         }
         else if (op2->TypeIs(TYP_DOUBLE))
         {
-            op1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
+            op1 = gtNewCastNode(op1, false, TYP_DOUBLE);
         }
     }
 #ifdef TARGET_64BIT
     else if (varTypeIsI(op1->GetType()) && varActualTypeIsInt(op2->GetType()))
     {
-        op2 = gtNewCastNode(TYP_I_IMPL, op2, isUnsigned, TYP_I_IMPL);
+        op2 = gtNewCastNode(op2, isUnsigned, TYP_LONG);
     }
     else if (varTypeIsI(op2->GetType()) && varActualTypeIsInt(op1->GetType()))
     {
-        op1 = gtNewCastNode(TYP_I_IMPL, op1, isUnsigned, TYP_I_IMPL);
+        op1 = gtNewCastNode(op1, isUnsigned, TYP_LONG);
     }
 #endif
 }
@@ -9391,7 +9382,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     // Downcast the TYP_I_IMPL into a 32-bit Int for x86 JIT compatiblity
                     if (varTypeIsI(op1->GetType()) && (varActualType(lclTyp) == TYP_INT))
                     {
-                        op1 = gtNewCastNode(TYP_INT, op1, false, TYP_INT);
+                        op1 = gtNewCastNode(op1, false, TYP_INT);
                     }
 #endif
 
@@ -9441,7 +9432,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     else if (varTypeIsFloating(lclTyp) && varTypeIsFloating(op1->GetType()) &&
                              (lclTyp != op1->GetType()))
                     {
-                        op1 = gtNewCastNode(lclTyp, op1, false, lclTyp);
+                        op1 = gtNewCastNode(op1, false, lclTyp);
                     }
 
                     op1 = gtNewAssignNode(op2, op1);
@@ -9584,7 +9575,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     // TODO-MIKE-Review: This should be BADCODE. Old code only asserted and
                     // there's a pretty good chance that LONG values worked fine by accident.
-                    op1 = gtNewCastNode(TYP_INT, op1, false, TYP_INT);
+                    op1 = gtNewCastNode(op1, false, TYP_INT);
                     assert(!"Bad endfilter value type");
                 }
 
@@ -10521,22 +10512,21 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                /*  The 'op2' sub-operand of a cast is the 'real' type number,
-                    since the result of a cast to one of the 'small' integer
-                    types is an integer.
-                 */
+                // The 'op2' sub-operand of a cast is the 'real' type number,
+                // since the result of a cast to one of the 'small' integer
+                // types is an integer.
 
-                type = genActualType(lclTyp);
+                type = varActualType(lclTyp);
 
                 // If this is a no-op cast, just use op1.
-                if (!ovfl && (type == op1->TypeGet()) && (genTypeSize(type) == genTypeSize(lclTyp)))
+                if (!ovfl && (type == op1->GetType()) && (varTypeSize(type) == varTypeSize(lclTyp)))
                 {
                     // Nothing needs to change
                 }
                 // Work is evidently required, add cast node
                 else
                 {
-                    op1 = gtNewCastNode(type, op1, uns, lclTyp);
+                    op1 = gtNewCastNode(op1, uns, lclTyp);
 
                     if (ovfl)
                     {
@@ -10712,9 +10702,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
 #ifdef TARGET_64BIT
                 // Allow an upcast of op1 from a 32-bit Int into TYP_I_IMPL for x86 JIT compatiblity
-                if (genActualType(op1->gtType) == TYP_INT)
+                if (varActualTypeIsInt(op1->GetType()))
                 {
-                    op1 = gtNewCastNode(TYP_I_IMPL, op1, false, TYP_I_IMPL);
+                    op1 = gtNewCastNode(op1, false, TYP_LONG);
                 }
 #endif
 
@@ -12250,16 +12240,15 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
 #ifdef TARGET_64BIT
     // The array helper takes a native int for array length.
     // So if we have an int, explicitly extend it to be a native int.
-    if (genActualType(op2->TypeGet()) != TYP_I_IMPL)
+    if (!varTypeIsLong(op2->GetType()))
     {
-        if (op2->IsIntegralConst())
+        if (op2->IsIntCon())
         {
-            op2->gtType = TYP_I_IMPL;
+            op2->SetType(TYP_LONG);
         }
         else
         {
-            bool isUnsigned = false;
-            op2             = gtNewCastNode(TYP_I_IMPL, op2, isUnsigned, TYP_I_IMPL);
+            op2 = gtNewCastNode(op2, false, TYP_LONG);
         }
     }
 #endif // TARGET_64BIT
@@ -13304,11 +13293,11 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
                 spillTempLcl->SetType(TYP_LONG);
                 reimportSpillClique = true;
             }
-            else if ((varActualType(tree->GetType()) == TYP_INT) && spillTempLcl->TypeIs(TYP_LONG))
+            else if (varActualTypeIsInt(tree->GetType()) && spillTempLcl->TypeIs(TYP_LONG))
             {
                 // Spill clique has decided this should be "native int", but this block only pushes an "int".
                 // Insert a sign-extension to "native int" so we match the clique.
-                tree = gtNewCastNode(TYP_LONG, tree, false, TYP_LONG);
+                tree = gtNewCastNode(tree, false, TYP_LONG);
             }
             // Consider the case where one branch left a 'byref' on the stack and the other leaves
             // an 'int'. On 32-bit, this is allowed since they are the same size. JIT64 managed to
@@ -13324,11 +13313,11 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
                 spillTempLcl->SetType(TYP_BYREF);
                 reimportSpillClique = true;
             }
-            else if ((varActualType(tree->GetType()) == TYP_INT) && spillTempLcl->TypeIs(TYP_BYREF))
+            else if (varActualTypeIsInt(tree->GetType()) && spillTempLcl->TypeIs(TYP_BYREF))
             {
                 // Spill clique has decided this should be "byref", but this block only pushes an "int".
                 // Insert a sign-extension to "native int" so we match the clique size.
-                tree = gtNewCastNode(TYP_LONG, tree, false, TYP_LONG);
+                tree = gtNewCastNode(tree, false, TYP_LONG);
             }
 #endif // TARGET_64BIT
             else if (tree->TypeIs(TYP_DOUBLE) && spillTempLcl->TypeIs(TYP_FLOAT))
@@ -13342,7 +13331,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
             {
                 // Spill clique has decided this should be "double", but this block only pushes a "float".
                 // Insert a cast to "double" so we match the clique.
-                tree = gtNewCastNode(TYP_DOUBLE, tree, false, TYP_DOUBLE);
+                tree = gtNewCastNode(tree, false, TYP_DOUBLE);
             }
 
             // If branchStmt has references to spillTempLclNum (can only happen if we are spilling to
@@ -17576,9 +17565,9 @@ GenTree* Importer::gtNewNullCheck(GenTree* addr)
     return comp->gtNewNullCheck(addr);
 }
 
-GenTreeCast* Importer::gtNewCastNode(var_types type, GenTree* op1, bool fromUnsigned, var_types castType)
+GenTreeCast* Importer::gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types toType)
 {
-    return comp->gtNewCastNode(type, op1, fromUnsigned, castType);
+    return comp->gtNewCastNode(op1, fromUnsigned, toType);
 }
 
 GenTreeFieldAddr* Importer::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)

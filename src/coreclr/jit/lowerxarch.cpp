@@ -2403,7 +2403,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
         // TODO-MIKE-CQ: Most of the time this isn't necessary as the index is usually
         // produced by a 32 bit instruction that implicitly zero extends. CAST codegen
         // attempts to eliminate such redundant casts but it rarely succeeds.
-        idx = comp->gtNewCastNode(TYP_LONG, idx, true, TYP_LONG);
+        idx = comp->gtNewCastNode(idx, true, TYP_LONG);
         BlockRange().InsertBefore(node, idx);
         node->SetOp(1, idx);
 #endif
@@ -2546,7 +2546,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
         LIR::Use use;
         if (BlockRange().TryGetUse(node, &use))
         {
-            GenTreeCast* cast = comp->gtNewCastNode(TYP_INT, node, false, eltType);
+            GenTreeCast* cast = comp->gtNewCastNode(node, false, eltType);
             BlockRange().InsertAfter(node, cast);
             use.ReplaceWith(comp, cast);
             LowerNode(cast);

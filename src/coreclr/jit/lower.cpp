@@ -773,11 +773,11 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
             JITDUMP("Lowering switch " FMT_BB ": using jump table expansion\n", originalSwitchBB->bbNum);
 
 #ifdef TARGET_64BIT
-            if (tempLclType != TYP_I_IMPL)
+            if (tempLclType != TYP_LONG)
             {
-                // SWITCH_TABLE expects the switch value (the index into the jump table) to be TYP_I_IMPL.
+                // SWITCH_TABLE expects the switch value (the index into the jump table) to be LONG.
                 // Note that the switch value is unsigned so the cast should be unsigned as well.
-                switchValue = comp->gtNewCastNode(TYP_I_IMPL, switchValue, true, TYP_U_IMPL);
+                switchValue = comp->gtNewCastNode(switchValue, true, TYP_LONG);
                 switchBlockRange.InsertAtEnd(switchValue);
             }
 #endif
@@ -3798,7 +3798,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
 #endif
                  )
         {
-            adjustedDividend = comp->gtNewCastNode(TYP_I_IMPL, adjustedDividend, true, TYP_U_IMPL);
+            adjustedDividend = comp->gtNewCastNode(adjustedDividend, true, TYP_I_IMPL);
             BlockRange().InsertBefore(divMod, adjustedDividend);
             ContainCheckCast(adjustedDividend->AsCast());
         }
