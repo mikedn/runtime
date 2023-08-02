@@ -1,21 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#if defined(TARGET_XARCH)
-
-/************************************************************************/
-/*           Public inline informational methods                        */
-/************************************************************************/
+#ifdef TARGET_XARCH
 
 public:
 static bool isGeneralRegister(regNumber reg)
 {
-    return (reg <= REG_INT_LAST);
+    return genIsValidIntReg(reg);
 }
 
 static bool isFloatReg(regNumber reg)
 {
-    return (reg >= REG_FP_FIRST && reg <= REG_FP_LAST);
+    return genIsValidFloatReg(reg);
 }
 
 static bool isDoubleReg(regNumber reg)
@@ -30,7 +26,7 @@ static bool isDoubleReg(regNumber reg)
 // code_t is a type used to accumulate bits of opcode + prefixes. On amd64, it must be 64 bits
 // to support the REX prefixes. On both x86 and amd64, it must be 64 bits to support AVX, with
 // its 3-byte VEX prefix.
-typedef unsigned __int64 code_t;
+typedef uint64_t code_t;
 
 struct CnsVal
 {
