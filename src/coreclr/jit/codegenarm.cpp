@@ -1059,37 +1059,27 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     emitInsStore(ins_Store(type), emitActualTypeSize(type), dataReg, tree);
 }
 
-// genLongToIntCast: Generate code for long to int casts.
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    The cast node and its sources (via GT_LONG) must have been assigned registers.
-//    The destination cannot be a floating point type or a small integer type.
-//
 void CodeGen::genLongToIntCast(GenTreeCast* cast)
 {
+    assert(cast->TypeIs(TYP_INT));
+
     GenTreeOp* src = cast->GetOp(0)->AsOp();
     noway_assert(src->OperIs(GT_LONG));
 
-    var_types srcType  = cast->IsUnsigned() ? TYP_ULONG : TYP_LONG;
-    var_types dstType  = cast->GetCastType();
     regNumber loSrcReg = UseReg(src->GetOp(0));
     regNumber hiSrcReg = UseReg(src->GetOp(1));
     regNumber dstReg   = cast->GetRegNum();
 
-    assert((dstType == TYP_INT) || (dstType == TYP_UINT));
     assert(genIsValidIntReg(loSrcReg));
     assert(genIsValidIntReg(hiSrcReg));
     assert(genIsValidIntReg(dstReg));
 
     if (cast->gtOverflow())
     {
-        //
+        var_types srcType = cast->IsUnsigned() ? TYP_ULONG : TYP_LONG;
+        var_types dstType = cast->GetCastType();
+        assert((dstType == TYP_INT) || (dstType == TYP_UINT));
+
         // Generate an overflow check for [u]long to [u]int casts:
         //
         // long  -> int  - check if the upper 33 bits are all 0 or all 1
@@ -1098,7 +1088,6 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
         //
         // long  -> uint - check if the upper 32 bits are all 0
         // ulong -> uint - check if the upper 32 bits are all 0
-        //
 
         if ((srcType == TYP_LONG) && (dstType == TYP_INT))
         {
@@ -1107,6 +1096,7 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
 
             inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT);
             inst_JMP(EJ_mi, allOne);
+
             inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT);
             genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
             inst_JMP(EJ_jmp, success);
