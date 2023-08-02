@@ -2024,7 +2024,9 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
     // if our func is the VNF_Cast operation we handle it first
     if (VNFuncIsNumericCast(func))
     {
-        return EvalCastForConstantArgs(typ, func, arg0VN, arg1VN);
+        ValueNum vn = EvalCastForConstantArgs(typ, func, arg0VN, arg1VN);
+        assert(TypeOfVN(vn) == varActualType(typ));
+        return vn;
     }
 
     var_types arg0VNtyp = TypeOfVN(arg0VN);
@@ -2226,29 +2228,20 @@ ValueNum ValueNumStore::EvalFuncForConstantFPArgs(var_types typ, VNFunc func, Va
     return result;
 }
 
-ValueNum ValueNumStore::EvalCastForConstantArgs(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
+ValueNum ValueNumStore::EvalCastForConstantArgs(var_types typ, VNFunc func, ValueNum valVN, ValueNum typeVN)
 {
     assert(VNFuncIsNumericCast(func));
-    assert(IsVNConstant(arg0VN) && IsVNConstant(arg1VN));
-
-    if (varTypeIsSmall(typ))
-    {
-        typ = TYP_INT;
-    }
-
-    if (IsVNHandle(arg0VN))
-    {
-        // We don't allow handles to be cast to random var_types.
-        assert(typ == TYP_I_IMPL);
-    }
+    assert(IsVNConstant(valVN) && IsVNConstant(typeVN));
+    // We don't allow handles to be cast to random types.
+    assert(!IsVNHandle(valVN) || (typ == TYP_I_IMPL));
 
     var_types castToType;
     bool      srcIsUnsigned;
-    GetCastOperFromVN(arg1VN, &castToType, &srcIsUnsigned);
+    GetCastOperFromVN(typeVN, &castToType, &srcIsUnsigned);
 
-    bool checkedCast = func == VNF_CastOvf;
+    const bool checkedCast = func == VNF_CastOvf;
 
-    switch (TypeOfVN(arg0VN))
+    switch (TypeOfVN(valVN))
     {
 #ifndef TARGET_64BIT
         case TYP_REF:
@@ -2256,78 +2249,44 @@ ValueNum ValueNumStore::EvalCastForConstantArgs(var_types typ, VNFunc func, Valu
 #endif
         case TYP_INT:
         {
-            int32_t arg0Val = GetConstantInt32(arg0VN);
-            assert(!checkedCast || !CheckedOps::CastFromIntOverflows(arg0Val, castToType, srcIsUnsigned));
+            const int32_t val = GetConstantInt32(valVN);
+            assert(!checkedCast || !CheckedOps::CastFromIntOverflows(val, castToType, srcIsUnsigned));
+            const uint32_t uval = static_cast<uint32_t>(val);
 
             switch (castToType)
             {
                 case TYP_BYTE:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(INT8(arg0Val));
+                    return VNForIntCon(static_cast<int8_t>(val));
                 case TYP_BOOL:
                 case TYP_UBYTE:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(UINT8(arg0Val));
+                    return VNForIntCon(static_cast<uint8_t>(val));
                 case TYP_SHORT:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(INT16(arg0Val));
+                    return VNForIntCon(static_cast<int16_t>(val));
                 case TYP_USHORT:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(UINT16(arg0Val));
+                    return VNForIntCon(static_cast<uint16_t>(val));
                 case TYP_INT:
                 case TYP_UINT:
-                    assert(typ == TYP_INT);
-                    return arg0VN;
+                    return valVN;
                 case TYP_LONG:
                 case TYP_ULONG:
-                    assert(!IsVNHandle(arg0VN));
+                    assert(!IsVNHandle(valVN));
 #ifdef TARGET_64BIT
-                    if (typ == TYP_LONG)
+                    if (typ != TYP_LONG)
                     {
-                        if (srcIsUnsigned)
-                        {
-                            return VNForLongCon(int64_t(unsigned(arg0Val)));
-                        }
-                        else
-                        {
-                            return VNForLongCon(int64_t(arg0Val));
-                        }
-                    }
-                    else
-                    {
+                        // TODO-MIKE-Review: Hmm, this ignores srcIsUnsigned. But what's the point of a cast
+                        // from INT to BYREF anyway?!?! This may have something to do with VN using VNF_Cast
+                        // willy-nilly, to deal with unexpected type mismatches.
                         assert(typ == TYP_BYREF);
-                        return VNForByrefCon(target_size_t(arg0Val));
+                        return VNForByrefCon(static_cast<target_size_t>(val));
                     }
-#else // TARGET_32BIT
-                    if (srcIsUnsigned)
-                        return VNForLongCon(int64_t(unsigned(arg0Val)));
-                    else
-                        return VNForLongCon(int64_t(arg0Val));
 #endif
+                    return VNForLongCon(srcIsUnsigned ? static_cast<int64_t>(uval) : static_cast<int64_t>(val));
                 case TYP_BYREF:
-                    assert(typ == TYP_BYREF);
-                    return VNForByrefCon(target_size_t(arg0Val));
-
+                    return VNForByrefCon(static_cast<target_size_t>(val));
                 case TYP_FLOAT:
-                    assert(typ == TYP_FLOAT);
-                    if (srcIsUnsigned)
-                    {
-                        return VNForFloatCon(float(unsigned(arg0Val)));
-                    }
-                    else
-                    {
-                        return VNForFloatCon(float(arg0Val));
-                    }
+                    return VNForFloatCon(srcIsUnsigned ? static_cast<float>(uval) : static_cast<float>(val));
                 case TYP_DOUBLE:
-                    assert(typ == TYP_DOUBLE);
-                    if (srcIsUnsigned)
-                    {
-                        return VNForDoubleCon(double(unsigned(arg0Val)));
-                    }
-                    else
-                    {
-                        return VNForDoubleCon(double(arg0Val));
-                    }
+                    return VNForDoubleCon(srcIsUnsigned ? static_cast<double>(uval) : static_cast<double>(val));
                 default:
                     unreached();
             }
@@ -2339,141 +2298,99 @@ ValueNum ValueNumStore::EvalCastForConstantArgs(var_types typ, VNFunc func, Valu
 #endif
         case TYP_LONG:
         {
-            int64_t arg0Val = GetConstantInt64(arg0VN);
-            assert(!checkedCast || !CheckedOps::CastFromLongOverflows(arg0Val, castToType, srcIsUnsigned));
+            const int64_t val = GetConstantInt64(valVN);
+            assert(!checkedCast || !CheckedOps::CastFromLongOverflows(val, castToType, srcIsUnsigned));
+            const uint64_t uval = static_cast<uint64_t>(val);
 
             switch (castToType)
             {
                 case TYP_BYTE:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(INT8(arg0Val));
+                    return VNForIntCon(static_cast<int8_t>(val));
                 case TYP_BOOL:
                 case TYP_UBYTE:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(UINT8(arg0Val));
+                    return VNForIntCon(static_cast<uint8_t>(val));
                 case TYP_SHORT:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(INT16(arg0Val));
+                    return VNForIntCon(static_cast<int16_t>(val));
                 case TYP_USHORT:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(UINT16(arg0Val));
+                    return VNForIntCon(static_cast<uint16_t>(val));
                 case TYP_INT:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(int32_t(arg0Val));
                 case TYP_UINT:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(UINT32(arg0Val));
+                    return VNForIntCon(static_cast<int32_t>(val));
                 case TYP_LONG:
                 case TYP_ULONG:
-                    assert(typ == TYP_LONG);
-                    return arg0VN;
+                    return valVN;
                 case TYP_BYREF:
-                    assert(typ == TYP_BYREF);
-                    return VNForByrefCon((target_size_t)arg0Val);
+                    return VNForByrefCon(static_cast<target_size_t>(val));
                 case TYP_FLOAT:
-                    assert(typ == TYP_FLOAT);
-                    if (srcIsUnsigned)
-                    {
-                        return VNForFloatCon(FloatingPointUtils::convertUInt64ToFloat(UINT64(arg0Val)));
-                    }
-                    else
-                    {
-                        return VNForFloatCon(float(arg0Val));
-                    }
+                    return VNForFloatCon(srcIsUnsigned ? FloatingPointUtils::convertUInt64ToFloat(uval)
+                                                       : static_cast<float>(val));
                 case TYP_DOUBLE:
-                    assert(typ == TYP_DOUBLE);
-                    if (srcIsUnsigned)
-                    {
-                        return VNForDoubleCon(FloatingPointUtils::convertUInt64ToDouble(UINT64(arg0Val)));
-                    }
-                    else
-                    {
-                        return VNForDoubleCon(double(arg0Val));
-                    }
+                    return VNForDoubleCon(srcIsUnsigned ? FloatingPointUtils::convertUInt64ToDouble(uval)
+                                                        : static_cast<double>(val));
                 default:
                     unreached();
             }
         }
         case TYP_FLOAT:
         {
-            float arg0Val = GetConstantSingle(arg0VN);
-            assert(!CheckedOps::CastFromFloatOverflows(arg0Val, castToType));
+            float val = GetConstantSingle(valVN);
+            assert(!CheckedOps::CastFromFloatOverflows(val, castToType));
 
             switch (castToType)
             {
                 case TYP_BYTE:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(INT8(arg0Val));
+                    return VNForIntCon(static_cast<int8_t>(val));
                 case TYP_BOOL:
                 case TYP_UBYTE:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(UINT8(arg0Val));
+                    return VNForIntCon(static_cast<uint8_t>(val));
                 case TYP_SHORT:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(INT16(arg0Val));
+                    return VNForIntCon(static_cast<int16_t>(val));
                 case TYP_USHORT:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(UINT16(arg0Val));
+                    return VNForIntCon(static_cast<uint16_t>(val));
                 case TYP_INT:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(int32_t(arg0Val));
+                    return VNForIntCon(static_cast<int32_t>(val));
                 case TYP_UINT:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(UINT32(arg0Val));
+                    return VNForIntCon(static_cast<uint32_t>(val));
                 case TYP_LONG:
-                    assert(typ == TYP_LONG);
-                    return VNForLongCon(int64_t(arg0Val));
+                    return VNForLongCon(static_cast<int64_t>(val));
                 case TYP_ULONG:
-                    assert(typ == TYP_LONG);
-                    return VNForLongCon(UINT64(arg0Val));
+                    return VNForLongCon(static_cast<uint64_t>(val));
                 case TYP_FLOAT:
-                    assert(typ == TYP_FLOAT);
-                    return VNForFloatCon(arg0Val);
+                    return valVN;
                 case TYP_DOUBLE:
-                    assert(typ == TYP_DOUBLE);
-                    return VNForDoubleCon(double(arg0Val));
+                    return VNForDoubleCon(static_cast<double>(val));
                 default:
                     unreached();
             }
         }
         case TYP_DOUBLE:
         {
-            double arg0Val = GetConstantDouble(arg0VN);
-            assert(!CheckedOps::CastFromDoubleOverflows(arg0Val, castToType));
+            double val = GetConstantDouble(valVN);
+            assert(!CheckedOps::CastFromDoubleOverflows(val, castToType));
 
             switch (castToType)
             {
                 case TYP_BYTE:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(INT8(arg0Val));
+                    return VNForIntCon(static_cast<int8_t>(val));
                 case TYP_BOOL:
                 case TYP_UBYTE:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(UINT8(arg0Val));
+                    return VNForIntCon(static_cast<uint8_t>(val));
                 case TYP_SHORT:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(INT16(arg0Val));
+                    return VNForIntCon(static_cast<int16_t>(val));
                 case TYP_USHORT:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(UINT16(arg0Val));
+                    return VNForIntCon(static_cast<uint16_t>(val));
                 case TYP_INT:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(int32_t(arg0Val));
+                    return VNForIntCon(static_cast<int32_t>(val));
                 case TYP_UINT:
-                    assert(typ == TYP_INT);
-                    return VNForIntCon(UINT32(arg0Val));
+                    return VNForIntCon(static_cast<uint32_t>(val));
                 case TYP_LONG:
-                    assert(typ == TYP_LONG);
-                    return VNForLongCon(int64_t(arg0Val));
+                    return VNForLongCon(static_cast<int64_t>(val));
                 case TYP_ULONG:
-                    assert(typ == TYP_LONG);
-                    return VNForLongCon(UINT64(arg0Val));
+                    return VNForLongCon(static_cast<uint64_t>(val));
                 case TYP_FLOAT:
-                    assert(typ == TYP_FLOAT);
-                    return VNForFloatCon(float(arg0Val));
+                    return VNForFloatCon(static_cast<float>(val));
                 case TYP_DOUBLE:
-                    assert(typ == TYP_DOUBLE);
-                    return VNForDoubleCon(arg0Val);
+                    return valVN;
                 default:
                     unreached();
             }
