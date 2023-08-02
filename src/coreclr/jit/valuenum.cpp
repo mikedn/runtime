@@ -172,14 +172,9 @@ private:
 
 struct FloatTraits
 {
-    //------------------------------------------------------------------------
-    // NaN: Return target-specific float NaN value
-    //
-    // Notes:
-    //    "Default" NaN value returned by expression 0.0f / 0.0f on x86/x64 has
-    //    different binary representation (0xffc00000) than NaN on
-    //    ARM32/ARM64 (0x7fc00000).
-
+    // Default NaN value returned by expression 0.0f / 0.0f on x86/x64 has
+    // different binary representation (0xffc00000) than NaN on
+    // ARM32/ARM64 (0x7fc00000).
     static float NaN()
     {
 #if defined(TARGET_XARCH)
@@ -189,23 +184,20 @@ struct FloatTraits
 #else
 #error Unsupported or unset target architecture
 #endif
-        float result;
-        static_assert(sizeof(bits) == sizeof(result), "sizeof(unsigned) must equal sizeof(float)");
-        memcpy(&result, &bits, sizeof(result));
-        return result;
+        return jitstd::bit_cast<float>(bits);
+    }
+
+    static bool IsNaN(float f)
+    {
+        return _isnanf(f);
     }
 };
 
 struct DoubleTraits
 {
-    //------------------------------------------------------------------------
-    // NaN: Return target-specific double NaN value
-    //
-    // Notes:
-    //    "Default" NaN value returned by expression 0.0 / 0.0 on x86/x64 has
-    //    different binary representation (0xfff8000000000000) than NaN on
-    //    ARM32/ARM64 (0x7ff8000000000000).
-
+    // Default NaN value returned by expression 0.0 / 0.0 on x86/x64 has
+    // different binary representation (0xfff8000000000000) than NaN on
+    // ARM32/ARM64 (0x7ff8000000000000).
     static double NaN()
     {
 #if defined(TARGET_XARCH)
@@ -215,10 +207,12 @@ struct DoubleTraits
 #else
 #error Unsupported or unset target architecture
 #endif
-        double result;
-        static_assert(sizeof(bits) == sizeof(result), "sizeof(unsigned long long) must equal sizeof(double)");
-        memcpy(&result, &bits, sizeof(result));
-        return result;
+        return jitstd::bit_cast<double>(bits);
+    }
+
+    static bool IsNaN(double d)
+    {
+        return _isnan(d);
     }
 };
 
@@ -634,44 +628,38 @@ T ValueNumStore::EvalOp(VNFunc vnf, T v0, T v1)
     return EvalOpSpecialized(vnf, v0, v1);
 }
 
-template <>
-double ValueNumStore::EvalOpSpecialized<double>(VNFunc vnf, double v0, double v1)
+template <typename T, typename Traits>
+static T EvalBinaryFloat(VNFunc vnf, T v0, T v1)
 {
+    static_assert_no_msg((std::is_same<T, float>::value || std::is_same<T, double>::value));
+
     switch (vnf)
     {
         case VNOP_FADD:
-            return FpAdd<double, DoubleTraits>(v0, v1);
+            return FpAdd<T, Traits>(v0, v1);
         case VNOP_FSUB:
-            return FpSub<double, DoubleTraits>(v0, v1);
+            return FpSub<T, Traits>(v0, v1);
         case VNOP_FMUL:
-            return FpMul<double, DoubleTraits>(v0, v1);
+            return FpMul<T, Traits>(v0, v1);
         case VNOP_FDIV:
-            return FpDiv<double, DoubleTraits>(v0, v1);
+            return FpDiv<T, Traits>(v0, v1);
         case VNOP_FMOD:
-            return FpRem<double, DoubleTraits>(v0, v1);
+            return FpRem<T, Traits>(v0, v1);
         default:
             unreached();
     }
 }
 
 template <>
+double ValueNumStore::EvalOpSpecialized<double>(VNFunc vnf, double v0, double v1)
+{
+    return EvalBinaryFloat<double, DoubleTraits>(vnf, v0, v1);
+}
+
+template <>
 float ValueNumStore::EvalOpSpecialized<float>(VNFunc vnf, float v0, float v1)
 {
-    switch (vnf)
-    {
-        case VNOP_FADD:
-            return FpAdd<float, FloatTraits>(v0, v1);
-        case VNOP_FSUB:
-            return FpSub<float, FloatTraits>(v0, v1);
-        case VNOP_FMUL:
-            return FpMul<float, FloatTraits>(v0, v1);
-        case VNOP_FDIV:
-            return FpDiv<float, FloatTraits>(v0, v1);
-        case VNOP_FMOD:
-            return FpRem<float, FloatTraits>(v0, v1);
-        default:
-            unreached();
-    }
+    return EvalBinaryFloat<float, FloatTraits>(vnf, v0, v1);
 }
 
 template <typename T>
@@ -752,10 +740,10 @@ T ValueNumStore::EvalOpSpecialized(VNFunc vnf, T v0, T v1)
     }
 }
 
-template <>
-int ValueNumStore::EvalComparison<double>(VNFunc vnf, double v0, double v1)
+template <typename T, typename Traits>
+static int EvalFloatComparison(VNFunc vnf, T v0, T v1)
 {
-    if (_isnan(v0) || _isnan(v1))
+    if (Traits::IsNaN(v0) || Traits::IsNaN(v1))
     {
         return (vnf == VNOP_NE) || (vnf == VNF_GT_UN) || (vnf == VNF_GE_UN) || (vnf == VNF_LT_UN) || (vnf == VNF_LE_UN);
     }
@@ -784,34 +772,15 @@ int ValueNumStore::EvalComparison<double>(VNFunc vnf, double v0, double v1)
 }
 
 template <>
+int ValueNumStore::EvalComparison<double>(VNFunc vnf, double v0, double v1)
+{
+    return EvalFloatComparison<double, DoubleTraits>(vnf, v0, v1);
+}
+
+template <>
 int ValueNumStore::EvalComparison<float>(VNFunc vnf, float v0, float v1)
 {
-    if (_isnanf(v0) || _isnanf(v1))
-    {
-        return (vnf == VNOP_NE) || (vnf == VNF_GT_UN) || (vnf == VNF_GE_UN) || (vnf == VNF_LT_UN) || (vnf == VNF_LE_UN);
-    }
-
-    switch (vnf)
-    {
-        case VNOP_EQ:
-            return v0 == v1;
-        case VNOP_NE:
-            return v0 != v1;
-        case VNOP_GT:
-        case VNF_GT_UN:
-            return v0 > v1;
-        case VNOP_GE:
-        case VNF_GE_UN:
-            return v0 >= v1;
-        case VNOP_LT:
-        case VNF_LT_UN:
-            return v0 < v1;
-        case VNOP_LE:
-        case VNF_LE_UN:
-            return v0 <= v1;
-        default:
-            unreached();
-    }
+    return EvalFloatComparison<float, FloatTraits>(vnf, v0, v1);
 }
 
 template <typename T>
