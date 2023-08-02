@@ -499,6 +499,7 @@ bool ValueNumStore::VNFuncIsNumericCast(VNFunc vnf)
     return (vnf == VNF_Cast) || (vnf == VNF_CastOvf);
 }
 
+#ifdef DEBUG
 template <typename T>
 static bool IsOverflowIntDiv(T v0, T v1)
 {
@@ -516,6 +517,7 @@ bool IsOverflowIntDiv(int64_t v0, int64_t v1)
 {
     return (v1 == -1) && (v0 == INT64_MIN);
 }
+#endif
 
 template <typename T>
 static T EvalOp(VNFunc vnf, T v0)
