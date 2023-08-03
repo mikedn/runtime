@@ -462,9 +462,20 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
     srcType = src->GetType();
 
-    // See if we can discard the cast
     if (varTypeIsIntegral(srcType) && varTypeIsIntegral(dstType))
     {
+        if (src->OperIs(GT_LCL_VAR) && varTypeIsSmall(dstType))
+        {
+            LclVarDsc* lcl = lvaGetDesc(src->AsLclVar());
+
+            if ((lcl->GetType() == dstType) && lcl->lvNormalizeOnStore())
+            {
+                assert(src->TypeIs(TYP_INT, dstType));
+
+                goto REMOVE_CAST;
+            }
+        }
+
         if (cast->IsUnsigned() && !varTypeIsUnsigned(srcType))
         {
             if (varTypeIsSmall(srcType))
@@ -484,15 +495,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         {
             // Certainly if they are identical it is pointless
             goto REMOVE_CAST;
-        }
-
-        if (src->OperIs(GT_LCL_VAR) && varTypeIsSmall(dstType))
-        {
-            LclVarDsc* varDsc = lvaGetDesc(src->AsLclVar());
-            if ((varDsc->GetType() == dstType) && varDsc->lvNormalizeOnStore())
-            {
-                goto REMOVE_CAST;
-            }
         }
 
         bool     unsignedSrc = varTypeIsUnsigned(srcType);
