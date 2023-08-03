@@ -588,7 +588,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         case GT_CNS_INT:
         case GT_CNS_LNG:
         case GT_CNS_DBL:
-        case GT_CNS_STR:
         {
             GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
 
