@@ -702,19 +702,9 @@ REMOVE_CAST:
 bool Compiler::optNarrowTree(
     GenTree* const tree, const var_types srct, const var_types dstt, const ValueNumPair vnpNarrow, const bool doit)
 {
-    noway_assert(tree);
-    noway_assert(genActualType(tree->gtType) == genActualType(srct));
-    noway_assert(varTypeIsIntegral(srct));
-    noway_assert(varTypeIsIntegral(dstt));
-
-    const unsigned srcSize = varTypeSize(srct);
+    assert(varActualType(tree->GetType()) == varActualType(srct));
     const unsigned dstSize = varTypeSize(dstt);
-
-    /* dstt must be smaller than srct to narrow */
-    if (dstSize >= srcSize)
-    {
-        return false;
-    }
+    assert(dstSize < varTypeSize(srct));
 
     switch (tree->GetOper())
     {
@@ -891,12 +881,15 @@ bool Compiler::optNarrowTree(
             {
                 if (doit)
                 {
+                    bool isLong = tree->TypeIs(TYP_LONG);
+
                     tree->SetType(varActualType(dstt));
                     tree->SetVNP(vnpNarrow);
 
                     optNarrowTree(opToNarrow, srct, dstt, ValueNumPair(), true);
+
                     // We may also need to cast away the upper bits of *otherOpPtr
-                    if (srcSize == 8)
+                    if (isLong)
                     {
                         assert(tree->TypeIs(TYP_INT));
                         GenTree* castOp = gtNewCastNode(*otherOpPtr, false, TYP_INT);
@@ -1045,7 +1038,10 @@ bool Compiler::optNarrowTree(
         }
 
         case GT_COMMA:
-            if (!optNarrowTree(tree->AsOp()->GetOp(1), srct, dstt, vnpNarrow, doit))
+            op2 = tree->AsOp()->GetOp(1);
+            noway_assert(varActualType(tree->GetType()) == varActualType(op2->GetType()));
+
+            if (!optNarrowTree(op2, srct, dstt, vnpNarrow, doit))
             {
                 return false;
             }
