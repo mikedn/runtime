@@ -491,12 +491,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             srcType = varTypeToUnsigned(srcType);
         }
 
-        if (srcType == dstType)
-        {
-            // Certainly if they are identical it is pointless
-            goto REMOVE_CAST;
-        }
-
         bool     unsignedSrc = varTypeIsUnsigned(srcType);
         bool     unsignedDst = varTypeIsUnsigned(dstType);
         unsigned srcSize     = varTypeSize(srcType);
@@ -516,41 +510,31 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
             if (!cast->gtOverflow())
             {
+                if (!varTypeIsSmall(srcType))
+                {
+                    goto REMOVE_CAST;
+                }
+
                 // For small type casts, when necessary we force
                 // the src operand to the dstType and allow the
                 // implied load from memory to perform the casting
-                if (varTypeIsSmall(srcType))
+                if (src->OperIs(GT_IND, GT_LCL_FLD))
                 {
-                    switch (src->GetOper())
-                    {
-                        case GT_IND:
-                        case GT_LCL_FLD:
-                            src->SetType(dstType);
-                            // We're changing the type here so we need to update the VN;
-                            // in other cases we discard the cast without modifying oper
-                            // so the VN doesn't change.
-                            src->SetVNP(cast->GetVNP());
-                            goto REMOVE_CAST;
-                        default:
-                            break;
-                    }
-                }
-                else
-                {
+                    src->SetType(dstType);
+                    // We're changing the type here so we need to update the VN;
+                    // in other cases we discard the cast without modifying oper
+                    // so the VN doesn't change.
+                    src->SetVNP(cast->GetVNP());
+
                     goto REMOVE_CAST;
                 }
             }
         }
         else if (srcSize < dstSize) // widening cast
         {
-            // Keep any long casts
-            if (dstSize == 4)
+            if ((dstSize == 4) && (!cast->gtOverflow() || !unsignedDst || unsignedSrc))
             {
-                // Only keep signed to unsigned widening cast with overflow check
-                if (!cast->gtOverflow() || !unsignedDst || unsignedSrc)
-                {
-                    goto REMOVE_CAST;
-                }
+                goto REMOVE_CAST;
             }
 
             // Widening casts from unsigned or to signed can never overflow
