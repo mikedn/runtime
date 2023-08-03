@@ -499,9 +499,8 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
         bool     unsignedSrc = varTypeIsUnsigned(srcType);
         bool     unsignedDst = varTypeIsUnsigned(dstType);
-        bool     signsDiffer = (unsignedSrc != unsignedDst);
-        unsigned srcSize     = genTypeSize(srcType);
-        unsigned dstSize     = genTypeSize(dstType);
+        unsigned srcSize     = varTypeSize(srcType);
+        unsigned dstSize     = varTypeSize(dstType);
 
         // For same sized casts with
         //    the same signs or non-overflow cast we discard them as well
@@ -510,7 +509,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             // This should have been handled above
             noway_assert(varTypeIsGC(srcType) == varTypeIsGC(dstType));
 
-            if (!signsDiffer)
+            if (unsignedSrc == unsignedDst)
             {
                 goto REMOVE_CAST;
             }
