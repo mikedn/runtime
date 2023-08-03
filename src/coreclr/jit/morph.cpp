@@ -714,15 +714,16 @@ REMOVE_CAST:
  *  get called with 'doit' being true, we actually perform the narrowing.
  */
 
-bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, ValueNumPair vnpNarrow, bool doit)
+bool Compiler::optNarrowTree(
+    GenTree* const tree, const var_types srct, const var_types dstt, const ValueNumPair vnpNarrow, const bool doit)
 {
     noway_assert(tree);
     noway_assert(genActualType(tree->gtType) == genActualType(srct));
     noway_assert(varTypeIsIntegral(srct));
     noway_assert(varTypeIsIntegral(dstt));
 
-    unsigned srcSize = genTypeSize(srct);
-    unsigned dstSize = genTypeSize(dstt);
+    const unsigned srcSize = varTypeSize(srct);
+    const unsigned dstSize = varTypeSize(dstt);
 
     /* dstt must be smaller than srct to narrow */
     if (dstSize >= srcSize)
@@ -989,12 +990,7 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
 
             if (doit && (dstSize <= genTypeSize(tree->gtType)))
             {
-                if (!varTypeIsSmall(dstt))
-                {
-                    dstt = varTypeToSigned(dstt);
-                }
-
-                tree->SetType(dstt);
+                tree->SetType(varTypeNodeType(dstt));
                 tree->SetVNP(vnpNarrow);
             }
 
@@ -1010,22 +1006,21 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
 
         case GT_CAST:
         {
+            if (tree->gtOverflow())
+            {
+                return false;
+            }
+
             GenTree*  src     = tree->AsCast()->GetOp(0);
-            var_types cast    = tree->AsCast()->GetCastType();
             var_types oprt    = src->GetType();
             unsigned  oprSize = varTypeSize(oprt);
 
-            if (cast != srct)
+            if (tree->AsCast()->GetCastType() != srct)
             {
                 return false;
             }
 
             if (varTypeIsIntegralOrI(dstt) != varTypeIsIntegralOrI(oprt))
-            {
-                return false;
-            }
-
-            if (tree->gtOverflow())
             {
                 return false;
             }
@@ -1037,13 +1032,10 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
 
             if (doit)
             {
-                if (!varTypeIsSmall(dstt))
-                {
-                    dstt = varTypeToSigned(dstt);
-                }
+                var_types nodeType = varTypeNodeType(dstt);
 
                 if ((oprSize == dstSize) &&
-                    ((varTypeIsUnsigned(dstt) == varTypeIsUnsigned(oprt)) || !varTypeIsSmall(dstt)))
+                    ((varTypeIsUnsigned(nodeType) == varTypeIsUnsigned(oprt)) || !varTypeIsSmall(nodeType)))
                 {
                     // Same size and there is no signedness mismatch for small types: change the CAST
                     // into a NOP
@@ -1051,7 +1043,7 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                     JITDUMP("Cast operation has no effect, bashing [%06d] GT_CAST into a GT_NOP.\n", tree->GetID());
 
                     tree->ChangeOper(GT_NOP);
-                    tree->SetType(dstt);
+                    tree->SetType(nodeType);
                     tree->gtFlags &= ~GTF_UNSIGNED;
                     tree->SetVNP(src->GetVNP());
                 }
@@ -1059,7 +1051,7 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 {
                     // oprSize is smaller or there is a signedness mismatch for small types
 
-                    tree->AsCast()->SetCastType(dstt);
+                    tree->AsCast()->SetCastType(nodeType);
                     tree->SetVNP(vnpNarrow);
                 }
             }
