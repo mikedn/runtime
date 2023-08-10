@@ -460,7 +460,14 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
     cast->gtFlags |= (src->gtFlags & GTF_ALL_EFFECT);
 
-    srcType = src->GetType();
+    return fgMorphCastPost(cast);
+}
+
+GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
+{
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = src->GetType();
+    var_types dstType = cast->GetCastType();
 
     if (varTypeIsIntegral(srcType) && varTypeIsIntegral(dstType))
     {
