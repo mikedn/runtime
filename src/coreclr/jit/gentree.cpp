@@ -9547,6 +9547,13 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             }
             break;
 
+        case GT_XOR:
+            if (val == 0)
+            {
+                goto DONE_FOLD;
+            }
+            break;
+
         case GT_LSH:
         case GT_RSH:
         case GT_RSZ:
