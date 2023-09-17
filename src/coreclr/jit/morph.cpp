@@ -3808,7 +3808,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
             else
             {
 #ifdef TARGET_64BIT
-                if (newArg->GetType() != newArgType)
+                if (varActualType(newArg->GetType()) != newArgType)
                 {
                     newArg = gtNewCastNode(newArg, true, TYP_LONG);
                 }
