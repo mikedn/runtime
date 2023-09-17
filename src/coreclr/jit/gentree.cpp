@@ -9501,28 +9501,21 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
         case GT_AND:
             if (val == 0)
             {
-                /* AND with zero - return the 'zero' node, but not if side effects */
-
+                // TODO-MIKE-CQ: We could change the AND to a COMMA if op has side effects.
                 if (!opHasSideEffects)
                 {
                     op = cons;
                     goto DONE_FOLD;
                 }
+
+                break;
             }
-            else
+
+            if ((tree->gtFlags & GTF_BOOLEAN) != 0)
             {
-                /* The GTF_BOOLEAN flag is set for nodes that are part
-                 * of a boolean expression, thus all their children
-                 * are known to evaluate to only 0 or 1 */
+                assert(val == 1);
 
-                if (tree->gtFlags & GTF_BOOLEAN)
-                {
-
-                    /* The constant value must be 1
-                     * AND with 1 stays the same */
-                    assert(val == 1);
-                    goto DONE_FOLD;
-                }
+                goto DONE_FOLD;
             }
             break;
 
@@ -9531,14 +9524,12 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             {
                 goto DONE_FOLD;
             }
-            else if (tree->gtFlags & GTF_BOOLEAN)
-            {
-                /* The constant value must be 1 - OR with 1 is 1 */
 
+            if ((tree->gtFlags & GTF_BOOLEAN) != 0)
+            {
                 assert(val == 1);
 
-                /* OR with one - return the 'one' node, but not if side effects */
-
+                // TODO-MIKE-CQ: We could change the OR to a COMMA if op has side effects.
                 if (!opHasSideEffects)
                 {
                     op = cons;
@@ -9552,6 +9543,9 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             {
                 goto DONE_FOLD;
             }
+
+            // TODO-MIKE-Review: Handle GTF_BOOLEAN? But overall GTF_BOOLEAN looks like a stupid
+            // idea asking for trouble if people manage to produce non 0/1 boolean values somehow.
             break;
 
         case GT_LSH:
