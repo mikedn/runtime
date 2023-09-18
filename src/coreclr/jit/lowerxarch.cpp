@@ -3899,52 +3899,52 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
         return;
     }
 
-    if (type1 == type2)
+    // Small int memory operands can only be contained if we can generate a 8/16 bit
+    // compare instruction, which is only possible if both operands have the same
+    // small int type.
+
+    bool isSafeToContainOp1 = !varTypeIsSmall(type1) || (type1 == type2);
+    bool isSafeToContainOp2 = !varTypeIsSmall(type2) || (type1 == type2);
+
+    // Note that TEST does not have a r,rm encoding like CMP has but we can still
+    // contain the second operand because the emitter maps both r,rm and rm,r to
+    // the same instruction code. This avoids the need to special case TEST here.
+
+    if (isSafeToContainOp2 && IsContainableMemoryOp(op2))
     {
-        // Note that TEST does not have a r,rm encoding like CMP has but we can still
-        // contain the second operand because the emitter maps both r,rm and rm,r to
-        // the same instruction code. This avoids the need to special case TEST here.
+        isSafeToContainOp2 = IsSafeToContainMem(cmp, op2);
 
-        bool isSafeToContainOp1 = true;
-        bool isSafeToContainOp2 = true;
-
-        if (IsContainableMemoryOp(op2))
+        if (isSafeToContainOp2)
         {
-            isSafeToContainOp2 = IsSafeToContainMem(cmp, op2);
-
-            if (isSafeToContainOp2)
-            {
-                op2->SetContained();
-            }
+            op2->SetContained();
         }
+    }
 
-        if (!op2->isContained() && IsContainableMemoryOp(op1))
+    if (!op2->isContained() && isSafeToContainOp1 && IsContainableMemoryOp(op1))
+    {
+        isSafeToContainOp1 = IsSafeToContainMem(cmp, op1);
+
+        if (isSafeToContainOp1)
         {
-            isSafeToContainOp1 = IsSafeToContainMem(cmp, op1);
-
-            if (isSafeToContainOp1)
-            {
-                op1->SetContained();
-            }
+            op1->SetContained();
         }
+    }
 
-        if (!op1->isContained() && !op2->isContained())
+    if (!op1->isContained() && !op2->isContained())
+    {
+        // One of op1 or op2 could be marked as reg optional to indicate that codegen can still
+        // generate code if one of them is on stack.
+
+        GenTree* regOptionalCandidate = op1->IsIntCon() ? op2 : PreferredRegOptionalOperand(cmp);
+
+        // IsSafeToContainMem is expensive so we call it at most once for each operand in this
+        // method. If we already called IsSafeToContainMem, it must have returned false;
+        // otherwise, the corresponding operand (op1 or op2) would be contained.
+
+        if (regOptionalCandidate == op1 ? isSafeToContainOp1 && IsSafeToContainMem(cmp, op1)
+                                        : isSafeToContainOp2 && IsSafeToContainMem(cmp, op2))
         {
-            // One of op1 or op2 could be marked as reg optional
-            // to indicate that codegen can still generate code
-            // if one of them is on stack.
-
-            GenTree* regOptionalCandidate = op1->IsIntCon() ? op2 : PreferredRegOptionalOperand(cmp);
-
-            // IsSafeToContainMem is expensive so we call it at most once for each operand
-            // in this method. If we already called IsSafeToContainMem, it must have returned false;
-            // otherwise, the corresponding operand (op1 or op2) would be contained.
-
-            if (regOptionalCandidate == op1 ? isSafeToContainOp1 && IsSafeToContainMem(cmp, op1)
-                                            : isSafeToContainOp2 && IsSafeToContainMem(cmp, op2))
-            {
-                regOptionalCandidate->SetRegOptional();
-            }
+            regOptionalCandidate->SetRegOptional();
         }
     }
 }
