@@ -3672,7 +3672,8 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
-    GenTree* src = store->gtGetOp1();
+
+    GenTree* src = store->GetOp(0);
 
     if (src->OperIs(GT_BITCAST))
     {

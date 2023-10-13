@@ -1100,23 +1100,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-    GenTree* src = store->gtGetOp1();
-
-#ifdef TARGET_XARCH
-    if (src->OperIs(GT_BITCAST))
-    {
-        // If we know that the source of the bitcast will be in a register, then we can make
-        // the bitcast itself contained. This will allow us to store directly from the other
-        // type if this node doesn't get a register.
-        GenTree* bitCastSrc = src->AsUnOp()->GetOp(0);
-
-        if (!bitCastSrc->isContained() && !bitCastSrc->IsRegOptional())
-        {
-            src->SetContained();
-            return;
-        }
-    }
-#endif
+    GenTree* src = store->GetOp(0);
 
 #ifdef TARGET_ARM64
     if (src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero())
@@ -1155,7 +1139,7 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
 {
     GenTree* src = cast->GetOp(0);
 
-#if !defined(TARGET_64BIT)
+#ifdef TARGET_ARM
     if (src->OperIs(GT_LONG))
     {
         src->SetContained();
