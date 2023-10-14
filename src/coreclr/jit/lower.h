@@ -161,8 +161,8 @@ private:
     bool IsCallTargetInRange(void* addr);
 
 #ifdef TARGET_XARCH
-    GenTree* PreferredRegOptionalOperand(GenTree* tree);
-    void SetRegOptionalForBinOp(GenTree* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2);
+    GenTree* PreferredRegOptionalOperand(GenTreeOp* tree);
+    void SetRegOptionalForBinOp(GenTreeOp* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2);
 #endif
 
     void LowerIndir(GenTreeIndir* ind);

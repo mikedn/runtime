@@ -3245,17 +3245,15 @@ bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
 // Note: if the tree oper is neither commutative nor a compare oper
 // then only op2 can be reg optional on xarch and hence no need to
 // call this routine.
-GenTree* Lowering::PreferredRegOptionalOperand(GenTree* tree)
+GenTree* Lowering::PreferredRegOptionalOperand(GenTreeOp* tree)
 {
-    assert(GenTree::OperIsBinary(tree->OperGet()));
+    assert(tree->OperIsBinary());
     assert(tree->OperIsCommutative() || tree->OperIsCompare() || tree->OperIs(GT_CMP));
 
-    GenTree* op1 = tree->gtGetOp1();
-    GenTree* op2 = tree->gtGetOp2();
-    assert(!op1->IsRegOptional() && !op2->IsRegOptional());
+    GenTree* op1 = tree->GetOp(0);
+    GenTree* op2 = tree->GetOp(1);
 
-    // We default to op1, as op2 is likely to have the shorter lifetime.
-    GenTree* preferredOp = op1;
+    assert(!op1->IsRegOptional() && !op2->IsRegOptional());
 
     // This routine uses the following heuristics:
     //
@@ -3292,27 +3290,30 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTree* tree)
     //
     // f) If neither of them are local vars (i.e. tree temps), prefer to
     // mark op1 as reg optional for the same reason as mentioned in (d) above.
+
+    // We default to op1, as op2 is likely to have the shorter lifetime.
+    GenTree* preferredOp = op1;
+
     if (op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_VAR))
     {
-        LclVarDsc* v1 = comp->lvaGetDesc(op1->AsLclVar()->GetLclNum());
-        LclVarDsc* v2 = comp->lvaGetDesc(op2->AsLclVar()->GetLclNum());
+        LclVarDsc* lcl1 = comp->lvaGetDesc(op1->AsLclVar());
+        LclVarDsc* lcl2 = comp->lvaGetDesc(op2->AsLclVar());
 
-        bool v1IsRegCandidate = !v1->lvDoNotEnregister;
-        bool v2IsRegCandidate = !v2->lvDoNotEnregister;
-        if (v1IsRegCandidate && v2IsRegCandidate)
+        if (!lcl1->lvDoNotEnregister && !lcl2->lvDoNotEnregister)
         {
-            // Both are enregisterable locals.  The one with lower weight is less likely
-            // to get a register and hence beneficial to mark the one with lower
-            // weight as reg optional.
-            // If either is not tracked, it may be that it was introduced after liveness
-            // was run, in which case we will always prefer op1 (should we use raw refcnt??).
-            if (v1->lvTracked && v2->lvTracked && (v1->lvRefCntWtd() >= v2->lvRefCntWtd()))
+            // Both are enregisterable locals. The one with lower weight is less likely to get a
+            // register and hence beneficial to mark the one with lower weight as reg optional.
+            // If either is not tracked, it may be that it was introduced after liveness was run,
+            // in which case we will always prefer op1.
+            // TODO: Should we use raw ref count instead of weight?
+
+            if (lcl1->HasLiveness() && lcl2->HasLiveness() && (lcl1->GetRefWeight() >= lcl2->GetRefWeight()))
             {
                 preferredOp = op2;
             }
         }
     }
-    else if (!(op1->OperGet() == GT_LCL_VAR) && (op2->OperGet() == GT_LCL_VAR))
+    else if (!op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_VAR))
     {
         preferredOp = op2;
     }
@@ -4152,19 +4153,20 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
 // Note: At most one of the operands will be marked as reg optional,
 // even when both operands could be considered register optional.
 //
-void Lowering::SetRegOptionalForBinOp(GenTree* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2)
+void Lowering::SetRegOptionalForBinOp(GenTreeOp* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2)
 {
-    assert(GenTree::OperIsBinary(tree->OperGet()));
+    assert(tree->OperIsBinary());
 
-    GenTree* const op1 = tree->gtGetOp1();
-    GenTree* const op2 = tree->gtGetOp2();
+    GenTree* const op1 = tree->GetOp(0);
+    GenTree* const op2 = tree->GetOp(1);
 
-    const unsigned operatorSize = genTypeSize(tree->TypeGet());
+    const unsigned operatorSize = varTypeSize(tree->GetType());
 
-    const bool op1Legal = isSafeToMarkOp1 && tree->OperIsCommutative() && (operatorSize == genTypeSize(op1->TypeGet()));
-    const bool op2Legal = isSafeToMarkOp2 && (operatorSize == genTypeSize(op2->TypeGet()));
+    const bool op1Legal = isSafeToMarkOp1 && tree->OperIsCommutative() && (operatorSize == varTypeSize(op1->GetType()));
+    const bool op2Legal = isSafeToMarkOp2 && (operatorSize == varTypeSize(op2->GetType()));
 
     GenTree* regOptionalOperand = nullptr;
+
     if (op1Legal)
     {
         regOptionalOperand = op2Legal ? PreferredRegOptionalOperand(tree) : op1;
@@ -4173,6 +4175,7 @@ void Lowering::SetRegOptionalForBinOp(GenTree* tree, bool isSafeToMarkOp1, bool 
     {
         regOptionalOperand = op2;
     }
+
     if (regOptionalOperand != nullptr)
     {
         regOptionalOperand->SetRegOptional();
