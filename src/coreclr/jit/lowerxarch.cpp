@@ -22,7 +22,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "sideeffects.h"
 #include "lower.h"
 
-// xarch supports both ROL and ROR instructions so no lowering is required.
 void Lowering::LowerRotate(GenTree* tree)
 {
     ContainCheckShiftRotate(tree->AsOp());
@@ -1234,12 +1233,6 @@ void Lowering::LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node)
     }
 }
 
-//----------------------------------------------------------------------------------------------
-// Lowering::LowerHWIntrinsic: Perform containment analysis for a hardware intrinsic node.
-//
-//  Arguments:
-//     node - The hardware intrinsic node.
-//
 void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     if (node->TypeGet() == TYP_SIMD12)
@@ -3321,19 +3314,6 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTreeOp* tree)
     return preferredOp;
 }
 
-//------------------------------------------------------------------------
-// Containment analysis
-//------------------------------------------------------------------------
-
-//------------------------------------------------------------------------
-// ContainCheckCallOperands: Determine whether operands of a call should be contained.
-//
-// Arguments:
-//    call       - The call node of interest
-//
-// Return Value:
-//    None.
-//
 void Lowering::ContainCheckCallOperands(GenTreeCall* call)
 {
 #ifdef TARGET_X86
@@ -3378,19 +3358,6 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckIndir: Determine whether operands of an indir should be contained.
-//
-// Arguments:
-//    node       - The indirection node of interest
-//
-// Notes:
-//    This is called for both store and load indirections. In the former case, it is assumed that
-//    LowerStoreIndir() has already been called to check for RMW opportunities.
-//
-// Return Value:
-//    None.
-//
 void Lowering::ContainCheckIndir(GenTreeIndir* node)
 {
     // If this is the rhs of a block copy it will be handled when we handle the store.
@@ -3447,12 +3414,6 @@ void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckMul: determine whether the sources of a MUL node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckMul(GenTreeOp* node)
 {
 #if defined(TARGET_X86)
@@ -3609,12 +3570,6 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckDivOrMod: determine which operands of a div/mod should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
 {
     assert(node->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD) && varTypeIsIntegral(node->GetType()));
@@ -3644,12 +3599,6 @@ void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckShiftRotate: determine whether the sources of a shift/rotate node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 {
     assert(node->OperIsShiftOrRotate());
@@ -4632,14 +4581,6 @@ void Lowering::ContainHWIntrinsicOperand(GenTreeHWIntrinsic* node, GenTree* op)
     op->SetContained();
 }
 
-//----------------------------------------------------------------------------------------------
-// ContainCheckHWIntrinsicAddr: Perform containment analysis for an address operand of a hardware
-//                              intrinsic node.
-//
-//  Arguments:
-//     node - The hardware intrinsic node
-//     addr - The address node to try contain
-//
 void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* addr)
 {
     assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF));
@@ -4652,12 +4593,6 @@ void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* ad
     }
 }
 
-//----------------------------------------------------------------------------------------------
-// ContainCheckHWIntrinsic: Perform containment analysis for a hardware intrinsic node.
-//
-//  Arguments:
-//     node - The hardware intrinsic node.
-//
 void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic      intrinsicId = node->GetIntrinsic();
@@ -5205,12 +5140,6 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 }
 #endif // FEATURE_HW_INTRINSICS
 
-//------------------------------------------------------------------------
-// ContainCheckFloatBinary: determine whether the sources of a floating point binary node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
 {
     assert(node->OperIs(GT_FADD, GT_FSUB, GT_FMUL, GT_FDIV) && varTypeIsFloating(node->GetType()));

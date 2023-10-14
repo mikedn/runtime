@@ -22,9 +22,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "lower.h"
 
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
 #include "decomposelongs.h"
-#endif // !defined(TARGET_64BIT)
+#endif
 
 //------------------------------------------------------------------------
 // MakeSrcContained: Make "childNode" a contained node
@@ -4197,12 +4197,6 @@ GenTree* Lowering::LowerSignedDivOrMod(GenTree* node)
 }
 
 #ifndef TARGET_ARM64
-//------------------------------------------------------------------------
-// LowerShift: Lower shift nodes
-//
-// Arguments:
-//    shift - the shift node (GT_LSH, GT_RSH or GT_RSZ)
-//
 void Lowering::LowerShift(GenTreeOp* shift)
 {
     assert(shift->OperIs(GT_LSH, GT_RSH, GT_RSZ));
@@ -4344,7 +4338,6 @@ void Lowering::LowerShift(GenTreeOp* shift)
 
     ContainCheckShiftRotate(shift);
 }
-
 #endif // !TARGET_ARM64
 
 #ifdef FEATURE_SIMD
@@ -4936,12 +4929,6 @@ void Lowering::MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value)
 
 #endif // FEATURE_MULTIREG_RET
 
-//------------------------------------------------------------------------
-// ContainCheckReturnTrap: determine whether the source of a RETURNTRAP should be contained.
-//
-// Arguments:
-//    node - pointer to the GT_RETURNTRAP node
-//
 void Lowering::ContainCheckReturnTrap(GenTreeOp* node)
 {
     assert(node->OperIs(GT_RETURNTRAP));
@@ -4952,16 +4939,10 @@ void Lowering::ContainCheckReturnTrap(GenTreeOp* node)
 #endif
 }
 
-//------------------------------------------------------------------------
-// ContainCheckArrOffset: determine whether the source of an ARR_OFFSET should be contained.
-//
-// Arguments:
-//    node - pointer to the GT_ARR_OFFSET node
-//
 void Lowering::ContainCheckArrOffset(GenTreeArrOffs* node)
 {
     assert(node->OperIs(GT_ARR_OFFSET));
-    // we don't want to generate code for this
+
     if (node->GetOffset()->IsIntegralConst(0))
     {
         MakeSrcContained(node, node->AsArrOffs()->GetOffset());
@@ -5010,12 +4991,6 @@ void Lowering::ContainCheckRet(GenTreeUnOp* ret)
     assert(!ret->TypeIs(TYP_STRUCT) || src->IsFieldList() || src->IsCall());
 }
 
-//------------------------------------------------------------------------
-// ContainCheckJTrue: determine whether the source of a JTRUE should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckJTrue(GenTreeUnOp* node)
 {
     // The compare does not need to be generated into a register.
@@ -5161,15 +5136,10 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
     return cast->gtNext;
 }
 
-//------------------------------------------------------------------------
-// LowerIndir: a common logic to lower IND load or NullCheck.
-//
-// Arguments:
-//    ind - the ind node we are lowering.
-//
 void Lowering::LowerIndir(GenTreeIndir* ind)
 {
     assert(ind->OperIs(GT_IND, GT_NULLCHECK));
+
     // Process struct typed indirs separately unless they are unused;
     // they only appear as the source of a block copy operation or a return node.
     if (!ind->TypeIs(TYP_STRUCT) || ind->IsUnusedValue())
@@ -5187,7 +5157,6 @@ void Lowering::LowerIndir(GenTreeIndir* ind)
     }
 }
 
-// Change the opcode and the type of the unused indirection.
 void Lowering::TransformUnusedIndirection(GenTreeIndir* ind)
 {
     // A nullcheck is essentially the same as an indirection with no use.

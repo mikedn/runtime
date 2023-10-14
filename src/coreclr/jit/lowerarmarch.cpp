@@ -336,15 +336,6 @@ void Lowering::ContainStructStoreAddressUnrollRegsWB(GenTree* addr)
     addr->SetContained();
 }
 
-//------------------------------------------------------------------------
-// LowerRotate: Lower GT_ROL and GT_ROR nodes.
-//
-// Arguments:
-//    tree - the node to lower
-//
-// Return Value:
-//    None.
-//
 void Lowering::LowerRotate(GenTree* tree)
 {
     if (tree->OperGet() == GT_ROL)
@@ -460,12 +451,6 @@ void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
     }
 }
 
-//----------------------------------------------------------------------------------------------
-// Lowering::LowerHWIntrinsic: Perform containment analysis for a hardware intrinsic node.
-//
-//  Arguments:
-//     node - The hardware intrinsic node.
-//
 void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     assert(node->TypeGet() != TYP_SIMD32);
@@ -921,19 +906,6 @@ void Lowering::LowerHWIntrinsicSum(GenTreeHWIntrinsic* node)
 }
 #endif // FEATURE_HW_INTRINSICS
 
-//------------------------------------------------------------------------
-// Containment analysis
-//------------------------------------------------------------------------
-
-//------------------------------------------------------------------------
-// ContainCheckCallOperands: Determine whether operands of a call should be contained.
-//
-// Arguments:
-//    call       - The call node of interest
-//
-// Return Value:
-//    None.
-//
 void Lowering::ContainCheckCallOperands(GenTreeCall* call)
 {
     // There are no contained operands for arm.
@@ -967,18 +939,6 @@ void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
 #endif // TARGET_ARM64
 }
 
-//------------------------------------------------------------------------
-// ContainCheckIndir: Determine whether operands of an indir should be contained.
-//
-// Arguments:
-//    indirNode - The indirection node of interest
-//
-// Notes:
-//    This is called for both store and load indirections.
-//
-// Return Value:
-//    None.
-//
 void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
 {
     // If this is the rhs of a block copy it will be handled when we handle the store.
@@ -1034,35 +994,17 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckBinary: Determine whether a binary op's operands should be contained.
-//
-// Arguments:
-//    node - the node we care about
-//
 void Lowering::ContainCheckBinary(GenTreeOp* node)
 {
     // Check and make op2 contained (if it is a containable immediate)
     CheckImmedAndMakeContained(node, node->gtOp2);
 }
 
-//------------------------------------------------------------------------
-// ContainCheckMul: Determine whether a mul op's operands should be contained.
-//
-// Arguments:
-//    node - the node we care about
-//
 void Lowering::ContainCheckMul(GenTreeOp* node)
 {
     ContainCheckBinary(node);
 }
 
-//------------------------------------------------------------------------
-// ContainCheckDivOrMod: determine which operands of a div/mod should be contained.
-//
-// Arguments:
-//    node - the node we care about
-//
 void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
 {
     assert(node->OperIs(GT_DIV, GT_UDIV));
@@ -1070,12 +1012,6 @@ void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
     // ARM doesn't have a div instruction with an immediate operand
 }
 
-//------------------------------------------------------------------------
-// ContainCheckShiftRotate: Determine whether a mul op's operands should be contained.
-//
-// Arguments:
-//    node - the node we care about
-//
 void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 {
     GenTree* shiftBy = node->gtOp2;
@@ -1229,7 +1165,6 @@ void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-
 void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     // TODO-MIKE-CQ: It seems that there's no support for generating vector immediate ORR/BIC.
