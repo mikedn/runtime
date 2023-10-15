@@ -5806,7 +5806,19 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
     {
         if (type1 == type2)
         {
-            type = type1;
+            // 16 bit instructions are best avoided due to the extra 66h prefix and possible LCP stalls.
+            // We only need to generate a 16 bit instruction is we have a contained memory operand.
+            // It could also be useful to generate a 16 bit instruction to avoid casts to (U)SHORT but
+            // lowering doesn't currently handle this case, it only removes casts to UBYTE.
+
+            if (varTypeIsShort(type1) && !op1->isContained() && (!op2->isContained() || op2->IsIntCon()))
+            {
+                type = TYP_INT;
+            }
+            else
+            {
+                type = type1;
+            }
         }
         else if (varTypeSize(type1) == varTypeSize(type2))
         {
