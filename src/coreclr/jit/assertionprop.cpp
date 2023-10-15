@@ -231,6 +231,8 @@ public:
         Init();
         GenerateAssertions();
 
+        ssa.SetAssertionTable(assertionTable, assertionCount);
+
         if (assertionCount != 0)
         {
             ComputeAvailability();
@@ -245,8 +247,6 @@ public:
                 block->bbAssertionOutJumpDest = nullptr;
             }
         }
-
-        ssa.SetAssertionTable(assertionTable, assertionCount);
 
         return true;
     }
