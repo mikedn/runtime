@@ -1713,6 +1713,7 @@ GenTree* Compiler::gtReverseCond(GenTree* tree)
         GenTreeCC* cc = tree->AsCC();
         cc->SetCondition(GenCondition::Reverse(cc->GetCondition()));
     }
+#ifdef TARGET_ARM64
     else if (tree->OperIs(GT_JCMP))
     {
         // Flip the GTF_JCMP_EQ
@@ -1722,6 +1723,7 @@ GenTree* Compiler::gtReverseCond(GenTree* tree)
         //     tbz <=> tbnz
         tree->gtFlags ^= GTF_JCMP_EQ;
     }
+#endif
     else
     {
         tree = gtNewOperNode(GT_NOT, TYP_INT, tree);
@@ -6834,6 +6836,7 @@ int Compiler::dmpNodeFlags(GenTree* tree)
             }
             break;
 
+#ifdef TARGET_ARM64
         case GT_JCMP:
             if (flags & GTF_JCMP_TST)
             {
@@ -6844,6 +6847,7 @@ int Compiler::dmpNodeFlags(GenTree* tree)
                 operFlag = (flags & GTF_JCMP_EQ) ? 'E' : 'N';
             }
             break;
+#endif
 
         case GT_CNS_INT:
             if (tree->IsIconHandle())
@@ -7591,9 +7595,11 @@ void Compiler::gtDispLeaf(GenTree* tree)
         case GT_SETCC:
             printf(" cond=%s", tree->AsCC()->GetCondition().Name());
             break;
+#ifdef TARGET_ARM64
         case GT_JCMP:
             printf(" cond=%s%s", (tree->gtFlags & GTF_JCMP_TST) ? "TEST_" : "",
                    (tree->gtFlags & GTF_JCMP_EQ) ? "EQ" : "NE");
+#endif
             break;
 
         default:

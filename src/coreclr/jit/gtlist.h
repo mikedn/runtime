@@ -188,11 +188,13 @@ GTNODE(HWINTRINSIC      , GenTreeHWIntrinsic  , GTK_SPECIAL)
 
 GTNODE(CMP              , GenTreeOp           , GTK_BINOP|GTK_NOVALUE) // Sets the condition flags according to the compare result.
                                                                        // N.B. Not a relop, it does not produce a value and it cannot be reversed.
-GTNODE(JCMP             , GenTreeOp           , GTK_BINOP|GTK_NOVALUE) // Makes a comparison and jump if the condition specified. Does not set flags
 GTNODE(JCC              , GenTreeCC           , GTK_LEAF|GTK_NOVALUE)  // Checks the condition flags and branch if the condition specified
                                                                        // by GenTreeCC::Condition is true.
 GTNODE(SETCC            , GenTreeCC           , GTK_LEAF)              // Checks the condition flags and produces 1 if the condition specified
                                                                        // by GenTreeCC::Condition is true and 0 otherwise.
+#ifdef TARGET_ARM64
+GTNODE(JCMP             , GenTreeOp           , GTK_BINOP|GTK_NOVALUE) // Makes a comparison and jump if the condition specified. Does not set flags
+#endif
 #ifdef TARGET_XARCH
 GTNODE(BT               , GenTreeOp           , GTK_BINOP|GTK_NOVALUE) // The XARCH BT instruction. Like CMP, this sets the condition flags
                                                                        // and does not produce a value.

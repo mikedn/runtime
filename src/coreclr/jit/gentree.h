@@ -1480,7 +1480,7 @@ public:
     // This is here for cleaner GT_LONG #ifdefs.
     static bool OperIsLong(genTreeOps gtOper)
     {
-#if defined(TARGET_64BIT)
+#ifdef TARGET_64BIT
         return false;
 #else
         return gtOper == GT_LONG;
@@ -1494,7 +1494,7 @@ public:
 
     bool OperIsConditionalJump() const
     {
-        return (gtOper == GT_JTRUE) || (gtOper == GT_JCMP) || (gtOper == GT_JCC);
+        return (gtOper == GT_JTRUE) || (gtOper == GT_JCC)ARM64_ONLY(|| (gtOper == GT_JCMP));
     }
 
     bool IsControlFlow() const
@@ -1502,7 +1502,9 @@ public:
         switch (gtOper)
         {
             case GT_JTRUE:
+#ifdef TARGET_ARM64
             case GT_JCMP:
+#endif
             case GT_JCC:
             case GT_SWITCH:
             case GT_LABEL:
