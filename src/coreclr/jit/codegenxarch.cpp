@@ -5841,9 +5841,9 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
         // Small unsigned int types should use unsigned comparisons
         assert(!(varTypeIsSmallInt(type) && varTypeIsUnsigned(type)) || cmp->IsUnsigned());
         // If op1 is smaller then it cannot be in memory, we're probably missing a cast
-        assert((varTypeSize(type1) >= varTypeSize(type)) || !op1->isUsedFromMemory());
+        assert((varTypeSize(type1) >= varTypeSize(type)) || !op1->isContained());
         // If op2 is smaller then it cannot be in memory, we're probably missing a cast
-        assert((varTypeSize(type2) >= varTypeSize(type)) || !op2->isUsedFromMemory());
+        assert((varTypeSize(type2) >= varTypeSize(type)) || !op2->isContained() || op2->IsIntCon());
         // If we ended up with a small type and op2 is a constant then make sure we don't lose constant bits
         assert(!op2->IsIntCon() || !varTypeIsSmall(type) ||
                varTypeSmallIntCanRepresentValue(type, op2->AsIntCon()->GetValue()));
