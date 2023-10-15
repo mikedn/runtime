@@ -741,21 +741,22 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
                 castOp->SetType(TYP_UBYTE);
                 op2->SetType(TYP_UBYTE);
 
-                // If we have any contained memory ops on castOp, they must now not be contained.
+                // Any contained memory ops on castOp must be narrowed too.
                 if (castOp->OperIs(GT_AND, GT_OR, GT_XOR))
                 {
                     GenTree* op1 = castOp->AsOp()->GetOp(0);
-
-                    if (!op1->IsIntCon())
-                    {
-                        op1->ClearContained();
-                    }
-
                     GenTree* op2 = castOp->AsOp()->GetOp(1);
 
-                    if (!op2->IsIntCon())
+                    if (!op1->IsIntCon() && op1->isContained())
                     {
-                        op2->ClearContained();
+                        assert(IsContainableMemoryOp(op1));
+                        op1->SetType(TYP_UBYTE);
+                    }
+
+                    if (!op2->IsIntCon() && op2->isContained())
+                    {
+                        assert(IsContainableMemoryOp(op2));
+                        op2->SetType(TYP_UBYTE);
                     }
                 }
 
@@ -815,12 +816,12 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
 
                 size_t mask = static_cast<size_t>(andOp2->AsIntCon()->GetValue());
 
-                if (FitsIn<UINT8>(mask))
+                if (FitsIn<uint8_t>(mask))
                 {
                     andOp1->SetType(TYP_UBYTE);
                     andOp2->SetType(TYP_UBYTE);
                 }
-                else if (FitsIn<UINT16>(mask) && varTypeIsShort(andOp1->GetType()))
+                else if (FitsIn<uint16_t>(mask) && varTypeIsShort(andOp1->GetType()))
                 {
                     andOp1->SetType(TYP_USHORT);
                     andOp2->SetType(TYP_USHORT);
