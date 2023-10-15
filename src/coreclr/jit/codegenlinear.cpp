@@ -1234,6 +1234,7 @@ void CodeGen::genConsumeAddress(GenTree* addr)
     }
 }
 
+#ifdef DEBUG
 bool CodeGen::IsValidContainedLcl(GenTreeLclVarCommon* node)
 {
     // A contained local must be living on stack and marked as reg optional,
@@ -1243,6 +1244,7 @@ bool CodeGen::IsValidContainedLcl(GenTreeLclVarCommon* node)
 
     return (lcl->GetRegNum() == REG_STK) && (node->IsRegOptional() || !lcl->IsRegCandidate());
 }
+#endif
 
 void CodeGen::genConsumeRegs(GenTree* tree)
 {
@@ -1287,7 +1289,7 @@ void CodeGen::genConsumeRegs(GenTree* tree)
 
     if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        IsValidContainedLcl(tree->AsLclVarCommon());
+        assert(IsValidContainedLcl(tree->AsLclVarCommon()));
         genUpdateLife(tree->AsLclVarCommon());
 
         return;
