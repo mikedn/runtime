@@ -126,7 +126,11 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
     GenTree* node = *useEdge;
     assert(node != nullptr);
 
-    // Now clear the REVERSE_OPS flag on the current node.
+    if (node->TypeIs(TYP_BOOL))
+    {
+        node->SetType(TYP_UBYTE);
+    }
+
     node->gtFlags &= ~GTF_REVERSE_OPS;
 
     LIR::Use use;

@@ -1494,7 +1494,7 @@ void Lowering::LowerHWIntrinsicEquality(GenTreeHWIntrinsic* node, genTreeOps cmp
 
     assert(varTypeIsIntegral(baseType));
     assert(comp->compOpportunisticallyDependsOn(InstructionSet_SSE41));
-    assert(node->gtType == TYP_BOOL);
+    assert(node->TypeIs(TYP_UBYTE));
     assert((cmpOp == GT_EQ) || (cmpOp == GT_NE));
     assert((simdSize == 16) || (simdSize == 32));
 

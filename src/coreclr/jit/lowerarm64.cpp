@@ -856,7 +856,6 @@ insOpts GetEquivalentExtendOption(GenTree* node)
     {
         switch (node->GetType())
         {
-            case TYP_BOOL:
             case TYP_UBYTE:
                 return INS_OPTS_UXTB;
             case TYP_BYTE:

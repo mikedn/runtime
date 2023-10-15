@@ -5826,7 +5826,7 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
 
         // The common type cannot be smaller than any of the operand types, we're probably mixing int/long
         assert(varTypeSize(type) >= Max(varTypeSize(type1), varTypeSize(type2)));
-        // Small unsigned int types (TYP_BOOL can use anything) should use unsigned comparisons
+        // Small unsigned int types should use unsigned comparisons
         assert(!(varTypeIsSmallInt(type) && varTypeIsUnsigned(type)) || cmp->IsUnsigned());
         // If op1 is smaller then it cannot be in memory, we're probably missing a cast
         assert((varTypeSize(type1) >= varTypeSize(type)) || !op1->isUsedFromMemory());
