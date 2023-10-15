@@ -630,7 +630,7 @@ int LinearScan::BuildCast(GenTreeCast* cast)
 
 int LinearScan::BuildCmp(GenTreeOp* cmp)
 {
-    assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP, GT_JCMP));
+    assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP) ARM64_ONLY(|| cmp->OperIs(GT_JCMP)));
 
     BuildUse(cmp->GetOp(0));
     int srcCount = 1 + BuildOperandUses(cmp->GetOp(1));
