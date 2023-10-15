@@ -11019,27 +11019,36 @@ DONE_MORPHING_CHILDREN:
 
         case GT_EQ:
         case GT_NE:
-            // Pattern-matching optimization:
-            //    (a % c) ==/!= 0
-            // for power-of-2 constant `c`
-            // =>
-            //    a & (c - 1) ==/!= 0
-            // For integer `a`, even if negative.
-            if (opts.OptimizationEnabled())
+            if (opts.OptimizationEnabled() && op2->IsIntCon())
             {
-                GenTree* op1 = tree->AsOp()->gtOp1;
-                GenTree* op2 = tree->AsOp()->gtOp2;
-                if (op1->OperIs(GT_MOD) && varTypeIsIntegral(op1->TypeGet()) && op2->IsIntegralConst(0))
+                ssize_t op2Value = op2->AsIntCon()->GetValue();
+
+                // TODO-MIKE-Review: pow2 checks below will likely fail for INT_MIN on 64 bit targets...
+
+                if (op1->OperIs(GT_MOD) && (op2Value == 0))
                 {
-                    GenTree* op1op2 = op1->AsOp()->gtOp2;
-                    if (op1op2->IsCnsIntOrI())
+                    // (x MOD pow2) EQ|NE 0 => (x AND (pow2 - 1)) EQ|NE 0
+
+                    if (GenTreeIntCon* modOp2 = op1->AsOp()->GetOp(1)->IsIntCon())
                     {
-                        ssize_t modValue = op1op2->AsIntCon()->IconValue();
+                        ssize_t modValue = modOp2->GetValue();
+
                         if (isPow2(modValue))
                         {
-                            op1->SetOper(GT_AND);                                 // Change % => &
-                            op1op2->AsIntConCommon()->SetIconValue(modValue - 1); // Change c => c - 1
+                            op1->SetOper(GT_AND);
+                            modOp2->SetValue(modValue - 1);
                         }
+                    }
+                }
+                else if (op1->OperIs(GT_AND) && (op2Value != 0))
+                {
+                    // (x AND pow2) EQ|NE pow2 => (x AND pow2) NE|EQ 0
+
+                    if (isPow2<size_t>(static_cast<size_t>(op2Value)) && op1->AsOp()->GetOp(1)->IsIntCon(op2Value))
+                    {
+                        op2->AsIntCon()->SetValue(0);
+                        oper = oper == GT_EQ ? GT_NE : GT_EQ;
+                        tree->SetOperRaw(oper);
                     }
                 }
             }

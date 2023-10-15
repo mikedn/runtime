@@ -766,113 +766,97 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
             }
         }
     }
-    else if (op1->OperIs(GT_AND) && cmp->OperIs(GT_EQ, GT_NE))
+    else if (op1->OperIs(GT_AND) && cmp->OperIs(GT_EQ, GT_NE) && (op2Value == 0))
     {
         // Transform ((x AND y) EQ|NE 0) into (x TEST_EQ|TEST_NE y) when possible.
 
         GenTree* andOp1 = op1->AsOp()->GetOp(0);
         GenTree* andOp2 = op1->AsOp()->GetOp(1);
 
-        if (op2Value != 0)
-        {
-            // If we don't have a 0 compare we can get one by transforming ((x AND mask) EQ|NE mask)
-            // into ((x AND mask) NE|EQ 0) when mask is a single bit.
+        BlockRange().Remove(op1);
+        BlockRange().Remove(op2);
 
-            if (isPow2<target_size_t>(static_cast<target_size_t>(op2Value)) && andOp2->IsIntCon(op2Value))
+        cmp->SetOperRaw(cmp->OperIs(GT_EQ) ? GT_TEST_EQ : GT_TEST_NE);
+        cmp->SetOp(0, andOp1);
+        cmp->SetOp(1, andOp2);
+        // We will re-evaluate containment below
+        andOp1->ClearContained();
+        andOp2->ClearContained();
+
+        if (IsContainableMemoryOp(andOp1) && andOp2->IsIntCon())
+        {
+            // For "test" we only care about the bits that are set in the second operand (mask).
+            // If the mask fits in a small type then we can narrow both operands to generate a "test"
+            // instruction with a smaller encoding ("test" does not have a r/m32, imm8 form) and avoid
+            // a widening load in some cases.
+            //
+            // For 16 bit operands we narrow only if the memory operand is already 16 bit. This matches
+            // the behavior of a previous implementation and avoids adding more cases where we generate
+            // 16 bit instructions that require a length changing prefix (0x66). These suffer from
+            // significant decoder stalls on Intel CPUs.
+            //
+            // We could also do this for 64 bit masks that fit into 32 bit but it doesn't help.
+            // In such cases morph narrows down the existing GT_AND by inserting a cast between it and
+            // the memory operand so we'd need to add more code to recognize and eliminate that cast.
+
+            size_t mask = static_cast<size_t>(andOp2->AsIntCon()->GetValue());
+
+            if (FitsIn<uint8_t>(mask))
             {
-                op2Value = 0;
-                op2->SetValue(0);
-                cmp->SetOperRaw(GenTree::ReverseRelop(cmp->GetOper()));
+                andOp1->SetType(TYP_UBYTE);
+                andOp2->SetType(TYP_UBYTE);
+            }
+            else if (FitsIn<uint16_t>(mask) && varTypeIsShort(andOp1->GetType()))
+            {
+                andOp1->SetType(TYP_USHORT);
+                andOp2->SetType(TYP_USHORT);
             }
         }
 
-        if (op2Value == 0)
+        // Transform TEST_EQ|NE(x, LSH(1, y)) into BT(x, y) when possible. Using BT
+        // results in smaller and faster code. It also doesn't have special register
+        // requirements, unlike LSH that requires the shift count to be in ECX.
+        // Note that BT has the same behavior as LSH when the bit index exceeds the
+        // operand bit size - it uses (bit_index MOD bit_size).
+
+        GenTree* lsh = cmp->GetOp(1);
+        LIR::Use cmpUse;
+
+        if (lsh->OperIs(GT_LSH) && varTypeIsIntOrI(lsh->GetType()) && lsh->AsOp()->GetOp(0)->IsIntCon(1) &&
+            BlockRange().TryGetUse(cmp, &cmpUse))
         {
-            BlockRange().Remove(op1);
-            BlockRange().Remove(op2);
+            GenCondition condition = cmp->OperIs(GT_TEST_NE) ? GenCondition::C : GenCondition::NC;
 
-            cmp->SetOperRaw(cmp->OperIs(GT_EQ) ? GT_TEST_EQ : GT_TEST_NE);
-            cmp->SetOp(0, andOp1);
-            cmp->SetOp(1, andOp2);
-            // We will re-evaluate containment below
-            andOp1->ClearContained();
-            andOp2->ClearContained();
+            cmp->SetOper(GT_BT);
+            cmp->SetType(TYP_VOID);
+            cmp->gtFlags |= GTF_SET_FLAGS;
+            cmp->AsOp()->SetOp(1, lsh->AsOp()->GetOp(1));
+            cmp->GetOp(1)->ClearContained();
 
-            if (IsContainableMemoryOp(andOp1) && andOp2->IsIntCon())
+            BlockRange().Remove(lsh->AsOp()->GetOp(0));
+            BlockRange().Remove(lsh);
+
+            GenTreeCC* cc;
+
+            if (cmpUse.User()->OperIs(GT_JTRUE))
             {
-                // For "test" we only care about the bits that are set in the second operand (mask).
-                // If the mask fits in a small type then we can narrow both operands to generate a "test"
-                // instruction with a smaller encoding ("test" does not have a r/m32, imm8 form) and avoid
-                // a widening load in some cases.
-                //
-                // For 16 bit operands we narrow only if the memory operand is already 16 bit. This matches
-                // the behavior of a previous implementation and avoids adding more cases where we generate
-                // 16 bit instructions that require a length changing prefix (0x66). These suffer from
-                // significant decoder stalls on Intel CPUs.
-                //
-                // We could also do this for 64 bit masks that fit into 32 bit but it doesn't help.
-                // In such cases morph narrows down the existing GT_AND by inserting a cast between it and
-                // the memory operand so we'd need to add more code to recognize and eliminate that cast.
-
-                size_t mask = static_cast<size_t>(andOp2->AsIntCon()->GetValue());
-
-                if (FitsIn<uint8_t>(mask))
-                {
-                    andOp1->SetType(TYP_UBYTE);
-                    andOp2->SetType(TYP_UBYTE);
-                }
-                else if (FitsIn<uint16_t>(mask) && varTypeIsShort(andOp1->GetType()))
-                {
-                    andOp1->SetType(TYP_USHORT);
-                    andOp2->SetType(TYP_USHORT);
-                }
+                cmpUse.User()->ChangeOper(GT_JCC);
+                cc = cmpUse.User()->AsCC();
+                cc->SetCondition(condition);
+            }
+            else
+            {
+                cc = new (comp, GT_SETCC) GenTreeCC(GT_SETCC, condition, TYP_INT);
+                BlockRange().InsertAfter(cmp, cc);
+                cmpUse.ReplaceWith(comp, cc);
             }
 
-            // Transform TEST_EQ|NE(x, LSH(1, y)) into BT(x, y) when possible. Using BT
-            // results in smaller and faster code. It also doesn't have special register
-            // requirements, unlike LSH that requires the shift count to be in ECX.
-            // Note that BT has the same behavior as LSH when the bit index exceeds the
-            // operand bit size - it uses (bit_index MOD bit_size).
+            cc->gtFlags |= GTF_USE_FLAGS;
 
-            GenTree* lsh = cmp->GetOp(1);
-            LIR::Use cmpUse;
-
-            if (lsh->OperIs(GT_LSH) && varTypeIsIntOrI(lsh->GetType()) && lsh->AsOp()->GetOp(0)->IsIntCon(1) &&
-                BlockRange().TryGetUse(cmp, &cmpUse))
-            {
-                GenCondition condition = cmp->OperIs(GT_TEST_NE) ? GenCondition::C : GenCondition::NC;
-
-                cmp->SetOper(GT_BT);
-                cmp->SetType(TYP_VOID);
-                cmp->gtFlags |= GTF_SET_FLAGS;
-                cmp->AsOp()->SetOp(1, lsh->AsOp()->GetOp(1));
-                cmp->GetOp(1)->ClearContained();
-
-                BlockRange().Remove(lsh->AsOp()->GetOp(0));
-                BlockRange().Remove(lsh);
-
-                GenTreeCC* cc;
-
-                if (cmpUse.User()->OperIs(GT_JTRUE))
-                {
-                    cmpUse.User()->ChangeOper(GT_JCC);
-                    cc = cmpUse.User()->AsCC();
-                    cc->SetCondition(condition);
-                }
-                else
-                {
-                    cc = new (comp, GT_SETCC) GenTreeCC(GT_SETCC, condition, TYP_INT);
-                    BlockRange().InsertAfter(cmp, cc);
-                    cmpUse.ReplaceWith(comp, cc);
-                }
-
-                cc->gtFlags |= GTF_USE_FLAGS;
-
-                return cmp->gtNext;
-            }
-
-            return cmp;
+            return cmp->gtNext;
         }
+
+        return cmp;
     }
 
     if (cmp->OperIs(GT_EQ, GT_NE))
