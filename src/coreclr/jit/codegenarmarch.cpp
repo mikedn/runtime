@@ -939,7 +939,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
 
     if (src->isContained())
     {
-        assert(IsValidContainedLcl(src->AsLclVar()));
+        IsValidContainedLcl(src->AsLclVar());
         genUpdateLife(src->AsLclVar());
         unsigned  lclNum = src->AsLclVar()->GetLclNum();
         regNumber dstReg = bitcast->GetRegNum();

@@ -694,10 +694,13 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 //    longer needed.
 //
 // Notes:
-//    - Transform RELOP(AND(x, y), 0) into TEST(x, y)
-//    - Transform TEST(x, LSH(1, y)) into BT(x, y)
+//    - Narrow operands to enable memory operand containment (XARCH specific).
+//    - Transform cmp(and(x, y), 0) into test(x, y) (XARCH/Arm64 specific but could
+//      be used for ARM as well if support for GT_TEST_EQ/GT_TEST_NE is added).
+//    - Transform TEST(x, LSH(1, y)) into BT(x, y) (XARCH specific)
 //    - Transform RELOP(OP, 0) into SETCC(OP) or JCC(OP) if OP can set the
-//      condition flags appropriately
+//      condition flags appropriately (XARCH/ARM64 specific but could be extended
+//      to ARM32 as well if ARM32 codegen supports GTF_SET_FLAGS).
 //
 GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
 {
@@ -706,7 +709,63 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
     var_types      op1Type  = op1->GetType();
     ssize_t        op2Value = op2->GetValue();
 
-    if (op1->OperIs(GT_AND) && cmp->OperIs(GT_EQ, GT_NE))
+    if (IsContainableMemoryOp(op1) && varTypeIsSmall(op1Type) && varTypeSmallIntCanRepresentValue(op1Type, op2Value))
+    {
+        // If op1's type is small then try to narrow op2 so it has the same type as op1.
+        // Small types are usually used by memory loads and if both compare operands have
+        // the same type then the memory load can be contained. In certain situations
+        // (e.g "cmp ubyte, 200") we also get a smaller instruction encoding.
+
+        op2->SetType(op1Type);
+    }
+    else if (op1->IsCast() && !op1->gtOverflow())
+    {
+        GenTreeCast* cast   = op1->AsCast();
+        GenTree*     castOp = cast->GetOp(0);
+
+        if (cast->TypeIs(TYP_UBYTE) && FitsIn<uint8_t>(op2Value))
+        {
+            // Since we're going to remove the cast we need to be able to narrow the cast operand
+            // to the cast type. This can be done safely only for certain opers (e.g AND, OR, XOR).
+            // Some opers just can't be narrowed (e.g DIV, MUL) while other could be narrowed but
+            // doing so would produce incorrect results (e.g. RSZ, RSH).
+            //
+            // The below list of handled opers is conservative but enough to handle the most common
+            // situations. In particular this include CALL, sometimes the JIT unnecessarily widens
+            // the result of bool returning calls.
+
+            if (castOp->OperIs(GT_CALL, GT_LCL_VAR, GT_AND, GT_OR, GT_XOR) || IsContainableMemoryOp(castOp))
+            {
+                assert(!castOp->gtOverflowEx()); // Must not be an overflow checking operation
+
+                castOp->SetType(TYP_UBYTE);
+                op2->SetType(TYP_UBYTE);
+
+                // If we have any contained memory ops on castOp, they must now not be contained.
+                if (castOp->OperIs(GT_AND, GT_OR, GT_XOR))
+                {
+                    GenTree* op1 = castOp->AsOp()->GetOp(0);
+
+                    if (!op1->IsIntCon())
+                    {
+                        op1->ClearContained();
+                    }
+
+                    GenTree* op2 = castOp->AsOp()->GetOp(1);
+
+                    if (!op2->IsIntCon())
+                    {
+                        op2->ClearContained();
+                    }
+                }
+
+                cmp->SetOp(0, castOp);
+
+                BlockRange().Remove(cast);
+            }
+        }
+    }
+    else if (op1->OperIs(GT_AND) && cmp->OperIs(GT_EQ, GT_NE))
     {
         // Transform ((x AND y) EQ|NE 0) into (x TEST_EQ|TEST_NE y) when possible.
 
@@ -756,12 +815,12 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
 
                 size_t mask = static_cast<size_t>(andOp2->AsIntCon()->GetValue());
 
-                if (FitsIn<uint8_t>(mask))
+                if (FitsIn<UINT8>(mask))
                 {
                     andOp1->SetType(TYP_UBYTE);
                     andOp2->SetType(TYP_UBYTE);
                 }
-                else if (FitsIn<uint16_t>(mask) && varTypeIsShort(andOp1->GetType()))
+                else if (FitsIn<UINT16>(mask) && varTypeIsShort(andOp1->GetType()))
                 {
                     andOp1->SetType(TYP_USHORT);
                     andOp2->SetType(TYP_USHORT);
@@ -891,6 +950,19 @@ GenTree* Lowering::LowerCompare(GenTreeOp* cmp)
         if (next != cmp)
         {
             return next;
+        }
+    }
+
+    if (cmp->GetOp(0)->GetType() == cmp->GetOp(1)->GetType())
+    {
+        if (varTypeIsSmall(cmp->GetOp(0)->GetType()) && varTypeIsUnsigned(cmp->GetOp(0)->GetType()))
+        {
+            // If both operands have the same type then codegen will use the common operand type to
+            // determine the instruction type. For small types this would result in performing a
+            // signed comparison of two small unsigned values without zero extending them to TYP_INT
+            // which is incorrect. Note that making the comparison unsigned doesn't imply that codegen
+            // has to generate a small comparison, it can still correctly generate a TYP_INT comparison.
+            cmp->gtFlags |= GTF_UNSIGNED;
         }
     }
 
@@ -1422,7 +1494,7 @@ void Lowering::LowerHWIntrinsicEquality(GenTreeHWIntrinsic* node, genTreeOps cmp
 
     assert(varTypeIsIntegral(baseType));
     assert(comp->compOpportunisticallyDependsOn(InstructionSet_SSE41));
-    assert(node->TypeIs(TYP_UBYTE));
+    assert(node->gtType == TYP_BOOL);
     assert((cmpOp == GT_EQ) || (cmpOp == GT_NE));
     assert((simdSize == 16) || (simdSize == 32));
 
@@ -3761,122 +3833,69 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
         return;
     }
 
-#ifdef TARGET_64BIT
-    var_types type = varTypeSize(type1) <= 4 ? TYP_INT : TYP_LONG;
-#else
-    var_types type = TYP_INT;
-#endif
-
     if (CheckImmedAndMakeContained(cmp, op2))
     {
-        ssize_t imm = op2->AsIntCon()->GetValue();
-
-        if (IsContainableMemoryOp(op1) && (!varTypeIsSmall(type1) || varTypeSmallIntCanRepresentValue(type1, imm)) &&
-            IsSafeToContainMem(cmp, op1))
+        if (type1 == type2)
         {
-            op1->SetContained();
-            type = type1;
-        }
-        else if (op1->IsCast() && varTypeIsSmall(type1) && varTypeIsIntegral(op1->AsCast()->GetOp(0)->GetType()) &&
-                 varTypeSmallIntCanRepresentValue(type1, imm))
-        {
-            op1->SetContained();
-            type = type1;
-
-            GenTree* castOp = op1->AsCast()->GetOp(0);
-
-            if (castOp->isContained())
-            {
-                assert(castOp->OperIs(GT_IND));
-
-                if (!IsSafeToContainMem(cmp, castOp) || (varTypeSize(castOp->GetType()) < varTypeSize(type)))
-                {
-                    castOp->ClearContained();
-                }
-            }
-        }
-        else
-        {
-            op1->SetRegOptional();
-        }
-    }
-    else
-    {
-        // Small int memory operands can only be contained if we can generate a 8/16 bit
-        // compare instruction, which is only possible if both operands have the same
-        // small int type.
-
-        bool isSafeToContainOp1 = !varTypeIsSmall(type1) || (type1 == type2);
-        bool isSafeToContainOp2 = !varTypeIsSmall(type2) || (type1 == type2);
-
-        // Note that TEST does not have a r,rm encoding like CMP has but we can still
-        // contain the second operand because the emitter maps both r,rm and rm,r to
-        // the same instruction code. This avoids the need to special case TEST here.
-
-        if (isSafeToContainOp2 && IsContainableMemoryOp(op2))
-        {
-            isSafeToContainOp2 = IsSafeToContainMem(cmp, op2);
-
-            if (isSafeToContainOp2)
-            {
-                op2->SetContained();
-            }
-        }
-
-        if (!op2->isContained() && isSafeToContainOp1 && IsContainableMemoryOp(op1))
-        {
-            isSafeToContainOp1 = IsSafeToContainMem(cmp, op1);
-
-            if (isSafeToContainOp1)
+            if (IsContainableMemoryOp(op1))
             {
                 op1->SetContained();
             }
-        }
-
-        if (!op1->isContained() && !op2->isContained())
-        {
-            GenTree* regOptionalCandidate = op1->IsIntCon() ? op2 : PreferredRegOptionalOperand(cmp);
-
-            if (regOptionalCandidate == op1 ? isSafeToContainOp1 && IsSafeToContainMem(cmp, op1)
-                                            : isSafeToContainOp2 && IsSafeToContainMem(cmp, op2))
+            else
             {
-                regOptionalCandidate->SetRegOptional();
+                op1->SetRegOptional();
             }
         }
 
-        if (varTypeIsSmall(type1) && (type1 == type2))
+        return;
+    }
+
+    // Small int memory operands can only be contained if we can generate a 8/16 bit
+    // compare instruction, which is only possible if both operands have the same
+    // small int type.
+
+    bool isSafeToContainOp1 = !varTypeIsSmall(type1) || (type1 == type2);
+    bool isSafeToContainOp2 = !varTypeIsSmall(type2) || (type1 == type2);
+
+    // Note that TEST does not have a r,rm encoding like CMP has but we can still
+    // contain the second operand because the emitter maps both r,rm and rm,r to
+    // the same instruction code. This avoids the need to special case TEST here.
+
+    if (isSafeToContainOp2 && IsContainableMemoryOp(op2))
+    {
+        isSafeToContainOp2 = IsSafeToContainMem(cmp, op2);
+
+        if (isSafeToContainOp2)
         {
-            if (op1->IsCast() && varTypeIsIntegral(op1->AsCast()->GetOp(0)->GetType()))
-            {
-                op1->SetContained();
-
-                if (op2->isContained())
-                {
-                    op1->AsCast()->GetOp(0)->ClearContained();
-                    op1->AsCast()->GetOp(0)->ClearRegOptional();
-                }
-            }
-
-            if (op2->IsCast() && varTypeIsIntegral(op2->AsCast()->GetOp(0)->GetType()))
-            {
-                op2->SetContained();
-
-                if (op1->isContained())
-                {
-                    op2->AsCast()->GetOp(0)->ClearContained();
-                    op2->AsCast()->GetOp(0)->ClearRegOptional();
-                }
-            }
+            op2->SetContained();
         }
     }
 
-    if (varTypeIsSmall(type) && varTypeIsUnsigned(type))
+    if (!op2->isContained() && isSafeToContainOp1 && IsContainableMemoryOp(op1))
     {
-        assert(!cmp->OperIs(GT_CMP));
+        isSafeToContainOp1 = IsSafeToContainMem(cmp, op1);
 
-        if (cmp->OperIs(GT_LE, GT_LT, GT_GT, GT_GE))
+        if (isSafeToContainOp1)
         {
-            cmp->gtFlags |= GTF_UNSIGNED;
+            op1->SetContained();
+        }
+    }
+
+    if (!op1->isContained() && !op2->isContained())
+    {
+        // One of op1 or op2 could be marked as reg optional to indicate that codegen can still
+        // generate code if one of them is on stack.
+
+        GenTree* regOptionalCandidate = op1->IsIntCon() ? op2 : PreferredRegOptionalOperand(cmp);
+
+        // IsSafeToContainMem is expensive so we call it at most once for each operand in this
+        // method. If we already called IsSafeToContainMem, it must have returned false;
+        // otherwise, the corresponding operand (op1 or op2) would be contained.
+
+        if (regOptionalCandidate == op1 ? isSafeToContainOp1 && IsSafeToContainMem(cmp, op1)
+                                        : isSafeToContainOp2 && IsSafeToContainMem(cmp, op2))
+        {
+            regOptionalCandidate->SetRegOptional();
         }
     }
 }

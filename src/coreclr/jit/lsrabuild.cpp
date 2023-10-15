@@ -3481,6 +3481,80 @@ int LinearScan::BuildGCWriteBarrier(GenTreeStoreInd* store)
     return 2;
 }
 
+//------------------------------------------------------------------------
+// BuildCmp: Set the register requirements for a compare.
+//
+// Arguments:
+//    tree      - The node of interest
+//
+// Return Value:
+//    None.
+//
+int LinearScan::BuildCmp(GenTreeOp* cmp)
+{
+    assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP, GT_JCMP));
+
+    regMaskTP dstCandidates = RBM_NONE;
+    regMaskTP op1Candidates = RBM_NONE;
+    regMaskTP op2Candidates = RBM_NONE;
+    GenTree*  op1           = cmp->GetOp(0);
+    GenTree*  op2           = cmp->GetOp(1);
+
+#ifdef TARGET_X86
+    // If the compare is not used by a jump then we need to generate a SETcc instruction,
+    // which requires the dst be a byte register.
+    if (!cmp->TypeIs(TYP_VOID))
+    {
+        dstCandidates = allByteRegs();
+    }
+
+    bool needByteRegs = false;
+
+    if (varTypeIsByte(cmp->GetType()))
+    {
+        if (!varTypeIsFloating(op1->GetType()))
+        {
+            needByteRegs = true;
+        }
+    }
+    else if (varTypeIsByte(op1->GetType()) && varTypeIsByte(op2->GetType()))
+    {
+        needByteRegs = true;
+    }
+    else if (varTypeIsByte(op1->GetType()) && op2->IsIntCon())
+    {
+        needByteRegs = true;
+    }
+    else if (op1->IsIntCon() && varTypeIsByte(op2->GetType()))
+    {
+        needByteRegs = true;
+    }
+
+    if (needByteRegs)
+    {
+        if (!op1->isContained())
+        {
+            op1Candidates = allByteRegs();
+        }
+
+        if (!op2->isContained())
+        {
+            op2Candidates = allByteRegs();
+        }
+    }
+#endif // TARGET_X86
+
+    int srcCount = BuildOperandUses(op1, op1Candidates);
+    srcCount += BuildOperandUses(op2, op2Candidates);
+
+    if (!cmp->TypeIs(TYP_VOID))
+    {
+        BuildDef(cmp, dstCandidates);
+    }
+
+    return srcCount;
+}
+
 int LinearScan::BuildInstr(GenTreeInstr* instr)
 {
     int srcCount = 0;

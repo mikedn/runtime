@@ -5740,68 +5740,14 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
     var_types type2  = op2->GetType();
     regNumber dstReg = cmp->GetRegNum();
 
-    assert(!varTypeIsFloating(type1) && !varTypeIsFloating(type2));
+    genConsumeRegs(op1);
+    genConsumeRegs(op2);
 
-#ifdef TARGET_64BIT
-    var_types type = varTypeSize(type1) <= 4 ? TYP_INT : TYP_LONG;
-#else
-    var_types type = TYP_INT;
-#endif
-
-    assert(varTypeSize(type) == varTypeSize(varActualType(type2)));
-
-    if (op1->isUsedFromReg())
-    {
-        UseReg(op1);
-    }
-    else if (op1->isContained())
-    {
-        if (op1->IsCast())
-        {
-            op1 = op1->AsCast()->GetOp(0);
-            genConsumeRegs(op1);
-        }
-        else if (op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-        {
-            assert(IsValidContainedLcl(op1->AsLclVarCommon()));
-            genUpdateLife(op1->AsLclVarCommon());
-        }
-        else
-        {
-            genConsumeAddress(op1->AsIndir()->GetAddr());
-        }
-
-        type = type1;
-        assert(!varTypeIsSmall(type) || (type == type2) ||
-               (op2->IsIntCon() && varTypeSmallIntCanRepresentValue(type, op2->AsIntCon()->GetValue())));
-    }
-
-    if (op2->isUsedFromReg())
-    {
-        UseReg(op2);
-    }
-    else if (op2->isContained() && !op2->IsIntCon())
-    {
-        if (op2->IsCast())
-        {
-            op2 = op2->AsCast()->GetOp(0);
-            genConsumeRegs(op2);
-        }
-        else if (op2->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-        {
-            assert(IsValidContainedLcl(op2->AsLclVarCommon()));
-            genUpdateLife(op2->AsLclVarCommon());
-        }
-        else
-        {
-            genConsumeAddress(op2->AsIndir()->GetAddr());
-        }
-
-        type = type2;
-        assert(!varTypeIsSmall(type) || (type == type1));
-    }
+    assert(!op1->IsContainedIntCon());
+    assert(!varTypeIsFloating(type2));
 
     instruction ins           = INS_cmp;
+    var_types   type          = TYP_UNDEF;
     bool        canReuseFlags = false;
 
     if (cmp->OperIs(GT_TEST_EQ, GT_TEST_NE))
@@ -5830,34 +5776,65 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
         {
             // Extract the sign bit for "x < 0" and "x >= 0" if we're evaluating the result into a register.
             // Morph/Lowering are responsible to transform "0 < x" to "x > 0" so we won't handle it here.
-
-            if ((dstReg != REG_NA) && cmp->OperIs(GT_LT, GT_GE) && !cmp->IsUnsigned() &&
-                (!varTypeIsSmall(type) || cmp->OperIs(GT_LT)))
+            if ((dstReg != REG_NA) && cmp->OperIs(GT_LT, GT_GE) && !cmp->IsUnsigned())
             {
-                GetEmitter()->emitIns_Mov(varTypeIsSmall(type) ? INS_movzx : INS_mov, emitTypeSize(type), dstReg,
-                                          op1->GetRegNum(),
-                                          /*canSkip*/ !varTypeIsSmall(type));
+                emitAttr attr = emitActualTypeSize(type1);
 
-                emitAttr attr = emitActualTypeSize(type);
+                inst_Mov(op1->GetType(), dstReg, op1->GetRegNum(), /*canSkip*/ true);
 
                 if (cmp->OperIs(GT_GE))
                 {
                     GetEmitter()->emitIns_R(INS_not, attr, dstReg);
                 }
 
-                GetEmitter()->emitIns_R_I(INS_shr_N, attr, dstReg, varTypeSize(type) * 8 - 1);
+                GetEmitter()->emitIns_R_I(INS_shr_N, attr, dstReg, EA_SIZE(attr) * 8 - 1);
                 DefReg(cmp);
 
                 return;
             }
 
-            canReuseFlags = !varTypeIsSmall(type);
+            canReuseFlags = true;
         }
 
         // We're comparing a register to 0 so we can generate "test reg1, reg1"
         // instead of the longer "cmp reg1, 0"
         ins = INS_test;
         op2 = op1;
+    }
+
+    if (type == TYP_UNDEF)
+    {
+        if (type1 == type2)
+        {
+            type = type1;
+        }
+        else if (varTypeSize(type1) == varTypeSize(type2))
+        {
+            // If the types are different but have the same size then we'll use TYP_INT or TYP_LONG.
+            // This primarily deals with small type mixes (e.g. byte/ubyte) that need to be widened
+            // and compared as int. We should not get long type mixes here but handle that as well
+            // just in case.
+            type = varTypeSize(type1) == 8 ? TYP_LONG : TYP_INT;
+        }
+        else
+        {
+            // In the types are different simply use TYP_INT. This deals with small type/int type
+            // mixes (e.g. byte/short ubyte/int) that need to be widened and compared as int.
+            // Lowering is expected to handle any mixes that involve long types (e.g. int/long).
+            type = TYP_INT;
+        }
+
+        // The common type cannot be smaller than any of the operand types, we're probably mixing int/long
+        assert(varTypeSize(type) >= Max(varTypeSize(type1), varTypeSize(type2)));
+        // Small unsigned int types (TYP_BOOL can use anything) should use unsigned comparisons
+        assert(!(varTypeIsSmallInt(type) && varTypeIsUnsigned(type)) || cmp->IsUnsigned());
+        // If op1 is smaller then it cannot be in memory, we're probably missing a cast
+        assert((varTypeSize(type1) >= varTypeSize(type)) || !op1->isUsedFromMemory());
+        // If op2 is smaller then it cannot be in memory, we're probably missing a cast
+        assert((varTypeSize(type2) >= varTypeSize(type)) || !op2->isUsedFromMemory());
+        // If we ended up with a small type and op2 is a constant then make sure we don't lose constant bits
+        assert(!op2->IsIntCon() || !varTypeIsSmall(type) ||
+               varTypeSmallIntCanRepresentValue(type, op2->AsIntCon()->GetValue()));
     }
 
     // The type cannot be larger than the machine word size
