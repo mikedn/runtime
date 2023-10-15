@@ -11021,20 +11021,35 @@ DONE_MORPHING_CHILDREN:
         case GT_NE:
             if (opts.OptimizationEnabled() && op2->IsIntCon())
             {
-                if (op1->OperIs(GT_MOD) && op2->IsIntCon(0))
+                if (op1->OperIs(GT_MOD) && (op2->AsIntCon()->GetValue() >= 0))
                 {
                     // (x MOD pow2) EQ|NE 0 => (x AND (pow2 - 1)) EQ|NE 0
+                    // (x MOD pow2) EQ|NE [1..pow2 - 1] => (x AND (sign_bit | (pow2 - 1))) EQ|NE [1..pow2 - 1]
 
                     if (GenTreeIntCon* modOp2 = op1->AsOp()->GetOp(1)->IsIntCon())
                     {
-                        if (modOp2->IsPow2())
+                        if (isPow2(modOp2->GetValue()) && (op2->AsIntCon()->GetValue() < modOp2->GetValue()))
                         {
+                            ssize_t mask = modOp2->GetValue() - 1;
+
+                            if (!op2->IsIntCon(0))
+                            {
+                                if (varTypeSize(modOp2->GetType()) <= 4)
+                                {
+                                    mask = static_cast<int32_t>(mask | INT32_MIN);
+                                }
+                                else
+                                {
+                                    mask |= INT64_MIN;
+                                }
+                            }
+
                             op1->SetOper(GT_AND);
-                            modOp2->SetValue(modOp2->GetValue() - 1);
+                            modOp2->SetValue(mask);
                         }
                     }
                 }
-                else if (op1->OperIs(GT_AND) && op2->AsIntCon()->IsPow2())
+                else if (op1->OperIs(GT_AND) && op2->AsIntCon()->HasSingleSetBit())
                 {
                     // (x AND pow2) EQ|NE pow2 => (x AND pow2) NE|EQ 0
 

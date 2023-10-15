@@ -2760,7 +2760,7 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     }
 #endif
 
-    bool IsPow2() const
+    bool HasSingleSetBit() const
     {
         ssize_t value = gtIconVal;
 
