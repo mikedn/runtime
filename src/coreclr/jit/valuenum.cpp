@@ -4030,9 +4030,17 @@ void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
                 // int field into an int or small int local - the load already widened the small int and
                 // produced an INT value, now we're widening it again and given that VNForCast doesn't
                 // attempt to remove redundant casts we end up with a new value number, different from
-                // the one produced by the load.
+                // the one produced by the load. For example, in System.Runtime.Caching.UsageBucket
+                // UpdateCacheEntry(System.Runtime.Caching.MemoryCacheEntry) generates this crap, where
+                // the VN of V39 def ends up being different from the VN of the value:
+                //
+                // [000554] -A---------- N0003 * LCL_DEF    int    V39 ([000554], BB06) <l:$1e2, c:$1e3>
+                // [000552] ------------ N0002 \--* CAST       byte   (int to byte) <l:$1d9, c:$1da>
+                // [000549] ------------ N0001    \--* LCL_USE    int    V68 ([000058], BB06) <l:$83, c:$287>
+                //
                 // This is also dubious in case the IR contains other type mismatches, possibly involving
                 // SIMD types, SIMD12 and SIMD16 in particular.
+
                 valueVNP = vnStore->VNForCast(valueVNP, defType);
             }
         }

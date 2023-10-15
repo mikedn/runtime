@@ -11026,6 +11026,12 @@ DONE_MORPHING_CHILDREN:
                     // (x MOD pow2) EQ|NE 0 => (x AND (pow2 - 1)) EQ|NE 0
                     // (x MOD pow2) EQ|NE [1..pow2 - 1] => (x AND (sign_bit | (pow2 - 1))) EQ|NE [1..pow2 - 1]
 
+                    // TODO-MIKE-Review: The second case might need to be moved to lowering, doing it here
+                    // prevents assertion prop from transforming MOD into UMOD. Assertion prop could drop
+                    // the sign bit from the AND mask, but it does it in cases where it isn't necessary and
+                    // result in larger immediates being generated (e.g. -1 is imm8 on x86/64 but if you drop
+                    // the sign bit it becomes 0x7fffffff which is imm32).
+
                     if (GenTreeIntCon* modOp2 = op1->AsOp()->GetOp(1)->IsIntCon())
                     {
                         if (isPow2(modOp2->GetValue()) && (op2->AsIntCon()->GetValue() < modOp2->GetValue()))
