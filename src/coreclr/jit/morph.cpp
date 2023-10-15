@@ -11021,30 +11021,24 @@ DONE_MORPHING_CHILDREN:
         case GT_NE:
             if (opts.OptimizationEnabled() && op2->IsIntCon())
             {
-                ssize_t op2Value = op2->AsIntCon()->GetValue();
-
-                // TODO-MIKE-Review: pow2 checks below will likely fail for INT_MIN on 64 bit targets...
-
-                if (op1->OperIs(GT_MOD) && (op2Value == 0))
+                if (op1->OperIs(GT_MOD) && op2->IsIntCon(0))
                 {
                     // (x MOD pow2) EQ|NE 0 => (x AND (pow2 - 1)) EQ|NE 0
 
                     if (GenTreeIntCon* modOp2 = op1->AsOp()->GetOp(1)->IsIntCon())
                     {
-                        ssize_t modValue = modOp2->GetValue();
-
-                        if (isPow2(modValue))
+                        if (modOp2->IsPow2())
                         {
                             op1->SetOper(GT_AND);
-                            modOp2->SetValue(modValue - 1);
+                            modOp2->SetValue(modOp2->GetValue() - 1);
                         }
                     }
                 }
-                else if (op1->OperIs(GT_AND) && (op2Value != 0))
+                else if (op1->OperIs(GT_AND) && op2->AsIntCon()->IsPow2())
                 {
                     // (x AND pow2) EQ|NE pow2 => (x AND pow2) NE|EQ 0
 
-                    if (isPow2<size_t>(static_cast<size_t>(op2Value)) && op1->AsOp()->GetOp(1)->IsIntCon(op2Value))
+                    if (op1->AsOp()->GetOp(1)->IsIntCon(op2->AsIntCon()->GetValue()))
                     {
                         op2->AsIntCon()->SetValue(0);
                         oper = oper == GT_EQ ? GT_NE : GT_EQ;

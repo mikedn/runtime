@@ -2758,7 +2758,25 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     {
         gtIconVal = INT32(gtIconVal);
     }
-#endif // TARGET_64BIT
+#endif
+
+    bool IsPow2() const
+    {
+        ssize_t value = gtIconVal;
+
+#ifdef TARGET_64BIT
+        if (varActualTypeIsInt(gtType))
+#else
+        assert(varActualTypeIsIntOrI(gtType));
+#endif
+        {
+#ifdef HOST_64BIT
+            value &= UINT_MAX;
+#endif
+        }
+
+        return isPow2<size_t>(static_cast<size_t>(value));
+    }
 
 #if DEBUGGABLE_GENTREE
     GenTreeIntCon() : GenTreeIntConCommon()
