@@ -628,4 +628,19 @@ int LinearScan::BuildCast(GenTreeCast* cast)
     return srcCount;
 }
 
+int LinearScan::BuildCmp(GenTreeOp* cmp)
+{
+    assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP, GT_JCMP));
+
+    BuildUse(cmp->GetOp(0));
+    int srcCount = 1 + BuildOperandUses(cmp->GetOp(1));
+
+    if (!cmp->TypeIs(TYP_VOID))
+    {
+        BuildDef(cmp);
+    }
+
+    return srcCount;
+}
+
 #endif // TARGET_ARMARCH
