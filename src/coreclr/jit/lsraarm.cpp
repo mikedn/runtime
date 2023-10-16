@@ -185,7 +185,7 @@ int LinearScan::BuildShiftLongCarry(GenTree* tree)
 //    RefPositions have been built for all the register defs and uses required
 //    for this node.
 //
-int LinearScan::BuildNode(GenTree* tree)
+void LinearScan::BuildNode(GenTree* tree)
 {
     assert(!tree->isContained());
     int  srcCount;
@@ -218,7 +218,7 @@ int LinearScan::BuildNode(GenTree* tree)
             // local case below.
             if (checkContainedOrCandidateLclVar(tree->AsLclVar()))
             {
-                return 0;
+                return;
             }
             FALLTHROUGH;
 
@@ -755,7 +755,6 @@ int LinearScan::BuildNode(GenTree* tree)
     assert(isLocalDefUse == (tree->IsValue() && tree->IsUnusedValue()));
     assert(!tree->IsUnusedValue() || (dstCount != 0));
     assert(dstCount == static_cast<int>(tree->GetRegisterDstCount(compiler)));
-    return srcCount;
 }
 
 #endif // TARGET_ARM

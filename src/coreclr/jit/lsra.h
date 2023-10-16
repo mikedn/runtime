@@ -1885,10 +1885,8 @@ private:
     int BuildBinaryUses(GenTreeOp* node, regMaskTP candidates = RBM_NONE);
 #ifdef TARGET_XARCH
     int BuildRMWUses(GenTreeOp* node, regMaskTP candidates = RBM_NONE);
-#endif // !TARGET_XARCH
-    // This is the main entry point for building the RefPositions for a node.
-    // These methods return the number of sources.
-    int BuildNode(GenTree* tree);
+#endif
+    void BuildNode(GenTree* tree);
 
     void getTgtPrefOperands(GenTreeOp* tree, bool& prefOp1, bool& prefOp2);
     bool supportsSpecialPutArg();
