@@ -188,8 +188,7 @@ int LinearScan::BuildShiftLongCarry(GenTree* tree)
 void LinearScan::BuildNode(GenTree* tree)
 {
     assert(!tree->isContained());
-    int  dstCount      = 0;
-    bool isLocalDefUse = false;
+    int dstCount = 0;
 
     // Reset the build-related members of LinearScan.
     clearBuildState();
@@ -198,10 +197,6 @@ void LinearScan::BuildNode(GenTree* tree)
     if (tree->IsValue())
     {
         dstCount = 1;
-        if (tree->IsUnusedValue())
-        {
-            isLocalDefUse = true;
-        }
     }
     else
     {
@@ -397,7 +392,6 @@ void LinearScan::BuildNode(GenTree* tree)
                                            // An unused GT_LONG doesn't produce any registers.
             tree->gtType = TYP_VOID;
             tree->ClearUnusedValue();
-            isLocalDefUse = false;
 
             // An unused GT_LONG node needs to consume its sources, but need not produce a register.
             dstCount = 0;
@@ -707,7 +701,6 @@ void LinearScan::BuildNode(GenTree* tree)
 
     // We need to be sure that we've set srcCount and dstCount appropriately
     assert((dstCount < 2) || tree->IsMultiRegNode());
-    assert(isLocalDefUse == (tree->IsValue() && tree->IsUnusedValue()));
     assert(!tree->IsUnusedValue() || (dstCount != 0));
     assert(dstCount == static_cast<int>(tree->GetRegisterDstCount(compiler)));
 }
