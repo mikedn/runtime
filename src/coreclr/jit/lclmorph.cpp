@@ -104,7 +104,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
         {
             assert(!IsLocation() && !IsAddress());
 
-            if (!val.IsAddress() || ((cast->GetCastType() != TYP_I_IMPL) && (cast->GetCastType() != TYP_U_IMPL)))
+            if (!val.IsAddress() || !cast->TypeIs(TYP_I_IMPL))
             {
                 return false;
             }

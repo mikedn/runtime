@@ -357,6 +357,22 @@ inline var_types varActualType(var_types type)
     return static_cast<var_types>(genActualTypes[type]);
 }
 
+inline var_types varCastType(var_types type)
+{
+    switch (type)
+    {
+        case TYP_BOOL:
+            return TYP_UBYTE;
+        case TYP_UINT:
+            return TYP_INT;
+        case TYP_ULONG:
+            return TYP_LONG;
+        default:
+            assert(varTypeIsArithmetic(type));
+            return type;
+    }
+}
+
 inline var_types varTypeToUnsigned(var_types type)
 {
     switch (type)

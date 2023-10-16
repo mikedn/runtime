@@ -340,8 +340,8 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 #ifdef TARGET_ARM64
         case GT_TEST_EQ:
         case GT_TEST_NE:
-#endif // TARGET_ARM64
-            genCodeForCompare(treeNode->AsOp());
+#endif
+            GenCompare(treeNode->AsOp());
             break;
 
         case GT_JTRUE:
@@ -939,7 +939,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
 
     if (src->isContained())
     {
-        IsValidContainedLcl(src->AsLclVar());
+        assert(IsValidContainedLcl(src->AsLclVar()));
         genUpdateLife(src->AsLclVar());
         unsigned  lclNum = src->AsLclVar()->GetLclNum();
         regNumber dstReg = bitcast->GetRegNum();
@@ -3244,25 +3244,19 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-//------------------------------------------------------------------------
-// genFloatToFloatCast: Generate code for a cast between float and double
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
 void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
 {
+    assert(cast->GetType() == cast->GetCastType());
     assert(!cast->gtOverflow());
 
     GenTree*  src     = cast->GetOp(0);
     var_types srcType = src->GetType();
-    var_types dstType = cast->GetCastType();
+    var_types dstType = cast->GetType();
 
     assert((srcType == TYP_FLOAT) || (srcType == TYP_DOUBLE));
     assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
-    assert(cast->GetType() == dstType);
 
-    regNumber srcReg = genConsumeReg(src);
+    regNumber srcReg = UseReg(src);
     regNumber dstReg = cast->GetRegNum();
 
     assert(genIsValidFloatReg(srcReg) && genIsValidFloatReg(dstReg));

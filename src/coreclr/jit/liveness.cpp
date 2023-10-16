@@ -1129,7 +1129,9 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
             case GT_COPY_BLK:
             case GT_INIT_BLK:
             case GT_JMP:
+#ifdef TARGET_ARM64
             case GT_JCMP:
+#endif
             case GT_CMP:
             case GT_JCC:
             case GT_JTRUE:

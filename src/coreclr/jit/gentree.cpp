@@ -1099,7 +1099,7 @@ AGAIN:
                 case GT_ARR_LENGTH:
                     break;
                 case GT_CAST:
-                    if (op1->AsCast()->gtCastType != op2->AsCast()->gtCastType)
+                    if (op1->AsCast()->GetCastType() != op2->AsCast()->GetCastType())
                     {
                         return false;
                     }
@@ -1399,7 +1399,7 @@ AGAIN:
                 case GT_ARR_LENGTH:
                     break;
                 case GT_CAST:
-                    hash ^= tree->AsCast()->gtCastType;
+                    hash ^= static_cast<unsigned>(tree->AsCast()->GetCastType());
                     break;
                 case GT_INDEX_ADDR:
                     hash += tree->AsIndexAddr()->GetElemSize();
@@ -1710,9 +1710,10 @@ GenTree* Compiler::gtReverseCond(GenTree* tree)
     }
     else if (tree->OperIs(GT_JCC, GT_SETCC))
     {
-        GenTreeCC* cc   = tree->AsCC();
-        cc->gtCondition = GenCondition::Reverse(cc->gtCondition);
+        GenTreeCC* cc = tree->AsCC();
+        cc->SetCondition(GenCondition::Reverse(cc->GetCondition()));
     }
+#ifdef TARGET_ARM64
     else if (tree->OperIs(GT_JCMP))
     {
         // Flip the GTF_JCMP_EQ
@@ -1722,6 +1723,7 @@ GenTree* Compiler::gtReverseCond(GenTree* tree)
         //     tbz <=> tbnz
         tree->gtFlags ^= GTF_JCMP_EQ;
     }
+#endif
     else
     {
         tree = gtNewOperNode(GT_NOT, TYP_INT, tree);
@@ -4341,7 +4343,7 @@ GenTree* Compiler::gtNewLconNode(int64_t value)
 #ifdef TARGET_64BIT
     GenTree* node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_LONG, value);
 #else
-    GenTree* node = new (this, GT_CNS_LNG) GenTreeLngCon(value);
+    GenTree*                  node = new (this, GT_CNS_LNG) GenTreeLngCon(value);
 #endif
 
     return node;
@@ -5340,8 +5342,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
                 break;
 
             case GT_CAST:
-                copy = new (this, GT_CAST) GenTreeCast(tree->GetType(), tree->AsCast()->GetOp(0), tree->IsUnsigned(),
-                                                       tree->AsCast()->GetCastType());
+                copy = new (this, GT_CAST) GenTreeCast(tree->AsCast());
                 break;
 
             case GT_FIELD_ADDR:
@@ -6835,6 +6836,7 @@ int Compiler::dmpNodeFlags(GenTree* tree)
             }
             break;
 
+#ifdef TARGET_ARM64
         case GT_JCMP:
             if (flags & GTF_JCMP_TST)
             {
@@ -6845,6 +6847,7 @@ int Compiler::dmpNodeFlags(GenTree* tree)
                 operFlag = (flags & GTF_JCMP_EQ) ? 'E' : 'N';
             }
             break;
+#endif
 
         case GT_CNS_INT:
             if (tree->IsIconHandle())
@@ -7590,11 +7593,13 @@ void Compiler::gtDispLeaf(GenTree* tree)
 
         case GT_JCC:
         case GT_SETCC:
-            printf(" cond=%s", tree->AsCC()->gtCondition.Name());
+            printf(" cond=%s", tree->AsCC()->GetCondition().Name());
             break;
+#ifdef TARGET_ARM64
         case GT_JCMP:
             printf(" cond=%s%s", (tree->gtFlags & GTF_JCMP_TST) ? "TEST_" : "",
                    (tree->gtFlags & GTF_JCMP_EQ) ? "EQ" : "NE");
+#endif
             break;
 
         default:
@@ -7927,7 +7932,7 @@ void Compiler::gtDispTreeRec(
 
         case GT_CAST:
         {
-            var_types fromType = genActualType(tree->AsUnOp()->GetOp(0)->GetType());
+            var_types fromType = varActualType(tree->AsUnOp()->GetOp(0)->GetType());
             var_types toType   = tree->AsCast()->GetCastType();
 
             if (tree->IsUnsigned())
@@ -9502,28 +9507,21 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
         case GT_AND:
             if (val == 0)
             {
-                /* AND with zero - return the 'zero' node, but not if side effects */
-
+                // TODO-MIKE-CQ: We could change the AND to a COMMA if op has side effects.
                 if (!opHasSideEffects)
                 {
                     op = cons;
                     goto DONE_FOLD;
                 }
+
+                break;
             }
-            else
+
+            if ((tree->gtFlags & GTF_BOOLEAN) != 0)
             {
-                /* The GTF_BOOLEAN flag is set for nodes that are part
-                 * of a boolean expression, thus all their children
-                 * are known to evaluate to only 0 or 1 */
+                assert(val == 1);
 
-                if (tree->gtFlags & GTF_BOOLEAN)
-                {
-
-                    /* The constant value must be 1
-                     * AND with 1 stays the same */
-                    assert(val == 1);
-                    goto DONE_FOLD;
-                }
+                goto DONE_FOLD;
             }
             break;
 
@@ -9532,20 +9530,28 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             {
                 goto DONE_FOLD;
             }
-            else if (tree->gtFlags & GTF_BOOLEAN)
-            {
-                /* The constant value must be 1 - OR with 1 is 1 */
 
+            if ((tree->gtFlags & GTF_BOOLEAN) != 0)
+            {
                 assert(val == 1);
 
-                /* OR with one - return the 'one' node, but not if side effects */
-
+                // TODO-MIKE-CQ: We could change the OR to a COMMA if op has side effects.
                 if (!opHasSideEffects)
                 {
                     op = cons;
                     goto DONE_FOLD;
                 }
             }
+            break;
+
+        case GT_XOR:
+            if (val == 0)
+            {
+                goto DONE_FOLD;
+            }
+
+            // TODO-MIKE-Review: Handle GTF_BOOLEAN? But overall GTF_BOOLEAN looks like a stupid
+            // idea asking for trouble if people manage to produce non 0/1 boolean values somehow.
             break;
 
         case GT_LSH:
@@ -10241,399 +10247,340 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     return cmpTree;
 }
 
-/*****************************************************************************
- *
- *  Fold the given constant tree.
- */
-
 #ifdef _PREFAST_
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
 GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 {
-    SSIZE_T       i1, i2, itemp;
-    INT64         lval1, lval2, ltemp;
-    float         f1, f2;
-    double        d1, d2;
-    var_types     switchType;
-    FieldSeqNode* fieldSeq = FieldSeqStore::NotAField(); // default unless we override it when folding
-
     assert(tree->OperIsUnary() || tree->OperIsBinary());
-
-    GenTree* op1 = tree->gtGetOp1();
-    GenTree* op2 = tree->gtGetOp2IfPresent();
 
     if (!opts.OptEnabled(CLFLG_CONSTANTFOLD))
     {
         return tree;
     }
 
-    if (tree->OperIs(GT_NOP, GT_ALLOCOBJ, GT_RUNTIMELOOKUP, GT_BOUNDS_CHECK, GT_STOREIND, GT_STORE_BLK, GT_STORE_OBJ))
+    if (tree->OperIs(GT_NOP, GT_ALLOCOBJ, GT_RUNTIMELOOKUP, GT_BOUNDS_CHECK, GT_STOREIND, GT_STORE_BLK, GT_STORE_OBJ,
+                     GT_MKREFANY, GT_RETURN))
     {
         return tree;
     }
 
-#ifdef FEATURE_HW_INTRINSICS
-    if (tree->OperIs(GT_HWINTRINSIC))
-    {
-        return tree;
-    }
-#endif
+    GenTree*  op1    = tree->gtGetOp1();
+    GenTree*  op2    = tree->gtGetOp2IfPresent();
+    var_types opType = op1->GetType();
+
+    assert(op1->OperIsConst());
+
+    FieldSeqNode* fieldSeq = FieldSeqStore::NotAField();
+
+    int32_t i;
+    int64_t l;
+    float   f;
+    double  d;
 
     if (tree->OperIsUnary())
     {
-        assert(op1->OperIsConst());
+        assert(op2 == nullptr);
 
-        switch (op1->gtType)
+        switch (opType)
         {
             case TYP_INT:
-
-                // Fold constant INT unary operator.
-
-                if (!op1->AsIntCon()->ImmedValCanBeFolded(this, tree->OperGet()))
+            {
+#ifndef TARGET_64BIT
+                if (!op1->AsIntCon()->ImmedValCanBeFolded(this, tree->GetOper()))
                 {
-                    return tree;
+                    break;
                 }
+#endif
 
-                i1 = (INT32)op1->AsIntCon()->IconValue();
+                const int32_t i1 = op1->AsIntCon()->GetInt32Value();
 
                 switch (tree->GetOper())
                 {
                     case GT_NOT:
-                        i1 = ~i1;
-                        break;
+                        i = ~i1;
+                        goto CNS_INT;
 
                     case GT_NEG:
-                        i1 = -i1;
-                        break;
-
-                    case GT_BSWAP:
-                        i1 = ((i1 >> 24) & 0xFF) | ((i1 >> 8) & 0xFF00) | ((i1 << 8) & 0xFF0000) |
-                             ((i1 << 24) & 0xFF000000);
-                        break;
+                        i = -i1;
+                        goto CNS_INT;
 
                     case GT_BSWAP16:
-                        i1 = ((i1 >> 8) & 0xFF) | ((i1 << 8) & 0xFF00);
-                        break;
+                        i = jitstd::byteswap(static_cast<uint16_t>(i1));
+                        goto CNS_INT;
+
+                    case GT_BSWAP:
+                        i = jitstd::byteswap(i1);
+                        goto CNS_INT;
 
                     case GT_BITCAST:
                         if (tree->TypeIs(TYP_FLOAT))
                         {
-                            d1 = jitstd::bit_cast<float>(static_cast<int>(i1));
+                            d = jitstd::bit_cast<float>(i1);
                             goto CNS_DOUBLE;
                         }
-                        return tree;
+                        break;
 
                     case GT_CAST:
-                        // assert (genActualType(tree->CastToType()) == tree->TypeGet());
+                        assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
 
                         if (tree->gtOverflow() &&
-                            CheckedOps::CastFromIntOverflows((INT32)i1, tree->CastToType(), tree->IsUnsigned()))
+                            CheckedOps::CastFromIntOverflows(i1, tree->AsCast()->GetCastType(), tree->IsUnsigned()))
                         {
                             goto INTEGRAL_OVF;
                         }
 
-                        switch (tree->CastToType())
+                        switch (tree->GetType())
                         {
                             case TYP_BYTE:
-                                i1 = INT32(INT8(i1));
+                                i = static_cast<int8_t>(i1);
+                                goto CNS_INT;
+
+                            case TYP_UBYTE:
+                                i = static_cast<uint8_t>(i1);
                                 goto CNS_INT;
 
                             case TYP_SHORT:
-                                i1 = INT32(INT16(i1));
+                                i = static_cast<int16_t>(i1);
                                 goto CNS_INT;
 
                             case TYP_USHORT:
-                                i1 = INT32(UINT16(i1));
+                                i = static_cast<uint16_t>(i1);
                                 goto CNS_INT;
 
-                            case TYP_BOOL:
-                            case TYP_UBYTE:
-                                i1 = INT32(UINT8(i1));
-                                goto CNS_INT;
-
-                            case TYP_UINT:
                             case TYP_INT:
+                                i = i1;
                                 goto CNS_INT;
-
-                            case TYP_ULONG:
-                                if (tree->IsUnsigned())
-                                {
-                                    lval1 = UINT64(UINT32(i1));
-                                }
-                                else
-                                {
-                                    lval1 = UINT64(INT32(i1));
-                                }
-                                goto CNS_LONG;
 
                             case TYP_LONG:
-                                if (tree->IsUnsigned())
-                                {
-                                    lval1 = INT64(UINT32(i1));
-                                }
-                                else
-                                {
-                                    lval1 = INT64(INT32(i1));
-                                }
+                                l = tree->IsUnsigned() ? static_cast<int64_t>(static_cast<uint32_t>(i1))
+                                                       : static_cast<int64_t>(i1);
                                 goto CNS_LONG;
 
                             case TYP_FLOAT:
-                                if (tree->IsUnsigned())
-                                {
-                                    f1 = forceCastToFloat(UINT32(i1));
-                                }
-                                else
-                                {
-                                    f1 = forceCastToFloat(INT32(i1));
-                                }
-                                d1 = f1;
+                                d = tree->IsUnsigned() ? static_cast<float>(static_cast<uint32_t>(i1))
+                                                       : static_cast<float>(i1);
                                 goto CNS_DOUBLE;
 
                             case TYP_DOUBLE:
-                                if (tree->IsUnsigned())
-                                {
-                                    d1 = (double)UINT32(i1);
-                                }
-                                else
-                                {
-                                    d1 = (double)INT32(i1);
-                                }
+                                d = tree->IsUnsigned() ? static_cast<double>(static_cast<uint32_t>(i1))
+                                                       : static_cast<double>(i1);
                                 goto CNS_DOUBLE;
 
                             default:
-                                assert(!"Bad CastToType() in gtFoldExprConst() for a cast from int");
-                                return tree;
+                                break;
                         }
+                        break;
 
                     default:
-                        return tree;
+                        break;
                 }
-
-                goto CNS_INT;
-
+                break;
+            }
             case TYP_LONG:
-
-                // Fold constant LONG unary operator.
-
-                if (!op1->AsIntConCommon()->ImmedValCanBeFolded(this, tree->OperGet()))
+            {
+#ifdef TARGET_64BIT
+                if (!op1->AsIntCon()->ImmedValCanBeFolded(this, tree->GetOper()))
                 {
-                    return tree;
+                    break;
                 }
 
-                lval1 = op1->AsIntConCommon()->LngValue();
+                const int64_t l1 = op1->AsIntCon()->GetValue();
+#else
+                const int64_t l1   = op1->AsLngCon()->GetValue();
+#endif
 
-                switch (tree->OperGet())
+                switch (tree->GetOper())
                 {
                     case GT_NOT:
-                        lval1 = ~lval1;
-                        break;
+                        l = ~l1;
+                        goto CNS_LONG;
 
                     case GT_NEG:
-                        lval1 = -lval1;
-                        break;
+                        l = -l1;
+                        goto CNS_LONG;
 
                     case GT_BSWAP:
-                        lval1 = ((lval1 >> 56) & 0xFF) | ((lval1 >> 40) & 0xFF00) | ((lval1 >> 24) & 0xFF0000) |
-                                ((lval1 >> 8) & 0xFF000000) | ((lval1 << 8) & 0xFF00000000) |
-                                ((lval1 << 24) & 0xFF0000000000) | ((lval1 << 40) & 0xFF000000000000) |
-                                ((lval1 << 56) & 0xFF00000000000000);
-                        break;
+                        l = jitstd::byteswap(l1);
+                        goto CNS_LONG;
 
                     case GT_BITCAST:
                         if (tree->TypeIs(TYP_DOUBLE))
                         {
-                            d1 = jitstd::bit_cast<double>(lval1);
+                            d = jitstd::bit_cast<double>(l1);
                             goto CNS_DOUBLE;
                         }
-                        return tree;
+                        break;
 
                     case GT_CAST:
-                        assert(tree->TypeIs(genActualType(tree->CastToType())));
+                        assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
 
                         if (tree->gtOverflow() &&
-                            CheckedOps::CastFromLongOverflows(lval1, tree->CastToType(), tree->IsUnsigned()))
+                            CheckedOps::CastFromLongOverflows(l1, tree->AsCast()->GetCastType(), tree->IsUnsigned()))
                         {
                             goto INTEGRAL_OVF;
                         }
 
-                        switch (tree->CastToType())
+                        switch (tree->GetType())
                         {
                             case TYP_BYTE:
-                                i1 = INT32(INT8(lval1));
-                                goto CNS_INT;
-
-                            case TYP_SHORT:
-                                i1 = INT32(INT16(lval1));
-                                goto CNS_INT;
-
-                            case TYP_USHORT:
-                                i1 = INT32(UINT16(lval1));
+                                i = static_cast<int8_t>(l1);
                                 goto CNS_INT;
 
                             case TYP_UBYTE:
-                                i1 = INT32(UINT8(lval1));
+                                i = static_cast<uint8_t>(l1);
+                                goto CNS_INT;
+
+                            case TYP_SHORT:
+                                i = static_cast<int16_t>(l1);
+                                goto CNS_INT;
+
+                            case TYP_USHORT:
+                                i = static_cast<uint16_t>(l1);
                                 goto CNS_INT;
 
                             case TYP_INT:
-                                i1 = INT32(lval1);
+                                i = static_cast<int32_t>(l1);
                                 goto CNS_INT;
 
-                            case TYP_UINT:
-                                i1 = UINT32(lval1);
-                                goto CNS_INT;
-
-                            case TYP_ULONG:
                             case TYP_LONG:
+                                l = l1;
                                 goto CNS_LONG;
 
                             case TYP_FLOAT:
                             case TYP_DOUBLE:
-                                if (tree->IsUnsigned() && (lval1 < 0))
+                                if (tree->IsUnsigned() && (l1 < 0))
                                 {
-                                    d1 = FloatingPointUtils::convertUInt64ToDouble((unsigned __int64)lval1);
+                                    d = FloatingPointUtils::convertUInt64ToDouble(static_cast<uint64_t>(l1));
                                 }
                                 else
                                 {
-                                    d1 = (double)lval1;
+                                    d = static_cast<double>(l1);
                                 }
 
-                                if (tree->CastToType() == TYP_FLOAT)
+                                if (tree->TypeIs(TYP_FLOAT))
                                 {
-                                    f1 = forceCastToFloat(d1); // truncate precision
-                                    d1 = f1;
+                                    d = forceCastToFloat(d);
                                 }
                                 goto CNS_DOUBLE;
+
                             default:
-                                assert(!"Bad CastToType() in gtFoldExprConst() for a cast from long");
-                                return tree;
+                                break;
                         }
+                        break;
 
                     default:
-                        return tree;
+                        break;
                 }
-
-                goto CNS_LONG;
-
+                break;
+            }
             case TYP_FLOAT:
             case TYP_DOUBLE:
-                assert(op1->OperIs(GT_CNS_DBL));
+            {
+                const double d1 = op1->AsDblCon()->GetValue();
 
-                // Fold constant DOUBLE unary operator.
-
-                d1 = op1->AsDblCon()->gtDconVal;
-
-                switch (tree->OperGet())
+                switch (tree->GetOper())
                 {
                     case GT_FNEG:
-                        d1 = -d1;
-                        break;
+                        d = -d1;
+                        goto CNS_DOUBLE;
 
                     case GT_BITCAST:
                         if (tree->TypeIs(TYP_INT) && op1->TypeIs(TYP_FLOAT))
                         {
-                            i1 = jitstd::bit_cast<int>(static_cast<float>(d1));
+                            i = jitstd::bit_cast<int32_t>(static_cast<float>(d1));
                             goto CNS_INT;
                         }
 
                         if (tree->TypeIs(TYP_LONG) && op1->TypeIs(TYP_DOUBLE))
                         {
-                            lval1 = jitstd::bit_cast<INT64>(d1);
+                            l = jitstd::bit_cast<int64_t>(d1);
                             goto CNS_LONG;
                         }
-
-                        return tree;
+                        break;
 
                     case GT_CAST:
-                        f1 = forceCastToFloat(d1);
+                        assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
 
-                        if ((op1->TypeIs(TYP_DOUBLE) && CheckedOps::CastFromDoubleOverflows(d1, tree->CastToType())) ||
-                            (op1->TypeIs(TYP_FLOAT) && CheckedOps::CastFromFloatOverflows(f1, tree->CastToType())))
+                        if (op1->TypeIs(TYP_FLOAT)
+                                ? CheckedOps::CastFromFloatOverflows(forceCastToFloat(d1),
+                                                                     tree->AsCast()->GetCastType())
+                                : CheckedOps::CastFromDoubleOverflows(d1, tree->AsCast()->GetCastType()))
                         {
                             // The conversion overflows. The ECMA spec says, in III 3.27, that
                             // "...if overflow occurs converting a floating point type to an integer, ...,
-                            // the value returned is unspecified."  However, it would at least be
+                            // the value returned is unspecified." However, it would at least be
                             // desirable to have the same value returned for casting an overflowing
                             // constant to an int as would be obtained by passing that constant as
                             // a parameter and then casting that parameter to an int type.
 
-                            // Don't fold overflowing converions, as the value returned by
+                            // Don't fold overflowing conversions, as the value returned by
                             // JIT's codegen doesn't always match with the C compiler's cast result.
                             // We want the behavior to be the same with or without folding.
 
-                            return tree;
+                            break;
                         }
 
-                        assert(tree->TypeIs(genActualType(tree->CastToType())));
-
-                        switch (tree->CastToType())
+                        switch (tree->AsCast()->GetCastType())
                         {
                             case TYP_BYTE:
-                                i1 = INT32(INT8(d1));
-                                goto CNS_INT;
-
-                            case TYP_SHORT:
-                                i1 = INT32(INT16(d1));
-                                goto CNS_INT;
-
-                            case TYP_USHORT:
-                                i1 = INT32(UINT16(d1));
+                                i = static_cast<int8_t>(d1);
                                 goto CNS_INT;
 
                             case TYP_UBYTE:
-                                i1 = INT32(UINT8(d1));
+                                i = static_cast<uint8_t>(d1);
+                                goto CNS_INT;
+
+                            case TYP_SHORT:
+                                i = static_cast<int16_t>(d1);
+                                goto CNS_INT;
+
+                            case TYP_USHORT:
+                                i = static_cast<uint16_t>(d1);
                                 goto CNS_INT;
 
                             case TYP_INT:
-                                i1 = INT32(d1);
+                                i = static_cast<int32_t>(d1);
                                 goto CNS_INT;
 
                             case TYP_UINT:
-                                i1 = forceCastToUInt32(d1);
+                                i = forceCastToUInt32(d1);
                                 goto CNS_INT;
 
                             case TYP_LONG:
-                                lval1 = INT64(d1);
+                                l = static_cast<int64_t>(d1);
                                 goto CNS_LONG;
 
                             case TYP_ULONG:
-                                lval1 = FloatingPointUtils::convertDoubleToUInt64(d1);
+                                l = FloatingPointUtils::convertDoubleToUInt64(d1);
                                 goto CNS_LONG;
 
                             case TYP_FLOAT:
-                                d1 = forceCastToFloat(d1);
-                                goto CNS_DOUBLE;
+                                f = static_cast<float>(d1);
+                                goto CNS_FLOAT;
 
                             case TYP_DOUBLE:
-                                if (op1->TypeIs(TYP_FLOAT))
-                                {
-                                    d1 = forceCastToFloat(d1); // Truncate precision.
-                                }
-                                goto CNS_DOUBLE; // Redundant cast.
+                                d = op1->TypeIs(TYP_FLOAT) ? forceCastToFloat(d1) : d1;
+                                goto CNS_DOUBLE;
 
                             default:
-                                assert(!"Bad CastToType() in gtFoldExprConst() for a cast from double/float");
                                 break;
                         }
-                        return tree;
+                        break;
 
                     default:
-                        return tree;
+                        break;
                 }
-                goto CNS_DOUBLE;
-
+                break;
+            }
             default:
-                // Not a foldable typ - e.g. RET const.
-                return tree;
+                break;
         }
+
+        return tree;
     }
 
-    // We have a binary operator.
-
-    assert(tree->OperIsBinary());
-    assert(op2 != nullptr);
-    assert(op1->OperIsConst());
     assert(op2->OperIsConst());
 
     if (tree->OperIs(GT_COMMA))
@@ -10641,652 +10588,553 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
         return op2;
     }
 
-    switchType = op1->GetType();
-
     // Normally we will just switch on op1 types, but for the case where
     // only op2 is a GC type and op1 is not a GC type, we use the op2 type.
     // This makes us handle this as a case of folding for GC type.
-    if (varTypeIsGC(op2->gtType) && !varTypeIsGC(op1->gtType))
+    if (varTypeIsGC(op2->GetType()) && !varTypeIsGC(op1->GetType()))
     {
-        switchType = op2->TypeGet();
+        opType = op2->GetType();
     }
 
-    switch (switchType)
+    switch (opType)
     {
-        // Fold constant REF of BYREF binary operator.
-        // These can only be comparisons or null pointers.
-
         case TYP_REF:
-
-            // String nodes are an RVA at this point.
-            if (op1->OperIs(GT_CNS_STR) || op2->OperIs(GT_CNS_STR))
+        {
+            if (op1->IsStrCon() || op2->IsStrCon())
             {
-                // Fold "ldstr" ==/!= null.
                 if (op2->IsIntegralConst(0))
                 {
                     if (tree->OperIs(GT_EQ))
                     {
-                        i1 = 0;
-                        goto FOLD_COND;
+                        i = 0;
+                        goto CNS_INT;
                     }
+
                     if (tree->OperIs(GT_NE) || (tree->OperIs(GT_GT) && tree->IsUnsigned()))
                     {
-                        i1 = 1;
-                        goto FOLD_COND;
+                        i = 1;
+                        goto CNS_INT;
                     }
                 }
-                return tree;
+
+                break;
             }
-
             FALLTHROUGH;
-
+        }
         case TYP_BYREF:
+        {
+            ssize_t p1 = op1->AsIntCon()->GetValue();
+            ssize_t p2 = op2->AsIntCon()->GetValue();
 
-            i1 = op1->AsIntConCommon()->IconValue();
-            i2 = op2->AsIntConCommon()->IconValue();
-
-            switch (tree->OperGet())
+            switch (tree->GetOper())
             {
                 case GT_EQ:
-                    i1 = (i1 == i2);
-                    goto FOLD_COND;
+                    i = p1 == p2;
+                    goto CNS_INT;
 
                 case GT_NE:
-                    i1 = (i1 != i2);
-                    goto FOLD_COND;
+                    i = p1 != p2;
+                    goto CNS_INT;
 
                 case GT_ADD:
                     noway_assert(!tree->TypeIs(TYP_REF));
 
-                    // We only fold a GT_ADD that involves a null reference.
-                    if ((op1->TypeIs(TYP_REF) && (i1 == 0)) || (op2->TypeIs(TYP_REF) && (i2 == 0)))
+                    // We only fold an ADD that involves a null reference.
+                    if ((op1->TypeIs(TYP_REF) && (p1 == 0)) || (op2->TypeIs(TYP_REF) && (p2 == 0)))
                     {
-                        JITDUMPTREE(tree, "\nFolding operator with constant nodes:\n");
-
-                        tree->ChangeToIntCon(TYP_BYREF, 0);
-
-                        if (vnStore != nullptr)
-                        {
-                            tree->SetVNP(ValueNumPair{ValueNumStore::NullVN()});
-                        }
-
-                        JITDUMPTREE(tree, "into:\n");
+                        goto CNS_NULL_BYREF;
                     }
                     break;
 
                 default:
                     break;
             }
-
-            return tree;
-
-        // Fold constant INT binary operator.
-
+            break;
+        }
         case TYP_INT:
-
+        {
             if (tree->OperIsCompare() && tree->TypeIs(TYP_BYTE))
             {
-                tree->ChangeType(TYP_INT);
+                tree->SetType(TYP_INT);
             }
 
-            assert(tree->TypeIs(TYP_INT) || varTypeIsGC(tree->TypeGet()) || tree->OperIs(GT_MKREFANY));
+            assert(tree->TypeIs(TYP_INT) || varTypeIsGC(tree->GetType()));
+            assert(!varTypeIsGC(op1->GetType()) && !varTypeIsGC(op2->GetType()));
 
-            // No GC pointer types should be folded here...
-            assert(!varTypeIsGC(op1->TypeGet()) && !varTypeIsGC(op2->TypeGet()));
-
-            if (!op1->AsIntConCommon()->ImmedValCanBeFolded(this, tree->OperGet()))
+#ifndef TARGET_64BIT
+            if (!op1->AsIntCon()->ImmedValCanBeFolded(this, tree->GetOper()))
             {
-                return tree;
+                break;
             }
 
-            if (!op2->AsIntConCommon()->ImmedValCanBeFolded(this, tree->OperGet()))
+            if (!op2->AsIntCon()->ImmedValCanBeFolded(this, tree->GetOper()))
             {
-                return tree;
+                break;
             }
+#endif
 
-            i1 = op1->AsIntConCommon()->IconValue();
-            i2 = op2->AsIntConCommon()->IconValue();
+            const int32_t  i1  = op1->AsIntCon()->GetInt32Value();
+            const int32_t  i2  = op2->AsIntCon()->GetInt32Value();
+            const uint32_t ui1 = static_cast<uint32_t>(i1);
+            const uint32_t ui2 = static_cast<uint32_t>(i2);
 
-            switch (tree->OperGet())
+            switch (tree->GetOper())
             {
                 case GT_EQ:
-                    i1 = (INT32(i1) == INT32(i2));
-                    break;
+                    i = (i1 == i2);
+                    goto CNS_INT;
+
                 case GT_NE:
-                    i1 = (INT32(i1) != INT32(i2));
-                    break;
+                    i = (i1 != i2);
+                    goto CNS_INT;
 
                 case GT_LT:
-                    if (tree->IsUnsigned())
-                    {
-                        i1 = (UINT32(i1) < UINT32(i2));
-                    }
-                    else
-                    {
-                        i1 = (INT32(i1) < INT32(i2));
-                    }
-                    break;
+                    i = tree->IsUnsigned() ? (ui1 < ui2) : (i1 < i2);
+                    goto CNS_INT;
 
                 case GT_LE:
-                    if (tree->IsUnsigned())
-                    {
-                        i1 = (UINT32(i1) <= UINT32(i2));
-                    }
-                    else
-                    {
-                        i1 = (INT32(i1) <= INT32(i2));
-                    }
-                    break;
+                    i = tree->IsUnsigned() ? (ui1 <= ui2) : (i1 <= i2);
+                    goto CNS_INT;
 
                 case GT_GE:
-                    if (tree->IsUnsigned())
-                    {
-                        i1 = (UINT32(i1) >= UINT32(i2));
-                    }
-                    else
-                    {
-                        i1 = (INT32(i1) >= INT32(i2));
-                    }
-                    break;
+                    i = tree->IsUnsigned() ? (ui1 >= ui2) : (i1 >= i2);
+                    goto CNS_INT;
 
                 case GT_GT:
-                    if (tree->IsUnsigned())
-                    {
-                        i1 = (UINT32(i1) > UINT32(i2));
-                    }
-                    else
-                    {
-                        i1 = (INT32(i1) > INT32(i2));
-                    }
-                    break;
+                    i = tree->IsUnsigned() ? (ui1 > ui2) : (i1 > i2);
+                    goto CNS_INT;
+
+                case GT_OR:
+                    i = i1 | i2;
+                    goto CNS_INT;
+
+                case GT_XOR:
+                    i = i1 ^ i2;
+                    goto CNS_INT;
+
+                case GT_AND:
+                    i = i1 & i2;
+                    goto CNS_INT;
+
+                case GT_LSH:
+                    i = i1 << (i2 & 31);
+                    goto CNS_INT;
+
+                case GT_RSH:
+                    i = i1 >> (i2 & 31);
+                    goto CNS_INT;
+
+                case GT_RSZ:
+                    i = static_cast<int32_t>(ui1 >> (i2 & 31));
+                    goto CNS_INT;
+
+                case GT_ROL:
+                    i = static_cast<int32_t>(jitstd::rotl(ui1, i2));
+                    goto CNS_INT;
+
+                case GT_ROR:
+                    i = static_cast<int32_t>(jitstd::rotr(ui1, i2));
+                    goto CNS_INT;
 
                 case GT_ADD:
 #ifndef TARGET_64BIT
                     fieldSeq = GetFieldSeqStore()->FoldAdd(op1->AsIntCon(), op2->AsIntCon());
 #endif
-
-                    itemp = i1 + i2;
-                    if (tree->gtOverflow() && CheckedOps::AddOverflows(INT32(i1), INT32(i2), tree->IsUnsigned()))
+                    if (tree->gtOverflow() && CheckedOps::AddOverflows(i1, i2, tree->IsUnsigned()))
                     {
                         goto INTEGRAL_OVF;
                     }
-                    i1 = itemp;
-                    break;
+                    i = i1 + i2;
+                    goto CNS_INT;
+
                 case GT_SUB:
-                    itemp = i1 - i2;
-                    if (tree->gtOverflow() && CheckedOps::SubOverflows(INT32(i1), INT32(i2), tree->IsUnsigned()))
+                    if (tree->gtOverflow() && CheckedOps::SubOverflows(i1, i2, tree->IsUnsigned()))
                     {
                         goto INTEGRAL_OVF;
                     }
-                    i1 = itemp;
-                    break;
+                    i = i1 - i2;
+                    goto CNS_INT;
+
                 case GT_MUL:
-                    itemp = i1 * i2;
-                    if (tree->gtOverflow() && CheckedOps::MulOverflows(INT32(i1), INT32(i2), tree->IsUnsigned()))
+                    if (tree->gtOverflow() && CheckedOps::MulOverflows(i1, i2, tree->IsUnsigned()))
                     {
                         goto INTEGRAL_OVF;
                     }
-
-                    i1 = itemp;
-                    break;
-
-                case GT_OR:
-                    i1 |= i2;
-                    break;
-                case GT_XOR:
-                    i1 ^= i2;
-                    break;
-                case GT_AND:
-                    i1 &= i2;
-                    break;
-
-                case GT_LSH:
-                    i1 <<= (i2 & 0x1f);
-                    break;
-                case GT_RSH:
-                    i1 >>= (i2 & 0x1f);
-                    break;
-                case GT_RSZ:
-                    // logical shift -> make it unsigned to not propagate the sign bit.
-                    i1 = UINT32(i1) >> (i2 & 0x1f);
-                    break;
-                case GT_ROL:
-                    i1 = (i1 << (i2 & 0x1f)) | (UINT32(i1) >> ((32 - i2) & 0x1f));
-                    break;
-                case GT_ROR:
-                    i1 = (i1 << ((32 - i2) & 0x1f)) | (UINT32(i1) >> (i2 & 0x1f));
-                    break;
-
-                // DIV and MOD can throw an exception - if the division is by 0
-                // or there is overflow - when dividing MIN by -1.
+                    i = i1 * i2;
+                    goto CNS_INT;
 
                 case GT_DIV:
                 case GT_MOD:
+                    if ((i2 == 0) || ((i1 == INT32_MIN) && (i2 == -1)))
+                    {
+                        break;
+                    }
+                    i = tree->OperIs(GT_DIV) ? (i1 / i2) : (i1 % i2);
+                    goto CNS_INT;
+
                 case GT_UDIV:
                 case GT_UMOD:
-                    if (INT32(i2) == 0)
+                    if (i2 == 0)
                     {
-                        // Division by zero.
-                        // We have to evaluate this expression and throw an exception.
-                        return tree;
+                        break;
                     }
-                    else if ((INT32(i2) == -1) && (UINT32(i1) == 0x80000000))
-                    {
-                        // Overflow Division.
-                        // We have to evaluate this expression and throw an exception.
-                        return tree;
-                    }
-
-                    if (tree->OperIs(GT_DIV))
-                    {
-                        i1 = INT32(i1) / INT32(i2);
-                    }
-                    else if (tree->OperIs(GT_MOD))
-                    {
-                        i1 = INT32(i1) % INT32(i2);
-                    }
-                    else if (tree->OperIs(GT_UDIV))
-                    {
-                        i1 = UINT32(i1) / UINT32(i2);
-                    }
-                    else
-                    {
-                        assert(tree->OperIs(GT_UMOD));
-                        i1 = UINT32(i1) % UINT32(i2);
-                    }
-                    break;
+                    i = tree->OperIs(GT_UDIV) ? (ui1 / ui2) : (ui1 % ui2);
+                    goto CNS_INT;
 
                 default:
-                    return tree;
+                    break;
             }
-
-        // We get here after folding to a GT_CNS_INT type.
-        // Also all conditional folding jumps here since the node hanging from
-        // GT_JTRUE has to be a GT_CNS_INT - value 0 or 1.
-        CNS_INT:
-        FOLD_COND:
-            JITDUMPTREE(tree, "\nFolding operator with constant nodes:\n");
-
-            // Some operations are performed as 64 bit instead of 32 bit so the upper 32 bits
-            // need to be discarded. Since constant values are stored as ssize_t and the node
-            // has TYP_INT the result needs to be sign extended rather than zero extended.
-
-            tree->ChangeToIntCon(TYP_INT, static_cast<int32_t>(i1));
-            tree->AsIntCon()->SetFieldSeq(fieldSeq);
-
-            if (vnStore != nullptr)
-            {
-                tree->SetVNP(ValueNumPair{vnStore->VNForIntCon(static_cast<int32_t>(i1))});
-            }
-
-            JITDUMPTREE(tree, "into:\n");
-
-            return tree;
-
-        // Fold constant LONG binary operator.
-
+            break;
+        }
         case TYP_LONG:
+        {
+            assert(!varTypeIsGC(op1->GetType()) && !varTypeIsGC(op2->GetType()));
 
-            // No GC pointer types should be folded here...
-            assert(!varTypeIsGC(op1->TypeGet()) && !varTypeIsGC(op2->TypeGet()));
-
-            // op1 is known to be a TYP_LONG, op2 is normally a TYP_LONG, unless we have a shift operator in which case
-            // it is a TYP_INT.
+            // If op1 is LONG then op2 is normally LONG too, unless
+            // we have a shift operator in which case op2 is INT.
             assert(op2->TypeIs(TYP_LONG, TYP_INT));
 
-            if (!op1->AsIntConCommon()->ImmedValCanBeFolded(this, tree->OperGet()))
+#ifdef TARGET_64BIT
+            if (!op1->AsIntCon()->ImmedValCanBeFolded(this, tree->GetOper()))
             {
-                return tree;
+                break;
             }
 
-            if (!op2->AsIntConCommon()->ImmedValCanBeFolded(this, tree->OperGet()))
+            if (!op2->AsIntCon()->ImmedValCanBeFolded(this, tree->GetOper()))
             {
-                return tree;
+                break;
             }
 
-            lval1 = op1->AsIntConCommon()->LngValue();
+            const int64_t l1 = op1->AsIntCon()->GetValue();
+            const int64_t l2 = op2->AsIntCon()->GetValue();
+#else
+            const int64_t     l1   = op1->AsLngCon()->GetValue();
+            // Shift operators may have an INT op2.
+            const int64_t l2 = op2->IsLngCon() ? op2->AsLngCon()->GetValue() : op2->AsIntCon()->GetInt32Value();
+#endif
 
-            // For the shift operators we can have a op2 that is a TYP_INT.
-            // Thus we cannot just use LngValue(), as it will assert on 32 bit if op2 is not GT_CNS_LNG.
-            lval2 = op2->AsIntConCommon()->IntegralValue();
+            const uint64_t ul1 = static_cast<uint64_t>(l1);
+            const uint64_t ul2 = static_cast<uint64_t>(l2);
 
-            switch (tree->OperGet())
+            switch (tree->GetOper())
             {
                 case GT_EQ:
-                    i1 = (lval1 == lval2);
-                    goto FOLD_COND;
+                    i = (l1 == l2);
+                    goto CNS_INT;
+
                 case GT_NE:
-                    i1 = (lval1 != lval2);
-                    goto FOLD_COND;
+                    i = (l1 != l2);
+                    goto CNS_INT;
 
                 case GT_LT:
-                    if (tree->IsUnsigned())
-                    {
-                        i1 = (UINT64(lval1) < UINT64(lval2));
-                    }
-                    else
-                    {
-                        i1 = (lval1 < lval2);
-                    }
-                    goto FOLD_COND;
+                    i = tree->IsUnsigned() ? (ul1 < ul2) : (l1 < l2);
+                    goto CNS_INT;
 
                 case GT_LE:
-                    if (tree->IsUnsigned())
-                    {
-                        i1 = (UINT64(lval1) <= UINT64(lval2));
-                    }
-                    else
-                    {
-                        i1 = (lval1 <= lval2);
-                    }
-                    goto FOLD_COND;
+                    i = tree->IsUnsigned() ? (ul1 <= ul2) : (l1 <= l2);
+                    goto CNS_INT;
 
                 case GT_GE:
-                    if (tree->IsUnsigned())
-                    {
-                        i1 = (UINT64(lval1) >= UINT64(lval2));
-                    }
-                    else
-                    {
-                        i1 = (lval1 >= lval2);
-                    }
-                    goto FOLD_COND;
+                    i = tree->IsUnsigned() ? (ul1 >= ul2) : (l1 >= l2);
+                    goto CNS_INT;
 
                 case GT_GT:
-                    if (tree->IsUnsigned())
-                    {
-                        i1 = (UINT64(lval1) > UINT64(lval2));
-                    }
-                    else
-                    {
-                        i1 = (lval1 > lval2);
-                    }
-                    goto FOLD_COND;
+                    i = tree->IsUnsigned() ? (ul1 > ul2) : (l1 > l2);
+                    goto CNS_INT;
+
+                case GT_OR:
+                    l = l1 | l2;
+                    goto CNS_LONG;
+
+                case GT_XOR:
+                    l = l1 ^ l2;
+                    goto CNS_LONG;
+
+                case GT_AND:
+                    l = l1 & l2;
+                    goto CNS_LONG;
+
+                case GT_LSH:
+                    l = l1 << (l2 & 63);
+                    goto CNS_LONG;
+
+                case GT_RSH:
+                    l = l1 >> (l2 & 63);
+                    goto CNS_LONG;
+
+                case GT_RSZ:
+                    l = static_cast<int64_t>(ul1 >> (l2 & 63));
+                    goto CNS_LONG;
+
+                case GT_ROL:
+                    l = static_cast<int64_t>(jitstd::rotl<uint64_t>(ul1, static_cast<int>(l2)));
+                    goto CNS_LONG;
+
+                case GT_ROR:
+                    l = static_cast<int64_t>(jitstd::rotr<uint64_t>(ul1, static_cast<int>(l2)));
+                    goto CNS_LONG;
 
                 case GT_ADD:
 #ifdef TARGET_64BIT
                     fieldSeq = GetFieldSeqStore()->FoldAdd(op1->AsIntCon(), op2->AsIntCon());
 #endif
-
-                    ltemp = lval1 + lval2;
-                    if (tree->gtOverflow() && CheckedOps::AddOverflows(lval1, lval2, tree->IsUnsigned()))
+                    if (tree->gtOverflow() && CheckedOps::AddOverflows(l1, l2, tree->IsUnsigned()))
                     {
                         goto INTEGRAL_OVF;
                     }
-                    lval1 = ltemp;
-                    break;
+                    l = l1 + l2;
+                    goto CNS_LONG;
 
                 case GT_SUB:
-                    ltemp = lval1 - lval2;
-                    if (tree->gtOverflow() && CheckedOps::SubOverflows(lval1, lval2, tree->IsUnsigned()))
+                    if (tree->gtOverflow() && CheckedOps::SubOverflows(l1, l2, tree->IsUnsigned()))
                     {
                         goto INTEGRAL_OVF;
                     }
-                    lval1 = ltemp;
-                    break;
+                    l = l1 - l2;
+                    goto CNS_LONG;
 
                 case GT_MUL:
-                    ltemp = lval1 * lval2;
-                    if (tree->gtOverflow() && CheckedOps::MulOverflows(lval1, lval2, tree->IsUnsigned()))
+                    if (tree->gtOverflow() && CheckedOps::MulOverflows(l1, l2, tree->IsUnsigned()))
                     {
                         goto INTEGRAL_OVF;
                     }
-                    lval1 = ltemp;
-                    break;
+                    l = l1 * l2;
+                    goto CNS_LONG;
 
-                case GT_OR:
-                    lval1 |= lval2;
-                    break;
-                case GT_XOR:
-                    lval1 ^= lval2;
-                    break;
-                case GT_AND:
-                    lval1 &= lval2;
-                    break;
-
-                case GT_LSH:
-                    lval1 <<= (lval2 & 0x3f);
-                    break;
-                case GT_RSH:
-                    lval1 >>= (lval2 & 0x3f);
-                    break;
-                case GT_RSZ:
-                    // logical shift -> make it unsigned to not propagate the sign bit.
-                    lval1 = UINT64(lval1) >> (lval2 & 0x3f);
-                    break;
-                case GT_ROL:
-                    lval1 = (lval1 << (lval2 & 0x3f)) | (UINT64(lval1) >> ((64 - lval2) & 0x3f));
-                    break;
-                case GT_ROR:
-                    lval1 = (lval1 << ((64 - lval2) & 0x3f)) | (UINT64(lval1) >> (lval2 & 0x3f));
-                    break;
-
-                // Both DIV and IDIV on x86 raise an exception for min_int (and min_long) / -1.  So we preserve
-                // that behavior here.
                 case GT_DIV:
-                    if (lval2 == 0)
-                    {
-                        return tree;
-                    }
-                    if ((UINT64(lval1) == UINT64(0x8000000000000000)) && (lval2 == INT64(-1)))
-                    {
-                        return tree;
-                    }
-
-                    lval1 /= lval2;
-                    break;
-
                 case GT_MOD:
-                    if (lval2 == 0)
+                    if ((l2 == 0) || ((l1 == INT64_MIN) && (l2 == -1)))
                     {
-                        return tree;
+                        break;
                     }
-                    if ((UINT64(lval1) == UINT64(0x8000000000000000)) && (lval2 == INT64(-1)))
-                    {
-                        return tree;
-                    }
-
-                    lval1 %= lval2;
-                    break;
+                    l = tree->OperIs(GT_DIV) ? (l1 / l2) : (l1 % l2);
+                    goto CNS_LONG;
 
                 case GT_UDIV:
-                    if (lval2 == 0)
-                    {
-                        return tree;
-                    }
-                    if ((UINT64(lval1) == UINT64(0x8000000000000000)) && (lval2 == INT64(-1)))
-                    {
-                        return tree;
-                    }
-
-                    lval1 = UINT64(lval1) / UINT64(lval2);
-                    break;
-
                 case GT_UMOD:
-                    if (lval2 == 0)
+                    if (l2 == 0)
                     {
-                        return tree;
+                        break;
                     }
-                    if ((UINT64(lval1) == UINT64(0x8000000000000000)) && (lval2 == INT64(-1)))
-                    {
-                        return tree;
-                    }
+                    l = tree->OperIs(GT_UDIV) ? (ul1 / ul2) : (ul1 % ul2);
+                    goto CNS_LONG;
 
-                    lval1 = UINT64(lval1) % UINT64(lval2);
-                    break;
                 default:
-                    return tree;
+                    break;
             }
-
-        CNS_LONG:
-            JITDUMPTREE(tree, "\nFolding operator with constant nodes:\n");
-
-            tree->ChangeOperConst(GT_CNS_NATIVELONG);
-            tree->AsIntConCommon()->SetLngValue(lval1);
-#ifdef TARGET_64BIT
-            tree->AsIntCon()->SetFieldSeq(fieldSeq);
-#endif
-
-            if (vnStore != nullptr)
-            {
-                tree->SetVNP(ValueNumPair{vnStore->VNForLongCon(lval1)});
-            }
-
-            JITDUMPTREE(tree, "into:\n");
-
-            return tree;
-
-        // Fold constant FLOAT or DOUBLE binary operator
-
+            break;
+        }
         case TYP_FLOAT:
-        case TYP_DOUBLE:
-            assert(!tree->gtOverflowEx());
+        {
+            assert(!tree->gtOverflowEx() && (op1->GetType() == op2->GetType()));
 
-            d1 = op1->AsDblCon()->GetValue();
-            d2 = op2->AsDblCon()->GetValue();
+            const float f1 = forceCastToFloat(op1->AsDblCon()->GetValue());
+            const float f2 = forceCastToFloat(op2->AsDblCon()->GetValue());
 
-            // Special case - check if we have NaN operands.
-            // For comparisons if not an unordered operation always return 0.
-            // For unordered operations (i.e. the GTF_RELOP_NAN_UN flag is set)
-            // the result is always true - return 1.
-
-            if (_isnan(d1) || _isnan(d2))
+            if (tree->OperIsCompare() && (_isnanf(f1) || _isnanf(f2)))
             {
-                JITDUMP("Double operator(s) is NaN\n");
-
-                if (tree->OperIsCompare())
-                {
-                    if (tree->gtFlags & GTF_RELOP_NAN_UN)
-                    {
-                        // Unordered comparison with NaN always succeeds.
-                        i1 = 1;
-                        goto FOLD_COND;
-                    }
-                    else
-                    {
-                        // Normal comparison with NaN always fails.
-                        i1 = 0;
-                        goto FOLD_COND;
-                    }
-                }
+                bool isUnordered = (tree->gtFlags & GTF_RELOP_NAN_UN) != 0;
+                assert(tree->OperIs(GT_LT, GT_LE, GT_GE, GT_GT) || (tree->OperIs(GT_NE) == isUnordered));
+                i = isUnordered;
+                goto CNS_INT;
             }
 
-            switch (tree->OperGet())
+            switch (tree->GetOper())
             {
                 case GT_EQ:
-                    i1 = (d1 == d2);
-                    goto FOLD_COND;
+                    i = f1 == f2;
+                    goto CNS_INT;
+
                 case GT_NE:
-                    i1 = (d1 != d2);
-                    goto FOLD_COND;
+                    i = f1 != f2;
+                    goto CNS_INT;
 
                 case GT_LT:
-                    i1 = (d1 < d2);
-                    goto FOLD_COND;
-                case GT_LE:
-                    i1 = (d1 <= d2);
-                    goto FOLD_COND;
-                case GT_GE:
-                    i1 = (d1 >= d2);
-                    goto FOLD_COND;
-                case GT_GT:
-                    i1 = (d1 > d2);
-                    goto FOLD_COND;
+                    i = f1 < f2;
+                    goto CNS_INT;
 
-                // Floating point arithmetic should be done in declared
-                // precision while doing constant folding. For this reason though TYP_FLOAT
-                // constants are stored as double constants, while performing float arithmetic,
-                // double constants should be converted to float.  Here is an example case
-                // where performing arithmetic in double precision would lead to incorrect
-                // results.
-                //
-                // Example:
-                // float a = float.MaxValue;
-                // float b = a*a;   This will produce +inf in single precision and 1.1579207543382391e+077 in double
-                //                  precision.
-                // flaot c = b/b;   This will produce NaN in single precision and 1 in double precision.
+                case GT_LE:
+                    i = f1 <= f2;
+                    goto CNS_INT;
+
+                case GT_GE:
+                    i = f1 >= f2;
+                    goto CNS_INT;
+
+                case GT_GT:
+                    i = f1 > f2;
+                    goto CNS_INT;
+
                 case GT_FADD:
-                    if (op1->TypeIs(TYP_FLOAT))
-                    {
-                        f1 = forceCastToFloat(d1);
-                        f2 = forceCastToFloat(d2);
-                        d1 = forceCastToFloat(f1 + f2);
-                    }
-                    else
-                    {
-                        d1 += d2;
-                    }
-                    break;
+                    // TODO-MIKE-Review: Why doesn't this use FpAdd & co. like VN?
+                    f = f1 + f2;
+                    goto CNS_FLOAT;
 
                 case GT_FSUB:
-                    if (op1->TypeIs(TYP_FLOAT))
-                    {
-                        f1 = forceCastToFloat(d1);
-                        f2 = forceCastToFloat(d2);
-                        d1 = forceCastToFloat(f1 - f2);
-                    }
-                    else
-                    {
-                        d1 -= d2;
-                    }
-                    break;
+                    f = f1 - f2;
+                    goto CNS_FLOAT;
 
                 case GT_FMUL:
-                    if (op1->TypeIs(TYP_FLOAT))
-                    {
-                        f1 = forceCastToFloat(d1);
-                        f2 = forceCastToFloat(d2);
-                        d1 = forceCastToFloat(f1 * f2);
-                    }
-                    else
-                    {
-                        d1 *= d2;
-                    }
-                    break;
+                    f = f1 * f2;
+                    goto CNS_FLOAT;
 
                 case GT_FDIV:
                     // We do not fold division by zero, even for floating point.
-                    // This is because the result will be platform-dependent for an expression like 0d / 0d.
-                    if (d2 == 0)
+                    // The result is platform-dependent for an expression like 0.0 / 0.0.
+                    if (f2 == 0.0f)
                     {
-                        return tree;
+                        break;
                     }
-                    if (op1->TypeIs(TYP_FLOAT))
-                    {
-                        f1 = forceCastToFloat(d1);
-                        f2 = forceCastToFloat(d2);
-                        d1 = forceCastToFloat(f1 / f2);
-                    }
-                    else
-                    {
-                        d1 /= d2;
-                    }
-                    break;
+                    f = f1 / f2;
+                    goto CNS_FLOAT;
 
                 default:
-                    return tree;
+                    break;
             }
-
-        CNS_DOUBLE:
-            JITDUMPTREE(tree, "\nFolding operator with constant nodes:\n");
-
-            tree->ChangeToDblCon(d1);
-
-            if (vnStore != nullptr)
-            {
-                tree->SetVNP(ValueNumPair{vnStore->VNForDblCon(tree->GetType(), d1)});
-            }
-
-            JITDUMPTREE(tree, "into:\n");
             break;
+        }
+        case TYP_DOUBLE:
+        {
+            assert(!tree->gtOverflowEx() && (op1->GetType() == op2->GetType()));
 
+            const double d1 = op1->AsDblCon()->GetValue();
+            const double d2 = op2->AsDblCon()->GetValue();
+
+            if (tree->OperIsCompare() && (_isnan(d1) || _isnan(d2)))
+            {
+                bool isUnordered = (tree->gtFlags & GTF_RELOP_NAN_UN) != 0;
+                assert(tree->OperIs(GT_LT, GT_LE, GT_GE, GT_GT) || (tree->OperIs(GT_NE) == isUnordered));
+                i = isUnordered;
+                goto CNS_INT;
+            }
+
+            switch (tree->GetOper())
+            {
+                case GT_EQ:
+                    i = d1 == d2;
+                    goto CNS_INT;
+
+                case GT_NE:
+                    i = d1 != d2;
+                    goto CNS_INT;
+
+                case GT_LT:
+                    i = d1 < d2;
+                    goto CNS_INT;
+
+                case GT_LE:
+                    i = d1 <= d2;
+                    goto CNS_INT;
+
+                case GT_GE:
+                    i = d1 >= d2;
+                    goto CNS_INT;
+
+                case GT_GT:
+                    i = d1 > d2;
+                    goto CNS_INT;
+
+                case GT_FADD:
+                    d = d1 + d2;
+                    goto CNS_DOUBLE;
+
+                case GT_FSUB:
+                    d = d1 - d2;
+                    goto CNS_DOUBLE;
+
+                case GT_FMUL:
+                    d = d1 * d2;
+                    goto CNS_DOUBLE;
+
+                case GT_FDIV:
+                    // We do not fold division by zero, even for floating point.
+                    // The result is platform-dependent for an expression like 0.0 / 0.0.
+                    if (d2 == 0.0)
+                    {
+                        break;
+                    }
+                    d = d1 / d2;
+                    goto CNS_DOUBLE;
+
+                default:
+                    break;
+            }
+            break;
+        }
         default:
-            return tree;
+            break;
     }
 
     return tree;
 
+CNS_INT:
+    JITDUMPTREE(tree, "\nFolding operator with constant nodes:\n");
+
+    // Some operations are performed as 64 bit instead of 32 bit so the upper 32 bits
+    // need to be discarded. Since constant values are stored as ssize_t and the node
+    // has TYP_INT the result needs to be sign extended rather than zero extended.
+    tree->ChangeToIntCon(TYP_INT, i);
+    tree->AsIntCon()->SetFieldSeq(fieldSeq);
+
+    if (vnStore != nullptr)
+    {
+        tree->SetVNP(ValueNumPair{vnStore->VNForIntCon(i)});
+    }
+
+    JITDUMPTREE(tree, "into:\n");
+    return tree;
+
+CNS_LONG:
+    JITDUMPTREE(tree, "\nFolding operator with constant nodes:\n");
+
+#ifdef TARGET_64BIT
+    tree->ChangeToIntCon(TYP_LONG, l);
+    tree->AsIntCon()->SetFieldSeq(fieldSeq);
+#else
+    tree->ChangeToLngCon(l);
+#endif
+
+    if (vnStore != nullptr)
+    {
+        tree->SetVNP(ValueNumPair{vnStore->VNForLongCon(l)});
+    }
+
+    JITDUMPTREE(tree, "into:\n");
+    return tree;
+
+CNS_NULL_BYREF:
+    JITDUMPTREE(tree, "\nFolding operator with constant nodes:\n");
+
+    tree->ChangeToIntCon(TYP_BYREF, 0);
+
+    if (vnStore != nullptr)
+    {
+        tree->SetVNP(ValueNumPair{ValueNumStore::NullVN()});
+    }
+
+    JITDUMPTREE(tree, "into:\n");
+    return tree;
+
+CNS_FLOAT:
+    assert(tree->TypeIs(TYP_FLOAT));
+    d = forceCastToFloat(f);
+CNS_DOUBLE:
+    JITDUMPTREE(tree, "\nFolding operator with constant nodes:\n");
+
+    tree->ChangeToDblCon(d);
+
+    if (vnStore != nullptr)
+    {
+        tree->SetVNP(ValueNumPair{vnStore->VNForDblCon(tree->GetType(), d)});
+    }
+
+    JITDUMPTREE(tree, "into:\n");
+    return tree;
+
 INTEGRAL_OVF:
+    assert(tree->gtOverflow());
+    assert(tree->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_CAST));
+    assert(varTypeIsIntegral(tree->GetType()));
 
     // This operation is going to cause an overflow exception. Morph into
     // an overflow helper. Put a dummy constant value for code generation.
@@ -11313,40 +11161,25 @@ INTEGRAL_OVF:
     if (!fgGlobalMorph)
     {
         assert(tree->gtOverflow());
+
         return tree;
     }
 
-    var_types type = genActualType(tree->TypeGet());
-    op1            = type == TYP_LONG ? gtNewLconNode(0) : gtNewIconNode(0);
-    if (vnStore != nullptr)
-    {
-        op1->SetVNP(ValueNumPair{vnStore->VNZeroForType(type)});
-    }
+    JITDUMPTREE(tree, "\nFolding operator with constant nodes:\n");
 
-    JITDUMP("\nFolding binary operator with constant nodes into a comma throw:\n");
-    DISPTREE(tree);
-
-    // We will change the cast to a GT_COMMA and attach the exception helper as AsOp()->gtOp1.
-    // The constant expression zero becomes op2.
-
-    assert(tree->gtOverflow());
-    assert(tree->OperIs(GT_ADD, GT_SUB, GT_CAST, GT_MUL));
-    assert(op1 != nullptr);
-
-    op2 = op1;
     op1 = gtNewHelperCallNode(CORINFO_HELP_OVERFLOW, TYP_VOID);
-
-    // op1 is a call to the JIT helper that throws an Overflow exception.
-    // Attach the ExcSet for VNF_OverflowExc(Void) to this call.
+    op2 = varTypeIsLong(tree->GetType()) ? gtNewLconNode(0) : gtNewIconNode(0);
 
     if (vnStore != nullptr)
     {
         ValueNumPair overflowEx = vnStore->VNPairForFunc(TYP_REF, VNF_OverflowExc, ValueNumStore::VoidVNP());
         op1->SetVNP(vnStore->PackExset(ValueNumStore::VoidVNP(), vnStore->ExsetCreate(overflowEx)));
+        op2->SetVNP(ValueNumPair{vnStore->VNZeroForType(op2->GetType())});
     }
 
     tree = gtNewCommaNode(op1, op2);
 
+    JITDUMPTREE(tree, "into:\n");
     return tree;
 }
 #ifdef _PREFAST_
@@ -11949,12 +11782,12 @@ bool GenTreeIntCon::ImmedValNeedsReloc(Compiler* comp)
 // Return Value:
 //    True if this immediate value can be folded for op; false otherwise.
 
-bool GenTreeIntConCommon::ImmedValCanBeFolded(Compiler* comp, genTreeOps op)
+bool GenTreeIntCon::ImmedValCanBeFolded(Compiler* comp, genTreeOps op)
 {
     // In general, immediate values that need relocations can't be folded.
     // There are cases where we do want to allow folding of handle comparisons
     // (e.g., typeof(T) == typeof(int)).
-    return IsLngCon() || !IsIntCon()->ImmedValNeedsReloc(comp) || (op == GT_EQ) || (op == GT_NE);
+    return !ImmedValNeedsReloc(comp) || (op == GT_EQ) || (op == GT_NE);
 }
 
 #ifdef TARGET_AMD64
@@ -13604,13 +13437,7 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
 
     assert(varTypeIsIntegral(fromType));
 
-    if (GenTreeCast* cast = tree->IsCast())
-    {
-        // Casts to small int types have type INT, use the cast type instead.
-
-        fromType = cast->GetCastType();
-    }
-    else if (GenTreeCall* call = tree->IsCall())
+    if (GenTreeCall* call = tree->IsCall())
     {
         // Calls have "actual" type, use the signature type instead.
         // Note that this works only in the managed ABI (and only when we're not compiling

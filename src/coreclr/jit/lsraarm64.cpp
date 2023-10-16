@@ -317,7 +317,7 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_TEST_EQ:
         case GT_TEST_NE:
         case GT_JCMP:
-            srcCount = BuildCmp(tree);
+            srcCount = BuildCmp(tree->AsOp());
             break;
 
         case GT_CKFINITE:
@@ -697,15 +697,6 @@ int LinearScan::BuildNode(GenTree* tree)
 
 #include "hwintrinsic.h"
 
-//------------------------------------------------------------------------
-// BuildHWIntrinsic: Set the NodeInfo for a GT_HWINTRINSIC tree.
-//
-// Arguments:
-//    tree       - The GT_HWINTRINSIC node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 {
     const HWIntrinsic intrin(intrinsicTree);

@@ -1762,7 +1762,7 @@ private:
     // The emitters themselves use emitNewXXX, which might be thin wrappers over the emitAllocXXX functions.
     //
 
-    void* emitAllocAnyInstr(unsigned sz, emitAttr attr);
+    void* emitAllocAnyInstr(unsigned sz, emitAttr attr, bool updateLastIns = true);
 
     instrDesc* emitAllocInstr(emitAttr attr)
     {

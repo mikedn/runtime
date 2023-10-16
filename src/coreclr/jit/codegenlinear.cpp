@@ -1234,6 +1234,7 @@ void CodeGen::genConsumeAddress(GenTree* addr)
     }
 }
 
+#ifdef DEBUG
 bool CodeGen::IsValidContainedLcl(GenTreeLclVarCommon* node)
 {
     // A contained local must be living on stack and marked as reg optional,
@@ -1243,6 +1244,7 @@ bool CodeGen::IsValidContainedLcl(GenTreeLclVarCommon* node)
 
     return (lcl->GetRegNum() == REG_STK) && (node->IsRegOptional() || !lcl->IsRegCandidate());
 }
+#endif
 
 void CodeGen::genConsumeRegs(GenTree* tree)
 {
@@ -1287,7 +1289,7 @@ void CodeGen::genConsumeRegs(GenTree* tree)
 
     if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        IsValidContainedLcl(tree->AsLclVarCommon());
+        assert(IsValidContainedLcl(tree->AsLclVarCommon()));
         genUpdateLife(tree->AsLclVarCommon());
 
         return;
@@ -1761,12 +1763,6 @@ void CodeGen::DefLongRegs(GenTree* node)
 }
 #endif // TARGET_64BIT
 
-//------------------------------------------------------------------------
-// genCodeForCast: Generates the code for GT_CAST.
-//
-// Arguments:
-//    cast - the GT_CAST node.
-//
 void CodeGen::genCodeForCast(GenTreeCast* cast)
 {
     if (varTypeIsFloating(cast->GetType()) && varTypeIsFloating(cast->GetOp(0)->GetType()))
@@ -1797,20 +1793,21 @@ CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)
 {
     GenTree* src = cast->GetOp(0);
 
-    const var_types srcType      = genActualType(src->TypeGet());
+    const var_types srcType      = varActualType(src->GetType());
     const bool      srcUnsigned  = cast->IsUnsigned();
-    const unsigned  srcSize      = genTypeSize(srcType);
-    const var_types castType     = cast->gtCastType;
+    const unsigned  srcSize      = varTypeSize(srcType);
+    const var_types castType     = cast->GetCastType();
     const bool      castUnsigned = varTypeIsUnsigned(castType);
-    const unsigned  castSize     = genTypeSize(castType);
-    const var_types dstType      = genActualType(cast->TypeGet());
-    const unsigned  dstSize      = genTypeSize(dstType);
+    const unsigned  castSize     = varTypeSize(castType);
+    const var_types dstType      = varActualType(cast->GetType());
+    const unsigned  dstSize      = varTypeSize(dstType);
     const bool      overflow     = cast->gtOverflow();
 
-    assert((srcSize == 4) || (srcSize == genTypeSize(TYP_I_IMPL)));
-    assert((dstSize == 4) || (dstSize == genTypeSize(TYP_I_IMPL)));
+    assert(cast->GetType() == varCastType(castType));
+    assert((srcSize == 4) || (srcSize == varTypeSize(TYP_I_IMPL)));
+    assert((dstSize == 4) || (dstSize == varTypeSize(TYP_I_IMPL)));
 
-    assert(dstSize == genTypeSize(genActualType(castType)));
+    assert(dstSize == varTypeSize(varActualType(castType)));
 
     if (castSize < 4) // Cast to small int type
     {
@@ -2057,9 +2054,9 @@ void CodeGen::GenJTrue(GenTreeUnOp* jtrue, BasicBlock* block)
 void CodeGen::GenJCC(GenTreeCC* jcc, BasicBlock* block)
 {
     assert(jcc->OperIs(GT_JCC));
-    assert(block->bbJumpKind == BBJ_COND);
+    assert(block->KindIs(BBJ_COND));
 
-    inst_JCC(jcc->gtCondition, block->bbJumpDest);
+    inst_JCC(jcc->GetCondition(), block->bbJumpDest);
 }
 
 //------------------------------------------------------------------------
@@ -2091,17 +2088,11 @@ void CodeGen::inst_JCC(GenCondition condition, BasicBlock* target)
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForSetcc: Generate code for a GT_SETCC node.
-//
-// Arguments:
-//    setcc - The node
-//
 void CodeGen::genCodeForSetcc(GenTreeCC* setcc)
 {
     assert(setcc->OperIs(GT_SETCC));
 
-    inst_SETCC(setcc->gtCondition, setcc->TypeGet(), setcc->GetRegNum());
+    inst_SETCC(setcc->GetCondition(), setcc->GetType(), setcc->GetRegNum());
     genProduceReg(setcc);
 }
 

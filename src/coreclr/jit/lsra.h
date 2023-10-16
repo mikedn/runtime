@@ -1161,13 +1161,6 @@ private:
                                 regMaskTP    mask,
                                 unsigned     multiRegIdx = 0);
 
-    // This creates a RefTypeUse at currentLoc. It sets the treeNode to nullptr if it is not a
-    // lclVar interval.
-    RefPosition* newUseRefPosition(Interval* theInterval,
-                                   GenTree*  theTreeNode,
-                                   regMaskTP mask,
-                                   unsigned  multiRegIdx = 0);
-
     RefPosition* newRefPosition(
         regNumber reg, LsraLocation theLocation, RefType theRefType, GenTree* theTreeNode, regMaskTP mask);
 
@@ -1914,7 +1907,7 @@ private:
 #endif
     int BuildPutArgReg(GenTreeUnOp* node);
     int BuildCall(GenTreeCall* call);
-    int BuildCmp(GenTree* tree);
+    int BuildCmp(GenTreeOp* cmp);
     int BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
     int BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout);
     int BuildStoreDynBlk(GenTreeDynBlk* store);

@@ -22,7 +22,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "sideeffects.h"
 #include "lower.h"
 
-// xarch supports both ROL and ROR instructions so no lowering is required.
 void Lowering::LowerRotate(GenTree* tree)
 {
     ContainCheckShiftRotate(tree->AsOp());
@@ -703,169 +702,95 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 //      condition flags appropriately (XARCH/ARM64 specific but could be extended
 //      to ARM32 as well if ARM32 codegen supports GTF_SET_FLAGS).
 //
-GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
+GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
 {
-    assert(cmp->gtGetOp2()->IsIntegralConst());
+    GenTree*       op1      = cmp->GetOp(0);
+    GenTreeIntCon* op2      = cmp->GetOp(1)->AsIntCon();
+    var_types      op1Type  = op1->GetType();
+    ssize_t        op2Value = op2->GetValue();
 
-    GenTree*       op1      = cmp->gtGetOp1();
-    GenTreeIntCon* op2      = cmp->gtGetOp2()->AsIntCon();
-    ssize_t        op2Value = op2->IconValue();
-
-    var_types op1Type = op1->TypeGet();
-    if (IsContainableMemoryOp(op1) && varTypeIsSmall(op1Type) && genSmallTypeCanRepresentValue(op1Type, op2Value))
+    if (IsContainableMemoryOp(op1))
     {
-        //
         // If op1's type is small then try to narrow op2 so it has the same type as op1.
         // Small types are usually used by memory loads and if both compare operands have
         // the same type then the memory load can be contained. In certain situations
         // (e.g "cmp ubyte, 200") we also get a smaller instruction encoding.
-        //
-
-        op2->gtType = op1Type;
-    }
-    else if (op1->OperIs(GT_CAST) && !op1->gtOverflow())
-    {
-        GenTreeCast* cast       = op1->AsCast();
-        var_types    castToType = cast->CastToType();
-        GenTree*     castOp     = cast->gtGetOp1();
-
-        if (((castToType == TYP_BOOL) || (castToType == TYP_UBYTE)) && FitsIn<UINT8>(op2Value))
+        if (varTypeIsSmall(op1Type) && varTypeSmallIntCanRepresentValue(op1Type, op2Value))
         {
-            //
-            // Since we're going to remove the cast we need to be able to narrow the cast operand
-            // to the cast type. This can be done safely only for certain opers (e.g AND, OR, XOR).
-            // Some opers just can't be narrowed (e.g DIV, MUL) while other could be narrowed but
-            // doing so would produce incorrect results (e.g. RSZ, RSH).
-            //
-            // The below list of handled opers is conservative but enough to handle the most common
-            // situations. In particular this include CALL, sometimes the JIT unnecessarilly widens
-            // the result of bool returning calls.
-            //
-            bool removeCast =
-                (castOp->OperIs(GT_CALL, GT_LCL_VAR) || castOp->OperIsLogical() || IsContainableMemoryOp(castOp));
-
-            if (removeCast)
-            {
-                assert(!castOp->gtOverflowEx()); // Must not be an overflow checking operation
-
-                castOp->SetType(castToType);
-                op2->SetType(castToType);
-
-                // If we have any contained memory ops on castOp, they must now not be contained.
-                if (castOp->OperIsLogical())
-                {
-                    GenTree* op1 = castOp->gtGetOp1();
-                    if ((op1 != nullptr) && !op1->IsCnsIntOrI())
-                    {
-                        op1->ClearContained();
-                    }
-                    GenTree* op2 = castOp->gtGetOp2();
-                    if ((op2 != nullptr) && !op2->IsCnsIntOrI())
-                    {
-                        op2->ClearContained();
-                    }
-                }
-                cmp->AsOp()->gtOp1 = castOp;
-
-                BlockRange().Remove(cast);
-            }
+            op2->SetType(op1Type);
         }
+
+        return cmp;
     }
-    else if (op1->OperIs(GT_AND) && cmp->OperIs(GT_EQ, GT_NE))
+
+    if (op1->OperIs(GT_AND) && cmp->OperIs(GT_EQ, GT_NE) && (op2Value == 0))
     {
-        //
-        // Transform ((x AND y) EQ|NE 0) into (x TEST_EQ|TEST_NE y) when possible.
-        //
+        // ((x AND y) EQ|NE 0) => (x TEST_EQ|TEST_NE y)
 
-        GenTree* andOp1 = op1->gtGetOp1();
-        GenTree* andOp2 = op1->gtGetOp2();
+        GenTree* andOp1 = op1->AsOp()->GetOp(0);
+        GenTree* andOp2 = op1->AsOp()->GetOp(1);
 
-        if (op2Value != 0)
+        BlockRange().Remove(op1);
+        BlockRange().Remove(op2);
+
+        cmp->SetOperRaw(cmp->OperIs(GT_EQ) ? GT_TEST_EQ : GT_TEST_NE);
+        cmp->SetOp(0, andOp1);
+        cmp->SetOp(1, andOp2);
+        // We will re-evaluate containment below
+        andOp1->ClearContained();
+        andOp2->ClearContained();
+
+        if (IsContainableMemoryOp(andOp1) && andOp2->IsIntCon())
         {
+            // For "test" we only care about the bits that are set in the second operand (mask).
+            // If the mask fits in a small type then we can narrow both operands to generate a "test"
+            // instruction with a smaller encoding ("test" does not have a r/m32, imm8 form) and avoid
+            // a widening load in some cases.
             //
-            // If we don't have a 0 compare we can get one by transforming ((x AND mask) EQ|NE mask)
-            // into ((x AND mask) NE|EQ 0) when mask is a single bit.
+            // For 16 bit operands we narrow only if the memory operand is already 16 bit. This matches
+            // the behavior of a previous implementation and avoids adding more cases where we generate
+            // 16 bit instructions that require a length changing prefix (0x66). These suffer from
+            // significant decoder stalls on Intel CPUs.
             //
+            // We could also do this for 64 bit masks that fit into 32 bit but it doesn't help.
+            // In such cases morph narrows down the existing GT_AND by inserting a cast between it and
+            // the memory operand so we'd need to add more code to recognize and eliminate that cast.
 
-            if (isPow2<target_size_t>(static_cast<target_size_t>(op2Value)) && andOp2->IsIntegralConst(op2Value))
+            size_t mask = static_cast<size_t>(andOp2->AsIntCon()->GetValue());
+
+            if (FitsIn<uint8_t>(mask))
             {
-                op2Value = 0;
-                op2->SetIconValue(0);
-                cmp->SetOperRaw(GenTree::ReverseRelop(cmp->OperGet()));
+                andOp1->SetType(TYP_UBYTE);
+                andOp2->SetType(TYP_UBYTE);
+            }
+            else if (FitsIn<uint16_t>(mask) && varTypeIsShort(andOp1->GetType()))
+            {
+                andOp1->SetType(TYP_USHORT);
+                andOp2->SetType(TYP_USHORT);
             }
         }
 
-        if (op2Value == 0)
-        {
-            BlockRange().Remove(op1);
-            BlockRange().Remove(op2);
-
-            cmp->SetOperRaw(cmp->OperIs(GT_EQ) ? GT_TEST_EQ : GT_TEST_NE);
-            cmp->AsOp()->gtOp1 = andOp1;
-            cmp->AsOp()->gtOp2 = andOp2;
-            // We will re-evaluate containment below
-            andOp1->ClearContained();
-            andOp2->ClearContained();
-
-            if (IsContainableMemoryOp(andOp1) && andOp2->IsIntegralConst())
-            {
-                //
-                // For "test" we only care about the bits that are set in the second operand (mask).
-                // If the mask fits in a small type then we can narrow both operands to generate a "test"
-                // instruction with a smaller encoding ("test" does not have a r/m32, imm8 form) and avoid
-                // a widening load in some cases.
-                //
-                // For 16 bit operands we narrow only if the memory operand is already 16 bit. This matches
-                // the behavior of a previous implementation and avoids adding more cases where we generate
-                // 16 bit instructions that require a length changing prefix (0x66). These suffer from
-                // significant decoder stalls on Intel CPUs.
-                //
-                // We could also do this for 64 bit masks that fit into 32 bit but it doesn't help.
-                // In such cases morph narrows down the existing GT_AND by inserting a cast between it and
-                // the memory operand so we'd need to add more code to recognize and eliminate that cast.
-                //
-
-                size_t mask = static_cast<size_t>(andOp2->AsIntCon()->IconValue());
-
-                if (FitsIn<UINT8>(mask))
-                {
-                    andOp1->gtType = TYP_UBYTE;
-                    andOp2->gtType = TYP_UBYTE;
-                }
-                else if (FitsIn<UINT16>(mask) && genTypeSize(andOp1) == 2)
-                {
-                    andOp1->gtType = TYP_USHORT;
-                    andOp2->gtType = TYP_USHORT;
-                }
-            }
-        }
-    }
-
-    if (cmp->OperIs(GT_TEST_EQ, GT_TEST_NE))
-    {
-        //
         // Transform TEST_EQ|NE(x, LSH(1, y)) into BT(x, y) when possible. Using BT
         // results in smaller and faster code. It also doesn't have special register
         // requirements, unlike LSH that requires the shift count to be in ECX.
         // Note that BT has the same behavior as LSH when the bit index exceeds the
         // operand bit size - it uses (bit_index MOD bit_size).
-        //
 
-        GenTree* lsh = cmp->gtGetOp2();
+        GenTree* lsh = andOp2;
         LIR::Use cmpUse;
 
-        if (lsh->OperIs(GT_LSH) && varTypeIsIntOrI(lsh->TypeGet()) && lsh->gtGetOp1()->IsIntegralConst(1) &&
+        if (lsh->OperIs(GT_LSH) && varTypeIsIntOrI(lsh->GetType()) && lsh->AsOp()->GetOp(0)->IsIntCon(1) &&
             BlockRange().TryGetUse(cmp, &cmpUse))
         {
             GenCondition condition = cmp->OperIs(GT_TEST_NE) ? GenCondition::C : GenCondition::NC;
 
             cmp->SetOper(GT_BT);
-            cmp->gtType = TYP_VOID;
+            cmp->SetType(TYP_VOID);
             cmp->gtFlags |= GTF_SET_FLAGS;
-            cmp->AsOp()->gtOp2 = lsh->gtGetOp2();
-            cmp->gtGetOp2()->ClearContained();
+            cmp->AsOp()->SetOp(1, lsh->AsOp()->GetOp(1));
+            cmp->GetOp(1)->ClearContained();
 
-            BlockRange().Remove(lsh->gtGetOp1());
+            BlockRange().Remove(lsh->AsOp()->GetOp(0));
             BlockRange().Remove(lsh);
 
             GenTreeCC* cc;
@@ -873,8 +798,8 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
             if (cmpUse.User()->OperIs(GT_JTRUE))
             {
                 cmpUse.User()->ChangeOper(GT_JCC);
-                cc              = cmpUse.User()->AsCC();
-                cc->gtCondition = condition;
+                cc = cmpUse.User()->AsCC();
+                cc->SetCondition(condition);
             }
             else
             {
@@ -887,20 +812,65 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
 
             return cmp->gtNext;
         }
-    }
-    else if (cmp->OperIs(GT_EQ, GT_NE))
-    {
-        GenTree* op1 = cmp->gtGetOp1();
-        GenTree* op2 = cmp->gtGetOp2();
 
+        return cmp;
+    }
+
+    if (op1->IsCast() && !op1->gtOverflow() && op1->TypeIs(TYP_UBYTE) && FitsIn<uint8_t>(op2Value))
+    {
+        GenTreeCast* cast   = op1->AsCast();
+        GenTree*     castOp = cast->GetOp(0);
+
+        // Since we're going to remove the cast we need to be able to narrow the cast operand
+        // to the cast type. This can be done safely only for certain opers (e.g AND, OR, XOR).
+        // Some opers just can't be narrowed (e.g DIV, MUL) while other could be narrowed but
+        // doing so would produce incorrect results (e.g. RSZ, RSH).
+        //
+        // The below list of handled opers is conservative but enough to handle the most common
+        // situations. In particular this include CALL, sometimes the JIT unnecessarily widens
+        // the result of bool returning calls.
+
+        if (castOp->OperIs(GT_CALL, GT_LCL_VAR, GT_AND, GT_OR, GT_XOR) || IsContainableMemoryOp(castOp))
+        {
+            assert(!castOp->gtOverflowEx());
+
+            // Any contained memory ops on castOp must be narrowed too.
+            if (castOp->OperIs(GT_AND, GT_OR, GT_XOR))
+            {
+                GenTree* op1 = castOp->AsOp()->GetOp(0);
+                GenTree* op2 = castOp->AsOp()->GetOp(1);
+
+                if (!op1->IsIntCon() && op1->isContained())
+                {
+                    assert(IsContainableMemoryOp(op1));
+                    op1->SetType(TYP_UBYTE);
+                }
+
+                if (!op2->IsIntCon() && op2->isContained())
+                {
+                    assert(IsContainableMemoryOp(op2));
+                    op2->SetType(TYP_UBYTE);
+                }
+            }
+
+            op1 = castOp;
+            op1->SetType(TYP_UBYTE);
+            op2->SetType(TYP_UBYTE);
+            cmp->SetOp(0, op1);
+
+            BlockRange().Remove(cast);
+        }
+    }
+
+    if (op1->OperIs(GT_AND, GT_OR, GT_XOR, GT_ADD, GT_SUB, GT_NEG) && cmp->OperIs(GT_EQ, GT_NE) && (op2Value == 0))
+    {
         // TODO-CQ: right now the below peep is inexpensive and gets the benefit in most
         // cases because in majority of cases op1, op2 and cmp would be in that order in
         // execution. In general we should be able to check that all the nodes that come
         // after op1 do not modify the flags so that it is safe to avoid generating a
         // test instruction.
 
-        if (op2->IsIntegralConst(0) && (op1->gtNext == op2) && (op2->gtNext == cmp) &&
-            op1->OperIs(GT_AND, GT_OR, GT_XOR, GT_ADD, GT_SUB, GT_NEG))
+        if ((op1->gtNext == op2) && (op2->gtNext == cmp))
         {
             op1->gtFlags |= GTF_SET_FLAGS;
             op1->SetUnusedValue();
@@ -913,7 +883,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
             LIR::Use   cmpUse;
 
             // Fast check for the common case - relop used by a JTRUE that immediately follows it.
-            if ((next != nullptr) && next->OperIs(GT_JTRUE) && (next->gtGetOp1() == cmp))
+            if ((next != nullptr) && next->OperIs(GT_JTRUE) && (next->AsUnOp()->GetOp(0) == cmp))
             {
                 cc   = next;
                 ccOp = GT_JCC;
@@ -937,7 +907,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
 
             GenCondition condition = GenCondition::FromIntegralRelop(cmp);
             cc->ChangeOper(ccOp);
-            cc->AsCC()->gtCondition = condition;
+            cc->AsCC()->SetCondition(condition);
             cc->gtFlags |= GTF_USE_FLAGS;
 
             return next;
@@ -956,7 +926,7 @@ GenTree* Lowering::LowerCompare(GenTreeOp* cmp)
     }
 #endif
 
-    if (cmp->GetOp(1)->IsIntegralConst() && !comp->opts.MinOpts())
+    if (cmp->GetOp(1)->IsIntegralConst() && comp->opts.OptimizationEnabled())
     {
         GenTree* next = OptimizeConstCompare(cmp);
 
@@ -1032,8 +1002,8 @@ GenTreeCC* Lowering::LowerNodeCC(GenTree* node, GenCondition condition)
     GenTree* next = first;
 
     while ((next != nullptr) && next->IsIntegralConst(0) && (next->gtNext != nullptr) &&
-           next->gtNext->OperIs(GT_EQ, GT_NE) && (next->gtNext->AsOp()->gtGetOp1() == relop) &&
-           (next->gtNext->AsOp()->gtGetOp2() == next))
+           next->gtNext->OperIs(GT_EQ, GT_NE) && (next->gtNext->AsOp()->GetOp(0) == relop) &&
+           (next->gtNext->AsOp()->GetOp(1) == next))
     {
         relop = next->gtNext;
         next  = relop->gtNext;
@@ -1056,13 +1026,13 @@ GenTreeCC* Lowering::LowerNodeCC(GenTree* node, GenCondition condition)
             // constructed IL (the setting of a condition code should always immediately precede its
             // use, since the JIT doesn't track dataflow for condition codes). Still, if it happens
             // it's not our problem, it simply means that `node` is not used and can be removed.
-            if (next->AsUnOp()->gtGetOp1() == relop)
+            if (next->AsUnOp()->GetOp(0) == relop)
             {
                 assert(relop->OperIsCompare());
 
                 next->ChangeOper(GT_JCC);
-                cc              = next->AsCC();
-                cc->gtCondition = condition;
+                cc = next->AsCC();
+                cc->SetCondition(condition);
             }
         }
         else
@@ -1135,20 +1105,20 @@ void Lowering::LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIn
             //     containment.
             //   - Allow swapping for containment purposes only if this doesn't result in a non-"preferred"
             //     condition being generated.
-            if ((cc != nullptr) && cc->gtCondition.PreferSwap())
+            if ((cc != nullptr) && cc->GetCondition().PreferSwap())
             {
                 swapOperands = true;
             }
             else
             {
-                canSwapOperands = (cc == nullptr) || !GenCondition::Swap(cc->gtCondition).PreferSwap();
+                canSwapOperands = (cc == nullptr) || !GenCondition::Swap(cc->GetCondition()).PreferSwap();
             }
             break;
 
         case NI_SSE41_PTEST:
         case NI_AVX_PTEST:
             // If we need the Carry flag then we can't swap operands.
-            canSwapOperands = (cc == nullptr) || cc->gtCondition.Is(GenCondition::EQ, GenCondition::NE);
+            canSwapOperands = (cc == nullptr) || cc->GetCondition().Is(GenCondition::EQ, GenCondition::NE);
             break;
 
         default:
@@ -1174,7 +1144,7 @@ void Lowering::LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIn
 
         if (cc != nullptr)
         {
-            cc->gtCondition = GenCondition::Swap(cc->gtCondition);
+            cc->SetCondition(GenCondition::Swap(cc->GetCondition()));
         }
     }
 }
@@ -1247,12 +1217,6 @@ void Lowering::LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node)
     }
 }
 
-//----------------------------------------------------------------------------------------------
-// Lowering::LowerHWIntrinsic: Perform containment analysis for a hardware intrinsic node.
-//
-//  Arguments:
-//     node - The hardware intrinsic node.
-//
 void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     if (node->TypeGet() == TYP_SIMD12)
@@ -1514,7 +1478,7 @@ void Lowering::LowerHWIntrinsicEquality(GenTreeHWIntrinsic* node, genTreeOps cmp
 
     assert(varTypeIsIntegral(baseType));
     assert(comp->compOpportunisticallyDependsOn(InstructionSet_SSE41));
-    assert(node->gtType == TYP_BOOL);
+    assert(node->TypeIs(TYP_UBYTE));
     assert((cmpOp == GT_EQ) || (cmpOp == GT_NE));
     assert((simdSize == 16) || (simdSize == 32));
 
@@ -2416,7 +2380,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
         // TODO-MIKE-CQ: Most of the time this isn't necessary as the index is usually
         // produced by a 32 bit instruction that implicitly zero extends. CAST codegen
         // attempts to eliminate such redundant casts but it rarely succeeds.
-        idx = comp->gtNewCastNode(TYP_LONG, idx, true, TYP_LONG);
+        idx = comp->gtNewCastNode(idx, true, TYP_LONG);
         BlockRange().InsertBefore(node, idx);
         node->SetOp(1, idx);
 #endif
@@ -2559,7 +2523,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
         LIR::Use use;
         if (BlockRange().TryGetUse(node, &use))
         {
-            GenTreeCast* cast = comp->gtNewCastNode(TYP_INT, node, false, eltType);
+            GenTreeCast* cast = comp->gtNewCastNode(node, false, eltType);
             BlockRange().InsertAfter(node, cast);
             use.ReplaceWith(comp, cast);
             LowerNode(cast);
@@ -3258,17 +3222,15 @@ bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
 // Note: if the tree oper is neither commutative nor a compare oper
 // then only op2 can be reg optional on xarch and hence no need to
 // call this routine.
-GenTree* Lowering::PreferredRegOptionalOperand(GenTree* tree)
+GenTree* Lowering::PreferredRegOptionalOperand(GenTreeOp* tree)
 {
-    assert(GenTree::OperIsBinary(tree->OperGet()));
+    assert(tree->OperIsBinary());
     assert(tree->OperIsCommutative() || tree->OperIsCompare() || tree->OperIs(GT_CMP));
 
-    GenTree* op1 = tree->gtGetOp1();
-    GenTree* op2 = tree->gtGetOp2();
-    assert(!op1->IsRegOptional() && !op2->IsRegOptional());
+    GenTree* op1 = tree->GetOp(0);
+    GenTree* op2 = tree->GetOp(1);
 
-    // We default to op1, as op2 is likely to have the shorter lifetime.
-    GenTree* preferredOp = op1;
+    assert(!op1->IsRegOptional() && !op2->IsRegOptional());
 
     // This routine uses the following heuristics:
     //
@@ -3305,27 +3267,30 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTree* tree)
     //
     // f) If neither of them are local vars (i.e. tree temps), prefer to
     // mark op1 as reg optional for the same reason as mentioned in (d) above.
+
+    // We default to op1, as op2 is likely to have the shorter lifetime.
+    GenTree* preferredOp = op1;
+
     if (op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_VAR))
     {
-        LclVarDsc* v1 = comp->lvaGetDesc(op1->AsLclVar()->GetLclNum());
-        LclVarDsc* v2 = comp->lvaGetDesc(op2->AsLclVar()->GetLclNum());
+        LclVarDsc* lcl1 = comp->lvaGetDesc(op1->AsLclVar());
+        LclVarDsc* lcl2 = comp->lvaGetDesc(op2->AsLclVar());
 
-        bool v1IsRegCandidate = !v1->lvDoNotEnregister;
-        bool v2IsRegCandidate = !v2->lvDoNotEnregister;
-        if (v1IsRegCandidate && v2IsRegCandidate)
+        if (!lcl1->lvDoNotEnregister && !lcl2->lvDoNotEnregister)
         {
-            // Both are enregisterable locals.  The one with lower weight is less likely
-            // to get a register and hence beneficial to mark the one with lower
-            // weight as reg optional.
-            // If either is not tracked, it may be that it was introduced after liveness
-            // was run, in which case we will always prefer op1 (should we use raw refcnt??).
-            if (v1->lvTracked && v2->lvTracked && (v1->lvRefCntWtd() >= v2->lvRefCntWtd()))
+            // Both are enregisterable locals. The one with lower weight is less likely to get a
+            // register and hence beneficial to mark the one with lower weight as reg optional.
+            // If either is not tracked, it may be that it was introduced after liveness was run,
+            // in which case we will always prefer op1.
+            // TODO: Should we use raw ref count instead of weight?
+
+            if (lcl1->HasLiveness() && lcl2->HasLiveness() && (lcl1->GetRefWeight() >= lcl2->GetRefWeight()))
             {
                 preferredOp = op2;
             }
         }
     }
-    else if (!(op1->OperGet() == GT_LCL_VAR) && (op2->OperGet() == GT_LCL_VAR))
+    else if (!op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_VAR))
     {
         preferredOp = op2;
     }
@@ -3333,19 +3298,6 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTree* tree)
     return preferredOp;
 }
 
-//------------------------------------------------------------------------
-// Containment analysis
-//------------------------------------------------------------------------
-
-//------------------------------------------------------------------------
-// ContainCheckCallOperands: Determine whether operands of a call should be contained.
-//
-// Arguments:
-//    call       - The call node of interest
-//
-// Return Value:
-//    None.
-//
 void Lowering::ContainCheckCallOperands(GenTreeCall* call)
 {
 #ifdef TARGET_X86
@@ -3390,19 +3342,6 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckIndir: Determine whether operands of an indir should be contained.
-//
-// Arguments:
-//    node       - The indirection node of interest
-//
-// Notes:
-//    This is called for both store and load indirections. In the former case, it is assumed that
-//    LowerStoreIndir() has already been called to check for RMW opportunities.
-//
-// Return Value:
-//    None.
-//
 void Lowering::ContainCheckIndir(GenTreeIndir* node)
 {
     // If this is the rhs of a block copy it will be handled when we handle the store.
@@ -3459,12 +3398,6 @@ void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckMul: determine whether the sources of a MUL node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckMul(GenTreeOp* node)
 {
 #if defined(TARGET_X86)
@@ -3621,12 +3554,6 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckDivOrMod: determine which operands of a div/mod should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
 {
     assert(node->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD) && varTypeIsIntegral(node->GetType()));
@@ -3656,12 +3583,6 @@ void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckShiftRotate: determine whether the sources of a shift/rotate node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 {
     assert(node->OperIsShiftOrRotate());
@@ -3685,7 +3606,8 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
-    GenTree* src = store->gtGetOp1();
+
+    GenTree* src = store->GetOp(0);
 
     if (src->OperIs(GT_BITCAST))
     {
@@ -3806,10 +3728,7 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
 #endif
 
-    var_types srcType = src->GetType();
-    var_types dstType = cast->GetCastType();
-
-    if (varTypeIsIntegral(dstType) && varTypeIsIntegral(srcType))
+    if (varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(src->GetType()))
     {
         if (IsContainableMemoryOp(src) && (!cast->gtOverflow() || IsSafeToContainMem(cast, src)))
         {
@@ -3828,7 +3747,7 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
             src->SetRegOptional();
         }
     }
-    else if (varTypeIsFloating(dstType) || varTypeIsFloating(srcType))
+    else if (varTypeIsFloating(cast->GetType()) || varTypeIsFloating(src->GetType()))
     {
         assert(!cast->gtOverflow());
 
@@ -3837,7 +3756,8 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
         // "normalize on store" local reg-optional but it's probably not worth the extra work.
         // Also, ULONG to DOUBLE/FLOAT casts require checking the sign of the source so allowing
         // a memory operand would result in 2 loads instead of 1.
-        if (!varTypeIsSmall(srcType) && ((srcType != TYP_LONG) || !cast->IsUnsigned()))
+
+        if (!varTypeIsSmall(src->GetType()) && (!src->TypeIs(TYP_LONG) || !cast->IsUnsigned()))
         {
             if (IsContainableMemoryOp(src))
             {
@@ -3859,134 +3779,107 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckCompare: determine whether the sources of a compare node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckCompare(GenTreeOp* cmp)
 {
     assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP));
 
-    GenTree*  op1     = cmp->AsOp()->gtOp1;
-    GenTree*  op2     = cmp->AsOp()->gtOp2;
-    var_types op1Type = op1->TypeGet();
-    var_types op2Type = op2->TypeGet();
+    GenTree*  op1   = cmp->GetOp(0);
+    GenTree*  op2   = cmp->GetOp(1);
+    var_types type1 = op1->GetType();
+    var_types type2 = op2->GetType();
 
-    // If either of op1 or op2 is floating point values, then we need to use
-    // ucomiss or ucomisd to compare, both of which support the following form:
-    //     ucomis[s|d] xmm, xmm/mem
-    // That is only the second operand can be a memory op.
-    //
-    // Second operand is a memory Op:  Note that depending on comparison operator,
-    // the operands of ucomis[s|d] need to be reversed.  Therefore, either op1 or
-    // op2 can be a memory op depending on the comparison operator.
-    if (varTypeIsFloating(op1Type))
+    if (varTypeIsFloating(type1))
     {
-        // The type of the operands has to be the same and no implicit conversions at this stage.
-        assert(op1Type == op2Type);
+        assert(type1 == type2);
 
-        GenTree* otherOp;
-        if (GenCondition::FromFloatRelop(cmp).PreferSwap())
-        {
-            otherOp = op1;
-        }
-        else
-        {
-            otherOp = op2;
-        }
+        GenTree* otherOp                = GenCondition::FromFloatRelop(cmp).PreferSwap() ? op1 : op2;
+        bool     isSafeToContainOtherOp = true;
 
-        assert(otherOp != nullptr);
-        bool isSafeToContainOtherOp = true;
-        if (otherOp->IsCnsNonZeroFltOrDbl())
+        if (otherOp->IsDblConNonPositiveZero())
         {
-            MakeSrcContained(cmp, otherOp);
+            otherOp->SetContained();
         }
         else if (IsContainableMemoryOp(otherOp))
         {
             isSafeToContainOtherOp = IsSafeToContainMem(cmp, otherOp);
+
             if (isSafeToContainOtherOp)
             {
-                MakeSrcContained(cmp, otherOp);
+                otherOp->SetContained();
             }
         }
 
         if (!otherOp->isContained() && isSafeToContainOtherOp && IsSafeToContainMem(cmp, otherOp))
         {
-            // SSE2 allows only otherOp to be a memory-op. Since otherOp is not
-            // contained, we can mark it reg-optional.
-            // IsSafeToContainMem is expensive so we call it at most once for otherOp.
-            // If we already called IsSafeToContainMem, it must have returned false;
-            // otherwise, otherOp would be contained.
             otherOp->SetRegOptional();
         }
 
         return;
     }
 
-    // TODO-XArch-CQ: factor out cmp optimization in 'genCondSetFlags' to be used here
-    // or in other backend.
-
     if (CheckImmedAndMakeContained(cmp, op2))
     {
-        // If the types are the same, or if the constant is of the correct size,
-        // we can treat the MemoryOp as contained.
-        if (op1Type == op2Type)
+        if (type1 == type2)
         {
             if (IsContainableMemoryOp(op1))
             {
-                MakeSrcContained(cmp, op1);
+                op1->SetContained();
             }
             else
             {
                 op1->SetRegOptional();
             }
         }
+
+        return;
     }
-    else if (op1Type == op2Type)
+
+    // Small int memory operands can only be contained if we can generate a 8/16 bit
+    // compare instruction, which is only possible if both operands have the same
+    // small int type.
+
+    bool isSafeToContainOp1 = !varTypeIsSmall(type1) || (type1 == type2);
+    bool isSafeToContainOp2 = !varTypeIsSmall(type2) || (type1 == type2);
+
+    // Note that TEST does not have a r,rm encoding like CMP has but we can still
+    // contain the second operand because the emitter maps both r,rm and rm,r to
+    // the same instruction code. This avoids the need to special case TEST here.
+
+    if (isSafeToContainOp2 && IsContainableMemoryOp(op2))
     {
-        // Note that TEST does not have a r,rm encoding like CMP has but we can still
-        // contain the second operand because the emitter maps both r,rm and rm,r to
-        // the same instruction code. This avoids the need to special case TEST here.
+        isSafeToContainOp2 = IsSafeToContainMem(cmp, op2);
 
-        bool isSafeToContainOp1 = true;
-        bool isSafeToContainOp2 = true;
-
-        if (IsContainableMemoryOp(op2))
+        if (isSafeToContainOp2)
         {
-            isSafeToContainOp2 = IsSafeToContainMem(cmp, op2);
-            if (isSafeToContainOp2)
-            {
-                MakeSrcContained(cmp, op2);
-            }
+            op2->SetContained();
         }
+    }
 
-        if (!op2->isContained() && IsContainableMemoryOp(op1))
+    if (!op2->isContained() && isSafeToContainOp1 && IsContainableMemoryOp(op1))
+    {
+        isSafeToContainOp1 = IsSafeToContainMem(cmp, op1);
+
+        if (isSafeToContainOp1)
         {
-            isSafeToContainOp1 = IsSafeToContainMem(cmp, op1);
-            if (isSafeToContainOp1)
-            {
-                MakeSrcContained(cmp, op1);
-            }
+            op1->SetContained();
         }
+    }
 
-        if (!op1->isContained() && !op2->isContained())
+    if (!op1->isContained() && !op2->isContained())
+    {
+        // One of op1 or op2 could be marked as reg optional to indicate that codegen can still
+        // generate code if one of them is on stack.
+
+        GenTree* regOptionalCandidate = op1->IsIntCon() ? op2 : PreferredRegOptionalOperand(cmp);
+
+        // IsSafeToContainMem is expensive so we call it at most once for each operand in this
+        // method. If we already called IsSafeToContainMem, it must have returned false;
+        // otherwise, the corresponding operand (op1 or op2) would be contained.
+
+        if (regOptionalCandidate == op1 ? isSafeToContainOp1 && IsSafeToContainMem(cmp, op1)
+                                        : isSafeToContainOp2 && IsSafeToContainMem(cmp, op2))
         {
-            // One of op1 or op2 could be marked as reg optional
-            // to indicate that codegen can still generate code
-            // if one of them is on stack.
-            GenTree* regOptionalCandidate = op1->IsCnsIntOrI() ? op2 : PreferredRegOptionalOperand(cmp);
-
-            // IsSafeToContainMem is expensive so we call it at most once for each operand
-            // in this method. If we already called IsSafeToContainMem, it must have returned false;
-            // otherwise, the corresponding operand (op1 or op2) would be contained.
-            bool setRegOptional = (regOptionalCandidate == op1) ? isSafeToContainOp1 && IsSafeToContainMem(cmp, op1)
-                                                                : isSafeToContainOp2 && IsSafeToContainMem(cmp, op2);
-            if (setRegOptional)
-            {
-                regOptionalCandidate->SetRegOptional();
-            }
+            regOptionalCandidate->SetRegOptional();
         }
     }
 }
@@ -4193,19 +4086,20 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
 // Note: At most one of the operands will be marked as reg optional,
 // even when both operands could be considered register optional.
 //
-void Lowering::SetRegOptionalForBinOp(GenTree* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2)
+void Lowering::SetRegOptionalForBinOp(GenTreeOp* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2)
 {
-    assert(GenTree::OperIsBinary(tree->OperGet()));
+    assert(tree->OperIsBinary());
 
-    GenTree* const op1 = tree->gtGetOp1();
-    GenTree* const op2 = tree->gtGetOp2();
+    GenTree* const op1 = tree->GetOp(0);
+    GenTree* const op2 = tree->GetOp(1);
 
-    const unsigned operatorSize = genTypeSize(tree->TypeGet());
+    const unsigned operatorSize = varTypeSize(tree->GetType());
 
-    const bool op1Legal = isSafeToMarkOp1 && tree->OperIsCommutative() && (operatorSize == genTypeSize(op1->TypeGet()));
-    const bool op2Legal = isSafeToMarkOp2 && (operatorSize == genTypeSize(op2->TypeGet()));
+    const bool op1Legal = isSafeToMarkOp1 && tree->OperIsCommutative() && (operatorSize == varTypeSize(op1->GetType()));
+    const bool op2Legal = isSafeToMarkOp2 && (operatorSize == varTypeSize(op2->GetType()));
 
     GenTree* regOptionalOperand = nullptr;
+
     if (op1Legal)
     {
         regOptionalOperand = op2Legal ? PreferredRegOptionalOperand(tree) : op1;
@@ -4214,6 +4108,7 @@ void Lowering::SetRegOptionalForBinOp(GenTree* tree, bool isSafeToMarkOp1, bool 
     {
         regOptionalOperand = op2;
     }
+
     if (regOptionalOperand != nullptr)
     {
         regOptionalOperand->SetRegOptional();
@@ -4265,16 +4160,14 @@ void Lowering::ContainCheckIntrinsic(GenTreeIntrinsic* node)
         case NI_System_Math_Round:
         case NI_System_Math_Sqrt:
         {
-            GenTree* op1 = node->gtGetOp1();
+            GenTree* op1 = node->GetOp(0);
 
-            if (IsContainableMemoryOp(op1) || op1->IsCnsNonZeroFltOrDbl())
+            if (IsContainableMemoryOp(op1) || op1->IsDblConNonPositiveZero())
             {
-                MakeSrcContained(node, op1);
+                op1->SetContained();
             }
             else
             {
-                // Mark the operand as reg optional since codegen can still
-                // generate code if op1 is on stack.
                 op1->SetRegOptional();
             }
         }
@@ -4672,14 +4565,6 @@ void Lowering::ContainHWIntrinsicOperand(GenTreeHWIntrinsic* node, GenTree* op)
     op->SetContained();
 }
 
-//----------------------------------------------------------------------------------------------
-// ContainCheckHWIntrinsicAddr: Perform containment analysis for an address operand of a hardware
-//                              intrinsic node.
-//
-//  Arguments:
-//     node - The hardware intrinsic node
-//     addr - The address node to try contain
-//
 void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* addr)
 {
     assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF));
@@ -4692,12 +4577,6 @@ void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* ad
     }
 }
 
-//----------------------------------------------------------------------------------------------
-// ContainCheckHWIntrinsic: Perform containment analysis for a hardware intrinsic node.
-//
-//  Arguments:
-//     node - The hardware intrinsic node.
-//
 void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic      intrinsicId = node->GetIntrinsic();
@@ -5245,12 +5124,6 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 }
 #endif // FEATURE_HW_INTRINSICS
 
-//------------------------------------------------------------------------
-// ContainCheckFloatBinary: determine whether the sources of a floating point binary node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
 {
     assert(node->OperIs(GT_FADD, GT_FSUB, GT_FMUL, GT_FDIV) && varTypeIsFloating(node->GetType()));
@@ -5265,16 +5138,17 @@ void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
     bool isSafeToContainOp1 = true;
     bool isSafeToContainOp2 = true;
 
-    if (op2->IsCnsNonZeroFltOrDbl())
+    if (op2->IsDblConNonPositiveZero())
     {
-        MakeSrcContained(node, op2);
+        op2->SetContained();
     }
     else if (IsContainableMemoryOp(op2))
     {
         isSafeToContainOp2 = IsSafeToContainMem(node, op2);
+
         if (isSafeToContainOp2)
         {
-            MakeSrcContained(node, op2);
+            op2->SetContained();
         }
     }
 
@@ -5289,16 +5163,17 @@ void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
         //      movss op1Reg, [memOp]; addss/sd targetReg, Op2Reg  (if op1Reg == targetReg) OR
         //      movss op1Reg, [memOp]; movaps targetReg, op1Reg, addss/sd targetReg, Op2Reg
 
-        if (op1->IsCnsNonZeroFltOrDbl())
+        if (op1->IsDblConNonPositiveZero())
         {
-            MakeSrcContained(node, op1);
+            op1->SetContained();
         }
         else if (IsContainableMemoryOp(op1))
         {
             isSafeToContainOp1 = IsSafeToContainMem(node, op1);
+
             if (isSafeToContainOp1)
             {
-                MakeSrcContained(node, op1);
+                op1->SetContained();
             }
         }
     }

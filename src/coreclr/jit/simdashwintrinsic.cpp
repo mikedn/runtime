@@ -850,7 +850,7 @@ GenTree* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
     {
         GenTree* elementSize = gtNewIconNode(varTypeSize(layout->GetElementType()), TYP_I_IMPL);
 #ifdef TARGET_64BIT
-        index = gtNewCastNode(TYP_LONG, index, false, TYP_LONG);
+        index = gtNewCastNode(index, false, TYP_LONG);
 #endif
         index = gtNewOperNode(GT_MUL, TYP_I_IMPL, index, elementSize);
         // TODO-MIKE-CQ: This should be removed, it's here only to minimize diffs

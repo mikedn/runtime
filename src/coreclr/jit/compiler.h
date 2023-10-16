@@ -2387,7 +2387,7 @@ struct Importer
     // TODO-MIKE-Cleanup: Remove stupid dummy param.
     GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy = false);
     GenTree* gtNewNullCheck(GenTree* addr);
-    GenTreeCast* gtNewCastNode(var_types type, GenTree* op1, bool fromUnsigned, var_types castType);
+    GenTreeCast* gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types castType);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
@@ -3173,7 +3173,7 @@ public:
 
     GenTree* gtUnusedValNode(GenTree* expr);
 
-    GenTreeCast* gtNewCastNode(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType);
+    GenTreeCast* gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types toType);
 
     GenTreeAllocObj* gtNewAllocObjNode(
         unsigned int helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, var_types type, GenTree* op1);
@@ -4731,6 +4731,7 @@ private:
 
     GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index);
     GenTree* fgMorphCast(GenTreeCast* cast);
+    GenTree* fgMorphCastPost(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
     void fgMorphArgs(GenTreeCall* call);
 
@@ -5213,7 +5214,7 @@ private:
 public:
     bool optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned lclNum);
 
-    bool optNarrowTree(GenTree* tree, var_types srct, var_types dstt, ValueNumPair vnpNarrow, bool doit);
+    bool fgMorphNarrowTree(GenTree* tree, var_types srct, var_types dstt, ValueNumPair vnpNarrow, bool doit);
 
     /**************************************************************************
      *                       Optimization conditions

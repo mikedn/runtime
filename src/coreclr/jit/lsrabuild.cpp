@@ -630,41 +630,6 @@ RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
     return newRP;
 }
 
-//---------------------------------------------------------------------------
-// newUseRefPosition: allocate and initialize a RefTypeUse RefPosition at currentLoc.
-//
-// Arguments:
-//     theInterval     -  interval to which RefPosition is associated with.
-//     theTreeNode     -  GenTree node for which this RefPosition is created
-//     mask            -  Set of valid registers for this RefPosition
-//     multiRegIdx     -  register position if this RefPosition corresponds to a
-//                        multi-reg call node.
-//     minRegCount     -  Minimum number registers that needs to be ensured while
-//                        constraining candidates for this ref position under
-//                        LSRA stress. This is a DEBUG only arg.
-//
-// Return Value:
-//     a new RefPosition
-//
-// Notes:
-//     If the caller knows that 'theTreeNode' is NOT a candidate local, newRefPosition
-//     can/should be called directly.
-//
-RefPosition* LinearScan::newUseRefPosition(Interval* theInterval,
-                                           GenTree*  theTreeNode,
-                                           regMaskTP mask,
-                                           unsigned  multiRegIdx)
-{
-    GenTree* treeNode = isCandidateLclVar(theTreeNode) ? theTreeNode : nullptr;
-
-    RefPosition* pos = newRefPosition(theInterval, currentLoc, RefTypeUse, treeNode, mask, multiRegIdx);
-    if (theTreeNode->IsRegOptional())
-    {
-        pos->setRegOptional(true);
-    }
-    return pos;
-}
-
 //------------------------------------------------------------------------
 // addRefsForPhysRegMask: Adds RefPositions of the given type for all the registers in 'mask'.
 //
@@ -3514,84 +3479,6 @@ int LinearScan::BuildGCWriteBarrier(GenTreeStoreInd* store)
     regMaskTP killMask = getKillSetForStoreInd(store);
     buildKillPositionsForNode(store, currentLoc + 1, killMask);
     return 2;
-}
-
-//------------------------------------------------------------------------
-// BuildCmp: Set the register requirements for a compare.
-//
-// Arguments:
-//    tree      - The node of interest
-//
-// Return Value:
-//    None.
-//
-int LinearScan::BuildCmp(GenTree* tree)
-{
-    assert(tree->OperIsCompare() || tree->OperIs(GT_CMP) || tree->OperIs(GT_JCMP));
-    regMaskTP dstCandidates = RBM_NONE;
-    regMaskTP op1Candidates = RBM_NONE;
-    regMaskTP op2Candidates = RBM_NONE;
-    GenTree*  op1           = tree->gtGetOp1();
-    GenTree*  op2           = tree->gtGetOp2();
-
-#ifdef TARGET_X86
-    // If the compare is used by a jump, we just need to set the condition codes. If not, then we need
-    // to store the result into the low byte of a register, which requires the dst be a byteable register.
-    if (tree->TypeGet() != TYP_VOID)
-    {
-        dstCandidates = allByteRegs();
-    }
-    bool needByteRegs = false;
-    if (varTypeIsByte(tree))
-    {
-        if (!varTypeIsFloating(op1))
-        {
-            needByteRegs = true;
-        }
-    }
-    // Example1: GT_EQ(int, op1 of type ubyte, op2 of type ubyte) - in this case codegen uses
-    // ubyte as the result of comparison and if the result needs to be materialized into a reg
-    // simply zero extend it to TYP_INT size.  Here is an example of generated code:
-    //         cmp dl, byte ptr[addr mode]
-    //         movzx edx, dl
-    else if (varTypeIsByte(op1) && varTypeIsByte(op2))
-    {
-        needByteRegs = true;
-    }
-    // Example2: GT_EQ(int, op1 of type ubyte, op2 is GT_CNS_INT) - in this case codegen uses
-    // ubyte as the result of the comparison and if the result needs to be materialized into a reg
-    // simply zero extend it to TYP_INT size.
-    else if (varTypeIsByte(op1) && op2->IsCnsIntOrI())
-    {
-        needByteRegs = true;
-    }
-    // Example3: GT_EQ(int, op1 is GT_CNS_INT, op2 of type ubyte) - in this case codegen uses
-    // ubyte as the result of the comparison and if the result needs to be materialized into a reg
-    // simply zero extend it to TYP_INT size.
-    else if (op1->IsCnsIntOrI() && varTypeIsByte(op2))
-    {
-        needByteRegs = true;
-    }
-    if (needByteRegs)
-    {
-        if (!op1->isContained())
-        {
-            op1Candidates = allByteRegs();
-        }
-        if (!op2->isContained())
-        {
-            op2Candidates = allByteRegs();
-        }
-    }
-#endif // TARGET_X86
-
-    int srcCount = BuildOperandUses(op1, op1Candidates);
-    srcCount += BuildOperandUses(op2, op2Candidates);
-    if (tree->TypeGet() != TYP_VOID)
-    {
-        BuildDef(tree, dstCandidates);
-    }
-    return srcCount;
 }
 
 int LinearScan::BuildInstr(GenTreeInstr* instr)

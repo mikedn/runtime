@@ -962,7 +962,7 @@ void emitter::emitDispInsOffs(unsigned offs, bool doffs)
  *  The following series of methods allocates instruction descriptors.
  */
 
-void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
+void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
 {
 #ifdef DEBUG
     // Under STRESS_EMITTER, put every instruction in its own instruction group.
@@ -1034,8 +1034,11 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
     assert(id->idCodeSize() == 0);
 #endif
 
-    emitLastIns      = id;
-    emitLastInsLabel = emitCurLabel;
+    if (updateLastIns)
+    {
+        emitLastIns      = id;
+        emitLastInsLabel = emitCurLabel;
+    }
 
     INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz)));
 
@@ -1110,13 +1113,7 @@ emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
         return nullptr;
     }
 
-    instrDesc* lastIns      = emitLastIns;
-    insGroup*  lastInsLabel = emitLastInsLabel;
-
-    instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(SMALL_IDSC_SIZE, attr));
-
-    emitLastIns      = lastIns;
-    emitLastInsLabel = lastInsLabel;
+    instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(SMALL_IDSC_SIZE, attr, false));
 
     id->idSetIsSmallDsc();
     id->idIns(INS_mov);

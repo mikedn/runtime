@@ -1305,30 +1305,21 @@ void CodeGen::genFloatReturn(GenTree* src)
 
 #endif // TARGET_X86
 
-//------------------------------------------------------------------------
-// genCodeForCompare: Produce code for a GT_EQ/GT_NE/GT_LT/GT_LE/GT_GE/GT_GT/GT_TEST_EQ/GT_TEST_NE/GT_CMP node.
-//
-// Arguments:
-//    tree - the node
-//
-void CodeGen::genCodeForCompare(GenTreeOp* tree)
+void CodeGen::GenCompare(GenTreeOp* cmp)
 {
-    assert(tree->OperIs(GT_EQ, GT_NE, GT_LT, GT_LE, GT_GE, GT_GT, GT_TEST_EQ, GT_TEST_NE, GT_CMP));
+    assert(cmp->OperIs(GT_EQ, GT_NE, GT_LT, GT_LE, GT_GE, GT_GT, GT_TEST_EQ, GT_TEST_NE, GT_CMP));
 
     // TODO-XArch-CQ: Check if we can use the currently set flags.
     // TODO-XArch-CQ: Check for the case where we can simply transfer the carry bit to a register
     //         (signed < or >= where targetReg != REG_NA)
 
-    GenTree*  op1     = tree->gtOp1;
-    var_types op1Type = op1->TypeGet();
-
-    if (varTypeIsFloating(op1Type))
+    if (varTypeIsFloating(cmp->GetOp(0)->GetType()))
     {
-        genCompareFloat(tree);
+        GenFloatCompare(cmp);
     }
     else
     {
-        genCompareInt(tree);
+        GenIntCompare(cmp);
     }
 }
 
@@ -1703,7 +1694,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_TEST_EQ:
         case GT_TEST_NE:
         case GT_CMP:
-            genCodeForCompare(treeNode->AsOp());
+            GenCompare(treeNode->AsOp());
             break;
 
         case GT_JTRUE:
@@ -5698,33 +5689,21 @@ void CodeGen::genLeaInstruction(GenTreeAddrMode* lea)
     DefReg(lea);
 }
 
-//------------------------------------------------------------------------
-// genCompareFloat: Generate code for comparing two floating point values
-//
-// Arguments:
-//    treeNode - the compare tree
-//
-void CodeGen::genCompareFloat(GenTree* treeNode)
+void CodeGen::GenFloatCompare(GenTreeOp* cmp)
 {
-    assert(treeNode->OperIsCompare());
+    assert(cmp->OperIsCompare());
 
-    GenTreeOp* tree    = treeNode->AsOp();
-    GenTree*   op1     = tree->gtOp1;
-    GenTree*   op2     = tree->gtOp2;
-    var_types  op1Type = op1->TypeGet();
-    var_types  op2Type = op2->TypeGet();
+    GenTree*  op1  = cmp->GetOp(0);
+    GenTree*  op2  = cmp->GetOp(1);
+    var_types type = op1->GetType();
 
     genConsumeRegs(op1);
     genConsumeRegs(op2);
 
-    assert(varTypeIsFloating(op1Type));
-    assert(op1Type == op2Type);
+    assert(varTypeIsFloating(type));
+    assert(type == op2->GetType());
 
-    regNumber   targetReg = treeNode->GetRegNum();
-    instruction ins;
-    emitAttr    cmpAttr;
-
-    GenCondition condition = GenCondition::FromFloatRelop(treeNode);
+    GenCondition condition = GenCondition::FromFloatRelop(cmp);
 
     if (condition.PreferSwap())
     {
@@ -5732,66 +5711,50 @@ void CodeGen::genCompareFloat(GenTree* treeNode)
         std::swap(op1, op2);
     }
 
-    ins     = ins_FloatCompare(op1Type);
-    cmpAttr = emitTypeSize(op1Type);
+    emitInsBinary(ins_FloatCompare(type), emitTypeSize(type), op1, op2);
 
-    emitInsBinary(ins, cmpAttr, op1, op2);
-
-    // Are we evaluating this into a register?
-    if (targetReg != REG_NA)
+    if (cmp->GetRegNum() == REG_NA)
     {
-        if ((condition.GetCode() == GenCondition::FNEU) && (op1->GetRegNum() == op2->GetRegNum()))
-        {
-            // For floating point, `x != x` is a common way of
-            // checking for NaN. So, in the case where both
-            // operands are the same, we can optimize codegen
-            // to only do a single check.
-
-            condition = GenCondition(GenCondition::P);
-        }
-
-        inst_SETCC(condition, treeNode->TypeGet(), targetReg);
-        genProduceReg(tree);
+        return;
     }
+
+    if ((condition == GenCondition::FNEU) && (op1->GetRegNum() == op2->GetRegNum()))
+    {
+        // For floating point, `x != x` is a common way of checking for NaN.
+        // So, in the case where both operands are the same, we can optimize
+        // codegen to only do a single check.
+        condition = GenCondition::P;
+    }
+
+    inst_SETCC(condition, cmp->GetType(), cmp->GetRegNum());
+    genProduceReg(cmp);
 }
 
-//------------------------------------------------------------------------
-// genCompareInt: Generate code for comparing ints or, on amd64, longs.
-//
-// Arguments:
-//    treeNode - the compare tree
-//
-// Return Value:
-//    None.
-void CodeGen::genCompareInt(GenTree* treeNode)
+void CodeGen::GenIntCompare(GenTreeOp* cmp)
 {
-    assert(treeNode->OperIsCompare() || treeNode->OperIs(GT_CMP));
+    assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP));
 
-    GenTreeOp* tree          = treeNode->AsOp();
-    GenTree*   op1           = tree->gtOp1;
-    GenTree*   op2           = tree->gtOp2;
-    var_types  op1Type       = op1->TypeGet();
-    var_types  op2Type       = op2->TypeGet();
-    regNumber  targetReg     = tree->GetRegNum();
-    emitter*   emit          = GetEmitter();
-    bool       canReuseFlags = false;
+    GenTree*  op1    = cmp->GetOp(0);
+    GenTree*  op2    = cmp->GetOp(1);
+    var_types type1  = op1->GetType();
+    var_types type2  = op2->GetType();
+    regNumber dstReg = cmp->GetRegNum();
 
     genConsumeRegs(op1);
     genConsumeRegs(op2);
 
-    assert(!op1->isContainedIntOrIImmed());
-    assert(!varTypeIsFloating(op2Type));
+    assert(!op1->IsContainedIntCon());
+    assert(!varTypeIsFloating(type2));
 
-    instruction ins;
-    var_types   type = TYP_UNDEF;
+    instruction ins           = INS_cmp;
+    var_types   type          = TYP_UNDEF;
+    bool        canReuseFlags = false;
 
-    if (tree->OperIs(GT_TEST_EQ, GT_TEST_NE))
+    if (cmp->OperIs(GT_TEST_EQ, GT_TEST_NE))
     {
-        ins = INS_test;
-
-        // Unlike many xarch instructions TEST doesn't have a form with a 16/32/64 bit first operand and
+        // Unlike many x86 instructions TEST doesn't have a form with a 16/32/64 bit first operand and
         // an 8 bit immediate second operand. But if the immediate shift fits in 8 bits then we can simply
-        // emit a 8 bit TEST instruction, unless we're targeting x86 and the first operand is a non-byteable
+        // emit a 8 bit TEST instruction, unless we're targeting x86 and the first operand is not a byte
         // register.
         // Note that lowering does something similar but its main purpose is to allow memory operands to be
         // contained so it doesn't handle other kind of operands. It could do more but on x86 that results
@@ -5800,32 +5763,36 @@ void CodeGen::genCompareInt(GenTree* treeNode)
 #ifdef TARGET_X86
             (!op1->isUsedFromReg() || isByteReg(op1->GetRegNum())) &&
 #endif
-            (op2->IsCnsIntOrI() && genSmallTypeCanRepresentValue(TYP_UBYTE, op2->AsIntCon()->IconValue())))
+            (op2->IsIntCon() && (op2->AsIntCon()->GetUnsignedValue() <= 255)))
         {
             type = TYP_UBYTE;
         }
+
+        ins = INS_test;
     }
     else if (op1->isUsedFromReg() && op2->IsIntegralConst(0))
     {
         if (compiler->opts.OptimizationEnabled())
         {
-            emitAttr op1Size = emitActualTypeSize(op1->TypeGet());
-            assert((int)op1Size >= 4);
-
-            // Optimize "x<0" and "x>=0" to "x>>31" if "x" is not a jump condition and in a reg.
-            // Morph/Lowering are responsible to rotate "0<x" to "x>0" so we won't handle it here.
-            if ((targetReg != REG_NA) && tree->OperIs(GT_LT, GT_GE) && !tree->IsUnsigned())
+            // Extract the sign bit for "x < 0" and "x >= 0" if we're evaluating the result into a register.
+            // Morph/Lowering are responsible to transform "0 < x" to "x > 0" so we won't handle it here.
+            if ((dstReg != REG_NA) && cmp->OperIs(GT_LT, GT_GE) && !cmp->IsUnsigned())
             {
-                inst_Mov(op1->TypeGet(), targetReg, op1->GetRegNum(), /* canSkip */ true);
-                if (tree->OperIs(GT_GE))
+                emitAttr attr = emitActualTypeSize(type1);
+
+                inst_Mov(op1->GetType(), dstReg, op1->GetRegNum(), /*canSkip*/ true);
+
+                if (cmp->OperIs(GT_GE))
                 {
-                    // emit "not" for "x>=0" case
-                    inst_RV(INS_not, targetReg, op1->TypeGet());
+                    GetEmitter()->emitIns_R(INS_not, attr, dstReg);
                 }
-                inst_RV_IV(INS_shr_N, targetReg, (int)op1Size * 8 - 1, op1Size);
-                genProduceReg(tree);
+
+                GetEmitter()->emitIns_R_I(INS_shr_N, attr, dstReg, EA_SIZE(attr) * 8 - 1);
+                DefReg(cmp);
+
                 return;
             }
+
             canReuseFlags = true;
         }
 
@@ -5834,24 +5801,32 @@ void CodeGen::genCompareInt(GenTree* treeNode)
         ins = INS_test;
         op2 = op1;
     }
-    else
-    {
-        ins = INS_cmp;
-    }
 
     if (type == TYP_UNDEF)
     {
-        if (op1Type == op2Type)
+        if (type1 == type2)
         {
-            type = op1Type;
+            // 16 bit instructions are best avoided due to the extra 66h prefix and possible LCP stalls.
+            // We only need to generate a 16 bit instruction is we have a contained memory operand.
+            // It could also be useful to generate a 16 bit instruction to avoid casts to (U)SHORT but
+            // lowering doesn't currently handle this case, it only removes casts to UBYTE.
+
+            if (varTypeIsShort(type1) && !op1->isContained() && (!op2->isContained() || op2->IsIntCon()))
+            {
+                type = TYP_INT;
+            }
+            else
+            {
+                type = type1;
+            }
         }
-        else if (genTypeSize(op1Type) == genTypeSize(op2Type))
+        else if (varTypeSize(type1) == varTypeSize(type2))
         {
             // If the types are different but have the same size then we'll use TYP_INT or TYP_LONG.
             // This primarily deals with small type mixes (e.g. byte/ubyte) that need to be widened
             // and compared as int. We should not get long type mixes here but handle that as well
             // just in case.
-            type = genTypeSize(op1Type) == 8 ? TYP_LONG : TYP_INT;
+            type = varTypeSize(type1) == 8 ? TYP_LONG : TYP_INT;
         }
         else
         {
@@ -5862,75 +5837,65 @@ void CodeGen::genCompareInt(GenTree* treeNode)
         }
 
         // The common type cannot be smaller than any of the operand types, we're probably mixing int/long
-        assert(genTypeSize(type) >= max(genTypeSize(op1Type), genTypeSize(op2Type)));
-        // Small unsigned int types (TYP_BOOL can use anything) should use unsigned comparisons
-        assert(!(varTypeIsSmallInt(type) && varTypeIsUnsigned(type)) || ((tree->gtFlags & GTF_UNSIGNED) != 0));
+        assert(varTypeSize(type) >= Max(varTypeSize(type1), varTypeSize(type2)));
+        // Small unsigned int types should use unsigned comparisons
+        assert(!(varTypeIsSmallInt(type) && varTypeIsUnsigned(type)) || cmp->IsUnsigned());
         // If op1 is smaller then it cannot be in memory, we're probably missing a cast
-        assert((genTypeSize(op1Type) >= genTypeSize(type)) || !op1->isUsedFromMemory());
+        assert((varTypeSize(type1) >= varTypeSize(type)) || !op1->isContained());
         // If op2 is smaller then it cannot be in memory, we're probably missing a cast
-        assert((genTypeSize(op2Type) >= genTypeSize(type)) || !op2->isUsedFromMemory());
+        assert((varTypeSize(type2) >= varTypeSize(type)) || !op2->isContained() || op2->IsIntCon());
         // If we ended up with a small type and op2 is a constant then make sure we don't lose constant bits
-        assert(!op2->IsCnsIntOrI() || !varTypeIsSmall(type) ||
-               genSmallTypeCanRepresentValue(type, op2->AsIntCon()->IconValue()));
+        assert(!op2->IsIntCon() || !varTypeIsSmall(type) ||
+               varTypeSmallIntCanRepresentValue(type, op2->AsIntCon()->GetValue()));
     }
 
     // The type cannot be larger than the machine word size
-    assert(genTypeSize(type) <= genTypeSize(TYP_I_IMPL));
+    assert(varTypeSize(type) <= varTypeSize(TYP_I_IMPL));
     // TYP_UINT and TYP_ULONG should not appear here, only small types can be unsigned
     assert(!varTypeIsUnsigned(type) || varTypeIsSmall(type));
 
-    if (canReuseFlags && emit->AreFlagsSetToZeroCmp(op1->GetRegNum(), emitTypeSize(type), tree->OperGet()))
+    emitAttr attr = emitTypeSize(type);
+
+    if (canReuseFlags && GetEmitter()->AreFlagsSetToZeroCmp(op1->GetRegNum(), attr, cmp->GetOper()))
     {
         JITDUMP("Not emitting compare due to flags being already set\n");
     }
     else
     {
-        emitInsBinary(ins, emitTypeSize(type), op1, op2);
+        emitInsBinary(ins, attr, op1, op2);
     }
 
-    // Are we evaluating this into a register?
-    if (targetReg != REG_NA)
+    if (dstReg == REG_NA)
     {
-        inst_SETCC(GenCondition::FromIntegralRelop(tree), tree->TypeGet(), targetReg);
-        genProduceReg(tree);
+        return;
     }
+
+    inst_SETCC(GenCondition::FromIntegralRelop(cmp), cmp->GetType(), dstReg);
+    DefReg(cmp);
 }
 
-#if !defined(TARGET_64BIT)
-//------------------------------------------------------------------------
-// genLongToIntCast: Generate code for long to int casts on x86.
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    The cast node and its sources (via GT_LONG) must have been assigned registers.
-//    The destination cannot be a floating point type or a small integer type.
-//
-void CodeGen::genLongToIntCast(GenTree* cast)
+#ifndef TARGET_64BIT
+void CodeGen::genLongToIntCast(GenTreeCast* cast)
 {
-    assert(cast->OperGet() == GT_CAST);
+    assert(cast->TypeIs(TYP_INT));
 
-    GenTree* src = cast->gtGetOp1();
-    noway_assert(src->OperGet() == GT_LONG);
+    GenTreeOp* src = cast->GetOp(0)->AsOp();
+    noway_assert(src->OperIs(GT_LONG));
 
-    var_types srcType  = ((cast->gtFlags & GTF_UNSIGNED) != 0) ? TYP_ULONG : TYP_LONG;
-    var_types dstType  = cast->CastToType();
-    regNumber loSrcReg = UseReg(src->gtGetOp1());
-    regNumber hiSrcReg = UseReg(src->gtGetOp2());
+    regNumber loSrcReg = UseReg(src->GetOp(0));
+    regNumber hiSrcReg = UseReg(src->GetOp(1));
     regNumber dstReg   = cast->GetRegNum();
 
-    assert((dstType == TYP_INT) || (dstType == TYP_UINT));
     assert(genIsValidIntReg(loSrcReg));
     assert(genIsValidIntReg(hiSrcReg));
     assert(genIsValidIntReg(dstReg));
 
     if (cast->gtOverflow())
     {
-        //
+        var_types srcType = cast->IsUnsigned() ? TYP_ULONG : TYP_LONG;
+        var_types dstType = cast->GetCastType();
+        assert((dstType == TYP_INT) || (dstType == TYP_UINT));
+
         // Generate an overflow check for [u]long to [u]int casts:
         //
         // long  -> int  - check if the upper 33 bits are all 0 or all 1
@@ -5939,7 +5904,6 @@ void CodeGen::genLongToIntCast(GenTree* cast)
         //
         // long  -> uint - check if the upper 32 bits are all 0
         // ulong -> uint - check if the upper 32 bits are all 0
-        //
 
         if ((srcType == TYP_LONG) && (dstType == TYP_INT))
         {
@@ -5974,7 +5938,7 @@ void CodeGen::genLongToIntCast(GenTree* cast)
 
     inst_Mov(TYP_INT, dstReg, loSrcReg, /* canSkip */ true);
 
-    genProduceReg(cast);
+    DefReg(cast);
 }
 #endif
 
@@ -6144,23 +6108,17 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-//------------------------------------------------------------------------
-// genFloatToFloatCast: Generate code for a cast between float and double
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
 void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
 {
+    assert(cast->GetType() == cast->GetCastType());
     assert(!cast->gtOverflow());
 
     GenTree*  src     = cast->GetOp(0);
     var_types srcType = src->GetType();
-    var_types dstType = cast->GetCastType();
+    var_types dstType = cast->GetType();
 
     assert((srcType == TYP_FLOAT) || (srcType == TYP_DOUBLE));
     assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
-    assert(cast->GetType() == dstType);
 
     assert(genIsValidFloatReg(cast->GetRegNum()));
     assert(!src->isUsedFromReg() || genIsValidFloatReg(src->GetRegNum()));
@@ -6192,19 +6150,14 @@ void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-//------------------------------------------------------------------------
-// genIntToFloatCast: Generate code to cast an int/long to float/double
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
 void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 {
+    assert(cast->GetType() == cast->GetCastType());
     assert(!cast->gtOverflow());
 
     GenTree*  src     = cast->GetOp(0);
     var_types srcType = varActualType(src->GetType());
-    var_types dstType = cast->GetCastType();
+    var_types dstType = cast->GetType();
 
     if (cast->IsUnsigned())
     {
@@ -6218,7 +6171,6 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 #endif
 
     assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
-    assert(cast->GetType() == dstType);
 
     genConsumeRegs(src);
     regNumber srcReg = src->isUsedFromReg() ? src->GetRegNum() : REG_NA;
@@ -6288,12 +6240,6 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-//------------------------------------------------------------------------
-// genFloatToIntCast: Generate code to cast float/double to int/long
-//
-// Arguments:
-//    treeNode - The GT_CAST node
-//
 void CodeGen::genFloatToIntCast(GenTreeCast* cast)
 {
     assert(!cast->gtOverflow());
@@ -6596,8 +6542,7 @@ void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
     assert(varTypeIsFloating(srcNode));
     assert(srcNode->TypeGet() == treeNode->TypeGet());
 
-    // iv) treeNode is not used from memory
-    assert(!treeNode->isUsedFromMemory());
+    assert(treeNode->isUsedFromReg());
 
     genConsumeRegs(srcNode);
 

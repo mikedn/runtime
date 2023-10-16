@@ -567,14 +567,12 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
             // check provided by codegen.
             //
 
-            const bool signExtend = (cast->gtFlags & GTF_UNSIGNED) == 0;
-            loResult              = EnsureIntSized(loSrcOp, signExtend);
+            loResult = loSrcOp;
 
-            hiResult                       = cast;
-            hiResult->gtType               = TYP_INT;
-            hiResult->AsCast()->gtCastType = TYP_UINT;
-            hiResult->gtFlags &= ~GTF_UNSIGNED;
-            hiResult->AsOp()->gtOp1 = hiSrcOp;
+            hiResult = cast;
+            cast->SetCastType(TYP_UINT);
+            cast->ClearUnsigned();
+            cast->SetOp(0, hiSrcOp);
 
             Range().Remove(srcOp);
         }
@@ -593,9 +591,8 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
             // by codegen and then zero extend the resulting uint to ulong.
             //
 
-            loResult                       = cast;
-            loResult->AsCast()->gtCastType = TYP_UINT;
-            loResult->gtType               = TYP_INT;
+            loResult = cast;
+            cast->SetCastType(TYP_UINT);
 
             hiResult = m_compiler->gtNewZeroConNode(TYP_INT);
 
@@ -614,9 +611,7 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
             }
             else if (varTypeIsUnsigned(srcType))
             {
-                const bool signExtend = (cast->gtFlags & GTF_UNSIGNED) == 0;
-                loResult              = EnsureIntSized(cast->gtGetOp1(), signExtend);
-
+                loResult = cast->gtGetOp1();
                 hiResult = m_compiler->gtNewZeroConNode(TYP_INT);
 
                 Range().InsertAfter(cast, hiResult);
@@ -1782,7 +1777,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
 GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTree* nextNode)
 {
     GenTreeOp* src     = cast->GetOp(0)->AsOp();
-    var_types  dstType = cast->GetCastType();
+    var_types  dstType = cast->GetType();
 
     assert(src->OperIs(GT_LONG));
     assert(varActualTypeIsInt(dstType));
@@ -1792,23 +1787,23 @@ GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTr
         return nextNode;
     }
 
-    GenTree* loSrc = src->gtGetOp1();
-    GenTree* hiSrc = src->gtGetOp2();
+    GenTree* loSrc = src->GetOp(0);
+    GenTree* hiSrc = src->GetOp(1);
 
-    JITDUMP("Optimizing a truncating cast [%06u] from decomposed LONG [%06u]\n", cast->gtTreeID, src->gtTreeID);
+    JITDUMP("Optimizing a truncating cast [%06u] from decomposed LONG [%06u]\n", cast->GetID(), src->GetID());
     INDEBUG(GenTree* treeToDisplay = cast);
 
     // TODO-CQ: we could go perform this removal transitively.
     // See also identical code in shift decomposition.
     if ((hiSrc->gtFlags & (GTF_ALL_EFFECT | GTF_SET_FLAGS)) == 0)
     {
-        JITDUMP("Removing the HI part of [%06u] and marking its operands unused:\n", src->gtTreeID);
+        JITDUMP("Removing the HI part of [%06u] and marking its operands unused:\n", src->GetID());
         DISPNODE(hiSrc);
         Range().Remove(hiSrc, /* markOperandsUnused */ true);
     }
     else
     {
-        JITDUMP("The HI part of [%06u] has side effects, marking it unused\n", src->gtTreeID);
+        JITDUMP("The HI part of [%06u] has side effects, marking it unused\n", src->GetID());
         hiSrc->SetUnusedValue();
     }
 
@@ -1818,7 +1813,7 @@ GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTr
 
     if (varTypeIsSmall(dstType))
     {
-        JITDUMP("Cast is to a small type, keeping it, the new source is [%06u]\n", loSrc->gtTreeID);
+        JITDUMP("Cast is to a small type, keeping it, the new source is [%06u]\n", loSrc->GetID());
         cast->SetOp(0, loSrc);
     }
     else
@@ -1936,38 +1931,6 @@ GenTreeLclVar* DecomposeLongs::RepresentOpAsLocalVar(GenTree* op, GenTree* user,
     LIR::Use opUse(Range(), edge, user);
     opUse.ReplaceWithLclVar(m_compiler);
     return (*edge)->AsLclVar();
-}
-
-//------------------------------------------------------------------------
-// DecomposeLongs::EnsureIntSized:
-//    Checks to see if the given node produces an int-sized value and
-//    performs the appropriate widening if it does not.
-//
-// Arguments:
-//    node       - The node that may need to be widened.
-//    signExtend - True if the value should be sign-extended; false if it
-//                 should be zero-extended.
-//
-// Return Value:
-//    The node that produces the widened value.
-GenTree* DecomposeLongs::EnsureIntSized(GenTree* node, bool signExtend)
-{
-    assert(node != nullptr);
-    if (!varTypeIsSmall(node))
-    {
-        assert(genTypeSize(node) == genTypeSize(TYP_INT));
-        return node;
-    }
-
-    if (node->OperIs(GT_LCL_VAR) && !m_compiler->lvaGetDesc(node->AsLclVar())->lvNormalizeOnLoad())
-    {
-        node->gtType = TYP_INT;
-        return node;
-    }
-
-    GenTree* const cast = m_compiler->gtNewCastNode(TYP_INT, node, !signExtend, node->TypeGet());
-    Range().InsertAfter(node, cast);
-    return cast;
 }
 
 //------------------------------------------------------------------------

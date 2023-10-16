@@ -57,7 +57,6 @@ private:
     void LowerLclHeap(GenTreeUnOp* node);
     void ContainCheckRet(GenTreeUnOp* ret);
     void ContainCheckJTrue(GenTreeUnOp* node);
-
     void ContainCheckCallOperands(GenTreeCall* call);
     void ContainCheckIndir(GenTreeIndir* indirNode);
     void ContainCheckStoreIndir(GenTreeStoreInd* store);
@@ -65,40 +64,40 @@ private:
     void ContainCheckShiftRotate(GenTreeOp* node);
     void ContainCheckStoreLcl(GenTreeLclVarCommon* store);
     void ContainCheckCast(GenTreeCast* node);
-    void ContainCheckCompare(GenTreeOp* node);
+    void ContainCheckCompare(GenTreeOp* cmp);
     void ContainCheckBinary(GenTreeOp* node);
     void ContainCheckBoundsChk(GenTreeBoundsChk* node);
 #ifdef TARGET_XARCH
     void ContainCheckFloatBinary(GenTreeOp* node);
     void ContainCheckIntrinsic(GenTreeIntrinsic* node);
-#endif // TARGET_XARCH
+#endif
 #ifdef FEATURE_SIMD
     bool ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value);
-#endif // FEATURE_SIMD
+#endif
 #ifdef FEATURE_HW_INTRINSICS
     void ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* addr);
     void ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node);
 #ifdef TARGET_XARCH
     void ContainHWIntrinsicOperand(GenTreeHWIntrinsic* node, GenTree* op);
 #endif
-#endif // FEATURE_HW_INTRINSICS
+#endif
 
 #ifdef DEBUG
     void CheckCallArg(GenTree* arg);
     void CheckCall(GenTreeCall* call);
     void CheckNode(GenTree* node);
     bool CheckBlock(BasicBlock* block);
-#endif // DEBUG
+#endif
 
     void LowerBlock(BasicBlock* block);
     GenTree* LowerNode(GenTree* node);
 
     void LowerCall(GenTreeCall* call);
 #ifndef TARGET_64BIT
-    GenTree* DecomposeLongCompare(GenTree* cmp);
+    GenTree* DecomposeLongCompare(GenTreeOp* cmp);
 #endif
 #ifndef TARGET_ARM64
-    GenTree* OptimizeConstCompare(GenTree* cmp);
+    GenTree* OptimizeConstCompare(GenTreeOp* cmp);
     GenTree* LowerCompare(GenTreeOp* cmp);
 #endif
     GenTree* LowerJTrue(GenTreeUnOp* jtrue);
@@ -162,8 +161,8 @@ private:
     bool IsCallTargetInRange(void* addr);
 
 #ifdef TARGET_XARCH
-    GenTree* PreferredRegOptionalOperand(GenTree* tree);
-    void SetRegOptionalForBinOp(GenTree* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2);
+    GenTree* PreferredRegOptionalOperand(GenTreeOp* tree);
+    void SetRegOptionalForBinOp(GenTreeOp* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2);
 #endif
 
     void LowerIndir(GenTreeIndir* ind);

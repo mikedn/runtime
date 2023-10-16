@@ -41,7 +41,7 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
     if (src->TypeIs(TYP_FLOAT))
     {
         // All floating point cast helpers work only with DOUBLE.
-        src = gtNewCastNode(TYP_DOUBLE, src, false, TYP_DOUBLE);
+        src = gtNewCastNode(src, false, TYP_DOUBLE);
     }
 
     // GenTreeCast nodes are small so they cannot be converted to calls in place. It may
@@ -51,8 +51,7 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
     // cast nodes somehow combine into one and one is large and the other small then the
     // combining code would need to be careful to preserve the large node, not the small
     // node. Cast morphing code is convoluted enough as it is.
-    GenTree* call = new (this, GT_CALL)
-        GenTreeCast(cast->GetType(), src, cast->IsUnsigned(), cast->GetCastType() DEBUGARG(/*largeNode*/ true));
+    GenTree* call = new (this, GT_CALL) GenTreeCast(cast DEBUGARG(/*largeNode*/ true));
     INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
     return fgMorphIntoHelperCall(call, helper, gtNewCallArgs(src));
 }
@@ -137,7 +136,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetCastType();
 
-    if ((dstType == TYP_FLOAT) && (srcType == TYP_DOUBLE) && src->OperIs(GT_CAST))
+    if (cast->TypeIs(TYP_FLOAT) && src->TypeIs(TYP_DOUBLE) && src->OperIs(GT_CAST))
     {
         // Optimization: conv.r4(conv.r8(?)) -> conv.r4(d)
         // This happens semi-frequently because there is no IL 'conv.r4.un'
@@ -149,8 +148,8 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         srcType = varActualType(src->GetType());
     }
 
-    if (varTypeIsSmall(dstType) && src->IsCast() && varTypeIsSmall(src->AsCast()->GetCastType()) &&
-        (varTypeSize(src->AsCast()->GetCastType()) >= varTypeSize(dstType)) && !cast->gtOverflow() && !src->gtOverflow()
+    if (varTypeIsSmall(dstType) && src->IsCast() && varTypeIsSmall(src->GetType()) &&
+        (varTypeSize(src->GetType()) >= varTypeSize(dstType)) && !cast->gtOverflow() && !src->gtOverflow()
 #ifndef TARGET_64BIT
         && !src->AsCast()->GetOp(0)->TypeIs(TYP_LONG)
 #endif
@@ -191,7 +190,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         // CodeGen doesn't support casting from floating point types, or long types on
         // 32 bit targets, directly to small int types. Cast the source to INT first.
 
-        src = gtNewCastNode(TYP_INT, src, cast->IsUnsigned(), TYP_INT);
+        src = gtNewCastNode(src, cast->IsUnsigned(), TYP_INT);
         src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
         cast->SetOp(0, src);
         srcType = TYP_INT;
@@ -253,7 +252,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
             if (srcType == TYP_INT)
             {
-                src = gtNewCastNode(TYP_LONG, src, true, TYP_LONG);
+                src = gtNewCastNode(src, true, TYP_LONG);
                 cast->SetOp(0, src);
                 cast->gtFlags &= ~GTF_UNSIGNED;
                 srcType = TYP_LONG;
@@ -266,7 +265,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         {
             // There is no support for UINT to FP casts so first cast the source
             // to LONG and then use a helper call to cast to FP.
-            src = gtNewCastNode(TYP_LONG, src, true, TYP_LONG);
+            src = gtNewCastNode(src, true, TYP_LONG);
             cast->SetOp(0, src);
             cast->gtFlags &= ~GTF_UNSIGNED;
             srcType = TYP_LONG;
@@ -284,7 +283,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
             if (dstType == TYP_FLOAT)
             {
-                helper = gtNewCastNode(TYP_FLOAT, helper, false, TYP_FLOAT);
+                helper = gtNewCastNode(helper, false, TYP_FLOAT);
                 INDEBUG(helper->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
             }
 
@@ -414,11 +413,11 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                 DEBUG_DESTROY_NODE(cast);
 
                 // Insert narrowing casts for op1 and op2.
-                src->AsOp()->SetOp(0, gtNewCastNode(TYP_INT, src->AsOp()->GetOp(0), false, dstType));
+                src->AsOp()->SetOp(0, gtNewCastNode(src->AsOp()->GetOp(0), false, TYP_INT));
 
                 if (src->AsOp()->gtOp2 != nullptr)
                 {
-                    src->AsOp()->SetOp(1, gtNewCastNode(TYP_INT, src->AsOp()->GetOp(1), false, dstType));
+                    src->AsOp()->SetOp(1, gtNewCastNode(src->AsOp()->GetOp(1), false, TYP_INT));
                 }
 
 #ifndef TARGET_64BIT
@@ -461,11 +460,29 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
     cast->gtFlags |= (src->gtFlags & GTF_ALL_EFFECT);
 
-    srcType = src->GetType();
+    return fgMorphCastPost(cast);
+}
 
-    // See if we can discard the cast
+GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
+{
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = src->GetType();
+    var_types dstType = cast->GetCastType();
+
     if (varTypeIsIntegral(srcType) && varTypeIsIntegral(dstType))
     {
+        if (src->OperIs(GT_LCL_VAR) && varTypeIsSmall(dstType))
+        {
+            LclVarDsc* lcl = lvaGetDesc(src->AsLclVar());
+
+            if ((lcl->GetType() == dstType) && lcl->lvNormalizeOnStore())
+            {
+                assert(src->TypeIs(TYP_INT, dstType));
+
+                goto REMOVE_CAST;
+            }
+        }
+
         if (cast->IsUnsigned() && !varTypeIsUnsigned(srcType))
         {
             if (varTypeIsSmall(srcType))
@@ -481,26 +498,10 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             srcType = varTypeToUnsigned(srcType);
         }
 
-        if (srcType == dstType)
-        {
-            // Certainly if they are identical it is pointless
-            goto REMOVE_CAST;
-        }
-
-        if (src->OperIs(GT_LCL_VAR) && varTypeIsSmall(dstType))
-        {
-            LclVarDsc* varDsc = lvaGetDesc(src->AsLclVar());
-            if ((varDsc->GetType() == dstType) && varDsc->lvNormalizeOnStore())
-            {
-                goto REMOVE_CAST;
-            }
-        }
-
         bool     unsignedSrc = varTypeIsUnsigned(srcType);
         bool     unsignedDst = varTypeIsUnsigned(dstType);
-        bool     signsDiffer = (unsignedSrc != unsignedDst);
-        unsigned srcSize     = genTypeSize(srcType);
-        unsigned dstSize     = genTypeSize(dstType);
+        unsigned srcSize     = varTypeSize(srcType);
+        unsigned dstSize     = varTypeSize(dstType);
 
         // For same sized casts with
         //    the same signs or non-overflow cast we discard them as well
@@ -509,48 +510,38 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             // This should have been handled above
             noway_assert(varTypeIsGC(srcType) == varTypeIsGC(dstType));
 
-            if (!signsDiffer)
+            if (unsignedSrc == unsignedDst)
             {
                 goto REMOVE_CAST;
             }
 
             if (!cast->gtOverflow())
             {
+                if (!varTypeIsSmall(srcType))
+                {
+                    goto REMOVE_CAST;
+                }
+
                 // For small type casts, when necessary we force
                 // the src operand to the dstType and allow the
                 // implied load from memory to perform the casting
-                if (varTypeIsSmall(srcType))
+                if (src->OperIs(GT_IND, GT_LCL_FLD))
                 {
-                    switch (src->GetOper())
-                    {
-                        case GT_IND:
-                        case GT_LCL_FLD:
-                            src->SetType(dstType);
-                            // We're changing the type here so we need to update the VN;
-                            // in other cases we discard the cast without modifying oper
-                            // so the VN doesn't change.
-                            src->SetVNP(cast->GetVNP());
-                            goto REMOVE_CAST;
-                        default:
-                            break;
-                    }
-                }
-                else
-                {
+                    src->SetType(dstType);
+                    // We're changing the type here so we need to update the VN;
+                    // in other cases we discard the cast without modifying oper
+                    // so the VN doesn't change.
+                    src->SetVNP(cast->GetVNP());
+
                     goto REMOVE_CAST;
                 }
             }
         }
         else if (srcSize < dstSize) // widening cast
         {
-            // Keep any long casts
-            if (dstSize == 4)
+            if ((dstSize == 4) && (!cast->gtOverflow() || !unsignedDst || unsignedSrc))
             {
-                // Only keep signed to unsigned widening cast with overflow check
-                if (!cast->gtOverflow() || !unsignedDst || unsignedSrc)
-                {
-                    goto REMOVE_CAST;
-                }
+                goto REMOVE_CAST;
             }
 
             // Widening casts from unsigned or to signed can never overflow
@@ -568,9 +559,9 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         {
             // Try to narrow the operand of the cast and discard the cast
             if (!cast->gtOverflow() && opts.OptEnabled(CLFLG_TREETRANS) &&
-                optNarrowTree(src, srcType, dstType, cast->GetVNP(), false))
+                fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), false))
             {
-                optNarrowTree(src, srcType, dstType, cast->GetVNP(), true);
+                fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), true);
 
                 // If oper is changed into a cast to TYP_INT, or to a GT_NOP, we may need to discard it
                 if (src->OperIs(GT_CAST) &&
@@ -589,7 +580,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         case GT_CNS_INT:
         case GT_CNS_LNG:
         case GT_CNS_DBL:
-        case GT_CNS_STR:
         {
             GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
 
@@ -708,29 +698,49 @@ REMOVE_CAST:
     return src;
 }
 
-/*****************************************************************************
- *
- *  See if the given tree can be computed in the given precision (which must
- *  be smaller than the type of the tree for this to make sense). If 'doit'
- *  is false, we merely check to see whether narrowing is possible; if we
- *  get called with 'doit' being true, we actually perform the narrowing.
- */
-
-bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, ValueNumPair vnpNarrow, bool doit)
+// See if the given tree can be computed in the given precision (which must
+// be smaller than the type of the tree for this to make sense). If 'doit'
+// is false, we merely check to see whether narrowing is possible; if we
+// get called with 'doit' being true, we actually perform the narrowing.
+bool Compiler::fgMorphNarrowTree(
+    GenTree* const tree, const var_types srct, const var_types dstt, const ValueNumPair vnpNarrow, const bool doit)
 {
-    noway_assert(tree);
-    noway_assert(genActualType(tree->gtType) == genActualType(srct));
-    noway_assert(varTypeIsIntegral(srct));
-    noway_assert(varTypeIsIntegral(dstt));
+    assert(varActualType(tree->GetType()) == varActualType(srct));
+    assert(varActualTypeIsInt(dstt));
+    const unsigned dstSize = varTypeSize(dstt);
+    assert(dstSize < varTypeSize(srct));
 
-    unsigned srcSize = genTypeSize(srct);
-    unsigned dstSize = genTypeSize(dstt);
-
-    /* dstt must be smaller than srct to narrow */
-    if (dstSize >= srcSize)
-    {
-        return false;
-    }
+    // TODO-MIKE-Review: This stuff is rather dubious. It mixes up 2 different optimizations
+    // and as a result it kind of sucks at both:
+    //   1. Attempts to remove a redundant narrowing cast (e.g. (byte)(a & 2) doesn't really
+    //      need a cast to byte). This is useful and likely doesn't negatively impact other
+    //      optimizations, but it's rather limited so the attempt fails in many cases.
+    //   2. Narrows LONG expressions to INT. This is obviously useful on 32 bit targets but
+    //      on 64 bit targets the situation is a bit more convoluted:
+    //      a. on x64, 32 bit instructions can have shorter encoding, since they don't need
+    //         a REX prefix. But the REX prefix may be needed for other reasons so code size
+    //         reduction isn't guaranteed.
+    //      b. on ARM64 there's no difference in instruction encoding length.
+    //      c. 32 bit instructions can be more efficient. But the obvious one, division,
+    //         cannot usually be narrowed down.
+    //      d. this transform blocks CSE - if the same LONG expression exists somewhere else
+    //         and it is not casted to INT, it won't be transformed and prevent CSE. At the
+    //         same time, this transform is unlikely to enable other optimizations so it
+    //         it should probably be done during lowering.
+    //
+    // These 2 optimzations interact poorly - the second can be done in many more cases than
+    // the first one. For example, LONG ADD can always be narrowed to INT but the first
+    // optimization rejects such narrowing when casting to small int types. What we need to
+    // do is narrow the tree but block the small int cast removal.
+    //
+    // Other dubious that happens here is the narrowing of LCL_VAR, LCL_FLD and IND nodes.
+    // In particular, LCL_VARs are narrowed from LONG to INT, requiring all sorts of special
+    // casing downstream. This is highly questionable, it could be done in lowering and the
+    // only reason to do it here is to some potential throughput gains due to reduced IR size,
+    // which is a pretty dumb reason, considering just how craptastic the rest of the JIT code
+    // is when it comes to throughput.
+    // Narrowing LCL_FLD and IND nodes is also questionable, due to it potentially blocking
+    // CSE as described above. That too looks like something that could be done in lowering.
 
     switch (tree->GetOper())
     {
@@ -739,10 +749,9 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
 
 #ifndef TARGET_64BIT
         case GT_CNS_LNG:
-            int64_t lval;
-            lval = tree->AsIntConCommon()->LngValue();
-            int64_t lmask;
-            lmask = 0;
+        {
+            int64_t lval  = tree->AsLngCon()->GetValue();
+            int64_t lmask = 0;
 
             switch (dstt)
             {
@@ -765,7 +774,6 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 case TYP_UINT:
                     lmask = 0xFFFFFFFF;
                     break;
-
                 default:
                     return false;
             }
@@ -788,13 +796,12 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
             }
 
             return true;
+        }
 #endif
-
         case GT_CNS_INT:
-            ssize_t ival;
-            ival = tree->AsIntCon()->gtIconVal;
-            ssize_t imask;
-            imask = 0;
+        {
+            ssize_t ival  = tree->AsIntCon()->GetValue();
+            ssize_t imask = 0;
 
             switch (dstt)
             {
@@ -818,7 +825,7 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 case TYP_UINT:
                     imask = 0xFFFFFFFF;
                     break;
-#endif // TARGET_64BIT
+#endif
                 default:
                     return false;
             }
@@ -841,13 +848,13 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                     tree->SetVNP(ValueNumPair{vnStore->VNForIntCon(value)});
                 }
             }
-#endif // TARGET_64BIT
-
+#endif
             return true;
-
+        }
         case GT_LCL_VAR:
+        {
             // Allow implicit narrowing to INT of LONG locals.
-            if (dstSize != varTypeSize(TYP_INT))
+            if (!varTypeIsInt(dstt))
             {
                 return false;
             }
@@ -856,33 +863,120 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
 
             if (doit)
             {
-                tree->SetType(varTypeToSigned(dstt));
+                tree->SetType(TYP_INT);
                 tree->SetVNP(vnpNarrow);
             }
 
             return true;
+        }
+        case GT_LCL_FLD:
+        case GT_IND:
+        {
+            if ((dstSize > varTypeSize(tree->GetType())) &&
+                (varTypeIsUnsigned(dstt) && !varTypeIsUnsigned(tree->GetType())))
+            {
+                return false;
+            }
 
+            if (doit && (dstSize <= varTypeSize(tree->GetType())))
+            {
+                tree->SetType(varTypeNodeType(dstt));
+                tree->SetVNP(vnpNarrow);
+            }
+
+            return true;
+        }
+        case GT_CAST:
+        {
+            if (tree->gtOverflow())
+            {
+                return false;
+            }
+
+            GenTree*  castSrc     = tree->AsCast()->GetOp(0);
+            var_types castSrcType = castSrc->GetType();
+
+            if (tree->AsCast()->GetCastType() != srct)
+            {
+                return false;
+            }
+
+            if (!varTypeIsIntegral(castSrcType))
+            {
+                return false;
+            }
+
+            if (varTypeSize(castSrcType) > dstSize)
+            {
+                return false;
+            }
+
+            if (doit)
+            {
+                var_types nodeType = varTypeNodeType(dstt);
+
+                if ((varTypeSize(castSrcType) == dstSize) &&
+                    ((varTypeIsUnsigned(nodeType) == varTypeIsUnsigned(castSrcType)) || !varTypeIsSmall(nodeType)))
+                {
+                    // Same size and there is no signedness mismatch for small types,
+                    // change the CAST into a NOP
+
+                    JITDUMP("Cast operation has no effect, replacing [%06u] CAST with NOP.\n", tree->GetID());
+
+                    tree->ClearUnsigned();
+                    tree->ChangeOper(GT_NOP);
+                    tree->SetType(nodeType);
+                    tree->SetVNP(castSrc->GetVNP());
+                }
+                else
+                {
+                    // oprSize is smaller or there is a signedness mismatch for small types
+
+                    tree->AsCast()->SetCastType(nodeType);
+                    tree->SetVNP(vnpNarrow);
+                }
+            }
+
+            return true;
+        }
+        case GT_COMMA:
+        {
+            op2 = tree->AsOp()->GetOp(1);
+            noway_assert(varActualType(tree->GetType()) == varActualType(op2->GetType()));
+
+            if (!fgMorphNarrowTree(op2, srct, dstt, vnpNarrow, doit))
+            {
+                return false;
+            }
+
+            if (doit)
+            {
+                tree->SetType(varActualType(dstt));
+                tree->SetVNP(vnpNarrow);
+            }
+
+            return true;
+        }
         case GT_AND:
+        {
             op1 = tree->AsOp()->GetOp(0);
             op2 = tree->AsOp()->GetOp(1);
-            noway_assert(genActualType(tree->gtType) == genActualType(op1->gtType));
-            noway_assert(genActualType(tree->gtType) == genActualType(op2->gtType));
-            GenTree* opToNarrow;
-            opToNarrow = nullptr;
-            GenTree** otherOpPtr;
-            otherOpPtr = nullptr;
-            bool foundOperandThatBlocksNarrowing;
-            foundOperandThatBlocksNarrowing = false;
+            noway_assert(varActualType(tree->GetType()) == varActualType(op1->GetType()));
+            noway_assert(varActualType(tree->GetType()) == varActualType(op2->GetType()));
+
+            GenTree*  opToNarrow                      = nullptr;
+            GenTree** otherOpUse                      = nullptr;
+            bool      foundOperandThatBlocksNarrowing = false;
 
             // If 'dstt' is unsigned and one of the operands can be narrowed into 'dsst',
             // the result of the GT_AND will also fit into 'dstt' and can be narrowed.
             // The same is true if one of the operands is an int const and can be narrowed into 'dsst'.
-            if ((op2->gtOper == GT_CNS_INT) || varTypeIsUnsigned(dstt))
+            if (op2->IsIntCon() || varTypeIsUnsigned(dstt))
             {
-                if (optNarrowTree(op2, srct, dstt, ValueNumPair(), false))
+                if (fgMorphNarrowTree(op2, srct, dstt, ValueNumPair(), false))
                 {
                     opToNarrow = op2;
-                    otherOpPtr = &tree->AsOp()->gtOp1;
+                    otherOpUse = &tree->AsOp()->gtOp1;
                 }
                 else
                 {
@@ -890,12 +984,12 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 }
             }
 
-            if ((opToNarrow == nullptr) && ((op1->gtOper == GT_CNS_INT) || varTypeIsUnsigned(dstt)))
+            if ((opToNarrow == nullptr) && (op1->IsIntCon() || varTypeIsUnsigned(dstt)))
             {
-                if (optNarrowTree(op1, srct, dstt, ValueNumPair(), false))
+                if (fgMorphNarrowTree(op1, srct, dstt, ValueNumPair(), false))
                 {
                     opToNarrow = op1;
-                    otherOpPtr = &tree->AsOp()->gtOp2;
+                    otherOpUse = &tree->AsOp()->gtOp2;
                 }
                 else
                 {
@@ -907,17 +1001,21 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
             {
                 if (doit)
                 {
-                    tree->SetType(varActualType(dstt));
+                    bool isLong = tree->TypeIs(TYP_LONG);
+
+                    tree->SetType(TYP_INT);
                     tree->SetVNP(vnpNarrow);
 
-                    optNarrowTree(opToNarrow, srct, dstt, ValueNumPair(), true);
-                    // We may also need to cast away the upper bits of *otherOpPtr
-                    if (srcSize == 8)
+                    fgMorphNarrowTree(opToNarrow, srct, dstt, ValueNumPair(), true);
+
+                    // We may also need to cast away the upper bits of the other operand.
+                    if (isLong)
                     {
-                        assert(tree->gtType == TYP_INT);
-                        GenTree* castOp = gtNewCastNode(TYP_INT, *otherOpPtr, false, TYP_INT);
+                        assert(tree->TypeIs(TYP_INT));
+
+                        GenTree* castOp = gtNewCastNode(*otherOpUse, false, TYP_INT);
                         INDEBUG(castOp->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-                        *otherOpPtr = castOp;
+                        *otherOpUse = castOp;
                     }
                 }
 
@@ -926,31 +1024,38 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
 
             if (foundOperandThatBlocksNarrowing)
             {
-                noway_assert(doit == false);
+                noway_assert(!doit);
+
                 return false;
             }
-
             goto COMMON_BINOP;
-
+        }
         case GT_ADD:
         case GT_MUL:
+        {
             if (tree->gtOverflow() || varTypeIsSmall(dstt))
             {
-                noway_assert(doit == false);
+                noway_assert(!doit);
+
                 return false;
             }
+
             FALLTHROUGH;
+        }
         case GT_OR:
         case GT_XOR:
+        {
             op1 = tree->AsOp()->GetOp(0);
             op2 = tree->AsOp()->GetOp(1);
-            noway_assert(genActualType(tree->gtType) == genActualType(op1->gtType));
-            noway_assert(genActualType(tree->gtType) == genActualType(op2->gtType));
+            noway_assert(varActualType(tree->GetType()) == varActualType(op1->GetType()));
+            noway_assert(varActualType(tree->GetType()) == varActualType(op2->GetType()));
+
         COMMON_BINOP:
-            if (!optNarrowTree(op1, srct, dstt, ValueNumPair(), doit) ||
-                !optNarrowTree(op2, srct, dstt, ValueNumPair(), doit))
+            if (!fgMorphNarrowTree(op1, srct, dstt, ValueNumPair(), doit) ||
+                !fgMorphNarrowTree(op2, srct, dstt, ValueNumPair(), doit))
             {
-                noway_assert(doit == false);
+                noway_assert(!doit);
+
                 return false;
             }
 
@@ -976,32 +1081,12 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 }
 #endif
 
-                tree->SetType(varActualType(dstt));
+                tree->SetType(TYP_INT);
                 tree->SetVNP(vnpNarrow);
             }
 
             return true;
-
-        case GT_LCL_FLD:
-        case GT_IND:
-            if ((dstSize > genTypeSize(tree->gtType)) && (varTypeIsUnsigned(dstt) && !varTypeIsUnsigned(tree->gtType)))
-            {
-                return false;
-            }
-
-            if (doit && (dstSize <= genTypeSize(tree->gtType)))
-            {
-                if (!varTypeIsSmall(dstt))
-                {
-                    dstt = varTypeToSigned(dstt);
-                }
-
-                tree->SetType(dstt);
-                tree->SetVNP(vnpNarrow);
-            }
-
-            return true;
-
+        }
         case GT_EQ:
         case GT_NE:
         case GT_LT:
@@ -1009,83 +1094,8 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
         case GT_GT:
         case GT_GE:
             return true;
-
-        case GT_CAST:
-        {
-            GenTree*  src     = tree->AsOp()->GetOp(0);
-            var_types cast    = tree->CastToType();
-            var_types oprt    = src->GetType();
-            unsigned  oprSize = genTypeSize(oprt);
-
-            if (cast != srct)
-            {
-                return false;
-            }
-
-            if (varTypeIsIntegralOrI(dstt) != varTypeIsIntegralOrI(oprt))
-            {
-                return false;
-            }
-
-            if (tree->gtOverflow())
-            {
-                return false;
-            }
-
-            if (oprSize > dstSize)
-            {
-                return false;
-            }
-
-            if (doit)
-            {
-                if (!varTypeIsSmall(dstt))
-                {
-                    dstt = varTypeToSigned(dstt);
-                }
-
-                if ((oprSize == dstSize) &&
-                    ((varTypeIsUnsigned(dstt) == varTypeIsUnsigned(oprt)) || !varTypeIsSmall(dstt)))
-                {
-                    // Same size and there is no signedness mismatch for small types: change the CAST
-                    // into a NOP
-
-                    JITDUMP("Cast operation has no effect, bashing [%06d] GT_CAST into a GT_NOP.\n", tree->GetID());
-
-                    tree->ChangeOper(GT_NOP);
-                    tree->SetType(dstt);
-                    tree->gtFlags &= ~GTF_UNSIGNED;
-                    tree->SetVNP(src->GetVNP());
-                }
-                else
-                {
-                    // oprSize is smaller or there is a signedness mismatch for small types
-
-                    tree->CastToType() = dstt;
-                    tree->SetType(varActualType(dstt));
-                    tree->SetVNP(vnpNarrow);
-                }
-            }
-
-            return true;
-        }
-
-        case GT_COMMA:
-            if (!optNarrowTree(tree->AsOp()->GetOp(1), srct, dstt, vnpNarrow, doit))
-            {
-                return false;
-            }
-
-            if (doit)
-            {
-                tree->SetType(varActualType(dstt));
-                tree->SetVNP(vnpNarrow);
-            }
-
-            return true;
-
         default:
-            noway_assert(doit == false);
+            noway_assert(!doit);
             return false;
     }
 }
@@ -3051,8 +3061,8 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
 
         if (!varTypeIsStruct(arg->GetType()) && (!arg->IsIntegralConst(0) || !paramIsStruct))
         {
-            if (paramIsStruct && arg->IsCast() && !arg->gtOverflow() && varTypeIsSmall(arg->AsCast()->GetCastType()) &&
-                (varTypeSize(arg->AsCast()->GetCastType()) == typGetLayoutByNum(argUse->GetSigTypeNum())->GetSize()))
+            if (paramIsStruct && arg->IsCast() && !arg->gtOverflow() && varTypeIsSmall(arg->GetType()) &&
+                (varTypeSize(arg->GetType()) == typGetLayoutByNum(argUse->GetSigTypeNum())->GetSize()))
             {
                 // This is a struct arg that became a primitive type arg due to struct promotion.
                 // Promoted struct fields are "normalized on load" but we don't need normalization
@@ -3752,7 +3762,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
 #endif
                     {
                         field->SetType(TYP_INT);
-                        field = gtNewCastNode(TYP_INT, field, false, type);
+                        field = gtNewCastNode(field, false, type);
                     }
                 }
             }
@@ -3779,7 +3789,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
 #ifdef TARGET_64BIT
             if (newArgType == TYP_LONG)
             {
-                field = gtNewCastNode(TYP_LONG, field, true, TYP_LONG);
+                field = gtNewCastNode(field, true, TYP_LONG);
             }
 #endif
 
@@ -3798,9 +3808,9 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
             else
             {
 #ifdef TARGET_64BIT
-                if (newArg->GetType() != newArgType)
+                if (varActualType(newArg->GetType()) != newArgType)
                 {
-                    newArg = gtNewCastNode(TYP_LONG, newArg, true, TYP_LONG);
+                    newArg = gtNewCastNode(newArg, true, TYP_LONG);
                 }
 #endif
 
@@ -4821,7 +4831,7 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
     };
     auto Or = [&](GenTree* op1, GenTree* op2) { return gtNewOperNode(GT_OR, varActualType(op1->GetType()), op1, op2); };
     auto Clone  = [&](GenTree* expr) { return gtCloneExpr(expr); };
-    auto Extend = [&](GenTree* value) { return gtNewCastNode(TYP_LONG, value, true, TYP_LONG); };
+    auto Extend = [&](GenTree* value) { return gtNewCastNode(value, true, TYP_LONG); };
 
     if (indirSize == 1)
     {
@@ -5353,7 +5363,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
         // the comparison will have to be widen to 64 bits.
         if (index->TypeIs(TYP_LONG))
         {
-            arrLen = gtNewCastNode(TYP_LONG, arrLen, false, TYP_LONG);
+            arrLen = gtNewCastNode(arrLen, false, TYP_LONG);
         }
 #endif
 
@@ -5390,7 +5400,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
         }
         else
         {
-            offset = gtNewCastNode(TYP_LONG, offset, false, TYP_LONG);
+            offset = gtNewCastNode(offset, false, TYP_LONG);
         }
     }
 #endif
@@ -5476,7 +5486,7 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
     lclVar->SetType(TYP_INT);
     fgMorphTreeDone(lclVar);
 
-    GenTreeCast* cast = gtNewCastNode(TYP_INT, lclVar, false, lcl->GetType());
+    GenTreeCast* cast = gtNewCastNode(lclVar, false, lcl->GetType());
     INDEBUG(cast->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
     return cast;
 }
@@ -9995,7 +10005,7 @@ GenTree* Compiler::fgMorphNormalizeLclVarStore(GenTreeOp* asg)
     GenTree* op1 = asg->GetOp(0);
     GenTree* op2 = asg->GetOp(1);
 
-    if (varActualType(op1->GetType()) == TYP_INT)
+    if (varActualTypeIsInt(op1->GetType()))
     {
         LclVarDsc* lcl = lvaGetDesc(op1->AsLclVar());
 
@@ -10005,7 +10015,7 @@ GenTree* Compiler::fgMorphNormalizeLclVarStore(GenTreeOp* asg)
 
             if (gtIsSmallIntCastNeeded(op2, lcl->GetType()))
             {
-                op2 = gtNewCastNode(TYP_INT, op2, false, lcl->GetType());
+                op2 = gtNewCastNode(op2, false, lcl->GetType());
                 asg->SetOp(1, op2);
             }
         }
@@ -10621,13 +10631,13 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 }
                 else
                 {
-                    op1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
+                    op1 = gtNewCastNode(op1, false, TYP_DOUBLE);
                     tree->AsOp()->SetOp(0, op1);
                 }
             }
             else if (op2->TypeIs(TYP_FLOAT))
             {
-                op2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
+                op2 = gtNewCastNode(op2, false, TYP_DOUBLE);
                 tree->AsOp()->SetOp(1, op2);
             }
 
@@ -10670,7 +10680,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             {
                 // Small-typed return values are extended by the callee.
 
-                op1 = gtNewCastNode(TYP_INT, op1, false, info.compRetType);
+                op1 = gtNewCastNode(op1, false, info.compRetType);
                 op1 = fgMorphTree(op1);
 
                 tree->AsUnOp()->SetOp(0, op1);
@@ -10947,15 +10957,11 @@ DONE_MORPHING_CHILDREN:
                 (op1->OperIs(GT_IND, GT_LCL_FLD) ||
                  (op1->OperIs(GT_LCL_VAR) && lvaGetDesc(op1->AsLclVar())->lvNormalizeOnLoad())))
             {
-                if (op2->IsCast() && varTypeIsIntegral(op2->AsCast()->GetOp(0)) && !op2->gtOverflow())
+                if (op2->IsCast() && varTypeIsIntegral(op2->AsCast()->GetOp(0)) && !op2->gtOverflow() &&
+                    varTypeIsSmall(op2->GetType()) && (varTypeSize(op2->GetType()) >= varTypeSize(op1->GetType())))
                 {
-                    var_types castType = op2->AsCast()->GetCastType();
-
-                    if (varTypeIsSmall(castType) && (varTypeSize(castType) >= varTypeSize(op1->GetType())))
-                    {
-                        op2 = op2->AsCast()->GetOp(0);
-                        tree->AsOp()->SetOp(1, op2);
-                    }
+                    op2 = op2->AsCast()->GetOp(0);
+                    tree->AsOp()->SetOp(1, op2);
                 }
             }
 
@@ -11013,27 +11019,51 @@ DONE_MORPHING_CHILDREN:
 
         case GT_EQ:
         case GT_NE:
-            // Pattern-matching optimization:
-            //    (a % c) ==/!= 0
-            // for power-of-2 constant `c`
-            // =>
-            //    a & (c - 1) ==/!= 0
-            // For integer `a`, even if negative.
-            if (opts.OptimizationEnabled())
+            if (opts.OptimizationEnabled() && op2->IsIntCon())
             {
-                GenTree* op1 = tree->AsOp()->gtOp1;
-                GenTree* op2 = tree->AsOp()->gtOp2;
-                if (op1->OperIs(GT_MOD) && varTypeIsIntegral(op1->TypeGet()) && op2->IsIntegralConst(0))
+                if (op1->OperIs(GT_MOD) && (op2->AsIntCon()->GetValue() >= 0))
                 {
-                    GenTree* op1op2 = op1->AsOp()->gtOp2;
-                    if (op1op2->IsCnsIntOrI())
+                    // (x MOD pow2) EQ|NE 0 => (x AND (pow2 - 1)) EQ|NE 0
+                    // (x MOD pow2) EQ|NE [1..pow2 - 1] => (x AND (sign_bit | (pow2 - 1))) EQ|NE [1..pow2 - 1]
+
+                    // TODO-MIKE-Review: The second case might need to be moved to lowering, doing it here
+                    // prevents assertion prop from transforming MOD into UMOD. Assertion prop could drop
+                    // the sign bit from the AND mask, but it does it in cases where it isn't necessary and
+                    // result in larger immediates being generated (e.g. -1 is imm8 on x86/64 but if you drop
+                    // the sign bit it becomes 0x7fffffff which is imm32).
+
+                    if (GenTreeIntCon* modOp2 = op1->AsOp()->GetOp(1)->IsIntCon())
                     {
-                        ssize_t modValue = op1op2->AsIntCon()->IconValue();
-                        if (isPow2(modValue))
+                        if (isPow2(modOp2->GetValue()) && (op2->AsIntCon()->GetValue() < modOp2->GetValue()))
                         {
-                            op1->SetOper(GT_AND);                                 // Change % => &
-                            op1op2->AsIntConCommon()->SetIconValue(modValue - 1); // Change c => c - 1
+                            ssize_t mask = modOp2->GetValue() - 1;
+
+                            if (!op2->IsIntCon(0))
+                            {
+                                if (varTypeSize(modOp2->GetType()) <= 4)
+                                {
+                                    mask = static_cast<int32_t>(mask | INT32_MIN);
+                                }
+                                else
+                                {
+                                    mask |= INT64_MIN;
+                                }
+                            }
+
+                            op1->SetOper(GT_AND);
+                            modOp2->SetValue(mask);
                         }
+                    }
+                }
+                else if (op1->OperIs(GT_AND) && op2->AsIntCon()->HasSingleSetBit())
+                {
+                    // (x AND pow2) EQ|NE pow2 => (x AND pow2) NE|EQ 0
+
+                    if (op1->AsOp()->GetOp(1)->IsIntCon(op2->AsIntCon()->GetValue()))
+                    {
+                        op2->AsIntCon()->SetValue(0);
+                        oper = oper == GT_EQ ? GT_NE : GT_EQ;
+                        tree->SetOperRaw(oper);
                     }
                 }
             }
@@ -11366,13 +11396,13 @@ DONE_MORPHING_CHILDREN:
                 }
 
                 // Now we narrow AsOp()->gtOp1 of AND to int.
-                if (optNarrowTree(op1->AsOp()->gtGetOp1(), TYP_LONG, TYP_INT, ValueNumPair(), false))
+                if (fgMorphNarrowTree(op1->AsOp()->gtGetOp1(), TYP_LONG, TYP_INT, ValueNumPair(), false))
                 {
-                    optNarrowTree(op1->AsOp()->gtGetOp1(), TYP_LONG, TYP_INT, ValueNumPair(), true);
+                    fgMorphNarrowTree(op1->AsOp()->gtGetOp1(), TYP_LONG, TYP_INT, ValueNumPair(), true);
                 }
                 else
                 {
-                    op1->AsOp()->gtOp1 = gtNewCastNode(TYP_INT, op1->AsOp()->gtGetOp1(), false, TYP_INT);
+                    op1->AsOp()->gtOp1 = gtNewCastNode(op1->AsOp()->gtGetOp1(), false, TYP_INT);
                 }
 
                 // now replace the mask node (AsOp()->gtOp2 of AND node).
@@ -12921,13 +12951,13 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
     if (GenTreeLngCon* longConst1 = op1->IsLngCon())
     {
         op1->ChangeToIntCon(TYP_INT, static_cast<int32_t>(longConst1->GetValue()));
-        op1 = gtNewCastNode(TYP_LONG, op1, op2->AsCast()->IsUnsigned(), TYP_LONG);
+        op1 = gtNewCastNode(op1, op2->AsCast()->IsUnsigned(), TYP_LONG);
         mul->SetOp(0, op1);
     }
     else if (GenTreeLngCon* longConst2 = op2->IsLngCon())
     {
         op2->ChangeToIntCon(TYP_INT, static_cast<int32_t>(longConst2->GetValue()));
-        op2 = gtNewCastNode(TYP_LONG, op2, op1->AsCast()->IsUnsigned(), TYP_LONG);
+        op2 = gtNewCastNode(op2, op1->AsCast()->IsUnsigned(), TYP_LONG);
         mul->SetOp(1, op2);
     }
 

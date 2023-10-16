@@ -231,6 +231,8 @@ public:
         Init();
         GenerateAssertions();
 
+        ssa.SetAssertionTable(assertionTable, assertionCount);
+
         if (assertionCount != 0)
         {
             ComputeAvailability();
@@ -245,8 +247,6 @@ public:
                 block->bbAssertionOutJumpDest = nullptr;
             }
         }
-
-        ssa.SetAssertionTable(assertionTable, assertionCount);
 
         return true;
     }
@@ -426,9 +426,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        var_types toType = cast->GetCastType();
-
-        if (!varTypeIsSmall(toType))
+        if (!varTypeIsSmall(cast->GetType()))
         {
             return NO_ASSERTION_INDEX;
         }
@@ -450,7 +448,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        const auto& range = GetSmallTypeRange(toType);
+        const auto& range = GetSmallTypeRange(cast->GetType());
 
         return AddRangeAssertion(value->GetConservativeVN(), range.min, range.max);
     }
@@ -1769,9 +1767,11 @@ private:
 
     GenTree* PropagateCast(const ASSERT_TP assertions, GenTreeCast* cast, Statement* stmt)
     {
+        assert(cast->GetType() == varCastType(cast->GetCastType()));
+
         GenTree*  op1      = cast->GetOp(0);
         var_types fromType = op1->GetType();
-        var_types toType   = cast->GetCastType();
+        var_types toType   = cast->GetType();
 
         if (!varTypeIsIntegral(toType) || !varTypeIsIntegral(fromType))
         {
@@ -3200,13 +3200,6 @@ private:
                 case GT_MOD:
                 case GT_UDIV:
                 case GT_UMOD:
-                case GT_EQ:
-                case GT_NE:
-                case GT_LT:
-                case GT_LE:
-                case GT_GE:
-                case GT_GT:
-                case GT_OR:
                 case GT_XOR:
                 case GT_AND:
                 case GT_LSH:
@@ -3218,17 +3211,11 @@ private:
                 case GT_BSWAP16:
                 case GT_NEG:
                 case GT_NOT:
-                case GT_CAST:
                 case GT_BITCAST:
                 case GT_INTRINSIC:
-                case GT_FADD:
-                case GT_FSUB:
-                case GT_FMUL:
-                case GT_FDIV:
-                case GT_FNEG:
                     // Normally these nodes should not have small int type. If they do, it's either due
                     // to bogus JIT code or due to BOOL optimizations that "infect" AND/OR (though that
-                    // is still more or less due to bogus desig/code). The former case is best ignored,
+                    // is still more or less due to bogus design/code). The former case is best ignored,
                     // in order to avoid surprises due to bad VN, the later case is unlikely to involve
                     // constants, as BOOL expressions tend to use BOOL indirs or BOOL HWINTRINSIC nodes
                     // that aren't currently constant evaluated.
@@ -3236,6 +3223,20 @@ private:
                     {
                         return Compiler::WALK_CONTINUE;
                     }
+                    FALLTHROUGH;
+                case GT_FADD:
+                case GT_FSUB:
+                case GT_FMUL:
+                case GT_FDIV:
+                case GT_FNEG:
+                case GT_EQ:
+                case GT_NE:
+                case GT_LT:
+                case GT_LE:
+                case GT_GE:
+                case GT_GT:
+                case GT_OR:
+                case GT_CAST:
                     break;
 
                 // TODO-MIKE-CQ: This doesn't handle some helper calls that can be evaluated to
@@ -3318,7 +3319,7 @@ private:
             }
             // The tree type and the VN type should match but VN can't be trusted. At least for SIMD
             // locals, VN manages to pull out a TYP_LONG 0 constant out of the hat, if the local is
-            // not explictily initialized and .locals init is used.
+            // not explicitly initialized and .locals init is used.
             else if (varActualType(tree->GetType()) == vnType)
             {
                 switch (vnType)

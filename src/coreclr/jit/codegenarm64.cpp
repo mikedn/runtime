@@ -2674,10 +2674,6 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
         noway_assert(exResultReg != REG_NA);
         noway_assert(exResultReg != targetReg);
 
-        assert(addr->isUsedFromReg());
-        assert(data->isUsedFromReg());
-        assert(!comparand->isUsedFromMemory());
-
         // Store exclusive unpredictable cases must be avoided
         noway_assert(exResultReg != dataReg);
         noway_assert(exResultReg != addrReg);
@@ -2712,16 +2708,15 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
         // The following instruction includes a acquire half barrier
         GetEmitter()->emitIns_R_R(INS_ldaxr, emitTypeSize(treeNode), targetReg, addrReg);
 
-        if (comparand->isContainedIntOrIImmed())
+        if (GenTreeIntCon* con = comparand->IsContainedIntCon())
         {
-            if (comparand->IsIntegralConst(0))
+            if (con->GetValue() == 0)
             {
                 GetEmitter()->emitIns_J_R(INS_cbnz, emitActualTypeSize(treeNode), labelCompareFail, targetReg);
             }
             else
             {
-                GetEmitter()->emitIns_R_I(INS_cmp, emitActualTypeSize(treeNode), targetReg,
-                                          comparand->AsIntConCommon()->IconValue());
+                GetEmitter()->emitIns_R_I(INS_cmp, emitActualTypeSize(treeNode), targetReg, con->GetValue());
                 GetEmitter()->emitIns_J(INS_bne, labelCompareFail);
             }
         }
@@ -2950,25 +2945,19 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     emitInsStore(ins, emitActualTypeSize(type), dataReg, tree);
 }
 
-//------------------------------------------------------------------------
-// genIntToFloatCast: Generate code to cast an int/long to float/double
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
 void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 {
+    assert(cast->GetType() == cast->GetCastType());
     assert(!cast->gtOverflow());
 
     GenTree*  src     = cast->GetOp(0);
     var_types srcType = varActualType(src->GetType());
-    var_types dstType = cast->GetCastType();
+    var_types dstType = cast->GetType();
 
     noway_assert((srcType == TYP_INT) || (srcType == TYP_LONG));
     assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
-    assert(cast->GetType() == dstType);
 
-    regNumber srcReg = genConsumeReg(src);
+    regNumber srcReg = UseReg(src);
     regNumber dstReg = cast->GetRegNum();
 
     assert(genIsValidIntReg(srcReg) && genIsValidFloatReg(dstReg));
@@ -2991,12 +2980,6 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-//------------------------------------------------------------------------
-// genFloatToIntCast: Generate code to cast float/double to int/long
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
 void CodeGen::genFloatToIntCast(GenTreeCast* cast)
 {
     assert(!cast->gtOverflow());
@@ -3075,71 +3058,61 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     genProduceReg(treeNode);
 }
 
-//------------------------------------------------------------------------
-// genCodeForCompare: Produce code for a GT_EQ/GT_NE/GT_LT/GT_LE/GT_GE/GT_GT/GT_TEST_EQ/GT_TEST_NE node.
-//
-// Arguments:
-//    tree - the node
-//
-void CodeGen::genCodeForCompare(GenTreeOp* tree)
+void CodeGen::GenCompare(GenTreeOp* cmp)
 {
-    regNumber targetReg = tree->GetRegNum();
-    emitter*  emit      = GetEmitter();
+    GenTree*  op1   = cmp->GetOp(0);
+    GenTree*  op2   = cmp->GetOp(1);
+    var_types type1 = varActualType(op1->GetType());
+    var_types type2 = varActualType(op2->GetType());
+    regNumber reg1  = UseReg(op1);
+    regNumber reg2  = op2->isContained() ? REG_NA : UseReg(op2);
+    emitAttr  attr  = EA_ATTR(varTypeSize(type1));
 
-    GenTree*  op1     = tree->gtOp1;
-    GenTree*  op2     = tree->gtOp2;
-    var_types op1Type = genActualType(op1->TypeGet());
-    var_types op2Type = genActualType(op2->TypeGet());
+    assert(varTypeSize(type1) == varTypeSize(type2));
 
-    regNumber srcReg1 = UseReg(op1);
-    regNumber srcReg2 = op2->isContained() ? REG_NA : UseReg(op2);
+    emitter* emit = GetEmitter();
 
-    emitAttr cmpSize = EA_ATTR(genTypeSize(op1Type));
-
-    assert(genTypeSize(op1Type) == genTypeSize(op2Type));
-
-    if (varTypeIsFloating(op1Type))
+    if (varTypeIsFloating(type1))
     {
-        assert(varTypeIsFloating(op2Type));
-        assert(op1Type == op2Type);
+        assert(type1 == type2);
 
         // TODO-MIKE-Review: This is nonsense...
         if (op2->IsIntegralConst(0))
         {
             assert(op2->isContained());
-            emit->emitIns_R_F(INS_fcmp, cmpSize, srcReg1, 0.0);
+            emit->emitIns_R_F(INS_fcmp, attr, reg1, 0.0);
         }
         else
         {
             assert(!op2->isContained());
-            emit->emitIns_R_R(INS_fcmp, cmpSize, srcReg1, srcReg2);
+            emit->emitIns_R_R(INS_fcmp, attr, reg1, reg2);
         }
     }
     else
     {
-        assert(!varTypeIsFloating(op2Type));
+        assert(!varTypeIsFloating(type2));
         // We don't support swapping op1 and op2 to generate cmp reg, imm
-        assert(!op1->isContainedIntOrIImmed());
+        assert(!op1->IsContainedIntCon());
 
-        instruction ins = tree->OperIs(GT_TEST_EQ, GT_TEST_NE) ? INS_tst : INS_cmp;
+        instruction ins = cmp->OperIs(GT_TEST_EQ, GT_TEST_NE) ? INS_tst : INS_cmp;
 
-        if (op2->isContainedIntOrIImmed())
+        if (op2->IsContainedIntCon())
         {
-            GenTreeIntConCommon* intConst = op2->AsIntConCommon();
-            emit->emitIns_R_I(ins, cmpSize, srcReg1, intConst->IconValue());
+            emit->emitIns_R_I(ins, attr, reg1, op2->AsIntCon()->GetValue());
         }
         else
         {
-            emit->emitIns_R_R(ins, cmpSize, srcReg1, srcReg2);
+            emit->emitIns_R_R(ins, attr, reg1, reg2);
         }
     }
 
-    // Are we evaluating this into a register?
-    if (targetReg != REG_NA)
+    if (cmp->GetRegNum() == REG_NA)
     {
-        inst_SETCC(GenCondition::FromRelop(tree), tree->TypeGet(), targetReg);
-        genProduceReg(tree);
+        return;
     }
+
+    inst_SETCC(GenCondition::FromRelop(cmp), cmp->GetType(), cmp->GetRegNum());
+    DefReg(cmp);
 }
 
 // Generates code for JCMP node.
@@ -3178,8 +3151,6 @@ void CodeGen::GenJCmp(GenTreeOp* tree, BasicBlock* block)
     GenTree* op2 = tree->gtGetOp2();
 
     assert(!varTypeIsFloating(tree));
-    assert(!op1->isUsedFromMemory());
-    assert(!op2->isUsedFromMemory());
     assert(op2->IsCnsIntOrI());
     assert(op2->isContained());
 

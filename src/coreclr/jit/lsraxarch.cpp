@@ -359,7 +359,7 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_TEST_EQ:
         case GT_TEST_NE:
         case GT_CMP:
-            srcCount = BuildCmp(tree);
+            srcCount = BuildCmp(tree->AsOp());
             break;
 
         case GT_CKFINITE:
@@ -823,15 +823,6 @@ int LinearScan::BuildRMWUses(GenTreeOp* node, regMaskTP candidates)
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildShiftRotate: Set the NodeInfo for a shift or rotate.
-//
-// Arguments:
-//    tree      - The node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildShiftRotate(GenTree* tree)
 {
     // For shift operations, we need that the number
@@ -1365,15 +1356,6 @@ int LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* lay
 #endif
 }
 
-//------------------------------------------------------------------------
-// BuildPutArgStk: Set the NodeInfo for a GT_PUTARG_STK.
-//
-// Arguments:
-//    putArgStk - The node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 {
     GenTree* src = putArgStk->GetOp(0);
@@ -1603,15 +1585,6 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     return BuildOperandUses(src);
 }
 
-//------------------------------------------------------------------------
-// BuildLclHeap: Set the NodeInfo for a GT_LCLHEAP.
-//
-// Arguments:
-//    tree      - The node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildLclHeap(GenTree* tree)
 {
     int srcCount = 1;
@@ -1690,15 +1663,6 @@ int LinearScan::BuildLclHeap(GenTree* tree)
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildModDiv: Set the NodeInfo for GT_MOD/GT_DIV/GT_UMOD/GT_UDIV.
-//
-// Arguments:
-//    tree      - The node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildModDiv(GenTree* tree)
 {
     assert(tree->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD) && varTypeIsIntegral(tree->GetType()));
@@ -1810,15 +1774,6 @@ int LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-//------------------------------------------------------------------------
-// BuildHWIntrinsic: Set the NodeInfo for a GT_HWINTRINSIC tree.
-//
-// Arguments:
-//    tree       - The GT_HWINTRINSIC node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 {
     NamedIntrinsic      intrinsicId = intrinsicTree->GetIntrinsic();
@@ -2229,38 +2184,26 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 }
 #endif
 
-//------------------------------------------------------------------------
-// BuildCast: Set the NodeInfo for a GT_CAST.
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildCast(GenTreeCast* cast)
 {
-    GenTree* src = cast->gtGetOp1();
-
-    const var_types srcType  = genActualType(src->TypeGet());
-    const var_types castType = cast->gtCastType;
-
+    GenTree*  src        = cast->GetOp(0);
     regMaskTP candidates = RBM_NONE;
+
 #ifdef TARGET_X86
-    if (varTypeIsByte(castType))
+    if (varTypeIsByte(cast->GetType()))
     {
         candidates = allByteRegs();
     }
 
-    assert(!varTypeIsLong(srcType) || (src->OperIs(GT_LONG) && src->isContained()));
+    assert(!varTypeIsLong(src->GetType()) || (src->OperIs(GT_LONG) && src->isContained()));
 #else
     // Overflow checking cast from TYP_(U)LONG to TYP_UINT requires a temporary
     // register to extract the upper 32 bits of the 64 bit source register.
-    if (cast->gtOverflow() && varTypeIsLong(srcType) && (castType == TYP_UINT))
+    if (cast->gtOverflow() && varTypeIsLong(src->GetType()) && (cast->GetCastType() == TYP_UINT))
     {
         // Here we don't need internal register to be different from targetReg,
         // rather require it to be different from operand's reg.
-        buildInternalIntRegisterDefForNode(cast);
+        BuildInternalIntDef(cast);
 
         // If the cast operand ends up being in memory then the value will be loaded directly
         // into the destination register and thus the internal register has to be different.
@@ -2464,6 +2407,71 @@ void LinearScan::SetContainsAVXFlags(unsigned sizeOfSIMDVector /* = 0*/)
             compiler->GetEmitter()->SetContains256bitAVX(true);
         }
     }
+}
+
+int LinearScan::BuildCmp(GenTreeOp* cmp)
+{
+    assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP));
+
+    regMaskTP dstCandidates = RBM_NONE;
+    regMaskTP op1Candidates = RBM_NONE;
+    regMaskTP op2Candidates = RBM_NONE;
+    GenTree*  op1           = cmp->GetOp(0);
+    GenTree*  op2           = cmp->GetOp(1);
+
+#ifdef TARGET_X86
+    // If the compare is not used by a jump then we need to generate a SETcc instruction,
+    // which requires the dst be a byte register.
+    if (!cmp->TypeIs(TYP_VOID))
+    {
+        dstCandidates = allByteRegs();
+    }
+
+    bool needByteRegs = false;
+
+    if (varTypeIsByte(cmp->GetType()))
+    {
+        if (!varTypeIsFloating(op1->GetType()))
+        {
+            needByteRegs = true;
+        }
+    }
+    else if (varTypeIsByte(op1->GetType()) && varTypeIsByte(op2->GetType()))
+    {
+        needByteRegs = true;
+    }
+    else if (varTypeIsByte(op1->GetType()) && op2->IsIntCon())
+    {
+        needByteRegs = true;
+    }
+    else if (op1->IsIntCon() && varTypeIsByte(op2->GetType()))
+    {
+        needByteRegs = true;
+    }
+
+    if (needByteRegs)
+    {
+        if (!op1->isContained())
+        {
+            op1Candidates = allByteRegs();
+        }
+
+        if (!op2->isContained())
+        {
+            op2Candidates = allByteRegs();
+        }
+    }
+#endif // TARGET_X86
+
+    int srcCount = BuildOperandUses(op1, op1Candidates);
+    srcCount += BuildOperandUses(op2, op2Candidates);
+
+    if (!cmp->TypeIs(TYP_VOID))
+    {
+        BuildDef(cmp, dstCandidates);
+    }
+
+    return srcCount;
 }
 
 #endif // TARGET_XARCH

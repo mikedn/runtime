@@ -880,14 +880,9 @@ public:
         return IsAnyRegSpilled() && ((gtFlags & GTF_NOREG_AT_USE) != 0);
     }
 
-    bool isMemoryOp() const
-    {
-        return OperIs(GT_IND, GT_STOREIND, GT_LCL_FLD, GT_STORE_LCL_FLD);
-    }
-
     bool isUsedFromMemory() const
     {
-        return isUsedFromSpillTemp() || (isContained() && (isMemoryOp() || OperIs(GT_LCL_VAR, GT_CNS_DBL)));
+        return isUsedFromSpillTemp() || (isContained() && OperIs(GT_IND, GT_LCL_FLD, GT_LCL_VAR, GT_CNS_DBL));
     }
 
     bool isUsedFromReg() const
@@ -1260,16 +1255,6 @@ public:
         return OperIsCompare(gtOper);
     }
 
-    static bool OperIsLogical(genTreeOps gtOper)
-    {
-        return (gtOper == GT_AND) || (gtOper == GT_OR) || (gtOper == GT_XOR);
-    }
-
-    bool OperIsLogical() const
-    {
-        return OperIsLogical(gtOper);
-    }
-
     static bool OperIsShift(genTreeOps gtOper)
     {
         return (gtOper == GT_LSH) || (gtOper == GT_RSH) || (gtOper == GT_RSZ);
@@ -1495,7 +1480,7 @@ public:
     // This is here for cleaner GT_LONG #ifdefs.
     static bool OperIsLong(genTreeOps gtOper)
     {
-#if defined(TARGET_64BIT)
+#ifdef TARGET_64BIT
         return false;
 #else
         return gtOper == GT_LONG;
@@ -1509,7 +1494,7 @@ public:
 
     bool OperIsConditionalJump() const
     {
-        return (gtOper == GT_JTRUE) || (gtOper == GT_JCMP) || (gtOper == GT_JCC);
+        return (gtOper == GT_JTRUE) || (gtOper == GT_JCC)ARM64_ONLY(|| (gtOper == GT_JCMP));
     }
 
     bool IsControlFlow() const
@@ -1517,7 +1502,9 @@ public:
         switch (gtOper)
         {
             case GT_JTRUE:
+#ifdef TARGET_ARM64
             case GT_JCMP:
+#endif
             case GT_JCC:
             case GT_SWITCH:
             case GT_LABEL:
@@ -1575,6 +1562,7 @@ public:
 #endif // DEBUG
 
     bool IsDblConPositiveZero() const;
+    bool IsDblConNonPositiveZero() const;
     bool IsHWIntrinsicZero() const;
     bool IsIntegralConst(ssize_t constVal) const;
 
@@ -1806,7 +1794,6 @@ public:
     bool IsIntegralConst() const;
     bool IsIntCnsFitsInI32();
     bool IsCnsFltOrDbl() const;
-    bool IsCnsNonZeroFltOrDbl();
 
     bool IsIconHandle() const
     {
@@ -1826,8 +1813,6 @@ public:
 
     bool gtOverflow() const;
     bool gtOverflowEx() const;
-
-    inline var_types& CastToType();
 
     bool IsPhiDef() const;
 
@@ -2555,8 +2540,6 @@ struct GenTreeIntConCommon : public GenTree
 #endif
     }
 
-    bool ImmedValCanBeFolded(Compiler* comp, genTreeOps op);
-
 #if DEBUGGABLE_GENTREE
     GenTreeIntConCommon() : GenTree()
     {
@@ -2763,6 +2746,7 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     }
 
     bool ImmedValNeedsReloc(Compiler* comp);
+    bool ImmedValCanBeFolded(Compiler* comp, genTreeOps op);
 
 #ifdef TARGET_XARCH
     bool AddrNeedsReloc(Compiler* comp);
@@ -2774,7 +2758,25 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     {
         gtIconVal = INT32(gtIconVal);
     }
-#endif // TARGET_64BIT
+#endif
+
+    bool HasSingleSetBit() const
+    {
+        ssize_t value = gtIconVal;
+
+#ifdef TARGET_64BIT
+        if (varActualTypeIsInt(gtType))
+#else
+        assert(varActualTypeIsIntOrI(gtType));
+#endif
+        {
+#ifdef HOST_64BIT
+            value &= UINT_MAX;
+#endif
+        }
+
+        return isPow2<size_t>(static_cast<size_t>(value));
+    }
 
 #if DEBUGGABLE_GENTREE
     GenTreeIntCon() : GenTreeIntConCommon()
@@ -3641,39 +3643,46 @@ public:
 #endif
 };
 
-/* gtCast -- conversion to a different type  (GT_CAST) */
-
 struct GenTreeCast : public GenTreeOp
 {
-    var_types gtCastType;
+private:
+    var_types castType;
 
-    GenTreeCast(var_types type, GenTree* op, bool fromUnsigned, var_types castType DEBUGARG(bool largeNode = false))
-        : GenTreeOp(GT_CAST, type, op, nullptr DEBUGARG(largeNode)), gtCastType(castType)
+public:
+    GenTreeCast(var_types castType, GenTree* op, bool fromUnsigned DEBUGARG(bool largeNode = false))
+        : GenTreeOp(GT_CAST, varCastType(castType), op, nullptr DEBUGARG(largeNode)), castType(castType)
     {
+        assert(varTypeIsArithmetic(castType));
         // We do not allow casts from floating point types to be treated as from
         // unsigned to avoid bugs related to wrong GTF_UNSIGNED in case the
         // operand's type changes.
-        assert(!varTypeIsFloating(op) || !fromUnsigned);
+        assert(!varTypeIsFloating(op->GetType()) || !fromUnsigned);
 
         gtFlags |= fromUnsigned ? GTF_UNSIGNED : GTF_EMPTY;
     }
 
+    GenTreeCast(const GenTreeCast* copyFrom DEBUGARG(bool largeNode = false))
+        : GenTreeOp(GT_CAST, copyFrom->GetType(), copyFrom->GetOp(0), nullptr DEBUGARG(largeNode))
+        , castType(copyFrom->castType)
+    {
+        gtFlags |= copyFrom->gtFlags & GTF_UNSIGNED;
+    }
+
     var_types GetCastType() const
     {
-        return gtCastType;
+        return castType;
     }
 
     void SetCastType(var_types type)
     {
         assert(varTypeIsArithmetic(type));
-        SetType(varActualType(type));
-        gtCastType = type;
+
+        castType = type;
+        SetType(varCastType(type));
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeCast() : GenTreeOp()
-    {
-    }
+    GenTreeCast() = default;
 #endif
 };
 
@@ -7324,6 +7333,16 @@ public:
     {
     }
 
+    bool operator==(Code code) const
+    {
+        return m_code == code;
+    }
+
+    bool operator!=(Code code) const
+    {
+        return m_code != code;
+    }
+
     static_assert((GT_NE - GT_EQ) == (NE & ~Unsigned), "bad relop");
     static_assert((GT_LT - GT_EQ) == SLT, "bad relop");
     static_assert((GT_LE - GT_EQ) == SLE, "bad relop");
@@ -7429,30 +7448,39 @@ public:
 
 struct GenTreeCC final : public GenTree
 {
-    GenCondition gtCondition;
+private:
+    GenCondition condition;
 
+public:
     GenTreeCC(genTreeOps oper, GenCondition condition, var_types type = TYP_VOID)
-        : GenTree(oper, type DEBUGARG(/*largeNode*/ FALSE)), gtCondition(condition)
+        : GenTree(oper, type DEBUGARG(/*largeNode*/ false)), condition(condition)
     {
         assert(OperIs(GT_JCC, GT_SETCC));
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeCC() : GenTree()
+    GenCondition GetCondition() const
     {
+        return condition;
     }
-#endif // DEBUGGABLE_GENTREE
-};
 
-//------------------------------------------------------------------------
-// IsDblConPositiveZero: Checks whether this is a floating point constant with value +0.0
-//
-// Return Value:
-//    Returns true iff the tree is an GT_CNS_DBL, with value of +0.0.
+    void SetCondition(GenCondition cond)
+    {
+        condition = cond;
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeCC() = default;
+#endif
+};
 
 inline bool GenTree::IsDblConPositiveZero() const
 {
     return OperIs(GT_CNS_DBL) && AsDblCon()->IsPositiveZero();
+}
+
+inline bool GenTree::IsDblConNonPositiveZero() const
+{
+    return OperIs(GT_CNS_DBL) && !AsDblCon()->IsPositiveZero();
 }
 
 inline bool GenTree::IsHWIntrinsicZero() const
@@ -7793,34 +7821,14 @@ inline bool GenTree::IsCnsFltOrDbl() const
     return OperGet() == GT_CNS_DBL;
 }
 
-inline bool GenTree::IsCnsNonZeroFltOrDbl()
-{
-    if (OperGet() == GT_CNS_DBL)
-    {
-        double constValue = AsDblCon()->gtDconVal;
-        return *(__int64*)&constValue != 0;
-    }
-
-    return false;
-}
-
 inline bool GenTree::IsHelperCall()
 {
     return OperGet() == GT_CALL && AsCall()->gtCallType == CT_HELPER;
 }
 
-inline var_types& GenTree::CastToType()
-{
-    return this->AsCast()->gtCastType;
-}
-
-/*****************************************************************************/
-
 #ifndef HOST_64BIT
 #include <poppack.h>
 #endif
-
-/*****************************************************************************/
 
 const size_t TREE_NODE_SZ_SMALL = sizeof(GenTreeLclFld);
 const size_t TREE_NODE_SZ_LARGE = sizeof(GenTreeCall);

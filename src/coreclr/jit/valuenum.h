@@ -525,33 +525,6 @@ private:
     // Returns "true" iff "vnf" should be folded by evaluating the func with constant arguments.
     bool VNEvalShouldFold(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN);
 
-    // return vnf(v0)
-    template <typename T>
-    static T EvalOp(VNFunc vnf, T v0);
-
-    // returns vnf(v0, v1).
-    template <typename T>
-    T EvalOp(VNFunc vnf, T v0, T v1);
-
-    // return vnf(v0) or vnf(v0, v1), respectively (must, of course be unary/binary ops, respectively.)
-    template <typename T>
-    static T EvalOpSpecialized(VNFunc vnf, T v0);
-    template <typename T>
-    T EvalOpSpecialized(VNFunc vnf, T v0, T v1);
-
-    template <typename T>
-    static int EvalComparison(VNFunc vnf, T v0, T v1);
-
-    // Should only instantiate (in a non-trivial way) for "int" and "int64_t".  Returns true iff dividing "v0" by "v1"
-    // would produce integer overflow (an ArithmeticException -- *not* division by zero, which is separate.)
-    template <typename T>
-    static bool IsOverflowIntDiv(T v0, T v1);
-
-    // Should only instantiate (in a non-trivial way) for integral types (signed/unsigned int32/int64).
-    // Returns true iff v is the zero of the appropriate type.
-    template <typename T>
-    static bool IsIntZero(T v);
-
 public:
     // Given an constant value number return its value.
     int GetConstantInt32(ValueNum argVN);
@@ -567,7 +540,7 @@ private:
     ValueNum EvalFuncForConstantArgs(var_types typ, VNFunc vnf, ValueNum vn0);
     ValueNum EvalFuncForConstantArgs(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
     ValueNum EvalFuncForConstantFPArgs(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
-    ValueNum EvalCastForConstantArgs(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
+    ValueNum EvalCastForConstantArgs(var_types type, VNFunc vnf, ValueNum valVN, ValueNum typeVN);
 
     ValueNum EvalUsingMathIdentity(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
 

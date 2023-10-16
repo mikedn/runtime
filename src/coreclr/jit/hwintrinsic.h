@@ -759,20 +759,28 @@ private:
         {
             assert(category == HW_Category_Scalar);
 
+            const GenTree* op;
+
             if (HWIntrinsicInfo::BaseTypeFromFirstArg(id))
             {
                 assert(op1 != nullptr);
-                baseType = op1->TypeGet();
+                op = op1;
             }
             else if (HWIntrinsicInfo::BaseTypeFromSecondArg(id))
             {
                 assert(op2 != nullptr);
-                baseType = op2->TypeGet();
+                op = op2;
             }
             else
             {
-                baseType = node->TypeGet();
+                op = node;
             }
+
+            // TODO-MIKE-Review: This stuff is dubious. We don't really know if we need
+            // the actual type or the real type. These intrinsics should really use the
+            // "SIMD" base type to store the type on import, when we know the signature
+            // type.
+            baseType = varActualType(op->GetType());
         }
     }
 };

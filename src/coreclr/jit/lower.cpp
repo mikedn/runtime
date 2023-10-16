@@ -22,9 +22,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "lower.h"
 
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
 #include "decomposelongs.h"
-#endif // !defined(TARGET_64BIT)
+#endif
 
 //------------------------------------------------------------------------
 // MakeSrcContained: Make "childNode" a contained node
@@ -44,28 +44,17 @@ void Lowering::MakeSrcContained(GenTree* parentNode, GenTree* childNode) const
     assert(childNode->isContained());
 }
 
-//------------------------------------------------------------------------
-// CheckImmedAndMakeContained: Checks if the 'childNode' is a containable immediate
-//    and, if so, makes it contained.
-//
-// Arguments:
-//    parentNode - is any non-leaf node
-//    childNode  - is an child op of 'parentNode'
-//
-// Return value:
-//     true if we are able to make childNode a contained immediate
-//
-bool Lowering::CheckImmedAndMakeContained(GenTree* parentNode, GenTree* childNode)
+bool Lowering::CheckImmedAndMakeContained(GenTree* instr, GenTree* operand)
 {
-    assert(!parentNode->OperIsLeaf());
-    // If childNode is a containable immediate
-    if (IsContainableImmed(parentNode, childNode))
+    assert(!instr->OperIsLeaf());
+
+    if (!IsContainableImmed(instr, operand))
     {
-        // then make it contained within the parentNode
-        MakeSrcContained(parentNode, childNode);
-        return true;
+        return false;
     }
-    return false;
+
+    operand->SetContained();
+    return true;
 }
 
 bool Lowering::IsSafeToMoveForward(GenTree* move, GenTree* before)
@@ -784,11 +773,11 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
             JITDUMP("Lowering switch " FMT_BB ": using jump table expansion\n", originalSwitchBB->bbNum);
 
 #ifdef TARGET_64BIT
-            if (tempLclType != TYP_I_IMPL)
+            if (tempLclType != TYP_LONG)
             {
-                // SWITCH_TABLE expects the switch value (the index into the jump table) to be TYP_I_IMPL.
+                // SWITCH_TABLE expects the switch value (the index into the jump table) to be LONG.
                 // Note that the switch value is unsigned so the cast should be unsigned as well.
-                switchValue = comp->gtNewCastNode(TYP_I_IMPL, switchValue, true, TYP_U_IMPL);
+                switchValue = comp->gtNewCastNode(switchValue, true, TYP_LONG);
                 switchBlockRange.InsertAtEnd(switchValue);
             }
 #endif
@@ -1745,42 +1734,31 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
 }
 
 #ifndef TARGET_64BIT
-//------------------------------------------------------------------------
-// Lowering::DecomposeLongCompare: Decomposes a TYP_LONG compare node.
-//
-// Arguments:
-//    cmp - the compare node
-//
-// Return Value:
-//    The next node to lower.
-//
-// Notes:
-//    This is done during lowering because DecomposeLongs handles only nodes
-//    that produce TYP_LONG values. Compare nodes may consume TYP_LONG values
-//    but produce TYP_INT values.
-//
-GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
+// Decomposes a LONG compare node.
+// This is done during lowering because DecomposeLongs handles only nodes
+// that produce LONG values. Compare nodes may consume LONG values but
+// produce INT values.
+GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
 {
-    assert(cmp->gtGetOp1()->TypeGet() == TYP_LONG);
+    assert(cmp->GetOp(0)->TypeIs(TYP_LONG));
 
-    GenTree* src1 = cmp->gtGetOp1();
-    GenTree* src2 = cmp->gtGetOp2();
+    GenTreeOp* src1 = cmp->GetOp(0)->AsOp();
+    GenTreeOp* src2 = cmp->GetOp(1)->AsOp();
     assert(src1->OperIs(GT_LONG));
     assert(src2->OperIs(GT_LONG));
-    GenTree* loSrc1 = src1->gtGetOp1();
-    GenTree* hiSrc1 = src1->gtGetOp2();
-    GenTree* loSrc2 = src2->gtGetOp1();
-    GenTree* hiSrc2 = src2->gtGetOp2();
+    GenTree* loSrc1 = src1->GetOp(0);
+    GenTree* hiSrc1 = src1->GetOp(1);
+    GenTree* loSrc2 = src2->GetOp(0);
+    GenTree* hiSrc2 = src2->GetOp(1);
     BlockRange().Remove(src1);
     BlockRange().Remove(src2);
 
-    genTreeOps condition = cmp->OperGet();
+    genTreeOps condition = cmp->GetOper();
     GenTree*   loCmp;
     GenTree*   hiCmp;
 
     if (cmp->OperIs(GT_EQ, GT_NE))
     {
-        //
         // Transform (x EQ|NE y) into (((x.lo XOR y.lo) OR (x.hi XOR y.hi)) EQ|NE 0). If y is 0 then this can
         // be reduced to just ((x.lo OR x.hi) EQ|NE 0). The OR is expected to set the condition flags so we
         // don't need to generate a redundant compare against 0, we only generate a SETCC|JCC instruction.
@@ -1789,7 +1767,6 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
         // the first happens to be a constant. Usually only the second compare operand is a constant but it's
         // still possible to have a constant on the left side. For example, when src1 is a uint->ulong cast
         // then hiSrc1 would be 0.
-        //
 
         if (loSrc1->OperIs(GT_CNS_INT))
         {
@@ -1808,7 +1785,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
             ContainCheckBinary(loCmp->AsOp());
         }
 
-        if (hiSrc1->OperIs(GT_CNS_INT))
+        if (hiSrc1->IsIntCon())
         {
             std::swap(hiSrc1, hiSrc2);
         }
@@ -1833,7 +1810,6 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
     {
         assert(cmp->OperIs(GT_LT, GT_LE, GT_GE, GT_GT));
 
-        //
         // If the compare is signed then (x LT|GE y) can be transformed into ((x SUB y) LT|GE 0).
         // If the compare is unsigned we can still use SUB but we need to check the Carry flag,
         // not the actual result. In both cases we can simply check the appropiate condition flags
@@ -1854,16 +1830,15 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
         // moves to the first operand where it cannot be contained and thus needs a register. This can
         // be avoided by changing the constant such that LE|GT becomes LT|GE:
         //     (x LE|GT 41) becomes (x LT|GE 42)
-        //
 
         if (cmp->OperIs(GT_LE, GT_GT))
         {
             bool mustSwap = true;
 
-            if (loSrc2->OperIs(GT_CNS_INT) && hiSrc2->OperIs(GT_CNS_INT))
+            if (loSrc2->IsIntCon() && hiSrc2->IsIntCon())
             {
-                uint32_t loValue  = static_cast<uint32_t>(loSrc2->AsIntCon()->IconValue());
-                uint32_t hiValue  = static_cast<uint32_t>(hiSrc2->AsIntCon()->IconValue());
+                uint32_t loValue  = static_cast<uint32_t>(loSrc2->AsIntCon()->GetValue());
+                uint32_t hiValue  = static_cast<uint32_t>(hiSrc2->AsIntCon()->GetValue());
                 uint64_t value    = static_cast<uint64_t>(loValue) | (static_cast<uint64_t>(hiValue) << 32);
                 uint64_t maxValue = cmp->IsUnsigned() ? UINT64_MAX : INT64_MAX;
 
@@ -1872,8 +1847,8 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
                     value++;
                     loValue = value & UINT32_MAX;
                     hiValue = (value >> 32) & UINT32_MAX;
-                    loSrc2->AsIntCon()->SetIconValue(loValue);
-                    hiSrc2->AsIntCon()->SetIconValue(hiValue);
+                    loSrc2->AsIntCon()->SetValue(loValue);
+                    hiSrc2->AsIntCon()->SetValue(hiValue);
 
                     condition = cmp->OperIs(GT_LE) ? GT_LT : GT_GE;
                     mustSwap  = false;
@@ -1917,13 +1892,11 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
             ContainCheckCompare(loCmp->AsOp());
             ContainCheckBinary(hiCmp->AsOp());
 
-            //
             // Try to move the first SUB_HI operands right in front of it, this allows using
             // a single temporary register instead of 2 (one for CMP and one for SUB_HI). Do
             // this only for locals as they won't change condition flags. Note that we could
             // move constants (except 0 which generates XOR reg, reg) but it's extremely rare
             // to have a constant as the first operand.
-            //
 
             if (hiSrc1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
@@ -1934,6 +1907,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
     }
 
     hiCmp->gtFlags |= GTF_SET_FLAGS;
+
     if (hiCmp->IsValue())
     {
         hiCmp->SetUnusedValue();
@@ -1948,7 +1922,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
         jcc->AsOp()->gtOp1 = nullptr;
         jcc->ChangeOper(GT_JCC);
         jcc->gtFlags |= GTF_USE_FLAGS;
-        jcc->AsCC()->gtCondition = GenCondition::FromIntegralRelop(condition, cmp->IsUnsigned());
+        jcc->AsCC()->SetCondition(GenCondition::FromIntegralRelop(condition, cmp->IsUnsigned()));
     }
     else
     {
@@ -1956,7 +1930,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
         cmp->AsOp()->gtOp2 = nullptr;
         cmp->ChangeOper(GT_SETCC);
         cmp->gtFlags |= GTF_USE_FLAGS;
-        cmp->AsCC()->gtCondition = GenCondition::FromIntegralRelop(condition, cmp->IsUnsigned());
+        cmp->AsCC()->SetCondition(GenCondition::FromIntegralRelop(condition, cmp->IsUnsigned()));
     }
 
     return cmp->gtNext;
@@ -3824,7 +3798,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
 #endif
                  )
         {
-            adjustedDividend = comp->gtNewCastNode(TYP_I_IMPL, adjustedDividend, true, TYP_U_IMPL);
+            adjustedDividend = comp->gtNewCastNode(adjustedDividend, true, TYP_I_IMPL);
             BlockRange().InsertBefore(divMod, adjustedDividend);
             ContainCheckCast(adjustedDividend->AsCast());
         }
@@ -3906,8 +3880,8 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             {
 #ifdef TARGET_ARMARCH
                 divMod->SetOper(GT_CAST);
-                divMod->gtFlags |= GTF_UNSIGNED;
-                divMod->AsCast()->gtCastType = TYP_UINT;
+                divMod->SetUnsigned();
+                divMod->AsCast()->SetCastType(TYP_UINT);
 #else
                 divMod->SetOper(GT_BITCAST);
 #endif
@@ -4223,12 +4197,6 @@ GenTree* Lowering::LowerSignedDivOrMod(GenTree* node)
 }
 
 #ifndef TARGET_ARM64
-//------------------------------------------------------------------------
-// LowerShift: Lower shift nodes
-//
-// Arguments:
-//    shift - the shift node (GT_LSH, GT_RSH or GT_RSZ)
-//
 void Lowering::LowerShift(GenTreeOp* shift)
 {
     assert(shift->OperIs(GT_LSH, GT_RSH, GT_RSZ));
@@ -4281,20 +4249,18 @@ void Lowering::LowerShift(GenTreeOp* shift)
                     break;
                 }
 
-                var_types castType = cast->GetCastType();
-
                 // A (U)LONG - (U)LONG cast would normally produce 64 bits but since it
                 // has no effect we make it produce 32 bits to keep the check simple.
                 // Anyway such a cast should have been removed earlier.
-                unsigned producedBits = varTypeIsSmall(castType) ? varTypeBitSize(castType) : 32;
+                unsigned producedBits = varTypeIsSmall(cast->GetType()) ? varTypeBitSize(cast->GetType()) : 32;
 
                 if (consumedBits > producedBits)
                 {
                     break;
                 }
 
-                JITDUMP("Removing CAST [%06d] producing %u bits from LSH [%06d] consuming %u bits\n", cast->gtTreeID,
-                        producedBits, shift->gtTreeID, consumedBits);
+                JITDUMP("Removing CAST [%06d] producing %u bits from LSH [%06d] consuming %u bits\n", cast->GetID(),
+                        producedBits, shift->GetID(), consumedBits);
 
                 BlockRange().Remove(src);
                 src = cast->GetOp(0);
@@ -4372,7 +4338,6 @@ void Lowering::LowerShift(GenTreeOp* shift)
 
     ContainCheckShiftRotate(shift);
 }
-
 #endif // !TARGET_ARM64
 
 #ifdef FEATURE_SIMD
@@ -4964,12 +4929,6 @@ void Lowering::MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value)
 
 #endif // FEATURE_MULTIREG_RET
 
-//------------------------------------------------------------------------
-// ContainCheckReturnTrap: determine whether the source of a RETURNTRAP should be contained.
-//
-// Arguments:
-//    node - pointer to the GT_RETURNTRAP node
-//
 void Lowering::ContainCheckReturnTrap(GenTreeOp* node)
 {
     assert(node->OperIs(GT_RETURNTRAP));
@@ -4980,16 +4939,10 @@ void Lowering::ContainCheckReturnTrap(GenTreeOp* node)
 #endif
 }
 
-//------------------------------------------------------------------------
-// ContainCheckArrOffset: determine whether the source of an ARR_OFFSET should be contained.
-//
-// Arguments:
-//    node - pointer to the GT_ARR_OFFSET node
-//
 void Lowering::ContainCheckArrOffset(GenTreeArrOffs* node)
 {
     assert(node->OperIs(GT_ARR_OFFSET));
-    // we don't want to generate code for this
+
     if (node->GetOffset()->IsIntegralConst(0))
     {
         MakeSrcContained(node, node->AsArrOffs()->GetOffset());
@@ -5038,12 +4991,6 @@ void Lowering::ContainCheckRet(GenTreeUnOp* ret)
     assert(!ret->TypeIs(TYP_STRUCT) || src->IsFieldList() || src->IsCall());
 }
 
-//------------------------------------------------------------------------
-// ContainCheckJTrue: determine whether the source of a JTRUE should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckJTrue(GenTreeUnOp* node)
 {
     // The compare does not need to be generated into a register.
@@ -5122,24 +5069,16 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
     return next;
 }
 
-//------------------------------------------------------------------------
-// LowerCast: Lower GT_CAST nodes.
-//
-// Arguments:
-//    cast - GT_CAST node to be lowered
-//
-// Return Value:
-//    The next node to lower.
-//
 GenTree* Lowering::LowerCast(GenTreeCast* cast)
 {
-    GenTree*  src     = cast->GetOp(0);
-    var_types dstType = cast->GetCastType();
-    var_types srcType = src->GetType();
+    assert(varCastType(cast->GetCastType()) == cast->GetType());
 
     if (!cast->gtOverflow())
     {
-        bool remove = false;
+        GenTree*  src     = cast->GetOp(0);
+        var_types dstType = cast->GetType();
+        var_types srcType = src->GetType();
+        bool      remove  = false;
 
 #ifdef TARGET_64BIT
         if ((srcType == TYP_LONG) && src->OperIs(GT_LCL_VAR) && varActualTypeIsInt(dstType))
@@ -5150,7 +5089,7 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
 #else
         if (srcType == TYP_LONG)
         {
-            assert((dstType == TYP_INT) || (dstType == TYP_UINT));
+            assert(dstType == TYP_INT);
 
             BlockRange().Remove(src);
             src->AsOp()->GetOp(1)->SetUnusedValue();
@@ -5168,21 +5107,6 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
             // TODO-MIKE-Cleanup: fgMorphCast does something similar but more restrictive. It's not clear
             // if there are any advantages in doing such a transform earlier (in fact there may be one
             // disadvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
-
-            if (dstType == TYP_UINT)
-            {
-                dstType = TYP_INT;
-            }
-            else if (dstType == TYP_ULONG)
-            {
-                dstType = TYP_LONG;
-            }
-
-            if (src->OperIs(GT_LCL_VAR))
-            {
-                src->ChangeOper(GT_LCL_FLD);
-                comp->lvaSetVarDoNotEnregister(src->AsLclFld()->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
-            }
 
             src->SetType(dstType);
             remove = true;
@@ -5212,15 +5136,10 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
     return cast->gtNext;
 }
 
-//------------------------------------------------------------------------
-// LowerIndir: a common logic to lower IND load or NullCheck.
-//
-// Arguments:
-//    ind - the ind node we are lowering.
-//
 void Lowering::LowerIndir(GenTreeIndir* ind)
 {
     assert(ind->OperIs(GT_IND, GT_NULLCHECK));
+
     // Process struct typed indirs separately unless they are unused;
     // they only appear as the source of a block copy operation or a return node.
     if (!ind->TypeIs(TYP_STRUCT) || ind->IsUnusedValue())
@@ -5238,7 +5157,6 @@ void Lowering::LowerIndir(GenTreeIndir* ind)
     }
 }
 
-// Change the opcode and the type of the unused indirection.
 void Lowering::TransformUnusedIndirection(GenTreeIndir* ind)
 {
     // A nullcheck is essentially the same as an indirection with no use.
@@ -5705,12 +5623,12 @@ GenTree* Lowering::TryRemoveCastIfPresent(var_types expectedType, GenTree* op)
         return op;
     }
 
-    if (varTypeSize(op->AsCast()->GetCastType()) > varTypeSize(varActualType(castOp->GetType())))
+    if (varTypeSize(op->GetType()) > varTypeSize(varActualType(castOp->GetType())))
     {
         return op;
     }
 
-    if (varTypeSize(op->AsCast()->GetCastType()) < varTypeSize(expectedType))
+    if (varTypeSize(op->GetType()) < varTypeSize(expectedType))
     {
         return op;
     }
@@ -5855,7 +5773,7 @@ bool Lowering::VectorConstant::Broadcast(GenTreeHWIntrinsic* create)
 
 bool Lowering::IsContainableMemoryOp(Compiler* comp, GenTree* node)
 {
-    if (node->isMemoryOp())
+    if (node->OperIs(GT_IND, GT_STOREIND, GT_LCL_FLD, GT_STORE_LCL_FLD))
     {
         return true;
     }

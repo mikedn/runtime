@@ -875,7 +875,8 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     if ((dstReg != srcReg) || (varActualType(lclRegType) != varActualType(src->GetType())))
     {
-        GetEmitter()->emitIns_Mov(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg, /*canSkip*/ true);
+        GetEmitter()->emitIns_Mov(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg,
+                                  /*canSkip*/ true);
     }
 
     DefLclVarReg(store);
@@ -926,37 +927,30 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     genProduceReg(treeNode);
 }
 
-//------------------------------------------------------------------------
-// genCodeForCompare: Produce code for a GT_EQ/GT_NE/GT_LT/GT_LE/GT_GE/GT_GT/GT_CMP node.
-//
-// Arguments:
-//    tree - the node
-//
-void CodeGen::genCodeForCompare(GenTreeOp* tree)
+void CodeGen::GenCompare(GenTreeOp* cmp)
 {
     // TODO-ARM-CQ: Check if we can use the currently set flags.
     // TODO-ARM-CQ: Check for the case where we can simply transfer the carry bit to a register
     //         (signed < or >= where targetReg != REG_NA)
 
-    GenTree*  op1     = tree->gtOp1;
-    GenTree*  op2     = tree->gtOp2;
-    var_types op1Type = op1->TypeGet();
-    var_types op2Type = op2->TypeGet();
+    GenTree*  op1   = cmp->GetOp(0);
+    GenTree*  op2   = cmp->GetOp(1);
+    var_types type1 = op1->GetType();
+    var_types type2 = op2->GetType();
+    regNumber reg1  = UseReg(op1);
+    regNumber reg2  = op2->isContained() ? REG_NA : UseReg(op2);
 
-    assert(!varTypeIsLong(op1Type));
-    assert(!varTypeIsLong(op2Type));
+    assert(!varTypeIsLong(type1));
+    assert(!varTypeIsLong(type2));
 
-    regNumber targetReg = tree->GetRegNum();
-    emitter*  emit      = GetEmitter();
+    emitter* emit = GetEmitter();
 
-    genConsumeIfReg(op1);
-    genConsumeIfReg(op2);
-
-    if (varTypeIsFloating(op1Type))
+    if (varTypeIsFloating(type1))
     {
-        assert(op1Type == op2Type);
-        assert(!tree->OperIs(GT_CMP));
-        emit->emitIns_R_R(INS_vcmp, emitTypeSize(op1Type), op1->GetRegNum(), op2->GetRegNum());
+        assert(type1 == type2);
+        assert(!cmp->OperIs(GT_CMP));
+
+        emit->emitIns_R_R(INS_vcmp, emitTypeSize(type1), op1->GetRegNum(), op2->GetRegNum());
         // vmrs with register 0xf has special meaning of transferring flags
         emit->emitIns_R(INS_vmrs, EA_4BYTE, REG_R15);
     }
@@ -969,12 +963,13 @@ void CodeGen::genCodeForCompare(GenTreeOp* tree)
         emit->emitIns_R_R(INS_cmp, EA_4BYTE, op1->GetRegNum(), op2->GetRegNum());
     }
 
-    // Are we evaluating this into a register?
-    if (targetReg != REG_NA)
+    if (cmp->GetRegNum() == REG_NA)
     {
-        inst_SETCC(GenCondition::FromRelop(tree), tree->TypeGet(), targetReg);
-        genProduceReg(tree);
+        return;
     }
+
+    inst_SETCC(GenCondition::FromRelop(cmp), cmp->GetType(), cmp->GetRegNum());
+    DefReg(cmp);
 }
 
 //------------------------------------------------------------------------
@@ -1064,39 +1059,27 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     emitInsStore(ins_Store(type), emitActualTypeSize(type), dataReg, tree);
 }
 
-// genLongToIntCast: Generate code for long to int casts.
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    The cast node and its sources (via GT_LONG) must have been assigned registers.
-//    The destination cannot be a floating point type or a small integer type.
-//
-void CodeGen::genLongToIntCast(GenTree* cast)
+void CodeGen::genLongToIntCast(GenTreeCast* cast)
 {
-    assert(cast->OperGet() == GT_CAST);
+    assert(cast->TypeIs(TYP_INT));
 
-    GenTree* src = cast->gtGetOp1();
-    noway_assert(src->OperGet() == GT_LONG);
+    GenTreeOp* src = cast->GetOp(0)->AsOp();
+    noway_assert(src->OperIs(GT_LONG));
 
-    var_types srcType  = ((cast->gtFlags & GTF_UNSIGNED) != 0) ? TYP_ULONG : TYP_LONG;
-    var_types dstType  = cast->CastToType();
-    regNumber loSrcReg = UseReg(src->gtGetOp1());
-    regNumber hiSrcReg = UseReg(src->gtGetOp2());
+    regNumber loSrcReg = UseReg(src->GetOp(0));
+    regNumber hiSrcReg = UseReg(src->GetOp(1));
     regNumber dstReg   = cast->GetRegNum();
 
-    assert((dstType == TYP_INT) || (dstType == TYP_UINT));
     assert(genIsValidIntReg(loSrcReg));
     assert(genIsValidIntReg(hiSrcReg));
     assert(genIsValidIntReg(dstReg));
 
     if (cast->gtOverflow())
     {
-        //
+        var_types srcType = cast->IsUnsigned() ? TYP_ULONG : TYP_LONG;
+        var_types dstType = cast->GetCastType();
+        assert((dstType == TYP_INT) || (dstType == TYP_UINT));
+
         // Generate an overflow check for [u]long to [u]int casts:
         //
         // long  -> int  - check if the upper 33 bits are all 0 or all 1
@@ -1105,7 +1088,6 @@ void CodeGen::genLongToIntCast(GenTree* cast)
         //
         // long  -> uint - check if the upper 32 bits are all 0
         // ulong -> uint - check if the upper 32 bits are all 0
-        //
 
         if ((srcType == TYP_LONG) && (dstType == TYP_INT))
         {
@@ -1114,6 +1096,7 @@ void CodeGen::genLongToIntCast(GenTree* cast)
 
             inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT);
             inst_JMP(EJ_mi, allOne);
+
             inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT);
             genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
             inst_JMP(EJ_jmp, success);
@@ -1142,23 +1125,17 @@ void CodeGen::genLongToIntCast(GenTree* cast)
     DefReg(cast);
 }
 
-//------------------------------------------------------------------------
-// genIntToFloatCast: Generate code to cast an int to float/double
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
 void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 {
+    assert(cast->GetType() == cast->GetCastType());
     assert(!cast->gtOverflow());
 
     GenTree*  src     = cast->GetOp(0);
     var_types srcType = varActualType(src->GetType());
-    var_types dstType = cast->GetCastType();
+    var_types dstType = cast->GetType();
 
     noway_assert(srcType == TYP_INT);
     assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
-    assert(cast->GetType() == dstType);
 
     regNumber srcReg = genConsumeReg(src);
     regNumber dstReg = cast->GetRegNum();
@@ -1182,14 +1159,9 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-//------------------------------------------------------------------------
-// genFloatToIntCast: Generate code to cast float/double to int
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
 void CodeGen::genFloatToIntCast(GenTreeCast* cast)
 {
+    assert(cast->TypeIs(TYP_INT));
     assert(!cast->gtOverflow());
 
     GenTree*  src     = cast->GetOp(0);
@@ -1198,9 +1170,8 @@ void CodeGen::genFloatToIntCast(GenTreeCast* cast)
 
     assert((srcType == TYP_FLOAT) || (srcType == TYP_DOUBLE));
     noway_assert((dstType == TYP_INT) || (dstType == TYP_UINT));
-    assert(cast->GetType() == TYP_INT);
 
-    regNumber srcReg = genConsumeReg(src);
+    regNumber srcReg = UseReg(src);
     regNumber dstReg = cast->GetRegNum();
     regNumber tmpReg = cast->GetSingleTempReg();
 

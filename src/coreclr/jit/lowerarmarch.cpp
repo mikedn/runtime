@@ -336,15 +336,6 @@ void Lowering::ContainStructStoreAddressUnrollRegsWB(GenTree* addr)
     addr->SetContained();
 }
 
-//------------------------------------------------------------------------
-// LowerRotate: Lower GT_ROL and GT_ROR nodes.
-//
-// Arguments:
-//    tree - the node to lower
-//
-// Return Value:
-//    None.
-//
 void Lowering::LowerRotate(GenTree* tree)
 {
     if (tree->OperGet() == GT_ROL)
@@ -460,12 +451,6 @@ void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
     }
 }
 
-//----------------------------------------------------------------------------------------------
-// Lowering::LowerHWIntrinsic: Perform containment analysis for a hardware intrinsic node.
-//
-//  Arguments:
-//     node - The hardware intrinsic node.
-//
 void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     assert(node->TypeGet() != TYP_SIMD32);
@@ -921,19 +906,6 @@ void Lowering::LowerHWIntrinsicSum(GenTreeHWIntrinsic* node)
 }
 #endif // FEATURE_HW_INTRINSICS
 
-//------------------------------------------------------------------------
-// Containment analysis
-//------------------------------------------------------------------------
-
-//------------------------------------------------------------------------
-// ContainCheckCallOperands: Determine whether operands of a call should be contained.
-//
-// Arguments:
-//    call       - The call node of interest
-//
-// Return Value:
-//    None.
-//
 void Lowering::ContainCheckCallOperands(GenTreeCall* call)
 {
     // There are no contained operands for arm.
@@ -967,18 +939,6 @@ void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
 #endif // TARGET_ARM64
 }
 
-//------------------------------------------------------------------------
-// ContainCheckIndir: Determine whether operands of an indir should be contained.
-//
-// Arguments:
-//    indirNode - The indirection node of interest
-//
-// Notes:
-//    This is called for both store and load indirections.
-//
-// Return Value:
-//    None.
-//
 void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
 {
     // If this is the rhs of a block copy it will be handled when we handle the store.
@@ -1034,35 +994,17 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckBinary: Determine whether a binary op's operands should be contained.
-//
-// Arguments:
-//    node - the node we care about
-//
 void Lowering::ContainCheckBinary(GenTreeOp* node)
 {
     // Check and make op2 contained (if it is a containable immediate)
     CheckImmedAndMakeContained(node, node->gtOp2);
 }
 
-//------------------------------------------------------------------------
-// ContainCheckMul: Determine whether a mul op's operands should be contained.
-//
-// Arguments:
-//    node - the node we care about
-//
 void Lowering::ContainCheckMul(GenTreeOp* node)
 {
     ContainCheckBinary(node);
 }
 
-//------------------------------------------------------------------------
-// ContainCheckDivOrMod: determine which operands of a div/mod should be contained.
-//
-// Arguments:
-//    node - the node we care about
-//
 void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
 {
     assert(node->OperIs(GT_DIV, GT_UDIV));
@@ -1070,12 +1012,6 @@ void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
     // ARM doesn't have a div instruction with an immediate operand
 }
 
-//------------------------------------------------------------------------
-// ContainCheckShiftRotate: Determine whether a mul op's operands should be contained.
-//
-// Arguments:
-//    node - the node we care about
-//
 void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 {
     GenTree* shiftBy = node->gtOp2;
@@ -1100,23 +1036,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-    GenTree* src = store->gtGetOp1();
-
-#ifdef TARGET_XARCH
-    if (src->OperIs(GT_BITCAST))
-    {
-        // If we know that the source of the bitcast will be in a register, then we can make
-        // the bitcast itself contained. This will allow us to store directly from the other
-        // type if this node doesn't get a register.
-        GenTree* bitCastSrc = src->AsUnOp()->GetOp(0);
-
-        if (!bitCastSrc->isContained() && !bitCastSrc->IsRegOptional())
-        {
-            src->SetContained();
-            return;
-        }
-    }
-#endif
+    GenTree* src = store->GetOp(0);
 
 #ifdef TARGET_ARM64
     if (src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero())
@@ -1155,7 +1075,7 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
 {
     GenTree* src = cast->GetOp(0);
 
-#if !defined(TARGET_64BIT)
+#ifdef TARGET_ARM
     if (src->OperIs(GT_LONG))
     {
         src->SetContained();
@@ -1163,92 +1083,79 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
 #endif
 
-    var_types srcType = src->GetType();
-    var_types dstType = cast->GetCastType();
-
-    if (varTypeIsIntegral(dstType) && varTypeIsIntegral(srcType))
+    if (!varTypeIsIntegral(cast->GetType()) || !varTypeIsIntegral(src->GetType()))
     {
-        bool isContainable = IsContainableMemoryOp(src);
+        return;
+    }
 
-        if (src->OperIs(GT_IND))
+    bool isContainable = IsContainableMemoryOp(src);
+
+    if (src->OperIs(GT_IND))
+    {
+        GenTree* addr = src->AsIndir()->GetAddr();
+
+        if (src->AsIndir()->IsVolatile())
         {
-            GenTree* addr = src->AsIndir()->GetAddr();
+            isContainable = false;
+        }
+        else if (addr->isContained())
+        {
+            // Indirs with contained address modes are problematic, thanks in part to messed up
+            // address mode formation in LowerArrElem and createAddressNodeForSIMDInit, which
+            // produce base+index+offset address modes that are invalid on ARMARCH. Such indirs
+            // need a temp register and if the indir itself is contained then nobody's going to
+            // reserve it, as this is normally done in LSRA's BuildIndir.
+            //
+            // Also, when the indir is contained, the type of the generated load instruction may
+            // be different from the actual indir type, affecting immediate offset validity.
+            //
+            // So allow containment if the address mode is definitely always valid: base+index
+            // of base+offset, if the offset is valid no matter the indir type is.
+            //
+            // Perhaps it would be better to not contain the indir and instead retype it
+            // and remove the cast. Unfortunately there's at least on case where this is
+            // not possible: there's no way to retype the indir in CAST<long>(IND<int>).
+            // The best solution would be to lower indir+cast to the actual load instruction
+            // to be emitted.
 
-            if (src->AsIndir()->IsVolatile())
+            if (!addr->IsAddrMode())
             {
                 isContainable = false;
             }
-            else if (addr->isContained())
+            else if (addr->AsAddrMode()->HasIndex() && (addr->AsAddrMode()->GetOffset() != 0))
             {
-                // Indirs with contained address modes are problematic, thanks in part to messed up
-                // address mode formation in LowerArrElem and createAddressNodeForSIMDInit, which
-                // produce base+index+offset address modes that are invalid on ARMARCH. Such indirs
-                // need a temp register and if the indir itself is contained then nobody's going to
-                // reserve it, as this is normally done in LSRA's BuildIndir.
-                //
-                // Also, when the indir is contained, the type of the generated load instruction may
-                // be different from the actual indir type, affecting immediate offset validity.
-                //
-                // So allow containment if the address mode is definitely always valid: base+index
-                // of base+offset, if the offset is valid no matter the indir type is.
-                //
-                // Perhaps it would be better to not contain the indir and instead retype it
-                // and remove the cast. Unfortunately there's at least on case where this is
-                // not possible: there's no way to retype the indir in CAST<long>(IND<int>).
-                // The best solution would be to lower indir+cast to the actual load instruction
-                // to be emitted.
-
-                if (!addr->IsAddrMode())
-                {
-                    isContainable = false;
-                }
-                else if (addr->AsAddrMode()->HasIndex() && (addr->AsAddrMode()->GetOffset() != 0))
-                {
-                    isContainable = false;
-                }
-                else if (addr->AsAddrMode()->GetOffset() < -255 || addr->AsAddrMode()->GetOffset() > 255)
-                {
-                    isContainable = false;
-                }
+                isContainable = false;
+            }
+            else if (addr->AsAddrMode()->GetOffset() < -255 || addr->AsAddrMode()->GetOffset() > 255)
+            {
+                isContainable = false;
             }
         }
+    }
 
-        if (isContainable && (!cast->gtOverflow() || IsSafeToContainMem(cast, src)))
+    if (isContainable && (!cast->gtOverflow() || IsSafeToContainMem(cast, src)))
+    {
+        // If this isn't an overflow checking cast then we can move it
+        // right after the source node to avoid the interference check.
+        if (!cast->gtOverflow() && (cast->gtPrev != src))
         {
-            // If this isn't an overflow checking cast then we can move it
-            // right after the source node to avoid the interference check.
-            if (!cast->gtOverflow() && (cast->gtPrev != src))
-            {
-                BlockRange().Remove(cast);
-                BlockRange().InsertAfter(src, cast);
-            }
+            BlockRange().Remove(cast);
+            BlockRange().InsertAfter(src, cast);
+        }
 
-            src->SetContained();
-        }
-        else
-        {
-            src->SetRegOptional();
-        }
+        src->SetContained();
+    }
+    else
+    {
+        src->SetRegOptional();
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckCompare: determine whether the sources of a compare node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckCompare(GenTreeOp* cmp)
 {
-    CheckImmedAndMakeContained(cmp, cmp->gtOp2);
+    CheckImmedAndMakeContained(cmp, cmp->GetOp(1));
 }
 
-//------------------------------------------------------------------------
-// ContainCheckBoundsChk: determine whether any source of a bounds check node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
 {
     if (!CheckImmedAndMakeContained(node, node->GetIndex()))
@@ -1258,13 +1165,6 @@ void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-
-//----------------------------------------------------------------------------------------------
-// ContainCheckHWIntrinsic: Perform containment analysis for a hardware intrinsic node.
-//
-//  Arguments:
-//     node - The hardware intrinsic node.
-//
 void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     // TODO-MIKE-CQ: It seems that there's no support for generating vector immediate ORR/BIC.

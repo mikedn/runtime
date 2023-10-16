@@ -443,26 +443,6 @@ inline regNumber genRegNumFromMask(regMaskTP mask)
     return regNum;
 }
 
-//------------------------------------------------------------------------------
-// genSmallTypeCanRepresentValue: Checks if a value can be represented by a given small type.
-//
-// Arguments:
-//    value - the value to check
-//    type  - the type
-//
-// Return Value:
-//    True if the value is representable, false otherwise.
-
-inline bool genSmallTypeCanRepresentValue(var_types type, ssize_t value)
-{
-    return varTypeSmallIntCanRepresentValue(type, value);
-}
-
-/*****************************************************************************
- *
- *  Return the size in bytes of the given type.
- */
-
 extern const BYTE genTypeSizes[TYP_COUNT];
 
 template <class T>
@@ -928,9 +908,9 @@ inline GenTree* Compiler::gtUnusedValNode(GenTree* expr)
     return gtNewCommaNode(expr, gtNewNothingNode());
 }
 
-inline GenTreeCast* Compiler::gtNewCastNode(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType)
+inline GenTreeCast* Compiler::gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types toType)
 {
-    return new (this, GT_CAST) GenTreeCast(typ, op1, fromUnsigned, castType);
+    return new (this, GT_CAST) GenTreeCast(toType, op1, fromUnsigned);
 }
 
 inline GenTreeIndir* Compiler::gtNewMethodTableLookup(GenTree* object)
