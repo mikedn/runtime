@@ -1625,7 +1625,18 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
     int newDefListCount = defList.Count();
     // Currently produce is unused, but need to strengthen an assert to check if produce is
     // as expected. See https://github.com/dotnet/runtime/issues/8678
-    int produce = newDefListCount - oldDefListCount;
+    unsigned produce = newDefListCount - oldDefListCount;
+
+    assert(
+        // RegOptional LCL_VARs may become contained.
+        ((nodeDefCount == 0) && tree->isContained()) ||
+        // A reg candidate store is not a value so GetRegisterDstCount returns 0, but it does define a register.
+        ((nodeDefCount == 1) && tree->OperIs(GT_STORE_LCL_VAR) &&
+         compiler->lvaGetDesc(tree->AsLclVar())->IsRegCandidate()) ||
+        // A reg candidate load is a value so GetRegisterDstCount returns 1, but it does not define a new register.
+        ((nodeDefCount == 0) && tree->OperIs(GT_LCL_VAR) && compiler->lvaGetDesc(tree->AsLclVar())->IsRegCandidate()) ||
+        (nodeDefCount == tree->GetRegisterDstCount(compiler)));
+
     assert((nodeUseCount == 0) || (ComputeAvailableSrcCount(tree) == nodeUseCount));
 
     // If we are constraining registers, modify all the RefPositions we've just built to specify the
@@ -2974,6 +2985,8 @@ void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPo
 #endif
 
     RefPosition* def = newRefPosition(varDefInterval, currentLoc + 1, RefTypeDef, store, defCandidates, index);
+
+    INDEBUG(nodeDefCount++);
 
     if (varDefInterval->isWriteThru)
     {
