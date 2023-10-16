@@ -1857,6 +1857,11 @@ private:
     // handled in 'BuildNode'.
     bool pendingDelayFree;
 
+#ifdef DEBUG
+    unsigned nodeUseCount;
+    unsigned nodeDefCount;
+#endif
+
     // This method clears the "build state" before starting to handle a new node.
     void clearBuildState()
     {
@@ -1865,6 +1870,10 @@ private:
         internalCount            = 0;
         setInternalRegsDelayFree = false;
         pendingDelayFree         = false;
+#ifdef DEBUG
+        nodeUseCount = 0;
+        nodeDefCount = 0;
+#endif
     }
 
     bool IsCandidateLclVarMultiReg(GenTreeLclVar* lclNode);

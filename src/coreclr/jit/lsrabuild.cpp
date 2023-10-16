@@ -1615,14 +1615,14 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
     int                 oldDefListCount = defList.Count();
 #endif // DEBUG
 
-    int consume = BuildNode(tree);
+    BuildNode(tree);
 
 #ifdef DEBUG
     int newDefListCount = defList.Count();
     // Currently produce is unused, but need to strengthen an assert to check if produce is
     // as expected. See https://github.com/dotnet/runtime/issues/8678
     int produce = newDefListCount - oldDefListCount;
-    assert((consume == 0) || (ComputeAvailableSrcCount(tree) == consume));
+    assert((nodeUseCount == 0) || (ComputeAvailableSrcCount(tree) == static_cast<int>(nodeUseCount)));
 
     // If we are constraining registers, modify all the RefPositions we've just built to specify the
     // minimum reg count required.
@@ -2497,6 +2497,8 @@ RefPosition* LinearScan::BuildDef(GenTree* node, regMaskTP regCandidates)
 
 RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, regMaskTP regCandidates, unsigned regIndex)
 {
+    INDEBUG(nodeDefCount++);
+
     if (regCandidates != RBM_NONE)
     {
         // TODO-MIKE-Cleanup: This ignores regIndex...
@@ -2617,6 +2619,9 @@ void LinearScan::BuildKills(GenTree* tree, regMaskTP killMask)
 RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int multiRegIdx)
 {
     assert(!operand->isContained());
+
+    INDEBUG(nodeUseCount++);
+
     Interval* interval;
     bool      regOptional = operand->IsRegOptional();
 
