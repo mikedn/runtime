@@ -1922,7 +1922,7 @@ private:
     int BuildIntrinsic(GenTreeIntrinsic* tree);
     void BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index);
     int BuildStoreLclVarMultiReg(GenTreeLclVar* store);
-    int BuildStoreLclVar(GenTreeLclVar* store, int* dstCount);
+    int BuildStoreLclVar(GenTreeLclVar* store);
     int BuildStoreLclFld(GenTreeLclFld* store);
     int BuildStoreLcl(GenTreeLclVarCommon* store);
 #ifdef TARGET_XARCH

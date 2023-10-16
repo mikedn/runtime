@@ -3044,13 +3044,12 @@ int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
     return static_cast<int>(regCount);
 }
 
-int LinearScan::BuildStoreLclVar(GenTreeLclVar* store, int* dstCount)
+int LinearScan::BuildStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
     if (IsCandidateLclVarMultiReg(store))
     {
-        *dstCount = static_cast<int>(compiler->lvaGetDesc(store->GetLclNum())->GetPromotedFieldCount());
         return BuildStoreLclVarMultiReg(store);
     }
 

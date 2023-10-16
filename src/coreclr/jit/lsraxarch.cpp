@@ -41,20 +41,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 void LinearScan::BuildNode(GenTree* tree)
 {
     assert(!tree->isContained());
-    int dstCount = 0;
 
     // Reset the build-related members of LinearScan.
     clearBuildState();
-
-    // Set the default dstCount. This may be modified below.
-    if (tree->IsValue())
-    {
-        dstCount = 1;
-    }
-    else
-    {
-        dstCount = 0;
-    }
 
     // floating type generates AVX instruction (vmovss etc.), set the flag
     if (varTypeUsesFloatReg(tree->TypeGet()))
@@ -93,7 +82,7 @@ void LinearScan::BuildNode(GenTree* tree)
         break;
 
         case GT_STORE_LCL_VAR:
-            BuildStoreLclVar(tree->AsLclVar(), &dstCount);
+            BuildStoreLclVar(tree->AsLclVar());
             break;
 
         case GT_STORE_LCL_FLD:
@@ -102,17 +91,14 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_NO_OP:
         case GT_START_NONGC:
-            assert(dstCount == 0);
             break;
 
         case GT_START_PREEMPTGC:
             // This kills GC refs in callee save regs
-            assert(dstCount == 0);
             BuildKills(tree, RBM_NONE);
             break;
 
         case GT_PROF_HOOK:
-            assert(dstCount == 0);
             BuildKills(tree, getKillSetForProfilerHook());
             break;
 
@@ -120,7 +106,6 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_CNS_LNG:
         case GT_CNS_DBL:
         {
-            assert(dstCount == 1);
             assert(!tree->IsReuseRegVal());
             RefPosition* def               = BuildDef(tree);
             def->getInterval()->isConstant = true;
@@ -134,7 +119,6 @@ void LinearScan::BuildNode(GenTree* tree)
             // An unused GT_LONG node needs to consume its sources, but need not produce a register.
             tree->gtType = TYP_VOID;
             tree->ClearUnusedValue();
-            dstCount = 0;
             BuildUse(tree->gtGetOp1());
             BuildUse(tree->gtGetOp2());
             break;
@@ -147,7 +131,6 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_RETFILT:
-            assert(dstCount == 0);
             if (!tree->TypeIs(TYP_VOID))
             {
                 assert(tree->TypeGet() == TYP_INT);
@@ -162,41 +145,31 @@ void LinearScan::BuildNode(GenTree* tree)
             assert((tree->gtGetOp1() == nullptr) || tree->isContained());
             if (tree->TypeGet() != TYP_VOID && tree->gtGetOp1() == nullptr)
             {
-                assert(dstCount == 1);
                 BuildUse(tree->gtGetOp1());
                 BuildDef(tree);
-            }
-            else
-            {
-                assert(dstCount == 0);
             }
             break;
 
         case GT_KEEPALIVE:
-            assert(dstCount == 0);
             BuildOperandUses(tree->gtGetOp1());
             break;
 
         case GT_JTRUE:
         {
-            assert(dstCount == 0);
             GenTree* cmp = tree->gtGetOp1();
             assert(!cmp->IsValue());
         }
         break;
 
         case GT_JCC:
-            assert(dstCount == 0);
             break;
 
         case GT_SETCC:
-            assert(dstCount == 1);
             // This defines a byte value (note that on x64 allByteRegs() is defined as RBM_ALLINT).
             BuildDef(tree, allByteRegs());
             break;
 
         case GT_JMP:
-            assert(dstCount == 0);
             break;
 
         case GT_SWITCH:
@@ -206,12 +179,10 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_JMPTABLE:
-            assert(dstCount == 1);
             BuildDef(tree);
             break;
 
         case GT_SWITCH_TABLE:
-            assert(dstCount == 0);
             buildInternalIntRegisterDefForNode(tree);
             BuildBinaryUses(tree->AsOp());
             buildInternalRegisterUses();
@@ -232,14 +203,12 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_AND:
         case GT_OR:
         case GT_XOR:
-            assert(dstCount == 1);
             BuildBinaryUses(tree->AsOp());
             BuildDef(tree);
             break;
 
         case GT_BT:
             BuildBinaryUses(tree->AsOp());
-            assert(dstCount == 0);
             break;
 
         case GT_RETURNTRAP:
@@ -257,10 +226,8 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildModDiv(tree->AsOp());
             break;
 
-#if defined(TARGET_X86)
+#ifdef TARGET_X86
         case GT_MUL_LONG:
-            dstCount = 2;
-            FALLTHROUGH;
 #endif
         case GT_MUL:
         case GT_MULHI:
@@ -278,12 +245,10 @@ void LinearScan::BuildNode(GenTree* tree)
 #endif // FEATURE_HW_INTRINSICS
 
         case GT_CAST:
-            assert(dstCount == 1);
             BuildCast(tree->AsCast());
             break;
 
         case GT_BITCAST:
-            assert(dstCount == 1);
             if (!tree->gtGetOp1()->isContained())
             {
                 BuildUse(tree->gtGetOp1());
@@ -331,7 +296,6 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_CKFINITE:
         {
-            assert(dstCount == 1);
             RefPosition* internalDef = buildInternalIntRegisterDefForNode(tree);
             BuildOperandUses(tree->gtGetOp1());
             buildInternalRegisterUses();
@@ -340,17 +304,13 @@ void LinearScan::BuildNode(GenTree* tree)
         break;
 
         case GT_CMPXCHG:
-        {
-            assert(dstCount == 1);
-
             // Comparand is preferenced to RAX.
             // The remaining two operands can be in any reg other than RAX.
             BuildUse(tree->AsCmpXchg()->GetOp(0), allRegs(TYP_INT) & ~RBM_RAX);
             BuildUse(tree->AsCmpXchg()->GetOp(1), allRegs(TYP_INT) & ~RBM_RAX);
             BuildUse(tree->AsCmpXchg()->GetOp(2), RBM_RAX);
             BuildDef(tree, RBM_RAX);
-        }
-        break;
+            break;
 
         case GT_XORR:
         case GT_XAND:
@@ -369,7 +329,6 @@ void LinearScan::BuildNode(GenTree* tree)
             tgtPrefUse = addrUse;
             assert(!data->isContained());
             BuildUse(data);
-            assert(dstCount == 1);
             BuildDef(tree);
         }
         break;
@@ -380,10 +339,6 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_CALL:
             BuildCall(tree->AsCall());
-            if (tree->AsCall()->HasMultiRegRetVal())
-            {
-                dstCount = tree->AsCall()->GetRegCount();
-            }
             break;
 
         case GT_PUTARG_STK:
@@ -405,7 +360,6 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_BOUNDS_CHECK:
-            assert(dstCount == 0);
             BuildOperandUses(tree->AsBoundsChk()->GetOp(0));
             BuildOperandUses(tree->AsBoundsChk()->GetOp(1));
             break;
@@ -417,7 +371,6 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_ARR_INDEX:
         {
-            assert(dstCount == 1);
             assert(!tree->AsArrIndex()->ArrObj()->isContained());
             assert(!tree->AsArrIndex()->IndexExpr()->isContained());
             // For GT_ARR_INDEX, the lifetime of the arrObj must be extended because it is actually used multiple
@@ -433,7 +386,6 @@ void LinearScan::BuildNode(GenTree* tree)
         {
             // This consumes the offset, if any, the arrObj and the effective index,
             // and produces the flattened offset for this dimension.
-            assert(dstCount == 1);
             RefPosition* internalDef = nullptr;
             if (!tree->AsArrOffs()->GetOp(0)->isContained())
             {
@@ -455,7 +407,6 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_LEA:
             // The LEA usually passes its operands through to the GT_IND, in which case it will
             // be contained, but we may be instantiating an address, in which case we set them here.
-            assert(dstCount == 1);
             if (GenTree* base = tree->AsAddrMode()->GetBase())
             {
                 BuildUse(base);
@@ -479,33 +430,26 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_NULLCHECK:
-        {
-            assert(dstCount == 0);
             // If we have a contained address on a nullcheck, we transform it to
             // an unused GT_IND, since we require a target register.
             BuildUse(tree->gtGetOp1());
             break;
-        }
 
         case GT_IND:
             BuildLoadInd(tree->AsIndir());
-            assert(dstCount == 1);
             break;
 
         case GT_CATCH_ARG:
-            assert(dstCount == 1);
             BuildDef(tree, RBM_EXCEPTION_OBJECT);
             break;
 
-#if !defined(FEATURE_EH_FUNCLETS)
+#ifndef FEATURE_EH_FUNCLETS
         case GT_END_LFIN:
-            assert(dstCount == 0);
             break;
 #endif
 
         case GT_INDEX_ADDR:
         {
-            assert(dstCount == 1);
             RefPosition* internalDef = nullptr;
 #ifdef TARGET_64BIT
             // On 64-bit we always need a temporary register:
@@ -559,12 +503,6 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildSimple(tree);
             break;
     }
-
-    // We need to be sure that we've set srcCount and dstCount appropriately.
-    // Not that for XARCH, the maximum number of registers defined is 2.
-    assert((dstCount < 2) || ((dstCount == 2) && tree->IsMultiRegNode()));
-    assert(!tree->IsUnusedValue() || (dstCount != 0));
-    assert(dstCount == static_cast<int>(tree->GetRegisterDstCount(compiler)));
 }
 
 //------------------------------------------------------------------------
