@@ -704,10 +704,26 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 //
 GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
 {
-    GenTree*       op1 = cmp->GetOp(0);
-    GenTreeIntCon* op2 = cmp->GetOp(1)->AsIntCon();
+    GenTree*       op1      = cmp->GetOp(0);
+    GenTreeIntCon* op2      = cmp->GetOp(1)->AsIntCon();
+    var_types      op1Type  = op1->GetType();
+    ssize_t        op2Value = op2->GetValue();
 
-    if (op1->OperIs(GT_AND) && cmp->OperIs(GT_EQ, GT_NE) && (op2->GetValue() == 0))
+    if (IsContainableMemoryOp(op1))
+    {
+        // If op1's type is small then try to narrow op2 so it has the same type as op1.
+        // Small types are usually used by memory loads and if both compare operands have
+        // the same type then the memory load can be contained. In certain situations
+        // (e.g "cmp ubyte, 200") we also get a smaller instruction encoding.
+        if (varTypeIsSmall(op1Type) && varTypeSmallIntCanRepresentValue(op1Type, op2Value))
+        {
+            op2->SetType(op1Type);
+        }
+
+        return cmp;
+    }
+
+    if (op1->OperIs(GT_AND) && cmp->OperIs(GT_EQ, GT_NE) && (op2Value == 0))
     {
         // ((x AND y) EQ|NE 0) => (x TEST_EQ|TEST_NE y)
 
@@ -800,68 +816,53 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
         return cmp;
     }
 
-    var_types op1Type  = op1->GetType();
-    ssize_t   op2Value = op2->GetValue();
-
-    if (IsContainableMemoryOp(op1) && varTypeIsSmall(op1Type) && varTypeSmallIntCanRepresentValue(op1Type, op2Value))
-    {
-        // If op1's type is small then try to narrow op2 so it has the same type as op1.
-        // Small types are usually used by memory loads and if both compare operands have
-        // the same type then the memory load can be contained. In certain situations
-        // (e.g "cmp ubyte, 200") we also get a smaller instruction encoding.
-
-        op2->SetType(op1Type);
-    }
-    else if (op1->IsCast() && !op1->gtOverflow())
+    if (op1->IsCast() && !op1->gtOverflow() && op1->TypeIs(TYP_UBYTE) && FitsIn<uint8_t>(op2Value))
     {
         GenTreeCast* cast   = op1->AsCast();
         GenTree*     castOp = cast->GetOp(0);
 
-        if (cast->TypeIs(TYP_UBYTE) && FitsIn<uint8_t>(op2Value))
+        // Since we're going to remove the cast we need to be able to narrow the cast operand
+        // to the cast type. This can be done safely only for certain opers (e.g AND, OR, XOR).
+        // Some opers just can't be narrowed (e.g DIV, MUL) while other could be narrowed but
+        // doing so would produce incorrect results (e.g. RSZ, RSH).
+        //
+        // The below list of handled opers is conservative but enough to handle the most common
+        // situations. In particular this include CALL, sometimes the JIT unnecessarily widens
+        // the result of bool returning calls.
+
+        if (castOp->OperIs(GT_CALL, GT_LCL_VAR, GT_AND, GT_OR, GT_XOR) || IsContainableMemoryOp(castOp))
         {
-            // Since we're going to remove the cast we need to be able to narrow the cast operand
-            // to the cast type. This can be done safely only for certain opers (e.g AND, OR, XOR).
-            // Some opers just can't be narrowed (e.g DIV, MUL) while other could be narrowed but
-            // doing so would produce incorrect results (e.g. RSZ, RSH).
-            //
-            // The below list of handled opers is conservative but enough to handle the most common
-            // situations. In particular this include CALL, sometimes the JIT unnecessarily widens
-            // the result of bool returning calls.
+            assert(!castOp->gtOverflowEx());
 
-            if (castOp->OperIs(GT_CALL, GT_LCL_VAR, GT_AND, GT_OR, GT_XOR) || IsContainableMemoryOp(castOp))
+            // Any contained memory ops on castOp must be narrowed too.
+            if (castOp->OperIs(GT_AND, GT_OR, GT_XOR))
             {
-                assert(!castOp->gtOverflowEx());
+                GenTree* op1 = castOp->AsOp()->GetOp(0);
+                GenTree* op2 = castOp->AsOp()->GetOp(1);
 
-                // Any contained memory ops on castOp must be narrowed too.
-                if (castOp->OperIs(GT_AND, GT_OR, GT_XOR))
+                if (!op1->IsIntCon() && op1->isContained())
                 {
-                    GenTree* op1 = castOp->AsOp()->GetOp(0);
-                    GenTree* op2 = castOp->AsOp()->GetOp(1);
-
-                    if (!op1->IsIntCon() && op1->isContained())
-                    {
-                        assert(IsContainableMemoryOp(op1));
-                        op1->SetType(TYP_UBYTE);
-                    }
-
-                    if (!op2->IsIntCon() && op2->isContained())
-                    {
-                        assert(IsContainableMemoryOp(op2));
-                        op2->SetType(TYP_UBYTE);
-                    }
+                    assert(IsContainableMemoryOp(op1));
+                    op1->SetType(TYP_UBYTE);
                 }
 
-                op1 = castOp;
-                op1->SetType(TYP_UBYTE);
-                op2->SetType(TYP_UBYTE);
-                cmp->SetOp(0, op1);
-
-                BlockRange().Remove(cast);
+                if (!op2->IsIntCon() && op2->isContained())
+                {
+                    assert(IsContainableMemoryOp(op2));
+                    op2->SetType(TYP_UBYTE);
+                }
             }
+
+            op1 = castOp;
+            op1->SetType(TYP_UBYTE);
+            op2->SetType(TYP_UBYTE);
+            cmp->SetOp(0, op1);
+
+            BlockRange().Remove(cast);
         }
     }
 
-    if (cmp->OperIs(GT_EQ, GT_NE))
+    if (op1->OperIs(GT_AND, GT_OR, GT_XOR, GT_ADD, GT_SUB, GT_NEG) && cmp->OperIs(GT_EQ, GT_NE) && (op2Value == 0))
     {
         // TODO-CQ: right now the below peep is inexpensive and gets the benefit in most
         // cases because in majority of cases op1, op2 and cmp would be in that order in
@@ -869,8 +870,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
         // after op1 do not modify the flags so that it is safe to avoid generating a
         // test instruction.
 
-        if (op2->IsIntegralConst(0) && (op1->gtNext == op2) && (op2->gtNext == cmp) &&
-            op1->OperIs(GT_AND, GT_OR, GT_XOR, GT_ADD, GT_SUB, GT_NEG))
+        if ((op1->gtNext == op2) && (op2->gtNext == cmp))
         {
             op1->gtFlags |= GTF_SET_FLAGS;
             op1->SetUnusedValue();
