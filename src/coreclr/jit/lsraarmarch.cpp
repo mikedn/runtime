@@ -31,7 +31,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 // Return Value:
 //    The number of sources consumed by this node.
 //
-int LinearScan::BuildIndir(GenTreeIndir* indirTree)
+void LinearScan::BuildIndir(GenTreeIndir* indirTree)
 {
     // struct typed indirs are expected only on rhs of a block copy,
     // but in this case they must be contained.
@@ -109,26 +109,31 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
 
             if (value->isContained())
             {
-                int srcCount = BuildIndirUses(indirTree);
-                srcCount += value->OperIs(GT_IND) ? BuildIndirUses(value->AsIndir()) : 0;
+                BuildIndirUses(indirTree);
+
+                if (value->OperIs(GT_IND))
+                {
+                    BuildIndirUses(value->AsIndir());
+                }
+
                 buildInternalRegisterUses();
-                return srcCount;
+
+                return;
             }
         }
     }
 #endif // FEATURE_SIMD
 
-    int srcCount = BuildIndirUses(indirTree);
+    BuildIndirUses(indirTree);
     buildInternalRegisterUses();
 
     if (!indirTree->OperIs(GT_STOREIND, GT_NULLCHECK))
     {
         BuildDef(indirTree);
     }
-    return srcCount;
 }
 
-int LinearScan::BuildCall(GenTreeCall* call)
+void LinearScan::BuildCall(GenTreeCall* call)
 {
     GenTree* ctrlExpr = call->IsIndirectCall() ? call->gtCallAddr : call->gtControlExpr;
 
@@ -168,8 +173,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
 
 #endif // TARGET_ARM
 
-    int srcCount = 0;
-
     for (GenTreeCall::Use& arg : call->LateArgs())
     {
         GenTree* argNode = arg.GetNode();
@@ -194,14 +197,12 @@ int LinearScan::BuildCall(GenTreeCall* call)
                 assert(use.GetNode()->GetRegNum() == argInfo->GetRegNum(regIndex));
 
                 BuildUse(use.GetNode(), genRegMask(use.GetNode()->GetRegNum()));
-                srcCount++;
                 regIndex++;
 
 #ifdef TARGET_ARM
                 if (use.GetNode()->TypeIs(TYP_LONG))
                 {
                     BuildUse(use.GetNode(), genRegMask(REG_NEXT(use.GetNode()->GetRegNum())), 1);
-                    srcCount++;
                     regIndex++;
                 }
 #endif
@@ -220,7 +221,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
                 assert(argNode->GetRegNum(i) == argInfo->GetRegNum(i));
 
                 BuildUse(argNode, genRegMask(argNode->GetRegNum(i)), i);
-                srcCount++;
             }
 
             continue;
@@ -237,19 +237,17 @@ int LinearScan::BuildCall(GenTreeCall* call)
 
             BuildUse(argNode, genRegMask(argNode->GetRegNum()), 0);
             BuildUse(argNode, genRegMask(REG_NEXT(argNode->GetRegNum())), 1);
-            srcCount += 2;
+
             continue;
         }
 #endif
 
         BuildUse(argNode, genRegMask(argNode->GetRegNum()));
-        srcCount++;
     }
 
     if (ctrlExpr != nullptr)
     {
         BuildUse(ctrlExpr);
-        srcCount++;
     }
 
     BuildInternalUses();
@@ -277,11 +275,9 @@ int LinearScan::BuildCall(GenTreeCall* call)
     {
         BuildDef(call, RBM_INTRET);
     }
-
-    return srcCount;
 }
 
-int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
+void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
 {
     GenTree* src = putArg->GetOp(0);
 
@@ -289,13 +285,11 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
     {
         assert(src->isContained());
 
-        int srcCount = 0;
         for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
         {
             if (!use.GetNode()->isContained())
             {
                 BuildUse(use.GetNode());
-                srcCount++;
 
 #if defined(FEATURE_SIMD) && defined(OSX_ARM64_ABI)
                 if (use.GetType() == TYP_SIMD12)
@@ -308,7 +302,8 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
 #endif // FEATURE_SIMD && OSX_ARM64_ABI
             }
         }
-        return srcCount;
+
+        return;
     }
 
     if (src->TypeIs(TYP_STRUCT))
@@ -320,22 +315,25 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
 #ifdef TARGET_ARM64
         buildInternalIntRegisterDefForNode(putArg);
 #endif
-        int srcCount = src->OperIs(GT_OBJ) ? BuildAddrUses(src->AsObj()->GetAddr()) : 0;
+
+        if (src->OperIs(GT_OBJ))
+        {
+            BuildAddrUses(src->AsObj()->GetAddr());
+        }
+
         buildInternalRegisterUses();
-        return srcCount;
+
+        return;
     }
 
     if (!src->isContained())
     {
         BuildUse(src);
-        return 1;
     }
-
-    return 0;
 }
 
 #if FEATURE_ARG_SPLIT
-int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
+void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 {
     CallArgInfo* argInfo    = putArg->GetArgInfo();
     regMaskTP    argRegMask = RBM_NONE;
@@ -345,13 +343,11 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
         argRegMask |= genRegMask(argInfo->GetRegNum(i));
     }
 
-    GenTree* src      = putArg->GetOp(0);
-    unsigned srcCount = 0;
+    GenTree* src = putArg->GetOp(0);
 
     if (src->IsIntegralConst(0))
     {
         BuildUse(src);
-        srcCount++;
     }
     else
     {
@@ -372,7 +368,6 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
                 }
 
                 BuildUse(node, regMask);
-                srcCount++;
                 regIndex++;
 
 #ifdef TARGET_ARM
@@ -383,7 +378,6 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
                     regMask = genRegMask(argInfo->GetRegNum(regIndex));
 
                     BuildUse(node, regMask, 1);
-                    srcCount++;
                     regIndex++;
                 }
 #endif
@@ -395,7 +389,7 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 
             if (src->OperIs(GT_OBJ))
             {
-                srcCount += BuildAddrUses(src->AsObj()->GetAddr());
+                BuildAddrUses(src->AsObj()->GetAddr());
             }
 
             BuildInternalUses();
@@ -406,17 +400,17 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
     {
         BuildDef(putArg, putArg->GetRegType(i), genRegMask(argInfo->GetRegNum(i)), i);
     }
-
-    return srcCount;
 }
 #endif // FEATURE_ARG_SPLIT
 
-int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
+void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {
 #ifdef TARGET_ARM64
     if (kind == StructStoreKind::UnrollRegsWB)
     {
-        return BuildStructStoreUnrollRegsWB(store->AsObj(), layout);
+        BuildStructStoreUnrollRegsWB(store->AsObj(), layout);
+
+        return;
     }
 #endif
 
@@ -568,11 +562,9 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
 
     BuildInternalUses();
     BuildKills(store, getKillSetForStructStore(kind));
-
-    return useCount;
 }
 
-int LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout)
+void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout)
 {
 #ifndef TARGET_ARM64
     unreached();
@@ -599,12 +591,10 @@ int LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* lay
     BuildUse(value, RBM_NONE, 1);
     BuildInternalUses();
     BuildKills(store, compiler->compHelperCallKillSet(CORINFO_HELP_CHECKED_ASSIGN_REF));
-
-    return 3;
 #endif
 }
 
-int LinearScan::BuildCast(GenTreeCast* cast)
+void LinearScan::BuildCast(GenTreeCast* cast)
 {
     GenTree* src = cast->GetOp(0);
 
@@ -622,25 +612,22 @@ int LinearScan::BuildCast(GenTreeCast* cast)
     }
 #endif
 
-    int srcCount = BuildOperandUses(src);
+    BuildOperandUses(src);
     buildInternalRegisterUses();
     BuildDef(cast);
-    return srcCount;
 }
 
-int LinearScan::BuildCmp(GenTreeOp* cmp)
+void LinearScan::BuildCmp(GenTreeOp* cmp)
 {
     assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP) ARM64_ONLY(|| cmp->OperIs(GT_JCMP)));
 
     BuildUse(cmp->GetOp(0));
-    int srcCount = 1 + BuildOperandUses(cmp->GetOp(1));
+    BuildOperandUses(cmp->GetOp(1));
 
     if (!cmp->TypeIs(TYP_VOID))
     {
         BuildDef(cmp);
     }
-
-    return srcCount;
 }
 
 #endif // TARGET_ARMARCH

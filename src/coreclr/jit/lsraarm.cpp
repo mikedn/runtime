@@ -22,10 +22,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "lower.h"
 #include "lsra.h"
 
-int LinearScan::BuildLclHeap(GenTree* tree)
+void LinearScan::BuildLclHeap(GenTree* tree)
 {
-    int srcCount = 0;
-
     // Need a variable number of temp regs (see genLclHeap() in codegenarm.cpp):
     // Here '-' means don't care.
     //
@@ -47,7 +45,6 @@ int LinearScan::BuildLclHeap(GenTree* tree)
     if (size->IsCnsIntOrI())
     {
         assert(size->isContained());
-        srcCount = 0;
 
         size_t sizeVal = size->AsIntCon()->gtIconVal;
         if (sizeVal == 0)
@@ -85,7 +82,6 @@ int LinearScan::BuildLclHeap(GenTree* tree)
     else
     {
         // target (regCnt) + tmp
-        srcCount         = 1;
         internalIntCount = 1;
         BuildUse(size);
     }
@@ -109,9 +105,9 @@ int LinearScan::BuildLclHeap(GenTree* tree)
             buildInternalIntRegisterDefForNode(tree);
         }
     }
+
     buildInternalRegisterUses();
     BuildDef(tree);
-    return srcCount;
 }
 
 //------------------------------------------------------------------------
@@ -125,12 +121,11 @@ int LinearScan::BuildLclHeap(GenTree* tree)
 //
 // Note: these operands have uses that interfere with the def and need the special handling.
 //
-int LinearScan::BuildShiftLongCarry(GenTree* tree)
+void LinearScan::BuildShiftLongCarry(GenTree* tree)
 {
     assert(tree->OperGet() == GT_LSH_HI || tree->OperGet() == GT_RSH_LO);
 
-    int      srcCount = 2;
-    GenTree* source   = tree->AsOp()->gtOp1;
+    GenTree* source = tree->AsOp()->gtOp1;
     assert((source->OperGet() == GT_LONG) && source->isContained());
 
     GenTree* sourceLo = source->gtGetOp1();
@@ -150,11 +145,12 @@ int LinearScan::BuildShiftLongCarry(GenTree* tree)
         {
             setDelayFree(sourceHiUse);
         }
+
         if (!shiftBy->isContained())
         {
             BuildUse(shiftBy);
-            srcCount++;
         }
+
         BuildDef(tree);
     }
     else
@@ -162,10 +158,8 @@ int LinearScan::BuildShiftLongCarry(GenTree* tree)
         if (!shiftBy->isContained())
         {
             BuildUse(shiftBy);
-            srcCount++;
         }
     }
-    return srcCount;
 }
 
 //------------------------------------------------------------------------
@@ -451,7 +445,6 @@ void LinearScan::BuildNode(GenTree* tree)
         {
             GenTreeAddrMode* lea = tree->AsAddrMode();
 
-            // This LEA is instantiating an address, so we set up the srcCount and dstCount here.
             if (GenTree* base = lea->GetBase())
             {
                 BuildUse(base);

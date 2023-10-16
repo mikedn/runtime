@@ -242,7 +242,7 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_HWINTRINSIC:
             BuildHWIntrinsic(tree->AsHWIntrinsic());
             break;
-#endif // FEATURE_HW_INTRINSICS
+#endif
 
         case GT_CAST:
             BuildCast(tree->AsCast());
@@ -709,12 +709,11 @@ int LinearScan::BuildRMWUses(GenTreeOp* node, regMaskTP candidates)
     return srcCount;
 }
 
-int LinearScan::BuildShiftRotate(GenTree* tree)
+void LinearScan::BuildShiftRotate(GenTree* tree)
 {
     // For shift operations, we need that the number
     // of bits moved gets stored in CL in case
     // the number of bits to shift is not a constant.
-    int       srcCount      = 0;
     GenTree*  shiftBy       = tree->gtGetOp2();
     GenTree*  source        = tree->gtGetOp1();
     regMaskTP srcCandidates = RBM_NONE;
@@ -771,28 +770,23 @@ int LinearScan::BuildShiftRotate(GenTree* tree)
         if (!source->isContained())
     {
         tgtPrefUse = BuildUse(source, srcCandidates);
-        srcCount++;
     }
     else
     {
-        srcCount += BuildOperandUses(source, srcCandidates);
+        BuildOperandUses(source, srcCandidates);
     }
 
     if (!shiftBy->isContained())
     {
-        srcCount += BuildDelayFreeUses(shiftBy, source, RBM_RCX);
+        BuildDelayFreeUses(shiftBy, source, RBM_RCX);
         buildKillPositionsForNode(tree, currentLoc + 1, RBM_RCX);
     }
 
     BuildDef(tree, dstCandidates);
-
-    return srcCount;
 }
 
-int LinearScan::BuildCall(GenTreeCall* call)
+void LinearScan::BuildCall(GenTreeCall* call)
 {
-    int srcCount = 0;
-
 #ifdef WINDOWS_AMD64_ABI
     bool varargsHasFloatRegArgs = false;
 
@@ -848,7 +842,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
                 assert(use.GetNode()->GetRegNum() == argInfo->GetRegNum(regIndex));
 
                 BuildUse(use.GetNode(), genRegMask(use.GetNode()->GetRegNum()));
-                srcCount++;
                 regIndex++;
             }
 
@@ -860,7 +853,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
         assert(argNode->GetRegNum() == argInfo->GetRegNum());
 
         BuildUse(argNode, genRegMask(argNode->GetRegNum()));
-        srcCount++;
     }
 
     GenTree* ctrlExpr = call->IsIndirectCall() ? call->gtCallAddr : call->gtControlExpr;
@@ -905,7 +897,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
         }
 #endif
 
-        srcCount += BuildOperandUses(ctrlExpr, ctrlExprCandidates);
+        BuildOperandUses(ctrlExpr, ctrlExprCandidates);
     }
 
     BuildInternalUses();
@@ -938,8 +930,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
     {
         BuildDef(call, RBM_INTRET);
     }
-
-    return srcCount;
 }
 
 #ifdef WINDOWS_AMD64_ABI
@@ -961,12 +951,14 @@ bool LinearScan::HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode)
 }
 #endif
 
-int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
+void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {
 #ifdef UNIX_AMD64_ABI
     if (kind == StructStoreKind::UnrollRegsWB)
     {
-        return BuildStructStoreUnrollRegsWB(store->AsObj(), layout);
+        BuildStructStoreUnrollRegsWB(store->AsObj(), layout);
+
+        return;
     }
 #endif
 
@@ -1191,11 +1183,9 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
 
     BuildInternalUses();
     BuildKills(store, getKillSetForStructStore(kind));
-
-    return useCount;
 }
 
-int LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout)
+void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout)
 {
 #ifndef UNIX_AMD64_ABI
     unreached();
@@ -1237,12 +1227,10 @@ int LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* lay
     BuildUse(value, RBM_NONE, 1);
     BuildInternalUses();
     BuildKills(store, killSet);
-
-    return 3;
 #endif
 }
 
-int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
+void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 {
     GenTree* src = putArgStk->GetOp(0);
 
@@ -1300,21 +1288,18 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 #endif // TARGET_X86
         }
 
-        int srcCount = 0;
-
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             GenTree* const fieldNode = use.GetNode();
             if (!fieldNode->isContained())
             {
                 BuildUse(fieldNode);
-                srcCount++;
             }
         }
 
         buildInternalRegisterUses();
 
-        return srcCount;
+        return;
     }
 
 #if defined(FEATURE_SIMD) && defined(TARGET_X86)
@@ -1323,7 +1308,8 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         buildInternalFloatRegisterDefForNode(putArgStk, internalFloatRegCandidates());
         BuildUse(src);
         buildInternalRegisterUses();
-        return 1;
+
+        return;
     }
 #endif
 
@@ -1335,7 +1321,7 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
             BuildUse(src, RBM_NONE, i);
         }
 
-        return src->AsCall()->GetRegCount();
+        return;
     }
 #endif
 
@@ -1436,19 +1422,16 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         // one explicitly (see BuildStructStore()).
         assert(srcCount < BYTE_REG_COUNT);
 #endif
-        return srcCount;
+        return;
     }
 
     if ((src->IsIntegralConst(0) && (putArgStk->GetSlotCount() > 1)))
     {
-        int useCount = 0;
-
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
         {
             BuildInternalIntDef(putArgStk, RBM_RDI);
             BuildInternalIntDef(putArgStk, RBM_RCX);
             BuildUse(src, RBM_RAX);
-            useCount++;
         }
         else
         {
@@ -1465,16 +1448,14 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 
         BuildInternalUses();
 
-        return useCount;
+        return;
     }
 
-    return BuildOperandUses(src);
+    BuildOperandUses(src);
 }
 
-int LinearScan::BuildLclHeap(GenTree* tree)
+void LinearScan::BuildLclHeap(GenTree* tree)
 {
-    int srcCount = 1;
-
     // Need a variable number of temp regs (see genLclHeap() in codegenamd64.cpp):
     // Here '-' means don't care.
     //
@@ -1495,7 +1476,6 @@ int LinearScan::BuildLclHeap(GenTree* tree)
     if (size->IsCnsIntOrI())
     {
         assert(size->isContained());
-        srcCount       = 0;
         size_t sizeVal = size->AsIntCon()->gtIconVal;
 
         if (sizeVal == 0)
@@ -1544,19 +1524,18 @@ int LinearScan::BuildLclHeap(GenTree* tree)
         }
         BuildUse(size);
     }
+
     buildInternalRegisterUses();
     BuildDef(tree);
-    return srcCount;
 }
 
-int LinearScan::BuildModDiv(GenTree* tree)
+void LinearScan::BuildModDiv(GenTree* tree)
 {
     assert(tree->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD) && varTypeIsIntegral(tree->GetType()));
 
     GenTree*  op1           = tree->gtGetOp1();
     GenTree*  op2           = tree->gtGetOp2();
     regMaskTP dstCandidates = RBM_NONE;
-    int       srcCount      = 0;
 
     // Amd64 Div/Idiv instruction:
     //    Dividend in RAX:RDX  and computes
@@ -1593,7 +1572,6 @@ int LinearScan::BuildModDiv(GenTree* tree)
 
         BuildUse(loVal, RBM_EAX);
         BuildUse(hiVal, RBM_EDX);
-        srcCount = 2;
     }
     else
 #endif
@@ -1601,19 +1579,15 @@ int LinearScan::BuildModDiv(GenTree* tree)
         // If possible would like to have op1 in RAX to avoid a register move.
         RefPosition* op1Use = BuildUse(op1, RBM_EAX);
         tgtPrefUse          = op1Use;
-        srcCount            = 1;
     }
 
-    srcCount += BuildDelayFreeUses(op2, op1, allRegs(TYP_INT) & ~(RBM_RAX | RBM_RDX));
-
+    BuildDelayFreeUses(op2, op1, allRegs(TYP_INT) & ~(RBM_RAX | RBM_RDX));
     buildInternalRegisterUses();
     BuildKills(tree, getKillSetForModDiv(tree->AsOp()));
     BuildDef(tree, dstCandidates);
-
-    return srcCount;
 }
 
-int LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
+void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
 {
     // Both operand and its result must be of floating point type.
     GenTree* op1 = tree->gtGetOp1();
@@ -1641,26 +1615,26 @@ int LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
             break;
     }
     assert(tree->gtGetOp2IfPresent() == nullptr);
-    int srcCount;
+
     if (op1->isContained())
     {
-        srcCount = BuildOperandUses(op1);
+        BuildOperandUses(op1);
     }
     else
     {
         tgtPrefUse = BuildUse(op1);
-        srcCount   = 1;
     }
+
     if (internalFloatDef != nullptr)
     {
         buildInternalRegisterUses();
     }
+
     BuildDef(tree);
-    return srcCount;
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
+void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 {
     NamedIntrinsic      intrinsicId = intrinsicTree->GetIntrinsic();
     var_types           baseType    = intrinsicTree->GetSimdBaseType();
@@ -1680,7 +1654,6 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
     GenTree* op3    = nullptr;
     GenTree* lastOp = nullptr;
 
-    int srcCount = 0;
     int dstCount = intrinsicTree->IsValue() ? 1 : 0;
 
     regMaskTP dstCandidates = RBM_NONE;
@@ -1742,8 +1715,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 if (varTypeIsFloating(baseType) && !op1->isContained())
                 {
                     tgtPrefUse = BuildUse(op1);
-                    srcCount += 1;
-                    buildUses = false;
+                    buildUses  = false;
                 }
                 break;
 
@@ -1755,8 +1727,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 if (varTypeIsFloating(baseType) && !op1->isContained() && op2->IsIntegralConst(0))
                 {
                     tgtPrefUse = BuildUse(op1);
-                    srcCount += 1;
-                    buildUses = false;
+                    buildUses  = false;
                 }
                 break;
 
@@ -1768,8 +1739,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 if (!op1->isContained())
                 {
                     tgtPrefUse = BuildUse(op1);
-                    srcCount += 1;
-                    buildUses = false;
+                    buildUses  = false;
                 }
                 break;
 
@@ -1779,9 +1749,9 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 assert(!isRMW);
 
                 // MaskMove hardcodes the destination (op3) in DI/EDI/RDI
-                srcCount += BuildOperandUses(op1);
-                srcCount += BuildOperandUses(op2);
-                srcCount += BuildOperandUses(op3, RBM_EDI);
+                BuildOperandUses(op1);
+                BuildOperandUses(op2);
+                BuildOperandUses(op3, RBM_EDI);
 
                 buildUses = false;
                 break;
@@ -1798,9 +1768,8 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                     // SSE4.1 blendv* hardcode the mask vector (op3) in XMM0
                     tgtPrefUse = BuildUse(op1);
 
-                    srcCount += 1;
-                    srcCount += op2->isContained() ? BuildOperandUses(op2) : BuildDelayFreeUses(op2, op1);
-                    srcCount += BuildDelayFreeUses(op3, op1, RBM_XMM0);
+                    op2->isContained() ? BuildOperandUses(op2) : BuildDelayFreeUses(op2, op1);
+                    BuildDelayFreeUses(op3, op1, RBM_XMM0);
 
                     buildUses = false;
                 }
@@ -1833,8 +1802,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 // CRC32 may operate over "byte" but on x86 only RBM_BYTE_REGS can be used as byte registers.
                 tgtPrefUse = BuildUse(op1);
 
-                srcCount += 1;
-                srcCount += BuildDelayFreeUses(op2, op1, varTypeIsByte(baseType) ? allByteRegs() : RBM_NONE);
+                BuildDelayFreeUses(op2, op1, varTypeIsByte(baseType) ? allByteRegs() : RBM_NONE);
 
                 buildUses = false;
                 break;
@@ -1845,13 +1813,13 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
             case NI_BMI2_X64_MultiplyNoFlags:
             {
                 assert(numArgs == 2 || numArgs == 3);
-                srcCount += BuildOperandUses(op1, RBM_EDX);
-                srcCount += BuildOperandUses(op2);
+                BuildOperandUses(op1, RBM_EDX);
+                BuildOperandUses(op2);
                 if (numArgs == 3)
                 {
                     // op3 reg should be different from target reg to
                     // store the lower half result after executing the instruction
-                    srcCount += BuildDelayFreeUses(op3, op1);
+                    BuildDelayFreeUses(op3, op1);
                     // Need a internal register different from the dst to take the lower half result
                     buildInternalIntRegisterDefForNode(intrinsicTree);
                     setInternalRegsDelayFree = true;
@@ -1885,9 +1853,8 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
                     tgtPrefUse = BuildUse(op1);
 
-                    srcCount += 1;
-                    srcCount += BuildOperandUses(op2);
-                    srcCount += BuildDelayFreeUses(op3, op1);
+                    BuildOperandUses(op2);
+                    BuildDelayFreeUses(op3, op1);
                 }
                 else if (op1->isContained())
                 {
@@ -1895,28 +1862,25 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
                     tgtPrefUse = BuildUse(op3);
 
-                    srcCount += BuildOperandUses(op1);
-                    srcCount += BuildDelayFreeUses(op2, op1);
-                    srcCount += 1;
+                    BuildOperandUses(op1);
+                    BuildDelayFreeUses(op2, op1);
                 }
                 else
                 {
                     // 213 form: op1 = (op2 * op1) + [op3]
 
                     tgtPrefUse = BuildUse(op1);
-                    srcCount += 1;
 
                     if (copiesUpperBits)
                     {
-                        srcCount += BuildDelayFreeUses(op2, op1);
+                        BuildDelayFreeUses(op2, op1);
                     }
                     else
                     {
                         tgtPrefUse2 = BuildUse(op2);
-                        srcCount += 1;
                     }
 
-                    srcCount += op3->isContained() ? BuildOperandUses(op3) : BuildDelayFreeUses(op3, op1);
+                    op3->isContained() ? BuildOperandUses(op3) : BuildDelayFreeUses(op3, op1);
                 }
 
                 buildUses = false;
@@ -1929,9 +1893,8 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 assert(numArgs == 3);
 
                 tgtPrefUse = BuildUse(op1);
-                srcCount += 1;
-                srcCount += BuildDelayFreeUses(op2, op1);
-                srcCount += op3->isContained() ? BuildOperandUses(op3) : BuildDelayFreeUses(op3, op1);
+                BuildDelayFreeUses(op2, op1);
+                op3->isContained() ? BuildOperandUses(op3) : BuildDelayFreeUses(op3, op1);
 
                 buildUses = false;
                 break;
@@ -1944,8 +1907,8 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 assert(!isRMW);
 
                 // Any pair of the index, mask, or destination registers should be different
-                srcCount += BuildOperandUses(op1);
-                srcCount += BuildDelayFreeUses(op2);
+                BuildOperandUses(op1);
+                BuildDelayFreeUses(op2);
 
                 // op3 should always be contained
                 assert(op3->isContained());
@@ -1965,10 +1928,10 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 assert(!isRMW);
 
                 // Any pair of the index, mask, or destination registers should be different
-                srcCount += BuildOperandUses(op1);
-                srcCount += BuildDelayFreeUses(op2);
-                srcCount += BuildDelayFreeUses(op3);
-                srcCount += BuildDelayFreeUses(intrinsicTree->GetOp(3));
+                BuildOperandUses(op1);
+                BuildDelayFreeUses(op2);
+                BuildDelayFreeUses(op3);
+                BuildDelayFreeUses(intrinsicTree->GetOp(3));
 
                 assert(intrinsicTree->GetOp(4)->isContained());
 
@@ -1993,23 +1956,22 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
             if (intrinsicTree->OperIsMemoryLoadOrStore())
             {
-                srcCount += BuildAddrUses(op1);
+                BuildAddrUses(op1);
             }
             else if (isRMW && !op1->isContained())
             {
                 tgtPrefUse = BuildUse(op1);
-                srcCount += 1;
             }
             else
             {
-                srcCount += BuildOperandUses(op1);
+                BuildOperandUses(op1);
             }
 
             if (op2 != nullptr)
             {
                 if (op2->OperIs(GT_HWINTRINSIC) && op2->AsHWIntrinsic()->OperIsMemoryLoad() && op2->isContained())
                 {
-                    srcCount += BuildAddrUses(op2->AsHWIntrinsic()->GetOp(0));
+                    BuildAddrUses(op2->AsHWIntrinsic()->GetOp(0));
                 }
                 else if (isRMW)
                 {
@@ -2019,14 +1981,13 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                         // to also be a tgtPrefUse. Codegen will then swap the operands.
 
                         tgtPrefUse2 = BuildUse(op2);
-                        srcCount += 1;
                     }
                     else if (!op2->isContained() || varTypeIsArithmetic(intrinsicTree->TypeGet()))
                     {
                         // When op2 is not contained or if we are producing a scalar value
                         // we need to mark it as delay free because the operand and target
                         // exist in the same register set.
-                        srcCount += BuildDelayFreeUses(op2, op1);
+                        BuildDelayFreeUses(op2, op1);
                     }
                     else
                     {
@@ -2034,17 +1995,17 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                         // have no concerns of overwriting op2 because they exist in different
                         // register sets.
 
-                        srcCount += BuildOperandUses(op2);
+                        BuildOperandUses(op2);
                     }
                 }
                 else
                 {
-                    srcCount += BuildOperandUses(op2);
+                    BuildOperandUses(op2);
                 }
 
                 if (op3 != nullptr)
                 {
-                    srcCount += isRMW ? BuildDelayFreeUses(op3, op1) : BuildOperandUses(op3);
+                    isRMW ? BuildDelayFreeUses(op3, op1) : BuildOperandUses(op3);
                 }
             }
         }
@@ -2065,12 +2026,10 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
     {
         assert(dstCount == 0);
     }
-
-    return srcCount;
 }
 #endif
 
-int LinearScan::BuildCast(GenTreeCast* cast)
+void LinearScan::BuildCast(GenTreeCast* cast)
 {
     GenTree*  src        = cast->GetOp(0);
     regMaskTP candidates = RBM_NONE;
@@ -2100,13 +2059,12 @@ int LinearScan::BuildCast(GenTreeCast* cast)
     }
 #endif
 
-    int srcCount = BuildOperandUses(src, candidates);
+    BuildOperandUses(src, candidates);
     buildInternalRegisterUses();
     BuildDef(cast, candidates);
-    return srcCount;
 }
 
-int LinearScan::BuildLoadInd(GenTreeIndir* load)
+void LinearScan::BuildLoadInd(GenTreeIndir* load)
 {
     assert(load->OperIs(GT_IND) && !load->TypeIs(TYP_STRUCT));
 
@@ -2125,13 +2083,12 @@ int LinearScan::BuildLoadInd(GenTreeIndir* load)
     }
 #endif
 
-    int srcCount = BuildAddrUses(load->GetAddr());
+    BuildAddrUses(load->GetAddr());
     BuildInternalUses();
     BuildDef(load);
-    return srcCount;
 }
 
-int LinearScan::BuildStoreInd(GenTreeIndir* store)
+void LinearScan::BuildStoreInd(GenTreeIndir* store)
 {
     assert(store->OperIs(GT_STOREIND) && !store->TypeIs(TYP_STRUCT));
 
@@ -2151,11 +2108,11 @@ int LinearScan::BuildStoreInd(GenTreeIndir* store)
 #else
                 BuildInternalFloatDef(store);
 #endif
-                int srcCount = BuildAddrUses(store->GetAddr());
-                srcCount += value->OperIs(GT_IND) ? BuildAddrUses(value->AsIndir()->GetAddr()) : 0;
+                BuildAddrUses(store->GetAddr());
+                value->OperIs(GT_IND) ? BuildAddrUses(value->AsIndir()->GetAddr()) : 0;
                 BuildInternalUses();
 
-                return srcCount;
+                return;
             }
 
             BuildInternalFloatDef(store);
@@ -2221,18 +2178,16 @@ int LinearScan::BuildStoreInd(GenTreeIndir* store)
     // have floating point internal registers, if any.
     assert(srcCount <= BYTE_REG_COUNT);
 #endif
-
-    return srcCount;
 }
 
-int LinearScan::BuildMul(GenTreeOp* tree)
+void LinearScan::BuildMul(GenTreeOp* tree)
 {
     assert(tree->OperIsMul() && varTypeIsIntegral(tree->GetType()));
 
     GenTree* op1 = tree->GetOp(0);
     GenTree* op2 = tree->GetOp(1);
 
-    int srcCount = BuildBinaryUses(tree->AsOp());
+    BuildBinaryUses(tree->AsOp());
 
     // There are three forms of x86 multiply:
     // one-op form:     RDX:RAX = RAX * r/m
@@ -2270,8 +2225,6 @@ int LinearScan::BuildMul(GenTreeOp* tree)
     {
         BuildDef(tree);
     }
-
-    return srcCount;
 }
 
 //------------------------------------------------------------------------------
@@ -2295,7 +2248,7 @@ void LinearScan::SetContainsAVXFlags(unsigned sizeOfSIMDVector /* = 0*/)
     }
 }
 
-int LinearScan::BuildCmp(GenTreeOp* cmp)
+void LinearScan::BuildCmp(GenTreeOp* cmp)
 {
     assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP));
 
@@ -2349,15 +2302,13 @@ int LinearScan::BuildCmp(GenTreeOp* cmp)
     }
 #endif // TARGET_X86
 
-    int srcCount = BuildOperandUses(op1, op1Candidates);
-    srcCount += BuildOperandUses(op2, op2Candidates);
+    BuildOperandUses(op1, op1Candidates);
+    BuildOperandUses(op2, op2Candidates);
 
     if (!cmp->TypeIs(TYP_VOID))
     {
         BuildDef(cmp, dstCandidates);
     }
-
-    return srcCount;
 }
 
 #endif // TARGET_XARCH

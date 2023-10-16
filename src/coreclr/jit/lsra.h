@@ -1891,7 +1891,7 @@ private:
     void getTgtPrefOperands(GenTreeOp* tree, bool& prefOp1, bool& prefOp2);
     bool supportsSpecialPutArg();
 
-    int BuildSimple(GenTree* tree);
+    void BuildSimple(GenTree* tree);
     int BuildOperandUses(GenTree* node, regMaskTP candidates = RBM_NONE);
     int BuildDelayFreeUses(GenTree* node, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
     int BuildIndirUses(GenTreeIndir* indirTree, regMaskTP candidates = RBM_NONE);
@@ -1903,55 +1903,53 @@ private:
     RefPosition* BuildDef(GenTree* node, var_types regType, regMaskTP regCandidates, unsigned regIndex);
     void BuildKills(GenTree* tree, regMaskTP killMask);
 
-    int BuildReturn(GenTreeUnOp* ret);
+    void BuildReturn(GenTreeUnOp* ret);
 #ifdef TARGET_XARCH
-    // This method, unlike the others, returns the number of sources, since it may be called when
-    // 'tree' is contained.
-    int BuildShiftRotate(GenTree* tree);
-#endif // TARGET_XARCH
+    void BuildShiftRotate(GenTree* tree);
+    void BuildModDiv(GenTree* tree);
+    void BuildMul(GenTreeOp* tree);
+    void BuildIntrinsic(GenTreeIntrinsic* tree);
+#endif
 #ifdef TARGET_ARM
-    int BuildShiftLongCarry(GenTree* tree);
+    void BuildShiftLongCarry(GenTree* tree);
 #endif
-    int BuildPutArgReg(GenTreeUnOp* node);
-    int BuildCall(GenTreeCall* call);
-    int BuildCmp(GenTreeOp* cmp);
-    int BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
-    int BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout);
-    int BuildStoreDynBlk(GenTreeDynBlk* store);
-    int BuildModDiv(GenTree* tree);
-    int BuildIntrinsic(GenTreeIntrinsic* tree);
+    void BuildPutArgReg(GenTreeUnOp* node);
+    void BuildCall(GenTreeCall* call);
+    void BuildCmp(GenTreeOp* cmp);
+    void BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
+    void BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout);
+    void BuildStoreDynBlk(GenTreeDynBlk* store);
     void BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index);
-    int BuildStoreLclVarMultiReg(GenTreeLclVar* store);
-    int BuildStoreLclVar(GenTreeLclVar* store);
-    int BuildStoreLclFld(GenTreeLclFld* store);
-    int BuildStoreLcl(GenTreeLclVarCommon* store);
+    void BuildStoreLclVarMultiReg(GenTreeLclVar* store);
+    void BuildStoreLclVar(GenTreeLclVar* store);
+    void BuildStoreLclFld(GenTreeLclFld* store);
+    void BuildStoreLcl(GenTreeLclVarCommon* store);
 #ifdef TARGET_XARCH
-    int BuildLoadInd(GenTreeIndir* load);
-    int BuildStoreInd(GenTreeIndir* store);
+    void BuildLoadInd(GenTreeIndir* load);
+    void BuildStoreInd(GenTreeIndir* store);
 #else
-    int BuildIndir(GenTreeIndir* indirTree);
+    void BuildIndir(GenTreeIndir* indirTree);
 #endif
-    int BuildGCWriteBarrier(GenTreeStoreInd* store);
-    int BuildCast(GenTreeCast* cast);
+    void BuildGCWriteBarrier(GenTreeStoreInd* store);
+    void BuildCast(GenTreeCast* cast);
 
 #if defined(TARGET_XARCH)
     // returns true if the tree can use the read-modify-write memory instruction form
     bool isRMWRegOper(GenTree* tree);
-    int BuildMul(GenTreeOp* tree);
     void SetContainsAVXFlags(unsigned sizeOfSIMDVector = 0);
-#endif // defined(TARGET_XARCH)
+#endif
 
 #ifdef FEATURE_HW_INTRINSICS
-    int BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree);
-#endif // FEATURE_HW_INTRINSICS
+    void BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree);
+#endif
 
-    int BuildPutArgStk(GenTreePutArgStk* argNode);
+    void BuildPutArgStk(GenTreePutArgStk* argNode);
 #if FEATURE_ARG_SPLIT
-    int BuildPutArgSplit(GenTreePutArgSplit* tree);
-#endif // FEATURE_ARG_SPLIT
-    int BuildLclHeap(GenTree* tree);
+    void BuildPutArgSplit(GenTreePutArgSplit* tree);
+#endif
+    void BuildLclHeap(GenTree* tree);
 
-    int BuildInstr(GenTreeInstr* instr);
+    void BuildInstr(GenTreeInstr* instr);
 };
 
 /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

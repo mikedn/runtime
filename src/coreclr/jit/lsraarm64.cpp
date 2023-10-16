@@ -235,7 +235,7 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_HWINTRINSIC:
             BuildHWIntrinsic(tree->AsHWIntrinsic());
             break;
-#endif // FEATURE_HW_INTRINSICS
+#endif
 
         case GT_CAST:
             BuildCast(tree->AsCast());
@@ -503,7 +503,6 @@ void LinearScan::BuildNode(GenTree* tree)
             GenTree* index = lea->GetIndex();
             int      cns   = lea->GetOffset();
 
-            // This LEA is instantiating an address, so we set up the srcCount here.
             if (base != nullptr)
             {
                 BuildUse(base);
@@ -590,11 +589,10 @@ void LinearScan::BuildNode(GenTree* tree)
 
 #include "hwintrinsic.h"
 
-int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
+void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 {
     const HWIntrinsic intrin(intrinsicTree);
 
-    int srcCount = 0;
     int dstCount = intrinsicTree->IsValue() ? 1 : 0;
 
     const bool hasImmediateOperand = HWIntrinsicInfo::HasImmediateOperand(intrin.id);
@@ -731,16 +729,15 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
         if (intrinsicTree->OperIsMemoryLoadOrStore())
         {
-            srcCount += BuildAddrUses(intrin.op1);
+            BuildAddrUses(intrin.op1);
         }
         else if (tgtPrefOp1)
         {
             tgtPrefUse = BuildUse(intrin.op1);
-            srcCount++;
         }
         else
         {
-            srcCount += BuildOperandUses(intrin.op1);
+            BuildOperandUses(intrin.op1);
         }
     }
 
@@ -755,13 +752,13 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
         {
             if (isRMW)
             {
-                srcCount += BuildDelayFreeUses(intrin.op2, nullptr);
-                srcCount += BuildDelayFreeUses(intrin.op3, nullptr, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
+                BuildDelayFreeUses(intrin.op2, nullptr);
+                BuildDelayFreeUses(intrin.op3, nullptr, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
             }
             else
             {
-                srcCount += BuildOperandUses(intrin.op2);
-                srcCount += BuildOperandUses(intrin.op3, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
+                BuildOperandUses(intrin.op2);
+                BuildOperandUses(intrin.op3, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
             }
 
             if (intrin.op4 != nullptr)
@@ -769,21 +766,21 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 assert(hasImmediateOperand);
                 assert(varTypeIsIntegral(intrin.op4));
 
-                srcCount += BuildOperandUses(intrin.op4);
+                BuildOperandUses(intrin.op4);
             }
         }
         else
         {
             assert(!isRMW);
 
-            srcCount += BuildOperandUses(intrin.op2, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
+            BuildOperandUses(intrin.op2, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
 
             if (intrin.op3 != nullptr)
             {
                 assert(hasImmediateOperand);
                 assert(varTypeIsIntegral(intrin.op3));
 
-                srcCount += BuildOperandUses(intrin.op3);
+                BuildOperandUses(intrin.op3);
             }
         }
     }
@@ -806,15 +803,15 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 }
             }
 
-            srcCount += isRMW ? BuildDelayFreeUses(intrin.op2, intrin.op1) : BuildOperandUses(intrin.op2);
+            isRMW ? BuildDelayFreeUses(intrin.op2, intrin.op1) : BuildOperandUses(intrin.op2);
 
             if (intrin.op3 != nullptr)
             {
-                srcCount += isRMW ? BuildDelayFreeUses(intrin.op3, intrin.op1) : BuildOperandUses(intrin.op3);
+                isRMW ? BuildDelayFreeUses(intrin.op3, intrin.op1) : BuildOperandUses(intrin.op3);
 
                 if (intrin.op4 != nullptr)
                 {
-                    srcCount += isRMW ? BuildDelayFreeUses(intrin.op4, intrin.op1) : BuildOperandUses(intrin.op4);
+                    isRMW ? BuildDelayFreeUses(intrin.op4, intrin.op1) : BuildOperandUses(intrin.op4);
                 }
             }
         }
@@ -830,8 +827,6 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
     {
         assert(dstCount == 0);
     }
-
-    return srcCount;
 }
 #endif
 

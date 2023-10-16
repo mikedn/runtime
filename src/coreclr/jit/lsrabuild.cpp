@@ -3003,7 +3003,7 @@ void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPo
 #endif
 }
 
-int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
+void LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR) && store->IsMultiReg());
 
@@ -3040,17 +3040,17 @@ int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
             currentLoc += 2;
         }
     }
-
-    return static_cast<int>(regCount);
 }
 
-int LinearScan::BuildStoreLclVar(GenTreeLclVar* store)
+void LinearScan::BuildStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
     if (IsCandidateLclVarMultiReg(store))
     {
-        return BuildStoreLclVarMultiReg(store);
+        BuildStoreLclVarMultiReg(store);
+
+        return;
     }
 
     LclVarDsc* lcl = compiler->lvaGetDesc(store);
@@ -3060,13 +3060,15 @@ int LinearScan::BuildStoreLclVar(GenTreeLclVar* store)
     {
         ClassLayout*    layout = lcl->GetLayout();
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
-        return BuildStructStore(store, kind, layout);
+        BuildStructStore(store, kind, layout);
+
+        return;
     }
 
-    return BuildStoreLcl(store);
+    BuildStoreLcl(store);
 }
 
-int LinearScan::BuildStoreLclFld(GenTreeLclFld* store)
+void LinearScan::BuildStoreLclFld(GenTreeLclFld* store)
 {
     assert(store->OperIs(GT_STORE_LCL_FLD));
 
@@ -3074,13 +3076,15 @@ int LinearScan::BuildStoreLclFld(GenTreeLclFld* store)
     {
         ClassLayout*    layout = store->AsLclFld()->GetLayout(compiler);
         StructStoreKind kind   = GetStructStoreKind(true, layout, store->GetOp(0));
-        return BuildStructStore(store, kind, layout);
+        BuildStructStore(store, kind, layout);
+
+        return;
     }
 
-    return BuildStoreLcl(store);
+    BuildStoreLcl(store);
 }
 
-int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
+void LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
@@ -3094,7 +3098,8 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
             BuildInternalIntDef(store);
             int srcCount = src->OperIs(GT_IND) ? BuildIndirUses(src->AsIndir()) : 0;
             BuildInternalUses();
-            return srcCount;
+
+            return;
         }
 
         if (!src->OperIs(GT_CNS_INT))
@@ -3107,13 +3112,10 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
 
     LclVarDsc*   lcl          = compiler->lvaGetDesc(store);
     RefPosition* singleUseRef = nullptr;
-    int          srcCount;
 
     if (src->IsMultiRegNode())
     {
-        srcCount = src->GetMultiRegCount(compiler);
-
-        for (int i = 0; i < srcCount; ++i)
+        for (unsigned i = 0, count = src->GetMultiRegCount(compiler); i < count; ++i)
         {
             BuildUse(src, RBM_NONE, i);
         }
@@ -3134,15 +3136,11 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
         assert(src->isContained());
         assert(!src->AsOp()->GetOp(0)->isContained() && !src->AsOp()->GetOp(1)->isContained());
 
-        srcCount = BuildBinaryUses(src->AsOp());
-
-        assert(srcCount == 2);
+        BuildBinaryUses(src->AsOp());
     }
 #endif
     else if (src->isContained())
     {
-        srcCount = 0;
-
 #ifdef TARGET_XARCH
         if (src->OperIs(GT_BITCAST))
         {
@@ -3153,8 +3151,6 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
 
             Interval* srcInterval = singleUseRef->getInterval();
             assert(srcInterval->registerType == registerType);
-
-            srcCount = 1;
         }
         else if (src->OperIsRMWMemOp())
         {
@@ -3167,8 +3163,6 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
                 {
                     buildKillPositionsForNode(store, currentLoc + 1, RBM_RCX);
                 }
-
-                srcCount = 1;
             }
         }
         else if (varTypeIsSIMD(store->GetType()))
@@ -3178,7 +3172,6 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
 
             assert(src->IsHWIntrinsicZero());
             singleUseRef = BuildUse(src->AsHWIntrinsic()->GetOp(0));
-            srcCount     = 1;
         }
 #endif // TARGET_XARCH
     }
@@ -3193,7 +3186,6 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
 #endif
 
         singleUseRef = BuildUse(src, srcCandidates);
-        srcCount     = 1;
     }
 
 #ifdef TARGET_ARM
@@ -3215,11 +3207,9 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
     {
         BuildStoreLclVarDef(store->AsLclVar(), lcl, singleUseRef, 0);
     }
-
-    return srcCount;
 }
 
-int LinearScan::BuildStoreDynBlk(GenTreeDynBlk* store)
+void LinearScan::BuildStoreDynBlk(GenTreeDynBlk* store)
 {
 #ifdef TARGET_X86
     assert((store->GetKind() == StructStoreKind::RepStos) || (store->GetKind() == StructStoreKind::RepMovs));
@@ -3237,8 +3227,6 @@ int LinearScan::BuildStoreDynBlk(GenTreeDynBlk* store)
     BuildUse(store->GetValue(), srcRegMask);
     BuildUse(store->GetSize(), sizeRegMask);
     BuildKills(store, getKillSetForStructStore(store->GetKind()));
-
-    return 3;
 }
 
 //------------------------------------------------------------------------
@@ -3250,27 +3238,27 @@ int LinearScan::BuildStoreDynBlk(GenTreeDynBlk* store)
 // Return Value:
 //    The number of use RefPositions created
 //
-int LinearScan::BuildSimple(GenTree* tree)
+void LinearScan::BuildSimple(GenTree* tree)
 {
-    unsigned kind     = tree->OperKind();
-    int      srcCount = 0;
+    unsigned kind = tree->OperKind();
+
     if ((kind & GTK_LEAF) == 0)
     {
         assert((kind & GTK_SMPOP) != 0);
-        srcCount = BuildBinaryUses(tree->AsOp());
+        BuildBinaryUses(tree->AsOp());
     }
+
     if (tree->IsValue())
     {
         BuildDef(tree);
     }
-    return srcCount;
 }
 
-int LinearScan::BuildReturn(GenTreeUnOp* ret)
+void LinearScan::BuildReturn(GenTreeUnOp* ret)
 {
     if (ret->TypeIs(TYP_VOID))
     {
-        return 0;
+        return;
     }
 
     GenTree* src = ret->GetOp(0);
@@ -3280,7 +3268,7 @@ int LinearScan::BuildReturn(GenTreeUnOp* ret)
     {
         BuildUse(src);
 
-        return 1;
+        return;
     }
 #endif
 
@@ -3292,7 +3280,7 @@ int LinearScan::BuildReturn(GenTreeUnOp* ret)
         BuildUse(src->AsOp()->GetOp(0), RBM_LNGRET_LO);
         BuildUse(src->AsOp()->GetOp(1), RBM_LNGRET_HI);
 
-        return 2;
+        return;
     }
 #endif
 
@@ -3309,13 +3297,14 @@ int LinearScan::BuildReturn(GenTreeUnOp* ret)
         }
 
         assert(useCount == compiler->info.retDesc.GetRegCount());
-        return useCount;
+
+        return;
     }
 #endif
 
     if (src->isContained())
     {
-        return 0;
+        return;
     }
 
     const ReturnTypeDesc& retDesc = compiler->info.retDesc;
@@ -3338,13 +3327,11 @@ int LinearScan::BuildReturn(GenTreeUnOp* ret)
             }
         }
 
-        return static_cast<int>(retDesc.GetRegCount());
+        return;
     }
 #endif // FEATURE_MULTIREG_RET
 
     BuildUse(src, genRegMask(retDesc.GetRegNum(0)));
-
-    return 1;
 }
 
 //------------------------------------------------------------------------
@@ -3403,7 +3390,7 @@ bool LinearScan::supportsSpecialPutArg()
 #endif
 }
 
-int LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
+void LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
 {
     assert(putArg->OperIs(GT_PUTARG_REG));
 
@@ -3416,7 +3403,6 @@ int LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
     // register in which the argument is passed to the call.
     regMaskTP    argRegMask = genRegMask(argReg);
     RefPosition* use        = BuildUse(src, argRegMask);
-    int          srcCount   = 1;
 
     bool isSpecialPutArg = false;
 
@@ -3441,7 +3427,6 @@ int LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
         regMaskTP nextArgRegMask = genRegMask(REG_NEXT(argReg));
 
         BuildUse(src, nextArgRegMask, 1);
-        srcCount++;
 
         BuildDef(putArg, TYP_INT, argRegMask, 0);
         BuildDef(putArg, TYP_INT, nextArgRegMask, 1);
@@ -3457,14 +3442,12 @@ int LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
             def->getInterval()->assignRelatedInterval(use->getInterval());
         }
     }
-
-    return srcCount;
 }
 
 //------------------------------------------------------------------------
 // BuildGCWriteBarrier: Handle additional register requirements for a GC write barrier
 //
-int LinearScan::BuildGCWriteBarrier(GenTreeStoreInd* store)
+void LinearScan::BuildGCWriteBarrier(GenTreeStoreInd* store)
 {
     GenTree* addr = store->GetAddr();
     GenTree* src  = store->GetValue();
@@ -3499,23 +3482,17 @@ int LinearScan::BuildGCWriteBarrier(GenTreeStoreInd* store)
 
     regMaskTP killMask = getKillSetForStoreInd(store);
     buildKillPositionsForNode(store, currentLoc + 1, killMask);
-    return 2;
 }
 
-int LinearScan::BuildInstr(GenTreeInstr* instr)
+void LinearScan::BuildInstr(GenTreeInstr* instr)
 {
-    int srcCount = 0;
-
     for (GenTreeInstr::Use& use : instr->Uses())
     {
         BuildUse(use.GetNode());
-        srcCount++;
     }
 
     if (!instr->TypeIs(TYP_VOID))
     {
         BuildDef(instr);
     }
-
-    return srcCount;
 }
