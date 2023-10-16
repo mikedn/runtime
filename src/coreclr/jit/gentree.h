@@ -949,7 +949,7 @@ public:
 
     bool gtHasReg() const;
 
-    INDEBUG(int GetRegisterDstCount(Compiler* compiler) const;)
+    INDEBUG(unsigned GetRegisterDstCount(Compiler* compiler) const;)
 
     regMaskTP gtGetRegMask() const;
 

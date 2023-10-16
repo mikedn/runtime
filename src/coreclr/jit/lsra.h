@@ -1000,9 +1000,9 @@ private:
 
 #ifdef DEBUG
     void checkLastUses(BasicBlock* block);
-    int ComputeOperandDstCount(GenTree* operand);
-    int ComputeAvailableSrcCount(GenTree* node);
-#endif // DEBUG
+    unsigned ComputeOperandDstCount(GenTree* operand);
+    unsigned ComputeAvailableSrcCount(GenTree* node);
+#endif
 
     void setFrameType();
 

@@ -8951,9 +8951,7 @@ void LinearScan::DumpOperandDefs(
         return;
     }
 
-    int dstCount = ComputeOperandDstCount(operand);
-
-    if (dstCount != 0)
+    if (ComputeOperandDstCount(operand) != 0)
     {
         // This operand directly produces registers; print it.
         if (!first)
@@ -9106,8 +9104,8 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
         {
             GenTree* tree = node;
 
-            int produce = tree->IsValue() ? ComputeOperandDstCount(tree) : 0;
-            int consume = ComputeAvailableSrcCount(tree);
+            unsigned produce = tree->IsValue() ? ComputeOperandDstCount(tree) : 0;
+            unsigned consume = ComputeAvailableSrcCount(tree);
 
             lsraDispNode(tree, mode, produce != 0 && mode != LSRA_DUMP_REFPOS);
 

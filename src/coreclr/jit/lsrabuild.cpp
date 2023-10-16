@@ -1494,7 +1494,7 @@ void LinearScan::buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, Ls
 // Returns:
 //    The number of registers defined by `operand`.
 //
-int LinearScan::ComputeOperandDstCount(GenTree* operand)
+unsigned LinearScan::ComputeOperandDstCount(GenTree* operand)
 {
     // GT_ARGPLACE is the only non-LIR node that is currently in the trees at this stage, though
     // note that it is not in the linear order. It seems best to check for !IsLIR() rather than
@@ -1503,9 +1503,11 @@ int LinearScan::ComputeOperandDstCount(GenTree* operand)
     {
         return 0;
     }
+
     if (operand->isContained())
     {
-        int dstCount = 0;
+        unsigned dstCount = 0;
+
         for (GenTree* op : operand->Operands())
         {
             dstCount += ComputeOperandDstCount(op);
@@ -1513,26 +1515,27 @@ int LinearScan::ComputeOperandDstCount(GenTree* operand)
 
         return dstCount;
     }
+
     if (operand->IsUnusedValue())
     {
         // Operands that define an unused value do not produce any registers.
         return 0;
     }
+
     if (operand->IsValue())
     {
         // Operands that are values and are not contained consume all of their operands
         // and produce one or more registers.
         return operand->GetRegisterDstCount(compiler);
     }
-    else
-    {
-        // This must be one of the operand types that are neither contained nor produce a value.
-        // Stores and void-typed operands may be encountered when processing call nodes, which contain
-        // pointers to argument setup stores.
-        assert(operand->OperIsStore() || operand->OperIsPutArgStk() || operand->OperIsCompare() ||
-               operand->OperIs(GT_CMP) || operand->TypeGet() == TYP_VOID);
-        return 0;
-    }
+
+    // This must be one of the operand types that are neither contained nor produce a value.
+    // Stores and void-typed operands may be encountered when processing call nodes, which contain
+    // pointers to argument setup stores.
+    assert(operand->OperIsStore() || operand->OperIsPutArgStk() || operand->OperIsCompare() ||
+           operand->OperIs(GT_CMP) || operand->TypeIs(TYP_VOID));
+
+    return 0;
 }
 
 //------------------------------------------------------------------------
@@ -1548,9 +1551,10 @@ int LinearScan::ComputeOperandDstCount(GenTree* operand)
 // Return Value:
 //    The number of registers available as sources for `node`.
 //
-int LinearScan::ComputeAvailableSrcCount(GenTree* node)
+unsigned LinearScan::ComputeAvailableSrcCount(GenTree* node)
 {
-    int numSources = 0;
+    unsigned numSources = 0;
+
     for (GenTree* operand : node->Operands())
     {
         numSources += ComputeOperandDstCount(operand);
@@ -1622,7 +1626,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
     // Currently produce is unused, but need to strengthen an assert to check if produce is
     // as expected. See https://github.com/dotnet/runtime/issues/8678
     int produce = newDefListCount - oldDefListCount;
-    assert((nodeUseCount == 0) || (ComputeAvailableSrcCount(tree) == static_cast<int>(nodeUseCount)));
+    assert((nodeUseCount == 0) || (ComputeAvailableSrcCount(tree) == nodeUseCount));
 
     // If we are constraining registers, modify all the RefPositions we've just built to specify the
     // minimum reg count required.

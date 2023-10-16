@@ -615,7 +615,7 @@ int LinearScan::BuildNode(GenTree* tree)
     assert((dstCount < 2) || ((dstCount == 2) && tree->IsMultiRegNode()));
     assert(isLocalDefUse == (tree->IsValue() && tree->IsUnusedValue()));
     assert(!tree->IsUnusedValue() || (dstCount != 0));
-    assert(dstCount == tree->GetRegisterDstCount(compiler));
+    assert(dstCount == static_cast<int>(tree->GetRegisterDstCount(compiler)));
     return srcCount;
 }
 

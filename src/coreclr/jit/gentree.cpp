@@ -490,7 +490,7 @@ bool GenTree::gtHasReg() const
 //    This does not look at the actual register assignments, if any, and so
 //    is valid after Lowering.
 //
-int GenTree::GetRegisterDstCount(Compiler* compiler) const
+unsigned GenTree::GetRegisterDstCount(Compiler* compiler) const
 {
     assert(!isContained());
 
