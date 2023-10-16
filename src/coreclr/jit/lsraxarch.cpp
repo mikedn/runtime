@@ -1,19 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                    Register Requirements for AMD64                        XX
-XX                                                                           XX
-XX  This encapsulates all the logic for setting register requirements for    XX
-XX  the AMD64 architecture.                                                  XX
-XX                                                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 
 #ifdef TARGET_XARCH
@@ -21,23 +8,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "sideeffects.h"
 #include "lower.h"
 
-//------------------------------------------------------------------------
-// BuildNode: Build the RefPositions for for a node
-//
-// Arguments:
-//    treeNode - the node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-// Notes:
-// Preconditions:
-//    LSRA Has been initialized.
-//
-// Postconditions:
-//    RefPositions have been built for all the register defs and uses required
-//    for this node.
-//
 void LinearScan::BuildNode(GenTree* tree)
 {
     assert(!tree->isContained());
@@ -606,7 +576,6 @@ bool LinearScan::isRMWRegOper(GenTree* tree)
     }
 }
 
-// Support for building RefPositions for RMW nodes.
 int LinearScan::BuildRMWUses(GenTreeOp* node, regMaskTP candidates)
 {
     int       srcCount      = 0;
@@ -2235,7 +2204,7 @@ void LinearScan::BuildMul(GenTreeOp* tree)
 //    isFloatingPointType   - true if it is floating point type
 //    sizeOfSIMDVector      - SIMD Vector size
 //
-void LinearScan::SetContainsAVXFlags(unsigned sizeOfSIMDVector /* = 0*/)
+void LinearScan::SetContainsAVXFlags(unsigned sizeOfSIMDVector)
 {
     if (compiler->canUseVexEncoding())
     {

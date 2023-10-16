@@ -1,35 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                    Interval and RefPosition Building                      XX
-XX                                                                           XX
-XX  This contains the logic for constructing Intervals and RefPositions that XX
-XX  is common across architectures. See lsra{arch}.cpp for the architecture- XX
-XX  specific methods for building.                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 #include "lsra.h"
-
-//------------------------------------------------------------------------
-// RefInfoList
-//------------------------------------------------------------------------
-// removeListNode - retrieve the RefInfoListNode for the given GenTree node
-//
-// Notes:
-//     The BuildNode methods use this helper to retrieve the RefPositions for child nodes
-//     from the useList being constructed. Note that, if the user knows the order of the operands,
-//     it is expected that they should just retrieve them directly.
 
 RefInfoListNode* RefInfoList::removeListNode(GenTree* node)
 {
@@ -47,14 +20,6 @@ RefInfoListNode* RefInfoList::removeListNode(GenTree* node)
     unreached();
 }
 
-//------------------------------------------------------------------------
-// removeListNode - retrieve the RefInfoListNode for one reg of the given multireg GenTree node
-//
-// Notes:
-//     The BuildNode methods use this helper to retrieve the RefPositions for child nodes
-//     from the useList being constructed. Note that, if the user knows the order of the operands,
-//     it is expected that they should just retrieve them directly.
-
 RefInfoListNode* RefInfoList::removeListNode(GenTree* node, unsigned multiRegIdx)
 {
     RefInfoListNode* prevListNode = nullptr;
@@ -70,14 +35,6 @@ RefInfoListNode* RefInfoList::removeListNode(GenTree* node, unsigned multiRegIdx
     unreached();
 }
 
-//------------------------------------------------------------------------
-// RefInfoListNodePool::RefInfoListNodePool:
-//    Creates a pool of `RefInfoListNode` values.
-//
-// Arguments:
-//    compiler    - The compiler context.
-//    preallocate - The number of nodes to preallocate.
-//
 RefInfoListNodePool::RefInfoListNodePool(Compiler* compiler, unsigned preallocate) : m_compiler(compiler)
 {
     if (preallocate > 0)
@@ -98,17 +55,6 @@ RefInfoListNodePool::RefInfoListNodePool(Compiler* compiler, unsigned preallocat
     }
 }
 
-//------------------------------------------------------------------------
-// RefInfoListNodePool::GetNode: Fetches an unused node from the
-//                                    pool.
-//
-// Arguments:
-//    r - The `RefPosition` for the `RefInfo` value.
-//    t - The IR node for the `RefInfo` value
-//
-// Returns:
-//    A pooled or newly-allocated `RefInfoListNode`, depending on the
-//    contents of the pool.
 RefInfoListNode* RefInfoListNodePool::GetNode(RefPosition* r, GenTree* t)
 {
     RefInfoListNode* head = m_freeList;
@@ -128,28 +74,12 @@ RefInfoListNode* RefInfoListNodePool::GetNode(RefPosition* r, GenTree* t)
     return head;
 }
 
-//------------------------------------------------------------------------
-// RefInfoListNodePool::ReturnNode: Returns a list of nodes to the node
-//                                   pool and clears the given list.
-//
-// Arguments:
-//    list - The list to return.
-//
 void RefInfoListNodePool::ReturnNode(RefInfoListNode* listNode)
 {
     listNode->m_next = m_freeList;
     m_freeList       = listNode;
 }
 
-//------------------------------------------------------------------------
-// newInterval: Create a new Interval of the given RegisterType.
-//
-// Arguments:
-//    theRegisterType - The type of Interval to create.
-//
-// TODO-Cleanup: Consider adding an overload that takes a varDsc, and can appropriately
-// set such fields as isStructField
-//
 Interval* LinearScan::newInterval(var_types regType)
 {
     intervals.emplace_back(regType, allRegs(regType));
@@ -160,18 +90,6 @@ Interval* LinearScan::newInterval(var_types regType)
     return newInt;
 }
 
-//------------------------------------------------------------------------
-// newRefPositionRaw: Create a new RefPosition
-//
-// Arguments:
-//    nodeLocation - The location of the reference.
-//    treeNode     - The GenTree of the reference.
-//    refType      - The type of reference
-//
-// Notes:
-//    This is used to create RefPositions for both RegRecords and Intervals,
-//    so it does only the common initialization.
-//
 RefPosition* LinearScan::newRefPositionRaw(LsraLocation nodeLocation, GenTree* treeNode, RefType refType)
 {
     refPositions.emplace_back(curBBNum, nodeLocation, treeNode, refType);
@@ -182,16 +100,8 @@ RefPosition* LinearScan::newRefPositionRaw(LsraLocation nodeLocation, GenTree* t
     return newRP;
 }
 
-//------------------------------------------------------------------------
-// resolveConflictingDefAndUse: Resolve the situation where we have conflicting def and use
-//    register requirements on a single-def, single-use interval.
-//
-// Arguments:
-//    defRefPosition - The interval definition
-//    useRefPosition - The (sole) interval use
-//
-// Return Value:
-//    None.
+// Resolve the situation where we have conflicting def and use
+// register requirements on a single-def, single-use interval.
 //
 // Assumptions:
 //    The two RefPositions are for the same interval, which is a tree-temp.
@@ -211,14 +121,14 @@ RefPosition* LinearScan::newRefPositionRaw(LsraLocation nodeLocation, GenTree* t
 //       will insert the copy.
 //    3. If the defRefPosition specifies a single register (but there are conflicts, as determined
 //       in 1.), and there are no conflicts with the useRefPosition register (if it's a single register),
-///      we set the register requirements on the defRefPosition to the use registers, and the
+//      we set the register requirements on the defRefPosition to the use registers, and the
 //       code generator will insert a copy on the def.  We can't rely on the code generator to put a copy
 //       on the use if it has multiple possible candidates, as it won't know which one has been allocated.
 //    4. If the useRefPosition specifies a single register, and there are no conflicts with the register
 //       on the defRefPosition, we leave the register requirements on the defRefPosition as-is, and set
 //       the useRefPosition to the def registers, for similar reasons to case #3.
 //    5. If both the defRefPosition and the useRefPosition specify single registers, but both have conflicts,
-//       We set the candiates on defRefPosition to be all regs of the appropriate type, and since they are
+//       We set the candidates on defRefPosition to be all regs of the appropriate type, and since they are
 //       single registers, codegen can insert the copy.
 //    6. Finally, if the RefPositions specify disjoint subsets of the registers (or the use is fixed but
 //       has a conflict), we must insert a copy.  The copy will be inserted before the use if the
@@ -231,8 +141,6 @@ RefPosition* LinearScan::newRefPositionRaw(LsraLocation nodeLocation, GenTree* t
 // the interface to this method a bit to make that work (e.g. returning a candidate set to use, but
 // leaving the registerAssignment as-is on the def, so that if we find that we need to spill anyway
 // we can use the fixed-reg on the def.
-//
-
 void LinearScan::resolveConflictingDefAndUse(Interval* interval, RefPosition* defRefPosition)
 {
     assert(!interval->isLocalVar);
@@ -348,16 +256,9 @@ void LinearScan::resolveConflictingDefAndUse(Interval* interval, RefPosition* de
     return;
 }
 
-//------------------------------------------------------------------------
-// applyCalleeSaveHeuristics: Set register preferences for an interval based on the given RefPosition
-//
-// Arguments:
-//    rp - The RefPosition of interest
-//
-// Notes:
-//    This is slightly more general than its name applies, and updates preferences not just
-//    for callee-save registers.
-//
+// Set register preferences for an interval based on the given RefPosition
+// This is slightly more general than its name applies, and updates preferences
+// not just for callee-save registers.
 void LinearScan::applyCalleeSaveHeuristics(RefPosition* rp)
 {
 #ifdef TARGET_AMD64
@@ -379,27 +280,20 @@ void LinearScan::applyCalleeSaveHeuristics(RefPosition* rp)
     }
 }
 
-//------------------------------------------------------------------------
-// checkConflictingDefUse: Ensure that we have consistent def/use on SDSU temps.
-//
-// Arguments:
-//    useRP - The use RefPosition of a tree temp (SDSU Interval)
-//
-// Notes:
-//    There are a couple of cases where this may over-constrain allocation:
-//    1. In the case of a non-commutative rmw def (in which the rmw source must be delay-free), or
-//    2. In the case where the defining node requires a temp distinct from the target (also a
-//       delay-free case).
-//    In those cases, if we propagate a single-register restriction from the consumer to the producer
-//    the delayed uses will not see a fixed reference in the PhysReg at that position, and may
-//    incorrectly allocate that register.
-//    TODO-CQ: This means that we may often require a copy at the use of this node's result.
-//    This case could be moved to BuildRefPositionsForNode, at the point where the def RefPosition is
-//    created, causing a RefTypeFixedReg to be added at that location. This, however, results in
-//    more PhysReg RefPositions (a throughput impact), and a large number of diffs that require
-//    further analysis to determine benefit.
-//    See Issue #11274.
-//
+// Ensure that we have consistent def/use on SDSU temps.
+// There are a couple of cases where this may over-constrain allocation:
+// 1. In the case of a non-commutative rmw def (in which the rmw source must be delay-free), or
+// 2. In the case where the defining node requires a temp distinct from the target (also a
+//    delay-free case).
+// In those cases, if we propagate a single-register restriction from the consumer to the producer
+// the delayed uses will not see a fixed reference in the PhysReg at that position, and may
+// incorrectly allocate that register.
+// TODO-CQ: This means that we may often require a copy at the use of this node's result.
+// This case could be moved to BuildRefPositionsForNode, at the point where the def RefPosition is
+// created, causing a RefTypeFixedReg to be added at that location. This, however, results in
+// more PhysReg RefPositions (a throughput impact), and a large number of diffs that require
+// further analysis to determine benefit.
+// See Issue #11274.
 void LinearScan::checkConflictingDefUse(RefPosition* useRP)
 {
     assert(useRP->refType == RefTypeUse);
@@ -425,17 +319,10 @@ void LinearScan::checkConflictingDefUse(RefPosition* useRP)
     }
 }
 
-//------------------------------------------------------------------------
-// associateRefPosWithInterval: Update the Interval based on the given RefPosition.
-//
-// Arguments:
-//    rp - The RefPosition of interest
-//
-// Notes:
-//    This is called at the time when 'rp' has just been created, so it becomes
-//    the nextRefPosition of the recentRefPosition, and both the recentRefPosition
-//    and lastRefPosition of its referent.
-//
+// Update the Interval based on the given RefPosition.
+// This is called at the time when 'rp' has just been created, so it becomes
+// the nextRefPosition of the recentRefPosition, and both the recentRefPosition
+// and lastRefPosition of its referent.
 void LinearScan::associateRefPosWithInterval(RefPosition* rp)
 {
     Referenceable* theReferent = rp->referent;
@@ -489,22 +376,6 @@ void LinearScan::associateRefPosWithInterval(RefPosition* rp)
     }
 }
 
-//---------------------------------------------------------------------------
-// newRefPosition: allocate and initialize a new RefPosition.
-//
-// Arguments:
-//     reg             -  reg number that identifies RegRecord to be associated
-//                        with this RefPosition
-//     theLocation     -  LSRA location of RefPosition
-//     theRefType      -  RefPosition type
-//     theTreeNode     -  GenTree node for which this RefPosition is created
-//     mask            -  Set of valid registers for this RefPosition
-//     multiRegIdx     -  register position if this RefPosition corresponds to a
-//                        multi-reg call node.
-//
-// Return Value:
-//     a new RefPosition
-//
 RefPosition* LinearScan::newRefPosition(
     regNumber reg, LsraLocation theLocation, RefType theRefType, GenTree* theTreeNode, regMaskTP mask)
 {
@@ -526,27 +397,12 @@ RefPosition* LinearScan::newRefPosition(
     return newRP;
 }
 
-//---------------------------------------------------------------------------
-// newRefPosition: allocate and initialize a new RefPosition.
-//
-// Arguments:
-//     theInterval     -  interval to which RefPosition is associated with.
-//     theLocation     -  LSRA location of RefPosition
-//     theRefType      -  RefPosition type
-//     theTreeNode     -  GenTree node for which this RefPosition is created
-//     mask            -  Set of valid registers for this RefPosition
-//     multiRegIdx     -  register position if this RefPosition corresponds to a
-//                        multi-reg call node.
-//
-// Return Value:
-//     a new RefPosition
-//
 RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
                                         LsraLocation theLocation,
                                         RefType      theRefType,
                                         GenTree*     theTreeNode,
                                         regMaskTP    mask,
-                                        unsigned     multiRegIdx /* = 0 */)
+                                        unsigned     multiRegIdx)
 {
     if (theInterval != nullptr)
     {
@@ -630,15 +486,7 @@ RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
     return newRP;
 }
 
-//------------------------------------------------------------------------
-// addRefsForPhysRegMask: Adds RefPositions of the given type for all the registers in 'mask'.
-//
-// Arguments:
-//    mask        - the mask (set) of registers.
-//    currentLoc  - the location at which they should be added
-//    refType     - the type of refposition
-//    isLastUse   - true IFF this is a last use of the register
-//
+// Adds RefPositions of the given type for all the registers in 'mask'.
 void LinearScan::addRefsForPhysRegMask(regMaskTP mask, LsraLocation currentLoc, RefType refType, bool isLastUse)
 {
     for (regNumber reg = REG_FIRST; mask; reg = REG_NEXT(reg), mask >>= 1)
@@ -658,17 +506,10 @@ void LinearScan::addRefsForPhysRegMask(regMaskTP mask, LsraLocation currentLoc, 
     }
 }
 
-//------------------------------------------------------------------------
-// getKillSetForStoreInd: Determine the liveness kill set for a GT_STOREIND node.
+// Determine the liveness kill set for a GT_STOREIND node.
 // If the GT_STOREIND will generate a write barrier, determine the specific kill
 // set required by the case-specific, platform-specific write barrier. If no
 // write barrier is required, the kill set will be RBM_NONE.
-//
-// Arguments:
-//    tree - the GT_STOREIND node
-//
-// Return Value:    a register mask of the registers killed
-//
 regMaskTP LinearScan::getKillSetForStoreInd(GenTreeStoreInd* tree)
 {
     regMaskTP killMask = RBM_NONE;
@@ -695,14 +536,6 @@ regMaskTP LinearScan::getKillSetForStoreInd(GenTreeStoreInd* tree)
     return killMask;
 }
 
-//------------------------------------------------------------------------
-// getKillSetForShiftRotate: Determine the liveness kill set for a shift or rotate node.
-//
-// Arguments:
-//    shiftNode - the shift or rotate node
-//
-// Return Value:    a register mask of the registers killed
-//
 regMaskTP LinearScan::getKillSetForShiftRotate(GenTreeOp* shiftNode)
 {
     regMaskTP killMask = RBM_NONE;
@@ -717,14 +550,6 @@ regMaskTP LinearScan::getKillSetForShiftRotate(GenTreeOp* shiftNode)
     return killMask;
 }
 
-//------------------------------------------------------------------------
-// getKillSetForMul: Determine the liveness kill set for a multiply node.
-//
-// Arguments:
-//    tree - the multiply node
-//
-// Return Value:    a register mask of the registers killed
-//
 regMaskTP LinearScan::getKillSetForMul(GenTreeOp* mulNode)
 {
     regMaskTP killMask = RBM_NONE;
@@ -738,14 +563,6 @@ regMaskTP LinearScan::getKillSetForMul(GenTreeOp* mulNode)
     return killMask;
 }
 
-//------------------------------------------------------------------------
-// getKillSetForModDiv: Determine the liveness kill set for a mod or div node.
-//
-// Arguments:
-//    tree - the mod or div node as a GenTreeOp
-//
-// Return Value:    a register mask of the registers killed
-//
 regMaskTP LinearScan::getKillSetForModDiv(GenTreeOp* node)
 {
     assert(node->OperIs(GT_MOD, GT_DIV, GT_UMOD, GT_UDIV) && varTypeIsIntegral(node->GetType()));
@@ -757,14 +574,6 @@ regMaskTP LinearScan::getKillSetForModDiv(GenTreeOp* node)
 #endif
 }
 
-//------------------------------------------------------------------------
-// getKillSetForCall: Determine the liveness kill set for a call node.
-//
-// Arguments:
-//    tree - the GenTreeCall node
-//
-// Return Value:    a register mask of the registers killed
-//
 regMaskTP LinearScan::getKillSetForCall(GenTreeCall* call)
 {
     regMaskTP killMask = RBM_NONE;
@@ -858,17 +667,6 @@ regMaskTP LinearScan::getKillSetForStructStore(StructStoreKind kind)
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-//------------------------------------------------------------------------
-// getKillSetForHWIntrinsic: Determine the liveness kill set for a GT_STOREIND node.
-// If the GT_STOREIND will generate a write barrier, determine the specific kill
-// set required by the case-specific, platform-specific write barrier. If no
-// write barrier is required, the kill set will be RBM_NONE.
-//
-// Arguments:
-//    tree - the GT_STOREIND node
-//
-// Return Value:    a register mask of the registers killed
-//
 regMaskTP LinearScan::getKillSetForHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     regMaskTP killMask = RBM_NONE;
@@ -895,28 +693,12 @@ regMaskTP LinearScan::getKillSetForHWIntrinsic(GenTreeHWIntrinsic* node)
 }
 #endif // FEATURE_HW_INTRINSICS
 
-//------------------------------------------------------------------------
-// getKillSetForReturn: Determine the liveness kill set for a return node.
-//
-// Arguments:
-//    NONE (this kill set is independent of the details of the specific return.)
-//
-// Return Value:    a register mask of the registers killed
-//
 regMaskTP LinearScan::getKillSetForReturn()
 {
     return compiler->compIsProfilerHookNeeded() ? compiler->compHelperCallKillSet(CORINFO_HELP_PROF_FCN_LEAVE)
                                                 : RBM_NONE;
 }
 
-//------------------------------------------------------------------------
-// getKillSetForProfilerHook: Determine the liveness kill set for a profiler hook.
-//
-// Arguments:
-//    NONE (this kill set is independent of the details of the specific node.)
-//
-// Return Value:    a register mask of the registers killed
-//
 regMaskTP LinearScan::getKillSetForProfilerHook()
 {
     return compiler->compIsProfilerHookNeeded() ? compiler->compHelperCallKillSet(CORINFO_HELP_PROF_FCN_TAILCALL)
@@ -924,14 +706,6 @@ regMaskTP LinearScan::getKillSetForProfilerHook()
 }
 
 #ifdef DEBUG
-//------------------------------------------------------------------------
-// getKillSetForNode:   Return the registers killed by the given tree node.
-//
-// Arguments:
-//    tree       - the tree for which the kill set is needed.
-//
-// Return Value:    a register mask of the registers killed
-//
 regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
 {
     regMaskTP killMask = RBM_NONE;
@@ -1026,8 +800,6 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
 }
 #endif // DEBUG
 
-//------------------------------------------------------------------------
-// buildKillPositionsForNode:
 // Given some tree node add refpositions for all the registers this node kills
 //
 // Arguments:
@@ -1048,7 +820,6 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
 //
 //    This method can add kills even if killMask is RBM_NONE, if this tree is one of the
 //    special cases that signals that we can't permit callee save registers to hold GC refs.
-
 bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLoc, regMaskTP killMask)
 {
     bool insertedKills = false;
@@ -1140,23 +911,16 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
     return insertedKills;
 }
 
-//------------------------------------------------------------------------
 // Check whether a MultiReg node should remain a candidate MultiReg
-//
-// Return Value:
-//    true iff it remains a MultiReg lclVar.
-//
-// Notes:
-//    When identifying candidates, the register allocator will only retain
-//    promoted fields of a multi-reg local as candidates if all of its fields
-//    are candidates. This is because of the added complexity of dealing with a
-//    def or use of a multi-reg lclVar when only some of the fields have liveness
-//    info.
-//    At the time we determine whether a multi-reg lclVar can still be handled
-//    as such, we've already completed Lowering, so during the build phase of
-//    LSRA we have to reset the GTF_VAR_MULTIREG flag if necessary as we visit
-//    each node.
-//
+// When identifying candidates, the register allocator will only retain
+// promoted fields of a multi-reg local as candidates if all of its fields
+// are candidates. This is because of the added complexity of dealing with a
+// def or use of a multi-reg lclVar when only some of the fields have liveness
+// info.
+// At the time we determine whether a multi-reg lclVar can still be handled
+// as such, we've already completed Lowering, so during the build phase of
+// LSRA we have to reset the GTF_VAR_MULTIREG flag if necessary as we visit
+// each node.
 bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
@@ -1188,33 +952,21 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* store)
     return isMultiReg;
 }
 
-//------------------------------------------------------------------------
-// checkContainedOrCandidateLclVar: Check whether a GT_LCL_VAR node is a
-//                                  candidate or contained.
+// Check whether a GT_LCL_VAR node is a candidate or contained.
+// We handle candidate variables differently from non-candidate ones.
+// If it is a candidate, we will simply add a use of it at its parent/consumer.
+// Otherwise, for a use we need to actually add the appropriate references for loading
+// or storing the variable.
 //
-// Arguments:
-//    lclNode - the GT_STORE_LCL_VAR of interest
+// A candidate lclVar won't actually get used until the appropriate ancestor node
+// is processed, unless this is marked "isLocalDefUse" because it is a stack-based argument
+// to a call or an orphaned dead node.
 //
-// Return Value:
-//    true if the node remains a candidate or is contained
-//    false otherwise (i.e. if it will define a register)
-//
-// Notes:
-//    We handle candidate variables differently from non-candidate ones.
-//    If it is a candidate, we will simply add a use of it at its parent/consumer.
-//    Otherwise, for a use we need to actually add the appropriate references for loading
-//    or storing the variable.
-//
-//    A candidate lclVar won't actually get used until the appropriate ancestor node
-//    is processed, unless this is marked "isLocalDefUse" because it is a stack-based argument
-//    to a call or an orphaned dead node.
-//
-//    Also, because we do containment analysis before we redo dataflow and identify register
-//    candidates, the containment analysis only uses !lvDoNotEnregister to estimate register
-//    candidates.
-//    If there is a lclVar that is estimated during Lowering to be register candidate but turns
-//    out not to be, if a use was marked regOptional it should now be marked contained instead.
-//
+// Also, because we do containment analysis before we redo dataflow and identify register
+// candidates, the containment analysis only uses !lvDoNotEnregister to estimate register
+// candidates.
+// If there is a lclVar that is estimated during Lowering to be register candidate but turns
+// out not to be, if a use was marked regOptional it should now be marked contained instead.
 bool LinearScan::checkContainedOrCandidateLclVar(GenTreeLclVar* lclNode)
 {
     assert(lclNode->OperIs(GT_LCL_VAR) && !lclNode->IsMultiReg());
@@ -1234,15 +986,6 @@ bool LinearScan::checkContainedOrCandidateLclVar(GenTreeLclVar* lclNode)
     return isCandidate;
 }
 
-//----------------------------------------------------------------------------
-// defineNewInternalTemp: Defines a ref position for an internal temp.
-//
-// Arguments:
-//     tree                  -   Gentree node requiring an internal register
-//     regType               -   Register type
-//     currentLoc            -   Location of the temp Def position
-//     regMask               -   register mask of candidates for temp
-//
 RefPosition* LinearScan::defineNewInternalTemp(GenTree* tree, RegisterType regType, regMaskTP regMask)
 {
     Interval* current   = newInterval(regType);
@@ -1253,16 +996,6 @@ RefPosition* LinearScan::defineNewInternalTemp(GenTree* tree, RegisterType regTy
     return newDef;
 }
 
-//------------------------------------------------------------------------
-// buildInternalRegisterDefForNode - Create an Interval for an internal int register, and a def RefPosition
-//
-// Arguments:
-//   tree                  - Gentree node that needs internal registers
-//   internalCands         - The mask of valid registers
-//
-// Returns:
-//   The def RefPosition created for this internal temp.
-//
 RefPosition* LinearScan::buildInternalIntRegisterDefForNode(GenTree* tree, regMaskTP internalCands)
 {
     // The candidate set should contain only integer registers.
@@ -1272,16 +1005,6 @@ RefPosition* LinearScan::buildInternalIntRegisterDefForNode(GenTree* tree, regMa
     return defRefPosition;
 }
 
-//------------------------------------------------------------------------
-// buildInternalFloatRegisterDefForNode - Create an Interval for an internal fp register, and a def RefPosition
-//
-// Arguments:
-//   tree                  - Gentree node that needs internal registers
-//   internalCands         - The mask of valid registers
-//
-// Returns:
-//   The def RefPosition created for this internal temp.
-//
 RefPosition* LinearScan::buildInternalFloatRegisterDefForNode(GenTree* tree, regMaskTP internalCands)
 {
     // The candidate set should contain only float registers.
@@ -1290,22 +1013,6 @@ RefPosition* LinearScan::buildInternalFloatRegisterDefForNode(GenTree* tree, reg
     return defineNewInternalTemp(tree, FloatRegisterType, internalCands);
 }
 
-//------------------------------------------------------------------------
-// buildInternalRegisterUses - adds use positions for internal
-// registers required for tree node.
-//
-// Notes:
-//   During the BuildNode process, calls to buildInternalIntRegisterDefForNode and
-//   buildInternalFloatRegisterDefForNode put new RefPositions in the 'internalDefs'
-//   array, and increment 'internalCount'. This method must be called to add corresponding
-//   uses. It then resets the 'internalCount' for the handling of the next node.
-//
-//   If the internal registers must differ from the target register, 'setInternalRegsDelayFree'
-//   must be set to true, so that the uses may be marked 'delayRegFree'.
-//   Note that if a node has both float and int temps, generally the target with either be
-//   int *or* float, and it is not really necessary to set this on the other type, but it does
-//   no harm as it won't restrict the register selection.
-//
 void LinearScan::buildInternalRegisterUses()
 {
     assert(internalCount <= MaxInternalCount);
@@ -1324,13 +1031,6 @@ void LinearScan::buildInternalRegisterUses()
 }
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-//------------------------------------------------------------------------
-// makeUpperVectorInterval - Create an Interval for saving and restoring
-//                           the upper half of a large vector.
-//
-// Arguments:
-//    varIndex - The tracked index for a large vector lclVar.
-//
 void LinearScan::makeUpperVectorInterval(unsigned varIndex)
 {
     Interval* lclVarInterval = getIntervalForLocalVar(varIndex);
@@ -1340,13 +1040,6 @@ void LinearScan::makeUpperVectorInterval(unsigned varIndex)
     newInt->isUpperVector   = true;
 }
 
-//------------------------------------------------------------------------
-// getUpperVectorInterval - Get the Interval for saving and restoring
-//                          the upper half of a large vector.
-//
-// Arguments:
-//    varIndex - The tracked index for a large vector lclVar.
-//
 Interval* LinearScan::getUpperVectorInterval(unsigned varIndex)
 {
     // TODO-Throughput: Consider creating a map from varIndex to upperVector interval.
@@ -1365,21 +1058,6 @@ Interval* LinearScan::getUpperVectorInterval(unsigned varIndex)
     unreached();
 }
 
-//------------------------------------------------------------------------
-// buildUpperVectorSaveRefPositions - Create special RefPositions for saving
-//                                    the upper half of a set of large vectors.
-//
-// Arguments:
-//    tree       - The current node being handled
-//    currentLoc - The location of the current node
-//    fpCalleeKillSet - The set of registers killed by this node.
-//
-// Notes: This is called by BuildKills for any node that kills registers in the
-//        RBM_FLT_CALLEE_TRASH set. We actually need to find any calls that kill the upper-half
-//        of the callee-save vector registers.
-//        But we will use as a proxy any node that kills floating point registers.
-//        (Note that some calls are masquerading as other nodes at this point so we can't just check for calls.)
-//
 void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation currentLoc, regMaskTP fpCalleeKillSet)
 {
     if (enregisterLocalVars && !VarSetOps::IsEmpty(compiler, largeVectorVars))
@@ -1447,16 +1125,6 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation cu
     }
 }
 
-//------------------------------------------------------------------------
-// buildUpperVectorRestoreRefPosition - Create a RefPosition for restoring
-//                                      the upper half of a large vector.
-//
-// Arguments:
-//    lclVarInterval - A lclVarInterval that is live at 'currentLoc'
-//    currentLoc     - The current location for which we're building RefPositions
-//    node           - The node, if any, that the restore would be inserted before.
-//                     If null, the restore will be inserted at the end of the block.
-//
 void LinearScan::buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, LsraLocation currentLoc, GenTree* node)
 {
     if (lclVarInterval->isPartiallySpilled)
@@ -1470,13 +1138,10 @@ void LinearScan::buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, Ls
 #endif
     }
 }
-
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
 #ifdef DEBUG
-//------------------------------------------------------------------------
-// ComputeOperandDstCount: computes the number of registers defined by a
-//                         node.
+// Computes the number of registers defined by a node.
 //
 // For most nodes, this is simple:
 // - Nodes that do not produce values (e.g. stores and other void-typed
@@ -1487,13 +1152,6 @@ void LinearScan::buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, Ls
 // For contained nodes, however, things are more complicated: for purposes
 // of bookkeeping, a contained node is treated as producing the transitive
 // closure of the registers produced by its sources.
-//
-// Arguments:
-//    operand - The operand for which to compute a register count.
-//
-// Returns:
-//    The number of registers defined by `operand`.
-//
 unsigned LinearScan::ComputeOperandDstCount(GenTree* operand)
 {
     // GT_ARGPLACE is the only non-LIR node that is currently in the trees at this stage, though
@@ -1538,19 +1196,9 @@ unsigned LinearScan::ComputeOperandDstCount(GenTree* operand)
     return 0;
 }
 
-//------------------------------------------------------------------------
-// ComputeAvailableSrcCount: computes the number of registers available as
-//                           sources for a node.
-//
+// Computes the number of registers available as sources for a node.
 // This is simply the sum of the number of registers produced by each
 // operand to the node.
-//
-// Arguments:
-//    node - The node for which to compute a source count.
-//
-// Return Value:
-//    The number of registers available as sources for `node`.
-//
 unsigned LinearScan::ComputeAvailableSrcCount(GenTree* node)
 {
     unsigned numSources = 0;
@@ -1564,14 +1212,6 @@ unsigned LinearScan::ComputeAvailableSrcCount(GenTree* node)
 }
 #endif // DEBUG
 
-//------------------------------------------------------------------------
-// buildRefPositionsForNode: The main entry point for building the RefPositions
-//                           and "tree temp" Intervals for a given node.
-//
-// Arguments:
-//    tree       - The node for which we are building RefPositions
-//    currentLoc - The LsraLocation of the given node
-//
 void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc)
 {
     // The LIR traversal doesn't visit GT_ARGPLACE nodes.
@@ -1732,28 +1372,23 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
     JITDUMP("\n");
 }
 
-static const regNumber lsraRegOrder[]      = {REG_VAR_ORDER};
-const unsigned         lsraRegOrderSize    = ArrLen(lsraRegOrder);
-static const regNumber lsraRegOrderFlt[]   = {REG_VAR_ORDER_FLT};
-const unsigned         lsraRegOrderFltSize = ArrLen(lsraRegOrderFlt);
-
-//------------------------------------------------------------------------
-// buildPhysRegRecords: Make an interval for each physical register
-//
 void LinearScan::buildPhysRegRecords()
 {
+    static const regNumber lsraRegOrder[]{REG_VAR_ORDER};
+    static const regNumber lsraRegOrderFlt[]{REG_VAR_ORDER_FLT};
+
     for (regNumber reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))
     {
         RegRecord* curr = &physRegs[reg];
         curr->init(reg);
     }
-    for (unsigned int i = 0; i < lsraRegOrderSize; i++)
+    for (unsigned int i = 0; i < ArrLen(lsraRegOrder); i++)
     {
         regNumber  reg  = lsraRegOrder[i];
         RegRecord* curr = &physRegs[reg];
         curr->regOrder  = (unsigned char)i;
     }
-    for (unsigned int i = 0; i < lsraRegOrderFltSize; i++)
+    for (unsigned int i = 0; i < ArrLen(lsraRegOrderFlt); i++)
     {
         regNumber  reg  = lsraRegOrderFlt[i];
         RegRecord* curr = &physRegs[reg];
@@ -1761,23 +1396,21 @@ void LinearScan::buildPhysRegRecords()
     }
 }
 
-//------------------------------------------------------------------------
-// insertZeroInitRefPositions: Handle lclVars that are live-in to the first block
+// Handle lclVars that are live-in to the first block
 //
-// Notes:
-//    Prior to calling this method, 'currentLiveVars' must be set to the set of register
-//    candidate variables that are liveIn to the first block.
-//    For each register candidate that is live-in to the first block:
-//    - If it is a GC ref, or if compInitMem is set, a ZeroInit RefPosition will be created.
-//    - Otherwise, it will be marked as spilled, since it will not be assigned a register
-//      on entry and will be loaded from memory on the undefined path.
-//      Note that, when the compInitMem option is not set, we may encounter these on
-//      paths that are protected by the same condition as an earlier def. However, since
-//      we don't do the analysis to determine this - and couldn't rely on always identifying
-//      such cases even if we tried - we must conservatively treat the undefined path as
-//      being possible. This is a relatively rare case, so the introduced conservatism is
-//      not expected to warrant the analysis required to determine the best placement of
-//      an initialization.
+// Prior to calling this method, 'currentLiveVars' must be set to the set of register
+// candidate variables that are liveIn to the first block.
+// For each register candidate that is live-in to the first block:
+// - If it is a GC ref, or if compInitMem is set, a ZeroInit RefPosition will be created.
+// - Otherwise, it will be marked as spilled, since it will not be assigned a register
+//   on entry and will be loaded from memory on the undefined path.
+//   Note that, when the compInitMem option is not set, we may encounter these on
+//   paths that are protected by the same condition as an earlier def. However, since
+//   we don't do the analysis to determine this - and couldn't rely on always identifying
+//   such cases even if we tried - we must conservatively treat the undefined path as
+//   being possible. This is a relatively rare case, so the introduced conservatism is
+//   not expected to warrant the analysis required to determine the best placement of
+//   an initialization.
 //
 void LinearScan::insertZeroInitRefPositions()
 {
@@ -1876,10 +1509,6 @@ void LinearScan::AddLiveParamRegs(LclVarDsc* lcl)
     compiler->codeGen->paramRegState.floatRegLiveIn |= mask & RBM_ALLFLOAT;
 }
 
-//------------------------------------------------------------------------
-// buildIntervals: The main entry point for building the data structures over
-//                 which we will do register allocation.
-//
 void LinearScan::buildIntervals()
 {
     BasicBlock* block;
@@ -2403,14 +2032,6 @@ void LinearScan::buildIntervals()
 }
 
 #ifdef DEBUG
-//------------------------------------------------------------------------
-// validateIntervals: A DEBUG-only method that checks that:
-//      - the lclVar RefPositions do not reflect uses of undefined values
-//      - A singleDef interval should have just first RefPosition as RefTypeDef.
-//
-// TODO-Cleanup: If an undefined use is encountered, it merely prints a message
-// but probably assert.
-//
 void LinearScan::validateIntervals()
 {
     if (enregisterLocalVars)
@@ -2470,22 +2091,15 @@ void LinearScan::validateIntervals()
 #endif // DEBUG
 
 #if defined(TARGET_XARCH) || defined(FEATURE_HW_INTRINSICS)
-//------------------------------------------------------------------------
-// setTgtPref: Set a  preference relationship between the given Interval
-//             and a Use RefPosition.
+// Set a  preference relationship between the given Interval and a Use RefPosition.
 //
-// Arguments:
-//    interval   - An interval whose defining instruction has tgtPrefUse as a use
-//    tgtPrefUse - The use RefPosition
-//
-// Notes:
-//    This is called when we would like tgtPrefUse and this def to get the same register.
-//    This is only desirable if the use is a last use, which it is if it is a non-local,
-//    *or* if it is a lastUse.
-//     Note that we don't yet have valid lastUse information in the RefPositions that we're building
-//    (every RefPosition is set as a lastUse until we encounter a new use), so we have to rely on the treeNode.
-//    This may be called for multiple uses, in which case 'interval' will only get preferenced at most
-//    to the first one (if it didn't already have a 'relatedInterval'.
+// This is called when we would like tgtPrefUse and this def to get the same register.
+// This is only desirable if the use is a last use, which it is if it is a non-local,
+// *or* if it is a lastUse.
+// Note that we don't yet have valid lastUse information in the RefPositions that we're building
+// (every RefPosition is set as a lastUse until we encounter a new use), so we have to rely on the treeNode.
+// This may be called for multiple uses, in which case 'interval' will only get preferenced at most
+// to the first one (if it didn't already have a 'relatedInterval'.
 //
 void setTgtPref(Interval* interval, RefPosition* tgtPrefUse)
 {
@@ -2616,21 +2230,6 @@ void LinearScan::BuildKills(GenTree* tree, regMaskTP killMask)
     }
 }
 
-//------------------------------------------------------------------------
-// BuildUse: Remove the RefInfoListNode for the given multi-reg index of the given node from
-//           the defList, and build a use RefPosition for the associated Interval.
-//
-// Arguments:
-//    operand      - The node of interest
-//    candidates   - The register candidates for the use
-//    multiRegIdx  - The index of the multireg def/use
-//
-// Return Value:
-//    The newly created use RefPosition
-//
-// Notes:
-//    The node must not be contained, and must have been processed by buildRefPositionsForNode().
-//
 RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int multiRegIdx)
 {
     assert(!operand->isContained());
@@ -2690,18 +2289,6 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int mu
     return useRefPos;
 }
 
-//------------------------------------------------------------------------
-// BuildIndirUses: Build Use RefPositions for an indirection that might be contained
-//
-// Arguments:
-//    indirTree      - The indirection node of interest
-//
-// Return Value:
-//    The number of source registers used by the *parent* of this node.
-//
-// Notes:
-//    This method may only be used if the candidates are the same for all sources.
-//
 int LinearScan::BuildIndirUses(GenTreeIndir* indir, regMaskTP candidates)
 {
     return BuildAddrUses(indir->GetAddr(), candidates);
@@ -2741,15 +2328,6 @@ int LinearScan::BuildAddrUses(GenTree* addr, regMaskTP candidates)
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildOperandUses: Build Use RefPositions for an operand that might be contained.
-//
-// Arguments:
-//    node      - The node of interest
-//
-// Return Value:
-//    The number of source registers used by the *parent* of this node.
-//
 int LinearScan::BuildOperandUses(GenTree* node, regMaskTP candidates)
 {
     if (!node->isContained())
@@ -2792,30 +2370,12 @@ int LinearScan::BuildOperandUses(GenTree* node, regMaskTP candidates)
     return 0;
 }
 
-//------------------------------------------------------------------------
-// setDelayFree: Mark a RefPosition as delayRegFree, and set pendingDelayFree
-//
-// Arguments:
-//    use      - The use RefPosition to mark
-//
 void LinearScan::setDelayFree(RefPosition* use)
 {
     use->delayRegFree = true;
     pendingDelayFree  = true;
 }
 
-//------------------------------------------------------------------------
-// BuildDelayFreeUses: Build Use RefPositions for an operand that might be contained,
-//                     and which may need to be marked delayRegFree
-//
-// Arguments:
-//    node       - The node of interest
-//    rmwNode    - The node that has RMW semantics (if applicable)
-//    candidates - The set of candidates for the uses
-//
-// Return Value:
-//    The number of source registers used by the *parent* of this node.
-//
 int LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP candidates)
 {
     RefPosition* use          = nullptr;
@@ -2905,20 +2465,6 @@ int LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP ca
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildBinaryUses: Get the RefInfoListNodes for the operands of the
-//                  given node, and build uses for them.
-//
-// Arguments:
-//    node - a GenTreeOp
-//
-// Return Value:
-//    The number of actual register operands.
-//
-// Notes:
-//    The operands must already have been processed by buildRefPositionsForNode, and their
-//    RefInfoListNodes placed in the defList.
-//
 int LinearScan::BuildBinaryUses(GenTreeOp* node, regMaskTP candidates)
 {
 #ifdef TARGET_XARCH
@@ -3229,15 +2775,6 @@ void LinearScan::BuildStoreDynBlk(GenTreeDynBlk* store)
     BuildKills(store, getKillSetForStructStore(store->GetKind()));
 }
 
-//------------------------------------------------------------------------
-// BuildSimple: Builds use RefPositions for trees requiring no special handling
-//
-// Arguments:
-//    tree      - The node of interest
-//
-// Return Value:
-//    The number of use RefPositions created
-//
 void LinearScan::BuildSimple(GenTree* tree)
 {
     unsigned kind = tree->OperKind();
@@ -3333,16 +2870,6 @@ void LinearScan::BuildReturn(GenTreeUnOp* ret)
 
     BuildUse(src, genRegMask(retDesc.GetRegNum(0)));
 }
-
-//------------------------------------------------------------------------
-// supportsSpecialPutArg: Determine if we can support specialPutArgs
-//
-// Return Value:
-//    True iff specialPutArg intervals can be supported.
-//
-// Notes:
-//    See below.
-//
 
 bool LinearScan::supportsSpecialPutArg()
 {
@@ -3444,9 +2971,6 @@ void LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
     }
 }
 
-//------------------------------------------------------------------------
-// BuildGCWriteBarrier: Handle additional register requirements for a GC write barrier
-//
 void LinearScan::BuildGCWriteBarrier(GenTreeStoreInd* store)
 {
     GenTree* addr = store->GetAddr();

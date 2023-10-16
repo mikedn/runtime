@@ -1,19 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                     Register Requirements for ARM                         XX
-XX                                                                           XX
-XX  This encapsulates all the logic for setting register requirements for    XX
-XX  the ARM  architecture.                                                   XX
-XX                                                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 
 #ifdef TARGET_ARM
@@ -110,17 +97,6 @@ void LinearScan::BuildLclHeap(GenTree* tree)
     BuildDef(tree);
 }
 
-//------------------------------------------------------------------------
-// BuildShiftLongCarry: Set the node info for GT_LSH_HI or GT_RSH_LO.
-//
-// Arguments:
-//    tree      - The node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-// Note: these operands have uses that interfere with the def and need the special handling.
-//
 void LinearScan::BuildShiftLongCarry(GenTree* tree)
 {
     assert(tree->OperGet() == GT_LSH_HI || tree->OperGet() == GT_RSH_LO);
@@ -162,23 +138,6 @@ void LinearScan::BuildShiftLongCarry(GenTree* tree)
     }
 }
 
-//------------------------------------------------------------------------
-// BuildNode: Build the RefPositions for for a node
-//
-// Arguments:
-//    treeNode - the node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-// Notes:
-// Preconditions:
-//    LSRA Has been initialized.
-//
-// Postconditions:
-//    RefPositions have been built for all the register defs and uses required
-//    for this node.
-//
 void LinearScan::BuildNode(GenTree* tree)
 {
     assert(!tree->isContained());

@@ -1,19 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                    Register Requirements for ARM64                        XX
-XX                                                                           XX
-XX  This encapsulates all the logic for setting register requirements for    XX
-XX  the ARM64 architecture.                                                  XX
-XX                                                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 
 #ifdef TARGET_ARM64
@@ -21,23 +8,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "sideeffects.h"
 #include "lower.h"
 
-//------------------------------------------------------------------------
-// BuildNode: Build the RefPositions for for a node
-//
-// Arguments:
-//    treeNode - the node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-// Notes:
-// Preconditions:
-//    LSRA Has been initialized.
-//
-// Postconditions:
-//    RefPositions have been built for all the register defs and uses required
-//    for this node.
-//
 void LinearScan::BuildNode(GenTree* tree)
 {
     assert(!tree->isContained());
@@ -586,9 +556,6 @@ void LinearScan::BuildNode(GenTree* tree)
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-
-#include "hwintrinsic.h"
-
 void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 {
     const HWIntrinsic intrin(intrinsicTree);
