@@ -1933,7 +1933,7 @@ private:
 
 #if defined(TARGET_XARCH)
     // returns true if the tree can use the read-modify-write memory instruction form
-    bool isRMWRegOper(GenTree* tree);
+    bool isRMWRegOper(GenTreeOp* tree);
     void SetContainsAVXFlags(unsigned sizeOfSIMDVector = 0);
 #endif
 

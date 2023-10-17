@@ -116,6 +116,14 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_FSUB:
         case GT_FMUL:
         case GT_FDIV:
+            if (compiler->canUseVexEncoding())
+            {
+                BuildOperandUses(tree->AsOp()->GetOp(0));
+                BuildOperandUses(tree->AsOp()->GetOp(1));
+                BuildDef(tree);
+                break;
+            }
+            FALLTHROUGH;
 #ifndef TARGET_64BIT
         case GT_ADD_LO:
         case GT_ADD_HI:
@@ -127,15 +135,7 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_AND:
         case GT_OR:
         case GT_XOR:
-            if (isRMWRegOper(tree))
-            {
-                BuildRMWUses(tree->AsOp());
-            }
-            else
-            {
-                BuildOperandUses(tree->AsOp()->GetOp(0));
-                BuildOperandUses(tree->AsOp()->GetOp(1));
-            }
+            BuildRMWUses(tree->AsOp());
             FALLTHROUGH;
         case GT_JMPTABLE:
         case GT_LCL_ADDR:
@@ -159,15 +159,8 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_LOCKADD:
-            if (isRMWRegOper(tree->AsOp()))
-            {
-                BuildRMWUses(tree->AsOp());
-            }
-            else
-            {
-                BuildOperandUses(tree->AsOp()->GetOp(0));
-                BuildOperandUses(tree->AsOp()->GetOp(1));
-            }
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildOperandUses(tree->AsOp()->GetOp(1));
             break;
 
         case GT_RETURNTRAP:
@@ -451,54 +444,41 @@ void LinearScan::getTgtPrefOperands(GenTreeOp* tree, bool& prefOp1, bool& prefOp
     }
 }
 
-// Can this binary interlocked tree be used in a Read-Modify-Write format
-bool LinearScan::isRMWRegOper(GenTree* tree)
+// Check for instructions that use the read/modify/write register format (e.g. ADD eax, 42).
+bool LinearScan::isRMWRegOper(GenTreeOp* tree)
 {
-    // TODO-XArch-CQ: Make this more accurate.
-    // For now, We assume that most binary operators are of the RMW form.
-    assert(tree->OperIsBinary());
-
-    if (tree->OperIsCompare() || tree->OperIs(GT_CMP) || tree->OperIs(GT_BT))
+    switch (tree->GetOper())
     {
-        return false;
-    }
-
-    switch (tree->OperGet())
-    {
-        // These Opers either support a three op form (i.e. GT_LEA), or do not read/write their first operand
-        case GT_LEA:
-        case GT_STOREIND:
-        case GT_ARR_INDEX:
-        case GT_STORE_BLK:
-        case GT_STORE_OBJ:
-        case GT_SWITCH_TABLE:
-        case GT_LOCKADD:
-#ifdef TARGET_X86
-        case GT_LONG:
-#endif
-            return false;
-
-        case GT_ADD:
-        case GT_SUB:
-        case GT_DIV:
-            return true;
-
-        case GT_MUL:
-            return (!tree->gtGetOp2()->isContainedIntOrIImmed() && !tree->gtGetOp1()->isContainedIntOrIImmed());
-
         case GT_FADD:
         case GT_FSUB:
         case GT_FMUL:
         case GT_FDIV:
             return !compiler->canUseVexEncoding();
 
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            return tree->isRMWHWIntrinsic(compiler);
-#endif // FEATURE_HW_INTRINSICS
+#ifdef TARGET_X86
+        case GT_ADD_LO:
+        case GT_ADD_HI:
+        case GT_SUB_LO:
+        case GT_SUB_HI:
+#endif
+        case GT_ADD:
+        case GT_SUB:
+        case GT_AND:
+        case GT_OR:
+        case GT_XOR:
+        // TODO-MIKE-Review: Given the very specific register constraints MUL has,
+        // does it really need to be treated as RMW or will some special casing do?
+        case GT_MULHI:
+#ifdef TARGET_X86
+        case GT_MUL_LONG:
+#endif
+            return true;
+
+        case GT_MUL:
+            return !tree->GetOp(0)->IsContainedIntCon() && !tree->GetOp(1)->IsContainedIntCon();
 
         default:
-            return true;
+            return false;
     }
 }
 
