@@ -1882,8 +1882,8 @@ private:
     RefPosition* BuildUse(GenTree* operand, regMaskTP candidates = RBM_NONE, int multiRegIdx = 0);
 
     void setDelayFree(RefPosition* use);
-    int BuildBinaryUses(GenTreeOp* node, regMaskTP candidates = RBM_NONE);
 #ifdef TARGET_XARCH
+    void BuildBinaryUses(GenTreeOp* node);
     int BuildRMWUses(GenTreeOp* node, regMaskTP candidates = RBM_NONE);
 #endif
     void BuildNode(GenTree* tree);

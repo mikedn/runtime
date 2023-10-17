@@ -415,26 +415,23 @@ void LinearScan::BuildInterlocked(GenTreeOp* interlocked)
 // Identify whether the operands of an Op should be preferenced to the target.
 void LinearScan::getTgtPrefOperands(GenTreeOp* tree, bool& prefOp1, bool& prefOp2)
 {
-    // If op2 of a binary-op gets marked as contained, then binary-op srcCount will be 1.
-    // Even then we would like to set isTgtPref on Op1.
-    if (tree->OperIsBinary() && isRMWRegOper(tree))
+    assert(isRMWRegOper(tree));
+
+    GenTree* op1 = tree->gtGetOp1();
+    GenTree* op2 = tree->gtGetOp2();
+
+    // If we have a read-modify-write operation, we want to preference op1 to the target,
+    // if it is not contained.
+    if (!op1->isContained())
     {
-        GenTree* op1 = tree->gtGetOp1();
-        GenTree* op2 = tree->gtGetOp2();
+        prefOp1 = true;
+    }
 
-        // If we have a read-modify-write operation, we want to preference op1 to the target,
-        // if it is not contained.
-        if (!op1->isContained())
-        {
-            prefOp1 = true;
-        }
-
-        // Commutative opers like add/mul/and/or/xor could reverse the order of operands if it is safe to do so.
-        // In that case we will preference both, to increase the chance of getting a match.
-        if (tree->OperIsCommutative() && op2 != nullptr && !op2->isContained())
-        {
-            prefOp2 = true;
-        }
+    // Commutative opers like add/mul/and/or/xor could reverse the order of operands if it is safe to do so.
+    // In that case we will preference both, to increase the chance of getting a match.
+    if (tree->OperIsCommutative() && op2 != nullptr && !op2->isContained())
+    {
+        prefOp2 = true;
     }
 }
 
@@ -491,6 +488,8 @@ bool LinearScan::isRMWRegOper(GenTree* tree)
 
 int LinearScan::BuildRMWUses(GenTreeOp* node, regMaskTP candidates)
 {
+    assert(isRMWRegOper(node));
+
     int       srcCount      = 0;
     GenTree*  op1           = node->gtOp1;
     GenTree*  op2           = node->gtGetOp2IfPresent();
@@ -2193,28 +2192,17 @@ void LinearScan::BuildCmp(GenTreeOp* cmp)
     }
 }
 
-int LinearScan::BuildBinaryUses(GenTreeOp* node, regMaskTP candidates)
+void LinearScan::BuildBinaryUses(GenTreeOp* node)
 {
-#ifdef TARGET_XARCH
-    if (node->OperIsBinary() && isRMWRegOper(node))
+    if (isRMWRegOper(node))
     {
-        return BuildRMWUses(node, candidates);
+        BuildRMWUses(node);
     }
-#endif
-
-    int srcCount = 0;
-
-    if (GenTree* op1 = node->gtOp1)
+    else
     {
-        srcCount += BuildOperandUses(op1, candidates);
+        BuildOperandUses(node->GetOp(0));
+        BuildOperandUses(node->GetOp(1));
     }
-
-    if (GenTree* op2 = node->gtGetOp2IfPresent())
-    {
-        srcCount += BuildOperandUses(op2, candidates);
-    }
-
-    return srcCount;
 }
 
 #endif // TARGET_XARCH
