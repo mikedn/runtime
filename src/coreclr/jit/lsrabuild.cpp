@@ -2341,23 +2341,30 @@ int LinearScan::BuildOperandUses(GenTree* node, regMaskTP candidates)
     if (!node->isContained())
     {
         BuildUse(node, candidates);
+
         return 1;
     }
 
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
     if (node->OperIs(GT_LONG))
     {
-        return BuildBinaryUses(node->AsOp(), candidates);
+        BuildUse(node->AsOp()->GetOp(0));
+        BuildUse(node->AsOp()->GetOp(1));
+
+        return 2;
     }
-#endif // !defined(TARGET_64BIT)
+#endif
+
     if (node->OperIsIndir())
     {
         return BuildIndirUses(node->AsIndir(), candidates);
     }
+
     if (node->OperIs(GT_LEA))
     {
         return BuildAddrUses(node, candidates);
     }
+
 #ifdef FEATURE_HW_INTRINSICS
     if (GenTreeHWIntrinsic* hwi = node->IsHWIntrinsic())
     {
@@ -2692,7 +2699,8 @@ void LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
         assert(src->isContained());
         assert(!src->AsOp()->GetOp(0)->isContained() && !src->AsOp()->GetOp(1)->isContained());
 
-        BuildBinaryUses(src->AsOp());
+        BuildUse(src->AsOp()->GetOp(0));
+        BuildUse(src->AsOp()->GetOp(1));
     }
 #endif
     else if (src->isContained())

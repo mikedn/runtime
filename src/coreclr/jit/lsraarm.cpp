@@ -233,13 +233,19 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_SWITCH_TABLE:
-            BuildBinaryUses(tree->AsOp());
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
             break;
 
         case GT_FADD:
         case GT_FSUB:
         case GT_FMUL:
         case GT_FDIV:
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
+            BuildDef(tree);
+            break;
+
         case GT_ADD_LO:
         case GT_ADD_HI:
         case GT_SUB_LO:
@@ -253,9 +259,6 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_RSH:
         case GT_RSZ:
         case GT_ROR:
-        case GT_MULHI:
-        case GT_DIV:
-        case GT_UDIV:
             BuildBinaryUses(tree->AsOp());
             FALLTHROUGH;
         case GT_JMPTABLE:
@@ -267,7 +270,8 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_INDEX_ADDR:
             BuildInternalIntDef(tree);
-            BuildBinaryUses(tree->AsOp());
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
             BuildInternalUses();
             BuildDef(tree);
             break;
@@ -289,7 +293,8 @@ void LinearScan::BuildNode(GenTree* tree)
                 BuildInternalIntDef(tree);
             }
 
-            BuildBinaryUses(tree->AsOp());
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
 
             if (tree->gtOverflow())
             {
@@ -300,7 +305,8 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_MUL_LONG:
-            BuildBinaryUses(tree->AsOp());
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
             BuildDef(tree, TYP_INT, RBM_NONE, 0);
             BuildDef(tree, TYP_INT, RBM_NONE, 1);
             break;

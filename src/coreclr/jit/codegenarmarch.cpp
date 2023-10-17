@@ -291,7 +291,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_MUL_LONG:
             genCodeForMulLong(treeNode->AsOp());
             break;
-#endif // TARGET_ARM
+#endif
 
 #ifdef TARGET_ARM64
         case GT_INC_SATURATE:

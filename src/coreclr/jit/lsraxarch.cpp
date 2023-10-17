@@ -120,8 +120,14 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_SWITCH_TABLE:
             BuildInternalIntDef(tree);
-            BuildBinaryUses(tree->AsOp());
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
             BuildInternalUses();
+            break;
+
+        case GT_BT:
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
             break;
 
         case GT_FADD:
@@ -152,10 +158,6 @@ void LinearScan::BuildNode(GenTree* tree)
 #ifndef FEATURE_EH_FUNCLETS
         case GT_END_LFIN:
 #endif
-            break;
-
-        case GT_BT:
-            BuildBinaryUses(tree->AsOp());
             break;
 
         case GT_RETURNTRAP:
@@ -385,7 +387,8 @@ void LinearScan::BuildNode(GenTree* tree)
                     break;
             }
 #endif
-            BuildBinaryUses(tree->AsOp());
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
             BuildInternalUses();
             BuildDef(tree);
             break;

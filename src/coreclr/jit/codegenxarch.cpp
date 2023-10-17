@@ -1333,12 +1333,12 @@ void CodeGen::genCodeForBT(GenTreeOp* bt)
 {
     assert(bt->OperIs(GT_BT));
 
-    GenTree*  op1  = bt->gtGetOp1();
-    GenTree*  op2  = bt->gtGetOp2();
-    var_types type = genActualType(op1->TypeGet());
+    GenTree*  op1  = bt->GetOp(0);
+    GenTree*  op2  = bt->GetOp(1);
+    var_types type = varActualType(op1->GetType());
 
     assert(op1->isUsedFromReg() && op2->isUsedFromReg());
-    assert((genTypeSize(type) >= genTypeSize(TYP_INT)) && (genTypeSize(type) <= genTypeSize(TYP_I_IMPL)));
+    assert((varTypeSize(type) >= varTypeSize(TYP_INT)) && (varTypeSize(type) <= varTypeSize(TYP_I_IMPL)));
 
     regNumber srcReg1 = UseReg(op1);
     regNumber srcReg2 = UseReg(op2);
