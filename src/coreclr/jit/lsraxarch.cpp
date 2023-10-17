@@ -12,16 +12,7 @@ void LinearScan::BuildNode(GenTree* tree)
 {
     assert(!tree->isContained());
 
-    // Reset the build-related members of LinearScan.
-    clearBuildState();
-
-    // floating type generates AVX instruction (vmovss etc.), set the flag
-    if (varTypeUsesFloatReg(tree->TypeGet()))
-    {
-        SetContainsAVXFlags();
-    }
-
-    switch (tree->OperGet())
+    switch (tree->GetOper())
     {
         case GT_LCL_VAR:
             // We make a final determination about whether a GT_LCL_VAR is a candidate or contained
@@ -33,23 +24,21 @@ void LinearScan::BuildNode(GenTree* tree)
                 return;
             }
             FALLTHROUGH;
-
         case GT_LCL_FLD:
-        {
 #ifdef FEATURE_SIMD
             // Need an additional register to read upper 4 bytes of Vector3.
-            if (tree->TypeGet() == TYP_SIMD12)
+            if (tree->TypeIs(TYP_SIMD12))
             {
-                // We need an internal register different from targetReg in which 'tree' produces its result
-                // because both targetReg and internal reg will be in use at the same time.
-                buildInternalFloatRegisterDefForNode(tree, allSIMDRegs());
+                // We need an internal register different from targetReg in which 'tree'
+                // produces its result because both targetReg and internal reg will be in
+                // use at the same time.
+                BuildInternalFloatDef(tree, allSIMDRegs());
                 setInternalRegsDelayFree = true;
-                buildInternalRegisterUses();
+                BuildInternalUses();
             }
 #endif
             BuildDef(tree);
-        }
-        break;
+            break;
 
         case GT_STORE_LCL_VAR:
             BuildStoreLclVar(tree->AsLclVar());
@@ -59,12 +48,7 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildStoreLclFld(tree->AsLclFld());
             break;
 
-        case GT_NO_OP:
-        case GT_START_NONGC:
-            break;
-
         case GT_START_PREEMPTGC:
-            // This kills GC refs in callee save regs
             BuildKills(tree, RBM_NONE);
             break;
 
@@ -75,25 +59,22 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_CNS_INT:
         case GT_CNS_LNG:
         case GT_CNS_DBL:
-        {
             assert(!tree->IsReuseRegVal());
-            RefPosition* def               = BuildDef(tree);
-            def->getInterval()->isConstant = true;
-        }
-        break;
-
-#if !defined(TARGET_64BIT)
-
-        case GT_LONG:
-            assert(tree->IsUnusedValue()); // Contained nodes are already processed, only unused GT_LONG can reach here.
-            // An unused GT_LONG node needs to consume its sources, but need not produce a register.
-            tree->gtType = TYP_VOID;
-            tree->ClearUnusedValue();
-            BuildUse(tree->gtGetOp1());
-            BuildUse(tree->gtGetOp2());
+            BuildDef(tree)->getInterval()->isConstant = true;
             break;
 
-#endif // !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
+        case GT_LONG:
+            // Contained nodes are already processed, only unused LONG can reach here.
+            // TODO-MIKE-Review: Why is such a node generated in the first place?
+            assert(tree->IsUnusedValue());
+            // An unused LONG node needs to consume its sources, but need not produce a register.
+            tree->SetType(TYP_VOID);
+            tree->ClearUnusedValue();
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
+            break;
+#endif
 
         case GT_RETURN:
             BuildReturn(tree->AsUnOp());
@@ -103,17 +84,18 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_RETFILT:
             if (!tree->TypeIs(TYP_VOID))
             {
-                assert(tree->TypeGet() == TYP_INT);
-                BuildUse(tree->gtGetOp1(), RBM_INTRET);
+                assert(tree->TypeIs(TYP_INT));
+                BuildUse(tree->AsUnOp()->GetOp(0), RBM_INTRET);
             }
             break;
 
-        // A GT_NOP is either a passthrough (if it is void, or if it has
-        // a child), but must be considered to produce a dummy value if it
-        // has a type but no child
         case GT_NOP:
             assert((tree->gtGetOp1() == nullptr) || tree->isContained());
-            if (tree->TypeGet() != TYP_VOID && tree->gtGetOp1() == nullptr)
+            // A GT_NOP is either a passthrough (if it is void, or if it has
+            // a child), but must be considered to produce a dummy value if it
+            // has a type but no child
+            // TODO-MIKE-Review: op1 == nullptr => BuildUse(op1)... Genius!!!
+            if (!tree->TypeIs(TYP_VOID) && (tree->gtGetOp1() == nullptr))
             {
                 BuildUse(tree->gtGetOp1());
                 BuildDef(tree);
@@ -121,41 +103,25 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_KEEPALIVE:
-            BuildOperandUses(tree->gtGetOp1());
+            BuildOperandUses(tree->AsUnOp()->GetOp(0));
             break;
 
         case GT_JTRUE:
-        {
-            GenTree* cmp = tree->gtGetOp1();
-            assert(!cmp->IsValue());
-        }
-        break;
-
-        case GT_JCC:
+            assert(!tree->AsUnOp()->GetOp(0)->IsValue());
             break;
 
         case GT_SETCC:
-            // This defines a byte value (note that on x64 allByteRegs() is defined as RBM_ALLINT).
+#ifdef TARGET_X86
             BuildDef(tree, allByteRegs());
-            break;
-
-        case GT_JMP:
-            break;
-
-        case GT_SWITCH:
-            // This should never occur since switch nodes must not be visible at this
-            // point in the JIT.
-            noway_assert(!"Switch must be lowered at this point");
-            break;
-
-        case GT_JMPTABLE:
+#else
             BuildDef(tree);
+#endif
             break;
 
         case GT_SWITCH_TABLE:
-            buildInternalIntRegisterDefForNode(tree);
+            BuildInternalIntDef(tree);
             BuildBinaryUses(tree->AsOp());
-            buildInternalRegisterUses();
+            BuildInternalUses();
             break;
 
         case GT_FADD:
@@ -174,7 +140,18 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_OR:
         case GT_XOR:
             BuildBinaryUses(tree->AsOp());
+            FALLTHROUGH;
+        case GT_JMPTABLE:
             BuildDef(tree);
+            FALLTHROUGH;
+        case GT_NO_OP:
+        case GT_START_NONGC:
+        case GT_IL_OFFSET:
+        case GT_JCC:
+        case GT_JMP:
+#ifndef FEATURE_EH_FUNCLETS
+        case GT_END_LFIN:
+#endif
             break;
 
         case GT_BT:
@@ -182,10 +159,9 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_RETURNTRAP:
-            // This just turns into a compare of its child with an int + a conditional call.
-            buildInternalIntRegisterDefForNode(tree);
+            BuildInternalIntDef(tree);
             BuildOperandUses(tree->gtGetOp1());
-            buildInternalRegisterUses();
+            BuildInternalUses();
             BuildKills(tree, compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
             break;
 
@@ -219,9 +195,9 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_BITCAST:
-            if (!tree->gtGetOp1()->isContained())
+            if (!tree->AsUnOp()->GetOp(0)->isContained())
             {
-                BuildUse(tree->gtGetOp1());
+                BuildUse(tree->AsUnOp()->GetOp(0));
             }
             BuildDef(tree);
             break;
@@ -236,7 +212,7 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_NEG:
         case GT_NOT:
-            BuildOperandUses(tree->gtGetOp1());
+            BuildOperandUses(tree->AsUnOp()->GetOp(0));
             BuildDef(tree);
             break;
 
@@ -265,17 +241,13 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_CKFINITE:
-        {
-            RefPosition* internalDef = buildInternalIntRegisterDefForNode(tree);
-            BuildOperandUses(tree->gtGetOp1());
-            buildInternalRegisterUses();
+            BuildInternalIntDef(tree);
+            BuildOperandUses(tree->AsUnOp()->GetOp(0));
+            BuildInternalUses();
             BuildDef(tree);
-        }
-        break;
+            break;
 
         case GT_CMPXCHG:
-            // Comparand is preferenced to RAX.
-            // The remaining two operands can be in any reg other than RAX.
             BuildUse(tree->AsCmpXchg()->GetOp(0), allRegs(TYP_INT) & ~RBM_RAX);
             BuildUse(tree->AsCmpXchg()->GetOp(1), allRegs(TYP_INT) & ~RBM_RAX);
             BuildUse(tree->AsCmpXchg()->GetOp(2), RBM_RAX);
@@ -287,18 +259,14 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_XADD:
         case GT_XCHG:
         {
-            // TODO-XArch-Cleanup: We should make the indirection explicit on these nodes so that we don't have
-            // to special case them.
-            // These tree nodes will have their op1 marked as isDelayFree=true.
-            // That is, op1's reg remains in use until the subsequent instruction.
-            GenTree* addr = tree->gtGetOp1();
-            GenTree* data = tree->gtGetOp2();
+            GenTree* addr  = tree->AsOp()->GetOp(0);
+            GenTree* value = tree->AsOp()->GetOp(1);
             assert(!addr->isContained());
             RefPosition* addrUse = BuildUse(addr);
             setDelayFree(addrUse);
             tgtPrefUse = addrUse;
-            assert(!data->isContained());
-            BuildUse(data);
+            assert(!value->isContained());
+            BuildUse(value);
             BuildDef(tree);
         }
         break;
@@ -334,57 +302,40 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildOperandUses(tree->AsBoundsChk()->GetOp(1));
             break;
 
-        case GT_ARR_ELEM:
-            // These must have been lowered to GT_ARR_INDEX
-            noway_assert(!"We should never see a GT_ARR_ELEM after Lowering.");
-            break;
-
         case GT_ARR_INDEX:
-        {
             assert(!tree->AsArrIndex()->ArrObj()->isContained());
             assert(!tree->AsArrIndex()->IndexExpr()->isContained());
-            // For GT_ARR_INDEX, the lifetime of the arrObj must be extended because it is actually used multiple
-            // times while the result is being computed.
-            RefPosition* arrObjUse = BuildUse(tree->AsArrIndex()->ArrObj());
-            setDelayFree(arrObjUse);
+            // The lifetime of the arrObj must be extended because it is
+            // used multiple times while the result is being computed.
+            setDelayFree(BuildUse(tree->AsArrIndex()->ArrObj()));
             BuildUse(tree->AsArrIndex()->IndexExpr());
             BuildDef(tree);
-        }
-        break;
+            break;
 
         case GT_ARR_OFFSET:
-        {
-            // This consumes the offset, if any, the arrObj and the effective index,
-            // and produces the flattened offset for this dimension.
-            RefPosition* internalDef = nullptr;
             if (!tree->AsArrOffs()->GetOp(0)->isContained())
             {
-                // Here we simply need an internal register, which must be different
-                // from any of the operand's registers, but may be the same as targetReg.
-                internalDef = buildInternalIntRegisterDefForNode(tree);
+                BuildInternalIntDef(tree);
                 BuildUse(tree->AsArrOffs()->GetOp(0));
             }
+
             BuildUse(tree->AsArrOffs()->GetOp(1));
             BuildUse(tree->AsArrOffs()->GetOp(2));
-            if (internalDef != nullptr)
-            {
-                buildInternalRegisterUses();
-            }
+            BuildInternalUses();
             BuildDef(tree);
-        }
-        break;
+            break;
 
         case GT_LEA:
-            // The LEA usually passes its operands through to the GT_IND, in which case it will
-            // be contained, but we may be instantiating an address, in which case we set them here.
             if (GenTree* base = tree->AsAddrMode()->GetBase())
             {
                 BuildUse(base);
             }
+
             if (GenTree* index = tree->AsAddrMode()->GetIndex())
             {
                 BuildUse(index);
             }
+
             BuildDef(tree);
             break;
 
@@ -400,9 +351,7 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_NULLCHECK:
-            // If we have a contained address on a nullcheck, we transform it to
-            // an unused GT_IND, since we require a target register.
-            BuildUse(tree->gtGetOp1());
+            BuildUse(tree->AsUnOp()->GetOp(0));
             break;
 
         case GT_IND:
@@ -413,23 +362,17 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree, RBM_EXCEPTION_OBJECT);
             break;
 
-#ifndef FEATURE_EH_FUNCLETS
-        case GT_END_LFIN:
-            break;
-#endif
-
         case GT_INDEX_ADDR:
-        {
-            RefPosition* internalDef = nullptr;
 #ifdef TARGET_64BIT
             // On 64-bit we always need a temporary register:
             //   - if the index is `native int` then we need to load the array
             //     length into a register to widen it to `native int`
             //   - if the index is `int` (or smaller) then we need to widen
-            //     it to `long` to peform the address calculation
-            internalDef = buildInternalIntRegisterDefForNode(tree);
-#else  // !TARGET_64BIT
+            //     it to `long` to perform the address calculation
+            BuildInternalIntDef(tree);
+#else
             assert(!varTypeIsLong(tree->AsIndexAddr()->GetIndex()->GetType()));
+
             switch (tree->AsIndexAddr()->GetElemSize())
             {
                 case 1:
@@ -437,20 +380,15 @@ void LinearScan::BuildNode(GenTree* tree)
                 case 4:
                 case 8:
                     break;
-
                 default:
-                    internalDef = buildInternalIntRegisterDefForNode(tree);
+                    BuildInternalIntDef(tree);
                     break;
             }
-#endif // !TARGET_64BIT
+#endif
             BuildBinaryUses(tree->AsOp());
-            if (internalDef != nullptr)
-            {
-                buildInternalRegisterUses();
-            }
+            BuildInternalUses();
             BuildDef(tree);
-        }
-        break;
+            break;
 
         case GT_INSTR:
             BuildInstr(tree->AsInstr());
@@ -464,10 +402,9 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_BOX:
         case GT_COMMA:
         case GT_QMARK:
+        case GT_SWITCH:
+        case GT_ARR_ELEM:
             unreached();
-
-        case GT_IL_OFFSET:
-            break;
 
         default:
             BuildSimple(tree);
@@ -475,20 +412,7 @@ void LinearScan::BuildNode(GenTree* tree)
     }
 }
 
-//------------------------------------------------------------------------
-// getTgtPrefOperands: Identify whether the operands of an Op should be preferenced to the target.
-//
-// Arguments:
-//    tree    - the node of interest.
-//    prefOp1 - a bool "out" parameter indicating, on return, whether op1 should be preferenced to the target.
-//    prefOp2 - a bool "out" parameter indicating, on return, whether op2 should be preferenced to the target.
-//
-// Return Value:
-//    This has two "out" parameters for returning the results (see above).
-//
-// Notes:
-//    The caller is responsible for initializing the two "out" parameters to false.
-//
+// Identify whether the operands of an Op should be preferenced to the target.
 void LinearScan::getTgtPrefOperands(GenTreeOp* tree, bool& prefOp1, bool& prefOp2)
 {
     // If op2 of a binary-op gets marked as contained, then binary-op srcCount will be 1.
@@ -514,18 +438,7 @@ void LinearScan::getTgtPrefOperands(GenTreeOp* tree, bool& prefOp1, bool& prefOp
     }
 }
 
-//------------------------------------------------------------------------------
-// isRMWRegOper: Can this binary tree node be used in a Read-Modify-Write format
-//
-// Arguments:
-//    tree      - a binary tree node
-//
-// Return Value:
-//    Returns true if we can use the read-modify-write instruction form
-//
-// Notes:
-//    This is used to determine whether to preference the source to the destination register.
-//
+// Can this binary tree node be used in a Read-Modify-Write format
 bool LinearScan::isRMWRegOper(GenTree* tree)
 {
     // TODO-XArch-CQ: Make this more accurate.
@@ -1227,7 +1140,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
             // we "round up" to 16.
             if ((fieldType == TYP_SIMD12) && (simdTemp == nullptr))
             {
-                simdTemp = buildInternalFloatRegisterDefForNode(putArgStk);
+                simdTemp = BuildInternalFloatDef(putArgStk);
             }
 #endif
 
@@ -1241,7 +1154,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 const bool fieldIsSlot = ((fieldOffset % 4) == 0) && ((prevOffset - fieldOffset) >= 4);
                 if (intTemp == nullptr)
                 {
-                    intTemp = buildInternalIntRegisterDefForNode(putArgStk);
+                    intTemp = BuildInternalIntDef(putArgStk);
                 }
                 if (!fieldIsSlot && varTypeIsByte(fieldType))
                 {
@@ -1266,7 +1179,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
             }
         }
 
-        buildInternalRegisterUses();
+        BuildInternalUses();
 
         return;
     }
@@ -1274,9 +1187,9 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 #if defined(FEATURE_SIMD) && defined(TARGET_X86)
     if (putArgStk->IsSIMD12())
     {
-        buildInternalFloatRegisterDefForNode(putArgStk, internalFloatRegCandidates());
+        BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
         BuildUse(src);
-        buildInternalRegisterUses();
+        BuildInternalUses();
 
         return;
     }
@@ -1343,7 +1256,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                         regMask &= ~RBM_NON_BYTE_REGS;
                     }
 #endif
-                    buildInternalIntRegisterDefForNode(putArgStk, regMask);
+                    BuildInternalIntDef(putArgStk, regMask);
                 }
 
 #ifdef TARGET_X86
@@ -1355,27 +1268,27 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                     // If we have a buffer larger than or equal to XMM_REGSIZE_BYTES on x64/ux,
                     // or larger than or equal to 8 bytes on x86, reserve an XMM register to use it for a
                     // series of 16-byte loads and stores.
-                    buildInternalFloatRegisterDefForNode(putArgStk, internalFloatRegCandidates());
+                    BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
                     SetContainsAVXFlags();
                 }
                 break;
 
             case GenTreePutArgStk::Kind::RepInstrXMM:
-                buildInternalFloatRegisterDefForNode(putArgStk, internalFloatRegCandidates());
+                BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
                 SetContainsAVXFlags();
                 FALLTHROUGH;
             case GenTreePutArgStk::Kind::RepInstr:
-                buildInternalIntRegisterDefForNode(putArgStk, RBM_RDI);
-                buildInternalIntRegisterDefForNode(putArgStk, RBM_RCX);
-                buildInternalIntRegisterDefForNode(putArgStk, RBM_RSI);
+                BuildInternalIntDef(putArgStk, RBM_RDI);
+                BuildInternalIntDef(putArgStk, RBM_RCX);
+                BuildInternalIntDef(putArgStk, RBM_RSI);
                 break;
 
             case GenTreePutArgStk::Kind::GCUnrollXMM:
-                buildInternalFloatRegisterDefForNode(putArgStk, internalFloatRegCandidates());
+                BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
                 SetContainsAVXFlags();
                 FALLTHROUGH;
             case GenTreePutArgStk::Kind::GCUnroll:
-                buildInternalIntRegisterDefForNode(putArgStk);
+                BuildInternalIntDef(putArgStk);
                 break;
 
             default:
@@ -1383,7 +1296,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         }
 
         int srcCount = BuildOperandUses(src);
-        buildInternalRegisterUses();
+        BuildInternalUses();
 #ifdef TARGET_X86
         // There are only 4 (BYTE_REG_COUNT) byteable registers on x86. If we require a byteable internal register,
         // we must have less than BYTE_REG_COUNT sources.
@@ -1449,7 +1362,7 @@ void LinearScan::BuildLclHeap(GenTree* tree)
 
         if (sizeVal == 0)
         {
-            buildInternalIntRegisterDefForNode(tree);
+            BuildInternalIntDef(tree);
         }
         else
         {
@@ -1471,14 +1384,14 @@ void LinearScan::BuildLclHeap(GenTree* tree)
                     {
 #ifdef TARGET_X86
                         // x86 needs a register here to avoid generating "sub" on ESP.
-                        buildInternalIntRegisterDefForNode(tree);
+                        BuildInternalIntDef(tree);
 #endif
                     }
                     else
                     {
                         // We need two registers: regCnt and RegTmp
-                        buildInternalIntRegisterDefForNode(tree);
-                        buildInternalIntRegisterDefForNode(tree);
+                        BuildInternalIntDef(tree);
+                        BuildInternalIntDef(tree);
                     }
                 }
             }
@@ -1488,13 +1401,13 @@ void LinearScan::BuildLclHeap(GenTree* tree)
     {
         if (!compiler->info.compInitMem)
         {
-            buildInternalIntRegisterDefForNode(tree);
-            buildInternalIntRegisterDefForNode(tree);
+            BuildInternalIntDef(tree);
+            BuildInternalIntDef(tree);
         }
         BuildUse(size);
     }
 
-    buildInternalRegisterUses();
+    BuildInternalUses();
     BuildDef(tree);
 }
 
@@ -1537,7 +1450,7 @@ void LinearScan::BuildModDiv(GenTree* tree)
         assert(tree->OperGet() == GT_UMOD);
 
         // This situation also requires an internal register.
-        buildInternalIntRegisterDefForNode(tree);
+        BuildInternalIntDef(tree);
 
         BuildUse(loVal, RBM_EAX);
         BuildUse(hiVal, RBM_EDX);
@@ -1551,7 +1464,7 @@ void LinearScan::BuildModDiv(GenTree* tree)
     }
 
     BuildDelayFreeUses(op2, op1, allRegs(TYP_INT) & ~(RBM_RAX | RBM_RDX));
-    buildInternalRegisterUses();
+    BuildInternalUses();
     BuildKills(tree, getKillSetForModDiv(tree->AsOp()));
     BuildDef(tree, dstCandidates);
 }
@@ -1568,7 +1481,7 @@ void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
     {
         case NI_System_Math_Abs:
             // TODO-MIKE-Review: Where is this internal reg used???
-            internalFloatDef = buildInternalFloatRegisterDefForNode(tree, internalFloatRegCandidates());
+            internalFloatDef = BuildInternalFloatDef(tree, internalFloatRegCandidates());
             break;
 
         case NI_System_Math_Ceiling:
@@ -1596,7 +1509,7 @@ void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
 
     if (internalFloatDef != nullptr)
     {
-        buildInternalRegisterUses();
+        BuildInternalUses();
     }
 
     BuildDef(tree);
@@ -1662,8 +1575,8 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 // We need two extra reg when lastOp isn't a constant so
                 // the offset into the jump table for the fallback path
                 // can be computed.
-                buildInternalIntRegisterDefForNode(intrinsicTree);
-                buildInternalIntRegisterDefForNode(intrinsicTree);
+                BuildInternalIntDef(intrinsicTree);
+                BuildInternalIntDef(intrinsicTree);
             }
         }
 
@@ -1790,7 +1703,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                     // store the lower half result after executing the instruction
                     BuildDelayFreeUses(op3, op1);
                     // Need a internal register different from the dst to take the lower half result
-                    buildInternalIntRegisterDefForNode(intrinsicTree);
+                    BuildInternalIntDef(intrinsicTree);
                     setInternalRegsDelayFree = true;
                 }
                 buildUses = false;
@@ -1883,7 +1796,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 assert(op3->isContained());
 
                 // get a tmp register for mask that will be cleared by gather instructions
-                buildInternalFloatRegisterDefForNode(intrinsicTree, allSIMDRegs());
+                BuildInternalFloatDef(intrinsicTree, allSIMDRegs());
                 setInternalRegsDelayFree = true;
 
                 buildUses = false;
@@ -1905,7 +1818,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 assert(intrinsicTree->GetOp(4)->isContained());
 
                 // get a tmp register for mask that will be cleared by gather instructions
-                buildInternalFloatRegisterDefForNode(intrinsicTree, allSIMDRegs());
+                BuildInternalFloatDef(intrinsicTree, allSIMDRegs());
                 setInternalRegsDelayFree = true;
 
                 buildUses = false;
@@ -1979,7 +1892,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
             }
         }
 
-        buildInternalRegisterUses();
+        BuildInternalUses();
     }
 
     if (dstCount == 1)
@@ -2029,7 +1942,7 @@ void LinearScan::BuildCast(GenTreeCast* cast)
 #endif
 
     BuildOperandUses(src, candidates);
-    buildInternalRegisterUses();
+    BuildInternalUses();
     BuildDef(cast, candidates);
 }
 

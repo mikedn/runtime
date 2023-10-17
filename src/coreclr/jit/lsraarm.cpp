@@ -89,11 +89,11 @@ void LinearScan::BuildLclHeap(GenTree* tree)
         setInternalRegsDelayFree = true;
         for (int i = 0; i < internalIntCount; i++)
         {
-            buildInternalIntRegisterDefForNode(tree);
+            BuildInternalIntDef(tree);
         }
     }
 
-    buildInternalRegisterUses();
+    BuildInternalUses();
     BuildDef(tree);
 }
 
@@ -142,10 +142,7 @@ void LinearScan::BuildNode(GenTree* tree)
 {
     assert(!tree->isContained());
 
-    // Reset the build-related members of LinearScan.
-    clearBuildState();
-
-    switch (tree->OperGet())
+    switch (tree->GetOper())
     {
         case GT_LCL_VAR:
             // We make a final determination about whether a GT_LCL_VAR is a candidate or contained
@@ -157,23 +154,22 @@ void LinearScan::BuildNode(GenTree* tree)
                 return;
             }
             FALLTHROUGH;
-
         case GT_LCL_FLD:
-        {
             if (tree->OperIs(GT_LCL_FLD) && tree->AsLclFld()->IsOffsetMisaligned())
             {
-                buildInternalIntRegisterDefForNode(tree); // to generate address.
-                buildInternalIntRegisterDefForNode(tree); // to move float into an int reg.
+                BuildInternalIntDef(tree); // to generate address.
+                BuildInternalIntDef(tree); // to move float into an int reg.
+
                 if (tree->TypeIs(TYP_DOUBLE))
                 {
-                    buildInternalIntRegisterDefForNode(tree); // to move the second half into an int reg.
+                    BuildInternalIntDef(tree); // to move the second half into an int reg.
                 }
-                buildInternalRegisterUses();
+
+                BuildInternalUses();
             }
 
             BuildDef(tree);
-        }
-        break;
+            break;
 
         case GT_STORE_LCL_VAR:
             BuildStoreLclVar(tree->AsLclVar());
@@ -188,7 +184,8 @@ void LinearScan::BuildNode(GenTree* tree)
             // a child), but must be considered to produce a dummy value if it
             // has a type but no child
             assert((tree->gtGetOp1() == nullptr) || tree->isContained());
-            if (tree->TypeGet() != TYP_VOID && tree->gtGetOp1() == nullptr)
+
+            if (!tree->TypeIs(TYP_VOID) && (tree->gtGetOp1() == nullptr))
             {
                 BuildUse(tree->gtGetOp1());
                 BuildDef(tree);
@@ -196,46 +193,42 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_KEEPALIVE:
-            BuildOperandUses(tree->gtGetOp1());
+            BuildOperandUses(tree->AsUnOp()->GetOp(0));
+            break;
+
+        case GT_CKFINITE:
+            BuildInternalIntDef(tree);
+            BuildUse(tree->AsUnOp()->GetOp(0));
+            BuildInternalUses();
+            BuildDef(tree);
             break;
 
         case GT_INTRINSIC:
-        {
             // TODO-ARM: Implement other type of intrinsics (round, sqrt and etc.)
-            // Both operand and its result must be of the same floating point type.
-            GenTree* op1 = tree->gtGetOp1();
-            assert(varTypeIsFloating(op1));
-            assert(op1->TypeGet() == tree->TypeGet());
-            BuildUse(op1);
-
             switch (tree->AsIntrinsic()->GetIntrinsic())
             {
+                GenTree* op1;
+
                 case NI_System_Math_Abs:
                 case NI_System_Math_Sqrt:
+                    op1 = tree->AsIntrinsic()->GetOp(0);
+                    assert(varTypeIsFloating(op1->GetType()) && (op1->GetType() == tree->GetType()));
+                    BuildUse(op1);
                     BuildDef(tree);
                     break;
                 default:
                     unreached();
-                    break;
             }
-        }
-        break;
+            break;
 
         case GT_CAST:
             BuildCast(tree->AsCast());
             break;
 
-        case GT_JTRUE:
-        case GT_JMP:
-            break;
-
-        case GT_SWITCH:
-            // This should never occur since switch nodes must not be visible at this
-            // point in the JIT.
-            noway_assert(!"Switch must be lowered at this point");
-            break;
-
-        case GT_JMPTABLE:
+        case GT_FNEG:
+        case GT_NEG:
+        case GT_NOT:
+            BuildUse(tree->AsUnOp()->GetOp(0));
             BuildDef(tree);
             break;
 
@@ -260,7 +253,22 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_RSH:
         case GT_RSZ:
         case GT_ROR:
+        case GT_MULHI:
+        case GT_DIV:
+        case GT_UDIV:
             BuildBinaryUses(tree->AsOp());
+            FALLTHROUGH;
+        case GT_JMPTABLE:
+            BuildDef(tree);
+            FALLTHROUGH;
+        case GT_JTRUE:
+        case GT_JMP:
+            break;
+
+        case GT_INDEX_ADDR:
+            BuildInternalIntDef(tree);
+            BuildBinaryUses(tree->AsOp());
+            BuildInternalUses();
             BuildDef(tree);
             break;
 
@@ -270,25 +278,24 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_RETURNTRAP:
-            // this just turns into a compare of its child with an int
-            // + a conditional call
-            BuildUse(tree->gtGetOp1());
+            BuildUse(tree->AsUnOp()->GetOp(0));
             BuildKills(tree, compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
             break;
 
         case GT_MUL:
             if (tree->gtOverflow())
             {
-                // Need a register different from target reg to check for overflow.
                 setInternalRegsDelayFree = true;
-                buildInternalIntRegisterDefForNode(tree);
+                BuildInternalIntDef(tree);
             }
-            FALLTHROUGH;
-        case GT_DIV:
-        case GT_MULHI:
-        case GT_UDIV:
+
             BuildBinaryUses(tree->AsOp());
-            buildInternalRegisterUses();
+
+            if (tree->gtOverflow())
+            {
+                BuildInternalUses();
+            }
+
             BuildDef(tree);
             break;
 
@@ -298,51 +305,38 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree, TYP_INT, RBM_NONE, 1);
             break;
 
-        case GT_NO_OP:
-        case GT_START_NONGC:
-        case GT_PROF_HOOK:
-            break;
-
         case GT_START_PREEMPTGC:
-            // This kills GC refs in callee save regs
             BuildKills(tree, RBM_NONE);
             break;
 
         case GT_LONG:
-            assert(tree->IsUnusedValue()); // Contained nodes are already processed, only unused GT_LONG can reach here.
-                                           // An unused GT_LONG doesn't produce any registers.
-            tree->gtType = TYP_VOID;
+            // Contained nodes are already processed, only unused LONG can reach here.
+            // TODO-MIKE-Review: Why is such a node generated in the first place?
+            assert(tree->IsUnusedValue());
+            // An unused LONG node needs to consume its sources, but need not produce a register.
+            tree->SetType(TYP_VOID);
             tree->ClearUnusedValue();
-
-            // An unused GT_LONG node needs to consume its sources, but need not produce a register.
-            BuildUse(tree->gtGetOp1());
-            BuildUse(tree->gtGetOp2());
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
             break;
 
         case GT_CNS_DBL:
-            if (tree->TypeGet() == TYP_FLOAT)
+            if (tree->TypeIs(TYP_FLOAT))
             {
-                // An int register for float constant
-                buildInternalIntRegisterDefForNode(tree);
+                BuildInternalIntDef(tree);
             }
             else
             {
-                // TYP_DOUBLE
-                assert(tree->TypeGet() == TYP_DOUBLE);
-
-                // Two int registers for double constant
-                buildInternalIntRegisterDefForNode(tree);
-                buildInternalIntRegisterDefForNode(tree);
+                assert(tree->TypeIs(TYP_DOUBLE));
+                BuildInternalIntDef(tree);
+                BuildInternalIntDef(tree);
             }
-            FALLTHROUGH;
 
+            BuildInternalUses();
+            FALLTHROUGH;
         case GT_CNS_INT:
-        {
-            buildInternalRegisterUses();
-            RefPosition* def               = BuildDef(tree);
-            def->getInterval()->isConstant = true;
-        }
-        break;
+            BuildDef(tree)->getInterval()->isConstant = true;
+            break;
 
         case GT_RETURN:
             BuildReturn(tree->AsUnOp());
@@ -352,8 +346,8 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_RETFILT:
             if (!tree->TypeIs(TYP_VOID))
             {
-                assert(tree->TypeGet() == TYP_INT);
-                BuildUse(tree->gtGetOp1(), RBM_INTRET);
+                assert(tree->TypeIs(TYP_INT));
+                BuildUse(tree->AsUnOp()->GetOp(0), RBM_INTRET);
             }
             break;
 
@@ -362,41 +356,29 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildUse(tree->AsBoundsChk()->GetOp(1));
             break;
 
-        case GT_ARR_ELEM:
-            // These must have been lowered to GT_ARR_INDEX
-            noway_assert(!"We should never see a GT_ARR_ELEM in lowering");
+        case GT_ARR_INDEX:
+            BuildInternalIntDef(tree);
+            setInternalRegsDelayFree = true;
+            // The lifetime of the arrObj must be extended because it is
+            // used multiple times while the result is being computed.
+            setDelayFree(BuildUse(tree->AsArrIndex()->ArrObj()));
+            BuildUse(tree->AsArrIndex()->IndexExpr());
+            BuildInternalUses();
+            BuildDef(tree);
             break;
 
-        case GT_ARR_INDEX:
-        {
-            buildInternalIntRegisterDefForNode(tree);
-            setInternalRegsDelayFree = true;
-
-            // For GT_ARR_INDEX, the lifetime of the arrObj must be extended because it is actually used multiple
-            // times while the result is being computed.
-            RefPosition* arrObjUse = BuildUse(tree->AsArrIndex()->ArrObj());
-            setDelayFree(arrObjUse);
-            BuildUse(tree->AsArrIndex()->IndexExpr());
-            buildInternalRegisterUses();
-            BuildDef(tree);
-        }
-        break;
-
         case GT_ARR_OFFSET:
-
-            // This consumes the offset, if any, the arrObj and the effective index,
-            // and produces the flattened offset for this dimension.
-
             if (!tree->AsArrOffs()->GetOp(0)->isContained())
             {
                 // Here we simply need an internal register, which must be different
                 // from any of the operand's registers, but may be the same as targetReg.
-                buildInternalIntRegisterDefForNode(tree);
+                BuildInternalIntDef(tree);
                 BuildUse(tree->AsArrOffs()->GetOp(0));
             }
+
             BuildUse(tree->AsArrOffs()->GetOp(1));
             BuildUse(tree->AsArrOffs()->GetOp(2));
-            buildInternalRegisterUses();
+            BuildInternalUses();
             BuildDef(tree);
             break;
 
@@ -408,6 +390,7 @@ void LinearScan::BuildNode(GenTree* tree)
             {
                 BuildUse(base);
             }
+
             if (GenTree* index = lea->GetIndex())
             {
                 BuildUse(index);
@@ -422,7 +405,7 @@ void LinearScan::BuildNode(GenTree* tree)
                 if (offset != 0)
                 {
                     // We need a register when we have all three: base reg, index reg and a non-zero offset.
-                    buildInternalIntRegisterDefForNode(tree);
+                    BuildInternalIntDef(tree);
                 }
             }
             else if (lea->HasBase())
@@ -430,20 +413,14 @@ void LinearScan::BuildNode(GenTree* tree)
                 if (!emitter::emitIns_valid_imm_for_add(offset, INS_FLAGS_DONT_CARE))
                 {
                     // We need a register when we have an offset that is too large to encode in the add instruction.
-                    buildInternalIntRegisterDefForNode(tree);
+                    BuildInternalIntDef(tree);
                 }
             }
-            buildInternalRegisterUses();
+
+            BuildInternalUses();
             BuildDef(tree);
         }
         break;
-
-        case GT_FNEG:
-        case GT_NEG:
-        case GT_NOT:
-            BuildUse(tree->gtGetOp1());
-            BuildDef(tree);
-            break;
 
         case GT_EQ:
         case GT_NE:
@@ -453,13 +430,6 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_GT:
         case GT_CMP:
             BuildCmp(tree->AsOp());
-            break;
-
-        case GT_CKFINITE:
-            buildInternalIntRegisterDefForNode(tree);
-            BuildUse(tree->gtGetOp1());
-            buildInternalRegisterUses();
-            BuildDef(tree);
             break;
 
         case GT_CALL:
@@ -492,15 +462,6 @@ void LinearScan::BuildNode(GenTree* tree)
             }
             break;
 
-        case GT_NULLCHECK:
-#ifdef TARGET_ARM
-            // On Arm32 we never want to use GT_NULLCHECK, as we require a target register.
-            // Previously we used an internal register for this, but that results in a lifetime
-            // that overlaps with all the source registers.
-            assert(!"Should never see GT_NULLCHECK on Arm/32");
-#endif
-            // For Arm64 we simply fall through to the GT_IND case, and will use REG_ZR as the target.
-            FALLTHROUGH;
         case GT_IND:
             BuildIndir(tree->AsIndir());
             break;
@@ -560,37 +521,17 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildSimple(tree);
             break;
 
-        case GT_INDEX_ADDR:
-            buildInternalIntRegisterDefForNode(tree);
-            BuildBinaryUses(tree->AsOp());
-            buildInternalRegisterUses();
-            BuildDef(tree);
-            break;
-
         case GT_INSTR:
             BuildInstr(tree->AsInstr());
             break;
 
         case GT_IL_OFFSET:
+        case GT_NO_OP:
+        case GT_START_NONGC:
+        case GT_PROF_HOOK:
             break;
 
-        case GT_ARGPLACE:
-        case GT_ASG:
-        case GT_BLK:
-        case GT_FIELD_LIST:
-        case GT_INIT_VAL:
-        case GT_BOX:
-        case GT_COMMA:
-        case GT_QMARK:
-            unreached();
-
         default:
-#ifdef DEBUG
-            char message[256];
-            _snprintf_s(message, _countof(message), _TRUNCATE, "NYI: Unimplemented node type %s",
-                        GenTree::OpName(tree->OperGet()));
-            NYIRAW(message);
-#endif
             unreached();
     }
 }

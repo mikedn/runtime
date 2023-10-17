@@ -1259,6 +1259,14 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
     int                 oldDefListCount = defList.Count();
 #endif // DEBUG
 
+#ifdef TARGET_XARCH
+    if (varTypeUsesFloatReg(tree->GetType()))
+    {
+        SetContainsAVXFlags();
+    }
+#endif
+
+    clearBuildState();
     BuildNode(tree);
 
 #ifdef DEBUG
@@ -2472,18 +2480,20 @@ int LinearScan::BuildBinaryUses(GenTreeOp* node, regMaskTP candidates)
     {
         return BuildRMWUses(node, candidates);
     }
-#endif // TARGET_XARCH
-    int      srcCount = 0;
-    GenTree* op1      = node->gtOp1;
-    GenTree* op2      = node->gtGetOp2IfPresent();
-    if (op1 != nullptr)
+#endif
+
+    int srcCount = 0;
+
+    if (GenTree* op1 = node->gtOp1)
     {
         srcCount += BuildOperandUses(op1, candidates);
     }
-    if (op2 != nullptr)
+
+    if (GenTree* op2 = node->gtGetOp2IfPresent())
     {
         srcCount += BuildOperandUses(op2, candidates);
     }
+
     return srcCount;
 }
 

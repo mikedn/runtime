@@ -35,12 +35,12 @@ void LinearScan::BuildIndir(GenTreeIndir* indirTree)
 
         if (type == TYP_FLOAT)
         {
-            buildInternalIntRegisterDefForNode(indirTree);
+            BuildInternalIntDef(indirTree);
         }
         else if (type == TYP_DOUBLE)
         {
-            buildInternalIntRegisterDefForNode(indirTree);
-            buildInternalIntRegisterDefForNode(indirTree);
+            BuildInternalIntDef(indirTree);
+            BuildInternalIntDef(indirTree);
         }
     }
 #endif
@@ -57,19 +57,19 @@ void LinearScan::BuildIndir(GenTreeIndir* indirTree)
             if ((index != nullptr) && (cns != 0))
             {
                 // ARM does not support both Index and offset so we need an internal register
-                buildInternalIntRegisterDefForNode(indirTree);
+                BuildInternalIntDef(indirTree);
             }
             else if (!emitter::emitIns_valid_imm_for_ldst_offset(cns, emitTypeSize(indirTree)))
             {
                 // This offset can't be contained in the ldr/str instruction, so we need an internal register
-                buildInternalIntRegisterDefForNode(indirTree);
+                BuildInternalIntDef(indirTree);
             }
         }
 #ifdef TARGET_ARM64
         else if (addr->OperGet() == GT_CLS_VAR_ADDR)
         {
             // Reserve int to load constant from memory (IF_LARGELDC)
-            buildInternalIntRegisterDefForNode(indirTree);
+            BuildInternalIntDef(indirTree);
         }
 #endif // TARGET_ARM64
     }
@@ -79,7 +79,7 @@ void LinearScan::BuildIndir(GenTreeIndir* indirTree)
     {
         // Vector3 is read/written as two reads/writes: 8 byte and 4 byte.
         // To assemble the vector properly we would need an additional int register
-        buildInternalIntRegisterDefForNode(indirTree);
+        BuildInternalIntDef(indirTree);
 
         if (indirTree->OperIs(GT_STOREIND))
         {
@@ -94,7 +94,7 @@ void LinearScan::BuildIndir(GenTreeIndir* indirTree)
                     BuildIndirUses(value->AsIndir());
                 }
 
-                buildInternalRegisterUses();
+                BuildInternalUses();
 
                 return;
             }
@@ -103,7 +103,7 @@ void LinearScan::BuildIndir(GenTreeIndir* indirTree)
 #endif // FEATURE_SIMD
 
     BuildIndirUses(indirTree);
-    buildInternalRegisterUses();
+    BuildInternalUses();
 
     if (!indirTree->OperIs(GT_STOREIND, GT_NULLCHECK))
     {
@@ -135,18 +135,18 @@ void LinearScan::BuildCall(GenTreeCall* call)
 #ifdef FEATURE_READYTORUN_COMPILER
     else if (call->IsR2ROrVirtualStubRelativeIndir())
     {
-        buildInternalIntRegisterDefForNode(call);
+        BuildInternalIntDef(call);
     }
 #endif
 #ifdef TARGET_ARM
     else
     {
-        buildInternalIntRegisterDefForNode(call);
+        BuildInternalIntDef(call);
     }
 
     if (call->NeedsNullCheck())
     {
-        buildInternalIntRegisterDefForNode(call);
+        BuildInternalIntDef(call);
     }
 
 #endif // TARGET_ARM
@@ -275,7 +275,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
                     // Vector3 is read/written as two reads/writes: 8 byte and 4 byte.
                     // To assemble the vector properly we would need an additional int register.
                     // The other platforms can write it as 16-byte using 1 write.
-                    buildInternalIntRegisterDefForNode(use.GetNode());
+                    BuildInternalIntDef(use.GetNode());
                 }
 #endif // FEATURE_SIMD && OSX_ARM64_ABI
             }
@@ -289,9 +289,9 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
         assert(src->isContained());
 
         // We can use a ldp/stp sequence so we need two internal registers for ARM64; one for ARM.
-        buildInternalIntRegisterDefForNode(putArg);
+        BuildInternalIntDef(putArg);
 #ifdef TARGET_ARM64
-        buildInternalIntRegisterDefForNode(putArg);
+        BuildInternalIntDef(putArg);
 #endif
 
         if (src->OperIs(GT_OBJ))
@@ -299,7 +299,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
             BuildAddrUses(src->AsObj()->GetAddr());
         }
 
-        buildInternalRegisterUses();
+        BuildInternalUses();
 
         return;
     }
@@ -591,7 +591,7 @@ void LinearScan::BuildCast(GenTreeCast* cast)
 #endif
 
     BuildOperandUses(src);
-    buildInternalRegisterUses();
+    BuildInternalUses();
     BuildDef(cast);
 }
 
