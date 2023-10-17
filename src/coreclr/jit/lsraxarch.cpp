@@ -88,19 +88,6 @@ void LinearScan::BuildNode(GenTree* tree)
             }
             break;
 
-        case GT_NOP:
-            assert((tree->gtGetOp1() == nullptr) || tree->isContained());
-            // A GT_NOP is either a passthrough (if it is void, or if it has
-            // a child), but must be considered to produce a dummy value if it
-            // has a type but no child
-            // TODO-MIKE-Review: op1 == nullptr => BuildUse(op1)... Genius!!!
-            if (!tree->TypeIs(TYP_VOID) && (tree->gtGetOp1() == nullptr))
-            {
-                BuildUse(tree->gtGetOp1());
-                BuildDef(tree);
-            }
-            break;
-
         case GT_KEEPALIVE:
             BuildOperandUses(tree->AsUnOp()->GetOp(0));
             break;
@@ -149,6 +136,7 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_LABEL:
             BuildDef(tree);
             FALLTHROUGH;
+        case GT_NOP:
         case GT_NO_OP:
         case GT_IL_OFFSET:
         case GT_START_NONGC:
