@@ -99,6 +99,7 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildInternalIntDef(tree);
             BuildUse(tree->AsOp()->GetOp(0));
             BuildUse(tree->AsOp()->GetOp(1));
+            BuildInternalUses();
             break;
 
         case GT_FADD:
