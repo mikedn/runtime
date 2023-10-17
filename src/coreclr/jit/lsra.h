@@ -1903,7 +1903,7 @@ private:
 
     void BuildReturn(GenTreeUnOp* ret);
 #ifdef TARGET_XARCH
-    void BuildShiftRotate(GenTree* tree);
+    void BuildShiftRotate(GenTreeOp* node);
     void BuildModDiv(GenTree* tree);
     void BuildMul(GenTreeOp* tree);
     void BuildMulLong(GenTreeOp* mul);

@@ -864,6 +864,9 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
 
     if (op1->OperIs(GT_AND, GT_OR, GT_XOR, GT_ADD, GT_SUB, GT_NEG) && cmp->OperIs(GT_EQ, GT_NE) && (op2Value == 0))
     {
+        // TODO-CQ: We can also do this for shifts, if the shift count is known to
+        // be non-zero (const basically), otherwise the condition flags are not set.
+
         // TODO-CQ: right now the below peep is inexpensive and gets the benefit in most
         // cases because in majority of cases op1, op2 and cmp would be in that order in
         // execution. In general we should be able to check that all the nodes that come

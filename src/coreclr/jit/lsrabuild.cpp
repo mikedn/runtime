@@ -2216,9 +2216,9 @@ void LinearScan::BuildKills(GenTree* tree, regMaskTP killMask)
     // Call this even when killMask is RBM_NONE, as we have to check for some special cases
     buildKillPositionsForNode(tree, currentLoc + 1, killMask);
 
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     if (killMask != RBM_NONE)
     {
-#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
         // Build RefPositions to account for the fact that, even in a callee-save register, the upper half of any large
         // vector will be killed by a call.
         // We actually need to find any calls that kill the upper-half of the callee-save vector registers.
@@ -2234,8 +2234,8 @@ void LinearScan::BuildKills(GenTree* tree, regMaskTP killMask)
         {
             buildUpperVectorSaveRefPositions(tree, currentLoc + 1, killMask);
         }
-#endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     }
+#endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 }
 
 RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int multiRegIdx)

@@ -65,9 +65,9 @@ void LinearScan::BuildNode(GenTree* tree)
 #ifndef TARGET_64BIT
         case GT_LONG:
             // Contained nodes are already processed, only unused LONG can reach here.
-            // TODO-MIKE-Review: Why is such a mul generated in the first place?
+            // TODO-MIKE-Review: Why is such a node generated in the first place?
             assert(tree->IsUnusedValue());
-            // An unused LONG mul needs to consume its sources, but need not produce a register.
+            // An unused LONG node needs to consume its sources, but need not produce a register.
             tree->SetType(TYP_VOID);
             tree->ClearUnusedValue();
             BuildUse(tree->AsOp()->GetOp(0));
@@ -236,7 +236,7 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_LSH_HI:
         case GT_RSH_LO:
 #endif
-            BuildShiftRotate(tree);
+            BuildShiftRotate(tree->AsOp());
             break;
 
         case GT_EQ:
@@ -429,19 +429,15 @@ void LinearScan::getTgtPrefOperands(GenTreeOp* tree, bool& prefOp1, bool& prefOp
 {
     assert(isRMWRegOper(tree));
 
-    GenTree* op1 = tree->gtGetOp1();
-    GenTree* op2 = tree->gtGetOp2();
+    GenTree* op1 = tree->GetOp(0);
+    GenTree* op2 = tree->GetOp(1);
 
-    // If we have a read-modify-write operation, we want to preference op1 to the target,
-    // if it is not contained.
     if (!op1->isContained())
     {
         prefOp1 = true;
     }
 
-    // Commutative opers like add/mul/and/or/xor could reverse the order of operands if it is safe to do so.
-    // In that case we will preference both, to increase the chance of getting a match.
-    if (tree->OperIsCommutative() && op2 != nullptr && !op2->isContained())
+    if (tree->OperIsCommutative() && !op2->isContained())
     {
         prefOp2 = true;
     }
@@ -539,7 +535,7 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
         {
             delayUseOperand = op1;
         }
-        else if (!op2->isContained() || op2->IsCnsIntOrI())
+        else if (!op2->isContained() || op2->IsIntCon())
         {
             // If we have a commutative operator and op2 is not a memory op, we don't need
             // to set delayRegFree on either operand because codegen can swap them.
@@ -571,39 +567,31 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
         BuildOperandUses(op1, op1Candidates);
     }
 
-    if (op2 != nullptr)
+    if (prefOp2)
     {
-        if (prefOp2)
-        {
-            assert(!op2->isContained());
-            tgtPrefUse2 = BuildUse(op2, op2Candidates);
-        }
-        else if (delayUseOperand == op2)
-        {
-            BuildDelayFreeUses(op2, op1, op2Candidates);
-        }
-        else
-        {
-            BuildOperandUses(op2, op2Candidates);
-        }
+        assert(!op2->isContained());
+        tgtPrefUse2 = BuildUse(op2, op2Candidates);
+    }
+    else if (delayUseOperand == op2)
+    {
+        BuildDelayFreeUses(op2, op1, op2Candidates);
+    }
+    else
+    {
+        BuildOperandUses(op2, op2Candidates);
     }
 }
 
-void LinearScan::BuildShiftRotate(GenTree* tree)
+void LinearScan::BuildShiftRotate(GenTreeOp* tree)
 {
-    // For shift operations, we need that the number
-    // of bits moved gets stored in CL in case
-    // the number of bits to shift is not a constant.
-    GenTree*  shiftBy       = tree->gtGetOp2();
-    GenTree*  source        = tree->gtGetOp1();
+    GenTree*  shiftBy       = tree->GetOp(1);
+    GenTree*  source        = tree->GetOp(0);
     regMaskTP srcCandidates = RBM_NONE;
     regMaskTP dstCandidates = RBM_NONE;
 
-    // x64 can encode 8 bits of shift and it will use 5 or 6. (the others are masked off)
-    // We will allow whatever can be encoded - hope you know what you are doing.
     if (shiftBy->isContained())
     {
-        assert(shiftBy->OperIsConst());
+        assert(shiftBy->IsIntCon());
     }
     else
     {
@@ -611,28 +599,18 @@ void LinearScan::BuildShiftRotate(GenTree* tree)
         dstCandidates = allRegs(TYP_INT) & ~RBM_RCX;
     }
 
-    // Note that Rotate Left/Right instructions don't set ZF and SF flags.
-    //
-    // If the operand being shifted is 32-bits then upper three bits are masked
-    // by hardware to get actual shift count.  Similarly for 64-bit operands
-    // shift count is narrowed to [0..63].  If the resulting shift count is zero,
-    // then shift operation won't modify flags.
-    //
-    // TODO-CQ-XARCH: We can optimize generating 'test' instruction for GT_EQ/NE(shift, 0)
-    // if the shift count is known to be non-zero and in the range depending on the
-    // operand size.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
 #ifdef TARGET_X86
     // The first operand of a GT_LSH_HI and GT_RSH_LO oper is a GT_LONG so that
     // we can have a three operand form.
-    if (tree->OperGet() == GT_LSH_HI || tree->OperGet() == GT_RSH_LO)
+    if (tree->OperIs(GT_LSH_HI, GT_RSH_LO))
     {
-        assert((source->OperGet() == GT_LONG) && source->isContained());
+        assert(source->OperIs(GT_LONG) && source->isContained());
 
-        GenTree* sourceLo = source->gtGetOp1();
-        GenTree* sourceHi = source->gtGetOp2();
+        GenTree* sourceLo = source->AsOp()->GetOp(0);
+        GenTree* sourceHi = source->AsOp()->GetOp(1);
+
         assert(!sourceLo->isContained() && !sourceHi->isContained());
+
         RefPosition* sourceLoUse = BuildUse(sourceLo, srcCandidates);
         RefPosition* sourceHiUse = BuildUse(sourceHi, srcCandidates);
 
@@ -1365,7 +1343,7 @@ void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
         else
         {
             // Compute the amount of memory to properly STACK_ALIGN.
-            // Note: The Gentree mul is not updated here as it is cheap to recompute stack aligned size.
+            // Note: The Gentree node is not updated here as it is cheap to recompute stack aligned size.
             // This should also help in debugging as we can examine the original size specified with localloc.
             sizeVal = AlignUp(sizeVal, STACK_ALIGN);
 
