@@ -1906,6 +1906,7 @@ private:
     void BuildShiftRotate(GenTree* tree);
     void BuildModDiv(GenTree* tree);
     void BuildMul(GenTreeOp* tree);
+    void BuildMulLong(GenTreeOp* mul);
     void BuildIntrinsic(GenTreeIntrinsic* tree);
 #endif
 #ifdef TARGET_ARM
@@ -1931,9 +1932,8 @@ private:
     void BuildGCWriteBarrier(GenTreeStoreInd* store);
     void BuildCast(GenTreeCast* cast);
 
-#if defined(TARGET_XARCH)
-    // returns true if the tree can use the read-modify-write memory instruction form
-    bool isRMWRegOper(GenTreeOp* tree);
+#ifdef TARGET_XARCH
+    INDEBUG(bool isRMWRegOper(GenTreeOp* tree);)
     void SetContainsAVXFlags(unsigned sizeOfSIMDVector = 0);
 #endif
 

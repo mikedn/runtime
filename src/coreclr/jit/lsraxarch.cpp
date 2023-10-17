@@ -65,9 +65,9 @@ void LinearScan::BuildNode(GenTree* tree)
 #ifndef TARGET_64BIT
         case GT_LONG:
             // Contained nodes are already processed, only unused LONG can reach here.
-            // TODO-MIKE-Review: Why is such a tree generated in the first place?
+            // TODO-MIKE-Review: Why is such a mul generated in the first place?
             assert(tree->IsUnusedValue());
-            // An unused LONG tree needs to consume its sources, but need not produce a register.
+            // An unused LONG mul needs to consume its sources, but need not produce a register.
             tree->SetType(TYP_VOID);
             tree->ClearUnusedValue();
             BuildUse(tree->AsOp()->GetOp(0));
@@ -177,12 +177,15 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildModDiv(tree->AsOp());
             break;
 
+        case GT_MUL:
+            BuildMul(tree->AsOp());
+            break;
+
+        case GT_MULHI:
 #ifdef TARGET_X86
         case GT_MUL_LONG:
 #endif
-        case GT_MUL:
-        case GT_MULHI:
-            BuildMul(tree->AsOp());
+            BuildMulLong(tree->AsOp());
             break;
 
         case GT_INTRINSIC:
@@ -444,6 +447,7 @@ void LinearScan::getTgtPrefOperands(GenTreeOp* tree, bool& prefOp1, bool& prefOp
     }
 }
 
+#ifdef DEBUG
 // Check for instructions that use the read/modify/write register format (e.g. ADD eax, 42).
 bool LinearScan::isRMWRegOper(GenTreeOp* tree)
 {
@@ -481,14 +485,14 @@ bool LinearScan::isRMWRegOper(GenTreeOp* tree)
             return false;
     }
 }
+#endif // DEBUG
 
 void LinearScan::BuildRMWUses(GenTreeOp* node)
 {
     assert(isRMWRegOper(node));
 
-    int       srcCount      = 0;
-    GenTree*  op1           = node->gtOp1;
-    GenTree*  op2           = node->gtGetOp2IfPresent();
+    GenTree*  op1           = node->GetOp(0);
+    GenTree*  op2           = node->GetOp(1);
     regMaskTP op1Candidates = RBM_NONE;
     regMaskTP op2Candidates = RBM_NONE;
 
@@ -1361,7 +1365,7 @@ void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
         else
         {
             // Compute the amount of memory to properly STACK_ALIGN.
-            // Note: The Gentree tree is not updated here as it is cheap to recompute stack aligned size.
+            // Note: The Gentree mul is not updated here as it is cheap to recompute stack aligned size.
             // This should also help in debugging as we can examine the original size specified with localloc.
             sizeVal = AlignUp(sizeVal, STACK_ALIGN);
 
@@ -2058,12 +2062,12 @@ void LinearScan::BuildStoreInd(GenTreeIndir* store)
 
 void LinearScan::BuildMul(GenTreeOp* tree)
 {
-    assert(tree->OperIsMul() && varTypeIsIntegral(tree->GetType()));
+    assert(tree->OperIs(GT_MUL) && varTypeIsIntegral(tree->GetType()));
 
     GenTree* op1 = tree->GetOp(0);
     GenTree* op2 = tree->GetOp(1);
 
-    if (isRMWRegOper(tree))
+    if (!op1->IsContainedIntCon() && !op2->IsContainedIntCon())
     {
         BuildRMWUses(tree->AsOp());
     }
@@ -2073,41 +2077,45 @@ void LinearScan::BuildMul(GenTreeOp* tree)
         BuildOperandUses(op2);
     }
 
-    // There are three forms of x86 multiply:
-    // one-op form:     RDX:RAX = RAX * r/m
-    // two-op form:     reg *= r/m
-    // three-op form:   reg = r/m * imm
-
-    BuildKills(tree, getKillSetForMul(tree->AsOp()));
-
-    // We do use the widening multiply to implement
-    // the overflow checking for unsigned multiply
-    //
     if (tree->IsUnsigned() && tree->gtOverflowEx())
     {
-        // The only encoding provided is RDX:RAX = RAX * rm
-        //
-        // Here we set RAX as the only destination candidate
-        // In LSRA we set the kill set for this operation to RBM_RAX|RBM_RDX
-        //
+        // We need to use the "MUL reg/mem" form to get an extended 64/128 bit
+        // result and check the upper half for non-zero to detect overflow.
+
+        BuildKills(tree, RBM_RAX | RBM_RDX);
         BuildDef(tree, RBM_RAX);
     }
-    else if (tree->OperGet() == GT_MULHI)
-    {
-        // Have to use the encoding:RDX:RAX = RAX * rm. Since we only care about the
-        // upper 32 bits of the result set the destination candidate to REG_RDX.
-        BuildDef(tree, RBM_RDX);
-    }
-#if defined(TARGET_X86)
-    else if (tree->OperIs(GT_MUL_LONG))
-    {
-        BuildDef(tree, TYP_INT, RBM_RAX, 0);
-        BuildDef(tree, TYP_INT, RBM_RDX, 1);
-    }
-#endif
     else
     {
         BuildDef(tree);
+    }
+}
+
+void LinearScan::BuildMulLong(GenTreeOp* mul)
+{
+#ifdef TARGET_X86
+    assert(mul->OperIs(GT_MULHI, GT_MUL_LONG));
+#else
+    assert(mul->OperIs(GT_MULHI));
+#endif
+    assert(varTypeIsIntegral(mul->GetType()));
+
+    GenTree* op1 = mul->GetOp(0);
+    GenTree* op2 = mul->GetOp(1);
+
+    BuildRMWUses(mul);
+    BuildKills(mul, RBM_RAX | RBM_RDX);
+
+#ifdef TARGET_X86
+    if (mul->OperIs(GT_MUL_LONG))
+    {
+        BuildDef(mul, TYP_INT, RBM_RAX, 0);
+        BuildDef(mul, TYP_INT, RBM_RDX, 1);
+    }
+    else
+#endif
+    {
+        BuildDef(mul, RBM_RDX);
     }
 }
 
