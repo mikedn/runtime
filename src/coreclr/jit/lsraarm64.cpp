@@ -5,8 +5,7 @@
 
 #ifdef TARGET_ARM64
 
-#include "sideeffects.h"
-#include "lower.h"
+#include "lsra.h"
 
 void LinearScan::BuildNode(GenTree* tree)
 {
@@ -76,8 +75,8 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_RETFILT:
             if (!tree->TypeIs(TYP_VOID))
             {
-                assert(tree->TypeGet() == TYP_INT);
-                BuildUse(tree->gtGetOp1(), RBM_INTRET);
+                assert(tree->TypeIs(TYP_INT));
+                BuildUse(tree->AsUnOp()->GetOp(0), RBM_INTRET);
             }
             break;
 
@@ -159,20 +158,24 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_INTRINSIC:
-        {
-            noway_assert((tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Abs) ||
-                         (tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Ceiling) ||
-                         (tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Floor) ||
-                         (tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Round) ||
-                         (tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Sqrt));
+            switch (tree->AsIntrinsic()->GetIntrinsic())
+            {
+                GenTree* op1;
 
-            // Both operand and its result must be of the same floating point type.
-            GenTree* op1 = tree->AsIntrinsic()->GetOp(0);
-            assert(varTypeIsFloating(op1->GetType()) && (op1->GetType() == tree->GetType()));
-            BuildUse(op1);
-            BuildDef(tree);
-        }
-        break;
+                case NI_System_Math_Abs:
+                case NI_System_Math_Ceiling:
+                case NI_System_Math_Floor:
+                case NI_System_Math_Round:
+                case NI_System_Math_Sqrt:
+                    op1 = tree->AsIntrinsic()->GetOp(0);
+                    assert(varTypeIsFloating(op1->GetType()) && (op1->GetType() == tree->GetType()));
+                    BuildUse(op1);
+                    BuildDef(tree);
+                    break;
+                default:
+                    unreached();
+            }
+            break;
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
@@ -259,11 +262,6 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildOperandUses(tree->AsBoundsChk()->GetOp(1));
             break;
 
-        case GT_ARR_ELEM:
-            // These must have been lowered to GT_ARR_INDEX
-            noway_assert(!"We should never see a GT_ARR_ELEM in lowering");
-            break;
-
         case GT_ARR_INDEX:
             BuildInternalIntDef(tree);
             setInternalRegsDelayFree = true;
@@ -344,6 +342,7 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_SWITCH:
         case GT_MOD:
         case GT_UMOD:
+        case GT_ARR_ELEM:
             unreached();
 
         default:
@@ -368,8 +367,6 @@ void LinearScan::BuildAddrMode(GenTreeAddrMode* lea)
         BuildUse(index);
     }
 
-    // On ARM64 we may need a single internal register
-    // (when both conditions are true then we still only need a single internal register)
     if ((index != nullptr) && (cns != 0))
     {
         // ARM64 does not support both Index and offset so we need an internal register
@@ -559,7 +556,8 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
     if (hasImmediateOperand && !HWIntrinsicInfo::NoJmpTableImm(intrin.id))
     {
-        // We may need to allocate an additional general-purpose register when an intrinsic has a non-const immediate
+        // We may need to allocate an additional general-purpose register when an intrinsic has a non-const
+        // immediate
         // operand and the intrinsic does not have an alternative non-const fallback form.
         // However, for a case when the operand can take only two possible values - zero and one
         // the codegen can use cbnz to do conditional branch, so such register is not needed.
@@ -703,8 +701,10 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
     if ((intrin.category == HW_Category_SIMDByIndexedElement) && (genTypeSize(intrin.baseType) == 2))
     {
-        // Some "Advanced SIMD scalar x indexed element" and "Advanced SIMD vector x indexed element" instructions (e.g.
-        // "MLA (by element)") have encoding that restricts what registers that can be used for the indexed element when
+        // Some "Advanced SIMD scalar x indexed element" and "Advanced SIMD vector x indexed element" instructions
+        // (e.g.
+        // "MLA (by element)") have encoding that restricts what registers that can be used for the indexed element
+        // when
         // the element size is H (i.e. 2 bytes).
         assert(intrin.op2 != nullptr);
 
@@ -748,7 +748,8 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
     {
         if (intrin.op2 != nullptr)
         {
-            // RMW intrinsic operands doesn't have to be delayFree when they can be assigned the same register as op1Reg
+            // RMW intrinsic operands doesn't have to be delayFree when they can be assigned the same register as
+            // op1Reg
             // (i.e. a register that corresponds to read-modify-write operand) and one of them is the last use.
 
             assert(intrin.op1 != nullptr);

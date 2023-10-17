@@ -5,8 +5,7 @@
 
 #ifdef TARGET_XARCH
 
-#include "sideeffects.h"
-#include "lower.h"
+#include "lsra.h"
 
 void LinearScan::BuildNode(GenTree* tree)
 {
