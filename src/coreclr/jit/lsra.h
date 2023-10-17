@@ -1883,7 +1883,6 @@ private:
 
     void setDelayFree(RefPosition* use);
 #ifdef TARGET_XARCH
-    void BuildBinaryUses(GenTreeOp* node);
     int BuildRMWUses(GenTreeOp* node, regMaskTP candidates = RBM_NONE);
 #endif
     void BuildNode(GenTree* tree);

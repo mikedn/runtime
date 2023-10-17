@@ -65,9 +65,9 @@ void LinearScan::BuildNode(GenTree* tree)
 #ifndef TARGET_64BIT
         case GT_LONG:
             // Contained nodes are already processed, only unused LONG can reach here.
-            // TODO-MIKE-Review: Why is such a node generated in the first place?
+            // TODO-MIKE-Review: Why is such a tree generated in the first place?
             assert(tree->IsUnusedValue());
-            // An unused LONG node needs to consume its sources, but need not produce a register.
+            // An unused LONG tree needs to consume its sources, but need not produce a register.
             tree->SetType(TYP_VOID);
             tree->ClearUnusedValue();
             BuildUse(tree->AsOp()->GetOp(0));
@@ -127,7 +127,15 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_AND:
         case GT_OR:
         case GT_XOR:
-            BuildBinaryUses(tree->AsOp());
+            if (isRMWRegOper(tree))
+            {
+                BuildRMWUses(tree->AsOp());
+            }
+            else
+            {
+                BuildOperandUses(tree->AsOp()->GetOp(0));
+                BuildOperandUses(tree->AsOp()->GetOp(1));
+            }
             FALLTHROUGH;
         case GT_JMPTABLE:
         case GT_LCL_ADDR:
@@ -151,7 +159,15 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_LOCKADD:
-            BuildBinaryUses(tree->AsOp());
+            if (isRMWRegOper(tree->AsOp()))
+            {
+                BuildRMWUses(tree->AsOp());
+            }
+            else
+            {
+                BuildOperandUses(tree->AsOp()->GetOp(0));
+                BuildOperandUses(tree->AsOp()->GetOp(1));
+            }
             break;
 
         case GT_RETURNTRAP:
@@ -435,7 +451,7 @@ void LinearScan::getTgtPrefOperands(GenTreeOp* tree, bool& prefOp1, bool& prefOp
     }
 }
 
-// Can this binary interlocked node be used in a Read-Modify-Write format
+// Can this binary interlocked tree be used in a Read-Modify-Write format
 bool LinearScan::isRMWRegOper(GenTree* tree)
 {
     // TODO-XArch-CQ: Make this more accurate.
@@ -1366,7 +1382,7 @@ void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
         else
         {
             // Compute the amount of memory to properly STACK_ALIGN.
-            // Note: The Gentree node is not updated here as it is cheap to recompute stack aligned size.
+            // Note: The Gentree tree is not updated here as it is cheap to recompute stack aligned size.
             // This should also help in debugging as we can examine the original size specified with localloc.
             sizeVal = AlignUp(sizeVal, STACK_ALIGN);
 
@@ -2068,7 +2084,15 @@ void LinearScan::BuildMul(GenTreeOp* tree)
     GenTree* op1 = tree->GetOp(0);
     GenTree* op2 = tree->GetOp(1);
 
-    BuildBinaryUses(tree->AsOp());
+    if (isRMWRegOper(tree))
+    {
+        BuildRMWUses(tree->AsOp());
+    }
+    else
+    {
+        BuildOperandUses(op1);
+        BuildOperandUses(op2);
+    }
 
     // There are three forms of x86 multiply:
     // one-op form:     RDX:RAX = RAX * r/m
@@ -2189,19 +2213,6 @@ void LinearScan::BuildCmp(GenTreeOp* cmp)
     if (!cmp->TypeIs(TYP_VOID))
     {
         BuildDef(cmp, dstCandidates);
-    }
-}
-
-void LinearScan::BuildBinaryUses(GenTreeOp* node)
-{
-    if (isRMWRegOper(node))
-    {
-        BuildRMWUses(node);
-    }
-    else
-    {
-        BuildOperandUses(node->GetOp(0));
-        BuildOperandUses(node->GetOp(1));
     }
 }
 
