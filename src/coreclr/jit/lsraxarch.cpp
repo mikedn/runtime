@@ -29,7 +29,7 @@ void LinearScan::BuildNode(GenTree* tree)
             // Need an additional register to read upper 4 bytes of Vector3.
             if (tree->TypeIs(TYP_SIMD12))
             {
-                // We need an internal register different from targetReg in which 'tree'
+                // We need an internal register different from targetReg in which 'interlocked'
                 // produces its result because both targetReg and internal reg will be in
                 // use at the same time.
                 BuildInternalFloatDef(tree, allSIMDRegs());
@@ -250,28 +250,15 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_CMPXCHG:
-            BuildUse(tree->AsCmpXchg()->GetOp(0), allRegs(TYP_INT) & ~RBM_RAX);
-            BuildUse(tree->AsCmpXchg()->GetOp(1), allRegs(TYP_INT) & ~RBM_RAX);
-            BuildUse(tree->AsCmpXchg()->GetOp(2), RBM_RAX);
-            BuildDef(tree, RBM_RAX);
+            BuildCmpXchg(tree->AsCmpXchg());
             break;
 
         case GT_XORR:
         case GT_XAND:
         case GT_XADD:
         case GT_XCHG:
-        {
-            GenTree* addr  = tree->AsOp()->GetOp(0);
-            GenTree* value = tree->AsOp()->GetOp(1);
-            assert(!addr->isContained());
-            RefPosition* addrUse = BuildUse(addr);
-            setDelayFree(addrUse);
-            tgtPrefUse = addrUse;
-            assert(!value->isContained());
-            BuildUse(value);
-            BuildDef(tree);
-        }
-        break;
+            BuildInterlocked(tree->AsOp());
+            break;
 
         case GT_PUTARG_REG:
             BuildPutArgReg(tree->AsUnOp());
@@ -296,7 +283,7 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_LCLHEAP:
-            BuildLclHeap(tree);
+            BuildLclHeap(tree->AsUnOp());
             break;
 
         case GT_BOUNDS_CHECK:
@@ -328,17 +315,7 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_LEA:
-            if (GenTree* base = tree->AsAddrMode()->GetBase())
-            {
-                BuildUse(base);
-            }
-
-            if (GenTree* index = tree->AsAddrMode()->GetIndex())
-            {
-                BuildUse(index);
-            }
-
-            BuildDef(tree);
+            BuildAddrMode(tree->AsAddrMode());
             break;
 
         case GT_STOREIND:
@@ -415,6 +392,42 @@ void LinearScan::BuildNode(GenTree* tree)
     }
 }
 
+void LinearScan::BuildAddrMode(GenTreeAddrMode* lea)
+{
+    if (GenTree* base = lea->GetBase())
+    {
+        BuildUse(base);
+    }
+
+    if (GenTree* index = lea->GetIndex())
+    {
+        BuildUse(index);
+    }
+
+    BuildDef(lea);
+}
+
+void LinearScan::BuildCmpXchg(GenTreeCmpXchg* cmpxchg)
+{
+    BuildUse(cmpxchg->GetOp(0), allRegs(TYP_INT) & ~RBM_RAX);
+    BuildUse(cmpxchg->GetOp(1), allRegs(TYP_INT) & ~RBM_RAX);
+    BuildUse(cmpxchg->GetOp(2), RBM_RAX);
+    BuildDef(cmpxchg, RBM_RAX);
+}
+
+void LinearScan::BuildInterlocked(GenTreeOp* interlocked)
+{
+    GenTree* addr  = interlocked->GetOp(0);
+    GenTree* value = interlocked->GetOp(1);
+    assert(!addr->isContained());
+    RefPosition* addrUse = BuildUse(addr);
+    setDelayFree(addrUse);
+    tgtPrefUse = addrUse;
+    assert(!value->isContained());
+    BuildUse(value);
+    BuildDef(interlocked);
+}
+
 // Identify whether the operands of an Op should be preferenced to the target.
 void LinearScan::getTgtPrefOperands(GenTreeOp* tree, bool& prefOp1, bool& prefOp2)
 {
@@ -441,7 +454,7 @@ void LinearScan::getTgtPrefOperands(GenTreeOp* tree, bool& prefOp1, bool& prefOp
     }
 }
 
-// Can this binary tree node be used in a Read-Modify-Write format
+// Can this binary interlocked node be used in a Read-Modify-Write format
 bool LinearScan::isRMWRegOper(GenTree* tree)
 {
     // TODO-XArch-CQ: Make this more accurate.
@@ -1339,7 +1352,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     BuildOperandUses(src);
 }
 
-void LinearScan::BuildLclHeap(GenTree* tree)
+void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
 {
     // Need a variable number of temp regs (see genLclHeap() in codegenamd64.cpp):
     // Here '-' means don't care.

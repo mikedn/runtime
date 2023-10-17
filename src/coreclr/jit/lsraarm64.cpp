@@ -29,7 +29,7 @@ void LinearScan::BuildNode(GenTree* tree)
             // Need an additional register to read upper 4 bytes of Vector3.
             if (tree->TypeIs(TYP_SIMD12))
             {
-                // We need an internal register different from targetReg in which 'tree' produces its result
+                // We need an internal register different from targetReg in which 'interlocked' produces its result
                 // because both targetReg and internal reg will be in use at the same time.
                 BuildInternalFloatDef(tree, allSIMDRegs());
                 setInternalRegsDelayFree = true;
@@ -211,104 +211,16 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_CMPXCHG:
-        {
-            GenTreeCmpXchg* cmpXchgNode = tree->AsCmpXchg();
-
-            if (!compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
-            {
-                // For ARMv8 exclusives requires a single internal register
-                BuildInternalIntDef(tree);
-            }
-
-            // For ARMv8 exclusives the lifetime of the addr and data must be extended because
-            // it may be used used multiple during retries
-
-            // For ARMv8.1 atomic cas the lifetime of the addr and data must be extended to prevent
-            // them being reused as the target register which must be destroyed early
-
-            RefPosition* locationUse = BuildUse(tree->AsCmpXchg()->GetOp(0));
-            setDelayFree(locationUse);
-
-            RefPosition* valueUse = BuildUse(tree->AsCmpXchg()->GetOp(1));
-            setDelayFree(valueUse);
-
-            if (!cmpXchgNode->GetOp(2)->isContained())
-            {
-                RefPosition* comparandUse = BuildUse(tree->AsCmpXchg()->GetOp(2));
-
-                // For ARMv8 exclusives the lifetime of the comparand must be extended because
-                // it may be used used multiple during retries
-                if (!compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
-                {
-                    setDelayFree(comparandUse);
-                }
-            }
-
-            // Internals may not collide with target
-            setInternalRegsDelayFree = true;
-            BuildInternalUses();
-            BuildDef(tree);
-        }
-        break;
+            BuildCmpXchg(tree->AsCmpXchg());
+            break;
 
         case GT_LOCKADD:
         case GT_XORR:
         case GT_XAND:
         case GT_XADD:
         case GT_XCHG:
-        {
-            if (!compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
-            {
-                // GT_XCHG requires a single internal register; the others require two.
-                BuildInternalIntDef(tree);
-
-                if (!tree->OperIs(GT_XCHG))
-                {
-                    BuildInternalIntDef(tree);
-                }
-            }
-            else if (tree->OperIs(GT_XAND))
-            {
-                // for ldclral we need an internal register.
-                BuildInternalIntDef(tree);
-            }
-
-            assert(!tree->gtGetOp1()->isContained());
-
-            RefPosition* op1Use = BuildUse(tree->gtGetOp1());
-            RefPosition* op2Use = nullptr;
-
-            if (!tree->gtGetOp2()->isContained())
-            {
-                op2Use = BuildUse(tree->gtGetOp2());
-            }
-
-            // For ARMv8 exclusives the lifetime of the addr and data must be extended because
-            // it may be used used multiple during retries
-            if (!compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
-            {
-                // Internals may not collide with target
-                if (!tree->TypeIs(TYP_VOID))
-                {
-                    setDelayFree(op1Use);
-
-                    if (op2Use != nullptr)
-                    {
-                        setDelayFree(op2Use);
-                    }
-
-                    setInternalRegsDelayFree = true;
-                }
-
-                BuildInternalUses();
-            }
-
-            if (!tree->TypeIs(TYP_VOID))
-            {
-                BuildDef(tree);
-            }
-        }
-        break;
+            BuildInterlocked(tree->AsOp());
+            break;
 
 #if FEATURE_ARG_SPLIT
         case GT_PUTARG_SPLIT:
@@ -339,76 +251,8 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_LCLHEAP:
-        {
-            // Need a variable number of temp regs (see genLclHeap() in codegenamd64.cpp):
-            // Here '-' means don't care.
-            //
-            //  Size?                   Init Memory?    # temp regs
-            //   0                          -               0
-            //   const and <=6 ptr words    -               0
-            //   const and <PageSize        No              0
-            //   >6 ptr words               Yes             0
-            //   Non-const                  Yes             0
-            //   Non-const                  No              2
-            //
-
-            GenTree* size = tree->AsUnOp()->GetOp(0);
-
-            if (size->IsIntCon())
-            {
-                assert(size->isContained());
-
-                size_t sizeVal = size->AsIntCon()->GetUnsignedValue();
-
-                if (sizeVal != 0)
-                {
-                    // Compute the amount of memory to properly STACK_ALIGN.
-                    // Note: The Gentree node is not updated here as it is cheap to recompute stack aligned size.
-                    // This should also help in debugging as we can examine the original size specified with
-                    // localloc.
-                    sizeVal         = AlignUp(sizeVal, STACK_ALIGN);
-                    size_t stpCount = sizeVal / (REGSIZE_BYTES * 2);
-
-                    // For small allocations up to 4 'stp' instructions (i.e. 16 to 64 bytes of localloc)
-                    //
-                    if (stpCount <= 4)
-                    {
-                        // Need no internal registers
-                    }
-                    else if (!compiler->info.compInitMem)
-                    {
-                        // No need to initialize allocated stack space.
-                        if (sizeVal < compiler->eeGetPageSize())
-                        {
-                            // Need no internal registers
-                        }
-                        else
-                        {
-                            // We need two registers: regCnt and RegTmp
-                            BuildInternalIntDef(tree);
-                            BuildInternalIntDef(tree);
-                        }
-                    }
-                }
-            }
-            else
-            {
-                if (!compiler->info.compInitMem)
-                {
-                    BuildInternalIntDef(tree);
-                    BuildInternalIntDef(tree);
-                }
-            }
-
-            if (!size->isContained())
-            {
-                BuildUse(size);
-            }
-
-            BuildInternalUses();
-            BuildDef(tree);
-        }
-        break;
+            BuildLclHeap(tree->AsUnOp());
+            break;
 
         case GT_BOUNDS_CHECK:
             BuildOperandUses(tree->AsBoundsChk()->GetOp(0));
@@ -447,40 +291,8 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_LEA:
-        {
-            GenTreeAddrMode* lea = tree->AsAddrMode();
-
-            GenTree* base  = lea->GetBase();
-            GenTree* index = lea->GetIndex();
-            int      cns   = lea->GetOffset();
-
-            if (base != nullptr)
-            {
-                BuildUse(base);
-            }
-
-            if (index != nullptr)
-            {
-                BuildUse(index);
-            }
-
-            // On ARM64 we may need a single internal register
-            // (when both conditions are true then we still only need a single internal register)
-            if ((index != nullptr) && (cns != 0))
-            {
-                // ARM64 does not support both Index and offset so we need an internal register
-                BuildInternalIntDef(tree);
-            }
-            else if (!emitter::emitIns_valid_imm_for_add(cns, EA_8BYTE))
-            {
-                // This offset can't be contained in the add instruction, so we need an internal register
-                BuildInternalIntDef(tree);
-            }
-
-            BuildInternalUses();
-            BuildDef(tree);
-        }
-        break;
+            BuildAddrMode(tree->AsAddrMode());
+            break;
 
         case GT_STOREIND:
             if (GCInfo::GetWriteBarrierForm(tree->AsStoreInd()) != GCInfo::WBF_NoBarrier)
@@ -538,6 +350,202 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildSimple(tree);
             break;
     }
+}
+
+void LinearScan::BuildAddrMode(GenTreeAddrMode* lea)
+{
+    GenTree* base  = lea->GetBase();
+    GenTree* index = lea->GetIndex();
+    int      cns   = lea->GetOffset();
+
+    if (base != nullptr)
+    {
+        BuildUse(base);
+    }
+
+    if (index != nullptr)
+    {
+        BuildUse(index);
+    }
+
+    // On ARM64 we may need a single internal register
+    // (when both conditions are true then we still only need a single internal register)
+    if ((index != nullptr) && (cns != 0))
+    {
+        // ARM64 does not support both Index and offset so we need an internal register
+        BuildInternalIntDef(lea);
+    }
+    else if (!emitter::emitIns_valid_imm_for_add(cns, EA_8BYTE))
+    {
+        // This offset can't be contained in the add instruction, so we need an internal register
+        BuildInternalIntDef(lea);
+    }
+
+    BuildInternalUses();
+    BuildDef(lea);
+}
+
+void LinearScan::BuildCmpXchg(GenTreeCmpXchg* cmpxchg)
+{
+    if (!compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
+    {
+        // For ARMv8 exclusives requires a single internal register
+        BuildInternalIntDef(cmpxchg);
+    }
+
+    // For ARMv8 exclusives the lifetime of the addr and data must be extended because
+    // it may be used used multiple during retries
+
+    // For ARMv8.1 atomic cas the lifetime of the addr and data must be extended to prevent
+    // them being reused as the target register which must be destroyed early
+
+    RefPosition* locationUse = BuildUse(cmpxchg->GetOp(0));
+    setDelayFree(locationUse);
+
+    RefPosition* valueUse = BuildUse(cmpxchg->GetOp(1));
+    setDelayFree(valueUse);
+
+    if (!cmpxchg->GetOp(2)->isContained())
+    {
+        RefPosition* comparandUse = BuildUse(cmpxchg->GetOp(2));
+
+        // For ARMv8 exclusives the lifetime of the comparand must be extended because
+        // it may be used used multiple during retries
+        if (!compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
+        {
+            setDelayFree(comparandUse);
+        }
+    }
+
+    // Internals may not collide with target
+    setInternalRegsDelayFree = true;
+    BuildInternalUses();
+    BuildDef(cmpxchg);
+}
+
+void LinearScan::BuildInterlocked(GenTreeOp* interlocked)
+{
+    if (!compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
+    {
+        // GT_XCHG requires a single internal register; the others require two.
+        BuildInternalIntDef(interlocked);
+
+        if (!interlocked->OperIs(GT_XCHG))
+        {
+            BuildInternalIntDef(interlocked);
+        }
+    }
+    else if (interlocked->OperIs(GT_XAND))
+    {
+        // for ldclral we need an internal register.
+        BuildInternalIntDef(interlocked);
+    }
+
+    assert(!interlocked->gtGetOp1()->isContained());
+
+    RefPosition* op1Use = BuildUse(interlocked->GetOp(0));
+    RefPosition* op2Use = nullptr;
+
+    if (!interlocked->GetOp(1)->isContained())
+    {
+        op2Use = BuildUse(interlocked->GetOp(1));
+    }
+
+    // For ARMv8 exclusives the lifetime of the addr and data must be extended because
+    // it may be used used multiple during retries
+    if (!compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
+    {
+        // Internals may not collide with target
+        if (!interlocked->TypeIs(TYP_VOID))
+        {
+            setDelayFree(op1Use);
+
+            if (op2Use != nullptr)
+            {
+                setDelayFree(op2Use);
+            }
+
+            setInternalRegsDelayFree = true;
+        }
+
+        BuildInternalUses();
+    }
+
+    if (!interlocked->TypeIs(TYP_VOID))
+    {
+        BuildDef(interlocked);
+    }
+}
+
+void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
+{
+    // Need a variable number of temp regs (see genLclHeap() in codegenamd64.cpp):
+    // Here '-' means don't care.
+    //
+    //  Size?                   Init Memory?    # temp regs
+    //   0                          -               0
+    //   const and <=6 ptr words    -               0
+    //   const and <PageSize        No              0
+    //   >6 ptr words               Yes             0
+    //   Non-const                  Yes             0
+    //   Non-const                  No              2
+    //
+
+    GenTree* size = tree->AsUnOp()->GetOp(0);
+
+    if (size->IsIntCon())
+    {
+        assert(size->isContained());
+
+        size_t sizeVal = size->AsIntCon()->GetUnsignedValue();
+
+        if (sizeVal != 0)
+        {
+            // Compute the amount of memory to properly STACK_ALIGN.
+            // Note: The Gentree node is not updated here as it is cheap to recompute stack aligned size.
+            // This should also help in debugging as we can examine the original size specified with
+            // localloc.
+            sizeVal         = AlignUp(sizeVal, STACK_ALIGN);
+            size_t stpCount = sizeVal / (REGSIZE_BYTES * 2);
+
+            // For small allocations up to 4 'stp' instructions (i.e. 16 to 64 bytes of localloc)
+            //
+            if (stpCount <= 4)
+            {
+                // Need no internal registers
+            }
+            else if (!compiler->info.compInitMem)
+            {
+                // No need to initialize allocated stack space.
+                if (sizeVal < compiler->eeGetPageSize())
+                {
+                    // Need no internal registers
+                }
+                else
+                {
+                    // We need two registers: regCnt and RegTmp
+                    BuildInternalIntDef(tree);
+                    BuildInternalIntDef(tree);
+                }
+            }
+        }
+    }
+    else
+    {
+        if (!compiler->info.compInitMem)
+        {
+            BuildInternalIntDef(tree);
+            BuildInternalIntDef(tree);
+        }
+    }
+
+    if (!size->isContained())
+    {
+        BuildUse(size);
+    }
+
+    BuildInternalUses();
+    BuildDef(tree);
 }
 
 #ifdef FEATURE_HW_INTRINSICS

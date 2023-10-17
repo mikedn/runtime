@@ -9,135 +9,6 @@
 #include "lower.h"
 #include "lsra.h"
 
-void LinearScan::BuildLclHeap(GenTree* tree)
-{
-    // Need a variable number of temp regs (see genLclHeap() in codegenarm.cpp):
-    // Here '-' means don't care.
-    //
-    //  Size?                   Init Memory?    # temp regs
-    //   0                          -               0
-    //   const and <=4 str instr    -               0
-    //   const and <PageSize        No              0
-    //   >4 ptr words               Yes             1
-    //   Non-const                  Yes             1
-    //   Non-const                  No              1
-    //
-    // If the outgoing argument space is too large to encode in an "add/sub sp, icon"
-    // instruction, we also need a temp (we can use the same temp register needed
-    // for the other cases above, if there are multiple conditions that require a
-    // temp register).
-
-    GenTree* size = tree->gtGetOp1();
-    int      internalIntCount;
-    if (size->IsCnsIntOrI())
-    {
-        assert(size->isContained());
-
-        size_t sizeVal = size->AsIntCon()->gtIconVal;
-        if (sizeVal == 0)
-        {
-            internalIntCount = 0;
-        }
-        else
-        {
-            sizeVal          = AlignUp(sizeVal, STACK_ALIGN);
-            size_t pushCount = sizeVal / REGSIZE_BYTES;
-
-            // For small allocations we use up to 4 push instructions
-            if (pushCount <= 4)
-            {
-                internalIntCount = 0;
-            }
-            else if (!compiler->info.compInitMem)
-            {
-                // No need to initialize allocated stack space.
-                if (sizeVal < compiler->eeGetPageSize())
-                {
-                    internalIntCount = 0;
-                }
-                else
-                {
-                    internalIntCount = 1;
-                }
-            }
-            else
-            {
-                internalIntCount = 1;
-            }
-        }
-    }
-    else
-    {
-        // target (regCnt) + tmp
-        internalIntCount = 1;
-        BuildUse(size);
-    }
-
-    // If we have an outgoing argument space, we are going to probe that SP change, and we require
-    // a temporary register for doing the probe. Note also that if the outgoing argument space is
-    // large enough that it can't be directly encoded in SUB/ADD instructions, we also need a temp
-    // register to load the large sized constant into a register.
-    if (compiler->codeGen->outgoingArgSpaceSize > 0)
-    {
-        internalIntCount = 1;
-    }
-
-    // If we are needed in temporary registers we should be sure that
-    // it's different from target (regCnt)
-    if (internalIntCount > 0)
-    {
-        setInternalRegsDelayFree = true;
-        for (int i = 0; i < internalIntCount; i++)
-        {
-            BuildInternalIntDef(tree);
-        }
-    }
-
-    BuildInternalUses();
-    BuildDef(tree);
-}
-
-void LinearScan::BuildShiftLongCarry(GenTree* tree)
-{
-    assert(tree->OperGet() == GT_LSH_HI || tree->OperGet() == GT_RSH_LO);
-
-    GenTree* source = tree->AsOp()->gtOp1;
-    assert((source->OperGet() == GT_LONG) && source->isContained());
-
-    GenTree* sourceLo = source->gtGetOp1();
-    GenTree* sourceHi = source->gtGetOp2();
-    GenTree* shiftBy  = tree->gtGetOp2();
-    assert(!sourceLo->isContained() && !sourceHi->isContained());
-    RefPosition* sourceLoUse = BuildUse(sourceLo);
-    RefPosition* sourceHiUse = BuildUse(sourceHi);
-
-    if (!tree->isContained())
-    {
-        if (tree->OperGet() == GT_LSH_HI)
-        {
-            setDelayFree(sourceLoUse);
-        }
-        else
-        {
-            setDelayFree(sourceHiUse);
-        }
-
-        if (!shiftBy->isContained())
-        {
-            BuildUse(shiftBy);
-        }
-
-        BuildDef(tree);
-    }
-    else
-    {
-        if (!shiftBy->isContained())
-        {
-            BuildUse(shiftBy);
-        }
-    }
-}
-
 void LinearScan::BuildNode(GenTree* tree)
 {
     assert(!tree->isContained());
@@ -389,44 +260,8 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_LEA:
-        {
-            GenTreeAddrMode* lea = tree->AsAddrMode();
-
-            if (GenTree* base = lea->GetBase())
-            {
-                BuildUse(base);
-            }
-
-            if (GenTree* index = lea->GetIndex())
-            {
-                BuildUse(index);
-            }
-
-            int offset = lea->GetOffset();
-
-            // An internal register may be needed too; the logic here should be in sync with the
-            // genLeaInstruction()'s requirements for a such register.
-            if (lea->HasBase() && lea->HasIndex())
-            {
-                if (offset != 0)
-                {
-                    // We need a register when we have all three: base reg, index reg and a non-zero offset.
-                    BuildInternalIntDef(tree);
-                }
-            }
-            else if (lea->HasBase())
-            {
-                if (!emitter::emitIns_valid_imm_for_add(offset, INS_FLAGS_DONT_CARE))
-                {
-                    // We need a register when we have an offset that is too large to encode in the add instruction.
-                    BuildInternalIntDef(tree);
-                }
-            }
-
-            BuildInternalUses();
-            BuildDef(tree);
-        }
-        break;
+            BuildAddrMode(tree->AsAddrMode());
+            break;
 
         case GT_EQ:
         case GT_NE:
@@ -453,7 +288,7 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_LCLHEAP:
-            BuildLclHeap(tree);
+            BuildLclHeap(tree->AsUnOp());
             break;
 
         case GT_STOREIND:
@@ -539,6 +374,172 @@ void LinearScan::BuildNode(GenTree* tree)
 
         default:
             unreached();
+    }
+}
+
+void LinearScan::BuildAddrMode(GenTreeAddrMode* lea)
+{
+    if (GenTree* base = lea->GetBase())
+    {
+        BuildUse(base);
+    }
+
+    if (GenTree* index = lea->GetIndex())
+    {
+        BuildUse(index);
+    }
+
+    int offset = lea->GetOffset();
+
+    // An internal register may be needed too; the logic here should be in sync with the
+    // genLeaInstruction()'s requirements for a such register.
+    if (lea->HasBase() && lea->HasIndex())
+    {
+        if (offset != 0)
+        {
+            // We need a register when we have all three: base reg, index reg and a non-zero offset.
+            BuildInternalIntDef(lea);
+        }
+    }
+    else if (lea->HasBase())
+    {
+        if (!emitter::emitIns_valid_imm_for_add(offset, INS_FLAGS_DONT_CARE))
+        {
+            // We need a register when we have an offset that is too large to encode in the add instruction.
+            BuildInternalIntDef(lea);
+        }
+    }
+
+    BuildInternalUses();
+    BuildDef(lea);
+}
+
+void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
+{
+    // Need a variable number of temp regs (see genLclHeap() in codegenarm.cpp):
+    // Here '-' means don't care.
+    //
+    //  Size?                   Init Memory?    # temp regs
+    //   0                          -               0
+    //   const and <=4 str instr    -               0
+    //   const and <PageSize        No              0
+    //   >4 ptr words               Yes             1
+    //   Non-const                  Yes             1
+    //   Non-const                  No              1
+    //
+    // If the outgoing argument space is too large to encode in an "add/sub sp, icon"
+    // instruction, we also need a temp (we can use the same temp register needed
+    // for the other cases above, if there are multiple conditions that require a
+    // temp register).
+
+    GenTree* size = tree->gtGetOp1();
+    int      internalIntCount;
+    if (size->IsCnsIntOrI())
+    {
+        assert(size->isContained());
+
+        size_t sizeVal = size->AsIntCon()->gtIconVal;
+        if (sizeVal == 0)
+        {
+            internalIntCount = 0;
+        }
+        else
+        {
+            sizeVal          = AlignUp(sizeVal, STACK_ALIGN);
+            size_t pushCount = sizeVal / REGSIZE_BYTES;
+
+            // For small allocations we use up to 4 push instructions
+            if (pushCount <= 4)
+            {
+                internalIntCount = 0;
+            }
+            else if (!compiler->info.compInitMem)
+            {
+                // No need to initialize allocated stack space.
+                if (sizeVal < compiler->eeGetPageSize())
+                {
+                    internalIntCount = 0;
+                }
+                else
+                {
+                    internalIntCount = 1;
+                }
+            }
+            else
+            {
+                internalIntCount = 1;
+            }
+        }
+    }
+    else
+    {
+        // target (regCnt) + tmp
+        internalIntCount = 1;
+        BuildUse(size);
+    }
+
+    // If we have an outgoing argument space, we are going to probe that SP change, and we require
+    // a temporary register for doing the probe. Note also that if the outgoing argument space is
+    // large enough that it can't be directly encoded in SUB/ADD instructions, we also need a temp
+    // register to load the large sized constant into a register.
+    if (compiler->codeGen->outgoingArgSpaceSize > 0)
+    {
+        internalIntCount = 1;
+    }
+
+    // If we are needed in temporary registers we should be sure that
+    // it's different from target (regCnt)
+    if (internalIntCount > 0)
+    {
+        setInternalRegsDelayFree = true;
+        for (int i = 0; i < internalIntCount; i++)
+        {
+            BuildInternalIntDef(tree);
+        }
+    }
+
+    BuildInternalUses();
+    BuildDef(tree);
+}
+
+void LinearScan::BuildShiftLongCarry(GenTree* tree)
+{
+    assert(tree->OperGet() == GT_LSH_HI || tree->OperGet() == GT_RSH_LO);
+
+    GenTree* source = tree->AsOp()->gtOp1;
+    assert((source->OperGet() == GT_LONG) && source->isContained());
+
+    GenTree* sourceLo = source->gtGetOp1();
+    GenTree* sourceHi = source->gtGetOp2();
+    GenTree* shiftBy  = tree->gtGetOp2();
+    assert(!sourceLo->isContained() && !sourceHi->isContained());
+    RefPosition* sourceLoUse = BuildUse(sourceLo);
+    RefPosition* sourceHiUse = BuildUse(sourceHi);
+
+    if (!tree->isContained())
+    {
+        if (tree->OperGet() == GT_LSH_HI)
+        {
+            setDelayFree(sourceLoUse);
+        }
+        else
+        {
+            setDelayFree(sourceHiUse);
+        }
+
+        if (!shiftBy->isContained())
+        {
+            BuildUse(shiftBy);
+        }
+
+        BuildDef(tree);
+    }
+    else
+    {
+        if (!shiftBy->isContained())
+        {
+            BuildUse(shiftBy);
+        }
     }
 }
 

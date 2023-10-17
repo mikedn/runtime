@@ -1947,7 +1947,10 @@ private:
 #if FEATURE_ARG_SPLIT
     void BuildPutArgSplit(GenTreePutArgSplit* tree);
 #endif
-    void BuildLclHeap(GenTree* tree);
+    void BuildLclHeap(GenTreeUnOp* tree);
+    void BuildAddrMode(GenTreeAddrMode* node);
+    void BuildCmpXchg(GenTreeCmpXchg* cmpxchg);
+    void BuildInterlocked(GenTreeOp* node);
 
     void BuildInstr(GenTreeInstr* instr);
 };
