@@ -680,11 +680,9 @@ void CodeGen::genCodeForBswap(GenTree* tree)
     assert(tree->OperIs(GT_BSWAP, GT_BSWAP16));
 
     regNumber targetReg  = tree->GetRegNum();
-    var_types targetType = tree->TypeGet();
-
-    GenTree* operand = tree->gtGetOp1();
-    assert(operand->isUsedFromReg());
-    regNumber operandReg = genConsumeReg(operand);
+    var_types targetType = tree->GetType();
+    GenTree*  operand    = tree->AsUnOp()->GetOp(0);
+    regNumber operandReg = UseReg(operand);
 
     inst_Mov(targetType, targetReg, operandReg, /* canSkip */ true);
 
@@ -699,24 +697,22 @@ void CodeGen::genCodeForBswap(GenTree* tree)
         inst_RV_IV(INS_ror_N, targetReg, 8 /* val */, EA_2BYTE);
     }
 
-    genProduceReg(tree);
+    DefReg(tree);
 }
 
 // Produce code for a GT_INC_SATURATE node.
 void CodeGen::genCodeForIncSaturate(GenTree* tree)
 {
     regNumber targetReg  = tree->GetRegNum();
-    var_types targetType = tree->TypeGet();
-
-    GenTree* operand = tree->gtGetOp1();
-    assert(operand->isUsedFromReg());
-    regNumber operandReg = genConsumeReg(operand);
+    var_types targetType = tree->GetType();
+    GenTree*  operand    = tree->AsUnOp()->GetOp(0);
+    regNumber operandReg = UseReg(operand);
 
     inst_Mov(targetType, targetReg, operandReg, /* canSkip */ true);
     inst_RV_IV(INS_add, targetReg, 1, emitActualTypeSize(targetType));
     inst_RV_IV(INS_sbb, targetReg, 0, emitActualTypeSize(targetType));
 
-    genProduceReg(tree);
+    DefReg(tree);
 }
 
 // Generate code to get the high N bits of a N*N=2N bit multiplication result
@@ -1838,6 +1834,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_LABEL:
             genPendingCallLabel = genCreateTempLabel();
             emit->emitIns_R_L(INS_lea, EA_PTR_DSP_RELOC, genPendingCallLabel, treeNode->GetRegNum());
+            // TODO-MIKE-Review: Hmm, no DefReg call?
             break;
 
         case GT_STORE_OBJ:
@@ -1868,7 +1865,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
         case GT_CLS_VAR_ADDR:
             emit->emitIns_R_C(INS_lea, EA_PTRSIZE, treeNode->GetRegNum(), treeNode->AsClsVar()->GetFieldHandle());
-            genProduceReg(treeNode);
+            DefReg(treeNode);
             break;
 
         case GT_INSTR:
@@ -3446,9 +3443,9 @@ void CodeGen::genCodeForLockAdd(GenTreeOp* node)
 {
     assert(node->OperIs(GT_LOCKADD));
 
-    GenTree* addr = node->gtGetOp1();
-    GenTree* data = node->gtGetOp2();
-    emitAttr size = emitActualTypeSize(data->TypeGet());
+    GenTree* addr = node->GetOp(0);
+    GenTree* data = node->GetOp(1);
+    emitAttr size = emitActualTypeSize(data->GetType());
 
     assert((size == EA_4BYTE) || (size == EA_PTRSIZE));
 
@@ -3657,7 +3654,7 @@ void CodeGen::genCodeForPhysReg(GenTreePhysReg* tree)
     inst_Mov(targetType, targetReg, tree->gtSrcReg, /* canSkip */ true);
     liveness.TransferGCRegType(targetReg, tree->gtSrcReg);
 
-    genProduceReg(tree);
+    DefReg(tree);
 }
 
 //---------------------------------------------------------------------

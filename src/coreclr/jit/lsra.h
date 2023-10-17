@@ -1891,7 +1891,6 @@ private:
     void getTgtPrefOperands(GenTreeOp* tree, bool& prefOp1, bool& prefOp2);
     bool supportsSpecialPutArg();
 
-    void BuildSimple(GenTree* tree);
     int BuildOperandUses(GenTree* node, regMaskTP candidates = RBM_NONE);
     int BuildDelayFreeUses(GenTree* node, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
     int BuildIndirUses(GenTreeIndir* indirTree, regMaskTP candidates = RBM_NONE);

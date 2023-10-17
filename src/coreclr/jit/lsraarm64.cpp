@@ -125,13 +125,25 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildBinaryUses(tree->AsOp());
             FALLTHROUGH;
         case GT_JMPTABLE:
+        case GT_LCL_ADDR:
+        case GT_CLS_VAR_ADDR:
+        case GT_PHYSREG:
+        case GT_LABEL:
+        case GT_SETCC:
             BuildDef(tree);
             FALLTHROUGH;
         case GT_NO_OP:
-        case GT_START_NONGC:
         case GT_IL_OFFSET:
+        case GT_START_NONGC:
+        case GT_PINVOKE_PROLOG:
+        case GT_MEMORYBARRIER:
         case GT_JTRUE:
+        case GT_JCC:
         case GT_JMP:
+            break;
+
+        case GT_JCMP:
+            BuildUse(tree->AsOp()->GetOp(0));
             break;
 
         case GT_RETURNTRAP:
@@ -187,9 +199,19 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildCast(tree->AsCast());
             break;
 
+        case GT_BITCAST:
+            if (!tree->AsUnOp()->GetOp(0)->isContained())
+            {
+                BuildUse(tree->AsUnOp()->GetOp(0));
+            }
+            BuildDef(tree);
+            break;
+
         case GT_FNEG:
         case GT_NEG:
         case GT_NOT:
+        case GT_BSWAP:
+        case GT_BSWAP16:
             BuildUse(tree->AsUnOp()->GetOp(0));
             BuildDef(tree);
             break;
@@ -202,7 +224,6 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_GT:
         case GT_TEST_EQ:
         case GT_TEST_NE:
-        case GT_JCMP:
             BuildCmp(tree->AsOp());
             break;
 
@@ -331,23 +352,8 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildInstr(tree->AsInstr());
             break;
 
-        case GT_ARGPLACE:
-        case GT_ASG:
-        case GT_BLK:
-        case GT_FIELD_LIST:
-        case GT_INIT_VAL:
-        case GT_BOX:
-        case GT_COMMA:
-        case GT_QMARK:
-        case GT_SWITCH:
-        case GT_MOD:
-        case GT_UMOD:
-        case GT_ARR_ELEM:
-            unreached();
-
         default:
-            BuildSimple(tree);
-            break;
+            unreached();
     }
 }
 

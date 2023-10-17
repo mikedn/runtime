@@ -131,9 +131,21 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildBinaryUses(tree->AsOp());
             FALLTHROUGH;
         case GT_JMPTABLE:
+        case GT_LCL_ADDR:
+        case GT_CLS_VAR_ADDR:
+        case GT_PHYSREG:
+        case GT_LABEL:
+        case GT_SETCC:
             BuildDef(tree);
             FALLTHROUGH;
+        case GT_NO_OP:
+        case GT_IL_OFFSET:
+        case GT_START_NONGC:
+        case GT_PINVOKE_PROLOG:
+        case GT_PROF_HOOK:
+        case GT_MEMORYBARRIER:
         case GT_JTRUE:
+        case GT_JCC:
         case GT_JMP:
             break;
 
@@ -348,26 +360,8 @@ void LinearScan::BuildNode(GenTree* tree)
         }
         break;
 
-        case GT_LCL_ADDR:
-        case GT_PHYSREG:
-        case GT_CLS_VAR_ADDR:
-        case GT_LABEL:
-        case GT_PINVOKE_PROLOG:
-        case GT_JCC:
-        case GT_SETCC:
-        case GT_MEMORYBARRIER:
-        case GT_OBJ:
-            BuildSimple(tree);
-            break;
-
         case GT_INSTR:
             BuildInstr(tree->AsInstr());
-            break;
-
-        case GT_IL_OFFSET:
-        case GT_NO_OP:
-        case GT_START_NONGC:
-        case GT_PROF_HOOK:
             break;
 
         default:

@@ -105,10 +105,6 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildOperandUses(tree->AsUnOp()->GetOp(0));
             break;
 
-        case GT_JTRUE:
-            assert(!tree->AsUnOp()->GetOp(0)->IsValue());
-            break;
-
         case GT_SETCC:
 #ifdef TARGET_X86
             BuildDef(tree, allByteRegs());
@@ -147,16 +143,27 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildBinaryUses(tree->AsOp());
             FALLTHROUGH;
         case GT_JMPTABLE:
+        case GT_LCL_ADDR:
+        case GT_CLS_VAR_ADDR:
+        case GT_PHYSREG:
+        case GT_LABEL:
             BuildDef(tree);
             FALLTHROUGH;
         case GT_NO_OP:
-        case GT_START_NONGC:
         case GT_IL_OFFSET:
+        case GT_START_NONGC:
+        case GT_PINVOKE_PROLOG:
+        case GT_MEMORYBARRIER:
+        case GT_JTRUE:
         case GT_JCC:
         case GT_JMP:
 #ifndef FEATURE_EH_FUNCLETS
         case GT_END_LFIN:
 #endif
+            break;
+
+        case GT_LOCKADD:
+            BuildBinaryUses(tree->AsOp());
             break;
 
         case GT_RETURNTRAP:
@@ -206,14 +213,17 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_FNEG:
             // TODO-MIKE-Review: Where is this internal reg used???
             BuildInternalFloatDef(tree, internalFloatRegCandidates());
-            BuildOperandUses(tree->AsUnOp()->GetOp(0));
+            BuildUse(tree->AsUnOp()->GetOp(0));
             BuildInternalUses();
             BuildDef(tree);
             break;
 
         case GT_NEG:
         case GT_NOT:
-            BuildOperandUses(tree->AsUnOp()->GetOp(0));
+        case GT_BSWAP:
+        case GT_BSWAP16:
+        case GT_INC_SATURATE:
+            BuildUse(tree->AsUnOp()->GetOp(0));
             BuildDef(tree);
             break;
 
@@ -373,21 +383,8 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildInstr(tree->AsInstr());
             break;
 
-        case GT_ARGPLACE:
-        case GT_ASG:
-        case GT_BLK:
-        case GT_FIELD_LIST:
-        case GT_INIT_VAL:
-        case GT_BOX:
-        case GT_COMMA:
-        case GT_QMARK:
-        case GT_SWITCH:
-        case GT_ARR_ELEM:
-            unreached();
-
         default:
-            BuildSimple(tree);
-            break;
+            unreached();
     }
 }
 

@@ -2793,22 +2793,6 @@ void LinearScan::BuildStoreDynBlk(GenTreeDynBlk* store)
     BuildKills(store, getKillSetForStructStore(store->GetKind()));
 }
 
-void LinearScan::BuildSimple(GenTree* tree)
-{
-    unsigned kind = tree->OperKind();
-
-    if ((kind & GTK_LEAF) == 0)
-    {
-        assert((kind & GTK_SMPOP) != 0);
-        BuildBinaryUses(tree->AsOp());
-    }
-
-    if (tree->IsValue())
-    {
-        BuildDef(tree);
-    }
-}
-
 void LinearScan::BuildReturn(GenTreeUnOp* ret)
 {
     if (ret->TypeIs(TYP_VOID))

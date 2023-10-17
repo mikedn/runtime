@@ -3147,11 +3147,11 @@ void CodeGen::GenJCmp(GenTreeOp* tree, BasicBlock* block)
     assert(tree->OperIs(GT_JCMP));
     assert(block->bbJumpKind == BBJ_COND);
 
-    GenTree* op1 = tree->gtGetOp1();
-    GenTree* op2 = tree->gtGetOp2();
+    GenTree* op1 = tree->GetOp(0);
+    GenTree* op2 = tree->GetOp(1);
 
     assert(!varTypeIsFloating(tree));
-    assert(op2->IsCnsIntOrI());
+    assert(op2->IsIntCon());
     assert(op2->isContained());
 
     regNumber reg = UseReg(op1);
