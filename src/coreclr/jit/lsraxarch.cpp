@@ -165,7 +165,7 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_RETURNTRAP:
             BuildInternalIntDef(tree);
-            BuildOperandUses(tree->gtGetOp1());
+            BuildOperandUses(tree->AsUnOp()->GetOp(0));
             BuildInternalUses();
             BuildKills(tree, compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
             break;

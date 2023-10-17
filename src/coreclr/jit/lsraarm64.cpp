@@ -355,32 +355,26 @@ void LinearScan::BuildNode(GenTree* tree)
 
 void LinearScan::BuildAddrMode(GenTreeAddrMode* lea)
 {
-    GenTree* base  = lea->GetBase();
-    GenTree* index = lea->GetIndex();
-    int      cns   = lea->GetOffset();
-
-    if (base != nullptr)
+    if (GenTree* base = lea->GetBase())
     {
         BuildUse(base);
     }
 
-    if (index != nullptr)
+    if (GenTree* index = lea->GetIndex())
     {
         BuildUse(index);
     }
 
-    if ((index != nullptr) && (cns != 0))
+    // TODO-MIKE-Review: This does not check for a missing base like ARM version does.
+    // But then there's little point in building such LEAs on ARM64...
+
+    if (((lea->GetIndex() != nullptr) && (lea->GetOffset() != 0)) ||
+        !emitter::emitIns_valid_imm_for_add(lea->GetOffset(), EA_8BYTE))
     {
-        // ARM64 does not support both Index and offset so we need an internal register
         BuildInternalIntDef(lea);
-    }
-    else if (!emitter::emitIns_valid_imm_for_add(cns, EA_8BYTE))
-    {
-        // This offset can't be contained in the add instruction, so we need an internal register
-        BuildInternalIntDef(lea);
+        BuildInternalUses();
     }
 
-    BuildInternalUses();
     BuildDef(lea);
 }
 

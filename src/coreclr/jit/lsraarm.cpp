@@ -163,8 +163,8 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_MUL:
             if (tree->gtOverflow())
             {
-                setInternalRegsDelayFree = true;
                 BuildInternalIntDef(tree);
+                setInternalRegsDelayFree = true;
             }
 
             BuildUse(tree->AsOp()->GetOp(0));
@@ -374,28 +374,16 @@ void LinearScan::BuildAddrMode(GenTreeAddrMode* lea)
         BuildUse(index);
     }
 
-    int offset = lea->GetOffset();
-
-    // An internal register may be needed too; the logic here should be in sync with the
-    // genLeaInstruction()'s requirements for a such register.
-    if (lea->HasBase() && lea->HasIndex())
+    if (lea->GetBase() != nullptr)
     {
-        if (offset != 0)
+        if (((lea->GetIndex() != nullptr) && (lea->GetOffset() != 0)) ||
+            !emitter::emitIns_valid_imm_for_add(lea->GetOffset(), INS_FLAGS_DONT_CARE))
         {
-            // We need a register when we have all three: base reg, index reg and a non-zero offset.
             BuildInternalIntDef(lea);
-        }
-    }
-    else if (lea->HasBase())
-    {
-        if (!emitter::emitIns_valid_imm_for_add(offset, INS_FLAGS_DONT_CARE))
-        {
-            // We need a register when we have an offset that is too large to encode in the add instruction.
-            BuildInternalIntDef(lea);
+            BuildInternalUses();
         }
     }
 
-    BuildInternalUses();
     BuildDef(lea);
 }
 
