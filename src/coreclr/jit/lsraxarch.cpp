@@ -1469,32 +1469,25 @@ void LinearScan::BuildModDiv(GenTree* tree)
 
 void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
 {
-    // Both operand and its result must be of floating point type.
-    GenTree* op1 = tree->gtGetOp1();
-    assert(varTypeIsFloating(op1));
-    assert(op1->TypeGet() == tree->TypeGet());
-    RefPosition* internalFloatDef = nullptr;
+    GenTree* op1 = tree->GetOp(0);
+
+    assert(varTypeIsFloating(op1->GetType()) && (op1->GetType() == tree->GetType()));
+    assert(tree->gtOp2 == nullptr);
 
     switch (tree->GetIntrinsic())
     {
         case NI_System_Math_Abs:
             // TODO-MIKE-Review: Where is this internal reg used???
-            internalFloatDef = BuildInternalFloatDef(tree, internalFloatRegCandidates());
+            BuildInternalFloatDef(tree, internalFloatRegCandidates());
             break;
-
         case NI_System_Math_Ceiling:
         case NI_System_Math_Floor:
         case NI_System_Math_Round:
         case NI_System_Math_Sqrt:
             break;
-
         default:
-            // Right now only Sqrt/Abs are treated as math intrinsics
-            noway_assert(!"Unsupported math intrinsic");
             unreached();
-            break;
     }
-    assert(tree->gtGetOp2IfPresent() == nullptr);
 
     if (op1->isContained())
     {
@@ -1505,11 +1498,7 @@ void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
         tgtPrefUse = BuildUse(op1);
     }
 
-    if (internalFloatDef != nullptr)
-    {
-        BuildInternalUses();
-    }
-
+    BuildInternalUses();
     BuildDef(tree);
 }
 
