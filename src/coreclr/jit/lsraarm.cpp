@@ -115,7 +115,12 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_RSH:
         case GT_RSZ:
         case GT_ROR:
-            BuildBinaryUses(tree->AsOp());
+            BuildUse(tree->AsOp()->GetOp(0));
+
+            if (!tree->AsOp()->GetOp(1)->isContained())
+            {
+                BuildUse(tree->AsOp()->GetOp(1));
+            }
             FALLTHROUGH;
         case GT_JMPTABLE:
         case GT_LCL_ADDR:
