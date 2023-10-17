@@ -482,25 +482,27 @@ bool LinearScan::isRMWRegOper(GenTreeOp* tree)
     }
 }
 
-int LinearScan::BuildRMWUses(GenTreeOp* node, regMaskTP candidates)
+void LinearScan::BuildRMWUses(GenTreeOp* node)
 {
     assert(isRMWRegOper(node));
 
     int       srcCount      = 0;
     GenTree*  op1           = node->gtOp1;
     GenTree*  op2           = node->gtGetOp2IfPresent();
-    regMaskTP op1Candidates = candidates;
-    regMaskTP op2Candidates = candidates;
+    regMaskTP op1Candidates = RBM_NONE;
+    regMaskTP op2Candidates = RBM_NONE;
 
 #ifdef TARGET_X86
-    if (varTypeIsByte(node))
+    if (varTypeIsByte(node->GetType()))
     {
-        regMaskTP byteCandidates = (candidates == RBM_NONE) ? allByteRegs() : (candidates & allByteRegs());
+        regMaskTP byteCandidates = allByteRegs();
+
         if (!op1->isContained())
         {
             assert(byteCandidates != RBM_NONE);
             op1Candidates = byteCandidates;
         }
+
         if (node->OperIsCommutative() && !op2->isContained())
         {
             assert(byteCandidates != RBM_NONE);
@@ -544,46 +546,43 @@ int LinearScan::BuildRMWUses(GenTreeOp* node, regMaskTP candidates)
     {
         delayUseOperand = nullptr;
     }
+
     if (delayUseOperand != nullptr)
     {
         assert(!prefOp1 || delayUseOperand != op1);
         assert(!prefOp2 || delayUseOperand != op2);
     }
 
-    // Build first use
     if (prefOp1)
     {
         assert(!op1->isContained());
         tgtPrefUse = BuildUse(op1, op1Candidates);
-        srcCount++;
     }
     else if (delayUseOperand == op1)
     {
-        srcCount += BuildDelayFreeUses(op1, op2, op1Candidates);
+        BuildDelayFreeUses(op1, op2, op1Candidates);
     }
     else
     {
-        srcCount += BuildOperandUses(op1, op1Candidates);
+        BuildOperandUses(op1, op1Candidates);
     }
-    // Build second use
+
     if (op2 != nullptr)
     {
         if (prefOp2)
         {
             assert(!op2->isContained());
             tgtPrefUse2 = BuildUse(op2, op2Candidates);
-            srcCount++;
         }
         else if (delayUseOperand == op2)
         {
-            srcCount += BuildDelayFreeUses(op2, op1, op2Candidates);
+            BuildDelayFreeUses(op2, op1, op2Candidates);
         }
         else
         {
-            srcCount += BuildOperandUses(op2, op2Candidates);
+            BuildOperandUses(op2, op2Candidates);
         }
     }
-    return srcCount;
 }
 
 void LinearScan::BuildShiftRotate(GenTree* tree)
