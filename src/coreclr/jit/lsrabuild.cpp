@@ -1773,21 +1773,10 @@ void LinearScan::buildIntervals()
             currentLoc += 2;
         }
 
-        LIR::Range& blockRange = LIR::AsRange(block);
-        for (GenTree* node : blockRange)
+        for (GenTree* node : LIR::AsRange(block))
         {
-            // We increment the location of each tree node by 2 so that the node definition, if any,
-            // is at a new location and doesn't interfere with the uses.
-            // For multi-reg local stores, the 'BuildStoreLclVarMultiReg' method will further increment the
-            // location by 2 for each destination register beyond the first.
-            CLANG_FORMAT_COMMENT_ANCHOR;
-
 #ifdef DEBUG
             node->gtSeqNum = currentLoc;
-            // In DEBUG, we want to set the gtRegTag to GT_REGTAG_REG, so that subsequent dumps will show the register
-            // value.
-            // Although this looks like a no-op it sets the tag.
-            node->SetRegNum(node->GetRegNum());
 #endif
 
             buildRefPositionsForNode(node, currentLoc);
@@ -1797,7 +1786,12 @@ void LinearScan::buildIntervals()
             {
                 maxNodeLocation = currentLoc;
             }
-#endif // DEBUG
+#endif
+
+            // We increment the location of each tree node by 2 so that the node definition,
+            // if any, is at a new location and doesn't interfere with the uses.
+            // For multi-reg local stores, the 'BuildStoreLclVarMultiReg' method will further
+            // increment the location by 2 for each destination register beyond the first.
             currentLoc += 2;
         }
 
