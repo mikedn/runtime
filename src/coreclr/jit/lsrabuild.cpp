@@ -2313,20 +2313,14 @@ int LinearScan::BuildAddrUses(GenTree* addr, regMaskTP candidates)
     {
         if (GenTree* base = addrMode->GetBase())
         {
-            if (!base->isContained())
-            {
-                BuildUse(base, candidates);
-                srcCount++;
-            }
+            BuildUse(base, candidates);
+            srcCount++;
         }
 
         if (GenTree* index = addrMode->GetIndex())
         {
-            if (!index->isContained())
-            {
-                BuildUse(index, candidates);
-                srcCount++;
-            }
+            BuildUse(index, candidates);
+            srcCount++;
         }
     }
 
@@ -2450,28 +2444,22 @@ int LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP ca
 
     if (GenTree* base = addrMode->GetBase())
     {
-        if (!base->isContained())
+        use = BuildUse(base, candidates);
+        if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
         {
-            use = BuildUse(base, candidates);
-            if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
-            {
-                setDelayFree(use);
-            }
-            srcCount++;
+            setDelayFree(use);
         }
+        srcCount++;
     }
 
     if (GenTree* index = addrMode->GetIndex())
     {
-        if (!index->isContained())
+        use = BuildUse(index, candidates);
+        if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
         {
-            use = BuildUse(index, candidates);
-            if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
-            {
-                setDelayFree(use);
-            }
-            srcCount++;
+            setDelayFree(use);
         }
+        srcCount++;
     }
 
     return srcCount;
