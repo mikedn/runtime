@@ -1915,7 +1915,12 @@ void LinearScan::BuildStoreInd(GenTreeIndir* store)
                 BuildInternalFloatDef(store);
 #endif
                 BuildAddrUses(store->GetAddr());
-                value->OperIs(GT_IND) ? BuildAddrUses(value->AsIndir()->GetAddr()) : 0;
+
+                if (value->OperIs(GT_IND))
+                {
+                    BuildAddrUses(value->AsIndir()->GetAddr());
+                }
+
                 BuildInternalUses();
 
                 return;

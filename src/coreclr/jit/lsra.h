@@ -1890,7 +1890,6 @@ private:
 #endif
     int BuildOperandUses(GenTree* node, regMaskTP candidates = RBM_NONE);
     int BuildDelayFreeUses(GenTree* node, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
-    int BuildIndirUses(GenTreeIndir* indirTree, regMaskTP candidates = RBM_NONE);
     int BuildAddrUses(GenTree* addr, regMaskTP candidates = RBM_NONE);
 
     void BuildNode(GenTree* node);

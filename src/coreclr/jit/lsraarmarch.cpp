@@ -87,11 +87,11 @@ void LinearScan::BuildIndir(GenTreeIndir* indirTree)
 
             if (value->isContained())
             {
-                BuildIndirUses(indirTree);
+                BuildAddrUses(indirTree->GetAddr());
 
                 if (value->OperIs(GT_IND))
                 {
-                    BuildIndirUses(value->AsIndir());
+                    BuildAddrUses(value->AsIndir()->GetAddr());
                 }
 
                 BuildInternalUses();
@@ -102,7 +102,7 @@ void LinearScan::BuildIndir(GenTreeIndir* indirTree)
     }
 #endif // FEATURE_SIMD
 
-    BuildIndirUses(indirTree);
+    BuildAddrUses(indirTree->GetAddr());
     BuildInternalUses();
 
     if (!indirTree->OperIs(GT_STOREIND, GT_NULLCHECK))

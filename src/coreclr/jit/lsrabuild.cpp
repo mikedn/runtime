@@ -2299,11 +2299,6 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int mu
     return useRefPos;
 }
 
-int LinearScan::BuildIndirUses(GenTreeIndir* indir, regMaskTP candidates)
-{
-    return BuildAddrUses(indir->GetAddr(), candidates);
-}
-
 int LinearScan::BuildAddrUses(GenTree* addr, regMaskTP candidates)
 {
     if (!addr->isContained())
@@ -2359,7 +2354,7 @@ int LinearScan::BuildOperandUses(GenTree* node, regMaskTP candidates)
 
     if (node->OperIsIndir())
     {
-        return BuildIndirUses(node->AsIndir(), candidates);
+        return BuildAddrUses(node->AsIndir()->GetAddr(), candidates);
     }
 
     if (node->OperIs(GT_LEA))
@@ -2637,7 +2632,12 @@ void LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
         if (src->isContained() && src->OperIs(GT_IND, GT_LCL_FLD, GT_LCL_VAR))
         {
             BuildInternalIntDef(store);
-            int srcCount = src->OperIs(GT_IND) ? BuildIndirUses(src->AsIndir()) : 0;
+
+            if (src->OperIs(GT_IND))
+            {
+                BuildAddrUses(src->AsIndir()->GetAddr());
+            }
+
             BuildInternalUses();
 
             return;
