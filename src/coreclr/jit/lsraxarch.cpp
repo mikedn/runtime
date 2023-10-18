@@ -424,25 +424,6 @@ void LinearScan::BuildInterlocked(GenTreeOp* interlocked)
     BuildDef(interlocked);
 }
 
-// Identify whether the operands of an Op should be preferenced to the target.
-void LinearScan::getTgtPrefOperands(GenTreeOp* tree, bool& prefOp1, bool& prefOp2)
-{
-    assert(isRMWRegOper(tree));
-
-    GenTree* op1 = tree->GetOp(0);
-    GenTree* op2 = tree->GetOp(1);
-
-    if (!op1->isContained())
-    {
-        prefOp1 = true;
-    }
-
-    if (tree->OperIsCommutative() && !op2->isContained())
-    {
-        prefOp2 = true;
-    }
-}
-
 #ifdef DEBUG
 // Check for instructions that use the read/modify/write register format (e.g. ADD eax, 42).
 bool LinearScan::isRMWRegOper(GenTreeOp* tree)
@@ -511,10 +492,8 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
     }
 #endif // TARGET_X86
 
-    bool prefOp1 = false;
-    bool prefOp2 = false;
-    getTgtPrefOperands(node, prefOp1, prefOp2);
-    assert(!prefOp2 || node->OperIsCommutative());
+    bool prefOp1 = !op1->isContained();
+    bool prefOp2 = node->OperIsCommutative() && !op2->isContained();
 
     // Determine which operand, if any, should be delayRegFree. Normally, this would be op2,
     // but if we have a commutative operator and op1 is a contained memory op, it would be op1.
