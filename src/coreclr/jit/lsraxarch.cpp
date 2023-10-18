@@ -1273,72 +1273,67 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 
 void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
 {
-    // Need a variable number of temp regs (see genLclHeap() in codegenamd64.cpp):
-    // Here '-' means don't care.
-    //
-    //     Size?                    Init Memory?         # temp regs
-    //      0                            -                  0 (returns 0)
-    //      const and <=6 reg words      -                  0 (pushes '0')
-    //      const and >6 reg words       Yes                0 (pushes '0')
-    //      const and <PageSize          No                 0 (amd64) 1 (x86)
-    //                                                        (x86:tmpReg for sutracting from esp)
-    //      const and >=PageSize         No                 2 (regCnt and tmpReg for subtracing from sp)
-    //      Non-const                    Yes                0 (regCnt=targetReg and pushes '0')
-    //      Non-const                    No                 2 (regCnt and tmpReg for subtracting from sp)
+    // Size                  Init Memory  # temp regs
+    // 0                     don't care   0 (returns 0)
+    // const <= 6 reg words  don't care   0 (pushes '0')
+    // const > 6 reg words   Yes          0 (pushes '0')
+    // const < PageSize      No           0 (amd64) 1 (x86 tmpReg for subtracting from esp)
+    // const >= PageSize     No           2 (regCnt and tmpReg for subtracting from sp)
+    // variable              Yes          0 (regCnt = targetReg and pushes '0')
+    // variable              No           2 (regCnt and tmpReg for subtracting from sp)
     //
     // Note: Here we don't need internal register to be different from targetReg.
     // Rather, require it to be different from operand's reg.
 
-    GenTree* size = tree->gtGetOp1();
-    if (size->IsCnsIntOrI())
+    GenTree* size         = tree->GetOp(0);
+    unsigned tempRegCount = 0;
+
+    if (!size->IsIntCon())
     {
-        assert(size->isContained());
-        size_t sizeVal = size->AsIntCon()->gtIconVal;
-
-        if (sizeVal == 0)
+        if (!compiler->info.compInitMem)
         {
-            BuildInternalIntDef(tree);
-        }
-        else
-        {
-            // Compute the amount of memory to properly STACK_ALIGN.
-            // Note: The Gentree node is not updated here as it is cheap to recompute stack aligned size.
-            // This should also help in debugging as we can examine the original size specified with localloc.
-            sizeVal = AlignUp(sizeVal, STACK_ALIGN);
-
-            // For small allocations up to 6 pointer sized words (i.e. 48 bytes of localloc)
-            // we will generate 'push 0'.
-            assert((sizeVal % REGSIZE_BYTES) == 0);
-            size_t cntRegSizedWords = sizeVal / REGSIZE_BYTES;
-            if (cntRegSizedWords > 6)
-            {
-                if (!compiler->info.compInitMem)
-                {
-                    // No need to initialize allocated stack space.
-                    if (sizeVal < compiler->eeGetPageSize())
-                    {
-#ifdef TARGET_X86
-                        // x86 needs a register here to avoid generating "sub" on ESP.
-                        BuildInternalIntDef(tree);
-#endif
-                    }
-                    else
-                    {
-                        // We need two registers: regCnt and RegTmp
-                        BuildInternalIntDef(tree);
-                        BuildInternalIntDef(tree);
-                    }
-                }
-            }
+            tempRegCount = 2;
         }
     }
     else
     {
-        if (!compiler->info.compInitMem)
+        assert(size->isContained());
+
+        size_t sizeVal = size->AsIntCon()->GetUnsignedValue();
+
+        if (sizeVal == 0)
         {
-            BuildInternalIntDef(tree);
-            BuildInternalIntDef(tree);
+            // TODO-MIKE-Review: What is this for?
+            tempRegCount = 1;
         }
+        else if (!compiler->info.compInitMem)
+        {
+            sizeVal = AlignUp(sizeVal, STACK_ALIGN);
+
+            if (sizeVal / REGSIZE_BYTES > 6)
+            {
+                if (sizeVal < compiler->eeGetPageSize())
+                {
+#ifdef TARGET_X86
+                    // x86 needs a register to avoid generating "sub" on ESP.
+                    tempRegCount = 1;
+#endif
+                }
+                else
+                {
+                    tempRegCount = 2;
+                }
+            }
+        }
+    }
+
+    for (unsigned i = 0; i < tempRegCount; i++)
+    {
+        BuildInternalIntDef(tree);
+    }
+
+    if (!size->isContained())
+    {
         BuildUse(size);
     }
 
@@ -1346,62 +1341,38 @@ void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
     BuildDef(tree);
 }
 
-void LinearScan::BuildModDiv(GenTree* tree)
+void LinearScan::BuildModDiv(GenTreeOp* tree)
 {
     assert(tree->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD) && varTypeIsIntegral(tree->GetType()));
 
-    GenTree*  op1           = tree->gtGetOp1();
-    GenTree*  op2           = tree->gtGetOp2();
-    regMaskTP dstCandidates = RBM_NONE;
-
-    // Amd64 Div/Idiv instruction:
-    //    Dividend in RAX:RDX  and computes
-    //    Quotient in RAX, Remainder in RDX
-
-    if (tree->OperGet() == GT_MOD || tree->OperGet() == GT_UMOD)
-    {
-        // We are interested in just the remainder.
-        // RAX is used as a trashable register during computation of remainder.
-        dstCandidates = RBM_RDX;
-    }
-    else
-    {
-        // We are interested in just the quotient.
-        // RDX gets used as trashable register during computation of quotient
-        dstCandidates = RBM_RAX;
-    }
+    GenTree* op1 = tree->GetOp(0);
+    GenTree* op2 = tree->GetOp(1);
 
 #ifdef TARGET_X86
-    if (op1->OperGet() == GT_LONG)
+    if (op1->OperIs(GT_LONG))
     {
+        assert(tree->OperIs(GT_UMOD));
         assert(op1->isContained());
+        assert(op2->IsIntCon());
 
-        // To avoid reg move would like to have op1's low part in RAX and high part in RDX.
-        GenTree* loVal = op1->gtGetOp1();
-        GenTree* hiVal = op1->gtGetOp2();
+        GenTree* loVal = op1->AsOp()->GetOp(0);
+        GenTree* hiVal = op1->AsOp()->GetOp(1);
         assert(!loVal->isContained() && !hiVal->isContained());
 
-        assert(op2->IsCnsIntOrI());
-        assert(tree->OperGet() == GT_UMOD);
-
-        // This situation also requires an internal register.
         BuildInternalIntDef(tree);
-
         BuildUse(loVal, RBM_EAX);
         BuildUse(hiVal, RBM_EDX);
     }
     else
 #endif
     {
-        // If possible would like to have op1 in RAX to avoid a register move.
-        RefPosition* op1Use = BuildUse(op1, RBM_EAX);
-        tgtPrefUse          = op1Use;
+        tgtPrefUse = BuildUse(op1, RBM_EAX);
     }
 
     BuildDelayFreeUses(op2, op1, allRegs(TYP_INT) & ~(RBM_RAX | RBM_RDX));
     BuildInternalUses();
-    BuildKills(tree, getKillSetForModDiv(tree->AsOp()));
-    BuildDef(tree, dstCandidates);
+    BuildKills(tree, RBM_RAX | RBM_RDX);
+    BuildDef(tree, tree->OperIs(GT_DIV, GT_UDIV) ? RBM_RAX : RBM_RDX);
 }
 
 void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)

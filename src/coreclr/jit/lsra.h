@@ -1920,7 +1920,7 @@ private:
     void BuildLoadInd(GenTreeIndir* load);
     void BuildStoreInd(GenTreeIndir* store);
     void BuildShiftRotate(GenTreeOp* node);
-    void BuildModDiv(GenTree* node);
+    void BuildModDiv(GenTreeOp* node);
     void BuildMul(GenTreeOp* mul);
     void BuildMulLong(GenTreeOp* mul);
     void BuildIntrinsic(GenTreeIntrinsic* intrinsic);

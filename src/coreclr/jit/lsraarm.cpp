@@ -371,66 +371,53 @@ void LinearScan::BuildAddrMode(GenTreeAddrMode* lea)
 
 void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
 {
-    // Need a variable number of temp regs (see genLclHeap() in codegenarm.cpp):
-    // Here '-' means don't care.
-    //
-    //  Size?                   Init Memory?    # temp regs
-    //   0                          -               0
-    //   const and <=4 str instr    -               0
-    //   const and <PageSize        No              0
-    //   >4 ptr words               Yes             1
-    //   Non-const                  Yes             1
-    //   Non-const                  No              1
+    // Size                   Init Memory    # temp regs
+    // 0                      don't care     0
+    // const <= 4 str instr   don't care     0
+    // const < PageSize       No             0
+    // > 4 reg words          Yes            1
+    // variable               Yes            1
+    // variable               No             1
     //
     // If the outgoing argument space is too large to encode in an "add/sub sp, icon"
     // instruction, we also need a temp (we can use the same temp register needed
     // for the other cases above, if there are multiple conditions that require a
     // temp register).
 
-    GenTree* size = tree->gtGetOp1();
-    int      internalIntCount;
-    if (size->IsCnsIntOrI())
+    GenTree* size         = tree->GetOp(0);
+    unsigned tempRegCount = 0;
+
+    if (!size->IsIntCon())
     {
-        assert(size->isContained());
+        tempRegCount = 1;
 
-        size_t sizeVal = size->AsIntCon()->gtIconVal;
-        if (sizeVal == 0)
-        {
-            internalIntCount = 0;
-        }
-        else
-        {
-            sizeVal          = AlignUp(sizeVal, STACK_ALIGN);
-            size_t pushCount = sizeVal / REGSIZE_BYTES;
-
-            // For small allocations we use up to 4 push instructions
-            if (pushCount <= 4)
-            {
-                internalIntCount = 0;
-            }
-            else if (!compiler->info.compInitMem)
-            {
-                // No need to initialize allocated stack space.
-                if (sizeVal < compiler->eeGetPageSize())
-                {
-                    internalIntCount = 0;
-                }
-                else
-                {
-                    internalIntCount = 1;
-                }
-            }
-            else
-            {
-                internalIntCount = 1;
-            }
-        }
+        BuildUse(size);
     }
     else
     {
-        // target (regCnt) + tmp
-        internalIntCount = 1;
-        BuildUse(size);
+        assert(size->isContained());
+
+        size_t sizeVal = size->AsIntCon()->GetUnsignedValue();
+
+        if (sizeVal != 0)
+        {
+            sizeVal = AlignUp(sizeVal, STACK_ALIGN);
+
+            if (sizeVal / REGSIZE_BYTES > 4)
+            {
+                if (!compiler->info.compInitMem)
+                {
+                    if (sizeVal >= compiler->eeGetPageSize())
+                    {
+                        tempRegCount = 1;
+                    }
+                }
+                else
+                {
+                    tempRegCount = 1;
+                }
+            }
+        }
     }
 
     // If we have an outgoing argument space, we are going to probe that SP change, and we require
@@ -439,15 +426,17 @@ void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
     // register to load the large sized constant into a register.
     if (compiler->codeGen->outgoingArgSpaceSize > 0)
     {
-        internalIntCount = 1;
+        // TODO-MIKE-Review: Given the comment above shouldn't this be += 1?
+        tempRegCount = 1;
     }
 
     // If we are needed in temporary registers we should be sure that
     // it's different from target (regCnt)
-    if (internalIntCount > 0)
+    if (tempRegCount > 0)
     {
         setInternalRegsDelayFree = true;
-        for (int i = 0; i < internalIntCount; i++)
+
+        for (unsigned i = 0; i < tempRegCount; i++)
         {
             BuildInternalIntDef(tree);
         }

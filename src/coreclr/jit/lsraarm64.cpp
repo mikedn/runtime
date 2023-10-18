@@ -465,64 +465,44 @@ void LinearScan::BuildInterlocked(GenTreeOp* interlocked)
 
 void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
 {
-    // Need a variable number of temp regs (see genLclHeap() in codegenamd64.cpp):
-    // Here '-' means don't care.
-    //
-    //  Size?                   Init Memory?    # temp regs
-    //   0                          -               0
-    //   const and <=6 ptr words    -               0
-    //   const and <PageSize        No              0
-    //   >6 ptr words               Yes             0
-    //   Non-const                  Yes             0
-    //   Non-const                  No              2
-    //
+    // Size                   Init Memory  # temp regs
+    // 0                      don't care   0
+    // const <= 6 reg words   don't care   0
+    // const < PageSize       No           0
+    // > 6 reg words          Yes          0
+    // variable               Yes          0
+    // variable               No           2
 
-    GenTree* size = tree->AsUnOp()->GetOp(0);
+    GenTree* size         = tree->GetOp(0);
+    unsigned tempRegCount = 0;
 
-    if (size->IsIntCon())
+    if (!size->IsIntCon())
+    {
+        if (!compiler->info.compInitMem)
+        {
+            tempRegCount = 2;
+        }
+    }
+    else
     {
         assert(size->isContained());
 
         size_t sizeVal = size->AsIntCon()->GetUnsignedValue();
 
-        if (sizeVal != 0)
+        if ((sizeVal != 0) && !compiler->info.compInitMem)
         {
-            // Compute the amount of memory to properly STACK_ALIGN.
-            // Note: The Gentree node is not updated here as it is cheap to recompute stack aligned size.
-            // This should also help in debugging as we can examine the original size specified with
-            // localloc.
-            sizeVal         = AlignUp(sizeVal, STACK_ALIGN);
-            size_t stpCount = sizeVal / (REGSIZE_BYTES * 2);
+            sizeVal = AlignUp(sizeVal, STACK_ALIGN);
 
-            // For small allocations up to 4 'stp' instructions (i.e. 16 to 64 bytes of localloc)
-            //
-            if (stpCount <= 4)
+            if ((sizeVal / (REGSIZE_BYTES * 2) > 4) && (sizeVal >= compiler->eeGetPageSize()))
             {
-                // Need no internal registers
-            }
-            else if (!compiler->info.compInitMem)
-            {
-                // No need to initialize allocated stack space.
-                if (sizeVal < compiler->eeGetPageSize())
-                {
-                    // Need no internal registers
-                }
-                else
-                {
-                    // We need two registers: regCnt and RegTmp
-                    BuildInternalIntDef(tree);
-                    BuildInternalIntDef(tree);
-                }
+                tempRegCount = 2;
             }
         }
     }
-    else
+
+    for (unsigned i = 0; i < tempRegCount; i++)
     {
-        if (!compiler->info.compInitMem)
-        {
-            BuildInternalIntDef(tree);
-            BuildInternalIntDef(tree);
-        }
+        BuildInternalIntDef(tree);
     }
 
     if (!size->isContained())
