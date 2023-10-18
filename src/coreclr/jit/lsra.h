@@ -1931,7 +1931,7 @@ private:
     void BuildShiftLong(GenTreeOp* node);
 #endif
 #ifdef FEATURE_HW_INTRINSICS
-    void BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsic);
+    void BuildHWIntrinsic(GenTreeHWIntrinsic* node);
 #endif
 
     bool supportsSpecialPutArg();

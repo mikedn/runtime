@@ -1406,83 +1406,74 @@ void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
+void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 {
-    NamedIntrinsic      intrinsicId = intrinsicTree->GetIntrinsic();
-    var_types           baseType    = intrinsicTree->GetSimdBaseType();
-    HWIntrinsicCategory category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
-    int                 numArgs     = intrinsicTree->GetNumOps();
-
     // Set the AVX Flags if this instruction may use VEX encoding for SIMD operations.
-    // Note that this may be true even if the ISA is not AVX (e.g. for platform-agnostic intrinsics
-    // or non-AVX intrinsics that will use VEX encoding if it is available on the target).
-    if (intrinsicTree->IsSimd())
+    // Note that this may be true even if the ISA is not AVX (e.g. for platform-agnostic
+    // intrinsics or non-AVX intrinsics that will use VEX encoding if it is available
+    // on the target).
+    if (node->IsSimd())
     {
-        SetContainsAVXFlags(intrinsicTree->GetSimdSize());
+        SetContainsAVXFlags(node->GetSimdSize());
     }
 
-    GenTree* op1    = nullptr;
-    GenTree* op2    = nullptr;
-    GenTree* op3    = nullptr;
-    GenTree* lastOp = nullptr;
-
-    int dstCount = intrinsicTree->IsValue() ? 1 : 0;
-
+    unsigned  numOps        = node->GetNumOps();
     regMaskTP dstCandidates = RBM_NONE;
 
-    if (numArgs > 0)
+    if (numOps != 0)
     {
-        switch (numArgs)
+        GenTree* op1 = nullptr;
+        GenTree* op2 = nullptr;
+        GenTree* op3 = nullptr;
+
+        switch (numOps)
         {
             case 1:
-                op1 = intrinsicTree->GetOp(0);
+                op1 = node->GetOp(0);
                 break;
             case 2:
-                op1 = intrinsicTree->GetOp(0);
-                op2 = intrinsicTree->GetOp(1);
+                op1 = node->GetOp(0);
+                op2 = node->GetOp(1);
                 break;
             case 3:
             case 4:
             case 5:
-                op1 = intrinsicTree->GetOp(0);
-                op2 = intrinsicTree->GetOp(1);
-                op3 = intrinsicTree->GetOp(2);
+                op1 = node->GetOp(0);
+                op2 = node->GetOp(1);
+                op3 = node->GetOp(2);
                 break;
             default:
                 unreached();
         }
 
-        GenTree* lastOp = intrinsicTree->GetLastOp();
-
-        bool buildUses = true;
+        GenTree*            lastOp      = node->GetLastOp();
+        NamedIntrinsic      intrinsicId = node->GetIntrinsic();
+        HWIntrinsicCategory category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
 
         if ((category == HW_Category_IMM) && !HWIntrinsicInfo::NoJmpTableImm(intrinsicId))
         {
-            if (HWIntrinsicInfo::isImmOp(intrinsicId, lastOp) && !lastOp->isContainedIntOrIImmed())
+            if (HWIntrinsicInfo::isImmOp(intrinsicId, lastOp) && !lastOp->IsContainedIntCon())
             {
-                assert(!lastOp->IsCnsIntOrI());
-
-                // We need two extra reg when lastOp isn't a constant so
-                // the offset into the jump table for the fallback path
-                // can be computed.
-                BuildInternalIntDef(intrinsicTree);
-                BuildInternalIntDef(intrinsicTree);
+                // We need two extra reg when lastOp isn't a constant so the offset
+                // into the jump table for the fallback path can be computed.
+                BuildInternalIntDef(node);
+                BuildInternalIntDef(node);
             }
         }
 
-        // Determine whether this is an RMW operation where op2+ must be marked delayFree so that it
-        // is not allocated the same register as the target.
-        bool isRMW = intrinsicTree->isRMWHWIntrinsic(compiler);
+        var_types baseType  = node->GetSimdBaseType();
+        bool      isRMW     = node->isRMWHWIntrinsic(compiler);
+        bool      buildUses = true;
 
         // Create internal temps, and handle any other special requirements.
-        // Note that the default case for building uses will handle the RMW flag, but if the uses
-        // are built in the individual cases, buildUses is set to false, and any RMW handling (delayFree)
-        // must be handled within the case.
+        // Note that the default case for building uses will handle the RMW flag,
+        // but if the uses are built in the individual cases, buildUses is set to
+        // false, and any RMW handling (delayFree) must be handled within the case.
         switch (intrinsicId)
         {
             case NI_Vector128_CreateScalarUnsafe:
             case NI_Vector256_CreateScalarUnsafe:
-                assert(numArgs == 1);
+                assert(numOps == 1);
 
                 if (varTypeIsFloating(baseType) && !op1->isContained())
                 {
@@ -1493,7 +1484,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
             case NI_Vector128_GetElement:
             case NI_Vector256_GetElement:
-                assert(numArgs == 2);
+                assert(numOps == 2);
                 assert(op2->IsIntCon() || op1->isContained());
 
                 if (varTypeIsFloating(baseType) && !op1->isContained() && op2->IsIntegralConst(0))
@@ -1506,7 +1497,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
             case NI_Vector128_ToVector256:
             case NI_Vector128_ToVector256Unsafe:
             case NI_Vector256_GetLower:
-                assert(numArgs == 1);
+                assert(numOps == 1);
 
                 if (!op1->isContained())
                 {
@@ -1516,22 +1507,18 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 break;
 
             case NI_SSE2_MaskMove:
-            {
-                assert(numArgs == 3);
+                assert(numOps == 3);
                 assert(!isRMW);
 
                 // MaskMove hardcodes the destination (op3) in DI/EDI/RDI
                 BuildOperandUses(op1);
                 BuildOperandUses(op2);
                 BuildOperandUses(op3, RBM_EDI);
-
                 buildUses = false;
                 break;
-            }
 
             case NI_SSE41_BlendVariable:
-            {
-                assert(numArgs == 3);
+                assert(numOps == 3);
 
                 if (!compiler->canUseVexEncoding())
                 {
@@ -1550,16 +1537,12 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                     }
 
                     BuildDelayFreeUses(op3, op1, RBM_XMM0);
-
                     buildUses = false;
                 }
                 break;
-            }
 
             case NI_SSE41_Extract:
-            {
                 assert(!varTypeIsFloating(baseType));
-
 #ifdef TARGET_X86
                 if (varTypeIsByte(baseType))
                 {
@@ -1567,46 +1550,41 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 }
 #endif
                 break;
-            }
 
 #ifdef TARGET_X86
             case NI_SSE42_Crc32:
             case NI_SSE42_X64_Crc32:
-            {
                 // TODO-XArch-Cleanup: Currently we use the BaseType to bring the type of the second argument
                 // to the code generator. We may want to encode the overload info in another way.
-
-                assert(numArgs == 2);
+                assert(numOps == 2);
                 assert(isRMW);
 
                 // CRC32 may operate over "byte" but on x86 only RBM_BYTE_REGS can be used as byte registers.
                 tgtPrefUse = BuildUse(op1);
-
                 BuildDelayFreeUses(op2, op1, varTypeIsByte(baseType) ? allByteRegs() : RBM_NONE);
-
                 buildUses = false;
                 break;
-            }
 #endif // TARGET_X86
 
             case NI_BMI2_MultiplyNoFlags:
             case NI_BMI2_X64_MultiplyNoFlags:
-            {
-                assert(numArgs == 2 || numArgs == 3);
+                assert((numOps == 2) || (numOps == 3));
+
                 BuildOperandUses(op1, RBM_EDX);
                 BuildOperandUses(op2);
-                if (numArgs == 3)
+
+                if (numOps == 3)
                 {
                     // op3 reg should be different from target reg to
                     // store the lower half result after executing the instruction
                     BuildDelayFreeUses(op3, op1);
                     // Need a internal register different from the dst to take the lower half result
-                    BuildInternalIntDef(intrinsicTree);
+                    BuildInternalIntDef(node);
                     setInternalRegsDelayFree = true;
                 }
+
                 buildUses = false;
                 break;
-            }
 
             case NI_FMA_MultiplyAdd:
             case NI_FMA_MultiplyAddNegated:
@@ -1619,7 +1597,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
             case NI_FMA_MultiplySubtractNegatedScalar:
             case NI_FMA_MultiplySubtractScalar:
             {
-                assert(numArgs == 3);
+                assert(numOps == 3);
                 assert(isRMW);
 
                 const bool copiesUpperBits = HWIntrinsicInfo::CopiesUpperBits(intrinsicId);
@@ -1632,7 +1610,6 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                     // 132 form: op1 = (op1 * op3) + [op2]
 
                     tgtPrefUse = BuildUse(op1);
-
                     BuildOperandUses(op2);
                     BuildDelayFreeUses(op3, op1);
                 }
@@ -1641,7 +1618,6 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                     // 231 form: op3 = (op2 * op3) + [op1]
 
                     tgtPrefUse = BuildUse(op3);
-
                     BuildOperandUses(op1);
                     BuildDelayFreeUses(op2, op1);
                 }
@@ -1676,8 +1652,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
             case NI_AVXVNNI_MultiplyWideningAndAdd:
             case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
-            {
-                assert(numArgs == 3);
+                assert(numOps == 3);
 
                 tgtPrefUse = BuildUse(op1);
                 BuildDelayFreeUses(op2, op1);
@@ -1693,63 +1668,45 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
                 buildUses = false;
                 break;
-            }
 
             case NI_AVX2_GatherVector128:
             case NI_AVX2_GatherVector256:
-            {
-                assert(numArgs == 3);
+                assert(numOps == 3);
+                assert(op3->isContained());
                 assert(!isRMW);
 
-                // Any pair of the index, mask, or destination registers should be different
                 BuildOperandUses(op1);
                 BuildDelayFreeUses(op2);
-
-                // op3 should always be contained
-                assert(op3->isContained());
-
-                // get a tmp register for mask that will be cleared by gather instructions
-                BuildInternalFloatDef(intrinsicTree, allSIMDRegs());
+                BuildInternalFloatDef(node, allSIMDRegs());
                 setInternalRegsDelayFree = true;
-
-                buildUses = false;
+                buildUses                = false;
                 break;
-            }
 
             case NI_AVX2_GatherMaskVector128:
             case NI_AVX2_GatherMaskVector256:
-            {
-                assert(numArgs == 5);
+                assert(numOps == 5);
+                assert(node->GetOp(4)->isContained());
                 assert(!isRMW);
 
-                // Any pair of the index, mask, or destination registers should be different
                 BuildOperandUses(op1);
                 BuildDelayFreeUses(op2);
                 BuildDelayFreeUses(op3);
-                BuildDelayFreeUses(intrinsicTree->GetOp(3));
-
-                assert(intrinsicTree->GetOp(4)->isContained());
-
-                // get a tmp register for mask that will be cleared by gather instructions
-                BuildInternalFloatDef(intrinsicTree, allSIMDRegs());
+                BuildDelayFreeUses(node->GetOp(3));
+                BuildInternalFloatDef(node, allSIMDRegs());
                 setInternalRegsDelayFree = true;
-
-                buildUses = false;
+                buildUses                = false;
                 break;
-            }
 
             default:
-            {
                 assert((intrinsicId > NI_HW_INTRINSIC_START) && (intrinsicId < NI_HW_INTRINSIC_END));
                 break;
-            }
         }
 
         if (buildUses)
         {
-            assert((numArgs > 0) && (numArgs < 4));
+            assert((numOps > 0) && (numOps < 4));
 
-            if (intrinsicTree->OperIsMemoryLoadOrStore())
+            if (node->OperIsMemoryLoadOrStore())
             {
                 BuildAddrUses(op1);
             }
@@ -1764,7 +1721,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
             if (op2 != nullptr)
             {
-                if (op2->OperIs(GT_HWINTRINSIC) && op2->AsHWIntrinsic()->OperIsMemoryLoad() && op2->isContained())
+                if (op2->IsHWIntrinsic() && op2->AsHWIntrinsic()->OperIsMemoryLoad() && op2->isContained())
                 {
                     BuildAddrUses(op2->AsHWIntrinsic()->GetOp(0));
                 }
@@ -1774,10 +1731,9 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                     {
                         // When op2 is not contained and we are commutative, we can set op2
                         // to also be a tgtPrefUse. Codegen will then swap the operands.
-
                         tgtPrefUse2 = BuildUse(op2);
                     }
-                    else if (!op2->isContained() || varTypeIsArithmetic(intrinsicTree->TypeGet()))
+                    else if (!op2->isContained() || varTypeIsArithmetic(node->GetType()))
                     {
                         // When op2 is not contained or if we are producing a scalar value
                         // we need to mark it as delay free because the operand and target
@@ -1789,7 +1745,6 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                         // When op2 is contained and we are not producing a scalar value we
                         // have no concerns of overwriting op2 because they exist in different
                         // register sets.
-
                         BuildOperandUses(op2);
                     }
                 }
@@ -1815,18 +1770,14 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
         BuildInternalUses();
     }
 
-    if (dstCount == 1)
+    if (node->IsValue())
     {
-        RefPosition* def = BuildDef(intrinsicTree, dstCandidates);
+        RefPosition* def = BuildDef(node, dstCandidates);
 
-        if (intrinsicTree->IsHWIntrinsicZero())
+        if (node->IsHWIntrinsicZero())
         {
             def->getInterval()->isConstant = true;
         }
-    }
-    else
-    {
-        assert(dstCount == 0);
     }
 }
 #endif
@@ -2046,24 +1997,19 @@ void LinearScan::BuildMulLong(GenTreeOp* mul)
     }
 }
 
-//------------------------------------------------------------------------------
-// SetContainsAVXFlags: Set ContainsAVX flag when it is floating type, set
-// Contains256bitAVX flag when SIMD vector size is 32 bytes
-//
-// Arguments:
-//    isFloatingPointType   - true if it is floating point type
-//    sizeOfSIMDVector      - SIMD Vector size
-//
-void LinearScan::SetContainsAVXFlags(unsigned sizeOfSIMDVector)
+void LinearScan::SetContainsAVXFlags(unsigned byteSize)
 {
-    if (compiler->canUseVexEncoding())
+    if (!compiler->canUseVexEncoding())
     {
-        compiler->compExactlyDependsOn(InstructionSet_AVX);
-        compiler->GetEmitter()->SetContainsAVX(true);
-        if (sizeOfSIMDVector == 32)
-        {
-            compiler->GetEmitter()->SetContains256bitAVX(true);
-        }
+        return;
+    }
+
+    compiler->compExactlyDependsOn(InstructionSet_AVX);
+    compiler->GetEmitter()->SetContainsAVX(true);
+
+    if (byteSize == 32)
+    {
+        compiler->GetEmitter()->SetContains256bitAVX(true);
     }
 }
 
