@@ -2384,81 +2384,71 @@ void LinearScan::setDelayFree(RefPosition* use)
 
 void LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP candidates)
 {
-    RefPosition* use          = nullptr;
-    Interval*    rmwInterval  = nullptr;
-    bool         rmwIsLastUse = false;
-    GenTree*     addr         = nullptr;
+    Interval* rmwInterval  = nullptr;
+    bool      rmwIsLastUse = false;
 
     if ((rmwNode != nullptr) && isCandidateLclVar(rmwNode))
     {
         rmwInterval = getIntervalForLocalVarNode(rmwNode->AsLclVar());
-        // Note: we don't handle multi-reg vars here. It's not clear that there are any cases
-        // where we'd encounter a multi-reg var in an RMW context.
+        // Note: we don't handle multi-reg vars here. It's not clear that there
+        // are any cases where we'd encounter a multi-reg var in an RMW context.
         assert(!rmwNode->AsLclVar()->IsMultiReg());
         rmwIsLastUse = rmwNode->AsLclVar()->IsLastUse(0);
     }
 
+    auto BuildDelayFreeUse = [this, rmwInterval, rmwIsLastUse](GenTree* operand, regMaskTP candidates) {
+        RefPosition* use = BuildUse(operand, candidates);
+
+        if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
+        {
+            setDelayFree(use);
+        }
+    };
+
     if (!node->isContained())
     {
-        use = BuildUse(node, candidates);
+        BuildDelayFreeUse(node, candidates);
+
+        return;
     }
+
 #ifdef FEATURE_HW_INTRINSICS
-    else if (GenTreeHWIntrinsic* hwIntrinsicNode = node->IsHWIntrinsic())
+    if (GenTreeHWIntrinsic* hwIntrinsicNode = node->IsHWIntrinsic())
     {
-        use = BuildUse(hwIntrinsicNode->GetOp(0), candidates);
+        BuildDelayFreeUse(hwIntrinsicNode->GetOp(0), candidates);
+
+        return;
     }
 #endif
-    else if (!node->OperIsIndir())
+
+    if (GenTreeIndir* indir = node->IsIndir())
     {
-        return;
-    }
-    else
-    {
-        GenTreeIndir* indirTree = node->AsIndir();
-        addr                    = indirTree->gtOp1;
+        GenTree* addr = indir->GetAddr();
+
         if (!addr->isContained())
         {
-            use = BuildUse(addr, candidates);
+            // TODO-MIKE-Review: Using "candidates" here and below is likely bogus.
+            // The caller usually cares only about the case of a non contained
+            // operand, it doesn't know or care about whatever registers an address
+            // mode needs. Some callers pass candidates such as XMM0 or "byte regs"
+            // on x86...
+
+            BuildDelayFreeUse(addr, candidates);
         }
-        else if (!addr->OperIs(GT_LEA))
+        else if (GenTreeAddrMode* const addrMode = addr->IsAddrMode())
         {
-            return;
-        }
-    }
-    if (use != nullptr)
-    {
-        // If node != rmwNode, then definitely node should be marked as "delayFree".
-        // However, if node == rmwNode, then we can mark node as "delayFree" only if
-        // none of the node/rmwNode are the last uses. If either of them are last use,
-        // we can safely reuse the rmwNode as destination.
-        if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
-        {
-            setDelayFree(use);
+            if (GenTree* base = addrMode->GetBase())
+            {
+                BuildDelayFreeUse(base, candidates);
+            }
+
+            if (GenTree* index = addrMode->GetIndex())
+            {
+                BuildDelayFreeUse(index, candidates);
+            }
         }
 
         return;
-    }
-
-    // If we reach here we have a contained LEA in 'addr'.
-
-    GenTreeAddrMode* const addrMode = addr->AsAddrMode();
-
-    if (GenTree* base = addrMode->GetBase())
-    {
-        use = BuildUse(base, candidates);
-        if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
-        {
-            setDelayFree(use);
-        }
-    }
-
-    if (GenTree* index = addrMode->GetIndex())
-    {
-        use = BuildUse(index, candidates);
-        if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
-        {
-            setDelayFree(use);
-        }
     }
 }
 
