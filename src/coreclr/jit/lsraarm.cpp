@@ -152,7 +152,7 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_LSH_HI:
         case GT_RSH_LO:
-            BuildShiftLongCarry(tree);
+            BuildShiftLong(tree->AsOp());
             break;
 
         case GT_RETURNTRAP:
@@ -475,23 +475,22 @@ void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
     BuildDef(tree);
 }
 
-void LinearScan::BuildShiftLongCarry(GenTree* tree)
+void LinearScan::BuildShiftLong(GenTreeOp* node)
 {
-    assert(tree->OperGet() == GT_LSH_HI || tree->OperGet() == GT_RSH_LO);
+    assert(node->OperIs(GT_LSH_HI, GT_RSH_LO));
 
-    GenTree* source = tree->AsOp()->gtOp1;
-    assert((source->OperGet() == GT_LONG) && source->isContained());
+    GenTreeOp* source = node->GetOp(0)->AsOp();
+    assert(source->OperIs(GT_LONG) && source->isContained());
+    GenTree* sourceLo = source->GetOp(0);
+    GenTree* sourceHi = source->GetOp(1);
+    GenTree* shiftBy  = node->GetOp(1);
 
-    GenTree* sourceLo = source->gtGetOp1();
-    GenTree* sourceHi = source->gtGetOp2();
-    GenTree* shiftBy  = tree->gtGetOp2();
-    assert(!sourceLo->isContained() && !sourceHi->isContained());
     RefPosition* sourceLoUse = BuildUse(sourceLo);
     RefPosition* sourceHiUse = BuildUse(sourceHi);
 
-    if (!tree->isContained())
+    if (!node->isContained())
     {
-        if (tree->OperGet() == GT_LSH_HI)
+        if (node->OperIs(GT_LSH_HI))
         {
             setDelayFree(sourceLoUse);
         }
@@ -505,7 +504,7 @@ void LinearScan::BuildShiftLongCarry(GenTree* tree)
             BuildUse(shiftBy);
         }
 
-        BuildDef(tree);
+        BuildDef(node);
     }
     else
     {

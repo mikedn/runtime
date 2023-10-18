@@ -1879,41 +1879,35 @@ private:
     bool IsCandidateLclVarMultiReg(GenTreeLclVar* lclNode);
     bool checkContainedOrCandidateLclVar(GenTreeLclVar* lclNode);
 
+    RefPosition* BuildDef(GenTree* node, regMaskTP regCandidates = RBM_NONE);
+    RefPosition* BuildDef(GenTree* node, var_types regType, regMaskTP regCandidates, unsigned regIndex);
     RefPosition* BuildUse(GenTree* operand, regMaskTP candidates = RBM_NONE, int multiRegIdx = 0);
-
     void setDelayFree(RefPosition* use);
+    void BuildKills(GenTree* tree, regMaskTP killMask);
 #ifdef TARGET_XARCH
+    INDEBUG(bool isRMWRegOper(GenTreeOp* tree);)
     void BuildRMWUses(GenTreeOp* node);
 #endif
-    void BuildNode(GenTree* tree);
-
-    bool supportsSpecialPutArg();
-
     int BuildOperandUses(GenTree* node, regMaskTP candidates = RBM_NONE);
     int BuildDelayFreeUses(GenTree* node, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
     int BuildIndirUses(GenTreeIndir* indirTree, regMaskTP candidates = RBM_NONE);
     int BuildAddrUses(GenTree* addr, regMaskTP candidates = RBM_NONE);
-#ifdef WINDOWS_AMD64_ABI
-    bool HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode);
-#endif
-    RefPosition* BuildDef(GenTree* node, regMaskTP regCandidates = RBM_NONE);
-    RefPosition* BuildDef(GenTree* node, var_types regType, regMaskTP regCandidates, unsigned regIndex);
-    void BuildKills(GenTree* tree, regMaskTP killMask);
 
+    void BuildNode(GenTree* node);
     void BuildReturn(GenTreeUnOp* ret);
-#ifdef TARGET_XARCH
-    void BuildShiftRotate(GenTreeOp* node);
-    void BuildModDiv(GenTree* tree);
-    void BuildMul(GenTreeOp* tree);
-    void BuildMulLong(GenTreeOp* mul);
-    void BuildIntrinsic(GenTreeIntrinsic* tree);
-#endif
-#ifdef TARGET_ARM
-    void BuildShiftLongCarry(GenTree* tree);
-#endif
     void BuildPutArgReg(GenTreeUnOp* node);
+    void BuildPutArgStk(GenTreePutArgStk* node);
+#if FEATURE_ARG_SPLIT
+    void BuildPutArgSplit(GenTreePutArgSplit* node);
+#endif
     void BuildCall(GenTreeCall* call);
+    void BuildCast(GenTreeCast* cast);
     void BuildCmp(GenTreeOp* cmp);
+    void BuildLclHeap(GenTreeUnOp* node);
+    void BuildAddrMode(GenTreeAddrMode* node);
+    void BuildCmpXchg(GenTreeCmpXchg* cmpxchg);
+    void BuildInterlocked(GenTreeOp* node);
+    void BuildInstr(GenTreeInstr* instr);
     void BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
     void BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout);
     void BuildStoreDynBlk(GenTreeDynBlk* store);
@@ -1922,34 +1916,32 @@ private:
     void BuildStoreLclVar(GenTreeLclVar* store);
     void BuildStoreLclFld(GenTreeLclFld* store);
     void BuildStoreLcl(GenTreeLclVarCommon* store);
+    void BuildGCWriteBarrier(GenTreeStoreInd* store);
 #ifdef TARGET_XARCH
     void BuildLoadInd(GenTreeIndir* load);
     void BuildStoreInd(GenTreeIndir* store);
+    void BuildShiftRotate(GenTreeOp* node);
+    void BuildModDiv(GenTree* node);
+    void BuildMul(GenTreeOp* mul);
+    void BuildMulLong(GenTreeOp* mul);
+    void BuildIntrinsic(GenTreeIntrinsic* intrinsic);
 #else
-    void BuildIndir(GenTreeIndir* indirTree);
+    void BuildIndir(GenTreeIndir* indir);
 #endif
-    void BuildGCWriteBarrier(GenTreeStoreInd* store);
-    void BuildCast(GenTreeCast* cast);
+#ifdef TARGET_ARM
+    void BuildShiftLong(GenTreeOp* node);
+#endif
+#ifdef FEATURE_HW_INTRINSICS
+    void BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsic);
+#endif
 
+    bool supportsSpecialPutArg();
+#ifdef WINDOWS_AMD64_ABI
+    bool HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode);
+#endif
 #ifdef TARGET_XARCH
-    INDEBUG(bool isRMWRegOper(GenTreeOp* tree);)
     void SetContainsAVXFlags(unsigned sizeOfSIMDVector = 0);
 #endif
-
-#ifdef FEATURE_HW_INTRINSICS
-    void BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree);
-#endif
-
-    void BuildPutArgStk(GenTreePutArgStk* argNode);
-#if FEATURE_ARG_SPLIT
-    void BuildPutArgSplit(GenTreePutArgSplit* tree);
-#endif
-    void BuildLclHeap(GenTreeUnOp* tree);
-    void BuildAddrMode(GenTreeAddrMode* node);
-    void BuildCmpXchg(GenTreeCmpXchg* cmpxchg);
-    void BuildInterlocked(GenTreeOp* node);
-
-    void BuildInstr(GenTreeInstr* instr);
 };
 
 /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
