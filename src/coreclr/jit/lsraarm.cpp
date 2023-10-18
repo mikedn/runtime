@@ -182,17 +182,6 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildKills(tree, RBM_NONE);
             break;
 
-        case GT_LONG:
-            // Contained nodes are already processed, only unused LONG can reach here.
-            // TODO-MIKE-Review: Why is such a node generated in the first place?
-            assert(tree->IsUnusedValue());
-            // An unused LONG node needs to consume its sources, but need not produce a register.
-            tree->SetType(TYP_VOID);
-            tree->ClearUnusedValue();
-            BuildUse(tree->AsOp()->GetOp(0));
-            BuildUse(tree->AsOp()->GetOp(1));
-            break;
-
         case GT_CNS_DBL:
             if (tree->TypeIs(TYP_FLOAT))
             {
