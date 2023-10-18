@@ -483,36 +483,14 @@ void LinearScan::BuildShiftLong(GenTreeOp* node)
     assert(source->OperIs(GT_LONG) && source->isContained());
     GenTree* sourceLo = source->GetOp(0);
     GenTree* sourceHi = source->GetOp(1);
-    GenTree* shiftBy  = node->GetOp(1);
+
+    GenTree* shiftBy = node->GetOp(1);
+    assert(shiftBy->IsContainedIntCon());
 
     RefPosition* sourceLoUse = BuildUse(sourceLo);
     RefPosition* sourceHiUse = BuildUse(sourceHi);
-
-    if (!node->isContained())
-    {
-        if (node->OperIs(GT_LSH_HI))
-        {
-            setDelayFree(sourceLoUse);
-        }
-        else
-        {
-            setDelayFree(sourceHiUse);
-        }
-
-        if (!shiftBy->isContained())
-        {
-            BuildUse(shiftBy);
-        }
-
-        BuildDef(node);
-    }
-    else
-    {
-        if (!shiftBy->isContained())
-        {
-            BuildUse(shiftBy);
-        }
-    }
+    setDelayFree(node->OperIs(GT_LSH_HI) ? sourceLoUse : sourceHiUse);
+    BuildDef(node);
 }
 
 #endif // TARGET_ARM

@@ -725,10 +725,8 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
     instruction ins        = genGetInsForOper(oper);
 
     GenTree* shiftBy = tree->gtGetOp2();
-
-    assert(shiftBy->isContainedIntOrIImmed());
-
-    unsigned count = (unsigned)shiftBy->AsIntConCommon()->IconValue();
+    assert(shiftBy->IsContainedIntCon());
+    unsigned count = shiftBy->AsIntCon()->GetUInt32Value();
 
     regNumber regResult = (oper == GT_LSH_HI) ? regHi : regLo;
 
