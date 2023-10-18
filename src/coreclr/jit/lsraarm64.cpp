@@ -753,15 +753,36 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 }
             }
 
-            isRMW ? BuildDelayFreeUses(intrin.op2, intrin.op1) : BuildOperandUses(intrin.op2);
+            if (isRMW)
+            {
+                BuildDelayFreeUses(intrin.op2, intrin.op1);
+            }
+            else
+            {
+                BuildOperandUses(intrin.op2);
+            }
 
             if (intrin.op3 != nullptr)
             {
-                isRMW ? BuildDelayFreeUses(intrin.op3, intrin.op1) : BuildOperandUses(intrin.op3);
+                if (isRMW)
+                {
+                    BuildDelayFreeUses(intrin.op3, intrin.op1);
+                }
+                else
+                {
+                    BuildOperandUses(intrin.op3);
+                }
 
                 if (intrin.op4 != nullptr)
                 {
-                    isRMW ? BuildDelayFreeUses(intrin.op4, intrin.op1) : BuildOperandUses(intrin.op4);
+                    if (isRMW)
+                    {
+                        BuildDelayFreeUses(intrin.op4, intrin.op1);
+                    }
+                    else
+                    {
+                        BuildOperandUses(intrin.op4);
+                    }
                 }
             }
         }

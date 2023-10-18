@@ -1574,7 +1574,15 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                     // SSE4.1 blendv* hardcode the mask vector (op3) in XMM0
                     tgtPrefUse = BuildUse(op1);
 
-                    op2->isContained() ? BuildOperandUses(op2) : BuildDelayFreeUses(op2, op1);
+                    if (op2->isContained())
+                    {
+                        BuildOperandUses(op2);
+                    }
+                    else
+                    {
+                        BuildDelayFreeUses(op2, op1);
+                    }
+
                     BuildDelayFreeUses(op3, op1, RBM_XMM0);
 
                     buildUses = false;
@@ -1686,7 +1694,14 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                         tgtPrefUse2 = BuildUse(op2);
                     }
 
-                    op3->isContained() ? BuildOperandUses(op3) : BuildDelayFreeUses(op3, op1);
+                    if (op3->isContained())
+                    {
+                        BuildOperandUses(op3);
+                    }
+                    else
+                    {
+                        BuildDelayFreeUses(op3, op1);
+                    }
                 }
 
                 buildUses = false;
@@ -1700,7 +1715,15 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
                 tgtPrefUse = BuildUse(op1);
                 BuildDelayFreeUses(op2, op1);
-                op3->isContained() ? BuildOperandUses(op3) : BuildDelayFreeUses(op3, op1);
+
+                if (op3->isContained())
+                {
+                    BuildOperandUses(op3);
+                }
+                else
+                {
+                    BuildDelayFreeUses(op3, op1);
+                }
 
                 buildUses = false;
                 break;
@@ -1811,7 +1834,14 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
                 if (op3 != nullptr)
                 {
-                    isRMW ? BuildDelayFreeUses(op3, op1) : BuildOperandUses(op3);
+                    if (isRMW)
+                    {
+                        BuildDelayFreeUses(op3, op1);
+                    }
+                    else
+                    {
+                        BuildOperandUses(op3);
+                    }
                 }
             }
         }

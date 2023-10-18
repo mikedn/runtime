@@ -2382,12 +2382,13 @@ void LinearScan::setDelayFree(RefPosition* use)
     pendingDelayFree  = true;
 }
 
-int LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP candidates)
+void LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP candidates)
 {
     RefPosition* use          = nullptr;
     Interval*    rmwInterval  = nullptr;
     bool         rmwIsLastUse = false;
     GenTree*     addr         = nullptr;
+
     if ((rmwNode != nullptr) && isCandidateLclVar(rmwNode))
     {
         rmwInterval = getIntervalForLocalVarNode(rmwNode->AsLclVar());
@@ -2396,6 +2397,7 @@ int LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP ca
         assert(!rmwNode->AsLclVar()->IsMultiReg());
         rmwIsLastUse = rmwNode->AsLclVar()->IsLastUse(0);
     }
+
     if (!node->isContained())
     {
         use = BuildUse(node, candidates);
@@ -2408,7 +2410,7 @@ int LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP ca
 #endif
     else if (!node->OperIsIndir())
     {
-        return 0;
+        return;
     }
     else
     {
@@ -2420,7 +2422,7 @@ int LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP ca
         }
         else if (!addr->OperIs(GT_LEA))
         {
-            return 0;
+            return;
         }
     }
     if (use != nullptr)
@@ -2433,14 +2435,13 @@ int LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP ca
         {
             setDelayFree(use);
         }
-        return 1;
+
+        return;
     }
 
     // If we reach here we have a contained LEA in 'addr'.
 
     GenTreeAddrMode* const addrMode = addr->AsAddrMode();
-
-    unsigned srcCount = 0;
 
     if (GenTree* base = addrMode->GetBase())
     {
@@ -2449,7 +2450,6 @@ int LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP ca
         {
             setDelayFree(use);
         }
-        srcCount++;
     }
 
     if (GenTree* index = addrMode->GetIndex())
@@ -2459,10 +2459,7 @@ int LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP ca
         {
             setDelayFree(use);
         }
-        srcCount++;
     }
-
-    return srcCount;
 }
 
 void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index)
