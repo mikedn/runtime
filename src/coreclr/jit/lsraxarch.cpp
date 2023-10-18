@@ -1301,12 +1301,7 @@ void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
 
         size_t sizeVal = size->AsIntCon()->GetUnsignedValue();
 
-        if (sizeVal == 0)
-        {
-            // TODO-MIKE-Review: What is this for?
-            tempRegCount = 1;
-        }
-        else if (!compiler->info.compInitMem)
+        if ((sizeVal != 0) && !compiler->info.compInitMem)
         {
             sizeVal = AlignUp(sizeVal, STACK_ALIGN);
 
