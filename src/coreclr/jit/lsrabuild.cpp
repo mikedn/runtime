@@ -1267,7 +1267,15 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
 #endif
 
     clearBuildState();
-    BuildNode(tree);
+
+    // We make a final determination about whether a GT_LCL_VAR is a candidate or contained
+    // after liveness. In either case we don't build any uses or defs. Otherwise, this is a
+    // load of a stack-based local into a register and we'll fall through to the general
+    // local case below.
+    if (!tree->OperIs(GT_LCL_VAR) || !checkContainedOrCandidateLclVar(tree->AsLclVar()))
+    {
+        BuildNode(tree);
+    }
 
 #ifdef DEBUG
     int newDefListCount = defList.Count();

@@ -14,16 +14,9 @@ void LinearScan::BuildNode(GenTree* tree)
     switch (tree->GetOper())
     {
         case GT_LCL_VAR:
-            // We make a final determination about whether a GT_LCL_VAR is a candidate or contained
-            // after liveness. In either case we don't build any uses or defs. Otherwise, this is a
-            // load of a stack-based local into a register and we'll fall through to the general
-            // local case below.
-            if (checkContainedOrCandidateLclVar(tree->AsLclVar()))
-            {
-                return;
-            }
-            FALLTHROUGH;
         case GT_LCL_FLD:
+            assert(!compiler->lvaGetDesc(tree->AsLclVarCommon())->IsRegCandidate());
+
             if (tree->OperIs(GT_LCL_FLD) && tree->AsLclFld()->IsOffsetMisaligned())
             {
                 BuildInternalIntDef(tree); // to generate address.

@@ -14,16 +14,9 @@ void LinearScan::BuildNode(GenTree* tree)
     switch (tree->GetOper())
     {
         case GT_LCL_VAR:
-            // We make a final determination about whether a GT_LCL_VAR is a candidate or contained
-            // after liveness. In either case we don't build any uses or defs. Otherwise, this is a
-            // load of a stack-based local into a register and we'll fall through to the general
-            // local case below.
-            if (checkContainedOrCandidateLclVar(tree->AsLclVar()))
-            {
-                return;
-            }
-            FALLTHROUGH;
         case GT_LCL_FLD:
+            assert(!compiler->lvaGetDesc(tree->AsLclVarCommon())->IsRegCandidate());
+
 #ifdef FEATURE_SIMD
             // Need an additional register to read upper 4 bytes of Vector3.
             if (tree->TypeIs(TYP_SIMD12))
