@@ -201,6 +201,7 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_NOT:
         case GT_BSWAP:
         case GT_BSWAP16:
+        case GT_INC_SATURATE:
             BuildUse(tree->AsUnOp()->GetOp(0));
             BuildDef(tree);
             break;
