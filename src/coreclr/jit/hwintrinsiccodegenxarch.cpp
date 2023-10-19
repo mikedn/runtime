@@ -292,9 +292,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                         assert(intrinsicId == NI_SSE2_MaskMove);
                         assert(targetReg == REG_NA);
 
-                        // SSE2 MaskMove hardcodes the destination (op3) in DI/EDI/RDI
-                        emit->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_EDI, op3Reg, /* canSkip */ true);
-
+                        emit->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RDI, op3Reg, /* canSkip */ true);
                         emit->emitIns_R_R(ins, simdSize, op1Reg, op2Reg);
                     }
                 }

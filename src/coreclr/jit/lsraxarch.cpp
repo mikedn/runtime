@@ -1503,10 +1503,9 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(numOps == 3);
                 assert(!isRMW);
 
-                // MaskMove hardcodes the destination (op3) in DI/EDI/RDI
-                BuildOperandUses(op1);
-                BuildOperandUses(op2);
-                BuildOperandUses(op3, RBM_EDI);
+                BuildUse(op1);
+                BuildUse(op2);
+                BuildUse(op3, RBM_RDI);
                 buildUses = false;
                 break;
 
@@ -1563,7 +1562,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             case NI_BMI2_X64_MultiplyNoFlags:
                 assert((numOps == 2) || (numOps == 3));
 
-                BuildOperandUses(op1, RBM_EDX);
+                BuildUse(op1, RBM_EDX);
                 BuildOperandUses(op2);
 
                 if (numOps == 3)
