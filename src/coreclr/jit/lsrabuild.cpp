@@ -2347,54 +2347,41 @@ unsigned LinearScan::BuildAddrUses(GenTree* addr, regMaskTP candidates)
     return useCount;
 }
 
-unsigned LinearScan::BuildOperandUses(GenTree* node, regMaskTP candidates)
+void LinearScan::BuildOperandUses(GenTree* node, regMaskTP candidates)
 {
     if (!node->isContained())
     {
         BuildUse(node, candidates);
-
-        return 1;
     }
-
 #ifndef TARGET_64BIT
-    if (node->OperIs(GT_LONG))
+    else if (node->OperIs(GT_LONG))
     {
         BuildUse(node->AsOp()->GetOp(0));
         BuildUse(node->AsOp()->GetOp(1));
-
-        return 2;
     }
 #endif
-
-    if (node->OperIsIndir())
+    else if (node->OperIsIndir())
     {
-        return BuildAddrUses(node->AsIndir()->GetAddr(), candidates);
+        BuildAddrUses(node->AsIndir()->GetAddr(), candidates);
     }
-
-    if (node->OperIs(GT_LEA))
+    else if (node->OperIs(GT_LEA))
     {
-        return BuildAddrUses(node, candidates);
+        BuildAddrUses(node, candidates);
     }
-
 #ifdef FEATURE_HW_INTRINSICS
-    if (GenTreeHWIntrinsic* hwi = node->IsHWIntrinsic())
+    else if (GenTreeHWIntrinsic* hwi = node->IsHWIntrinsic())
     {
         if (hwi->OperIsMemoryLoad())
         {
-            return BuildAddrUses(hwi->GetOp(0));
+            BuildAddrUses(hwi->GetOp(0));
         }
-
         // TODO-MIKE-Review: What is this for?
-        if (hwi->GetNumOps() >= 1)
+        else if (hwi->GetNumOps() >= 1)
         {
             BuildUse(hwi->GetOp(0), candidates);
-
-            return 1;
         }
     }
 #endif // FEATURE_HW_INTRINSICS
-
-    return 0;
 }
 
 void LinearScan::setDelayFree(RefPosition* use)

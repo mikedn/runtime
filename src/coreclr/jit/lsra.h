@@ -1631,7 +1631,7 @@ private:
     INDEBUG(bool isRMWRegOper(GenTreeOp* tree);)
     void BuildRMWUses(GenTreeOp* node);
 #endif
-    unsigned BuildOperandUses(GenTree* node, regMaskTP candidates = RBM_NONE);
+    void BuildOperandUses(GenTree* node, regMaskTP candidates = RBM_NONE);
     void BuildDelayFreeUses(GenTree* node, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
     unsigned BuildAddrUses(GenTree* addr, regMaskTP candidates = RBM_NONE);
 
