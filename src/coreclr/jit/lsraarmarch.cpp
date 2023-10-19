@@ -500,27 +500,21 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
         BuildInternalIntDef(store, sizeRegMask);
     }
 
-    int useCount = 0;
-
     if (dstAddr != nullptr)
     {
         if (!dstAddr->isContained())
         {
-            useCount++;
             BuildUse(dstAddr, dstAddrRegMask);
         }
         else if (dstAddr->IsAddrMode())
         {
-            useCount += BuildAddrUses(dstAddr->AsAddrMode()->GetBase());
+            BuildAddrUses(dstAddr->AsAddrMode()->GetBase());
         }
     }
 
     if (kind == StructStoreKind::UnrollRegs)
     {
-        unsigned regCount = src->AsCall()->GetRegCount();
-        useCount += regCount;
-
-        for (unsigned i = 0; i < regCount; i++)
+        for (unsigned i = 0, count = src->AsCall()->GetRegCount(); i < count; i++)
         {
             BuildUse(src, RBM_NONE, i);
         }
@@ -529,12 +523,11 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
     {
         if (!srcAddrOrFill->isContained())
         {
-            useCount++;
             BuildUse(srcAddrOrFill, srcRegMask);
         }
         else if (srcAddrOrFill->IsAddrMode())
         {
-            useCount += BuildAddrUses(srcAddrOrFill->AsAddrMode()->GetBase());
+            BuildAddrUses(srcAddrOrFill->AsAddrMode()->GetBase());
         }
     }
 

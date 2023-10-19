@@ -2318,35 +2318,36 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int re
     return useRefPos;
 }
 
-int LinearScan::BuildAddrUses(GenTree* addr, regMaskTP candidates)
+unsigned LinearScan::BuildAddrUses(GenTree* addr, regMaskTP candidates)
 {
     if (!addr->isContained())
     {
         BuildUse(addr, candidates);
+
         return 1;
     }
 
-    int srcCount = 0;
+    unsigned useCount = 0;
 
     if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
     {
         if (GenTree* base = addrMode->GetBase())
         {
             BuildUse(base, candidates);
-            srcCount++;
+            useCount++;
         }
 
         if (GenTree* index = addrMode->GetIndex())
         {
             BuildUse(index, candidates);
-            srcCount++;
+            useCount++;
         }
     }
 
-    return srcCount;
+    return useCount;
 }
 
-int LinearScan::BuildOperandUses(GenTree* node, regMaskTP candidates)
+unsigned LinearScan::BuildOperandUses(GenTree* node, regMaskTP candidates)
 {
     if (!node->isContained())
     {
@@ -2387,6 +2388,7 @@ int LinearScan::BuildOperandUses(GenTree* node, regMaskTP candidates)
         if (hwi->GetNumOps() >= 1)
         {
             BuildUse(hwi->GetOp(0), candidates);
+
             return 1;
         }
     }

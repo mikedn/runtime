@@ -936,14 +936,14 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
         BuildInternalIntDef(store, sizeRegMask);
     }
 
-    int useCount = 0;
+    unsigned useCount = 0;
 
     if (dstAddr != nullptr)
     {
         if (!dstAddr->isContained())
         {
-            useCount++;
             BuildUse(dstAddr, dstAddrRegMask);
+            useCount++;
         }
         else if (dstAddr->IsAddrMode())
         {
@@ -954,12 +954,10 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
 #if FEATURE_MULTIREG_RET
     if (kind == StructStoreKind::UnrollRegs)
     {
-        unsigned regCount = src->AsCall()->GetRegCount();
-        useCount += regCount;
-
-        for (unsigned i = 0; i < regCount; i++)
+        for (unsigned i = 0, count = src->AsCall()->GetRegCount(); i < count; i++)
         {
             BuildUse(src, RBM_NONE, i);
+            useCount++;
         }
     }
     else
@@ -968,8 +966,8 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
     {
         if (!srcAddrOrFill->isContained())
         {
-            useCount++;
             BuildUse(srcAddrOrFill, srcRegMask);
+            useCount++;
         }
         else if (srcAddrOrFill->IsAddrMode())
         {
@@ -1231,15 +1229,17 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 unreached();
         }
 
-        int srcCount = BuildOperandUses(src);
+        unsigned useCount = BuildOperandUses(src);
         BuildInternalUses();
+
 #ifdef TARGET_X86
-        // There are only 4 (BYTE_REG_COUNT) byteable registers on x86. If we require a byteable internal register,
-        // we must have less than BYTE_REG_COUNT sources.
-        // If we have BYTE_REG_COUNT or more sources, and require a byteable internal register, we need to reserve
-        // one explicitly (see BuildStructStore()).
-        assert(srcCount < BYTE_REG_COUNT);
+        // There are only 4 (BYTE_REG_COUNT) byteable registers on x86. If we require
+        // a byteable internal register, we must have less than BYTE_REG_COUNT sources.
+        // If we have BYTE_REG_COUNT or more sources, and require a byteable internal
+        // register, we need to reserve one explicitly (see BuildStructStore()).
+        assert(useCount < BYTE_REG_COUNT);
 #endif
+
         return;
     }
 
@@ -1879,7 +1879,7 @@ void LinearScan::BuildStoreInd(GenTreeIndir* store)
     }
 #endif // FEATURE_SIMD
 
-    int srcCount = BuildAddrUses(store->GetAddr());
+    unsigned useCount = BuildAddrUses(store->GetAddr());
 
     GenTree* value   = store->GetValue();
     bool     isShift = false;
@@ -1917,7 +1917,7 @@ void LinearScan::BuildStoreInd(GenTreeIndir* store)
 #endif
 
         BuildUse(value, regs);
-        srcCount++;
+        useCount++;
 
         if (isShift)
         {
@@ -1935,7 +1935,7 @@ void LinearScan::BuildStoreInd(GenTreeIndir* store)
     // we need to reserve one explicitly (see BuildStructStore()).
     // Note that the assert below doesn't count internal registers because we only
     // have floating point internal registers, if any.
-    assert(srcCount <= BYTE_REG_COUNT);
+    assert(useCount <= BYTE_REG_COUNT);
 #endif
 }
 
