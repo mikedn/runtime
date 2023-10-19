@@ -1214,12 +1214,9 @@ unsigned LinearScan::ComputeAvailableSrcCount(GenTree* node)
 
 void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc)
 {
-    // The LIR traversal doesn't visit GT_ARGPLACE nodes.
-    assert(tree->OperGet() != GT_ARGPLACE);
+    assert(!tree->OperIs(GT_ARGPLACE));
 
-    // The set of internal temporary registers used by this node are stored in the
-    // gtRsvdRegs register mask. Clear it out.
-    tree->gtRsvdRegs = RBM_NONE;
+    tree->ClearTempRegs();
     tree->ClearRegSpillSet();
 
 #ifdef DEBUG
@@ -1228,7 +1225,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
         dumpDefList();
         compiler->gtDispLIRNode(tree);
     }
-#endif // DEBUG
+#endif
 
     if (tree->isContained())
     {
@@ -1244,20 +1241,13 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
                 VarSetOps::RemoveElemD(compiler, currentLiveVars, lcl->GetLivenessBitIndex());
             }
         }
-#else  // TARGET_XARCH
+#else
         assert(!isCandidateLclVar(tree));
-#endif // TARGET_XARCH
+#endif
         JITDUMP("Contained\n");
+
         return;
     }
-
-#ifdef DEBUG
-    // If we are constraining the registers for allocation, we will modify all the RefPositions
-    // we've built for this node after we've created them. In order to do that, we'll remember
-    // the last RefPosition prior to those created for this node.
-    RefPositionIterator refPositionMark = refPositions.backPosition();
-    int                 oldDefListCount = defList.Count();
-#endif // DEBUG
 
 #ifdef TARGET_XARCH
     if (varTypeUsesFloatReg(tree->GetType()))
@@ -1268,6 +1258,14 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
 
     clearBuildState();
 
+    // If we are constraining the registers for allocation, we will modify all the RefPositions
+    // we've built for this node after we've created them. In order to do that, we'll remember
+    // the last RefPosition prior to those created for this node.
+    INDEBUG(RefPositionIterator refPositionMark = refPositions.backPosition());
+    // Currently "produce" below is unused, but need to strengthen an assert to check
+    // if produce is as expected. See https://github.com/dotnet/runtime/issues/8678
+    // int oldDefListCount = defList.Count();
+
     // We make a final determination about whether a GT_LCL_VAR is a candidate or contained
     // after liveness. In either case we don't build any uses or defs. Otherwise, this is a
     // load of a stack-based local into a register and we'll fall through to the general
@@ -1277,11 +1275,8 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
         BuildNode(tree);
     }
 
-#ifdef DEBUG
-    int newDefListCount = defList.Count();
-    // Currently produce is unused, but need to strengthen an assert to check if produce is
-    // as expected. See https://github.com/dotnet/runtime/issues/8678
-    unsigned produce = newDefListCount - oldDefListCount;
+    // int newDefListCount = defList.Count();
+    // unsigned produce = newDefListCount - oldDefListCount;
 
     assert(
         // RegOptional LCL_VARs may become contained.
@@ -1295,98 +1290,109 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
 
     assert((nodeUseCount == 0) || (ComputeAvailableSrcCount(tree) == nodeUseCount));
 
+#ifdef DEBUG
     // If we are constraining registers, modify all the RefPositions we've just built to specify the
     // minimum reg count required.
     if ((getStressLimitRegs() != LSRA_LIMIT_NONE) || (getSelectionHeuristics() != LSRA_SELECT_DEFAULT))
     {
-        // The number of registers required for a tree node is the sum of
-        //   { RefTypeUses } + { RefTypeDef for the node itself } + specialPutArgCount
-        // This is the minimum set of registers that needs to be ensured in the candidate set of ref positions created.
-        //
-        // First, we count them.
-        unsigned minRegCount = 0;
-
-        RefPositionIterator iter = refPositionMark;
-        for (iter++; iter != refPositions.end(); iter++)
-        {
-            RefPosition* newRefPosition = &(*iter);
-            if (newRefPosition->isIntervalRef())
-            {
-                if ((newRefPosition->refType == RefTypeUse) ||
-                    ((newRefPosition->refType == RefTypeDef) && !newRefPosition->getInterval()->isInternal))
-                {
-                    minRegCount++;
-                }
-#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-                else if (newRefPosition->refType == RefTypeUpperVectorSave)
-                {
-                    minRegCount++;
-                }
+        BuildStressConstraints(tree, refPositionMark);
+    }
 #endif
-                if (newRefPosition->getInterval()->isSpecialPutArg)
-                {
-                    minRegCount++;
-                }
-            }
-        }
 
-        if (tree->OperIsPutArgSplit())
-        {
-            // While we have attempted to account for any "specialPutArg" defs above, we're only looking at RefPositions
-            // created for this node. We must be defining at least one register in the PutArgSplit, so conservatively
-            // add one less than the maximum number of registers args to 'minRegCount'.
-            minRegCount += MAX_REG_ARG - 1;
-        }
-        for (refPositionMark++; refPositionMark != refPositions.end(); refPositionMark++)
-        {
-            RefPosition* newRefPosition    = &(*refPositionMark);
-            unsigned     minRegCountForRef = minRegCount;
-            if (RefTypeIsUse(newRefPosition->refType) && newRefPosition->delayRegFree)
-            {
-                // If delayRegFree, then Use will interfere with the destination of the consuming node.
-                // Therefore, we also need add the kill set of the consuming node to minRegCount.
-                //
-                // For example consider the following IR on x86, where v01 and v02
-                // are method args coming in ecx and edx respectively.
-                //   GT_DIV(v01, v02)
-                //
-                // For GT_DIV, the minRegCount will be 3 without adding kill set of GT_DIV node.
-                //
-                // Assume further JitStressRegs=2, which would constrain candidates to callee trashable
-                // regs { eax, ecx, edx } on use positions of v01 and v02.  LSRA allocates ecx for v01.
-                // The use position of v02 cannot be allocated a reg since it is marked delay-reg free and
-                // {eax,edx} are getting killed before the def of GT_DIV.  For this reason, minRegCount for
-                // the use position of v02 also needs to take into account the kill set of its consuming node.
-                regMaskTP killMask = getKillSetForNode(tree);
-                if (killMask != RBM_NONE)
-                {
-                    minRegCountForRef += genCountBits(killMask);
-                }
-            }
-            else if ((newRefPosition->refType) == RefTypeDef && (newRefPosition->getInterval()->isSpecialPutArg))
-            {
-                minRegCountForRef++;
-            }
+    JITDUMP("\n");
+}
 
-            newRefPosition->minRegCandidateCount = minRegCountForRef;
-            if (newRefPosition->IsActualRef() && doReverseCallerCallee())
+#ifdef DEBUG
+void LinearScan::BuildStressConstraints(GenTree* tree, RefPositionIterator refPositionMark)
+{
+    assert((getStressLimitRegs() != LSRA_LIMIT_NONE) || (getSelectionHeuristics() != LSRA_SELECT_DEFAULT));
+
+    // The number of registers required for a tree node is the sum of
+    //   { RefTypeUses } + { RefTypeDef for the node itself } + specialPutArgCount
+    // This is the minimum set of registers that needs to be ensured in the candidate set of ref positions created.
+    //
+    // First, we count them.
+    unsigned minRegCount = 0;
+
+    RefPositionIterator iter = refPositionMark;
+    for (iter++; iter != refPositions.end(); iter++)
+    {
+        RefPosition* newRefPosition = &(*iter);
+        if (newRefPosition->isIntervalRef())
+        {
+            if ((newRefPosition->refType == RefTypeUse) ||
+                ((newRefPosition->refType == RefTypeDef) && !newRefPosition->getInterval()->isInternal))
             {
-                Interval* interval       = newRefPosition->getInterval();
-                regMaskTP oldAssignment  = newRefPosition->registerAssignment;
-                regMaskTP calleeSaveMask = calleeSaveRegs(interval->registerType);
-                newRefPosition->registerAssignment =
-                    getConstrainedRegMask(oldAssignment, calleeSaveMask, minRegCountForRef);
-                if ((newRefPosition->registerAssignment != oldAssignment) && (newRefPosition->refType == RefTypeUse) &&
-                    !interval->isLocalVar)
-                {
-                    checkConflictingDefUse(newRefPosition);
-                }
+                minRegCount++;
+            }
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
+            else if (newRefPosition->refType == RefTypeUpperVectorSave)
+            {
+                minRegCount++;
+            }
+#endif
+            if (newRefPosition->getInterval()->isSpecialPutArg)
+            {
+                minRegCount++;
             }
         }
     }
-#endif // DEBUG
-    JITDUMP("\n");
+
+    if (tree->OperIsPutArgSplit())
+    {
+        // While we have attempted to account for any "specialPutArg" defs above, we're only looking at RefPositions
+        // created for this node. We must be defining at least one register in the PutArgSplit, so conservatively
+        // add one less than the maximum number of registers args to 'minRegCount'.
+        minRegCount += MAX_REG_ARG - 1;
+    }
+    for (refPositionMark++; refPositionMark != refPositions.end(); refPositionMark++)
+    {
+        RefPosition* newRefPosition    = &(*refPositionMark);
+        unsigned     minRegCountForRef = minRegCount;
+        if (RefTypeIsUse(newRefPosition->refType) && newRefPosition->delayRegFree)
+        {
+            // If delayRegFree, then Use will interfere with the destination of the consuming node.
+            // Therefore, we also need add the kill set of the consuming node to minRegCount.
+            //
+            // For example consider the following IR on x86, where v01 and v02
+            // are method args coming in ecx and edx respectively.
+            //   GT_DIV(v01, v02)
+            //
+            // For GT_DIV, the minRegCount will be 3 without adding kill set of GT_DIV node.
+            //
+            // Assume further JitStressRegs=2, which would constrain candidates to callee trashable
+            // regs { eax, ecx, edx } on use positions of v01 and v02.  LSRA allocates ecx for v01.
+            // The use position of v02 cannot be allocated a reg since it is marked delay-reg free and
+            // {eax,edx} are getting killed before the def of GT_DIV.  For this reason, minRegCount for
+            // the use position of v02 also needs to take into account the kill set of its consuming node.
+            regMaskTP killMask = getKillSetForNode(tree);
+            if (killMask != RBM_NONE)
+            {
+                minRegCountForRef += genCountBits(killMask);
+            }
+        }
+        else if ((newRefPosition->refType) == RefTypeDef && (newRefPosition->getInterval()->isSpecialPutArg))
+        {
+            minRegCountForRef++;
+        }
+
+        newRefPosition->minRegCandidateCount = minRegCountForRef;
+        if (newRefPosition->IsActualRef() && doReverseCallerCallee())
+        {
+            Interval* interval       = newRefPosition->getInterval();
+            regMaskTP oldAssignment  = newRefPosition->registerAssignment;
+            regMaskTP calleeSaveMask = calleeSaveRegs(interval->registerType);
+            newRefPosition->registerAssignment =
+                getConstrainedRegMask(oldAssignment, calleeSaveMask, minRegCountForRef);
+            if ((newRefPosition->registerAssignment != oldAssignment) && (newRefPosition->refType == RefTypeUse) &&
+                !interval->isLocalVar)
+            {
+                checkConflictingDefUse(newRefPosition);
+            }
+        }
+    }
 }
+#endif // DEBUG
 
 void LinearScan::buildPhysRegRecords()
 {

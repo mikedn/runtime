@@ -1002,6 +1002,11 @@ public:
         m_defRegsSpillSet = 0;
     }
 
+    void ClearTempRegs()
+    {
+        gtRsvdRegs = RBM_NONE;
+    }
+
     unsigned AvailableTempRegCount(regMaskTP mask = (regMaskTP)-1) const;
     regNumber GetSingleTempReg(regMaskTP mask = (regMaskTP)-1);
     regNumber ExtractTempReg(regMaskTP mask = (regMaskTP)-1);

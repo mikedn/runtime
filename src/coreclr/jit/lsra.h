@@ -1039,6 +1039,7 @@ private:
     void resolveConflictingDefAndUse(Interval* interval, RefPosition* defRefPosition);
 
     void buildRefPositionsForNode(GenTree* tree, LsraLocation loc);
+    INDEBUG(void BuildStressConstraints(GenTree* tree, RefPositionIterator refPositionMark);)
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     void buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation currentLoc, regMaskTP fpCalleeKillSet);
