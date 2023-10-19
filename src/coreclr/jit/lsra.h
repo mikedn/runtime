@@ -160,12 +160,10 @@ private:
 // values avoids otherwise frequent allocations.
 class RefInfoListNodePool final
 {
-    RefInfoListNode* freeList;
-    Compiler*        compiler;
+    RefInfoListNode* freeList = nullptr;
 
 public:
-    RefInfoListNodePool(Compiler* compiler, unsigned preallocate = 8);
-    RefInfoListNode* GetNode(RefPosition* ref, GenTree* node);
+    RefInfoListNode* GetNode(RefPosition* ref, GenTree* node, Compiler* compiler);
     void ReturnNode(RefInfoListNode* node);
 };
 

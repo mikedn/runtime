@@ -62,27 +62,7 @@ RefInfoListNode* RefInfoList::Unlink(RefInfoListNode* def, RefInfoListNode* prev
     return def;
 }
 
-RefInfoListNodePool::RefInfoListNodePool(Compiler* compiler, unsigned preallocate) : compiler(compiler)
-{
-    if (preallocate > 0)
-    {
-        RefInfoListNode* preallocatedDefs = compiler->getAllocator(CMK_LSRA).allocate<RefInfoListNode>(preallocate);
-
-        RefInfoListNode* head = preallocatedDefs;
-        head->next            = nullptr;
-
-        for (unsigned i = 1; i < preallocate; i++)
-        {
-            RefInfoListNode* def = &preallocatedDefs[i];
-            def->next            = head;
-            head                 = def;
-        }
-
-        freeList = head;
-    }
-}
-
-RefInfoListNode* RefInfoListNodePool::GetNode(RefPosition* ref, GenTree* node)
+RefInfoListNode* RefInfoListNodePool::GetNode(RefPosition* ref, GenTree* node, Compiler* compiler)
 {
     RefInfoListNode* head = freeList;
 
@@ -2234,7 +2214,7 @@ RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, regMaskTP re
     }
     else
     {
-        defList.Append(listNodePool.GetNode(defRefPosition, node));
+        defList.Append(listNodePool.GetNode(defRefPosition, node, compiler));
     }
 
 #if defined(TARGET_XARCH) || defined(FEATURE_HW_INTRINSICS)

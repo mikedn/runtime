@@ -559,7 +559,6 @@ LinearScan::LinearScan(Compiler* theCompiler)
     , allocationPassComplete(false)
     , enregisterLocalVars(theCompiler->lvaTrackedCount != 0)
     , refPositions(theCompiler->getAllocator(CMK_LSRA_RefPosition))
-    , listNodePool(theCompiler)
 {
     regSelector  = new (theCompiler, CMK_LSRA) RegisterSelection(this);
     firstColdLoc = MaxLocation;
