@@ -2006,11 +2006,11 @@ void LinearScan::SetContainsAVXFlags(unsigned byteSize)
     }
 
     compiler->compExactlyDependsOn(InstructionSet_AVX);
-    compiler->GetEmitter()->SetContainsAVX(true);
+    compiler->GetEmitter()->SetContainsAVX();
 
     if (byteSize == 32)
     {
-        compiler->GetEmitter()->SetContains256bitAVX(true);
+        compiler->GetEmitter()->SetContains256bitAVX();
     }
 }
 
