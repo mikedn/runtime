@@ -353,8 +353,7 @@ void LinearScan::BuildNode(GenTree* tree)
                     break;
             }
 #endif
-            BuildUse(tree->AsOp()->GetOp(0));
-            BuildUse(tree->AsOp()->GetOp(1));
+            BuildRMWUses(tree->AsOp());
             BuildInternalUses();
             BuildDef(tree);
             break;
@@ -433,6 +432,8 @@ bool LinearScan::isRMWRegOper(GenTreeOp* tree)
 #ifdef TARGET_X86
         case GT_MUL_LONG:
 #endif
+        // TODO-MIKE-Review: INDEX_ADDR isn't RMW but old code was bogus and removing this causes diffs.
+        case GT_INDEX_ADDR:
             return true;
 
         case GT_MUL:
