@@ -1633,7 +1633,8 @@ private:
 #endif
     void BuildOperandUses(GenTree* node, regMaskTP candidates = RBM_NONE);
     void BuildDelayFreeUses(GenTree* node, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
-    unsigned BuildAddrUses(GenTree* addr, regMaskTP candidates = RBM_NONE);
+    void BuildAddrUses(GenTree* addr, regMaskTP candidates = RBM_NONE);
+    unsigned BuildAddrModeUses(GenTreeAddrMode* addrMode, regMaskTP candidates = RBM_NONE);
 
     void BuildNode(GenTree* node);
     void BuildReturn(GenTreeUnOp* ret);

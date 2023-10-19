@@ -945,9 +945,9 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
             BuildUse(dstAddr, dstAddrRegMask);
             useCount++;
         }
-        else if (dstAddr->IsAddrMode())
+        else if (GenTreeAddrMode* am = dstAddr->IsAddrMode())
         {
-            useCount += BuildAddrUses(dstAddr);
+            useCount += BuildAddrModeUses(am);
         }
     }
 
@@ -969,9 +969,9 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
             BuildUse(srcAddrOrFill, srcRegMask);
             useCount++;
         }
-        else if (srcAddrOrFill->IsAddrMode())
+        else if (GenTreeAddrMode* am = srcAddrOrFill->IsAddrMode())
         {
-            useCount += BuildAddrUses(srcAddrOrFill);
+            useCount += BuildAddrModeUses(am);
         }
     }
 
