@@ -351,10 +351,10 @@ class LinearScan
     friend class Interval;
     friend class Lowering;
 
+    Compiler* compiler;
+
 public:
-    // This could use further abstraction.  From Compiler we need the tree,
-    // the flowgraph and the allocator.
-    LinearScan(Compiler* theCompiler);
+    LinearScan(Compiler* compiler);
 
     // This is the main driver
     void doLinearScan();
@@ -1163,7 +1163,7 @@ private:
         GenTree* operand, bool& first, LsraTupleDumpMode mode, char* operandString, const unsigned operandStringLength);
     void TupleStyleDump(LsraTupleDumpMode mode);
 
-    LsraLocation maxNodeLocation;
+    LsraLocation maxNodeLocation = 0;
 
     // Width of various fields - used to create a streamlined dump during allocation that shows the
     // state of all the registers in columns.
@@ -1295,17 +1295,13 @@ public:
 #endif // !TRACK_LSRA_STATS
 
 private:
-    Compiler* compiler;
-
     CompAllocator getAllocator(Compiler* comp)
     {
         return comp->getAllocator(CMK_LSRA);
     }
 
-#ifdef DEBUG
     // This is used for dumping
-    RefPosition* activeRefPosition;
-#endif // DEBUG
+    INDEBUG(RefPosition* activeRefPosition = nullptr;)
 
     IntervalList intervals;
 
@@ -1334,20 +1330,20 @@ private:
 #endif
 
     // A map from bbNum to the block information used during register allocation.
-    LsraBlockInfo* blockInfo;
+    LsraBlockInfo* blockInfo = nullptr;
 
     BasicBlock* findPredBlockForLiveIn(BasicBlock* block, BasicBlock* prevBlock DEBUGARG(bool* pPredBlockIsAllocated));
 
     // The order in which the blocks will be allocated.
     // This is any array of BasicBlock*, in the order in which they should be traversed.
-    BasicBlock** blockSequence;
+    BasicBlock** blockSequence = nullptr;
     // The verifiedAllBBs flag indicates whether we have verified that all BBs have been
     // included in the blockSeuqence above, during setBlockSequence().
     bool verifiedAllBBs;
     void setBlockSequence();
     int compareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, bool useBlockWeights);
-    BasicBlockList* blockSequenceWorkList;
-    bool            blockSequencingDone;
+    BasicBlockList* blockSequenceWorkList = nullptr;
+    bool            blockSequencingDone   = false;
 #ifdef DEBUG
     // LSRA must not change number of blocks and blockEpoch that it initializes at start.
     unsigned blockEpoch;
@@ -1357,18 +1353,18 @@ private:
     BasicBlock* getNextCandidateFromWorkList();
 
     // Indicates whether the allocation pass has been completed.
-    bool allocationPassComplete;
+    bool allocationPassComplete = false;
 
     // The bbNum of the block being currently allocated or resolved.
     unsigned int curBBNum;
     // The current location
     LsraLocation currentLoc;
     // The first location in a cold or funclet block.
-    LsraLocation firstColdLoc;
+    LsraLocation firstColdLoc = MaxLocation;
     // The ordinal of the block we're on (i.e. this is the curBBSeqNum-th block we've allocated).
-    unsigned int curBBSeqNum;
+    unsigned int curBBSeqNum = 0;
     // The number of blocks that we've sequenced.
-    unsigned int bbSeqCount;
+    unsigned int bbSeqCount = 0;
     // The Location of the start of the current block.
     LsraLocation curBBStartLocation;
     // True if the method contains any critical edges.
@@ -1388,9 +1384,9 @@ private:
     // A temporary VarToRegMap used during the resolution of critical edges.
     VarToRegMap sharedCriticalVarToRegMap;
 
-    PhasedVar<regMaskTP> availableIntRegs;
-    PhasedVar<regMaskTP> availableFloatRegs;
-    PhasedVar<regMaskTP> availableDoubleRegs;
+    PhasedVar<regMaskTP> availableIntRegs    = RBM_ALLINT;
+    PhasedVar<regMaskTP> availableFloatRegs  = RBM_ALLFLOAT;
+    PhasedVar<regMaskTP> availableDoubleRegs = RBM_ALLDOUBLE;
 
     // The set of all register candidates. Note that this may be a subset of tracked vars.
     VARSET_TP registerCandidateVars;
@@ -1594,16 +1590,15 @@ private:
 
     // The following keep track of information about internal (temporary register) intervals
     // during the building of a single node.
-    static const int MaxInternalCount = 4;
-    RefPosition*     internalDefs[MaxInternalCount];
-    int              internalCount = 0;
-    bool             setInternalRegsDelayFree;
+    RefPosition* internalDefs[4];
+    int          internalCount            = 0;
+    bool         setInternalRegsDelayFree = false;
 
     // When a RefTypeUse is marked as 'delayRegFree', we also want to mark the RefTypeDef
     // in the next Location as 'hasInterferingUses'. This is accomplished by setting this
     // 'pendingDelayFree' to true as they are created, and clearing it as a new node is
     // handled in 'BuildNode'.
-    bool pendingDelayFree;
+    bool pendingDelayFree = false;
 
 #ifdef DEBUG
     unsigned nodeUseCount;

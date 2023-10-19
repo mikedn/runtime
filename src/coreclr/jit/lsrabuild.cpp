@@ -1001,7 +1001,7 @@ RefPosition* LinearScan::defineNewInternalTemp(GenTree* tree, RegisterType regTy
     Interval* current   = newInterval(regType);
     current->isInternal = true;
     RefPosition* newDef = newRefPosition(current, currentLoc, RefTypeDef, tree, regMask, 0);
-    assert(internalCount < MaxInternalCount);
+    assert(internalCount < _countof(internalDefs));
     internalDefs[internalCount++] = newDef;
     return newDef;
 }
@@ -1025,7 +1025,7 @@ RefPosition* LinearScan::buildInternalFloatRegisterDefForNode(GenTree* tree, reg
 
 void LinearScan::buildInternalRegisterUses()
 {
-    assert(internalCount <= MaxInternalCount);
+    assert(internalCount <= _countof(internalDefs));
     for (int i = 0; i < internalCount; i++)
     {
         RefPosition* def  = internalDefs[i];
