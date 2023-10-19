@@ -4,22 +4,6 @@
 #include "jitpch.h"
 #include "lsra.h"
 
-RefInfoListNode* RefInfoList::removeListNode(GenTree* node)
-{
-    RefInfoListNode* prevListNode = nullptr;
-    for (RefInfoListNode *listNode = Begin(), *end = End(); listNode != end; listNode = listNode->Next())
-    {
-        if (listNode->treeNode == node)
-        {
-            assert(listNode->ref->getMultiRegIdx() == 0);
-            return removeListNode(listNode, prevListNode);
-        }
-        prevListNode = listNode;
-    }
-    assert(!"removeListNode didn't find the node");
-    unreached();
-}
-
 RefInfoListNode* RefInfoList::removeListNode(GenTree* node, unsigned multiRegIdx)
 {
     RefInfoListNode* prevListNode = nullptr;

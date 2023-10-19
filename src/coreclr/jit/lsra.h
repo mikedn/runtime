@@ -90,11 +90,6 @@ struct RefInfo
     RefInfo(RefPosition* r, GenTree* t) : ref(r), treeNode(t)
     {
     }
-
-    // default constructor for data structures
-    RefInfo()
-    {
-    }
 };
 
 //------------------------------------------------------------------------
@@ -148,14 +143,6 @@ public:
     }
 
     //------------------------------------------------------------------------
-    // RefInfoList::IsEmpty: Returns true if the list is empty.
-    //
-    bool IsEmpty() const
-    {
-        return m_head == nullptr;
-    }
-
-    //------------------------------------------------------------------------
     // RefInfoList::Begin: Returns the first node in the list.
     //
     RefInfoListNode* Begin() const
@@ -171,16 +158,6 @@ public:
     RefInfoListNode* End() const
     {
         return nullptr;
-    }
-
-    //------------------------------------------------------------------------
-    // RefInfoList::End: Returns the position after the last node in the
-    //                        list. The returned value is suitable for use as
-    //                        a sentinel for iteration.
-    //
-    RefInfoListNode* Last() const
-    {
-        return m_tail;
     }
 
     //------------------------------------------------------------------------
@@ -204,68 +181,6 @@ public:
         }
 
         m_tail = node;
-    }
-    //------------------------------------------------------------------------
-    // RefInfoList::Append: Appends another list to this list.
-    //
-    // Arguments:
-    //    other - The list to append.
-    //
-    void Append(RefInfoList other)
-    {
-        if (m_tail == nullptr)
-        {
-            assert(m_head == nullptr);
-            m_head = other.m_head;
-        }
-        else
-        {
-            m_tail->m_next = other.m_head;
-        }
-
-        m_tail = other.m_tail;
-    }
-
-    //------------------------------------------------------------------------
-    // RefInfoList::Prepend: Prepends a node to the list.
-    //
-    // Arguments:
-    //    node - The node to prepend. Must not be part of an existing list.
-    //
-    void Prepend(RefInfoListNode* node)
-    {
-        assert(node->m_next == nullptr);
-
-        if (m_head == nullptr)
-        {
-            assert(m_tail == nullptr);
-            m_tail = node;
-        }
-        else
-        {
-            node->m_next = m_head;
-        }
-
-        m_head = node;
-    }
-
-    //------------------------------------------------------------------------
-    // RefInfoList::Add: Adds a node to the list.
-    //
-    // Arguments:
-    //    node    - The node to add. Must not be part of an existing list.
-    //    prepend - True if it should be prepended (otherwise is appended)
-    //
-    void Add(RefInfoListNode* node, bool prepend)
-    {
-        if (prepend)
-        {
-            Prepend(node);
-        }
-        else
-        {
-            Append(node);
-        }
     }
 
     //------------------------------------------------------------------------
@@ -294,47 +209,18 @@ public:
         return listNode;
     }
 
-    // removeListNode - remove the RefInfoListNode for the given GenTree node from the defList
-    RefInfoListNode* removeListNode(GenTree* node);
     // Same as above but takes a multiRegIdx to support multi-reg nodes.
     RefInfoListNode* removeListNode(GenTree* node, unsigned multiRegIdx);
 
-    //------------------------------------------------------------------------
-    // GetRefPosition - retrieve the RefPosition for the given node
-    //
-    // Notes:
-    //     The Build methods use this helper to retrieve the RefPosition for child nodes
-    //     from the useList being constructed. Note that, if the user knows the order of the operands,
-    //     it is expected that they should just retrieve them directly.
-
-    RefPosition* GetRefPosition(GenTree* node)
-    {
-        for (RefInfoListNode *listNode = Begin(), *end = End(); listNode != end; listNode = listNode->Next())
-        {
-            if (listNode->treeNode == node)
-            {
-                return listNode->ref;
-            }
-        }
-        assert(!"GetRefPosition didn't find the node");
-        unreached();
-    }
-
-    //------------------------------------------------------------------------
-    // RefInfoList::GetSecond: Gets the second node in the list.
-    //
-    // Arguments:
-    //    (DEBUG ONLY) treeNode - The GenTree* we expect to be in the second node.
-    //
-    RefInfoListNode* GetSecond(INDEBUG(GenTree* treeNode))
-    {
-        noway_assert((Begin() != nullptr) && (Begin()->Next() != nullptr));
-        RefInfoListNode* second = Begin()->Next();
-        assert(second->treeNode == treeNode);
-        return second;
-    }
-
 #ifdef DEBUG
+    //------------------------------------------------------------------------
+    // RefInfoList::IsEmpty: Returns true if the list is empty.
+    //
+    bool IsEmpty() const
+    {
+        return m_head == nullptr;
+    }
+
     // Count - return the number of nodes in the list (DEBUG only)
     int Count()
     {
