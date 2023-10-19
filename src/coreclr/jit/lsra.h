@@ -76,162 +76,74 @@ inline regMaskTP callerSaveRegs(RegisterType rt)
     return varTypeIsIntegralOrI(rt) ? RBM_INT_CALLEE_TRASH : RBM_FLT_CALLEE_TRASH;
 }
 
-//------------------------------------------------------------------------
-// RefInfo: Captures the necessary information for a definition that is "in-flight"
-//          during `buildIntervals` (i.e. a tree-node definition has been encountered,
-//          but not its use). This includes the RefPosition and its associated
-//          GenTree node.
-//
 struct RefInfo
 {
     RefPosition* ref;
-    GenTree*     treeNode;
+    GenTree*     node;
 
-    RefInfo(RefPosition* r, GenTree* t) : ref(r), treeNode(t)
+    RefInfo(RefPosition* ref, GenTree* node) : ref(ref), node(node)
     {
     }
 };
 
-//------------------------------------------------------------------------
-// RefInfoListNode: used to store a single `RefInfo` value for a
-//                  node during `buildIntervals`.
-//
-// This is the node type for `RefInfoList` below.
-//
 class RefInfoListNode final : public RefInfo
 {
     friend class RefInfoList;
     friend class RefInfoListNodePool;
 
-    RefInfoListNode* m_next; // The next node in the list
+    RefInfoListNode* next;
 
 public:
-    RefInfoListNode(RefPosition* r, GenTree* t) : RefInfo(r, t)
+    RefInfoListNode(RefPosition* ref, GenTree* node) : RefInfo(ref, node)
     {
     }
 
-    //------------------------------------------------------------------------
-    // RefInfoListNode::Next: Returns the next node in the list.
     RefInfoListNode* Next() const
     {
-        return m_next;
+        return next;
     }
 };
 
-//------------------------------------------------------------------------
-// RefInfoList: used to store a list of `RefInfo` values for a
-//                   node during `buildIntervals`.
-//
-// This list of 'RefInfoListNode's contains the source nodes consumed by
-// a node, and is created by 'BuildNode'.
-//
 class RefInfoList final
 {
     friend class RefInfoListNodePool;
 
-    RefInfoListNode* m_head; // The head of the list
-    RefInfoListNode* m_tail; // The tail of the list
+    RefInfoListNode* head = nullptr;
+    RefInfoListNode* tail = nullptr;
 
 public:
-    RefInfoList() : m_head(nullptr), m_tail(nullptr)
-    {
-    }
-
-    RefInfoList(RefInfoListNode* node) : m_head(node), m_tail(node)
-    {
-        assert(m_head->m_next == nullptr);
-    }
-
-    //------------------------------------------------------------------------
-    // RefInfoList::Begin: Returns the first node in the list.
-    //
     RefInfoListNode* Begin() const
     {
-        return m_head;
+        return head;
     }
 
-    //------------------------------------------------------------------------
-    // RefInfoList::End: Returns the position after the last node in the
-    //                        list. The returned value is suitable for use as
-    //                        a sentinel for iteration.
-    //
     RefInfoListNode* End() const
     {
         return nullptr;
     }
 
-    //------------------------------------------------------------------------
-    // RefInfoList::Append: Appends a node to the list.
-    //
-    // Arguments:
-    //    node - The node to append. Must not be part of an existing list.
-    //
-    void Append(RefInfoListNode* node)
-    {
-        assert(node->m_next == nullptr);
-
-        if (m_tail == nullptr)
-        {
-            assert(m_head == nullptr);
-            m_head = node;
-        }
-        else
-        {
-            m_tail->m_next = node;
-        }
-
-        m_tail = node;
-    }
-
-    //------------------------------------------------------------------------
-    // removeListNode - retrieve the RefInfo for the given node
-    //
-    // Notes:
-    //     The BuildNode methods use this helper to retrieve the RefInfo for child nodes
-    //     from the useList being constructed.
-    //
-    RefInfoListNode* removeListNode(RefInfoListNode* listNode, RefInfoListNode* prevListNode)
-    {
-        RefInfoListNode* nextNode = listNode->Next();
-        if (prevListNode == nullptr)
-        {
-            m_head = nextNode;
-        }
-        else
-        {
-            prevListNode->m_next = nextNode;
-        }
-        if (nextNode == nullptr)
-        {
-            m_tail = prevListNode;
-        }
-        listNode->m_next = nullptr;
-        return listNode;
-    }
-
-    // Same as above but takes a multiRegIdx to support multi-reg nodes.
-    RefInfoListNode* removeListNode(GenTree* node, unsigned multiRegIdx);
+    void Append(RefInfoListNode* def);
+    RefInfoListNode* Remove(GenTree* node, unsigned regIndex);
 
 #ifdef DEBUG
-    //------------------------------------------------------------------------
-    // RefInfoList::IsEmpty: Returns true if the list is empty.
-    //
     bool IsEmpty() const
     {
-        return m_head == nullptr;
+        return head == nullptr;
     }
 
-    // Count - return the number of nodes in the list (DEBUG only)
-    int Count()
+    unsigned Count() const
     {
-        int count = 0;
-        for (RefInfoListNode *listNode = Begin(), *end = End(); listNode != end; listNode = listNode->Next())
+        unsigned count = 0;
+        for (RefInfoListNode* def = head; def != nullptr; def = def->Next())
         {
             count++;
         }
         return count;
     }
 #endif // DEBUG
+
+private:
+    RefInfoListNode* Unlink(RefInfoListNode* node, RefInfoListNode* prevNode);
 };
 
 //------------------------------------------------------------------------
@@ -248,14 +160,13 @@ public:
 // values avoids otherwise frequent allocations.
 class RefInfoListNodePool final
 {
-    RefInfoListNode*      m_freeList;
-    Compiler*             m_compiler;
-    static const unsigned defaultPreallocation = 8;
+    RefInfoListNode* freeList;
+    Compiler*        compiler;
 
 public:
-    RefInfoListNodePool(Compiler* compiler, unsigned preallocate = defaultPreallocation);
-    RefInfoListNode* GetNode(RefPosition* r, GenTree* t);
-    void ReturnNode(RefInfoListNode* listNode);
+    RefInfoListNodePool(Compiler* compiler, unsigned preallocate = 8);
+    RefInfoListNode* GetNode(RefPosition* ref, GenTree* node);
+    void ReturnNode(RefInfoListNode* node);
 };
 
 #if TRACK_LSRA_STATS

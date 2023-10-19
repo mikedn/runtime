@@ -8778,11 +8778,10 @@ void LinearScan::dumpDefList()
     }
     JITDUMP("DefList: { ");
     bool first = true;
-    for (RefInfoListNode *listNode = defList.Begin(), *end = defList.End(); listNode != end;
-         listNode = listNode->Next())
+    for (RefInfoListNode* def = defList.Begin(); def != nullptr; def = def->Next())
     {
-        GenTree* node = listNode->treeNode;
-        JITDUMP("%sN%04u.t%d. %s", first ? "" : "; ", node->gtSeqNum, node->gtTreeID, GenTree::OpName(node->OperGet()));
+        GenTree* node = def->node;
+        JITDUMP("%sN%04u.t%d. %s", first ? "" : "; ", node->gtSeqNum, node->GetID(), GenTree::OpName(node->GetOper()));
         first = false;
     }
     JITDUMP(" }\n");

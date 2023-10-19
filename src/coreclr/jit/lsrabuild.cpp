@@ -4,64 +4,108 @@
 #include "jitpch.h"
 #include "lsra.h"
 
-RefInfoListNode* RefInfoList::removeListNode(GenTree* node, unsigned multiRegIdx)
+void RefInfoList::Append(RefInfoListNode* def)
 {
-    RefInfoListNode* prevListNode = nullptr;
-    for (RefInfoListNode *listNode = Begin(), *end = End(); listNode != end; listNode = listNode->Next())
+    assert(def->next == nullptr);
+
+    if (tail == nullptr)
     {
-        if ((listNode->treeNode == node) && (listNode->ref->getMultiRegIdx() == multiRegIdx))
-        {
-            return removeListNode(listNode, prevListNode);
-        }
-        prevListNode = listNode;
-    }
-    assert(!"removeListNode didn't find the node");
-    unreached();
-}
-
-RefInfoListNodePool::RefInfoListNodePool(Compiler* compiler, unsigned preallocate) : m_compiler(compiler)
-{
-    if (preallocate > 0)
-    {
-        RefInfoListNode* preallocatedNodes = compiler->getAllocator(CMK_LSRA).allocate<RefInfoListNode>(preallocate);
-
-        RefInfoListNode* head = preallocatedNodes;
-        head->m_next          = nullptr;
-
-        for (unsigned i = 1; i < preallocate; i++)
-        {
-            RefInfoListNode* node = &preallocatedNodes[i];
-            node->m_next          = head;
-            head                  = node;
-        }
-
-        m_freeList = head;
-    }
-}
-
-RefInfoListNode* RefInfoListNodePool::GetNode(RefPosition* r, GenTree* t)
-{
-    RefInfoListNode* head = m_freeList;
-    if (head == nullptr)
-    {
-        head = m_compiler->getAllocator(CMK_LSRA).allocate<RefInfoListNode>(1);
+        assert(head == nullptr);
+        head = def;
     }
     else
     {
-        m_freeList = head->m_next;
+        tail->next = def;
     }
 
-    head->ref      = r;
-    head->treeNode = t;
-    head->m_next   = nullptr;
+    tail = def;
+}
+
+RefInfoListNode* RefInfoList::Remove(GenTree* node, unsigned regIndex)
+{
+    RefInfoListNode* prevListNode = nullptr;
+
+    for (RefInfoListNode* def = head; def != nullptr; def = def->Next())
+    {
+        if ((def->node == node) && (def->ref->getMultiRegIdx() == regIndex))
+        {
+            return Unlink(def, prevListNode);
+        }
+
+        prevListNode = def;
+    }
+
+    assert(!"Reg def not found");
+    unreached();
+}
+
+RefInfoListNode* RefInfoList::Unlink(RefInfoListNode* def, RefInfoListNode* prevDef)
+{
+    RefInfoListNode* next = def->Next();
+
+    if (prevDef == nullptr)
+    {
+        head = next;
+    }
+    else
+    {
+        prevDef->next = next;
+    }
+
+    if (next == nullptr)
+    {
+        tail = prevDef;
+    }
+
+    def->next = nullptr;
+
+    return def;
+}
+
+RefInfoListNodePool::RefInfoListNodePool(Compiler* compiler, unsigned preallocate) : compiler(compiler)
+{
+    if (preallocate > 0)
+    {
+        RefInfoListNode* preallocatedDefs = compiler->getAllocator(CMK_LSRA).allocate<RefInfoListNode>(preallocate);
+
+        RefInfoListNode* head = preallocatedDefs;
+        head->next            = nullptr;
+
+        for (unsigned i = 1; i < preallocate; i++)
+        {
+            RefInfoListNode* def = &preallocatedDefs[i];
+            def->next            = head;
+            head                 = def;
+        }
+
+        freeList = head;
+    }
+}
+
+RefInfoListNode* RefInfoListNodePool::GetNode(RefPosition* ref, GenTree* node)
+{
+    RefInfoListNode* head = freeList;
+
+    if (head == nullptr)
+    {
+        head = compiler->getAllocator(CMK_LSRA).allocate<RefInfoListNode>(1);
+    }
+    else
+    {
+        freeList = head->next;
+    }
+
+    head->ref  = ref;
+    head->node = node;
+    head->next = nullptr;
 
     return head;
 }
 
-void RefInfoListNodePool::ReturnNode(RefInfoListNode* listNode)
+void RefInfoListNodePool::ReturnNode(RefInfoListNode* node)
 {
-    listNode->m_next = m_freeList;
-    m_freeList       = listNode;
+    node->next = freeList;
+    freeList   = node;
 }
 
 Interval* LinearScan::newInterval(var_types regType)
@@ -1070,24 +1114,24 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation cu
             }
         }
     }
+
     // For any non-lclVar intervals that are live at this point (i.e. in the DefList), we will also create
     // a RefTypeUpperVectorSave. For now these will all be spilled at this point, as we don't currently
     // have a mechanism to communicate any non-lclVar intervals that need to be restored.
     // TODO-CQ: We could consider adding such a mechanism, but it's unclear whether this rare
     // case of a large vector temp live across a call is worth the added complexity.
-    for (RefInfoListNode *listNode = defList.Begin(), *end = defList.End(); listNode != end;
-         listNode = listNode->Next())
+    for (RefInfoListNode* def = defList.Begin(); def != nullptr; def = def->Next())
     {
-        const GenTree* defNode = listNode->treeNode;
-        var_types      regType = defNode->TypeGet();
+        const GenTree* defNode = def->node;
+        var_types      regType = defNode->GetType();
+
         if (regType == TYP_STRUCT)
         {
             assert(defNode->OperIs(GT_LCL_VAR, GT_CALL));
+
             if (defNode->OperIs(GT_LCL_VAR))
             {
-                const GenTreeLclVar* lcl    = defNode->AsLclVar();
-                const LclVarDsc*     varDsc = compiler->lvaGetDesc(lcl);
-                regType                     = varDsc->GetRegisterType();
+                regType = compiler->lvaGetDesc(defNode->AsLclVar())->GetRegisterType();
             }
             else
             {
@@ -1095,15 +1139,16 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation cu
                 // clear how it works for unix-x64 ABI.
                 regType = defNode->AsCall()->GetRetDesc()->GetRegType(0);
             }
+
             assert((regType != TYP_STRUCT) && (regType != TYP_UNDEF));
         }
+
         if (Compiler::varTypeNeedsPartialCalleeSave(regType))
         {
             // In the rare case where such an interval is live across nested calls, we don't need to insert another.
-            if (listNode->ref->getInterval()->recentRefPosition->refType != RefTypeUpperVectorSave)
+            if (def->ref->getInterval()->recentRefPosition->refType != RefTypeUpperVectorSave)
             {
-                RefPosition* pos = newRefPosition(listNode->ref->getInterval(), currentLoc, RefTypeUpperVectorSave,
-                                                  tree, RBM_FLT_CALLEE_SAVED);
+                newRefPosition(def->ref->getInterval(), currentLoc, RefTypeUpperVectorSave, tree, RBM_FLT_CALLEE_SAVED);
             }
         }
     }
@@ -1811,11 +1856,14 @@ void LinearScan::buildIntervals()
 
         // Note: the visited set is cleared in LinearScan::doLinearScan()
         markBlockVisited(block);
+
+#ifdef DEBUG
         if (!defList.IsEmpty())
         {
-            INDEBUG(dumpDefList());
-            assert(!"Expected empty defList at end of block");
+            dumpDefList();
+            assert(!"Found unused reg defs at the end of block");
         }
+#endif
 
         if (enregisterLocalVars)
         {
@@ -2230,7 +2278,7 @@ void LinearScan::BuildKills(GenTree* tree, regMaskTP killMask)
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 }
 
-RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int multiRegIdx)
+RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int regIndex)
 {
     assert(!operand->isContained());
 
@@ -2265,9 +2313,9 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int mu
     else if (operand->IsMultiRegLclVar())
     {
         LclVarDsc* varDsc      = compiler->lvaGetDesc(operand->AsLclVar()->GetLclNum());
-        LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varDsc->lvFieldLclStart + multiRegIdx);
+        LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varDsc->lvFieldLclStart + regIndex);
         interval               = getIntervalForLocalVar(fieldVarDsc->lvVarIndex);
-        if (operand->AsLclVar()->IsLastUse(multiRegIdx))
+        if (operand->AsLclVar()->IsLastUse(regIndex))
         {
             VarSetOps::RemoveElemD(compiler, currentLiveVars, fieldVarDsc->lvVarIndex);
         }
@@ -2277,14 +2325,14 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int mu
     }
     else
     {
-        RefInfoListNode* refInfo   = defList.removeListNode(operand, multiRegIdx);
-        RefPosition*     defRefPos = refInfo->ref;
-        assert(defRefPos->multiRegIdx == multiRegIdx);
-        interval = defRefPos->getInterval();
-        listNodePool.ReturnNode(refInfo);
+        RefInfoListNode* def = defList.Remove(operand, regIndex);
+        assert(def->ref->multiRegIdx == regIndex);
+        interval = def->ref->getInterval();
+        listNodePool.ReturnNode(def);
         operand = nullptr;
     }
-    RefPosition* useRefPos = newRefPosition(interval, currentLoc, RefTypeUse, operand, candidates, multiRegIdx);
+
+    RefPosition* useRefPos = newRefPosition(interval, currentLoc, RefTypeUse, operand, candidates, regIndex);
     useRefPos->setRegOptional(regOptional);
     return useRefPos;
 }
