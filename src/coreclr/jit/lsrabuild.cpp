@@ -4,8 +4,9 @@
 #include "jitpch.h"
 #include "lsra.h"
 
-void RefInfoList::Append(RefInfoListNode* def)
+void RefInfoList::Add(RefPosition* ref, GenTree* node, Compiler* compiler)
 {
+    RefInfoListNode* def = AllocDef(ref, node, compiler);
     assert(def->next == nullptr);
 
     if (tail == nullptr)
@@ -21,27 +22,30 @@ void RefInfoList::Append(RefInfoListNode* def)
     tail = def;
 }
 
-RefInfoListNode* RefInfoList::Remove(GenTree* node, unsigned regIndex)
+RefPosition* RefInfoList::Remove(GenTree* node, unsigned regIndex)
 {
-    RefInfoListNode* prevListNode = nullptr;
+    RefInfoListNode* prevDef = nullptr;
 
-    for (RefInfoListNode* def = head; def != nullptr; def = def->Next())
+    for (RefInfoListNode* def = head; def != nullptr; def = def->next)
     {
         if ((def->node == node) && (def->ref->getMultiRegIdx() == regIndex))
         {
-            return Unlink(def, prevListNode);
+            RefPosition* ref = def->ref;
+            Unlink(def, prevDef);
+            FreeDef(def);
+            return ref;
         }
 
-        prevListNode = def;
+        prevDef = def;
     }
 
     assert(!"Reg def not found");
     unreached();
 }
 
-RefInfoListNode* RefInfoList::Unlink(RefInfoListNode* def, RefInfoListNode* prevDef)
+void RefInfoList::Unlink(RefInfoListNode* def, RefInfoListNode* prevDef)
 {
-    RefInfoListNode* next = def->Next();
+    RefInfoListNode* next = def->next;
 
     if (prevDef == nullptr)
     {
@@ -58,11 +62,9 @@ RefInfoListNode* RefInfoList::Unlink(RefInfoListNode* def, RefInfoListNode* prev
     }
 
     def->next = nullptr;
-
-    return def;
 }
 
-RefInfoListNode* RefInfoListNodePool::GetNode(RefPosition* ref, GenTree* node, Compiler* compiler)
+RefInfoListNode* RefInfoList::AllocDef(RefPosition* ref, GenTree* node, Compiler* compiler)
 {
     RefInfoListNode* head = freeList;
 
@@ -82,10 +84,10 @@ RefInfoListNode* RefInfoListNodePool::GetNode(RefPosition* ref, GenTree* node, C
     return head;
 }
 
-void RefInfoListNodePool::ReturnNode(RefInfoListNode* node)
+void RefInfoList::FreeDef(RefInfoListNode* def)
 {
-    node->next = freeList;
-    freeList   = node;
+    def->next = freeList;
+    freeList  = def;
 }
 
 Interval* LinearScan::newInterval(var_types regType)
@@ -1100,7 +1102,7 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation cu
     // have a mechanism to communicate any non-lclVar intervals that need to be restored.
     // TODO-CQ: We could consider adding such a mechanism, but it's unclear whether this rare
     // case of a large vector temp live across a call is worth the added complexity.
-    for (RefInfoListNode* def = defList.Begin(); def != nullptr; def = def->Next())
+    for (RefInfoListNode* def = defList.Begin(); def != nullptr; def = def->next)
     {
         const GenTree* defNode = def->node;
         var_types      regType = defNode->GetType();
@@ -2214,7 +2216,7 @@ RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, regMaskTP re
     }
     else
     {
-        defList.Append(listNodePool.GetNode(defRefPosition, node, compiler));
+        defList.Add(defRefPosition, node, compiler);
     }
 
 #if defined(TARGET_XARCH) || defined(FEATURE_HW_INTRINSICS)
@@ -2305,11 +2307,10 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int re
     }
     else
     {
-        RefInfoListNode* def = defList.Remove(operand, regIndex);
-        assert(def->ref->multiRegIdx == regIndex);
-        interval = def->ref->getInterval();
-        listNodePool.ReturnNode(def);
-        operand = nullptr;
+        RefPosition* ref = defList.Remove(operand, regIndex);
+        assert(ref->multiRegIdx == regIndex);
+        interval = ref->getInterval();
+        operand  = nullptr;
     }
 
     RefPosition* useRefPos = newRefPosition(interval, currentLoc, RefTypeUse, operand, candidates, regIndex);

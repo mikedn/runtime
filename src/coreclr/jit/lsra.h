@@ -76,40 +76,20 @@ inline regMaskTP callerSaveRegs(RegisterType rt)
     return varTypeIsIntegralOrI(rt) ? RBM_INT_CALLEE_TRASH : RBM_FLT_CALLEE_TRASH;
 }
 
-struct RefInfo
+struct RefInfoListNode
 {
-    RefPosition* ref;
-    GenTree*     node;
-
-    RefInfo(RefPosition* ref, GenTree* node) : ref(ref), node(node)
-    {
-    }
-};
-
-class RefInfoListNode final : public RefInfo
-{
-    friend class RefInfoList;
-    friend class RefInfoListNodePool;
-
+    RefPosition*     ref;
+    GenTree*         node;
     RefInfoListNode* next;
-
-public:
-    RefInfoListNode(RefPosition* ref, GenTree* node) : RefInfo(ref, node)
-    {
-    }
-
-    RefInfoListNode* Next() const
-    {
-        return next;
-    }
 };
 
 class RefInfoList final
 {
     friend class RefInfoListNodePool;
 
-    RefInfoListNode* head = nullptr;
-    RefInfoListNode* tail = nullptr;
+    RefInfoListNode* head     = nullptr;
+    RefInfoListNode* tail     = nullptr;
+    RefInfoListNode* freeList = nullptr;
 
 public:
     RefInfoListNode* Begin() const
@@ -117,13 +97,8 @@ public:
         return head;
     }
 
-    RefInfoListNode* End() const
-    {
-        return nullptr;
-    }
-
-    void Append(RefInfoListNode* def);
-    RefInfoListNode* Remove(GenTree* node, unsigned regIndex);
+    void Add(RefPosition* ref, GenTree* node, Compiler* compiler);
+    RefPosition* Remove(GenTree* node, unsigned regIndex);
 
 #ifdef DEBUG
     bool IsEmpty() const
@@ -134,7 +109,7 @@ public:
     unsigned Count() const
     {
         unsigned count = 0;
-        for (RefInfoListNode* def = head; def != nullptr; def = def->Next())
+        for (RefInfoListNode* def = head; def != nullptr; def = def->next)
         {
             count++;
         }
@@ -143,28 +118,9 @@ public:
 #endif // DEBUG
 
 private:
-    RefInfoListNode* Unlink(RefInfoListNode* node, RefInfoListNode* prevNode);
-};
-
-//------------------------------------------------------------------------
-// RefInfoListNodePool: manages a pool of `RefInfoListNode`
-//                      values to decrease overall memory usage
-//                      during `buildIntervals`.
-//
-// `buildIntervals` involves creating a list of RefInfo items per
-// node that either directly produces a set of registers or that is a
-// contained node with register-producing sources. However, these lists
-// are short-lived: they are destroyed once the use of the corresponding
-// node is processed. As such, there is typically only a small number of
-// `RefInfoListNode` values in use at any given time. Pooling these
-// values avoids otherwise frequent allocations.
-class RefInfoListNodePool final
-{
-    RefInfoListNode* freeList = nullptr;
-
-public:
-    RefInfoListNode* GetNode(RefPosition* ref, GenTree* node, Compiler* compiler);
-    void ReturnNode(RefInfoListNode* node);
+    RefInfoListNode* AllocDef(RefPosition* ref, GenTree* node, Compiler* compiler);
+    void Unlink(RefInfoListNode* def, RefInfoListNode* prevDef);
+    void FreeDef(RefInfoListNode* def);
 };
 
 #if TRACK_LSRA_STATS
@@ -1622,10 +1578,6 @@ private:
     //-----------------------------------------------------------------------
     // Build methods
     //-----------------------------------------------------------------------
-
-    // The listNodePool is used to maintain the RefInfo for nodes that are "in flight"
-    // i.e. whose consuming node has not yet been handled.
-    RefInfoListNodePool listNodePool;
 
     // When Def RefPositions are built for a node, their RefInfoListNode
     // (GenTree* to RefPosition* mapping) is placed in the defList.
