@@ -2,206 +2,184 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
 #ifdef FEATURE_HW_INTRINSICS
 
 #include "codegen.h"
 
-// HWIntrinsicImmOpHelper: constructs the helper class instance.
-//       This also determines what type of "switch" table is being used (if an immediate operand is not constant) and do
-//       some preparation work:
-//
-//       a) If an immediate operand can be either 0 or 1, this creates <nonZeroLabel>.
-//
-//       b) If an immediate operand can take any value in [0, upperBound), this extract a internal register from an
-//       intrinsic node. The register will be later used to store computed branch target address.
-//
-// Arguments:
-//    codeGen -- an instance of CodeGen class.
-//    immOp   -- an immediate operand of the intrinsic.
-//    intrin  -- a hardware intrinsic tree node.
-//
-// Note: This class is designed to be used in the following way
-//       HWIntrinsicImmOpHelper helper(this, immOp, intrin);
-//
-//       for (helper.EmitBegin(); !helper.Done(); helper.EmitCaseEnd())
-//       {
-//         -- emit an instruction for a given value of helper.ImmValue()
-//       }
-//
-//       This allows to combine logic for cases when immOp->isContainedIntOrIImmed() is either true or false in a form
-//       of a for-loop.
-//
-CodeGen::HWIntrinsicImmOpHelper::HWIntrinsicImmOpHelper(CodeGen* codeGen, GenTree* immOp, GenTreeHWIntrinsic* intrin)
-    : codeGen(codeGen), endLabel(nullptr), nonZeroLabel(nullptr), branchTargetReg(REG_NA)
+class HWIntrinsicImmOpHelper
 {
-    assert(codeGen != nullptr);
-    assert(varTypeIsIntegral(immOp));
+    CodeGen* const codeGen;
+    BasicBlock*    endLabel;
+    BasicBlock*    nonZeroLabel;
+    int            immValue;
+    int            immLowerBound;
+    int            immUpperBound;
+    regNumber      nonConstImmReg;
+    regNumber      branchTargetReg;
 
-    if (immOp->isContainedIntOrIImmed())
+public:
+    HWIntrinsicImmOpHelper(CodeGen* codeGen, GenTree* immOp, GenTreeHWIntrinsic* intrin)
+        : codeGen(codeGen), endLabel(nullptr), nonZeroLabel(nullptr), branchTargetReg(REG_NA)
     {
-        nonConstImmReg = REG_NA;
+        assert(codeGen != nullptr);
+        assert(varTypeIsIntegral(immOp));
 
-        immValue      = (int)immOp->AsIntCon()->IconValue();
-        immLowerBound = immValue;
-        immUpperBound = immValue;
-    }
-    else
-    {
-        const HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(intrin->GetIntrinsic());
-
-        if (category == HW_Category_SIMDByIndexedElement)
+        if (immOp->isContainedIntOrIImmed())
         {
-            const HWIntrinsic intrinInfo(intrin);
-            var_types         indexedElementOpType;
+            nonConstImmReg = REG_NA;
 
-            if (intrinInfo.numOperands == 3)
+            immValue      = (int)immOp->AsIntCon()->IconValue();
+            immLowerBound = immValue;
+            immUpperBound = immValue;
+        }
+        else
+        {
+            const HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(intrin->GetIntrinsic());
+
+            if (category == HW_Category_SIMDByIndexedElement)
             {
-                indexedElementOpType = intrinInfo.op2->TypeGet();
+                const HWIntrinsic intrinInfo(intrin);
+                var_types         indexedElementOpType;
+
+                if (intrinInfo.numOperands == 3)
+                {
+                    indexedElementOpType = intrinInfo.op2->TypeGet();
+                }
+                else
+                {
+                    assert(intrinInfo.numOperands == 4);
+                    indexedElementOpType = intrinInfo.op3->TypeGet();
+                }
+
+                assert(varTypeIsSIMD(indexedElementOpType));
+
+                const unsigned int indexedElementSimdSize = genTypeSize(indexedElementOpType);
+                HWIntrinsicInfo::lookupImmBounds(intrin->GetIntrinsic(), indexedElementSimdSize,
+                                                 intrin->GetSimdBaseType(), &immLowerBound, &immUpperBound);
             }
             else
             {
-                assert(intrinInfo.numOperands == 4);
-                indexedElementOpType = intrinInfo.op3->TypeGet();
+                HWIntrinsicInfo::lookupImmBounds(intrin->GetIntrinsic(), intrin->GetSimdSize(),
+                                                 intrin->GetSimdBaseType(), &immLowerBound, &immUpperBound);
             }
 
-            assert(varTypeIsSIMD(indexedElementOpType));
-
-            const unsigned int indexedElementSimdSize = genTypeSize(indexedElementOpType);
-            HWIntrinsicInfo::lookupImmBounds(intrin->GetIntrinsic(), indexedElementSimdSize, intrin->GetSimdBaseType(),
-                                             &immLowerBound, &immUpperBound);
-        }
-        else
-        {
-            HWIntrinsicInfo::lookupImmBounds(intrin->GetIntrinsic(), intrin->GetSimdSize(), intrin->GetSimdBaseType(),
-                                             &immLowerBound, &immUpperBound);
-        }
-
-        nonConstImmReg = immOp->GetRegNum();
-        immValue       = immLowerBound;
-
-        if (TestImmOpZeroOrOne())
-        {
-            nonZeroLabel = codeGen->genCreateTempLabel();
-        }
-        else
-        {
-            // At the moment, this helper supports only intrinsics that correspond to one machine instruction.
-            // If we ever encounter an intrinsic that is either lowered into multiple instructions or
-            // the number of instructions that correspond to each case is unknown apriori - we can extend support to
-            // these by
-            // using the same approach as in hwintrinsicxarch.cpp - adding an additional indirection level in form of a
-            // branch table.
-            assert(!HWIntrinsicInfo::GeneratesMultipleIns(intrin->GetIntrinsic()));
-            branchTargetReg = intrin->GetSingleTempReg();
-        }
-
-        endLabel = codeGen->genCreateTempLabel();
-    }
-}
-
-//------------------------------------------------------------------------
-// EmitBegin: emits the beginning of a "switch" table, no-op if an immediate operand is constant.
-//
-// Note: The function is called at the beginning of code generation and emits
-//    a) If an immediate operand can be either 0 or 1
-//
-//       cbnz <nonZeroLabel>, nonConstImmReg
-//
-//    b) If an immediate operand can take any value in [0, upperBound) range
-//
-//       adr branchTargetReg, <beginLabel>
-//       add branchTargetReg, branchTargetReg, nonConstImmReg, lsl #3
-//       br  branchTargetReg
-//
-//       When an immediate operand is non constant this also defines <beginLabel> right after the emitted code.
-//
-void CodeGen::HWIntrinsicImmOpHelper::EmitBegin()
-{
-    if (NonConstImmOp())
-    {
-        BasicBlock* beginLabel = codeGen->genCreateTempLabel();
-
-        if (TestImmOpZeroOrOne())
-        {
-            GetEmitter()->emitIns_J_R(INS_cbnz, EA_4BYTE, nonZeroLabel, nonConstImmReg);
-        }
-        else
-        {
-            // Here we assume that each case consists of one arm64 instruction followed by "b endLabel".
-            // Since an arm64 instruction is 4 bytes, we branch to AddressOf(beginLabel) + (nonConstImmReg << 3).
-            GetEmitter()->emitIns_R_L(INS_adr, EA_8BYTE, beginLabel, branchTargetReg);
-            GetEmitter()->emitIns_R_R_R_I(INS_add, EA_8BYTE, branchTargetReg, branchTargetReg, nonConstImmReg, 3,
-                                          INS_OPTS_LSL);
-
-            // If the lower bound is non zero we need to adjust the branch target value by subtracting
-            // (immLowerBound << 3).
-            if (immLowerBound != 0)
-            {
-                GetEmitter()->emitIns_R_R_I(INS_sub, EA_8BYTE, branchTargetReg, branchTargetReg,
-                                            ((ssize_t)immLowerBound << 3));
-            }
-
-            GetEmitter()->emitIns_R(INS_br, EA_8BYTE, branchTargetReg);
-        }
-
-        codeGen->genDefineInlineTempLabel(beginLabel);
-    }
-}
-
-//------------------------------------------------------------------------
-// EmitCaseEnd: emits the end of a "case", no-op if an immediate operand is constant.
-//
-// Note: The function is called at the end of each "case" (i.e. after an instruction has been emitted for a given
-// immediate value ImmValue())
-//       and emits
-//
-//       b <endLabel>
-//
-//       After the last "case" this defines <endLabel>.
-//
-//       If an immediate operand is either 0 or 1 it also defines <nonZeroLabel> after the first "case".
-//
-void CodeGen::HWIntrinsicImmOpHelper::EmitCaseEnd()
-{
-    assert(!Done());
-
-    if (NonConstImmOp())
-    {
-        const bool isLastCase = (immValue == immUpperBound);
-
-        if (isLastCase)
-        {
-            codeGen->genDefineInlineTempLabel(endLabel);
-        }
-        else
-        {
-            GetEmitter()->emitIns_J(INS_b, endLabel);
+            nonConstImmReg = immOp->GetRegNum();
+            immValue       = immLowerBound;
 
             if (TestImmOpZeroOrOne())
             {
-                codeGen->genDefineInlineTempLabel(nonZeroLabel);
+                nonZeroLabel = codeGen->genCreateTempLabel();
             }
             else
             {
-                BasicBlock* tempLabel = codeGen->genCreateTempLabel();
-                codeGen->genDefineInlineTempLabel(tempLabel);
+                // At the moment, this helper supports only intrinsics that correspond to one machine instruction.
+                // If we ever encounter an intrinsic that is either lowered into multiple instructions or
+                // the number of instructions that correspond to each case is unknown apriori - we can extend support to
+                // these by
+                // using the same approach as in hwintrinsicxarch.cpp - adding an additional indirection level in form
+                // of a
+                // branch table.
+                assert(!HWIntrinsicInfo::GeneratesMultipleIns(intrin->GetIntrinsic()));
+                branchTargetReg = intrin->GetSingleTempReg();
             }
+
+            endLabel = codeGen->genCreateTempLabel();
         }
     }
 
-    immValue++;
-}
+    void EmitBegin()
+    {
+        if (NonConstImmOp())
+        {
+            BasicBlock* beginLabel = codeGen->genCreateTempLabel();
 
-//------------------------------------------------------------------------
-// genHWIntrinsic: Generates the code for a given hardware intrinsic node.
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
+            if (TestImmOpZeroOrOne())
+            {
+                GetEmitter()->emitIns_J_R(INS_cbnz, EA_4BYTE, nonZeroLabel, nonConstImmReg);
+            }
+            else
+            {
+                // Here we assume that each case consists of one arm64 instruction followed by "b endLabel".
+                // Since an arm64 instruction is 4 bytes, we branch to AddressOf(beginLabel) + (nonConstImmReg << 3).
+                GetEmitter()->emitIns_R_L(INS_adr, EA_8BYTE, beginLabel, branchTargetReg);
+                GetEmitter()->emitIns_R_R_R_I(INS_add, EA_8BYTE, branchTargetReg, branchTargetReg, nonConstImmReg, 3,
+                                              INS_OPTS_LSL);
+
+                // If the lower bound is non zero we need to adjust the branch target value by subtracting
+                // (immLowerBound << 3).
+                if (immLowerBound != 0)
+                {
+                    GetEmitter()->emitIns_R_R_I(INS_sub, EA_8BYTE, branchTargetReg, branchTargetReg,
+                                                ((ssize_t)immLowerBound << 3));
+                }
+
+                GetEmitter()->emitIns_R(INS_br, EA_8BYTE, branchTargetReg);
+            }
+
+            codeGen->genDefineInlineTempLabel(beginLabel);
+        }
+    }
+
+    void EmitCaseEnd()
+    {
+        assert(!Done());
+
+        if (NonConstImmOp())
+        {
+            const bool isLastCase = (immValue == immUpperBound);
+
+            if (isLastCase)
+            {
+                codeGen->genDefineInlineTempLabel(endLabel);
+            }
+            else
+            {
+                GetEmitter()->emitIns_J(INS_b, endLabel);
+
+                if (TestImmOpZeroOrOne())
+                {
+                    codeGen->genDefineInlineTempLabel(nonZeroLabel);
+                }
+                else
+                {
+                    BasicBlock* tempLabel = codeGen->genCreateTempLabel();
+                    codeGen->genDefineInlineTempLabel(tempLabel);
+                }
+            }
+        }
+
+        immValue++;
+    }
+
+    bool Done() const
+    {
+        return (immValue > immUpperBound);
+    }
+
+    int ImmValue() const
+    {
+        return immValue;
+    }
+
+private:
+    bool NonConstImmOp() const
+    {
+        return nonConstImmReg != REG_NA;
+    }
+
+    bool TestImmOpZeroOrOne() const
+    {
+        assert(NonConstImmOp());
+        return (immLowerBound == 0) && (immUpperBound == 1);
+    }
+
+    emitter* GetEmitter() const
+    {
+        return codeGen->GetEmitter();
+    }
+};
+
 void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     const HWIntrinsic intrin(node);

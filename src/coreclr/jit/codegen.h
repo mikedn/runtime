@@ -9,11 +9,14 @@
 #include "regset.h"
 #include "treelifeupdater.h"
 
+class HWIntrinsicImmOpHelper;
+
 class CodeGen final : public CodeGenInterface
 {
     friend class emitter;
     friend class DisAssembler;
     friend class CodeGenLivenessUpdater;
+    friend class HWIntrinsicImmOpHelper;
 
     //  The following holds information about instr offsets in terms of generated code.
     struct IPmappingDsc
@@ -895,53 +898,6 @@ protected:
                                          regNumber                 offsReg,
                                          HWIntrinsicSwitchCaseBody emitSwCase);
 #endif // TARGET_XARCH
-
-#ifdef TARGET_ARM64
-    class HWIntrinsicImmOpHelper final
-    {
-    public:
-        HWIntrinsicImmOpHelper(CodeGen* codeGen, GenTree* immOp, GenTreeHWIntrinsic* intrin);
-
-        void EmitBegin();
-        void EmitCaseEnd();
-
-        bool Done() const
-        {
-            return (immValue > immUpperBound);
-        }
-
-        int ImmValue() const
-        {
-            return immValue;
-        }
-
-    private:
-        bool NonConstImmOp() const
-        {
-            return nonConstImmReg != REG_NA;
-        }
-
-        bool TestImmOpZeroOrOne() const
-        {
-            assert(NonConstImmOp());
-            return (immLowerBound == 0) && (immUpperBound == 1);
-        }
-
-        emitter* GetEmitter() const
-        {
-            return codeGen->GetEmitter();
-        }
-
-        CodeGen* const codeGen;
-        BasicBlock*    endLabel;
-        BasicBlock*    nonZeroLabel;
-        int            immValue;
-        int            immLowerBound;
-        int            immUpperBound;
-        regNumber      nonConstImmReg;
-        regNumber      branchTargetReg;
-    };
-#endif // TARGET_ARM64
 
 #endif // FEATURE_HW_INTRINSICS
 
