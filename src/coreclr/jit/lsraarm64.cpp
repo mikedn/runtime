@@ -618,6 +618,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
     // Determine whether this is an RMW operation where op2+ must be marked delayFree so that it
     // is not allocated the same register as the target.
     const bool isRMW = node->isRMWHWIntrinsic(compiler);
+    auto BuildOperand = [this](GenTree* op) { BuildOperandUses(op); };
 
     if (intrin.op1 != nullptr)
     {
@@ -657,7 +658,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         }
         else
         {
-            BuildOperandUses(intrin.op1);
+            BuildOperand(intrin.op1);
         }
     }
 
@@ -677,7 +678,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             }
             else
             {
-                BuildOperandUses(intrin.op2);
+                BuildOperand(intrin.op2);
                 BuildOperandUses(intrin.op3, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
             }
 
@@ -686,7 +687,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(hasImmediateOperand);
                 assert(varTypeIsIntegral(intrin.op4->GetType()));
 
-                BuildOperandUses(intrin.op4);
+                BuildOperand(intrin.op4);
             }
         }
         else
@@ -700,7 +701,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(hasImmediateOperand);
                 assert(varTypeIsIntegral(intrin.op3->GetType()));
 
-                BuildOperandUses(intrin.op3);
+                BuildOperand(intrin.op3);
             }
         }
     }
@@ -728,7 +729,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         }
         else
         {
-            BuildOperandUses(intrin.op2);
+            BuildOperand(intrin.op2);
         }
 
         if (intrin.op3 != nullptr)
@@ -739,7 +740,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             }
             else
             {
-                BuildOperandUses(intrin.op3);
+                BuildOperand(intrin.op3);
             }
 
             if (intrin.op4 != nullptr)
@@ -750,7 +751,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 else
                 {
-                    BuildOperandUses(intrin.op4);
+                    BuildOperand(intrin.op4);
                 }
             }
         }

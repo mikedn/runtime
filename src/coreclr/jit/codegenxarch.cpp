@@ -4771,7 +4771,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         // rip-relative jump.
         if (target != nullptr)
         {
-            genConsumeReg(target);
+            UseReg(target);
             genCopyRegIfNeeded(target, REG_RAX);
         }
 
@@ -6382,12 +6382,6 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
     genProduceReg(bitcast);
 }
 
-//---------------------------------------------------------------------
-// genAlignStackBeforeCall: Align the stack if necessary before a call.
-//
-// Arguments:
-//    putArgStk - the putArgStk node.
-//
 void CodeGen::genAlignStackBeforeCall(GenTreePutArgStk* putArgStk)
 {
 #if defined(UNIX_X86_ABI)
@@ -6397,12 +6391,6 @@ void CodeGen::genAlignStackBeforeCall(GenTreePutArgStk* putArgStk)
 #endif // UNIX_X86_ABI
 }
 
-//---------------------------------------------------------------------
-// genAlignStackBeforeCall: Align the stack if necessary before a call.
-//
-// Arguments:
-//    call - the call node.
-//
 void CodeGen::genAlignStackBeforeCall(GenTreeCall* call)
 {
 #if defined(UNIX_X86_ABI)
@@ -6434,18 +6422,6 @@ void CodeGen::genAlignStackBeforeCall(GenTreeCall* call)
 }
 
 #ifdef TARGET_X86
-//---------------------------------------------------------------------
-// genRemoveAlignmentAfterCall: After a call, remove the alignment
-// added before the call, if any.
-//
-// Arguments:
-//    call - the call node.
-//    bias - additional stack adjustment
-//
-// Note:
-//    When bias > 0, caller should adjust stack level appropriately as
-//    bias is not considered when adjusting stack level.
-//
 void CodeGen::genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias)
 {
 #ifdef UNIX_X86_ABI
@@ -6474,12 +6450,6 @@ void CodeGen::genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias)
 #endif
 }
 
-//---------------------------------------------------------------------
-// genPreAdjustStackForPutArgStk: Adjust the stack pointer before a non-push stack put arg
-//
-// Arguments:
-//    argSize - the size of the argument
-//
 void CodeGen::genPreAdjustStackForPutArgStk(unsigned argSize)
 {
     // If argSize is large, we need to probe the stack like we do in the prolog (PrologAllocLclFrame)
@@ -6503,15 +6473,6 @@ void CodeGen::genPreAdjustStackForPutArgStk(unsigned argSize)
     AddStackLevel(argSize);
 }
 
-//---------------------------------------------------------------------
-// genPutArgStkFieldList - generate code for passing a GT_FIELD_LIST arg on the stack.
-//
-// Arguments
-//    treeNode      - the GT_PUTARG_STK node whose op1 is a GT_FIELD_LIST
-//
-// Return shift:
-//    None
-//
 void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
 {
     GenTreeFieldList* const fieldList = putArgStk->gtOp1->AsFieldList();
@@ -6967,7 +6928,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 
     regNumber srcReg = UseReg(src);
 
-#if defined(FEATURE_SIMD)
+#ifdef FEATURE_SIMD
     if (varTypeIsSIMD(srcType))
     {
         assert(genIsValidFloatReg(srcReg));
@@ -7012,12 +6973,6 @@ void CodeGen::genPutArgReg(GenTreeUnOp* putArg)
 }
 
 #ifdef TARGET_X86
-// genPushReg: Push a register shift onto the stack and adjust the stack level
-//
-// Arguments:
-//    type   - the type of shift to be stored
-//    reg    - the register containing the shift
-//
 void CodeGen::genPushReg(var_types type, regNumber srcReg)
 {
     assert(!varTypeIsLong(type));
@@ -7514,14 +7469,9 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
     // clang-format on
 }
 
-/*****************************************************************************
-* Unit testing of the XArch emitter: generate a bunch of instructions into the prolog
-* (it's as good a place as any), then use COMPlus_JitLateDisasm=* to see if the late
-* disassembler thinks the instructions as the same as we do.
-*/
-
 // Uncomment "#define ALL_ARM64_EMITTER_UNIT_TESTS" to run all the unit tests here.
-// After adding a unit test, and verifying it works, put it under this #ifdef, so we don't see it run every time.
+// After adding a unit test, and verifying it works, put it under this #ifdef, so
+// we don't see it run every time.
 //#define ALL_XARCH_EMITTER_UNIT_TESTS
 
 #if defined(DEBUG) && defined(LATE_DISASM) && defined(TARGET_AMD64)
@@ -7630,17 +7580,8 @@ void CodeGen::genAmd64EmitterUnitTests()
 
 #ifdef TARGET_X86
 
-//-----------------------------------------------------------------------------------
-// PrologProfilingEnterCallback: Generate the profiling function enter callback.
+// Generate the profiling function enter callback.
 //
-// Arguments:
-//     initReg        - register to use as scratch register
-//     pInitRegZeroed - OUT parameter. This variable remains unchanged.
-//
-// Return Value:
-//     None
-//
-// Notes:
 // The x86 profile enter helper has the following requirements (see ProfileEnterNaked in
 // VM\i386\asmhelpers.asm for details):
 // 1. The calling sequence for calling the helper is:
@@ -7669,10 +7610,10 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 // Important note: when you change enter probe layout, you must also update SKIP_ENTER_PROF_CALLBACK()
 // for x86 stack unwinding
 
-#if defined(UNIX_X86_ABI)
+#ifdef UNIX_X86_ABI
     // Manually align the stack to be 16-byte aligned. This is similar to CodeGen::genAlignStackBeforeCall()
     GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 0xC);
-#endif // UNIX_X86_ABI
+#endif
 
     // Push the profilerHandle
     if (compiler->compProfilerMethHndIndirected)
@@ -7773,17 +7714,6 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
 #ifdef TARGET_AMD64
 
-//-----------------------------------------------------------------------------------
-// PrologProfilingEnterCallback: Generate the profiling function enter callback.
-//
-// Arguments:
-//     initReg        - register to use as scratch register
-//     pInitRegZeroed - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
-//                      this call sets 'initReg' to a non-zero shift.
-//
-// Return Value:
-//     None
-//
 void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 {
     assert(generatingProlog);
@@ -7956,16 +7886,6 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 #endif // UNIX_AMD64_ABI
 }
 
-//-----------------------------------------------------------------------------------
-// genProfilingLeaveCallback: Generate the profiling function leave or tailcall callback.
-// Technically, this is not part of the epilog; it is called when we are generating code for a GT_RETURN node.
-//
-// Arguments:
-//     helper - which helper to call. Either CORINFO_HELP_PROF_FCN_LEAVE or CORINFO_HELP_PROF_FCN_TAILCALL
-//
-// Return Value:
-//     None
-//
 void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
@@ -8286,9 +8206,6 @@ void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
 
 #endif // FEATURE_SIMD
 
-//------------------------------------------------------------------------
-// PrologPushCalleeSavedRegisters: Push any callee-saved registers we have used.
-//
 void CodeGen::PrologPushCalleeSavedRegisters()
 {
     assert(generatingProlog);
@@ -8369,10 +8286,10 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 // down the stack to the largest register number stored at [RSP+offset-(genCountBits(regMask)-1)*XMM_REG_SIZE]
 // Here offset = 16-byte aligned offset after pushing integer registers.
 //
-// Params
-//   lclFrameSize - Fixed frame size excluding callee pushed int regs.
-//             non-funclet: this will be compLclFrameSize.
-//             funclet frames: this will be FuncletInfo.fiSpDelta.
+// lclFrameSize - Fixed frame size excluding callee pushed int regs.
+//                non-funclet: this will be compLclFrameSize.
+//                funclet frames: this will be FuncletInfo.fiSpDelta.
+//
 void CodeGen::PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize)
 {
     genVzeroupperIfNeeded(false);
@@ -8412,10 +8329,10 @@ void CodeGen::PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize)
 // down the stack to the largest register number stored at [RSP+offset-(genCountBits(regMask)-1)*XMM_REG_SIZE]
 // Here offset = 16-byte aligned offset after pushing integer registers.
 //
-// Params
-//   lclFrameSize - Fixed frame size excluding callee pushed int regs.
-//             non-funclet: this will be compLclFrameSize.
-//             funclet frames: this will be FuncletInfo.fiSpDelta.
+// lclFrameSize - Fixed frame size excluding callee pushed int regs.
+//                non-funclet: this will be compLclFrameSize.
+//                funclet frames: this will be FuncletInfo.fiSpDelta.
+//
 void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
 {
 #ifndef WINDOWS_AMD64_ABI
@@ -8472,11 +8389,11 @@ void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
 // code contains legacy SSE code calling into JIT AVX code (e.g. reverse pinvoke). Issue VZEROUPPER in Epilog
 // if the method contains 256-bit AVX code, to avoid AVX to legacy SSE transition penalty.
 //
-// Params
-//   check256bitOnly  - true to check if the function contains 256-bit AVX instruction and generate Vzeroupper
-//      instruction, false to check if the function contains AVX instruciton (either 128-bit or 256-bit).
+// check256bitOnly - true to check if the function contains 256-bit AVX instruction and generate vzeroupper
+//                   instruction, false to check if the function contains AVX instruciton (either 128-bit
+//                   or 256-bit).
 //
-void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly /* = true*/)
+void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly)
 {
     bool emitVzeroUpper = false;
     if (check256bitOnly)

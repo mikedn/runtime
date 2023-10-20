@@ -717,7 +717,14 @@ void LinearScan::BuildCall(GenTreeCall* call)
         }
 #endif
 
-        BuildOperandUses(ctrlExpr, ctrlExprCandidates);
+        if (ctrlExpr->isContained())
+        {
+            BuildAddrUses(ctrlExpr->AsIndir()->GetAddr(), ctrlExprCandidates);
+        }
+        else
+        {
+            BuildUse(ctrlExpr, ctrlExprCandidates);
+        }
     }
 
     BuildInternalUses();
@@ -1145,6 +1152,8 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 
     if (src->TypeIs(TYP_STRUCT))
     {
+        assert(src->isContained());
+
         switch (putArgStk->GetKind())
         {
 #ifdef TARGET_X86
@@ -1231,7 +1240,11 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 unreached();
         }
 
-        BuildOperandUses(src);
+        if (src->OperIs(GT_OBJ))
+        {
+            BuildAddrUses(src->AsObj()->GetAddr());
+        }
+
         BuildInternalUses();
 
         return;
@@ -1387,13 +1400,13 @@ void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
             unreached();
     }
 
-    if (op1->isContained())
-    {
-        BuildOperandUses(op1);
-    }
-    else
+    if (!op1->isContained())
     {
         tgtPrefUse = BuildUse(op1);
+    }
+    else if (op1->OperIs(GT_IND))
+    {
+        BuildAddrUses(op1->AsIndir()->GetAddr());
     }
 
     BuildInternalUses();
@@ -1460,6 +1473,8 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         bool      isRMW     = node->isRMWHWIntrinsic(compiler);
         bool      buildUses = true;
 
+        auto BuildOperand = [this](GenTree* op) { BuildOperandUses(op); };
+
         // Create internal temps, and handle any other special requirements.
         // Note that the default case for building uses will handle the RMW flag,
         // but if the uses are built in the individual cases, buildUses is set to
@@ -1523,7 +1538,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
                     if (op2->isContained())
                     {
-                        BuildOperandUses(op2);
+                        BuildOperand(op2);
                     }
                     else
                     {
@@ -1565,7 +1580,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert((numOps == 2) || (numOps == 3));
 
                 BuildUse(op1, RBM_EDX);
-                BuildOperandUses(op2);
+                BuildOperand(op2);
 
                 if (numOps == 3)
                 {
@@ -1604,7 +1619,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                     // 132 form: op1 = (op1 * op3) + [op2]
 
                     tgtPrefUse = BuildUse(op1);
-                    BuildOperandUses(op2);
+                    BuildOperand(op2);
                     BuildDelayFreeUses(op3, op1);
                 }
                 else if (op1->isContained())
@@ -1612,7 +1627,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                     // 231 form: op3 = (op2 * op3) + [op1]
 
                     tgtPrefUse = BuildUse(op3);
-                    BuildOperandUses(op1);
+                    BuildOperand(op1);
                     BuildDelayFreeUses(op2, op1);
                 }
                 else
@@ -1632,7 +1647,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
                     if (op3->isContained())
                     {
-                        BuildOperandUses(op3);
+                        BuildOperand(op3);
                     }
                     else
                     {
@@ -1653,7 +1668,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 if (op3->isContained())
                 {
-                    BuildOperandUses(op3);
+                    BuildOperand(op3);
                 }
                 else
                 {
@@ -1669,7 +1684,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(op3->isContained());
                 assert(!isRMW);
 
-                BuildOperandUses(op1);
+                BuildOperand(op1);
                 BuildDelayFreeUses(op2);
                 BuildInternalFloatDef(node, allSIMDRegs());
                 setInternalRegsDelayFree = true;
@@ -1682,7 +1697,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(node->GetOp(4)->isContained());
                 assert(!isRMW);
 
-                BuildOperandUses(op1);
+                BuildOperand(op1);
                 BuildDelayFreeUses(op2);
                 BuildDelayFreeUses(op3);
                 BuildDelayFreeUses(node->GetOp(3));
@@ -1710,7 +1725,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             }
             else
             {
-                BuildOperandUses(op1);
+                BuildOperand(op1);
             }
 
             if (op2 != nullptr)
@@ -1739,12 +1754,12 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                         // When op2 is contained and we are not producing a scalar value we
                         // have no concerns of overwriting op2 because they exist in different
                         // register sets.
-                        BuildOperandUses(op2);
+                        BuildOperand(op2);
                     }
                 }
                 else
                 {
-                    BuildOperandUses(op2);
+                    BuildOperand(op2);
                 }
 
                 if (op3 != nullptr)
@@ -1755,7 +1770,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                     }
                     else
                     {
-                        BuildOperandUses(op3);
+                        BuildOperand(op3);
                     }
                 }
             }
