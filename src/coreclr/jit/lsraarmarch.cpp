@@ -604,6 +604,13 @@ void LinearScan::BuildCast(GenTreeCast* cast)
     {
         BuildAddrUses(src->AsIndir()->GetAddr());
     }
+#ifdef TARGET_ARM
+    else if (src->OperIs(GT_LONG))
+    {
+        BuildUse(src->AsOp()->GetOp(0));
+        BuildUse(src->AsOp()->GetOp(1));
+    }
+#endif
     else
     {
         assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
