@@ -565,6 +565,19 @@ void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* la
 #endif
 }
 
+void LinearScan::BuildBoundsChk(GenTreeBoundsChk* node)
+{
+    if (!node->GetOp(0)->IsContainedIntCon())
+    {
+        BuildUse(node->GetOp(0));
+    }
+
+    if (!node->GetOp(1)->IsContainedIntCon())
+    {
+        BuildUse(node->GetOp(1));
+    }
+}
+
 void LinearScan::BuildCast(GenTreeCast* cast)
 {
     GenTree* src = cast->GetOp(0);
@@ -583,7 +596,19 @@ void LinearScan::BuildCast(GenTreeCast* cast)
     }
 #endif
 
-    BuildOperandUses(src);
+    if (!src->isContained())
+    {
+        BuildUse(src);
+    }
+    else if (src->OperIs(GT_IND))
+    {
+        BuildAddrUses(src->AsIndir()->GetAddr());
+    }
+    else
+    {
+        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+    }
+
     BuildInternalUses();
     BuildDef(cast);
 }
@@ -593,7 +618,11 @@ void LinearScan::BuildCmp(GenTreeOp* cmp)
     assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP) ARM64_ONLY(|| cmp->OperIs(GT_JCMP)));
 
     BuildUse(cmp->GetOp(0));
-    BuildOperandUses(cmp->GetOp(1));
+
+    if (!cmp->GetOp(1)->IsContainedIntCon())
+    {
+        BuildUse(cmp->GetOp(1));
+    }
 
     if (!cmp->TypeIs(TYP_VOID))
     {

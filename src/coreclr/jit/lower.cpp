@@ -365,7 +365,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
 #endif
 
         case GT_KEEPALIVE:
-            node->gtGetOp1()->SetRegOptional();
+            node->AsUnOp()->GetOp(0)->SetRegOptional();
             break;
 
         case GT_LCL_ADDR:

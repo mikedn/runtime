@@ -1437,24 +1437,18 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
 //
 void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
 {
-    assert(tree->OperGet() == GT_RETURNTRAP);
+    assert(tree->OperIs(GT_RETURNTRAP));
 
-    // this is nothing but a conditional call to CORINFO_HELP_STOP_FOR_GC
-    // based on the contents of 'shift'
-
-    GenTreeIndir* data = tree->GetOp(0)->AsIndir();
-    assert(data->isContained());
-    genConsumeAddress(data->GetAddr());
-    GetEmitter()->emitIns_A_I(INS_cmp, EA_4BYTE, data->GetAddr(), 0);
+    GenTreeIndir* mem = tree->GetOp(0)->AsIndir();
+    assert(mem->isContained());
+    genConsumeAddress(mem->GetAddr());
+    GetEmitter()->emitIns_A_I(INS_cmp, EA_4BYTE, mem->GetAddr(), 0);
 
     BasicBlock* skipLabel = genCreateTempLabel();
-
     inst_JMP(EJ_je, skipLabel);
 
-    // emit the call to the EE-helper that stops for GC (or other reasons)
     regNumber tmpReg = tree->GetSingleTempReg(RBM_ALLINT);
     assert(genIsValidIntReg(tmpReg));
-
     genEmitHelperCall(CORINFO_HELP_STOP_FOR_GC, EA_UNKNOWN, tmpReg);
     genDefineTempLabel(skipLabel);
 }
@@ -1773,7 +1767,8 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_KEEPALIVE:
-            genConsumeRegs(treeNode->AsOp()->gtOp1);
+            // TODO-MIKE-Review: Huh, why is this completely different from ARM?!
+            genConsumeRegs(treeNode->AsUnOp()->GetOp(0));
             break;
 
         case GT_NO_OP:
@@ -3443,26 +3438,24 @@ void CodeGen::genCodeForLockAdd(GenTreeOp* node)
 {
     assert(node->OperIs(GT_LOCKADD));
 
-    GenTree* addr = node->GetOp(0);
-    GenTree* data = node->GetOp(1);
-    emitAttr size = emitActualTypeSize(data->GetType());
+    GenTree* addr  = node->GetOp(0);
+    GenTree* value = node->GetOp(1);
+    emitAttr size  = emitActualTypeSize(value->GetType());
 
     assert((size == EA_4BYTE) || (size == EA_PTRSIZE));
 
-    regNumber addrReg = UseReg(addr);
-    regNumber dataReg = data->isUsedFromReg() ? UseReg(data) : REG_NA;
+    regNumber addrReg  = UseReg(addr);
+    regNumber valueReg = value->isUsedFromReg() ? UseReg(value) : REG_NA;
 
     instGen(INS_lock);
 
-    if (data->isContainedIntOrIImmed())
+    if (GenTreeIntCon* imm = value->IsContainedIntCon())
     {
-        int imm = static_cast<int>(data->AsIntCon()->IconValue());
-        assert(imm == data->AsIntCon()->IconValue());
-        GetEmitter()->emitIns_AR_I(INS_add, size, addrReg, 0, imm);
+        GetEmitter()->emitIns_AR_I(INS_add, size, addrReg, 0, imm->GetInt32Value());
     }
     else
     {
-        GetEmitter()->emitIns_AR_R(INS_add, size, dataReg, addrReg, 0);
+        GetEmitter()->emitIns_AR_R(INS_add, size, valueReg, addrReg, 0);
     }
 }
 
@@ -6310,15 +6303,12 @@ void CodeGen::genCkfinite(GenTree* treeNode)
 
     // Extract exponent into a register.
     regNumber tmpReg = treeNode->GetSingleTempReg();
-
-    genConsumeReg(op1);
+    regNumber srcReg = UseReg(op1);
 
 #ifdef TARGET_64BIT
     // Copy the floating-point shift to an integer register. If we copied a float to a long, then
     // right-shift the shift so the high 32 bits of the floating-point shift sit in the low 32
     // bits of the integer register.
-    regNumber srcReg = op1->GetRegNum();
-
     inst_Mov(targetType == TYP_FLOAT ? TYP_INT : TYP_LONG, tmpReg, srcReg, /* canSkip */ false);
 
     if (targetType == TYP_DOUBLE)
@@ -6335,7 +6325,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     genJumpToThrowHlpBlk(EJ_je, ThrowHelperKind::Arithmetic);
 
     // if it is a finite shift copy it to targetReg
-    inst_Mov(targetType, targetReg, op1->GetRegNum(), /* canSkip */ true);
+    inst_Mov(targetType, targetReg, srcReg, /* canSkip */ true);
 
 #else // !TARGET_64BIT
 
@@ -6372,13 +6362,13 @@ void CodeGen::genCkfinite(GenTree* treeNode)
 
     if (targetType == TYP_DOUBLE)
     {
-        inst_Mov(targetType, targetReg, op1->GetRegNum(), /* canSkip */ true);
+        inst_Mov(targetType, targetReg, srcReg, /* canSkip */ true);
         GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, targetReg, targetReg, (int8_t)0xb1);
         copyToTmpSrcReg = targetReg;
     }
     else
     {
-        copyToTmpSrcReg = op1->GetRegNum();
+        copyToTmpSrcReg = srcReg;
     }
 
     // Copy only the low 32 bits. This will be the high order 32 bits of the floating-point
@@ -6392,7 +6382,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     // If exponent is all 1's, throw ArithmeticException
     genJumpToThrowHlpBlk(EJ_je, ThrowHelperKind::Arithmetic);
 
-    if ((targetType == TYP_DOUBLE) && (targetReg == op1->GetRegNum()))
+    if ((targetType == TYP_DOUBLE) && (targetReg == srcReg))
     {
         // We need to re-shuffle the targetReg to get the correct result.
         GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, targetReg, targetReg, (int8_t)0xb1);
@@ -6402,12 +6392,12 @@ void CodeGen::genCkfinite(GenTree* treeNode)
         // In both the TYP_FLOAT and TYP_DOUBLE case, the op1 register is untouched,
         // so copy it to the targetReg. This is faster and smaller for TYP_DOUBLE
         // than re-shuffling the targetReg.
-        inst_Mov(targetType, targetReg, op1->GetRegNum(), /* canSkip */ true);
+        inst_Mov(targetType, targetReg, srcReg, /* canSkip */ true);
     }
 
 #endif // !TARGET_64BIT
 
-    genProduceReg(treeNode);
+    DefReg(treeNode);
 }
 
 // Return the "total" size of the stack frame, including local size and

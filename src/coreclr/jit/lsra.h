@@ -1644,12 +1644,14 @@ private:
     void BuildPutArgSplit(GenTreePutArgSplit* node);
 #endif
     void BuildCall(GenTreeCall* call);
+    void BuildBoundsChk(GenTreeBoundsChk* node);
     void BuildCast(GenTreeCast* cast);
     void BuildCmp(GenTreeOp* cmp);
     void BuildLclHeap(GenTreeUnOp* node);
     void BuildAddrMode(GenTreeAddrMode* node);
     void BuildCmpXchg(GenTreeCmpXchg* cmpxchg);
     void BuildInterlocked(GenTreeOp* node);
+    void BuildKeepAlive(GenTreeUnOp* node);
     void BuildInstr(GenTreeInstr* instr);
     void BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
     void BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout);

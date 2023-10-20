@@ -2985,3 +2985,19 @@ void LinearScan::BuildInstr(GenTreeInstr* instr)
         BuildDef(instr);
     }
 }
+
+void LinearScan::BuildKeepAlive(GenTreeUnOp* node)
+{
+    GenTree* op = node->GetOp(0);
+
+    if (op->isContained())
+    {
+        // Lowering marks the operand as reg optional so we can end up
+        // with a contained LCL_VAR here, but nothing else (no indirs).
+        assert(op->OperIs(GT_LCL_VAR));
+    }
+    else
+    {
+        BuildUse(op);
+    }
+}

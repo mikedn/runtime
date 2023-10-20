@@ -69,7 +69,7 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_KEEPALIVE:
-            BuildOperandUses(tree->AsUnOp()->GetOp(0));
+            BuildKeepAlive(tree->AsUnOp());
             break;
 
         case GT_SETCC:
@@ -140,12 +140,18 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_LOCKADD:
             BuildUse(tree->AsOp()->GetOp(0));
-            BuildOperandUses(tree->AsOp()->GetOp(1));
+
+            if (!tree->AsOp()->GetOp(1)->IsContainedIntCon())
+            {
+                BuildUse(tree->AsOp()->GetOp(1));
+            }
             break;
 
         case GT_RETURNTRAP:
+            // TODO-MIKE-Review: This internal def occurs after the use.
             BuildInternalIntDef(tree);
-            BuildOperandUses(tree->AsUnOp()->GetOp(0));
+            assert(tree->AsUnOp()->GetOp(0)->isContained());
+            BuildAddrUses(tree->AsUnOp()->GetOp(0)->AsIndir()->GetAddr());
             BuildInternalUses();
             BuildKills(tree, compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
             break;
@@ -232,8 +238,10 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_CKFINITE:
+            // TODO-MIKE-Review: This internal def occurs after the use, though it
+            // should not matter since it's an integer register and the use is float.
             BuildInternalIntDef(tree);
-            BuildOperandUses(tree->AsUnOp()->GetOp(0));
+            BuildUse(tree->AsUnOp()->GetOp(0));
             BuildInternalUses();
             BuildDef(tree);
             break;
@@ -276,8 +284,7 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_BOUNDS_CHECK:
-            BuildOperandUses(tree->AsBoundsChk()->GetOp(0));
-            BuildOperandUses(tree->AsBoundsChk()->GetOp(1));
+            BuildBoundsChk(tree->AsBoundsChk());
             break;
 
         case GT_ARR_INDEX:
@@ -1774,6 +1781,12 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 }
 #endif
 
+void LinearScan::BuildBoundsChk(GenTreeBoundsChk* node)
+{
+    BuildOperandUses(node->GetOp(0));
+    BuildOperandUses(node->GetOp(1));
+}
+
 void LinearScan::BuildCast(GenTreeCast* cast)
 {
     GenTree*  src        = cast->GetOp(0);
@@ -1804,7 +1817,19 @@ void LinearScan::BuildCast(GenTreeCast* cast)
     }
 #endif
 
-    BuildOperandUses(src, candidates);
+    if (!src->isContained())
+    {
+        BuildUse(src);
+    }
+    else if (src->OperIs(GT_IND))
+    {
+        BuildAddrUses(src->AsIndir()->GetAddr());
+    }
+    else
+    {
+        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+    }
+
     BuildInternalUses();
     BuildDef(cast, candidates);
 }

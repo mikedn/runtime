@@ -42,7 +42,7 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_KEEPALIVE:
-            BuildOperandUses(tree->AsUnOp()->GetOp(0));
+            BuildKeepAlive(tree->AsUnOp());
             break;
 
         case GT_CKFINITE:
@@ -214,8 +214,7 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_BOUNDS_CHECK:
-            BuildUse(tree->AsBoundsChk()->GetOp(0));
-            BuildUse(tree->AsBoundsChk()->GetOp(1));
+            BuildBoundsChk(tree->AsBoundsChk());
             break;
 
         case GT_ARR_INDEX:

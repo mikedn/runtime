@@ -424,10 +424,12 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_KEEPALIVE:
-            if (treeNode->AsOp()->gtOp1->isContained())
+            if (treeNode->AsUnOp()->GetOp(0)->isContained())
             {
                 GenTree* src = treeNode->AsUnOp()->GetOp(0);
 
+                // TODO-MIKE-Review: This can't be a LCL_FLD, it's marked as reg optional
+                // in lowering and only a reg optional LCL_VAR can become contained.
                 if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                 {
                     genUpdateLife(src->AsLclVarCommon());
@@ -435,7 +437,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             }
             else
             {
-                genConsumeReg(treeNode->AsOp()->gtOp1);
+                UseReg(treeNode->AsUnOp()->GetOp(0));
             }
             break;
 
