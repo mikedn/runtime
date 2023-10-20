@@ -3875,57 +3875,44 @@ void CodeGen::genCodeForShift(GenTreeOp* tree)
     regNumber shiftByReg = shiftBy->isUsedFromReg() ? UseReg(shiftBy) : REG_NA;
     regNumber dstReg     = tree->GetRegNum();
 
-    if (shiftBy->isContainedIntOrIImmed())
+    if (shiftByReg == REG_NA)
     {
-        emitAttr size = emitTypeSize(tree);
+        int      shiftByValue = shiftBy->AsIntCon()->GetInt32Value();
+        emitAttr size         = emitTypeSize(tree->GetType());
 
-        // Optimize "X<<1" to "lea [reg+reg]" or "add reg, reg"
-        if (tree->OperIs(GT_LSH) && !tree->gtOverflowEx() && ((tree->gtFlags & GTF_SET_FLAGS) == 0) &&
-            shiftBy->IsIntegralConst(1))
+        if (tree->OperIs(GT_LSH) && !tree->HasImplicitFlagsDef() && (shiftByValue == 1))
         {
-            if (tree->GetRegNum() == operandReg)
+            if (dstReg == operandReg)
             {
+                // ADD reg, reg tends to be more efficient than SHL reg, 1.
                 GetEmitter()->emitIns_R_R(INS_add, size, dstReg, operandReg);
             }
             else
             {
+                // TDOO-MIKE-Review: What about SHL reg, 2/3 => LEA [reg*4/8]?
                 GetEmitter()->emitIns_R_ARX(INS_lea, size, dstReg, operandReg, operandReg, 1, 0);
             }
         }
+#ifdef TARGET_64BIT
+        else if (tree->OperIs(GT_ROL, GT_ROR) && varTypeIsLong(targetType) && (dstReg != operandReg) &&
+                 (shiftByValue > 0) && (shiftByValue < 64) &&
+                 compiler->compOpportunisticallyDependsOn(InstructionSet_BMI2))
+        {
+            shiftByValue = tree->OperIs(GT_ROL) ? (64 - shiftByValue) : shiftByValue;
+            GetEmitter()->emitIns_R_R_I(INS_rorx, size, dstReg, operandReg, shiftByValue);
+        }
+#endif
         else
         {
-            int shiftByValue = (int)shiftBy->AsIntConCommon()->IconValue();
-
-#if defined(TARGET_64BIT)
-            // Try to emit rorx if BMI2 is available instead of mov+rol
-            // it makes sense only for 64bit integers
-            if ((genActualType(targetType) == TYP_LONG) && (dstReg != operandReg) &&
-                compiler->compOpportunisticallyDependsOn(InstructionSet_BMI2) && tree->OperIs(GT_ROL, GT_ROR) &&
-                (shiftByValue > 0) && (shiftByValue < 64))
-            {
-                const int value = tree->OperIs(GT_ROL) ? (64 - shiftByValue) : shiftByValue;
-                GetEmitter()->emitIns_R_R_I(INS_rorx, size, dstReg, operandReg, value);
-                genProduceReg(tree);
-                return;
-            }
-#endif
-            // First, move the operand to the destination register and
-            // later on perform the shift in-place.
-            // (LSRA will try to avoid this situation through preferencing.)
             inst_Mov(targetType, dstReg, operandReg, /* canSkip */ true);
             inst_RV_SH(ins, size, dstReg, shiftByValue);
         }
     }
     else
     {
-        // We must have the number of bits to shift stored in ECX, since we constrained this node to
-        // sit in ECX. In case this didn't happen, LSRA expects the code generator to move it since it's a single
-        // register destination requirement.
-        genCopyRegIfNeeded(shiftBy, REG_RCX);
-
-        // The operand to be shifted must not be in ECX
         noway_assert(operandReg != REG_RCX);
 
+        inst_Mov(TYP_INT, REG_RCX, shiftByReg, /* canSkip */ true);
         inst_Mov(targetType, dstReg, operandReg, /* canSkip */ true);
         inst_RV(ins, dstReg, targetType);
     }

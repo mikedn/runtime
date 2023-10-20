@@ -592,16 +592,11 @@ void LinearScan::BuildShiftRotate(GenTreeOp* tree)
     }
     else
 #endif
-        if (!source->isContained())
     {
         tgtPrefUse = BuildUse(source, srcCandidates);
     }
-    else
-    {
-        BuildOperandUses(source, srcCandidates);
-    }
 
-    if (!shiftBy->isContained())
+    if (!shiftBy->IsContainedIntCon())
     {
         BuildDelayFreeUses(shiftBy, source, RBM_RCX);
         buildKillPositionsForNode(tree, currentLoc + 1, RBM_RCX);
