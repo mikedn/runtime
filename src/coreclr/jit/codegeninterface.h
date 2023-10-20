@@ -1,22 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-//
-// This file declares the types that constitute the interface between the
-// code generator (CodeGen class) and the rest of the JIT.
-//
-// RegState
-//
-// CodeGenInterface includes only the public methods that are called by
-// the Compiler.
-//
-// CodeGenContext contains the shared context between the code generator
-// and other phases of the JIT, especially the register allocator and
-// GC encoder.  It is distinct from CodeGenInterface so that it can be
-// included in the Compiler object, and avoid an extra indirection when
-// accessed from members of Compiler.
-//
-
 #ifndef _CODEGEN_INTERFACE_H_
 #define _CODEGEN_INTERFACE_H_
 
@@ -29,6 +13,7 @@ class LclVarDsc;
 // Enable USING_SCOPE_INFO flag to use psiScope/siScope info to report variables' locations.
 #define USING_SCOPE_INFO
 #endif
+
 #if 1
 // Enable USING_VARIABLE_LIVE_RANGE flag to use VariableLiveRange info to report variables' locations.
 // Note: if both USING_SCOPE_INFO and USING_VARIABLE_LIVE_RANGE are defined, then USING_SCOPE_INFO
@@ -46,9 +31,6 @@ struct ParamRegState
     regMaskTP floatRegLiveIn = RBM_NONE;
 };
 
-//-------------------- CodeGenInterface ---------------------------------
-// interface to hide the full CodeGen implementation from rest of Compiler
-
 class CodeGenInterface
 {
     friend class emitter;
@@ -62,14 +44,11 @@ public:
         return compiler;
     }
 
-    //-------------------------------------------------------------------------
-    //  The following property indicates whether to align loops.
-    //  (Used to avoid effects of loop alignment when diagnosing perf issues.)
-
     bool ShouldAlignLoops()
     {
         return m_genAlignLoops;
     }
+
     void SetAlignLoops(bool value)
     {
         m_genAlignLoops = value;
@@ -109,17 +88,17 @@ public:
     }
 #endif
 
-    //-------------------------------------------------------------------------
     //  The following keeps track of how many bytes of local frame space we've
     //  grabbed so far in the current function, and how many argument bytes we
     //  need to pop when we return.
-    //
+    unsigned lclFrameSize; // secObject + lclBlk + locals + temps
 
-    unsigned lclFrameSize;    // secObject + lclBlk + locals + temps
     unsigned paramsStackSize; // total size of parameters passed in stack
+
 #if FEATURE_FIXED_OUT_ARGS
     PhasedVar<unsigned> outgoingArgSpaceSize; // size of fixed outgoing argument space
 #endif
+
     // For CORINFO_CALLCONV_PARAMTYPE and if generic context is passed as THIS pointer
     int cachedGenericContextArgOffset;
 
@@ -184,8 +163,8 @@ public:
 
 #if DOUBLE_ALIGN
     // The following property indicates whether we going to double-align the frame.
-    // Arguments are accessed relative to the Frame Pointer (EBP), and
-    // locals are accessed relative to the Stack Pointer (ESP).
+    // Arguments are accessed relative to the Frame Pointer (EBP), and locals are
+    // accessed relative to the Stack Pointer (ESP).
 private:
     bool m_cgDoubleAlign = false;
 
@@ -235,17 +214,16 @@ public:
     {
         verbose = true;
     }
+
     bool verbose = false;
 #endif // DEBUG
 
-    // The following is set to true if we've determined that the current method
-    // is to be fully interruptible.
-    //
 public:
     bool GetInterruptible() const
     {
         return m_cgInterruptible;
     }
+
     void SetInterruptible(bool value)
     {
         m_cgInterruptible = value;
@@ -256,6 +234,7 @@ public:
     {
         return m_cgHasTailCalls;
     }
+
     void SetHasTailCalls(bool value)
     {
         m_cgHasTailCalls = value;
@@ -266,14 +245,12 @@ private:
     bool m_cgInterruptible = false;
 #ifdef TARGET_ARMARCH
     bool m_cgHasTailCalls = false;
-#endif // TARGET_ARMARCH
+#endif
 
 public:
-    /* These are the different addressing modes used to access a local var.
-     * The JIT has to report the location of the locals back to the EE
-     * for debugging purposes.
-     */
-
+    // These are the different addressing modes used to access a local var.
+    // The JIT has to report the location of the locals back to the EE
+    // for debugging purposes.
     enum siVarLocType
     {
         VLT_REG,
@@ -387,8 +364,7 @@ public:
 
             struct
             {
-                void* rpValue; // pointer to the in-process
-                               // location of the value.
+                void* rpValue; // pointer to the in-process location of the value.
             } vlMemory;
         };
 
@@ -404,7 +380,6 @@ public:
         siVarLoc(const LclVarDsc* varDsc, regNumber baseReg, int offset, bool isFramePointerUsed);
         siVarLoc(){};
 
-        // An overload for the equality comparator
         static bool Equals(const siVarLoc* lhs, const siVarLoc* rhs);
 
     private:
@@ -415,7 +390,7 @@ public:
 
         // Fill "siVarLoc" properties indicating the register position of the variable
         // using "LclVarDsc" and "baseReg"/"offset" if it is a variable with part in a register and
-        // part in thestack
+        // part in the stack
         void siFillStackVarLoc(
             const LclVarDsc* varDsc, var_types type, regNumber baseReg, int offset, bool isFramePointerUsed);
     };
@@ -442,42 +417,35 @@ protected:
 
 public:
 #ifdef USING_VARIABLE_LIVE_RANGE
-    //--------------------------------------------
+    // Holds an array of "VariableLiveDescriptor", one for each variable
+    // whose location we track. It provides start/end/update/count operations
+    // over the "LiveRangeList" of any variable.
     //
-    // VariableLiveKeeper: Holds an array of "VariableLiveDescriptor", one for each variable
-    //  whose location we track. It provides start/end/update/count operations over the
-    //  "LiveRangeList" of any variable.
-    //
-    // Notes:
-    //  This method could be implemented on Compiler class too, but the intention is to move code
-    //  out of that class, which is huge. With this solution the only code needed in Compiler is
-    //  a getter and an initializer of this class.
-    //  The index of each variable in this array corresponds to the one in "compiler->lvaTable".
-    //  We care about tracking the variable locations of arguments, special arguments, and local IL
-    //  variables, and we ignore any other variable (like JIT temporary variables).
+    // This method could be implemented on Compiler class too, but the intention is to move code
+    // out of that class, which is huge. With this solution the only code needed in Compiler is
+    // a getter and an initializer of this class.
+    // The index of each variable in this array corresponds to the one in "compiler->lvaTable".
+    // We care about tracking the variable locations of arguments, special arguments, and local IL
+    // variables, and we ignore any other variable (like JIT temporary variables).
     //
     class VariableLiveKeeper
     {
     public:
-        //--------------------------------------------
+        // Represent part of the life of a variable.
+        // A variable lives in a location (represented with struct "siVarLoc")
+        // between two native offsets.
         //
-        // VariableLiveRange: Represent part of the life of a variable. A
-        //      variable lives in a location (represented with struct "siVarLoc")
-        //      between two native offsets.
-        //
-        // Notes:
-        //    We use emitLocation and not NATTIVE_OFFSET because location
-        //    is captured when code is being generated (genCodeForBBList
-        //    and genGeneratePrologsAndEpilogs) but only after the whole
-        //    method's code is generated can we obtain a final, fixed
-        //    NATIVE_OFFSET representing the actual generated code offset.
-        //    There is also a IL_OFFSET, but this is more accurate and the
-        //    debugger is expecting assembly offsets.
-        //    This class doesn't have behaviour attached to itself, it is
-        //    just putting a name to a representation. It is used to build
-        //    typedefs LiveRangeList and LiveRangeListIterator, which are
-        //    basically a list of this class and a const_iterator of that
-        //    list.
+        // We use emitLocation and not NATTIVE_OFFSET because location
+        // is captured when code is being generated (genCodeForBBList
+        // and genGeneratePrologsAndEpilogs) but only after the whole
+        // method's code is generated can we obtain a final, fixed
+        // NATIVE_OFFSET representing the actual generated code offset.
+        // There is also a IL_OFFSET, but this is more accurate and the
+        // debugger is expecting assembly offsets.
+        // This class doesn't have behaviour attached to itself, it is
+        // just putting a name to a representation. It is used to build
+        // typedefs LiveRangeList and LiveRangeListIterator, which are
+        // basically a list of this class and a const_iterator of that list.
         //
         class VariableLiveRange
         {
@@ -509,23 +477,18 @@ public:
 
     private:
 #ifdef DEBUG
-        //--------------------------------------------
+        // Used for debugging purposes during code generation on genCodeForBBList.
+        // Keeps an iterator to the first edited/added "VariableLiveRange" of a
+        // variable during the generation of code of one block.
         //
-        // LiveRangeDumper: Used for debugging purposes during code
-        //  generation on genCodeForBBList. Keeps an iterator to the first
-        //  edited/added "VariableLiveRange" of a variable during the
-        //  generation of code of one block.
-        //
-        // Notes:
-        //  The first "VariableLiveRange" reported for a variable during
-        //  a BasicBlock is sent to "setDumperStartAt" so we can dump all
-        //  the "VariableLiveRange"s from that one.
-        //  After we dump all the "VariableLiveRange"s we call "reset" with
-        //  the "liveRangeList" to set the barrier to nullptr or the last
-        //  "VariableLiveRange" if it is opened.
-        //  If no "VariableLiveRange" was edited/added during block,
-        //  the iterator points to the end of variable's LiveRangeList.
-        //
+        // The first "VariableLiveRange" reported for a variable during
+        // a BasicBlock is sent to "setDumperStartAt" so we can dump all
+        // the "VariableLiveRange"s from that one.
+        // After we dump all the "VariableLiveRange"s we call "reset" with
+        // the "liveRangeList" to set the barrier to nullptr or the last
+        // "VariableLiveRange" if it is opened.
+        // If no "VariableLiveRange" was edited/added during block,
+        // the iterator points to the end of variable's LiveRangeList.
         class LiveRangeDumper
         {
             // Iterator to the first edited/added position during actual block code generation. If last
@@ -556,12 +519,9 @@ public:
         };
 #endif // DEBUG
 
-        //--------------------------------------------
-        //
-        // VariableLiveDescriptor: This class persist and update all the changes
-        //  to the home of a variable. It has an instance of "LiveRangeList"
-        //  and methods to report the start/end of a VariableLiveRange.
-        //
+        // This class persist and update all the changes to the home of a variable.
+        // It has an instance of "LiveRangeList" and methods to report the start/end
+        // of a VariableLiveRange.
         class VariableLiveDescriptor
         {
             LiveRangeList* m_VariableLiveRanges; // the variable locations of this variable
@@ -583,7 +543,7 @@ public:
             bool hasVarLiveRangesToDump() const;
             bool hasVarLiveRangesFromLastBlockToDump() const;
             void endBlockLiveRanges();
-#endif // DEBUG
+#endif
         };
 
         unsigned int m_LiveDscCount;  // count of args, special args, and IL local variables to report home
@@ -606,7 +566,6 @@ public:
                            Compiler*     compiler,
                            CompAllocator allocator);
 
-        // For tracking locations during code generation
         void siStartOrCloseVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum, bool isBorn, bool isDying);
         void siStartVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum);
         void siEndVariableLiveRange(unsigned int varNum);
@@ -618,14 +577,13 @@ public:
         LiveRangeList* getLiveRangesForVarForProlog(unsigned int varNum) const;
         size_t getLiveRangesCount() const;
 
-        // For parameters locations on prolog
         void psiStartVariableLiveRange(CodeGenInterface::siVarLoc varLocation, unsigned int varNum);
         void psiClosePrologVariableRanges();
 
 #ifdef DEBUG
         void dumpBlockVariableLiveRanges(const BasicBlock* block);
         void dumpLvaVariableLiveRanges() const;
-#endif // DEBUG
+#endif
     };
 
     void initializeVariableLiveKeeper();
@@ -639,9 +597,8 @@ protected:
 #ifdef LATE_DISASM
 public:
     virtual const char* siRegVarName(size_t offs, size_t size, unsigned reg) = 0;
-
     virtual const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs) = 0;
-#endif // LATE_DISASM
+#endif
 };
 
 StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTree* src);

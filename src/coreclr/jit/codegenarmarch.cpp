@@ -1,38 +1,21 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                        ARM/ARM64 Code Generator Common Code               XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
-#ifdef TARGET_ARMARCH // This file is ONLY used for ARM and ARM64 architectures
+#ifdef TARGET_ARMARCH
 
 #include "codegen.h"
 #include "lower.h"
 #include "emit.h"
 
-//------------------------------------------------------------------------
-// genStackPointerConstantAdjustment: add a specified constant value to the stack pointer.
-// No probe is done.
+// Add a specified constant value to the stack pointer. No probing is done.
 //
-// Arguments:
-//    spDelta                 - the value to add to SP. Must be negative or zero.
-//    regTmp                  - an available temporary register that is used if 'spDelta' cannot be encoded by
-//                              'sub sp, sp, #spDelta' instruction.
-//                              Can be REG_NA if the caller knows for certain that 'spDelta' fits into the immediate
-//                              value range.
-//
-// Return Value:
-//    None.
+// spDelta - the value to add to SP. Must be negative or zero.
+// regTmp  - an available temporary register that is used if 'spDelta' cannot be encoded by
+//           'sub sp, sp, #spDelta' instruction.
+//           Can be REG_NA if the caller knows for certain that 'spDelta' fits into the immediate
+//           value range.
 //
 void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTmp)
 {
@@ -45,18 +28,12 @@ void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTm
     genInstrWithConstant(INS_sub, EA_PTRSIZE, REG_SP, REG_SP, -spDelta, regTmp);
 }
 
-//------------------------------------------------------------------------
-// genStackPointerConstantAdjustmentWithProbe: add a specified constant value to the stack pointer,
-// and probe the stack as appropriate. Should only be called as a helper for
-// genStackPointerConstantAdjustmentLoopWithProbe.
+// Add a specified constant value to the stack pointer, and probe the stack as appropriate.
+// Should only be called as a helper for genStackPointerConstantAdjustmentLoopWithProbe.
 //
-// Arguments:
-//    spDelta                 - the value to add to SP. Must be negative or zero. If zero, the probe happens,
-//                              but the stack pointer doesn't move.
-//    regTmp                  - temporary register to use as target for probe load instruction
-//
-// Return Value:
-//    None.
+// spDelta - the value to add to SP. Must be negative or zero. If zero, the probe happens,
+//           but the stack pointer doesn't move.
+// regTmp  - temporary register to use as target for probe load instruction
 //
 void CodeGen::genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNumber regTmp)
 {
@@ -64,17 +41,14 @@ void CodeGen::genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNum
     genStackPointerConstantAdjustment(spDelta, regTmp);
 }
 
-//------------------------------------------------------------------------
-// genStackPointerConstantAdjustmentLoopWithProbe: Add a specified constant value to the stack pointer,
-// and probe the stack as appropriate. Generates one probe per page, up to the total amount required.
+// Add a specified constant value to the stack pointer, and probe the stack as appropriate.
+// Generates one probe per page, up to the total amount required.
 // This will generate a sequence of probes in-line.
 //
-// Arguments:
-//    spDelta                 - the value to add to SP. Must be negative.
-//    regTmp                  - temporary register to use as target for probe load instruction
+// spDelta - the value to add to SP. Must be negative.
+// regTmp  - temporary register to use as target for probe load instruction
 //
-// Return Value:
-//    Offset in bytes from SP to last probed address.
+// Returns the offset in bytes from SP to last probed address.
 //
 target_ssize_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(ssize_t spDelta, regNumber regTmp)
 {
@@ -225,19 +199,16 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_LSH:
         case GT_RSH:
         case GT_RSZ:
-        // case GT_ROL: // No ROL instruction on ARM; it has been lowered to ROR.
         case GT_ROR:
             genCodeForShift(treeNode->AsOp());
             break;
 
-#if !defined(TARGET_64BIT)
-
+#ifndef TARGET_64BIT
         case GT_LSH_HI:
         case GT_RSH_LO:
             genCodeForShiftLong(treeNode);
             break;
-
-#endif // !defined(TARGET_64BIT)
+#endif
 
         case GT_CAST:
             genCodeForCast(treeNode->AsCast());
@@ -301,7 +272,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_MULHI:
             genCodeForMulHi(treeNode->AsOp());
             break;
-#endif // TARGET_ARM64
+#endif
 
         case GT_JMP:
             GenJmp(treeNode);
@@ -328,7 +299,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_HWINTRINSIC:
             genHWIntrinsic(treeNode->AsHWIntrinsic());
             break;
-#endif // FEATURE_HW_INTRINSICS
+#endif
 
         case GT_EQ:
         case GT_NE:
@@ -376,7 +347,6 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_FIELD_LIST:
-            // Should always be marked contained.
             assert(!"FIELD_LIST nodes should always be marked contained.");
             break;
 
@@ -418,7 +388,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_CMPXCHG:
             genCodeForCmpXchg(treeNode->AsCmpXchg());
             break;
-#endif // TARGET_ARM64
+#endif
 
         case GT_NOP:
             break;
@@ -1243,15 +1213,6 @@ void CodeGen::genRangeCheck(GenTreeBoundsChk* node)
     genJumpToThrowHlpBlk(jmpKind, node->GetThrowKind(), node->GetThrowBlock());
 }
 
-//---------------------------------------------------------------------
-// genCodeForPhysReg - generate code for a GT_PHYSREG node
-//
-// Arguments
-//    tree - the GT_PHYSREG node
-//
-// Return value:
-//    None
-//
 void CodeGen::genCodeForPhysReg(GenTreePhysReg* tree)
 {
     assert(tree->OperIs(GT_PHYSREG));
@@ -1265,16 +1226,6 @@ void CodeGen::genCodeForPhysReg(GenTreePhysReg* tree)
     genProduceReg(tree);
 }
 
-//------------------------------------------------------------------------
-// genCodeForArrIndex: Generates code to bounds check the index for one dimension of an array reference,
-//                     producing the effective index by subtracting the lower bound.
-//
-// Arguments:
-//    arrIndex - the node for which we're generating code
-//
-// Return Value:
-//    None.
-//
 void CodeGen::genCodeForArrIndex(GenTreeArrIndex* arrIndex)
 {
     emitter*  emit      = GetEmitter();
@@ -1307,22 +1258,6 @@ void CodeGen::genCodeForArrIndex(GenTreeArrIndex* arrIndex)
 
     genProduceReg(arrIndex);
 }
-
-//------------------------------------------------------------------------
-// genCodeForArrOffset: Generates code to compute the flattened array offset for
-//    one dimension of an array reference:
-//        result = (prevDimOffset * dimSize) + effectiveIndex
-//    where dimSize is obtained from the arrObj operand
-//
-// Arguments:
-//    arrOffset - the node for which we're generating code
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    dimSize and effectiveIndex are always non-negative, the former by design,
-//    and the latter because it has been normalized to be zero-based.
 
 void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
 {
@@ -1362,20 +1297,10 @@ void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
     genProduceReg(arrOffset);
 }
 
-//------------------------------------------------------------------------
-// genCodeForShift: Generates the code sequence for a GenTree node that
-// represents a bit shift or rotate operation (<<, >>, >>>, rol, ror).
-//
-// Arguments:
-//    tree - the bit shift node (that specifies the type of bit shift to perform).
-//
-// Assumptions:
-//    a) All GenTrees are register allocated.
-//
 void CodeGen::genCodeForShift(GenTreeOp* tree)
 {
-    var_types   targetType = tree->TypeGet();
-    genTreeOps  oper       = tree->OperGet();
+    var_types   targetType = tree->GetType();
+    genTreeOps  oper       = tree->GetOper();
     instruction ins        = genGetInsForOper(oper);
     emitAttr    size       = emitActualTypeSize(tree);
 
@@ -1401,12 +1326,6 @@ void CodeGen::genCodeForShift(GenTreeOp* tree)
     DefReg(tree);
 }
 
-//------------------------------------------------------------------------
-// genCodeForLclFld: Produce code for a GT_LCL_FLD node.
-//
-// Arguments:
-//    tree - the GT_LCL_FLD node
-//
 void CodeGen::genCodeForLclFld(GenTreeLclFld* tree)
 {
     assert(tree->OperIs(GT_LCL_FLD));
@@ -1465,12 +1384,6 @@ void CodeGen::genCodeForLclFld(GenTreeLclFld* tree)
     genProduceReg(tree);
 }
 
-//------------------------------------------------------------------------
-// genCodeForIndexAddr: Produce code for a GT_INDEX_ADDR node.
-//
-// Arguments:
-//    tree - the GT_INDEX_ADDR node
-//
 void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
 {
     GenTree* const base  = node->GetArray();
@@ -3038,14 +2951,6 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
 #endif // FEATURE_FASTTAILCALL
 }
 
-//------------------------------------------------------------------------
-// genIntCastOverflowCheck: Generate overflow checking code for an integer cast.
-//
-// Arguments:
-//    cast - The GT_CAST node
-//    desc - The cast description
-//    reg  - The register containing the value to check
-//
 void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc, regNumber reg)
 {
     switch (desc.CheckKind())
@@ -3123,18 +3028,6 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
     }
 }
 
-//------------------------------------------------------------------------
-// genIntToIntCast: Generate code for an integer cast, with or without overflow check.
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
-// Assumptions:
-//    The cast node is not a contained node and must have an assigned register.
-//    Neither the source nor target type can be a floating point type.
-//
-// TODO-ARM64-CQ: Allow castOp to be a contained node without an assigned register.
-//
 void CodeGen::genIntToIntCast(GenTreeCast* cast)
 {
     GenTree* src = cast->GetOp(0);
@@ -3330,14 +3223,6 @@ const CodeGen::GenConditionDesc CodeGen::GenConditionDesc::map[32]
 };
 // clang-format on
 
-//------------------------------------------------------------------------
-// inst_SETCC: Generate code to set a register to 0 or 1 based on a condition.
-//
-// Arguments:
-//   condition - The condition
-//   type      - The type of the value to be produced
-//   dstReg    - The destination register to be set to 1 or 0
-//
 void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstReg)
 {
     assert(varTypeIsIntegral(type));
@@ -3380,9 +3265,6 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
 #endif
 }
 
-//------------------------------------------------------------------------
-// genScaledAdd: A helper for genLeaInstruction.
-//
 void CodeGen::genScaledAdd(emitAttr attr, regNumber targetReg, regNumber baseReg, regNumber indexReg, int scale)
 {
     emitter* emit = GetEmitter();

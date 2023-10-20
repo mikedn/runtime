@@ -1,67 +1,31 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                        Arm64 Code Generator                               XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
 #ifdef TARGET_ARM64
+
 #include "emit.h"
 #include "codegen.h"
 #include "lower.h"
 
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           Prolog / Epilog                                 XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-//------------------------------------------------------------------------
-// genInstrWithConstant:   we will typically generate one instruction
+// Generate an instruction with an immediate operand. Usually that's simply:
 //
 //    ins  reg1, reg2, imm
 //
-// However the imm might not fit as a directly encodable immediate,
-// when it doesn't fit we generate extra instruction(s) that sets up
-// the 'regTmp' with the proper immediate value.
+// However, the imm might not fit as a directly encodable immediate. When it
+// doesn't fit we generate extra instruction(s) that sets up the 'regTmp'
+// with the proper immediate value.
 //
 //     mov  regTmp, imm
 //     ins  reg1, reg2, regTmp
 //
-// Arguments:
-//    ins                 - instruction
-//    attr                - operation size and GC attribute
-//    reg1, reg2          - first and second register operands
-//    imm                 - immediate value (third operand when it fits)
-//    tmpReg              - temp register to use when the 'imm' doesn't fit. Can be REG_NA
-//                          if caller knows for certain the constant will fit.
-//    inUnwindRegion      - true if we are in a prolog/epilog region with unwind codes.
-//                          Default: false.
+// Returns true if the immediate was small enough to be encoded inside instruction.
+// If not, returns false meaning the immediate was too large and tmpReg was used
+// and modified.
 //
-// Return Value:
-//    returns true if the immediate was small enough to be encoded inside instruction. If not,
-//    returns false meaning the immediate was too large and tmpReg was used and modified.
-//
-bool CodeGen::genInstrWithConstant(instruction ins,
-                                   emitAttr    attr,
-                                   regNumber   reg1,
-                                   regNumber   reg2,
-                                   ssize_t     imm,
-                                   regNumber   tmpReg,
-                                   bool        inUnwindRegion /* = false */)
+bool CodeGen::genInstrWithConstant(
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ssize_t imm, regNumber tmpReg, bool inUnwindRegion)
 {
     bool     immFitsInIns = false;
     emitAttr size         = EA_SIZE(attr);
@@ -132,23 +96,18 @@ bool CodeGen::genInstrWithConstant(instruction ins,
     return immFitsInIns;
 }
 
-//------------------------------------------------------------------------
-// genStackPointerAdjustment: add a specified constant value to the stack pointer in either the prolog
-// or the epilog. The unwind codes for the generated instructions are produced. An available temporary
-// register is required to be specified, in case the constant is too large to encode in an "add"
-// instruction (or "sub" instruction if we choose to use one), such that we need to load the constant
-// into a register first, before using it.
+// Add a specified constant value to the stack pointer in either the prolog or the epilog.
+// The unwind codes for the generated instructions are produced. An available temporary
+// register is required to be specified, in case the constant is too large to encode in
+// an "add" instruction (or "sub" instruction if we choose to use one), such that we need
+// to load the constant into a register first, before using it.
 //
-// Arguments:
-//    spDelta                 - the value to add to SP (can be negative)
-//    tmpReg                  - an available temporary register
-//    pTmpRegIsZero           - If we use tmpReg, and pTmpRegIsZero is non-null, we set *pTmpRegIsZero to 'false'.
-//                              Otherwise, we don't touch it.
-//    reportUnwindData        - If true, report the change in unwind data. Otherwise, do not report it.
+// spDelta          - the value to add to SP (can be negative)
+// tmpReg           - an available temporary register
+// pTmpRegIsZero    - If we use tmpReg, and pTmpRegIsZero is non-null, we set *pTmpRegIsZero to 'false'.
+//                    Otherwise, we don't touch it.
+// reportUnwindData - If true, report the change in unwind data. Otherwise, do not report it.
 //
-// Return Value:
-//    None.
-
 void CodeGen::genStackPointerAdjustment(ssize_t spDelta, regNumber tmpReg, bool* pTmpRegIsZero, bool reportUnwindData)
 {
     // Even though INS_add is specified here, the encoder will choose either
@@ -176,27 +135,21 @@ void CodeGen::genStackPointerAdjustment(ssize_t spDelta, regNumber tmpReg, bool*
     }
 }
 
-//------------------------------------------------------------------------
-// genPrologSaveRegPair: Save a pair of general-purpose or floating-point/SIMD registers in a function or funclet
-// prolog. If possible, we use pre-indexed addressing to adjust SP and store the registers with a single instruction.
-// The caller must ensure that we can use the STP instruction, and that spOffset will be in the legal range for that
-// instruction.
+// Save a pair of general-purpose or floating-point/SIMD registers in a function or funclet
+// prolog. If possible, we use pre-indexed addressing to adjust SP and store the registers
+// with a single instruction. The caller must ensure that we can use the STP instruction,
+// and that spOffset will be in the legal range for that instruction.
 //
-// Arguments:
-//    reg1                     - First register of pair to save.
-//    reg2                     - Second register of pair to save.
-//    spOffset                 - The offset from SP to store reg1 (must be positive or zero).
-//    spDelta                  - If non-zero, the amount to add to SP before the register saves (must be negative or
-//                               zero).
-//    useSaveNextPair          - True if the last prolog instruction was to save the previous register pair. This
-//                               allows us to emit the "save_next" unwind code.
-//    tmpReg                   - An available temporary register. Needed for the case of large frames.
-//    pTmpRegIsZero            - If we use tmpReg, and pTmpRegIsZero is non-null, we set *pTmpRegIsZero to 'false'.
-//                               Otherwise, we don't touch it.
+// reg1            - First register of pair to save.
+// reg2            - Second register of pair to save.
+// spOffset        - The offset from SP to store reg1 (must be positive or zero).
+// spDelta         - If non-zero, the amount to add to SP before the register saves (must be negative or zero).
+// useSaveNextPair - True if the last prolog instruction was to save the previous register pair. This
+//                   allows us to emit the "save_next" unwind code.
+// tmpReg          - An available temporary register. Needed for the case of large frames.
+// pTmpRegIsZero   - If we use tmpReg, and pTmpRegIsZero is non-null, we set *pTmpRegIsZero to 'false'.
+//                   Otherwise, we don't touch it.
 //
-// Return Value:
-//    None.
-
 void CodeGen::genPrologSaveRegPair(regNumber reg1,
                                    regNumber reg2,
                                    int       spOffset,
@@ -263,26 +216,23 @@ void CodeGen::genPrologSaveRegPair(regNumber reg1,
     }
 }
 
-//------------------------------------------------------------------------
-// genPrologSaveReg: Like genPrologSaveRegPair, but for a single register. Save a single general-purpose or
-// floating-point/SIMD register in a function or funclet prolog. Note that if we wish to change SP (i.e., spDelta != 0),
-// then spOffset must be 8. This is because otherwise we would create an alignment hole above the saved register, not
-// below it, which we currently don't support. This restriction could be loosened if the callers change to handle it
-// (and this function changes to support using pre-indexed STR addressing). The caller must ensure that we can use the
-// STR instruction, and that spOffset will be in the legal range for that instruction.
+// Like genPrologSaveRegPair, but for a single register. Save a single general-purpose or
+// floating-point/SIMD register in a function or funclet prolog. Note that if we wish to
+// change SP (i.e., spDelta != 0), then spOffset must be 8. This is because otherwise we
+// would create an alignment hole above the saved register, not below it, which we currently
+// don't support. This restriction could be loosened if the callers change to handle it
+// (and this function changes to support using pre-indexed STR addressing). The caller must
+// ensure that we can use the STR instruction, and that spOffset will be in the legal range
+// for that instruction.
 //
-// Arguments:
-//    reg1                     - Register to save.
-//    spOffset                 - The offset from SP to store reg1 (must be positive or zero).
-//    spDelta                  - If non-zero, the amount to add to SP before the register saves (must be negative or
-//                               zero).
-//    tmpReg                   - An available temporary register. Needed for the case of large frames.
-//    pTmpRegIsZero            - If we use tmpReg, and pTmpRegIsZero is non-null, we set *pTmpRegIsZero to 'false'.
-//                               Otherwise, we don't touch it.
+// reg1          - Register to save.
+// spOffset      - The offset from SP to store reg1 (must be positive or zero).
+// spDelta       - If non-zero, the amount to add to SP before the register saves (must be negative or
+//                 zero).
+// tmpReg        - An available temporary register. Needed for the case of large frames.
+// pTmpRegIsZero - If we use tmpReg, and pTmpRegIsZero is non-null, we set *pTmpRegIsZero to 'false'.
+//                 Otherwise, we don't touch it.
 //
-// Return Value:
-//    None.
-
 void CodeGen::genPrologSaveReg(regNumber reg1, int spOffset, int spDelta, regNumber tmpReg, bool* pTmpRegIsZero)
 {
     assert(spOffset >= 0);
@@ -317,27 +267,22 @@ void CodeGen::genPrologSaveReg(regNumber reg1, int spOffset, int spDelta, regNum
     }
 }
 
-//------------------------------------------------------------------------
-// genEpilogRestoreRegPair: This is the opposite of genPrologSaveRegPair(), run in the epilog instead of the prolog.
-// The stack pointer adjustment, if requested, is done after the register restore, using post-index addressing.
-// The caller must ensure that we can use the LDP instruction, and that spOffset will be in the legal range for that
-// instruction.
+// This is the opposite of genPrologSaveRegPair(), run in the epilog instead of the prolog.
+// The stack pointer adjustment, if requested, is done after the register restore, using
+// post-index addressing. The caller must ensure that we can use the LDP instruction, and
+// that spOffset will be in the legal range for that instruction.
 //
-// Arguments:
-//    reg1                     - First register of pair to restore.
-//    reg2                     - Second register of pair to restore.
-//    spOffset                 - The offset from SP to load reg1 (must be positive or zero).
-//    spDelta                  - If non-zero, the amount to add to SP after the register restores (must be positive or
-//                               zero).
-//    useSaveNextPair          - True if the last prolog instruction was to save the previous register pair. This
-//                               allows us to emit the "save_next" unwind code.
-//    tmpReg                   - An available temporary register. Needed for the case of large frames.
-//    pTmpRegIsZero            - If we use tmpReg, and pTmpRegIsZero is non-null, we set *pTmpRegIsZero to 'false'.
-//                               Otherwise, we don't touch it.
+// reg1            - First register of pair to restore.
+// reg2            - Second register of pair to restore.
+// spOffset        - The offset from SP to load reg1 (must be positive or zero).
+// spDelta         - If non-zero, the amount to add to SP after the register restores (must be positive or
+//                   zero).
+// useSaveNextPair - True if the last prolog instruction was to save the previous register pair. This
+//                   allows us to emit the "save_next" unwind code.
+// tmpReg          - An available temporary register. Needed for the case of large frames.
+// pTmpRegIsZero   - If we use tmpReg, and pTmpRegIsZero is non-null, we set *pTmpRegIsZero to 'false'.
+//                   Otherwise, we don't touch it.
 //
-// Return Value:
-//    None.
-
 void CodeGen::genEpilogRestoreRegPair(regNumber reg1,
                                       regNumber reg2,
                                       int       spOffset,
@@ -396,21 +341,16 @@ void CodeGen::genEpilogRestoreRegPair(regNumber reg1,
     }
 }
 
-//------------------------------------------------------------------------
-// genEpilogRestoreReg: The opposite of genPrologSaveReg(), run in the epilog instead of the prolog.
+// The opposite of genPrologSaveReg(), run in the epilog instead of the prolog.
 //
-// Arguments:
-//    reg1                     - Register to restore.
-//    spOffset                 - The offset from SP to restore reg1 (must be positive or zero).
-//    spDelta                  - If non-zero, the amount to add to SP after the register restores (must be positive or
-//                               zero).
-//    tmpReg                   - An available temporary register. Needed for the case of large frames.
-//    pTmpRegIsZero            - If we use tmpReg, and pTmpRegIsZero is non-null, we set *pTmpRegIsZero to 'false'.
-//                               Otherwise, we don't touch it.
+// reg1          - Register to restore.
+// spOffset      - The offset from SP to restore reg1 (must be positive or zero).
+// spDelta       - If non-zero, the amount to add to SP after the register restores (must be positive or
+//                 zero).
+// tmpReg        - An available temporary register. Needed for the case of large frames.
+// pTmpRegIsZero - If we use tmpReg, and pTmpRegIsZero is non-null, we set *pTmpRegIsZero to 'false'.
+//                 Otherwise, we don't touch it.
 //
-// Return Value:
-//    None.
-
 void CodeGen::genEpilogRestoreReg(regNumber reg1, int spOffset, int spDelta, regNumber tmpReg, bool* pTmpRegIsZero)
 {
     assert(spOffset >= 0);
@@ -444,20 +384,14 @@ void CodeGen::genEpilogRestoreReg(regNumber reg1, int spOffset, int spDelta, reg
     }
 }
 
-//------------------------------------------------------------------------
-// genBuildRegPairsStack: Build a stack of register pairs for prolog/epilog save/restore for the given mask.
+// Build a stack of register pairs for prolog/epilog save/restore for the given mask.
 // The first register pair will contain the lowest register. Register pairs will combine neighbor
-// registers in pairs. If it can't be done (for example if we have a hole or this is the last reg in a mask with
-// odd number of regs) then the second element of that RegPair will be REG_NA.
+// registers in pairs. If it can't be done (for example if we have a hole or this is the last reg
+// in a mask with odd number of regs) then the second element of that RegPair will be REG_NA.
 //
-// Arguments:
-//   regsMask - a mask of registers for prolog/epilog generation;
-//   regStack - a regStack instance to build the stack in, used to save temp copyings.
+// regsMask - a mask of registers for prolog/epilog generation;
+// regStack - a regStack instance to build the stack in, used to save temp copyings.
 //
-// Return value:
-//   no return value; the regStack argument is modified.
-//
-// static
 void CodeGen::genBuildRegPairsStack(regMaskTP regsMask, ArrayStack<RegPair>* regStack)
 {
     assert(regStack->Empty());
@@ -509,20 +443,16 @@ void CodeGen::genBuildRegPairsStack(regMaskTP regsMask, ArrayStack<RegPair>* reg
     genSetUseSaveNextPairs(regStack);
 }
 
-//------------------------------------------------------------------------
-// genSetUseSaveNextPairs: Set useSaveNextPair for each RegPair on the stack which unwind info can be encoded as
+// Set useSaveNextPair for each RegPair on the stack which unwind info can be encoded as
 // save_next code.
 //
-// Arguments:
-//   regStack - a regStack instance to set useSaveNextPair.
-//
-// Notes:
 // We can use save_next for RegPair(N, N+1) only when we have sequence like (N-2, N-1), (N, N+1).
 // In this case in the prolog save_next for (N, N+1) refers to save_pair(N-2, N-1);
 // in the epilog the unwinder will search for the first save_pair (N-2, N-1)
 // and then go back to the first save_next (N, N+1) to restore it first.
 //
-// static
+// regStack - a regStack instance to set useSaveNextPair.
+//
 void CodeGen::genSetUseSaveNextPairs(ArrayStack<RegPair>* regStack)
 {
     for (unsigned i = 1; i < regStack->Size(); ++i)
@@ -550,18 +480,14 @@ void CodeGen::genSetUseSaveNextPairs(ArrayStack<RegPair>* regStack)
     }
 }
 
-//------------------------------------------------------------------------
-// genGetSlotSizeForRegsInMask: Get the stack slot size appropriate for the register type from the mask.
+// Get the stack slot size appropriate for the register type from the mask.
+// Note: Because int and float register type sizes match we can call this
+// function with a mask that includes both.
 //
-// Arguments:
-//   regsMask - a mask of registers for prolog/epilog generation.
+// regsMask - a mask of registers for prolog/epilog generation.
 //
-// Return value:
-//   stack slot size in bytes.
+// Returns the stack slot size in bytes.
 //
-// Note: Because int and float register type sizes match we can call this function with a mask that includes both.
-//
-// static
 int CodeGen::genGetSlotSizeForRegsInMask(regMaskTP regsMask)
 {
     assert((regsMask & (RBM_CALLEE_SAVED | RBM_FP | RBM_LR)) == regsMask); // Do not expect anything else.
@@ -570,13 +496,11 @@ int CodeGen::genGetSlotSizeForRegsInMask(regMaskTP regsMask)
     return REGSIZE_BYTES;
 }
 
-//------------------------------------------------------------------------
-// genSaveCalleeSavedRegisterGroup: Saves the group of registers described by the mask.
+// Saves the group of registers described by the mask.
 //
-// Arguments:
-//   regsMask             - a mask of registers for prolog generation;
-//   spDelta              - if non-zero, the amount to add to SP before the first register save (or together with it);
-//   spOffset             - the offset from SP that is the beginning of the callee-saved register area;
+// regsMask - a mask of registers for prolog generation;
+// spDelta  - if non-zero, the amount to add to SP before the first register save (or together with it);
+// spOffset - the offset from SP that is the beginning of the callee-saved register area;
 //
 void CodeGen::genSaveCalleeSavedRegisterGroup(regMaskTP regsMask, int spDelta, int spOffset)
 {
@@ -607,13 +531,12 @@ void CodeGen::genSaveCalleeSavedRegisterGroup(regMaskTP regsMask, int spDelta, i
     }
 }
 
-//------------------------------------------------------------------------
-// genSaveCalleeSavedRegistersHelp: Save the callee-saved registers in 'regsToSaveMask' to the stack frame
-// in the function or funclet prolog. Registers are saved in register number order from low addresses
-// to high addresses. This means that integer registers are saved at lower addresses than floatint-point/SIMD
-// registers. However, when genSaveFpLrWithAllCalleeSavedRegisters is true, the integer registers are stored
-// at higher addresses than floating-point/SIMD registers, that is, the relative order of these two classes
-// is reveresed. This is done to put the saved frame pointer very high in the frame, for simplicity.
+// Save the callee-saved registers in 'regsToSaveMask' to the stack frame in the function or funclet prolog.
+// Registers are saved in register number order from low addresses to high addresses.
+// This means that integer registers are saved at lower addresses than floating-point/SIMD registers.
+// However, when genSaveFpLrWithAllCalleeSavedRegisters is true, the integer registers are stored
+// at higher addresses than floating-point/SIMD registers, that is, the relative order of these two
+// classes is reversed. This is done to put the saved frame pointer very high in the frame, for simplicity.
 //
 // TODO: We could always put integer registers at the higher addresses, if desired, to remove this special
 // case. It would cause many asm diffs when first implemented.
@@ -632,17 +555,14 @@ void CodeGen::genSaveCalleeSavedRegisterGroup(regMaskTP regsMask, int spDelta, i
 // do frame layout. This means that the first stack offset will be 8 and the stack pointer
 // adjustment must be done by a SUB, and not folded in to a pre-indexed store.
 //
-// Arguments:
-//    regsToSaveMask          - The mask of callee-saved registers to save. If empty, this function does nothing.
-//    lowestCalleeSavedOffset - The offset from SP that is the beginning of the callee-saved register area. Note that
-//                              if non-zero spDelta, then this is the offset of the first save *after* that
-//                              SP adjustment.
-//    spDelta                 - If non-zero, the amount to add to SP before the register saves (must be negative or
-//                              zero).
-//
-// Notes:
-//    The save set can contain LR in which case LR is saved along with the other callee-saved registers.
-//    But currently Jit doesn't use frames without frame pointer on arm64.
+// regsToSaveMask          - The mask of callee-saved registers to save. If empty, this function does nothing.
+// lowestCalleeSavedOffset - The offset from SP that is the beginning of the callee-saved register area. Note that
+//                           if non-zero spDelta, then this is the offset of the first save *after* that
+//                           SP adjustment.
+// spDelta                 - If non-zero, the amount to add to SP before the register saves (must be negative or
+//                           zero).
+// The save set can contain LR in which case LR is saved along with the other callee-saved registers.
+// But currently Jit doesn't use frames without frame pointer on arm64.
 //
 void CodeGen::genSaveCalleeSavedRegistersHelp(regMaskTP regsToSaveMask, int lowestCalleeSavedOffset, int spDelta)
 {
@@ -685,13 +605,11 @@ void CodeGen::genSaveCalleeSavedRegistersHelp(regMaskTP regsToSaveMask, int lowe
     }
 }
 
-//------------------------------------------------------------------------
-// genRestoreCalleeSavedRegisterGroup: Restores the group of registers described by the mask.
+// Restores the group of registers described by the mask.
 //
-// Arguments:
-//   regsMask             - a mask of registers for epilog generation;
-//   spDelta              - if non-zero, the amount to add to SP after the last register restore (or together with it);
-//   spOffset             - the offset from SP that is the beginning of the callee-saved register area;
+// regsMask - a mask of registers for epilog generation;
+// spDelta  - if non-zero, the amount to add to SP after the last register restore (or together with it);
+// spOffset - the offset from SP that is the beginning of the callee-saved register area;
 //
 void CodeGen::genRestoreCalleeSavedRegisterGroup(regMaskTP regsMask, int spDelta, int spOffset)
 {
@@ -728,15 +646,13 @@ void CodeGen::genRestoreCalleeSavedRegisterGroup(regMaskTP regsMask, int spDelta
     }
 }
 
-//------------------------------------------------------------------------
-// genRestoreCalleeSavedRegistersHelp: Restore the callee-saved registers in 'regsToRestoreMask' from the stack frame
-// in the function or funclet epilog. This exactly reverses the actions of genSaveCalleeSavedRegistersHelp().
+// Restore the callee-saved registers in 'regsToRestoreMask' from the stack frame in the function
+// or funclet epilog. This exactly reverses the actions of genSaveCalleeSavedRegistersHelp().
 //
-// Arguments:
-//    regsToRestoreMask       - The mask of callee-saved registers to restore. If empty, this function does nothing.
-//    lowestCalleeSavedOffset - The offset from SP that is the beginning of the callee-saved register area.
-//    spDelta                 - If non-zero, the amount to add to SP after the register restores (must be positive or
-//                              zero).
+// regsToRestoreMask       - The mask of callee-saved registers to restore. If empty, this function does nothing.
+// lowestCalleeSavedOffset - The offset from SP that is the beginning of the callee-saved register area.
+// spDelta                 - If non-zero, the amount to add to SP after the register restores (must be positive or
+//                           zero).
 //
 // Here's an example restore sequence:
 //      ldp     x27, x28, [sp,#96]
@@ -756,9 +672,6 @@ void CodeGen::genRestoreCalleeSavedRegisterGroup(regMaskTP regsMask, int spDelta
 // Note you call the unwind functions specifying the prolog operation that is being un-done. So, for example, when
 // generating a post-indexed load, you call the unwind function for specifying the corresponding preindexed store.
 //
-// Return Value:
-//    None.
-
 void CodeGen::genRestoreCalleeSavedRegistersHelp(regMaskTP regsToRestoreMask, int lowestCalleeSavedOffset, int spDelta)
 {
     assert(spDelta >= 0);
@@ -806,272 +719,269 @@ void CodeGen::genRestoreCalleeSavedRegistersHelp(regMaskTP regsToRestoreMask, in
 }
 
 // clang-format off
-/*****************************************************************************
- *
- *  Generates code for an EH funclet prolog.
- *
- *  Funclets have the following incoming arguments:
- *
- *      catch:          x0 = the exception object that was caught (see GT_CATCH_ARG)
- *      filter:         x0 = the exception object to filter (see GT_CATCH_ARG), x1 = CallerSP of the containing function
- *      finally/fault:  none
- *
- *  Funclets set the following registers on exit:
- *
- *      catch:          x0 = the address at which execution should resume (see BBJ_EHCATCHRET)
- *      filter:         x0 = non-zero if the handler should handle the exception, zero otherwise (see GT_RETFILT)
- *      finally/fault:  none
- *
- *  The ARM64 funclet prolog sequence is one of the following (Note: #framesz is total funclet frame size,
- *  including everything; #outsz is outgoing argument space. #framesz must be a multiple of 16):
- *
- *  Frame type 1:
- *     For #outsz == 0 and #framesz <= 512:
- *     stp fp,lr,[sp,-#framesz]!    ; establish the frame (predecrement by #framesz), save FP/LR
- *     stp x19,x20,[sp,#xxx]        ; save callee-saved registers, as necessary
- *
- *  The funclet frame is thus:
- *
- *      |                       |
- *      |-----------------------|
- *      |  incoming arguments   |
- *      +=======================+ <---- Caller's SP
- *      |  Varargs regs space   | // Only for varargs main functions; 64 bytes
- *      |-----------------------|
- *      |Callee saved registers | // multiple of 8 bytes
- *      |-----------------------|
- *      |        PSP slot       | // 8 bytes (omitted in CoreRT ABI)
- *      |-----------------------|
- *      ~  alignment padding    ~ // To make the whole frame 16 byte aligned.
- *      |-----------------------|
- *      |      Saved FP, LR     | // 16 bytes
- *      |-----------------------| <---- Ambient SP
- *      |       |               |
- *      ~       | Stack grows   ~
- *      |       | downward      |
- *              V
- *
- *  Frame type 2:
- *     For #outsz != 0 and #framesz <= 512:
- *     sub sp,sp,#framesz           ; establish the frame
- *     stp fp,lr,[sp,#outsz]        ; save FP/LR.
- *     stp x19,x20,[sp,#xxx]        ; save callee-saved registers, as necessary
- *
- *  The funclet frame is thus:
- *
- *      |                       |
- *      |-----------------------|
- *      |  incoming arguments   |
- *      +=======================+ <---- Caller's SP
- *      |  Varargs regs space   | // Only for varargs main functions; 64 bytes
- *      |-----------------------|
- *      |Callee saved registers | // multiple of 8 bytes
- *      |-----------------------|
- *      |        PSP slot       | // 8 bytes (omitted in CoreRT ABI)
- *      |-----------------------|
- *      ~  alignment padding    ~ // To make the whole frame 16 byte aligned.
- *      |-----------------------|
- *      |      Saved FP, LR     | // 16 bytes
- *      |-----------------------|
- *      |   Outgoing arg space  | // multiple of 8 bytes
- *      |-----------------------| <---- Ambient SP
- *      |       |               |
- *      ~       | Stack grows   ~
- *      |       | downward      |
- *              V
- *
- *  Frame type 3:
- *     For #framesz > 512:
- *     stp fp,lr,[sp,- (#framesz - #outsz)]!    ; establish the frame, save FP/LR
- *                                              ; note that it is guaranteed here that (#framesz - #outsz) <= 240
- *     stp x19,x20,[sp,#xxx]                    ; save callee-saved registers, as necessary
- *     sub sp,sp,#outsz                         ; create space for outgoing argument space
- *
- *  The funclet frame is thus:
- *
- *      |                       |
- *      |-----------------------|
- *      |  incoming arguments   |
- *      +=======================+ <---- Caller's SP
- *      |  Varargs regs space   | // Only for varargs main functions; 64 bytes
- *      |-----------------------|
- *      |Callee saved registers | // multiple of 8 bytes
- *      |-----------------------|
- *      |        PSP slot       | // 8 bytes (omitted in CoreRT ABI)
- *      |-----------------------|
- *      ~  alignment padding    ~ // To make the first SP subtraction 16 byte aligned
- *      |-----------------------|
- *      |      Saved FP, LR     | // 16 bytes
- *      |-----------------------|
- *      ~  alignment padding    ~ // To make the whole frame 16 byte aligned (specifically, to 16-byte align the outgoing argument space).
- *      |-----------------------|
- *      |   Outgoing arg space  | // multiple of 8 bytes
- *      |-----------------------| <---- Ambient SP
- *      |       |               |
- *      ~       | Stack grows   ~
- *      |       | downward      |
- *              V
- *
- * Both #1 and #2 only change SP once. That means that there will be a maximum of one alignment slot needed. For the general case, #3,
- * it is possible that we will need to add alignment to both changes to SP, leading to 16 bytes of alignment. Remember that the stack
- * pointer needs to be 16 byte aligned at all times. The size of the PSP slot plus callee-saved registers space is a maximum of 240 bytes:
- *
- *     FP,LR registers
- *     10 int callee-saved register x19-x28
- *     8 float callee-saved registers v8-v15
- *     8 saved integer argument registers x0-x7, if varargs function
- *     1 PSP slot
- *     1 alignment slot
- *     == 30 slots * 8 bytes = 240 bytes.
- *
- * The outgoing argument size, however, can be very large, if we call a function that takes a large number of
- * arguments (note that we currently use the same outgoing argument space size in the funclet as for the main
- * function, even if the funclet doesn't have any calls, or has a much smaller, or larger, maximum number of
- * outgoing arguments for any call). In that case, we need to 16-byte align the initial change to SP, before
- * saving off the callee-saved registers and establishing the PSPsym, so we can use the limited immediate offset
- * encodings we have available, before doing another 16-byte aligned SP adjustment to create the outgoing argument
- * space. Both changes to SP might need to add alignment padding.
- *
- * In addition to the above "standard" frames, we also need to support a frame where the saved FP/LR are at the
- * highest addresses. This is to match the frame layout (specifically, callee-saved registers including FP/LR
- * and the PSPSym) that is used in the main function when a GS cookie is required due to the use of localloc.
- * (Note that localloc cannot be used in a funclet.) In these variants, not only has the position of FP/LR
- * changed, but where the alignment padding is placed has also changed.
- *
- *  Frame type 4 (variant of frame types 1 and 2):
- *     For #framesz <= 512:
- *     sub sp,sp,#framesz           ; establish the frame
- *     stp x19,x20,[sp,#xxx]        ; save callee-saved registers, as necessary
- *     stp fp,lr,[sp,#yyy]          ; save FP/LR.
- *     ; write PSPSym
- *
- *  The "#framesz <= 512" condition ensures that after we've established the frame, we can use "stp" with its
- *  maximum allowed offset (504) to save the callee-saved register at the highest address.
- *
- *  We use "sub" instead of folding it into the next instruction as a predecrement, as we need to write PSPSym
- *  at the bottom of the stack, and there might also be an alignment padding slot.
- *
- *  The funclet frame is thus:
- *
- *      |                       |
- *      |-----------------------|
- *      |  incoming arguments   |
- *      +=======================+ <---- Caller's SP
- *      |  Varargs regs space   | // Only for varargs main functions; 64 bytes
- *      |-----------------------|
- *      |      Saved LR         | // 8 bytes
- *      |-----------------------|
- *      |      Saved FP         | // 8 bytes
- *      |-----------------------|
- *      |Callee saved registers | // multiple of 8 bytes
- *      |-----------------------|
- *      |        PSP slot       | // 8 bytes (omitted in CoreRT ABI)
- *      |-----------------------|
- *      ~  alignment padding    ~ // To make the whole frame 16 byte aligned.
- *      |-----------------------|
- *      |   Outgoing arg space  | // multiple of 8 bytes (optional; if #outsz > 0)
- *      |-----------------------| <---- Ambient SP
- *      |       |               |
- *      ~       | Stack grows   ~
- *      |       | downward      |
- *              V
- *
- *  Frame type 5 (variant of frame type 3):
- *     For #framesz > 512:
- *     sub sp,sp,(#framesz - #outsz) ; establish part of the frame. Note that it is guaranteed here that (#framesz - #outsz) <= 240
- *     stp x19,x20,[sp,#xxx]        ; save callee-saved registers, as necessary
- *     stp fp,lr,[sp,#yyy]          ; save FP/LR.
- *     sub sp,sp,#outsz             ; create space for outgoing argument space
- *     ; write PSPSym
- *
- *  For large frames with "#framesz > 512", we must do one SP adjustment first, after which we can save callee-saved
- *  registers with up to the maximum "stp" offset of 504. Then, we can establish the rest of the frame (namely, the
- *  space for the outgoing argument space).
- *
- *  The funclet frame is thus:
- *
- *      |                       |
- *      |-----------------------|
- *      |  incoming arguments   |
- *      +=======================+ <---- Caller's SP
- *      |  Varargs regs space   | // Only for varargs main functions; 64 bytes
- *      |-----------------------|
- *      |      Saved LR         | // 8 bytes
- *      |-----------------------|
- *      |      Saved FP         | // 8 bytes
- *      |-----------------------|
- *      |Callee saved registers | // multiple of 8 bytes
- *      |-----------------------|
- *      |        PSP slot       | // 8 bytes (omitted in CoreRT ABI)
- *      |-----------------------|
- *      ~  alignment padding    ~ // To make the first SP subtraction 16 byte aligned
- *      |-----------------------|
- *      ~  alignment padding    ~ // To make the whole frame 16 byte aligned (specifically, to 16-byte align the outgoing argument space).
- *      |-----------------------|
- *      |   Outgoing arg space  | // multiple of 8 bytes
- *      |-----------------------| <---- Ambient SP
- *      |       |               |
- *      ~       | Stack grows   ~
- *      |       | downward      |
- *              V
- *
- * Note that in this case we might have 16 bytes of alignment that is adjacent. This is because we are doing 2 SP
- * subtractions, and each one must be aligned up to 16 bytes.
- *
- * Note that in all cases, the PSPSym is in exactly the same position with respect to Caller-SP, and that location is the same relative to Caller-SP
- * as in the main function.
- *
- * Funclets do not have varargs arguments. However, because the PSPSym must exist at the same offset from Caller-SP as in the main function, we
- * must add buffer space for the saved varargs argument registers here, if the main function did the same.
- *
- *     ; After this header, fill the PSP slot, for use by the VM (it gets reported with the GC info), or by code generation of nested filters.
- *     ; This is not part of the "OS prolog"; it has no associated unwind data, and is not reversed in the funclet epilog.
- *
- *     if (this is a filter funclet)
- *     {
- *          // x1 on entry to a filter funclet is CallerSP of the containing function:
- *          // either the main function, or the funclet for a handler that this filter is dynamically nested within.
- *          // Note that a filter can be dynamically nested within a funclet even if it is not statically within
- *          // a funclet. Consider:
- *          //
- *          //    try {
- *          //        try {
- *          //            throw new Exception();
- *          //        } catch(Exception) {
- *          //            throw new Exception();     // The exception thrown here ...
- *          //        }
- *          //    } filter {                         // ... will be processed here, while the "catch" funclet frame is still on the stack
- *          //    } filter-handler {
- *          //    }
- *          //
- *          // Because of this, we need a PSP in the main function anytime a filter funclet doesn't know whether the enclosing frame will
- *          // be a funclet or main function. We won't know any time there is a filter protecting nested EH. To simplify, we just always
- *          // create a main function PSP for any function with a filter.
- *
- *          ldr x1, [x1, #CallerSP_to_PSP_slot_delta]  ; Load the CallerSP of the main function (stored in the PSP of the dynamically containing funclet or function)
- *          str x1, [sp, #SP_to_PSP_slot_delta]        ; store the PSP
- *          add fp, x1, #Function_CallerSP_to_FP_delta ; re-establish the frame pointer
- *     }
- *     else
- *     {
- *          // This is NOT a filter funclet. The VM re-establishes the frame pointer on entry.
- *          // TODO-ARM64-CQ: if VM set x1 to CallerSP on entry, like for filters, we could save an instruction.
- *
- *          add x3, fp, #Function_FP_to_CallerSP_delta  ; compute the CallerSP, given the frame pointer. x3 is scratch.
- *          str x3, [sp, #SP_to_PSP_slot_delta]         ; store the PSP
- *     }
- *
- *  An example epilog sequence is then:
- *
- *     add sp,sp,#outsz             ; if any outgoing argument space
- *     ...                          ; restore callee-saved registers
- *     ldp x19,x20,[sp,#xxx]
- *     ldp fp,lr,[sp],#framesz
- *     ret lr
- *
- */
+//
+//  Generates code for an EH funclet prolog.
+//
+//  Funclets have the following incoming arguments:
+//
+//      catch:          x0 = the exception object that was caught (see GT_CATCH_ARG)
+//      filter:         x0 = the exception object to filter (see GT_CATCH_ARG), x1 = CallerSP of the containing function
+//      finally/fault:  none
+//
+//  Funclets set the following registers on exit:
+//
+//      catch:          x0 = the address at which execution should resume (see BBJ_EHCATCHRET)
+//      filter:         x0 = non-zero if the handler should handle the exception, zero otherwise (see GT_RETFILT)
+//      finally/fault:  none
+//
+//  The ARM64 funclet prolog sequence is one of the following (Note: #framesz is total funclet frame size,
+//  including everything; #outsz is outgoing argument space. #framesz must be a multiple of 16):
+//
+//  Frame type 1:
+//     For #outsz == 0 and #framesz <= 512:
+//     stp fp,lr,[sp,-#framesz]!    ; establish the frame (predecrement by #framesz), save FP/LR
+//     stp x19,x20,[sp,#xxx]        ; save callee-saved registers, as necessary
+//
+//  The funclet frame is thus:
+//
+//      |                       |
+//      |-----------------------|
+//      |  incoming arguments   |
+//      +=======================+ <---- Caller's SP
+//      |  Varargs regs space   | // Only for varargs main functions; 64 bytes
+//      |-----------------------|
+//      |Callee saved registers | // multiple of 8 bytes
+//      |-----------------------|
+//      |        PSP slot       | // 8 bytes (omitted in CoreRT ABI)
+//      |-----------------------|
+//      ~  alignment padding    ~ // To make the whole frame 16 byte aligned.
+//      |-----------------------|
+//      |      Saved FP, LR     | // 16 bytes
+//      |-----------------------| <---- Ambient SP
+//      |       |               |
+//      ~       | Stack grows   ~
+//      |       | downward      |
+//              V
+//
+//  Frame type 2:
+//     For #outsz != 0 and #framesz <= 512:
+//     sub sp,sp,#framesz           ; establish the frame
+//     stp fp,lr,[sp,#outsz]        ; save FP/LR.
+//     stp x19,x20,[sp,#xxx]        ; save callee-saved registers, as necessary
+//
+//  The funclet frame is thus:
+//
+//      |                       |
+//      |-----------------------|
+//      |  incoming arguments   |
+//      +=======================+ <---- Caller's SP
+//      |  Varargs regs space   | // Only for varargs main functions; 64 bytes
+//      |-----------------------|
+//      |Callee saved registers | // multiple of 8 bytes
+//      |-----------------------|
+//      |        PSP slot       | // 8 bytes (omitted in CoreRT ABI)
+//      |-----------------------|
+//      ~  alignment padding    ~ // To make the whole frame 16 byte aligned.
+//      |-----------------------|
+//      |      Saved FP, LR     | // 16 bytes
+//      |-----------------------|
+//      |   Outgoing arg space  | // multiple of 8 bytes
+//      |-----------------------| <---- Ambient SP
+//      |       |               |
+//      ~       | Stack grows   ~
+//      |       | downward      |
+//              V
+//
+//  Frame type 3:
+//     For #framesz > 512:
+//     stp fp,lr,[sp,- (#framesz - #outsz)]!    ; establish the frame, save FP/LR
+//                                              ; note that it is guaranteed here that (#framesz - #outsz) <= 240
+//     stp x19,x20,[sp,#xxx]                    ; save callee-saved registers, as necessary
+//     sub sp,sp,#outsz                         ; create space for outgoing argument space
+//
+//  The funclet frame is thus:
+//
+//      |                       |
+//      |-----------------------|
+//      |  incoming arguments   |
+//      +=======================+ <---- Caller's SP
+//      |  Varargs regs space   | // Only for varargs main functions; 64 bytes
+//      |-----------------------|
+//      |Callee saved registers | // multiple of 8 bytes
+//      |-----------------------|
+//      |        PSP slot       | // 8 bytes (omitted in CoreRT ABI)
+//      |-----------------------|
+//      ~  alignment padding    ~ // To make the first SP subtraction 16 byte aligned
+//      |-----------------------|
+//      |      Saved FP, LR     | // 16 bytes
+//      |-----------------------|
+//      ~  alignment padding    ~ // To make the whole frame 16 byte aligned (specifically, to 16-byte align the outgoing argument space).
+//      |-----------------------|
+//      |   Outgoing arg space  | // multiple of 8 bytes
+//      |-----------------------| <---- Ambient SP
+//      |       |               |
+//      ~       | Stack grows   ~
+//      |       | downward      |
+//              V
+//
+// Both #1 and #2 only change SP once. That means that there will be a maximum of one alignment slot needed. For the general case, #3,
+// it is possible that we will need to add alignment to both changes to SP, leading to 16 bytes of alignment. Remember that the stack
+// pointer needs to be 16 byte aligned at all times. The size of the PSP slot plus callee-saved registers space is a maximum of 240 bytes:
+//
+//     FP,LR registers
+//     10 int callee-saved register x19-x28
+//     8 float callee-saved registers v8-v15
+//     8 saved integer argument registers x0-x7, if varargs function
+//     1 PSP slot
+//     1 alignment slot
+//     == 30 slots * 8 bytes = 240 bytes.
+//
+// The outgoing argument size, however, can be very large, if we call a function that takes a large number of
+// arguments (note that we currently use the same outgoing argument space size in the funclet as for the main
+// function, even if the funclet doesn't have any calls, or has a much smaller, or larger, maximum number of
+// outgoing arguments for any call). In that case, we need to 16-byte align the initial change to SP, before
+// saving off the callee-saved registers and establishing the PSPsym, so we can use the limited immediate offset
+// encodings we have available, before doing another 16-byte aligned SP adjustment to create the outgoing argument
+// space. Both changes to SP might need to add alignment padding.
+//
+// In addition to the above "standard" frames, we also need to support a frame where the saved FP/LR are at the
+// highest addresses. This is to match the frame layout (specifically, callee-saved registers including FP/LR
+// and the PSPSym) that is used in the main function when a GS cookie is required due to the use of localloc.
+// (Note that localloc cannot be used in a funclet.) In these variants, not only has the position of FP/LR
+// changed, but where the alignment padding is placed has also changed.
+//
+//  Frame type 4 (variant of frame types 1 and 2):
+//     For #framesz <= 512:
+//     sub sp,sp,#framesz           ; establish the frame
+//     stp x19,x20,[sp,#xxx]        ; save callee-saved registers, as necessary
+//     stp fp,lr,[sp,#yyy]          ; save FP/LR.
+//     ; write PSPSym
+//
+//  The "#framesz <= 512" condition ensures that after we've established the frame, we can use "stp" with its
+//  maximum allowed offset (504) to save the callee-saved register at the highest address.
+//
+//  We use "sub" instead of folding it into the next instruction as a predecrement, as we need to write PSPSym
+//  at the bottom of the stack, and there might also be an alignment padding slot.
+//
+//  The funclet frame is thus:
+//
+//      |                       |
+//      |-----------------------|
+//      |  incoming arguments   |
+//      +=======================+ <---- Caller's SP
+//      |  Varargs regs space   | // Only for varargs main functions; 64 bytes
+//      |-----------------------|
+//      |      Saved LR         | // 8 bytes
+//      |-----------------------|
+//      |      Saved FP         | // 8 bytes
+//      |-----------------------|
+//      |Callee saved registers | // multiple of 8 bytes
+//      |-----------------------|
+//      |        PSP slot       | // 8 bytes (omitted in CoreRT ABI)
+//      |-----------------------|
+//      ~  alignment padding    ~ // To make the whole frame 16 byte aligned.
+//      |-----------------------|
+//      |   Outgoing arg space  | // multiple of 8 bytes (optional; if #outsz > 0)
+//      |-----------------------| <---- Ambient SP
+//      |       |               |
+//      ~       | Stack grows   ~
+//      |       | downward      |
+//              V
+//
+//  Frame type 5 (variant of frame type 3):
+//     For #framesz > 512:
+//     sub sp,sp,(#framesz - #outsz) ; establish part of the frame. Note that it is guaranteed here that (#framesz - #outsz) <= 240
+//     stp x19,x20,[sp,#xxx]        ; save callee-saved registers, as necessary
+//     stp fp,lr,[sp,#yyy]          ; save FP/LR.
+//     sub sp,sp,#outsz             ; create space for outgoing argument space
+//     ; write PSPSym
+//
+//  For large frames with "#framesz > 512", we must do one SP adjustment first, after which we can save callee-saved
+//  registers with up to the maximum "stp" offset of 504. Then, we can establish the rest of the frame (namely, the
+//  space for the outgoing argument space).
+//
+//  The funclet frame is thus:
+//
+//      |                       |
+//      |-----------------------|
+//      |  incoming arguments   |
+//      +=======================+ <---- Caller's SP
+//      |  Varargs regs space   | // Only for varargs main functions; 64 bytes
+//      |-----------------------|
+//      |      Saved LR         | // 8 bytes
+//      |-----------------------|
+//      |      Saved FP         | // 8 bytes
+//      |-----------------------|
+//      |Callee saved registers | // multiple of 8 bytes
+//      |-----------------------|
+//      |        PSP slot       | // 8 bytes (omitted in CoreRT ABI)
+//      |-----------------------|
+//      ~  alignment padding    ~ // To make the first SP subtraction 16 byte aligned
+//      |-----------------------|
+//      ~  alignment padding    ~ // To make the whole frame 16 byte aligned (specifically, to 16-byte align the outgoing argument space).
+//      |-----------------------|
+//      |   Outgoing arg space  | // multiple of 8 bytes
+//      |-----------------------| <---- Ambient SP
+//      |       |               |
+//      ~       | Stack grows   ~
+//      |       | downward      |
+//              V
+//
+// Note that in this case we might have 16 bytes of alignment that is adjacent. This is because we are doing 2 SP
+// subtractions, and each one must be aligned up to 16 bytes.
+//
+// Note that in all cases, the PSPSym is in exactly the same position with respect to Caller-SP, and that location is the same relative to Caller-SP
+// as in the main function.
+//
+// Funclets do not have varargs arguments. However, because the PSPSym must exist at the same offset from Caller-SP as in the main function, we
+// must add buffer space for the saved varargs argument registers here, if the main function did the same.
+//
+//     ; After this header, fill the PSP slot, for use by the VM (it gets reported with the GC info), or by code generation of nested filters.
+//     ; This is not part of the "OS prolog"; it has no associated unwind data, and is not reversed in the funclet epilog.
+//
+//     if (this is a filter funclet)
+//     {
+//          // x1 on entry to a filter funclet is CallerSP of the containing function:
+//          // either the main function, or the funclet for a handler that this filter is dynamically nested within.
+//          // Note that a filter can be dynamically nested within a funclet even if it is not statically within
+//          // a funclet. Consider:
+//          //
+//          //    try {
+//          //        try {
+//          //            throw new Exception();
+//          //        } catch(Exception) {
+//          //            throw new Exception();     // The exception thrown here ...
+//          //        }
+//          //    } filter {                         // ... will be processed here, while the "catch" funclet frame is still on the stack
+//          //    } filter-handler {
+//          //    }
+//          //
+//          // Because of this, we need a PSP in the main function anytime a filter funclet doesn't know whether the enclosing frame will
+//          // be a funclet or main function. We won't know any time there is a filter protecting nested EH. To simplify, we just always
+//          // create a main function PSP for any function with a filter.
+//
+//          ldr x1, [x1, #CallerSP_to_PSP_slot_delta]  ; Load the CallerSP of the main function (stored in the PSP of the dynamically containing funclet or function)
+//          str x1, [sp, #SP_to_PSP_slot_delta]        ; store the PSP
+//          add fp, x1, #Function_CallerSP_to_FP_delta ; re-establish the frame pointer
+//     }
+//     else
+//     {
+//          // This is NOT a filter funclet. The VM re-establishes the frame pointer on entry.
+//          // TODO-ARM64-CQ: if VM set x1 to CallerSP on entry, like for filters, we could save an instruction.
+//
+//          add x3, fp, #Function_FP_to_CallerSP_delta  ; compute the CallerSP, given the frame pointer. x3 is scratch.
+//          str x3, [sp, #SP_to_PSP_slot_delta]         ; store the PSP
+//     }
+//
+//  An example epilog sequence is then:
+//
+//     add sp,sp,#outsz             ; if any outgoing argument space
+//     ...                          ; restore callee-saved registers
+//     ldp x19,x20,[sp,#xxx]
+//     ldp fp,lr,[sp],#framesz
+//     ret lr
+//
 // clang-format on
-
 void CodeGen::genFuncletProlog(BasicBlock* block)
 {
 #ifdef DEBUG
@@ -1216,11 +1126,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     }
 }
 
-/*****************************************************************************
- *
- *  Generates code for an EH funclet epilog.
- */
-
 void CodeGen::genFuncletEpilog()
 {
 #ifdef DEBUG
@@ -1321,16 +1226,6 @@ void CodeGen::genFuncletEpilog()
 
     compiler->unwindEndEpilog();
 }
-
-/*****************************************************************************
- *
- *  Capture the information used to generate the funclet prologs and epilogs.
- *  Note that all funclet prologs are identical, and all funclet epilogs are
- *  identical (per type: filters are identical, and non-filters are identical).
- *  Thus, we compute the data used for these just once.
- *
- *  See genFuncletProlog() for more information about the prolog/epilog sequences.
- */
 
 void CodeGen::genCaptureFuncletPrologEpilogInfo()
 {
@@ -1501,16 +1396,6 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
     }
 #endif // DEBUG
 }
-
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           End Prolog / Epilog                             XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
 
 BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
 {
@@ -1710,7 +1595,6 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
     DefReg(node);
 }
 
-// Produce code for a GT_INC_SATURATE node.
 void CodeGen::genCodeForIncSaturate(GenTree* tree)
 {
     regNumber targetReg  = tree->GetRegNum();
@@ -1722,7 +1606,6 @@ void CodeGen::genCodeForIncSaturate(GenTree* tree)
     DefReg(tree);
 }
 
-// Generate code to get the high N bits of a N*N=2N bit multiplication result
 void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
 {
     assert(!treeNode->gtOverflowEx() && varTypeIsIntegral(treeNode->GetType()));
@@ -2062,9 +1945,6 @@ void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
     lcl->SetRegNum(REG_STK);
 }
 
-/***********************************************************************************************
- *  Generate code for localloc
- */
 void CodeGen::genLclHeap(GenTree* tree)
 {
     assert(tree->OperGet() == GT_LCLHEAP);
@@ -2346,12 +2226,6 @@ ALLOC_DONE:
     genProduceReg(tree);
 }
 
-//------------------------------------------------------------------------
-// genCodeForBswap: Produce code for a GT_BSWAP / GT_BSWAP16 node.
-//
-// Arguments:
-//    tree - the node
-//
 void CodeGen::genCodeForBswap(GenTree* tree)
 {
     assert(tree->OperIs(GT_BSWAP, GT_BSWAP16));
@@ -2427,7 +2301,6 @@ void CodeGen::genCodeForDivMod(GenTreeOp* div)
     DefReg(div);
 }
 
-// generate code do a switch statement based on a table of ip-relative offsets
 void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
 {
     regNumber idxReg  = UseReg(treeNode->GetOp(0));
@@ -2476,12 +2349,6 @@ void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
     DefReg(node);
 }
 
-//------------------------------------------------------------------------
-// genLockedInstructions: Generate code for a GT_XADD, GT_XAND, GT_XORR or GT_XCHG node.
-//
-// Arguments:
-//    treeNode - the GT_XADD/XAND/XORR/XCHG node
-//
 void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
 {
     GenTree* addr = treeNode->GetOp(0);
@@ -2617,12 +2484,6 @@ void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForCmpXchg: Produce code for a GT_CMPXCHG node.
-//
-// Arguments:
-//    tree - the GT_CMPXCHG node
-//
 void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
 {
     assert(treeNode->OperIs(GT_CMPXCHG));
@@ -2769,12 +2630,6 @@ instruction CodeGen::genGetInsForOper(genTreeOps oper)
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForReturnTrap: Produce code for a GT_RETURNTRAP node.
-//
-// Arguments:
-//    tree - the GT_RETURNTRAP node
-//
 void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
 {
     assert(tree->OperGet() == GT_RETURNTRAP);
@@ -3006,18 +2861,6 @@ void CodeGen::genFloatToIntCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-//------------------------------------------------------------------------
-// genCkfinite: Generate code for ckfinite opcode.
-//
-// Arguments:
-//    treeNode - The GT_CKFINITE node
-//
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    GT_CKFINITE node has reserved an internal register.
-//
 void CodeGen::genCkfinite(GenTree* treeNode)
 {
     assert(treeNode->OperIs(GT_CKFINITE));
@@ -3169,10 +3012,8 @@ void CodeGen::GenJCmp(GenTreeOp* tree, BasicBlock* block)
     }
 }
 
-//---------------------------------------------------------------------
-// genSPtoFPdelta - return offset from the stack pointer (Initial-SP) to the frame pointer. The frame pointer
+// Return offset from the stack pointer (Initial-SP) to the frame pointer. The frame pointer
 // will point to the saved frame pointer slot (i.e., there will be frame pointer chaining).
-//
 int CodeGenInterface::genSPtoFPdelta() const
 {
     assert(isFramePointerUsed());
@@ -3195,14 +3036,8 @@ int CodeGenInterface::genSPtoFPdelta() const
     return delta;
 }
 
-//---------------------------------------------------------------------
-// genTotalFrameSize - return the total size of the stack frame, including local size,
+// Return the total size of the stack frame, including local size,
 // callee-saved register size, etc.
-//
-// Return value:
-//    Total frame size
-//
-
 int CodeGenInterface::genTotalFrameSize() const
 {
     assert(calleeRegsPushed != UINT_MAX);
@@ -3219,13 +3054,10 @@ int CodeGenInterface::genTotalFrameSize() const
     return totalFrameSize;
 }
 
-//---------------------------------------------------------------------
-// genCallerSPtoFPdelta - return the offset from Caller-SP to the frame pointer.
+// Return the offset from Caller-SP to the frame pointer.
 // This number is going to be negative, since the Caller-SP is at a higher
 // address than the frame pointer.
-//
 // There must be a frame pointer to call this function!
-
 int CodeGenInterface::genCallerSPtoFPdelta() const
 {
     assert(isFramePointerUsed());
@@ -3237,11 +3069,8 @@ int CodeGenInterface::genCallerSPtoFPdelta() const
     return callerSPtoFPdelta;
 }
 
-//---------------------------------------------------------------------
-// genCallerSPtoInitialSPdelta - return the offset from Caller-SP to Initial SP.
-//
+// Returns the offset from Caller-SP to Initial SP.
 // This number will be negative.
-
 int CodeGenInterface::genCallerSPtoInitialSPdelta() const
 {
     int callerSPtoSPdelta = 0;
@@ -3252,20 +3081,12 @@ int CodeGenInterface::genCallerSPtoInitialSPdelta() const
     return callerSPtoSPdelta;
 }
 
-//---------------------------------------------------------------------
-// SetSaveFpLrWithAllCalleeSavedRegisters - Set the variable that indicates if FP/LR registers
-// are stored with the rest of the callee-saved registers.
-//
 void CodeGenInterface::SetSaveFpLrWithAllCalleeSavedRegisters(bool value)
 {
     JITDUMP("Setting genSaveFpLrWithAllCalleeSavedRegisters to %s\n", dspBool(value));
     genSaveFpLrWithAllCalleeSavedRegisters = value;
 }
 
-//---------------------------------------------------------------------
-// IsSaveFpLrWithAllCalleeSavedRegisters - Return the value that indicates where FP/LR registers
-// are stored in the prolog.
-//
 bool CodeGenInterface::IsSaveFpLrWithAllCalleeSavedRegisters() const
 {
     return genSaveFpLrWithAllCalleeSavedRegisters;
@@ -3384,11 +3205,6 @@ void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
     GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_8BYTE, dstReg, srcReg, 1, 0);
 }
 
-//-----------------------------------------------------------------------------
-// genStoreIndTypeSIMD12: store indirect a TYP_SIMD12 (i.e. Vector3) to memory.
-// Since Vector3 is not a hardware supported write size, it is performed
-// as two writes: 8 byte followed by 4-byte.
-//
 void CodeGen::genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber tmpReg)
 {
     if (value->IsHWIntrinsicZero())
@@ -3433,17 +3249,6 @@ void CodeGen::LoadSIMD12(GenTree* load)
 
 #ifdef PROFILING_SUPPORTED
 
-//-----------------------------------------------------------------------------------
-// PrologProfilingEnterCallback: Generate the profiling function enter callback.
-//
-// Arguments:
-//     initReg        - register to use as scratch register
-//     pInitRegZeroed - OUT parameter. *pInitRegZeroed set to 'false' if 'initReg' is
-//                      set to non-zero value after this call.
-//
-// Return Value:
-//     None
-//
 void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 {
     assert(generatingProlog);
@@ -3477,8 +3282,6 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     }
 }
 
-// Generate the profiling function leave or tailcall callback.
-// Technically, this is not part of the epilog; it is called when we are generating code for a GT_RETURN node.
 void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
@@ -3515,17 +3318,12 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
 #endif // PROFILING_SUPPORTED
 
-/*****************************************************************************
- * Unit testing of the ARM64 emitter: generate a bunch of instructions into the prolog
- * (it's as good a place as any), then use COMPlus_JitLateDisasm=* to see if the late
- * disassembler thinks the instructions as the same as we do.
- */
-
 // Uncomment "#define ALL_ARM64_EMITTER_UNIT_TESTS" to run all the unit tests here.
-// After adding a unit test, and verifying it works, put it under this #ifdef, so we don't see it run every time.
+// After adding a unit test, and verifying it works, put it under this #ifdef, so we
+// don't see it run every time.
 //#define ALL_ARM64_EMITTER_UNIT_TESTS
 
-#if defined(DEBUG)
+#ifdef DEBUG
 void CodeGen::genArm64EmitterUnitTests()
 {
     if (!verbose)
@@ -8179,30 +7977,24 @@ void CodeGen::genArm64EmitterUnitTests()
     printf("*************** End of genArm64EmitterUnitTests()\n");
 #endif // ALL_ARM64_EMITTER_UNIT_TESTS
 }
-#endif // defined(DEBUG)
+#endif // DEBUG
 
-//------------------------------------------------------------------------
-// PrologAllocLclFrame: Probe the stack.
+// Probe the stack.
 //
-// Notes:
-//      This only does the probing; allocating the frame is done when callee-saved registers are saved.
-//      This is done before anything has been pushed. The previous frame might have a large outgoing argument
-//      space that has been allocated, but the lowest addresses have not been touched. Our frame setup might
-//      not touch up to the first 504 bytes. This means we could miss a guard page. On Windows, however,
-//      there are always three guard pages, so we will not miss them all. On Linux, there is only one guard
-//      page by default, so we need to be more careful. We do an extra probe if we might not have probed
-//      recently enough. That is, if a call and prolog establishment might lead to missing a page. We do this
-//      on Windows as well just to be consistent, even though it should not be necessary.
+// This only does the probing; allocating the frame is done when callee-saved registers are saved.
+// This is done before anything has been pushed. The previous frame might have a large outgoing argument
+// space that has been allocated, but the lowest addresses have not been touched. Our frame setup might
+// not touch up to the first 504 bytes. This means we could miss a guard page. On Windows, however,
+// there are always three guard pages, so we will not miss them all. On Linux, there is only one guard
+// page by default, so we need to be more careful. We do an extra probe if we might not have probed
+// recently enough. That is, if a call and prolog establishment might lead to missing a page. We do this
+// on Windows as well just to be consistent, even though it should not be necessary.
 //
-// Arguments:
-//      frameSize         - the size of the stack frame being allocated.
-//      initReg           - register to use as a scratch register.
-//      pInitRegZeroed    - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
-//                          this call sets 'initReg' to a non-zero value. Otherwise, it is unchanged.
-//      maskArgRegsLiveIn - incoming argument registers that are currently live.
-//
-// Return value:
-//      None
+// frameSize         - the size of the stack frame being allocated.
+// initReg           - register to use as a scratch register.
+// pInitRegZeroed    - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
+//                     this call sets 'initReg' to a non-zero value. Otherwise, it is unchanged.
+// maskArgRegsLiveIn - incoming argument registers that are currently live.
 //
 void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
                                   regNumber initReg,

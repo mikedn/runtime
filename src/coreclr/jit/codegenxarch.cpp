@@ -1,21 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                        Amd64/x86 Code Generator                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
 #include "jitpch.h"
+
 #ifdef _MSC_VER
-#pragma hdrstop
 #pragma warning(disable : 4310) // cast truncates constant shift - happens for (int8_t)0xb1
 #endif
 
 #ifdef TARGET_XARCH
+
 #include "emit.h"
 #include "codegen.h"
 #include "lower.h"
@@ -428,32 +421,16 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
 #endif // !FEATURE_EH_FUNCLETS
 
 #ifdef TARGET_AMD64
-// Returns relocation type hint for an addr.
-// Note that there are no reloc hints on x86.
-//
-// Arguments
-//    addr  -  data address
-//
-// Returns
-//    relocation type hint
-//
-unsigned short CodeGen::genAddrRelocTypeHint(size_t addr)
+uint16_t CodeGen::genAddrRelocTypeHint(size_t addr)
 {
     return compiler->eeGetRelocTypeHint((void*)addr);
 }
-#endif // TARGET_AMD64
+#endif
 
 // Return true if an absolute indirect data address can be encoded as IP-relative.
 // offset. Note that this method should be used only when the caller knows that
 // the address is an icon value that VM has given and there is no GenTree node
 // representing it. Otherwise, one should always use FitsInAddrBase().
-//
-// Arguments
-//    addr  -  an absolute indirect data address
-//
-// Returns
-//    true if indir data addr could be encoded as IP-relative offset.
-//
 bool CodeGen::genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 {
 #ifdef TARGET_AMD64
@@ -468,13 +445,6 @@ bool CodeGen::genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 // Note that this method should be used only when the caller knows that the
 // address is an icon value that VM has given and there is no GenTree node
 // representing it. Otherwise, one should always use FitsInAddrBase().
-//
-// Arguments
-//    addr  -  an absolute indirect code address
-//
-// Returns
-//    true if indir code addr could be encoded as IP-relative offset.
-//
 bool CodeGen::genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 {
 #ifdef TARGET_AMD64
@@ -489,26 +459,12 @@ bool CodeGen::genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 // relative to zero. Note that this method should be used only when the caller
 // knows that the address is an icon value that VM has given and there is no
 // GenTree node representing it. Otherwise, one should always use FitsInAddrBase().
-//
-// Arguments
-//    addr  -  absolute indirect code address
-//
-// Returns
-//    true if absolute indir code addr could be encoded as 32-bit displacement relative to zero.
-//
 bool CodeGen::genCodeIndirAddrCanBeEncodedAsZeroRelOffset(size_t addr)
 {
     return GenTreeIntConCommon::FitsInI32((ssize_t)addr);
 }
 
 // Return true if an absolute indirect code address needs a relocation recorded with VM.
-//
-// Arguments
-//    addr  -  an absolute indirect code address
-//
-// Returns
-//    true if indir code addr needs a relocation recorded with VM
-//
 bool CodeGen::genCodeIndirAddrNeedsReloc(size_t addr)
 {
     // If generating relocatable ngen code, then all code addr should go through relocation
@@ -535,13 +491,6 @@ bool CodeGen::genCodeIndirAddrNeedsReloc(size_t addr)
 }
 
 // Return true if a direct code address needs to be marked as relocatable.
-//
-// Arguments
-//    addr  -  absolute direct code address
-//
-// Returns
-//    true if direct code addr needs a relocation recorded with VM
-//
 bool CodeGen::genCodeAddrNeedsReloc(size_t addr)
 {
     // If generating relocatable ngen code, then all code addr should go through relocation
@@ -665,12 +614,6 @@ void CodeGen::genCodeForNegNot(GenTreeUnOp* node)
     DefReg(node);
 }
 
-//------------------------------------------------------------------------
-// genCodeForBswap: Produce code for a GT_BSWAP / GT_BSWAP16 node.
-//
-// Arguments:
-//    tree - the node
-//
 void CodeGen::genCodeForBswap(GenTree* tree)
 {
     // TODO: If we're swapping immediately after a read from memory or immediately before
@@ -700,7 +643,6 @@ void CodeGen::genCodeForBswap(GenTree* tree)
     DefReg(tree);
 }
 
-// Produce code for a GT_INC_SATURATE node.
 void CodeGen::genCodeForIncSaturate(GenTree* tree)
 {
     regNumber targetReg  = tree->GetRegNum();
@@ -715,7 +657,6 @@ void CodeGen::genCodeForIncSaturate(GenTree* tree)
     DefReg(tree);
 }
 
-// Generate code to get the high N bits of a N*N=2N bit multiplication result
 void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
 {
     assert(!treeNode->gtOverflowEx());
@@ -765,13 +706,6 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
 }
 
 #ifdef TARGET_X86
-//------------------------------------------------------------------------
-// genCodeForLongUMod: Generate code for a tree of the form
-//                     `(umod (gt_long x y) (const int))`
-//
-// Arguments:
-//   node - the node for which to generate code
-//
 void CodeGen::genCodeForLongUMod(GenTreeOp* node)
 {
     assert(node != nullptr);
@@ -847,12 +781,6 @@ void CodeGen::genCodeForLongUMod(GenTreeOp* node)
 }
 #endif // TARGET_X86
 
-//------------------------------------------------------------------------
-// genCodeForDivMod: Generate code for a DIV or MOD operation.
-//
-// Arguments:
-//    treeNode - the node to generate the code for
-//
 void CodeGen::genCodeForDivMod(GenTreeOp* treeNode)
 {
     assert(treeNode->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD));
@@ -1131,12 +1059,6 @@ void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
     DefReg(node);
 }
 
-//------------------------------------------------------------------------
-// genCodeForMul: Generate code for a MUL operation.
-//
-// Arguments:
-//    treeNode - the node to generate the code for
-//
 void CodeGen::genCodeForMul(GenTreeOp* treeNode)
 {
     assert(treeNode->OperIs(GT_MUL) && varTypeIsIntegral(treeNode->GetType()));
@@ -1319,12 +1241,6 @@ void CodeGen::GenCompare(GenTreeOp* cmp)
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForBT: Generates code for a GT_BT node.
-//
-// Arguments:
-//    tree - The node.
-//
 void CodeGen::genCodeForBT(GenTreeOp* bt)
 {
     assert(bt->OperIs(GT_BT));
@@ -1398,14 +1314,6 @@ const CodeGen::GenConditionDesc CodeGen::GenConditionDesc::map[32]
 };
 // clang-format on
 
-//------------------------------------------------------------------------
-// inst_SETCC: Generate code to set a register to 0 or 1 based on a condition.
-//
-// Arguments:
-//   condition - The condition
-//   type      - The type of the shift to be produced
-//   dstReg    - The destination register to be set to 1 or 0
-//
 void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstReg)
 {
     assert(varTypeIsIntegral(type));
@@ -1429,12 +1337,6 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForReturnTrap: Produce code for a GT_RETURNTRAP node.
-//
-// Arguments:
-//    tree - the GT_RETURNTRAP node
-//
 void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
 {
     assert(tree->OperIs(GT_RETURNTRAP));
@@ -1881,18 +1783,13 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
     }
 }
 
-//------------------------------------------------------------------------
-// PrologAllocLclFrame: Probe the stack and allocate the local stack frame - subtract from SP.
+// Probe the stack and allocate the local stack frame - subtract from SP.
 //
-// Arguments:
-//      frameSize         - the size of the stack frame being allocated.
-//      initReg           - register to use as a scratch register.
-//      pInitRegZeroed    - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
+// frameSize         - the size of the stack frame being allocated.
+// initReg           - register to use as a scratch register.
+// pInitRegZeroed    - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
 //                          this call sets 'initReg' to a non-zero shift.
-//      maskArgRegsLiveIn - incoming argument registers that are currently live.
-//
-// Return shift:
-//      None
+// maskArgRegsLiveIn - incoming argument registers that are currently live.
 //
 void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
                                   regNumber initReg,
@@ -2010,17 +1907,11 @@ void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
     }
 }
 
-//------------------------------------------------------------------------
-// genStackPointerConstantAdjustment: add a specified constant shift to the stack pointer.
-// No probe is done.
+// Add a specified constant shift to the stack pointer. No probing is done.
 //
-// Arguments:
-//    spDelta                 - the shift to add to SP. Must be negative or zero.
-//    regTmp                  - x86 only: an available temporary register. If not REG_NA, hide the SP
-//                              adjustment from the emitter, using this register.
-//
-// Return Value:
-//    None.
+// spDelta - the shift to add to SP. Must be negative or zero.
+// regTmp  - x86 only: an available temporary register. If not REG_NA, hide the SP
+//           adjustment from the emitter, using this register.
 //
 void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTmp)
 {
@@ -2049,19 +1940,13 @@ void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTm
     }
 }
 
-//------------------------------------------------------------------------
-// genStackPointerConstantAdjustmentWithProbe: add a specified constant shift to the stack pointer,
-// and probe the stack as appropriate. Should only be called as a helper for
-// genStackPointerConstantAdjustmentLoopWithProbe.
+// Add a specified constant shift to the stack pointer, and probe the stack as appropriate.
+// Should only be called as a helper for genStackPointerConstantAdjustmentLoopWithProbe.
 //
-// Arguments:
-//    spDelta                 - the shift to add to SP. Must be negative or zero. If zero, the probe happens,
-//                              but the stack pointer doesn't move.
-//    regTmp                  - x86 only: an available temporary register. If not REG_NA, hide the SP
-//                              adjustment from the emitter, using this register.
-//
-// Return Value:
-//    None.
+// spDelta - the shift to add to SP. Must be negative or zero. If zero, the probe happens,
+//           but the stack pointer doesn't move.
+// regTmp  - x86 only: an available temporary register. If not REG_NA, hide the SP
+//           adjustment from the emitter, using this register.
 //
 void CodeGen::genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNumber regTmp)
 {
@@ -2069,22 +1954,19 @@ void CodeGen::genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNum
     genStackPointerConstantAdjustment(spDelta, regTmp);
 }
 
-//------------------------------------------------------------------------
-// genStackPointerConstantAdjustmentLoopWithProbe: Add a specified constant shift to the stack pointer,
-// and probe the stack as appropriate. Generates one probe per page, up to the total amount required.
-// This will generate a sequence of probes in-line. It is required for the case where we need to expose
-// (not hide) the stack level adjustment. We can't use the dynamic loop in that case, because the total
-// stack adjustment would not be visible to the emitter. It would be possible to use this version for
-// multiple hidden constant stack level adjustments but we don't do that currently (we use the loop
-// version in genStackPointerDynamicAdjustmentWithProbe instead).
+// Add a specified constant shift to the stack pointer, and probe the stack as appropriate.
+// Generates one probe per page, up to the total amount required. This will generate a sequence
+// of probes in-line. It is required for the case where we need to expose (not hide) the stack
+// level adjustment. We can't use the dynamic loop in that case, because the total stack adjustment
+// would not be visible to the emitter. It would be possible to use this version for multiple hidden
+// constant stack level adjustments but we don't do that currently (we use the loop version in
+// genStackPointerDynamicAdjustmentWithProbe instead).
 //
-// Arguments:
-//    spDelta                 - the shift to add to SP. Must be negative.
-//    regTmp                  - x86 only: an available temporary register. If not REG_NA, hide the SP
-//                              adjustment from the emitter, using this register.
+// spDelta - the shift to add to SP. Must be negative.
+// regTmp  - x86 only: an available temporary register. If not REG_NA, hide the SP
+//           adjustment from the emitter, using this register.
 //
-// Return Value:
-//    Offset in bytes from SP to last probed address.
+// Returns the offset in bytes from SP to last probed address.
 //
 target_ssize_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(ssize_t spDelta, regNumber regTmp)
 {
@@ -2119,20 +2001,13 @@ target_ssize_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(ssize_t s
     return lastTouchDelta;
 }
 
-//------------------------------------------------------------------------
-// genStackPointerDynamicAdjustmentWithProbe: add a register shift to the stack pointer,
-// and probe the stack as appropriate.
-//
+// Add a register shift to the stack pointer, and probe the stack as appropriate.
 // Note that for x86, we hide the ESP adjustment from the emitter. To do that, currently,
 // requires a temporary register and extra code.
 //
-// Arguments:
-//    regSpDelta              - the register shift to add to SP. The shift in this register must be negative.
-//                              This register might be trashed.
-//    regTmp                  - an available temporary register. Will be trashed.
-//
-// Return Value:
-//    None.
+// regSpDelta - the register shift to add to SP. The shift in this register must be negative.
+//              This register might be trashed.
+// regTmp       - an available temporary register. Will be trashed.
 //
 void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, regNumber regTmp)
 {
@@ -2189,27 +2064,9 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
     inst_Mov(TYP_I_IMPL, REG_SPBASE, regSpDelta, /* canSkip */ false);
 }
 
-//------------------------------------------------------------------------
-// genLclHeap: Generate code for localloc.
-//
-// Arguments:
-//      tree - the localloc tree to generate.
-//
-// Notes:
-//      Note that for x86, we don't track ESP movements while generating the localloc code.
-//      The ESP tracking is used to report stack pointer-relative GC info, which is not
-//      interesting while doing the localloc construction. Also, for functions with localloc,
-//      we have EBP frames, and EBP-relative locals, and ESP-relative accesses only for function
-//      call arguments.
-//
-//      For x86, we store the ESP after the localloc is complete in the LocAllocSP
-//      variable. This variable is implicitly reported to the VM in the GC info (its position
-//      is defined by convention relative to other items), and is used by the GC to find the
-//      "base" stack pointer in functions with localloc.
-//
 void CodeGen::genLclHeap(GenTree* tree)
 {
-    assert(tree->OperGet() == GT_LCLHEAP);
+    assert(tree->OperIs(GT_LCLHEAP));
     assert(compiler->compLocallocUsed);
 
     GenTree* size = tree->AsOp()->gtOp1;
@@ -2228,6 +2085,17 @@ void CodeGen::genLclHeap(GenTree* tree)
         genStackPointerCheck(compiler->lvaReturnSpCheck);
     }
 #endif
+
+    // Note that for x86, we don't track ESP movements while generating the localloc code.
+    // The ESP tracking is used to report stack pointer-relative GC info, which is not
+    // interesting while doing the localloc construction. Also, for functions with localloc,
+    // we have EBP frames, and EBP-relative locals, and ESP-relative accesses only for function
+    // call arguments.
+    //
+    // For x86, we store the ESP after the localloc is complete in the LocAllocSP
+    // variable. This variable is implicitly reported to the VM in the GC info (its position
+    // is defined by convention relative to other items), and is used by the GC to find the
+    // "base" stack pointer in functions with localloc.
 
     noway_assert(isFramePointerUsed()); // localloc requires Frame Pointer to be established since SP changes
 #if !FEATURE_FIXED_OUT_ARGS
@@ -3184,10 +3052,6 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
 }
 #endif // FEATURE_MULTIREG_RET
 
-// Generate code for a struct store that contains GC pointers.
-// This will generate a sequence of (REP) MOVS instructions for
-// non-GC slots and calls to the BY_REF_ASSIGN helper otherwise.
-//
 void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
 {
     assert(layout->HasGCPtr());
@@ -3353,7 +3217,6 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
 }
 #endif // UNIX_AMD64_ABI
 
-//------------------------------------------------------------------------
 // If any Vector3 args are on stack and they are not pass-by-ref, the upper 32bits
 // must be cleared to zeroes. The native compiler doesn't clear the upper bits
 // and there is no way to know if the caller is native or not. So, the upper
@@ -3380,7 +3243,6 @@ void CodeGen::PrologClearVector3StackParamUpperBits()
 }
 #endif // defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
 
-// generate code do a switch statement based on a table of ip-relative offsets
 void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
 {
     regNumber idxReg  = UseReg(treeNode->GetOp(0));
@@ -3428,12 +3290,6 @@ void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
     DefReg(node);
 }
 
-//------------------------------------------------------------------------
-// genCodeForLockAdd: Generate code for a GT_LOCKADD node
-//
-// Arguments:
-//    node - the GT_LOCKADD node
-//
 void CodeGen::genCodeForLockAdd(GenTreeOp* node)
 {
     assert(node->OperIs(GT_LOCKADD));
@@ -3459,12 +3315,6 @@ void CodeGen::genCodeForLockAdd(GenTreeOp* node)
     }
 }
 
-//------------------------------------------------------------------------
-// genLockedInstructions: Generate code for a GT_XADD or GT_XCHG node.
-//
-// Arguments:
-//    node - the GT_XADD/XCHG node
-//
 void CodeGen::genLockedInstructions(GenTreeOp* node)
 {
     assert(node->OperIs(GT_XADD, GT_XCHG));
@@ -3498,12 +3348,6 @@ void CodeGen::genLockedInstructions(GenTreeOp* node)
     genProduceReg(node);
 }
 
-//------------------------------------------------------------------------
-// genCodeForCmpXchg: Produce code for a GT_CMPXCHG node.
-//
-// Arguments:
-//    tree - the GT_CMPXCHG node
-//
 void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* tree)
 {
     assert(tree->OperIs(GT_CMPXCHG));
@@ -3628,15 +3472,6 @@ void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
     genJumpToThrowHlpBlk(jmpKind, bndsChk->GetThrowKind(), bndsChk->GetThrowBlock());
 }
 
-//---------------------------------------------------------------------
-// genCodeForPhysReg - generate code for a GT_PHYSREG node
-//
-// Arguments
-//    tree - the GT_PHYSREG node
-//
-// Return shift:
-//    None
-//
 void CodeGen::genCodeForPhysReg(GenTreePhysReg* tree)
 {
     assert(tree->OperIs(GT_PHYSREG));
@@ -3650,15 +3485,6 @@ void CodeGen::genCodeForPhysReg(GenTreePhysReg* tree)
     DefReg(tree);
 }
 
-//---------------------------------------------------------------------
-// genCodeForNullCheck - generate code for a GT_NULLCHECK node
-//
-// Arguments
-//    tree - the GT_NULLCHECK node
-//
-// Return shift:
-//    None
-//
 void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
 {
     assert(tree->OperIs(GT_NULLCHECK));
@@ -3667,17 +3493,6 @@ void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
     regNumber reg = genConsumeReg(tree->gtOp1);
     GetEmitter()->emitIns_AR_R(INS_cmp, EA_4BYTE, reg, reg, 0);
 }
-
-//------------------------------------------------------------------------
-// genCodeForArrIndex: Generates code to bounds check the index for one dimension of an array reference,
-//                     producing the effective index by subtracting the lower bound.
-//
-// Arguments:
-//    arrIndex - the node for which we're generating code
-//
-// Return Value:
-//    None.
-//
 
 void CodeGen::genCodeForArrIndex(GenTreeArrIndex* arrIndex)
 {
@@ -3705,22 +3520,6 @@ void CodeGen::genCodeForArrIndex(GenTreeArrIndex* arrIndex)
 
     genProduceReg(arrIndex);
 }
-
-//------------------------------------------------------------------------
-// genCodeForArrOffset: Generates code to compute the flattened array offset for
-//    one dimension of an array reference:
-//        result = (prevDimOffset * dimSize) + effectiveIndex
-//    where dimSize is obtained from the arrObj operand
-//
-// Arguments:
-//    arrOffset - the node for which we're generating code
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    dimSize and effectiveIndex are always non-negative, the former by design,
-//    and the latter because it has been normalized to be zero-based.
 
 void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
 {
@@ -3847,26 +3646,12 @@ instruction CodeGen::genGetInsForOper(genTreeOps oper)
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForShift: Generates the code sequence for a GenTree node that
-// represents a bit shift or rotate operation (<<, >>, >>>, rol, ror).
-//
-// Arguments:
-//    tree - the bit shift node (that specifies the type of bit shift to perform).
-//
-// Assumptions:
-//    a) All GenTrees are register allocated.
-//    b) The shift-by-amount in tree->AsOp()->gtOp2 is either a contained constant or
-//       it's a register-allocated expression. If it is in a register that is
-//       not RCX, it will be moved to RCX (so RCX better not be in use!).
-//
 void CodeGen::genCodeForShift(GenTreeOp* tree)
 {
-    // Only the non-RMW case here.
     assert(tree->OperIsShiftOrRotate());
 
-    var_types   targetType = tree->TypeGet();
-    instruction ins        = genGetInsForOper(tree->OperGet());
+    var_types   targetType = tree->GetType();
+    instruction ins        = genGetInsForOper(tree->GetOper());
 
     GenTree* operand = tree->GetOp(0);
     GenTree* shiftBy = tree->GetOp(1);
@@ -6486,77 +6271,45 @@ int CodeGenInterface::genSPtoFPdelta() const
 #endif
 }
 
-//-----------------------------------------------------------------------------------------
-// genSSE41RoundOp - generate SSE41 code for the given tree as a round operation
-//
-// Arguments:
-//    treeNode  - tree node
-//
-// Return shift:
-//    None
-//
-// Assumptions:
-//     i) SSE4.1 is supported by the underlying hardware
-//    ii) treeNode oper is a GT_INTRINSIC
-//   iii) treeNode type is a floating point type
-//    iv) treeNode is not used from memory
-//     v) tree oper is NI_System_Math{F}_Round, _Ceiling, or _Floor
-//    vi) caller of this routine needs to call genProduceReg()
-void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
+void CodeGen::genSSE41RoundOp(GenTreeIntrinsic* treeNode)
 {
-    // i) SSE4.1 is supported by the underlying hardware
     assert(compiler->compIsaSupportedDebugOnly(InstructionSet_SSE41));
 
-    // ii) treeNode oper is a GT_INTRINSIC
-    assert(treeNode->OperGet() == GT_INTRINSIC);
+    GenTree* srcNode = treeNode->GetOp(0);
 
-    GenTree* srcNode = treeNode->gtGetOp1();
-
-    // iii) treeNode type is floating point type
-    assert(varTypeIsFloating(srcNode));
-    assert(srcNode->TypeGet() == treeNode->TypeGet());
-
-    assert(treeNode->isUsedFromReg());
+    assert(varTypeIsFloating(srcNode->GetType()) && (srcNode->GetType() == treeNode->GetType()));
 
     genConsumeRegs(srcNode);
 
-    instruction ins  = (treeNode->TypeGet() == TYP_FLOAT) ? INS_roundss : INS_roundsd;
-    emitAttr    size = emitTypeSize(treeNode);
+    instruction ins    = treeNode->TypeIs(TYP_FLOAT) ? INS_roundss : INS_roundsd;
+    emitAttr    size   = emitTypeSize(treeNode->GetType());
+    regNumber   dstReg = treeNode->GetRegNum();
+    unsigned    imm    = 0;
 
-    regNumber dstReg = treeNode->GetRegNum();
-
-    unsigned ival = 0;
-
-    // v) tree oper is NI_System_Math{F}_Round, _Ceiling, or _Floor
     switch (treeNode->AsIntrinsic()->GetIntrinsic())
     {
         case NI_System_Math_Round:
-            ival = 4;
+            imm = 4;
             break;
-
         case NI_System_Math_Ceiling:
-            ival = 10;
+            imm = 10;
             break;
-
         case NI_System_Math_Floor:
-            ival = 9;
+            imm = 9;
             break;
-
         default:
-            ins = INS_invalid;
-            assert(!"genSSE41RoundOp: unsupported intrinsic");
             unreached();
     }
 
     // TODO-MIKE-Cleanup: This shouldn't be needed but emitIns_SIMD_R_R_I is messed up.
     if (srcNode->isUsedFromReg())
     {
-        GetEmitter()->emitIns_R_R_I(ins, size, dstReg, srcNode->GetRegNum(), ival);
+        GetEmitter()->emitIns_R_R_I(ins, size, dstReg, srcNode->GetRegNum(), imm);
     }
     else
     {
         // TODO-MIKE-CQ: Remove false dependency.
-        inst_RV_TT_IV(ins, size, dstReg, srcNode, ival);
+        inst_RV_TT_IV(ins, size, dstReg, srcNode, imm);
     }
 }
 
@@ -9032,7 +8785,7 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
 
     LclVarDsc* lastArg = compiler->lvaGetDesc(compiler->info.compArgsCount - 1);
     noway_assert(!lastArg->lvRegister);
-    signed offset = lastArg->GetStackOffset();
+    int32_t offset = lastArg->GetStackOffset();
     assert(offset != BAD_STK_OFFS);
     noway_assert(lastArg->lvFramePointerBased);
 
@@ -9051,85 +8804,82 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
 
 #ifdef FEATURE_EH_FUNCLETS
 
-/*****************************************************************************
- *
- *  Generates code for an EH funclet prolog.
- *
- *  Funclets have the following incoming arguments:
- *
- *      catch/filter-handler: rcx = InitialSP, rdx = the exception object that was caught (see GT_CATCH_ARG)
- *      filter:               rcx = InitialSP, rdx = the exception object to filter (see GT_CATCH_ARG)
- *      finally/fault:        rcx = InitialSP
- *
- *  Funclets set the following registers on exit:
- *
- *      catch/filter-handler: rax = the address at which execution should resume (see BBJ_EHCATCHRET)
- *      filter:               rax = non-zero if the handler should handle the exception, zero otherwise (see GT_RETFILT)
- *      finally/fault:        none
- *
- *  The AMD64 funclet prolog sequence is:
- *
- *     push ebp
- *     push callee-saved regs
- *                      ; TODO-AMD64-CQ: We probably only need to save any callee-save registers that we actually use
- *                      ;         in the funclet. Currently, we save the same set of callee-saved regs calculated for
- *                      ;         the entire function.
- *     sub sp, XXX      ; Establish the rest of the frame.
- *                      ;   XXX is determined by lvaOutgoingArgSpaceSize plus space for the PSP slot, aligned
- *                      ;   up to preserve stack alignment. If we push an odd number of registers, we also
- *                      ;   generate this, to keep the stack aligned.
- *
- *     ; Fill the PSP slot, for use by the VM (it gets reported with the GC info), or by code generation of nested
- *     ;    filters.
- *     ; This is not part of the "OS prolog"; it has no associated unwind data, and is not reversed in the funclet
- *     ;    epilog.
- *     ; Also, re-establish the frame pointer from the PSP.
- *
- *     mov rbp, [rcx + PSP_slot_InitialSP_offset]       ; Load the PSP (InitialSP of the main function stored in the
- *                                                      ; PSP of the dynamically containing funclet or function)
- *     mov [rsp + PSP_slot_InitialSP_offset], rbp       ; store the PSP in our frame
- *     lea ebp, [rbp + Function_InitialSP_to_FP_delta]  ; re-establish the frame pointer of the parent frame. If
- *                                                      ; Function_InitialSP_to_FP_delta==0, we don't need this
- *                                                      ; instruction.
- *
- *  The epilog sequence is then:
- *
- *     add rsp, XXX
- *     pop callee-saved regs    ; if necessary
- *     pop rbp
- *     ret
- *
- *  The funclet frame is thus:
- *
- *      |                       |
- *      |-----------------------|
- *      |       incoming        |
- *      |       arguments       |
- *      +=======================+ <---- Caller's SP
- *      |    Return address     |
- *      |-----------------------|
- *      |      Saved EBP        |
- *      |-----------------------|
- *      |Callee saved registers |
- *      |-----------------------|
- *      ~  possible 8 byte pad  ~
- *      ~     for alignment     ~
- *      |-----------------------|
- *      |        PSP slot       | // Omitted in CoreRT ABI
- *      |-----------------------|
- *      |   Outgoing arg space  | // this only exists if the function makes a call
- *      |-----------------------| <---- Initial SP
- *      |       |               |
- *      ~       | Stack grows   ~
- *      |       | downward      |
- *              V
- *
- * TODO-AMD64-Bug?: the frame pointer should really point to the PSP slot (the debugger seems to assume this
- * in DacDbiInterfaceImpl::InitParentFrameInfo()), or someplace above Initial-SP. There is an AMD64
- * UNWIND_INFO restriction that it must be within 240 bytes of Initial-SP. See jit64\amd64\inc\md.h
- * "FRAMEPTR OFFSETS" for details.
- */
-
+// Generates code for an EH funclet prolog.
+//
+// Funclets have the following incoming arguments:
+//
+//      catch/filter-handler: rcx = InitialSP, rdx = the exception object that was caught (see GT_CATCH_ARG)
+//      filter:               rcx = InitialSP, rdx = the exception object to filter (see GT_CATCH_ARG)
+//      finally/fault:        rcx = InitialSP
+//
+//  Funclets set the following registers on exit:
+//
+//      catch/filter-handler: rax = the address at which execution should resume (see BBJ_EHCATCHRET)
+//      filter:               rax = non-zero if the handler should handle the exception, zero otherwise (see GT_RETFILT)
+//      finally/fault:        none
+//
+//  The AMD64 funclet prolog sequence is:
+//
+//     push ebp
+//     push callee-saved regs
+//                      ; TODO-AMD64-CQ: We probably only need to save any callee-save registers that we actually use
+//                      ;         in the funclet. Currently, we save the same set of callee-saved regs calculated for
+//                      ;         the entire function.
+//     sub sp, XXX      ; Establish the rest of the frame.
+//                      ;   XXX is determined by lvaOutgoingArgSpaceSize plus space for the PSP slot, aligned
+//                      ;   up to preserve stack alignment. If we push an odd number of registers, we also
+//                      ;   generate this, to keep the stack aligned.
+//
+//     ; Fill the PSP slot, for use by the VM (it gets reported with the GC info), or by code generation of nested
+//     ;    filters.
+//     ; This is not part of the "OS prolog"; it has no associated unwind data, and is not reversed in the funclet
+//     ;    epilog.
+//     ; Also, re-establish the frame pointer from the PSP.
+//
+//     mov rbp, [rcx + PSP_slot_InitialSP_offset]       ; Load the PSP (InitialSP of the main function stored in the
+//                                                      ; PSP of the dynamically containing funclet or function)
+//     mov [rsp + PSP_slot_InitialSP_offset], rbp       ; store the PSP in our frame
+//     lea ebp, [rbp + Function_InitialSP_to_FP_delta]  ; re-establish the frame pointer of the parent frame. If
+//                                                      ; Function_InitialSP_to_FP_delta==0, we don't need this
+//                                                      ; instruction.
+//
+//  The epilog sequence is then:
+//
+//     add rsp, XXX
+//     pop callee-saved regs    ; if necessary
+//     pop rbp
+//     ret
+//
+//  The funclet frame is thus:
+//
+//      |                       |
+//      |-----------------------|
+//      |       incoming        |
+//      |       arguments       |
+//      +=======================+ <---- Caller's SP
+//      |    Return address     |
+//      |-----------------------|
+//      |      Saved EBP        |
+//      |-----------------------|
+//      |Callee saved registers |
+//      |-----------------------|
+//      ~  possible 8 byte pad  ~
+//      ~     for alignment     ~
+//      |-----------------------|
+//      |        PSP slot       | // Omitted in CoreRT ABI
+//      |-----------------------|
+//      |   Outgoing arg space  | // this only exists if the function makes a call
+//      |-----------------------| <---- Initial SP
+//      |       |               |
+//      ~       | Stack grows   ~
+//      |       | downward      |
+//              V
+//
+// TODO-AMD64-Bug?: the frame pointer should really point to the PSP slot (the debugger seems to assume this
+// in DacDbiInterfaceImpl::InitParentFrameInfo()), or someplace above Initial-SP. There is an AMD64
+// UNWIND_INFO restriction that it must be within 240 bytes of Initial-SP. See jit64\amd64\inc\md.h
+// "FRAMEPTR OFFSETS" for details.
+//
 void CodeGen::genFuncletProlog(BasicBlock* block)
 {
 #ifdef DEBUG
@@ -9199,13 +8949,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     }
 }
 
-/*****************************************************************************
- *
- *  Generates code for an EH funclet epilog.
- *
- *  Note that we don't do anything with unwind codes, because AMD64 only cares about unwind codes for the prolog.
- */
-
 void CodeGen::genFuncletEpilog()
 {
     JITDUMP("*************** In genFuncletEpilog()\n");
@@ -9220,11 +8963,6 @@ void CodeGen::genFuncletEpilog()
     inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
     instGen(INS_ret);
 }
-
-/*****************************************************************************
- *
- *  Capture the information used to generate the funclet prologs and epilogs.
- */
 
 void CodeGen::genCaptureFuncletPrologEpilogInfo()
 {
