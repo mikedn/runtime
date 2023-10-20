@@ -1829,12 +1829,20 @@ void LinearScan::BuildCast(GenTreeCast* cast)
 
     if (!src->isContained())
     {
-        BuildUse(src);
+        BuildUse(src, candidates);
     }
     else if (src->OperIs(GT_IND))
     {
-        BuildAddrUses(src->AsIndir()->GetAddr());
+        // TODO-MIKE-Review: Address mode registers don't need the "byte reg" constraint...
+        BuildAddrUses(src->AsIndir()->GetAddr(), candidates);
     }
+#ifdef TARGET_X86
+    else if (src->OperIs(GT_LONG))
+    {
+        BuildUse(src->AsOp()->GetOp(0));
+        BuildUse(src->AsOp()->GetOp(1));
+    }
+#endif
     else
     {
         assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
