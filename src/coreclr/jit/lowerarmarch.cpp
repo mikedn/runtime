@@ -1169,108 +1169,31 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     // TODO-MIKE-CQ: It seems that there's no support for generating vector immediate ORR/BIC.
 
-    const HWIntrinsic intrin(node);
+    GenTree* immOp = nullptr;
 
-    const bool hasImmediateOperand = HWIntrinsicInfo::HasImmediateOperand(intrin.id);
-
-    if ((intrin.category == HW_Category_ShiftLeftByImmediate) ||
-        (intrin.category == HW_Category_ShiftRightByImmediate) ||
-        ((intrin.category == HW_Category_SIMDByIndexedElement) && hasImmediateOperand))
+    if (HWIntrinsicInfo::HasImmediateOperand(node->GetIntrinsic()))
     {
-        switch (intrin.numOperands)
+        immOp = node->GetLastOp();
+        assert(varTypeIsIntegral(immOp->GetType()));
+
+        if (immOp->IsIntCon())
         {
-            case 4:
-                assert(varTypeIsIntegral(intrin.op4));
-                if (intrin.op4->IsCnsIntOrI())
-                {
-                    MakeSrcContained(node, intrin.op4);
-                }
-                break;
+            immOp->SetContained();
+        }
 
-            case 3:
-                assert(varTypeIsIntegral(intrin.op3));
-                if (intrin.op3->IsCnsIntOrI())
-                {
-                    MakeSrcContained(node, intrin.op3);
-                }
-                break;
+        if (node->GetIntrinsic() == NI_AdvSimd_Arm64_InsertSelectedScalar)
+        {
+            assert(node->GetOp(1)->IsIntCon());
+            assert(node->GetOp(3)->IsIntCon());
 
-            case 2:
-                assert(varTypeIsIntegral(intrin.op2));
-                if (intrin.op2->IsCnsIntOrI())
-                {
-                    MakeSrcContained(node, intrin.op2);
-                }
-                break;
-
-            default:
-                unreached();
+            node->GetOp(1)->SetContained();
         }
     }
-    else if (hasImmediateOperand || HWIntrinsicInfo::SupportsContainment(intrin.id))
+
+    if (HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()))
     {
-        switch (intrin.id)
+        switch (node->GetIntrinsic())
         {
-            case NI_AdvSimd_DuplicateSelectedScalarToVector64:
-            case NI_AdvSimd_DuplicateSelectedScalarToVector128:
-            case NI_AdvSimd_Extract:
-            case NI_AdvSimd_InsertScalar:
-            case NI_AdvSimd_LoadAndInsertScalar:
-            case NI_AdvSimd_Arm64_DuplicateSelectedScalarToVector128:
-                assert(hasImmediateOperand);
-                assert(varTypeIsIntegral(intrin.op2));
-                if (intrin.op2->IsCnsIntOrI())
-                {
-                    MakeSrcContained(node, intrin.op2);
-                }
-                break;
-
-            case NI_AdvSimd_ExtractVector64:
-            case NI_AdvSimd_ExtractVector128:
-            case NI_AdvSimd_StoreSelectedScalar:
-                assert(hasImmediateOperand);
-                assert(varTypeIsIntegral(intrin.op3));
-                if (intrin.op3->IsCnsIntOrI())
-                {
-                    MakeSrcContained(node, intrin.op3);
-                }
-                break;
-
-            case NI_AdvSimd_Insert:
-                assert(hasImmediateOperand);
-                assert(varTypeIsIntegral(intrin.op2));
-
-                if (intrin.op2->IsCnsIntOrI())
-                {
-                    MakeSrcContained(node, intrin.op2);
-
-                    if (intrin.op3->IsIntegralConst(0) || intrin.op3->IsDblConPositiveZero())
-                    {
-                        intrin.op3->SetContained();
-                    }
-                    else if ((intrin.op2->AsIntCon()->gtIconVal == 0) && intrin.op3->IsDblCon())
-                    {
-                        assert(varTypeIsFloating(intrin.baseType));
-
-                        const double dataValue = intrin.op3->AsDblCon()->GetValue();
-
-                        if (emitter::emitIns_valid_imm_for_fmov(dataValue))
-                        {
-                            MakeSrcContained(node, intrin.op3);
-                        }
-                    }
-                }
-                break;
-
-            case NI_AdvSimd_Arm64_InsertSelectedScalar:
-                assert(hasImmediateOperand);
-                assert(intrin.op2->IsCnsIntOrI());
-                assert(intrin.op4->IsCnsIntOrI());
-
-                MakeSrcContained(node, intrin.op2);
-                MakeSrcContained(node, intrin.op4);
-                break;
-
             case NI_Vector64_CreateScalar:
             case NI_Vector128_CreateScalar:
             case NI_Vector64_CreateScalarUnsafe:
@@ -1281,10 +1204,28 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
             case NI_AdvSimd_Arm64_DuplicateToVector128:
                 if (IsValidConstForMovImm(node))
                 {
-                    // Use node->gtOp1 as the above check may
-                    // have removed a cast node and changed op1
+                    node->GetOp(0)->SetContained();
+                }
+                break;
 
-                    MakeSrcContained(node, node->GetOp(0));
+            case NI_AdvSimd_Insert:
+                if (GenTreeIntCon* index = immOp->IsIntCon())
+                {
+                    GenTree* value = node->GetOp(2);
+
+                    if (value->IsIntegralConst(0) || value->IsDblConPositiveZero())
+                    {
+                        value->SetContained();
+                    }
+                    else if ((index->GetValue() == 0) && value->IsDblCon())
+                    {
+                        assert(varTypeIsFloating(node->GetSimdBaseType()));
+
+                        if (emitter::emitIns_valid_imm_for_fmov(value->AsDblCon()->GetValue()))
+                        {
+                            value->SetContained();
+                        }
+                    }
                 }
                 break;
 
