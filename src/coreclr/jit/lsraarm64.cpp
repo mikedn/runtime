@@ -679,7 +679,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             else
             {
                 BuildOperand(intrin.op2);
-                BuildOperandUses(intrin.op3, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
+                BuildUse(intrin.op3, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
             }
 
             if (intrin.op4 != nullptr)
@@ -694,7 +694,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             assert(!isRMW);
 
-            BuildOperandUses(intrin.op2, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
+            BuildUse(intrin.op2, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
 
             if (intrin.op3 != nullptr)
             {
