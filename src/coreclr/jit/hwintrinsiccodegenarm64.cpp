@@ -242,7 +242,10 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
     const bool isRMW               = node->isRMWHWIntrinsic(compiler);
     const bool hasImmediateOperand = HWIntrinsicInfo::HasImmediateOperand(intrin.id);
 
-    genConsumeHWIntrinsicOperands(node);
+    for (GenTreeHWIntrinsic::Use& use : node->Uses())
+    {
+        genConsumeRegs(use.GetNode());
+    }
 
     if (intrin.IsTableDriven())
     {

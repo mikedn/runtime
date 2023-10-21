@@ -945,9 +945,6 @@ protected:
     void ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
     INDEBUG(bool IsValidContainedLcl(GenTreeLclVarCommon* node);)
     void genConsumeRegs(GenTree* tree);
-#ifdef FEATURE_HW_INTRINSICS
-    void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
-#endif
     void genCodeForShift(GenTreeOp* shift);
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)
@@ -955,6 +952,9 @@ protected:
 #endif
 
 #ifdef TARGET_XARCH
+#ifdef FEATURE_HW_INTRINSICS
+    void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
+#endif
     void GenStoreIndRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy);
     void genCodeForBT(GenTreeOp* bt);
     void EpilogGSCookieCheck(bool tailCallEpilog);

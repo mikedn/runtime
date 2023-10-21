@@ -685,6 +685,14 @@ void CodeGen::genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
     genDefineTempLabel(switchTableEnd);
 }
 
+void CodeGen::genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* node)
+{
+    for (GenTreeHWIntrinsic::Use& use : node->Uses())
+    {
+        genConsumeRegs(use.GetNode());
+    }
+}
+
 void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
 {
     genConsumeHWIntrinsicOperands(node);

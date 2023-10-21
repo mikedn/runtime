@@ -1173,7 +1173,20 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
     if (HWIntrinsicInfo::HasImmediateOperand(node->GetIntrinsic()))
     {
-        immOp = node->GetLastOp();
+        // TODO-Mike-Review: What's the point of HasImmediateOperand if you need
+        // special casing to figure out which one is the imm operand?!?!
+        switch (node->GetIntrinsic())
+        {
+            case NI_AdvSimd_Insert:
+            case NI_AdvSimd_InsertScalar:
+            case NI_AdvSimd_LoadAndInsertScalar:
+                immOp = node->GetOp(1);
+                break;
+            default:
+                immOp = node->GetLastOp();
+                break;
+        }
+
         assert(varTypeIsIntegral(immOp->GetType()));
 
         if (immOp->IsIntCon())

@@ -1321,16 +1321,6 @@ void CodeGen::genConsumeRegs(GenTree* tree)
     assert(tree->OperIsLeaf());
 }
 
-#ifdef FEATURE_HW_INTRINSICS
-void CodeGen::genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* node)
-{
-    for (GenTreeHWIntrinsic::Use& use : node->Uses())
-    {
-        genConsumeRegs(use.GetNode());
-    }
-}
-#endif
-
 //------------------------------------------------------------------------
 // genPutArgStkFieldList: Generate code for a putArgStk whose source is a GT_FIELD_LIST
 //
