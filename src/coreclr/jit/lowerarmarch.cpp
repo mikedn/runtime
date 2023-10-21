@@ -859,6 +859,13 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     // We should have a bounds check inserted for any index outside the allowed range
     // but we need to generate some code anyways, and so we'll mask here for simplicity.
 
+    // TODO-MIKE-Cleanup: Ideally the "reg, imm" case should be handled by lowering it
+    // to the corresponding instruction while the "mem, imm" case should be handled by
+    // adjusting the memory offset as needed.
+    // We only really need to something special about the "local, non-const-index" case
+    // because the only way to get implement that is by taking the address of the local,
+    // which requires making the local address exposed.
+
     unsigned count = node->GetSimdSize() / varTypeSize(eltType);
     unsigned index = idx->AsIntCon()->GetUInt32Value() % count;
 
