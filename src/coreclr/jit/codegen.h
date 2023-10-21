@@ -9,14 +9,11 @@
 #include "regset.h"
 #include "treelifeupdater.h"
 
-class HWIntrinsicImmOpHelper;
-
 class CodeGen final : public CodeGenInterface
 {
     friend class emitter;
     friend class DisAssembler;
     friend class CodeGenLivenessUpdater;
-    friend class HWIntrinsicImmOpHelper;
 
     //  The following holds information about instr offsets in terms of generated code.
     struct IPmappingDsc
@@ -176,7 +173,6 @@ protected:
 public:
     void SpillRegCandidateLclVar(GenTreeLclVar* node);
 
-protected:
 #ifdef TARGET_X86
     void genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, regNumber callTarget = REG_NA)
     {
@@ -191,11 +187,7 @@ protected:
     void genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf);
 
     BasicBlock* genCreateTempLabel();
-
-private:
     void genLogLabel(BasicBlock* bb);
-
-protected:
     void genDefineTempLabel(BasicBlock* label);
     void genDefineInlineTempLabel(BasicBlock* label);
 

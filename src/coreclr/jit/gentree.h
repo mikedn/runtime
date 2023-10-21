@@ -869,9 +869,14 @@ public:
         return isContained() && IsIntCon() && !isUsedFromSpillTemp() ? AsIntCon() : nullptr;
     }
 
-    bool isContainedFltOrDblImmed() const
+    bool isContainedFltOrDblImmed()
     {
-        return isContained() && (OperGet() == GT_CNS_DBL);
+        return IsContainedDblCon();
+    }
+
+    GenTreeDblCon* IsContainedDblCon()
+    {
+        return isContained() && IsDblCon() ? AsDblCon() : nullptr;
     }
 
     bool isUsedFromSpillTemp() const

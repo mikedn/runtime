@@ -2041,6 +2041,8 @@ public:
 #endif
 };
 
+using Emitter = emitter;
+
 inline void emitter::instrDesc::checkSizes()
 {
 #ifdef DEBUG
