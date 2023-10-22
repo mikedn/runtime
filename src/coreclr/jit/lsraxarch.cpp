@@ -549,6 +549,76 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
     }
 }
 
+void LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP candidates)
+{
+    Interval* rmwInterval  = nullptr;
+    bool      rmwIsLastUse = false;
+
+    if ((rmwNode != nullptr) && isCandidateLclVar(rmwNode))
+    {
+        rmwInterval = getIntervalForLocalVarNode(rmwNode->AsLclVar());
+        // Note: we don't handle multi-reg vars here. It's not clear that there
+        // are any cases where we'd encounter a multi-reg var in an RMW context.
+        assert(!rmwNode->AsLclVar()->IsMultiReg());
+        rmwIsLastUse = rmwNode->AsLclVar()->IsLastUse(0);
+    }
+
+    auto BuildDelayFreeUse = [this, rmwInterval, rmwIsLastUse](GenTree* operand, regMaskTP candidates) {
+        RefPosition* use = BuildUse(operand, candidates);
+
+        if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
+        {
+            setDelayFree(use);
+        }
+    };
+
+    if (!node->isContained())
+    {
+        BuildDelayFreeUse(node, candidates);
+
+        return;
+    }
+
+#ifdef FEATURE_HW_INTRINSICS
+    if (GenTreeHWIntrinsic* hwIntrinsicNode = node->IsHWIntrinsic())
+    {
+        BuildDelayFreeUse(hwIntrinsicNode->GetOp(0), candidates);
+
+        return;
+    }
+#endif
+
+    if (GenTreeIndir* indir = node->IsIndir())
+    {
+        GenTree* addr = indir->GetAddr();
+
+        if (!addr->isContained())
+        {
+            // TODO-MIKE-Review: Using "candidates" here and below is likely bogus.
+            // The caller usually cares only about the case of a non contained
+            // operand, it doesn't know or care about whatever registers an address
+            // mode needs. Some callers pass candidates such as XMM0 or "byte regs"
+            // on x86...
+
+            BuildDelayFreeUse(addr, candidates);
+        }
+        else if (GenTreeAddrMode* const addrMode = addr->IsAddrMode())
+        {
+            if (GenTree* base = addrMode->GetBase())
+            {
+                BuildDelayFreeUse(base, candidates);
+            }
+
+            if (GenTree* index = addrMode->GetIndex())
+            {
+                BuildDelayFreeUse(index, candidates);
+            }
+        }
+
+        return;
+    }
+}
+
 void LinearScan::BuildShiftRotate(GenTreeOp* tree)
 {
     GenTree*  shiftBy       = tree->GetOp(1);

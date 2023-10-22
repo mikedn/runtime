@@ -1630,9 +1630,9 @@ private:
 #ifdef TARGET_XARCH
     INDEBUG(bool isRMWRegOper(GenTreeOp* tree);)
     void BuildRMWUses(GenTreeOp* node);
+    void BuildDelayFreeUses(GenTree* node, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
 #endif
     void BuildOperandUses(GenTree* node, regMaskTP candidates = RBM_NONE);
-    void BuildDelayFreeUses(GenTree* node, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
     void BuildAddrUses(GenTree* addr, regMaskTP candidates = RBM_NONE);
     unsigned BuildAddrModeUses(GenTreeAddrMode* addrMode, regMaskTP candidates = RBM_NONE);
 
@@ -1679,6 +1679,7 @@ private:
 #ifdef FEATURE_HW_INTRINSICS
     void BuildHWIntrinsic(GenTreeHWIntrinsic* node);
 #ifdef TARGET_ARM64
+    void BuildDelayFreeUse(GenTree* op, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
     void BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node);
 #endif
 #endif

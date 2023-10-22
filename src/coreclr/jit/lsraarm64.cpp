@@ -625,8 +625,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
     // Determine whether this is an RMW operation where op2+ must be marked delayFree so that it
     // is not allocated the same register as the target.
-    const bool isRMW  = node->isRMWHWIntrinsic(compiler);
-    auto BuildOperand = [this](GenTree* op) { BuildOperandUses(op); };
+    const bool isRMW = node->isRMWHWIntrinsic(compiler);
 
     if (intrin.op1 != nullptr)
     {
@@ -660,9 +659,9 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             tgtPrefUse = BuildUse(intrin.op1);
         }
-        else
+        else if (!intrin.op1->isContained())
         {
-            BuildOperand(intrin.op1);
+            BuildUse(intrin.op1);
         }
     }
 
@@ -677,12 +676,12 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             if (isRMW)
             {
-                BuildDelayFreeUses(intrin.op2, nullptr);
-                BuildDelayFreeUses(intrin.op3, nullptr, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
+                BuildDelayFreeUse(intrin.op2, nullptr);
+                BuildDelayFreeUse(intrin.op3, nullptr, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
             }
             else
             {
-                BuildOperand(intrin.op2);
+                BuildUse(intrin.op2);
                 BuildUse(intrin.op3, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
             }
 
@@ -691,7 +690,10 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(hasImmediateOperand);
                 assert(varTypeIsIntegral(intrin.op4->GetType()));
 
-                BuildOperand(intrin.op4);
+                if (!intrin.op4->IsContainedIntCon())
+                {
+                    BuildUse(intrin.op4);
+                }
             }
         }
         else
@@ -705,7 +707,10 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(hasImmediateOperand);
                 assert(varTypeIsIntegral(intrin.op3->GetType()));
 
-                BuildOperand(intrin.op3);
+                if (!intrin.op3->IsContainedIntCon())
+                {
+                    BuildUse(intrin.op3);
+                }
             }
         }
     }
@@ -721,7 +726,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             if (isRMW)
             {
-                BuildDelayFreeUses(intrin.op2, intrin.op1);
+                BuildDelayFreeUse(intrin.op2, intrin.op1);
             }
             else
             {
@@ -735,7 +740,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             {
                 if (isRMW)
                 {
-                    BuildDelayFreeUses(intrin.op3, intrin.op1);
+                    BuildDelayFreeUse(intrin.op3, intrin.op1);
                 }
                 else
                 {
@@ -749,7 +754,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 {
                     if (isRMW)
                     {
-                        BuildDelayFreeUses(intrin.op4, intrin.op1);
+                        BuildDelayFreeUse(intrin.op4, intrin.op1);
                     }
                     else
                     {
@@ -765,6 +770,28 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
     if (node->IsValue())
     {
         BuildDef(node);
+    }
+}
+
+void LinearScan::BuildDelayFreeUse(GenTree* op, GenTree* rmwNode, regMaskTP candidates)
+{
+    assert(!op->isContained());
+
+    Interval* rmwInterval  = nullptr;
+    bool      rmwIsLastUse = false;
+
+    if ((rmwNode != nullptr) && isCandidateLclVar(rmwNode))
+    {
+        rmwInterval = getIntervalForLocalVarNode(rmwNode->AsLclVar());
+        assert(!rmwNode->AsLclVar()->IsMultiReg());
+        rmwIsLastUse = rmwNode->AsLclVar()->IsLastUse(0);
+    }
+
+    RefPosition* use = BuildUse(op, candidates);
+
+    if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
+    {
+        setDelayFree(use);
     }
 }
 
