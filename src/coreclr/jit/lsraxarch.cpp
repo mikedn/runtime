@@ -416,35 +416,10 @@ void LinearScan::BuildOperandUses(GenTree* node, regMaskTP candidates)
     {
         BuildUse(node, candidates);
     }
-#ifndef TARGET_64BIT
-    else if (node->OperIs(GT_LONG))
-    {
-        BuildUse(node->AsOp()->GetOp(0));
-        BuildUse(node->AsOp()->GetOp(1));
-    }
-#endif
-    else if (node->OperIsIndir())
+    else if (node->OperIs(GT_IND))
     {
         BuildAddrUses(node->AsIndir()->GetAddr(), candidates);
     }
-    else if (node->OperIs(GT_LEA))
-    {
-        BuildAddrUses(node, candidates);
-    }
-#ifdef FEATURE_HW_INTRINSICS
-    else if (GenTreeHWIntrinsic* hwi = node->IsHWIntrinsic())
-    {
-        if (hwi->OperIsMemoryLoad())
-        {
-            BuildAddrUses(hwi->GetOp(0));
-        }
-        // TODO-MIKE-Review: What is this for?
-        else if (hwi->GetNumOps() >= 1)
-        {
-            BuildUse(hwi->GetOp(0), candidates);
-        }
-    }
-#endif // FEATURE_HW_INTRINSICS
 }
 
 #ifdef DEBUG
@@ -1593,7 +1568,34 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         bool      isRMW     = node->isRMWHWIntrinsic(compiler);
         bool      buildUses = true;
 
-        auto BuildOperand = [this](GenTree* op) { BuildOperandUses(op); };
+        auto BuildOperand = [this](GenTree* node) {
+            if (!node->isContained())
+            {
+                BuildUse(node);
+            }
+            else if (node->OperIs(GT_IND))
+            {
+                BuildAddrUses(node->AsIndir()->GetAddr());
+            }
+            else if (node->OperIs(GT_LEA))
+            {
+                BuildAddrUses(node);
+            }
+#ifdef FEATURE_HW_INTRINSICS
+            else if (GenTreeHWIntrinsic* hwi = node->IsHWIntrinsic())
+            {
+                if (hwi->OperIsMemoryLoad())
+                {
+                    BuildAddrUses(hwi->GetOp(0));
+                }
+                // TODO-MIKE-Review: What is this for?
+                else if (hwi->GetNumOps() >= 1)
+                {
+                    BuildUse(hwi->GetOp(0));
+                }
+            }
+#endif // FEATURE_HW_INTRINSICS
+        };
 
         // Create internal temps, and handle any other special requirements.
         // Note that the default case for building uses will handle the RMW flag,
