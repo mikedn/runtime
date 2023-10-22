@@ -1628,7 +1628,7 @@ private:
     void setDelayFree(RefPosition* use);
     void BuildKills(GenTree* tree, regMaskTP killMask);
 #ifdef TARGET_XARCH
-    void BuildOperandUses(GenTree* node, regMaskTP candidates = RBM_NONE);
+    void BuildOperandUses(GenTree* node X86_ARG(regMaskTP candidates = RBM_NONE));
     INDEBUG(bool isRMWRegOper(GenTreeOp* tree);)
     void BuildRMWUses(GenTreeOp* node);
     void BuildDelayFreeUses(GenTree* node, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);

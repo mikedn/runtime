@@ -410,15 +410,15 @@ void LinearScan::BuildInterlocked(GenTreeOp* interlocked)
     BuildDef(interlocked);
 }
 
-void LinearScan::BuildOperandUses(GenTree* node, regMaskTP candidates)
+void LinearScan::BuildOperandUses(GenTree* node X86_ARG(regMaskTP candidates))
 {
     if (!node->isContained())
     {
-        BuildUse(node, candidates);
+        BuildUse(node X86_ARG(candidates));
     }
     else if (node->OperIs(GT_IND))
     {
-        BuildAddrUses(node->AsIndir()->GetAddr(), candidates);
+        BuildAddrUses(node->AsIndir()->GetAddr() X86_ARG(candidates));
     }
 }
 
@@ -468,12 +468,13 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
 {
     assert(isRMWRegOper(node));
 
-    GenTree*  op1           = node->GetOp(0);
-    GenTree*  op2           = node->GetOp(1);
+    GenTree* op1 = node->GetOp(0);
+    GenTree* op2 = node->GetOp(1);
+
+#ifdef TARGET_X86
     regMaskTP op1Candidates = RBM_NONE;
     regMaskTP op2Candidates = RBM_NONE;
 
-#ifdef TARGET_X86
     if (varTypeIsByte(node->GetType()))
     {
         regMaskTP byteCandidates = allByteRegs();
@@ -535,29 +536,29 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
     if (prefOp1)
     {
         assert(!op1->isContained());
-        tgtPrefUse = BuildUse(op1, op1Candidates);
+        tgtPrefUse = BuildUse(op1 X86_ARG(op1Candidates));
     }
     else if (delayUseOperand == op1)
     {
-        BuildDelayFreeUses(op1, op2, op1Candidates);
+        BuildDelayFreeUses(op1, op2 X86_ARG(op1Candidates));
     }
     else
     {
-        BuildOperandUses(op1, op1Candidates);
+        BuildOperandUses(op1 X86_ARG(op1Candidates));
     }
 
     if (prefOp2)
     {
         assert(!op2->isContained());
-        tgtPrefUse2 = BuildUse(op2, op2Candidates);
+        tgtPrefUse2 = BuildUse(op2 X86_ARG(op2Candidates));
     }
     else if (delayUseOperand == op2)
     {
-        BuildDelayFreeUses(op2, op1, op2Candidates);
+        BuildDelayFreeUses(op2, op1 X86_ARG(op2Candidates));
     }
     else
     {
-        BuildOperandUses(op2, op2Candidates);
+        BuildOperandUses(op2 X86_ARG(op2Candidates));
     }
 }
 
@@ -1520,8 +1521,8 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         SetContainsAVXFlags(node->GetSimdSize());
     }
 
-    unsigned  numOps        = node->GetNumOps();
-    regMaskTP dstCandidates = RBM_NONE;
+    unsigned numOps = node->GetNumOps();
+    X86_ONLY(regMaskTP dstCandidates = RBM_NONE;)
 
     if (numOps != 0)
     {
@@ -1903,7 +1904,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
     if (node->IsValue())
     {
-        RefPosition* def = BuildDef(node, dstCandidates);
+        RefPosition* def = BuildDef(node X86_ARG(dstCandidates));
 
         if (node->IsHWIntrinsicZero())
         {
@@ -1921,10 +1922,11 @@ void LinearScan::BuildBoundsChk(GenTreeBoundsChk* node)
 
 void LinearScan::BuildCast(GenTreeCast* cast)
 {
-    GenTree*  src        = cast->GetOp(0);
-    regMaskTP candidates = RBM_NONE;
+    GenTree* src = cast->GetOp(0);
 
 #ifdef TARGET_X86
+    regMaskTP candidates = RBM_NONE;
+
     if (varTypeIsByte(cast->GetType()))
     {
         candidates = allByteRegs();
@@ -1951,12 +1953,12 @@ void LinearScan::BuildCast(GenTreeCast* cast)
 
     if (!src->isContained())
     {
-        BuildUse(src, candidates);
+        BuildUse(src X86_ARG(candidates));
     }
     else if (src->OperIs(GT_IND))
     {
         // TODO-MIKE-Review: Address mode registers don't need the "byte reg" constraint...
-        BuildAddrUses(src->AsIndir()->GetAddr(), candidates);
+        BuildAddrUses(src->AsIndir()->GetAddr() X86_ARG(candidates));
     }
 #ifdef TARGET_X86
     else if (src->OperIs(GT_LONG))
@@ -1971,7 +1973,9 @@ void LinearScan::BuildCast(GenTreeCast* cast)
     }
 
     BuildInternalUses();
-    BuildDef(cast, candidates);
+    // TODO-MIKE-Review: Why is the def restricted to byte regs? A cast to UBYTE
+    // is "movzx ebx, al" so only the source needs to be in a byte register.
+    BuildDef(cast X86_ARG(candidates));
 }
 
 void LinearScan::BuildLoadInd(GenTreeIndir* load)
@@ -2159,13 +2163,14 @@ void LinearScan::BuildCmp(GenTreeOp* cmp)
 {
     assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP));
 
+    GenTree* op1 = cmp->GetOp(0);
+    GenTree* op2 = cmp->GetOp(1);
+
+#ifdef TARGET_X86
     regMaskTP dstCandidates = RBM_NONE;
     regMaskTP op1Candidates = RBM_NONE;
     regMaskTP op2Candidates = RBM_NONE;
-    GenTree*  op1           = cmp->GetOp(0);
-    GenTree*  op2           = cmp->GetOp(1);
 
-#ifdef TARGET_X86
     // If the compare is not used by a jump then we need to generate a SETcc instruction,
     // which requires the dst be a byte register.
     if (!cmp->TypeIs(TYP_VOID))
@@ -2209,12 +2214,12 @@ void LinearScan::BuildCmp(GenTreeOp* cmp)
     }
 #endif // TARGET_X86
 
-    BuildOperandUses(op1, op1Candidates);
-    BuildOperandUses(op2, op2Candidates);
+    BuildOperandUses(op1 X86_ARG(op1Candidates));
+    BuildOperandUses(op2 X86_ARG(op2Candidates));
 
     if (!cmp->TypeIs(TYP_VOID))
     {
-        BuildDef(cmp, dstCandidates);
+        BuildDef(cmp X86_ARG(dstCandidates));
     }
 }
 
