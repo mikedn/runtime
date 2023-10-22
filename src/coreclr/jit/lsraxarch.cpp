@@ -1357,6 +1357,9 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
+#ifdef WINDOWS_AMD64_ABI
+    assert(putArgStk->GetSlotCount() == 1);
+#else
     if ((src->IsIntegralConst(0) && (putArgStk->GetSlotCount() > 1)))
     {
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
@@ -1382,6 +1385,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 
         return;
     }
+#endif // !WINDOWS_AMD64_ABI
 
     BuildOperandUses(src);
 }
