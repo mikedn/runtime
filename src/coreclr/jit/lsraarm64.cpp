@@ -522,7 +522,6 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
     if ((intrin.id == NI_Vector64_GetElement) || (intrin.id == NI_Vector128_GetElement))
     {
         BuildHWIntrinsicGetElement(node);
-        BuildDef(node);
 
         return;
     }
@@ -785,11 +784,20 @@ void LinearScan::BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
 
     if (!vec->isContained())
     {
-        BuildUse(vec);
+        RefPosition* use = BuildUse(vec);
+
+        if (varTypeIsFloating(node->GetType()) && index->IsIntegralConst(0))
+        {
+            tgtPrefUse = use;
+        }
     }
     else if (!vec->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         BuildAddrUses(vec->AsIndir()->GetAddr());
+    }
+    else if (!index->IsIntCon())
+    {
+        BuildInternalIntDef(node);
     }
 
     if (!index->IsContainedIntCon())
@@ -797,6 +805,7 @@ void LinearScan::BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
         BuildUse(index);
     }
 
+    BuildInternalUses();
     BuildDef(node);
 }
 #endif
