@@ -2101,9 +2101,6 @@ void LinearScan::BuildMul(GenTreeOp* mul)
 
     if (mul->gtOverflow() && mul->IsUnsigned())
     {
-        // We need to use the "MUL reg/mem" form to get an extended 64/128 bit
-        // result and check the upper half for non-zero to detect overflow.
-
         BuildKills(mul, RBM_RAX | RBM_RDX);
         BuildDef(mul, RBM_RAX);
     }

@@ -657,52 +657,48 @@ void CodeGen::genCodeForIncSaturate(GenTree* tree)
     DefReg(tree);
 }
 
-void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
+void CodeGen::GenMulLong(GenTreeOp* mul)
 {
-    assert(!treeNode->gtOverflowEx());
+#ifdef TARGET_X86
+    assert(mul->OperIs(GT_MULHI, GT_MUL_LONG));
+#else
+    assert(mul->OperIs(GT_MULHI));
+#endif
+    assert(!mul->gtOverflowEx());
 
-    regNumber targetReg  = treeNode->GetRegNum();
-    var_types targetType = treeNode->TypeGet();
-    emitAttr  size       = emitTypeSize(treeNode);
-    GenTree*  op1        = treeNode->AsOp()->gtOp1;
-    GenTree*  op2        = treeNode->AsOp()->gtOp2;
+    emitAttr  size   = emitTypeSize(mul->GetType());
+    regNumber dstReg = mul->GetRegNum();
+    GenTree*  op1    = mul->GetOp(0);
+    GenTree*  op2    = mul->GetOp(1);
 
     genConsumeRegs(op1);
     genConsumeRegs(op2);
 
-    // to get the high bits of the multiply, we are constrained to using the
-    // 1-op form:  RDX:RAX = RAX * rm
-    // The 3-op form (Rx=Ry*Rz) does not support it.
-
     GenTree* regOp = op1;
     GenTree* rmOp  = op2;
 
-    // Set rmOp to the memory operand (if any)
     if (op1->isUsedFromMemory() || (op2->isUsedFromReg() && (op2->GetRegNum() == REG_RAX)))
     {
         std::swap(regOp, rmOp);
     }
 
-    // Setup targetReg when neither of the source operands was a matching register
-    inst_Mov(targetType, REG_RAX, regOp->GetRegNum(), /* canSkip */ true);
+    GetEmitter()->emitIns_Mov(INS_mov, size, REG_RAX, regOp->GetRegNum(), /* canSkip */ true);
+    emitInsUnary(mul->IsUnsigned() ? INS_mulEAX : INS_imulEAX, size, rmOp);
 
-    emitInsUnary(treeNode->IsUnsigned() ? INS_mulEAX : INS_imulEAX, size, rmOp);
-
-    // Move the result to the desired register, if necessary
-    if (treeNode->OperGet() == GT_MULHI)
+    if (mul->OperIs(GT_MULHI))
     {
-        inst_Mov(targetType, targetReg, REG_RDX, /* canSkip */ true);
+        GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, REG_RDX, /* canSkip */ true);
     }
 
 #ifdef TARGET_X86
-    if (treeNode->OperIs(GT_MUL_LONG))
+    if (mul->OperIs(GT_MUL_LONG))
     {
-        DefLongRegs(treeNode);
+        DefLongRegs(mul);
         return;
     }
 #endif
 
-    DefReg(treeNode);
+    DefReg(mul);
 }
 
 #ifdef TARGET_X86
@@ -962,55 +958,12 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
 #else
         assert(node->OperIs(GT_ADD, GT_SUB, GT_ADD_HI, GT_SUB_HI));
 #endif
+        noway_assert(!varTypeIsSmall(node->GetType()));
 
-        genCheckOverflow(node);
+        genJumpToThrowHlpBlk(node->IsUnsigned() ? EJ_jb : EJ_jo, ThrowHelperKind::Overflow);
     }
 
     DefReg(node);
-}
-
-void CodeGen::genCheckOverflow(GenTree* tree)
-{
-    // Overflow-check should be asked for this tree
-    noway_assert(tree->gtOverflow());
-
-    const var_types type = tree->TypeGet();
-
-    // Overflow checks can only occur for the non-small types: (i.e. TYP_INT,TYP_LONG)
-    noway_assert(!varTypeIsSmall(type));
-
-    emitJumpKind jumpKind;
-
-#ifdef TARGET_ARM64
-    if (tree->OperGet() == GT_MUL)
-    {
-        jumpKind = EJ_ne;
-    }
-    else
-#endif
-    {
-        bool isUnsignedOverflow = ((tree->gtFlags & GTF_UNSIGNED) != 0);
-
-#if defined(TARGET_XARCH)
-
-        jumpKind = isUnsignedOverflow ? EJ_jb : EJ_jo;
-
-#elif defined(TARGET_ARMARCH)
-
-        jumpKind = isUnsignedOverflow ? EJ_lo : EJ_vs;
-
-        if (jumpKind == EJ_lo)
-        {
-            if (tree->OperGet() != GT_SUB)
-            {
-                jumpKind = EJ_hs;
-            }
-        }
-
-#endif // defined(TARGET_ARMARCH)
-    }
-
-    genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);
 }
 
 void CodeGen::GenFloatAbs(GenTreeIntrinsic* node)
@@ -1182,7 +1135,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
 
     if (checkOverflow)
     {
-        genCheckOverflow(mul);
+        genJumpToThrowHlpBlk(mul->IsUnsigned() ? EJ_jb : EJ_jo, ThrowHelperKind::Overflow);
     }
 
     DefReg(mul);
@@ -1553,7 +1506,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 #ifdef TARGET_X86
         case GT_MUL_LONG:
 #endif
-            genCodeForMulHi(treeNode->AsOp());
+            GenMulLong(treeNode->AsOp());
             break;
 
         case GT_INTRINSIC:

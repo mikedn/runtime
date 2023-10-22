@@ -1600,36 +1600,32 @@ void CodeGen::genCodeForIncSaturate(GenTree* tree)
     DefReg(tree);
 }
 
-void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
+void CodeGen::GenMulLong(GenTreeOp* mul)
 {
-    assert(!treeNode->gtOverflowEx() && varTypeIsIntegral(treeNode->GetType()));
+    assert(mul->OperIs(GT_MULHI) && !mul->gtOverflowEx() && varTypeIsIntegral(mul->GetType()));
 
-    var_types targetType = treeNode->TypeGet();
-    emitter*  emit       = GetEmitter();
-    emitAttr  attr       = emitActualTypeSize(treeNode);
-    unsigned  isUnsigned = (treeNode->gtFlags & GTF_UNSIGNED);
+    emitAttr  size    = emitActualTypeSize(mul->GetType());
+    regNumber srcReg1 = UseReg(mul->GetOp(0));
+    regNumber srcReg2 = UseReg(mul->GetOp(1));
+    regNumber dstReg  = mul->GetRegNum();
 
-    regNumber srcReg1 = UseReg(treeNode->GetOp(0));
-    regNumber srcReg2 = UseReg(treeNode->GetOp(1));
-    regNumber dstReg  = treeNode->GetRegNum();
-
-    if (EA_SIZE(attr) == EA_8BYTE)
+    if (EA_SIZE(size) == EA_8BYTE)
     {
-        instruction ins = isUnsigned ? INS_umulh : INS_smulh;
+        instruction ins = mul->IsUnsigned() ? INS_umulh : INS_smulh;
 
-        emit->emitIns_R_R_R(ins, attr, dstReg, srcReg1, srcReg2);
+        GetEmitter()->emitIns_R_R_R(ins, size, dstReg, srcReg1, srcReg2);
     }
     else
     {
-        assert(EA_SIZE(attr) == EA_4BYTE);
+        assert(EA_SIZE(size) == EA_4BYTE);
 
-        instruction ins = isUnsigned ? INS_umull : INS_smull;
+        instruction ins = mul->IsUnsigned() ? INS_umull : INS_smull;
 
-        emit->emitIns_R_R_R(ins, EA_4BYTE, dstReg, srcReg1, srcReg2);
-        emit->emitIns_R_R_I(isUnsigned ? INS_lsr : INS_asr, EA_8BYTE, dstReg, dstReg, 32);
+        GetEmitter()->emitIns_R_R_R(ins, EA_4BYTE, dstReg, srcReg1, srcReg2);
+        GetEmitter()->emitIns_R_R_I(mul->IsUnsigned() ? INS_lsr : INS_asr, EA_8BYTE, dstReg, dstReg, 32);
     }
 
-    DefReg(treeNode);
+    DefReg(mul);
 }
 
 void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
@@ -8573,45 +8569,28 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
     return dst->GetRegNum();
 }
 
-void CodeGen::genCheckOverflow(GenTree* tree)
+void CodeGen::genCheckOverflow(GenTree* node)
 {
-    // Overflow-check should be asked for this tree
-    noway_assert(tree->gtOverflow());
-
-    const var_types type = tree->TypeGet();
-
-    // Overflow checks can only occur for the non-small types: (i.e. TYP_INT,TYP_LONG)
-    noway_assert(!varTypeIsSmall(type));
+    assert(node->gtOverflow());
+    assert(!varTypeIsSmall(node->GetType()));
 
     emitJumpKind jumpKind;
 
-#ifdef TARGET_ARM64
-    if (tree->OperGet() == GT_MUL)
+    if (node->OperIs(GT_MUL))
     {
         jumpKind = EJ_ne;
     }
-    else
-#endif
+    else if (!node->IsUnsigned())
     {
-        bool isUnsignedOverflow = ((tree->gtFlags & GTF_UNSIGNED) != 0);
-
-#if defined(TARGET_XARCH)
-
-        jumpKind = isUnsignedOverflow ? EJ_jb : EJ_jo;
-
-#elif defined(TARGET_ARMARCH)
-
-        jumpKind = isUnsignedOverflow ? EJ_lo : EJ_vs;
-
-        if (jumpKind == EJ_lo)
-        {
-            if (tree->OperGet() != GT_SUB)
-            {
-                jumpKind = EJ_hs;
-            }
-        }
-
-#endif // defined(TARGET_ARMARCH)
+        jumpKind = EJ_vs;
+    }
+    else if (node->OperIs(GT_SUB))
+    {
+        jumpKind = EJ_lo;
+    }
+    else
+    {
+        jumpKind = EJ_hs;
     }
 
     genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);

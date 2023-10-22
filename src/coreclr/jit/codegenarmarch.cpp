@@ -270,7 +270,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_MULHI:
-            genCodeForMulHi(treeNode->AsOp());
+            GenMulLong(treeNode->AsOp());
             break;
 #endif
 

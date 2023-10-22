@@ -199,7 +199,7 @@ public:
 
     void genJumpToThrowHlpBlk(emitJumpKind jumpKind, ThrowHelperKind codeKind, BasicBlock* failBlk = nullptr);
 
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+#ifdef TARGET_ARM64
     void genCheckOverflow(GenTree* tree);
 #endif
 
@@ -716,9 +716,9 @@ protected:
     void genCodeForDivMod(GenTreeOp* treeNode);
 #endif
 
-    void GenMul(GenTreeOp* treeNode);
+    void GenMul(GenTreeOp* mul);
+    void GenMulLong(GenTreeOp* mul);
     void genCodeForIncSaturate(GenTree* treeNode);
-    void genCodeForMulHi(GenTreeOp* treeNode);
     void genLeaInstruction(GenTreeAddrMode* lea);
 
 #ifdef TARGET_ARMARCH
