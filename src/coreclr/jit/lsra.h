@@ -1678,6 +1678,9 @@ private:
 #endif
 #ifdef FEATURE_HW_INTRINSICS
     void BuildHWIntrinsic(GenTreeHWIntrinsic* node);
+#ifdef TARGET_ARM64
+    void BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node);
+#endif
 #endif
 
     bool supportsSpecialPutArg();

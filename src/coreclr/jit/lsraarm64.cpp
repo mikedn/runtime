@@ -519,6 +519,14 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     const HWIntrinsic intrin(node);
 
+    if ((intrin.id == NI_Vector64_GetElement) || (intrin.id == NI_Vector128_GetElement))
+    {
+        BuildHWIntrinsicGetElement(node);
+        BuildDef(node);
+
+        return;
+    }
+
     const bool hasImmediateOperand = HWIntrinsicInfo::HasImmediateOperand(intrin.id);
 
     if (hasImmediateOperand && !HWIntrinsicInfo::NoJmpTableImm(intrin.id))
@@ -617,7 +625,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
     // Determine whether this is an RMW operation where op2+ must be marked delayFree so that it
     // is not allocated the same register as the target.
-    const bool isRMW = node->isRMWHWIntrinsic(compiler);
+    const bool isRMW  = node->isRMWHWIntrinsic(compiler);
     auto BuildOperand = [this](GenTree* op) { BuildOperandUses(op); };
 
     if (intrin.op1 != nullptr)
@@ -632,10 +640,6 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         else if (intrin.id == NI_AdvSimd_Arm64_DuplicateToVector64)
         {
             simdRegToSimdRegMove = intrin.op1->TypeIs(TYP_DOUBLE);
-        }
-        else if ((intrin.id == NI_Vector64_GetElement) || (intrin.id == NI_Vector128_GetElement))
-        {
-            simdRegToSimdRegMove = varTypeIsFloating(node->GetType()) && intrin.op2->IsIntegralConst(0);
         }
 
         bool tgtPrefOp1 = false;
@@ -713,16 +717,6 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
         assert(intrin.op1 != nullptr);
 
-        if ((intrin.id == NI_Vector64_GetElement) || (intrin.id == NI_Vector128_GetElement))
-        {
-            assert(intrin.op2->IsIntCon() || intrin.op1->isContained());
-
-            if (!intrin.op2->IsIntCon() && intrin.op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-            {
-                BuildInternalIntDef(node);
-            }
-        }
-
         if (isRMW)
         {
             BuildDelayFreeUses(intrin.op2, intrin.op1);
@@ -763,6 +757,30 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
     {
         BuildDef(node);
     }
+}
+
+void LinearScan::BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
+{
+    assert((node->GetIntrinsic() == NI_Vector64_GetElement) || (node->GetIntrinsic() == NI_Vector128_GetElement));
+
+    GenTree* vec   = node->GetOp(0);
+    GenTree* index = node->GetOp(1);
+
+    if (!vec->isContained())
+    {
+        BuildUse(vec);
+    }
+    else if (!vec->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        BuildAddrUses(vec->AsIndir()->GetAddr());
+    }
+
+    if (!index->IsContainedIntCon())
+    {
+        BuildUse(index);
+    }
+
+    BuildDef(node);
 }
 #endif
 
