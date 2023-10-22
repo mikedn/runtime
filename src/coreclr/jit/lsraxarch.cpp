@@ -2089,14 +2089,13 @@ void LinearScan::BuildMul(GenTreeOp* mul)
     GenTree* op1 = mul->GetOp(0);
     GenTree* op2 = mul->GetOp(1);
 
-    if (!op1->IsContainedIntCon() && !op2->IsContainedIntCon())
+    if (op2->IsContainedIntCon())
     {
-        BuildRMWUses(mul);
+        BuildOperandUses(op1);
     }
     else
     {
-        BuildOperandUses(op1);
-        BuildOperandUses(op2);
+        BuildRMWUses(mul);
     }
 
     if (mul->gtOverflow() && mul->IsUnsigned())

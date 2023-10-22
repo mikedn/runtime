@@ -1060,48 +1060,37 @@ void CodeGen::GenMul(GenTreeOp* mul)
 {
     assert(mul->OperIs(GT_MUL) && varTypeIsIntOrI(mul->GetType()));
 
-    emitAttr       size          = emitTypeSize(mul->GetType());
-    bool           checkOverflow = mul->gtOverflowEx();
-    regNumber      dstReg        = mul->GetRegNum();
-    GenTree*       op1           = mul->GetOp(0);
-    GenTree*       op2           = mul->GetOp(1);
-    GenTree*       rmOp          = op1;
-    GenTreeIntCon* immOp         = nullptr;
-
-    if (op2->IsContainedIntCon())
-    {
-        immOp = op2->AsIntCon();
-    }
-    else if (op1->IsContainedIntCon())
-    {
-        immOp = op1->AsIntCon();
-        rmOp  = op2;
-    }
+    emitAttr  size          = emitTypeSize(mul->GetType());
+    bool      checkOverflow = mul->gtOverflowEx();
+    regNumber dstReg        = mul->GetRegNum();
+    GenTree*  op1           = mul->GetOp(0);
+    GenTree*  op2           = mul->GetOp(1);
 
     genConsumeRegs(op1);
-    genConsumeRegs(op2);
 
-    if (immOp != nullptr)
+    if (GenTreeIntCon* immOp = op2->IsContainedIntCon())
     {
         ssize_t imm = immOp->GetValue();
 
-        if (!checkOverflow && rmOp->isUsedFromReg() && ((imm == 3) || (imm == 5) || (imm == 9)))
+        if (!checkOverflow && op1->isUsedFromReg() && ((imm == 3) || (imm == 5) || (imm == 9)))
         {
             unsigned scale = static_cast<unsigned>(imm - 1);
-            GetEmitter()->emitIns_R_ARX(INS_lea, size, dstReg, rmOp->GetRegNum(), rmOp->GetRegNum(), scale, 0);
+            GetEmitter()->emitIns_R_ARX(INS_lea, size, dstReg, op1->GetRegNum(), op1->GetRegNum(), scale, 0);
         }
-        else if (!checkOverflow && rmOp->isUsedFromReg() && (imm != 0) && (imm == genFindLowestBit(imm)))
+        else if (!checkOverflow && op1->isUsedFromReg() && (imm != 0) && (imm == genFindLowestBit(imm)))
         {
-            GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, rmOp->GetRegNum(), /* canSkip */ true);
+            GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, op1->GetRegNum(), /* canSkip */ true);
             inst_RV_SH(INS_shl, size, dstReg, genLog2(static_cast<uint64_t>(static_cast<size_t>(imm))));
         }
         else
         {
-            emitInsBinary(GetEmitter()->inst3opImulForReg(dstReg), size, rmOp, immOp);
+            emitInsBinary(GetEmitter()->inst3opImulForReg(dstReg), size, op1, op2);
         }
     }
     else
     {
+        genConsumeRegs(op2);
+
         instruction ins       = INS_imul;
         regNumber   mulDstReg = dstReg;
         GenTree*    regOp     = op1;

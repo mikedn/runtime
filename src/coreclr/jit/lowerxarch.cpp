@@ -3431,33 +3431,22 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
     {
         hasImplicitOperand = true;
     }
-    else
+    else if (IsContainableImmed(node, op2))
     {
-        if (IsContainableImmed(node, op2))
+        immOp = op2->AsIntCon();
+        other = op1;
+
+        immOp->SetContained();
+
+        if (!node->gtOverflow() && (immOp->GetValue() == 3 || immOp->GetValue() == 5 || immOp->GetValue() == 9))
         {
-            immOp = op2->AsIntCon();
-            other = op1;
+            // We use LEA so the other op has to be in a register.
+            return;
         }
-        else if (IsContainableImmed(node, op1))
+
+        if (IsContainableMemoryOp(other))
         {
-            immOp = op1->AsIntCon();
-            other = op2;
-        }
-
-        if (immOp != nullptr)
-        {
-            immOp->SetContained();
-
-            if (!node->gtOverflow() && (immOp->GetValue() == 3 || immOp->GetValue() == 5 || immOp->GetValue() == 9))
-            {
-                // We use LEA so the other op has to be in a register.
-                return;
-            }
-
-            if (IsContainableMemoryOp(other))
-            {
-                memOp = other;
-            }
+            memOp = other;
         }
     }
 
@@ -3518,8 +3507,8 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
     {
         assert(other != nullptr);
 
-        isSafeToContainOp1 = ((other == op1) && isSafeToContainOp1 && IsSafeToContainMem(node, op1));
-        isSafeToContainOp2 = ((other == op2) && isSafeToContainOp2 && IsSafeToContainMem(node, op2));
+        isSafeToContainOp1 = (other == op1) && isSafeToContainOp1 && IsSafeToContainMem(node, op1);
+        isSafeToContainOp2 = (other == op2) && isSafeToContainOp2 && IsSafeToContainMem(node, op2);
     }
     else if (hasImplicitOperand)
     {
