@@ -537,36 +537,24 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         // possible values - zero and one the codegen can use cbnz to do conditional branch,
         // so such register is not needed.
 
-        bool needBranchTargetReg = false;
-        int  immLowerBound       = 0;
-        int  immUpperBound       = 0;
+        bool     needBranchTargetReg = false;
+        int      immLowerBound       = 0;
+        int      immUpperBound       = 0;
+        unsigned immVecSize;
 
         if (intrin.category == HW_Category_SIMDByIndexedElement)
         {
-            var_types indexedElementOpType;
-
-            if (intrin.numOperands == 3)
-            {
-                indexedElementOpType = intrin.op2->GetType();
-            }
-            else
-            {
-                assert(intrin.numOperands == 4);
-                indexedElementOpType = intrin.op3->GetType();
-            }
-
+            assert((intrin.numOperands == 3) || (intrin.numOperands == 4));
+            var_types indexedElementOpType = intrin.numOperands == 3 ? intrin.op2->GetType() : intrin.op3->GetType();
             assert(varTypeIsSIMD(indexedElementOpType));
-
-            const unsigned int indexedElementSimdSize = varTypeSize(indexedElementOpType);
-
-            HWIntrinsicInfo::lookupImmBounds(intrin.id, indexedElementSimdSize, intrin.baseType, &immLowerBound,
-                                             &immUpperBound);
+            immVecSize = varTypeSize(indexedElementOpType);
         }
         else
         {
-            HWIntrinsicInfo::lookupImmBounds(intrin.id, node->GetSimdSize(), intrin.baseType, &immLowerBound,
-                                             &immUpperBound);
+            immVecSize = node->GetSimdSize();
         }
+
+        HWIntrinsicInfo::lookupImmBounds(intrin.id, immVecSize, intrin.baseType, &immLowerBound, &immUpperBound);
 
         if ((immLowerBound != 0) || (immUpperBound != 1))
         {
@@ -577,13 +565,13 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 switch (intrin.numOperands)
                 {
                     case 4:
-                        needBranchTargetReg = !intrin.op4->isContainedIntOrIImmed();
+                        needBranchTargetReg = !intrin.op4->IsContainedIntCon();
                         break;
                     case 3:
-                        needBranchTargetReg = !intrin.op3->isContainedIntOrIImmed();
+                        needBranchTargetReg = !intrin.op3->IsContainedIntCon();
                         break;
                     case 2:
-                        needBranchTargetReg = !intrin.op2->isContainedIntOrIImmed();
+                        needBranchTargetReg = !intrin.op2->IsContainedIntCon();
                         break;
                     default:
                         unreached();
@@ -641,21 +629,14 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             simdRegToSimdRegMove = intrin.op1->TypeIs(TYP_DOUBLE);
         }
 
-        bool tgtPrefOp1 = false;
-
-        // If we have an RMW intrinsic or an intrinsic with simple move semantic
-        // between two SIMD registers, we want to preference op1Reg to the target
-        // if op1 is not contained.
-        if (isRMW || simdRegToSimdRegMove)
-        {
-            tgtPrefOp1 = !intrin.op1->isContained();
-        }
-
         if (node->OperIsMemoryLoadOrStore())
         {
             BuildAddrUses(intrin.op1);
         }
-        else if (tgtPrefOp1)
+        // If we have an RMW intrinsic or an intrinsic with simple move semantic
+        // between two SIMD registers, we want to preference op1Reg to the target
+        // if op1 is not contained.
+        else if ((isRMW || simdRegToSimdRegMove) && !intrin.op1->isContained())
         {
             tgtPrefUse = BuildUse(intrin.op1);
         }
