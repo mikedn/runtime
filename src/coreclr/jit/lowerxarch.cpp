@@ -3403,94 +3403,83 @@ void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
 
 void Lowering::ContainCheckMul(GenTreeOp* node)
 {
-#if defined(TARGET_X86)
+#ifdef TARGET_X86
     assert(node->OperIs(GT_MUL, GT_MULHI, GT_MUL_LONG));
 #else
     assert(node->OperIs(GT_MUL, GT_MULHI));
 #endif
-    assert(varTypeIsIntegral(node->GetType()));
+    assert(varTypeIsIntOrI(node->GetType()));
 
-    GenTree* op1 = node->GetOp(0);
-    GenTree* op2 = node->GetOp(1);
+    GenTree*       op1                = node->GetOp(0);
+    GenTree*       op2                = node->GetOp(1);
+    GenTree*       memOp              = nullptr;
+    GenTreeIntCon* immOp              = nullptr;
+    GenTree*       other              = nullptr;
+    bool           hasImplicitOperand = false;
+
+    if (node->OperIs(GT_MULHI))
+    {
+        hasImplicitOperand = true;
+    }
+#ifdef TARGET_X86
+    else if (node->OperIs(GT_MUL_LONG))
+    {
+        hasImplicitOperand = true;
+    }
+#endif
+    else if (node->gtOverflow() && node->IsUnsigned())
+    {
+        hasImplicitOperand = true;
+    }
+    else
+    {
+        if (IsContainableImmed(node, op2))
+        {
+            immOp = op2->AsIntCon();
+            other = op1;
+        }
+        else if (IsContainableImmed(node, op1))
+        {
+            immOp = op1->AsIntCon();
+            other = op2;
+        }
+
+        if (immOp != nullptr)
+        {
+            immOp->SetContained();
+
+            if (!node->gtOverflow() && (immOp->GetValue() == 3 || immOp->GetValue() == 5 || immOp->GetValue() == 9))
+            {
+                // We use LEA so the other op has to be in a register.
+                return;
+            }
+
+            if (IsContainableMemoryOp(other))
+            {
+                memOp = other;
+            }
+        }
+    }
 
     bool isSafeToContainOp1 = true;
     bool isSafeToContainOp2 = true;
 
-    bool     isUnsignedMultiply    = ((node->gtFlags & GTF_UNSIGNED) != 0);
-    bool     requiresOverflowCheck = node->gtOverflowEx();
-    bool     useLeaEncoding        = false;
-    GenTree* memOp                 = nullptr;
-
-    bool                 hasImpliedFirstOperand = false;
-    GenTreeIntConCommon* imm                    = nullptr;
-    GenTree*             other                  = nullptr;
-
-    // Multiply should never be using small types
-    assert(!varTypeIsSmall(node->TypeGet()));
-
-    // We do use the widening multiply to implement
-    // the overflow checking for unsigned multiply
-    //
-    if (isUnsignedMultiply && requiresOverflowCheck)
-    {
-        hasImpliedFirstOperand = true;
-    }
-    else if (node->OperGet() == GT_MULHI)
-    {
-        hasImpliedFirstOperand = true;
-    }
-#if defined(TARGET_X86)
-    else if (node->OperGet() == GT_MUL_LONG)
-    {
-        hasImpliedFirstOperand = true;
-    }
-#endif
-    else if (IsContainableImmed(node, op2) || IsContainableImmed(node, op1))
-    {
-        if (IsContainableImmed(node, op2))
-        {
-            imm   = op2->AsIntConCommon();
-            other = op1;
-        }
-        else
-        {
-            imm   = op1->AsIntConCommon();
-            other = op2;
-        }
-
-        // CQ: We want to rewrite this into a LEA
-        ssize_t immVal = imm->AsIntConCommon()->IconValue();
-        if (!requiresOverflowCheck && (immVal == 3 || immVal == 5 || immVal == 9))
-        {
-            useLeaEncoding = true;
-        }
-
-        MakeSrcContained(node, imm); // The immValue is always contained
-        if (IsContainableMemoryOp(other))
-        {
-            memOp = other; // memOp may be contained below
-        }
-    }
-
-    // We allow one operand to be a contained memory operand.
-    // The memory op type must match with the 'node' type.
-    // This is because during codegen we use 'node' type to derive EmitTypeSize.
-    // E.g op1 type = byte, op2 type = byte but GT_MUL node type is int.
-    //
     if (memOp == nullptr)
     {
-        if ((op2->TypeGet() == node->TypeGet()) && IsContainableMemoryOp(op2))
+        if ((op2->GetType() == node->GetType()) && IsContainableMemoryOp(op2))
         {
             isSafeToContainOp2 = IsSafeToContainMem(node, op2);
+
             if (isSafeToContainOp2)
             {
                 memOp = op2;
             }
         }
 
-        if ((memOp == nullptr) && (op1->TypeGet() == node->TypeGet()) && IsContainableMemoryOp(op1))
+        if ((memOp == nullptr) && (op1->GetType() == node->GetType()) && IsContainableMemoryOp(op1))
         {
             isSafeToContainOp1 = IsSafeToContainMem(node, op1);
+
             if (isSafeToContainOp1)
             {
                 memOp = op1;
@@ -3499,7 +3488,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
     }
     else
     {
-        if ((memOp->TypeGet() != node->TypeGet()))
+        if ((memOp->GetType() != node->GetType()))
         {
             memOp = nullptr;
         }
@@ -3513,48 +3502,37 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
             {
                 isSafeToContainOp2 = false;
             }
+
             memOp = nullptr;
         }
     }
-    // To generate an LEA we need to force memOp into a register
-    // so don't allow memOp to be 'contained'
-    //
-    if (!useLeaEncoding)
-    {
-        if (memOp != nullptr)
-        {
-            MakeSrcContained(node, memOp);
-        }
-        else
-        {
-            // IsSafeToContainMem is expensive so we call it at most once for each operand
-            // in this method. If we already called IsSafeToContainMem, it must have returned false;
-            // otherwise, memOp would be set to the corresponding operand (op1 or op2).
-            if (imm != nullptr)
-            {
-                // Has a contained immediate operand.
-                // Only 'other' operand can be marked as reg optional.
-                assert(other != nullptr);
 
-                isSafeToContainOp1 = ((other == op1) && isSafeToContainOp1 && IsSafeToContainMem(node, op1));
-                isSafeToContainOp2 = ((other == op2) && isSafeToContainOp2 && IsSafeToContainMem(node, op2));
-            }
-            else if (hasImpliedFirstOperand)
-            {
-                // Only op2 can be marked as reg optional.
-                isSafeToContainOp1 = false;
-                isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToContainMem(node, op2);
-            }
-            else
-            {
-                // If there are no containable operands, we can make either of op1 or op2
-                // as reg optional.
-                isSafeToContainOp1 = isSafeToContainOp1 && IsSafeToContainMem(node, op1);
-                isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToContainMem(node, op2);
-            }
-            SetRegOptionalForBinOp(node, isSafeToContainOp1, isSafeToContainOp2);
-        }
+    if (memOp != nullptr)
+    {
+        memOp->SetContained();
+
+        return;
     }
+
+    if (immOp != nullptr)
+    {
+        assert(other != nullptr);
+
+        isSafeToContainOp1 = ((other == op1) && isSafeToContainOp1 && IsSafeToContainMem(node, op1));
+        isSafeToContainOp2 = ((other == op2) && isSafeToContainOp2 && IsSafeToContainMem(node, op2));
+    }
+    else if (hasImplicitOperand)
+    {
+        isSafeToContainOp1 = false;
+        isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToContainMem(node, op2);
+    }
+    else
+    {
+        isSafeToContainOp1 = isSafeToContainOp1 && IsSafeToContainMem(node, op1);
+        isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToContainMem(node, op2);
+    }
+
+    SetRegOptionalForBinOp(node, isSafeToContainOp1, isSafeToContainOp2);
 }
 
 void Lowering::ContainCheckDivOrMod(GenTreeOp* node)

@@ -2082,16 +2082,16 @@ void LinearScan::BuildStoreInd(GenTreeIndir* store)
     BuildInternalUses();
 }
 
-void LinearScan::BuildMul(GenTreeOp* tree)
+void LinearScan::BuildMul(GenTreeOp* mul)
 {
-    assert(tree->OperIs(GT_MUL) && varTypeIsIntegral(tree->GetType()));
+    assert(mul->OperIs(GT_MUL) && varTypeIsIntegral(mul->GetType()));
 
-    GenTree* op1 = tree->GetOp(0);
-    GenTree* op2 = tree->GetOp(1);
+    GenTree* op1 = mul->GetOp(0);
+    GenTree* op2 = mul->GetOp(1);
 
     if (!op1->IsContainedIntCon() && !op2->IsContainedIntCon())
     {
-        BuildRMWUses(tree->AsOp());
+        BuildRMWUses(mul);
     }
     else
     {
@@ -2099,17 +2099,17 @@ void LinearScan::BuildMul(GenTreeOp* tree)
         BuildOperandUses(op2);
     }
 
-    if (tree->IsUnsigned() && tree->gtOverflowEx())
+    if (mul->gtOverflow() && mul->IsUnsigned())
     {
         // We need to use the "MUL reg/mem" form to get an extended 64/128 bit
         // result and check the upper half for non-zero to detect overflow.
 
-        BuildKills(tree, RBM_RAX | RBM_RDX);
-        BuildDef(tree, RBM_RAX);
+        BuildKills(mul, RBM_RAX | RBM_RDX);
+        BuildDef(mul, RBM_RAX);
     }
     else
     {
-        BuildDef(tree);
+        BuildDef(mul);
     }
 }
 

@@ -1059,131 +1059,89 @@ void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
     DefReg(node);
 }
 
-void CodeGen::genCodeForMul(GenTreeOp* treeNode)
+void CodeGen::GenMul(GenTreeOp* mul)
 {
-    assert(treeNode->OperIs(GT_MUL) && varTypeIsIntegral(treeNode->GetType()));
+    assert(mul->OperIs(GT_MUL) && varTypeIsIntOrI(mul->GetType()));
 
-    regNumber targetReg  = treeNode->GetRegNum();
-    var_types targetType = treeNode->TypeGet();
-    emitter*  emit       = GetEmitter();
+    emitAttr       size          = emitTypeSize(mul->GetType());
+    bool           checkOverflow = mul->gtOverflowEx();
+    regNumber      dstReg        = mul->GetRegNum();
+    GenTree*       op1           = mul->GetOp(0);
+    GenTree*       op2           = mul->GetOp(1);
+    GenTree*       rmOp          = op1;
+    GenTreeIntCon* immOp         = nullptr;
 
-    // Node's type must be int or long (only on x64), small integer types are not
-    // supported and floating point types are handled by GenFloatBinaryOp.
-    assert(varTypeIsIntOrI(targetType));
-
-    instruction ins;
-    emitAttr    size                  = emitTypeSize(treeNode);
-    bool        isUnsignedMultiply    = ((treeNode->gtFlags & GTF_UNSIGNED) != 0);
-    bool        requiresOverflowCheck = treeNode->gtOverflowEx();
-
-    GenTree* op1 = treeNode->gtGetOp1();
-    GenTree* op2 = treeNode->gtGetOp2();
-
-    // there are 3 forms of x64 multiply:
-    // 1-op form with 128 result:  RDX:RAX = RAX * rm
-    // 2-op form: reg *= rm
-    // 3-op form: reg = rm * imm
+    if (op2->IsContainedIntCon())
+    {
+        immOp = op2->AsIntCon();
+    }
+    else if (op1->IsContainedIntCon())
+    {
+        immOp = op1->AsIntCon();
+        rmOp  = op2;
+    }
 
     genConsumeRegs(op1);
     genConsumeRegs(op2);
 
-    // This matches the 'mul' lowering in Lowering::SetMulOpCounts()
-    //
-    // immOp :: Only one operand can be an immediate
-    // rmOp  :: Only one operand can be a memory op.
-    // regOp :: A register op (especially the operand that matches 'targetReg')
-    //          (can be nullptr when we have both a memory op and an immediate op)
-
-    GenTree* immOp = nullptr;
-    GenTree* rmOp  = op1;
-    GenTree* regOp;
-
-    if (op2->isContainedIntOrIImmed())
-    {
-        immOp = op2;
-    }
-    else if (op1->isContainedIntOrIImmed())
-    {
-        immOp = op1;
-        rmOp  = op2;
-    }
-
     if (immOp != nullptr)
     {
-        // CQ: When possible use LEA for mul by imm 3, 5 or 9
-        ssize_t imm = immOp->AsIntConCommon()->IconValue();
+        ssize_t imm = immOp->GetValue();
 
-        if (!requiresOverflowCheck && rmOp->isUsedFromReg() && ((imm == 3) || (imm == 5) || (imm == 9)))
+        if (!checkOverflow && rmOp->isUsedFromReg() && ((imm == 3) || (imm == 5) || (imm == 9)))
         {
-            // We will use the LEA instruction to perform this multiply
-            // Note that an LEA with base=x, index=x and scale=(imm-1) computes x*imm when imm=3,5 or 9.
-            unsigned int scale = (unsigned int)(imm - 1);
-            emit->emitIns_R_ARX(INS_lea, size, targetReg, rmOp->GetRegNum(), rmOp->GetRegNum(), scale, 0);
+            unsigned scale = static_cast<unsigned>(imm - 1);
+            GetEmitter()->emitIns_R_ARX(INS_lea, size, dstReg, rmOp->GetRegNum(), rmOp->GetRegNum(), scale, 0);
         }
-        else if (!requiresOverflowCheck && rmOp->isUsedFromReg() && (imm == genFindLowestBit(imm)) && (imm != 0))
+        else if (!checkOverflow && rmOp->isUsedFromReg() && (imm != 0) && (imm == genFindLowestBit(imm)))
         {
-            // Use shift for constant multiply when legal
-            uint64_t     zextImm     = static_cast<uint64_t>(static_cast<size_t>(imm));
-            unsigned int shiftAmount = genLog2(zextImm);
-
-            // Copy reg src to dest register
-            inst_Mov(targetType, targetReg, rmOp->GetRegNum(), /* canSkip */ true);
-
-            inst_RV_SH(INS_shl, size, targetReg, shiftAmount);
+            GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, rmOp->GetRegNum(), /* canSkip */ true);
+            inst_RV_SH(INS_shl, size, dstReg, genLog2(static_cast<uint64_t>(static_cast<size_t>(imm))));
         }
         else
         {
-            // use the 3-op form with immediate
-            ins = emit->inst3opImulForReg(targetReg);
-            emitInsBinary(ins, size, rmOp, immOp);
+            emitInsBinary(GetEmitter()->inst3opImulForReg(dstReg), size, rmOp, immOp);
         }
     }
-    else // we have no contained immediate operand
+    else
     {
-        regOp = op1;
-        rmOp  = op2;
+        instruction ins       = INS_imul;
+        regNumber   mulDstReg = dstReg;
+        GenTree*    regOp     = op1;
+        GenTree*    rmOp      = op2;
 
-        regNumber mulTargetReg = targetReg;
-        if (isUnsignedMultiply && requiresOverflowCheck)
+        if (checkOverflow && mul->IsUnsigned())
         {
-            ins          = INS_mulEAX;
-            mulTargetReg = REG_RAX;
-        }
-        else
-        {
-            ins = INS_imul;
+            ins       = INS_mulEAX;
+            mulDstReg = REG_RAX;
         }
 
-        // Set rmOp to the memory operand (if any)
-        // or set regOp to the op2 when it has the matching target register for our multiply op
-        //
-        if (op1->isUsedFromMemory() || (op2->isUsedFromReg() && (op2->GetRegNum() == mulTargetReg)))
+        if (op1->isUsedFromMemory() || (op2->isUsedFromReg() && (op2->GetRegNum() == mulDstReg)))
         {
-            regOp = op2;
-            rmOp  = op1;
+            std::swap(regOp, rmOp);
         }
+
         assert(regOp->isUsedFromReg());
 
-        // Setup targetReg when neither of the source operands was a matching register
-        inst_Mov(targetType, mulTargetReg, regOp->GetRegNum(), /* canSkip */ true);
+        GetEmitter()->emitIns_Mov(INS_mov, size, mulDstReg, regOp->GetRegNum(), /* canSkip */ true);
 
         if (ins == INS_mulEAX)
         {
             emitInsUnary(ins, size, rmOp);
-            inst_Mov(targetType, targetReg, REG_RAX, /* canSkip */ true);
+            GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, REG_RAX, /* canSkip */ true);
         }
         else
         {
-            emitInsBinary(ins, size, treeNode, rmOp);
+            emitInsBinary(ins, size, mul, rmOp);
         }
     }
 
-    if (requiresOverflowCheck)
+    if (checkOverflow)
     {
-        genCheckOverflow(treeNode);
+        genCheckOverflow(mul);
     }
 
-    genProduceReg(treeNode);
+    DefReg(mul);
 }
 
 #ifdef TARGET_X86
@@ -1454,7 +1412,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_MUL:
-            genCodeForMul(treeNode->AsOp());
+            GenMul(treeNode->AsOp());
             break;
 
         case GT_DIV:

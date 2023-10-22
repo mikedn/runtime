@@ -714,7 +714,7 @@ protected:
     void genCodeForDivMod(GenTreeOp* treeNode);
 #endif
 
-    void genCodeForMul(GenTreeOp* treeNode);
+    void GenMul(GenTreeOp* treeNode);
     void genCodeForIncSaturate(GenTree* treeNode);
     void genCodeForMulHi(GenTreeOp* treeNode);
     void genLeaInstruction(GenTreeAddrMode* lea);
