@@ -6880,20 +6880,44 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
     assert((roundUp(varTypeSize(srcType), REGSIZE_BYTES) <= putArgStk->GetArgSize()) || putArgStk->IsSIMD12());
 #endif
 
-#ifdef TARGET_AMD64
     if (src->isUsedFromReg())
     {
-        emit.emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), UseReg(src), outArgLclNum,
+        regNumber srcReg = UseReg(src);
+
+#ifdef TARGET_AMD64
+        emit.emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum,
                          static_cast<int>(outArgLclOffs));
+#else
+#ifdef FEATURE_SIMD
+        if (varTypeIsSIMD(srcType))
+        {
+            assert(genIsValidFloatReg(srcReg));
+
+            emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, putArgStk->GetArgSize());
+            AddStackLevel(putArgStk->GetArgSize());
+
+            if (putArgStk->IsSIMD12())
+            {
+                genStoreSIMD12ToStack(srcReg, putArgStk->GetSingleTempReg());
+            }
+            else
+            {
+                emit.emitIns_AR_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, REG_SPBASE, 0);
+            }
+        }
+        else
+#endif
+        {
+            genPushReg(srcType, srcReg);
+        }
+#endif
     }
     else
     {
+#ifdef TARGET_AMD64
         emit.emitIns_S_I(ins_Store(srcType), emitTypeSize(srcType), outArgLclNum, static_cast<int>(outArgLclOffs),
                          src->AsIntCon()->GetInt32Value());
-    }
-#else // TARGET_X86
-    if (!src->isUsedFromReg())
-    {
+#else
         genConsumeRegs(src);
 
         assert(putArgStk->GetSlotCount() == 1);
@@ -6913,44 +6937,15 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         {
             emit.emitIns_A(INS_push, attr, src->AsIndir()->GetAddr());
         }
-        else if (src->IsIconHandle())
-        {
-            emit.emitIns_I(INS_push, EA_HANDLE_CNS_RELOC, src->AsIntCon()->GetValue());
-        }
         else
         {
-            emit.emitIns_I(INS_push, EA_PTRSIZE, src->AsIntCon()->GetValue());
+            emitAttr attr = src->IsIconHandle() ? EA_HANDLE_CNS_RELOC : EA_PTRSIZE;
+            emit.emitIns_I(INS_push, attr, src->AsIntCon()->GetValue());
         }
+
         AddStackLevel(REGSIZE_BYTES);
-
-        return;
-    }
-
-    regNumber srcReg = UseReg(src);
-
-#ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(srcType))
-    {
-        assert(genIsValidFloatReg(srcReg));
-
-        emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, putArgStk->GetArgSize());
-        AddStackLevel(putArgStk->GetArgSize());
-
-        if (putArgStk->IsSIMD12())
-        {
-            genStoreSIMD12ToStack(srcReg, putArgStk->GetSingleTempReg());
-        }
-        else
-        {
-            emit.emitIns_AR_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, REG_SPBASE, 0);
-        }
-
-        return;
-    }
 #endif
-
-    genPushReg(srcType, srcReg);
-#endif // TARGET_X86
+    }
 }
 
 void CodeGen::genPutArgReg(GenTreeUnOp* putArg)
