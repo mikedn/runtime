@@ -536,15 +536,14 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         // possible values - zero and one the codegen can use cbnz to do conditional branch,
         // so such register is not needed.
 
-        bool     needBranchTargetReg = false;
-        int      immLowerBound       = 0;
-        int      immUpperBound       = 0;
+        int      immLowerBound = 0;
+        int      immUpperBound = 0;
         unsigned immVecSize;
 
         if (intrin.category == HW_Category_SIMDByIndexedElement)
         {
-            assert((intrin.numOperands == 3) || (intrin.numOperands == 4));
-            var_types indexedElementOpType = intrin.numOperands == 3 ? intrin.op2->GetType() : intrin.op3->GetType();
+            assert((node->GetNumOps() == 3) || (node->GetNumOps() == 4));
+            var_types indexedElementOpType = node->GetOp(node->GetNumOps() - 2)->GetType();
             assert(varTypeIsSIMD(indexedElementOpType));
             immVecSize = varTypeSize(indexedElementOpType);
         }
@@ -554,6 +553,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         }
 
         HWIntrinsicInfo::lookupImmBounds(intrin.id, immVecSize, intrin.baseType, &immLowerBound, &immUpperBound);
+        GenTree* immOp = nullptr;
 
         if ((immLowerBound != 0) || (immUpperBound != 1))
         {
@@ -561,20 +561,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 (intrin.category == HW_Category_ShiftLeftByImmediate) ||
                 (intrin.category == HW_Category_ShiftRightByImmediate))
             {
-                switch (intrin.numOperands)
-                {
-                    case 4:
-                        needBranchTargetReg = !intrin.op4->IsContainedIntCon();
-                        break;
-                    case 3:
-                        needBranchTargetReg = !intrin.op3->IsContainedIntCon();
-                        break;
-                    case 2:
-                        needBranchTargetReg = !intrin.op2->IsContainedIntCon();
-                        break;
-                    default:
-                        unreached();
-                }
+                immOp = node->GetLastOp();
             }
             else
             {
@@ -587,16 +574,16 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_AdvSimd_InsertScalar:
                     case NI_AdvSimd_LoadAndInsertScalar:
                     case NI_AdvSimd_Arm64_DuplicateSelectedScalarToVector128:
-                        needBranchTargetReg = !intrin.op2->isContainedIntOrIImmed();
+                        immOp = node->GetOp(1);
                         break;
                     case NI_AdvSimd_ExtractVector64:
                     case NI_AdvSimd_ExtractVector128:
                     case NI_AdvSimd_StoreSelectedScalar:
-                        needBranchTargetReg = !intrin.op3->isContainedIntOrIImmed();
+                        immOp = node->GetOp(2);
                         break;
                     case NI_AdvSimd_Arm64_InsertSelectedScalar:
-                        assert(intrin.op2->isContainedIntOrIImmed());
-                        assert(intrin.op4->isContainedIntOrIImmed());
+                        assert(node->GetOp(1)->IsContainedIntCon());
+                        assert(node->GetOp(3)->IsContainedIntCon());
                         break;
                     default:
                         unreached();
@@ -604,7 +591,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             }
         }
 
-        if (needBranchTargetReg)
+        if ((immOp != nullptr) && !immOp->IsContainedIntCon())
         {
             BuildInternalIntDef(node);
         }
@@ -616,32 +603,33 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
     if (intrin.op1 != nullptr)
     {
-        bool simdRegToSimdRegMove = false;
+        bool vecRegToVecRegMove = false;
 
         if ((intrin.id == NI_Vector64_CreateScalarUnsafe) || (intrin.id == NI_Vector128_CreateScalarUnsafe) ||
             (intrin.id == NI_Vector64_CreateScalar) || (intrin.id == NI_Vector128_CreateScalar))
         {
-            simdRegToSimdRegMove = varTypeIsFloating(intrin.op1->GetType());
+            vecRegToVecRegMove = varTypeIsFloating(intrin.op1->GetType());
         }
         else if (intrin.id == NI_AdvSimd_Arm64_DuplicateToVector64)
         {
-            simdRegToSimdRegMove = intrin.op1->TypeIs(TYP_DOUBLE);
+            vecRegToVecRegMove = intrin.op1->TypeIs(TYP_DOUBLE);
         }
 
         if (node->OperIsMemoryLoadOrStore())
         {
             BuildAddrUses(intrin.op1);
         }
-        // If we have an RMW intrinsic or an intrinsic with simple move semantic
-        // between two SIMD registers, we want to preference op1Reg to the target
-        // if op1 is not contained.
-        else if ((isRMW || simdRegToSimdRegMove) && !intrin.op1->isContained())
-        {
-            tgtPrefUse = BuildUse(intrin.op1);
-        }
         else if (!intrin.op1->isContained())
         {
-            BuildUse(intrin.op1);
+            RefPosition* use = BuildUse(intrin.op1);
+
+            // If we have an RMW intrinsic or an intrinsic with simple move semantic
+            // between two SIMD registers, we want to preference op1Reg to the target
+            // if op1 is not contained.
+            if (isRMW || vecRegToVecRegMove)
+            {
+                tgtPrefUse = use;
+            }
         }
     }
 
@@ -651,6 +639,8 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         // instructions (e.g. "MLA (by element)") have encoding that restricts what registers that
         // can be used for the indexed element when the element size is H (i.e. 2 bytes).
         assert(intrin.op2 != nullptr);
+
+        GenTree* immOp;
 
         if ((intrin.op4 != nullptr) || ((intrin.op3 != nullptr) && !hasImmediateOperand))
         {
@@ -665,81 +655,44 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 BuildUse(intrin.op3, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
             }
 
-            if (intrin.op4 != nullptr)
-            {
-                assert(hasImmediateOperand);
-                assert(varTypeIsIntegral(intrin.op4->GetType()));
-
-                if (!intrin.op4->IsContainedIntCon())
-                {
-                    BuildUse(intrin.op4);
-                }
-            }
+            immOp = intrin.op4;
         }
         else
         {
             assert(!isRMW);
 
             BuildUse(intrin.op2, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
+            immOp = intrin.op3;
+        }
 
-            if (intrin.op3 != nullptr)
+        if (immOp != nullptr)
+        {
+            assert(hasImmediateOperand);
+            assert(varTypeIsIntegral(immOp->GetType()));
+
+            if (!immOp->IsContainedIntCon())
             {
-                assert(hasImmediateOperand);
-                assert(varTypeIsIntegral(intrin.op3->GetType()));
-
-                if (!intrin.op3->IsContainedIntCon())
-                {
-                    BuildUse(intrin.op3);
-                }
+                BuildUse(immOp);
             }
         }
     }
-    else if (intrin.op2 != nullptr)
+    else if (node->GetNumOps() > 1)
     {
-        // RMW intrinsic operands doesn't have to be delayFree when they can be assigned the same
-        // register as op1Reg (i.e. a register that corresponds to read-modify-write operand) and
-        // one of them is the last use.
+        GenTree* rmwOp = node->GetOp(0);
 
-        assert(intrin.op1 != nullptr);
-
-        if (!intrin.op2->isContained())
+        for (unsigned i = 1; i < node->GetNumOps(); i++)
         {
-            if (isRMW)
-            {
-                BuildDelayFreeUse(intrin.op2, intrin.op1);
-            }
-            else
-            {
-                BuildUse(intrin.op2);
-            }
-        }
+            GenTree* op = node->GetOp(i);
 
-        if (intrin.op3 != nullptr)
-        {
-            if (!intrin.op3->isContained())
+            if (!op->isContained())
             {
                 if (isRMW)
                 {
-                    BuildDelayFreeUse(intrin.op3, intrin.op1);
+                    BuildDelayFreeUse(op, rmwOp);
                 }
                 else
                 {
-                    BuildUse(intrin.op3);
-                }
-            }
-
-            if (intrin.op4 != nullptr)
-            {
-                if (!intrin.op4->isContained())
-                {
-                    if (isRMW)
-                    {
-                        BuildDelayFreeUse(intrin.op4, intrin.op1);
-                    }
-                    else
-                    {
-                        BuildUse(intrin.op4);
-                    }
+                    BuildUse(op);
                 }
             }
         }
@@ -747,7 +700,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
     BuildInternalUses();
 
-    if (node->IsValue())
+    if (!node->TypeIs(TYP_VOID))
     {
         BuildDef(node);
     }
