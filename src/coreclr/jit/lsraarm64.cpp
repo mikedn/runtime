@@ -717,35 +717,44 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
         assert(intrin.op1 != nullptr);
 
-        if (isRMW)
+        if (!intrin.op2->isContained())
         {
-            BuildDelayFreeUses(intrin.op2, intrin.op1);
-        }
-        else
-        {
-            BuildOperand(intrin.op2);
+            if (isRMW)
+            {
+                BuildDelayFreeUses(intrin.op2, intrin.op1);
+            }
+            else
+            {
+                BuildUse(intrin.op2);
+            }
         }
 
         if (intrin.op3 != nullptr)
         {
-            if (isRMW)
+            if (!intrin.op3->isContained())
             {
-                BuildDelayFreeUses(intrin.op3, intrin.op1);
-            }
-            else
-            {
-                BuildOperand(intrin.op3);
+                if (isRMW)
+                {
+                    BuildDelayFreeUses(intrin.op3, intrin.op1);
+                }
+                else
+                {
+                    BuildUse(intrin.op3);
+                }
             }
 
             if (intrin.op4 != nullptr)
             {
-                if (isRMW)
+                if (!intrin.op4->isContained())
                 {
-                    BuildDelayFreeUses(intrin.op4, intrin.op1);
-                }
-                else
-                {
-                    BuildOperand(intrin.op4);
+                    if (isRMW)
+                    {
+                        BuildDelayFreeUses(intrin.op4, intrin.op1);
+                    }
+                    else
+                    {
+                        BuildUse(intrin.op4);
+                    }
                 }
             }
         }
