@@ -17,7 +17,6 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_LCL_FLD:
             assert(!compiler->lvaGetDesc(tree->AsLclVarCommon())->IsRegCandidate());
 
-#ifdef FEATURE_SIMD
             // Need an additional register to read upper 4 bytes of Vector3.
             if (tree->TypeIs(TYP_SIMD12))
             {
@@ -27,7 +26,6 @@ void LinearScan::BuildNode(GenTree* tree)
                 setInternalRegsDelayFree = true;
                 BuildInternalUses();
             }
-#endif
 
             BuildDef(tree);
             break;
@@ -178,11 +176,9 @@ void LinearScan::BuildNode(GenTree* tree)
             }
             break;
 
-#ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             BuildHWIntrinsic(tree->AsHWIntrinsic());
             break;
-#endif
 
         case GT_CAST:
             BuildCast(tree->AsCast());
@@ -514,7 +510,6 @@ void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
     BuildDef(tree);
 }
 
-#ifdef FEATURE_HW_INTRINSICS
 void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     const HWIntrinsic intrin(node);
@@ -761,6 +756,5 @@ void LinearScan::BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     BuildInternalUses();
     BuildDef(node);
 }
-#endif
 
 #endif // TARGET_ARM64

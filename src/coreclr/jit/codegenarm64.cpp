@@ -196,12 +196,12 @@ void CodeGen::genPrologSaveRegPair(regNumber reg1,
         assert((spOffset % 8) == 0);
         GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_PTRSIZE, reg1, reg2, REG_SPBASE, spOffset);
 
-#if defined(TARGET_UNIX)
+#ifdef TARGET_UNIX
         if (compiler->generateCFIUnwindCodes())
         {
             useSaveNextPair = false;
         }
-#endif // TARGET_UNIX
+#endif
 
         if (useSaveNextPair)
         {
@@ -323,12 +323,12 @@ void CodeGen::genEpilogRestoreRegPair(regNumber reg1,
     {
         GetEmitter()->emitIns_R_R_R_I(INS_ldp, EA_PTRSIZE, reg1, reg2, REG_SPBASE, spOffset);
 
-#if defined(TARGET_UNIX)
+#ifdef TARGET_UNIX
         if (compiler->generateCFIUnwindCodes())
         {
             useSaveNextPair = false;
         }
-#endif // TARGET_UNIX
+#endif
 
         if (useSaveNextPair)
         {
@@ -984,10 +984,7 @@ void CodeGen::genRestoreCalleeSavedRegistersHelp(regMaskTP regsToRestoreMask, in
 // clang-format on
 void CodeGen::genFuncletProlog(BasicBlock* block)
 {
-#ifdef DEBUG
-    if (verbose)
-        printf("*************** In genFuncletProlog()\n");
-#endif
+    JITDUMP("*************** In genFuncletProlog()\n");
 
     assert(block != NULL);
     assert(block->bbFlags & BBF_FUNCLET_BEG);
@@ -1128,10 +1125,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
 void CodeGen::genFuncletEpilog()
 {
-#ifdef DEBUG
-    if (verbose)
-        printf("*************** In genFuncletEpilog()\n");
-#endif
+    JITDUMP("*************** In genFuncletEpilog()\n");
 
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
@@ -1741,12 +1735,10 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
         GenStructStore(store, kind, layout);
     }
-#ifdef FEATURE_SIMD
     else if (type == TYP_SIMD12)
     {
         genStoreSIMD12(store, src);
     }
-#endif
     else
     {
         assert(IsValidSourceType(type, src->GetType()));
@@ -1823,14 +1815,12 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     var_types lclRegType = lcl->GetRegisterType(store);
 
-#ifdef FEATURE_SIMD
     if (lclRegType == TYP_SIMD12)
     {
         genStoreSIMD12(store, src);
         // TODO-MIKE-Review: Doesn't this need a DefLclVarReg call?
         return;
     }
-#endif
 
     regNumber srcReg;
 
@@ -2713,13 +2703,11 @@ void CodeGen::genCodeForIndir(GenTreeIndir* load)
 
 void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
 {
-#ifdef FEATURE_SIMD
     if (tree->TypeIs(TYP_SIMD12))
     {
         genStoreSIMD12(tree, tree->GetValue());
         return;
     }
-#endif
 
     GenTree* addr = tree->GetAddr();
     GenTree* data = tree->GetValue();
@@ -3144,8 +3132,6 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
     // clang-format on
 }
 
-#ifdef FEATURE_SIMD
-
 // Save the upper half of a TYP_SIMD16 vector to the given register, if any, or to memory.
 // The upper half of all SIMD registers are volatile, even the callee-save registers.
 // When a 16-byte SIMD value is live across a call, the register allocator will use this intrinsic
@@ -3244,8 +3230,6 @@ void CodeGen::LoadSIMD12(GenTree* load)
     inst_R_AM(INS_ldr, EA_4BYTE, tmpReg, src, 8);
     GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, dstReg, tmpReg, 2);
 }
-
-#endif // FEATURE_SIMD
 
 #ifdef PROFILING_SUPPORTED
 
@@ -9578,12 +9562,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
 void CodeGen::genFnEpilog(BasicBlock* block)
 {
     JITDUMP("*************** In genFnEpilog()\n");
-#ifdef DEBUG
-    if (compiler->opts.dspCode)
-    {
-        printf("\n__epilog:\n");
-    }
-#endif
+    DBEXEC(compiler->opts.dspCode, printf("\n__epilog:\n"))
 
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 

@@ -3,7 +3,7 @@
 
 #include "jitpch.h"
 
-#ifdef FEATURE_HW_INTRINSICS
+#ifdef TARGET_ARM64
 
 #include "codegen.h"
 
@@ -737,4 +737,4 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
     emit.emitIns_R_R_I(ins_Load(eltType), emitActualTypeSize(eltType), destReg, baseReg, offset);
 }
 
-#endif // FEATURE_HW_INTRINSICS
+#endif // TARGET_ARM64
