@@ -1387,7 +1387,16 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     }
 #endif // !WINDOWS_AMD64_ABI
 
-    BuildOperandUses(src);
+    if (!src->isContained())
+    {
+        BuildUse(src);
+    }
+#ifdef TARGET_X86
+    else if (src->OperIs(GT_IND))
+    {
+        BuildAddrUses(src->AsIndir()->GetAddr());
+    }
+#endif
 }
 
 void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
