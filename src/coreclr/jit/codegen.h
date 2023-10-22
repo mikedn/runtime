@@ -199,7 +199,9 @@ public:
 
     void genJumpToThrowHlpBlk(emitJumpKind jumpKind, ThrowHelperKind codeKind, BasicBlock* failBlk = nullptr);
 
+#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
     void genCheckOverflow(GenTree* tree);
+#endif
 
     unsigned prologSize;
 #ifdef JIT32_GCENCODER

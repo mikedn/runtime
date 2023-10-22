@@ -670,67 +670,11 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, ThrowHelperKind codeKi
     }
 }
 
-/*****************************************************************************
- *
- * The last operation done was generating code for "tree" and that would
- * have set the flags. Check if the operation caused an overflow.
- */
+#ifdef FEATURE_EH_FUNCLETS
 
-// inline
-void CodeGen::genCheckOverflow(GenTree* tree)
-{
-    // Overflow-check should be asked for this tree
-    noway_assert(tree->gtOverflow());
-
-    const var_types type = tree->TypeGet();
-
-    // Overflow checks can only occur for the non-small types: (i.e. TYP_INT,TYP_LONG)
-    noway_assert(!varTypeIsSmall(type));
-
-    emitJumpKind jumpKind;
-
-#ifdef TARGET_ARM64
-    if (tree->OperGet() == GT_MUL)
-    {
-        jumpKind = EJ_ne;
-    }
-    else
-#endif
-    {
-        bool isUnsignedOverflow = ((tree->gtFlags & GTF_UNSIGNED) != 0);
-
-#if defined(TARGET_XARCH)
-
-        jumpKind = isUnsignedOverflow ? EJ_jb : EJ_jo;
-
-#elif defined(TARGET_ARMARCH)
-
-        jumpKind = isUnsignedOverflow ? EJ_lo : EJ_vs;
-
-        if (jumpKind == EJ_lo)
-        {
-            if (tree->OperGet() != GT_SUB)
-            {
-                jumpKind = EJ_hs;
-            }
-        }
-
-#endif // defined(TARGET_ARMARCH)
-    }
-
-    genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);
-}
-
-#if defined(FEATURE_EH_FUNCLETS)
-
-/*****************************************************************************
- *
- *  Update the current funclet as needed by calling genUpdateCurrentFunclet().
- *  For non-BBF_FUNCLET_BEG blocks, it asserts that the current funclet
- *  is up-to-date.
- *
- */
-
+// Update the current funclet as needed by calling genUpdateCurrentFunclet().
+// For non-BBF_FUNCLET_BEG blocks, it asserts that the current funclet
+// is up-to-date.
 void CodeGen::genUpdateCurrentFunclet(BasicBlock* block)
 {
     if (block->bbFlags & BBF_FUNCLET_BEG)

@@ -8573,6 +8573,50 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
     return dst->GetRegNum();
 }
 
+void CodeGen::genCheckOverflow(GenTree* tree)
+{
+    // Overflow-check should be asked for this tree
+    noway_assert(tree->gtOverflow());
+
+    const var_types type = tree->TypeGet();
+
+    // Overflow checks can only occur for the non-small types: (i.e. TYP_INT,TYP_LONG)
+    noway_assert(!varTypeIsSmall(type));
+
+    emitJumpKind jumpKind;
+
+#ifdef TARGET_ARM64
+    if (tree->OperGet() == GT_MUL)
+    {
+        jumpKind = EJ_ne;
+    }
+    else
+#endif
+    {
+        bool isUnsignedOverflow = ((tree->gtFlags & GTF_UNSIGNED) != 0);
+
+#if defined(TARGET_XARCH)
+
+        jumpKind = isUnsignedOverflow ? EJ_jb : EJ_jo;
+
+#elif defined(TARGET_ARMARCH)
+
+        jumpKind = isUnsignedOverflow ? EJ_lo : EJ_vs;
+
+        if (jumpKind == EJ_lo)
+        {
+            if (tree->OperGet() != GT_SUB)
+            {
+                jumpKind = EJ_hs;
+            }
+        }
+
+#endif // defined(TARGET_ARMARCH)
+    }
+
+    genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);
+}
+
 void CodeGen::PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZeroed)
 {
     assert(generatingProlog);
