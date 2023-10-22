@@ -3405,10 +3405,11 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
 {
 #ifdef TARGET_X86
     assert(node->OperIs(GT_MUL, GT_MULHI, GT_MUL_LONG));
+    assert(varTypeIsIntOrI(node->GetType()) || (node->OperIs(GT_MUL_LONG) && node->TypeIs(TYP_LONG)));
 #else
     assert(node->OperIs(GT_MUL, GT_MULHI));
-#endif
     assert(varTypeIsIntOrI(node->GetType()));
+#endif
 
     GenTree*       op1                = node->GetOp(0);
     GenTree*       op2                = node->GetOp(1);
