@@ -507,13 +507,12 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
 
     if (prefOp1)
     {
-        assert(!op1->isContained());
         tgtPrefUse = BuildUse(op1 X86_ARG(opCandidates));
     }
     else if (delayUseOperand == op1)
     {
         assert(op1->isContained());
-        BuildDelayFreeUses(op1, op2);
+        BuildDelayFreeOperandUses(op1, op2);
     }
     else
     {
@@ -523,12 +522,11 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
 
     if (prefOp2)
     {
-        assert(!op2->isContained());
         tgtPrefUse2 = BuildUse(op2 X86_ARG(opCandidates));
     }
     else if (delayUseOperand == op2)
     {
-        BuildDelayFreeUses(op2, op1 X86_ARG(opCandidates));
+        BuildDelayFreeOperandUses(op2, op1 X86_ARG(opCandidates));
     }
     else
     {
@@ -536,8 +534,39 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
     }
 }
 
-void LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP candidates)
+void LinearScan::BuildDelayFreeUse(GenTree* op, GenTree* rmwNode, regMaskTP candidates)
 {
+    assert(!op->isContained());
+
+    Interval* rmwInterval  = nullptr;
+    bool      rmwIsLastUse = false;
+
+    if ((rmwNode != nullptr) && isCandidateLclVar(rmwNode))
+    {
+        rmwInterval = getIntervalForLocalVarNode(rmwNode->AsLclVar());
+        // Note: we don't handle multi-reg vars here. It's not clear that there
+        // are any cases where we'd encounter a multi-reg var in an RMW context.
+        assert(!rmwNode->AsLclVar()->IsMultiReg());
+        rmwIsLastUse = rmwNode->AsLclVar()->IsLastUse(0);
+    }
+
+    RefPosition* use = BuildUse(op, candidates);
+
+    if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
+    {
+        setDelayFree(use);
+    }
+}
+
+void LinearScan::BuildDelayFreeOperandUses(GenTree* op, GenTree* rmwNode, regMaskTP candidates)
+{
+    if (!op->isContained())
+    {
+        BuildDelayFreeUse(op, rmwNode, candidates);
+
+        return;
+    }
+
     Interval* rmwInterval  = nullptr;
     bool      rmwIsLastUse = false;
 
@@ -559,15 +588,8 @@ void LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP c
         }
     };
 
-    if (!node->isContained())
-    {
-        BuildDelayFreeUse(node, candidates);
-
-        return;
-    }
-
 #ifdef FEATURE_HW_INTRINSICS
-    if (GenTreeHWIntrinsic* hwIntrinsicNode = node->IsHWIntrinsic())
+    if (GenTreeHWIntrinsic* hwIntrinsicNode = op->IsHWIntrinsic())
     {
         BuildDelayFreeUse(hwIntrinsicNode->GetOp(0), candidates);
 
@@ -575,7 +597,7 @@ void LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP c
     }
 #endif
 
-    if (GenTreeIndir* indir = node->IsIndir())
+    if (GenTreeIndir* indir = op->IsIndir())
     {
         GenTree* addr = indir->GetAddr();
 
@@ -608,10 +630,9 @@ void LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP c
 
 void LinearScan::BuildShiftRotate(GenTreeOp* tree)
 {
+    GenTree*  value         = tree->GetOp(0);
     GenTree*  shiftBy       = tree->GetOp(1);
-    GenTree*  source        = tree->GetOp(0);
-    regMaskTP srcCandidates = RBM_NONE;
-    regMaskTP dstCandidates = RBM_NONE;
+    regMaskTP regCandidates = RBM_NONE;
 
     if (shiftBy->isContained())
     {
@@ -619,8 +640,7 @@ void LinearScan::BuildShiftRotate(GenTreeOp* tree)
     }
     else
     {
-        srcCandidates = allRegs(TYP_INT) & ~RBM_RCX;
-        dstCandidates = allRegs(TYP_INT) & ~RBM_RCX;
+        regCandidates = allRegs(TYP_INT) & ~RBM_RCX;
     }
 
 #ifdef TARGET_X86
@@ -628,38 +648,31 @@ void LinearScan::BuildShiftRotate(GenTreeOp* tree)
     // we can have a three operand form.
     if (tree->OperIs(GT_LSH_HI, GT_RSH_LO))
     {
-        assert(source->OperIs(GT_LONG) && source->isContained());
+        assert(value->OperIs(GT_LONG) && value->isContained());
 
-        GenTree* sourceLo = source->AsOp()->GetOp(0);
-        GenTree* sourceHi = source->AsOp()->GetOp(1);
+        GenTree* sourceLo = value->AsOp()->GetOp(0);
+        GenTree* sourceHi = value->AsOp()->GetOp(1);
 
         assert(!sourceLo->isContained() && !sourceHi->isContained());
 
-        RefPosition* sourceLoUse = BuildUse(sourceLo, srcCandidates);
-        RefPosition* sourceHiUse = BuildUse(sourceHi, srcCandidates);
+        RefPosition* sourceLoUse = BuildUse(sourceLo, regCandidates);
+        RefPosition* sourceHiUse = BuildUse(sourceHi, regCandidates);
 
-        if (tree->OperIs(GT_LSH_HI))
-        {
-            setDelayFree(sourceLoUse);
-        }
-        else
-        {
-            setDelayFree(sourceHiUse);
-        }
+        setDelayFree(tree->OperIs(GT_LSH_HI) ? sourceLoUse : sourceHiUse);
     }
     else
 #endif
     {
-        tgtPrefUse = BuildUse(source, srcCandidates);
+        tgtPrefUse = BuildUse(value, regCandidates);
     }
 
-    if (!shiftBy->IsContainedIntCon())
+    if (!shiftBy->isContained())
     {
-        BuildDelayFreeUses(shiftBy, source, RBM_RCX);
+        BuildDelayFreeUse(shiftBy, value, RBM_RCX);
         buildKillPositionsForNode(tree, currentLoc + 1, RBM_RCX);
     }
 
-    BuildDef(tree, dstCandidates);
+    BuildDef(tree, regCandidates);
 }
 
 void LinearScan::BuildCall(GenTreeCall* call)
@@ -1442,7 +1455,7 @@ void LinearScan::BuildDivMod(GenTreeOp* tree)
         tgtPrefUse = BuildUse(op1, RBM_EAX);
     }
 
-    BuildDelayFreeUses(op2, op1, allRegs(TYP_INT) & ~(RBM_RAX | RBM_RDX));
+    BuildDelayFreeOperandUses(op2, op1, allRegs(TYP_INT) & ~(RBM_RAX | RBM_RDX));
     BuildInternalUses();
     BuildKills(tree, RBM_RAX | RBM_RDX);
     BuildDef(tree, tree->OperIs(GT_DIV, GT_UDIV) ? RBM_RAX : RBM_RDX);
@@ -1615,10 +1628,10 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                     }
                     else
                     {
-                        BuildDelayFreeUses(op2, op1);
+                        BuildDelayFreeUse(op2, op1);
                     }
 
-                    BuildDelayFreeUses(op3, op1, RBM_XMM0);
+                    BuildDelayFreeUse(op3, op1, RBM_XMM0);
                     buildUses = false;
                 }
                 break;
@@ -1643,7 +1656,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 // CRC32 may operate over "byte" but on x86 only RBM_BYTE_REGS can be used as byte registers.
                 tgtPrefUse = BuildUse(op1);
-                BuildDelayFreeUses(op2, op1, varTypeIsByte(baseType) ? allByteRegs() : RBM_NONE);
+                BuildDelayFreeOperandUses(op2, op1, varTypeIsByte(baseType) ? allByteRegs() : RBM_NONE);
                 buildUses = false;
                 break;
 #endif // TARGET_X86
@@ -1657,10 +1670,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 if (numOps == 3)
                 {
-                    // op3 reg should be different from target reg to
-                    // store the lower half result after executing the instruction
-                    BuildDelayFreeUses(op3, op1);
-                    // Need a internal register different from the dst to take the lower half result
+                    BuildDelayFreeUse(op3, op1);
                     BuildInternalIntDef(node);
                     setInternalRegsDelayFree = true;
                 }
@@ -1693,7 +1703,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
                     tgtPrefUse = BuildUse(op1);
                     BuildOperand(op2);
-                    BuildDelayFreeUses(op3, op1);
+                    BuildDelayFreeUse(op3, op1);
                 }
                 else if (op1->isContained())
                 {
@@ -1701,7 +1711,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
                     tgtPrefUse = BuildUse(op3);
                     BuildOperand(op1);
-                    BuildDelayFreeUses(op2, op1);
+                    BuildDelayFreeUse(op2, op1);
                 }
                 else
                 {
@@ -1711,7 +1721,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
                     if (copiesUpperBits)
                     {
-                        BuildDelayFreeUses(op2, op1);
+                        BuildDelayFreeUse(op2, op1);
                     }
                     else
                     {
@@ -1724,7 +1734,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                     }
                     else
                     {
-                        BuildDelayFreeUses(op3, op1);
+                        BuildDelayFreeUse(op3, op1);
                     }
                 }
 
@@ -1737,7 +1747,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(numOps == 3);
 
                 tgtPrefUse = BuildUse(op1);
-                BuildDelayFreeUses(op2, op1);
+                BuildDelayFreeUse(op2, op1);
 
                 if (op3->isContained())
                 {
@@ -1745,7 +1755,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 else
                 {
-                    BuildDelayFreeUses(op3, op1);
+                    BuildDelayFreeUse(op3, op1);
                 }
 
                 buildUses = false;
@@ -1758,7 +1768,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(!isRMW);
 
                 BuildUse(op1);
-                BuildDelayFreeUses(op2);
+                BuildDelayFreeUse(op2);
                 BuildInternalFloatDef(node, allSIMDRegs());
                 setInternalRegsDelayFree = true;
                 buildUses                = false;
@@ -1772,8 +1782,8 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 BuildUse(op1);
                 BuildUse(op2);
-                BuildDelayFreeUses(op3);
-                BuildDelayFreeUses(node->GetOp(3));
+                BuildDelayFreeUse(op3);
+                BuildDelayFreeUse(node->GetOp(3));
                 BuildInternalFloatDef(node, allSIMDRegs());
                 setInternalRegsDelayFree = true;
                 buildUses                = false;
@@ -1820,7 +1830,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                         // When op2 is not contained or if we are producing a scalar value
                         // we need to mark it as delay free because the operand and target
                         // exist in the same register set.
-                        BuildDelayFreeUses(op2, op1);
+                        BuildDelayFreeOperandUses(op2, op1);
                     }
                     else
                     {
@@ -1839,7 +1849,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 {
                     if (isRMW)
                     {
-                        BuildDelayFreeUses(op3, op1);
+                        BuildDelayFreeOperandUses(op3, op1);
                     }
                     else
                     {
