@@ -197,13 +197,6 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_FNEG:
-            // TODO-MIKE-Review: Where is this internal reg used???
-            BuildInternalFloatDef(tree, internalFloatRegCandidates());
-            BuildUse(tree->AsUnOp()->GetOp(0));
-            BuildInternalUses();
-            BuildDef(tree);
-            break;
-
         case GT_NEG:
         case GT_NOT:
         case GT_BSWAP:
@@ -360,7 +353,8 @@ void LinearScan::BuildNode(GenTree* tree)
                     break;
             }
 #endif
-            BuildRMWUses(tree->AsOp());
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
             BuildInternalUses();
             BuildDef(tree);
             break;
@@ -418,7 +412,7 @@ void LinearScan::BuildOperandUses(GenTree* node X86_ARG(regMaskTP candidates))
     }
     else if (node->OperIs(GT_IND))
     {
-        BuildAddrUses(node->AsIndir()->GetAddr() X86_ARG(candidates));
+        BuildAddrUses(node->AsIndir()->GetAddr());
     }
 }
 
@@ -451,8 +445,6 @@ bool LinearScan::isRMWRegOper(GenTreeOp* tree)
 #ifdef TARGET_X86
         case GT_MUL_LONG:
 #endif
-        // TODO-MIKE-Review: INDEX_ADDR isn't RMW but old code was bogus and removing this causes diffs.
-        case GT_INDEX_ADDR:
             return true;
 
         case GT_MUL:
@@ -472,26 +464,8 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
     GenTree* op2 = node->GetOp(1);
 
 #ifdef TARGET_X86
-    regMaskTP op1Candidates = RBM_NONE;
-    regMaskTP op2Candidates = RBM_NONE;
-
-    if (varTypeIsByte(node->GetType()))
-    {
-        regMaskTP byteCandidates = allByteRegs();
-
-        if (!op1->isContained())
-        {
-            assert(byteCandidates != RBM_NONE);
-            op1Candidates = byteCandidates;
-        }
-
-        if (node->OperIsCommutative() && !op2->isContained())
-        {
-            assert(byteCandidates != RBM_NONE);
-            op2Candidates = byteCandidates;
-        }
-    }
-#endif // TARGET_X86
+    regMaskTP opCandidates = varTypeIsByte(node->GetType()) ? allByteRegs() : RBM_NONE;
+#endif
 
     bool prefOp1 = !op1->isContained();
     bool prefOp2 = node->OperIsCommutative() && !op2->isContained();
@@ -504,11 +478,9 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
     // is commutative, codegen cannot reverse them.
     // TODO-XArch-CQ: This is not actually the case for all RMW binary operators, but there's
     // more work to be done to correctly reverse the operands if they involve memory
-    // operands.  Also, we may need to handle more cases than GT_IND, especially once
-    // we've modified the register allocator to not require all nodes to be assigned
-    // a register (e.g. a spilled lclVar can often be referenced directly from memory).
-    // Note that we may have a null op2, even with 2 sources, if op1 is a base/index memory op.
+    // operands. Also, we may need to handle more cases than GT_IND (e.g. spill temps).
     GenTree* delayUseOperand = op2;
+
     if (node->OperIsCommutative())
     {
         if (op1->isContained() && op2 != nullptr)
@@ -536,29 +508,31 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
     if (prefOp1)
     {
         assert(!op1->isContained());
-        tgtPrefUse = BuildUse(op1 X86_ARG(op1Candidates));
+        tgtPrefUse = BuildUse(op1 X86_ARG(opCandidates));
     }
     else if (delayUseOperand == op1)
     {
-        BuildDelayFreeUses(op1, op2 X86_ARG(op1Candidates));
+        assert(op1->isContained());
+        BuildDelayFreeUses(op1, op2);
     }
     else
     {
-        BuildOperandUses(op1 X86_ARG(op1Candidates));
+        assert(op1->isContained());
+        BuildOperandUses(op1);
     }
 
     if (prefOp2)
     {
         assert(!op2->isContained());
-        tgtPrefUse2 = BuildUse(op2 X86_ARG(op2Candidates));
+        tgtPrefUse2 = BuildUse(op2 X86_ARG(opCandidates));
     }
     else if (delayUseOperand == op2)
     {
-        BuildDelayFreeUses(op2, op1 X86_ARG(op2Candidates));
+        BuildDelayFreeUses(op2, op1 X86_ARG(opCandidates));
     }
     else
     {
-        BuildOperandUses(op2 X86_ARG(op2Candidates));
+        BuildOperandUses(op2 X86_ARG(opCandidates));
     }
 }
 
@@ -1484,9 +1458,6 @@ void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
     switch (tree->GetIntrinsic())
     {
         case NI_System_Math_Abs:
-            // TODO-MIKE-Review: Where is this internal reg used???
-            BuildInternalFloatDef(tree, internalFloatRegCandidates());
-            break;
         case NI_System_Math_Ceiling:
         case NI_System_Math_Floor:
         case NI_System_Math_Round:
@@ -1505,7 +1476,6 @@ void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
         BuildAddrUses(op1->AsIndir()->GetAddr());
     }
 
-    BuildInternalUses();
     BuildDef(tree);
 }
 
@@ -1937,8 +1907,7 @@ void LinearScan::BuildCast(GenTreeCast* cast)
     }
     else if (src->OperIs(GT_IND))
     {
-        // TODO-MIKE-Review: Address mode registers don't need the "byte reg" constraint...
-        BuildAddrUses(src->AsIndir()->GetAddr() X86_ARG(candidates));
+        BuildAddrUses(src->AsIndir()->GetAddr());
     }
 #ifdef TARGET_X86
     else if (src->OperIs(GT_LONG))
@@ -1953,9 +1922,7 @@ void LinearScan::BuildCast(GenTreeCast* cast)
     }
 
     BuildInternalUses();
-    // TODO-MIKE-Review: Why is the def restricted to byte regs? A cast to UBYTE
-    // is "movzx ebx, al" so only the source needs to be in a byte register.
-    BuildDef(cast X86_ARG(candidates));
+    BuildDef(cast);
 }
 
 void LinearScan::BuildLoadInd(GenTreeIndir* load)
@@ -2147,27 +2114,9 @@ void LinearScan::BuildCmp(GenTreeOp* cmp)
     GenTree* op2 = cmp->GetOp(1);
 
 #ifdef TARGET_X86
-    regMaskTP dstCandidates = RBM_NONE;
-    regMaskTP op1Candidates = RBM_NONE;
-    regMaskTP op2Candidates = RBM_NONE;
-
-    // If the compare is not used by a jump then we need to generate a SETcc instruction,
-    // which requires the dst be a byte register.
-    if (!cmp->TypeIs(TYP_VOID))
-    {
-        dstCandidates = allByteRegs();
-    }
-
     bool needByteRegs = false;
 
-    if (varTypeIsByte(cmp->GetType()))
-    {
-        if (!varTypeIsFloating(op1->GetType()))
-        {
-            needByteRegs = true;
-        }
-    }
-    else if (varTypeIsByte(op1->GetType()) && varTypeIsByte(op2->GetType()))
+    if (varTypeIsByte(op1->GetType()) && varTypeIsByte(op2->GetType()))
     {
         needByteRegs = true;
     }
@@ -2180,26 +2129,15 @@ void LinearScan::BuildCmp(GenTreeOp* cmp)
         needByteRegs = true;
     }
 
-    if (needByteRegs)
-    {
-        if (!op1->isContained())
-        {
-            op1Candidates = allByteRegs();
-        }
-
-        if (!op2->isContained())
-        {
-            op2Candidates = allByteRegs();
-        }
-    }
+    regMaskTP opCandidates = needByteRegs ? allByteRegs() : RBM_NONE;
 #endif // TARGET_X86
 
-    BuildOperandUses(op1 X86_ARG(op1Candidates));
-    BuildOperandUses(op2 X86_ARG(op2Candidates));
+    BuildOperandUses(op1 X86_ARG(opCandidates));
+    BuildOperandUses(op2 X86_ARG(opCandidates));
 
     if (!cmp->TypeIs(TYP_VOID))
     {
-        BuildDef(cmp X86_ARG(dstCandidates));
+        BuildDef(cmp X86_ARG(allByteRegs()));
     }
 }
 
