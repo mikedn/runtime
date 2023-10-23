@@ -709,11 +709,11 @@ protected:
 #endif
 
 #ifdef TARGET_X86
-    void genCodeForLongUMod(GenTreeOp* node);
+    void GenLongUMod(GenTreeOp* node);
 #endif
 
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
-    void genCodeForDivMod(GenTreeOp* treeNode);
+    void GenDivMod(GenTreeOp* treeNode);
 #endif
 
     void GenMul(GenTreeOp* mul);

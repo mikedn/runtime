@@ -177,7 +177,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
         case GT_DIV:
         case GT_UDIV:
-            genCodeForDivMod(treeNode->AsOp());
+            GenDivMod(treeNode->AsOp());
             break;
 #endif
 

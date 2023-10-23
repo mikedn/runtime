@@ -2235,7 +2235,7 @@ void CodeGen::genCodeForBswap(GenTree* tree)
     genProduceReg(tree);
 }
 
-void CodeGen::genCodeForDivMod(GenTreeOp* div)
+void CodeGen::GenDivMod(GenTreeOp* div)
 {
     assert(div->OperIs(GT_DIV, GT_UDIV) && varTypeIsIntegral(div->GetType()));
 

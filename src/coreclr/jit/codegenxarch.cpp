@@ -702,7 +702,7 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
 }
 
 #ifdef TARGET_X86
-void CodeGen::genCodeForLongUMod(GenTreeOp* node)
+void CodeGen::GenLongUMod(GenTreeOp* node)
 {
     assert(node != nullptr);
     assert(node->OperGet() == GT_UMOD);
@@ -777,67 +777,47 @@ void CodeGen::genCodeForLongUMod(GenTreeOp* node)
 }
 #endif // TARGET_X86
 
-void CodeGen::genCodeForDivMod(GenTreeOp* treeNode)
+void CodeGen::GenDivMod(GenTreeOp* div)
 {
-    assert(treeNode->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD));
-
-    GenTree* dividend = treeNode->gtOp1;
+    assert(div->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD));
+    assert(varTypeIsIntOrI(div->GetType()));
 
 #ifdef TARGET_X86
-    if (varTypeIsLong(dividend->TypeGet()))
+    if (varTypeIsLong(div->GetOp(0)->GetType()))
     {
-        genCodeForLongUMod(treeNode);
+        GenLongUMod(div);
+
         return;
     }
-#endif // TARGET_X86
+#endif
 
-    GenTree*   divisor    = treeNode->gtOp2;
-    genTreeOps oper       = treeNode->OperGet();
-    emitAttr   size       = emitTypeSize(treeNode);
-    regNumber  targetReg  = treeNode->GetRegNum();
-    var_types  targetType = treeNode->TypeGet();
-    emitter*   emit       = GetEmitter();
+    GenTree*  op1        = div->GetOp(0);
+    GenTree*  op2        = div->GetOp(1);
+    bool      isUnsigned = div->OperIs(GT_UDIV, GT_UMOD);
+    bool      isDiv      = div->OperIs(GT_DIV, GT_UDIV);
+    emitAttr  size       = emitTypeSize(div->GetType());
+    regNumber dstReg     = div->GetRegNum();
 
-    // Node's type must be int/native int, small integer types are not
-    // supported and floating point types are handled by GenFloatBinaryOp.
-    assert(varTypeIsIntOrI(targetType));
-    // dividend is in a register.
-    assert(dividend->isUsedFromReg());
+    UseReg(op1);
+    genConsumeRegs(op2);
 
-    UseReg(dividend);
-    genConsumeRegs(divisor);
+    GetEmitter()->emitIns_Mov(INS_mov, size, REG_RAX, op1->GetRegNum(), /* canSkip */ true);
 
-    // dividend must be in RAX
-    genCopyRegIfNeeded(dividend, REG_RAX);
-
-    // zero or sign extend rax to rdx
-    if ((oper == GT_UMOD) || (oper == GT_UDIV) ||
-        (dividend->IsIntegralConst() && (dividend->AsIntCon()->GetValue() > 0)))
+    if (isUnsigned || (op1->IsIntCon() && (op1->AsIntCon()->GetValue() >= 0)))
     {
         GetEmitter()->emitIns_R_R(INS_xor, EA_4BYTE, REG_EDX, REG_EDX);
     }
     else
     {
-        emit->emitIns(INS_cdq, size);
+        GetEmitter()->emitIns(INS_cdq, size);
     }
 
     liveness.RemoveGCRegs(RBM_RDX);
 
-    emitInsUnary((oper == GT_UMOD) || (oper == GT_UDIV) ? INS_div : INS_idiv, size, divisor);
+    emitInsUnary(isUnsigned ? INS_div : INS_idiv, size, op2);
+    GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, isDiv ? REG_RAX : REG_RDX, true);
 
-    // DIV/IDIV instructions always store the quotient in RAX and the remainder in RDX.
-    // Move the result to the desired register, if necessary
-    if (oper == GT_DIV || oper == GT_UDIV)
-    {
-        inst_Mov(targetType, targetReg, REG_RAX, /* canSkip */ true);
-    }
-    else
-    {
-        assert((oper == GT_MOD) || (oper == GT_UMOD));
-        inst_Mov(targetType, targetReg, REG_RDX, /* canSkip */ true);
-    }
-
-    DefReg(treeNode);
+    DefReg(div);
 }
 
 void CodeGen::genCodeForBinary(GenTreeOp* node)
@@ -1405,7 +1385,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_MOD:
         case GT_UMOD:
         case GT_UDIV:
-            genCodeForDivMod(treeNode->AsOp());
+            GenDivMod(treeNode->AsOp());
             break;
 
         case GT_ADD:

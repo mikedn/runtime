@@ -160,7 +160,7 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_DIV:
         case GT_UMOD:
         case GT_UDIV:
-            BuildModDiv(tree->AsOp());
+            BuildDivMod(tree->AsOp());
             break;
 
         case GT_MUL:
@@ -1440,7 +1440,7 @@ void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
     BuildDef(tree);
 }
 
-void LinearScan::BuildModDiv(GenTreeOp* tree)
+void LinearScan::BuildDivMod(GenTreeOp* tree)
 {
     assert(tree->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD) && varTypeIsIntegral(tree->GetType()));
 
