@@ -1526,33 +1526,13 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
     if (numOps != 0)
     {
-        GenTree* op1 = nullptr;
-        GenTree* op2 = nullptr;
-        GenTree* op3 = nullptr;
-
-        switch (numOps)
-        {
-            case 1:
-                op1 = node->GetOp(0);
-                break;
-            case 2:
-                op1 = node->GetOp(0);
-                op2 = node->GetOp(1);
-                break;
-            case 3:
-            case 4:
-            case 5:
-                op1 = node->GetOp(0);
-                op2 = node->GetOp(1);
-                op3 = node->GetOp(2);
-                break;
-            default:
-                unreached();
-        }
-
-        GenTree*            lastOp      = node->GetLastOp();
         NamedIntrinsic      intrinsicId = node->GetIntrinsic();
         HWIntrinsicCategory category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
+
+        GenTree* op1    = node->GetOp(0);
+        GenTree* op2    = numOps >= 2 ? node->GetOp(1) : nullptr;
+        GenTree* op3    = numOps >= 3 ? node->GetOp(2) : nullptr;
+        GenTree* lastOp = node->GetLastOp();
 
         if ((category == HW_Category_IMM) && !HWIntrinsicInfo::NoJmpTableImm(intrinsicId))
         {
