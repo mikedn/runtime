@@ -1703,7 +1703,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert((numOps == 2) || (numOps == 3));
 
                 BuildUse(op1, RBM_EDX);
-                BuildOperand(op2);
+                BuildOperandUses(op2);
 
                 if (numOps == 3)
                 {
