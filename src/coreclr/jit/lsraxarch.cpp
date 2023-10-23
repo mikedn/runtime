@@ -1821,7 +1821,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(!isRMW);
 
                 BuildUse(op1);
-                BuildDelayFreeUses(op2);
+                BuildUse(op2);
                 BuildDelayFreeUses(op3);
                 BuildDelayFreeUses(node->GetOp(3));
                 BuildInternalFloatDef(node, allSIMDRegs());
