@@ -9221,4 +9221,23 @@ instruction CodeGen::ins_Store(var_types dstType, bool aligned)
     return INS_mov;
 }
 
+void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
+{
+    assert(ins != INS_mov);
+#ifndef TARGET_64BIT
+    assert(size != EA_8BYTE);
+#endif
+
+#ifdef TARGET_AMD64
+    if ((EA_SIZE(size) == EA_8BYTE) && (!FitsIn<int32_t>(val) || EA_IS_CNS_RELOC(size)))
+    {
+        assert(!"Invalid immediate for inst_RV_IV");
+    }
+    else
+#endif
+    {
+        GetEmitter()->emitIns_R_I(ins, size, reg, val);
+    }
+}
+
 #endif // TARGET_XARCH

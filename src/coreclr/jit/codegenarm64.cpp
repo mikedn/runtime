@@ -8569,6 +8569,18 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
     return dst->GetRegNum();
 }
 
+void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
+{
+    assert(ins != INS_mov);
+    assert(ins != INS_cmp);
+    assert(ins != INS_tst);
+
+    // TODO-Arm64-Bug: handle large constants!
+    // Probably need something like the ARM case above: if (validImmForInstr(ins, val)) ...
+
+    GetEmitter()->emitIns_R_R_I(ins, size, reg, reg, val);
+}
+
 void CodeGen::genCheckOverflow(GenTree* node)
 {
     assert(node->gtOverflow());

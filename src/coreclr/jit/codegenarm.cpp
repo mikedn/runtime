@@ -1739,6 +1739,15 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
     return dst->GetRegNum();
 }
 
+void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
+{
+    assert(ins != INS_mov);
+    assert(size != EA_8BYTE);
+    noway_assert(emitter::validImmForInstr(ins, val, INS_FLAGS_DONT_CARE));
+
+    GetEmitter()->emitIns_R_I(ins, size, reg, val, INS_FLAGS_DONT_CARE);
+}
+
 // Return the "total" size of the stack frame, including local size and callee-saved
 // register size. There are a few things "missing" depending on the platform.
 // The function genCallerSPtoInitialSPdelta() includes those things.
