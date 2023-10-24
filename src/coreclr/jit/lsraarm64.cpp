@@ -701,28 +701,6 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
     }
 }
 
-void LinearScan::BuildDelayFreeUse(GenTree* op, GenTree* rmwNode, regMaskTP candidates)
-{
-    assert(!op->isContained());
-
-    Interval* rmwInterval  = nullptr;
-    bool      rmwIsLastUse = false;
-
-    if ((rmwNode != nullptr) && isCandidateLclVar(rmwNode))
-    {
-        rmwInterval = getIntervalForLocalVarNode(rmwNode->AsLclVar());
-        assert(!rmwNode->AsLclVar()->IsMultiReg());
-        rmwIsLastUse = rmwNode->AsLclVar()->IsLastUse(0);
-    }
-
-    RefPosition* use = BuildUse(op, candidates);
-
-    if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
-    {
-        setDelayFree(use);
-    }
-}
-
 void LinearScan::BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
 {
     assert((node->GetIntrinsic() == NI_Vector64_GetElement) || (node->GetIntrinsic() == NI_Vector128_GetElement));

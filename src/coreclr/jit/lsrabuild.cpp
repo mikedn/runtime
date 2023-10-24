@@ -1026,18 +1026,18 @@ RefPosition* LinearScan::buildInternalFloatRegisterDefForNode(GenTree* tree, reg
 void LinearScan::buildInternalRegisterUses()
 {
     assert(internalCount <= _countof(internalDefs));
+
     for (int i = 0; i < internalCount; i++)
     {
         RefPosition* def  = internalDefs[i];
         regMaskTP    mask = def->registerAssignment;
         RefPosition* use  = newRefPosition(def->getInterval(), currentLoc, RefTypeUse, def->treeNode, mask, 0);
+
         if (setInternalRegsDelayFree)
         {
-            use->delayRegFree = true;
-            pendingDelayFree  = true;
+            setDelayFree(use);
         }
     }
-    // internalCount = 0;
 }
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
@@ -2347,6 +2347,28 @@ unsigned LinearScan::BuildAddrModeUses(GenTreeAddrMode* addrMode, regMaskTP cand
     }
 
     return useCount;
+}
+
+void LinearScan::BuildDelayFreeUse(GenTree* op, GenTree* rmwNode, regMaskTP candidates)
+{
+    assert(!op->isContained());
+
+    RefPosition* use = BuildUse(op, candidates);
+
+    Interval* rmwInterval  = nullptr;
+    bool      rmwIsLastUse = false;
+
+    if ((rmwNode != nullptr) && isCandidateLclVar(rmwNode))
+    {
+        rmwInterval = getIntervalForLocalVarNode(rmwNode->AsLclVar());
+        assert(!rmwNode->AsLclVar()->IsMultiReg());
+        rmwIsLastUse = rmwNode->AsLclVar()->IsLastUse(0);
+    }
+
+    if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
+    {
+        setDelayFree(use);
+    }
 }
 
 void LinearScan::setDelayFree(RefPosition* use)

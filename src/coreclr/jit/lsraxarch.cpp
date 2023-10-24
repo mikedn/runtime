@@ -534,70 +534,19 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
     }
 }
 
-void LinearScan::BuildDelayFreeUse(GenTree* op, GenTree* rmwNode, regMaskTP candidates)
-{
-    assert(!op->isContained());
-
-    Interval* rmwInterval  = nullptr;
-    bool      rmwIsLastUse = false;
-
-    if ((rmwNode != nullptr) && isCandidateLclVar(rmwNode))
-    {
-        rmwInterval = getIntervalForLocalVarNode(rmwNode->AsLclVar());
-        // Note: we don't handle multi-reg vars here. It's not clear that there
-        // are any cases where we'd encounter a multi-reg var in an RMW context.
-        assert(!rmwNode->AsLclVar()->IsMultiReg());
-        rmwIsLastUse = rmwNode->AsLclVar()->IsLastUse(0);
-    }
-
-    RefPosition* use = BuildUse(op, candidates);
-
-    if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
-    {
-        setDelayFree(use);
-    }
-}
-
 void LinearScan::BuildDelayFreeOperandUses(GenTree* op, GenTree* rmwNode, regMaskTP candidates)
 {
     if (!op->isContained())
     {
         BuildDelayFreeUse(op, rmwNode, candidates);
-
-        return;
     }
-
-    Interval* rmwInterval  = nullptr;
-    bool      rmwIsLastUse = false;
-
-    if ((rmwNode != nullptr) && isCandidateLclVar(rmwNode))
-    {
-        rmwInterval = getIntervalForLocalVarNode(rmwNode->AsLclVar());
-        // Note: we don't handle multi-reg vars here. It's not clear that there
-        // are any cases where we'd encounter a multi-reg var in an RMW context.
-        assert(!rmwNode->AsLclVar()->IsMultiReg());
-        rmwIsLastUse = rmwNode->AsLclVar()->IsLastUse(0);
-    }
-
-    auto BuildDelayFreeUse = [this, rmwInterval, rmwIsLastUse](GenTree* operand, regMaskTP candidates) {
-        RefPosition* use = BuildUse(operand, candidates);
-
-        if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
-        {
-            setDelayFree(use);
-        }
-    };
-
 #ifdef FEATURE_HW_INTRINSICS
-    if (GenTreeHWIntrinsic* hwIntrinsicNode = op->IsHWIntrinsic())
+    else if (GenTreeHWIntrinsic* hwIntrinsicNode = op->IsHWIntrinsic())
     {
-        BuildDelayFreeUse(hwIntrinsicNode->GetOp(0), candidates);
-
-        return;
+        BuildDelayFreeUse(hwIntrinsicNode->GetOp(0), rmwNode, candidates);
     }
 #endif
-
-    if (GenTreeIndir* indir = op->IsIndir())
+    else if (GenTreeIndir* indir = op->IsIndir())
     {
         GenTree* addr = indir->GetAddr();
 
@@ -609,22 +558,20 @@ void LinearScan::BuildDelayFreeOperandUses(GenTree* op, GenTree* rmwNode, regMas
             // mode needs. Some callers pass candidates such as XMM0 or "byte regs"
             // on x86...
 
-            BuildDelayFreeUse(addr, candidates);
+            BuildDelayFreeUse(addr, rmwNode, candidates);
         }
         else if (GenTreeAddrMode* const addrMode = addr->IsAddrMode())
         {
             if (GenTree* base = addrMode->GetBase())
             {
-                BuildDelayFreeUse(base, candidates);
+                BuildDelayFreeUse(base, rmwNode, candidates);
             }
 
             if (GenTree* index = addrMode->GetIndex())
             {
-                BuildDelayFreeUse(index, candidates);
+                BuildDelayFreeUse(index, rmwNode, candidates);
             }
         }
-
-        return;
     }
 }
 
