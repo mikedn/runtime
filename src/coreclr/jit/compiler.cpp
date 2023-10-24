@@ -1093,14 +1093,8 @@ void Compiler::compSetProcessor()
     opts.setSupportedISAs(instructionSetFlags);
 
 #ifdef TARGET_XARCH
-    if (canUseVexEncoding())
-    {
-        codeGen->GetEmitter()->SetUseVEXEncoding(true);
-        // Assume each JITted method does not contain AVX instruction at first
-        codeGen->GetEmitter()->SetContainsAVX(false);
-        codeGen->GetEmitter()->SetContains256bitAVX(false);
-    }
-#endif // TARGET_XARCH
+    codeGen->GetEmitter()->SetUseVEXEncoding(canUseVexEncoding());
+#endif
 
 #ifdef FEATURE_SIMD
     featureSIMD = jitFlags.IsSet(JitFlags::JIT_FLAG_FEATURE_SIMD);

@@ -10333,6 +10333,13 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_MUL:
             noway_assert(op2 != nullptr);
 
+            if (op1->IsIntConCommon() && !op2->IsIntConCommon())
+            {
+                std::swap(op1, op2);
+                tree->AsOp()->SetOp(0, op1);
+                tree->AsOp()->SetOp(1, op2);
+            }
+
             if (opts.OptimizationEnabled() && !tree->gtOverflow())
             {
                 // MUL(NEG(a), C) => MUL(a, NEG(C))

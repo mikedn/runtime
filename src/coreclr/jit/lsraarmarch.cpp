@@ -1,18 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX              Register Requirements for ARM and ARM64 common code          XX
-XX                                                                           XX
-XX  This encapsulates common logic for setting register requirements for     XX
-XX  the ARM and ARM64 architectures.                                         XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 
 #ifdef TARGET_ARMARCH
@@ -21,17 +9,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "lower.h"
 #include "lsra.h"
 
-//------------------------------------------------------------------------
-// BuildIndir: Specify register requirements for address expression
-//                       of an indirection operation.
-//
-// Arguments:
-//    indirTree - GT_IND, GT_STOREIND or block gentree node
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-int LinearScan::BuildIndir(GenTreeIndir* indirTree)
+void LinearScan::BuildIndir(GenTreeIndir* indirTree)
 {
     // struct typed indirs are expected only on rhs of a block copy,
     // but in this case they must be contained.
@@ -57,12 +35,12 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
 
         if (type == TYP_FLOAT)
         {
-            buildInternalIntRegisterDefForNode(indirTree);
+            BuildInternalIntDef(indirTree);
         }
         else if (type == TYP_DOUBLE)
         {
-            buildInternalIntRegisterDefForNode(indirTree);
-            buildInternalIntRegisterDefForNode(indirTree);
+            BuildInternalIntDef(indirTree);
+            BuildInternalIntDef(indirTree);
         }
     }
 #endif
@@ -79,19 +57,19 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
             if ((index != nullptr) && (cns != 0))
             {
                 // ARM does not support both Index and offset so we need an internal register
-                buildInternalIntRegisterDefForNode(indirTree);
+                BuildInternalIntDef(indirTree);
             }
             else if (!emitter::emitIns_valid_imm_for_ldst_offset(cns, emitTypeSize(indirTree)))
             {
                 // This offset can't be contained in the ldr/str instruction, so we need an internal register
-                buildInternalIntRegisterDefForNode(indirTree);
+                BuildInternalIntDef(indirTree);
             }
         }
 #ifdef TARGET_ARM64
         else if (addr->OperGet() == GT_CLS_VAR_ADDR)
         {
             // Reserve int to load constant from memory (IF_LARGELDC)
-            buildInternalIntRegisterDefForNode(indirTree);
+            BuildInternalIntDef(indirTree);
         }
 #endif // TARGET_ARM64
     }
@@ -101,7 +79,7 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
     {
         // Vector3 is read/written as two reads/writes: 8 byte and 4 byte.
         // To assemble the vector properly we would need an additional int register
-        buildInternalIntRegisterDefForNode(indirTree);
+        BuildInternalIntDef(indirTree);
 
         if (indirTree->OperIs(GT_STOREIND))
         {
@@ -109,26 +87,31 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
 
             if (value->isContained())
             {
-                int srcCount = BuildIndirUses(indirTree);
-                srcCount += value->OperIs(GT_IND) ? BuildIndirUses(value->AsIndir()) : 0;
-                buildInternalRegisterUses();
-                return srcCount;
+                BuildAddrUses(indirTree->GetAddr());
+
+                if (value->OperIs(GT_IND))
+                {
+                    BuildAddrUses(value->AsIndir()->GetAddr());
+                }
+
+                BuildInternalUses();
+
+                return;
             }
         }
     }
 #endif // FEATURE_SIMD
 
-    int srcCount = BuildIndirUses(indirTree);
-    buildInternalRegisterUses();
+    BuildAddrUses(indirTree->GetAddr());
+    BuildInternalUses();
 
     if (!indirTree->OperIs(GT_STOREIND, GT_NULLCHECK))
     {
         BuildDef(indirTree);
     }
-    return srcCount;
 }
 
-int LinearScan::BuildCall(GenTreeCall* call)
+void LinearScan::BuildCall(GenTreeCall* call)
 {
     GenTree* ctrlExpr = call->IsIndirectCall() ? call->gtCallAddr : call->gtControlExpr;
 
@@ -152,23 +135,21 @@ int LinearScan::BuildCall(GenTreeCall* call)
 #ifdef FEATURE_READYTORUN_COMPILER
     else if (call->IsR2ROrVirtualStubRelativeIndir())
     {
-        buildInternalIntRegisterDefForNode(call);
+        BuildInternalIntDef(call);
     }
 #endif
 #ifdef TARGET_ARM
     else
     {
-        buildInternalIntRegisterDefForNode(call);
+        BuildInternalIntDef(call);
     }
 
     if (call->NeedsNullCheck())
     {
-        buildInternalIntRegisterDefForNode(call);
+        BuildInternalIntDef(call);
     }
 
 #endif // TARGET_ARM
-
-    int srcCount = 0;
 
     for (GenTreeCall::Use& arg : call->LateArgs())
     {
@@ -194,14 +175,12 @@ int LinearScan::BuildCall(GenTreeCall* call)
                 assert(use.GetNode()->GetRegNum() == argInfo->GetRegNum(regIndex));
 
                 BuildUse(use.GetNode(), genRegMask(use.GetNode()->GetRegNum()));
-                srcCount++;
                 regIndex++;
 
 #ifdef TARGET_ARM
                 if (use.GetNode()->TypeIs(TYP_LONG))
                 {
                     BuildUse(use.GetNode(), genRegMask(REG_NEXT(use.GetNode()->GetRegNum())), 1);
-                    srcCount++;
                     regIndex++;
                 }
 #endif
@@ -220,7 +199,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
                 assert(argNode->GetRegNum(i) == argInfo->GetRegNum(i));
 
                 BuildUse(argNode, genRegMask(argNode->GetRegNum(i)), i);
-                srcCount++;
             }
 
             continue;
@@ -237,19 +215,17 @@ int LinearScan::BuildCall(GenTreeCall* call)
 
             BuildUse(argNode, genRegMask(argNode->GetRegNum()), 0);
             BuildUse(argNode, genRegMask(REG_NEXT(argNode->GetRegNum())), 1);
-            srcCount += 2;
+
             continue;
         }
 #endif
 
         BuildUse(argNode, genRegMask(argNode->GetRegNum()));
-        srcCount++;
     }
 
     if (ctrlExpr != nullptr)
     {
         BuildUse(ctrlExpr);
-        srcCount++;
     }
 
     BuildInternalUses();
@@ -277,11 +253,9 @@ int LinearScan::BuildCall(GenTreeCall* call)
     {
         BuildDef(call, RBM_INTRET);
     }
-
-    return srcCount;
 }
 
-int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
+void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
 {
     GenTree* src = putArg->GetOp(0);
 
@@ -289,13 +263,11 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
     {
         assert(src->isContained());
 
-        int srcCount = 0;
         for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
         {
             if (!use.GetNode()->isContained())
             {
                 BuildUse(use.GetNode());
-                srcCount++;
 
 #if defined(FEATURE_SIMD) && defined(OSX_ARM64_ABI)
                 if (use.GetType() == TYP_SIMD12)
@@ -303,12 +275,13 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
                     // Vector3 is read/written as two reads/writes: 8 byte and 4 byte.
                     // To assemble the vector properly we would need an additional int register.
                     // The other platforms can write it as 16-byte using 1 write.
-                    buildInternalIntRegisterDefForNode(use.GetNode());
+                    BuildInternalIntDef(use.GetNode());
                 }
 #endif // FEATURE_SIMD && OSX_ARM64_ABI
             }
         }
-        return srcCount;
+
+        return;
     }
 
     if (src->TypeIs(TYP_STRUCT))
@@ -316,26 +289,29 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
         assert(src->isContained());
 
         // We can use a ldp/stp sequence so we need two internal registers for ARM64; one for ARM.
-        buildInternalIntRegisterDefForNode(putArg);
+        BuildInternalIntDef(putArg);
 #ifdef TARGET_ARM64
-        buildInternalIntRegisterDefForNode(putArg);
+        BuildInternalIntDef(putArg);
 #endif
-        int srcCount = src->OperIs(GT_OBJ) ? BuildAddrUses(src->AsObj()->GetAddr()) : 0;
-        buildInternalRegisterUses();
-        return srcCount;
+
+        if (src->OperIs(GT_OBJ))
+        {
+            BuildAddrUses(src->AsObj()->GetAddr());
+        }
+
+        BuildInternalUses();
+
+        return;
     }
 
     if (!src->isContained())
     {
         BuildUse(src);
-        return 1;
     }
-
-    return 0;
 }
 
 #if FEATURE_ARG_SPLIT
-int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
+void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 {
     CallArgInfo* argInfo    = putArg->GetArgInfo();
     regMaskTP    argRegMask = RBM_NONE;
@@ -345,13 +321,11 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
         argRegMask |= genRegMask(argInfo->GetRegNum(i));
     }
 
-    GenTree* src      = putArg->GetOp(0);
-    unsigned srcCount = 0;
+    GenTree* src = putArg->GetOp(0);
 
     if (src->IsIntegralConst(0))
     {
         BuildUse(src);
-        srcCount++;
     }
     else
     {
@@ -372,7 +346,6 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
                 }
 
                 BuildUse(node, regMask);
-                srcCount++;
                 regIndex++;
 
 #ifdef TARGET_ARM
@@ -383,7 +356,6 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
                     regMask = genRegMask(argInfo->GetRegNum(regIndex));
 
                     BuildUse(node, regMask, 1);
-                    srcCount++;
                     regIndex++;
                 }
 #endif
@@ -395,7 +367,7 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 
             if (src->OperIs(GT_OBJ))
             {
-                srcCount += BuildAddrUses(src->AsObj()->GetAddr());
+                BuildAddrUses(src->AsObj()->GetAddr());
             }
 
             BuildInternalUses();
@@ -406,17 +378,17 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
     {
         BuildDef(putArg, putArg->GetRegType(i), genRegMask(argInfo->GetRegNum(i)), i);
     }
-
-    return srcCount;
 }
 #endif // FEATURE_ARG_SPLIT
 
-int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
+void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {
 #ifdef TARGET_ARM64
     if (kind == StructStoreKind::UnrollRegsWB)
     {
-        return BuildStructStoreUnrollRegsWB(store->AsObj(), layout);
+        BuildStructStoreUnrollRegsWB(store->AsObj(), layout);
+
+        return;
     }
 #endif
 
@@ -528,27 +500,21 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
         BuildInternalIntDef(store, sizeRegMask);
     }
 
-    int useCount = 0;
-
     if (dstAddr != nullptr)
     {
         if (!dstAddr->isContained())
         {
-            useCount++;
             BuildUse(dstAddr, dstAddrRegMask);
         }
         else if (dstAddr->IsAddrMode())
         {
-            useCount += BuildAddrUses(dstAddr->AsAddrMode()->GetBase());
+            BuildAddrUses(dstAddr->AsAddrMode()->GetBase());
         }
     }
 
     if (kind == StructStoreKind::UnrollRegs)
     {
-        unsigned regCount = src->AsCall()->GetRegCount();
-        useCount += regCount;
-
-        for (unsigned i = 0; i < regCount; i++)
+        for (unsigned i = 0, count = src->AsCall()->GetRegCount(); i < count; i++)
         {
             BuildUse(src, RBM_NONE, i);
         }
@@ -557,22 +523,19 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
     {
         if (!srcAddrOrFill->isContained())
         {
-            useCount++;
             BuildUse(srcAddrOrFill, srcRegMask);
         }
         else if (srcAddrOrFill->IsAddrMode())
         {
-            useCount += BuildAddrUses(srcAddrOrFill->AsAddrMode()->GetBase());
+            BuildAddrUses(srcAddrOrFill->AsAddrMode()->GetBase());
         }
     }
 
     BuildInternalUses();
     BuildKills(store, getKillSetForStructStore(kind));
-
-    return useCount;
 }
 
-int LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout)
+void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout)
 {
 #ifndef TARGET_ARM64
     unreached();
@@ -599,12 +562,23 @@ int LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* lay
     BuildUse(value, RBM_NONE, 1);
     BuildInternalUses();
     BuildKills(store, compiler->compHelperCallKillSet(CORINFO_HELP_CHECKED_ASSIGN_REF));
-
-    return 3;
 #endif
 }
 
-int LinearScan::BuildCast(GenTreeCast* cast)
+void LinearScan::BuildBoundsChk(GenTreeBoundsChk* node)
+{
+    if (!node->GetOp(0)->IsContainedIntCon())
+    {
+        BuildUse(node->GetOp(0));
+    }
+
+    if (!node->GetOp(1)->IsContainedIntCon())
+    {
+        BuildUse(node->GetOp(1));
+    }
+}
+
+void LinearScan::BuildCast(GenTreeCast* cast)
 {
     GenTree* src = cast->GetOp(0);
 
@@ -622,25 +596,45 @@ int LinearScan::BuildCast(GenTreeCast* cast)
     }
 #endif
 
-    int srcCount = BuildOperandUses(src);
-    buildInternalRegisterUses();
+    if (!src->isContained())
+    {
+        BuildUse(src);
+    }
+    else if (src->OperIs(GT_IND))
+    {
+        BuildAddrUses(src->AsIndir()->GetAddr());
+    }
+#ifdef TARGET_ARM
+    else if (src->OperIs(GT_LONG))
+    {
+        BuildUse(src->AsOp()->GetOp(0));
+        BuildUse(src->AsOp()->GetOp(1));
+    }
+#endif
+    else
+    {
+        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+    }
+
+    BuildInternalUses();
     BuildDef(cast);
-    return srcCount;
 }
 
-int LinearScan::BuildCmp(GenTreeOp* cmp)
+void LinearScan::BuildCmp(GenTreeOp* cmp)
 {
     assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP) ARM64_ONLY(|| cmp->OperIs(GT_JCMP)));
 
     BuildUse(cmp->GetOp(0));
-    int srcCount = 1 + BuildOperandUses(cmp->GetOp(1));
+
+    if (!cmp->GetOp(1)->IsContainedIntCon())
+    {
+        BuildUse(cmp->GetOp(1));
+    }
 
     if (!cmp->TypeIs(TYP_VOID))
     {
         BuildDef(cmp);
     }
-
-    return srcCount;
 }
 
 #endif // TARGET_ARMARCH

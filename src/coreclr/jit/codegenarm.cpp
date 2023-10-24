@@ -1,50 +1,32 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                        ARM Code Generator                                 XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
 #ifdef TARGET_ARM
+
 #include "codegen.h"
 #include "lower.h"
 #include "emit.h"
 
-//------------------------------------------------------------------------
-// genInstrWithConstant: We will typically generate one instruction
+// Generate an instruction with an immediate operand. Usually that's simply:
 //
 //    ins  reg1, reg2, imm
 //
-// However the imm might not fit as a directly encodable immediate.
-// When it doesn't fit we generate extra instruction(s) that sets up
-// the 'regTmp' with the proper immediate value.
+// However, the imm might not fit as a directly encodable immediate. When it
+// doesn't fit we generate extra instruction(s) that sets up the 'regTmp'
+// with the proper immediate value.
 //
 //     mov  regTmp, imm
 //     ins  reg1, reg2, regTmp
 //
-// Generally, codegen constants are marked non-containable if they don't fit. This function
-// is used for cases that aren't mirrored in the IR, such as in the prolog.
+// Generally, codegen constants are marked non-containable if they don't fit.
+// This function is used for cases that aren't mirrored in the IR, such as
+// in the prolog.
 //
-// Arguments:
-//    ins                 - instruction
-//    attr                - operation size and GC attribute
-//    reg1, reg2          - first and second register operands
-//    imm                 - immediate value (third operand when it fits)
-//    tmpReg              - temp register to use when the 'imm' doesn't fit. Can be REG_NA
-//                          if caller knows for certain the constant will fit.
-//
-// Return Value:
-//    returns true if the immediate was small enough to be encoded inside instruction. If not,
-//    returns false meaning the immediate was too large and tmpReg was used and modified.
+// Returns true if the immediate was small enough to be encoded inside instruction.
+// If not, returns false meaning the immediate was too large and tmpReg was used
+// and modified.
 //
 bool CodeGen::genInstrWithConstant(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ssize_t imm, regNumber tmpReg)
@@ -88,19 +70,16 @@ bool CodeGen::genInstrWithConstant(
     return immFitsInIns;
 }
 
-//------------------------------------------------------------------------
-// genStackPointerAdjustment: add a specified constant value to the stack pointer.
+// Add a specified constant value to the stack pointer.
 // An available temporary register is required to be specified, in case the constant
 // is too large to encode in an "add" instruction (or "sub" instruction if we choose
 // to use one), such that we need to load the constant into a register first, before using it.
 //
-// Arguments:
-//    spDelta                 - the value to add to SP (can be negative)
-//    tmpReg                  - an available temporary register
+// spDelta - the value to add to SP (can be negative)
+// tmpReg  - an available temporary register
 //
-// Return Value:
-//    returns true if the immediate was small enough to be encoded inside instruction. If not,
-//    returns false meaning the immediate was too large and tmpReg was used and modified.
+// Returns true if the immediate was small enough to be encoded inside instruction.
+// If not, returns false meaning the immediate was too large and tmpReg was used and modified.
 //
 bool CodeGen::genStackPointerAdjustment(ssize_t spDelta, regNumber tmpReg)
 {
@@ -109,9 +88,6 @@ bool CodeGen::genStackPointerAdjustment(ssize_t spDelta, regNumber tmpReg)
     return genInstrWithConstant(INS_add, EA_PTRSIZE, REG_SPBASE, REG_SPBASE, spDelta, tmpReg);
 }
 
-//------------------------------------------------------------------------
-// genCallFinally: Generate a call to the finally block.
-//
 BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
 {
     BasicBlock* bbFinallyRet = nullptr;
@@ -148,7 +124,6 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
     genMov32RelocatableDisplacement(block->bbJumpDest, REG_INTRET);
 }
 
-// Move of relocatable displacement value to register
 void CodeGen::genMov32RelocatableDisplacement(BasicBlock* block, regNumber reg)
 {
     GetEmitter()->emitIns_R_L(INS_movw, EA_4BYTE_DSP_RELOC, block, reg);
@@ -160,7 +135,6 @@ void CodeGen::genMov32RelocatableDisplacement(BasicBlock* block, regNumber reg)
     }
 }
 
-// Move of relocatable data-label to register
 void CodeGen::genMov32RelocatableDataLabel(unsigned value, regNumber reg)
 {
     GetEmitter()->emitIns_R_D(INS_movw, EA_HANDLE_CNS_RELOC, value, reg);
@@ -172,7 +146,6 @@ void CodeGen::genMov32RelocatableDataLabel(unsigned value, regNumber reg)
     }
 }
 
-// Move of relocatable immediate to register
 void CodeGen::genMov32RelocatableImmediate(emitAttr size, BYTE* addr, regNumber reg)
 {
     _ASSERTE(EA_IS_RELOC(size));
@@ -346,33 +319,13 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     DefReg(treeNode);
 }
 
-//--------------------------------------------------------------------------------------
-// genLclHeap: Generate code for localloc
-//
-// Description:
-//      There are 2 ways depending from build version to generate code for localloc:
-//          1) For debug build where memory should be initialized we generate loop
-//             which invoke push {tmpReg} N times.
-//          2) For non-debug build, we tickle the pages to ensure that SP is always
-//             valid and is in sync with the "stack guard page". Amount of iteration
-//             is N/eeGetPageSize().
-//
-// Comments:
-//      There can be some optimization:
-//          1) It's not needed to generate loop for zero size allocation
-//          2) For small allocation (less than 4 store) we unroll loop
-//          3) For allocation less than eeGetPageSize() and when it's not needed to initialize
-//             memory to zero, we can just decrement SP.
-//
-// Notes: Size N should be aligned to STACK_ALIGN before any allocation
-//
 void CodeGen::genLclHeap(GenTree* tree)
 {
-    assert(tree->OperGet() == GT_LCLHEAP);
+    assert(tree->OperIs(GT_LCLHEAP));
     assert(compiler->compLocallocUsed);
 
-    GenTree* size = tree->AsOp()->gtOp1;
-    noway_assert((genActualType(size->gtType) == TYP_INT) || (genActualType(size->gtType) == TYP_I_IMPL));
+    GenTree* size = tree->AsUnOp()->GetOp(0);
+    noway_assert(varActualTypeIsIntOrI(size->GetType()));
 
     // Result of localloc will be returned in regCnt.
     // Also it used as temporary register in code generation
@@ -384,8 +337,23 @@ void CodeGen::genLclHeap(GenTree* tree)
     unsigned             stackAdjustment          = 0;
     regNumber            regTmp                   = REG_NA;
     const target_ssize_t ILLEGAL_LAST_TOUCH_DELTA = (target_ssize_t)-1;
-    target_ssize_t       lastTouchDelta =
-        ILLEGAL_LAST_TOUCH_DELTA; // The number of bytes from SP to the last stack address probed.
+    // The number of bytes from SP to the last stack address probed.
+    target_ssize_t lastTouchDelta = ILLEGAL_LAST_TOUCH_DELTA;
+
+    // There are 2 ways depending from build version to generate code for localloc:
+    //     1) For debug build where memory should be initialized we generate loop
+    //        which invoke push {tmpReg} N times.
+    //     2) For non-debug build, we tickle the pages to ensure that SP is always
+    //        valid and is in sync with the "stack guard page". Amount of iteration
+    //        is N/eeGetPageSize().
+    //
+    // There can be some optimization:
+    //     1) It's not needed to generate loop for zero size allocation
+    //     2) For small allocation (less than 4 store) we unroll loop
+    //     3) For allocation less than eeGetPageSize() and when it's not needed to initialize
+    //        memory to zero, we can just decrement SP.
+    //
+    // Notes: Size N should be aligned to STACK_ALIGN before any allocation
 
     noway_assert(isFramePointerUsed()); // localloc requires Frame Pointer to be established since SP changes
 #if !FEATURE_FIXED_OUT_ARGS
@@ -607,9 +575,6 @@ ALLOC_DONE:
     genProduceReg(tree);
 }
 
-//------------------------------------------------------------------------
-// genTableBasedSwitch: generate code for a switch statement based on a table of ip-relative offsets
-//
 void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
 {
     regNumber idxReg  = UseReg(treeNode->GetOp(0));
@@ -694,28 +659,16 @@ instruction CodeGen::genGetInsForOper(genTreeOps oper)
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForShiftLong: Generates the code sequence for a GenTree node that
-// represents a three operand bit shift or rotate operation (<<Hi, >>Lo).
-//
-// Arguments:
-//    tree - the bit shift node (that specifies the type of bit shift to perform).
-//
-// Assumptions:
-//    a) All GenTrees are register allocated.
-//    b) The shift-by-amount in tree->AsOp()->gtOp2 is a contained constant
-//
 void CodeGen::genCodeForShiftLong(GenTree* tree)
 {
-    // Only the non-RMW case here.
-    genTreeOps oper = tree->OperGet();
+    genTreeOps oper = tree->GetOper();
     assert(oper == GT_LSH_HI || oper == GT_RSH_LO);
 
-    GenTree* operand = tree->AsOp()->gtOp1;
-    assert(operand->OperGet() == GT_LONG);
+    GenTree* operand = tree->AsOp()->GetOp(0);
+    assert(operand->OperIs(GT_LONG));
 
-    GenTree* operandLo = operand->gtGetOp1();
-    GenTree* operandHi = operand->gtGetOp2();
+    GenTree* operandLo = operand->AsOp()->GetOp(0);
+    GenTree* operandHi = operand->AsOp()->GetOp(1);
 
     regNumber regLo  = UseReg(operandLo);
     regNumber regHi  = UseReg(operandHi);
@@ -725,10 +678,8 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
     instruction ins        = genGetInsForOper(oper);
 
     GenTree* shiftBy = tree->gtGetOp2();
-
-    assert(shiftBy->isContainedIntOrIImmed());
-
-    unsigned count = (unsigned)shiftBy->AsIntConCommon()->IconValue();
+    assert(shiftBy->IsContainedIntCon());
+    unsigned count = shiftBy->AsIntCon()->GetUInt32Value();
 
     regNumber regResult = (oper == GT_LSH_HI) ? regHi : regLo;
 
@@ -882,18 +833,6 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     DefLclVarReg(store);
 }
 
-//------------------------------------------------------------------------
-// genCkfinite: Generate code for ckfinite opcode.
-//
-// Arguments:
-//    treeNode - The GT_CKFINITE node
-//
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    GT_CKFINITE node has reserved an internal register.
-//
 void CodeGen::genCkfinite(GenTree* treeNode)
 {
     assert(treeNode->OperIs(GT_CKFINITE));
@@ -972,12 +911,6 @@ void CodeGen::GenCompare(GenTreeOp* cmp)
     DefReg(cmp);
 }
 
-//------------------------------------------------------------------------
-// genCodeForReturnTrap: Produce code for a GT_RETURNTRAP node.
-//
-// Arguments:
-//    tree - the GT_RETURNTRAP node
-//
 void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
 {
     assert(tree->OperGet() == GT_RETURNTRAP);
@@ -1194,7 +1127,7 @@ void CodeGen::genFloatToIntCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNumber callTargetReg /*= REG_NA */)
+void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNumber callTargetReg)
 {
     // Can we call the helper function directly
 
@@ -1258,15 +1191,6 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
     // clang-format on
 }
 
-//------------------------------------------------------------------------
-// genCodeForMulLong: Generates code for int*int->long multiplication
-//
-// Arguments:
-//    node - the GT_MUL_LONG node
-//
-// Return Value:
-//    None.
-//
 void CodeGen::genCodeForMulLong(GenTreeOp* node)
 {
     assert(node->OperGet() == GT_MUL_LONG);
@@ -1301,16 +1225,11 @@ void CodeGen::genFloatReturn(GenTree* src)
 
 #ifdef PROFILING_SUPPORTED
 
-//-----------------------------------------------------------------------------------
-// PrologProfilingEnterCallback: Generate the profiling function enter callback.
+// Generate the profiling function enter callback.
 //
-// Arguments:
-//     initReg        - register to use as scratch register
-//     pInitRegZeroed - OUT parameter. *pInitRegZeroed set to 'false' if 'initReg' is
-//                      not zero after this call.
-//
-// Return Value:
-//     None
+// initReg        - register to use as scratch register
+// pInitRegZeroed - OUT parameter. *pInitRegZeroed set to 'false' if 'initReg' is
+//                  not zero after this call.
 //
 void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 {
@@ -1346,8 +1265,6 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     }
 }
 
-// Generate the profiling function leave or tailcall callback.
-// Technically, this is not part of the epilog; it is called when we are generating code for a GT_RETURN node.
 void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
@@ -1438,26 +1355,20 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
 #endif // PROFILING_SUPPORTED
 
-//------------------------------------------------------------------------
-// PrologAllocLclFrame: Probe the stack and allocate the local stack frame - subtract from SP.
+// Probe the stack and allocate the local stack frame - subtract from SP.
 //
-// Notes:
-//      The first instruction of the prolog is always a push (which touches the lowest address
-//      of the stack), either of the LR register or of some argument registers, e.g., in the case of
-//      pre-spilling. The LR register is always pushed because we require it to allow for GC return
-//      address hijacking (see the comment in CodeGen::PrologPushCalleeSavedRegisters()). These pushes
-//      happen immediately before calling this function, so the SP at the current location has already
-//      been touched.
+// The first instruction of the prolog is always a push (which touches the lowest address
+// of the stack), either of the LR register or of some argument registers, e.g., in the case of
+// pre-spilling. The LR register is always pushed because we require it to allow for GC return
+// address hijacking (see the comment in CodeGen::PrologPushCalleeSavedRegisters()). These pushes
+// happen immediately before calling this function, so the SP at the current location has already
+// been touched.
 //
-// Arguments:
-//      frameSize         - the size of the stack frame being allocated.
-//      initReg           - register to use as a scratch register.
-//      pInitRegZeroed    - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
+// frameSize         - the size of the stack frame being allocated.
+// initReg           - register to use as a scratch register.
+// pInitRegZeroed    - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
 //                          this call sets 'initReg' to a non-zero value.
-//      maskArgRegsLiveIn - incoming argument registers that are currently live.
-//
-// Return value:
-//      None
+// maskArgRegsLiveIn - incoming argument registers that are currently live.
 //
 void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
                                   regNumber initReg,
@@ -1828,19 +1739,22 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
     return dst->GetRegNum();
 }
 
-//---------------------------------------------------------------------
-// genTotalFrameSize - return the "total" size of the stack frame, including local size
-// and callee-saved register size. There are a few things "missing" depending on the
-// platform. The function genCallerSPtoInitialSPdelta() includes those things.
-//
+void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
+{
+    assert(ins != INS_mov);
+    assert(size != EA_8BYTE);
+    noway_assert(emitter::validImmForInstr(ins, val, INS_FLAGS_DONT_CARE));
+
+    GetEmitter()->emitIns_R_I(ins, size, reg, val, INS_FLAGS_DONT_CARE);
+}
+
+// Return the "total" size of the stack frame, including local size and callee-saved
+// register size. There are a few things "missing" depending on the platform.
+// The function genCallerSPtoInitialSPdelta() includes those things.
 // For ARM, this doesn't include the prespilled registers.
 //
 // For x86, this doesn't include the frame pointer if isFramePointerUsed() is true.
 // It also doesn't include the pushed return address.
-//
-// Return value:
-//    Frame size
-
 int CodeGenInterface::genTotalFrameSize() const
 {
     assert(calleeRegsPushed != UINT_MAX);
@@ -1851,13 +1765,9 @@ int CodeGenInterface::genTotalFrameSize() const
     return totalFrameSize;
 }
 
-//---------------------------------------------------------------------
-// genSPtoFPdelta - return the offset from SP to the frame pointer.
-// This number is going to be positive, since SP must be at the lowest
-// address.
-//
+// Returns the offset from SP to the frame pointer.
+// This number is going to be positive, since SP must be at the lowest address.
 // There must be a frame pointer to call this function!
-
 int CodeGenInterface::genSPtoFPdelta() const
 {
     assert(isFramePointerUsed());
@@ -1868,13 +1778,10 @@ int CodeGenInterface::genSPtoFPdelta() const
     return delta;
 }
 
-//---------------------------------------------------------------------
-// genCallerSPtoFPdelta - return the offset from Caller-SP to the frame pointer.
+// Returns the offset from Caller-SP to the frame pointer.
 // This number is going to be negative, since the Caller-SP is at a higher
 // address than the frame pointer.
-//
 // There must be a frame pointer to call this function!
-
 int CodeGenInterface::genCallerSPtoFPdelta() const
 {
     assert(isFramePointerUsed());
@@ -1888,11 +1795,8 @@ int CodeGenInterface::genCallerSPtoFPdelta() const
     return callerSPtoFPdelta;
 }
 
-//---------------------------------------------------------------------
-// genCallerSPtoInitialSPdelta - return the offset from Caller-SP to Initial SP.
-//
+// Return the offset from Caller-SP to Initial SP.
 // This number will be negative.
-
 int CodeGenInterface::genCallerSPtoInitialSPdelta() const
 {
     int callerSPtoSPdelta = 0;
@@ -2165,16 +2069,12 @@ void CodeGen::PrologZeroRegs(regMaskTP initRegs, regNumber initReg, regMaskTP do
     }
 }
 
-//------------------------------------------------------------------------
-// genFreeLclFrame: free the local stack frame by adding `frameSize` to SP.
+// Free the local stack frame by adding `frameSize` to SP.
+// If epilog unwind hasn't been started, and we generate code, we start unwind
+// and set* pUnwindStarted = true.
 //
-// Arguments:
-//   frameSize - the frame size to free;
-//   pUnwindStarted - was epilog unwind started or not.
-//
-// Notes:
-//   If epilog unwind hasn't been started, and we generate code, we start unwind
-//    and set* pUnwindStarted = true.
+// frameSize - the frame size to free;
+// pUnwindStarted - was epilog unwind started or not.
 //
 void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStarted)
 {
@@ -2229,12 +2129,9 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
     compiler->unwindAllocStack(frameSize);
 }
 
-/*-----------------------------------------------------------------------------
- *
- *  Returns register mask to push/pop to allocate a small stack frame,
- *  instead of using "sub sp" / "add sp". Returns RBM_NONE if either frame size
- *  is zero, or if we should use "sub sp" / "add sp" instead of push/pop.
- */
+// Returns register mask to push/pop to allocate a small stack frame,
+// instead of using "sub sp" / "add sp". Returns RBM_NONE if either frame size
+// is zero, or if we should use "sub sp" / "add sp" instead of push/pop.
 regMaskTP CodeGen::genStackAllocRegisterMask(unsigned frameSize, regMaskTP modifiedRegs)
 {
     assert(generatingProlog || generatingEpilog);
@@ -2378,107 +2275,104 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
     compiler->unwindPopMaskInt(maskPopRegsInt);
 }
 
-/*****************************************************************************
- *
- *  Generates code for an EH funclet prolog.
- *
- *  Funclets have the following incoming arguments:
- *
- *      catch:          r0 = the exception object that was caught (see GT_CATCH_ARG)
- *      filter:         r0 = the exception object to filter (see GT_CATCH_ARG), r1 = CallerSP of the containing function
- *      finally/fault:  none
- *
- *  Funclets set the following registers on exit:
- *
- *      catch:          r0 = the address at which execution should resume (see BBJ_EHCATCHRET)
- *      filter:         r0 = non-zero if the handler should handle the exception, zero otherwise (see GT_RETFILT)
- *      finally/fault:  none
- *
- *  The ARM funclet prolog sequence is:
- *
- *     push {regs,lr}   ; We push the callee-saved regs and 'lr'.
- *                      ;   TODO-ARM-CQ: We probably only need to save lr, plus any callee-save registers that we
- *                      ;         actually use in the funclet. Currently, we save the same set of callee-saved regs
- *                      ;         calculated for the entire function.
- *     sub sp, XXX      ; Establish the rest of the frame.
- *                      ;   XXX is determined by lvaOutgoingArgSpaceSize plus space for the PSP slot, aligned
- *                      ;   up to preserve stack alignment. If we push an odd number of registers, we also
- *                      ;   generate this, to keep the stack aligned.
- *
- *     ; Fill the PSP slot, for use by the VM (it gets reported with the GC info), or by code generation of nested
- *     ;     filters.
- *     ; This is not part of the "OS prolog"; it has no associated unwind data, and is not reversed in the funclet
- *     ;     epilog.
- *
- *     if (this is a filter funclet)
- *     {
- *          // r1 on entry to a filter funclet is CallerSP of the containing function:
- *          // either the main function, or the funclet for a handler that this filter is dynamically nested within.
- *          // Note that a filter can be dynamically nested within a funclet even if it is not statically within
- *          // a funclet. Consider:
- *          //
- *          //    try {
- *          //        try {
- *          //            throw new Exception();
- *          //        } catch(Exception) {
- *          //            throw new Exception();     // The exception thrown here ...
- *          //        }
- *          //    } filter {                         // ... will be processed here, while the "catch" funclet frame is
- *          //                                       // still on the stack
- *          //    } filter-handler {
- *          //    }
- *          //
- *          // Because of this, we need a PSP in the main function anytime a filter funclet doesn't know whether the
- *          // enclosing frame will be a funclet or main function. We won't know any time there is a filter protecting
- *          // nested EH. To simplify, we just always create a main function PSP for any function with a filter.
- *
- *          ldr r1, [r1 - PSP_slot_CallerSP_offset]     ; Load the CallerSP of the main function (stored in the PSP of
- *                                                      ; the dynamically containing funclet or function)
- *          str r1, [sp + PSP_slot_SP_offset]           ; store the PSP
- *          sub r11, r1, Function_CallerSP_to_FP_delta  ; re-establish the frame pointer
- *     }
- *     else
- *     {
- *          // This is NOT a filter funclet. The VM re-establishes the frame pointer on entry.
- *          // TODO-ARM-CQ: if VM set r1 to CallerSP on entry, like for filters, we could save an instruction.
- *
- *          add r3, r11, Function_CallerSP_to_FP_delta  ; compute the CallerSP, given the frame pointer. r3 is scratch.
- *          str r3, [sp + PSP_slot_SP_offset]           ; store the PSP
- *     }
- *
- *  The epilog sequence is then:
- *
- *     add sp, XXX      ; if necessary
- *     pop {regs,pc}
- *
- *  If it is worth it, we could push r0, r1, r2, r3 instead of using an additional add/sub instruction.
- *  Code size would be smaller, but we would be writing to / reading from the stack, which might be slow.
- *
- *  The funclet frame is thus:
- *
- *      |                       |
- *      |-----------------------|
- *      |       incoming        |
- *      |       arguments       |
- *      +=======================+ <---- Caller's SP
- *      |Callee saved registers |
- *      |-----------------------|
- *      |Pre-spill regs space   |   // This is only necessary to keep the PSP slot at the same offset
- *      |                       |   // in function and funclet
- *      |-----------------------|
- *      |        PSP slot       |   // Omitted in CoreRT ABI
- *      |-----------------------|
- *      ~  possible 4 byte pad  ~
- *      ~     for alignment     ~
- *      |-----------------------|
- *      |   Outgoing arg space  |
- *      |-----------------------| <---- Ambient SP
- *      |       |               |
- *      ~       | Stack grows   ~
- *      |       | downward      |
- *              V
- */
-
+//  Generates code for an EH funclet prolog.
+//
+//  Funclets have the following incoming arguments:
+//
+//      catch:          r0 = the exception object that was caught (see GT_CATCH_ARG)
+//      filter:         r0 = the exception object to filter (see GT_CATCH_ARG), r1 = CallerSP of the containing function
+//      finally/fault:  none
+//
+//  Funclets set the following registers on exit:
+//
+//      catch:          r0 = the address at which execution should resume (see BBJ_EHCATCHRET)
+//      filter:         r0 = non-zero if the handler should handle the exception, zero otherwise (see GT_RETFILT)
+//      finally/fault:  none
+//
+//  The ARM funclet prolog sequence is:
+//
+//     push {regs,lr}   ; We push the callee-saved regs and 'lr'.
+//                      ;   TODO-ARM-CQ: We probably only need to save lr, plus any callee-save registers that we
+//                      ;         actually use in the funclet. Currently, we save the same set of callee-saved regs
+//                      ;         calculated for the entire function.
+//     sub sp, XXX      ; Establish the rest of the frame.
+//                      ;   XXX is determined by lvaOutgoingArgSpaceSize plus space for the PSP slot, aligned
+//                      ;   up to preserve stack alignment. If we push an odd number of registers, we also
+//                      ;   generate this, to keep the stack aligned.
+//
+//     ; Fill the PSP slot, for use by the VM (it gets reported with the GC info), or by code generation of nested
+//     ;     filters.
+//     ; This is not part of the "OS prolog"; it has no associated unwind data, and is not reversed in the funclet
+//     ;     epilog.
+//
+//     if (this is a filter funclet)
+//     {
+//          // r1 on entry to a filter funclet is CallerSP of the containing function:
+//          // either the main function, or the funclet for a handler that this filter is dynamically nested within.
+//          // Note that a filter can be dynamically nested within a funclet even if it is not statically within
+//          // a funclet. Consider:
+//          //
+//          //    try {
+//          //        try {
+//          //            throw new Exception();
+//          //        } catch(Exception) {
+//          //            throw new Exception();     // The exception thrown here ...
+//          //        }
+//          //    } filter {                         // ... will be processed here, while the "catch" funclet frame is
+//          //                                       // still on the stack
+//          //    } filter-handler {
+//          //    }
+//          //
+//          // Because of this, we need a PSP in the main function anytime a filter funclet doesn't know whether the
+//          // enclosing frame will be a funclet or main function. We won't know any time there is a filter protecting
+//          // nested EH. To simplify, we just always create a main function PSP for any function with a filter.
+//
+//          ldr r1, [r1 - PSP_slot_CallerSP_offset]     ; Load the CallerSP of the main function (stored in the PSP of
+//                                                      ; the dynamically containing funclet or function)
+//          str r1, [sp + PSP_slot_SP_offset]           ; store the PSP
+//          sub r11, r1, Function_CallerSP_to_FP_delta  ; re-establish the frame pointer
+//     }
+//     else
+//     {
+//          // This is NOT a filter funclet. The VM re-establishes the frame pointer on entry.
+//          // TODO-ARM-CQ: if VM set r1 to CallerSP on entry, like for filters, we could save an instruction.
+//
+//          add r3, r11, Function_CallerSP_to_FP_delta  ; compute the CallerSP, given the frame pointer. r3 is scratch.
+//          str r3, [sp + PSP_slot_SP_offset]           ; store the PSP
+//     }
+//
+//  The epilog sequence is then:
+//
+//     add sp, XXX      ; if necessary
+//     pop {regs,pc}
+//
+//  If it is worth it, we could push r0, r1, r2, r3 instead of using an additional add/sub instruction.
+//  Code size would be smaller, but we would be writing to / reading from the stack, which might be slow.
+//
+//  The funclet frame is thus:
+//
+//      |                       |
+//      |-----------------------|
+//      |       incoming        |
+//      |       arguments       |
+//      +=======================+ <---- Caller's SP
+//      |Callee saved registers |
+//      |-----------------------|
+//      |Pre-spill regs space   |   // This is only necessary to keep the PSP slot at the same offset
+//      |                       |   // in function and funclet
+//      |-----------------------|
+//      |        PSP slot       |   // Omitted in CoreRT ABI
+//      |-----------------------|
+//      ~  possible 4 byte pad  ~
+//      ~     for alignment     ~
+//      |-----------------------|
+//      |   Outgoing arg space  |
+//      |-----------------------| <---- Ambient SP
+//      |       |               |
+//      ~       | Stack grows   ~
+//      |       | downward      |
+//              V
+//
 void CodeGen::genFuncletProlog(BasicBlock* block)
 {
 #ifdef DEBUG
@@ -2560,11 +2454,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     }
 }
 
-/*****************************************************************************
- *
- *  Generates code for an EH funclet epilog.
- */
-
 void CodeGen::genFuncletEpilog()
 {
 #ifdef DEBUG
@@ -2620,16 +2509,6 @@ void CodeGen::genFuncletEpilog()
 
     compiler->unwindEndEpilog();
 }
-
-/*****************************************************************************
- *
- *  Capture the information used to generate the funclet prologs and epilogs.
- *  Note that all funclet prologs are identical, and all funclet epilogs are
- *  identical (per type: filters are identical, and non-filters are identical).
- *  Thus, we compute the data used for these just once.
- *
- *  See genFuncletProlog() for more information about the prolog/epilog sequences.
- */
 
 void CodeGen::genCaptureFuncletPrologEpilogInfo()
 {

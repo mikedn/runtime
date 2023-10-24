@@ -189,38 +189,6 @@ void CodeGen::inst_IV(instruction ins, cnsval_ssize_t val)
     GetEmitter()->emitIns_I(ins, EA_PTRSIZE, val);
 }
 
-void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
-{
-    assert(ins != INS_mov);
-#ifndef TARGET_64BIT
-    assert(size != EA_8BYTE);
-#endif
-
-#ifdef TARGET_ARM
-    noway_assert(emitter::validImmForInstr(ins, val, INS_FLAGS_DONT_CARE));
-    GetEmitter()->emitIns_R_I(ins, size, reg, val, INS_FLAGS_DONT_CARE);
-#elif defined(TARGET_ARM64)
-    // TODO-Arm64-Bug: handle large constants!
-    // Probably need something like the ARM case above: if (validImmForInstr(ins, val)) ...
-    assert(ins != INS_cmp);
-    assert(ins != INS_tst);
-    GetEmitter()->emitIns_R_R_I(ins, size, reg, reg, val);
-#else // !TARGET_ARM
-#ifdef TARGET_AMD64
-    // Instead of an 8-byte immediate load, a 4-byte immediate will do fine
-    // as the high 4 bytes will be zero anyway.
-    if (EA_SIZE(size) == EA_8BYTE && (((int)val != val) || EA_IS_CNS_RELOC(size)))
-    {
-        assert(!"Invalid immediate for inst_RV_IV");
-    }
-    else
-#endif // TARGET_AMD64
-    {
-        GetEmitter()->emitIns_R_I(ins, size, reg, val);
-    }
-#endif // !TARGET_ARM
-}
-
 bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs)
 {
     if (op->isUsedFromSpillTemp())

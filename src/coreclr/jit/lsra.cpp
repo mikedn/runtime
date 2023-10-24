@@ -542,35 +542,17 @@ void LinearScan::dumpOutVarToRegMap(BasicBlock* block)
 
 #endif // DEBUG
 
-//------------------------------------------------------------------------
-// LSRA constructor
-//
-// Arguments:
-//    theCompiler
-//
-// Notes:
-//    The constructor takes care of initializing the data structures that are used
-//    during Lowering, including (in DEBUG) getting the stress environment variables,
-//    as they may affect the block ordering.
-
-LinearScan::LinearScan(Compiler* theCompiler)
-    : compiler(theCompiler)
-    , intervals(theCompiler->getAllocator(CMK_LSRA_Interval))
-    , allocationPassComplete(false)
-    , enregisterLocalVars(theCompiler->lvaTrackedCount != 0)
-    , refPositions(theCompiler->getAllocator(CMK_LSRA_RefPosition))
-    , listNodePool(theCompiler)
-{
-    regSelector  = new (theCompiler, CMK_LSRA) RegisterSelection(this);
-    firstColdLoc = MaxLocation;
-
+LinearScan::LinearScan(Compiler* compiler)
+    : compiler(compiler)
 #ifdef DEBUG
-    maxNodeLocation   = 0;
-    activeRefPosition = nullptr;
-
-    // Get the value of the environment variable that controls stress for register allocation
-    lsraStressMask = JitConfig.JitStressRegs();
-
+    , lsraStressMask(JitConfig.JitStressRegs())
+#endif
+    , regSelector(new (compiler, CMK_LSRA) RegisterSelection(this))
+    , intervals(compiler->getAllocator(CMK_LSRA_Interval))
+    , enregisterLocalVars(compiler->lvaTrackedCount != 0)
+    , refPositions(compiler->getAllocator(CMK_LSRA_RefPosition))
+{
+#ifdef DEBUG
 #if 0
     if (lsraStressMask != 0)
     {
@@ -630,16 +612,12 @@ LinearScan::LinearScan(Compiler* theCompiler)
 #endif // 0
 #endif // DEBUG
 
-    availableIntRegs = RBM_ALLINT;
 #ifdef TARGET_ARM64
     availableIntRegs &= ~(RBM_PR | RBM_FP | RBM_LR);
 #endif
 #if ETW_EBP_FRAMED
     availableIntRegs &= ~RBM_FPBASE;
 #endif
-
-    availableFloatRegs  = RBM_ALLFLOAT;
-    availableDoubleRegs = RBM_ALLDOUBLE;
 
 #ifdef TARGET_AMD64
     if (compiler->opts.compDbgEnC)
@@ -652,22 +630,6 @@ LinearScan::LinearScan(Compiler* theCompiler)
         availableDoubleRegs &= ~RBM_CALLEE_SAVED;
     }
 #endif // TARGET_AMD64
-
-    // Block sequencing (the order in which we schedule).
-    // Note that we don't initialize the bbVisitedSet until we do the first traversal
-    // This is so that any blocks that are added during the first traversal
-    // are accounted for (and we don't have BasicBlockEpoch issues).
-    blockSequencingDone   = false;
-    blockSequence         = nullptr;
-    blockSequenceWorkList = nullptr;
-    curBBSeqNum           = 0;
-    bbSeqCount            = 0;
-
-    // Information about each block, including predecessor blocks used for variable locations at block entry.
-    blockInfo = nullptr;
-
-    pendingDelayFree = false;
-    tgtPrefUse       = nullptr;
 }
 
 //------------------------------------------------------------------------
@@ -8778,11 +8740,10 @@ void LinearScan::dumpDefList()
     }
     JITDUMP("DefList: { ");
     bool first = true;
-    for (RefInfoListNode *listNode = defList.Begin(), *end = defList.End(); listNode != end;
-         listNode = listNode->Next())
+    for (RefInfoListNode* def = defList.Begin(); def != nullptr; def = def->next)
     {
-        GenTree* node = listNode->treeNode;
-        JITDUMP("%sN%04u.t%d. %s", first ? "" : "; ", node->gtSeqNum, node->gtTreeID, GenTree::OpName(node->OperGet()));
+        GenTree* node = def->node;
+        JITDUMP("%sN%04u.t%d. %s", first ? "" : "; ", node->gtSeqNum, node->GetID(), GenTree::OpName(node->GetOper()));
         first = false;
     }
     JITDUMP(" }\n");
@@ -8951,9 +8912,7 @@ void LinearScan::DumpOperandDefs(
         return;
     }
 
-    int dstCount = ComputeOperandDstCount(operand);
-
-    if (dstCount != 0)
+    if (ComputeOperandDstCount(operand) != 0)
     {
         // This operand directly produces registers; print it.
         if (!first)
@@ -9106,8 +9065,8 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
         {
             GenTree* tree = node;
 
-            int produce = tree->IsValue() ? ComputeOperandDstCount(tree) : 0;
-            int consume = ComputeAvailableSrcCount(tree);
+            unsigned produce = tree->IsValue() ? ComputeOperandDstCount(tree) : 0;
+            unsigned consume = ComputeAvailableSrcCount(tree);
 
             lsraDispNode(tree, mode, produce != 0 && mode != LSRA_DUMP_REFPOS);
 

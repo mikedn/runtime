@@ -235,11 +235,11 @@ inline bool varTypeIsSmallUnsigned(T vt)
 template <class T>
 inline bool varTypeIsIntOrI(T vt)
 {
-    return ((TypeGet(vt) == TYP_INT)
+    return (TypeGet(vt) == TYP_INT)
 #ifdef TARGET_64BIT
-            || (TypeGet(vt) == TYP_I_IMPL)
-#endif // TARGET_64BIT
-                );
+           || (TypeGet(vt) == TYP_LONG)
+#endif
+        ;
 }
 
 template <class T>

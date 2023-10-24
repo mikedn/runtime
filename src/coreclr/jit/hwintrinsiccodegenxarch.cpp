@@ -1,18 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX               Intel hardware intrinsic Code Generator                     XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
 #ifdef FEATURE_HW_INTRINSICS
 
@@ -24,15 +13,15 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #if DEBUG
 static bool IsContainableHWIntrinsicOp(Compiler* compiler, GenTreeHWIntrinsic* node, GenTree* op)
 {
-    // The Lowering::IsContainableHWIntrinsicOp call is not quite right, since it follows pre-register allocation
-    // logic. However, this check is still important due to the various containment rules that SIMD intrinsics follow.
+    // The Lowering::IsContainableHWIntrinsicOp call is not quite right, since it follows
+    // pre-register allocation logic. However, this check is still important due to the
+    // various containment rules that SIMD intrinsics follow.
     //
-    // We use isContainable to track the special HWIntrinsic node containment rules (for things like LoadAligned and
-    // LoadUnaligned) and we use the supportsRegOptional check to support general-purpose loads (both from stack
-    // spillage
-    // and for isUsedFromMemory contained nodes, in the case where the register allocator decided to not allocate a
-    // register
-    // in the first place).
+    // We use isContainable to track the special HWIntrinsic node containment rules (for
+    // things like LoadAligned and LoadUnaligned) and we use the supportsRegOptional check
+    // to support general-purpose loads (both from stack spillage and for isUsedFromMemory
+    // contained nodes, in the case where the register allocator decided to not allocate a
+    // register in the first place).
 
     bool supportsRegOptional = false;
     bool isContainable       = Lowering::IsContainableHWIntrinsicOp(compiler, node, op, &supportsRegOptional);
@@ -40,19 +29,11 @@ static bool IsContainableHWIntrinsicOp(Compiler* compiler, GenTreeHWIntrinsic* n
 }
 #endif // DEBUG
 
-//------------------------------------------------------------------------
-// genIsTableDrivenHWIntrinsic:
-//
-// Arguments:
-//    category - category of a HW intrinsic
-//
-// Return Value:
-//    returns true if this category can be table-driven in CodeGen
-//
 static bool genIsTableDrivenHWIntrinsic(NamedIntrinsic intrinsicId, HWIntrinsicCategory category)
 {
     // TODO - make more categories to the table-driven framework
     // HW_Category_Helper and HW_Flag_MultiIns/HW_Flag_SpecialCodeGen usually need manual codegen
+
     const bool tableDrivenCategory =
         (category != HW_Category_Special) && (category != HW_Category_Scalar) && (category != HW_Category_Helper);
     const bool tableDrivenFlag =
@@ -60,12 +41,6 @@ static bool genIsTableDrivenHWIntrinsic(NamedIntrinsic intrinsicId, HWIntrinsicC
     return tableDrivenCategory && tableDrivenFlag;
 }
 
-//------------------------------------------------------------------------
-// genHWIntrinsic: Generates the code for a given hardware intrinsic node.
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
 void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic         intrinsicId = node->GetIntrinsic();
@@ -226,9 +201,6 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                     }
                     else
                     {
-                        // We emit a fallback case for the scenario when the imm-op is not a constant. This should
-                        // normally happen when the intrinsic is called indirectly, such as via Reflection. However, it
-                        // can also occur if the consumer calls it directly and just doesn't pass a constant value.
                         regNumber baseReg = node->ExtractTempReg();
                         regNumber offsReg = node->GetSingleTempReg();
                         genHWIntrinsicJumpTableFallback(intrinsicId, op2Reg, baseReg, offsReg, emitSwCase);
@@ -271,9 +243,6 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                     }
                     else
                     {
-                        // We emit a fallback case for the scenario when the imm-op is not a constant. This should
-                        // normally happen when the intrinsic is called indirectly, such as via Reflection. However, it
-                        // can also occur if the consumer calls it directly and just doesn't pass a constant value.
                         regNumber baseReg = node->ExtractTempReg();
                         regNumber offsReg = node->GetSingleTempReg();
                         genHWIntrinsicJumpTableFallback(intrinsicId, op3Reg, baseReg, offsReg, emitSwCase);
@@ -292,9 +261,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                         assert(intrinsicId == NI_SSE2_MaskMove);
                         assert(targetReg == REG_NA);
 
-                        // SSE2 MaskMove hardcodes the destination (op3) in DI/EDI/RDI
-                        emit->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_EDI, op3Reg, /* canSkip */ true);
-
+                        emit->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RDI, op3Reg, /* canSkip */ true);
                         emit->emitIns_R_R(ins, simdSize, op1Reg, op2Reg);
                     }
                 }
@@ -396,17 +363,6 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
     }
 }
 
-//------------------------------------------------------------------------
-// genHWIntrinsic_R_RM: Generates code for a hardware intrinsic node that takes a
-//                      register operand and a register/memory operand.
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//    ins  - The instruction being generated
-//    attr - The emit attribute for the instruciton being generated
-//    reg  - The register
-//    rmOp - The register/memory operand node
-//
 void CodeGen::genHWIntrinsic_R_RM(
     GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, regNumber reg, GenTree* rmOp)
 {
@@ -451,15 +407,6 @@ void CodeGen::genHWIntrinsic_R_RM(
     }
 }
 
-//------------------------------------------------------------------------
-// genHWIntrinsic_R_RM_I: Generates the code for a hardware intrinsic node that takes a register/memory operand,
-//                        an immediate operand, and that returns a value in register
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//    ins  - The instruction being generated
-//    ival - The immediate value
-//
 void CodeGen::genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, int8_t ival)
 {
     regNumber targetReg = node->GetRegNum();
@@ -480,15 +427,6 @@ void CodeGen::genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, i
     inst_RV_TT_IV(ins, simdSize, targetReg, op1, ival);
 }
 
-//------------------------------------------------------------------------
-// genHWIntrinsic_R_R_RM: Generates the code for a hardware intrinsic node that takes a register operand, a
-//                        register/memory operand, and that returns a value in register
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//    ins  - The instruction being generated
-//    attr - The emit attribute for the instruciton being generated
-//
 void CodeGen::genHWIntrinsic_R_R_RM(GenTreeHWIntrinsic* node, instruction ins, emitAttr attr)
 {
     regNumber targetReg = node->GetRegNum();
@@ -502,18 +440,6 @@ void CodeGen::genHWIntrinsic_R_R_RM(GenTreeHWIntrinsic* node, instruction ins, e
     genHWIntrinsic_R_R_RM(node, ins, attr, targetReg, op1Reg, op2);
 }
 
-//------------------------------------------------------------------------
-// genHWIntrinsic_R_R_RM: Generates the code for a hardware intrinsic node that takes a register operand, a
-//                        register/memory operand, and that returns a value in register
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//    ins  - The instruction being generated
-//    attr - The emit attribute for the instruciton being generated
-//    targetReg - The register allocated to the result
-//    op1Reg    - The register allocated to the first operand
-//    op2       - Another operand that maybe in register or memory
-//
 void CodeGen::genHWIntrinsic_R_R_RM(
     GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTree* op2)
 {
@@ -530,15 +456,6 @@ void CodeGen::genHWIntrinsic_R_R_RM(
     inst_RV_RV_TT(ins, attr, targetReg, op1Reg, op2, isRMW);
 }
 
-//------------------------------------------------------------------------
-// genHWIntrinsic_R_R_RM_I: Generates the code for a hardware intrinsic node that takes a register operand, a
-//                        register/memory operand, an immediate operand, and that returns a value in register
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//    ins  - The instruction being generated
-//    ival - The immediate value
-//
 void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, int8_t ival)
 {
     regNumber targetReg = node->GetRegNum();
@@ -627,14 +544,6 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     }
 }
 
-//------------------------------------------------------------------------
-// genHWIntrinsic_R_R_RM_R: Generates the code for a hardware intrinsic node that takes a register operand, a
-//                          register/memory operand, another register operand, and that returns a value in register
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//    ins  - The instruction being generated
-//
 void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
 {
     regNumber targetReg = node->GetRegNum();
@@ -684,18 +593,6 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     }
 }
 
-//------------------------------------------------------------------------
-// genHWIntrinsic_R_R_R_RM: Generates the code for a hardware intrinsic node that takes two register operands,
-//                          a register/memory operand, and that returns a value in register
-//
-// Arguments:
-//    ins       - The instruction being generated
-//    attr      - The emit attribute
-//    targetReg - The target register
-//    op1Reg    - The register of the first operand
-//    op2Reg    - The register of the second operand
-//    op3       - The third operand
-//
 void CodeGen::genHWIntrinsic_R_R_R_RM(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, GenTree* op3)
 {
@@ -735,23 +632,6 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
     }
 }
 
-// genHWIntrinsicJumpTableFallback : generate the jump-table fallback for imm-intrinsics
-//                       with non-constant argument
-//
-// Arguments:
-//    intrinsic      - intrinsic ID
-//    nonConstImmReg - the register contains non-constant imm8 argument
-//    baseReg        - a register for the start of the switch table
-//    offsReg        - a register for the offset into the switch table
-//    emitSwCase     - the lambda to generate a switch case
-//
-// Return Value:
-//    generate the jump-table fallback for imm-intrinsics with non-constant argument.
-// Note:
-//    This function can be used for all imm-intrinsics (whether full-range or not),
-//    The compiler front-end (i.e. importer) is responsible to insert a range-check IR
-//    (GT_HW_INTRINSIC_CHK) for imm8 argument, so this function does not need to do range-check.
-//
 template <typename HWIntrinsicSwitchCaseBody>
 void CodeGen::genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsic,
                                               regNumber                 nonConstImmReg,
@@ -803,6 +683,14 @@ void CodeGen::genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
     }
 
     genDefineTempLabel(switchTableEnd);
+}
+
+void CodeGen::genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* node)
+{
+    for (GenTreeHWIntrinsic::Use& use : node->Uses())
+    {
+        genConsumeRegs(use.GetNode());
+    }
 }
 
 void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
@@ -1032,12 +920,6 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
     }
 }
 
-//------------------------------------------------------------------------
-// genX86BaseIntrinsic: Generates the code for an X86 base hardware intrinsic node
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
 void CodeGen::genX86BaseIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
@@ -1066,12 +948,6 @@ void CodeGen::genX86BaseIntrinsic(GenTreeHWIntrinsic* node)
     }
 }
 
-//------------------------------------------------------------------------
-// genSSEIntrinsic: Generates the code for an SSE hardware intrinsic node
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
 void CodeGen::genSSEIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
@@ -1142,12 +1018,6 @@ void CodeGen::genSSEIntrinsic(GenTreeHWIntrinsic* node)
     genProduceReg(node);
 }
 
-//------------------------------------------------------------------------
-// genSSE2Intrinsic: Generates the code for an SSE2 hardware intrinsic node
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
 void CodeGen::genSSE2Intrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
@@ -1248,12 +1118,6 @@ void CodeGen::genSSE2Intrinsic(GenTreeHWIntrinsic* node)
     genProduceReg(node);
 }
 
-//------------------------------------------------------------------------
-// genSSE41Intrinsic: Generates the code for an SSE4.1 hardware intrinsic node
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
 void CodeGen::genSSE41Intrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
@@ -1303,9 +1167,6 @@ void CodeGen::genSSE41Intrinsic(GenTreeHWIntrinsic* node)
             }
             else
             {
-                // We emit a fallback case for the scenario when the imm-op is not a constant. This should
-                // normally happen when the intrinsic is called indirectly, such as via Reflection. However, it
-                // can also occur if the consumer calls it directly and just doesn't pass a constant value.
                 regNumber baseReg = node->ExtractTempReg();
                 regNumber offsReg = node->GetSingleTempReg();
                 genHWIntrinsicJumpTableFallback(intrinsicId, op2->GetRegNum(), baseReg, offsReg, emitSwCase);
@@ -1321,12 +1182,6 @@ void CodeGen::genSSE41Intrinsic(GenTreeHWIntrinsic* node)
     genProduceReg(node);
 }
 
-//------------------------------------------------------------------------
-// genSSE42Intrinsic: Generates the code for an SSE4.2 hardware intrinsic node
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
 void CodeGen::genSSE42Intrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
@@ -1378,12 +1233,6 @@ void CodeGen::genSSE42Intrinsic(GenTreeHWIntrinsic* node)
     genProduceReg(node);
 }
 
-//------------------------------------------------------------------------
-// genAvxOrAvx2Intrinsic: Generates the code for an AVX/AVX2 hardware intrinsic node
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
 void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
@@ -1536,23 +1385,11 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
     genProduceReg(node);
 }
 
-//------------------------------------------------------------------------
-// genAESIntrinsic: Generates the code for an AES hardware intrinsic node
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
 void CodeGen::genAESIntrinsic(GenTreeHWIntrinsic* node)
 {
     NYI("Implement AES intrinsic code generation");
 }
 
-//------------------------------------------------------------------------
-// genBMI1OrBMI2Intrinsic: Generates the code for a BMI1 and BMI2 hardware intrinsic node
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
 void CodeGen::genBMI1OrBMI2Intrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
@@ -1671,12 +1508,6 @@ void CodeGen::genBMI1OrBMI2Intrinsic(GenTreeHWIntrinsic* node)
     genProduceReg(node);
 }
 
-//------------------------------------------------------------------------
-// genFMAIntrinsic: Generates the code for an FMA hardware intrinsic node
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
 void CodeGen::genFMAIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
@@ -1747,12 +1578,6 @@ void CodeGen::genFMAIntrinsic(GenTreeHWIntrinsic* node)
     genProduceReg(node);
 }
 
-//------------------------------------------------------------------------
-// genLZCNTIntrinsic: Generates the code for a LZCNT hardware intrinsic node
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
 void CodeGen::genLZCNTIntrinsic(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_LZCNT_LeadingZeroCount || node->GetIntrinsic() == NI_LZCNT_X64_LeadingZeroCount);
@@ -1762,23 +1587,11 @@ void CodeGen::genLZCNTIntrinsic(GenTreeHWIntrinsic* node)
     genProduceReg(node);
 }
 
-//------------------------------------------------------------------------
-// genPCLMULQDQIntrinsic: Generates the code for a PCLMULQDQ hardware intrinsic node
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
 void CodeGen::genPCLMULQDQIntrinsic(GenTreeHWIntrinsic* node)
 {
     NYI("Implement PCLMULQDQ intrinsic code generation");
 }
 
-//------------------------------------------------------------------------
-// genPOPCNTIntrinsic: Generates the code for a POPCNT hardware intrinsic node
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
 void CodeGen::genPOPCNTIntrinsic(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_POPCNT_PopCount || node->GetIntrinsic() == NI_POPCNT_X64_PopCount);
@@ -1788,14 +1601,6 @@ void CodeGen::genPOPCNTIntrinsic(GenTreeHWIntrinsic* node)
     genProduceReg(node);
 }
 
-//------------------------------------------------------------------------
-// genXCNTIntrinsic: Generates the code for a lzcnt/tzcnt/popcnt hardware intrinsic node, breaks false dependencies on
-// the target register
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//    ins  - The instruction being generated
-//
 void CodeGen::genXCNTIntrinsic(GenTreeHWIntrinsic* node, instruction ins)
 {
     // LZCNT/TZCNT/POPCNT have a false dependency on the target register on Intel Sandy Bridge, Haswell, and Skylake

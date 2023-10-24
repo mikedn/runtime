@@ -869,9 +869,14 @@ public:
         return isContained() && IsIntCon() && !isUsedFromSpillTemp() ? AsIntCon() : nullptr;
     }
 
-    bool isContainedFltOrDblImmed() const
+    bool isContainedFltOrDblImmed()
     {
-        return isContained() && (OperGet() == GT_CNS_DBL);
+        return IsContainedDblCon();
+    }
+
+    GenTreeDblCon* IsContainedDblCon()
+    {
+        return isContained() && IsDblCon() ? AsDblCon() : nullptr;
     }
 
     bool isUsedFromSpillTemp() const
@@ -949,7 +954,7 @@ public:
 
     bool gtHasReg() const;
 
-    INDEBUG(int GetRegisterDstCount(Compiler* compiler) const;)
+    INDEBUG(unsigned GetRegisterDstCount(Compiler* compiler) const;)
 
     regMaskTP gtGetRegMask() const;
 
@@ -1000,6 +1005,11 @@ public:
     void ClearRegSpillSet()
     {
         m_defRegsSpillSet = 0;
+    }
+
+    void ClearTempRegs()
+    {
+        gtRsvdRegs = RBM_NONE;
     }
 
     unsigned AvailableTempRegCount(regMaskTP mask = (regMaskTP)-1) const;

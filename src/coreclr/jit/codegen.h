@@ -32,6 +32,7 @@ class CodeGen final : public CodeGenInterface
     GSCookie          m_gsCookieVal    = 0;
 
     CodeGenLivenessUpdater liveness;
+
 #ifdef TARGET_ARMARCH
     // Registers reserved for special purposes, that cannot be allocated by LSRA.
     regMaskTP reservedRegs = RBM_NONE;
@@ -54,8 +55,7 @@ public:
 
 #ifdef TARGET_XARCH
 #ifdef TARGET_AMD64
-    // There are no reloc hints on x86
-    unsigned short genAddrRelocTypeHint(size_t addr);
+    uint16_t genAddrRelocTypeHint(size_t addr);
 #endif
     bool genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
     bool genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
@@ -87,8 +87,7 @@ private:
 
     void GenFloatAbs(GenTreeIntrinsic* node);
 
-    // Generates SSE41 code for the given tree as a round operation
-    void genSSE41RoundOp(GenTreeUnOp* node);
+    void genSSE41RoundOp(GenTreeIntrinsic* node);
 
     instruction simdAlignedMovIns()
     {
@@ -142,8 +141,6 @@ private:
     }
 #endif // TARGET_ARMARCH
 
-    //-------------------------------------------------------------------------
-
     bool     genUseBlockInit;  // true if we plan to block-initialize the local stack frame
     unsigned genInitStkLclCnt; // The count of local variables that we need to zero init
 
@@ -154,10 +151,6 @@ private:
 #endif
 
     void genReportEH();
-
-    /**************************************************************************
-     *                          PROTECTED
-     *************************************************************************/
 
 protected:
     // the current (pending) label ref, a label which has been referenced but not yet seen
@@ -180,7 +173,6 @@ protected:
 public:
     void SpillRegCandidateLclVar(GenTreeLclVar* node);
 
-protected:
 #ifdef TARGET_X86
     void genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, regNumber callTarget = REG_NA)
     {
@@ -195,11 +187,7 @@ protected:
     void genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf);
 
     BasicBlock* genCreateTempLabel();
-
-private:
     void genLogLabel(BasicBlock* bb);
-
-protected:
     void genDefineTempLabel(BasicBlock* label);
     void genDefineInlineTempLabel(BasicBlock* label);
 
@@ -211,22 +199,14 @@ protected:
 
     void genJumpToThrowHlpBlk(emitJumpKind jumpKind, ThrowHelperKind codeKind, BasicBlock* failBlk = nullptr);
 
+#ifdef TARGET_ARM64
     void genCheckOverflow(GenTree* tree);
-
-    //-------------------------------------------------------------------------
-    //
-    // Prolog/epilog generation
-    //
-    //-------------------------------------------------------------------------
+#endif
 
     unsigned prologSize;
 #ifdef JIT32_GCENCODER
     unsigned epilogSize;
 #endif
-
-    //
-    // Prolog functions and data (there are a few exceptions for more generally used things)
-    //
 
     void PrologEstablishFramePointer(int delta, bool reportUnwindData);
 
@@ -349,8 +329,7 @@ protected:
     void genPopFltRegs(regMaskTP regMask);
     regMaskTP genStackAllocRegisterMask(unsigned frameSize, regMaskTP maskCalleeSavedFloat);
 
-    void genFreeLclFrame(unsigned           frameSize,
-                         /* IN OUT */ bool* pUnwindStarted);
+    void genFreeLclFrame(unsigned frameSize, bool* pUnwindStarted);
 
     void genMov32RelocatableDisplacement(BasicBlock* block, regNumber reg);
     void genMov32RelocatableDataLabel(unsigned value, regNumber reg);
@@ -410,15 +389,11 @@ protected:
 
 #endif // TARGET_AMD64
 
-#if defined(TARGET_XARCH)
-
-    // Save/Restore callee saved float regs to stack
+#ifdef TARGET_XARCH
     void PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize);
     void genRestoreCalleeSavedFltRegs(unsigned lclFrameSize);
-    // Generate VZeroupper instruction to avoid AVX/SSE transition penalty
     void genVzeroupperIfNeeded(bool check256bitOnly = true);
-
-#endif // TARGET_XARCH
+#endif
 
     regNumber PrologChooseInitReg(regMaskTP initRegs);
     void PrologBlockInitLocals(int untrackedLo, int untrackedHi, regNumber initReg, bool* initRegZeroed);
@@ -435,21 +410,17 @@ protected:
 #ifdef PROFILING_SUPPORTED
     void PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed);
     void genProfilingLeaveCallback(CorInfoHelpFunc helper);
-#endif // PROFILING_SUPPORTED
+#endif
 
 #if defined(TARGET_ARM)
     bool genCanUsePopToReturn(regMaskTP maskPopRegsInt, bool jmpEpilog);
 #endif
 
-#if defined(TARGET_ARM64)
-
+#ifdef TARGET_ARM64
     void genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog);
-
-#else // !defined(TARGET_ARM64)
-
+#else
     void genPopCalleeSavedRegisters(bool jmpEpilog = false);
-
-#endif // !defined(TARGET_ARM64)
+#endif
 
     void genFnProlog();
     void genFnEpilog(BasicBlock* block);
@@ -472,17 +443,13 @@ protected:
 #endif
 
 #else // !FEATURE_EH_FUNCLETS
-
-    // This is a no-op when there are no funclets!
     void genUpdateCurrentFunclet(BasicBlock* block)
     {
-        return;
     }
 
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
     void genInsertNopForUnwinder(BasicBlock* block)
     {
-        return;
     }
 #endif
 
@@ -503,20 +470,10 @@ protected:
     void PopTempReg(regNumber reg, var_types type);
 #endif
 
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           Debugging Support                               XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #ifdef DEBUG
     void genIPmappingDisp(unsigned mappingNum, IPmappingDsc* ipMapping);
     void genIPmappingListDisp();
-#endif // DEBUG
+#endif
 
     void genIPmappingAdd(IL_OFFSETX offset, bool isLabel);
     void genIPmappingAddToFront(IL_OFFSETX offset);
@@ -530,6 +487,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
         IL_OFFSET      ilOffset;
         unsigned       sourceReason;
     } * eeBoundaries; // Boundaries to report to EE
+
     void eeSetLIcount(unsigned count);
     void eeSetLIinfo(unsigned which, UNATIVE_OFFSET offs, unsigned srcIP, bool stkEmpty, bool callInstruction);
     void eeSetLIdone();
@@ -549,6 +507,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
         DWORD                      varNumber;
         CodeGenInterface::siVarLoc loc;
     } * eeVars;
+
     void eeSetLVcount(unsigned count);
     void eeSetLVinfo(unsigned                          which,
                      UNATIVE_OFFSET                    startOffs,
@@ -560,12 +519,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #ifdef DEBUG
     void eeDispVar(ICorDebugInfo::NativeVarInfo* var);
     void eeDispVars(CORINFO_METHOD_HANDLE ftn, ULONG32 cVars, ICorDebugInfo::NativeVarInfo* vars);
-#endif // DEBUG
+#endif
 
     void genEnsureCodeEmitted(IL_OFFSETX offsx);
-
-    //-------------------------------------------------------------------------
-    // scope info for the variables
 
     void genSetScopeInfo(unsigned       which,
                          UNATIVE_OFFSET startOffs,
@@ -577,73 +533,37 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
     void genSetScopeInfo();
 #ifdef USING_VARIABLE_LIVE_RANGE
-    // Send VariableLiveRanges as debug info to the debugger
     void genSetScopeInfoUsingVariableRanges();
-#endif // USING_VARIABLE_LIVE_RANGE
+#endif
 
 #ifdef USING_SCOPE_INFO
     void genSetScopeInfoUsingsiScope();
+#endif
 
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           ScopeInfo                                       XX
-XX                                                                           XX
-XX  Keeps track of the scopes during code-generation.                        XX
-XX  This is used to translate the local-variable debugging information       XX
-XX  from IL offsets to native code offsets.                                  XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-/*****************************************************************************/
-/*****************************************************************************
- *                              ScopeInfo
- *
- * This class is called during code gen at block-boundaries, and when the
- * set of live variables changes. It keeps track of the scope of the variables
- * in terms of the native code PC.
- */
-
-#endif // USING_SCOPE_INFO
 public:
     void siInit();
     void checkICodeDebugInfo();
 
-    // The logic used to report debug info on debug code is the same for ScopeInfo and
-    // VariableLiveRange
     void siBeginBlock(BasicBlock* block);
     void siEndBlock(BasicBlock* block);
-
-    // VariableLiveRange and siScope needs this method to report variables on debug code
     void siOpenScopesForNonTrackedVars(const BasicBlock* block, unsigned int lastBlockILEndOffset);
 
 protected:
-#if defined(FEATURE_EH_FUNCLETS)
-    bool siInFuncletRegion; // Have we seen the start of the funclet region?
-#endif                      // FEATURE_EH_FUNCLETS
+#ifdef FEATURE_EH_FUNCLETS
+    bool siInFuncletRegion;
+#endif
 
     IL_OFFSET siLastEndOffs; // IL offset of the (exclusive) end of the last block processed
 
 #ifdef USING_SCOPE_INFO
-
 public:
     // Closes the "ScopeInfo" of the tracked variables that has become dead.
     virtual void siUpdate();
-
     void siCheckVarScope(unsigned varNum, IL_OFFSET offs);
-
     void siCloseAllOpenScopes();
-
 #ifdef DEBUG
     void siDispOpenScopes();
 #endif
-
-    /**************************************************************************
-     *                          PROTECTED
-     *************************************************************************/
 
 protected:
     struct siScope
@@ -674,44 +594,22 @@ protected:
 
     siScope** siLatestTrackedScopes;
 
-    // Functions
-
     siScope* siNewScope(unsigned LVnum, unsigned varNum);
-
     void siRemoveFromOpenScopeList(siScope* scope);
-
     void siEndTrackedScope(unsigned varIndex);
-
     void siEndScope(unsigned varNum);
-
     void siEndScope(siScope* scope);
 
 #ifdef LATE_DISASM
 public:
-    /* virtual */
     const char* siRegVarName(size_t offs, size_t size, unsigned reg);
-
-    /* virtual */
     const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
-#endif // LATE_DISASM
+#endif
 
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          PrologScopeInfo                                  XX
-XX                                                                           XX
-XX We need special handling in the prolog block, as the parameter variables  XX
-XX may not be in the same position described by genLclVarTable - they all    XX
-XX start out on the stack                                                    XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
 #endif // USING_SCOPE_INFO
+
 public:
     void psiBegProlog();
-
     void psiEndProlog();
 
 #ifdef USING_SCOPE_INFO
@@ -727,10 +625,6 @@ public:
     // Search the open "psiScope" of the "varNum" parameter, close it and open
     // a new one using "LclVarDsc" fields.
     void psiMoveToStack(unsigned varNum);
-
-    /**************************************************************************
-     *                          PROTECTED
-     *************************************************************************/
 
 protected:
     struct psiScope
@@ -774,23 +668,12 @@ protected:
 
     unsigned psiScopeCnt;
 
-    // Implementation Functions
-
     psiScope* psiNewPrologScope(unsigned LVnum, unsigned slotNum);
-
     void psiEndPrologScope(psiScope* scope);
-
     void psiSetScopeOffset(psiScope* newScope, const LclVarDsc* lclVarDsc) const;
 #endif // USING_SCOPE_INFO
 
     NATIVE_OFFSET psiGetVarStackOffset(const LclVarDsc* lclVarDsc) const;
-
-    /*****************************************************************************
-     *                        TrnslLocalVarInfo
-     *
-     * This struct holds the LocalVarInfo in terms of the generated native code
-     * after a call to genSetScopeInfo()
-     */
 
 protected:
 #ifdef LATE_DISASM
@@ -804,8 +687,6 @@ protected:
         bool           tlviAvailable;
         siVarLoc       tlviVarLoc;
     };
-
-    // Array of scopes of LocalVars in terms of native code
 
     TrnslLocalVarInfo* genTrnslLocalVarInfo;
     unsigned           genTrnslLocalVarCount = 0;
@@ -828,16 +709,16 @@ protected:
 #endif
 
 #ifdef TARGET_X86
-    void genCodeForLongUMod(GenTreeOp* node);
+    void GenLongUMod(GenTreeOp* node);
 #endif
 
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
-    void genCodeForDivMod(GenTreeOp* treeNode);
+    void GenDivMod(GenTreeOp* treeNode);
 #endif
 
-    void genCodeForMul(GenTreeOp* treeNode);
+    void GenMul(GenTreeOp* mul);
+    void GenMulLong(GenTreeOp* mul);
     void genCodeForIncSaturate(GenTree* treeNode);
-    void genCodeForMulHi(GenTreeOp* treeNode);
     void genLeaInstruction(GenTreeAddrMode* lea);
 
 #ifdef TARGET_ARMARCH
@@ -853,9 +734,8 @@ protected:
 #ifndef TARGET_64BIT
     void genLongToIntCast(GenTreeCast* cast);
 #endif
-    void genCodeForBitCast(GenTreeUnOp* bitcast);
 
-    // Generate the instruction to move a value between register files
+    void genCodeForBitCast(GenTreeUnOp* bitcast);
     void inst_BitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg);
 
     struct GenIntCastDesc
@@ -974,13 +854,14 @@ protected:
     void LoadSIMD12(GenTree* load);
 #ifdef TARGET_X86
     void genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg);
-#endif // TARGET_X86
-#endif // FEATURE_SIMD
+#endif
+#endif
 
 #ifdef FEATURE_HW_INTRINSICS
     void genHWIntrinsic(GenTreeHWIntrinsic* node);
     void genVectorGetElement(GenTreeHWIntrinsic* node);
-#if defined(TARGET_XARCH)
+
+#ifdef TARGET_XARCH
     void genHWIntrinsic_R_RM(GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, regNumber reg, GenTree* rmOp);
     void genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, int8_t ival);
     void genHWIntrinsic_R_R_RM(GenTreeHWIntrinsic* node, instruction ins, emitAttr attr);
@@ -1010,59 +891,7 @@ protected:
                                          regNumber                 baseReg,
                                          regNumber                 offsReg,
                                          HWIntrinsicSwitchCaseBody emitSwCase);
-#endif // defined(TARGET_XARCH)
-
-#ifdef TARGET_ARM64
-    class HWIntrinsicImmOpHelper final
-    {
-    public:
-        HWIntrinsicImmOpHelper(CodeGen* codeGen, GenTree* immOp, GenTreeHWIntrinsic* intrin);
-
-        void EmitBegin();
-        void EmitCaseEnd();
-
-        // Returns true after the last call to EmitCaseEnd() (i.e. this signals that code generation is done).
-        bool Done() const
-        {
-            return (immValue > immUpperBound);
-        }
-
-        // Returns a value of the immediate operand that should be used for a case.
-        int ImmValue() const
-        {
-            return immValue;
-        }
-
-    private:
-        // Returns true if immOp is non contained immediate (i.e. the value of the immediate operand is enregistered in
-        // nonConstImmReg).
-        bool NonConstImmOp() const
-        {
-            return nonConstImmReg != REG_NA;
-        }
-
-        // Returns true if a non constant immediate operand can be either 0 or 1.
-        bool TestImmOpZeroOrOne() const
-        {
-            assert(NonConstImmOp());
-            return (immLowerBound == 0) && (immUpperBound == 1);
-        }
-
-        emitter* GetEmitter() const
-        {
-            return codeGen->GetEmitter();
-        }
-
-        CodeGen* const codeGen;
-        BasicBlock*    endLabel;
-        BasicBlock*    nonZeroLabel;
-        int            immValue;
-        int            immLowerBound;
-        int            immUpperBound;
-        regNumber      nonConstImmReg;
-        regNumber      branchTargetReg;
-    };
-#endif // TARGET_ARM64
+#endif // TARGET_XARCH
 
 #endif // FEATURE_HW_INTRINSICS
 
@@ -1110,9 +939,6 @@ protected:
     void ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
     INDEBUG(bool IsValidContainedLcl(GenTreeLclVarCommon* node);)
     void genConsumeRegs(GenTree* tree);
-#ifdef FEATURE_HW_INTRINSICS
-    void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
-#endif
     void genCodeForShift(GenTreeOp* shift);
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)
@@ -1120,6 +946,9 @@ protected:
 #endif
 
 #ifdef TARGET_XARCH
+#ifdef FEATURE_HW_INTRINSICS
+    void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
+#endif
     void GenStoreIndRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy);
     void genCodeForBT(GenTreeOp* bt);
     void EpilogGSCookieCheck(bool tailCallEpilog);
@@ -1200,7 +1029,7 @@ protected:
     void genPutArgStkFieldList(GenTreePutArgStk* putArg,
                                unsigned          outArgLclNum,
                                unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize));
-#endif // !TARGET_X86
+#endif
 
 #ifdef TARGET_X86
     void genPreAdjustStackForPutArgStk(unsigned argSize);
@@ -1277,9 +1106,9 @@ protected:
     void genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNumber regTmp);
     target_ssize_t genStackPointerConstantAdjustmentLoopWithProbe(ssize_t spDelta, regNumber regTmp);
 
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
     void genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, regNumber regTmp);
-#endif // defined(TARGET_XARCH)
+#endif
 
     void genLclHeap(GenTree* tree);
 
@@ -1292,7 +1121,7 @@ protected:
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
     void genStackPointerCheck(unsigned lvaStackPointerVar);
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
+#endif
 
 #ifdef DEBUG
     GenTree* lastConsumedNode;

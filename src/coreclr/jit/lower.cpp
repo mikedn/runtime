@@ -205,7 +205,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
         case GT_MUL:
         case GT_MULHI:
-#if defined(TARGET_X86)
+#ifdef TARGET_X86
         case GT_MUL_LONG:
 #endif
             ContainCheckMul(node->AsOp());
@@ -365,7 +365,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
 #endif
 
         case GT_KEEPALIVE:
-            node->gtGetOp1()->SetRegOptional();
+            node->AsUnOp()->GetOp(0)->SetRegOptional();
             break;
 
         case GT_LCL_ADDR:

@@ -1,338 +1,100 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                     Register Requirements for ARM                         XX
-XX                                                                           XX
-XX  This encapsulates all the logic for setting register requirements for    XX
-XX  the ARM  architecture.                                                   XX
-XX                                                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 
 #ifdef TARGET_ARM
 
-#include "sideeffects.h"
-#include "lower.h"
 #include "lsra.h"
 
-int LinearScan::BuildLclHeap(GenTree* tree)
-{
-    int srcCount = 0;
-
-    // Need a variable number of temp regs (see genLclHeap() in codegenarm.cpp):
-    // Here '-' means don't care.
-    //
-    //  Size?                   Init Memory?    # temp regs
-    //   0                          -               0
-    //   const and <=4 str instr    -               0
-    //   const and <PageSize        No              0
-    //   >4 ptr words               Yes             1
-    //   Non-const                  Yes             1
-    //   Non-const                  No              1
-    //
-    // If the outgoing argument space is too large to encode in an "add/sub sp, icon"
-    // instruction, we also need a temp (we can use the same temp register needed
-    // for the other cases above, if there are multiple conditions that require a
-    // temp register).
-
-    GenTree* size = tree->gtGetOp1();
-    int      internalIntCount;
-    if (size->IsCnsIntOrI())
-    {
-        assert(size->isContained());
-        srcCount = 0;
-
-        size_t sizeVal = size->AsIntCon()->gtIconVal;
-        if (sizeVal == 0)
-        {
-            internalIntCount = 0;
-        }
-        else
-        {
-            sizeVal          = AlignUp(sizeVal, STACK_ALIGN);
-            size_t pushCount = sizeVal / REGSIZE_BYTES;
-
-            // For small allocations we use up to 4 push instructions
-            if (pushCount <= 4)
-            {
-                internalIntCount = 0;
-            }
-            else if (!compiler->info.compInitMem)
-            {
-                // No need to initialize allocated stack space.
-                if (sizeVal < compiler->eeGetPageSize())
-                {
-                    internalIntCount = 0;
-                }
-                else
-                {
-                    internalIntCount = 1;
-                }
-            }
-            else
-            {
-                internalIntCount = 1;
-            }
-        }
-    }
-    else
-    {
-        // target (regCnt) + tmp
-        srcCount         = 1;
-        internalIntCount = 1;
-        BuildUse(size);
-    }
-
-    // If we have an outgoing argument space, we are going to probe that SP change, and we require
-    // a temporary register for doing the probe. Note also that if the outgoing argument space is
-    // large enough that it can't be directly encoded in SUB/ADD instructions, we also need a temp
-    // register to load the large sized constant into a register.
-    if (compiler->codeGen->outgoingArgSpaceSize > 0)
-    {
-        internalIntCount = 1;
-    }
-
-    // If we are needed in temporary registers we should be sure that
-    // it's different from target (regCnt)
-    if (internalIntCount > 0)
-    {
-        setInternalRegsDelayFree = true;
-        for (int i = 0; i < internalIntCount; i++)
-        {
-            buildInternalIntRegisterDefForNode(tree);
-        }
-    }
-    buildInternalRegisterUses();
-    BuildDef(tree);
-    return srcCount;
-}
-
-//------------------------------------------------------------------------
-// BuildShiftLongCarry: Set the node info for GT_LSH_HI or GT_RSH_LO.
-//
-// Arguments:
-//    tree      - The node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-// Note: these operands have uses that interfere with the def and need the special handling.
-//
-int LinearScan::BuildShiftLongCarry(GenTree* tree)
-{
-    assert(tree->OperGet() == GT_LSH_HI || tree->OperGet() == GT_RSH_LO);
-
-    int      srcCount = 2;
-    GenTree* source   = tree->AsOp()->gtOp1;
-    assert((source->OperGet() == GT_LONG) && source->isContained());
-
-    GenTree* sourceLo = source->gtGetOp1();
-    GenTree* sourceHi = source->gtGetOp2();
-    GenTree* shiftBy  = tree->gtGetOp2();
-    assert(!sourceLo->isContained() && !sourceHi->isContained());
-    RefPosition* sourceLoUse = BuildUse(sourceLo);
-    RefPosition* sourceHiUse = BuildUse(sourceHi);
-
-    if (!tree->isContained())
-    {
-        if (tree->OperGet() == GT_LSH_HI)
-        {
-            setDelayFree(sourceLoUse);
-        }
-        else
-        {
-            setDelayFree(sourceHiUse);
-        }
-        if (!shiftBy->isContained())
-        {
-            BuildUse(shiftBy);
-            srcCount++;
-        }
-        BuildDef(tree);
-    }
-    else
-    {
-        if (!shiftBy->isContained())
-        {
-            BuildUse(shiftBy);
-            srcCount++;
-        }
-    }
-    return srcCount;
-}
-
-//------------------------------------------------------------------------
-// BuildNode: Build the RefPositions for for a node
-//
-// Arguments:
-//    treeNode - the node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-// Notes:
-// Preconditions:
-//    LSRA Has been initialized.
-//
-// Postconditions:
-//    RefPositions have been built for all the register defs and uses required
-//    for this node.
-//
-int LinearScan::BuildNode(GenTree* tree)
+void LinearScan::BuildNode(GenTree* tree)
 {
     assert(!tree->isContained());
-    int  srcCount;
-    int  dstCount      = 0;
-    bool isLocalDefUse = false;
 
-    // Reset the build-related members of LinearScan.
-    clearBuildState();
-
-    // Set the default dstCount. This may be modified below.
-    if (tree->IsValue())
-    {
-        dstCount = 1;
-        if (tree->IsUnusedValue())
-        {
-            isLocalDefUse = true;
-        }
-    }
-    else
-    {
-        dstCount = 0;
-    }
-
-    switch (tree->OperGet())
+    switch (tree->GetOper())
     {
         case GT_LCL_VAR:
-            // We make a final determination about whether a GT_LCL_VAR is a candidate or contained
-            // after liveness. In either case we don't build any uses or defs. Otherwise, this is a
-            // load of a stack-based local into a register and we'll fall through to the general
-            // local case below.
-            if (checkContainedOrCandidateLclVar(tree->AsLclVar()))
-            {
-                return 0;
-            }
-            FALLTHROUGH;
-
         case GT_LCL_FLD:
-        {
+            assert(!compiler->lvaGetDesc(tree->AsLclVarCommon())->IsRegCandidate());
+
             if (tree->OperIs(GT_LCL_FLD) && tree->AsLclFld()->IsOffsetMisaligned())
             {
-                buildInternalIntRegisterDefForNode(tree); // to generate address.
-                buildInternalIntRegisterDefForNode(tree); // to move float into an int reg.
+                BuildInternalIntDef(tree); // to generate address.
+                BuildInternalIntDef(tree); // to move float into an int reg.
+
                 if (tree->TypeIs(TYP_DOUBLE))
                 {
-                    buildInternalIntRegisterDefForNode(tree); // to move the second half into an int reg.
+                    BuildInternalIntDef(tree); // to move the second half into an int reg.
                 }
-                buildInternalRegisterUses();
+
+                BuildInternalUses();
             }
 
-            srcCount = 0;
             BuildDef(tree);
-        }
-        break;
+            break;
 
         case GT_STORE_LCL_VAR:
-            srcCount = BuildStoreLclVar(tree->AsLclVar(), &dstCount);
+            BuildStoreLclVar(tree->AsLclVar());
             break;
 
         case GT_STORE_LCL_FLD:
-            srcCount = BuildStoreLclFld(tree->AsLclFld());
-            break;
-
-        case GT_NOP:
-            // A GT_NOP is either a passthrough (if it is void, or if it has
-            // a child), but must be considered to produce a dummy value if it
-            // has a type but no child
-            srcCount = 0;
-            assert((tree->gtGetOp1() == nullptr) || tree->isContained());
-            if (tree->TypeGet() != TYP_VOID && tree->gtGetOp1() == nullptr)
-            {
-                assert(dstCount == 1);
-                BuildUse(tree->gtGetOp1());
-                BuildDef(tree);
-            }
-            else
-            {
-                assert(dstCount == 0);
-            }
+            BuildStoreLclFld(tree->AsLclFld());
             break;
 
         case GT_KEEPALIVE:
-            assert(dstCount == 0);
-            srcCount = BuildOperandUses(tree->gtGetOp1());
+            BuildKeepAlive(tree->AsUnOp());
+            break;
+
+        case GT_CKFINITE:
+            BuildInternalIntDef(tree);
+            BuildUse(tree->AsUnOp()->GetOp(0));
+            BuildInternalUses();
+            BuildDef(tree);
             break;
 
         case GT_INTRINSIC:
-        {
             // TODO-ARM: Implement other type of intrinsics (round, sqrt and etc.)
-            // Both operand and its result must be of the same floating point type.
-            GenTree* op1 = tree->gtGetOp1();
-            assert(varTypeIsFloating(op1));
-            assert(op1->TypeGet() == tree->TypeGet());
-            BuildUse(op1);
-            srcCount = 1;
-
             switch (tree->AsIntrinsic()->GetIntrinsic())
             {
+                GenTree* op1;
+
                 case NI_System_Math_Abs:
                 case NI_System_Math_Sqrt:
-                    assert(dstCount == 1);
+                    op1 = tree->AsIntrinsic()->GetOp(0);
+                    assert(varTypeIsFloating(op1->GetType()) && (op1->GetType() == tree->GetType()));
+                    BuildUse(op1);
                     BuildDef(tree);
                     break;
                 default:
                     unreached();
-                    break;
             }
-        }
-        break;
+            break;
 
         case GT_CAST:
-            assert(dstCount == 1);
-            srcCount = BuildCast(tree->AsCast());
+            BuildCast(tree->AsCast());
             break;
 
-        case GT_JTRUE:
-            srcCount = 0;
-            assert(dstCount == 0);
-            break;
-
-        case GT_JMP:
-            srcCount = 0;
-            assert(dstCount == 0);
-            break;
-
-        case GT_SWITCH:
-            // This should never occur since switch nodes must not be visible at this
-            // point in the JIT.
-            srcCount = 0;
-            noway_assert(!"Switch must be lowered at this point");
-            break;
-
-        case GT_JMPTABLE:
-            srcCount = 0;
-            assert(dstCount == 1);
+        case GT_FNEG:
+        case GT_NEG:
+        case GT_NOT:
+            BuildUse(tree->AsUnOp()->GetOp(0));
             BuildDef(tree);
             break;
 
         case GT_SWITCH_TABLE:
-            assert(dstCount == 0);
-            srcCount = BuildBinaryUses(tree->AsOp());
-            assert(srcCount == 2);
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
             break;
 
         case GT_FADD:
         case GT_FSUB:
         case GT_FMUL:
         case GT_FDIV:
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
+            BuildDef(tree);
+            break;
+
         case GT_ADD_LO:
         case GT_ADD_HI:
         case GT_SUB_LO:
@@ -346,233 +108,143 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_RSH:
         case GT_RSZ:
         case GT_ROR:
-            assert(dstCount == 1);
-            srcCount = BuildBinaryUses(tree->AsOp());
-            assert(srcCount == (tree->AsOp()->GetOp(1)->isContained() ? 1 : 2));
+            BuildUse(tree->AsOp()->GetOp(0));
+
+            if (!tree->AsOp()->GetOp(1)->isContained())
+            {
+                BuildUse(tree->AsOp()->GetOp(1));
+            }
+            FALLTHROUGH;
+        case GT_JMPTABLE:
+        case GT_LCL_ADDR:
+        case GT_CLS_VAR_ADDR:
+        case GT_PHYSREG:
+        case GT_LABEL:
+        case GT_SETCC:
+            BuildDef(tree);
+            FALLTHROUGH;
+        case GT_NOP:
+        case GT_NO_OP:
+        case GT_IL_OFFSET:
+        case GT_START_NONGC:
+        case GT_PINVOKE_PROLOG:
+        case GT_PROF_HOOK:
+        case GT_MEMORYBARRIER:
+        case GT_JTRUE:
+        case GT_JCC:
+        case GT_JMP:
+            break;
+
+        case GT_INDEX_ADDR:
+            BuildInternalIntDef(tree);
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
+            BuildInternalUses();
             BuildDef(tree);
             break;
 
         case GT_LSH_HI:
         case GT_RSH_LO:
-            assert(dstCount == 1);
-            srcCount = BuildShiftLongCarry(tree);
-            assert(srcCount == (tree->AsOp()->gtOp2->isContained() ? 2 : 3));
+            BuildShiftLong(tree->AsOp());
             break;
 
         case GT_RETURNTRAP:
-            // this just turns into a compare of its child with an int
-            // + a conditional call
-            srcCount = 1;
-            assert(dstCount == 0);
-            BuildUse(tree->gtGetOp1());
+            BuildUse(tree->AsUnOp()->GetOp(0));
             BuildKills(tree, compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
             break;
 
         case GT_MUL:
             if (tree->gtOverflow())
             {
-                // Need a register different from target reg to check for overflow.
+                BuildInternalIntDef(tree);
                 setInternalRegsDelayFree = true;
-                buildInternalIntRegisterDefForNode(tree);
             }
-            FALLTHROUGH;
-        case GT_DIV:
-        case GT_MULHI:
-        case GT_UDIV:
-            assert(dstCount == 1);
-            srcCount = BuildBinaryUses(tree->AsOp());
-            assert(srcCount == 2);
-            buildInternalRegisterUses();
+
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
+
+            if (tree->gtOverflow())
+            {
+                BuildInternalUses();
+            }
+
             BuildDef(tree);
             break;
 
         case GT_MUL_LONG:
-            dstCount = 2;
-            srcCount = BuildBinaryUses(tree->AsOp());
-            assert(srcCount == 2);
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
             BuildDef(tree, TYP_INT, RBM_NONE, 0);
             BuildDef(tree, TYP_INT, RBM_NONE, 1);
             break;
 
-        case GT_NO_OP:
-        case GT_START_NONGC:
-        case GT_PROF_HOOK:
-            srcCount = 0;
-            assert(dstCount == 0);
-            break;
-
         case GT_START_PREEMPTGC:
-            // This kills GC refs in callee save regs
-            srcCount = 0;
-            assert(dstCount == 0);
             BuildKills(tree, RBM_NONE);
             break;
 
-        case GT_LONG:
-            assert(tree->IsUnusedValue()); // Contained nodes are already processed, only unused GT_LONG can reach here.
-                                           // An unused GT_LONG doesn't produce any registers.
-            tree->gtType = TYP_VOID;
-            tree->ClearUnusedValue();
-            isLocalDefUse = false;
-
-            // An unused GT_LONG node needs to consume its sources, but need not produce a register.
-            srcCount = 2;
-            dstCount = 0;
-            BuildUse(tree->gtGetOp1());
-            BuildUse(tree->gtGetOp2());
-            break;
-
         case GT_CNS_DBL:
-            if (tree->TypeGet() == TYP_FLOAT)
+            if (tree->TypeIs(TYP_FLOAT))
             {
-                // An int register for float constant
-                buildInternalIntRegisterDefForNode(tree);
+                BuildInternalIntDef(tree);
             }
             else
             {
-                // TYP_DOUBLE
-                assert(tree->TypeGet() == TYP_DOUBLE);
-
-                // Two int registers for double constant
-                buildInternalIntRegisterDefForNode(tree);
-                buildInternalIntRegisterDefForNode(tree);
+                assert(tree->TypeIs(TYP_DOUBLE));
+                BuildInternalIntDef(tree);
+                BuildInternalIntDef(tree);
             }
-            FALLTHROUGH;
 
+            BuildInternalUses();
+            FALLTHROUGH;
         case GT_CNS_INT:
-        {
-            srcCount = 0;
-            assert(dstCount == 1);
-            buildInternalRegisterUses();
-            RefPosition* def               = BuildDef(tree);
-            def->getInterval()->isConstant = true;
-        }
-        break;
+            BuildDef(tree)->getInterval()->isConstant = true;
+            break;
 
         case GT_RETURN:
-            srcCount = BuildReturn(tree->AsUnOp());
+            BuildReturn(tree->AsUnOp());
             BuildKills(tree, getKillSetForReturn());
             break;
 
         case GT_RETFILT:
-            assert(dstCount == 0);
-            if (tree->TypeGet() == TYP_VOID)
+            if (!tree->TypeIs(TYP_VOID))
             {
-                srcCount = 0;
-            }
-            else
-            {
-                assert(tree->TypeGet() == TYP_INT);
-                srcCount = 1;
-                BuildUse(tree->gtGetOp1(), RBM_INTRET);
+                assert(tree->TypeIs(TYP_INT));
+                BuildUse(tree->AsUnOp()->GetOp(0), RBM_INTRET);
             }
             break;
 
         case GT_BOUNDS_CHECK:
-            srcCount = 2;
-            assert(dstCount == 0);
-            BuildUse(tree->AsBoundsChk()->GetOp(0));
-            BuildUse(tree->AsBoundsChk()->GetOp(1));
-            break;
-
-        case GT_ARR_ELEM:
-            // These must have been lowered to GT_ARR_INDEX
-            noway_assert(!"We should never see a GT_ARR_ELEM in lowering");
-            srcCount = 0;
-            assert(dstCount == 0);
+            BuildBoundsChk(tree->AsBoundsChk());
             break;
 
         case GT_ARR_INDEX:
-        {
-            srcCount = 2;
-            assert(dstCount == 1);
-            buildInternalIntRegisterDefForNode(tree);
+            BuildInternalIntDef(tree);
             setInternalRegsDelayFree = true;
-
-            // For GT_ARR_INDEX, the lifetime of the arrObj must be extended because it is actually used multiple
-            // times while the result is being computed.
-            RefPosition* arrObjUse = BuildUse(tree->AsArrIndex()->ArrObj());
-            setDelayFree(arrObjUse);
+            // The lifetime of the arrObj must be extended because it is
+            // used multiple times while the result is being computed.
+            setDelayFree(BuildUse(tree->AsArrIndex()->ArrObj()));
             BuildUse(tree->AsArrIndex()->IndexExpr());
-            buildInternalRegisterUses();
+            BuildInternalUses();
             BuildDef(tree);
-        }
-        break;
+            break;
 
         case GT_ARR_OFFSET:
-
-            // This consumes the offset, if any, the arrObj and the effective index,
-            // and produces the flattened offset for this dimension.
-            assert(dstCount == 1);
-
-            if (tree->AsArrOffs()->GetOp(0)->isContained())
-            {
-                srcCount = 2;
-            }
-            else
+            if (!tree->AsArrOffs()->GetOp(0)->isContained())
             {
                 // Here we simply need an internal register, which must be different
                 // from any of the operand's registers, but may be the same as targetReg.
-                buildInternalIntRegisterDefForNode(tree);
-                srcCount = 3;
+                BuildInternalIntDef(tree);
                 BuildUse(tree->AsArrOffs()->GetOp(0));
             }
+
             BuildUse(tree->AsArrOffs()->GetOp(1));
             BuildUse(tree->AsArrOffs()->GetOp(2));
-            buildInternalRegisterUses();
+            BuildInternalUses();
             BuildDef(tree);
             break;
 
         case GT_LEA:
-        {
-            GenTreeAddrMode* lea = tree->AsAddrMode();
-
-            // This LEA is instantiating an address, so we set up the srcCount and dstCount here.
-            srcCount = 0;
-            assert(dstCount == 1);
-            if (GenTree* base = lea->GetBase())
-            {
-                srcCount++;
-                BuildUse(base);
-            }
-            if (GenTree* index = lea->GetIndex())
-            {
-                srcCount++;
-                BuildUse(index);
-            }
-
-            int offset = lea->GetOffset();
-
-            // An internal register may be needed too; the logic here should be in sync with the
-            // genLeaInstruction()'s requirements for a such register.
-            if (lea->HasBase() && lea->HasIndex())
-            {
-                if (offset != 0)
-                {
-                    // We need a register when we have all three: base reg, index reg and a non-zero offset.
-                    buildInternalIntRegisterDefForNode(tree);
-                }
-            }
-            else if (lea->HasBase())
-            {
-                if (!emitter::emitIns_valid_imm_for_add(offset, INS_FLAGS_DONT_CARE))
-                {
-                    // We need a register when we have an offset that is too large to encode in the add instruction.
-                    buildInternalIntRegisterDefForNode(tree);
-                }
-            }
-            buildInternalRegisterUses();
-            BuildDef(tree);
-        }
-        break;
-
-        case GT_FNEG:
-        case GT_NEG:
-        case GT_NOT:
-            srcCount = 1;
-            assert(dstCount == 1);
-            BuildUse(tree->gtGetOp1());
-            BuildDef(tree);
+            BuildAddrMode(tree->AsAddrMode());
             break;
 
         case GT_EQ:
@@ -582,87 +254,57 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_GE:
         case GT_GT:
         case GT_CMP:
-            srcCount = BuildCmp(tree->AsOp());
-            break;
-
-        case GT_CKFINITE:
-            srcCount = 1;
-            assert(dstCount == 1);
-            buildInternalIntRegisterDefForNode(tree);
-            BuildUse(tree->gtGetOp1());
-            buildInternalRegisterUses();
-            BuildDef(tree);
+            BuildCmp(tree->AsOp());
             break;
 
         case GT_CALL:
-            srcCount = BuildCall(tree->AsCall());
-            if (tree->AsCall()->HasMultiRegRetVal())
-            {
-                dstCount = tree->AsCall()->GetRegCount();
-            }
+            BuildCall(tree->AsCall());
             break;
 
         case GT_STORE_BLK:
         case GT_STORE_OBJ:
-            srcCount = BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
+            BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
             break;
 
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-            srcCount = BuildStoreDynBlk(tree->AsDynBlk());
+            BuildStoreDynBlk(tree->AsDynBlk());
             break;
 
         case GT_LCLHEAP:
-            srcCount = BuildLclHeap(tree);
+            BuildLclHeap(tree->AsUnOp());
             break;
 
         case GT_STOREIND:
-            assert(dstCount == 0);
-
             if (GCInfo::GetWriteBarrierForm(tree->AsStoreInd()) != GCInfo::WBF_NoBarrier)
             {
-                srcCount = BuildGCWriteBarrier(tree->AsStoreInd());
+                BuildGCWriteBarrier(tree->AsStoreInd());
             }
             else
             {
-                srcCount = BuildIndir(tree->AsStoreInd());
+                BuildIndir(tree->AsStoreInd());
                 BuildUse(tree->AsStoreInd()->GetValue());
-                srcCount++;
             }
             break;
 
-        case GT_NULLCHECK:
-#ifdef TARGET_ARM
-            // On Arm32 we never want to use GT_NULLCHECK, as we require a target register.
-            // Previously we used an internal register for this, but that results in a lifetime
-            // that overlaps with all the source registers.
-            assert(!"Should never see GT_NULLCHECK on Arm/32");
-#endif
-            // For Arm64 we simply fall through to the GT_IND case, and will use REG_ZR as the target.
-            FALLTHROUGH;
         case GT_IND:
-            assert(dstCount == (tree->OperIs(GT_NULLCHECK) ? 0 : 1));
-            srcCount = BuildIndir(tree->AsIndir());
+            BuildIndir(tree->AsIndir());
             break;
 
         case GT_CATCH_ARG:
-            srcCount = 0;
-            assert(dstCount == 1);
             BuildDef(tree, RBM_EXCEPTION_OBJECT);
             break;
 
         case GT_PUTARG_SPLIT:
-            srcCount = BuildPutArgSplit(tree->AsPutArgSplit());
-            dstCount = tree->AsPutArgSplit()->GetRegCount();
+            BuildPutArgSplit(tree->AsPutArgSplit());
             break;
 
         case GT_PUTARG_STK:
-            srcCount = BuildPutArgStk(tree->AsPutArgStk());
+            BuildPutArgStk(tree->AsPutArgStk());
             break;
 
         case GT_PUTARG_REG:
-            srcCount = BuildPutArgReg(tree->AsUnOp());
-            dstCount = tree->TypeIs(TYP_LONG) ? 2 : 1;
+            BuildPutArgReg(tree->AsUnOp());
             break;
 
         case GT_BITCAST:
@@ -670,11 +312,6 @@ int LinearScan::BuildNode(GenTree* tree)
             if (!tree->AsUnOp()->GetOp(0)->isContained())
             {
                 BuildUse(tree->AsUnOp()->GetOp(0));
-                srcCount = 1;
-            }
-            else
-            {
-                srcCount = 0;
             }
 
             regNumber argReg  = tree->GetRegNum(0);
@@ -689,73 +326,141 @@ int LinearScan::BuildNode(GenTree* tree)
 
                 BuildDef(tree, TYP_INT, argMask, 0);
                 BuildDef(tree, TYP_INT, argMaskNext, 1);
-
-                dstCount = 2;
             }
             else
             {
                 BuildDef(tree, argMask);
-
-                assert(dstCount == 1);
             }
         }
         break;
 
-        case GT_LCL_ADDR:
-        case GT_PHYSREG:
-        case GT_CLS_VAR_ADDR:
-        case GT_LABEL:
-        case GT_PINVOKE_PROLOG:
-        case GT_JCC:
-        case GT_SETCC:
-        case GT_MEMORYBARRIER:
-        case GT_OBJ:
-            srcCount = BuildSimple(tree);
-            break;
-
-        case GT_INDEX_ADDR:
-            dstCount = 1;
-            buildInternalIntRegisterDefForNode(tree);
-            srcCount = BuildBinaryUses(tree->AsOp());
-            assert(srcCount == 2);
-            buildInternalRegisterUses();
-            BuildDef(tree);
-            break;
-
         case GT_INSTR:
-            srcCount = BuildInstr(tree->AsInstr());
+            BuildInstr(tree->AsInstr());
             break;
-
-        case GT_IL_OFFSET:
-            srcCount = 0;
-            break;
-
-        case GT_ARGPLACE:
-        case GT_ASG:
-        case GT_BLK:
-        case GT_FIELD_LIST:
-        case GT_INIT_VAL:
-        case GT_BOX:
-        case GT_COMMA:
-        case GT_QMARK:
-            unreached();
 
         default:
-#ifdef DEBUG
-            char message[256];
-            _snprintf_s(message, _countof(message), _TRUNCATE, "NYI: Unimplemented node type %s",
-                        GenTree::OpName(tree->OperGet()));
-            NYIRAW(message);
-#endif
             unreached();
-    } // end switch (tree->OperGet())
+    }
+}
 
-    // We need to be sure that we've set srcCount and dstCount appropriately
-    assert((dstCount < 2) || tree->IsMultiRegNode());
-    assert(isLocalDefUse == (tree->IsValue() && tree->IsUnusedValue()));
-    assert(!tree->IsUnusedValue() || (dstCount != 0));
-    assert(dstCount == tree->GetRegisterDstCount(compiler));
-    return srcCount;
+void LinearScan::BuildAddrMode(GenTreeAddrMode* lea)
+{
+    if (GenTree* base = lea->GetBase())
+    {
+        BuildUse(base);
+    }
+
+    if (GenTree* index = lea->GetIndex())
+    {
+        BuildUse(index);
+    }
+
+    if (lea->GetBase() != nullptr)
+    {
+        if (((lea->GetIndex() != nullptr) && (lea->GetOffset() != 0)) ||
+            !emitter::emitIns_valid_imm_for_add(lea->GetOffset(), INS_FLAGS_DONT_CARE))
+        {
+            BuildInternalIntDef(lea);
+            BuildInternalUses();
+        }
+    }
+
+    BuildDef(lea);
+}
+
+void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
+{
+    // Size                   Init Memory    # temp regs
+    // 0                      don't care     0
+    // const <= 4 str instr   don't care     0
+    // const < PageSize       No             0
+    // > 4 reg words          Yes            1
+    // variable               Yes            1
+    // variable               No             1
+    //
+    // If the outgoing argument space is too large to encode in an "add/sub sp, icon"
+    // instruction, we also need a temp (we can use the same temp register needed
+    // for the other cases above, if there are multiple conditions that require a
+    // temp register).
+
+    GenTree* size         = tree->GetOp(0);
+    unsigned tempRegCount = 0;
+
+    if (!size->IsIntCon())
+    {
+        tempRegCount = 1;
+
+        BuildUse(size);
+    }
+    else
+    {
+        assert(size->isContained());
+
+        size_t sizeVal = size->AsIntCon()->GetUnsignedValue();
+
+        if (sizeVal != 0)
+        {
+            sizeVal = AlignUp(sizeVal, STACK_ALIGN);
+
+            if (sizeVal / REGSIZE_BYTES > 4)
+            {
+                if (!compiler->info.compInitMem)
+                {
+                    if (sizeVal >= compiler->eeGetPageSize())
+                    {
+                        tempRegCount = 1;
+                    }
+                }
+                else
+                {
+                    tempRegCount = 1;
+                }
+            }
+        }
+    }
+
+    // If we have an outgoing argument space, we are going to probe that SP change, and we require
+    // a temporary register for doing the probe. Note also that if the outgoing argument space is
+    // large enough that it can't be directly encoded in SUB/ADD instructions, we also need a temp
+    // register to load the large sized constant into a register.
+    if (compiler->codeGen->outgoingArgSpaceSize > 0)
+    {
+        // TODO-MIKE-Review: Given the comment above shouldn't this be += 1?
+        tempRegCount = 1;
+    }
+
+    // If we are needed in temporary registers we should be sure that
+    // it's different from target (regCnt)
+    if (tempRegCount > 0)
+    {
+        setInternalRegsDelayFree = true;
+
+        for (unsigned i = 0; i < tempRegCount; i++)
+        {
+            BuildInternalIntDef(tree);
+        }
+    }
+
+    BuildInternalUses();
+    BuildDef(tree);
+}
+
+void LinearScan::BuildShiftLong(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_LSH_HI, GT_RSH_LO));
+
+    GenTreeOp* source = node->GetOp(0)->AsOp();
+    assert(source->OperIs(GT_LONG) && source->isContained());
+    GenTree* sourceLo = source->GetOp(0);
+    GenTree* sourceHi = source->GetOp(1);
+
+    GenTree* shiftBy = node->GetOp(1);
+    assert(shiftBy->IsContainedIntCon());
+
+    RefPosition* sourceLoUse = BuildUse(sourceLo);
+    RefPosition* sourceHiUse = BuildUse(sourceHi);
+    setDelayFree(node->OperIs(GT_LSH_HI) ? sourceLoUse : sourceHiUse);
+    BuildDef(node);
 }
 
 #endif // TARGET_ARM
