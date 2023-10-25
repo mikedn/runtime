@@ -106,7 +106,7 @@ GenTreeCall* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeC
     call->ClearOtherRegs();
 #endif
 
-    if (call->OperMayThrow(this))
+    if (call->CallMayThrow(this))
     {
         call->gtFlags |= GTF_EXCEPT;
     }
@@ -3173,7 +3173,8 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
 
     // Clear the ASG and EXCEPT (if possible) flags on the call node
     call->gtFlags &= ~GTF_ASG;
-    if (!call->OperMayThrow(this))
+
+    if (!call->CallMayThrow(this))
     {
         call->gtFlags &= ~GTF_EXCEPT;
     }
@@ -13443,7 +13444,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_CALL:
-            if (tree->OperMayThrow(this))
+            if (tree->CallMayThrow(this))
             {
                 tree->gtFlags |= GTF_EXCEPT;
             }

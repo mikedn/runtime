@@ -1629,6 +1629,9 @@ public:
     bool OperRequiresCallFlag(Compiler* comp) const;
 
     bool OperMayThrow(Compiler* comp) const;
+    bool CallMayThrow(Compiler* comp) const;
+    bool DivModMayThrow(Compiler* comp) const;
+    bool IndirMayThrow(Compiler* comp) const;
 
     size_t GetNodeSize() const;
 

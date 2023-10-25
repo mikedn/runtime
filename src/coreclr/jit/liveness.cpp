@@ -1102,7 +1102,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
             case GT_OBJ:
                 if (node->IsUnusedValue())
                 {
-                    if (node->OperMayThrow(this))
+                    if (node->IndirMayThrow(this))
                     {
                         // IR doesn't expect dummy uses of `GT_OBJ/BLK`.
                         JITDUMP("Transform an unused OBJ/BLK node [%06u]\n", node->GetID());

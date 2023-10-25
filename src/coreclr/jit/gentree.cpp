@@ -3776,17 +3776,63 @@ bool GenTree::OperIsImplicitIndir() const
     }
 }
 
+bool GenTree::IndirMayThrow(Compiler* comp) const
+{
+    switch (gtOper)
+    {
+        case GT_BLK:
+        case GT_STORE_BLK:
+        case GT_OBJ:
+        case GT_STORE_OBJ:
+            if (AsBlk()->GetLayout()->GetSize() == 0)
+            {
+                return false;
+            }
+            FALLTHROUGH;
+        case GT_IND:
+        case GT_STOREIND:
+        case GT_NULLCHECK:
+            return ((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(AsIndir()->GetAddr());
+
+        default:
+            assert(gtOper == GT_ARR_LENGTH);
+            return ((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(AsArrLen()->GetArray());
+    }
+}
+
+bool GenTree::CallMayThrow(Compiler* comp) const
+{
+    return !AsCall()->IsHelperCall() ||
+           !Compiler::s_helperCallProperties.NoThrow(Compiler::eeGetHelperNum(AsCall()->GetMethodHandle()));
+}
+
+bool GenTree::DivModMayThrow(Compiler* comp) const
+{
+    assert(OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD));
+
+    GenTree* divisor = AsOp()->GetOp(1);
+    return !divisor->IsIntegralConst() || divisor->IsIntegralConst(0) || divisor->IsIntegralConst(-1);
+}
+
 bool GenTree::OperMayThrow(Compiler* comp) const
 {
     switch (gtOper)
     {
+        case GT_NULLCHECK:
+        case GT_IND:
+        case GT_STOREIND:
+        case GT_BLK:
+        case GT_STORE_BLK:
+        case GT_OBJ:
+        case GT_STORE_OBJ:
+        case GT_ARR_LENGTH:
+            return IndirMayThrow(comp);
+
         case GT_MOD:
         case GT_DIV:
         case GT_UMOD:
         case GT_UDIV:
-            GenTree* divisor;
-            divisor = AsOp()->GetOp(1);
-            return !divisor->IsIntegralConst() || divisor->IsIntegralConst(0) || divisor->IsIntegralConst(-1);
+            return DivModMayThrow(comp);
 
         case GT_INTRINSIC:
             // If this is an intrinsic that represents the object.GetType(), it can throw an NullReferenceException.
@@ -3799,29 +3845,11 @@ bool GenTree::OperMayThrow(Compiler* comp) const
             return HasAnySideEffect(GTF_EXCEPT);
 
         case GT_CALL:
-            return !AsCall()->IsHelperCall() ||
-                   !Compiler::s_helperCallProperties.NoThrow(Compiler::eeGetHelperNum(AsCall()->GetMethodHandle()));
-
-        case GT_STORE_BLK:
-        case GT_STORE_OBJ:
-        case GT_OBJ:
-        case GT_BLK:
-            if (AsBlk()->GetLayout()->GetSize() == 0)
-            {
-                return false;
-            }
-            FALLTHROUGH;
-        case GT_STOREIND:
-        case GT_IND:
-        case GT_NULLCHECK:
-            return (((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(AsIndir()->GetAddr()));
+            return CallMayThrow(comp);
 
         case GT_COPY_BLK:
         case GT_INIT_BLK:
             return !AsDynBlk()->GetSize()->IsIntegralConst(0);
-
-        case GT_ARR_LENGTH:
-            return ((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(AsArrLen()->GetArray());
 
         case GT_ARR_ELEM:
             // TODO-MIKE-Review: What the crap is this? This can throw an IndexOutOfRangeException...
@@ -6480,9 +6508,10 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
 {
     assert(OperIsIndirOrArrLength());
 
-    if (OperMayThrow(comp))
+    if (IndirMayThrow(comp))
     {
         gtFlags |= GTF_EXCEPT;
+
         return;
     }
 
@@ -6511,6 +6540,9 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
 
     if ((gtFlags & GTF_EXCEPT) == 0)
     {
+        // TODO-MIKE-Review: This is dubious - NONFAULTING solely depends on the address
+        // being non-null, it doesn't matter if the address (or stored value) expression
+        // has exception side effects, that's communicated by inheriting GTF_EXCEPT.
         gtFlags |= GTF_IND_NONFAULTING;
     }
 }

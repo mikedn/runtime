@@ -9986,7 +9986,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
                     else if (op1->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD))
                     {
-                        if (op1->OperMayThrow(comp))
+                        if (op1->DivModMayThrow(comp))
                         {
                             op1->gtFlags |= GTF_EXCEPT;
                         }

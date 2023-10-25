@@ -4360,7 +4360,7 @@ void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
     ValueNumPair addrExset;
     ValueNumPair addrVNP = vnStore->UnpackExset(addr->GetVNP(), &addrExset);
 
-    if (load->OperMayThrow(compiler))
+    if (load->IndirMayThrow(compiler))
     {
         addrExset = AddNullRefExset(addr->GetVNP());
     }
