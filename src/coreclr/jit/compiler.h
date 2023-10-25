@@ -3201,16 +3201,10 @@ public:
     GenTreeCall* gtCloneCandidateCall(GenTreeCall* call);
 
     void gtUpdateSideEffects(Statement* stmt, GenTree* tree);
-
     void gtUpdateTreeAncestorsSideEffects(GenTree* tree);
-
     void gtUpdateStmtSideEffects(Statement* stmt);
-
     void gtUpdateNodeSideEffects(GenTree* tree);
-
     void gtUpdateNodeOperSideEffects(GenTree* tree);
-
-    void gtUpdateNodeOperSideEffectsPost(GenTree* tree);
 
     // Returns "true" iff the complexity (not formally defined, but first interpretation
     // is #of nodes in subtree) of "tree" is greater than "limit".
@@ -4908,9 +4902,6 @@ private:
     // or stack params of x86 varargs methods.
     void fgMorphIndirectParams(Statement* stmt);
 #endif
-
-    static fgWalkPreFn  fgUpdateSideEffectsPre;
-    static fgWalkPostFn fgUpdateSideEffectsPost;
 
     enum TypeProducerKind
     {

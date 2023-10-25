@@ -5836,15 +5836,68 @@ void Compiler::gtUpdateTreeAncestorsSideEffects(GenTree* tree)
     }
 }
 
-//------------------------------------------------------------------------
-// gtUpdateStmtSideEffects: Update the side effects for statement tree nodes.
-//
-// Arguments:
-//    stmt            - The statement to update side effects on
-//
 void Compiler::gtUpdateStmtSideEffects(Statement* stmt)
 {
-    fgWalkTree(stmt->GetRootNodePointer(), fgUpdateSideEffectsPre, fgUpdateSideEffectsPost);
+    class SideEffectVisitor : public GenTreeVisitor<SideEffectVisitor>
+    {
+    public:
+        enum
+        {
+            DoPreOrder        = true,
+            DoPostOrder       = true,
+            ComputeStack      = false,
+            DoLclVarsOnly     = false,
+            UseExecutionOrder = false
+        };
+
+        SideEffectVisitor(Compiler* compiler) : GenTreeVisitor(compiler)
+        {
+        }
+
+        fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+        {
+            GenTree* node = *use;
+            node->gtFlags &= ~(GTF_ASG | GTF_CALL | GTF_EXCEPT);
+            return WALK_CONTINUE;
+        }
+
+        fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+        {
+            GenTree* node = *use;
+
+            if (node->OperMayThrow(m_compiler))
+            {
+                node->AddSideEffects(GTF_EXCEPT);
+            }
+
+            if (node->OperRequiresAsgFlag())
+            {
+                node->AddSideEffects(GTF_ASG);
+            }
+
+            if (node->OperRequiresCallFlag(m_compiler))
+            {
+                node->AddSideEffects(GTF_CALL);
+            }
+
+            // If this node is an indir or array length, and it doesn't have the GTF_EXCEPT bit set,
+            // we set the GTF_IND_NONFAULTING bit. This needs to be done after all children, and this
+            // node, have been processed.
+            if (node->OperIsIndirOrArrLength() && !node->HasAnySideEffect(GTF_EXCEPT))
+            {
+                node->gtFlags |= GTF_IND_NONFAULTING;
+            }
+
+            if (user != nullptr)
+            {
+                user->AddSideEffects(node->GetSideEffects());
+            }
+
+            return WALK_CONTINUE;
+        }
+    } visitor(this);
+
+    visitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
 }
 
 //------------------------------------------------------------------------
@@ -5893,38 +5946,6 @@ void Compiler::gtUpdateNodeOperSideEffects(GenTree* tree)
 }
 
 //------------------------------------------------------------------------
-// gtUpdateNodeOperSideEffectsPost: Update the side effects based on the node operation,
-// in the post-order visit of a tree walk. It is expected that the pre-order visit cleared
-// the bits, so the post-order visit only sets them. This is important for binary nodes
-// where one child already may have set the GTF_EXCEPT bit. Note that `SetIndirExceptionFlags`
-// looks at its child, which is why we need to do this in a bottom-up walk.
-//
-// Arguments:
-//    tree            - Tree to update the side effects on
-//
-// Notes:
-//    This method currently only updates GTF_ASG, GTF_CALL, and GTF_EXCEPT flags.
-//    The other side effect flags may remain unnecessarily (conservatively) set.
-//
-void Compiler::gtUpdateNodeOperSideEffectsPost(GenTree* tree)
-{
-    if (tree->OperMayThrow(this))
-    {
-        tree->gtFlags |= GTF_EXCEPT;
-    }
-
-    if (tree->OperRequiresAsgFlag())
-    {
-        tree->gtFlags |= GTF_ASG;
-    }
-
-    if (tree->OperRequiresCallFlag(this))
-    {
-        tree->gtFlags |= GTF_CALL;
-    }
-}
-
-//------------------------------------------------------------------------
 // gtUpdateNodeSideEffects: Update the side effects based on the node operation and
 //                          children's side efects.
 //
@@ -5942,58 +5963,6 @@ void Compiler::gtUpdateNodeSideEffects(GenTree* tree)
         tree->gtFlags |= (op->gtFlags & GTF_ALL_EFFECT);
         return GenTree::VisitResult::Continue;
     });
-}
-
-//------------------------------------------------------------------------
-// fgUpdateSideEffectsPre: Update the side effects based on the tree operation.
-// The pre-visit walk clears GTF_ASG, GTF_CALL, and GTF_EXCEPT; the post-visit walk sets
-// the bits as necessary.
-//
-// Arguments:
-//    pTree            - Pointer to the tree to update the side effects
-//    fgWalkPre        - Walk data
-//
-Compiler::fgWalkResult Compiler::fgUpdateSideEffectsPre(GenTree** pTree, fgWalkData* fgWalkPre)
-{
-    GenTree* tree = *pTree;
-    tree->gtFlags &= ~(GTF_ASG | GTF_CALL | GTF_EXCEPT);
-
-    return WALK_CONTINUE;
-}
-
-//------------------------------------------------------------------------
-// fgUpdateSideEffectsPost: Update the side effects of the node and parent based on the tree's flags.
-//
-// Arguments:
-//    pTree            - Pointer to the tree
-//    fgWalkPost       - Walk data
-//
-// Notes:
-//    The routine is used for updating the stale side effect flags for ancestor
-//    nodes starting from treeParent up to the top-level stmt expr.
-//
-Compiler::fgWalkResult Compiler::fgUpdateSideEffectsPost(GenTree** pTree, fgWalkData* fgWalkPost)
-{
-    GenTree* tree = *pTree;
-
-    // Update the node's side effects first.
-    fgWalkPost->compiler->gtUpdateNodeOperSideEffectsPost(tree);
-
-    // If this node is an indir or array length, and it doesn't have the GTF_EXCEPT bit set, we
-    // set the GTF_IND_NONFAULTING bit. This needs to be done after all children, and this node, have
-    // been processed.
-    if (tree->OperIsIndirOrArrLength() && ((tree->gtFlags & GTF_EXCEPT) == 0))
-    {
-        tree->gtFlags |= GTF_IND_NONFAULTING;
-    }
-
-    // Then update the parent's side effects based on this node.
-    GenTree* parent = fgWalkPost->parent;
-    if (parent != nullptr)
-    {
-        parent->gtFlags |= (tree->gtFlags & GTF_ALL_EFFECT);
-    }
-    return WALK_CONTINUE;
 }
 
 GenTreeUseEdgeIterator::GenTreeUseEdgeIterator()
