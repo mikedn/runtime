@@ -1417,20 +1417,10 @@ public:
         return OperMayOverflow(gtOper);
     }
 
-    static bool OperIsIndir(genTreeOps gtOper)
-    {
-        return (gtOper == GT_IND) || (gtOper == GT_STOREIND) || (gtOper == GT_NULLCHECK) || (gtOper == GT_BLK) ||
-               (gtOper == GT_OBJ) || (gtOper == GT_STORE_BLK) || (gtOper == GT_STORE_OBJ);
-    }
-
     static bool OperIsIndirOrArrLength(genTreeOps gtOper)
     {
-        return OperIsIndir(gtOper) || (gtOper == GT_ARR_LENGTH);
-    }
-
-    bool OperIsIndir() const
-    {
-        return OperIsIndir(gtOper);
+        return (gtOper == GT_NULLCHECK) || (gtOper == GT_IND) || (gtOper == GT_STOREIND) || (gtOper == GT_BLK) ||
+               (gtOper == GT_OBJ) || (gtOper == GT_STORE_BLK) || (gtOper == GT_STORE_OBJ) || (gtOper == GT_ARR_LENGTH);
     }
 
     bool OperIsIndirOrArrLength() const

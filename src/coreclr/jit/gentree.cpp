@@ -4958,7 +4958,7 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
     unsigned dstLclNum  = BAD_VAR_NUM;
     unsigned dstLclOffs = 0;
 
-    if (dst->OperIsIndir() && dst->AsIndir()->GetAddr()->OperIs(GT_LCL_ADDR))
+    if (dst->IsIndir() && dst->AsIndir()->GetAddr()->OperIs(GT_LCL_ADDR))
     {
         dstLclNum  = dst->AsIndir()->GetAddr()->AsLclAddr()->GetLclNum();
         dstLclOffs = dst->AsIndir()->GetAddr()->AsLclAddr()->GetLclNum();
@@ -4973,7 +4973,7 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
         return;
     }
 
-    if (src->OperIsIndir() && src->AsIndir()->GetAddr()->OperIs(GT_LCL_ADDR))
+    if (src->IsIndir() && src->AsIndir()->GetAddr()->OperIs(GT_LCL_ADDR))
     {
         srcLclNum  = src->AsIndir()->GetAddr()->AsLclAddr()->GetLclNum();
         srcLclOffs = src->AsIndir()->GetAddr()->AsLclAddr()->GetLclOffs();
@@ -6487,13 +6487,13 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
     }
 
     GenTree* addr = nullptr;
-    if (OperIsIndir())
+
+    if (IsIndir())
     {
         addr = AsIndir()->GetAddr();
     }
     else
     {
-        assert(gtOper == GT_ARR_LENGTH);
         addr = AsArrLen()->GetArray();
     }
 

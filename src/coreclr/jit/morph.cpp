@@ -9495,12 +9495,12 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         promote = false;
     }
 #if defined(TARGET_ARM)
-    else if (src->OperIsIndir() && src->AsIndir()->IsUnaligned())
+    else if (src->IsIndir() && src->AsIndir()->IsUnaligned())
     {
         JITDUMP("src is unaligned\n");
         promote = false;
     }
-    else if (dest->OperIsIndir() && dest->AsIndir()->IsUnaligned())
+    else if (dest->IsIndir() && dest->AsIndir()->IsUnaligned())
     {
         JITDUMP("dest is unaligned\n");
         promote = false;
@@ -9942,7 +9942,7 @@ GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
 
     // op1 can be GT_COMMA, in this case we're going to fold
     // "(op (COMMA(... (op X C1))) C2)" to "(COMMA(... (op X C3)))"
-    GenTree*   op1  = tree->GetOp(0)->SkipComma();
+    GenTree* op1 = tree->GetOp(0)->SkipComma();
 
     if ((op1->GetOper() != tree->GetOper()) || !tree->GetOp(1)->IsIntCon() || !op1->gtGetOp2()->IsIntCon() ||
         op1->gtGetOp1()->IsIntCon())
@@ -10764,7 +10764,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         MorphAddrContext  newOp1Mac(false);
         MorphAddrContext* op1Mac = mac;
 
-        if (!op1->OperIsIndir())
+        if (!op1->IsIndir())
         {
             if (tree->OperIs(GT_IND, GT_OBJ, GT_BLK))
             {
@@ -10816,7 +10816,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
     if (op2)
     {
-        if (!op2->OperIsIndir() && (mac != nullptr))
+        if (!op2->IsIndir() && (mac != nullptr))
         {
             if (tree->OperIs(GT_ADD) && tree->AsOp()->GetOp(0)->IsIntCon())
             {
@@ -13387,7 +13387,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             }
         }
 
-        if (tree->OperIsIndir())
+        if (tree->IsIndir())
         {
             // An indirection gets a default address context if it isn't address taken.
             mac = nullptr;

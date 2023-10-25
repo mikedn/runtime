@@ -3604,7 +3604,7 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
         // If this is a child of an indir, let the parent handle it.
         // If there is a chain of adds, only look at the topmost one.
         GenTree* parent = use.User();
-        if (!parent->OperIsIndir() && !parent->OperIs(GT_ADD))
+        if (!parent->IsIndir() && !parent->OperIs(GT_ADD))
         {
             TryCreateAddrMode(node, false);
         }

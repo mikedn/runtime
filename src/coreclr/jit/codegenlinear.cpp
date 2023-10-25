@@ -1269,7 +1269,7 @@ void CodeGen::genConsumeRegs(GenTree* tree)
         return;
     }
 
-    if (tree->OperIsIndir())
+    if (tree->IsIndir())
     {
         genConsumeAddress(tree->AsIndir()->GetAddr());
         return;
