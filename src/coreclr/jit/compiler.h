@@ -2392,7 +2392,6 @@ struct Importer
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
     GenTreeIndir* gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr);
-    GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
     GenTreeObj* gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
     GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
     GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
@@ -3160,8 +3159,6 @@ public:
 
     GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs);
     GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
-
-    GenTreeIndir* gtNewIndir(var_types typ, GenTree* addr);
 
     GenTree* gtNewNullCheck(GenTree* addr);
 

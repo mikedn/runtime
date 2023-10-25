@@ -11336,7 +11336,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1,
                                         gtNewIconNode(OFFSETOF__CORINFO_Array__length, TYP_I_IMPL));
-                    op1 = gtNewIndir(TYP_INT, op1);
+                    op1 = comp->gtNewOperNode(GT_IND, TYP_INT, op1);
+                    op1->SetIndirExceptionFlags(comp);
                 }
 
                 impPushOnStack(op1);
@@ -17588,11 +17589,6 @@ GenTreeIndir* Importer::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldA
 GenTreeIndir* Importer::gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr)
 {
     return comp->gtNewFieldIndir(type, layoutNum, fieldAddr);
-}
-
-GenTreeIndir* Importer::gtNewIndir(var_types type, GenTree* addr)
-{
-    return comp->gtNewIndir(type, addr);
 }
 
 GenTreeObj* Importer::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr)

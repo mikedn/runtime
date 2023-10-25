@@ -855,23 +855,6 @@ inline GenTreeBoundsChk* Compiler::gtNewBoundsChk(GenTree* index, GenTree* lengt
     return new (this, GT_BOUNDS_CHECK) GenTreeBoundsChk(index, length, kind);
 }
 
-//------------------------------------------------------------------------------
-// gtNewIndir : Helper to create an indirection node.
-//
-// Arguments:
-//    typ   -  Type of the node
-//    addr  -  Address of the indirection
-//
-// Return Value:
-//    New GT_IND node
-
-inline GenTreeIndir* Compiler::gtNewIndir(var_types typ, GenTree* addr)
-{
-    GenTree* indir = gtNewOperNode(GT_IND, typ, addr);
-    indir->SetIndirExceptionFlags(this);
-    return indir->AsIndir();
-}
-
 inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
 {
     assert(fgAddrCouldBeNull(addr));
@@ -915,7 +898,8 @@ inline GenTreeCast* Compiler::gtNewCastNode(GenTree* op1, bool fromUnsigned, var
 
 inline GenTreeIndir* Compiler::gtNewMethodTableLookup(GenTree* object)
 {
-    GenTreeIndir* result = gtNewIndir(TYP_I_IMPL, object);
+    GenTreeIndir* result = gtNewOperNode(GT_IND, TYP_I_IMPL, object)->AsIndir();
+    result->SetIndirExceptionFlags(this);
     result->gtFlags |= GTF_IND_INVARIANT;
     return result;
 }

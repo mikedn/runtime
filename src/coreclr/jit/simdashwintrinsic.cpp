@@ -800,7 +800,8 @@ GenTree* Importer::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
     }
     else
     {
-        dest = gtNewIndir(src->GetType(), destAddr);
+        dest = comp->gtNewOperNode(GT_IND, src->GetType(), destAddr);
+        dest->SetIndirExceptionFlags(comp);
         dest->gtFlags |= GTF_GLOB_REF;
     }
 

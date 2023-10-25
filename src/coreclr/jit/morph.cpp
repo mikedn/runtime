@@ -4738,7 +4738,8 @@ GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
                 regAddr->gtFlags |= GTF_DONT_CSE;
             }
 
-            regIndir = gtNewIndir(regType, regAddr);
+            regIndir = gtNewOperNode(GT_IND, regType, regAddr);
+            regIndir->SetIndirExceptionFlags(this);
             regIndir->gtFlags |= GTF_GLOB_REF;
         }
         else
@@ -4822,7 +4823,8 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
             addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addr->GetType()), addr, gtNewIconNode(offset, TYP_I_IMPL));
             addr->gtFlags |= GTF_DONT_CSE;
         }
-        GenTree* indir = gtNewIndir(type, addr);
+        GenTree* indir = gtNewOperNode(GT_IND, type, addr);
+        indir->SetIndirExceptionFlags(this);
         indir->gtFlags |= GTF_GLOB_REF;
         return indir;
     };
