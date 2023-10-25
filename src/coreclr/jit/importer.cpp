@@ -1257,7 +1257,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
 
         if (i != 0)
         {
-            slotPtrTree = gtNewOperNode(GT_IND, TYP_I_IMPL, slotPtrTree);
+            slotPtrTree = gtNewIndir(TYP_I_IMPL, slotPtrTree);
             slotPtrTree->gtFlags |= GTF_IND_NONFAULTING;
             if (!isLastIndirectionWithSizeCheck)
             {
@@ -1285,7 +1285,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
 
     if (!pRuntimeLookup->testForNull)
     {
-        slotPtrTree = gtNewOperNode(GT_IND, TYP_I_IMPL, slotPtrTree);
+        slotPtrTree = gtNewIndir(TYP_I_IMPL, slotPtrTree);
         slotPtrTree->gtFlags |= GTF_IND_NONFAULTING;
 
         if (!pRuntimeLookup->testForFixup)
@@ -1310,7 +1310,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
         // slot = GT_IND(slot - 1)
         slot           = gtNewLclvNode(slotLclNum, TYP_I_IMPL);
         GenTree* add   = gtNewOperNode(GT_ADD, TYP_I_IMPL, slot, gtNewIconNode(-1, TYP_I_IMPL));
-        GenTree* indir = gtNewOperNode(GT_IND, TYP_I_IMPL, add);
+        GenTree* indir = gtNewIndir(TYP_I_IMPL, add);
         indir->gtFlags |= GTF_IND_NONFAULTING;
         indir->gtFlags |= GTF_IND_INVARIANT;
         asg = gtNewAssignNode(gtNewLclvNode(slotLclNum, TYP_I_IMPL), indir);
@@ -1326,7 +1326,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
     impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("bubbling QMark1"));
 
     // Extract the handle
-    GenTree* handleForNullCheck = gtNewOperNode(GT_IND, TYP_I_IMPL, slotPtrTree);
+    GenTree* handleForNullCheck = gtNewIndir(TYP_I_IMPL, slotPtrTree);
     handleForNullCheck->gtFlags |= GTF_IND_NONFAULTING;
 
     // Call the helper
@@ -1351,7 +1351,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
         // sizeValue = dictionary[pRuntimeLookup->sizeOffset]
         GenTreeIntCon* sizeOffset      = gtNewIconNode(pRuntimeLookup->sizeOffset, TYP_I_IMPL);
         GenTree*       sizeValueOffset = gtNewOperNode(GT_ADD, TYP_I_IMPL, lastIndOfTree, sizeOffset);
-        GenTree*       sizeValue       = gtNewOperNode(GT_IND, TYP_I_IMPL, sizeValueOffset);
+        GenTree*       sizeValue       = gtNewIndir(TYP_I_IMPL, sizeValueOffset);
         sizeValue->gtFlags |= GTF_IND_NONFAULTING;
 
         // sizeCheck fails if sizeValue < pRuntimeLookup->offsets[i]
@@ -2878,7 +2878,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             impAppendTree(asg, CHECK_SPILL_NONE);
             GenTree* lclVarAddr = gtNewLclVarAddrNode(rawHandleSlot, TYP_I_IMPL);
 
-            retNode = gtNewOperNode(GT_IND, JITtype2varType(sig->retType), lclVarAddr);
+            retNode = gtNewIndir(JITtype2varType(sig->retType), lclVarAddr);
 
             break;
         }
@@ -2914,7 +2914,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                 /* Create the expression "*(str_addr + stringLengthOffset)" */
                 op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1,
                                     gtNewIconNode(OFFSETOF__CORINFO_String__stringLen, TYP_I_IMPL));
-                op1 = gtNewOperNode(GT_IND, TYP_INT, op1);
+                op1 = gtNewIndir(TYP_INT, op1);
             }
 
             // Getting the length of a null string should throw
@@ -4073,7 +4073,7 @@ GenTree* Importer::impArrayAccessIntrinsic(
         }
         else
         {
-            arrElem = gtNewOperNode(GT_IND, elemType, arrElem);
+            arrElem = gtNewIndir(elemType, arrElem);
         }
     }
 
@@ -4695,7 +4695,7 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
 
                 exprToBox = gtNewCastNode(exprToBox, false, dstTyp);
             }
-            op1 = gtNewAssignNode(gtNewOperNode(GT_IND, lclTyp, op1), exprToBox);
+            op1 = gtNewAssignNode(gtNewIndir(lclTyp, op1), exprToBox);
         }
 
         // Spill eval stack to flush out any pending side effects.
@@ -4904,7 +4904,7 @@ GenTree* Importer::impTransformThis(GenTree*                thisPtr,
             assert(genActualType(obj->gtType) == TYP_I_IMPL || obj->gtType == TYP_BYREF);
             CorInfoType constraintTyp = info.compCompHnd->asCorInfoType(pConstrainedResolvedToken->hClass);
 
-            obj = gtNewOperNode(GT_IND, JITtype2varType(constraintTyp), obj);
+            obj = gtNewIndir(JITtype2varType(constraintTyp), obj);
             obj->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
 
             return obj;
@@ -4930,7 +4930,7 @@ GenTree* Importer::impTransformThis(GenTree*                thisPtr,
             }
             else
             {
-                indir = gtNewOperNode(GT_IND, type, thisPtr);
+                indir = gtNewIndir(type, thisPtr);
             }
 
             indir->gtFlags |= GTF_EXCEPT;
@@ -5497,7 +5497,7 @@ GenTree* Importer::impImportFieldInstanceAddrHelper(OPCODE                    op
     }
     else
     {
-        indir = gtNewOperNode(GT_IND, type, addr);
+        indir = gtNewIndir(type, addr);
     }
 
     // The helper checks for null so the indir cannot fault.
@@ -5608,7 +5608,7 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {
-        addr = gtNewOperNode(GT_IND, TYP_REF, addr);
+        addr = gtNewIndir(TYP_REF, addr);
         addr->gtFlags |= GTF_IND_NONFAULTING;
         fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
         addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, TARGET_POINTER_SIZE);
@@ -5904,7 +5904,7 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
         }
         else
         {
-            indir = gtNewOperNode(GT_IND, type, addr);
+            indir = gtNewIndir(type, addr);
         }
 
         indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
@@ -5992,7 +5992,7 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
     {
         if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
         {
-            addr = gtNewOperNode(GT_IND, TYP_REF, addr);
+            addr = gtNewIndir(TYP_REF, addr);
             addr->gtFlags |= GTF_IND_NONFAULTING;
 
 #ifdef TARGET_64BIT
@@ -6025,13 +6025,13 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
             addr->gtFlags |= GTF_CLS_VAR_INITCLASS;
         }
 
-        indir = gtNewOperNode(GT_IND, type, addr);
+        indir = gtNewIndir(type, addr);
 
         // TODO-MIKE-CQ: Should GTF_IND_INVARIANT be set here? CLS_VAR did not have such a thing.
     }
     else
     {
-        indir = gtNewOperNode(GT_IND, type, addr);
+        indir = gtNewIndir(type, addr);
 
 #ifdef TARGET_64BIT
         if (isStaticReadOnlyInited)
@@ -6062,7 +6062,7 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
         }
         else
         {
-            indir = gtNewOperNode(GT_IND, type, addr);
+            indir = gtNewIndir(type, addr);
         }
 
         indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
@@ -10641,7 +10641,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             // For CPOBJ op2 always has type lclType so we can skip all the type
             // compatibility checks above.
             STIND_CPOBJ:
-                op1 = gtNewOperNode(GT_IND, lclTyp, op1);
+                op1 = gtNewIndir(lclTyp, op1);
 
                 if ((prefixFlags & PREFIX_VOLATILE) != 0)
                 {
@@ -10711,7 +10711,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // TODO-MIKE-Review: This should be BADCODE. Might need to tolerate REF too.
                 assert(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
 
-                op1 = gtNewOperNode(GT_IND, lclTyp, op1);
+                op1 = gtNewIndir(lclTyp, op1);
 
                 op1->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
 
@@ -10845,7 +10845,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         }
                         else
                         {
-                            op1 = gtNewOperNode(GT_IND, lclTyp, obj);
+                            op1 = gtNewIndir(lclTyp, obj);
                         }
 
                         fieldInfo.structType = NO_CLASS_HANDLE;
@@ -11192,7 +11192,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (lclTyp != TYP_STRUCT)
                 {
-                    op2 = gtNewOperNode(GT_IND, lclTyp, op2);
+                    op2 = gtNewIndir(lclTyp, op2);
                     op2->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
 
                     goto STIND_CPOBJ;
@@ -11295,7 +11295,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     assert(varTypeIsArithmetic(lclTyp));
 
-                    op1 = gtNewOperNode(GT_IND, lclTyp, op1);
+                    op1 = gtNewIndir(lclTyp, op1);
                     op1->gtFlags |= GTF_GLOB_REF;
                 }
 
@@ -11336,7 +11336,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1,
                                         gtNewIconNode(OFFSETOF__CORINFO_Array__length, TYP_I_IMPL));
-                    op1 = comp->gtNewOperNode(GT_IND, TYP_INT, op1);
+                    op1 = gtNewIndir(TYP_INT, op1);
                     op1->SetIndirExceptionFlags(comp);
                 }
 
@@ -11975,7 +11975,7 @@ LOAD_VALUE:
     {
         assert(varTypeIsArithmetic(lclTyp));
 
-        op1 = gtNewOperNode(GT_IND, lclTyp, op1);
+        op1 = gtNewIndir(lclTyp, op1);
         op1->gtFlags |= GTF_GLOB_REF;
     }
 
@@ -16567,7 +16567,7 @@ GenTree* Importer::impImportTlsFieldAccess(OPCODE                    opcode,
         addr->gtFlags |= GTF_ICON_INITCLASS;
     }
 
-    addr = gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
+    addr = gtNewIndir(TYP_I_IMPL, addr);
     addr->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
     if (dllRef != nullptr)
@@ -16575,7 +16575,7 @@ GenTree* Importer::impImportTlsFieldAccess(OPCODE                    opcode,
         addr = gtNewOperNode(GT_ADD, TYP_I_IMPL, addr, dllRef);
     }
 
-    addr = gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
+    addr = gtNewIndir(TYP_I_IMPL, addr);
 
     if (fieldInfo.offset != 0)
     {
@@ -16599,7 +16599,7 @@ GenTree* Importer::impImportTlsFieldAccess(OPCODE                    opcode,
     }
     else
     {
-        indir = gtNewOperNode(GT_IND, type, addr);
+        indir = gtNewIndir(type, addr);
     }
 
     indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
@@ -17569,6 +17569,11 @@ GenTree* Importer::gtNewNullCheck(GenTree* addr)
 GenTreeCast* Importer::gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types toType)
 {
     return comp->gtNewCastNode(op1, fromUnsigned, toType);
+}
+
+GenTreeIndir* Importer::gtNewIndir(var_types type, GenTree* addr)
+{
+    return comp->gtNewIndir(type, addr);
 }
 
 GenTreeFieldAddr* Importer::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)

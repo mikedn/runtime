@@ -296,7 +296,7 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
     {
         GenTree* addr = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(addrOfTrapReturningThreadsAddr),
                                                  GTF_ICON_CONST_PTR, true);
-        indir = gtNewOperNode(GT_IND, TYP_INT, addr);
+        indir = gtNewIndir(TYP_INT, addr);
         indir->gtFlags |= GTF_IND_NONFAULTING;
     }
     else
@@ -1748,7 +1748,7 @@ void Compiler::fgAddInternal()
     {
         // Test the JustMyCode VM global state variable
         GenTree* embNode        = gtNewIconEmbHndNode(dbgHandle, pDbgHandle, GTF_ICON_GLOBAL_PTR, info.compMethodHnd);
-        GenTree* guardCheckVal  = gtNewOperNode(GT_IND, TYP_INT, embNode);
+        GenTree* guardCheckVal  = gtNewIndir(TYP_INT, embNode);
         GenTree* guardCheckCond = gtNewOperNode(GT_EQ, TYP_INT, guardCheckVal, gtNewZeroConNode(TYP_INT));
 
         // Create the callback which will yield the final answer

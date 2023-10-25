@@ -758,6 +758,23 @@ inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfo
     return node;
 }
 
+inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
+{
+    assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
+    assert(fgAddrCouldBeNull(addr));
+
+    GenTreeIndir* nullCheck = new (this, GT_NULLCHECK) GenTreeIndir(GT_NULLCHECK, TYP_BYTE, addr);
+    nullCheck->gtFlags |= GTF_EXCEPT;
+    return nullCheck;
+}
+
+inline GenTreeIndir* Compiler::gtNewIndir(var_types type, GenTree* addr)
+{
+    assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
+
+    return new (this, GT_IND) GenTreeIndir(GT_IND, type, addr);
+}
+
 inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)
 {
     return gtNewFieldAddr(addr, GetFieldSeqStore()->CreateSingleton(handle), offset);
@@ -778,7 +795,7 @@ inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr*
 {
     assert(type != TYP_STRUCT);
 
-    GenTreeIndir* indir = gtNewOperNode(GT_IND, type, fieldAddr)->AsIndir();
+    GenTreeIndir* indir = gtNewIndir(type, fieldAddr);
     indir->gtFlags |= gtGetFieldIndirFlags(fieldAddr);
     return indir;
 }
@@ -796,7 +813,7 @@ inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, unsigned layoutNu
     }
     else
     {
-        indir = gtNewOperNode(GT_IND, type, fieldAddr)->AsIndir();
+        indir = gtNewIndir(type, fieldAddr);
     }
 
     indir->gtFlags |= gtGetFieldIndirFlags(fieldAddr);
@@ -822,7 +839,7 @@ inline GenTreeIndir* Compiler::gtNewIndexIndir(var_types type, GenTreeIndexAddr*
 
     if (type != TYP_STRUCT)
     {
-        indir = gtNewOperNode(GT_IND, type, indexAddr)->AsIndir();
+        indir = gtNewIndir(type, indexAddr);
     }
     else
     {
@@ -853,14 +870,6 @@ inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs)
 inline GenTreeBoundsChk* Compiler::gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)
 {
     return new (this, GT_BOUNDS_CHECK) GenTreeBoundsChk(index, length, kind);
-}
-
-inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
-{
-    assert(fgAddrCouldBeNull(addr));
-    GenTree* nullCheck = gtNewOperNode(GT_NULLCHECK, TYP_BYTE, addr);
-    nullCheck->gtFlags |= GTF_EXCEPT;
-    return nullCheck;
 }
 
 // Create (and check for) a "nothing" node, i.e. a node that doesn't produce
@@ -898,7 +907,7 @@ inline GenTreeCast* Compiler::gtNewCastNode(GenTree* op1, bool fromUnsigned, var
 
 inline GenTreeIndir* Compiler::gtNewMethodTableLookup(GenTree* object)
 {
-    GenTreeIndir* result = gtNewOperNode(GT_IND, TYP_I_IMPL, object)->AsIndir();
+    GenTreeIndir* result = gtNewIndir(TYP_I_IMPL, object);
     result->SetIndirExceptionFlags(this);
     result->gtFlags |= GTF_IND_INVARIANT;
     return result;

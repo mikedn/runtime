@@ -4738,7 +4738,7 @@ GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
                 regAddr->gtFlags |= GTF_DONT_CSE;
             }
 
-            regIndir = gtNewOperNode(GT_IND, regType, regAddr);
+            regIndir = gtNewIndir(regType, regAddr);
             regIndir->SetIndirExceptionFlags(this);
             regIndir->gtFlags |= GTF_GLOB_REF;
         }
@@ -4823,7 +4823,7 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
             addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addr->GetType()), addr, gtNewIconNode(offset, TYP_I_IMPL));
             addr->gtFlags |= GTF_DONT_CSE;
         }
-        GenTree* indir = gtNewOperNode(GT_IND, type, addr);
+        GenTree* indir = gtNewIndir(type, addr);
         indir->SetIndirExceptionFlags(this);
         indir->gtFlags |= GTF_GLOB_REF;
         return indir;
@@ -7376,9 +7376,8 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
 
         if (i != 0)
         {
-            result = gtNewOperNode(GT_IND, TYP_I_IMPL, result);
-            result->gtFlags |= GTF_IND_NONFAULTING;
-            result->gtFlags |= GTF_IND_INVARIANT;
+            result = gtNewIndir(TYP_I_IMPL, result);
+            result->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
         }
 
         if ((i == 1 && pRuntimeLookup->indirectFirstOffset) || (i == 2 && pRuntimeLookup->indirectSecondOffset))
@@ -7396,7 +7395,7 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
     if (pRuntimeLookup->indirections > 0)
     {
         assert(!pRuntimeLookup->testForFixup);
-        result = gtNewOperNode(GT_IND, TYP_I_IMPL, result);
+        result = gtNewIndir(TYP_I_IMPL, result);
         result->gtFlags |= GTF_IND_NONFAULTING;
     }
 
@@ -8175,7 +8174,7 @@ GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
 
     if (arr->IsIntegralConst(0))
     {
-        result = gtNewOperNode(GT_IND, TYP_I_IMPL, arr);
+        result = gtNewIndir(TYP_I_IMPL, arr);
     }
     else
     {
@@ -8237,7 +8236,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
     // Dereference the this pointer to obtain the method table, it is called vtab below
     GenTree* vtab;
     assert(VPTR_OFFS == 0); // We have to add this value to the thisPtr to get the methodTable
-    vtab = gtNewOperNode(GT_IND, TYP_I_IMPL, thisPtr);
+    vtab = gtNewIndir(TYP_I_IMPL, thisPtr);
     vtab->gtFlags |= GTF_IND_INVARIANT;
 
     // Get the appropriate vtable chunk
@@ -8273,7 +8272,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
             // [tmp + vtabOffsOfIndirection]
             GenTree* tmpTree1 = gtNewOperNode(GT_ADD, TYP_I_IMPL, gtNewLclvNode(varNum1, TYP_I_IMPL),
                                               gtNewIconNode(vtabOffsOfIndirection, TYP_I_IMPL));
-            tmpTree1 = gtNewOperNode(GT_IND, TYP_I_IMPL, tmpTree1, false);
+            tmpTree1 = gtNewIndir(TYP_I_IMPL, tmpTree1);
             tmpTree1->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
             // var1 + vtabOffsOfIndirection + vtabOffsAfterIndirection
@@ -8286,7 +8285,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
             GenTree* asgVar2 = gtNewAssignNode(gtNewLclvNode(varNum2, TYP_I_IMPL), tmpTree2);
 
             // This last indirection is not invariant, but is non-faulting
-            result = gtNewOperNode(GT_IND, TYP_I_IMPL, gtNewLclvNode(varNum2, TYP_I_IMPL), false); // [var2]
+            result = gtNewIndir(TYP_I_IMPL, gtNewLclvNode(varNum2, TYP_I_IMPL)); // [var2]
             result->gtFlags |= GTF_IND_NONFAULTING;
 
             result = gtNewOperNode(GT_ADD, TYP_I_IMPL, result, gtNewLclvNode(varNum2, TYP_I_IMPL)); // [var2] + var2
@@ -8297,7 +8296,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
         {
             // result = [vtab + vtabOffsOfIndirection]
             result = gtNewOperNode(GT_ADD, TYP_I_IMPL, vtab, gtNewIconNode(vtabOffsOfIndirection, TYP_I_IMPL));
-            result = gtNewOperNode(GT_IND, TYP_I_IMPL, result, false);
+            result = gtNewIndir(TYP_I_IMPL, result);
             result->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
         }
     }
@@ -8313,7 +8312,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
         // result = [result + vtabOffsAfterIndirection]
         result = gtNewOperNode(GT_ADD, TYP_I_IMPL, result, gtNewIconNode(vtabOffsAfterIndirection, TYP_INT));
         // This last indirection is not invariant, but is non-faulting
-        result = gtNewOperNode(GT_IND, TYP_I_IMPL, result, false);
+        result = gtNewIndir(TYP_I_IMPL, result);
         result->gtFlags |= GTF_IND_NONFAULTING;
     }
 
@@ -8408,7 +8407,7 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
             case IAT_PPVALUE:
                 GenTree* indNode;
                 indNode = gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, GTF_ICON_CONST_PTR, true);
-                indNode = gtNewOperNode(GT_IND, TYP_I_IMPL, indNode);
+                indNode = gtNewIndir(TYP_I_IMPL, indNode);
                 indNode->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
                 DEBUG_DESTROY_NODE(tree);
                 return fgMorphTree(indNode);
@@ -8960,7 +8959,7 @@ GenTree* Compiler::fgMorphStructComma(GenTree* tree)
 
     if (effectiveVal->OperIs(GT_IND))
     {
-        indir = gtNewOperNode(GT_IND, effectiveVal->GetType(), tree);
+        indir = gtNewIndir(effectiveVal->GetType(), tree);
     }
     else
     {
@@ -9768,7 +9767,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             // block promotion, transfer volatile to all field indirs, transfer volatile only to the
             // first/last field indir? Luckily volatile is unusual on struct indirs.
 
-            GenTree* field = gtNewOperNode(GT_IND, promotedFieldLcl->GetType(), fieldAddr);
+            GenTree* field = gtNewIndir(promotedFieldLcl->GetType(), fieldAddr);
             field->gtFlags |=
                 (indir->gtFlags & (GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP | GTF_IND_TGT_HEAP));
 
@@ -9938,21 +9937,20 @@ GenTree* Compiler::fgMorphPromoteStore(GenTreeOp* store, GenTree* tempStore, Gen
 
 GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
 {
-    assert(varTypeIsIntegralOrI(tree->TypeGet()));
+    assert(varTypeIsIntegralOrI(tree->GetType()));
     assert(tree->OperIs(GT_ADD, GT_MUL, GT_OR, GT_AND, GT_XOR));
 
     // op1 can be GT_COMMA, in this case we're going to fold
     // "(op (COMMA(... (op X C1))) C2)" to "(COMMA(... (op X C3)))"
     GenTree*   op1  = tree->GetOp(0)->SkipComma();
-    genTreeOps oper = tree->OperGet();
 
-    if (!op1->OperIs(oper) || !tree->gtGetOp2()->IsCnsIntOrI() || !op1->gtGetOp2()->IsCnsIntOrI() ||
-        op1->gtGetOp1()->IsCnsIntOrI())
+    if ((op1->GetOper() != tree->GetOper()) || !tree->GetOp(1)->IsIntCon() || !op1->gtGetOp2()->IsIntCon() ||
+        op1->gtGetOp1()->IsIntCon())
     {
         return nullptr;
     }
 
-    if (!fgGlobalMorph && (op1 != tree->gtGetOp1()))
+    if (!fgGlobalMorph && (op1 != tree->GetOp(0)))
     {
         // Since 'tree->gtGetOp1()' can have complex structure (e.g. COMMA(..(COMMA(..,op1)))
         // don't run the optimization for such trees outside of global morph.
@@ -9967,16 +9965,16 @@ GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
     }
 
     GenTreeIntCon* cns1 = op1->gtGetOp2()->AsIntCon();
-    GenTreeIntCon* cns2 = tree->gtGetOp2()->AsIntCon();
+    GenTreeIntCon* cns2 = tree->GetOp(1)->AsIntCon();
 
-    if (!varTypeIsIntegralOrI(tree->TypeGet()) || cns1->TypeIs(TYP_REF) || !cns1->TypeIs(cns2->TypeGet()))
+    if (!varTypeIsIntegralOrI(tree->GetType()) || cns1->TypeIs(TYP_REF) || !cns1->TypeIs(cns2->GetType()))
     {
         return nullptr;
     }
 
-    GenTree* folded = gtFoldExprConst(gtNewOperNode(oper, cns1->TypeGet(), cns1, cns2));
+    GenTree* folded = gtFoldExprConst(gtNewOperNode(tree->GetOper(), cns1->GetType(), cns1, cns2));
 
-    if (!folded->IsCnsIntOrI())
+    if (!folded->IsIntCon())
     {
         // Give up if we can't fold "C1 op C2"
         return nullptr;
@@ -11619,7 +11617,7 @@ DONE_MORPHING_CHILDREN:
                             op2  = fgMakeMultiUse(&tree->AsOp()->gtOp1);
                             op1  = tree->AsOp()->GetOp(0);
                             oper = GT_FADD;
-                            tree = gtNewOperNode(oper, tree->GetType(), op1, op2);
+                            tree = gtNewOperNode(GT_FADD, tree->GetType(), op1, op2);
                             INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
                         }
                     }

@@ -2388,6 +2388,7 @@ struct Importer
     GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy = false);
     GenTree* gtNewNullCheck(GenTree* addr);
     GenTreeCast* gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types castType);
+    GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
@@ -3147,6 +3148,7 @@ public:
     GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
 
+    GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);

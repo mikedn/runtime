@@ -382,7 +382,7 @@ private:
             elseBlock = CreateAndInsertBasicBlock(BBJ_NONE, thenBlock);
 
             GenTree* fixedFptrAddress  = GetFixedFptrAddress();
-            GenTree* actualCallAddress = compiler->gtNewOperNode(GT_IND, pointerType, fixedFptrAddress);
+            GenTree* actualCallAddress = compiler->gtNewIndir(pointerType, fixedFptrAddress);
             GenTree* hiddenArgument    = GetHiddenArgument(fixedFptrAddress);
 
             Statement* fatStmt = CreateFatCallStmt(actualCallAddress, hiddenArgument);
@@ -412,11 +412,11 @@ private:
         GenTree* GetHiddenArgument(GenTree* fixedFptrAddress)
         {
             GenTree* fixedFptrAddressCopy = compiler->gtCloneExpr(fixedFptrAddress);
-            GenTree* wordSize = new (compiler, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, genTypeSize(TYP_I_IMPL));
+            GenTree* wordSize             = compiler->gtNewIconNode(varTypeSize(TYP_I_IMPL), TYP_I_IMPL);
             GenTree* hiddenArgumentPtrPtr =
                 compiler->gtNewOperNode(GT_ADD, pointerType, fixedFptrAddressCopy, wordSize);
-            GenTree* hiddenArgumentPtr = compiler->gtNewOperNode(GT_IND, pointerType, hiddenArgumentPtrPtr);
-            return compiler->gtNewOperNode(GT_IND, fixedFptrAddressCopy->TypeGet(), hiddenArgumentPtr);
+            GenTree* hiddenArgumentPtr = compiler->gtNewIndir(pointerType, hiddenArgumentPtrPtr);
+            return compiler->gtNewIndir(fixedFptrAddressCopy->GetType(), hiddenArgumentPtr);
         }
 
         //------------------------------------------------------------------------

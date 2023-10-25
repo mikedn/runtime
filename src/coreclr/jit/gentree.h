@@ -6257,7 +6257,7 @@ struct GenTreeIndir : public GenTreeOp
     {
     }
 
-    GenTreeIndir(GenTreeIndir* copyFrom) : GenTreeOp(copyFrom)
+    GenTreeIndir(const GenTreeIndir* copyFrom) : GenTreeOp(copyFrom)
     {
     }
 
@@ -6289,9 +6289,7 @@ struct GenTreeIndir : public GenTreeOp
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeIndir() : GenTreeOp()
-    {
-    }
+    GenTreeIndir() = default;
 #endif
 };
 
@@ -6388,9 +6386,7 @@ public:
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeBlk() : GenTreeIndir()
-    {
-    }
+    GenTreeBlk() = default;
 #endif
 };
 
@@ -6418,9 +6414,7 @@ struct GenTreeObj : public GenTreeBlk
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeObj() : GenTreeBlk()
-    {
-    }
+    GenTreeObj() = default;
 #endif
 };
 
@@ -6507,9 +6501,7 @@ struct GenTreeDynBlk : public GenTreeTernaryOp
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeDynBlk() : GenTreeTernaryOp()
-    {
-    }
+    GenTreeDynBlk() = default;
 #endif
 };
 
@@ -6519,10 +6511,12 @@ struct GenTreeStoreInd : public GenTreeIndir
     {
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeStoreInd() : GenTreeIndir()
+    GenTreeStoreInd(const GenTreeStoreInd* copyFrom) : GenTreeIndir(copyFrom)
     {
     }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeStoreInd() = default;
 #endif
 };
 

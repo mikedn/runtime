@@ -4142,7 +4142,7 @@ GenTreeFlags Compiler::gtTokenToIconFlags(unsigned token)
 GenTree* Compiler::gtNewIndOfIconHandleNode(var_types indType, size_t addr, GenTreeFlags iconFlags, bool isInvariant)
 {
     GenTree* addrNode = gtNewIconHandleNode(addr, iconFlags);
-    GenTree* indNode  = gtNewOperNode(GT_IND, indType, addrNode);
+    GenTree* indNode  = gtNewIndir(indType, addrNode);
 
     // This indirection won't cause an exception.
     //
@@ -4209,7 +4209,7 @@ GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags i
 
         // 'pValue' is the address of a location that contains the handle
         iconNode   = gtNewIconHandleNode(reinterpret_cast<size_t>(pValue), iconFlags);
-        handleNode = gtNewOperNode(GT_IND, TYP_I_IMPL, iconNode);
+        handleNode = gtNewIndir(TYP_I_IMPL, iconNode);
         handleNode->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
     }
 
@@ -4290,7 +4290,7 @@ GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* pValue)
 #endif
 
             // Create the second indirection
-            tree = gtNewOperNode(GT_IND, TYP_REF, tree);
+            tree = gtNewIndir(TYP_REF, tree);
             // This indirection won't cause an exception.
             tree->gtFlags |= GTF_IND_NONFAULTING;
             // This indirection points into the gloabal heap (it is String Object)
@@ -5166,8 +5166,8 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
             }
             else if (tree->OperIs(GT_ADD, GT_SUB))
             {
-                GenTree* op1 = tree->AsOp()->gtOp1;
-                GenTree* op2 = tree->AsOp()->gtOp2;
+                GenTree* op1 = tree->AsOp()->GetOp(0);
+                GenTree* op2 = tree->AsOp()->GetOp(1);
 
                 if (op1->OperIsLeaf() && op2->OperIsLeaf())
                 {
@@ -5182,7 +5182,7 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
                         return nullptr;
                     }
 
-                    copy = gtNewOperNode(tree->OperGet(), tree->TypeGet(), op1, op2);
+                    copy = gtNewOperNode(tree->GetOper(), tree->GetType(), op1, op2);
                 }
                 else
                 {
@@ -5400,18 +5400,21 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
                 copy = new (this, GT_INSERT) GenTreeInsert(tree->AsInsert());
                 break;
 
+            case GT_IND:
+                copy = new (this, GT_IND) GenTreeIndir(tree->AsIndir());
+                break;
+            case GT_STOREIND:
+                copy = new (this, GT_STOREIND) GenTreeStoreInd(tree->AsStoreInd());
+                break;
             case GT_OBJ:
                 copy = new (this, GT_OBJ) GenTreeObj(tree->AsObj());
                 break;
-
             case GT_STORE_OBJ:
                 copy = new (this, GT_STORE_OBJ) GenTreeObj(tree->AsObj());
                 break;
-
             case GT_BLK:
                 copy = new (this, GT_BLK) GenTreeBlk(tree->AsBlk());
                 break;
-
             case GT_STORE_BLK:
                 copy = new (this, GT_STORE_BLK) GenTreeBlk(tree->AsBlk());
                 break;
@@ -5458,15 +5461,15 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
 #endif
             default:
                 assert(!GenTree::IsExOp(tree->OperKind()) && tree->OperIsSimple());
-                // We're in the SimpleOp case, so it's always unary or binary.
-                if (GenTree::OperIsUnary(tree->OperGet()))
+
+                if (GenTree::OperIsUnary(tree->GetOper()))
                 {
-                    copy = gtNewOperNode(oper, tree->TypeGet(), tree->AsOp()->gtOp1);
+                    copy = gtNewOperNode(oper, tree->GetType(), tree->AsUnOp()->gtOp1);
                 }
                 else
                 {
-                    assert(GenTree::OperIsBinary(tree->OperGet()));
-                    copy = gtNewOperNode(oper, tree->TypeGet(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2);
+                    assert(GenTree::OperIsBinary(tree->GetOper()));
+                    copy = gtNewOperNode(oper, tree->GetType(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2);
                 }
                 break;
         }
@@ -8860,13 +8863,9 @@ GenTree* Compiler::gtFoldTypeEqualityCall(bool isEq, GenTree* op1, GenTree* op2)
         return nullptr;
     }
 
-    const genTreeOps simpleOp = isEq ? GT_EQ : GT_NE;
-
+    GenTree* compare = gtNewOperNode(isEq ? GT_EQ : GT_NE, TYP_INT, op1, op2);
     JITDUMP("\nFolding call to Type:op_%s to a simple compare via %s\n", isEq ? "Equality" : "Inequality",
-            GenTree::OpName(simpleOp));
-
-    GenTree* compare = gtNewOperNode(simpleOp, TYP_INT, op1, op2);
-
+            GenTree::OpName(compare->GetOper()));
     return compare;
 }
 
@@ -8963,6 +8962,8 @@ GenTree* Compiler::gtCreateHandleCompare(genTreeOps             oper,
                                          GenTree*               op2,
                                          CorInfoInlineTypeCheck typeCheckInliningResult)
 {
+    assert((oper == GT_EQ) || (oper == GT_NE));
+
     // If we can compare pointers directly, just emit the binary operation
     if (typeCheckInliningResult == CORINFO_INLINE_TYPECHECK_PASS)
     {
@@ -8974,17 +8975,8 @@ GenTree* Compiler::gtCreateHandleCompare(genTreeOps             oper,
     // Emit a call to a runtime helper
     GenTreeCall::Use* helperArgs = gtNewCallArgs(op1, op2);
     GenTree*          ret        = gtNewHelperCallNode(CORINFO_HELP_ARE_TYPES_EQUIVALENT, TYP_INT, helperArgs);
-    if (oper == GT_EQ)
-    {
-        ret = gtNewOperNode(GT_NE, TYP_INT, ret, gtNewIconNode(0, TYP_INT));
-    }
-    else
-    {
-        assert(oper == GT_NE);
-        ret = gtNewOperNode(GT_EQ, TYP_INT, ret, gtNewIconNode(0, TYP_INT));
-    }
 
-    return ret;
+    return gtNewOperNode(oper == GT_EQ ? GT_NE : GT_EQ, TYP_INT, ret, gtNewIconNode(0, TYP_INT));
 }
 
 //------------------------------------------------------------------------

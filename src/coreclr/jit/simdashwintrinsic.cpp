@@ -771,7 +771,7 @@ GenTree* Importer::impPopStackAddrAsVector(var_types type)
         return addr;
     }
 
-    return gtNewOperNode(GT_IND, type, addr);
+    return gtNewIndir(type, addr);
 }
 
 GenTree* Importer::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
@@ -800,7 +800,7 @@ GenTree* Importer::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
     }
     else
     {
-        dest = comp->gtNewOperNode(GT_IND, src->GetType(), destAddr);
+        dest = comp->gtNewIndir(src->GetType(), destAddr);
         dest->SetIndirExceptionFlags(comp);
         dest->gtFlags |= GTF_GLOB_REF;
     }
@@ -865,7 +865,7 @@ GenTree* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
     offset = gtNewOperNode(GT_ADD, TYP_BYREF, array, offset);
     offset->gtFlags |= GTF_DONT_CSE;
 
-    GenTree* indir = gtNewOperNode(GT_IND, layout->GetSIMDType(), offset)->AsIndir();
+    GenTree* indir = gtNewIndir(layout->GetSIMDType(), offset);
     indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
     return indir;
 }
