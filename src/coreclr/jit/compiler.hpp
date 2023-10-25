@@ -580,9 +580,7 @@ inline Statement* Compiler::gtNewStmt(GenTree* expr, IL_OFFSETX offset)
     return new (getAllocator(CMK_ASTNode)) Statement(expr, offset DEBUGARG(compStatementID++));
 }
 
-/*****************************************************************************/
-
-inline GenTree* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy)
+inline GenTreeUnOp* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1)
 {
     assert((GenTree::OperKind(oper) & (GTK_UNOP | GTK_BINOP)) != 0);
     // Can't use this to construct any types that extend unary/binary operator.

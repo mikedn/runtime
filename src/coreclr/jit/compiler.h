@@ -2384,8 +2384,7 @@ struct Importer
     GenTree* gtNewNothingNode();
     GenTree* gtUnusedValNode(GenTree* expr);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
-    // TODO-MIKE-Cleanup: Remove stupid dummy param.
-    GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy = false);
+    GenTreeUnOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1);
     GenTree* gtNewNullCheck(GenTree* addr);
     GenTreeCast* gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types castType);
     GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
@@ -2983,14 +2982,9 @@ public:
     // Functions to create nodes
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
-    // For unary opers.
-    // TODO-MIKE-Cleanup: Remove stupid dummy param.
-    GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy = false);
-
-    // For binary opers.
+    GenTreeUnOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1);
     GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
     GenTreeOp* gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type = TYP_UNDEF);
-
     GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2);
 
     GenTree* gtNewLargeOperNode(genTreeOps oper,

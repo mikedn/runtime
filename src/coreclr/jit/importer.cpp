@@ -17556,9 +17556,9 @@ GenTreeRetExpr* Importer::gtNewRetExpr(GenTreeCall* call)
     return comp->gtNewRetExpr(call);
 }
 
-GenTree* Importer::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy)
+GenTreeUnOp* Importer::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1)
 {
-    return comp->gtNewOperNode(oper, type, op1, dummy);
+    return comp->gtNewOperNode(oper, type, op1);
 }
 
 GenTree* Importer::gtNewNullCheck(GenTree* addr)
