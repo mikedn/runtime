@@ -758,7 +758,7 @@ inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfo
 
 inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
 {
-    assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
+    assert(varTypeIsI(addr->GetType()));
     assert(fgAddrCouldBeNull(addr));
 
     GenTreeIndir* nullCheck = new (this, GT_NULLCHECK) GenTreeIndir(GT_NULLCHECK, TYP_BYTE, addr);
@@ -768,7 +768,7 @@ inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
 
 inline GenTreeIndir* Compiler::gtNewIndir(var_types type, GenTree* addr)
 {
-    assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
+    assert(varTypeIsI(addr->GetType()));
 
     return new (this, GT_IND) GenTreeIndir(GT_IND, type, addr);
 }

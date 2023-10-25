@@ -4824,7 +4824,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
             assert(target->OperIs(GT_IND) && target->isContained());
 
-            GenTree* addr = target->AsIndir()->Addr();
+            GenTree* addr = target->AsIndir()->GetAddr();
             assert(addr->isUsedFromReg());
 
             genConsumeReg(addr);

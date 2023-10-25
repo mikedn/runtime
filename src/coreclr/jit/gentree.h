@@ -6210,14 +6210,8 @@ public:
 #endif
 };
 
-// Indir is just an op, no additional data, but some additional abstractions
 struct GenTreeIndir : public GenTreeOp
 {
-    GenTree*& Addr()
-    {
-        return gtOp1;
-    }
-
     GenTree* GetAddr() const
     {
         return gtOp1;
@@ -6227,6 +6221,7 @@ struct GenTreeIndir : public GenTreeOp
     {
         assert(addr != nullptr);
         assert(varTypeIsI(addr->GetType()));
+
         gtOp1 = addr;
     }
 

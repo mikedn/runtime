@@ -2655,7 +2655,7 @@ void CodeGen::genCodeForIndir(GenTreeIndir* load)
         return;
     }
 
-    genConsumeAddress(load->Addr());
+    genConsumeAddress(load->GetAddr());
 
     var_types   type        = load->GetType();
     instruction ins         = ins_Load(type);
@@ -2664,7 +2664,7 @@ void CodeGen::genCodeForIndir(GenTreeIndir* load)
 
     if (load->IsVolatile())
     {
-        bool addrIsInReg   = load->Addr()->isUsedFromReg();
+        bool addrIsInReg   = load->GetAddr()->isUsedFromReg();
         bool addrIsAligned = !load->IsUnaligned();
 
         if ((ins == INS_ldrb) && addrIsInReg)

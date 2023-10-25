@@ -15,7 +15,7 @@ void LinearScan::BuildIndir(GenTreeIndir* indirTree)
     // but in this case they must be contained.
     assert(indirTree->TypeGet() != TYP_STRUCT);
 
-    GenTree* addr  = indirTree->Addr();
+    GenTree* addr  = indirTree->GetAddr();
     GenTree* index = nullptr;
     int      cns   = 0;
 
