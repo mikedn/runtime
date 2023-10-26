@@ -3717,13 +3717,6 @@ bool GenTree::OperIsImplicitIndir() const
     {
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-        // TODO-MIKE-Review: Are these needed? The actual element load/store is a separate
-        // node, these just compute the address/offset of an element. They do load the array
-        // bounds from memory but those are invariant and can probably be ignored. They're
-        // similar to ARR_LEN in this regard, which is already ignored.
-        case GT_ARR_INDEX:
-        case GT_ARR_ELEM:
-        case GT_ARR_OFFSET:
             return true;
 
 #ifdef FEATURE_HW_INTRINSICS
