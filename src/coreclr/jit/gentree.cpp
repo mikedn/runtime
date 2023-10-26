@@ -5797,48 +5797,9 @@ GenTreeCall* Compiler::gtCloneCandidateCall(GenTreeCall* call)
     return result;
 }
 
-//------------------------------------------------------------------------
-// gtUpdateSideEffects: Update the side effects of a tree and its ancestors
-//
-// Arguments:
-//    stmt            - The tree's statement
-//    tree            - Tree to update the side effects for
-//
-// Note: If tree's order hasn't been established, the method updates side effect
-//       flags on all statement's nodes.
-
-void Compiler::gtUpdateSideEffects(Statement* stmt, GenTree* tree)
-{
-    if (fgStmtListThreaded)
-    {
-        gtUpdateTreeAncestorsSideEffects(tree);
-    }
-    else
-    {
-        gtUpdateStmtSideEffects(stmt);
-    }
-}
-
-//------------------------------------------------------------------------
-// gtUpdateTreeAncestorsSideEffects: Update the side effects of a tree and its ancestors
-//                                   when statement order has been established.
-//
-// Arguments:
-//    tree            - Tree to update the side effects for
-//
-void Compiler::gtUpdateTreeAncestorsSideEffects(GenTree* tree)
-{
-    assert(fgStmtListThreaded);
-    while (tree != nullptr)
-    {
-        gtUpdateNodeSideEffects(tree);
-        tree = tree->FindUser();
-    }
-}
-
 void Compiler::gtUpdateStmtSideEffects(Statement* stmt)
 {
-    class SideEffectVisitor : public GenTreeVisitor<SideEffectVisitor>
+    class SideEffectsUpdateVisitor : public GenTreeVisitor<SideEffectsUpdateVisitor>
     {
     public:
         enum
@@ -5850,14 +5811,14 @@ void Compiler::gtUpdateStmtSideEffects(Statement* stmt)
             UseExecutionOrder = false
         };
 
-        SideEffectVisitor(Compiler* compiler) : GenTreeVisitor(compiler)
+        SideEffectsUpdateVisitor(Compiler* compiler) : GenTreeVisitor(compiler)
         {
         }
 
         fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree* node = *use;
-            node->gtFlags &= ~(GTF_ASG | GTF_CALL | GTF_EXCEPT);
+            node->RemoveSideEffects(GTF_ASG | GTF_CALL | GTF_EXCEPT);
             return WALK_CONTINUE;
         }
 
@@ -5869,6 +5830,13 @@ void Compiler::gtUpdateStmtSideEffects(Statement* stmt)
             {
                 node->AddSideEffects(GTF_EXCEPT);
             }
+            else
+            {
+                if (node->OperIsIndirOrArrLength())
+                {
+                    node->gtFlags |= GTF_IND_NONFAULTING;
+                }
+            }
 
             if (node->OperRequiresAsgFlag())
             {
@@ -5878,14 +5846,6 @@ void Compiler::gtUpdateStmtSideEffects(Statement* stmt)
             if (node->OperRequiresCallFlag(m_compiler))
             {
                 node->AddSideEffects(GTF_CALL);
-            }
-
-            // If this node is an indir or array length, and it doesn't have the GTF_EXCEPT bit set,
-            // we set the GTF_IND_NONFAULTING bit. This needs to be done after all children, and this
-            // node, have been processed.
-            if (node->OperIsIndirOrArrLength() && !node->HasAnySideEffect(GTF_EXCEPT))
-            {
-                node->gtFlags |= GTF_IND_NONFAULTING;
             }
 
             if (user != nullptr)
@@ -5900,67 +5860,53 @@ void Compiler::gtUpdateStmtSideEffects(Statement* stmt)
     visitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
 }
 
-//------------------------------------------------------------------------
-// gtUpdateNodeOperSideEffects: Update the side effects based on the node operation.
-//
-// Arguments:
-//    tree            - Tree to update the side effects on
-//
-// Notes:
-//    This method currently only updates GTF_EXCEPT, GTF_ASG, and GTF_CALL flags.
-//    The other side effect flags may remain unnecessarily (conservatively) set.
-//    The caller of this method is expected to update the flags based on the children's flags.
-//
-void Compiler::gtUpdateNodeOperSideEffects(GenTree* tree)
+void Compiler::gtUpdateAncestorsSideEffects(GenTree* tree)
 {
-    if (tree->OperMayThrow(this))
-    {
-        tree->gtFlags |= GTF_EXCEPT;
-    }
-    else
-    {
-        tree->gtFlags &= ~GTF_EXCEPT;
-        if (tree->OperIsIndirOrArrLength())
-        {
-            tree->SetIndirExceptionFlags(this);
-        }
-    }
+    assert(fgStmtListThreaded);
 
-    if (tree->OperRequiresAsgFlag())
+    while (tree != nullptr)
     {
-        tree->gtFlags |= GTF_ASG;
-    }
-    else
-    {
-        tree->gtFlags &= ~GTF_ASG;
-    }
-
-    if (tree->OperRequiresCallFlag(this))
-    {
-        tree->gtFlags |= GTF_CALL;
-    }
-    else
-    {
-        tree->gtFlags &= ~GTF_CALL;
+        gtUpdateNodeSideEffects(tree);
+        tree = tree->FindUser();
     }
 }
 
-//------------------------------------------------------------------------
-// gtUpdateNodeSideEffects: Update the side effects based on the node operation and
-//                          children's side efects.
-//
-// Arguments:
-//    tree            - Tree to update the side effects on
-//
-// Notes:
-//    This method currently only updates GTF_EXCEPT, GTF_ASG, and GTF_CALL flags.
-//    The other side effect flags may remain unnecessarily (conservatively) set.
-//
-void Compiler::gtUpdateNodeSideEffects(GenTree* tree)
+void Compiler::gtUpdateNodeSideEffects(GenTree* node)
 {
-    gtUpdateNodeOperSideEffects(tree);
-    tree->VisitOperands([tree](GenTree* op) {
-        tree->gtFlags |= (op->gtFlags & GTF_ALL_EFFECT);
+    if (node->OperMayThrow(this))
+    {
+        node->AddSideEffects(GTF_EXCEPT);
+    }
+    else
+    {
+        node->RemoveSideEffects(GTF_EXCEPT);
+
+        if (node->OperIsIndirOrArrLength())
+        {
+            node->SetIndirExceptionFlags(this);
+        }
+    }
+
+    if (node->OperRequiresAsgFlag())
+    {
+        node->AddSideEffects(GTF_ASG);
+    }
+    else
+    {
+        node->RemoveSideEffects(GTF_ASG);
+    }
+
+    if (node->OperRequiresCallFlag(this))
+    {
+        node->AddSideEffects(GTF_CALL);
+    }
+    else
+    {
+        node->RemoveSideEffects(GTF_CALL);
+    }
+
+    node->VisitOperands([node](GenTree* op) {
+        node->AddSideEffects(op->GetSideEffects());
         return GenTree::VisitResult::Continue;
     });
 }

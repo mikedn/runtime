@@ -3200,11 +3200,9 @@ public:
     // Create copy of an inline or guarded devirtualization candidate tree.
     GenTreeCall* gtCloneCandidateCall(GenTreeCall* call);
 
-    void gtUpdateSideEffects(Statement* stmt, GenTree* tree);
-    void gtUpdateTreeAncestorsSideEffects(GenTree* tree);
     void gtUpdateStmtSideEffects(Statement* stmt);
-    void gtUpdateNodeSideEffects(GenTree* tree);
-    void gtUpdateNodeOperSideEffects(GenTree* tree);
+    void gtUpdateAncestorsSideEffects(GenTree* tree);
+    void gtUpdateNodeSideEffects(GenTree* node);
 
     // Returns "true" iff the complexity (not formally defined, but first interpretation
     // is #of nodes in subtree) of "tree" is greater than "limit".

@@ -4485,20 +4485,26 @@ void Compiler::optRemoveRangeCheck(GenTreeBoundsChk* check, GenTreeOp* comma, St
     if (sideEffects == nullptr)
     {
         check->ChangeToNothingNode();
-
-        if (comma != nullptr)
-        {
-            gtUpdateSideEffects(stmt, comma);
-        }
     }
     else if (comma != nullptr)
     {
         comma->SetOp(0, sideEffects);
-        gtUpdateSideEffects(stmt, comma);
     }
     else
     {
         stmt->SetRootNode(sideEffects);
+    }
+
+    if (comma != nullptr)
+    {
+        if (fgStmtListThreaded)
+        {
+            gtUpdateAncestorsSideEffects(comma);
+        }
+        else
+        {
+            gtUpdateStmtSideEffects(stmt);
+        }
     }
 
     JITDUMPTREE(stmt->GetRootNode(), "After optRemoveRangeCheck [%06u]:\n", check->GetID());

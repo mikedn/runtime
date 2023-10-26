@@ -1084,6 +1084,12 @@ public:
         gtFlags |= sideEffects;
     }
 
+    void RemoveSideEffects(GenTreeFlags sideEffects)
+    {
+        assert((sideEffects & ~GTF_ALL_EFFECT) == 0);
+        gtFlags &= ~sideEffects;
+    }
+
     static GenTreeKinds OperKind(genTreeOps gtOper);
 
     GenTreeKinds OperKind() const

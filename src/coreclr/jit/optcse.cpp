@@ -2381,7 +2381,7 @@ public:
             else
             {
                 *use = newExpr;
-                compiler->gtUpdateTreeAncestorsSideEffects(user);
+                compiler->gtUpdateAncestorsSideEffects(user);
             }
 
             compiler->CopyZeroOffsetFieldSeq(expr->SkipComma(), newExpr);
