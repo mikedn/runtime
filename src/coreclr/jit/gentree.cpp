@@ -5064,20 +5064,15 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
     return copy;
 }
 
-//------------------------------------------------------------------------
-// gtCloneExpr: Create a copy of `tree`, adding flags `addFlags`, mapping
-//              local `varNum` to int constant `varVal`
-//
-// Arguments:
-//    tree - GenTree to create a copy of
-//    addFlags - GTF_* flags to add to the copied tree nodes
-//    varNum, varVal - Replace local `varNum` with IntCns `varVal`
-//
-// Return Value:
-//    A copy of the given tree with the replacements and added flags specified.
-//
 GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsigned varNum, const int varVal)
 {
+    // Currently this is the only flag that makes sense adding.
+    assert((addFlags & ~GTF_MAKE_CSE) == GTF_NONE);
+    // We don't currently need to replace an AX local and doing so would leave pointless
+    // GLOB_REF side effects in the cloned tree. It probably doesn't really matter, as
+    // removing such GLOB_REFs have always been problematic.
+    assert((varNum == BAD_VAR_NUM) || !lvaGetDesc(varNum)->IsAddressExposed());
+
     if (tree == nullptr)
     {
         return nullptr;
@@ -5455,27 +5450,21 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
     }
 
 DONE:
-
-    // If it has a zero-offset field seq, copy annotation.
-    if (tree->TypeGet() == TYP_BYREF)
+    if (tree->TypeIs(TYP_BYREF))
     {
         CopyZeroOffsetFieldSeq(tree, copy);
     }
 
     copy->SetVNP(tree->GetVNP());
 
-    if (copy->gtOper == oper)
+    // Don't add the original flags if we changed the node from a LCL_VAR to CNS_INT.
+    if (copy->GetOper() == oper)
     {
-        copy->gtFlags |= addFlags | tree->gtFlags;
-
-        // Update side effect flags since they may be different from the source side effect flags.
-        // For example, we may have replaced some locals with constants and made indirections non-throwing.
-        gtUpdateNodeSideEffects(copy);
+        copy->gtFlags |= tree->gtFlags;
     }
 
-    // Non-node debug flags should be propagated from 'tree' to 'copy'
-    INDEBUG(copy->gtDebugFlags |= (tree->gtDebugFlags & ~GTF_DEBUG_NODE_MASK);)
-
+    copy->gtFlags |= addFlags;
+    INDEBUG(copy->gtDebugFlags |= (tree->gtDebugFlags & ~GTF_DEBUG_NODE_MASK));
     copy->CopyCosts(tree);
 
     // We don't expect to clone trees after register allocation.
