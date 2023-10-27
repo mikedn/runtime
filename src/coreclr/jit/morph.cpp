@@ -10756,11 +10756,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
     }
 
-    /*-------------------------------------------------------------------------
-     * Process the first operand, if any
-     */
-
-    if (op1)
+    if (op1 != nullptr)
     {
         MorphAddrContext  newOp1Mac(false);
         MorphAddrContext* op1Mac = mac;
@@ -10793,29 +10789,11 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             }
         }
 
-        tree->AsOp()->gtOp1 = op1 = fgMorphTree(op1, op1Mac);
+        op1 = fgMorphTree(op1, op1Mac);
+        tree->AsOp()->SetOp(0, op1);
+    }
 
-        /* Morphing along with folding and inlining may have changed the
-         * side effect flags, so we have to reset them
-         *
-         * NOTE: Don't reset the exception flags on nodes that may throw */
-
-        assert(tree->gtOper != GT_CALL);
-
-        if (!tree->OperRequiresCallFlag(this))
-        {
-            tree->gtFlags &= ~GTF_CALL;
-        }
-
-        /* Propagate the new flags */
-        tree->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
-    } // if (op1)
-
-    /*-------------------------------------------------------------------------
-     * Process the second operand, if any
-     */
-
-    if (op2)
+    if (op2 != nullptr)
     {
         if (!op2->IsIndir() && (mac != nullptr))
         {
@@ -10829,12 +10807,9 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             }
         }
 
-        tree->AsOp()->gtOp2 = op2 = fgMorphTree(op2, mac);
-
-        /* Propagate the side effect flags from op2 */
-
-        tree->gtFlags |= (op2->gtFlags & GTF_ALL_EFFECT);
-    } // if (op2)
+        op2 = fgMorphTree(op2, mac);
+        tree->AsOp()->SetOp(1, op2);
+    }
 
 DONE_MORPHING_CHILDREN:
     if (tree->OperMayThrow(this))
@@ -10843,61 +10818,51 @@ DONE_MORPHING_CHILDREN:
     }
     else
     {
+        tree->RemoveSideEffects(GTF_EXCEPT);
+
         if (tree->OperIsIndirOrArrLength())
         {
             tree->gtFlags |= GTF_IND_NONFAULTING;
-        }
-
-        if (((op1 == nullptr) || !op1->HasAnySideEffect(GTF_EXCEPT)) &&
-            ((op2 == nullptr) || !op2->HasAnySideEffect(GTF_EXCEPT)))
-        {
-            tree->RemoveSideEffects(GTF_EXCEPT);
         }
     }
 
     if (tree->OperRequiresAsgFlag())
     {
-        tree->gtFlags |= GTF_ASG;
+        tree->AddSideEffects(GTF_ASG);
     }
     else
     {
-        if (((op1 == nullptr) || ((op1->gtFlags & GTF_ASG) == 0)) &&
-            ((op2 == nullptr) || ((op2->gtFlags & GTF_ASG) == 0)))
-        {
-            tree->gtFlags &= ~GTF_ASG;
-        }
+        tree->RemoveSideEffects(GTF_ASG);
     }
 
     if (tree->OperRequiresCallFlag(this))
     {
-        tree->gtFlags |= GTF_CALL;
+        tree->AddSideEffects(GTF_CALL);
     }
     else
     {
-        if (((op1 == nullptr) || ((op1->gtFlags & GTF_CALL) == 0)) &&
-            ((op2 == nullptr) || ((op2->gtFlags & GTF_CALL) == 0)))
-        {
-            tree->gtFlags &= ~GTF_CALL;
-        }
+        tree->RemoveSideEffects(GTF_CALL);
     }
-    /*-------------------------------------------------------------------------
-     * Now do POST-ORDER processing
-     */
 
-    if (varTypeIsGC(tree->TypeGet()) && (op1 && !varTypeIsGC(op1->TypeGet())) && (op2 && !varTypeIsGC(op2->TypeGet())))
+    if (op1 != nullptr)
+    {
+        tree->AddSideEffects(op1->GetSideEffects());
+    }
+
+    if (op2 != nullptr)
+    {
+        tree->AddSideEffects(op2->GetSideEffects());
+    }
+
+    // Now do POST-ORDER processing
+
+    if (varTypeIsGC(tree->GetType()) && ((op1 != nullptr) && !varTypeIsGC(op1->GetType())) &&
+        ((op2 != nullptr) && !varTypeIsGC(op2->GetType())))
     {
         // The tree is really not GC but was marked as such. Now that the
         // children have been unmarked, unmark the tree too.
 
-        // Remember that GT_COMMA inherits it's type only from op2
-        if (tree->gtOper == GT_COMMA)
-        {
-            tree->gtType = genActualType(op2->TypeGet());
-        }
-        else
-        {
-            tree->gtType = genActualType(op1->TypeGet());
-        }
+        tree->SetType(varActualType((tree->OperIs(GT_COMMA) ? op2 : op1)->GetType()));
     }
 
     GenTree* oldTree = tree;
