@@ -10837,25 +10837,21 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
     } // if (op2)
 
 DONE_MORPHING_CHILDREN:
-
-    if (tree->OperIsIndirOrArrLength())
+    if (tree->OperMayThrow(this))
     {
-        tree->SetIndirExceptionFlags(this);
+        tree->AddSideEffects(GTF_EXCEPT);
     }
     else
     {
-        if (tree->OperMayThrow(this))
+        if (tree->OperIsIndirOrArrLength())
         {
-            // Mark the tree node as potentially throwing an exception
-            tree->gtFlags |= GTF_EXCEPT;
+            tree->gtFlags |= GTF_IND_NONFAULTING;
         }
-        else
+
+        if (((op1 == nullptr) || !op1->HasAnySideEffect(GTF_EXCEPT)) &&
+            ((op2 == nullptr) || !op2->HasAnySideEffect(GTF_EXCEPT)))
         {
-            if (((op1 == nullptr) || ((op1->gtFlags & GTF_EXCEPT) == 0)) &&
-                ((op2 == nullptr) || ((op2->gtFlags & GTF_EXCEPT) == 0)))
-            {
-                tree->gtFlags &= ~GTF_EXCEPT;
-            }
+            tree->RemoveSideEffects(GTF_EXCEPT);
         }
     }
 
