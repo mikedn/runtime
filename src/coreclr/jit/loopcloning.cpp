@@ -386,6 +386,7 @@ GenTree* LcArray::ToGenTree(Compiler* comp) const
         // array length operators in the slow-path of the cloned loops. CSE doesn't keep these separate, so bails
         // out on creating CSEs on this very useful type of CSE, leading to CQ losses in the cloned loop fast path.
         // TODO-CQ: fix this.
+
         return arrLen;
     }
 

@@ -2605,6 +2605,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
     switch (ni)
     {
         GenTree* op1;
+        GenTree* op2;
 
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
         // TODO-ARM-CQ: reenable treating Interlocked operation as intrinsic
@@ -2630,7 +2631,6 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             assert(callType != TYP_STRUCT);
             assert(sig->numArgs == 2);
 
-            GenTree* op2;
             op2 = impPopStack().val;
             op1 = impPopStack().val;
 
@@ -2892,37 +2892,32 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         }
 
         case NI_System_String_get_Length:
-        {
-            GenTree* op1 = impPopStack().val;
+            op1 = impPopStack().val;
+
             if (opts.OptimizationEnabled())
             {
-                if (op1->OperIs(GT_CNS_STR))
+                if (GenTreeStrCon* constStr = op1->IsStrCon())
                 {
-                    // Optimize `ldstr + String::get_Length()` to CNS_INT
-                    // e.g. "Hello".Length => 5
-                    GenTreeIntCon* iconNode = gtNewStringLiteralLength(op1->AsStrCon());
-                    if (iconNode != nullptr)
+                    if (GenTreeIntCon* constLength = gtNewStringLiteralLength(constStr))
                     {
-                        retNode = iconNode;
+                        retNode = constLength;
                         break;
                     }
                 }
-                op1 = gtNewArrLen(op1, OFFSETOF__CORINFO_String__stringLen);
+
+                op1 = comp->gtNewArrLen(op1, OFFSETOF__CORINFO_String__stringLen);
             }
             else
             {
-                /* Create the expression "*(str_addr + stringLengthOffset)" */
-                op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1,
-                                    gtNewIconNode(OFFSETOF__CORINFO_String__stringLen, TYP_I_IMPL));
+                op2 = gtNewIconNode(OFFSETOF__CORINFO_String__stringLen, TYP_I_IMPL);
+                op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
                 op1 = gtNewIndir(TYP_INT, op1);
             }
 
-            // Getting the length of a null string should throw
             op1->gtFlags |= GTF_EXCEPT;
 
             retNode = op1;
             break;
-        }
 
         case NI_System_Span_get_Item:
         case NI_System_ReadOnlySpan_get_Item:
@@ -11328,14 +11323,15 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_LDLEN:
                 op1 = impPopStack().val;
+
                 if (opts.OptimizationEnabled())
                 {
-                    op1 = gtNewArrLen(op1, OFFSETOF__CORINFO_Array__length);
+                    op1 = comp->gtNewArrLen(op1, OFFSETOF__CORINFO_Array__length);
                 }
                 else
                 {
-                    op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1,
-                                        gtNewIconNode(OFFSETOF__CORINFO_Array__length, TYP_I_IMPL));
+                    op2 = gtNewIconNode(OFFSETOF__CORINFO_Array__length, TYP_I_IMPL);
+                    op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
                     op1 = gtNewIndir(TYP_INT, op1);
                     op1->SetIndirExceptionFlags(comp);
                 }
@@ -17609,11 +17605,6 @@ GenTreeObj* Importer::gtNewObjNode(ClassLayout* layout, GenTree* addr)
 GenTreeObj* Importer::gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr)
 {
     return comp->gtNewObjNode(type, layout, addr);
-}
-
-GenTreeArrLen* Importer::gtNewArrLen(GenTree* arr, uint8_t lenOffs)
-{
-    return comp->gtNewArrLen(arr, lenOffs);
 }
 
 GenTree* Importer::gtNewStringLiteralNode(InfoAccessType iat, void* value)

@@ -2395,7 +2395,6 @@ struct Importer
     GenTreeObj* gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
     GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
     GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
-    GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
     GenTree* gtNewStringLiteralNode(InfoAccessType iat, void* value);
     GenTreeAllocObj* gtNewAllocObjNode(

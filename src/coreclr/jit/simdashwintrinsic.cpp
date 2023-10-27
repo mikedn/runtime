@@ -827,7 +827,7 @@ GenTree* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
     array = arrayUses[0];
 
     GenTree* lastIndex = gtNewIconNode(layout->GetElementCount() - 1);
-    GenTree* arrLen    = gtNewArrLen(arrayUses[1], OFFSETOF__CORINFO_Array__length);
+    GenTree* arrLen    = comp->gtNewArrLen(arrayUses[1], OFFSETOF__CORINFO_Array__length);
 
     if (index != nullptr)
     {
@@ -837,7 +837,7 @@ GenTree* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
 
         lastIndex = gtNewOperNode(GT_ADD, TYP_INT, indexUses[1], lastIndex);
         array     = gtNewCommaNode(gtNewBoundsChk(lastIndex, arrLen, lastIndexThrowKind), array);
-        arrLen    = gtNewArrLen(arrayUses[2], OFFSETOF__CORINFO_Array__length);
+        arrLen    = comp->gtNewArrLen(arrayUses[2], OFFSETOF__CORINFO_Array__length);
         array     = gtNewCommaNode(gtNewBoundsChk(indexUses[2], arrLen, indexThrowKind), array);
     }
     else
