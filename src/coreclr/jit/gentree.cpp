@@ -5847,7 +5847,7 @@ void Compiler::gtUpdateNodeSideEffects(GenTree* node)
 
         if (node->OperIsIndirOrArrLength())
         {
-            node->SetIndirExceptionFlags(this);
+            node->gtFlags |= GTF_IND_NONFAULTING;
         }
     }
 
