@@ -3711,24 +3711,6 @@ GenTreeRetExpr::GenTreeRetExpr(GenTreeCall* call)
     gtFlags |= GTF_CALL;
 }
 
-bool GenTree::OperIsImplicitIndir() const
-{
-    switch (gtOper)
-    {
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            return true;
-
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            return AsHWIntrinsic()->OperIsMemoryLoadOrStore();
-#endif
-
-        default:
-            return OperIsAtomicOp(gtOper);
-    }
-}
-
 bool Compiler::fgAddrCouldBeNull(GenTree* addr)
 {
     addr = addr->gtEffectiveVal();

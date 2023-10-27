@@ -179,8 +179,21 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
             isMemoryAccess = true;
         }
     }
-    else if (node->OperIsImplicitIndir())
+    else if (node->OperIs(GT_COPY_BLK, GT_INIT_BLK))
     {
+        // TODO-MIKE-Review: We could probably handle this like a normal IND as far as locals
+        // are concerned (though we'd need to handle both read and write for COPY_BLK).
+        isMemoryAccess = true;
+    }
+#ifdef FEATURE_HW_INTRINSICS
+    else if (node->IsHWIntrinsic() && node->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
+    {
+        isMemoryAccess = true;
+    }
+#endif
+    else if (node->OperIsAtomicOp())
+    {
+        // TODO-MIKE-Review: This is probably dead code, was handled above.
         isMemoryAccess = true;
     }
     else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
@@ -198,7 +211,7 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
     assert(isMemoryAccess || isLclVarAccess);
 
     // Now that we've determined whether or not this access is a read or a write and whether the accessed location is
-    // memory or a lclVar, determine whther or not the location is addressable and udpate the alias set.
+    // memory or a lclVar, determine whther or not the location is addressable and update the alias set.
     const bool isAddressableLocation = isMemoryAccess || compiler->lvaGetDesc(lclNum)->IsAddressExposed();
 
     // TODO-MIKE-Review: Is this missing HWINTRINSIC stores?

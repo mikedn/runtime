@@ -7510,6 +7510,7 @@ void ValueNumbering::NumberHWIntrinsic(GenTreeHWIntrinsic* node)
 
     if (node->OperIsMemoryStore())
     {
+        // TODO-MIKE-Review: It would seem that NullRef exceptions aren't added to intrinsic stores.
         ClearMemory(node DEBUGARG("HWIntrinsic store"));
     }
 
@@ -8354,7 +8355,12 @@ ValueNumPair ValueNumbering::AddNullRefExset(ValueNumPair addrVNP)
 
 void ValueNumbering::AddNullRefExset(GenTree* node, GenTree* addr)
 {
-    assert(node->IsIndir() || node->OperIsImplicitIndir() || node->OperIs(GT_ARR_LENGTH));
+#ifdef FEATURE_HW_INTRINSICS
+    assert(node->IsIndir() || node->OperIs(GT_ARR_LENGTH, GT_COPY_BLK, GT_INIT_BLK) || node->OperIsAtomicOp() ||
+           (node->IsHWIntrinsic() && node->AsHWIntrinsic()->OperIsMemoryLoadOrStore()));
+#else
+    assert(node->IsIndir() || node->OperIs(GT_ARR_LENGTH, GT_COPY_BLK, GT_INIT_BLK) || node->OperIsAtomicOp());
+#endif
 
     ValueNum libExset = AddNullRefExset(addr->GetLiberalVN());
     ValueNum conExset = AddNullRefExset(addr->GetConservativeVN());

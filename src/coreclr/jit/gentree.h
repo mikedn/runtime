@@ -1434,8 +1434,6 @@ public:
         return OperIsIndirOrArrLength(gtOper);
     }
 
-    bool OperIsImplicitIndir() const;
-
     static bool OperIsAtomicOp(genTreeOps gtOper)
     {
         switch (gtOper)
