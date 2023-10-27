@@ -12120,9 +12120,9 @@ DONE_MORPHING_CHILDREN:
 
                 if (op1SideEffects != nullptr)
                 {
-                    // Replace the left hand side with the side effect list.
-                    tree->AsOp()->gtOp1 = op1SideEffects;
-                    gtUpdateNodeSideEffects(tree);
+                    // TODO-MIKE-Review: This doesn't update `op1`!?
+                    tree->AsOp()->SetOp(0, op1SideEffects);
+                    tree->SetSideEffects(op1SideEffects->GetSideEffects() | op2->GetSideEffects());
                 }
                 else
                 {
