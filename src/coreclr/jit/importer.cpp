@@ -11336,7 +11336,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op2 = gtNewIconNode(OFFSETOF__CORINFO_Array__length, TYP_I_IMPL);
                     op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
                     op1 = gtNewIndir(TYP_INT, op1);
-                    op1->SetIndirExceptionFlags(comp);
+                    op1->gtFlags |= GTF_EXCEPT;
                 }
 
                 impPushOnStack(op1);
