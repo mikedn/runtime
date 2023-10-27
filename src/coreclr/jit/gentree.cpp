@@ -5875,6 +5875,49 @@ void Compiler::gtUpdateNodeSideEffects(GenTree* node)
     });
 }
 
+void GenTree::SetIndirExceptionFlags(Compiler* comp)
+{
+    assert(OperIsIndirOrArrLength());
+
+    if (IndirMayThrow(comp))
+    {
+        gtFlags |= GTF_EXCEPT;
+
+        return;
+    }
+
+    GenTree* addr = nullptr;
+
+    if (IsIndir())
+    {
+        addr = AsIndir()->GetAddr();
+    }
+    else
+    {
+        addr = AsArrLen()->GetArray();
+    }
+
+    gtFlags &= ~GTF_EXCEPT;
+
+    if (addr->HasAnySideEffect(GTF_EXCEPT))
+    {
+        gtFlags |= GTF_EXCEPT;
+    }
+
+    if (OperIs(GT_STOREIND, GT_STORE_BLK, GT_STORE_OBJ) && AsIndir()->GetValue()->HasAnySideEffect(GTF_EXCEPT))
+    {
+        gtFlags |= GTF_EXCEPT;
+    }
+
+    if ((gtFlags & GTF_EXCEPT) == 0)
+    {
+        // TODO-MIKE-Review: This is dubious - NONFAULTING solely depends on the address
+        // being non-null, it doesn't matter if the address (or stored value) expression
+        // has exception side effects, that's communicated by inheriting GTF_EXCEPT.
+        gtFlags |= GTF_IND_NONFAULTING;
+    }
+}
+
 GenTreeUseEdgeIterator::GenTreeUseEdgeIterator()
     : m_advance(nullptr), m_node(nullptr), m_edge(nullptr), m_statePtr(nullptr), m_state(-1)
 {
@@ -6374,56 +6417,6 @@ bool GenTree::Precedes(GenTree* other)
     }
 
     return false;
-}
-
-//------------------------------------------------------------------------------
-// SetIndirExceptionFlags : Set GTF_EXCEPT and GTF_IND_NONFAULTING flags as appropriate
-//                          on an indirection or an array length node.
-//
-// Arguments:
-//    comp  - compiler instance
-//
-void GenTree::SetIndirExceptionFlags(Compiler* comp)
-{
-    assert(OperIsIndirOrArrLength());
-
-    if (IndirMayThrow(comp))
-    {
-        gtFlags |= GTF_EXCEPT;
-
-        return;
-    }
-
-    GenTree* addr = nullptr;
-
-    if (IsIndir())
-    {
-        addr = AsIndir()->GetAddr();
-    }
-    else
-    {
-        addr = AsArrLen()->GetArray();
-    }
-
-    gtFlags &= ~GTF_EXCEPT;
-
-    if (addr->HasAnySideEffect(GTF_EXCEPT))
-    {
-        gtFlags |= GTF_EXCEPT;
-    }
-
-    if (OperIs(GT_STOREIND, GT_STORE_BLK, GT_STORE_OBJ) && AsIndir()->GetValue()->HasAnySideEffect(GTF_EXCEPT))
-    {
-        gtFlags |= GTF_EXCEPT;
-    }
-
-    if ((gtFlags & GTF_EXCEPT) == 0)
-    {
-        // TODO-MIKE-Review: This is dubious - NONFAULTING solely depends on the address
-        // being non-null, it doesn't matter if the address (or stored value) expression
-        // has exception side effects, that's communicated by inheriting GTF_EXCEPT.
-        gtFlags |= GTF_IND_NONFAULTING;
-    }
 }
 
 #ifdef DEBUG
