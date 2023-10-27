@@ -5820,10 +5820,20 @@ struct GenTreeArrLen : public GenTreeUnOp
 {
     static_assert_no_msg(GTF_ARRLEN_NONFAULTING == GTF_IND_NONFAULTING);
 
-    GenTreeArrLen(GenTree* arr, uint8_t lenOffs) : GenTreeUnOp(GT_ARR_LENGTH, TYP_INT, arr)
+    GenTreeArrLen(GenTree* arr, uint8_t lenOffs, GenTreeFlags flags = GTF_EXCEPT)
+        : GenTreeUnOp(GT_ARR_LENGTH, TYP_INT, arr)
     {
         // The offset of length is always the same for both strings and arrays.
         assert(lenOffs == TARGET_POINTER_SIZE);
+        assert(flags != GTF_NONE);
+
+        // We can't have both GTF_EXCEPT and GTF_ARRLEN_NONFAULTING and no other flags should
+        // be needed (GTF_GLOB_REF isn't necessary since array lengths are invariant).
+        // TODO-MIKE-Review: Should GTF_IND_INVARIANT be set for completeness?
+        assert((flags & ~(GTF_EXCEPT | GTF_ARRLEN_NONFAULTING)) == GTF_NONE);
+        assert((flags & (GTF_EXCEPT | GTF_ARRLEN_NONFAULTING)) != (GTF_EXCEPT | GTF_ARRLEN_NONFAULTING));
+
+        gtFlags |= flags;
     }
 
     GenTreeArrLen(const GenTreeArrLen* copyFrom) : GenTreeUnOp(GT_ARR_LENGTH, copyFrom->GetType(), copyFrom->GetArray())

@@ -3152,7 +3152,7 @@ public:
     GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
     GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
 
-    GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs);
+    GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs, GenTreeFlags flags);
     GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
 
     GenTree* gtNewNullCheck(GenTree* addr);

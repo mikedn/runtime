@@ -858,11 +858,9 @@ inline GenTreeIndir* Compiler::gtNewIndexIndir(var_types type, GenTreeIndexAddr*
     return indir;
 }
 
-inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs)
+inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs, GenTreeFlags flags = GTF_EXCEPT)
 {
-    GenTreeArrLen* arrLen = new (this, GT_ARR_LENGTH) GenTreeArrLen(arr, lenOffs);
-    arrLen->SetIndirExceptionFlags(this);
-    return arrLen;
+    return new (this, GT_ARR_LENGTH) GenTreeArrLen(arr, lenOffs, flags);
 }
 
 inline GenTreeBoundsChk* Compiler::gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)

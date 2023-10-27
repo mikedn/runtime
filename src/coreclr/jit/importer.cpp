@@ -2896,6 +2896,8 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 
             if (opts.OptimizationEnabled())
             {
+                GenTreeFlags flags = GTF_EXCEPT;
+
                 if (GenTreeStrCon* constStr = op1->IsStrCon())
                 {
                     if (GenTreeIntCon* constLength = gtNewStringLiteralLength(constStr))
@@ -2903,18 +2905,19 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                         retNode = constLength;
                         break;
                     }
+
+                    flags = GTF_IND_NONFAULTING;
                 }
 
-                op1 = comp->gtNewArrLen(op1, OFFSETOF__CORINFO_String__stringLen);
+                op1 = comp->gtNewArrLen(op1, OFFSETOF__CORINFO_String__stringLen, flags);
             }
             else
             {
                 op2 = gtNewIconNode(OFFSETOF__CORINFO_String__stringLen, TYP_I_IMPL);
                 op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
                 op1 = gtNewIndir(TYP_INT, op1);
+                op1->gtFlags |= GTF_EXCEPT;
             }
-
-            op1->gtFlags |= GTF_EXCEPT;
 
             retNode = op1;
             break;
