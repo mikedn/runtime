@@ -904,8 +904,11 @@ inline GenTreeCast* Compiler::gtNewCastNode(GenTree* op1, bool fromUnsigned, var
 inline GenTreeIndir* Compiler::gtNewMethodTableLookup(GenTree* object)
 {
     GenTreeIndir* result = gtNewIndir(TYP_I_IMPL, object);
-    result->SetIndirExceptionFlags(this);
-    result->gtFlags |= GTF_IND_INVARIANT;
+    // TODO-MIKE-Review: In theory we could avoid setting GTF_EXCEPT when
+    // the object is a string literal or a boxed struct used for static
+    // struct fields. fgAddrCouldBeNull checks for those but it's overkill
+    // since we basically never hit such cases.
+    result->gtFlags |= GTF_IND_INVARIANT | GTF_EXCEPT;
     return result;
 }
 
