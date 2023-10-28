@@ -5720,7 +5720,7 @@ bool GenTree::OperMayThrow(Compiler* comp) const
 
 bool GenTree::OperRequiresAsgFlag() const
 {
-    return OperIs(GT_ASG, GT_LCL_DEF, GT_MEMORYBARRIER) || OperIsStore() || OperIsAtomicOp()
+    return OperIs(GT_ASG, GT_LCL_DEF, GT_MEMORYBARRIER) || OperIsStore()
 #ifdef FEATURE_HW_INTRINSICS
            || (OperIs(GT_HWINTRINSIC) && AsHWIntrinsic()->OperIsMemoryStore())
 #endif
