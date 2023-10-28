@@ -5470,6 +5470,8 @@ DONE:
     // We don't expect to clone trees after register allocation.
     assert(!tree->HasRegs() || (tree->GetRegNum() == REG_NA));
 
+    JITDUMP("Cloned [%06u] to [%06u]\n", tree->GetID(), copy->GetID());
+
     return copy;
 }
 
