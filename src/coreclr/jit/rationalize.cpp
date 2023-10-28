@@ -364,6 +364,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
     }
     else
     {
+        // TODO-MIKE-Review: Is this missing HWINTRINSIC stores?
         if (!node->OperIsStore())
         {
             // Clear the GTF_ASG flag for all nodes but stores

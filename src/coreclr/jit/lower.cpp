@@ -4760,7 +4760,7 @@ void Lowering::CheckCallArg(GenTree* arg)
 {
     if (!arg->IsValue() && !arg->OperIsPutArgStk())
     {
-        assert(arg->OperIsStore() || arg->OperIs(GT_ARGPLACE) || arg->IsNothingNode());
+        assert(arg->OperIs(GT_STORE_LCL_VAR, GT_ARGPLACE) || arg->IsNothingNode());
         return;
     }
 
