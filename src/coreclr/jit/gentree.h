@@ -1434,7 +1434,7 @@ public:
         return OperIsIndirOrArrLength(gtOper);
     }
 
-    static bool OperIsAtomicOp(genTreeOps gtOper)
+    bool OperIsAtomicOp() const
     {
         switch (gtOper)
         {
@@ -1450,21 +1450,21 @@ public:
         }
     }
 
-    bool OperIsAtomicOp() const
-    {
-        return OperIsAtomicOp(gtOper);
-    }
-
     bool OperIsStore() const
     {
-        return OperIsStore(gtOper);
-    }
-
-    static bool OperIsStore(genTreeOps oper)
-    {
-        return (oper == GT_STOREIND) || (oper == GT_STORE_LCL_VAR) || (oper == GT_STORE_LCL_FLD) ||
-               (oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK) || (oper == GT_COPY_BLK) || (oper == GT_INIT_BLK) ||
-               OperIsAtomicOp(oper);
+        switch (gtOper)
+        {
+            case GT_STORE_LCL_VAR:
+            case GT_STORE_LCL_FLD:
+            case GT_STOREIND:
+            case GT_STORE_BLK:
+            case GT_STORE_OBJ:
+            case GT_INIT_BLK:
+            case GT_COPY_BLK:
+                return true;
+            default:
+                return OperIsAtomicOp();
+        }
     }
 
     static bool OperIsHWIntrinsic(genTreeOps gtOper)
@@ -1473,7 +1473,7 @@ public:
         return gtOper == GT_HWINTRINSIC;
 #else
         return false;
-#endif // FEATURE_HW_INTRINSICS
+#endif
     }
 
     bool OperIsHWIntrinsic() const
@@ -1481,19 +1481,13 @@ public:
         return OperIsHWIntrinsic(gtOper);
     }
 
-    // This is here for cleaner GT_LONG #ifdefs.
-    static bool OperIsLong(genTreeOps gtOper)
+    bool OperIsLong() const
     {
 #ifdef TARGET_64BIT
         return false;
 #else
         return gtOper == GT_LONG;
 #endif
-    }
-
-    bool OperIsLong() const
-    {
-        return OperIsLong(gtOper);
     }
 
     bool OperIsConditionalJump() const

@@ -5714,6 +5714,7 @@ bool GenTree::OperMayThrow(Compiler* comp) const
 #endif
 
         default:
+            // TODO-MIKE-Review: Atomic ops may throw too.
             return gtOverflowEx();
     }
 }
