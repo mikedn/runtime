@@ -2874,28 +2874,20 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                     break;
 
                 case GT_CALL:
-                    GenTreeCall* call;
-                    call = node->AsCall();
-
                     // Calls may have argument "setup" trees that are stores but
                     // their GTF_ASG side effect is not inherited by the call node.
 
-                    if ((call->gtCallThisArg != nullptr) && call->gtCallThisArg->GetNode()->HasAnySideEffect(GTF_ASG))
+                    if (GenTreeCall::Use* thisArg = node->AsCall()->gtCallThisArg)
                     {
-                        actualFlags |= GTF_ASG;
-                    }
-
-                    for (GenTreeCall::Use& use : call->Args())
-                    {
-                        if (use.GetNode()->HasAnySideEffect(GTF_ASG))
+                        if (thisArg->GetNode()->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_LCL_DEF))
                         {
                             actualFlags |= GTF_ASG;
                         }
                     }
 
-                    for (GenTreeCall::Use& use : call->LateArgs())
+                    for (GenTreeCall::Use& arg : node->AsCall()->Args())
                     {
-                        if (use.GetNode()->HasAnySideEffect(GTF_ASG))
+                        if (arg.GetNode()->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_LCL_DEF))
                         {
                             actualFlags |= GTF_ASG;
                         }
@@ -2926,7 +2918,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 printf("\n");
                 m_compiler->gtDispTree(node);
 
-                noway_assert(!"Missing flags on tree");
+                assert(!"Missing flags on tree");
             }
             else if (extraFlags != GTF_NONE)
             {
@@ -2935,7 +2927,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 printf("\n");
                 m_compiler->gtDispTree(node);
 
-                noway_assert(!"Extra flags on tree");
+                assert(!"Extra flags on tree");
             }
         }
 
