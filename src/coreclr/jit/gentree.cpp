@@ -5694,17 +5694,14 @@ bool GenTree::OperMayThrow(Compiler* comp) const
         case GT_INIT_BLK:
             return !AsDynBlk()->GetSize()->IsIntegralConst(0);
 
-        case GT_ARR_ELEM:
-            // TODO-MIKE-Review: What the crap is this? This can throw an IndexOutOfRangeException...
-            return comp->fgAddrCouldBeNull(AsArrElem()->GetArray());
-
         case GT_FIELD_ADDR:
             return comp->fgAddrCouldBeNull(AsFieldAddr()->GetAddr());
 
         case GT_BOUNDS_CHECK:
+        case GT_ARR_ELEM:
         case GT_ARR_INDEX:
         case GT_ARR_OFFSET:
-        case GT_LCLHEAP:
+        case GT_LCLHEAP: // TODO-MIKE-Review: Do we really care about this?
         case GT_CKFINITE:
             return true;
 
