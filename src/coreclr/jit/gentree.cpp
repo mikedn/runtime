@@ -5875,23 +5875,6 @@ void Compiler::gtUpdateNodeSideEffects(GenTree* node)
     });
 }
 
-void GenTree::SetIndirExceptionFlags(Compiler* comp)
-{
-    assert(IsIndir());
-    assert(HasAnySideEffect(GTF_EXCEPT) ==
-           (AsIndir()->GetAddr()->HasAnySideEffect(GTF_EXCEPT) ||
-            (OperIs(GT_STOREIND, GT_STORE_BLK, GT_STORE_OBJ) && AsIndir()->GetValue()->HasAnySideEffect(GTF_EXCEPT))));
-
-    if (IndirMayThrow(comp))
-    {
-        AddSideEffects(GTF_EXCEPT);
-    }
-    else
-    {
-        gtFlags |= GTF_IND_NONFAULTING;
-    }
-}
-
 GenTreeUseEdgeIterator::GenTreeUseEdgeIterator()
     : m_advance(nullptr), m_node(nullptr), m_edge(nullptr), m_statePtr(nullptr), m_state(-1)
 {
@@ -12312,6 +12295,15 @@ bool Compiler::gtIsStaticGCBaseHelperCall(GenTree* tree)
     }
 
     return false;
+}
+
+GenTreeFlags Compiler::gtGetIndirExceptionFlags(GenTree* addr)
+{
+    // TODO-MIKE-Cleanup: This should probably be merged with gtNewIndir, but
+    // there are a gazillion calls to gtNewIndir that do their own thing (or
+    // don't do it all?!?)
+
+    return fgAddrCouldBeNull(addr) ? GTF_EXCEPT : GTF_IND_NONFAULTING;
 }
 
 GenTreeFlags Compiler::gtGetFieldIndirFlags(GenTreeFieldAddr* fieldAddr)

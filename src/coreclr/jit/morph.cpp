@@ -4740,8 +4740,7 @@ GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
             }
 
             regIndir = gtNewIndir(regType, regAddr);
-            regIndir->SetIndirExceptionFlags(this);
-            regIndir->gtFlags |= GTF_GLOB_REF;
+            regIndir->gtFlags |= GTF_GLOB_REF | gtGetIndirExceptionFlags(regAddr);
         }
         else
         {
@@ -4824,9 +4823,8 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
             addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addr->GetType()), addr, gtNewIconNode(offset, TYP_I_IMPL));
             addr->gtFlags |= GTF_DONT_CSE;
         }
-        GenTree* indir = gtNewIndir(type, addr);
-        indir->SetIndirExceptionFlags(this);
-        indir->gtFlags |= GTF_GLOB_REF;
+        GenTreeIndir* indir = gtNewIndir(type, addr);
+        indir->gtFlags |= GTF_GLOB_REF | gtGetIndirExceptionFlags(addr);
         return indir;
     };
     auto LeftShift = [&](GenTree* op1, unsigned amount) {

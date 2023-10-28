@@ -1904,8 +1904,6 @@ public:
         gtFlags &= ~GTF_REUSE_REG_VAL;
     }
 
-    void SetIndirExceptionFlags(Compiler* comp);
-
 #if MEASURE_NODE_SIZE
     static void DumpNodeSizes(FILE* fp);
 #endif
@@ -6229,6 +6227,17 @@ public:
 
 struct GenTreeIndir : public GenTreeOp
 {
+    GenTreeIndir(genTreeOps oper, var_types type, GenTree* addr, GenTree* value = nullptr)
+        : GenTreeOp(oper, type, addr, value)
+    {
+    }
+
+    GenTreeIndir(const GenTreeIndir* copyFrom) : GenTreeOp(copyFrom)
+    {
+    }
+
+    void SetExceptionFlags(Compiler* comp);
+
     GenTree* GetAddr() const
     {
         return gtOp1;
@@ -6252,15 +6261,6 @@ struct GenTreeIndir : public GenTreeOp
         assert(OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
         assert(value != nullptr);
         gtOp2 = value;
-    }
-
-    GenTreeIndir(genTreeOps oper, var_types type, GenTree* addr, GenTree* value = nullptr)
-        : GenTreeOp(oper, type, addr, value)
-    {
-    }
-
-    GenTreeIndir(const GenTreeIndir* copyFrom) : GenTreeOp(copyFrom)
-    {
     }
 
     // True if this indirection is a volatile memory operation.

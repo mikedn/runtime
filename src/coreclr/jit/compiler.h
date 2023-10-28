@@ -3142,6 +3142,7 @@ public:
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
 
     GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
+    GenTreeFlags gtGetIndirExceptionFlags(GenTree* addr);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
