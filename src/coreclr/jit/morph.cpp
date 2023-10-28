@@ -3424,6 +3424,7 @@ void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
                 if (newArg != arg)
                 {
                     argInfo->SetNode(newArg);
+                    call->AddSideEffects(newArg->GetSideEffects());
                 }
             }
 
