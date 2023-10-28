@@ -2820,15 +2820,23 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
             {
                 expectedFlags |= GTF_ASG;
 
-                if (node->OperIsAtomicOp() || node->OperIs(GT_MEMORYBARRIER))
+                if (node->OperIsAtomicOp() || node->OperIs(GT_MEMORYBARRIER, GT_INIT_BLK, GT_COPY_BLK))
                 {
                     expectedFlags |= GTF_GLOB_REF;
                 }
             }
             else
             {
-                assert(!node->OperIsAtomicOp() && !node->OperIs(GT_MEMORYBARRIER));
+                assert(!node->OperIsAtomicOp() && !node->OperIs(GT_MEMORYBARRIER, GT_INIT_BLK, GT_COPY_BLK));
             }
+
+            // TODO-MIKE-Review: This is should require GLOB_REF for
+            // OBJ/BLK, indirect stores and load/store intrinsics.
+            // It remains to be seen if there aren't any cases where
+            // those do not need GLOB_REF, though that's unlikely.
+            // In general, all indirs should have GLOB_REF, with the
+            // exception of loads of runtime data that is known to be
+            // invariant.
 
             GenTreeFlags actualFlags = node->GetSideEffects();
 
@@ -2836,18 +2844,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
             {
                 case GT_CATCH_ARG:
                     expectedFlags |= GTF_ORDER_SIDEEFF;
-                    break;
-
-                // TODO-MIKE-Review: This is missing OBJ/BLK, indirect stores
-                // and load/store intrinsic.
-                // It remains to be seen if there aren't any cases where
-                // those do not need GLOB_REF, though that's unlikely.
-                // In general, all indirs should have GLOB_REF, with the
-                // exception of loads of runtime data that is known to be
-                // invariant.
-                case GT_COPY_BLK:
-                case GT_INIT_BLK:
-                    expectedFlags |= GTF_GLOB_REF;
                     break;
 
                 case GT_IND:
