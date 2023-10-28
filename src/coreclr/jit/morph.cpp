@@ -10810,47 +10810,38 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
     }
 
 DONE_MORPHING_CHILDREN:
-    if (tree->OperMayThrow(this))
-    {
-        tree->AddSideEffects(GTF_EXCEPT);
-    }
-    else
-    {
-        tree->RemoveSideEffects(GTF_EXCEPT);
-
-        if (tree->OperIsIndirOrArrLength())
-        {
-            tree->gtFlags |= GTF_IND_NONFAULTING;
-        }
-    }
-
-    if (tree->OperRequiresAsgFlag())
-    {
-        tree->AddSideEffects(GTF_ASG);
-    }
-    else
-    {
-        tree->RemoveSideEffects(GTF_ASG);
-    }
-
-    if (tree->OperRequiresCallFlag(this))
-    {
-        tree->AddSideEffects(GTF_CALL);
-    }
-    else
-    {
-        tree->RemoveSideEffects(GTF_CALL);
-    }
+    GenTreeFlags flags = tree->gtFlags & ~(GTF_ASG | GTF_CALL | GTF_EXCEPT);
 
     if (op1 != nullptr)
     {
-        tree->AddSideEffects(op1->GetSideEffects());
+        flags |= op1->GetSideEffects();
     }
 
     if (op2 != nullptr)
     {
-        tree->AddSideEffects(op2->GetSideEffects());
+        flags |= op2->GetSideEffects();
     }
+
+    if (tree->OperRequiresAsgFlag())
+    {
+        flags |= GTF_ASG;
+    }
+
+    if (tree->OperRequiresCallFlag(this))
+    {
+        flags |= GTF_CALL;
+    }
+
+    if (tree->OperMayThrow(this))
+    {
+        flags |= GTF_EXCEPT;
+    }
+    else if (tree->OperIsIndirOrArrLength())
+    {
+        flags |= GTF_IND_NONFAULTING;
+    }
+
+    tree->gtFlags = flags;
 
     // Now do POST-ORDER processing
 

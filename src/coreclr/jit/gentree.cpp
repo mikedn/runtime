@@ -5788,33 +5788,33 @@ void Compiler::gtUpdateStmtSideEffects(Statement* stmt)
 
         fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
         {
-            GenTree* node = *use;
+            GenTree*     node  = *use;
+            GenTreeFlags flags = node->gtFlags;
 
             if (node->OperMayThrow(m_compiler))
             {
-                node->AddSideEffects(GTF_EXCEPT);
+                flags |= GTF_EXCEPT;
             }
-            else
+            else if (node->OperIsIndirOrArrLength())
             {
-                if (node->OperIsIndirOrArrLength())
-                {
-                    node->gtFlags |= GTF_IND_NONFAULTING;
-                }
+                flags |= GTF_IND_NONFAULTING;
             }
 
             if (node->OperRequiresAsgFlag())
             {
-                node->AddSideEffects(GTF_ASG);
+                flags |= GTF_ASG;
             }
 
             if (node->OperRequiresCallFlag(m_compiler))
             {
-                node->AddSideEffects(GTF_CALL);
+                flags |= GTF_CALL;
             }
+
+            node->gtFlags = flags;
 
             if (user != nullptr)
             {
-                user->AddSideEffects(node->GetSideEffects());
+                user->AddSideEffects(flags & GTF_ALL_EFFECT);
             }
 
             return WALK_CONTINUE;
@@ -5837,42 +5837,33 @@ void Compiler::gtUpdateAncestorsSideEffects(GenTree* tree)
 
 void Compiler::gtUpdateNodeSideEffects(GenTree* node)
 {
-    if (node->OperMayThrow(this))
-    {
-        node->AddSideEffects(GTF_EXCEPT);
-    }
-    else
-    {
-        node->RemoveSideEffects(GTF_EXCEPT);
+    GenTreeFlags flags = node->gtFlags & ~(GTF_ASG | GTF_CALL | GTF_EXCEPT);
 
-        if (node->OperIsIndirOrArrLength())
-        {
-            node->gtFlags |= GTF_IND_NONFAULTING;
-        }
-    }
+    node->VisitOperands([node, &flags](GenTree* op) {
+        flags |= op->GetSideEffects();
+        return GenTree::VisitResult::Continue;
+    });
 
     if (node->OperRequiresAsgFlag())
     {
-        node->AddSideEffects(GTF_ASG);
-    }
-    else
-    {
-        node->RemoveSideEffects(GTF_ASG);
+        flags |= GTF_ASG;
     }
 
     if (node->OperRequiresCallFlag(this))
     {
-        node->AddSideEffects(GTF_CALL);
-    }
-    else
-    {
-        node->RemoveSideEffects(GTF_CALL);
+        flags |= GTF_CALL;
     }
 
-    node->VisitOperands([node](GenTree* op) {
-        node->AddSideEffects(op->GetSideEffects());
-        return GenTree::VisitResult::Continue;
-    });
+    if (node->OperMayThrow(this))
+    {
+        flags |= GTF_EXCEPT;
+    }
+    else if (node->OperIsIndirOrArrLength())
+    {
+        flags |= GTF_IND_NONFAULTING;
+    }
+
+    node->gtFlags = flags;
 }
 
 GenTreeUseEdgeIterator::GenTreeUseEdgeIterator()
