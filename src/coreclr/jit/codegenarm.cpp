@@ -983,9 +983,8 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     genConsumeAddress(addr);
     regNumber dataReg = UseReg(data);
 
-    if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
+    if (tree->IsVolatile())
     {
-        // issue a full memory barrier a before volatile StInd
         instGen_MemoryBarrier();
     }
 

@@ -5708,7 +5708,7 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
 
         if ((prefixFlags & PREFIX_VOLATILE) != 0)
         {
-            field->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
+            field->AsIndir()->SetVolatile();
         }
     }
 
@@ -5824,7 +5824,7 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
 
     if ((prefixFlags & PREFIX_VOLATILE) != 0)
     {
-        field->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
+        field->AsIndir()->SetVolatile();
     }
 
     GenTree* helperNode = nullptr;
@@ -10643,7 +10643,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if ((prefixFlags & PREFIX_VOLATILE) != 0)
                 {
-                    op1->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
+                    op1->AsIndir()->SetVolatile();
                 }
 
                 if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp))
@@ -10715,7 +10715,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if ((prefixFlags & PREFIX_VOLATILE) != 0)
                 {
-                    op1->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
+                    op1->AsIndir()->SetVolatile();
                 }
 
                 if ((prefixFlags & PREFIX_UNALIGNED) && !varTypeIsByte(lclTyp))
@@ -10869,7 +10869,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     if ((prefixFlags & PREFIX_VOLATILE) != 0)
                     {
-                        op1->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
+                        op1->AsIndir()->SetVolatile();
                     }
 
                     if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp))
@@ -10969,7 +10969,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if ((prefixFlags & PREFIX_VOLATILE) != 0)
                 {
-                    op1->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
+                    op1->AsIndir()->SetVolatile();
                 }
 
                 if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp))

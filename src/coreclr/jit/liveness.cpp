@@ -222,7 +222,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
             // see comments in ValueNum.cpp (under case GT_IND)
             // This models Volatile reads as def-then-use of memory.
             // and allows for a CSE of a subsequent non-volatile read
-            if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
+            if (tree->AsIndir()->IsVolatile())
             {
                 // For any Volatile indirection, we must handle it as a memory def
                 state.fgCurMemoryDef = true;

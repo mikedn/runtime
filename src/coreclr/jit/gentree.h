@@ -6253,7 +6253,7 @@ struct GenTreeIndir : public GenTreeOp
 
     void SetVolatile()
     {
-        gtFlags |= GTF_IND_VOLATILE;
+        gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
     }
 
     // True if this indirection is an unaligned memory operation.
@@ -6462,7 +6462,7 @@ struct GenTreeDynBlk : public GenTreeTernaryOp
 
     void SetVolatile()
     {
-        gtFlags |= GTF_IND_VOLATILE;
+        gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
     }
 
     bool IsUnaligned() const

@@ -2820,14 +2820,20 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
             {
                 expectedFlags |= GTF_ASG;
 
-                if (node->OperIsAtomicOp() || node->OperIs(GT_MEMORYBARRIER, GT_INIT_BLK, GT_COPY_BLK))
+                if (node->OperIsAtomicOp() || node->OperIs(GT_MEMORYBARRIER) || node->IsDynBlk())
                 {
                     expectedFlags |= GTF_GLOB_REF;
                 }
             }
             else
             {
-                assert(!node->OperIsAtomicOp() && !node->OperIs(GT_MEMORYBARRIER, GT_INIT_BLK, GT_COPY_BLK));
+                assert(!node->OperIsAtomicOp() && !node->OperIs(GT_MEMORYBARRIER) && !node->IsDynBlk());
+            }
+
+            if ((node->IsIndir() && node->AsIndir()->IsVolatile()) ||
+                (node->IsDynBlk() && node->AsDynBlk()->IsVolatile()))
+            {
+                expectedFlags |= GTF_ORDER_SIDEEFF;
             }
 
             // TODO-MIKE-Review: This is should require GLOB_REF for
