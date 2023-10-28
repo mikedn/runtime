@@ -5839,7 +5839,7 @@ void Compiler::gtUpdateNodeSideEffects(GenTree* node)
 {
     GenTreeFlags flags = node->gtFlags & ~(GTF_ASG | GTF_CALL | GTF_EXCEPT);
 
-    node->VisitOperands([node, &flags](GenTree* op) {
+    node->VisitOperands([&flags](GenTree* op) {
         flags |= op->GetSideEffects();
         return GenTree::VisitResult::Continue;
     });
