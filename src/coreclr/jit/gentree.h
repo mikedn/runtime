@@ -522,19 +522,7 @@ inline GenTreeFlags& operator ^=(GenTreeFlags& a, GenTreeFlags b)
     return a = a ^ b;
 }
 
-// Can any side-effects be observed externally, say by a caller method?
-// For assignments, only assignments to global memory can be observed
-// externally, whereas simple assignments to local variables can not.
-//
-// Be careful when using this inside a "try" protected region as the
-// order of assignments to local variables would need to be preserved
-// wrt side effects if the variables are alive on entry to the
-// "catch/finally" region. In such cases, even assignments to locals
-// will have to be restricted.
-#define GTF_GLOBALLY_VISIBLE_SIDE_EFFECTS(flags) \
-    (((flags) & (GTF_CALL | GTF_EXCEPT)) || (((flags) & (GTF_ASG | GTF_GLOB_REF)) == (GTF_ASG | GTF_GLOB_REF)))
-
-#if defined(DEBUG)
+#ifdef DEBUG
 
 enum GenTreeDebugFlags : unsigned 
 {

@@ -14454,14 +14454,18 @@ bool Importer::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
         return false;
     }
 
-    if ((additionalTree != nullptr) && GTF_GLOBALLY_VISIBLE_SIDE_EFFECTS(additionalTree->gtFlags))
+    auto HasGloballyVisibleSideEffects = [](GenTree* tree) {
+        return tree->HasAnySideEffect(GTF_CALL | GTF_EXCEPT) || tree->HasAllSideEffects(GTF_ASG | GTF_GLOB_REF);
+    };
+
+    if ((additionalTree != nullptr) && HasGloballyVisibleSideEffects(additionalTree))
     {
         return false;
     }
 
     for (GenTreeCall::Use& use : GenTreeCall::UseList(additionalCallArgs))
     {
-        if (GTF_GLOBALLY_VISIBLE_SIDE_EFFECTS(use.GetNode()->gtFlags))
+        if (HasGloballyVisibleSideEffects(use.GetNode()))
         {
             return false;
         }
@@ -14469,8 +14473,7 @@ bool Importer::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
 
     for (Statement* stmt : StatementList(impStmtList))
     {
-        GenTree* expr = stmt->GetRootNode();
-        if (GTF_GLOBALLY_VISIBLE_SIDE_EFFECTS(expr->gtFlags))
+        if (HasGloballyVisibleSideEffects(stmt->GetRootNode()))
         {
             return false;
         }
@@ -14478,8 +14481,7 @@ bool Importer::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
 
     for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
     {
-        unsigned stackTreeFlags = verCurrentState.esStack[level].val->gtFlags;
-        if (GTF_GLOBALLY_VISIBLE_SIDE_EFFECTS(stackTreeFlags))
+        if (HasGloballyVisibleSideEffects(verCurrentState.esStack[level].val))
         {
             return false;
         }
