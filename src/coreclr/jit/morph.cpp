@@ -3910,6 +3910,11 @@ GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTr
 
         GenTree* fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
 
+        if (fieldLcl->IsAddressExposed())
+        {
+            fieldNode->AddSideEffects(GTF_GLOB_REF);
+        }
+
 #ifdef FEATURE_SIMD
         if (fieldType != regType)
         {
@@ -4116,6 +4121,11 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
         GenTree*  fieldValue  = gtNewLclvNode(map.fields[i].lclNum, map.fields[i].type);
         var_types fieldType   = map.fields[i].type;
         unsigned  fieldOffset = map.fields[i].offset;
+
+        if (lvaGetDesc(map.fields[i].lclNum)->IsAddressExposed())
+        {
+            fieldValue->AddSideEffects(GTF_GLOB_REF);
+        }
 
         if (regIndex >= argInfo->GetRegCount())
         {
@@ -4644,14 +4654,24 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
             GenTree* elementIndex = gtNewIconNode(lclOffset / regSize);
             GenTree* simdValue    = gtNewLclvNode(lclNum, lcl->GetType());
 
+            if (lcl->IsAddressExposed())
+            {
+                simdValue->AddSideEffects(GTF_GLOB_REF);
+            }
+
             regValue = gtNewSimdGetElementNode(lcl->GetType(), regType, simdValue, elementIndex);
         }
         else
 #endif
         {
-            lvaSetVarDoNotEnregister(lclNum DEBUG_ARG(DNER_LocalField));
+            lvaSetDoNotEnregister(lcl DEBUG_ARG(DNER_LocalField));
 
             regValue = gtNewLclFldNode(lclNum, regType, lclOffset);
+
+            if (lcl->IsAddressExposed())
+            {
+                regValue->AddSideEffects(GTF_GLOB_REF);
+            }
         }
 
 #ifdef TARGET_ARM

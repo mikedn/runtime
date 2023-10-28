@@ -2836,6 +2836,14 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 expectedFlags |= GTF_ORDER_SIDEEFF;
             }
 
+            if (node->IsLclVarCommon() && !node->IsLclAddr())
+            {
+                if (m_compiler->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed())
+                {
+                    expectedFlags |= GTF_GLOB_REF;
+                }
+            }
+
             // TODO-MIKE-Review: This is should require GLOB_REF for
             // OBJ/BLK, indirect stores and load/store intrinsics.
             // It remains to be seen if there aren't any cases where
