@@ -6460,9 +6460,9 @@ struct GenTreeDynBlk : public GenTreeTernaryOp
         return (gtFlags & GTF_IND_VOLATILE) != 0;
     }
 
-    void SetVolatile(bool isVolatile)
+    void SetVolatile()
     {
-        gtFlags = isVolatile ? (gtFlags | GTF_IND_VOLATILE) : (gtFlags & ~GTF_IND_VOLATILE);
+        gtFlags |= GTF_IND_VOLATILE;
     }
 
     bool IsUnaligned() const

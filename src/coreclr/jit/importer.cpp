@@ -16389,7 +16389,11 @@ void Importer::impImportInitBlk(unsigned prefixFlags)
     if ((sizeIntCon == nullptr) || (sizeIntCon->GetUInt32Value() == 0))
     {
         init = new (comp, GT_INIT_BLK) GenTreeDynBlk(GT_INIT_BLK, dstAddr, initValue, size);
-        init->AsDynBlk()->SetVolatile((prefixFlags & PREFIX_VOLATILE) != 0);
+
+        if ((prefixFlags & PREFIX_VOLATILE) != 0)
+        {
+            init->AsDynBlk()->SetVolatile();
+        }
     }
     else
     {
@@ -16427,7 +16431,11 @@ void Importer::impImportCpBlk(unsigned prefixFlags)
     if ((sizeIntCon == nullptr) || (sizeIntCon->GetUInt32Value() == 0))
     {
         copy = new (comp, GT_COPY_BLK) GenTreeDynBlk(GT_COPY_BLK, dstAddr, srcAddr, size);
-        copy->AsDynBlk()->SetVolatile((prefixFlags & PREFIX_VOLATILE) != 0);
+
+        if ((prefixFlags & PREFIX_VOLATILE) != 0)
+        {
+            copy->AsDynBlk()->SetVolatile();
+        }
     }
     else
     {
