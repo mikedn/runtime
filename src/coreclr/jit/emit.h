@@ -390,7 +390,7 @@ private:
 
     void emitRecomputeIGoffsets();
 
-    void emitDispCommentForHandle(size_t handle, GenTreeFlags flags);
+    void emitDispCommentForHandle(void* handle, HandleKind kind);
 
     /************************************************************************/
     /*          The following describes a single instruction                */
@@ -423,14 +423,14 @@ private:
     struct instrDescDebugInfo
     {
         unsigned          idNum;
-        uint16_t          idSize;                    // size of the instruction descriptor
-        bool              idFinallyCall = false;     // Branch instruction is a call to finally
-        bool              idCatchRet    = false;     // Instruction is for a catch 'return'
-        GenTreeFlags      idFlags       = GTF_EMPTY; // for determining type of handle in idMemCookie
+        uint16_t          idSize;                // size of the instruction descriptor
+        bool              idFinallyCall = false; // Branch instruction is a call to finally
+        bool              idCatchRet    = false; // Instruction is for a catch 'return'
         int               varNum        = INT_MIN;
         int               varOffs       = 0;
+        HandleKind        idHandleKind  = HandleKind::None;
+        void*             idHandle      = nullptr;
         CORINFO_SIG_INFO* idCallSig     = nullptr; // Used to report native call site signatures to the EE
-        size_t            idMemCookie   = 0;       // for display of method name (also used by switch table)
 
         instrDescDebugInfo(unsigned num, unsigned size) : idNum(num), idSize(static_cast<uint16_t>(size))
         {
@@ -693,7 +693,7 @@ private:
 
             BasicBlock* iiaBBlabel;
             insGroup*   iiaIGlabel;
-            BYTE*       iiaAddr;
+            uint8_t*    iiaAddr;
 
             // Used to encode an offset into the JIT data constant area
             CORINFO_FIELD_HANDLE iiaFieldHnd;

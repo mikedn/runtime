@@ -1613,7 +1613,7 @@ const char* Compiler::eeGetSimpleClassName(CORINFO_CLASS_HANDLE clsHnd)
 
 #ifdef DEBUG
 
-const WCHAR* Compiler::eeGetCPString(size_t strHandle)
+const WCHAR* Compiler::eeGetCPString(void* strHandle)
 {
 #ifdef HOST_UNIX
     return nullptr;

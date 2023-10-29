@@ -435,13 +435,15 @@ void BlockCountInstrumentor::Instrument(BasicBlock* block, Schema& schema, BYTE*
     var_types typ =
         entry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockIntCount ? TYP_INT : TYP_LONG;
     // Read Basic-Block count value
-    GenTree* valueNode = m_comp->gtNewIndOfIconHandleNode(typ, addrOfCurrentExecutionCount, GTF_ICON_BBC_PTR, false);
+    GenTree* valueNode =
+        m_comp->gtNewIndOfIconHandleNode(typ, addrOfCurrentExecutionCount, HandleKind::BlockCount, false);
 
     // Increment value by 1
     GenTree* rhsNode = m_comp->gtNewOperNode(GT_ADD, typ, valueNode, m_comp->gtNewIconNode(1, typ));
 
     // Write new Basic-Block count value
-    GenTree* lhsNode = m_comp->gtNewIndOfIconHandleNode(typ, addrOfCurrentExecutionCount, GTF_ICON_BBC_PTR, false);
+    GenTree* lhsNode =
+        m_comp->gtNewIndOfIconHandleNode(typ, addrOfCurrentExecutionCount, HandleKind::BlockCount, false);
     GenTree* asgNode = m_comp->gtNewAssignNode(lhsNode, rhsNode);
 
     m_comp->fgNewStmtAtBeg(block, asgNode);
@@ -501,7 +503,7 @@ void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, BYTE* profile
         CORINFO_GENERICHANDLE_RESULT embedInfo;
         info.compCompHnd->embedGenericHandle(&resolvedToken, false, &embedInfo);
         noway_assert(!embedInfo.lookup.lookupKind.needsRuntimeLookup);
-        arg = m_comp->gtNewConstLookupTree(&resolvedToken, &embedInfo.lookup, GTF_ICON_METHOD_HDL,
+        arg = m_comp->gtNewConstLookupTree(&resolvedToken, &embedInfo.lookup, HandleKind::Method,
                                            embedInfo.compileTimeHandle);
     }
     else
@@ -521,7 +523,8 @@ void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, BYTE* profile
         entry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockIntCount ? TYP_INT : TYP_LONG;
     // Read Basic-Block count value
     //
-    GenTree* valueNode = m_comp->gtNewIndOfIconHandleNode(typ, addrOfFirstExecutionCount, GTF_ICON_BBC_PTR, false);
+    GenTree* valueNode =
+        m_comp->gtNewIndOfIconHandleNode(typ, addrOfFirstExecutionCount, HandleKind::BlockCount, false);
 
     // Compare Basic-Block count value against zero
     //
@@ -1204,13 +1207,14 @@ void EfficientEdgeCountInstrumentor::Instrument(BasicBlock* block, Schema& schem
             entry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::EdgeIntCount ? TYP_INT : TYP_LONG;
         // Read Basic-Block count value
         GenTree* valueNode =
-            m_comp->gtNewIndOfIconHandleNode(typ, addrOfCurrentExecutionCount, GTF_ICON_BBC_PTR, false);
+            m_comp->gtNewIndOfIconHandleNode(typ, addrOfCurrentExecutionCount, HandleKind::BlockCount, false);
 
         // Increment value by 1
         GenTree* rhsNode = m_comp->gtNewOperNode(GT_ADD, typ, valueNode, m_comp->gtNewIconNode(1, typ));
 
         // Write new Basic-Block count value
-        GenTree* lhsNode = m_comp->gtNewIndOfIconHandleNode(typ, addrOfCurrentExecutionCount, GTF_ICON_BBC_PTR, false);
+        GenTree* lhsNode =
+            m_comp->gtNewIndOfIconHandleNode(typ, addrOfCurrentExecutionCount, HandleKind::BlockCount, false);
         GenTree* asgNode = m_comp->gtNewAssignNode(lhsNode, rhsNode);
 
         m_comp->fgNewStmtAtBeg(instrumentedBlock, asgNode);

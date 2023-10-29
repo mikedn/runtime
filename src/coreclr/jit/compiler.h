@@ -1835,16 +1835,16 @@ struct Importer
 
     GenTree* impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel);
 
-    GenTree* impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                             CORINFO_LOOKUP*         pLookup,
-                             GenTreeFlags            flags,
+    GenTree* impLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                             CORINFO_LOOKUP*         lookup,
+                             HandleKind              handleKnd,
                              void*                   compileTimeHandle);
 
     GenTree* impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                     CORINFO_LOOKUP*         pLookup,
                                     void*                   compileTimeHandle);
 
-    GenTree* gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* pLookup, GenTreeFlags flags, void* compileTimeHandle);
+    GenTree* gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* lookup, HandleKind handleKind, void* compileTimeHandle);
 
     GenTree* impCastClassOrIsInstToTree(GenTree*                op1,
                                         GenTree*                op2,
@@ -2082,7 +2082,7 @@ struct Importer
         CORINFO_CLASS_HANDLE clsHnd, CORINFO_SIG_INFO* sig, int memberRef, bool readonlyCall, NamedIntrinsic name);
     GenTree* impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig);
 
-    GenTree* impMethodPointer(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
+    GenTree* impMethodPointer(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_CALL_INFO* callInfo);
 
     GenTree* impTransformThis(GenTree*                thisPtr,
                               CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
@@ -2368,14 +2368,14 @@ struct Importer
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
     GenTree* gtNewLconNode(int64_t value);
-    GenTreeIntCon* gtNewIconHandleNode(void* value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
-    GenTreeIntCon* gtNewIconHandleNode(size_t value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
-    GenTree* gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags handleKind, void* compileTimeHandle);
+    GenTreeIntCon* gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
+    GenTreeIntCon* gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
+    GenTree* gtNewIconEmbHndNode(void* value, void* pValue, HandleKind handleKind, void* compileTimeHandle);
     GenTree* gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd);
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
     GenTree* gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd);
     GenTree* gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd);
-    GenTree* gtNewIndOfIconHandleNode(var_types type, size_t value, GenTreeFlags iconFlags, bool isInvariant);
+    GenTree* gtNewIndOfIconHandleNode(var_types type, size_t value, HandleKind handleKind, bool invariant);
     GenTree* gtNewZeroConNode(var_types type);
     GenTree* gtNewOneConNode(var_types type);
     GenTree* gtNewDconNode(double value, var_types type = TYP_DOUBLE);
@@ -2516,7 +2516,6 @@ struct Importer
     void gtChangeOperToNullCheck(GenTree* tree);
     bool gtIsRecursiveCall(GenTreeCall* call);
     bool gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle);
-    static GenTreeFlags gtTokenToIconFlags(unsigned token);
     GenTree* gtFoldTypeCompare(GenTree* tree);
     GenTree* gtFoldTypeEqualityCall(bool isEq, GenTree* op1, GenTree* op2);
     GenTree* gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp);
@@ -2997,25 +2996,18 @@ public:
 
     GenTree* gtNewJmpTableNode();
 
-    GenTreeIndir* gtNewIndOfIconHandleNode(var_types type, size_t addr, GenTreeFlags handleKind, bool invariant);
-
-    GenTreeIntCon* gtNewIconHandleNode(void* value, GenTreeFlags kind, FieldSeqNode* fieldSeq = nullptr);
-    GenTreeIntCon* gtNewIconHandleNode(size_t value, GenTreeFlags kind, FieldSeqNode* fieldSeq = nullptr);
-
-    static GenTreeFlags gtTokenToIconFlags(unsigned token);
-
-    GenTree* gtNewIconEmbHndNode(void* value, void* valueAddr, GenTreeFlags handleKind, void* compileTimeHandle);
-
+    GenTreeIndir* gtNewIndOfIconHandleNode(var_types type, size_t addr, HandleKind handleKind, bool invariant);
+    GenTreeIntCon* gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
+    GenTreeIntCon* gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
+    GenTree* gtNewIconEmbHndNode(void* value, void* valueAddr, HandleKind handleKind, void* compileTimeHandle);
     GenTree* gtNewConstLookupTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                   CORINFO_LOOKUP*         lookup,
-                                  GenTreeFlags            handleKind,
+                                  HandleKind              handleKind,
                                   void*                   compileTimeHandle);
-
     GenTree* gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd);
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
     GenTree* gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd);
     GenTree* gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd);
-
     GenTree* gtNewStringLiteralNode(InfoAccessType iat, void* pValue);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
 
@@ -4739,17 +4731,14 @@ private:
                                                 CORINFO_METHOD_HANDLE callTargetStubHnd,
                                                 CORINFO_METHOD_HANDLE dispatcherHnd,
                                                 Statement*            stmt);
-    GenTree* getLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                           CORINFO_LOOKUP*         pLookup,
-                           GenTreeFlags            handleFlags,
-                           void*                   compileTimeHandle);
-    GenTree* getRuntimeLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                  CORINFO_LOOKUP*         pLookup,
-                                  void*                   compileTimeHandle);
+    GenTree* getConstLookupTree(CORINFO_CONST_LOOKUP& lookup, HandleKind handleKind, void* compileTimeHandle);
+    GenTree* getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
+                                  CORINFO_RUNTIME_LOOKUP&     lookup,
+                                  void*                       compileTimeHandle);
     GenTree* getVirtMethodPointerTree(GenTree*                thisPtr,
-                                      CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                      CORINFO_CALL_INFO*      pCallInfo);
-    GenTree* getTokenHandleTree(CORINFO_RESOLVED_TOKEN* pResolvedToken, bool parent);
+                                      CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                      CORINFO_CALL_INFO*      callInfo);
+    GenTree* getTokenHandleTree(CORINFO_RESOLVED_TOKEN* resolvedToken, bool parent);
 
     GenTree* fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt);
     GenTree* fgGetStubAddrArg(GenTreeCall* call);
@@ -5618,10 +5607,7 @@ public:
 
     const char* eeGetFieldName(CORINFO_FIELD_HANDLE fieldHnd, const char** classNamePtr = nullptr);
 
-#if defined(DEBUG)
-    const WCHAR* eeGetCPString(size_t stringHandle);
-#endif
-
+    INDEBUG(const WCHAR* eeGetCPString(void* stringHandle);)
     const char* eeGetClassName(CORINFO_CLASS_HANDLE clsHnd);
     const char* eeGetSimpleClassName(CORINFO_CLASS_HANDLE clsHnd);
 

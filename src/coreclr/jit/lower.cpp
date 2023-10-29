@@ -2518,8 +2518,8 @@ GenTree* Lowering::LowerDirectPInvokeCall(GenTreeCall* call)
 GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entryPoint,
                                                GenTree* insertBefore DEBUGARG(GenTreeCall* call))
 {
-    GenTreeIntCon* addr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
-    INDEBUG(addr->gtTargetHandle = reinterpret_cast<size_t>(call->GetMethodHandle()));
+    GenTreeIntCon* addr = comp->gtNewIconHandleNode(entryPoint.addr, HandleKind::MethodAddr);
+    addr->SetDumpHandle(call->GetMethodHandle());
     BlockRange().InsertBefore(insertBefore, addr);
 
     if (entryPoint.accessType == IAT_VALUE)
@@ -2548,7 +2548,7 @@ GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entry
 
     noway_assert(entryPoint.accessType == IAT_RELPVALUE);
 
-    addr            = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
+    addr            = comp->gtNewIconHandleNode(entryPoint.addr, HandleKind::MethodAddr);
     GenTree* target = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, load, addr);
     BlockRange().InsertBefore(insertBefore, addr, target);
     ContainCheckBinary(target->AsOp());
@@ -2777,7 +2777,7 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call X86_ARG(GenTree* inser
     insertBefore               = insertBefore == nullptr ? call : insertBefore;
 #endif
 
-    GenTreeIntCon* addr   = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
+    GenTreeIntCon* addr   = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, HandleKind::MethodAddr);
     GenTree*       target = comp->gtNewIndir(TYP_I_IMPL, addr);
     BlockRange().InsertBefore(insertBefore, addr, target);
     ContainCheckIndir(target->AsIndir());
@@ -2816,11 +2816,11 @@ void Lowering::InsertReturnTrap(GenTree* before)
 
     if (addrOfCaptureThreadGlobal != nullptr)
     {
-        trapAddr = comp->gtNewIconHandleNode(addrOfCaptureThreadGlobal, GTF_ICON_FTN_ADDR);
+        trapAddr = comp->gtNewIconHandleNode(addrOfCaptureThreadGlobal, HandleKind::MethodAddr);
     }
     else
     {
-        GenTree* trapAddrAddr = comp->gtNewIconHandleNode(pAddrOfCaptureThreadGlobal, GTF_ICON_FTN_ADDR);
+        GenTree* trapAddrAddr = comp->gtNewIconHandleNode(pAddrOfCaptureThreadGlobal, HandleKind::MethodAddr);
         BlockRange().InsertBefore(before, trapAddrAddr);
         trapAddr = comp->gtNewIndir(TYP_I_IMPL, trapAddrAddr);
     }
@@ -3182,11 +3182,11 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
 
         if (embedMethodHandle != nullptr)
         {
-            src = comp->gtNewIconHandleNode(embedMethodHandle, GTF_ICON_FTN_ADDR);
+            src = comp->gtNewIconHandleNode(embedMethodHandle, HandleKind::MethodAddr);
         }
         else
         {
-            GenTree* srcAddr = comp->gtNewIconHandleNode(pEmbedMethodHandle, GTF_ICON_FTN_ADDR);
+            GenTree* srcAddr = comp->gtNewIconHandleNode(pEmbedMethodHandle, HandleKind::MethodAddr);
             BlockRange().InsertBefore(src, srcAddr);
             src = comp->gtNewIndir(TYP_I_IMPL, srcAddr);
         }

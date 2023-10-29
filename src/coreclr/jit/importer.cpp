@@ -1092,7 +1092,7 @@ GenTree* Importer::impTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
     }
 
     // Generate the full lookup tree. May be null if we're abandoning an inline attempt.
-    GenTree* result = impLookupToTree(resolvedToken, &embedInfo.lookup, gtTokenToIconFlags(resolvedToken->token),
+    GenTree* result = impLookupToTree(resolvedToken, &embedInfo.lookup, TokenToHandleKind(resolvedToken->token),
                                       embedInfo.compileTimeHandle);
 
     // If we have a result and it requires runtime lookup, wrap it in a runtime lookup node.
@@ -1104,17 +1104,17 @@ GenTree* Importer::impTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
     return result;
 }
 
-GenTree* Importer::impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                   CORINFO_LOOKUP*         pLookup,
-                                   GenTreeFlags            handleFlags,
+GenTree* Importer::impLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                   CORINFO_LOOKUP*         lookup,
+                                   HandleKind              handleKind,
                                    void*                   compileTimeHandle)
 {
-    if (!pLookup->lookupKind.needsRuntimeLookup)
+    if (!lookup->lookupKind.needsRuntimeLookup)
     {
-        return comp->gtNewConstLookupTree(pResolvedToken, pLookup, handleFlags, compileTimeHandle);
+        return comp->gtNewConstLookupTree(resolvedToken, lookup, handleKind, compileTimeHandle);
     }
 
-    if (pLookup->lookupKind.runtimeLookupKind == CORINFO_LOOKUP_NOT_SUPPORTED)
+    if (lookup->lookupKind.runtimeLookupKind == CORINFO_LOOKUP_NOT_SUPPORTED)
     {
         // Runtime does not support inlining of all shapes of runtime lookups
         // Inlining has to be aborted in such a case
@@ -1125,15 +1125,16 @@ GenTree* Importer::impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
 
     // Need to use dictionary-based access which depends on the typeContext
     // which is only available at runtime, not at compile-time.
-    return impRuntimeLookupToTree(pResolvedToken, pLookup, compileTimeHandle);
+    return impRuntimeLookupToTree(resolvedToken, lookup, compileTimeHandle);
 }
 
 #ifdef FEATURE_READYTORUN_COMPILER
 GenTree* Importer::gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* lookup,
-                                             GenTreeFlags          handleKind,
+                                             HandleKind            handleKind,
                                              void*                 compileTimeHandle)
 {
     assert((lookup->accessType != IAT_PPVALUE) && (lookup->accessType != IAT_RELPVALUE));
+    assert((handleKind == HandleKind::Class) || (handleKind == HandleKind::Method));
 
     CORINFO_GENERIC_HANDLE handle     = nullptr;
     void*                  handleAddr = nullptr;
@@ -1150,15 +1151,13 @@ GenTree* Importer::gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* lookup,
     GenTree* addr = gtNewIconEmbHndNode(handle, handleAddr, handleKind, compileTimeHandle);
 
 #ifdef DEBUG
-    assert((handleKind == GTF_ICON_CLASS_HDL) || (handleKind == GTF_ICON_METHOD_HDL));
-
     if (handle != nullptr)
     {
-        addr->AsIntCon()->gtTargetHandle = (size_t)compileTimeHandle;
+        addr->AsIntCon()->SetDumpHandle(compileTimeHandle);
     }
     else
     {
-        addr->AsIndir()->GetAddr()->AsIntCon()->gtTargetHandle = (size_t)compileTimeHandle;
+        addr->AsIndir()->GetAddr()->AsIntCon()->SetDumpHandle(compileTimeHandle);
     }
 #endif //  DEBUG
 
@@ -1166,33 +1165,30 @@ GenTree* Importer::gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* lookup,
 }
 #endif
 
-GenTree* Importer::impMethodPointer(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo)
+GenTree* Importer::impMethodPointer(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_CALL_INFO* callInfo)
 {
-    GenTree* op1 = nullptr;
-
-    switch (pCallInfo->kind)
+    switch (callInfo->kind)
     {
         case CORINFO_CALL:
-            op1 = new (comp, GT_FTN_ADDR) GenTreeFptrVal(TYP_I_IMPL, pCallInfo->hMethod);
+            GenTree* op1;
+            op1 = new (comp, GT_FTN_ADDR) GenTreeFptrVal(TYP_I_IMPL, callInfo->hMethod);
 
 #ifdef FEATURE_READYTORUN_COMPILER
             if (opts.IsReadyToRun())
             {
-                op1->AsFptrVal()->gtEntryPoint = pCallInfo->codePointerLookup.constLookup;
+                op1->AsFptrVal()->gtEntryPoint = callInfo->codePointerLookup.constLookup;
             }
 #endif
-            break;
+
+            return op1;
 
         case CORINFO_CALL_CODE_POINTER:
-            op1 = impLookupToTree(pResolvedToken, &pCallInfo->codePointerLookup, GTF_ICON_FTN_ADDR, pCallInfo->hMethod);
-            break;
+            return impLookupToTree(resolvedToken, &callInfo->codePointerLookup, HandleKind::MethodAddr,
+                                   callInfo->hMethod);
 
         default:
-            noway_assert(!"unknown call kind");
-            break;
+            unreached();
     }
-
-    return op1;
 }
 
 /*****************************************************************************/
@@ -1213,34 +1209,35 @@ GenTree* Importer::impMethodPointer(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
           to lookup the handle.
  */
 
-GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                          CORINFO_LOOKUP*         pLookup,
+GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                          CORINFO_LOOKUP*         lookup,
                                           void*                   compileTimeHandle)
 {
-    GenTree* ctxTree = gtNewRuntimeContextTree(pLookup->lookupKind.runtimeLookupKind);
+    GenTree* ctxTree = gtNewRuntimeContextTree(lookup->lookupKind.runtimeLookupKind);
 
-    CORINFO_RUNTIME_LOOKUP* pRuntimeLookup = &pLookup->runtimeLookup;
+    CORINFO_RUNTIME_LOOKUP& runtimeLookup = lookup->runtimeLookup;
+
     // It's available only via the run-time helper function
-    if (pRuntimeLookup->indirections == CORINFO_USEHELPER)
+    if (runtimeLookup.indirections == CORINFO_USEHELPER)
     {
 #ifdef FEATURE_READYTORUN_COMPILER
         if (opts.IsReadyToRun())
         {
-            return gtNewReadyToRunHelperCallNode(pResolvedToken, CORINFO_HELP_READYTORUN_GENERIC_HANDLE, TYP_I_IMPL,
-                                                 gtNewCallArgs(ctxTree), &pLookup->lookupKind);
+            return gtNewReadyToRunHelperCallNode(resolvedToken, CORINFO_HELP_READYTORUN_GENERIC_HANDLE, TYP_I_IMPL,
+                                                 gtNewCallArgs(ctxTree), &lookup->lookupKind);
         }
 #endif
-        return gtNewRuntimeLookupHelperCallNode(pRuntimeLookup, ctxTree, compileTimeHandle);
+        return gtNewRuntimeLookupHelperCallNode(&runtimeLookup, ctxTree, compileTimeHandle);
     }
 
-    if (!pRuntimeLookup->testForNull && (pRuntimeLookup->indirections == 0))
+    if (!runtimeLookup.testForNull && (runtimeLookup.indirections == 0))
     {
         return ctxTree;
     }
 
     GenTree* slotPtrTree = ctxTree;
 
-    if (pRuntimeLookup->testForNull)
+    if (runtimeLookup.testForNull)
     {
         slotPtrTree = impCloneExpr(ctxTree, &ctxTree, CHECK_SPILL_ALL DEBUGARG("impRuntimeLookup slot"));
     }
@@ -1248,9 +1245,9 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
     GenTree* indOffTree    = nullptr;
     GenTree* lastIndOfTree = nullptr;
 
-    for (uint16_t i = 0; i < pRuntimeLookup->indirections; i++)
+    for (uint16_t i = 0; i < runtimeLookup.indirections; i++)
     {
-        if ((i == 1 && pRuntimeLookup->indirectFirstOffset) || (i == 2 && pRuntimeLookup->indirectSecondOffset))
+        if ((i == 1 && runtimeLookup.indirectFirstOffset) || (i == 2 && runtimeLookup.indirectSecondOffset))
         {
             indOffTree =
                 impCloneExpr(slotPtrTree, &slotPtrTree, CHECK_SPILL_ALL DEBUGARG("impRuntimeLookup indirectOffset"));
@@ -1258,7 +1255,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
 
         // The last indirection could be subject to a size check (dynamic dictionary expansion)
         bool isLastIndirectionWithSizeCheck =
-            ((i == pRuntimeLookup->indirections - 1) && (pRuntimeLookup->sizeOffset != CORINFO_NO_SIZE_CHECK));
+            ((i == runtimeLookup.indirections - 1) && (runtimeLookup.sizeOffset != CORINFO_NO_SIZE_CHECK));
 
         if (i != 0)
         {
@@ -1271,12 +1268,12 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
             }
         }
 
-        if ((i == 1 && pRuntimeLookup->indirectFirstOffset) || (i == 2 && pRuntimeLookup->indirectSecondOffset))
+        if ((i == 1 && runtimeLookup.indirectFirstOffset) || (i == 2 && runtimeLookup.indirectSecondOffset))
         {
             slotPtrTree = gtNewOperNode(GT_ADD, TYP_I_IMPL, indOffTree, slotPtrTree);
         }
 
-        if (pRuntimeLookup->offsets[i] != 0)
+        if (runtimeLookup.offsets[i] != 0)
         {
             if (isLastIndirectionWithSizeCheck)
             {
@@ -1285,16 +1282,16 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
             }
 
             slotPtrTree =
-                gtNewOperNode(GT_ADD, TYP_I_IMPL, slotPtrTree, gtNewIconNode(pRuntimeLookup->offsets[i], TYP_I_IMPL));
+                gtNewOperNode(GT_ADD, TYP_I_IMPL, slotPtrTree, gtNewIconNode(runtimeLookup.offsets[i], TYP_I_IMPL));
         }
     }
 
-    if (!pRuntimeLookup->testForNull)
+    if (!runtimeLookup.testForNull)
     {
         slotPtrTree = gtNewIndir(TYP_I_IMPL, slotPtrTree);
         slotPtrTree->gtFlags |= GTF_IND_NONFAULTING;
 
-        if (!pRuntimeLookup->testForFixup)
+        if (!runtimeLookup.testForFixup)
         {
             return slotPtrTree;
         }
@@ -1327,7 +1324,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
         return gtNewLclvNode(slotLclNum, TYP_I_IMPL);
     }
 
-    assert(pRuntimeLookup->indirections != 0);
+    assert(runtimeLookup.indirections != 0);
 
     impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("bubbling QMark1"));
 
@@ -1337,10 +1334,11 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
 
     // Call the helper
     // - Setup argValue with the pointer to the signature returned by the lookup
-    GenTree* argNode = gtNewIconEmbHndNode(pRuntimeLookup->signature, nullptr, GTF_ICON_GLOBAL_PTR, compileTimeHandle);
+    GenTree* argNode =
+        gtNewIconEmbHndNode(runtimeLookup.signature, nullptr, HandleKind::MutableData, compileTimeHandle);
 
     GenTreeCall::Use* helperArgs = gtNewCallArgs(ctxTree, argNode);
-    GenTreeCall*      helperCall = gtNewHelperCallNode(pRuntimeLookup->helper, TYP_I_IMPL, helperArgs);
+    GenTreeCall*      helperCall = gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
 
     // Check for null and possibly call helper
     GenTree* nullCheck       = gtNewOperNode(GT_NE, TYP_INT, handleForNullCheck, gtNewIconNode(0, TYP_I_IMPL));
@@ -1348,20 +1346,20 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
 
     GenTree* result = nullptr;
 
-    if (pRuntimeLookup->sizeOffset != CORINFO_NO_SIZE_CHECK)
+    if (runtimeLookup.sizeOffset != CORINFO_NO_SIZE_CHECK)
     {
         // Dynamic dictionary expansion support
 
-        assert((lastIndOfTree != nullptr) && (pRuntimeLookup->indirections > 0));
+        assert((lastIndOfTree != nullptr) && (runtimeLookup.indirections > 0));
 
         // sizeValue = dictionary[pRuntimeLookup->sizeOffset]
-        GenTreeIntCon* sizeOffset      = gtNewIconNode(pRuntimeLookup->sizeOffset, TYP_I_IMPL);
+        GenTreeIntCon* sizeOffset      = gtNewIconNode(runtimeLookup.sizeOffset, TYP_I_IMPL);
         GenTree*       sizeValueOffset = gtNewOperNode(GT_ADD, TYP_I_IMPL, lastIndOfTree, sizeOffset);
         GenTree*       sizeValue       = gtNewIndir(TYP_I_IMPL, sizeValueOffset);
         sizeValue->gtFlags |= GTF_IND_NONFAULTING;
 
         // sizeCheck fails if sizeValue < pRuntimeLookup->offsets[i]
-        GenTree* offsetValue = gtNewIconNode(pRuntimeLookup->offsets[pRuntimeLookup->indirections - 1], TYP_I_IMPL);
+        GenTree* offsetValue = gtNewIconNode(runtimeLookup.offsets[runtimeLookup.indirections - 1], TYP_I_IMPL);
         GenTree* sizeCheck   = gtNewOperNode(GT_LE, TYP_INT, sizeValue, offsetValue);
 
         // revert null check condition.
@@ -2081,48 +2079,41 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 {
     assert(sig->numArgs == 2);
 
-    GenTree* fieldTokenNode = impStackTop(0).val;
-    GenTree* arrayLocalNode = impStackTop(1).val;
+    GenTreeCall* fieldTokenCall = impStackTop(0).val->IsCall();
+    GenTree*     arrayLocalNode = impStackTop(1).val;
 
-    //
-    // Verify that the field token is known and valid.  Note that It's also
+    // Verify that the field token is known and valid. Note that It's also
     // possible for the token to come from reflection, in which case we cannot do
-    // the optimization and must therefore revert to calling the helper.  You can
+    // the optimization and must therefore revert to calling the helper. You can
     // see an example of this in bvt\DynIL\initarray2.exe (in Main).
-    //
 
-    // Check to see if the ldtoken helper call is what we see here.
-    if (fieldTokenNode->gtOper != GT_CALL || (fieldTokenNode->AsCall()->gtCallType != CT_HELPER) ||
-        (fieldTokenNode->AsCall()->gtCallMethHnd != eeFindHelper(CORINFO_HELP_FIELDDESC_TO_STUBRUNTIMEFIELD)))
+    if ((fieldTokenCall == nullptr) || !fieldTokenCall->IsHelperCall() ||
+        (Compiler::eeGetHelperNum(fieldTokenCall->GetMethodHandle()) != CORINFO_HELP_FIELDDESC_TO_STUBRUNTIMEFIELD))
     {
         return nullptr;
     }
 
-    // Strip helper call away
-    fieldTokenNode = fieldTokenNode->AsCall()->gtCallArgs->GetNode();
+    GenTree* fieldTokenNode = fieldTokenCall->gtCallArgs->GetNode();
 
     if (fieldTokenNode->OperIs(GT_IND))
     {
         fieldTokenNode = fieldTokenNode->AsIndir()->GetAddr();
     }
 
-    // Check for constant
-    if (fieldTokenNode->gtOper != GT_CNS_INT)
+    if (!fieldTokenNode->IsIntCon(HandleKind::Field))
     {
         return nullptr;
     }
 
-    CORINFO_FIELD_HANDLE fieldToken = (CORINFO_FIELD_HANDLE)fieldTokenNode->AsIntCon()->gtCompileTimeHandle;
-    if (!fieldTokenNode->IsIconHandle(GTF_ICON_FIELD_HDL) || (fieldToken == nullptr))
+    CORINFO_FIELD_HANDLE fieldHandle = fieldTokenNode->AsIntCon()->GetCompileTimeFieldHandle();
+    if (fieldHandle == nullptr)
     {
         return nullptr;
     }
 
-    //
     // We need to get the number of elements in the array and the size of each element.
     // We verify that the newarr statement is exactly what we expect it to be.
     // If it's not then we just return NULL and we don't optimize this call
-    //
 
     // It is possible the we don't have any statements in the block yet.
     if (impLastStmt == nullptr)
@@ -2130,44 +2121,39 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         return nullptr;
     }
 
-    //
     // We start by looking at the last statement, making sure it's an assignment, and
     // that the target of the assignment is the array passed to InitializeArray.
-    //
     GenTree* arrayAssignment = impLastStmt->GetRootNode();
-    if (!arrayAssignment->OperIs(GT_ASG) || !arrayAssignment->AsOp()->gtOp1->OperIs(GT_LCL_VAR) ||
+
+    if (!arrayAssignment->OperIs(GT_ASG) || !arrayAssignment->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR) ||
         !arrayLocalNode->OperIs(GT_LCL_VAR) ||
-        (arrayAssignment->AsOp()->gtOp1->AsLclVar()->GetLclNum() != arrayLocalNode->AsLclVar()->GetLclNum()))
+        (arrayAssignment->AsOp()->GetOp(0)->AsLclVar()->GetLclNum() != arrayLocalNode->AsLclVar()->GetLclNum()))
     {
         return nullptr;
     }
 
-    //
     // Make sure that the object being assigned is a helper call.
-    //
 
-    GenTree* newArrayCall = arrayAssignment->AsOp()->gtOp2;
-    if ((newArrayCall->gtOper != GT_CALL) || (newArrayCall->AsCall()->gtCallType != CT_HELPER))
+    GenTreeCall* newArrayCall = arrayAssignment->AsOp()->GetOp(1)->IsCall();
+
+    if ((newArrayCall == nullptr) || !newArrayCall->IsHelperCall())
     {
         return nullptr;
     }
 
-    //
     // Verify that it is one of the new array helpers.
-    //
 
-    bool isMDArray = false;
+    bool            isMDArray = false;
+    CorInfoHelpFunc helper    = Compiler::eeGetHelperNum(newArrayCall->GetMethodHandle());
 
-    if (newArrayCall->AsCall()->gtCallMethHnd != eeFindHelper(CORINFO_HELP_NEWARR_1_DIRECT) &&
-        newArrayCall->AsCall()->gtCallMethHnd != eeFindHelper(CORINFO_HELP_NEWARR_1_OBJ) &&
-        newArrayCall->AsCall()->gtCallMethHnd != eeFindHelper(CORINFO_HELP_NEWARR_1_VC) &&
-        newArrayCall->AsCall()->gtCallMethHnd != eeFindHelper(CORINFO_HELP_NEWARR_1_ALIGN8)
+    if ((helper != CORINFO_HELP_NEWARR_1_DIRECT) && (helper != CORINFO_HELP_NEWARR_1_OBJ) &&
+        (helper != CORINFO_HELP_NEWARR_1_VC) && (helper != CORINFO_HELP_NEWARR_1_ALIGN8)
 #ifdef FEATURE_READYTORUN_COMPILER
-        && newArrayCall->AsCall()->gtCallMethHnd != eeFindHelper(CORINFO_HELP_READYTORUN_NEWARR_1)
+        && (helper != CORINFO_HELP_READYTORUN_NEWARR_1)
 #endif
             )
     {
-        if (newArrayCall->AsCall()->gtCallMethHnd != eeFindHelper(CORINFO_HELP_NEW_MDARR_NONVARARG))
+        if (helper != CORINFO_HELP_NEW_MDARR_NONVARARG)
         {
             return nullptr;
         }
@@ -2175,13 +2161,10 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         isMDArray = true;
     }
 
-    CORINFO_CLASS_HANDLE arrayClsHnd = (CORINFO_CLASS_HANDLE)newArrayCall->AsCall()->compileTimeHelperArgumentHandle;
+    CORINFO_CLASS_HANDLE arrayClsHnd =
+        reinterpret_cast<CORINFO_CLASS_HANDLE>(newArrayCall->compileTimeHelperArgumentHandle);
 
-    //
-    // Make sure we found a compile time handle to the array
-    //
-
-    if (!arrayClsHnd)
+    if (arrayClsHnd == nullptr)
     {
         return nullptr;
     }
@@ -2205,19 +2188,17 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         GenTreeCall::Use* argsArg = numArgsArg->GetNext();
         assert(argsArg != nullptr);
 
-        //
         // The number of arguments should be a constant between 1 and 64. The rank can't be 0
         // so at least one length must be present and the rank can't exceed 32 so there can
         // be at most 64 arguments - 32 lengths and 32 lower bounds.
-        //
 
-        if ((!numArgsArg->GetNode()->IsCnsIntOrI()) || (numArgsArg->GetNode()->AsIntCon()->IconValue() < 1) ||
-            (numArgsArg->GetNode()->AsIntCon()->IconValue() > 64))
+        if ((!numArgsArg->GetNode()->IsIntCon()) || (numArgsArg->GetNode()->AsIntCon()->GetValue() < 1) ||
+            (numArgsArg->GetNode()->AsIntCon()->GetValue() > 64))
         {
             return nullptr;
         }
 
-        unsigned numArgs = static_cast<unsigned>(numArgsArg->GetNode()->AsIntCon()->IconValue());
+        unsigned numArgs = numArgsArg->GetNode()->AsIntCon()->GetUInt32Value();
         bool     lowerBoundsSpecified;
 
         if (numArgs == rank * 2)
@@ -2228,11 +2209,9 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         {
             lowerBoundsSpecified = false;
 
-            //
             // If the rank is 1 and a lower bound isn't specified then the runtime creates
             // a SDArray. Note that even if a lower bound is specified it can be 0 and then
             // we get a SDArray as well, see the for loop below.
-            //
 
             if (rank == 1)
             {
@@ -2244,10 +2223,8 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
             return nullptr;
         }
 
-        //
         // The rank is known to be at least 1 so we can start with numElements being 1
         // to avoid the need to special case the first dimension.
-        //
 
         numElements = S_UINT32(1);
 
@@ -2350,15 +2327,13 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
             arrayLengthNode = args->GetNext()->GetNode();
         }
 
-        //
         // This optimization is only valid for a constant array size.
-        //
-        if (arrayLengthNode->gtOper != GT_CNS_INT)
+        if (!arrayLengthNode->IsIntCon())
         {
             return nullptr;
         }
 
-        numElements = S_SIZE_T(arrayLengthNode->AsIntCon()->gtIconVal);
+        numElements = S_SIZE_T(arrayLengthNode->AsIntCon()->GetValue());
 
         if (!info.compCompHnd->isSDArray(arrayClsHnd))
         {
@@ -2367,12 +2342,12 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     }
 
     CORINFO_CLASS_HANDLE elemClsHnd;
-    var_types            elementType = JITtype2varType(info.compCompHnd->getChildType(arrayClsHnd, &elemClsHnd));
+    var_types            elementType = CorTypeToVarType(info.compCompHnd->getChildType(arrayClsHnd, &elemClsHnd));
 
     // Note that genTypeSize will return zero for non primitive types, which is exactly
     // what we want (size will then be 0, and we will catch this in the conditional below).
 
-    S_UINT32 elemSize(genTypeSize(elementType));
+    S_UINT32 elemSize(varTypeSize(elementType));
     S_UINT32 size = elemSize * S_UINT32(numElements);
 
     if (size.IsOverflow())
@@ -2380,22 +2355,20 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         return nullptr;
     }
 
-    if ((size.Value() == 0) || (varTypeIsGC(elementType)))
+    if ((size.Value() == 0) || varTypeIsGC(elementType))
     {
         return nullptr;
     }
 
-    void* initData = info.compCompHnd->getArrayInitializationData(fieldToken, size.Value());
+    void* initData = info.compCompHnd->getArrayInitializationData(fieldHandle, size.Value());
     if (initData == nullptr)
     {
         return nullptr;
     }
 
-    //
     // At this point we are ready to commit to implementing the InitializeArray
     // intrinsic using a struct assignment.  Pop the arguments from the stack and
     // return the struct assignment node.
-    //
 
     impPopStack();
     impPopStack();
@@ -2414,7 +2387,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
     GenTree*    dstAddr = gtNewOperNode(GT_ADD, TYP_BYREF, arrayLocalNode, gtNewIconNode(dataOffset, TYP_I_IMPL));
     GenTreeBlk* dst     = new (comp, GT_BLK) GenTreeBlk(dstAddr, typGetBlkLayout(blkSize));
-    GenTree*    srcAddr = gtNewIconHandleNode(reinterpret_cast<size_t>(initData), GTF_ICON_CONST_PTR);
+    GenTree*    srcAddr = gtNewIconHandleNode(reinterpret_cast<size_t>(initData), HandleKind::ConstData);
     GenTreeBlk* src     = new (comp, GT_BLK) GenTreeBlk(srcAddr, dst->GetLayout());
 
     dst->gtFlags &= ~GTF_EXCEPT;
@@ -2422,7 +2395,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     src->gtFlags &= ~GTF_EXCEPT;
     src->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
-    INDEBUG(srcAddr->AsIntCon()->gtTargetHandle = THT_IntializeArrayIntrinsics;)
+    srcAddr->AsIntCon()->SetDumpHandle(reinterpret_cast<void*>(THT_IntializeArrayIntrinsics));
 
     return gtNewAssignNode(dst, src);
 }
@@ -2871,7 +2844,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             info.compCompHnd->expandRawHandleIntrinsic(&rt, &embedInfo);
 
             GenTree* rawHandle =
-                impLookupToTree(&rt, &embedInfo.lookup, gtTokenToIconFlags(rt.token), embedInfo.compileTimeHandle);
+                impLookupToTree(&rt, &embedInfo.lookup, TokenToHandleKind(rt.token), embedInfo.compileTimeHandle);
             if (rawHandle == nullptr)
             {
                 return nullptr;
@@ -4238,19 +4211,19 @@ bool Importer::verCheckTailCallConstraint(OPCODE                  opcode,
 #endif // DEBUG
 
 GenTree* Importer::impImportLdvirtftn(GenTree*                thisPtr,
-                                      CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                      CORINFO_CALL_INFO*      pCallInfo)
+                                      CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                      CORINFO_CALL_INFO*      callInfo)
 {
-    if ((pCallInfo->methodFlags & CORINFO_FLG_EnC) && !(pCallInfo->classFlags & CORINFO_FLG_INTERFACE))
+    if ((callInfo->methodFlags & CORINFO_FLG_EnC) && !(callInfo->classFlags & CORINFO_FLG_INTERFACE))
     {
         NO_WAY("Virtual call to a function added via EnC is not supported");
     }
 
     // CoreRT generic virtual method
-    if ((pCallInfo->sig.sigInst.methInstCount != 0) && IsTargetAbi(CORINFO_CORERT_ABI))
+    if ((callInfo->sig.sigInst.methInstCount != 0) && IsTargetAbi(CORINFO_CORERT_ABI))
     {
         GenTree* runtimeMethodHandle =
-            impLookupToTree(pResolvedToken, &pCallInfo->codePointerLookup, GTF_ICON_METHOD_HDL, pCallInfo->hMethod);
+            impLookupToTree(resolvedToken, &callInfo->codePointerLookup, HandleKind::Method, callInfo->hMethod);
         return gtNewHelperCallNode(CORINFO_HELP_GVMLOOKUP_FOR_SLOT, TYP_I_IMPL,
                                    gtNewCallArgs(thisPtr, runtimeMethodHandle));
     }
@@ -4258,12 +4231,12 @@ GenTree* Importer::impImportLdvirtftn(GenTree*                thisPtr,
 #ifdef FEATURE_READYTORUN_COMPILER
     if (opts.IsReadyToRun())
     {
-        if (!pCallInfo->exactContextNeedsRuntimeLookup)
+        if (!callInfo->exactContextNeedsRuntimeLookup)
         {
             GenTreeCall* call =
                 gtNewHelperCallNode(CORINFO_HELP_READYTORUN_VIRTUAL_FUNC_PTR, TYP_I_IMPL, gtNewCallArgs(thisPtr));
 
-            call->setEntryPoint(pCallInfo->codePointerLookup.constLookup);
+            call->setEntryPoint(callInfo->codePointerLookup.constLookup);
 
             return call;
         }
@@ -4271,22 +4244,22 @@ GenTree* Importer::impImportLdvirtftn(GenTree*                thisPtr,
         // We need a runtime lookup. CoreRT has a ReadyToRun helper for that too.
         if (IsTargetAbi(CORINFO_CORERT_ABI))
         {
-            GenTree* ctxTree = gtNewRuntimeContextTree(pCallInfo->codePointerLookup.lookupKind.runtimeLookupKind);
+            GenTree* ctxTree = gtNewRuntimeContextTree(callInfo->codePointerLookup.lookupKind.runtimeLookupKind);
 
-            return gtNewReadyToRunHelperCallNode(pResolvedToken, CORINFO_HELP_READYTORUN_GENERIC_HANDLE, TYP_I_IMPL,
-                                                 gtNewCallArgs(ctxTree), &pCallInfo->codePointerLookup.lookupKind);
+            return gtNewReadyToRunHelperCallNode(resolvedToken, CORINFO_HELP_READYTORUN_GENERIC_HANDLE, TYP_I_IMPL,
+                                                 gtNewCallArgs(ctxTree), &callInfo->codePointerLookup.lookupKind);
         }
     }
 #endif
 
     // Get the exact descriptor for the static callsite
-    GenTree* exactTypeDesc = impParentClassTokenToHandle(pResolvedToken);
+    GenTree* exactTypeDesc = impParentClassTokenToHandle(resolvedToken);
     if (exactTypeDesc == nullptr)
     { // compDonotInline()
         return nullptr;
     }
 
-    GenTree* exactMethodDesc = impTokenToHandle(pResolvedToken);
+    GenTree* exactMethodDesc = impTokenToHandle(resolvedToken);
     if (exactMethodDesc == nullptr)
     { // compDonotInline()
         return nullptr;
@@ -5970,12 +5943,12 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
     if (opcode == CEE_LDSFLDA)
 #endif
     {
-        addr = gtNewIconHandleNode(reinterpret_cast<size_t>(fldAddr), GTF_ICON_STATIC_HDL, fieldSeq);
+        addr = gtNewIconHandleNode(reinterpret_cast<size_t>(fldAddr), HandleKind::Static, fieldSeq);
 
 #ifdef TARGET_64BIT
         if (isStaticReadOnlyInited)
         {
-            addr->gtFlags = GTF_ICON_CONST_PTR;
+            addr->AsIntCon()->SetHandleKind(HandleKind::ConstData);
         }
 #endif
 
@@ -6486,7 +6459,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         switch (callInfo->kind)
         {
-
             case CORINFO_VIRTUALCALL_STUB:
             {
                 assert(!(mflags & CORINFO_FLG_STATIC)); // can't call a static method
@@ -6661,8 +6633,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 assert((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG);
                 assert((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_NATIVEVARARG);
 
-                GenTree* fptr =
-                    impLookupToTree(pResolvedToken, &callInfo->codePointerLookup, GTF_ICON_FTN_ADDR, callInfo->hMethod);
+                GenTree* fptr = impLookupToTree(pResolvedToken, &callInfo->codePointerLookup, HandleKind::MethodAddr,
+                                                callInfo->hMethod);
 
                 if (compDonotInline())
                 {
@@ -7080,7 +7052,7 @@ GenTree* Importer::CreateCallICookie(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     void* valueAddr;
     void* value = info.compCompHnd->GetCookieForPInvokeCalliSig(sig, &valueAddr);
 
-    GenTree* cookie = gtNewIconEmbHndNode(value, valueAddr, GTF_ICON_PINVKI_HDL, sig);
+    GenTree* cookie = gtNewIconEmbHndNode(value, valueAddr, HandleKind::PInvoke, sig);
     cookie->SetDoNotCSE();
 
     if (cookie->OperIs(GT_IND))
@@ -7111,7 +7083,7 @@ GenTree* Importer::CreateVarargsCallArgHandle(GenTreeCall* call, CORINFO_SIG_INF
     void* handle = info.compCompHnd->getVarArgsHandle(sig, &handleAddr);
     assert((handle == nullptr) != (handleAddr == nullptr));
 
-    return gtNewIconEmbHndNode(handle, handleAddr, GTF_ICON_VARG_HDL, sig);
+    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::Varargs, sig);
 }
 
 GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
@@ -7165,7 +7137,7 @@ GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
             if (opts.IsReadyToRun())
             {
                 instParam =
-                    gtNewReadyToRunLookupTree(&callInfo->instParamLookup, GTF_ICON_METHOD_HDL, exactMethodHandle);
+                    gtNewReadyToRunLookupTree(&callInfo->instParamLookup, HandleKind::Method, exactMethodHandle);
                 if (instParam == nullptr)
                 {
                     assert(compDonotInline());
@@ -7214,7 +7186,7 @@ GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
 #ifdef FEATURE_READYTORUN_COMPILER
             if (opts.IsReadyToRun())
             {
-                instParam = gtNewReadyToRunLookupTree(&callInfo->instParamLookup, GTF_ICON_CLASS_HDL, exactClassHandle);
+                instParam = gtNewReadyToRunLookupTree(&callInfo->instParamLookup, HandleKind::Class, exactClassHandle);
                 if (instParam == nullptr)
                 {
                     assert(compDonotInline());
@@ -16211,7 +16183,7 @@ bool Importer::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
         }
 
         // Non-0 const refs can only occur with frozen objects
-        assert(value->IsIconHandle(GTF_ICON_STR_HDL));
+        assert(value->IsIntCon(HandleKind::String));
         assert(comp->doesMethodHaveFrozenString() ||
                (compIsForInlining() && impInlineInfo->InlinerCompiler->doesMethodHaveFrozenString()));
     }
@@ -16560,7 +16532,7 @@ GenTree* Importer::impImportTlsFieldAccess(OPCODE                    opcode,
     }
     else
     {
-        dllRef = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(pIdAddr), GTF_ICON_CONST_PTR, true);
+        dllRef = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(pIdAddr), HandleKind::ConstData, true);
 
         // Next we multiply by 4
         dllRef = gtNewOperNode(GT_MUL, TYP_I_IMPL, dllRef, gtNewIconNode(4, TYP_I_IMPL));
@@ -16570,7 +16542,7 @@ GenTree* Importer::impImportTlsFieldAccess(OPCODE                    opcode,
 
     // Mark this ICON as a TLS_HDL, codegen will use FS:[cns]
 
-    GenTree* addr = gtNewIconHandleNode(WIN32_TLS_SLOTS, GTF_ICON_TLS_HDL);
+    GenTree* addr = gtNewIconHandleNode(WIN32_TLS_SLOTS, HandleKind::TLS);
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
     {
@@ -16811,7 +16783,7 @@ GenTree* Importer::impCheckForNullPointer(GenTree* addr)
             // We can see non-zero byrefs for RVA statics or for frozen strings.
 
             assert(addr->TypeIs(TYP_REF));
-            assert(addr->IsIconHandle(GTF_ICON_STR_HDL));
+            assert(addr->IsIntCon(HandleKind::String));
             assert(comp->doesMethodHaveFrozenString() ||
                    (compIsForInlining() && impInlineInfo->InlinerCompiler->doesMethodHaveFrozenString()));
         }
@@ -17474,19 +17446,19 @@ GenTree* Importer::gtNewLconNode(int64_t value)
     return comp->gtNewLconNode(value);
 }
 
-GenTreeIntCon* Importer::gtNewIconHandleNode(void* value, GenTreeFlags flags, FieldSeqNode* fields)
+GenTreeIntCon* Importer::gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq)
 {
-    return comp->gtNewIconHandleNode(value, flags, fields);
+    return comp->gtNewIconHandleNode(value, kind, fieldSeq);
 }
 
-GenTreeIntCon* Importer::gtNewIconHandleNode(size_t value, GenTreeFlags flags, FieldSeqNode* fields)
+GenTreeIntCon* Importer::gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq)
 {
-    return comp->gtNewIconHandleNode(value, flags, fields);
+    return comp->gtNewIconHandleNode(value, kind, fieldSeq);
 }
 
-GenTree* Importer::gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags flags, void* compileTimeHandle)
+GenTree* Importer::gtNewIconEmbHndNode(void* value, void* pValue, HandleKind kind, void* compileTimeHandle)
 {
-    return comp->gtNewIconEmbHndNode(value, pValue, flags, compileTimeHandle);
+    return comp->gtNewIconEmbHndNode(value, pValue, kind, compileTimeHandle);
 }
 
 GenTree* Importer::gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd)
@@ -17509,9 +17481,9 @@ GenTree* Importer::gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd)
     return comp->gtNewIconEmbFldHndNode(fldHnd);
 }
 
-GenTree* Importer::gtNewIndOfIconHandleNode(var_types type, size_t value, GenTreeFlags iconFlags, bool isInvariant)
+GenTree* Importer::gtNewIndOfIconHandleNode(var_types type, size_t value, HandleKind kind, bool invariant)
 {
-    return comp->gtNewIndOfIconHandleNode(type, value, iconFlags, isInvariant);
+    return comp->gtNewIndOfIconHandleNode(type, value, kind, invariant);
 }
 
 GenTree* Importer::gtNewZeroConNode(var_types type)
@@ -17938,11 +17910,6 @@ bool Importer::gtIsRecursiveCall(GenTreeCall* call)
 bool Importer::gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle)
 {
     return comp->gtIsRecursiveCall(callMethodHandle);
-}
-
-GenTreeFlags Importer::gtTokenToIconFlags(unsigned token)
-{
-    return Compiler::gtTokenToIconFlags(token);
 }
 
 GenTree* Importer::gtFoldTypeCompare(GenTree* tree)

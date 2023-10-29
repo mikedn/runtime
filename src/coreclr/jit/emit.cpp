@@ -2790,19 +2790,10 @@ void emitter::emitRecomputeIGoffsets()
     INDEBUG(emitCheckIGoffsets());
 }
 
-//----------------------------------------------------------------------------------------
-// emitDispCommentForHandle:
-//    Displays a comment for a handle, e.g. displays a raw string for GTF_ICON_STR_HDL
-//    or a class name for GTF_ICON_CLASS_HDL
-//
-// Arguments:
-//    handle - a constant value to display a comment for
-//    flags  - a flag that the describes the handle
-//
-void emitter::emitDispCommentForHandle(size_t handle, GenTreeFlags flag)
+void emitter::emitDispCommentForHandle(void* handle, HandleKind kind)
 {
 #ifdef DEBUG
-    if (handle == 0)
+    if (handle == nullptr)
     {
         return;
     }
@@ -2813,12 +2804,12 @@ void emitter::emitDispCommentForHandle(size_t handle, GenTreeFlags flag)
     const char* commentPrefix = "      //";
 #endif
 
-    flag &= GTF_ICON_HDL_MASK;
     const char* str = nullptr;
 
-    if (flag == GTF_ICON_STR_HDL)
+    if (kind == HandleKind::String)
     {
         const WCHAR* wstr = emitComp->eeGetCPString(handle);
+
         // NOTE: eGetCPString always returns nullptr on Linux/ARM
         if (wstr == nullptr)
         {
@@ -2851,37 +2842,37 @@ void emitter::emitDispCommentForHandle(size_t handle, GenTreeFlags flag)
             printf("%s \"%S\"", commentPrefix, buf);
         }
     }
-    else if (flag == GTF_ICON_CLASS_HDL)
+    else if (kind == HandleKind::Class)
     {
-        str = emitComp->eeGetClassName(reinterpret_cast<CORINFO_CLASS_HANDLE>(handle));
+        str = emitComp->eeGetClassName(static_cast<CORINFO_CLASS_HANDLE>(handle));
     }
 #ifndef TARGET_XARCH
     // These are less useful for xarch:
-    else if (flag == GTF_ICON_CONST_PTR)
+    else if (kind == HandleKind::Field)
+    {
+        str = emitComp->eeGetFieldName(static_cast<CORINFO_FIELD_HANDLE>(handle));
+    }
+    else if (kind == HandleKind::Method)
+    {
+        str = emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(handle));
+    }
+    else if (kind == HandleKind::ConstData)
     {
         str = "const ptr";
     }
-    else if (flag == GTF_ICON_GLOBAL_PTR)
+    else if (kind == HandleKind::MutableData)
     {
-        str = "global ptr";
+        str = "mutable data";
     }
-    else if (flag == GTF_ICON_FIELD_HDL)
+    else if (kind == HandleKind::Static)
     {
-        str = emitComp->eeGetFieldName(reinterpret_cast<CORINFO_FIELD_HANDLE>(handle));
+        str = "static address";
     }
-    else if (flag == GTF_ICON_STATIC_HDL)
-    {
-        str = "static handle";
-    }
-    else if (flag == GTF_ICON_METHOD_HDL)
-    {
-        str = emitComp->eeGetMethodFullName(reinterpret_cast<CORINFO_METHOD_HANDLE>(handle));
-    }
-    else if (flag == GTF_ICON_FTN_ADDR)
+    else if (kind == HandleKind::MethodAddr)
     {
         str = "function address";
     }
-    else if (flag == GTF_ICON_TOKEN_HDL)
+    else if (kind == HandleKind::Token)
     {
         str = "token handle";
     }

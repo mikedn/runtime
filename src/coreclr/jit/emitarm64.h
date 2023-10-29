@@ -733,7 +733,7 @@ void emitIns_R_I(instruction ins,
                  emitAttr    attr,
                  regNumber   reg,
                  ssize_t     imm,
-                 insOpts opt = INS_OPTS_NONE DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
+                 insOpts opt = INS_OPTS_NONE DEBUGARG(HandleKind handleKind = HandleKind::None));
 
 void emitIns_R_F(instruction ins, emitAttr attr, regNumber reg, double immDbl, insOpts opt = INS_OPTS_NONE);
 
@@ -814,7 +814,7 @@ void emitIns_R_AR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg,
 void emitIns_R_AI(instruction ins,
                   emitAttr    attr,
                   regNumber   ireg,
-                  ssize_t disp DEBUGARG(size_t targetHandle = 0) DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
+                  ssize_t disp DEBUGARG(void* handle = nullptr) DEBUGARG(HandleKind handleKind = HandleKind::None));
 
 enum EmitCallType
 {

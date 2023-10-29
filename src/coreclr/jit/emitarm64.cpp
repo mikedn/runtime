@@ -3657,16 +3657,8 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing a register and a constant.
- */
-
-void emitter::emitIns_R_I(instruction ins,
-                          emitAttr    attr,
-                          regNumber   reg,
-                          ssize_t     imm,
-                          insOpts opt /* = INS_OPTS_NONE */ DEBUGARG(GenTreeFlags gtFlags))
+void emitter::emitIns_R_I(
+    instruction ins, emitAttr attr, regNumber reg, ssize_t imm, insOpts opt DEBUGARG(HandleKind handleKind))
 {
     emitAttr  size      = EA_SIZE(attr);
     emitAttr  elemsize  = EA_UNKNOWN;
@@ -3842,7 +3834,7 @@ void emitter::emitIns_R_I(instruction ins,
     id->idInsOpt(opt);
 
     id->idReg1(reg);
-    INDEBUG(id->idDebugOnlyInfo()->idFlags = gtFlags);
+    INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
 
     dispIns(id);
     appendToCurIG(id);
@@ -7695,7 +7687,7 @@ void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber ireg, regNu
 void emitter::emitIns_R_AI(instruction ins,
                            emitAttr    attr,
                            regNumber   ireg,
-                           ssize_t addr DEBUGARG(size_t targetHandle) DEBUGARG(GenTreeFlags gtFlags))
+                           ssize_t addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
     assert(EA_IS_RELOC(attr));
     emitAttr      size    = EA_SIZE(attr);
@@ -7724,8 +7716,8 @@ void emitter::emitIns_R_AI(instruction ins,
     id->idReg1(ireg);
     id->idSetIsDspReloc();
 #ifdef DEBUG
-    id->idDebugOnlyInfo()->idMemCookie = targetHandle;
-    id->idDebugOnlyInfo()->idFlags     = gtFlags;
+    id->idDebugOnlyInfo()->idHandle     = handle;
+    id->idDebugOnlyInfo()->idHandleKind = handleKind;
 #endif
 
     dispIns(id);
@@ -8030,8 +8022,8 @@ void emitter::emitIns_Call(EmitCallType          kind,
     }
 
 #ifdef DEBUG
-    id->idDebugOnlyInfo()->idMemCookie = reinterpret_cast<size_t>(methodHandle);
-    id->idDebugOnlyInfo()->idCallSig   = sigInfo;
+    id->idDebugOnlyInfo()->idHandle  = methodHandle;
+    id->idDebugOnlyInfo()->idCallSig = sigInfo;
 #endif
 
 #ifdef LATE_DISASM
@@ -11496,8 +11488,9 @@ void emitter::emitDispIns(
             }
             else
             {
-                offs       = 0;
-                methodName = emitComp->eeGetMethodFullName((CORINFO_METHOD_HANDLE)id->idDebugOnlyInfo()->idMemCookie);
+                offs = 0;
+                methodName =
+                    emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle));
             }
 
             if (offs)
@@ -11590,7 +11583,8 @@ void emitter::emitDispIns(
                 {
                     printf("HIGH RELOC ");
                     emitDispImm((ssize_t)id->idAddr()->iiaAddr, false);
-                    size_t targetHandle = id->idDebugOnlyInfo()->idMemCookie;
+
+                    size_t targetHandle = reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle);
 
                     if (targetHandle == THT_IntializeArrayIntrinsics)
                     {
@@ -11621,7 +11615,7 @@ void emitter::emitDispIns(
             }
             else
             {
-                emitDispCommentForHandle(id->idDebugOnlyInfo()->idMemCookie, id->idDebugOnlyInfo()->idFlags);
+                emitDispCommentForHandle(id->idDebugOnlyInfo()->idHandle, id->idDebugOnlyInfo()->idHandleKind);
             }
             break;
 

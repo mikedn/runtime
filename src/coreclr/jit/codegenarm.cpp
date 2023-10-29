@@ -166,7 +166,7 @@ void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
-                                     ssize_t imm DEBUGARG(size_t targetHandle) DEBUGARG(GenTreeFlags gtFlags))
+                                     ssize_t imm DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
     // reg cannot be a FP register
     assert(!genIsValidFloatReg(reg));

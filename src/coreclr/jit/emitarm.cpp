@@ -1711,17 +1711,8 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing a register and a constant.
- */
-
-void emitter::emitIns_R_I(instruction    ins,
-                          emitAttr       attr,
-                          regNumber      reg,
-                          target_ssize_t imm,
-                          insFlags flags /* = INS_FLAGS_DONT_CARE */ DEBUGARG(GenTreeFlags gtFlags))
-
+void emitter::emitIns_R_I(
+    instruction ins, emitAttr attr, regNumber reg, target_ssize_t imm, insFlags flags DEBUGARG(HandleKind handleKind))
 {
     insFormat fmt = IF_NONE;
     insFlags  sf  = INS_FLAGS_DONT_CARE;
@@ -2024,7 +2015,7 @@ void emitter::emitIns_R_I(instruction    ins,
     id->idInsSize(isz);
     id->idInsFlags(sf);
     id->idReg1(reg);
-    INDEBUG(id->idDebugOnlyInfo()->idFlags = gtFlags);
+    INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
 
     dispIns(id);
     appendToCurIG(id);
@@ -4402,8 +4393,8 @@ void emitter::emitIns_Call(EmitCallType          kind,
     }
 
 #ifdef DEBUG
-    id->idDebugOnlyInfo()->idMemCookie = reinterpret_cast<size_t>(methodHandle);
-    id->idDebugOnlyInfo()->idCallSig   = sigInfo;
+    id->idDebugOnlyInfo()->idHandle  = methodHandle;
+    id->idDebugOnlyInfo()->idCallSig = sigInfo;
 #endif
 
 #ifdef LATE_DISASM
@@ -6658,13 +6649,10 @@ void emitter::emitDispInsHelp(
 
         case IF_T1_D2:
             emitDispReg(id->idReg3(), attr, false);
+            if (CORINFO_METHOD_HANDLE handle = static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle))
             {
-                CORINFO_METHOD_HANDLE handle = (CORINFO_METHOD_HANDLE)id->idDebugOnlyInfo()->idMemCookie;
-                if (handle != 0)
-                {
-                    methodName = emitComp->eeGetMethodFullName(handle);
-                    printf("\t\t// %s", methodName);
-                }
+                methodName = emitComp->eeGetMethodFullName(handle);
+                printf("\t\t// %s", methodName);
             }
             break;
 
@@ -7112,8 +7100,9 @@ void emitter::emitDispInsHelp(
             }
             else
             {
-                addr       = nullptr;
-                methodName = emitComp->eeGetMethodFullName((CORINFO_METHOD_HANDLE)id->idDebugOnlyInfo()->idMemCookie);
+                addr = nullptr;
+                methodName =
+                    emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle));
             }
 
             if (addr)

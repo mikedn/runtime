@@ -1471,7 +1471,7 @@ void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
-                                     ssize_t imm DEBUGARG(size_t targetHandle) DEBUGARG(GenTreeFlags gtFlags))
+                                     ssize_t imm DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
     // reg cannot be a FP register
     assert(!genIsValidFloatReg(reg));
@@ -1483,7 +1483,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     if (EA_IS_RELOC(size))
     {
         // This emits a pair of adrp/add (two instructions) with fix-ups.
-        GetEmitter()->emitIns_R_AI(INS_adrp, size, reg, imm DEBUGARG(targetHandle) DEBUGARG(gtFlags));
+        GetEmitter()->emitIns_R_AI(INS_adrp, size, reg, imm DEBUGARG(handle) DEBUGARG(handleKind));
     }
     else if ((imm == 0) || emitter::emitIns_valid_imm_for_mov(imm, size))
     {
@@ -1552,7 +1552,7 @@ void CodeGen::GenIntCon(GenTreeIntCon* node)
     if (node->ImmedValNeedsReloc(compiler))
     {
         instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, node->GetRegNum(),
-                               node->GetValue() DEBUGARG(node->gtTargetHandle) DEBUGARG(node->gtFlags));
+                               node->GetValue() DEBUGARG(node->GetDumpHandle()) DEBUGARG(node->GetHandleKind()));
     }
     else
     {
@@ -3110,8 +3110,10 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
 
         // adrp + add with relocations will be emitted
         GetEmitter()->emitIns_R_AI(INS_adrp, EA_PTR_DSP_RELOC, callTarget,
-                                   (ssize_t)pAddr DEBUGARG((size_t)Compiler::eeFindHelper(helper))
-                                       DEBUGARG(GTF_ICON_METHOD_HDL));
+                                   reinterpret_cast<ssize_t>(pAddr)
+                                       DEBUGARG(reinterpret_cast<void*>(Compiler::eeFindHelper(helper)))
+                                           DEBUGARG(HandleKind::Method));
+
         GetEmitter()->emitIns_R_R(INS_ldr, EA_PTRSIZE, callTarget, callTarget);
         callType = emitter::EC_INDIR_R;
     }

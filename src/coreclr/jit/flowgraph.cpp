@@ -295,14 +295,14 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
     if (addrOfTrapReturningThreadsAddr != nullptr)
     {
         size_t   handle = reinterpret_cast<size_t>(addrOfTrapReturningThreadsAddr);
-        GenTree* addr   = gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, GTF_ICON_CONST_PTR, true);
+        GenTree* addr   = gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, HandleKind::ConstData, true);
         indir           = gtNewIndir(TYP_INT, addr);
         indir->gtFlags |= GTF_IND_NONFAULTING;
     }
     else
     {
         size_t handle = reinterpret_cast<size_t>(trapReturningThreadsAddr);
-        indir         = gtNewIndOfIconHandleNode(TYP_INT, handle, GTF_ICON_GLOBAL_PTR, false);
+        indir         = gtNewIndOfIconHandleNode(TYP_INT, handle, HandleKind::MutableData, false);
     }
 
     // NOTE: In native code this load is done via LoadWithoutBarrier() to ensure that
@@ -477,44 +477,48 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
                                                      CORINFO_RESOLVED_TOKEN* ldftnToken)
 {
     JITDUMP("\nfgOptimizeDelegateConstructor: ");
-    noway_assert(call->gtCallType == CT_USER_FUNC);
-    CORINFO_METHOD_HANDLE methHnd = call->gtCallMethHnd;
-    CORINFO_CLASS_HANDLE  clsHnd  = info.compCompHnd->getMethodClass(methHnd);
+    noway_assert(call->IsUserCall());
 
-    GenTree* targetMethod = call->gtCallArgs->GetNext()->GetNode();
-    noway_assert(targetMethod->TypeGet() == TYP_I_IMPL);
-    genTreeOps            oper            = targetMethod->OperGet();
+    CORINFO_METHOD_HANDLE methHnd      = call->GetMethodHandle();
+    CORINFO_CLASS_HANDLE  clsHnd       = info.compCompHnd->getMethodClass(methHnd);
+    GenTree*              targetMethod = call->gtCallArgs->GetNext()->GetNode();
+
+    noway_assert(targetMethod->TypeIs(TYP_I_IMPL));
+
     CORINFO_METHOD_HANDLE targetMethodHnd = nullptr;
-    GenTree*              qmarkNode       = nullptr;
-    if (oper == GT_FTN_ADDR)
-    {
-        targetMethodHnd = targetMethod->AsFptrVal()->gtFptrMethod;
-    }
-    else if (oper == GT_CALL && targetMethod->AsCall()->gtCallMethHnd == eeFindHelper(CORINFO_HELP_VIRTUAL_FUNC_PTR))
-    {
-        GenTree* handleNode = targetMethod->AsCall()->gtCallArgs->GetNext()->GetNext()->GetNode();
+    GenTreeQmark*         qmarkNode       = nullptr;
 
-        if (handleNode->OperGet() == GT_CNS_INT)
-        {
-            // it's a ldvirtftn case, fetch the methodhandle off the helper for ldvirtftn. It's the 3rd arg
-            targetMethodHnd = CORINFO_METHOD_HANDLE(handleNode->AsIntCon()->gtCompileTimeHandle);
-        }
-        // Sometimes the argument to this is the result of a generic dictionary lookup, which shows
-        // up as a GT_QMARK.
-        else if (handleNode->OperGet() == GT_QMARK)
-        {
-            qmarkNode = handleNode;
-        }
-    }
-    // Sometimes we don't call CORINFO_HELP_VIRTUAL_FUNC_PTR but instead just call
-    // CORINFO_HELP_RUNTIMEHANDLE_METHOD directly.
-    else if (oper == GT_QMARK)
+    if (GenTreeFptrVal* fptrVal = targetMethod->IsFptrVal())
     {
-        qmarkNode = targetMethod;
+        targetMethodHnd = fptrVal->GetMethodHandle();
     }
+    else if (GenTreeCall* call = targetMethod->IsCall())
+    {
+        if (Compiler::eeGetHelperNum(call->GetMethodHandle()) == CORINFO_HELP_VIRTUAL_FUNC_PTR)
+        {
+            GenTree* handleNode = call->gtCallArgs->GetNext()->GetNext()->GetNode();
+
+            if (handleNode->IsIntCon())
+            {
+                targetMethodHnd = handleNode->AsIntCon()->GetCompileTimeMethodHandle();
+            }
+            else
+            {
+                // Sometimes the argument to this is the result of a generic dictionary lookup,
+                // which shows up as a GT_QMARK.
+                qmarkNode = handleNode->IsQmark();
+            }
+        }
+    }
+    else
+    {
+        // Sometimes we don't call CORINFO_HELP_VIRTUAL_FUNC_PTR but instead just call
+        // CORINFO_HELP_RUNTIMEHANDLE_METHOD directly.
+        qmarkNode = targetMethod->IsQmark();
+    }
+
     if (qmarkNode != nullptr)
     {
-        noway_assert(qmarkNode->OperGet() == GT_QMARK);
         // The argument is actually a generic dictionary lookup.  For delegate creation it looks
         // like:
         // GT_QMARK
@@ -532,8 +536,8 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
 
         // This could be any of CORINFO_HELP_RUNTIMEHANDLE_(METHOD|CLASS)(_LOG?)
         GenTree* tokenNode = runtimeLookupCall->gtCallArgs->GetNext()->GetNode();
-        noway_assert(tokenNode->OperGet() == GT_CNS_INT);
-        targetMethodHnd = CORINFO_METHOD_HANDLE(tokenNode->AsIntCon()->gtCompileTimeHandle);
+        noway_assert(tokenNode->OperIs(GT_CNS_INT));
+        targetMethodHnd = tokenNode->AsIntCon()->GetCompileTimeMethodHandle();
     }
 
     // Verify using the ldftnToken gives us all of what we used to get
@@ -576,7 +580,8 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
                 }
                 else
                 {
-                    assert(oper != GT_FTN_ADDR);
+                    assert(!targetMethod->IsFptrVal());
+
                     CORINFO_CONST_LOOKUP genericLookup;
                     info.compCompHnd->getReadyToRunHelper(ldftnToken, &pLookup.lookupKind,
                                                           CORINFO_HELP_READYTORUN_GENERIC_HANDLE, &genericLookup);
@@ -593,7 +598,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
             }
         }
         // ReadyToRun has this optimization for a non-virtual function pointers only for now.
-        else if (oper == GT_FTN_ADDR)
+        else if (targetMethod->IsFptrVal())
         {
             JITDUMP("optimized\n");
 
@@ -638,17 +643,17 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
             GenTreeCall::Use* addArgs = nullptr;
             if (ctorData.pArg5)
             {
-                GenTree* arg5 = gtNewIconHandleNode(size_t(ctorData.pArg5), GTF_ICON_FTN_ADDR);
+                GenTree* arg5 = gtNewIconHandleNode(size_t(ctorData.pArg5), HandleKind::MethodAddr);
                 addArgs       = gtPrependNewCallArg(arg5, addArgs);
             }
             if (ctorData.pArg4)
             {
-                GenTree* arg4 = gtNewIconHandleNode(size_t(ctorData.pArg4), GTF_ICON_FTN_ADDR);
+                GenTree* arg4 = gtNewIconHandleNode(size_t(ctorData.pArg4), HandleKind::MethodAddr);
                 addArgs       = gtPrependNewCallArg(arg4, addArgs);
             }
             if (ctorData.pArg3)
             {
-                GenTree* arg3 = gtNewIconHandleNode(size_t(ctorData.pArg3), GTF_ICON_FTN_ADDR);
+                GenTree* arg3 = gtNewIconHandleNode(size_t(ctorData.pArg3), HandleKind::MethodAddr);
                 addArgs       = gtPrependNewCallArg(arg3, addArgs);
             }
             call->gtCallArgs->GetNext()->SetNext(addArgs);
@@ -1747,7 +1752,7 @@ void Compiler::fgAddInternal()
     if (dbgHandle || pDbgHandle)
     {
         // Test the JustMyCode VM global state variable
-        GenTree* embNode        = gtNewIconEmbHndNode(dbgHandle, pDbgHandle, GTF_ICON_GLOBAL_PTR, info.compMethodHnd);
+        GenTree* embNode = gtNewIconEmbHndNode(dbgHandle, pDbgHandle, HandleKind::MutableData, info.compMethodHnd);
         GenTree* guardCheckVal  = gtNewIndir(TYP_INT, embNode);
         GenTree* guardCheckCond = gtNewOperNode(GT_EQ, TYP_INT, guardCheckVal, gtNewIconNode(0));
 

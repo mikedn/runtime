@@ -3944,27 +3944,7 @@ GenTree* Compiler::gtNewJmpTableNode()
     return new (this, GT_JMPTABLE) GenTree(GT_JMPTABLE, TYP_I_IMPL);
 }
 
-// Converts an annotated token into an icon flags (so that we will later be
-// able to tell the type of the handle that will be embedded in the icon
-// node).
-GenTreeFlags Compiler::gtTokenToIconFlags(unsigned token)
-{
-    switch (TypeFromToken(token))
-    {
-        case mdtTypeRef:
-        case mdtTypeDef:
-        case mdtTypeSpec:
-            return GTF_ICON_CLASS_HDL;
-        case mdtMethodDef:
-            return GTF_ICON_METHOD_HDL;
-        case mdtFieldDef:
-            return GTF_ICON_FIELD_HDL;
-        default:
-            return GTF_ICON_TOKEN_HDL;
-    }
-}
-
-GenTreeIndir* Compiler::gtNewIndOfIconHandleNode(var_types type, size_t addr, GenTreeFlags handleKind, bool invariant)
+GenTreeIndir* Compiler::gtNewIndOfIconHandleNode(var_types type, size_t addr, HandleKind handleKind, bool invariant)
 {
     GenTreeIndir* load = gtNewIndir(type, gtNewIconHandleNode(addr, handleKind));
     load->gtFlags |= GTF_IND_NONFAULTING;
@@ -3973,7 +3953,7 @@ GenTreeIndir* Compiler::gtNewIndOfIconHandleNode(var_types type, size_t addr, Ge
     // are pointers into the GC heap.
     // We don't currently have any TYP_BYREF pointers, but if we did they also
     // must be pointers into the GC heap.
-    // Also every GTF_ICON_STATIC_HDL also must be a pointer into the GC heap
+    // Also every HandleKind::Static also must be a pointer into the GC heap
     // we will set GTF_GLOB_REF for these kinds of references.
     //
     // TODO-MIKE-Review: It's not clear what GC types have to do with GLOB_REF,
@@ -3984,20 +3964,20 @@ GenTreeIndir* Compiler::gtNewIndOfIconHandleNode(var_types type, size_t addr, Ge
     // Interestingly, this also ignore the invariant parameter, which is true
     // most of the time. Invariant + GLOB_REF is rather dubious.
 
-    if ((varTypeIsGC(type)) || (handleKind == GTF_ICON_STATIC_HDL))
+    if (varTypeIsGC(type) || (handleKind == HandleKind::Static))
     {
         load->gtFlags |= GTF_GLOB_REF;
     }
 
     if (invariant)
     {
-        assert(handleKind != GTF_ICON_STATIC_HDL);
-        assert(handleKind != GTF_ICON_BBC_PTR);
-        assert(handleKind != GTF_ICON_GLOBAL_PTR);
+        assert(handleKind != HandleKind::Static);
+        assert(handleKind != HandleKind::BlockCount);
+        assert(handleKind != HandleKind::MutableData);
 
         load->gtFlags |= GTF_IND_INVARIANT;
 
-        if (handleKind == GTF_ICON_STR_HDL)
+        if (handleKind == HandleKind::String)
         {
             load->gtFlags |= GTF_IND_NONNULL;
         }
@@ -4010,7 +3990,7 @@ GenTreeIndir* Compiler::gtNewIndOfIconHandleNode(var_types type, size_t addr, Ge
 // It may not be allowed to embed HANDLEs directly into the JITed code (for eg,
 // as arguments to JIT helpers). Get a corresponding value that can be embedded.
 // If the handle needs to be accessed via an indirection, pValue points to it.
-GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* valueAddr, GenTreeFlags handleKind, void* compileTimeHandle)
+GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* valueAddr, HandleKind handleKind, void* compileTimeHandle)
 {
     GenTreeIntCon* addrNode;
     GenTree*       valueNode;
@@ -4031,14 +4011,14 @@ GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* valueAddr, GenTreeFlag
         valueNode->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
     }
 
-    addrNode->AsIntCon()->gtCompileTimeHandle = reinterpret_cast<size_t>(compileTimeHandle);
+    addrNode->AsIntCon()->SetCompileTimeHandle(compileTimeHandle);
 
     return valueNode;
 }
 
 GenTree* Compiler::gtNewConstLookupTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                         CORINFO_LOOKUP*         lookup,
-                                        GenTreeFlags            handleKind,
+                                        HandleKind              handleKind,
                                         void*                   compileTimeHandle)
 {
     assert(!lookup->lookupKind.needsRuntimeLookup);
@@ -4060,7 +4040,7 @@ GenTree* Compiler::gtNewConstLookupTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
     GenTree* value = gtNewIconEmbHndNode(handle, handleAddr, handleKind, compileTimeHandle);
 
 #ifdef DEBUG
-    if (handleKind != GTF_ICON_TOKEN_HDL)
+    if (handleKind != HandleKind::Token)
     {
         GenTreeIntCon* addrCon = value->IsIntCon();
 
@@ -4069,43 +4049,43 @@ GenTree* Compiler::gtNewConstLookupTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
             addrCon = value->AsIndir()->GetAddr()->AsIntCon();
         }
 
-        addrCon->SetTargetHandle(compileTimeHandle);
+        addrCon->SetDumpHandle(compileTimeHandle);
     }
 #endif
 
     return value;
 }
 
-GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* pValue)
+GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* addr)
 {
-    GenTree* tree;
+    GenTree* str;
 
     switch (iat)
     {
         case IAT_VALUE:
             INDEBUG(setMethodHasFrozenString());
-            tree = gtNewIconEmbHndNode(pValue, nullptr, GTF_ICON_STR_HDL, nullptr);
-            tree->SetType(TYP_REF);
-            INDEBUG(tree->AsIntCon()->SetTargetHandle(pValue));
+            str = gtNewIconEmbHndNode(addr, nullptr, HandleKind::String, nullptr);
+            str->SetType(TYP_REF);
+            str->AsIntCon()->SetDumpHandle(addr);
             break;
 
         case IAT_PVALUE:
-            tree = gtNewIndOfIconHandleNode(TYP_REF, (size_t)pValue, GTF_ICON_STR_HDL, true);
-            INDEBUG(tree->AsIndir()->GetAddr()->AsIntCon()->SetTargetHandle(pValue));
+            str = gtNewIndOfIconHandleNode(TYP_REF, reinterpret_cast<size_t>(addr), HandleKind::String, true);
+            str->AsIndir()->GetAddr()->AsIntCon()->SetDumpHandle(addr);
             break;
 
         case IAT_PPVALUE:
-            tree = gtNewIndOfIconHandleNode(TYP_I_IMPL, (size_t)pValue, GTF_ICON_CONST_PTR, true);
-            INDEBUG(tree->AsIndir()->GetAddr()->AsIntCon()->SetTargetHandle(pValue));
-            tree = gtNewIndir(TYP_REF, tree);
-            tree->gtFlags |= GTF_IND_NONFAULTING | GTF_GLOB_REF;
+            str = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(addr), HandleKind::ConstData, true);
+            str->AsIndir()->GetAddr()->AsIntCon()->SetDumpHandle(addr);
+            str = gtNewIndir(TYP_REF, str);
+            str->gtFlags |= GTF_IND_NONFAULTING | GTF_GLOB_REF;
             break;
 
         default:
             unreached();
     }
 
-    return tree;
+    return str;
 }
 
 //------------------------------------------------------------------------
@@ -7065,57 +7045,58 @@ void Compiler::gtDispClassLayout(ClassLayout* layout, var_types type)
     }
 }
 
-const char* dmpGetHandleKindName(GenTreeFlags flags)
+const char* dmpGetHandleKindName(HandleKind kind)
 {
-    switch (flags & GTF_ICON_HDL_MASK)
+    switch (kind)
     {
-        case GTF_ICON_MODULE_HDL:
+        case HandleKind::None:
+            return "none";
+        case HandleKind::Module:
             return "module";
-        case GTF_ICON_CLASS_HDL:
+        case HandleKind::Class:
             return "class";
-        case GTF_ICON_METHOD_HDL:
+        case HandleKind::Method:
             return "method";
-        case GTF_ICON_FIELD_HDL:
+        case HandleKind::Field:
             return "field";
-        case GTF_ICON_STATIC_HDL:
+        case HandleKind::Static:
             return "static";
-        case GTF_ICON_STR_HDL:
+        case HandleKind::String:
             return "string";
-        case GTF_ICON_CONST_PTR:
+        case HandleKind::ConstData:
             return "const ptr";
-        case GTF_ICON_GLOBAL_PTR:
-            return "global ptr";
-        case GTF_ICON_VARG_HDL:
+        case HandleKind::MutableData:
+            return "mutable ptr";
+        case HandleKind::Varargs:
             return "vararg";
-        case GTF_ICON_PINVKI_HDL:
+        case HandleKind::PInvoke:
             return "pinvoke";
-            break;
-        case GTF_ICON_TOKEN_HDL:
+        case HandleKind::Token:
             return "token";
+        case HandleKind::MethodAddr:
+            return "ftn";
+        case HandleKind::CIDMID:
+            return "cid/mid";
+        case HandleKind::BlockCount:
+            return "bbc";
 #ifdef WINDOWS_X86_ABI
-        case GTF_ICON_TLS_HDL:
+        case HandleKind::TLS:
             return "tls";
 #endif
-        case GTF_ICON_FTN_ADDR:
-            return "ftn";
-        case GTF_ICON_CIDMID_HDL:
-            return "cid/mid";
-        case GTF_ICON_BBC_PTR:
-            return "bbc";
         default:
-            return "handle";
+            return "???";
     }
 }
 
-/*****************************************************************************/
 void Compiler::gtDispConst(GenTree* tree)
 {
     switch (tree->gtOper)
     {
         case GT_CNS_INT:
-            if (tree->IsIconHandle(GTF_ICON_STR_HDL))
+            if (GenTreeIntCon* strCon = tree->IsIntCon(HandleKind::String))
             {
-                const WCHAR* str = eeGetCPString(tree->AsIntCon()->GetValue());
+                const WCHAR* str = eeGetCPString(reinterpret_cast<void*>(strCon->GetValue()));
+
                 // If *str points to a '\0' then don't print the string's values
                 if ((str != nullptr) && (*str != '\0'))
                 {
@@ -9009,56 +8990,40 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
     return compare;
 }
 
-//------------------------------------------------------------------------
-// gtGetHelperArgClassHandle: find the compile time class handle from
-//   a helper call argument tree
-//
-// Arguments:
-//    tree - tree that passes the handle to the helper
-//
-// Returns:
-//    The compile time class handle if known.
-//
 CORINFO_CLASS_HANDLE Compiler::gtGetHelperArgClassHandle(GenTree* tree)
 {
-    CORINFO_CLASS_HANDLE result = NO_CLASS_HANDLE;
-
-    // Walk through any wrapping nop.
-    if ((tree->gtOper == GT_NOP) && (tree->gtType == TYP_I_IMPL))
+    if (tree->OperIs(GT_NOP) && tree->TypeIs(TYP_I_IMPL))
     {
-        tree = tree->AsOp()->gtOp1;
+        tree = tree->AsOp()->GetOp(0);
     }
 
-    // The handle could be a literal constant
-    if ((tree->OperGet() == GT_CNS_INT) && (tree->TypeGet() == TYP_I_IMPL))
+    if (tree->OperIs(GT_CNS_INT) && tree->TypeIs(TYP_I_IMPL))
     {
-        assert(tree->IsIconHandle(GTF_ICON_CLASS_HDL));
-        result = (CORINFO_CLASS_HANDLE)tree->AsIntCon()->gtCompileTimeHandle;
+        return tree->AsIntCon()->GetCompileTimeClassHandle();
     }
-    // Or the result of a runtime lookup
-    else if (tree->OperGet() == GT_RUNTIMELOOKUP)
+
+    if (tree->OperIs(GT_RUNTIMELOOKUP))
     {
-        result = tree->AsRuntimeLookup()->GetClassHandle();
+        return tree->AsRuntimeLookup()->GetClassHandle();
     }
-    // Or something reached indirectly
-    else if (tree->gtOper == GT_IND)
+
+    if (tree->OperIs(GT_IND))
     {
         // The handle indirs we are looking for will be marked as non-faulting.
         // Certain others (eg from refanytype) may not be.
-        if (tree->gtFlags & GTF_IND_NONFAULTING)
-        {
-            GenTree* handleTreeInternal = tree->AsOp()->gtOp1;
 
-            if ((handleTreeInternal->OperGet() == GT_CNS_INT) && (handleTreeInternal->TypeGet() == TYP_I_IMPL))
+        if ((tree->gtFlags & GTF_IND_NONFAULTING) != 0)
+        {
+            GenTree* handle = tree->AsIndir()->GetAddr();
+
+            if (handle->OperIs(GT_CNS_INT) && handle->TypeIs(TYP_I_IMPL))
             {
-                // These handle constants should be class handles.
-                assert(handleTreeInternal->IsIconHandle(GTF_ICON_CLASS_HDL));
-                result = (CORINFO_CLASS_HANDLE)handleTreeInternal->AsIntCon()->gtCompileTimeHandle;
+                return handle->AsIntCon()->GetCompileTimeClassHandle();
             }
         }
     }
 
-    return result;
+    return NO_CLASS_HANDLE;
 }
 
 //------------------------------------------------------------------------
@@ -11604,16 +11569,16 @@ bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
 // Returns true if this icon value is encoded as addr needs recording a relocation with VM
 bool GenTreeIntCon::AddrNeedsReloc(Compiler* comp)
 {
-    if (comp->opts.compReloc)
+    void* addr = reinterpret_cast<void*>(gtIconVal);
+
+    if (comp->opts.compReloc && !IsIconHandle())
     {
         // During Ngen JIT is always asked to generate relocatable code.
         // Hence JIT will try to encode only icon handles as pc-relative offsets.
-        return IsIconHandle() && (IMAGE_REL_BASED_REL32 == comp->eeGetRelocTypeHint((void*)IconValue()));
+        return false;
     }
-    else
-    {
-        return IMAGE_REL_BASED_REL32 == comp->eeGetRelocTypeHint((void*)IconValue());
-    }
+
+    return comp->eeGetRelocTypeHint(addr) == IMAGE_REL_BASED_REL32;
 }
 
 #elif defined(TARGET_X86)
@@ -13404,7 +13369,7 @@ GenTreeCall* Compiler::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cl
     else
     {
         moduleIdArg =
-            gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(moduleIdAddr), GTF_ICON_CIDMID_HDL, true);
+            gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(moduleIdAddr), HandleKind::CIDMID, true);
     }
 
     GenTreeCall::Use* args = gtNewCallArgs(moduleIdArg);
@@ -13422,7 +13387,7 @@ GenTreeCall* Compiler::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cl
         else
         {
             classIdArg =
-                gtNewIndOfIconHandleNode(TYP_INT, reinterpret_cast<size_t>(classIdAddr), GTF_ICON_CIDMID_HDL, true);
+                gtNewIndOfIconHandleNode(TYP_INT, reinterpret_cast<size_t>(classIdAddr), HandleKind::CIDMID, true);
         }
 
         args->SetNext(gtNewCallArgs(classIdArg));
@@ -13490,12 +13455,12 @@ GenTree* Compiler::gtNewStaticMethodMonitorAddr()
         void* monitor     = info.compCompHnd->getMethodSync(info.compMethodHnd, &monitorAddr);
         noway_assert((monitor == nullptr) != (monitorAddr == nullptr));
 
-        return gtNewIconEmbHndNode(monitor, monitorAddr, GTF_ICON_METHOD_HDL, info.compMethodHnd);
+        return gtNewIconEmbHndNode(monitor, monitorAddr, HandleKind::Method, info.compMethodHnd);
     }
 
-    // Collectible types requires that for shared generic code, if we use the generic context paramter
-    // that we report it. (This is a conservative approach, we could detect some cases particularly when the
-    // context parameter is this that we don't need the eager reporting logic.)
+    // Collectible types requires that for shared generic code, if we use the generic context parameter
+    // that we report it. (This is a conservative approach, we could detect some cases particularly when
+    // the context parameter is this that we don't need the eager reporting logic.)
     lvaGenericsContextInUse = true;
 
     GenTree* context = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);

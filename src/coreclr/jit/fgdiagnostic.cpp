@@ -2844,7 +2844,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 }
             }
 
-            // TODO-MIKE-Review: This is should require GLOB_REF for
+            // TODO-MIKE-Review: This should require GLOB_REF for
             // OBJ/BLK, indirect stores and load/store intrinsics.
             // It remains to be seen if there aren't any cases where
             // those do not need GLOB_REF, though that's unlikely.
@@ -2863,7 +2863,9 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 case GT_IND:
                     if (GenTreeIntCon* addr = node->AsIndir()->GetAddr()->IsIntCon())
                     {
-                        if (GenTreeFlags handleKind = addr->GetHandleKind())
+                        HandleKind handleKind = addr->GetHandleKind();
+
+                        if (handleKind != HandleKind::None)
                         {
                             if ((node->gtFlags & GTF_IND_INVARIANT) != 0)
                             {
@@ -2876,13 +2878,13 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                             actualFlags |= GTF_IND_NONFAULTING;
                             expectedFlags |= GTF_IND_NONFAULTING;
 
-                            if ((handleKind != GTF_ICON_STATIC_HDL) && (handleKind != GTF_ICON_BBC_PTR) &&
-                                (handleKind != GTF_ICON_GLOBAL_PTR))
+                            if ((handleKind != HandleKind::Static) && (handleKind != HandleKind::BlockCount) &&
+                                (handleKind != HandleKind::MutableData))
                             {
                                 actualFlags |= GTF_IND_INVARIANT;
                             }
 
-                            if (handleKind == GTF_ICON_STATIC_HDL)
+                            if (handleKind == HandleKind::Static)
                             {
                                 actualFlags |= GTF_GLOB_REF;
                             }

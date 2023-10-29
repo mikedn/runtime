@@ -41,17 +41,17 @@ struct AssertionDsc
 {
     struct IntCon
     {
-        ssize_t      value;
-        GenTreeFlags flags;
+        ssize_t    value;
+        HandleKind handleKind;
 
         bool operator==(const IntCon& other) const
         {
-            return (value == other.value) && (flags == other.flags);
+            return (value == other.value) && (handleKind == other.handleKind);
         }
 
         bool operator!=(const IntCon& other) const
         {
-            return (value != other.value) || (flags != other.flags);
+            return (value != other.value) || (handleKind != other.handleKind);
         }
     };
 
@@ -403,11 +403,11 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        assertion.kind             = OAK_NOT_EQUAL;
-        assertion.op2.kind         = O2K_CONST_INT;
-        assertion.op2.vn           = ValueNumStore::NullVN();
-        assertion.op2.intCon.value = 0;
-        assertion.op2.intCon.flags = GTF_EMPTY;
+        assertion.kind                  = OAK_NOT_EQUAL;
+        assertion.op2.kind              = O2K_CONST_INT;
+        assertion.op2.vn                = ValueNumStore::NullVN();
+        assertion.op2.intCon.value      = 0;
+        assertion.op2.intCon.handleKind = HandleKind::None;
 
         return AddAssertion(assertion);
     }
@@ -482,11 +482,11 @@ private:
                     return NO_ASSERTION_INDEX;
                 }
 
-                assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = op1->GetDef()->GetLclNum();
-                assertion.op2.kind         = O2K_CONST_INT;
-                assertion.op2.intCon.value = op2->AsIntCon()->GetValue(lcl->GetType());
-                assertion.op2.intCon.flags = op2->AsIntCon()->GetHandleKind();
+                assertion.op1.kind              = O1K_LCLVAR;
+                assertion.op1.lclNum            = op1->GetDef()->GetLclNum();
+                assertion.op2.kind              = O2K_CONST_INT;
+                assertion.op2.intCon.value      = op2->AsIntCon()->GetValue(lcl->GetType());
+                assertion.op2.intCon.handleKind = op2->AsIntCon()->GetHandleKind();
                 break;
 
 #ifndef TARGET_64BIT
@@ -877,13 +877,13 @@ private:
 
             AssertionDsc dsc;
 
-            dsc.kind             = kind;
-            dsc.op1.kind         = boundKind;
-            dsc.op1.vn           = boundVN;
-            dsc.op2.kind         = O2K_CONST_INT;
-            dsc.op2.vn           = vnStore->VNForIntCon(0);
-            dsc.op2.intCon.value = 0;
-            dsc.op2.intCon.flags = GTF_EMPTY;
+            dsc.kind                  = kind;
+            dsc.op1.kind              = boundKind;
+            dsc.op1.vn                = boundVN;
+            dsc.op2.kind              = O2K_CONST_INT;
+            dsc.op2.vn                = vnStore->VNForIntCon(0);
+            dsc.op2.intCon.value      = 0;
+            dsc.op2.intCon.handleKind = HandleKind::None;
 
             return AddEqualityAssertions(dsc);
         }
@@ -1033,13 +1033,13 @@ private:
             {
                 AssertionDsc dsc;
 
-                dsc.kind             = op2Value == 0 ? OAK_NOT_EQUAL : OAK_EQUAL;
-                dsc.op1.kind         = O1K_VALUE_NUMBER;
-                dsc.op1.vn           = op1VN;
-                dsc.op2.kind         = O2K_CONST_INT;
-                dsc.op2.vn           = op2VN;
-                dsc.op2.intCon.value = op2Value;
-                dsc.op2.intCon.flags = GTF_EMPTY;
+                dsc.kind                  = op2Value == 0 ? OAK_NOT_EQUAL : OAK_EQUAL;
+                dsc.op1.kind              = O1K_VALUE_NUMBER;
+                dsc.op1.vn                = op1VN;
+                dsc.op2.kind              = O2K_CONST_INT;
+                dsc.op2.vn                = op2VN;
+                dsc.op2.intCon.value      = op2Value;
+                dsc.op2.intCon.handleKind = HandleKind::None;
 
                 AssertionIndex index = AddAssertion(dsc);
 
@@ -1339,7 +1339,7 @@ private:
             default:
                 assert(val.kind == O2K_CONST_INT);
 
-                if ((val.intCon.flags & GTF_ICON_HDL_MASK) == 0)
+                if (val.intCon.handleKind == HandleKind::None)
                 {
                     conNode = lclVar->ChangeToIntCon(varActualType(lclVar->GetType()), val.intCon.value);
                 }
@@ -1350,7 +1350,7 @@ private:
                 else
                 {
                     conNode = lclVar->ChangeToIntCon(TYP_I_IMPL, val.intCon.value);
-                    conNode->AsIntCon()->SetHandleKind(val.intCon.flags & GTF_ICON_HDL_MASK);
+                    conNode->AsIntCon()->SetHandleKind(val.intCon.handleKind);
                 }
                 break;
         }
@@ -1405,7 +1405,7 @@ private:
             default:
                 assert(val.kind == O2K_CONST_INT);
 
-                if ((val.intCon.flags & GTF_ICON_HDL_MASK) == 0)
+                if (val.intCon.handleKind == HandleKind::None)
                 {
                     use->GetDef()->RemoveUse(use);
                     conNode = use->ChangeToIntCon(varActualType(use->GetType()), val.intCon.value);
@@ -1418,7 +1418,7 @@ private:
                 {
                     use->GetDef()->RemoveUse(use);
                     conNode = use->ChangeToIntCon(TYP_I_IMPL, val.intCon.value);
-                    conNode->AsIntCon()->SetHandleKind(val.intCon.flags & GTF_ICON_HDL_MASK);
+                    conNode->AsIntCon()->SetHandleKind(val.intCon.handleKind);
                 }
                 break;
         }
@@ -3314,7 +3314,7 @@ private:
                 if (!m_compiler->opts.compReloc && tree->TypeIs(TYP_I_IMPL, TYP_BYREF))
                 {
                     newTree = m_compiler->gtNewIconHandleNode(m_vnStore->ConstantValue<target_ssize_t>(vn),
-                                                              m_vnStore->GetHandleFlags(vn));
+                                                              m_vnStore->GetHandleKind(vn));
                 }
             }
             // The tree type and the VN type should match but VN can't be trusted. At least for SIMD
@@ -3743,9 +3743,9 @@ void SsaOptimizer::DumpAssertion(const AssertionDsc& assertion, unsigned index)
     switch (op2.kind)
     {
         case O2K_CONST_INT:
-            if (op2.intCon.flags != GTF_EMPTY)
+            if (op2.intCon.handleKind != HandleKind::None)
             {
-                printf(" (0x%p %s)", dspPtr(op2.intCon.value), dmpGetHandleKindName(op2.intCon.flags));
+                printf(" (0x%p %s)", dspPtr(op2.intCon.value), dmpGetHandleKindName(op2.intCon.handleKind));
             }
             else
             {

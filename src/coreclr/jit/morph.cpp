@@ -2280,10 +2280,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         assert(call->gtEntryPoint.addr != nullptr);
 
         size_t   addrValue           = (size_t)call->gtEntryPoint.addr;
-        GenTree* indirectCellAddress = gtNewIconHandleNode(addrValue, GTF_ICON_FTN_ADDR);
-#ifdef DEBUG
-        indirectCellAddress->AsIntCon()->gtTargetHandle = (size_t)call->gtCallMethHnd;
-#endif
+        GenTree* indirectCellAddress = gtNewIconHandleNode(addrValue, HandleKind::MethodAddr);
+        indirectCellAddress->AsIntCon()->SetDumpHandle(call->GetMethodHandle());
+
 #ifdef TARGET_ARM
         // Issue #xxxx : Don't attempt to CSE this constant on ARM32
         //
@@ -5685,7 +5684,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
     {
         GenTree* r2rOffset =
             gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(field->GetR2RFieldLookupAddr()),
-                                     GTF_ICON_CONST_PTR, true);
+                                     HandleKind::ConstData, true);
 
         addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addrType), addr, r2rOffset);
     }
@@ -7073,7 +7072,8 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
                 {
                     pIndirection = addrInfo.addr;
                 }
-                target = gtNewIconEmbHndNode(handle, pIndirection, GTF_ICON_FTN_ADDR, call->gtCallMethHnd);
+
+                target = gtNewIconEmbHndNode(handle, pIndirection, HandleKind::MethodAddr, call->GetMethodHandle());
             }
         }
         else
@@ -7288,70 +7288,34 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
     return finalTree;
 }
 
-//------------------------------------------------------------------------
-// getLookupTree: get a lookup tree
-//
-// Arguments:
-//    pResolvedToken - resolved token of the call
-//    pLookup - the lookup to get the tree for
-//    handleFlags - flags to set on the result node
-//    compileTimeHandle - compile-time handle corresponding to the lookup
-//
-// Return Value:
-//    A node representing the lookup tree
-//
-GenTree* Compiler::getLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                 CORINFO_LOOKUP*         pLookup,
-                                 GenTreeFlags            handleFlags,
-                                 void*                   compileTimeHandle)
+GenTree* Compiler::getConstLookupTree(CORINFO_CONST_LOOKUP& lookup, HandleKind handleKind, void* compileTimeHandle)
 {
-    if (!pLookup->lookupKind.needsRuntimeLookup)
+    assert((lookup.accessType != IAT_PPVALUE) && (lookup.accessType != IAT_RELPVALUE));
+
+    void* handle     = nullptr;
+    void* handleAddr = nullptr;
+
+    if (lookup.accessType == IAT_VALUE)
     {
-        // No runtime lookup is required.
-        // Access is direct or memory-indirect (of a fixed address) reference
-
-        CORINFO_GENERIC_HANDLE handle       = nullptr;
-        void*                  pIndirection = nullptr;
-        assert(pLookup->constLookup.accessType != IAT_PPVALUE && pLookup->constLookup.accessType != IAT_RELPVALUE);
-
-        if (pLookup->constLookup.accessType == IAT_VALUE)
-        {
-            handle = pLookup->constLookup.handle;
-        }
-        else if (pLookup->constLookup.accessType == IAT_PVALUE)
-        {
-            pIndirection = pLookup->constLookup.addr;
-        }
-
-        return gtNewIconEmbHndNode(handle, pIndirection, handleFlags, compileTimeHandle);
+        handle = lookup.handle;
+    }
+    else if (lookup.accessType == IAT_PVALUE)
+    {
+        handleAddr = lookup.addr;
     }
 
-    return getRuntimeLookupTree(pResolvedToken, pLookup, compileTimeHandle);
+    return gtNewIconEmbHndNode(handle, handleAddr, handleKind, compileTimeHandle);
 }
 
-//------------------------------------------------------------------------
-// getRuntimeLookupTree: get a tree for a runtime lookup
-//
-// Arguments:
-//    pResolvedToken - resolved token of the call
-//    pLookup - the lookup to get the tree for
-//    compileTimeHandle - compile-time handle corresponding to the lookup
-//
-// Return Value:
-//    A node representing the runtime lookup tree
-//
-GenTree* Compiler::getRuntimeLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                        CORINFO_LOOKUP*         pLookup,
-                                        void*                   compileTimeHandle)
+GenTree* Compiler::getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
+                                        CORINFO_RUNTIME_LOOKUP&     lookup,
+                                        void*                       compileTimeHandle)
 {
     assert(!compIsForInlining());
 
-    CORINFO_RUNTIME_LOOKUP* pRuntimeLookup = &pLookup->runtimeLookup;
-
     // If pRuntimeLookup->indirections is equal to CORINFO_USEHELPER, it specifies that a run-time helper should be
     // used; otherwise, it specifies the number of indirections via pRuntimeLookup->offsets array.
-    if ((pRuntimeLookup->indirections == CORINFO_USEHELPER) || pRuntimeLookup->testForNull ||
-        pRuntimeLookup->testForFixup)
+    if ((lookup.indirections == CORINFO_USEHELPER) || lookup.testForNull || lookup.testForFixup)
     {
         // If the first condition is true, runtime lookup tree is available only via the run-time helper function.
         // TODO-CQ If the second or third condition is true, we are always using the slow path since we can't
@@ -7359,12 +7323,10 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
         // The long-term solution is to introduce a new node representing a runtime lookup, create instances
         // of that node both in the importer and here, and expand the node in lower (introducing control flow if
         // necessary).
-        return gtNewRuntimeLookupHelperCallNode(pRuntimeLookup,
-                                                gtNewRuntimeContextTree(pLookup->lookupKind.runtimeLookupKind),
-                                                compileTimeHandle);
+        return gtNewRuntimeLookupHelperCallNode(&lookup, gtNewRuntimeContextTree(kind), compileTimeHandle);
     }
 
-    GenTree* result = gtNewRuntimeContextTree(pLookup->lookupKind.runtimeLookupKind);
+    GenTree* result = gtNewRuntimeContextTree(kind);
 
     ArrayStack<GenTree*> stmts(getAllocator(CMK_ArrayStack));
 
@@ -7389,10 +7351,10 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
     };
 
     // Apply repeated indirections
-    for (unsigned i = 0; i < pRuntimeLookup->indirections; i++)
+    for (unsigned i = 0; i < lookup.indirections; i++)
     {
         GenTree* preInd = nullptr;
-        if ((i == 1 && pRuntimeLookup->indirectFirstOffset) || (i == 2 && pRuntimeLookup->indirectSecondOffset))
+        if ((i == 1 && lookup.indirectFirstOffset) || (i == 2 && lookup.indirectSecondOffset))
         {
             preInd = cloneTree(&result DEBUGARG("getRuntimeLookupTree indirectOffset"));
         }
@@ -7403,21 +7365,23 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
             result->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
         }
 
-        if ((i == 1 && pRuntimeLookup->indirectFirstOffset) || (i == 2 && pRuntimeLookup->indirectSecondOffset))
+        if ((i == 1 && lookup.indirectFirstOffset) || (i == 2 && lookup.indirectSecondOffset))
         {
             result = gtNewOperNode(GT_ADD, TYP_I_IMPL, preInd, result);
         }
 
-        if (pRuntimeLookup->offsets[i] != 0)
+        if (lookup.offsets[i] != 0)
         {
-            result = gtNewOperNode(GT_ADD, TYP_I_IMPL, result, gtNewIconNode(pRuntimeLookup->offsets[i], TYP_I_IMPL));
+            result = gtNewOperNode(GT_ADD, TYP_I_IMPL, result, gtNewIconNode(lookup.offsets[i], TYP_I_IMPL));
         }
     }
 
-    assert(!pRuntimeLookup->testForNull);
-    if (pRuntimeLookup->indirections > 0)
+    assert(!lookup.testForNull);
+
+    if (lookup.indirections > 0)
     {
-        assert(!pRuntimeLookup->testForFixup);
+        assert(!lookup.testForFixup);
+
         result = gtNewIndir(TYP_I_IMPL, result);
         result->gtFlags |= GTF_IND_NONFAULTING;
     }
@@ -7429,52 +7393,37 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
         result = gtNewCommaNode(stmts.Pop(), result);
     }
 
-    DISPTREE(result);
+    JITDUMPTREE(result, "Created runtime lookup tree:");
+
     return result;
 }
 
-//------------------------------------------------------------------------
-// getVirtMethodPointerTree: get a tree for a virtual method pointer
-//
-// Arguments:
-//    thisPtr - tree representing `this` pointer
-//    pResolvedToken - pointer to the resolved token of the method
-//    pCallInfo - pointer to call info
-//
-// Return Value:
-//    A node representing the virtual method pointer
-
 GenTree* Compiler::getVirtMethodPointerTree(GenTree*                thisPtr,
-                                            CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                            CORINFO_CALL_INFO*      pCallInfo)
+                                            CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                            CORINFO_CALL_INFO*      callInfo)
 {
-    GenTree* exactTypeDesc   = getTokenHandleTree(pResolvedToken, true);
-    GenTree* exactMethodDesc = getTokenHandleTree(pResolvedToken, false);
+    GenTree* exactTypeDesc   = getTokenHandleTree(resolvedToken, true);
+    GenTree* exactMethodDesc = getTokenHandleTree(resolvedToken, false);
 
-    GenTreeCall::Use* helpArgs = gtNewCallArgs(thisPtr, exactTypeDesc, exactMethodDesc);
-    return gtNewHelperCallNode(CORINFO_HELP_VIRTUAL_FUNC_PTR, TYP_I_IMPL, helpArgs);
+    return gtNewHelperCallNode(CORINFO_HELP_VIRTUAL_FUNC_PTR, TYP_I_IMPL,
+                               gtNewCallArgs(thisPtr, exactTypeDesc, exactMethodDesc));
 }
 
-//------------------------------------------------------------------------
-// getTokenHandleTree: get a handle tree for a token
-//
-// Arguments:
-//    pResolvedToken - token to get a handle for
-//    parent - whether parent should be imported
-//
-// Return Value:
-//    A node representing the virtual method pointer
-
-GenTree* Compiler::getTokenHandleTree(CORINFO_RESOLVED_TOKEN* pResolvedToken, bool parent)
+GenTree* Compiler::getTokenHandleTree(CORINFO_RESOLVED_TOKEN* resolvedToken, bool parent)
 {
     CORINFO_GENERICHANDLE_RESULT embedInfo;
-    info.compCompHnd->embedGenericHandle(pResolvedToken, parent, &embedInfo);
+    info.compCompHnd->embedGenericHandle(resolvedToken, parent, &embedInfo);
 
-    GenTree* result = getLookupTree(pResolvedToken, &embedInfo.lookup, gtTokenToIconFlags(pResolvedToken->token),
-                                    embedInfo.compileTimeHandle);
+    if (!embedInfo.lookup.lookupKind.needsRuntimeLookup)
+    {
+        return getConstLookupTree(embedInfo.lookup.constLookup, TokenToHandleKind(resolvedToken->token),
+                                  embedInfo.compileTimeHandle);
+    }
 
-    // If we have a result and it requires runtime lookup, wrap it in a runtime lookup node.
-    if ((result != nullptr) && embedInfo.lookup.lookupKind.needsRuntimeLookup)
+    GenTree* result = getRuntimeLookupTree(embedInfo.lookup.lookupKind.runtimeLookupKind,
+                                           embedInfo.lookup.runtimeLookup, embedInfo.compileTimeHandle);
+
+    if (result != nullptr)
     {
         result = gtNewRuntimeLookup(embedInfo.compileTimeHandle, embedInfo.handleType, result);
     }
@@ -7669,8 +7618,8 @@ GenTree* Compiler::fgGetStubAddrArg(GenTreeCall* call)
     }
 
     assert(call->gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT);
-    GenTreeIntCon* stubAddrArg = gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
-    INDEBUG(stubAddrArg->gtTargetHandle = (size_t)call->gtCallMethHnd);
+    GenTreeIntCon* stubAddrArg = gtNewIconHandleNode(call->gtStubCallStubAddr, HandleKind::MethodAddr);
+    stubAddrArg->SetDumpHandle(call->GetMethodHandle());
     return stubAddrArg;
 }
 
@@ -8415,17 +8364,17 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
         {
             case IAT_PPVALUE:
                 GenTree* indNode;
-                indNode = gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, GTF_ICON_CONST_PTR, true);
+                indNode = gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, HandleKind::ConstData, true);
                 indNode = gtNewIndir(TYP_I_IMPL, indNode);
                 indNode->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
                 DEBUG_DESTROY_NODE(tree);
                 return fgMorphTree(indNode);
             case IAT_PVALUE:
                 DEBUG_DESTROY_NODE(tree);
-                return fgMorphTree(gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, GTF_ICON_FTN_ADDR, true));
+                return fgMorphTree(gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, HandleKind::MethodAddr, true));
             case IAT_VALUE:
                 tree->ChangeToIntCon(handle);
-                tree->gtFlags |= GTF_ICON_FTN_ADDR;
+                tree->AsIntCon()->SetHandleKind(HandleKind::MethodAddr);
                 return tree;
             default:
                 unreached();

@@ -3414,12 +3414,7 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     emitAdjustStackDepthPushPop(ins);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing a register and a constant.
- */
-
-void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t val DEBUGARG(GenTreeFlags gtFlags))
+void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t val DEBUGARG(HandleKind handleKind))
 {
     emitAttr size = EA_SIZE(attr);
 
@@ -3545,7 +3540,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     id->idInsFmt(fmt);
     id->idReg1(reg);
     id->idCodeSize(sz);
-    INDEBUG(id->idDebugOnlyInfo()->idFlags = gtFlags);
+    INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
 
     dispIns(id);
     emitCurIGsize += sz;
@@ -6146,8 +6141,8 @@ void emitter::emitIns_Call(EmitCallType          kind,
     }
 
 #ifdef DEBUG
-    id->idDebugOnlyInfo()->idMemCookie = reinterpret_cast<size_t>(methodHandle);
-    id->idDebugOnlyInfo()->idCallSig   = sigInfo;
+    id->idDebugOnlyInfo()->idHandle  = methodHandle;
+    id->idDebugOnlyInfo()->idCallSig = sigInfo;
 #endif
 
 #ifdef LATE_DISASM
@@ -6638,7 +6633,7 @@ void emitter::emitDispAddrMode(instrDesc* id, bool noDetail)
                 size--;
                 jtno++;
 
-                if (offs == id->idDebugOnlyInfo()->idMemCookie)
+                if (offs == reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle))
                 {
                     break;
                 }
@@ -6655,9 +6650,9 @@ void emitter::emitDispAddrMode(instrDesc* id, bool noDetail)
             {
                 printf("reloc ");
             }
-            printf("J_M%03u_DS%02u", emitComp->compMethodID, id->idDebugOnlyInfo()->idMemCookie);
+            printf("J_M%03u_DS%02u", emitComp->compMethodID, id->idDebugOnlyInfo()->idHandle);
 
-            disp -= id->idDebugOnlyInfo()->idMemCookie;
+            disp -= reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle);
         }
     }
 
@@ -6776,8 +6771,7 @@ void emitter::emitDispAddrMode(instrDesc* id, bool noDetail)
     // pretty print string if it looks like one
     if ((id->idGCref() == GCT_GCREF) && (id->idIns() == INS_mov) && (id->idAddr()->iiaAddrMode.amBaseReg == REG_NA))
     {
-        const WCHAR* str = emitComp->eeGetCPString(disp);
-        if (str != nullptr)
+        if (const WCHAR* str = emitComp->eeGetCPString(reinterpret_cast<void*>(disp)))
         {
             printf("      '%S'", str);
         }
@@ -7179,10 +7173,11 @@ void emitter::emitDispIns(
                     printf("0x%IX", val);
                 }
                 else
-                { // (val < 0)
+                {
                     printf("-0x%IX", -val);
                 }
-                emitDispCommentForHandle(srcVal, id->idDebugOnlyInfo()->idFlags & GTF_ICON_HDL_MASK);
+
+                emitDispCommentForHandle(reinterpret_cast<void*>(srcVal), id->idDebugOnlyInfo()->idHandleKind);
             }
             break;
 
@@ -7204,19 +7199,11 @@ void emitter::emitDispIns(
             {
                 assert(id->idInsFmt() == IF_ARD);
 
-                /* Ignore indirect calls */
-
-                if (id->idDebugOnlyInfo()->idMemCookie == 0)
+                if (id->idDebugOnlyInfo()->idHandle != nullptr)
                 {
-                    break;
+                    printf("%s", emitComp->eeGetMethodFullName(
+                                     static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
                 }
-
-                assert(id->idDebugOnlyInfo()->idMemCookie);
-
-                /* This is a virtual call */
-
-                methodName = emitComp->eeGetMethodFullName((CORINFO_METHOD_HANDLE)id->idDebugOnlyInfo()->idMemCookie);
-                printf("%s", methodName);
             }
             break;
 
@@ -7984,13 +7971,14 @@ void emitter::emitDispIns(
         case IF_METHPTR:
             if (id->idIsCallAddr())
             {
-                offs       = (ssize_t)id->idAddr()->iiaAddr;
+                offs       = reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr);
                 methodName = "";
             }
             else
             {
-                offs       = 0;
-                methodName = emitComp->eeGetMethodFullName((CORINFO_METHOD_HANDLE)id->idDebugOnlyInfo()->idMemCookie);
+                offs = 0;
+                methodName =
+                    emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle));
             }
 
             if (id->idInsFmt() == IF_METHPTR)
@@ -11653,9 +11641,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             if (ins == INS_call)
             {
                 emitRecordCallSite(emitCurCodeOffs(*dp), id->idDebugOnlyInfo()->idCallSig,
-                                   (CORINFO_METHOD_HANDLE)id->idDebugOnlyInfo()->idMemCookie);
+                                   static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle));
             }
-#endif // DEBUG
+#endif
 
             break;
 

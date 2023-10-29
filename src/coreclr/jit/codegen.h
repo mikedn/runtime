@@ -1254,8 +1254,8 @@ public:
     void instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg);
     void instGen_Set_Reg_To_Imm(emitAttr  size,
                                 regNumber reg,
-                                ssize_t imm DEBUGARG(size_t targetHandle = 0)
-                                    DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
+                                ssize_t imm DEBUGARG(void* handle = nullptr)
+                                    DEBUGARG(HandleKind handleKind = HandleKind::None));
 
 #ifdef TARGET_XARCH
     instruction MapShiftInsToShiftBy1Ins(instruction ins);

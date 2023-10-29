@@ -303,10 +303,10 @@ class ValueNumStore
 
     struct VNHandle : public JitKeyFuncsDefEquals<VNHandle>
     {
-        ssize_t      value;
-        GenTreeFlags kind;
+        ssize_t    value;
+        HandleKind kind;
 
-        VNHandle(ssize_t value, GenTreeFlags kind) : value(value), kind(kind)
+        VNHandle(ssize_t value, HandleKind kind) : value(value), kind(kind)
         {
         }
 
@@ -609,7 +609,7 @@ public:
 
     // We keep handle values in a separate pool, so we don't confuse a handle with an int constant
     // that happens to be the same...
-    ValueNum VNForHandle(ssize_t value, GenTreeFlags handleKind);
+    ValueNum VNForHandle(ssize_t value, HandleKind handleKind);
 
     ValueNum VNForFieldSeqHandle(CORINFO_FIELD_HANDLE fieldHandle);
 
@@ -822,8 +822,7 @@ public:
     // If "vn" is checked bound arith, then populate the "info" fields for cmpOp, cmpOper.
     void GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, CompareCheckedBoundArithInfo* info);
 
-    // Returns the flags on the current handle. GTF_ICON_CLASS_HDL for example.
-    GenTreeFlags GetHandleFlags(ValueNum vn) const;
+    HandleKind GetHandleKind(ValueNum vn) const;
 
     // Returns true iff the VN represents a handle constant.
     bool IsVNHandle(ValueNum vn) const;

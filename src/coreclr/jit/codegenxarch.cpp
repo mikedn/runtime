@@ -517,7 +517,7 @@ void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
-                                     ssize_t imm DEBUGARG(size_t targetHandle) DEBUGARG(GenTreeFlags gtFlags))
+                                     ssize_t imm DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
     // reg cannot be a FP register
     assert(!genIsValidFloatReg(reg));
@@ -582,7 +582,7 @@ void CodeGen::GenIntCon(GenTreeIntCon* node, regNumber reg, var_types type)
     noway_assert(type != TYP_REF);
 
     // TODO-XArch-CQ: needs all the optimized cases
-    GetEmitter()->emitIns_R_I(INS_mov, emitActualTypeSize(type), reg, node->GetValue() DEBUGARG(node->gtFlags));
+    GetEmitter()->emitIns_R_I(INS_mov, emitActualTypeSize(type), reg, node->GetValue() DEBUGARG(node->GetHandleKind()));
 }
 
 void CodeGen::GenDblCon(GenTreeDblCon* node, regNumber reg, var_types type)
@@ -1345,7 +1345,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
         case GT_CNS_INT:
 #ifdef WINDOWS_X86_ABI
-            assert(!treeNode->IsIconHandle(GTF_ICON_TLS_HDL));
+            assert(!treeNode->IsIntCon(HandleKind::TLS));
 #endif
             GenIntCon(treeNode->AsIntCon(), treeNode->GetRegNum(), treeNode->GetType());
             DefReg(treeNode);
@@ -4283,10 +4283,10 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
     GenTree*  addr       = tree->GetAddr();
 
 #ifdef WINDOWS_X86_ABI
-    if (addr->IsIntCon() && addr->IsIconHandle(GTF_ICON_TLS_HDL))
+    if (GenTreeIntCon* tls = addr->IsIntCon(HandleKind::TLS))
     {
         noway_assert(targetType == TYP_I_IMPL);
-        emit->emitInsMov_R_FS(tree->GetRegNum(), addr->AsIntCon()->GetInt32Value());
+        emit->emitInsMov_R_FS(tree->GetRegNum(), tls->GetInt32Value());
     }
     else
 #endif

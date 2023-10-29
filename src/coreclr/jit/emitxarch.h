@@ -321,7 +321,10 @@ void emitIns_R(instruction ins, emitAttr attr, regNumber reg);
 
 void emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fdlHnd);
 
-void emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t val DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
+void emitIns_R_I(instruction ins,
+                 emitAttr    attr,
+                 regNumber   reg,
+                 ssize_t val DEBUGARG(HandleKind handleKind = HandleKind::None));
 
 void emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regNumber srgReg, bool canSkip);
 

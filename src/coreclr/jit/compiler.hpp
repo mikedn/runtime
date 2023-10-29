@@ -613,14 +613,14 @@ inline GenTree* Compiler::gtNewLargeOperNode(genTreeOps oper, var_types type, Ge
     return node;
 }
 
-inline GenTreeIntCon* Compiler::gtNewIconHandleNode(void* value, GenTreeFlags kind, FieldSeqNode* fieldSeq)
+inline GenTreeIntCon* Compiler::gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq)
 {
     return gtNewIconHandleNode(reinterpret_cast<size_t>(value), kind, fieldSeq);
 }
 
-inline GenTreeIntCon* Compiler::gtNewIconHandleNode(size_t value, GenTreeFlags kind, FieldSeqNode* fieldSeq)
+inline GenTreeIntCon* Compiler::gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq)
 {
-    assert((kind & GTF_ICON_HDL_MASK) != 0);
+    assert(kind != HandleKind::None);
 
     if (fieldSeq == nullptr)
     {
@@ -628,7 +628,7 @@ inline GenTreeIntCon* Compiler::gtNewIconHandleNode(size_t value, GenTreeFlags k
     }
 
     GenTreeIntCon* node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, value, fieldSeq);
-    node->gtFlags |= kind;
+    node->SetHandleKind(kind);
     return node;
 }
 
@@ -640,7 +640,7 @@ inline GenTree* Compiler::gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd)
     void* handleAddr;
     void* handle = reinterpret_cast<void*>(info.compCompHnd->embedModuleHandle(scpHnd, &handleAddr));
 
-    return gtNewIconEmbHndNode(handle, handleAddr, GTF_ICON_MODULE_HDL, scpHnd);
+    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::Module, scpHnd);
 }
 
 inline GenTree* Compiler::gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd)
@@ -648,7 +648,7 @@ inline GenTree* Compiler::gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd)
     void* handleAddr;
     void* handle = (void*)info.compCompHnd->embedClassHandle(clsHnd, &handleAddr);
 
-    return gtNewIconEmbHndNode(handle, handleAddr, GTF_ICON_CLASS_HDL, clsHnd);
+    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::Class, clsHnd);
 }
 
 inline GenTree* Compiler::gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd)
@@ -656,7 +656,7 @@ inline GenTree* Compiler::gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd)
     void* handleAddr;
     void* handle = reinterpret_cast<void*>(info.compCompHnd->embedMethodHandle(methHnd, &handleAddr));
 
-    return gtNewIconEmbHndNode(handle, handleAddr, GTF_ICON_METHOD_HDL, methHnd);
+    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::Method, methHnd);
 }
 
 inline GenTree* Compiler::gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd)
@@ -664,68 +664,27 @@ inline GenTree* Compiler::gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd)
     void* handleAddr;
     void* handle = reinterpret_cast<void*>(info.compCompHnd->embedFieldHandle(fldHnd, &handleAddr));
 
-    return gtNewIconEmbHndNode(handle, handleAddr, GTF_ICON_FIELD_HDL, fldHnd);
+    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::Field, fldHnd);
 }
 
-//------------------------------------------------------------------------------
-// gtNewRuntimeLookupHelperCallNode : Helper to create a runtime lookup call helper node.
-//
-//
-// Arguments:
-//    helper    - Call helper
-//    type      - Type of the node
-//    args      - Call args
-//
-// Return Value:
-//    New CT_HELPER node
-
-inline GenTreeCall* Compiler::gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* pRuntimeLookup,
+inline GenTreeCall* Compiler::gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* lookup,
                                                                GenTree*                ctxTree,
                                                                void*                   compileTimeHandle)
 {
-    GenTree* argNode = gtNewIconEmbHndNode(pRuntimeLookup->signature, nullptr, GTF_ICON_GLOBAL_PTR, compileTimeHandle);
-    GenTreeCall::Use* helperArgs = gtNewCallArgs(ctxTree, argNode);
-
-    return gtNewHelperCallNode(pRuntimeLookup->helper, TYP_I_IMPL, helperArgs);
+    GenTree* argNode = gtNewIconEmbHndNode(lookup->signature, nullptr, HandleKind::MutableData, compileTimeHandle);
+    return gtNewHelperCallNode(lookup->helper, TYP_I_IMPL, gtNewCallArgs(ctxTree, argNode));
 }
-
-//------------------------------------------------------------------------
-// gtNewAllocObjNode: A little helper to create an object allocation node.
-//
-// Arguments:
-//    helper               - Value returned by ICorJitInfo::getNewHelper
-//    helperHasSideEffects - True iff allocation helper has side effects
-//    clsHnd               - Corresponding class handle
-//    type                 - Tree return type (e.g. TYP_REF)
-//    op1                  - Node containing an address of VtablePtr
-//
-// Return Value:
-//    Returns GT_ALLOCOBJ node that will be later morphed into an
-//    allocation helper call or local variable allocation on the stack.
 
 inline GenTreeAllocObj* Compiler::gtNewAllocObjNode(
     unsigned int helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, var_types type, GenTree* op1)
 {
-    GenTreeAllocObj* node = new (this, GT_ALLOCOBJ) GenTreeAllocObj(type, helper, helperHasSideEffects, clsHnd, op1);
-    return node;
+    return new (this, GT_ALLOCOBJ) GenTreeAllocObj(type, helper, helperHasSideEffects, clsHnd, op1);
 }
-
-//------------------------------------------------------------------------
-// gtNewRuntimeLookup: Helper to create a runtime lookup node
-//
-// Arguments:
-//    hnd - generic handle being looked up
-//    hndTyp - type of the generic handle
-//    tree - tree for the lookup
-//
-// Return Value:
-//    New GenTreeRuntimeLookup node.
 
 inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfoGenericHandleType hndTyp, GenTree* tree)
 {
     assert(tree != nullptr);
-    GenTree* node = new (this, GT_RUNTIMELOOKUP) GenTreeRuntimeLookup(hnd, hndTyp, tree);
-    return node;
+    return new (this, GT_RUNTIMELOOKUP) GenTreeRuntimeLookup(hnd, hndTyp, tree);
 }
 
 inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
@@ -1008,8 +967,8 @@ inline GenTreeIntCon* GenTree::ChangeToIntCon(ssize_t value)
 
     GenTreeIntCon* intCon = AsIntCon();
     intCon->SetValue(value);
-    intCon->gtCompileTimeHandle = 0;
-    INDEBUG(intCon->SetTargetHandle(nullptr));
+    intCon->SetCompileTimeHandle(nullptr);
+    INDEBUG(intCon->SetDumpHandle(nullptr));
     return intCon;
 }
 

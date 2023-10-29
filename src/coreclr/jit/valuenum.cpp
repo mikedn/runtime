@@ -1114,9 +1114,9 @@ ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types type, ChunkKind kin
     return chunk;
 }
 
-ValueNum ValueNumStore::VNForHandle(ssize_t value, GenTreeFlags handleKind)
+ValueNum ValueNumStore::VNForHandle(ssize_t value, HandleKind handleKind)
 {
-    assert((handleKind & ~GTF_ICON_HDL_MASK) == GTF_NONE);
+    assert(handleKind != HandleKind::None);
 
     if (m_handleMap == nullptr)
     {
@@ -1925,12 +1925,12 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
         case TYP_INT:
         {
             int32_t resVal = EvalOp<int32_t>(func, ConstantValue<int32_t>(arg0VN));
-            return IsVNHandle(arg0VN) ? VNForHandle(ssize_t(resVal), GetHandleFlags(arg0VN)) : VNForIntCon(resVal);
+            return IsVNHandle(arg0VN) ? VNForHandle(ssize_t(resVal), GetHandleKind(arg0VN)) : VNForIntCon(resVal);
         }
         case TYP_LONG:
         {
             int64_t resVal = EvalOp<int64_t>(func, ConstantValue<int64_t>(arg0VN));
-            return IsVNHandle(arg0VN) ? VNForHandle(ssize_t(resVal), GetHandleFlags(arg0VN)) : VNForLongCon(resVal);
+            return IsVNHandle(arg0VN) ? VNForHandle(ssize_t(resVal), GetHandleKind(arg0VN)) : VNForLongCon(resVal);
         }
         case TYP_FLOAT:
             return VNForFloatCon(EvalOp<float>(func, ConstantValue<float>(arg0VN)));
@@ -2074,7 +2074,7 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
                 ValueNum handleVN = IsVNHandle(arg0VN) ? arg0VN : IsVNHandle(arg1VN) ? arg1VN : NoVN;
                 if (handleVN != NoVN)
                 {
-                    result = VNForHandle(ssize_t(resultVal), GetHandleFlags(handleVN)); // Use VN for Handle
+                    result = VNForHandle(ssize_t(resultVal), GetHandleKind(handleVN));
                 }
                 else
                 {
@@ -2100,7 +2100,7 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
 
                 if (handleVN != NoVN)
                 {
-                    result = VNForHandle(ssize_t(resultVal), GetHandleFlags(handleVN)); // Use VN for Handle
+                    result = VNForHandle(ssize_t(resultVal), GetHandleKind(handleVN));
                 }
                 else
                 {
@@ -4955,7 +4955,7 @@ bool ValueNumStore::IsIntegralConstant(ValueNum vn, ssize_t* value) const
     }
 }
 
-GenTreeFlags ValueNumStore::GetHandleFlags(ValueNum vn) const
+HandleKind ValueNumStore::GetHandleKind(ValueNum vn) const
 {
     assert(IsVNHandle(vn));
 
@@ -7066,7 +7066,7 @@ ValueNum ValueNumbering::GetIntConVN(GenTreeIntCon* intCon)
                 return ValueNumStore::NullVN();
             }
 
-            assert(intCon->IsIconHandle(GTF_ICON_STR_HDL)); // Constant object can be only frozen string.
+            assert(intCon->IsIntCon(HandleKind::String)); // Constant object can be only frozen string.
             return vnStore->VNForHandle(intCon->GetValue(), intCon->GetHandleKind());
 
         case TYP_BYREF:
@@ -7253,7 +7253,8 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_FTN_ADDR:
             // Use the value of the function pointer (actually, a method handle.)
             node->SetVNP(
-                ValueNumPair{vnStore->VNForHandle(ssize_t(node->AsFptrVal()->gtFptrMethod), GTF_ICON_METHOD_HDL)});
+                ValueNumPair{vnStore->VNForHandle(reinterpret_cast<ssize_t>(node->AsFptrVal()->GetMethodHandle()),
+                                                  HandleKind::Method)});
             break;
 
         case GT_CATCH_ARG:
@@ -7833,7 +7834,7 @@ void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPai
     if (useEntryPointAddrAsArg0)
     {
         ssize_t addrValue = reinterpret_cast<ssize_t>(call->gtEntryPoint.addr);
-        vnpArgs[vnpArgIndex++].SetBoth(vnStore->VNForHandle(addrValue, GTF_ICON_FTN_ADDR));
+        vnpArgs[vnpArgIndex++].SetBoth(vnStore->VNForHandle(addrValue, HandleKind::MethodAddr));
     }
 #endif // FEATURE_READYTORUN_COMPILER
 

@@ -340,6 +340,33 @@ class GenTreeOperandIterator;
 
 struct Statement;
 
+enum class HandleKind : uint8_t
+{
+    None,
+    Module,      // CORINFO_MODULE_HANDLE
+    Class,       // CORINFO_CLASS_HANDLE
+    Method,      // CORINFO_METHOD_HANDLE
+    Field,       // CORINFO_FIELD_HANDLE
+    Static,      // getFieldAddress(static CORINFO_FIELD_HANDLE)
+    String,      // constructStringLiteral/emptyStringLiteral
+    ConstData,   // Immutable data address, (e.g. IAT_PPVALUE)
+    MutableData, // Mutable data address (e.g. from the VM state)
+    Varargs,     // getVarArgsHandle(signature)
+    PInvoke,     // getCookieForPInvokeCalliSig(signature)
+    Token,       // Token handle (other than class, method or field)
+    MethodAddr,  // Method address
+    CIDMID,      // getClassModuleIdForStatics/getClassDomainID
+    BlockCount,  // Address of basic block instrumentation count
+#ifdef WINDOWS_X86_ABI
+    TLS, // TLS field offset into TEB
+#endif
+    Count
+};
+
+const char* dmpGetHandleKindName(HandleKind kind);
+
+static_assert(static_cast<unsigned>(HandleKind::Count) <= 16, "HandleKind must fit in GenTreeFlags's upper 4 bits");
+
 // clang-format off
 enum GenTreeFlags : unsigned
 {
@@ -432,25 +459,7 @@ enum GenTreeFlags : unsigned
 
     // CNS_INT specific flags
 
-    GTF_ICON_HDL_MASK         = 0xF0000000, // Mask for flags below
-    GTF_ICON_MODULE_HDL       = 0x10000000, // Module handle
-    GTF_ICON_CLASS_HDL        = 0x20000000, // Class handle
-    GTF_ICON_METHOD_HDL       = 0x30000000, // Method handle
-    GTF_ICON_FIELD_HDL        = 0x40000000, // Field handle
-    GTF_ICON_STATIC_HDL       = 0x50000000, // Static field address
-    GTF_ICON_STR_HDL          = 0x60000000, // String handle
-    GTF_ICON_CONST_PTR        = 0x70000000, // Immutable data address, (e.g. IAT_PPVALUE)
-    GTF_ICON_GLOBAL_PTR       = 0x80000000, // Mutable data address (e.g. from the VM state)
-    GTF_ICON_VARG_HDL         = 0x90000000, // Vararg cookie handle
-    GTF_ICON_PINVKI_HDL       = 0xA0000000, // P/Invoke calli handle
-    GTF_ICON_TOKEN_HDL        = 0xB0000000, // Token handle (other than class, method or field)
-#ifdef WINDOWS_X86_ABI
-    GTF_ICON_TLS_HDL          = 0xC0000000, // TLS ref with offset
-#endif
-    GTF_ICON_FTN_ADDR         = 0xD0000000, // Method address
-    GTF_ICON_CIDMID_HDL       = 0xE0000000, // Class ID or module ID
-    GTF_ICON_BBC_PTR          = 0xF0000000, // Address of basic block instrumentation count
-
+    GTF_ICON_HANDLE_KIND      = 0xF0000000, // Bits reserved to store the handle kind
     GTF_ICON_SIMD_COUNT       = 0x04000000, // Vector<T>.Count
     GTF_ICON_INITCLASS        = 0x02000000, // Address of a static field that requires initialization
                                             // (same as GTF_CLS_VAR_INITCLASS)
@@ -520,6 +529,16 @@ inline GenTreeFlags& operator &=(GenTreeFlags& a, GenTreeFlags b)
 inline GenTreeFlags& operator ^=(GenTreeFlags& a, GenTreeFlags b)
 {
     return a = a ^ b;
+}
+
+inline HandleKind IntConFlagsToHandleKind(GenTreeFlags flags)
+{
+    return static_cast<HandleKind>((flags & GTF_ICON_HANDLE_KIND) >> 28);
+}
+
+inline GenTreeFlags HandleKindToIntConFlags(HandleKind kind)
+{
+    return static_cast<GenTreeFlags>(static_cast<unsigned>(kind) << 28);
 }
 
 #ifdef DEBUG
@@ -1795,19 +1814,12 @@ public:
     bool           IsCnsIntOrI() const;
     bool           IsIntegralConst() const;
     GenTreeIntCon* IsIntConFitsInInt32();
+    GenTreeIntCon* IsIntCon(HandleKind kind);
 
     bool IsIconHandle() const
     {
         assert(gtOper == GT_CNS_INT);
-        return (gtFlags & GTF_ICON_HDL_MASK) != 0;
-    }
-
-    bool IsIconHandle(GenTreeFlags handleType) const
-    {
-        assert(gtOper == GT_CNS_INT);
-        assert((handleType & GTF_ICON_HDL_MASK) != 0); // check that handleType is one of the valid GTF_ICON_* values
-        assert((handleType & ~GTF_ICON_HDL_MASK) == 0);
-        return (gtFlags & GTF_ICON_HDL_MASK) == handleType;
+        return (gtFlags & GTF_ICON_HANDLE_KIND) != 0;
     }
 
     bool IsHelperCall();
@@ -2535,8 +2547,6 @@ struct GenTreeIntConCommon : public GenTree
 #endif
 };
 
-const char* dmpGetHandleKindName(GenTreeFlags flags);
-
 // This is the GT_CNS_INT struct definition.
 // It's used to hold for both int constants and pointer handle constants.
 // For the 64-bit targets we will only use GT_CNS_INT as it used to represent all the possible sizes
@@ -2555,11 +2565,10 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     // ngen mode, the handle in that statement does not correspond to the compile
     // time handle (rather it lets you get a handle at run-time). In that case,
     // we also need to store a compile time handle, which goes in this field.
-    ssize_t gtCompileTimeHandle = 0;
+    void* m_compileTimeHandle = nullptr;
 
-    // If the value represents target address, holds the method handle to that target
-    // which is used to fetch target method name and display in the disassembled code.
-    INDEBUG(size_t gtTargetHandle = 0;)
+    // Handle used to display extra information in dumps (e.g. method names).
+    INDEBUG(void* m_dumpHandle = nullptr;)
 
     GenTreeIntCon(var_types type, ssize_t value)
         : GenTreeIntConCommon(GT_CNS_INT, type), gtIconVal(value), m_fieldSeq(FieldSeqStore::NotAField())
@@ -2576,9 +2585,9 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         : GenTreeIntConCommon(GT_CNS_INT, copyFrom->GetType())
         , gtIconVal(copyFrom->gtIconVal)
         , m_fieldSeq(copyFrom->m_fieldSeq)
-        , gtCompileTimeHandle(copyFrom->gtCompileTimeHandle)
+        , m_compileTimeHandle(copyFrom->m_compileTimeHandle)
 #ifdef DEBUG
-        , gtTargetHandle(copyFrom->gtTargetHandle)
+        , m_dumpHandle(copyFrom->m_dumpHandle)
 #endif
     {
     }
@@ -2694,19 +2703,43 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 
     bool IsHandle() const
     {
-        return (gtFlags & GTF_ICON_HDL_MASK) != 0;
+        return (gtFlags & GTF_ICON_HANDLE_KIND) != 0;
     }
 
-    GenTreeFlags GetHandleKind() const
+    HandleKind GetHandleKind() const
     {
-        return gtFlags & GTF_ICON_HDL_MASK;
+        return IntConFlagsToHandleKind(gtFlags);
     }
 
-    void SetHandleKind(GenTreeFlags kind)
+    void SetHandleKind(HandleKind kind)
     {
-        assert((kind & ~GTF_ICON_HDL_MASK) == 0);
+        gtFlags = (gtFlags & ~GTF_ICON_HANDLE_KIND) | HandleKindToIntConFlags(kind);
+    }
 
-        gtFlags = (gtFlags & ~GTF_ICON_HDL_MASK) | (kind & GTF_ICON_HDL_MASK);
+    void SetCompileTimeHandle(void* handle)
+    {
+        // TODO-MIKE-Review: Would be good to verify the handle's validity somehow.
+        m_compileTimeHandle = handle;
+    }
+
+    CORINFO_CLASS_HANDLE GetCompileTimeClassHandle() const
+    {
+        assert(GetHandleKind() == HandleKind::Class);
+        return static_cast<CORINFO_CLASS_HANDLE>(m_compileTimeHandle);
+    }
+
+    CORINFO_FIELD_HANDLE GetCompileTimeFieldHandle() const
+    {
+        assert(GetHandleKind() == HandleKind::Field);
+        return static_cast<CORINFO_FIELD_HANDLE>(m_compileTimeHandle);
+    }
+
+    CORINFO_METHOD_HANDLE GetCompileTimeMethodHandle() const
+    {
+        // TODO-MIKE-Review: Sometimes fgOptimizeDelegateConstructor wants
+        // a method handle but gets a token handle, what's up with that?
+        assert((GetHandleKind() == HandleKind::Method) || (GetHandleKind() == HandleKind::Token));
+        return static_cast<CORINFO_METHOD_HANDLE>(m_compileTimeHandle);
     }
 
     bool ImmedValNeedsReloc(Compiler* comp);
@@ -2742,12 +2775,19 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         return isPow2<size_t>(static_cast<size_t>(value));
     }
 
-#ifdef DEBUG
-    void SetTargetHandle(void* handle)
+    void SetDumpHandle(void* handle)
     {
-        gtTargetHandle = reinterpret_cast<size_t>(handle);
+        INDEBUG(m_dumpHandle = handle);
     }
+
+    void* GetDumpHandle() const
+    {
+#ifdef DEBUG
+        return m_dumpHandle;
+#else
+        return nullptr;
 #endif
+    }
 
 #if DEBUGGABLE_GENTREE
     GenTreeIntCon() = default;
@@ -5171,7 +5211,6 @@ struct GenTreeCmpXchg : public GenTreeTernaryOp
 struct GenTreeFptrVal : public GenTree
 {
     CORINFO_METHOD_HANDLE gtFptrMethod;
-
 #ifdef FEATURE_READYTORUN_COMPILER
     CORINFO_CONST_LOOKUP gtEntryPoint;
 #endif
@@ -5183,10 +5222,14 @@ struct GenTreeFptrVal : public GenTree
         gtEntryPoint.accessType = IAT_VALUE;
 #endif
     }
-#if DEBUGGABLE_GENTREE
-    GenTreeFptrVal() : GenTree()
+
+    CORINFO_METHOD_HANDLE GetMethodHandle() const
     {
+        return gtFptrMethod;
     }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeFptrVal() = default;
 #endif
 };
 
@@ -7094,38 +7137,30 @@ struct GenTreeAllocObj final : public GenTreeUnOp
 #endif
 };
 
-// Represents GT_RUNTIMELOOKUP node
-
 struct GenTreeRuntimeLookup final : public GenTreeUnOp
 {
     CORINFO_GENERIC_HANDLE   gtHnd;
     CorInfoGenericHandleType gtHndType;
 
     GenTreeRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfoGenericHandleType hndTyp, GenTree* tree)
-        : GenTreeUnOp(GT_RUNTIMELOOKUP, tree->gtType, tree DEBUGARG(/*largeNode*/ FALSE)), gtHnd(hnd), gtHndType(hndTyp)
+        : GenTreeUnOp(GT_RUNTIMELOOKUP, tree->GetType(), tree DEBUGARG(/* largeNode */ false))
+        , gtHnd(hnd)
+        , gtHndType(hndTyp)
     {
         assert(hnd != nullptr);
-    }
-#if DEBUGGABLE_GENTREE
-    GenTreeRuntimeLookup() : GenTreeUnOp()
-    {
-    }
-#endif
-
-    // Return reference to the actual tree that does the lookup
-    GenTree*& Lookup()
-    {
-        return gtOp1;
+        assert(tree != nullptr);
     }
 
     bool IsClassHandle() const
     {
         return gtHndType == CORINFO_HANDLETYPE_CLASS;
     }
+
     bool IsMethodHandle() const
     {
         return gtHndType == CORINFO_HANDLETYPE_METHOD;
     }
+
     bool IsFieldHandle() const
     {
         return gtHndType == CORINFO_HANDLETYPE_FIELD;
@@ -7136,18 +7171,24 @@ struct GenTreeRuntimeLookup final : public GenTreeUnOp
     CORINFO_CLASS_HANDLE GetClassHandle() const
     {
         assert(IsClassHandle());
-        return (CORINFO_CLASS_HANDLE)gtHnd;
+        return reinterpret_cast<CORINFO_CLASS_HANDLE>(gtHnd);
     }
+
     CORINFO_METHOD_HANDLE GetMethodHandle() const
     {
         assert(IsMethodHandle());
-        return (CORINFO_METHOD_HANDLE)gtHnd;
+        return reinterpret_cast<CORINFO_METHOD_HANDLE>(gtHnd);
     }
+
     CORINFO_FIELD_HANDLE GetFieldHandle() const
     {
-        assert(IsMethodHandle());
-        return (CORINFO_FIELD_HANDLE)gtHnd;
+        assert(IsFieldHandle());
+        return reinterpret_cast<CORINFO_FIELD_HANDLE>(gtHnd);
     }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeRuntimeLookup() = default;
+#endif
 };
 
 // Represents the condition of a GT_JCC or GT_SETCC node.
@@ -7761,6 +7802,19 @@ inline GenTreeIntCon* GenTree::IsIntConFitsInInt32()
 #else
     return IsIntCon();
 #endif
+}
+
+inline GenTreeIntCon* GenTree::IsIntCon(HandleKind kind)
+{
+    if (GenTreeIntCon* intCon = IsIntCon())
+    {
+        if (intCon->GetHandleKind() == kind)
+        {
+            return intCon;
+        }
+    }
+
+    return nullptr;
 }
 
 inline bool GenTree::IsHelperCall()

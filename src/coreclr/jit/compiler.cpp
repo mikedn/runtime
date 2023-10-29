@@ -5115,89 +5115,59 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 break;
 
             case GT_CNS_INT:
-
-            {
-                unsigned handleKind = (tree->gtFlags & GTF_ICON_HDL_MASK);
-
-                switch (handleKind)
+                switch (tree->AsIntCon()->GetHandleKind())
                 {
-
-                    case GTF_ICON_MODULE_HDL:
-
-                        chars += printf("[ICON_MODULE_HDL]");
+                    case HandleKind::Module:
+                        chars += printf("[ICON_MODULE]");
                         break;
-
-                    case GTF_ICON_CLASS_HDL:
-
-                        chars += printf("[ICON_CLASS_HDL]");
+                    case HandleKind::Class:
+                        chars += printf("[ICON_CLASS]");
                         break;
-
-                    case GTF_ICON_METHOD_HDL:
-
-                        chars += printf("[ICON_METHOD_HDL]");
+                    case HandleKind::Method:
+                        chars += printf("[ICON_METHOD]");
                         break;
-
-                    case GTF_ICON_FIELD_HDL:
-
-                        chars += printf("[ICON_FIELD_HDL]");
+                    case HandleKind::Field:
+                        chars += printf("[ICON_FIELD]");
                         break;
-
-                    case GTF_ICON_STATIC_HDL:
-
-                        chars += printf("[ICON_STATIC_HDL]");
+                    case HandleKind::Static:
+                        chars += printf("[ICON_STATIC]");
                         break;
-
-                    case GTF_ICON_STR_HDL:
-
-                        chars += printf("[ICON_STR_HDL]");
+                    case HandleKind::String:
+                        chars += printf("[ICON_STRING]");
                         break;
-
-                    case GTF_ICON_CONST_PTR:
-
-                        chars += printf("[ICON_CONST_PTR]");
+                    case HandleKind::ConstData:
+                        chars += printf("[ICON_CONST_DATA]");
                         break;
-
-                    case GTF_ICON_GLOBAL_PTR:
-
-                        chars += printf("[ICON_GLOBAL_PTR]");
+                    case HandleKind::MutableData:
+                        chars += printf("[ICON_MUTABLE_DATA]");
                         break;
-
-                    case GTF_ICON_VARG_HDL:
-
-                        chars += printf("[ICON_VARG_HDL]");
+                    case HandleKind::Varargs:
+                        chars += printf("[ICON_VARARGS]");
                         break;
-
-                    case GTF_ICON_PINVKI_HDL:
-
-                        chars += printf("[ICON_PINVKI_HDL]");
+                    case HandleKind::PInvoke:
+                        chars += printf("[ICON_PINVOKE]");
                         break;
-
-                    case GTF_ICON_TOKEN_HDL:
-
-                        chars += printf("[ICON_TOKEN_HDL]");
+                    case HandleKind::Token:
+                        chars += printf("[ICON_TOKEN]");
+                        break;
+                    case HandleKind::MethodAddr:
+                        chars += printf("[ICON_METHOD_ADDR]");
+                        break;
+                    case HandleKind::CIDMID:
+                        chars += printf("[ICON_CIDMID]");
+                        break;
+                    case HandleKind::BlockCount:
+                        chars += printf("[ICON_BLOCK_COUNT]");
                         break;
 #ifdef WINDOWS_X86_ABI
-                    case GTF_ICON_TLS_HDL:
-                        chars += printf("[ICON_TLD_HDL]");
+                    case HandleKind::TLS:
+                        chars += printf("[ICON_TLS]");
                         break;
 #endif
-                    case GTF_ICON_FTN_ADDR:
-
-                        chars += printf("[ICON_FTN_ADDR]");
-                        break;
-
-                    case GTF_ICON_CIDMID_HDL:
-
-                        chars += printf("[ICON_CIDMID_HDL]");
-                        break;
-
-                    case GTF_ICON_BBC_PTR:
-
-                        chars += printf("[ICON_BBC_PTR]");
+                    default:
                         break;
                 }
-            }
-            break;
+                break;
 
             case GT_CALL:
 

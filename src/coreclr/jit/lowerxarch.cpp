@@ -634,7 +634,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 
         // Normally we'd need an indirection to get the actual target address but
         // the CORINFO_HELP_TAILCALL helper handles this if the VSD flag is set.
-        target = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
+        target = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, HandleKind::MethodAddr);
         BlockRange().InsertBefore(targetArg, target);
     }
     else
