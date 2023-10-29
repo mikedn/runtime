@@ -3983,105 +3983,81 @@ GenTreeFlags Compiler::gtTokenToIconFlags(unsigned token)
     }
 }
 
-//-----------------------------------------------------------------------------------------
-// gtNewIndOfIconHandleNode: Creates an indirection GenTree node of a constant handle
-//
-// Arguments:
-//    indType     - The type returned by the indirection node
-//    addr        - The constant address to read from
-//    iconFlags   - The GTF_ICON flag value that specifies the kind of handle that we have
-//    isInvariant - The indNode should also be marked as invariant
-//
-// Return Value:
-//    Returns a GT_IND node representing value at the address provided by 'value'
-//
-// Notes:
-//    The GT_IND node is marked as non-faulting
-//    If the indType is GT_REF we also mark the indNode as GTF_GLOB_REF
-//
-
-GenTree* Compiler::gtNewIndOfIconHandleNode(var_types indType, size_t addr, GenTreeFlags iconFlags, bool isInvariant)
+GenTreeIndir* Compiler::gtNewIndOfIconHandleNode(var_types type, size_t addr, GenTreeFlags handleKind, bool invariant)
 {
-    GenTree* addrNode = gtNewIconHandleNode(addr, iconFlags);
-    GenTree* indNode  = gtNewIndir(indType, addrNode);
+    GenTreeIndir* load = gtNewIndir(type, gtNewIconHandleNode(addr, handleKind));
+    load->gtFlags |= GTF_IND_NONFAULTING;
 
-    // This indirection won't cause an exception.
-    //
-    indNode->gtFlags |= GTF_IND_NONFAULTING;
-
-    // String Literal handles are indirections that return a TYP_REF, and
-    // these are pointers into the GC heap.  We don't currently have any
-    // TYP_BYREF pointers, but if we did they also must be pointers into the GC heap.
-    //
+    // String literal handles are indirections that return a TYP_REF, and these
+    // are pointers into the GC heap.
+    // We don't currently have any TYP_BYREF pointers, but if we did they also
+    // must be pointers into the GC heap.
     // Also every GTF_ICON_STATIC_HDL also must be a pointer into the GC heap
     // we will set GTF_GLOB_REF for these kinds of references.
     //
-    if ((varTypeIsGC(indType)) || (iconFlags == GTF_ICON_STATIC_HDL))
+    // TODO-MIKE-Review: It's not clear what GC types have to do with GLOB_REF,
+    // it's irrelevant where the loaded value points to.
+    // The question is if the runtime can modify the stored value somehow.
+    // The GC can but that does not exactly count as modification as far as
+    // GLOB_REF is concerned.
+    // Interestingly, this also ignore the invariant parameter, which is true
+    // most of the time. Invariant + GLOB_REF is rather dubious.
+
+    if ((varTypeIsGC(type)) || (handleKind == GTF_ICON_STATIC_HDL))
     {
-        // This indirection also points into the gloabal heap
-        indNode->gtFlags |= GTF_GLOB_REF;
+        load->gtFlags |= GTF_GLOB_REF;
     }
 
-    if (isInvariant)
+    if (invariant)
     {
-        assert(iconFlags != GTF_ICON_STATIC_HDL); // Pointer to a mutable class Static variable
-        assert(iconFlags != GTF_ICON_BBC_PTR);    // Pointer to a mutable basic block count value
-        assert(iconFlags != GTF_ICON_GLOBAL_PTR); // Pointer to mutable data from the VM state
+        assert(handleKind != GTF_ICON_STATIC_HDL);
+        assert(handleKind != GTF_ICON_BBC_PTR);
+        assert(handleKind != GTF_ICON_GLOBAL_PTR);
 
-        // This indirection also is invariant.
-        indNode->gtFlags |= GTF_IND_INVARIANT;
+        load->gtFlags |= GTF_IND_INVARIANT;
 
-        if (iconFlags == GTF_ICON_STR_HDL)
+        if (handleKind == GTF_ICON_STR_HDL)
         {
-            // String literals are never null
-            indNode->gtFlags |= GTF_IND_NONNULL;
+            load->gtFlags |= GTF_IND_NONNULL;
         }
     }
-    return indNode;
+
+    return load;
 }
 
-/*****************************************************************************
- *
- *  Allocates a integer constant entry that represents a HANDLE to something.
- *  It may not be allowed to embed HANDLEs directly into the JITed code (for eg,
- *  as arguments to JIT helpers). Get a corresponding value that can be embedded.
- *  If the handle needs to be accessed via an indirection, pValue points to it.
- */
-
-GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags iconFlags, void* compileTimeHandle)
+// Allocates a integer constant entry that represents a HANDLE to something.
+// It may not be allowed to embed HANDLEs directly into the JITed code (for eg,
+// as arguments to JIT helpers). Get a corresponding value that can be embedded.
+// If the handle needs to be accessed via an indirection, pValue points to it.
+GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* valueAddr, GenTreeFlags handleKind, void* compileTimeHandle)
 {
-    GenTree* iconNode;
-    GenTree* handleNode;
+    GenTreeIntCon* addrNode;
+    GenTree*       valueNode;
 
     if (value != nullptr)
     {
-        // When 'value' is non-null, pValue is required to be null
-        assert(pValue == nullptr);
+        assert(valueAddr == nullptr);
 
-        iconNode = gtNewIconHandleNode(reinterpret_cast<size_t>(value), iconFlags);
-
-        // 'value' is the handle
-        handleNode = iconNode;
+        addrNode  = gtNewIconHandleNode(reinterpret_cast<size_t>(value), handleKind);
+        valueNode = addrNode;
     }
     else
     {
-        // When 'value' is null, pValue is required to be non-null
-        assert(pValue != nullptr);
+        assert(valueAddr != nullptr);
 
-        // 'pValue' is the address of a location that contains the handle
-        iconNode   = gtNewIconHandleNode(reinterpret_cast<size_t>(pValue), iconFlags);
-        handleNode = gtNewIndir(TYP_I_IMPL, iconNode);
-        handleNode->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
+        addrNode  = gtNewIconHandleNode(reinterpret_cast<size_t>(valueAddr), handleKind);
+        valueNode = gtNewIndir(TYP_I_IMPL, addrNode);
+        valueNode->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
     }
 
-    iconNode->AsIntCon()->gtCompileTimeHandle = reinterpret_cast<size_t>(compileTimeHandle);
+    addrNode->AsIntCon()->gtCompileTimeHandle = reinterpret_cast<size_t>(compileTimeHandle);
 
-    return handleNode;
+    return valueNode;
 }
 
 GenTree* Compiler::gtNewConstLookupTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                         CORINFO_LOOKUP*         lookup,
-                                        GenTreeFlags            handleFlags,
+                                        GenTreeFlags            handleKind,
                                         void*                   compileTimeHandle)
 {
     assert(!lookup->lookupKind.needsRuntimeLookup);
@@ -4100,66 +4076,52 @@ GenTree* Compiler::gtNewConstLookupTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         handleAddr = lookup->constLookup.addr;
     }
 
-    GenTree* addr = gtNewIconEmbHndNode(handle, handleAddr, handleFlags, compileTimeHandle);
+    GenTree* value = gtNewIconEmbHndNode(handle, handleAddr, handleKind, compileTimeHandle);
 
 #ifdef DEBUG
-    if (handleFlags != GTF_ICON_TOKEN_HDL)
+    if (handleKind != GTF_ICON_TOKEN_HDL)
     {
-        GenTreeIntCon* addrCon = addr->IsIntCon();
+        GenTreeIntCon* addrCon = value->IsIntCon();
 
         if (addrCon == nullptr)
         {
-            addrCon = addr->AsIndir()->GetAddr()->AsIntCon();
+            addrCon = value->AsIndir()->GetAddr()->AsIntCon();
         }
 
-        addrCon->gtTargetHandle = reinterpret_cast<size_t>(compileTimeHandle);
+        addrCon->SetTargetHandle(compileTimeHandle);
     }
 #endif
 
-    return addr;
+    return value;
 }
 
-/*****************************************************************************/
 GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* pValue)
 {
-    GenTree* tree = nullptr;
+    GenTree* tree;
 
     switch (iat)
     {
         case IAT_VALUE:
-            setMethodHasFrozenString();
-            tree         = gtNewIconEmbHndNode(pValue, nullptr, GTF_ICON_STR_HDL, nullptr);
-            tree->gtType = TYP_REF;
-#ifdef DEBUG
-            tree->AsIntCon()->gtTargetHandle = (size_t)pValue;
-#endif
+            INDEBUG(setMethodHasFrozenString());
+            tree = gtNewIconEmbHndNode(pValue, nullptr, GTF_ICON_STR_HDL, nullptr);
+            tree->SetType(TYP_REF);
+            INDEBUG(tree->AsIntCon()->SetTargetHandle(pValue));
             break;
 
-        case IAT_PVALUE: // The value needs to be accessed via an indirection
-            // Create an indirection
+        case IAT_PVALUE:
             tree = gtNewIndOfIconHandleNode(TYP_REF, (size_t)pValue, GTF_ICON_STR_HDL, true);
-#ifdef DEBUG
-            tree->gtGetOp1()->AsIntCon()->gtTargetHandle = (size_t)pValue;
-#endif
+            INDEBUG(tree->AsIndir()->GetAddr()->AsIntCon()->SetTargetHandle(pValue));
             break;
 
-        case IAT_PPVALUE: // The value needs to be accessed via a double indirection
-            // Create the first indirection
+        case IAT_PPVALUE:
             tree = gtNewIndOfIconHandleNode(TYP_I_IMPL, (size_t)pValue, GTF_ICON_CONST_PTR, true);
-#ifdef DEBUG
-            tree->gtGetOp1()->AsIntCon()->gtTargetHandle = (size_t)pValue;
-#endif
-
-            // Create the second indirection
+            INDEBUG(tree->AsIndir()->GetAddr()->AsIntCon()->SetTargetHandle(pValue));
             tree = gtNewIndir(TYP_REF, tree);
-            // This indirection won't cause an exception.
-            tree->gtFlags |= GTF_IND_NONFAULTING;
-            // This indirection points into the gloabal heap (it is String Object)
-            tree->gtFlags |= GTF_GLOB_REF;
+            tree->gtFlags |= GTF_IND_NONFAULTING | GTF_GLOB_REF;
             break;
 
         default:
-            noway_assert(!"Unexpected InfoAccessType");
+            unreached();
     }
 
     return tree;

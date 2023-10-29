@@ -2751,7 +2751,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     if (tree->IsVolatile())
     {
         bool addrIsInReg   = addr->isUsedFromReg();
-        bool addrIsAligned = ((tree->gtFlags & GTF_IND_UNALIGNED) == 0);
+        bool addrIsAligned = !tree->IsUnaligned();
 
         if ((ins == INS_strb) && addrIsInReg)
         {

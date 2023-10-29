@@ -613,20 +613,14 @@ inline GenTree* Compiler::gtNewLargeOperNode(genTreeOps oper, var_types type, Ge
     return node;
 }
 
-/*****************************************************************************
- *
- *  allocates a integer constant entry that represents a handle (something
- *  that may need to be fixed up).
- */
-
-inline GenTreeIntCon* Compiler::gtNewIconHandleNode(void* value, GenTreeFlags flags, FieldSeqNode* fieldSeq)
+inline GenTreeIntCon* Compiler::gtNewIconHandleNode(void* value, GenTreeFlags kind, FieldSeqNode* fieldSeq)
 {
-    return gtNewIconHandleNode(reinterpret_cast<size_t>(value), flags, fieldSeq);
+    return gtNewIconHandleNode(reinterpret_cast<size_t>(value), kind, fieldSeq);
 }
 
-inline GenTreeIntCon* Compiler::gtNewIconHandleNode(size_t value, GenTreeFlags flags, FieldSeqNode* fieldSeq)
+inline GenTreeIntCon* Compiler::gtNewIconHandleNode(size_t value, GenTreeFlags kind, FieldSeqNode* fieldSeq)
 {
-    assert((flags & GTF_ICON_HDL_MASK) != 0);
+    assert((kind & GTF_ICON_HDL_MASK) != 0);
 
     if (fieldSeq == nullptr)
     {
@@ -634,65 +628,43 @@ inline GenTreeIntCon* Compiler::gtNewIconHandleNode(size_t value, GenTreeFlags f
     }
 
     GenTreeIntCon* node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, value, fieldSeq);
-    node->gtFlags |= flags;
+    node->gtFlags |= kind;
     return node;
 }
 
-/*****************************************************************************
- *
- *  It may not be allowed to embed HANDLEs directly into the JITed code (for eg,
- *  as arguments to JIT helpers). Get a corresponding value that can be embedded.
- *  These are versions for each specific type of HANDLE
- */
-
+// It may not be allowed to embed HANDLEs directly into the JITed code (for eg,
+// as arguments to JIT helpers). Get a corresponding value that can be embedded.
+// These are versions for each specific type of HANDLE
 inline GenTree* Compiler::gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd)
 {
-    void *embedScpHnd, *pEmbedScpHnd;
+    void* handleAddr;
+    void* handle = reinterpret_cast<void*>(info.compCompHnd->embedModuleHandle(scpHnd, &handleAddr));
 
-    embedScpHnd = (void*)info.compCompHnd->embedModuleHandle(scpHnd, &pEmbedScpHnd);
-
-    assert((!embedScpHnd) != (!pEmbedScpHnd));
-
-    return gtNewIconEmbHndNode(embedScpHnd, pEmbedScpHnd, GTF_ICON_MODULE_HDL, scpHnd);
+    return gtNewIconEmbHndNode(handle, handleAddr, GTF_ICON_MODULE_HDL, scpHnd);
 }
-
-//-----------------------------------------------------------------------------
 
 inline GenTree* Compiler::gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd)
 {
-    void *embedClsHnd, *pEmbedClsHnd;
+    void* handleAddr;
+    void* handle = (void*)info.compCompHnd->embedClassHandle(clsHnd, &handleAddr);
 
-    embedClsHnd = (void*)info.compCompHnd->embedClassHandle(clsHnd, &pEmbedClsHnd);
-
-    assert((!embedClsHnd) != (!pEmbedClsHnd));
-
-    return gtNewIconEmbHndNode(embedClsHnd, pEmbedClsHnd, GTF_ICON_CLASS_HDL, clsHnd);
+    return gtNewIconEmbHndNode(handle, handleAddr, GTF_ICON_CLASS_HDL, clsHnd);
 }
-
-//-----------------------------------------------------------------------------
 
 inline GenTree* Compiler::gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd)
 {
-    void *embedMethHnd, *pEmbedMethHnd;
+    void* handleAddr;
+    void* handle = reinterpret_cast<void*>(info.compCompHnd->embedMethodHandle(methHnd, &handleAddr));
 
-    embedMethHnd = (void*)info.compCompHnd->embedMethodHandle(methHnd, &pEmbedMethHnd);
-
-    assert((!embedMethHnd) != (!pEmbedMethHnd));
-
-    return gtNewIconEmbHndNode(embedMethHnd, pEmbedMethHnd, GTF_ICON_METHOD_HDL, methHnd);
+    return gtNewIconEmbHndNode(handle, handleAddr, GTF_ICON_METHOD_HDL, methHnd);
 }
-
-//-----------------------------------------------------------------------------
 
 inline GenTree* Compiler::gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd)
 {
-    void *embedFldHnd, *pEmbedFldHnd;
+    void* handleAddr;
+    void* handle = reinterpret_cast<void*>(info.compCompHnd->embedFieldHandle(fldHnd, &handleAddr));
 
-    embedFldHnd = (void*)info.compCompHnd->embedFieldHandle(fldHnd, &pEmbedFldHnd);
-
-    assert((!embedFldHnd) != (!pEmbedFldHnd));
-
-    return gtNewIconEmbHndNode(embedFldHnd, pEmbedFldHnd, GTF_ICON_FIELD_HDL, fldHnd);
+    return gtNewIconEmbHndNode(handle, handleAddr, GTF_ICON_FIELD_HDL, fldHnd);
 }
 
 //------------------------------------------------------------------------------
@@ -1040,7 +1012,7 @@ inline GenTreeIntCon* GenTree::ChangeToIntCon(ssize_t value)
     GenTreeIntCon* intCon = AsIntCon();
     intCon->SetValue(value);
     intCon->gtCompileTimeHandle = 0;
-    INDEBUG(intCon->gtTargetHandle = 0);
+    INDEBUG(intCon->SetTargetHandle(nullptr));
     return intCon;
 }
 

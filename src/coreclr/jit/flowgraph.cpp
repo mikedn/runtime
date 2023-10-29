@@ -149,6 +149,9 @@ PhaseStatus Compiler::phInsertGCPolls()
 // call block, otherwise it returns null.
 BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 {
+    GenTreeCall* call = gtNewHelperCallNode(CORINFO_HELP_POLL_GC, TYP_VOID);
+    fgMorphArgs(call);
+
     void* addrOfTrapReturningThreadsAddr;
     void* trapReturningThreadsAddr = info.compCompHnd->getAddrOfCaptureThreadGlobal(&addrOfTrapReturningThreadsAddr);
 
@@ -158,11 +161,8 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
         pollType = GCPOLL_CALL;
     }
 
-    GenTreeCall* call = gtNewHelperCallNode(CORINFO_HELP_POLL_GC, TYP_VOID);
-    fgMorphArgs(call);
-
     // TODO-MIKE-Review: This may insert the GC poll call before the unmanaged call,
-    // which might be in the last statement of a conditoinal the block. It probably
+    // which might be in the last statement of a conditional the block. It probably
     // doesn't matter but it seems a bit dodgy.
 
     if (pollType == GCPOLL_CALL)
@@ -178,7 +178,7 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
         {
             newStmt = fgNewStmtNearEnd(block, call);
 
-            // We need to associate the GC Poll with the IL offset (and therefore sequencepoint)
+            // We need to associate the GC Poll with the IL offset (and therefore sequence point)
             // of the tree before which we inserted the poll. Example:
             //
             //  1: if (...) {
@@ -294,15 +294,15 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
     if (addrOfTrapReturningThreadsAddr != nullptr)
     {
-        GenTree* addr = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(addrOfTrapReturningThreadsAddr),
-                                                 GTF_ICON_CONST_PTR, true);
-        indir = gtNewIndir(TYP_INT, addr);
+        size_t   handle = reinterpret_cast<size_t>(addrOfTrapReturningThreadsAddr);
+        GenTree* addr   = gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, GTF_ICON_CONST_PTR, true);
+        indir           = gtNewIndir(TYP_INT, addr);
         indir->gtFlags |= GTF_IND_NONFAULTING;
     }
     else
     {
-        indir = gtNewIndOfIconHandleNode(TYP_INT, reinterpret_cast<size_t>(trapReturningThreadsAddr),
-                                         GTF_ICON_GLOBAL_PTR, false);
+        size_t handle = reinterpret_cast<size_t>(trapReturningThreadsAddr);
+        indir         = gtNewIndOfIconHandleNode(TYP_INT, handle, GTF_ICON_GLOBAL_PTR, false);
     }
 
     // NOTE: In native code this load is done via LoadWithoutBarrier() to ensure that
@@ -1749,7 +1749,7 @@ void Compiler::fgAddInternal()
         // Test the JustMyCode VM global state variable
         GenTree* embNode        = gtNewIconEmbHndNode(dbgHandle, pDbgHandle, GTF_ICON_GLOBAL_PTR, info.compMethodHnd);
         GenTree* guardCheckVal  = gtNewIndir(TYP_INT, embNode);
-        GenTree* guardCheckCond = gtNewOperNode(GT_EQ, TYP_INT, guardCheckVal, gtNewZeroConNode(TYP_INT));
+        GenTree* guardCheckCond = gtNewOperNode(GT_EQ, TYP_INT, guardCheckVal, gtNewIconNode(0));
 
         // Create the callback which will yield the final answer
 

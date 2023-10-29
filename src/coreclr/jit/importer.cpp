@@ -1129,34 +1129,39 @@ GenTree* Importer::impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
 }
 
 #ifdef FEATURE_READYTORUN_COMPILER
-GenTree* Importer::gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* pLookup,
-                                             GenTreeFlags          handleFlags,
+GenTree* Importer::gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* lookup,
+                                             GenTreeFlags          handleKind,
                                              void*                 compileTimeHandle)
 {
-    CORINFO_GENERIC_HANDLE handle       = nullptr;
-    void*                  pIndirection = nullptr;
-    assert(pLookup->accessType != IAT_PPVALUE && pLookup->accessType != IAT_RELPVALUE);
+    assert((lookup->accessType != IAT_PPVALUE) && (lookup->accessType != IAT_RELPVALUE));
 
-    if (pLookup->accessType == IAT_VALUE)
+    CORINFO_GENERIC_HANDLE handle     = nullptr;
+    void*                  handleAddr = nullptr;
+
+    if (lookup->accessType == IAT_VALUE)
     {
-        handle = pLookup->handle;
+        handle = lookup->handle;
     }
-    else if (pLookup->accessType == IAT_PVALUE)
+    else if (lookup->accessType == IAT_PVALUE)
     {
-        pIndirection = pLookup->addr;
+        handleAddr = lookup->addr;
     }
-    GenTree* addr = gtNewIconEmbHndNode(handle, pIndirection, handleFlags, compileTimeHandle);
+
+    GenTree* addr = gtNewIconEmbHndNode(handle, handleAddr, handleKind, compileTimeHandle);
+
 #ifdef DEBUG
-    assert((handleFlags == GTF_ICON_CLASS_HDL) || (handleFlags == GTF_ICON_METHOD_HDL));
+    assert((handleKind == GTF_ICON_CLASS_HDL) || (handleKind == GTF_ICON_METHOD_HDL));
+
     if (handle != nullptr)
     {
         addr->AsIntCon()->gtTargetHandle = (size_t)compileTimeHandle;
     }
     else
     {
-        addr->gtGetOp1()->AsIntCon()->gtTargetHandle = (size_t)compileTimeHandle;
+        addr->AsIndir()->GetAddr()->AsIntCon()->gtTargetHandle = (size_t)compileTimeHandle;
     }
 #endif //  DEBUG
+
     return addr;
 }
 #endif
@@ -1259,6 +1264,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
         {
             slotPtrTree = gtNewIndir(TYP_I_IMPL, slotPtrTree);
             slotPtrTree->gtFlags |= GTF_IND_NONFAULTING;
+
             if (!isLastIndirectionWithSizeCheck)
             {
                 slotPtrTree->gtFlags |= GTF_IND_INVARIANT;
@@ -1311,8 +1317,8 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
         slot           = gtNewLclvNode(slotLclNum, TYP_I_IMPL);
         GenTree* add   = gtNewOperNode(GT_ADD, TYP_I_IMPL, slot, gtNewIconNode(-1, TYP_I_IMPL));
         GenTree* indir = gtNewIndir(TYP_I_IMPL, add);
-        indir->gtFlags |= GTF_IND_NONFAULTING;
-        indir->gtFlags |= GTF_IND_INVARIANT;
+        indir->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
+
         asg = gtNewAssignNode(gtNewLclvNode(slotLclNum, TYP_I_IMPL), indir);
 
         GenTree* qmark = gtNewQmarkNode(TYP_VOID, relop, gtNewNothingNode(), asg);
@@ -2095,9 +2101,9 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     // Strip helper call away
     fieldTokenNode = fieldTokenNode->AsCall()->gtCallArgs->GetNode();
 
-    if (fieldTokenNode->gtOper == GT_IND)
+    if (fieldTokenNode->OperIs(GT_IND))
     {
-        fieldTokenNode = fieldTokenNode->AsOp()->gtOp1;
+        fieldTokenNode = fieldTokenNode->AsIndir()->GetAddr();
     }
 
     // Check for constant
@@ -2878,7 +2884,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             impAppendTree(asg, CHECK_SPILL_NONE);
             GenTree* lclVarAddr = gtNewLclVarAddrNode(rawHandleSlot, TYP_I_IMPL);
 
-            retNode = gtNewIndir(JITtype2varType(sig->retType), lclVarAddr);
+            retNode = gtNewIndir(CorTypeToVarType(sig->retType), lclVarAddr);
 
             break;
         }
@@ -4693,6 +4699,7 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
 
                 exprToBox = gtNewCastNode(exprToBox, false, dstTyp);
             }
+
             op1 = gtNewAssignNode(gtNewIndir(lclTyp, op1), exprToBox);
         }
 
@@ -4888,76 +4895,65 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
 }
 
 GenTree* Importer::impTransformThis(GenTree*                thisPtr,
-                                    CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
+                                    CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                                     CORINFO_THIS_TRANSFORM  transform)
 {
-    switch (transform)
+    if (transform == CORINFO_DEREF_THIS)
     {
-        case CORINFO_DEREF_THIS:
-        {
-            GenTree* obj = thisPtr;
+        var_types type = CorTypeToVarType(info.compCompHnd->asCorInfoType(constrainedResolvedToken->hClass));
+        impBashVarAddrsToI(thisPtr);
+        GenTree* load = gtNewIndir(type, thisPtr);
+        load->AddSideEffects(GTF_EXCEPT | GTF_GLOB_REF);
 
-            // This does a LDIND on the obj, which should be a byref. pointing to a ref
-            impBashVarAddrsToI(obj);
-            assert(genActualType(obj->gtType) == TYP_I_IMPL || obj->gtType == TYP_BYREF);
-            CorInfoType constraintTyp = info.compCompHnd->asCorInfoType(pConstrainedResolvedToken->hClass);
-
-            obj = gtNewIndir(JITtype2varType(constraintTyp), obj);
-            obj->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
-
-            return obj;
-        }
-
-        case CORINFO_BOX_THIS:
-        {
-            // Constraint calls where there might be no
-            // unboxed entry point require us to implement the call via helper.
-            // These only occur when a possible target of the call
-            // may have inherited an implementation of an interface
-            // method from System.Object or System.ValueType.  The EE does not provide us with
-            // "unboxed" versions of these methods.
-
-            assert(thisPtr->TypeIs(TYP_BYREF, TYP_I_IMPL));
-
-            var_types type = JITtype2varType(info.compCompHnd->asCorInfoType(pConstrainedResolvedToken->hClass));
-            GenTree*  indir;
-
-            if (type == TYP_STRUCT)
-            {
-                indir = gtNewObjNode(typGetObjLayout(pConstrainedResolvedToken->hClass), thisPtr);
-            }
-            else
-            {
-                indir = gtNewIndir(type, thisPtr);
-            }
-
-            indir->gtFlags |= GTF_EXCEPT;
-
-            if ((type == TYP_STRUCT) || (info.compCompHnd->getTypeForPrimitiveValueClass(
-                                             pConstrainedResolvedToken->hClass) == CORINFO_TYPE_UNDEF))
-            {
-                impPushOnStack(indir, typeInfo(TI_STRUCT, pConstrainedResolvedToken->hClass));
-            }
-            else
-            {
-                impPushOnStack(indir);
-            }
-
-            // This pops off the byref-to-a-value-type remaining on the stack and
-            // replaces it with a boxed object.
-            // This is then used as the object to the virtual call immediately below.
-            impImportAndPushBox(pConstrainedResolvedToken);
-            if (compDonotInline())
-            {
-                return nullptr;
-            }
-
-            return impPopStack().val;
-        }
-        case CORINFO_NO_THIS_TRANSFORM:
-        default:
-            return thisPtr;
+        return load;
     }
+
+    if (transform == CORINFO_BOX_THIS)
+    {
+        // Constraint calls where there might be no unboxed entry point require us to
+        // implement the call via helper. These only occur when a possible target of
+        // the call may have inherited an implementation of an interface method from
+        // System.Object or System.ValueType. The EE does not provide us with unboxed
+        // versions of these methods.
+
+        var_types type = CorTypeToVarType(info.compCompHnd->asCorInfoType(constrainedResolvedToken->hClass));
+        GenTree*  indir;
+
+        if (type == TYP_STRUCT)
+        {
+            indir = gtNewObjNode(typGetObjLayout(constrainedResolvedToken->hClass), thisPtr);
+        }
+        else
+        {
+            indir = gtNewIndir(type, thisPtr);
+        }
+
+        indir->gtFlags |= GTF_EXCEPT;
+
+        if ((type == TYP_STRUCT) ||
+            (info.compCompHnd->getTypeForPrimitiveValueClass(constrainedResolvedToken->hClass) == CORINFO_TYPE_UNDEF))
+        {
+            impPushOnStack(indir, typeInfo(TI_STRUCT, constrainedResolvedToken->hClass));
+        }
+        else
+        {
+            impPushOnStack(indir);
+        }
+
+        // This pops off the byref-to-a-value-type remaining on the stack and
+        // replaces it with a boxed object.
+        // This is then used as the object to the virtual call immediately below.
+        impImportAndPushBox(constrainedResolvedToken);
+        if (compDonotInline())
+        {
+            return nullptr;
+        }
+
+        return impPopStack().val;
+    }
+
+    assert(transform == CORINFO_NO_THIS_TRANSFORM);
+    return thisPtr;
 }
 
 //------------------------------------------------------------------------
@@ -10648,7 +10644,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp))
                 {
-                    op1->gtFlags |= GTF_IND_UNALIGNED;
+                    op1->AsIndir()->SetUnaligned();
                 }
 
                 op1 = gtNewAssignNode(op1, op2);
@@ -10720,7 +10716,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if ((prefixFlags & PREFIX_UNALIGNED) && !varTypeIsByte(lclTyp))
                 {
-                    op1->gtFlags |= GTF_IND_UNALIGNED;
+                    op1->AsIndir()->SetUnaligned();
                 }
 
                 impPushOnStack(op1);
@@ -10874,7 +10870,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp))
                     {
-                        op1->gtFlags |= GTF_IND_UNALIGNED;
+                        op1->AsIndir()->SetUnaligned();
                     }
 
                     if (fieldInfo.structType != NO_CLASS_HANDLE)
@@ -10974,7 +10970,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp))
                 {
-                    op1->gtFlags |= GTF_IND_UNALIGNED;
+                    op1->AsIndir()->SetUnaligned();
                 }
 
                 if (lclTyp == TYP_STRUCT)
@@ -11308,7 +11304,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if ((prefixFlags & PREFIX_UNALIGNED) != 0)
                 {
-                    op1->gtFlags |= GTF_IND_UNALIGNED;
+                    op1->AsIndir()->SetUnaligned();
                 }
 
                 // TODO-MIKE-Fix: This doesn't check for volatile. prefix...
@@ -16203,15 +16199,17 @@ bool Importer::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
     // Check for assignment of NULL.
     if (value->OperIs(GT_CNS_INT))
     {
-        assert(value->gtType == TYP_REF);
-        if (value->AsIntCon()->gtIconVal == 0)
+        assert(value->TypeIs(TYP_REF));
+
+        if (value->AsIntCon()->GetValue() == 0)
         {
             JITDUMP("\nstelem of null: skipping covariant store check\n");
             return true;
         }
+
         // Non-0 const refs can only occur with frozen objects
         assert(value->IsIconHandle(GTF_ICON_STR_HDL));
-        assert(doesMethodHaveFrozenString() ||
+        assert(comp->doesMethodHaveFrozenString() ||
                (compIsForInlining() && impInlineInfo->InlinerCompiler->doesMethodHaveFrozenString()));
     }
 
@@ -16786,55 +16784,43 @@ bool Compiler::impHasAddressTakenLocals(GenTree* tree)
     return fgWalkTreePre(&tree, visitor) == WALK_ABORT;
 }
 
-/*****************************************************************************
- *
- *  Check for the special case where the object is the constant 0.
- *  As we can't even fold the tree (null+fldOffs), we are left with
- *  op1 and op2 both being a constant. This causes lots of problems.
- *  We simply grab a temp and assign 0 to it and use it in place of the NULL.
- */
-
-GenTree* Importer::impCheckForNullPointer(GenTree* obj)
+// Check for the special case where an address is the constant 0.
+// As we can't even fold the tree (null + field offset), we are left with
+// op1 and op2 both being a constant. This causes lots of problems.
+// We simply grab a temp and assign 0 to it and use it in place of the NULL.
+// TODO-MIKE-Review: This looks like a bunch of idiotic nonsense.
+// null + field offset = null, load/store(null) -> NullReferenceException.
+GenTree* Importer::impCheckForNullPointer(GenTree* addr)
 {
-    /* If it is not a GC type, we will be able to fold it.
-       So don't need to do anything */
+    // If it is not a GC type, we will be able to fold it.
+    // So don't need to do anything.
 
-    if (!varTypeIsGC(obj->TypeGet()))
+    if (!varTypeIsGC(addr->GetType()) || !addr->OperIs(GT_CNS_INT))
     {
-        return obj;
+        return addr;
     }
 
-    if (obj->gtOper == GT_CNS_INT)
+    if (addr->AsIntCon()->GetValue() != 0)
     {
-        assert(obj->gtType == TYP_REF || obj->gtType == TYP_BYREF);
-
-        // We can see non-zero byrefs for RVA statics or for frozen strings.
-        if (obj->AsIntCon()->gtIconVal != 0)
-        {
 #ifdef DEBUG
-            if (!obj->TypeIs(TYP_BYREF))
-            {
-                assert(obj->TypeIs(TYP_REF));
-                assert(obj->IsIconHandle(GTF_ICON_STR_HDL));
-                if (!doesMethodHaveFrozenString())
-                {
-                    assert(compIsForInlining());
-                    assert(impInlineInfo->InlinerCompiler->doesMethodHaveFrozenString());
-                }
-            }
-#endif // DEBUG
-            return obj;
+        if (!addr->TypeIs(TYP_BYREF))
+        {
+            // We can see non-zero byrefs for RVA statics or for frozen strings.
+
+            assert(addr->TypeIs(TYP_REF));
+            assert(addr->IsIconHandle(GTF_ICON_STR_HDL));
+            assert(comp->doesMethodHaveFrozenString() ||
+                   (compIsForInlining() && impInlineInfo->InlinerCompiler->doesMethodHaveFrozenString()));
         }
+#endif
 
-        unsigned tmp = lvaNewTemp(obj->GetType(), true DEBUGARG("CheckForNullPointer"));
-        GenTree* asg = gtNewAssignNode(gtNewLclvNode(tmp, obj->GetType()), obj);
-        // We don't need to spill while appending as we are assigning a constant to a new temp.
-        impAppendTree(asg, CHECK_SPILL_NONE);
-
-        obj = gtNewLclvNode(tmp, obj->GetType());
+        return addr;
     }
 
-    return obj;
+    unsigned lclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("CheckForNullPointer"));
+    GenTree* asg    = gtNewAssignNode(gtNewLclvNode(lclNum, addr->GetType()), addr);
+    impAppendTree(asg, CHECK_SPILL_NONE);
+    return gtNewLclvNode(lclNum, addr->GetType());
 }
 
 // Check for the special case where the object is the methods original 'this' pointer.
@@ -16951,11 +16937,6 @@ bool Importer::IsMathIntrinsic(NamedIntrinsic intrinsicName)
 bool Importer::IsMathIntrinsic(GenTree* tree)
 {
     return comp->IsMathIntrinsic(tree);
-}
-
-bool Importer::doesMethodHaveFrozenString()
-{
-    return comp->doesMethodHaveFrozenString();
 }
 
 void Importer::setMethodHasExpRuntimeLookup()

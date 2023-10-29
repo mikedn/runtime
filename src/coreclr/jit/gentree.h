@@ -2765,10 +2765,15 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         return isPow2<size_t>(static_cast<size_t>(value));
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeIntCon() : GenTreeIntConCommon()
+#ifdef DEBUG
+    void SetTargetHandle(void* handle)
     {
+        gtTargetHandle = reinterpret_cast<size_t>(handle);
     }
+#endif
+
+#if DEBUGGABLE_GENTREE
+    GenTreeIntCon() = default;
 #endif
 };
 
@@ -6378,6 +6383,7 @@ struct GenTreeObj : public GenTreeBlk
 {
     GenTreeObj(var_types type, GenTree* addr, ClassLayout* layout) : GenTreeBlk(GT_OBJ, type, addr, layout)
     {
+        assert(varTypeIsI(addr->GetType()));
         assert(!layout->IsBlockLayout());
 
         // By default, indirs are assumed to access aliased memory.
@@ -6468,11 +6474,6 @@ struct GenTreeDynBlk : public GenTreeTernaryOp
     bool IsUnaligned() const
     {
         return (gtFlags & GTF_IND_UNALIGNED) != 0;
-    }
-
-    void SetUnaligned(bool isUnaligned)
-    {
-        gtFlags = isUnaligned ? (gtFlags | GTF_IND_UNALIGNED) : (gtFlags & ~GTF_IND_UNALIGNED);
     }
 
     StructStoreKind GetKind() const

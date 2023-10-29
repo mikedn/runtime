@@ -1687,7 +1687,6 @@ struct Importer
     bool IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName);
     bool IsMathIntrinsic(NamedIntrinsic intrinsicName);
     bool IsMathIntrinsic(GenTree* tree);
-    bool doesMethodHaveFrozenString();
     void setMethodHasExpRuntimeLookup();
     void setMethodHasGuardedDevirtualization();
     INDEBUG(bool compTailCallStress();)
@@ -2371,7 +2370,7 @@ struct Importer
     GenTree* gtNewLconNode(int64_t value);
     GenTreeIntCon* gtNewIconHandleNode(void* value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
     GenTreeIntCon* gtNewIconHandleNode(size_t value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
-    GenTree* gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags flags, void* compileTimeHandle);
+    GenTree* gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags handleKind, void* compileTimeHandle);
     GenTree* gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd);
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
     GenTree* gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd);
@@ -2998,18 +2997,18 @@ public:
 
     GenTree* gtNewJmpTableNode();
 
-    GenTree* gtNewIndOfIconHandleNode(var_types indType, size_t value, GenTreeFlags iconFlags, bool isInvariant);
+    GenTreeIndir* gtNewIndOfIconHandleNode(var_types type, size_t addr, GenTreeFlags handleKind, bool invariant);
 
-    GenTreeIntCon* gtNewIconHandleNode(void* value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
-    GenTreeIntCon* gtNewIconHandleNode(size_t value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
+    GenTreeIntCon* gtNewIconHandleNode(void* value, GenTreeFlags kind, FieldSeqNode* fieldSeq = nullptr);
+    GenTreeIntCon* gtNewIconHandleNode(size_t value, GenTreeFlags kind, FieldSeqNode* fieldSeq = nullptr);
 
     static GenTreeFlags gtTokenToIconFlags(unsigned token);
 
-    GenTree* gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags flags, void* compileTimeHandle);
+    GenTree* gtNewIconEmbHndNode(void* value, void* valueAddr, GenTreeFlags handleKind, void* compileTimeHandle);
 
     GenTree* gtNewConstLookupTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                   CORINFO_LOOKUP*         lookup,
-                                  GenTreeFlags            handleFlags,
+                                  GenTreeFlags            handleKind,
                                   void*                   compileTimeHandle);
 
     GenTree* gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd);
@@ -5233,7 +5232,9 @@ public:
 #define OMF_HAS_EXPRUNTIMELOOKUP 0x00000080 // Method contains a runtime lookup to an expandable dictionary.
 #define OMF_HAS_PATCHPOINT 0x00000100       // Method contains patchpoints
 #define OMF_NEEDS_GCPOLLS 0x00000200        // Method needs GC polls
-#define OMF_HAS_FROZEN_STRING 0x00000400    // Method has a frozen string (REF constant int), currently only on CoreRT.
+#ifdef DEBUG
+#define OMF_HAS_FROZEN_STRING 0x00000400 // Method has a frozen string (REF constant int), currently only on CoreRT.
+#endif
 
     bool doesMethodHaveFatPointer()
     {
@@ -5250,6 +5251,7 @@ public:
         optMethodFlags &= ~OMF_HAS_FATPOINTER;
     }
 
+#ifdef DEBUG
     bool doesMethodHaveFrozenString() const
     {
         return (optMethodFlags & OMF_HAS_FROZEN_STRING) != 0;
@@ -5259,6 +5261,7 @@ public:
     {
         optMethodFlags |= OMF_HAS_FROZEN_STRING;
     }
+#endif
 
     bool doesMethodHaveGuardedDevirtualization() const
     {
