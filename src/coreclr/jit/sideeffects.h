@@ -70,7 +70,7 @@ public:
 
         Compiler* m_compiler;
         GenTree*  m_node;
-        unsigned  m_flags = 0;
+        unsigned  m_flags  = 0;
         unsigned  m_lclNum = 0;
 
     public:

@@ -1053,7 +1053,9 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
             case GT_LABEL:
             case GT_FTN_ADDR:
             case GT_CNS_INT:
+#ifndef TARGET_64BIT
             case GT_CNS_LNG:
+#endif
             case GT_CNS_DBL:
             case GT_CNS_STR:
             case GT_CLS_VAR_ADDR:

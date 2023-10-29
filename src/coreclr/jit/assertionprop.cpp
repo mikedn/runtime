@@ -1011,14 +1011,14 @@ private:
             std::swap(op1, op2);
         }
 
-        if (op1->OperIs(GT_LCL_USE) && op2->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL, GT_LCL_VAR, GT_LCL_USE))
+        if (op1->OperIs(GT_LCL_USE) && (op2->IsNumericConst() || op2->OperIs(GT_LCL_VAR, GT_LCL_USE)))
         {
             return CreateEqualityAssertion(op1->AsLclUse(), op2, assertionKind);
         }
 
         // TODO-MIKE-Review: This is probably bogus, in old code CreateEqualityAssertion handled
         // this case and rejected AX locals, even though those can be handled by the code below.
-        if (op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
+        if (op1->OperIs(GT_LCL_VAR) && op2->IsNumericConst())
         {
             return NO_ASSERTION_INDEX;
         }

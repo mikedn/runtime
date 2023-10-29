@@ -194,7 +194,9 @@ static_assert_no_msg(sizeof(GenTreeVal)          <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeIntConCommon) <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreePhysReg)      <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeIntCon)       <= TREE_NODE_SZ_SMALL);
+#ifndef TARGET_64BIT
 static_assert_no_msg(sizeof(GenTreeLngCon)       <= TREE_NODE_SZ_SMALL);
+#endif
 static_assert_no_msg(sizeof(GenTreeDblCon)       <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeStrCon)       <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeLclVarCommon) <= TREE_NODE_SZ_SMALL);
@@ -1022,48 +1024,27 @@ AGAIN:
         return false;
     }
 
-    /* Figure out what kind of nodes we're comparing */
-
     kind = op1->OperKind();
-
-    /* Is this a constant node? */
 
     if (op1->OperIsConst())
     {
         switch (oper)
         {
             case GT_CNS_INT:
-                if (op1->AsIntCon()->gtIconVal == op2->AsIntCon()->gtIconVal)
-                {
-                    return true;
-                }
-                break;
-
-            case GT_CNS_STR:
-                if ((op1->AsStrCon()->gtSconCPX == op2->AsStrCon()->gtSconCPX) &&
-                    (op1->AsStrCon()->gtScpHnd == op2->AsStrCon()->gtScpHnd))
-                {
-                    return true;
-                }
-                break;
-
+                return op1->AsIntCon()->GetValue() == op2->AsIntCon()->GetValue();
 #if 0
             // TODO-CQ: Enable this in the future
-        case GT_CNS_LNG:
-            if  (op1->AsLngCon()->gtLconVal == op2->AsLngCon()->gtLconVal)
-                return true;
-            break;
-
-        case GT_CNS_DBL:
-            if  (op1->AsDblCon()->gtDconVal == op2->AsDblCon()->gtDconVal)
-                return true;
-            break;
+            case GT_CNS_LNG:
+                return op1->AsLngCon()->GetValue() == op2->AsLngCon()->GetValue();
+            case GT_CNS_DBL:
+                return op1->AsDblCon()->GetBits() == op2->AsDblCon()->GetBits();
 #endif
+            case GT_CNS_STR:
+                return (op1->AsStrCon()->gtSconCPX == op2->AsStrCon()->gtSconCPX) &&
+                       (op1->AsStrCon()->gtScpHnd == op2->AsStrCon()->gtScpHnd);
             default:
-                break;
+                return false;
         }
-
-        return false;
     }
 
     if (kind & GTK_LEAF)
@@ -1082,10 +1063,8 @@ AGAIN:
             case GT_ARGPLACE:
                 return true;
             default:
-                break;
+                return false;
         }
-
-        return false;
     }
 
     if (kind & GTK_UNOP)
@@ -1327,7 +1306,8 @@ AGAIN:
 
         switch (oper)
         {
-            UINT64 bits;
+            uint64_t bits;
+
             case GT_LCL_VAR:
                 add = tree->AsLclVar()->GetLclNum();
                 break;
@@ -1336,34 +1316,33 @@ AGAIN:
                 hash = genTreeHashAdd(hash, tree->AsLclFld()->GetLayoutNum());
                 add  = tree->AsLclFld()->GetLclOffs();
                 break;
-
             case GT_CNS_INT:
-                add = tree->AsIntCon()->gtIconVal;
+                add = tree->AsIntCon()->GetValue();
                 break;
+#ifndef TARGET_64BIT
             case GT_CNS_LNG:
-                bits = (UINT64)tree->AsLngCon()->gtLconVal;
+                bits = tree->AsLngCon()->GetUInt64Value();
 #ifdef HOST_64BIT
                 add = bits;
-#else // 32-bit host
+#else
                 add = genTreeHashAdd(uhi32(bits), ulo32(bits));
 #endif
                 break;
+#endif
             case GT_CNS_DBL:
-                bits = *(UINT64*)(&tree->AsDblCon()->gtDconVal);
+                bits = tree->AsDblCon()->GetBits();
 #ifdef HOST_64BIT
                 add = bits;
-#else // 32-bit host
+#else
                 add = genTreeHashAdd(uhi32(bits), ulo32(bits));
 #endif
                 break;
             case GT_CNS_STR:
                 add = tree->AsStrCon()->gtSconCPX;
                 break;
-
             case GT_JMP:
                 add = tree->AsVal()->gtVal1;
                 break;
-
             default:
                 add = 0;
                 break;
@@ -2862,7 +2841,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                     }
 
 #ifdef TARGET_AMD64
-                    if (!GenTreeIntConCommon::FitsInI32(tree->AsIntCon()->GetValue()))
+                    if (!FitsIn<int32_t>(tree->AsIntCon()->GetValue()))
                     {
                         costSz = 10;
                         costEx = 2;
@@ -2887,7 +2866,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                 ssize_t conVal    = static_cast<ssize_t>(value); // truncate to 32-bits
                 bool    fitsInVal = conVal == value;
 
-                if (fitsInVal && GenTreeIntConCommon::FitsInI8(conVal))
+                if (fitsInVal && FitsIn<int8_t>(conVal))
                 {
                     costSz = 2;
                     costEx = 2;
@@ -3464,7 +3443,9 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
     {
         case GT_CNS_STR:
         case GT_CNS_INT:
+#ifndef TARGET_64BIT
         case GT_CNS_LNG:
+#endif
         case GT_CNS_DBL:
         case GT_ARGPLACE:
         case GT_PHI:
@@ -4159,24 +4140,18 @@ GenTreeIntCon* Compiler::gtNewStringLiteralLength(GenTreeStrCon* node)
     return nullptr;
 }
 
-/*****************************************************************************/
-
 GenTree* Compiler::gtNewLconNode(int64_t value)
 {
 #ifdef TARGET_64BIT
-    GenTree* node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_LONG, value);
+    return new (this, GT_CNS_INT) GenTreeIntCon(TYP_LONG, value);
 #else
-    GenTree*                  node = new (this, GT_CNS_LNG) GenTreeLngCon(value);
+    return new (this, GT_CNS_LNG) GenTreeLngCon(value);
 #endif
-
-    return node;
 }
 
 GenTree* Compiler::gtNewDconNode(double value, var_types type)
 {
-    GenTree* node = new (this, GT_CNS_DBL) GenTreeDblCon(value, type);
-
-    return node;
+    return new (this, GT_CNS_DBL) GenTreeDblCon(value, type);
 }
 
 GenTree* Compiler::gtNewSconNode(int CPX, CORINFO_MODULE_HANDLE scpHandle)
@@ -4924,26 +4899,23 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
         case GT_CNS_INT:
             copy = new (this, GT_CNS_INT) GenTreeIntCon(tree->AsIntCon());
             break;
-
+#ifndef TARGET_64BIT
         case GT_CNS_LNG:
-            copy = gtNewLconNode(tree->AsLngCon()->gtLconVal);
+            copy = new (this, GT_CNS_LNG) GenTreeLngCon(tree->AsLngCon()->GetValue());
             break;
-
+#endif
         case GT_LCL_VAR:
             tree->gtFlags |= GTF_VAR_CLONED;
             copy = new (this, GT_LCL_VAR) GenTreeLclVar(tree->AsLclVar());
             break;
-
         case GT_LCL_FLD:
             tree->gtFlags |= GTF_VAR_CLONED;
             copy = new (this, GT_LCL_FLD) GenTreeLclFld(tree->AsLclFld());
             break;
-
         case GT_LCL_ADDR:
             tree->gtFlags |= GTF_VAR_CLONED;
             copy = new (this, GT_LCL_ADDR) GenTreeLclAddr(tree->AsLclAddr());
             break;
-
         case GT_CLS_VAR_ADDR:
             copy = new (this, GT_CLS_VAR_ADDR) GenTreeClsVar(tree->AsClsVar());
             break;
@@ -5040,14 +5012,13 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
             case GT_CNS_INT:
                 copy = new (this, GT_CNS_INT) GenTreeIntCon(tree->AsIntCon());
                 goto DONE;
-
+#ifndef TARGET_64BIT
             case GT_CNS_LNG:
-                copy = gtNewLconNode(tree->AsLngCon()->gtLconVal);
+                copy = new (this, GT_CNS_LNG) GenTreeLngCon(tree->AsLngCon()->GetValue());
                 goto DONE;
-
+#endif
             case GT_CNS_DBL:
-                copy         = gtNewDconNode(tree->AsDblCon()->gtDconVal);
-                copy->gtType = tree->gtType; // keep the same type
+                copy = new (this, GT_CNS_DBL) GenTreeDblCon(tree->AsDblCon()->GetValue(), tree->GetType());
                 goto DONE;
 
             case GT_CNS_STR:
@@ -5837,7 +5808,9 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_FTN_ADDR:
         case GT_RET_EXPR:
         case GT_CNS_INT:
+#ifndef TARGET_64BIT
         case GT_CNS_LNG:
+#endif
         case GT_CNS_DBL:
         case GT_CNS_STR:
         case GT_MEMORYBARRIER:
@@ -5848,9 +5821,9 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_START_NONGC:
         case GT_START_PREEMPTGC:
         case GT_PROF_HOOK:
-#if !defined(FEATURE_EH_FUNCLETS)
+#ifndef FEATURE_EH_FUNCLETS
         case GT_END_LFIN:
-#endif // !FEATURE_EH_FUNCLETS
+#endif
         case GT_JMPTABLE:
         case GT_CLS_VAR_ADDR:
         case GT_ARGPLACE:
@@ -7234,9 +7207,11 @@ void Compiler::gtDispConst(GenTree* tree)
             }
             break;
 
+#ifndef TARGET_64BIT
         case GT_CNS_LNG:
             printf(" 0x%016I64x", tree->AsLngCon()->GetValue());
             break;
+#endif
         case GT_CNS_DBL:
             printf(" %#.17g", tree->AsDblCon()->GetValue());
             break;
@@ -10179,7 +10154,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
                 const int64_t l1 = op1->AsIntCon()->GetValue();
 #else
-                const int64_t l1   = op1->AsLngCon()->GetValue();
+                const int64_t l1 = op1->AsLngCon()->GetValue();
 #endif
 
                 switch (tree->GetOper())
@@ -10599,7 +10574,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
             const int64_t l1 = op1->AsIntCon()->GetValue();
             const int64_t l2 = op2->AsIntCon()->GetValue();
 #else
-            const int64_t     l1   = op1->AsLngCon()->GetValue();
+            const int64_t     l1 = op1->AsLngCon()->GetValue();
             // Shift operators may have an INT op2.
             const int64_t l2 = op2->IsLngCon() ? op2->AsLngCon()->GetValue() : op2->AsIntCon()->GetInt32Value();
 #endif
@@ -11599,29 +11574,31 @@ bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
     {
         // During Ngen JIT is always asked to generate relocatable code.
         // Hence JIT will try to encode only icon handles as pc-relative offsets.
-        return IsIconHandle() && (IMAGE_REL_BASED_REL32 == comp->eeGetRelocTypeHint((void*)IconValue()));
+
+        return IsIconHandle() &&
+               (comp->eeGetRelocTypeHint(reinterpret_cast<void*>(gtIconVal)) == IMAGE_REL_BASED_REL32);
     }
-    else
-    {
-        // During Jitting, we are allowed to generate non-relocatable code.
-        // On Amd64 we can encode an absolute indirect addr as an offset relative to zero or RIP.
-        // An absolute indir addr that can fit within 32-bits can ben encoded as an offset relative
-        // to zero. All other absolute indir addr could be attempted to be encoded as RIP relative
-        // based on reloc hint provided by VM.  RIP relative encoding is preferred over relative
-        // to zero, because the former is one byte smaller than the latter.  For this reason
-        // we check for reloc hint first and then whether addr fits in 32-bits next.
-        //
-        // VM starts off with an initial state to allow both data and code address to be encoded as
-        // pc-relative offsets.  Hence JIT will attempt to encode all absolute addresses as pc-relative
-        // offsets.  It is possible while jitting a method, an address could not be encoded as a
-        // pc-relative offset.  In that case VM will note the overflow and will trigger re-jitting
-        // of the method with reloc hints turned off for all future methods. Second time around
-        // jitting will succeed since JIT will not attempt to encode data addresses as pc-relative
-        // offsets.  Note that JIT will always attempt to relocate code addresses (.e.g call addr).
-        // After an overflow, VM will assume any relocation recorded is for a code address and will
-        // emit jump thunk if it cannot be encoded as pc-relative offset.
-        return (IMAGE_REL_BASED_REL32 == comp->eeGetRelocTypeHint((void*)IconValue())) || FitsInI32();
-    }
+
+    // During Jitting, we are allowed to generate non-relocatable code.
+    // On Amd64 we can encode an absolute indirect addr as an offset relative to zero or RIP.
+    // An absolute indir addr that can fit within 32-bits can ben encoded as an offset relative
+    // to zero. All other absolute indir addr could be attempted to be encoded as RIP relative
+    // based on reloc hint provided by VM.  RIP relative encoding is preferred over relative
+    // to zero, because the former is one byte smaller than the latter.  For this reason
+    // we check for reloc hint first and then whether addr fits in 32-bits next.
+    //
+    // VM starts off with an initial state to allow both data and code address to be encoded as
+    // pc-relative offsets.  Hence JIT will attempt to encode all absolute addresses as pc-relative
+    // offsets.  It is possible while jitting a method, an address could not be encoded as a
+    // pc-relative offset.  In that case VM will note the overflow and will trigger re-jitting
+    // of the method with reloc hints turned off for all future methods. Second time around
+    // jitting will succeed since JIT will not attempt to encode data addresses as pc-relative
+    // offsets.  Note that JIT will always attempt to relocate code addresses (.e.g call addr).
+    // After an overflow, VM will assume any relocation recorded is for a code address and will
+    // emit jump thunk if it cannot be encoded as pc-relative offset.
+
+    return FitsIn<int32_t>(gtIconVal) ||
+           (comp->eeGetRelocTypeHint(reinterpret_cast<void*>(gtIconVal)) == IMAGE_REL_BASED_REL32);
 }
 
 // Returns true if this icon value is encoded as addr needs recording a relocation with VM

@@ -132,9 +132,6 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
         case GT_GT:
         case GT_INTRINSIC:
         case GT_OBJ:
-#ifdef TARGET_64BIT
-        case GT_CNS_LNG:
-#endif
         case GT_CNS_INT:
         case GT_CNS_DBL:
             // TODO-MIKE-CQ: Might want to add CLS_VAR_ADDR to this, especially on ARM.

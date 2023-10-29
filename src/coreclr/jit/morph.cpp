@@ -20,7 +20,7 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
 {
     GenTree* src = cast->GetOp(0);
 
-    if (src->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
+    if (src->IsNumericConst())
     {
         GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
 
@@ -29,7 +29,7 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
             return fgMorphTree(folded);
         }
 
-        if (folded->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
+        if (folded->IsNumericConst())
         {
             return folded;
         }
@@ -578,7 +578,9 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
     switch (src->GetOper())
     {
         case GT_CNS_INT:
+#ifndef TARGET_64BIT
         case GT_CNS_LNG:
+#endif
         case GT_CNS_DBL:
         {
             GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
@@ -5302,15 +5304,16 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
 
 GenTree* Compiler::fgMorphStringIndexIndir(GenTreeIndexAddr* index)
 {
-    // Fold "cns_str"[cns_index] to ushort constant
-    if (index->GetIndex()->IsIntCnsFitsInI32())
+    if (GenTreeIntCon* intCon = index->GetIndex()->IsIntConFitsInInt32())
     {
-        const int cnsIndex = static_cast<int>(index->GetIndex()->AsIntCon()->GetValue());
+        const int32_t cnsIndex = intCon->GetInt32Value();
+
         if (cnsIndex >= 0)
         {
             int             length;
             const char16_t* str = info.compCompHnd->getStringLiteral(index->GetArray()->AsStrCon()->gtScpHnd,
                                                                      index->GetArray()->AsStrCon()->gtSconCPX, &length);
+
             if ((cnsIndex < length) && (str != nullptr))
             {
                 GenTree* cnsCharNode = gtNewIconNode(str[cnsIndex], TYP_INT);
@@ -7930,18 +7933,18 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
     bool     needToAssignParameter = true;
 
     // TODO-CQ: enable calls with struct arguments passed in registers.
-    noway_assert(!varTypeIsStruct(arg->TypeGet()));
+    noway_assert(!varTypeIsStruct(arg->GetType()));
 
-    if (argTabEntry->HasTemp() || arg->IsCnsIntOrI() || arg->IsCnsFltOrDbl())
+    if (argTabEntry->HasTemp() || arg->IsIntCon() || arg->IsDblCon())
     {
         // The argument is already assigned to a temp or is a const.
         argInTemp = arg;
     }
     else if (arg->OperIs(GT_LCL_VAR))
     {
-        unsigned   lclNum = arg->AsLclVar()->GetLclNum();
-        LclVarDsc* varDsc = lvaGetDesc(lclNum);
-        if (!varDsc->IsParam())
+        unsigned lclNum = arg->AsLclVar()->GetLclNum();
+
+        if (!lvaGetDesc(lclNum)->IsParam())
         {
             // The argument is a non-parameter local so it doesn't need to be assigned to a temp.
             argInTemp = arg;
@@ -10479,57 +10482,47 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             goto ASSIGN_HELPER_FOR_MOD;
 
         case GT_UMOD:
+#ifdef TARGET_XARCH
+            // If this is an unsigned long mod with a constant divisor, then don't
+            // morph to a helper call - it can be done faster inline using idiv.
 
-#ifdef TARGET_ARMARCH
-//
-// Note for TARGET_ARMARCH we don't have  a remainder instruction, so we don't do this optimization
-//
-#else  // TARGET_XARCH
-            // If this is an unsigned long mod with a constant divisor,
-            // then don't morph to a helper call - it can be done faster inline using idiv.
-
-            noway_assert(op2);
-            if ((typ == TYP_LONG) && opts.OptEnabled(CLFLG_CONSTANTFOLD))
+            if ((typ == TYP_LONG) && op2->OperIs(GT_CNS_NATIVELONG) && opts.OptEnabled(CLFLG_CONSTANTFOLD) &&
+                (op2->AsIntConCommon()->LngValue() >= 2) && (op2->AsIntConCommon()->LngValue() <= 0x3fffffff))
             {
-                if (op2->OperIs(GT_CNS_NATIVELONG) && op2->AsIntConCommon()->LngValue() >= 2 &&
-                    op2->AsIntConCommon()->LngValue() <= 0x3fffffff)
+                op1 = fgMorphTree(op1);
+                noway_assert(op1->TypeIs(TYP_LONG));
+                tree->AsOp()->SetOp(0, op1);
+
+                // Update flags for op1 morph.
+                tree->gtFlags &= ~GTF_ALL_EFFECT;
+
+                // Only update with op1 as op2 is a constant.
+                tree->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
+
+                // If op1 is a constant, then do constant folding of the division operator.
+                if (op1->OperIs(GT_CNS_NATIVELONG))
                 {
-                    tree->AsOp()->gtOp1 = op1 = fgMorphTree(op1);
-                    noway_assert(op1->TypeIs(TYP_LONG));
-
-                    // Update flags for op1 morph.
-                    tree->gtFlags &= ~GTF_ALL_EFFECT;
-
-                    // Only update with op1 as op2 is a constant.
-                    tree->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
-
-                    // If op1 is a constant, then do constant folding of the division operator.
-                    if (op1->OperIs(GT_CNS_NATIVELONG))
-                    {
-                        tree = gtFoldExpr(tree);
-                    }
-
-                    if (!tree->OperIsConst())
-                    {
-                        tree->AsOp()->CheckDivideByConstOptimized(this);
-                    }
-
-                    return tree;
+                    tree = gtFoldExpr(tree);
                 }
+
+                if (!tree->IsNumericConst())
+                {
+                    tree->AsOp()->CheckDivideByConstOptimized(this);
+                }
+
+                return tree;
             }
 #endif // TARGET_XARCH
 
         ASSIGN_HELPER_FOR_MOD:
-
             // For "val % 1", return 0 if op1 doesn't have any side effects
+
             if ((op1->gtFlags & GTF_SIDE_EFFECT) == 0)
             {
                 if (op2->IsIntegralConst(1))
                 {
                     GenTree* zeroNode = gtNewZeroConNode(typ);
-#ifdef DEBUG
-                    zeroNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
+                    INDEBUG(zeroNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
                     DEBUG_DESTROY_NODE(tree);
                     return zeroNode;
                 }
@@ -11076,16 +11069,16 @@ DONE_MORPHING_CHILDREN:
             //
             ival2 = INT_MAX; // The value of INT_MAX for ival2 just means that the constant value is not 0 or 1
 
-            // cast to unsigned allows test for both 0 and 1
-            if ((cns2->gtOper == GT_CNS_INT) && (((size_t)cns2->AsIntConCommon()->IconValue()) <= 1U))
+            if (cns2->IsIntCon() && (cns2->AsIntCon()->GetUnsignedValue() <= 1u))
             {
-                ival2 = (size_t)cns2->AsIntConCommon()->IconValue();
+                ival2 = cns2->AsIntCon()->GetUnsignedValue();
             }
-            else // cast to UINT64 allows test for both 0 and 1
-                if ((cns2->gtOper == GT_CNS_LNG) && (((UINT64)cns2->AsIntConCommon()->LngValue()) <= 1ULL))
+#ifndef TARGET_64BIT
+            else if (cns2->IsLngCon() && (cns2->AsLngCon()->GetUInt64Value() <= 1ull))
             {
-                ival2 = (size_t)cns2->AsIntConCommon()->LngValue();
+                ival2 = static_cast<uint32_t>(cns2->AsLngCon()->GetUInt64Value());
             }
+#endif
 
             if (ival2 != INT_MAX)
             {
@@ -13367,7 +13360,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
     if (kind & GTK_LEAF)
     {
-        if (tree->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
+        if (tree->IsNumericConst())
         {
             // Clear any exception flags or other unnecessary flags that
             // may have been set before folding this node to a constant.

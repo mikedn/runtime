@@ -1187,12 +1187,25 @@ public:
     static bool OperIsConst(genTreeOps gtOper)
     {
         // TODO-MIKE-Cleanup: Including GT_CNS_STR in "const" operator is as dumb as it gets.
-        return (gtOper == GT_CNS_INT) || (gtOper == GT_CNS_LNG) || (gtOper == GT_CNS_DBL) || (gtOper == GT_CNS_STR);
+        return (gtOper == GT_CNS_INT) ||
+#ifndef TARGET_64BIT
+               (gtOper == GT_CNS_LNG) ||
+#endif
+               (gtOper == GT_CNS_DBL) || (gtOper == GT_CNS_STR);
     }
 
     bool OperIsConst() const
     {
         return OperIsConst(gtOper);
+    }
+
+    bool IsNumericConst() const
+    {
+#ifdef TARGET_64BIT
+        return OperIs(GT_CNS_INT, GT_CNS_DBL);
+#else
+        return OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL);
+#endif
     }
 
     static bool OperIsLeaf(genTreeOps gtOper)
@@ -1779,10 +1792,9 @@ public:
         gtFlags &= ~GTF_OVERFLOW;
     }
 
-    bool IsCnsIntOrI() const;
-    bool IsIntegralConst() const;
-    bool IsIntCnsFitsInI32();
-    bool IsCnsFltOrDbl() const;
+    bool           IsCnsIntOrI() const;
+    bool           IsIntegralConst() const;
+    GenTreeIntCon* IsIntConFitsInInt32();
 
     bool IsIconHandle() const
     {
@@ -2476,6 +2488,21 @@ struct GenTreeOp : public GenTreeUnOp
 #endif
 };
 
+struct GenTreePhysReg : public GenTree
+{
+    // PhysReg needs a field beyond GetRegNum() because GetRegNum() indicates
+    // the destination (and can be changed) whereas reg indicates the source
+    regNumber gtSrcReg;
+
+    GenTreePhysReg(regNumber reg, var_types type = TYP_I_IMPL) : GenTree(GT_PHYSREG, type), gtSrcReg(reg)
+    {
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreePhysReg() = default;
+#endif
+};
+
 struct GenTreeVal : public GenTree
 {
     size_t gtVal1;
@@ -2483,114 +2510,64 @@ struct GenTreeVal : public GenTree
     GenTreeVal(genTreeOps oper, var_types type, ssize_t val) : GenTree(oper, type), gtVal1(val)
     {
     }
+
 #if DEBUGGABLE_GENTREE
-    GenTreeVal() : GenTree()
-    {
-    }
+    GenTreeVal() = default;
 #endif
 };
 
 struct GenTreeIntConCommon : public GenTree
 {
-    inline INT64 LngValue() const;
-    inline void SetLngValue(INT64 val);
-    inline ssize_t IconValue() const;
-    inline void SetIconValue(ssize_t val);
-    inline INT64 IntegralValue() const;
-
-    GenTreeIntConCommon(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false))
-        : GenTree(oper, type DEBUGARG(largeNode))
+    GenTreeIntConCommon(genTreeOps oper, var_types type) : GenTree(oper, type DEBUGARG(/* largeNode */ false))
     {
     }
 
-    bool FitsInI8() // IconValue() fits into 8-bit signed storage
-    {
-        return FitsInI8(IconValue());
-    }
+    int64_t LngValue() const;
+    void SetLngValue(int64_t val);
 
-    static bool FitsInI8(ssize_t val) // Constant fits into 8-bit signed storage
-    {
-        return (int8_t)val == val;
-    }
+    ssize_t IconValue() const;
+    void SetIconValue(ssize_t val);
 
-    bool FitsInI32() // IconValue() fits into 32-bit signed storage
-    {
-        return FitsInI32(IconValue());
-    }
-
-    static bool FitsInI32(ssize_t val) // Constant fits into 32-bit signed storage
-    {
-#ifdef TARGET_64BIT
-        return (int32_t)val == val;
-#else
-        return true;
-#endif
-    }
+    int64_t GetValue() const;
 
 #if DEBUGGABLE_GENTREE
-    GenTreeIntConCommon() : GenTree()
-    {
-    }
-#endif
-};
-
-// node representing a read from a physical register
-struct GenTreePhysReg : public GenTree
-{
-    // physregs need a field beyond GetRegNum() because
-    // GetRegNum() indicates the destination (and can be changed)
-    // whereas reg indicates the source
-    regNumber gtSrcReg;
-    GenTreePhysReg(regNumber r, var_types type = TYP_I_IMPL) : GenTree(GT_PHYSREG, type), gtSrcReg(r)
-    {
-    }
-#if DEBUGGABLE_GENTREE
-    GenTreePhysReg() : GenTree()
-    {
-    }
+    GenTreeIntConCommon() = default;
 #endif
 };
 
 const char* dmpGetHandleKindName(GenTreeFlags flags);
 
-/* gtIntCon -- integer constant (GT_CNS_INT) */
+// This is the GT_CNS_INT struct definition.
+// It's used to hold for both int constants and pointer handle constants.
+// For the 64-bit targets we will only use GT_CNS_INT as it used to represent all the possible sizes
+// For the 32-bit targets we use a GT_CNS_LNG to hold a 64-bit integer constant and GT_CNS_INT for all others.
+// In the future when we retarget the JIT for x86 we should consider eliminating GT_CNS_LNG
 struct GenTreeIntCon : public GenTreeIntConCommon
 {
-    /*
-     * This is the GT_CNS_INT struct definition.
-     * It's used to hold for both int constants and pointer handle constants.
-     * For the 64-bit targets we will only use GT_CNS_INT as it used to represent all the possible sizes
-     * For the 32-bit targets we use a GT_CNS_LNG to hold a 64-bit integer constant and GT_CNS_INT for all others.
-     * In the future when we retarget the JIT for x86 we should consider eliminating GT_CNS_LNG
-     */
-    ssize_t gtIconVal; // Must overlap and have the same offset with the gtIconVal field in GenTreeLngCon below.
+    ssize_t gtIconVal; // Must have the same offset as the gtIconVal field in GenTreeLngCon below.
 
-    /* The InitializeArray intrinsic needs to go back to the newarray statement
-       to find the class handle of the array so that we can get its size.  However,
-       in ngen mode, the handle in that statement does not correspond to the compile
-       time handle (rather it lets you get a handle at run-time).  In that case, we also
-       need to store a compile time handle, which goes in this gtCompileTimeHandle field.
-    */
-    ssize_t gtCompileTimeHandle;
-
-    // If this constant represents the offset of one or more fields, "m_fieldSeq" represents that
-    // sequence of fields.
+    // If this constant represents the offset of one or more fields, "m_fieldSeq"
+    // represents that sequence of fields.
     FieldSeqNode* m_fieldSeq;
 
-    // If the value represents target address, holds the method handle to that target which is used
-    // to fetch target method name and display in the disassembled code.
+    // The InitializeArray intrinsic needs to go back to the newarray statement to
+    // find the class handle of the array so that we can get its size. However, in
+    // ngen mode, the handle in that statement does not correspond to the compile
+    // time handle (rather it lets you get a handle at run-time). In that case,
+    // we also need to store a compile time handle, which goes in this field.
+    ssize_t gtCompileTimeHandle = 0;
+
+    // If the value represents target address, holds the method handle to that target
+    // which is used to fetch target method name and display in the disassembled code.
     INDEBUG(size_t gtTargetHandle = 0;)
 
     GenTreeIntCon(var_types type, ssize_t value)
-        : GenTreeIntConCommon(GT_CNS_INT, type)
-        , gtIconVal(value)
-        , gtCompileTimeHandle(0)
-        , m_fieldSeq(FieldSeqStore::NotAField())
+        : GenTreeIntConCommon(GT_CNS_INT, type), gtIconVal(value), m_fieldSeq(FieldSeqStore::NotAField())
     {
     }
 
     GenTreeIntCon(var_types type, ssize_t value, FieldSeqNode* fieldSeq)
-        : GenTreeIntConCommon(GT_CNS_INT, type), gtIconVal(value), gtCompileTimeHandle(0), m_fieldSeq(fieldSeq)
+        : GenTreeIntConCommon(GT_CNS_INT, type), gtIconVal(value), m_fieldSeq(fieldSeq)
     {
         assert(fieldSeq != nullptr);
     }
@@ -2598,8 +2575,8 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     GenTreeIntCon(const GenTreeIntCon* copyFrom)
         : GenTreeIntConCommon(GT_CNS_INT, copyFrom->GetType())
         , gtIconVal(copyFrom->gtIconVal)
-        , gtCompileTimeHandle(copyFrom->gtCompileTimeHandle)
         , m_fieldSeq(copyFrom->m_fieldSeq)
+        , gtCompileTimeHandle(copyFrom->gtCompileTimeHandle)
 #ifdef DEBUG
         , gtTargetHandle(copyFrom->gtTargetHandle)
 #endif
@@ -2777,25 +2754,14 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 #endif
 };
 
-/* gtLngCon -- long    constant (GT_CNS_LNG) */
-
+#ifndef TARGET_64BIT
 struct GenTreeLngCon : public GenTreeIntConCommon
 {
-    int64_t gtLconVal; // Must overlap and have the same offset with the gtIconVal field in GenTreeIntCon above.
+    int64_t gtLconVal; // Must have the same offset as the gtIconVal field in GenTreeIntCon above.
 
-    int32_t LoVal() const
+    GenTreeLngCon(int64_t value) : GenTreeIntConCommon(GT_CNS_LNG, TYP_LONG)
     {
-        return static_cast<int32_t>(gtLconVal & 0xffffffff);
-    }
-
-    int32_t HiVal() const
-    {
-        return static_cast<int32_t>(gtLconVal >> 32);
-    }
-
-    GenTreeLngCon(int64_t val) : GenTreeIntConCommon(GT_CNS_NATIVELONG, TYP_LONG)
-    {
-        SetLngValue(val);
+        SetLngValue(value);
     }
 
     int64_t GetValue() const
@@ -2814,58 +2780,49 @@ struct GenTreeLngCon : public GenTreeIntConCommon
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeLngCon() : GenTreeIntConCommon()
-    {
-    }
+    GenTreeLngCon() = default;
 #endif
 };
 
-inline INT64 GenTreeIntConCommon::LngValue() const
+static_assert_no_msg(offsetof(GenTreeLngCon, gtLconVal) == offsetof(GenTreeIntCon, gtIconVal));
+#endif // !TARGET_64BIT
+
+inline int64_t GenTreeIntConCommon::LngValue() const
 {
-#ifndef TARGET_64BIT
-    assert(gtOper == GT_CNS_LNG);
-    return AsLngCon()->gtLconVal;
+#ifdef TARGET_64BIT
+    return AsIntCon()->GetValue();
 #else
-    return IconValue();
+    return AsLngCon()->GetValue();
 #endif
 }
 
-inline void GenTreeIntConCommon::SetLngValue(INT64 val)
+inline void GenTreeIntConCommon::SetLngValue(int64_t val)
 {
-#ifndef TARGET_64BIT
-    assert(gtOper == GT_CNS_LNG);
-    AsLngCon()->gtLconVal = val;
+#ifdef TARGET_64BIT
+    AsIntCon()->SetValue(val);
 #else
-    // Compile time asserts that these two fields overlap and have the same offsets:  gtIconVal and gtLconVal
-    C_ASSERT(offsetof(GenTreeLngCon, gtLconVal) == offsetof(GenTreeIntCon, gtIconVal));
-    C_ASSERT(sizeof(AsLngCon()->gtLconVal) == sizeof(AsIntCon()->gtIconVal));
-
-    SetIconValue(ssize_t(val));
+    AsLngCon()->SetValue(val);
 #endif
 }
 
 inline ssize_t GenTreeIntConCommon::IconValue() const
 {
-    assert(gtOper == GT_CNS_INT); //  We should never see a GT_CNS_LNG for a 64-bit target!
-    return AsIntCon()->gtIconVal;
+    return AsIntCon()->GetValue();
 }
 
 inline void GenTreeIntConCommon::SetIconValue(ssize_t val)
 {
-    assert(gtOper == GT_CNS_INT); //  We should never see a GT_CNS_LNG for a 64-bit target!
-    AsIntCon()->gtIconVal = val;
+    AsIntCon()->SetValue(val);
 }
 
-inline INT64 GenTreeIntConCommon::IntegralValue() const
+inline int64_t GenTreeIntConCommon::GetValue() const
 {
 #ifdef TARGET_64BIT
-    return LngValue();
+    return AsIntCon()->GetValue();
 #else
-    return gtOper == GT_CNS_LNG ? LngValue() : (INT64)IconValue();
-#endif // TARGET_64BIT
+    return IsLngCon() ? AsLngCon()->GetValue() : static_cast<int64_t>(AsIntCon()->GetValue());
+#endif
 }
-
-/* gtDblCon -- double  constant (GT_CNS_DBL) */
 
 struct GenTreeDblCon : public GenTree
 {
@@ -7506,15 +7463,17 @@ inline bool GenTree::IsHWIntrinsicZero() const
 
 inline bool GenTree::IsIntegralConst(ssize_t constVal) const
 {
-    if ((gtOper == GT_CNS_INT) && (AsIntConCommon()->IconValue() == constVal))
+    if ((gtOper == GT_CNS_INT) && (AsIntCon()->GetValue() == constVal))
     {
         return true;
     }
 
-    if ((gtOper == GT_CNS_LNG) && (AsIntConCommon()->LngValue() == constVal))
+#ifndef TARGET_64BIT
+    if ((gtOper == GT_CNS_LNG) && (AsLngCon()->GetValue() == constVal))
     {
         return true;
     }
+#endif
 
     return false;
 }
@@ -7783,7 +7742,7 @@ inline bool GenTree::IsCopyOrReloadOfMultiRegCall() const
 
 inline bool GenTree::IsCnsIntOrI() const
 {
-    return (gtOper == GT_CNS_INT);
+    return IsIntCon();
 }
 
 inline bool GenTree::IsIntegralConst() const
@@ -7791,28 +7750,22 @@ inline bool GenTree::IsIntegralConst() const
 #ifdef TARGET_64BIT
     return IsIntCon();
 #else
-    return ((gtOper == GT_CNS_INT) || (gtOper == GT_CNS_LNG));
+    return IsIntConCommon();
 #endif
 }
 
-// Is this node an integer constant that fits in a 32-bit signed integer (INT32)
-inline bool GenTree::IsIntCnsFitsInI32()
+inline GenTreeIntCon* GenTree::IsIntConFitsInInt32()
 {
 #ifdef TARGET_64BIT
-    return IsIntCon() && AsIntCon()->FitsInI32();
+    return IsIntCon() && FitsIn<int32_t>(AsIntCon()->GetValue()) ? AsIntCon() : nullptr;
 #else
     return IsIntCon();
 #endif
 }
 
-inline bool GenTree::IsCnsFltOrDbl() const
-{
-    return OperGet() == GT_CNS_DBL;
-}
-
 inline bool GenTree::IsHelperCall()
 {
-    return OperGet() == GT_CALL && AsCall()->gtCallType == CT_HELPER;
+    return IsCall() && AsCall()->IsHelperCall();
 }
 
 #ifndef HOST_64BIT

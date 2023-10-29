@@ -3249,22 +3249,25 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         // Fold PopCount for constant input
         case NI_System_Numerics_BitOperations_PopCount:
             assert(sig->numArgs == 1);
-            if (impStackTop().val->IsIntegralConst())
+            if (GenTreeIntConCommon* intCon = impStackTop().val->IsIntConCommon())
             {
-                CORINFO_CLASS_HANDLE argClass;
-                CorInfoType          corArgType = strip(info.compCompHnd->getArgType(sig, sig->args, &argClass));
+                impPopStack();
 
-                var_types argType = JITtype2varType(corArgType);
-                int64_t   cns     = impPopStack().val->AsIntConCommon()->IntegralValue();
+                CORINFO_CLASS_HANDLE argClass;
+                var_types argType = CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, sig->args, &argClass)));
+                unsigned  popCount;
+
                 if (argType == TYP_LONG)
                 {
-                    retNode = gtNewIconNode(genCountBits(cns), callType);
+                    popCount = genCountBits(intCon->GetValue());
                 }
                 else
                 {
                     assert(argType == TYP_INT);
-                    retNode = gtNewIconNode(genCountBits(static_cast<unsigned>(cns)), callType);
+                    popCount = genCountBits(intCon->AsIntCon()->GetUInt32Value());
                 }
+
+                retNode = gtNewIconNode(popCount, callType);
             }
             break;
 
@@ -10194,7 +10197,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     uns  = false;
                 }
 
-                if (op1->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL) && !op2->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
+                if (op1->IsNumericConst() && !op2->IsNumericConst())
                 {
                     oper = GenTree::SwapRelop(oper);
                     std::swap(op1, op2);
@@ -10281,7 +10284,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     break;
                 }
 
-                if (op1->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL) && !op2->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
+                if (op1->IsNumericConst() && !op2->IsNumericConst())
                 {
                     oper = GenTree::SwapRelop(oper);
                     std::swap(op1, op2);

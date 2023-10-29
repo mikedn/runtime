@@ -378,13 +378,13 @@ void Compiler::fgDumpTree(FILE* fgxFile, GenTree* const tree)
         fprintf(fgxFile, " %s ", opName);
         fgDumpTree(fgxFile, rhs);
     }
-    else if (tree->IsCnsIntOrI())
+    else if (GenTreeIntCon* intCon = tree->IsIntCon())
     {
-        fprintf(fgxFile, "%d", tree->AsIntCon()->gtIconVal);
+        fprintf(fgxFile, "%d", intCon->GetValue());
     }
-    else if (tree->IsCnsFltOrDbl())
+    else if (GenTreeDblCon* dblCon = tree->IsDblCon())
     {
-        fprintf(fgxFile, "%g", tree->AsDblCon()->gtDconVal);
+        fprintf(fgxFile, "%g", dblCon->GetValue());
     }
     else if (tree->OperIs(GT_LCL_VAR))
     {

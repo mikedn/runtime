@@ -1107,7 +1107,7 @@ private:
     // returns that constant (up to the limit on number of returns); in
     // `returnConstants` we track the constant values returned by these
     // merged constant return blocks.
-    INT64 returnConstants[ReturnCountHardLimit];
+    int64_t returnConstants[ReturnCountHardLimit];
 
     // Indicators of where in the lexical block list we'd like to place
     // each constant return block.
@@ -1280,7 +1280,7 @@ private:
         {
             returnExpr = comp->gtNewOperNode(GT_RETURN, returnConst->GetType(), returnConst);
 
-            returnConstants[index] = returnConst->IntegralValue();
+            returnConstants[index] = returnConst->GetValue();
         }
         else if (comp->info.compRetBuffArg != BAD_VAR_NUM)
         {
@@ -1521,7 +1521,7 @@ private:
     //
     BasicBlock* FindConstReturnBlock(GenTreeIntConCommon* constExpr, unsigned searchLimit, unsigned* index)
     {
-        INT64 constVal = constExpr->IntegralValue();
+        int64_t constVal = constExpr->GetValue();
 
         for (unsigned i = 0; i < searchLimit; ++i)
         {

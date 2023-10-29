@@ -30,7 +30,9 @@ GTNODE(RET_EXPR         , GenTreeRetExpr      , GTK_LEAF|GTK_NOTLIR)  // Place h
 //-----------------------------------------------------------------------------
 
 GTNODE(CNS_INT          , GenTreeIntCon       , GTK_LEAF)
+#ifndef TARGET_64BIT
 GTNODE(CNS_LNG          , GenTreeLngCon       , GTK_LEAF)
+#endif
 GTNODE(CNS_DBL          , GenTreeDblCon       , GTK_LEAF)
 GTNODE(CNS_STR          , GenTreeStrCon       , GTK_LEAF)
 

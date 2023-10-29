@@ -296,7 +296,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
                         MakeSrcContained(putArgStk, fieldNode);
                     }
                 }
-                else if (fieldNode->IsIntCnsFitsInI32())
+                else if (fieldNode->IsIntConFitsInInt32())
                 {
                     MakeSrcContained(putArgStk, fieldNode);
                 }
@@ -3194,7 +3194,7 @@ bool Lowering::IsCallTargetInRange(void* addr)
 // return true if the immediate can be folded into an instruction, for example small enough and non-relocatable
 bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
 {
-    return childNode->IsIntCnsFitsInI32() && !childNode->AsIntCon()->ImmedValNeedsReloc(comp);
+    return childNode->IsIntConFitsInInt32() && !childNode->AsIntCon()->ImmedValNeedsReloc(comp);
 }
 
 //-----------------------------------------------------------------------

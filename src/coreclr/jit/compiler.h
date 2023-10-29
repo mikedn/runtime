@@ -7172,7 +7172,9 @@ public:
             case GT_FTN_ADDR:
             case GT_RET_EXPR:
             case GT_CNS_INT:
+#ifndef TARGET_64BIT
             case GT_CNS_LNG:
+#endif
             case GT_CNS_DBL:
             case GT_CNS_STR:
             case GT_MEMORYBARRIER:
@@ -7183,9 +7185,9 @@ public:
             case GT_START_NONGC:
             case GT_START_PREEMPTGC:
             case GT_PROF_HOOK:
-#if !defined(FEATURE_EH_FUNCLETS)
+#ifndef FEATURE_EH_FUNCLETS
             case GT_END_LFIN:
-#endif // !FEATURE_EH_FUNCLETS
+#endif
             case GT_JMPTABLE:
             case GT_CLS_VAR_ADDR:
             case GT_ARGPLACE:

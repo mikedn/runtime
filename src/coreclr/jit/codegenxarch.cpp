@@ -461,7 +461,7 @@ bool CodeGen::genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 // GenTree node representing it. Otherwise, one should always use FitsInAddrBase().
 bool CodeGen::genCodeIndirAddrCanBeEncodedAsZeroRelOffset(size_t addr)
 {
-    return GenTreeIntConCommon::FitsInI32((ssize_t)addr);
+    return FitsIn<int32_t>(static_cast<ssize_t>(addr));
 }
 
 // Return true if an absolute indirect code address needs a relocation recorded with VM.

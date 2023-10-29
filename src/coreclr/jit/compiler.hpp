@@ -985,9 +985,6 @@ inline void GenTree::ChangeOperUnchecked(genTreeOps oper)
 
 inline void GenTree::ChangeOperConst(genTreeOps oper)
 {
-#ifdef TARGET_64BIT
-    assert(oper != GT_CNS_LNG); // We should never see a GT_CNS_LNG for a 64-bit target!
-#endif
     assert(OperIsConst(oper)); // use ChangeOper/ChangeToIntCon/ChangeToLngCon/ChangeToDblCon
 
     SetOperResetFlags(oper);
@@ -1778,7 +1775,9 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_FTN_ADDR:
         case GT_RET_EXPR:
         case GT_CNS_INT:
+#ifndef TARGET_64BIT
         case GT_CNS_LNG:
+#endif
         case GT_CNS_DBL:
         case GT_CNS_STR:
         case GT_MEMORYBARRIER:
