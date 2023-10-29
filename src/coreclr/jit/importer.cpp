@@ -4067,7 +4067,7 @@ GenTree* Importer::impArrayAccessIntrinsic(
     {
         if (varTypeIsStruct(elemType))
         {
-            arrElem = gtNewObjNode(sig->retTypeClass, arrElem);
+            arrElem = gtNewObjNode(typGetObjLayout(sig->retTypeClass), arrElem);
         }
         else
         {
@@ -4924,7 +4924,7 @@ GenTree* Importer::impTransformThis(GenTree*                thisPtr,
 
             if (type == TYP_STRUCT)
             {
-                indir = gtNewObjNode(pConstrainedResolvedToken->hClass, thisPtr);
+                indir = gtNewObjNode(typGetObjLayout(pConstrainedResolvedToken->hClass), thisPtr);
             }
             else
             {
@@ -5491,7 +5491,7 @@ GenTree* Importer::impImportFieldInstanceAddrHelper(OPCODE                    op
 
     if (varTypeIsStruct(type))
     {
-        indir = gtNewObjNode(structType, addr);
+        indir = gtNewObjNode(typGetObjLayout(structType), addr);
     }
     else
     {
@@ -11287,7 +11287,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (lclTyp == TYP_STRUCT)
                 {
-                    op1 = gtNewObjNode(resolvedToken.hClass, op1);
+                    op1 = gtNewObjNode(typGetObjLayout(resolvedToken.hClass), op1);
                 }
                 else
                 {
@@ -11968,7 +11968,7 @@ LOAD_VALUE:
 
     if (lclTyp == TYP_STRUCT)
     {
-        op1 = gtNewObjNode(resolvedToken.hClass, op1);
+        op1 = gtNewObjNode(typGetObjLayout(resolvedToken.hClass), op1);
     }
     else
     {
@@ -16604,7 +16604,7 @@ GenTree* Importer::impImportTlsFieldAccess(OPCODE                    opcode,
 
     if (varTypeIsStruct(type))
     {
-        indir = gtNewObjNode(fieldInfo.structType, addr);
+        indir = gtNewObjNode(typGetObjLayout(fieldInfo.structType), addr);
     }
     else
     {
@@ -17603,11 +17603,6 @@ GenTreeIndir* Importer::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldA
 GenTreeIndir* Importer::gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr)
 {
     return comp->gtNewFieldIndir(type, layoutNum, fieldAddr);
-}
-
-GenTreeObj* Importer::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr)
-{
-    return comp->gtNewObjNode(structHnd, addr);
 }
 
 GenTreeObj* Importer::gtNewObjNode(ClassLayout* layout, GenTree* addr)

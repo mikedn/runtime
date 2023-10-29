@@ -4562,21 +4562,6 @@ GenTreeOp* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
     return asg;
 }
 
-//------------------------------------------------------------------------
-// gtNewObjNode: Creates a new Obj node.
-//
-// Arguments:
-//    structHnd - The class handle of the struct type.
-//    addr      - The address of the struct.
-//
-// Return Value:
-//    Returns a node representing the struct value at the given address.
-//
-GenTreeObj* Compiler::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr)
-{
-    return gtNewObjNode(typGetObjLayout(structHnd), addr);
-}
-
 GenTreeObj* Compiler::gtNewObjNode(ClassLayout* layout, GenTree* addr)
 {
     return gtNewObjNode(typGetStructType(layout), layout, addr);
