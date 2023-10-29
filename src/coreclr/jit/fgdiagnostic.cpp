@@ -2893,6 +2893,9 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 case GT_CALL:
                     // Calls may have argument "setup" trees that are stores but
                     // their GTF_ASG side effect is not inherited by the call node.
+                    // Struct args can have complicated setup, where the temp store
+                    // is hidden inside a COMMA/FIELD_LIST, so we'll simply check
+                    // for GTF_ASG instead of a store node.
 
                     if (GenTreeCall::Use* thisArg = node->AsCall()->gtCallThisArg)
                     {
@@ -2904,7 +2907,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
 
                     for (GenTreeCall::Use& arg : node->AsCall()->Args())
                     {
-                        if (arg.GetNode()->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_LCL_DEF))
+                        if (arg.GetNode()->HasAnySideEffect(GTF_ASG))
                         {
                             actualFlags |= GTF_ASG;
                         }
