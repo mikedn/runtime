@@ -290,19 +290,17 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
         fgInsertStmtAtEnd(bottom, stmt);
     }
 
-    GenTree* indir;
+    GenTree* addr;
 
     if (addrOfTrapReturningThreadsAddr != nullptr)
     {
-        size_t   handle = reinterpret_cast<size_t>(addrOfTrapReturningThreadsAddr);
-        GenTree* addr   = gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, HandleKind::ConstData, true);
-        indir           = gtNewIndir(TYP_INT, addr);
-        indir->gtFlags |= GTF_IND_NONFAULTING;
+        size_t handle = reinterpret_cast<size_t>(addrOfTrapReturningThreadsAddr);
+        addr          = gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, HandleKind::ConstData, true);
     }
     else
     {
         size_t handle = reinterpret_cast<size_t>(trapReturningThreadsAddr);
-        indir         = gtNewIndOfIconHandleNode(TYP_INT, handle, HandleKind::MutableData, false);
+        addr          = gtNewIconHandleNode(handle, HandleKind::MutableData);
     }
 
     // NOTE: In native code this load is done via LoadWithoutBarrier() to ensure that
@@ -311,6 +309,8 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
     // and the location is formally unknown, so the load should not be optimized thus
     // no special flags are needed.
 
+    GenTreeIndir* indir = gtNewIndir(TYP_INT, addr);
+    indir->gtFlags |= GTF_IND_NONFAULTING | GTF_GLOB_REF;
     GenTree* trapEq = gtNewOperNode(GT_EQ, TYP_INT, indir, gtNewIconNode(0, TYP_INT));
     trapEq->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
     GenTree*   trapCheck     = gtNewOperNode(GT_JTRUE, TYP_VOID, trapEq);
