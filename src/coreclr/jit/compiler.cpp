@@ -5141,9 +5141,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                     case HandleKind::MutableData:
                         chars += printf("[ICON_MUTABLE_DATA]");
                         break;
-                    case HandleKind::Varargs:
-                        chars += printf("[ICON_VARARGS]");
-                        break;
                     case HandleKind::PInvoke:
                         chars += printf("[ICON_PINVOKE]");
                         break;

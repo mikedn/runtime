@@ -7075,7 +7075,7 @@ GenTree* Importer::CreateVarargsCallArgHandle(GenTreeCall* call, CORINFO_SIG_INF
     void* handle = info.compCompHnd->getVarArgsHandle(sig, &handleAddr);
     assert((handle == nullptr) != (handleAddr == nullptr));
 
-    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::Varargs, sig);
+    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::ConstData, sig);
 }
 
 GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
