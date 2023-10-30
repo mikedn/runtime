@@ -2515,16 +2515,102 @@ struct GenTreePhysReg : public GenTree
 #endif
 };
 
-struct GenTreeVal : public GenTree
+#ifndef FEATURE_EH_FUNCLETS
+struct GenTreeEndLFin : public GenTree
 {
-    size_t gtVal1;
+private:
+    unsigned nesting;
 
-    GenTreeVal(genTreeOps oper, var_types type, ssize_t val) : GenTree(oper, type), gtVal1(val)
+public:
+    GenTreeEndLFin(unsigned nesting) : GenTree(GT_END_LFIN, TYP_VOID), nesting(nesting)
     {
     }
 
+    GenTreeEndLFin(const GenTreeEndLFin* copyFrom) : GenTree(GT_END_LFIN, TYP_VOID), nesting(copyFrom->nesting)
+    {
+    }
+
+    unsigned GetNesting() const
+    {
+        return nesting;
+    }
+
+    void SetNesting(unsigned level)
+    {
+        nesting = level;
+    }
+
 #if DEBUGGABLE_GENTREE
-    GenTreeVal() = default;
+    GenTreeEndLFin() = default;
+#endif
+};
+#endif // !FEATURE_EH_FUNCLETS
+
+struct GenTreeJmp : public GenTree
+{
+private:
+    CORINFO_METHOD_HANDLE handle;
+
+public:
+    GenTreeJmp(CORINFO_METHOD_HANDLE handle) : GenTree(GT_JMP, TYP_VOID), handle(handle)
+    {
+    }
+
+    GenTreeJmp(const GenTreeJmp* copyFrom) : GenTree(GT_JMP, TYP_VOID), handle(copyFrom->handle)
+    {
+    }
+
+    CORINFO_METHOD_HANDLE GetMethodHandle() const
+    {
+        return handle;
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeJmp() = default;
+#endif
+};
+
+struct GenTreeMethodAddr : public GenTree
+{
+private:
+    CORINFO_METHOD_HANDLE handle;
+#ifdef FEATURE_READYTORUN_COMPILER
+    CORINFO_CONST_LOOKUP entryPoint{};
+#endif
+
+public:
+    GenTreeMethodAddr(CORINFO_METHOD_HANDLE handle) : GenTree(GT_METHOD_ADDR, TYP_I_IMPL), handle(handle)
+    {
+    }
+
+    GenTreeMethodAddr(const GenTreeMethodAddr* copyFrom)
+        : GenTree(GT_METHOD_ADDR, TYP_I_IMPL)
+        , handle(copyFrom->handle)
+#ifdef FEATURE_READYTORUN_COMPILER
+        , entryPoint(copyFrom->entryPoint)
+#endif
+    {
+    }
+
+    CORINFO_METHOD_HANDLE GetMethodHandle() const
+    {
+        return handle;
+    }
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    const CORINFO_CONST_LOOKUP& GetEntryPoint() const
+    {
+        return entryPoint;
+    }
+
+    void SetEntryPoint(const CORINFO_CONST_LOOKUP& value)
+    {
+        entryPoint = value;
+    }
+#endif
+
+#if DEBUGGABLE_GENTREE
+    GenTreeMethodAddr() = default;
 #endif
 };
 
@@ -2924,14 +3010,34 @@ struct GenTreeDblCon : public GenTree
 
 struct GenTreeStrCon : public GenTree
 {
-    unsigned              gtSconCPX;
-    CORINFO_MODULE_HANDLE gtScpHnd;
+private:
+    CORINFO_MODULE_HANDLE handle;
+    mdToken               token;
 
-    // Because this node can come from an inlined method we need to
-    // have the scope handle, since it will become a helper call.
-    GenTreeStrCon(unsigned sconCPX, CORINFO_MODULE_HANDLE mod DEBUGARG(bool largeNode = false))
-        : GenTree(GT_CNS_STR, TYP_REF DEBUGARG(largeNode)), gtSconCPX(sconCPX), gtScpHnd(mod)
+public:
+    GenTreeStrCon(CORINFO_MODULE_HANDLE handle, mdToken token)
+        : GenTree(GT_CNS_STR, TYP_REF DEBUGARG(/* largeNode */ false)), handle(handle), token(token)
     {
+    }
+
+    GenTreeStrCon(const GenTreeStrCon* copyFrom)
+        : GenTree(GT_CNS_STR, TYP_REF DEBUGARG(/* largeNode */ false)), handle(copyFrom->handle), token(copyFrom->token)
+    {
+    }
+
+    CORINFO_MODULE_HANDLE GetModuleHandle() const
+    {
+        return handle;
+    }
+
+    mdToken GetToken() const
+    {
+        return token;
+    }
+
+    static bool Equals(const GenTreeStrCon* s1, const GenTreeStrCon* s2)
+    {
+        return (s1->handle == s2->handle) && (s1->token == s2->token);
     }
 
 #if DEBUGGABLE_GENTREE
@@ -5202,34 +5308,7 @@ struct GenTreeCmpXchg : public GenTreeTernaryOp
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeCmpXchg() : GenTreeTernaryOp()
-    {
-    }
-#endif
-};
-
-struct GenTreeFptrVal : public GenTree
-{
-    CORINFO_METHOD_HANDLE gtFptrMethod;
-#ifdef FEATURE_READYTORUN_COMPILER
-    CORINFO_CONST_LOOKUP gtEntryPoint;
-#endif
-
-    GenTreeFptrVal(var_types type, CORINFO_METHOD_HANDLE meth) : GenTree(GT_FTN_ADDR, type), gtFptrMethod(meth)
-    {
-#ifdef FEATURE_READYTORUN_COMPILER
-        gtEntryPoint.addr       = nullptr;
-        gtEntryPoint.accessType = IAT_VALUE;
-#endif
-    }
-
-    CORINFO_METHOD_HANDLE GetMethodHandle() const
-    {
-        return gtFptrMethod;
-    }
-
-#if DEBUGGABLE_GENTREE
-    GenTreeFptrVal() = default;
+    GenTreeCmpXchg() = default;
 #endif
 };
 

@@ -1051,7 +1051,6 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 assert(lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
                 FALLTHROUGH;
             case GT_LABEL:
-            case GT_FTN_ADDR:
             case GT_CNS_INT:
 #ifndef TARGET_64BIT
             case GT_CNS_LNG:

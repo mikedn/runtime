@@ -635,12 +635,12 @@ inline GenTreeIntCon* Compiler::gtNewIconHandleNode(size_t value, HandleKind kin
 // It may not be allowed to embed HANDLEs directly into the JITed code (for eg,
 // as arguments to JIT helpers). Get a corresponding value that can be embedded.
 // These are versions for each specific type of HANDLE
-inline GenTree* Compiler::gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd)
+inline GenTree* Compiler::gtNewIconEmbModHndNode(CORINFO_MODULE_HANDLE modHnd)
 {
     void* handleAddr;
-    void* handle = reinterpret_cast<void*>(info.compCompHnd->embedModuleHandle(scpHnd, &handleAddr));
+    void* handle = reinterpret_cast<void*>(info.compCompHnd->embedModuleHandle(modHnd, &handleAddr));
 
-    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::Module, scpHnd);
+    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::Module, modHnd);
 }
 
 inline GenTree* Compiler::gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd)
@@ -1731,7 +1731,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_LCL_ADDR:
         case GT_CATCH_ARG:
         case GT_LABEL:
-        case GT_FTN_ADDR:
+        case GT_METHOD_ADDR:
         case GT_RET_EXPR:
         case GT_CNS_INT:
 #ifndef TARGET_64BIT

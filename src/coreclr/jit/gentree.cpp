@@ -190,7 +190,10 @@ LONG GenTree::s_gtNodeCounts[GT_COUNT + 1] = {0};
 static_assert_no_msg(sizeof(GenTree)             <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeUnOp)         <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeOp)           <= TREE_NODE_SZ_SMALL);
-static_assert_no_msg(sizeof(GenTreeVal)          <= TREE_NODE_SZ_SMALL);
+#ifndef FEATURE_EH_FUNCLETS
+static_assert_no_msg(sizeof(GenTreeEndLFin)      <= TREE_NODE_SZ_SMALL);
+#endif
+static_assert_no_msg(sizeof(GenTreeJmp)          <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeIntConCommon) <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreePhysReg)      <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeIntCon)       <= TREE_NODE_SZ_SMALL);
@@ -209,7 +212,7 @@ static_assert_no_msg(sizeof(GenTreeBox)          <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeFieldAddr)    <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeFieldList)    <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeCmpXchg)      <= TREE_NODE_SZ_SMALL);
-static_assert_no_msg(sizeof(GenTreeFptrVal)      <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeMethodAddr)   <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeQmark)        <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeIndexAddr)    <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeArrLen)       <= TREE_NODE_SZ_SMALL);
@@ -1040,8 +1043,7 @@ AGAIN:
                 return op1->AsDblCon()->GetBits() == op2->AsDblCon()->GetBits();
 #endif
             case GT_CNS_STR:
-                return (op1->AsStrCon()->gtSconCPX == op2->AsStrCon()->gtSconCPX) &&
-                       (op1->AsStrCon()->gtScpHnd == op2->AsStrCon()->gtScpHnd);
+                return GenTreeStrCon::Equals(op1->AsStrCon(), op2->AsStrCon());
             default:
                 return false;
         }
@@ -1338,10 +1340,11 @@ AGAIN:
 #endif
                 break;
             case GT_CNS_STR:
-                add = tree->AsStrCon()->gtSconCPX;
+                // TODO-MIKE-Review: This ignores the handle.
+                add = tree->AsStrCon()->GetToken();
                 break;
             case GT_JMP:
-                add = tree->AsVal()->gtVal1;
+                add = reinterpret_cast<size_t>(tree->AsJmp()->GetMethodHandle());
                 break;
             default:
                 add = 0;
@@ -4101,7 +4104,7 @@ GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* addr)
 GenTreeIntCon* Compiler::gtNewStringLiteralLength(GenTreeStrCon* node)
 {
     int             length = -1;
-    const char16_t* str    = info.compCompHnd->getStringLiteral(node->gtScpHnd, node->gtSconCPX, &length);
+    const char16_t* str    = info.compCompHnd->getStringLiteral(node->GetModuleHandle(), node->GetToken(), &length);
     if (length >= 0)
     {
         GenTreeIntCon* iconNode = gtNewIconNode(length);
@@ -4134,12 +4137,9 @@ GenTree* Compiler::gtNewDconNode(double value, var_types type)
     return new (this, GT_CNS_DBL) GenTreeDblCon(value, type);
 }
 
-GenTree* Compiler::gtNewSconNode(int CPX, CORINFO_MODULE_HANDLE scpHandle)
+GenTreeStrCon* Compiler::gtNewSconNode(CORINFO_MODULE_HANDLE module, mdToken token)
 {
-    // 'GT_CNS_STR' nodes later get transformed into 'GT_CALL'
-    assert(GenTree::s_gtNodeSizes[GT_CALL] > GenTree::s_gtNodeSizes[GT_CNS_STR]);
-    GenTree* node = new (this, GT_CALL) GenTreeStrCon(CPX, scpHandle DEBUGARG(/*largeNode*/ true));
-    return node;
+    return new (this, GT_CNS_STR) GenTreeStrCon(module, token);
 }
 
 GenTree* Compiler::gtNewZeroConNode(var_types type)
@@ -5000,9 +5000,8 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
             case GT_CNS_DBL:
                 copy = new (this, GT_CNS_DBL) GenTreeDblCon(tree->AsDblCon()->GetValue(), tree->GetType());
                 goto DONE;
-
             case GT_CNS_STR:
-                copy = gtNewSconNode(tree->AsStrCon()->gtSconCPX, tree->AsStrCon()->gtScpHnd);
+                copy = new (this, GT_CNS_STR) GenTreeStrCon(tree->AsStrCon());
                 goto DONE;
 
             case GT_LCL_VAR:
@@ -5036,52 +5035,31 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
                 goto DONE;
 
             case GT_LCL_USE:
-                copy = new (this, GT_LCL_USE) GenTreeLclUse(tree->AsLclUse());
+                copy = new (this, oper) GenTreeLclUse(tree->AsLclUse());
                 goto DONE;
-
             case GT_CLS_VAR_ADDR:
-                copy = new (this, GT_CLS_VAR_ADDR) GenTreeClsVar(tree->AsClsVar());
+                copy = new (this, oper) GenTreeClsVar(tree->AsClsVar());
                 goto DONE;
-
-            case GT_RET_EXPR:
-                // GT_RET_EXPR is unique node, that contains a link to a gtInlineCandidate node,
-                // that is part of another statement. We cannot clone both here and cannot
-                // create another GT_RET_EXPR that points to the same gtInlineCandidate.
-                NO_WAY("Cloning of GT_RET_EXPR node not supported");
+            case GT_METHOD_ADDR:
+                copy = new (this, oper) GenTreeMethodAddr(tree->AsMethodAddr());
                 goto DONE;
-
-            case GT_MEMORYBARRIER:
-                copy = new (this, GT_MEMORYBARRIER) GenTree(GT_MEMORYBARRIER, TYP_VOID);
+            case GT_JMP:
+                copy = new (this, oper) GenTreeJmp(tree->AsJmp());
                 goto DONE;
-
-            case GT_ARGPLACE:
-                copy = new (this, GT_ARGPLACE) GenTree(GT_ARGPLACE, tree->GetType());
+#ifndef FEATURE_EH_FUNCLETS
+            case GT_END_LFIN:
+                copy = new (this, oper) GenTreeEndLFin(tree->AsEndLFin());
                 goto DONE;
-
-            case GT_FTN_ADDR:
-                copy = new (this, oper) GenTreeFptrVal(tree->gtType, tree->AsFptrVal()->gtFptrMethod);
-
-#ifdef FEATURE_READYTORUN_COMPILER
-                copy->AsFptrVal()->gtEntryPoint = tree->AsFptrVal()->gtEntryPoint;
 #endif
-                goto DONE;
-
+            case GT_MEMORYBARRIER:
+            case GT_ARGPLACE:
             case GT_CATCH_ARG:
             case GT_NO_OP:
             case GT_LABEL:
-                copy = new (this, oper) GenTree(oper, tree->gtType);
+                copy = new (this, oper) GenTree(tree);
                 goto DONE;
-
-#if !defined(FEATURE_EH_FUNCLETS)
-            case GT_END_LFIN:
-#endif // !FEATURE_EH_FUNCLETS
-            case GT_JMP:
-                copy = new (this, oper) GenTreeVal(oper, tree->gtType, tree->AsVal()->gtVal1);
-                goto DONE;
-
             default:
-                NO_WAY("Cloning of node not supported");
-                goto DONE;
+                unreached();
         }
     }
 
@@ -5785,7 +5763,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_LCL_ADDR:
         case GT_CATCH_ARG:
         case GT_LABEL:
-        case GT_FTN_ADDR:
+        case GT_METHOD_ADDR:
         case GT_RET_EXPR:
         case GT_CNS_INT:
 #ifndef TARGET_64BIT
@@ -7267,6 +7245,9 @@ void Compiler::gtDispLeaf(GenTree* tree)
 
     switch (tree->GetOper())
     {
+        const char* methodName;
+        const char* className;
+
         case GT_LCL_FLD:
         case GT_LCL_VAR:
         case GT_LCL_ADDR:
@@ -7276,16 +7257,6 @@ void Compiler::gtDispLeaf(GenTree* tree)
         case GT_LCL_USE:
             dmpSsaDefUse(tree);
             break;
-
-        case GT_JMP:
-        {
-            const char* methodName;
-            const char* className;
-
-            methodName = eeGetMethodName((CORINFO_METHOD_HANDLE)tree->AsVal()->gtVal1, &className);
-            printf(" %s.%s\n", className, methodName);
-        }
-        break;
 
         case GT_CLS_VAR_ADDR:
             printf(" %#x", dspPtr(tree->AsClsVar()->GetFieldHandle()));
@@ -7298,27 +7269,23 @@ void Compiler::gtDispLeaf(GenTree* tree)
             }
             break;
 
-        case GT_LABEL:
-            break;
-
-        case GT_FTN_ADDR:
-        {
-            const char* methodName;
-            const char* className;
-
-            methodName = eeGetMethodName((CORINFO_METHOD_HANDLE)tree->AsFptrVal()->gtFptrMethod, &className);
+        case GT_JMP:
+            methodName = eeGetMethodName(tree->AsJmp()->GetMethodHandle(), &className);
             printf(" %s.%s\n", className, methodName);
-        }
-        break;
-
-#if !defined(FEATURE_EH_FUNCLETS)
-        case GT_END_LFIN:
-            printf(" endNstLvl=%d", tree->AsVal()->gtVal1);
             break;
-#endif // !FEATURE_EH_FUNCLETS
 
-        // Vanilla leaves. No qualifying information available. So do nothing
+        case GT_METHOD_ADDR:
+            methodName = eeGetMethodName(tree->AsMethodAddr()->GetMethodHandle(), &className);
+            printf(" %s.%s\n", className, methodName);
+            break;
 
+#ifndef FEATURE_EH_FUNCLETS
+        case GT_END_LFIN:
+            printf(" endNstLvl=%d", tree->AsEndLFin()->GetNesting());
+            break;
+#endif
+
+        case GT_LABEL:
         case GT_NO_OP:
         case GT_START_NONGC:
         case GT_START_PREEMPTGC:

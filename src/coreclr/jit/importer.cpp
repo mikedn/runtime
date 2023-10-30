@@ -1165,30 +1165,22 @@ GenTree* Importer::gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* lookup,
 }
 #endif
 
-GenTree* Importer::impMethodPointer(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_CALL_INFO* callInfo)
+GenTree* Importer::impMethodPointer(CORINFO_RESOLVED_TOKEN& resolvedToken, CORINFO_CALL_INFO& callInfo)
 {
-    switch (callInfo->kind)
+    if (callInfo.kind == CORINFO_CALL)
     {
-        case CORINFO_CALL:
-            GenTree* op1;
-            op1 = new (comp, GT_FTN_ADDR) GenTreeFptrVal(TYP_I_IMPL, callInfo->hMethod);
-
+        GenTreeMethodAddr* addr = new (comp, GT_METHOD_ADDR) GenTreeMethodAddr(callInfo.hMethod);
 #ifdef FEATURE_READYTORUN_COMPILER
-            if (opts.IsReadyToRun())
-            {
-                op1->AsFptrVal()->gtEntryPoint = callInfo->codePointerLookup.constLookup;
-            }
+        if (opts.IsReadyToRun())
+        {
+            addr->SetEntryPoint(callInfo.codePointerLookup.constLookup);
+        }
 #endif
-
-            return op1;
-
-        case CORINFO_CALL_CODE_POINTER:
-            return impLookupToTree(resolvedToken, &callInfo->codePointerLookup, HandleKind::MethodAddr,
-                                   callInfo->hMethod);
-
-        default:
-            unreached();
+        return addr;
     }
+
+    noway_assert(callInfo.kind == CORINFO_CALL_CODE_POINTER);
+    return impLookupToTree(&resolvedToken, &callInfo.codePointerLookup, HandleKind::MethodAddr, callInfo.hMethod);
 }
 
 /*****************************************************************************/
@@ -2395,7 +2387,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     src->gtFlags &= ~GTF_EXCEPT;
     src->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
-    srcAddr->AsIntCon()->SetDumpHandle(reinterpret_cast<void*>(THT_IntializeArrayIntrinsics));
+    INDEBUG(srcAddr->AsIntCon()->SetDumpHandle(reinterpret_cast<void*>(THT_IntializeArrayIntrinsics)));
 
     return gtNewAssignNode(dst, src);
 }
@@ -6132,7 +6124,7 @@ void Importer::impInsertHelperCall(const CORINFO_HELPER_DESC& helperInfo)
                 currentArg = gtNewIconEmbClsHndNode(helperArg.classHandle);
                 break;
             case CORINFO_HELPER_ARG_TYPE_Module:
-                currentArg = gtNewIconEmbScpHndNode(helperArg.moduleHandle);
+                currentArg = gtNewIconEmbModHndNode(helperArg.moduleHandle);
                 break;
             case CORINFO_HELPER_ARG_TYPE_Const:
                 currentArg = gtNewIconNode(helperArg.constant);
@@ -7691,7 +7683,7 @@ void Importer::impImportLeave(BasicBlock* block)
             assert(finallyNesting <= comp->compHndBBtabCount);
 
             callBlock->bbJumpDest = HBtab->ebdHndBeg; // This callBlock will call the "finally" handler.
-            GenTree* endLFin      = new (comp, GT_END_LFIN) GenTreeVal(GT_END_LFIN, TYP_VOID, finallyNesting);
+            GenTree* endLFin      = new (comp, GT_END_LFIN) GenTreeEndLFin(finallyNesting);
             endLFinStmt           = gtNewStmt(endLFin);
             endCatches            = NULL;
 
@@ -9126,7 +9118,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 val = getU4LittleEndian(codeAddr);
                 JITDUMP(" %08X", val);
-                impPushOnStack(gtNewSconNode(val, info.compScopeHnd));
+                impPushOnStack(gtNewSconNode(info.compScopeHnd, static_cast<mdToken>(val)));
                 break;
 
             case CEE_LDARG:
@@ -12083,7 +12075,7 @@ void Importer::ImportJmp(const BYTE* codeAddr, BasicBlock* block)
     // Probably they messed up arg passing...
     comp->fgNoStructPromotion = true;
 
-    impSpillNoneAppendTree(new (comp, GT_JMP) GenTreeVal(GT_JMP, TYP_VOID, (size_t)resolvedToken.hMethod));
+    impSpillNoneAppendTree(new (comp, GT_JMP) GenTreeJmp(resolvedToken.hMethod));
 }
 
 void Importer::ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags)
@@ -12104,7 +12096,7 @@ void Importer::ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constra
 
     impHandleAccessAllowed(callInfo.accessAllowed, callInfo.callsiteCalloutHelper);
 
-    GenTree* result = impMethodPointer(&resolvedToken, &callInfo);
+    GenTree* result = impMethodPointer(resolvedToken, callInfo);
 
     if (compDonotInline())
     {
@@ -12157,7 +12149,7 @@ void Importer::ImportLdVirtFtn(const BYTE* codeAddr)
             impAppendTree(gtUnusedValNode(obj), CHECK_SPILL_ALL);
         }
 
-        result = impMethodPointer(&resolvedToken, &callInfo);
+        result = impMethodPointer(resolvedToken, callInfo);
     }
     else
     {
@@ -17461,9 +17453,9 @@ GenTree* Importer::gtNewIconEmbHndNode(void* value, void* pValue, HandleKind kin
     return comp->gtNewIconEmbHndNode(value, pValue, kind, compileTimeHandle);
 }
 
-GenTree* Importer::gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd)
+GenTree* Importer::gtNewIconEmbModHndNode(CORINFO_MODULE_HANDLE modHnd)
 {
-    return comp->gtNewIconEmbScpHndNode(scpHnd);
+    return comp->gtNewIconEmbModHndNode(modHnd);
 }
 
 GenTree* Importer::gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd)
@@ -17501,9 +17493,9 @@ GenTree* Importer::gtNewDconNode(double value, var_types type)
     return comp->gtNewDconNode(value, type);
 }
 
-GenTree* Importer::gtNewSconNode(int cpx, CORINFO_MODULE_HANDLE module)
+GenTreeStrCon* Importer::gtNewSconNode(CORINFO_MODULE_HANDLE module, mdToken token)
 {
-    return comp->gtNewSconNode(cpx, module);
+    return comp->gtNewSconNode(module, token);
 }
 
 GenTree* Importer::gtNewNothingNode()

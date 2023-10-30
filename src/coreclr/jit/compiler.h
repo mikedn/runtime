@@ -2082,7 +2082,7 @@ struct Importer
         CORINFO_CLASS_HANDLE clsHnd, CORINFO_SIG_INFO* sig, int memberRef, bool readonlyCall, NamedIntrinsic name);
     GenTree* impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig);
 
-    GenTree* impMethodPointer(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_CALL_INFO* callInfo);
+    GenTree* impMethodPointer(CORINFO_RESOLVED_TOKEN& resolvedToken, CORINFO_CALL_INFO& callInfo);
 
     GenTree* impTransformThis(GenTree*                thisPtr,
                               CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
@@ -2371,7 +2371,7 @@ struct Importer
     GenTreeIntCon* gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
     GenTreeIntCon* gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
     GenTree* gtNewIconEmbHndNode(void* value, void* pValue, HandleKind handleKind, void* compileTimeHandle);
-    GenTree* gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd);
+    GenTree* gtNewIconEmbModHndNode(CORINFO_MODULE_HANDLE modHnd);
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
     GenTree* gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd);
     GenTree* gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd);
@@ -2379,7 +2379,7 @@ struct Importer
     GenTree* gtNewZeroConNode(var_types type);
     GenTree* gtNewOneConNode(var_types type);
     GenTree* gtNewDconNode(double value, var_types type = TYP_DOUBLE);
-    GenTree* gtNewSconNode(int cpx, CORINFO_MODULE_HANDLE module);
+    GenTreeStrCon* gtNewSconNode(CORINFO_MODULE_HANDLE module, mdToken token);
     GenTree* gtNewNothingNode();
     GenTree* gtUnusedValNode(GenTree* expr);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
@@ -3004,7 +3004,7 @@ public:
                                   CORINFO_LOOKUP*         lookup,
                                   HandleKind              handleKind,
                                   void*                   compileTimeHandle);
-    GenTree* gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd);
+    GenTree* gtNewIconEmbModHndNode(CORINFO_MODULE_HANDLE modHnd);
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
     GenTree* gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd);
     GenTree* gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd);
@@ -3015,7 +3015,7 @@ public:
 
     GenTree* gtNewDconNode(double value, var_types type = TYP_DOUBLE);
 
-    GenTree* gtNewSconNode(int CPX, CORINFO_MODULE_HANDLE scpHandle);
+    GenTreeStrCon* gtNewSconNode(CORINFO_MODULE_HANDLE module, mdToken token);
 
     GenTree* gtNewZeroConNode(var_types type);
 
@@ -4701,7 +4701,7 @@ private:
         }
     };
 
-    GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index);
+    GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index, GenTreeStrCon* str);
     GenTree* fgMorphCast(GenTreeCast* cast);
     GenTree* fgMorphCastPost(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
@@ -7155,7 +7155,7 @@ public:
             case GT_LCL_USE:
             case GT_CATCH_ARG:
             case GT_LABEL:
-            case GT_FTN_ADDR:
+            case GT_METHOD_ADDR:
             case GT_RET_EXPR:
             case GT_CNS_INT:
 #ifndef TARGET_64BIT

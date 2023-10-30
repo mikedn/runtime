@@ -5301,8 +5301,10 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
     return;
 }
 
-GenTree* Compiler::fgMorphStringIndexIndir(GenTreeIndexAddr* index)
+GenTree* Compiler::fgMorphStringIndexIndir(GenTreeIndexAddr* index, GenTreeStrCon* str)
 {
+    assert(index->GetArray() == str);
+
     if (GenTreeIntCon* intCon = index->GetIndex()->IsIntConFitsInInt32())
     {
         const int32_t cnsIndex = intCon->GetInt32Value();
@@ -5310,12 +5312,12 @@ GenTree* Compiler::fgMorphStringIndexIndir(GenTreeIndexAddr* index)
         if (cnsIndex >= 0)
         {
             int             length;
-            const char16_t* str = info.compCompHnd->getStringLiteral(index->GetArray()->AsStrCon()->gtScpHnd,
-                                                                     index->GetArray()->AsStrCon()->gtSconCPX, &length);
+            const char16_t* chars =
+                info.compCompHnd->getStringLiteral(str->GetModuleHandle(), str->GetToken(), &length);
 
             if ((cnsIndex < length) && (str != nullptr))
             {
-                GenTree* cnsCharNode = gtNewIconNode(str[cnsIndex], TYP_INT);
+                GenTree* cnsCharNode = gtNewIconNode(chars[cnsIndex], TYP_INT);
                 INDEBUG(cnsCharNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
                 return cnsCharNode;
             }
@@ -7250,7 +7252,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
 
     // Add callTarget
     callDispatcherNode->gtCallArgs =
-        gtPrependNewCallArg(new (this, GT_FTN_ADDR) GenTreeFptrVal(TYP_I_IMPL, callTargetStubHnd),
+        gtPrependNewCallArg(new (this, GT_METHOD_ADDR) GenTreeMethodAddr(callTargetStubHnd),
                             callDispatcherNode->gtCallArgs);
 
     // Add the caller's return address slot.
@@ -8298,30 +8300,30 @@ GenTree* Compiler::fgMorphStrCon(GenTreeStrCon* tree, Statement* stmt, BasicBloc
 
     if (useLazyStrCns)
     {
-        CorInfoHelpFunc helper = info.compCompHnd->getLazyStringLiteralHelper(tree->gtScpHnd);
+        CorInfoHelpFunc helper = info.compCompHnd->getLazyStringLiteralHelper(tree->GetModuleHandle());
+
         if (helper != CORINFO_HELP_UNDEF)
         {
-            // For un-important blocks, we want to construct the string lazily
-
+            GenTree*          token = gtNewIconNode(RidFromToken(tree->GetToken()));
             GenTreeCall::Use* args;
+
             if (helper == CORINFO_HELP_STRCNS_CURRENT_MODULE)
             {
-                args = gtNewCallArgs(gtNewIconNode(RidFromToken(tree->gtSconCPX), TYP_INT));
+                args = gtNewCallArgs(token);
             }
             else
             {
-                args = gtNewCallArgs(gtNewIconNode(RidFromToken(tree->gtSconCPX), TYP_INT),
-                                     gtNewIconEmbScpHndNode(tree->gtScpHnd));
+                assert(helper == CORINFO_HELP_STRCNS);
+                args = gtNewCallArgs(token, gtNewIconEmbModHndNode(tree->GetModuleHandle()));
             }
 
-            return fgMorphTree(gtNewHelperCallNode(helper, TYP_REF, args));
+            return gtNewHelperCallNode(helper, TYP_REF, args);
         }
     }
 
-    void*          pValue;
-    InfoAccessType iat = info.compCompHnd->constructStringLiteral(tree->gtScpHnd, tree->gtSconCPX, &pValue);
-
-    return fgMorphTree(gtNewStringLiteralNode(iat, pValue));
+    void*          addr;
+    InfoAccessType iat = info.compCompHnd->constructStringLiteral(tree->GetModuleHandle(), tree->GetToken(), &addr);
+    return gtNewStringLiteralNode(iat, addr);
 }
 
 GenTree* Compiler::fgMorphLeaf(GenTree* tree)
@@ -8343,37 +8345,37 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
         return tree;
     }
 
-    if (GenTreeFptrVal* fptr = tree->IsFptrVal())
+    if (GenTreeMethodAddr* method = tree->IsMethodAddr())
     {
-        CORINFO_CONST_LOOKUP addrInfo;
+        CORINFO_CONST_LOOKUP entry;
 
 #ifdef FEATURE_READYTORUN_COMPILER
-        if (fptr->gtEntryPoint.addr != nullptr)
+        if (method->GetEntryPoint().addr != nullptr)
         {
-            addrInfo = fptr->gtEntryPoint;
+            entry = method->GetEntryPoint();
         }
         else
 #endif
         {
-            info.compCompHnd->getFunctionFixedEntryPoint(fptr->gtFptrMethod, &addrInfo);
+            info.compCompHnd->getFunctionFixedEntryPoint(method->GetMethodHandle(), &entry);
         }
 
-        ssize_t handle = reinterpret_cast<size_t>(addrInfo.handle);
-
-        switch (addrInfo.accessType)
+        switch (entry.accessType)
         {
             case IAT_PPVALUE:
-                GenTree* indNode;
-                indNode = gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, HandleKind::ConstData, true);
-                indNode = gtNewIndir(TYP_I_IMPL, indNode);
-                indNode->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
                 DEBUG_DESTROY_NODE(tree);
-                return fgMorphTree(indNode);
+                tree = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(entry.addr), HandleKind::ConstData,
+                                                true);
+                tree = gtNewIndir(TYP_I_IMPL, tree);
+                tree->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
+                return fgMorphTree(tree);
             case IAT_PVALUE:
                 DEBUG_DESTROY_NODE(tree);
-                return fgMorphTree(gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, HandleKind::MethodAddr, true));
+                tree = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(entry.addr),
+                                                HandleKind::MethodAddr, true);
+                return fgMorphTree(tree);
             case IAT_VALUE:
-                tree->ChangeToIntCon(handle);
+                tree->ChangeToIntCon(reinterpret_cast<size_t>(entry.handle));
                 tree->AsIntCon()->SetHandleKind(HandleKind::MethodAddr);
                 return tree;
             default:
@@ -10264,7 +10266,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             {
                 if ((typ == TYP_USHORT) && opts.OptimizationEnabled() && index->GetArray()->IsStrCon())
                 {
-                    GenTree* morphed = fgMorphStringIndexIndir(index);
+                    GenTree* morphed = fgMorphStringIndexIndir(index, index->GetArray()->AsStrCon());
 
                     if (morphed != nullptr)
                     {
@@ -13306,7 +13308,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         }
         else if (GenTreeStrCon* str = tree->IsStrCon())
         {
-            tree = fgMorphStrCon(str, fgGlobalMorphStmt, currentBlock);
+            tree = fgMorphTree(fgMorphStrCon(str, fgGlobalMorphStmt, currentBlock));
         }
         else
         {

@@ -22,7 +22,7 @@ GTNODE(LCL_USE          , GenTreeLclUse       , GTK_LEAF)             // local v
 GTNODE(LCL_ADDR         , GenTreeLclAddr      , GTK_LEAF)             // address of a local variable
 GTNODE(CATCH_ARG        , GenTree             , GTK_LEAF)             // Exception object in a catch block
 GTNODE(LABEL            , GenTree             , GTK_LEAF)             // Jump-target
-GTNODE(FTN_ADDR         , GenTreeFptrVal      , GTK_LEAF)             // Address of a function
+GTNODE(METHOD_ADDR      , GenTreeMethodAddr   , GTK_LEAF)             // Address of a method's code
 GTNODE(RET_EXPR         , GenTreeRetExpr      , GTK_LEAF|GTK_NOTLIR)  // Place holder for the return expression from an inline candidate
 
 //-----------------------------------------------------------------------------
@@ -64,7 +64,7 @@ GTNODE(CAST             , GenTreeCast         , GTK_UNOP|GTK_EXOP)      // conve
 GTNODE(BITCAST          , GenTreeOp           , GTK_UNOP)               // reinterpretation of bits as another type
 GTNODE(CKFINITE         , GenTreeOp           , GTK_UNOP|GTK_NOCONTAIN) // Check for NaN
 GTNODE(LCLHEAP          , GenTreeOp           , GTK_UNOP|GTK_NOCONTAIN) // alloca()
-GTNODE(JMP              , GenTreeVal          , GTK_LEAF|GTK_NOVALUE)   // Jump to another function
+GTNODE(JMP              , GenTreeJmp          , GTK_LEAF|GTK_NOVALUE)   // Jump to another function
 
 GTNODE(ARR_LENGTH       , GenTreeArrLen       , GTK_UNOP|GTK_EXOP|GTK_VN) // array-length
 GTNODE(NULLCHECK        , GenTreeIndir        , GTK_UNOP|GTK_NOVALUE)     // null checks the source
@@ -227,7 +227,7 @@ GTNODE(PROF_HOOK        , GenTree             , GTK_LEAF|GTK_NOVALUE)   // profi
 GTNODE(RETFILT          , GenTreeOp           , GTK_UNOP|GTK_NOVALUE)   // end filter with TYP_I_IMPL return value
 
 #ifndef FEATURE_EH_FUNCLETS
-GTNODE(END_LFIN         , GenTreeVal          , GTK_LEAF|GTK_NOVALUE)   // end locally-invoked finally
+GTNODE(END_LFIN         , GenTreeEndLFin      , GTK_LEAF|GTK_NOVALUE)   // end locally-invoked finally
 #endif 
 
 //-----------------------------------------------------------------------------

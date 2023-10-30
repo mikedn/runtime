@@ -1628,7 +1628,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             // Have to clear the ShadowSP of the nesting level which encloses the finally. Generates:
             //     mov dword ptr [ebp-0xC], 0  // for some slot of the ShadowSP local var
 
-            unsigned finallyNesting = static_cast<unsigned>(treeNode->AsVal()->gtVal1);
+            unsigned finallyNesting = treeNode->AsEndLFin()->GetNesting();
             noway_assert(finallyNesting < compiler->compHndBBtabCount);
 
             unsigned   shadowSPSlotsLclNum = compiler->lvaShadowSPslotsVar;
@@ -5240,7 +5240,8 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
     GenTree* jmpNode = block->lastNode();
 #if !FEATURE_FASTTAILCALL
     // x86
-    noway_assert(jmpNode->gtOper == GT_JMP);
+    GenTreeJmp* jmp = jmpNode->IsJmp();
+    noway_assert(jmp != nullptr);
 #else
     // amd64
     // If jmpNode is GT_JMP then gtNext must be null.
@@ -5251,15 +5252,14 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
     noway_assert((jmpNode->gtOper == GT_JMP) || ((jmpNode->gtOper == GT_CALL) && jmpNode->AsCall()->IsFastTailCall()));
 
     // The next block is associated with this "if" stmt
-    if (jmpNode->gtOper == GT_JMP)
+    if (GenTreeJmp* jmp = jmpNode->IsJmp())
 #endif
     {
         // Simply emit a jump to the methodHnd. This is similar to a call so we can use
         // the same descriptor with some minor adjustments.
-        CORINFO_METHOD_HANDLE methHnd = (CORINFO_METHOD_HANDLE)jmpNode->AsVal()->gtVal1;
-
         CORINFO_CONST_LOOKUP addrInfo;
-        compiler->info.compCompHnd->getFunctionEntryPoint(methHnd, &addrInfo);
+        compiler->info.compCompHnd->getFunctionEntryPoint(jmp->GetMethodHandle(), &addrInfo);
+
         if (addrInfo.accessType != IAT_VALUE && addrInfo.accessType != IAT_PVALUE)
         {
             NO_WAY("Unsupported JMP indirection");
@@ -5300,7 +5300,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
         // clang-format off
         GetEmitter()->emitIns_Call(
             callType,
-            methHnd
+            jmp->GetMethodHandle()
             DEBUGARG(nullptr),
             addr,
 #ifdef TARGET_X86

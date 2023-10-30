@@ -2519,7 +2519,7 @@ GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entry
                                                GenTree* insertBefore DEBUGARG(GenTreeCall* call))
 {
     GenTreeIntCon* addr = comp->gtNewIconHandleNode(entryPoint.addr, HandleKind::MethodAddr);
-    addr->SetDumpHandle(call->GetMethodHandle());
+    INDEBUG(addr->SetDumpHandle(call->GetMethodHandle()));
     BlockRange().InsertBefore(insertBefore, addr);
 
     if (entryPoint.accessType == IAT_VALUE)

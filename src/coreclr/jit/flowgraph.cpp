@@ -488,9 +488,9 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
     CORINFO_METHOD_HANDLE targetMethodHnd = nullptr;
     GenTreeQmark*         qmarkNode       = nullptr;
 
-    if (GenTreeFptrVal* fptrVal = targetMethod->IsFptrVal())
+    if (GenTreeMethodAddr* addr = targetMethod->IsMethodAddr())
     {
-        targetMethodHnd = fptrVal->GetMethodHandle();
+        targetMethodHnd = addr->GetMethodHandle();
     }
     else if (GenTreeCall* call = targetMethod->IsCall())
     {
@@ -580,7 +580,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
                 }
                 else
                 {
-                    assert(!targetMethod->IsFptrVal());
+                    assert(!targetMethod->IsMethodAddr());
 
                     CORINFO_CONST_LOOKUP genericLookup;
                     info.compCompHnd->getReadyToRunHelper(ldftnToken, &pLookup.lookupKind,
@@ -598,7 +598,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
             }
         }
         // ReadyToRun has this optimization for a non-virtual function pointers only for now.
-        else if (targetMethod->IsFptrVal())
+        else if (targetMethod->IsMethodAddr())
         {
             JITDUMP("optimized\n");
 

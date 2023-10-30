@@ -7250,13 +7250,6 @@ void ValueNumbering::NumberNode(GenTree* node)
             NumberExtract(node->AsExtract());
             break;
 
-        case GT_FTN_ADDR:
-            // Use the value of the function pointer (actually, a method handle.)
-            node->SetVNP(
-                ValueNumPair{vnStore->VNForHandle(reinterpret_cast<ssize_t>(node->AsFptrVal()->GetMethodHandle()),
-                                                  HandleKind::Method)});
-            break;
-
         case GT_CATCH_ARG:
             // We know nothing about the value of a caught expression.
             node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});

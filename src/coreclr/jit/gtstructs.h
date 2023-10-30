@@ -48,10 +48,10 @@ GTSTRUCT_0(UnOp        , GT_OP)
 GTSTRUCT_0(Op          , GT_OP)
 
 #ifndef FEATURE_EH_FUNCLETS
-GTSTRUCT_2(Val         , GT_END_LFIN, GT_JMP)
-#else
-GTSTRUCT_1(Val         , GT_JMP)
+GTSTRUCT_1(EndLFin     , GT_END_LFIN)
 #endif
+
+GTSTRUCT_1(Jmp         , GT_JMP)
 
 #ifdef TARGET_64BIT
 GTSTRUCT_N(IntConCommon, GT_CNS_INT)
@@ -78,7 +78,7 @@ GTSTRUCT_1(Box         , GT_BOX)
 GTSTRUCT_1(FieldAddr   , GT_FIELD_ADDR)
 GTSTRUCT_1(Call        , GT_CALL)
 GTSTRUCT_1(FieldList   , GT_FIELD_LIST)
-GTSTRUCT_1(FptrVal     , GT_FTN_ADDR)
+GTSTRUCT_1(MethodAddr  , GT_METHOD_ADDR)
 GTSTRUCT_1(Intrinsic   , GT_INTRINSIC)
 GTSTRUCT_1(IndexAddr   , GT_INDEX_ADDR)
 GTSTRUCT_1(BoundsChk   , GT_BOUNDS_CHECK)
