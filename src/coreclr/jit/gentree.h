@@ -351,7 +351,6 @@ enum class HandleKind : uint8_t
     String,      // constructStringLiteral/emptyStringLiteral
     ConstData,   // Immutable data address, (e.g. IAT_PPVALUE)
     MutableData, // Mutable data address (e.g. from the VM state)
-    PInvoke,     // getCookieForPInvokeCalliSig(signature)
     Token,       // Token handle (other than class, method or field)
     MethodAddr,  // Method address
     BlockCount,  // Address of basic block instrumentation count

@@ -7045,8 +7045,6 @@ const char* dmpGetHandleKindName(HandleKind kind)
             return "const ptr";
         case HandleKind::MutableData:
             return "mutable ptr";
-        case HandleKind::PInvoke:
-            return "pinvoke";
         case HandleKind::Token:
             return "token";
         case HandleKind::MethodAddr:
