@@ -7053,8 +7053,6 @@ const char* dmpGetHandleKindName(HandleKind kind)
             return "token";
         case HandleKind::MethodAddr:
             return "ftn";
-        case HandleKind::CIDMID:
-            return "cid/mid";
         case HandleKind::BlockCount:
             return "bbc";
 #ifdef WINDOWS_X86_ABI
@@ -13335,8 +13333,9 @@ GenTreeCall* Compiler::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cl
     }
     else
     {
+        // TODO-MIKE-Cleanup: This is dead code, moduleIdAddr is always null.
         moduleIdArg =
-            gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(moduleIdAddr), HandleKind::CIDMID, true);
+            gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(moduleIdAddr), HandleKind::ConstData, true);
     }
 
     GenTreeCall::Use* args = gtNewCallArgs(moduleIdArg);
@@ -13353,8 +13352,9 @@ GenTreeCall* Compiler::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cl
         }
         else
         {
+            // TODO-MIKE-Cleanup: This is dead code, classIdAddr is always null.
             classIdArg =
-                gtNewIndOfIconHandleNode(TYP_INT, reinterpret_cast<size_t>(classIdAddr), HandleKind::CIDMID, true);
+                gtNewIndOfIconHandleNode(TYP_INT, reinterpret_cast<size_t>(classIdAddr), HandleKind::ConstData, true);
         }
 
         args->SetNext(gtNewCallArgs(classIdArg));

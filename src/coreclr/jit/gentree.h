@@ -355,7 +355,6 @@ enum class HandleKind : uint8_t
     PInvoke,     // getCookieForPInvokeCalliSig(signature)
     Token,       // Token handle (other than class, method or field)
     MethodAddr,  // Method address
-    CIDMID,      // getClassModuleIdForStatics/getClassDomainID
     BlockCount,  // Address of basic block instrumentation count
 #ifdef WINDOWS_X86_ABI
     TLS, // TLS field offset into TEB

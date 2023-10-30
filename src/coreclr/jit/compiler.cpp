@@ -5153,9 +5153,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                     case HandleKind::MethodAddr:
                         chars += printf("[ICON_METHOD_ADDR]");
                         break;
-                    case HandleKind::CIDMID:
-                        chars += printf("[ICON_CIDMID]");
-                        break;
                     case HandleKind::BlockCount:
                         chars += printf("[ICON_BLOCK_COUNT]");
                         break;
