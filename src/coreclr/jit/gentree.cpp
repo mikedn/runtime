@@ -4043,9 +4043,9 @@ GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* addr)
     {
         case IAT_VALUE:
             INDEBUG(setMethodHasFrozenString());
-            str = gtNewIconEmbHndNode(addr, nullptr, HandleKind::String, nullptr);
-            str->SetType(TYP_REF);
+            str = gtNewIconHandleNode(reinterpret_cast<size_t>(addr), HandleKind::String);
             str->AsIntCon()->SetDumpHandle(addr);
+            str->SetType(TYP_REF);
             break;
 
         case IAT_PVALUE:
