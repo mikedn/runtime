@@ -3995,7 +3995,9 @@ GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* valueAddr, HandleKind 
     return valueNode;
 }
 
-GenTree* Compiler::getConstLookupTree(CORINFO_CONST_LOOKUP& lookup, HandleKind handleKind, void* compileTimeHandle)
+GenTree* Compiler::getConstLookupTree(const CORINFO_CONST_LOOKUP& lookup,
+                                      HandleKind                  handleKind,
+                                      void*                       compileTimeHandle)
 {
     assert((lookup.accessType == IAT_VALUE) || (lookup.accessType == IAT_PVALUE));
 
@@ -4014,14 +4016,11 @@ GenTree* Compiler::getConstLookupTree(CORINFO_CONST_LOOKUP& lookup, HandleKind h
     return gtNewIconEmbHndNode(handle, handleAddr, handleKind, compileTimeHandle);
 }
 
-GenTree* Compiler::gtNewConstLookupTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                        CORINFO_LOOKUP*         lookup,
-                                        HandleKind              handleKind,
-                                        void*                   compileTimeHandle)
+GenTree* Compiler::gtNewConstLookupTree(const CORINFO_CONST_LOOKUP& lookup,
+                                        HandleKind                  handleKind,
+                                        void*                       compileTimeHandle)
 {
-    assert(!lookup->lookupKind.needsRuntimeLookup);
-
-    GenTree* value = getConstLookupTree(lookup->constLookup, handleKind, compileTimeHandle);
+    GenTree* value = getConstLookupTree(lookup, handleKind, compileTimeHandle);
 
 #ifdef DEBUG
     if (handleKind != HandleKind::Token)

@@ -500,11 +500,10 @@ void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, BYTE* profile
 
         info.compCompHnd->resolveToken(&resolvedToken);
 
-        CORINFO_GENERICHANDLE_RESULT embedInfo;
-        info.compCompHnd->embedGenericHandle(&resolvedToken, false, &embedInfo);
-        noway_assert(!embedInfo.lookup.lookupKind.needsRuntimeLookup);
-        arg = m_comp->gtNewConstLookupTree(&resolvedToken, &embedInfo.lookup, HandleKind::Method,
-                                           embedInfo.compileTimeHandle);
+        CORINFO_GENERICHANDLE_RESULT embed;
+        info.compCompHnd->embedGenericHandle(&resolvedToken, false, &embed);
+        noway_assert(!embed.lookup.lookupKind.needsRuntimeLookup);
+        arg = m_comp->gtNewConstLookupTree(embed.lookup.constLookup, HandleKind::Method, embed.compileTimeHandle);
     }
     else
 #endif

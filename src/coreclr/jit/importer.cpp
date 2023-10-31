@@ -1111,21 +1111,21 @@ GenTree* Importer::impLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 {
     if (!lookup->lookupKind.needsRuntimeLookup)
     {
-        return comp->gtNewConstLookupTree(resolvedToken, lookup, handleKind, compileTimeHandle);
+        return comp->gtNewConstLookupTree(lookup->constLookup, handleKind, compileTimeHandle);
     }
 
-    if (lookup->lookupKind.runtimeLookupKind == CORINFO_LOOKUP_NOT_SUPPORTED)
+    if (lookup->lookupKind.runtimeLookupKind != CORINFO_LOOKUP_NOT_SUPPORTED)
     {
-        // Runtime does not support inlining of all shapes of runtime lookups
-        // Inlining has to be aborted in such a case
-        assert(compIsForInlining());
-        compInlineResult->NoteFatal(InlineObservation::CALLSITE_GENERIC_DICTIONARY_LOOKUP);
-        return nullptr;
+        // Need to use dictionary-based access which depends on the typeContext
+        // which is only available at runtime, not at compile-time.
+        return impRuntimeLookupToTree(resolvedToken, lookup, compileTimeHandle);
     }
 
-    // Need to use dictionary-based access which depends on the typeContext
-    // which is only available at runtime, not at compile-time.
-    return impRuntimeLookupToTree(resolvedToken, lookup, compileTimeHandle);
+    // Runtime does not support inlining of all shapes of runtime lookups
+    // Inlining has to be aborted in such a case
+    assert(compIsForInlining());
+    compInlineResult->NoteFatal(InlineObservation::CALLSITE_GENERIC_DICTIONARY_LOOKUP);
+    return nullptr;
 }
 
 #ifdef FEATURE_READYTORUN_COMPILER
