@@ -3978,14 +3978,14 @@ GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* valueAddr, HandleKind 
     {
         assert(valueAddr == nullptr);
 
-        addrNode  = gtNewIconHandleNode(reinterpret_cast<size_t>(value), handleKind);
+        addrNode  = gtNewIconHandleNode(value, handleKind);
         valueNode = addrNode;
     }
     else
     {
         assert(valueAddr != nullptr);
 
-        addrNode  = gtNewIconHandleNode(reinterpret_cast<size_t>(valueAddr), handleKind);
+        addrNode  = gtNewIconHandleNode(valueAddr, handleKind);
         valueNode = gtNewIndir(TYP_I_IMPL, addrNode);
         valueNode->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
     }
@@ -4043,13 +4043,13 @@ GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* addr)
     {
         case IAT_VALUE:
             INDEBUG(setMethodHasFrozenString());
-            str = gtNewIconHandleNode(reinterpret_cast<size_t>(addr), HandleKind::String);
+            str = gtNewIconHandleNode(addr, HandleKind::String);
             str->AsIntCon()->SetDumpHandle(addr);
             str->SetType(TYP_REF);
             break;
 
         case IAT_PVALUE:
-            str = gtNewIconHandleNode(reinterpret_cast<size_t>(addr), HandleKind::String);
+            str = gtNewIconHandleNode(addr, HandleKind::String);
             str->AsIntCon()->SetDumpHandle(addr);
             str = gtNewIndir(TYP_REF, str);
             // TODO-MIKE-Review: GTF_GLOB_REF is dubious here (and below). The reference stored

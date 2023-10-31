@@ -1326,8 +1326,8 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 
     // Call the helper
     // - Setup argValue with the pointer to the signature returned by the lookup
-    GenTree* argNode =
-        gtNewIconEmbHndNode(runtimeLookup.signature, nullptr, HandleKind::MutableData, compileTimeHandle);
+    GenTree* argNode = gtNewIconHandleNode(runtimeLookup.signature, HandleKind::MutableData);
+    argNode->AsIntCon()->SetCompileTimeHandle(compileTimeHandle);
 
     GenTreeCall::Use* helperArgs = gtNewCallArgs(ctxTree, argNode);
     GenTreeCall*      helperCall = gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
@@ -2379,7 +2379,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
     GenTree*    dstAddr = gtNewOperNode(GT_ADD, TYP_BYREF, arrayLocalNode, gtNewIconNode(dataOffset, TYP_I_IMPL));
     GenTreeBlk* dst     = new (comp, GT_BLK) GenTreeBlk(dstAddr, typGetBlkLayout(blkSize));
-    GenTree*    srcAddr = gtNewIconHandleNode(reinterpret_cast<size_t>(initData), HandleKind::ConstData);
+    GenTree*    srcAddr = gtNewIconHandleNode(initData, HandleKind::ConstData);
     GenTreeBlk* src     = new (comp, GT_BLK) GenTreeBlk(srcAddr, dst->GetLayout());
 
     dst->gtFlags &= ~GTF_EXCEPT;
@@ -5935,7 +5935,7 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
     if (opcode == CEE_LDSFLDA)
 #endif
     {
-        addr = gtNewIconHandleNode(reinterpret_cast<size_t>(fldAddr), HandleKind::Static, fieldSeq);
+        addr = gtNewIconHandleNode(fldAddr, HandleKind::Static, fieldSeq);
 
 #ifdef TARGET_64BIT
         if (isStaticReadOnlyInited)

@@ -671,7 +671,8 @@ inline GenTreeCall* Compiler::gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_L
                                                                GenTree*                ctxTree,
                                                                void*                   compileTimeHandle)
 {
-    GenTree* argNode = gtNewIconEmbHndNode(lookup->signature, nullptr, HandleKind::MutableData, compileTimeHandle);
+    GenTreeIntCon* argNode = gtNewIconHandleNode(lookup->signature, HandleKind::MutableData);
+    argNode->SetCompileTimeHandle(compileTimeHandle);
     return gtNewHelperCallNode(lookup->helper, TYP_I_IMPL, gtNewCallArgs(ctxTree, argNode));
 }
 

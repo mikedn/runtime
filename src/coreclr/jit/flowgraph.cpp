@@ -294,13 +294,12 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
     if (addrOfTrapReturningThreadsAddr != nullptr)
     {
-        size_t handle = reinterpret_cast<size_t>(addrOfTrapReturningThreadsAddr);
-        addr          = gtNewIndOfIconHandleNode(TYP_I_IMPL, handle, HandleKind::ConstData, true);
+        addr = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(addrOfTrapReturningThreadsAddr),
+                                        HandleKind::ConstData, true);
     }
     else
     {
-        size_t handle = reinterpret_cast<size_t>(trapReturningThreadsAddr);
-        addr          = gtNewIconHandleNode(handle, HandleKind::MutableData);
+        addr = gtNewIconHandleNode(trapReturningThreadsAddr, HandleKind::MutableData);
     }
 
     // NOTE: In native code this load is done via LoadWithoutBarrier() to ensure that
@@ -622,40 +621,38 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
 #endif
         if (targetMethodHnd != nullptr)
     {
-        CORINFO_METHOD_HANDLE alternateCtor = nullptr;
-        DelegateCtorArgs      ctorData;
-        ctorData.pMethod = info.compMethodHnd;
-        ctorData.pArg3   = nullptr;
-        ctorData.pArg4   = nullptr;
-        ctorData.pArg5   = nullptr;
+        DelegateCtorArgs      ctorData{info.compMethodHnd};
+        CORINFO_METHOD_HANDLE alternateCtor =
+            info.compCompHnd->GetDelegateCtor(methHnd, clsHnd, targetMethodHnd, &ctorData);
 
-        alternateCtor = info.compCompHnd->GetDelegateCtor(methHnd, clsHnd, targetMethodHnd, &ctorData);
         if (alternateCtor != methHnd)
         {
             JITDUMP("optimized\n");
+
             // we erase any inline info that may have been set for generics has it is not needed here,
             // and in fact it will pass the wrong info to the inliner code
             *ExactContextHnd = nullptr;
 
             call->gtCallMethHnd = alternateCtor;
-
             noway_assert(call->gtCallArgs->GetNext()->GetNext() == nullptr);
+
             GenTreeCall::Use* addArgs = nullptr;
-            if (ctorData.pArg5)
+
+            if (ctorData.pArg5 != nullptr)
             {
-                GenTree* arg5 = gtNewIconHandleNode(size_t(ctorData.pArg5), HandleKind::MethodAddr);
-                addArgs       = gtPrependNewCallArg(arg5, addArgs);
+                addArgs = gtPrependNewCallArg(gtNewIconHandleNode(ctorData.pArg5, HandleKind::MethodAddr), addArgs);
             }
-            if (ctorData.pArg4)
+
+            if (ctorData.pArg4 != nullptr)
             {
-                GenTree* arg4 = gtNewIconHandleNode(size_t(ctorData.pArg4), HandleKind::MethodAddr);
-                addArgs       = gtPrependNewCallArg(arg4, addArgs);
+                addArgs = gtPrependNewCallArg(gtNewIconHandleNode(ctorData.pArg4, HandleKind::MethodAddr), addArgs);
             }
-            if (ctorData.pArg3)
+
+            if (ctorData.pArg3 != nullptr)
             {
-                GenTree* arg3 = gtNewIconHandleNode(size_t(ctorData.pArg3), HandleKind::MethodAddr);
-                addArgs       = gtPrependNewCallArg(arg3, addArgs);
+                addArgs = gtPrependNewCallArg(gtNewIconHandleNode(ctorData.pArg3, HandleKind::MethodAddr), addArgs);
             }
+
             call->gtCallArgs->GetNext()->SetNext(addArgs);
         }
         else

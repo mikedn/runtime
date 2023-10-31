@@ -7059,37 +7059,24 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
             }
             else
             {
-                CORINFO_CONST_LOOKUP addrInfo;
-                info.compCompHnd->getFunctionEntryPoint(call->gtCallMethHnd, &addrInfo);
-
-                CORINFO_GENERIC_HANDLE handle       = nullptr;
-                void*                  pIndirection = nullptr;
-                assert(addrInfo.accessType != IAT_PPVALUE && addrInfo.accessType != IAT_RELPVALUE);
-
-                if (addrInfo.accessType == IAT_VALUE)
-                {
-                    handle = addrInfo.handle;
-                }
-                else if (addrInfo.accessType == IAT_PVALUE)
-                {
-                    pIndirection = addrInfo.addr;
-                }
-
-                target = gtNewIconEmbHndNode(handle, pIndirection, HandleKind::MethodAddr, call->GetMethodHandle());
+                CORINFO_CONST_LOOKUP lookup;
+                info.compCompHnd->getFunctionEntryPoint(call->GetMethodHandle(), &lookup);
+                target = getConstLookupTree(lookup, HandleKind::MethodAddr, call->GetMethodHandle());
             }
         }
         else
         {
             assert(!call->tailCallInfo->GetSig()->hasTypeArg());
 
-            CORINFO_CALL_INFO callInfo;
-            unsigned          flags = CORINFO_CALLINFO_LDFTN;
+            CORINFO_CALLINFO_FLAGS flags = CORINFO_CALLINFO_LDFTN;
+
             if (call->tailCallInfo->IsCallvirt())
             {
-                flags |= CORINFO_CALLINFO_CALLVIRT;
+                flags = static_cast<CORINFO_CALLINFO_FLAGS>(flags | CORINFO_CALLINFO_CALLVIRT);
             }
 
-            eeGetCallInfo(call->tailCallInfo->GetToken(), nullptr, (CORINFO_CALLINFO_FLAGS)flags, &callInfo);
+            CORINFO_CALL_INFO callInfo;
+            eeGetCallInfo(call->tailCallInfo->GetToken(), nullptr, flags, &callInfo);
             target = getVirtMethodPointerTree(thisPtrStubArg, call->tailCallInfo->GetToken(), &callInfo);
         }
 
@@ -7292,7 +7279,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
 
 GenTree* Compiler::getConstLookupTree(CORINFO_CONST_LOOKUP& lookup, HandleKind handleKind, void* compileTimeHandle)
 {
-    assert((lookup.accessType != IAT_PPVALUE) && (lookup.accessType != IAT_RELPVALUE));
+    assert((lookup.accessType == IAT_VALUE) || (lookup.accessType != IAT_PVALUE));
 
     void* handle     = nullptr;
     void* handleAddr = nullptr;
@@ -7301,7 +7288,7 @@ GenTree* Compiler::getConstLookupTree(CORINFO_CONST_LOOKUP& lookup, HandleKind h
     {
         handle = lookup.handle;
     }
-    else if (lookup.accessType == IAT_PVALUE)
+    else
     {
         handleAddr = lookup.addr;
     }
