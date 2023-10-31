@@ -3949,41 +3949,17 @@ GenTree* Compiler::gtNewJmpTableNode()
 
 GenTreeIndir* Compiler::gtNewIndOfIconHandleNode(var_types type, size_t addr, HandleKind handleKind, bool invariant)
 {
+    assert((handleKind != HandleKind::Static) && (handleKind != HandleKind::String));
+
     GenTreeIndir* load = gtNewIndir(type, gtNewIconHandleNode(addr, handleKind));
     load->gtFlags |= GTF_IND_NONFAULTING;
 
-    // String literal handles are indirections that return a TYP_REF, and these
-    // are pointers into the GC heap.
-    // We don't currently have any TYP_BYREF pointers, but if we did they also
-    // must be pointers into the GC heap.
-    // Also every HandleKind::Static also must be a pointer into the GC heap
-    // we will set GTF_GLOB_REF for these kinds of references.
-    //
-    // TODO-MIKE-Review: It's not clear what GC types have to do with GLOB_REF,
-    // it's irrelevant where the loaded value points to.
-    // The question is if the runtime can modify the stored value somehow.
-    // The GC can but that does not exactly count as modification as far as
-    // GLOB_REF is concerned.
-    // Interestingly, this also ignore the invariant parameter, which is true
-    // most of the time. Invariant + GLOB_REF is rather dubious.
-
-    if (varTypeIsGC(type) || (handleKind == HandleKind::Static))
-    {
-        load->gtFlags |= GTF_GLOB_REF;
-    }
-
     if (invariant)
     {
-        assert(handleKind != HandleKind::Static);
         assert(handleKind != HandleKind::BlockCount);
         assert(handleKind != HandleKind::MutableData);
 
         load->gtFlags |= GTF_IND_INVARIANT;
-
-        if (handleKind == HandleKind::String)
-        {
-            load->gtFlags |= GTF_IND_NONNULL;
-        }
     }
 
     return load;
@@ -4073,8 +4049,15 @@ GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* addr)
             break;
 
         case IAT_PVALUE:
-            str = gtNewIndOfIconHandleNode(TYP_REF, reinterpret_cast<size_t>(addr), HandleKind::String, true);
-            str->AsIndir()->GetAddr()->AsIntCon()->SetDumpHandle(addr);
+            str = gtNewIconHandleNode(reinterpret_cast<size_t>(addr), HandleKind::String);
+            str->AsIntCon()->SetDumpHandle(addr);
+            str = gtNewIndir(TYP_REF, str);
+            // TODO-MIKE-Review: GTF_GLOB_REF is dubious here (and below). The reference stored
+            // in memory may change, if the string is moved by the GC, but it's the same string.
+            // Hilariously, GTF_IND_INVARIANT is set too and having both set is nonsense.
+            // And for PPVALUE GTF_IND_INVARIANT isn't set, go figure.
+            // Causes quite a few (good) diffs so investigate later.
+            str->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT | GTF_IND_NONNULL | GTF_GLOB_REF;
             break;
 
         case IAT_PPVALUE:
