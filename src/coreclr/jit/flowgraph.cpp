@@ -1738,32 +1738,29 @@ void Compiler::fgAddInternal()
             ->SetBlockType(roundUp(eeGetEEInfo()->inlinedCallFrameInfo.size, REGSIZE_BYTES));
     }
 
-    // Do we need to insert a "JustMyCode" callback?
-
-    CORINFO_JUST_MY_CODE_HANDLE* pDbgHandle = nullptr;
-    CORINFO_JUST_MY_CODE_HANDLE  dbgHandle  = nullptr;
     if (opts.compDbgCode && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
     {
-        dbgHandle = info.compCompHnd->getJustMyCodeHandle(info.compMethodHnd, &pDbgHandle);
-    }
+        CORINFO_JUST_MY_CODE_HANDLE* pDbgHandle = nullptr;
+        CORINFO_JUST_MY_CODE_HANDLE  dbgHandle = info.compCompHnd->getJustMyCodeHandle(info.compMethodHnd, &pDbgHandle);
 
-    noway_assert(!dbgHandle || !pDbgHandle);
+        if ((dbgHandle != nullptr) || (pDbgHandle != nullptr))
+        {
+            noway_assert((dbgHandle == nullptr) || (pDbgHandle == nullptr));
 
-    if (dbgHandle || pDbgHandle)
-    {
-        // Test the JustMyCode VM global state variable
-        GenTree* embNode = gtNewIconEmbHndNode(dbgHandle, pDbgHandle, HandleKind::MutableData, info.compMethodHnd);
-        GenTree* guardCheckVal  = gtNewIndir(TYP_INT, embNode);
-        GenTree* guardCheckCond = gtNewOperNode(GT_EQ, TYP_INT, guardCheckVal, gtNewIconNode(0));
+            // Test the JustMyCode VM global state variable
+            GenTree* embNode        = gtNewIconEmbHndNode(dbgHandle, pDbgHandle, HandleKind::MutableData, nullptr);
+            GenTree* guardCheckVal  = gtNewIndir(TYP_INT, embNode);
+            GenTree* guardCheckCond = gtNewOperNode(GT_EQ, TYP_INT, guardCheckVal, gtNewIconNode(0));
 
-        // Create the callback which will yield the final answer
+            // Create the callback which will yield the final answer
 
-        GenTree* callback = gtNewHelperCallNode(CORINFO_HELP_DBG_IS_JUST_MY_CODE, TYP_VOID);
+            GenTree* callback = gtNewHelperCallNode(CORINFO_HELP_DBG_IS_JUST_MY_CODE, TYP_VOID);
 
-        // Stick the conditional call at the start of the method
+            // Stick the conditional call at the start of the method
 
-        fgEnsureFirstBBisScratch();
-        fgNewStmtAtEnd(fgFirstBB, gtNewQmarkNode(TYP_VOID, guardCheckCond, gtNewNothingNode(), callback));
+            fgEnsureFirstBBisScratch();
+            fgNewStmtAtEnd(fgFirstBB, gtNewQmarkNode(TYP_VOID, guardCheckCond, gtNewNothingNode(), callback));
+        }
     }
 
 #if !defined(FEATURE_EH_FUNCLETS)
