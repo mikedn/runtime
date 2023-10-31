@@ -13404,7 +13404,7 @@ GenTree* Compiler::gtNewStaticMethodMonitorAddr()
     {
         void* monitorAddr = nullptr;
         void* monitor     = info.compCompHnd->getMethodSync(info.compMethodHnd, &monitorAddr);
-        return gtNewIconEmbHndNode(monitor, monitorAddr, HandleKind::Method, info.compMethodHnd);
+        return gtNewIconEmbHndNode(monitor, monitorAddr, HandleKind::MutableData, nullptr);
     }
 
     // Collectible types requires that for shared generic code, if we use the generic context parameter
