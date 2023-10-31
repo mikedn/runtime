@@ -7031,7 +7031,7 @@ GenTree* Importer::CreateCallICookie(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     void* valueAddr;
     void* value = info.compCompHnd->GetCookieForPInvokeCalliSig(sig, &valueAddr);
 
-    GenTree* cookie = gtNewIconEmbHndNode(value, valueAddr, HandleKind::ConstData, sig);
+    GenTree* cookie = gtNewIconEmbHndNode(value, valueAddr, HandleKind::ConstData, nullptr);
     cookie->SetDoNotCSE();
 
     if (cookie->OperIs(GT_IND))
@@ -7060,7 +7060,7 @@ GenTree* Importer::CreateVarargsCallArgHandle(GenTreeCall* call, CORINFO_SIG_INF
 
     void* handleAddr;
     void* handle = info.compCompHnd->getVarArgsHandle(sig, &handleAddr);
-    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::ConstData, sig);
+    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::ConstData, nullptr);
 }
 
 GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
