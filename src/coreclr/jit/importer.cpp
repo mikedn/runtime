@@ -1135,20 +1135,7 @@ GenTree* Importer::gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* lookup,
 {
     assert((handleKind == HandleKind::Class) || (handleKind == HandleKind::Method));
 
-    GenTree* addr = comp->getConstLookupTree(*lookup, handleKind, compileTimeHandle);
-
-#ifdef DEBUG
-    if (lookup->accessType == IAT_VALUE)
-    {
-        addr->AsIntCon()->SetDumpHandle(compileTimeHandle);
-    }
-    else
-    {
-        addr->AsIndir()->GetAddr()->AsIntCon()->SetDumpHandle(compileTimeHandle);
-    }
-#endif //  DEBUG
-
-    return addr;
+    return comp->gtNewConstLookupTree(*lookup, handleKind, compileTimeHandle);
 }
 #endif
 
