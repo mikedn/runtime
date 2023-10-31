@@ -1133,25 +1133,12 @@ GenTree* Importer::gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* lookup,
                                              HandleKind            handleKind,
                                              void*                 compileTimeHandle)
 {
-    assert((lookup->accessType != IAT_PPVALUE) && (lookup->accessType != IAT_RELPVALUE));
     assert((handleKind == HandleKind::Class) || (handleKind == HandleKind::Method));
 
-    CORINFO_GENERIC_HANDLE handle     = nullptr;
-    void*                  handleAddr = nullptr;
-
-    if (lookup->accessType == IAT_VALUE)
-    {
-        handle = lookup->handle;
-    }
-    else if (lookup->accessType == IAT_PVALUE)
-    {
-        handleAddr = lookup->addr;
-    }
-
-    GenTree* addr = gtNewIconEmbHndNode(handle, handleAddr, handleKind, compileTimeHandle);
+    GenTree* addr = comp->getConstLookupTree(*lookup, handleKind, compileTimeHandle);
 
 #ifdef DEBUG
-    if (handle != nullptr)
+    if (lookup->accessType == IAT_VALUE)
     {
         addr->AsIntCon()->SetDumpHandle(compileTimeHandle);
     }
@@ -7073,8 +7060,6 @@ GenTree* Importer::CreateVarargsCallArgHandle(GenTreeCall* call, CORINFO_SIG_INF
 
     void* handleAddr;
     void* handle = info.compCompHnd->getVarArgsHandle(sig, &handleAddr);
-    assert((handle == nullptr) != (handleAddr == nullptr));
-
     return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::ConstData, sig);
 }
 

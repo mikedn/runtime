@@ -1737,23 +1737,15 @@ void Compiler::fgAddInternal()
 
     if (opts.compDbgCode && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
     {
-        CORINFO_JUST_MY_CODE_HANDLE* pDbgHandle = nullptr;
-        CORINFO_JUST_MY_CODE_HANDLE  dbgHandle = info.compCompHnd->getJustMyCodeHandle(info.compMethodHnd, &pDbgHandle);
+        CORINFO_JUST_MY_CODE_HANDLE* jmcFlagAddr = nullptr;
+        CORINFO_JUST_MY_CODE_HANDLE  jmcFlag = info.compCompHnd->getJustMyCodeHandle(info.compMethodHnd, &jmcFlagAddr);
 
-        if ((dbgHandle != nullptr) || (pDbgHandle != nullptr))
+        if ((jmcFlag != nullptr) || (jmcFlagAddr != nullptr))
         {
-            noway_assert((dbgHandle == nullptr) || (pDbgHandle == nullptr));
-
-            // Test the JustMyCode VM global state variable
-            GenTree* embNode        = gtNewIconEmbHndNode(dbgHandle, pDbgHandle, HandleKind::MutableData, nullptr);
+            GenTree* embNode        = gtNewIconEmbHndNode(jmcFlag, jmcFlagAddr, HandleKind::MutableData, nullptr);
             GenTree* guardCheckVal  = gtNewIndir(TYP_INT, embNode);
             GenTree* guardCheckCond = gtNewOperNode(GT_EQ, TYP_INT, guardCheckVal, gtNewIconNode(0));
-
-            // Create the callback which will yield the final answer
-
-            GenTree* callback = gtNewHelperCallNode(CORINFO_HELP_DBG_IS_JUST_MY_CODE, TYP_VOID);
-
-            // Stick the conditional call at the start of the method
+            GenTree* callback       = gtNewHelperCallNode(CORINFO_HELP_DBG_IS_JUST_MY_CODE, TYP_VOID);
 
             fgEnsureFirstBBisScratch();
             fgNewStmtAtEnd(fgFirstBB, gtNewQmarkNode(TYP_VOID, guardCheckCond, gtNewNothingNode(), callback));

@@ -3995,6 +3995,25 @@ GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* valueAddr, HandleKind 
     return valueNode;
 }
 
+GenTree* Compiler::getConstLookupTree(CORINFO_CONST_LOOKUP& lookup, HandleKind handleKind, void* compileTimeHandle)
+{
+    assert((lookup.accessType == IAT_VALUE) || (lookup.accessType == IAT_PVALUE));
+
+    void* handle     = nullptr;
+    void* handleAddr = nullptr;
+
+    if (lookup.accessType == IAT_VALUE)
+    {
+        handle = lookup.handle;
+    }
+    else
+    {
+        handleAddr = lookup.addr;
+    }
+
+    return gtNewIconEmbHndNode(handle, handleAddr, handleKind, compileTimeHandle);
+}
+
 GenTree* Compiler::gtNewConstLookupTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                         CORINFO_LOOKUP*         lookup,
                                         HandleKind              handleKind,
@@ -4002,21 +4021,7 @@ GenTree* Compiler::gtNewConstLookupTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 {
     assert(!lookup->lookupKind.needsRuntimeLookup);
 
-    void* handle     = nullptr;
-    void* handleAddr = nullptr;
-
-    if (lookup->constLookup.accessType == IAT_VALUE)
-    {
-        handle = lookup->constLookup.handle;
-    }
-    else
-    {
-        assert(lookup->constLookup.accessType == IAT_PVALUE);
-
-        handleAddr = lookup->constLookup.addr;
-    }
-
-    GenTree* value = gtNewIconEmbHndNode(handle, handleAddr, handleKind, compileTimeHandle);
+    GenTree* value = getConstLookupTree(lookup->constLookup, handleKind, compileTimeHandle);
 
 #ifdef DEBUG
     if (handleKind != HandleKind::Token)
@@ -13399,8 +13404,6 @@ GenTree* Compiler::gtNewStaticMethodMonitorAddr()
     {
         void* monitorAddr = nullptr;
         void* monitor     = info.compCompHnd->getMethodSync(info.compMethodHnd, &monitorAddr);
-        noway_assert((monitor == nullptr) != (monitorAddr == nullptr));
-
         return gtNewIconEmbHndNode(monitor, monitorAddr, HandleKind::Method, info.compMethodHnd);
     }
 

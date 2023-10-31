@@ -7277,25 +7277,6 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
     return finalTree;
 }
 
-GenTree* Compiler::getConstLookupTree(CORINFO_CONST_LOOKUP& lookup, HandleKind handleKind, void* compileTimeHandle)
-{
-    assert((lookup.accessType == IAT_VALUE) || (lookup.accessType != IAT_PVALUE));
-
-    void* handle     = nullptr;
-    void* handleAddr = nullptr;
-
-    if (lookup.accessType == IAT_VALUE)
-    {
-        handle = lookup.handle;
-    }
-    else
-    {
-        handleAddr = lookup.addr;
-    }
-
-    return gtNewIconEmbHndNode(handle, handleAddr, handleKind, compileTimeHandle);
-}
-
 GenTree* Compiler::getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
                                         CORINFO_RUNTIME_LOOKUP&     lookup,
                                         void*                       compileTimeHandle)
