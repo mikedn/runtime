@@ -7248,12 +7248,12 @@ void Compiler::gtDispLeaf(GenTree* tree)
 
         case GT_JMP:
             methodName = eeGetMethodName(tree->AsJmp()->GetMethodHandle(), &className);
-            printf(" %s.%s\n", className, methodName);
+            printf(" %s.%s", className, methodName);
             break;
 
         case GT_METHOD_ADDR:
             methodName = eeGetMethodName(tree->AsMethodAddr()->GetMethodHandle(), &className);
-            printf(" %s.%s\n", className, methodName);
+            printf(" %s.%s", className, methodName);
             break;
 
 #ifndef FEATURE_EH_FUNCLETS
