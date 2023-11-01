@@ -7008,7 +7008,7 @@ GenTree* Importer::CreateCallICookie(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     void* valueAddr;
     void* value = info.compCompHnd->GetCookieForPInvokeCalliSig(sig, &valueAddr);
 
-    GenTree* cookie = gtNewIconEmbHndNode(value, valueAddr, HandleKind::ConstData, nullptr);
+    GenTree* cookie = gtNewConstLookupTree(value, valueAddr, HandleKind::ConstData, nullptr);
     cookie->SetDoNotCSE();
 
     if (cookie->OperIs(GT_IND))
@@ -7037,7 +7037,7 @@ GenTree* Importer::CreateVarargsCallArgHandle(GenTreeCall* call, CORINFO_SIG_INF
 
     void* handleAddr;
     void* handle = info.compCompHnd->getVarArgsHandle(sig, &handleAddr);
-    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::ConstData, nullptr);
+    return gtNewConstLookupTree(handle, handleAddr, HandleKind::ConstData, nullptr);
 }
 
 GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
@@ -17411,9 +17411,9 @@ GenTreeIntCon* Importer::gtNewIconHandleNode(size_t value, HandleKind kind, Fiel
     return comp->gtNewIconHandleNode(value, kind, fieldSeq);
 }
 
-GenTree* Importer::gtNewIconEmbHndNode(void* value, void* pValue, HandleKind kind, void* compileTimeHandle)
+GenTree* Importer::gtNewConstLookupTree(void* value, void* pValue, HandleKind kind, void* compileTimeHandle)
 {
-    return comp->gtNewIconEmbHndNode(value, pValue, kind, compileTimeHandle);
+    return comp->gtNewConstLookupTree(value, pValue, kind, compileTimeHandle);
 }
 
 GenTree* Importer::gtNewIconEmbModHndNode(CORINFO_MODULE_HANDLE modHnd)

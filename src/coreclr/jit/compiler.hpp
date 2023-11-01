@@ -640,15 +640,15 @@ inline GenTree* Compiler::gtNewIconEmbModHndNode(CORINFO_MODULE_HANDLE modHnd)
     void* handleAddr;
     void* handle = reinterpret_cast<void*>(info.compCompHnd->embedModuleHandle(modHnd, &handleAddr));
 
-    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::Module, modHnd);
+    return gtNewConstLookupTree(handle, handleAddr, HandleKind::Module, modHnd);
 }
 
 inline GenTree* Compiler::gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd)
 {
     void* handleAddr;
-    void* handle = (void*)info.compCompHnd->embedClassHandle(clsHnd, &handleAddr);
+    void* handle = reinterpret_cast<void*>(info.compCompHnd->embedClassHandle(clsHnd, &handleAddr));
 
-    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::Class, clsHnd);
+    return gtNewConstLookupTree(handle, handleAddr, HandleKind::Class, clsHnd);
 }
 
 inline GenTree* Compiler::gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd)
@@ -656,7 +656,7 @@ inline GenTree* Compiler::gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd)
     void* handleAddr;
     void* handle = reinterpret_cast<void*>(info.compCompHnd->embedMethodHandle(methHnd, &handleAddr));
 
-    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::Method, methHnd);
+    return gtNewConstLookupTree(handle, handleAddr, HandleKind::Method, methHnd);
 }
 
 inline GenTree* Compiler::gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd)
@@ -664,7 +664,7 @@ inline GenTree* Compiler::gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd)
     void* handleAddr;
     void* handle = reinterpret_cast<void*>(info.compCompHnd->embedFieldHandle(fldHnd, &handleAddr));
 
-    return gtNewIconEmbHndNode(handle, handleAddr, HandleKind::Field, fldHnd);
+    return gtNewConstLookupTree(handle, handleAddr, HandleKind::Field, fldHnd);
 }
 
 inline GenTreeCall* Compiler::gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* lookup,

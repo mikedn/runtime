@@ -3965,14 +3965,10 @@ GenTreeIndir* Compiler::gtNewIndOfIconHandleNode(var_types type, size_t addr, Ha
     return load;
 }
 
-// Allocates a integer constant entry that represents a HANDLE to something.
-// It may not be allowed to embed HANDLEs directly into the JITed code (for eg,
-// as arguments to JIT helpers). Get a corresponding value that can be embedded.
-// If the handle needs to be accessed via an indirection, pValue points to it.
-GenTree* Compiler::gtNewIconEmbHndNode(void*      value,
-                                       void*      valueAddr,
-                                       HandleKind handleKind,
-                                       void* compileTimeHandle DEBUGARG(void* dumpHandle))
+GenTree* Compiler::gtNewConstLookupTree(void*      value,
+                                        void*      valueAddr,
+                                        HandleKind handleKind,
+                                        void* compileTimeHandle DEBUGARG(void* dumpHandle))
 {
     GenTreeIntCon* addrNode;
     GenTree*       valueNode;
@@ -4023,7 +4019,7 @@ GenTree* Compiler::gtNewConstLookupTree(const CORINFO_CONST_LOOKUP& lookup,
         handleAddr = lookup.addr;
     }
 
-    return gtNewIconEmbHndNode(handle, handleAddr, handleKind, compileTimeHandle DEBUGARG(dumpHandle));
+    return gtNewConstLookupTree(handle, handleAddr, handleKind, compileTimeHandle DEBUGARG(dumpHandle));
 }
 
 GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* addr)
@@ -13390,7 +13386,7 @@ GenTree* Compiler::gtNewStaticMethodMonitorAddr()
     {
         void* monitorAddr = nullptr;
         void* monitor     = info.compCompHnd->getMethodSync(info.compMethodHnd, &monitorAddr);
-        return gtNewIconEmbHndNode(monitor, monitorAddr, HandleKind::MutableData, nullptr);
+        return gtNewConstLookupTree(monitor, monitorAddr, HandleKind::MutableData, nullptr);
     }
 
     // Collectible types requires that for shared generic code, if we use the generic context parameter

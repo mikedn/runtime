@@ -1742,7 +1742,7 @@ void Compiler::fgAddInternal()
 
         if ((jmcFlag != nullptr) || (jmcFlagAddr != nullptr))
         {
-            GenTree* embNode        = gtNewIconEmbHndNode(jmcFlag, jmcFlagAddr, HandleKind::MutableData, nullptr);
+            GenTree* embNode        = gtNewConstLookupTree(jmcFlag, jmcFlagAddr, HandleKind::MutableData, nullptr);
             GenTree* guardCheckVal  = gtNewIndir(TYP_INT, embNode);
             GenTree* guardCheckCond = gtNewOperNode(GT_EQ, TYP_INT, guardCheckVal, gtNewIconNode(0));
             GenTree* callback       = gtNewHelperCallNode(CORINFO_HELP_DBG_IS_JUST_MY_CODE, TYP_VOID);
