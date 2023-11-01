@@ -1341,41 +1341,35 @@ struct CompilerOptions
         compMinOptsIsSet = true;
     }
 
-    bool OptEnabled(OptFlags optFlag)
+    bool OptEnabled(OptFlags optFlag) const
     {
         return (optFlags & optFlag) != 0;
     }
 
+    bool IsReadyToRun() const
+    {
 #ifdef FEATURE_READYTORUN_COMPILER
-    bool IsReadyToRun()
-    {
         return jitFlags->IsSet(JitFlags::JIT_FLAG_READYTORUN);
-    }
 #else
-    bool IsReadyToRun()
-    {
         return false;
-    }
 #endif
+    }
 
+    bool IsOSR() const
+    {
 #ifdef FEATURE_ON_STACK_REPLACEMENT
-    bool IsOSR() const
-    {
         return jitFlags->IsSet(JitFlags::JIT_FLAG_OSR);
-    }
 #else
-    bool IsOSR() const
-    {
         return false;
-    }
 #endif
+    }
 
     // true if we should use the PINVOKE_{BEGIN,END} helpers instead of generating
     // PInvoke transitions inline. Normally used by R2R, but also used when generating a reverse pinvoke frame, as
     // the current logic for frame setup initializes and pushes
     // the InlinedCallFrame before performing the Reverse PInvoke transition, which is invalid (as frames cannot
     // safely be pushed/popped while the thread is in a preemptive state.).
-    bool ShouldUsePInvokeHelpers()
+    bool ShouldUsePInvokeHelpers() const
     {
         return jitFlags->IsSet(JitFlags::JIT_FLAG_USE_PINVOKE_HELPERS) ||
                jitFlags->IsSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
@@ -1383,7 +1377,7 @@ struct CompilerOptions
 
     // true if we should use insert the REVERSE_PINVOKE_{ENTER,EXIT} helpers in the method
     // prolog/epilog
-    bool IsReversePInvoke()
+    bool IsReversePInvoke() const
     {
         return jitFlags->IsSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
     }

@@ -7092,17 +7092,12 @@ GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
             {
                 instParam = comp->gtNewConstLookupTree(callInfo->instParamLookup, HandleKind::Method,
                                                        exactMethodHandle DEBUGARG(exactMethodHandle));
-                if (instParam == nullptr)
-                {
-                    assert(compDonotInline());
-                    return nullptr;
-                }
             }
             else
 #endif
             {
-                instParam = gtNewIconEmbMethHndNode(exactMethodHandle);
                 info.compCompHnd->methodMustBeLoadedBeforeCodeIsRun(exactMethodHandle);
+                instParam = gtNewIconEmbMethHndNode(exactMethodHandle);
             }
         }
         else
@@ -7142,17 +7137,12 @@ GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
             {
                 instParam = comp->gtNewConstLookupTree(callInfo->instParamLookup, HandleKind::Class,
                                                        exactClassHandle DEBUGARG(exactClassHandle));
-                if (instParam == nullptr)
-                {
-                    assert(compDonotInline());
-                    return nullptr;
-                }
             }
             else
 #endif
             {
-                instParam = gtNewIconEmbClsHndNode(exactClassHandle);
                 info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(exactClassHandle);
+                instParam = gtNewIconEmbClsHndNode(exactClassHandle);
             }
         }
         else
