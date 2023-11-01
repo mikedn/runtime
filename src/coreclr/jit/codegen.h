@@ -54,9 +54,6 @@ public:
     void genEmitUnwindDebugGCandEH();
 
 #ifdef TARGET_XARCH
-#ifdef TARGET_AMD64
-    uint16_t genAddrRelocTypeHint(size_t addr);
-#endif
     bool genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
     bool genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
     bool genCodeIndirAddrCanBeEncodedAsZeroRelOffset(size_t addr);

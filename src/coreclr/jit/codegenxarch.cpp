@@ -420,13 +420,6 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
 
 #endif // !FEATURE_EH_FUNCLETS
 
-#ifdef TARGET_AMD64
-uint16_t CodeGen::genAddrRelocTypeHint(size_t addr)
-{
-    return compiler->eeGetRelocTypeHint((void*)addr);
-}
-#endif
-
 // Return true if an absolute indirect data address can be encoded as IP-relative.
 // offset. Note that this method should be used only when the caller knows that
 // the address is an icon value that VM has given and there is no GenTree node
@@ -434,7 +427,7 @@ uint16_t CodeGen::genAddrRelocTypeHint(size_t addr)
 bool CodeGen::genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 {
 #ifdef TARGET_AMD64
-    return genAddrRelocTypeHint(addr) == IMAGE_REL_BASED_REL32;
+    return compiler->eeGetRelocTypeHint(reinterpret_cast<void*>(addr)) == IMAGE_REL_BASED_REL32;
 #else
     // x86: PC-relative addressing is available only for control flow instructions (jmp and call)
     return false;
@@ -448,7 +441,7 @@ bool CodeGen::genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 bool CodeGen::genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 {
 #ifdef TARGET_AMD64
-    return genAddrRelocTypeHint(addr) == IMAGE_REL_BASED_REL32;
+    return compiler->eeGetRelocTypeHint(reinterpret_cast<void*>(addr)) == IMAGE_REL_BASED_REL32;
 #else
     // x86: PC-relative addressing is available only for control flow instructions (jmp and call)
     return true;
