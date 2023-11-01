@@ -9950,7 +9950,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
             case TYP_INT:
             {
 #ifndef TARGET_64BIT
-                if (!op1->AsIntCon()->ImmedValCanBeFolded(this, tree->GetOper()))
+                if (op1->AsIntCon()->ImmedValNeedsReloc(this))
                 {
                     break;
                 }
@@ -10043,7 +10043,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
             case TYP_LONG:
             {
 #ifdef TARGET_64BIT
-                if (!op1->AsIntCon()->ImmedValCanBeFolded(this, tree->GetOper()))
+                if (op1->AsIntCon()->ImmedValNeedsReloc(this))
                 {
                     break;
                 }
@@ -10324,12 +10324,10 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
             assert(!varTypeIsGC(op1->GetType()) && !varTypeIsGC(op2->GetType()));
 
 #ifndef TARGET_64BIT
-            if (!op1->AsIntCon()->ImmedValCanBeFolded(this, tree->GetOper()))
-            {
-                break;
-            }
+            const bool rel1 = op1->AsIntCon()->ImmedValNeedsReloc(this);
+            const bool rel2 = op2->AsIntCon()->ImmedValNeedsReloc(this);
 
-            if (!op2->AsIntCon()->ImmedValCanBeFolded(this, tree->GetOper()))
+            if ((rel1 || rel2) && (!tree->OperIs(GT_EQ, GT_NE) || (rel1 != rel2)))
             {
                 break;
             }
@@ -10457,12 +10455,10 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
             assert(op2->TypeIs(TYP_LONG, TYP_INT));
 
 #ifdef TARGET_64BIT
-            if (!op1->AsIntCon()->ImmedValCanBeFolded(this, tree->GetOper()))
-            {
-                break;
-            }
+            const bool rel1 = op1->AsIntCon()->ImmedValNeedsReloc(this);
+            const bool rel2 = op2->AsIntCon()->ImmedValNeedsReloc(this);
 
-            if (!op2->AsIntCon()->ImmedValCanBeFolded(this, tree->GetOper()))
+            if ((rel1 || rel2) && (!tree->OperIs(GT_EQ, GT_NE) || (rel1 != rel2)))
             {
                 break;
             }
@@ -11432,24 +11428,6 @@ bool GenTree::isContained() const
 bool GenTreeIntCon::ImmedValNeedsReloc(Compiler* comp)
 {
     return comp->opts.compReloc && IsIconHandle();
-}
-
-//------------------------------------------------------------------------
-// ImmedValCanBeFolded: can this immediate value be folded for op?
-//
-// Arguments:
-//    comp - Compiler instance
-//    op - Tree operator
-//
-// Return Value:
-//    True if this immediate value can be folded for op; false otherwise.
-
-bool GenTreeIntCon::ImmedValCanBeFolded(Compiler* comp, genTreeOps op)
-{
-    // In general, immediate values that need relocations can't be folded.
-    // There are cases where we do want to allow folding of handle comparisons
-    // (e.g., typeof(T) == typeof(int)).
-    return !ImmedValNeedsReloc(comp) || (op == GT_EQ) || (op == GT_NE);
 }
 
 #ifdef TARGET_AMD64
