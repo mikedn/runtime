@@ -1128,17 +1128,6 @@ GenTree* Importer::impLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
     return nullptr;
 }
 
-#ifdef FEATURE_READYTORUN_COMPILER
-GenTree* Importer::gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* lookup,
-                                             HandleKind            handleKind,
-                                             void*                 compileTimeHandle)
-{
-    assert((handleKind == HandleKind::Class) || (handleKind == HandleKind::Method));
-
-    return comp->gtNewConstLookupTree(*lookup, handleKind, compileTimeHandle);
-}
-#endif
-
 GenTree* Importer::impMethodPointer(CORINFO_RESOLVED_TOKEN& resolvedToken, CORINFO_CALL_INFO& callInfo)
 {
     if (callInfo.kind == CORINFO_CALL)
@@ -7101,7 +7090,7 @@ GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
             if (opts.IsReadyToRun())
             {
                 instParam =
-                    gtNewReadyToRunLookupTree(&callInfo->instParamLookup, HandleKind::Method, exactMethodHandle);
+                    comp->gtNewConstLookupTree(callInfo->instParamLookup, HandleKind::Method, exactMethodHandle);
                 if (instParam == nullptr)
                 {
                     assert(compDonotInline());
@@ -7150,7 +7139,7 @@ GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
 #ifdef FEATURE_READYTORUN_COMPILER
             if (opts.IsReadyToRun())
             {
-                instParam = gtNewReadyToRunLookupTree(&callInfo->instParamLookup, HandleKind::Class, exactClassHandle);
+                instParam = comp->gtNewConstLookupTree(callInfo->instParamLookup, HandleKind::Class, exactClassHandle);
                 if (instParam == nullptr)
                 {
                     assert(compDonotInline());

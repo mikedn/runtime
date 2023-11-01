@@ -1844,8 +1844,6 @@ struct Importer
                                     CORINFO_LOOKUP*         pLookup,
                                     void*                   compileTimeHandle);
 
-    GenTree* gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* lookup, HandleKind handleKind, void* compileTimeHandle);
-
     GenTree* impCastClassOrIsInstToTree(GenTree*                op1,
                                         GenTree*                op2,
                                         CORINFO_RESOLVED_TOKEN* pResolvedToken,
