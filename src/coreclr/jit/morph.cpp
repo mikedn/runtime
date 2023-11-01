@@ -7061,7 +7061,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
             {
                 CORINFO_CONST_LOOKUP lookup;
                 info.compCompHnd->getFunctionEntryPoint(call->GetMethodHandle(), &lookup);
-                target = getConstLookupTree(lookup, HandleKind::MethodAddr, call->GetMethodHandle());
+                target = gtNewConstLookupTree(lookup, HandleKind::MethodAddr, call->GetMethodHandle());
             }
         }
         else
@@ -7386,8 +7386,8 @@ GenTree* Compiler::getTokenHandleTree(CORINFO_RESOLVED_TOKEN* resolvedToken, boo
 
     if (!embedInfo.lookup.lookupKind.needsRuntimeLookup)
     {
-        return getConstLookupTree(embedInfo.lookup.constLookup, TokenToHandleKind(resolvedToken->token),
-                                  embedInfo.compileTimeHandle);
+        return gtNewConstLookupTree(embedInfo.lookup.constLookup, TokenToHandleKind(resolvedToken->token),
+                                    embedInfo.compileTimeHandle);
     }
 
     GenTree* result = getRuntimeLookupTree(embedInfo.lookup.lookupKind.runtimeLookupKind,

@@ -503,7 +503,8 @@ void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, BYTE* profile
         CORINFO_GENERICHANDLE_RESULT embed;
         info.compCompHnd->embedGenericHandle(&resolvedToken, false, &embed);
         noway_assert(!embed.lookup.lookupKind.needsRuntimeLookup);
-        arg = m_comp->gtNewConstLookupTree(embed.lookup.constLookup, HandleKind::Method, embed.compileTimeHandle);
+        arg = m_comp->gtNewConstLookupTree(embed.lookup.constLookup, HandleKind::Method,
+                                           embed.compileTimeHandle DEBUGARG(embed.compileTimeHandle));
     }
     else
 #endif

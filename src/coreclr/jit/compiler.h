@@ -2997,8 +2997,13 @@ public:
     GenTreeIndir* gtNewIndOfIconHandleNode(var_types type, size_t addr, HandleKind handleKind, bool invariant);
     GenTreeIntCon* gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
     GenTreeIntCon* gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
-    GenTree* gtNewIconEmbHndNode(void* value, void* valueAddr, HandleKind handleKind, void* compileTimeHandle);
-    GenTree* gtNewConstLookupTree(const CORINFO_CONST_LOOKUP& lookup, HandleKind handleKind, void* compileTimeHandle);
+    GenTree* gtNewIconEmbHndNode(void*      value,
+                                 void*      valueAddr,
+                                 HandleKind handleKind,
+                                 void* compileTimeHandle DEBUGARG(void* dumpHandle = nullptr));
+    GenTree* gtNewConstLookupTree(const CORINFO_CONST_LOOKUP& lookup,
+                                  HandleKind                  handleKind,
+                                  void* compileTimeHandle DEBUGARG(void* dumpHandle = nullptr));
     GenTree* gtNewIconEmbModHndNode(CORINFO_MODULE_HANDLE modHnd);
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
     GenTree* gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd);
@@ -4726,7 +4731,6 @@ private:
                                                 CORINFO_METHOD_HANDLE callTargetStubHnd,
                                                 CORINFO_METHOD_HANDLE dispatcherHnd,
                                                 Statement*            stmt);
-    GenTree* getConstLookupTree(const CORINFO_CONST_LOOKUP& lookup, HandleKind handleKind, void* compileTimeHandle);
     GenTree* getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
                                   CORINFO_RUNTIME_LOOKUP&     lookup,
                                   void*                       compileTimeHandle);

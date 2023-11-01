@@ -3969,7 +3969,10 @@ GenTreeIndir* Compiler::gtNewIndOfIconHandleNode(var_types type, size_t addr, Ha
 // It may not be allowed to embed HANDLEs directly into the JITed code (for eg,
 // as arguments to JIT helpers). Get a corresponding value that can be embedded.
 // If the handle needs to be accessed via an indirection, pValue points to it.
-GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* valueAddr, HandleKind handleKind, void* compileTimeHandle)
+GenTree* Compiler::gtNewIconEmbHndNode(void*      value,
+                                       void*      valueAddr,
+                                       HandleKind handleKind,
+                                       void* compileTimeHandle DEBUGARG(void* dumpHandle))
 {
     GenTreeIntCon* addrNode;
     GenTree*       valueNode;
@@ -3992,12 +3995,19 @@ GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* valueAddr, HandleKind 
 
     addrNode->AsIntCon()->SetCompileTimeHandle(compileTimeHandle);
 
+#ifdef DEBUG
+    if (handleKind != HandleKind::Token)
+    {
+        addrNode->SetDumpHandle(dumpHandle);
+    }
+#endif
+
     return valueNode;
 }
 
-GenTree* Compiler::getConstLookupTree(const CORINFO_CONST_LOOKUP& lookup,
-                                      HandleKind                  handleKind,
-                                      void*                       compileTimeHandle)
+GenTree* Compiler::gtNewConstLookupTree(const CORINFO_CONST_LOOKUP& lookup,
+                                        HandleKind                  handleKind,
+                                        void* compileTimeHandle DEBUGARG(void* dumpHandle))
 {
     assert((lookup.accessType == IAT_VALUE) || (lookup.accessType == IAT_PVALUE));
 
@@ -4013,30 +4023,7 @@ GenTree* Compiler::getConstLookupTree(const CORINFO_CONST_LOOKUP& lookup,
         handleAddr = lookup.addr;
     }
 
-    return gtNewIconEmbHndNode(handle, handleAddr, handleKind, compileTimeHandle);
-}
-
-GenTree* Compiler::gtNewConstLookupTree(const CORINFO_CONST_LOOKUP& lookup,
-                                        HandleKind                  handleKind,
-                                        void*                       compileTimeHandle)
-{
-    GenTree* value = getConstLookupTree(lookup, handleKind, compileTimeHandle);
-
-#ifdef DEBUG
-    if (handleKind != HandleKind::Token)
-    {
-        GenTreeIntCon* addrCon = value->IsIntCon();
-
-        if (addrCon == nullptr)
-        {
-            addrCon = value->AsIndir()->GetAddr()->AsIntCon();
-        }
-
-        addrCon->SetDumpHandle(compileTimeHandle);
-    }
-#endif
-
-    return value;
+    return gtNewIconEmbHndNode(handle, handleAddr, handleKind, compileTimeHandle DEBUGARG(dumpHandle));
 }
 
 GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* addr)
