@@ -1059,8 +1059,6 @@ GenTree* Importer::impTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                     bool                    importParent,
                                     bool*                   runtimeLookup)
 {
-    assert(!comp->fgGlobalMorph);
-
     CORINFO_GENERICHANDLE_RESULT embedInfo;
     info.compCompHnd->embedGenericHandle(resolvedToken, importParent, &embedInfo);
 
@@ -1069,34 +1067,38 @@ GenTree* Importer::impTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
         *runtimeLookup = embedInfo.lookup.lookupKind.needsRuntimeLookup;
     }
 
-    if (mustRestoreHandle && !embedInfo.lookup.lookupKind.needsRuntimeLookup)
+    if (!embedInfo.lookup.lookupKind.needsRuntimeLookup)
     {
-        switch (embedInfo.handleType)
+        if (mustRestoreHandle)
         {
-            case CORINFO_HANDLETYPE_CLASS:
-                info.compCompHnd->classMustBeLoadedBeforeCodeIsRun((CORINFO_CLASS_HANDLE)embedInfo.compileTimeHandle);
-                break;
-
-            case CORINFO_HANDLETYPE_METHOD:
-                info.compCompHnd->methodMustBeLoadedBeforeCodeIsRun((CORINFO_METHOD_HANDLE)embedInfo.compileTimeHandle);
-                break;
-
-            case CORINFO_HANDLETYPE_FIELD:
-                info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(
-                    info.compCompHnd->getFieldClass((CORINFO_FIELD_HANDLE)embedInfo.compileTimeHandle));
-                break;
-
-            default:
-                break;
+            switch (embedInfo.handleType)
+            {
+                case CORINFO_HANDLETYPE_CLASS:
+                    info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(
+                        reinterpret_cast<CORINFO_CLASS_HANDLE>(embedInfo.compileTimeHandle));
+                    break;
+                case CORINFO_HANDLETYPE_FIELD:
+                    info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(info.compCompHnd->getFieldClass(
+                        reinterpret_cast<CORINFO_FIELD_HANDLE>(embedInfo.compileTimeHandle)));
+                    break;
+                case CORINFO_HANDLETYPE_METHOD:
+                    info.compCompHnd->methodMustBeLoadedBeforeCodeIsRun(
+                        reinterpret_cast<CORINFO_METHOD_HANDLE>(embedInfo.compileTimeHandle));
+                    break;
+                default:
+                    break;
+            }
         }
+
+        return comp->gtNewConstLookupTree(embedInfo.lookup.constLookup, TokenToHandleKind(resolvedToken->token),
+                                          embedInfo.compileTimeHandle DEBUGARG(embedInfo.compileTimeHandle));
     }
 
     // Generate the full lookup tree. May be null if we're abandoning an inline attempt.
     GenTree* result = impLookupToTree(resolvedToken, &embedInfo.lookup, TokenToHandleKind(resolvedToken->token),
                                       embedInfo.compileTimeHandle);
 
-    // If we have a result and it requires runtime lookup, wrap it in a runtime lookup node.
-    if ((result != nullptr) && embedInfo.lookup.lookupKind.needsRuntimeLookup)
+    if (result != nullptr)
     {
         result = comp->gtNewRuntimeLookup(embedInfo.compileTimeHandle, embedInfo.handleType, result);
     }
