@@ -7152,10 +7152,9 @@ GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
             // If the EE was able to resolve a constrained call, the instantiating parameter to use is the type
             // by which the call was constrained with. We embed pConstrainedResolvedToken as the extra argument
             // because resolvedToken is an interface method and interface types make a poor generic context.
-            if (constrainedResolvedToken)
+            if (constrainedResolvedToken != nullptr)
             {
-                instParam = impTokenToHandle(constrainedResolvedToken, /* mustRestoreHandle */ true,
-                                             /* importParent */ false);
+                instParam = impTokenToHandle(constrainedResolvedToken, /* mustRestoreHandle */ true);
             }
             else
             {
