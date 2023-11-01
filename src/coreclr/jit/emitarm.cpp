@@ -1373,31 +1373,26 @@ bool emitter::validDispForLdSt(target_ssize_t disp, var_types type)
 
 bool emitter::validImmForBL(ssize_t addr, Compiler* compiler)
 {
-    return
+    if (!compiler->info.compMatchedVM)
+    {
         // If we are running the altjit for NGEN, then assume we can use the "BL" instruction.
         // This matches the usual behavior for NGEN, since we normally do generate "BL".
-        (!compiler->info.compMatchedVM && compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)) ||
-        (compiler->eeGetRelocTypeHint((void*)addr) == IMAGE_REL_BASED_THUMB_BRANCH24);
+        return compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
+    }
+
+    return compiler->eeIsThumbBranch24TargetAddress(reinterpret_cast<void*>(addr));
 }
 
-/*****************************************************************************
- *
- *  emitIns_valid_imm_for_alu() returns true when the immediate 'imm'
- *   can be encoded using the 12-bit funky Arm immediate encoding
- */
-/*static*/ bool emitter::emitIns_valid_imm_for_alu(int imm)
+// emitIns_valid_imm_for_alu() returns true when the immediate 'imm'
+// can be encoded using the 12-bit funky Arm immediate encoding
+bool emitter::emitIns_valid_imm_for_alu(int imm)
 {
-    if (isModImmConst(imm))
-        return true;
-    return false;
+    return isModImmConst(imm);
 }
 
-/*****************************************************************************
- *
- *  emitIns_valid_imm_for_mov() returns true when the immediate 'imm'
- *   can be encoded using a single mov or mvn instruction.
- */
-/*static*/ bool emitter::emitIns_valid_imm_for_mov(int imm)
+// emitIns_valid_imm_for_mov() returns true when the immediate 'imm'
+// can be encoded using a single mov or mvn instruction.
+bool emitter::emitIns_valid_imm_for_mov(int imm)
 {
     if ((imm & 0x0000ffff) == imm) // 16-bit immediate
         return true;

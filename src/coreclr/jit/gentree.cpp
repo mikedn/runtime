@@ -11471,8 +11471,7 @@ bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
         // During Ngen JIT is always asked to generate relocatable code.
         // Hence JIT will try to encode only icon handles as pc-relative offsets.
 
-        return IsIconHandle() &&
-               (comp->eeGetRelocTypeHint(reinterpret_cast<void*>(gtIconVal)) == IMAGE_REL_BASED_REL32);
+        return IsIconHandle() && comp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(gtIconVal));
     }
 
     // During Jitting, we are allowed to generate non-relocatable code.
@@ -11493,15 +11492,12 @@ bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
     // After an overflow, VM will assume any relocation recorded is for a code address and will
     // emit jump thunk if it cannot be encoded as pc-relative offset.
 
-    return FitsIn<int32_t>(gtIconVal) ||
-           (comp->eeGetRelocTypeHint(reinterpret_cast<void*>(gtIconVal)) == IMAGE_REL_BASED_REL32);
+    return FitsIn<int32_t>(gtIconVal) || comp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(gtIconVal));
 }
 
 // Returns true if this icon value is encoded as addr needs recording a relocation with VM
 bool GenTreeIntCon::AddrNeedsReloc(Compiler* comp)
 {
-    void* addr = reinterpret_cast<void*>(gtIconVal);
-
     if (comp->opts.compReloc && !IsIconHandle())
     {
         // During Ngen JIT is always asked to generate relocatable code.
@@ -11509,7 +11505,7 @@ bool GenTreeIntCon::AddrNeedsReloc(Compiler* comp)
         return false;
     }
 
-    return comp->eeGetRelocTypeHint(addr) == IMAGE_REL_BASED_REL32;
+    return comp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(gtIconVal));
 }
 
 #elif defined(TARGET_X86)

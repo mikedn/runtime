@@ -8612,8 +8612,8 @@ GOT_DSP:
                     // This addr mode should never be used while generating relocatable ngen code nor if
                     // the addr can be encoded as pc-relative address.
                     noway_assert(!emitComp->opts.compReloc);
-                    noway_assert(emitComp->eeGetRelocTypeHint(reinterpret_cast<void*>(dsp)) != IMAGE_REL_BASED_REL32);
-                    noway_assert((int)dsp == dsp);
+                    noway_assert(!emitComp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(dsp)));
+                    noway_assert(FitsIn<int32_t>(dsp));
 
                     // This requires, specifying a SIB byte after ModRM byte.
                     if (EncodedBySSE38orSSE3A(ins))
@@ -11595,8 +11595,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                     // This addr mode should never be used while generating relocatable ngen code nor if
                     // the addr can be encoded as pc-relative address.
                     noway_assert(!emitComp->opts.compReloc);
-                    noway_assert(emitComp->eeGetRelocTypeHint(addr) != IMAGE_REL_BASED_REL32);
-                    noway_assert(static_cast<int>(reinterpret_cast<intptr_t>(addr)) == (ssize_t)addr);
+                    noway_assert(!emitComp->eeIsRIPRelativeAddress(addr));
+                    noway_assert(FitsIn<int32_t>(reinterpret_cast<intptr_t>(addr)));
 
                     // This requires, specifying a SIB byte after ModRM byte.
                     dst += emitOutputWord(dst, code | 0x0400);

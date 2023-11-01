@@ -1357,18 +1357,20 @@ void Compiler::eeSetEHinfo(unsigned EHnumber, const CORINFO_EH_CLAUSE* clause)
     }
 }
 
-WORD Compiler::eeGetRelocTypeHint(void* target)
+#ifdef TARGET_AMD64
+bool Compiler::eeIsRIPRelativeAddress(void* addr)
 {
-    if (info.compMatchedVM)
-    {
-        return info.compCompHnd->getRelocTypeHint(target);
-    }
-    else
-    {
-        // No hints
-        return (WORD)-1;
-    }
+    return info.compMatchedVM && info.compCompHnd->getRelocTypeHint(addr) == IMAGE_REL_BASED_REL32;
 }
+#endif
+
+#ifdef TARGET_ARM
+bool Compiler::eeIsThumbBranch24TargetAddress(void* target)
+{
+    assert(info.compMatchedVM);
+    return info.compCompHnd->getRelocTypeHint(target) == IMAGE_REL_BASED_THUMB_BRANCH24;
+}
+#endif
 
 CORINFO_FIELD_HANDLE Compiler::eeFindJitDataOffs(unsigned dataOffs)
 {

@@ -427,9 +427,8 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
 bool CodeGen::genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 {
 #ifdef TARGET_AMD64
-    return compiler->eeGetRelocTypeHint(reinterpret_cast<void*>(addr)) == IMAGE_REL_BASED_REL32;
+    return compiler->eeIsRIPRelativeAddress(reinterpret_cast<void*>(addr));
 #else
-    // x86: PC-relative addressing is available only for control flow instructions (jmp and call)
     return false;
 #endif
 }
@@ -441,9 +440,8 @@ bool CodeGen::genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 bool CodeGen::genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 {
 #ifdef TARGET_AMD64
-    return compiler->eeGetRelocTypeHint(reinterpret_cast<void*>(addr)) == IMAGE_REL_BASED_REL32;
+    return compiler->eeIsRIPRelativeAddress(reinterpret_cast<void*>(addr));
 #else
-    // x86: PC-relative addressing is available only for control flow instructions (jmp and call)
     return true;
 #endif
 }

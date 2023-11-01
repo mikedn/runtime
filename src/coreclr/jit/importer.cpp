@@ -5895,9 +5895,9 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
     FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(resolvedToken->hField);
     GenTree*      addr     = nullptr;
 
-#ifdef TARGET_64BIT
-    if ((opcode == CEE_LDSFLDA) || (eeGetRelocTypeHint(fldAddr) != IMAGE_REL_BASED_REL32) || isStaticReadOnlyInited)
-#else
+#if defined(TARGET_AMD64)
+    if ((opcode == CEE_LDSFLDA) || !comp->eeIsRIPRelativeAddress(fldAddr) || isStaticReadOnlyInited)
+#elif !defined(TARGET_ARM64)
     if (opcode == CEE_LDSFLDA)
 #endif
     {
@@ -17124,11 +17124,6 @@ const char* Importer::eeGetClassName(CORINFO_CLASS_HANDLE clsHnd)
 const char* Importer::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char** className)
 {
     return comp->eeGetMethodName(method, className);
-}
-
-uint16_t Importer::eeGetRelocTypeHint(void* target)
-{
-    return comp->eeGetRelocTypeHint(target);
 }
 
 CORINFO_CLASS_HANDLE Importer::eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context)

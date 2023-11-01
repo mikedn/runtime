@@ -2284,7 +2284,6 @@ struct Importer
     const char* eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className = nullptr);
     const char* eeGetClassName(CORINFO_CLASS_HANDLE clsHnd);
     const char* eeGetMethodName(CORINFO_METHOD_HANDLE handle, const char** className);
-    uint16_t eeGetRelocTypeHint(void* target);
     CORINFO_CLASS_HANDLE eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context);
     static CORINFO_METHOD_HANDLE eeFindHelper(unsigned helper);
     static unsigned eeGetArrayDataOffset(var_types type);
@@ -5567,7 +5566,12 @@ public:
 
     void eeSetEHinfo(unsigned EHnumber, const CORINFO_EH_CLAUSE* clause);
 
-    WORD eeGetRelocTypeHint(void* target);
+#ifdef TARGET_AMD64
+    bool eeIsRIPRelativeAddress(void* addr);
+#endif
+#ifdef TARGET_ARM
+    bool eeIsThumbBranch24TargetAddress(void* target);
+#endif
 
     // ICorStaticInfo wrapper functions
 
