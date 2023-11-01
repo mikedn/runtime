@@ -33,8 +33,9 @@ CONFIG_INTEGER(DisplayLsraStats, W("JitLsraStats"), 0)       // Display JIT Line
                                                              // Recommended to use with JitStdOutFile flag.
 CONFIG_STRING(JitLsraOrdering, W("JitLsraOrdering"))         // LSRA heuristics ordering
 CONFIG_INTEGER(DumpJittedMethods, W("DumpJittedMethods"), 0) // Prints all jitted methods to the console
-CONFIG_INTEGER(EnablePCRelAddr, W("JitEnablePCRelAddr"), 1)  // Whether absolute addr be encoded as PC-rel offset by
-                                                             // RyuJIT where possible
+#ifdef TARGET_AMD64
+CONFIG_INTEGER(EnablePCRelAddr, W("JitEnablePCRelAddr"), 1) // Use RIP relative addressing
+#endif
 CONFIG_INTEGER(JitAssertOnMaxRAPasses, W("JitAssertOnMaxRAPasses"), 0)
 CONFIG_INTEGER(JitBreakEmitOutputInstr, W("JitBreakEmitOutputInstr"), -1)
 CONFIG_INTEGER(JitBreakMorphTree, W("JitBreakMorphTree"), 0xffffffff)

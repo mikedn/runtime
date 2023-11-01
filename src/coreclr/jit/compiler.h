@@ -1399,67 +1399,55 @@ struct CompilerOptions
 
 #ifdef PROFILING_SUPPORTED
     bool compNoPInvokeInlineCB : 1;
+    // Whether to emit Enter/Leave/TailCall hooks using a dummy stub (DummyProfilerELTStub()).
+    // This option helps make the JIT behave as if it is running under a profiler.
+    bool compJitELTHookEnabled : 1;
 #else
     static const bool compNoPInvokeInlineCB;
 #endif
 
-#ifdef DEBUG
-    // Check arguments and return values to ensure they are sane
-    bool compGcChecks;
-#if defined(TARGET_XARCH)
-    // Check stack pointer on return to ensure it is correct.
-    bool compStackCheckOnRet;
-    // Check stack pointer after call to ensure it is correct.
-    X86_ONLY(bool compStackCheckOnCall;)
-#endif // TARGET_XARCH
-#endif // DEBUG
-
-    bool compReloc : 1; // Generate relocs for pointers in code, true for all ngen/prejit codegen
-
-#ifdef DEBUG
-#if defined(TARGET_XARCH)
-    bool compEnablePCRelAddr; // Whether absolute addr be encoded as PC-rel offset by RyuJIT where possible
-#endif
-#endif // DEBUG
-
+    bool compReloc : 1;              // Generate relocs for pointers in code, true for all ngen/prejit codegen
     bool compProcedureSplitting : 1; // Separate cold code from hot code
-
-    bool altJit : 1; // True if we are an altjit and are compiling this method
+    bool altJit : 1;                 // True if we are an altjit and are compiling this method
 
 #ifdef OPT_CONFIG
-    bool optRepeat; // Repeat optimizer phases k times
+    bool optRepeat : 1; // Repeat optimizer phases k times
 #endif
 
 #ifdef DEBUG
+    // Check arguments and return values to ensure they are sane
+    bool compGcChecks : 1;
+#ifdef TARGET_XARCH
+    // Check stack pointer on return to ensure it is correct.
+    bool compStackCheckOnRet : 1;
+#endif
+    // Check stack pointer after call to ensure it is correct.
+    X86_ONLY(bool compStackCheckOnCall : 1;)
+    // Whether absolute addr be encoded as RIP relative displacement where possible
+    AMD64_ONLY(bool enableRIPRelativeAddressing : 1;)
     bool compProcedureSplittingEH : 1; // Separate cold code from hot code for functions with EH
     bool dspCode : 1;                  // Display native code generated
     bool dspEHTable : 1;               // Display the EH table reported to the VM
     bool dspDebugInfo : 1;             // Display the Debug info reported to the VM
     bool dspInstrs : 1;                // Display the IL instructions intermixed with the native code output
-    bool dmpHex;                       // Display raw bytes in hex of native code output
-    bool disAsm;                       // Display native code as it is generated
-    bool disasmWithGC;                 // Display GC info interleaved with disassembly.
-    bool disDiffable;                  // Makes the Disassembly code 'diff-able'
-    bool disAddr;                      // Display process address next to each instruction in disassembly code
-    bool disAlignment;                 // Display alignment boundaries in disassembly code
-    bool dspOrder;                     // Display names of each of the methods that we ngen/jit
-    bool dspUnwind;                    // Display the unwind info output
-    bool dspDiffable; // Makes the Jit Dump 'diff-able' (currently uses same COMPlus_* flag as disDiffable)
+    bool dmpHex : 1;                   // Display raw bytes in hex of native code output
+    bool disAsm : 1;                   // Display native code as it is generated
+    bool disasmWithGC : 1;             // Display GC info interleaved with disassembly.
+    bool disDiffable : 1;              // Makes the Disassembly code 'diff-able'
+    bool disAddr : 1;                  // Display process address next to each instruction in disassembly code
+    bool disAlignment : 1;             // Display alignment boundaries in disassembly code
+    bool dspOrder : 1;                 // Display names of each of the methods that we ngen/jit
+    bool dspUnwind : 1;                // Display the unwind info output
+    bool dspDiffable : 1; // Makes the Jit Dump 'diff-able' (currently uses same COMPlus_* flag as disDiffable)
     // (IF_LARGEJMP/IF_LARGEADR/IF_LARGLDC)
-    bool dspGCtbls;       // Display the GC tables
-    bool isAltJitPresent; // And AltJit may be present, dump options apply only to it.
+    bool dspGCtbls : 1;       // Display the GC tables
+    bool isAltJitPresent : 1; // And AltJit may be present, dump options apply only to it.
 #endif
 #ifdef LATE_DISASM
     bool doLateDisasm : 1; // Run the late disassembler
 #endif
 
     bool compExpandCallsEarly : 1; // True if we should expand virtual call targets early for this method
-
-#ifdef PROFILING_SUPPORTED
-    // Whether to emit Enter/Leave/TailCall hooks using a dummy stub (DummyProfilerELTStub()).
-    // This option helps make the JIT behave as if it is running under a profiler.
-    bool compJitELTHookEnabled : 1;
-#endif // PROFILING_SUPPORTED
 
 #if FEATURE_TAILCALL_OPT
     // Whether optimization of transforming a recursive tail call into a loop is enabled.
@@ -1469,7 +1457,7 @@ struct CompilerOptions
 #if FEATURE_FASTTAILCALL
     // Whether fast tail calls are allowed.
     bool compFastTailCalls : 1;
-#endif // FEATURE_FASTTAILCALL
+#endif
 
     ARM_ONLY(bool compUseSoftFP : 1;)
 

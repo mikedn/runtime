@@ -1375,8 +1375,7 @@ void Compiler::compInitConfigOptions()
     }
     opts.compStackCheckOnRet = (jitStackChecks & STACK_CHECK_ON_RETURN) != 0;
     X86_ONLY(opts.compStackCheckOnCall = (jitStackChecks & STACK_CHECK_ON_CALL) != 0);
-
-    opts.compEnablePCRelAddr = JitConfig.EnablePCRelAddr() != 0;
+    AMD64_ONLY(opts.enableRIPRelativeAddressing = JitConfig.EnablePCRelAddr() != 0);
 #endif // TARGET_XARCH
 #endif // DEBUG
 }

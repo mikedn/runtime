@@ -11460,7 +11460,7 @@ bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
 {
 #ifdef DEBUG
     // Early out if PC-rel encoding of absolute addr is disabled.
-    if (!comp->opts.compEnablePCRelAddr)
+    if (!comp->opts.enableRIPRelativeAddressing)
     {
         return false;
     }
@@ -11509,18 +11509,9 @@ bool GenTreeIntCon::AddrNeedsReloc(Compiler* comp)
 }
 
 #elif defined(TARGET_X86)
-// Returns true if this absolute address fits within the base of an addr mode.
 // On x86 all addresses are 4-bytes and can be directly encoded in an addr mode.
 bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
 {
-#ifdef DEBUG
-    // Early out if PC-rel encoding of absolute addr is disabled.
-    if (!comp->opts.compEnablePCRelAddr)
-    {
-        return false;
-    }
-#endif
-
     return true;
 }
 
