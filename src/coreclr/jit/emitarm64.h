@@ -24,6 +24,7 @@ static bool strictArmAsm;
 const char* emitVectorRegName(regNumber reg);
 
 void emitDispInst(instruction ins);
+void emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm);
 void emitDispImm(ssize_t imm, bool addComma, bool alwaysHex = false);
 void emitDispFloatZero();
 void emitDispFloatImm(ssize_t imm8);

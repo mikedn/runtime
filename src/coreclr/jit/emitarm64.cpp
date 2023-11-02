@@ -10811,6 +10811,86 @@ void emitter::emitDispInst(instruction ins)
     } while (len < 8);
 }
 
+void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
+{
+    if (fmt == IF_LARGEADR)
+    {
+        printf("(LARGEADR)");
+    }
+    else if (fmt == IF_LARGELDC)
+    {
+        printf("(LARGELDC)");
+    }
+
+    printf("[");
+
+    const char* targetName = nullptr;
+
+    if (id->idAddr()->iiaIsJitDataOffset())
+    {
+        int doffs = Compiler::eeGetJitDataOffs(id->idAddr()->iiaFieldHnd);
+
+        if ((doffs & 1) != 0)
+        {
+            printf("@CNS%02u", doffs - 1);
+        }
+        else
+        {
+            printf("@RWD%02u", doffs);
+        }
+
+        if (imm != 0)
+        {
+            printf("%+Id", imm);
+        }
+    }
+    else
+    {
+        assert(imm == 0);
+
+        if (id->idIsReloc())
+        {
+            printf("HIGH RELOC ");
+
+            emitDispImm(reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr), false);
+
+            size_t targetHandle = reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle);
+
+            if (targetHandle == THT_IntializeArrayIntrinsics)
+            {
+                targetName = "IntializeArrayIntrinsics";
+            }
+            else if (targetHandle == THT_GSCookieCheck)
+            {
+                targetName = "GlobalSecurityCookieCheck";
+            }
+            else if (targetHandle == THT_SetGSCookie)
+            {
+                targetName = "SetGlobalSecurityCookie";
+            }
+        }
+        else if (id->idIsBound())
+        {
+            emitPrintLabel(id->idAddr()->iiaIGlabel);
+        }
+        else
+        {
+            printf("L_M%03u_" FMT_BB, emitComp->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
+        }
+    }
+
+    printf("]");
+
+    if (targetName != nullptr)
+    {
+        printf("      // [%s]", targetName);
+    }
+    else
+    {
+        emitDispCommentForHandle(id->idDebugOnlyInfo()->idHandle, id->idDebugOnlyInfo()->idHandleKind);
+    }
+}
+
 /*****************************************************************************
  *
  *  Display an immediate value
@@ -11426,7 +11506,6 @@ void emitter::emitDispIns(
     switch (fmt)
     {
         ssize_t      imm;
-        int          doffs;
         bitMaskImm   bmi;
         halfwordImm  hwi;
         condFlagsImm cfi;
@@ -11442,7 +11521,6 @@ void emitter::emitDispIns(
         ssize_t      index;
         ssize_t      index2;
         unsigned     registerListSize;
-        const char*  targetName;
 
         case IF_BI_0A: // BI_0A   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
         case IF_BI_0B: // BI_0B   ......iiiiiiiiii iiiiiiiiiii.....               simm19:00
@@ -11549,74 +11627,7 @@ void emitter::emitDispIns(
         case IF_LARGEADR:
             assert(insOptsNone(id->idInsOpt()));
             emitDispReg(id->idReg1(), size, true);
-            imm        = emitGetInsSC(id);
-            targetName = nullptr;
-
-            /* Is this actually a reference to a data section? */
-            if (fmt == IF_LARGEADR)
-            {
-                printf("(LARGEADR)");
-            }
-            else if (fmt == IF_LARGELDC)
-            {
-                printf("(LARGELDC)");
-            }
-
-            printf("[");
-            if (id->idAddr()->iiaIsJitDataOffset())
-            {
-                doffs = Compiler::eeGetJitDataOffs(id->idAddr()->iiaFieldHnd);
-                /* Display a data section reference */
-
-                if (doffs & 1)
-                    printf("@CNS%02u", doffs - 1);
-                else
-                    printf("@RWD%02u", doffs);
-
-                if (imm != 0)
-                    printf("%+Id", imm);
-            }
-            else
-            {
-                assert(imm == 0);
-                if (id->idIsReloc())
-                {
-                    printf("HIGH RELOC ");
-                    emitDispImm((ssize_t)id->idAddr()->iiaAddr, false);
-
-                    size_t targetHandle = reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle);
-
-                    if (targetHandle == THT_IntializeArrayIntrinsics)
-                    {
-                        targetName = "IntializeArrayIntrinsics";
-                    }
-                    else if (targetHandle == THT_GSCookieCheck)
-                    {
-                        targetName = "GlobalSecurityCookieCheck";
-                    }
-                    else if (targetHandle == THT_SetGSCookie)
-                    {
-                        targetName = "SetGlobalSecurityCookie";
-                    }
-                }
-                else if (id->idIsBound())
-                {
-                    emitPrintLabel(id->idAddr()->iiaIGlabel);
-                }
-                else
-                {
-                    printf("L_M%03u_" FMT_BB, emitComp->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
-                }
-            }
-            printf("]");
-            if (targetName != nullptr)
-            {
-                printf("      // [%s]", targetName);
-            }
-            else
-            {
-                emitDispCommentForHandle(id->idDebugOnlyInfo()->idHandle, id->idDebugOnlyInfo()->idHandleKind);
-            }
+            emitDispLargeImm(id, fmt, emitGetInsSC(id));
             break;
 
         case IF_LS_2A: // LS_2A   .X.......X...... ......nnnnnttttt      Rt Rn
