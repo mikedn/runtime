@@ -6071,21 +6071,15 @@ void emitter::emitIns_Call(EmitCallType          kind,
 
         if ((amBase == REG_NA) && (amIndex == REG_NA))
         {
-            if (codeGen->genCodeIndirAddrNeedsReloc(amDisp))
+            if (emitComp->opts.compReloc)
             {
                 id->idSetIsDspReloc();
             }
-#ifdef TARGET_AMD64
             else
             {
-                // An absolute indir address that doesn't need reloc should fit within
-                // 32-bits to be encoded as offset relative to zero.
-                noway_assert(FitsIn<int32_t>(reinterpret_cast<intptr_t>(addr)));
-
                 // This addr mode requires an extra SIB byte.
-                insSize++;
+                AMD64_ONLY(insSize++);
             }
-#endif
         }
     }
     else if (kind == EC_FUNC_TOKEN_INDIR)
@@ -6100,21 +6094,15 @@ void emitter::emitIns_Call(EmitCallType          kind,
         // Since this is an indirect call through a pointer and we don't
         // currently pass in emitAttr into this function, we query codegen
         // whether addr needs a reloc.
-        if (codeGen->genCodeIndirAddrNeedsReloc(reinterpret_cast<size_t>(addr)))
+        if (emitComp->opts.compReloc AMD64_ONLY(|| !FitsIn<int32_t>(reinterpret_cast<intptr_t>(addr))))
         {
             id->idSetIsDspReloc();
         }
-#ifdef TARGET_AMD64
         else
         {
-            // An absolute indir address that doesn't need reloc should fit within
-            // 32-bits to be encoded as offset relative to zero.
-            noway_assert(FitsIn<int32_t>(reinterpret_cast<intptr_t>(addr)));
-
             // This addr mode requires an extra SIB byte.
-            insSize++;
+            AMD64_ONLY(insSize++);
         }
-#endif
     }
     else
     {
@@ -6132,7 +6120,9 @@ void emitter::emitIns_Call(EmitCallType          kind,
 #endif
 
         // Direct call to a method and no addr indirection is needed.
-        if (codeGen->genCodeAddrNeedsReloc(reinterpret_cast<size_t>(addr)))
+        // On x64 all direct code addresses go through relocation so that VM will
+        // setup a jump stub if addr cannot be encoded as RIP relative offset.
+        X86_ONLY(if (emitComp->opts.compReloc))
         {
             id->idSetIsDspReloc();
         }

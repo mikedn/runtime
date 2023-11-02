@@ -420,87 +420,6 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
 
 #endif // !FEATURE_EH_FUNCLETS
 
-// Return true if an absolute indirect data address can be encoded as IP-relative.
-// offset. Note that this method should be used only when the caller knows that
-// the address is an icon value that VM has given and there is no GenTree node
-// representing it. Otherwise, one should always use FitsInAddrBase().
-bool CodeGen::genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
-{
-#ifdef TARGET_AMD64
-    return compiler->eeIsRIPRelativeAddress(reinterpret_cast<void*>(addr));
-#else
-    return false;
-#endif
-}
-
-// Return true if an indirect code address can be encoded as IP-relative offset.
-// Note that this method should be used only when the caller knows that the
-// address is an icon value that VM has given and there is no GenTree node
-// representing it. Otherwise, one should always use FitsInAddrBase().
-bool CodeGen::genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
-{
-#ifdef TARGET_AMD64
-    return compiler->eeIsRIPRelativeAddress(reinterpret_cast<void*>(addr));
-#else
-    return true;
-#endif
-}
-
-// Return true if an indirect code address can be encoded as 32-bit displacement
-// relative to zero. Note that this method should be used only when the caller
-// knows that the address is an icon value that VM has given and there is no
-// GenTree node representing it. Otherwise, one should always use FitsInAddrBase().
-bool CodeGen::genCodeIndirAddrCanBeEncodedAsZeroRelOffset(size_t addr)
-{
-    return FitsIn<int32_t>(static_cast<ssize_t>(addr));
-}
-
-// Return true if an absolute indirect code address needs a relocation recorded with VM.
-bool CodeGen::genCodeIndirAddrNeedsReloc(size_t addr)
-{
-    // If generating relocatable ngen code, then all code addr should go through relocation
-    if (compiler->opts.compReloc)
-    {
-        return true;
-    }
-
-#ifdef TARGET_AMD64
-    // See if the code indir addr can be encoded as 32-bit displacement relative to zero.
-    // We don't need a relocation in that case.
-    if (genCodeIndirAddrCanBeEncodedAsZeroRelOffset(addr))
-    {
-        return false;
-    }
-
-    // Else we need a relocation.
-    return true;
-#else  // TARGET_X86
-    // On x86 there is no need to record or ask for relocations during jitting,
-    // because all addrs fit within 32-bits.
-    return false;
-#endif // TARGET_X86
-}
-
-// Return true if a direct code address needs to be marked as relocatable.
-bool CodeGen::genCodeAddrNeedsReloc(size_t addr)
-{
-    // If generating relocatable ngen code, then all code addr should go through relocation
-    if (compiler->opts.compReloc)
-    {
-        return true;
-    }
-
-#ifdef TARGET_AMD64
-    // By default all direct code addresses go through relocation so that VM will setup
-    // a jump stub if addr cannot be encoded as pc-relative offset.
-    return true;
-#else  // TARGET_X86
-    // On x86 there is no need for recording relocations during jitting,
-    // because all addrs fit within 32-bits.
-    return false;
-#endif // TARGET_X86
-}
-
 void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 {
     GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
@@ -522,9 +441,11 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     {
         GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
     }
-    else if (genDataIndirAddrCanBeEncodedAsPCRelOffset(imm))
+#ifdef TARGET_AMD64
+    else if (compiler->eeIsRIPRelativeAddress(reinterpret_cast<void*>(imm)))
     {
         emitAttr newSize = EA_PTR_DSP_RELOC;
+
         if (EA_IS_BYREF(size))
         {
             newSize = EA_SET_FLG(newSize, EA_BYREF_FLG);
@@ -532,6 +453,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
 
         GetEmitter()->emitIns_R_AI(INS_lea, newSize, reg, imm);
     }
+#endif
     else
     {
         GetEmitter()->emitIns_R_I(INS_mov, size, reg, imm);
@@ -5237,55 +5159,39 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
     // amd64
     // If jmpNode is GT_JMP then gtNext must be null.
     // If jmpNode is a fast tail call, gtNext need not be null since it could have embedded stmts.
-    noway_assert((jmpNode->gtOper != GT_JMP) || (jmpNode->gtNext == nullptr));
+    noway_assert(!jmpNode->OperIs(GT_JMP) || (jmpNode->gtNext == nullptr));
 
     // Could either be a "jmp method" or "fast tail call" implemented as epilog+jmp
-    noway_assert((jmpNode->gtOper == GT_JMP) || ((jmpNode->gtOper == GT_CALL) && jmpNode->AsCall()->IsFastTailCall()));
+    noway_assert(jmpNode->OperIs(GT_JMP) || (jmpNode->OperIs(GT_CALL) && jmpNode->AsCall()->IsFastTailCall()));
 
     // The next block is associated with this "if" stmt
     if (GenTreeJmp* jmp = jmpNode->IsJmp())
 #endif
     {
-        // Simply emit a jump to the methodHnd. This is similar to a call so we can use
-        // the same descriptor with some minor adjustments.
         CORINFO_CONST_LOOKUP addrInfo;
         compiler->info.compCompHnd->getFunctionEntryPoint(jmp->GetMethodHandle(), &addrInfo);
 
-        if (addrInfo.accessType != IAT_VALUE && addrInfo.accessType != IAT_PVALUE)
-        {
-            NO_WAY("Unsupported JMP indirection");
-        }
-
-        // If we have IAT_PVALUE we might need to jump via register indirect, as sometimes the
-        // indirection cell can't be reached by the jump.
-        emitter::EmitCallType callType;
-        void*                 addr;
-        regNumber             indCallReg;
+        emitter::EmitCallType callType   = emitter::EC_FUNC_TOKEN_INDIR;
+        void*                 addr       = addrInfo.addr;
+        regNumber             indCallReg = REG_NA;
 
         if (addrInfo.accessType == IAT_PVALUE)
         {
-            if (genCodeIndirAddrCanBeEncodedAsPCRelOffset((size_t)addrInfo.addr))
+#ifdef TARGET_AMD64
+            if (!compiler->eeIsRIPRelativeAddress(addrInfo.addr))
             {
-                // 32 bit displacement will work
-                callType   = emitter::EC_FUNC_TOKEN_INDIR;
-                addr       = addrInfo.addr;
-                indCallReg = REG_NA;
-            }
-            else
-            {
-                // 32 bit displacement won't work
                 callType   = emitter::EC_INDIR_ARD;
                 indCallReg = REG_RAX;
-                addr       = nullptr;
-
-                instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, indCallReg, (ssize_t)addrInfo.addr);
+                instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, indCallReg, reinterpret_cast<ssize_t>(addr));
+                addr = nullptr;
             }
+#endif
         }
         else
         {
-            callType   = emitter::EC_FUNC_TOKEN;
-            addr       = addrInfo.addr;
-            indCallReg = REG_NA;
+            noway_assert(addrInfo.accessType == IAT_VALUE);
+
+            callType = emitter::EC_FUNC_TOKEN;
         }
 
         // clang-format off
@@ -7317,15 +7223,15 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
     addr                           = compiler->compGetHelperFtn(helper, &pAddr);
     regNumber callTarget           = REG_NA;
 
-    if (!addr)
+    if (addr == nullptr)
     {
         assert(pAddr != nullptr);
 
-        // Absolute indirect call addr
-        // Note: Order of checks is important. First always check for pc-relative and next
-        // zero-relative.  Because the former encoding is 1-byte smaller than the latter.
-        if (genCodeIndirAddrCanBeEncodedAsPCRelOffset((size_t)pAddr) ||
-            genCodeIndirAddrCanBeEncodedAsZeroRelOffset((size_t)pAddr))
+#ifdef TARGET_X86
+        callType = emitter::EC_FUNC_TOKEN_INDIR;
+        addr     = pAddr;
+#else  // TARGET_AMD64
+        if (compiler->eeIsRIPRelativeAddress(pAddr) || FitsIn<int32_t>(reinterpret_cast<intptr_t>(pAddr)))
         {
             // generate call whose target is specified by 32-bit offset relative to PC or zero.
             callType = emitter::EC_FUNC_TOKEN_INDIR;
@@ -7333,7 +7239,6 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
         }
         else
         {
-#ifdef TARGET_AMD64
             // If this indirect address cannot be encoded as 32-bit offset relative to PC or Zero,
             // load it into REG_HELPER_CALL_TARGET and use register indirect addressing mode to
             // make the call.
@@ -7355,13 +7260,13 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
                 regMaskTP callTargetMask = genRegMask(callTargetReg);
                 noway_assert((callTargetMask & liveness.GetLiveLclRegs()) == RBM_NONE);
             }
-#endif
 
             GetEmitter()->emitIns_R_I(INS_mov, EA_PTRSIZE, callTargetReg, reinterpret_cast<ssize_t>(pAddr));
 
             callType   = emitter::EC_INDIR_ARD;
             callTarget = callTargetReg;
         }
+#endif // TARGET_AMD64
     }
 
     // clang-format off

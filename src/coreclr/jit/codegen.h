@@ -53,14 +53,6 @@ public:
     void genEmitMachineCode();
     void genEmitUnwindDebugGCandEH();
 
-#ifdef TARGET_XARCH
-    bool genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
-    bool genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
-    bool genCodeIndirAddrCanBeEncodedAsZeroRelOffset(size_t addr);
-    bool genCodeIndirAddrNeedsReloc(size_t addr);
-    bool genCodeAddrNeedsReloc(size_t addr);
-#endif
-
     virtual VARSET_VALARG_TP GetLiveSet() const
     {
         return liveness.GetLiveSet();
