@@ -6552,9 +6552,22 @@ void emitter::emitDispFrameRef(instrDesc* id, bool asmfm)
     printf("]");
 }
 
+void emitter::emitDispImm(instrDesc* id, CnsVal val)
+{
+    if (val.cnsReloc)
+    {
+        emitDispReloc(val.cnsVal);
+    }
+    else
+    {
+        emitDispImm(id, val.cnsVal);
+    }
+}
+
 void emitter::emitDispImm(instrDesc* id, ssize_t val)
 {
     ssize_t srcVal = val;
+
     // Munge any pointers if we want diff-able disassembly
     if (emitComp->opts.disDiffable)
     {
@@ -6578,7 +6591,10 @@ void emitter::emitDispImm(instrDesc* id, ssize_t val)
         printf("-0x%IX", -val);
     }
 
-    emitDispCommentForHandle(reinterpret_cast<void*>(srcVal), id->idDebugOnlyInfo()->idHandleKind);
+    if (id->idDebugOnlyInfo()->idHandleKind != HandleKind::None)
+    {
+        emitDispCommentForHandle(reinterpret_cast<void*>(srcVal), id->idDebugOnlyInfo()->idHandleKind);
+    }
 }
 
 /*****************************************************************************
@@ -7148,15 +7164,7 @@ void emitter::emitDispIns(
             assert((ins == INS_push_hide) && (emitGetInsSC(id) == 0) && !id->idIsReloc());
             printf("0");
 #else
-            val = emitGetInsSC(id);
-            if (id->idIsCnsReloc())
-            {
-                emitDispReloc(val);
-            }
-            else
-            {
-                emitDispImm(id, val);
-            }
+            emitDispImm(id, CnsVal{emitGetInsSC(id), id->idIsCnsReloc()});
 #endif
             break;
 
@@ -7211,50 +7219,24 @@ void emitter::emitDispIns(
 
         case IF_RRW_ARD_CNS:
         case IF_RWR_ARD_CNS:
-        {
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
             emitDispAddrMode(id);
             emitGetInsAmdCns(id, &cnsVal);
-
-            val = cnsVal.cnsVal;
             printf(", ");
-
-            if (cnsVal.cnsReloc)
-            {
-                emitDispReloc(val);
-            }
-            else
-            {
-                emitDispImm(id, val);
-            }
+            emitDispImm(id, cnsVal);
             break;
-        }
 
         case IF_AWR_RRD_CNS:
-        {
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
             // vextracti/f128 extracts 128-bit data, so we fix sstr as "xmm ptr"
-            sstr = emitSizeStr(EA_ATTR(16));
+            sstr = emitSizeStr(EA_16BYTE);
             printf(sstr);
             emitDispAddrMode(id);
             printf(", %s", emitRegName(id->idReg1(), attr));
-
             emitGetInsAmdCns(id, &cnsVal);
-
-            val = cnsVal.cnsVal;
             printf(", ");
-
-            if (cnsVal.cnsReloc)
-            {
-                emitDispReloc(val);
-            }
-            else
-            {
-                emitDispImm(id, val);
-            }
-
+            emitDispImm(id, cnsVal);
             break;
-        }
 
         case IF_RWR_RRD_ARD:
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
@@ -7273,25 +7255,12 @@ void emitter::emitDispIns(
             break;
 
         case IF_RWR_RRD_ARD_CNS:
-        {
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
             emitDispAddrMode(id);
             emitGetInsAmdCns(id, &cnsVal);
-
-            val = cnsVal.cnsVal;
             printf(", ");
-
-            if (cnsVal.cnsReloc)
-            {
-                emitDispReloc(val);
-            }
-            else
-            {
-                emitDispImm(id, val);
-            }
-
+            emitDispImm(id, cnsVal);
             break;
-        }
 
         case IF_RWR_RRD_ARD_RRD:
         {
@@ -7343,14 +7312,7 @@ void emitter::emitDispIns(
             else
             {
                 printf(", ");
-                if (cnsVal.cnsReloc)
-                {
-                    emitDispReloc(val);
-                }
-                else
-                {
-                    emitDispImm(id, val);
-                }
+                emitDispImm(id, cnsVal);
             }
             break;
 
@@ -7408,14 +7370,7 @@ void emitter::emitDispIns(
             else
             {
                 printf(", ");
-                if (cnsVal.cnsReloc)
-                {
-                    emitDispReloc(val);
-                }
-                else
-                {
-                    emitDispImm(id, val);
-                }
+                emitDispImm(id, cnsVal);
             }
             break;
 
@@ -7423,24 +7378,10 @@ void emitter::emitDispIns(
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
             assert(UseVEXEncoding());
             emitGetInsAmdCns(id, &cnsVal);
-
             printf("%s", sstr);
-
             emitDispFrameRef(id, asmfm);
-
-            printf(", %s", emitRegName(id->idReg1(), attr));
-
-            val = cnsVal.cnsVal;
-            printf(", ");
-
-            if (cnsVal.cnsReloc)
-            {
-                emitDispReloc(val);
-            }
-            else
-            {
-                emitDispImm(id, val);
-            }
+            printf(", %s, ", emitRegName(id->idReg1(), attr));
+            emitDispImm(id, cnsVal);
             break;
 
         case IF_RRD_SRD:
@@ -7496,24 +7437,12 @@ void emitter::emitDispIns(
             break;
 
         case IF_RWR_RRD_SRD_CNS:
-        {
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
             emitDispFrameRef(id, asmfm);
             emitGetInsCns(id, &cnsVal);
-
-            val = cnsVal.cnsVal;
             printf(", ");
-
-            if (cnsVal.cnsReloc)
-            {
-                emitDispReloc(val);
-            }
-            else
-            {
-                emitDispImm(id, val);
-            }
+            emitDispImm(id, cnsVal);
             break;
-        }
 
         case IF_RWR_RRD_SRD_RRD:
         {
@@ -7700,14 +7629,7 @@ void emitter::emitDispIns(
             assert((val >= (ssize_t)0xFFFFFFFF80000000LL) && (val <= 0x000000007FFFFFFFLL));
 #endif
             printf(", ");
-            if (id->idIsCnsReloc())
-            {
-                emitDispReloc(val);
-            }
-            else
-            {
-                emitDispImm(id, val);
-            }
+            emitDispImm(id, CnsVal{val, id->idIsCnsReloc()});
             break;
         }
 
@@ -7750,25 +7672,13 @@ void emitter::emitDispIns(
 
         case IF_RRW_MRD_CNS:
         case IF_RWR_MRD_CNS:
-        {
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
             offs = emitGetInsDsp(id);
             emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
             emitGetInsDcmCns(id, &cnsVal);
-
-            val = cnsVal.cnsVal;
             printf(", ");
-
-            if (cnsVal.cnsReloc)
-            {
-                emitDispReloc(val);
-            }
-            else
-            {
-                emitDispImm(id, val);
-            }
+            emitDispImm(id, cnsVal);
             break;
-        }
 
         case IF_MWR_RRD_CNS:
         {
@@ -7780,19 +7690,8 @@ void emitter::emitDispIns(
             emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
             printf(", %s", emitRegName(id->idReg1(), attr));
             emitGetInsDcmCns(id, &cnsVal);
-
-            val = cnsVal.cnsVal;
             printf(", ");
-
-            if (cnsVal.cnsReloc)
-            {
-                emitDispReloc(val);
-            }
-            else
-            {
-                emitDispImm(id, val);
-            }
-
+            emitDispImm(id, cnsVal);
             break;
         }
 
@@ -7803,25 +7702,13 @@ void emitter::emitDispIns(
             break;
 
         case IF_RWR_RRD_MRD_CNS:
-        {
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
             offs = emitGetInsDsp(id);
             emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
             emitGetInsDcmCns(id, &cnsVal);
-
-            val = cnsVal.cnsVal;
             printf(", ");
-
-            if (cnsVal.cnsReloc)
-            {
-                emitDispReloc(val);
-            }
-            else
-            {
-                emitDispImm(id, val);
-            }
+            emitDispImm(id, cnsVal);
             break;
-        }
 
         case IF_RWR_RRD_MRD_RRD:
         {
@@ -7904,15 +7791,7 @@ void emitter::emitDispIns(
         case IF_RWR_CNS:
         case IF_RRW_CNS:
             printf("%s, ", emitRegName(id->idReg1(), attr));
-            val = emitGetInsSC(id);
-            if (id->idIsCnsReloc())
-            {
-                emitDispReloc(val);
-            }
-            else
-            {
-                emitDispImm(id, val);
-            }
+            emitDispImm(id, CnsVal{emitGetInsSC(id), id->idIsCnsReloc()});
             break;
 
         case IF_LABEL:
