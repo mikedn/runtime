@@ -208,6 +208,7 @@ bool isPrefetch(instruction ins)
 
 #ifdef DEBUG
 
+void emitDispImm(instrDesc* id, ssize_t val);
 void emitDispReloc(ssize_t value);
 void emitDispAddrMode(instrDesc* id, bool noDetail = false);
 void emitDispShift(instruction ins, int cnt = 0);

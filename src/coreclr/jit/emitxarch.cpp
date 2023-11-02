@@ -6552,6 +6552,35 @@ void emitter::emitDispFrameRef(instrDesc* id, bool asmfm)
     printf("]");
 }
 
+void emitter::emitDispImm(instrDesc* id, ssize_t val)
+{
+    ssize_t srcVal = val;
+    // Munge any pointers if we want diff-able disassembly
+    if (emitComp->opts.disDiffable)
+    {
+        ssize_t top14bits = (val >> 18);
+        if ((top14bits != 0) && (top14bits != -1))
+        {
+            val = 0xD1FFAB1E;
+        }
+    }
+
+    if ((val > -1000) && (val < 1000))
+    {
+        printf("%d", val);
+    }
+    else if ((val > 0) || (val < -0xFFFFFF))
+    {
+        printf("0x%IX", val);
+    }
+    else
+    {
+        printf("-0x%IX", -val);
+    }
+
+    emitDispCommentForHandle(reinterpret_cast<void*>(srcVal), id->idDebugOnlyInfo()->idHandleKind);
+}
+
 /*****************************************************************************
  *
  *  Display a reloc value
@@ -7126,7 +7155,7 @@ void emitter::emitDispIns(
             }
             else
             {
-                goto PRINT_CONSTANT;
+                emitDispImm(id, val);
             }
 #endif
             break;
@@ -7196,33 +7225,8 @@ void emitter::emitDispIns(
             }
             else
             {
-            PRINT_CONSTANT:
-                ssize_t srcVal = val;
-                // Munge any pointers if we want diff-able disassembly
-                if (emitComp->opts.disDiffable)
-                {
-                    ssize_t top14bits = (val >> 18);
-                    if ((top14bits != 0) && (top14bits != -1))
-                    {
-                        val = 0xD1FFAB1E;
-                    }
-                }
-                if ((val > -1000) && (val < 1000))
-                {
-                    printf("%d", val);
-                }
-                else if ((val > 0) || (val < -0xFFFFFF))
-                {
-                    printf("0x%IX", val);
-                }
-                else
-                {
-                    printf("-0x%IX", -val);
-                }
-
-                emitDispCommentForHandle(reinterpret_cast<void*>(srcVal), id->idDebugOnlyInfo()->idHandleKind);
+                emitDispImm(id, val);
             }
-
             break;
         }
 
@@ -7246,7 +7250,7 @@ void emitter::emitDispIns(
             }
             else
             {
-                goto PRINT_CONSTANT;
+                emitDispImm(id, val);
             }
 
             break;
@@ -7283,7 +7287,7 @@ void emitter::emitDispIns(
             }
             else
             {
-                goto PRINT_CONSTANT;
+                emitDispImm(id, val);
             }
 
             break;
@@ -7345,7 +7349,7 @@ void emitter::emitDispIns(
                 }
                 else
                 {
-                    goto PRINT_CONSTANT;
+                    emitDispImm(id, val);
                 }
             }
             break;
@@ -7410,7 +7414,7 @@ void emitter::emitDispIns(
                 }
                 else
                 {
-                    goto PRINT_CONSTANT;
+                    emitDispImm(id, val);
                 }
             }
             break;
@@ -7435,7 +7439,7 @@ void emitter::emitDispIns(
             }
             else
             {
-                goto PRINT_CONSTANT;
+                emitDispImm(id, val);
             }
             break;
 
@@ -7481,7 +7485,7 @@ void emitter::emitDispIns(
             }
             else
             {
-                goto PRINT_CONSTANT;
+                emitDispImm(id, val);
             }
             break;
         }
@@ -7506,7 +7510,7 @@ void emitter::emitDispIns(
             }
             else
             {
-                goto PRINT_CONSTANT;
+                emitDispImm(id, val);
             }
             break;
         }
@@ -7629,7 +7633,7 @@ void emitter::emitDispIns(
 
             printf("%s, ", emitRegName(id->idReg3(), attr));
             val = emitGetInsSC(id);
-            goto PRINT_CONSTANT;
+            emitDispImm(id, val);
             break;
         case IF_RWR_RRD_RRD_RRD:
             assert(IsAVXOnlyInstruction(ins));
@@ -7702,7 +7706,7 @@ void emitter::emitDispIns(
             }
             else
             {
-                goto PRINT_CONSTANT;
+                emitDispImm(id, val);
             }
             break;
         }
@@ -7761,7 +7765,7 @@ void emitter::emitDispIns(
             }
             else
             {
-                goto PRINT_CONSTANT;
+                emitDispImm(id, val);
             }
             break;
         }
@@ -7786,7 +7790,7 @@ void emitter::emitDispIns(
             }
             else
             {
-                goto PRINT_CONSTANT;
+                emitDispImm(id, val);
             }
 
             break;
@@ -7814,7 +7818,7 @@ void emitter::emitDispIns(
             }
             else
             {
-                goto PRINT_CONSTANT;
+                emitDispImm(id, val);
             }
             break;
         }
@@ -7875,7 +7879,7 @@ void emitter::emitDispIns(
             else
             {
                 printf(", ");
-                goto PRINT_CONSTANT;
+                emitDispImm(id, val);
             }
             break;
 
@@ -7907,7 +7911,7 @@ void emitter::emitDispIns(
             }
             else
             {
-                goto PRINT_CONSTANT;
+                emitDispImm(id, val);
             }
             break;
 
