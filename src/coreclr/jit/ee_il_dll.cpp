@@ -1620,27 +1620,35 @@ const WCHAR* Compiler::eeGetCPString(void* strHandle)
 #ifdef HOST_UNIX
     return nullptr;
 #else
-    char buff[512 + sizeof(CORINFO_String)];
+    // TODO-MIKE-Cleanup: This stuff is as dodgy as it gets. The string may live in the GC heap
+    // so it can move around. Avoid blowing up the JIT if the string memory happens to be freed
+    // and make sure the returned string is nul terminated, even if we read garbage from memory.
+    // What this should do is to use getStringLiteral to get the string literal itself instead
+    // of the string object. But we don't have the metadata token here so this will have to do,
+    // for now...
 
-    // make this bulletproof, so it works even if we are wrong.
-    if (ReadProcessMemory(GetCurrentProcess(), (void*)strHandle, buff, 4, nullptr) == 0)
+    static WCHAR    buffers[4][256];
+    static unsigned freeBuffer;
+
+    __try
     {
-        return (nullptr);
+        CORINFO_String* str    = static_cast<CORINFO_String*>(*reinterpret_cast<void**>(strHandle));
+        size_t          length = str->stringLen;
+
+        if ((length + 1 > _countof(buffers[0])) || (str->chars[str->stringLen] != 0))
+        {
+            return nullptr;
+        }
+
+        WCHAR* buffer = buffers[freeBuffer++ % _countof(buffers)];
+        memcpy(buffer, str->chars, length * sizeof(WCHAR));
+        buffer[length] = 0;
+        return buffer;
     }
-
-    CORINFO_String* asString = *((CORINFO_String**)strHandle);
-
-    if (ReadProcessMemory(GetCurrentProcess(), asString, buff, sizeof(buff), nullptr) == 0)
-    {
-        return (nullptr);
-    }
-
-    if (asString->stringLen >= 255 || asString->chars[asString->stringLen] != 0)
+    __except (EXCEPTION_EXECUTE_HANDLER)
     {
         return nullptr;
     }
-
-    return (WCHAR*)(asString->chars);
 #endif // HOST_UNIX
 }
 

@@ -6789,6 +6789,12 @@ void emitter::emitDispAddrMode(instrDesc* id, bool noDetail)
     // pretty print string if it looks like one
     if ((id->idGCref() == GCT_GCREF) && (id->idIns() == INS_mov) && (id->idAddr()->iiaAddrMode.amBaseReg == REG_NA))
     {
+        // TODO-MIKE-Review: This stuff is dubious, probably it only works because strings are the only
+        // loading a REF from a memory location. Well, you would expect a static object field load to
+        // look identical but on x86 such loads will use CLS_VAR_ADDR as address and this is treated as
+        // reloc (even when jitting, why?!?). And on x64 apparently RIP addressing is not used in this
+        // case so this is never hit.
+
         if (const WCHAR* str = emitComp->eeGetCPString(reinterpret_cast<void*>(disp)))
         {
             printf("      '%S'", str);
