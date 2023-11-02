@@ -3551,47 +3551,30 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     }
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing an integer constant.
- */
-
 void emitter::emitIns_I(instruction ins, emitAttr attr, cnsval_ssize_t val)
 {
-    bool valInByte = ((signed char)val == (target_ssize_t)val);
-
-#ifdef TARGET_AMD64
-    // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
-    // all other opcodes take a sign-extended 4-byte immediate
-    noway_assert(EA_SIZE(attr) < EA_8BYTE || !EA_IS_CNS_RELOC(attr));
-#endif
-
-    if (EA_IS_CNS_RELOC(attr))
-    {
-        valInByte = false; // relocs can't be placed in a byte
-    }
-
     unsigned sz;
 
     switch (ins)
     {
-        case INS_loop:
-        case INS_jge:
-            sz = 2;
-            break;
-
+#ifdef TARGET_X86
         case INS_ret:
             assert((0 <= val) && (val < (1 << 16)));
             sz = 3;
             break;
-
-        case INS_push_hide:
         case INS_push:
-            sz = valInByte ? 2 : 5;
+        case INS_push_hide:
+            sz = !EA_IS_RELOC(attr) && FitsIn<int8_t>(val) ? 2 : 5;
             break;
-
+#else
+        case INS_push_hide:
+            // On x64 only LCLHEAP uses push, to allocate and initialize stack memory.
+            assert((attr == EA_8BYTE) && (val == 0));
+            sz = 2;
+            break;
+#endif
         default:
-            NO_WAY("unexpected instruction");
+            unreached();
     }
 
     instrDesc* id = emitNewInstrSC(attr, val);
@@ -7132,49 +7115,25 @@ void emitter::emitDispIns(
         const char* methodName;
 
         case IF_CNS:
-            val = emitGetInsSC(id);
 #ifdef TARGET_AMD64
-            // no 8-byte immediates allowed here!
-            assert((val >= (ssize_t)0xFFFFFFFF80000000LL) && (val <= 0x000000007FFFFFFFLL));
-#endif
+            assert((ins == INS_push_hide) && (emitGetInsSC(id) == 0) && !id->idIsReloc());
+            printf("0");
+#else
+            val = emitGetInsSC(id);
             if (id->idIsCnsReloc())
             {
                 emitDispReloc(val);
             }
             else
             {
-            PRINT_CONSTANT:
-                ssize_t srcVal = val;
-                // Munge any pointers if we want diff-able disassembly
-                if (emitComp->opts.disDiffable)
-                {
-                    ssize_t top14bits = (val >> 18);
-                    if ((top14bits != 0) && (top14bits != -1))
-                    {
-                        val = 0xD1FFAB1E;
-                    }
-                }
-                if ((val > -1000) && (val < 1000))
-                {
-                    printf("%d", val);
-                }
-                else if ((val > 0) || (val < -0xFFFFFF))
-                {
-                    printf("0x%IX", val);
-                }
-                else
-                {
-                    printf("-0x%IX", -val);
-                }
-
-                emitDispCommentForHandle(reinterpret_cast<void*>(srcVal), id->idDebugOnlyInfo()->idHandleKind);
+                goto PRINT_CONSTANT;
             }
+#endif
             break;
 
         case IF_ARD:
         case IF_AWR:
         case IF_ARW:
-
             if (ins == INS_call && id->idIsCallRegPtr())
             {
                 printf("%s", emitRegName(id->idAddr()->iiaAddrMode.amBaseReg));
@@ -7237,7 +7196,31 @@ void emitter::emitDispIns(
             }
             else
             {
-                goto PRINT_CONSTANT;
+            PRINT_CONSTANT:
+                ssize_t srcVal = val;
+                // Munge any pointers if we want diff-able disassembly
+                if (emitComp->opts.disDiffable)
+                {
+                    ssize_t top14bits = (val >> 18);
+                    if ((top14bits != 0) && (top14bits != -1))
+                    {
+                        val = 0xD1FFAB1E;
+                    }
+                }
+                if ((val > -1000) && (val < 1000))
+                {
+                    printf("%d", val);
+                }
+                else if ((val > 0) || (val < -0xFFFFFF))
+                {
+                    printf("0x%IX", val);
+                }
+                else
+                {
+                    printf("-0x%IX", -val);
+                }
+
+                emitDispCommentForHandle(reinterpret_cast<void*>(srcVal), id->idDebugOnlyInfo()->idHandleKind);
             }
 
             break;

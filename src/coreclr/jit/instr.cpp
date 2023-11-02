@@ -184,11 +184,6 @@ void CodeGen::inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_ty
     GetEmitter()->emitIns_R_R(ins, emitActualTypeSize(type), reg1, reg2);
 }
 
-void CodeGen::inst_IV(instruction ins, cnsval_ssize_t val)
-{
-    GetEmitter()->emitIns_I(ins, EA_PTRSIZE, val);
-}
-
 bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs)
 {
     if (op->isUsedFromSpillTemp())

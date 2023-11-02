@@ -412,7 +412,7 @@ void CodeGen::genLclHeap(GenTree* tree)
 
             while (pushCount != 0)
             {
-                inst_IV(INS_push, (unsigned)genRegMask(regCnt));
+                GetEmitter()->emitIns_I(INS_push, EA_4BYTE, static_cast<int32_t>(genRegMask(regCnt)));
                 pushCount -= 1;
             }
 
@@ -457,8 +457,8 @@ void CodeGen::genLclHeap(GenTree* tree)
         genDefineTempLabel(loop);
 
         noway_assert(STACK_ALIGN == 8);
-        inst_IV(INS_push, (unsigned)genRegMask(regTmp));
-        inst_IV(INS_push, (unsigned)genRegMask(regTmp));
+        GetEmitter()->emitIns_I(INS_push, EA_4BYTE, static_cast<int32_t>(genRegMask(regTmp)));
+        GetEmitter()->emitIns_I(INS_push, EA_4BYTE, static_cast<int32_t>(genRegMask(regTmp)));
 
         // If not done, loop
         // Note that regCnt is the number of bytes to stack allocate.
@@ -2216,8 +2216,8 @@ void CodeGen::PrologPushCalleeSavedRegisters()
 
     maskPushRegsInt |= genStackAllocRegisterMask(lclFrameSize, maskPushRegsFloat);
 
-    assert(FitsIn<int>(maskPushRegsInt));
-    inst_IV(INS_push, (int)maskPushRegsInt);
+    assert(FitsIn<int32_t>(maskPushRegsInt));
+    GetEmitter()->emitIns_I(INS_push, EA_4BYTE, static_cast<int32_t>(maskPushRegsInt));
     compiler->unwindPushMaskInt(maskPushRegsInt);
 
     if (maskPushRegsFloat != 0)
@@ -2269,8 +2269,8 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
         genUsedPopToReturn = false;
     }
 
-    assert(FitsIn<int>(maskPopRegsInt));
-    inst_IV(INS_pop, (int)maskPopRegsInt);
+    assert(FitsIn<int32_t>(maskPopRegsInt));
+    GetEmitter()->emitIns_I(INS_pop, EA_4BYTE, static_cast<int32_t>(maskPopRegsInt));
     compiler->unwindPopMaskInt(maskPopRegsInt);
 }
 
@@ -2392,8 +2392,8 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     regMaskTP maskStackAlloc = genStackAllocRegisterMask(genFuncletInfo.fiSpDelta, maskPushRegsFloat);
     maskPushRegsInt |= maskStackAlloc;
 
-    assert(FitsIn<int>(maskPushRegsInt));
-    inst_IV(INS_push, (int)maskPushRegsInt);
+    assert(FitsIn<int32_t>(maskPushRegsInt));
+    GetEmitter()->emitIns_I(INS_push, EA_4BYTE, static_cast<int32_t>(maskPushRegsInt));
     compiler->unwindPushMaskInt(maskPushRegsInt);
 
     if (maskPushRegsFloat != RBM_NONE)
@@ -2502,8 +2502,8 @@ void CodeGen::genFuncletEpilog()
         compiler->unwindPopMaskFloat(maskPopRegsFloat);
     }
 
-    assert(FitsIn<int>(maskPopRegsInt));
-    inst_IV(INS_pop, (int)maskPopRegsInt);
+    assert(FitsIn<int32_t>(maskPopRegsInt));
+    GetEmitter()->emitIns_I(INS_pop, EA_4BYTE, static_cast<int32_t>(maskPopRegsInt));
     compiler->unwindPopMaskInt(maskPopRegsInt);
 
     compiler->unwindEndEpilog();

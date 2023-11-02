@@ -359,7 +359,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     else
     {
         // EE expects a DWORD, so we provide 0
-        inst_IV(INS_push_hide, 0);
+        GetEmitter()->emitIns_I(INS_push_hide, EA_4BYTE, 0);
     }
 
     // Jump to the finally BB
@@ -2064,7 +2064,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         {
             for (; cntRegSizedWords != 0; cntRegSizedWords--)
             {
-                inst_IV(INS_push_hide, 0); // push_hide means don't track the stack
+                GetEmitter()->emitIns_I(INS_push_hide, EA_PTRSIZE, 0);
             }
 
             lastTouchDelta = 0;
@@ -2136,7 +2136,7 @@ void CodeGen::genLclHeap(GenTree* tree)
 
         for (unsigned i = 0; i < count; i++)
         {
-            inst_IV(INS_push_hide, 0); // --- push REG_SIZE bytes of 0
+            GetEmitter()->emitIns_I(INS_push_hide, EA_PTRSIZE, 0);
         }
         // Note that the stack must always be aligned to STACK_ALIGN bytes
 
@@ -7430,14 +7430,15 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 0xC);
 #endif
 
-    // Push the profilerHandle
+    int32_t profilerMethodAddr = static_cast<int32_t>(reinterpret_cast<intptr_t>(compiler->compProfilerMethHnd));
+
     if (compiler->compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_AR_R(INS_push, EA_PTR_DSP_RELOC, REG_NA, REG_NA, (ssize_t)compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_AR_R(INS_push, EA_PTR_DSP_RELOC, REG_NA, REG_NA, profilerMethodAddr);
     }
     else
     {
-        inst_IV(INS_push, (size_t)compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_I(INS_push, EA_4BYTE, profilerMethodAddr);
     }
 
     // This will emit either
@@ -7493,17 +7494,15 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     AddNestedAlignment(0xC);
 #endif // UNIX_X86_ABI
 
-    //
-    // Push the profilerHandle
-    //
+    int32_t profilerMethodAddr = static_cast<int32_t>(reinterpret_cast<intptr_t>(compiler->compProfilerMethHnd));
 
     if (compiler->compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_AR_R(INS_push, EA_PTR_DSP_RELOC, REG_NA, REG_NA, (ssize_t)compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_AR_R(INS_push, EA_PTR_DSP_RELOC, REG_NA, REG_NA, profilerMethodAddr);
     }
     else
     {
-        inst_IV(INS_push, (size_t)compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_I(INS_push, EA_4BYTE, profilerMethodAddr);
     }
 
     AddStackLevel(REGSIZE_BYTES);

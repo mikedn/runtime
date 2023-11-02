@@ -1508,7 +1508,7 @@ void emitter::emitIns(instruction ins)
  *  Add an instruction with a single immediate value.
  */
 
-void emitter::emitIns_I(instruction ins, emitAttr attr, target_ssize_t imm)
+void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 {
     insFormat fmt         = IF_NONE;
     bool      hasLR       = false;
