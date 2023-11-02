@@ -938,7 +938,7 @@ protected:
 #ifdef FEATURE_HW_INTRINSICS
     void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
 #endif
-    void GenStoreIndRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy);
+    void GenIndStoreRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy);
     void genCodeForBT(GenTreeOp* bt);
     void EpilogGSCookieCheck(bool tailCallEpilog);
 #else
@@ -948,7 +948,7 @@ protected:
     void genCodeForCast(GenTreeCast* cast);
     void GenLclAddr(GenTreeLclAddr* addr);
     void genCodeForIndexAddr(GenTreeIndexAddr* tree);
-    void genCodeForIndir(GenTreeIndir* tree);
+    void GenIndLoad(GenTreeIndir* load);
     void genCodeForNegNot(GenTreeUnOp* tree);
     void genCodeForBswap(GenTree* tree);
     void GenLoadLclVar(GenTreeLclVar* load);
@@ -964,7 +964,7 @@ protected:
     void GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store);
     void genCodeForReturnTrap(GenTreeOp* tree);
     void genCodeForSetcc(GenTreeCC* setcc);
-    void genCodeForStoreInd(GenTreeStoreInd* tree);
+    void GenIndStore(GenTreeStoreInd* tree);
 #ifdef TARGET_XARCH
     void genCodeForSwap(GenTreeOp* tree);
 #endif

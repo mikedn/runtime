@@ -937,7 +937,7 @@ void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
     assert(!"GT_NULLCHECK isn't supported for Arm32; use GT_IND.");
 }
 
-void CodeGen::genCodeForIndir(GenTreeIndir* load)
+void CodeGen::GenIndLoad(GenTreeIndir* load)
 {
     assert(load->OperIs(GT_IND));
 
@@ -952,19 +952,19 @@ void CodeGen::genCodeForIndir(GenTreeIndir* load)
     DefReg(load);
 }
 
-void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
+void CodeGen::GenIndStore(GenTreeStoreInd* tree)
 {
-    GenTree*  addr = tree->GetAddr();
-    GenTree*  data = tree->GetValue();
-    var_types type = tree->GetType();
+    GenTree*  addr  = tree->GetAddr();
+    GenTree*  value = tree->GetValue();
+    var_types type  = tree->GetType();
 
-    assert(IsValidSourceType(type, data->GetType()));
+    assert(IsValidSourceType(type, value->GetType()));
 
     GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(tree);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
         regNumber addrReg = UseReg(addr);
-        regNumber dataReg = UseReg(data);
+        regNumber dataReg = UseReg(value);
 
         // At this point, we should not have any interference.
         // That is, 'data' must not be in REG_ARG_0,
@@ -972,7 +972,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
         noway_assert(dataReg != REG_ARG_0);
 
         inst_Mov(addr->GetType(), REG_ARG_0, addrReg, /* canSkip */ true);
-        inst_Mov(data->GetType(), REG_ARG_1, dataReg, /* canSkip */ true);
+        inst_Mov(value->GetType(), REG_ARG_1, dataReg, /* canSkip */ true);
         genGCWriteBarrier(tree, writeBarrierForm);
 
         return;
@@ -981,7 +981,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     // We must consume the operands in the proper execution order,
     // so that liveness is updated appropriately.
     genConsumeAddress(addr);
-    regNumber dataReg = UseReg(data);
+    regNumber dataReg = UseReg(value);
 
     if (tree->IsVolatile())
     {

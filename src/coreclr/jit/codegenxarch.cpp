@@ -1377,7 +1377,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_IND:
-            genCodeForIndir(treeNode->AsIndir());
+            GenIndLoad(treeNode->AsIndir());
             break;
 
         case GT_INC_SATURATE:
@@ -1447,7 +1447,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_STOREIND:
-            genCodeForStoreInd(treeNode->AsStoreInd());
+            GenIndStore(treeNode->AsStoreInd());
             break;
 
         case GT_RELOAD:
@@ -4172,46 +4172,34 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
     DefReg(node);
 }
 
-//------------------------------------------------------------------------
-// genCodeForIndir: Produce code for a GT_IND node.
-//
-// Arguments:
-//    tree - the GT_IND node
-//
-void CodeGen::genCodeForIndir(GenTreeIndir* tree)
+void CodeGen::GenIndLoad(GenTreeIndir* load)
 {
-    assert(tree->OperIs(GT_IND));
+    assert(load->OperIs(GT_IND));
 
 #ifdef FEATURE_SIMD
-    if (tree->TypeIs(TYP_SIMD12))
+    if (load->TypeIs(TYP_SIMD12))
     {
-        LoadSIMD12(tree);
-        genProduceReg(tree);
-        return;
+        LoadSIMD12(load);
     }
+    else
 #endif
-
-    var_types targetType = tree->TypeGet();
-    emitter*  emit       = GetEmitter();
-    GenTree*  addr       = tree->GetAddr();
-
 #ifdef WINDOWS_X86_ABI
-    if (GenTreeIntCon* tls = addr->IsIntCon(HandleKind::TLS))
+        if (GenTreeIntCon* tls = load->GetAddr()->IsIntCon(HandleKind::TLS))
     {
-        noway_assert(targetType == TYP_I_IMPL);
-        emit->emitInsMov_R_FS(tree->GetRegNum(), tls->GetInt32Value());
+        noway_assert(load->TypeIs(TYP_INT));
+        GetEmitter()->emitInsMov_R_FS(load->GetRegNum(), tls->GetInt32Value());
     }
     else
 #endif
     {
-        genConsumeAddress(addr);
-        emitInsLoad(ins_Load(targetType), emitTypeSize(tree), tree->GetRegNum(), tree->GetAddr());
+        genConsumeAddress(load->GetAddr());
+        emitInsLoad(ins_Load(load->GetType()), emitTypeSize(load->GetType()), load->GetRegNum(), load->GetAddr());
     }
 
-    genProduceReg(tree);
+    DefReg(load);
 }
 
-void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
+void CodeGen::GenIndStore(GenTreeStoreInd* store)
 {
     assert(store->OperIs(GT_STOREIND));
 
@@ -4232,17 +4220,17 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
     GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
-        regNumber addrReg = UseReg(addr);
-        regNumber dataReg = UseReg(value);
+        regNumber addrReg  = UseReg(addr);
+        regNumber valueReg = UseReg(value);
 
         if (!genEmitOptimizedGCWriteBarrier(writeBarrierForm, addr, value))
         {
             // At this point, we should not have any interference.
             // That is, 'shift' must not be in REG_ARG_0, as that is where 'addr' must go.
-            noway_assert(dataReg != REG_ARG_0);
+            noway_assert(valueReg != REG_ARG_0);
 
             inst_Mov(addr->GetType(), REG_ARG_0, addrReg, /* canSkip */ true);
-            inst_Mov(value->GetType(), REG_ARG_1, dataReg, /* canSkip */ true);
+            inst_Mov(value->GetType(), REG_ARG_1, valueReg, /* canSkip */ true);
             genGCWriteBarrier(store, writeBarrierForm);
         }
 
@@ -4290,7 +4278,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
     {
         assert(src == value->AsOp()->GetOp(1));
 
-        GenStoreIndRMWShift(addr, value->AsOp(), src);
+        GenIndStoreRMWShift(addr, value->AsOp(), src);
     }
     else if (GenTreeIntCon* imm = src->IsContainedIntCon())
     {
@@ -4302,7 +4290,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
     }
 }
 
-void CodeGen::GenStoreIndRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy)
+void CodeGen::GenIndStoreRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy)
 {
     instruction ins  = genGetInsForOper(shift->GetOper());
     emitAttr    attr = emitTypeSize(shift->GetType());

@@ -2644,22 +2644,19 @@ void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
     emitInsLoad(INS_ldr, EA_4BYTE, REG_ZR, tree);
 }
 
-void CodeGen::genCodeForIndir(GenTreeIndir* load)
+void CodeGen::GenIndLoad(GenTreeIndir* load)
 {
     assert(load->OperIs(GT_IND));
 
     if (load->TypeIs(TYP_SIMD12))
     {
         LoadSIMD12(load);
-        genProduceReg(load);
+        DefReg(load);
+
         return;
     }
 
-    genConsumeAddress(load->GetAddr());
-
-    var_types   type        = load->GetType();
-    instruction ins         = ins_Load(type);
-    regNumber   dstReg      = load->GetRegNum();
+    instruction ins         = ins_Load(load->GetType());
     bool        emitBarrier = false;
 
     if (load->IsVolatile())
@@ -2675,7 +2672,7 @@ void CodeGen::genCodeForIndir(GenTreeIndir* load)
         {
             ins = INS_ldarh;
         }
-        else if ((ins == INS_ldr) && addrIsInReg && addrIsAligned && genIsValidIntReg(dstReg))
+        else if ((ins == INS_ldr) && addrIsInReg && addrIsAligned && genIsValidIntReg(load->GetRegNum()))
         {
             ins = INS_ldar;
         }
@@ -2685,7 +2682,8 @@ void CodeGen::genCodeForIndir(GenTreeIndir* load)
         }
     }
 
-    emitInsLoad(ins, emitActualTypeSize(type), dstReg, load);
+    genConsumeAddress(load->GetAddr());
+    emitInsLoad(ins, emitActualTypeSize(load->GetType()), load->GetRegNum(), load);
 
     if (emitBarrier)
     {
@@ -2697,7 +2695,7 @@ void CodeGen::genCodeForIndir(GenTreeIndir* load)
     DefReg(load);
 }
 
-void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
+void CodeGen::GenIndStore(GenTreeStoreInd* tree)
 {
     if (tree->TypeIs(TYP_SIMD12))
     {
@@ -2705,24 +2703,24 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
         return;
     }
 
-    GenTree* addr = tree->GetAddr();
-    GenTree* data = tree->GetValue();
+    GenTree* addr  = tree->GetAddr();
+    GenTree* value = tree->GetValue();
 
-    assert(IsValidSourceType(tree->GetType(), data->GetType()));
+    assert(IsValidSourceType(tree->GetType(), value->GetType()));
 
     GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(tree);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
-        regNumber addrReg = UseReg(addr);
-        regNumber dataReg = UseReg(data);
+        regNumber addrReg  = UseReg(addr);
+        regNumber valueReg = UseReg(value);
 
         // At this point, we should not have any interference.
         // That is, 'data' must not be in REG_WRITE_BARRIER_DST_BYREF,
         // as that is where 'addr' must go.
-        noway_assert(dataReg != REG_WRITE_BARRIER_DST_BYREF);
+        noway_assert(valueReg != REG_WRITE_BARRIER_DST_BYREF);
 
         inst_Mov(addr->GetType(), REG_WRITE_BARRIER_DST, addrReg, /* canSkip */ true);
-        inst_Mov(data->GetType(), REG_WRITE_BARRIER_SRC, dataReg, /* canSkip */ true);
+        inst_Mov(value->GetType(), REG_WRITE_BARRIER_SRC, valueReg, /* canSkip */ true);
         genGCWriteBarrier(tree, writeBarrierForm);
 
         return;
@@ -2732,18 +2730,18 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     // so that liveness is updated appropriately.
     genConsumeAddress(addr);
     var_types type = tree->GetType();
-    regNumber dataReg;
+    regNumber valueReg;
 
-    if (data->isContained())
+    if (value->isContained())
     {
-        assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsHWIntrinsicZero());
+        assert(value->IsIntegralConst(0) || value->IsDblConPositiveZero() || value->IsHWIntrinsicZero());
         assert(varTypeSize(type) <= REGSIZE_BYTES);
 
-        dataReg = REG_ZR;
+        valueReg = REG_ZR;
     }
     else
     {
-        dataReg = UseReg(data);
+        valueReg = UseReg(value);
     }
 
     instruction ins = ins_Store(type);
@@ -2761,7 +2759,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
         {
             ins = INS_stlrh;
         }
-        else if ((ins == INS_str) && genIsValidIntReg(dataReg) && addrIsInReg && addrIsAligned)
+        else if ((ins == INS_str) && genIsValidIntReg(valueReg) && addrIsInReg && addrIsAligned)
         {
             ins = INS_stlr;
         }
@@ -2772,7 +2770,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
         }
     }
 
-    emitInsStore(ins, emitActualTypeSize(type), dataReg, tree);
+    emitInsStore(ins, emitActualTypeSize(type), valueReg, tree);
 }
 
 void CodeGen::genIntToFloatCast(GenTreeCast* cast)

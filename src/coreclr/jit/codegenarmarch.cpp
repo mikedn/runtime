@@ -255,7 +255,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_IND:
-            genCodeForIndir(treeNode->AsIndir());
+            GenIndLoad(treeNode->AsIndir());
             break;
 
 #ifdef TARGET_ARM
@@ -338,7 +338,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_STOREIND:
-            genCodeForStoreInd(treeNode->AsStoreInd());
+            GenIndStore(treeNode->AsStoreInd());
             break;
 
         case GT_RELOAD:
