@@ -5100,17 +5100,10 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
 
             unsigned instrSize = emitOutput_Thumb2Instr(dst, code);
 
-            if (emitComp->opts.compReloc)
+            if (emitComp->opts.compReloc && emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
             {
-                if (emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
-                {
-                    assert(id->idjKeepLong);
-                    if (emitComp->info.compMatchedVM)
-                    {
-                        void* target = emitOffsetToPtr(dstOffs);
-                        emitRecordRelocation((void*)dst, target, IMAGE_REL_BASED_THUMB_BRANCH24);
-                    }
-                }
+                assert(id->idjKeepLong);
+                emitRecordRelocation((void*)dst, emitOffsetToPtr(dstOffs), IMAGE_REL_BASED_THUMB_BRANCH24);
             }
 
             dst += instrSize;
@@ -6000,11 +5993,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             if (id->idIsDspReloc())
             {
                 dst += emitOutput_Thumb2Instr(dst, code);
-
-                if (emitComp->info.compMatchedVM)
-                {
-                    emitRecordRelocation((void*)(dst - 4), addr, IMAGE_REL_BASED_THUMB_BRANCH24);
-                }
+                emitRecordRelocation((void*)(dst - 4), addr, IMAGE_REL_BASED_THUMB_BRANCH24);
             }
             else
             {
