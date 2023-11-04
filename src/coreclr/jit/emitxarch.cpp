@@ -6448,17 +6448,7 @@ const char* emitter::emitYMMregName(unsigned reg)
 
 void emitter::emitDispClsVar(instrDesc* id, ssize_t offs)
 {
-    const bool           reloc  = id->idIsDspReloc();
     CORINFO_FIELD_HANDLE fldHnd = id->idAddr()->iiaFieldHnd;
-
-    if (emitComp->opts.disDiffable)
-    {
-        ssize_t top12bits = (offs >> 20);
-        if ((top12bits != 0) && (top12bits != -1))
-        {
-            offs = 0xD1FFAB1E;
-        }
-    }
 
 #ifdef WINDOWS_X86_ABI
     if (fldHnd == FS_SEG_FIELD)
@@ -6470,7 +6460,7 @@ void emitter::emitDispClsVar(instrDesc* id, ssize_t offs)
 
     printf("[");
 
-    if (reloc)
+    if (id->idIsDspReloc())
     {
         printf("reloc ");
     }
@@ -6486,6 +6476,15 @@ void emitter::emitDispClsVar(instrDesc* id, ssize_t offs)
 
     if (offs != 0)
     {
+        if (emitComp->opts.disDiffable)
+        {
+            ssize_t top12bits = (offs >> 20);
+            if ((top12bits != 0) && (top12bits != -1))
+            {
+                offs = 0xD1FFAB1E;
+            }
+        }
+
         printf("%+Id", offs);
     }
 
