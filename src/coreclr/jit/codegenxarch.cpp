@@ -3116,14 +3116,11 @@ void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
         JITDUMP("            DD      L_M%03u_" FMT_BB "\n", compiler->compMethodID, target->bbNum);
 
         GetEmitter()->emitDataGenData(i, target);
-    };
+    }
 
     GetEmitter()->emitDataGenEnd();
 
-    // Access to inline shift is 'abstracted' by a special type of static member
-    // (produced by eeFindJitDataOffs) which the emitter recognizes as being a reference
-    // to constant shift, not a real static field.
-    GetEmitter()->emitIns_R_C(INS_lea, EA_PTRSIZE, node->GetRegNum(), compiler->eeFindJitDataOffs(jmpTabBase));
+    GetEmitter()->emitIns_R_C(INS_lea, EA_PTRSIZE, node->GetRegNum(), Emitter::MakeRoDataField(jmpTabBase));
     DefReg(node);
 }
 

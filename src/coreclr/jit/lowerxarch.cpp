@@ -2340,10 +2340,9 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
     size           = (size != 12) ? size : 16;
     unsigned align = (comp->compCodeOpt() != SMALL_CODE) ? size : emitter::dataSection::MIN_DATA_ALIGN;
 
-    UNATIVE_OFFSET       offset = comp->GetEmitter()->emitDataConst(vecConst.u8, size, align, type);
-    CORINFO_FIELD_HANDLE handle = comp->eeFindJitDataOffs(offset);
+    unsigned offset = comp->GetEmitter()->emitDataConst(vecConst.u8, size, align, type);
 
-    GenTree* addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(handle);
+    GenTree* addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(Emitter::MakeRoDataField(offset));
     BlockRange().InsertBefore(node, addr);
 
     GenTree* indir = node;

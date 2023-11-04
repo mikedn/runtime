@@ -6453,11 +6453,6 @@ const char* emitter::emitYMMregName(unsigned reg)
 
 void emitter::emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool reloc /* = false */)
 {
-    int doffs;
-
-    /* Filter out the special case of fs:[offs] */
-
-    // Munge any pointers if we want diff-able disassembly
     if (emitComp->opts.disDiffable)
     {
         ssize_t top12bits = (offs >> 20);
@@ -6477,15 +6472,15 @@ void emitter::emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool rel
 
     printf("[");
 
-    doffs = Compiler::eeGetJitDataOffs(fldHnd);
-
     if (reloc)
     {
         printf("reloc ");
     }
 
-    if (doffs >= 0)
+    if (IsRoDataField(fldHnd))
     {
+        int doffs = GetRoDataOffset(fldHnd);
+
         if (doffs & 1)
         {
             printf("@CNS%02u", doffs - 1);
@@ -6929,8 +6924,6 @@ void emitter::emitDispIns(
     {
         switch (id->idInsFmt())
         {
-            int offs;
-
             case IF_MRD_RRD:
             case IF_MWR_RRD:
             case IF_MRW_RRD:
@@ -6949,19 +6942,11 @@ void emitter::emitDispIns(
             case IF_MRW:
 
             case IF_MRD_OFF:
-
-                /* Is this actually a reference to a data section? */
-
-                offs = Compiler::eeGetJitDataOffs(id->idAddr()->iiaFieldHnd);
-
-                if (offs >= 0)
+                if (IsRoDataField(id->idAddr()->iiaFieldHnd))
                 {
-                    void* addr;
-
-                    /* Display a data section reference */
-
-                    assert((unsigned)offs < emitConsDsc.dsdOffs);
-                    addr = emitConsBlock ? emitConsBlock + offs : nullptr;
+                    unsigned offs = GetRoDataOffset(id->idAddr()->iiaFieldHnd);
+                    assert(offs < emitConsDsc.dsdOffs);
+                    void* addr = emitConsBlock ? emitConsBlock + offs : nullptr;
 
 #if 0
                 // TODO-XArch-Cleanup: Fix or remove this code.
@@ -9653,11 +9638,10 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
     }
 
     BYTE* addr;
-    // Do we have a constant or a static data member?
-    int doff = Compiler::eeGetJitDataOffs(fldh);
-    if (doff >= 0)
+
+    if (IsRoDataField(fldh))
     {
-        addr = emitConsBlock + doff;
+        addr = emitConsBlock + GetRoDataOffset(fldh);
 
 #ifdef DEBUG
         int byteSize = EA_SIZE_IN_BYTES(size);

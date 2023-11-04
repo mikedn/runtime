@@ -5337,11 +5337,10 @@ UNATIVE_OFFSET emitter::emitDataConst(const void* cnsAddr, unsigned cnsSize, uns
 //
 CORINFO_FIELD_HANDLE emitter::emitBlkConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types elemType)
 {
-    UNATIVE_OFFSET cnum = emitDataGenBeg(cnsSize, cnsAlign, elemType);
+    unsigned offset = emitDataGenBeg(cnsSize, cnsAlign, elemType);
     emitDataGenData(0, cnsAddr, cnsSize);
     emitDataGenEnd();
-
-    return emitComp->eeFindJitDataOffs(cnum);
+    return MakeRoDataField(offset);
 }
 
 //------------------------------------------------------------------------
@@ -5378,10 +5377,6 @@ CORINFO_FIELD_HANDLE emitter::emitFltOrDblConst(double constValue, emitAttr attr
         dataType = TYP_DOUBLE;
     }
 
-    // Access to inline data is 'abstracted' by a special type of static member
-    // (produced by eeFindJitDataOffs) which the emitter recognizes as being a reference
-    // to constant data, not a real static field.
-
     unsigned cnsSize  = (attr == EA_4BYTE) ? sizeof(float) : sizeof(double);
     unsigned cnsAlign = cnsSize;
 
@@ -5395,8 +5390,7 @@ CORINFO_FIELD_HANDLE emitter::emitFltOrDblConst(double constValue, emitAttr attr
     }
 #endif // TARGET_XARCH
 
-    UNATIVE_OFFSET cnum = emitDataConst(cnsAddr, cnsSize, cnsAlign, dataType);
-    return emitComp->eeFindJitDataOffs(cnum);
+    return MakeRoDataField(emitDataConst(cnsAddr, cnsSize, cnsAlign, dataType));
 }
 
 /*****************************************************************************

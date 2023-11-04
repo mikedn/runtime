@@ -5602,14 +5602,6 @@ public:
     static bool IsSharedStaticHelper(GenTree* tree);
     static bool IsCallGCSafePoint(GenTreeCall* call);
 
-    static CORINFO_FIELD_HANDLE eeFindJitDataOffs(unsigned jitDataOffs);
-    // returns true/false if 'field' is a Jit Data offset
-    static bool eeIsJitDataOffs(CORINFO_FIELD_HANDLE field);
-    // returns a number < 0 if 'field' is not a Jit Data offset, otherwise the data offset (limited to 2GB)
-    static int eeGetJitDataOffs(CORINFO_FIELD_HANDLE field);
-
-    /*****************************************************************************/
-
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

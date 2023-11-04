@@ -660,9 +660,7 @@ void CodeGen::genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
 
     emit->emitDataGenEnd();
 
-    // Compute and jump to the appropriate offset in the switch table
-    emit->emitIns_R_C(INS_lea, emitTypeSize(TYP_I_IMPL), offsReg, compiler->eeFindJitDataOffs(jmpTableBase));
-
+    emit->emitIns_R_C(INS_lea, emitTypeSize(TYP_I_IMPL), offsReg, Emitter::MakeRoDataField(jmpTableBase));
     emit->emitIns_R_ARX(INS_mov, EA_4BYTE, offsReg, offsReg, nonConstImmReg, 4, 0);
     emit->emitIns_R_L(INS_lea, EA_PTR_DSP_RELOC, compiler->fgFirstBB, baseReg);
     emit->emitIns_R_R(INS_add, EA_PTRSIZE, offsReg, baseReg);

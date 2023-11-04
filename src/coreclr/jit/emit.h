@@ -339,6 +339,32 @@ public:
     /*                   Emit initialized data sections                     */
     /************************************************************************/
 
+    static CORINFO_FIELD_HANDLE MakeRoDataField(unsigned offset)
+    {
+        assert(offset < 0x40000000);
+        uintptr_t bits = static_cast<uintptr_t>((offset << iaut_SHIFT) | iaut_DATA_OFFSET);
+        return reinterpret_cast<CORINFO_FIELD_HANDLE>(bits);
+    }
+
+    static bool IsRoDataField(CORINFO_FIELD_HANDLE field)
+    {
+        uintptr_t bits = reinterpret_cast<uintptr_t>(field);
+        return (bits <= UINT_MAX) && ((bits & iaut_MASK) == iaut_DATA_OFFSET);
+    }
+
+    static int GetRoDataOffset(CORINFO_FIELD_HANDLE field)
+    {
+        if (IsRoDataField(field))
+        {
+            uintptr_t bits = reinterpret_cast<uintptr_t>(field);
+            return static_cast<int>(bits >> iaut_SHIFT);
+        }
+        else
+        {
+            return -1;
+        }
+    }
+
     static const UNATIVE_OFFSET INVALID_UNATIVE_OFFSET = (UNATIVE_OFFSET)-1;
 
     UNATIVE_OFFSET emitDataGenBeg(unsigned size, unsigned alignment, var_types dataType);
