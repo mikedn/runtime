@@ -251,17 +251,6 @@ struct insGroup
 #include "emitfmts.h"
 #undef DEFINE_ID_OPS
 
-enum idAddrUnionTag
-{
-    iaut_ALIGNED_POINTER = 0x0,
-    iaut_DATA_OFFSET     = 0x1,
-    iaut_INST_COUNT      = 0x2,
-    iaut_UNUSED_TAG      = 0x3,
-
-    iaut_MASK  = 0x3,
-    iaut_SHIFT = 2
-};
-
 class CodeGen;
 
 class emitter
@@ -338,6 +327,17 @@ public:
     /************************************************************************/
     /*                   Emit initialized data sections                     */
     /************************************************************************/
+
+    enum idAddrUnionTag
+    {
+        iaut_ALIGNED_POINTER = 0x0,
+        iaut_DATA_OFFSET     = 0x1,
+        iaut_INST_COUNT      = 0x2,
+        iaut_UNUSED_TAG      = 0x3,
+
+        iaut_MASK  = 0x3,
+        iaut_SHIFT = 2
+    };
 
     static CORINFO_FIELD_HANDLE MakeRoDataField(unsigned offset)
     {
