@@ -5217,20 +5217,62 @@ size_t emitter::emitGetInstrDescSizeSC(const instrDesc* id)
     }
 }
 
-emitter::instrDesc* emitter::emitNewInstrReloc(emitAttr attr, BYTE* addr)
+emitter::instrDesc* emitter::emitNewInstrReloc(emitAttr attr, uint8_t* addr)
 {
     assert(EA_IS_RELOC(attr));
 
-    instrDescReloc* id = (instrDescReloc*)emitAllocAnyInstr(sizeof(instrDescReloc), attr);
+    instrDescReloc* id = static_cast<instrDescReloc*>(emitAllocAnyInstr(sizeof(instrDescReloc), attr));
     assert(id->idIsReloc());
 
     id->idrRelocVal = addr;
 
 #if EMITTER_STATS
     emitTotalIDescRelocCnt++;
-#endif // EMITTER_STATS
+#endif
 
     return id;
+}
+
+uint8_t* emitter::emitGetInsRelocValue(instrDesc* id)
+{
+    return static_cast<instrDescReloc*>(id)->idrRelocVal;
+}
+
+// A helper for handling a Thumb-Mov32 of position-independent (PC-relative) value
+//
+// This routine either records relocation for the location with the EE,
+// or creates a virtual relocation entry to perform offset fixup during
+// compilation without recording it with EE - depending on which of
+// absolute/relocative relocations mode are used for code section.
+void emitter::emitHandlePCRelativeMov32(void* location, void* target)
+{
+    if (emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
+    {
+        emitRecordRelocation(location, target, IMAGE_REL_BASED_REL_THUMB_MOV32_PCREL);
+    }
+    else
+    {
+        emitRecordRelocation(location, target, IMAGE_REL_BASED_THUMB_MOV32);
+    }
+}
+
+// Return the instruction size in bytes for the instruction at the specified location.
+// This is used to assert that the unwind code being generated on ARM has the
+// same size as the instruction for which it is being generated (since on ARM
+// the unwind codes have a one-to-one relationship with instructions, and the
+// unwind codes have an implicit instruction size that must match the instruction size.)
+// An instruction must exist at the specified location.
+unsigned emitter::emitGetInstructionSize(emitLocation* emitLoc)
+{
+    insGroup*  ig;
+    instrDesc* id;
+
+    bool anyInstrs = emitGetLocationInfo(emitLoc, &ig, &id);
+    // There better be an instruction at this location (otherwise,
+    // we're at the end of the instruction list)
+    assert(anyInstrs);
+
+    return id->idCodeSize();
 }
 
 /*****************************************************************************

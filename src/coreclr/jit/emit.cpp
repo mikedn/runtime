@@ -2017,32 +2017,6 @@ void emitter::emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp)
 
 #endif // TARGET_ARMARCH
 
-#if defined(TARGET_ARM)
-
-/*****************************************************************************
- *
- * Return the instruction size in bytes for the instruction at the specified location.
- * This is used to assert that the unwind code being generated on ARM has the
- * same size as the instruction for which it is being generated (since on ARM
- * the unwind codes have a one-to-one relationship with instructions, and the
- * unwind codes have an implicit instruction size that must match the instruction size.)
- * An instruction must exist at the specified location.
- */
-
-unsigned emitter::emitGetInstructionSize(emitLocation* emitLoc)
-{
-    insGroup*  ig;
-    instrDesc* id;
-
-    bool anyInstrs = emitGetLocationInfo(emitLoc, &ig, &id);
-    assert(anyInstrs); // There better be an instruction at this location (otherwise, we're at the end of the
-                       // instruction list)
-    return id->idCodeSize();
-}
-
-#endif // defined(TARGET_ARM)
-
-/*****************************************************************************/
 #ifdef DEBUG
 /*****************************************************************************
  *
@@ -5780,15 +5754,6 @@ cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
     }
 }
 
-#ifdef TARGET_ARM
-
-BYTE* emitter::emitGetInsRelocValue(instrDesc* id)
-{
-    return ((instrDescReloc*)id)->idrRelocVal;
-}
-
-#endif // TARGET_ARM
-
 // A helper for recording a relocation with the EE.
 void emitter::emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta)
 {
@@ -5804,27 +5769,6 @@ void emitter::emitRecordRelocation(void* location, void* target, uint16_t relocT
     codeGen->getDisAssembler().disRecordRelocation((size_t)location, (size_t)target);
 #endif
 }
-
-#ifdef TARGET_ARM
-// A helper for handling a Thumb-Mov32 of position-independent (PC-relative) value
-//
-// This routine either records relocation for the location with the EE,
-// or creates a virtual relocation entry to perform offset fixup during
-// compilation without recording it with EE - depending on which of
-// absolute/relocative relocations mode are used for code section.
-void emitter::emitHandlePCRelativeMov32(void* location, /* IN */
-                                        void* target)   /* IN */
-{
-    if (emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
-    {
-        emitRecordRelocation(location, target, IMAGE_REL_BASED_REL_THUMB_MOV32_PCREL);
-    }
-    else
-    {
-        emitRecordRelocation(location, target, IMAGE_REL_BASED_THUMB_MOV32);
-    }
-}
-#endif // TARGET_ARM
 
 // A helper for recording a call site with the EE.
 void emitter::emitRecordCallSite(ULONG                 instrOffset,  /* IN */

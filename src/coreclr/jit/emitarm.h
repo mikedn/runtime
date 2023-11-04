@@ -1,7 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
+
+instrDesc* emitNewInstrReloc(emitAttr attr, uint8_t* addr);
+uint8_t* emitGetInsRelocValue(instrDesc* id);
+void emitHandlePCRelativeMov32(void* location, void* target);
 
 // This typedef defines the type that we use to hold encoded instructions.
 //

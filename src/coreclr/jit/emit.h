@@ -1407,15 +1407,11 @@ private:
     };
 
 #ifdef TARGET_ARM
-
     struct instrDescReloc : instrDesc
     {
         BYTE* idrRelocVal;
     };
-
-    BYTE* emitGetInsRelocValue(instrDesc* id);
-
-#endif // TARGET_ARM
+#endif
 
     static insUpdateModes emitInsUpdateMode(instruction ins);
     static insFormat emitInsModeFormat(instruction ins, insFormat base);
@@ -1855,9 +1851,6 @@ private:
     instrDesc* emitNewInstrCns(emitAttr attr, cnsval_ssize_t cns);
     instrDesc* emitNewInstrDsp(emitAttr attr, target_ssize_t dsp);
     instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t cns, int dsp);
-#ifdef TARGET_ARM
-    instrDesc* emitNewInstrReloc(emitAttr attr, BYTE* addr);
-#endif
     instrDescJmp* emitNewInstrJmp();
 
     static ID_OPS GetFormatOp(insFormat format);
@@ -1976,11 +1969,6 @@ public:
     INDEBUG(void emitDispDataSec(dataSecDsc* section);)
 
     void emitRecordRelocation(void* location, void* target, uint16_t fRelocType, int32_t addlDelta = 0);
-
-#ifdef TARGET_ARM
-    void emitHandlePCRelativeMov32(void* location, /* IN */
-                                   void* target);  /* IN */
-#endif
 
     void emitRecordCallSite(ULONG                 instrOffset,   /* IN */
                             CORINFO_SIG_INFO*     callSig,       /* IN */
