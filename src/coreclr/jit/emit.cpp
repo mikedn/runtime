@@ -5794,20 +5794,14 @@ BYTE* emitter::emitGetInsRelocValue(instrDesc* id)
 #endif // TARGET_ARM
 
 // A helper for recording a relocation with the EE.
-void emitter::emitRecordRelocation(void* location,            /* IN */
-                                   void* target,              /* IN */
-                                   WORD  fRelocType,          /* IN */
-                                   WORD  slotNum /* = 0 */,   /* IN */
-                                   INT32 addlDelta /* = 0 */) /* IN */
+void emitter::emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta)
 {
-    assert(slotNum == 0); // It is unused on all supported platforms.
-
     // If we're an unmatched altjit, don't tell the VM anything. We still record the relocation for
     // late disassembly; maybe we'll need it?
     if (emitComp->info.compMatchedVM)
     {
         void* locationRW = (BYTE*)location + writeableOffset;
-        emitCmpHandle->recordRelocation(location, locationRW, target, fRelocType, slotNum, addlDelta);
+        emitCmpHandle->recordRelocation(location, locationRW, target, relocType, 0, addlDelta);
     }
 
 #ifdef LATE_DISASM

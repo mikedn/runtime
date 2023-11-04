@@ -1929,15 +1929,9 @@ public:
     dataSection* emitDataSecCur = nullptr;
 
     void emitOutputDataSec(dataSecDsc* sec, BYTE* dst);
-#ifdef DEBUG
-    void emitDispDataSec(dataSecDsc* section);
-#endif
+    INDEBUG(void emitDispDataSec(dataSecDsc* section);)
 
-    void emitRecordRelocation(void* location,       /* IN */
-                              void* target,         /* IN */
-                              WORD  fRelocType,     /* IN */
-                              WORD  slotNum   = 0,  /* IN */
-                              INT32 addlDelta = 0); /* IN */
+    void emitRecordRelocation(void* location, void* target, uint16_t fRelocType, int32_t addlDelta = 0);
 
 #ifdef TARGET_ARM
     void emitHandlePCRelativeMov32(void* location, /* IN */
