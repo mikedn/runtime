@@ -6595,56 +6595,13 @@ void emitter::emitDispInsHelp(
 
         case IF_T2_N2:
             emitDispReg(id->idReg1(), attr, true);
-            imm = emitGetInsSC(id);
+
+            if (id->idIsDspReloc())
             {
-                dataSection*  jdsc = 0;
-                NATIVE_OFFSET offs = 0;
-
-                /* Find the appropriate entry in the data section list */
-
-                for (jdsc = emitConsDsc.dsdList; jdsc; jdsc = jdsc->dsNext)
-                {
-                    UNATIVE_OFFSET size = jdsc->dsSize;
-
-                    /* Is this a label table? */
-
-                    if (jdsc->dsType == dataSection::blockAbsoluteAddr)
-                    {
-                        if (offs == imm)
-                            break;
-                    }
-
-                    offs += size;
-                }
-
-                assert(jdsc != NULL);
-
-                if (id->idIsDspReloc())
-                {
-                    printf("reloc ");
-                }
-                printf("%s ADDRESS J_M%03u_DS%02u", (id->idIns() == INS_movw) ? "LOW" : "HIGH", emitComp->compMethodID,
-                       imm);
-
-                // After the MOVT, dump the table
-                if (id->idIns() == INS_movt)
-                {
-                    unsigned     cnt = jdsc->dsSize / TARGET_POINTER_SIZE;
-                    BasicBlock** bbp = reinterpret_cast<BasicBlock**>(jdsc->dsCont);
-
-                    if (emitCodeGetCookie(*bbp) != nullptr)
-                    {
-                        printf("\n\n    J_M%03u_DS%02u LABEL   DWORD", emitComp->compMethodID, imm);
-
-                        do
-                        {
-                            insGroup* lab = emitCodeGetCookie(*bbp++);
-                            assert(lab != nullptr);
-                            printf("\n            DD      %s", emitLabelString(lab));
-                        } while (--cnt);
-                    }
-                }
+                printf("reloc ");
             }
+
+            printf("%s @RWD%02u", id->idIns() == INS_movw ? "LOW" : "HIGH", emitGetInsSC(id));
             break;
 
         case IF_T2_H2: // [Reg+imm]

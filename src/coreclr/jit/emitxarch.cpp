@@ -6446,12 +6446,7 @@ const char* emitter::emitYMMregName(unsigned reg)
     return regNames[reg];
 }
 
-/*****************************************************************************
- *
- *  Display a static data member reference.
- */
-
-void emitter::emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool reloc /* = false */)
+void emitter::emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool reloc)
 {
     if (emitComp->opts.disDiffable)
     {
@@ -6479,30 +6474,16 @@ void emitter::emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool rel
 
     if (IsRoDataField(fldHnd))
     {
-        int doffs = GetRoDataOffset(fldHnd);
-
-        if (doffs & 1)
-        {
-            printf("@CNS%02u", doffs - 1);
-        }
-        else
-        {
-            printf("@RWD%02u", doffs);
-        }
-
-        if (offs)
-        {
-            printf("%+Id", offs);
-        }
+        printf("@RWD%02u", GetRoDataOffset(fldHnd));
     }
     else
     {
         printf("classVar[%#x]", emitComp->dspPtr(fldHnd));
+    }
 
-        if (offs)
-        {
-            printf("%+Id", offs);
-        }
+    if (offs != 0)
+    {
+        printf("%+Id", offs);
     }
 
     printf("]");
@@ -6610,66 +6591,11 @@ void emitter::emitDispReloc(ssize_t value)
     }
 }
 
-/*****************************************************************************
- *
- *  Display an address mode.
- */
-
-void emitter::emitDispAddrMode(instrDesc* id, bool noDetail)
+void emitter::emitDispAddrMode(instrDesc* id)
 {
-    bool    nsep = false;
-    ssize_t disp;
-
-    unsigned     jtno = 0;
-    dataSection* jdsc = nullptr;
-
-    /* The displacement field is in an unusual place for calls */
-
-    disp = (id->idIns() == INS_call) ? emitGetInsCIdisp(id) : emitGetInsAmdAny(id);
-
-    /* Display a jump table label if this is a switch table jump */
-
-    if (id->idIns() == INS_i_jmp)
-    {
-        UNATIVE_OFFSET offs = 0;
-
-        /* Find the appropriate entry in the data section list */
-
-        for (jdsc = emitConsDsc.dsdList, jtno = 0; jdsc; jdsc = jdsc->dsNext)
-        {
-            UNATIVE_OFFSET size = jdsc->dsSize;
-
-            /* Is this a label table? */
-
-            if (size & 1)
-            {
-                size--;
-                jtno++;
-
-                if (offs == reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle))
-                {
-                    break;
-                }
-            }
-
-            offs += size;
-        }
-
-        /* If we've found a matching entry then is a table jump */
-
-        if (jdsc)
-        {
-            if (id->idIsDspReloc())
-            {
-                printf("reloc ");
-            }
-            printf("J_M%03u_DS%02u", emitComp->compMethodID, id->idDebugOnlyInfo()->idHandle);
-
-            disp -= reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle);
-        }
-    }
-
-    bool frameRef = false;
+    ssize_t disp     = (id->idIns() == INS_call) ? emitGetInsCIdisp(id) : emitGetInsAmdAny(id);
+    bool    frameRef = false;
+    bool    nsep     = false;
 
     printf("[");
 
@@ -6795,26 +6721,6 @@ void emitter::emitDispAddrMode(instrDesc* id, bool noDetail)
             printf("      '%S'", str);
         }
     }
-
-    if (jdsc && !noDetail)
-    {
-        unsigned     cnt = (jdsc->dsSize - 1) / TARGET_POINTER_SIZE;
-        BasicBlock** bbp = reinterpret_cast<BasicBlock**>(jdsc->dsCont);
-
-#ifdef TARGET_AMD64
-#define SIZE_LETTER "Q"
-#else
-#define SIZE_LETTER "D"
-#endif
-        printf("\n\n    J_M%03u_DS%02u LABEL   " SIZE_LETTER "WORD", emitComp->compMethodID, jtno);
-
-        do
-        {
-            insGroup* lab = emitCodeGetCookie(*bbp++);
-            assert(lab != nullptr);
-            printf("\n            D" SIZE_LETTER "      %s", emitLabelString(lab));
-        } while (--cnt);
-    }
 }
 
 /*****************************************************************************
@@ -6916,139 +6822,30 @@ void emitter::emitDispIns(
         printf("IN%04x: ", id->idDebugOnlyInfo()->idNum);
     }
 
-#define ID_INFO_DSP_RELOC ((bool)(id->idIsDspReloc()))
-
-    /* Display a constant value if the instruction references one */
-
-    if (!isNew)
-    {
-        switch (id->idInsFmt())
-        {
-            case IF_MRD_RRD:
-            case IF_MWR_RRD:
-            case IF_MRW_RRD:
-
-            case IF_RRD_MRD:
-            case IF_RWR_MRD:
-            case IF_RRW_MRD:
-
-            case IF_MRD_CNS:
-            case IF_MWR_CNS:
-            case IF_MRW_CNS:
-            case IF_MRW_SHF:
-
-            case IF_MRD:
-            case IF_MWR:
-            case IF_MRW:
-
-            case IF_MRD_OFF:
-                if (IsRoDataField(id->idAddr()->iiaFieldHnd))
-                {
-                    unsigned offs = GetRoDataOffset(id->idAddr()->iiaFieldHnd);
-                    assert(offs < emitConsDsc.dsdOffs);
-                    void* addr = emitConsBlock ? emitConsBlock + offs : nullptr;
-
-#if 0
-                // TODO-XArch-Cleanup: Fix or remove this code.
-                /* Is the operand an integer or floating-point value? */
-
-                bool isFP = false;
-
-                if (instIsFP(id->idIns()))
-                {
-                    switch (id->idIns())
-                    {
-                    case INS_fild:
-                    case INS_fildl:
-                        break;
-
-                    default:
-                        isFP = true;
-                        break;
-                    }
-                }
-
-                if (offs & 1)
-                    printf("@CNS%02u", offs);
-                else
-                    printf("@RWD%02u", offs);
-
-                printf("      ");
-
-                if  (addr)
-                {
-                    addr = 0;
-                    // TODO-XArch-Bug?:
-                    //          This was busted by switching the order
-                    //          in which we output the code block vs.
-                    //          the data blocks -- when we get here,
-                    //          the data block has not been filled in
-                    //          yet, so we'll display garbage.
-
-                    if  (isFP)
-                    {
-                        if  (id->idOpSize() == EA_4BYTE)
-                            printf("DF      %f \n", addr ? *(float   *)addr : 0);
-                        else
-                            printf("DQ      %lf\n", addr ? *(double  *)addr : 0);
-                    }
-                    else
-                    {
-                        if  (id->idOpSize() <= EA_4BYTE)
-                            printf("DD      %d \n", addr ? *(int     *)addr : 0);
-                        else
-                            printf("DQ      %D \n", addr ? *(__int64 *)addr : 0);
-                    }
-                }
-#endif
-                }
-                break;
-
-            default:
-                break;
-        }
-    }
-
-    // printf("[F=%s] "   , emitIfName(id->idInsFmt()));
-    // printf("INS#%03u: ", id->idDebugOnlyInfo()->idNum);
-    // printf("[S=%02u] " , emitCurStackLvl); if (isNew) printf("[M=%02u] ", emitMaxStackDepth);
-    // printf("[S=%02u] " , emitCurStackLvl/sizeof(INT32));
-    // printf("[A=%08X] " , emitSimpleStkMask);
-    // printf("[A=%08X] " , emitSimpleByrefStkMask);
-    // printf("[L=%02u] " , id->idCodeSize());
-
     if (!isNew && !asmfm)
     {
         doffs = true;
     }
 
-    /* Display the instruction address */
-
     emitDispInsAddr(code);
-
-    /* Display the instruction offset */
-
     emitDispInsOffs(offset, doffs);
 
     if (code != nullptr)
     {
-        /* Display the instruction hex code */
         assert(((code >= emitCodeBlock) && (code < emitCodeBlock + emitTotalHotCodeSize)) ||
                ((code >= emitColdCodeBlock) && (code < emitColdCodeBlock + emitTotalColdCodeSize)));
 
         emitDispInsHex(id, code + writeableOffset, sz);
     }
 
-    /* Display the instruction name */
-
     sstr = genInsDisplayName(id);
     printf(" %-9s", sstr);
 
 #ifndef HOST_UNIX
     if (strnlen_s(sstr, 10) >= 9)
-#else  // HOST_UNIX
+#else
     if (strnlen(sstr, 10) >= 9)
-#endif // HOST_UNIX
+#endif
     {
         // Make sure there's at least one space after the instruction name, for very long instruction names.
         printf(" ");
@@ -7143,6 +6940,8 @@ void emitter::emitDispIns(
         printf("%s, ", emitRegName(tgtReg, id->idOpSize()));
     }
 
+    const bool isDispReloc = id->idIsDspReloc();
+
     switch (id->idInsFmt())
     {
         ssize_t     val;
@@ -7169,7 +6968,7 @@ void emitter::emitDispIns(
             }
 
             printf("%s", sstr);
-            emitDispAddrMode(id, isNew);
+            emitDispAddrMode(id);
             emitDispShift(ins);
 
             if ((ins == INS_call) || (ins == INS_i_jmp))
@@ -7639,7 +7438,6 @@ void emitter::emitDispIns(
         case IF_RRD_MRD:
         case IF_RWR_MRD:
         case IF_RRW_MRD:
-
             if (ins == INS_movsx || ins == INS_movzx)
             {
                 attr = EA_PTRSIZE;
@@ -7658,77 +7456,69 @@ void emitter::emitDispIns(
             }
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
+            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
             break;
 
         case IF_RRW_MRD_CNS:
         case IF_RWR_MRD_CNS:
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
+            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
             emitGetInsDcmCns(id, &cnsVal);
             printf(", ");
             emitDispImm(id, cnsVal);
             break;
 
         case IF_MWR_RRD_CNS:
-        {
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
             // vextracti/f128 extracts 128-bit data, so we fix sstr as "xmm ptr"
             sstr = emitSizeStr(EA_ATTR(16));
             printf(sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
+            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
             printf(", %s", emitRegName(id->idReg1(), attr));
             emitGetInsDcmCns(id, &cnsVal);
             printf(", ");
             emitDispImm(id, cnsVal);
             break;
-        }
 
         case IF_RWR_RRD_MRD:
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
+            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
             break;
 
         case IF_RWR_RRD_MRD_CNS:
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
+            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
             emitGetInsDcmCns(id, &cnsVal);
             printf(", ");
             emitDispImm(id, cnsVal);
             break;
 
         case IF_RWR_RRD_MRD_RRD:
-        {
             printf("%s, ", emitRegName(id->idReg1(), attr));
             printf("%s, ", emitRegName(id->idReg2(), attr));
-
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
-
+            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
             emitGetInsDcmCns(id, &cnsVal);
             val = (cnsVal.cnsVal >> 4) + XMMBASE;
             printf(", %s", emitRegName((regNumber)val, attr));
             break;
-        }
 
         case IF_RWR_MRD_OFF:
-
             printf("%s, %s", emitRegName(id->idReg1(), attr), "lclOffs");
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
+            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
             break;
 
         case IF_MRD_RRD:
         case IF_MWR_RRD:
         case IF_MRW_RRD:
-
             printf("%s", sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
+            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
             printf(", %s", emitRegName(id->idReg1(), attr));
             break;
 
@@ -7736,16 +7526,14 @@ void emitter::emitDispIns(
         case IF_MWR_CNS:
         case IF_MRW_CNS:
         case IF_MRW_SHF:
-
             printf("%s", sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
+            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
             emitGetInsDcmCns(id, &cnsVal);
             val = cnsVal.cnsVal;
-#ifdef TARGET_AMD64
             // no 8-byte immediates allowed here!
-            assert((val >= (ssize_t)0xFFFFFFFF80000000LL) && (val <= 0x000000007FFFFFFFLL));
-#endif
+            AMD64_ONLY(assert((val >= (ssize_t)0xFFFFFFFF80000000LL) && (val <= 0x000000007FFFFFFFLL)));
+
             if (cnsVal.cnsReloc)
             {
                 emitDispReloc(val);
@@ -7764,18 +7552,16 @@ void emitter::emitDispIns(
         case IF_MRD:
         case IF_MWR:
         case IF_MRW:
-
             printf("%s", sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
+            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
             emitDispShift(ins);
             break;
 
         case IF_MRD_OFF:
-
             printf("lclOffs ");
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
+            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
             break;
 
         case IF_RRD_CNS:

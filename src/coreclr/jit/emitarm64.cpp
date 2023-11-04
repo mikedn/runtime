@@ -10830,16 +10830,7 @@ void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
 
     if (id->idAddr()->iiaIsJitDataOffset())
     {
-        int doffs = id->idAddr()->iiaGetJitDataOffset();
-
-        if ((doffs & 1) != 0)
-        {
-            printf("@CNS%02u", doffs - 1);
-        }
-        else
-        {
-            printf("@RWD%02u", doffs);
-        }
+        printf("@RWD%02u", id->idAddr()->iiaGetJitDataOffset());
 
         if (imm != 0)
         {
