@@ -6632,7 +6632,7 @@ void emitter::emitDispAddrMode(instrDesc* id)
         nsep = true;
     }
 
-    if ((id->idIsDspReloc()) && (id->idIns() != INS_i_jmp))
+    if (id->idIsDspReloc() && (id->idIns() != INS_i_jmp))
     {
         if (nsep)
         {
@@ -6726,20 +6726,11 @@ void emitter::emitDispAddrMode(instrDesc* id)
     }
 }
 
-/*****************************************************************************
- *
- *  If the given instruction is a shift, display the 2nd operand.
- */
-
-void emitter::emitDispShift(instruction ins, int cnt)
+void emitter::emitDispShiftCL(instruction ins)
 {
     if (IsShiftCL(ins))
     {
         printf(", cl");
-    }
-    else if (IsShiftImm(ins))
-    {
-        printf(", %d", cnt);
     }
 }
 
@@ -6970,7 +6961,6 @@ void emitter::emitDispIns(
 
             printf("%s", sstr);
             emitDispAddrMode(id);
-            emitDispShift(ins);
 
             if ((ins == INS_call) || (ins == INS_i_jmp))
             {
@@ -6982,26 +6972,22 @@ void emitter::emitDispIns(
                                      static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
                 }
             }
+            else
+            {
+                emitDispShiftCL(ins);
+            }
             break;
 
         case IF_RRD_ARD:
         case IF_RWR_ARD:
         case IF_RRW_ARD:
-#ifdef TARGET_AMD64
-            if (ins == INS_movsxd)
-            {
-                attr = EA_8BYTE;
-            }
-            else
-#endif
-                if (ins == INS_movsx || ins == INS_movzx)
+            if (ins == INS_movsx || ins == INS_movzx AMD64_ONLY(|| ins == INS_movsxd))
             {
                 attr = EA_PTRSIZE;
             }
             else if ((ins == INS_crc32) && (attr != EA_8BYTE))
             {
-                // The idReg1 is always 4 bytes, but the size of idReg2 can vary.
-                // This logic ensures that we print `crc32 eax, bx` instead of `crc32 ax, bx`
+                // The destination reg is always 4 bytes.
                 attr = EA_4BYTE;
             }
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
@@ -7054,88 +7040,69 @@ void emitter::emitDispIns(
             break;
 
         case IF_RWR_RRD_ARD_RRD:
-        {
             printf("%s, ", emitRegName(id->idReg1(), attr));
             printf("%s, ", emitRegName(id->idReg2(), attr));
             emitDispAddrMode(id);
-
             emitGetInsAmdCns(id, &cnsVal);
             val = (cnsVal.cnsVal >> 4) + XMMBASE;
             printf(", %s", emitRegName((regNumber)val, attr));
             break;
-        }
 
         case IF_ARD_RRD:
         case IF_AWR_RRD:
         case IF_ARW_RRD:
-
             printf("%s", sstr);
             emitDispAddrMode(id);
             printf(", %s", emitRegName(id->idReg1(), attr));
             break;
 
         case IF_AWR_RRD_RRD:
-        {
             printf("%s", sstr);
             emitDispAddrMode(id);
             printf(", %s", emitRegName(id->idReg1(), attr));
             printf(", %s", emitRegName(id->idReg2(), attr));
             break;
-        }
 
         case IF_ARD_CNS:
         case IF_AWR_CNS:
         case IF_ARW_CNS:
         case IF_ARW_SHF:
-
             printf("%s", sstr);
             emitDispAddrMode(id);
             emitGetInsAmdCns(id, &cnsVal);
-            val = cnsVal.cnsVal;
-#ifdef TARGET_AMD64
-            // no 8-byte immediates allowed here!
-            assert((val >= (ssize_t)0xFFFFFFFF80000000LL) && (val <= 0x000000007FFFFFFFLL));
-#endif
-            if (id->idInsFmt() == IF_ARW_SHF)
-            {
-                emitDispShift(ins, (BYTE)val);
-            }
-            else
-            {
-                printf(", ");
-                emitDispImm(id, cnsVal);
-            }
+            printf(", ");
+            emitDispImm(id, cnsVal);
             break;
 
         case IF_SRD:
         case IF_SWR:
         case IF_SRW:
-
             printf("%s", sstr);
 
 #if !FEATURE_FIXED_OUT_ARGS
             if (ins == INS_pop)
+            {
                 emitCurStackLvl -= sizeof(int);
+            }
 #endif
 
             emitDispFrameRef(id, asmfm);
 
 #if !FEATURE_FIXED_OUT_ARGS
             if (ins == INS_pop)
+            {
                 emitCurStackLvl += sizeof(int);
+            }
 #endif
 
-            emitDispShift(ins);
+            emitDispShiftCL(ins);
             break;
 
         case IF_SRD_RRD:
         case IF_SWR_RRD:
         case IF_SRW_RRD:
-
             printf("%s", sstr);
-
             emitDispFrameRef(id, asmfm);
-
             printf(", %s", emitRegName(id->idReg1(), attr));
             break;
 
@@ -7143,26 +7110,12 @@ void emitter::emitDispIns(
         case IF_SWR_CNS:
         case IF_SRW_CNS:
         case IF_SRW_SHF:
-
             printf("%s", sstr);
-
             emitDispFrameRef(id, asmfm);
-
             emitGetInsCns(id, &cnsVal);
             val = cnsVal.cnsVal;
-#ifdef TARGET_AMD64
-            // no 8-byte immediates allowed here!
-            assert((val >= (ssize_t)0xFFFFFFFF80000000LL) && (val <= 0x000000007FFFFFFFLL));
-#endif
-            if (id->idInsFmt() == IF_SRW_SHF)
-            {
-                emitDispShift(ins, (BYTE)val);
-            }
-            else
-            {
-                printf(", ");
-                emitDispImm(id, cnsVal);
-            }
+            printf(", ");
+            emitDispImm(id, cnsVal);
             break;
 
         case IF_SWR_RRD_CNS:
@@ -7178,21 +7131,13 @@ void emitter::emitDispIns(
         case IF_RRD_SRD:
         case IF_RWR_SRD:
         case IF_RRW_SRD:
-#ifdef TARGET_AMD64
-            if (ins == INS_movsxd)
-            {
-                attr = EA_8BYTE;
-            }
-            else
-#endif
-                if (ins == INS_movsx || ins == INS_movzx)
+            if (ins == INS_movsx || ins == INS_movzx AMD64_ONLY(|| ins == INS_movsxd))
             {
                 attr = EA_PTRSIZE;
             }
             else if ((ins == INS_crc32) && (attr != EA_8BYTE))
             {
-                // The idReg1 is always 4 bytes, but the size of idReg2 can vary.
-                // This logic ensures that we print `crc32 eax, bx` instead of `crc32 ax, bx`
+                // The destination reg is always 4 bytes.
                 attr = EA_4BYTE;
             }
 
@@ -7203,24 +7148,12 @@ void emitter::emitDispIns(
 
         case IF_RRW_SRD_CNS:
         case IF_RWR_SRD_CNS:
-        {
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
             emitDispFrameRef(id, asmfm);
             emitGetInsCns(id, &cnsVal);
-
-            val = cnsVal.cnsVal;
             printf(", ");
-
-            if (cnsVal.cnsReloc)
-            {
-                emitDispReloc(val);
-            }
-            else
-            {
-                emitDispImm(id, val);
-            }
+            emitDispImm(id, cnsVal);
             break;
-        }
 
         case IF_RWR_RRD_SRD:
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
@@ -7236,7 +7169,6 @@ void emitter::emitDispIns(
             break;
 
         case IF_RWR_RRD_SRD_RRD:
-        {
             printf("%s, ", emitRegName(id->idReg1(), attr));
             printf("%s, ", emitRegName(id->idReg2(), attr));
             emitDispFrameRef(id, asmfm);
@@ -7244,7 +7176,6 @@ void emitter::emitDispIns(
             val = (cnsVal.cnsVal >> 4) + XMMBASE;
             printf(", %s", emitRegName((regNumber)val, attr));
             break;
-        }
 
         case IF_RRD_RRD:
         case IF_RWR_RRD:
@@ -7261,13 +7192,7 @@ void emitter::emitDispIns(
             {
                 printf(" %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), EA_16BYTE));
             }
-#ifdef TARGET_AMD64
-            else if (ins == INS_movsxd)
-            {
-                printf("%s, %s", emitRegName(id->idReg1(), EA_8BYTE), emitRegName(id->idReg2(), EA_4BYTE));
-            }
-#endif // TARGET_AMD64
-            else if (ins == INS_movsx || ins == INS_movzx)
+            else if (ins == INS_movsx || ins == INS_movzx AMD64_ONLY(|| ins == INS_movsxd))
             {
                 printf("%s, %s", emitRegName(id->idReg1(), EA_PTRSIZE), emitRegName(id->idReg2(), attr));
             }
@@ -7276,14 +7201,11 @@ void emitter::emitDispIns(
                 // INS_bt operands are reversed. Display them in the normal order.
                 printf("%s, %s", emitRegName(id->idReg2(), attr), emitRegName(id->idReg1(), attr));
             }
-#ifdef FEATURE_HW_INTRINSICS
             else if (ins == INS_crc32 && attr != EA_8BYTE)
             {
-                // The idReg1 is always 4 bytes, but the size of idReg2 can vary.
-                // This logic ensures that we print `crc32 eax, bx` instead of `crc32 ax, bx`
+                // The destination reg is always 4 bytes.
                 printf("%s, %s", emitRegName(id->idReg1(), EA_4BYTE), emitRegName(id->idReg2(), attr));
             }
-#endif // FEATURE_HW_INTRINSICS
             else
             {
                 printf("%s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr));
@@ -7352,9 +7274,9 @@ void emitter::emitDispIns(
             }
 
             printf("%s, ", emitRegName(id->idReg3(), attr));
-            val = emitGetInsSC(id);
-            emitDispImm(id, val);
+            emitDispImm(id, emitGetInsSC(id));
             break;
+
         case IF_RWR_RRD_RRD_RRD:
             assert(IsAVXOnlyInstruction(ins));
             assert(UseVEXEncoding());
@@ -7363,6 +7285,7 @@ void emitter::emitDispIns(
             printf("%s, ", emitRegName(id->idReg3(), attr));
             printf("%s", emitRegName(id->idReg4(), attr));
             break;
+
         case IF_RRW_RRW_CNS:
         {
             emitAttr tgtAttr = attr;
@@ -7414,13 +7337,8 @@ void emitter::emitDispIns(
 
             printf("%s,", emitRegName(id->idReg1(), tgtAttr));
             printf(" %s", emitRegName(id->idReg2(), attr));
-            val = emitGetInsSC(id);
-#ifdef TARGET_AMD64
-            // no 8-byte immediates allowed here!
-            assert((val >= (ssize_t)0xFFFFFFFF80000000LL) && (val <= 0x000000007FFFFFFFLL));
-#endif
             printf(", ");
-            emitDispImm(id, CnsVal{val, id->idIsCnsReloc()});
+            emitDispImm(id, CnsVal{emitGetInsSC(id), id->idIsCnsReloc()});
             break;
         }
 
@@ -7428,31 +7346,23 @@ void emitter::emitDispIns(
         case IF_RWR:
         case IF_RRW:
             printf("%s", emitRegName(id->idReg1(), attr));
-            emitDispShift(ins);
+            emitDispShiftCL(ins);
             break;
 
         case IF_RRW_SHF:
-            printf("%s", emitRegName(id->idReg1(), attr));
-            emitDispShift(ins, (BYTE)emitGetInsSC(id));
+            printf("%s, %d", emitRegName(id->idReg1(), attr), emitGetInsSC(id));
             break;
 
         case IF_RRD_MRD:
         case IF_RWR_MRD:
         case IF_RRW_MRD:
-            if (ins == INS_movsx || ins == INS_movzx)
+            if (ins == INS_movsx || ins == INS_movzx AMD64_ONLY(|| ins == INS_movsxd))
             {
                 attr = EA_PTRSIZE;
             }
-#ifdef TARGET_AMD64
-            else if (ins == INS_movsxd)
-            {
-                attr = EA_PTRSIZE;
-            }
-#endif
             else if ((ins == INS_crc32) && (attr != EA_8BYTE))
             {
-                // The idReg1 is always 4 bytes, but the size of idReg2 can vary.
-                // This logic ensures that we print `crc32 eax, bx` instead of `crc32 ax, bx`
+                // The destination reg is always 4 bytes.
                 attr = EA_4BYTE;
             }
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
@@ -7517,23 +7427,8 @@ void emitter::emitDispIns(
             printf("%s", sstr);
             emitDispClsVar(id);
             emitGetInsDcmCns(id, &cnsVal);
-            val = cnsVal.cnsVal;
-            // no 8-byte immediates allowed here!
-            AMD64_ONLY(assert((val >= (ssize_t)0xFFFFFFFF80000000LL) && (val <= 0x000000007FFFFFFFLL)));
-
-            if (cnsVal.cnsReloc)
-            {
-                emitDispReloc(val);
-            }
-            else if (id->idInsFmt() == IF_MRW_SHF)
-            {
-                emitDispShift(ins, (BYTE)val);
-            }
-            else
-            {
-                printf(", ");
-                emitDispImm(id, val);
-            }
+            printf(", ");
+            emitDispImm(id, cnsVal);
             break;
 
         case IF_MRD:
@@ -7541,7 +7436,7 @@ void emitter::emitDispIns(
         case IF_MRW:
             printf("%s", sstr);
             emitDispClsVar(id);
-            emitDispShift(ins);
+            emitDispShiftCL(ins);
             break;
 
         case IF_RRD_CNS:
