@@ -227,7 +227,7 @@ void emitDispImm(instrDesc* id, CnsVal val);
 void emitDispImm(instrDesc* id, ssize_t val);
 void emitDispReloc(ssize_t value);
 void emitDispAddrMode(instrDesc* id);
-void emitDispClsVar(instrDesc* id, ssize_t offs);
+void emitDispClsVar(instrDesc* id);
 void emitDispShift(instruction ins, int cnt = 0);
 
 void emitDispIns(instrDesc* id,

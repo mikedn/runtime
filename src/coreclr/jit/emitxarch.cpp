@@ -6446,9 +6446,10 @@ const char* emitter::emitYMMregName(unsigned reg)
     return regNames[reg];
 }
 
-void emitter::emitDispClsVar(instrDesc* id, ssize_t offs)
+void emitter::emitDispClsVar(instrDesc* id)
 {
     CORINFO_FIELD_HANDLE fldHnd = id->idAddr()->iiaFieldHnd;
+    ssize_t              offs   = emitGetInsDsp(id);
 
 #ifdef WINDOWS_X86_ABI
     if (fldHnd == FS_SEG_FIELD)
@@ -7455,15 +7456,13 @@ void emitter::emitDispIns(
                 attr = EA_4BYTE;
             }
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
-            offs = emitGetInsDsp(id);
-            emitDispClsVar(id, offs);
+            emitDispClsVar(id);
             break;
 
         case IF_RRW_MRD_CNS:
         case IF_RWR_MRD_CNS:
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
-            offs = emitGetInsDsp(id);
-            emitDispClsVar(id, offs);
+            emitDispClsVar(id);
             emitGetInsDcmCns(id, &cnsVal);
             printf(", ");
             emitDispImm(id, cnsVal);
@@ -7474,8 +7473,7 @@ void emitter::emitDispIns(
             // vextracti/f128 extracts 128-bit data, so we fix sstr as "xmm ptr"
             sstr = emitSizeStr(EA_ATTR(16));
             printf(sstr);
-            offs = emitGetInsDsp(id);
-            emitDispClsVar(id, offs);
+            emitDispClsVar(id);
             printf(", %s", emitRegName(id->idReg1(), attr));
             emitGetInsDcmCns(id, &cnsVal);
             printf(", ");
@@ -7484,14 +7482,12 @@ void emitter::emitDispIns(
 
         case IF_RWR_RRD_MRD:
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
-            offs = emitGetInsDsp(id);
-            emitDispClsVar(id, offs);
+            emitDispClsVar(id);
             break;
 
         case IF_RWR_RRD_MRD_CNS:
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
-            offs = emitGetInsDsp(id);
-            emitDispClsVar(id, offs);
+            emitDispClsVar(id);
             emitGetInsDcmCns(id, &cnsVal);
             printf(", ");
             emitDispImm(id, cnsVal);
@@ -7500,8 +7496,7 @@ void emitter::emitDispIns(
         case IF_RWR_RRD_MRD_RRD:
             printf("%s, ", emitRegName(id->idReg1(), attr));
             printf("%s, ", emitRegName(id->idReg2(), attr));
-            offs = emitGetInsDsp(id);
-            emitDispClsVar(id, offs);
+            emitDispClsVar(id);
             emitGetInsDcmCns(id, &cnsVal);
             val = (cnsVal.cnsVal >> 4) + XMMBASE;
             printf(", %s", emitRegName((regNumber)val, attr));
@@ -7509,16 +7504,14 @@ void emitter::emitDispIns(
 
         case IF_RWR_MRD_OFF:
             printf("%s, %s", emitRegName(id->idReg1(), attr), "lclOffs");
-            offs = emitGetInsDsp(id);
-            emitDispClsVar(id, offs);
+            emitDispClsVar(id);
             break;
 
         case IF_MRD_RRD:
         case IF_MWR_RRD:
         case IF_MRW_RRD:
             printf("%s", sstr);
-            offs = emitGetInsDsp(id);
-            emitDispClsVar(id, offs);
+            emitDispClsVar(id);
             printf(", %s", emitRegName(id->idReg1(), attr));
             break;
 
@@ -7527,8 +7520,7 @@ void emitter::emitDispIns(
         case IF_MRW_CNS:
         case IF_MRW_SHF:
             printf("%s", sstr);
-            offs = emitGetInsDsp(id);
-            emitDispClsVar(id, offs);
+            emitDispClsVar(id);
             emitGetInsDcmCns(id, &cnsVal);
             val = cnsVal.cnsVal;
             // no 8-byte immediates allowed here!
@@ -7553,15 +7545,13 @@ void emitter::emitDispIns(
         case IF_MWR:
         case IF_MRW:
             printf("%s", sstr);
-            offs = emitGetInsDsp(id);
-            emitDispClsVar(id, offs);
+            emitDispClsVar(id);
             emitDispShift(ins);
             break;
 
         case IF_MRD_OFF:
             printf("lclOffs ");
-            offs = emitGetInsDsp(id);
-            emitDispClsVar(id, offs);
+            emitDispClsVar(id);
             break;
 
         case IF_RRD_CNS:
