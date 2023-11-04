@@ -1466,7 +1466,6 @@ private:
     void GetGCDeltaDumpHeader(char* buffer, size_t count);
     void emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose);
     void emitDispIGlist(bool verbose = false);
-    void emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool reloc = false);
 #ifdef TARGET_XARCH
     void emitDispFrameRef(instrDesc* id, bool asmfm);
 #else

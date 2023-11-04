@@ -6446,8 +6446,11 @@ const char* emitter::emitYMMregName(unsigned reg)
     return regNames[reg];
 }
 
-void emitter::emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool reloc)
+void emitter::emitDispClsVar(instrDesc* id, ssize_t offs)
 {
+    const bool           reloc  = id->idIsDspReloc();
+    CORINFO_FIELD_HANDLE fldHnd = id->idAddr()->iiaFieldHnd;
+
     if (emitComp->opts.disDiffable)
     {
         ssize_t top12bits = (offs >> 20);
@@ -6939,8 +6942,6 @@ void emitter::emitDispIns(
         regNumber tgtReg = inst3opImulReg(ins);
         printf("%s, ", emitRegName(tgtReg, id->idOpSize()));
     }
-
-    const bool isDispReloc = id->idIsDspReloc();
 
     switch (id->idInsFmt())
     {
@@ -7456,14 +7457,14 @@ void emitter::emitDispIns(
             }
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
+            emitDispClsVar(id, offs);
             break;
 
         case IF_RRW_MRD_CNS:
         case IF_RWR_MRD_CNS:
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
+            emitDispClsVar(id, offs);
             emitGetInsDcmCns(id, &cnsVal);
             printf(", ");
             emitDispImm(id, cnsVal);
@@ -7475,7 +7476,7 @@ void emitter::emitDispIns(
             sstr = emitSizeStr(EA_ATTR(16));
             printf(sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
+            emitDispClsVar(id, offs);
             printf(", %s", emitRegName(id->idReg1(), attr));
             emitGetInsDcmCns(id, &cnsVal);
             printf(", ");
@@ -7485,13 +7486,13 @@ void emitter::emitDispIns(
         case IF_RWR_RRD_MRD:
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
+            emitDispClsVar(id, offs);
             break;
 
         case IF_RWR_RRD_MRD_CNS:
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
+            emitDispClsVar(id, offs);
             emitGetInsDcmCns(id, &cnsVal);
             printf(", ");
             emitDispImm(id, cnsVal);
@@ -7501,7 +7502,7 @@ void emitter::emitDispIns(
             printf("%s, ", emitRegName(id->idReg1(), attr));
             printf("%s, ", emitRegName(id->idReg2(), attr));
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
+            emitDispClsVar(id, offs);
             emitGetInsDcmCns(id, &cnsVal);
             val = (cnsVal.cnsVal >> 4) + XMMBASE;
             printf(", %s", emitRegName((regNumber)val, attr));
@@ -7510,7 +7511,7 @@ void emitter::emitDispIns(
         case IF_RWR_MRD_OFF:
             printf("%s, %s", emitRegName(id->idReg1(), attr), "lclOffs");
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
+            emitDispClsVar(id, offs);
             break;
 
         case IF_MRD_RRD:
@@ -7518,7 +7519,7 @@ void emitter::emitDispIns(
         case IF_MRW_RRD:
             printf("%s", sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
+            emitDispClsVar(id, offs);
             printf(", %s", emitRegName(id->idReg1(), attr));
             break;
 
@@ -7528,7 +7529,7 @@ void emitter::emitDispIns(
         case IF_MRW_SHF:
             printf("%s", sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
+            emitDispClsVar(id, offs);
             emitGetInsDcmCns(id, &cnsVal);
             val = cnsVal.cnsVal;
             // no 8-byte immediates allowed here!
@@ -7554,14 +7555,14 @@ void emitter::emitDispIns(
         case IF_MRW:
             printf("%s", sstr);
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
+            emitDispClsVar(id, offs);
             emitDispShift(ins);
             break;
 
         case IF_MRD_OFF:
             printf("lclOffs ");
             offs = emitGetInsDsp(id);
-            emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, isDispReloc);
+            emitDispClsVar(id, offs);
             break;
 
         case IF_RRD_CNS:
@@ -9196,17 +9197,12 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 
 BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 {
-    CORINFO_FIELD_HANDLE fldh;
-    ssize_t              offs;
-
-    emitAttr    size      = id->idOpSize();
-    size_t      opsz      = EA_SIZE_IN_BYTES(size);
-    instruction ins       = id->idIns();
-    bool        isMoffset = false;
-
-    // Get hold of the field handle and offset
-    fldh = id->idAddr()->iiaFieldHnd;
-    offs = emitGetInsDsp(id);
+    emitAttr             size      = id->idOpSize();
+    instruction          ins       = id->idIns();
+    CORINFO_FIELD_HANDLE fldh      = id->idAddr()->iiaFieldHnd;
+    ssize_t              offs      = emitGetInsDsp(id);
+    size_t               opsz      = EA_SIZE_IN_BYTES(size);
+    bool                 isMoffset = false;
 
 #ifdef WINDOWS_X86_ABI
     if (fldh == FS_SEG_FIELD)
