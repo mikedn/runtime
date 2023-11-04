@@ -46,6 +46,21 @@ UNATIVE_OFFSET emitInsSizeAM(instrDesc* id, code_t code, int val);
 UNATIVE_OFFSET emitInsSizeCV(instrDesc* id, code_t code);
 UNATIVE_OFFSET emitInsSizeCV(instrDesc* id, code_t code, int val);
 
+size_t emitOutputByte(uint8_t* dst, ssize_t val);
+size_t emitOutputWord(uint8_t* dst, ssize_t val);
+size_t emitOutputLong(uint8_t* dst, ssize_t val);
+AMD64_ONLY(size_t emitOutputI64(uint8_t* dst, int64_t val);)
+
+#if defined(TARGET_X86) && !defined(HOST_64BIT)
+size_t emitOutputByte(uint8_t* dst, uint32_t val);
+size_t emitOutputWord(uint8_t* dst, uint32_t val);
+size_t emitOutputLong(uint8_t* dst, uint32_t val);
+
+size_t emitOutputByte(uint8_t* dst, uint64_t val);
+size_t emitOutputWord(uint8_t* dst, uint64_t val);
+size_t emitOutputLong(uint8_t* dst, uint64_t val);
+#endif // defined(TARGET_X86) && !defined(HOST_64BIT)
+
 BYTE* emitOutputAlign(insGroup* ig, instrDesc* id, BYTE* dst);
 BYTE* emitOutputAM(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc = nullptr);
 BYTE* emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc = nullptr);
@@ -60,7 +75,7 @@ BYTE* emitOutputRRR(BYTE* dst, instrDesc* id);
 
 BYTE* emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* id);
 
-unsigned emitOutputRexOrVexPrefixIfNeeded(instruction ins, BYTE* dst, code_t& code);
+size_t emitOutputRexOrVexPrefixIfNeeded(instruction ins, BYTE* dst, code_t& code);
 unsigned emitGetRexPrefixSize(instruction ins);
 unsigned emitGetVexPrefixSize(instruction ins, emitAttr attr);
 unsigned emitGetPrefixSize(code_t code, bool includeRexPrefixSize);

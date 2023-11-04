@@ -4760,48 +4760,23 @@ inline unsigned insEncodeImmT2_Mov(int imm)
     return imm;
 }
 
-/*****************************************************************************
- *
- *  Emit a Thumb-1 instruction (a 16-bit integer as code)
- */
-
-unsigned emitter::emitOutput_Thumb1Instr(BYTE* dst, code_t code)
+unsigned emitter::emitOutput_Thumb1Instr(uint8_t* dst, uint32_t code)
 {
-    unsigned short word1 = code & 0xffff;
-    assert(word1 == code);
+    assert((code & 0xFFFF0000) == 0);
+    assert((code >> (16 - 5)) < 29);
 
-#ifdef DEBUG
-    unsigned short top5bits = (word1 & 0xf800) >> 11;
-    assert(top5bits < 29);
-#endif
-
-    BYTE* dstRW = dst + writeableOffset;
-    MISALIGNED_WR_I2(dstRW, word1);
-
-    return sizeof(short);
+    *reinterpret_cast<uint16_t*>(dst + writeableOffset) = static_cast<uint16_t>(code & 0xffff);
+    return 2;
 }
-/*****************************************************************************
- *
- *  Emit a Thumb-2 instruction (two 16-bit integers as code)
- */
 
-unsigned emitter::emitOutput_Thumb2Instr(BYTE* dst, code_t code)
+unsigned emitter::emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code)
 {
-    unsigned short word1 = (code >> 16) & 0xffff;
-    unsigned short word2 = (code)&0xffff;
-    assert((code_t)((word1 << 16) | word2) == code);
+    assert((code >> (32 - 5)) >= 29);
 
-#ifdef DEBUG
-    unsigned short top5bits = (word1 & 0xf800) >> 11;
-    assert(top5bits >= 29);
-#endif
-
-    BYTE* dstRW = dst + writeableOffset;
-    MISALIGNED_WR_I2(dstRW, word1);
-    dstRW += 2;
-    MISALIGNED_WR_I2(dstRW, word2);
-
-    return sizeof(short) * 2;
+    *reinterpret_cast<uint16_t*>(dst + writeableOffset) = static_cast<uint16_t>(code >> 16);
+    dst += 2;
+    *reinterpret_cast<uint16_t*>(dst + writeableOffset) = static_cast<uint16_t>(code & 0xffff);
+    return 4;
 }
 
 /*****************************************************************************

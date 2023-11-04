@@ -887,7 +887,7 @@ bool isPrefix(BYTE b)
 }
 
 // Outputs VEX prefix (in case of AVX instructions) and REX.R/X/W/B otherwise.
-unsigned emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, BYTE* dst, code_t& code)
+size_t emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, BYTE* dst, code_t& code)
 {
     if (hasVexPrefix(code))
     {
@@ -7895,6 +7895,73 @@ void emitter::emitDispIns(
 /*****************************************************************************/
 #endif
 
+size_t emitter::emitOutputByte(uint8_t* dst, ssize_t val)
+{
+    // if we're emitting code bytes, ensure that we've already emitted the rex prefix!
+    AMD64_ONLY(assert(((val & 0xFF00000000LL) == 0) || ((val & 0xFFFFFFFF00000000LL) == 0xFFFFFFFF00000000LL)));
+
+    *(dst + writeableOffset) = static_cast<uint8_t>(val);
+    return 1;
+}
+
+size_t emitter::emitOutputWord(uint8_t* dst, ssize_t val)
+{
+    // if we're emitting code bytes, ensure that we've already emitted the rex prefix!
+    AMD64_ONLY(assert(((val & 0xFF00000000LL) == 0) || ((val & 0xFFFFFFFF00000000LL) == 0xFFFFFFFF00000000LL)));
+
+    *reinterpret_cast<int16_t*>(dst + writeableOffset) = static_cast<int16_t>(val);
+    return 2;
+}
+
+size_t emitter::emitOutputLong(uint8_t* dst, ssize_t val)
+{
+    // if we're emitting code bytes, ensure that we've already emitted the rex prefix!
+    AMD64_ONLY(assert(((val & 0xFF00000000LL) == 0) || ((val & 0xFFFFFFFF00000000LL) == 0xFFFFFFFF00000000LL)));
+
+    *reinterpret_cast<int32_t*>(dst + writeableOffset) = static_cast<int32_t>(val);
+    return 4;
+}
+
+#ifdef TARGET_AMD64
+size_t emitter::emitOutputI64(uint8_t* dst, int64_t val)
+{
+    *reinterpret_cast<int64_t*>(dst + writeableOffset) = val;
+    return 8;
+}
+#endif
+
+#if defined(TARGET_X86) && !defined(HOST_64BIT)
+size_t emitter::emitOutputByte(uint8_t* dst, uint32_t val)
+{
+    return emitOutputByte(dst, static_cast<int32_t>(val));
+}
+
+size_t emitter::emitOutputWord(uint8_t* dst, uint32_t val)
+{
+    return emitOutputWord(dst, static_cast<int32_t>(val));
+}
+
+size_t emitter::emitOutputLong(uint8_t* dst, uint32_t val)
+{
+    return emitOutputLong(dst, static_cast<int32_t>(val));
+}
+
+size_t emitter::emitOutputByte(uint8_t* dst, uint64_t val)
+{
+    return emitOutputByte(dst, static_cast<int32_t>(val));
+}
+
+size_t emitter::emitOutputWord(uint8_t* dst, uint64_t val)
+{
+    return emitOutputWord(dst, static_cast<int32_t>(val));
+}
+
+size_t emitter::emitOutputLong(uint8_t* dst, uint64_t val)
+{
+    return emitOutputLong(dst, static_cast<int32_t>(val));
+}
+#endif // defined(TARGET_X86) && !defined(HOST_64BIT)
+
 /*****************************************************************************
  *
  *  Output nBytes bytes of NOP instructions
@@ -9694,15 +9761,13 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
         // In future if ever there is a need to enable this special case, also enable the logic
         // that sets isMoffset to true on amd64.
         unreached();
-#else // TARGET_X86
-
-        dst += emitOutputSizeT(dst, (ssize_t)target);
+#else  // TARGET_X86
+        dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(target));
 
         if (id->idIsDspReloc())
         {
             emitRecordRelocation((void*)(dst - TARGET_POINTER_SIZE), target, IMAGE_REL_BASED_MOFFSET);
         }
-
 #endif // TARGET_X86
     }
 
@@ -10604,7 +10669,7 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
         else
         {
             assert(size == EA_PTRSIZE);
-            dst += emitOutputSizeT(dst, val);
+            dst += emitOutputI64(dst, val);
         }
 #endif
 

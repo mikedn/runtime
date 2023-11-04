@@ -487,29 +487,6 @@ typedef ptrdiff_t ssize_t;
 
 #define castto(var, typ) (*(typ*)&var)
 
-#ifdef NO_MISALIGNED_ACCESS
-
-#define MISALIGNED_WR_I2(dst, val)                                                                                     \
-    *castto(dst, char*)     = val;                                                                                     \
-    *castto(dst + 1, char*) = val >> 8;
-
-#define MISALIGNED_WR_I4(dst, val)                                                                                     \
-    *castto(dst, char*)     = val;                                                                                     \
-    *castto(dst + 1, char*) = val >> 8;                                                                                \
-    *castto(dst + 2, char*) = val >> 16;                                                                               \
-    *castto(dst + 3, char*) = val >> 24;
-
-#else
-
-#define MISALIGNED_WR_I2(dst, val) *castto(dst, short*) = val;
-#define MISALIGNED_WR_I4(dst, val) *castto(dst, int*)   = val;
-
-#define MISALIGNED_WR_ST(dst, val) *castto(dst, ssize_t*) = val;
-
-#endif
-
-/*****************************************************************************/
-
 inline size_t roundUp(size_t size, size_t mult = sizeof(size_t))
 {
     assert(mult && ((mult & (mult - 1)) == 0)); // power of two test
