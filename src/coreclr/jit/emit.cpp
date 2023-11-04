@@ -5796,7 +5796,7 @@ void emitter::emitRecordRelocation(void* location, void* target, uint16_t relocT
     // late disassembly; maybe we'll need it?
     if (emitComp->info.compMatchedVM)
     {
-        void* locationRW = (BYTE*)location + writeableOffset;
+        void* locationRW = static_cast<uint8_t*>(location) + writeableOffset;
         emitCmpHandle->recordRelocation(location, locationRW, target, relocType, 0, addlDelta);
     }
 

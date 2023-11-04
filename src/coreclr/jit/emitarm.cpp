@@ -4319,7 +4319,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         id->idIns(isJump ? INS_b : INS_bl);
         id->idInsFmt(IF_T2_J3);
         id->idInsSize(emitInsSize(IF_T2_J3));
-        id->idAddr()->iiaAddr = reinterpret_cast<uint8_t*>(addr);
+        id->idAddr()->iiaAddr = addr;
 
 #ifdef DEBUG
         if (kind == EC_FUNC_ADDR)
@@ -5261,7 +5261,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     switch (fmt)
     {
         int   imm;
-        BYTE* addr;
+        void* addr;
 
         case IF_T1_A: // T1_A    ................
             sz   = SMALL_IDSC_SIZE;
@@ -5906,7 +5906,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_J3: // T2_J3   .....Siiiiiiiiii ..j.jiiiiiiiiii.      Call                imm24
-            if (id->idAddr()->iiaAddr == NULL) /* a recursive call */
+            if (id->idAddr()->iiaAddr == nullptr) /* a recursive call */
             {
                 addr = emitCodeBlock;
             }
@@ -5926,7 +5926,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 addr = (BYTE*)((size_t)addr & ~1); // Clear the lowest bit from target address
 
                 /* Calculate PC relative displacement */
-                ptrdiff_t disp = addr - (dst + 4);
+                ptrdiff_t disp = static_cast<uint8_t*>(addr) - (dst + 4);
                 bool      S    = (disp < 0);
                 bool      I1   = ((disp & 0x00800000) == 0);
                 bool      I2   = ((disp & 0x00400000) == 0);
@@ -6959,7 +6959,7 @@ void emitter::emitDispInsHelp(
 
         case IF_T2_J3:
         {
-            BYTE* addr;
+            void* addr;
             if (id->idIsCallAddr())
             {
                 addr       = id->idAddr()->iiaAddr;
@@ -6974,9 +6974,7 @@ void emitter::emitDispInsHelp(
 
             if (addr)
             {
-                if (id->idIsDspReloc())
-                    printf("reloc ");
-                printf("%p", dspPtr(addr));
+                printf("%s%p", id->idIsDspReloc() ? "reloc " : "", dspPtr(addr));
             }
             else
             {

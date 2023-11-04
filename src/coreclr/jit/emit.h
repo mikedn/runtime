@@ -719,7 +719,7 @@ private:
 
             BasicBlock* iiaBBlabel;
             insGroup*   iiaIGlabel;
-            uint8_t*    iiaAddr;
+            void*       iiaAddr;
 
 #ifdef TARGET_XARCH
             CORINFO_FIELD_HANDLE iiaFieldHnd;

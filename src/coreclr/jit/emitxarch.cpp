@@ -6070,7 +6070,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHPTR);
-        id->idAddr()->iiaAddr = reinterpret_cast<uint8_t*>(addr);
+        id->idAddr()->iiaAddr = addr;
 
         insSize = 6;
 
@@ -6093,7 +6093,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHOD);
-        id->idAddr()->iiaAddr = reinterpret_cast<uint8_t*>(addr);
+        id->idAddr()->iiaAddr = addr;
 
 #ifdef DEBUG
         if (kind == EC_FUNC_ADDR)
@@ -7619,13 +7619,9 @@ void emitter::emitDispIns(
                 printf("[");
             }
 
-            if (offs)
+            if (offs != 0)
             {
-                if (id->idIsDspReloc())
-                {
-                    printf("reloc ");
-                }
-                printf("%08X", offs);
+                printf("%s%08X", id->idIsDspReloc() ? "reloc " : "", offs);
             }
             else
             {
@@ -11155,7 +11151,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         code_t   code;
         unsigned regcode;
         CnsVal   cnsVal;
-        BYTE*    addr;
+        void*    addr;
 
         /********************************************************************/
         /*                        No operands                               */

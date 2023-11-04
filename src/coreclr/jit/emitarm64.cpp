@@ -7688,34 +7688,21 @@ void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber ireg, regNu
 // This computes address from the immediate which is relocatable.
 void emitter::emitIns_R_AI(instruction ins,
                            emitAttr    attr,
-                           regNumber   ireg,
+                           regNumber   reg,
                            ssize_t addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
+    assert((ins == INS_adrp) || (ins == INS_adr));
     assert(EA_IS_RELOC(attr));
-    emitAttr      size    = EA_SIZE(attr);
-    insFormat     fmt     = IF_DI_1E;
-    bool          needAdd = false;
-    instrDescJmp* id      = emitNewInstrJmp();
 
-    switch (ins)
-    {
-        case INS_adrp:
-            // This computes page address.
-            // page offset is needed using add.
-            needAdd = true;
-            break;
-        case INS_adr:
-            break;
-        default:
-            unreached();
-    }
+    emitAttr size = EA_SIZE(attr);
 
+    instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(IF_DI_1E);
     id->idInsOpt(INS_OPTS_NONE);
     id->idOpSize(size);
-    id->idAddr()->iiaAddr = (BYTE*)addr;
-    id->idReg1(ireg);
+    id->idAddr()->iiaAddr = reinterpret_cast<void*>(addr);
+    id->idReg1(reg);
     id->idSetIsDspReloc();
 #ifdef DEBUG
     id->idDebugOnlyInfo()->idHandle     = handle;
@@ -7725,21 +7712,18 @@ void emitter::emitIns_R_AI(instruction ins,
     dispIns(id);
     appendToCurIG(id);
 
-    if (needAdd)
+    if (ins == INS_adrp)
     {
-        // add reg, reg, imm
-        ins           = INS_add;
-        fmt           = IF_DI_2A;
         instrDesc* id = emitNewInstr(attr);
         assert(id->idIsReloc());
 
-        id->idIns(ins);
-        id->idInsFmt(fmt);
+        id->idIns(INS_add);
+        id->idInsFmt(IF_DI_2A);
         id->idInsOpt(INS_OPTS_NONE);
         id->idOpSize(size);
-        id->idAddr()->iiaAddr = (BYTE*)addr;
-        id->idReg1(ireg);
-        id->idReg2(ireg);
+        id->idAddr()->iiaAddr = reinterpret_cast<void*>(addr);
+        id->idReg1(reg);
+        id->idReg2(reg);
 
         dispIns(id);
         appendToCurIG(id);
@@ -8008,7 +7992,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
 
         id->idIns(isJump ? INS_b_tail : INS_bl);
         id->idInsFmt(IF_BI_0C);
-        id->idAddr()->iiaAddr = reinterpret_cast<uint8_t*>(addr);
+        id->idAddr()->iiaAddr = addr;
 
 #ifdef DEBUG
         if (kind == EC_FUNC_ADDR)
@@ -11554,7 +11538,7 @@ void emitter::emitDispIns(
         case IF_BI_0C: // BI_0C   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
             if (id->idIsCallAddr())
             {
-                offs       = (ssize_t)id->idAddr()->iiaAddr;
+                offs       = reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr);
                 methodName = "";
             }
             else
@@ -11564,11 +11548,9 @@ void emitter::emitDispIns(
                     emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle));
             }
 
-            if (offs)
+            if (offs != 0)
             {
-                if (id->idIsDspReloc())
-                    printf("reloc ");
-                printf("%08X", offs);
+                printf("%s%08X", id->idIsDspReloc() ? "reloc " : "", offs);
             }
             else
             {
@@ -11795,7 +11777,7 @@ void emitter::emitDispIns(
             {
                 assert(ins == INS_add);
                 printf("[LOW RELOC ");
-                emitDispImm((ssize_t)id->idAddr()->iiaAddr, false);
+                emitDispImm(reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr), false);
                 printf("]");
             }
             else
