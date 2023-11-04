@@ -805,19 +805,6 @@ int emitter::emitNextRandomNop()
 }
 #endif
 
-// member function iiaIsJitDataOffset for idAddrUnion, defers to Compiler::eeIsJitDataOffs
-bool emitter::instrDesc::idAddrUnion::iiaIsJitDataOffset() const
-{
-    return Compiler::eeIsJitDataOffs(iiaFieldHnd);
-}
-
-// member function iiaGetJitDataOffset for idAddrUnion, defers to Compiler::eeGetJitDataOffs
-int emitter::instrDesc::idAddrUnion::iiaGetJitDataOffset() const
-{
-    assert(iiaIsJitDataOffset());
-    return Compiler::eeGetJitDataOffs(iiaFieldHnd);
-}
-
 #if defined(DEBUG) || defined(LATE_DISASM)
 
 //----------------------------------------------------------------------------------------
@@ -3142,9 +3129,9 @@ AGAIN:
         // If this is a jump via register, the instruction size does not change, so we are done.
         CLANG_FORMAT_COMMENT_ANCHOR;
 
-#if defined(TARGET_ARM64)
+#ifdef TARGET_ARM64
         // JIT code and data will be allocated together for arm64 so the relative offset to JIT data is known.
-        // In case such offset can be encodeable for `ldr` (+-1MB), shorten it.
+        // In case such offset can be encodable for `ldr` (+-1MB), shorten it.
         if (jmp->idAddr()->iiaIsJitDataOffset())
         {
             // Reference to JIT data
@@ -3152,19 +3139,20 @@ AGAIN:
             UNATIVE_OFFSET srcOffs = jmpIG->igOffs + jmp->idjOffs;
 
             int doff = jmp->idAddr()->iiaGetJitDataOffset();
-            assert(doff >= 0);
+
             ssize_t imm = emitGetInsSC(jmp);
             assert((imm >= 0) && (imm < 0x1000)); // 0x1000 is arbitrary, currently 'imm' is always 0
 
             unsigned dataOffs = (unsigned)(doff + imm);
             assert(dataOffs < emitDataSize());
 
-            // Conservately assume JIT data starts after the entire code size.
+            // Conservatively assume JIT data starts after the entire code size.
             // TODO-ARM64: we might consider only hot code size which will be computed later in emitComputeCodeSizes().
             assert(emitTotalCodeSize > 0);
             UNATIVE_OFFSET maxDstOffs = emitTotalCodeSize + dataOffs;
 
             // Check if the distance is within the encoding length.
+
             jmpDist = maxDstOffs - srcOffs;
             extra   = jmpDist - psd;
             if (extra <= 0)

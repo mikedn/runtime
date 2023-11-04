@@ -7607,9 +7607,11 @@ void emitter::Ins_R_R_S(
 // No relocation is needed. PC-relative offset will be encoded directly into instruction.
 void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber addrReg, CORINFO_FIELD_HANDLE fldHnd)
 {
+    assert(Compiler::eeIsJitDataOffs(fldHnd));
+
     emitAttr      size = EA_SIZE(attr);
-    insFormat     fmt  = IF_NONE;
-    instrDescJmp* id   = emitNewInstrJmp();
+    insFormat     fmt;
+    instrDescJmp* id = emitNewInstrJmp();
 
     switch (ins)
     {
@@ -7649,7 +7651,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
     id->idInsOpt(INS_OPTS_NONE);
     id->idSmallCns(0);
     id->idOpSize(size);
-    id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idAddr()->SetRoDataOffset(Compiler::eeGetJitDataOffs(fldHnd));
     id->idSetIsBound(); // We won't patch address since we will know the exact distance once JIT code and data are
                         // allocated together.
 
@@ -10828,7 +10830,7 @@ void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
 
     if (id->idAddr()->iiaIsJitDataOffset())
     {
-        int doffs = Compiler::eeGetJitDataOffs(id->idAddr()->iiaFieldHnd);
+        int doffs = id->idAddr()->iiaGetJitDataOffset();
 
         if ((doffs & 1) != 0)
         {

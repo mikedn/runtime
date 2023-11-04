@@ -695,8 +695,12 @@ private:
             insGroup*   iiaIGlabel;
             uint8_t*    iiaAddr;
 
-            // Used to encode an offset into the JIT data constant area
+#ifdef TARGET_XARCH
             CORINFO_FIELD_HANDLE iiaFieldHnd;
+#endif
+#ifdef TARGET_ARM64
+            unsigned roDataOffset;
+#endif
 
             // Used to specify an instruction count for jumps, instead of using
             // a label and multiple blocks. This is used in the prolog as well
@@ -762,8 +766,23 @@ private:
             };
 #endif
 
-            bool iiaIsJitDataOffset() const;
-            int  iiaGetJitDataOffset() const;
+#ifdef TARGET_ARM64
+            bool iiaIsJitDataOffset() const
+            {
+                return (roDataOffset & iaut_MASK) == iaut_DATA_OFFSET;
+            }
+
+            unsigned iiaGetJitDataOffset() const
+            {
+                assert(iiaIsJitDataOffset());
+                return roDataOffset >> iaut_SHIFT;
+            }
+
+            void SetRoDataOffset(unsigned offset)
+            {
+                roDataOffset = (offset << iaut_SHIFT) | iaut_DATA_OFFSET;
+            }
+#endif
 
             bool iiaHasInstrCount() const
             {

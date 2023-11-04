@@ -5944,6 +5944,7 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
 
     GenTree* indir;
 
+#ifndef TARGET_ARM64
     if (addr == nullptr)
     {
         addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(resolvedToken->hField, fieldSeq);
@@ -5958,6 +5959,7 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
         // TODO-MIKE-CQ: Should GTF_IND_INVARIANT be set here? CLS_VAR did not have such a thing.
     }
     else
+#endif // TARGET_ARM64
     {
         indir = gtNewIndir(type, addr);
 
