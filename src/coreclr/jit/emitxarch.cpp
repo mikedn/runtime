@@ -7502,11 +7502,6 @@ void emitter::emitDispIns(
             printf(", %s", emitRegName((regNumber)val, attr));
             break;
 
-        case IF_RWR_MRD_OFF:
-            printf("%s, %s", emitRegName(id->idReg1(), attr), "lclOffs");
-            emitDispClsVar(id);
-            break;
-
         case IF_MRD_RRD:
         case IF_MWR_RRD:
         case IF_MRW_RRD:
@@ -7547,11 +7542,6 @@ void emitter::emitDispIns(
             printf("%s", sstr);
             emitDispClsVar(id);
             emitDispShift(ins);
-            break;
-
-        case IF_MRD_OFF:
-            printf("lclOffs ");
-            emitDispClsVar(id);
             break;
 
         case IF_RRD_CNS:
@@ -9394,13 +9384,15 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
     // Output the REX prefix
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
-    if (code)
+    if (code != 0)
     {
-        if (id->idInsFmt() == IF_MRD_OFF || id->idInsFmt() == IF_RWR_MRD_OFF X86_ONLY(|| isMoffset))
+#ifdef TARGET_X86
+        if (isMoffset)
         {
             dst += emitOutputByte(dst, code);
         }
         else
+#endif
         {
             dst += emitOutputWord(dst, code);
         }
@@ -11850,10 +11842,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             sz  = emitSizeOfInsDsc(id);
             break;
 
-        case IF_MRD_OFF:
-            dst = emitOutputCV(dst, id, insCodeMI(ins));
-            break;
-
         case IF_RRW_MRD_CNS:
         case IF_RWR_MRD_CNS:
             assert(IsSSEOrAVXInstruction(ins));
@@ -11977,27 +11965,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             sz = emitSizeOfInsDsc(id);
             break;
         }
-
-        case IF_RWR_MRD_OFF:
-            code = insCode(ins);
-            code = AddVexPrefixIfNeeded(ins, code, size);
-
-            // In case of AVX instructions that take 3 operands, encode reg1 as first source.
-            // Note that reg1 is both a source and a destination.
-            //
-            // TODO-XArch-CQ: Eventually we need to support 3 operand instruction formats. For
-            // now we use the single source as source1 and source2.
-            // For this format, moves do not support a third operand, so we only need to handle the binary ops.
-            if (IsDstDstSrcAVXInstruction(ins))
-            {
-                // encode source operand reg in 'vvvv' bits in 1's complement form
-                code = insEncodeReg3456(ins, id->idReg1(), size, code);
-            }
-
-            regcode = insEncodeReg012(id->idIns(), id->idReg1(), size, &code);
-            dst     = emitOutputCV(dst, id, code | 0x30 | regcode);
-            sz      = emitSizeOfInsDsc(id);
-            break;
 
         case IF_MRD_RRD:
         case IF_MWR_RRD:
@@ -12253,13 +12220,11 @@ emitter::insFormat emitter::getMemoryOperation(instrDesc* id)
 
         case IF_MRD:
         case IF_MRD_CNS:
-        case IF_MRD_OFF:
         case IF_MRD_RRD:
         case IF_RRD_MRD:
         case IF_RRW_MRD:
         case IF_RWR_MRD:
         case IF_RWR_MRD_CNS:
-        case IF_RWR_MRD_OFF:
         case IF_RWR_RRD_MRD:
         case IF_RRW_MRD_CNS:
         case IF_RWR_RRD_MRD_CNS:

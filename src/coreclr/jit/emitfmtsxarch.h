@@ -116,7 +116,6 @@ IF_DEF(RWR_RRD_RRD_RRD, IS_R1_WR|IS_R2_RD|IS_R3_RD|IS_R4_RD, CNS)     // write  
 IF_DEF(MRD,         IS_GM_RD,                   SPEC)     // read  [mem] (indirect call req. SPEC)
 IF_DEF(MWR,         IS_GM_WR,                   DSP)      // write [mem]
 IF_DEF(MRW,         IS_GM_RW,                   DSP)      // r/w   [mem]
-IF_DEF(MRD_OFF,     IS_GM_RD,                   DSP)      // offset mem
 
 IF_DEF(RRD_MRD,     IS_GM_RD|IS_R1_RD,          DSP)      // read   reg , read [mem]
 IF_DEF(RWR_MRD,     IS_GM_RD|IS_R1_WR,          DSP)      // write  reg , read [mem]
@@ -127,7 +126,6 @@ IF_DEF(RWR_RRD_MRD, IS_GM_RD|IS_R1_WR|IS_R2_RD, DSP)      // write  reg , read r
 IF_DEF(RWR_MRD_CNS, IS_GM_RD|IS_R1_WR,          DSP_CNS)  // write  reg , read [mem], const
 IF_DEF(RWR_RRD_MRD_CNS, IS_GM_RD|IS_R1_WR|IS_R2_RD, DSP_CNS) // write  reg , read reg2 , read [mem], const
 IF_DEF(RWR_RRD_MRD_RRD, IS_GM_RD|IS_R1_WR|IS_R2_RD|IS_R3_RD, DSP_CNS) // write  reg , read reg2 , read [mem], read reg3
-IF_DEF(RWR_MRD_OFF, IS_GM_RD|IS_R1_WR,          DSP)      // write  reg , offset mem
 
 IF_DEF(MRD_RRD,     IS_GM_RD|IS_R1_RD,          DSP)      // read  [mem], read  reg
 IF_DEF(MWR_RRD,     IS_GM_WR|IS_R1_RD,          DSP)      // write [mem], read  reg
