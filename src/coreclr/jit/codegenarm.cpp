@@ -592,15 +592,10 @@ void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
     BasicBlock** jumpTable  = switchBlock->bbJumpSwt->bbsDstTab;
     unsigned     jmpTabBase = GetEmitter()->emitBBTableDataGenBeg(jumpCount, false);
 
-    JITDUMP("\n      J_M%03u_DS%02u LABEL   DWORD\n", compiler->compMethodID, jmpTabBase);
-
     for (unsigned i = 0; i < jumpCount; i++)
     {
         BasicBlock* target = *jumpTable++;
-        noway_assert(target->bbFlags & BBF_HAS_LABEL);
-
-        JITDUMP("            DD      L_M%03u_" FMT_BB "\n", compiler->compMethodID, target->bbNum);
-
+        noway_assert((target->bbFlags & BBF_HAS_LABEL) != 0);
         GetEmitter()->emitDataGenData(i, target);
     }
 

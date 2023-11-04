@@ -5218,6 +5218,20 @@ void emitter::emitDataGenData(unsigned index, BasicBlock* label)
 
     assert(emitDataSecCur->dsSize >= emittedElemSize * (index + 1));
 
+    if (index == 0)
+    {
+        unsigned offset = 0;
+
+        for (dataSection* d = emitConsDsc.dsdList; d != nullptr && d != emitDataSecCur; d = d->dsNext)
+        {
+            offset += d->dsSize;
+        }
+
+        JITDUMP("RWD%02u LABEL DWORD\n", offset);
+    }
+
+    JITDUMP("DD L_M%03u_" FMT_BB "\n", emitComp->compMethodID, label->bbNum);
+
     ((BasicBlock**)(emitDataSecCur->dsCont))[index] = label;
 }
 
