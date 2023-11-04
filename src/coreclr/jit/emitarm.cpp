@@ -3840,55 +3840,6 @@ int emitter::OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, regNumber
     }
 }
 
-/*****************************************************************************
- *
- *  Add an instruction with a register + static member operands.
- */
-void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd)
-{
-    if (ins == INS_mov)
-    {
-        assert(!"Please use ins_Load() to select the correct instruction");
-    }
-    assert(emitInsIsLoad(ins) || (ins == INS_lea));
-    if (ins == INS_lea)
-    {
-        ins = INS_add;
-    }
-
-    int     doff = Compiler::eeGetJitDataOffs(fldHnd);
-    ssize_t addr = NULL;
-
-    if (doff >= 0)
-    {
-        NYI_ARM("JitDataOffset static fields");
-    }
-    else
-    {
-        addr = (ssize_t)emitComp->info.compCompHnd->getFieldAddress(fldHnd, NULL);
-        if (addr == NULL)
-            NO_WAY("could not obtain address of static field");
-    }
-
-    // We can use reg to load the constant address,
-    //  as long as it is not a floating point register
-    regNumber regTmp = reg;
-
-    if (isFloatReg(regTmp))
-    {
-        assert(!"emitIns_R_C() cannot be called with floating point target");
-        return;
-    }
-
-    // Load address of CLS_VAR_ADDR into a register
-    codeGen->instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regTmp, addr);
-
-    if ((ins != INS_add) || (reg != regTmp))
-    {
-        emitIns_R_R_I(ins, attr, reg, regTmp, 0);
-    }
-}
-
 void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs)
 {
     if (ins == INS_mov)
