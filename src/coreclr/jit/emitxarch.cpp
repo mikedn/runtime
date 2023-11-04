@@ -9197,12 +9197,14 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 
 BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 {
-    emitAttr             size      = id->idOpSize();
-    instruction          ins       = id->idIns();
-    CORINFO_FIELD_HANDLE fldh      = id->idAddr()->iiaFieldHnd;
-    ssize_t              offs      = emitGetInsDsp(id);
-    size_t               opsz      = EA_SIZE_IN_BYTES(size);
-    bool                 isMoffset = false;
+    emitAttr             size = id->idOpSize();
+    instruction          ins  = id->idIns();
+    CORINFO_FIELD_HANDLE fldh = id->idAddr()->iiaFieldHnd;
+    ssize_t              offs = emitGetInsDsp(id);
+    size_t               opsz = EA_SIZE_IN_BYTES(size);
+
+    // x64 currently never uses the moffset format, it uses only RIP relative addressing.
+    X86_ONLY(bool isMoffset = false);
 
 #ifdef WINDOWS_X86_ABI
     if (fldh == FS_SEG_FIELD)
@@ -9405,7 +9407,7 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 
     if (code)
     {
-        if (id->idInsFmt() == IF_MRD_OFF || id->idInsFmt() == IF_RWR_MRD_OFF || isMoffset)
+        if (id->idInsFmt() == IF_MRD_OFF || id->idInsFmt() == IF_RWR_MRD_OFF X86_ONLY(|| isMoffset))
         {
             dst += emitOutputByte(dst, code);
         }
@@ -9461,13 +9463,13 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
         }
     }
 
-    BYTE* target = (addr + offs);
+    uint8_t* target = (addr + offs);
 
-    if (!isMoffset)
+    X86_ONLY(if (!isMoffset))
     {
-        INT32 addlDelta = 0;
+        int32_t addlDelta = 0;
 
-        if (addc)
+        if (addc != nullptr)
         {
             // It is of the form "ins [disp], imm" or "ins reg, [disp], imm"
             // For emitting relocation, we also need to take into account of the
@@ -9478,9 +9480,9 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 #ifdef TARGET_AMD64
             // all these opcodes only take a sign-extended 4-byte immediate
             noway_assert(opsz < 8 || ((int)cval == cval && !addc->cnsReloc));
-#else  // TARGET_X86
+#else
             noway_assert(opsz <= 4);
-#endif // TARGET_X86
+#endif
 
             switch (opsz)
             {
@@ -9506,41 +9508,34 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
         // All static field and data section constant accesses should be marked as relocatable
         noway_assert(id->idIsDspReloc());
         dst += emitOutputLong(dst, 0);
-#else  // TARGET_X86
+#else
         dst += emitOutputLong(dst, (int)(ssize_t)target);
-#endif // TARGET_X86
+#endif
 
         if (id->idIsDspReloc())
         {
             emitRecordRelocation((void*)(dst - sizeof(int)), target, IMAGE_REL_BASED_DISP32, addlDelta);
         }
     }
+#ifdef TARGET_X86
     else
     {
-#ifdef TARGET_AMD64
-        // This code path should never be hit on amd64 since it always uses RIP relative addressing.
-        // In future if ever there is a need to enable this special case, also enable the logic
-        // that sets isMoffset to true on amd64.
-        unreached();
-#else  // TARGET_X86
         dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(target));
 
         if (id->idIsDspReloc())
         {
             emitRecordRelocation((void*)(dst - TARGET_POINTER_SIZE), target, IMAGE_REL_BASED_MOFFSET);
         }
-#endif // TARGET_X86
     }
+#endif // TARGET_X86
 
     // Now generate the constant value, if present
-    if (addc)
+    if (addc != nullptr)
     {
         ssize_t cval = addc->cnsVal;
 
-#ifdef TARGET_AMD64
         // all these opcodes only take a sign-extended 4-byte immediate
-        noway_assert(opsz < 8 || ((int)cval == cval && !addc->cnsReloc));
-#endif
+        AMD64_ONLY(noway_assert(opsz < 8 || ((int)cval == cval && !addc->cnsReloc)));
 
         switch (opsz)
         {
@@ -11302,24 +11297,23 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 // Output the call opcode followed by the target distance
                 dst += (ins == INS_l_jmp) ? emitOutputByte(dst, insCode(ins)) : emitOutputByte(dst, insCodeMI(ins));
 
-                ssize_t offset;
 #ifdef TARGET_AMD64
-                // All REL32 on Amd64 go through recordRelocation.  Here we will output zero to advance dst.
-                offset = 0;
-                assert(id->idIsDspReloc());
+                // All REL32 on Amd64 go through recordRelocation. Here we will output zero to advance dst.
+                noway_assert(id->idIsDspReloc());
+                dst += emitOutputLong(dst, 0);
+                emitRecordRelocation((void*)(dst - sizeof(INT32)), addr, IMAGE_REL_BASED_REL32);
 #else
                 // Calculate PC relative displacement.
                 // Although you think we should be using sizeof(void*), the x86 and x64 instruction set
                 // only allow a 32-bit offset, so we correctly use sizeof(INT32)
-                offset = addr - (dst + sizeof(INT32));
-#endif
-
+                ssize_t offset = reinterpret_cast<uint8_t*>(addr) - (dst + sizeof(INT32));
                 dst += emitOutputLong(dst, offset);
 
                 if (id->idIsDspReloc())
                 {
                     emitRecordRelocation((void*)(dst - sizeof(INT32)), addr, IMAGE_REL_BASED_REL32);
                 }
+#endif
             }
 
         DONE_CALL:
