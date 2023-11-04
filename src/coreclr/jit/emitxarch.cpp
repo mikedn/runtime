@@ -11728,15 +11728,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         /*                    Direct memory address                         */
         /********************************************************************/
 
-        case IF_MRD:
-        case IF_MRW:
-        case IF_MWR:
-
-            noway_assert(ins != INS_call);
-            dst = emitOutputCV(dst, id, insCodeMR(ins) | 0x0500);
-            sz  = emitSizeOfInsDsc(id);
-            break;
-
         case IF_RRW_MRD_CNS:
         case IF_RWR_MRD_CNS:
             assert(IsSSEOrAVXInstruction(ins));
@@ -11744,11 +11735,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             code = insCodeRM(ins);
 
             // Special case 4-byte AVX instructions
-            if (EncodedBySSE38orSSE3A(ins))
-            {
-                dst = emitOutputCV(dst, id, code, &cnsVal);
-            }
-            else
+            if (!EncodedBySSE38orSSE3A(ins))
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
 
@@ -11765,10 +11752,11 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 }
 
                 regcode = (insEncodeReg345(ins, id->idReg1(), size, &code) << 8);
-                dst     = emitOutputCV(dst, id, code | regcode | 0x0500, &cnsVal);
+                code |= regcode | 0x0500;
             }
 
-            sz = emitSizeOfInsDsc(id);
+            dst = emitOutputCV(dst, id, code, &cnsVal);
+            sz  = emitSizeOfInsDsc(id);
             break;
 
         case IF_MWR_RRD_CNS:
@@ -11785,15 +11773,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_RRD_MRD:
         case IF_RWR_MRD:
         case IF_RRW_MRD:
-        {
             code = insCodeRM(ins);
 
             // Special case 4-byte AVX instructions
-            if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
-            {
-                dst = emitOutputCV(dst, id, code);
-            }
-            else
+            if (!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32))
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
 
@@ -11804,62 +11787,54 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 }
 
                 regcode = (insEncodeReg345(ins, id->idReg1(), size, &code) << 8);
-                dst     = emitOutputCV(dst, id, code | regcode | 0x0500);
+                code |= regcode | 0x0500;
             }
 
-            sz = emitSizeOfInsDsc(id);
+            dst = emitOutputCV(dst, id, code);
+            sz  = emitSizeOfInsDsc(id);
             break;
-        }
 
         case IF_RWR_RRD_MRD:
-        {
             // This should only be called on AVX instructions
             assert(IsAVXInstruction(ins));
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
-            code = insEncodeReg3456(ins, id->idReg2(), size,
-                                    code); // encode source operand reg in 'vvvv' bits in 1's complement form
+            // encode source operand reg in 'vvvv' bits in 1's complement form
+            code = insEncodeReg3456(ins, id->idReg2(), size, code);
 
             // Special case 4-byte AVX instructions
-            if (EncodedBySSE38orSSE3A(ins))
-            {
-                dst = emitOutputCV(dst, id, code);
-            }
-            else
+            if (!EncodedBySSE38orSSE3A(ins))
             {
                 regcode = (insEncodeReg345(ins, id->idReg1(), size, &code) << 8);
-                dst     = emitOutputCV(dst, id, code | regcode | 0x0500);
+                code |= regcode | 0x0500;
             }
-            sz = emitSizeOfInsDsc(id);
+
+            dst = emitOutputCV(dst, id, code);
+            sz  = emitSizeOfInsDsc(id);
             break;
-        }
 
         case IF_RWR_RRD_MRD_CNS:
         case IF_RWR_RRD_MRD_RRD:
-        {
             // This should only be called on AVX instructions
             assert(IsAVXInstruction(ins));
             emitGetInsCns(id, &cnsVal);
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
-            code = insEncodeReg3456(ins, id->idReg2(), size,
-                                    code); // encode source operand reg in 'vvvv' bits in 1's complement form
+            // encode source operand reg in 'vvvv' bits in 1's complement form
+            code = insEncodeReg3456(ins, id->idReg2(), size, code);
 
             // Special case 4-byte AVX instructions
-            if (EncodedBySSE38orSSE3A(ins))
-            {
-                dst = emitOutputCV(dst, id, code, &cnsVal);
-            }
-            else
+            if (!EncodedBySSE38orSSE3A(ins))
             {
                 regcode = (insEncodeReg345(ins, id->idReg1(), size, &code) << 8);
-                dst     = emitOutputCV(dst, id, code | regcode | 0x0500, &cnsVal);
+                code |= regcode | 0x0500;
             }
-            sz = emitSizeOfInsDsc(id);
+
+            dst = emitOutputCV(dst, id, code, &cnsVal);
+            sz  = emitSizeOfInsDsc(id);
             break;
-        }
 
         case IF_MRD_RRD:
         case IF_MWR_RRD:
@@ -11879,9 +11854,18 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 code = insEncodeReg3456(ins, id->idReg1(), size, code);
             }
 
-            regcode = (insEncodeReg345(ins, id->idReg1(), size, &code) << 8);
-            dst     = emitOutputCV(dst, id, code | regcode | 0x0500);
-            sz      = emitSizeOfInsDsc(id);
+            regcode = insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
+
+            dst = emitOutputCV(dst, id, code | regcode | 0x0500);
+            sz  = emitSizeOfInsDsc(id);
+            break;
+
+        case IF_MRD:
+        case IF_MRW:
+        case IF_MWR:
+            noway_assert(ins != INS_call);
+            dst = emitOutputCV(dst, id, insCodeMR(ins) | 0x0500);
+            sz  = emitSizeOfInsDsc(id);
             break;
 
         case IF_MRD_CNS:
