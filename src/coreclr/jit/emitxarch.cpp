@@ -9332,16 +9332,24 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 #endif
     else
     {
-        addr = (BYTE*)emitComp->info.compCompHnd->getFieldAddress(fldh, nullptr);
-        if (addr == nullptr)
-        {
-            NO_WAY("could not obtain address of static field");
-        }
+        addr = static_cast<uint8_t*>(emitComp->info.compCompHnd->getFieldAddress(fldh, nullptr));
+        noway_assert(addr != nullptr);
     }
 
     uint8_t* target = (addr + offs);
 
-    X86_ONLY(if (!isMoffset))
+#ifdef TARGET_X86
+    if (isMoffset)
+    {
+        dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(target));
+
+        if (id->idIsDspReloc())
+        {
+            emitRecordRelocation((void*)(dst - TARGET_POINTER_SIZE), target, IMAGE_REL_BASED_MOFFSET);
+        }
+    }
+    else
+#endif
     {
         int32_t addlDelta = 0;
 
@@ -9393,17 +9401,6 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
             emitRecordRelocation((void*)(dst - sizeof(int)), target, IMAGE_REL_BASED_DISP32, addlDelta);
         }
     }
-#ifdef TARGET_X86
-    else
-    {
-        dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(target));
-
-        if (id->idIsDspReloc())
-        {
-            emitRecordRelocation((void*)(dst - TARGET_POINTER_SIZE), target, IMAGE_REL_BASED_MOFFSET);
-        }
-    }
-#endif // TARGET_X86
 
     // Now generate the constant value, if present
     if (addc != nullptr)
