@@ -7604,6 +7604,40 @@ size_t emitter::emitOutputLong(uint8_t* dst, uint64_t val)
 }
 #endif // defined(TARGET_X86) && !defined(HOST_64BIT)
 
+uint8_t* emitter::emitOutputImm(uint8_t* dst, size_t size, CnsVal* imm)
+{
+    ssize_t value = imm->cnsVal;
+
+    // all these opcodes only take a sign-extended 4-byte immediate
+    AMD64_ONLY(noway_assert((size < 8) || (FitsIn<int32_t>(value) && !imm->cnsReloc)));
+
+    switch (size)
+    {
+        case 0:
+        case 4:
+        case 8:
+            dst += emitOutputLong(dst, value);
+            break;
+        case 2:
+            dst += emitOutputWord(dst, value);
+            break;
+        case 1:
+            dst += emitOutputByte(dst, value);
+            break;
+
+        default:
+            assert(!"unexpected operand size");
+    }
+
+    if (imm->cnsReloc)
+    {
+        assert(size == 4);
+        emitRecordRelocation(dst - 4, reinterpret_cast<void*>(value), IMAGE_REL_BASED_HIGHLOW);
+    }
+
+    return dst;
+}
+
 /*****************************************************************************
  *
  *  Output nBytes bytes of NOP instructions
@@ -8541,43 +8575,12 @@ GOT_DSP:
         }
     }
 
-    // Now generate the constant value, if present
-    if (addc)
+    if (addc != nullptr)
     {
-        ssize_t cval = addc->cnsVal;
-
-#ifdef TARGET_AMD64
-        // all these opcodes only take a sign-extended 4-byte immediate
-        noway_assert(opsz < 8 || ((int)cval == cval && !addc->cnsReloc));
-#endif
-
-        switch (opsz)
-        {
-            case 0:
-            case 4:
-            case 8:
-                dst += emitOutputLong(dst, cval);
-                break;
-            case 2:
-                dst += emitOutputWord(dst, cval);
-                break;
-            case 1:
-                dst += emitOutputByte(dst, cval);
-                break;
-
-            default:
-                assert(!"unexpected operand size");
-        }
-
-        if (addc->cnsReloc)
-        {
-            emitRecordRelocation((void*)(dst - sizeof(INT32)), (void*)(size_t)cval, IMAGE_REL_BASED_HIGHLOW);
-            assert(opsz == 4);
-        }
+        dst = emitOutputImm(dst, opsz, addc);
     }
 
 DONE:
-
     // Does this instruction operate on a GC ref value?
     if (id->idGCref())
     {
@@ -8946,39 +8949,9 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
         }
     }
 
-    // Now generate the constant value, if present
-    if (addc)
+    if (addc != nullptr)
     {
-        ssize_t cval = addc->cnsVal;
-
-#ifdef TARGET_AMD64
-        // all these opcodes only take a sign-extended 4-byte immediate
-        noway_assert(opsz < 8 || ((int)cval == cval && !addc->cnsReloc));
-#endif
-
-        switch (opsz)
-        {
-            case 0:
-            case 4:
-            case 8:
-                dst += emitOutputLong(dst, cval);
-                break;
-            case 2:
-                dst += emitOutputWord(dst, cval);
-                break;
-            case 1:
-                dst += emitOutputByte(dst, cval);
-                break;
-
-            default:
-                assert(!"unexpected operand size");
-        }
-
-        if (addc->cnsReloc)
-        {
-            emitRecordRelocation((void*)(dst - sizeof(INT32)), (void*)(size_t)cval, IMAGE_REL_BASED_HIGHLOW);
-            assert(opsz == 4);
-        }
+        dst = emitOutputImm(dst, opsz, addc);
     }
 
     if (id->idAddr()->isTrackedGCSlotStore
@@ -9404,36 +9377,9 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 #endif
     }
 
-    // Now generate the constant value, if present
     if (addc != nullptr)
     {
-        ssize_t cval = addc->cnsVal;
-
-        // all these opcodes only take a sign-extended 4-byte immediate
-        AMD64_ONLY(noway_assert(opsz < 8 || ((int)cval == cval && !addc->cnsReloc)));
-
-        switch (opsz)
-        {
-            case 0:
-            case 4:
-            case 8:
-                dst += emitOutputLong(dst, cval);
-                break;
-            case 2:
-                dst += emitOutputWord(dst, cval);
-                break;
-            case 1:
-                dst += emitOutputByte(dst, cval);
-                break;
-
-            default:
-                assert(!"unexpected operand size");
-        }
-        if (addc->cnsReloc)
-        {
-            emitRecordRelocation((void*)(dst - sizeof(INT32)), (void*)(size_t)cval, IMAGE_REL_BASED_HIGHLOW);
-            assert(opsz == 4);
-        }
+        dst = emitOutputImm(dst, opsz, addc);
     }
 
     // Does this instruction operate on a GC ref value?

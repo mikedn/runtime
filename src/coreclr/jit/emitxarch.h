@@ -61,6 +61,8 @@ size_t emitOutputWord(uint8_t* dst, uint64_t val);
 size_t emitOutputLong(uint8_t* dst, uint64_t val);
 #endif // defined(TARGET_X86) && !defined(HOST_64BIT)
 
+uint8_t* emitOutputImm(uint8_t* dst, size_t size, CnsVal* imm);
+
 BYTE* emitOutputAlign(insGroup* ig, instrDesc* id, BYTE* dst);
 BYTE* emitOutputAM(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc = nullptr);
 BYTE* emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc = nullptr);
