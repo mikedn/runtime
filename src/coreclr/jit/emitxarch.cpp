@@ -18,22 +18,22 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 
-static bool IsDisp8(ssize_t disp)
+constexpr bool IsDisp8(ssize_t disp)
 {
     return (-128 <= disp) && (disp <= 127);
 }
 
-static bool IsDisp32(ssize_t disp)
+constexpr bool IsDisp32(ssize_t disp)
 {
     return (INT32_MIN <= disp) && (disp <= INT32_MAX);
 }
 
-static bool IsImm8(ssize_t imm)
+constexpr bool IsImm8(ssize_t imm)
 {
     return (-128 <= imm) && (imm <= 127);
 }
 
-static bool IsImm32(ssize_t imm)
+constexpr bool IsImm32(ssize_t imm)
 {
     return (INT32_MIN <= imm) && (imm <= INT32_MAX);
 }
@@ -8109,7 +8109,6 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
     disp = emitGetInsAmdAny(id);
 GOT_DSP:
     bool hasDisp8 = IsDisp8(disp) && !id->idIsDspReloc();
-    bool hasDisp  = (disp != 0);
 
     if ((indexReg == REG_NA) && (baseReg == REG_NA))
     {
@@ -8176,7 +8175,7 @@ GOT_DSP:
             scale  = 0;
             rmCode = RegEncoding(baseReg);
 
-            if (hasDisp || (baseReg == REG_EBP))
+            if ((disp != 0) || (baseReg == REG_EBP))
             {
                 rmCode |= hasDisp8 ? 0x40 : 0x80;
             }
@@ -8199,7 +8198,7 @@ GOT_DSP:
             }
             else
             {
-                if (hasDisp || (baseReg == REG_EBP))
+                if ((disp != 0) || (baseReg == REG_EBP))
                 {
                     rmCode |= hasDisp8 ? 0x40 : 0x80;
                 }
@@ -8224,7 +8223,7 @@ GOT_DSP:
             dst += emitOutputByte(dst, 0x24);
         }
 
-        if (hasDisp || (baseReg == REG_EBP))
+        if ((disp != 0) || (baseReg == REG_EBP))
         {
             if (hasDisp8)
             {
@@ -8321,30 +8320,23 @@ DONE:
     return dst;
 }
 
-/*****************************************************************************
- *
- *  Output an instruction involving a stack frame value.
- */
-
-BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
+uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, CnsVal* imm)
 {
-    instruction ins  = id->idIns();
-    emitAttr    size = id->idOpSize();
-    size_t      opsz = EA_SIZE_IN_BYTES(size);
+    instruction ins     = id->idIns();
+    emitAttr    size    = id->idOpSize();
+    unsigned    immSize = EA_SIZE_IN_BYTES(size);
 
     assert(ins != INS_imul || id->idReg1() == REG_EAX || size == EA_4BYTE || size == EA_8BYTE);
 
-    // `addc` is used for two kinds if instructions
+    // `imm` is used for two kinds if instructions
     // 1. ins like ADD that can have reg/mem and const versions both and const version needs to modify the opcode for
     // large constant operand (e.g., imm32)
     // 2. certain SSE/AVX ins have const operand as control bits that is always 1-Byte (imm8) even if `size` > 1-Byte
-    if (addc && (size > EA_1BYTE))
+    if ((imm != nullptr) && (size > EA_1BYTE))
     {
-        ssize_t cval = addc->cnsVal;
-
         // Does the constant fit in a byte?
         // SSE/AVX do not need to modify opcode
-        if ((signed char)cval == cval && addc->cnsReloc == false && ins != INS_mov && ins != INS_test)
+        if (IsImm8(imm->cnsVal) && !imm->cnsReloc && (ins != INS_mov) && (ins != INS_test))
         {
             if ((id->idInsFmt() != IF_SRW_SHF) && (id->idInsFmt() != IF_RRW_SRD_CNS) &&
                 (id->idInsFmt() != IF_RWR_RRD_SRD_CNS) && !IsSSEOrAVXInstruction(ins))
@@ -8352,7 +8344,7 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
                 code |= 2;
             }
 
-            opsz = 1;
+            immSize = 1;
         }
     }
 
@@ -8509,106 +8501,57 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
     // Output the REX prefix
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
-    bool ebpBased  = id->idAddr()->isEbpBased;
-    int  lclOffset = id->idAddr()->lclOffset;
-    int  dsp       = lclOffset;
-
     // for stack variables the dsp should never be a reloc
     assert(id->idIsDspReloc() == 0);
 
-    if (ebpBased)
-    {
-        bool dspInByte = IsDisp8(dsp);
-        bool dspIsZero = (dsp == 0);
+    bool ebpBased  = id->idAddr()->isEbpBased;
+    int  lclOffset = id->idAddr()->lclOffset;
+    int  disp      = lclOffset;
 
-        if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
-        {
-            if (dspInByte)
-            {
-                dst += emitOutputByte(dst, code | 0x45);
-                dst += emitOutputByte(dst, dsp);
-            }
-            else
-            {
-                dst += emitOutputByte(dst, code | 0x85);
-                dst += emitOutputLong(dst, dsp);
-            }
-        }
-        else
-        {
-            if (dspInByte)
-            {
-                dst += emitOutputWord(dst, code | 0x4500);
-                dst += emitOutputByte(dst, dsp);
-            }
-            else
-            {
-                dst += emitOutputWord(dst, code | 0x8500);
-                dst += emitOutputLong(dst, dsp);
-            }
-        }
+#if !FEATURE_FIXED_OUT_ARGS
+    if (!ebpBased)
+    {
+        disp += emitCurStackLvl;
+    }
+#endif
+
+    bool   hasDisp8 = IsDisp8(disp);
+    code_t rmCode   = ebpBased ? 0x05 : 0x04;
+
+    if ((disp != 0) || ebpBased)
+    {
+        rmCode |= hasDisp8 ? 0x40 : 0x80;
+    }
+
+    if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
+    {
+        dst += emitOutputByte(dst, code | rmCode);
     }
     else
     {
-#if !FEATURE_FIXED_OUT_ARGS
-        // Adjust the offset by the amount currently pushed on the CPU stack
-        dsp += emitCurStackLvl;
-#endif
+        dst += emitOutputWord(dst, code | (rmCode << 8));
+    }
 
-        bool dspInByte = IsDisp8(dsp);
-        bool dspIsZero = (dsp == 0);
+    if (!ebpBased)
+    {
+        dst += emitOutputByte(dst, 0x24);
+    }
 
-        if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
+    if ((disp != 0) || ebpBased)
+    {
+        if (hasDisp8)
         {
-            if (dspInByte)
-            {
-                if (dspIsZero)
-                {
-                    dst += emitOutputByte(dst, code | 0x04);
-                    dst += emitOutputByte(dst, 0x24);
-                }
-                else
-                {
-                    dst += emitOutputByte(dst, code | 0x44);
-                    dst += emitOutputByte(dst, 0x24);
-                    dst += emitOutputByte(dst, dsp);
-                }
-            }
-            else
-            {
-                dst += emitOutputByte(dst, code | 0x84);
-                dst += emitOutputByte(dst, 0x24);
-                dst += emitOutputLong(dst, dsp);
-            }
+            dst += emitOutputByte(dst, disp);
         }
         else
         {
-            if (dspInByte)
-            {
-                if (dspIsZero)
-                {
-                    dst += emitOutputWord(dst, code | 0x0400);
-                    dst += emitOutputByte(dst, 0x24);
-                }
-                else
-                {
-                    dst += emitOutputWord(dst, code | 0x4400);
-                    dst += emitOutputByte(dst, 0x24);
-                    dst += emitOutputByte(dst, dsp);
-                }
-            }
-            else
-            {
-                dst += emitOutputWord(dst, code | 0x8400);
-                dst += emitOutputByte(dst, 0x24);
-                dst += emitOutputLong(dst, dsp);
-            }
+            dst += emitOutputLong(dst, disp);
         }
     }
 
-    if (addc != nullptr)
+    if (imm != nullptr)
     {
-        dst += emitOutputImm(dst, opsz, *addc);
+        dst += emitOutputImm(dst, immSize, *imm);
     }
 
     if (id->idAddr()->isTrackedGCSlotStore
