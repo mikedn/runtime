@@ -8174,19 +8174,10 @@ GOT_DSP:
             {
                 baseReg  = REG_EBP;
                 hasDisp8 = false;
-
-                // Special case: jump through a jump table
-                if (ins == INS_i_jmp)
-                {
-                    disp += reinterpret_cast<size_t>(emitConsBlock);
-                }
             }
-            else
+            else if ((disp != 0) || (baseReg == REG_EBP))
             {
-                if ((disp != 0) || (baseReg == REG_EBP))
-                {
-                    rmCode |= hasDisp8 ? 0x40 : 0x80;
-                }
+                rmCode |= hasDisp8 ? 0x40 : 0x80;
             }
         }
 
