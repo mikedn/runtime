@@ -8161,10 +8161,11 @@ GOT_DSP:
 #ifdef TARGET_AMD64
                     // We emit zero on Amd64, to avoid the assert in emitOutputLong()
                     dst += emitOutputLong(dst, 0);
+                    emitRecordRelocation((void*)(dst - sizeof(INT32)), (void*)dsp, IMAGE_REL_BASED_REL32, addlDelta);
 #else
                     dst += emitOutputLong(dst, dsp);
+                    emitRecordRelocation((void*)(dst - sizeof(INT32)), (void*)dsp, IMAGE_REL_BASED_HIGHLOW, addlDelta);
 #endif
-                    emitRecordRelocation((void*)(dst - sizeof(INT32)), (void*)dsp, IMAGE_REL_BASED_DISP32, addlDelta);
                 }
                 else
                 {
@@ -9345,7 +9346,7 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 
         if (id->idIsDspReloc())
         {
-            emitRecordRelocation((void*)(dst - TARGET_POINTER_SIZE), target, IMAGE_REL_BASED_MOFFSET);
+            emitRecordRelocation((void*)(dst - TARGET_POINTER_SIZE), target, IMAGE_REL_BASED_HIGHLOW);
         }
     }
     else
@@ -9392,14 +9393,15 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
         // All static field and data section constant accesses should be marked as relocatable
         noway_assert(id->idIsDspReloc());
         dst += emitOutputLong(dst, 0);
+        emitRecordRelocation((void*)(dst - sizeof(int)), target, IMAGE_REL_BASED_REL32, addlDelta);
 #else
         dst += emitOutputLong(dst, (int)(ssize_t)target);
-#endif
 
         if (id->idIsDspReloc())
         {
-            emitRecordRelocation((void*)(dst - sizeof(int)), target, IMAGE_REL_BASED_DISP32, addlDelta);
+            emitRecordRelocation((void*)(dst - sizeof(int)), target, IMAGE_REL_BASED_HIGHLOW, addlDelta);
         }
+#endif
     }
 
     // Now generate the constant value, if present
@@ -10304,7 +10306,11 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
 
         if (id->idIsCnsReloc())
         {
-            emitRecordRelocation((void*)(dst - (unsigned)EA_SIZE(size)), (void*)(size_t)val, IMAGE_REL_BASED_MOFFSET);
+#ifdef TARGET_X86
+            emitRecordRelocation((void*)(dst - (unsigned)EA_SIZE(size)), (void*)(size_t)val, IMAGE_REL_BASED_HIGHLOW);
+#else
+            emitRecordRelocation((void*)(dst - (unsigned)EA_SIZE(size)), (void*)(size_t)val, IMAGE_REL_BASED_DIR64);
+#endif
         }
 
         goto DONE;
@@ -11137,10 +11143,11 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                     dst += emitOutputWord(dst, code | 0x0500);
 #ifdef TARGET_AMD64
                     dst += emitOutputLong(dst, 0);
+                    emitRecordRelocation((void*)(dst - sizeof(int)), addr, IMAGE_REL_BASED_REL32);
 #else
                     dst += emitOutputLong(dst, (int)(ssize_t)addr);
+                    emitRecordRelocation((void*)(dst - sizeof(int)), addr, IMAGE_REL_BASED_HIGHLOW);
 #endif
-                    emitRecordRelocation((void*)(dst - sizeof(int)), addr, IMAGE_REL_BASED_DISP32);
                 }
                 else
                 {
