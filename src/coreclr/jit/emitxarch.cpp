@@ -9656,20 +9656,15 @@ BYTE* emitter::emitOutputRRR(BYTE* dst, instrDesc* id)
 BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
 {
     code_t      code;
-    emitAttr    size      = id->idOpSize();
-    instruction ins       = id->idIns();
-    regNumber   reg       = id->idReg1();
-    ssize_t     val       = emitGetInsSC(id);
-    bool        valInByte = IsImm8(val) && (ins != INS_mov) && (ins != INS_test);
+    emitAttr    size    = id->idOpSize();
+    instruction ins     = id->idIns();
+    regNumber   reg     = id->idReg1();
+    ssize_t     imm     = emitGetInsSC(id);
+    bool        hasImm8 = IsImm8(imm) && (ins != INS_mov) && (ins != INS_test) && !id->idIsCnsReloc();
 
     // BT reg,imm might be useful but it requires special handling of the immediate value
     // (it is always encoded in a byte). Let's not complicate things until this is needed.
     assert(ins != INS_bt);
-
-    if (id->idIsCnsReloc())
-    {
-        valInByte = false; // relocs can't be placed in a byte
-    }
 
     noway_assert(emitVerifyEncodable(ins, size, reg));
 
@@ -9678,7 +9673,7 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
         // Handle SSE2 instructions of the form "opcode reg, immed8"
 
         assert(id->idGCref() == GCT_NONE);
-        assert(valInByte);
+        assert(hasImm8);
 
         // The left and right shifts use the same encoding, and are distinguished by the Reg/Opcode field.
         regNumber regOpcode = getSseShiftRegNumber(ins);
@@ -9711,7 +9706,7 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
 
         dst += emitOutputWord(dst, code | regcode);
 
-        dst += emitOutputByte(dst, val);
+        dst += emitOutputByte(dst, imm);
 
         return dst;
     }
@@ -9735,28 +9730,33 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
         }
 
         dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
         dst += emitOutputByte(dst, code);
-        if (size == EA_4BYTE)
-        {
-            dst += emitOutputLong(dst, val);
-        }
-#ifdef TARGET_AMD64
-        else
-        {
-            assert(size == EA_8BYTE);
-            dst += emitOutputI64(dst, val);
-        }
-#endif
+
+#ifdef TARGET_X86
+        assert(size == EA_4BYTE);
+        dst += emitOutputLong(dst, imm);
 
         if (id->idIsCnsReloc())
         {
-#ifdef TARGET_X86
-            emitRecordRelocation(dst - EA_SIZE_IN_BYTES(size), reinterpret_cast<void*>(val), IMAGE_REL_BASED_HIGHLOW);
-#else
-            emitRecordRelocation(dst - EA_SIZE_IN_BYTES(size), reinterpret_cast<void*>(val), IMAGE_REL_BASED_DIR64);
-#endif
+            emitRecordRelocation(dst - 4, reinterpret_cast<void*>(imm), IMAGE_REL_BASED_HIGHLOW);
         }
+#else
+        if (size == EA_4BYTE)
+        {
+            dst += emitOutputLong(dst, imm);
+            assert(!id->idIsCnsReloc());
+        }
+        else
+        {
+            assert(size == EA_8BYTE);
+            dst += emitOutputI64(dst, imm);
+
+            if (id->idIsCnsReloc())
+            {
+                emitRecordRelocation(dst - 8, reinterpret_cast<void*>(imm), IMAGE_REL_BASED_DIR64);
+            }
+        }
+#endif
 
         goto DONE;
     }
@@ -9780,7 +9780,7 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
              * the 1 byte opcode
              */
 
-            if (valInByte)
+            if (hasImm8)
             {
                 // avoid using ACC encoding
                 useSigned = true;
@@ -9795,16 +9795,8 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
     }
     else
     {
-        useACC = false;
-
-        if (valInByte)
-        {
-            useSigned = true;
-        }
-        else
-        {
-            useSigned = false;
-        }
+        useACC    = false;
+        useSigned = hasImm8;
     }
 
     // "test" has no 's' bit
@@ -9821,11 +9813,11 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
     }
     else
     {
-        assert(!useSigned || valInByte);
+        assert(!useSigned || hasImm8);
 
         // Some instructions (at least 'imul') do not have a
         // r/m, immed form, but do have a dstReg,srcReg,imm8 form.
-        if (valInByte && useSigned && insNeedsRRIb(ins))
+        if (hasImm8 && useSigned && insNeedsRRIb(ins))
         {
             code = insEncodeRRIb(ins, reg, size);
         }
@@ -9879,7 +9871,7 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
 
         code |= 0x2; // Set the 's' bit to use a sign-extended immediate byte.
         dst += emitOutputWord(dst, code);
-        dst += emitOutputByte(dst, val);
+        dst += emitOutputByte(dst, imm);
     }
     else
     {
@@ -9893,7 +9885,7 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
             dst += emitOutputWord(dst, code);
         }
 
-        dst += emitOutputImm(dst, EA_SIZE_IN_BYTES(size), CnsVal{val, id->idIsCnsReloc()});
+        dst += emitOutputImm(dst, EA_SIZE_IN_BYTES(size), CnsVal{imm, id->idIsCnsReloc()});
     }
 
 DONE:
