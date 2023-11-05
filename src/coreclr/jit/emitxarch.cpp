@@ -3551,40 +3551,35 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     }
 }
 
-void emitter::emitIns_I(instruction ins, emitAttr attr, cnsval_ssize_t val)
+void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 {
     unsigned sz;
 
-    switch (ins)
-    {
-#ifdef TARGET_X86
-        case INS_ret:
-            assert((0 <= val) && (val < (1 << 16)));
-            sz = 3;
-            break;
-        case INS_push:
-        case INS_push_hide:
-            sz = !EA_IS_RELOC(attr) && FitsIn<int8_t>(val) ? 2 : 5;
-            break;
-#else
-        case INS_push_hide:
-            // On x64 only LCLHEAP uses push, to allocate and initialize stack memory.
-            assert((attr == EA_8BYTE) && (val == 0));
-            sz = 2;
-            break;
-#endif
-        default:
-            unreached();
-    }
+#ifdef TARGET_AMD64
+    // On x64 only LCLHEAP uses push, to allocate and initialize stack memory.
+    assert((ins == INS_push_hide) && (attr == EA_8BYTE) && (imm == 0));
 
-    instrDesc* id = emitNewInstrSC(attr, val);
+    sz = 2;
+#else
+    if (ins == INS_ret)
+    {
+        assert((0 <= imm) && (imm <= UINT_MAX));
+        sz = 3;
+    }
+    else
+    {
+        assert((ins == INS_push) || (ins == INS_push_hide));
+        sz = !EA_IS_RELOC(attr) && FitsIn<int8_t>(imm) ? 2 : 5;
+    }
+#endif
+
+    instrDesc* id = emitNewInstrSC(attr, imm);
     id->idIns(ins);
     id->idInsFmt(IF_CNS);
     id->idCodeSize(sz);
 
     dispIns(id);
     emitCurIGsize += sz;
-
     emitAdjustStackDepthPushPop(ins);
 }
 
@@ -10501,95 +10496,46 @@ DONE:
     return dst;
 }
 
-/*****************************************************************************
- *
- *  Output an instruction with a constant operand.
- */
-
-BYTE* emitter::emitOutputIV(BYTE* dst, instrDesc* id)
+uint8_t* emitter::emitOutputIV(uint8_t* dst, instrDesc* id)
 {
-    code_t      code;
-    instruction ins       = id->idIns();
-    emitAttr    size      = id->idOpSize();
-    ssize_t     val       = emitGetInsSC(id);
-    bool        valInByte = ((signed char)val == (target_ssize_t)val);
-
-    // We would to update GC info correctly
-    assert(!IsSSEInstruction(ins));
-    assert(!IsAVXInstruction(ins));
+    instruction ins  = id->idIns();
+    emitAttr    size = id->idOpSize();
+    ssize_t     val  = emitGetInsSC(id);
 
 #ifdef TARGET_AMD64
-    // all these opcodes take a sign-extended 4-byte immediate, max
-    noway_assert(size < EA_8BYTE || ((int)val == val && !id->idIsCnsReloc()));
-#endif
-
-    if (id->idIsCnsReloc())
+    assert((ins == INS_push_hide) && (size == EA_8BYTE) && (val == 0) && !id->idIsCnsReloc());
+    dst += emitOutputWord(dst, 0x006A);
+#else
+    if (ins == INS_ret)
     {
-        valInByte = false; // relocs can't be placed in a byte
+        assert((val != 0) && !id->idIsCnsReloc());
 
-        // Of these instructions only the push instruction can have reloc
-        assert(ins == INS_push || ins == INS_push_hide);
+        dst += emitOutputByte(dst, insCodeMI(ins));
+        dst += emitOutputWord(dst, val);
     }
-
-    switch (ins)
+    else
     {
-        case INS_jge:
-            assert((val >= -128) && (val <= 127));
-            dst += emitOutputByte(dst, insCode(ins));
+        assert((ins == INS_push) || (ins == INS_push_hide));
+
+        code_t code = insCodeMI(ins);
+
+        if (FitsIn<int8_t>(val) && !id->idIsCnsReloc())
+        {
+            dst += emitOutputByte(dst, code | 2);
             dst += emitOutputByte(dst, val);
-            break;
+        }
+        else
+        {
+            dst += emitOutputByte(dst, code);
+            dst += emitOutputLong(dst, val);
 
-        case INS_loop:
-            assert((val >= -128) && (val <= 127));
-            dst += emitOutputByte(dst, insCodeMI(ins));
-            dst += emitOutputByte(dst, val);
-            break;
-
-        case INS_ret:
-            assert(val);
-            dst += emitOutputByte(dst, insCodeMI(ins));
-            dst += emitOutputWord(dst, val);
-            break;
-
-        case INS_push_hide:
-        case INS_push:
-            code = insCodeMI(ins);
-
-            // Does the operand fit in a byte?
-            if (valInByte)
+            if (id->idIsCnsReloc())
             {
-                dst += emitOutputByte(dst, code | 2);
-                dst += emitOutputByte(dst, val);
+                emitRecordRelocation(dst - 4, reinterpret_cast<void*>(val), IMAGE_REL_BASED_HIGHLOW);
             }
-            else
-            {
-                if (TakesRexWPrefix(ins, size))
-                {
-                    code = AddRexWPrefix(ins, code);
-                    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-                }
-
-                dst += emitOutputByte(dst, code);
-                dst += emitOutputLong(dst, val);
-                if (id->idIsCnsReloc())
-                {
-                    emitRecordRelocation((void*)(dst - sizeof(INT32)), (void*)(size_t)val, IMAGE_REL_BASED_HIGHLOW);
-                }
-            }
-
-            // Did we push a GC ref value?
-            if (id->idGCref())
-            {
-#ifdef DEBUG
-                printf("UNDONE: record GCref push [cns]\n");
-#endif
-            }
-
-            break;
-
-        default:
-            assert(!"unexpected instruction");
+        }
     }
+#endif // TARGET_X86
 
     return dst;
 }

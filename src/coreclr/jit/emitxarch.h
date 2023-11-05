@@ -335,7 +335,7 @@ void emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg
 
 void emitIns_Nop(unsigned size);
 
-void emitIns_I(instruction ins, emitAttr attr, cnsval_ssize_t val);
+void emitIns_I(instruction ins, emitAttr attr, int32_t val);
 
 void emitIns_R(instruction ins, emitAttr attr, regNumber reg);
 
