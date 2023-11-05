@@ -8062,44 +8062,22 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
     }
     else if (!IsSSEInstruction(ins) && !IsAVXInstruction(ins))
     {
-        /* Is the operand size larger than a byte? */
-
         switch (size)
         {
             case EA_1BYTE:
                 break;
-
             case EA_2BYTE:
-
-                /* Output a size prefix for a 16-bit operand */
-
                 dst += emitOutputByte(dst, 0x66);
-
                 FALLTHROUGH;
-
             case EA_4BYTE:
 #ifdef TARGET_AMD64
             case EA_8BYTE:
 #endif
-
-                /* Set the 'w' bit to get the large version */
-
-                code |= 0x1;
+                // Set the 'w' size bit to indicate a 16/32/64-bit operation.
+                code |= 0x01;
                 break;
-
-#ifdef TARGET_X86
-            case EA_8BYTE:
-
-                /* Double operand - set the appropriate bit */
-
-                code |= 0x04;
-                break;
-
-#endif // TARGET_X86
-
             default:
-                NO_WAY("unexpected size");
-                break;
+                unreached();
         }
     }
 
@@ -8455,46 +8433,22 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
     }
     else if (!IsSSEInstruction(ins) && !IsAVXInstruction(ins))
     {
-        // Is the operand size larger than a byte?
         switch (size)
         {
             case EA_1BYTE:
                 break;
-
             case EA_2BYTE:
-                // Output a size prefix for a 16-bit operand
                 dst += emitOutputByte(dst, 0x66);
                 FALLTHROUGH;
-
             case EA_4BYTE:
 #ifdef TARGET_AMD64
             case EA_8BYTE:
-#endif // TARGET_AMD64
-
-                /* Set the 'w' size bit to indicate 32-bit operation
-                 * Note that incrementing "code" for INS_call (0xFF) would
-                 * overflow, whereas setting the lower bit to 1 just works out
-                 */
-
+#endif
+                // Set the 'w' size bit to indicate a 16/32/64-bit operation.
                 code |= 0x01;
                 break;
-
-#ifdef TARGET_X86
-            case EA_8BYTE:
-
-                // Double operand - set the appropriate bit.
-                // I don't know what a legitimate reason to end up in this case would be
-                // considering that FP is taken care of above...
-                // what is an instruction that takes a double which is not covered by the
-                // above instIsFP? Of the list in instrsxarch, only INS_fprem
-                code |= 0x04;
-                NO_WAY("bad 8 byte op");
-                break;
-#endif // TARGET_X86
-
             default:
-                NO_WAY("unexpected size");
-                break;
+                unreached();
         }
     }
 
