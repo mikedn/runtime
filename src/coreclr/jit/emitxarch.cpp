@@ -262,7 +262,11 @@ bool emitter::IsDstSrcSrcAVXInstruction(instruction ins)
 bool emitter::instIsFP(instruction ins)
 {
     assert(ins < _countof(instInfo));
-    return (instInfo[ins] & INS_FLAGS_x87Instr) != 0;
+#ifdef TARGET_X86
+    return (ins == INS_fld) || (ins == INS_fstp);
+#else
+    return false;
+#endif
 }
 
 //------------------------------------------------------------------------
@@ -8052,14 +8056,17 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
             code++;
         }
     }
+#ifdef TARGET_X86
     else if (instIsFP(ins))
     {
         assert(size == EA_4BYTE || size == EA_8BYTE);
+
         if (size == EA_8BYTE)
         {
             code += 4;
         }
     }
+#endif
     else if (!IsSSEInstruction(ins) && !IsAVXInstruction(ins))
     {
         switch (size)
@@ -8422,6 +8429,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
             code |= 0x1;
         }
     }
+#ifdef TARGET_X86
     else if (instIsFP(ins))
     {
         assert(size == EA_4BYTE || size == EA_8BYTE);
@@ -8431,6 +8439,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
             code += 4;
         }
     }
+#endif
     else if (!IsSSEInstruction(ins) && !IsAVXInstruction(ins))
     {
         switch (size)
@@ -8754,6 +8763,7 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* imm)
             code++;
         }
     }
+#ifdef TARGET_X86
     else if (instIsFP(ins))
     {
         assert(size == EA_4BYTE || size == EA_8BYTE);
@@ -8763,36 +8773,27 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* imm)
             code += 4;
         }
     }
+#endif
     else
     {
-        // Is the operand size larger than a byte?
+        assert(!IsSSEInstruction(ins) && !IsAVXInstruction(ins));
+
         switch (size)
         {
             case EA_1BYTE:
                 break;
-
             case EA_2BYTE:
-                // Output a size prefix for a 16-bit operand
                 dst += emitOutputByte(dst, 0x66);
                 FALLTHROUGH;
-
             case EA_4BYTE:
 #ifdef TARGET_AMD64
             case EA_8BYTE:
 #endif
-                // Set the 'w' bit to get the large version
-                code |= 0x1;
+                // Set the 'w' size bit to indicate a 16/32/64-bit operation.
+                code |= 0x01;
                 break;
-
-#ifdef TARGET_X86
-            case EA_8BYTE:
-                // Double operand - set the appropriate bit
-                code |= 0x04;
-                break;
-#endif // TARGET_X86
-
             default:
-                assert(!"unexpected size");
+                unreached();
         }
     }
 

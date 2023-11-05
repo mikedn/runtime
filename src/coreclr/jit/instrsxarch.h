@@ -705,8 +705,8 @@ INST1(shrd,             "shrd",             IUM_RW, 0x0F00AC,                   
 // us to return floating point value on the x87 FP stack, so we need
 // these instructions regardless of whether we're using full stack fp.
 #ifdef TARGET_X86
-INST1(fld,              "fld",              IUM_WR, 0x0000D9,                                                            INS_FLAGS_x87Instr)
-INST1(fstp,             "fstp",             IUM_WR, 0x0018D9,                                                            INS_FLAGS_x87Instr)
+INST1(fld,              "fld",              IUM_WR, 0x0000D9,                                                            INS_FLAGS_None)
+INST1(fstp,             "fstp",             IUM_WR, 0x0018D9,                                                            INS_FLAGS_None)
 #endif // TARGET_X86
 
 INST1(seto,             "seto",             IUM_WR, 0x0F0090,                                                            Reads_OF )

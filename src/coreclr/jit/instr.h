@@ -114,9 +114,6 @@ enum insFlags : uint32_t
     // Restore
     Restore_SF_ZF_AF_PF_CF = 1 << 23,
 
-    // x87 instruction
-    INS_FLAGS_x87Instr = 1 << 24,
-
     // Avx
     INS_Flags_IsDstDstSrcAVXInstruction = 1 << 25,
     INS_Flags_IsDstSrcSrcAVXInstruction = 1 << 26
