@@ -3584,7 +3584,7 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, ssize_t imm)
     else
     {
         assert((ins == INS_push) || (ins == INS_push_hide));
-        sz = !EA_IS_RELOC(attr) && FitsIn<int8_t>(imm) ? 2 : 5;
+        sz = !EA_IS_RELOC(attr) && IsImm8(imm) ? 2 : 5;
     }
 #endif
 
@@ -6087,7 +6087,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         // Since this is an indirect call through a pointer and we don't
         // currently pass in emitAttr into this function, we query codegen
         // whether addr needs a reloc.
-        if (emitComp->opts.compReloc AMD64_ONLY(|| !FitsIn<int32_t>(reinterpret_cast<intptr_t>(addr))))
+        if (emitComp->opts.compReloc AMD64_ONLY(|| !IsImm32(reinterpret_cast<intptr_t>(addr))))
         {
             id->idSetIsDspReloc();
         }
@@ -7624,7 +7624,7 @@ size_t emitter::emitOutputImm(uint8_t* dst, size_t size, CnsVal imm)
             return emitOutputWord(dst, imm.cnsVal);
 #ifdef TARGET_AMD64
         case 8:
-            noway_assert(FitsIn<int32_t>(imm.cnsVal) && !imm.cnsReloc);
+            noway_assert(IsImm32(imm.cnsVal) && !imm.cnsReloc);
             return emitOutputLong(dst, imm.cnsVal);
 #endif
         default:
@@ -8868,7 +8868,7 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* imm)
 
     if (imm != nullptr)
     {
-        noway_assert((immSize < 8) || (FitsIn<int32_t>(imm->cnsVal) && !imm->cnsReloc));
+        noway_assert((immSize < 8) || (IsImm32(imm->cnsVal) && !imm->cnsReloc));
         immRelocDelta = Min(immSize, 4u);
     }
 
@@ -9997,7 +9997,7 @@ uint8_t* emitter::emitOutputIV(uint8_t* dst, instrDesc* id)
 
         code_t code = insCodeMI(ins);
 
-        if (FitsIn<int8_t>(val) && !id->idIsCnsReloc())
+        if (IsImm8(val) && !id->idIsCnsReloc())
         {
             dst += emitOutputByte(dst, code | 2);
             dst += emitOutputByte(dst, val);
@@ -10036,12 +10036,12 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
     instrDescJmp* id  = (instrDescJmp*)i;
     instruction   ins = id->idIns();
     bool          jmp;
-    bool          relAddr = true; // does the instruction use relative-addressing?
 
     // SSE/AVX doesnt make any sense here
     assert(!IsSSEInstruction(ins));
     assert(!IsAVXInstruction(ins));
 
+    bool   relAddr = true; // does the instruction use relative-addressing?
     size_t ssz;
     size_t lsz;
 
@@ -10313,18 +10313,18 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
 
         dst += emitOutputLong(dst, distVal);
 
-#ifndef TARGET_AMD64 // all REL32 on AMD have to go through recordRelocation
+#ifdef TARGET_X86 // For x64 we always go through recordRelocation since we may need jump stubs.
         if (emitComp->opts.compReloc)
 #endif
         {
             if (!relAddr)
             {
-                emitRecordRelocation((void*)(dst - sizeof(INT32)), (void*)distVal, IMAGE_REL_BASED_HIGHLOW);
+                emitRecordRelocation(dst - 4, reinterpret_cast<void*>(distVal), IMAGE_REL_BASED_HIGHLOW);
             }
             else if (emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
             {
                 assert(id->idjKeepLong);
-                emitRecordRelocation((void*)(dst - sizeof(INT32)), dst + distVal, IMAGE_REL_BASED_REL32);
+                emitRecordRelocation(dst - 4, dst + distVal, IMAGE_REL_BASED_REL32);
             }
         }
     }
@@ -10511,31 +10511,29 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 if (id->idIsDspReloc())
                 {
                     dst += emitOutputWord(dst, code | 0x0500);
+
 #ifdef TARGET_AMD64
                     dst += emitOutputLong(dst, 0);
-                    emitRecordRelocation((void*)(dst - sizeof(int)), addr, IMAGE_REL_BASED_REL32);
+                    emitRecordRelocation(dst - 4, addr, IMAGE_REL_BASED_REL32);
 #else
-                    dst += emitOutputLong(dst, (int)(ssize_t)addr);
-                    emitRecordRelocation((void*)(dst - sizeof(int)), addr, IMAGE_REL_BASED_HIGHLOW);
+                    dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(addr));
+                    emitRecordRelocation(dst - 4, addr, IMAGE_REL_BASED_HIGHLOW);
 #endif
                 }
                 else
                 {
 #ifdef TARGET_X86
                     dst += emitOutputWord(dst, code | 0x0500);
-#else  // TARGET_AMD64
-                    // Amd64: addr fits within 32-bits and can be encoded as a displacement relative to zero.
-                    // This addr mode should never be used while generating relocatable ngen code nor if
-                    // the addr can be encoded as pc-relative address.
+#else
                     noway_assert(!emitComp->opts.compReloc);
                     noway_assert(!emitComp->eeIsRIPRelativeAddress(addr));
-                    noway_assert(FitsIn<int32_t>(reinterpret_cast<intptr_t>(addr)));
+                    noway_assert(IsDisp32(reinterpret_cast<intptr_t>(addr)));
 
-                    // This requires, specifying a SIB byte after ModRM byte.
                     dst += emitOutputWord(dst, code | 0x0400);
                     dst += emitOutputByte(dst, 0x25);
-#endif // TARGET_AMD64
-                    dst += emitOutputLong(dst, static_cast<int>(reinterpret_cast<intptr_t>(addr)));
+#endif
+
+                    dst += emitOutputLong(dst, reinterpret_cast<intptr_t>(addr));
                 }
             }
             else
@@ -10544,26 +10542,23 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 // use a direct call; the target to jump to is in iiaAddr.
                 assert(id->idInsFmt() == IF_METHOD);
 
-                // Output the call opcode followed by the target distance
-                dst += (ins == INS_l_jmp) ? emitOutputByte(dst, insCode(ins)) : emitOutputByte(dst, insCodeMI(ins));
+                dst += emitOutputByte(dst, ins == INS_l_jmp ? insCode(ins) : insCodeMI(ins));
 
 #ifdef TARGET_AMD64
-                // All REL32 on Amd64 go through recordRelocation. Here we will output zero to advance dst.
+                // For x64 we always go through recordRelocation since we may need jump stubs,
+                // we'll just use offset 0 since recordRelocation overwrites it anyway.
                 noway_assert(id->idIsDspReloc());
-                dst += emitOutputLong(dst, 0);
-                emitRecordRelocation((void*)(dst - sizeof(INT32)), addr, IMAGE_REL_BASED_REL32);
+
+                const ssize_t offset = 0;
 #else
-                // Calculate PC relative displacement.
-                // Although you think we should be using sizeof(void*), the x86 and x64 instruction set
-                // only allow a 32-bit offset, so we correctly use sizeof(INT32)
-                ssize_t offset = reinterpret_cast<uint8_t*>(addr) - (dst + sizeof(INT32));
+                const ssize_t offset = reinterpret_cast<uint8_t*>(addr) - dst - 4;
+#endif
                 dst += emitOutputLong(dst, offset);
 
                 if (id->idIsDspReloc())
                 {
-                    emitRecordRelocation((void*)(dst - sizeof(INT32)), addr, IMAGE_REL_BASED_REL32);
+                    emitRecordRelocation(dst - 4, addr, IMAGE_REL_BASED_REL32);
                 }
-#endif
             }
 
         DONE_CALL:
