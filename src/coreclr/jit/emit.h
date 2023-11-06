@@ -1831,8 +1831,6 @@ private:
 
     static ID_OPS GetFormatOp(insFormat format);
 
-    bool emitIsScnsInsDsc(instrDesc* id);
-
     size_t emitSizeOfInsDsc(instrDesc* id);
 
 public:
@@ -2032,18 +2030,6 @@ inline void emitter::instrDesc::checkSizes()
     C_ASSERT(SMALL_IDSC_SIZE == (offsetof(instrDesc, _idDebugOnlyInfo) + sizeof(instrDescDebugInfo*)));
 #endif
     C_ASSERT(SMALL_IDSC_SIZE == offsetof(instrDesc, _idAddrUnion));
-}
-
-/*****************************************************************************
- *
- *  Returns true if the given instruction descriptor is a "small
- *  constant" one (i.e. one of the descriptors that don't have all instrDesc
- *  fields allocated).
- */
-
-inline bool emitter::emitIsScnsInsDsc(instrDesc* id)
-{
-    return id->idIsSmallDsc();
 }
 
 /*****************************************************************************
