@@ -6051,25 +6051,14 @@ void emitter::emitIns_Call(EmitCallType          kind,
     }
     else if (kind == EC_INDIR_ARD)
     {
+        assert(amBase != REG_NA);
+
         id->idInsFmt(IF_ARD);
         id->idAddr()->iiaAddrMode.amBaseReg = amBase;
         id->idAddr()->iiaAddrMode.amIndxReg = amIndex;
         id->idAddr()->iiaAddrMode.amScale   = amScale ? emitEncodeScale(amScale) : emitter::OPSZ1;
 
         insSize = emitInsSizeAM(id, insCodeMR(INS_call));
-
-        if ((amBase == REG_NA) && (amIndex == REG_NA))
-        {
-            if (emitComp->opts.compReloc)
-            {
-                id->idSetIsDspReloc();
-            }
-            else
-            {
-                // This addr mode requires an extra SIB byte.
-                AMD64_ONLY(insSize++);
-            }
-        }
     }
     else if (kind == EC_FUNC_TOKEN_INDIR)
     {
