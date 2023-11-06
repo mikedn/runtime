@@ -9736,12 +9736,13 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
     // The 'mov' opcode is special
     if (ins == INS_mov)
     {
+        assert(id->idInsFmt() == IF_RWR_CNS);
+
         code = insCodeACC(ins);
         assert(code < 0x100);
 
         code |= 0x08; // Set the 'w' bit
-        unsigned regcode = insEncodeReg012(ins, reg, size, &code);
-        code |= regcode;
+        code |= insEncodeReg012(ins, reg, size, &code);
 
         // This is INS_mov and will not take VEX prefix
         assert(!TakesVexPrefix(ins));
@@ -9780,7 +9781,21 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
         }
 #endif
 
-        goto DONE;
+        // TODO-MIKE-Cleanup: A constant can't be a GC ref so we should not need to check idGCref.
+        // But of course, it's messed up so constants are sometimes byrefs. Probably we could simply
+        // ignore that and just call emitGCregDeadUpd, but we may get asserts later on because the
+        // GC info is out of sync.
+
+        if (id->idGCref())
+        {
+            emitGCregLiveUpd(id->idGCref(), reg, dst);
+        }
+        else
+        {
+            emitGCregDeadUpd(reg, dst);
+        }
+
+        return dst;
     }
 
     // Decide which encoding is the shortest
@@ -9910,7 +9925,6 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
         dst += emitOutputImm(dst, EA_SIZE_IN_BYTES(size), CnsVal{imm, id->idIsCnsReloc()});
     }
 
-DONE:
     if (id->idGCref())
     {
         switch (id->idInsFmt())
