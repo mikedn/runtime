@@ -6148,6 +6148,84 @@ void emitter::emitIns_Call(EmitCallType          kind,
 #endif
 }
 
+void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
+{
+    static_assert_no_msg((4 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
+    assert((regs & RBM_CALLEE_TRASH) == RBM_NONE);
+
+    unsigned encoded = 0;
+
+    if ((regs & RBM_ESI) != RBM_NONE)
+        encoded |= 0x01;
+    if ((regs & RBM_EDI) != RBM_NONE)
+        encoded |= 0x02;
+    if ((regs & RBM_EBX) != RBM_NONE)
+        encoded |= 0x04;
+#ifdef TARGET_AMD64
+    if ((regs & RBM_RBP) != RBM_NONE)
+        encoded |= 0x08;
+#endif
+
+    id->idReg1(static_cast<regNumber>(encoded));
+
+#ifdef TARGET_AMD64
+    encoded = 0;
+
+    if ((regs & RBM_R12) != RBM_NONE)
+        encoded |= 0x01;
+    if ((regs & RBM_R13) != RBM_NONE)
+        encoded |= 0x02;
+    if ((regs & RBM_R14) != RBM_NONE)
+        encoded |= 0x04;
+    if ((regs & RBM_R15) != RBM_NONE)
+        encoded |= 0x08;
+
+    id->idReg2(static_cast<regNumber>(encoded));
+#endif
+}
+
+unsigned emitter::DecodeCallGCRegs(instrDesc* id)
+{
+    static_assert_no_msg((4 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
+
+    unsigned encoded;
+
+    if (id->idInsFmt() == IF_RRD)
+    {
+        encoded = id->idAddr()->iiaAddrMode.amBaseReg | (id->idAddr()->iiaAddrMode.amIndxReg << 8);
+    }
+    else
+    {
+        assert((id->idInsFmt() == IF_ARD) || (id->idInsFmt() == IF_METHOD) || (id->idInsFmt() == IF_METHPTR));
+
+        encoded = id->idReg1() | (id->idReg2() << 8);
+    }
+
+    unsigned regs = 0;
+
+    if ((encoded & 0x01) != 0)
+        regs |= RBM_ESI;
+    if ((encoded & 0x02) != 0)
+        regs |= RBM_EDI;
+    if ((encoded & 0x04) != 0)
+        regs |= RBM_EBX;
+#ifdef TARGET_AMD64
+    if ((encoded & 0x08) != 0)
+        regs |= RBM_RBP;
+
+    if ((encoded & 0x0100) != 0)
+        regs |= RBM_R12;
+    if ((encoded & 0x0200) != 0)
+        regs |= RBM_R13;
+    if ((encoded & 0x0400) != 0)
+        regs |= RBM_R14;
+    if ((encoded & 0x0800) != 0)
+        regs |= RBM_R15;
+#endif
+
+    return regs;
+}
+
 #ifdef DEBUG
 // The following called for each recorded instruction -- use for debugging.
 void emitter::emitInsSanityCheck(instrDesc* id)

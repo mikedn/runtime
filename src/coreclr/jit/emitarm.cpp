@@ -4354,6 +4354,66 @@ void emitter::emitIns_Call(EmitCallType          kind,
     appendToCurIG(id);
 }
 
+void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
+{
+    static_assert_no_msg((4 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
+    assert((regs & RBM_CALLEE_TRASH) == RBM_NONE);
+
+    unsigned encoded = 0;
+
+    if ((regs & RBM_R4) != RBM_NONE)
+        encoded |= 0x01;
+    if ((regs & RBM_R5) != RBM_NONE)
+        encoded |= 0x02;
+    if ((regs & RBM_R6) != RBM_NONE)
+        encoded |= 0x04;
+    if ((regs & RBM_R7) != RBM_NONE)
+        encoded |= 0x08;
+
+    id->idReg1(static_cast<regNumber>(encoded));
+
+    encoded = 0;
+
+    if ((regs & RBM_R8) != RBM_NONE)
+        encoded |= 0x01;
+    if ((regs & RBM_R9) != RBM_NONE)
+        encoded |= 0x02;
+    if ((regs & RBM_R10) != RBM_NONE)
+        encoded |= 0x04;
+    if ((regs & RBM_R11) != RBM_NONE)
+        encoded |= 0x08;
+
+    id->idReg2(static_cast<regNumber>(encoded));
+}
+
+unsigned emitter::DecodeCallGCRegs(instrDesc* id)
+{
+    static_assert_no_msg((4 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
+
+    unsigned encoded = id->idReg1() | (id->idReg2() << 8);
+    unsigned regs    = 0;
+
+    if ((encoded & 0x01) != 0)
+        regs |= RBM_R4;
+    if ((encoded & 0x02) != 0)
+        regs |= RBM_R5;
+    if ((encoded & 0x04) != 0)
+        regs |= RBM_R6;
+    if ((encoded & 0x08) != 0)
+        regs |= RBM_R7;
+
+    if ((encoded & 0x0100) != 0)
+        regs |= RBM_R8;
+    if ((encoded & 0x0200) != 0)
+        regs |= RBM_R9;
+    if ((encoded & 0x0400) != 0)
+        regs |= RBM_R10;
+    if ((encoded & 0x0800) != 0)
+        regs |= RBM_R11;
+
+    return regs;
+}
+
 /*****************************************************************************
  *
  *  Returns an encoding for the specified register (any-reg) to be used in

@@ -1665,8 +1665,8 @@ private:
 
     VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
 
-    static void emitEncodeCallGCregs(regMaskTP regs, instrDesc* id);
-    static unsigned emitDecodeCallGCregs(instrDesc* id);
+    static void EncodeCallGCRegs(regMaskTP regs, instrDesc* id);
+    static unsigned DecodeCallGCRegs(instrDesc* id);
 
     unsigned emitNxtIGnum = 0;
 

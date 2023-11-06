@@ -8023,6 +8023,74 @@ void emitter::emitIns_Call(EmitCallType          kind,
     appendToCurIG(id);
 }
 
+void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
+{
+    static_assert_no_msg((5 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
+    assert((regs & RBM_CALLEE_TRASH) == RBM_NONE);
+
+    unsigned encoded = 0;
+
+    if ((regs & RBM_R19) != RBM_NONE)
+        encoded |= 0x01;
+    if ((regs & RBM_R20) != RBM_NONE)
+        encoded |= 0x02;
+    if ((regs & RBM_R21) != RBM_NONE)
+        encoded |= 0x04;
+    if ((regs & RBM_R22) != RBM_NONE)
+        encoded |= 0x08;
+    if ((regs & RBM_R23) != RBM_NONE)
+        encoded |= 0x10;
+
+    id->idReg1(static_cast<regNumber>(encoded));
+
+    encoded = 0;
+
+    if ((regs & RBM_R24) != RBM_NONE)
+        encoded |= 0x01;
+    if ((regs & RBM_R25) != RBM_NONE)
+        encoded |= 0x02;
+    if ((regs & RBM_R26) != RBM_NONE)
+        encoded |= 0x04;
+    if ((regs & RBM_R27) != RBM_NONE)
+        encoded |= 0x08;
+    if ((regs & RBM_R28) != RBM_NONE)
+        encoded |= 0x10;
+
+    id->idReg2(static_cast<regNumber>(encoded));
+}
+
+unsigned emitter::DecodeCallGCRegs(instrDesc* id)
+{
+    static_assert_no_msg((5 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
+
+    unsigned encoded = id->idReg1() | (id->idReg2() << 8);
+    unsigned regs    = 0;
+
+    if ((encoded & 0x01) != 0)
+        regs |= RBM_R19;
+    if ((encoded & 0x02) != 0)
+        regs |= RBM_R20;
+    if ((encoded & 0x04) != 0)
+        regs |= RBM_R21;
+    if ((encoded & 0x08) != 0)
+        regs |= RBM_R22;
+    if ((encoded & 0x10) != 0)
+        regs |= RBM_R23;
+
+    if ((encoded & 0x0100) != 0)
+        regs |= RBM_R24;
+    if ((encoded & 0x0200) != 0)
+        regs |= RBM_R25;
+    if ((encoded & 0x0400) != 0)
+        regs |= RBM_R26;
+    if ((encoded & 0x0800) != 0)
+        regs |= RBM_R27;
+    if ((encoded & 0x1000) != 0)
+        regs |= RBM_R28;
+
+    return regs;
+}
+
 /*****************************************************************************
  *
  *  Returns true if 'imm' is valid Cond encoding
