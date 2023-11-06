@@ -90,7 +90,7 @@ IF_DEF(CNS,         IS_NONE,                    SCNS)     // const
 //       the "insUpdateModes" enum in "instr.h".
 //----------------------------------------------------------------------------
 
-IF_DEF(RRD,         IS_R1_RD,                   NONE)     // read   reg
+IF_DEF(RRD,         IS_R1_RD,                   SPEC)     // read   reg (indirect call req. SPEC)
 IF_DEF(RWR,         IS_R1_WR,                   NONE)     // write  reg
 IF_DEF(RRW,         IS_R1_RW,                   NONE)     // r/w    reg
 

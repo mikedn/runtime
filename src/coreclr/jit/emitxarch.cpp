@@ -2319,14 +2319,6 @@ UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code)
             return size;
         }
 
-        // If this is just "call reg", we're done.
-        if (id->idIsCallRegPtr())
-        {
-            assert(ins == INS_call);
-            assert(dsp == 0);
-            return size;
-        }
-
         // If the base register is ESP (or R12 on 64-bit systems), a SIB byte must be used.
         if (baseRegisterRequiresSibByte(reg))
         {
@@ -6012,7 +6004,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
     assert((kind != EC_FUNC_TOKEN && kind != EC_FUNC_TOKEN_INDIR && kind != EC_FUNC_ADDR) ||
            (amBase == REG_NA && amIndex == REG_NA && amScale == 0 && amDisp == 0));
     assert(kind < EC_INDIR_R || kind == EC_INDIR_ARD || addr == nullptr);
-    assert(kind != EC_INDIR_R || (amBase < REG_COUNT && amIndex == REG_NA && amScale == 0 && amDisp == 0));
+    assert(kind != EC_INDIR_R || (genIsValidIntReg(amBase) && amIndex == REG_NA && amScale == 0 && amDisp == 0));
 
 #ifdef TARGET_X86
     // Our stack level should be always greater than the bytes of arguments we push.
@@ -6029,7 +6021,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
 #ifdef TARGET_X86
                                      argSlotCount,
 #endif
-                                     (kind == EC_INDIR_R) || (kind == EC_INDIR_ARD) ? amDisp : 0);
+                                     (kind == EC_INDIR_ARD) ? amDisp : 0);
 
     if (!isJump)
     {
@@ -6048,13 +6040,18 @@ void emitter::emitIns_Call(EmitCallType          kind,
 
     unsigned insSize;
 
-    if ((kind == EC_INDIR_R) || (kind == EC_INDIR_ARD))
+    if (kind == EC_INDIR_R)
     {
-        if (kind == EC_INDIR_R)
-        {
-            id->idSetIsCallRegPtr();
-        }
+        id->idInsFmt(IF_RRD);
+        // Move the GC regs info to the unused address mode bits.
+        id->idAddr()->iiaAddrMode.amBaseReg = id->idReg1();
+        id->idAddr()->iiaAddrMode.amIndxReg = id->idReg2();
+        id->idReg1(amBase);
 
+        insSize = 2 + IsExtendedReg(amBase);
+    }
+    else if (kind == EC_INDIR_ARD)
+    {
         id->idInsFmt(IF_ARD);
         id->idAddr()->iiaAddrMode.amBaseReg = amBase;
         id->idAddr()->iiaAddrMode.amIndxReg = amIndex;
@@ -6963,12 +6960,6 @@ void emitter::emitDispIns(
         case IF_ARD:
         case IF_AWR:
         case IF_ARW:
-            if (ins == INS_call && id->idIsCallRegPtr())
-            {
-                printf("%s", emitRegName(id->idAddr()->iiaAddrMode.amBaseReg));
-                break;
-            }
-
             printf("%s", sstr);
             emitDispAddrMode(id);
 
@@ -7846,20 +7837,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
     // For INS_call the instruction size is actually the return value size
     if (ins == INS_call)
     {
-        // Special case: call via a register
-        if (id->idIsCallRegPtr())
-        {
-            code_t opcode = insEncodeMRreg(INS_call, baseReg, EA_PTRSIZE, insCodeMR(INS_call));
-
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, opcode);
-            dst += emitOutputWord(dst, opcode);
-
-            // Calls use a different mechanism to update GC info so we can skip the normal handling.
-            return dst;
-        }
-
 #ifdef TARGET_AMD64
-
         // Compute the REX prefix if it exists
         if (IsExtendedReg(baseReg, EA_PTRSIZE))
         {
@@ -7877,7 +7855,6 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
 
         // And emit the REX prefix
         dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
 #endif // TARGET_AMD64
 
         // The displacement field is in an unusual place for calls
@@ -8964,6 +8941,13 @@ BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
     // Get the 'base' opcode
     switch (ins)
     {
+        case INS_call:
+            code = insEncodeMRreg(INS_call, reg, EA_PTRSIZE, insCodeMR(INS_call));
+            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputWord(dst, code);
+            // Calls use a different mechanism to update GC info so we can skip the normal handling.
+            return dst;
+
         case INS_inc:
         case INS_dec:
 
@@ -10561,7 +10545,13 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_RWR:
         case IF_RRW:
             dst = emitOutputR(dst, id);
-            sz  = SMALL_IDSC_SIZE;
+
+            if (ins == INS_call)
+            {
+                goto DONE_CALL;
+            }
+
+            sz = SMALL_IDSC_SIZE;
             break;
 
         /********************************************************************/
@@ -12051,6 +12041,7 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
                     break;
 
                 case IF_ARD:
+                case IF_RRD:
                     result.insThroughput = PERFSCORE_THROUGHPUT_3C;
                     break;
 

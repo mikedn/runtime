@@ -591,8 +591,8 @@ private:
         unsigned _idLargeCall : 1; // large call descriptor used
         unsigned _idBound : 1;     // jump target / frame offset bound
 #ifdef TARGET_XARCH
-        unsigned _idLargeDsp : 1;   // does a large displacement follow?
-        unsigned _idCallRegPtr : 1; // IL indirect calls: addr in reg
+        unsigned _idLargeDsp : 1; // does a large displacement follow?
+        unsigned _unused : 1;
 #endif
         INDEBUG(unsigned _idCallAddr : 1;) // IL indirect calls: can make a direct call to iiaAddr
         unsigned _idNoGC : 1;              // Some helpers don't get recorded in GC tables
@@ -1086,17 +1086,6 @@ private:
         {
             _idBound = 1;
         }
-
-#ifdef TARGET_XARCH
-        bool idIsCallRegPtr() const
-        {
-            return _idCallRegPtr != 0;
-        }
-        void idSetIsCallRegPtr()
-        {
-            _idCallRegPtr = 1;
-        }
-#endif
 
 #ifdef DEBUG
         bool idIsCallAddr() const
