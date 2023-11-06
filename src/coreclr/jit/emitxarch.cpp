@@ -7908,219 +7908,221 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
 
         // The displacement field is in an unusual place for calls
         disp = emitGetInsCIdisp(id);
-
-        goto GOT_DSP;
     }
-
-    // `imm` is used for two kinds if instructions
-    // 1. ins like ADD that can have reg/mem and const versions both and const version needs to modify the opcode for
-    // large constant operand (e.g., imm32)
-    // 2. certain SSE/AVX ins have const operand as control bits that is always 1-Byte (imm8) even if `size` > 1-Byte
-    if ((imm != nullptr) && (size > EA_1BYTE))
+    else
     {
-        ssize_t cval = imm->cnsVal;
-
-        // Does the constant fit in a byte?
-        // SSE/AVX do not need to modify opcode
-        if ((signed char)cval == cval && !imm->cnsReloc && ins != INS_mov && ins != INS_test)
+        // `imm` is used for two kinds if instructions
+        // 1. ins like ADD that can have reg/mem and const versions both and const version needs to modify the opcode
+        // for
+        // large constant operand (e.g., imm32)
+        // 2. certain SSE/AVX ins have const operand as control bits that is always 1-Byte (imm8) even if `size` >
+        // 1-Byte
+        if ((imm != nullptr) && (size > EA_1BYTE))
         {
-            if (id->idInsFmt() != IF_ARW_SHF && !IsSSEOrAVXInstruction(ins))
+            ssize_t cval = imm->cnsVal;
+
+            // Does the constant fit in a byte?
+            // SSE/AVX do not need to modify opcode
+            if ((signed char)cval == cval && !imm->cnsReloc && ins != INS_mov && ins != INS_test)
             {
-                code |= 2;
-            }
-
-            immSize = 1;
-        }
-    }
-
-    // Emit VEX prefix if required
-    // There are some callers who already add VEX prefix and call this routine.
-    // Therefore, add VEX prefix is one is not already present.
-    code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
-
-    // For this format, moves do not support a third operand, so we only need to handle the binary ops.
-    if (TakesVexPrefix(ins))
-    {
-        if (IsDstDstSrcAVXInstruction(ins))
-        {
-            regNumber src1 = REG_NA;
-
-            switch (id->idInsFmt())
-            {
-                case IF_RWR_RRD_ARD:
-                case IF_RWR_ARD_RRD:
-                case IF_RWR_RRD_ARD_CNS:
-                case IF_RWR_RRD_ARD_RRD:
+                if (id->idInsFmt() != IF_ARW_SHF && !IsSSEOrAVXInstruction(ins))
                 {
-                    src1 = id->idReg2();
-                    break;
+                    code |= 2;
                 }
 
-                default:
-                {
-                    src1 = id->idReg1();
-                    break;
-                }
-            }
-
-            // encode source operand reg in 'vvvv' bits in 1's complement form
-            code = insEncodeReg3456(ins, src1, size, code);
-        }
-        else if (IsDstSrcSrcAVXInstruction(ins))
-        {
-            code = insEncodeReg3456(ins, id->idReg2(), size, code);
-        }
-    }
-
-    // Emit the REX prefix if required
-    if (TakesRexWPrefix(ins, size))
-    {
-        code = AddRexWPrefix(ins, code);
-    }
-
-    if (IsExtendedReg(baseReg, EA_PTRSIZE))
-    {
-        insEncodeReg012(ins, baseReg, EA_PTRSIZE, &code);
-        // TODO-Cleanup: stop casting RegEncoding() back to a regNumber.
-        baseReg = (regNumber)RegEncoding(baseReg);
-    }
-
-    if (IsExtendedReg(indexReg, EA_PTRSIZE))
-    {
-        insEncodeRegSIB(ins, indexReg, &code);
-        // TODO-Cleanup: stop casting RegEncoding() back to a regNumber.
-        indexReg = (regNumber)RegEncoding(indexReg);
-    }
-
-    // Special case emitting AVX instructions
-    if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
-    {
-        if ((ins == INS_crc32) && (size > EA_1BYTE))
-        {
-            code |= 0x0100;
-
-            if (size == EA_2BYTE)
-            {
-                dst += emitOutputByte(dst, 0x66);
+                immSize = 1;
             }
         }
 
-        regNumber reg345 = REG_NA;
-        if (IsBMIInstruction(ins))
+        // Emit VEX prefix if required
+        // There are some callers who already add VEX prefix and call this routine.
+        // Therefore, add VEX prefix is one is not already present.
+        code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
+
+        // For this format, moves do not support a third operand, so we only need to handle the binary ops.
+        if (TakesVexPrefix(ins))
         {
-            reg345 = getBmiRegNumber(ins);
-        }
-        if (reg345 == REG_NA)
-        {
-            switch (id->idInsFmt())
+            if (IsDstDstSrcAVXInstruction(ins))
             {
-                case IF_AWR_RRD_RRD:
+                regNumber src1 = REG_NA;
+
+                switch (id->idInsFmt())
                 {
-                    reg345 = id->idReg2();
-                    break;
+                    case IF_RWR_RRD_ARD:
+                    case IF_RWR_ARD_RRD:
+                    case IF_RWR_RRD_ARD_CNS:
+                    case IF_RWR_RRD_ARD_RRD:
+                    {
+                        src1 = id->idReg2();
+                        break;
+                    }
+
+                    default:
+                    {
+                        src1 = id->idReg1();
+                        break;
+                    }
                 }
 
-                default:
-                {
-                    reg345 = id->idReg1();
-                    break;
-                }
+                // encode source operand reg in 'vvvv' bits in 1's complement form
+                code = insEncodeReg3456(ins, src1, size, code);
+            }
+            else if (IsDstSrcSrcAVXInstruction(ins))
+            {
+                code = insEncodeReg3456(ins, id->idReg2(), size, code);
             }
         }
-        unsigned regcode = insEncodeReg345(ins, reg345, size, &code);
 
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-        if (UseVEXEncoding() && (ins != INS_crc32))
+        // Emit the REX prefix if required
+        if (TakesRexWPrefix(ins, size))
         {
-            // Emit last opcode byte
-            // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
-            assert((code & 0xFF) == 0);
-            dst += emitOutputByte(dst, (code >> 8) & 0xFF);
-        }
-        else
-        {
-            dst += emitOutputWord(dst, code >> 16);
-            dst += emitOutputWord(dst, code & 0xFFFF);
+            code = AddRexWPrefix(ins, code);
         }
 
-        code = regcode;
-    }
-    // Is this a 'big' opcode?
-    else if (code & 0xFF000000)
-    {
-        // Output the REX prefix
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-        // Output the highest word of the opcode
-        // We need to check again as in case of AVX instructions leading opcode bytes are stripped off
-        // and encoded as part of VEX prefix.
-        if (code & 0xFF000000)
+        if (IsExtendedReg(baseReg, EA_PTRSIZE))
         {
-            dst += emitOutputWord(dst, code >> 16);
-            code &= 0x0000FFFF;
-        }
-    }
-    else if (code & 0x00FF0000)
-    {
-        // BT supports 16 bit operands and this code doesn't handle the necessary 66 prefix.
-        assert(ins != INS_bt);
-
-        // Output the REX prefix
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-        // Output the highest byte of the opcode
-        if (code & 0x00FF0000)
-        {
-            dst += emitOutputByte(dst, code >> 16);
-            code &= 0x0000FFFF;
+            insEncodeReg012(ins, baseReg, EA_PTRSIZE, &code);
+            // TODO-Cleanup: stop casting RegEncoding() back to a regNumber.
+            baseReg = (regNumber)RegEncoding(baseReg);
         }
 
-        // Use the large version if this is not a byte. This trick will not
-        // work in case of SSE2 and AVX instructions.
-        if ((size != EA_1BYTE) && (ins != INS_imul) && (ins != INS_bsf) && (ins != INS_bsr) && !IsSSEInstruction(ins) &&
-            !IsAVXInstruction(ins))
+        if (IsExtendedReg(indexReg, EA_PTRSIZE))
         {
-            code++;
+            insEncodeRegSIB(ins, indexReg, &code);
+            // TODO-Cleanup: stop casting RegEncoding() back to a regNumber.
+            indexReg = (regNumber)RegEncoding(indexReg);
         }
-    }
+
+        // Special case emitting AVX instructions
+        if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
+        {
+            if ((ins == INS_crc32) && (size > EA_1BYTE))
+            {
+                code |= 0x0100;
+
+                if (size == EA_2BYTE)
+                {
+                    dst += emitOutputByte(dst, 0x66);
+                }
+            }
+
+            regNumber reg345 = REG_NA;
+            if (IsBMIInstruction(ins))
+            {
+                reg345 = getBmiRegNumber(ins);
+            }
+            if (reg345 == REG_NA)
+            {
+                switch (id->idInsFmt())
+                {
+                    case IF_AWR_RRD_RRD:
+                    {
+                        reg345 = id->idReg2();
+                        break;
+                    }
+
+                    default:
+                    {
+                        reg345 = id->idReg1();
+                        break;
+                    }
+                }
+            }
+            unsigned regcode = insEncodeReg345(ins, reg345, size, &code);
+
+            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+
+            if (UseVEXEncoding() && (ins != INS_crc32))
+            {
+                // Emit last opcode byte
+                // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
+                assert((code & 0xFF) == 0);
+                dst += emitOutputByte(dst, (code >> 8) & 0xFF);
+            }
+            else
+            {
+                dst += emitOutputWord(dst, code >> 16);
+                dst += emitOutputWord(dst, code & 0xFFFF);
+            }
+
+            code = regcode;
+        }
+        // Is this a 'big' opcode?
+        else if (code & 0xFF000000)
+        {
+            // Output the REX prefix
+            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+
+            // Output the highest word of the opcode
+            // We need to check again as in case of AVX instructions leading opcode bytes are stripped off
+            // and encoded as part of VEX prefix.
+            if (code & 0xFF000000)
+            {
+                dst += emitOutputWord(dst, code >> 16);
+                code &= 0x0000FFFF;
+            }
+        }
+        else if (code & 0x00FF0000)
+        {
+            // BT supports 16 bit operands and this code doesn't handle the necessary 66 prefix.
+            assert(ins != INS_bt);
+
+            // Output the REX prefix
+            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+
+            // Output the highest byte of the opcode
+            if (code & 0x00FF0000)
+            {
+                dst += emitOutputByte(dst, code >> 16);
+                code &= 0x0000FFFF;
+            }
+
+            // Use the large version if this is not a byte. This trick will not
+            // work in case of SSE2 and AVX instructions.
+            if ((size != EA_1BYTE) && (ins != INS_imul) && (ins != INS_bsf) && (ins != INS_bsr) &&
+                !IsSSEInstruction(ins) && !IsAVXInstruction(ins))
+            {
+                code++;
+            }
+        }
 #ifdef TARGET_X86
-    else if (instIsFP(ins))
-    {
-        assert(size == EA_4BYTE || size == EA_8BYTE);
+        else if (instIsFP(ins))
+        {
+            assert(size == EA_4BYTE || size == EA_8BYTE);
 
-        if (size == EA_8BYTE)
-        {
-            code += 4;
+            if (size == EA_8BYTE)
+            {
+                code += 4;
+            }
         }
-    }
 #endif
-    else if (!IsSSEInstruction(ins) && !IsAVXInstruction(ins))
-    {
-        switch (size)
+        else if (!IsSSEInstruction(ins) && !IsAVXInstruction(ins))
         {
-            case EA_1BYTE:
-                break;
-            case EA_2BYTE:
-                dst += emitOutputByte(dst, 0x66);
-                FALLTHROUGH;
-            case EA_4BYTE:
+            switch (size)
+            {
+                case EA_1BYTE:
+                    break;
+                case EA_2BYTE:
+                    dst += emitOutputByte(dst, 0x66);
+                    FALLTHROUGH;
+                case EA_4BYTE:
 #ifdef TARGET_AMD64
-            case EA_8BYTE:
+                case EA_8BYTE:
 #endif
-                // Set the 'w' size bit to indicate a 16/32/64-bit operation.
-                code |= 0x01;
-                break;
-            default:
-                unreached();
+                    // Set the 'w' size bit to indicate a 16/32/64-bit operation.
+                    code |= 0x01;
+                    break;
+                default:
+                    unreached();
+            }
         }
+
+        // Output the REX prefix
+        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+
+        disp = emitGetInsAmdAny(id);
     }
 
-    // Output the REX prefix
-    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-    disp = emitGetInsAmdAny(id);
-GOT_DSP:
     bool hasDisp8 = IsDisp8(disp) && !id->idIsDspReloc();
 
     if ((indexReg == REG_NA) && (baseReg == REG_NA))
