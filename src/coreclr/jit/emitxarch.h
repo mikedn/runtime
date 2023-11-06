@@ -505,7 +505,6 @@ enum EmitCallType
 {
     EC_FUNC_TOKEN,       // Direct call to a helper/static/nonvirtual/global method
     EC_FUNC_TOKEN_INDIR, // Indirect call to a helper/static/nonvirtual/global method
-    EC_FUNC_ADDR,        // Direct call to an absolute address
     EC_INDIR_R,          // Indirect call via register
     EC_INDIR_ARD         // Indirect call via an addressing mode
 };

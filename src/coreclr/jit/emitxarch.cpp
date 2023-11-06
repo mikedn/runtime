@@ -5978,7 +5978,6 @@ void emitter::emitAdjustStackDepth(instruction ins, ssize_t val)
 //
 // EC_FUNC_TOKEN       : addr is the method address
 // EC_FUNC_TOKEN_INDIR : addr is the indirect method address
-// EC_FUNC_ADDR        : addr is the absolute address of the function
 // EC_INDIR_R          : call ireg (addr has to be null)
 // EC_INDIR_ARD        : call [ireg + xreg * xmul + disp] (addr has to be null)
 //
@@ -6001,7 +6000,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
                            int32_t   amDisp,
                            bool      isJump)
 {
-    assert((kind != EC_FUNC_TOKEN && kind != EC_FUNC_TOKEN_INDIR && kind != EC_FUNC_ADDR) ||
+    assert((kind != EC_FUNC_TOKEN && kind != EC_FUNC_TOKEN_INDIR) ||
            (amBase == REG_NA && amIndex == REG_NA && amScale == 0 && amDisp == 0));
     assert(kind < EC_INDIR_R || kind == EC_INDIR_ARD || addr == nullptr);
     assert(kind != EC_INDIR_R || (genIsValidIntReg(amBase) && amIndex == REG_NA && amScale == 0 && amDisp == 0));
@@ -6096,18 +6095,11 @@ void emitter::emitIns_Call(EmitCallType          kind,
     }
     else
     {
-        assert((kind == EC_FUNC_TOKEN) || (kind == EC_FUNC_ADDR));
+        assert(kind == EC_FUNC_TOKEN);
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHOD);
         id->idAddr()->iiaAddr = addr;
-
-#ifdef DEBUG
-        if (kind == EC_FUNC_ADDR)
-        {
-            id->idSetIsCallAddr();
-        }
-#endif
 
         // Direct call to a method and no addr indirection is needed.
         // On x64 all direct code addresses go through relocation so that VM will
@@ -7021,10 +7013,8 @@ void emitter::emitDispIns(
 
     switch (id->idInsFmt())
     {
-        ssize_t     val;
-        ssize_t     offs;
-        CnsVal      cnsVal;
-        const char* methodName;
+        ssize_t val;
+        CnsVal  cnsVal;
 
         case IF_CNS:
 #ifdef TARGET_AMD64
@@ -7556,37 +7546,18 @@ void emitter::emitDispIns(
 
         case IF_METHOD:
         case IF_METHPTR:
-            if (id->idIsCallAddr())
-            {
-                offs       = reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr);
-                methodName = "";
-            }
-            else
-            {
-                offs = 0;
-                methodName =
-                    emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle));
-            }
-
             if (id->idInsFmt() == IF_METHPTR)
             {
                 printf("[");
             }
 
-            if (offs != 0)
-            {
-                printf("%s%08X", id->idIsDspReloc() ? "reloc " : "", offs);
-            }
-            else
-            {
-                printf("%s", methodName);
-            }
+            printf("%s",
+                   emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
 
             if (id->idInsFmt() == IF_METHPTR)
             {
                 printf("]");
             }
-
             break;
 
         case IF_NONE:

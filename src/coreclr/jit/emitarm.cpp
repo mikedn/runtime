@@ -4285,7 +4285,6 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNu
 // Add a call instruction (direct or indirect).
 //
 // EC_FUNC_TOKEN : addr is the method address
-// EC_FUNC_ADDR  : addr is the absolute address of the function; if addr is null, it is a recursive call
 // EC_INDIR_R    : call ireg (addr has to be null)
 //
 // Please consult the "debugger team notification" comment in genFnProlog().
@@ -4312,7 +4311,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
     }
     else
     {
-        assert((kind == EC_FUNC_TOKEN) || (kind == EC_FUNC_ADDR));
+        assert(kind == EC_FUNC_TOKEN);
         // if addr is nullptr then this call is treated as a recursive call.
         assert((addr == nullptr) || validImmForBL(reinterpret_cast<ssize_t>(addr), emitComp));
 
@@ -4320,13 +4319,6 @@ void emitter::emitIns_Call(EmitCallType          kind,
         id->idInsFmt(IF_T2_J3);
         id->idInsSize(emitInsSize(IF_T2_J3));
         id->idAddr()->iiaAddr = addr;
-
-#ifdef DEBUG
-        if (kind == EC_FUNC_ADDR)
-        {
-            id->idSetIsCallAddr();
-        }
-#endif
 
         if (emitComp->opts.compReloc)
         {
@@ -7060,30 +7052,9 @@ void emitter::emitDispInsHelp(
         break;
 
         case IF_T2_J3:
-        {
-            void* addr;
-            if (id->idIsCallAddr())
-            {
-                addr       = id->idAddr()->iiaAddr;
-                methodName = "";
-            }
-            else
-            {
-                addr = nullptr;
-                methodName =
-                    emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle));
-            }
-
-            if (addr)
-            {
-                printf("%s%p", id->idIsDspReloc() ? "reloc " : "", dspPtr(addr));
-            }
-            else
-            {
-                printf("%s", methodName);
-            }
-        }
-        break;
+            printf("%s",
+                   emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
+            break;
 
         default:
             printf("unexpected format %s", emitIfName(id->idInsFmt()));

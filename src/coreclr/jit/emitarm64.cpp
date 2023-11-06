@@ -7960,7 +7960,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
 // Add a call instruction (direct or indirect).
 //
 // EC_FUNC_TOKEN : addr is the method address
-// EC_FUNC_ADDR  : addr is the absolute address of the function
 // EC_INDIR_R    : call ireg (addr has to be null)
 //
 // Please consult the "debugger team notification" comment in genFnProlog().
@@ -7987,19 +7986,12 @@ void emitter::emitIns_Call(EmitCallType          kind,
     }
     else
     {
-        assert((kind == EC_FUNC_TOKEN) || (kind == EC_FUNC_ADDR));
+        assert(kind == EC_FUNC_TOKEN);
         assert(addr != nullptr);
 
         id->idIns(isJump ? INS_b_tail : INS_bl);
         id->idInsFmt(IF_BI_0C);
         id->idAddr()->iiaAddr = addr;
-
-#ifdef DEBUG
-        if (kind == EC_FUNC_ADDR)
-        {
-            id->idSetIsCallAddr();
-        }
-#endif
 
         if (emitComp->opts.compReloc)
         {
@@ -11557,8 +11549,6 @@ void emitter::emitDispIns(
         unsigned     scale;
         unsigned     immShift;
         bool         hasShift;
-        ssize_t      offs;
-        const char*  methodName;
         emitAttr     elemsize;
         emitAttr     datasize;
         emitAttr     srcsize;
@@ -11604,26 +11594,8 @@ void emitter::emitDispIns(
         break;
 
         case IF_BI_0C: // BI_0C   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
-            if (id->idIsCallAddr())
-            {
-                offs       = reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr);
-                methodName = "";
-            }
-            else
-            {
-                offs = 0;
-                methodName =
-                    emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle));
-            }
-
-            if (offs != 0)
-            {
-                printf("%s%08X", id->idIsDspReloc() ? "reloc " : "", offs);
-            }
-            else
-            {
-                printf("%s", methodName);
-            }
+            printf("%s",
+                   emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
             break;
 
         case IF_BI_1A: // BI_1A   ......iiiiiiiiii iiiiiiiiiiittttt      Rt       simm19:00
