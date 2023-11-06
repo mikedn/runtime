@@ -7853,7 +7853,9 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
 
             dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, opcode);
             dst += emitOutputWord(dst, opcode);
-            goto DONE;
+
+            // Calls use a different mechanism to update GC info so we can skip the normal handling.
+            return dst;
         }
 
 #ifdef TARGET_AMD64
@@ -8226,7 +8228,6 @@ GOT_DSP:
         dst += emitOutputImm(dst, immSize, *imm);
     }
 
-DONE:
     if (id->idGCref())
     {
         switch (id->idInsFmt())
@@ -8276,19 +8277,14 @@ DONE:
                     break;
             }
 
-            if (ins == INS_mulEAX || ins == INS_imulEAX)
+            if ((ins == INS_mulEAX) || (ins == INS_imulEAX))
             {
                 emitGCregDeadUpd(REG_EAX, dst);
                 emitGCregDeadUpd(REG_EDX, dst);
             }
-
-            // For the three operand imul instruction the target register
-            // is encoded in the opcode
-
-            if (instrIs3opImul(ins))
+            else if (instrIs3opImul(ins))
             {
-                regNumber tgtReg = inst3opImulReg(ins);
-                emitGCregDeadUpd(tgtReg, dst);
+                emitGCregDeadUpd(inst3opImulReg(ins), dst);
             }
         }
     }
