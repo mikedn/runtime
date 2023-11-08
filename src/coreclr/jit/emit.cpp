@@ -752,11 +752,6 @@ void emitter::emitEnableGC()
 
 void emitter::emitBegFN()
 {
-#ifdef DEBUG
-    emitChkAlign =
-        (emitComp->compCodeOpt() != SMALL_CODE) && !emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
-#endif
-
 #if EMITTER_STATS
     emitTotalIGmcnt++;
     emitSizeMethod      = 0;

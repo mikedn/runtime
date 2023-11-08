@@ -8579,22 +8579,70 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
 
 uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, CnsVal* imm)
 {
-    emitAttr             size    = id->idOpSize();
     instruction          ins     = id->idIns();
-    CORINFO_FIELD_HANDLE fldh    = id->idAddr()->iiaFieldHnd;
-    ssize_t              offs    = emitGetInsDsp(id);
+    emitAttr             size    = id->idOpSize();
     unsigned             immSize = EA_SIZE_IN_BYTES(size);
+    CORINFO_FIELD_HANDLE field   = id->idAddr()->iiaFieldHnd;
+    ssize_t              disp    = emitGetInsDsp(id);
 
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
     assert((ins != INS_bt) && !insIsCMOV(ins));
 
+    if (IsRoDataField(field))
+    {
+        size_t addr = reinterpret_cast<size_t>(emitConsBlock) + GetRoDataOffset(field);
+
+#ifdef DEBUG
+        size_t align;
+
+        switch (ins)
+        {
+            case INS_cvttss2si:
+            case INS_cvtss2sd:
+            case INS_vbroadcastss:
+            case INS_insertps:
+            case INS_movss:
+                align = 4;
+                break;
+            case INS_vbroadcastsd:
+            case INS_movsdsse2:
+                align = 8;
+                break;
+            case INS_vinsertf128:
+            case INS_vinserti128:
+                align = 16;
+                break;
+            case INS_lea:
+                align = 1;
+                break;
+            default:
+                align = EA_SIZE_IN_BYTES(size);
+                break;
+        }
+
+        // Check that the offset is properly aligned (i.e. the ddd in [ddd])
+        // When SMALL_CODE is set, we only expect 4-byte alignment, otherwise
+        // we expect the same alignment as the size of the constant.
+        // TODO-MIKE-Review: Figure out why this check is disabled in crossgen.
+        assert(((addr & (align - 1)) == 0) || ((emitComp->compCodeOpt() == SMALL_CODE) && ((addr & 3) == 0)) ||
+               emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT));
+#endif // DEBUG
+
+        disp += addr;
+    }
 #ifdef WINDOWS_X86_ABI
-    if (fldh == FS_SEG_FIELD)
+    else if (field == FS_SEG_FIELD)
     {
         dst += emitOutputByte(dst, 0x64);
     }
 #endif
+    else
+    {
+        void* addr = static_cast<uint8_t*>(emitComp->info.compCompHnd->getFieldAddress(field, nullptr));
+        noway_assert(addr != nullptr);
+        disp += reinterpret_cast<ssize_t>(addr);
+    }
 
     if (imm != nullptr)
     {
@@ -8777,51 +8825,6 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
             dst += emitOutputWord(dst, code);
         }
     }
-
-    uint8_t* addr;
-
-    if (IsRoDataField(fldh))
-    {
-        addr = emitConsBlock + GetRoDataOffset(fldh);
-
-#ifdef DEBUG
-        int byteSize = EA_SIZE_IN_BYTES(size);
-
-        if (ins == INS_cvttss2si || ins == INS_cvtss2sd || ins == INS_vbroadcastss || ins == INS_insertps)
-        {
-            byteSize = 4;
-        }
-        else if (ins == INS_vbroadcastsd)
-        {
-            byteSize = 8;
-        }
-        else if (ins == INS_vinsertf128 || ins == INS_vinserti128)
-        {
-            byteSize = 16;
-        }
-
-        // Check that the offset is properly aligned (i.e. the ddd in [ddd])
-        // When SMALL_CODE is set, we only expect 4-byte alignment, otherwise
-        // we expect the same alignment as the size of the constant.
-
-        assert((emitChkAlign == false) || (ins == INS_lea) ||
-               ((emitComp->compCodeOpt() == SMALL_CODE) && (((size_t)addr & 3) == 0)) ||
-               (((size_t)addr & (byteSize - 1)) == 0));
-#endif // DEBUG
-    }
-#ifdef WINDOWS_X86_ABI
-    else if (fldh == FS_SEG_FIELD)
-    {
-        addr = nullptr;
-    }
-#endif
-    else
-    {
-        addr = static_cast<uint8_t*>(emitComp->info.compCompHnd->getFieldAddress(fldh, nullptr));
-        noway_assert(addr != nullptr);
-    }
-
-    ssize_t disp = reinterpret_cast<ssize_t>(addr) + offs;
 
     if (!id->idIsDspReloc())
     {

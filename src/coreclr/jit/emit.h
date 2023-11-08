@@ -1574,10 +1574,6 @@ public:
     bool emitInInstrumentation = false;
 #endif
 
-#ifdef DEBUG
-    bool emitChkAlign; // perform some alignment checks
-#endif
-
     insGroup* emitCurIG;
     insGroup* emitCurLabel = nullptr;
 
