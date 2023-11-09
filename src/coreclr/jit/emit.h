@@ -1420,12 +1420,6 @@ private:
     size_t emitGetInstrDescSize(const instrDesc* id);
     size_t emitGetInstrDescSizeSC(const instrDesc* id);
 
-#ifdef TARGET_XARCH
-    ssize_t emitGetInsCns(instrDesc* id);
-    ssize_t emitGetInsDsp(instrDesc* id);
-    ssize_t emitGetInsCIdisp(instrDesc* id);
-#endif
-
     cnsval_ssize_t emitGetInsSC(instrDesc* id);
 
     /************************************************************************/
@@ -1752,10 +1746,6 @@ private:
 
 #endif // TARGET_ARMARCH
 
-#ifdef TARGET_X86
-    void emitMarkStackLvl(unsigned stackLevel);
-#endif
-
     int emitNextRandomNop();
 
     //
@@ -1798,13 +1788,6 @@ private:
         result->idcCnsVal = cns;
         return result;
     }
-
-#ifdef TARGET_XARCH
-    instrDescDsp* emitAllocInstrDsp(emitAttr attr);
-    instrDescCnsDsp* emitAllocInstrCnsDsp(emitAttr attr);
-    instrDescAmd* emitAllocInstrAmd(emitAttr attr);
-    instrDescCnsAmd* emitAllocInstrCnsAmd(emitAttr attr);
-#endif // TARGET_XARCH
 
     instrDescCGCA* emitAllocInstrCGCA(emitAttr attr)
     {

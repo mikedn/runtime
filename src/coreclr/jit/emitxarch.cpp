@@ -1303,26 +1303,6 @@ static bool FieldDispRequiresRelocation(CORINFO_FIELD_HANDLE fldHnd)
 }
 #endif
 
-/*****************************************************************************
- *
- *  Get hold of the address mode displacement value for an indirect call.
- */
-
-inline ssize_t emitter::emitGetInsCIdisp(instrDesc* id)
-{
-    if (id->idIsLargeCall())
-    {
-        return static_cast<instrDescCGCA*>(id)->idcDisp;
-    }
-    else
-    {
-        assert(!id->idIsLargeDsp());
-        assert(!id->idIsLargeCns());
-
-        return id->idAddr()->iiaAddrMode.amDisp;
-    }
-}
-
 const char* insName(instruction ins)
 {
     // clang-format off
@@ -2217,7 +2197,7 @@ UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code)
     instruction ins      = id->idIns();
     emitAttr    attrSize = id->idOpSize();
     /* The displacement field is in an unusual place for calls */
-    ssize_t        dsp       = (ins == INS_call) ? emitGetInsCIdisp(id) : emitGetInsAmdAny(id);
+    ssize_t        dsp       = (ins == INS_call) ? emitGetInsCallDisp(id) : emitGetInsAmdDisp(id);
     bool           dspInByte = ((signed char)dsp == (ssize_t)dsp);
     bool           dspIsZero = (dsp == 0);
     UNATIVE_OFFSET size;
@@ -3095,7 +3075,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
         id->idAddr()->iiaAddrMode.amBaseReg = addr->GetRegNum();
         id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
         id->idAddr()->iiaAddrMode.amScale   = emitter::OPSZ1;
-        assert(emitGetInsAmdAny(id) == 0);
+        assert(emitGetInsAmdDisp(id) == 0);
 
         return;
     }
@@ -3129,7 +3109,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
         id->idInsFmt(emitMapFmtForIns(fmt, ins));
 
         // Absolute address must have already been set by the caller.
-        assert(emitGetInsAmdAny(id) == intConAddr->GetValue());
+        assert(emitGetInsAmdDisp(id) == intConAddr->GetValue());
 
         return;
     }
@@ -3163,7 +3143,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
     }
 
     // disp must have already been set by the caller.
-    assert(emitGetInsAmdAny(id) == addrMode->GetOffset());
+    assert(emitGetInsAmdDisp(id) == addrMode->GetOffset());
 }
 
 // Takes care of storing all incoming register parameters
@@ -5770,100 +5750,93 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     emitAdjustStackDepthPushPop(ins);
 }
 
-ssize_t emitter::emitGetInsCns(instrDesc* id)
-{
-    return id->idIsLargeCns() ? ((instrDescCns*)id)->idcCnsVal : id->idSmallCns();
-}
-
-ssize_t emitter::emitGetInsDsp(instrDesc* id)
-{
-    if (id->idIsLargeDsp())
-    {
-        if (id->idIsLargeCns())
-        {
-            return ((instrDescCnsDsp*)id)->iddcDspVal;
-        }
-        return ((instrDescDsp*)id)->iddDspVal;
-    }
-    return 0;
-}
-
 void emitter::emitGetInsCns(instrDesc* id, CnsVal* cv)
 {
     cv->cnsReloc = id->idIsCnsReloc();
-    if (id->idIsLargeCns())
+    cv->cnsVal   = id->idIsLargeCns() ? static_cast<instrDescCns*>(id)->idcCnsVal : id->idSmallCns();
+}
+
+ssize_t emitter::emitGetInsMemDisp(instrDesc* id)
+{
+    if (!id->idIsLargeDsp())
     {
-        cv->cnsVal = ((instrDescCns*)id)->idcCnsVal;
+        return 0;
+    }
+    else if (id->idIsLargeCns())
+    {
+        return static_cast<instrDescCnsDsp*>(id)->iddcDspVal;
     }
     else
     {
-        cv->cnsVal = id->idSmallCns();
+        return static_cast<instrDescDsp*>(id)->iddDspVal;
     }
 }
 
-ssize_t emitter::emitGetInsAmdCns(instrDesc* id, CnsVal* cv)
+void emitter::emitGetInsMemImm(instrDesc* id, CnsVal* cv)
 {
     cv->cnsReloc = id->idIsCnsReloc();
-    if (id->idIsLargeDsp())
+
+    if (!id->idIsLargeCns())
     {
-        if (id->idIsLargeCns())
-        {
-            cv->cnsVal = ((instrDescCnsAmd*)id)->idacCnsVal;
-            return ((instrDescCnsAmd*)id)->idacAmdVal;
-        }
-        else
-        {
-            cv->cnsVal = id->idSmallCns();
-            return ((instrDescAmd*)id)->idaAmdVal;
-        }
+        cv->cnsVal = id->idSmallCns();
+    }
+    else if (id->idIsLargeDsp())
+    {
+        cv->cnsVal = static_cast<instrDescCnsDsp*>(id)->iddcCnsVal;
     }
     else
     {
-        if (id->idIsLargeCns())
-        {
-            cv->cnsVal = ((instrDescCns*)id)->idcCnsVal;
-        }
-        else
-        {
-            cv->cnsVal = id->idSmallCns();
-        }
+        cv->cnsVal = static_cast<instrDescCns*>(id)->idcCnsVal;
+    }
+}
+
+void emitter::emitGetInsAmdCns(instrDesc* id, CnsVal* cv)
+{
+    cv->cnsReloc = id->idIsCnsReloc();
+
+    if (!id->idIsLargeCns())
+    {
+        cv->cnsVal = id->idSmallCns();
+    }
+    else if (id->idIsLargeDsp())
+    {
+        cv->cnsVal = static_cast<instrDescCnsAmd*>(id)->idacCnsVal;
+    }
+    else
+    {
+        cv->cnsVal = static_cast<instrDescCns*>(id)->idcCnsVal;
+    }
+}
+
+ssize_t emitter::emitGetInsAmdDisp(instrDesc* id)
+{
+    if (!id->idIsLargeDsp())
+    {
+        return id->idAddr()->iiaAddrMode.amDisp;
+    }
+    else if (id->idIsLargeCns())
+    {
+        return static_cast<instrDescCnsAmd*>(id)->idacAmdVal;
+    }
+    else
+    {
+        return static_cast<instrDescAmd*>(id)->idaAmdVal;
+    }
+}
+
+ssize_t emitter::emitGetInsCallDisp(instrDesc* id)
+{
+    if (id->idIsLargeCall())
+    {
+        return static_cast<instrDescCGCA*>(id)->idcDisp;
+    }
+    else
+    {
+        assert(!id->idIsLargeDsp());
+        assert(!id->idIsLargeCns());
 
         return id->idAddr()->iiaAddrMode.amDisp;
     }
-}
-
-void emitter::emitGetInsDcmCns(instrDesc* id, CnsVal* cv)
-{
-    cv->cnsReloc = id->idIsCnsReloc();
-    if (id->idIsLargeCns())
-    {
-        if (id->idIsLargeDsp())
-        {
-            cv->cnsVal = ((instrDescCnsDsp*)id)->iddcCnsVal;
-        }
-        else
-        {
-            cv->cnsVal = ((instrDescCns*)id)->idcCnsVal;
-        }
-    }
-    else
-    {
-        cv->cnsVal = id->idSmallCns();
-    }
-}
-
-ssize_t emitter::emitGetInsAmdAny(instrDesc* id)
-{
-    if (id->idIsLargeDsp())
-    {
-        if (id->idIsLargeCns())
-        {
-            return ((instrDescCnsAmd*)id)->idacAmdVal;
-        }
-        return ((instrDescAmd*)id)->idaAmdVal;
-    }
-
-    return id->idAddr()->iiaAddrMode.amDisp;
 }
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -6483,7 +6456,7 @@ const char* emitter::emitYMMregName(unsigned reg)
 void emitter::emitDispClsVar(instrDesc* id)
 {
     CORINFO_FIELD_HANDLE fldHnd = id->idAddr()->iiaFieldHnd;
-    ssize_t              offs   = emitGetInsDsp(id);
+    ssize_t              offs   = emitGetInsMemDisp(id);
 
 #ifdef WINDOWS_X86_ABI
     if (fldHnd == FS_SEG_FIELD)
@@ -6630,7 +6603,7 @@ void emitter::emitDispReloc(ssize_t value)
 
 void emitter::emitDispAddrMode(instrDesc* id)
 {
-    ssize_t disp     = (id->idIns() == INS_call) ? emitGetInsCIdisp(id) : emitGetInsAmdAny(id);
+    ssize_t disp     = (id->idIns() == INS_call) ? emitGetInsCallDisp(id) : emitGetInsAmdDisp(id);
     bool    frameRef = false;
     bool    nsep     = false;
 
@@ -7399,7 +7372,7 @@ void emitter::emitDispIns(
         case IF_RWR_MRD_CNS:
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
             emitDispClsVar(id);
-            emitGetInsDcmCns(id, &cnsVal);
+            emitGetInsMemImm(id, &cnsVal);
             printf(", ");
             emitDispImm(id, cnsVal);
             break;
@@ -7411,7 +7384,7 @@ void emitter::emitDispIns(
             printf(sstr);
             emitDispClsVar(id);
             printf(", %s", emitRegName(id->idReg1(), attr));
-            emitGetInsDcmCns(id, &cnsVal);
+            emitGetInsMemImm(id, &cnsVal);
             printf(", ");
             emitDispImm(id, cnsVal);
             break;
@@ -7424,7 +7397,7 @@ void emitter::emitDispIns(
         case IF_RWR_RRD_MRD_CNS:
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
             emitDispClsVar(id);
-            emitGetInsDcmCns(id, &cnsVal);
+            emitGetInsMemImm(id, &cnsVal);
             printf(", ");
             emitDispImm(id, cnsVal);
             break;
@@ -7433,7 +7406,7 @@ void emitter::emitDispIns(
             printf("%s, ", emitRegName(id->idReg1(), attr));
             printf("%s, ", emitRegName(id->idReg2(), attr));
             emitDispClsVar(id);
-            emitGetInsDcmCns(id, &cnsVal);
+            emitGetInsMemImm(id, &cnsVal);
             val = (cnsVal.cnsVal >> 4) + XMMBASE;
             printf(", %s", emitRegName((regNumber)val, attr));
             break;
@@ -7452,7 +7425,7 @@ void emitter::emitDispIns(
         case IF_MRW_SHF:
             printf("%s", sstr);
             emitDispClsVar(id);
-            emitGetInsDcmCns(id, &cnsVal);
+            emitGetInsMemImm(id, &cnsVal);
             printf(", ");
             emitDispImm(id, cnsVal);
             break;
@@ -7865,7 +7838,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
 #endif // TARGET_AMD64
 
         // The displacement field is in an unusual place for calls
-        disp = emitGetInsCIdisp(id);
+        disp = emitGetInsCallDisp(id);
         // Calls don't have an immediate operand and the instruction size indicates the size of
         // the return value, the operand size of the call is always 32/64 bit. Just set this to
         // keep the compiler from complaining about it being uninitialized.
@@ -8062,7 +8035,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
 
         dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
-        disp = emitGetInsAmdAny(id);
+        disp = emitGetInsAmdDisp(id);
     }
 
     bool hasDisp8 = IsDisp8(disp) && !id->idIsDspReloc();
@@ -8560,7 +8533,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
     emitAttr             size    = id->idOpSize();
     unsigned             immSize = EA_SIZE_IN_BYTES(size);
     CORINFO_FIELD_HANDLE field   = id->idAddr()->iiaFieldHnd;
-    ssize_t              disp    = emitGetInsDsp(id);
+    ssize_t              disp    = emitGetInsMemDisp(id);
 
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
@@ -11032,13 +11005,13 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_MRD_CNS:
         case IF_MWR_CNS:
         case IF_MRW_CNS:
-            emitGetInsDcmCns(id, &cnsVal);
+            emitGetInsMemImm(id, &cnsVal);
             dst = emitOutputCV(dst, id, insCodeMI(ins) | 0x0500, &cnsVal);
             sz  = emitSizeOfInsDsc(id);
             break;
 
         case IF_MRW_SHF:
-            emitGetInsDcmCns(id, &cnsVal);
+            emitGetInsMemImm(id, &cnsVal);
             dst = emitOutputCV(dst, id, insCodeMR(ins) | 0x0500, &cnsVal);
             sz  = emitSizeOfInsDsc(id);
             break;
@@ -11070,7 +11043,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_MWR_RRD_CNS:
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
             assert(UseVEXEncoding());
-            emitGetInsDcmCns(id, &cnsVal);
+            emitGetInsMemImm(id, &cnsVal);
             code = insCodeMR(ins);
             dst  = emitOutputCV(dst, id, code, &cnsVal);
             sz   = emitSizeOfInsDsc(id);
@@ -11101,7 +11074,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_RRW_MRD_CNS:
         case IF_RWR_MRD_CNS:
             assert(IsSSEOrAVXInstruction(ins));
-            emitGetInsDcmCns(id, &cnsVal);
+            emitGetInsMemImm(id, &cnsVal);
             code = insCodeRM(ins);
 
             if (!EncodedBySSE38orSSE3A(ins))
@@ -11669,7 +11642,7 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
                     regNumber baseReg = id->idAddr()->iiaAddrMode.amBaseReg;
                     if (baseReg != REG_NA)
                     {
-                        ssize_t dsp = emitGetInsAmdAny(id);
+                        ssize_t dsp = emitGetInsAmdDisp(id);
 
                         if ((dsp != 0) || baseRegisterRequiresDisplacement(baseReg))
                         {

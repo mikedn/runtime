@@ -19,20 +19,32 @@ static bool isDoubleReg(regNumber reg)
     return isFloatReg(reg);
 }
 
-/************************************************************************/
-/*         Routines that compute the size of / encode instructions      */
-/************************************************************************/
-
 // code_t is a type used to accumulate bits of opcode + prefixes. On amd64, it must be 64 bits
 // to support the REX prefixes. On both x86 and amd64, it must be 64 bits to support AVX, with
 // its 3-byte VEX prefix.
 typedef uint64_t code_t;
+
+#ifdef TARGET_X86
+void emitMarkStackLvl(unsigned stackLevel);
+#endif
+
+instrDescDsp* emitAllocInstrDsp(emitAttr attr);
+instrDescCnsDsp* emitAllocInstrCnsDsp(emitAttr attr);
+instrDescAmd* emitAllocInstrAmd(emitAttr attr);
+instrDescCnsAmd* emitAllocInstrCnsAmd(emitAttr attr);
 
 struct CnsVal
 {
     ssize_t cnsVal;
     bool    cnsReloc;
 };
+
+void emitGetInsCns(instrDesc* id, CnsVal* cv);
+ssize_t emitGetInsMemDisp(instrDesc* id);
+void emitGetInsMemImm(instrDesc* id, CnsVal* cv);
+void emitGetInsAmdCns(instrDesc* id, CnsVal* cv);
+ssize_t emitGetInsAmdDisp(instrDesc* id);
+ssize_t emitGetInsCallDisp(instrDesc* id);
 
 UNATIVE_OFFSET emitInsSize(code_t code, bool includeRexPrefixSize);
 UNATIVE_OFFSET emitInsSizeSV_AM(instrDesc* id, code_t code);
@@ -265,11 +277,6 @@ instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
                             int argSlotCount,
 #endif
                             int32_t disp);
-
-void emitGetInsCns(instrDesc* id, CnsVal* cv);
-ssize_t emitGetInsAmdCns(instrDesc* id, CnsVal* cv);
-void emitGetInsDcmCns(instrDesc* id, CnsVal* cv);
-ssize_t emitGetInsAmdAny(instrDesc* id);
 
 /************************************************************************/
 /*               Private helpers for instruction output                 */

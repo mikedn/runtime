@@ -5676,7 +5676,7 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
         refRegs   = DecodeCallGCRegs(id);
         byrefRegs = RBM_NONE;
         gcLcls    = emitEmptyGCrefVars;
-        X86_ONLY(argCount = static_cast<int>(emitGetInsCns(id)));
+        X86_ONLY(argCount = id->idSmallCns());
 
         if (id->idGCref() == GCT_GCREF)
         {
