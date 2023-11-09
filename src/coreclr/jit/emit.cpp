@@ -5495,7 +5495,7 @@ UNATIVE_OFFSET emitter::emitCodeOffset(void* blockPtr, unsigned codePos)
     return ig->igOffs + of;
 }
 
-cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
+emitter::cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
 {
     if (id->idIsLargeCns())
     {

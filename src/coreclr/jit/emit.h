@@ -1160,6 +1160,97 @@ private:
         }
     }; // End of  struct instrDesc
 
+#ifdef TARGET_X86
+    // instrDescCns holds constant values for the emitter. The X86 compiler is unique in that it
+    // may represent relocated pointer values with these constants. On the 64bit to 32 bit
+    // cross-targetting jit, the the constant value must be represented as a 64bit value in order
+    // to represent these pointers.
+    typedef ssize_t cnsval_ssize_t;
+    typedef size_t  cnsval_size_t;
+#else
+    typedef target_ssize_t cnsval_ssize_t;
+    typedef target_size_t  cnsval_size_t;
+#endif
+
+    struct instrDescCns : instrDesc // large const
+    {
+        cnsval_ssize_t idcCnsVal;
+    };
+
+#ifdef TARGET_XARCH
+    struct instrDescDsp : instrDesc // large displacement
+    {
+        target_ssize_t iddDspVal;
+    };
+
+    struct instrDescCnsDsp : instrDesc // large cons + disp
+    {
+        target_ssize_t iddcCnsVal;
+        int            iddcDspVal;
+    };
+
+    struct instrDescAmd : instrDesc // large addrmode disp
+    {
+        ssize_t idaAmdVal;
+    };
+
+    struct instrDescCnsAmd : instrDesc // large cons + addrmode disp
+    {
+        ssize_t idacCnsVal;
+        ssize_t idacAmdVal;
+    };
+#endif // TARGET_XARCH
+
+#ifdef TARGET_ARM
+    struct instrDescReloc : instrDesc
+    {
+        BYTE* idrRelocVal;
+    };
+#endif
+
+#if FEATURE_LOOP_ALIGN
+    struct instrDescAlign : instrDesc
+    {
+        instrDescAlign* idaNext; // next align in the group/method
+        insGroup*       idaIG;   // containing group
+    };
+#endif
+
+    struct instrDescJmp : instrDesc
+    {
+        instrDescJmp* idjNext; // next jump in the group/method
+        insGroup*     idjIG;   // containing group
+
+        union {
+            BYTE* idjAddr; // address of jump ins (for patching)
+        } idjTemp;
+
+        unsigned idjOffs : 30; // Before jump emission, this is the byte offset within IG of the jump instruction.
+        // After emission, for forward jumps, this is the target offset -- in bytes from the
+        // beginning of the function -- of the target instruction of the jump, used to
+        // determine if this jump needs to be patched.
+        unsigned idjShort : 1;    // is the jump known to be a short  one?
+        unsigned idjKeepLong : 1; // should the jump be kept long? (used for
+        // hot to cold and cold to hot jumps)
+    };
+
+    struct instrDescCGCA : instrDesc // call with ...
+    {
+        VARSET_TP idcGCvars; // ... updated GC vars or
+#ifdef TARGET_XARCH
+        int32_t idcDisp; // ... big addrmode disp
+#endif
+        regMaskTP idcGcrefRegs; // ... gcref registers
+        regMaskTP idcByrefRegs; // ... byref registers
+#ifdef TARGET_X86
+        int idcArgCnt; // ... lots of args or (<0 ==> caller pops args)
+#endif
+#if MULTIREG_HAS_SECOND_GC_RET
+        // TODO-MIKE-Cleanup: Remove this...
+        int workaroundToAvoidDiffInducingStupidInsGroupSizeChanges;
+#endif
+    };
+
 #ifdef DEBUG
     bool InstrHasNoCode(const instrDesc* id)
     {
@@ -1307,87 +1398,6 @@ private:
     void dispIns(instrDesc* id);
 
     void appendToCurIG(instrDesc* id);
-
-    /********************************************************************************************/
-
-    struct instrDescJmp : instrDesc
-    {
-        instrDescJmp* idjNext; // next jump in the group/method
-        insGroup*     idjIG;   // containing group
-
-        union {
-            BYTE* idjAddr; // address of jump ins (for patching)
-        } idjTemp;
-
-        unsigned idjOffs : 30;    // Before jump emission, this is the byte offset within IG of the jump instruction.
-                                  // After emission, for forward jumps, this is the target offset -- in bytes from the
-                                  // beginning of the function -- of the target instruction of the jump, used to
-                                  // determine if this jump needs to be patched.
-        unsigned idjShort : 1;    // is the jump known to be a short  one?
-        unsigned idjKeepLong : 1; // should the jump be kept long? (used for
-                                  // hot to cold and cold to hot jumps)
-    };
-
-#if FEATURE_LOOP_ALIGN
-    struct instrDescAlign : instrDesc
-    {
-        instrDescAlign* idaNext; // next align in the group/method
-        insGroup*       idaIG;   // containing group
-    };
-#endif
-
-    struct instrDescCns : instrDesc // large const
-    {
-        cnsval_ssize_t idcCnsVal;
-    };
-
-#ifdef TARGET_XARCH
-    struct instrDescDsp : instrDesc // large displacement
-    {
-        target_ssize_t iddDspVal;
-    };
-
-    struct instrDescCnsDsp : instrDesc // large cons + disp
-    {
-        target_ssize_t iddcCnsVal;
-        int            iddcDspVal;
-    };
-
-    struct instrDescAmd : instrDesc // large addrmode disp
-    {
-        ssize_t idaAmdVal;
-    };
-
-    struct instrDescCnsAmd : instrDesc // large cons + addrmode disp
-    {
-        ssize_t idacCnsVal;
-        ssize_t idacAmdVal;
-    };
-#endif // TARGET_XARCH
-
-    struct instrDescCGCA : instrDesc // call with ...
-    {
-        VARSET_TP idcGCvars; // ... updated GC vars or
-#ifdef TARGET_XARCH
-        int32_t idcDisp; // ... big addrmode disp
-#endif
-        regMaskTP idcGcrefRegs; // ... gcref registers
-        regMaskTP idcByrefRegs; // ... byref registers
-#ifdef TARGET_X86
-        int idcArgCnt; // ... lots of args or (<0 ==> caller pops args)
-#endif
-#if MULTIREG_HAS_SECOND_GC_RET
-        // TODO-MIKE-Cleanup: Remove this...
-        int workaroundToAvoidDiffInducingStupidInsGroupSizeChanges;
-#endif
-    };
-
-#ifdef TARGET_ARM
-    struct instrDescReloc : instrDesc
-    {
-        BYTE* idrRelocVal;
-    };
-#endif
 
     static insUpdateModes emitInsUpdateMode(instruction ins);
     static insFormat emitInsModeFormat(instruction ins, insFormat base);
