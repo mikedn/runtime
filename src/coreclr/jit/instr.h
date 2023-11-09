@@ -303,6 +303,7 @@ enum emitAttr : unsigned
 #define EA_4BYTE_DSP_RELOC (EA_SET_FLG(EA_4BYTE, EA_DSP_RELOC_FLG))
 #define EA_PTR_DSP_RELOC (EA_SET_FLG(EA_PTRSIZE, EA_DSP_RELOC_FLG))
 #define EA_HANDLE_CNS_RELOC (EA_SET_FLG(EA_PTRSIZE, EA_CNS_RELOC_FLG))
+#define EA_PTR_CNS_RELOC (EA_SET_FLG(EA_PTRSIZE, EA_CNS_RELOC_FLG))
 #define EA_IS_GCREF(x) ((((unsigned)(x)) & ((unsigned)EA_GCREF_FLG)) != 0)
 #define EA_IS_BYREF(x) ((((unsigned)(x)) & ((unsigned)EA_BYREF_FLG)) != 0)
 #define EA_IS_GCREF_OR_BYREF(x) ((((unsigned)(x)) & ((unsigned)(EA_BYREF_FLG | EA_GCREF_FLG))) != 0)

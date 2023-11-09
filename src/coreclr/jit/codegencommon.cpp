@@ -3600,8 +3600,12 @@ void CodeGen::PrologInitOsrLocals()
             JITDUMP("---OSR--- V%02u (reg) old rbp offset %d old frame %d this frame sp-fp %d new offset %d (%02xH)\n",
                     varNum, stkOffs, originalFrameSize, genSPtoFPdelta(), offset, offset);
 
-            // TODO-MIKE-Review: Is this called on ARM64? emitIns_R_AR is not implemented...
+#ifdef TARGET_XARCH
             GetEmitter()->emitIns_R_AR(ins_Load(lclTyp), size, varDsc->GetRegNum(), genFramePointerReg(), offset);
+#else
+            // TODO-MIKE-Review: Looks like ARM64 doesn't support OSR.
+            NYI("OSR local init");
+#endif
         }
     }
 }
@@ -3657,51 +3661,50 @@ void CodeGen::PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZer
     }
     else
     {
-#if !defined(TARGET_X86) && !defined(TARGET_ARM)
-        // On most targets we have enough param regs that the type context param
-        // is always passed in a register.
-        unreached();
-#else
+#if defined(TARGET_X86)
         if (isFramePointerUsed())
         {
-#ifdef TARGET_ARM
+            // It cannot be `this` since that's passed in a register so it has to be TypeCtxtArg
+            // which is always the last parameter (and we know that the frame pointer is also
+            // pushed, in addition to the return address).
+            noway_assert(varDsc->GetStackOffset() == 2 * REGSIZE_BYTES);
+        }
+
+        reg             = initReg;
+        *pInitRegZeroed = false;
+
+        GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, reg, genFramePointerReg(), varDsc->GetStackOffset());
+#elif defined(TARGET_ARM)
+        if (isFramePointerUsed())
+        {
             // On ARM both `this` and TypeCtxtArg are always reg params but due
             // to pre-spilling done for profiler we need to load from the stack,
             // the offset should be in the pre-spill param area, right above FP
             // and LR.
             noway_assert((2 * REGSIZE_BYTES <= varDsc->GetStackOffset()) &&
                          (size_t(varDsc->GetStackOffset()) < GetPreSpillSize() + 2 * REGSIZE_BYTES));
-#else
-            // It cannot be `this` since that's passed in a register so it has to be TypeCtxtArg
-            // which is always the last parameter (and we know that the frame pointer is also
-            // pushed, in addition to the return address).
-            noway_assert(varDsc->GetStackOffset() == 2 * REGSIZE_BYTES);
-#endif
         }
 
-        // We will just use the initReg since it is an available register
-        // and we are probably done using it anyway...
         reg             = initReg;
         *pInitRegZeroed = false;
 
-        // mov reg, [compiler->info.compTypeCtxtArg]
-        GetEmitter()->emitIns_R_AR(ins_Load(TYP_I_IMPL), EA_PTRSIZE, reg, genFramePointerReg(),
-                                   varDsc->GetStackOffset());
-#endif // defined(TARGET_X86) || defined(TARGET_ARM)
+        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, reg, genFramePointerReg(), varDsc->GetStackOffset());
+#else
+        // On other targets we have enough param regs that the type
+        // context param is always passed in a register.
+        unreached();
+#endif
     }
 
 #if defined(TARGET_ARM64)
-    genInstrWithConstant(ins_Store(TYP_I_IMPL), EA_PTRSIZE, reg, genFramePointerReg(), cachedGenericContextArgOffset,
-                         rsGetRsvdReg());
+    genInstrWithConstant(INS_str, EA_8BYTE, reg, genFramePointerReg(), cachedGenericContextArgOffset, rsGetRsvdReg());
 #elif defined(TARGET_ARM)
-    // ARM's emitIns_R_R_I automatically uses the reserved register if necessary.
-    GetEmitter()->emitIns_R_R_I(ins_Store(TYP_I_IMPL), EA_PTRSIZE, reg, genFramePointerReg(),
-                                cachedGenericContextArgOffset);
-#else  // !ARM64 !ARM
-    // mov [ebp-lvaCachedGenericContextArgOffset()], reg
-    GetEmitter()->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, reg, genFramePointerReg(),
-                               cachedGenericContextArgOffset);
-#endif // !ARM64 !ARM
+    GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, reg, genFramePointerReg(), cachedGenericContextArgOffset);
+#elif defined(TARGET_XARCH)
+    GetEmitter()->emitIns_AR_R(INS_mov, EA_PTRSIZE, reg, genFramePointerReg(), cachedGenericContextArgOffset);
+#else
+#error Unknown target
+#endif
 }
 
 /*****************************************************************************

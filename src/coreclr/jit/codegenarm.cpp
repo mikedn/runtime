@@ -580,7 +580,7 @@ void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
     regNumber idxReg  = UseReg(treeNode->GetOp(0));
     regNumber baseReg = UseReg(treeNode->GetOp(1));
 
-    GetEmitter()->emitIns_R_ARX(INS_ldr, EA_4BYTE, REG_PC, baseReg, idxReg, TARGET_POINTER_SIZE, 0);
+    GetEmitter()->emitIns_R_R_R_I(INS_ldr, EA_4BYTE, REG_PC, baseReg, idxReg, 2, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
 }
 
 void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
@@ -1156,11 +1156,12 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
         // Load the address into a register and call through a register
         if (addr != nullptr)
         {
-            instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, callTargetReg, reinterpret_cast<ssize_t>(addr));
+            instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, callTargetReg, reinterpret_cast<ssize_t>(addr));
         }
         else
         {
-            GetEmitter()->emitIns_R_AI(INS_ldr, EA_PTR_DSP_RELOC, callTargetReg, reinterpret_cast<ssize_t>(pAddr));
+            instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, callTargetReg, reinterpret_cast<ssize_t>(pAddr));
+            GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, callTargetReg, callTargetReg, 0);
         }
 
         callKind = emitter::EC_INDIR_R;
@@ -1242,13 +1243,16 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 
     assert((preSpillParamRegs & genRegMask(argReg)) != RBM_NONE);
 
+    ssize_t profilerMethodAddr = reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd);
+
     if (compiler->compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_R_AI(INS_ldr, EA_PTR_DSP_RELOC, argReg, (ssize_t)compiler->compProfilerMethHnd);
+        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, argReg, profilerMethodAddr);
+        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, argReg, argReg, 0);
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_4BYTE, argReg, (ssize_t)compiler->compProfilerMethHnd);
+        instGen_Set_Reg_To_Imm(EA_4BYTE, argReg, profilerMethodAddr);
     }
 
     genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER);
@@ -1325,13 +1329,16 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
         liveness.TransferGCRegType(REG_PROFILER_RET_SCRATCH, REG_R0);
     }
 
+    ssize_t profilerMethodAddr = reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd);
+
     if (compiler->compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_R_AI(INS_ldr, EA_PTR_DSP_RELOC, REG_R0, (ssize_t)compiler->compProfilerMethHnd);
+        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, REG_R0, profilerMethodAddr);
+        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_R0, REG_R0, 0);
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_PTRSIZE, REG_R0, (ssize_t)compiler->compProfilerMethHnd);
+        instGen_Set_Reg_To_Imm(EA_4BYTE, REG_R0, profilerMethodAddr);
     }
 
     liveness.RemoveGCRegs(RBM_R0);

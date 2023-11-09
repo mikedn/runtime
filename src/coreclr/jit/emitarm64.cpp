@@ -7680,11 +7680,6 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs)
-{
-    NYI("emitIns_R_AR");
-}
-
 // This computes address from the immediate which is relocatable.
 void emitter::emitIns_R_AI(instruction ins,
                            emitAttr    attr,
