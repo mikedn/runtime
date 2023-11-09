@@ -726,7 +726,7 @@ inline static ssize_t computeRelPageAddr(size_t dstAddr, size_t srcAddr)
 public:
 void emitIns(instruction ins);
 
-void emitIns_I(instruction ins, emitAttr attr, ssize_t imm);
+void emitIns_BRK(uint16_t imm);
 
 void emitIns_R(instruction ins, emitAttr attr, regNumber reg);
 
@@ -760,7 +760,7 @@ void emitIns_R_R_R_I(instruction ins,
                      regNumber   reg1,
                      regNumber   reg2,
                      regNumber   reg3,
-                     ssize_t     imm,
+                     int32_t     imm,
                      insOpts     opt      = INS_OPTS_NONE,
                      emitAttr    attrReg2 = EA_UNKNOWN);
 

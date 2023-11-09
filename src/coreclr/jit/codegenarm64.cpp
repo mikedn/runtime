@@ -5158,8 +5158,8 @@ void CodeGen::genArm64EmitterUnitTests()
 
     genDefineTempLabel(genCreateTempLabel());
 
-    theEmitter->emitIns_I(INS_brk, EA_8BYTE, 0);
-    theEmitter->emitIns_I(INS_brk, EA_8BYTE, 65535);
+    theEmitter->emitIns_BRK(0);
+    theEmitter->emitIns_BRK(65535);
 
     theEmitter->emitIns_BARR(INS_dsb, INS_BARRIER_OSHLD);
     theEmitter->emitIns_BARR(INS_dmb, INS_BARRIER_OSHST);

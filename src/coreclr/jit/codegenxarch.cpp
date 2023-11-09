@@ -8256,16 +8256,16 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
         int i = 0;
         for (; i + REGSIZE_BYTES <= blkSize; i += REGSIZE_BYTES)
         {
-            emit->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, frameReg, untrLclLo + i);
+            emit->emitIns_AR_R(INS_mov, EA_PTRSIZE, zeroReg, frameReg, untrLclLo + i);
         }
-#if defined(TARGET_AMD64)
-        assert((i == blkSize) || (i + (int)sizeof(int) == blkSize));
+#ifdef TARGET_AMD64
+        assert((i == blkSize) || (i + 4 == blkSize));
         if (i != blkSize)
         {
-            emit->emitIns_AR_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, frameReg, untrLclLo + i);
-            i += sizeof(int);
+            emit->emitIns_AR_R(INS_mov, EA_4BYTE, zeroReg, frameReg, untrLclLo + i);
+            i += 4;
         }
-#endif // defined(TARGET_AMD64)
+#endif
         assert(i == blkSize);
     }
     else
@@ -8318,13 +8318,13 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
             int i = 0;
             for (; i + REGSIZE_BYTES <= alignmentLoBlkSize; i += REGSIZE_BYTES)
             {
-                emit->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, frameReg, untrLclLo + i);
+                emit->emitIns_AR_R(INS_mov, EA_PTRSIZE, zeroReg, frameReg, untrLclLo + i);
             }
-            assert((i == alignmentLoBlkSize) || (i + (int)sizeof(int) == alignmentLoBlkSize));
+            assert((i == alignmentLoBlkSize) || (i + 4 == alignmentLoBlkSize));
             if (i != alignmentLoBlkSize)
             {
-                emit->emitIns_AR_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, frameReg, untrLclLo + i);
-                i += sizeof(int);
+                emit->emitIns_AR_R(INS_mov, EA_4BYTE, zeroReg, frameReg, untrLclLo + i);
+                i += 4;
             }
 
             assert(i == alignmentLoBlkSize);
@@ -8434,14 +8434,14 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
             int i = 0;
             for (; i + REGSIZE_BYTES <= alignmentHiBlkSize; i += REGSIZE_BYTES)
             {
-                emit->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, frameReg, alignedLclHi + i);
+                emit->emitIns_AR_R(INS_mov, EA_PTRSIZE, zeroReg, frameReg, alignedLclHi + i);
             }
 #if defined(TARGET_AMD64)
-            assert((i == alignmentHiBlkSize) || (i + (int)sizeof(int) == alignmentHiBlkSize));
+            assert((i == alignmentHiBlkSize) || (i + 4 == alignmentHiBlkSize));
             if (i != alignmentHiBlkSize)
             {
-                emit->emitIns_AR_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, frameReg, alignedLclHi + i);
-                i += sizeof(int);
+                emit->emitIns_AR_R(INS_mov, EA_4BYTE, zeroReg, frameReg, alignedLclHi + i);
+                i += 4;
             }
 #endif // defined(TARGET_AMD64)
             assert(i == alignmentHiBlkSize);

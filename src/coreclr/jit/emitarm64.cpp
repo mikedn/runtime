@@ -3578,38 +3578,11 @@ void emitter::emitIns(instruction ins)
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction with a single immediate value.
- */
-
-void emitter::emitIns_I(instruction ins, emitAttr attr, ssize_t imm)
+void emitter::emitIns_BRK(uint16_t imm)
 {
-    insFormat fmt = IF_NONE;
-
-    /* Figure out the encoding format of the instruction */
-    switch (ins)
-    {
-        case INS_brk:
-            if ((imm & 0x0000ffff) == imm)
-            {
-                fmt = IF_SI_0A;
-            }
-            else
-            {
-                assert(!"Instruction cannot be encoded: IF_SI_0A");
-            }
-            break;
-        default:
-            unreached();
-            break;
-    }
-    assert(fmt != IF_NONE);
-
-    instrDesc* id = emitNewInstrSC(attr, imm);
-
-    id->idIns(ins);
-    id->idInsFmt(fmt);
+    instrDesc* id = emitNewInstrSC(EA_8BYTE, imm);
+    id->idIns(INS_brk);
+    id->idInsFmt(IF_SI_0A);
 
     dispIns(id);
     appendToCurIG(id);
@@ -6302,19 +6275,14 @@ void emitter::emitIns_R_R_R(
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing three registers and a constant.
- */
-
 void emitter::emitIns_R_R_R_I(instruction ins,
                               emitAttr    attr,
                               regNumber   reg1,
                               regNumber   reg2,
                               regNumber   reg3,
-                              ssize_t     imm,
-                              insOpts     opt /* = INS_OPTS_NONE */,
-                              emitAttr    attrReg2 /* = EA_UNKNOWN */)
+                              int32_t     imm,
+                              insOpts     opt,
+                              emitAttr    attrReg2)
 {
     emitAttr  size     = EA_SIZE(attr);
     emitAttr  elemsize = EA_UNKNOWN;
@@ -6866,11 +6834,6 @@ void emitter::emitIns_R_R_R_Ext(instruction ins,
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing two registers and two constants.
- */
-
 void emitter::emitIns_R_R_I_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int imm1, int imm2, insOpts opt)
 {
@@ -6879,7 +6842,6 @@ void emitter::emitIns_R_R_I_I(
     insFormat fmt      = IF_NONE;
     size_t    immOut   = 0; // composed from imm1 and imm2 and stored in the instrDesc
 
-    /* Figure out the encoding format of the instruction */
     switch (ins)
     {
         int        lsb;
@@ -6979,12 +6941,11 @@ void emitter::emitIns_R_R_I_I(
 
         default:
             unreached();
-            break;
     }
+
     assert(fmt != IF_NONE);
 
     instrDesc* id = emitNewInstrSC(attr, immOut);
-
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
@@ -7296,37 +7257,13 @@ void emitter::emitIns_R_I_FLAGS_COND(
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add a memory barrier instruction with a 'barrier' immediate
- */
-
 void emitter::emitIns_BARR(instruction ins, insBarrier barrier)
 {
-    insFormat fmt = IF_NONE;
-    ssize_t   imm = 0;
+    assert((ins == INS_dsb) || (ins == INS_dmb) || (ins == INS_isb));
 
-    /* Figure out the encoding format of the instruction */
-    switch (ins)
-    {
-        case INS_dsb:
-        case INS_dmb:
-        case INS_isb:
-
-            fmt = IF_SI_0B;
-            imm = (ssize_t)barrier;
-            break;
-        default:
-            unreached();
-            break;
-    } // end switch (ins)
-
-    assert(fmt != IF_NONE);
-
-    instrDesc* id = emitNewInstrSC(EA_8BYTE, imm);
-
+    instrDesc* id = emitNewInstrSC(EA_8BYTE, static_cast<uint32_t>(barrier));
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(IF_SI_0B);
     id->idInsOpt(INS_OPTS_NONE);
 
     dispIns(id);
@@ -7397,7 +7334,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     int  baseOffset = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
 
     emitAttr size = EA_SIZE(attr);
-    int      imm  = baseOffset;
+    int32_t  imm  = baseOffset;
     unsigned scale;
 
     switch (ins)
@@ -7540,7 +7477,7 @@ void emitter::Ins_R_R_S(
     int  baseOffset = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
 
     regNumber baseReg = fpBased ? REG_FP : REG_ZR;
-    int       imm     = baseOffset;
+    int32_t   imm     = baseOffset;
     unsigned  scale   = genLog2(EA_SIZE_IN_BYTES(attr1));
     insFormat fmt;
 

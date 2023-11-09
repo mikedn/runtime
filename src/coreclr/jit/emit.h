@@ -1830,7 +1830,7 @@ private:
     instrDesc* emitNewInstrSmall(emitAttr attr);
     instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
     instrDesc* emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns);
-    instrDesc* emitNewInstrCns(emitAttr attr, cnsval_ssize_t cns);
+    instrDesc* emitNewInstrCns(emitAttr attr, int32_t imm);
     instrDesc* emitNewInstrDsp(emitAttr attr, target_ssize_t dsp);
     instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t cns, int dsp);
     instrDescJmp* emitNewInstrJmp();
@@ -2171,7 +2171,7 @@ inline emitter::instrDescAlign* emitter::emitNewInstrAlign()
  *  Note that this very similar to emitter::emitNewInstrSC(), except it never
  *  allocates a small descriptor.
  */
-inline emitter::instrDesc* emitter::emitNewInstrCns(emitAttr attr, cnsval_ssize_t cns)
+inline emitter::instrDesc* emitter::emitNewInstrCns(emitAttr attr, int32_t cns)
 {
     if (instrDesc::fitsInSmallCns(cns))
     {

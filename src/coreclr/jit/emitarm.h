@@ -79,8 +79,8 @@ instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize
 /************************************************************************/
 
 public:
-static bool validImmForInstr(instruction ins, target_ssize_t imm, insFlags flags = INS_FLAGS_DONT_CARE);
-static bool validDispForLdSt(target_ssize_t disp, var_types type);
+static bool validImmForInstr(instruction ins, int32_t imm, insFlags flags = INS_FLAGS_DONT_CARE);
+static bool validDispForLdSt(int32_t disp, var_types type);
 static bool validImmForBL(ssize_t addr, Compiler* compiler);
 static bool emitInsIsCompare(instruction ins);
 static bool emitInsIsLoad(instruction ins);
@@ -95,7 +95,7 @@ static int encodeModImmConst(int imm);
 
 static int insUnscaleImm(instruction ins, int imm);
 
-void MovRegStackOffset(regNumber reg, int imm, int varNum, int varOffs);
+void MovRegStackOffset(regNumber reg, int32_t imm, int varNum, int varOffs);
 int OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, regNumber* baseReg);
 void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs);
 
@@ -217,14 +217,14 @@ static bool emitIns_valid_imm_for_vldst_offset(int imm);
 
 void emitIns(instruction ins);
 
-void emitIns_I(instruction ins, emitAttr attr, target_ssize_t imm);
+void emitIns_I(instruction ins, emitAttr attr, int32_t imm);
 
 void emitIns_R(instruction ins, emitAttr attr, regNumber reg);
 
-void emitIns_R_I(instruction    ins,
-                 emitAttr       attr,
-                 regNumber      reg,
-                 target_ssize_t imm,
+void emitIns_R_I(instruction ins,
+                 emitAttr    attr,
+                 regNumber   reg,
+                 int32_t     imm,
                  insFlags flags = INS_FLAGS_DONT_CARE DEBUGARG(HandleKind handleKind = HandleKind::None));
 void emitIns_MovRelocatableImmediate(instruction ins, emitAttr attr, regNumber reg, BYTE* addr);
 
@@ -268,7 +268,7 @@ void emitIns_R_R_R_I(instruction ins,
                      regNumber   reg1,
                      regNumber   reg2,
                      regNumber   reg3,
-                     int         imm,
+                     int32_t     imm,
                      insFlags    flags = INS_FLAGS_DONT_CARE,
                      insOpts     opt   = INS_OPTS_NONE);
 

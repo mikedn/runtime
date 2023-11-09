@@ -254,7 +254,7 @@ ssize_t GetAddrModeDisp(GenTree* addr);
 void SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* addr);
 void emitSetAmdDisp(instrDescAmd* id, ssize_t dsp);
 instrDesc* emitNewInstrAmd(emitAttr attr, ssize_t dsp);
-instrDesc* emitNewInstrAmdCns(emitAttr attr, ssize_t dsp, int cns);
+instrDesc* emitNewInstrAmdCns(emitAttr attr, ssize_t dsp, int32_t cns);
 
 instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
                             emitAttr              retRegAttr,
@@ -350,12 +350,6 @@ void emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2)
 
 void emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int ival);
 
-void emitIns_AR(instruction ins, emitAttr attr, regNumber base, int disp);
-
-void emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scaled, int disp);
-
-void emitIns_AR_R_R(instruction ins, emitAttr attr, regNumber op2Reg, regNumber op3Reg, regNumber base, int offs);
-
 void emitIns_A(instruction ins, emitAttr attr, GenTree* addr);
 void emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int imm);
 void emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg);
@@ -365,22 +359,11 @@ void emitIns_R_A(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr);
 
 void emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr, int ival);
 
-void emitIns_R_AR_I(instruction ins, emitAttr attr, regNumber reg1, regNumber base, int offs, int ival);
-
 void emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORINFO_FIELD_HANDLE fldHnd, int imm);
 
-void emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int varx, int offs, int ival);
+void emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int varx, int offs, int32_t imm);
 
 void emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr);
-
-void emitIns_R_AR_R(instruction ins,
-                    emitAttr    attr,
-                    regNumber   reg1,
-                    regNumber   reg2,
-                    regNumber   base,
-                    regNumber   index,
-                    int         scale,
-                    int         offs);
 
 void emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE fldHnd);
 
@@ -397,9 +380,9 @@ void emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, regNumber reg,
 void emitIns_R_R_C_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE fldHnd, int imm);
 
-void emitIns_R_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int ival);
+void emitIns_R_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int32_t imm);
 
-void emitIns_R_R_S_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs, int ival);
+void emitIns_R_R_S_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs, int32_t imm);
 
 void emitIns_R_R_A_R(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, GenTree* addr);
@@ -422,7 +405,7 @@ void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varx, int o
 
 void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs);
 
-void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val);
+void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int32_t imm);
 
 #ifdef WINDOWS_X86_ABI
 void emitInsMov_R_FS(regNumber reg, int offs);
@@ -435,28 +418,29 @@ void emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fdlHnd, in
 
 void emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
 
-void emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int disp, int imm);
-
-void emitIns_R_AR(instruction ins, emitAttr attr, regNumber reg, regNumber base, int disp);
-
 void emitIns_R_AI(instruction ins, emitAttr attr, regNumber ireg, ssize_t disp);
 
-void emitIns_AR_R(instruction ins, emitAttr attr, regNumber reg, regNumber base, cnsval_ssize_t disp);
-
-void emitIns_R_ARR(instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, int disp);
-
-void emitIns_ARX_I(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scale, int disp, int imm);
-
+void emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t disp);
+void emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scaled, int32_t disp);
+void emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int32_t disp, int imm);
+void emitIns_R_AR(instruction ins, emitAttr attr, regNumber reg, regNumber base, int32_t disp);
+void emitIns_R_ARR(instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, int32_t disp);
+void emitIns_AR_R(instruction ins, emitAttr attr, regNumber reg, regNumber base, int32_t disp);
+void emitIns_ARX_I(
+    instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scale, int32_t disp, int imm);
 void emitIns_R_ARX(
-    instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, unsigned scale, int disp);
-
-void emitIns_ARX_R(instruction    ins,
-                   emitAttr       attr,
-                   regNumber      reg,
-                   regNumber      base,
-                   regNumber      index,
-                   unsigned       scale,
-                   cnsval_ssize_t disp);
+    instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, unsigned scale, int32_t disp);
+void emitIns_ARX_R(
+    instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, unsigned scale, int32_t disp);
+void emitIns_AR_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber base, int32_t disp);
+void emitIns_R_AR_R(instruction ins,
+                    emitAttr    attr,
+                    regNumber   reg1,
+                    regNumber   reg2,
+                    regNumber   base,
+                    regNumber   index,
+                    int         scale,
+                    int32_t     disp);
 
 void emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, int ival);
 

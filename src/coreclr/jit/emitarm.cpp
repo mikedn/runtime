@@ -1320,7 +1320,7 @@ DONE:
     return (int)result;
 }
 
-bool emitter::validImmForInstr(instruction ins, target_ssize_t imm, insFlags flags)
+bool emitter::validImmForInstr(instruction ins, int32_t imm, insFlags flags)
 {
     if (emitInsIsLoadOrStore(ins) && !instIsFP(ins))
     {
@@ -1366,7 +1366,7 @@ bool emitter::validImmForInstr(instruction ins, target_ssize_t imm, insFlags fla
     }
 }
 
-bool emitter::validDispForLdSt(target_ssize_t disp, var_types type)
+bool emitter::validDispForLdSt(int32_t disp, var_types type)
 {
     return varTypeIsFloating(type) ? ((disp & 0x3FC) == disp) : ((disp >= -0x00ff) && (disp <= 0x0fff));
 }
@@ -1707,7 +1707,7 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
 }
 
 void emitter::emitIns_R_I(
-    instruction ins, emitAttr attr, regNumber reg, target_ssize_t imm, insFlags flags DEBUGARG(HandleKind handleKind))
+    instruction ins, emitAttr attr, regNumber reg, int32_t imm, insFlags flags DEBUGARG(HandleKind handleKind))
 {
     insFormat fmt = IF_NONE;
     insFlags  sf  = INS_FLAGS_DONT_CARE;
@@ -3391,19 +3391,14 @@ void emitter::emitIns_R_R_I_I(instruction ins,
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing three registers and a constant.
- */
-
 void emitter::emitIns_R_R_R_I(instruction ins,
                               emitAttr    attr,
                               regNumber   reg1,
                               regNumber   reg2,
                               regNumber   reg3,
-                              int         imm,
-                              insFlags    flags /* = INS_FLAGS_DONT_CARE */,
-                              insOpts     opt /* = INS_OPTS_NONE */)
+                              int32_t     imm,
+                              insFlags    flags,
+                              insOpts     opt)
 {
     emitAttr  size = EA_SIZE(attr);
     insFormat fmt  = IF_NONE;
@@ -3620,9 +3615,9 @@ void emitter::emitIns_R_R_R_R(
     appendToCurIG(id);
 }
 
-void emitter::MovRegStackOffset(regNumber reg, int imm, int varNum, int varOffs)
+void emitter::MovRegStackOffset(regNumber reg, int32_t imm, int varNum, int varOffs)
 {
-    auto mov = [&](instruction ins, int imm) {
+    auto mov = [&](instruction ins, int32_t imm) {
         instrDesc* id = emitNewInstrCns(EA_4BYTE, imm);
         id->idIns(ins);
         id->idInsFmt(IF_T2_N);
@@ -3703,7 +3698,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     bool      isFloatLoadStore = (ins == INS_vldr) || (ins == INS_vstr);
     bool      fpBased;
     int       baseOffset = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
-    int       imm        = baseOffset;
+    int32_t   imm        = baseOffset;
     regNumber baseReg;
 
     if (!fpBased)
@@ -5235,9 +5230,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T1_B: // T1_B    ........cccc....                                           cond
         {
             assert(id->idGCref() == GCT_NONE);
-            target_ssize_t condcode = emitGetInsSC(id);
-            dst                     = emitOutputIT(dst, ins, fmt, condcode);
-            sz                      = SMALL_IDSC_SIZE;
+            int32_t condcode = emitGetInsSC(id);
+            dst              = emitOutputIT(dst, ins, fmt, condcode);
+            sz               = SMALL_IDSC_SIZE;
         }
         break;
 #endif // FEATURE_ITINSTRUCTION
