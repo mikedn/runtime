@@ -30,6 +30,13 @@ constexpr bool IsDisp32(ssize_t disp)
 
 constexpr bool IsImm8(ssize_t imm)
 {
+#ifdef TARGET_X86
+    // When cross compiling for x86 we risk getting garbage in the upper 32 bits of imm,
+    // we can ignore that since we know we can't really have 64 bit operations on x86.
+    // TODO-MIKE-Review: This may happen on x64 too, but to fix it properly we'd need
+    // to know the instruction operand size (i.e. it needs to be 32 bit, not 64 bit).
+    imm = static_cast<int32_t>(imm);
+#endif
     return (-128 <= imm) && (imm <= 127);
 }
 
