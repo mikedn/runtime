@@ -483,8 +483,12 @@ private:
     unsigned insEncodePUW_H0(insOpts opt, int imm);
 #endif // TARGET_ARM
 
-    struct instrDesc
+    struct instrDesc;
+
+    struct instrDescSmall
     {
+        friend struct instrDesc;
+
     private:
 // The assembly instruction
 #if defined(TARGET_XARCH)
@@ -709,6 +713,20 @@ private:
 
 #define SMALL_IDSC_SIZE (8 + SMALL_IDSC_DEBUG_EXTRA)
 
+    public:
+        bool idIsSmallDsc() const
+        {
+            return (_idSmallDsc != 0);
+        }
+        void idSetIsSmallDsc()
+        {
+            _idSmallDsc = 1;
+        }
+    };
+
+    struct instrDesc : public instrDescSmall
+    {
+    private:
         void checkSizes();
 
         union idAddrUnion {
@@ -826,20 +844,10 @@ private:
             }
         } _idAddrUnion;
 
-        static_assert_no_msg(sizeof(idAddrUnion) <= sizeof(void*));
+        static_assert_no_msg(sizeof(idAddrUnion) == sizeof(void*));
 
     public:
-        bool idIsSmallDsc() const
-        {
-            return (_idSmallDsc != 0);
-        }
-        void idSetIsSmallDsc()
-        {
-            _idSmallDsc = 1;
-        }
-
 #if defined(TARGET_XARCH)
-
         unsigned idCodeSize() const
         {
             return _idCodeSize;
@@ -1757,28 +1765,31 @@ private:
 
     void* emitAllocAnyInstr(unsigned sz, emitAttr attr, bool updateLastIns = true);
 
+    template <typename T>
+    T* AllocInstr(emitAttr attr, bool updateLastIns = true)
+    {
+        return static_cast<T*>(emitAllocAnyInstr(sizeof(T), attr, updateLastIns));
+    }
+
     instrDesc* emitAllocInstr(emitAttr attr)
     {
 #if EMITTER_STATS
         emitTotalIDescCnt++;
-#endif // EMITTER_STATS
-        return (instrDesc*)emitAllocAnyInstr(sizeof(instrDesc), attr);
+#endif
+        return AllocInstr<instrDesc>(attr);
     }
 
-    instrDescJmp* emitAllocInstrJmp()
+    instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE)
     {
-#if EMITTER_STATS
-        emitTotalIDescJmpCnt++;
-#endif // EMITTER_STATS
-        return (instrDescJmp*)emitAllocAnyInstr(sizeof(instrDescJmp), EA_1BYTE);
+        return emitAllocInstr(attr);
     }
 
     instrDescCns* emitAllocInstrCns(emitAttr attr)
     {
 #if EMITTER_STATS
         emitTotalIDescCnsCnt++;
-#endif // EMITTER_STATS
-        return (instrDescCns*)emitAllocAnyInstr(sizeof(instrDescCns), attr);
+#endif
+        return AllocInstr<instrDescCns>(attr);
     }
 
     instrDescCns* emitAllocInstrCns(emitAttr attr, cnsval_size_t cns)
@@ -1789,34 +1800,103 @@ private:
         return result;
     }
 
+    static_assert_no_msg(sizeof(instrDescSmall) == SMALL_IDSC_SIZE);
+
+    instrDesc* emitNewInstrSmall(emitAttr attr)
+    {
+        instrDescSmall* id = AllocInstr<instrDescSmall>(attr);
+        id->idSetIsSmallDsc();
+#if EMITTER_STATS
+        emitTotalIDescSmallCnt++;
+#endif
+        return static_cast<instrDesc*>(id);
+    }
+
+    instrDesc* emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns)
+    {
+        if (instrDesc::fitsInSmallCns(cns))
+        {
+            instrDesc* id = emitNewInstrSmall(attr);
+            id->idSmallCns(cns);
+#if EMITTER_STATS
+            emitSmallCnsCnt++;
+            if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
+                emitSmallCns[SMALL_CNS_TSZ - 1]++;
+            else
+                emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
+#endif
+            return id;
+        }
+
+        instrDescCns* id = emitAllocInstrCns(attr, cns);
+#if EMITTER_STATS
+        emitLargeCnsCnt++;
+#endif
+        return id;
+    }
+
+    instrDesc* emitNewInstrCns(emitAttr attr, int32_t cns)
+    {
+        if (instrDesc::fitsInSmallCns(cns))
+        {
+            instrDesc* id = emitAllocInstr(attr);
+            id->idSmallCns(cns);
+#if EMITTER_STATS
+            emitSmallCnsCnt++;
+            if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
+                emitSmallCns[SMALL_CNS_TSZ - 1]++;
+            else
+                emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
+#endif
+            return id;
+        }
+
+        instrDescCns* id = emitAllocInstrCns(attr, cns);
+#if EMITTER_STATS
+        emitLargeCnsCnt++;
+#endif
+        return id;
+    }
+
+    instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
+
+    instrDescJmp* emitAllocInstrJmp()
+    {
+#if EMITTER_STATS
+        emitTotalIDescJmpCnt++;
+#endif
+        return AllocInstr<instrDescJmp>(EA_1BYTE);
+    }
+
+    instrDescJmp* emitNewInstrJmp()
+    {
+        return emitAllocInstrJmp();
+    }
+
     instrDescCGCA* emitAllocInstrCGCA(emitAttr attr)
     {
 #if EMITTER_STATS
         emitTotalIDescCGCACnt++;
-#endif // EMITTER_STATS
-        return (instrDescCGCA*)emitAllocAnyInstr(sizeof(instrDescCGCA), attr);
+#endif
+        return AllocInstr<instrDescCGCA>(attr);
     }
-
-    instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
 
 #if FEATURE_LOOP_ALIGN
     instrDescAlign* emitAllocInstrAlign()
     {
 #if EMITTER_STATS
         emitTotalDescAlignCnt++;
-#endif // EMITTER_STATS
-        return (instrDescAlign*)emitAllocAnyInstr(sizeof(instrDescAlign), EA_1BYTE);
-    }
-    instrDescAlign* emitNewInstrAlign();
 #endif
+        return AllocInstr<instrDescAlign>(EA_1BYTE);
+    }
 
-    instrDesc* emitNewInstrSmall(emitAttr attr);
-    instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
-    instrDesc* emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns);
-    instrDesc* emitNewInstrCns(emitAttr attr, int32_t imm);
-    instrDesc* emitNewInstrDsp(emitAttr attr, target_ssize_t dsp);
-    instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t cns, int dsp);
-    instrDescJmp* emitNewInstrJmp();
+    instrDescAlign* emitNewInstrAlign()
+    {
+        instrDescAlign* newInstr = emitAllocInstrAlign();
+        newInstr->idIns(INS_align);
+        return newInstr;
+    }
+#endif
 
     static ID_OPS GetFormatOp(insFormat format);
 
@@ -2109,82 +2189,6 @@ inline emitAttr emitter::emitDecodeSize(emitter::opSize ensz)
 
 /*****************************************************************************
  *
- *  Little helpers to allocate various flavors of instructions.
- */
-
-inline emitter::instrDesc* emitter::emitNewInstrSmall(emitAttr attr)
-{
-    instrDesc* id;
-
-    id = (instrDesc*)emitAllocAnyInstr(SMALL_IDSC_SIZE, attr);
-    id->idSetIsSmallDsc();
-
-#if EMITTER_STATS
-    emitTotalIDescSmallCnt++;
-#endif // EMITTER_STATS
-
-    return id;
-}
-
-inline emitter::instrDesc* emitter::emitNewInstr(emitAttr attr)
-{
-    // This is larger than the Small Descr
-    return emitAllocInstr(attr);
-}
-
-inline emitter::instrDescJmp* emitter::emitNewInstrJmp()
-{
-    return emitAllocInstrJmp();
-}
-
-#if FEATURE_LOOP_ALIGN
-inline emitter::instrDescAlign* emitter::emitNewInstrAlign()
-{
-    instrDescAlign* newInstr = emitAllocInstrAlign();
-    newInstr->idIns(INS_align);
-    return newInstr;
-}
-#endif
-
-/*****************************************************************************
- *
- *  Allocate an instruction descriptor for an instruction with a constant operand.
- *  The instruction descriptor uses the idAddrUnion to save additional info
- *  so the smallest size that this can be is sizeof(instrDesc).
- *  Note that this very similar to emitter::emitNewInstrSC(), except it never
- *  allocates a small descriptor.
- */
-inline emitter::instrDesc* emitter::emitNewInstrCns(emitAttr attr, int32_t cns)
-{
-    if (instrDesc::fitsInSmallCns(cns))
-    {
-        instrDesc* id = emitAllocInstr(attr);
-        id->idSmallCns(cns);
-
-#if EMITTER_STATS
-        emitSmallCnsCnt++;
-        if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
-            emitSmallCns[SMALL_CNS_TSZ - 1]++;
-        else
-            emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
-#endif
-
-        return id;
-    }
-    else
-    {
-        instrDescCns* id = emitAllocInstrCns(attr, cns);
-
-#if EMITTER_STATS
-        emitLargeCnsCnt++;
-#endif
-
-        return id;
-    }
-}
-
-/*****************************************************************************
- *
  *  Get the instrDesc size, general purpose version
  *
  */
@@ -2202,44 +2206,6 @@ inline size_t emitter::emitGetInstrDescSize(const instrDesc* id)
     }
 
     return sizeof(instrDesc);
-}
-
-/*****************************************************************************
- *
- *  Allocate an instruction descriptor for an instruction with a small integer
- *  constant operand. This is the same as emitNewInstrCns() except that here
- *  any constant that is small enough for instrDesc::fitsInSmallCns() only gets
- *  allocated SMALL_IDSC_SIZE bytes (and is thus a small descriptor, whereas
- *  emitNewInstrCns() always allocates at least sizeof(instrDesc)).
- */
-
-inline emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns)
-{
-    if (instrDesc::fitsInSmallCns(cns))
-    {
-        instrDesc* id = emitNewInstrSmall(attr);
-        id->idSmallCns(cns);
-
-#if EMITTER_STATS
-        emitSmallCnsCnt++;
-        if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
-            emitSmallCns[SMALL_CNS_TSZ - 1]++;
-        else
-            emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
-#endif
-
-        return id;
-    }
-    else
-    {
-        instrDescCns* id = emitAllocInstrCns(attr, cns);
-
-#if EMITTER_STATS
-        emitLargeCnsCnt++;
-#endif
-
-        return id;
-    }
 }
 
 inline bool IsCodeAligned(UNATIVE_OFFSET offset)
