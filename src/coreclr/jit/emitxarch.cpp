@@ -7956,25 +7956,14 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
         disp = emitGetInsAmdDisp(id);
     }
 
-    bool hasDisp8 = IsDisp8(disp) && !id->idIsDspReloc();
+    if (!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32))
+    {
+        dst += emitOutputByte(dst, code);
+        code >>= 8;
+    }
 
     if ((indexReg == REG_NA) && (baseReg == REG_NA))
     {
-#ifdef TARGET_X86
-        code_t rmCode = 0x05;
-#else
-        code_t rmCode = id->idIsDspReloc() ? 0x05 : 0x04;
-#endif
-
-        if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
-        {
-            dst += emitOutputByte(dst, code | rmCode);
-        }
-        else
-        {
-            dst += emitOutputWord(dst, code | (rmCode << 8));
-        }
-
         if (!id->idIsDspReloc())
         {
 #ifdef TARGET_AMD64
@@ -7982,14 +7971,18 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
             noway_assert(!emitComp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(disp)));
             noway_assert(IsDisp32(disp));
 
-            dst += emitOutputByte(dst, 0x25);
+            dst += emitOutputWord(dst, (code & 0xFF) | 0x2504);
+#else
+            dst += emitOutputByte(dst, code | 0x05);
 #endif
             dst += emitOutputLong(dst, disp);
         }
         else
         {
-            // For emitting relocation, we also need to take into account of the
-            // additional bytes of code emitted for imm.
+            dst += emitOutputByte(dst, code | 0x05);
+
+            // For emitting relocation, we also need to take into account
+            // the additional bytes of code emitted for imm.
             int32_t immRelocDelta = 0;
 
             if (imm != nullptr)
@@ -8015,54 +8008,50 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
     }
     else
     {
-        code_t   rmCode;
-        unsigned scale;
+        bool hasDisp  = (disp != 0) || baseRegisterRequiresDisplacement(baseReg);
+        bool hasDisp8 = IsDisp8(disp) && !id->idIsDspReloc();
 
         if (indexReg == REG_NA)
         {
-            scale  = 0;
-            rmCode = RegEncoding(baseReg);
+            code |= RegEncoding(baseReg);
 
-            if ((disp != 0) || baseRegisterRequiresDisplacement(baseReg))
+            if (hasDisp)
             {
-                rmCode |= hasDisp8 ? 0x40 : 0x80;
+                code |= hasDisp8 ? 0x40 : 0x80;
+            }
+
+            if (baseRegisterRequiresSibByte(baseReg))
+            {
+                dst += emitOutputWord(dst, (code & 0xFF) | 0x2400);
+            }
+            else
+            {
+                dst += emitOutputByte(dst, code);
             }
         }
         else
         {
-            scale  = emitDecodeScale(id->idAddr()->iiaAddrMode.amScale);
-            rmCode = RegEncoding(REG_RSP);
+            unsigned scale = emitDecodeScale(id->idAddr()->iiaAddrMode.amScale);
+
+            code &= 0xFF;
+            code |= RegEncoding(REG_RSP);
 
             if ((scale > 1) && (baseReg == REG_NA))
             {
-                baseReg  = REG_EBP;
+                baseReg  = REG_RBP;
+                hasDisp  = true;
                 hasDisp8 = false;
             }
-            else if ((disp != 0) || baseRegisterRequiresDisplacement(baseReg))
+            else if (hasDisp)
             {
-                rmCode |= hasDisp8 ? 0x40 : 0x80;
+                code |= hasDisp8 ? 0x40 : 0x80;
             }
+
+            code |= (RegEncoding(baseReg) | (RegEncoding(indexReg) << 3) | ScaleEncoding(scale)) << 8;
+            dst += emitOutputWord(dst, code);
         }
 
-        if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
-        {
-            dst += emitOutputByte(dst, code | rmCode);
-        }
-        else
-        {
-            dst += emitOutputWord(dst, code | (rmCode << 8));
-        }
-
-        if (indexReg != REG_NA)
-        {
-            dst += emitOutputByte(dst, RegEncoding(baseReg) | (RegEncoding(indexReg) << 3) | ScaleEncoding(scale));
-        }
-        else if (baseRegisterRequiresSibByte(baseReg))
-        {
-            dst += emitOutputByte(dst, 0x24);
-        }
-
-        if ((disp != 0) || baseRegisterRequiresDisplacement(baseReg))
+        if (hasDisp)
         {
             if (hasDisp8)
             {
@@ -8705,8 +8694,8 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
     }
     else
     {
-        // For emitting relocation, we also need to take into account of the
-        // additional bytes of code emitted for imm.
+        // For emitting relocation, we also need to take into account
+        // the additional bytes of code emitted for imm.
         int32_t immRelocDelta = 0;
 
         if (imm != nullptr)
