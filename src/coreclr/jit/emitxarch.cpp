@@ -28,7 +28,7 @@ constexpr bool IsDisp32(ssize_t disp)
     return (INT32_MIN <= disp) && (disp <= INT32_MAX);
 }
 
-constexpr bool IsImm8(ssize_t imm)
+inline bool IsImm8(ssize_t imm)
 {
 #ifdef TARGET_X86
     // When cross compiling for x86 we risk getting garbage in the upper 32 bits of imm,
