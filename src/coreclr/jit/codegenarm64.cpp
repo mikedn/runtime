@@ -1461,7 +1461,7 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
 {
     // For long address (default): `adrp + add` will be emitted.
     // For short address (proven later): `adr` will be emitted.
-    GetEmitter()->emitIns_R_L(INS_adr, EA_PTRSIZE, block->bbJumpDest, REG_INTRET);
+    GetEmitter()->emitIns_R_L(INS_adr, block->bbJumpDest, REG_INTRET);
 }
 
 void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
@@ -2298,7 +2298,7 @@ void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
     GetEmitter()->emitIns_R_R_R(INS_ldr, EA_4BYTE, baseReg, baseReg, idxReg, INS_OPTS_LSL);
 
     // add it to the absolute address of fgFirstBB
-    GetEmitter()->emitIns_R_L(INS_adr, EA_PTRSIZE, compiler->fgFirstBB, tmpReg);
+    GetEmitter()->emitIns_R_L(INS_adr, compiler->fgFirstBB, tmpReg);
     GetEmitter()->emitIns_R_R_R(INS_add, EA_PTRSIZE, baseReg, baseReg, tmpReg);
 
     // br baseReg
@@ -7941,7 +7941,7 @@ void CodeGen::genArm64EmitterUnitTests()
     instGen(INS_nop);
     instGen(INS_nop);
     instGen(INS_nop);
-    theEmitter->emitIns_R_L(INS_adr, EA_4BYTE_DSP_RELOC, label, REG_R0);
+    theEmitter->emitIns_R_L(INS_adr, label, REG_R0);
 
 #endif // ALL_ARM64_EMITTER_UNIT_TESTS
 

@@ -7707,7 +7707,7 @@ void emitter::emitSetShortJump(instrDescJmp* id)
     id->idjShort = true;
 }
 
-void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg)
+void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
 {
     assert(ins == INS_adr);
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);

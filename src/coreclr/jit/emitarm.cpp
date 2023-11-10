@@ -4047,7 +4047,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg)
+void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
 {
     assert((ins == INS_movt) || (ins == INS_movw));
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
@@ -4068,7 +4068,7 @@ void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNu
 
     if (emitComp->opts.compReloc)
     {
-        id->idSetRelocFlags(attr);
+        id->idSetRelocFlags(EA_4BYTE_DSP_RELOC);
     }
 
 #if EMITTER_STATS
@@ -4079,11 +4079,11 @@ void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNu
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_D(instruction ins, emitAttr attr, unsigned offs, regNumber reg)
+void emitter::emitIns_R_D(instruction ins, unsigned offs, regNumber reg)
 {
     assert((ins == INS_movw) || (ins == INS_movt));
 
-    instrDesc* id = emitNewInstrSC(attr, offs);
+    instrDesc* id = emitNewInstrSC(EA_HANDLE_CNS_RELOC, offs);
     id->idIns(ins);
     id->idReg1(reg);
     id->idInsFmt(IF_T2_N2);
@@ -4091,7 +4091,7 @@ void emitter::emitIns_R_D(instruction ins, emitAttr attr, unsigned offs, regNumb
 
     if (emitComp->opts.compReloc)
     {
-        id->idSetRelocFlags(attr);
+        id->idSetRelocFlags(EA_HANDLE_CNS_RELOC);
     }
 
     dispIns(id);

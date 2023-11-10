@@ -4671,7 +4671,7 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg)
+void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
 {
     assert(ins == INS_lea);
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
@@ -4681,7 +4681,8 @@ void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNu
     id->idIns(INS_lea);
     id->idReg1(reg);
     id->idInsFmt(IF_RWR_LABEL);
-    id->idOpSize(EA_SIZE(attr)); // emitNewInstrJmp() sets the size (incorrectly) to EA_1BYTE
+    id->idOpSize(EA_PTRSIZE);
+    id->idSetIsDspReloc();
     id->idAddr()->iiaBBlabel = dst;
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
@@ -4694,12 +4695,6 @@ void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNu
 #if EMITTER_STATS
     emitTotalIGjmps++;
 #endif
-
-    // Set the relocation flags - these give hint to zap to perform
-    // relocation of the specified 32bit address.
-    //
-    // Note the relocation flags influence the size estimate.
-    id->idSetRelocFlags(attr);
 
     unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);

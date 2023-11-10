@@ -278,9 +278,9 @@ void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varNum, int
 
 void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varNum, int varOffs);
 
-void emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
+void emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg);
 
-void emitIns_R_D(instruction ins, emitAttr attr, unsigned offs, regNumber reg);
+void emitIns_R_D(instruction ins, unsigned offs, regNumber reg);
 
 void emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
 

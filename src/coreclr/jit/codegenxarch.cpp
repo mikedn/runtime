@@ -387,7 +387,7 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
     // Generate a RIP-relative
     //         lea reg, [rip + disp32] ; the RIP is implicit
     // which will be position-independent.
-    GetEmitter()->emitIns_R_L(INS_lea, EA_PTR_DSP_RELOC, block->bbJumpDest, REG_INTRET);
+    GetEmitter()->emitIns_R_L(INS_lea, block->bbJumpDest, REG_INTRET);
 }
 
 #else // !FEATURE_EH_FUNCLETS
@@ -1567,7 +1567,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
         case GT_LABEL:
             genPendingCallLabel = genCreateTempLabel();
-            emit->emitIns_R_L(INS_lea, EA_PTR_DSP_RELOC, genPendingCallLabel, treeNode->GetRegNum());
+            emit->emitIns_R_L(INS_lea, genPendingCallLabel, treeNode->GetRegNum());
             // TODO-MIKE-Review: Hmm, no DefReg call?
             break;
 
@@ -3091,7 +3091,7 @@ void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
     GetEmitter()->emitIns_R_ARX(INS_mov, EA_4BYTE, baseReg, baseReg, idxReg, 4, 0);
 
     // add it to the absolute address of fgFirstBB
-    GetEmitter()->emitIns_R_L(INS_lea, EA_PTR_DSP_RELOC, compiler->fgFirstBB, tmpReg);
+    GetEmitter()->emitIns_R_L(INS_lea, compiler->fgFirstBB, tmpReg);
     GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, baseReg, tmpReg);
     // jmp baseReg
     GetEmitter()->emitIns_R(INS_i_jmp, emitTypeSize(TYP_I_IMPL), baseReg);
