@@ -4068,7 +4068,7 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
 
     if (emitComp->opts.compReloc)
     {
-        id->idSetRelocFlags(EA_4BYTE_DSP_RELOC);
+        id->idSetRelocFlags(EA_PTR_DSP_RELOC);
     }
 
 #if EMITTER_STATS

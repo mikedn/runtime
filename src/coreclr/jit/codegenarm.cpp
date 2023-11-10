@@ -131,7 +131,7 @@ void CodeGen::genMov32RelocatableDisplacement(BasicBlock* block, regNumber reg)
 
     if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
     {
-        GetEmitter()->emitIns_R_R_R(INS_add, EA_4BYTE_DSP_RELOC, reg, reg, REG_PC);
+        GetEmitter()->emitIns_R_R_R(INS_add, EA_4BYTE, reg, reg, REG_PC);
     }
 }
 
@@ -142,7 +142,7 @@ void CodeGen::genMov32RelocatableDataLabel(unsigned value, regNumber reg)
 
     if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
     {
-        GetEmitter()->emitIns_R_R_R(INS_add, EA_HANDLE_CNS_RELOC, reg, reg, REG_PC);
+        GetEmitter()->emitIns_R_R_R(INS_add, EA_4BYTE, reg, reg, REG_PC);
     }
 }
 

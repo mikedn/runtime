@@ -300,7 +300,6 @@ enum emitAttr : unsigned
 #define EA_SIZE_IN_BYTES(x) ((UNATIVE_OFFSET)(EA_SIZE(x)))
 #define EA_SET_SIZE(x, sz) ((emitAttr)((((unsigned)(x)) & ~EA_SIZE_MASK) | (sz)))
 #define EA_SET_FLG(x, flg) ((emitAttr)(((unsigned)(x)) | (flg)))
-#define EA_4BYTE_DSP_RELOC (EA_SET_FLG(EA_4BYTE, EA_DSP_RELOC_FLG))
 #define EA_PTR_DSP_RELOC (EA_SET_FLG(EA_PTRSIZE, EA_DSP_RELOC_FLG))
 #define EA_HANDLE_CNS_RELOC (EA_SET_FLG(EA_PTRSIZE, EA_CNS_RELOC_FLG))
 #define EA_PTR_CNS_RELOC (EA_SET_FLG(EA_PTRSIZE, EA_CNS_RELOC_FLG))
