@@ -4068,7 +4068,7 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
 
     if (emitComp->opts.compReloc)
     {
-        id->idSetRelocFlags(EA_PTR_DSP_RELOC);
+        id->idSetIsCnsReloc();
     }
 
 #if EMITTER_STATS
@@ -4091,7 +4091,7 @@ void emitter::emitIns_R_D(instruction ins, unsigned offs, regNumber reg)
 
     if (emitComp->opts.compReloc)
     {
-        id->idSetRelocFlags(EA_HANDLE_CNS_RELOC);
+        id->idSetIsCnsReloc();
     }
 
     dispIns(id);
@@ -4187,9 +4187,9 @@ void emitter::emitIns_Call(EmitCallType          kind,
         {
             // Since this is an indirect call through a pointer and we don't
             // currently pass in emitAttr into this function we have decided
-            // to always mark the displacement as being relocatable.
+            // to always mark the address as being relocatable.
 
-            id->idSetIsDspReloc();
+            id->idSetIsCnsReloc();
         }
     }
 
@@ -4990,7 +4990,7 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
             code |= insEncodeRegT2_D(id->idReg1());
             ((instrDescJmp*)id)->idjTemp.idjAddr = (dstOffs > srcOffs) ? dst : NULL;
 
-            if (id->idIsReloc())
+            if (id->idIsCnsReloc())
             {
                 dst += emitOutput_Thumb2Instr(dst, code);
                 if ((ins == INS_movt) && emitComp->info.compMatchedVM)
@@ -5666,7 +5666,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             code |= insEncodeRegT2_D(id->idReg1());
             imm  = emitGetInsSC(id);
             addr = emitConsBlock + imm;
-            if (!id->idIsReloc())
+            if (!id->idIsCnsReloc())
             {
                 assert(sizeof(size_t) == sizeof(target_size_t));
                 imm = (target_size_t)(size_t)addr;
@@ -5873,7 +5873,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             }
             code = emitInsCode(ins, fmt);
 
-            if (id->idIsDspReloc())
+            if (id->idIsCnsReloc())
             {
                 dst += emitOutput_Thumb2Instr(dst, code);
                 emitRecordRelocation((void*)(dst - 4), addr, IMAGE_REL_BASED_THUMB_BRANCH24);
@@ -6552,12 +6552,6 @@ void emitter::emitDispInsHelp(
 
         case IF_T2_N2:
             emitDispReg(id->idReg1(), attr, true);
-
-            if (id->idIsDspReloc())
-            {
-                printf("reloc ");
-            }
-
             printf("%s @RWD%02u", id->idIns() == INS_movw ? "LOW" : "HIGH", emitGetInsSC(id));
             break;
 
