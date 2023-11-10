@@ -232,9 +232,6 @@ unsigned emitter::emitTotalIDescAmdCnt;
 unsigned emitter::emitTotalIDescCnsAmdCnt;
 #endif // TARGET_XARCH
 unsigned emitter::emitTotalIDescCGCACnt;
-#ifdef TARGET_ARM
-unsigned emitter::emitTotalIDescRelocCnt;
-#endif // TARGET_ARM
 
 unsigned emitter::emitSmallDspCnt;
 unsigned emitter::emitLargeDspCnt;
@@ -353,10 +350,6 @@ void emitterStats(FILE* fout)
 #endif // TARGET_XARCH
         fprintf(fout, "Total instrDescCGCA:   %8u (%5.2f%%)\n", emitter::emitTotalIDescCGCACnt,
                 100.0 * emitter::emitTotalIDescCGCACnt / emitter::emitTotalInsCnt);
-#ifdef TARGET_ARM
-        fprintf(fout, "Total instrDescReloc:  %8u (%5.2f%%)\n", emitter::emitTotalIDescRelocCnt,
-                100.0 * emitter::emitTotalIDescRelocCnt / emitter::emitTotalInsCnt);
-#endif // TARGET_ARM
         fprintf(fout, "Total instrDescAlign:  %8u (%5.2f%%)\n", emitter::emitTotalDescAlignCnt,
                 100.0 * emitter::emitTotalDescAlignCnt / emitter::emitTotalInsCnt);
 

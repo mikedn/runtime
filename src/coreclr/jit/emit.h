@@ -1207,13 +1207,6 @@ private:
     };
 #endif // TARGET_XARCH
 
-#ifdef TARGET_ARM
-    struct instrDescReloc : instrDesc
-    {
-        void* idrRelocVal;
-    };
-#endif
-
 #if FEATURE_LOOP_ALIGN
     struct instrDescAlign : instrDesc
     {
@@ -2059,9 +2052,6 @@ public:
     static unsigned emitTotalIDescCnsAmdCnt;
 #endif // TARGET_XARCH
     static unsigned emitTotalIDescCGCACnt;
-#ifdef TARGET_ARM
-    static unsigned emitTotalIDescRelocCnt;
-#endif // TARGET_ARM
 
     static size_t emitTotMemAlloc;
 

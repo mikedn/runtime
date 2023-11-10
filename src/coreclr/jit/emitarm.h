@@ -3,8 +3,6 @@
 
 #ifdef TARGET_ARM
 
-instrDesc* emitNewInstrReloc(emitAttr attr, void* addr);
-void* emitGetInsRelocValue(instrDesc* id);
 void emitHandlePCRelativeMov32(void* location, void* target);
 
 // This typedef defines the type that we use to hold encoded instructions.

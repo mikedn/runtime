@@ -129,12 +129,6 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
             break;
     }
 
-    if (id->idInsFmt() == IF_T2_N3)
-    {
-        assert((id->idIns() == INS_movw) || (id->idIns() == INS_movt));
-        return sizeof(instrDescReloc);
-    }
-
     if (id->idIsLargeCns())
     {
         return sizeof(instrDescCns);
@@ -2018,12 +2012,13 @@ void emitter::emitIns_MovRelocatableImmediate(instruction ins, regNumber reg, vo
 {
     assert((ins == INS_movw) || (ins == INS_movt));
 
-    instrDesc* id = emitNewInstrReloc(EA_PTR_CNS_RELOC, addr);
+    instrDesc* id = emitNewInstr(EA_PTR_CNS_RELOC);
     id->idIns(ins);
     id->idInsFmt(IF_T2_N3);
     id->idInsSize(emitInsSize(IF_T2_N3));
     id->idInsFlags(INS_FLAGS_NOT_SET);
     id->idReg1(reg);
+    id->idAddr()->iiaAddr = addr;
 
     dispIns(id);
     appendToCurIG(id);
@@ -5124,26 +5119,6 @@ size_t emitter::emitGetInstrDescSizeSC(const instrDesc* id)
     }
 }
 
-emitter::instrDesc* emitter::emitNewInstrReloc(emitAttr attr, void* addr)
-{
-    assert(EA_IS_CNS_RELOC(attr));
-
-    instrDescReloc* id = static_cast<instrDescReloc*>(emitAllocAnyInstr(sizeof(instrDescReloc), attr));
-    assert(id->idIsCnsReloc());
-    id->idrRelocVal = addr;
-
-#if EMITTER_STATS
-    emitTotalIDescRelocCnt++;
-#endif
-
-    return id;
-}
-
-void* emitter::emitGetInsRelocValue(instrDesc* id)
-{
-    return static_cast<instrDescReloc*>(id)->idrRelocVal;
-}
-
 // A helper for handling a Thumb-Mov32 of position-independent (PC-relative) value
 //
 // This routine either records relocation for the location with the EE,
@@ -5683,14 +5658,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_N3: // T2_N3   .....i......iiii .iiiddddiiiiiiii       R1                 imm16
-            sz   = sizeof(instrDescReloc);
+            sz   = sizeof(instrDesc);
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
 
             assert((ins == INS_movt) || (ins == INS_movw));
             assert(id->idIsCnsReloc());
 
-            addr = emitGetInsRelocValue(id);
+            addr = id->idAddr()->iiaAddr;
             dst += emitOutput_Thumb2Instr(dst, code);
             if ((ins == INS_movt) && emitComp->info.compMatchedVM)
                 emitHandlePCRelativeMov32((void*)(dst - 8), addr);
@@ -6538,7 +6513,7 @@ void emitter::emitDispInsHelp(
         case IF_T2_N3:
             emitDispReg(id->idReg1(), attr, true);
             printf("%s RELOC ", (id->idIns() == INS_movw) ? "LOW" : "HIGH");
-            emitDispReloc(emitGetInsRelocValue(id));
+            emitDispReloc(id->idAddr()->iiaAddr);
             break;
 
         case IF_T2_N2:
