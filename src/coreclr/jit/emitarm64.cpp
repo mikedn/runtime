@@ -7624,7 +7624,7 @@ void emitter::emitIns_R_AI(instruction ins,
                            ssize_t addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
     assert((ins == INS_adrp) || (ins == INS_adr));
-    assert(EA_IS_RELOC(attr));
+    assert(EA_IS_CNS_RELOC(attr));
 
     emitAttr size = EA_SIZE(attr);
 
@@ -7635,7 +7635,7 @@ void emitter::emitIns_R_AI(instruction ins,
     id->idOpSize(size);
     id->idAddr()->iiaAddr = reinterpret_cast<void*>(addr);
     id->idReg1(reg);
-    id->idSetIsDspReloc();
+    id->idSetIsCnsReloc();
 #ifdef DEBUG
     id->idDebugOnlyInfo()->idHandle     = handle;
     id->idDebugOnlyInfo()->idHandleKind = handleKind;
@@ -7647,7 +7647,7 @@ void emitter::emitIns_R_AI(instruction ins,
     if (ins == INS_adrp)
     {
         instrDesc* id = emitNewInstr(attr);
-        assert(id->idIsReloc());
+        assert(id->idIsCnsReloc());
 
         id->idIns(INS_add);
         id->idInsFmt(IF_DI_2A);
@@ -7927,7 +7927,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
 
         if (emitComp->opts.compReloc)
         {
-            id->idSetIsDspReloc();
+            id->idSetIsCnsReloc();
         }
     }
 
@@ -9884,7 +9884,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_DI_1E: // DI_1E   .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
         case IF_LARGEADR:
             assert(insOptsNone(id->idInsOpt()));
-            if (id->idIsReloc())
+            if (id->idIsCnsReloc())
             {
                 code = emitInsCode(ins, fmt);
                 code |= insEncodeReg_Rd(id->idReg1()); // ddddd
@@ -9928,7 +9928,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             code |= insEncodeReg_Rn(id->idReg2());       // nnnnn
             dst += emitOutput_Instr(dst, code);
 
-            if (id->idIsReloc())
+            if (id->idIsCnsReloc())
             {
                 assert(sz == sizeof(instrDesc));
                 assert(id->idAddr()->iiaAddr != nullptr);
@@ -10817,7 +10817,7 @@ void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
     {
         assert(imm == 0);
 
-        if (id->idIsReloc())
+        if (id->idIsCnsReloc())
         {
             printf("HIGH RELOC ");
 
@@ -11745,7 +11745,7 @@ void emitter::emitDispIns(
                 emitDispReg(id->idReg1(), size, true);
                 emitDispReg(id->idReg2(), size, true);
             }
-            if (id->idIsReloc())
+            if (id->idIsCnsReloc())
             {
                 assert(ins == INS_add);
                 printf("[LOW RELOC ");

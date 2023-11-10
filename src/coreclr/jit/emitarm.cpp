@@ -353,7 +353,7 @@ void emitter::emitInsSanityCheck(instrDesc* id)
 
         case IF_T2_N: // T2_N    .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             assert(isGeneralRegister(id->idReg1()));
-            assert(!id->idIsReloc());
+            assert(!id->idIsCnsReloc());
             break;
 
         case IF_T2_N2: // T2_N2   .....i......iiii .iiiddddiiiiiiii       R1                 imm16
@@ -363,7 +363,7 @@ void emitter::emitInsSanityCheck(instrDesc* id)
 
         case IF_T2_N3: // T2_N3   .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             assert(isGeneralRegister(id->idReg1()));
-            assert(id->idIsReloc());
+            assert(id->idIsCnsReloc());
             break;
 
         case IF_T2_I1: // T2_I1   ................ rrrrrrrrrrrrrrrr                          imm16
@@ -1895,7 +1895,7 @@ void emitter::emitIns_R_I(
 
         case INS_movw:
         case INS_movt:
-            assert(!EA_IS_RELOC(attr));
+            assert(!EA_IS_CNS_RELOC(attr));
             assert(insDoesNotSetFlags(flags));
 
             if ((imm & 0x0000ffff) == imm)
@@ -2018,7 +2018,7 @@ void emitter::emitIns_R_I(
 
 void emitter::emitIns_MovRelocatableImmediate(instruction ins, emitAttr attr, regNumber reg, BYTE* addr)
 {
-    assert(EA_IS_RELOC(attr));
+    assert(EA_IS_CNS_RELOC(attr));
     assert((ins == INS_movw) || (ins == INS_movt));
 
     insFormat fmt = IF_T2_N3;
@@ -5134,10 +5134,10 @@ size_t emitter::emitGetInstrDescSizeSC(const instrDesc* id)
 
 emitter::instrDesc* emitter::emitNewInstrReloc(emitAttr attr, uint8_t* addr)
 {
-    assert(EA_IS_RELOC(attr));
+    assert(EA_IS_CNS_RELOC(attr));
 
     instrDescReloc* id = static_cast<instrDescReloc*>(emitAllocAnyInstr(sizeof(instrDescReloc), attr));
-    assert(id->idIsReloc());
+    assert(id->idIsCnsReloc());
 
     id->idrRelocVal = addr;
 
@@ -5652,7 +5652,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_N: // T2_N    .....i......iiii .iiiddddiiiiiiii       R1                 imm16
-            assert(!id->idIsReloc());
+            assert(!id->idIsCnsReloc());
             sz   = emitGetInstrDescSizeSC(id);
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
@@ -5697,7 +5697,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             code |= insEncodeRegT2_D(id->idReg1());
 
             assert((ins == INS_movt) || (ins == INS_movw));
-            assert(id->idIsReloc());
+            assert(id->idIsCnsReloc());
 
             addr = emitGetInsRelocValue(id);
             dst += emitOutput_Thumb2Instr(dst, code);

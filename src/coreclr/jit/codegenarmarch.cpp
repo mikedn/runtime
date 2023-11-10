@@ -526,7 +526,7 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_DSP_RELOC, initReg, reinterpret_cast<ssize_t>(m_gsCookieAddr)
+        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, initReg, reinterpret_cast<ssize_t>(m_gsCookieAddr)
                                                               DEBUGARG(reinterpret_cast<void*>(THT_SetGSCookie)));
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, initReg, initReg, 0);
         GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, initReg, compiler->lvaGSSecurityCookie, 0);

@@ -536,12 +536,6 @@ private:
             _idInsFmt = insFmt;
         }
 
-        void idSetRelocFlags(emitAttr attr)
-        {
-            _idCnsReloc = (EA_IS_CNS_RELOC(attr) ? 1 : 0);
-            _idDspReloc = (EA_IS_DSP_RELOC(attr) ? 1 : 0);
-        }
-
         ////////////////////////////////////////////////////////////////////////
         // Space taken up to here:
         // x86:   17 bits
@@ -632,7 +626,9 @@ private:
         // arm64: 49 bits
 
         unsigned _idCnsReloc : 1; // LargeCns is an RVA and needs reloc tag
+#ifdef TARGET_XARCH
         unsigned _idDspReloc : 1; // LargeDsp is an RVA and needs reloc tag
+#endif
 
 #define ID_EXTRA_RELOC_BITS (2)
 
@@ -640,8 +636,8 @@ private:
         // Space taken up to here:
         // x86:   48 bits
         // amd64: 48 bits
-        // arm:   50 bits
-        // arm64: 51 bits
+        // arm:   49 bits
+        // arm64: 50 bits
         CLANG_FORMAT_COMMENT_ANCHOR;
 
 #define ID_EXTRA_BITS (ID_EXTRA_RELOC_BITS + ID_EXTRA_BITFIELD_BITS)
@@ -1121,6 +1117,7 @@ private:
             _idCnsReloc = 1;
         }
 
+#ifdef TARGET_XARCH
         bool idIsDspReloc() const
         {
             return _idDspReloc != 0;
@@ -1133,6 +1130,7 @@ private:
         {
             return idIsDspReloc() || idIsCnsReloc();
         }
+#endif
 
         unsigned idSmallCns() const
         {

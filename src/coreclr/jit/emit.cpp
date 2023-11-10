@@ -1047,6 +1047,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
         id->idOpSize(EA_SIZE(opsz));
     }
 
+#ifdef TARGET_XARCH
     // Amd64: ip-relative addressing is supported even when not generating relocatable ngen code
     if (EA_IS_DSP_RELOC(opsz)
 #ifndef TARGET_AMD64
@@ -1058,6 +1059,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
         /* address mode has a displacement that is relocatable       */
         id->idSetIsDspReloc();
     }
+#endif
 
     if (EA_IS_CNS_RELOC(opsz) && emitComp->opts.compReloc)
     {

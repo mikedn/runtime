@@ -1480,7 +1480,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
         size = EA_SIZE(size); // Strip any Reloc flags from size if we aren't doing relocs
     }
 
-    if (EA_IS_RELOC(size))
+    if (EA_IS_CNS_RELOC(size))
     {
         // This emits a pair of adrp/add (two instructions) with fix-ups.
         GetEmitter()->emitIns_R_AI(INS_adrp, size, reg, imm DEBUGARG(handle) DEBUGARG(handleKind));
@@ -3099,7 +3099,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
         callTarget = callTargetReg;
 
         // adrp + add with relocations will be emitted
-        GetEmitter()->emitIns_R_AI(INS_adrp, EA_PTR_DSP_RELOC, callTarget,
+        GetEmitter()->emitIns_R_AI(INS_adrp, EA_PTR_CNS_RELOC, callTarget,
                                    reinterpret_cast<ssize_t>(pAddr)
                                        DEBUGARG(reinterpret_cast<void*>(Compiler::eeFindHelper(helper)))
                                            DEBUGARG(HandleKind::Method));
@@ -3232,7 +3232,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 
     if (compiler->compProfilerMethHndIndirected)
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_DSP_RELOC, REG_PROFILER_ENTER_ARG_FUNC_ID,
+        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, REG_PROFILER_ENTER_ARG_FUNC_ID,
                                reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
         GetEmitter()->emitIns_R_R(INS_ldr, EA_PTRSIZE, REG_PROFILER_ENTER_ARG_FUNC_ID, REG_PROFILER_ENTER_ARG_FUNC_ID);
     }
@@ -3267,7 +3267,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
     if (compiler->compProfilerMethHndIndirected)
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_DSP_RELOC, REG_PROFILER_LEAVE_ARG_FUNC_ID,
+        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, REG_PROFILER_LEAVE_ARG_FUNC_ID,
                                reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
         GetEmitter()->emitIns_R_R(INS_ldr, EA_PTRSIZE, REG_PROFILER_LEAVE_ARG_FUNC_ID, REG_PROFILER_LEAVE_ARG_FUNC_ID);
     }

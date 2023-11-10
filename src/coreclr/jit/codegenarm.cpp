@@ -148,7 +148,7 @@ void CodeGen::genMov32RelocatableDataLabel(unsigned value, regNumber reg)
 
 void CodeGen::genMov32RelocatableImmediate(emitAttr size, BYTE* addr, regNumber reg)
 {
-    _ASSERTE(EA_IS_RELOC(size));
+    _ASSERTE(EA_IS_CNS_RELOC(size));
 
     GetEmitter()->emitIns_MovRelocatableImmediate(INS_movw, size, reg, addr);
     GetEmitter()->emitIns_MovRelocatableImmediate(INS_movt, size, reg, addr);
@@ -176,7 +176,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
         size = EA_SIZE(size); // Strip any Reloc flags from size if we aren't doing relocs
     }
 
-    if (EA_IS_RELOC(size))
+    if (EA_IS_CNS_RELOC(size))
     {
         // TODO-CrossBitness: we wouldn't need the cast below if we had CodeGen::instGen_Set_Reg_To_Reloc_Imm.
         genMov32RelocatableImmediate(size, (BYTE*)imm, reg);
