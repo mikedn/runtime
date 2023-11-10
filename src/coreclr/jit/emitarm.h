@@ -3,8 +3,8 @@
 
 #ifdef TARGET_ARM
 
-instrDesc* emitNewInstrReloc(emitAttr attr, uint8_t* addr);
-uint8_t* emitGetInsRelocValue(instrDesc* id);
+instrDesc* emitNewInstrReloc(emitAttr attr, void* addr);
+void* emitGetInsRelocValue(instrDesc* id);
 void emitHandlePCRelativeMov32(void* location, void* target);
 
 // This typedef defines the type that we use to hold encoded instructions.
@@ -35,7 +35,7 @@ unsigned emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code);
 
 void emitDispInst(instruction ins, insFlags flags);
 void emitDispImm(int imm, bool addComma, bool alwaysHex = false);
-void emitDispReloc(BYTE* addr);
+void emitDispReloc(void* addr);
 void emitDispCond(int cond);
 void emitDispShiftOpts(insOpts opt);
 void emitDispRegmask(int imm, bool encodedPC_LR);
@@ -226,7 +226,7 @@ void emitIns_R_I(instruction ins,
                  regNumber   reg,
                  int32_t     imm,
                  insFlags flags = INS_FLAGS_DONT_CARE DEBUGARG(HandleKind handleKind = HandleKind::None));
-void emitIns_MovRelocatableImmediate(instruction ins, emitAttr attr, regNumber reg, BYTE* addr);
+void emitIns_MovRelocatableImmediate(instruction ins, regNumber reg, void* addr);
 
 void emitIns_Mov(instruction ins,
                  emitAttr    attr,

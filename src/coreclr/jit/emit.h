@@ -1210,7 +1210,7 @@ private:
 #ifdef TARGET_ARM
     struct instrDescReloc : instrDesc
     {
-        BYTE* idrRelocVal;
+        void* idrRelocVal;
     };
 #endif
 

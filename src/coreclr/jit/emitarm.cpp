@@ -2002,12 +2002,10 @@ void emitter::emitIns_R_I(
 
     assert(sf != INS_FLAGS_DONT_CARE);
 
-    instrDesc* id  = emitNewInstrSC(attr, imm);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstrSC(attr, imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsSize(emitInsSize(fmt));
     id->idInsFlags(sf);
     id->idReg1(reg);
     INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
@@ -2016,21 +2014,15 @@ void emitter::emitIns_R_I(
     appendToCurIG(id);
 }
 
-void emitter::emitIns_MovRelocatableImmediate(instruction ins, emitAttr attr, regNumber reg, BYTE* addr)
+void emitter::emitIns_MovRelocatableImmediate(instruction ins, regNumber reg, void* addr)
 {
-    assert(EA_IS_CNS_RELOC(attr));
     assert((ins == INS_movw) || (ins == INS_movt));
 
-    insFormat fmt = IF_T2_N3;
-    insFlags  sf  = INS_FLAGS_NOT_SET;
-
-    instrDesc* id  = emitNewInstrReloc(attr, addr);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstrReloc(EA_PTR_CNS_RELOC, addr);
     id->idIns(ins);
-    id->idInsFmt(fmt);
-    id->idInsSize(isz);
-    id->idInsFlags(sf);
+    id->idInsFmt(IF_T2_N3);
+    id->idInsSize(emitInsSize(IF_T2_N3));
+    id->idInsFlags(INS_FLAGS_NOT_SET);
     id->idReg1(reg);
 
     dispIns(id);
@@ -5132,13 +5124,12 @@ size_t emitter::emitGetInstrDescSizeSC(const instrDesc* id)
     }
 }
 
-emitter::instrDesc* emitter::emitNewInstrReloc(emitAttr attr, uint8_t* addr)
+emitter::instrDesc* emitter::emitNewInstrReloc(emitAttr attr, void* addr)
 {
     assert(EA_IS_CNS_RELOC(attr));
 
     instrDescReloc* id = static_cast<instrDescReloc*>(emitAllocAnyInstr(sizeof(instrDescReloc), attr));
     assert(id->idIsCnsReloc());
-
     id->idrRelocVal = addr;
 
 #if EMITTER_STATS
@@ -5148,7 +5139,7 @@ emitter::instrDesc* emitter::emitNewInstrReloc(emitAttr attr, uint8_t* addr)
     return id;
 }
 
-uint8_t* emitter::emitGetInsRelocValue(instrDesc* id)
+void* emitter::emitGetInsRelocValue(instrDesc* id)
 {
     return static_cast<instrDescReloc*>(id)->idrRelocVal;
 }
@@ -6099,7 +6090,7 @@ void emitter::emitDispImm(int imm, bool addComma, bool alwaysHex /* =false */)
  *
  *  Display a relocatable immediate value
  */
-void emitter::emitDispReloc(BYTE* addr)
+void emitter::emitDispReloc(void* addr)
 {
     printf("0x%p", dspPtr(addr));
 }

@@ -146,16 +146,14 @@ void CodeGen::genMov32RelocatableDataLabel(unsigned value, regNumber reg)
     }
 }
 
-void CodeGen::genMov32RelocatableImmediate(emitAttr size, BYTE* addr, regNumber reg)
+void CodeGen::genMov32RelocatableImmediate(void* addr, regNumber reg)
 {
-    _ASSERTE(EA_IS_CNS_RELOC(size));
-
-    GetEmitter()->emitIns_MovRelocatableImmediate(INS_movw, size, reg, addr);
-    GetEmitter()->emitIns_MovRelocatableImmediate(INS_movt, size, reg, addr);
+    GetEmitter()->emitIns_MovRelocatableImmediate(INS_movw, reg, addr);
+    GetEmitter()->emitIns_MovRelocatableImmediate(INS_movt, reg, addr);
 
     if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
     {
-        GetEmitter()->emitIns_R_R_R(INS_add, size, reg, reg, REG_PC);
+        GetEmitter()->emitIns_R_R_R(INS_add, EA_4BYTE, reg, reg, REG_PC);
     }
 }
 
@@ -178,8 +176,9 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
 
     if (EA_IS_CNS_RELOC(size))
     {
+        assert(EA_SIZE(size) == EA_4BYTE);
         // TODO-CrossBitness: we wouldn't need the cast below if we had CodeGen::instGen_Set_Reg_To_Reloc_Imm.
-        genMov32RelocatableImmediate(size, (BYTE*)imm, reg);
+        genMov32RelocatableImmediate(reinterpret_cast<void*>(imm), reg);
     }
     else if (imm == 0)
     {
