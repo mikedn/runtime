@@ -1631,69 +1631,57 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
         default:
             unreached();
     }
+
     assert((fmt == IF_T1_B) || (fmt == IF_T1_L0) || (fmt == IF_T1_L1) || (fmt == IF_T2_I1) || (fmt == IF_T2_B));
 
-    instrDesc* id  = emitNewInstrSC(attr, imm);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstrSC(attr, imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsSize(emitInsSize(fmt));
 
     dispIns(id);
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing a single register.
- */
-
 void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
 {
-    emitAttr  size = EA_SIZE(attr);
-    insFormat fmt  = IF_NONE;
+    insFormat fmt;
 
-    /* Figure out the encoding format of the instruction */
     switch (ins)
     {
         case INS_pop:
         case INS_push:
+            assert(EA_SIZE(attr) == EA_PTRSIZE);
+
             if (isLowRegister(reg))
             {
-                int regmask = 1 << ((int)reg);
-                emitIns_I(ins, attr, regmask);
+                emitIns_I(ins, attr, 1 << static_cast<int>(reg));
                 return;
             }
-            assert(size == EA_PTRSIZE);
+
             fmt = IF_T2_E2;
             break;
 
         case INS_vmrs:
-            assert(size == EA_PTRSIZE);
+            assert(EA_SIZE(attr) == EA_PTRSIZE);
             fmt = IF_T2_E2;
             break;
 
         case INS_bx:
-            assert(size == EA_PTRSIZE);
+            assert(EA_SIZE(attr) == EA_PTRSIZE);
             fmt = IF_T1_D1;
             break;
-        case INS_rsb:
-        case INS_mvn:
-            emitIns_R_R_I(ins, attr, reg, reg, 0);
-            return;
 
         default:
             unreached();
     }
+
     assert((fmt == IF_T1_D1) || (fmt == IF_T2_E2));
 
-    instrDesc* id  = emitNewInstrSmall(attr);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstrSmall(attr);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsSize(emitInsSize(fmt));
     id->idReg1(reg);
 
     dispIns(id);
