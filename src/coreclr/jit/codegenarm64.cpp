@@ -1551,7 +1551,7 @@ void CodeGen::GenIntCon(GenTreeIntCon* node)
 {
     if (node->ImmedValNeedsReloc(compiler))
     {
-        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, node->GetRegNum(),
+        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, node->GetRegNum(),
                                node->GetValue() DEBUGARG(node->GetDumpHandle()) DEBUGARG(node->GetHandleKind()));
     }
     else

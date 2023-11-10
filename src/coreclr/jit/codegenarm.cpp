@@ -225,7 +225,7 @@ void CodeGen::GenIntCon(GenTreeIntCon* node)
 {
     if (node->ImmedValNeedsReloc(compiler))
     {
-        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, node->GetRegNum(), node->GetValue());
+        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, node->GetRegNum(), node->GetValue());
     }
     else
     {
@@ -2672,7 +2672,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         regNumber indCallReg = REG_R12;
         regNumber vptrReg1   = REG_LR;
 
-        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, indCallReg, (ssize_t)addrInfo.addr);
+        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, indCallReg, (ssize_t)addrInfo.addr);
         GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, vptrReg1, indCallReg, /* canSkip */ false);
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, indCallReg, indCallReg, 0);
         GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, indCallReg, vptrReg1);

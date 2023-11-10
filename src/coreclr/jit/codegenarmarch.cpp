@@ -485,7 +485,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             void* addr;
             addr = compiler->info.compCompHnd->getFieldAddress(treeNode->AsClsVar()->GetFieldHandle(), nullptr);
             noway_assert(addr != nullptr);
-            instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, treeNode->GetRegNum(), reinterpret_cast<ssize_t>(addr));
+            instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, treeNode->GetRegNum(), reinterpret_cast<ssize_t>(addr));
 #else
             emit->emitIns_R_C(INS_adr, EA_8BYTE, treeNode->GetRegNum(), REG_NA, treeNode->AsClsVar()->GetFieldHandle());
 #endif
@@ -555,8 +555,8 @@ void CodeGen::EpilogGSCookieCheck()
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSConst, reinterpret_cast<ssize_t>(m_gsCookieAddr) DEBUGARG(
-                                                                    reinterpret_cast<void*>(THT_GSCookieCheck)));
+        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, regGSConst, reinterpret_cast<ssize_t>(m_gsCookieAddr)
+                                                                 DEBUGARG(reinterpret_cast<void*>(THT_GSCookieCheck)));
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, regGSConst, regGSConst, 0);
     }
 
@@ -2540,7 +2540,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         {
             emitCallType = emitter::EC_INDIR_R;
             callReg      = call->GetSingleTempReg();
-            instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, callReg, reinterpret_cast<ssize_t>(callAddr));
+            instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, callReg, reinterpret_cast<ssize_t>(callAddr));
         }
         else
 #endif
@@ -2877,7 +2877,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
                 callType   = emitter::EC_INDIR_R;
                 indCallReg = REG_INDIRECT_CALL_TARGET_REG;
                 addr       = NULL;
-                instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, indCallReg, (ssize_t)addrInfo.addr);
+                instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, indCallReg, (ssize_t)addrInfo.addr);
                 if (addrInfo.accessType == IAT_PVALUE)
                 {
                     GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, indCallReg, indCallReg, 0);

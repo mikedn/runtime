@@ -4083,7 +4083,7 @@ void emitter::emitIns_R_D(instruction ins, unsigned offs, regNumber reg)
 {
     assert((ins == INS_movw) || (ins == INS_movt));
 
-    instrDesc* id = emitNewInstrSC(EA_HANDLE_CNS_RELOC, offs);
+    instrDesc* id = emitNewInstrSC(EA_PTR_CNS_RELOC, offs);
     id->idIns(ins);
     id->idReg1(reg);
     id->idInsFmt(IF_T2_N2);

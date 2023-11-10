@@ -118,7 +118,7 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
         }
 #endif
 
-        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSCheck, reinterpret_cast<ssize_t>(m_gsCookieAddr));
+        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, regGSCheck, reinterpret_cast<ssize_t>(m_gsCookieAddr));
         GetEmitter()->emitIns_R_AR(INS_mov, EA_PTRSIZE, regGSCheck, regGSCheck, 0);
         GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, regGSCheck, gsCookieLclNum, 0);
     }
@@ -464,7 +464,7 @@ void CodeGen::GenIntCon(GenTreeIntCon* node, regNumber reg, var_types type)
 {
     if (node->ImmedValNeedsReloc(compiler))
     {
-        emitAttr size = EA_HANDLE_CNS_RELOC;
+        emitAttr size = EA_PTR_CNS_RELOC;
 
         // TODO-MIKE-Review: Who cares about byref on a constant?!?
         if (type == TYP_BYREF)
@@ -5162,7 +5162,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
             {
                 callType   = emitter::EC_INDIR_ARD;
                 indCallReg = REG_RAX;
-                instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, indCallReg, reinterpret_cast<ssize_t>(addr));
+                instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, indCallReg, reinterpret_cast<ssize_t>(addr));
                 addr = nullptr;
             }
 #endif
@@ -6403,7 +6403,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                 }
                 else if (fieldNode->IsIconHandle())
                 {
-                    emit->emitIns_I(INS_push, EA_HANDLE_CNS_RELOC, fieldNode->AsIntCon()->GetValue());
+                    emit->emitIns_I(INS_push, EA_PTR_CNS_RELOC, fieldNode->AsIntCon()->GetValue());
                 }
                 else
                 {
@@ -6740,7 +6740,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         }
         else
         {
-            emitAttr attr = src->IsIconHandle() ? EA_HANDLE_CNS_RELOC : EA_PTRSIZE;
+            emitAttr attr = src->IsIconHandle() ? EA_PTR_CNS_RELOC : EA_PTRSIZE;
             emit.emitIns_I(INS_push, attr, src->AsIntCon()->GetValue());
         }
 

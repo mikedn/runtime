@@ -305,7 +305,6 @@ enum emitAttr : unsigned
 #ifdef TARGET_XARCH
 #define EA_PTR_DSP_RELOC (EA_SET_FLG(EA_PTRSIZE, EA_DSP_RELOC_FLG))
 #endif
-#define EA_HANDLE_CNS_RELOC (EA_SET_FLG(EA_PTRSIZE, EA_CNS_RELOC_FLG))
 #define EA_PTR_CNS_RELOC (EA_SET_FLG(EA_PTRSIZE, EA_CNS_RELOC_FLG))
 #define EA_IS_GCREF(x) ((((unsigned)(x)) & ((unsigned)EA_GCREF_FLG)) != 0)
 #define EA_IS_BYREF(x) ((((unsigned)(x)) & ((unsigned)EA_BYREF_FLG)) != 0)
