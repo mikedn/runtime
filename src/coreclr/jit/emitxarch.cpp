@@ -791,16 +791,18 @@ bool IsXMMReg(regNumber reg)
 {
 #ifdef TARGET_AMD64
     return (reg >= REG_XMM0) && (reg <= REG_XMM15);
-#else  // !TARGET_AMD64
+#else
     return (reg >= REG_XMM0) && (reg <= REG_XMM7);
-#endif // !TARGET_AMD64
+#endif
 }
+
+static_assert_no_msg((REG_RAX & 0x7) == 0);
+static_assert_no_msg((REG_XMM0 & 0x7) == 0);
 
 // Returns bits to be encoded in instruction for the given register.
 unsigned RegEncoding(regNumber reg)
 {
-    static_assert((REG_XMM0 & 0x7) == 0, "bad XMMBASE");
-    return (unsigned)(reg & 0x7);
+    return static_cast<unsigned>(reg & 0x7);
 }
 
 // Utility routines that abstract the logic of adding REX.W, REX.R, REX.X, REX.B and REX prefixes
@@ -1736,36 +1738,6 @@ inline emitter::code_t emitter::insEncodeReg3456(instruction ins, regNumber reg,
 
 /*****************************************************************************
  *
- *  Returns an encoding for the specified register to be used in the bit3-5
- *  part of an SIB byte (unshifted).
- *  Used exclusively to generate the REX.X bit and truncate the register.
- */
-
-inline unsigned emitter::insEncodeRegSIB(instruction ins, regNumber reg, code_t* code)
-{
-    assert(reg < REG_STK);
-
-#ifdef TARGET_AMD64
-    // Either code is not NULL or reg is not an extended reg.
-    // If reg is an extended reg, instruction needs to be prefixed with 'REX'
-    // which would require code != NULL.
-    assert(code != nullptr || reg < REG_R8 || (reg >= REG_XMM0 && reg < REG_XMM8));
-
-    if (IsExtendedReg(reg))
-    {
-        *code = AddRexXPrefix(ins, *code); // REX.X
-    }
-    unsigned regBits = RegEncoding(reg);
-#else  // !TARGET_AMD64
-    unsigned regBits = reg;
-#endif // !TARGET_AMD64
-
-    assert(regBits < 8);
-    return regBits;
-}
-
-/*****************************************************************************
- *
  *  Returns the "[r/m]" opcode with the mod/RM field set to register.
  */
 
@@ -2170,8 +2142,6 @@ inline UNATIVE_OFFSET emitter::emitInsSizeSV(instrDesc* id, code_t code, int val
 
     return prefix + valSize + emitInsSizeSV_AM(id, code);
 }
-
-/*****************************************************************************/
 
 static bool baseRegisterRequiresSibByte(regNumber base)
 {
@@ -7776,19 +7746,14 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
     if (ins == INS_call)
     {
 #ifdef TARGET_AMD64
-        // Compute the REX prefix if it's needed.
-        if (IsExtendedReg(baseReg, EA_PTRSIZE))
+        if (IsExtendedReg(baseReg))
         {
-            insEncodeReg012(ins, baseReg, EA_PTRSIZE, &code);
-            // TODO-Cleanup: stop casting RegEncoding() back to a regNumber.
-            baseReg = static_cast<regNumber>(RegEncoding(baseReg));
+            code = AddRexBPrefix(ins, code);
         }
 
-        if (IsExtendedReg(indexReg, EA_PTRSIZE))
+        if (IsExtendedReg(indexReg))
         {
-            insEncodeRegSIB(ins, indexReg, &code);
-            // TODO-Cleanup: stop casting RegEncoding() back to a regNumber.
-            indexReg = static_cast<regNumber>(RegEncoding(indexReg));
+            code = AddRexXPrefix(ins, code);
         }
 
         dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
@@ -7859,18 +7824,14 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
             code = AddRexWPrefix(ins, code);
         }
 
-        if (IsExtendedReg(baseReg, EA_PTRSIZE))
+        if (IsExtendedReg(baseReg))
         {
-            insEncodeReg012(ins, baseReg, EA_PTRSIZE, &code);
-            // TODO-Cleanup: stop casting RegEncoding() back to a regNumber.
-            baseReg = static_cast<regNumber>(RegEncoding(baseReg));
+            code = AddRexBPrefix(ins, code);
         }
 
-        if (IsExtendedReg(indexReg, EA_PTRSIZE))
+        if (IsExtendedReg(indexReg))
         {
-            insEncodeRegSIB(ins, indexReg, &code);
-            // TODO-Cleanup: stop casting RegEncoding() back to a regNumber.
-            indexReg = static_cast<regNumber>(RegEncoding(indexReg));
+            code = AddRexXPrefix(ins, code);
         }
 
         if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
@@ -8062,7 +8023,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
             scale  = 0;
             rmCode = RegEncoding(baseReg);
 
-            if ((disp != 0) || (baseReg == REG_EBP))
+            if ((disp != 0) || baseRegisterRequiresDisplacement(baseReg))
             {
                 rmCode |= hasDisp8 ? 0x40 : 0x80;
             }
@@ -8070,14 +8031,14 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
         else
         {
             scale  = emitDecodeScale(id->idAddr()->iiaAddrMode.amScale);
-            rmCode = 0x04;
+            rmCode = RegEncoding(REG_RSP);
 
             if ((scale > 1) && (baseReg == REG_NA))
             {
                 baseReg  = REG_EBP;
                 hasDisp8 = false;
             }
-            else if ((disp != 0) || (baseReg == REG_EBP))
+            else if ((disp != 0) || baseRegisterRequiresDisplacement(baseReg))
             {
                 rmCode |= hasDisp8 ? 0x40 : 0x80;
             }
@@ -8096,12 +8057,12 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
         {
             dst += emitOutputByte(dst, RegEncoding(baseReg) | (RegEncoding(indexReg) << 3) | ScaleEncoding(scale));
         }
-        else if (baseReg == REG_ESP)
+        else if (baseRegisterRequiresSibByte(baseReg))
         {
             dst += emitOutputByte(dst, 0x24);
         }
 
-        if ((disp != 0) || (baseReg == REG_EBP))
+        if ((disp != 0) || baseRegisterRequiresDisplacement(baseReg))
         {
             if (hasDisp8)
             {

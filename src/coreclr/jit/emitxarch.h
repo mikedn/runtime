@@ -98,7 +98,6 @@ unsigned emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code);
 unsigned insEncodeReg012(instruction ins, regNumber reg, emitAttr size, code_t* code);
 unsigned insEncodeReg345(instruction ins, regNumber reg, emitAttr size, code_t* code);
 code_t insEncodeReg3456(instruction ins, regNumber reg, emitAttr size, code_t code);
-unsigned insEncodeRegSIB(instruction ins, regNumber reg, code_t* code);
 
 code_t insEncodeMRreg(instruction ins, code_t code);
 code_t insEncodeRMreg(instruction ins, code_t code);
