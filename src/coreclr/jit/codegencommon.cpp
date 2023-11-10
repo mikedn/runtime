@@ -5797,6 +5797,40 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
     liveness.UpdateLifeMultiReg(this, store);
 }
 
+instruction CodeGen::ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned /*=false*/)
+{
+    assert(srcReg != REG_NA);
+
+    bool dstIsFloatType = varTypeUsesFloatReg(dstType);
+    bool srcIsFloatReg  = genIsValidFloatReg(srcReg);
+
+    if (srcIsFloatReg == dstIsFloatType)
+    {
+        return ins_Store(dstType, aligned);
+    }
+
+    // We know that we are writing to memory, so make the destination type same
+    // as the source type.
+    var_types dstTypeForStore = TYP_UNDEF;
+
+    switch (varTypeSize(dstType))
+    {
+        case 4:
+            dstTypeForStore = srcIsFloatReg ? TYP_FLOAT : TYP_INT;
+            break;
+#ifdef TARGET_64BIT
+        case 8:
+            dstTypeForStore = srcIsFloatReg ? TYP_DOUBLE : TYP_LONG;
+            break;
+#endif
+        default:
+            assert(!"unexpected write to the stack.");
+            break;
+    }
+
+    return ins_Store(dstTypeForStore, aligned);
+}
+
 #if defined(DEBUG) && defined(TARGET_XARCH)
 
 //------------------------------------------------------------------------

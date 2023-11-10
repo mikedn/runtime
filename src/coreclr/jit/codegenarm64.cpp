@@ -1215,7 +1215,7 @@ void CodeGen::genFuncletEpilog()
         genStackPointerAdjustment(-genFuncletInfo.fiSpDelta1, REG_NA, nullptr, /* reportUnwindData */ true);
     }
 
-    inst_RV(INS_ret, REG_LR, TYP_I_IMPL);
+    GetEmitter()->emitIns_R(INS_ret, EA_8BYTE, REG_LR);
     compiler->unwindReturn(REG_LR);
 
     compiler->unwindEndEpilog();
@@ -2216,23 +2216,13 @@ void CodeGen::genCodeForBswap(GenTree* tree)
 {
     assert(tree->OperIs(GT_BSWAP, GT_BSWAP16));
 
-    regNumber targetReg  = tree->GetRegNum();
-    var_types targetType = tree->TypeGet();
+    regNumber   dstReg = tree->GetRegNum();
+    regNumber   srcReg = UseReg(tree->AsUnOp()->GetOp(0));
+    instruction ins    = tree->OperIs(GT_BSWAP16) ? INS_rev16 : INS_rev;
 
-    GenTree* operand = tree->gtGetOp1();
-    assert(operand->isUsedFromReg());
-    regNumber operandReg = genConsumeReg(operand);
+    GetEmitter()->emitIns_R_R(ins, emitActualTypeSize(tree->GetType()), dstReg, srcReg);
 
-    if (tree->OperIs(GT_BSWAP16))
-    {
-        inst_RV_RV(INS_rev16, targetReg, operandReg, targetType);
-    }
-    else
-    {
-        inst_RV_RV(INS_rev, targetReg, operandReg, targetType);
-    }
-
-    genProduceReg(tree);
+    DefReg(tree);
 }
 
 void CodeGen::GenDivMod(GenTreeOp* div)
@@ -2921,6 +2911,65 @@ void CodeGen::GenCompare(GenTreeOp* cmp)
 
     inst_SETCC(GenCondition::FromRelop(cmp), cmp->GetType(), cmp->GetRegNum());
     DefReg(cmp);
+}
+
+void CodeGen::inst_SET(emitJumpKind condition, regNumber reg)
+{
+    insCond cond;
+
+    switch (condition)
+    {
+        case EJ_eq:
+            cond = INS_COND_EQ;
+            break;
+        case EJ_ne:
+            cond = INS_COND_NE;
+            break;
+        case EJ_hs:
+            cond = INS_COND_HS;
+            break;
+        case EJ_lo:
+            cond = INS_COND_LO;
+            break;
+
+        case EJ_mi:
+            cond = INS_COND_MI;
+            break;
+        case EJ_pl:
+            cond = INS_COND_PL;
+            break;
+        case EJ_vs:
+            cond = INS_COND_VS;
+            break;
+        case EJ_vc:
+            cond = INS_COND_VC;
+            break;
+
+        case EJ_hi:
+            cond = INS_COND_HI;
+            break;
+        case EJ_ls:
+            cond = INS_COND_LS;
+            break;
+        case EJ_ge:
+            cond = INS_COND_GE;
+            break;
+        case EJ_lt:
+            cond = INS_COND_LT;
+            break;
+
+        case EJ_gt:
+            cond = INS_COND_GT;
+            break;
+        case EJ_le:
+            cond = INS_COND_LE;
+            break;
+
+        default:
+            unreached();
+    }
+
+    GetEmitter()->emitIns_R_COND(INS_cset, EA_8BYTE, reg, cond);
 }
 
 // Generates code for JCMP node.
@@ -9618,7 +9667,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     }
     else
     {
-        inst_RV(INS_ret, REG_LR, TYP_I_IMPL);
+        GetEmitter()->emitIns_R(INS_ret, EA_8BYTE, REG_LR);
         compiler->unwindReturn(REG_LR);
     }
 

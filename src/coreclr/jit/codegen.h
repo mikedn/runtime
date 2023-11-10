@@ -1125,16 +1125,16 @@ protected:
 public:
     void instGen(instruction ins);
     void inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock);
-    void inst_SET(emitJumpKind condition, regNumber reg);
-    void inst_RV(instruction ins, regNumber reg, var_types type);
     void inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip);
-    void inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type);
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
 
     bool IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs);
 
 #ifdef TARGET_XARCH
+    void inst_SET(emitJumpKind condition, regNumber reg);
+    void inst_RV(instruction ins, regNumber reg, var_types type);
     void inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val);
+    void inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type);
     bool IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, CORINFO_FIELD_HANDLE* field);
     void emitInsUnary(instruction ins, emitAttr attr, GenTree* src);
     void emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src);
@@ -1152,6 +1152,7 @@ public:
 #endif
 
 #ifdef TARGET_ARM64
+    void inst_SET(emitJumpKind condition, regNumber reg);
     void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
     void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
     void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);

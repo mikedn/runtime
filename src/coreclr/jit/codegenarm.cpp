@@ -1020,10 +1020,10 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
             BasicBlock* allOne  = genCreateTempLabel();
             BasicBlock* success = genCreateTempLabel();
 
-            inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT);
+            GetEmitter()->emitIns_R_R(INS_tst, EA_4BYTE, loSrcReg, loSrcReg);
             inst_JMP(EJ_mi, allOne);
 
-            inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT);
+            GetEmitter()->emitIns_R_R(INS_tst, EA_4BYTE, hiSrcReg, hiSrcReg);
             genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
             inst_JMP(EJ_jmp, success);
 
@@ -1037,11 +1037,11 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
         {
             if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
             {
-                inst_RV_RV(INS_tst, loSrcReg, loSrcReg, TYP_INT);
+                GetEmitter()->emitIns_R_R(INS_tst, EA_4BYTE, loSrcReg, loSrcReg);
                 genJumpToThrowHlpBlk(EJ_mi, ThrowHelperKind::Overflow);
             }
 
-            inst_RV_RV(INS_tst, hiSrcReg, hiSrcReg, TYP_INT);
+            GetEmitter()->emitIns_R_R(INS_tst, EA_4BYTE, hiSrcReg, hiSrcReg);
             genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
         }
     }
@@ -2702,7 +2702,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     {
         // If we did not use a pop to return, then we did a "pop {..., lr}" instead of "pop {..., pc}",
         // so we need a "bx lr" instruction to return from the function.
-        inst_RV(INS_bx, REG_LR, TYP_I_IMPL);
+        GetEmitter()->emitIns_R(INS_bx, EA_4BYTE, REG_LR);
         compiler->unwindBranch16();
     }
 
