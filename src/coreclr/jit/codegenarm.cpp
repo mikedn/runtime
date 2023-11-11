@@ -85,7 +85,7 @@ bool CodeGen::genStackPointerAdjustment(ssize_t spDelta, regNumber tmpReg)
 {
     // Even though INS_add is specified here, the encoder will choose either
     // an INS_add or an INS_sub and encode the immediate as a positive value
-    return genInstrWithConstant(INS_add, EA_PTRSIZE, REG_SPBASE, REG_SPBASE, spDelta, tmpReg);
+    return genInstrWithConstant(INS_add, EA_4BYTE, REG_SPBASE, REG_SPBASE, spDelta, tmpReg);
 }
 
 BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
@@ -425,7 +425,7 @@ void CodeGen::genLclHeap(GenTree* tree)
             // The SP might already be in the guard page, must touch it BEFORE
             // the alloc, not after.
             GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, regCnt, REG_SP, 0);
-            inst_RV_IV(INS_sub, REG_SP, amount, EA_PTRSIZE);
+            inst_RV_IV(INS_sub, REG_SP, amount, EA_4BYTE);
 
             lastTouchDelta = amount;
 
@@ -462,7 +462,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         // If not done, loop
         // Note that regCnt is the number of bytes to stack allocate.
         assert(genIsValidIntReg(regCnt));
-        GetEmitter()->emitIns_R_I(INS_sub, EA_PTRSIZE, regCnt, STACK_ALIGN, INS_FLAGS_SET);
+        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, regCnt, STACK_ALIGN, INS_FLAGS_SET);
         inst_JMP(EJ_ne, loop);
 
         lastTouchDelta = 0;
@@ -504,7 +504,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         BasicBlock* done = genCreateTempLabel();
 
         //       subs  regCnt, SP, regCnt      // regCnt now holds ultimate SP
-        GetEmitter()->emitIns_R_R_R(INS_sub, EA_PTRSIZE, regCnt, REG_SPBASE, regCnt, INS_FLAGS_SET);
+        GetEmitter()->emitIns_R_R_R(INS_sub, EA_4BYTE, regCnt, REG_SPBASE, regCnt, INS_FLAGS_SET);
 
         inst_JMP(EJ_vc, loop); // branch if the V flag is not set
 
@@ -517,13 +517,13 @@ void CodeGen::genLclHeap(GenTree* tree)
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, regTmp, REG_SPBASE, 0);
 
         // decrement SP by eeGetPageSize()
-        GetEmitter()->emitIns_R_R_I(INS_sub, EA_PTRSIZE, regTmp, REG_SPBASE, compiler->eeGetPageSize());
+        GetEmitter()->emitIns_R_R_I(INS_sub, EA_4BYTE, regTmp, REG_SPBASE, compiler->eeGetPageSize());
 
-        GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, regTmp, regCnt);
+        GetEmitter()->emitIns_R_R(INS_cmp, EA_4BYTE, regTmp, regCnt);
         inst_JMP(EJ_lo, done);
 
         // Update SP to be at the next page of stack that we will tickle
-        GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_SPBASE, regTmp, /* canSkip */ false);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SPBASE, regTmp, /* canSkip */ false);
 
         // Jump to loop and tickle new stack address
         inst_JMP(EJ_jmp, loop);
@@ -532,7 +532,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         genDefineTempLabel(done);
 
         // Now just move the final value to SP
-        GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_SPBASE, regCnt, /* canSkip */ false);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SPBASE, regCnt, /* canSkip */ false);
 
         // lastTouchDelta is dynamic, and can be up to a page. So if we have outgoing arg space,
         // we're going to assume the worst and probe.
@@ -558,7 +558,7 @@ ALLOC_DONE:
 
         // Return the stackalloc'ed address in result register.
         // regCnt = SP + stackAdjustment.
-        genInstrWithConstant(INS_add, EA_PTRSIZE, regCnt, REG_SPBASE, (ssize_t)stackAdjustment, regTmp);
+        genInstrWithConstant(INS_add, EA_4BYTE, regCnt, REG_SPBASE, (ssize_t)stackAdjustment, regTmp);
     }
     else // stackAdjustment == 0
     {
@@ -746,7 +746,7 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
             // use integer stores if the field is not aligned.
 
             regNumber addrReg = store->ExtractTempReg();
-            emit->emitIns_R_S(INS_lea, EA_PTRSIZE, addrReg, lclNum, lclOffs);
+            emit->emitIns_R_S(INS_lea, EA_4BYTE, addrReg, lclNum, lclOffs);
 
             if (type == TYP_FLOAT)
             {
@@ -1316,7 +1316,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
         }
         else
         {
-            attr = EA_PTRSIZE;
+            attr = EA_4BYTE;
         }
     }
 
@@ -1388,15 +1388,15 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
 
     if (frameSize < pageSize)
     {
-        GetEmitter()->emitIns_R_I(INS_sub, EA_PTRSIZE, REG_SPBASE, frameSize);
+        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, frameSize);
     }
     else
     {
-        genInstrWithConstant(INS_sub, EA_PTRSIZE, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, frameSize,
+        genInstrWithConstant(INS_sub, EA_4BYTE, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, frameSize,
                              REG_STACK_PROBE_HELPER_ARG);
         genEmitHelperCall(CORINFO_HELP_STACK_PROBE, EA_UNKNOWN, REG_STACK_PROBE_HELPER_CALL_TARGET);
         compiler->unwindPadding();
-        GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_SPBASE, REG_STACK_PROBE_HELPER_ARG, /* canSkip */ false);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SPBASE, REG_STACK_PROBE_HELPER_ARG, /* canSkip */ false);
 
         if ((genRegMask(initReg) & (RBM_STACK_PROBE_HELPER_ARG | RBM_STACK_PROBE_HELPER_CALL_TARGET |
                                     RBM_STACK_PROBE_HELPER_TRASH)) != RBM_NONE)
@@ -1939,13 +1939,13 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
 
     if (emitter::emitIns_valid_imm_for_add(untrLclLo))
     {
-        GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, rAddr, genFramePointerReg(), untrLclLo);
+        GetEmitter()->emitIns_R_R_I(INS_add, EA_4BYTE, rAddr, genFramePointerReg(), untrLclLo);
     }
     else
     {
         // Load immediate into the InitReg register
-        instGen_Set_Reg_To_Imm(EA_PTRSIZE, initReg, (ssize_t)untrLclLo);
-        GetEmitter()->emitIns_R_R_R(INS_add, EA_PTRSIZE, rAddr, genFramePointerReg(), initReg);
+        instGen_Set_Reg_To_Imm(EA_4BYTE, initReg, (ssize_t)untrLclLo);
+        GetEmitter()->emitIns_R_R_R(INS_add, EA_4BYTE, rAddr, genFramePointerReg(), initReg);
         *pInitRegZeroed = false;
     }
 
@@ -1955,39 +1955,39 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
         // rCnt is not a live incoming param reg
         assert((genRegMask(rCnt) & paramRegState.intRegLiveIn) == RBM_NONE);
 
-        instGen_Set_Reg_To_Imm(EA_PTRSIZE, rCnt, (ssize_t)uCntSlots / 2);
+        instGen_Set_Reg_To_Imm(EA_4BYTE, rCnt, (ssize_t)uCntSlots / 2);
     }
 
     if (!*pInitRegZeroed)
     {
-        instGen_Set_Reg_To_Zero(EA_PTRSIZE, initReg);
+        instGen_Set_Reg_To_Zero(EA_4BYTE, initReg);
         *pInitRegZeroed = true;
     }
 
     rZero1 = initReg;
 
-    instGen_Set_Reg_To_Zero(EA_PTRSIZE, rZero2);
+    instGen_Set_Reg_To_Zero(EA_4BYTE, rZero2);
     target_ssize_t stmImm = (target_ssize_t)(genRegMask(rZero1) | genRegMask(rZero2));
 
     if (!useLoop)
     {
         while (uCntBytes >= REGSIZE_BYTES * 2)
         {
-            GetEmitter()->emitIns_R_I(INS_stm, EA_PTRSIZE, rAddr, stmImm);
+            GetEmitter()->emitIns_R_I(INS_stm, EA_4BYTE, rAddr, stmImm);
             uCntBytes -= REGSIZE_BYTES * 2;
         }
     }
     else
     {
-        GetEmitter()->emitIns_R_I(INS_stm, EA_PTRSIZE, rAddr, stmImm); // zero stack slots
-        GetEmitter()->emitIns_R_I(INS_sub, EA_PTRSIZE, rCnt, 1, INS_FLAGS_SET);
+        GetEmitter()->emitIns_R_I(INS_stm, EA_4BYTE, rAddr, stmImm); // zero stack slots
+        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, rCnt, 1, INS_FLAGS_SET);
         GetEmitter()->emitIns_J(INS_bhi, NULL, -3);
         uCntBytes %= REGSIZE_BYTES * 2;
     }
 
     if (uCntBytes >= REGSIZE_BYTES) // check and zero the last register-sized stack slot (odd number)
     {
-        GetEmitter()->emitIns_R_R_I(INS_str, EA_PTRSIZE, rZero1, rAddr, 0);
+        GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, rZero1, rAddr, 0);
         uCntBytes -= REGSIZE_BYTES;
     }
 
@@ -2003,7 +2003,7 @@ void CodeGen::PrologZeroRegs(regMaskTP initRegs, regNumber initReg, regMaskTP do
             continue;
         }
 
-        instGen_Set_Reg_To_Zero(EA_PTRSIZE, reg);
+        instGen_Set_Reg_To_Zero(EA_4BYTE, reg);
         initReg = reg;
     }
 
@@ -2015,7 +2015,7 @@ void CodeGen::PrologZeroRegs(regMaskTP initRegs, regNumber initReg, regMaskTP do
     if (initReg == REG_NA)
     {
         initReg = REG_SCRATCH;
-        instGen_Set_Reg_To_Zero(EA_PTRSIZE, initReg);
+        instGen_Set_Reg_To_Zero(EA_4BYTE, initReg);
     }
 
     regNumber fltInitReg = REG_NA;
@@ -2087,7 +2087,7 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
     //
     // Unfortunately, we can't just use:
     //
-    //      inst_RV_IV(INS_add, REG_SPBASE, frameSize, EA_PTRSIZE);
+    //      inst_RV_IV(INS_add, REG_SPBASE, frameSize, EA_4BYTE);
     //
     // because we need to generate proper unwind codes for each instruction generated,
     // and large frame sizes might generate a temp register load which might
@@ -2102,13 +2102,13 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
             *pUnwindStarted = true;
         }
 
-        GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, frameSize);
+        GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, frameSize);
     }
     else
     {
         // R12 doesn't hold arguments or return values, so can be used as temp.
         regNumber tmpReg = REG_R12;
-        instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, frameSize);
+        instGen_Set_Reg_To_Imm(EA_4BYTE, tmpReg, frameSize);
         if (*pUnwindStarted)
         {
             compiler->unwindPadding();
@@ -2123,7 +2123,7 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
             *pUnwindStarted = true;
         }
 
-        GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, REG_SPBASE, tmpReg);
+        GetEmitter()->emitIns_R_R(INS_add, EA_4BYTE, REG_SPBASE, tmpReg);
     }
 
     compiler->unwindAllocStack(frameSize);
@@ -2440,17 +2440,15 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     {
         // This is the first block of a filter
 
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, REG_R1, REG_R1, genFuncletInfo.fiPSP_slot_CallerSP_offset);
-        GetEmitter()->emitIns_R_R_I(INS_str, EA_PTRSIZE, REG_R1, REG_SPBASE, genFuncletInfo.fiPSP_slot_SP_offset);
-        GetEmitter()->emitIns_R_R_I(INS_sub, EA_PTRSIZE, REG_FPBASE, REG_R1,
-                                    genFuncletInfo.fiFunctionCallerSPtoFPdelta);
+        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_R1, REG_R1, genFuncletInfo.fiPSP_slot_CallerSP_offset);
+        GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, REG_R1, REG_SPBASE, genFuncletInfo.fiPSP_slot_SP_offset);
+        GetEmitter()->emitIns_R_R_I(INS_sub, EA_4BYTE, REG_FPBASE, REG_R1, genFuncletInfo.fiFunctionCallerSPtoFPdelta);
     }
     else
     {
         // This is a non-filter funclet
-        GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, REG_R3, REG_FPBASE,
-                                    genFuncletInfo.fiFunctionCallerSPtoFPdelta);
-        GetEmitter()->emitIns_R_R_I(INS_str, EA_PTRSIZE, REG_R3, REG_SPBASE, genFuncletInfo.fiPSP_slot_SP_offset);
+        GetEmitter()->emitIns_R_R_I(INS_add, EA_4BYTE, REG_R3, REG_FPBASE, genFuncletInfo.fiFunctionCallerSPtoFPdelta);
+        GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, REG_R3, REG_SPBASE, genFuncletInfo.fiPSP_slot_SP_offset);
     }
 }
 
@@ -2672,9 +2670,9 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         regNumber vptrReg1   = REG_LR;
 
         instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, indCallReg, (ssize_t)addrInfo.addr);
-        GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, vptrReg1, indCallReg, /* canSkip */ false);
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, indCallReg, indCallReg, 0);
-        GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, indCallReg, vptrReg1);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, vptrReg1, indCallReg, /* canSkip */ false);
+        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, indCallReg, indCallReg, 0);
+        GetEmitter()->emitIns_R_R(INS_add, EA_4BYTE, indCallReg, vptrReg1);
     }
 
     genPopCalleeSavedRegisters(jmpEpilog);
@@ -2684,7 +2682,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         // We better not have used a pop PC to return otherwise this will be unreachable code
         noway_assert(!genUsedPopToReturn);
 
-        inst_RV_IV(INS_add, REG_SPBASE, preSpillRegArgSize, EA_PTRSIZE);
+        inst_RV_IV(INS_add, REG_SPBASE, preSpillRegArgSize, EA_4BYTE);
         compiler->unwindAllocStack(preSpillRegArgSize);
     }
 
