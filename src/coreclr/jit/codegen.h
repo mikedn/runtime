@@ -1251,6 +1251,7 @@ public:
     void instGen_Set_Reg_To_Reloc(regNumber reg,
                                   void* addr DEBUGARG(void* handle = nullptr)
                                       DEBUGARG(HandleKind handleKind = HandleKind::None));
+#ifdef TARGET_ARMARCH
 #ifdef TARGET_ARM
     void instGen_Set_Reg_To_Imm(regNumber reg, int32_t imm);
 #endif
@@ -1258,6 +1259,7 @@ public:
                                 regNumber reg,
                                 ssize_t imm DEBUGARG(void* handle = nullptr)
                                     DEBUGARG(HandleKind handleKind = HandleKind::None));
+#endif
 
 #ifdef TARGET_XARCH
     instruction MapShiftInsToShiftBy1Ins(instruction ins);

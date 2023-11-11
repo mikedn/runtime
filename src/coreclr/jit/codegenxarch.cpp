@@ -427,9 +427,18 @@ void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 
 void CodeGen::instGen_Set_Reg_To_Addr(regNumber reg, void* addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
+    assert(genIsValidIntReg(reg));
+
     if (!compiler->opts.compReloc)
     {
-        instGen_Set_Reg_To_Imm(EA_PTRSIZE, reg, reinterpret_cast<ssize_t>(addr) DEBUGARG(handle));
+        if (addr == nullptr)
+        {
+            GetEmitter()->emitIns_R_R(INS_xor, EA_4BYTE, reg, reg);
+        }
+        else
+        {
+            GetEmitter()->emitIns_R_I(INS_mov, EA_PTRSIZE, reg, reinterpret_cast<ssize_t>(addr));
+        }
 
         return;
     }
@@ -453,39 +462,13 @@ void CodeGen::instGen_Set_Reg_To_Reloc(regNumber reg, void* addr DEBUGARG(void* 
     }
 }
 
-void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
-                                     regNumber reg,
-                                     ssize_t imm DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
-{
-    assert(!EA_IS_RELOC(size));
-    assert(!genIsValidFloatReg(reg));
-
-    // TODO-MIKE-Cleanup: This was trying to remove the reloc flag but it also removed GC flags.
-    // Constants shouldn't have such flags but don't be surprised if they do.
-    if (!compiler->opts.compReloc)
-    {
-        size = EA_SIZE(size);
-    }
-
-    if (imm == 0)
-    {
-        // TODO-MIKE-Cleanup: The size should always be EA_4BYTE but this caused GC diffs.
-        // See related GenIntCon TODO.
-        GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
-
-        return;
-    }
-
-    GetEmitter()->emitIns_R_I(INS_mov, size, reg, imm);
-}
-
 void CodeGen::GenIntCon(GenTreeIntCon* node, regNumber reg, var_types type)
 {
     if (node->ImmedValNeedsReloc(compiler))
     {
         // TODO-MIKE-Review: This is dropping GC flags, they should
         // not be needed but removing them causes textual diffs.
-        instGen_Set_Reg_To_Reloc(reg, reinterpret_cast<void*>(node->GetValue()));
+        instGen_Set_Reg_To_Reloc(reg, node->GetAddr());
 
         return;
     }
