@@ -3474,13 +3474,24 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     }
 }
 
+#ifdef TARGET_X86
 void emitter::emitIns_I(instruction ins, emitAttr attr, void* addr)
 {
+    assert((ins == INS_push) || (ins == INS_push_hide));
     assert(EA_IS_CNS_RELOC(attr));
-    emitIns_I(ins, attr, reinterpret_cast<ssize_t>(addr));
-}
 
-void emitter::emitIns_I(instruction ins, emitAttr attr, ssize_t imm)
+    instrDesc* id = emitNewInstrSC(attr, reinterpret_cast<ssize_t>(addr));
+    id->idIns(ins);
+    id->idInsFmt(IF_CNS);
+    id->idCodeSize(5);
+
+    dispIns(id);
+    emitCurIGsize += 5;
+    emitAdjustStackDepthPushPop(ins);
+}
+#endif
+
+void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 {
     unsigned sz;
 
@@ -5870,7 +5881,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
 #endif
                            void* addr,
 #ifdef TARGET_X86
-                           ssize_t argSize,
+                           int32_t argSize,
 #endif
                            emitAttr retRegAttr,
 #ifdef UNIX_AMD64_ABI
@@ -5889,10 +5900,10 @@ void emitter::emitIns_Call(EmitCallType          kind,
 
 #ifdef TARGET_X86
     // Our stack level should be always greater than the bytes of arguments we push.
-    assert(static_cast<unsigned>(abs(static_cast<int>(argSize))) <= codeGen->genStackLevel);
+    assert(static_cast<unsigned>(abs(argSize)) <= codeGen->genStackLevel);
     assert(argSize % REGSIZE_BYTES == 0);
 
-    int argSlotCount = static_cast<int>(argSize / REGSIZE_BYTES);
+    int32_t argSlotCount = argSize / REGSIZE_BYTES;
 #endif
 
     instrDesc* id = emitNewInstrCall(methodHandle, retRegAttr,
@@ -6003,9 +6014,9 @@ void emitter::emitIns_Call(EmitCallType          kind,
 #if !FEATURE_FIXED_OUT_ARGS
     if (emitCntStackDepth && (argSize > 0))
     {
-        noway_assert(argSize <= static_cast<ssize_t>(emitCurStackLvl));
+        noway_assert(argSize <= static_cast<int32_t>(emitCurStackLvl));
 
-        emitCurStackLvl -= static_cast<int>(argSize);
+        emitCurStackLvl -= argSize;
         assert(emitCurStackLvl <= INT_MAX);
     }
 #endif

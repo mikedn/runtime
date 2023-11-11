@@ -359,7 +359,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     else
     {
         // EE expects a DWORD, so we provide 0
-        GetEmitter()->emitIns_I(INS_push_hide, EA_4BYTE, static_cast<ssize_t>(0));
+        GetEmitter()->emitIns_I(INS_push_hide, EA_4BYTE, 0);
     }
 
     // Jump to the finally BB
@@ -2121,7 +2121,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         {
             for (; cntRegSizedWords != 0; cntRegSizedWords--)
             {
-                GetEmitter()->emitIns_I(INS_push_hide, EA_PTRSIZE, static_cast<ssize_t>(0));
+                GetEmitter()->emitIns_I(INS_push_hide, EA_PTRSIZE, 0);
             }
 
             lastTouchDelta = 0;
@@ -2193,7 +2193,7 @@ void CodeGen::genLclHeap(GenTree* tree)
 
         for (unsigned i = 0; i < count; i++)
         {
-            GetEmitter()->emitIns_I(INS_push_hide, EA_PTRSIZE, static_cast<ssize_t>(0));
+            GetEmitter()->emitIns_I(INS_push_hide, EA_PTRSIZE, 0);
         }
         // Note that the stack must always be aligned to STACK_ALIGN bytes
 
@@ -4601,7 +4601,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
 #ifdef TARGET_X86
     // TODO-MIKE-Cleanup: This can probably just use CallInfo::nextSlotNum instead of going through all args.
-    target_ssize_t stackArgBytes = 0;
+    int32_t stackArgBytes = 0;
     for (unsigned i = 0; i < call->GetInfo()->GetArgCount(); i++)
     {
         stackArgBytes += call->GetInfo()->GetArgInfo(i)->GetSlotCount() * REGSIZE_BYTES;
@@ -4724,7 +4724,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     // adjust its stack level accordingly.
     // If the caller needs to explicitly pop its arguments, we must pass a negative shift, and then do the
     // pop when we're done.
-    target_ssize_t argSizeForEmitter = stackArgBytes;
+    int32_t argSizeForEmitter = stackArgBytes;
     if (fCallerPop)
     {
         argSizeForEmitter = -stackArgBytes;
@@ -6403,7 +6403,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
             adjustment -= pushSize;
             while (adjustment != 0)
             {
-                emit->emitIns_I(INS_push, EA_4BYTE, static_cast<ssize_t>(0));
+                emit->emitIns_I(INS_push, EA_4BYTE, 0);
                 currentOffset -= pushSize;
                 AddStackLevel(pushSize);
                 adjustment -= pushSize;
@@ -6464,7 +6464,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                 }
                 else
                 {
-                    emit->emitIns_I(INS_push, EA_4BYTE, fieldNode->AsIntCon()->GetValue());
+                    emit->emitIns_I(INS_push, EA_4BYTE, fieldNode->AsIntCon()->GetInt32Value());
                 }
 
                 currentOffset -= TARGET_POINTER_SIZE;
@@ -6671,7 +6671,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 
             for (unsigned i = 0; i < putArgStk->GetSlotCount(); i++)
             {
-                emit.emitIns_I(INS_push, EA_4BYTE, static_cast<ssize_t>(0));
+                emit.emitIns_I(INS_push, EA_4BYTE, 0);
                 AddStackLevel(4);
             }
         }
@@ -6801,7 +6801,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         }
         else
         {
-            emit.emitIns_I(INS_push, EA_4BYTE, src->AsIntCon()->GetValue());
+            emit.emitIns_I(INS_push, EA_4BYTE, src->AsIntCon()->GetInt32Value());
         }
 
         AddStackLevel(REGSIZE_BYTES);

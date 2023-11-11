@@ -341,8 +341,10 @@ void emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg
 
 void emitIns_Nop(unsigned size);
 
+#ifdef TARGET_X86
 void emitIns_I(instruction ins, emitAttr attr, void* addr);
-void emitIns_I(instruction ins, emitAttr attr, ssize_t val);
+#endif
+void emitIns_I(instruction ins, emitAttr attr, int32_t val);
 
 void emitIns_R(instruction ins, emitAttr attr, regNumber reg);
 
@@ -514,7 +516,7 @@ void emitIns_Call(EmitCallType          kind,
 #endif
                   void* addr,
 #ifdef TARGET_X86
-                  ssize_t argSize,
+                  int32_t argSize,
 #endif
                   emitAttr retRegAttr,
 #ifdef UNIX_AMD64_ABI
