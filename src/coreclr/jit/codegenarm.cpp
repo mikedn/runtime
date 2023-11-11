@@ -574,6 +574,80 @@ ALLOC_DONE:
     genProduceReg(tree);
 }
 
+// Add a specified constant value to the stack pointer. No probing is done.
+//
+// spDelta - the value to add to SP. Must be negative or zero.
+// regTmp  - an available temporary register that is used if 'spDelta' cannot be encoded by
+//           'sub sp, sp, #spDelta' instruction.
+//           Can be REG_NA if the caller knows for certain that 'spDelta' fits into the immediate
+//           value range.
+//
+void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTmp)
+{
+    assert(spDelta < 0);
+
+    // We assert that the SP change is less than one page. If it's greater, you should have called a
+    // function that does a probe, which will in turn call this function.
+    assert((target_size_t)(-spDelta) <= compiler->eeGetPageSize());
+
+    genInstrWithConstant(INS_sub, EA_4BYTE, REG_SP, REG_SP, -spDelta, regTmp);
+}
+
+// Add a specified constant value to the stack pointer, and probe the stack as appropriate.
+// Should only be called as a helper for genStackPointerConstantAdjustmentLoopWithProbe.
+//
+// spDelta - the value to add to SP. Must be negative or zero. If zero, the probe happens,
+//           but the stack pointer doesn't move.
+// regTmp  - temporary register to use as target for probe load instruction
+//
+void CodeGen::genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNumber regTmp)
+{
+    GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, regTmp, REG_SP, 0);
+    genStackPointerConstantAdjustment(spDelta, regTmp);
+}
+
+// Add a specified constant value to the stack pointer, and probe the stack as appropriate.
+// Generates one probe per page, up to the total amount required.
+// This will generate a sequence of probes in-line.
+//
+// spDelta - the value to add to SP. Must be negative.
+// regTmp  - temporary register to use as target for probe load instruction
+//
+// Returns the offset in bytes from SP to last probed address.
+//
+target_ssize_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(ssize_t spDelta, regNumber regTmp)
+{
+    assert(spDelta < 0);
+
+    const target_size_t pageSize = compiler->eeGetPageSize();
+
+    ssize_t spRemainingDelta = spDelta;
+    do
+    {
+        ssize_t spOneDelta = -(ssize_t)min((target_size_t)-spRemainingDelta, pageSize);
+        genStackPointerConstantAdjustmentWithProbe(spOneDelta, regTmp);
+        spRemainingDelta -= spOneDelta;
+    } while (spRemainingDelta < 0);
+
+    // What offset from the final SP was the last probe? This depends on the fact that
+    // genStackPointerConstantAdjustmentWithProbe() probes first, then does "SUB SP".
+    target_size_t lastTouchDelta = (target_size_t)(-spDelta) % pageSize;
+    if ((lastTouchDelta == 0) || (lastTouchDelta + STACK_PROBE_BOUNDARY_THRESHOLD_BYTES > pageSize))
+    {
+        // We haven't probed almost a complete page. If lastTouchDelta==0, then spDelta was an exact
+        // multiple of pageSize, which means we last probed exactly one page back. Otherwise, we probed
+        // the page, but very far from the end. If the next action on the stack might subtract from SP
+        // first, before touching the current SP, then we do one more probe at the very bottom. This can
+        // happen on x86, for example, when we copy an argument to the stack using a "SUB ESP; REP MOV"
+        // strategy.
+
+        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, regTmp, REG_SP, 0);
+        lastTouchDelta = 0;
+    }
+
+    return lastTouchDelta;
+}
+
 void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
 {
     regNumber idxReg  = UseReg(treeNode->GetOp(0));
