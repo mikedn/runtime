@@ -6812,10 +6812,13 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         {
             emit.emitIns_A(INS_push, attr, src->AsIndir()->GetAddr());
         }
+        else if (src->IsIconHandle())
+        {
+            emit.emitIns_I(INS_push, EA_PTR_CNS_RELOC, src->AsIntCon()->GetValue());
+        }
         else
         {
-            emitAttr attr = src->IsIconHandle() ? EA_PTR_CNS_RELOC : EA_4BYTE;
-            emit.emitIns_I(INS_push, attr, src->AsIntCon()->GetValue());
+            emit.emitIns_I(INS_push, EA_4BYTE, src->AsIntCon()->GetValue());
         }
 
         AddStackLevel(REGSIZE_BYTES);
@@ -7488,7 +7491,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 
     if (compiler->compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_AR_R(INS_push, EA_PTR_DSP_RELOC, REG_NA, REG_NA, profilerMethodAddr);
+        GetEmitter()->emitIns_I(INS_push, EA_PTR_CNS_RELOC, profilerMethodAddr);
     }
     else
     {
@@ -7552,7 +7555,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
     if (compiler->compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_AR_R(INS_push, EA_PTR_DSP_RELOC, REG_NA, REG_NA, profilerMethodAddr);
+        GetEmitter()->emitIns_I(INS_push, EA_PTR_CNS_RELOC, profilerMethodAddr);
     }
     else
     {

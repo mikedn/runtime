@@ -1495,7 +1495,10 @@ void Compiler::compInitOptions()
         bool hookNeeded;
         bool indirected;
         info.compCompHnd->GetProfilingHandle(&hookNeeded, &compProfilerMethHnd, &indirected);
-        compProfilerHookNeeded        = hookNeeded;
+        compProfilerHookNeeded = hookNeeded;
+
+        // TODO-MIKE-Review: All the compProfilerMethHndIndirected code is dead,
+        // crossgen2 does not support profiling like ngen did.
         compProfilerMethHndIndirected = indirected;
     }
     else
