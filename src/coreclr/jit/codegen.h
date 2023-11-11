@@ -309,10 +309,9 @@ public:
 
 #if defined(TARGET_ARM)
 
-    bool genInstrWithConstant(
-        instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ssize_t imm, regNumber tmpReg);
+    void genInstrWithConstant(instruction ins, regNumber reg1, regNumber reg2, int32_t imm, regNumber tmpReg);
 
-    bool genStackPointerAdjustment(ssize_t spAdjustment, regNumber tmpReg);
+    void genStackPointerAdjustment(int32_t spAdjustment, regNumber tmpReg);
 
     void genPushFltRegs(regMaskTP regMask);
     void genPopFltRegs(regMaskTP regMask);
@@ -322,7 +321,6 @@ public:
 
     void genMov32RelocatableDisplacement(BasicBlock* block, regNumber reg);
     void genMov32RelocatableDataLabel(unsigned value, regNumber reg);
-    void genMov32RelocatableImmediate(void* addr, regNumber reg);
 
     bool genUsedPopToReturn; // True if we use the pop into PC to return,
                              // False if we didn't and must branch to LR to return.
@@ -1091,9 +1089,15 @@ protected:
     void GenRetFilt(GenTree* retfilt, BasicBlock* block);
     void GenReturn(GenTree* ret, BasicBlock* block);
 
+#ifdef TARGET_ARM
+    void genStackPointerConstantAdjustment(int32_t spDelta, regNumber regTmp);
+    void genStackPointerConstantAdjustmentWithProbe(int32_t spDelta, regNumber regTmp);
+    int32_t genStackPointerConstantAdjustmentLoopWithProbe(int32_t spDelta, regNumber regTmp);
+#else
     void genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTmp);
     void genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNumber regTmp);
     target_ssize_t genStackPointerConstantAdjustmentLoopWithProbe(ssize_t spDelta, regNumber regTmp);
+#endif
 
 #ifdef TARGET_XARCH
     void genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, regNumber regTmp);
@@ -1241,6 +1245,15 @@ public:
 #endif
 
     void instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg);
+    void instGen_Set_Reg_To_Addr(regNumber reg,
+                                 void* addr DEBUGARG(void* handle = nullptr)
+                                     DEBUGARG(HandleKind handleKind = HandleKind::None));
+    void instGen_Set_Reg_To_Reloc(regNumber reg,
+                                  void* addr DEBUGARG(void* handle = nullptr)
+                                      DEBUGARG(HandleKind handleKind = HandleKind::None));
+#ifdef TARGET_ARM
+    void instGen_Set_Reg_To_Imm(regNumber reg, int32_t imm);
+#endif
     void instGen_Set_Reg_To_Imm(emitAttr  size,
                                 regNumber reg,
                                 ssize_t imm DEBUGARG(void* handle = nullptr)

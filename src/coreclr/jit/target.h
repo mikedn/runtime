@@ -519,8 +519,8 @@ typedef int64_t  target_ssize_t;
 
 #else // !TARGET_64BIT
 
-typedef uint32_t       target_size_t;
-typedef int32_t        target_ssize_t;
+typedef uint32_t target_size_t;
+typedef int32_t  target_ssize_t;
 #define TARGET_SIGN_BIT (1ULL << 31)
 #define TARGET_SIZE_MIN UINT32_MIN
 #define TARGET_SIZE_MAX UINT32_MAX

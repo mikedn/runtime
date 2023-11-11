@@ -411,7 +411,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             void* addr;
             addr = compiler->info.compCompHnd->getFieldAddress(treeNode->AsClsVar()->GetFieldHandle(), nullptr);
             noway_assert(addr != nullptr);
-            instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, treeNode->GetRegNum(), reinterpret_cast<ssize_t>(addr));
+            instGen_Set_Reg_To_Addr(treeNode->GetRegNum(), addr);
 #else
             emit->emitIns_R_C(INS_adr, EA_8BYTE, treeNode->GetRegNum(), REG_NA, treeNode->AsClsVar()->GetFieldHandle());
 #endif
@@ -452,8 +452,7 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, initReg, reinterpret_cast<ssize_t>(m_gsCookieAddr)
-                                                              DEBUGARG(reinterpret_cast<void*>(THT_SetGSCookie)));
+        instGen_Set_Reg_To_Addr(initReg, m_gsCookieAddr DEBUGARG(reinterpret_cast<void*>(THT_SetGSCookie)));
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, initReg, initReg, 0);
         GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, initReg, compiler->lvaGSSecurityCookie, 0);
     }
@@ -481,8 +480,7 @@ void CodeGen::EpilogGSCookieCheck()
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, regGSConst, reinterpret_cast<ssize_t>(m_gsCookieAddr)
-                                                                 DEBUGARG(reinterpret_cast<void*>(THT_GSCookieCheck)));
+        instGen_Set_Reg_To_Addr(regGSConst, m_gsCookieAddr DEBUGARG(reinterpret_cast<void*>(THT_GSCookieCheck)));
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, regGSConst, regGSConst, 0);
     }
 
@@ -2466,7 +2464,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         {
             emitCallType = emitter::EC_INDIR_R;
             callReg      = call->GetSingleTempReg();
-            instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, callReg, reinterpret_cast<ssize_t>(callAddr));
+            instGen_Set_Reg_To_Addr(callReg, callAddr);
         }
         else
 #endif
@@ -2803,7 +2801,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
                 callType   = emitter::EC_INDIR_R;
                 indCallReg = REG_INDIRECT_CALL_TARGET_REG;
                 addr       = NULL;
-                instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, indCallReg, (ssize_t)addrInfo.addr);
+                instGen_Set_Reg_To_Addr(indCallReg, addrInfo.addr);
                 if (addrInfo.accessType == IAT_PVALUE)
                 {
                     GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, indCallReg, indCallReg, 0);

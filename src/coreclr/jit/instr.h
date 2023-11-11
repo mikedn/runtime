@@ -287,10 +287,10 @@ enum emitAttr : unsigned
     EA_PTRSIZE = EA_4BYTE,
 #endif
 
-    EA_GCREF_FLG     = 0x080,
-    EA_GCREF         = EA_GCREF_FLG | EA_PTRSIZE, /* size == -1 */
-    EA_BYREF_FLG     = 0x100,
-    EA_BYREF         = EA_BYREF_FLG | EA_PTRSIZE, /* size == -2 */
+    EA_GCREF_FLG = 0x080,
+    EA_GCREF     = EA_GCREF_FLG | EA_PTRSIZE, /* size == -1 */
+    EA_BYREF_FLG = 0x100,
+    EA_BYREF     = EA_BYREF_FLG | EA_PTRSIZE, /* size == -2 */
 #ifdef TARGET_XARCH
     EA_DSP_RELOC_FLG = 0x200,
 #endif

@@ -24,50 +24,22 @@
 // This function is used for cases that aren't mirrored in the IR, such as
 // in the prolog.
 //
-// Returns true if the immediate was small enough to be encoded inside instruction.
-// If not, returns false meaning the immediate was too large and tmpReg was used
-// and modified.
-//
-bool CodeGen::genInstrWithConstant(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ssize_t imm, regNumber tmpReg)
+void CodeGen::genInstrWithConstant(instruction ins, regNumber reg1, regNumber reg2, int32_t imm, regNumber tmpReg)
 {
-    bool immFitsInIns = false;
+    assert((ins == INS_add) || (ins == INS_sub));
 
-    // reg1 is usually a dest register
-    // reg2 is always source register
-    assert(tmpReg != reg2); // regTmp cannot match any source register
-
-    switch (ins)
+    if (emitter::validImmForInstr(ins, imm))
     {
-        case INS_add:
-        case INS_sub:
-            immFitsInIns = emitter::validImmForInstr(ins, (target_ssize_t)imm);
-            break;
-
-        default:
-            assert(!"Unexpected instruction in genInstrWithConstant");
-            break;
-    }
-
-    if (immFitsInIns)
-    {
-        // generate a single instruction that encodes the immediate directly
-        GetEmitter()->emitIns_R_R_I(ins, attr, reg1, reg2, (target_ssize_t)imm);
+        GetEmitter()->emitIns_R_R_I(ins, EA_4BYTE, reg1, reg2, imm);
     }
     else
     {
-        // caller can specify REG_NA  for tmpReg, when it "knows" that the immediate will always fit
+        // caller can specify REG_NA for tmpReg, when it "knows" that the immediate will always fit
         assert(tmpReg != REG_NA);
 
-        // generate two or more instructions
-
-        // first we load the immediate into tmpReg
-        instGen_Set_Reg_To_Imm(attr, tmpReg, imm);
-
-        // generate the instruction using a three register encoding with the immediate in tmpReg
-        GetEmitter()->emitIns_R_R_R(ins, attr, reg1, reg2, tmpReg);
+        instGen_Set_Reg_To_Imm(tmpReg, imm);
+        GetEmitter()->emitIns_R_R_R(ins, EA_4BYTE, reg1, reg2, tmpReg);
     }
-    return immFitsInIns;
 }
 
 // Add a specified constant value to the stack pointer.
@@ -81,11 +53,11 @@ bool CodeGen::genInstrWithConstant(
 // Returns true if the immediate was small enough to be encoded inside instruction.
 // If not, returns false meaning the immediate was too large and tmpReg was used and modified.
 //
-bool CodeGen::genStackPointerAdjustment(ssize_t spDelta, regNumber tmpReg)
+void CodeGen::genStackPointerAdjustment(int32_t spDelta, regNumber tmpReg)
 {
     // Even though INS_add is specified here, the encoder will choose either
     // an INS_add or an INS_sub and encode the immediate as a positive value
-    return genInstrWithConstant(INS_add, EA_4BYTE, REG_SPBASE, REG_SPBASE, spDelta, tmpReg);
+    genInstrWithConstant(INS_add, REG_SPBASE, REG_SPBASE, spDelta, tmpReg);
 }
 
 BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
@@ -146,8 +118,27 @@ void CodeGen::genMov32RelocatableDataLabel(unsigned value, regNumber reg)
     }
 }
 
-void CodeGen::genMov32RelocatableImmediate(void* addr, regNumber reg)
+void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 {
+    GetEmitter()->emitIns_R_I(INS_mov, size, reg, 0);
+}
+
+void CodeGen::instGen_Set_Reg_To_Addr(regNumber reg, void* addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
+{
+    if (!compiler->opts.compReloc)
+    {
+        instGen_Set_Reg_To_Imm(EA_4BYTE, reg, reinterpret_cast<ssize_t>(addr) DEBUGARG(handle));
+
+        return;
+    }
+
+    instGen_Set_Reg_To_Reloc(reg, addr DEBUGARG(handle) DEBUGARG(handleKind));
+}
+
+void CodeGen::instGen_Set_Reg_To_Reloc(regNumber reg, void* addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
+{
+    assert(compiler->opts.compReloc);
+
     GetEmitter()->emitIns_MovRelocatableImmediate(INS_movw, reg, addr);
     GetEmitter()->emitIns_MovRelocatableImmediate(INS_movt, reg, addr);
 
@@ -157,66 +148,63 @@ void CodeGen::genMov32RelocatableImmediate(void* addr, regNumber reg)
     }
 }
 
-void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
+void CodeGen::instGen_Set_Reg_To_Imm(regNumber reg, int32_t imm)
 {
-    GetEmitter()->emitIns_R_I(INS_mov, size, reg, 0);
+    instGen_Set_Reg_To_Imm(EA_4BYTE, reg, imm);
 }
 
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
                                      ssize_t imm DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
-    // reg cannot be a FP register
+    assert(!EA_IS_CNS_RELOC(size));
     assert(!genIsValidFloatReg(reg));
 
+    // TODO-MIKE-Cleanup: This was trying to remove the reloc flag but it also removed GC flags.
+    // Constants shouldn't have such flags but don't be surprised if they do.
     if (!compiler->opts.compReloc)
     {
-        size = EA_SIZE(size); // Strip any Reloc flags from size if we aren't doing relocs
+        size = EA_SIZE(size);
     }
 
-    if (EA_IS_CNS_RELOC(size))
-    {
-        assert(EA_SIZE(size) == EA_4BYTE);
-        // TODO-CrossBitness: we wouldn't need the cast below if we had CodeGen::instGen_Set_Reg_To_Reloc_Imm.
-        genMov32RelocatableImmediate(reinterpret_cast<void*>(imm), reg);
-    }
-    else if (imm == 0)
+    if (imm == 0)
     {
         GetEmitter()->emitIns_R_I(INS_mov, size, reg, 0);
+
+        return;
+    }
+
+    // TODO-CrossBitness: we wouldn't need the cast below if we had CodeGen::instGen_Set_Reg_To_Reloc_Imm.
+    // TODO-MIKE-Review: Why the crap does ARM use ssize_t for imm?!?
+    const int32_t val32 = static_cast<int32_t>(imm);
+
+    if (emitter::emitIns_valid_imm_for_mov(val32))
+    {
+        GetEmitter()->emitIns_R_I(INS_mov, size, reg, val32);
+
+        return;
+    }
+
+    const int imm_lo16 = val32 & 0xffff;
+    const int imm_hi16 = (val32 >> 16) & 0xffff;
+
+    assert(emitter::emitIns_valid_imm_for_mov(imm_lo16));
+    assert(imm_hi16 != 0);
+
+    GetEmitter()->emitIns_R_I(INS_movw, size, reg, imm_lo16);
+
+    // If we've got a low register, the high word is all bits set,
+    // and the high bit of the low word is set, we can sign extend
+    // halfword and save two bytes of encoding. This can happen for
+    // small magnitude negative numbers 'n' for -32768 <= n <= -1.
+
+    if (GetEmitter()->isLowRegister(reg) && (imm_hi16 == 0xffff) && ((imm_lo16 & 0x8000) == 0x8000))
+    {
+        GetEmitter()->emitIns_Mov(INS_sxth, EA_4BYTE, reg, reg, /* canSkip */ false);
     }
     else
     {
-        // TODO-CrossBitness: we wouldn't need the cast below if we had CodeGen::instGen_Set_Reg_To_Reloc_Imm.
-        // TODO-MIKE-Review: Why the crap does ARM use ssize_t for imm?!?
-        const int val32 = (int)imm;
-        if (emitter::emitIns_valid_imm_for_mov(val32))
-        {
-            GetEmitter()->emitIns_R_I(INS_mov, size, reg, val32);
-        }
-        else // We have to use a movw/movt pair of instructions
-        {
-            const int imm_lo16 = val32 & 0xffff;
-            const int imm_hi16 = (val32 >> 16) & 0xffff;
-
-            assert(emitter::emitIns_valid_imm_for_mov(imm_lo16));
-            assert(imm_hi16 != 0);
-
-            GetEmitter()->emitIns_R_I(INS_movw, size, reg, imm_lo16);
-
-            // If we've got a low register, the high word is all bits set,
-            // and the high bit of the low word is set, we can sign extend
-            // halfword and save two bytes of encoding. This can happen for
-            // small magnitude negative numbers 'n' for -32768 <= n <= -1.
-
-            if (GetEmitter()->isLowRegister(reg) && (imm_hi16 == 0xffff) && ((imm_lo16 & 0x8000) == 0x8000))
-            {
-                GetEmitter()->emitIns_Mov(INS_sxth, EA_4BYTE, reg, reg, /* canSkip */ false);
-            }
-            else
-            {
-                GetEmitter()->emitIns_R_I(INS_movt, size, reg, imm_hi16);
-            }
-        }
+        GetEmitter()->emitIns_R_I(INS_movt, size, reg, imm_hi16);
     }
 }
 
@@ -224,7 +212,7 @@ void CodeGen::GenIntCon(GenTreeIntCon* node)
 {
     if (node->ImmedValNeedsReloc(compiler))
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, node->GetRegNum(), node->GetValue());
+        instGen_Set_Reg_To_Reloc(node->GetRegNum(), reinterpret_cast<void*>(node->GetValue()));
     }
     else
     {
@@ -248,7 +236,7 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
         uint32_t bits = node->GetFloatBits();
 
         regNumber temp = node->GetSingleTempReg();
-        instGen_Set_Reg_To_Imm(EA_4BYTE, temp, static_cast<int32_t>(bits));
+        instGen_Set_Reg_To_Imm(temp, static_cast<int32_t>(bits));
 
         GetEmitter()->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, node->GetRegNum(), temp, /* canSkip */ false);
     }
@@ -260,8 +248,8 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
 
         regNumber temp1 = node->ExtractTempReg();
         regNumber temp2 = node->GetSingleTempReg();
-        instGen_Set_Reg_To_Imm(EA_4BYTE, temp1, static_cast<int32_t>(bits & UINT32_MAX));
-        instGen_Set_Reg_To_Imm(EA_4BYTE, temp2, static_cast<int32_t>(bits >> 32));
+        instGen_Set_Reg_To_Imm(temp1, static_cast<int32_t>(bits & UINT32_MAX));
+        instGen_Set_Reg_To_Imm(temp2, static_cast<int32_t>(bits >> 32));
 
         GetEmitter()->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, node->GetRegNum(), temp1, temp2);
     }
@@ -397,8 +385,8 @@ void CodeGen::genLclHeap(GenTree* tree)
     if (size->IsCnsIntOrI())
     {
         // 'amount' is the total number of bytes to localloc to properly STACK_ALIGN
-        target_size_t amount = (target_size_t)size->AsIntCon()->gtIconVal;
-        amount               = AlignUp(amount, STACK_ALIGN);
+        uint32_t amount = size->AsIntCon()->GetUInt32Value();
+        amount          = AlignUp(amount, STACK_ALIGN);
 
         // For small allocations we will generate up to four push instructions (either 2 or 4, exactly,
         // since STACK_ALIGN is 8, and REGSIZE_BYTES is 4).
@@ -433,7 +421,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         }
 
         // regCnt will be the total number of bytes to locAlloc
-        instGen_Set_Reg_To_Imm(EA_4BYTE, regCnt, amount);
+        instGen_Set_Reg_To_Imm(regCnt, amount);
     }
     else
     {
@@ -558,7 +546,7 @@ ALLOC_DONE:
 
         // Return the stackalloc'ed address in result register.
         // regCnt = SP + stackAdjustment.
-        genInstrWithConstant(INS_add, EA_4BYTE, regCnt, REG_SPBASE, (ssize_t)stackAdjustment, regTmp);
+        genInstrWithConstant(INS_add, regCnt, REG_SPBASE, stackAdjustment, regTmp);
     }
     else // stackAdjustment == 0
     {
@@ -582,7 +570,7 @@ ALLOC_DONE:
 //           Can be REG_NA if the caller knows for certain that 'spDelta' fits into the immediate
 //           value range.
 //
-void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTmp)
+void CodeGen::genStackPointerConstantAdjustment(int32_t spDelta, regNumber regTmp)
 {
     assert(spDelta < 0);
 
@@ -590,7 +578,7 @@ void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTm
     // function that does a probe, which will in turn call this function.
     assert((target_size_t)(-spDelta) <= compiler->eeGetPageSize());
 
-    genInstrWithConstant(INS_sub, EA_4BYTE, REG_SP, REG_SP, -spDelta, regTmp);
+    genInstrWithConstant(INS_sub, REG_SP, REG_SP, -spDelta, regTmp);
 }
 
 // Add a specified constant value to the stack pointer, and probe the stack as appropriate.
@@ -600,7 +588,7 @@ void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTm
 //           but the stack pointer doesn't move.
 // regTmp  - temporary register to use as target for probe load instruction
 //
-void CodeGen::genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNumber regTmp)
+void CodeGen::genStackPointerConstantAdjustmentWithProbe(int32_t spDelta, regNumber regTmp)
 {
     GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, regTmp, REG_SP, 0);
     genStackPointerConstantAdjustment(spDelta, regTmp);
@@ -615,23 +603,23 @@ void CodeGen::genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNum
 //
 // Returns the offset in bytes from SP to last probed address.
 //
-target_ssize_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(ssize_t spDelta, regNumber regTmp)
+int32_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(int32_t spDelta, regNumber regTmp)
 {
     assert(spDelta < 0);
 
-    const target_size_t pageSize = compiler->eeGetPageSize();
+    const uint32_t pageSize = compiler->eeGetPageSize();
 
-    ssize_t spRemainingDelta = spDelta;
+    int32_t spRemainingDelta = spDelta;
     do
     {
-        ssize_t spOneDelta = -(ssize_t)min((target_size_t)-spRemainingDelta, pageSize);
+        int32_t spOneDelta = -(int32_t)min((uint32_t)-spRemainingDelta, pageSize);
         genStackPointerConstantAdjustmentWithProbe(spOneDelta, regTmp);
         spRemainingDelta -= spOneDelta;
     } while (spRemainingDelta < 0);
 
     // What offset from the final SP was the last probe? This depends on the fact that
     // genStackPointerConstantAdjustmentWithProbe() probes first, then does "SUB SP".
-    target_size_t lastTouchDelta = (target_size_t)(-spDelta) % pageSize;
+    uint32_t lastTouchDelta = (uint32_t)(-spDelta) % pageSize;
     if ((lastTouchDelta == 0) || (lastTouchDelta + STACK_PROBE_BOUNDARY_THRESHOLD_BYTES > pageSize))
     {
         // We haven't probed almost a complete page. If lastTouchDelta==0, then spDelta was an exact
@@ -1229,11 +1217,11 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
         // Load the address into a register and call through a register
         if (addr != nullptr)
         {
-            instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, callTargetReg, reinterpret_cast<ssize_t>(addr));
+            instGen_Set_Reg_To_Addr(callTargetReg, addr);
         }
         else
         {
-            instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, callTargetReg, reinterpret_cast<ssize_t>(pAddr));
+            instGen_Set_Reg_To_Addr(callTargetReg, pAddr);
             GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, callTargetReg, callTargetReg, 0);
         }
 
@@ -1316,16 +1304,14 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 
     assert((preSpillParamRegs & genRegMask(argReg)) != RBM_NONE);
 
-    ssize_t profilerMethodAddr = reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd);
-
     if (compiler->compProfilerMethHndIndirected)
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, argReg, profilerMethodAddr);
+        instGen_Set_Reg_To_Addr(argReg, compiler->compProfilerMethHnd);
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, argReg, argReg, 0);
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_4BYTE, argReg, profilerMethodAddr);
+        instGen_Set_Reg_To_Imm(EA_4BYTE, argReg, reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
     }
 
     genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER);
@@ -1402,16 +1388,14 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
         liveness.TransferGCRegType(REG_PROFILER_RET_SCRATCH, REG_R0);
     }
 
-    ssize_t profilerMethodAddr = reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd);
-
     if (compiler->compProfilerMethHndIndirected)
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, REG_R0, profilerMethodAddr);
+        instGen_Set_Reg_To_Addr(REG_R0, compiler->compProfilerMethHnd);
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_R0, REG_R0, 0);
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_4BYTE, REG_R0, profilerMethodAddr);
+        instGen_Set_Reg_To_Imm(EA_4BYTE, REG_R0, reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
     }
 
     liveness.RemoveGCRegs(RBM_R0);
@@ -1466,8 +1450,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
     }
     else
     {
-        genInstrWithConstant(INS_sub, EA_4BYTE, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, frameSize,
-                             REG_STACK_PROBE_HELPER_ARG);
+        genInstrWithConstant(INS_sub, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, frameSize, REG_STACK_PROBE_HELPER_ARG);
         genEmitHelperCall(CORINFO_HELP_STACK_PROBE, EA_UNKNOWN, REG_STACK_PROBE_HELPER_CALL_TARGET);
         compiler->unwindPadding();
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SPBASE, REG_STACK_PROBE_HELPER_ARG, /* canSkip */ false);
@@ -1621,7 +1604,7 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
         else
         {
             regNumber offsetReg = indir->GetSingleTempReg();
-            instGen_Set_Reg_To_Imm(EA_4BYTE, offsetReg, offset);
+            instGen_Set_Reg_To_Imm(offsetReg, offset);
             emit->emitIns_R_R_R(ins, attr, valueReg, base->GetRegNum(), offsetReg);
         }
 
@@ -1659,7 +1642,7 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
     {
         noway_assert(tmpReg != indexReg);
 
-        instGen_Set_Reg_To_Imm(EA_4BYTE, tmpReg, offset);
+        instGen_Set_Reg_To_Imm(tmpReg, offset);
         emit->emitIns_R_R_R(INS_add, tmpAttr, tmpReg, tmpReg, baseReg);
         emit->emitIns_R_R_R_I(ins, attr, valueReg, tmpReg, indexReg, lsl, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
 
@@ -2018,7 +2001,7 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
     else
     {
         // Load immediate into the InitReg register
-        instGen_Set_Reg_To_Imm(EA_4BYTE, initReg, (ssize_t)untrLclLo);
+        instGen_Set_Reg_To_Imm(initReg, untrLclLo);
         GetEmitter()->emitIns_R_R_R(INS_add, EA_4BYTE, rAddr, genFramePointerReg(), initReg);
         *pInitRegZeroed = false;
     }
@@ -2029,7 +2012,7 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
         // rCnt is not a live incoming param reg
         assert((genRegMask(rCnt) & paramRegState.intRegLiveIn) == RBM_NONE);
 
-        instGen_Set_Reg_To_Imm(EA_4BYTE, rCnt, (ssize_t)uCntSlots / 2);
+        instGen_Set_Reg_To_Imm(rCnt, uCntSlots / 2);
     }
 
     if (!*pInitRegZeroed)
@@ -2182,7 +2165,7 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
     {
         // R12 doesn't hold arguments or return values, so can be used as temp.
         regNumber tmpReg = REG_R12;
-        instGen_Set_Reg_To_Imm(EA_4BYTE, tmpReg, frameSize);
+        instGen_Set_Reg_To_Imm(tmpReg, frameSize);
         if (*pUnwindStarted)
         {
             compiler->unwindPadding();
@@ -2743,7 +2726,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         regNumber indCallReg = REG_R12;
         regNumber vptrReg1   = REG_LR;
 
-        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, indCallReg, (ssize_t)addrInfo.addr);
+        instGen_Set_Reg_To_Addr(indCallReg, addrInfo.addr);
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, vptrReg1, indCallReg, /* canSkip */ false);
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, indCallReg, indCallReg, 0);
         GetEmitter()->emitIns_R_R(INS_add, EA_4BYTE, indCallReg, vptrReg1);

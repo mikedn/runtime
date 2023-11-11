@@ -426,7 +426,7 @@ void emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fdlHnd, in
 
 void emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg);
 
-void emitIns_R_AI(instruction ins, emitAttr attr, regNumber ireg, ssize_t disp);
+void emitIns_R_AI(instruction ins, emitAttr attr, regNumber ireg, void* addr);
 
 void emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t disp);
 void emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scaled, int32_t disp);

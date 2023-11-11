@@ -43,7 +43,7 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
         // On x64, if we're not moving into RAX, and the address isn't RIP relative, we can't encode it.
         //  mov   eax, dword ptr [compiler->gsGlobalSecurityCookieAddr]
         //  mov   dword ptr [frame.GSSecurityCookie], eax
-        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_EAX, reinterpret_cast<ssize_t>(m_gsCookieAddr));
+        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_EAX, m_gsCookieAddr);
         GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_EAX, gsCookieLclNum, 0);
 
         if (initReg == REG_EAX)
@@ -118,7 +118,7 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
         }
 #endif
 
-        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, regGSCheck, reinterpret_cast<ssize_t>(m_gsCookieAddr));
+        instGen_Set_Reg_To_Addr(regGSCheck, m_gsCookieAddr);
         GetEmitter()->emitIns_R_AR(INS_mov, EA_PTRSIZE, regGSCheck, regGSCheck, 0);
         GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, regGSCheck, gsCookieLclNum, 0);
     }
@@ -425,54 +425,67 @@ void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
     GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
 }
 
+void CodeGen::instGen_Set_Reg_To_Addr(regNumber reg, void* addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
+{
+    if (!compiler->opts.compReloc)
+    {
+        instGen_Set_Reg_To_Imm(EA_PTRSIZE, reg, reinterpret_cast<ssize_t>(addr) DEBUGARG(handle));
+
+        return;
+    }
+
+    instGen_Set_Reg_To_Reloc(reg, addr DEBUGARG(handle) DEBUGARG(handleKind));
+}
+
+void CodeGen::instGen_Set_Reg_To_Reloc(regNumber reg, void* addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
+{
+    assert(compiler->opts.compReloc);
+
+#ifdef TARGET_AMD64
+    if (compiler->eeIsRIPRelativeAddress(addr))
+    {
+        GetEmitter()->emitIns_R_AI(INS_lea, EA_PTR_DSP_RELOC, reg, addr);
+    }
+    else
+#endif
+    {
+        GetEmitter()->emitIns_R_I(INS_mov, EA_PTR_CNS_RELOC, reg, reinterpret_cast<ssize_t>(addr));
+    }
+}
+
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
                                      ssize_t imm DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
-    // reg cannot be a FP register
+    assert(!EA_IS_RELOC(size));
     assert(!genIsValidFloatReg(reg));
 
+    // TODO-MIKE-Cleanup: This was trying to remove the reloc flag but it also removed GC flags.
+    // Constants shouldn't have such flags but don't be surprised if they do.
     if (!compiler->opts.compReloc)
     {
-        size = EA_SIZE(size); // Strip any Reloc flags from size if we aren't doing relocs
+        size = EA_SIZE(size);
     }
 
-    if ((imm == 0) && !EA_IS_RELOC(size))
+    if (imm == 0)
     {
+        // TODO-MIKE-Cleanup: The size should always be EA_4BYTE but this caused GC diffs.
+        // See related GenIntCon TODO.
         GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
-    }
-#ifdef TARGET_AMD64
-    else if (compiler->eeIsRIPRelativeAddress(reinterpret_cast<void*>(imm)))
-    {
-        emitAttr newSize = EA_PTR_DSP_RELOC;
 
-        if (EA_IS_BYREF(size))
-        {
-            newSize = EA_SET_FLG(newSize, EA_BYREF_FLG);
-        }
+        return;
+    }
 
-        GetEmitter()->emitIns_R_AI(INS_lea, newSize, reg, imm);
-    }
-#endif
-    else
-    {
-        GetEmitter()->emitIns_R_I(INS_mov, size, reg, imm);
-    }
+    GetEmitter()->emitIns_R_I(INS_mov, size, reg, imm);
 }
 
 void CodeGen::GenIntCon(GenTreeIntCon* node, regNumber reg, var_types type)
 {
     if (node->ImmedValNeedsReloc(compiler))
     {
-        emitAttr size = EA_PTR_CNS_RELOC;
-
-        // TODO-MIKE-Review: Who cares about byref on a constant?!?
-        if (type == TYP_BYREF)
-        {
-            size = EA_SET_FLG(size, EA_BYREF_FLG);
-        }
-
-        instGen_Set_Reg_To_Imm(size, reg, node->GetValue());
+        // TODO-MIKE-Review: This is dropping GC flags, they should
+        // not be needed but removing them causes textual diffs.
+        instGen_Set_Reg_To_Reloc(reg, reinterpret_cast<void*>(node->GetValue()));
 
         return;
     }
@@ -5223,7 +5236,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
             {
                 callType   = emitter::EC_INDIR_ARD;
                 indCallReg = REG_RAX;
-                instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, indCallReg, reinterpret_cast<ssize_t>(addr));
+                instGen_Set_Reg_To_Addr(indCallReg, addr);
                 addr = nullptr;
             }
 #endif
@@ -6801,7 +6814,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         }
         else
         {
-            emitAttr attr = src->IsIconHandle() ? EA_PTR_CNS_RELOC : EA_PTRSIZE;
+            emitAttr attr = src->IsIconHandle() ? EA_PTR_CNS_RELOC : EA_4BYTE;
             emit.emitIns_I(INS_push, attr, src->AsIntCon()->GetValue());
         }
 
@@ -7625,17 +7638,12 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     {
         // Profiler hooks enabled during Ngen time.
         // Profiler handle needs to be accessed through an indirection of a pointer.
-        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
-    }
-    else if (compiler->opts.compJitELTHookEnabled)
-    {
-        // COMPlus_JitELTHookEnabled does not require relocations.
-        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
-                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_ARG_0, compiler->compProfilerMethHnd);
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_8BYTE, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
+                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
     }
 
     // RDX = caller's SP
@@ -7703,18 +7711,12 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     {
         // Profiler hooks enabled during Ngen time.
         // Profiler handle needs to be accessed through an indirection of a pointer.
-        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_PROFILER_ENTER_ARG_0,
-                                   (ssize_t)compiler->compProfilerMethHnd);
-    }
-    else if (compiler->opts.compJitELTHookEnabled)
-    {
-        // COMPlus_JitELTHookEnabled does not require relocations.
-        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_PROFILER_ENTER_ARG_0,
-                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_PROFILER_ENTER_ARG_0, compiler->compProfilerMethHnd);
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_8BYTE, REG_PROFILER_ENTER_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_PROFILER_ENTER_ARG_0,
+                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
     }
 
     // R15 = caller's SP
@@ -7724,7 +7726,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     //      of that offset to FramePointer to obtain caller's SP shift.
     assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
     int callerSPOffset = compiler->lvaToCallerSPRelativeOffset(0, isFramePointerUsed());
-    GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_PROFILER_ENTER_ARG_1, genFramePointerReg(), -callerSPOffset);
+    GetEmitter()->emitIns_R_AR(INS_lea, EA_8BYTE, REG_PROFILER_ENTER_ARG_1, genFramePointerReg(), -callerSPOffset);
 
     // We can use any callee trash register (other than RAX, RDI, RSI) for call target.
     // We use R11 here. This will emit either
@@ -7779,17 +7781,12 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     {
         // Profiler hooks enabled during Ngen time.
         // Profiler handle needs to be accessed through an indirection of an address.
-        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
-    }
-    else if (compiler->opts.compJitELTHookEnabled)
-    {
-        // COMPlus_JitELTHookEnabled does not require relocations.
-        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
-                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_ARG_0, compiler->compProfilerMethHnd);
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_8BYTE, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
+                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
     }
 
     // RDX = caller's SP
@@ -7826,24 +7823,19 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     // RDI = ProfilerMethHnd
     if (compiler->compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
-    }
-    else if (compiler->opts.compJitELTHookEnabled)
-    {
-        // COMPlus_JitELTHookEnabled does not require relocations.
-        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
-                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_ARG_0, compiler->compProfilerMethHnd);
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_8BYTE, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
+                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
     }
 
     // RSI = caller's SP
     if (compiler->lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT)
     {
         int callerSPOffset = compiler->lvaToCallerSPRelativeOffset(0, isFramePointerUsed());
-        GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_ARG_1, genFramePointerReg(), -callerSPOffset);
+        GetEmitter()->emitIns_R_AR(INS_lea, EA_8BYTE, REG_ARG_1, genFramePointerReg(), -callerSPOffset);
     }
     else
     {

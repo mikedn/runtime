@@ -4712,15 +4712,15 @@ void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber reg, regNum
     emitIns_R_ARX(ins, attr, reg, base, REG_NA, 1, disp);
 }
 
-void emitter::emitIns_R_AI(instruction ins, emitAttr attr, regNumber ireg, ssize_t disp)
+void emitter::emitIns_R_AI(instruction ins, emitAttr attr, regNumber reg, void* addr)
 {
-    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE) && (ireg != REG_NA));
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), ireg));
+    assert(((ins == INS_mov) || (ins == INS_lea)) && (EA_SIZE(attr) <= EA_8BYTE) && (reg != REG_NA));
+    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
-    instrDesc* id = emitNewInstrAmd(attr, disp);
+    instrDesc* id = emitNewInstrAmd(attr, reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
-    id->idInsFmt(emitInsModeFormat(ins, IF_RRD_ARD));
-    id->idReg1(ireg);
+    id->idInsFmt(IF_RWR_ARD);
+    id->idReg1(reg);
     id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
     id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
 

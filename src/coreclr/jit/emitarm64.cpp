@@ -7621,10 +7621,10 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
 void emitter::emitIns_R_AI(instruction ins,
                            emitAttr    attr,
                            regNumber   reg,
-                           ssize_t addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
+                           void* addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
     assert((ins == INS_adrp) || (ins == INS_adr));
-    assert(EA_IS_CNS_RELOC(attr));
+    assert(attr == EA_PTR_CNS_RELOC);
 
     emitAttr size = EA_SIZE(attr);
 
@@ -7633,7 +7633,7 @@ void emitter::emitIns_R_AI(instruction ins,
     id->idInsFmt(IF_DI_1E);
     id->idInsOpt(INS_OPTS_NONE);
     id->idOpSize(size);
-    id->idAddr()->iiaAddr = reinterpret_cast<void*>(addr);
+    id->idAddr()->iiaAddr = addr;
     id->idReg1(reg);
     id->idSetIsCnsReloc();
 #ifdef DEBUG
@@ -7653,7 +7653,7 @@ void emitter::emitIns_R_AI(instruction ins,
         id->idInsFmt(IF_DI_2A);
         id->idInsOpt(INS_OPTS_NONE);
         id->idOpSize(size);
-        id->idAddr()->iiaAddr = reinterpret_cast<void*>(addr);
+        id->idAddr()->iiaAddr = addr;
         id->idReg1(reg);
         id->idReg2(reg);
 

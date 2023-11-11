@@ -1469,90 +1469,107 @@ void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
     GetEmitter()->emitIns_R_I(INS_mov, size, reg, 0);
 }
 
+void CodeGen::instGen_Set_Reg_To_Addr(regNumber reg, void* addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
+{
+    if (!compiler->opts.compReloc)
+    {
+        instGen_Set_Reg_To_Imm(EA_8BYTE, reg, reinterpret_cast<ssize_t>(addr) DEBUGARG(handle));
+
+        return;
+    }
+
+    instGen_Set_Reg_To_Reloc(reg, addr DEBUGARG(handle) DEBUGARG(handleKind));
+}
+
+void CodeGen::instGen_Set_Reg_To_Reloc(regNumber reg, void* addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
+{
+    assert(compiler->opts.compReloc);
+
+    GetEmitter()->emitIns_R_AI(INS_adrp, EA_PTR_CNS_RELOC, reg, addr DEBUGARG(handle) DEBUGARG(handleKind));
+}
+
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
                                      ssize_t imm DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
-    // reg cannot be a FP register
+    assert(!EA_IS_CNS_RELOC(size));
     assert(!genIsValidFloatReg(reg));
+
+    // TODO-MIKE-Cleanup: This was trying to remove the reloc flag but it also removed GC flags.
+    // Constants shouldn't have such flags but don't be surprised if they do.
     if (!compiler->opts.compReloc)
     {
-        size = EA_SIZE(size); // Strip any Reloc flags from size if we aren't doing relocs
+        size = EA_SIZE(size);
     }
 
-    if (EA_IS_CNS_RELOC(size))
-    {
-        // This emits a pair of adrp/add (two instructions) with fix-ups.
-        GetEmitter()->emitIns_R_AI(INS_adrp, size, reg, imm DEBUGARG(handle) DEBUGARG(handleKind));
-    }
-    else if ((imm == 0) || emitter::emitIns_valid_imm_for_mov(imm, size))
+    if ((imm == 0) || emitter::emitIns_valid_imm_for_mov(imm, size))
     {
         GetEmitter()->emitIns_R_I(INS_mov, size, reg, imm);
+
+        return;
     }
-    else
+
+    // Arm64 allows any arbitrary 16-bit constant to be loaded into a register halfword
+    // There are three forms
+    //    movk which loads into any halfword preserving the remaining halfwords
+    //    movz which loads into any halfword zeroing the remaining halfwords
+    //    movn which loads into any halfword zeroing the remaining halfwords then bitwise inverting the register
+    // In some cases it is preferable to use movn, because it has the side effect of filling the other halfwords
+    // with ones
+
+    // Determine whether movn or movz will require the fewest instructions to populate the immediate
+    int preferMovn = 0;
+
+    for (int i = (size == EA_8BYTE) ? 48 : 16; i >= 0; i -= 16)
     {
-        // Arm64 allows any arbitrary 16-bit constant to be loaded into a register halfword
-        // There are three forms
-        //    movk which loads into any halfword preserving the remaining halfwords
-        //    movz which loads into any halfword zeroing the remaining halfwords
-        //    movn which loads into any halfword zeroing the remaining halfwords then bitwise inverting the register
-        // In some cases it is preferable to use movn, because it has the side effect of filling the other halfwords
-        // with ones
-
-        // Determine whether movn or movz will require the fewest instructions to populate the immediate
-        int preferMovn = 0;
-
-        for (int i = (size == EA_8BYTE) ? 48 : 16; i >= 0; i -= 16)
-        {
-            if (uint16_t(imm >> i) == 0xffff)
-                ++preferMovn; // a single movk 0xffff could be skipped if movn was used
-            else if (uint16_t(imm >> i) == 0x0000)
-                --preferMovn; // a single movk 0 could be skipped if movz was used
-        }
-
-        // Select the first instruction.  Any additional instruction will use movk
-        instruction ins = (preferMovn > 0) ? INS_movn : INS_movz;
-
-        // Initial movz or movn will fill the remaining bytes with the skipVal
-        // This can allow skipping filling a halfword
-        uint16_t skipVal = (preferMovn > 0) ? 0xffff : 0;
-
-        unsigned bits = (size == EA_8BYTE) ? 64 : 32;
-
-        // Iterate over imm examining 16 bits at a time
-        for (unsigned i = 0; i < bits; i += 16)
-        {
-            uint16_t imm16 = uint16_t(imm >> i);
-
-            if (imm16 != skipVal)
-            {
-                if (ins == INS_movn)
-                {
-                    // For the movn case, we need to bitwise invert the immediate.  This is because
-                    //   (movn x0, ~imm16) === (movz x0, imm16; or x0, x0, #0xffff`ffff`ffff`0000)
-                    imm16 = ~imm16;
-                }
-
-                GetEmitter()->emitIns_R_I_I(ins, size, reg, imm16, i, INS_OPTS_LSL);
-
-                // Once the initial movz/movn is emitted the remaining instructions will all use movk
-                ins = INS_movk;
-            }
-        }
-
-        // We must emit a movn or movz or we have not done anything
-        // The cases which hit this assert should be (emitIns_valid_imm_for_mov() == true) and
-        // should not be in this else condition
-        assert(ins == INS_movk);
+        if (uint16_t(imm >> i) == 0xffff)
+            ++preferMovn; // a single movk 0xffff could be skipped if movn was used
+        else if (uint16_t(imm >> i) == 0x0000)
+            --preferMovn; // a single movk 0 could be skipped if movz was used
     }
+
+    // Select the first instruction.  Any additional instruction will use movk
+    instruction ins = (preferMovn > 0) ? INS_movn : INS_movz;
+
+    // Initial movz or movn will fill the remaining bytes with the skipVal
+    // This can allow skipping filling a halfword
+    uint16_t skipVal = (preferMovn > 0) ? 0xffff : 0;
+
+    unsigned bits = (size == EA_8BYTE) ? 64 : 32;
+
+    // Iterate over imm examining 16 bits at a time
+    for (unsigned i = 0; i < bits; i += 16)
+    {
+        uint16_t imm16 = uint16_t(imm >> i);
+
+        if (imm16 != skipVal)
+        {
+            if (ins == INS_movn)
+            {
+                // For the movn case, we need to bitwise invert the immediate.  This is because
+                //   (movn x0, ~imm16) === (movz x0, imm16; or x0, x0, #0xffff`ffff`ffff`0000)
+                imm16 = ~imm16;
+            }
+
+            GetEmitter()->emitIns_R_I_I(ins, size, reg, imm16, i, INS_OPTS_LSL);
+
+            // Once the initial movz/movn is emitted the remaining instructions will all use movk
+            ins = INS_movk;
+        }
+    }
+
+    // We must emit a movn or movz or we have not done anything
+    // The cases which hit this assert should be (emitIns_valid_imm_for_mov() == true) and
+    // should not be in this else condition
+    assert(ins == INS_movk);
 }
 
 void CodeGen::GenIntCon(GenTreeIntCon* node)
 {
     if (node->ImmedValNeedsReloc(compiler))
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, node->GetRegNum(),
-                               node->GetValue() DEBUGARG(node->GetDumpHandle()) DEBUGARG(node->GetHandleKind()));
+        instGen_Set_Reg_To_Reloc(node->GetRegNum(), reinterpret_cast<void*>(node->GetValue()) DEBUGARG(
+                                                        node->GetDumpHandle()) DEBUGARG(node->GetHandleKind()));
     }
     else
     {
@@ -2220,13 +2237,13 @@ ALLOC_DONE:
 //           Can be REG_NA if the caller knows for certain that 'spDelta' fits into the immediate
 //           value range.
 //
-void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTmp)
+void CodeGen::genStackPointerConstantAdjustment(int64_t spDelta, regNumber regTmp)
 {
     assert(spDelta < 0);
 
     // We assert that the SP change is less than one page. If it's greater, you should have called a
     // function that does a probe, which will in turn call this function.
-    assert((target_size_t)(-spDelta) <= compiler->eeGetPageSize());
+    assert((uint64_t)(-spDelta) <= compiler->eeGetPageSize());
 
     genInstrWithConstant(INS_sub, EA_8BYTE, REG_SP, REG_SP, -spDelta, regTmp);
 }
@@ -2238,7 +2255,7 @@ void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTm
 //           but the stack pointer doesn't move.
 // regTmp  - temporary register to use as target for probe load instruction
 //
-void CodeGen::genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNumber regTmp)
+void CodeGen::genStackPointerConstantAdjustmentWithProbe(int64_t spDelta, regNumber regTmp)
 {
     GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, regTmp, REG_SP, 0);
     genStackPointerConstantAdjustment(spDelta, regTmp);
@@ -2253,23 +2270,23 @@ void CodeGen::genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNum
 //
 // Returns the offset in bytes from SP to last probed address.
 //
-target_ssize_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(ssize_t spDelta, regNumber regTmp)
+int64_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(int64_t spDelta, regNumber regTmp)
 {
     assert(spDelta < 0);
 
-    const target_size_t pageSize = compiler->eeGetPageSize();
+    const uint64_t pageSize = compiler->eeGetPageSize();
 
-    ssize_t spRemainingDelta = spDelta;
+    int64_t spRemainingDelta = spDelta;
     do
     {
-        ssize_t spOneDelta = -(ssize_t)min((target_size_t)-spRemainingDelta, pageSize);
+        int64_t spOneDelta = -(int64_t)min((uint64_t)-spRemainingDelta, pageSize);
         genStackPointerConstantAdjustmentWithProbe(spOneDelta, regTmp);
         spRemainingDelta -= spOneDelta;
     } while (spRemainingDelta < 0);
 
     // What offset from the final SP was the last probe? This depends on the fact that
     // genStackPointerConstantAdjustmentWithProbe() probes first, then does "SUB SP".
-    target_size_t lastTouchDelta = (target_size_t)(-spDelta) % pageSize;
+    uint64_t lastTouchDelta = (uint64_t)(-spDelta) % pageSize;
     if ((lastTouchDelta == 0) || (lastTouchDelta + STACK_PROBE_BOUNDARY_THRESHOLD_BYTES > pageSize))
     {
         // We haven't probed almost a complete page. If lastTouchDelta==0, then spDelta was an exact
@@ -3223,9 +3240,8 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
 
         // adrp + add with relocations will be emitted
         GetEmitter()->emitIns_R_AI(INS_adrp, EA_PTR_CNS_RELOC, callTarget,
-                                   reinterpret_cast<ssize_t>(pAddr)
-                                       DEBUGARG(reinterpret_cast<void*>(Compiler::eeFindHelper(helper)))
-                                           DEBUGARG(HandleKind::Method));
+                                   pAddr DEBUGARG(reinterpret_cast<void*>(Compiler::eeFindHelper(helper)))
+                                       DEBUGARG(HandleKind::Method));
 
         GetEmitter()->emitIns_R_R(INS_ldr, EA_8BYTE, callTarget, callTarget);
         callType = emitter::EC_INDIR_R;
@@ -3355,8 +3371,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 
     if (compiler->compProfilerMethHndIndirected)
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, REG_PROFILER_ENTER_ARG_FUNC_ID,
-                               reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+        instGen_Set_Reg_To_Addr(REG_PROFILER_ENTER_ARG_FUNC_ID, compiler->compProfilerMethHnd);
         GetEmitter()->emitIns_R_R(INS_ldr, EA_8BYTE, REG_PROFILER_ENTER_ARG_FUNC_ID, REG_PROFILER_ENTER_ARG_FUNC_ID);
     }
     else
@@ -3390,8 +3405,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
     if (compiler->compProfilerMethHndIndirected)
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_CNS_RELOC, REG_PROFILER_LEAVE_ARG_FUNC_ID,
-                               reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+        instGen_Set_Reg_To_Addr(REG_PROFILER_LEAVE_ARG_FUNC_ID, compiler->compProfilerMethHnd);
         GetEmitter()->emitIns_R_R(INS_ldr, EA_8BYTE, REG_PROFILER_LEAVE_ARG_FUNC_ID, REG_PROFILER_LEAVE_ARG_FUNC_ID);
     }
     else
