@@ -3503,7 +3503,7 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 #else
     if (ins == INS_ret)
     {
-        assert((0 <= imm) && (imm <= UINT_MAX));
+        assert((0 <= imm) && (imm <= UINT16_MAX));
         sz = 3;
     }
     else
