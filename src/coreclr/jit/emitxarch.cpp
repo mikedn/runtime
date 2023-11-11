@@ -3333,12 +3333,36 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
 
 void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, void* addr DEBUGARG(HandleKind handleKind))
 {
-    assert(EA_IS_CNS_RELOC(attr));
-    emitIns_R_I(ins, attr, reg, reinterpret_cast<ssize_t>(addr) DEBUGARG(handleKind));
+    assert(ins == INS_mov);
+    assert(EA_IS_CNS_RELOC(attr) && (EA_SIZE(attr) == EA_PTRSIZE));
+    assert(genIsValidIntReg(reg) && (reg != REG_RSP));
+
+#ifdef TARGET_AMD64
+    // Because it has to be relocatable this has to be a "mov reg, imm64", we can't narrow it
+    // down to imm32. And since it's always a 64 bit operation it always has a REX prefix.
+    unsigned size = 10;
+#else
+    unsigned size  = 5;
+#endif
+
+    instrDesc* id = emitNewInstrSC(attr, reinterpret_cast<ssize_t>(addr));
+    id->idIns(ins);
+    id->idInsFmt(IF_RWR_CNS);
+    id->idReg1(reg);
+    id->idCodeSize(size);
+    INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
+
+    dispIns(id);
+    emitCurIGsize += size;
 }
 
 void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t val DEBUGARG(HandleKind handleKind))
 {
+    // BT reg,imm might be useful but it requires special handling of the immediate value
+    // (it is always encoded in a byte). Let's not complicate things until this is needed.
+    assert(ins != INS_bt);
+    assert(!EA_IS_RELOC(attr));
+
     emitAttr size = EA_SIZE(attr);
 
     // Allow emitting SSE2/AVX SIMD instructions of R_I form that can specify EA_16BYTE or EA_32BYTE
@@ -3349,17 +3373,12 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
 #ifdef TARGET_AMD64
     // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
     // all other opcodes take a sign-extended 4-byte immediate
-    noway_assert(size < EA_8BYTE || ins == INS_mov || ((int)val == val && !EA_IS_CNS_RELOC(attr)));
+    noway_assert(size < EA_8BYTE || ins == INS_mov || IsImm32(val));
 #endif
 
-    unsigned   sz;
-    instrDesc* id;
-    insFormat  fmt       = emitInsModeFormat(ins, IF_RRD_CNS);
-    bool       valInByte = ((signed char)val == (target_ssize_t)val) && (ins != INS_mov) && (ins != INS_test);
-
-    // BT reg,imm might be useful but it requires special handling of the immediate value
-    // (it is always encoded in a byte). Let's not complicate things until this is needed.
-    assert(ins != INS_bt);
+    insFormat fmt       = emitInsModeFormat(ins, IF_RRD_CNS);
+    bool      valInByte = IsImm8(val) && (ins != INS_mov) && (ins != INS_test);
+    unsigned  sz;
 
     // Figure out the size of the instruction
     if (IsShiftImm(ins))
@@ -3375,76 +3394,68 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
 #ifdef TARGET_AMD64
         // mov reg, imm64 is equivalent to mov reg, imm32 if the high order bits are all 0
         // and this isn't a reloc constant.
-        if (((size > EA_4BYTE) && (0 == (val & 0xFFFFFFFF00000000LL))) && !EA_IS_CNS_RELOC(attr))
+        if ((size == EA_8BYTE) && (0 <= val) && (val <= UINT_MAX))
         {
             attr = size = EA_4BYTE;
         }
 
         if (size > EA_4BYTE)
         {
-            sz = 9; // Really it is 10, but we'll add one more later
+            sz = 9; // Really it is 10, but we'll add the REX prefix later.
         }
         else
-#endif // TARGET_AMD64
+#endif
         {
             sz = 5;
         }
     }
-    else
+    else if (valInByte)
     {
-        if (EA_IS_CNS_RELOC(attr))
+        if (IsSSEOrAVXInstruction(ins))
         {
-            valInByte = false; // relocs can't be placed in a byte
+            bool includeRexPrefixSize = true;
+            // Do not get the RexSize() but just decide if it will be included down further and if yes,
+            // do not include it again.
+            if (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, size) || instrIsExtendedReg3opImul(ins))
+            {
+                includeRexPrefixSize = false;
+            }
+
+            sz = emitInsSize(insCodeMI(ins), includeRexPrefixSize);
+            sz += 1;
         }
-
-        if (valInByte)
+        else if (size == EA_1BYTE && reg == REG_EAX && !instrIs3opImul(ins))
         {
-            if (IsSSEOrAVXInstruction(ins))
-            {
-                bool includeRexPrefixSize = true;
-                // Do not get the RexSize() but just decide if it will be included down further and if yes,
-                // do not include it again.
-                if (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, size) || instrIsExtendedReg3opImul(ins))
-                {
-                    includeRexPrefixSize = false;
-                }
-
-                sz = emitInsSize(insCodeMI(ins), includeRexPrefixSize);
-                sz += 1;
-            }
-            else if (size == EA_1BYTE && reg == REG_EAX && !instrIs3opImul(ins))
-            {
-                sz = 2;
-            }
-            else
-            {
-                sz = 3;
-            }
+            sz = 2;
         }
         else
         {
-            assert(!IsSSEOrAVXInstruction(ins));
+            sz = 3;
+        }
+    }
+    else
+    {
+        assert(!IsSSEOrAVXInstruction(ins));
 
-            if (reg == REG_EAX && !instrIs3opImul(ins))
-            {
-                sz = 1;
-            }
-            else
-            {
-                sz = 2;
-            }
+        if (reg == REG_EAX && !instrIs3opImul(ins))
+        {
+            sz = 1;
+        }
+        else
+        {
+            sz = 2;
+        }
 
 #ifdef TARGET_AMD64
-            if (size > EA_4BYTE)
-            {
-                // We special-case anything that takes a full 8-byte constant.
-                sz += 4;
-            }
-            else
-#endif // TARGET_AMD64
-            {
-                sz += EA_SIZE_IN_BYTES(attr);
-            }
+        if (size > EA_4BYTE)
+        {
+            // We special-case anything that takes a full 8-byte constant.
+            sz += 4;
+        }
+        else
+#endif
+        {
+            sz += EA_SIZE_IN_BYTES(attr);
         }
     }
 
@@ -3458,7 +3469,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
         sz += emitGetRexPrefixSize(ins);
     }
 
-    id = emitNewInstrSC(attr, val);
+    instrDesc* id = emitNewInstrSC(attr, val);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idReg1(reg);
