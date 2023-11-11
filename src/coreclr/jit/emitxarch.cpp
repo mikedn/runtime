@@ -8570,18 +8570,14 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
     {
         if (id->idInsFmt() == IF_RWR_MRD)
         {
-            assert(code == (insCodeRM(ins) | (insEncodeReg345(ins, REG_EAX, EA_PTRSIZE, NULL) << 8) | 0x0500));
-
-            code &= ~0xFFFFFFFFull;
-            code |= 0xA0;
+            code      = 0xA0;
             isMoffset = true;
         }
-        else if (id->idInsFmt() == IF_MWR_RRD)
+        else
         {
-            assert(code == (insCodeMR(ins) | (insEncodeReg345(ins, REG_EAX, EA_PTRSIZE, NULL) << 8) | 0x0500));
+            assert(id->idInsFmt() == IF_MWR_RRD);
 
-            code &= ~0xFFFFFFFFull;
-            code |= 0xA2;
+            code      = 0xA2;
             isMoffset = true;
         }
     }
