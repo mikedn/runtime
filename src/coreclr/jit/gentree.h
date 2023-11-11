@@ -2748,6 +2748,12 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     }
 #endif
 
+    void* GetAddr() const
+    {
+        assert(IsIconHandle());
+        return reinterpret_cast<void*>(gtIconVal);
+    }
+
     void SetValue(ssize_t value)
     {
         gtIconVal  = value;

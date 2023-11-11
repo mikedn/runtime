@@ -3331,6 +3331,12 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     emitAdjustStackDepthPushPop(ins);
 }
 
+void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, void* addr DEBUGARG(HandleKind handleKind))
+{
+    assert(EA_IS_CNS_RELOC(attr));
+    emitIns_R_I(ins, attr, reg, reinterpret_cast<ssize_t>(addr) DEBUGARG(handleKind));
+}
+
 void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t val DEBUGARG(HandleKind handleKind))
 {
     emitAttr size = EA_SIZE(attr);
@@ -3466,6 +3472,12 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     {
         emitAdjustStackDepth(ins, val);
     }
+}
+
+void emitter::emitIns_I(instruction ins, emitAttr attr, void* addr)
+{
+    assert(EA_IS_CNS_RELOC(attr));
+    emitIns_I(ins, attr, reinterpret_cast<ssize_t>(addr));
 }
 
 void emitter::emitIns_I(instruction ins, emitAttr attr, ssize_t imm)
@@ -4714,7 +4726,9 @@ void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber reg, regNum
 
 void emitter::emitIns_R_AI(instruction ins, emitAttr attr, regNumber reg, void* addr)
 {
-    assert(((ins == INS_mov) || (ins == INS_lea)) && (EA_SIZE(attr) <= EA_8BYTE) && (reg != REG_NA));
+    assert((ins == INS_mov) || (ins == INS_lea));
+    assert(EA_IS_DSP_RELOC(attr));
+    assert(genIsValidIntReg(reg));
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
     instrDesc* id = emitNewInstrAmd(attr, reinterpret_cast<ssize_t>(addr));

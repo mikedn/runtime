@@ -341,11 +341,17 @@ void emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg
 
 void emitIns_Nop(unsigned size);
 
+void emitIns_I(instruction ins, emitAttr attr, void* addr);
 void emitIns_I(instruction ins, emitAttr attr, ssize_t val);
 
 void emitIns_R(instruction ins, emitAttr attr, regNumber reg);
 
 void emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fdlHnd);
+
+void emitIns_R_I(instruction ins,
+                 emitAttr    attr,
+                 regNumber   reg,
+                 void* addr DEBUGARG(HandleKind handleKind = HandleKind::None));
 
 void emitIns_R_I(instruction ins,
                  emitAttr    attr,

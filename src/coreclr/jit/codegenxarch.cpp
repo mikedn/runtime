@@ -359,7 +359,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     else
     {
         // EE expects a DWORD, so we provide 0
-        GetEmitter()->emitIns_I(INS_push_hide, EA_4BYTE, 0);
+        GetEmitter()->emitIns_I(INS_push_hide, EA_4BYTE, static_cast<ssize_t>(0));
     }
 
     // Jump to the finally BB
@@ -449,7 +449,7 @@ void CodeGen::instGen_Set_Reg_To_Reloc(regNumber reg, void* addr DEBUGARG(void* 
     else
 #endif
     {
-        GetEmitter()->emitIns_R_I(INS_mov, EA_PTR_CNS_RELOC, reg, reinterpret_cast<ssize_t>(addr));
+        GetEmitter()->emitIns_R_I(INS_mov, EA_PTR_CNS_RELOC, reg, addr);
     }
 }
 
@@ -2138,7 +2138,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         {
             for (; cntRegSizedWords != 0; cntRegSizedWords--)
             {
-                GetEmitter()->emitIns_I(INS_push_hide, EA_PTRSIZE, 0);
+                GetEmitter()->emitIns_I(INS_push_hide, EA_PTRSIZE, static_cast<ssize_t>(0));
             }
 
             lastTouchDelta = 0;
@@ -2210,7 +2210,7 @@ void CodeGen::genLclHeap(GenTree* tree)
 
         for (unsigned i = 0; i < count; i++)
         {
-            GetEmitter()->emitIns_I(INS_push_hide, EA_PTRSIZE, 0);
+            GetEmitter()->emitIns_I(INS_push_hide, EA_PTRSIZE, static_cast<ssize_t>(0));
         }
         // Note that the stack must always be aligned to STACK_ALIGN bytes
 
@@ -6420,7 +6420,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
             adjustment -= pushSize;
             while (adjustment != 0)
             {
-                emit->emitIns_I(INS_push, EA_4BYTE, 0);
+                emit->emitIns_I(INS_push, EA_4BYTE, static_cast<ssize_t>(0));
                 currentOffset -= pushSize;
                 AddStackLevel(pushSize);
                 adjustment -= pushSize;
@@ -6477,7 +6477,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                 }
                 else if (fieldNode->IsIconHandle())
                 {
-                    emit->emitIns_I(INS_push, EA_PTR_CNS_RELOC, fieldNode->AsIntCon()->GetValue());
+                    emit->emitIns_I(INS_push, EA_PTR_CNS_RELOC, fieldNode->AsIntCon()->GetAddr());
                 }
                 else
                 {
@@ -6688,7 +6688,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 
             for (unsigned i = 0; i < putArgStk->GetSlotCount(); i++)
             {
-                emit.emitIns_I(INS_push, EA_4BYTE, 0);
+                emit.emitIns_I(INS_push, EA_4BYTE, static_cast<ssize_t>(0));
                 AddStackLevel(4);
             }
         }
@@ -6814,7 +6814,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         }
         else if (src->IsIconHandle())
         {
-            emit.emitIns_I(INS_push, EA_PTR_CNS_RELOC, src->AsIntCon()->GetValue());
+            emit.emitIns_I(INS_push, EA_PTR_CNS_RELOC, src->AsIntCon()->GetAddr());
         }
         else
         {
@@ -7487,14 +7487,14 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 0xC);
 #endif
 
-    int32_t profilerMethodAddr = static_cast<int32_t>(reinterpret_cast<intptr_t>(compiler->compProfilerMethHnd));
-
     if (compiler->compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_I(INS_push, EA_PTR_CNS_RELOC, profilerMethodAddr);
+        GetEmitter()->emitIns_I(INS_push, EA_PTR_CNS_RELOC, compiler->compProfilerMethHnd);
     }
     else
     {
+        int32_t profilerMethodAddr = static_cast<int32_t>(reinterpret_cast<intptr_t>(compiler->compProfilerMethHnd));
+
         GetEmitter()->emitIns_I(INS_push, EA_4BYTE, profilerMethodAddr);
     }
 
@@ -7551,14 +7551,14 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     AddNestedAlignment(0xC);
 #endif // UNIX_X86_ABI
 
-    int32_t profilerMethodAddr = static_cast<int32_t>(reinterpret_cast<intptr_t>(compiler->compProfilerMethHnd));
-
     if (compiler->compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_I(INS_push, EA_PTR_CNS_RELOC, profilerMethodAddr);
+        GetEmitter()->emitIns_I(INS_push, EA_PTR_CNS_RELOC, compiler->compProfilerMethHnd);
     }
     else
     {
+        int32_t profilerMethodAddr = static_cast<int32_t>(reinterpret_cast<intptr_t>(compiler->compProfilerMethHnd));
+
         GetEmitter()->emitIns_I(INS_push, EA_4BYTE, profilerMethodAddr);
     }
 
