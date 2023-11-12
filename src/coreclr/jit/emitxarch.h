@@ -33,16 +33,10 @@ instrDescCnsDsp* emitAllocInstrCnsDsp(emitAttr attr);
 instrDescAmd* emitAllocInstrAmd(emitAttr attr);
 instrDescCnsAmd* emitAllocInstrCnsAmd(emitAttr attr);
 
-struct CnsVal
-{
-    ssize_t cnsVal;
-    bool    cnsReloc;
-};
-
-void emitGetInsCns(instrDesc* id, CnsVal* cv);
+ssize_t emitGetInsCns(instrDesc* id);
 ssize_t emitGetInsMemDisp(instrDesc* id);
-void emitGetInsMemImm(instrDesc* id, CnsVal* cv);
-void emitGetInsAmdCns(instrDesc* id, CnsVal* cv);
+ssize_t emitGetInsMemImm(instrDesc* id);
+ssize_t emitGetInsAmdCns(instrDesc* id);
 ssize_t emitGetInsAmdDisp(instrDesc* id);
 ssize_t emitGetInsCallDisp(instrDesc* id);
 
@@ -73,23 +67,22 @@ size_t emitOutputWord(uint8_t* dst, uint64_t val);
 size_t emitOutputLong(uint8_t* dst, uint64_t val);
 #endif // defined(TARGET_X86) && !defined(HOST_64BIT)
 
-size_t emitOutputImm(uint8_t* dst, size_t size, CnsVal imm);
+size_t emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t imm);
 
-BYTE* emitOutputAlign(insGroup* ig, instrDesc* id, BYTE* dst);
-BYTE* emitOutputAM(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc = nullptr);
-BYTE* emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc = nullptr);
-BYTE* emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc = nullptr);
+uint8_t* emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst);
 
-BYTE* emitOutputR(BYTE* dst, instrDesc* id);
-BYTE* emitOutputRI(BYTE* dst, instrDesc* id);
-BYTE* emitOutputRR(BYTE* dst, instrDesc* id);
-BYTE* emitOutputIV(BYTE* dst, instrDesc* id);
+uint8_t* emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
+uint8_t* emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
+uint8_t* emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
 
-BYTE* emitOutputRRR(BYTE* dst, instrDesc* id);
+uint8_t* emitOutputR(uint8_t* dst, instrDesc* id);
+uint8_t* emitOutputRI(uint8_t* dst, instrDesc* id);
+uint8_t* emitOutputRR(uint8_t* dst, instrDesc* id);
+uint8_t* emitOutputIV(uint8_t* dst, instrDesc* id);
+uint8_t* emitOutputRRR(uint8_t* dst, instrDesc* id);
+uint8_t* emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* id);
 
-BYTE* emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* id);
-
-size_t emitOutputRexOrVexPrefixIfNeeded(instruction ins, BYTE* dst, code_t& code);
+size_t emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code);
 unsigned emitGetRexPrefixSize(instruction ins);
 unsigned emitGetVexPrefixSize(instruction ins, emitAttr attr);
 unsigned emitGetPrefixSize(code_t code, bool includeRexPrefixSize);
@@ -234,7 +227,6 @@ bool isPrefetch(instruction ins)
 
 #ifdef DEBUG
 
-void emitDispImm(instrDesc* id, CnsVal val);
 void emitDispImm(instrDesc* id, ssize_t val);
 void emitDispReloc(ssize_t value);
 void emitDispAddrMode(instrDesc* id);
