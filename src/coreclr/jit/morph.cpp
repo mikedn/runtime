@@ -7819,6 +7819,12 @@ void Compiler::fgMorphCreateLclInit(unsigned lclNum, BasicBlock* block, Statemen
     }
 
     init = gtNewStoreLclVar(lclNum, lclType, init);
+
+    if (lcl->IsAddressExposed())
+    {
+        init->gtFlags |= GTF_GLOB_REF;
+    }
+
     fgInsertStmtBefore(block, beforeStmt, gtNewStmt(init, ilOffset));
 }
 
