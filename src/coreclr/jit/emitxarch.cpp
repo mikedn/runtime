@@ -4750,12 +4750,14 @@ void emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
     assert(genIsValidIntReg(reg));
     noway_assert(emitVerifyEncodable(ins, EA_PTRSIZE, reg));
 
-    instrDesc* id = emitNewInstrAmd(EA_PTR_DSP_RELOC, reinterpret_cast<ssize_t>(addr));
+    instrDesc* id = emitNewInstrAmd(EA_PTRSIZE, reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
     id->idInsFmt(IF_RWR_ARD);
     id->idReg1(reg);
     id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
     id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
+    // On x64 RIP relative addressing is always used and that needs relocs.
+    id->idSetIsDspReloc(X86_ONLY(emitComp->opts.compReloc));
 
     unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
