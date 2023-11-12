@@ -932,13 +932,10 @@ void emitter::emitDispInsOffs(unsigned offs, bool doffs)
 
 #endif // DEBUG
 
-/*****************************************************************************
- *
- *  The following series of methods allocates instruction descriptors.
- */
-
 void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
 {
+    assert(sz >= sizeof(void*));
+
 #ifdef DEBUG
     // Under STRESS_EMITTER, put every instruction in its own instruction group.
     // We can't do this for a prolog, epilog, funclet prolog, or funclet epilog,
@@ -973,7 +970,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
             emitInInstrumentation = false;
             idnop->idInsFmt(IF_NONE);
             idnop->idIns(INS_nop);
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
             idnop->idCodeSize(nopSize);
 #else
 #error "Undefined target for pseudorandom NOP insertion"
@@ -983,13 +980,13 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
             emitNextNop = emitNextRandomNop();
         }
         else
+        {
             emitNextNop--;
+        }
     }
 #endif // PSEUDORANDOM_NOP_INSERTION
 
     assert(IsCodeAligned(emitCurIGsize));
-
-    /* Make sure we have enough space for the new instruction */
 
     if ((emitCurIGfreeNext + sz >= emitCurIGfreeEndp) || emitForceNewIG)
     {
@@ -997,9 +994,6 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
     }
 
     instrDesc* id = reinterpret_cast<instrDesc*>(emitCurIGfreeNext);
-    emitCurIGfreeNext += sz;
-
-    assert(sz >= sizeof(void*));
     memset(id, 0, sz);
 
     // These fields should have been zero-ed by the above
@@ -1008,6 +1002,35 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
 #ifdef TARGET_XARCH
     assert(id->idCodeSize() == 0);
 #endif
+    static_assert_no_msg(GCT_NONE == 0);
+
+    if (EA_IS_GCREF(opsz))
+    {
+        id->idGCref(GCT_GCREF);
+    }
+    else if (EA_IS_BYREF(opsz))
+    {
+        id->idGCref(GCT_BYREF);
+    }
+
+    id->idOpSize(EA_SIZE(opsz));
+
+#ifdef TARGET_XARCH
+    // Amd64: ip-relative addressing is supported even when not generating relocatable ngen code
+    if (EA_IS_DSP_RELOC(opsz)
+#ifndef TARGET_AMD64
+        && emitComp->opts.compReloc
+#endif
+        )
+    {
+        id->idSetIsDspReloc();
+    }
+#endif
+
+    if (EA_IS_CNS_RELOC(opsz) && emitComp->opts.compReloc)
+    {
+        id->idSetIsCnsReloc();
+    }
 
     if (updateLastIns)
     {
@@ -1015,61 +1038,16 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
         emitLastInsLabel = emitCurLabel;
     }
 
-    INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz)));
-
-    /* Store the size and handle the two special values
-       that indicate GCref and ByRef */
-
-    if (EA_IS_GCREF(opsz))
-    {
-        /* A special value indicates a GCref pointer value */
-
-        id->idGCref(GCT_GCREF);
-        id->idOpSize(EA_PTRSIZE);
-    }
-    else if (EA_IS_BYREF(opsz))
-    {
-        /* A special value indicates a Byref pointer value */
-
-        id->idGCref(GCT_BYREF);
-        id->idOpSize(EA_PTRSIZE);
-    }
-    else
-    {
-        id->idGCref(GCT_NONE);
-        id->idOpSize(EA_SIZE(opsz));
-    }
-
-#ifdef TARGET_XARCH
-    // Amd64: ip-relative addressing is supported even when not generating relocatable ngen code
-    if (EA_IS_DSP_RELOC(opsz)
-#ifndef TARGET_AMD64
-        && emitComp->opts.compReloc
-#endif // TARGET_AMD64
-        )
-    {
-        /* Mark idInfo()->idDspReloc to remember that the            */
-        /* address mode has a displacement that is relocatable       */
-        id->idSetIsDspReloc();
-    }
-#endif
-
-    if (EA_IS_CNS_RELOC(opsz) && emitComp->opts.compReloc)
-    {
-        /* Mark idInfo()->idCnsReloc to remember that the            */
-        /* instruction has an immediate constant that is relocatable */
-        id->idSetIsCnsReloc();
-    }
+    emitCurIGfreeNext += sz;
+    emitCurIGinsCnt++;
 
 #if EMITTER_STATS
     emitTotalInsCnt++;
 #endif
 
-    /* Update the instruction count */
-
-    emitCurIGinsCnt++;
-
 #ifdef DEBUG
+    id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz));
+
     if (emitCurIG->lastGeneratedBlock != GetCurrentBlock())
     {
         emitCurIG->lastGeneratedBlock = GetCurrentBlock();
