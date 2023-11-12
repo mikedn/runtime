@@ -8617,9 +8617,9 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             default:
                 unreached();
         }
-    }
 
-    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+    }
 
     if (code != 0)
     {
@@ -8631,7 +8631,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         else
 #endif
         {
-            dst += emitOutputWord(dst, code);
+            dst += emitOutputWord(dst, code | 0x0500);
         }
     }
 
@@ -10858,7 +10858,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_MRW:
         case IF_MWR:
             noway_assert(ins != INS_call);
-            dst = emitOutputCV(dst, id, insCodeMR(ins) | 0x0500);
+            dst = emitOutputCV(dst, id, insCodeMR(ins));
             sz  = emitSizeOfInsDsc(id);
             break;
 
@@ -10866,13 +10866,13 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_MWR_CNS:
         case IF_MRW_CNS:
             cnsVal = emitGetInsMemImm(id);
-            dst    = emitOutputCV(dst, id, insCodeMI(ins) | 0x0500, &cnsVal);
+            dst    = emitOutputCV(dst, id, insCodeMI(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
 
         case IF_MRW_SHF:
             cnsVal = emitGetInsMemImm(id);
-            dst    = emitOutputCV(dst, id, insCodeMR(ins) | 0x0500, &cnsVal);
+            dst    = emitOutputCV(dst, id, insCodeMR(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
 
@@ -10894,7 +10894,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             }
 
             code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
-            code |= 0x0500;
 
             dst = emitOutputCV(dst, id, code);
             sz  = emitSizeOfInsDsc(id);
@@ -10903,6 +10902,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_MWR_RRD_CNS:
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
             assert(UseVEXEncoding());
+
             code   = insCodeMR(ins);
             cnsVal = emitGetInsMemImm(id);
             dst    = emitOutputCV(dst, id, code, &cnsVal);
@@ -10924,7 +10924,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 }
 
                 code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
-                code |= 0x0500;
             }
 
             dst = emitOutputCV(dst, id, code);
@@ -10952,7 +10951,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 }
 
                 code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
-                code |= 0x0500;
             }
 
             cnsVal = emitGetInsMemImm(id);
@@ -10970,7 +10968,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             if (!EncodedBySSE38orSSE3A(ins))
             {
                 code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
-                code |= 0x0500;
             }
 
             dst = emitOutputCV(dst, id, code);
@@ -10988,7 +10985,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             if (!EncodedBySSE38orSSE3A(ins))
             {
                 code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
-                code |= 0x0500;
             }
 
             cnsVal = emitGetInsCns(id);
