@@ -15,6 +15,8 @@ static bool strictArmAsm;
 /*         Routines that compute the size of / encode instructions      */
 /************************************************************************/
 
+size_t emitGetInstrDescSize(const instrDesc* id);
+
 #ifdef DEBUG
 
 /************************************************************************/

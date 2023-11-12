@@ -14,6 +14,7 @@ typedef unsigned int code_t;
 /************************************************************************/
 
 insSize emitInsSize(insFormat insFmt);
+size_t emitGetInstrDescSize(const instrDesc* id);
 
 #ifdef FEATURE_ITINSTRUCTION
 BYTE* emitOutputIT(BYTE* dst, instruction ins, insFormat fmt, code_t condcode);

@@ -81,6 +81,21 @@ const emitJumpKind emitReverseJumpKinds[] = {
     return emitReverseJumpKinds[jumpKind];
 }
 
+size_t emitter::emitGetInstrDescSize(const instrDesc* id)
+{
+    if (id->idIsSmallDsc())
+    {
+        return sizeof(instrDescSmall);
+    }
+
+    if (id->idIsLargeCns())
+    {
+        return sizeof(instrDescCns);
+    }
+
+    return sizeof(instrDesc);
+}
+
 // Return the allocated size (in bytes) of the given instruction descriptor.
 size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 {

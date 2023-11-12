@@ -1416,7 +1416,6 @@ private:
 
     static bool instIsFP(instruction ins);
 
-    size_t emitGetInstrDescSize(const instrDesc* id);
     size_t emitGetInstrDescSizeSC(const instrDesc* id);
 
     cnsval_ssize_t emitGetInsSC(instrDesc* id);
@@ -2173,27 +2172,6 @@ inline emitAttr emitter::emitDecodeSize(emitter::opSize ensz)
     assert(((unsigned)ensz) < OPSZ_COUNT);
 
     return emitSizeDecode[ensz];
-}
-
-/*****************************************************************************
- *
- *  Get the instrDesc size, general purpose version
- *
- */
-
-inline size_t emitter::emitGetInstrDescSize(const instrDesc* id)
-{
-    if (id->idIsSmallDsc())
-    {
-        return sizeof(instrDescSmall);
-    }
-
-    if (id->idIsLargeCns())
-    {
-        return sizeof(instrDescCns);
-    }
-
-    return sizeof(instrDesc);
 }
 
 inline bool IsCodeAligned(UNATIVE_OFFSET offset)
