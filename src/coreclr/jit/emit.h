@@ -2185,7 +2185,7 @@ inline size_t emitter::emitGetInstrDescSize(const instrDesc* id)
 {
     if (id->idIsSmallDsc())
     {
-        return SMALL_IDSC_SIZE;
+        return sizeof(instrDescSmall);
     }
 
     if (id->idIsLargeCns())

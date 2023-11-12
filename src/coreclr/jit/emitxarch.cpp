@@ -6119,21 +6119,16 @@ void emitter::emitInsSanityCheck(instrDesc* id)
 
     ID_OPS idOp = GetFormatOp(id->idInsFmt());
 
-    if ((idOp == ID_OP_SCNS) && id->idIsLargeCns())
-    {
-        idOp = ID_OP_CNS;
-    }
-
     if (id->idIsDspReloc())
     {
         assert(idOp == ID_OP_NONE || idOp == ID_OP_AMD || idOp == ID_OP_DSP || idOp == ID_OP_DSP_CNS ||
-               idOp == ID_OP_AMD_CNS || idOp == ID_OP_SPEC || idOp == ID_OP_CALL || idOp == ID_OP_JMP);
+               idOp == ID_OP_AMD_CNS || idOp == ID_OP_CALL || idOp == ID_OP_JMP);
     }
 
     if (id->idIsCnsReloc())
     {
-        assert(idOp == ID_OP_CNS || idOp == ID_OP_AMD_CNS || idOp == ID_OP_DSP_CNS || idOp == ID_OP_SPEC ||
-               idOp == ID_OP_CALL || idOp == ID_OP_JMP);
+        assert(idOp == ID_OP_CNS || idOp == ID_OP_AMD_CNS || idOp == ID_OP_DSP_CNS || idOp == ID_OP_CALL ||
+               idOp == ID_OP_JMP);
     }
 }
 #endif
@@ -6143,24 +6138,15 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 {
     if (id->idIsSmallDsc())
     {
-        return SMALL_IDSC_SIZE;
+        return sizeof(instrDescSmall);
     }
 
-    ID_OPS idOp = GetFormatOp(id->idInsFmt());
-
-    // An INS_call instruction may use a "fat" direct/indirect call descriptor
-    // except for a local call to a label (i.e. call to a finally)
-    // Only ID_OP_CALL and ID_OP_SPEC check for this, so we enforce that the
-    //  INS_call instruction always uses one of these idOps
-
-    if (id->idIns() == INS_call)
+    if (id->idIsLargeCall())
     {
-        assert(idOp == ID_OP_CALL || // is a direct   call
-               idOp == ID_OP_SPEC || // is a indirect call
-               idOp == ID_OP_JMP);   // is a local call to finally clause
+        return sizeof(instrDescCGCA);
     }
 
-    switch (idOp)
+    switch (GetFormatOp(id->idInsFmt()))
     {
         case ID_OP_NONE:
 #if FEATURE_LOOP_ALIGN
@@ -6175,69 +6161,35 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
             return sizeof(instrDescJmp);
 
         case ID_OP_CALL:
-        case ID_OP_SPEC:
-            if (id->idIsLargeCall())
-            {
-                /* Must be a "fat" indirect call descriptor */
-                return sizeof(instrDescCGCA);
-            }
-
-            FALLTHROUGH;
-
-        case ID_OP_SCNS:
         case ID_OP_CNS:
         case ID_OP_DSP:
         case ID_OP_DSP_CNS:
             if (id->idIsLargeCns())
             {
-                if (id->idIsLargeDsp())
-                {
-                    return sizeof(instrDescCnsDsp);
-                }
-                else
-                {
-                    return sizeof(instrDescCns);
-                }
+                return id->idIsLargeDsp() ? sizeof(instrDescCnsDsp) : sizeof(instrDescCns);
             }
-            else
+
+            if (id->idIsLargeDsp())
             {
-                if (id->idIsLargeDsp())
-                {
-                    return sizeof(instrDescDsp);
-                }
-                else
-                {
-                    return sizeof(instrDesc);
-                }
+                return sizeof(instrDescDsp);
             }
+            break;
+
         case ID_OP_AMD:
         case ID_OP_AMD_CNS:
             if (id->idIsLargeCns())
             {
-                if (id->idIsLargeDsp())
-                {
-                    return sizeof(instrDescCnsAmd);
-                }
-                else
-                {
-                    return sizeof(instrDescCns);
-                }
-            }
-            else
-            {
-                if (id->idIsLargeDsp())
-                {
-                    return sizeof(instrDescAmd);
-                }
-                else
-                {
-                    return sizeof(instrDesc);
-                }
+                return id->idIsLargeDsp() ? sizeof(instrDescCnsAmd) : sizeof(instrDescCns);
             }
 
-        default:
-            NO_WAY("unexpected instruction descriptor format");
+            if (id->idIsLargeDsp())
+            {
+                return sizeof(instrDescAmd);
+            }
             break;
+
+        default:
+            unreached();
     }
 
     return sizeof(instrDesc);
