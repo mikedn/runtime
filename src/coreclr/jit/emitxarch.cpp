@@ -7812,6 +7812,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
             code = AddRexWPrefix(ins, code);
         }
 
+#ifdef TARGET_AMD64
         if (IsExtendedReg(baseReg))
         {
             code = AddRexBPrefix(ins, code);
@@ -7821,6 +7822,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, CnsVal*
         {
             code = AddRexXPrefix(ins, code);
         }
+#endif
 
         if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
         {
