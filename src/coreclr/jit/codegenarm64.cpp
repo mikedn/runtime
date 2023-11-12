@@ -1485,7 +1485,7 @@ void CodeGen::instGen_Set_Reg_To_Reloc(regNumber reg, void* addr DEBUGARG(void* 
 {
     assert(compiler->opts.compReloc);
 
-    GetEmitter()->emitIns_R_AI(INS_adrp, EA_PTR_CNS_RELOC, reg, addr DEBUGARG(handle) DEBUGARG(handleKind));
+    GetEmitter()->emitIns_R_AH(INS_adrp, reg, addr DEBUGARG(handle) DEBUGARG(handleKind));
 }
 
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
@@ -3239,7 +3239,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
         callTarget = callTargetReg;
 
         // adrp + add with relocations will be emitted
-        GetEmitter()->emitIns_R_AI(INS_adrp, EA_PTR_CNS_RELOC, callTarget,
+        GetEmitter()->emitIns_R_AH(INS_adrp, callTarget,
                                    pAddr DEBUGARG(reinterpret_cast<void*>(Compiler::eeFindHelper(helper)))
                                        DEBUGARG(HandleKind::Method));
 

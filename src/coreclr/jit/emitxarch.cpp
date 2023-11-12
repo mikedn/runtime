@@ -3331,10 +3331,9 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     emitAdjustStackDepthPushPop(ins);
 }
 
-void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, void* addr DEBUGARG(HandleKind handleKind))
+void emitter::emitIns_R_H(instruction ins, regNumber reg, void* addr DEBUGARG(HandleKind handleKind))
 {
     assert(ins == INS_mov);
-    assert(EA_IS_CNS_RELOC(attr) && (EA_SIZE(attr) == EA_PTRSIZE));
     assert(genIsValidIntReg(reg) && (reg != REG_RSP));
 
 #ifdef TARGET_AMD64
@@ -3345,7 +3344,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, void* a
     unsigned size  = 5;
 #endif
 
-    instrDesc* id = emitNewInstrSC(attr, reinterpret_cast<ssize_t>(addr));
+    instrDesc* id = emitNewInstrSC(EA_PTR_CNS_RELOC, reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
     id->idInsFmt(IF_RWR_CNS);
     id->idReg1(reg);
@@ -3486,12 +3485,11 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
 }
 
 #ifdef TARGET_X86
-void emitter::emitIns_I(instruction ins, emitAttr attr, void* addr)
+void emitter::emitIns_H(instruction ins, void* addr)
 {
     assert((ins == INS_push) || (ins == INS_push_hide));
-    assert(EA_IS_CNS_RELOC(attr));
 
-    instrDesc* id = emitNewInstrSC(attr, reinterpret_cast<ssize_t>(addr));
+    instrDesc* id = emitNewInstrSC(EA_PTR_CNS_RELOC, reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
     id->idInsFmt(IF_CNS);
     id->idCodeSize(5);
@@ -4746,14 +4744,13 @@ void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber reg, regNum
     emitIns_R_ARX(ins, attr, reg, base, REG_NA, 1, disp);
 }
 
-void emitter::emitIns_R_AI(instruction ins, emitAttr attr, regNumber reg, void* addr)
+void emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
 {
     assert((ins == INS_mov) || (ins == INS_lea));
-    assert(EA_IS_DSP_RELOC(attr));
     assert(genIsValidIntReg(reg));
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
+    noway_assert(emitVerifyEncodable(ins, EA_PTRSIZE, reg));
 
-    instrDesc* id = emitNewInstrAmd(attr, reinterpret_cast<ssize_t>(addr));
+    instrDesc* id = emitNewInstrAmd(EA_PTR_DSP_RELOC, reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
     id->idInsFmt(IF_RWR_ARD);
     id->idReg1(reg);
@@ -10058,7 +10055,7 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
         else if (ins == INS_lea)
         {
             // Make an instrDesc that looks like IF_RWR_ARD so that emitOutputAM emits the r/m32 for us.
-            // We basically are doing what emitIns_R_AI does.
+            // We basically are doing what emitIns_R_AH does.
             // TODO-XArch-Cleanup: revisit this.
             instrDescAmd  idAmdStackLocal;
             instrDescAmd* idAmd = &idAmdStackLocal;

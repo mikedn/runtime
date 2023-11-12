@@ -812,8 +812,7 @@ void emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg)
 
 void emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg, int imm);
 
-void emitIns_R_AI(instruction ins,
-                  emitAttr    attr,
+void emitIns_R_AH(instruction ins,
                   regNumber   ireg,
                   void* addr DEBUGARG(void* handle = nullptr) DEBUGARG(HandleKind handleKind = HandleKind::None));
 

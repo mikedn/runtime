@@ -7633,21 +7633,17 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
 }
 
 // This computes address from the immediate which is relocatable.
-void emitter::emitIns_R_AI(instruction ins,
-                           emitAttr    attr,
+void emitter::emitIns_R_AH(instruction ins,
                            regNumber   reg,
                            void* addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
     assert((ins == INS_adrp) || (ins == INS_adr));
-    assert(attr == EA_PTR_CNS_RELOC);
-
-    emitAttr size = EA_SIZE(attr);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(IF_DI_1E);
     id->idInsOpt(INS_OPTS_NONE);
-    id->idOpSize(size);
+    id->idOpSize(EA_8BYTE);
     id->idAddr()->iiaAddr = addr;
     id->idReg1(reg);
     id->idSetIsCnsReloc();
@@ -7661,13 +7657,13 @@ void emitter::emitIns_R_AI(instruction ins,
 
     if (ins == INS_adrp)
     {
-        instrDesc* id = emitNewInstr(attr);
+        instrDesc* id = emitNewInstr(EA_PTR_CNS_RELOC);
         assert(id->idIsCnsReloc());
 
         id->idIns(INS_add);
         id->idInsFmt(IF_DI_2A);
         id->idInsOpt(INS_OPTS_NONE);
-        id->idOpSize(size);
+        id->idOpSize(EA_8BYTE);
         id->idAddr()->iiaAddr = addr;
         id->idReg1(reg);
         id->idReg2(reg);

@@ -43,7 +43,7 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
         // On x64, if we're not moving into RAX, and the address isn't RIP relative, we can't encode it.
         //  mov   eax, dword ptr [compiler->gsGlobalSecurityCookieAddr]
         //  mov   dword ptr [frame.GSSecurityCookie], eax
-        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_EAX, m_gsCookieAddr);
+        GetEmitter()->emitIns_R_AH(INS_mov, REG_EAX, m_gsCookieAddr);
         GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_EAX, gsCookieLclNum, 0);
 
         if (initReg == REG_EAX)
@@ -453,12 +453,12 @@ void CodeGen::instGen_Set_Reg_To_Reloc(regNumber reg, void* addr DEBUGARG(void* 
 #ifdef TARGET_AMD64
     if (compiler->eeIsRIPRelativeAddress(addr))
     {
-        GetEmitter()->emitIns_R_AI(INS_lea, EA_PTR_DSP_RELOC, reg, addr);
+        GetEmitter()->emitIns_R_AH(INS_lea, reg, addr);
     }
     else
 #endif
     {
-        GetEmitter()->emitIns_R_I(INS_mov, EA_PTR_CNS_RELOC, reg, addr);
+        GetEmitter()->emitIns_R_H(INS_mov, reg, addr);
     }
 }
 
@@ -6460,7 +6460,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                 }
                 else if (fieldNode->IsIconHandle())
                 {
-                    emit->emitIns_I(INS_push, EA_PTR_CNS_RELOC, fieldNode->AsIntCon()->GetAddr());
+                    emit->emitIns_H(INS_push, fieldNode->AsIntCon()->GetAddr());
                 }
                 else
                 {
@@ -6797,7 +6797,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         }
         else if (src->IsIconHandle())
         {
-            emit.emitIns_I(INS_push, EA_PTR_CNS_RELOC, src->AsIntCon()->GetAddr());
+            emit.emitIns_H(INS_push, src->AsIntCon()->GetAddr());
         }
         else
         {
@@ -7472,7 +7472,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 
     if (compiler->compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_I(INS_push, EA_PTR_CNS_RELOC, compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_H(INS_push, compiler->compProfilerMethHnd);
     }
     else
     {
@@ -7536,7 +7536,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
     if (compiler->compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_I(INS_push, EA_PTR_CNS_RELOC, compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_H(INS_push, compiler->compProfilerMethHnd);
     }
     else
     {
@@ -7624,7 +7624,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     {
         // Profiler hooks enabled during Ngen time.
         // Profiler handle needs to be accessed through an indirection of a pointer.
-        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_ARG_0, compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_R_AH(INS_mov, REG_ARG_0, compiler->compProfilerMethHnd);
     }
     else
     {
@@ -7697,7 +7697,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     {
         // Profiler hooks enabled during Ngen time.
         // Profiler handle needs to be accessed through an indirection of a pointer.
-        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_PROFILER_ENTER_ARG_0, compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_R_AH(INS_mov, REG_PROFILER_ENTER_ARG_0, compiler->compProfilerMethHnd);
     }
     else
     {
@@ -7767,7 +7767,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     {
         // Profiler hooks enabled during Ngen time.
         // Profiler handle needs to be accessed through an indirection of an address.
-        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_ARG_0, compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_R_AH(INS_mov, REG_ARG_0, compiler->compProfilerMethHnd);
     }
     else
     {
@@ -7809,7 +7809,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     // RDI = ProfilerMethHnd
     if (compiler->compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_ARG_0, compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_R_AH(INS_mov, REG_ARG_0, compiler->compProfilerMethHnd);
     }
     else
     {

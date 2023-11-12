@@ -334,7 +334,7 @@ void emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg
 void emitIns_Nop(unsigned size);
 
 #ifdef TARGET_X86
-void emitIns_I(instruction ins, emitAttr attr, void* addr);
+void emitIns_H(instruction ins, void* addr);
 #endif
 void emitIns_I(instruction ins, emitAttr attr, int32_t val);
 
@@ -342,10 +342,7 @@ void emitIns_R(instruction ins, emitAttr attr, regNumber reg);
 
 void emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fdlHnd);
 
-void emitIns_R_I(instruction ins,
-                 emitAttr    attr,
-                 regNumber   reg,
-                 void* addr DEBUGARG(HandleKind handleKind = HandleKind::None));
+void emitIns_R_H(instruction ins, regNumber reg, void* addr DEBUGARG(HandleKind handleKind = HandleKind::None));
 
 void emitIns_R_I(instruction ins,
                  emitAttr    attr,
@@ -426,7 +423,7 @@ void emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fdlHnd, in
 
 void emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg);
 
-void emitIns_R_AI(instruction ins, emitAttr attr, regNumber ireg, void* addr);
+void emitIns_R_AH(instruction ins, regNumber ireg, void* addr);
 
 void emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t disp);
 void emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scaled, int32_t disp);
