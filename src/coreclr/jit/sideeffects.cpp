@@ -135,27 +135,22 @@ AliasSet::AliasSet()
 //    compiler - The compiler context.
 //    node - The node in question.
 //
-AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
-    : m_compiler(compiler), m_node(node), m_flags(0), m_lclNum(0)
+AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node) : m_compiler(compiler), m_node(node)
 {
     assert(!node->OperIs(GT_ASG));
 
     if (node->IsCall())
     {
-        // Calls are treated as reads and writes of addressable locations unless they are known to be pure.
-        if (node->AsCall()->IsPure(compiler))
-        {
-            m_flags = ALIAS_NONE;
-            return;
-        }
+        m_flags = node->AsCall()->IsPure(compiler) ? ALIAS_NONE : (ALIAS_READS_ADDRESSABLE_LOCATION |
+                                                                   ALIAS_WRITES_ADDRESSABLE_LOCATION);
 
-        m_flags = ALIAS_READS_ADDRESSABLE_LOCATION | ALIAS_WRITES_ADDRESSABLE_LOCATION;
         return;
     }
-    else if (node->OperIsAtomicOp())
+
+    if (node->OperIsAtomicOp())
     {
-        // Atomic operations both read and write addressable locations.
         m_flags = ALIAS_READS_ADDRESSABLE_LOCATION | ALIAS_WRITES_ADDRESSABLE_LOCATION;
+
         return;
     }
 
@@ -179,10 +174,18 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
             isMemoryAccess = true;
         }
     }
-    else if (node->OperIsImplicitIndir())
+    else if (node->OperIs(GT_COPY_BLK, GT_INIT_BLK))
+    {
+        // TODO-MIKE-Review: We could probably handle this like a normal IND as far as locals
+        // are concerned (though we'd need to handle both read and write for COPY_BLK).
+        isMemoryAccess = true;
+    }
+#ifdef FEATURE_HW_INTRINSICS
+    else if (node->IsHWIntrinsic() && node->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
     {
         isMemoryAccess = true;
     }
+#endif
     else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
     {
         isLclVarAccess = true;
@@ -198,7 +201,7 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
     assert(isMemoryAccess || isLclVarAccess);
 
     // Now that we've determined whether or not this access is a read or a write and whether the accessed location is
-    // memory or a lclVar, determine whther or not the location is addressable and udpate the alias set.
+    // memory or a lclVar, determine whther or not the location is addressable and update the alias set.
     const bool isAddressableLocation = isMemoryAccess || compiler->lvaGetDesc(lclNum)->IsAddressExposed();
 
     // TODO-MIKE-Review: Is this missing HWINTRINSIC stores?

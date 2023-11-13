@@ -251,17 +251,6 @@ struct insGroup
 #include "emitfmts.h"
 #undef DEFINE_ID_OPS
 
-enum idAddrUnionTag
-{
-    iaut_ALIGNED_POINTER = 0x0,
-    iaut_DATA_OFFSET     = 0x1,
-    iaut_INST_COUNT      = 0x2,
-    iaut_UNUSED_TAG      = 0x3,
-
-    iaut_MASK  = 0x3,
-    iaut_SHIFT = 2
-};
-
 class CodeGen;
 
 class emitter
@@ -339,6 +328,43 @@ public:
     /*                   Emit initialized data sections                     */
     /************************************************************************/
 
+    enum idAddrUnionTag
+    {
+        iaut_ALIGNED_POINTER = 0x0,
+        iaut_DATA_OFFSET     = 0x1,
+        iaut_INST_COUNT      = 0x2,
+        iaut_UNUSED_TAG      = 0x3,
+
+        iaut_MASK  = 0x3,
+        iaut_SHIFT = 2
+    };
+
+    static CORINFO_FIELD_HANDLE MakeRoDataField(unsigned offset)
+    {
+        assert(offset < 0x40000000);
+        uintptr_t bits = static_cast<uintptr_t>((offset << iaut_SHIFT) | iaut_DATA_OFFSET);
+        return reinterpret_cast<CORINFO_FIELD_HANDLE>(bits);
+    }
+
+    static bool IsRoDataField(CORINFO_FIELD_HANDLE field)
+    {
+        uintptr_t bits = reinterpret_cast<uintptr_t>(field);
+        return (bits <= UINT_MAX) && ((bits & iaut_MASK) == iaut_DATA_OFFSET);
+    }
+
+    static int GetRoDataOffset(CORINFO_FIELD_HANDLE field)
+    {
+        if (IsRoDataField(field))
+        {
+            uintptr_t bits = reinterpret_cast<uintptr_t>(field);
+            return static_cast<int>(bits >> iaut_SHIFT);
+        }
+        else
+        {
+            return -1;
+        }
+    }
+
     static const UNATIVE_OFFSET INVALID_UNATIVE_OFFSET = (UNATIVE_OFFSET)-1;
 
     UNATIVE_OFFSET emitDataGenBeg(unsigned size, unsigned alignment, var_types dataType);
@@ -390,7 +416,7 @@ private:
 
     void emitRecomputeIGoffsets();
 
-    void emitDispCommentForHandle(size_t handle, GenTreeFlags flags);
+    void emitDispCommentForHandle(void* handle, HandleKind kind);
 
     /************************************************************************/
     /*          The following describes a single instruction                */
@@ -423,14 +449,14 @@ private:
     struct instrDescDebugInfo
     {
         unsigned          idNum;
-        uint16_t          idSize;                    // size of the instruction descriptor
-        bool              idFinallyCall = false;     // Branch instruction is a call to finally
-        bool              idCatchRet    = false;     // Instruction is for a catch 'return'
-        GenTreeFlags      idFlags       = GTF_EMPTY; // for determining type of handle in idMemCookie
+        uint16_t          idSize;                // size of the instruction descriptor
+        bool              idFinallyCall = false; // Branch instruction is a call to finally
+        bool              idCatchRet    = false; // Instruction is for a catch 'return'
         int               varNum        = INT_MIN;
         int               varOffs       = 0;
+        HandleKind        idHandleKind  = HandleKind::None;
+        void*             idHandle      = nullptr;
         CORINFO_SIG_INFO* idCallSig     = nullptr; // Used to report native call site signatures to the EE
-        size_t            idMemCookie   = 0;       // for display of method name (also used by switch table)
 
         instrDescDebugInfo(unsigned num, unsigned size) : idNum(num), idSize(static_cast<uint16_t>(size))
         {
@@ -457,8 +483,12 @@ private:
     unsigned insEncodePUW_H0(insOpts opt, int imm);
 #endif // TARGET_ARM
 
-    struct instrDesc
+    struct instrDesc;
+
+    struct instrDescSmall
     {
+        friend struct instrDesc;
+
     private:
 // The assembly instruction
 #if defined(TARGET_XARCH)
@@ -504,12 +534,6 @@ private:
 #endif
             assert(insFmt < IF_COUNT);
             _idInsFmt = insFmt;
-        }
-
-        void idSetRelocFlags(emitAttr attr)
-        {
-            _idCnsReloc = (EA_IS_CNS_RELOC(attr) ? 1 : 0);
-            _idDspReloc = (EA_IS_DSP_RELOC(attr) ? 1 : 0);
         }
 
         ////////////////////////////////////////////////////////////////////////
@@ -565,11 +589,9 @@ private:
         unsigned _idLargeCall : 1; // large call descriptor used
         unsigned _idBound : 1;     // jump target / frame offset bound
 #ifdef TARGET_XARCH
-        unsigned _idLargeDsp : 1;   // does a large displacement follow?
-        unsigned _idCallRegPtr : 1; // IL indirect calls: addr in reg
+        unsigned _idLargeDsp : 1; // does a large displacement follow?
 #endif
-        INDEBUG(unsigned _idCallAddr : 1;) // IL indirect calls: can make a direct call to iiaAddr
-        unsigned _idNoGC : 1;              // Some helpers don't get recorded in GC tables
+        unsigned _idNoGC : 1; // Some helpers don't get recorded in GC tables
 
 #ifdef TARGET_ARM64
         opSize   _idOpSize : 3; // operand size: 0=1 , 1=2 , 2=4 , 3=8, 4=16
@@ -604,7 +626,9 @@ private:
         // arm64: 49 bits
 
         unsigned _idCnsReloc : 1; // LargeCns is an RVA and needs reloc tag
+#ifdef TARGET_XARCH
         unsigned _idDspReloc : 1; // LargeDsp is an RVA and needs reloc tag
+#endif
 
 #define ID_EXTRA_RELOC_BITS (2)
 
@@ -612,8 +636,8 @@ private:
         // Space taken up to here:
         // x86:   48 bits
         // amd64: 48 bits
-        // arm:   50 bits
-        // arm64: 51 bits
+        // arm:   49 bits
+        // arm64: 50 bits
         CLANG_FORMAT_COMMENT_ANCHOR;
 
 #define ID_EXTRA_BITS (ID_EXTRA_RELOC_BITS + ID_EXTRA_BITFIELD_BITS)
@@ -685,6 +709,20 @@ private:
 
 #define SMALL_IDSC_SIZE (8 + SMALL_IDSC_DEBUG_EXTRA)
 
+    public:
+        bool idIsSmallDsc() const
+        {
+            return (_idSmallDsc != 0);
+        }
+        void idSetIsSmallDsc()
+        {
+            _idSmallDsc = 1;
+        }
+    };
+
+    struct instrDesc : public instrDescSmall
+    {
+    private:
         void checkSizes();
 
         union idAddrUnion {
@@ -693,10 +731,14 @@ private:
 
             BasicBlock* iiaBBlabel;
             insGroup*   iiaIGlabel;
-            BYTE*       iiaAddr;
+            void*       iiaAddr;
 
-            // Used to encode an offset into the JIT data constant area
+#ifdef TARGET_XARCH
             CORINFO_FIELD_HANDLE iiaFieldHnd;
+#endif
+#ifdef TARGET_ARM64
+            unsigned roDataOffset;
+#endif
 
             // Used to specify an instruction count for jumps, instead of using
             // a label and multiple blocks. This is used in the prolog as well
@@ -762,8 +804,23 @@ private:
             };
 #endif
 
-            bool iiaIsJitDataOffset() const;
-            int  iiaGetJitDataOffset() const;
+#ifdef TARGET_ARM64
+            bool iiaIsJitDataOffset() const
+            {
+                return (roDataOffset & iaut_MASK) == iaut_DATA_OFFSET;
+            }
+
+            unsigned iiaGetJitDataOffset() const
+            {
+                assert(iiaIsJitDataOffset());
+                return roDataOffset >> iaut_SHIFT;
+            }
+
+            void SetRoDataOffset(unsigned offset)
+            {
+                roDataOffset = (offset << iaut_SHIFT) | iaut_DATA_OFFSET;
+            }
+#endif
 
             bool iiaHasInstrCount() const
             {
@@ -783,20 +840,10 @@ private:
             }
         } _idAddrUnion;
 
-        static_assert_no_msg(sizeof(idAddrUnion) <= sizeof(void*));
+        static_assert_no_msg(sizeof(idAddrUnion) == sizeof(void*));
 
     public:
-        bool idIsSmallDsc() const
-        {
-            return (_idSmallDsc != 0);
-        }
-        void idSetIsSmallDsc()
-        {
-            _idSmallDsc = 1;
-        }
-
 #if defined(TARGET_XARCH)
-
         unsigned idCodeSize() const
         {
             return _idCodeSize;
@@ -1042,28 +1089,6 @@ private:
             _idBound = 1;
         }
 
-#ifdef TARGET_XARCH
-        bool idIsCallRegPtr() const
-        {
-            return _idCallRegPtr != 0;
-        }
-        void idSetIsCallRegPtr()
-        {
-            _idCallRegPtr = 1;
-        }
-#endif
-
-#ifdef DEBUG
-        bool idIsCallAddr() const
-        {
-            return _idCallAddr != 0;
-        }
-        void idSetIsCallAddr()
-        {
-            _idCallAddr = 1;
-        }
-#endif
-
         // Only call instructions that call helper functions may be marked as "IsNoGC", indicating
         // that a thread executing such a call cannot be stopped for GC.  Thus, in partially-interruptible
         // code, it is not necessary to generate GC info for a call so labeled.
@@ -1092,6 +1117,7 @@ private:
             _idCnsReloc = 1;
         }
 
+#ifdef TARGET_XARCH
         bool idIsDspReloc() const
         {
             return _idDspReloc != 0;
@@ -1104,6 +1130,7 @@ private:
         {
             return idIsDspReloc() || idIsCnsReloc();
         }
+#endif
 
         unsigned idSmallCns() const
         {
@@ -1138,6 +1165,90 @@ private:
 #endif
         }
     }; // End of  struct instrDesc
+
+#ifdef TARGET_X86
+    // instrDescCns holds constant values for the emitter. The X86 compiler is unique in that it
+    // may represent relocated pointer values with these constants. On the 64bit to 32 bit
+    // cross-targetting jit, the the constant value must be represented as a 64bit value in order
+    // to represent these pointers.
+    typedef ssize_t cnsval_ssize_t;
+    typedef size_t  cnsval_size_t;
+#else
+    typedef target_ssize_t cnsval_ssize_t;
+    typedef target_size_t  cnsval_size_t;
+#endif
+
+    struct instrDescCns : instrDesc // large const
+    {
+        cnsval_ssize_t idcCnsVal;
+    };
+
+#ifdef TARGET_XARCH
+    struct instrDescDsp : instrDesc // large displacement
+    {
+        target_ssize_t iddDspVal;
+    };
+
+    struct instrDescCnsDsp : instrDesc // large cons + disp
+    {
+        target_ssize_t iddcCnsVal;
+        int            iddcDspVal;
+    };
+
+    struct instrDescAmd : instrDesc // large addrmode disp
+    {
+        ssize_t idaAmdVal;
+    };
+
+    struct instrDescCnsAmd : instrDesc // large cons + addrmode disp
+    {
+        ssize_t idacCnsVal;
+        ssize_t idacAmdVal;
+    };
+#endif // TARGET_XARCH
+
+#if FEATURE_LOOP_ALIGN
+    struct instrDescAlign : instrDesc
+    {
+        instrDescAlign* idaNext; // next align in the group/method
+        insGroup*       idaIG;   // containing group
+    };
+#endif
+
+    struct instrDescJmp : instrDesc
+    {
+        instrDescJmp* idjNext; // next jump in the group/method
+        insGroup*     idjIG;   // containing group
+
+        union {
+            BYTE* idjAddr; // address of jump ins (for patching)
+        } idjTemp;
+
+        unsigned idjOffs : 30; // Before jump emission, this is the byte offset within IG of the jump instruction.
+        // After emission, for forward jumps, this is the target offset -- in bytes from the
+        // beginning of the function -- of the target instruction of the jump, used to
+        // determine if this jump needs to be patched.
+        unsigned idjShort : 1;    // is the jump known to be a short  one?
+        unsigned idjKeepLong : 1; // should the jump be kept long? (used for
+        // hot to cold and cold to hot jumps)
+    };
+
+    struct instrDescCGCA : instrDesc // call with ...
+    {
+        VARSET_TP idcGCvars; // ... updated GC vars or
+#ifdef TARGET_XARCH
+        int32_t idcDisp; // ... big addrmode disp
+#endif
+        regMaskTP idcGcrefRegs; // ... gcref registers
+        regMaskTP idcByrefRegs; // ... byref registers
+#ifdef TARGET_X86
+        int idcArgCnt; // ... lots of args or (<0 ==> caller pops args)
+#endif
+#if MULTIREG_HAS_SECOND_GC_RET
+        // TODO-MIKE-Cleanup: Remove this...
+        int workaroundToAvoidDiffInducingStupidInsGroupSizeChanges;
+#endif
+    };
 
 #ifdef DEBUG
     bool InstrHasNoCode(const instrDesc* id)
@@ -1287,91 +1398,6 @@ private:
 
     void appendToCurIG(instrDesc* id);
 
-    /********************************************************************************************/
-
-    struct instrDescJmp : instrDesc
-    {
-        instrDescJmp* idjNext; // next jump in the group/method
-        insGroup*     idjIG;   // containing group
-
-        union {
-            BYTE* idjAddr; // address of jump ins (for patching)
-        } idjTemp;
-
-        unsigned idjOffs : 30;    // Before jump emission, this is the byte offset within IG of the jump instruction.
-                                  // After emission, for forward jumps, this is the target offset -- in bytes from the
-                                  // beginning of the function -- of the target instruction of the jump, used to
-                                  // determine if this jump needs to be patched.
-        unsigned idjShort : 1;    // is the jump known to be a short  one?
-        unsigned idjKeepLong : 1; // should the jump be kept long? (used for
-                                  // hot to cold and cold to hot jumps)
-    };
-
-#if FEATURE_LOOP_ALIGN
-    struct instrDescAlign : instrDesc
-    {
-        instrDescAlign* idaNext; // next align in the group/method
-        insGroup*       idaIG;   // containing group
-    };
-#endif
-
-    struct instrDescCns : instrDesc // large const
-    {
-        cnsval_ssize_t idcCnsVal;
-    };
-
-#ifdef TARGET_XARCH
-    struct instrDescDsp : instrDesc // large displacement
-    {
-        target_ssize_t iddDspVal;
-    };
-
-    struct instrDescCnsDsp : instrDesc // large cons + disp
-    {
-        target_ssize_t iddcCnsVal;
-        int            iddcDspVal;
-    };
-
-    struct instrDescAmd : instrDesc // large addrmode disp
-    {
-        ssize_t idaAmdVal;
-    };
-
-    struct instrDescCnsAmd : instrDesc // large cons + addrmode disp
-    {
-        ssize_t idacCnsVal;
-        ssize_t idacAmdVal;
-    };
-#endif // TARGET_XARCH
-
-    struct instrDescCGCA : instrDesc // call with ...
-    {
-        VARSET_TP idcGCvars; // ... updated GC vars or
-#ifdef TARGET_XARCH
-        int32_t idcDisp; // ... big addrmode disp
-#endif
-        regMaskTP idcGcrefRegs; // ... gcref registers
-        regMaskTP idcByrefRegs; // ... byref registers
-#ifdef TARGET_X86
-        int idcArgCnt; // ... lots of args or (<0 ==> caller pops args)
-#endif
-#if MULTIREG_HAS_SECOND_GC_RET
-        // TODO-MIKE-Cleanup: Remove this...
-        int workaroundToAvoidDiffInducingStupidInsGroupSizeChanges;
-#endif
-    };
-
-#ifdef TARGET_ARM
-
-    struct instrDescReloc : instrDesc
-    {
-        BYTE* idrRelocVal;
-    };
-
-    BYTE* emitGetInsRelocValue(instrDesc* id);
-
-#endif // TARGET_ARM
-
     static insUpdateModes emitInsUpdateMode(instruction ins);
     static insFormat emitInsModeFormat(instruction ins, insFormat base);
 
@@ -1390,14 +1416,7 @@ private:
 
     static bool instIsFP(instruction ins);
 
-    size_t emitGetInstrDescSize(const instrDesc* id);
     size_t emitGetInstrDescSizeSC(const instrDesc* id);
-
-#ifdef TARGET_XARCH
-    ssize_t emitGetInsCns(instrDesc* id);
-    ssize_t emitGetInsDsp(instrDesc* id);
-    ssize_t emitGetInsCIdisp(instrDesc* id);
-#endif
 
     cnsval_ssize_t emitGetInsSC(instrDesc* id);
 
@@ -1421,7 +1440,6 @@ private:
     void GetGCDeltaDumpHeader(char* buffer, size_t count);
     void emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose);
     void emitDispIGlist(bool verbose = false);
-    void emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool reloc = false);
 #ifdef TARGET_XARCH
     void emitDispFrameRef(instrDesc* id, bool asmfm);
 #else
@@ -1551,34 +1569,11 @@ public:
         return ((srcOffset < emitTotalHotCodeSize) != (dstOffset < emitTotalHotCodeSize));
     }
 
-    unsigned char emitOutputByte(BYTE* dst, ssize_t val);
-    unsigned char emitOutputWord(BYTE* dst, ssize_t val);
-    unsigned char emitOutputLong(BYTE* dst, ssize_t val);
-    unsigned char emitOutputSizeT(BYTE* dst, ssize_t val);
-
-#if !defined(HOST_64BIT)
-#if defined(TARGET_X86)
-    unsigned char emitOutputByte(BYTE* dst, size_t val);
-    unsigned char emitOutputWord(BYTE* dst, size_t val);
-    unsigned char emitOutputLong(BYTE* dst, size_t val);
-    unsigned char emitOutputSizeT(BYTE* dst, size_t val);
-
-    unsigned char emitOutputByte(BYTE* dst, unsigned __int64 val);
-    unsigned char emitOutputWord(BYTE* dst, unsigned __int64 val);
-    unsigned char emitOutputLong(BYTE* dst, unsigned __int64 val);
-    unsigned char emitOutputSizeT(BYTE* dst, unsigned __int64 val);
-#endif // defined(TARGET_X86)
-#endif // !defined(HOST_64BIT)
-
     size_t emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp);
     size_t emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp);
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
     bool emitInInstrumentation = false;
-#endif
-
-#ifdef DEBUG
-    bool emitChkAlign; // perform some alignment checks
 #endif
 
     insGroup* emitCurIG;
@@ -1655,8 +1650,8 @@ private:
 
     VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
 
-    static void emitEncodeCallGCregs(regMaskTP regs, instrDesc* id);
-    static unsigned emitDecodeCallGCregs(instrDesc* id);
+    static void EncodeCallGCRegs(regMaskTP regs, instrDesc* id);
+    static unsigned DecodeCallGCRegs(instrDesc* id);
 
     unsigned emitNxtIGnum = 0;
 
@@ -1749,10 +1744,6 @@ private:
 
 #endif // TARGET_ARMARCH
 
-#ifdef TARGET_X86
-    void emitMarkStackLvl(unsigned stackLevel);
-#endif
-
     int emitNextRandomNop();
 
     //
@@ -1764,28 +1755,31 @@ private:
 
     void* emitAllocAnyInstr(unsigned sz, emitAttr attr, bool updateLastIns = true);
 
+    template <typename T>
+    T* AllocInstr(emitAttr attr, bool updateLastIns = true)
+    {
+        return static_cast<T*>(emitAllocAnyInstr(sizeof(T), attr, updateLastIns));
+    }
+
     instrDesc* emitAllocInstr(emitAttr attr)
     {
 #if EMITTER_STATS
         emitTotalIDescCnt++;
-#endif // EMITTER_STATS
-        return (instrDesc*)emitAllocAnyInstr(sizeof(instrDesc), attr);
+#endif
+        return AllocInstr<instrDesc>(attr);
     }
 
-    instrDescJmp* emitAllocInstrJmp()
+    instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE)
     {
-#if EMITTER_STATS
-        emitTotalIDescJmpCnt++;
-#endif // EMITTER_STATS
-        return (instrDescJmp*)emitAllocAnyInstr(sizeof(instrDescJmp), EA_1BYTE);
+        return emitAllocInstr(attr);
     }
 
     instrDescCns* emitAllocInstrCns(emitAttr attr)
     {
 #if EMITTER_STATS
         emitTotalIDescCnsCnt++;
-#endif // EMITTER_STATS
-        return (instrDescCns*)emitAllocAnyInstr(sizeof(instrDescCns), attr);
+#endif
+        return AllocInstr<instrDescCns>(attr);
     }
 
     instrDescCns* emitAllocInstrCns(emitAttr attr, cnsval_size_t cns)
@@ -1796,48 +1790,105 @@ private:
         return result;
     }
 
-#ifdef TARGET_XARCH
-    instrDescDsp* emitAllocInstrDsp(emitAttr attr);
-    instrDescCnsDsp* emitAllocInstrCnsDsp(emitAttr attr);
-    instrDescAmd* emitAllocInstrAmd(emitAttr attr);
-    instrDescCnsAmd* emitAllocInstrCnsAmd(emitAttr attr);
-#endif // TARGET_XARCH
+    static_assert_no_msg(sizeof(instrDescSmall) == SMALL_IDSC_SIZE);
+
+    instrDesc* emitNewInstrSmall(emitAttr attr)
+    {
+        instrDescSmall* id = AllocInstr<instrDescSmall>(attr);
+        id->idSetIsSmallDsc();
+#if EMITTER_STATS
+        emitTotalIDescSmallCnt++;
+#endif
+        return static_cast<instrDesc*>(id);
+    }
+
+    instrDesc* emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns)
+    {
+        if (instrDesc::fitsInSmallCns(cns))
+        {
+            instrDesc* id = emitNewInstrSmall(attr);
+            id->idSmallCns(cns);
+#if EMITTER_STATS
+            emitSmallCnsCnt++;
+            if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
+                emitSmallCns[SMALL_CNS_TSZ - 1]++;
+            else
+                emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
+#endif
+            return id;
+        }
+
+        instrDescCns* id = emitAllocInstrCns(attr, cns);
+#if EMITTER_STATS
+        emitLargeCnsCnt++;
+#endif
+        return id;
+    }
+
+    instrDesc* emitNewInstrCns(emitAttr attr, int32_t cns)
+    {
+        if (instrDesc::fitsInSmallCns(cns))
+        {
+            instrDesc* id = emitAllocInstr(attr);
+            id->idSmallCns(cns);
+#if EMITTER_STATS
+            emitSmallCnsCnt++;
+            if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
+                emitSmallCns[SMALL_CNS_TSZ - 1]++;
+            else
+                emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
+#endif
+            return id;
+        }
+
+        instrDescCns* id = emitAllocInstrCns(attr, cns);
+#if EMITTER_STATS
+        emitLargeCnsCnt++;
+#endif
+        return id;
+    }
+
+    instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
+
+    instrDescJmp* emitAllocInstrJmp()
+    {
+#if EMITTER_STATS
+        emitTotalIDescJmpCnt++;
+#endif
+        return AllocInstr<instrDescJmp>(EA_1BYTE);
+    }
+
+    instrDescJmp* emitNewInstrJmp()
+    {
+        return emitAllocInstrJmp();
+    }
 
     instrDescCGCA* emitAllocInstrCGCA(emitAttr attr)
     {
 #if EMITTER_STATS
         emitTotalIDescCGCACnt++;
-#endif // EMITTER_STATS
-        return (instrDescCGCA*)emitAllocAnyInstr(sizeof(instrDescCGCA), attr);
+#endif
+        return AllocInstr<instrDescCGCA>(attr);
     }
-
-    instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
 
 #if FEATURE_LOOP_ALIGN
     instrDescAlign* emitAllocInstrAlign()
     {
 #if EMITTER_STATS
         emitTotalDescAlignCnt++;
-#endif // EMITTER_STATS
-        return (instrDescAlign*)emitAllocAnyInstr(sizeof(instrDescAlign), EA_1BYTE);
+#endif
+        return AllocInstr<instrDescAlign>(EA_1BYTE);
     }
-    instrDescAlign* emitNewInstrAlign();
-#endif
 
-    instrDesc* emitNewInstrSmall(emitAttr attr);
-    instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
-    instrDesc* emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns);
-    instrDesc* emitNewInstrCns(emitAttr attr, cnsval_ssize_t cns);
-    instrDesc* emitNewInstrDsp(emitAttr attr, target_ssize_t dsp);
-    instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t cns, int dsp);
-#ifdef TARGET_ARM
-    instrDesc* emitNewInstrReloc(emitAttr attr, BYTE* addr);
+    instrDescAlign* emitNewInstrAlign()
+    {
+        instrDescAlign* newInstr = emitAllocInstrAlign();
+        newInstr->idIns(INS_align);
+        return newInstr;
+    }
 #endif
-    instrDescJmp* emitNewInstrJmp();
 
     static ID_OPS GetFormatOp(insFormat format);
-
-    bool emitIsScnsInsDsc(instrDesc* id);
 
     size_t emitSizeOfInsDsc(instrDesc* id);
 
@@ -1948,20 +1999,9 @@ public:
     dataSection* emitDataSecCur = nullptr;
 
     void emitOutputDataSec(dataSecDsc* sec, BYTE* dst);
-#ifdef DEBUG
-    void emitDispDataSec(dataSecDsc* section);
-#endif
+    INDEBUG(void emitDispDataSec(dataSecDsc* section);)
 
-    void emitRecordRelocation(void* location,       /* IN */
-                              void* target,         /* IN */
-                              WORD  fRelocType,     /* IN */
-                              WORD  slotNum   = 0,  /* IN */
-                              INT32 addlDelta = 0); /* IN */
-
-#ifdef TARGET_ARM
-    void emitHandlePCRelativeMov32(void* location, /* IN */
-                                   void* target);  /* IN */
-#endif
+    void emitRecordRelocation(void* location, void* target, uint16_t fRelocType, int32_t addlDelta = 0);
 
     void emitRecordCallSite(ULONG                 instrOffset,   /* IN */
                             CORINFO_SIG_INFO*     callSig,       /* IN */
@@ -2011,9 +2051,6 @@ public:
     static unsigned emitTotalIDescCnsAmdCnt;
 #endif // TARGET_XARCH
     static unsigned emitTotalIDescCGCACnt;
-#ifdef TARGET_ARM
-    static unsigned emitTotalIDescRelocCnt;
-#endif // TARGET_ARM
 
     static size_t emitTotMemAlloc;
 
@@ -2049,18 +2086,6 @@ inline void emitter::instrDesc::checkSizes()
     C_ASSERT(SMALL_IDSC_SIZE == (offsetof(instrDesc, _idDebugOnlyInfo) + sizeof(instrDescDebugInfo*)));
 #endif
     C_ASSERT(SMALL_IDSC_SIZE == offsetof(instrDesc, _idAddrUnion));
-}
-
-/*****************************************************************************
- *
- *  Returns true if the given instruction descriptor is a "small
- *  constant" one (i.e. one of the descriptors that don't have all instrDesc
- *  fields allocated).
- */
-
-inline bool emitter::emitIsScnsInsDsc(instrDesc* id)
-{
-    return id->idIsSmallDsc();
 }
 
 /*****************************************************************************
@@ -2147,141 +2172,6 @@ inline emitAttr emitter::emitDecodeSize(emitter::opSize ensz)
     assert(((unsigned)ensz) < OPSZ_COUNT);
 
     return emitSizeDecode[ensz];
-}
-
-/*****************************************************************************
- *
- *  Little helpers to allocate various flavors of instructions.
- */
-
-inline emitter::instrDesc* emitter::emitNewInstrSmall(emitAttr attr)
-{
-    instrDesc* id;
-
-    id = (instrDesc*)emitAllocAnyInstr(SMALL_IDSC_SIZE, attr);
-    id->idSetIsSmallDsc();
-
-#if EMITTER_STATS
-    emitTotalIDescSmallCnt++;
-#endif // EMITTER_STATS
-
-    return id;
-}
-
-inline emitter::instrDesc* emitter::emitNewInstr(emitAttr attr)
-{
-    // This is larger than the Small Descr
-    return emitAllocInstr(attr);
-}
-
-inline emitter::instrDescJmp* emitter::emitNewInstrJmp()
-{
-    return emitAllocInstrJmp();
-}
-
-#if FEATURE_LOOP_ALIGN
-inline emitter::instrDescAlign* emitter::emitNewInstrAlign()
-{
-    instrDescAlign* newInstr = emitAllocInstrAlign();
-    newInstr->idIns(INS_align);
-    return newInstr;
-}
-#endif
-
-/*****************************************************************************
- *
- *  Allocate an instruction descriptor for an instruction with a constant operand.
- *  The instruction descriptor uses the idAddrUnion to save additional info
- *  so the smallest size that this can be is sizeof(instrDesc).
- *  Note that this very similar to emitter::emitNewInstrSC(), except it never
- *  allocates a small descriptor.
- */
-inline emitter::instrDesc* emitter::emitNewInstrCns(emitAttr attr, cnsval_ssize_t cns)
-{
-    if (instrDesc::fitsInSmallCns(cns))
-    {
-        instrDesc* id = emitAllocInstr(attr);
-        id->idSmallCns(cns);
-
-#if EMITTER_STATS
-        emitSmallCnsCnt++;
-        if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
-            emitSmallCns[SMALL_CNS_TSZ - 1]++;
-        else
-            emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
-#endif
-
-        return id;
-    }
-    else
-    {
-        instrDescCns* id = emitAllocInstrCns(attr, cns);
-
-#if EMITTER_STATS
-        emitLargeCnsCnt++;
-#endif
-
-        return id;
-    }
-}
-
-/*****************************************************************************
- *
- *  Get the instrDesc size, general purpose version
- *
- */
-
-inline size_t emitter::emitGetInstrDescSize(const instrDesc* id)
-{
-    if (id->idIsSmallDsc())
-    {
-        return SMALL_IDSC_SIZE;
-    }
-
-    if (id->idIsLargeCns())
-    {
-        return sizeof(instrDescCns);
-    }
-
-    return sizeof(instrDesc);
-}
-
-/*****************************************************************************
- *
- *  Allocate an instruction descriptor for an instruction with a small integer
- *  constant operand. This is the same as emitNewInstrCns() except that here
- *  any constant that is small enough for instrDesc::fitsInSmallCns() only gets
- *  allocated SMALL_IDSC_SIZE bytes (and is thus a small descriptor, whereas
- *  emitNewInstrCns() always allocates at least sizeof(instrDesc)).
- */
-
-inline emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns)
-{
-    if (instrDesc::fitsInSmallCns(cns))
-    {
-        instrDesc* id = emitNewInstrSmall(attr);
-        id->idSmallCns(cns);
-
-#if EMITTER_STATS
-        emitSmallCnsCnt++;
-        if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
-            emitSmallCns[SMALL_CNS_TSZ - 1]++;
-        else
-            emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
-#endif
-
-        return id;
-    }
-    else
-    {
-        instrDescCns* id = emitAllocInstrCns(attr, cns);
-
-#if EMITTER_STATS
-        emitLargeCnsCnt++;
-#endif
-
-        return id;
-    }
 }
 
 inline bool IsCodeAligned(UNATIVE_OFFSET offset)

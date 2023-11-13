@@ -224,6 +224,7 @@ struct LcCondition
 
     LcCondition(genTreeOps oper, const LcExpr& op1, const LcExpr& op2) : op1(op1), op2(op2), oper(oper)
     {
+        assert(GenTree::OperIsCompare(oper));
     }
 
     bool Evaluate(bool* result) const;
@@ -385,6 +386,7 @@ GenTree* LcArray::ToGenTree(Compiler* comp) const
         // array length operators in the slow-path of the cloned loops. CSE doesn't keep these separate, so bails
         // out on creating CSEs on this very useful type of CSE, leading to CQ losses in the cloned loop fast path.
         // TODO-CQ: fix this.
+
         return arrLen;
     }
 
@@ -497,7 +499,7 @@ void LoopCloneContext::EvaluateConditions(unsigned loopNum, bool* pAllTrue, bool
     bool allTrue  = true;
     bool anyFalse = false;
 
-    for (LcCondition& cond : conds)
+    for (const LcCondition& cond : conds)
     {
 #ifdef DEBUG
         if (verbose)

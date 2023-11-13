@@ -296,7 +296,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
                         MakeSrcContained(putArgStk, fieldNode);
                     }
                 }
-                else if (fieldNode->IsIntCnsFitsInI32())
+                else if (fieldNode->IsIntConFitsInInt32())
                 {
                     MakeSrcContained(putArgStk, fieldNode);
                 }
@@ -634,7 +634,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 
         // Normally we'd need an indirection to get the actual target address but
         // the CORINFO_HELP_TAILCALL helper handles this if the VSD flag is set.
-        target = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
+        target = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, HandleKind::MethodAddr);
         BlockRange().InsertBefore(targetArg, target);
     }
     else
@@ -2340,10 +2340,9 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
     size           = (size != 12) ? size : 16;
     unsigned align = (comp->compCodeOpt() != SMALL_CODE) ? size : emitter::dataSection::MIN_DATA_ALIGN;
 
-    UNATIVE_OFFSET       offset = comp->GetEmitter()->emitDataConst(vecConst.u8, size, align, type);
-    CORINFO_FIELD_HANDLE handle = comp->eeFindJitDataOffs(offset);
+    unsigned offset = comp->GetEmitter()->emitDataConst(vecConst.u8, size, align, type);
 
-    GenTree* addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(handle);
+    GenTree* addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(Emitter::MakeRoDataField(offset));
     BlockRange().InsertBefore(node, addr);
 
     GenTree* indir = node;
@@ -3194,7 +3193,7 @@ bool Lowering::IsCallTargetInRange(void* addr)
 // return true if the immediate can be folded into an instruction, for example small enough and non-relocatable
 bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
 {
-    return childNode->IsIntCnsFitsInI32() && !childNode->AsIntCon()->ImmedValNeedsReloc(comp);
+    return childNode->IsIntConFitsInInt32() && !childNode->AsIntCon()->ImmedValNeedsReloc(comp);
 }
 
 //-----------------------------------------------------------------------

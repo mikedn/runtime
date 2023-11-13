@@ -1357,56 +1357,20 @@ void Compiler::eeSetEHinfo(unsigned EHnumber, const CORINFO_EH_CLAUSE* clause)
     }
 }
 
-WORD Compiler::eeGetRelocTypeHint(void* target)
+#ifdef TARGET_AMD64
+bool Compiler::eeIsRIPRelativeAddress(void* addr)
 {
-    if (info.compMatchedVM)
-    {
-        return info.compCompHnd->getRelocTypeHint(target);
-    }
-    else
-    {
-        // No hints
-        return (WORD)-1;
-    }
+    return info.compMatchedVM && info.compCompHnd->getRelocTypeHint(addr) == IMAGE_REL_BASED_REL32;
 }
+#endif
 
-CORINFO_FIELD_HANDLE Compiler::eeFindJitDataOffs(unsigned dataOffs)
+#ifdef TARGET_ARM
+bool Compiler::eeIsThumbBranch24TargetAddress(void* target)
 {
-    // Data offsets are marked by the fact that the low two bits are 0b01 0x1
-    assert(dataOffs < 0x40000000);
-    return (CORINFO_FIELD_HANDLE)(size_t)((dataOffs << iaut_SHIFT) | iaut_DATA_OFFSET);
+    assert(info.compMatchedVM);
+    return info.compCompHnd->getRelocTypeHint(target) == IMAGE_REL_BASED_THUMB_BRANCH24;
 }
-
-bool Compiler::eeIsJitDataOffs(CORINFO_FIELD_HANDLE field)
-{
-    // if 'field' is a jit data offset it has to fit into a 32-bit unsigned int
-    unsigned value = static_cast<unsigned>(reinterpret_cast<uintptr_t>(field));
-    if (((CORINFO_FIELD_HANDLE)(size_t)value) != field)
-    {
-        return false; // some bits in the upper 32 bits were set, not a jit data offset
-    }
-
-    // Data offsets are marked by the fact that the low two bits are 0b01
-    return (value & iaut_MASK) == iaut_DATA_OFFSET;
-}
-
-int Compiler::eeGetJitDataOffs(CORINFO_FIELD_HANDLE field)
-{
-    // Data offsets are marked by the fact that the low two bits are 0b01 0x1
-    if (eeIsJitDataOffs(field))
-    {
-        unsigned dataOffs = static_cast<unsigned>(reinterpret_cast<uintptr_t>(field));
-        assert(((CORINFO_FIELD_HANDLE)(size_t)dataOffs) == field);
-        assert(dataOffs < 0x40000000);
-
-        // Shift away the low two bits
-        return (static_cast<int>(reinterpret_cast<intptr_t>(field))) >> iaut_SHIFT;
-    }
-    else
-    {
-        return -1;
-    }
-}
+#endif
 
 /*****************************************************************************
  *
@@ -1613,32 +1577,40 @@ const char* Compiler::eeGetSimpleClassName(CORINFO_CLASS_HANDLE clsHnd)
 
 #ifdef DEBUG
 
-const WCHAR* Compiler::eeGetCPString(size_t strHandle)
+const WCHAR* Compiler::eeGetCPString(void* strHandle)
 {
 #ifdef HOST_UNIX
     return nullptr;
 #else
-    char buff[512 + sizeof(CORINFO_String)];
+    // TODO-MIKE-Cleanup: This stuff is as dodgy as it gets. The string may live in the GC heap
+    // so it can move around. Avoid blowing up the JIT if the string memory happens to be freed
+    // and make sure the returned string is nul terminated, even if we read garbage from memory.
+    // What this should do is to use getStringLiteral to get the string literal itself instead
+    // of the string object. But we don't have the metadata token here so this will have to do,
+    // for now...
 
-    // make this bulletproof, so it works even if we are wrong.
-    if (ReadProcessMemory(GetCurrentProcess(), (void*)strHandle, buff, 4, nullptr) == 0)
+    static WCHAR    buffers[4][256];
+    static unsigned freeBuffer;
+
+    __try
     {
-        return (nullptr);
+        CORINFO_String* str    = static_cast<CORINFO_String*>(*reinterpret_cast<void**>(strHandle));
+        size_t          length = str->stringLen;
+
+        if ((length + 1 > _countof(buffers[0])) || (str->chars[str->stringLen] != 0))
+        {
+            return nullptr;
+        }
+
+        WCHAR* buffer = buffers[freeBuffer++ % _countof(buffers)];
+        memcpy(buffer, str->chars, length * sizeof(WCHAR));
+        buffer[length] = 0;
+        return buffer;
     }
-
-    CORINFO_String* asString = *((CORINFO_String**)strHandle);
-
-    if (ReadProcessMemory(GetCurrentProcess(), asString, buff, sizeof(buff), nullptr) == 0)
-    {
-        return (nullptr);
-    }
-
-    if (asString->stringLen >= 255 || asString->chars[asString->stringLen] != 0)
+    __except (EXCEPTION_EXECUTE_HANDLER)
     {
         return nullptr;
     }
-
-    return (WCHAR*)(asString->chars);
 #endif // HOST_UNIX
 }
 

@@ -771,7 +771,7 @@ GenTree* Importer::impPopStackAddrAsVector(var_types type)
         return addr;
     }
 
-    return gtNewOperNode(GT_IND, type, addr);
+    return gtNewIndir(type, addr);
 }
 
 GenTree* Importer::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
@@ -800,8 +800,8 @@ GenTree* Importer::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
     }
     else
     {
-        dest = gtNewIndir(src->GetType(), destAddr);
-        dest->gtFlags |= GTF_GLOB_REF;
+        dest = comp->gtNewIndir(src->GetType(), destAddr);
+        dest->gtFlags |= GTF_GLOB_REF | comp->gtGetIndirExceptionFlags(destAddr);
     }
 
     return gtNewAssignNode(dest, src);
@@ -826,7 +826,7 @@ GenTree* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
     array = arrayUses[0];
 
     GenTree* lastIndex = gtNewIconNode(layout->GetElementCount() - 1);
-    GenTree* arrLen    = gtNewArrLen(arrayUses[1], OFFSETOF__CORINFO_Array__length);
+    GenTree* arrLen    = comp->gtNewArrLen(arrayUses[1], OFFSETOF__CORINFO_Array__length);
 
     if (index != nullptr)
     {
@@ -836,7 +836,7 @@ GenTree* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
 
         lastIndex = gtNewOperNode(GT_ADD, TYP_INT, indexUses[1], lastIndex);
         array     = gtNewCommaNode(gtNewBoundsChk(lastIndex, arrLen, lastIndexThrowKind), array);
-        arrLen    = gtNewArrLen(arrayUses[2], OFFSETOF__CORINFO_Array__length);
+        arrLen    = comp->gtNewArrLen(arrayUses[2], OFFSETOF__CORINFO_Array__length);
         array     = gtNewCommaNode(gtNewBoundsChk(indexUses[2], arrLen, indexThrowKind), array);
     }
     else
@@ -864,7 +864,7 @@ GenTree* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
     offset = gtNewOperNode(GT_ADD, TYP_BYREF, array, offset);
     offset->gtFlags |= GTF_DONT_CSE;
 
-    GenTree* indir = gtNewOperNode(GT_IND, layout->GetSIMDType(), offset)->AsIndir();
+    GenTree* indir = gtNewIndir(layout->GetSIMDType(), offset);
     indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
     return indir;
 }

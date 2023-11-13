@@ -311,9 +311,7 @@ public:
             if (dst->OperIs(GT_LCL_VAR) && src->OperIs(GT_LCL_VAR) &&
                 (dst->AsLclVar()->GetLclNum() == src->AsLclVar()->GetLclNum()))
             {
-                m_compiler->gtUpdateNodeSideEffects(tree);
-                assert((tree->gtFlags & GTF_SIDE_EFFECT) == GTF_ASG);
-                JITDUMPTREE(tree, "... removing self-assignment\n");
+                JITDUMPTREE(tree, "Removing self-assignment:");
                 tree->ChangeToNothingNode();
             }
         }

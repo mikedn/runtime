@@ -378,13 +378,13 @@ void Compiler::fgDumpTree(FILE* fgxFile, GenTree* const tree)
         fprintf(fgxFile, " %s ", opName);
         fgDumpTree(fgxFile, rhs);
     }
-    else if (tree->IsCnsIntOrI())
+    else if (GenTreeIntCon* intCon = tree->IsIntCon())
     {
-        fprintf(fgxFile, "%d", tree->AsIntCon()->gtIconVal);
+        fprintf(fgxFile, "%d", intCon->GetValue());
     }
-    else if (tree->IsCnsFltOrDbl())
+    else if (GenTreeDblCon* dblCon = tree->IsDblCon())
     {
-        fprintf(fgxFile, "%g", tree->AsDblCon()->gtDconVal);
+        fprintf(fgxFile, "%g", dblCon->GetValue());
     }
     else if (tree->OperIs(GT_LCL_VAR))
     {
@@ -2770,325 +2770,203 @@ void Compiler::fgDebugCheckBBlist(bool checkBBNum /* = false */, bool checkBBRef
 
 void Compiler::fgDebugCheckFlags(GenTree* tree)
 {
-    const genTreeOps   oper      = tree->GetOper();
-    const GenTreeKinds kind      = tree->OperKind();
-    GenTreeFlags       treeFlags = tree->GetSideEffects();
-    GenTreeFlags       chkFlags  = GTF_EMPTY;
-
-    if (tree->OperMayThrow(this))
+    class CheckFlagsTreeVisitor : public GenTreeVisitor<CheckFlagsTreeVisitor>
     {
-        chkFlags |= GTF_EXCEPT;
-    }
+        ArrayStack<GenTree*, 16> m_operands;
 
-    if (tree->OperRequiresCallFlag(this))
-    {
-        chkFlags |= GTF_CALL;
-    }
-
-    if (tree->OperRequiresAsgFlag())
-    {
-        chkFlags |= GTF_ASG;
-    }
-
-    if (kind & GTK_LEAF)
-    {
-        switch (oper)
+    public:
+        enum
         {
-            case GT_CATCH_ARG:
-                chkFlags |= GTF_ORDER_SIDEEFF;
-                break;
+            ComputeStack      = false,
+            DoPreOrder        = true,
+            DoPostOrder       = true,
+            DoLclVarsOnly     = false,
+            UseExecutionOrder = false,
+        };
 
-            case GT_MEMORYBARRIER:
-                chkFlags |= GTF_GLOB_REF | GTF_ASG;
-                break;
-
-            default:
-                break;
+        CheckFlagsTreeVisitor(Compiler* compiler)
+            : GenTreeVisitor(compiler), m_operands(compiler->getAllocator(CMK_DebugOnly))
+        {
         }
-    }
-    else if (kind & GTK_SMPOP)
-    {
-        GenTree* op1 = tree->AsOp()->gtOp1;
-        GenTree* op2 = tree->gtGetOp2IfPresent();
 
-        assert(!tree->IsReverseOp() || ((op1 != nullptr) && (op2 != nullptr)));
-
-        switch (oper)
+        fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
-            case GT_QMARK:
-                if (op1->OperIsCompare())
-                {
-                    noway_assert(op1->gtFlags & GTF_DONT_CSE);
-                }
-                else
-                {
-                    noway_assert(op1->OperIs(GT_CNS_INT) &&
-                                 ((op1->AsIntCon()->GetValue() == 0) || (op1->AsIntCon()->GetValue() == 1)));
-                }
-                break;
+            m_operands.Push(*use);
+            return Compiler::WALK_CONTINUE;
+        }
 
-            case GT_IND:
-                if (GenTreeIntCon* addr = op1->IsIntCon())
-                {
-                    GenTreeFlags handleKind = addr->GetHandleKind();
+        fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+        {
+            GenTree*     node          = *use;
+            GenTreeFlags expectedFlags = GTF_NONE;
 
-                    if (handleKind != GTF_NONE)
+            while (m_operands.Top() != node)
+            {
+                expectedFlags |= m_operands.Top()->GetSideEffects();
+                m_operands.Pop();
+            }
+
+            if (node->OperMayThrow(m_compiler))
+            {
+                expectedFlags |= GTF_EXCEPT;
+            }
+
+            if (node->OperRequiresCallFlag(m_compiler))
+            {
+                expectedFlags |= GTF_CALL;
+            }
+
+            if (node->OperRequiresAsgFlag())
+            {
+                expectedFlags |= GTF_ASG;
+
+                if (node->OperIsAtomicOp() || node->OperIs(GT_MEMORYBARRIER) || node->IsDynBlk())
+                {
+                    expectedFlags |= GTF_GLOB_REF;
+                }
+            }
+            else
+            {
+                assert(!node->OperIsAtomicOp() && !node->OperIs(GT_MEMORYBARRIER) && !node->IsDynBlk());
+            }
+
+            if ((node->IsIndir() && node->AsIndir()->IsVolatile()) ||
+                (node->IsDynBlk() && node->AsDynBlk()->IsVolatile()))
+            {
+                expectedFlags |= GTF_ORDER_SIDEEFF;
+            }
+
+            if (node->IsLclVarCommon() && !node->IsLclAddr())
+            {
+                if (m_compiler->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed())
+                {
+                    expectedFlags |= GTF_GLOB_REF;
+                }
+            }
+
+            // TODO-MIKE-Review: This should require GLOB_REF for
+            // OBJ/BLK, indirect stores and load/store intrinsics.
+            // It remains to be seen if there aren't any cases where
+            // those do not need GLOB_REF, though that's unlikely.
+            // In general, all indirs should have GLOB_REF, with the
+            // exception of loads of runtime data that is known to be
+            // invariant.
+
+            GenTreeFlags actualFlags = node->GetSideEffects();
+
+            switch (node->GetOper())
+            {
+                case GT_CATCH_ARG:
+                    expectedFlags |= GTF_ORDER_SIDEEFF;
+                    break;
+
+                case GT_IND:
+                    if (GenTreeIntCon* addr = node->AsIndir()->GetAddr()->IsIntCon())
                     {
-                        if ((tree->gtFlags & GTF_IND_INVARIANT) != 0)
+                        HandleKind handleKind = addr->GetHandleKind();
+
+                        if (handleKind != HandleKind::None)
                         {
-                            chkFlags |= GTF_IND_INVARIANT;
+                            if ((node->gtFlags & GTF_IND_INVARIANT) != 0)
+                            {
+                                expectedFlags |= GTF_IND_INVARIANT;
+                            }
+
+                            // We currently expect all handles to be non-null.
+                            assert((node->gtFlags & GTF_IND_NONFAULTING) != 0);
+
+                            actualFlags |= GTF_IND_NONFAULTING;
+                            expectedFlags |= GTF_IND_NONFAULTING;
+
+                            if ((handleKind != HandleKind::Static) && (handleKind != HandleKind::BlockCount) &&
+                                (handleKind != HandleKind::MutableData))
+                            {
+                                actualFlags |= GTF_IND_INVARIANT;
+                            }
+
+                            if (handleKind == HandleKind::Static)
+                            {
+                                actualFlags |= GTF_GLOB_REF;
+                            }
                         }
+                    }
+                    break;
 
-                        // We currently expect all handle kinds to be non-faulting
-                        assert((tree->gtFlags & GTF_IND_NONFAULTING) != 0);
+                case GT_CALL:
+                    // Calls may have argument "setup" trees that are stores but
+                    // their GTF_ASG side effect is not inherited by the call node.
+                    // Struct args can have complicated setup, where the temp store
+                    // is hidden inside a COMMA/FIELD_LIST, so we'll simply check
+                    // for GTF_ASG instead of a store node.
 
-                        treeFlags |= GTF_IND_NONFAULTING;
-                        chkFlags |= GTF_IND_NONFAULTING;
-
-                        if ((handleKind != GTF_ICON_STATIC_HDL) && (handleKind != GTF_ICON_BBC_PTR) &&
-                            (handleKind != GTF_ICON_GLOBAL_PTR))
+                    if (GenTreeCall::Use* thisArg = node->AsCall()->gtCallThisArg)
+                    {
+                        if (thisArg->GetNode()->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_LCL_DEF))
                         {
-                            treeFlags |= GTF_IND_INVARIANT;
+                            actualFlags |= GTF_ASG;
                         }
+                    }
 
-                        if (handleKind == GTF_ICON_STATIC_HDL)
+                    for (GenTreeCall::Use& arg : node->AsCall()->Args())
+                    {
+                        if (arg.GetNode()->HasAnySideEffect(GTF_ASG))
                         {
-                            treeFlags |= GTF_GLOB_REF;
+                            actualFlags |= GTF_ASG;
                         }
                     }
-                }
-                break;
+                    break;
 
-            case GT_ASG:
-                assert((tree->AsOp()->GetOp(0)->gtFlags & GTF_DONT_CSE) != 0);
-                break;
+                default:
+                    break;
+            }
 
-            default:
-                break;
+            CheckFlags(node, actualFlags, expectedFlags);
+
+            return fgWalkResult::WALK_CONTINUE;
         }
 
-        if (op1 != nullptr)
+    private:
+        void CheckFlags(GenTree* node, GenTreeFlags actualFlags, GenTreeFlags expectedFlags)
         {
-            fgDebugCheckFlags(op1);
-            chkFlags |= op1->GetSideEffects();
+            GenTreeFlags missingFlags = expectedFlags & ~actualFlags;
+            // We can't treat GTF_GLOB_REF or GTF_ORDER_SIDEEFF as being "extra" flags
+            // because we currently have no way to figure out when they're required.
+            GenTreeFlags extraFlags = actualFlags & ~(expectedFlags | GTF_GLOB_REF | GTF_ORDER_SIDEEFF);
+
+            if (missingFlags != GTF_NONE)
+            {
+                printf("Missing flags on tree [%06u]: ", node->GetID());
+                DumpFlags(node, missingFlags);
+                printf("\n");
+                m_compiler->gtDispTree(node);
+
+                assert(!"Missing flags on tree");
+            }
+            else if (extraFlags != GTF_NONE)
+            {
+                printf("Extra flags on tree [%06u]: ", node->GetID());
+                DumpFlags(node, extraFlags);
+                printf("\n");
+                m_compiler->gtDispTree(node);
+
+                assert(!"Extra flags on tree");
+            }
         }
 
-        if (op2 != nullptr)
+        void DumpFlags(GenTree* node, GenTreeFlags flags)
         {
-            fgDebugCheckFlags(op2);
-            chkFlags |= op2->GetSideEffects();
+            if (node->OperIs(GT_IND))
+            {
+                printf("%c", (flags & GTF_IND_INVARIANT) ? '#' : '-');
+                printf("%c", (flags & GTF_IND_NONFAULTING) ? 'n' : '-');
+                printf("%c", (flags & GTF_IND_NONNULL) ? '@' : '-');
+            }
+
+            m_compiler->gtDispFlags(flags, GTF_DEBUG_NONE);
         }
-    }
-    else
-    {
-        switch (tree->GetOper())
-        {
-            case GT_CALL:
-                GenTreeCall* call;
-                call = tree->AsCall();
+    } visitor(this);
 
-                if (call->gtCallThisArg != nullptr)
-                {
-                    fgDebugCheckFlags(call->gtCallThisArg->GetNode());
-                    chkFlags |= call->gtCallThisArg->GetNode()->GetSideEffects();
-
-                    if (call->gtCallThisArg->GetNode()->HasAnySideEffect(GTF_ASG))
-                    {
-                        treeFlags |= GTF_ASG;
-                    }
-                }
-
-                for (GenTreeCall::Use& use : call->Args())
-                {
-                    fgDebugCheckFlags(use.GetNode());
-
-                    chkFlags |= use.GetNode()->GetSideEffects();
-
-                    if (use.GetNode()->HasAnySideEffect(GTF_ASG))
-                    {
-                        treeFlags |= GTF_ASG;
-                    }
-                }
-
-                for (GenTreeCall::Use& use : call->LateArgs())
-                {
-                    fgDebugCheckFlags(use.GetNode());
-
-                    chkFlags |= use.GetNode()->GetSideEffects();
-
-                    if (use.GetNode()->HasAnySideEffect(GTF_ASG))
-                    {
-                        treeFlags |= GTF_ASG;
-                    }
-                }
-
-                if (call->IsIndirectCall())
-                {
-                    if (call->gtCallCookie != nullptr)
-                    {
-                        fgDebugCheckFlags(call->gtCallCookie);
-                        chkFlags |= call->gtCallCookie->GetSideEffects();
-                    }
-
-                    fgDebugCheckFlags(call->gtCallAddr);
-                    chkFlags |= call->gtCallAddr->GetSideEffects();
-                }
-
-                if (call->gtControlExpr != nullptr)
-                {
-                    fgDebugCheckFlags(call->gtControlExpr);
-                    chkFlags |= call->gtControlExpr->GetSideEffects();
-                }
-
-                if (call->IsUnmanaged() && (call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL))
-                {
-                    if (call->gtCallArgs->GetNode()->OperIs(GT_NOP))
-                    {
-                        noway_assert(call->gtCallLateArgs->GetNode()->TypeIs(TYP_I_IMPL, TYP_BYREF));
-                    }
-                    else
-                    {
-                        noway_assert(call->gtCallArgs->GetNode()->TypeIs(TYP_I_IMPL, TYP_BYREF));
-                    }
-                }
-                break;
-
-            case GT_ARR_ELEM:
-                GenTree* arrObj;
-                arrObj = tree->AsArrElem()->gtArrObj;
-                fgDebugCheckFlags(arrObj);
-                chkFlags |= (arrObj->gtFlags & GTF_ALL_EFFECT);
-
-                for (unsigned dim = 0; dim < tree->AsArrElem()->gtArrRank; dim++)
-                {
-                    fgDebugCheckFlags(tree->AsArrElem()->gtArrInds[dim]);
-                    chkFlags |= tree->AsArrElem()->gtArrInds[dim]->GetSideEffects();
-                }
-                break;
-
-            case GT_PHI:
-                for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
-                {
-                    fgDebugCheckFlags(use.GetNode());
-                    chkFlags |= use.GetNode()->GetSideEffects();
-                }
-                break;
-
-            case GT_FIELD_LIST:
-                for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
-                {
-                    fgDebugCheckFlags(use.GetNode());
-                    chkFlags |= use.GetNode()->GetSideEffects();
-                }
-                break;
-
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HWINTRINSIC:
-                for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
-                {
-                    fgDebugCheckFlags(use.GetNode());
-                    chkFlags |= use.GetNode()->GetSideEffects();
-                }
-                break;
-#endif
-
-            case GT_CMPXCHG:
-            case GT_COPY_BLK:
-            case GT_INIT_BLK:
-                chkFlags |= GTF_GLOB_REF | GTF_ASG;
-                FALLTHROUGH;
-            case GT_ARR_OFFSET:
-                for (unsigned i = 0; i < 3; i++)
-                {
-                    fgDebugCheckFlags(tree->AsTernaryOp()->GetOp(i));
-                    chkFlags |= tree->AsTernaryOp()->GetOp(i)->GetSideEffects();
-                }
-                break;
-
-            default:
-                INDEBUG(gtDispTree(tree);)
-                assert(!"Unknown operator for fgDebugCheckFlags");
-                break;
-        }
-    }
-
-    fgDebugCheckFlagsHelper(tree, treeFlags, chkFlags);
-}
-
-//------------------------------------------------------------------------------
-// fgDebugCheckDispFlags: Wrapper function that displays GTF_IND_ flags
-// and then calls gtDispFlags to display the rest.
-//
-// Arguments:
-//    tree       - Tree whose flags are being checked
-//    dispFlags  - the first argument for gtDispFlags (flags to display),
-//                 including GTF_IND_INVARIANT, GTF_IND_NONFAULTING, GTF_IND_NONNULL
-//    debugFlags - the second argument to gtDispFlags
-//
-void Compiler::fgDebugCheckDispFlags(GenTree* tree, GenTreeFlags dispFlags, GenTreeDebugFlags debugFlags)
-{
-    if (tree->OperIs(GT_IND))
-    {
-        printf("%c", (dispFlags & GTF_IND_INVARIANT) ? '#' : '-');
-        printf("%c", (dispFlags & GTF_IND_NONFAULTING) ? 'n' : '-');
-        printf("%c", (dispFlags & GTF_IND_NONNULL) ? '@' : '-');
-    }
-
-    gtDispFlags(dispFlags, debugFlags);
-}
-
-//------------------------------------------------------------------------------
-// fgDebugCheckFlagsHelper : Check if all bits that are set in chkFlags are also set in treeFlags.
-//
-// Arguments:
-//    tree      - Tree whose flags are being checked
-//    treeFlags - Actual flags on the tree
-//    chkFlags  - Expected flags
-//
-// Note:
-//    Checking that all bits that are set in treeFlags are also set in chkFlags is currently disabled.
-//
-void Compiler::fgDebugCheckFlagsHelper(GenTree* tree, GenTreeFlags treeFlags, GenTreeFlags chkFlags)
-{
-    if ((chkFlags & ~treeFlags) != GTF_NONE)
-    {
-        // Print the tree so we can see it in the log.
-        printf("Missing flags on tree [%06u]: ", tree->GetID());
-        Compiler::fgDebugCheckDispFlags(tree, chkFlags & ~treeFlags, GTF_DEBUG_NONE);
-        printf("\n");
-        gtDispTree(tree);
-
-        noway_assert(!"Missing flags on tree");
-
-        // Print the tree again so we can see it right after we hook up the debugger.
-        printf("Missing flags on tree [%06u]: ", tree->GetID());
-        Compiler::fgDebugCheckDispFlags(tree, chkFlags & ~treeFlags, GTF_DEBUG_NONE);
-        printf("\n");
-        gtDispTree(tree);
-    }
-    else if ((treeFlags & ~chkFlags) != GTF_NONE)
-    {
-        // We can't/don't consider these flags (GTF_GLOB_REF or GTF_ORDER_SIDEEFF) as being "extra" flags
-        //
-        GenTreeFlags flagsToCheck = ~GTF_GLOB_REF & ~GTF_ORDER_SIDEEFF;
-
-        if ((treeFlags & ~chkFlags & flagsToCheck) != GTF_NONE)
-        {
-            // Print the tree so we can see it in the log.
-            printf("Extra flags on tree [%06u]: ", tree->GetID());
-            Compiler::fgDebugCheckDispFlags(tree, treeFlags & ~chkFlags, GTF_DEBUG_NONE);
-            printf("\n");
-            gtDispTree(tree);
-
-            noway_assert(!"Extra flags on tree");
-
-            // Print the tree again so we can see it right after we hook up the debugger.
-            printf("Extra flags on tree [%06u]: ", tree->GetID());
-            Compiler::fgDebugCheckDispFlags(tree, treeFlags & ~chkFlags, GTF_DEBUG_NONE);
-            printf("\n");
-            gtDispTree(tree);
-        }
-    }
+    visitor.WalkTree(&tree, nullptr);
 }
 
 // DEBUG routine to check correctness of the internal gtNext, gtPrev threading of a statement.

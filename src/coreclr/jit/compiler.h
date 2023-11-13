@@ -1341,41 +1341,35 @@ struct CompilerOptions
         compMinOptsIsSet = true;
     }
 
-    bool OptEnabled(OptFlags optFlag)
+    bool OptEnabled(OptFlags optFlag) const
     {
         return (optFlags & optFlag) != 0;
     }
 
+    bool IsReadyToRun() const
+    {
 #ifdef FEATURE_READYTORUN_COMPILER
-    bool IsReadyToRun()
-    {
         return jitFlags->IsSet(JitFlags::JIT_FLAG_READYTORUN);
-    }
 #else
-    bool IsReadyToRun()
-    {
         return false;
-    }
 #endif
+    }
 
+    bool IsOSR() const
+    {
 #ifdef FEATURE_ON_STACK_REPLACEMENT
-    bool IsOSR() const
-    {
         return jitFlags->IsSet(JitFlags::JIT_FLAG_OSR);
-    }
 #else
-    bool IsOSR() const
-    {
         return false;
-    }
 #endif
+    }
 
     // true if we should use the PINVOKE_{BEGIN,END} helpers instead of generating
     // PInvoke transitions inline. Normally used by R2R, but also used when generating a reverse pinvoke frame, as
     // the current logic for frame setup initializes and pushes
     // the InlinedCallFrame before performing the Reverse PInvoke transition, which is invalid (as frames cannot
     // safely be pushed/popped while the thread is in a preemptive state.).
-    bool ShouldUsePInvokeHelpers()
+    bool ShouldUsePInvokeHelpers() const
     {
         return jitFlags->IsSet(JitFlags::JIT_FLAG_USE_PINVOKE_HELPERS) ||
                jitFlags->IsSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
@@ -1383,7 +1377,7 @@ struct CompilerOptions
 
     // true if we should use insert the REVERSE_PINVOKE_{ENTER,EXIT} helpers in the method
     // prolog/epilog
-    bool IsReversePInvoke()
+    bool IsReversePInvoke() const
     {
         return jitFlags->IsSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
     }
@@ -1405,67 +1399,55 @@ struct CompilerOptions
 
 #ifdef PROFILING_SUPPORTED
     bool compNoPInvokeInlineCB : 1;
+    // Whether to emit Enter/Leave/TailCall hooks using a dummy stub (DummyProfilerELTStub()).
+    // This option helps make the JIT behave as if it is running under a profiler.
+    bool compJitELTHookEnabled : 1;
 #else
     static const bool compNoPInvokeInlineCB;
 #endif
 
-#ifdef DEBUG
-    // Check arguments and return values to ensure they are sane
-    bool compGcChecks;
-#if defined(TARGET_XARCH)
-    // Check stack pointer on return to ensure it is correct.
-    bool compStackCheckOnRet;
-    // Check stack pointer after call to ensure it is correct.
-    X86_ONLY(bool compStackCheckOnCall;)
-#endif // TARGET_XARCH
-#endif // DEBUG
-
-    bool compReloc : 1; // Generate relocs for pointers in code, true for all ngen/prejit codegen
-
-#ifdef DEBUG
-#if defined(TARGET_XARCH)
-    bool compEnablePCRelAddr; // Whether absolute addr be encoded as PC-rel offset by RyuJIT where possible
-#endif
-#endif // DEBUG
-
+    bool compReloc : 1;              // Generate relocs for pointers in code, true for all ngen/prejit codegen
     bool compProcedureSplitting : 1; // Separate cold code from hot code
-
-    bool altJit : 1; // True if we are an altjit and are compiling this method
+    bool altJit : 1;                 // True if we are an altjit and are compiling this method
 
 #ifdef OPT_CONFIG
-    bool optRepeat; // Repeat optimizer phases k times
+    bool optRepeat : 1; // Repeat optimizer phases k times
 #endif
 
 #ifdef DEBUG
+    // Check arguments and return values to ensure they are sane
+    bool compGcChecks : 1;
+#ifdef TARGET_XARCH
+    // Check stack pointer on return to ensure it is correct.
+    bool compStackCheckOnRet : 1;
+#endif
+    // Check stack pointer after call to ensure it is correct.
+    X86_ONLY(bool compStackCheckOnCall : 1;)
+    // Whether absolute addr be encoded as RIP relative displacement where possible
+    AMD64_ONLY(bool enableRIPRelativeAddressing : 1;)
     bool compProcedureSplittingEH : 1; // Separate cold code from hot code for functions with EH
     bool dspCode : 1;                  // Display native code generated
     bool dspEHTable : 1;               // Display the EH table reported to the VM
     bool dspDebugInfo : 1;             // Display the Debug info reported to the VM
     bool dspInstrs : 1;                // Display the IL instructions intermixed with the native code output
-    bool dmpHex;                       // Display raw bytes in hex of native code output
-    bool disAsm;                       // Display native code as it is generated
-    bool disasmWithGC;                 // Display GC info interleaved with disassembly.
-    bool disDiffable;                  // Makes the Disassembly code 'diff-able'
-    bool disAddr;                      // Display process address next to each instruction in disassembly code
-    bool disAlignment;                 // Display alignment boundaries in disassembly code
-    bool dspOrder;                     // Display names of each of the methods that we ngen/jit
-    bool dspUnwind;                    // Display the unwind info output
-    bool dspDiffable; // Makes the Jit Dump 'diff-able' (currently uses same COMPlus_* flag as disDiffable)
+    bool dmpHex : 1;                   // Display raw bytes in hex of native code output
+    bool disAsm : 1;                   // Display native code as it is generated
+    bool disasmWithGC : 1;             // Display GC info interleaved with disassembly.
+    bool disDiffable : 1;              // Makes the Disassembly code 'diff-able'
+    bool disAddr : 1;                  // Display process address next to each instruction in disassembly code
+    bool disAlignment : 1;             // Display alignment boundaries in disassembly code
+    bool dspOrder : 1;                 // Display names of each of the methods that we ngen/jit
+    bool dspUnwind : 1;                // Display the unwind info output
+    bool dspDiffable : 1; // Makes the Jit Dump 'diff-able' (currently uses same COMPlus_* flag as disDiffable)
     // (IF_LARGEJMP/IF_LARGEADR/IF_LARGLDC)
-    bool dspGCtbls;       // Display the GC tables
-    bool isAltJitPresent; // And AltJit may be present, dump options apply only to it.
+    bool dspGCtbls : 1;       // Display the GC tables
+    bool isAltJitPresent : 1; // And AltJit may be present, dump options apply only to it.
 #endif
 #ifdef LATE_DISASM
     bool doLateDisasm : 1; // Run the late disassembler
 #endif
 
     bool compExpandCallsEarly : 1; // True if we should expand virtual call targets early for this method
-
-#ifdef PROFILING_SUPPORTED
-    // Whether to emit Enter/Leave/TailCall hooks using a dummy stub (DummyProfilerELTStub()).
-    // This option helps make the JIT behave as if it is running under a profiler.
-    bool compJitELTHookEnabled : 1;
-#endif // PROFILING_SUPPORTED
 
 #if FEATURE_TAILCALL_OPT
     // Whether optimization of transforming a recursive tail call into a loop is enabled.
@@ -1475,7 +1457,7 @@ struct CompilerOptions
 #if FEATURE_FASTTAILCALL
     // Whether fast tail calls are allowed.
     bool compFastTailCalls : 1;
-#endif // FEATURE_FASTTAILCALL
+#endif
 
     ARM_ONLY(bool compUseSoftFP : 1;)
 
@@ -1687,7 +1669,6 @@ struct Importer
     bool IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName);
     bool IsMathIntrinsic(NamedIntrinsic intrinsicName);
     bool IsMathIntrinsic(GenTree* tree);
-    bool doesMethodHaveFrozenString();
     void setMethodHasExpRuntimeLookup();
     void setMethodHasGuardedDevirtualization();
     INDEBUG(bool compTailCallStress();)
@@ -1836,16 +1817,14 @@ struct Importer
 
     GenTree* impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel);
 
-    GenTree* impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                             CORINFO_LOOKUP*         pLookup,
-                             GenTreeFlags            flags,
+    GenTree* impLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                             CORINFO_LOOKUP*         lookup,
+                             HandleKind              handleKnd,
                              void*                   compileTimeHandle);
 
     GenTree* impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                     CORINFO_LOOKUP*         pLookup,
                                     void*                   compileTimeHandle);
-
-    GenTree* gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* pLookup, GenTreeFlags flags, void* compileTimeHandle);
 
     GenTree* impCastClassOrIsInstToTree(GenTree*                op1,
                                         GenTree*                op2,
@@ -2083,7 +2062,7 @@ struct Importer
         CORINFO_CLASS_HANDLE clsHnd, CORINFO_SIG_INFO* sig, int memberRef, bool readonlyCall, NamedIntrinsic name);
     GenTree* impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig);
 
-    GenTree* impMethodPointer(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
+    GenTree* impMethodPointer(CORINFO_RESOLVED_TOKEN& resolvedToken, CORINFO_CALL_INFO& callInfo);
 
     GenTree* impTransformThis(GenTree*                thisPtr,
                               CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
@@ -2293,7 +2272,6 @@ struct Importer
     const char* eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className = nullptr);
     const char* eeGetClassName(CORINFO_CLASS_HANDLE clsHnd);
     const char* eeGetMethodName(CORINFO_METHOD_HANDLE handle, const char** className);
-    uint16_t eeGetRelocTypeHint(void* target);
     CORINFO_CLASS_HANDLE eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context);
     static CORINFO_METHOD_HANDLE eeFindHelper(unsigned helper);
     static unsigned eeGetArrayDataOffset(var_types type);
@@ -2369,34 +2347,31 @@ struct Importer
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
     GenTree* gtNewLconNode(int64_t value);
-    GenTreeIntCon* gtNewIconHandleNode(void* value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
-    GenTreeIntCon* gtNewIconHandleNode(size_t value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
-    GenTree* gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags flags, void* compileTimeHandle);
-    GenTree* gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd);
+    GenTreeIntCon* gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
+    GenTreeIntCon* gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
+    GenTree* gtNewConstLookupTree(void* value, void* pValue, HandleKind handleKind, void* compileTimeHandle);
+    GenTree* gtNewIconEmbModHndNode(CORINFO_MODULE_HANDLE modHnd);
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
     GenTree* gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd);
     GenTree* gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd);
-    GenTree* gtNewIndOfIconHandleNode(var_types type, size_t value, GenTreeFlags iconFlags, bool isInvariant);
+    GenTree* gtNewIndOfIconHandleNode(var_types type, size_t value, HandleKind handleKind, bool invariant);
     GenTree* gtNewZeroConNode(var_types type);
     GenTree* gtNewOneConNode(var_types type);
     GenTree* gtNewDconNode(double value, var_types type = TYP_DOUBLE);
-    GenTree* gtNewSconNode(int cpx, CORINFO_MODULE_HANDLE module);
+    GenTreeStrCon* gtNewSconNode(CORINFO_MODULE_HANDLE module, mdToken token);
     GenTree* gtNewNothingNode();
     GenTree* gtUnusedValNode(GenTree* expr);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
-    // TODO-MIKE-Cleanup: Remove stupid dummy param.
-    GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy = false);
+    GenTreeUnOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1);
     GenTree* gtNewNullCheck(GenTree* addr);
     GenTreeCast* gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types castType);
+    GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
     GenTreeIndir* gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr);
-    GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
-    GenTreeObj* gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
     GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
     GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
-    GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
     GenTree* gtNewStringLiteralNode(InfoAccessType iat, void* value);
     GenTreeAllocObj* gtNewAllocObjNode(
@@ -2520,7 +2495,6 @@ struct Importer
     void gtChangeOperToNullCheck(GenTree* tree);
     bool gtIsRecursiveCall(GenTreeCall* call);
     bool gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle);
-    static GenTreeFlags gtTokenToIconFlags(unsigned token);
     GenTree* gtFoldTypeCompare(GenTree* tree);
     GenTree* gtFoldTypeEqualityCall(bool isEq, GenTree* op1, GenTree* op2);
     GenTree* gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp);
@@ -2983,14 +2957,9 @@ public:
     // Functions to create nodes
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
-    // For unary opers.
-    // TODO-MIKE-Cleanup: Remove stupid dummy param.
-    GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy = false);
-
-    // For binary opers.
+    GenTreeUnOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1);
     GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
     GenTreeOp* gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type = TYP_UNDEF);
-
     GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2);
 
     GenTree* gtNewLargeOperNode(genTreeOps oper,
@@ -3006,25 +2975,20 @@ public:
 
     GenTree* gtNewJmpTableNode();
 
-    GenTree* gtNewIndOfIconHandleNode(var_types indType, size_t value, GenTreeFlags iconFlags, bool isInvariant);
-
-    GenTreeIntCon* gtNewIconHandleNode(void* value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
-    GenTreeIntCon* gtNewIconHandleNode(size_t value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
-
-    static GenTreeFlags gtTokenToIconFlags(unsigned token);
-
-    GenTree* gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags flags, void* compileTimeHandle);
-
-    GenTree* gtNewConstLookupTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                  CORINFO_LOOKUP*         lookup,
-                                  GenTreeFlags            handleFlags,
-                                  void*                   compileTimeHandle);
-
-    GenTree* gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd);
+    GenTreeIndir* gtNewIndOfIconHandleNode(var_types type, size_t addr, HandleKind handleKind, bool invariant);
+    GenTreeIntCon* gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
+    GenTreeIntCon* gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
+    GenTree* gtNewConstLookupTree(void*      value,
+                                  void*      valueAddr,
+                                  HandleKind handleKind,
+                                  void* compileTimeHandle DEBUGARG(void* dumpHandle = nullptr));
+    GenTree* gtNewConstLookupTree(const CORINFO_CONST_LOOKUP& lookup,
+                                  HandleKind                  handleKind,
+                                  void* compileTimeHandle DEBUGARG(void* dumpHandle = nullptr));
+    GenTree* gtNewIconEmbModHndNode(CORINFO_MODULE_HANDLE modHnd);
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
     GenTree* gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd);
     GenTree* gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd);
-
     GenTree* gtNewStringLiteralNode(InfoAccessType iat, void* pValue);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
 
@@ -3032,7 +2996,7 @@ public:
 
     GenTree* gtNewDconNode(double value, var_types type = TYP_DOUBLE);
 
-    GenTree* gtNewSconNode(int CPX, CORINFO_MODULE_HANDLE scpHandle);
+    GenTreeStrCon* gtNewSconNode(CORINFO_MODULE_HANDLE module, mdToken token);
 
     GenTree* gtNewZeroConNode(var_types type);
 
@@ -3045,7 +3009,6 @@ public:
 
     void gtInitStructCopyAsg(GenTreeOp* asg);
 
-    GenTreeObj* gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
     GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
     GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
 
@@ -3148,6 +3111,8 @@ public:
     GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
 
+    GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
+    GenTreeFlags gtGetIndirExceptionFlags(GenTree* addr);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
@@ -3158,10 +3123,8 @@ public:
     GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
     GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
 
-    GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs);
+    GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs, GenTreeFlags flags);
     GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
-
-    GenTreeIndir* gtNewIndir(var_types typ, GenTree* addr);
 
     GenTree* gtNewNullCheck(GenTree* addr);
 
@@ -3207,17 +3170,9 @@ public:
     // Create copy of an inline or guarded devirtualization candidate tree.
     GenTreeCall* gtCloneCandidateCall(GenTreeCall* call);
 
-    void gtUpdateSideEffects(Statement* stmt, GenTree* tree);
-
-    void gtUpdateTreeAncestorsSideEffects(GenTree* tree);
-
     void gtUpdateStmtSideEffects(Statement* stmt);
-
-    void gtUpdateNodeSideEffects(GenTree* tree);
-
-    void gtUpdateNodeOperSideEffects(GenTree* tree);
-
-    void gtUpdateNodeOperSideEffectsPost(GenTree* tree);
+    void gtUpdateAncestorsSideEffects(GenTree* tree);
+    void gtUpdateNodeSideEffects(GenTree* node);
 
     // Returns "true" iff the complexity (not formally defined, but first interpretation
     // is #of nodes in subtree) of "tree" is greater than "limit".
@@ -4546,8 +4501,6 @@ public:
     void fgDebugCheckLoopTable();
 
     void fgDebugCheckFlags(GenTree* tree);
-    void fgDebugCheckDispFlags(GenTree* tree, GenTreeFlags dispFlags, GenTreeDebugFlags debugFlags);
-    void fgDebugCheckFlagsHelper(GenTree* tree, GenTreeFlags treeFlags, GenTreeFlags chkFlags);
     void fgDebugCheckTryFinallyExits();
     void fgDebugCheckProfileData();
     bool fgDebugCheckIncomingProfileData(BasicBlock* block);
@@ -4729,7 +4682,7 @@ private:
         }
     };
 
-    GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index);
+    GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index, GenTreeStrCon* str);
     GenTree* fgMorphCast(GenTreeCast* cast);
     GenTree* fgMorphCastPost(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
@@ -4759,17 +4712,13 @@ private:
                                                 CORINFO_METHOD_HANDLE callTargetStubHnd,
                                                 CORINFO_METHOD_HANDLE dispatcherHnd,
                                                 Statement*            stmt);
-    GenTree* getLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                           CORINFO_LOOKUP*         pLookup,
-                           GenTreeFlags            handleFlags,
-                           void*                   compileTimeHandle);
-    GenTree* getRuntimeLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                  CORINFO_LOOKUP*         pLookup,
-                                  void*                   compileTimeHandle);
+    GenTree* getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
+                                  CORINFO_RUNTIME_LOOKUP&     lookup,
+                                  void*                       compileTimeHandle);
     GenTree* getVirtMethodPointerTree(GenTree*                thisPtr,
-                                      CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                      CORINFO_CALL_INFO*      pCallInfo);
-    GenTree* getTokenHandleTree(CORINFO_RESOLVED_TOKEN* pResolvedToken, bool parent);
+                                      CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                      CORINFO_CALL_INFO*      callInfo);
+    GenTree* getTokenHandleTree(CORINFO_RESOLVED_TOKEN* resolvedToken, bool parent);
 
     GenTree* fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt);
     GenTree* fgGetStubAddrArg(GenTreeCall* call);
@@ -4915,9 +4864,6 @@ private:
     // or stack params of x86 varargs methods.
     void fgMorphIndirectParams(Statement* stmt);
 #endif
-
-    static fgWalkPreFn  fgUpdateSideEffectsPre;
-    static fgWalkPostFn fgUpdateSideEffectsPost;
 
     enum TypeProducerKind
     {
@@ -5255,7 +5201,9 @@ public:
 #define OMF_HAS_EXPRUNTIMELOOKUP 0x00000080 // Method contains a runtime lookup to an expandable dictionary.
 #define OMF_HAS_PATCHPOINT 0x00000100       // Method contains patchpoints
 #define OMF_NEEDS_GCPOLLS 0x00000200        // Method needs GC polls
-#define OMF_HAS_FROZEN_STRING 0x00000400    // Method has a frozen string (REF constant int), currently only on CoreRT.
+#ifdef DEBUG
+#define OMF_HAS_FROZEN_STRING 0x00000400 // Method has a frozen string (REF constant int), currently only on CoreRT.
+#endif
 
     bool doesMethodHaveFatPointer()
     {
@@ -5272,6 +5220,7 @@ public:
         optMethodFlags &= ~OMF_HAS_FATPOINTER;
     }
 
+#ifdef DEBUG
     bool doesMethodHaveFrozenString() const
     {
         return (optMethodFlags & OMF_HAS_FROZEN_STRING) != 0;
@@ -5281,6 +5230,7 @@ public:
     {
         optMethodFlags |= OMF_HAS_FROZEN_STRING;
     }
+#endif
 
     bool doesMethodHaveGuardedDevirtualization() const
     {
@@ -5604,7 +5554,12 @@ public:
 
     void eeSetEHinfo(unsigned EHnumber, const CORINFO_EH_CLAUSE* clause);
 
-    WORD eeGetRelocTypeHint(void* target);
+#ifdef TARGET_AMD64
+    bool eeIsRIPRelativeAddress(void* addr);
+#endif
+#ifdef TARGET_ARM
+    bool eeIsThumbBranch24TargetAddress(void* target);
+#endif
 
     // ICorStaticInfo wrapper functions
 
@@ -5637,10 +5592,7 @@ public:
 
     const char* eeGetFieldName(CORINFO_FIELD_HANDLE fieldHnd, const char** classNamePtr = nullptr);
 
-#if defined(DEBUG)
-    const WCHAR* eeGetCPString(size_t stringHandle);
-#endif
-
+    INDEBUG(const WCHAR* eeGetCPString(void* stringHandle);)
     const char* eeGetClassName(CORINFO_CLASS_HANDLE clsHnd);
     const char* eeGetSimpleClassName(CORINFO_CLASS_HANDLE clsHnd);
 
@@ -5649,14 +5601,6 @@ public:
 
     static bool IsSharedStaticHelper(GenTree* tree);
     static bool IsCallGCSafePoint(GenTreeCall* call);
-
-    static CORINFO_FIELD_HANDLE eeFindJitDataOffs(unsigned jitDataOffs);
-    // returns true/false if 'field' is a Jit Data offset
-    static bool eeIsJitDataOffs(CORINFO_FIELD_HANDLE field);
-    // returns a number < 0 if 'field' is not a Jit Data offset, otherwise the data offset (limited to 2GB)
-    static int eeGetJitDataOffs(CORINFO_FIELD_HANDLE field);
-
-    /*****************************************************************************/
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -7188,10 +7132,12 @@ public:
             case GT_LCL_USE:
             case GT_CATCH_ARG:
             case GT_LABEL:
-            case GT_FTN_ADDR:
+            case GT_METHOD_ADDR:
             case GT_RET_EXPR:
             case GT_CNS_INT:
+#ifndef TARGET_64BIT
             case GT_CNS_LNG:
+#endif
             case GT_CNS_DBL:
             case GT_CNS_STR:
             case GT_MEMORYBARRIER:
@@ -7202,9 +7148,9 @@ public:
             case GT_START_NONGC:
             case GT_START_PREEMPTGC:
             case GT_PROF_HOOK:
-#if !defined(FEATURE_EH_FUNCLETS)
+#ifndef FEATURE_EH_FUNCLETS
             case GT_END_LFIN:
-#endif // !FEATURE_EH_FUNCLETS
+#endif
             case GT_JMPTABLE:
             case GT_CLS_VAR_ADDR:
             case GT_ARGPLACE:

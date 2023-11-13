@@ -1,7 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
+
+void emitHandlePCRelativeMov32(void* location, void* target);
 
 // This typedef defines the type that we use to hold encoded instructions.
 //
@@ -12,6 +14,7 @@ typedef unsigned int code_t;
 /************************************************************************/
 
 insSize emitInsSize(insFormat insFmt);
+size_t emitGetInstrDescSize(const instrDesc* id);
 
 #ifdef FEATURE_ITINSTRUCTION
 BYTE* emitOutputIT(BYTE* dst, instruction ins, insFormat fmt, code_t condcode);
@@ -20,8 +23,8 @@ BYTE* emitOutputIT(BYTE* dst, instruction ins, insFormat fmt, code_t condcode);
 BYTE* emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* id);
 BYTE* emitOutputShortBranch(BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);
 
-unsigned emitOutput_Thumb1Instr(BYTE* dst, code_t code);
-unsigned emitOutput_Thumb2Instr(BYTE* dst, code_t code);
+unsigned emitOutput_Thumb1Instr(uint8_t* dst, uint32_t code);
+unsigned emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code);
 
 /************************************************************************/
 /*             Debug-only routines to display instructions              */
@@ -31,7 +34,7 @@ unsigned emitOutput_Thumb2Instr(BYTE* dst, code_t code);
 
 void emitDispInst(instruction ins, insFlags flags);
 void emitDispImm(int imm, bool addComma, bool alwaysHex = false);
-void emitDispReloc(BYTE* addr);
+void emitDispReloc(void* addr);
 void emitDispCond(int cond);
 void emitDispShiftOpts(insOpts opt);
 void emitDispRegmask(int imm, bool encodedPC_LR);
@@ -75,8 +78,8 @@ instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize
 /************************************************************************/
 
 public:
-static bool validImmForInstr(instruction ins, target_ssize_t imm, insFlags flags = INS_FLAGS_DONT_CARE);
-static bool validDispForLdSt(target_ssize_t disp, var_types type);
+static bool validImmForInstr(instruction ins, int32_t imm, insFlags flags = INS_FLAGS_DONT_CARE);
+static bool validDispForLdSt(int32_t disp, var_types type);
 static bool validImmForBL(ssize_t addr, Compiler* compiler);
 static bool emitInsIsCompare(instruction ins);
 static bool emitInsIsLoad(instruction ins);
@@ -91,7 +94,7 @@ static int encodeModImmConst(int imm);
 
 static int insUnscaleImm(instruction ins, int imm);
 
-void MovRegStackOffset(regNumber reg, int imm, int varNum, int varOffs);
+void MovRegStackOffset(regNumber reg, int32_t imm, int varNum, int varOffs);
 int OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, regNumber* baseReg);
 void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs);
 
@@ -213,16 +216,16 @@ static bool emitIns_valid_imm_for_vldst_offset(int imm);
 
 void emitIns(instruction ins);
 
-void emitIns_I(instruction ins, emitAttr attr, target_ssize_t imm);
+void emitIns_I(instruction ins, emitAttr attr, int32_t imm);
 
 void emitIns_R(instruction ins, emitAttr attr, regNumber reg);
 
-void emitIns_R_I(instruction    ins,
-                 emitAttr       attr,
-                 regNumber      reg,
-                 target_ssize_t imm,
-                 insFlags flags = INS_FLAGS_DONT_CARE DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
-void emitIns_MovRelocatableImmediate(instruction ins, emitAttr attr, regNumber reg, BYTE* addr);
+void emitIns_R_I(instruction ins,
+                 emitAttr    attr,
+                 regNumber   reg,
+                 int32_t     imm,
+                 insFlags flags = INS_FLAGS_DONT_CARE DEBUGARG(HandleKind handleKind = HandleKind::None));
+void emitIns_MovRelocatableImmediate(instruction ins, regNumber reg, void* addr);
 
 void emitIns_Mov(instruction ins,
                  emitAttr    attr,
@@ -264,7 +267,7 @@ void emitIns_R_R_R_I(instruction ins,
                      regNumber   reg1,
                      regNumber   reg2,
                      regNumber   reg3,
-                     int         imm,
+                     int32_t     imm,
                      insFlags    flags = INS_FLAGS_DONT_CARE,
                      insOpts     opt   = INS_OPTS_NONE);
 
@@ -274,27 +277,15 @@ void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varNum, int
 
 void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varNum, int varOffs);
 
-void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd);
+void emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg);
 
-void emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
-
-void emitIns_R_D(instruction ins, emitAttr attr, unsigned offs, regNumber reg);
+void emitIns_R_D(instruction ins, unsigned offs, regNumber reg);
 
 void emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
-
-void emitIns_R_AR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs);
-
-void emitIns_R_AI(instruction ins, emitAttr attr, regNumber ireg, ssize_t disp);
-
-void emitIns_AR_R(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs);
-
-void emitIns_R_ARX(
-    instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, unsigned mul, int disp);
 
 enum EmitCallType
 {
     EC_FUNC_TOKEN, // Direct call to a helper/static/nonvirtual/global method
-    EC_FUNC_ADDR,  // Direct call to an absolute address
     EC_INDIR_R     // Indirect call via register
 };
 

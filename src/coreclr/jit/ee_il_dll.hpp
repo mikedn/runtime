@@ -218,3 +218,20 @@ inline CORINFO_CALLINFO_FLAGS operator|(CORINFO_CALLINFO_FLAGS flag1, CORINFO_CA
 {
     return static_cast<CORINFO_CALLINFO_FLAGS>(static_cast<int>(flag1) | static_cast<int>(flag2));
 }
+
+inline HandleKind TokenToHandleKind(unsigned token)
+{
+    switch (TypeFromToken(token))
+    {
+        case mdtTypeRef:
+        case mdtTypeDef:
+        case mdtTypeSpec:
+            return HandleKind::Class;
+        case mdtMethodDef:
+            return HandleKind::Method;
+        case mdtFieldDef:
+            return HandleKind::Field;
+        default:
+            return HandleKind::Token;
+    }
+}

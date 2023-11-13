@@ -49,7 +49,6 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_CNS_INT:
-        case GT_CNS_LNG:
         case GT_CNS_DBL:
             assert(!tree->IsReuseRegVal());
             BuildDef(tree)->getInterval()->isConstant = true;

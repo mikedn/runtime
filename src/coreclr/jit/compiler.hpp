@@ -580,9 +580,7 @@ inline Statement* Compiler::gtNewStmt(GenTree* expr, IL_OFFSETX offset)
     return new (getAllocator(CMK_ASTNode)) Statement(expr, offset DEBUGARG(compStatementID++));
 }
 
-/*****************************************************************************/
-
-inline GenTree* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy)
+inline GenTreeUnOp* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1)
 {
     assert((GenTree::OperKind(oper) & (GTK_UNOP | GTK_BINOP)) != 0);
     // Can't use this to construct any types that extend unary/binary operator.
@@ -615,20 +613,14 @@ inline GenTree* Compiler::gtNewLargeOperNode(genTreeOps oper, var_types type, Ge
     return node;
 }
 
-/*****************************************************************************
- *
- *  allocates a integer constant entry that represents a handle (something
- *  that may need to be fixed up).
- */
-
-inline GenTreeIntCon* Compiler::gtNewIconHandleNode(void* value, GenTreeFlags flags, FieldSeqNode* fieldSeq)
+inline GenTreeIntCon* Compiler::gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq)
 {
-    return gtNewIconHandleNode(reinterpret_cast<size_t>(value), flags, fieldSeq);
+    return gtNewIconHandleNode(reinterpret_cast<size_t>(value), kind, fieldSeq);
 }
 
-inline GenTreeIntCon* Compiler::gtNewIconHandleNode(size_t value, GenTreeFlags flags, FieldSeqNode* fieldSeq)
+inline GenTreeIntCon* Compiler::gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq)
 {
-    assert((flags & GTF_ICON_HDL_MASK) != 0);
+    assert(kind != HandleKind::None);
 
     if (fieldSeq == nullptr)
     {
@@ -636,126 +628,81 @@ inline GenTreeIntCon* Compiler::gtNewIconHandleNode(size_t value, GenTreeFlags f
     }
 
     GenTreeIntCon* node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, value, fieldSeq);
-    node->gtFlags |= flags;
+    node->SetHandleKind(kind);
     return node;
 }
 
-/*****************************************************************************
- *
- *  It may not be allowed to embed HANDLEs directly into the JITed code (for eg,
- *  as arguments to JIT helpers). Get a corresponding value that can be embedded.
- *  These are versions for each specific type of HANDLE
- */
-
-inline GenTree* Compiler::gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd)
+// It may not be allowed to embed HANDLEs directly into the JITed code (for eg,
+// as arguments to JIT helpers). Get a corresponding value that can be embedded.
+// These are versions for each specific type of HANDLE
+inline GenTree* Compiler::gtNewIconEmbModHndNode(CORINFO_MODULE_HANDLE modHnd)
 {
-    void *embedScpHnd, *pEmbedScpHnd;
+    void* handleAddr;
+    void* handle = reinterpret_cast<void*>(info.compCompHnd->embedModuleHandle(modHnd, &handleAddr));
 
-    embedScpHnd = (void*)info.compCompHnd->embedModuleHandle(scpHnd, &pEmbedScpHnd);
-
-    assert((!embedScpHnd) != (!pEmbedScpHnd));
-
-    return gtNewIconEmbHndNode(embedScpHnd, pEmbedScpHnd, GTF_ICON_MODULE_HDL, scpHnd);
+    return gtNewConstLookupTree(handle, handleAddr, HandleKind::Module, modHnd);
 }
-
-//-----------------------------------------------------------------------------
 
 inline GenTree* Compiler::gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd)
 {
-    void *embedClsHnd, *pEmbedClsHnd;
+    void* handleAddr;
+    void* handle = reinterpret_cast<void*>(info.compCompHnd->embedClassHandle(clsHnd, &handleAddr));
 
-    embedClsHnd = (void*)info.compCompHnd->embedClassHandle(clsHnd, &pEmbedClsHnd);
-
-    assert((!embedClsHnd) != (!pEmbedClsHnd));
-
-    return gtNewIconEmbHndNode(embedClsHnd, pEmbedClsHnd, GTF_ICON_CLASS_HDL, clsHnd);
+    return gtNewConstLookupTree(handle, handleAddr, HandleKind::Class, clsHnd);
 }
-
-//-----------------------------------------------------------------------------
 
 inline GenTree* Compiler::gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd)
 {
-    void *embedMethHnd, *pEmbedMethHnd;
+    void* handleAddr;
+    void* handle = reinterpret_cast<void*>(info.compCompHnd->embedMethodHandle(methHnd, &handleAddr));
 
-    embedMethHnd = (void*)info.compCompHnd->embedMethodHandle(methHnd, &pEmbedMethHnd);
-
-    assert((!embedMethHnd) != (!pEmbedMethHnd));
-
-    return gtNewIconEmbHndNode(embedMethHnd, pEmbedMethHnd, GTF_ICON_METHOD_HDL, methHnd);
+    return gtNewConstLookupTree(handle, handleAddr, HandleKind::Method, methHnd);
 }
-
-//-----------------------------------------------------------------------------
 
 inline GenTree* Compiler::gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd)
 {
-    void *embedFldHnd, *pEmbedFldHnd;
+    void* handleAddr;
+    void* handle = reinterpret_cast<void*>(info.compCompHnd->embedFieldHandle(fldHnd, &handleAddr));
 
-    embedFldHnd = (void*)info.compCompHnd->embedFieldHandle(fldHnd, &pEmbedFldHnd);
-
-    assert((!embedFldHnd) != (!pEmbedFldHnd));
-
-    return gtNewIconEmbHndNode(embedFldHnd, pEmbedFldHnd, GTF_ICON_FIELD_HDL, fldHnd);
+    return gtNewConstLookupTree(handle, handleAddr, HandleKind::Field, fldHnd);
 }
 
-//------------------------------------------------------------------------------
-// gtNewRuntimeLookupHelperCallNode : Helper to create a runtime lookup call helper node.
-//
-//
-// Arguments:
-//    helper    - Call helper
-//    type      - Type of the node
-//    args      - Call args
-//
-// Return Value:
-//    New CT_HELPER node
-
-inline GenTreeCall* Compiler::gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* pRuntimeLookup,
+inline GenTreeCall* Compiler::gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* lookup,
                                                                GenTree*                ctxTree,
                                                                void*                   compileTimeHandle)
 {
-    GenTree* argNode = gtNewIconEmbHndNode(pRuntimeLookup->signature, nullptr, GTF_ICON_GLOBAL_PTR, compileTimeHandle);
-    GenTreeCall::Use* helperArgs = gtNewCallArgs(ctxTree, argNode);
-
-    return gtNewHelperCallNode(pRuntimeLookup->helper, TYP_I_IMPL, helperArgs);
+    GenTreeIntCon* argNode = gtNewIconHandleNode(lookup->signature, HandleKind::MutableData);
+    argNode->SetCompileTimeHandle(compileTimeHandle);
+    return gtNewHelperCallNode(lookup->helper, TYP_I_IMPL, gtNewCallArgs(ctxTree, argNode));
 }
-
-//------------------------------------------------------------------------
-// gtNewAllocObjNode: A little helper to create an object allocation node.
-//
-// Arguments:
-//    helper               - Value returned by ICorJitInfo::getNewHelper
-//    helperHasSideEffects - True iff allocation helper has side effects
-//    clsHnd               - Corresponding class handle
-//    type                 - Tree return type (e.g. TYP_REF)
-//    op1                  - Node containing an address of VtablePtr
-//
-// Return Value:
-//    Returns GT_ALLOCOBJ node that will be later morphed into an
-//    allocation helper call or local variable allocation on the stack.
 
 inline GenTreeAllocObj* Compiler::gtNewAllocObjNode(
     unsigned int helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, var_types type, GenTree* op1)
 {
-    GenTreeAllocObj* node = new (this, GT_ALLOCOBJ) GenTreeAllocObj(type, helper, helperHasSideEffects, clsHnd, op1);
-    return node;
+    return new (this, GT_ALLOCOBJ) GenTreeAllocObj(type, helper, helperHasSideEffects, clsHnd, op1);
 }
-
-//------------------------------------------------------------------------
-// gtNewRuntimeLookup: Helper to create a runtime lookup node
-//
-// Arguments:
-//    hnd - generic handle being looked up
-//    hndTyp - type of the generic handle
-//    tree - tree for the lookup
-//
-// Return Value:
-//    New GenTreeRuntimeLookup node.
 
 inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfoGenericHandleType hndTyp, GenTree* tree)
 {
     assert(tree != nullptr);
-    GenTree* node = new (this, GT_RUNTIMELOOKUP) GenTreeRuntimeLookup(hnd, hndTyp, tree);
-    return node;
+    return new (this, GT_RUNTIMELOOKUP) GenTreeRuntimeLookup(hnd, hndTyp, tree);
+}
+
+inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
+{
+    assert(varTypeIsI(addr->GetType()));
+    assert(fgAddrCouldBeNull(addr));
+
+    GenTreeIndir* nullCheck = new (this, GT_NULLCHECK) GenTreeIndir(GT_NULLCHECK, TYP_BYTE, addr);
+    nullCheck->gtFlags |= GTF_EXCEPT;
+    return nullCheck;
+}
+
+inline GenTreeIndir* Compiler::gtNewIndir(var_types type, GenTree* addr)
+{
+    assert(varTypeIsI(addr->GetType()));
+
+    return new (this, GT_IND) GenTreeIndir(GT_IND, type, addr);
 }
 
 inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)
@@ -778,7 +725,7 @@ inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr*
 {
     assert(type != TYP_STRUCT);
 
-    GenTreeIndir* indir = gtNewOperNode(GT_IND, type, fieldAddr)->AsIndir();
+    GenTreeIndir* indir = gtNewIndir(type, fieldAddr);
     indir->gtFlags |= gtGetFieldIndirFlags(fieldAddr);
     return indir;
 }
@@ -796,7 +743,7 @@ inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, unsigned layoutNu
     }
     else
     {
-        indir = gtNewOperNode(GT_IND, type, fieldAddr)->AsIndir();
+        indir = gtNewIndir(type, fieldAddr);
     }
 
     indir->gtFlags |= gtGetFieldIndirFlags(fieldAddr);
@@ -822,7 +769,7 @@ inline GenTreeIndir* Compiler::gtNewIndexIndir(var_types type, GenTreeIndexAddr*
 
     if (type != TYP_STRUCT)
     {
-        indir = gtNewOperNode(GT_IND, type, indexAddr)->AsIndir();
+        indir = gtNewIndir(type, indexAddr);
     }
     else
     {
@@ -843,41 +790,14 @@ inline GenTreeIndir* Compiler::gtNewIndexIndir(var_types type, GenTreeIndexAddr*
     return indir;
 }
 
-inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs)
+inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs, GenTreeFlags flags = GTF_EXCEPT)
 {
-    GenTreeArrLen* arrLen = new (this, GT_ARR_LENGTH) GenTreeArrLen(arr, lenOffs);
-    arrLen->SetIndirExceptionFlags(this);
-    return arrLen;
+    return new (this, GT_ARR_LENGTH) GenTreeArrLen(arr, lenOffs, flags);
 }
 
 inline GenTreeBoundsChk* Compiler::gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)
 {
     return new (this, GT_BOUNDS_CHECK) GenTreeBoundsChk(index, length, kind);
-}
-
-//------------------------------------------------------------------------------
-// gtNewIndir : Helper to create an indirection node.
-//
-// Arguments:
-//    typ   -  Type of the node
-//    addr  -  Address of the indirection
-//
-// Return Value:
-//    New GT_IND node
-
-inline GenTreeIndir* Compiler::gtNewIndir(var_types typ, GenTree* addr)
-{
-    GenTree* indir = gtNewOperNode(GT_IND, typ, addr);
-    indir->SetIndirExceptionFlags(this);
-    return indir->AsIndir();
-}
-
-inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
-{
-    assert(fgAddrCouldBeNull(addr));
-    GenTree* nullCheck = gtNewOperNode(GT_NULLCHECK, TYP_BYTE, addr);
-    nullCheck->gtFlags |= GTF_EXCEPT;
-    return nullCheck;
 }
 
 // Create (and check for) a "nothing" node, i.e. a node that doesn't produce
@@ -916,7 +836,11 @@ inline GenTreeCast* Compiler::gtNewCastNode(GenTree* op1, bool fromUnsigned, var
 inline GenTreeIndir* Compiler::gtNewMethodTableLookup(GenTree* object)
 {
     GenTreeIndir* result = gtNewIndir(TYP_I_IMPL, object);
-    result->gtFlags |= GTF_IND_INVARIANT;
+    // TODO-MIKE-Review: In theory we could avoid setting GTF_EXCEPT when
+    // the object is a string literal or a boxed struct used for static
+    // struct fields. fgAddrCouldBeNull checks for those but it's overkill
+    // since we basically never hit such cases.
+    result->gtFlags |= GTF_IND_INVARIANT | GTF_EXCEPT;
     return result;
 }
 
@@ -1021,9 +945,6 @@ inline void GenTree::ChangeOperUnchecked(genTreeOps oper)
 
 inline void GenTree::ChangeOperConst(genTreeOps oper)
 {
-#ifdef TARGET_64BIT
-    assert(oper != GT_CNS_LNG); // We should never see a GT_CNS_LNG for a 64-bit target!
-#endif
     assert(OperIsConst(oper)); // use ChangeOper/ChangeToIntCon/ChangeToLngCon/ChangeToDblCon
 
     SetOperResetFlags(oper);
@@ -1047,8 +968,8 @@ inline GenTreeIntCon* GenTree::ChangeToIntCon(ssize_t value)
 
     GenTreeIntCon* intCon = AsIntCon();
     intCon->SetValue(value);
-    intCon->gtCompileTimeHandle = 0;
-    INDEBUG(intCon->gtTargetHandle = 0);
+    intCon->SetCompileTimeHandle(nullptr);
+    INDEBUG(intCon->SetDumpHandle(nullptr));
     return intCon;
 }
 
@@ -1811,10 +1732,12 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_LCL_ADDR:
         case GT_CATCH_ARG:
         case GT_LABEL:
-        case GT_FTN_ADDR:
+        case GT_METHOD_ADDR:
         case GT_RET_EXPR:
         case GT_CNS_INT:
+#ifndef TARGET_64BIT
         case GT_CNS_LNG:
+#endif
         case GT_CNS_DBL:
         case GT_CNS_STR:
         case GT_MEMORYBARRIER:

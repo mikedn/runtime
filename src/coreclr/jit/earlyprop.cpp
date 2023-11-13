@@ -107,7 +107,7 @@ private:
 
                         if (newNode != nullptr)
                         {
-                            compiler->gtUpdateTreeAncestorsSideEffects(newNode);
+                            compiler->gtUpdateAncestorsSideEffects(newNode);
                             stmtModified = true;
                             continue;
                         }
@@ -303,7 +303,7 @@ private:
                 // the "non faulting" indir to be reordered in front of the dominating faulting indir.
                 nullCheck->gtFlags |= GTF_ORDER_SIDEEFF;
 
-                compiler->gtUpdateTreeAncestorsSideEffects(nullCheck);
+                compiler->gtUpdateAncestorsSideEffects(nullCheck);
 
                 if (nullCheckUser->OperIs(GT_COMMA) && (nullCheckUser->AsOp()->GetOp(0) == nullCheck))
                 {

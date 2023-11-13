@@ -9,38 +9,20 @@
 #include "lower.h"
 #include "lsra.h"
 
-void LinearScan::BuildIndir(GenTreeIndir* indirTree)
+void LinearScan::BuildIndir(GenTreeIndir* indir)
 {
-    // struct typed indirs are expected only on rhs of a block copy,
-    // but in this case they must be contained.
-    assert(indirTree->TypeGet() != TYP_STRUCT);
+    assert(!indir->TypeIs(TYP_STRUCT));
 
-    GenTree* addr  = indirTree->Addr();
-    GenTree* index = nullptr;
-    int      cns   = 0;
+    GenTree* addr = indir->GetAddr();
 
 #ifdef TARGET_ARM
-    // Unaligned loads/stores for floating point values must first be loaded into integer register(s)
-    if (indirTree->gtFlags & GTF_IND_UNALIGNED)
+    if (indir->IsUnaligned() && varTypeIsFloating(indir->GetType()))
     {
-        var_types type = TYP_UNDEF;
-        if (indirTree->OperGet() == GT_STOREIND)
-        {
-            type = indirTree->AsStoreInd()->GetValue()->TypeGet();
-        }
-        else if (indirTree->OperGet() == GT_IND)
-        {
-            type = indirTree->TypeGet();
-        }
+        BuildInternalIntDef(indir);
 
-        if (type == TYP_FLOAT)
+        if (indir->TypeIs(TYP_DOUBLE))
         {
-            BuildInternalIntDef(indirTree);
-        }
-        else if (type == TYP_DOUBLE)
-        {
-            BuildInternalIntDef(indirTree);
-            BuildInternalIntDef(indirTree);
+            BuildInternalIntDef(indir);
         }
     }
 #endif
@@ -49,45 +31,32 @@ void LinearScan::BuildIndir(GenTreeIndir* indirTree)
     {
         if (GenTreeAddrMode* lea = addr->IsAddrMode())
         {
-            index = lea->GetIndex();
-            cns   = lea->GetOffset();
-
-            // On ARM we may need a single internal register
-            // (when both conditions are true then we still only need a single internal register)
-            if ((index != nullptr) && (cns != 0))
+            if (((lea->GetIndex() != nullptr) && (lea->GetOffset() != 0)) ||
+                !emitter::emitIns_valid_imm_for_ldst_offset(lea->GetOffset(), emitTypeSize(indir->GetType())))
             {
-                // ARM does not support both Index and offset so we need an internal register
-                BuildInternalIntDef(indirTree);
-            }
-            else if (!emitter::emitIns_valid_imm_for_ldst_offset(cns, emitTypeSize(indirTree)))
-            {
-                // This offset can't be contained in the ldr/str instruction, so we need an internal register
-                BuildInternalIntDef(indirTree);
+                BuildInternalIntDef(indir);
             }
         }
 #ifdef TARGET_ARM64
-        else if (addr->OperGet() == GT_CLS_VAR_ADDR)
+        else if (addr->OperIs(GT_CLS_VAR_ADDR))
         {
-            // Reserve int to load constant from memory (IF_LARGELDC)
-            BuildInternalIntDef(indirTree);
+            BuildInternalIntDef(indir);
         }
-#endif // TARGET_ARM64
+#endif
     }
 
 #ifdef FEATURE_SIMD
-    if (indirTree->TypeIs(TYP_SIMD12))
+    if (indir->TypeIs(TYP_SIMD12))
     {
-        // Vector3 is read/written as two reads/writes: 8 byte and 4 byte.
-        // To assemble the vector properly we would need an additional int register
-        BuildInternalIntDef(indirTree);
+        BuildInternalIntDef(indir);
 
-        if (indirTree->OperIs(GT_STOREIND))
+        if (GenTreeStoreInd* store = indir->IsStoreInd())
         {
-            GenTree* value = indirTree->AsStoreInd()->GetValue();
+            GenTree* value = store->GetValue();
 
             if (value->isContained())
             {
-                BuildAddrUses(indirTree->GetAddr());
+                BuildAddrUses(store->GetAddr());
 
                 if (value->OperIs(GT_IND))
                 {
@@ -102,12 +71,12 @@ void LinearScan::BuildIndir(GenTreeIndir* indirTree)
     }
 #endif // FEATURE_SIMD
 
-    BuildAddrUses(indirTree->GetAddr());
+    BuildAddrUses(indir->GetAddr());
     BuildInternalUses();
 
-    if (!indirTree->OperIs(GT_STOREIND, GT_NULLCHECK))
+    if (!indir->OperIs(GT_STOREIND, GT_NULLCHECK))
     {
-        BuildDef(indirTree);
+        BuildDef(indir);
     }
 }
 

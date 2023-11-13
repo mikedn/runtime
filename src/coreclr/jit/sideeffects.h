@@ -70,8 +70,8 @@ public:
 
         Compiler* m_compiler;
         GenTree*  m_node;
-        unsigned  m_flags;
-        unsigned  m_lclNum;
+        unsigned  m_flags  = 0;
+        unsigned  m_lclNum = 0;
 
     public:
         NodeInfo(Compiler* compiler, GenTree* node);

@@ -3,8 +3,6 @@
 
 // clang-format off
 
-/*****************************************************************************/
-
 #ifndef GTSTRUCT_0
 #error  Define GTSTRUCT_0 before including this file.
 #endif
@@ -37,8 +35,6 @@
 #error  Define GTSTRUCT_3_SPECIAL before including this file.
 #endif
 
-/*****************************************************************************/
-
 //
 //       Field name    , Allowed node enum(s)
 //
@@ -50,14 +46,22 @@
 
 GTSTRUCT_0(UnOp        , GT_OP)
 GTSTRUCT_0(Op          , GT_OP)
-#if !defined(FEATURE_EH_FUNCLETS)
-GTSTRUCT_2(Val         , GT_END_LFIN, GT_JMP)
-#else
-GTSTRUCT_1(Val         , GT_JMP)
+
+#ifndef FEATURE_EH_FUNCLETS
+GTSTRUCT_1(EndLFin     , GT_END_LFIN)
 #endif
+
+GTSTRUCT_1(Jmp         , GT_JMP)
+
+#ifdef TARGET_64BIT
+GTSTRUCT_N(IntConCommon, GT_CNS_INT)
+GTSTRUCT_1(IntCon      , GT_CNS_INT)
+#else
 GTSTRUCT_2_SPECIAL(IntConCommon, GT_CNS_INT, GT_CNS_LNG)
 GTSTRUCT_1(IntCon      , GT_CNS_INT)
 GTSTRUCT_1(LngCon      , GT_CNS_LNG)
+#endif
+
 GTSTRUCT_1(DblCon      , GT_CNS_DBL)
 GTSTRUCT_1(StrCon      , GT_CNS_STR)
 GTSTRUCT_N(LclVarCommon, GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_LCL_ADDR)
@@ -74,7 +78,7 @@ GTSTRUCT_1(Box         , GT_BOX)
 GTSTRUCT_1(FieldAddr   , GT_FIELD_ADDR)
 GTSTRUCT_1(Call        , GT_CALL)
 GTSTRUCT_1(FieldList   , GT_FIELD_LIST)
-GTSTRUCT_1(FptrVal     , GT_FTN_ADDR)
+GTSTRUCT_1(MethodAddr  , GT_METHOD_ADDR)
 GTSTRUCT_1(Intrinsic   , GT_INTRINSIC)
 GTSTRUCT_1(IndexAddr   , GT_INDEX_ADDR)
 GTSTRUCT_1(BoundsChk   , GT_BOUNDS_CHECK)
@@ -94,22 +98,26 @@ GTSTRUCT_2(DynBlk      , GT_COPY_BLK, GT_INIT_BLK)
 GTSTRUCT_1(Qmark       , GT_QMARK)
 GTSTRUCT_1(StoreInd    , GT_STOREIND)
 GTSTRUCT_N(Indir       , GT_STOREIND, GT_IND, GT_NULLCHECK, GT_BLK, GT_STORE_BLK, GT_OBJ, GT_STORE_OBJ)
+
 #if FEATURE_ARG_SPLIT
 GTSTRUCT_2_SPECIAL(PutArgStk, GT_PUTARG_STK, GT_PUTARG_SPLIT)
 GTSTRUCT_1(PutArgSplit , GT_PUTARG_SPLIT)
-#else // !FEATURE_ARG_SPLIT
+#else 
 GTSTRUCT_1(PutArgStk   , GT_PUTARG_STK)
-#endif // !FEATURE_ARG_SPLIT
+#endif
+
 GTSTRUCT_1(PhysReg     , GT_PHYSREG)
+
 #ifdef FEATURE_HW_INTRINSICS
 GTSTRUCT_1(HWIntrinsic , GT_HWINTRINSIC)
-#endif // FEATURE_HW_INTRINSICS
+#endif
+
 GTSTRUCT_1(AllocObj    , GT_ALLOCOBJ)
 GTSTRUCT_1(RuntimeLookup, GT_RUNTIMELOOKUP)
 GTSTRUCT_2(CC          , GT_JCC, GT_SETCC)
 GTSTRUCT_1(Instr       , GT_INSTR)
 GTSTRUCT_N(TernaryOp   , GT_ARR_OFFSET, GT_CMPXCHG, GT_COPY_BLK, GT_INIT_BLK, GT_QMARK)
-/*****************************************************************************/
+
 #undef  GTSTRUCT_0
 #undef  GTSTRUCT_1
 #undef  GTSTRUCT_2
@@ -118,6 +126,4 @@ GTSTRUCT_N(TernaryOp   , GT_ARR_OFFSET, GT_CMPXCHG, GT_COPY_BLK, GT_INIT_BLK, GT
 #undef  GTSTRUCT_N
 #undef  GTSTRUCT_2_SPECIAL
 #undef  GTSTRUCT_3_SPECIAL
-/*****************************************************************************/
-
 // clang-format on

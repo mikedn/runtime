@@ -222,7 +222,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
             // see comments in ValueNum.cpp (under case GT_IND)
             // This models Volatile reads as def-then-use of memory.
             // and allows for a CSE of a subsequent non-volatile read
-            if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
+            if (tree->AsIndir()->IsVolatile())
             {
                 // For any Volatile indirection, we must handle it as a memory def
                 state.fgCurMemoryDef = true;
@@ -1051,9 +1051,10 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 assert(lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
                 FALLTHROUGH;
             case GT_LABEL:
-            case GT_FTN_ADDR:
             case GT_CNS_INT:
+#ifndef TARGET_64BIT
             case GT_CNS_LNG:
+#endif
             case GT_CNS_DBL:
             case GT_CNS_STR:
             case GT_CLS_VAR_ADDR:
@@ -1102,7 +1103,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
             case GT_OBJ:
                 if (node->IsUnusedValue())
                 {
-                    if (node->OperMayThrow(this))
+                    if (node->IndirMayThrow(this))
                     {
                         // IR doesn't expect dummy uses of `GT_OBJ/BLK`.
                         JITDUMP("Transform an unused OBJ/BLK node [%06u]\n", node->GetID());

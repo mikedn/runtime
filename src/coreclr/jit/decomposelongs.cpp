@@ -661,11 +661,11 @@ GenTree* DecomposeLongs::DecomposeCnsLng(LIR::Use& use)
     assert(use.Def()->OperGet() == GT_CNS_LNG);
 
     GenTree* tree  = use.Def();
-    INT32    hiVal = tree->AsLngCon()->HiVal();
+    int32_t  hiVal = static_cast<int32_t>(tree->AsLngCon()->GetValue() >> 32);
 
     GenTree* loResult = tree;
     loResult->ChangeOperConst(GT_CNS_INT);
-    loResult->gtType = TYP_INT;
+    loResult->SetType(TYP_INT);
 
     GenTree* hiResult = new (m_compiler, GT_CNS_INT) GenTreeIntCon(TYP_INT, hiVal);
     Range().InsertAfter(loResult, hiResult);
@@ -1128,7 +1128,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                         // We will compute hiResult before loResult in this case, so we don't need to store lo to a
                         // temp
                         GenTree* shiftBy = m_compiler->gtNewIconNode(count - 32, TYP_INT);
-                        hiResult         = m_compiler->gtNewOperNode(oper, TYP_INT, loOp1, shiftBy);
+                        hiResult         = m_compiler->gtNewOperNode(GT_LSH, TYP_INT, loOp1, shiftBy);
                         Range().InsertBefore(shift, shiftBy, hiResult);
                     }
 
@@ -1198,7 +1198,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
 
                         // Move hiOp1 into loResult, do a GT_RSZ with count - 32.
                         GenTree* shiftBy = m_compiler->gtNewIconNode(count - 32, TYP_INT);
-                        loResult         = m_compiler->gtNewOperNode(oper, TYP_INT, hiOp1, shiftBy);
+                        loResult         = m_compiler->gtNewOperNode(GT_RSZ, TYP_INT, hiOp1, shiftBy);
                         Range().InsertBefore(shift, shiftBy, loResult);
                     }
 
@@ -1270,7 +1270,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
 
                         // Move hiOp1 into loResult, do a GT_RSH with count - 32.
                         GenTree* shiftBy = m_compiler->gtNewIconNode(count - 32, TYP_INT);
-                        loResult         = m_compiler->gtNewOperNode(oper, TYP_INT, hiOp1, shiftBy);
+                        loResult         = m_compiler->gtNewOperNode(GT_RSH, TYP_INT, hiOp1, shiftBy);
                         Range().InsertBefore(shift, hiOp1, shiftBy, loResult);
                     }
 
@@ -1372,15 +1372,6 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
     // shrd lo, hi, rotateAmount
     // shrd hi, loCopy, rotateAmount
 
-    if (oper == GT_ROL)
-    {
-        oper = GT_LSH_HI;
-    }
-    else
-    {
-        oper = GT_RSH_LO;
-    }
-
     unsigned count = (unsigned)rotateByOp->AsIntCon()->gtIconVal;
     Range().Remove(rotateByOp);
 
@@ -1450,6 +1441,8 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
 
         GenTree* rotateByHi = m_compiler->gtNewIconNode(count, TYP_INT);
         GenTree* rotateByLo = m_compiler->gtNewIconNode(count, TYP_INT);
+
+        oper = oper == GT_ROL ? GT_LSH_HI : GT_RSH_LO;
 
         // Create a GT_LONG that contains loOp1 and hiCopy. This will be used in codegen to
         // generate the shld instruction

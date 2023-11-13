@@ -78,7 +78,7 @@ struct ExpandNonConstImmHelper
         {
             // Here we assume that each case consists of one arm64 instruction followed by "b endLabel".
             // Since an arm64 instruction is 4 bytes, we branch to AddressOf(beginLabel) + (nonConstImmReg << 3).
-            emit.emitIns_R_L(INS_adr, EA_8BYTE, beginLabel, branchTargetReg);
+            emit.emitIns_R_L(INS_adr, beginLabel, branchTargetReg);
             emit.emitIns_R_R_R_I(INS_add, EA_8BYTE, branchTargetReg, branchTargetReg, nonConstImmReg, 3, INS_OPTS_LSL);
 
             // If the lower bound is non zero we need to adjust the branch target value by subtracting

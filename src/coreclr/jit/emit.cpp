@@ -232,9 +232,6 @@ unsigned emitter::emitTotalIDescAmdCnt;
 unsigned emitter::emitTotalIDescCnsAmdCnt;
 #endif // TARGET_XARCH
 unsigned emitter::emitTotalIDescCGCACnt;
-#ifdef TARGET_ARM
-unsigned emitter::emitTotalIDescRelocCnt;
-#endif // TARGET_ARM
 
 unsigned emitter::emitSmallDspCnt;
 unsigned emitter::emitLargeDspCnt;
@@ -353,10 +350,6 @@ void emitterStats(FILE* fout)
 #endif // TARGET_XARCH
         fprintf(fout, "Total instrDescCGCA:   %8u (%5.2f%%)\n", emitter::emitTotalIDescCGCACnt,
                 100.0 * emitter::emitTotalIDescCGCACnt / emitter::emitTotalInsCnt);
-#ifdef TARGET_ARM
-        fprintf(fout, "Total instrDescReloc:  %8u (%5.2f%%)\n", emitter::emitTotalIDescRelocCnt,
-                100.0 * emitter::emitTotalIDescRelocCnt / emitter::emitTotalInsCnt);
-#endif // TARGET_ARM
         fprintf(fout, "Total instrDescAlign:  %8u (%5.2f%%)\n", emitter::emitTotalDescAlignCnt,
                 100.0 * emitter::emitTotalDescAlignCnt / emitter::emitTotalInsCnt);
 
@@ -752,11 +745,6 @@ void emitter::emitEnableGC()
 
 void emitter::emitBegFN()
 {
-#ifdef DEBUG
-    emitChkAlign =
-        (emitComp->compCodeOpt() != SMALL_CODE) && !emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
-#endif
-
 #if EMITTER_STATS
     emitTotalIGmcnt++;
     emitSizeMethod      = 0;
@@ -804,19 +792,6 @@ int emitter::emitNextRandomNop()
     return emitComp->info.compRNG.Next(1, 9);
 }
 #endif
-
-// member function iiaIsJitDataOffset for idAddrUnion, defers to Compiler::eeIsJitDataOffs
-bool emitter::instrDesc::idAddrUnion::iiaIsJitDataOffset() const
-{
-    return Compiler::eeIsJitDataOffs(iiaFieldHnd);
-}
-
-// member function iiaGetJitDataOffset for idAddrUnion, defers to Compiler::eeGetJitDataOffs
-int emitter::instrDesc::idAddrUnion::iiaGetJitDataOffset() const
-{
-    assert(iiaIsJitDataOffset());
-    return Compiler::eeGetJitDataOffs(iiaFieldHnd);
-}
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
@@ -957,13 +932,10 @@ void emitter::emitDispInsOffs(unsigned offs, bool doffs)
 
 #endif // DEBUG
 
-/*****************************************************************************
- *
- *  The following series of methods allocates instruction descriptors.
- */
-
 void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
 {
+    assert(sz >= sizeof(void*));
+
 #ifdef DEBUG
     // Under STRESS_EMITTER, put every instruction in its own instruction group.
     // We can't do this for a prolog, epilog, funclet prolog, or funclet epilog,
@@ -998,7 +970,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
             emitInInstrumentation = false;
             idnop->idInsFmt(IF_NONE);
             idnop->idIns(INS_nop);
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
             idnop->idCodeSize(nopSize);
 #else
 #error "Undefined target for pseudorandom NOP insertion"
@@ -1008,13 +980,13 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
             emitNextNop = emitNextRandomNop();
         }
         else
+        {
             emitNextNop--;
+        }
     }
 #endif // PSEUDORANDOM_NOP_INSERTION
 
     assert(IsCodeAligned(emitCurIGsize));
-
-    /* Make sure we have enough space for the new instruction */
 
     if ((emitCurIGfreeNext + sz >= emitCurIGfreeEndp) || emitForceNewIG)
     {
@@ -1022,9 +994,6 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
     }
 
     instrDesc* id = reinterpret_cast<instrDesc*>(emitCurIGfreeNext);
-    emitCurIGfreeNext += sz;
-
-    assert(sz >= sizeof(void*));
     memset(id, 0, sz);
 
     // These fields should have been zero-ed by the above
@@ -1033,6 +1002,27 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
 #ifdef TARGET_XARCH
     assert(id->idCodeSize() == 0);
 #endif
+    static_assert_no_msg(GCT_NONE == 0);
+
+    if (EA_IS_GCREF(opsz))
+    {
+        id->idGCref(GCT_GCREF);
+    }
+    else if (EA_IS_BYREF(opsz))
+    {
+        id->idGCref(GCT_BYREF);
+    }
+
+    id->idOpSize(EA_SIZE(opsz));
+
+#ifdef TARGET_XARCH
+    assert(!EA_IS_DSP_RELOC(opsz));
+#endif
+
+    if (EA_IS_CNS_RELOC(opsz) && emitComp->opts.compReloc)
+    {
+        id->idSetIsCnsReloc();
+    }
 
     if (updateLastIns)
     {
@@ -1040,59 +1030,16 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
         emitLastInsLabel = emitCurLabel;
     }
 
-    INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz)));
-
-    /* Store the size and handle the two special values
-       that indicate GCref and ByRef */
-
-    if (EA_IS_GCREF(opsz))
-    {
-        /* A special value indicates a GCref pointer value */
-
-        id->idGCref(GCT_GCREF);
-        id->idOpSize(EA_PTRSIZE);
-    }
-    else if (EA_IS_BYREF(opsz))
-    {
-        /* A special value indicates a Byref pointer value */
-
-        id->idGCref(GCT_BYREF);
-        id->idOpSize(EA_PTRSIZE);
-    }
-    else
-    {
-        id->idGCref(GCT_NONE);
-        id->idOpSize(EA_SIZE(opsz));
-    }
-
-    // Amd64: ip-relative addressing is supported even when not generating relocatable ngen code
-    if (EA_IS_DSP_RELOC(opsz)
-#ifndef TARGET_AMD64
-        && emitComp->opts.compReloc
-#endif // TARGET_AMD64
-        )
-    {
-        /* Mark idInfo()->idDspReloc to remember that the            */
-        /* address mode has a displacement that is relocatable       */
-        id->idSetIsDspReloc();
-    }
-
-    if (EA_IS_CNS_RELOC(opsz) && emitComp->opts.compReloc)
-    {
-        /* Mark idInfo()->idCnsReloc to remember that the            */
-        /* instruction has an immediate constant that is relocatable */
-        id->idSetIsCnsReloc();
-    }
+    emitCurIGfreeNext += sz;
+    emitCurIGinsCnt++;
 
 #if EMITTER_STATS
     emitTotalInsCnt++;
 #endif
 
-    /* Update the instruction count */
-
-    emitCurIGinsCnt++;
-
 #ifdef DEBUG
+    id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz));
+
     if (emitCurIG->lastGeneratedBlock != GetCurrentBlock())
     {
         emitCurIG->lastGeneratedBlock = GetCurrentBlock();
@@ -2030,32 +1977,6 @@ void emitter::emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp)
 
 #endif // TARGET_ARMARCH
 
-#if defined(TARGET_ARM)
-
-/*****************************************************************************
- *
- * Return the instruction size in bytes for the instruction at the specified location.
- * This is used to assert that the unwind code being generated on ARM has the
- * same size as the instruction for which it is being generated (since on ARM
- * the unwind codes have a one-to-one relationship with instructions, and the
- * unwind codes have an implicit instruction size that must match the instruction size.)
- * An instruction must exist at the specified location.
- */
-
-unsigned emitter::emitGetInstructionSize(emitLocation* emitLoc)
-{
-    insGroup*  ig;
-    instrDesc* id;
-
-    bool anyInstrs = emitGetLocationInfo(emitLoc, &ig, &id);
-    assert(anyInstrs); // There better be an instruction at this location (otherwise, we're at the end of the
-                       // instruction list)
-    return id->idCodeSize();
-}
-
-#endif // defined(TARGET_ARM)
-
-/*****************************************************************************/
 #ifdef DEBUG
 /*****************************************************************************
  *
@@ -2246,7 +2167,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         id = emitAllocInstr(retRegAttr);
 #endif
 
-        emitEncodeCallGCregs(refRegs, id);
+        EncodeCallGCRegs(refRegs, id);
 
 #ifdef TARGET_XARCH
         id->idAddr()->iiaAddrMode.amDisp = disp;
@@ -2257,248 +2178,6 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
     id->idSetIsNoGC(isNoGCHelper);
 
     return id;
-}
-
-void emitter::emitEncodeCallGCregs(regMaskTP regmask, instrDesc* id)
-{
-    assert((regmask & RBM_CALLEE_TRASH) == 0);
-
-    unsigned encodeMask;
-
-#ifdef TARGET_X86
-    assert(REGNUM_BITS >= 3);
-    encodeMask = 0;
-
-    if ((regmask & RBM_ESI) != RBM_NONE)
-        encodeMask |= 0x01;
-    if ((regmask & RBM_EDI) != RBM_NONE)
-        encodeMask |= 0x02;
-    if ((regmask & RBM_EBX) != RBM_NONE)
-        encodeMask |= 0x04;
-
-    id->idReg1((regNumber)encodeMask); // Save in idReg1
-
-#elif defined(TARGET_AMD64)
-    assert(REGNUM_BITS >= 4);
-    encodeMask = 0;
-
-    if ((regmask & RBM_RSI) != RBM_NONE)
-    {
-        encodeMask |= 0x01;
-    }
-    if ((regmask & RBM_RDI) != RBM_NONE)
-    {
-        encodeMask |= 0x02;
-    }
-    if ((regmask & RBM_RBX) != RBM_NONE)
-    {
-        encodeMask |= 0x04;
-    }
-    if ((regmask & RBM_RBP) != RBM_NONE)
-    {
-        encodeMask |= 0x08;
-    }
-
-    id->idReg1((regNumber)encodeMask); // Save in idReg1
-
-    encodeMask = 0;
-
-    if ((regmask & RBM_R12) != RBM_NONE)
-    {
-        encodeMask |= 0x01;
-    }
-    if ((regmask & RBM_R13) != RBM_NONE)
-    {
-        encodeMask |= 0x02;
-    }
-    if ((regmask & RBM_R14) != RBM_NONE)
-    {
-        encodeMask |= 0x04;
-    }
-    if ((regmask & RBM_R15) != RBM_NONE)
-    {
-        encodeMask |= 0x08;
-    }
-
-    id->idReg2((regNumber)encodeMask); // Save in idReg2
-
-#elif defined(TARGET_ARM)
-    assert(REGNUM_BITS >= 4);
-    encodeMask = 0;
-
-    if ((regmask & RBM_R4) != RBM_NONE)
-        encodeMask |= 0x01;
-    if ((regmask & RBM_R5) != RBM_NONE)
-        encodeMask |= 0x02;
-    if ((regmask & RBM_R6) != RBM_NONE)
-        encodeMask |= 0x04;
-    if ((regmask & RBM_R7) != RBM_NONE)
-        encodeMask |= 0x08;
-
-    id->idReg1((regNumber)encodeMask); // Save in idReg1
-
-    encodeMask = 0;
-
-    if ((regmask & RBM_R8) != RBM_NONE)
-        encodeMask |= 0x01;
-    if ((regmask & RBM_R9) != RBM_NONE)
-        encodeMask |= 0x02;
-    if ((regmask & RBM_R10) != RBM_NONE)
-        encodeMask |= 0x04;
-    if ((regmask & RBM_R11) != RBM_NONE)
-        encodeMask |= 0x08;
-
-    id->idReg2((regNumber)encodeMask); // Save in idReg2
-
-#elif defined(TARGET_ARM64)
-    assert(REGNUM_BITS >= 5);
-    encodeMask = 0;
-
-    if ((regmask & RBM_R19) != RBM_NONE)
-        encodeMask |= 0x01;
-    if ((regmask & RBM_R20) != RBM_NONE)
-        encodeMask |= 0x02;
-    if ((regmask & RBM_R21) != RBM_NONE)
-        encodeMask |= 0x04;
-    if ((regmask & RBM_R22) != RBM_NONE)
-        encodeMask |= 0x08;
-    if ((regmask & RBM_R23) != RBM_NONE)
-        encodeMask |= 0x10;
-
-    id->idReg1((regNumber)encodeMask); // Save in idReg1
-
-    encodeMask = 0;
-
-    if ((regmask & RBM_R24) != RBM_NONE)
-        encodeMask |= 0x01;
-    if ((regmask & RBM_R25) != RBM_NONE)
-        encodeMask |= 0x02;
-    if ((regmask & RBM_R26) != RBM_NONE)
-        encodeMask |= 0x04;
-    if ((regmask & RBM_R27) != RBM_NONE)
-        encodeMask |= 0x08;
-    if ((regmask & RBM_R28) != RBM_NONE)
-        encodeMask |= 0x10;
-
-    id->idReg2((regNumber)encodeMask); // Save in idReg2
-
-#else
-    NYI("unknown target");
-#endif
-}
-
-unsigned emitter::emitDecodeCallGCregs(instrDesc* id)
-{
-    unsigned regmask = 0;
-    unsigned encodeMask;
-
-#ifdef TARGET_X86
-    assert(REGNUM_BITS >= 3);
-    encodeMask = id->idReg1();
-
-    if ((encodeMask & 0x01) != 0)
-        regmask |= RBM_ESI;
-    if ((encodeMask & 0x02) != 0)
-        regmask |= RBM_EDI;
-    if ((encodeMask & 0x04) != 0)
-        regmask |= RBM_EBX;
-#elif defined(TARGET_AMD64)
-    assert(REGNUM_BITS >= 4);
-    encodeMask = id->idReg1();
-
-    if ((encodeMask & 0x01) != 0)
-    {
-        regmask |= RBM_RSI;
-    }
-    if ((encodeMask & 0x02) != 0)
-    {
-        regmask |= RBM_RDI;
-    }
-    if ((encodeMask & 0x04) != 0)
-    {
-        regmask |= RBM_RBX;
-    }
-    if ((encodeMask & 0x08) != 0)
-    {
-        regmask |= RBM_RBP;
-    }
-
-    encodeMask = id->idReg2();
-
-    if ((encodeMask & 0x01) != 0)
-    {
-        regmask |= RBM_R12;
-    }
-    if ((encodeMask & 0x02) != 0)
-    {
-        regmask |= RBM_R13;
-    }
-    if ((encodeMask & 0x04) != 0)
-    {
-        regmask |= RBM_R14;
-    }
-    if ((encodeMask & 0x08) != 0)
-    {
-        regmask |= RBM_R15;
-    }
-
-#elif defined(TARGET_ARM)
-    assert(REGNUM_BITS >= 4);
-    encodeMask = id->idReg1();
-
-    if ((encodeMask & 0x01) != 0)
-        regmask |= RBM_R4;
-    if ((encodeMask & 0x02) != 0)
-        regmask |= RBM_R5;
-    if ((encodeMask & 0x04) != 0)
-        regmask |= RBM_R6;
-    if ((encodeMask & 0x08) != 0)
-        regmask |= RBM_R7;
-
-    encodeMask = id->idReg2();
-
-    if ((encodeMask & 0x01) != 0)
-        regmask |= RBM_R8;
-    if ((encodeMask & 0x02) != 0)
-        regmask |= RBM_R9;
-    if ((encodeMask & 0x04) != 0)
-        regmask |= RBM_R10;
-    if ((encodeMask & 0x08) != 0)
-        regmask |= RBM_R11;
-
-#elif defined(TARGET_ARM64)
-    assert(REGNUM_BITS >= 5);
-    encodeMask = id->idReg1();
-
-    if ((encodeMask & 0x01) != 0)
-        regmask |= RBM_R19;
-    if ((encodeMask & 0x02) != 0)
-        regmask |= RBM_R20;
-    if ((encodeMask & 0x04) != 0)
-        regmask |= RBM_R21;
-    if ((encodeMask & 0x08) != 0)
-        regmask |= RBM_R22;
-    if ((encodeMask & 0x10) != 0)
-        regmask |= RBM_R23;
-
-    encodeMask = id->idReg2();
-
-    if ((encodeMask & 0x01) != 0)
-        regmask |= RBM_R24;
-    if ((encodeMask & 0x02) != 0)
-        regmask |= RBM_R25;
-    if ((encodeMask & 0x04) != 0)
-        regmask |= RBM_R26;
-    if ((encodeMask & 0x08) != 0)
-        regmask |= RBM_R27;
-    if ((encodeMask & 0x10) != 0)
-        regmask |= RBM_R28;
-
-#else
-    NYI("unknown target");
-#endif
-
-    return regmask;
 }
 
 ID_OPS emitter::GetFormatOp(insFormat format)
@@ -2790,19 +2469,10 @@ void emitter::emitRecomputeIGoffsets()
     INDEBUG(emitCheckIGoffsets());
 }
 
-//----------------------------------------------------------------------------------------
-// emitDispCommentForHandle:
-//    Displays a comment for a handle, e.g. displays a raw string for GTF_ICON_STR_HDL
-//    or a class name for GTF_ICON_CLASS_HDL
-//
-// Arguments:
-//    handle - a constant value to display a comment for
-//    flags  - a flag that the describes the handle
-//
-void emitter::emitDispCommentForHandle(size_t handle, GenTreeFlags flag)
+void emitter::emitDispCommentForHandle(void* handle, HandleKind kind)
 {
 #ifdef DEBUG
-    if (handle == 0)
+    if (handle == nullptr)
     {
         return;
     }
@@ -2813,12 +2483,12 @@ void emitter::emitDispCommentForHandle(size_t handle, GenTreeFlags flag)
     const char* commentPrefix = "      //";
 #endif
 
-    flag &= GTF_ICON_HDL_MASK;
     const char* str = nullptr;
 
-    if (flag == GTF_ICON_STR_HDL)
+    if (kind == HandleKind::String)
     {
         const WCHAR* wstr = emitComp->eeGetCPString(handle);
+
         // NOTE: eGetCPString always returns nullptr on Linux/ARM
         if (wstr == nullptr)
         {
@@ -2851,37 +2521,37 @@ void emitter::emitDispCommentForHandle(size_t handle, GenTreeFlags flag)
             printf("%s \"%S\"", commentPrefix, buf);
         }
     }
-    else if (flag == GTF_ICON_CLASS_HDL)
+    else if (kind == HandleKind::Class)
     {
-        str = emitComp->eeGetClassName(reinterpret_cast<CORINFO_CLASS_HANDLE>(handle));
+        str = emitComp->eeGetClassName(static_cast<CORINFO_CLASS_HANDLE>(handle));
     }
 #ifndef TARGET_XARCH
     // These are less useful for xarch:
-    else if (flag == GTF_ICON_CONST_PTR)
+    else if (kind == HandleKind::Field)
+    {
+        str = emitComp->eeGetFieldName(static_cast<CORINFO_FIELD_HANDLE>(handle));
+    }
+    else if (kind == HandleKind::Method)
+    {
+        str = emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(handle));
+    }
+    else if (kind == HandleKind::ConstData)
     {
         str = "const ptr";
     }
-    else if (flag == GTF_ICON_GLOBAL_PTR)
+    else if (kind == HandleKind::MutableData)
     {
-        str = "global ptr";
+        str = "mutable data";
     }
-    else if (flag == GTF_ICON_FIELD_HDL)
+    else if (kind == HandleKind::Static)
     {
-        str = emitComp->eeGetFieldName(reinterpret_cast<CORINFO_FIELD_HANDLE>(handle));
+        str = "static address";
     }
-    else if (flag == GTF_ICON_STATIC_HDL)
-    {
-        str = "static handle";
-    }
-    else if (flag == GTF_ICON_METHOD_HDL)
-    {
-        str = emitComp->eeGetMethodFullName(reinterpret_cast<CORINFO_METHOD_HANDLE>(handle));
-    }
-    else if (flag == GTF_ICON_FTN_ADDR)
+    else if (kind == HandleKind::MethodAddr)
     {
         str = "function address";
     }
-    else if (flag == GTF_ICON_TOKEN_HDL)
+    else if (kind == HandleKind::Token)
     {
         str = "token handle";
     }
@@ -3151,9 +2821,9 @@ AGAIN:
         // If this is a jump via register, the instruction size does not change, so we are done.
         CLANG_FORMAT_COMMENT_ANCHOR;
 
-#if defined(TARGET_ARM64)
+#ifdef TARGET_ARM64
         // JIT code and data will be allocated together for arm64 so the relative offset to JIT data is known.
-        // In case such offset can be encodeable for `ldr` (+-1MB), shorten it.
+        // In case such offset can be encodable for `ldr` (+-1MB), shorten it.
         if (jmp->idAddr()->iiaIsJitDataOffset())
         {
             // Reference to JIT data
@@ -3161,19 +2831,20 @@ AGAIN:
             UNATIVE_OFFSET srcOffs = jmpIG->igOffs + jmp->idjOffs;
 
             int doff = jmp->idAddr()->iiaGetJitDataOffset();
-            assert(doff >= 0);
+
             ssize_t imm = emitGetInsSC(jmp);
             assert((imm >= 0) && (imm < 0x1000)); // 0x1000 is arbitrary, currently 'imm' is always 0
 
             unsigned dataOffs = (unsigned)(doff + imm);
             assert(dataOffs < emitDataSize());
 
-            // Conservately assume JIT data starts after the entire code size.
+            // Conservatively assume JIT data starts after the entire code size.
             // TODO-ARM64: we might consider only hot code size which will be computed later in emitComputeCodeSizes().
             assert(emitTotalCodeSize > 0);
             UNATIVE_OFFSET maxDstOffs = emitTotalCodeSize + dataOffs;
 
             // Check if the distance is within the encoding length.
+
             jmpDist = maxDstOffs - srcOffs;
             extra   = jmpDist - psd;
             if (extra <= 0)
@@ -5239,6 +4910,20 @@ void emitter::emitDataGenData(unsigned index, BasicBlock* label)
 
     assert(emitDataSecCur->dsSize >= emittedElemSize * (index + 1));
 
+    if (index == 0)
+    {
+        unsigned offset = 0;
+
+        for (dataSection* d = emitConsDsc.dsdList; d != nullptr && d != emitDataSecCur; d = d->dsNext)
+        {
+            offset += d->dsSize;
+        }
+
+        JITDUMP("RWD%02u LABEL DWORD\n", offset);
+    }
+
+    JITDUMP("DD L_M%03u_" FMT_BB "\n", emitComp->compMethodID, label->bbNum);
+
     ((BasicBlock**)(emitDataSecCur->dsCont))[index] = label;
 }
 
@@ -5358,11 +5043,10 @@ UNATIVE_OFFSET emitter::emitDataConst(const void* cnsAddr, unsigned cnsSize, uns
 //
 CORINFO_FIELD_HANDLE emitter::emitBlkConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types elemType)
 {
-    UNATIVE_OFFSET cnum = emitDataGenBeg(cnsSize, cnsAlign, elemType);
+    unsigned offset = emitDataGenBeg(cnsSize, cnsAlign, elemType);
     emitDataGenData(0, cnsAddr, cnsSize);
     emitDataGenEnd();
-
-    return emitComp->eeFindJitDataOffs(cnum);
+    return MakeRoDataField(offset);
 }
 
 //------------------------------------------------------------------------
@@ -5399,10 +5083,6 @@ CORINFO_FIELD_HANDLE emitter::emitFltOrDblConst(double constValue, emitAttr attr
         dataType = TYP_DOUBLE;
     }
 
-    // Access to inline data is 'abstracted' by a special type of static member
-    // (produced by eeFindJitDataOffs) which the emitter recognizes as being a reference
-    // to constant data, not a real static field.
-
     unsigned cnsSize  = (attr == EA_4BYTE) ? sizeof(float) : sizeof(double);
     unsigned cnsAlign = cnsSize;
 
@@ -5416,8 +5096,7 @@ CORINFO_FIELD_HANDLE emitter::emitFltOrDblConst(double constValue, emitAttr attr
     }
 #endif // TARGET_XARCH
 
-    UNATIVE_OFFSET cnum = emitDataConst(cnsAddr, cnsSize, cnsAlign, dataType);
-    return emitComp->eeFindJitDataOffs(cnum);
+    return MakeRoDataField(emitDataConst(cnsAddr, cnsSize, cnsAlign, dataType));
 }
 
 /*****************************************************************************
@@ -5728,139 +5407,6 @@ void emitter::emitDispDataSec(dataSecDsc* section)
 
 /*****************************************************************************
  *
- *  Emit an 8-bit integer as code.
- */
-
-unsigned char emitter::emitOutputByte(BYTE* dst, ssize_t val)
-{
-    BYTE* dstRW = dst + writeableOffset;
-    *castto(dstRW, unsigned char*) = (unsigned char)val;
-
-#ifdef DEBUG
-#ifdef TARGET_AMD64
-    // if we're emitting code bytes, ensure that we've already emitted the rex prefix!
-    assert(((val & 0xFF00000000LL) == 0) || ((val & 0xFFFFFFFF00000000LL) == 0xFFFFFFFF00000000LL));
-#endif // TARGET_AMD64
-#endif
-
-    return sizeof(unsigned char);
-}
-
-/*****************************************************************************
- *
- *  Emit a 16-bit integer as code.
- */
-
-unsigned char emitter::emitOutputWord(BYTE* dst, ssize_t val)
-{
-    BYTE* dstRW = dst + writeableOffset;
-    MISALIGNED_WR_I2(dstRW, (short)val);
-
-#ifdef DEBUG
-#ifdef TARGET_AMD64
-    // if we're emitting code bytes, ensure that we've already emitted the rex prefix!
-    assert(((val & 0xFF00000000LL) == 0) || ((val & 0xFFFFFFFF00000000LL) == 0xFFFFFFFF00000000LL));
-#endif // TARGET_AMD64
-#endif
-
-    return sizeof(short);
-}
-
-/*****************************************************************************
- *
- *  Emit a 32-bit integer as code.
- */
-
-unsigned char emitter::emitOutputLong(BYTE* dst, ssize_t val)
-{
-    BYTE* dstRW = dst + writeableOffset;
-    MISALIGNED_WR_I4(dstRW, (int)val);
-
-#ifdef DEBUG
-#ifdef TARGET_AMD64
-    // if we're emitting code bytes, ensure that we've already emitted the rex prefix!
-    assert(((val & 0xFF00000000LL) == 0) || ((val & 0xFFFFFFFF00000000LL) == 0xFFFFFFFF00000000LL));
-#endif // TARGET_AMD64
-#endif
-
-    return sizeof(int);
-}
-
-/*****************************************************************************
- *
- *  Emit a pointer-sized integer as code.
- */
-
-unsigned char emitter::emitOutputSizeT(BYTE* dst, ssize_t val)
-{
-    BYTE* dstRW = dst + writeableOffset;
-#if !defined(TARGET_64BIT)
-    MISALIGNED_WR_I4(dstRW, (int)val);
-#else
-    MISALIGNED_WR_ST(dstRW, val);
-#endif
-
-    return TARGET_POINTER_SIZE;
-}
-
-//------------------------------------------------------------------------
-// Wrappers to emitOutputByte, emitOutputWord, emitOutputLong, emitOutputSizeT
-// that take unsigned __int64 or size_t type instead of ssize_t. Used on RyuJIT/x86.
-//
-// Arguments:
-//    dst - passed through
-//    val - passed through
-//
-// Return Value:
-//    Same as wrapped function.
-//
-
-#if !defined(HOST_64BIT)
-#if defined(TARGET_X86)
-unsigned char emitter::emitOutputByte(BYTE* dst, size_t val)
-{
-    return emitOutputByte(dst, (ssize_t)val);
-}
-
-unsigned char emitter::emitOutputWord(BYTE* dst, size_t val)
-{
-    return emitOutputWord(dst, (ssize_t)val);
-}
-
-unsigned char emitter::emitOutputLong(BYTE* dst, size_t val)
-{
-    return emitOutputLong(dst, (ssize_t)val);
-}
-
-unsigned char emitter::emitOutputSizeT(BYTE* dst, size_t val)
-{
-    return emitOutputSizeT(dst, (ssize_t)val);
-}
-
-unsigned char emitter::emitOutputByte(BYTE* dst, unsigned __int64 val)
-{
-    return emitOutputByte(dst, (ssize_t)val);
-}
-
-unsigned char emitter::emitOutputWord(BYTE* dst, unsigned __int64 val)
-{
-    return emitOutputWord(dst, (ssize_t)val);
-}
-
-unsigned char emitter::emitOutputLong(BYTE* dst, unsigned __int64 val)
-{
-    return emitOutputLong(dst, (ssize_t)val);
-}
-
-unsigned char emitter::emitOutputSizeT(BYTE* dst, unsigned __int64 val)
-{
-    return emitOutputSizeT(dst, (ssize_t)val);
-}
-#endif // defined(TARGET_X86)
-#endif // !defined(HOST_64BIT)
-
-/*****************************************************************************
- *
  *  Given a block cookie and a code position, return the actual code offset;
  *  this can only be called at the end of code generation.
  */
@@ -5914,7 +5460,7 @@ UNATIVE_OFFSET emitter::emitCodeOffset(void* blockPtr, unsigned codePos)
     return ig->igOffs + of;
 }
 
-cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
+emitter::cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
 {
     if (id->idIsLargeCns())
     {
@@ -5926,57 +5472,21 @@ cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
     }
 }
 
-#ifdef TARGET_ARM
-
-BYTE* emitter::emitGetInsRelocValue(instrDesc* id)
-{
-    return ((instrDescReloc*)id)->idrRelocVal;
-}
-
-#endif // TARGET_ARM
-
 // A helper for recording a relocation with the EE.
-void emitter::emitRecordRelocation(void* location,            /* IN */
-                                   void* target,              /* IN */
-                                   WORD  fRelocType,          /* IN */
-                                   WORD  slotNum /* = 0 */,   /* IN */
-                                   INT32 addlDelta /* = 0 */) /* IN */
+void emitter::emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta)
 {
-    assert(slotNum == 0); // It is unused on all supported platforms.
-
     // If we're an unmatched altjit, don't tell the VM anything. We still record the relocation for
     // late disassembly; maybe we'll need it?
     if (emitComp->info.compMatchedVM)
     {
-        void* locationRW = (BYTE*)location + writeableOffset;
-        emitCmpHandle->recordRelocation(location, locationRW, target, fRelocType, slotNum, addlDelta);
+        void* locationRW = static_cast<uint8_t*>(location) + writeableOffset;
+        emitCmpHandle->recordRelocation(location, locationRW, target, relocType, 0, addlDelta);
     }
 
 #ifdef LATE_DISASM
     codeGen->getDisAssembler().disRecordRelocation((size_t)location, (size_t)target);
 #endif
 }
-
-#ifdef TARGET_ARM
-// A helper for handling a Thumb-Mov32 of position-independent (PC-relative) value
-//
-// This routine either records relocation for the location with the EE,
-// or creates a virtual relocation entry to perform offset fixup during
-// compilation without recording it with EE - depending on which of
-// absolute/relocative relocations mode are used for code section.
-void emitter::emitHandlePCRelativeMov32(void* location, /* IN */
-                                        void* target)   /* IN */
-{
-    if (emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
-    {
-        emitRecordRelocation(location, target, IMAGE_REL_BASED_REL_THUMB_MOV32_PCREL);
-    }
-    else
-    {
-        emitRecordRelocation(location, target, IMAGE_REL_BASED_THUMB_MOV32);
-    }
-}
-#endif // TARGET_ARM
 
 // A helper for recording a call site with the EE.
 void emitter::emitRecordCallSite(ULONG                 instrOffset,  /* IN */
@@ -6128,10 +5638,10 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
         assert(!id->idIsLargeDsp());
 #endif
 
-        refRegs   = emitDecodeCallGCregs(id);
+        refRegs   = DecodeCallGCRegs(id);
         byrefRegs = RBM_NONE;
         gcLcls    = emitEmptyGCrefVars;
-        X86_ONLY(argCount = static_cast<int>(emitGetInsCns(id)));
+        X86_ONLY(argCount = id->idSmallCns());
 
         if (id->idGCref() == GCT_GCREF)
         {

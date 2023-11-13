@@ -81,10 +81,25 @@ const emitJumpKind emitReverseJumpKinds[] = {
     return emitReverseJumpKinds[jumpKind];
 }
 
+size_t emitter::emitGetInstrDescSize(const instrDesc* id)
+{
+    if (id->idIsSmallDsc())
+    {
+        return sizeof(instrDescSmall);
+    }
+
+    if (id->idIsLargeCns())
+    {
+        return sizeof(instrDescCns);
+    }
+
+    return sizeof(instrDesc);
+}
+
 // Return the allocated size (in bytes) of the given instruction descriptor.
 size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 {
-    if (emitIsScnsInsDsc(id))
+    if (id->idIsSmallDsc())
     {
         return SMALL_IDSC_SIZE;
     }
@@ -3578,38 +3593,11 @@ void emitter::emitIns(instruction ins)
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction with a single immediate value.
- */
-
-void emitter::emitIns_I(instruction ins, emitAttr attr, ssize_t imm)
+void emitter::emitIns_BRK(uint16_t imm)
 {
-    insFormat fmt = IF_NONE;
-
-    /* Figure out the encoding format of the instruction */
-    switch (ins)
-    {
-        case INS_brk:
-            if ((imm & 0x0000ffff) == imm)
-            {
-                fmt = IF_SI_0A;
-            }
-            else
-            {
-                assert(!"Instruction cannot be encoded: IF_SI_0A");
-            }
-            break;
-        default:
-            unreached();
-            break;
-    }
-    assert(fmt != IF_NONE);
-
-    instrDesc* id = emitNewInstrSC(attr, imm);
-
-    id->idIns(ins);
-    id->idInsFmt(fmt);
+    instrDesc* id = emitNewInstrSC(EA_8BYTE, imm);
+    id->idIns(INS_brk);
+    id->idInsFmt(IF_SI_0A);
 
     dispIns(id);
     appendToCurIG(id);
@@ -3657,16 +3645,8 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing a register and a constant.
- */
-
-void emitter::emitIns_R_I(instruction ins,
-                          emitAttr    attr,
-                          regNumber   reg,
-                          ssize_t     imm,
-                          insOpts opt /* = INS_OPTS_NONE */ DEBUGARG(GenTreeFlags gtFlags))
+void emitter::emitIns_R_I(
+    instruction ins, emitAttr attr, regNumber reg, ssize_t imm, insOpts opt DEBUGARG(HandleKind handleKind))
 {
     emitAttr  size      = EA_SIZE(attr);
     emitAttr  elemsize  = EA_UNKNOWN;
@@ -3842,7 +3822,7 @@ void emitter::emitIns_R_I(instruction ins,
     id->idInsOpt(opt);
 
     id->idReg1(reg);
-    INDEBUG(id->idDebugOnlyInfo()->idFlags = gtFlags);
+    INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
 
     dispIns(id);
     appendToCurIG(id);
@@ -6310,19 +6290,14 @@ void emitter::emitIns_R_R_R(
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing three registers and a constant.
- */
-
 void emitter::emitIns_R_R_R_I(instruction ins,
                               emitAttr    attr,
                               regNumber   reg1,
                               regNumber   reg2,
                               regNumber   reg3,
-                              ssize_t     imm,
-                              insOpts     opt /* = INS_OPTS_NONE */,
-                              emitAttr    attrReg2 /* = EA_UNKNOWN */)
+                              int32_t     imm,
+                              insOpts     opt,
+                              emitAttr    attrReg2)
 {
     emitAttr  size     = EA_SIZE(attr);
     emitAttr  elemsize = EA_UNKNOWN;
@@ -6874,11 +6849,6 @@ void emitter::emitIns_R_R_R_Ext(instruction ins,
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing two registers and two constants.
- */
-
 void emitter::emitIns_R_R_I_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int imm1, int imm2, insOpts opt)
 {
@@ -6887,7 +6857,6 @@ void emitter::emitIns_R_R_I_I(
     insFormat fmt      = IF_NONE;
     size_t    immOut   = 0; // composed from imm1 and imm2 and stored in the instrDesc
 
-    /* Figure out the encoding format of the instruction */
     switch (ins)
     {
         int        lsb;
@@ -6987,12 +6956,11 @@ void emitter::emitIns_R_R_I_I(
 
         default:
             unreached();
-            break;
     }
+
     assert(fmt != IF_NONE);
 
     instrDesc* id = emitNewInstrSC(attr, immOut);
-
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
@@ -7304,37 +7272,13 @@ void emitter::emitIns_R_I_FLAGS_COND(
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add a memory barrier instruction with a 'barrier' immediate
- */
-
 void emitter::emitIns_BARR(instruction ins, insBarrier barrier)
 {
-    insFormat fmt = IF_NONE;
-    ssize_t   imm = 0;
+    assert((ins == INS_dsb) || (ins == INS_dmb) || (ins == INS_isb));
 
-    /* Figure out the encoding format of the instruction */
-    switch (ins)
-    {
-        case INS_dsb:
-        case INS_dmb:
-        case INS_isb:
-
-            fmt = IF_SI_0B;
-            imm = (ssize_t)barrier;
-            break;
-        default:
-            unreached();
-            break;
-    } // end switch (ins)
-
-    assert(fmt != IF_NONE);
-
-    instrDesc* id = emitNewInstrSC(EA_8BYTE, imm);
-
+    instrDesc* id = emitNewInstrSC(EA_8BYTE, static_cast<uint32_t>(barrier));
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(IF_SI_0B);
     id->idInsOpt(INS_OPTS_NONE);
 
     dispIns(id);
@@ -7405,7 +7349,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     int  baseOffset = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
 
     emitAttr size = EA_SIZE(attr);
-    int      imm  = baseOffset;
+    int32_t  imm  = baseOffset;
     unsigned scale;
 
     switch (ins)
@@ -7548,7 +7492,7 @@ void emitter::Ins_R_R_S(
     int  baseOffset = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
 
     regNumber baseReg = fpBased ? REG_FP : REG_ZR;
-    int       imm     = baseOffset;
+    int32_t   imm     = baseOffset;
     unsigned  scale   = genLog2(EA_SIZE_IN_BYTES(attr1));
     insFormat fmt;
 
@@ -7615,9 +7559,11 @@ void emitter::Ins_R_R_S(
 // No relocation is needed. PC-relative offset will be encoded directly into instruction.
 void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber addrReg, CORINFO_FIELD_HANDLE fldHnd)
 {
+    assert(IsRoDataField(fldHnd));
+
     emitAttr      size = EA_SIZE(attr);
-    insFormat     fmt  = IF_NONE;
-    instrDescJmp* id   = emitNewInstrJmp();
+    insFormat     fmt;
+    instrDescJmp* id = emitNewInstrJmp();
 
     switch (ins)
     {
@@ -7657,7 +7603,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
     id->idInsOpt(INS_OPTS_NONE);
     id->idSmallCns(0);
     id->idOpSize(size);
-    id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idAddr()->SetRoDataOffset(GetRoDataOffset(fldHnd));
     id->idSetIsBound(); // We won't patch address since we will know the exact distance once JIT code and data are
                         // allocated together.
 
@@ -7686,66 +7632,41 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs)
-{
-    NYI("emitIns_R_AR");
-}
-
 // This computes address from the immediate which is relocatable.
-void emitter::emitIns_R_AI(instruction ins,
-                           emitAttr    attr,
-                           regNumber   ireg,
-                           ssize_t addr DEBUGARG(size_t targetHandle) DEBUGARG(GenTreeFlags gtFlags))
+void emitter::emitIns_R_AH(instruction ins,
+                           regNumber   reg,
+                           void* addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
-    assert(EA_IS_RELOC(attr));
-    emitAttr      size    = EA_SIZE(attr);
-    insFormat     fmt     = IF_DI_1E;
-    bool          needAdd = false;
-    instrDescJmp* id      = emitNewInstrJmp();
+    assert((ins == INS_adrp) || (ins == INS_adr));
 
-    switch (ins)
-    {
-        case INS_adrp:
-            // This computes page address.
-            // page offset is needed using add.
-            needAdd = true;
-            break;
-        case INS_adr:
-            break;
-        default:
-            unreached();
-    }
-
+    instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(IF_DI_1E);
     id->idInsOpt(INS_OPTS_NONE);
-    id->idOpSize(size);
-    id->idAddr()->iiaAddr = (BYTE*)addr;
-    id->idReg1(ireg);
-    id->idSetIsDspReloc();
+    id->idOpSize(EA_8BYTE);
+    id->idAddr()->iiaAddr = addr;
+    id->idReg1(reg);
+    id->idSetIsCnsReloc();
 #ifdef DEBUG
-    id->idDebugOnlyInfo()->idMemCookie = targetHandle;
-    id->idDebugOnlyInfo()->idFlags     = gtFlags;
+    id->idDebugOnlyInfo()->idHandle     = handle;
+    id->idDebugOnlyInfo()->idHandleKind = handleKind;
 #endif
 
     dispIns(id);
     appendToCurIG(id);
 
-    if (needAdd)
+    if (ins == INS_adrp)
     {
-        // add reg, reg, imm
-        ins           = INS_add;
-        fmt           = IF_DI_2A;
-        instrDesc* id = emitNewInstr(attr);
-        assert(id->idIsReloc());
+        instrDesc* id = emitNewInstr(EA_PTR_CNS_RELOC);
+        assert(id->idIsCnsReloc());
 
-        id->idIns(ins);
-        id->idInsFmt(fmt);
+        id->idIns(INS_add);
+        id->idInsFmt(IF_DI_2A);
         id->idInsOpt(INS_OPTS_NONE);
-        id->idOpSize(size);
-        id->idAddr()->iiaAddr = (BYTE*)addr;
-        id->idReg1(ireg);
-        id->idReg2(ireg);
+        id->idOpSize(EA_8BYTE);
+        id->idAddr()->iiaAddr = addr;
+        id->idReg1(reg);
+        id->idReg2(reg);
 
         dispIns(id);
         appendToCurIG(id);
@@ -7797,7 +7718,7 @@ void emitter::emitSetShortJump(instrDescJmp* id)
     id->idjShort = true;
 }
 
-void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg)
+void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
 {
     assert(ins == INS_adr);
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
@@ -7982,7 +7903,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
 // Add a call instruction (direct or indirect).
 //
 // EC_FUNC_TOKEN : addr is the method address
-// EC_FUNC_ADDR  : addr is the absolute address of the function
 // EC_INDIR_R    : call ireg (addr has to be null)
 //
 // Please consult the "debugger team notification" comment in genFnProlog().
@@ -8009,29 +7929,22 @@ void emitter::emitIns_Call(EmitCallType          kind,
     }
     else
     {
-        assert((kind == EC_FUNC_TOKEN) || (kind == EC_FUNC_ADDR));
+        assert(kind == EC_FUNC_TOKEN);
         assert(addr != nullptr);
 
         id->idIns(isJump ? INS_b_tail : INS_bl);
         id->idInsFmt(IF_BI_0C);
-        id->idAddr()->iiaAddr = reinterpret_cast<uint8_t*>(addr);
-
-#ifdef DEBUG
-        if (kind == EC_FUNC_ADDR)
-        {
-            id->idSetIsCallAddr();
-        }
-#endif
+        id->idAddr()->iiaAddr = addr;
 
         if (emitComp->opts.compReloc)
         {
-            id->idSetIsDspReloc();
+            id->idSetIsCnsReloc();
         }
     }
 
 #ifdef DEBUG
-    id->idDebugOnlyInfo()->idMemCookie = reinterpret_cast<size_t>(methodHandle);
-    id->idDebugOnlyInfo()->idCallSig   = sigInfo;
+    id->idDebugOnlyInfo()->idHandle  = methodHandle;
+    id->idDebugOnlyInfo()->idCallSig = sigInfo;
 #endif
 
 #ifdef LATE_DISASM
@@ -8043,6 +7956,74 @@ void emitter::emitIns_Call(EmitCallType          kind,
 
     dispIns(id);
     appendToCurIG(id);
+}
+
+void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
+{
+    static_assert_no_msg((5 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
+    assert((regs & RBM_CALLEE_TRASH) == RBM_NONE);
+
+    unsigned encoded = 0;
+
+    if ((regs & RBM_R19) != RBM_NONE)
+        encoded |= 0x01;
+    if ((regs & RBM_R20) != RBM_NONE)
+        encoded |= 0x02;
+    if ((regs & RBM_R21) != RBM_NONE)
+        encoded |= 0x04;
+    if ((regs & RBM_R22) != RBM_NONE)
+        encoded |= 0x08;
+    if ((regs & RBM_R23) != RBM_NONE)
+        encoded |= 0x10;
+
+    id->idReg1(static_cast<regNumber>(encoded));
+
+    encoded = 0;
+
+    if ((regs & RBM_R24) != RBM_NONE)
+        encoded |= 0x01;
+    if ((regs & RBM_R25) != RBM_NONE)
+        encoded |= 0x02;
+    if ((regs & RBM_R26) != RBM_NONE)
+        encoded |= 0x04;
+    if ((regs & RBM_R27) != RBM_NONE)
+        encoded |= 0x08;
+    if ((regs & RBM_R28) != RBM_NONE)
+        encoded |= 0x10;
+
+    id->idReg2(static_cast<regNumber>(encoded));
+}
+
+unsigned emitter::DecodeCallGCRegs(instrDesc* id)
+{
+    static_assert_no_msg((5 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
+
+    unsigned encoded = id->idReg1() | (id->idReg2() << 8);
+    unsigned regs    = 0;
+
+    if ((encoded & 0x01) != 0)
+        regs |= RBM_R19;
+    if ((encoded & 0x02) != 0)
+        regs |= RBM_R20;
+    if ((encoded & 0x04) != 0)
+        regs |= RBM_R21;
+    if ((encoded & 0x08) != 0)
+        regs |= RBM_R22;
+    if ((encoded & 0x10) != 0)
+        regs |= RBM_R23;
+
+    if ((encoded & 0x0100) != 0)
+        regs |= RBM_R24;
+    if ((encoded & 0x0200) != 0)
+        regs |= RBM_R25;
+    if ((encoded & 0x0400) != 0)
+        regs |= RBM_R26;
+    if ((encoded & 0x0800) != 0)
+        regs |= RBM_R27;
+    if ((encoded & 0x1000) != 0)
+        regs |= RBM_R28;
+
+    return regs;
 }
 
 /*****************************************************************************
@@ -9914,7 +9895,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_DI_1E: // DI_1E   .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
         case IF_LARGEADR:
             assert(insOptsNone(id->idInsOpt()));
-            if (id->idIsReloc())
+            if (id->idIsCnsReloc())
             {
                 code = emitInsCode(ins, fmt);
                 code |= insEncodeReg_Rd(id->idReg1()); // ddddd
@@ -9958,7 +9939,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             code |= insEncodeReg_Rn(id->idReg2());       // nnnnn
             dst += emitOutput_Instr(dst, code);
 
-            if (id->idIsReloc())
+            if (id->idIsCnsReloc())
             {
                 assert(sz == sizeof(instrDesc));
                 assert(id->idAddr()->iiaAddr != nullptr);
@@ -10819,6 +10800,77 @@ void emitter::emitDispInst(instruction ins)
     } while (len < 8);
 }
 
+void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
+{
+    if (fmt == IF_LARGEADR)
+    {
+        printf("(LARGEADR)");
+    }
+    else if (fmt == IF_LARGELDC)
+    {
+        printf("(LARGELDC)");
+    }
+
+    printf("[");
+
+    const char* targetName = nullptr;
+
+    if (id->idAddr()->iiaIsJitDataOffset())
+    {
+        printf("@RWD%02u", id->idAddr()->iiaGetJitDataOffset());
+
+        if (imm != 0)
+        {
+            printf("%+Id", imm);
+        }
+    }
+    else
+    {
+        assert(imm == 0);
+
+        if (id->idIsCnsReloc())
+        {
+            printf("HIGH RELOC ");
+
+            emitDispImm(reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr), false);
+
+            size_t targetHandle = reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle);
+
+            if (targetHandle == THT_IntializeArrayIntrinsics)
+            {
+                targetName = "IntializeArrayIntrinsics";
+            }
+            else if (targetHandle == THT_GSCookieCheck)
+            {
+                targetName = "GlobalSecurityCookieCheck";
+            }
+            else if (targetHandle == THT_SetGSCookie)
+            {
+                targetName = "SetGlobalSecurityCookie";
+            }
+        }
+        else if (id->idIsBound())
+        {
+            emitPrintLabel(id->idAddr()->iiaIGlabel);
+        }
+        else
+        {
+            printf("L_M%03u_" FMT_BB, emitComp->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
+        }
+    }
+
+    printf("]");
+
+    if (targetName != nullptr)
+    {
+        printf("      // [%s]", targetName);
+    }
+    else
+    {
+        emitDispCommentForHandle(id->idDebugOnlyInfo()->idHandle, id->idDebugOnlyInfo()->idHandleKind);
+    }
+}
+
 /*****************************************************************************
  *
  *  Display an immediate value
@@ -11434,15 +11486,12 @@ void emitter::emitDispIns(
     switch (fmt)
     {
         ssize_t      imm;
-        int          doffs;
         bitMaskImm   bmi;
         halfwordImm  hwi;
         condFlagsImm cfi;
         unsigned     scale;
         unsigned     immShift;
         bool         hasShift;
-        ssize_t      offs;
-        const char*  methodName;
         emitAttr     elemsize;
         emitAttr     datasize;
         emitAttr     srcsize;
@@ -11450,7 +11499,6 @@ void emitter::emitDispIns(
         ssize_t      index;
         ssize_t      index2;
         unsigned     registerListSize;
-        const char*  targetName;
 
         case IF_BI_0A: // BI_0A   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
         case IF_BI_0B: // BI_0B   ......iiiiiiiiii iiiiiiiiiii.....               simm19:00
@@ -11489,27 +11537,8 @@ void emitter::emitDispIns(
         break;
 
         case IF_BI_0C: // BI_0C   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
-            if (id->idIsCallAddr())
-            {
-                offs       = (ssize_t)id->idAddr()->iiaAddr;
-                methodName = "";
-            }
-            else
-            {
-                offs       = 0;
-                methodName = emitComp->eeGetMethodFullName((CORINFO_METHOD_HANDLE)id->idDebugOnlyInfo()->idMemCookie);
-            }
-
-            if (offs)
-            {
-                if (id->idIsDspReloc())
-                    printf("reloc ");
-                printf("%08X", offs);
-            }
-            else
-            {
-                printf("%s", methodName);
-            }
+            printf("%s",
+                   emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
             break;
 
         case IF_BI_1A: // BI_1A   ......iiiiiiiiii iiiiiiiiiiittttt      Rt       simm19:00
@@ -11556,73 +11585,7 @@ void emitter::emitDispIns(
         case IF_LARGEADR:
             assert(insOptsNone(id->idInsOpt()));
             emitDispReg(id->idReg1(), size, true);
-            imm        = emitGetInsSC(id);
-            targetName = nullptr;
-
-            /* Is this actually a reference to a data section? */
-            if (fmt == IF_LARGEADR)
-            {
-                printf("(LARGEADR)");
-            }
-            else if (fmt == IF_LARGELDC)
-            {
-                printf("(LARGELDC)");
-            }
-
-            printf("[");
-            if (id->idAddr()->iiaIsJitDataOffset())
-            {
-                doffs = Compiler::eeGetJitDataOffs(id->idAddr()->iiaFieldHnd);
-                /* Display a data section reference */
-
-                if (doffs & 1)
-                    printf("@CNS%02u", doffs - 1);
-                else
-                    printf("@RWD%02u", doffs);
-
-                if (imm != 0)
-                    printf("%+Id", imm);
-            }
-            else
-            {
-                assert(imm == 0);
-                if (id->idIsReloc())
-                {
-                    printf("HIGH RELOC ");
-                    emitDispImm((ssize_t)id->idAddr()->iiaAddr, false);
-                    size_t targetHandle = id->idDebugOnlyInfo()->idMemCookie;
-
-                    if (targetHandle == THT_IntializeArrayIntrinsics)
-                    {
-                        targetName = "IntializeArrayIntrinsics";
-                    }
-                    else if (targetHandle == THT_GSCookieCheck)
-                    {
-                        targetName = "GlobalSecurityCookieCheck";
-                    }
-                    else if (targetHandle == THT_SetGSCookie)
-                    {
-                        targetName = "SetGlobalSecurityCookie";
-                    }
-                }
-                else if (id->idIsBound())
-                {
-                    emitPrintLabel(id->idAddr()->iiaIGlabel);
-                }
-                else
-                {
-                    printf("L_M%03u_" FMT_BB, emitComp->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
-                }
-            }
-            printf("]");
-            if (targetName != nullptr)
-            {
-                printf("      // [%s]", targetName);
-            }
-            else
-            {
-                emitDispCommentForHandle(id->idDebugOnlyInfo()->idMemCookie, id->idDebugOnlyInfo()->idFlags);
-            }
+            emitDispLargeImm(id, fmt, emitGetInsSC(id));
             break;
 
         case IF_LS_2A: // LS_2A   .X.......X...... ......nnnnnttttt      Rt Rn
@@ -11793,11 +11756,11 @@ void emitter::emitDispIns(
                 emitDispReg(id->idReg1(), size, true);
                 emitDispReg(id->idReg2(), size, true);
             }
-            if (id->idIsReloc())
+            if (id->idIsCnsReloc())
             {
                 assert(ins == INS_add);
                 printf("[LOW RELOC ");
-                emitDispImm((ssize_t)id->idAddr()->iiaAddr, false);
+                emitDispImm(reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr), false);
                 printf("]");
             }
             else

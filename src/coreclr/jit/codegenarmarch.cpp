@@ -9,80 +9,6 @@
 #include "lower.h"
 #include "emit.h"
 
-// Add a specified constant value to the stack pointer. No probing is done.
-//
-// spDelta - the value to add to SP. Must be negative or zero.
-// regTmp  - an available temporary register that is used if 'spDelta' cannot be encoded by
-//           'sub sp, sp, #spDelta' instruction.
-//           Can be REG_NA if the caller knows for certain that 'spDelta' fits into the immediate
-//           value range.
-//
-void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTmp)
-{
-    assert(spDelta < 0);
-
-    // We assert that the SP change is less than one page. If it's greater, you should have called a
-    // function that does a probe, which will in turn call this function.
-    assert((target_size_t)(-spDelta) <= compiler->eeGetPageSize());
-
-    genInstrWithConstant(INS_sub, EA_PTRSIZE, REG_SP, REG_SP, -spDelta, regTmp);
-}
-
-// Add a specified constant value to the stack pointer, and probe the stack as appropriate.
-// Should only be called as a helper for genStackPointerConstantAdjustmentLoopWithProbe.
-//
-// spDelta - the value to add to SP. Must be negative or zero. If zero, the probe happens,
-//           but the stack pointer doesn't move.
-// regTmp  - temporary register to use as target for probe load instruction
-//
-void CodeGen::genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNumber regTmp)
-{
-    GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, regTmp, REG_SP, 0);
-    genStackPointerConstantAdjustment(spDelta, regTmp);
-}
-
-// Add a specified constant value to the stack pointer, and probe the stack as appropriate.
-// Generates one probe per page, up to the total amount required.
-// This will generate a sequence of probes in-line.
-//
-// spDelta - the value to add to SP. Must be negative.
-// regTmp  - temporary register to use as target for probe load instruction
-//
-// Returns the offset in bytes from SP to last probed address.
-//
-target_ssize_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(ssize_t spDelta, regNumber regTmp)
-{
-    assert(spDelta < 0);
-
-    const target_size_t pageSize = compiler->eeGetPageSize();
-
-    ssize_t spRemainingDelta = spDelta;
-    do
-    {
-        ssize_t spOneDelta = -(ssize_t)min((target_size_t)-spRemainingDelta, pageSize);
-        genStackPointerConstantAdjustmentWithProbe(spOneDelta, regTmp);
-        spRemainingDelta -= spOneDelta;
-    } while (spRemainingDelta < 0);
-
-    // What offset from the final SP was the last probe? This depends on the fact that
-    // genStackPointerConstantAdjustmentWithProbe() probes first, then does "SUB SP".
-    target_size_t lastTouchDelta = (target_size_t)(-spDelta) % pageSize;
-    if ((lastTouchDelta == 0) || (lastTouchDelta + STACK_PROBE_BOUNDARY_THRESHOLD_BYTES > pageSize))
-    {
-        // We haven't probed almost a complete page. If lastTouchDelta==0, then spDelta was an exact
-        // multiple of pageSize, which means we last probed exactly one page back. Otherwise, we probed
-        // the page, but very far from the end. If the next action on the stack might subtract from SP
-        // first, before touching the current SP, then we do one more probe at the very bottom. This can
-        // happen on x86, for example, when we copy an argument to the stack using a "SUB ESP; REP MOV"
-        // strategy.
-
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, regTmp, REG_SP, 0);
-        lastTouchDelta = 0;
-    }
-
-    return lastTouchDelta;
-}
-
 void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 {
     emitter* emit = GetEmitter();
@@ -255,7 +181,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_IND:
-            genCodeForIndir(treeNode->AsIndir());
+            GenIndLoad(treeNode->AsIndir());
             break;
 
 #ifdef TARGET_ARM
@@ -338,7 +264,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_STOREIND:
-            genCodeForStoreInd(treeNode->AsStoreInd());
+            GenIndStore(treeNode->AsStoreInd());
             break;
 
         case GT_RELOAD:
@@ -450,7 +376,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 #ifdef TARGET_ARM
             genMov32RelocatableDisplacement(genPendingCallLabel, treeNode->GetRegNum());
 #else
-            emit->emitIns_R_L(INS_adr, EA_PTRSIZE, genPendingCallLabel, treeNode->GetRegNum());
+            emit->emitIns_R_L(INS_adr, genPendingCallLabel, treeNode->GetRegNum());
 #endif
             break;
 
@@ -482,11 +408,14 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
         case GT_CLS_VAR_ADDR:
 #ifdef TARGET_ARM
-            emit->emitIns_R_C(INS_lea, EA_4BYTE, treeNode->GetRegNum(), treeNode->AsClsVar()->GetFieldHandle());
+            void* addr;
+            addr = compiler->info.compCompHnd->getFieldAddress(treeNode->AsClsVar()->GetFieldHandle(), nullptr);
+            noway_assert(addr != nullptr);
+            instGen_Set_Reg_To_Addr(treeNode->GetRegNum(), addr);
 #else
             emit->emitIns_R_C(INS_adr, EA_8BYTE, treeNode->GetRegNum(), REG_NA, treeNode->AsClsVar()->GetFieldHandle());
 #endif
-            genProduceReg(treeNode);
+            DefReg(treeNode);
             break;
 
         case GT_INSTR:
@@ -523,8 +452,7 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_DSP_RELOC, initReg, reinterpret_cast<ssize_t>(m_gsCookieAddr)
-                                                              DEBUGARG((size_t)THT_SetGSCookie) DEBUGARG(GTF_EMPTY));
+        instGen_Set_Reg_To_Addr(initReg, m_gsCookieAddr DEBUGARG(reinterpret_cast<void*>(THT_SetGSCookie)));
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, initReg, initReg, 0);
         GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, initReg, compiler->lvaGSSecurityCookie, 0);
     }
@@ -552,8 +480,7 @@ void CodeGen::EpilogGSCookieCheck()
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSConst, reinterpret_cast<ssize_t>(m_gsCookieAddr) DEBUGARG(
-                                                                    (size_t)THT_GSCookieCheck) DEBUGARG(GTF_EMPTY));
+        instGen_Set_Reg_To_Addr(regGSConst, m_gsCookieAddr DEBUGARG(reinterpret_cast<void*>(THT_GSCookieCheck)));
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, regGSConst, regGSConst, 0);
     }
 
@@ -2537,7 +2464,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         {
             emitCallType = emitter::EC_INDIR_R;
             callReg      = call->GetSingleTempReg();
-            instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, callReg, reinterpret_cast<ssize_t>(callAddr));
+            instGen_Set_Reg_To_Addr(callReg, callAddr);
         }
         else
 #endif
@@ -2874,7 +2801,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
                 callType   = emitter::EC_INDIR_R;
                 indCallReg = REG_INDIRECT_CALL_TARGET_REG;
                 addr       = NULL;
-                instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, indCallReg, (ssize_t)addrInfo.addr);
+                instGen_Set_Reg_To_Addr(indCallReg, addrInfo.addr);
                 if (addrInfo.accessType == IAT_PVALUE)
                 {
                     GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, indCallReg, indCallReg, 0);

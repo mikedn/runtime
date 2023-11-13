@@ -15,6 +15,8 @@ static bool strictArmAsm;
 /*         Routines that compute the size of / encode instructions      */
 /************************************************************************/
 
+size_t emitGetInstrDescSize(const instrDesc* id);
+
 #ifdef DEBUG
 
 /************************************************************************/
@@ -24,6 +26,7 @@ static bool strictArmAsm;
 const char* emitVectorRegName(regNumber reg);
 
 void emitDispInst(instruction ins);
+void emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm);
 void emitDispImm(ssize_t imm, bool addComma, bool alwaysHex = false);
 void emitDispFloatZero();
 void emitDispFloatImm(ssize_t imm8);
@@ -725,7 +728,7 @@ inline static ssize_t computeRelPageAddr(size_t dstAddr, size_t srcAddr)
 public:
 void emitIns(instruction ins);
 
-void emitIns_I(instruction ins, emitAttr attr, ssize_t imm);
+void emitIns_BRK(uint16_t imm);
 
 void emitIns_R(instruction ins, emitAttr attr, regNumber reg);
 
@@ -733,7 +736,7 @@ void emitIns_R_I(instruction ins,
                  emitAttr    attr,
                  regNumber   reg,
                  ssize_t     imm,
-                 insOpts opt = INS_OPTS_NONE DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
+                 insOpts opt = INS_OPTS_NONE DEBUGARG(HandleKind handleKind = HandleKind::None));
 
 void emitIns_R_F(instruction ins, emitAttr attr, regNumber reg, double immDbl, insOpts opt = INS_OPTS_NONE);
 
@@ -759,7 +762,7 @@ void emitIns_R_R_R_I(instruction ins,
                      regNumber   reg1,
                      regNumber   reg2,
                      regNumber   reg3,
-                     ssize_t     imm,
+                     int32_t     imm,
                      insOpts     opt      = INS_OPTS_NONE,
                      emitAttr    attrReg2 = EA_UNKNOWN);
 
@@ -803,23 +806,19 @@ void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val);
 
 void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber tmpReg, CORINFO_FIELD_HANDLE fldHnd);
 
-void emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
+void emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg);
 
 void emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
 
 void emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg, int imm);
 
-void emitIns_R_AR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs);
-
-void emitIns_R_AI(instruction ins,
-                  emitAttr    attr,
+void emitIns_R_AH(instruction ins,
                   regNumber   ireg,
-                  ssize_t disp DEBUGARG(size_t targetHandle = 0) DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
+                  void* addr DEBUGARG(void* handle = nullptr) DEBUGARG(HandleKind handleKind = HandleKind::None));
 
 enum EmitCallType
 {
     EC_FUNC_TOKEN, // Direct call to a helper/static/nonvirtual/global method
-    EC_FUNC_ADDR,  // Direct call to an absolute address
     EC_INDIR_R     // Indirect call via register
 };
 

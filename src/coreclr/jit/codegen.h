@@ -53,17 +53,6 @@ public:
     void genEmitMachineCode();
     void genEmitUnwindDebugGCandEH();
 
-#ifdef TARGET_XARCH
-#ifdef TARGET_AMD64
-    uint16_t genAddrRelocTypeHint(size_t addr);
-#endif
-    bool genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
-    bool genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
-    bool genCodeIndirAddrCanBeEncodedAsZeroRelOffset(size_t addr);
-    bool genCodeIndirAddrNeedsReloc(size_t addr);
-    bool genCodeAddrNeedsReloc(size_t addr);
-#endif
-
     virtual VARSET_VALARG_TP GetLiveSet() const
     {
         return liveness.GetLiveSet();
@@ -320,10 +309,9 @@ public:
 
 #if defined(TARGET_ARM)
 
-    bool genInstrWithConstant(
-        instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ssize_t imm, regNumber tmpReg);
+    void genInstrWithConstant(instruction ins, regNumber reg1, regNumber reg2, int32_t imm, regNumber tmpReg);
 
-    bool genStackPointerAdjustment(ssize_t spAdjustment, regNumber tmpReg);
+    void genStackPointerAdjustment(int32_t spAdjustment, regNumber tmpReg);
 
     void genPushFltRegs(regMaskTP regMask);
     void genPopFltRegs(regMaskTP regMask);
@@ -333,7 +321,6 @@ public:
 
     void genMov32RelocatableDisplacement(BasicBlock* block, regNumber reg);
     void genMov32RelocatableDataLabel(unsigned value, regNumber reg);
-    void genMov32RelocatableImmediate(emitAttr size, BYTE* addr, regNumber reg);
 
     bool genUsedPopToReturn; // True if we use the pop into PC to return,
                              // False if we didn't and must branch to LR to return.
@@ -949,7 +936,7 @@ protected:
 #ifdef FEATURE_HW_INTRINSICS
     void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
 #endif
-    void GenStoreIndRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy);
+    void GenIndStoreRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy);
     void genCodeForBT(GenTreeOp* bt);
     void EpilogGSCookieCheck(bool tailCallEpilog);
 #else
@@ -959,7 +946,7 @@ protected:
     void genCodeForCast(GenTreeCast* cast);
     void GenLclAddr(GenTreeLclAddr* addr);
     void genCodeForIndexAddr(GenTreeIndexAddr* tree);
-    void genCodeForIndir(GenTreeIndir* tree);
+    void GenIndLoad(GenTreeIndir* load);
     void genCodeForNegNot(GenTreeUnOp* tree);
     void genCodeForBswap(GenTree* tree);
     void GenLoadLclVar(GenTreeLclVar* load);
@@ -975,7 +962,7 @@ protected:
     void GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store);
     void genCodeForReturnTrap(GenTreeOp* tree);
     void genCodeForSetcc(GenTreeCC* setcc);
-    void genCodeForStoreInd(GenTreeStoreInd* tree);
+    void GenIndStore(GenTreeStoreInd* tree);
 #ifdef TARGET_XARCH
     void genCodeForSwap(GenTreeOp* tree);
 #endif
@@ -1102,9 +1089,15 @@ protected:
     void GenRetFilt(GenTree* retfilt, BasicBlock* block);
     void GenReturn(GenTree* ret, BasicBlock* block);
 
+#ifdef TARGET_ARM
+    void genStackPointerConstantAdjustment(int32_t spDelta, regNumber regTmp);
+    void genStackPointerConstantAdjustmentWithProbe(int32_t spDelta, regNumber regTmp);
+    int32_t genStackPointerConstantAdjustmentLoopWithProbe(int32_t spDelta, regNumber regTmp);
+#else
     void genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTmp);
     void genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNumber regTmp);
     target_ssize_t genStackPointerConstantAdjustmentLoopWithProbe(ssize_t spDelta, regNumber regTmp);
+#endif
 
 #ifdef TARGET_XARCH
     void genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, regNumber regTmp);
@@ -1136,17 +1129,16 @@ protected:
 public:
     void instGen(instruction ins);
     void inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock);
-    void inst_SET(emitJumpKind condition, regNumber reg);
-    void inst_RV(instruction ins, regNumber reg, var_types type);
     void inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip);
-    void inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type);
-    void inst_IV(instruction ins, cnsval_ssize_t val);
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
 
     bool IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs);
 
 #ifdef TARGET_XARCH
+    void inst_SET(emitJumpKind condition, regNumber reg);
+    void inst_RV(instruction ins, regNumber reg, var_types type);
     void inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val);
+    void inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type);
     bool IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, CORINFO_FIELD_HANDLE* field);
     void emitInsUnary(instruction ins, emitAttr attr, GenTree* src);
     void emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src);
@@ -1164,6 +1156,7 @@ public:
 #endif
 
 #ifdef TARGET_ARM64
+    void inst_SET(emitJumpKind condition, regNumber reg);
     void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
     void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
     void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
@@ -1252,10 +1245,21 @@ public:
 #endif
 
     void instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg);
+    void instGen_Set_Reg_To_Addr(regNumber reg,
+                                 void* addr DEBUGARG(void* handle = nullptr)
+                                     DEBUGARG(HandleKind handleKind = HandleKind::None));
+    void instGen_Set_Reg_To_Reloc(regNumber reg,
+                                  void* addr DEBUGARG(void* handle = nullptr)
+                                      DEBUGARG(HandleKind handleKind = HandleKind::None));
+#ifdef TARGET_ARMARCH
+#ifdef TARGET_ARM
+    void instGen_Set_Reg_To_Imm(regNumber reg, int32_t imm);
+#endif
     void instGen_Set_Reg_To_Imm(emitAttr  size,
                                 regNumber reg,
-                                ssize_t imm DEBUGARG(size_t targetHandle = 0)
-                                    DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
+                                ssize_t imm DEBUGARG(void* handle = nullptr)
+                                    DEBUGARG(HandleKind handleKind = HandleKind::None));
+#endif
 
 #ifdef TARGET_XARCH
     instruction MapShiftInsToShiftBy1Ins(instruction ins);

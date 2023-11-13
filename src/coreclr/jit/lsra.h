@@ -283,47 +283,6 @@ public:
     unsigned char regOrder;
 };
 
-inline bool leafInRange(GenTree* leaf, int lower, int upper)
-{
-    if (!leaf->IsIntCnsFitsInI32())
-    {
-        return false;
-    }
-    if (leaf->AsIntCon()->gtIconVal < lower)
-    {
-        return false;
-    }
-    if (leaf->AsIntCon()->gtIconVal > upper)
-    {
-        return false;
-    }
-
-    return true;
-}
-
-inline bool leafInRange(GenTree* leaf, int lower, int upper, int multiple)
-{
-    if (!leafInRange(leaf, lower, upper))
-    {
-        return false;
-    }
-    if (leaf->AsIntCon()->gtIconVal % multiple)
-    {
-        return false;
-    }
-
-    return true;
-}
-
-inline bool leafAddInRange(GenTree* leaf, int lower, int upper, int multiple = 1)
-{
-    if (leaf->OperGet() != GT_ADD)
-    {
-        return false;
-    }
-    return leafInRange(leaf->gtGetOp2(), lower, upper, multiple);
-}
-
 /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XX                                                                           XX

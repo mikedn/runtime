@@ -2349,6 +2349,7 @@ unsigned LinearScan::BuildAddrModeUses(GenTreeAddrMode* addrMode, regMaskTP cand
     return useCount;
 }
 
+#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
 void LinearScan::BuildDelayFreeUse(GenTree* op, GenTree* rmwNode, regMaskTP candidates)
 {
     assert(!op->isContained());
@@ -2370,6 +2371,7 @@ void LinearScan::BuildDelayFreeUse(GenTree* op, GenTree* rmwNode, regMaskTP cand
         setDelayFree(use);
     }
 }
+#endif // defined(TARGET_XARCH) || defined(TARGET_ARM64)
 
 void LinearScan::setDelayFree(RefPosition* use)
 {

@@ -519,8 +519,8 @@ typedef int64_t  target_ssize_t;
 
 #else // !TARGET_64BIT
 
-typedef uint32_t       target_size_t;
-typedef int32_t        target_ssize_t;
+typedef uint32_t target_size_t;
+typedef int32_t  target_ssize_t;
 #define TARGET_SIGN_BIT (1ULL << 31)
 #define TARGET_SIZE_MIN UINT32_MIN
 #define TARGET_SIZE_MAX UINT32_MAX
@@ -532,18 +532,4 @@ typedef int32_t        target_ssize_t;
 C_ASSERT(sizeof(target_size_t) == TARGET_POINTER_SIZE);
 C_ASSERT(sizeof(target_ssize_t) == TARGET_POINTER_SIZE);
 
-#if defined(TARGET_X86)
-// instrDescCns holds constant values for the emitter. The X86 compiler is unique in that it
-// may represent relocated pointer values with these constants. On the 64bit to 32 bit
-// cross-targetting jit, the the constant value must be represented as a 64bit value in order
-// to represent these pointers.
-typedef ssize_t cnsval_ssize_t;
-typedef size_t  cnsval_size_t;
-#else
-typedef target_ssize_t cnsval_ssize_t;
-typedef target_size_t  cnsval_size_t;
-#endif
-
-/*****************************************************************************/
 #endif // TARGET_H_
-/*****************************************************************************/

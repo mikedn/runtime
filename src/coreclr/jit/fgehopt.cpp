@@ -518,18 +518,17 @@ PhaseStatus Compiler::fgRemoveEmptyTry()
                 }
             }
 
-#if !defined(FEATURE_EH_FUNCLETS)
+#ifndef FEATURE_EH_FUNCLETS
             // If we're in a non-funclet model, decrement the nesting
             // level of any GT_END_LFIN we find in the handler region,
             // since we're removing the enclosing handler.
             for (Statement* const stmt : block->Statements())
             {
-                GenTree* expr = stmt->GetRootNode();
-                if (expr->gtOper == GT_END_LFIN)
+                if (GenTreeEndLFin* end = stmt->GetRootNode()->IsEndLFin())
                 {
-                    const size_t nestLevel = expr->AsVal()->gtVal1;
-                    assert(nestLevel > 0);
-                    expr->AsVal()->gtVal1 = nestLevel - 1;
+                    unsigned nestLevel = end->GetNesting();
+                    assert(nestLevel != 0);
+                    end->SetNesting(nestLevel - 1);
                 }
             }
 #endif // !FEATURE_EH_FUNCLETS

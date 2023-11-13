@@ -36,8 +36,8 @@ struct Compiler::MorphAssertion
 
     struct IntCon
     {
-        ssize_t      value;
-        GenTreeFlags flags;
+        ssize_t    value;
+        HandleKind handleKind;
     };
 
 #ifndef TARGET_64BIT
@@ -89,7 +89,7 @@ struct Compiler::MorphAssertion
         switch (valKind)
         {
             case ValueKind::IntCon:
-                return (x.intCon.value == y.intCon.value) && (x.intCon.flags == y.intCon.flags);
+                return (x.intCon.value == y.intCon.value) && (x.intCon.handleKind == y.intCon.handleKind);
 #ifndef TARGET_64BIT
             case ValueKind::LngCon:
                 return (x.lngCon.value == y.lngCon.value);
@@ -390,9 +390,9 @@ void Compiler::morphAssertionTrace(const MorphAssertion& assertion, GenTree* nod
             printf("V%02u", val.lcl.lclNum);
             break;
         case ValueKind::IntCon:
-            if ((val.intCon.flags & GTF_ICON_HDL_MASK) != 0)
+            if (val.intCon.handleKind != HandleKind::None)
             {
-                printf("%08p (%s)", dspPtr(val.intCon.value), dmpGetHandleKindName(val.intCon.flags));
+                printf("%08p (%s)", dspPtr(val.intCon.value), dmpGetHandleKindName(val.intCon.handleKind));
             }
             else
             {
@@ -492,11 +492,11 @@ void Compiler::morphAssertionGenerateNotNull(GenTree* addr)
 
     MorphAssertion& assertion = morphAssertionTable[morphAssertionCount];
 
-    assertion.kind             = Kind::NotNull;
-    assertion.valKind          = ValueKind::IntCon;
-    assertion.lcl.lclNum       = lclNum;
-    assertion.val.intCon.value = 0;
-    assertion.val.intCon.flags = GTF_EMPTY;
+    assertion.kind                  = Kind::NotNull;
+    assertion.valKind               = ValueKind::IntCon;
+    assertion.lcl.lclNum            = lclNum;
+    assertion.val.intCon.value      = 0;
+    assertion.val.intCon.handleKind = HandleKind::None;
 
     morphAssertionAdd(assertion);
 }
@@ -547,10 +547,10 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* store, GenTree* val)
                 return;
             }
 
-            assertion.kind             = Kind::Equal;
-            assertion.valKind          = ValueKind::IntCon;
-            assertion.val.intCon.value = val->AsIntCon()->GetValue(lcl->GetType());
-            assertion.val.intCon.flags = val->AsIntCon()->GetHandleKind();
+            assertion.kind                  = Kind::Equal;
+            assertion.valKind               = ValueKind::IntCon;
+            assertion.val.intCon.value      = val->AsIntCon()->GetValue(lcl->GetType());
+            assertion.val.intCon.handleKind = val->AsIntCon()->GetHandleKind();
             break;
 
 #ifndef TARGET_64BIT
@@ -901,7 +901,7 @@ GenTree* Compiler::morphAssertionPropagateLclVarConst(const MorphAssertion& asse
             assert(varTypeIsI(lcl->GetType()));
             assert(varTypeIsI(lclVar->GetType()));
 
-            if ((val.intCon.flags & GTF_ICON_HDL_MASK) != 0)
+            if (val.intCon.handleKind != HandleKind::None)
             {
                 if (opts.compReloc)
                 {
@@ -916,7 +916,7 @@ GenTree* Compiler::morphAssertionPropagateLclVarConst(const MorphAssertion& asse
             }
 
             conNode = lclVar->ChangeToIntCon(val.intCon.value);
-            conNode->AsIntCon()->SetHandleKind(val.intCon.flags & GTF_ICON_HDL_MASK);
+            conNode->AsIntCon()->SetHandleKind(val.intCon.handleKind);
             break;
 
         default:
