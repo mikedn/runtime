@@ -535,8 +535,6 @@ inline bool emitIsUncondJump(instrDesc* jmp)
     return (ins == INS_jmp);
 }
 
-static bool instrIs3opImul(instruction ins);
 static bool instrHasImplicitRegPairDest(instruction ins);
-static instruction inst3opImulForReg(regNumber reg);
 
 #endif // TARGET_XARCH

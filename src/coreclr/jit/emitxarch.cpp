@@ -84,61 +84,9 @@ static bool insIsCMOV(instruction ins)
     return ((ins >= INS_cmovo) && (ins <= INS_cmovg));
 }
 
-static_assert_no_msg(INS_imul_AX - INS_imul_AX == REG_EAX);
-static_assert_no_msg(INS_imul_BX - INS_imul_AX == REG_EBX);
-static_assert_no_msg(INS_imul_CX - INS_imul_AX == REG_ECX);
-static_assert_no_msg(INS_imul_DX - INS_imul_AX == REG_EDX);
-static_assert_no_msg(INS_imul_BP - INS_imul_AX == REG_EBP);
-static_assert_no_msg(INS_imul_SI - INS_imul_AX == REG_ESI);
-static_assert_no_msg(INS_imul_DI - INS_imul_AX == REG_EDI);
-#ifdef TARGET_AMD64
-static_assert_no_msg(INS_imul_08 - INS_imul_AX == REG_R8);
-static_assert_no_msg(INS_imul_09 - INS_imul_AX == REG_R9);
-static_assert_no_msg(INS_imul_10 - INS_imul_AX == REG_R10);
-static_assert_no_msg(INS_imul_11 - INS_imul_AX == REG_R11);
-static_assert_no_msg(INS_imul_12 - INS_imul_AX == REG_R12);
-static_assert_no_msg(INS_imul_13 - INS_imul_AX == REG_R13);
-static_assert_no_msg(INS_imul_14 - INS_imul_AX == REG_R14);
-static_assert_no_msg(INS_imul_15 - INS_imul_AX == REG_R15);
-#endif
-
-bool emitter::instrIs3opImul(instruction ins)
-{
-#ifdef TARGET_X86
-    return (ins >= INS_imul_AX) && (ins <= INS_imul_DI);
-#else
-    return (ins >= INS_imul_AX) && (ins <= INS_imul_15);
-#endif
-}
-
-static bool instrIsExtendedReg3opImul(instruction ins)
-{
-#ifdef TARGET_X86
-    return false;
-#else
-    return (ins >= INS_imul_08) && (ins <= INS_imul_15);
-#endif
-}
-
 bool emitter::instrHasImplicitRegPairDest(instruction ins)
 {
     return (ins == INS_mulEAX) || (ins == INS_imulEAX) || (ins == INS_div) || (ins == INS_idiv);
-}
-
-instruction emitter::inst3opImulForReg(regNumber reg)
-{
-    assert(genIsValidIntReg(reg));
-
-    instruction ins = instruction(reg + INS_imul_AX);
-    assert(instrIs3opImul(ins));
-    return ins;
-}
-
-static regNumber inst3opImulReg(instruction ins)
-{
-    regNumber reg = static_cast<regNumber>(ins - INS_imul_AX);
-    assert(genIsValidIntReg(reg));
-    return reg;
 }
 
 bool emitter::IsSSEInstruction(instruction ins)
@@ -3415,7 +3363,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
             bool includeRexPrefixSize = true;
             // Do not get the RexSize() but just decide if it will be included down further and if yes,
             // do not include it again.
-            if (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, size) || instrIsExtendedReg3opImul(ins))
+            if (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, size))
             {
                 includeRexPrefixSize = false;
             }
@@ -3423,7 +3371,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
             sz = emitInsSize(insCodeMI(ins), includeRexPrefixSize);
             sz += 1;
         }
-        else if (size == EA_1BYTE && reg == REG_EAX && !instrIs3opImul(ins))
+        else if (size == EA_1BYTE && reg == REG_EAX)
         {
             sz = 2;
         }
@@ -3436,7 +3384,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     {
         assert(!IsSSEOrAVXInstruction(ins));
 
-        if (reg == REG_EAX && !instrIs3opImul(ins))
+        if (reg == REG_EAX)
         {
             sz = 1;
         }
@@ -3460,10 +3408,9 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
 
     sz += emitGetAdjustedSize(ins, attr, insCodeMI(ins));
 
-    // Do we need a REX prefix for AMD64? We need one if we are using any extended register (REX.R), or if we have a
-    // 64-bit sized operand (REX.W). Note that IMUL in our encoding is special, with a "built-in", implicit, target
-    // register. So we also need to check if that built-in register is an extended register.
-    if (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, size) || instrIsExtendedReg3opImul(ins))
+    // Do we need a REX prefix for AMD64? We need one if we are using any extended
+    // register (REX.R), or if we have a 64-bit sized operand (REX.W).
+    if (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, size))
     {
         sz += emitGetRexPrefixSize(ins);
     }
@@ -3963,7 +3910,7 @@ void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regN
     instrDesc* id = emitNewInstrSC(attr, ival);
 
     id->idIns(ins);
-    id->idInsFmt(IF_RRW_RRW_CNS);
+    id->idInsFmt(IF_RRW_RRW_CNS); // TODO-MIKE-Review: Why isn't this RRW_RRD_CNS?!?
     id->idReg1(reg1);
     id->idReg2(reg2);
 
@@ -4099,7 +4046,7 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
     }
 
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
-    assert(IsSSEOrAVXInstruction(ins));
+    assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
 
     instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
     id->idIns(ins);
@@ -4115,7 +4062,7 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
 void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORINFO_FIELD_HANDLE fldHnd, int imm)
 {
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
-    assert(IsSSEOrAVXInstruction(ins));
+    assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
     assert(FieldDispRequiresRelocation(fldHnd));
 
     instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
@@ -4134,7 +4081,7 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORI
 void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int varx, int offs, int32_t imm)
 {
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
-    assert(IsSSEOrAVXInstruction(ins));
+    assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
 
     instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
@@ -6837,13 +6784,6 @@ void emitter::emitDispIns(
 
     /* Now see what instruction format we've got */
 
-    // First print the implicit register usage
-    if (instrIs3opImul(ins))
-    {
-        regNumber tgtReg = inst3opImulReg(ins);
-        printf("%s, ", emitRegName(tgtReg, id->idOpSize()));
-    }
-
     switch (id->idInsFmt())
     {
         case IF_CNS:
@@ -8065,8 +8005,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         }
 
         // mul can never produce a GC ref
-        assert(!instrIs3opImul(ins));
-        assert(ins != INS_mulEAX && ins != INS_imulEAX);
+        assert(ins != INS_mulEAX && ins != INS_imulEAX && ins != INS_imuli);
     }
     else
     {
@@ -8088,9 +8027,9 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 emitGCregDeadUpd(REG_EAX, dst);
                 emitGCregDeadUpd(REG_EDX, dst);
             }
-            else if (instrIs3opImul(ins))
+            else if (ins == INS_imuli)
             {
-                emitGCregDeadUpd(inst3opImulReg(ins), dst);
+                emitGCregDeadUpd(id->idReg1(), dst);
             }
         }
     }
@@ -8120,8 +8059,9 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             // shift instructions? Just to be different from emitOutputAM/CV. And why the crap does this
             // check IF_RRW_SRD_CNS and IF_RWR_RRD_SRD_CNS, which are only used by SSE/AVX instructions,
             // and then also checks for SSE/VAX instructions?!?
-            if ((id->idInsFmt() != IF_SRW_SHF) && (id->idInsFmt() != IF_RRW_SRD_CNS) &&
-                (id->idInsFmt() != IF_RWR_RRD_SRD_CNS) && !IsSSEOrAVXInstruction(ins))
+            if (((id->idInsFmt() != IF_SRW_SHF) && (id->idInsFmt() != IF_RRW_SRD_CNS) &&
+                 (id->idInsFmt() != IF_RWR_RRD_SRD_CNS) && !IsSSEOrAVXInstruction(ins)) ||
+                (ins == INS_imuli))
             {
                 code |= 2;
             }
@@ -8380,10 +8320,9 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             emitGCregDeadUpd(REG_EAX, dst);
             emitGCregDeadUpd(REG_EDX, dst);
         }
-
-        if (instrIs3opImul(ins))
+        else if (ins == INS_imuli)
         {
-            emitGCregDeadUpd(inst3opImulReg(ins), dst);
+            emitGCregDeadUpd(id->idReg1(), dst);
         }
     }
 
@@ -8724,14 +8663,9 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 emitGCregDeadUpd(REG_EAX, dst);
                 emitGCregDeadUpd(REG_EDX, dst);
             }
-
-            // For the three operand imul instruction the target register
-            // is encoded in the opcode
-
-            if (instrIs3opImul(ins))
+            else if (ins == INS_imuli)
             {
-                regNumber tgtReg = inst3opImulReg(ins);
-                emitGCregDeadUpd(tgtReg, dst);
+                emitGCregDeadUpd(id->idReg1(), dst);
             }
         }
     }
@@ -9328,17 +9262,7 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
             switch (id->idInsFmt())
             {
                 case IF_RRD_CNS:
-                    // INS_mulEAX can not be used with any of these formats
-                    assert(ins != INS_mulEAX && ins != INS_imulEAX);
-
-                    // For the three operand imul instruction the target
-                    // register is encoded in the opcode
-
-                    if (instrIs3opImul(ins))
-                    {
-                        regNumber tgtReg = inst3opImulReg(ins);
-                        emitGCregDeadUpd(tgtReg, dst);
-                    }
+                    assert(ins != INS_mulEAX && ins != INS_imulEAX && ins != INS_imuli);
                     break;
 
                 case IF_RWR_RRD:
@@ -9568,7 +9492,7 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
     // Decide which encoding is the shortest
     bool useSigned, useACC;
 
-    if (reg == REG_EAX && !instrIs3opImul(ins))
+    if (reg == REG_EAX)
     {
         if (size == EA_1BYTE || (ins == INS_test))
         {
@@ -9732,30 +9656,19 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
         }
 
         // mul can never produce a GC ref
-        assert(!instrIs3opImul(ins));
-        assert(ins != INS_mulEAX && ins != INS_imulEAX);
+        assert(ins != INS_mulEAX && ins != INS_imulEAX && ins != INS_imuli);
     }
     else
     {
         switch (id->idInsFmt())
         {
             case IF_RRD_CNS:
-                // INS_mulEAX can not be used with any of these formats
-                assert(ins != INS_mulEAX && ins != INS_imulEAX);
-
-                // For the three operand imul instruction the target
-                // register is encoded in the opcode
-
-                if (instrIs3opImul(ins))
-                {
-                    regNumber tgtReg = inst3opImulReg(ins);
-                    emitGCregDeadUpd(tgtReg, dst);
-                }
+                assert(ins != INS_mulEAX && ins != INS_imulEAX && ins != INS_imuli);
                 break;
 
             case IF_RRW_CNS:
             case IF_RWR_CNS:
-                assert(!instrIs3opImul(ins));
+                assert(ins != INS_imuli);
 
                 emitGCregDeadUpd(id->idReg1(), dst);
                 break;
@@ -10177,8 +10090,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
     assert(REG_NA == (int)REG_NA);
 
-    assert(ins != INS_imul || size >= EA_4BYTE);                  // Has no 'w' bit
-    assert(instrIs3opImul(id->idIns()) == 0 || size >= EA_4BYTE); // Has no 'w' bit
+    assert(ins != INS_imul || size >= EA_4BYTE); // Has no 'w' bit
 
     // What instruction format have we got?
     switch (id->idInsFmt())
@@ -10489,8 +10401,25 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 code = insEncodeRMreg(ins, code);
                 mReg = id->idReg2();
                 rReg = id->idReg1();
+
+                if (ins == INS_imuli)
+                {
+                    if (id->idOpSize() > EA_1BYTE)
+                    {
+                        // Don't bother with 16 bit imul, which needs the 66 prefix, we only need 32/64 bit.
+                        assert(id->idOpSize() != EA_2BYTE);
+
+                        code |= 1;
+
+                        if (IsImm8(emitGetInsSC(id)))
+                        {
+                            code |= 2;
+                        }
+                    }
+                }
             }
-            assert(code & 0x00FF0000);
+
+            assert(((code & 0x00FF0000) != 0) || (id->idIns() == INS_imuli));
 
             if (TakesRexWPrefix(ins, size))
             {
@@ -10560,7 +10489,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 dst += emitOutputByte(dst, (0xC0 | regcode));
             }
 
-            dst += emitOutputByte(dst, emitGetInsSC(id));
+            if ((ins == INS_imuli) && ((code & 0x02) == 0))
+            {
+                dst += emitOutputLong(dst, emitGetInsSC(id));
+            }
+            else
+            {
+                dst += emitOutputByte(dst, emitGetInsSC(id));
+            }
+
             sz = emitSizeOfInsDsc(id);
 
             // Kill any GC ref in the destination register if necessary.
@@ -10637,7 +10574,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_RRW_ARD_CNS:
         case IF_RWR_ARD_CNS:
-            assert(IsSSEOrAVXInstruction(ins));
+            assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
             code = insCodeRM(ins);
 
             if (!EncodedBySSE38orSSE3A(ins))
@@ -10791,7 +10728,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_RRW_SRD_CNS:
         case IF_RWR_SRD_CNS:
-            assert(IsSSEOrAVXInstruction(ins));
+            assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
             code = insCodeRM(ins);
 
             if (!EncodedBySSE38orSSE3A(ins))
@@ -10932,7 +10869,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_RRW_MRD_CNS:
         case IF_RWR_MRD_CNS:
-            assert(IsSSEOrAVXInstruction(ins));
+            assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
             code = insCodeRM(ins);
 
             if (!EncodedBySSE38orSSE3A(ins))
@@ -11120,12 +11057,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         // that we detected this cleared its GC-status.
         assert((gcInfo.GetAllLiveRegs() & (RBM_EAX | RBM_EDX)) == RBM_NONE);
     }
-
-    if (instrIs3opImul(ins))
+    else if (ins == INS_imuli)
     {
-        // The target of the 3-operand imul is implicitly encoded. Make sure
-        // that we detected the implicit register and cleared its GC-status.
-        assert((gcInfo.GetAllLiveRegs() & genRegMask(inst3opImulReg(ins))) == RBM_NONE);
+        assert((gcInfo.GetAllLiveRegs() & genRegMask(id->idReg1())) == RBM_NONE);
     }
 #endif
 
@@ -11522,24 +11456,8 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
 
             break;
 
-        case INS_imul_AX:
-        case INS_imul_BX:
-        case INS_imul_CX:
-        case INS_imul_DX:
-        case INS_imul_BP:
-        case INS_imul_SI:
-        case INS_imul_DI:
-#ifdef TARGET_AMD64
-        case INS_imul_08:
-        case INS_imul_09:
-        case INS_imul_10:
-        case INS_imul_11:
-        case INS_imul_12:
-        case INS_imul_13:
-        case INS_imul_14:
-        case INS_imul_15:
-#endif // TARGET_AMD64
         case INS_imul:
+        case INS_imuli:
             result.insThroughput = PERFSCORE_THROUGHPUT_1C;
             result.insLatency += PERFSCORE_LATENCY_3C;
             break;

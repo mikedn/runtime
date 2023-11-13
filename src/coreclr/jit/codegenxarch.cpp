@@ -959,7 +959,9 @@ void CodeGen::GenMul(GenTreeOp* mul)
 
     if (GenTreeIntCon* immOp = op2->IsContainedIntCon())
     {
-        ssize_t imm = immOp->GetValue();
+        ssize_t  imm = immOp->GetValue();
+        unsigned lclNum;
+        unsigned lclOffs;
 
         if (!checkOverflow && op1->isUsedFromReg() && ((imm == 3) || (imm == 5) || (imm == 9)))
         {
@@ -971,9 +973,17 @@ void CodeGen::GenMul(GenTreeOp* mul)
             GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, op1->GetRegNum(), /* canSkip */ true);
             inst_RV_SH(INS_shl, size, dstReg, genLog2(static_cast<uint64_t>(static_cast<size_t>(imm))));
         }
+        else if (op1->isUsedFromReg())
+        {
+            GetEmitter()->emitIns_R_R_I(INS_imuli, size, dstReg, op1->GetRegNum(), static_cast<int32_t>(imm));
+        }
+        else if (IsLocalMemoryOperand(op1, &lclNum, &lclOffs))
+        {
+            GetEmitter()->emitIns_R_S_I(INS_imuli, size, dstReg, lclNum, lclOffs, static_cast<int32_t>(imm));
+        }
         else
         {
-            emitInsBinary(GetEmitter()->inst3opImulForReg(dstReg), size, op1, op2);
+            GetEmitter()->emitIns_R_A_I(INS_imuli, size, dstReg, op1->AsIndir()->GetAddr(), static_cast<int32_t>(imm));
         }
     }
     else
@@ -4202,12 +4212,10 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
             // IMUL treats its immediate operand as signed so scale can't be larger than INT32_MAX.
             // The VM doesn't allow such large array elements but let's be sure.
             noway_assert(scale <= INT32_MAX);
-#else  // !TARGET_64BIT
+#else
             tmpReg = node->GetSingleTempReg();
-#endif // !TARGET_64BIT
-
-            GetEmitter()->emitIns_R_I(emitter::inst3opImulForReg(tmpReg), EA_PTRSIZE, indexReg,
-                                      static_cast<ssize_t>(scale));
+#endif
+            GetEmitter()->emitIns_R_R_I(INS_imuli, EA_PTRSIZE, tmpReg, indexReg, static_cast<int32_t>(scale));
             scale = 1;
             break;
     }
@@ -9263,7 +9271,7 @@ void CodeGen::emitInsUnary(instruction ins, emitAttr attr, GenTree* src)
 
 void CodeGen::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src)
 {
-    assert(!emitter::instrHasImplicitRegPairDest(ins));
+    assert(!emitter::instrHasImplicitRegPairDest(ins) && (ins != INS_imuli));
 
     emitter* emit  = GetEmitter();
     GenTree* memOp = nullptr;
@@ -9272,7 +9280,7 @@ void CodeGen::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTre
 
     if (dst->isContained() || (dst->OperIs(GT_LCL_FLD) && (dst->GetRegNum() == REG_NA)) || dst->isUsedFromSpillTemp())
     {
-        assert(dst->isUsedFromMemory() || (dst->GetRegNum() == REG_NA) || emitter::instrIs3opImul(ins));
+        assert(dst->isUsedFromMemory() || (dst->GetRegNum() == REG_NA));
 
         memOp = dst;
 

@@ -113,34 +113,9 @@ INST3(cmovg,            "cmovg",            IUM_WR, BAD_CODE,     BAD_CODE,     
 
 INST3(xchg,             "xchg",             IUM_RW, 0x000086,     BAD_CODE,     0x000086,                                INS_FLAGS_None )
 INST3(imul,             "imul",             IUM_RW, 0x0F00AC,     BAD_CODE,     0x0F00AF,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
+INST3(imuli,            "imul",             IUM_RD, BAD_CODE,     BAD_CODE,     0x000068,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
 
 //    id                nm                  um      mr            mi            rm                                       flags
-
-// Instead of encoding these as 3-operand instructions, we encode them
-// as 2-operand instructions with the target register being implicit
-// implicit_reg = op1*op2_icon
-#define INSTMUL INST3
-INSTMUL(imul_AX,        "imul",             IUM_RD, BAD_CODE,     0x000068,     BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-INSTMUL(imul_CX,        "imul",             IUM_RD, BAD_CODE,     0x000868,     BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-INSTMUL(imul_DX,        "imul",             IUM_RD, BAD_CODE,     0x001068,     BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-INSTMUL(imul_BX,        "imul",             IUM_RD, BAD_CODE,     0x001868,     BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-INSTMUL(imul_SP,        "imul",             IUM_RD, BAD_CODE,     BAD_CODE,     BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-INSTMUL(imul_BP,        "imul",             IUM_RD, BAD_CODE,     0x002868,     BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-INSTMUL(imul_SI,        "imul",             IUM_RD, BAD_CODE,     0x003068,     BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-INSTMUL(imul_DI,        "imul",             IUM_RD, BAD_CODE,     0x003868,     BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-
-#ifdef TARGET_AMD64
-
-INSTMUL(imul_08,        "imul",             IUM_RD, BAD_CODE,     0x4400000068, BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-INSTMUL(imul_09,        "imul",             IUM_RD, BAD_CODE,     0x4400000868, BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-INSTMUL(imul_10,        "imul",             IUM_RD, BAD_CODE,     0x4400001068, BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-INSTMUL(imul_11,        "imul",             IUM_RD, BAD_CODE,     0x4400001868, BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-INSTMUL(imul_12,        "imul",             IUM_RD, BAD_CODE,     0x4400002068, BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-INSTMUL(imul_13,        "imul",             IUM_RD, BAD_CODE,     0x4400002868, BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-INSTMUL(imul_14,        "imul",             IUM_RD, BAD_CODE,     0x4400003068, BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-INSTMUL(imul_15,        "imul",             IUM_RD, BAD_CODE,     0x4400003868, BAD_CODE,                                Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-
-#endif // TARGET_AMD64
 
 // the hex codes in this file represent the instruction encoding as follows:
 // 0x0000ff00 - modrm byte position
