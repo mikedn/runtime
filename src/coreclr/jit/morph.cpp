@@ -9100,7 +9100,12 @@ GenTree* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned dstL
         }
         else
         {
-            src      = gtNewLclvNode(src->AsLclVar()->GetLclNum(), src->GetType());
+            src = gtNewLclvNode(src->AsLclVar()->GetLclNum(), src->GetType());
+            // TODO-MIKE-Cleanup: If the source is DNER we should create a LCL_FLD instead.
+            // Or maybe copy it to a temp to avoid generating multiple loads, that would
+            // work well when we have extractps, but if we don't know how the value was
+            // stored to memory in the first place we risk blocking store forwarding.
+            src->AddSideEffects(lvaGetDesc(src->AsLclVar())->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
             fieldSrc = gtNewSimdGetElementNode(src->GetType(), TYP_FLOAT, src, gtNewIconNode(fieldIndex));
         }
 
