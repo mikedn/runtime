@@ -9491,9 +9491,9 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
 
     if (id->idInsFmt() == IF_RRW_SHF)
     {
+        assert(!TakesVexPrefix(ins));
+
         code = insCodeMI(ins);
-        // Emit the VEX prefix if it exists
-        code = AddVexPrefixIfNeeded(ins, code, size);
         code = insEncodeMRreg(ins, id->idReg1(), size, code);
 
         // set the W bit
