@@ -9489,6 +9489,42 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
         return dst;
     }
 
+    if (id->idInsFmt() == IF_RRW_SHF)
+    {
+        code = insCodeMI(ins);
+        // Emit the VEX prefix if it exists
+        code = AddVexPrefixIfNeeded(ins, code, size);
+        code = insEncodeMRreg(ins, id->idReg1(), size, code);
+
+        // set the W bit
+        if (size != EA_1BYTE)
+        {
+            code |= 1;
+        }
+
+        // Emit the REX prefix if it exists
+        if (TakesRexWPrefix(ins, size))
+        {
+            code = AddRexWPrefix(ins, code);
+        }
+
+        // Output a size prefix for a 16-bit operand
+        if (size == EA_2BYTE)
+        {
+            dst += emitOutputByte(dst, 0x66);
+        }
+
+        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputWord(dst, code);
+        dst += emitOutputByte(dst, emitGetInsSC(id));
+
+        // Update GC info.
+        assert(!id->idGCref());
+        emitGCregDeadUpd(id->idReg1(), dst);
+
+        return dst;
+    }
+
     // Decide which encoding is the shortest
     bool useSigned, useACC;
 
@@ -10302,40 +10338,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         /*                 Register and register/constant                   */
         /********************************************************************/
 
-        case IF_RRW_SHF:
-            code = insCodeMI(ins);
-            // Emit the VEX prefix if it exists
-            code = AddVexPrefixIfNeeded(ins, code, size);
-            code = insEncodeMRreg(ins, id->idReg1(), size, code);
-
-            // set the W bit
-            if (size != EA_1BYTE)
-            {
-                code |= 1;
-            }
-
-            // Emit the REX prefix if it exists
-            if (TakesRexWPrefix(ins, size))
-            {
-                code = AddRexWPrefix(ins, code);
-            }
-
-            // Output a size prefix for a 16-bit operand
-            if (size == EA_2BYTE)
-            {
-                dst += emitOutputByte(dst, 0x66);
-            }
-
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-            dst += emitOutputWord(dst, code);
-            dst += emitOutputByte(dst, emitGetInsSC(id));
-            sz = emitSizeOfInsDsc(id);
-
-            // Update GC info.
-            assert(!id->idGCref());
-            emitGCregDeadUpd(id->idReg1(), dst);
-            break;
-
         case IF_RRD_RRD:
         case IF_RWR_RRD:
         case IF_RRW_RRD:
@@ -10347,6 +10349,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_RRD_CNS:
         case IF_RWR_CNS:
         case IF_RRW_CNS:
+        case IF_RRW_SHF:
             dst = emitOutputRI(dst, id);
             sz  = emitSizeOfInsDsc(id);
             break;
