@@ -201,7 +201,7 @@ bool IsDstDstSrcAVXInstruction(instruction ins);
 bool IsDstSrcSrcAVXInstruction(instruction ins);
 bool DoesWriteZeroFlag(instruction ins);
 bool DoesResetOverflowAndCarryFlags(instruction ins);
-bool IsFlagsAlwaysModified(instrDesc* id);
+bool AreFlagsAlwaysModified(instrDesc* id);
 
 bool IsThreeOperandAVXInstruction(instruction ins)
 {

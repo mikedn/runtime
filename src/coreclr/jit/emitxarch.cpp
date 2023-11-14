@@ -248,42 +248,11 @@ bool emitter::DoesResetOverflowAndCarryFlags(instruction ins)
     return (emitter::instInfo[ins] & (Resets_OF | Resets_CF)) == (Resets_OF | Resets_CF);
 }
 
-//------------------------------------------------------------------------
-// IsFlagsAlwaysModified: check if the instruction guarantee to modify any flags.
-//
-// Arguments:
-//    id - instruction to test
-//
-// Return Value:
-//    false, if instruction is guaranteed to not modify any flag.
-//    true, if instruction will modify some flag.
-//
-bool emitter::IsFlagsAlwaysModified(instrDesc* id)
+bool emitter::AreFlagsAlwaysModified(instrDesc* id)
 {
     instruction ins = id->idIns();
-    insFormat   fmt = id->idInsFmt();
 
-    if (IsShiftImm(ins))
-    {
-        if (id->idIsLargeCns())
-        {
-            return true;
-        }
-        else if (id->idSmallCns() == 0)
-        {
-            // If shift-amount is 0, then flags are unaffected.
-            return !IsShiftImm(ins);
-        }
-    }
-    else if (fmt == IF_RRW)
-    {
-        // If shift-amount for is 0, then flags are unaffected.
-        // So, to be conservative, do not optimize if the instruction has register
-        // as the shift-amount operand.
-        return !IsShiftCL(ins);
-    }
-
-    return true;
+    return !IsShiftCL(ins) && (!IsShiftImm(ins) || id->idIsLargeCns() || (id->idSmallCns() != 0));
 }
 
 //------------------------------------------------------------------------
@@ -420,7 +389,7 @@ bool emitter::AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps tr
 
     if ((treeOps == GT_EQ) || (treeOps == GT_NE))
     {
-        if (DoesWriteZeroFlag(id->idIns()) && IsFlagsAlwaysModified(id))
+        if (DoesWriteZeroFlag(id->idIns()) && AreFlagsAlwaysModified(id))
         {
             return id->idOpSize() == opSize;
         }
