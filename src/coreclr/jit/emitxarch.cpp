@@ -10303,7 +10303,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         /********************************************************************/
 
         case IF_RRW_SHF:
-            code = insCodeMR(ins);
+            code = insCodeMI(ins);
             // Emit the VEX prefix if it exists
             code = AddVexPrefixIfNeeded(ins, code, size);
             code = insEncodeMRreg(ins, id->idReg1(), size, code);
@@ -10527,14 +10527,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_ARD_CNS:
         case IF_AWR_CNS:
         case IF_ARW_CNS:
-            cnsVal = emitGetInsAmdCns(id);
-            dst    = emitOutputAM(dst, id, insCodeMI(ins), &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
-            break;
-
         case IF_ARW_SHF:
             cnsVal = emitGetInsAmdCns(id);
-            dst    = emitOutputAM(dst, id, insCodeMR(ins), &cnsVal);
+            dst    = emitOutputAM(dst, id, insCodeMI(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
 
@@ -10663,14 +10658,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_SRD_CNS:
         case IF_SWR_CNS:
         case IF_SRW_CNS:
-            cnsVal = emitGetInsCns(id);
-            dst    = emitOutputSV(dst, id, insCodeMI(ins), &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
-            break;
-
         case IF_SRW_SHF:
             cnsVal = emitGetInsCns(id);
-            dst    = emitOutputSV(dst, id, insCodeMR(ins), &cnsVal);
+            dst    = emitOutputSV(dst, id, insCodeMI(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
 
@@ -10802,14 +10792,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_MRD_CNS:
         case IF_MWR_CNS:
         case IF_MRW_CNS:
-            cnsVal = emitGetInsMemImm(id);
-            dst    = emitOutputCV(dst, id, insCodeMI(ins), &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
-            break;
-
         case IF_MRW_SHF:
             cnsVal = emitGetInsMemImm(id);
-            dst    = emitOutputCV(dst, id, insCodeMR(ins), &cnsVal);
+            dst    = emitOutputCV(dst, id, insCodeMI(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
 

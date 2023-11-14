@@ -602,32 +602,32 @@ INST2(call,             "call",             IUM_RD, 0x0010FF,     0x0000E8,     
 
 INST2(rol,              "rol",              IUM_RW, 0x0000D2,     BAD_CODE,                                              Undefined_OF                                                                   | Writes_CF     )
 INST2(rol_1,            "rol",              IUM_RW, 0x0000D0,     0x0000D0,                                              Writes_OF                                                                      | Writes_CF     )
-INST2(rol_N,            "rol",              IUM_RW, 0x0000C0,     0x0000C0,                                              Undefined_OF                                                                   | Writes_CF     )
+INST2(rol_N,            "rol",              IUM_RW, BAD_CODE,     0x0000C0,                                              Undefined_OF                                                                   | Writes_CF     )
 INST2(ror,              "ror",              IUM_RW, 0x0008D2,     BAD_CODE,                                              Undefined_OF                                                                   | Writes_CF     )
 INST2(ror_1,            "ror",              IUM_RW, 0x0008D0,     0x0008D0,                                              Writes_OF                                                                      | Writes_CF     )
-INST2(ror_N,            "ror",              IUM_RW, 0x0008C0,     0x0008C0,                                              Undefined_OF                                                                   | Writes_CF     )
+INST2(ror_N,            "ror",              IUM_RW, BAD_CODE,     0x0008C0,                                              Undefined_OF                                                                   | Writes_CF     )
 
 INST2(rcl,              "rcl",              IUM_RW, 0x0010D2,     BAD_CODE,                                              Undefined_OF                                                                   | Writes_CF
                                                                                                                                                                                                         | Reads_CF      )
 INST2(rcl_1,            "rcl",              IUM_RW, 0x0010D0,     0x0010D0,                                              Writes_OF                                                                      | Writes_CF
                                                                                                                                                                                                         | Reads_CF      )
-INST2(rcl_N,            "rcl",              IUM_RW, 0x0010C0,     0x0010C0,                                              Undefined_OF                                                                   | Writes_CF
+INST2(rcl_N,            "rcl",              IUM_RW, BAD_CODE,     0x0010C0,                                              Undefined_OF                                                                   | Writes_CF
                                                                                                                                                                                                         | Reads_CF      ) 
 INST2(rcr,              "rcr",              IUM_RW, 0x0018D2,     BAD_CODE,                                              Undefined_OF                                                                   | Writes_CF
                                                                                                                                                                                                         | Reads_CF      )
 INST2(rcr_1,            "rcr",              IUM_RW, 0x0018D0,     0x0018D0,                                              Writes_OF                                                                      | Writes_CF
                                                                                                                                                                                                         | Reads_CF      )   
-INST2(rcr_N,            "rcr",              IUM_RW, 0x0018C0,     0x0018C0,                                              Undefined_OF                                                                   | Writes_CF
+INST2(rcr_N,            "rcr",              IUM_RW, BAD_CODE,     0x0018C0,                                              Undefined_OF                                                                   | Writes_CF
                                                                                                                                                                                                         | Reads_CF      )
 INST2(shl,              "shl",              IUM_RW, 0x0020D2,     BAD_CODE,                                              Undefined_OF   | Writes_SF     | Writes_ZF     | Undefined_AF  | Writes_PF     | Writes_CF     )
 INST2(shl_1,            "shl",              IUM_RW, 0x0020D0,     0x0020D0,                                              Writes_OF      | Writes_SF     | Writes_ZF     | Undefined_AF  | Writes_PF     | Writes_CF     )
-INST2(shl_N,            "shl",              IUM_RW, 0x0020C0,     0x0020C0,                                              Undefined_OF   | Writes_SF     | Writes_ZF     | Undefined_AF  | Writes_PF     | Writes_CF     )
+INST2(shl_N,            "shl",              IUM_RW, BAD_CODE,     0x0020C0,                                              Undefined_OF   | Writes_SF     | Writes_ZF     | Undefined_AF  | Writes_PF     | Writes_CF     )
 INST2(shr,              "shr",              IUM_RW, 0x0028D2,     BAD_CODE,                                              Undefined_OF   | Writes_SF     | Writes_ZF     | Undefined_AF  | Writes_PF     | Writes_CF     )
 INST2(shr_1,            "shr",              IUM_RW, 0x0028D0,     0x0028D0,                                              Writes_OF      | Writes_SF     | Writes_ZF     | Undefined_AF  | Writes_PF     | Writes_CF     )
-INST2(shr_N,            "shr",              IUM_RW, 0x0028C0,     0x0028C0,                                              Undefined_OF   | Writes_SF     | Writes_ZF     | Undefined_AF  | Writes_PF     | Writes_CF     )
+INST2(shr_N,            "shr",              IUM_RW, BAD_CODE,     0x0028C0,                                              Undefined_OF   | Writes_SF     | Writes_ZF     | Undefined_AF  | Writes_PF     | Writes_CF     )
 INST2(sar,              "sar",              IUM_RW, 0x0038D2,     BAD_CODE,                                              Undefined_OF   | Writes_SF     | Writes_ZF     | Undefined_AF  | Writes_PF     | Writes_CF     )
 INST2(sar_1,            "sar",              IUM_RW, 0x0038D0,     0x0038D0,                                              Writes_OF      | Writes_SF     | Writes_ZF     | Undefined_AF  | Writes_PF     | Writes_CF     )
-INST2(sar_N,            "sar",              IUM_RW, 0x0038C0,     0x0038C0,                                              Undefined_OF   | Writes_SF     | Writes_ZF     | Undefined_AF  | Writes_PF     | Writes_CF     )
+INST2(sar_N,            "sar",              IUM_RW, BAD_CODE,     0x0038C0,                                              Undefined_OF   | Writes_SF     | Writes_ZF     | Undefined_AF  | Writes_PF     | Writes_CF     )
 
 
 //    id                nm                  um      mr                                                                   flags
