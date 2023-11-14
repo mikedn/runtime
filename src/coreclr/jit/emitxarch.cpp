@@ -3910,7 +3910,7 @@ void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regN
     instrDesc* id = emitNewInstrSC(attr, ival);
 
     id->idIns(ins);
-    id->idInsFmt(IF_RRW_RRW_CNS); // TODO-MIKE-Review: Why isn't this RRW_RRD_CNS?!?
+    id->idInsFmt(IF_RRW_RRD_CNS);
     id->idReg1(reg1);
     id->idReg2(reg2);
 
@@ -7112,7 +7112,7 @@ void emitter::emitDispIns(
             printf("%s", emitRegName(id->idReg4(), attr));
             break;
 
-        case IF_RRW_RRW_CNS:
+        case IF_RRW_RRD_CNS:
         {
             emitAttr tgtAttr = attr;
 
@@ -10362,7 +10362,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             dst += emitOutputByte(dst, emitGetInsSC(id));
             break;
 
-        case IF_RRW_RRW_CNS:
+        case IF_RRW_RRD_CNS:
             assert(id->idGCref() == GCT_NONE);
 
             // Get the 'base' opcode (it's a big one)
@@ -11100,7 +11100,7 @@ emitter::insFormat emitter::getMemoryOperation(instrDesc* id)
         case IF_RWR_RRD:
         case IF_RRW_RRD:
         case IF_RRW_RRW:
-        case IF_RRW_RRW_CNS:
+        case IF_RRW_RRD_CNS:
         case IF_RWR_RRD_RRD:
         case IF_RWR_RRD_RRD_CNS:
         case IF_RWR_RRD_RRD_RRD:
@@ -11620,7 +11620,7 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
 
         case INS_shld:
         case INS_shrd:
-            if (insFmt == IF_RRW_RRW_CNS)
+            if (insFmt == IF_RRW_RRD_CNS)
             {
                 // ins   reg, reg, cns
                 result.insThroughput = PERFSCORE_THROUGHPUT_1C;

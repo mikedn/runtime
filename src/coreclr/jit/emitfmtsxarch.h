@@ -101,7 +101,7 @@ IF_DEF(RRD_RRD,     IS_R1_RD|IS_R2_RD,          NONE)     // read   reg , read r
 IF_DEF(RWR_RRD,     IS_R1_WR|IS_R2_RD,          NONE)     // write  reg , read reg2
 IF_DEF(RRW_RRD,     IS_R1_RW|IS_R2_RD,          NONE)     // r/w    reg , read reg2
 IF_DEF(RRW_RRW,     IS_R1_RW|IS_R2_RW,          NONE)     // r/w    reg , r/w reg2 - for XCHG reg, reg2
-IF_DEF(RRW_RRW_CNS, IS_R1_RW|IS_R2_RW,          CNS )     // r/w    reg , r/w  reg2 , const
+IF_DEF(RRW_RRD_CNS, IS_R1_RW|IS_R2_RD,          CNS )     // r/w    reg , read reg2 , const
 
 IF_DEF(RWR_RRD_RRD, IS_R1_WR|IS_R2_RD|IS_R3_RD, NONE)     // write  reg , read reg2 , read reg3
 IF_DEF(RWR_RRD_RRD_CNS, IS_R1_WR|IS_R2_RD|IS_R3_RD, CNS)  // write  reg , read reg2 , read reg3, const
