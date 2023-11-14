@@ -1,46 +1,27 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-//////////////////////////////////////////////////////////////////////////////
 
-//
-//  This file was previously known as emitfmts.h
-//
+#ifdef TARGET_XARCH
 
-// clang-format off
-#if !defined(TARGET_XARCH)
-  #error Unexpected target type
-#endif
-
-#ifdef  DEFINE_ID_OPS
-//////////////////////////////////////////////////////////////////////////////
-
-#undef  DEFINE_ID_OPS
+#ifdef DEFINE_ID_OPS
+#undef DEFINE_ID_OPS
 
 enum ID_OPS : uint8_t
 {
-    ID_OP_NONE,                             // no additional arguments
-    ID_OP_CNS,                              // constant     operand
-    ID_OP_DSP,                              // displacement operand
-    ID_OP_DSP_CNS,                          // displacement + constant
-    ID_OP_AMD,                              // addrmode with dsp
-    ID_OP_AMD_CNS,                          // addrmode with dsp + constant
-    ID_OP_JMP,                              // local jump
-    ID_OP_CALL,                             // direct method call
+    ID_OP_NONE,    // no additional arguments
+    ID_OP_CNS,     // constant     operand
+    ID_OP_DSP,     // displacement operand
+    ID_OP_DSP_CNS, // displacement + constant
+    ID_OP_AMD,     // addrmode with dsp
+    ID_OP_AMD_CNS, // addrmode with dsp + constant
+    ID_OP_JMP,     // local jump
+    ID_OP_CALL,    // direct method call
 };
 
-//////////////////////////////////////////////////////////////////////////////
 #else // !DEFINE_ID_OPS
-//////////////////////////////////////////////////////////////////////////////
-
-#ifdef  DEFINE_IS_OPS
-#undef  DEFINE_IS_OPS
-
-#else // DEFINE_IS_OPS
-
-//////////////////////////////////////////////////////////////////////////////
 
 #ifndef IF_DEF
-#error  Must define IF_DEF macro before including this file
+#error Must define IF_DEF macro before including this file
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -73,6 +54,7 @@ enum ID_OPS : uint8_t
 //                  (unused)
 //////////////////////////////////////////////////////////////////////////////
 
+// clang-format off
 IF_DEF(NONE,        IS_NONE,                    NONE)     // no operands
 IF_DEF(GC_REG,      IS_NONE,                    NONE)     // GC reg update
 IF_DEF(LABEL,       IS_NONE,                    JMP )     // label
@@ -106,6 +88,7 @@ IF_DEF(RWR_RRD_RRD, IS_R1_WR|IS_R2_RD|IS_R3_RD, NONE)     // write  reg , read r
 IF_DEF(RWR_RRD_RRD_CNS, IS_R1_WR|IS_R2_RD|IS_R3_RD, CNS)  // write  reg , read reg2 , read reg3, const
 
 IF_DEF(RWR_RRD_RRD_RRD, IS_R1_WR|IS_R2_RD|IS_R3_RD|IS_R4_RD, CNS)     // write  reg , read reg2 , read reg3 , read reg4
+
 //----------------------------------------------------------------------------
 // The following formats are used for direct addresses (e.g. static data members)
 //----------------------------------------------------------------------------
@@ -166,7 +149,6 @@ IF_DEF(SWR_RRD_CNS, IS_AM_WR|IS_R1_RD,          AMD_CNS)  // write [stk], read r
 // The following formats are used for indirect address modes
 //----------------------------------------------------------------------------
 
-
 IF_DEF(ARD,         IS_AM_RD,                   AMD )     // read  [adr]
 IF_DEF(AWR,         IS_AM_WR,                   AMD )     // write [adr]
 IF_DEF(ARW,         IS_AM_RW,                   AMD )     // r/w   [adr]
@@ -193,13 +175,9 @@ IF_DEF(AWR_CNS,     IS_AM_WR,                   AMD_CNS)  // write [adr], const
 IF_DEF(ARW_CNS,     IS_AM_RW,                   AMD_CNS)  // r/w   [adr], const
 
 IF_DEF(AWR_RRD_CNS, IS_AM_WR|IS_R1_RD,          AMD_CNS)  // write [adr], read reg, const
-
-//////////////////////////////////////////////////////////////////////////////
+// clang-format on
 
 #undef IF_DEF
 
-//////////////////////////////////////////////////////////////////////////////
-#endif // DEFINE_IS_OPS
 #endif // DEFINE_ID_OPS
-//////////////////////////////////////////////////////////////////////////////
-// clang-format on
+#endif // TARGET_XARCH
