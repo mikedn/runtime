@@ -7146,10 +7146,6 @@ void emitter::emitDispIns(
             emitDispShiftCL(ins);
             break;
 
-        case IF_RRW_SHF:
-            printf("%s, %d", emitRegName(id->idReg1(), attr), emitGetInsSC(id));
-            break;
-
         case IF_RRD_MRD:
         case IF_RWR_MRD:
         case IF_RRW_MRD:
@@ -7233,6 +7229,7 @@ void emitter::emitDispIns(
         case IF_RRD_CNS:
         case IF_RWR_CNS:
         case IF_RRW_CNS:
+        case IF_RRW_SHF:
             printf("%s, ", emitRegName(id->idReg1(), attr));
             emitDispImm(id, emitGetInsSC(id));
             break;
