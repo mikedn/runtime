@@ -6523,23 +6523,8 @@ void emitter::emitDispInsHex(instrDesc* id, BYTE* code, size_t sz)
     }
 }
 
-const char* emitSizeStr(emitAttr attr)
+static const char* emitSizeStr(emitAttr attr)
 {
-    if (attr == EA_GCREF)
-    {
-        return "gword ptr ";
-    }
-
-    if (attr == EA_BYREF)
-    {
-        return "bword ptr ";
-    }
-
-    if (EA_IS_DSP_RELOC(attr))
-    {
-        return "rword ptr ";
-    }
-
     switch (EA_SIZE(attr))
     {
         case 1:
@@ -6555,7 +6540,7 @@ const char* emitSizeStr(emitAttr attr)
         case 32:
             return "ymmword ptr ";
         default:
-            return "unknw ptr ";
+            return "??? ";
     }
 }
 
@@ -6630,46 +6615,29 @@ void emitter::emitDispIns(
             case INS_vextracti128:
             case INS_vinsertf128:
             case INS_vinserti128:
-            {
                 sizeAttr = EA_16BYTE;
                 break;
-            }
-
             case INS_pextrb:
             case INS_pinsrb:
-            {
                 sizeAttr = EA_1BYTE;
                 break;
-            }
-
             case INS_pextrw:
             case INS_pextrw_sse41:
             case INS_pinsrw:
-            {
                 sizeAttr = EA_2BYTE;
                 break;
-            }
-
             case INS_extractps:
             case INS_insertps:
             case INS_pextrd:
             case INS_pinsrd:
-            {
                 sizeAttr = EA_4BYTE;
                 break;
-            }
-
             case INS_pextrq:
             case INS_pinsrq:
-            {
                 sizeAttr = EA_8BYTE;
                 break;
-            }
-
             default:
-            {
                 break;
-            }
         }
 
         sstr = emitSizeStr(sizeAttr);
@@ -6747,8 +6715,7 @@ void emitter::emitDispIns(
         case IF_AWR_RRD_CNS:
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
             // vextracti/f128 extracts 128-bit data, so we fix sstr as "xmm ptr"
-            sstr = emitSizeStr(EA_16BYTE);
-            printf(sstr);
+            printf("%s", emitSizeStr(EA_16BYTE));
             emitDispAddrMode(id);
             printf(", %s", emitRegName(id->idReg1(), attr));
             printf(", ");
@@ -6765,8 +6732,7 @@ void emitter::emitDispIns(
             {
                 attr = EA_16BYTE;
             }
-            sstr = emitSizeStr(EA_ATTR(4));
-            printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
+            printf("%s, %s", emitRegName(id->idReg1(), attr), emitSizeStr(EA_4BYTE));
             emitDispAddrMode(id);
             printf(", %s", emitRegName(id->idReg2(), attr));
             break;
@@ -7103,8 +7069,7 @@ void emitter::emitDispIns(
         case IF_MWR_RRD_CNS:
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
             // vextracti/f128 extracts 128-bit data, so we fix sstr as "xmm ptr"
-            sstr = emitSizeStr(EA_ATTR(16));
-            printf(sstr);
+            printf("%s", emitSizeStr(EA_16BYTE));
             emitDispClsVar(id);
             printf(", %s", emitRegName(id->idReg1(), attr));
             printf(", ");
