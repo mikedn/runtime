@@ -263,7 +263,7 @@ bool emitter::IsFlagsAlwaysModified(instrDesc* id)
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
 
-    if (fmt == IF_RRW_SHF)
+    if (IsShiftImm(ins))
     {
         if (id->idIsLargeCns())
         {
@@ -318,7 +318,6 @@ bool emitter::AreUpper32BitsZero(regNumber reg)
     {
         case IF_RWR_CNS:
         case IF_RRW_CNS:
-        case IF_RRW_SHF:
         case IF_RWR_RRD:
         case IF_RRW_RRD:
         case IF_RWR_MRD:
@@ -391,7 +390,6 @@ bool emitter::AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps tr
     {
         case IF_RWR_CNS:
         case IF_RRW_CNS:
-        case IF_RRW_SHF:
         case IF_RWR_RRD:
         case IF_RRW_RRD:
         case IF_RWR_MRD:
@@ -2102,14 +2100,13 @@ UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code)
     // ideally these should really be the only idInsFmts that we see here
     //  but we have some outliers to deal with:
     //     emitIns_R_L adds IF_RWR_LABEL and calls emitInsSizeAM
-    //     emitInsRMW adds IF_MRW_CNS, IF_MRW_RRD, IF_MRW_SHF, and calls emitInsSizeAM
+    //     emitInsRMW adds IF_MRW_CNS, IF_MRW_RRD and calls emitInsSizeAM
 
     switch (id->idInsFmt())
     {
         case IF_RWR_LABEL:
         case IF_MRW_CNS:
         case IF_MRW_RRD:
-        case IF_MRW_SHF:
             reg = REG_NA;
             rgx = REG_NA;
             break;
@@ -2755,39 +2752,6 @@ void emitter::emitIns(instruction ins, emitAttr attr)
 }
 
 //------------------------------------------------------------------------
-// emitMapFmtForIns: map the instruction format based on the instruction.
-// Shift-by-a-constant instructions have a special format.
-//
-// Arguments:
-//    fmt - the instruction format to map
-//    ins - the instruction
-//
-// Returns:
-//    The mapped instruction format.
-//
-emitter::insFormat emitter::emitMapFmtForIns(insFormat fmt, instruction ins)
-{
-    if (IsShiftImm(ins))
-    {
-        switch (fmt)
-        {
-            case IF_RRW_CNS:
-                return IF_RRW_SHF;
-            case IF_MRW_CNS:
-                return IF_MRW_SHF;
-            case IF_SRW_CNS:
-                return IF_SRW_SHF;
-            case IF_ARW_CNS:
-                return IF_ARW_SHF;
-            default:
-                unreached();
-        }
-    }
-
-    return fmt;
-}
-
-//------------------------------------------------------------------------
 // emitMapFmtAtoM: map the address mode formats ARD, ARW, and AWR to their direct address equivalents.
 //
 // Arguments:
@@ -2840,9 +2804,6 @@ emitter::insFormat emitter::emitMapFmtAtoM(insFormat fmt)
 
         case IF_AWR_RRD_CNS:
             return IF_MWR_RRD_CNS;
-
-        case IF_ARW_SHF:
-            return IF_MRW_SHF;
 
         default:
             unreached();
@@ -2922,7 +2883,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
 
     if (!addr->isContained())
     {
-        id->idInsFmt(emitMapFmtForIns(fmt, ins));
+        id->idInsFmt(fmt);
         id->idAddr()->iiaAddrMode.amBaseReg = addr->GetRegNum();
         id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
         id->idAddr()->iiaAddrMode.amScale   = emitter::OPSZ1;
@@ -2936,7 +2897,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
         CORINFO_FIELD_HANDLE fldHnd = clsAddr->GetFieldHandle();
         assert(FieldDispRequiresRelocation(fldHnd));
 
-        id->idInsFmt(emitMapFmtForIns(emitMapFmtAtoM(fmt), ins));
+        id->idInsFmt(emitMapFmtAtoM(fmt));
         id->idAddr()->iiaFieldHnd = fldHnd;
         id->idSetIsDspReloc();
 
@@ -2957,7 +2918,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
         id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
         id->idAddr()->iiaAddrMode.amScale   = emitter::OPSZ1; // for completeness
 
-        id->idInsFmt(emitMapFmtForIns(fmt, ins));
+        id->idInsFmt(fmt);
 
         // Absolute address must have already been set by the caller.
         assert(emitGetInsAmdDisp(id) == intConAddr->GetValue());
@@ -2967,7 +2928,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
 
     GenTreeAddrMode* addrMode = addr->AsAddrMode();
 
-    id->idInsFmt(emitMapFmtForIns(fmt, ins));
+    id->idInsFmt(fmt);
 
     if (GenTree* base = addrMode->GetBase())
     {
@@ -3302,8 +3263,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     if (IsShiftImm(ins))
     {
         assert(val != 1);
-        fmt = IF_RRW_SHF;
-        sz  = 3;
+        sz = 3;
         val &= 0x7F;
         valInByte = true; // shift amount always placed in a byte
     }
@@ -4566,22 +4526,15 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
 {
     assert(FieldDispRequiresRelocation(fldHnd));
 
-    insFormat fmt;
-
     if (IsShiftImm(ins))
     {
         assert(imm != 1);
-        fmt = IF_MRW_SHF;
         imm &= 0x7F;
-    }
-    else
-    {
-        fmt = emitInsModeFormat(ins, IF_MRD_CNS);
     }
 
     instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(emitInsModeFormat(ins, IF_MRD_CNS));
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
@@ -4632,22 +4585,15 @@ void emitter::emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int32
     noway_assert(EA_SIZE(attr) < EA_8BYTE || !EA_IS_CNS_RELOC(attr));
 #endif
 
-    insFormat fmt;
-
     if (IsShiftImm(ins))
     {
         assert(imm != 1);
-        fmt = IF_ARW_SHF;
         imm &= 0x7F;
-    }
-    else
-    {
-        fmt = emitInsModeFormat(ins, IF_ARD_CNS);
     }
 
     instrDesc* id = emitNewInstrAmdCns(attr, disp, imm);
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(emitInsModeFormat(ins, IF_ARD_CNS));
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
 
@@ -4752,22 +4698,15 @@ void emitter::emitIns_ARX_I(
     noway_assert(EA_SIZE(attr) < EA_8BYTE || !EA_IS_CNS_RELOC(attr));
 #endif
 
-    insFormat fmt;
-
     if (IsShiftImm(ins))
     {
         assert(imm != 1);
-        fmt = IF_ARW_SHF;
         imm &= 0x7F;
-    }
-    else
-    {
-        fmt = emitInsModeFormat(ins, IF_ARD_CNS);
     }
 
     instrDesc* id = emitNewInstrAmdCns(attr, disp, imm);
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(emitInsModeFormat(ins, IF_ARD_CNS));
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = index;
     id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(scale);
@@ -5437,22 +5376,15 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
     noway_assert(EA_SIZE(attr) < EA_8BYTE || !EA_IS_CNS_RELOC(attr));
 #endif
 
-    insFormat fmt;
-
     if (IsShiftImm(ins))
     {
         assert(imm != 1);
-        fmt = IF_SRW_SHF;
         imm &= 0x7F;
-    }
-    else
-    {
-        fmt = emitInsModeFormat(ins, IF_SRD_CNS);
     }
 
     instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(emitInsModeFormat(ins, IF_SRD_CNS));
     SetInstrLclAddrMode(id, varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeMI(ins), imm);
@@ -6871,7 +6803,6 @@ void emitter::emitDispIns(
         case IF_ARD_CNS:
         case IF_AWR_CNS:
         case IF_ARW_CNS:
-        case IF_ARW_SHF:
             printf("%s", sstr);
             emitDispAddrMode(id);
             printf(", ");
@@ -6913,7 +6844,6 @@ void emitter::emitDispIns(
         case IF_SRD_CNS:
         case IF_SWR_CNS:
         case IF_SRW_CNS:
-        case IF_SRW_SHF:
             printf("%s", sstr);
             emitDispFrameRef(id, asmfm);
             printf(", ");
@@ -7211,7 +7141,6 @@ void emitter::emitDispIns(
         case IF_MRD_CNS:
         case IF_MWR_CNS:
         case IF_MRW_CNS:
-        case IF_MRW_SHF:
             printf("%s", sstr);
             emitDispClsVar(id);
             printf(", ");
@@ -7229,7 +7158,6 @@ void emitter::emitDispIns(
         case IF_RRD_CNS:
         case IF_RWR_CNS:
         case IF_RRW_CNS:
-        case IF_RRW_SHF:
             printf("%s, ", emitRegName(id->idReg1(), attr));
             emitDispImm(id, emitGetInsSC(id));
             break;
@@ -7640,7 +7568,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             // 3. Shifts and SSE/AVX instructions only have imm8 encodings, independent of the first operand size.
             if ((immSize > 1) && IsImm8(*imm) && !id->idIsCnsReloc() && (ins != INS_mov) && (ins != INS_test))
             {
-                if ((id->idInsFmt() != IF_ARW_SHF) && !IsSSEOrAVXInstruction(ins))
+                if (!IsShiftImm(ins) && !IsSSEOrAVXInstruction(ins))
                 {
                     code |= 2;
                 }
@@ -8023,12 +7951,10 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         // 3. Shifts and SSE/AVX instructions only have imm8 encodings, independent of the first operand size.
         if ((immSize > 1) && IsImm8(*imm) && !id->idIsCnsReloc() && (ins != INS_mov) && (ins != INS_test))
         {
-            // TODO-MIKE-Cleanup: Why the crap does this check for the shift format instead of checking for
-            // shift instructions? Just to be different from emitOutputAM/CV. And why the crap does this
-            // check IF_RRW_SRD_CNS and IF_RWR_RRD_SRD_CNS, which are only used by SSE/AVX instructions,
-            // and then also checks for SSE/VAX instructions?!?
-            if (((id->idInsFmt() != IF_SRW_SHF) && (id->idInsFmt() != IF_RRW_SRD_CNS) &&
-                 (id->idInsFmt() != IF_RWR_RRD_SRD_CNS) && !IsSSEOrAVXInstruction(ins)) ||
+            // TODO-MIKE-Cleanup: Why the crap does this check IF_RRW_SRD_CNS and IF_RWR_RRD_SRD_CNS,
+            // which are only used by SSE/AVX instructions, and then also checks for SSE/VAX instructions?!?
+            if ((!IsShiftImm(ins) && (id->idInsFmt() != IF_RRW_SRD_CNS) && (id->idInsFmt() != IF_RWR_RRD_SRD_CNS) &&
+                 !IsSSEOrAVXInstruction(ins)) ||
                 (ins == INS_imuli))
             {
                 code |= 2;
@@ -8371,7 +8297,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         // 3. Shifts and SSE/AVX instructions only have imm8 encodings, independent of the first operand size.
         if ((immSize > 1) && IsImm8(*imm) && !id->idIsCnsReloc() && (ins != INS_mov) && (ins != INS_test))
         {
-            if ((id->idInsFmt() != IF_MRW_SHF) && !IsSSEOrAVXInstruction(ins))
+            if (!IsShiftImm(ins) && !IsSSEOrAVXInstruction(ins))
             {
                 code |= 2;
             }
@@ -9457,7 +9383,7 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
         return dst;
     }
 
-    if (id->idInsFmt() == IF_RRW_SHF)
+    if (IsShiftImm(ins))
     {
         assert(!TakesVexPrefix(ins));
 
@@ -10308,7 +10234,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_RRD_CNS:
         case IF_RWR_CNS:
         case IF_RRW_CNS:
-        case IF_RRW_SHF:
             dst = emitOutputRI(dst, id);
             sz  = emitSizeOfInsDsc(id);
             break;
@@ -10489,7 +10414,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_ARD_CNS:
         case IF_AWR_CNS:
         case IF_ARW_CNS:
-        case IF_ARW_SHF:
             cnsVal = emitGetInsAmdCns(id);
             dst    = emitOutputAM(dst, id, insCodeMI(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
@@ -10620,7 +10544,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_SRD_CNS:
         case IF_SWR_CNS:
         case IF_SRW_CNS:
-        case IF_SRW_SHF:
             cnsVal = emitGetInsCns(id);
             dst    = emitOutputSV(dst, id, insCodeMI(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
@@ -10754,7 +10677,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_MRD_CNS:
         case IF_MWR_CNS:
         case IF_MRW_CNS:
-        case IF_MRW_SHF:
             cnsVal = emitGetInsMemImm(id);
             dst    = emitOutputCV(dst, id, insCodeMI(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
@@ -11042,7 +10964,6 @@ emitter::insFormat emitter::getMemoryOperation(instrDesc* id)
         case IF_RRD_CNS:
         case IF_RWR_CNS:
         case IF_RRW_CNS:
-        case IF_RRW_SHF:
         case IF_RRD_RRD:
         case IF_RWR_RRD:
         case IF_RRW_RRD:
@@ -11083,7 +11004,6 @@ emitter::insFormat emitter::getMemoryOperation(instrDesc* id)
         case IF_ARW:
         case IF_ARW_RRD:
         case IF_ARW_CNS:
-        case IF_ARW_SHF:
             // Address [reg+reg*scale+cns] - read and write
             result = IF_ARW;
             break;
@@ -11115,7 +11035,6 @@ emitter::insFormat emitter::getMemoryOperation(instrDesc* id)
         case IF_MRW:
         case IF_MRW_CNS:
         case IF_MRW_RRD:
-        case IF_MRW_SHF:
             // Address [cns] - read and write
             result = IF_MWR;
             break;
@@ -11147,7 +11066,6 @@ emitter::insFormat emitter::getMemoryOperation(instrDesc* id)
         case IF_SRW:
         case IF_SRW_CNS:
         case IF_SRW_RRD:
-        case IF_SRW_SHF:
             // Stack [RSP] - read and write
             result = IF_SWR;
             break;
@@ -11533,14 +11451,14 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
             result.insLatency += PERFSCORE_LATENCY_1C;
             switch (insFmt)
             {
-                case IF_RRW_SHF:
+                case IF_RRW_CNS:
                     // ins   reg, cns
                     result.insThroughput = PERFSCORE_THROUGHPUT_2X;
                     break;
 
-                case IF_MRW_SHF:
-                case IF_SRW_SHF:
-                case IF_ARW_SHF:
+                case IF_MRW_CNS:
+                case IF_SRW_CNS:
+                case IF_ARW_CNS:
                     // ins   [mem], cns
                     result.insThroughput = PERFSCORE_THROUGHPUT_2C;
                     break;

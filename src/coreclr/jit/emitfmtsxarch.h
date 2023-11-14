@@ -95,7 +95,6 @@ IF_DEF(RRW,         IS_R1_RW,                   NONE)     // r/w    reg
 IF_DEF(RRD_CNS,     IS_R1_RD,                   CNS )     // read   reg , const
 IF_DEF(RWR_CNS,     IS_R1_WR,                   CNS )     // write  reg , const
 IF_DEF(RRW_CNS,     IS_R1_RW,                   CNS )     // r/w    reg , const
-IF_DEF(RRW_SHF,     IS_R1_RW,                   CNS )     // r/w    reg , shift-const
 
 IF_DEF(RRD_RRD,     IS_R1_RD|IS_R2_RD,          NONE)     // read   reg , read reg2
 IF_DEF(RWR_RRD,     IS_R1_WR|IS_R2_RD,          NONE)     // write  reg , read reg2
@@ -135,8 +134,6 @@ IF_DEF(MRW_CNS,     IS_GM_RW,                   DSP_CNS)  // r/w   [mem], const
 
 IF_DEF(MWR_RRD_CNS, IS_GM_WR|IS_R1_RD,          DSP_CNS)  // write [mem], read reg, const
 
-IF_DEF(MRW_SHF,     IS_GM_RW,                   DSP_CNS)  // shift [mem], const
-
 //----------------------------------------------------------------------------
 // The following formats are used for stack frame refs
 //----------------------------------------------------------------------------
@@ -164,8 +161,6 @@ IF_DEF(SWR_CNS,     IS_SF_WR,                   CNS )     // write [stk], const
 IF_DEF(SRW_CNS,     IS_SF_RW,                   CNS )     // r/w   [stk], const
 
 IF_DEF(SWR_RRD_CNS, IS_AM_WR|IS_R1_RD,          AMD_CNS)  // write [stk], read reg, const
-
-IF_DEF(SRW_SHF,     IS_SF_RW,                   CNS )     // shift [stk], const
 
 //----------------------------------------------------------------------------
 // The following formats are used for indirect address modes
@@ -198,8 +193,6 @@ IF_DEF(AWR_CNS,     IS_AM_WR,                   AMD_CNS)  // write [adr], const
 IF_DEF(ARW_CNS,     IS_AM_RW,                   AMD_CNS)  // r/w   [adr], const
 
 IF_DEF(AWR_RRD_CNS, IS_AM_WR|IS_R1_RD,          AMD_CNS)  // write [adr], read reg, const
-
-IF_DEF(ARW_SHF,     IS_AM_RW,                   AMD_CNS)  // shift [adr], const
 
 //////////////////////////////////////////////////////////////////////////////
 

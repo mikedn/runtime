@@ -1587,7 +1587,6 @@ public:
 
 private:
     CORINFO_FIELD_HANDLE emitFltOrDblConst(double constValue, emitAttr attr);
-    insFormat emitMapFmtForIns(insFormat fmt, instruction ins);
     insFormat emitMapFmtAtoM(insFormat fmt);
     void PrologSpillParamRegsToShadowSlots();
 
