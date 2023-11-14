@@ -95,7 +95,6 @@ code_t insEncodeReg3456(instruction ins, regNumber reg, emitAttr size, code_t co
 code_t insEncodeMRreg(instruction ins, code_t code);
 code_t insEncodeRMreg(instruction ins, code_t code);
 code_t insEncodeMRreg(instruction ins, regNumber reg, emitAttr size, code_t code);
-code_t insEncodeRRIb(instruction ins, regNumber reg, emitAttr size);
 code_t insEncodeOpreg(instruction ins, regNumber reg, emitAttr size);
 
 static bool IsSSEInstruction(instruction ins);

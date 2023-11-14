@@ -1749,35 +1749,6 @@ inline emitter::code_t emitter::insEncodeMIreg(instruction ins, regNumber reg, e
 
 /*****************************************************************************
  *
- *  Returns true iff the given instruction does not have a "[r/m], icon" form, but *does* have a
- *  "reg,reg,imm8" form.
- */
-inline bool insNeedsRRIb(instruction ins)
-{
-    // If this list gets longer, use a switch or a table.
-    return ins == INS_imul;
-}
-
-/*****************************************************************************
- *
- *  Returns the "reg,reg,imm8" opcode with both the reg's set to the
- *  the given register.
- */
-inline emitter::code_t emitter::insEncodeRRIb(instruction ins, regNumber reg, emitAttr size)
-{
-    assert(size == EA_4BYTE); // All we handle for now.
-    assert(insNeedsRRIb(ins));
-    // If this list gets longer, use a switch, or a table lookup.
-    code_t   code    = 0x69c0;
-    unsigned regcode = insEncodeReg012(ins, reg, size, &code);
-    // We use the same register as source and destination.  (Could have another version that does both regs...)
-    code |= regcode;
-    code |= (regcode << 3);
-    return code;
-}
-
-/*****************************************************************************
- *
  *  Returns the "+reg" opcode with the the given register set into the low
  *  nibble of the opcode
  */
@@ -9579,18 +9550,9 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
     {
         assert(!useSigned || hasImm8);
 
-        // Some instructions (at least 'imul') do not have a
-        // r/m, immed form, but do have a dstReg,srcReg,imm8 form.
-        if (hasImm8 && useSigned && insNeedsRRIb(ins))
-        {
-            code = insEncodeRRIb(ins, reg, size);
-        }
-        else
-        {
-            code = insCodeMI(ins);
-            code = AddVexPrefixIfNeeded(ins, code, size);
-            code = insEncodeMIreg(ins, reg, size, code);
-        }
+        code = insCodeMI(ins);
+        code = AddVexPrefixIfNeeded(ins, code, size);
+        code = insEncodeMIreg(ins, reg, size, code);
     }
 
     switch (size)
