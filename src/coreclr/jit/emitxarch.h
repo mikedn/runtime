@@ -407,17 +407,10 @@ bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumb
 
 bool emitInsCanOnlyWriteSSE2OrAVXReg(instrDesc* id);
 
-#if FEATURE_FIXED_OUT_ARGS
-void emitAdjustStackDepthPushPop(instruction ins)
-{
-}
-void emitAdjustStackDepth(instruction ins, ssize_t val)
-{
-}
-#else  // !FEATURE_FIXED_OUT_ARGS
+#if !FEATURE_FIXED_OUT_ARGS
 void emitAdjustStackDepthPushPop(instruction ins);
 void emitAdjustStackDepth(instruction ins, ssize_t val);
-#endif // !FEATURE_FIXED_OUT_ARGS
+#endif
 
 opSize emitEncodeScale(size_t scale);
 emitAttr emitDecodeScale(unsigned ensz);

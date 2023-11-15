@@ -3080,8 +3080,9 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
-
+#if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
+#endif
 }
 
 void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int imm)
@@ -3273,8 +3274,9 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
 
     dispIns(id);
     emitCurIGsize += sz;
-
+#if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
+#endif
 }
 
 void emitter::emitIns_R_H(instruction ins, regNumber reg, void* addr DEBUGARG(HandleKind handleKind))
@@ -3422,10 +3424,12 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     dispIns(id);
     emitCurIGsize += sz;
 
+#if !FEATURE_FIXED_OUT_ARGS
     if (reg == REG_ESP)
     {
         emitAdjustStackDepth(ins, val);
     }
+#endif
 }
 
 #ifdef TARGET_X86
@@ -3440,7 +3444,9 @@ void emitter::emitIns_H(instruction ins, void* addr)
 
     dispIns(id);
     emitCurIGsize += 5;
+#if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
+#endif
 }
 #endif
 
@@ -3473,7 +3479,9 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 
     dispIns(id);
     emitCurIGsize += sz;
+#if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
+#endif
 }
 
 void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd)
@@ -3497,7 +3505,9 @@ void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fld
 
     dispIns(id);
     emitCurIGsize += sz;
+#if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
+#endif
 }
 
 //------------------------------------------------------------------------
@@ -4846,8 +4856,9 @@ void emitter::emitIns_ARX_R(
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
-
+#if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
+#endif
 }
 
 //------------------------------------------------------------------------
@@ -5393,8 +5404,9 @@ void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
-
+#if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
+#endif
 }
 
 void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs)
@@ -5624,8 +5636,9 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
 
     dispIns(id);
     emitCurIGsize += sz;
-
+#if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
+#endif
 }
 
 ssize_t emitter::emitGetInsCns(instrDesc* id)
