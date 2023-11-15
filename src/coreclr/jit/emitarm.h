@@ -101,99 +101,13 @@ void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varO
 /*           Public inline informational methods                        */
 /************************************************************************/
 
-public:
-inline static bool isLowRegister(regNumber reg)
+static bool isLowRegister(regNumber reg)
 {
     return (reg <= REG_R7);
 }
 
-inline static bool isGeneralRegister(regNumber reg)
-{
-    return (reg <= REG_R15);
-}
-
-inline static bool isFloatReg(regNumber reg)
-{
-    return (reg >= REG_F0 && reg <= REG_F31);
-}
-
-inline static bool isDoubleReg(regNumber reg)
-{
-    return isFloatReg(reg) && ((reg % 2) == 0);
-}
-
-inline static bool insSetsFlags(insFlags flags)
-{
-    return (flags != INS_FLAGS_NOT_SET);
-}
-
-inline static bool insDoesNotSetFlags(insFlags flags)
-{
-    return (flags != INS_FLAGS_SET);
-}
-
-inline static insFlags insMustSetFlags(insFlags flags)
-{
-    return (flags == INS_FLAGS_SET) ? INS_FLAGS_SET : INS_FLAGS_NOT_SET;
-}
-
-inline static insFlags insMustNotSetFlags(insFlags flags)
-{
-    return (flags == INS_FLAGS_NOT_SET) ? INS_FLAGS_NOT_SET : INS_FLAGS_SET;
-}
-
-inline static bool insOptsNone(insOpts opt)
-{
-    return (opt == INS_OPTS_NONE);
-}
-
-inline static bool insOptAnyInc(insOpts opt)
-{
-    return (opt == INS_OPTS_LDST_PRE_DEC) || (opt == INS_OPTS_LDST_POST_INC);
-}
-
-inline static bool insOptsPreDec(insOpts opt)
-{
-    return (opt == INS_OPTS_LDST_PRE_DEC);
-}
-
-inline static bool insOptsPostInc(insOpts opt)
-{
-    return (opt == INS_OPTS_LDST_POST_INC);
-}
-
-inline static bool insOptAnyShift(insOpts opt)
-{
-    return ((opt >= INS_OPTS_RRX) && (opt <= INS_OPTS_ROR));
-}
-
-inline static bool insOptsRRX(insOpts opt)
-{
-    return (opt == INS_OPTS_RRX);
-}
-
-inline static bool insOptsLSL(insOpts opt)
-{
-    return (opt == INS_OPTS_LSL);
-}
-
-inline static bool insOptsLSR(insOpts opt)
-{
-    return (opt == INS_OPTS_LSR);
-}
-
-inline static bool insOptsASR(insOpts opt)
-{
-    return (opt == INS_OPTS_ASR);
-}
-
-inline static bool insOptsROR(insOpts opt)
-{
-    return (opt == INS_OPTS_ROR);
-}
-
 // Returns the number of bits used by the given 'size'.
-inline static unsigned getBitWidth(emitAttr size)
+static unsigned getBitWidth(emitAttr size)
 {
     assert(size <= EA_8BYTE);
     return (unsigned)size * BITS_PER_BYTE;

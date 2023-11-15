@@ -5151,7 +5151,7 @@ void CodeGen::GenJmp(GenTree* jmp)
         {
             regNumber reg = lcl->GetParamReg();
 
-            if (emitter::isFloatReg(reg))
+            if (IsFloatReg(reg))
             {
                 regNumber intReg = MapVarargsParamFloatRegToIntReg(reg);
                 GetEmitter()->emitIns_Mov(INS_movd, EA_8BYTE, intReg, reg, /*canSkip*/ false);

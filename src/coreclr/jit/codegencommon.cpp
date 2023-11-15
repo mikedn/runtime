@@ -1816,7 +1816,7 @@ void CodeGen::genPrologMoveParamRegs(
 // Map a parameter register to a parameter register index.
 unsigned genGetParamRegIndex(regNumber regNum)
 {
-    if (emitter::isFloatReg(regNum))
+    if (IsFloatReg(regNum))
     {
         assert(isValidFloatArgReg(regNum));
 
@@ -1913,7 +1913,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
             {
                 regNumber regNum = lcl->GetParamReg(regIndex);
 
-                if (emitter::isFloatReg(regNum) != isFloat)
+                if (IsFloatReg(regNum) != isFloat)
                 {
                     continue;
                 }
@@ -1967,7 +1967,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
         else
 #endif // UNIX_AMD64_ABI
         {
-            if (emitter::isFloatReg(lcl->GetParamReg()) != isFloat)
+            if (IsFloatReg(lcl->GetParamReg()) != isFloat)
             {
                 continue;
             }

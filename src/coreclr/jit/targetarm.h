@@ -307,3 +307,13 @@
   #define RBM_STACK_PROBE_HELPER_CALL_TARGET RBM_R5
   #define RBM_STACK_PROBE_HELPER_TRASH       (RBM_R5 | RBM_LR)
 // clang-format on
+
+constexpr bool IsGeneralRegister(regNumber reg)
+{
+    return reg <= REG_R15;
+}
+
+constexpr bool IsFloatReg(regNumber reg)
+{
+    return (reg >= REG_F0 && reg <= REG_F31);
+}

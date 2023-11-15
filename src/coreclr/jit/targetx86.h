@@ -279,3 +279,13 @@
   #define BYTE_REG_COUNT          4
   #define RBM_NON_BYTE_REGS       (RBM_ESI|RBM_EDI)
 // clang-format on
+
+constexpr bool IsGeneralRegister(regNumber reg)
+{
+    return (reg >= REG_INT_FIRST) && (reg <= REG_INT_LAST);
+}
+
+constexpr bool IsFloatReg(regNumber reg)
+{
+    return (reg >= REG_FP_FIRST) && (reg <= REG_FP_LAST);
+}

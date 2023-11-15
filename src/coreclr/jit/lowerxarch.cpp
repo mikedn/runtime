@@ -21,6 +21,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "sideeffects.h"
 #include "lower.h"
+#include "emit.h"
 
 void Lowering::LowerRotate(GenTree* tree)
 {

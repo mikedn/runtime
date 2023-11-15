@@ -344,3 +344,18 @@
   #define REG_ZERO_INIT_FRAME_SIMD REG_V16
 
 // clang-format on
+
+constexpr bool IsGeneralRegister(regNumber reg)
+{
+    return (reg >= REG_INT_FIRST) && (reg <= REG_LR);
+}
+
+constexpr bool IsVectorRegister(regNumber reg)
+{
+    return (reg >= REG_FP_FIRST) && (reg <= REG_FP_LAST);
+}
+
+constexpr bool IsFloatReg(regNumber reg)
+{
+    return IsVectorRegister(reg);
+}

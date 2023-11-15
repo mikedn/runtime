@@ -8,6 +8,7 @@
 #include "sideeffects.h"
 #include "lower.h"
 #include "lsra.h"
+#include "emit.h"
 
 void LinearScan::BuildIndir(GenTreeIndir* indir)
 {

@@ -23,6 +23,66 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 
+static bool isGeneralRegister(regNumber reg)
+{
+    return IsGeneralRegister(reg);
+}
+
+static bool isFloatReg(regNumber reg)
+{
+    return IsFloatReg(reg);
+}
+
+static bool isDoubleReg(regNumber reg)
+{
+    return isFloatReg(reg) && ((reg % 2) == 0);
+}
+
+static bool insSetsFlags(insFlags flags)
+{
+    return (flags != INS_FLAGS_NOT_SET);
+}
+
+static bool insDoesNotSetFlags(insFlags flags)
+{
+    return (flags != INS_FLAGS_SET);
+}
+
+static insFlags insMustSetFlags(insFlags flags)
+{
+    return (flags == INS_FLAGS_SET) ? INS_FLAGS_SET : INS_FLAGS_NOT_SET;
+}
+
+static bool insOptsNone(insOpts opt)
+{
+    return (opt == INS_OPTS_NONE);
+}
+
+static bool insOptAnyInc(insOpts opt)
+{
+    return (opt == INS_OPTS_LDST_PRE_DEC) || (opt == INS_OPTS_LDST_POST_INC);
+}
+
+static bool insOptsPostInc(insOpts opt)
+{
+    return (opt == INS_OPTS_LDST_POST_INC);
+}
+
+static bool insOptAnyShift(insOpts opt)
+{
+    return ((opt >= INS_OPTS_RRX) && (opt <= INS_OPTS_ROR));
+}
+
+static bool insOptsRRX(insOpts opt)
+{
+    return (opt == INS_OPTS_RRX);
+}
+
+static bool insOptsLSL(insOpts opt)
+{
+    return (opt == INS_OPTS_LSL);
+}
+
 /*****************************************************************************/
 
 const instruction emitJumpKindInstructions[] = {
@@ -4372,9 +4432,9 @@ inline unsigned floatRegIndex(regNumber reg, int size)
     assert(size == EA_8BYTE || size == EA_4BYTE);
 
     if (size == EA_8BYTE)
-        assert(emitter::isDoubleReg(reg));
+        assert(isDoubleReg(reg));
     else
-        assert(emitter::isFloatReg(reg));
+        assert(isFloatReg(reg));
 
     unsigned result = reg - REG_F0;
 

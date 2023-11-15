@@ -18,6 +18,16 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 
+static bool isGeneralRegister(regNumber reg)
+{
+    return IsGeneralRegister(reg);
+}
+
+static bool isFloatReg(regNumber reg)
+{
+    return IsFloatReg(reg);
+}
+
 constexpr bool IsDisp8(ssize_t disp)
 {
     return (-128 <= disp) && (disp <= 127);

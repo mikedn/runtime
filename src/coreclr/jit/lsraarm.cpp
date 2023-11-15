@@ -6,6 +6,7 @@
 #ifdef TARGET_ARM
 
 #include "lsra.h"
+#include "emit.h"
 
 void LinearScan::BuildNode(GenTree* tree)
 {

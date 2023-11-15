@@ -1074,7 +1074,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
 emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
 {
     assert(EA_IS_GCREF_OR_BYREF(attr));
-    assert(isGeneralRegister(reg));
+    assert(IsGeneralRegister(reg));
 
     if ((codeGen->liveness.GetGCRegs(attr) & genRegMask(reg)) != RBM_NONE)
     {

@@ -24,6 +24,147 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 
+static bool isGeneralRegister(regNumber reg)
+{
+    return IsGeneralRegister(reg);
+} // Excludes REG_ZR
+
+static bool isGeneralRegisterOrZR(regNumber reg)
+{
+    return (reg >= REG_INT_FIRST) && (reg <= REG_ZR);
+} // Includes REG_ZR
+
+static bool isGeneralRegisterOrSP(regNumber reg)
+{
+    return isGeneralRegister(reg) || (reg == REG_SP);
+} // Includes REG_SP, Excludes REG_ZR
+
+static bool isValidGeneralDatasize(emitAttr size)
+{
+    return (size == EA_8BYTE) || (size == EA_4BYTE);
+}
+
+static bool isValidScalarDatasize(emitAttr size)
+{
+    return (size == EA_8BYTE) || (size == EA_4BYTE);
+}
+
+static bool isValidVectorDatasize(emitAttr size)
+{
+    return (size == EA_16BYTE) || (size == EA_8BYTE);
+}
+
+static bool isValidGeneralLSDatasize(emitAttr size)
+{
+    return (size == EA_8BYTE) || (size == EA_4BYTE) || (size == EA_2BYTE) || (size == EA_1BYTE);
+}
+
+static bool isValidVectorLSDatasize(emitAttr size)
+{
+    return (size == EA_16BYTE) || (size == EA_8BYTE) || (size == EA_4BYTE) || (size == EA_2BYTE) || (size == EA_1BYTE);
+}
+
+static bool isValidVectorLSPDatasize(emitAttr size)
+{
+    return (size == EA_16BYTE) || (size == EA_8BYTE) || (size == EA_4BYTE);
+}
+
+static bool isValidVectorElemsize(emitAttr size)
+{
+    return (size == EA_8BYTE) || (size == EA_4BYTE) || (size == EA_2BYTE) || (size == EA_1BYTE);
+}
+
+static bool isValidVectorFcvtsize(emitAttr size)
+{
+    return (size == EA_8BYTE) || (size == EA_4BYTE) || (size == EA_2BYTE);
+}
+
+static bool isValidVectorElemsizeFloat(emitAttr size)
+{
+    return (size == EA_8BYTE) || (size == EA_4BYTE);
+}
+
+static bool isVectorRegister(regNumber reg)
+{
+    return IsVectorRegister(reg);
+}
+
+static bool insOptsNone(insOpts opt)
+{
+    return (opt == INS_OPTS_NONE);
+}
+
+static bool insOptsIndexed(insOpts opt)
+{
+    return (opt == INS_OPTS_PRE_INDEX) || (opt == INS_OPTS_POST_INDEX);
+}
+
+static bool insOptsPreIndex(insOpts opt)
+{
+    return (opt == INS_OPTS_PRE_INDEX);
+}
+
+static bool insOptsPostIndex(insOpts opt)
+{
+    return (opt == INS_OPTS_POST_INDEX);
+}
+
+static bool insOptsLSL12(insOpts opt) // special 12-bit shift only used for imm12
+{
+    return (opt == INS_OPTS_LSL12);
+}
+
+static bool insOptsAnyShift(insOpts opt)
+{
+    return ((opt >= INS_OPTS_LSL) && (opt <= INS_OPTS_ROR));
+}
+
+static bool insOptsAluShift(insOpts opt) // excludes ROR
+{
+    return ((opt >= INS_OPTS_LSL) && (opt <= INS_OPTS_ASR));
+}
+
+static bool insOptsLSL(insOpts opt)
+{
+    return (opt == INS_OPTS_LSL);
+}
+
+static bool insOptsAnyExtend(insOpts opt)
+{
+    return ((opt >= INS_OPTS_UXTB) && (opt <= INS_OPTS_SXTX));
+}
+
+static bool insOptsLSExtend(insOpts opt)
+{
+    return ((opt == INS_OPTS_NONE) || (opt == INS_OPTS_LSL) || (opt == INS_OPTS_UXTW) || (opt == INS_OPTS_SXTW) ||
+            (opt == INS_OPTS_UXTX) || (opt == INS_OPTS_SXTX));
+}
+
+static bool insOpts32BitExtend(insOpts opt)
+{
+    return ((opt == INS_OPTS_UXTW) || (opt == INS_OPTS_SXTW));
+}
+
+static bool insOptsAnyArrangement(insOpts opt)
+{
+    return ((opt >= INS_OPTS_8B) && (opt <= INS_OPTS_2D));
+}
+
+static bool insOptsConvertFloatToFloat(insOpts opt)
+{
+    return ((opt >= INS_OPTS_S_TO_D) && (opt <= INS_OPTS_D_TO_H));
+}
+
+static bool insOptsConvertFloatToInt(insOpts opt)
+{
+    return ((opt >= INS_OPTS_S_TO_4BYTE) && (opt <= INS_OPTS_D_TO_8BYTE));
+}
+
+static bool insOptsConvertIntToFloat(insOpts opt)
+{
+    return ((opt >= INS_OPTS_4BYTE_TO_S) && (opt <= INS_OPTS_8BYTE_TO_D));
+}
+
 /* static */ bool emitter::strictArmAsm = true;
 
 /*****************************************************************************/
@@ -2368,7 +2509,7 @@ bool emitter::validImmForBL(ssize_t addr, Compiler* compiler)
 
 /*static*/ UINT64 emitter::Replicate_helper(UINT64 value, unsigned width, emitAttr size)
 {
-    assert(emitter::isValidGeneralDatasize(size));
+    assert(isValidGeneralDatasize(size));
 
     unsigned immWidth = (size == EA_8BYTE) ? 64 : 32;
     assert(width <= immWidth);
@@ -8073,7 +8214,7 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 /*static*/ emitter::code_t emitter::insEncodeReg_Ra(regNumber reg)
 {
     assert(isIntegerRegister(reg));
-    emitter::code_t ureg = (emitter::code_t)reg;
+    code_t ureg = (code_t)reg;
     assert((ureg >= 0) && (ureg <= 31));
     return ureg << 10;
 }
@@ -8085,8 +8226,8 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodeReg_Vd(regNumber reg)
 {
-    assert(emitter::isVectorRegister(reg));
-    emitter::code_t ureg = (emitter::code_t)reg - (emitter::code_t)REG_V0;
+    assert(isVectorRegister(reg));
+    code_t ureg = (code_t)reg - (code_t)REG_V0;
     assert((ureg >= 0) && (ureg <= 31));
     return ureg;
 }
@@ -8098,8 +8239,8 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodeReg_Vt(regNumber reg)
 {
-    assert(emitter::isVectorRegister(reg));
-    emitter::code_t ureg = (emitter::code_t)reg - (emitter::code_t)REG_V0;
+    assert(isVectorRegister(reg));
+    code_t ureg = (code_t)reg - (code_t)REG_V0;
     assert((ureg >= 0) && (ureg <= 31));
     return ureg;
 }
@@ -8111,8 +8252,8 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodeReg_Vn(regNumber reg)
 {
-    assert(emitter::isVectorRegister(reg));
-    emitter::code_t ureg = (emitter::code_t)reg - (emitter::code_t)REG_V0;
+    assert(isVectorRegister(reg));
+    code_t ureg = (code_t)reg - (code_t)REG_V0;
     assert((ureg >= 0) && (ureg <= 31));
     return ureg << 5;
 }
@@ -8124,8 +8265,8 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodeReg_Vm(regNumber reg)
 {
-    assert(emitter::isVectorRegister(reg));
-    emitter::code_t ureg = (emitter::code_t)reg - (emitter::code_t)REG_V0;
+    assert(isVectorRegister(reg));
+    code_t ureg = (code_t)reg - (code_t)REG_V0;
     assert((ureg >= 0) && (ureg <= 31));
     return ureg << 16;
 }
@@ -8137,8 +8278,8 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodeReg_Va(regNumber reg)
 {
-    assert(emitter::isVectorRegister(reg));
-    emitter::code_t ureg = (emitter::code_t)reg - (emitter::code_t)REG_V0;
+    assert(isVectorRegister(reg));
+    code_t ureg = (code_t)reg - (code_t)REG_V0;
     assert((ureg >= 0) && (ureg <= 31));
     return ureg << 10;
 }
@@ -8150,7 +8291,7 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodeCond(insCond cond)
 {
-    emitter::code_t uimm = (emitter::code_t)cond;
+    code_t uimm = (code_t)cond;
     return uimm << 12;
 }
 
@@ -8162,7 +8303,7 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodeInvertedCond(insCond cond)
 {
-    emitter::code_t uimm = (emitter::code_t)cond;
+    code_t uimm = (code_t)cond;
     uimm ^= 1; // invert the lowest bit
     return uimm << 12;
 }
@@ -8792,25 +8933,25 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
  *  or not updated
  */
 
-/*static*/ emitter::code_t emitter::insEncodeIndexedOpt(insOpts opt)
+emitter::code_t emitter::insEncodeIndexedOpt(insOpts opt)
 {
-    assert(emitter::insOptsNone(opt) || emitter::insOptsIndexed(opt));
+    assert(insOptsNone(opt) || insOptsIndexed(opt));
 
-    if (emitter::insOptsIndexed(opt))
+    if (insOptsIndexed(opt))
     {
-        if (emitter::insOptsPostIndex(opt))
+        if (insOptsPostIndex(opt))
         {
             return 0x00000400; // set the bit at location 10
         }
         else
         {
-            assert(emitter::insOptsPreIndex(opt));
+            assert(insOptsPreIndex(opt));
             return 0x00000C00; // set the bit at location 10 and 11
         }
     }
     else
     {
-        assert(emitter::insOptsNone(opt));
+        assert(insOptsNone(opt));
         return 0; // bits 10 and 11 are zero
     }
 }
@@ -8823,30 +8964,30 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodePairIndexedOpt(instruction ins, insOpts opt)
 {
-    assert(emitter::insOptsNone(opt) || emitter::insOptsIndexed(opt));
+    assert(insOptsNone(opt) || insOptsIndexed(opt));
 
     if ((ins == INS_ldnp) || (ins == INS_stnp))
     {
-        assert(emitter::insOptsNone(opt));
+        assert(insOptsNone(opt));
         return 0; // bits 23 and 24 are zero
     }
     else
     {
-        if (emitter::insOptsIndexed(opt))
+        if (insOptsIndexed(opt))
         {
-            if (emitter::insOptsPostIndex(opt))
+            if (insOptsPostIndex(opt))
             {
                 return 0x00800000; // set the bit at location 23
             }
             else
             {
-                assert(emitter::insOptsPreIndex(opt));
+                assert(insOptsPreIndex(opt));
                 return 0x01800000; // set the bit at location 24 and 23
             }
         }
         else
         {
-            assert(emitter::insOptsNone(opt));
+            assert(insOptsNone(opt));
             return 0x01000000; // set the bit at location 24
         }
     }
@@ -8857,16 +8998,16 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
  *  Returns the encoding to apply a Shift Type on the Rm register
  */
 
-/*static*/ emitter::code_t emitter::insEncodeShiftType(insOpts opt)
+emitter::code_t emitter::insEncodeShiftType(insOpts opt)
 {
-    if (emitter::insOptsNone(opt))
+    if (insOptsNone(opt))
     {
         // None implies the we encode LSL (with a zero immediate)
         opt = INS_OPTS_LSL;
     }
-    assert(emitter::insOptsAnyShift(opt));
+    assert(insOptsAnyShift(opt));
 
-    emitter::code_t option = (emitter::code_t)opt - (emitter::code_t)INS_OPTS_LSL;
+    code_t option = (code_t)opt - (code_t)INS_OPTS_LSL;
     assert(option <= 3);
 
     return option << 22; // bits 23, 22
@@ -8877,9 +9018,9 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
  *  Returns the encoding to apply a 12 bit left shift to the immediate
  */
 
-/*static*/ emitter::code_t emitter::insEncodeShiftImm12(insOpts opt)
+emitter::code_t emitter::insEncodeShiftImm12(insOpts opt)
 {
-    if (emitter::insOptsLSL12(opt))
+    if (insOptsLSL12(opt))
     {
         return 0x00400000; // set the bit at location 22
     }
@@ -8891,16 +9032,16 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
  *  Returns the encoding to have the Rm register use an extend operation
  */
 
-/*static*/ emitter::code_t emitter::insEncodeExtend(insOpts opt)
+emitter::code_t emitter::insEncodeExtend(insOpts opt)
 {
-    if (emitter::insOptsNone(opt) || (opt == INS_OPTS_LSL))
+    if (insOptsNone(opt) || (opt == INS_OPTS_LSL))
     {
         // None or LSL implies the we encode UXTX
         opt = INS_OPTS_UXTX;
     }
-    assert(emitter::insOptsAnyExtend(opt));
+    assert(insOptsAnyExtend(opt));
 
-    emitter::code_t option = (emitter::code_t)opt - (emitter::code_t)INS_OPTS_UXTB;
+    code_t option = (code_t)opt - (code_t)INS_OPTS_UXTB;
     assert(option <= 7);
 
     return option << 13; // bits 15,14,13
@@ -8916,7 +9057,7 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 {
     assert((imm >= 0) && (imm <= 4));
 
-    return (emitter::code_t)imm << 10; // bits 12,11,10
+    return (code_t)imm << 10; // bits 12,11,10
 }
 
 /*****************************************************************************
@@ -8924,7 +9065,7 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
  *  Returns the encoding to have the Rm register be auto scaled by the ld/st size
  */
 
-/*static*/ emitter::code_t emitter::insEncodeReg3Scale(bool isScaled)
+emitter::code_t emitter::insEncodeReg3Scale(bool isScaled)
 {
     if (isScaled)
     {

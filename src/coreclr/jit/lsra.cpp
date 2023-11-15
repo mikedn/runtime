@@ -7991,7 +7991,7 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
                 regNumber tempReg = REG_NA;
                 bool      useSwap = false;
 
-                if (emitter::isFloatReg(targetReg))
+                if (IsFloatReg(targetReg))
                 {
 #ifdef TARGET_ARM
                     if (sourceIntervals[fromReg]->registerType == TYP_DOUBLE)

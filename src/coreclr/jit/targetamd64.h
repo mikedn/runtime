@@ -388,3 +388,13 @@
 #endif // !TARGET_UNIX
 
 // clang-format on
+
+constexpr bool IsGeneralRegister(regNumber reg)
+{
+    return (reg >= REG_INT_FIRST) && (reg <= REG_INT_LAST);
+}
+
+constexpr bool IsFloatReg(regNumber reg)
+{
+    return (reg >= REG_FP_FIRST) && (reg <= REG_FP_LAST);
+}

@@ -85,7 +85,7 @@ void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varO
 void Ins_R_R_S(
     instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs);
 
-emitter::insFormat emitInsFormat(instruction ins);
+insFormat emitInsFormat(instruction ins);
 emitter::code_t emitInsCode(instruction ins, insFormat fmt);
 
 //  Emit the 32-bit Arm64 instruction 'code' into the 'dst'  buffer
@@ -529,187 +529,16 @@ inline static unsigned getBitWidth(emitAttr size)
 }
 
 // Returns true if the imm represents a valid bit shift or bit position for the given 'size' [0..31] or [0..63]
-inline static unsigned isValidImmShift(ssize_t imm, emitAttr size)
+static unsigned isValidImmShift(ssize_t imm, emitAttr size)
 {
     return (imm >= 0) && (imm < getBitWidth(size));
 }
 
 // Returns true if the 'shiftAmount' represents a valid shift for the given 'size'.
-inline static unsigned isValidVectorShiftAmount(ssize_t shiftAmount, emitAttr size, bool rightShift)
+static unsigned isValidVectorShiftAmount(ssize_t shiftAmount, emitAttr size, bool rightShift)
 {
     return (rightShift && (shiftAmount >= 1) && (shiftAmount <= getBitWidth(size))) ||
            ((shiftAmount >= 0) && (shiftAmount < getBitWidth(size)));
-}
-
-inline static bool isValidGeneralDatasize(emitAttr size)
-{
-    return (size == EA_8BYTE) || (size == EA_4BYTE);
-}
-
-inline static bool isValidScalarDatasize(emitAttr size)
-{
-    return (size == EA_8BYTE) || (size == EA_4BYTE);
-}
-
-inline static bool isValidVectorDatasize(emitAttr size)
-{
-    return (size == EA_16BYTE) || (size == EA_8BYTE);
-}
-
-inline static bool isValidGeneralLSDatasize(emitAttr size)
-{
-    return (size == EA_8BYTE) || (size == EA_4BYTE) || (size == EA_2BYTE) || (size == EA_1BYTE);
-}
-
-inline static bool isValidVectorLSDatasize(emitAttr size)
-{
-    return (size == EA_16BYTE) || (size == EA_8BYTE) || (size == EA_4BYTE) || (size == EA_2BYTE) || (size == EA_1BYTE);
-}
-
-inline static bool isValidVectorLSPDatasize(emitAttr size)
-{
-    return (size == EA_16BYTE) || (size == EA_8BYTE) || (size == EA_4BYTE);
-}
-
-inline static bool isValidVectorElemsize(emitAttr size)
-{
-    return (size == EA_8BYTE) || (size == EA_4BYTE) || (size == EA_2BYTE) || (size == EA_1BYTE);
-}
-
-inline static bool isValidVectorFcvtsize(emitAttr size)
-{
-    return (size == EA_8BYTE) || (size == EA_4BYTE) || (size == EA_2BYTE);
-}
-
-inline static bool isValidVectorElemsizeFloat(emitAttr size)
-{
-    return (size == EA_8BYTE) || (size == EA_4BYTE);
-}
-
-inline static bool isGeneralRegister(regNumber reg)
-{
-    return (reg >= REG_INT_FIRST) && (reg <= REG_LR);
-} // Excludes REG_ZR
-
-inline static bool isGeneralRegisterOrZR(regNumber reg)
-{
-    return (reg >= REG_INT_FIRST) && (reg <= REG_ZR);
-} // Includes REG_ZR
-
-inline static bool isGeneralRegisterOrSP(regNumber reg)
-{
-    return isGeneralRegister(reg) || (reg == REG_SP);
-} // Includes REG_SP, Excludes REG_ZR
-
-inline static bool isVectorRegister(regNumber reg)
-{
-    return (reg >= REG_FP_FIRST && reg <= REG_FP_LAST);
-}
-
-inline static bool isFloatReg(regNumber reg)
-{
-    return isVectorRegister(reg);
-}
-
-inline static bool insOptsNone(insOpts opt)
-{
-    return (opt == INS_OPTS_NONE);
-}
-
-inline static bool insOptsIndexed(insOpts opt)
-{
-    return (opt == INS_OPTS_PRE_INDEX) || (opt == INS_OPTS_POST_INDEX);
-}
-
-inline static bool insOptsPreIndex(insOpts opt)
-{
-    return (opt == INS_OPTS_PRE_INDEX);
-}
-
-inline static bool insOptsPostIndex(insOpts opt)
-{
-    return (opt == INS_OPTS_POST_INDEX);
-}
-
-inline static bool insOptsLSL12(insOpts opt) // special 12-bit shift only used for imm12
-{
-    return (opt == INS_OPTS_LSL12);
-}
-
-inline static bool insOptsAnyShift(insOpts opt)
-{
-    return ((opt >= INS_OPTS_LSL) && (opt <= INS_OPTS_ROR));
-}
-
-inline static bool insOptsAluShift(insOpts opt) // excludes ROR
-{
-    return ((opt >= INS_OPTS_LSL) && (opt <= INS_OPTS_ASR));
-}
-
-inline static bool insOptsVectorImmShift(insOpts opt)
-{
-    return ((opt == INS_OPTS_LSL) || (opt == INS_OPTS_MSL));
-}
-
-inline static bool insOptsLSL(insOpts opt)
-{
-    return (opt == INS_OPTS_LSL);
-}
-
-inline static bool insOptsLSR(insOpts opt)
-{
-    return (opt == INS_OPTS_LSR);
-}
-
-inline static bool insOptsASR(insOpts opt)
-{
-    return (opt == INS_OPTS_ASR);
-}
-
-inline static bool insOptsROR(insOpts opt)
-{
-    return (opt == INS_OPTS_ROR);
-}
-
-inline static bool insOptsAnyExtend(insOpts opt)
-{
-    return ((opt >= INS_OPTS_UXTB) && (opt <= INS_OPTS_SXTX));
-}
-
-inline static bool insOptsLSExtend(insOpts opt)
-{
-    return ((opt == INS_OPTS_NONE) || (opt == INS_OPTS_LSL) || (opt == INS_OPTS_UXTW) || (opt == INS_OPTS_SXTW) ||
-            (opt == INS_OPTS_UXTX) || (opt == INS_OPTS_SXTX));
-}
-
-inline static bool insOpts32BitExtend(insOpts opt)
-{
-    return ((opt == INS_OPTS_UXTW) || (opt == INS_OPTS_SXTW));
-}
-
-inline static bool insOpts64BitExtend(insOpts opt)
-{
-    return ((opt == INS_OPTS_UXTX) || (opt == INS_OPTS_SXTX));
-}
-
-inline static bool insOptsAnyArrangement(insOpts opt)
-{
-    return ((opt >= INS_OPTS_8B) && (opt <= INS_OPTS_2D));
-}
-
-inline static bool insOptsConvertFloatToFloat(insOpts opt)
-{
-    return ((opt >= INS_OPTS_S_TO_D) && (opt <= INS_OPTS_D_TO_H));
-}
-
-inline static bool insOptsConvertFloatToInt(insOpts opt)
-{
-    return ((opt >= INS_OPTS_S_TO_4BYTE) && (opt <= INS_OPTS_D_TO_8BYTE));
-}
-
-inline static bool insOptsConvertIntToFloat(insOpts opt)
-{
-    return ((opt >= INS_OPTS_4BYTE_TO_S) && (opt <= INS_OPTS_8BYTE_TO_D));
 }
 
 static bool isValidImmCond(ssize_t imm);

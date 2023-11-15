@@ -906,7 +906,7 @@ private:
                 case IF_LARGEJMP: // b<cond> + b<uncond>
                     return 8;
                 case IF_LARGELDC:
-                    if (isVectorRegister(idReg1()))
+                    if (IsVectorRegister(idReg1()))
                     {
                         // adrp + ldr + fmov
                         return 12;

@@ -14,16 +14,6 @@ void SetUseVEXEncoding(bool value)
     useVEXEncodings = value;
 }
 
-static bool isGeneralRegister(regNumber reg)
-{
-    return genIsValidIntReg(reg);
-}
-
-static bool isFloatReg(regNumber reg)
-{
-    return genIsValidFloatReg(reg);
-}
-
 static bool instrHasImplicitRegPairDest(instruction ins);
 static bool IsMovInstruction(instruction ins);
 

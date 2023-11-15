@@ -3,6 +3,7 @@
 
 #include "jitpch.h"
 #include "lower.h"
+#include "emit.h"
 
 #ifdef TARGET_ARM64 // This file is ONLY used for ARM64 architectures
 
