@@ -3,11 +3,10 @@
 
 #ifdef TARGET_XARCH
 
+private:
 bool useVEXEncodings = false;
 
 public:
-bool UseVEXEncoding() const;
-
 void SetUseVEXEncoding(bool value)
 {
     useVEXEncodings = value;
@@ -23,213 +22,15 @@ static bool isFloatReg(regNumber reg)
     return genIsValidFloatReg(reg);
 }
 
-// code_t is a type used to accumulate bits of opcode + prefixes. On amd64, it must be 64 bits
-// to support the REX prefixes. On both x86 and amd64, it must be 64 bits to support AVX, with
-// its 3-byte VEX prefix.
-typedef uint64_t code_t;
+static bool instrHasImplicitRegPairDest(instruction ins);
 
 #ifdef TARGET_X86
 void emitMarkStackLvl(unsigned stackLevel);
 #endif
 
-instrDescDsp* emitAllocInstrDsp(emitAttr attr);
-instrDescCnsDsp* emitAllocInstrCnsDsp(emitAttr attr);
-instrDescAmd* emitAllocInstrAmd(emitAttr attr);
-instrDescCnsAmd* emitAllocInstrCnsAmd(emitAttr attr);
-
-ssize_t emitGetInsCns(instrDesc* id);
-ssize_t emitGetInsMemDisp(instrDesc* id);
-ssize_t emitGetInsMemImm(instrDesc* id);
-ssize_t emitGetInsAmdCns(instrDesc* id);
-ssize_t emitGetInsAmdDisp(instrDesc* id);
-ssize_t emitGetInsCallDisp(instrDesc* id);
-
-UNATIVE_OFFSET emitInsSize(code_t code, bool includeRexPrefixSize);
-UNATIVE_OFFSET emitInsSizeSV_AM(instrDesc* id, code_t code);
-UNATIVE_OFFSET emitInsSizeSV(instrDesc* id, code_t code);
-UNATIVE_OFFSET emitInsSizeSV(instrDesc* id, code_t code, int val);
-UNATIVE_OFFSET emitInsSizeRR(instrDesc* id, code_t code);
-UNATIVE_OFFSET emitInsSizeRR(instrDesc* id, code_t code, int val);
-UNATIVE_OFFSET emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr);
-UNATIVE_OFFSET emitInsSizeAM(instrDesc* id, code_t code);
-UNATIVE_OFFSET emitInsSizeAM(instrDesc* id, code_t code, int val);
-UNATIVE_OFFSET emitInsSizeCV(instrDesc* id, code_t code);
-UNATIVE_OFFSET emitInsSizeCV(instrDesc* id, code_t code, int val);
-
-size_t emitOutputByte(uint8_t* dst, ssize_t val);
-size_t emitOutputWord(uint8_t* dst, ssize_t val);
-size_t emitOutputLong(uint8_t* dst, ssize_t val);
-AMD64_ONLY(size_t emitOutputI64(uint8_t* dst, int64_t val);)
-
-#if defined(TARGET_X86) && !defined(HOST_64BIT)
-size_t emitOutputByte(uint8_t* dst, uint32_t val);
-size_t emitOutputWord(uint8_t* dst, uint32_t val);
-size_t emitOutputLong(uint8_t* dst, uint32_t val);
-
-size_t emitOutputByte(uint8_t* dst, uint64_t val);
-size_t emitOutputWord(uint8_t* dst, uint64_t val);
-size_t emitOutputLong(uint8_t* dst, uint64_t val);
-#endif // defined(TARGET_X86) && !defined(HOST_64BIT)
-
-size_t emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t imm);
-
-uint8_t* emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst);
-
-uint8_t* emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
-uint8_t* emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
-uint8_t* emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
-
-uint8_t* emitOutputR(uint8_t* dst, instrDesc* id);
-uint8_t* emitOutputRI(uint8_t* dst, instrDesc* id);
-uint8_t* emitOutputRR(uint8_t* dst, instrDesc* id);
-uint8_t* emitOutputIV(uint8_t* dst, instrDesc* id);
-uint8_t* emitOutputRRR(uint8_t* dst, instrDesc* id);
-uint8_t* emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* id);
-
-size_t emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code);
-unsigned emitGetRexPrefixSize(instruction ins);
-unsigned emitGetVexPrefixSize(instruction ins, emitAttr attr);
-unsigned emitGetPrefixSize(code_t code, bool includeRexPrefixSize);
-unsigned emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code);
-
-unsigned insEncodeReg012(instruction ins, regNumber reg, emitAttr size, code_t* code);
-unsigned insEncodeReg345(instruction ins, regNumber reg, emitAttr size, code_t* code);
-code_t insEncodeReg3456(instruction ins, regNumber reg, emitAttr size, code_t code);
-
-code_t insEncodeMRreg(instruction ins, code_t code);
-code_t insEncodeRMreg(instruction ins, code_t code);
-code_t insEncodeMRreg(instruction ins, regNumber reg, emitAttr size, code_t code);
-code_t insEncodeOpreg(instruction ins, regNumber reg, emitAttr size);
-
-static bool IsSSEInstruction(instruction ins);
-static bool IsSSEOrAVXInstruction(instruction ins);
-static bool IsAVXOnlyInstruction(instruction ins);
-static bool IsFMAInstruction(instruction ins);
-static bool IsAVXVNNIInstruction(instruction ins);
-static bool IsBMIInstruction(instruction ins);
-static regNumber getBmiRegNumber(instruction ins);
-static regNumber getSseShiftRegNumber(instruction ins);
-bool IsAVXInstruction(instruction ins) const;
-code_t insEncodeMIreg(instruction ins, regNumber reg, emitAttr size, code_t code);
-
-code_t AddRexWPrefix(instruction ins, code_t code);
-code_t AddRexRPrefix(instruction ins, code_t code);
-code_t AddRexXPrefix(instruction ins, code_t code);
-code_t AddRexBPrefix(instruction ins, code_t code);
-code_t AddRexPrefix(instruction ins, code_t code);
-
-bool EncodedBySSE38orSSE3A(instruction ins);
-bool Is4ByteSSEInstruction(instruction ins);
-static bool IsMovInstruction(instruction ins);
-bool IsRedundantMov(
-    instruction ins, insFormat fmt, emitAttr size, regNumber dst, regNumber src, bool canIgnoreSideEffects);
-
-static bool IsJccInstruction(instruction ins);
-static bool IsJmpInstruction(instruction ins);
-bool AreUpper32BitsZero(regNumber reg);
-bool AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps treeOps);
-
-bool hasRexPrefix(code_t code);
-bool TakesVexPrefix(instruction ins) const;
-static bool TakesRexWPrefix(instruction ins, emitAttr attr);
-bool hasVexPrefix(code_t code);
-code_t AddVexPrefix(instruction ins, code_t code, emitAttr attr);
-code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
-code_t AddVexPrefixIfNeededAndNotPresent(instruction ins, code_t code, emitAttr size);
-
-bool IsDstDstSrcAVXInstruction(instruction ins);
-bool IsDstSrcSrcAVXInstruction(instruction ins);
-bool DoesWriteZeroFlag(instruction ins);
-bool DoesResetOverflowAndCarryFlags(instruction ins);
-bool AreFlagsAlwaysModified(instrDesc* id);
-
-bool IsThreeOperandAVXInstruction(instruction ins);
-bool isAvxBlendv(instruction ins);
-bool isSse41Blendv(instruction ins);
-bool isPrefetch(instruction ins);
-
-/************************************************************************/
-/*             Debug-only routines to display instructions              */
-/************************************************************************/
-
-#ifdef DEBUG
-
-void emitDispImm(instrDesc* id, ssize_t val);
-void emitDispReloc(ssize_t value);
-void emitDispAddrMode(instrDesc* id);
-void emitDispClsVar(instrDesc* id);
-void emitDispShiftCL(instruction ins);
-
-void emitDispIns(instrDesc* id,
-                 bool       isNew = false,
-                 bool       doffs = false,
-                 bool       asmfm = false,
-                 unsigned   offs  = 0,
-                 BYTE*      code  = nullptr,
-                 size_t     sz    = 0,
-                 insGroup*  ig    = nullptr);
-
-static const char* emitXMMregName(unsigned reg);
-static const char* emitYMMregName(unsigned reg);
-
-#endif
-
-/************************************************************************/
-/*  Private members that deal with target-dependent instr. descriptors  */
-/************************************************************************/
-
-private:
-void SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs);
-ssize_t GetAddrModeDisp(GenTree* addr);
-void SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* addr);
-void emitSetAmdDisp(instrDescAmd* id, ssize_t dsp);
-instrDesc* emitNewInstrDsp(emitAttr attr, target_ssize_t dsp);
-instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t cns, int dsp);
-instrDesc* emitNewInstrAmd(emitAttr attr, ssize_t dsp);
-instrDesc* emitNewInstrAmdCns(emitAttr attr, ssize_t dsp, int32_t cns);
-
-instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
-                            emitAttr              retRegAttr,
-#ifdef UNIX_AMD64_ABI
-                            emitAttr retReg2Attr,
-#endif
-#ifdef TARGET_X86
-                            int argSlotCount,
-#endif
-                            int32_t disp);
-
-/************************************************************************/
-/*               Private helpers for instruction output                 */
-/************************************************************************/
-
-private:
-bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 = REG_NA);
-
-bool emitInsCanOnlyWriteSSE2OrAVXReg(instrDesc* id);
-
-#if FEATURE_FIXED_OUT_ARGS
-void emitAdjustStackDepthPushPop(instruction ins)
-{
-}
-void emitAdjustStackDepth(instruction ins, ssize_t val)
-{
-}
-#else  // !FEATURE_FIXED_OUT_ARGS
-void emitAdjustStackDepthPushPop(instruction ins);
-void emitAdjustStackDepth(instruction ins, ssize_t val);
-#endif // !FEATURE_FIXED_OUT_ARGS
-
-opSize emitEncodeScale(size_t scale);
-emitAttr emitDecodeScale(unsigned ensz);
-
 /************************************************************************/
 /*           The public entry points to output instructions             */
 /************************************************************************/
-
-public:
-void emitLoopAlign(unsigned short paddingBytes);
-
-void emitLongLoopAlign(unsigned short alignmentBoundary);
 
 void emitIns(instruction ins);
 
@@ -425,8 +226,205 @@ void emitIns_Call(EmitCallType          kind,
                   int32_t   amDisp  = 0,
                   bool      isJump  = false);
 
+private:
+bool UseVEXEncoding() const;
+
+instrDescDsp* emitAllocInstrDsp(emitAttr attr);
+instrDescCnsDsp* emitAllocInstrCnsDsp(emitAttr attr);
+instrDescAmd* emitAllocInstrAmd(emitAttr attr);
+instrDescCnsAmd* emitAllocInstrCnsAmd(emitAttr attr);
+
+ssize_t emitGetInsCns(instrDesc* id);
+ssize_t emitGetInsMemDisp(instrDesc* id);
+ssize_t emitGetInsMemImm(instrDesc* id);
+ssize_t emitGetInsAmdCns(instrDesc* id);
+ssize_t emitGetInsAmdDisp(instrDesc* id);
+ssize_t emitGetInsCallDisp(instrDesc* id);
+
+// code_t is a type used to accumulate bits of opcode + prefixes. On amd64, it must be 64 bits
+// to support the REX prefixes. On both x86 and amd64, it must be 64 bits to support AVX, with
+// its 3-byte VEX prefix.
+typedef uint64_t code_t;
+
+UNATIVE_OFFSET emitInsSize(code_t code, bool includeRexPrefixSize);
+UNATIVE_OFFSET emitInsSizeSV_AM(instrDesc* id, code_t code);
+UNATIVE_OFFSET emitInsSizeSV(instrDesc* id, code_t code);
+UNATIVE_OFFSET emitInsSizeSV(instrDesc* id, code_t code, int val);
+UNATIVE_OFFSET emitInsSizeRR(instrDesc* id, code_t code);
+UNATIVE_OFFSET emitInsSizeRR(instrDesc* id, code_t code, int val);
+UNATIVE_OFFSET emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr);
+UNATIVE_OFFSET emitInsSizeAM(instrDesc* id, code_t code);
+UNATIVE_OFFSET emitInsSizeAM(instrDesc* id, code_t code, int val);
+UNATIVE_OFFSET emitInsSizeCV(instrDesc* id, code_t code);
+UNATIVE_OFFSET emitInsSizeCV(instrDesc* id, code_t code, int val);
+
+size_t emitOutputByte(uint8_t* dst, ssize_t val);
+size_t emitOutputWord(uint8_t* dst, ssize_t val);
+size_t emitOutputLong(uint8_t* dst, ssize_t val);
+AMD64_ONLY(size_t emitOutputI64(uint8_t* dst, int64_t val);)
+
+#if defined(TARGET_X86) && !defined(HOST_64BIT)
+size_t emitOutputByte(uint8_t* dst, uint32_t val);
+size_t emitOutputWord(uint8_t* dst, uint32_t val);
+size_t emitOutputLong(uint8_t* dst, uint32_t val);
+
+size_t emitOutputByte(uint8_t* dst, uint64_t val);
+size_t emitOutputWord(uint8_t* dst, uint64_t val);
+size_t emitOutputLong(uint8_t* dst, uint64_t val);
+#endif // defined(TARGET_X86) && !defined(HOST_64BIT)
+
+size_t emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t imm);
+
+uint8_t* emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst);
+
+uint8_t* emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
+uint8_t* emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
+uint8_t* emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
+
+uint8_t* emitOutputR(uint8_t* dst, instrDesc* id);
+uint8_t* emitOutputRI(uint8_t* dst, instrDesc* id);
+uint8_t* emitOutputRR(uint8_t* dst, instrDesc* id);
+uint8_t* emitOutputIV(uint8_t* dst, instrDesc* id);
+uint8_t* emitOutputRRR(uint8_t* dst, instrDesc* id);
+uint8_t* emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* id);
+
+size_t emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code);
+unsigned emitGetRexPrefixSize(instruction ins);
+unsigned emitGetVexPrefixSize(instruction ins, emitAttr attr);
+unsigned emitGetPrefixSize(code_t code, bool includeRexPrefixSize);
+unsigned emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code);
+
+unsigned insEncodeReg012(instruction ins, regNumber reg, emitAttr size, code_t* code);
+unsigned insEncodeReg345(instruction ins, regNumber reg, emitAttr size, code_t* code);
+code_t insEncodeReg3456(instruction ins, regNumber reg, emitAttr size, code_t code);
+
+code_t insEncodeMRreg(instruction ins, code_t code);
+code_t insEncodeRMreg(instruction ins, code_t code);
+code_t insEncodeMRreg(instruction ins, regNumber reg, emitAttr size, code_t code);
+code_t insEncodeOpreg(instruction ins, regNumber reg, emitAttr size);
+
+static bool IsSSEInstruction(instruction ins);
+static bool IsSSEOrAVXInstruction(instruction ins);
+static bool IsAVXOnlyInstruction(instruction ins);
+static bool IsFMAInstruction(instruction ins);
+static bool IsAVXVNNIInstruction(instruction ins);
+static bool IsBMIInstruction(instruction ins);
+static regNumber getBmiRegNumber(instruction ins);
+static regNumber getSseShiftRegNumber(instruction ins);
+bool IsAVXInstruction(instruction ins) const;
+code_t insEncodeMIreg(instruction ins, regNumber reg, emitAttr size, code_t code);
+
+code_t AddRexWPrefix(instruction ins, code_t code);
+code_t AddRexRPrefix(instruction ins, code_t code);
+code_t AddRexXPrefix(instruction ins, code_t code);
+code_t AddRexBPrefix(instruction ins, code_t code);
+code_t AddRexPrefix(instruction ins, code_t code);
+
+bool EncodedBySSE38orSSE3A(instruction ins);
+bool Is4ByteSSEInstruction(instruction ins);
+static bool IsMovInstruction(instruction ins);
+bool IsRedundantMov(
+    instruction ins, insFormat fmt, emitAttr size, regNumber dst, regNumber src, bool canIgnoreSideEffects);
+
+static bool IsJccInstruction(instruction ins);
+static bool IsJmpInstruction(instruction ins);
+bool AreUpper32BitsZero(regNumber reg);
+bool AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps treeOps);
+
+bool hasRexPrefix(code_t code);
+bool TakesVexPrefix(instruction ins) const;
+static bool TakesRexWPrefix(instruction ins, emitAttr attr);
+bool hasVexPrefix(code_t code);
+code_t AddVexPrefix(instruction ins, code_t code, emitAttr attr);
+code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
+code_t AddVexPrefixIfNeededAndNotPresent(instruction ins, code_t code, emitAttr size);
+
+bool IsDstDstSrcAVXInstruction(instruction ins);
+bool IsDstSrcSrcAVXInstruction(instruction ins);
+bool DoesWriteZeroFlag(instruction ins);
+bool DoesResetOverflowAndCarryFlags(instruction ins);
+bool AreFlagsAlwaysModified(instrDesc* id);
+
+bool IsThreeOperandAVXInstruction(instruction ins);
+bool isAvxBlendv(instruction ins);
+bool isSse41Blendv(instruction ins);
+bool isPrefetch(instruction ins);
+
+/************************************************************************/
+/*             Debug-only routines to display instructions              */
+/************************************************************************/
+
+#ifdef DEBUG
+
+void emitDispImm(instrDesc* id, ssize_t val);
+void emitDispReloc(ssize_t value);
+void emitDispAddrMode(instrDesc* id);
+void emitDispClsVar(instrDesc* id);
+void emitDispShiftCL(instruction ins);
+
+void emitDispIns(instrDesc* id,
+                 bool       isNew = false,
+                 bool       doffs = false,
+                 bool       asmfm = false,
+                 unsigned   offs  = 0,
+                 BYTE*      code  = nullptr,
+                 size_t     sz    = 0,
+                 insGroup*  ig    = nullptr);
+
+static const char* emitXMMregName(unsigned reg);
+static const char* emitYMMregName(unsigned reg);
+
+#endif
+
+/************************************************************************/
+/*  Private members that deal with target-dependent instr. descriptors  */
+/************************************************************************/
+
+void SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs);
+ssize_t GetAddrModeDisp(GenTree* addr);
+void SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* addr);
+void emitSetAmdDisp(instrDescAmd* id, ssize_t dsp);
+instrDesc* emitNewInstrDsp(emitAttr attr, target_ssize_t dsp);
+instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t cns, int dsp);
+instrDesc* emitNewInstrAmd(emitAttr attr, ssize_t dsp);
+instrDesc* emitNewInstrAmdCns(emitAttr attr, ssize_t dsp, int32_t cns);
+
+instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
+                            emitAttr              retRegAttr,
+#ifdef UNIX_AMD64_ABI
+                            emitAttr retReg2Attr,
+#endif
+#ifdef TARGET_X86
+                            int argSlotCount,
+#endif
+                            int32_t disp);
+
+/************************************************************************/
+/*               Private helpers for instruction output                 */
+/************************************************************************/
+
+bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 = REG_NA);
+
+bool emitInsCanOnlyWriteSSE2OrAVXReg(instrDesc* id);
+
+#if FEATURE_FIXED_OUT_ARGS
+void emitAdjustStackDepthPushPop(instruction ins)
+{
+}
+void emitAdjustStackDepth(instruction ins, ssize_t val)
+{
+}
+#else  // !FEATURE_FIXED_OUT_ARGS
+void emitAdjustStackDepthPushPop(instruction ins);
+void emitAdjustStackDepth(instruction ins, ssize_t val);
+#endif // !FEATURE_FIXED_OUT_ARGS
+
+opSize emitEncodeScale(size_t scale);
+emitAttr emitDecodeScale(unsigned ensz);
+
+void emitLoopAlign(unsigned short paddingBytes);
+void emitLongLoopAlign(unsigned short alignmentBoundary);
 bool emitIsCondJump(instrDesc* jmp);
 bool emitIsUncondJump(instrDesc* jmp);
-static bool instrHasImplicitRegPairDest(instruction ins);
 
 #endif // TARGET_XARCH
