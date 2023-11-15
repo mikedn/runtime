@@ -11,9 +11,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
+#include "emit.h"
 
 #if defined(TARGET_ARM) && defined(TARGET_UNIX)
 short Compiler::mapRegNumToDwarfReg(regNumber reg)

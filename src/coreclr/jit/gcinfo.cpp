@@ -4,6 +4,7 @@
 #include "jitpch.h"
 #include "jitgcinfo.h"
 #include "gcinfotypes.h"
+#include "emit.h"
 
 #if MEASURE_PTRTAB_SIZE
 size_t GCInfo::s_gcRegPtrDscSize;

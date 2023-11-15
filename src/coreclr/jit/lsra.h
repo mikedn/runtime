@@ -7,6 +7,7 @@
 #define _LSRA_H_
 
 #include "smallhash.h"
+#include "emit.h"
 
 // Minor and forward-reference types
 class Interval;

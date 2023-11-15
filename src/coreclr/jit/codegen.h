@@ -8,6 +8,7 @@
 #include "compiler.h"
 #include "regset.h"
 #include "treelifeupdater.h"
+#include "emit.h"
 
 class CodeGen final : public CodeGenInterface
 {

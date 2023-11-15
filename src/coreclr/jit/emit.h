@@ -31,26 +31,6 @@ void emitterStats(FILE* fout);
 #define INTERESTING_JUMP_NUM -1 // set to 0 to see all jump info
 #endif
 
-extern const unsigned short emitTypeSizes[TYP_COUNT];
-
-template <class T>
-inline emitAttr emitTypeSize(T type)
-{
-    assert(TypeGet(type) < TYP_COUNT);
-    assert(emitTypeSizes[TypeGet(type)] > 0);
-    return (emitAttr)emitTypeSizes[TypeGet(type)];
-}
-
-extern const unsigned short emitTypeActSz[TYP_COUNT];
-
-template <class T>
-inline emitAttr emitActualTypeSize(T type)
-{
-    assert(TypeGet(type) < TYP_COUNT);
-    assert(emitTypeActSz[TypeGet(type)] > 0);
-    return (emitAttr)emitTypeActSz[TypeGet(type)];
-}
-
 #ifdef TARGET_ARM64
 insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType);
 #endif

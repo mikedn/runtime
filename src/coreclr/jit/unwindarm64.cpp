@@ -11,13 +11,10 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
+#include "emit.h"
 
-#if defined(TARGET_ARM64)
-
-#if defined(TARGET_UNIX)
+#ifdef TARGET_ARM64
+#ifdef TARGET_UNIX
 short Compiler::mapRegNumToDwarfReg(regNumber reg)
 {
     short dwarfReg = DWARF_REG_ILLEGAL;

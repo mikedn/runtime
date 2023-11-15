@@ -5,7 +5,8 @@
 #define _CODEGEN_INTERFACE_H_
 
 #include "regset.h"
-#include "emit.h"
+#include "instr.h"
+#include "jitgcinfo.h"
 
 class LclVarDsc;
 
@@ -209,6 +210,10 @@ public:
     {
         return m_cgEmitter;
     }
+
+#ifdef TARGET_XARCH
+    void SetUseVEXEncoding(bool value);
+#endif
 
 protected:
     emitter* m_cgEmitter;

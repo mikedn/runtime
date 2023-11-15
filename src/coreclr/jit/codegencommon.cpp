@@ -38,6 +38,13 @@ CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), liveness(comp
 #endif
 }
 
+#ifdef TARGET_XARCH
+void CodeGenInterface::SetUseVEXEncoding(bool value)
+{
+    m_cgEmitter->SetUseVEXEncoding(value);
+}
+#endif
+
 //------------------------------------------------------------------------
 // genMarkLabelsForCodegen: Mark labels required for codegen.
 //
