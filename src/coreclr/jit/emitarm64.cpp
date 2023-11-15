@@ -1374,19 +1374,16 @@ emitter::insFormat emitter::emitInsFormat(instruction ins)
 #define LNG 32
 #define NRW 64
 
-// clang-format off
-const BYTE emitter::instInfo[] =
-{
-    #define INST1(id, nm, info, fmt, e1                                ) info,
-    #define INST2(id, nm, info, fmt, e1, e2                            ) info,
-    #define INST3(id, nm, info, fmt, e1, e2, e3                        ) info,
-    #define INST4(id, nm, info, fmt, e1, e2, e3, e4                    ) info,
-    #define INST5(id, nm, info, fmt, e1, e2, e3, e4, e5                ) info,
-    #define INST6(id, nm, info, fmt, e1, e2, e3, e4, e5, e6            ) info,
-    #define INST9(id, nm, info, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) info,
-    #include "instrsarm64.h"
+const uint8_t instInfo[]{
+#define INST1(id, nm, info, ...) info,
+#define INST2(id, nm, info, ...) info,
+#define INST3(id, nm, info, ...) info,
+#define INST4(id, nm, info, ...) info,
+#define INST5(id, nm, info, ...) info,
+#define INST6(id, nm, info, ...) info,
+#define INST9(id, nm, info, ...) info,
+#include "instrsarm64.h"
 };
-// clang-format on
 
 bool emitter::emitInsIsCompare(instruction ins)
 {

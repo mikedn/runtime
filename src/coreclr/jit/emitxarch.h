@@ -7,6 +7,8 @@ private:
 bool useVEXEncodings = false;
 
 public:
+static insFormat emitInsModeFormat(instruction ins, insFormat base);
+
 void SetUseVEXEncoding(bool value)
 {
     useVEXEncodings = value;

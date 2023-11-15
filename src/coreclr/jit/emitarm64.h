@@ -903,4 +903,16 @@ void emitSplit(emitLocation*         startLoc,
 
 void emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp);
 
+// Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
+// pointer. This exempts the SP and PC registers, and floating point registers. Memory access
+// instructions that pre- or post-increment their memory address registers are *not* considered to write
+// to GC registers, even if that memory address is a by-ref: such an instruction cannot change the GC
+// status of that register, since it must be a byref before and remains one after.
+//
+// This may return false positives.
+bool emitInsMayWriteToGCReg(instrDesc* id);
+
+// Returns true if the instruction may write to more than one register.
+bool emitInsMayWriteMultipleRegs(instrDesc* id);
+
 #endif // TARGET_ARM64

@@ -684,22 +684,19 @@ emitter::insFormat emitter::emitInsFormat(instruction ins)
 #define ST 4
 #define CMP 8
 
-// clang-format off
-const uint8_t emitter::instInfo[] =
-{
-    #define INST1(id, nm, fp, ldst, fmt, e1                                ) ldst | INST_FP*fp,
-    #define INST2(id, nm, fp, ldst, fmt, e1, e2                            ) ldst | INST_FP*fp,
-    #define INST3(id, nm, fp, ldst, fmt, e1, e2, e3                        ) ldst | INST_FP*fp,
-    #define INST4(id, nm, fp, ldst, fmt, e1, e2, e3, e4                    ) ldst | INST_FP*fp,
-    #define INST5(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5                ) ldst | INST_FP*fp,
-    #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) ldst | INST_FP*fp,
-    #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) ldst | INST_FP*fp,
-    #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) ldst | INST_FP*fp,
-    #include "instrsarm.h"
+const uint8_t instInfo[]{
+#define INST1(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
+#define INST2(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
+#define INST3(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
+#define INST4(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
+#define INST5(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
+#define INST6(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
+#define INST8(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
+#define INST9(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
+#include "instrsarm.h"
 };
-// clang-format on
 
-bool emitter::instIsFP(instruction ins)
+static bool instIsFP(instruction ins)
 {
     assert(ins < _countof(instInfo));
     return (instInfo[ins] & INST_FP) != 0;

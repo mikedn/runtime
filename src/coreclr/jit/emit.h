@@ -449,8 +449,8 @@ private:
 
 #define OPSIZE_INVALID ((opSize)0xffff)
 
-    static const emitter::opSize emitSizeEncode[];
-    static const emitAttr        emitSizeDecode[];
+    static const opSize   emitSizeEncode[];
+    static const emitAttr emitSizeDecode[];
 
     static opSize emitEncodeSize(emitAttr size)
     {
@@ -502,10 +502,10 @@ private:
 
     struct emitAddrMode
     {
-        regNumber       amBaseReg : REGNUM_BITS + 1;
-        regNumber       amIndxReg : REGNUM_BITS + 1;
-        emitter::opSize amScale : 2;
-        int32_t         amDisp : AM_DISP_BITS;
+        regNumber amBaseReg : REGNUM_BITS + 1;
+        regNumber amIndxReg : REGNUM_BITS + 1;
+        opSize    amScale : 2;
+        int32_t   amDisp : AM_DISP_BITS;
     };
 #endif // TARGET_XARCH
 
@@ -527,12 +527,9 @@ private:
             assert(size <= UINT16_MAX);
         }
     };
-
 #endif // DEBUG
 
 #ifdef TARGET_ARM
-    unsigned insEncodeSetFlags(insFlags sf);
-
     enum insSize : unsigned
     {
         ISZ_NONE,
@@ -541,12 +538,7 @@ private:
         ISZ_48BIT // pseudo-instruction for conditional branch with imm24 range,
                   // encoded as IT of condition followed by an unconditional branch
     };
-
-    unsigned insEncodeShiftOpts(insOpts opt);
-    unsigned insEncodePUW_G0(insOpts opt, int imm);
-    unsigned insEncodePUW_H0(insOpts opt, int imm);
-#endif // TARGET_ARM
-
+#endif
     struct instrDesc;
 
     struct instrDescSmall
@@ -1462,24 +1454,6 @@ private:
 
     void appendToCurIG(instrDesc* id);
 
-    static insUpdateModes emitInsUpdateMode(instruction ins);
-    static insFormat emitInsModeFormat(instruction ins, insFormat base);
-
-    static const BYTE emitInsModeFmtTab[];
-#ifdef DEBUG
-    static const unsigned emitInsModeFmtCnt;
-#endif
-
-#if defined(TARGET_XARCH)
-    static const insFlags instInfo[INS_count];
-#elif defined(TARGET_ARMARCH)
-    static const uint8_t instInfo[INS_count];
-#else
-#error Unsupported target architecture
-#endif
-
-    static bool instIsFP(instruction ins);
-
     size_t emitGetInstrDescSizeSC(const instrDesc* id);
 
     cnsval_ssize_t emitGetInsSC(instrDesc* id);
@@ -1961,20 +1935,6 @@ public:
     void emitInsSanityCheck(instrDesc* id);
 #endif
 
-#ifdef TARGET_ARMARCH
-    // Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
-    // pointer. This exempts the SP and PC registers, and floating point registers. Memory access
-    // instructions that pre- or post-increment their memory address registers are *not* considered to write
-    // to GC registers, even if that memory address is a by-ref: such an instruction cannot change the GC
-    // status of that register, since it must be a byref before and remains one after.
-    //
-    // This may return false positives.
-    bool emitInsMayWriteToGCReg(instrDesc* id);
-
-    // Returns true if the instruction may write to more than one register.
-    bool emitInsMayWriteMultipleRegs(instrDesc* id);
-#endif // TARGET_ARMARCH
-
 /************************************************************************/
 /*    The following is used to distinguish helper vs non-helper calls   */
 /************************************************************************/
@@ -2066,10 +2026,6 @@ public:
     void emitRecordCallSite(ULONG                 instrOffset,   /* IN */
                             CORINFO_SIG_INFO*     callSig,       /* IN */
                             CORINFO_METHOD_HANDLE methodHandle); /* IN */
-
-    // This is a scratch buffer used to minimize the number of sig info structs
-    // we have to allocate for recordCallSite.
-    INDEBUG(CORINFO_SIG_INFO* emitScratchSigInfo = nullptr;)
 
 /************************************************************************/
 /*               Logic to collect and display statistics                */

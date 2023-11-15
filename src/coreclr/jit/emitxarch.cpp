@@ -230,6 +230,16 @@ bool emitter::IsAVXInstruction(instruction ins) const
     return UseVEXEncoding() && IsSSEOrAVXInstruction(ins);
 }
 
+const insFlags instInfo[]{
+#define INST0(id, nm, um, mr, flags) static_cast<insFlags>(flags),
+#define INST1(id, nm, um, mr, flags) static_cast<insFlags>(flags),
+#define INST2(id, nm, um, mr, mi, flags) static_cast<insFlags>(flags),
+#define INST3(id, nm, um, mr, mi, rm, flags) static_cast<insFlags>(flags),
+#define INST4(id, nm, um, mr, mi, rm, a4, flags) static_cast<insFlags>(flags),
+#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) static_cast<insFlags>(flags),
+#include "instrsxarch.h"
+};
+
 // Returns true if the AVX instruction is a binary operator that requires 3 operands.
 // When we emit an instruction with only two operands, we will duplicate the destination
 // as a source.
@@ -251,7 +261,7 @@ bool emitter::IsDstSrcSrcAVXInstruction(instruction ins)
     return ((instInfo[ins] & INS_Flags_IsDstSrcSrcAVXInstruction) != 0) && IsAVXInstruction(ins);
 }
 
-bool emitter::instIsFP(instruction ins)
+static bool instIsFP(instruction ins)
 {
     assert(ins < _countof(instInfo));
 #ifdef TARGET_X86
@@ -273,7 +283,7 @@ bool emitter::instIsFP(instruction ins)
 //
 bool emitter::DoesWriteZeroFlag(instruction ins)
 {
-    return (emitter::instInfo[ins] & Writes_ZF) != 0;
+    return (instInfo[ins] & Writes_ZF) != 0;
 }
 
 //------------------------------------------------------------------------
@@ -288,7 +298,7 @@ bool emitter::DoesWriteZeroFlag(instruction ins)
 //
 bool emitter::DoesResetOverflowAndCarryFlags(instruction ins)
 {
-    return (emitter::instInfo[ins] & (Resets_OF | Resets_CF)) == (Resets_OF | Resets_CF);
+    return (instInfo[ins] & (Resets_OF | Resets_CF)) == (Resets_OF | Resets_CF);
 }
 
 bool emitter::AreFlagsAlwaysModified(instrDesc* id)
@@ -1294,18 +1304,15 @@ static bool FieldDispRequiresRelocation(CORINFO_FIELD_HANDLE fldHnd)
 
 const char* insName(instruction ins)
 {
-    // clang-format off
-    static const char* const insNames[] =
-    {
-#define INST0(id, nm, um, mr,                 flags) nm,
-#define INST1(id, nm, um, mr,                 flags) nm,
-#define INST2(id, nm, um, mr, mi,             flags) nm,
-#define INST3(id, nm, um, mr, mi, rm,         flags) nm,
-#define INST4(id, nm, um, mr, mi, rm, a4,     flags) nm,
-#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) nm,
+    static const char* const insNames[]{
+#define INST0(id, nm, ...) nm,
+#define INST1(id, nm, ...) nm,
+#define INST2(id, nm, ...) nm,
+#define INST3(id, nm, ...) nm,
+#define INST4(id, nm, ...) nm,
+#define INST5(id, nm, ...) nm,
 #include "instrsxarch.h"
     };
-    // clang-format on
 
     assert(ins < _countof(insNames));
     assert(insNames[ins] != nullptr);
@@ -1313,35 +1320,22 @@ const char* insName(instruction ins)
     return insNames[ins];
 }
 
-// clang-format off
-const insFlags emitter::instInfo[]
+static insUpdateModes emitInsUpdateMode(instruction ins)
 {
-    #define INST0(id, nm, um, mr,                 flags) static_cast<insFlags>(flags),
-    #define INST1(id, nm, um, mr,                 flags) static_cast<insFlags>(flags),
-    #define INST2(id, nm, um, mr, mi,             flags) static_cast<insFlags>(flags),
-    #define INST3(id, nm, um, mr, mi, rm,         flags) static_cast<insFlags>(flags),
-    #define INST4(id, nm, um, mr, mi, rm, a4,     flags) static_cast<insFlags>(flags),
-    #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) static_cast<insFlags>(flags),
-    #include "instrsxarch.h"
-};
-// clang-format on
+    static const uint8_t emitInsModeFmtTab[]{
+#define INST0(id, nm, um, ...) um,
+#define INST1(id, nm, um, ...) um,
+#define INST2(id, nm, um, ...) um,
+#define INST3(id, nm, um, ...) um,
+#define INST4(id, nm, um, ...) um,
+#define INST5(id, nm, um, ...) um,
+#include "instrsxarch.h"
+    };
 
-// clang-format off
-const BYTE emitter::emitInsModeFmtTab[] =
-{
-    #define INST0(id, nm, um, mr,                 flags) um,
-    #define INST1(id, nm, um, mr,                 flags) um,
-    #define INST2(id, nm, um, mr, mi,             flags) um,
-    #define INST3(id, nm, um, mr, mi, rm,         flags) um,
-    #define INST4(id, nm, um, mr, mi, rm, a4,     flags) um,
-    #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) um,
-    #include "instrsxarch.h"
-};
-// clang-format on
+    assert(ins < _countof(emitInsModeFmtTab));
 
-#ifdef DEBUG
-unsigned const emitter::emitInsModeFmtCnt = _countof(emitInsModeFmtTab);
-#endif
+    return static_cast<insUpdateModes>(emitInsModeFmtTab[ins]);
+}
 
 /*****************************************************************************
  *
@@ -1355,13 +1349,6 @@ emitter::insFormat emitter::emitInsModeFormat(instruction ins, insFormat base)
     assert(IF_RRD + IUM_RW == IF_RRW);
 
     return (insFormat)(base + emitInsUpdateMode(ins));
-}
-
-insUpdateModes emitter::emitInsUpdateMode(instruction ins)
-{
-    assert((unsigned)ins < emitInsModeFmtCnt);
-
-    return (insUpdateModes)emitInsModeFmtTab[ins];
 }
 
 // This is a helper we need due to Vs Whidbey #254016 in order to distinguish
