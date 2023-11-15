@@ -14,11 +14,6 @@ static bool isFloatReg(regNumber reg)
     return genIsValidFloatReg(reg);
 }
 
-static bool isDoubleReg(regNumber reg)
-{
-    return isFloatReg(reg);
-}
-
 // code_t is a type used to accumulate bits of opcode + prefixes. On amd64, it must be 64 bits
 // to support the REX prefixes. On both x86 and amd64, it must be 64 bits to support AVX, with
 // its 3-byte VEX prefix.
@@ -275,8 +270,6 @@ instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
 /************************************************************************/
 
 private:
-insFormat emitInsModeFormat(instruction ins, insFormat base, insFormat FPld, insFormat FPst);
-
 bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 = REG_NA);
 
 bool emitInsCanOnlyWriteSSE2OrAVXReg(instrDesc* id);
