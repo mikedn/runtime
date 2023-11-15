@@ -355,25 +355,19 @@ bool isPrefetch(instruction ins);
 /************************************************************************/
 
 #ifdef DEBUG
-
-void emitDispImm(instrDesc* id, ssize_t val);
-void emitDispReloc(ssize_t value);
-void emitDispAddrMode(instrDesc* id);
-void emitDispClsVar(instrDesc* id);
-void emitDispShiftCL(instruction ins);
-
 void emitDispIns(instrDesc* id,
                  bool       isNew = false,
                  bool       doffs = false,
                  bool       asmfm = false,
                  unsigned   offs  = 0,
-                 BYTE*      code  = nullptr,
+                 uint8_t*   code  = nullptr,
                  size_t     sz    = 0,
                  insGroup*  ig    = nullptr);
-
-static const char* emitXMMregName(unsigned reg);
-static const char* emitYMMregName(unsigned reg);
-
+void emitDispImm(instrDesc* id, ssize_t val);
+void emitDispReloc(ssize_t value);
+void emitDispAddrMode(instrDesc* id);
+void emitDispClsVar(instrDesc* id);
+void emitDispShiftCL(instruction ins);
 #endif
 
 /************************************************************************/

@@ -783,17 +783,6 @@ bool IsExtendedReg(regNumber reg, emitAttr attr)
 #endif
 }
 
-// Since XMM registers overlap with YMM registers, this routine
-// can also used to know whether a YMM register in case of AVX instructions.
-bool IsXMMReg(regNumber reg)
-{
-#ifdef TARGET_AMD64
-    return (reg >= REG_XMM0) && (reg <= REG_XMM15);
-#else
-    return (reg >= REG_XMM0) && (reg <= REG_XMM7);
-#endif
-}
-
 static_assert_no_msg((REG_RAX & 0x7) == 0);
 static_assert_no_msg((REG_XMM0 & 0x7) == 0);
 
@@ -6120,11 +6109,39 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 
 #ifdef DEBUG
 
+bool IsXmmReg(regNumber reg)
+{
+#ifdef TARGET_AMD64
+    return (reg >= REG_XMM0) && (reg <= REG_XMM15);
+#else
+    return (reg >= REG_XMM0) && (reg <= REG_XMM7);
+#endif
+}
+
+static const char* XmmRegName(regNumber reg, emitAttr size)
+{
+    static const char* const xmmNames[]{
+#define REGDEF(name, rnum, mask, sname) "x" sname,
+#include "register.h"
+    };
+    static const char* const ymmNames[]{
+#define REGDEF(name, rnum, mask, sname) "y" sname,
+#include "register.h"
+    };
+
+    if (!IsXmmReg(reg))
+    {
+        return "???";
+    }
+
+    return size == EA_32BYTE ? ymmNames[reg] : xmmNames[reg];
+}
+
 const char* emitter::emitRegName(regNumber reg, emitAttr attr)
 {
-    if (IsXMMReg(reg))
+    if (IsXmmReg(reg))
     {
-        return EA_SIZE(attr) == EA_32BYTE ? emitYMMregName(reg) : emitXMMregName(reg);
+        return XmmRegName(reg, attr);
     }
 
     static char          rb[2][128];
@@ -6258,37 +6275,6 @@ const char* emitter::emitRegName(regNumber reg, emitAttr attr)
 #endif // 0
 
     return rn;
-}
-
-const char* emitter::emitXMMregName(unsigned reg)
-{
-    static const char* const regNames[] = {
-#define REGDEF(name, rnum, mask, sname) "x" sname,
-#include "register.h"
-    };
-
-    assert(reg < REG_COUNT);
-    assert(reg < _countof(regNames));
-
-    return regNames[reg];
-}
-
-/*****************************************************************************
- *
- *  Return a string that represents the given YMM register.
- */
-
-const char* emitter::emitYMMregName(unsigned reg)
-{
-    static const char* const regNames[] = {
-#define REGDEF(name, rnum, mask, sname) "y" sname,
-#include "register.h"
-    };
-
-    assert(reg < REG_COUNT);
-    assert(reg < _countof(regNames));
-
-    return regNames[reg];
 }
 
 void emitter::emitDispClsVar(instrDesc* id)
