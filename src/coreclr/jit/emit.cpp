@@ -472,10 +472,12 @@ void* emitter::emitGetMem(size_t sz)
     return emitComp->getAllocator(CMK_InstDesc).allocate<char>(sz);
 }
 
+#ifdef DEBUG
 static bool IsCodeAligned(UNATIVE_OFFSET offset)
 {
     return ((offset & (CODE_ALIGN - 1)) == 0);
 }
+#endif
 
 insGroup* emitter::emitAllocIG()
 {
