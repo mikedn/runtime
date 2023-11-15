@@ -29,4 +29,12 @@ const regMaskTP regMasks[]{
 #include "register.h"
 };
 
+#ifdef DEBUG
+enum emitAttr : unsigned;
+const char* RegName(regNumber reg, emitAttr attr)
+{
+    return getRegName(reg);
+}
+#endif
+
 #endif // TARGET_ARM

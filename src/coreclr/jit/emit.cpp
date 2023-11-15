@@ -1577,9 +1577,9 @@ insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
         printf("Label: IG%02u, gc-lcls ", emitCurIG->igNum);
         dumpConvertedVarSet(emitComp, emitCurIG->gcLcls);
         printf(", ref-regs");
-        emitDispRegSet(emitCurIG->refRegs);
+        DumpRegSet(emitCurIG->refRegs);
         printf(", byref-regs");
-        emitDispRegSet(emitCurIG->byrefRegs);
+        DumpRegSet(emitCurIG->byrefRegs);
         printf("\n");
     }
 #endif
@@ -2016,68 +2016,6 @@ const char* emitter::emitGetFrameReg()
     }
 }
 
-/*****************************************************************************
- *
- *  Display a register set in a readable form.
- */
-
-void emitter::emitDispRegSet(regMaskTP regs)
-{
-    regNumber reg;
-    bool      sp = false;
-
-    printf(" {");
-
-    for (reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))
-    {
-        if ((regs & genRegMask(reg)) == 0)
-        {
-            continue;
-        }
-
-        if (sp)
-        {
-            printf(" ");
-        }
-        else
-        {
-            sp = true;
-        }
-
-        printf("%s", emitRegName(reg));
-    }
-
-    printf("}");
-}
-
-void emitter::emitDispRegSetDiff(const char* name, regMaskTP from, regMaskTP to)
-{
-    printf("%s{ ", name);
-
-    for (regNumber reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))
-    {
-        regMaskTP mask    = genRegMask(reg);
-        bool      fromBit = (from & mask) != 0;
-        bool      toBit   = (to & mask) != 0;
-
-        if (!fromBit && !toBit)
-        {
-            continue;
-        }
-
-        const char* s = "";
-
-        if (fromBit != toBit)
-        {
-            s = toBit ? "+" : "-";
-        }
-
-        printf("%s%s ", s, emitRegName(reg));
-    }
-
-    printf("}\n");
-}
-
 #endif // DEBUG
 
 emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
@@ -2109,16 +2047,16 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         if (isNoGCHelper)
         {
             printf("NoGC Call: saved regs");
-            emitDispRegSet(savedRegs);
+            DumpRegSet(savedRegs);
             printf("\n");
         }
 
         printf("Call: gc-lcls ");
         dumpConvertedVarSet(emitComp, gcLcls);
         printf(", ref-regs");
-        emitDispRegSet(refRegs);
+        DumpRegSet(refRegs);
         printf(", byref-regs");
-        emitDispRegSet(byrefRegs);
+        DumpRegSet(byrefRegs);
         printf("\n");
     }
 #endif
@@ -2295,14 +2233,14 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         if (ig->refRegs != RBM_NONE)
         {
             printf("%c ref-regs", separator);
-            emitDispRegSet(ig->refRegs);
+            DumpRegSet(ig->refRegs);
             separator = ',';
         }
 
         if (ig->byrefRegs != RBM_NONE)
         {
             printf("%c byref-regs", separator);
-            emitDispRegSet(ig->byrefRegs);
+            DumpRegSet(ig->byrefRegs);
             separator = ',';
         }
     }

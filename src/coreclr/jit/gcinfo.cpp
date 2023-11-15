@@ -1002,7 +1002,7 @@ void GCInfo::DumpRegDelta(const char* header, GCtype type, regMaskTP baseRegs, r
     if (baseRegs != diffRegs)
     {
         printf("%s%s-regs ", header, GetGCTypeName(type));
-        emitter::emitDispRegSetDiff("", baseRegs, diffRegs);
+        DumpRegSetDiff("", baseRegs, diffRegs);
     }
 }
 

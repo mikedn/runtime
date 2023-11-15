@@ -1970,8 +1970,6 @@ private:
 #ifdef DEBUG
 public:
     const char* emitGetFrameReg();
-    static void emitDispRegSet(regMaskTP regs);
-    static void emitDispRegSetDiff(const char* name, regMaskTP from, regMaskTP to);
 
 private:
 #endif

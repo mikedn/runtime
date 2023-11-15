@@ -142,9 +142,9 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
     if (compiler->verbose)
     {
         compiler->dmpVarSetDiff("GC stack vars: ", scratchSet1, liveGCLcl);
-        emitter::emitDispRegSetDiff("Live regs: ", liveLclRegs, newLclRegs);
-        emitter::emitDispRegSetDiff("GC regs: ", liveGCRefRegs, newGCRefRegs);
-        emitter::emitDispRegSetDiff("Byref regs: ", liveGCByRefRegs, newGCByrefRegs);
+        DumpRegSetDiff("Live regs: ", liveLclRegs, newLclRegs);
+        DumpRegSetDiff("GC regs: ", liveGCRefRegs, newGCRefRegs);
+        DumpRegSetDiff("Byref regs: ", liveGCByRefRegs, newGCByrefRegs);
     }
 #endif
 
@@ -487,7 +487,7 @@ void CodeGenLivenessUpdater::UpdateLiveLclRegs(const LclVarDsc* lcl, bool isDyin
 
 void CodeGenLivenessUpdater::SetLiveLclRegs(regMaskTP regs)
 {
-    DBEXEC(compiler->verbose, emitter::emitDispRegSetDiff("Live regs: ", liveLclRegs, regs);)
+    DBEXEC(compiler->verbose, DumpRegSetDiff("Live regs: ", liveLclRegs, regs);)
 
     liveLclRegs = regs;
 }
@@ -585,7 +585,7 @@ void CodeGenLivenessUpdater::DumpGCRefRegsDiff(regMaskTP newRegs DEBUGARG(bool f
 {
     if (compiler->verbose && (forceOutput || (liveGCRefRegs != newRegs)))
     {
-        emitter::emitDispRegSetDiff("GC regs: ", liveGCRefRegs, newRegs);
+        DumpRegSetDiff("GC regs: ", liveGCRefRegs, newRegs);
     }
 }
 
@@ -593,7 +593,7 @@ void CodeGenLivenessUpdater::DumpGCByRefRegsDiff(regMaskTP newRegs DEBUGARG(bool
 {
     if (compiler->verbose && (forceOutput || (liveGCByRefRegs != newRegs)))
     {
-        emitter::emitDispRegSetDiff("Byref regs: ", liveGCByRefRegs, newRegs);
+        DumpRegSetDiff("Byref regs: ", liveGCByRefRegs, newRegs);
     }
 }
 #endif // DEBUG

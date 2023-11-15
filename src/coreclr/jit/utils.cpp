@@ -318,6 +318,63 @@ void dspRegMask(regMaskTP regMask, size_t minSiz)
     }
 }
 
+void DumpRegSet(regMaskTP regs)
+{
+    regNumber reg;
+    bool      sp = false;
+
+    printf(" {");
+
+    for (reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))
+    {
+        if ((regs & genRegMask(reg)) == 0)
+        {
+            continue;
+        }
+
+        if (sp)
+        {
+            printf(" ");
+        }
+        else
+        {
+            sp = true;
+        }
+
+        printf("%s", RegName(reg, EA_PTRSIZE));
+    }
+
+    printf("}");
+}
+
+void DumpRegSetDiff(const char* name, regMaskTP from, regMaskTP to)
+{
+    printf("%s{ ", name);
+
+    for (regNumber reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))
+    {
+        regMaskTP mask    = genRegMask(reg);
+        bool      fromBit = (from & mask) != 0;
+        bool      toBit   = (to & mask) != 0;
+
+        if (!fromBit && !toBit)
+        {
+            continue;
+        }
+
+        const char* s = "";
+
+        if (fromBit != toBit)
+        {
+            s = toBit ? "+" : "-";
+        }
+
+        printf("%s%s ", s, RegName(reg, EA_PTRSIZE));
+    }
+
+    printf("}\n");
+}
+
 static void DumpILBytes(const uint8_t* const codeAddr, unsigned codeSize, unsigned alignSize)
 {
     for (unsigned offs = 0; offs < codeSize; ++offs)

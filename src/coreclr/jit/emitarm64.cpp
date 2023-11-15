@@ -1223,98 +1223,12 @@ emitAttr emitter::emitInsLoadStoreSize(instrDesc* id)
 }
 
 /*****************************************************************************/
+
 #ifdef DEBUG
 
-// clang-format off
-static const char * const  xRegNames[] =
+const char* emitter::emitRegName(regNumber reg, emitAttr attr)
 {
-    #define REGDEF(name, rnum, mask, xname, wname) xname,
-    #include "register.h"
-};
-
-static const char * const  wRegNames[] =
-{
-    #define REGDEF(name, rnum, mask, xname, wname) wname,
-    #include "register.h"
-};
-
-static const char * const  vRegNames[] =
-{
-    "v0",  "v1",  "v2",  "v3",  "v4",
-    "v5",  "v6",  "v7",  "v8",  "v9",
-    "v10", "v11", "v12", "v13", "v14",
-    "v15", "v16", "v17", "v18", "v19",
-    "v20", "v21", "v22", "v23", "v24",
-    "v25", "v26", "v27", "v28", "v29",
-    "v30", "v31"
-};
-
-static const char * const  qRegNames[] =
-{
-    "q0",  "q1",  "q2",  "q3",  "q4",
-    "q5",  "q6",  "q7",  "q8",  "q9",
-    "q10", "q11", "q12", "q13", "q14",
-    "q15", "q16", "q17", "q18", "q19",
-    "q20", "q21", "q22", "q23", "q24",
-    "q25", "q26", "q27", "q28", "q29",
-    "q30", "q31"
-};
-
-static const char * const  hRegNames[] =
-{
-    "h0",  "h1",  "h2",  "h3",  "h4",
-    "h5",  "h6",  "h7",  "h8",  "h9",
-    "h10", "h11", "h12", "h13", "h14",
-    "h15", "h16", "h17", "h18", "h19",
-    "h20", "h21", "h22", "h23", "h24",
-    "h25", "h26", "h27", "h28", "h29",
-    "h30", "h31"
-};
-static const char * const  bRegNames[] =
-{
-    "b0",  "b1",  "b2",  "b3",  "b4",
-    "b5",  "b6",  "b7",  "b8",  "b9",
-    "b10", "b11", "b12", "b13", "b14",
-    "b15", "b16", "b17", "b18", "b19",
-    "b20", "b21", "b22", "b23", "b24",
-    "b25", "b26", "b27", "b28", "b29",
-    "b30", "b31"
-};
-// clang-format on
-
-const char* emitter::emitRegName(regNumber reg, emitAttr size)
-{
-    assert(reg < REG_COUNT);
-
-    const char* rn = nullptr;
-
-    if (size == EA_8BYTE)
-    {
-        rn = xRegNames[reg];
-    }
-    else if (size == EA_4BYTE)
-    {
-        rn = wRegNames[reg];
-    }
-    else if (isVectorRegister(reg))
-    {
-        if (size == EA_16BYTE)
-        {
-            rn = qRegNames[reg - REG_V0];
-        }
-        else if (size == EA_2BYTE)
-        {
-            rn = hRegNames[reg - REG_V0];
-        }
-        else if (size == EA_1BYTE)
-        {
-            rn = bRegNames[reg - REG_V0];
-        }
-    }
-
-    assert(rn != nullptr);
-
-    return rn;
+    return RegName(reg, attr);
 }
 
 //------------------------------------------------------------------------
@@ -1328,11 +1242,13 @@ const char* emitter::emitRegName(regNumber reg, emitAttr size)
 //
 const char* emitter::emitVectorRegName(regNumber reg)
 {
+    static const char* const vRegNames[]{"v0",  "v1",  "v2",  "v3",  "v4",  "v5",  "v6",  "v7",  "v8",  "v9",  "v10",
+                                         "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21",
+                                         "v22", "v23", "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31"};
+
     assert((reg >= REG_V0) && (reg <= REG_V31));
 
-    int index = (int)reg - (int)REG_V0;
-
-    return vRegNames[index];
+    return vRegNames[reg - REG_V0];
 }
 
 #endif // DEBUG

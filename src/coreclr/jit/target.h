@@ -234,7 +234,11 @@ const char* getRegName(regNumber reg);
 #endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
 
 #ifdef DEBUG
-extern void dspRegMask(regMaskTP regMask, size_t minSiz = 0);
+enum emitAttr : unsigned;
+const char* RegName(regNumber reg, enum emitAttr attr);
+void dspRegMask(regMaskTP regMask, size_t minSiz = 0);
+void DumpRegSet(regMaskTP regs);
+void DumpRegSetDiff(const char* name, regMaskTP from, regMaskTP to);
 #endif
 
 #ifdef TARGET_X86

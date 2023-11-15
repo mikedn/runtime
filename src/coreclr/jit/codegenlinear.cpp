@@ -332,11 +332,11 @@ void CodeGen::genCodeForBBlist()
             if (nonLclGCRegs != RBM_NONE)
             {
                 printf("Regs after " FMT_BB " ref-regs", block->bbNum);
-                emitter::emitDispRegSet(liveness.GetGCRegs(TYP_REF) & ~lclRegs);
+                DumpRegSet(liveness.GetGCRegs(TYP_REF) & ~lclRegs);
                 printf(", byref-regs");
-                emitter::emitDispRegSet(liveness.GetGCRegs(TYP_BYREF) & ~lclRegs);
+                DumpRegSet(liveness.GetGCRegs(TYP_BYREF) & ~lclRegs);
                 printf(", lcl-regs");
-                emitter::emitDispRegSet(lclRegs);
+                DumpRegSet(lclRegs);
                 printf("\n");
             }
 

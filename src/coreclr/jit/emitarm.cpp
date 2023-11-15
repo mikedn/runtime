@@ -5988,9 +5988,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         {
             printf("Before emitOutputInstr for id->idDebugOnlyInfo()->idNum=0x%02x\n", id->idDebugOnlyInfo()->idNum);
             printf("  REF regs");
-            emitDispRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
+            DumpRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
             printf("\n  BYREF regs");
-            emitDispRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
+            DumpRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
             printf("\n");
         }
 

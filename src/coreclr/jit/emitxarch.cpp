@@ -6120,172 +6120,9 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 
 #ifdef DEBUG
 
-bool IsXmmReg(regNumber reg)
-{
-#ifdef TARGET_AMD64
-    return (reg >= REG_XMM0) && (reg <= REG_XMM15);
-#else
-    return (reg >= REG_XMM0) && (reg <= REG_XMM7);
-#endif
-}
-
-static const char* XmmRegName(regNumber reg, emitAttr size)
-{
-    static const char* const xmmNames[]{
-#define REGDEF(name, rnum, mask, sname) "x" sname,
-#include "register.h"
-    };
-    static const char* const ymmNames[]{
-#define REGDEF(name, rnum, mask, sname) "y" sname,
-#include "register.h"
-    };
-
-    if (!IsXmmReg(reg))
-    {
-        return "???";
-    }
-
-    return size == EA_32BYTE ? ymmNames[reg] : xmmNames[reg];
-}
-
 const char* emitter::emitRegName(regNumber reg, emitAttr attr)
 {
-    if (IsXmmReg(reg))
-    {
-        return XmmRegName(reg, attr);
-    }
-
-    static char          rb[2][128];
-    static unsigned char rbc = 0;
-
-    const char* rn = getRegName(reg);
-
-#ifdef TARGET_AMD64
-    char suffix = '\0';
-
-    switch (EA_SIZE(attr))
-    {
-        case EA_4BYTE:
-            if (reg > REG_R15)
-            {
-                break;
-            }
-
-            if (reg > REG_RDI)
-            {
-                suffix = 'd';
-                goto APPEND_SUFFIX;
-            }
-            rbc        = (rbc + 1) % 2;
-            rb[rbc][0] = 'e';
-            rb[rbc][1] = rn[1];
-            rb[rbc][2] = rn[2];
-            rb[rbc][3] = 0;
-            rn         = rb[rbc];
-            break;
-
-        case EA_2BYTE:
-            if (reg > REG_RDI)
-            {
-                suffix = 'w';
-                goto APPEND_SUFFIX;
-            }
-            rn++;
-            break;
-
-        case EA_1BYTE:
-            if (reg > REG_RDI)
-            {
-                suffix = 'b';
-            APPEND_SUFFIX:
-                rbc        = (rbc + 1) % 2;
-                rb[rbc][0] = rn[0];
-                rb[rbc][1] = rn[1];
-                if (rn[2])
-                {
-                    assert(rn[3] == 0);
-                    rb[rbc][2] = rn[2];
-                    rb[rbc][3] = suffix;
-                    rb[rbc][4] = 0;
-                }
-                else
-                {
-                    rb[rbc][2] = suffix;
-                    rb[rbc][3] = 0;
-                }
-            }
-            else
-            {
-                rbc        = (rbc + 1) % 2;
-                rb[rbc][0] = rn[1];
-                if (reg < 4)
-                {
-                    rb[rbc][1] = 'l';
-                    rb[rbc][2] = 0;
-                }
-                else
-                {
-                    rb[rbc][1] = rn[2];
-                    rb[rbc][2] = 'l';
-                    rb[rbc][3] = 0;
-                }
-            }
-
-            rn = rb[rbc];
-            break;
-
-        default:
-            break;
-    }
-#endif // TARGET_AMD64
-
-#ifdef TARGET_X86
-    assert(strlen(rn) >= 3);
-
-    switch (EA_SIZE(attr))
-    {
-        case EA_2BYTE:
-            rn++;
-            break;
-
-        case EA_1BYTE:
-            rbc        = (rbc + 1) % 2;
-            rb[rbc][0] = rn[1];
-            rb[rbc][1] = 'l';
-            strcpy_s(&rb[rbc][2], sizeof(rb[0]) - 2, rn + 3);
-
-            rn = rb[rbc];
-            break;
-
-        default:
-            break;
-    }
-#endif // TARGET_X86
-
-#if 0
-    // The following is useful if you want register names to be tagged with * or ^ representing gcref or byref, respectively,
-    // however it's possibly not interesting most of the time.
-    if (EA_IS_GCREF(attr) || EA_IS_BYREF(attr))
-    {
-        if (rn != rb[rbc])
-        {
-            rbc = (rbc+1)%2;
-            strcpy_s(rb[rbc], sizeof(rb[rbc]), rn);
-            rn = rb[rbc];
-        }
-
-        if (EA_IS_GCREF(attr))
-        {
-            strcat_s(rb[rbc], sizeof(rb[rbc]), "*");
-        }
-        else if (EA_IS_BYREF(attr))
-        {
-            strcat_s(rb[rbc], sizeof(rb[rbc]), "^");
-        }
-    }
-#endif // 0
-
-    return rn;
+    return RegName(reg, attr);
 }
 
 void emitter::emitDispClsVar(instrDesc* id)
@@ -10966,9 +10803,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         {
             printf("Before emitOutputInstr for id->idDebugOnlyInfo()->idNum=0x%02x\n", id->idDebugOnlyInfo()->idNum);
             printf("  REF regs");
-            emitDispRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
+            DumpRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
             printf("\n  BYREF regs");
-            emitDispRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
+            DumpRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
             printf("\n");
         }
 
