@@ -18,11 +18,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 
-static bool isGeneralRegister(regNumber reg)
-{
-    return IsGeneralRegister(reg);
-}
-
 static bool isFloatReg(regNumber reg)
 {
     return IsFloatReg(reg);
@@ -127,10 +122,12 @@ static bool IsSSEOrAVXInstruction(instruction ins)
     return (ins >= INS_FIRST_SSE_INSTRUCTION) && (ins <= INS_LAST_AVX_INSTRUCTION);
 }
 
+#ifdef DEBUG
 static bool IsAVXOnlyInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_AVX_INSTRUCTION) && (ins <= INS_LAST_AVX_INSTRUCTION);
 }
+#endif
 
 static bool IsFMAInstruction(instruction ins)
 {
@@ -215,6 +212,7 @@ bool emitter::IsThreeOperandAVXInstruction(instruction ins)
     return (IsDstDstSrcAVXInstruction(ins) || IsDstSrcSrcAVXInstruction(ins));
 }
 
+#ifdef DEBUG
 static bool isAvxBlendv(instruction ins)
 {
     return ins == INS_vblendvps || ins == INS_vblendvpd || ins == INS_vpblendvb;
@@ -229,6 +227,7 @@ static bool isPrefetch(instruction ins)
 {
     return (ins == INS_prefetcht0) || (ins == INS_prefetcht1) || (ins == INS_prefetcht2) || (ins == INS_prefetchnta);
 }
+#endif
 
 bool emitter::UseVEXEncoding() const
 {
@@ -271,15 +270,16 @@ bool emitter::IsDstSrcSrcAVXInstruction(instruction ins)
     return ((instInfo[ins] & INS_Flags_IsDstSrcSrcAVXInstruction) != 0) && IsAVXInstruction(ins);
 }
 
+#if defined(TARGET_X86) || defined(DEBUG)
 static bool instIsFP(instruction ins)
 {
-    assert(ins < _countof(instInfo));
 #ifdef TARGET_X86
     return (ins == INS_fld) || (ins == INS_fstp);
 #else
     return false;
 #endif
 }
+#endif
 
 //------------------------------------------------------------------------
 // DoesWriteZeroFlag: check if the instruction write the
@@ -3787,7 +3787,7 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
         case INS_movsx:
         case INS_movzx:
         {
-            assert(isGeneralRegister(dstReg) && isGeneralRegister(srcReg));
+            assert(IsGeneralRegister(dstReg) && IsGeneralRegister(srcReg));
             break;
         }
 
@@ -3819,7 +3819,7 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
 
         case INS_movsxd:
         {
-            assert(isGeneralRegister(dstReg) && isGeneralRegister(srcReg));
+            assert(IsGeneralRegister(dstReg) && IsGeneralRegister(srcReg));
             break;
         }
 #endif // TARGET_AMD64

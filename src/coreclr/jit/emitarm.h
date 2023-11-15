@@ -84,7 +84,7 @@ static bool emitInsIsCompare(instruction ins);
 static bool emitInsIsLoad(instruction ins);
 static bool emitInsIsStore(instruction ins);
 static bool emitInsIsLoadOrStore(instruction ins);
-emitter::insFormat emitInsFormat(instruction ins);
+insFormat emitInsFormat(instruction ins);
 emitter::code_t emitInsCode(instruction ins, insFormat fmt);
 
 static bool IsMovInstruction(instruction ins);

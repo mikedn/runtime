@@ -39,6 +39,7 @@ static bool isGeneralRegisterOrSP(regNumber reg)
     return isGeneralRegister(reg) || (reg == REG_SP);
 } // Includes REG_SP, Excludes REG_ZR
 
+#ifdef DEBUG
 static bool isValidGeneralDatasize(emitAttr size)
 {
     return (size == EA_8BYTE) || (size == EA_4BYTE);
@@ -47,11 +48,6 @@ static bool isValidGeneralDatasize(emitAttr size)
 static bool isValidScalarDatasize(emitAttr size)
 {
     return (size == EA_8BYTE) || (size == EA_4BYTE);
-}
-
-static bool isValidVectorDatasize(emitAttr size)
-{
-    return (size == EA_16BYTE) || (size == EA_8BYTE);
 }
 
 static bool isValidGeneralLSDatasize(emitAttr size)
@@ -84,54 +80,9 @@ static bool isValidVectorElemsizeFloat(emitAttr size)
     return (size == EA_8BYTE) || (size == EA_4BYTE);
 }
 
-static bool isVectorRegister(regNumber reg)
-{
-    return IsVectorRegister(reg);
-}
-
-static bool insOptsNone(insOpts opt)
-{
-    return (opt == INS_OPTS_NONE);
-}
-
-static bool insOptsIndexed(insOpts opt)
-{
-    return (opt == INS_OPTS_PRE_INDEX) || (opt == INS_OPTS_POST_INDEX);
-}
-
 static bool insOptsPreIndex(insOpts opt)
 {
     return (opt == INS_OPTS_PRE_INDEX);
-}
-
-static bool insOptsPostIndex(insOpts opt)
-{
-    return (opt == INS_OPTS_POST_INDEX);
-}
-
-static bool insOptsLSL12(insOpts opt) // special 12-bit shift only used for imm12
-{
-    return (opt == INS_OPTS_LSL12);
-}
-
-static bool insOptsAnyShift(insOpts opt)
-{
-    return ((opt >= INS_OPTS_LSL) && (opt <= INS_OPTS_ROR));
-}
-
-static bool insOptsAluShift(insOpts opt) // excludes ROR
-{
-    return ((opt >= INS_OPTS_LSL) && (opt <= INS_OPTS_ASR));
-}
-
-static bool insOptsLSL(insOpts opt)
-{
-    return (opt == INS_OPTS_LSL);
-}
-
-static bool insOptsAnyExtend(insOpts opt)
-{
-    return ((opt >= INS_OPTS_UXTB) && (opt <= INS_OPTS_SXTX));
 }
 
 static bool insOptsLSExtend(insOpts opt)
@@ -143,11 +94,6 @@ static bool insOptsLSExtend(insOpts opt)
 static bool insOpts32BitExtend(insOpts opt)
 {
     return ((opt == INS_OPTS_UXTW) || (opt == INS_OPTS_SXTW));
-}
-
-static bool insOptsAnyArrangement(insOpts opt)
-{
-    return ((opt >= INS_OPTS_8B) && (opt <= INS_OPTS_2D));
 }
 
 static bool insOptsConvertFloatToFloat(insOpts opt)
@@ -163,6 +109,62 @@ static bool insOptsConvertFloatToInt(insOpts opt)
 static bool insOptsConvertIntToFloat(insOpts opt)
 {
     return ((opt >= INS_OPTS_4BYTE_TO_S) && (opt <= INS_OPTS_8BYTE_TO_D));
+}
+#endif // DEBUG
+
+static bool insOptsNone(insOpts opt)
+{
+    return (opt == INS_OPTS_NONE);
+}
+
+static bool insOptsAluShift(insOpts opt) // excludes ROR
+{
+    return ((opt >= INS_OPTS_LSL) && (opt <= INS_OPTS_ASR));
+}
+
+static bool insOptsIndexed(insOpts opt)
+{
+    return (opt == INS_OPTS_PRE_INDEX) || (opt == INS_OPTS_POST_INDEX);
+}
+
+static bool insOptsAnyExtend(insOpts opt)
+{
+    return ((opt >= INS_OPTS_UXTB) && (opt <= INS_OPTS_SXTX));
+}
+
+static bool insOptsLSL(insOpts opt)
+{
+    return (opt == INS_OPTS_LSL);
+}
+
+static bool insOptsLSL12(insOpts opt) // special 12-bit shift only used for imm12
+{
+    return (opt == INS_OPTS_LSL12);
+}
+
+static bool insOptsAnyShift(insOpts opt)
+{
+    return ((opt >= INS_OPTS_LSL) && (opt <= INS_OPTS_ROR));
+}
+
+static bool insOptsPostIndex(insOpts opt)
+{
+    return (opt == INS_OPTS_POST_INDEX);
+}
+
+static bool insOptsAnyArrangement(insOpts opt)
+{
+    return ((opt >= INS_OPTS_8B) && (opt <= INS_OPTS_2D));
+}
+
+static bool isValidVectorDatasize(emitAttr size)
+{
+    return (size == EA_16BYTE) || (size == EA_8BYTE);
+}
+
+static bool isVectorRegister(regNumber reg)
+{
+    return IsVectorRegister(reg);
 }
 
 /* static */ bool emitter::strictArmAsm = true;

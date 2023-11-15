@@ -23,6 +23,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 
+#ifdef DEBUG
 static bool isGeneralRegister(regNumber reg)
 {
     return IsGeneralRegister(reg);
@@ -37,6 +38,17 @@ static bool isDoubleReg(regNumber reg)
 {
     return isFloatReg(reg) && ((reg % 2) == 0);
 }
+
+static bool insOptsLSL(insOpts opt)
+{
+    return (opt == INS_OPTS_LSL);
+}
+
+static bool insOptAnyShift(insOpts opt)
+{
+    return ((opt >= INS_OPTS_RRX) && (opt <= INS_OPTS_ROR));
+}
+#endif // DEBUG
 
 static bool insSetsFlags(insFlags flags)
 {
@@ -68,19 +80,9 @@ static bool insOptsPostInc(insOpts opt)
     return (opt == INS_OPTS_LDST_POST_INC);
 }
 
-static bool insOptAnyShift(insOpts opt)
-{
-    return ((opt >= INS_OPTS_RRX) && (opt <= INS_OPTS_ROR));
-}
-
 static bool insOptsRRX(insOpts opt)
 {
     return (opt == INS_OPTS_RRX);
-}
-
-static bool insOptsLSL(insOpts opt)
-{
-    return (opt == INS_OPTS_LSL);
 }
 
 /*****************************************************************************/
