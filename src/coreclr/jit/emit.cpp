@@ -164,37 +164,12 @@ void emitLocation::Print(LONG compMethodID) const
     printf("(G_M%03u_IG%02u,ins#%d,ofs#%d)", compMethodID, ig->igNum, insNum, insOfs);
 }
 
-//-----------------------------------------------------------------------------
-// genInsDisplayName: Get a fully-formed instruction display name. This only handles
-// the xarch case of prepending a "v", not the arm case of appending an "s".
-// This can be called up to four times in a single 'printf' before the static buffers
-// get reused.
-//
-// Returns:
-//    String with instruction name
-//
+#ifndef TARGET_XARCH
 const char* emitter::genInsDisplayName(instrDesc* id)
 {
-    instruction ins  = id->idIns();
-    const char* name = insName(ins);
-
-#ifdef TARGET_XARCH
-    const int       TEMP_BUFFER_LEN = 40;
-    static unsigned curBuf          = 0;
-    static char     buf[4][TEMP_BUFFER_LEN];
-    const char*     retbuf;
-
-    if (IsAVXInstruction(ins) && !IsBMIInstruction(ins))
-    {
-        sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "v%s", name);
-        retbuf = buf[curBuf];
-        curBuf = (curBuf + 1) % 4;
-        return retbuf;
-    }
-#endif // TARGET_XARCH
-
-    return name;
+    return insName(id->idIns());
 }
+#endif
 
 #endif // DEBUG
 

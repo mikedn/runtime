@@ -107,32 +107,32 @@ bool emitter::instrHasImplicitRegPairDest(instruction ins)
     return (ins == INS_mulEAX) || (ins == INS_imulEAX) || (ins == INS_div) || (ins == INS_idiv);
 }
 
-bool emitter::IsSSEInstruction(instruction ins)
+static bool IsSSEInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_SSE_INSTRUCTION) && (ins <= INS_LAST_SSE_INSTRUCTION);
 }
 
-bool emitter::IsSSEOrAVXInstruction(instruction ins)
+static bool IsSSEOrAVXInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_SSE_INSTRUCTION) && (ins <= INS_LAST_AVX_INSTRUCTION);
 }
 
-bool emitter::IsAVXOnlyInstruction(instruction ins)
+static bool IsAVXOnlyInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_AVX_INSTRUCTION) && (ins <= INS_LAST_AVX_INSTRUCTION);
 }
 
-bool emitter::IsFMAInstruction(instruction ins)
+static bool IsFMAInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_FMA_INSTRUCTION) && (ins <= INS_LAST_FMA_INSTRUCTION);
 }
 
-bool emitter::IsAVXVNNIInstruction(instruction ins)
+static bool IsAVXVNNIInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_AVXVNNI_INSTRUCTION) && (ins <= INS_LAST_AVXVNNI_INSTRUCTION);
 }
 
-bool emitter::IsBMIInstruction(instruction ins)
+static bool IsBMIInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_BMI_INSTRUCTION) && (ins <= INS_LAST_BMI_INSTRUCTION);
 }
@@ -142,7 +142,7 @@ static bool IsBMIRegExtInstruction(instruction ins)
     return (ins == INS_blsi) || (ins == INS_blsmsk) || (ins == INS_blsr);
 }
 
-regNumber emitter::getBmiRegNumber(instruction ins)
+static regNumber getBmiRegNumber(instruction ins)
 {
     switch (ins)
     {
@@ -158,7 +158,7 @@ regNumber emitter::getBmiRegNumber(instruction ins)
     }
 }
 
-regNumber emitter::getSseShiftRegNumber(instruction ins)
+static regNumber getSseShiftRegNumber(instruction ins)
 {
     switch (ins)
     {
@@ -205,17 +205,17 @@ bool emitter::IsThreeOperandAVXInstruction(instruction ins)
     return (IsDstDstSrcAVXInstruction(ins) || IsDstSrcSrcAVXInstruction(ins));
 }
 
-bool emitter::isAvxBlendv(instruction ins)
+static bool isAvxBlendv(instruction ins)
 {
     return ins == INS_vblendvps || ins == INS_vblendvpd || ins == INS_vpblendvb;
 }
 
-bool emitter::isSse41Blendv(instruction ins)
+static bool isSse41Blendv(instruction ins)
 {
     return ins == INS_blendvps || ins == INS_blendvpd || ins == INS_pblendvb;
 }
 
-bool emitter::isPrefetch(instruction ins)
+static bool isPrefetch(instruction ins)
 {
     return (ins == INS_prefetcht0) || (ins == INS_prefetcht1) || (ins == INS_prefetcht2) || (ins == INS_prefetchnta);
 }
@@ -281,7 +281,7 @@ static bool instIsFP(instruction ins)
 // Return Value:
 //    true if instruction writes the ZF flag, false otherwise.
 //
-bool emitter::DoesWriteZeroFlag(instruction ins)
+static bool DoesWriteZeroFlag(instruction ins)
 {
     return (instInfo[ins] & Writes_ZF) != 0;
 }
@@ -296,7 +296,7 @@ bool emitter::DoesWriteZeroFlag(instruction ins)
 // Return Value:
 //    true if instruction resets the OF and CF flag, false otherwise.
 //
-bool emitter::DoesResetOverflowAndCarryFlags(instruction ins)
+static bool DoesResetOverflowAndCarryFlags(instruction ins)
 {
     return (instInfo[ins] & (Resets_OF | Resets_CF)) == (Resets_OF | Resets_CF);
 }
@@ -487,20 +487,6 @@ static bool IsDstSrcImmAvxInstruction(instruction ins)
     }
 }
 
-// -------------------------------------------------------------------
-// Is4ByteSSEInstruction: Returns true if the SSE instruction is a 4-byte opcode.
-//
-// Arguments:
-//    ins  -  instruction
-//
-// Note that this should be true for any of the instructions in instrsXArch.h
-// that use the SSE38 or SSE3A macro but returns false if the VEX encoding is
-// in use, since that encoding does not require an additional byte.
-bool emitter::Is4ByteSSEInstruction(instruction ins)
-{
-    return !UseVEXEncoding() && EncodedBySSE38orSSE3A(ins);
-}
-
 // Returns true if this instruction requires a VEX prefix
 // All AVX instructions require a VEX prefix
 bool emitter::TakesVexPrefix(instruction ins) const
@@ -619,7 +605,7 @@ bool emitter::hasRexPrefix(code_t code)
 }
 
 // Returns true if this instruction, for the given EA_SIZE(attr), will require a REX.W prefix
-bool emitter::TakesRexWPrefix(instruction ins, emitAttr attr)
+static bool TakesRexWPrefix(instruction ins, emitAttr attr)
 {
     // Because the current implementation of AVX does not have a way to distinguish between the register
     // size specification (128 vs. 256 bits) and the operand size specification (32 vs. 64 bits), where both are
@@ -1585,7 +1571,7 @@ static size_t insCodeMR(instruction ins)
 }
 
 // Return true if the instruction uses the SSE38 or SSE3A macro in instrsXArch.h.
-bool emitter::EncodedBySSE38orSSE3A(instruction ins)
+static bool EncodedBySSE38orSSE3A(instruction ins)
 {
     const size_t SSE38 = 0x0F660038;
     const size_t SSE3A = 0x0F66003A;
@@ -1613,6 +1599,20 @@ bool emitter::EncodedBySSE38orSSE3A(instruction ins)
 
     insCode &= MASK;
     return insCode == SSE38 || insCode == SSE3A;
+}
+
+// -------------------------------------------------------------------
+// Is4ByteSSEInstruction: Returns true if the SSE instruction is a 4-byte opcode.
+//
+// Arguments:
+//    ins  -  instruction
+//
+// Note that this should be true for any of the instructions in instrsXArch.h
+// that use the SSE38 or SSE3A macro but returns false if the VEX encoding is
+// in use, since that encoding does not require an additional byte.
+bool emitter::Is4ByteSSEInstruction(instruction ins)
+{
+    return !UseVEXEncoding() && EncodedBySSE38orSSE3A(ins);
 }
 
 /*****************************************************************************
@@ -6594,6 +6594,27 @@ static const char* emitSizeStr(emitAttr attr)
         default:
             return "??? ";
     }
+}
+
+const char* emitter::genInsDisplayName(instrDesc* id)
+{
+    instruction ins  = id->idIns();
+    const char* name = insName(ins);
+
+    const int       TEMP_BUFFER_LEN = 40;
+    static unsigned curBuf          = 0;
+    static char     buf[4][TEMP_BUFFER_LEN];
+    const char*     retbuf;
+
+    if (IsAVXInstruction(ins) && !IsBMIInstruction(ins))
+    {
+        sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "v%s", name);
+        retbuf = buf[curBuf];
+        curBuf = (curBuf + 1) % 4;
+        return retbuf;
+    }
+
+    return name;
 }
 
 void emitter::emitDispIns(

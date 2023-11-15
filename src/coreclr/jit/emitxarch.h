@@ -305,14 +305,6 @@ code_t insEncodeRMreg(instruction ins, code_t code);
 code_t insEncodeMRreg(instruction ins, regNumber reg, emitAttr size, code_t code);
 code_t insEncodeOpreg(instruction ins, regNumber reg, emitAttr size);
 
-static bool IsSSEInstruction(instruction ins);
-static bool IsSSEOrAVXInstruction(instruction ins);
-static bool IsAVXOnlyInstruction(instruction ins);
-static bool IsFMAInstruction(instruction ins);
-static bool IsAVXVNNIInstruction(instruction ins);
-static bool IsBMIInstruction(instruction ins);
-static regNumber getBmiRegNumber(instruction ins);
-static regNumber getSseShiftRegNumber(instruction ins);
 bool IsAVXInstruction(instruction ins) const;
 code_t insEncodeMIreg(instruction ins, regNumber reg, emitAttr size, code_t code);
 
@@ -322,7 +314,6 @@ code_t AddRexXPrefix(instruction ins, code_t code);
 code_t AddRexBPrefix(instruction ins, code_t code);
 code_t AddRexPrefix(instruction ins, code_t code);
 
-bool EncodedBySSE38orSSE3A(instruction ins);
 bool Is4ByteSSEInstruction(instruction ins);
 static bool IsMovInstruction(instruction ins);
 bool IsRedundantMov(
@@ -333,9 +324,8 @@ static bool IsJmpInstruction(instruction ins);
 bool AreUpper32BitsZero(regNumber reg);
 bool AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps treeOps);
 
-bool hasRexPrefix(code_t code);
+static bool hasRexPrefix(code_t code);
 bool TakesVexPrefix(instruction ins) const;
-static bool TakesRexWPrefix(instruction ins, emitAttr attr);
 bool hasVexPrefix(code_t code);
 code_t AddVexPrefix(instruction ins, code_t code, emitAttr attr);
 code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
@@ -343,14 +333,9 @@ code_t AddVexPrefixIfNeededAndNotPresent(instruction ins, code_t code, emitAttr 
 
 bool IsDstDstSrcAVXInstruction(instruction ins);
 bool IsDstSrcSrcAVXInstruction(instruction ins);
-bool DoesWriteZeroFlag(instruction ins);
-bool DoesResetOverflowAndCarryFlags(instruction ins);
 bool AreFlagsAlwaysModified(instrDesc* id);
 
 bool IsThreeOperandAVXInstruction(instruction ins);
-bool isAvxBlendv(instruction ins);
-bool isSse41Blendv(instruction ins);
-bool isPrefetch(instruction ins);
 
 /************************************************************************/
 /*             Debug-only routines to display instructions              */
@@ -399,21 +384,20 @@ instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
 /*               Private helpers for instruction output                 */
 /************************************************************************/
 
-bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 = REG_NA);
-
-bool emitInsCanOnlyWriteSSE2OrAVXReg(instrDesc* id);
+static bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 = REG_NA);
+static bool emitInsCanOnlyWriteSSE2OrAVXReg(instrDesc* id);
 
 #if !FEATURE_FIXED_OUT_ARGS
 void emitAdjustStackDepthPushPop(instruction ins);
 void emitAdjustStackDepth(instruction ins, ssize_t val);
 #endif
 
-opSize emitEncodeScale(size_t scale);
-emitAttr emitDecodeScale(unsigned ensz);
+static opSize emitEncodeScale(size_t scale);
+static emitAttr emitDecodeScale(unsigned ensz);
 
 void emitLoopAlign(unsigned short paddingBytes);
 void emitLongLoopAlign(unsigned short alignmentBoundary);
-bool emitIsCondJump(instrDesc* jmp);
-bool emitIsUncondJump(instrDesc* jmp);
+static bool emitIsCondJump(instrDesc* jmp);
+static bool emitIsUncondJump(instrDesc* jmp);
 
 #endif // TARGET_XARCH
