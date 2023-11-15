@@ -84,6 +84,24 @@ static bool insIsCMOV(instruction ins)
     return ((ins >= INS_cmovo) && (ins <= INS_cmovg));
 }
 
+bool emitter::emitIsCondJump(instrDesc* jmp)
+{
+    instruction ins = jmp->idIns();
+
+    assert(jmp->idInsFmt() == IF_LABEL);
+
+    return (ins != INS_call && ins != INS_jmp);
+}
+
+bool emitter::emitIsUncondJump(instrDesc* jmp)
+{
+    instruction ins = jmp->idIns();
+
+    assert(jmp->idInsFmt() == IF_LABEL);
+
+    return (ins == INS_jmp);
+}
+
 bool emitter::instrHasImplicitRegPairDest(instruction ins)
 {
     return (ins == INS_mulEAX) || (ins == INS_imulEAX) || (ins == INS_div) || (ins == INS_idiv);
@@ -180,6 +198,31 @@ regNumber emitter::getSseShiftRegNumber(instruction ins)
             return REG_NA;
         }
     }
+}
+
+bool emitter::IsThreeOperandAVXInstruction(instruction ins)
+{
+    return (IsDstDstSrcAVXInstruction(ins) || IsDstSrcSrcAVXInstruction(ins));
+}
+
+bool emitter::isAvxBlendv(instruction ins)
+{
+    return ins == INS_vblendvps || ins == INS_vblendvpd || ins == INS_vpblendvb;
+}
+
+bool emitter::isSse41Blendv(instruction ins)
+{
+    return ins == INS_blendvps || ins == INS_blendvpd || ins == INS_pblendvb;
+}
+
+bool emitter::isPrefetch(instruction ins)
+{
+    return (ins == INS_prefetcht0) || (ins == INS_prefetcht1) || (ins == INS_prefetcht2) || (ins == INS_prefetchnta);
+}
+
+bool emitter::UseVEXEncoding() const
+{
+    return useVEXEncodings;
 }
 
 bool emitter::IsAVXInstruction(instruction ins) const
@@ -473,6 +516,16 @@ bool emitter::TakesVexPrefix(instruction ins) const
     return IsAVXInstruction(ins);
 }
 
+// 3-byte VEX prefix starts with byte 0xC4
+#define VEX_PREFIX_MASK_3BYTE 0xFF000000000000ULL
+#define VEX_PREFIX_CODE_3BYTE 0xC4000000000000ULL
+
+// Returns true if the instruction encoding already contains VEX prefix
+bool emitter::hasVexPrefix(code_t code)
+{
+    return (code & VEX_PREFIX_MASK_3BYTE) == VEX_PREFIX_CODE_3BYTE;
+}
+
 // Add base VEX prefix without setting W, R, X, or B bits
 // L bit will be set based on emitter attr.
 //
@@ -523,6 +576,36 @@ emitter::code_t emitter::AddVexPrefix(instruction ins, code_t code, emitAttr att
     }
 
     return code;
+}
+
+emitter::code_t emitter::AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size)
+{
+    if (TakesVexPrefix(ins))
+    {
+        code = AddVexPrefix(ins, code, size);
+    }
+
+    return code;
+}
+
+emitter::code_t emitter::AddVexPrefixIfNeededAndNotPresent(instruction ins, code_t code, emitAttr size)
+{
+    if (TakesVexPrefix(ins) && !hasVexPrefix(code))
+    {
+        code = AddVexPrefix(ins, code, size);
+    }
+
+    return code;
+}
+
+bool emitter::hasRexPrefix(code_t code)
+{
+#ifdef TARGET_AMD64
+    const code_t REX_PREFIX_MASK = 0xFF00000000LL;
+    return (code & REX_PREFIX_MASK) != 0;
+#else
+    return false;
+#endif
 }
 
 // Returns true if this instruction, for the given EA_SIZE(attr), will require a REX.W prefix
@@ -1744,6 +1827,20 @@ static unsigned ScaleEncoding(unsigned scale)
     };
 
     return scales[scale];
+}
+
+emitter::opSize emitter::emitEncodeScale(size_t scale)
+{
+    assert(scale == 1 || scale == 2 || scale == 4 || scale == 8);
+
+    return emitSizeEncode[scale - 1];
+}
+
+emitAttr emitter::emitDecodeScale(unsigned ensz)
+{
+    assert(ensz < 4);
+
+    return emitSizeDecode[ensz];
 }
 
 const instruction emitJumpKindInstructions[] = {INS_nop,

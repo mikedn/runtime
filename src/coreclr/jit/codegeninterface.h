@@ -129,6 +129,10 @@ public:
     bool generatingEpilog = false;
 
 protected:
+#ifdef TARGET_XARCH
+    bool contains256bitAVXInstructions = false;
+    bool containsAVXInstructions       = false;
+#endif
     bool m_genAlignLoops;
 
 public:
@@ -148,6 +152,18 @@ public:
     {
         m_cgFramePointerUsed = true;
     }
+
+#ifdef TARGET_XARCH
+    void SetContainsAVX()
+    {
+        containsAVXInstructions = true;
+    }
+
+    void SetContains256bitAVX()
+    {
+        contains256bitAVXInstructions = true;
+    }
+#endif
 
 public:
     int genCallerSPtoFPdelta() const;

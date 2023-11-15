@@ -3,7 +3,16 @@
 
 #ifdef TARGET_XARCH
 
+bool useVEXEncodings = false;
+
 public:
+bool UseVEXEncoding() const;
+
+void SetUseVEXEncoding(bool value)
+{
+    useVEXEncodings = value;
+}
+
 static bool isGeneralRegister(regNumber reg)
 {
     return genIsValidIntReg(reg);
@@ -117,80 +126,16 @@ bool IsRedundantMov(
 
 static bool IsJccInstruction(instruction ins);
 static bool IsJmpInstruction(instruction ins);
-
 bool AreUpper32BitsZero(regNumber reg);
-
 bool AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps treeOps);
 
-bool hasRexPrefix(code_t code)
-{
-#ifdef TARGET_AMD64
-    const code_t REX_PREFIX_MASK = 0xFF00000000LL;
-    return (code & REX_PREFIX_MASK) != 0;
-#else  // !TARGET_AMD64
-    return false;
-#endif // !TARGET_AMD64
-}
-
-// 3-byte VEX prefix starts with byte 0xC4
-#define VEX_PREFIX_MASK_3BYTE 0xFF000000000000ULL
-#define VEX_PREFIX_CODE_3BYTE 0xC4000000000000ULL
-
+bool hasRexPrefix(code_t code);
 bool TakesVexPrefix(instruction ins) const;
 static bool TakesRexWPrefix(instruction ins, emitAttr attr);
-
-// Returns true if the instruction encoding already contains VEX prefix
-bool hasVexPrefix(code_t code)
-{
-    return (code & VEX_PREFIX_MASK_3BYTE) == VEX_PREFIX_CODE_3BYTE;
-}
+bool hasVexPrefix(code_t code);
 code_t AddVexPrefix(instruction ins, code_t code, emitAttr attr);
-code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size)
-{
-    if (TakesVexPrefix(ins))
-    {
-        code = AddVexPrefix(ins, code, size);
-    }
-    return code;
-}
-code_t AddVexPrefixIfNeededAndNotPresent(instruction ins, code_t code, emitAttr size)
-{
-    if (TakesVexPrefix(ins) && !hasVexPrefix(code))
-    {
-        code = AddVexPrefix(ins, code, size);
-    }
-    return code;
-}
-
-bool useVEXEncodings = false;
-bool UseVEXEncoding() const
-{
-    return useVEXEncodings;
-}
-void SetUseVEXEncoding(bool value)
-{
-    useVEXEncodings = value;
-}
-
-bool containsAVXInstruction = false;
-bool ContainsAVX()
-{
-    return containsAVXInstruction;
-}
-void SetContainsAVX()
-{
-    containsAVXInstruction = true;
-}
-
-bool contains256bitAVXInstruction = false;
-bool Contains256bitAVX()
-{
-    return contains256bitAVXInstruction;
-}
-void SetContains256bitAVX()
-{
-    contains256bitAVXInstruction = true;
-}
+code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
+code_t AddVexPrefixIfNeededAndNotPresent(instruction ins, code_t code, emitAttr size);
 
 bool IsDstDstSrcAVXInstruction(instruction ins);
 bool IsDstSrcSrcAVXInstruction(instruction ins);
@@ -198,22 +143,10 @@ bool DoesWriteZeroFlag(instruction ins);
 bool DoesResetOverflowAndCarryFlags(instruction ins);
 bool AreFlagsAlwaysModified(instrDesc* id);
 
-bool IsThreeOperandAVXInstruction(instruction ins)
-{
-    return (IsDstDstSrcAVXInstruction(ins) || IsDstSrcSrcAVXInstruction(ins));
-}
-bool isAvxBlendv(instruction ins)
-{
-    return ins == INS_vblendvps || ins == INS_vblendvpd || ins == INS_vpblendvb;
-}
-bool isSse41Blendv(instruction ins)
-{
-    return ins == INS_blendvps || ins == INS_blendvpd || ins == INS_pblendvb;
-}
-bool isPrefetch(instruction ins)
-{
-    return (ins == INS_prefetcht0) || (ins == INS_prefetcht1) || (ins == INS_prefetcht2) || (ins == INS_prefetchnta);
-}
+bool IsThreeOperandAVXInstruction(instruction ins);
+bool isAvxBlendv(instruction ins);
+bool isSse41Blendv(instruction ins);
+bool isPrefetch(instruction ins);
 
 /************************************************************************/
 /*             Debug-only routines to display instructions              */
@@ -286,25 +219,8 @@ void emitAdjustStackDepthPushPop(instruction ins);
 void emitAdjustStackDepth(instruction ins, ssize_t val);
 #endif // !FEATURE_FIXED_OUT_ARGS
 
-/*****************************************************************************
-*
-*  Convert between an index scale in bytes to a smaller encoding used for
-*  storage in instruction descriptors.
-*/
-
-inline emitter::opSize emitEncodeScale(size_t scale)
-{
-    assert(scale == 1 || scale == 2 || scale == 4 || scale == 8);
-
-    return emitSizeEncode[scale - 1];
-}
-
-inline emitAttr emitDecodeScale(unsigned ensz)
-{
-    assert(ensz < 4);
-
-    return emitter::emitSizeDecode[ensz];
-}
+opSize emitEncodeScale(size_t scale);
+emitAttr emitDecodeScale(unsigned ensz);
 
 /************************************************************************/
 /*           The public entry points to output instructions             */
@@ -509,24 +425,8 @@ void emitIns_Call(EmitCallType          kind,
                   int32_t   amDisp  = 0,
                   bool      isJump  = false);
 
-inline bool emitIsCondJump(instrDesc* jmp)
-{
-    instruction ins = jmp->idIns();
-
-    assert(jmp->idInsFmt() == IF_LABEL);
-
-    return (ins != INS_call && ins != INS_jmp);
-}
-
-inline bool emitIsUncondJump(instrDesc* jmp)
-{
-    instruction ins = jmp->idIns();
-
-    assert(jmp->idInsFmt() == IF_LABEL);
-
-    return (ins == INS_jmp);
-}
-
+bool emitIsCondJump(instrDesc* jmp);
+bool emitIsUncondJump(instrDesc* jmp);
 static bool instrHasImplicitRegPairDest(instruction ins);
 
 #endif // TARGET_XARCH
