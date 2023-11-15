@@ -11192,12 +11192,8 @@ regMaskTP LinearScan::RegisterSelection::select(Interval*    currentInterval,
     Interval* finalRelatedInterval = relatedInterval;
     Interval* rangeEndInterval     = relatedInterval;
 
-    bool avoidByteRegs = false;
 #ifdef TARGET_X86
-    if ((relatedPreferences & ~RBM_BYTE_REGS) != RBM_NONE)
-    {
-        avoidByteRegs = true;
-    }
+    const bool avoidByteRegs = (relatedPreferences & ~RBM_BYTE_REGS) != RBM_NONE;
 #endif
 
     // Follow the chain of related intervals, as long as:
@@ -11222,7 +11218,8 @@ regMaskTP LinearScan::RegisterSelection::select(Interval*    currentInterval,
             regMaskTP thisRelatedPreferences = finalRelatedInterval->getCurrentPreferences();
             // Now, determine if they are compatible and update the relatedPreferences that we'll consider.
             regMaskTP newRelatedPreferences = thisRelatedPreferences & relatedPreferences;
-            if (newRelatedPreferences != RBM_NONE && (!avoidByteRegs || thisRelatedPreferences != RBM_BYTE_REGS))
+            if (newRelatedPreferences !=
+                RBM_NONE X86_ONLY(&&(!avoidByteRegs || thisRelatedPreferences != RBM_BYTE_REGS)))
             {
                 // TODO-CQ: The following isFree() check doesn't account for the possibility that there's an
                 // assignedInterval whose recentRefPosition was delayFree. It also fails to account for

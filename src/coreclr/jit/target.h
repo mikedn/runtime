@@ -217,16 +217,6 @@ C_ASSERT((FEATURE_TAILCALL_OPT == 0) || (FEATURE_FASTTAILCALL == 1));
 #define BITS_PER_BYTE              8
 #define RBM_ALL(type) (varTypeUsesFloatReg(type) ? RBM_ALLFLOAT : RBM_ALLINT)
 
-/*****************************************************************************/
-
-#if CPU_HAS_BYTE_REGS
-  #define RBM_BYTE_REGS           (RBM_EAX|RBM_ECX|RBM_EDX|RBM_EBX)
-  #define BYTE_REG_COUNT          4
-  #define RBM_NON_BYTE_REGS       (RBM_ESI|RBM_EDI)
-#else
-  #define RBM_BYTE_REGS            RBM_ALLINT
-  #define RBM_NON_BYTE_REGS        RBM_NONE
-#endif
 // clang-format on
 
 /*****************************************************************************/
@@ -247,7 +237,7 @@ const char* getRegName(regNumber reg);
 extern void dspRegMask(regMaskTP regMask, size_t minSiz = 0);
 #endif
 
-#if CPU_HAS_BYTE_REGS
+#ifdef TARGET_X86
 inline bool isByteReg(regNumber reg)
 {
     return (reg <= REG_EBX);

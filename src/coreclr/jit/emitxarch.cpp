@@ -1861,7 +1861,7 @@ const emitJumpKind emitReverseJumpKinds[] = {
 
 bool emitter::emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 /* = REG_NA */)
 {
-#if CPU_HAS_BYTE_REGS
+#ifdef TARGET_X86
     if (size != EA_1BYTE) // Not operating on a byte register is fine
     {
         return true;
@@ -1886,6 +1886,7 @@ bool emitter::emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1
         return false;
     }
 #endif
+
     // The instruction can be encoded
     return true;
 }
@@ -8943,8 +8944,10 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
         switch (size)
         {
             case EA_1BYTE:
+#ifdef TARGET_X86
                 noway_assert(RBM_BYTE_REGS & genRegMask(reg1));
                 noway_assert(RBM_BYTE_REGS & genRegMask(reg2));
+#endif
                 break;
 
             case EA_2BYTE:

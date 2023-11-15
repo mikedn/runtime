@@ -1236,7 +1236,7 @@ void CodeGen::inst_SET(emitJumpKind condition, regNumber reg)
             unreached();
     }
 
-    assert(genRegMask(reg) & RBM_BYTE_REGS);
+    X86_ONLY(assert((genRegMask(reg) & RBM_BYTE_REGS) != RBM_NONE));
 
     GetEmitter()->emitIns_R(ins, EA_1BYTE, reg);
 }
