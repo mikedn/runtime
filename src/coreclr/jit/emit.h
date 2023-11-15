@@ -252,9 +252,12 @@ struct insGroup
     }
 };
 
-#define DEFINE_ID_OPS
+enum insFormat : unsigned
+{
+#define IF_DEF(en, op1, op2) IF_##en,
 #include "emitfmts.h"
-#undef DEFINE_ID_OPS
+    IF_COUNT
+};
 
 class emitter
 {
@@ -473,17 +476,9 @@ private:
 
     void emitDispCommentForHandle(void* handle, HandleKind kind);
 
-    /************************************************************************/
-    /*          The following describes a single instruction                */
-    /************************************************************************/
-
-    enum insFormat : unsigned
-    {
-#define IF_DEF(en, op1, op2) IF_##en,
-#include "emitfmts.h"
-
-        IF_COUNT
-    };
+/************************************************************************/
+/*          The following describes a single instruction                */
+/************************************************************************/
 
 #ifdef TARGET_XARCH
 #define AM_DISP_BITS ((sizeof(unsigned) * 8) - 2 * (REGNUM_BITS + 1) - 2)
@@ -1941,8 +1936,6 @@ private:
         return newInstr;
     }
 #endif
-
-    static ID_OPS GetFormatOp(insFormat format);
 
     size_t emitSizeOfInsDsc(instrDesc* id);
 

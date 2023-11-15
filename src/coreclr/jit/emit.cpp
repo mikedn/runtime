@@ -2201,17 +2201,6 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
     return id;
 }
 
-ID_OPS emitter::GetFormatOp(insFormat format)
-{
-    static const ID_OPS ops[]{
-#define IF_DEF(en, op1, op2) ID_OP_##op2,
-#include "emitfmts.h"
-    };
-
-    assert(format < _countof(ops));
-    return ops[format];
-}
-
 #ifdef DEBUG
 
 void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)

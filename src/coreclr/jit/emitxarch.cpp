@@ -1328,7 +1328,7 @@ static insUpdateModes emitInsUpdateMode(instruction ins)
  *  Combine the given base format with the update mode of the instuction.
  */
 
-emitter::insFormat emitter::emitInsModeFormat(instruction ins, insFormat base)
+insFormat emitter::emitInsModeFormat(instruction ins, insFormat base)
 {
     assert(IF_RRD + IUM_RD == IF_RRD);
     assert(IF_RRD + IUM_WR == IF_RWR);
@@ -2803,7 +2803,7 @@ void emitter::emitIns(instruction ins, emitAttr attr)
 // Returns:
 //    The mapped instruction format.
 //
-emitter::insFormat emitter::emitMapFmtAtoM(insFormat fmt)
+insFormat emitter::emitMapFmtAtoM(insFormat fmt)
 {
     switch (fmt)
     {
@@ -6009,6 +6009,29 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 #endif
 
     return regs;
+}
+
+enum ID_OPS : uint8_t
+{
+    ID_OP_NONE,    // no additional arguments
+    ID_OP_CNS,     // constant     operand
+    ID_OP_DSP,     // displacement operand
+    ID_OP_DSP_CNS, // displacement + constant
+    ID_OP_AMD,     // addrmode with dsp
+    ID_OP_AMD_CNS, // addrmode with dsp + constant
+    ID_OP_JMP,     // local jump
+    ID_OP_CALL,    // direct method call
+};
+
+static ID_OPS GetFormatOp(insFormat format)
+{
+    static const ID_OPS ops[]{
+#define IF_DEF(en, op1, op2) ID_OP_##op2,
+#include "emitfmtsxarch.h"
+    };
+
+    assert(format < _countof(ops));
+    return ops[format];
 }
 
 #ifdef DEBUG
@@ -10979,7 +11002,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 #pragma warning(pop)
 #endif
 
-emitter::insFormat emitter::getMemoryOperation(instrDesc* id)
+insFormat emitter::getMemoryOperation(instrDesc* id)
 {
     insFormat   result = IF_NONE;
     instruction ins    = id->idIns();

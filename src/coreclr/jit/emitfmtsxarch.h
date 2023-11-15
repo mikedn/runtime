@@ -3,23 +3,6 @@
 
 #ifdef TARGET_XARCH
 
-#ifdef DEFINE_ID_OPS
-#undef DEFINE_ID_OPS
-
-enum ID_OPS : uint8_t
-{
-    ID_OP_NONE,    // no additional arguments
-    ID_OP_CNS,     // constant     operand
-    ID_OP_DSP,     // displacement operand
-    ID_OP_DSP_CNS, // displacement + constant
-    ID_OP_AMD,     // addrmode with dsp
-    ID_OP_AMD_CNS, // addrmode with dsp + constant
-    ID_OP_JMP,     // local jump
-    ID_OP_CALL,    // direct method call
-};
-
-#else // !DEFINE_ID_OPS
-
 #ifndef IF_DEF
 #error Must define IF_DEF macro before including this file
 #endif
@@ -179,5 +162,4 @@ IF_DEF(AWR_RRD_CNS, IS_AM_WR|IS_R1_RD,          AMD_CNS)  // write [adr], read r
 
 #undef IF_DEF
 
-#endif // DEFINE_ID_OPS
 #endif // TARGET_XARCH

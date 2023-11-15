@@ -96,6 +96,26 @@ size_t emitter::emitGetInstrDescSize(const instrDesc* id)
     return sizeof(instrDesc);
 }
 
+enum ID_OPS : uint8_t
+{
+    ID_OP_NONE, // no additional arguments
+    ID_OP_SCNS, // small const  operand (21-bits or less, no reloc)
+    ID_OP_JMP,  // local jump
+    ID_OP_CALL, // method call
+    ID_OP_SPEC, // special handling required
+};
+
+static ID_OPS GetFormatOp(insFormat format)
+{
+    static const ID_OPS ops[]{
+#define IF_DEF(en, op1, op2) ID_OP_##op2,
+#include "emitfmtsarm64.h"
+    };
+
+    assert(format < _countof(ops));
+    return ops[format];
+}
+
 // Return the allocated size (in bytes) of the given instruction descriptor.
 size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 {
@@ -1344,7 +1364,7 @@ const char* insName(instruction ins)
  *  Returns the base encoding of the given CPU instruction.
  */
 
-emitter::insFormat emitter::emitInsFormat(instruction ins)
+insFormat emitter::emitInsFormat(instruction ins)
 {
     // clang-format off
     const static insFormat insFormats[] =
