@@ -4785,13 +4785,13 @@ UNATIVE_OFFSET emitter::emitDataGenBeg(unsigned size, unsigned alignment, var_ty
     // MIN_DATA_ALIGN. We allow smaller alignment to be specified since it is
     // simpler to allow it than to check and block it.
     //
-    assert((size != 0) && ((size % dataSection::MIN_DATA_ALIGN) == 0));
-    assert(isPow2(alignment) && (alignment <= dataSection::MAX_DATA_ALIGN));
+    assert((size != 0) && ((size % MIN_DATA_ALIGN) == 0));
+    assert(isPow2(alignment) && (alignment <= MAX_DATA_ALIGN));
 
     /* Get hold of the current offset */
     secOffs = emitConsDsc.dsdOffs;
 
-    if (((secOffs % alignment) != 0) && (alignment > dataSection::MIN_DATA_ALIGN))
+    if (((secOffs % alignment) != 0) && (alignment > MIN_DATA_ALIGN))
     {
         // As per the above comment, the minimum alignment is actually (MIN_DATA_ALIGN)
         // bytes so we don't need to make any adjustments if the requested
@@ -4802,10 +4802,10 @@ UNATIVE_OFFSET emitter::emitDataGenBeg(unsigned size, unsigned alignment, var_ty
         // alignment.  So if the requested alignment is greater than MIN_DATA_ALIGN,
         // we need to pad the space out so the offset is a multiple of the requested.
         //
-        uint8_t zeros[dataSection::MAX_DATA_ALIGN] = {}; // auto initialize to all zeros
+        uint8_t zeros[MAX_DATA_ALIGN] = {}; // auto initialize to all zeros
 
         unsigned  zeroSize  = alignment - (secOffs % alignment);
-        unsigned  zeroAlign = dataSection::MIN_DATA_ALIGN;
+        unsigned  zeroAlign = MIN_DATA_ALIGN;
         var_types zeroType  = TYP_INT;
 
         emitBlkConst(&zeros, zeroSize, zeroAlign, zeroType);
@@ -5113,7 +5113,7 @@ CORINFO_FIELD_HANDLE emitter::emitFltOrDblConst(double constValue, emitAttr attr
         // Some platforms don't require doubles to be aligned and so
         // we can use a smaller alignment to help with smaller code
 
-        cnsAlign = dataSection::MIN_DATA_ALIGN;
+        cnsAlign = MIN_DATA_ALIGN;
     }
 #endif // TARGET_XARCH
 

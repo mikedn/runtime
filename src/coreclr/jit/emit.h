@@ -279,11 +279,7 @@ struct insGroup
 class emitter
 {
     friend class emitLocation;
-    friend class Compiler;
-    friend class CodeGen;
-    friend class CodeGenInterface;
     friend class GCInfo;
-    friend class CodeGenLivenessUpdater;
 
     Compiler*    emitComp;
     GCInfo       gcInfo;
@@ -294,7 +290,14 @@ class emitter
 public:
     emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo);
 
+    GCInfo& GetGCInfo()
+    {
+        return gcInfo;
+    }
+
     BasicBlock* GetCurrentBlock() const;
+
+private:
     bool InDifferentRegions(BasicBlock* block1, BasicBlock* block2) const;
     bool IsColdBlock(BasicBlock* block) const;
 
@@ -302,6 +305,7 @@ public:
     /*       Overall emitter control (including startup and shutdown)       */
     /************************************************************************/
 
+public:
     void     emitBegFN();
     void     emitComputeCodeSizes();
     unsigned emitEndCodeGen(unsigned* prologSize,
@@ -336,6 +340,11 @@ public:
         }
     }
 #else
+    unsigned GetMaxStackDepth()
+    {
+        return emitMaxStackDepth;
+    }
+
     unsigned emitGetEpilogCnt()
     {
         return emitEpilogCnt;
@@ -371,6 +380,7 @@ public:
     /*                   Emit initialized data sections                     */
     /************************************************************************/
 
+private:
     enum idAddrUnionTag
     {
         iaut_ALIGNED_POINTER = 0x0,
@@ -382,6 +392,7 @@ public:
         iaut_SHIFT = 2
     };
 
+public:
     static CORINFO_FIELD_HANDLE MakeRoDataField(unsigned offset)
     {
         assert(offset < 0x40000000);
@@ -408,8 +419,6 @@ public:
         }
     }
 
-    static const UNATIVE_OFFSET INVALID_UNATIVE_OFFSET = (UNATIVE_OFFSET)-1;
-
     UNATIVE_OFFSET emitDataGenBeg(unsigned size, unsigned alignment, var_types dataType);
     UNATIVE_OFFSET emitBBTableDataGenBeg(unsigned numEntries, bool relativeAddr);
     void emitDataGenData(unsigned offs, const void* data, UNATIVE_OFFSET size);
@@ -429,6 +438,8 @@ public:
     }
 
 private:
+    static const UNATIVE_OFFSET INVALID_UNATIVE_OFFSET = (UNATIVE_OFFSET)-1;
+
     void* emitGetMem(size_t sz);
 
     enum opSize : unsigned
@@ -1477,7 +1488,16 @@ private:
 
     void GetGCDeltaDumpHeader(char* buffer, size_t count);
     void emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose);
+
+public:
+    unsigned GetCodeSize() const
+    {
+        return emitTotalHotCodeSize + emitTotalColdCodeSize;
+    }
+
     void emitDispIGlist(bool verbose = false);
+
+private:
 #ifdef TARGET_XARCH
     void emitDispFrameRef(instrDesc* id, bool asmfm);
 #else
@@ -1522,10 +1542,10 @@ private:
     unsigned     emitEpilogSize  = 0;
 
     void emitBegFnEpilog(insGroup* igPh);
-    void emitStartExitSeq(); // Mark the start of the "return" sequence
     void emitEndFnEpilog();
 
 public:
+    void emitStartExitSeq(); // Mark the start of the "return" sequence
     void emitStartEpilog();
     bool emitHasEpilogEnd();
 #endif // JIT32_GCENCODER
@@ -1617,13 +1637,8 @@ public:
     void emitSetShortJump(instrDescJmp* id);
     void emitSetMediumJump(instrDescJmp* id);
 
-public:
-    CORINFO_FIELD_HANDLE emitBlkConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types elemType);
-
 private:
-    CORINFO_FIELD_HANDLE emitFltOrDblConst(double constValue, emitAttr attr);
     insFormat emitMapFmtAtoM(insFormat fmt);
-    void PrologSpillParamRegsToShadowSlots();
 
     /************************************************************************/
     /*      The logic that creates and keeps track of instruction groups    */
@@ -1634,9 +1649,27 @@ private:
 
     instrDescJmp* emitJumpList = nullptr; // list of local jumps in method
     instrDescJmp* emitJumpLast = nullptr; // last of local jumps in method
-    void          emitJumpDistBind();     // Bind all the local jumps in method
+
+public:
+    insGroup* GetCurrentInsGroup() const
+    {
+        return emitCurIG;
+    }
+
+    void PrologSpillParamRegsToShadowSlots();
+
+    CORINFO_FIELD_HANDLE emitBlkConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types elemType);
+    CORINFO_FIELD_HANDLE emitFltOrDblConst(double constValue, emitAttr attr);
+
+    void emitJumpDistBind(); // Bind all the local jumps in method
 
 #if FEATURE_LOOP_ALIGN
+    void emitLoopAlignment();
+    bool emitEndsWithAlignInstr(); // Validate if newLabel is appropriate
+    void emitSetLoopBackEdge(BasicBlock* loopTopBlock);
+    void emitLoopAlignAdjustments(); // Predict if loop alignment is needed and make appropriate adjustments
+
+private:
     instrDescAlign* emitCurIGAlignList   = nullptr; // list of align instructions in current IG
     unsigned        emitLastLoopStart    = 0;       // Start IG of last inner loop
     unsigned        emitLastLoopEnd      = 0;       // End IG of last inner loop
@@ -1645,13 +1678,10 @@ private:
     instrDescAlign* emitAlignLast        = nullptr; // last align instruction in method
     unsigned getLoopSize(insGroup* igLoopHeader,
                          unsigned maxLoopSize DEBUG_ARG(bool isAlignAdjusted)); // Get the smallest loop size
-    void emitLoopAlignment();
-    bool emitEndsWithAlignInstr(); // Validate if newLabel is appropriate
-    void emitSetLoopBackEdge(BasicBlock* loopTopBlock);
-    void     emitLoopAlignAdjustments(); // Predict if loop alignment is needed and make appropriate adjustments
     unsigned emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offset DEBUG_ARG(bool isAlignAdjusted));
 #endif
 
+private:
     void emitCheckFuncletBranch(instrDesc* jmp, insGroup* jmpIG); // Check for illegal branches between funclets
 
     // Are forward jumps present?
@@ -1673,11 +1703,13 @@ private:
 
     insGroup* emitFirstColdIG = nullptr; // first cold instruction group
 
+public:
     void emitSetFirstColdIGCookie(insGroup* ig)
     {
         emitFirstColdIG = ig;
     }
 
+private:
     int emitOffsAdj; // current code offset adjustment
 
     instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
@@ -1714,8 +1746,11 @@ private:
     void emitFinishIG(bool extend = false);
 
 #ifndef JIT32_GCENCODER
+public:
     void emitDisableGC();
     void emitEnableGC();
+
+private:
 #endif
 
     bool emitCurIGnonEmpty() const
@@ -1732,16 +1767,20 @@ private:
     }
 
 #ifdef TARGET_AMD64
+public:
     bool IsLastInsCall() const
     {
         return (emitLastIns != nullptr) && (emitLastIns->idIns() == INS_call);
     }
+
+private:
 #endif
 
 #ifdef DEBUG
     void emitCheckIGoffsets();
 #endif
 
+public:
     // Terminates any in-progress instruction group, making the current IG a new empty one.
     // Mark this instruction group as having a label; return the the new instruction group.
     // Sets the emitter's record of the currently live GC variables and registers.
@@ -1752,6 +1791,7 @@ private:
     // continues to track GC info as if there was no label.
     insGroup* emitAddInlineLabel();
 
+private:
 #ifdef DEBUG
     void emitPrintLabel(insGroup* ig);
     const char* emitLabelString(insGroup* ig);
@@ -1926,11 +1966,13 @@ private:
 
     size_t emitSizeOfInsDsc(instrDesc* id);
 
+    static emitJumpKind emitInsToJumpKind(instruction ins);
+
 public:
     static instruction emitJumpKindToIns(emitJumpKind jumpKind);
-    static emitJumpKind emitInsToJumpKind(instruction ins);
     static emitJumpKind emitReverseJumpKind(emitJumpKind jumpKind);
 
+private:
 #ifdef DEBUG
     void emitInsSanityCheck(instrDesc* id);
 #endif
@@ -1953,9 +1995,12 @@ public:
     size_t emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr);
 
 #ifdef DEBUG
+public:
     const char* emitGetFrameReg();
     static void emitDispRegSet(regMaskTP regs);
     static void emitDispRegSetDiff(const char* name, regMaskTP from, regMaskTP to);
+
+private:
 #endif
 
     void emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr);
@@ -1975,14 +2020,16 @@ public:
 
     /* One of these is allocated for every blob of initialized data */
 
+public:
+    // Note to use alignments greater than 32 requires modification in the VM
+    // to support larger alignments (see ICorJitInfo::allocMem)
+    //
+    const static unsigned MIN_DATA_ALIGN = 4;
+    const static unsigned MAX_DATA_ALIGN = 32;
+
+private:
     struct dataSection
     {
-        // Note to use alignments greater than 32 requires modification in the VM
-        // to support larger alignments (see ICorJitInfo::allocMem)
-        //
-        const static unsigned MIN_DATA_ALIGN = 4;
-        const static unsigned MAX_DATA_ALIGN = 32;
-
         enum sectionType
         {
             data,

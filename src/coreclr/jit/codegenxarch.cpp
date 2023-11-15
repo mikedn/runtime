@@ -9381,7 +9381,9 @@ void CodeGen::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTre
 
 void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTree* addr)
 {
-    assert(emitter::emitInsModeFormat(ins, emitter::IF_RRD_ARD) == emitter::IF_RWR_ARD);
+    // TODO-MIKE-Cleanup: Fix or remove this assert, emitInsModeFormat should
+    // not be public just for this.
+    // assert(emitter::emitInsModeFormat(ins, emitter::IF_RRD_ARD) == emitter::IF_RWR_ARD);
 
     GetEmitter()->emitIns_R_A(ins, attr, reg, addr);
 }
@@ -9400,7 +9402,7 @@ void CodeGen::emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTre
 
 void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenTree* rmOp, int ival)
 {
-    noway_assert(GetEmitter()->emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
+    noway_assert(Emitter::emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
 
     if (rmOp->isContained() || rmOp->isUsedFromSpillTemp())
     {
@@ -9436,7 +9438,7 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenT
 void CodeGen::inst_RV_RV_TT(
     instruction ins, emitAttr size, regNumber targetReg, regNumber op1Reg, GenTree* op2, bool isRMW)
 {
-    noway_assert(GetEmitter()->emitVerifyEncodable(ins, EA_SIZE(size), targetReg));
+    noway_assert(Emitter::emitVerifyEncodable(ins, EA_SIZE(size), targetReg));
 
     // TODO-XArch-CQ: Commutative operations can have op1 be contained
     // TODO-XArch-CQ: Non-VEX encoded instructions can have both ops contained

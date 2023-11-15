@@ -2338,7 +2338,7 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
 
     var_types type = getSIMDTypeForSize(size);
     size           = (size != 12) ? size : 16;
-    unsigned align = (comp->compCodeOpt() != SMALL_CODE) ? size : emitter::dataSection::MIN_DATA_ALIGN;
+    unsigned align = (comp->compCodeOpt() != SMALL_CODE) ? size : emitter::MIN_DATA_ALIGN;
 
     unsigned offset = comp->GetEmitter()->emitDataConst(vecConst.u8, size, align, type);
 

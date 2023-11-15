@@ -1,8 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#if defined(TARGET_ARM64)
+#ifdef TARGET_ARM64
 
+private:
 // The ARM64 instructions are all 32 bits in size.
 // we use an unsigned int to hold the encoded instructions.
 // This typedef defines the type that we use to hold encoded instructions.
@@ -72,8 +73,6 @@ instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize
 
 private:
 static bool emitInsIsCompare(instruction ins);
-static bool emitInsIsLoad(instruction ins);
-static bool emitInsIsStore(instruction ins);
 static bool emitInsIsLoadOrStore(instruction ins);
 static bool emitInsIsVectorRightShift(instruction ins);
 static bool emitInsIsVectorLong(instruction ins);
@@ -106,7 +105,6 @@ static UINT64 Replicate_helper(UINT64 value, unsigned width, emitAttr size);
 
 // Method to do check if mov is redundant with respect to the last instruction.
 // If yes, the caller of this method can choose to omit current mov instruction.
-static bool IsMovInstruction(instruction ins);
 bool IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regNumber src, bool canSkip);
 bool IsRedundantLdStr(instruction ins, regNumber reg1, regNumber reg2, ssize_t imm, emitAttr size, insFormat fmt);
 
@@ -117,6 +115,16 @@ bool IsRedundantLdStr(instruction ins, regNumber reg1, regNumber reg2, ssize_t i
 */
 
 public:
+static bool emitInsIsLoad(instruction ins);
+static bool emitInsIsStore(instruction ins);
+//  For the given 'arrangement' returns the 'elemsize' specified by the vector register arrangement
+static emitAttr optGetElemsize(insOpts arrangement);
+//    For the given 'datasize', 'elemsize' and 'index' returns true, if it specifies a valid 'index'
+//    for an element of size 'elemsize' in a vector register of size 'datasize'
+static bool isValidVectorIndex(emitAttr datasize, emitAttr elemsize, ssize_t index);
+
+static bool IsMovInstruction(instruction ins);
+
 union bitMaskImm {
     struct
     {
@@ -424,9 +432,6 @@ static bool isValidArrangement(emitAttr datasize, insOpts opt);
 //  For the given 'arrangement' returns the 'datasize' specified by the vector register arrangement
 static emitAttr optGetDatasize(insOpts arrangement);
 
-//  For the given 'arrangement' returns the 'elemsize' specified by the vector register arrangement
-static emitAttr optGetElemsize(insOpts arrangement);
-
 //  For the given 'arrangement' returns the one with the element width that is double that of the 'arrangement' element.
 static insOpts optWidenElemsizeArrangement(insOpts arrangement);
 
@@ -443,10 +448,6 @@ static emitAttr optGetDstsize(insOpts conversion);
 
 //  For the given 'conversion' returns the 'srcsize' specified by the conversion option
 static emitAttr optGetSrcsize(insOpts conversion);
-
-//    For the given 'datasize', 'elemsize' and 'index' returns true, if it specifies a valid 'index'
-//    for an element of size 'elemsize' in a vector register of size 'datasize'
-static bool isValidVectorIndex(emitAttr datasize, emitAttr elemsize, ssize_t index);
 
 // For a given instruction 'ins' which contains a register lists returns a
 // number of consecutive SIMD registers the instruction loads to/store from.
@@ -830,6 +831,7 @@ void emitIns_Call(EmitCallType          kind,
                   regNumber reg    = REG_NA,
                   bool      isJump = false);
 
+private:
 BYTE* emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i);
 BYTE* emitOutputLoadLabel(BYTE* dst, BYTE* srcAddr, BYTE* dstAddr, instrDescJmp* id);
 BYTE* emitOutputShortBranch(BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);
@@ -893,6 +895,7 @@ inline bool emitIsLoadConstant(instrDesc* jmp)
 /************************************************************************/
 /*                   Interface for generating unwind information        */
 /************************************************************************/
+public:
 bool emitIsFuncEnd(emitLocation* emitLoc, emitLocation* emitLocNextFragment = NULL);
 
 void emitSplit(emitLocation*         startLoc,
@@ -903,6 +906,7 @@ void emitSplit(emitLocation*         startLoc,
 
 void emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp);
 
+private:
 // Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
 // pointer. This exempts the SP and PC registers, and floating point registers. Memory access
 // instructions that pre- or post-increment their memory address registers are *not* considered to write

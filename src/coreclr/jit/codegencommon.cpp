@@ -1029,8 +1029,7 @@ void CodeGen::genEmitMachineCode()
     {
         printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
                "code %d",
-               codeSize, prologSize, compiler->info.compPerfScore, instrCount,
-               GetEmitter()->emitTotalHotCodeSize + GetEmitter()->emitTotalColdCodeSize);
+               codeSize, prologSize, compiler->info.compPerfScore, instrCount, GetEmitter()->GetCodeSize());
 
 #if TRACK_LSRA_STATS
         if (JitConfig.DisplayLsraStats() == 3)
@@ -1140,9 +1139,9 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
 #ifdef JIT32_GCENCODER
     INDEBUG(void* infoPtr =)
-    GetEmitter()->gcInfo.CreateAndStoreGCInfo(this, codeSize, prologSize, epilogSize);
+    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, codeSize, prologSize, epilogSize);
 #else
-    GetEmitter()->gcInfo.CreateAndStoreGCInfo(codeSize, prologSize);
+    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(codeSize, prologSize);
 #endif
 
 #ifdef DEBUG
@@ -3375,7 +3374,7 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
                 abs(maxGCTrackedOffset));
 #endif
 
-        GetEmitter()->gcInfo.SetTrackedStackSlotRange(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
+        GetEmitter()->GetGCInfo().SetTrackedStackSlotRange(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
     }
     else
     {

@@ -3,6 +3,7 @@
 
 #ifdef TARGET_ARM
 
+private:
 void emitHandlePCRelativeMov32(void* location, void* target);
 
 // This typedef defines the type that we use to hold encoded instructions.
@@ -31,7 +32,6 @@ unsigned emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code);
 /************************************************************************/
 
 #ifdef DEBUG
-
 void emitDispInst(instruction ins, insFlags flags);
 void emitDispImm(int imm, bool addComma, bool alwaysHex = false);
 void emitDispReloc(void* addr);
@@ -70,7 +70,6 @@ void emitDispIns(instrDesc* id,
 /*  Private members that deal with target-dependent instr. descriptors  */
 /************************************************************************/
 
-private:
 instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize);
 
 /************************************************************************/
@@ -296,6 +295,7 @@ void emitIns_Call(EmitCallType          kind,
                   regNumber reg    = REG_NA,
                   bool      isJump = false);
 
+private:
 /*****************************************************************************
  *
  *  Given an instrDesc, return true if it's a conditional jump.
@@ -339,6 +339,7 @@ inline bool emitIsLoadLabel(instrDesc* jmp)
 /************************************************************************/
 /*                   Interface for generating unwind information        */
 /************************************************************************/
+public:
 bool emitIsFuncEnd(emitLocation* emitLoc, emitLocation* emitLocNextFragment = NULL);
 
 void emitSplit(emitLocation*         startLoc,
@@ -348,8 +349,10 @@ void emitSplit(emitLocation*         startLoc,
                emitSplitCallbackType callbackFunc);
 
 void emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp);
+
 unsigned emitGetInstructionSize(emitLocation* emitLoc);
 
+private:
 // Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
 // pointer. This exempts the SP and PC registers, and floating point registers. Memory access
 // instructions that pre- or post-increment their memory address registers are *not* considered to write

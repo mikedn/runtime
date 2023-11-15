@@ -7,7 +7,7 @@ private:
 bool useVEXEncodings = false;
 
 public:
-static insFormat emitInsModeFormat(instruction ins, insFormat base);
+static bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 = REG_NA);
 
 void SetUseVEXEncoding(bool value)
 {
@@ -25,6 +25,10 @@ static bool isFloatReg(regNumber reg)
 }
 
 static bool instrHasImplicitRegPairDest(instruction ins);
+static bool IsMovInstruction(instruction ins);
+
+bool AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps treeOps);
+bool AreUpper32BitsZero(regNumber reg);
 
 #ifdef TARGET_X86
 void emitMarkStackLvl(unsigned stackLevel);
@@ -315,14 +319,11 @@ code_t AddRexBPrefix(instruction ins, code_t code);
 code_t AddRexPrefix(instruction ins, code_t code);
 
 bool Is4ByteSSEInstruction(instruction ins);
-static bool IsMovInstruction(instruction ins);
 bool IsRedundantMov(
     instruction ins, insFormat fmt, emitAttr size, regNumber dst, regNumber src, bool canIgnoreSideEffects);
 
 static bool IsJccInstruction(instruction ins);
 static bool IsJmpInstruction(instruction ins);
-bool AreUpper32BitsZero(regNumber reg);
-bool AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps treeOps);
 
 static bool hasRexPrefix(code_t code);
 bool TakesVexPrefix(instruction ins) const;
@@ -384,7 +385,6 @@ instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
 /*               Private helpers for instruction output                 */
 /************************************************************************/
 
-static bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 = REG_NA);
 static bool emitInsCanOnlyWriteSSE2OrAVXReg(instrDesc* id);
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -399,5 +399,7 @@ void emitLoopAlign(unsigned short paddingBytes);
 void emitLongLoopAlign(unsigned short alignmentBoundary);
 static bool emitIsCondJump(instrDesc* jmp);
 static bool emitIsUncondJump(instrDesc* jmp);
+
+static insFormat emitInsModeFormat(instruction ins, insFormat base);
 
 #endif // TARGET_XARCH
