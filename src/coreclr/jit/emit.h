@@ -31,6 +31,31 @@ void emitterStats(FILE* fout);
 #define INTERESTING_JUMP_NUM -1 // set to 0 to see all jump info
 #endif
 
+extern const unsigned short emitTypeSizes[TYP_COUNT];
+
+template <class T>
+inline emitAttr emitTypeSize(T type)
+{
+    assert(TypeGet(type) < TYP_COUNT);
+    assert(emitTypeSizes[TypeGet(type)] > 0);
+    return (emitAttr)emitTypeSizes[TypeGet(type)];
+}
+
+extern const unsigned short emitTypeActSz[TYP_COUNT];
+
+template <class T>
+inline emitAttr emitActualTypeSize(T type)
+{
+    assert(TypeGet(type) < TYP_COUNT);
+    assert(emitTypeActSz[TypeGet(type)] > 0);
+    return (emitAttr)emitTypeActSz[TypeGet(type)];
+}
+
+#ifdef TARGET_ARM64
+insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType);
+#endif
+
+class CodeGen;
 class emitter;
 struct insGroup;
 
@@ -251,8 +276,6 @@ struct insGroup
 #include "emitfmts.h"
 #undef DEFINE_ID_OPS
 
-class CodeGen;
-
 class emitter
 {
     friend class emitLocation;
@@ -300,15 +323,35 @@ public:
     void emitCreatePlaceholderIG(insGroupPlaceholderType kind, BasicBlock* block);
     void emitGeneratePrologEpilog();
 
-#ifdef JIT32_GCENCODER
+#ifndef JIT32_GCENCODER
+    template <typename Callback>
+    void EnumerateNoGCInsGroups(Callback callback)
+    {
+        for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
+        {
+            if ((ig->igFlags & IGF_NOGCINTERRUPT) != 0)
+            {
+                callback(ig->igFuncIdx, ig->igOffs, ig->igSize);
+            }
+        }
+    }
+#else
     unsigned emitGetEpilogCnt()
     {
         return emitEpilogCnt;
     }
-#endif
 
     template <typename Callback>
-    void EnumerateNoGCInsGroups(Callback callback);
+    void EnumerateEpilogs(Callback callback)
+    {
+        for (EpilogList* el = emitEpilogList; el != nullptr; el = el->elNext)
+        {
+            assert((el->elLoc.GetIG()->igFlags & IGF_EPILOG) != 0);
+
+            callback(el->elLoc.CodeOffset(this));
+        }
+    }
+#endif // JIT32_GCENCODER
 
     /************************************************************************/
     /*           Record a code position and later convert it to offset      */
@@ -374,7 +417,16 @@ public:
     void           emitDataGenEnd();
     UNATIVE_OFFSET emitDataGenFind(const void* cnsAddr, unsigned size, unsigned alignment, var_types dataType);
     UNATIVE_OFFSET emitDataConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types dataType);
-    UNATIVE_OFFSET emitDataSize();
+
+    /*****************************************************************************
+     *
+     *  Return the current size of the specified data section.
+     */
+
+    UNATIVE_OFFSET emitDataSize()
+    {
+        return emitConsDsc.dsdOffs;
+    }
 
 private:
     void* emitGetMem(size_t sz);
@@ -400,8 +452,20 @@ private:
     static const emitter::opSize emitSizeEncode[];
     static const emitAttr        emitSizeDecode[];
 
-    static emitter::opSize emitEncodeSize(emitAttr size);
-    static emitAttr emitDecodeSize(emitter::opSize ensz);
+    static opSize emitEncodeSize(emitAttr size)
+    {
+        assert(size == EA_1BYTE || size == EA_2BYTE || size == EA_4BYTE || size == EA_8BYTE || size == EA_16BYTE ||
+               size == EA_32BYTE);
+
+        return emitSizeEncode[((int)size) - 1];
+    }
+
+    static emitAttr emitDecodeSize(opSize ensz)
+    {
+        assert(((unsigned)ensz) < OPSZ_COUNT);
+
+        return emitSizeDecode[ensz];
+    }
 
     insGroup* GetProlog() const
     {
@@ -1490,9 +1554,6 @@ private:
 public:
     void emitStartEpilog();
     bool emitHasEpilogEnd();
-
-    template <typename Callback>
-    void EnumerateEpilogs(Callback callback);
 #endif // JIT32_GCENCODER
 
     /************************************************************************/
@@ -2078,127 +2139,3 @@ public:
 };
 
 using Emitter = emitter;
-
-inline void emitter::instrDesc::checkSizes()
-{
-#ifdef DEBUG
-    C_ASSERT(SMALL_IDSC_SIZE == (offsetof(instrDesc, _idDebugOnlyInfo) + sizeof(instrDescDebugInfo*)));
-#endif
-    C_ASSERT(SMALL_IDSC_SIZE == offsetof(instrDesc, _idAddrUnion));
-}
-
-/*****************************************************************************
- *
- *  Return the current size of the specified data section.
- */
-
-inline UNATIVE_OFFSET emitter::emitDataSize()
-{
-    return emitConsDsc.dsdOffs;
-}
-
-/*****************************************************************************
- *
- *  The emitCurOffset() method returns a cookie that identifies the current
- *  position in the instruction stream. Due to things like scheduling (and
- *  the fact that the final size of some instructions cannot be known until
- *  the end of code generation), we return a value with the instruction number
- *  and its estimated offset to the caller.
- */
-
-inline unsigned emitGetInsNumFromCodePos(unsigned codePos)
-{
-    return (codePos & 0xFFFF);
-}
-
-inline unsigned emitGetInsOfsFromCodePos(unsigned codePos)
-{
-    return (codePos >> 16);
-}
-
-inline unsigned emitter::emitCurOffset()
-{
-    unsigned codePos = emitCurIGinsCnt + (emitCurIGsize << 16);
-
-    assert(emitGetInsOfsFromCodePos(codePos) == emitCurIGsize);
-    assert(emitGetInsNumFromCodePos(codePos) == emitCurIGinsCnt);
-
-    // printf("[IG=%02u;ID=%03u;OF=%04X] => %08X\n", emitCurIG->igNum, emitCurIGinsCnt, emitCurIGsize, codePos);
-
-    return codePos;
-}
-
-extern const unsigned short emitTypeSizes[TYP_COUNT];
-
-template <class T>
-inline emitAttr emitTypeSize(T type)
-{
-    assert(TypeGet(type) < TYP_COUNT);
-    assert(emitTypeSizes[TypeGet(type)] > 0);
-    return (emitAttr)emitTypeSizes[TypeGet(type)];
-}
-
-extern const unsigned short emitTypeActSz[TYP_COUNT];
-
-template <class T>
-inline emitAttr emitActualTypeSize(T type)
-{
-    assert(TypeGet(type) < TYP_COUNT);
-    assert(emitTypeActSz[TypeGet(type)] > 0);
-    return (emitAttr)emitTypeActSz[TypeGet(type)];
-}
-
-#ifdef TARGET_ARM64
-insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType);
-#endif
-
-/*****************************************************************************
- *
- *  Convert between an operand size in bytes and a smaller encoding used for
- *  storage in instruction descriptors.
- */
-
-inline emitter::opSize emitter::emitEncodeSize(emitAttr size)
-{
-    assert(size == EA_1BYTE || size == EA_2BYTE || size == EA_4BYTE || size == EA_8BYTE || size == EA_16BYTE ||
-           size == EA_32BYTE);
-
-    return emitSizeEncode[((int)size) - 1];
-}
-
-inline emitAttr emitter::emitDecodeSize(emitter::opSize ensz)
-{
-    assert(((unsigned)ensz) < OPSZ_COUNT);
-
-    return emitSizeDecode[ensz];
-}
-
-inline bool IsCodeAligned(UNATIVE_OFFSET offset)
-{
-    return ((offset & (CODE_ALIGN - 1)) == 0);
-}
-
-#ifndef JIT32_GCENCODER
-template <typename Callback>
-void emitter::EnumerateNoGCInsGroups(Callback callback)
-{
-    for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
-    {
-        if ((ig->igFlags & IGF_NOGCINTERRUPT) != 0)
-        {
-            callback(ig->igFuncIdx, ig->igOffs, ig->igSize);
-        }
-    }
-}
-#else
-template <typename Callback>
-void emitter::EnumerateEpilogs(Callback callback)
-{
-    for (EpilogList* el = emitEpilogList; el != nullptr; el = el->elNext)
-    {
-        assert((el->elLoc.GetIG()->igFlags & IGF_EPILOG) != 0);
-
-        callback(el->elLoc.CodeOffset(this));
-    }
-}
-#endif // JIT32_GCENCODER

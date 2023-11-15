@@ -71,6 +71,25 @@ UNATIVE_OFFSET emitLocation::CodeOffset(emitter* emit) const
     return emit->emitCodeOffset(ig, codePos);
 }
 
+/*****************************************************************************
+ *
+ *  The emitCurOffset() method returns a cookie that identifies the current
+ *  position in the instruction stream. Due to things like scheduling (and
+ *  the fact that the final size of some instructions cannot be known until
+ *  the end of code generation), we return a value with the instruction number
+ *  and its estimated offset to the caller.
+ */
+
+static unsigned emitGetInsNumFromCodePos(unsigned codePos)
+{
+    return (codePos & 0xFFFF);
+}
+
+static unsigned emitGetInsOfsFromCodePos(unsigned codePos)
+{
+    return (codePos >> 16);
+}
+
 int emitLocation::GetInsNum() const
 {
     return emitGetInsNumFromCodePos(codePos);
@@ -114,6 +133,26 @@ bool emitLocation::IsPreviousInsNum(emitter* emit) const
     }
 
     return false;
+}
+
+unsigned emitter::emitCurOffset()
+{
+    unsigned codePos = emitCurIGinsCnt + (emitCurIGsize << 16);
+
+    assert(emitGetInsOfsFromCodePos(codePos) == emitCurIGsize);
+    assert(emitGetInsNumFromCodePos(codePos) == emitCurIGinsCnt);
+
+    // printf("[IG=%02u;ID=%03u;OF=%04X] => %08X\n", emitCurIG->igNum, emitCurIGinsCnt, emitCurIGsize, codePos);
+
+    return codePos;
+}
+
+void emitter::instrDesc::checkSizes()
+{
+#ifdef DEBUG
+    C_ASSERT(SMALL_IDSC_SIZE == (offsetof(instrDesc, _idDebugOnlyInfo) + sizeof(instrDescDebugInfo*)));
+#endif
+    C_ASSERT(SMALL_IDSC_SIZE == offsetof(instrDesc, _idAddrUnion));
 }
 
 #ifdef DEBUG
@@ -431,6 +470,11 @@ void* emitter::emitGetMem(size_t sz)
 #endif
 
     return emitComp->getAllocator(CMK_InstDesc).allocate<char>(sz);
+}
+
+static bool IsCodeAligned(UNATIVE_OFFSET offset)
+{
+    return ((offset & (CODE_ALIGN - 1)) == 0);
 }
 
 insGroup* emitter::emitAllocIG()
