@@ -178,13 +178,6 @@ const instruction emitJumpKindInstructions[] = {
 #include "emitjmps.h"
 };
 
-const emitJumpKind emitReverseJumpKinds[] = {
-    EJ_NONE,
-
-#define JMP_SMALL(en, rev, ins) EJ_##rev,
-#include "emitjmps.h"
-};
-
 /*****************************************************************************
  * Look up the instruction for a jump kind
  */
@@ -218,10 +211,16 @@ const emitJumpKind emitReverseJumpKinds[] = {
  * Reverse the conditional jump
  */
 
-/*static*/ emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
+emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
 {
+    static const emitJumpKind map[]{
+        EJ_NONE,
+#define JMP_SMALL(en, rev, ins) EJ_##rev,
+#include "emitjmps.h"
+    };
+
     assert(jumpKind < EJ_COUNT);
-    return emitReverseJumpKinds[jumpKind];
+    return map[jumpKind];
 }
 
 size_t emitter::emitGetInstrDescSize(const instrDesc* id)

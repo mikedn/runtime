@@ -1829,28 +1829,19 @@ emitAttr emitter::emitDecodeScale(unsigned ensz)
     return emitSizeDecode[ensz];
 }
 
-const instruction emitJumpKindInstructions[] = {INS_nop,
-
-#define JMP_SMALL(en, rev, ins) INS_##ins,
-#include "emitjmps.h"
-
-                                                INS_call};
-
-const emitJumpKind emitReverseJumpKinds[] = {
-    EJ_NONE,
-
-#define JMP_SMALL(en, rev, ins) EJ_##rev,
-#include "emitjmps.h"
-};
-
 /*****************************************************************************
  * Look up the instruction for a jump kind
  */
 
 instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
 {
-    assert((unsigned)jumpKind < ArrLen(emitJumpKindInstructions));
-    return emitJumpKindInstructions[jumpKind];
+    static const instruction map[]{INS_nop,
+#define JMP_SMALL(en, rev, ins) INS_##ins,
+#include "emitjmps.h"
+                                   INS_call};
+
+    assert(jumpKind < _countof(map));
+    return map[jumpKind];
 }
 
 /*****************************************************************************
@@ -1859,8 +1850,14 @@ instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
 
 emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
 {
+    static const emitJumpKind map[]{
+        EJ_NONE,
+#define JMP_SMALL(en, rev, ins) EJ_##rev,
+#include "emitjmps.h"
+    };
+
     assert(jumpKind < EJ_COUNT);
-    return emitReverseJumpKinds[jumpKind];
+    return map[jumpKind];
 }
 
 /*****************************************************************************
