@@ -2804,16 +2804,8 @@ void emitter::emitIns(instruction ins, emitAttr attr)
     emitCurIGsize += sz;
 }
 
-//------------------------------------------------------------------------
-// emitMapFmtAtoM: map the address mode formats ARD, ARW, and AWR to their direct address equivalents.
-//
-// Arguments:
-//    fmt - the instruction format to map
-//
-// Returns:
-//    The mapped instruction format.
-//
-insFormat emitter::emitMapFmtAtoM(insFormat fmt)
+// Map the address mode formats ARD, ARW, and AWR to their direct address equivalents.
+static insFormat emitMapFmtAtoM(insFormat fmt)
 {
     switch (fmt)
     {

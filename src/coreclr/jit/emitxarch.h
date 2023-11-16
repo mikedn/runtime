@@ -20,6 +20,13 @@ static bool IsMovInstruction(instruction ins);
 bool AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps treeOps);
 bool AreUpper32BitsZero(regNumber reg);
 
+#ifdef TARGET_AMD64
+bool IsLastInsCall() const
+{
+    return (emitLastIns != nullptr) && (emitLastIns->idIns() == INS_call);
+}
+#endif
+
 #ifdef TARGET_X86
 void emitMarkStackLvl(unsigned stackLevel);
 #endif

@@ -1613,8 +1613,6 @@ public:
     void emitSetMediumJump(instrDescJmp* id);
 
 private:
-    insFormat emitMapFmtAtoM(insFormat fmt);
-
     /************************************************************************/
     /*      The logic that creates and keeps track of instruction groups    */
     /************************************************************************/
@@ -1741,18 +1739,10 @@ private:
         return (emitLastIns != nullptr) && (emitLastInsLabel == emitCurLabel) ? emitLastIns : nullptr;
     }
 
-#ifdef TARGET_AMD64
-public:
-    bool IsLastInsCall() const
-    {
-        return (emitLastIns != nullptr) && (emitLastIns->idIns() == INS_call);
-    }
-
-private:
-#endif
-
 #ifdef DEBUG
     void emitCheckIGoffsets();
+    void emitPrintLabel(insGroup* ig);
+    const char* emitLabelString(insGroup* ig);
 #endif
 
 public:
@@ -1767,30 +1757,18 @@ public:
     insGroup* emitAddInlineLabel();
 
 private:
-#ifdef DEBUG
-    void emitPrintLabel(insGroup* ig);
-    const char* emitLabelString(insGroup* ig);
-#endif
-
     inline insGroup* emitCodeGetCookie(BasicBlock* block)
     {
         return static_cast<insGroup*>(block->bbEmitCookie);
     }
 
 #ifdef TARGET_ARMARCH
-
     void emitGetInstrDescs(insGroup* ig, instrDesc** id, int* insCnt);
-
     bool emitGetLocationInfo(emitLocation* emitLoc, insGroup** pig, instrDesc** pid, int* pinsRemaining = NULL);
-
     bool emitNextID(insGroup*& ig, instrDesc*& id, int& insRemaining);
-
     typedef void (*emitProcessInstrFunc_t)(instrDesc* id, void* context);
-
     void emitWalkIDs(emitLocation* locFrom, emitProcessInstrFunc_t processFunc, void* context);
-
     static void emitGenerateUnwindNop(instrDesc* id, void* context);
-
 #endif // TARGET_ARMARCH
 
     int emitNextRandomNop();
