@@ -86,7 +86,7 @@ void Ins_R_R_S(
     instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs);
 
 insFormat emitInsFormat(instruction ins);
-emitter::code_t emitInsCode(instruction ins, insFormat fmt);
+code_t emitInsCode(instruction ins, insFormat fmt);
 
 //  Emit the 32-bit Arm64 instruction 'code' into the 'dst'  buffer
 unsigned emitOutput_Instr(BYTE* dst, code_t code);
@@ -141,9 +141,8 @@ union bitMaskImm {
 *   representation imm(i16,hw)
 */
 
-static emitter::bitMaskImm emitEncodeBitMaskImm(INT64 imm, emitAttr size);
-
-static INT64 emitDecodeBitMaskImm(const emitter::bitMaskImm bmImm, emitAttr size);
+static bitMaskImm emitEncodeBitMaskImm(int64_t imm, emitAttr size);
+static int64_t emitDecodeBitMaskImm(const bitMaskImm bmImm, emitAttr size);
 
 private:
 /************************************************************************
@@ -167,9 +166,8 @@ union halfwordImm {
 *   representation imm(i16,hw)
 */
 
-static emitter::halfwordImm emitEncodeHalfwordImm(INT64 imm, emitAttr size);
-
-static INT64 emitDecodeHalfwordImm(const emitter::halfwordImm hwImm, emitAttr size);
+static halfwordImm emitEncodeHalfwordImm(int64_t imm, emitAttr size);
+static int64_t emitDecodeHalfwordImm(const halfwordImm hwImm, emitAttr size);
 
 /************************************************************************
 *
@@ -187,7 +185,7 @@ union byteShiftedImm {
     unsigned immBSVal; // concat Ones:BY:Val forming a 10-bit unsigned immediate
 };
 
-static UINT32 emitDecodeByteShiftedImm(const emitter::byteShiftedImm bsImm, emitAttr size);
+static uint32_t emitDecodeByteShiftedImm(const byteShiftedImm bsImm, emitAttr size);
 
 /************************************************************************
 *
@@ -210,9 +208,8 @@ union floatImm8 {
 *  Convert between a double and its 'float 8-bit immediate' representation
 */
 
-static emitter::floatImm8 emitEncodeFloatImm8(double immDbl);
-
-static double emitDecodeFloatImm8(const emitter::floatImm8 fpImm);
+static floatImm8 emitEncodeFloatImm8(double immDbl);
+static double emitDecodeFloatImm8(const floatImm8 fpImm);
 
 /************************************************************************
 *
@@ -510,16 +507,16 @@ static INT64 normalizeImm64(INT64 imm, emitAttr size);
 static INT32 normalizeImm32(INT32 imm, emitAttr size);
 
 // true if 'imm' can be encoded using a 'bitmask immediate', also returns the encoding if wbBMI is non-null
-static bool canEncodeBitMaskImm(INT64 imm, emitAttr size, emitter::bitMaskImm* wbBMI = nullptr);
+static bool canEncodeBitMaskImm(int64_t imm, emitAttr size, bitMaskImm* wbBMI = nullptr);
 
 // true if 'imm' can be encoded using a 'halfword immediate', also returns the encoding if wbHWI is non-null
-static bool canEncodeHalfwordImm(INT64 imm, emitAttr size, emitter::halfwordImm* wbHWI = nullptr);
+static bool canEncodeHalfwordImm(int64_t imm, emitAttr size, halfwordImm* wbHWI = nullptr);
 
 // true if 'imm' can be encoded using a 'byteShifted immediate', also returns the encoding if wbBSI is non-null
-static bool canEncodeByteShiftedImm(INT64 imm, emitAttr size, emitter::byteShiftedImm* wbBSI = nullptr);
+static bool canEncodeByteShiftedImm(int64_t imm, emitAttr size, byteShiftedImm* wbBSI = nullptr);
 
 // true if 'immDbl' can be encoded using a 'float immediate', also returns the encoding if wbFPI is non-null
-static bool canEncodeFloatImm8(double immDbl, emitter::floatImm8* wbFPI = nullptr);
+static bool canEncodeFloatImm8(double immDbl, floatImm8* wbFPI = nullptr);
 
 // Returns the number of bits used by the given 'size'.
 inline static unsigned getBitWidth(emitAttr size)

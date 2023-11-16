@@ -740,7 +740,7 @@ private:
 /*
     If you add lots more fields that need to be cleared (such
     as various flags), you might need to update the body of
-    emitter::emitAllocInstr() to clear them.
+    emitAllocInstr to clear them.
  */
 
 #if DEBUG

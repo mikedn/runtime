@@ -811,11 +811,11 @@ emitter::code_t emitter::AddRexWPrefix(instruction ins, code_t code)
             assert(hasVexPrefix(code));
 
             // W-bit is the only bit that is added in non bit-inverted form.
-            return emitter::code_t(code | 0x00008000000000ULL);
+            return code | 0x00008000000000ull;
         }
     }
 #ifdef TARGET_AMD64
-    return emitter::code_t(code | 0x4800000000ULL);
+    return code | 0x4800000000ull;
 #else
     assert(!"UNREACHED");
     return code;
@@ -1847,7 +1847,7 @@ const emitJumpKind emitReverseJumpKinds[] = {
  * Look up the instruction for a jump kind
  */
 
-/*static*/ instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
+instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
 {
     assert((unsigned)jumpKind < ArrLen(emitJumpKindInstructions));
     return emitJumpKindInstructions[jumpKind];
@@ -1857,7 +1857,7 @@ const emitJumpKind emitReverseJumpKinds[] = {
  * Reverse the conditional jump
  */
 
-/* static */ emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
+emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
 {
     assert(jumpKind < EJ_COUNT);
     return emitReverseJumpKinds[jumpKind];
@@ -2939,7 +2939,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
         id->idInsFmt(fmt);
         id->idAddr()->iiaAddrMode.amBaseReg = addr->GetRegNum();
         id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-        id->idAddr()->iiaAddrMode.amScale   = emitter::OPSZ1;
+        id->idAddr()->iiaAddrMode.amScale   = OPSZ1;
         assert(emitGetInsAmdDisp(id) == 0);
 
         return;
@@ -2969,7 +2969,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
 
         id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
         id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-        id->idAddr()->iiaAddrMode.amScale   = emitter::OPSZ1; // for completeness
+        id->idAddr()->iiaAddrMode.amScale   = OPSZ1; // for completeness
 
         id->idInsFmt(fmt);
 
@@ -5870,7 +5870,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         id->idInsFmt(IF_ARD);
         id->idAddr()->iiaAddrMode.amBaseReg = amBase;
         id->idAddr()->iiaAddrMode.amIndxReg = amIndex;
-        id->idAddr()->iiaAddrMode.amScale   = amScale ? emitEncodeScale(amScale) : emitter::OPSZ1;
+        id->idAddr()->iiaAddrMode.amScale   = amScale ? emitEncodeScale(amScale) : OPSZ1;
 
         insSize = emitInsSizeAM(id, insCodeMR(INS_call));
     }
