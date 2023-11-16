@@ -85,47 +85,32 @@ static bool insOptsRRX(insOpts opt)
     return (opt == INS_OPTS_RRX);
 }
 
-/*****************************************************************************/
-
-const instruction emitJumpKindInstructions[] = {
-    INS_nop,
-
+instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
+{
+    static const instruction map[]{
+        INS_nop,
 #define JMP_SMALL(en, rev, ins) INS_##ins,
 #include "emitjmps.h"
-};
+    };
 
-/*****************************************************************************
- * Look up the instruction for a jump kind
- */
-
-/*static*/ instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
-{
-    assert((unsigned)jumpKind < ArrLen(emitJumpKindInstructions));
-    return emitJumpKindInstructions[jumpKind];
+    assert(jumpKind < _countof(map));
+    return map[jumpKind];
 }
 
-/*****************************************************************************
- * Look up the jump kind for an instruction. It better be a conditional
- * branch instruction with a jump kind!
- */
-
-/*static*/ emitJumpKind emitter::emitInsToJumpKind(instruction ins)
+emitJumpKind emitter::emitInsToJumpKind(instruction ins)
 {
-    for (unsigned i = 0; i < ArrLen(emitJumpKindInstructions); i++)
+    for (unsigned i = EJ_NONE + 1; i < EJ_COUNT; i++)
     {
-        if (ins == emitJumpKindInstructions[i])
+        emitJumpKind kind = static_cast<emitJumpKind>(i);
+
+        if (ins == emitJumpKindToIns(kind))
         {
-            emitJumpKind ret = (emitJumpKind)i;
-            assert(EJ_NONE < ret && ret < EJ_COUNT);
-            return ret;
+            return kind;
         }
     }
+
     unreached();
 }
-
-/*****************************************************************************
- * Reverse the conditional jump
- */
 
 emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
 {

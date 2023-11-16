@@ -1829,10 +1829,6 @@ emitAttr emitter::emitDecodeScale(unsigned ensz)
     return emitSizeDecode[ensz];
 }
 
-/*****************************************************************************
- * Look up the instruction for a jump kind
- */
-
 instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
 {
     static const instruction map[]{INS_nop,
@@ -1843,10 +1839,6 @@ instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
     assert(jumpKind < _countof(map));
     return map[jumpKind];
 }
-
-/*****************************************************************************
- * Reverse the conditional jump
- */
 
 emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
 {
