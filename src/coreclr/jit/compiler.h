@@ -29,7 +29,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "block.h"
 #include "inline.h"
 #include "jiteh.h"
-#include "instr.h"
 #include "cycletimer.h"
 #include "arraystack.h"
 #include "hashbv.h"
