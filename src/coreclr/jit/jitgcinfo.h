@@ -7,6 +7,13 @@
 #include "gcinfotypes.h"
 #endif
 
+enum GCtype : unsigned
+{
+    GCT_NONE,
+    GCT_GCREF,
+    GCT_BYREF
+};
+
 class GCInfo
 {
     friend class CodeGenInterface;

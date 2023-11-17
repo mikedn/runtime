@@ -49,8 +49,7 @@ IF_DEF(METHPTR,     IS_NONE,                    CALL)     // method ptr (glbl)
 IF_DEF(CNS,         IS_NONE,                    CNS )     // const
 
 //----------------------------------------------------------------------------
-// NOTE: The order of the "RD/WR/RW" varieties must match that of
-//       the "insUpdateModes" enum in "instr.h".
+// NOTE: The order of the "RD/WR/RW" varieties must match that of the "insUpdateModes" enum.
 //----------------------------------------------------------------------------
 
 IF_DEF(RRD,         IS_R1_RD,                   NONE)     // read   reg

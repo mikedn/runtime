@@ -239,6 +239,40 @@ bool emitter::IsAVXInstruction(instruction ins) const
     return UseVEXEncoding() && IsSSEOrAVXInstruction(ins);
 }
 
+enum insFlags : uint32_t
+{
+    INS_FLAGS_None = 0,
+
+    Reads_OF               = 1 << 0,
+    Reads_SF               = 1 << 1,
+    Reads_ZF               = 1 << 2,
+    Reads_PF               = 1 << 3,
+    Reads_CF               = 1 << 4,
+    Reads_DF               = 1 << 5,
+    Writes_OF              = 1 << 6,
+    Writes_SF              = 1 << 7,
+    Writes_ZF              = 1 << 8,
+    Writes_AF              = 1 << 9,
+    Writes_PF              = 1 << 10,
+    Writes_CF              = 1 << 11,
+    Resets_OF              = 1 << 12,
+    Resets_SF              = 1 << 13,
+    Resets_AF              = 1 << 14,
+    Resets_PF              = 1 << 15,
+    Resets_CF              = 1 << 16,
+    Undefined_OF           = 1 << 17,
+    Undefined_SF           = 1 << 18,
+    Undefined_ZF           = 1 << 19,
+    Undefined_AF           = 1 << 20,
+    Undefined_PF           = 1 << 21,
+    Undefined_CF           = 1 << 22,
+    Restore_SF_ZF_AF_PF_CF = 1 << 23,
+
+    // Avx
+    INS_Flags_IsDstDstSrcAVXInstruction = 1 << 25,
+    INS_Flags_IsDstSrcSrcAVXInstruction = 1 << 26
+};
+
 const insFlags instInfo[]{
 #define INST0(id, nm, um, mr, flags) static_cast<insFlags>(flags),
 #define INST1(id, nm, um, mr, flags) static_cast<insFlags>(flags),
@@ -1315,6 +1349,13 @@ const char* insName(instruction ins)
 
     return insNames[ins];
 }
+
+enum insUpdateModes
+{
+    IUM_RD,
+    IUM_WR,
+    IUM_RW,
+};
 
 static insUpdateModes emitInsUpdateMode(instruction ins)
 {

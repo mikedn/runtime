@@ -16,6 +16,8 @@ enum instruction : unsigned
 #define INST4(id, nm, um, mr, mi, rm, a4, flags) INS_##id,
 #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) INS_##id,
 #include "instrsxarch.h"
+    INS_none,
+    INS_BREAKPOINT = INS_int3,
 
 #elif defined(TARGET_ARM)
 #define INST1(id, nm, fp, ldst, fmt, e1) INS_##id,
@@ -27,8 +29,12 @@ enum instruction : unsigned
 #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8) INS_##id,
 #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) INS_##id,
 #include "instrsarm.h"
-
     INS_lea, // Not a real instruction. It is used for load the address of stack locals
+    INS_none,
+    INS_MULADD     = INS_mla,
+    INS_ABS        = INS_vabs,
+    INS_SQRT       = INS_vsqrt,
+    INS_BREAKPOINT = INS_bkpt,
 
 #elif defined(TARGET_ARM64)
 #define INST1(id, nm, ldst, fmt, e1) INS_##id,
@@ -39,25 +45,24 @@ enum instruction : unsigned
 #define INST6(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6) INS_##id,
 #define INST9(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) INS_##id,
 #include "instrsarm64.h"
-
     INS_lea, // Not a real instruction. It is used for load the address of stack locals
+    INS_none,
+    INS_MULADD     = INS_madd,
+    INS_ABS        = INS_fabs,
+    INS_SQRT       = INS_fsqrt,
+#ifdef TARGET_UNIX
+    INS_BREAKPOINT = INS_brk,
+#else
+    INS_BREAKPOINT = INS_bkpt,
+#endif
 
 #else
 #error Unsupported target architecture
 #endif
-
-    INS_none,
-    INS_count = INS_none
+    INS_COUNT = INS_none
 };
 
 INDEBUG(const char* insName(instruction ins);)
-
-enum insUpdateModes
-{
-    IUM_RD,
-    IUM_WR,
-    IUM_RW,
-};
 
 enum emitJumpKind
 {
@@ -67,59 +72,6 @@ enum emitJumpKind
     EJ_COUNT
 };
 
-enum GCtype : unsigned
-{
-    GCT_NONE,
-    GCT_GCREF,
-    GCT_BYREF
-};
-
-#ifdef TARGET_XARCH
-
-enum insFlags : uint32_t
-{
-    INS_FLAGS_None = 0,
-
-    // Reads
-    Reads_OF = 1 << 0,
-    Reads_SF = 1 << 1,
-    Reads_ZF = 1 << 2,
-    Reads_PF = 1 << 3,
-    Reads_CF = 1 << 4,
-    Reads_DF = 1 << 5,
-
-    // Writes
-    Writes_OF = 1 << 6,
-    Writes_SF = 1 << 7,
-    Writes_ZF = 1 << 8,
-    Writes_AF = 1 << 9,
-    Writes_PF = 1 << 10,
-    Writes_CF = 1 << 11,
-
-    // Resets
-    Resets_OF = 1 << 12,
-    Resets_SF = 1 << 13,
-    Resets_AF = 1 << 14,
-    Resets_PF = 1 << 15,
-    Resets_CF = 1 << 16,
-
-    // Undefined
-    Undefined_OF = 1 << 17,
-    Undefined_SF = 1 << 18,
-    Undefined_ZF = 1 << 19,
-    Undefined_AF = 1 << 20,
-    Undefined_PF = 1 << 21,
-    Undefined_CF = 1 << 22,
-
-    // Restore
-    Restore_SF_ZF_AF_PF_CF = 1 << 23,
-
-    // Avx
-    INS_Flags_IsDstDstSrcAVXInstruction = 1 << 25,
-    INS_Flags_IsDstSrcSrcAVXInstruction = 1 << 26
-};
-
-#endif // TARGET_XARCH
 #ifdef TARGET_ARM
 
 enum insFlags : unsigned
@@ -284,7 +236,7 @@ enum emitAttr : unsigned
 #ifdef TARGET_64BIT
     EA_PTRSIZE = EA_8BYTE,
 #else
-    EA_PTRSIZE = EA_4BYTE,
+    EA_PTRSIZE     = EA_4BYTE,
 #endif
 
     EA_GCREF_FLG = 0x080,
@@ -341,27 +293,5 @@ inline emitAttr emitActualTypeSize(T type)
     assert(emitTypeActSz[TypeGet(type)] > 0);
     return (emitAttr)emitTypeActSz[TypeGet(type)];
 }
-
-#ifdef TARGET_XARCH
-constexpr instruction INS_BREAKPOINT = INS_int3;
-#endif
-
-#ifdef TARGET_ARM
-constexpr instruction INS_MULADD     = INS_mla;
-constexpr instruction INS_ABS        = INS_vabs;
-constexpr instruction INS_SQRT       = INS_vsqrt;
-constexpr instruction INS_BREAKPOINT = INS_bkpt;
-#endif
-
-#ifdef TARGET_ARM64
-constexpr instruction INS_MULADD = INS_madd;
-constexpr instruction INS_ABS    = INS_fabs;
-constexpr instruction INS_SQRT   = INS_fsqrt;
-#if defined(TARGET_UNIX)
-constexpr instruction INS_BREAKPOINT = INS_brk;
-#else
-constexpr instruction INS_BREAKPOINT = INS_bkpt;
-#endif
-#endif
 
 #endif // INSTR_H

@@ -534,14 +534,14 @@ private:
     private:
 // The assembly instruction
 #if defined(TARGET_XARCH)
-        static_assert_no_msg(INS_count <= 1024);
+        static_assert_no_msg(INS_COUNT <= 1024);
         instruction _idIns : 10;
 #define MAX_ENCODED_SIZE 15
 #elif defined(TARGET_ARM64)
-        static_assert_no_msg(INS_count <= 512);
+        static_assert_no_msg(INS_COUNT <= 512);
         instruction _idIns : 9;
 #else  // !(defined(TARGET_XARCH) || defined(TARGET_ARM64))
-        static_assert_no_msg(INS_count <= 256);
+        static_assert_no_msg(INS_COUNT <= 256);
         instruction _idIns : 8;
 #endif // !(defined(TARGET_XARCH) || defined(TARGET_ARM64))
 
@@ -561,7 +561,7 @@ private:
         }
         void idIns(instruction ins)
         {
-            assert((ins != INS_invalid) && (ins < INS_count));
+            assert((ins != INS_invalid) && (ins < INS_COUNT));
             _idIns = ins;
         }
 
