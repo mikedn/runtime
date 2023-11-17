@@ -1438,185 +1438,138 @@ bool emitter::emitInsCanOnlyWriteSSE2OrAVXReg(instrDesc* id)
     }
 }
 
-/*****************************************************************************
- *
- *  Returns the base encoding of the given CPU instruction.
- */
-
+// Returns the base encoding of the given CPU instruction.
 static size_t insCode(instruction ins)
 {
-    // clang-format off
-    const static
-    size_t          insCodes[] =
-    {
-        #define INST0(id, nm, um, mr,                 flags) mr,
-        #define INST1(id, nm, um, mr,                 flags) mr,
-        #define INST2(id, nm, um, mr, mi,             flags) mr,
-        #define INST3(id, nm, um, mr, mi, rm,         flags) mr,
-        #define INST4(id, nm, um, mr, mi, rm, a4,     flags) mr,
-        #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) mr,
-        #include "instrsxarch.h"
+    const static size_t codes[]{
+#define INST0(id, nm, um, mr, ...) mr,
+#define INST1(id, nm, um, mr, ...) mr,
+#define INST2(id, nm, um, mr, ...) mr,
+#define INST3(id, nm, um, mr, ...) mr,
+#define INST4(id, nm, um, mr, ...) mr,
+#define INST5(id, nm, um, mr, ...) mr,
+#include "instrsxarch.h"
     };
-    // clang-format on
 
-    assert((unsigned)ins < _countof(insCodes));
-    assert((insCodes[ins] != BAD_CODE));
+    assert(ins < _countof(codes));
+    assert(codes[ins] != BAD_CODE);
 
-    return insCodes[ins];
+    return codes[ins];
 }
 
-/*****************************************************************************
- *
- *  Returns the "AL/AX/EAX, imm" accumulator encoding of the given instruction.
- */
-
+// Returns the "AL/AX/EAX, IMM" accumulator encoding of the given instruction.
 static size_t insCodeACC(instruction ins)
 {
-    // clang-format off
-    const static
-    size_t          insCodesACC[] =
-    {
-        #define INST0(id, nm, um, mr,                 flags)
-        #define INST1(id, nm, um, mr,                 flags)
-        #define INST2(id, nm, um, mr, mi,             flags)
-        #define INST3(id, nm, um, mr, mi, rm,         flags)
-        #define INST4(id, nm, um, mr, mi, rm, a4,     flags) a4,
-        #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) a4,
-        #include "instrsxarch.h"
+    const static size_t codes[]{
+#define INST0(...)
+#define INST1(...)
+#define INST2(...)
+#define INST3(...)
+#define INST4(id, nm, um, mr, mi, rm, a4, flags) a4,
+#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) a4,
+#include "instrsxarch.h"
     };
-    // clang-format on
 
-    assert((unsigned)ins < _countof(insCodesACC));
-    assert((insCodesACC[ins] != BAD_CODE));
+    assert(ins < _countof(codes));
+    assert(codes[ins] != BAD_CODE);
 
-    return insCodesACC[ins];
+    return codes[ins];
 }
 
-/*****************************************************************************
- *
- *  Returns the "register" encoding of the given CPU instruction.
- */
-
+// Returns the "REG, REG" or "REG" encoding of the given instruction.
 static size_t insCodeRR(instruction ins)
 {
-    // clang-format off
-    const static
-    size_t          insCodesRR[] =
-    {
-        #define INST0(id, nm, um, mr,                 flags)
-        #define INST1(id, nm, um, mr,                 flags)
-        #define INST2(id, nm, um, mr, mi,             flags)
-        #define INST3(id, nm, um, mr, mi, rm,         flags)
-        #define INST4(id, nm, um, mr, mi, rm, a4,     flags)
-        #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) rr,
-        #include "instrsxarch.h"
+    const static size_t codes[]{
+#define INST0(...)
+#define INST1(...)
+#define INST2(...)
+#define INST3(...)
+#define INST4(...)
+#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) rr,
+#include "instrsxarch.h"
     };
-    // clang-format on
 
-    assert((unsigned)ins < _countof(insCodesRR));
-    assert((insCodesRR[ins] != BAD_CODE));
+    assert(ins < _countof(codes));
+    assert(codes[ins] != BAD_CODE);
 
-    return insCodesRR[ins];
+    return codes[ins];
 }
 
-// clang-format off
-const static
-size_t          insCodesRM[] =
-{
-    #define INST0(id, nm, um, mr,                 flags)
-    #define INST1(id, nm, um, mr,                 flags)
-    #define INST2(id, nm, um, mr, mi,             flags)
-    #define INST3(id, nm, um, mr, mi, rm,         flags) rm,
-    #define INST4(id, nm, um, mr, mi, rm, a4,     flags) rm,
-    #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) rm,
-    #include "instrsxarch.h"
+const static size_t insCodesRM[]{
+#define INST0(...)
+#define INST1(...)
+#define INST2(...)
+#define INST3(id, nm, um, mr, mi, rm, ...) rm,
+#define INST4(id, nm, um, mr, mi, rm, ...) rm,
+#define INST5(id, nm, um, mr, mi, rm, ...) rm,
+#include "instrsxarch.h"
 };
-// clang-format on
 
-// Returns true iff the give CPU instruction has an RM encoding.
+// Returns true iff the give instruction has an "REG, RM" encoding.
 static bool hasCodeRM(instruction ins)
 {
-    assert((unsigned)ins < _countof(insCodesRM));
-    return ((insCodesRM[ins] != BAD_CODE));
+    assert(ins < _countof(insCodesRM));
+
+    return insCodesRM[ins] != BAD_CODE;
 }
 
-/*****************************************************************************
- *
- *  Returns the "reg, [r/m]" encoding of the given CPU instruction.
- */
-
+// Returns the "REG, RM" encoding of the given instruction.
 static size_t insCodeRM(instruction ins)
 {
-    assert((unsigned)ins < _countof(insCodesRM));
-    assert((insCodesRM[ins] != BAD_CODE));
+    assert(ins < _countof(insCodesRM));
+    assert(insCodesRM[ins] != BAD_CODE);
 
     return insCodesRM[ins];
 }
 
-// clang-format off
-const static
-size_t          insCodesMI[] =
-{
-    #define INST0(id, nm, um, mr,                 flags)
-    #define INST1(id, nm, um, mr,                 flags)
-    #define INST2(id, nm, um, mr, mi,             flags) mi,
-    #define INST3(id, nm, um, mr, mi, rm,         flags) mi,
-    #define INST4(id, nm, um, mr, mi, rm, a4,     flags) mi,
-    #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) mi,
-    #include "instrsxarch.h"
+const static size_t insCodesMI[]{
+#define INST0(...)
+#define INST1(...)
+#define INST2(id, nm, um, mr, mi, ...) mi,
+#define INST3(id, nm, um, mr, mi, ...) mi,
+#define INST4(id, nm, um, mr, mi, ...) mi,
+#define INST5(id, nm, um, mr, mi, ...) mi,
+#include "instrsxarch.h"
 };
-// clang-format on
 
-// Returns true iff the give CPU instruction has an MI encoding.
+// Returns true iff the give instruction has an "RM, IMM" encoding.
 static bool hasCodeMI(instruction ins)
 {
-    assert((unsigned)ins < _countof(insCodesMI));
-    return ((insCodesMI[ins] != BAD_CODE));
-}
+    assert(ins < _countof(insCodesMI));
 
-/*****************************************************************************
- *
- *  Returns the "[r/m], 32-bit icon" encoding of the given CPU instruction.
- */
+    return insCodesMI[ins] != BAD_CODE;
+}
 
 static size_t insCodeMI(instruction ins)
 {
-    assert((unsigned)ins < _countof(insCodesMI));
-    assert((insCodesMI[ins] != BAD_CODE));
+    assert(ins < _countof(insCodesMI));
+    assert(insCodesMI[ins] != BAD_CODE);
 
     return insCodesMI[ins];
 }
 
-// clang-format off
-const static
-size_t          insCodesMR[] =
-{
-    #define INST0(id, nm, um, mr,                 flags)
-    #define INST1(id, nm, um, mr,                 flags) mr,
-    #define INST2(id, nm, um, mr, mi,             flags) mr,
-    #define INST3(id, nm, um, mr, mi, rm,         flags) mr,
-    #define INST4(id, nm, um, mr, mi, rm, a4,     flags) mr,
-    #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) mr,
-    #include "instrsxarch.h"
+const static size_t insCodesMR[]{
+#define INST0(id, nm, um, mr, ...)
+#define INST1(id, nm, um, mr, ...) mr,
+#define INST2(id, nm, um, mr, ...) mr,
+#define INST3(id, nm, um, mr, ...) mr,
+#define INST4(id, nm, um, mr, ...) mr,
+#define INST5(id, nm, um, mr, ...) mr,
+#include "instrsxarch.h"
 };
-// clang-format on
 
-// Returns true iff the give CPU instruction has an MR encoding.
 static bool hasCodeMR(instruction ins)
 {
-    assert((unsigned)ins < _countof(insCodesMR));
-    return ((insCodesMR[ins] != BAD_CODE));
+    assert(ins < _countof(insCodesMR));
+
+    return insCodesMR[ins] != BAD_CODE;
 }
 
-/*****************************************************************************
- *
- *  Returns the "[r/m], reg" or "[r/m]" encoding of the given CPU instruction.
- */
-
+// Returns the "RM, REG" or "RM" encoding of the given instruction.
 static size_t insCodeMR(instruction ins)
 {
-    assert((unsigned)ins < _countof(insCodesMR));
-    assert((insCodesMR[ins] != BAD_CODE));
+    assert(ins < _countof(insCodesMR));
+    assert(insCodesMR[ins] != BAD_CODE);
 
     return insCodesMR[ins];
 }
