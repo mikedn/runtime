@@ -1229,7 +1229,7 @@ void CodeGen::genCodeForShift(GenTreeOp* tree)
     var_types   targetType = tree->GetType();
     genTreeOps  oper       = tree->GetOper();
     instruction ins        = genGetInsForOper(oper);
-    emitAttr    size       = emitActualTypeSize(tree);
+    emitAttr    size       = emitActualTypeSize(targetType);
 
     GenTree* value   = tree->GetOp(0);
     GenTree* shiftBy = tree->GetOp(1);
@@ -1339,6 +1339,8 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
         genJumpToThrowHlpBlk(EJ_hs, ThrowHelperKind::IndexOutOfRange, node->GetThrowBlock());
     }
 
+    emitAttr attr = emitActualTypeSize(node->GetType());
+
     // Can we use a ScaledAdd instruction?
     //
     if (isPow2(node->GetElemSize()) && (node->GetElemSize() <= 32768))
@@ -1347,7 +1349,7 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
         BitScanForward(&scale, node->GetElemSize());
 
         // dest = base + index * scale
-        genScaledAdd(emitActualTypeSize(node), node->GetRegNum(), baseReg, indexReg, scale);
+        genScaledAdd(attr, node->GetRegNum(), baseReg, indexReg, scale);
     }
     else // we have to load the element attr and use a MADD (multiply-add) instruction
     {
@@ -1355,13 +1357,11 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
         instGen_Set_Reg_To_Imm(EA_4BYTE, tmpReg, static_cast<ssize_t>(node->GetElemSize()));
 
         // dest = index * tmpReg + base
-        GetEmitter()->emitIns_R_R_R_R(INS_MULADD, emitActualTypeSize(node), node->GetRegNum(), indexReg, tmpReg,
-                                      baseReg);
+        GetEmitter()->emitIns_R_R_R_R(INS_MULADD, attr, node->GetRegNum(), indexReg, tmpReg, baseReg);
     }
 
     // dest = dest + elemOffs
-    GetEmitter()->emitIns_R_R_I(INS_add, emitActualTypeSize(node), node->GetRegNum(), node->GetRegNum(),
-                                node->GetDataOffs());
+    GetEmitter()->emitIns_R_R_I(INS_add, attr, node->GetRegNum(), node->GetRegNum(), node->GetDataOffs());
 
     // TODO-MIKE-Review: Hrm, what if baseReg is a local variable reg?!
     liveness.RemoveGCRegs(genRegMask(baseReg));
@@ -3221,7 +3221,7 @@ void CodeGen::genLeaInstruction(GenTreeAddrMode* lea)
     regNumber dstReg   = lea->GetRegNum();
 
     emitter* emit   = GetEmitter();
-    emitAttr attr   = emitTypeSize(lea);
+    emitAttr attr   = emitTypeSize(lea->GetType());
     int      offset = lea->GetOffset();
 
     if (indexReg != REG_NA)
@@ -3337,7 +3337,7 @@ void CodeGen::genCodeForNegNot(GenTreeUnOp* node)
 
 instruction CodeGen::ins_Copy(var_types type)
 {
-    assert(emitTypeActSz[type] != 0);
+    assert(emitActualTypeSize(type) != EA_UNKNOWN);
 
     if (varTypeIsFloating(type))
     {

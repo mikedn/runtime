@@ -9,25 +9,25 @@
 enum instruction : unsigned
 {
 #if defined(TARGET_XARCH)
-#define INST0(id, nm, um, mr, flags) INS_##id,
-#define INST1(id, nm, um, mr, flags) INS_##id,
-#define INST2(id, nm, um, mr, mi, flags) INS_##id,
-#define INST3(id, nm, um, mr, mi, rm, flags) INS_##id,
-#define INST4(id, nm, um, mr, mi, rm, a4, flags) INS_##id,
-#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) INS_##id,
+#define INST0(id, ...) INS_##id,
+#define INST1(id, ...) INS_##id,
+#define INST2(id, ...) INS_##id,
+#define INST3(id, ...) INS_##id,
+#define INST4(id, ...) INS_##id,
+#define INST5(id, ...) INS_##id,
 #include "instrsxarch.h"
     INS_none,
     INS_BREAKPOINT = INS_int3,
 
 #elif defined(TARGET_ARM)
-#define INST1(id, nm, fp, ldst, fmt, e1) INS_##id,
-#define INST2(id, nm, fp, ldst, fmt, e1, e2) INS_##id,
-#define INST3(id, nm, fp, ldst, fmt, e1, e2, e3) INS_##id,
-#define INST4(id, nm, fp, ldst, fmt, e1, e2, e3, e4) INS_##id,
-#define INST5(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5) INS_##id,
-#define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6) INS_##id,
-#define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8) INS_##id,
-#define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) INS_##id,
+#define INST1(id, ...) INS_##id,
+#define INST2(id, ...) INS_##id,
+#define INST3(id, ...) INS_##id,
+#define INST4(id, ...) INS_##id,
+#define INST5(id, ...) INS_##id,
+#define INST6(id, ...) INS_##id,
+#define INST8(id, ...) INS_##id,
+#define INST9(id, ...) INS_##id,
 #include "instrsarm.h"
     INS_lea, // Not a real instruction. It is used for load the address of stack locals
     INS_none,
@@ -37,13 +37,13 @@ enum instruction : unsigned
     INS_BREAKPOINT = INS_bkpt,
 
 #elif defined(TARGET_ARM64)
-#define INST1(id, nm, ldst, fmt, e1) INS_##id,
-#define INST2(id, nm, ldst, fmt, e1, e2) INS_##id,
-#define INST3(id, nm, ldst, fmt, e1, e2, e3) INS_##id,
-#define INST4(id, nm, ldst, fmt, e1, e2, e3, e4) INS_##id,
-#define INST5(id, nm, ldst, fmt, e1, e2, e3, e4, e5) INS_##id,
-#define INST6(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6) INS_##id,
-#define INST9(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) INS_##id,
+#define INST1(id, ...) INS_##id,
+#define INST2(id, ...) INS_##id,
+#define INST3(id, ...) INS_##id,
+#define INST4(id, ...) INS_##id,
+#define INST5(id, ...) INS_##id,
+#define INST6(id, ...) INS_##id,
+#define INST9(id, ...) INS_##id,
 #include "instrsarm64.h"
     INS_lea, // Not a real instruction. It is used for load the address of stack locals
     INS_none,
@@ -240,13 +240,15 @@ enum emitAttr : unsigned
 #endif
 
     EA_GCREF_FLG = 0x080,
-    EA_GCREF     = EA_GCREF_FLG | EA_PTRSIZE, /* size == -1 */
+    EA_GCREF     = EA_PTRSIZE | EA_GCREF_FLG,
     EA_BYREF_FLG = 0x100,
-    EA_BYREF     = EA_BYREF_FLG | EA_PTRSIZE, /* size == -2 */
+    EA_BYREF     = EA_PTRSIZE | EA_BYREF_FLG,
 #ifdef TARGET_XARCH
     EA_DSP_RELOC_FLG = 0x200,
+    EA_PTR_DSP_RELOC = EA_PTRSIZE | EA_DSP_RELOC_FLG,
 #endif
     EA_CNS_RELOC_FLG = 0x400,
+    EA_PTR_CNS_RELOC = EA_PTRSIZE | EA_CNS_RELOC_FLG,
 };
 
 #define EA_ATTR(x) ((emitAttr)(x))
@@ -254,44 +256,33 @@ enum emitAttr : unsigned
 #define EA_SIZE_IN_BYTES(x) ((UNATIVE_OFFSET)(EA_SIZE(x)))
 #define EA_SET_SIZE(x, sz) ((emitAttr)((((unsigned)(x)) & ~EA_SIZE_MASK) | (sz)))
 #define EA_SET_FLG(x, flg) ((emitAttr)(((unsigned)(x)) | (flg)))
-#ifdef TARGET_XARCH
-#define EA_PTR_DSP_RELOC (EA_SET_FLG(EA_PTRSIZE, EA_DSP_RELOC_FLG))
-#endif
-#define EA_PTR_CNS_RELOC (EA_SET_FLG(EA_PTRSIZE, EA_CNS_RELOC_FLG))
 #define EA_IS_GCREF(x) ((((unsigned)(x)) & ((unsigned)EA_GCREF_FLG)) != 0)
 #define EA_IS_BYREF(x) ((((unsigned)(x)) & ((unsigned)EA_BYREF_FLG)) != 0)
 #define EA_IS_GCREF_OR_BYREF(x) ((((unsigned)(x)) & ((unsigned)(EA_BYREF_FLG | EA_GCREF_FLG))) != 0)
-#ifdef TARGET_XARCH
-#define EA_IS_DSP_RELOC(x) ((((unsigned)(x)) & ((unsigned)EA_DSP_RELOC_FLG)) != 0)
-#endif
 #define EA_IS_CNS_RELOC(x) ((((unsigned)(x)) & ((unsigned)EA_CNS_RELOC_FLG)) != 0)
 #ifdef TARGET_XARCH
+#define EA_IS_DSP_RELOC(x) ((((unsigned)(x)) & ((unsigned)EA_DSP_RELOC_FLG)) != 0)
 #define EA_IS_RELOC(x) (EA_IS_DSP_RELOC(x) || EA_IS_CNS_RELOC(x))
 #define EA_TYPE(x) ((emitAttr)(((unsigned)(x)) & ~(EA_DSP_RELOC_FLG | EA_CNS_RELOC_FLG)))
 #else
 #define EA_TYPE(x) ((emitAttr)(((unsigned)(x)) & ~(EA_CNS_RELOC_FLG)))
 #endif
 
-#define EmitSize(x) (EA_ATTR(genTypeSize(TypeGet(x))))
+extern const uint16_t emitTypeSizes[TYP_COUNT];
+extern const uint16_t emitTypeActSz[TYP_COUNT];
 
-extern const unsigned short emitTypeSizes[TYP_COUNT];
-
-template <class T>
-inline emitAttr emitTypeSize(T type)
+inline emitAttr emitTypeSize(var_types type)
 {
-    assert(TypeGet(type) < TYP_COUNT);
-    assert(emitTypeSizes[TypeGet(type)] > 0);
-    return (emitAttr)emitTypeSizes[TypeGet(type)];
+    assert(type < _countof(emitTypeSizes));
+    assert(emitTypeSizes[type] != EA_UNKNOWN);
+    return static_cast<emitAttr>(emitTypeSizes[type]);
 }
 
-extern const unsigned short emitTypeActSz[TYP_COUNT];
-
-template <class T>
-inline emitAttr emitActualTypeSize(T type)
+inline emitAttr emitActualTypeSize(var_types type)
 {
-    assert(TypeGet(type) < TYP_COUNT);
-    assert(emitTypeActSz[TypeGet(type)] > 0);
-    return (emitAttr)emitTypeActSz[TypeGet(type)];
+    assert(type < _countof(emitTypeActSz));
+    assert(emitTypeActSz[type] != EA_UNKNOWN);
+    return static_cast<emitAttr>(emitTypeActSz[type]);
 }
 
 #endif // INSTR_H

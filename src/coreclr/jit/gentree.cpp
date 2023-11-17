@@ -13047,11 +13047,7 @@ uint16_t GenTreeLclVarCommon::GetLclOffs() const
 //
 bool GenTreeLclFld::IsOffsetMisaligned() const
 {
-    if (varTypeIsFloating(gtType))
-    {
-        return ((m_lclOffs % emitTypeSize(TYP_FLOAT)) != 0);
-    }
-    return false;
+    return varTypeIsFloating(gtType) && (m_lclOffs % 4 != 0);
 }
 #endif // TARGET_ARM
 

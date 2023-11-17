@@ -9053,7 +9053,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
 instruction CodeGen::ins_Copy(var_types type)
 {
-    assert(emitTypeActSz[type] != 0);
+    assert(emitActualTypeSize(type) != EA_UNKNOWN);
 
     return varTypeUsesFloatReg(type) ? INS_movaps : INS_mov;
 }

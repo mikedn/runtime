@@ -1610,9 +1610,10 @@ void CodeGen::genCodeForIncSaturate(GenTree* tree)
 {
     regNumber targetReg  = tree->GetRegNum();
     regNumber operandReg = UseReg(tree->AsUnOp()->GetOp(0));
+    emitAttr  attr       = emitActualTypeSize(tree->GetType());
 
-    GetEmitter()->emitIns_R_R_I(INS_adds, emitActualTypeSize(tree), targetReg, operandReg, 1);
-    GetEmitter()->emitIns_R_R_COND(INS_cinv, emitActualTypeSize(tree), targetReg, targetReg, INS_COND_HS);
+    GetEmitter()->emitIns_R_R_I(INS_adds, attr, targetReg, operandReg, 1);
+    GetEmitter()->emitIns_R_R_COND(INS_cinv, attr, targetReg, targetReg, INS_COND_HS);
 
     DefReg(tree);
 }
@@ -1691,7 +1692,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
 
     // The arithmetic node must be sitting in a register (since it's not contained)
     assert(targetReg != REG_NA);
-    emitAttr attr = emitActualTypeSize(treeNode);
+    emitAttr attr = emitActualTypeSize(treeNode->GetType());
 
     // UMULL/SMULL is twice as fast for 32*32->64bit MUL
     if ((oper == GT_MUL) && (targetType == TYP_LONG) && varActualTypeIsInt(op1) && varActualTypeIsInt(op2))
@@ -2417,7 +2418,7 @@ void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
     regNumber dataReg   = data->isUsedFromReg() ? UseReg(data) : REG_NA;
     regNumber targetReg = treeNode->GetRegNum();
 
-    emitAttr dataSize = emitActualTypeSize(data);
+    emitAttr dataSize = emitActualTypeSize(data->GetType());
 
     if (compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
     {
@@ -2558,7 +2559,7 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
 
     if (compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
     {
-        emitAttr dataSize = emitActualTypeSize(data);
+        emitAttr dataSize = emitActualTypeSize(data->GetType());
 
         // casal use the comparand as the target reg
         GetEmitter()->emitIns_Mov(INS_mov, dataSize, targetReg, comparandReg, /* canSkip */ true);
@@ -2616,29 +2617,35 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
         BasicBlock* labelCompareFail = genCreateTempLabel();
         genDefineTempLabel(labelRetry);
 
+        // TODO-MIKE-Cleanup: emitTypeSize is likely bogus here, ldaxr and stlxr
+        // do not have 8/16 bit versions, you'd need ldaxrb & co. Or maybe they
+        // hacked the emitter to automatically generate to ldaxrb?
+        emitAttr size       = emitTypeSize(treeNode->GetType());
+        emitAttr actualSize = emitActualTypeSize(treeNode->GetType());
+
         // The following instruction includes a acquire half barrier
-        GetEmitter()->emitIns_R_R(INS_ldaxr, emitTypeSize(treeNode), targetReg, addrReg);
+        GetEmitter()->emitIns_R_R(INS_ldaxr, size, targetReg, addrReg);
 
         if (GenTreeIntCon* con = comparand->IsContainedIntCon())
         {
             if (con->GetValue() == 0)
             {
-                GetEmitter()->emitIns_J_R(INS_cbnz, emitActualTypeSize(treeNode), labelCompareFail, targetReg);
+                GetEmitter()->emitIns_J_R(INS_cbnz, actualSize, labelCompareFail, targetReg);
             }
             else
             {
-                GetEmitter()->emitIns_R_I(INS_cmp, emitActualTypeSize(treeNode), targetReg, con->GetValue());
+                GetEmitter()->emitIns_R_I(INS_cmp, actualSize, targetReg, con->GetValue());
                 GetEmitter()->emitIns_J(INS_bne, labelCompareFail);
             }
         }
         else
         {
-            GetEmitter()->emitIns_R_R(INS_cmp, emitActualTypeSize(treeNode), targetReg, comparandReg);
+            GetEmitter()->emitIns_R_R(INS_cmp, actualSize, targetReg, comparandReg);
             GetEmitter()->emitIns_J(INS_bne, labelCompareFail);
         }
 
         // The following instruction includes a release half barrier
-        GetEmitter()->emitIns_R_R_R(INS_stlxr, emitTypeSize(treeNode), exResultReg, dataReg, addrReg);
+        GetEmitter()->emitIns_R_R_R(INS_stlxr, size, exResultReg, dataReg, addrReg);
 
         GetEmitter()->emitIns_J_R(INS_cbnz, EA_4BYTE, labelRetry, exResultReg);
 
