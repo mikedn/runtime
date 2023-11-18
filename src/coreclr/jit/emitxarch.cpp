@@ -8751,6 +8751,25 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
 
 #endif // TARGET_AMD64
     }
+    else if (ins == INS_imul)
+    {
+        code = insCodeRM(ins);
+        code = insEncodeRMreg(ins, code);
+
+        assert(size != EA_1BYTE);
+
+        // TODO-MIKE-Cleanup: There should be no need to generate a 16 bit imul.
+        if (size == EA_2BYTE)
+        {
+            dst += emitOutputByte(dst, 0x66);
+        }
+#ifdef TARGET_AMD64
+        else if (size == EA_8BYTE)
+        {
+            code = AddRexWPrefix(ins, code);
+        }
+#endif
+    }
 #ifdef FEATURE_HW_INTRINSICS
     else if ((ins == INS_bsf) || (ins == INS_bsr) || (ins == INS_crc32) || (ins == INS_lzcnt) || (ins == INS_popcnt) ||
              (ins == INS_tzcnt))

@@ -118,7 +118,7 @@ INST3(cmovle,           "cmovle",           IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(cmovg,            "cmovg",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x4F),                            Reads_OF       | Reads_SF      | Reads_ZF                                                      )
 
 INST3(xchg,             "xchg",             IUM_RW, 0x86,         BAD_CODE,     0x86,                                    INS_FLAGS_None )
-INST3(imul,             "imul",             IUM_RW, 0x0F00AC,     BAD_CODE,     PCKFLT(0xAF),                            Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
+INST3(imul,             "imul",             IUM_RW, BAD_CODE,     BAD_CODE,     PCKFLT(0xAF),                            Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
 INST3(imuli,            "imul",             IUM_RD, BAD_CODE,     BAD_CODE,     0x68,                                    Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
 
 //    id                nm                  um      mr            mi            rm                                       flags
