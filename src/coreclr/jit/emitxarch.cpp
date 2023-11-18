@@ -149,61 +149,44 @@ static bool IsBMIRegExtInstruction(instruction ins)
     return (ins == INS_blsi) || (ins == INS_blsmsk) || (ins == INS_blsr);
 }
 
-static regNumber getBmiRegNumber(instruction ins)
+static unsigned GetBMIOpcodeRMExt(instruction ins)
 {
     switch (ins)
     {
         case INS_blsi:
-            return static_cast<regNumber>(3);
+            return 3;
         case INS_blsmsk:
-            return static_cast<regNumber>(2);
+            return 2;
         case INS_blsr:
-            return static_cast<regNumber>(1);
+            return 1;
         default:
             assert(IsBMIInstruction(ins));
-            return REG_NA;
+            return 255;
     }
 }
 
-static regNumber getSseShiftRegNumber(instruction ins)
+static unsigned GetSSEShiftOpcodeRMExt(instruction ins)
 {
     switch (ins)
     {
         case INS_psrldq:
-        {
-            return (regNumber)3;
-        }
-
+            return 3;
         case INS_pslldq:
-        {
-            return (regNumber)7;
-        }
-
+            return 7;
         case INS_psrld:
         case INS_psrlw:
         case INS_psrlq:
-        {
-            return (regNumber)2;
-        }
-
+            return 2;
         case INS_pslld:
         case INS_psllw:
         case INS_psllq:
-        {
-            return (regNumber)6;
-        }
-
+            return 6;
         case INS_psrad:
         case INS_psraw:
-        {
-            return (regNumber)4;
-        }
-
+            return 4;
         default:
-        {
             assert(!"Invalid instruction for SSE2 instruction of the form: opcode base, immed8");
-            return REG_NA;
-        }
+            return 255;
     }
 }
 
@@ -7526,7 +7509,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
             if (IsBMIRegExtInstruction(ins))
             {
-                reg345 = getBmiRegNumber(ins);
+                reg345 = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
             }
             else if (id->idInsFmt() == IF_AWR_RRD_RRD)
             {
@@ -7872,7 +7855,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
         if (IsBMIRegExtInstruction(ins))
         {
-            reg345 = getBmiRegNumber(ins);
+            reg345 = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
             code   = insEncodeReg3456(ins, id->idReg1(), size, code);
         }
         else
@@ -8236,7 +8219,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
         if (IsBMIRegExtInstruction(ins))
         {
-            reg345 = getBmiRegNumber(ins);
+            reg345 = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
             code   = insEncodeReg3456(ins, id->idReg1(), size, code);
         }
         else
@@ -8451,26 +8434,18 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     return dst;
 }
 
-/*****************************************************************************
- *
- *  Output an instruction with one register operand.
- */
-
-BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
+uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 {
-    code_t code;
-
     instruction ins  = id->idIns();
     regNumber   reg  = id->idReg1();
     emitAttr    size = id->idOpSize();
 
-    // We would to update GC info correctly
-    assert(!IsSSEInstruction(ins));
-    assert(!IsAVXInstruction(ins));
+    assert(!IsSSEInstruction(ins) && !IsAVXInstruction(ins));
 
-    // Get the 'base' opcode
     switch (ins)
     {
+        code_t code;
+
         case INS_call:
             code = insEncodeMRreg(INS_call, reg, EA_PTRSIZE, insCodeMR(INS_call));
             dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
@@ -8480,7 +8455,6 @@ BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
 
         case INS_inc:
         case INS_dec:
-
 #ifdef TARGET_AMD64
             if (true)
 #else
@@ -8491,14 +8465,15 @@ BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
                 assert(INS_dec_l == INS_dec + 1);
 
                 // Can't use the compact form, use the long form
-                ins = (instruction)(ins + 1);
+                ins = static_cast<instruction>(ins + 1);
+
                 if (size == EA_2BYTE)
                 {
-                    // Output a size prefix for a 16-bit operand
                     dst += emitOutputByte(dst, 0x66);
                 }
 
                 code = insCodeRR(ins);
+
                 if (size != EA_1BYTE)
                 {
                     // Set the 'w' bit to get the large version
@@ -8510,21 +8485,17 @@ BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
                     code = AddRexWPrefix(ins, code);
                 }
 
-                // Register...
-                unsigned regcode = insEncodeReg012(ins, reg, size, &code);
-
-                // Output the REX prefix
+                code_t regcode = insEncodeReg012(ins, reg, size, &code);
                 dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
                 dst += emitOutputWord(dst, code | (regcode << 8));
             }
             else
             {
                 if (size == EA_2BYTE)
                 {
-                    // Output a size prefix for a 16-bit operand
                     dst += emitOutputByte(dst, 0x66);
                 }
+
                 dst += emitOutputByte(dst, insCodeRR(ins) | insEncodeReg012(ins, reg, size, nullptr));
             }
             break;
@@ -8533,21 +8504,16 @@ BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
         case INS_pop_hide:
         case INS_push:
         case INS_push_hide:
-
             assert(size == EA_PTRSIZE);
-            code = insEncodeOpreg(ins, reg, size);
-
             assert(!TakesVexPrefix(ins));
             assert(!TakesRexWPrefix(ins, size));
 
-            // Output the REX prefix
+            code = insEncodeOpreg(ins, reg, size);
             dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
             dst += emitOutputByte(dst, code);
             break;
 
         case INS_bswap:
-        {
             assert(size >= EA_4BYTE && size <= EA_PTRSIZE); // 16-bit BSWAP is undefined
 
             // The Intel instruction set reference for BSWAP states that extended registers
@@ -8562,15 +8528,12 @@ BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
                 code = AddRexWPrefix(ins, code);
             }
 
-            // Register...
-            unsigned regcode = insEncodeReg012(ins, reg, size, &code);
-
-            // Output the REX prefix
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-            dst += emitOutputWord(dst, code | (regcode << 8));
+            {
+                code_t regcode = insEncodeReg012(ins, reg, size, &code);
+                dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+                dst += emitOutputWord(dst, code | (regcode << 8));
+            }
             break;
-        }
 
         case INS_seto:
         case INS_setno:
@@ -8588,34 +8551,22 @@ BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
         case INS_setge:
         case INS_setle:
         case INS_setg:
-
             assert(id->idGCref() == GCT_NONE);
             assert(size == EA_1BYTE);
 
             code = insEncodeMRreg(ins, reg, EA_1BYTE, insCodeMR(ins));
-
-            // Output the REX prefix
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-            // We expect this to always be a 'big' opcode
             assert(code & 0x00FF0000);
-
+            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
             dst += emitOutputByte(dst, code >> 16);
             dst += emitOutputWord(dst, code & 0x0000FFFF);
-
             break;
 
         case INS_mulEAX:
         case INS_imulEAX:
-
-            // Kill off any GC refs in EAX or EDX
             emitGCregDeadUpd(REG_EAX, dst);
             emitGCregDeadUpd(REG_EDX, dst);
-
             FALLTHROUGH;
-
         default:
-
             assert(id->idGCref() == GCT_NONE);
 
             code = insEncodeMRreg(ins, reg, size, insCodeMR(ins));
@@ -8627,7 +8578,6 @@ BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
 
                 if (size == EA_2BYTE)
                 {
-                    // Output a size prefix for a 16-bit operand
                     dst += emitOutputByte(dst, 0x66);
                 }
             }
@@ -8639,18 +8589,13 @@ BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
                 code = AddRexWPrefix(ins, code);
             }
 
-            // Output the REX prefix
             dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
             dst += emitOutputWord(dst, code);
             break;
     }
 
-    // Are we writing the register? if so then update the GC information
     switch (id->idInsFmt())
     {
-        case IF_RRD:
-            break;
         case IF_RWR:
             if (id->idGCref())
             {
@@ -8661,30 +8606,30 @@ BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
                 emitGCregDeadUpd(id->idReg1(), dst);
             }
             break;
+
         case IF_RRW:
-        {
-#ifdef DEBUG
-            regMaskTP regMask = genRegMask(reg);
-#endif
             if (id->idGCref())
             {
                 assert(ins == INS_inc || ins == INS_dec || ins == INS_inc_l || ins == INS_dec_l);
+
                 // We would like to assert that the reg must currently be holding either a gcref or a byref.
                 // However, we can see cases where a LCLHEAP generates a non-gcref value into a register,
                 // and the first instruction we generate after the LCLHEAP is an `inc` that is typed as
                 // byref. We'll properly create the byref gcinfo when this happens.
-                //     assert((gcInfo.GetAllLiveRegs() & regMask) != RBM_NONE);
+                // assert((gcInfo.GetAllLiveRegs() & genRegMask(reg)) != RBM_NONE);
+
                 assert(id->idGCref() == GCT_BYREF);
-                // Mark it as holding a GCT_BYREF
+
                 emitGCregLiveUpd(GCT_BYREF, id->idReg1(), dst);
             }
             else
             {
-                // Can't use RRW to trash a GC ref.  It's OK for unverifiable code to trash Byrefs.
-                assert((gcInfo.GetLiveRegs(GCT_GCREF) & regMask) == RBM_NONE);
+                assert((gcInfo.GetLiveRegs(GCT_GCREF) & genRegMask(reg)) == RBM_NONE);
             }
-        }
-        break;
+            break;
+
+        case IF_RRD:
+            break;
         default:
             INDEBUG(emitDispIns(id));
             assert(!"unexpected instruction format");
@@ -8694,19 +8639,13 @@ BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
     return dst;
 }
 
-/*****************************************************************************
- *
- *  Output an instruction with two register operands.
- */
-
-BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
+uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 {
-    code_t code;
-
     instruction ins  = id->idIns();
     regNumber   reg1 = id->idReg1();
     regNumber   reg2 = id->idReg2();
     emitAttr    size = id->idOpSize();
+    code_t      code;
 
     if (IsSSEOrAVXInstruction(ins))
     {
@@ -8720,6 +8659,7 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
         {
             code = insCodeMR(ins);
         }
+
         code = AddVexPrefixIfNeeded(ins, code, size);
         code = insEncodeRMreg(ins, code);
 
@@ -8728,29 +8668,33 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
             code = AddRexWPrefix(ins, code);
         }
     }
-    else if ((ins == INS_movsx) || (ins == INS_movzx) || (insIsCMOV(ins)))
+    else if ((ins == INS_movsx) || (ins == INS_movzx) || insIsCMOV(ins))
     {
-        assert(hasCodeRM(ins) && !hasCodeMI(ins) && !hasCodeMR(ins));
+        assert(!hasCodeMI(ins) && !hasCodeMR(ins));
+
         code = insCodeRM(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
-        code = insEncodeRMreg(ins, code) | (int)(size == EA_2BYTE);
-#ifdef TARGET_AMD64
+        code = insEncodeRMreg(ins, code) | (size == EA_2BYTE);
 
-        assert((size < EA_4BYTE) || (insIsCMOV(ins)));
+#ifdef TARGET_AMD64
+        assert((size < EA_4BYTE) || insIsCMOV(ins));
+
         if ((size == EA_8BYTE) || (ins == INS_movsx))
         {
             code = AddRexWPrefix(ins, code);
         }
+#endif
     }
+#ifdef TARGET_AMD64
     else if (ins == INS_movsxd)
     {
-        assert(hasCodeRM(ins) && !hasCodeMI(ins) && !hasCodeMR(ins));
+        assert(!hasCodeMI(ins) && !hasCodeMR(ins));
+
         code = insCodeRM(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
         code = insEncodeRMreg(ins, code);
-
-#endif // TARGET_AMD64
     }
+#endif
     else if (ins == INS_imul)
     {
         code = insCodeRM(ins);
@@ -8770,14 +8714,15 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
         }
 #endif
     }
-#ifdef FEATURE_HW_INTRINSICS
     else if ((ins == INS_bsf) || (ins == INS_bsr) || (ins == INS_crc32) || (ins == INS_lzcnt) || (ins == INS_popcnt) ||
              (ins == INS_tzcnt))
     {
-        assert(hasCodeRM(ins) && !hasCodeMI(ins) && !hasCodeMR(ins));
+        assert(!hasCodeMI(ins) && !hasCodeMR(ins));
+
         code = insCodeRM(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
         code = insEncodeRMreg(ins, code);
+
         if ((ins == INS_crc32) && (size > EA_1BYTE))
         {
             code |= 0x0100;
@@ -8786,6 +8731,7 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
         if (size == EA_2BYTE)
         {
             assert(ins == INS_crc32);
+
             dst += emitOutputByte(dst, 0x66);
         }
         else if (size == EA_8BYTE)
@@ -8793,10 +8739,10 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
             code = AddRexWPrefix(ins, code);
         }
     }
-#endif // FEATURE_HW_INTRINSICS
     else
     {
         assert(!TakesVexPrefix(ins));
+
         code = insCodeMR(ins);
         code = insEncodeMRreg(ins, code);
 
@@ -8815,10 +8761,8 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
                 break;
 
             case EA_2BYTE:
-                // Output a size prefix for a 16-bit operand
                 dst += emitOutputByte(dst, 0x66);
                 FALLTHROUGH;
-
             case EA_4BYTE:
                 // Set the 'w' bit to get the large version
                 code |= 0x1;
@@ -8840,7 +8784,6 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
                 // Set the 'w' bit to get the large version
                 code |= 0x1;
                 break;
-
 #endif // TARGET_AMD64
 
             default:
@@ -8850,17 +8793,21 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
 
     regNumber regFor012Bits = reg2;
     regNumber regFor345Bits = REG_NA;
+
     if (IsBMIInstruction(ins))
     {
-        regFor345Bits = getBmiRegNumber(ins);
+        regFor345Bits = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
     }
+
     if (regFor345Bits == REG_NA)
     {
         regFor345Bits = reg1;
     }
+
     if (ins == INS_movd)
     {
         assert(isFloatReg(reg1) != isFloatReg(reg2));
+
         if (isFloatReg(reg2))
         {
             std::swap(regFor012Bits, regFor345Bits);
@@ -8881,28 +8828,23 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
         // now we use the single source as source1 and source2.
         if (IsDstDstSrcAVXInstruction(ins))
         {
-            // encode source/dest operand reg in 'vvvv' bits in 1's complement form
             code = insEncodeReg3456(ins, reg1, size, code);
         }
         else if (IsDstSrcSrcAVXInstruction(ins))
         {
-            // encode source operand reg in 'vvvv' bits in 1's complement form
             code = insEncodeReg3456(ins, reg2, size, code);
         }
     }
 
-    // Output the REX prefix
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
     if (code & 0xFF000000)
     {
-        // Output the highest word of the opcode
         dst += emitOutputWord(dst, code >> 16);
         code &= 0x0000FFFF;
 
         if (Is4ByteSSEInstruction(ins))
         {
-            // Output 3rd byte of the opcode
             dst += emitOutputByte(dst, code);
             code &= 0xFF00;
         }
@@ -8920,7 +8862,6 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
     }
     else if ((code & 0xFF) == 0x00)
     {
-        // This case happens for some SSE/AVX instructions only
         assert(IsAVXInstruction(ins) || Is4ByteSSEInstruction(ins));
 
         dst += emitOutputByte(dst, (code >> 8) & 0xFF);
@@ -8932,50 +8873,39 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
         dst += emitOutputByte(dst, (0xC0 | regCode));
     }
 
-    // Does this instruction operate on a GC ref value?
     if (id->idGCref())
     {
         switch (id->idInsFmt())
         {
-            case IF_RRD_RRD:
-                break;
-
             case IF_RWR_RRD:
                 emitGCregLiveUpd(id->idGCref(), reg1, dst);
                 break;
 
             case IF_RRW_RRD:
-
                 switch (id->idIns())
                 {
-                    /*
-                        This must be one of the following cases:
+                    // This must be one of the following cases:
+                    //
+                    // xor reg, reg        to assign NULL
+                    //
+                    // and r1 , r2         if (ptr1 && ptr2) ...
+                    // or  r1 , r2         if (ptr1 || ptr2) ...
+                    //
+                    // add r1 , r2         to compute a normal byref
+                    // sub r1 , r2         to compute a strange byref (VC only)
 
-                        xor reg, reg        to assign NULL
-
-                        and r1 , r2         if (ptr1 && ptr2) ...
-                        or  r1 , r2         if (ptr1 || ptr2) ...
-
-                        add r1 , r2         to compute a normal byref
-                        sub r1 , r2         to compute a strange byref (VC only)
-
-                    */
                     case INS_xor:
                         assert(reg1 == reg2);
                         emitGCregLiveUpd(id->idGCref(), reg1, dst);
                         break;
-
                     case INS_or:
                     case INS_and:
                         emitGCregDeadUpd(reg1, dst);
                         break;
-
                     case INS_add:
                     case INS_sub:
                         assert(id->idGCref() == GCT_BYREF);
-
 #if 0
-#ifdef DEBUG
                         // Due to elided register moves, we can't have the following assert.
                         // For example, consider:
                         //    t85 = LCL_VAR byref V01 arg1 rdx (last use) REG rdx
@@ -8995,10 +8925,7 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
                         //                               or BYREF+/-int=BYREF
                         assert((((regMask & gcInfo.GetLiveRegs(GCT_GCREF) != RBM_NONE) && (ins == INS_add)) ||
                                (((regMask & gcInfo.GetLiveRegs(GCT_BYREF) != RBM_NONE) && (ins == INS_add || ins == INS_sub)));
-#endif // DEBUG
 #endif // 0
-
-                        // Mark r1 as holding a byref
                         emitGCregLiveUpd(GCT_BYREF, reg1, dst);
                         break;
 
@@ -9006,25 +8933,18 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
                         INDEBUG(emitDispIns(id));
                         assert(!"unexpected GC base update instruction");
                 }
-
                 break;
 
             case IF_RRW_RRW:
-                // This must be "xchg reg1, reg2"
                 assert(id->idIns() == INS_xchg);
 
-                // If we got here, the GC-ness of the registers doesn't match, so we have to "swap" them in the GC
-                // register pointer mask.
-
-                GCtype gc1, gc2;
-
+                GCtype gc1;
                 gc1 = gcInfo.GetRegType(reg1);
+                GCtype gc2;
                 gc2 = gcInfo.GetRegType(reg2);
 
                 if (gc1 != gc2)
                 {
-                    // Kill the GC-info about the GC registers
-
                     if (gc1 != GCT_NONE)
                     {
                         emitGCregDeadUpd(reg1, dst);
@@ -9034,8 +8954,6 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
                     {
                         emitGCregDeadUpd(reg2, dst);
                     }
-
-                    // Now, swap the info
 
                     if (gc1 != GCT_NONE)
                     {
@@ -9049,69 +8967,63 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
                 }
                 break;
 
+            case IF_RRD_RRD:
+                break;
+
             default:
                 INDEBUG(emitDispIns(id));
                 assert(!"unexpected GC ref instruction format");
         }
     }
-    else
+    else if (!emitInsCanOnlyWriteSSE2OrAVXReg(id))
     {
-        if (!emitInsCanOnlyWriteSSE2OrAVXReg(id))
+        switch (id->idInsFmt())
         {
-            switch (id->idInsFmt())
-            {
-                case IF_RRD_CNS:
-                    assert(ins != INS_mulEAX && ins != INS_imulEAX && ins != INS_imuli);
-                    break;
-
-                case IF_RWR_RRD:
-                case IF_RRW_RRD:
-                case IF_RWR_RRD_RRD:
-                    emitGCregDeadUpd(reg1, dst);
-                    break;
-
-                default:
-                    break;
-            }
+            case IF_RWR_RRD:
+            case IF_RRW_RRD:
+            case IF_RWR_RRD_RRD:
+                emitGCregDeadUpd(reg1, dst);
+                break;
+            case IF_RRD_CNS:
+                assert(ins != INS_mulEAX && ins != INS_imulEAX && ins != INS_imuli);
+                break;
+            default:
+                break;
         }
     }
 
     return dst;
 }
 
-BYTE* emitter::emitOutputRRR(BYTE* dst, instrDesc* id)
+uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
 {
-    code_t code;
-
     instruction ins = id->idIns();
+
     assert(IsAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins) || isAvxBlendv(ins));
-    regNumber targetReg = id->idReg1();
-    regNumber src1      = id->idReg2();
-    regNumber src2      = id->idReg3();
-    emitAttr  size      = id->idOpSize();
 
-    code = insCodeRM(ins);
-    code = AddVexPrefixIfNeeded(ins, code, size);
-    code = insEncodeRMreg(ins, code);
+    regNumber reg1 = id->idReg1();
+    regNumber reg2 = id->idReg2();
+    regNumber reg3 = id->idReg3();
+    emitAttr  size = id->idOpSize();
+
+    code_t code = insCodeRM(ins);
+    code        = AddVexPrefixIfNeeded(ins, code, size);
+    code        = insEncodeRMreg(ins, code);
 
     if (TakesRexWPrefix(ins, size))
     {
         code = AddRexWPrefix(ins, code);
     }
 
-    unsigned regCode = insEncodeReg345(ins, targetReg, size, &code);
-    regCode |= insEncodeReg012(ins, src2, size, &code);
-    // encode source operand reg in 'vvvv' bits in 1's complement form
-    code = insEncodeReg3456(ins, src1, size, code);
+    unsigned regCode = insEncodeReg345(ins, reg1, size, &code);
+    regCode |= insEncodeReg012(ins, reg3, size, &code);
+    code = insEncodeReg3456(ins, reg2, size, code);
 
-    // Output the REX prefix
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
-    // Is this a 'big' opcode?
     if (code & 0xFF000000)
     {
-        // Output the highest word of the opcode
         dst += emitOutputWord(dst, code >> 16);
         code &= 0x0000FFFF;
     }
@@ -9128,7 +9040,6 @@ BYTE* emitter::emitOutputRRR(BYTE* dst, instrDesc* id)
     }
     else if ((code & 0xFF) == 0x00)
     {
-        // This case happens for AVX instructions only
         assert(IsAVXInstruction(ins));
 
         dst += emitOutputByte(dst, (code >> 8) & 0xFF);
@@ -9151,7 +9062,6 @@ BYTE* emitter::emitOutputRRR(BYTE* dst, instrDesc* id)
             case IF_RWR_RRD_RRD_RRD:
                 emitGCregDeadUpd(id->idReg1(), dst);
                 break;
-
             default:
                 break;
         }
@@ -9160,14 +9070,8 @@ BYTE* emitter::emitOutputRRR(BYTE* dst, instrDesc* id)
     return dst;
 }
 
-/*****************************************************************************
- *
- *  Output an instruction with a register and constant operands.
- */
-
-BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
+uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 {
-    code_t      code;
     emitAttr    size    = id->idOpSize();
     instruction ins     = id->idIns();
     regNumber   reg     = id->idReg1();
@@ -9180,31 +9084,33 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
 
     noway_assert(emitVerifyEncodable(ins, size, reg));
 
+    code_t code;
+
     if (IsSSEOrAVXInstruction(ins))
     {
-        // Handle SSE2 instructions of the form "opcode reg, immed8"
-
         assert(id->idGCref() == GCT_NONE);
         assert(hasImm8);
 
         // The left and right shifts use the same encoding, and are distinguished by the Reg/Opcode field.
-        regNumber regOpcode = getSseShiftRegNumber(ins);
+        unsigned regOpcode = GetSSEShiftOpcodeRMExt(ins);
 
-        // Get the 'base' opcode.
         code = insCodeMI(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
         code = insEncodeMIreg(ins, reg, size, code);
+
         assert(code & 0x00FF0000);
+
         if (TakesVexPrefix(ins))
         {
-            // The 'vvvv' bits encode the destination register, which for this case (RI)
-            // is the same as the source.
+            // The 'vvvv' bits encode the destination register,
+            // which for the RI case is the same as the source.
             code = insEncodeReg3456(ins, reg, size, code);
         }
 
-        unsigned regcode = (insEncodeReg345(ins, regOpcode, size, &code) | insEncodeReg012(ins, reg, size, &code)) << 8;
+        unsigned regcode = (insEncodeReg345(ins, static_cast<regNumber>(regOpcode), size, &code) |
+                            insEncodeReg012(ins, reg, size, &code))
+                           << 8;
 
-        // Output the REX prefix
         dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
         if (code & 0xFF000000)
@@ -9217,24 +9123,19 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
         }
 
         dst += emitOutputWord(dst, code | regcode);
-
         dst += emitOutputByte(dst, imm);
 
         return dst;
     }
 
-    // The 'mov' opcode is special
     if (ins == INS_mov)
     {
         assert(id->idInsFmt() == IF_RWR_CNS);
 
         code = insCodeACC(ins);
-        assert(code < 0x100);
-
         code |= 0x08; // Set the 'w' bit
         code |= insEncodeReg012(ins, reg, size, &code);
 
-        // This is INS_mov and will not take VEX prefix
         assert(!TakesVexPrefix(ins));
 
         if (TakesRexWPrefix(ins, size))
@@ -9301,13 +9202,11 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
             code |= 1;
         }
 
-        // Emit the REX prefix if it exists
         if (TakesRexWPrefix(ins, size))
         {
             code = AddRexWPrefix(ins, code);
         }
 
-        // Output a size prefix for a 16-bit operand
         if (size == EA_2BYTE)
         {
             dst += emitOutputByte(dst, 0x66);
@@ -9317,7 +9216,6 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
         dst += emitOutputWord(dst, code);
         dst += emitOutputByte(dst, emitGetInsSC(id));
 
-        // Update GC info.
         assert(!id->idGCref());
         emitGCregDeadUpd(id->idReg1(), dst);
 
@@ -9337,11 +9235,10 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
         }
         else
         {
-            /* For ax/eax, we avoid ACC encoding for small constants as we
-             * can emit the small constant and have it sign-extended.
-             * For big constants, the ACC encoding is better as we can use
-             * the 1 byte opcode
-             */
+            // For ax/eax, we avoid ACC encoding for small constants as we
+            // can emit the small constant and have it sign-extended.
+            // For big constants, the ACC encoding is better as we can use
+            // the 1 byte opcode
 
             if (hasImm8)
             {
@@ -9389,10 +9286,8 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
             break;
 
         case EA_2BYTE:
-            // Output a size prefix for a 16-bit operand
             dst += emitOutputByte(dst, 0x66);
             FALLTHROUGH;
-
         case EA_4BYTE:
             // Set the 'w' bit to get the large version
             code |= 0x1;
@@ -9400,9 +9295,9 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
 
 #ifdef TARGET_AMD64
         case EA_8BYTE:
-            /* Set the 'w' bit to get the large version */
-            /* and the REX.W bit to get the really large version */
-
+            // Set the 'w' bit to get the large version
+            // and the REX.W bit to get the really large version
+            code = AddRexWPrefix(ins, code);
             code = AddRexWPrefix(ins, code);
             code |= 0x1;
             break;
@@ -9412,24 +9307,20 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
             assert(!"unexpected size");
     }
 
-    // Output the REX prefix
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
     // Does the value fit in a sign-extended byte?
-    // Important!  Only set the 's' bit when we have a size larger than EA_1BYTE.
+    // Important! Only set the 's' bit when we have a size larger than EA_1BYTE.
     // Note: A sign-extending immediate when (size == EA_1BYTE) is invalid in 64-bit mode.
 
     if (useSigned && (size > EA_1BYTE))
     {
-        // We can just set the 's' bit, and issue an immediate byte
-
         code |= 0x2; // Set the 's' bit to use a sign-extended immediate byte.
         dst += emitOutputWord(dst, code);
         dst += emitOutputByte(dst, imm);
     }
     else
     {
-        // Can we use an accumulator (EAX) encoding?
         if (useACC)
         {
             dst += emitOutputByte(dst, code);
@@ -9444,61 +9335,55 @@ BYTE* emitter::emitOutputRI(BYTE* dst, instrDesc* id)
 
     if (id->idGCref())
     {
+        assert(ins != INS_mulEAX && ins != INS_imulEAX && ins != INS_imuli);
+
         switch (id->idInsFmt())
         {
-            case IF_RRD_CNS:
-                break;
-
             case IF_RWR_CNS:
                 emitGCregLiveUpd(id->idGCref(), id->idReg1(), dst);
                 break;
 
             case IF_RRW_CNS:
                 assert(id->idGCref() == GCT_BYREF);
-
 #ifdef DEBUG
                 regMaskTP regMask;
                 regMask = genRegMask(reg);
-                // FIXNOW review the other places and relax the assert there too
 
+                // FIXNOW review the other places and relax the assert there too
                 // The reg must currently be holding either a gcref or a byref
                 // GCT_GCREF+int = GCT_BYREF, and GCT_BYREF+/-int = GCT_BYREF
                 if ((gcInfo.GetLiveRegs(GCT_GCREF) & regMask) != RBM_NONE)
                 {
                     assert(ins == INS_add);
                 }
+
                 if ((gcInfo.GetLiveRegs(GCT_BYREF) & regMask) != RBM_NONE)
                 {
                     assert(ins == INS_add || ins == INS_sub);
                 }
 #endif
-                // Mark it as holding a GCT_BYREF
                 emitGCregLiveUpd(GCT_BYREF, id->idReg1(), dst);
                 break;
 
+            case IF_RRD_CNS:
+                break;
             default:
                 INDEBUG(emitDispIns(id));
                 assert(!"unexpected GC ref instruction format");
         }
-
-        // mul can never produce a GC ref
-        assert(ins != INS_mulEAX && ins != INS_imulEAX && ins != INS_imuli);
     }
     else
     {
         switch (id->idInsFmt())
         {
-            case IF_RRD_CNS:
-                assert(ins != INS_mulEAX && ins != INS_imulEAX && ins != INS_imuli);
-                break;
-
             case IF_RRW_CNS:
             case IF_RWR_CNS:
                 assert(ins != INS_imuli);
-
                 emitGCregDeadUpd(id->idReg1(), dst);
                 break;
-
+            case IF_RRD_CNS:
+                assert(ins != INS_mulEAX && ins != INS_imulEAX && ins != INS_imuli);
+                break;
             default:
                 INDEBUG(emitDispIns(id));
                 assert(!"unexpected GC ref instruction format");
@@ -10183,7 +10068,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 mReg = id->idReg2();
 
                 // The left and right shifts use the same encoding, and are distinguished by the Reg/Opcode field.
-                rReg = getSseShiftRegNumber(ins);
+                rReg = static_cast<regNumber>(GetSSEShiftOpcodeRMExt(ins));
             }
             else
             {
