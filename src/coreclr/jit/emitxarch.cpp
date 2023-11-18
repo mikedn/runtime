@@ -8673,7 +8673,6 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         assert(!hasCodeMI(ins) && !hasCodeMR(ins));
 
         code = insCodeRM(ins);
-        code = AddVexPrefixIfNeeded(ins, code, size);
         code = insEncodeRMreg(ins, code) | (size == EA_2BYTE);
 
 #ifdef TARGET_AMD64
@@ -8691,7 +8690,6 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         assert(!hasCodeMI(ins) && !hasCodeMR(ins));
 
         code = insCodeRM(ins);
-        code = AddVexPrefixIfNeeded(ins, code, size);
         code = insEncodeRMreg(ins, code);
     }
 #endif
