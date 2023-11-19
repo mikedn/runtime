@@ -2109,8 +2109,6 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
 
 unsigned emitter::emitInsSizeImm(instrDesc* id, int32_t imm)
 {
-    assert(id->idIns() != INS_invalid);
-
     instruction ins     = id->idIns();
     unsigned    immSize = EA_SIZE_IN_BYTES(id->idOpSize());
     bool        hasImm8 = ((signed char)imm == imm) && (ins != INS_mov) && (ins != INS_test) && !id->idIsCnsReloc();
@@ -2119,12 +2117,6 @@ unsigned emitter::emitInsSizeImm(instrDesc* id, int32_t imm)
     // but it requires special handling of the immediate value (it is always encoded in a byte).
     // Let's not complicate things until this is needed.
     assert(ins != INS_bt);
-
-#ifdef TARGET_AMD64
-    // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
-    // all other opcodes take a sign-extended 4-byte immediate
-    noway_assert(immSize <= 4 || !id->idIsCnsReloc());
-#endif
 
     if (hasImm8)
     {
@@ -2689,8 +2681,10 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
 #endif
 }
 
-void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int imm)
+void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm)
 {
+    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
+
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
         emitIns_C_I(ins, attr, clsAddr->GetFieldHandle(), imm);
@@ -2754,8 +2748,10 @@ void emitter::emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr)
     emitCurIGsize += sz;
 }
 
-void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int imm)
+void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm)
 {
+    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
+
     if (IsShiftImm(ins))
     {
         imm &= 0x7F;
@@ -3384,20 +3380,15 @@ void emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNum
 
 void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int32_t imm)
 {
-#ifdef TARGET_AMD64
-    // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
-    // all other opcodes take a sign-extended 4-byte immediate
-    noway_assert(EA_SIZE(attr) < EA_8BYTE || !EA_IS_CNS_RELOC(attr));
-#endif
+    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
     instrDesc* id = emitNewInstrSC(attr, imm);
-
     id->idIns(ins);
     id->idInsFmt(IF_RRW_RRD_CNS);
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    code_t code = 0;
+    code_t code;
 
     switch (ins)
     {
@@ -3514,6 +3505,8 @@ void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree
 
 void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr, int imm)
 {
+    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
+
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
         emitIns_R_C_I(ins, attr, reg1, clsAddr->GetFieldHandle(), imm);
@@ -3536,8 +3529,9 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
 
 void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORINFO_FIELD_HANDLE fldHnd, int imm)
 {
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
     assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
+    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
+    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
     assert(FieldDispRequiresRelocation(fldHnd));
 
     instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
@@ -3557,6 +3551,7 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
 {
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
     assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
+    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
     instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
@@ -3692,6 +3687,7 @@ void emitter::emitIns_R_R_A_I(
 {
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
+    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
     instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
     id->idIns(ins);
@@ -3712,6 +3708,7 @@ void emitter::emitIns_R_R_C_I(
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
     assert(FieldDispRequiresRelocation(fldHnd));
+    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
     instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
     id->idIns(ins);
@@ -3732,6 +3729,7 @@ void emitter::emitIns_R_R_R_I(
 {
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
+    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
     instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
@@ -3773,6 +3771,7 @@ void emitter::emitIns_R_R_S_I(
 {
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
+    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
     instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
@@ -3994,6 +3993,7 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
 
 void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int32_t imm)
 {
+    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     assert(FieldDispRequiresRelocation(fldHnd));
 
     if (IsShiftImm(ins))
@@ -4048,12 +4048,7 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
 void emitter::emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int32_t disp, int32_t imm)
 {
     assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
-
-#ifdef TARGET_AMD64
-    // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
-    // all other opcodes take a sign-extended 4-byte immediate
-    noway_assert(EA_SIZE(attr) < EA_8BYTE || !EA_IS_CNS_RELOC(attr));
-#endif
+    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
     if (IsShiftImm(ins))
     {
@@ -4149,12 +4144,7 @@ void emitter::emitIns_ARX_I(
     instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scale, int32_t disp, int32_t imm)
 {
     assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
-
-#ifdef TARGET_AMD64
-    // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
-    // all other opcodes take a sign-extended 4-byte immediate
-    noway_assert(EA_SIZE(attr) < EA_8BYTE || !EA_IS_CNS_RELOC(attr));
-#endif
+    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
     if (IsShiftImm(ins))
     {
@@ -4696,11 +4686,7 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int va
 
 void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int32_t imm)
 {
-#ifdef TARGET_AMD64
-    // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
-    // all other opcodes take a sign-extended 4-byte immediate
-    noway_assert(EA_SIZE(attr) < EA_8BYTE || !EA_IS_CNS_RELOC(attr));
-#endif
+    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
     if (IsShiftImm(ins))
     {
