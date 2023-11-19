@@ -690,11 +690,12 @@ static bool TakesRexWPrefix(instruction ins, emitAttr attr)
     // movsx should always sign extend out to 8 bytes just because we don't track
     // whether the dest should be 4 bytes or 8 bytes (attr indicates the size
     // of the source, not the dest).
+    // movsxd should always have a REX.W prefix, otherwise it's equivalent to mov.
     // A 4-byte movzx is equivalent to an 8 byte movzx, so it is not special
     // cased here.
     //
     // Rex_jmp = jmp with rex prefix always requires rex.w prefix.
-    if (ins == INS_movsx || ins == INS_rex_jmp)
+    if (ins == INS_movsx || ins == INS_movsxd || ins == INS_rex_jmp)
     {
         return true;
     }
@@ -1424,7 +1425,7 @@ bool emitter::emitInsCanOnlyWriteSSE2OrAVXReg(instrDesc* id)
 // Returns the base encoding of the given CPU instruction.
 static size_t insCode(instruction ins)
 {
-    const static size_t codes[]{
+    const static uint32_t codes[]{
 #define INST0(id, nm, um, mr, ...) mr,
 #define INST1(id, nm, um, mr, ...) mr,
 #define INST2(id, nm, um, mr, ...) mr,
@@ -1443,7 +1444,7 @@ static size_t insCode(instruction ins)
 // Returns the "AL/AX/EAX, IMM" accumulator encoding of the given instruction.
 static size_t insCodeACC(instruction ins)
 {
-    const static size_t codes[]{
+    const static uint32_t codes[]{
 #define INST0(...)
 #define INST1(...)
 #define INST2(...)
@@ -1462,7 +1463,7 @@ static size_t insCodeACC(instruction ins)
 // Returns the "REG, REG" or "REG" encoding of the given instruction.
 static size_t insCodeRR(instruction ins)
 {
-    const static size_t codes[]{
+    const static uint32_t codes[]{
 #define INST0(...)
 #define INST1(...)
 #define INST2(...)
@@ -1478,7 +1479,7 @@ static size_t insCodeRR(instruction ins)
     return codes[ins];
 }
 
-const static size_t insCodesRM[]{
+const static uint32_t insCodesRM[]{
 #define INST0(...)
 #define INST1(...)
 #define INST2(...)
@@ -1505,7 +1506,7 @@ static size_t insCodeRM(instruction ins)
     return insCodesRM[ins];
 }
 
-const static size_t insCodesMI[]{
+const static uint32_t insCodesMI[]{
 #define INST0(...)
 #define INST1(...)
 #define INST2(id, nm, um, mr, mi, ...) mi,
@@ -1531,7 +1532,7 @@ static size_t insCodeMI(instruction ins)
     return insCodesMI[ins];
 }
 
-const static size_t insCodesMR[]{
+const static uint32_t insCodesMR[]{
 #define INST0(id, nm, um, mr, ...)
 #define INST1(id, nm, um, mr, ...) mr,
 #define INST2(id, nm, um, mr, ...) mr,
@@ -8690,6 +8691,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         assert(!hasCodeMI(ins) && !hasCodeMR(ins));
 
         code = insCodeRM(ins);
+        code = AddRexWPrefix(ins, code);
         code = insEncodeRMreg(ins, code);
     }
 #endif

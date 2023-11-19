@@ -96,7 +96,7 @@ INST3(bsr,              "bsr",              IUM_WR, BAD_CODE,     BAD_CODE,     
 
 INST3(movsx,            "movsx",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xBE),                            INS_FLAGS_None )
 #ifdef TARGET_AMD64
-INST3(movsxd,           "movsxd",           IUM_WR, BAD_CODE,     BAD_CODE,     0x4800000063,                            INS_FLAGS_None )
+INST3(movsxd,           "movsxd",           IUM_WR, BAD_CODE,     BAD_CODE,     0x63,                                    INS_FLAGS_None )
 #endif
 INST3(movzx,            "movzx",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xB6),                            INS_FLAGS_None )
 
