@@ -8393,10 +8393,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_X86
             if (size != EA_1BYTE)
             {
-                assert(INS_inc_s == INS_inc + 2);
-                assert(INS_dec_s == INS_dec + 2);
-
-                code = insCodeRR(static_cast<instruction>(ins + 2));
+                code = insCodeRR(ins == INS_inc ? INS_inc_s : INS_dec_s);
                 code |= insEncodeReg012(ins, reg, size, nullptr);
                 dst += emitOutputByte(dst, code);
 

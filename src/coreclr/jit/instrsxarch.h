@@ -64,8 +64,6 @@ INST5(pop,              "pop",              IUM_WR, 0x008E,       BAD_CODE,     
 // Does not affect the stack tracking in the emitter
 INST5(push_hide,        "push",             IUM_RD, 0x30FE,       0x68,         BAD_CODE,     BAD_CODE,     0x50,        None)
 INST5(pop_hide,         "pop",              IUM_WR, 0x008E,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0x58,        None)
-INST5(inc,              "inc",              IUM_RW, 0x00FE,       BAD_CODE,     BAD_CODE,     BAD_CODE,     BAD_CODE,    IncDecFlags)
-INST5(dec,              "dec",              IUM_RW, 0x08FE,       BAD_CODE,     BAD_CODE,     BAD_CODE,     BAD_CODE,    IncDecFlags)
 #ifdef TARGET_X86
 INST5(inc_s,            "inc",              IUM_RW, 0x00FE,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0x40,        IncDecFlags)
 INST5(dec_s,            "dec",              IUM_RW, 0x08FE,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0x48,        IncDecFlags)
@@ -577,6 +575,8 @@ INST1(nop,              "nop",              IUM_RD, 0x90,                       
 INST1(lock,             "lock",             IUM_RD, 0xF0,                                                                None)
 INST1(leave,            "leave",            IUM_RD, 0xC9,                                                                None)
 
+INST1(inc,              "inc",              IUM_RW, 0x00FE,                                                              IncDecFlags)
+INST1(dec,              "dec",              IUM_RW, 0x08FE,                                                              IncDecFlags)
 
 INST1(neg,              "neg",              IUM_RW, 0x18F6,                                                              AddSubFlags)
 INST1(not,              "not",              IUM_RW, 0x10F6,                                                              None)
