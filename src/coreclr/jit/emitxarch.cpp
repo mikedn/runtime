@@ -255,15 +255,74 @@ enum insFlags : uint32_t
     INS_Flags_IsDstSrcSrcAVXInstruction = 1 << 26
 };
 
-const insFlags instInfo[]{
-#define INST0(id, nm, um, mr, flags) static_cast<insFlags>(flags),
-#define INST1(id, nm, um, mr, flags) static_cast<insFlags>(flags),
-#define INST2(id, nm, um, mr, mi, flags) static_cast<insFlags>(flags),
-#define INST3(id, nm, um, mr, mi, rm, flags) static_cast<insFlags>(flags),
-#define INST4(id, nm, um, mr, mi, rm, a4, flags) static_cast<insFlags>(flags),
-#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) static_cast<insFlags>(flags),
+static insFlags InsFlags(instruction ins)
+{
+    enum : uint32_t
+    {
+        None              = INS_FLAGS_None,
+        IncDecFlags       = Writes_OF | Writes_SF | Writes_ZF | Writes_AF | Writes_PF,
+        AddSubFlags       = Writes_OF | Writes_SF | Writes_ZF | Writes_AF | Writes_PF | Writes_CF,
+        AddSubCarryFlags  = Writes_OF | Writes_SF | Writes_ZF | Writes_AF | Writes_PF | Writes_CF | Reads_CF,
+        BitwiseFlags      = Writes_SF | Writes_ZF | Undefined_AF | Writes_PF | Resets_CF | Resets_OF,
+        ImulFlags         = Writes_OF | Writes_CF | Undefined_SF | Undefined_ZF | Undefined_AF | Undefined_PF,
+        BitTestFlags      = Writes_CF | Undefined_OF | Undefined_SF | Undefined_ZF | Undefined_AF | Undefined_PF,
+        BitScanFlags      = Writes_ZF | Undefined_OF | Undefined_SF | Undefined_AF | Undefined_PF | Undefined_CF,
+        BzhiFlags         = Resets_OF | Writes_SF | Writes_ZF | Undefined_AF | Undefined_PF | Writes_CF,
+        FComFlags         = Writes_PF | Writes_CF | Writes_ZF | Resets_OF | Resets_SF | Resets_AF,
+        ZCntFlags         = Writes_ZF | Undefined_OF | Undefined_SF | Undefined_AF | Undefined_PF | Writes_CF,
+        PopCntFlags       = Resets_OF | Resets_SF | Writes_ZF | Resets_AF | Resets_PF | Resets_CF,
+        Rotate1Flags      = Writes_CF | Writes_OF,
+        RotateNFlags      = Writes_CF | Undefined_OF,
+        RotateCarry1Flags = Writes_CF | Reads_CF | Writes_OF,
+        RotateCarryNFlags = Writes_CF | Reads_CF | Undefined_OF,
+        Shift1Flags       = Writes_SF | Writes_ZF | Undefined_AF | Writes_PF | Writes_CF | Writes_OF,
+        ShiftNFlags       = Writes_SF | Writes_ZF | Undefined_AF | Writes_PF | Writes_CF | Undefined_OF,
+        DivFlags          = Undefined_OF | Undefined_SF | Undefined_ZF | Undefined_AF | Undefined_PF | Undefined_CF,
+        CcFlags_o         = Reads_OF,
+        CcFlags_no        = Reads_OF,
+        CcFlags_b         = Reads_CF,
+        CcFlags_ae        = Reads_CF,
+        CcFlags_e         = Reads_ZF,
+        CcFlags_ne        = Reads_ZF,
+        CcFlags_be        = Reads_ZF | Reads_CF,
+        CcFlags_a         = Reads_ZF | Reads_CF,
+        CcFlags_s         = Reads_SF,
+        CcFlags_ns        = Reads_SF,
+        CcFlags_p         = Reads_PF,
+        CcFlags_np        = Reads_PF,
+        CcFlags_l         = Reads_OF | Reads_SF,
+        CcFlags_ge        = Reads_OF | Reads_SF,
+        CcFlags_le        = Reads_OF | Reads_SF | Reads_ZF,
+        CcFlags_g         = Reads_OF | Reads_SF | Reads_ZF,
+        DirFlags          = Reads_DF,
+
+        AvxDstSrcSrc = INS_Flags_IsDstSrcSrcAVXInstruction,
+        AvxDstDstSrc = INS_Flags_IsDstDstSrcAVXInstruction,
+    };
+
+    static const uint32_t flags[]{
+#define INST0(id, nm, um, mr, flags) flags,
+#define INST1(id, nm, um, mr, flags) flags,
+#define INST2(id, nm, um, mr, mi, flags) flags,
+#define INST3(id, nm, um, mr, mi, rm, flags) flags,
+#define INST4(id, nm, um, mr, mi, rm, a4, flags) flags,
+#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) flags,
 #include "instrsxarch.h"
-};
+    };
+
+    assert(ins < _countof(flags));
+    return static_cast<insFlags>(flags[ins]);
+}
+
+static bool DoesWriteZeroFlag(instruction ins)
+{
+    return (InsFlags(ins) & Writes_ZF) != 0;
+}
+
+static bool DoesResetOverflowAndCarryFlags(instruction ins)
+{
+    return (InsFlags(ins) & (Resets_OF | Resets_CF)) == (Resets_OF | Resets_CF);
+}
 
 // Returns true if the AVX instruction is a binary operator that requires 3 operands.
 // When we emit an instruction with only two operands, we will duplicate the destination
@@ -273,7 +332,7 @@ const insFlags instInfo[]{
 // to indicate whether a 3-operand instruction.
 bool emitter::IsDstDstSrcAVXInstruction(instruction ins)
 {
-    return ((instInfo[ins] & INS_Flags_IsDstDstSrcAVXInstruction) != 0) && IsAVXInstruction(ins);
+    return ((InsFlags(ins) & INS_Flags_IsDstDstSrcAVXInstruction) != 0) && IsAVXInstruction(ins);
 }
 
 // Returns true if the AVX instruction requires 3 operands that duplicate the source
@@ -283,7 +342,7 @@ bool emitter::IsDstDstSrcAVXInstruction(instruction ins)
 // to indicate whether a 3-operand instruction.
 bool emitter::IsDstSrcSrcAVXInstruction(instruction ins)
 {
-    return ((instInfo[ins] & INS_Flags_IsDstSrcSrcAVXInstruction) != 0) && IsAVXInstruction(ins);
+    return ((InsFlags(ins) & INS_Flags_IsDstSrcSrcAVXInstruction) != 0) && IsAVXInstruction(ins);
 }
 
 #if defined(TARGET_X86) || defined(DEBUG)
@@ -296,36 +355,6 @@ static bool instIsFP(instruction ins)
 #endif
 }
 #endif
-
-//------------------------------------------------------------------------
-// DoesWriteZeroFlag: check if the instruction write the
-//     ZF flag.
-//
-// Arguments:
-//    ins - instruction to test
-//
-// Return Value:
-//    true if instruction writes the ZF flag, false otherwise.
-//
-static bool DoesWriteZeroFlag(instruction ins)
-{
-    return (instInfo[ins] & Writes_ZF) != 0;
-}
-
-//------------------------------------------------------------------------
-// DoesResetOverflowAndCarryFlags: check if the instruction resets the
-//     OF and CF flag to 0.
-//
-// Arguments:
-//    ins - instruction to test
-//
-// Return Value:
-//    true if instruction resets the OF and CF flag, false otherwise.
-//
-static bool DoesResetOverflowAndCarryFlags(instruction ins)
-{
-    return (instInfo[ins] & (Resets_OF | Resets_CF)) == (Resets_OF | Resets_CF);
-}
 
 bool emitter::AreFlagsAlwaysModified(instrDesc* id)
 {
