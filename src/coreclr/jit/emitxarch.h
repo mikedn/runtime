@@ -249,17 +249,17 @@ ssize_t emitGetInsCallDisp(instrDesc* id);
 // its 3-byte VEX prefix.
 typedef uint64_t code_t;
 
-UNATIVE_OFFSET emitInsSize(code_t code, bool includeRexPrefixSize);
-UNATIVE_OFFSET emitInsSizeSV_AM(instrDesc* id, code_t code);
-UNATIVE_OFFSET emitInsSizeSV(instrDesc* id, code_t code);
-UNATIVE_OFFSET emitInsSizeSV(instrDesc* id, code_t code, int val);
-UNATIVE_OFFSET emitInsSizeRR(instrDesc* id, code_t code);
-UNATIVE_OFFSET emitInsSizeRR(instrDesc* id, code_t code, int val);
-UNATIVE_OFFSET emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr);
-UNATIVE_OFFSET emitInsSizeAM(instrDesc* id, code_t code);
-UNATIVE_OFFSET emitInsSizeAM(instrDesc* id, code_t code, int val);
-UNATIVE_OFFSET emitInsSizeCV(instrDesc* id, code_t code);
-UNATIVE_OFFSET emitInsSizeCV(instrDesc* id, code_t code, int val);
+unsigned emitInsSize(code_t code, bool includeRexPrefixSize);
+unsigned emitInsSizeSV_AM(instrDesc* id, code_t code);
+unsigned emitInsSizeSV(instrDesc* id, code_t code);
+unsigned emitInsSizeSV(instrDesc* id, code_t code, int32_t imm);
+unsigned emitInsSizeRR(instrDesc* id, code_t code);
+unsigned emitInsSizeRR(instrDesc* id, code_t code, int32_t imm);
+unsigned emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr);
+unsigned emitInsSizeAM(instrDesc* id, code_t code);
+unsigned emitInsSizeAM(instrDesc* id, code_t code, int32_t imm);
+unsigned emitInsSizeCV(instrDesc* id, code_t code);
+unsigned emitInsSizeCV(instrDesc* id, code_t code, int32_t imm);
 
 size_t emitOutputByte(uint8_t* dst, ssize_t val);
 size_t emitOutputWord(uint8_t* dst, ssize_t val);
