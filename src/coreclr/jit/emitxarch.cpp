@@ -2032,6 +2032,14 @@ UNATIVE_OFFSET emitter::emitInsSizeSV(instrDesc* id, code_t code)
         prefix += emitGetRexPrefixSize(ins);
     }
 
+#ifdef TARGET_AMD64
+    // TODO-MIKE-Cleanup: Old code managed to count the REX prefix twice for movsxd.
+    if ((ins == INS_movsxd) && IsExtendedReg(id->idReg1()))
+    {
+        prefix++;
+    }
+#endif
+
     return prefix + emitInsSizeSV_AM(id, code);
 }
 
