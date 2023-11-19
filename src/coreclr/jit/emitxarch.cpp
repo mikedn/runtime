@@ -2401,7 +2401,7 @@ UNATIVE_OFFSET emitter::emitInsSizeCV(instrDesc* id, code_t code, int val)
 #else
     // occasionally longs get here on x86
     if (valSize > sizeof(INT32))
-        valSize = sizeof(INT32);
+        valSize   = sizeof(INT32);
 #endif // !TARGET_AMD64
 
     if (id->idIsCnsReloc())
@@ -3154,18 +3154,10 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
         case INS_inc:
         case INS_dec:
 #ifdef TARGET_AMD64
-
-            sz = 2; // x64 has no 1-byte opcode (it is the same encoding as the REX prefix)
-
-#else // !TARGET_AMD64
-
-            if (size == EA_1BYTE)
-                sz = 2; // Use the long form as the small one has no 'w' bit
-            else
-                sz = 1; // Use short form
-
-#endif // !TARGET_AMD64
-
+            sz = 2;
+#else
+            sz    = size != EA_1BYTE ? 1 : 2;
+#endif
             break;
 
         case INS_pop:
@@ -3243,7 +3235,7 @@ void emitter::emitIns_R_H(instruction ins, regNumber reg, void* addr DEBUGARG(Ha
     // down to imm32. And since it's always a 64 bit operation it always has a REX prefix.
     unsigned size = 10;
 #else
-    unsigned size  = 5;
+    unsigned size = 5;
 #endif
 
     instrDesc* id = emitNewInstrSC(EA_PTR_CNS_RELOC, reinterpret_cast<ssize_t>(addr));
@@ -8464,49 +8456,41 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
         case INS_inc:
         case INS_dec:
-#ifdef TARGET_AMD64
-            if (true)
-#else
-            if (size == EA_1BYTE)
+            if (size == EA_2BYTE)
+            {
+                dst += emitOutputByte(dst, 0x66);
+            }
+
+#ifdef TARGET_X86
+            if (size != EA_1BYTE)
+            {
+                assert(INS_inc_s == INS_inc + 2);
+                assert(INS_dec_s == INS_dec + 2);
+
+                code = insCodeRR(static_cast<instruction>(ins + 2));
+                code |= insEncodeReg012(ins, reg, size, nullptr);
+                dst += emitOutputByte(dst, code);
+
+                break;
+            }
 #endif
+
+            code = insCodeRR(ins);
+
+            if (size != EA_1BYTE)
             {
-                assert(INS_inc_l == INS_inc + 1);
-                assert(INS_dec_l == INS_dec + 1);
-
-                // Can't use the compact form, use the long form
-                ins = static_cast<instruction>(ins + 1);
-
-                if (size == EA_2BYTE)
-                {
-                    dst += emitOutputByte(dst, 0x66);
-                }
-
-                code = insCodeRR(ins);
-
-                if (size != EA_1BYTE)
-                {
-                    // Set the 'w' bit to get the large version
-                    code |= 0x1;
-                }
-
-                if (TakesRexWPrefix(ins, size))
-                {
-                    code = AddRexWPrefix(ins, code);
-                }
-
-                code_t regcode = insEncodeReg012(ins, reg, size, &code);
-                dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-                dst += emitOutputWord(dst, code | (regcode << 8));
+                // Set the 'w' bit to get the large version
+                code |= 0x1;
             }
-            else
+
+            if (TakesRexWPrefix(ins, size))
             {
-                if (size == EA_2BYTE)
-                {
-                    dst += emitOutputByte(dst, 0x66);
-                }
-
-                dst += emitOutputByte(dst, insCodeRR(ins) | insEncodeReg012(ins, reg, size, nullptr));
+                code = AddRexWPrefix(ins, code);
             }
+
+            code |= insEncodeReg012(ins, reg, size, &code) << 8;
+            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputWord(dst, code);
             break;
 
         case INS_pop:
@@ -8619,7 +8603,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
         case IF_RRW:
             if (id->idGCref())
             {
-                assert(ins == INS_inc || ins == INS_dec || ins == INS_inc_l || ins == INS_dec_l);
+                assert(ins == INS_inc || ins == INS_dec);
 
                 // We would like to assert that the reg must currently be holding either a gcref or a byref.
                 // However, we can see cases where a LCLHEAP generates a non-gcref value into a register,
