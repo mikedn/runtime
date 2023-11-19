@@ -1141,7 +1141,8 @@ public:
     void inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val);
     void inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type);
     bool IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, CORINFO_FIELD_HANDLE* field);
-    void emitInsUnary(instruction ins, emitAttr attr, GenTree* src);
+    void emitInsRM(instruction ins, emitAttr attr, GenTree* src);
+    void emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTree* mem);
     void emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src);
     void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTree* addr);
     void emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* value);
@@ -1242,7 +1243,6 @@ public:
 #ifdef TARGET_XARCH
     instruction ins_Move_Extend(var_types type);
     instruction ins_FloatCompare(var_types type);
-    instruction ins_FloatSqrt(var_types type);
 #endif
 
     void instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg);

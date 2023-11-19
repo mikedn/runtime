@@ -592,7 +592,7 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
     }
 
     GetEmitter()->emitIns_Mov(INS_mov, size, REG_RAX, regOp->GetRegNum(), /* canSkip */ true);
-    emitInsUnary(mul->IsUnsigned() ? INS_mulEAX : INS_imulEAX, size, rmOp);
+    emitInsRM(mul->IsUnsigned() ? INS_mulEAX : INS_imulEAX, size, rmOp);
 
     if (mul->OperIs(GT_MULHI))
     {
@@ -723,7 +723,7 @@ void CodeGen::GenDivMod(GenTreeOp* div)
 
     liveness.RemoveGCRegs(RBM_RDX);
 
-    emitInsUnary(isUnsigned ? INS_div : INS_idiv, size, op2);
+    emitInsRM(isUnsigned ? INS_div : INS_idiv, size, op2);
     GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, isDiv ? REG_RAX : REG_RDX, true);
 
     DefReg(div);
@@ -768,21 +768,18 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
     regNumber op1reg = op1->GetRegNum();
     regNumber op2reg = op2->isUsedFromReg() ? op2->GetRegNum() : REG_NA;
     regNumber dstReg = node->GetRegNum();
-    emitter*  emit   = GetEmitter();
+    Emitter&  emit   = *GetEmitter();
     emitAttr  attr   = emitTypeSize(node->GetType());
-    GenTree*  dst;
     GenTree*  src;
 
     if (op1reg == dstReg)
     {
-        dst = op1;
         src = op2;
     }
     else if (op2reg == dstReg)
     {
         assert(node->OperIsCommutative());
 
-        dst = op2;
         src = op1;
     }
     else
@@ -792,11 +789,11 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
         {
             if (GenTreeIntCon* imm = op2->IsContainedIntCon())
             {
-                emit->emitIns_R_AR(INS_lea, attr, dstReg, op1reg, imm->GetInt32Value());
+                emit.emitIns_R_AR(INS_lea, attr, dstReg, op1reg, imm->GetInt32Value());
             }
             else
             {
-                emit->emitIns_R_ARX(INS_lea, attr, dstReg, op1reg, op2reg, 1, 0);
+                emit.emitIns_R_ARX(INS_lea, attr, dstReg, op1reg, op2reg, 1, 0);
             }
 
             DefReg(node);
@@ -804,41 +801,37 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
             return;
         }
 
-        inst_Mov(op1->GetType(), dstReg, op1reg, /* canSkip */ false);
-
+        emit.emitIns_Mov(INS_mov, emitActualTypeSize(op1->GetType()), dstReg, op1reg, /* canSkip */ false);
         liveness.SetGCRegType(dstReg, op1->GetType());
 
-        dst = node;
         src = op2;
-
-        // TODO-MIKE-Review: This seems a bit dodgy, emitInsBinary will try to determine
-        // if dst is a register by using isUsedFromSpillTemp(). This works even if the
-        // node will be spilled, obviously because we haven't spilled it yet. But sill,
-        // functions like isUsedFromSpillTemp() are primarily intended for users of the
-        // node, not for the node itself. It may be better to pass only the register to
-        // emitInsBinary, but unfortunately that requires a new version of emitInsBinary
-        // as the current one still needs to support an in-memory first operand for CMPs.
-        assert(dst->isUsedFromReg());
     }
 
-    if (node->OperIs(GT_ADD) && src->IsContainedIntCon() && !node->gtOverflow())
+    if (GenTreeIntCon* imm = src->IsContainedIntCon())
     {
-        if (src->IsIntCon(1))
+        if (node->OperIs(GT_ADD) && !node->gtOverflow())
         {
-            emit->emitIns_R(INS_inc, attr, dstReg);
-            DefReg(node);
-            return;
+            if (imm->GetValue() == 1)
+            {
+                emit.emitIns_R(INS_inc, attr, dstReg);
+                DefReg(node);
+                return;
+            }
+
+            if (imm->GetValue() == -1)
+            {
+                emit.emitIns_R(INS_dec, attr, dstReg);
+                DefReg(node);
+                return;
+            }
         }
 
-        if (src->IsIntCon(-1))
-        {
-            emit->emitIns_R(INS_dec, attr, dstReg);
-            DefReg(node);
-            return;
-        }
+        emit.emitIns_R_I(genGetInsForOper(node->GetOper()), attr, dstReg, imm->GetValue());
     }
-
-    emitInsBinary(genGetInsForOper(node->GetOper()), attr, dst, src);
+    else
+    {
+        emitInsRegRM(genGetInsForOper(node->GetOper()), attr, dstReg, src);
+    }
 
     if (node->gtOverflowEx())
     {
@@ -1012,12 +1005,12 @@ void CodeGen::GenMul(GenTreeOp* mul)
 
         if (ins == INS_mulEAX)
         {
-            emitInsUnary(ins, size, rmOp);
+            emitInsRM(ins, size, rmOp);
             GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, REG_RAX, /* canSkip */ true);
         }
         else
         {
-            emitInsBinary(ins, size, mul, rmOp);
+            emitInsRegRM(ins, size, mul->GetRegNum(), rmOp);
         }
     }
 
@@ -3488,11 +3481,6 @@ instruction CodeGen::ins_FloatCompare(var_types type)
     return (type == TYP_FLOAT) ? INS_ucomiss : INS_ucomisd;
 }
 
-instruction CodeGen::ins_FloatSqrt(var_types type)
-{
-    return (type == TYP_FLOAT) ? INS_sqrtss : INS_sqrtsd;
-}
-
 instruction CodeGen::genGetInsForOper(genTreeOps oper)
 {
     switch (oper)
@@ -5339,7 +5327,9 @@ void CodeGen::GenFloatCompare(GenTreeOp* cmp)
         std::swap(op1, op2);
     }
 
-    emitInsBinary(ins_FloatCompare(type), emitTypeSize(type), op1, op2);
+    assert(op1->isUsedFromReg());
+
+    emitInsRegRM(ins_FloatCompare(type), emitTypeSize(type), op1->GetRegNum(), op2);
 
     if (cmp->GetRegNum() == REG_NA)
     {
@@ -5782,10 +5772,10 @@ void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
 
     if (ins != INS_none)
     {
-        emitInsBinary(ins, insSize, cast, src);
+        emitInsRegRM(ins, insSize, cast->GetRegNum(), src);
     }
 
-    genProduceReg(cast);
+    DefReg(cast);
 }
 
 void CodeGen::genIntToFloatCast(GenTreeCast* cast)
@@ -5831,27 +5821,24 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
     // cvtsi2ss/sd instruction.
     GetEmitter()->emitIns_R_R(INS_xorps, EA_16BYTE, dstReg, dstReg);
 
-    instruction ins     = (dstType == TYP_FLOAT) ? INS_cvtsi2ss : INS_cvtsi2sd;
-    emitAttr    insSize = emitTypeSize(srcType);
+    instruction ins  = (dstType == TYP_FLOAT) ? INS_cvtsi2ss : INS_cvtsi2sd;
+    emitAttr    size = emitTypeSize(srcType);
 
-    emitInsBinary(ins, insSize, cast, src);
+    emitInsRegRM(ins, size, cast->GetRegNum(), src);
 
 #ifdef TARGET_64BIT
-    // Handle the case of srcType = TYP_ULONG. SSE2 conversion instruction
-    // will interpret ULONG shift as LONG.  Hence we need to adjust the
-    // result if sign-bit of srcType is set.
+    // SSE2 conversion instructions only support signed integers so we need to adjust
+    // the result for values greater than LONG_MAX, which are interpreted as negative.
     if (srcType == TYP_ULONG)
     {
         assert(srcReg != REG_NA);
 
         // The instruction sequence below is less accurate than what clang and gcc generate.
         // However, we keep the current sequence for backward compatibility. If we change the
-        // instructions below, FloatingPointUtils::convertUInt64ToDobule should be also updated
+        // instructions below, FloatingPointUtils::convertUInt64ToDouble should be also updated
         // for consistent conversion result.
 
-        BasicBlock* label = genCreateTempLabel();
-        GetEmitter()->emitIns_R_R(INS_test, EA_8BYTE, srcReg, srcReg);
-        inst_JMP(EJ_jge, label);
+        CORINFO_FIELD_HANDLE field;
 
         if (dstType == TYP_DOUBLE)
         {
@@ -5860,7 +5847,10 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
                 u8ToDblBitmask =
                     GetEmitter()->emitFltOrDblConst(jitstd::bit_cast<double>(0x43f0000000000000ULL), EA_8BYTE);
             }
-            GetEmitter()->emitIns_R_C(INS_addsd, EA_8BYTE, dstReg, u8ToDblBitmask);
+
+            ins   = INS_addsd;
+            size  = EA_8BYTE;
+            field = u8ToDblBitmask;
         }
         else
         {
@@ -5868,14 +5858,21 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
             {
                 u8ToFltBitmask = GetEmitter()->emitFltOrDblConst(jitstd::bit_cast<float>(0x5f800000U), EA_4BYTE);
             }
-            GetEmitter()->emitIns_R_C(INS_addss, EA_4BYTE, dstReg, u8ToFltBitmask);
+
+            ins   = INS_addss;
+            size  = EA_4BYTE;
+            field = u8ToFltBitmask;
         }
 
+        BasicBlock* label = genCreateTempLabel();
+        GetEmitter()->emitIns_R_R(INS_test, EA_8BYTE, srcReg, srcReg);
+        inst_JMP(EJ_jge, label);
+        GetEmitter()->emitIns_R_C(ins, size, dstReg, field);
         genDefineTempLabel(label);
     }
 #endif
 
-    genProduceReg(cast);
+    DefReg(cast);
 }
 
 void CodeGen::genFloatToIntCast(GenTreeCast* cast)
@@ -5917,12 +5914,10 @@ void CodeGen::genFloatToIntCast(GenTreeCast* cast)
     assert(genIsValidIntReg(cast->GetRegNum()));
     assert(!src->isUsedFromReg() || genIsValidFloatReg(src->GetRegNum()));
 
-    instruction ins     = (srcType == TYP_FLOAT) ? INS_cvttss2si : INS_cvttsd2si;
-    emitAttr    insSize = emitTypeSize(dstType);
+    instruction ins = (srcType == TYP_FLOAT) ? INS_cvttss2si : INS_cvttsd2si;
+    emitInsRegRM(ins, emitTypeSize(dstType), cast->GetRegNum(), src);
 
-    emitInsBinary(ins, insSize, cast, src);
-
-    genProduceReg(cast);
+    DefReg(cast);
 }
 
 //------------------------------------------------------------------------
@@ -6210,12 +6205,12 @@ void CodeGen::genIntrinsic(GenTreeIntrinsic* node)
             GenTree* src = node->GetOp(0);
             assert(src->GetType() == node->GetType());
             genConsumeRegs(src);
-            emitInsBinary(ins_FloatSqrt(node->GetType()), emitTypeSize(node->GetType()), node, src);
+            instruction ins = node->TypeIs(TYP_FLOAT) ? INS_sqrtss : INS_sqrtsd;
+            emitInsRegRM(ins, emitTypeSize(node->GetType()), node->GetRegNum(), src);
             break;
         }
 
         default:
-            assert(!"genIntrinsic: Unsupported intrinsic");
             unreached();
     }
 
@@ -9259,23 +9254,49 @@ bool CodeGen::IsMemoryOperand(
     return true;
 }
 
-void CodeGen::emitInsUnary(instruction ins, emitAttr attr, GenTree* src)
+void CodeGen::emitInsRM(instruction ins, emitAttr attr, GenTree* src)
 {
-    emitter* emit = GetEmitter();
+    Emitter& emit = *GetEmitter();
     unsigned lclNum;
     unsigned lclOffs;
 
     if (src->isUsedFromReg())
     {
-        emit->emitIns_R(ins, attr, src->GetRegNum());
+        emit.emitIns_R(ins, attr, src->GetRegNum());
     }
     else if (IsLocalMemoryOperand(src, &lclNum, &lclOffs))
     {
-        emit->emitIns_S(ins, attr, lclNum, lclOffs);
+        emit.emitIns_S(ins, attr, lclNum, lclOffs);
     }
     else
     {
-        emit->emitIns_A(ins, attr, src->AsIndir()->GetAddr());
+        emit.emitIns_A(ins, attr, src->AsIndir()->GetAddr());
+    }
+}
+
+void CodeGen::emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTree* rm)
+{
+    assert(!emitter::instrHasImplicitRegPairDest(ins) && (ins != INS_imuli));
+
+    Emitter& emit = *GetEmitter();
+    unsigned lclNum;
+    unsigned lclOffs;
+
+    if (rm->isUsedFromReg())
+    {
+        emit.emitIns_R_R(ins, attr, reg, rm->GetRegNum());
+    }
+    else if (IsLocalMemoryOperand(rm, &lclNum, &lclOffs))
+    {
+        emit.emitIns_R_S(ins, attr, reg, lclNum, lclOffs);
+    }
+    else if (GenTreeDblCon* dbl = rm->IsDblCon())
+    {
+        emit.emitIns_R_C(ins, attr, reg, emit.emitFltOrDblConst(dbl->GetValue(), emitTypeSize(dbl->GetType())));
+    }
+    else
+    {
+        emit.emitIns_R_A(ins, attr, reg, rm->AsIndir()->GetAddr());
     }
 }
 
