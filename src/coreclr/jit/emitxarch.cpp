@@ -1837,35 +1837,6 @@ unsigned emitter::emitInsSizeRR(instrDesc* id, code_t code)
     return sz;
 }
 
-unsigned emitter::emitInsSizeRR(instrDesc* id, code_t code, int32_t imm)
-{
-    instruction ins     = id->idIns();
-    unsigned    immSize = EA_SIZE_IN_BYTES(id->idOpSize());
-    bool        hasImm8 = ((signed char)imm == imm) && (ins != INS_mov) && (ins != INS_test) && !id->idIsCnsReloc();
-
-#ifdef TARGET_AMD64
-    // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
-    // all other opcodes take a sign-extended 4-byte immediate
-    noway_assert(immSize <= 4 || !id->idIsCnsReloc());
-#endif
-
-    if (hasImm8)
-    {
-        immSize = 1;
-    }
-    else
-    {
-        assert(!IsSSEOrAVXInstruction(ins));
-
-        if (immSize > 4)
-        {
-            immSize = 4;
-        }
-    }
-
-    return emitInsSizeRR(id, code) + immSize;
-}
-
 unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr)
 {
     emitAttr size = EA_SIZE(attr);
@@ -1951,46 +1922,6 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
 #endif
 
     return prefix + emitInsSizeSV_AM(id, code);
-}
-
-unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code, int32_t imm)
-{
-    assert(id->idIns() != INS_invalid);
-
-    instruction ins      = id->idIns();
-    emitAttr    attrSize = id->idOpSize();
-    unsigned    immSize  = EA_SIZE_IN_BYTES(attrSize);
-    bool        hasImm8  = ((signed char)imm == imm) && (ins != INS_mov) && (ins != INS_test) && !id->idIsCnsReloc();
-
-#ifdef TARGET_AMD64
-    // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
-    // all other opcodes take a sign-extended 4-byte immediate
-    noway_assert(immSize <= 4 || !id->idIsCnsReloc());
-#endif
-
-    unsigned prefix = emitGetAdjustedSize(ins, attrSize, code);
-
-    if (hasImm8)
-    {
-        immSize = 1;
-    }
-    else
-    {
-        assert(!IsSSEOrAVXInstruction(ins));
-
-        if (immSize > 4)
-        {
-            immSize = 4;
-        }
-    }
-
-    if (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(id->idReg1(), attrSize) ||
-        IsExtendedReg(id->idReg2(), attrSize))
-    {
-        prefix += emitGetRexPrefixSize(ins);
-    }
-
-    return prefix + emitInsSizeSV_AM(id, code) + immSize;
 }
 
 static bool BaseRegRequiresSIB(regNumber base)
@@ -2153,6 +2084,102 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
     return size;
 }
 
+unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
+{
+    assert(id->idIns() != INS_invalid);
+
+    instruction ins      = id->idIns();
+    emitAttr    attrSize = id->idOpSize();
+
+    // fgMorph changes any statics that won't fit into 32-bit addresses
+    // into constants with an indir, rather than GT_CLS_VAR_ADDR
+    // so we should only hit this path for statics that are RIP-relative
+    unsigned size = 4;
+
+    size += emitGetAdjustedSize(ins, attrSize, code);
+
+    bool includeRexPrefixSize = true;
+
+    // 64-bit operand instructions will need a REX.W prefix
+    if (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(id->idReg1(), attrSize) ||
+        IsExtendedReg(id->idReg2(), attrSize))
+    {
+        size += emitGetRexPrefixSize(ins);
+        includeRexPrefixSize = false;
+    }
+
+    return size + emitInsSize(code, includeRexPrefixSize);
+}
+
+unsigned emitter::emitInsSizeRR(instrDesc* id, code_t code, int32_t imm)
+{
+    instruction ins     = id->idIns();
+    unsigned    immSize = EA_SIZE_IN_BYTES(id->idOpSize());
+    bool        hasImm8 = ((signed char)imm == imm) && (ins != INS_mov) && (ins != INS_test) && !id->idIsCnsReloc();
+
+#ifdef TARGET_AMD64
+    // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
+    // all other opcodes take a sign-extended 4-byte immediate
+    noway_assert(immSize <= 4 || !id->idIsCnsReloc());
+#endif
+
+    if (hasImm8)
+    {
+        immSize = 1;
+    }
+    else
+    {
+        assert(!IsSSEOrAVXInstruction(ins));
+
+        if (immSize > 4)
+        {
+            immSize = 4;
+        }
+    }
+
+    return emitInsSizeRR(id, code) + immSize;
+}
+
+unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code, int32_t imm)
+{
+    assert(id->idIns() != INS_invalid);
+
+    instruction ins      = id->idIns();
+    emitAttr    attrSize = id->idOpSize();
+    unsigned    immSize  = EA_SIZE_IN_BYTES(attrSize);
+    bool        hasImm8  = ((signed char)imm == imm) && (ins != INS_mov) && (ins != INS_test) && !id->idIsCnsReloc();
+
+#ifdef TARGET_AMD64
+    // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
+    // all other opcodes take a sign-extended 4-byte immediate
+    noway_assert(immSize <= 4 || !id->idIsCnsReloc());
+#endif
+
+    unsigned prefix = emitGetAdjustedSize(ins, attrSize, code);
+
+    if (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(id->idReg1(), attrSize) ||
+        IsExtendedReg(id->idReg2(), attrSize))
+    {
+        prefix += emitGetRexPrefixSize(ins);
+    }
+
+    if (hasImm8)
+    {
+        immSize = 1;
+    }
+    else
+    {
+        assert(!IsSSEOrAVXInstruction(ins));
+
+        if (immSize > 4)
+        {
+            immSize = 4;
+        }
+    }
+
+    return prefix + emitInsSizeSV_AM(id, code) + immSize;
+}
+
 unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code, int32_t imm)
 {
     assert(id->idIns() != INS_invalid);
@@ -2187,33 +2214,6 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code, int32_t imm)
     }
 
     return emitInsSizeAM(id, code) + immSize;
-}
-
-unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
-{
-    assert(id->idIns() != INS_invalid);
-
-    instruction ins      = id->idIns();
-    emitAttr    attrSize = id->idOpSize();
-
-    // fgMorph changes any statics that won't fit into 32-bit addresses
-    // into constants with an indir, rather than GT_CLS_VAR_ADDR
-    // so we should only hit this path for statics that are RIP-relative
-    unsigned size = 4;
-
-    size += emitGetAdjustedSize(ins, attrSize, code);
-
-    bool includeRexPrefixSize = true;
-
-    // 64-bit operand instructions will need a REX.W prefix
-    if (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(id->idReg1(), attrSize) ||
-        IsExtendedReg(id->idReg2(), attrSize))
-    {
-        size += emitGetRexPrefixSize(ins);
-        includeRexPrefixSize = false;
-    }
-
-    return size + emitInsSize(code, includeRexPrefixSize);
 }
 
 unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code, int32_t imm)
