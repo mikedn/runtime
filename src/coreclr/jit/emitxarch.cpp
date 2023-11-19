@@ -1980,7 +1980,7 @@ UNATIVE_OFFSET emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber
     // This would probably be better expressed as a different format or something?
     code_t code = insCodeRM(ins);
 
-    UNATIVE_OFFSET sz = emitGetAdjustedSize(ins, size, insCodeRM(ins));
+    UNATIVE_OFFSET sz = emitGetAdjustedSize(ins, size, code);
 
     bool includeRexPrefixSize = true;
     // REX prefix
@@ -3757,10 +3757,7 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
     }
 #endif
 
-    emitAttr size = EA_SIZE(attr);
-
-    assert(size <= EA_32BYTE);
-    noway_assert(emitVerifyEncodable(ins, size, dstReg, srcReg));
+    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), dstReg, srcReg));
 
     insFormat fmt = emitInsModeFormat(ins, IF_RRD_RRD);
 
@@ -3781,11 +3778,6 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
     emitCurIGsize += sz;
 }
 
-/*****************************************************************************
- *
- *  Add an instruction with two register operands.
- */
-
 void emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2)
 {
     if (IsMovInstruction(ins))
@@ -3794,17 +3786,11 @@ void emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNum
         emitIns_Mov(ins, attr, reg1, reg2, /* canSkip */ false);
     }
 
-    emitAttr size = EA_SIZE(attr);
-
-    assert(size <= EA_32BYTE);
-    noway_assert(emitVerifyEncodable(ins, size, reg1, reg2));
-
-    /* Special case: "XCHG" uses a different format */
-    insFormat fmt = (ins == INS_xchg) ? IF_RRW_RRW : emitInsModeFormat(ins, IF_RRD_RRD);
+    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1, reg2));
 
     instrDesc* id = emitNewInstrSmall(attr);
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt((ins == INS_xchg) ? IF_RRW_RRW : emitInsModeFormat(ins, IF_RRD_RRD));
     id->idReg1(reg1);
     id->idReg2(reg2);
 
