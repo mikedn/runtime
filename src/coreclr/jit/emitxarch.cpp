@@ -1,15 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                             emitX86.cpp                                   XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 
 #ifdef TARGET_XARCH
@@ -1302,11 +1293,6 @@ unsigned emitter::emitGetPrefixSize(code_t code, bool includeRexPrefixSize)
 }
 
 #ifdef TARGET_X86
-/*****************************************************************************
- *
- *  Record a non-empty stack
- */
-
 void emitter::emitMarkStackLvl(unsigned stackLevel)
 {
     assert(int(stackLevel) >= 0);
@@ -1383,11 +1369,6 @@ static insUpdateModes emitInsUpdateMode(instruction ins)
 
     return static_cast<insUpdateModes>(emitInsModeFmtTab[ins]);
 }
-
-/*****************************************************************************
- *
- *  Combine the given base format with the update mode of the instuction.
- */
 
 insFormat emitter::emitInsModeFormat(instruction ins, insFormat base)
 {
@@ -1615,26 +1596,16 @@ static bool EncodedBySSE38orSSE3A(instruction ins)
     return insCode == SSE38 || insCode == SSE3A;
 }
 
-// -------------------------------------------------------------------
-// Is4ByteSSEInstruction: Returns true if the SSE instruction is a 4-byte opcode.
-//
-// Arguments:
-//    ins  -  instruction
-//
-// Note that this should be true for any of the instructions in instrsXArch.h
-// that use the SSE38 or SSE3A macro but returns false if the VEX encoding is
-// in use, since that encoding does not require an additional byte.
+// Returns true if the SSE instruction is a 4-byte opcode.
+// Note that this should be true for any of the instructions  that use the
+// SSE38 or SSE3A macro but returns false if the VEX encoding is in use,
+// since that encoding does not require an additional byte.
 bool emitter::Is4ByteSSEInstruction(instruction ins)
 {
     return !UseVEXEncoding() && EncodedBySSE38orSSE3A(ins);
 }
 
-/*****************************************************************************
- *
- *  Returns an encoding for the specified register to be used in the bit0-2
- *  part of an opcode.
- */
-
+// Returns an encoding for the specified register to be used in the bits 0-2 of an opcode.
 unsigned emitter::insEncodeReg012(instruction ins, regNumber reg, emitAttr size, code_t* code)
 {
     assert(reg < REG_STK);
@@ -1663,12 +1634,7 @@ unsigned emitter::insEncodeReg012(instruction ins, regNumber reg, emitAttr size,
     return regBits;
 }
 
-/*****************************************************************************
- *
- *  Returns an encoding for the specified register to be used in the bit3-5
- *  part of an opcode.
- */
-
+// Returns an encoding for the specified register to be used in the bits 3-5 of an opcode.
 unsigned emitter::insEncodeReg345(instruction ins, regNumber reg, emitAttr size, code_t* code)
 {
     assert(reg < REG_STK);
@@ -1697,38 +1663,27 @@ unsigned emitter::insEncodeReg345(instruction ins, regNumber reg, emitAttr size,
     return (regBits << 3);
 }
 
-/***********************************************************************************
- *
- *  Returns modified AVX opcode with the specified register encoded in bits 3-6 of
- *  byte 2 of VEX prefix.
- */
+// Returns modified AVX opcode with the specified register encoded
+// in bits 3-6 of byte 2 of VEX prefix.
 emitter::code_t emitter::insEncodeReg3456(instruction ins, regNumber reg, emitAttr size, code_t code)
 {
     assert(reg < REG_STK);
     assert(IsAVXInstruction(ins));
     assert(hasVexPrefix(code));
 
-    // Get 4-bit register encoding
-    // RegEncoding() gives lower 3 bits
-    // IsExtendedReg() gives MSB.
     code_t regBits = RegEncoding(reg);
+
     if (IsExtendedReg(reg))
     {
         regBits |= 0x08;
     }
 
-    // VEX prefix encodes register operand in 1's complement form
-    // Shift count = 4-bytes of opcode + 0-2 bits
     assert(regBits <= 0xF);
     regBits <<= 35;
     return code ^ regBits;
 }
 
-/*****************************************************************************
- *
- *  Returns the "[r/m]" opcode with the mod/RM field set to register.
- */
-
+// Returns the "[r/m]" opcode with the mod/RM field set to register.
 emitter::code_t emitter::insEncodeRMreg(instruction ins, code_t code)
 {
     // If Byte 4 (which is 0xFF00) is 0, that's where the RM encoding goes.
@@ -1742,12 +1697,7 @@ emitter::code_t emitter::insEncodeRMreg(instruction ins, code_t code)
     return code;
 }
 
-/*****************************************************************************
- *
- *  Returns the "byte ptr [r/m]" opcode with the mod/RM field set to
- *  the given register.
- */
-
+// Returns the "byte ptr [r/m]" opcode with the mod/RM field set to the given register.
 emitter::code_t emitter::insEncodeRMreg(instruction ins, regNumber reg, emitAttr size, code_t code)
 {
     assert((code & 0xC000) == 0);
@@ -1756,12 +1706,7 @@ emitter::code_t emitter::insEncodeRMreg(instruction ins, regNumber reg, emitAttr
     return code;
 }
 
-/*****************************************************************************
- *
- *  Returns the "byte ptr [r/m], icon" opcode with the mod/RM field set to
- *  the given register.
- */
-
+// Returns the "byte ptr [r/m], icon" opcode with the mod/RM field set to the given register.
 emitter::code_t emitter::insEncodeMIreg(instruction ins, regNumber reg, emitAttr size, code_t code)
 {
     assert((code & 0xC000) == 0);
@@ -1826,13 +1771,9 @@ emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
     return map[jumpKind];
 }
 
-/*****************************************************************************
- * When encoding instructions that operate on byte registers
- * we have to ensure that we use a low register (EAX, EBX, ECX or EDX)
- * otherwise we will incorrectly encode the instruction
- */
-
-bool emitter::emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 /* = REG_NA */)
+// When encoding instructions that operate on byte registers on x86
+// we have to ensure that we use a low register (EAX, EBX, ECX or EDX).
+bool emitter::emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2)
 {
 #ifdef TARGET_X86
     if (size != EA_1BYTE) // Not operating on a byte register is fine
@@ -1860,17 +1801,10 @@ bool emitter::emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1
     }
 #endif
 
-    // The instruction can be encoded
     return true;
 }
 
-//------------------------------------------------------------------------
-// emitInsSize: Estimate the size (in bytes of generated code) of the given instruction.
-//
-// Arguments:
-//    code  -- The current opcode and any known prefixes
-//    includeRexPrefixSize  -- If Rex Prefix size should be included or not
-//
+// Estimate the size (in bytes of generated code) of the given instruction.
 UNATIVE_OFFSET emitter::emitInsSize(code_t code, bool includeRexPrefixSize)
 {
     UNATIVE_OFFSET size = (code & 0xFF000000) ? 4 : (code & 0x00FF0000) ? 3 : 2;
@@ -1880,12 +1814,6 @@ UNATIVE_OFFSET emitter::emitInsSize(code_t code, bool includeRexPrefixSize)
     return size;
 }
 
-//------------------------------------------------------------------------
-// emitInsSizeRR: Determines the code size for an instruction encoding that does not have any addressing modes
-//
-// Arguments:
-//    ins   -- The instruction being emitted
-//    code  -- The current opcode and any known prefixes
 UNATIVE_OFFSET emitter::emitInsSizeRR(instrDesc* id, code_t code)
 {
     assert(id->idIns() != INS_invalid);
@@ -1909,14 +1837,6 @@ UNATIVE_OFFSET emitter::emitInsSizeRR(instrDesc* id, code_t code)
     return sz;
 }
 
-//------------------------------------------------------------------------
-// emitInsSizeRR: Determines the code size for an instruction encoding that does not have any addressing modes and
-// includes an immediate value
-//
-// Arguments:
-//    ins   -- The instruction being emitted
-//    code  -- The current opcode and any known prefixes
-//    val   -- The immediate value to encode
 UNATIVE_OFFSET emitter::emitInsSizeRR(instrDesc* id, code_t code, int val)
 {
     instruction    ins       = id->idIns();
@@ -2105,12 +2025,13 @@ static bool baseRegisterRequiresDisplacement(regNumber base)
 UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code)
 {
     assert(id->idIns() != INS_invalid);
-    instruction ins      = id->idIns();
-    emitAttr    attrSize = id->idOpSize();
-    /* The displacement field is in an unusual place for calls */
-    ssize_t        dsp       = (ins == INS_call) ? emitGetInsCallDisp(id) : emitGetInsAmdDisp(id);
-    bool           dspInByte = ((signed char)dsp == (ssize_t)dsp);
-    bool           dspIsZero = (dsp == 0);
+
+    instruction ins       = id->idIns();
+    emitAttr    attrSize  = id->idOpSize();
+    ssize_t     dsp       = (ins == INS_call) ? emitGetInsCallDisp(id) : emitGetInsAmdDisp(id);
+    bool        dspInByte = ((signed char)dsp == (ssize_t)dsp);
+    bool        dspIsZero = (dsp == 0);
+
     UNATIVE_OFFSET size;
 
     // Note that the values in reg and rgx are used in this method to decide
@@ -2172,12 +2093,10 @@ UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code)
 
     if (hasRexPrefix(code))
     {
-        // REX prefix
         size += emitGetRexPrefixSize(ins);
     }
     else if (TakesRexWPrefix(ins, attrSize))
     {
-        // REX.W prefix
         size += emitGetRexPrefixSize(ins);
     }
     else if (IsExtendedReg(reg, EA_PTRSIZE) || IsExtendedReg(rgx, EA_PTRSIZE) ||
@@ -2189,16 +2108,11 @@ UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code)
 
     if (rgx == REG_NA)
     {
-        /* The address is of the form "[reg+disp]" */
-
         if (reg == REG_NA)
         {
-            /* The address is of the form "[disp]" */
-
             size += sizeof(INT32);
 
 #ifdef TARGET_AMD64
-            // If id is not marked for reloc, add 1 additional byte for SIB that follows disp32
             if (!id->idIsDspReloc())
             {
                 size++;
@@ -2220,8 +2134,6 @@ UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code)
             return size;
         }
 
-        /* Does the offset fit in a byte? */
-
         if (dspInByte)
         {
             size += sizeof(char);
@@ -2233,28 +2145,14 @@ UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code)
     }
     else
     {
-        /* An index register is present */
-
         size++;
-
-        /* Is the index value scaled? */
 
         if (emitDecodeScale(id->idAddr()->iiaAddrMode.amScale) > 1)
         {
-            /* Is there a base register? */
-
             if (reg != REG_NA)
             {
-                /* The address is "[reg + {2/4/8} * rgx + icon]" */
-
-                if (dspIsZero && !baseRegisterRequiresDisplacement(reg))
+                if (!dspIsZero || baseRegisterRequiresDisplacement(reg))
                 {
-                    /* The address is "[reg + {2/4/8} * rgx]" */
-                }
-                else
-                {
-                    /* The address is "[reg + {2/4/8} * rgx + disp]" */
-
                     if (dspInByte)
                     {
                         size += sizeof(char);
@@ -2267,8 +2165,6 @@ UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code)
             }
             else
             {
-                /* The address is "[{2/4/8} * rgx + icon]" */
-
                 size += sizeof(INT32);
             }
         }
@@ -2279,7 +2175,7 @@ UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code)
             // base register at all). In order to avoid this when we have no scaling, we can reverse the
             // registers so that we don't have to add that extra byte. However, we can't do that if the
             // index register is a vector, such as for a gather instruction.
-            //
+
             if (dspIsZero && baseRegisterRequiresDisplacement(reg) && !baseRegisterRequiresDisplacement(rgx) &&
                 !isFloatReg(rgx))
             {
@@ -2289,16 +2185,8 @@ UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code)
                 id->idAddr()->iiaAddrMode.amIndxReg = rgx = tmp;
             }
 
-            /* The address is "[reg+rgx+dsp]" */
-
-            if (dspIsZero && !baseRegisterRequiresDisplacement(reg))
+            if (!dspIsZero || baseRegisterRequiresDisplacement(reg))
             {
-                /* This is [reg+rgx]" */
-            }
-            else
-            {
-                /* This is [reg+rgx+dsp]" */
-
                 if (dspInByte)
                 {
                     size += sizeof(char);
@@ -2543,11 +2431,6 @@ emitter::instrDesc* emitter::emitNewInstrAmd(emitAttr size, ssize_t dsp)
     return id;
 }
 
-/*****************************************************************************
- *
- *  Set the displacement field in an instruction. Only handles instrDescAmd type.
- */
-
 void emitter::emitSetAmdDisp(instrDescAmd* id, ssize_t dsp)
 {
     if (dsp < AM_DISP_MIN || dsp > AM_DISP_MAX)
@@ -2565,12 +2448,6 @@ void emitter::emitSetAmdDisp(instrDescAmd* id, ssize_t dsp)
         assert(id->idAddr()->iiaAddrMode.amDisp == dsp); // make sure the value fit
     }
 }
-
-/*****************************************************************************
- *
- *  Allocate an instruction descriptor for an instruction that uses both
- *  an address mode displacement and a constant.
- */
 
 emitter::instrDesc* emitter::emitNewInstrAmdCns(emitAttr size, ssize_t dsp, int32_t cns)
 {
@@ -2616,40 +2493,21 @@ emitter::instrDesc* emitter::emitNewInstrAmdCns(emitAttr size, ssize_t dsp, int3
     }
 }
 
-//-----------------------------------------------------------------------------
-//
-//  The next instruction will be a loop head entry point
-//  So insert an alignment instruction here to ensure that
-//  we can properly align the code.
-//
-void emitter::emitLoopAlign(unsigned short paddingBytes)
+void emitter::emitLoopAlign(uint16_t paddingBytes)
 {
-    /* Insert a pseudo-instruction to ensure that we align
-       the next instruction properly */
-
     assert(paddingBytes <= MAX_ENCODED_SIZE);
-    paddingBytes       = min(paddingBytes, MAX_ENCODED_SIZE); // We may need to skip up to 15 bytes of code
+    paddingBytes = min(paddingBytes, MAX_ENCODED_SIZE); // We may need to skip up to 15 bytes of code
+
     instrDescAlign* id = emitNewInstrAlign();
     id->idCodeSize(paddingBytes);
-    id->idaIG = emitCurIG;
-
-    /* Append this instruction to this IG's alignment list */
+    id->idaIG   = emitCurIG;
     id->idaNext = emitCurIGAlignList;
 
     emitCurIGsize += paddingBytes;
     emitCurIGAlignList = id;
 }
 
-//-----------------------------------------------------------------------------
-//
-//  The next instruction will be a loop head entry point
-//  So insert alignment instruction(s) here to ensure that
-//  we can properly align the code.
-//
-//  This emits more than one `INS_align` instruction depending on the
-//  alignmentBoundary parameter.
-//
-void emitter::emitLongLoopAlign(unsigned short alignmentBoundary)
+void emitter::emitLongLoopAlign(uint16_t alignmentBoundary)
 {
     unsigned short nPaddingBytes    = alignmentBoundary - 1;
     unsigned short nAlignInstr      = (nPaddingBytes + (MAX_ENCODED_SIZE - 1)) / MAX_ENCODED_SIZE;
@@ -2663,9 +2521,6 @@ void emitter::emitLongLoopAlign(unsigned short alignmentBoundary)
         emitForceNewIG = true;
     }
 
-    /* Insert a pseudo-instruction to ensure that we align
-    the next instruction properly */
-
     while (insAlignCount)
     {
         emitLoopAlign(MAX_ENCODED_SIZE);
@@ -2673,11 +2528,6 @@ void emitter::emitLongLoopAlign(unsigned short alignmentBoundary)
     }
     emitLoopAlign(lastInsAlignSize);
 }
-
-/*****************************************************************************
- *
- *  Add a NOP instruction of the given size.
- */
 
 void emitter::emitIns_Nop(unsigned size)
 {
@@ -2692,10 +2542,6 @@ void emitter::emitIns_Nop(unsigned size)
     emitCurIGsize += size;
 }
 
-/*****************************************************************************
- *
- *  Add an instruction with no operands.
- */
 void emitter::emitIns(instruction ins)
 {
     UNATIVE_OFFSET sz;
@@ -2741,8 +2587,6 @@ void emitter::emitIns(instruction ins)
     emitCurIGsize += sz;
 }
 
-// Add an instruction with no operands, but whose encoding depends on the size
-// (Only CDQ/CQO currently)
 void emitter::emitIns(instruction ins, emitAttr attr)
 {
     assert(ins == INS_cdq);
@@ -2866,25 +2710,6 @@ void emitter::SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs)
     }
 }
 
-//------------------------------------------------------------------------
-// Fill in the address mode fields of the instrDesc.
-//
-// Assumptions:
-//    The correctly sized instrDesc must already be created, e.g., via emitNewInstrAmd() or emitNewInstrAmdCns();
-//
-// Post-conditions:
-//    For base address of int constant:
-//        -- the caller must have added the int constant base to the instrDesc when creating it via
-//           emitNewInstrAmdCns().
-//    For simple address modes (base + scale * index + offset):
-//        -- the base register, index register, and scale factor are set.
-//        -- the caller must have added the addressing mode offset int constant to the instrDesc when creating it via
-//           emitNewInstrAmdCns().
-//
-//    The instruction format is set.
-//
-//    idSetIsDspReloc() is called if necessary.
-//
 void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* addr)
 {
     assert(fmt != IF_NONE);
@@ -2966,8 +2791,8 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
     assert(emitGetInsAmdDisp(id) == addrMode->GetOffset());
 }
 
-// Takes care of storing all incoming register parameters
-// into its corresponding shadow space (defined by the x64 ABI)
+// Takes care of storing all incoming register parameters into
+// its corresponding shadow space (defined by the win-x64 ABI).
 void emitter::PrologSpillParamRegsToShadowSlots()
 {
     assert(codeGen->generatingProlog);
@@ -3404,26 +3229,6 @@ void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fld
 #endif
 }
 
-//------------------------------------------------------------------------
-// IsMovInstruction: Determines whether a give instruction is a move instruction
-//
-// Arguments:
-//    ins       -- The instruction being checked
-//
-// Return Value:
-//    true if the instruction is a qualifying move instruction; otherwise, false
-//
-// Remarks:
-//    This methods covers most kinds of two operand move instructions that copy a
-//    value between two registers. It does not cover all move-like instructions
-//    and so doesn't currently cover things like movsb/movsw/movsd/movsq or cmovcc
-//    and doesn't currently cover cases where a value is read/written from memory.
-//
-//    The reason it doesn't cover all instructions was namely to limit the scope
-//    of the initial change to that which was impactful to move elision so that
-//    it could be centrally managed and optimized. It may be beneficial to support
-//    the other move instructions in the future but that may require more extensive
-//    changes to ensure relevant codegen/emit paths flow and check things correctly.
 bool emitter::IsMovInstruction(instruction ins)
 {
     switch (ins)
@@ -3459,29 +3264,11 @@ bool emitter::IsMovInstruction(instruction ins)
     }
 }
 
-//------------------------------------------------------------------------
-// IsJccInstruction: Determine if an instruction is a conditional jump instruction.
-//
-// Arguments:
-//    ins       -- The instruction being checked
-//
-// Return Value:
-//    true if the instruction qualifies; otherwise, false
-//
 bool emitter::IsJccInstruction(instruction ins)
 {
     return ((ins >= INS_jo) && (ins <= INS_jg)) || ((ins >= INS_l_jo) && (ins <= INS_l_jg));
 }
 
-//------------------------------------------------------------------------
-// IsJmpInstruction: Determine if an instruction is a jump instruction but NOT a conditional jump instruction.
-//
-// Arguments:
-//    ins       -- The instruction being checked
-//
-// Return Value:
-//    true if the instruction qualifies; otherwise, false
-//
 bool emitter::IsJmpInstruction(instruction ins)
 {
     return
@@ -3491,12 +3278,10 @@ bool emitter::IsJmpInstruction(instruction ins)
         (ins == INS_i_jmp) || (ins == INS_jmp) || (ins == INS_l_jmp);
 }
 
-//----------------------------------------------------------------------------------------
-// IsRedundantMov:
-//    Check if the current `mov` instruction is redundant and can be omitted.
-//    A `mov` is redundant in following 3 cases:
+// Check if the current `mov` instruction is redundant and can be omitted.
+// A `mov` is redundant in following 3 cases:
 //
-//    1. Move to same register on TARGET_AMD64
+//     1. Move to same register on TARGET_AMD64
 //       (Except 4-byte movement like "mov eax, eax" which zeros out upper bits of eax register)
 //
 //         mov rax, rax
@@ -3511,17 +3296,6 @@ bool emitter::IsJmpInstruction(instruction ins)
 //         mov rax, rbx  # <-- last instruction
 //         mov rbx, rax  # <-- current instruction can be omitted.
 //
-// Arguments:
-//                 ins  - The current instruction
-//                 fmt  - The current format
-//                 size - Operand size of current instruction
-//                 dst  - The current destination
-//                 src  - The current source
-// canIgnoreSideEffects - The move can be skipped as it doesn't represent special semantics
-//
-// Return Value:
-//    true if the move instruction is redundant; otherwise, false.
-
 bool emitter::IsRedundantMov(
     instruction ins, insFormat fmt, emitAttr size, regNumber dst, regNumber src, bool canIgnoreSideEffects)
 {
@@ -3665,16 +3439,6 @@ bool emitter::IsRedundantMov(
     return false;
 }
 
-//------------------------------------------------------------------------
-// emitIns_Mov: Emits a move instruction
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    dstReg    -- The destination register
-//    srcReg    -- The source register
-//    canSkip   -- true if the move can be elided when dstReg == srcReg, otherwise false
-//
 void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regNumber srcReg, bool canSkip)
 {
     // Only move instructions can use emitIns_Mov
@@ -3780,11 +3544,6 @@ void emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNum
     dispIns(id);
     emitCurIGsize += sz;
 }
-
-/*****************************************************************************
- *
- *  Add an instruction with two register operands and an integer constant.
- */
 
 void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int ival)
 {
@@ -3999,14 +3758,6 @@ void emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regN
     emitCurIGsize += sz;
 }
 
-//------------------------------------------------------------------------
-// IsAVX2GatherInstruction: return true if the instruction is AVX2 Gather
-//
-// Arguments:
-//    ins - the instruction to check
-// Return Value:
-//    true if the instruction is AVX2 Gather
-//
 bool IsAVX2GatherInstruction(instruction ins)
 {
     switch (ins)
@@ -4070,11 +3821,6 @@ void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regN
     dispIns(id);
     emitCurIGsize += sz;
 }
-
-/*****************************************************************************
-*
-*  Add an instruction with three register operands.
-*/
 
 void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber targetReg, regNumber reg1, regNumber reg2)
 {
@@ -4152,18 +3898,6 @@ void emitter::emitIns_R_R_C_I(
     emitCurIGsize += sz;
 }
 
-/**********************************************************************************
-* emitIns_R_R_R_I: Add an instruction with three register operands and an immediate.
-*
-* Arguments:
-*    ins       - the instruction to add
-*    attr      - the emitter attribute for instruction
-*    targetReg - the target (destination) register
-*    reg1      - the first source register
-*    reg2      - the second source register
-*    ival      - the immediate value
-*/
-
 void emitter::emitIns_R_R_R_I(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber reg1, regNumber reg2, int32_t imm)
 {
@@ -4232,14 +3966,7 @@ void emitter::emitIns_R_R_S_I(
     emitCurIGsize += sz;
 }
 
-//------------------------------------------------------------------------
-// encodeXmmRegAsIval: Encodes a XMM register into imm[7:4] for use by a SIMD instruction
-//
-// Arguments
-//    opReg -- The register being encoded
-//
-// Returns:
-//    opReg encoded in imm[7:4]
+// Encodes a XMM register into imm[7:4] for use by a SIMD instruction.
 static int encodeXmmRegAsIval(regNumber opReg)
 {
     // AVX/AVX2 supports 4-reg format for vblendvps/vblendvpd/vpblendvb,
@@ -4299,22 +4026,6 @@ void emitter::emitIns_R_R_C_R(instruction          ins,
     emitCurIGsize += sz;
 }
 
-//------------------------------------------------------------------------
-// emitIns_R_R_R_S: emits the code for a instruction that takes a register operand, a variable index +
-//                  offset, another register operand, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    op3Reg    -- The register of the third operand
-//    varx      -- The variable index used for the memory address
-//    offs      -- The offset added to the memory address from varx
-//
-// Remarks:
-//    op2 is built from varx + offs
-//
 void emitter::emitIns_R_R_S_R(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, int varx, int offs)
 {
@@ -4411,11 +4122,6 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     emitCurIGsize += sz;
 }
 
-/*****************************************************************************
- *
- *  Add an instruction with a static member + register operands.
- */
-
 void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, regNumber reg)
 {
     assert(FieldDispRequiresRelocation(fldHnd));
@@ -4472,11 +4178,6 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     dispIns(id);
     emitCurIGsize += sz;
 }
-
-/*****************************************************************************
- *
- *  Add an instruction with a static member + constant.
- */
 
 void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int imm)
 {
@@ -4590,18 +4291,6 @@ void emitter::emitIns_AR_R(instruction ins, emitAttr attr, regNumber reg, regNum
     emitIns_ARX_R(ins, attr, reg, base, REG_NA, 1, disp);
 }
 
-//------------------------------------------------------------------------
-// emitIns_S_R_I: emits the code for an instruction that takes a stack operand,
-//                a register operand, and an immediate.
-//
-// Arguments:
-//    ins       - The instruction being emitted
-//    attr      - The emit attribute
-//    varNum    - The varNum of the stack operand
-//    offs      - The offset for the stack operand
-//    reg       - The register operand
-//    ival      - The immediate value
-//
 void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs, regNumber reg, int ival)
 {
     // This is only used for INS_vextracti128 and INS_vextractf128, and for these 'ival' must be 0 or 1.
@@ -4741,24 +4430,6 @@ void emitter::emitIns_ARX_R(
 #endif
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_I: emits the code for an instruction that takes a register operand, an immediate operand
-//                     and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    ival      -- The immediate value
-//
-// Notes:
-//    This will handle the required register copy if 'op1Reg' and 'targetReg' are not the same, and
-//    the 3-operand format is not available.
-//    This is not really SIMD-specific, but is currently only used in that context, as that's
-//    where we frequently need to handle the case of generating 3-operand or 2-operand forms
-//    depending on what target ISA is supported.
-//
 void emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, int ival)
 {
     if (UseVEXEncoding() || IsDstSrcImmAvxInstruction(ins))
@@ -4803,17 +4474,6 @@ void emitter::emitIns_SIMD_R_R_C(
     }
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_R: emits the code for a SIMD instruction that takes two register operands, and that returns a
-//                     value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    op2Reg    -- The register of the second operand
-//
 void emitter::emitIns_SIMD_R_R_R(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg)
 {
@@ -4839,18 +4499,6 @@ void emitter::emitIns_SIMD_R_R_R(
     }
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_S: emits the code for a SIMD instruction that takes a register operand, a variable index + offset,
-//                     and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    varx      -- The variable index used for the memory address
-//    offs      -- The offset added to the memory address from varx
-//
 void emitter::emitIns_SIMD_R_R_S(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, int varx, int offs)
 {
@@ -4899,18 +4547,6 @@ void emitter::emitIns_SIMD_R_R_C_I(
     }
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_R_I: emits the code for a SIMD instruction that takes two register operands, an immediate operand,
-//                       and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    op2Reg    -- The register of the second operand
-//    ival      -- The immediate value
-//
 void emitter::emitIns_SIMD_R_R_R_I(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, int ival)
 {
@@ -4928,19 +4564,6 @@ void emitter::emitIns_SIMD_R_R_R_I(
     }
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_S_I: emits the code for a SIMD instruction that takes a register operand, a variable index + offset,
-//                       an imediate operand, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    varx      -- The variable index used for the memory address
-//    offs      -- The offset added to the memory address from varx
-//    ival      -- The immediate value
-//
 void emitter::emitIns_SIMD_R_R_S_I(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, int varx, int offs, int ival)
 {
@@ -4991,18 +4614,6 @@ void emitter::emitIns_SIMD_R_R_R_C(instruction          ins,
     emitIns_R_R_C(ins, attr, targetReg, op2Reg, fldHnd);
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_R_R: emits the code for a SIMD instruction that takes three register operands, and that returns a
-//                     value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    op2Reg    -- The register of the second operand
-//    op3Reg    -- The register of the second operand
-//
 void emitter::emitIns_SIMD_R_R_R_R(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, regNumber op3Reg)
 {
@@ -5021,7 +4632,6 @@ void emitter::emitIns_SIMD_R_R_R_R(
     {
         assert(isAvxBlendv(ins) || isSse41Blendv(ins));
 
-        // convert SSE encoding of SSE4.1 instructions to VEX encoding
         switch (ins)
         {
             case INS_blendvps:
@@ -5058,19 +4668,6 @@ void emitter::emitIns_SIMD_R_R_R_R(
     }
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_R_S: emits the code for a SIMD instruction that takes two register operands, a variable index +
-//                       offset, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    op2Reg    -- The register of the second operand
-//    varx      -- The variable index used for the memory address
-//    offs      -- The offset added to the memory address from varx
-//
 void emitter::emitIns_SIMD_R_R_R_S(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, int varx, int offs)
 {
@@ -5095,31 +4692,19 @@ void emitter::emitIns_SIMD_R_R_A_R(
     {
         assert(isAvxBlendv(ins) || isSse41Blendv(ins));
 
-        // convert SSE encoding of SSE4.1 instructions to VEX encoding
         switch (ins)
         {
             case INS_blendvps:
-            {
                 ins = INS_vblendvps;
                 break;
-            }
-
             case INS_blendvpd:
-            {
                 ins = INS_vblendvpd;
                 break;
-            }
-
             case INS_pblendvb:
-            {
                 ins = INS_vpblendvb;
                 break;
-            }
-
             default:
-            {
                 break;
-            }
         }
 
         emitIns_R_R_A_R(ins, attr, targetReg, op1Reg, op3Reg, addr);
@@ -5153,31 +4738,19 @@ void emitter::emitIns_SIMD_R_R_C_R(instruction          ins,
     {
         assert(isAvxBlendv(ins) || isSse41Blendv(ins));
 
-        // convert SSE encoding of SSE4.1 instructions to VEX encoding
         switch (ins)
         {
             case INS_blendvps:
-            {
                 ins = INS_vblendvps;
                 break;
-            }
-
             case INS_blendvpd:
-            {
                 ins = INS_vblendvpd;
                 break;
-            }
-
             case INS_pblendvb:
-            {
                 ins = INS_vpblendvb;
                 break;
-            }
-
             default:
-            {
                 break;
-            }
         }
 
         emitIns_R_R_C_R(ins, attr, targetReg, op1Reg, op3Reg, fldHnd);
@@ -5200,19 +4773,6 @@ void emitter::emitIns_SIMD_R_R_C_R(instruction          ins,
     }
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_S_R: emits the code for a SIMD instruction that takes a register operand, a variable index +
-//                       offset, another register operand, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    op3Reg    -- The register of the third operand
-//    varx      -- The variable index used for the memory address
-//    offs      -- The offset added to the memory address from varx
-//
 void emitter::emitIns_SIMD_R_R_S_R(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, int varx, int offs)
 {
@@ -5267,11 +4827,6 @@ void emitter::emitIns_SIMD_R_R_S_R(
     }
 }
 #endif // FEATURE_HW_INTRINSICS
-
-/*****************************************************************************
- *
- *  The following add instructions referencing stack-based local variables.
- */
 
 void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
 {
@@ -5351,29 +4906,15 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
     emitCurIGsize += sz;
 }
 
-/*****************************************************************************
- *
- *  Record that a jump instruction uses the short encoding
- *
- */
 void emitter::emitSetShortJump(instrDescJmp* id)
 {
-    if (id->idjKeepLong)
+    if (!id->idjKeepLong)
     {
-        return;
+        id->idjShort = true;
     }
-
-    id->idjShort = true;
 }
 
-/*****************************************************************************
- *
- *  Add a jmp instruction.
- *  When dst is NULL, instrCount specifies number of instructions
- *       to jump: positive is forward, negative is backward.
- */
-
-void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 */)
+void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
 {
     instrDescJmp* id = emitNewInstrJmp();
 
@@ -5416,7 +4957,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     emitTotalIGjmps++;
 #endif
 
-    /* Figure out the max. size of the jump/call instruction */
+    // Figure out the max. size of the jump/call instruction.
 
     unsigned sz;
 
@@ -5457,16 +4998,12 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
 
             assert(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
 
-            /* This is a backward jump - figure out the distance */
+            // This is a backward jump - figure out the distance
 
             srcOffs = emitCurCodeOffset + emitCurIGsize + JMP_SIZE_SMALL;
 
-            /* Compute the distance estimate */
-
             jmpDist = srcOffs - tgt->igOffs;
             assert((int)jmpDist > 0);
-
-            /* How much beyond the max. short distance does the jump go? */
 
             extra = jmpDist + JMP_DIST_SMALL_MAX_NEG;
 
@@ -5477,9 +5014,11 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
                 {
                     printf("[0] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
                 }
+
                 printf("[0] Jump source is at %08X\n", srcOffs);
                 printf("[0] Label block is at %08X\n", tgt->igOffs);
                 printf("[0] Jump  distance  - %04X\n", jmpDist);
+
                 if (extra > 0)
                 {
                     printf("[0] Distance excess = %d  \n", extra);
@@ -5489,8 +5028,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
 
             if (extra <= 0 && !id->idjKeepLong)
             {
-                /* Wonderful - this jump surely will be short */
-
                 emitSetShortJump(id);
                 sz = JMP_SIZE_SMALL;
             }
@@ -5606,17 +5143,6 @@ ssize_t emitter::emitGetInsCallDisp(instrDesc* id)
 }
 
 #if !FEATURE_FIXED_OUT_ARGS
-
-//------------------------------------------------------------------------
-// emitAdjustStackDepthPushPop: Adjust the current and maximum stack depth.
-//
-// Arguments:
-//    ins - the instruction. Only INS_push and INS_pop adjust the stack depth.
-//
-// Notes:
-//    1. Alters emitCurStackLvl and possibly emitMaxStackDepth.
-//    2. emitCntStackDepth must be set (0 in prolog/epilog, one DWORD elsewhere)
-//
 void emitter::emitAdjustStackDepthPushPop(instruction ins)
 {
     if (ins == INS_push)
@@ -5636,23 +5162,13 @@ void emitter::emitAdjustStackDepthPushPop(instruction ins)
     }
 }
 
-//------------------------------------------------------------------------
-// emitAdjustStackDepth: Adjust the current and maximum stack depth.
-//
-// Arguments:
-//    ins - the instruction. Only INS_add and INS_sub adjust the stack depth.
-//          It is assumed that the add/sub is on the stack pointer.
-//    val - the number of bytes to add to or subtract from the stack pointer.
-//
-// Notes:
-//    1. Alters emitCurStackLvl and possibly emitMaxStackDepth.
-//    2. emitCntStackDepth must be set (0 in prolog/epilog, one DWORD elsewhere)
-//
 void emitter::emitAdjustStackDepth(instruction ins, ssize_t val)
 {
     // If we're in the prolog or epilog, or otherwise not tracking the stack depth, just return.
     if (emitCntStackDepth == 0)
+    {
         return;
+    }
 
     if (ins == INS_sub)
     {
@@ -5938,7 +5454,6 @@ static ID_OPS GetFormatOp(insFormat format)
 }
 
 #ifdef DEBUG
-// The following called for each recorded instruction -- use for debugging.
 void emitter::emitInsSanityCheck(instrDesc* id)
 {
     // make certain you only try to put relocs on things that can have them.
@@ -6152,12 +5667,6 @@ void emitter::emitDispImm(instrDesc* id, ssize_t val)
     }
 }
 
-/*****************************************************************************
- *
- *  Display a reloc value
- *  If we are formatting for a diffable assembly listing don't print the hex value
- *  since it will prevent us from doing assembly diffs
- */
 void emitter::emitDispReloc(ssize_t value)
 {
     if (emitComp->opts.disAsm && emitComp->opts.disDiffable)
@@ -6310,23 +5819,18 @@ void emitter::emitDispShiftCL(instruction ins)
     }
 }
 
-/*****************************************************************************
- *
- *  Display (optionally) the bytes for the instruction encoding in hex
- */
-
 void emitter::emitDispInsHex(instrDesc* id, BYTE* code, size_t sz)
 {
-    // We do not display the instruction hex if we want diff-able disassembly
     if (!emitComp->opts.disDiffable)
     {
 #ifdef TARGET_AMD64
-        // how many bytes per instruction we format for
         const size_t digits = 10;
-#else // TARGET_X86
+#else
         const size_t digits = 6;
 #endif
+
         printf(" ");
+
         for (unsigned i = 0; i < sz; i++)
         {
             printf("%02X", (*((BYTE*)(code + i))));
@@ -6423,13 +5927,10 @@ void emitter::emitDispIns(
     if (strnlen(sstr, 10) >= 9)
 #endif
     {
-        // Make sure there's at least one space after the instruction name, for very long instruction names.
         printf(" ");
     }
 
     assert((id->idCodeSize() != 0) || InstrHasNoCode(id));
-
-    /* Figure out the operand size */
 
     if (id->idGCref() == GCT_GCREF)
     {
@@ -6490,8 +5991,6 @@ void emitter::emitDispIns(
         }
     }
 
-    /* Now see what instruction format we've got */
-
     switch (id->idInsFmt())
     {
         case IF_CNS:
@@ -6534,7 +6033,6 @@ void emitter::emitDispIns(
             }
             else if ((ins == INS_crc32) && (attr != EA_8BYTE))
             {
-                // The destination reg is always 4 bytes.
                 attr = EA_4BYTE;
             }
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
@@ -6551,7 +6049,6 @@ void emitter::emitDispIns(
 
         case IF_AWR_RRD_CNS:
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
-            // vextracti/f128 extracts 128-bit data, so we fix sstr as "xmm ptr"
             printf("%s", emitSizeStr(EA_16BYTE));
             emitDispAddrMode(id);
             printf(", %s", emitRegName(id->idReg1(), attr));
@@ -6671,13 +6168,11 @@ void emitter::emitDispIns(
             }
             else if ((ins == INS_crc32) && (attr != EA_8BYTE))
             {
-                // The destination reg is always 4 bytes.
                 attr = EA_4BYTE;
             }
 
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
             emitDispFrameRef(id, asmfm);
-
             break;
 
         case IF_RRW_SRD_CNS:
@@ -6728,7 +6223,6 @@ void emitter::emitDispIns(
             }
             else if (ins == INS_crc32 && attr != EA_8BYTE)
             {
-                // The destination reg is always 4 bytes.
                 printf("%s, %s", emitRegName(id->idReg1(), EA_4BYTE), emitRegName(id->idReg2(), attr));
             }
             else
@@ -6883,7 +6377,6 @@ void emitter::emitDispIns(
             }
             else if ((ins == INS_crc32) && (attr != EA_8BYTE))
             {
-                // The destination reg is always 4 bytes.
                 attr = EA_4BYTE;
             }
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
@@ -6900,7 +6393,6 @@ void emitter::emitDispIns(
 
         case IF_MWR_RRD_CNS:
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
-            // vextracti/f128 extracts 128-bit data, so we fix sstr as "xmm ptr"
             printf("%s", emitSizeStr(EA_16BYTE));
             emitDispClsVar(id);
             printf(", %s", emitRegName(id->idReg1(), attr));
@@ -7021,15 +6513,12 @@ void emitter::emitDispIns(
 
     if (sz != 0 && sz != id->idCodeSize() && (!asmfm || emitComp->verbose))
     {
-        // Code size in the instrDesc is different from the actual code size we've been given!
         printf(" (ECS:%d, ACS:%d)", id->idCodeSize(), sz);
     }
 
     printf("\n");
 }
-
-/*****************************************************************************/
-#endif
+#endif // DEBUG
 
 size_t emitter::emitOutputByte(uint8_t* dst, ssize_t val)
 {
@@ -7123,11 +6612,6 @@ size_t emitter::emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t 
             return 4;
     }
 }
-
-/*****************************************************************************
- *
- *  Output nBytes bytes of NOP instructions
- */
 
 static BYTE* emitOutputNOP(BYTE* dstRW, size_t nBytes)
 {
@@ -7272,24 +6756,8 @@ static BYTE* emitOutputNOP(BYTE* dstRW, size_t nBytes)
     return dstRW;
 }
 
-//--------------------------------------------------------------------
-// emitOutputAlign: Outputs NOP to align the loop
-//
-// Arguments:
-//   ig - Current instruction group
-//   id - align instruction that holds amount of padding (NOPs) to add
-//   dst - Destination buffer
-//
-// Return Value:
-//   None.
-//
-// Notes:
-//   Amount of padding needed to align the loop is already calculated. This
-//   method extracts that information and inserts suitable NOP instructions.
-//
-BYTE* emitter::emitOutputAlign(insGroup* ig, instrDesc* id, BYTE* dst)
+uint8_t* emitter::emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
 {
-    // Candidate for loop alignment
     assert(codeGen->ShouldAlignLoops());
     assert(ig->isLoopAlign());
 
@@ -9323,28 +8791,19 @@ uint8_t* emitter::emitOutputIV(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-/*****************************************************************************
- *
- *  Output a local jump instruction.
- *  This function also handles non-jumps that have jump-like characteristics, like RIP-relative LEA of a label that
- *  needs to get bound to an actual address and processed by branch shortening.
- */
-
-BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
+uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
 {
     unsigned srcOffs;
     unsigned dstOffs;
-    BYTE*    srcAddr;
-    BYTE*    dstAddr;
+    uint8_t* srcAddr;
+    uint8_t* dstAddr;
     ssize_t  distVal;
 
     instrDescJmp* id  = (instrDescJmp*)i;
     instruction   ins = id->idIns();
     bool          jmp;
 
-    // SSE/AVX doesnt make any sense here
-    assert(!IsSSEInstruction(ins));
-    assert(!IsAVXInstruction(ins));
+    assert(!IsSSEInstruction(ins) && !IsAVXInstruction(ins));
 
     bool   relAddr = true; // does the instruction use relative-addressing?
     size_t ssz;
@@ -9476,7 +8935,6 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
         }
 #endif
 
-        // Can we use a short jump?
         if (jmp && distVal - ssz <= (size_t)JMP_DIST_SMALL_MAX_POS)
         {
             emitSetShortJump(id);
@@ -9500,10 +8958,8 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
     }
 #endif
 
-    // What size jump should we use?
     if (id->idjShort)
     {
-        // Short jump
         assert(!id->idjKeepLong);
         assert(emitJumpCrossHotColdBoundary(srcOffs, dstOffs) == false);
 
@@ -9539,22 +8995,22 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
         if (jmp)
         {
             // clang-format off
-            assert(INS_jmp + (INS_l_jmp - INS_jmp) == INS_l_jmp);
-            assert(INS_jo  + (INS_l_jmp - INS_jmp) == INS_l_jo);
-            assert(INS_jb  + (INS_l_jmp - INS_jmp) == INS_l_jb);
-            assert(INS_jae + (INS_l_jmp - INS_jmp) == INS_l_jae);
-            assert(INS_je  + (INS_l_jmp - INS_jmp) == INS_l_je);
-            assert(INS_jne + (INS_l_jmp - INS_jmp) == INS_l_jne);
-            assert(INS_jbe + (INS_l_jmp - INS_jmp) == INS_l_jbe);
-            assert(INS_ja  + (INS_l_jmp - INS_jmp) == INS_l_ja);
-            assert(INS_js  + (INS_l_jmp - INS_jmp) == INS_l_js);
-            assert(INS_jns + (INS_l_jmp - INS_jmp) == INS_l_jns);
-            assert(INS_jp  + (INS_l_jmp - INS_jmp) == INS_l_jp);
-            assert(INS_jnp + (INS_l_jmp - INS_jmp) == INS_l_jnp);
-            assert(INS_jl  + (INS_l_jmp - INS_jmp) == INS_l_jl);
-            assert(INS_jge + (INS_l_jmp - INS_jmp) == INS_l_jge);
-            assert(INS_jle + (INS_l_jmp - INS_jmp) == INS_l_jle);
-            assert(INS_jg  + (INS_l_jmp - INS_jmp) == INS_l_jg);
+            static_assert_no_msg(INS_jmp + (INS_l_jmp - INS_jmp) == INS_l_jmp);
+            static_assert_no_msg(INS_jo  + (INS_l_jmp - INS_jmp) == INS_l_jo);
+            static_assert_no_msg(INS_jb  + (INS_l_jmp - INS_jmp) == INS_l_jb);
+            static_assert_no_msg(INS_jae + (INS_l_jmp - INS_jmp) == INS_l_jae);
+            static_assert_no_msg(INS_je  + (INS_l_jmp - INS_jmp) == INS_l_je);
+            static_assert_no_msg(INS_jne + (INS_l_jmp - INS_jmp) == INS_l_jne);
+            static_assert_no_msg(INS_jbe + (INS_l_jmp - INS_jmp) == INS_l_jbe);
+            static_assert_no_msg(INS_ja  + (INS_l_jmp - INS_jmp) == INS_l_ja);
+            static_assert_no_msg(INS_js  + (INS_l_jmp - INS_jmp) == INS_l_js);
+            static_assert_no_msg(INS_jns + (INS_l_jmp - INS_jmp) == INS_l_jns);
+            static_assert_no_msg(INS_jp  + (INS_l_jmp - INS_jmp) == INS_l_jp);
+            static_assert_no_msg(INS_jnp + (INS_l_jmp - INS_jmp) == INS_l_jnp);
+            static_assert_no_msg(INS_jl  + (INS_l_jmp - INS_jmp) == INS_l_jl);
+            static_assert_no_msg(INS_jge + (INS_l_jmp - INS_jmp) == INS_l_jge);
+            static_assert_no_msg(INS_jle + (INS_l_jmp - INS_jmp) == INS_l_jle);
+            static_assert_no_msg(INS_jg  + (INS_l_jmp - INS_jmp) == INS_l_jg);
             // clang-format on
 
             code = insCode((instruction)(ins + (INS_l_jmp - INS_jmp)));
@@ -9658,15 +9114,6 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
     return dst;
 }
 
-/*****************************************************************************
- *
- *  Append the machine code corresponding to the given instruction descriptor
- *  to the code block at '*dp'; the base of the code block is 'bp', and 'ig'
- *  is the instruction group that contains the instruction. Updates '*dp' to
- *  point past the generated code, and returns the size of the instruction
- *  descriptor in bytes.
- */
-
 #ifdef _PREFAST_
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
@@ -9689,7 +9136,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
     assert(ins != INS_imul || size >= EA_4BYTE); // Has no 'w' bit
 
-    // What instruction format have we got?
     switch (id->idInsFmt())
     {
         code_t   code;
@@ -9701,7 +9147,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         /*                        No operands                               */
         /********************************************************************/
         case IF_NONE:
-            // the loop alignment pseudo instruction
             if (ins == INS_align)
             {
                 sz = sizeof(instrDescAlign);
@@ -9727,10 +9172,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 BYTE* dstRW = dst + writeableOffset;
                 dstRW       = emitOutputNOP(dstRW, id->idCodeSize());
                 dst         = dstRW - writeableOffset;
+
                 break;
             }
 
-            // the cdq instruction kills the EDX register implicitly
             if (ins == INS_cdq)
             {
                 emitGCregDeadUpd(REG_EDX, dst);
@@ -9750,32 +9195,26 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             }
             dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 #endif
-            // Is this a 'big' opcode?
             if (code & 0xFF000000)
             {
-                // The high word and then the low word
                 dst += emitOutputWord(dst, code >> 16);
                 code &= 0x0000FFFF;
                 dst += emitOutputWord(dst, code);
             }
             else if (code & 0x00FF0000)
             {
-                // The high byte and then the low word
                 dst += emitOutputByte(dst, code >> 16);
                 code &= 0x0000FFFF;
                 dst += emitOutputWord(dst, code);
             }
             else if (code & 0xFF00)
             {
-                // The 2 byte opcode
                 dst += emitOutputWord(dst, code);
             }
             else
             {
-                // The 1 byte opcode
                 dst += emitOutputByte(dst, code);
             }
-
             break;
 
         /********************************************************************/
@@ -9804,9 +9243,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
             if (id->idInsFmt() == IF_METHPTR)
             {
-                // This is call indirect via a method pointer
-
                 code = insCodeMR(ins);
+
                 if (ins == INS_i_jmp)
                 {
                     code |= 1;
@@ -9842,8 +9280,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             }
             else
             {
-                // This is call direct where we know the target, thus we can
-                // use a direct call; the target to jump to is in iiaAddr.
                 assert(id->idInsFmt() == IF_METHOD);
 
                 dst += emitOutputByte(dst, ins == INS_l_jmp ? insCode(ins) : insCodeMI(ins));
@@ -10011,18 +9447,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
             regcode = (insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, mReg, size, &code));
 
-            // Output the REX prefix
             dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
             if (code & 0xFF000000)
             {
-                // Output the highest word of the opcode
                 dst += emitOutputWord(dst, code >> 16);
                 code &= 0x0000FFFF;
 
                 if (Is4ByteSSEInstruction(ins))
                 {
-                    // Output 3rd byte of the opcode
                     dst += emitOutputByte(dst, code);
                     code &= 0xFF00;
                 }
@@ -10063,7 +9496,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
             sz = emitSizeOfInsDsc(id);
 
-            // Kill any GC ref in the destination register if necessary.
             if (!emitInsCanOnlyWriteSSE2OrAVXReg(id))
             {
                 emitGCregDeadUpd(id->idReg1(), dst);
@@ -10755,21 +10187,10 @@ insFormat emitter::getMemoryOperation(instrDesc* id)
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
-//----------------------------------------------------------------------------------------
-// getInsExecutionCharacteristics:
-//    Returns the current instruction execution characteristics
-//
-// Arguments:
-//    id  - The current instruction descriptor to be evaluated
-//
-// Return Value:
-//    A struct containing the current instruction execution characteristics
-//
-// Notes:
-//    The instruction latencies and throughput values returned by this function
-//    are for the Intel Skylake-X processor and are from either:
-//      1.  Agner.org - https://www.agner.org/optimize/instruction_tables.pdf
-//      2.  uops.info - https://uops.info/table.html
+// The instruction latencies and throughput values returned by this function
+// are for the Intel Skylake-X processor and are from either:
+//   1. Agner.org - https://www.agner.org/optimize/instruction_tables.pdf
+//   2. uops.info - https://uops.info/table.html
 //
 emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(instrDesc* id)
 {
@@ -12115,7 +11536,6 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
             break;
 
         default:
-            // unhandled instruction insFmt combination
             perfScoreUnhandledInstruction(id, &result);
             break;
     }
