@@ -84,9 +84,9 @@ INST4(sub,              "sub",              IUM_RW, 0x28,         0x2880,       
 INST4(xor,              "xor",              IUM_RW, 0x30,         0x3080,       0x32,         0x34,                      BitwiseFlags)
 INST4(cmp,              "cmp",              IUM_RD, 0x38,         0x3880,       0x3A,         0x3C,                      AddSubFlags)
 INST4(test,             "test",             IUM_RD, 0x84,         0x00F6,       0x84,         0xA8,                      BitwiseFlags)
-INST4(mov,              "mov",              IUM_WR, 0x88,         0x00C6,       0x8A,         0xB0,                      None)
 
 //    id                nm                  um      mr            mi            rm                                       flags
+INST3(mov,              "mov",              IUM_WR, 0x88,         0x00C6,       0x8A,                                    None)
 INST3(lea,              "lea",              IUM_WR, BAD_CODE,     BAD_CODE,     0x8D,                                    None)
 INST3(bt,               "bt",               IUM_RD, PCKFLT(0xA3), BAD_CODE,     PCKFLT(0xA3),                            BitTestFlags)
 INST3(bsf,              "bsf",              IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xBC),                            BitScanFlags)

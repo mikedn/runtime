@@ -9074,8 +9074,10 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
     {
         assert(id->idInsFmt() == IF_RWR_CNS);
 
-        code = insCodeACC(ins);
-        code |= 0x08; // Set the 'w' bit
+        // TODO-MIKE-Cleanup: 0xB8 could go into the RR encoding table. But there
+        // is little point in doing that since we need to special case this anyway.
+        // Or perhaps there's a way to avoid this special casing?
+        code = 0xB8;
         code |= insEncodeReg012(ins, reg, size, &code);
 
         assert(!TakesVexPrefix(ins));
