@@ -5685,7 +5685,17 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
         // register will be written only in genProduceReg, after the actual cast is
         // performed.
 
-        emitInsBinary(ins, EA_ATTR(desc.LoadSrcSize()), cast, src);
+        unsigned lclNum;
+        unsigned lclOffs;
+
+        if (IsLocalMemoryOperand(src, &lclNum, &lclOffs))
+        {
+            GetEmitter()->emitIns_R_S(ins, EA_ATTR(desc.LoadSrcSize()), dstReg, lclNum, lclOffs);
+        }
+        else
+        {
+            GetEmitter()->emitIns_R_A(ins, EA_ATTR(desc.LoadSrcSize()), dstReg, src->AsIndir()->GetAddr());
+        }
 
         srcReg = dstReg;
     }
