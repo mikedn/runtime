@@ -53,6 +53,10 @@
 #define VEX3INT(c1, c2) PACK4(c1, 0xc5, 0x02, c2)
 #define VEX3FLT(c1, c2) PACK4(c1, 0xc5, 0x02, c2)
 
+#ifndef INSTA
+#define INSTA(...)
+#endif
+
 #ifdef TARGET_XARCH
 
 // clang-format off
@@ -115,7 +119,7 @@ INST3(imul,             "imul",             IUM_RW, BAD_CODE,     BAD_CODE,     
 INST3(imuli,            "imul",             IUM_RD, BAD_CODE,     BAD_CODE,     0x68,                                    ImulFlags)
 
 //    id                nm                  um      mr            mi            rm                                       flags
-INST3(FIRST_SSE_INSTRUCTION, "FIRST_SSE_INSTRUCTION", IUM_WR, BAD_CODE, BAD_CODE, BAD_CODE, None)
+INSTA(FIRST_SSE_INSTRUCTION, pmovmskb)
 INST3(pmovmskb,         "pmovmskb",         IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0xD7),                            None)
 INST3(movmskpd,         "movmskpd",         IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0x50),                            None)
 INST3(movd,             "movd",             IUM_WR, PCKDBL(0x7E), BAD_CODE,     PCKDBL(0x6E),                            None) // Cleanup https://github.com/dotnet/runtime/issues/47943
@@ -378,10 +382,9 @@ INST3(aesenc,           "aesenc",           IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(aesenclast,       "aesenclast",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xDD),                             AvxDstDstSrc)
 INST3(aesimc,           "aesimc",           IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xDB),                             None)
 INST3(aeskeygenassist,  "aeskeygenassist",  IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0xDF),                             None)
-INST3(LAST_SSE_INSTRUCTION, "LAST_SSE_INSTRUCTION", IUM_WR, BAD_CODE, BAD_CODE, BAD_CODE, None)
+INSTA(LAST_SSE_INSTRUCTION, aeskeygenassist)
 
-INST3(FIRST_AVX_INSTRUCTION, "FIRST_AVX_INSTRUCTION", IUM_WR, BAD_CODE, BAD_CODE, BAD_CODE, None)
-// AVX only instructions
+INSTA(FIRST_AVX_INSTRUCTION, vbroadcastss)
 INST3(vbroadcastss,     "broadcastss",      IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x18),                             None)
 INST3(vbroadcastsd,     "broadcastsd",      IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x19),                             None)
 INST3(vpbroadcastb,     "pbroadcastb",      IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x78),                             None)
@@ -429,8 +432,8 @@ INST3(vgatherqps,       "gatherqps",        IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(vgatherdpd,       "gatherdpd",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x92),                             AvxDstDstSrc)
 INST3(vgatherqpd,       "gatherqpd",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x93),                             AvxDstDstSrc)
 
-INST3(FIRST_FMA_INSTRUCTION, "FIRST_FMA_INSTRUCTION", IUM_WR, BAD_CODE, BAD_CODE, BAD_CODE, None)
 //    id                nm                  um      mr            mi            rm                                       flags
+INSTA(FIRST_FMA_INSTRUCTION, vfmadd132pd)
 INST3(vfmadd132pd,      "fmadd132pd",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x98),                             AvxDstDstSrc)
 INST3(vfmadd213pd,      "fmadd213pd",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xA8),                             AvxDstDstSrc)
 INST3(vfmadd231pd,      "fmadd231pd",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xB8),                             AvxDstDstSrc)
@@ -491,16 +494,16 @@ INST3(vfnmsub231sd,     "fnmsub231sd",      IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(vfnmsub132ss,     "fnmsub132ss",      IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x9F),                             AvxDstDstSrc)
 INST3(vfnmsub213ss,     "fnmsub213ss",      IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xAF),                             AvxDstDstSrc)
 INST3(vfnmsub231ss,     "fnmsub231ss",      IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xBF),                             AvxDstDstSrc)
-INST3(LAST_FMA_INSTRUCTION, "LAST_FMA_INSTRUCTION", IUM_WR, BAD_CODE, BAD_CODE, BAD_CODE, None)
+INSTA(LAST_FMA_INSTRUCTION, vfnmsub231ss)
 
-INST3(FIRST_AVXVNNI_INSTRUCTION, "FIRST_AVXVNNI_INSTRUCTION", IUM_WR, BAD_CODE, BAD_CODE, BAD_CODE, None)
+INSTA(FIRST_AVXVNNI_INSTRUCTION, vpdpbusd)
 INST3(vpdpbusd,          "pdpbusd",         IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x50),                             AvxDstDstSrc)
 INST3(vpdpwssd,          "pdpwssd",         IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x52),                             AvxDstDstSrc)
 INST3(vpdpbusds,         "pdpbusds",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x51),                             AvxDstDstSrc)
 INST3(vpdpwssds,         "pdpwssds",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x53),                             AvxDstDstSrc)
-INST3(LAST_AVXVNNI_INSTRUCTION, "LAST_AVXVNNI_INSTRUCTION", IUM_WR, BAD_CODE, BAD_CODE, BAD_CODE, None)
+INSTA(LAST_AVXVNNI_INSTRUCTION, vpdpwssds)
 
-INST3(FIRST_BMI_INSTRUCTION, "FIRST_BMI_INSTRUCTION", IUM_WR, BAD_CODE, BAD_CODE, BAD_CODE, None)
+INSTA(FIRST_BMI_INSTRUCTION, andn)
 // BMI1
 INST3(andn,             "andn",             IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xF2),                             AvxDstDstSrc)
 INST3(blsi,             "blsi",             IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xF3),                             AvxDstDstSrc)
@@ -513,9 +516,9 @@ INST3(pdep,             "pdep",             IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(pext,             "pext",             IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xF5),                             AvxDstDstSrc)
 INST3(bzhi,             "bzhi",             IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xF5),                             BzhiFlags | AvxDstDstSrc)
 INST3(mulx,             "mulx",             IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xF6),                             AvxDstDstSrc)
-INST3(LAST_BMI_INSTRUCTION, "LAST_BMI_INSTRUCTION", IUM_WR, BAD_CODE, BAD_CODE, BAD_CODE, None)
+INSTA(LAST_BMI_INSTRUCTION, mulx)
+INSTA(LAST_AVX_INSTRUCTION, mulx)
 
-INST3(LAST_AVX_INSTRUCTION, "LAST_AVX_INSTRUCTION", IUM_WR, BAD_CODE, BAD_CODE, BAD_CODE, None)
 INST3(crc32,            "crc32",            IUM_WR, BAD_CODE,     BAD_CODE,     F20F38(0xF0),                            None)
 INST3(tzcnt,            "tzcnt",            IUM_WR, BAD_CODE,     BAD_CODE,     SSEFLT(0xBC),                            ZCntFlags)
 INST3(lzcnt,            "lzcnt",            IUM_WR, BAD_CODE,     BAD_CODE,     SSEFLT(0xBD),                            ZCntFlags)
@@ -670,5 +673,6 @@ INST0(align,            "align",            IUM_RD, BAD_CODE,                   
 #undef INST3
 #undef INST4
 #undef INST5
+#undef INSTA
 
 #endif // TARGET_XARCH

@@ -17,6 +17,14 @@ enum instruction : unsigned
 #define INST5(id, ...) INS_##id,
 #include "instrsxarch.h"
     INS_none,
+#define INST0(...)
+#define INST1(...)
+#define INST2(...)
+#define INST3(...)
+#define INST4(...)
+#define INST5(...)
+#define INSTA(id, val) INS_##id = INS_##val,
+#include "instrsxarch.h"
     INS_BREAKPOINT = INS_int3,
 
 #elif defined(TARGET_ARM)
