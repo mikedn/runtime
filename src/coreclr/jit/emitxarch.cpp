@@ -1760,19 +1760,6 @@ emitter::code_t emitter::insEncodeMIreg(instruction ins, regNumber reg, emitAttr
     return code;
 }
 
-/*****************************************************************************
- *
- *  Returns the "+reg" opcode with the the given register set into the low
- *  nibble of the opcode
- */
-
-emitter::code_t emitter::insEncodeOpreg(instruction ins, regNumber reg, emitAttr size)
-{
-    code_t code = insCodeRR(ins);
-    code |= insEncodeReg012(ins, reg, size, &code);
-    return code;
-}
-
 static unsigned ScaleEncoding(unsigned scale)
 {
     assert(scale == 1 || scale == 2 || scale == 4 || scale == 8);
@@ -8452,7 +8439,8 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             assert(!TakesVexPrefix(ins));
             assert(!TakesRexWPrefix(ins, size));
 
-            code = insEncodeOpreg(ins, reg, size);
+            code = insCodeRR(ins);
+            code |= insEncodeReg012(ins, reg, size, &code);
             dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
             dst += emitOutputByte(dst, code);
             break;
