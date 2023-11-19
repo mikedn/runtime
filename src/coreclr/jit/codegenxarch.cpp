@@ -3298,7 +3298,7 @@ void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
     GenTree*     src1;
     GenTree*     src2;
     emitJumpKind jmpKind;
-    instruction  cmpKind;
+    instruction  cmpIns;
 
     genConsumeRegs(arrIndex);
     genConsumeRegs(arrLen);
@@ -3312,7 +3312,7 @@ void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
         src1    = arrLen;
         src2    = arrLen;
         jmpKind = EJ_je;
-        cmpKind = INS_test;
+        cmpIns  = INS_test;
     }
     else if (arrIndex->isContainedIntOrIImmed())
     {
@@ -3327,7 +3327,7 @@ void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
         src1    = arrLen;
         src2    = arrIndex;
         jmpKind = EJ_jbe;
-        cmpKind = INS_cmp;
+        cmpIns  = INS_cmp;
     }
     else
     {
@@ -3345,19 +3345,17 @@ void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
         src1    = arrIndex;
         src2    = arrLen;
         jmpKind = EJ_jae;
-        cmpKind = INS_cmp;
+        cmpIns  = INS_cmp;
     }
 
-    var_types bndsChkType = src2->TypeGet();
-#if DEBUG
+    var_types bndsChkType = src2->GetType();
+
     // Bounds checks can only be 32 or 64 bit sized comparisons.
     assert(bndsChkType == TYP_INT || bndsChkType == TYP_LONG);
-
     // The type of the bounds check should always wide enough to compare against the index.
     assert(emitTypeSize(bndsChkType) >= emitTypeSize(src1->TypeGet()));
-#endif // DEBUG
 
-    emitInsBinary(cmpKind, emitTypeSize(bndsChkType), src1, src2);
+    emitInsCmp(cmpIns, emitTypeSize(bndsChkType), src1, src2);
     genJumpToThrowHlpBlk(jmpKind, bndsChk->GetThrowKind(), bndsChk->GetThrowBlock());
 }
 
@@ -5480,7 +5478,7 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
     }
     else
     {
-        emitInsBinary(ins, attr, op1, op2);
+        emitInsCmp(ins, attr, op1, op2);
     }
 
     if (dstReg == REG_NA)
@@ -9300,75 +9298,70 @@ void CodeGen::emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTre
     }
 }
 
-void CodeGen::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src)
+void CodeGen::emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* op2)
 {
-    assert(!emitter::instrHasImplicitRegPairDest(ins) && (ins != INS_imuli));
+    // We only need this to support CMP, with its reg,rm and rm,reg forms.
+    // TEST doesn't really support the reg,rm form but the emitter deals with it.
+    // Other instructions with rm,reg forms use the special RMW code path.
+    assert((ins == INS_cmp) || (ins == INS_test));
 
-    emitter* emit  = GetEmitter();
+    Emitter& emit  = *GetEmitter();
     GenTree* memOp = nullptr;
     GenTree* immOp = nullptr;
     GenTree* regOp = nullptr;
 
-    if (dst->isContained() || (dst->OperIs(GT_LCL_FLD) && (dst->GetRegNum() == REG_NA)) || dst->isUsedFromSpillTemp())
+    if (op1->isContained() || (op1->OperIs(GT_LCL_FLD) && (op1->GetRegNum() == REG_NA)) || op1->isUsedFromSpillTemp())
     {
-        assert(dst->isUsedFromMemory() || (dst->GetRegNum() == REG_NA));
+        assert(op1->isUsedFromMemory() || (op1->GetRegNum() == REG_NA));
 
-        memOp = dst;
+        memOp = op1;
 
-        if (src->isContained())
+        if (op2->isContained())
         {
-            assert(src->IsIntCon());
+            assert(op2->IsIntCon());
 
-            immOp = src;
+            immOp = op2;
         }
         else
         {
-            assert(src->isUsedFromReg());
+            assert(op2->isUsedFromReg());
 
-            regOp = src;
+            regOp = op2;
         }
     }
-    else if (src->isContained() || src->isUsedFromSpillTemp())
+    else if (op2->isContained() || op2->isUsedFromSpillTemp())
     {
-        assert(dst->isUsedFromReg());
+        assert(op1->isUsedFromReg());
 
-        regOp = dst;
+        regOp = op1;
 
-        if ((src->IsIntCon() || src->IsDblCon()) && !src->isUsedFromSpillTemp())
+        if (op2->IsIntCon() && !op2->isUsedFromSpillTemp())
         {
-            assert(!src->isUsedFromMemory() || src->IsDblCon());
+            assert(!op2->isUsedFromMemory());
 
-            immOp = src;
+            immOp = op2;
         }
         else
         {
-            assert(src->isUsedFromMemory());
+            assert(op2->isUsedFromMemory());
 
-            memOp = src;
+            memOp = op2;
         }
     }
     else
     {
-        assert(dst->isUsedFromReg() && src->isUsedFromReg());
+        assert(op1->isUsedFromReg() && op2->isUsedFromReg());
 
-        emit->emitIns_R_R(ins, attr, dst->GetRegNum(), src->GetRegNum());
+        emit.emitIns_R_R(ins, attr, op1->GetRegNum(), op2->GetRegNum());
 
         return;
     }
 
     if (memOp == nullptr)
     {
-        if (GenTreeDblCon* dblCon = immOp->IsDblCon())
-        {
-            CORINFO_FIELD_HANDLE field = emit->emitFltOrDblConst(dblCon->GetValue(), emitTypeSize(dblCon->GetType()));
-            emit->emitIns_R_C(ins, attr, regOp->GetRegNum(), field);
-        }
-        else
-        {
-            assert(!dst->isContained());
+        assert(!op1->isContained());
 
-            emit->emitIns_R_I(ins, attr, regOp->GetRegNum(), immOp->AsIntCon()->GetValue());
-        }
+        emit.emitIns_R_I(ins, attr, regOp->GetRegNum(), immOp->AsIntCon()->GetValue());
 
         return;
     }
@@ -9378,34 +9371,34 @@ void CodeGen::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTre
 
     if (IsLocalMemoryOperand(memOp, &lclNum, &lclOffs))
     {
-        if (memOp == src)
+        if (memOp == op2)
         {
-            emit->emitIns_R_S(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
+            emit.emitIns_R_S(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
         }
         else if (immOp != nullptr)
         {
-            emit->emitIns_S_I(ins, attr, lclNum, lclOffs, immOp->AsIntCon()->GetInt32Value());
+            emit.emitIns_S_I(ins, attr, lclNum, lclOffs, immOp->AsIntCon()->GetInt32Value());
         }
         else
         {
-            emit->emitIns_S_R(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
+            emit.emitIns_S_R(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
         }
     }
     else
     {
         GenTree* addr = memOp->AsIndir()->GetAddr();
 
-        if (memOp == src)
+        if (memOp == op2)
         {
-            emit->emitIns_R_A(ins, attr, regOp->GetRegNum(), addr);
+            emit.emitIns_R_A(ins, attr, regOp->GetRegNum(), addr);
         }
         else if (immOp != nullptr)
         {
-            emit->emitIns_A_I(ins, attr, addr, immOp->AsIntCon()->GetInt32Value());
+            emit.emitIns_A_I(ins, attr, addr, immOp->AsIntCon()->GetInt32Value());
         }
         else
         {
-            emit->emitIns_A_R(ins, attr, addr, regOp->GetRegNum());
+            emit.emitIns_A_R(ins, attr, addr, regOp->GetRegNum());
         }
     }
 }

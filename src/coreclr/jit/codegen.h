@@ -1143,7 +1143,7 @@ public:
     bool IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, CORINFO_FIELD_HANDLE* field);
     void emitInsRM(instruction ins, emitAttr attr, GenTree* src);
     void emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTree* mem);
-    void emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src);
+    void emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* op2);
     void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTree* addr);
     void emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* value);
     void inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenTree* rmOp, int ival);
