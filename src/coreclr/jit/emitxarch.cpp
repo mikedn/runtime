@@ -3134,11 +3134,6 @@ void emitter::emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regN
     emitCurIGsize += sz;
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing a single register.
- */
-
 void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
 {
     emitAttr size = EA_SIZE(attr);
@@ -3146,66 +3141,32 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     assert(size <= EA_PTRSIZE);
     noway_assert(emitVerifyEncodable(ins, size, reg));
 
-    unsigned   sz;
     instrDesc* id = emitNewInstrSmall(attr);
-
-    switch (ins)
-    {
-        case INS_inc:
-        case INS_dec:
-#ifdef TARGET_AMD64
-            sz = 2;
-#else
-            sz    = size != EA_1BYTE ? 1 : 2;
-#endif
-            break;
-
-        case INS_pop:
-        case INS_pop_hide:
-        case INS_push:
-        case INS_push_hide:
-
-            /* We don't currently push/pop small values */
-
-            assert(size == EA_PTRSIZE);
-
-            sz = 1;
-            break;
-
-        default:
-
-            /* All the sixteen INS_setCCs are contiguous. */
-
-            if (INS_seto <= ins && ins <= INS_setg)
-            {
-                // Rough check that we used the endpoints for the range check
-
-                assert(INS_seto + 0xF == INS_setg);
-
-                // The caller must specify EA_1BYTE for 'attr'
-
-                assert(attr == EA_1BYTE);
-
-                /* We expect this to always be a 'big' opcode */
-
-                assert(insEncodeMRreg(ins, reg, attr, insCodeMR(ins)) & 0x00FF0000);
-
-                size = attr;
-
-                sz = 3;
-                break;
-            }
-            else
-            {
-                sz = 2;
-                break;
-            }
-    }
-    insFormat fmt = emitInsModeFormat(ins, IF_RRD);
-
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(emitInsModeFormat(ins, IF_RRD));
     id->idReg1(reg);
+
+    unsigned sz = 2;
+
+    if ((ins == INS_push) || (ins == INS_push_hide) || (ins == INS_pop) || (ins == INS_pop_hide))
+    {
+        assert(size == EA_PTRSIZE);
+        sz = 1;
+    }
+#ifdef TARGET_X86
+    else if (((ins == INS_inc) || (ins == INS_dec)) && (size != EA_1BYTE))
+    {
+        sz = 1;
+    }
+#endif
+    else if ((INS_seto <= ins) && (ins <= INS_setg))
+    {
+        static_assert_no_msg(INS_seto + 0xF == INS_setg);
+        assert(attr == EA_1BYTE);
+        assert(insEncodeMRreg(ins, reg, attr, insCodeMR(ins)) & 0x00FF0000);
+
+        sz = 3;
+    }
 
     // Vex bytes
     sz += emitGetAdjustedSize(ins, attr, insEncodeMRreg(ins, reg, attr, insCodeMR(ins)));
@@ -3217,7 +3178,6 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     }
 
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 #if !FEATURE_FIXED_OUT_ARGS
