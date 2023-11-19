@@ -2144,24 +2144,15 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code, int32_t imm)
 {
     assert(id->idIns() != INS_invalid);
 
-    instruction ins      = id->idIns();
-    emitAttr    attrSize = id->idOpSize();
-    unsigned    immSize  = EA_SIZE_IN_BYTES(attrSize);
-    bool        hasImm8  = ((signed char)imm == imm) && (ins != INS_mov) && (ins != INS_test) && !id->idIsCnsReloc();
+    instruction ins     = id->idIns();
+    unsigned    immSize = EA_SIZE_IN_BYTES(id->idOpSize());
+    bool        hasImm8 = ((signed char)imm == imm) && (ins != INS_mov) && (ins != INS_test) && !id->idIsCnsReloc();
 
 #ifdef TARGET_AMD64
     // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
     // all other opcodes take a sign-extended 4-byte immediate
     noway_assert(immSize <= 4 || !id->idIsCnsReloc());
 #endif
-
-    unsigned prefix = emitGetAdjustedSize(ins, attrSize, code);
-
-    if (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(id->idReg1(), attrSize) ||
-        IsExtendedReg(id->idReg2(), attrSize))
-    {
-        prefix += emitGetRexPrefixSize(ins);
-    }
 
     if (hasImm8)
     {
@@ -2177,7 +2168,7 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code, int32_t imm)
         }
     }
 
-    return prefix + emitInsSizeSV_AM(id, code) + immSize;
+    return emitInsSizeSV(id, code) + immSize;
 }
 
 unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code, int32_t imm)
