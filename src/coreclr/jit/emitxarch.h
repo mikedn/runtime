@@ -253,7 +253,6 @@ unsigned emitInsSize(code_t code, bool includeRexPrefixSize);
 
 unsigned emitInsSizeRR(instrDesc* id, code_t code);
 unsigned emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr);
-unsigned emitInsSizeSV_AM(instrDesc* id, code_t code);
 unsigned emitInsSizeSV(instrDesc* id, code_t code);
 unsigned emitInsSizeAM(instrDesc* id, code_t code);
 unsigned emitInsSizeCV(instrDesc* id, code_t code);

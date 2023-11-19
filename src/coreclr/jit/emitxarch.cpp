@@ -1872,9 +1872,30 @@ unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2,
     return sz;
 }
 
-unsigned emitter::emitInsSizeSV_AM(instrDesc* id, code_t code)
+unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
 {
-    unsigned size = emitInsSize(code, /* includeRexPrefixSize */ true);
+    assert(id->idIns() != INS_invalid);
+
+    instruction ins      = id->idIns();
+    emitAttr    attrSize = id->idOpSize();
+
+    unsigned size = emitGetAdjustedSize(ins, attrSize, code);
+
+    if (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(id->idReg1(), attrSize) ||
+        IsExtendedReg(id->idReg2(), attrSize))
+    {
+        size += emitGetRexPrefixSize(ins);
+    }
+
+#ifdef TARGET_AMD64
+    // TODO-MIKE-Cleanup: Old code managed to count the REX prefix twice for movsxd.
+    if ((ins == INS_movsxd) && IsExtendedReg(id->idReg1()))
+    {
+        size++;
+    }
+#endif
+
+    size += emitInsSize(code, /* includeRexPrefixSize */ true);
 
     bool ebpBased = id->idAddr()->isEbpBased;
     int  disp     = id->idAddr()->lclOffset;
@@ -1897,31 +1918,6 @@ unsigned emitter::emitInsSizeSV_AM(instrDesc* id, code_t code)
     }
 
     return size;
-}
-
-unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
-{
-    assert(id->idIns() != INS_invalid);
-
-    instruction ins      = id->idIns();
-    emitAttr    attrSize = id->idOpSize();
-    unsigned    prefix   = emitGetAdjustedSize(ins, attrSize, code);
-
-    if (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(id->idReg1(), attrSize) ||
-        IsExtendedReg(id->idReg2(), attrSize))
-    {
-        prefix += emitGetRexPrefixSize(ins);
-    }
-
-#ifdef TARGET_AMD64
-    // TODO-MIKE-Cleanup: Old code managed to count the REX prefix twice for movsxd.
-    if ((ins == INS_movsxd) && IsExtendedReg(id->idReg1()))
-    {
-        prefix++;
-    }
-#endif
-
-    return prefix + emitInsSizeSV_AM(id, code);
 }
 
 static bool BaseRegRequiresSIB(regNumber base)
