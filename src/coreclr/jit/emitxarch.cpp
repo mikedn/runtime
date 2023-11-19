@@ -1990,7 +1990,7 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code, int32_t imm)
         prefix += emitGetRexPrefixSize(ins);
     }
 
-    return prefix + immSize + emitInsSizeSV_AM(id, code);
+    return prefix + emitInsSizeSV_AM(id, code) + immSize;
 }
 
 static bool BaseRegRequiresSIB(regNumber base)
@@ -2186,7 +2186,7 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code, int32_t imm)
         }
     }
 
-    return immSize + emitInsSizeAM(id, code);
+    return emitInsSizeAM(id, code) + immSize;
 }
 
 unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
@@ -2218,26 +2218,11 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
 
 unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code, int32_t imm)
 {
+    AMD64_ONLY(noway_assert(!id->idIsCnsReloc()));
+
     instruction ins     = id->idIns();
     unsigned    immSize = EA_SIZE_IN_BYTES(id->idOpSize());
     bool        hasImm8 = ((signed char)imm == imm) && (ins != INS_mov) && (ins != INS_test) && !id->idIsCnsReloc();
-
-#ifdef TARGET_AMD64
-    // 64-bit immediates are only supported on mov r64, imm64
-    // As per manual:
-    // Support for 64-bit immediate operands is accomplished by expanding
-    // the semantics of the existing move (MOV reg, imm16/32) instructions.
-    if ((immSize > 4) && (ins != INS_mov))
-    {
-        immSize = 4;
-    }
-#else
-    // occasionally longs get here on x86
-    if (immSize > 4)
-    {
-        immSize = 4;
-    }
-#endif // !TARGET_AMD64
 
     if (hasImm8)
     {
@@ -2246,9 +2231,14 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code, int32_t imm)
     else
     {
         assert(!IsSSEOrAVXInstruction(ins));
+
+        if (immSize > 4)
+        {
+            immSize = 4;
+        }
     }
 
-    return immSize + emitInsSizeCV(id, code);
+    return emitInsSizeCV(id, code) + immSize;
 }
 
 emitter::instrDescDsp* emitter::emitAllocInstrDsp(emitAttr attr)
