@@ -6745,11 +6745,6 @@ void emitter::emitDispIns(
             {
                 printf("%s, %s", emitRegName(id->idReg1(), EA_PTRSIZE), emitRegName(id->idReg2(), attr));
             }
-            else if (ins == INS_bt)
-            {
-                // INS_bt operands are reversed. Display them in the normal order.
-                printf("%s, %s", emitRegName(id->idReg2(), attr), emitRegName(id->idReg1(), attr));
-            }
             else if (ins == INS_crc32 && attr != EA_8BYTE)
             {
                 // The destination reg is always 4 bytes.
@@ -8643,10 +8638,11 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 #endif
     else if (ins == INS_imul)
     {
+        assert(!TakesVexPrefix(ins));
+        assert(size != EA_1BYTE);
+
         code = insCodeRM(ins);
         code = insEncodeRMreg(ins, code);
-
-        assert(size != EA_1BYTE);
 
         // TODO-MIKE-Cleanup: There should be no need to generate a 16 bit imul.
         if (size == EA_2BYTE)
@@ -8659,6 +8655,28 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
             code = AddRexWPrefix(ins, code);
         }
 #endif
+    }
+    else if (ins == INS_bt)
+    {
+        assert(!TakesVexPrefix(ins));
+        assert(size != EA_1BYTE);
+
+        code = insCodeMR(ins);
+        code = insEncodeMRreg(ins, code);
+
+        // TODO-MIKE-Cleanup: There should be no need to generate a 16 bit bt.
+        if (size == EA_2BYTE)
+        {
+            dst += emitOutputByte(dst, 0x66);
+        }
+#ifdef TARGET_AMD64
+        else if (size == EA_8BYTE)
+        {
+            code = AddRexWPrefix(ins, code);
+        }
+#endif
+
+        std::swap(reg1, reg2);
     }
     else if ((ins == INS_bsf) || (ins == INS_bsr) || (ins == INS_crc32) || (ins == INS_lzcnt) || (ins == INS_popcnt) ||
              (ins == INS_tzcnt))

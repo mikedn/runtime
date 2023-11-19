@@ -1091,10 +1091,7 @@ void CodeGen::genCodeForBT(GenTreeOp* bt)
     regNumber srcReg1 = UseReg(op1);
     regNumber srcReg2 = UseReg(op2);
 
-    // Note that the emitter doesn't fully support INS_bt, it only supports the reg,reg
-    // form and encodes the registers in reverse order. To get the correct order we need
-    // to reverse the operands when calling emitIns_R_R.
-    GetEmitter()->emitIns_R_R(INS_bt, emitTypeSize(type), srcReg2, srcReg1);
+    GetEmitter()->emitIns_R_R(INS_bt, emitTypeSize(type), srcReg1, srcReg2);
 }
 
 // clang-format off

@@ -86,14 +86,9 @@ INST4(mov,              "mov",              IUM_WR, 0x88,         0x00C6,       
 
 //    id                nm                  um      mr            mi            rm                                       flags
 INST3(lea,              "lea",              IUM_WR, BAD_CODE,     BAD_CODE,     0x8D,                                    None)
-
-// Note that emitter has only partial support for BT. It can only emit the reg,reg form
-// and the registers need to be reversed to get the correct encoding.
 INST3(bt,               "bt",               IUM_RD, PCKFLT(0xA3), BAD_CODE,     PCKFLT(0xA3),                            BitTestFlags)
-
 INST3(bsf,              "bsf",              IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xBC),                            BitScanFlags)
 INST3(bsr,              "bsr",              IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xBD),                            BitScanFlags)
-
 INST3(movsx,            "movsx",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xBE),                            None)
 #ifdef TARGET_AMD64
 INST3(movsxd,           "movsxd",           IUM_WR, BAD_CODE,     BAD_CODE,     0x63,                                    None)
