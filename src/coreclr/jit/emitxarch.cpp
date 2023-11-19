@@ -1318,10 +1318,10 @@ static const CORINFO_FIELD_HANDLE FS_SEG_FIELD = reinterpret_cast<CORINFO_FIELD_
 #endif
 
 #ifdef DEBUG
-static bool FieldDispRequiresRelocation(CORINFO_FIELD_HANDLE fldHnd)
+static bool FieldDispRequiresRelocation(CORINFO_FIELD_HANDLE field)
 {
 #ifdef WINDOWS_X86_ABI
-    return fldHnd != FS_SEG_FIELD;
+    return field != FS_SEG_FIELD;
 #else
     return true;
 #endif
@@ -1783,10 +1783,7 @@ bool emitter::emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1
 
     if ((ins != INS_movsx) && // These three instructions support high register
         (ins != INS_movzx)    // encodings for reg1
-#ifdef FEATURE_HW_INTRINSICS
-        && (ins != INS_crc32)
-#endif
-            )
+        && (ins != INS_crc32))
     {
         // reg1 must be a byte-able register
         if ((genRegMask(reg1) & RBM_BYTE_REGS) == 0)
@@ -2548,11 +2545,11 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
 
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
-        CORINFO_FIELD_HANDLE fldHnd = clsAddr->GetFieldHandle();
-        assert(FieldDispRequiresRelocation(fldHnd));
+        CORINFO_FIELD_HANDLE field = clsAddr->GetFieldHandle();
+        assert(FieldDispRequiresRelocation(field));
 
         id->idInsFmt(emitMapFmtAtoM(fmt));
-        id->idAddr()->iiaFieldHnd = fldHnd;
+        id->idAddr()->iiaFieldHnd = field;
         id->idSetIsDspReloc();
 
         return;
@@ -2994,6 +2991,24 @@ void emitter::emitIns_H(instruction ins, void* addr)
 }
 #endif
 
+#ifdef WINDOWS_X86_ABI
+void emitter::emitInsMov_R_FS(regNumber reg, int offs)
+{
+    assert(genIsValidIntReg(reg));
+
+    instrDesc* id = emitNewInstrDsp(EA_4BYTE, offs);
+    id->idIns(INS_mov);
+    id->idInsFmt(emitInsModeFormat(INS_mov, IF_RRD_MRD));
+    id->idReg1(reg);
+    id->idAddr()->iiaFieldHnd = FS_SEG_FIELD;
+
+    unsigned sz = 1 + (reg == REG_EAX ? 1 : 2) + 4;
+    id->idCodeSize(sz);
+    dispIns(id);
+    emitCurIGsize += sz;
+}
+#endif // WINDOWS_X86_ABI
+
 void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 {
     unsigned sz;
@@ -3028,14 +3043,14 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 #endif
 }
 
-void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd)
+void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field)
 {
-    assert(FieldDispRequiresRelocation(fldHnd));
+    assert(FieldDispRequiresRelocation(field));
 
     instrDesc* id = emitNewInstrDsp(attr, 0);
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD));
-    id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
 
     unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
@@ -3495,7 +3510,7 @@ void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr, int imm)
+void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
@@ -3519,18 +3534,18 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORINFO_FIELD_HANDLE fldHnd, int imm)
+void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORINFO_FIELD_HANDLE field, int32_t imm)
 {
     assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
-    assert(FieldDispRequiresRelocation(fldHnd));
+    assert(FieldDispRequiresRelocation(field));
 
     instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
     id->idIns(ins);
     id->idInsFmt(IF_RRW_MRD_CNS);
     id->idReg1(reg1);
-    id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
@@ -3618,18 +3633,18 @@ void emitter::emitIns_R_AR_R(instruction ins,
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE fldHnd)
+void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field)
 {
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
-    assert(FieldDispRequiresRelocation(fldHnd));
+    assert(FieldDispRequiresRelocation(field));
 
     instrDesc* id = emitNewInstrDsp(attr, 0);
     id->idIns(ins);
     id->idInsFmt(IF_RWR_RRD_MRD);
     id->idReg1(reg1);
     id->idReg2(reg2);
-    id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins));
@@ -3638,7 +3653,7 @@ void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regN
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber targetReg, regNumber reg1, regNumber reg2)
+void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3)
 {
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
@@ -3646,9 +3661,9 @@ void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber targetReg,
     instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
     id->idInsFmt(IF_RWR_RRD_RRD);
-    id->idReg1(targetReg);
-    id->idReg2(reg1);
-    id->idReg3(reg2);
+    id->idReg1(reg1);
+    id->idReg2(reg2);
+    id->idReg3(reg3);
 
     unsigned sz = emitInsSizeRR(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -3696,11 +3711,11 @@ void emitter::emitIns_R_R_A_I(
 }
 
 void emitter::emitIns_R_R_C_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE fldHnd, int32_t imm)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field, int32_t imm)
 {
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
-    assert(FieldDispRequiresRelocation(fldHnd));
+    assert(FieldDispRequiresRelocation(field));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     assert(IsImm8(imm));
 
@@ -3709,7 +3724,7 @@ void emitter::emitIns_R_R_C_I(
     id->idInsFmt(IF_RWR_RRD_MRD_CNS);
     id->idReg1(reg1);
     id->idReg2(reg2);
-    id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + 1;
@@ -3719,7 +3734,7 @@ void emitter::emitIns_R_R_C_I(
 }
 
 void emitter::emitIns_R_R_R_I(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber reg1, regNumber reg2, int32_t imm)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int32_t imm)
 {
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
@@ -3729,9 +3744,9 @@ void emitter::emitIns_R_R_R_I(
     instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
     id->idInsFmt(IF_RWR_RRD_RRD_CNS);
-    id->idReg1(targetReg);
-    id->idReg2(reg1);
-    id->idReg3(reg2);
+    id->idReg1(reg1);
+    id->idReg2(reg2);
+    id->idReg3(reg3);
 
     code_t code;
 
@@ -3783,27 +3798,27 @@ void emitter::emitIns_R_R_S_I(
 }
 
 // Encodes a XMM register into imm[7:4] for use by a SIMD instruction.
-static int8_t EncodeXmmRegAsImm(regNumber opReg)
+static int8_t EncodeXmmRegAsImm(regNumber reg)
 {
     // AVX/AVX2 supports 4-reg format for vblendvps/vblendvpd/vpblendvb,
     // which encodes the fourth register into imm8[7:4]
-    assert(opReg >= XMMBASE);
-    int ival = (opReg - XMMBASE) << 4;
+    assert(reg >= XMMBASE);
 
-    assert((ival >= 0) && (ival <= 255));
-    return static_cast<int8_t>(ival);
+    int imm = (reg - XMMBASE) << 4;
+    assert((imm >= 0) && (imm <= 255));
+    return static_cast<int8_t>(imm);
 }
 
 void emitter::emitIns_R_R_A_R(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, GenTree* addr)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr)
 {
     assert(isAvxBlendv(ins));
     assert(UseVEXEncoding());
 
-    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), EncodeXmmRegAsImm(op3Reg));
+    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), EncodeXmmRegAsImm(reg3));
     id->idIns(ins);
-    id->idReg1(targetReg);
-    id->idReg2(op1Reg);
+    id->idReg1(reg1);
+    id->idReg2(reg2);
 
     SetInstrAddrMode(id, IF_RWR_RRD_ARD_RRD, ins, addr);
 
@@ -3813,23 +3828,19 @@ void emitter::emitIns_R_R_A_R(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_C_R(instruction          ins,
-                              emitAttr             attr,
-                              regNumber            targetReg,
-                              regNumber            op1Reg,
-                              regNumber            op3Reg,
-                              CORINFO_FIELD_HANDLE fldHnd)
+void emitter::emitIns_R_R_C_R(
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, CORINFO_FIELD_HANDLE field)
 {
     assert(isAvxBlendv(ins));
     assert(UseVEXEncoding());
-    assert(FieldDispRequiresRelocation(fldHnd));
+    assert(FieldDispRequiresRelocation(field));
 
-    instrDesc* id = emitNewInstrCnsDsp(attr, EncodeXmmRegAsImm(op3Reg), 0);
+    instrDesc* id = emitNewInstrCnsDsp(attr, EncodeXmmRegAsImm(reg3), 0);
     id->idIns(ins);
-    id->idReg1(targetReg);
-    id->idReg2(op1Reg);
+    id->idReg1(reg1);
+    id->idReg2(reg2);
     id->idInsFmt(IF_RWR_RRD_MRD_RRD);
-    id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + 1;
@@ -3839,15 +3850,15 @@ void emitter::emitIns_R_R_C_R(instruction          ins,
 }
 
 void emitter::emitIns_R_R_S_R(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, int varx, int offs)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int varx, int offs)
 {
     assert(isAvxBlendv(ins));
     assert(UseVEXEncoding());
 
-    instrDesc* id = emitNewInstrCns(attr, EncodeXmmRegAsImm(op3Reg));
+    instrDesc* id = emitNewInstrCns(attr, EncodeXmmRegAsImm(reg3));
     id->idIns(ins);
-    id->idReg1(targetReg);
-    id->idReg2(op1Reg);
+    id->idReg1(reg1);
+    id->idReg2(reg2);
     id->idInsFmt(IF_RWR_RRD_SRD_RRD);
     SetInstrLclAddrMode(id, varx, offs);
 
@@ -3858,18 +3869,18 @@ void emitter::emitIns_R_R_S_R(
 }
 
 void emitter::emitIns_R_R_R_R(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber reg1, regNumber reg2, regNumber reg3)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, regNumber reg4)
 {
     assert(isAvxBlendv(ins));
     assert(UseVEXEncoding());
 
-    instrDesc* id = emitNewInstrCns(attr, EncodeXmmRegAsImm(reg3));
+    instrDesc* id = emitNewInstrCns(attr, EncodeXmmRegAsImm(reg4));
     id->idIns(ins);
     id->idInsFmt(IF_RWR_RRD_RRD_RRD);
-    id->idReg1(targetReg);
-    id->idReg2(reg1);
-    id->idReg3(reg2);
-    id->idReg4(reg3);
+    id->idReg1(reg1);
+    id->idReg2(reg2);
+    id->idReg3(reg3);
+    id->idReg4(reg4);
 
     unsigned sz = emitInsSizeRR(id, insCodeRM(ins)) + 1;
     id->idCodeSize(sz);
@@ -3878,34 +3889,16 @@ void emitter::emitIns_R_R_R_R(
     emitCurIGsize += sz;
 }
 
-#ifdef WINDOWS_X86_ABI
-void emitter::emitInsMov_R_FS(regNumber reg, int offs)
+void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE field)
 {
-    assert(genIsValidIntReg(reg));
-
-    instrDesc* id = emitNewInstrDsp(EA_4BYTE, offs);
-    id->idIns(INS_mov);
-    id->idInsFmt(emitInsModeFormat(INS_mov, IF_RRD_MRD));
-    id->idReg1(reg);
-    id->idAddr()->iiaFieldHnd = FS_SEG_FIELD;
-
-    unsigned sz = 1 + ((reg == REG_EAX) ? 4 : emitInsSizeCV(id, insCodeRM(INS_mov)));
-    id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-#endif // WINDOWS_X86_ABI
-
-void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd)
-{
-    assert(FieldDispRequiresRelocation(fldHnd));
+    assert(FieldDispRequiresRelocation(field));
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
     instrDesc* id = emitNewInstrDsp(attr, 0);
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_MRD));
     id->idReg1(reg);
-    id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
 
     unsigned sz;
@@ -3930,9 +3923,9 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, regNumber reg)
+void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg)
 {
-    assert(FieldDispRequiresRelocation(fldHnd));
+    assert(FieldDispRequiresRelocation(field));
 
     emitAttr size = EA_SIZE(attr);
 
@@ -3980,17 +3973,17 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
 
     id->idCodeSize(sz);
 
-    id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
 
     dispIns(id);
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int32_t imm)
+void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
-    assert(FieldDispRequiresRelocation(fldHnd));
+    assert(FieldDispRequiresRelocation(field));
 
     if (IsShiftImm(ins))
     {
@@ -4001,7 +3994,7 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD_CNS));
-    id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
 
     unsigned sz = emitInsSizeCV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
@@ -4097,7 +4090,6 @@ void emitter::emitIns_AR_R(instruction ins, emitAttr attr, regNumber reg, regNum
 
 void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs, regNumber reg, int32_t imm)
 {
-    // This is only used for INS_vextracti128 and INS_vextractf128, and for these 'ival' must be 0 or 1.
     assert(ins == INS_vextracti128 || ins == INS_vextractf128);
     assert((imm == 0) || (imm == 1));
 
@@ -4229,160 +4221,156 @@ void emitter::emitIns_ARX_R(
 #endif
 }
 
-void emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, int ival)
+void emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int32_t imm)
 {
     if (UseVEXEncoding() || IsDstSrcImmAvxInstruction(ins))
     {
-        emitIns_R_R_I(ins, attr, targetReg, op1Reg, ival);
+        emitIns_R_R_I(ins, attr, reg1, reg2, imm);
     }
     else
     {
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_I(ins, attr, targetReg, ival);
+        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_R_I(ins, attr, reg1, imm);
     }
 }
 
-void emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTree* addr)
+void emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr)
 {
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
-        emitIns_SIMD_R_R_C(ins, attr, targetReg, op1Reg, clsAddr->GetFieldHandle());
+        emitIns_SIMD_R_R_C(ins, attr, reg1, reg2, clsAddr->GetFieldHandle());
     }
     else if (UseVEXEncoding())
     {
-        emitIns_R_R_A(ins, attr, targetReg, op1Reg, addr);
+        emitIns_R_R_A(ins, attr, reg1, reg2, addr);
     }
     else
     {
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_RRW_A(ins, attr, targetReg, addr);
+        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_RRW_A(ins, attr, reg1, addr);
     }
 }
 
 void emitter::emitIns_SIMD_R_R_C(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, CORINFO_FIELD_HANDLE fldHnd)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_C(ins, attr, targetReg, op1Reg, fldHnd);
+        emitIns_R_R_C(ins, attr, reg1, reg2, field);
     }
     else
     {
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_C(ins, attr, targetReg, fldHnd);
+        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_R_C(ins, attr, reg1, field);
     }
 }
 
-void emitter::emitIns_SIMD_R_R_R(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg)
+void emitter::emitIns_SIMD_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_R(ins, attr, targetReg, op1Reg, op2Reg);
+        emitIns_R_R_R(ins, attr, reg1, reg2, reg3);
     }
     else
     {
         // Ensure we aren't overwriting op2
-        assert((op2Reg != targetReg) || (op1Reg == targetReg));
+        assert((reg3 != reg1) || (reg2 == reg1));
 
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
+        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
 
         if (IsMovInstruction(ins))
         {
-            emitIns_Mov(ins, attr, targetReg, op2Reg, /* canSkip */ false);
+            emitIns_Mov(ins, attr, reg1, reg3, /* canSkip */ false);
         }
         else
         {
-            emitIns_R_R(ins, attr, targetReg, op2Reg);
+            emitIns_R_R(ins, attr, reg1, reg3);
         }
     }
 }
 
-void emitter::emitIns_SIMD_R_R_S(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, int varx, int offs)
+void emitter::emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_S(ins, attr, targetReg, op1Reg, varx, offs);
+        emitIns_R_R_S(ins, attr, reg1, reg2, varx, offs);
     }
     else
     {
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_S(ins, attr, targetReg, varx, offs);
+        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_R_S(ins, attr, reg1, varx, offs);
     }
 }
 
-#ifdef FEATURE_HW_INTRINSICS
-
 void emitter::emitIns_SIMD_R_R_A_I(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTree* addr, int imm)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int32_t imm)
 {
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
-        emitIns_SIMD_R_R_C_I(ins, attr, targetReg, op1Reg, clsAddr->GetFieldHandle(), imm);
+        emitIns_SIMD_R_R_C_I(ins, attr, reg1, reg2, clsAddr->GetFieldHandle(), imm);
     }
     else if (UseVEXEncoding())
     {
-        emitIns_R_R_A_I(ins, attr, targetReg, op1Reg, addr, imm, IF_RWR_RRD_ARD_CNS);
+        emitIns_R_R_A_I(ins, attr, reg1, reg2, addr, imm, IF_RWR_RRD_ARD_CNS);
     }
     else
     {
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_A_I(ins, attr, targetReg, addr, imm);
+        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_R_A_I(ins, attr, reg1, addr, imm);
     }
 }
 
 void emitter::emitIns_SIMD_R_R_C_I(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, CORINFO_FIELD_HANDLE fldHnd, int imm)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field, int32_t imm)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_C_I(ins, attr, targetReg, op1Reg, fldHnd, imm);
+        emitIns_R_R_C_I(ins, attr, reg1, reg2, field, imm);
     }
     else
     {
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_C_I(ins, attr, targetReg, fldHnd, imm);
+        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_R_C_I(ins, attr, reg1, field, imm);
     }
 }
 
 void emitter::emitIns_SIMD_R_R_R_I(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, int ival)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int32_t imm)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_R_I(ins, attr, targetReg, op1Reg, op2Reg, ival);
+        emitIns_R_R_R_I(ins, attr, reg1, reg2, reg3, imm);
     }
     else
     {
         // Ensure we aren't overwriting op2
-        assert((op2Reg != targetReg) || (op1Reg == targetReg));
+        assert((reg3 != reg1) || (reg2 == reg1));
 
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_R_I(ins, attr, targetReg, op2Reg, ival);
+        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_R_R_I(ins, attr, reg1, reg3, imm);
     }
 }
 
 void emitter::emitIns_SIMD_R_R_S_I(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, int varx, int offs, int ival)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs, int32_t imm)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_S_I(ins, attr, targetReg, op1Reg, varx, offs, ival);
+        emitIns_R_R_S_I(ins, attr, reg1, reg2, varx, offs, imm);
     }
     else
     {
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_S_I(ins, attr, targetReg, varx, offs, ival);
+        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_R_S_I(ins, attr, reg1, varx, offs, imm);
     }
 }
 
 void emitter::emitIns_SIMD_R_R_R_A(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, GenTree* addr)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr)
 {
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
-        emitIns_SIMD_R_R_R_C(ins, attr, targetReg, op1Reg, op2Reg, clsAddr->GetFieldHandle());
+        emitIns_SIMD_R_R_R_C(ins, attr, reg1, reg2, reg3, clsAddr->GetFieldHandle());
         return;
     }
 
@@ -4390,42 +4378,38 @@ void emitter::emitIns_SIMD_R_R_R_A(
     assert(UseVEXEncoding());
 
     // Ensure we aren't overwriting op2
-    assert((op2Reg != targetReg) || (op1Reg == targetReg));
+    assert((reg3 != reg1) || (reg2 == reg1));
 
-    emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-    emitIns_R_R_A(ins, attr, targetReg, op2Reg, addr);
+    emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+    emitIns_R_R_A(ins, attr, reg1, reg3, addr);
 }
 
-void emitter::emitIns_SIMD_R_R_R_C(instruction          ins,
-                                   emitAttr             attr,
-                                   regNumber            targetReg,
-                                   regNumber            op1Reg,
-                                   regNumber            op2Reg,
-                                   CORINFO_FIELD_HANDLE fldHnd)
+void emitter::emitIns_SIMD_R_R_R_C(
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, CORINFO_FIELD_HANDLE field)
 {
     assert(IsFMAInstruction(ins));
     assert(UseVEXEncoding());
 
     // Ensure we aren't overwriting op2
-    assert((op2Reg != targetReg) || (op1Reg == targetReg));
+    assert((reg3 != reg1) || (reg2 == reg1));
 
-    emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-    emitIns_R_R_C(ins, attr, targetReg, op2Reg, fldHnd);
+    emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+    emitIns_R_R_C(ins, attr, reg1, reg3, field);
 }
 
 void emitter::emitIns_SIMD_R_R_R_R(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, regNumber op3Reg)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, regNumber reg4)
 {
     if (IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins))
     {
         assert(UseVEXEncoding());
 
         // Ensure we aren't overwriting op2 or op3
-        assert((op2Reg != targetReg) || (op1Reg == targetReg));
-        assert((op3Reg != targetReg) || (op1Reg == targetReg));
+        assert((reg3 != reg1) || (reg2 == reg1));
+        assert((reg4 != reg1) || (reg2 == reg1));
 
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_R_R(ins, attr, targetReg, op2Reg, op3Reg);
+        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_R_R_R(ins, attr, reg1, reg3, reg4);
     }
     else if (UseVEXEncoding())
     {
@@ -4445,47 +4429,47 @@ void emitter::emitIns_SIMD_R_R_R_R(
             default:
                 break;
         }
-        emitIns_R_R_R_R(ins, attr, targetReg, op1Reg, op2Reg, op3Reg);
+        emitIns_R_R_R_R(ins, attr, reg1, reg2, reg3, reg4);
     }
     else
     {
         assert(isSse41Blendv(ins));
 
         // Ensure we aren't overwriting op1 or op2
-        assert((op1Reg != REG_XMM0) || (op3Reg == REG_XMM0));
-        assert((op2Reg != REG_XMM0) || (op3Reg == REG_XMM0));
+        assert((reg2 != REG_XMM0) || (reg4 == REG_XMM0));
+        assert((reg3 != REG_XMM0) || (reg4 == REG_XMM0));
 
         // SSE4.1 blendv* hardcode the mask vector (op3) in XMM0
-        emitIns_Mov(INS_movaps, attr, REG_XMM0, op3Reg, /* canSkip */ true);
+        emitIns_Mov(INS_movaps, attr, REG_XMM0, reg4, /* canSkip */ true);
 
         // Ensure we aren't overwriting op2 or oop3 (which should be REG_XMM0)
-        assert((op2Reg != targetReg) || (op1Reg == targetReg));
-        assert(targetReg != REG_XMM0);
+        assert((reg3 != reg1) || (reg2 == reg1));
+        assert(reg1 != REG_XMM0);
 
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_R(ins, attr, targetReg, op2Reg);
+        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_R_R(ins, attr, reg1, reg3);
     }
 }
 
 void emitter::emitIns_SIMD_R_R_R_S(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, int varx, int offs)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int varx, int offs)
 {
     assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
     assert(UseVEXEncoding());
 
     // Ensure we aren't overwriting op2
-    assert((op2Reg != targetReg) || (op1Reg == targetReg));
+    assert((reg3 != reg1) || (reg2 == reg1));
 
-    emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-    emitIns_R_R_S(ins, attr, targetReg, op2Reg, varx, offs);
+    emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+    emitIns_R_R_S(ins, attr, reg1, reg3, varx, offs);
 }
 
 void emitter::emitIns_SIMD_R_R_A_R(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, GenTree* addr)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr)
 {
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
-        emitIns_SIMD_R_R_C_R(ins, attr, targetReg, op1Reg, op3Reg, clsAddr->GetFieldHandle());
+        emitIns_SIMD_R_R_C_R(ins, attr, reg1, reg2, reg3, clsAddr->GetFieldHandle());
     }
     else if (UseVEXEncoding())
     {
@@ -4506,32 +4490,28 @@ void emitter::emitIns_SIMD_R_R_A_R(
                 break;
         }
 
-        emitIns_R_R_A_R(ins, attr, targetReg, op1Reg, op3Reg, addr);
+        emitIns_R_R_A_R(ins, attr, reg1, reg2, reg3, addr);
     }
     else
     {
         assert(isSse41Blendv(ins));
 
         // Ensure we aren't overwriting op1
-        assert(op1Reg != REG_XMM0);
+        assert(reg2 != REG_XMM0);
 
         // SSE4.1 blendv* hardcode the mask vector (op3) in XMM0
-        emitIns_Mov(INS_movaps, attr, REG_XMM0, op3Reg, /* canSkip */ true);
+        emitIns_Mov(INS_movaps, attr, REG_XMM0, reg3, /* canSkip */ true);
 
         // Ensure we aren't overwriting op3 (which should be REG_XMM0)
-        assert(targetReg != REG_XMM0);
+        assert(reg1 != REG_XMM0);
 
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_RRW_A(ins, attr, targetReg, addr);
+        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_RRW_A(ins, attr, reg1, addr);
     }
 }
 
-void emitter::emitIns_SIMD_R_R_C_R(instruction          ins,
-                                   emitAttr             attr,
-                                   regNumber            targetReg,
-                                   regNumber            op1Reg,
-                                   regNumber            op3Reg,
-                                   CORINFO_FIELD_HANDLE fldHnd)
+void emitter::emitIns_SIMD_R_R_C_R(
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, CORINFO_FIELD_HANDLE field)
 {
     if (UseVEXEncoding())
     {
@@ -4552,28 +4532,28 @@ void emitter::emitIns_SIMD_R_R_C_R(instruction          ins,
                 break;
         }
 
-        emitIns_R_R_C_R(ins, attr, targetReg, op1Reg, op3Reg, fldHnd);
+        emitIns_R_R_C_R(ins, attr, reg1, reg2, reg3, field);
     }
     else
     {
         assert(isSse41Blendv(ins));
 
         // Ensure we aren't overwriting op1
-        assert(op1Reg != REG_XMM0);
+        assert(reg2 != REG_XMM0);
 
         // SSE4.1 blendv* hardcode the mask vector (op3) in XMM0
-        emitIns_Mov(INS_movaps, attr, REG_XMM0, op3Reg, /* canSkip */ true);
+        emitIns_Mov(INS_movaps, attr, REG_XMM0, reg3, /* canSkip */ true);
 
         // Ensure we aren't overwriting op3 (which should be REG_XMM0)
-        assert(targetReg != REG_XMM0);
+        assert(reg1 != REG_XMM0);
 
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_C(ins, attr, targetReg, fldHnd);
+        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_R_C(ins, attr, reg1, field);
     }
 }
 
 void emitter::emitIns_SIMD_R_R_S_R(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, int varx, int offs)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int varx, int offs)
 {
     if (UseVEXEncoding())
     {
@@ -4606,26 +4586,25 @@ void emitter::emitIns_SIMD_R_R_S_R(
             }
         }
 
-        emitIns_R_R_S_R(ins, attr, targetReg, op1Reg, op3Reg, varx, offs);
+        emitIns_R_R_S_R(ins, attr, reg1, reg2, reg3, varx, offs);
     }
     else
     {
         assert(isSse41Blendv(ins));
 
         // Ensure we aren't overwriting op1
-        assert(op1Reg != REG_XMM0);
+        assert(reg2 != REG_XMM0);
 
         // SSE4.1 blendv* hardcode the mask vector (op3) in XMM0
-        emitIns_Mov(INS_movaps, attr, REG_XMM0, op3Reg, /* canSkip */ true);
+        emitIns_Mov(INS_movaps, attr, REG_XMM0, reg3, /* canSkip */ true);
 
         // Ensure we aren't overwriting op3 (which should be REG_XMM0)
-        assert(targetReg != REG_XMM0);
+        assert(reg1 != REG_XMM0);
 
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_S(ins, attr, targetReg, varx, offs);
+        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_R_S(ins, attr, reg1, varx, offs);
     }
 }
-#endif // FEATURE_HW_INTRINSICS
 
 void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
 {
@@ -4643,19 +4622,19 @@ void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
 #endif
 }
 
-void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs)
+void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int varx, int offs)
 {
 #ifdef TARGET_X86
     if (attr == EA_1BYTE)
     {
-        assert(isByteReg(ireg));
+        assert(isByteReg(reg));
     }
 #endif
 
     instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD_RRD));
-    id->idReg1(ireg);
+    id->idReg1(reg);
     SetInstrLclAddrMode(id, varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeMR(ins));
@@ -4664,14 +4643,14 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int va
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs)
+void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int varx, int offs)
 {
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), ireg));
+    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
     instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_SRD));
-    id->idReg1(ireg);
+    id->idReg1(reg);
     SetInstrLclAddrMode(id, varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins));
@@ -5340,11 +5319,11 @@ const char* emitter::emitRegName(regNumber reg, emitAttr attr)
 
 void emitter::emitDispClsVar(instrDesc* id)
 {
-    CORINFO_FIELD_HANDLE fldHnd = id->idAddr()->iiaFieldHnd;
-    ssize_t              offs   = emitGetInsMemDisp(id);
+    CORINFO_FIELD_HANDLE field = id->idAddr()->iiaFieldHnd;
+    ssize_t              offs  = emitGetInsMemDisp(id);
 
 #ifdef WINDOWS_X86_ABI
-    if (fldHnd == FS_SEG_FIELD)
+    if (field == FS_SEG_FIELD)
     {
         printf("fs:[0x%04X]", offs);
         return;
@@ -5358,13 +5337,13 @@ void emitter::emitDispClsVar(instrDesc* id)
         printf("reloc ");
     }
 
-    if (IsRoDataField(fldHnd))
+    if (IsRoDataField(field))
     {
-        printf("@RWD%02u", GetRoDataOffset(fldHnd));
+        printf("@RWD%02u", GetRoDataOffset(field));
     }
     else
     {
-        printf("classVar[%#x]", emitComp->dspPtr(fldHnd));
+        printf("classVar[%#x]", emitComp->dspPtr(field));
     }
 
     if (offs != 0)
