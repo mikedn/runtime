@@ -9014,11 +9014,10 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 {
-    emitAttr    size    = id->idOpSize();
-    instruction ins     = id->idIns();
-    regNumber   reg     = id->idReg1();
-    ssize_t     imm     = emitGetInsSC(id);
-    bool        hasImm8 = IsImm8(imm) && (ins != INS_mov) && (ins != INS_test) && !id->idIsCnsReloc();
+    emitAttr    size = id->idOpSize();
+    instruction ins  = id->idIns();
+    regNumber   reg  = id->idReg1();
+    ssize_t     imm  = emitGetInsSC(id);
 
     // BT reg,imm might be useful but it requires special handling of the immediate value
     // (it is always encoded in a byte). Let's not complicate things until this is needed.
@@ -9026,17 +9025,16 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 
     noway_assert(emitVerifyEncodable(ins, size, reg));
 
-    code_t code;
-
     if (IsSSEOrAVXInstruction(ins))
     {
         assert(id->idGCref() == GCT_NONE);
-        assert(hasImm8);
+        assert(IsImm8(imm));
 
         // The left and right shifts use the same encoding, and are distinguished by the Reg/Opcode field.
         unsigned regOpcode = GetSSEShiftOpcodeRMExt(ins);
 
-        code = insCodeMI(ins);
+        code_t code = insCodeMI(ins);
+
         code = AddVexPrefixIfNeeded(ins, code, size);
         code = insEncodeMIreg(ins, reg, size, code);
 
@@ -9077,7 +9075,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
         // TODO-MIKE-Cleanup: 0xB8 could go into the RR encoding table. But there
         // is little point in doing that since we need to special case this anyway.
         // Or perhaps there's a way to avoid this special casing?
-        code = 0xB8;
+        code_t code = 0xB8;
         code |= insEncodeReg012(ins, reg, size, &code);
 
         assert(!TakesVexPrefix(ins));
@@ -9137,7 +9135,8 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
     {
         assert(!TakesVexPrefix(ins));
 
-        code = insCodeMI(ins);
+        code_t code = insCodeMI(ins);
+
         code = insEncodeRMreg(ins, id->idReg1(), size, code);
 
         // set the W bit
@@ -9166,116 +9165,59 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
         return dst;
     }
 
-    // Decide which encoding is the shortest
-    bool useSigned, useACC;
+    // This has to be one of the instructions that have the special EAX,imm encodings.
+    assert(insCodeACC(ins) != BAD_CODE);
 
-    if (reg == REG_EAX)
-    {
-        if (size == EA_1BYTE || (ins == INS_test))
-        {
-            // For al, ACC encoding is always the smallest
-            useSigned = false;
-            useACC    = true;
-        }
-        else
-        {
-            // For ax/eax, we avoid ACC encoding for small constants as we
-            // can emit the small constant and have it sign-extended.
-            // For big constants, the ACC encoding is better as we can use
-            // the 1 byte opcode
+    size_t immSize = EA_SIZE_IN_BYTES(size);
+    bool   useImm8 = IsImm8(imm) && !id->idIsCnsReloc() && (size != EA_1BYTE) && (ins != INS_test);
+    bool   useACC  = (reg == REG_EAX) && !useImm8;
+    code_t code;
 
-            if (hasImm8)
-            {
-                // avoid using ACC encoding
-                useSigned = true;
-                useACC    = false;
-            }
-            else
-            {
-                useSigned = false;
-                useACC    = true;
-            }
-        }
-    }
-    else
-    {
-        useACC    = false;
-        useSigned = hasImm8;
-    }
-
-    // "test" has no 's' bit
-    if (ins == INS_test)
-    {
-        useSigned = false;
-    }
-
-    // Get the 'base' opcode
     if (useACC)
     {
-        assert(!useSigned);
         code = insCodeACC(ins);
     }
     else
     {
-        assert(!useSigned || hasImm8);
-
         code = insCodeMI(ins);
-        code = AddVexPrefixIfNeeded(ins, code, size);
         code = insEncodeMIreg(ins, reg, size, code);
+
+        if (useImm8)
+        {
+            code |= 0x2; // Set the 's' bit to use a sign-extended immediate byte.
+            immSize = 1;
+        }
     }
 
-    switch (size)
+    if (size != EA_1BYTE)
     {
-        case EA_1BYTE:
-            break;
+        // Set the 'w' bit
+        code |= 0x1;
 
-        case EA_2BYTE:
+        if (size == EA_2BYTE)
+        {
             dst += emitOutputByte(dst, 0x66);
-            FALLTHROUGH;
-        case EA_4BYTE:
-            // Set the 'w' bit to get the large version
-            code |= 0x1;
-            break;
-
+        }
 #ifdef TARGET_AMD64
-        case EA_8BYTE:
-            // Set the 'w' bit to get the large version
-            // and the REX.W bit to get the really large version
+        else if (size == EA_8BYTE)
+        {
             code = AddRexWPrefix(ins, code);
-            code = AddRexWPrefix(ins, code);
-            code |= 0x1;
-            break;
+        }
 #endif
-
-        default:
-            assert(!"unexpected size");
     }
 
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
-    // Does the value fit in a sign-extended byte?
-    // Important! Only set the 's' bit when we have a size larger than EA_1BYTE.
-    // Note: A sign-extending immediate when (size == EA_1BYTE) is invalid in 64-bit mode.
-
-    if (useSigned && (size > EA_1BYTE))
+    if (useACC)
     {
-        code |= 0x2; // Set the 's' bit to use a sign-extended immediate byte.
-        dst += emitOutputWord(dst, code);
-        dst += emitOutputByte(dst, imm);
+        dst += emitOutputByte(dst, code);
     }
     else
     {
-        if (useACC)
-        {
-            dst += emitOutputByte(dst, code);
-        }
-        else
-        {
-            dst += emitOutputWord(dst, code);
-        }
-
-        dst += emitOutputImm(dst, id, EA_SIZE_IN_BYTES(size), imm);
+        dst += emitOutputWord(dst, code);
     }
+
+    dst += emitOutputImm(dst, id, immSize, imm);
 
     if (id->idGCref())
     {
