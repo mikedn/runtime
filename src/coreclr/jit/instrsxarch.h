@@ -64,8 +64,8 @@ INST5(pop,              "pop",              IUM_WR, 0x008E,       BAD_CODE,     
 // Does not affect the stack tracking in the emitter
 INST5(push_hide,        "push",             IUM_RD, 0x30FE,       0x68,         BAD_CODE,     BAD_CODE,     0x50,        INS_FLAGS_None )
 INST5(pop_hide,         "pop",              IUM_WR, 0x008E,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0x58,        INS_FLAGS_None )
-INST5(inc,              "inc",              IUM_RW, 0x00FE,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0xC0FE,      Writes_OF      | Writes_SF     | Writes_ZF     | Writes_AF     | Writes_PF )
-INST5(dec,              "dec",              IUM_RW, 0x08FE,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0xC8FE,      Writes_OF      | Writes_SF     | Writes_ZF     | Writes_AF     | Writes_PF )
+INST5(inc,              "inc",              IUM_RW, 0x00FE,       BAD_CODE,     BAD_CODE,     BAD_CODE,     BAD_CODE,    Writes_OF      | Writes_SF     | Writes_ZF     | Writes_AF     | Writes_PF )
+INST5(dec,              "dec",              IUM_RW, 0x08FE,       BAD_CODE,     BAD_CODE,     BAD_CODE,     BAD_CODE,    Writes_OF      | Writes_SF     | Writes_ZF     | Writes_AF     | Writes_PF )
 #ifdef TARGET_X86
 INST5(inc_s,            "inc",              IUM_RW, 0x00FE,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0x40,        Writes_OF      | Writes_SF     | Writes_ZF     | Writes_AF     | Writes_PF )
 INST5(dec_s,            "dec",              IUM_RW, 0x08FE,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0x48,        Writes_OF      | Writes_SF     | Writes_ZF     | Writes_AF     | Writes_PF )

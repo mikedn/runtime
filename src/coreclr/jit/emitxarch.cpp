@@ -8475,7 +8475,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             }
 #endif
 
-            code = insCodeRR(ins);
+            code = insCodeMR(ins) | 0xC000;
 
             if (size != EA_1BYTE)
             {
