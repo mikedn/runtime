@@ -2180,9 +2180,9 @@ UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code)
                 !isFloatReg(rgx))
             {
                 // Swap reg and rgx, such that reg is not EBP/R13.
-                regNumber tmp                       = reg;
-                id->idAddr()->iiaAddrMode.amBaseReg = reg = rgx;
-                id->idAddr()->iiaAddrMode.amIndxReg = rgx = tmp;
+                std::swap(reg, rgx);
+                id->idAddr()->iiaAddrMode.amBaseReg = reg;
+                id->idAddr()->iiaAddrMode.amIndxReg = rgx;
             }
 
             if (!dspIsZero || baseRegisterRequiresDisplacement(reg))
