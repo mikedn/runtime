@@ -301,9 +301,8 @@ unsigned insEncodeReg012(instruction ins, regNumber reg, emitAttr size, code_t* 
 unsigned insEncodeReg345(instruction ins, regNumber reg, emitAttr size, code_t* code);
 code_t insEncodeReg3456(instruction ins, regNumber reg, emitAttr size, code_t code);
 
-code_t insEncodeMRreg(instruction ins, code_t code);
 code_t insEncodeRMreg(instruction ins, code_t code);
-code_t insEncodeMRreg(instruction ins, regNumber reg, emitAttr size, code_t code);
+code_t insEncodeRMreg(instruction ins, regNumber reg, emitAttr size, code_t code);
 
 bool IsAVXInstruction(instruction ins) const;
 code_t insEncodeMIreg(instruction ins, regNumber reg, emitAttr size, code_t code);

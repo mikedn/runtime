@@ -1731,24 +1731,6 @@ emitter::code_t emitter::insEncodeReg3456(instruction ins, regNumber reg, emitAt
  *  Returns the "[r/m]" opcode with the mod/RM field set to register.
  */
 
-emitter::code_t emitter::insEncodeMRreg(instruction ins, code_t code)
-{
-    // If Byte 4 (which is 0xFF00) is 0, that's where the RM encoding goes.
-    // Otherwise, it will be placed after the 4 byte encoding.
-    if ((code & 0xFF00) == 0)
-    {
-        assert((code & 0xC000) == 0);
-        code |= 0xC000;
-    }
-
-    return code;
-}
-
-/*****************************************************************************
- *
- *  Returns the given "[r/m]" opcode with the mod/RM field set to register.
- */
-
 emitter::code_t emitter::insEncodeRMreg(instruction ins, code_t code)
 {
     // If Byte 4 (which is 0xFF00) is 0, that's where the RM encoding goes.
@@ -1758,6 +1740,7 @@ emitter::code_t emitter::insEncodeRMreg(instruction ins, code_t code)
         assert((code & 0xC000) == 0);
         code |= 0xC000;
     }
+
     return code;
 }
 
@@ -1767,7 +1750,7 @@ emitter::code_t emitter::insEncodeRMreg(instruction ins, code_t code)
  *  the given register.
  */
 
-emitter::code_t emitter::insEncodeMRreg(instruction ins, regNumber reg, emitAttr size, code_t code)
+emitter::code_t emitter::insEncodeRMreg(instruction ins, regNumber reg, emitAttr size, code_t code)
 {
     assert((code & 0xC000) == 0);
     code |= 0xC000;
@@ -3170,13 +3153,13 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     {
         static_assert_no_msg(INS_seto + 0xF == INS_setg);
         assert(attr == EA_1BYTE);
-        assert(insEncodeMRreg(ins, reg, attr, insCodeMR(ins)) & 0x00FF0000);
+        assert(insEncodeRMreg(ins, reg, attr, insCodeMR(ins)) & 0x00FF0000);
 
         sz = 3;
     }
 
     // Vex bytes
-    sz += emitGetAdjustedSize(ins, attr, insEncodeMRreg(ins, reg, attr, insCodeMR(ins)));
+    sz += emitGetAdjustedSize(ins, attr, insEncodeRMreg(ins, reg, attr, insCodeMR(ins)));
 
     // REX byte
     if (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, attr))
@@ -8396,7 +8379,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
         code_t code;
 
         case INS_call:
-            code = insEncodeMRreg(INS_call, reg, EA_PTRSIZE, insCodeMR(INS_call));
+            code = insEncodeRMreg(INS_call, reg, EA_PTRSIZE, insCodeMR(INS_call));
             dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
             dst += emitOutputWord(dst, code);
             // Calls use a different mechanism to update GC info so we can skip the normal handling.
@@ -8496,7 +8479,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             assert(id->idGCref() == GCT_NONE);
             assert(size == EA_1BYTE);
 
-            code = insEncodeMRreg(ins, reg, EA_1BYTE, insCodeMR(ins));
+            code = insEncodeRMreg(ins, reg, EA_1BYTE, insCodeMR(ins));
             assert(code & 0x00FF0000);
             dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
             dst += emitOutputByte(dst, code >> 16);
@@ -8511,7 +8494,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
         default:
             assert(id->idGCref() == GCT_NONE);
 
-            code = insEncodeMRreg(ins, reg, size, insCodeMR(ins));
+            code = insEncodeRMreg(ins, reg, size, insCodeMR(ins));
 
             if (size != EA_1BYTE)
             {
@@ -8662,7 +8645,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         assert(size != EA_1BYTE);
 
         code = insCodeMR(ins);
-        code = insEncodeMRreg(ins, code);
+        code = insEncodeRMreg(ins, code);
 
         // TODO-MIKE-Cleanup: There should be no need to generate a 16 bit bt.
         if (size == EA_2BYTE)
@@ -8708,7 +8691,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         assert(!TakesVexPrefix(ins));
 
         code = insCodeMR(ins);
-        code = insEncodeMRreg(ins, code);
+        code = insEncodeRMreg(ins, code);
 
         if (ins != INS_test)
         {
@@ -9158,7 +9141,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
         assert(!TakesVexPrefix(ins));
 
         code = insCodeMI(ins);
-        code = insEncodeMRreg(ins, id->idReg1(), size, code);
+        code = insEncodeRMreg(ins, id->idReg1(), size, code);
 
         // set the W bit
         if (size != EA_1BYTE)
@@ -10015,7 +9998,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 code = insCodeMR(ins);
                 // Emit the VEX prefix if it exists
                 code = AddVexPrefixIfNeeded(ins, code, size);
-                code = insEncodeMRreg(ins, code);
+                code = insEncodeRMreg(ins, code);
                 mReg = id->idReg1();
                 rReg = id->idReg2();
             }
