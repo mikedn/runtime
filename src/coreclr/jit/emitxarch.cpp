@@ -2107,11 +2107,10 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
     return size + emitInsSize(code, includeRexPrefixSize);
 }
 
-unsigned emitter::emitInsSizeImm(instrDesc* id, int32_t imm)
+static unsigned emitInsSizeImm(instruction ins, emitAttr attr, int32_t imm)
 {
-    instruction ins     = id->idIns();
-    unsigned    immSize = EA_SIZE_IN_BYTES(id->idOpSize());
-    bool        hasImm8 = ((signed char)imm == imm) && (ins != INS_mov) && (ins != INS_test) && !id->idIsCnsReloc();
+    unsigned immSize = EA_SIZE_IN_BYTES(attr);
+    bool     hasImm8 = ((signed char)imm == imm) && (ins != INS_mov) && (ins != INS_test) && !EA_IS_CNS_RELOC(attr);
 
     // We should never generate BT mem,reg because it has poor performance. BT mem,imm might be useful
     // but it requires special handling of the immediate value (it is always encoded in a byte).
@@ -2120,19 +2119,12 @@ unsigned emitter::emitInsSizeImm(instrDesc* id, int32_t imm)
 
     if (hasImm8)
     {
-        immSize = 1;
-    }
-    else
-    {
-        assert(!IsSSEOrAVXInstruction(ins));
-
-        if (immSize > 4)
-        {
-            immSize = 4;
-        }
+        return 1;
     }
 
-    return immSize;
+    assert(!IsSSEOrAVXInstruction(ins));
+
+    return Min(immSize, 4u);
 }
 
 emitter::instrDescDsp* emitter::emitAllocInstrDsp(emitAttr attr)
@@ -2703,7 +2695,7 @@ void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t
     id->idIns(ins);
     SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD_CNS), ins, addr);
 
-    unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(id, imm);
+    unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -2761,7 +2753,7 @@ void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int3
     SetInstrAddrMode(id, IF_ARW_CNS, ins, addr);
     id->idIns(ins);
 
-    unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(id, imm);
+    unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3412,7 +3404,7 @@ void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regN
             break;
     }
 
-    unsigned sz = emitInsSizeRR(id, code) + emitInsSizeImm(id, imm);
+    unsigned sz = emitInsSizeRR(id, code) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3521,7 +3513,7 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
     id->idReg1(reg1);
     SetInstrAddrMode(id, IF_RRW_ARD_CNS, ins, addr);
 
-    unsigned sz = emitInsSizeAM(id, insCodeRM(ins)) + emitInsSizeImm(id, imm);
+    unsigned sz = emitInsSizeAM(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3541,7 +3533,7 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORI
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
-    unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + emitInsSizeImm(id, imm);
+    unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3559,7 +3551,7 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
     id->idReg1(reg1);
     SetInstrLclAddrMode(id, varx, offs);
 
-    unsigned sz = emitInsSizeSV(id, insCodeRM(ins)) + emitInsSizeImm(id, imm);
+    unsigned sz = emitInsSizeSV(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3696,7 +3688,7 @@ void emitter::emitIns_R_R_A_I(
 
     SetInstrAddrMode(id, fmt, ins, addr);
 
-    unsigned sz = emitInsSizeAM(id, insCodeRM(ins)) + emitInsSizeImm(id, imm);
+    unsigned sz = emitInsSizeAM(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3718,7 +3710,7 @@ void emitter::emitIns_R_R_C_I(
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
-    unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + emitInsSizeImm(id, imm);
+    unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3760,7 +3752,7 @@ void emitter::emitIns_R_R_R_I(
             break;
     }
 
-    unsigned sz = emitInsSizeRR(id, code) + emitInsSizeImm(id, imm);
+    unsigned sz = emitInsSizeRR(id, code) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3780,7 +3772,7 @@ void emitter::emitIns_R_R_S_I(
     id->idReg2(reg2);
     SetInstrLclAddrMode(id, varx, offs);
 
-    unsigned sz = emitInsSizeSV(id, insCodeRM(ins)) + emitInsSizeImm(id, imm);
+    unsigned sz = emitInsSizeSV(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4008,7 +4000,7 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
-    unsigned sz = emitInsSizeCV(id, insCodeMI(ins)) + emitInsSizeImm(id, imm);
+    unsigned sz = emitInsSizeCV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4062,7 +4054,7 @@ void emitter::emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int32
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
 
-    unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(id, imm);
+    unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4159,7 +4151,7 @@ void emitter::emitIns_ARX_I(
     id->idAddr()->iiaAddrMode.amIndxReg = index;
     id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(scale);
 
-    unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(id, imm);
+    unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4699,7 +4691,7 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD_CNS));
     SetInstrLclAddrMode(id, varx, offs);
 
-    unsigned sz = emitInsSizeSV(id, insCodeMI(ins)) + emitInsSizeImm(id, imm);
+    unsigned sz = emitInsSizeSV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;

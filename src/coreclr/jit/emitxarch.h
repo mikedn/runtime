@@ -257,8 +257,6 @@ unsigned emitInsSizeSV(instrDesc* id, code_t code);
 unsigned emitInsSizeAM(instrDesc* id, code_t code);
 unsigned emitInsSizeCV(instrDesc* id, code_t code);
 
-unsigned emitInsSizeImm(instrDesc* id, int32_t imm);
-
 size_t emitOutputByte(uint8_t* dst, ssize_t val);
 size_t emitOutputWord(uint8_t* dst, ssize_t val);
 size_t emitOutputLong(uint8_t* dst, ssize_t val);
