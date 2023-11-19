@@ -157,11 +157,9 @@ static unsigned GetBMIOpcodeRMExt(instruction ins)
             return 3;
         case INS_blsmsk:
             return 2;
-        case INS_blsr:
-            return 1;
         default:
-            assert(IsBMIInstruction(ins));
-            return 255;
+            assert(ins == INS_blsr);
+            return 1;
     }
 }
 
@@ -8741,7 +8739,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
     regNumber regFor012Bits = reg2;
     regNumber regFor345Bits = REG_NA;
 
-    if (IsBMIInstruction(ins))
+    if (IsBMIRegExtInstruction(ins))
     {
         regFor345Bits = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
     }
