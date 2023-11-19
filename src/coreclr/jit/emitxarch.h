@@ -250,16 +250,15 @@ ssize_t emitGetInsCallDisp(instrDesc* id);
 typedef uint64_t code_t;
 
 unsigned emitInsSize(code_t code, bool includeRexPrefixSize);
+
+unsigned emitInsSizeRR(instrDesc* id, code_t code);
+unsigned emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr);
 unsigned emitInsSizeSV_AM(instrDesc* id, code_t code);
 unsigned emitInsSizeSV(instrDesc* id, code_t code);
-unsigned emitInsSizeSV(instrDesc* id, code_t code, int32_t imm);
-unsigned emitInsSizeRR(instrDesc* id, code_t code);
-unsigned emitInsSizeRR(instrDesc* id, code_t code, int32_t imm);
-unsigned emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr);
 unsigned emitInsSizeAM(instrDesc* id, code_t code);
-unsigned emitInsSizeAM(instrDesc* id, code_t code, int32_t imm);
 unsigned emitInsSizeCV(instrDesc* id, code_t code);
-unsigned emitInsSizeCV(instrDesc* id, code_t code, int32_t imm);
+
+unsigned emitInsSizeImm(instrDesc* id, int32_t imm);
 
 size_t emitOutputByte(uint8_t* dst, ssize_t val);
 size_t emitOutputWord(uint8_t* dst, ssize_t val);
