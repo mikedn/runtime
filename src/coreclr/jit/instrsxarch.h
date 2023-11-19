@@ -532,7 +532,6 @@ INST3(popcnt,           "popcnt",           IUM_WR, BAD_CODE,     BAD_CODE,     
 
 //    id                nm                  um      mr            mi                                                     flags
 INST2(ret,              "ret",              IUM_RD, 0xC3,         0xC2,                                                  INS_FLAGS_None )
-INST2(loop,             "loop",             IUM_RD, BAD_CODE,     0xE2,                                                  INS_FLAGS_None )
 INST2(call,             "call",             IUM_RD, 0x10FF,       0xE8,                                                  INS_FLAGS_None )
 
 INST2(rol,              "rol",              IUM_RW, 0x00D2,       BAD_CODE,                                              Undefined_OF                                                                   | Writes_CF     )
@@ -599,8 +598,6 @@ INST1(idiv,             "idiv",             IUM_RD, 0x38F6,                     
 INST1(imulEAX,          "imul",             IUM_RD, 0x28F6,                                                              Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
 INST1(div,              "div",              IUM_RD, 0x30F6,                                                              Undefined_OF   | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Undefined_CF  )
 INST1(mulEAX,           "mul",              IUM_RD, 0x20F6,                                                              Writes_OF      | Undefined_SF  | Undefined_ZF  | Undefined_AF  | Undefined_PF  | Writes_CF     )
-
-INST1(sahf,             "sahf",             IUM_RD, 0x9E,                                                                Restore_SF_ZF_AF_PF_CF )
 
 INST1(xadd,             "xadd",             IUM_RW, PCKFLT(0xC0),                                                        Writes_OF      | Writes_SF     | Writes_ZF     | Writes_AF     | Writes_PF     | Writes_CF     )
 INST1(cmpxchg,          "cmpxchg",          IUM_RW, PCKFLT(0xB0),                                                        Writes_OF      | Writes_SF     | Writes_ZF     | Writes_AF     | Writes_PF     | Writes_CF     )

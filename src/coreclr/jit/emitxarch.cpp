@@ -226,30 +226,29 @@ enum insFlags : uint32_t
 {
     INS_FLAGS_None = 0,
 
-    Reads_OF               = 1 << 0,
-    Reads_SF               = 1 << 1,
-    Reads_ZF               = 1 << 2,
-    Reads_PF               = 1 << 3,
-    Reads_CF               = 1 << 4,
-    Reads_DF               = 1 << 5,
-    Writes_OF              = 1 << 6,
-    Writes_SF              = 1 << 7,
-    Writes_ZF              = 1 << 8,
-    Writes_AF              = 1 << 9,
-    Writes_PF              = 1 << 10,
-    Writes_CF              = 1 << 11,
-    Resets_OF              = 1 << 12,
-    Resets_SF              = 1 << 13,
-    Resets_AF              = 1 << 14,
-    Resets_PF              = 1 << 15,
-    Resets_CF              = 1 << 16,
-    Undefined_OF           = 1 << 17,
-    Undefined_SF           = 1 << 18,
-    Undefined_ZF           = 1 << 19,
-    Undefined_AF           = 1 << 20,
-    Undefined_PF           = 1 << 21,
-    Undefined_CF           = 1 << 22,
-    Restore_SF_ZF_AF_PF_CF = 1 << 23,
+    Reads_OF     = 1 << 0,
+    Reads_SF     = 1 << 1,
+    Reads_ZF     = 1 << 2,
+    Reads_PF     = 1 << 3,
+    Reads_CF     = 1 << 4,
+    Reads_DF     = 1 << 5,
+    Writes_OF    = 1 << 6,
+    Writes_SF    = 1 << 7,
+    Writes_ZF    = 1 << 8,
+    Writes_AF    = 1 << 9,
+    Writes_PF    = 1 << 10,
+    Writes_CF    = 1 << 11,
+    Resets_OF    = 1 << 12,
+    Resets_SF    = 1 << 13,
+    Resets_AF    = 1 << 14,
+    Resets_PF    = 1 << 15,
+    Resets_CF    = 1 << 16,
+    Undefined_OF = 1 << 17,
+    Undefined_SF = 1 << 18,
+    Undefined_ZF = 1 << 19,
+    Undefined_AF = 1 << 20,
+    Undefined_PF = 1 << 21,
+    Undefined_CF = 1 << 22,
 
     // Avx
     INS_Flags_IsDstDstSrcAVXInstruction = 1 << 25,
@@ -2706,20 +2705,12 @@ void emitter::emitIns(instruction ins)
     instrDesc*     id   = emitNewInstr();
     code_t         code = insCodeMR(ins);
 
-#ifdef DEBUG
-    {
-        // We cannot have #ifdef inside macro expansion.
-        bool assertCond =
-            (ins == INS_cdq || ins == INS_int3 || ins == INS_lock || ins == INS_leave || ins == INS_movsb ||
-             ins == INS_movsd || ins == INS_movsp || ins == INS_nop || ins == INS_r_movsb || ins == INS_r_movsd ||
-             ins == INS_r_movsp || ins == INS_r_stosb || ins == INS_r_stosd || ins == INS_r_stosp || ins == INS_ret ||
-             ins == INS_sahf || ins == INS_stosb || ins == INS_stosd || ins == INS_stosp
-             // These instructions take zero operands
-             || ins == INS_vzeroupper || ins == INS_lfence || ins == INS_mfence || ins == INS_sfence);
-
-        assert(assertCond);
-    }
-#endif // DEBUG
+    assert(ins == INS_cdq || ins == INS_int3 || ins == INS_lock || ins == INS_leave || ins == INS_movsb ||
+           ins == INS_movsd || ins == INS_movsp || ins == INS_nop || ins == INS_r_movsb || ins == INS_r_movsd ||
+           ins == INS_r_movsp || ins == INS_r_stosb || ins == INS_r_stosd || ins == INS_r_stosp || ins == INS_ret ||
+           ins == INS_stosb || ins == INS_stosd || ins == INS_stosp
+           // These instructions take zero operands
+           || ins == INS_vzeroupper || ins == INS_lfence || ins == INS_mfence || ins == INS_sfence);
 
     assert(!hasRexPrefix(code)); // Can't have a REX bit with no operands, right?
 
