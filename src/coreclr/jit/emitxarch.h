@@ -229,6 +229,10 @@ uint8_t* emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* id);
 uint8_t* emitOutputCall(uint8_t* dst, instrDesc* id);
 uint8_t* emitOutputNoOperands(uint8_t* dst, instrDesc* id);
 
+size_t emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code);
+#ifdef TARGET_AMD64
+size_t emitOutputRexPrefix(instruction ins, uint8_t* dst, code_t& code);
+#endif
 size_t emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code);
 unsigned emitGetRexPrefixSize(instruction ins);
 unsigned emitGetVexPrefixSize(instruction ins, emitAttr attr);
