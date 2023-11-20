@@ -7390,7 +7390,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             }
         }
 
-        regNumber reg345 = REG_NA;
+        regNumber reg345;
 
         if (IsBMIRegExtInstruction(ins))
         {
@@ -7979,14 +7979,13 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
     }
 
     regNumber regFor012Bits = reg2;
-    regNumber regFor345Bits = REG_NA;
+    regNumber regFor345Bits;
 
     if (IsBMIRegExtInstruction(ins))
     {
         regFor345Bits = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
     }
-
-    if (regFor345Bits == REG_NA)
+    else
     {
         regFor345Bits = reg1;
     }
