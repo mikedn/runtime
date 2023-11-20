@@ -838,22 +838,17 @@ unsigned RegEncoding(regNumber reg)
 // AVX:  specific bits within VEX prefix need to be set in bit-inverted form.
 emitter::code_t emitter::AddRexWPrefix(instruction ins, code_t code)
 {
-    if (UseVEXEncoding() && IsAVXInstruction(ins))
+    if (TakesVexPrefix(ins))
     {
-        if (TakesVexPrefix(ins))
-        {
-            // W-bit is available only in 3-byte VEX prefix that starts with byte C4.
-            assert(hasVexPrefix(code));
+        assert(hasVexPrefix(code));
 
-            // W-bit is the only bit that is added in non bit-inverted form.
-            return code | 0x00008000000000ull;
-        }
+        return code | (0x80ull << 32);
     }
+
 #ifdef TARGET_AMD64
-    return code | 0x4800000000ull;
+    return code | (0x48ull << 32);
 #else
-    assert(!"UNREACHED");
-    return code;
+    unreached();
 #endif
 }
 
@@ -861,60 +856,46 @@ emitter::code_t emitter::AddRexWPrefix(instruction ins, code_t code)
 
 emitter::code_t emitter::AddRexRPrefix(instruction ins, code_t code)
 {
-    if (UseVEXEncoding() && IsAVXInstruction(ins))
+    if (TakesVexPrefix(ins))
     {
-        if (TakesVexPrefix(ins))
-        {
-            // R-bit is supported by both 2-byte and 3-byte VEX prefix
-            assert(hasVexPrefix(code));
+        assert(hasVexPrefix(code));
 
-            // R-bit is added in bit-inverted form.
-            return code & 0xFF7FFFFFFFFFFFULL;
-        }
+        return code & ~(0x8000ull << 32);
     }
 
-    return code | 0x4400000000ULL;
+    return code | (0x44ull << 32);
 }
 
 emitter::code_t emitter::AddRexXPrefix(instruction ins, code_t code)
 {
-    if (UseVEXEncoding() && IsAVXInstruction(ins))
+    if (TakesVexPrefix(ins))
     {
-        if (TakesVexPrefix(ins))
-        {
-            // X-bit is available only in 3-byte VEX prefix that starts with byte C4.
-            assert(hasVexPrefix(code));
+        assert(hasVexPrefix(code));
 
-            // X-bit is added in bit-inverted form.
-            return code & 0xFFBFFFFFFFFFFFULL;
-        }
+        return code & ~(0x4000ull << 32);
     }
 
-    return code | 0x4200000000ULL;
+    return code | (0x42ull << 32);
 }
 
 emitter::code_t emitter::AddRexBPrefix(instruction ins, code_t code)
 {
-    if (UseVEXEncoding() && IsAVXInstruction(ins))
+    if (TakesVexPrefix(ins))
     {
-        if (TakesVexPrefix(ins))
-        {
-            // B-bit is available only in 3-byte VEX prefix that starts with byte C4.
-            assert(hasVexPrefix(code));
+        assert(hasVexPrefix(code));
 
-            // B-bit is added in bit-inverted form.
-            return code & 0xFFDFFFFFFFFFFFULL;
-        }
+        return code & ~(0x2000ull << 32);
     }
 
-    return code | 0x4100000000ULL;
+    return code | (0x41ull << 32);
 }
 
 // Adds REX prefix (0x40) without W, R, X or B bits set
 emitter::code_t emitter::AddRexPrefix(instruction ins, code_t code)
 {
     assert(!UseVEXEncoding() || !IsAVXInstruction(ins));
-    return code | 0x4000000000ULL;
+
+    return code | (0x40ull << 32);
 }
 
 #endif // TARGET_AMD64
@@ -1572,58 +1553,44 @@ static bool EncodedBySSE38orSSE3A(instruction ins)
 unsigned emitter::insEncodeReg012(instruction ins, regNumber reg, emitAttr size, code_t* code)
 {
     assert(reg < REG_STK);
+    assert(code != nullptr);
 
 #ifdef TARGET_AMD64
-    // Either code is not NULL or reg is not an extended reg.
-    // If reg is an extended reg, instruction needs to be prefixed with 'REX'
-    // which would require code != NULL.
-    assert(code != nullptr || !IsExtendedReg(reg));
-
     if (IsExtendedReg(reg))
     {
-        *code = AddRexBPrefix(ins, *code); // REX.B
+        *code = AddRexBPrefix(ins, *code);
     }
-    else if ((EA_SIZE(size) == EA_1BYTE) && (reg > REG_RBX) && (code != nullptr))
+    else if ((size == EA_1BYTE) && (reg > REG_RBX))
     {
         // We are assuming that we only use/encode SPL, BPL, SIL and DIL
         // not the corresponding AH, CH, DH, or BH
-        *code = AddRexPrefix(ins, *code); // REX
+        *code = AddRexPrefix(ins, *code);
     }
 #endif // TARGET_AMD64
 
-    unsigned regBits = RegEncoding(reg);
-
-    assert(regBits < 8);
-    return regBits;
+    return RegEncoding(reg);
 }
 
 // Returns an encoding for the specified register to be used in the bits 3-5 of an opcode.
 unsigned emitter::insEncodeReg345(instruction ins, regNumber reg, emitAttr size, code_t* code)
 {
     assert(reg < REG_STK);
+    assert(code != nullptr);
 
 #ifdef TARGET_AMD64
-    // Either code is not NULL or reg is not an extended reg.
-    // If reg is an extended reg, instruction needs to be prefixed with 'REX'
-    // which would require code != NULL.
-    assert(code != nullptr || !IsExtendedReg(reg));
-
     if (IsExtendedReg(reg))
     {
-        *code = AddRexRPrefix(ins, *code); // REX.R
+        *code = AddRexRPrefix(ins, *code);
     }
-    else if ((EA_SIZE(size) == EA_1BYTE) && (reg > REG_RBX) && (code != nullptr))
+    else if ((size == EA_1BYTE) && (reg > REG_RBX))
     {
         // We are assuming that we only use/encode SPL, BPL, SIL and DIL
         // not the corresponding AH, CH, DH, or BH
-        *code = AddRexPrefix(ins, *code); // REX
+        *code = AddRexPrefix(ins, *code);
     }
 #endif // TARGET_AMD64
 
-    unsigned regBits = RegEncoding(reg);
-
-    assert(regBits < 8);
-    return (regBits << 3);
+    return RegEncoding(reg) << 3;
 }
 
 // Returns modified AVX opcode with the specified register encoded
@@ -7609,7 +7576,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             if (size != EA_1BYTE)
             {
                 code = insCodeRR(ins == INS_inc ? INS_inc_s : INS_dec_s);
-                code |= insEncodeReg012(ins, reg, size, nullptr);
+                code |= RegEncoding(reg);
                 dst += emitOutputByte(dst, code);
 
                 break;
