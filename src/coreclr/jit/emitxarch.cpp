@@ -1248,7 +1248,7 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t cod
 
         adjustedSize = vexPrefixAdjustedSize;
     }
-    else if (!UseVEXEncoding() && EncodedBySSE38orSSE3A(ins))
+    else if (EncodedBySSE38orSSE3A(ins))
     {
         // The 4-Byte SSE instructions require one additional byte to hold the ModRM byte
         adjustedSize++;
@@ -8030,8 +8030,9 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         dst += emitOutputWord(dst, code >> 16);
         code &= 0x0000FFFF;
 
-        if (!UseVEXEncoding() && EncodedBySSE38orSSE3A(ins))
+        if (EncodedBySSE38orSSE3A(ins))
         {
+            assert(!UseVEXEncoding());
             dst += emitOutputByte(dst, code);
             code &= 0xFF00;
         }
@@ -8049,7 +8050,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
     }
     else if ((code & 0xFF) == 0x00)
     {
-        assert(IsAVXInstruction(ins) || (!UseVEXEncoding() && EncodedBySSE38orSSE3A(ins)));
+        assert(IsAVXInstruction(ins) || EncodedBySSE38orSSE3A(ins));
 
         dst += emitOutputByte(dst, (code >> 8) & 0xFF);
         dst += emitOutputByte(dst, (0xC0 | regCode));
@@ -8356,8 +8357,9 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
         dst += emitOutputWord(dst, code >> 16);
         code &= 0x0000FFFF;
 
-        if (!UseVEXEncoding() && EncodedBySSE38orSSE3A(ins))
+        if (EncodedBySSE38orSSE3A(ins))
         {
+            assert(!UseVEXEncoding());
             dst += emitOutputByte(dst, code);
             code &= 0xFF00;
         }
@@ -8375,8 +8377,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
     }
     else if ((code & 0xFF) == 0x00)
     {
-        // This case happens for some SSE/AVX instructions only
-        assert(IsAVXInstruction(ins) || (!UseVEXEncoding() && EncodedBySSE38orSSE3A(ins)));
+        assert(IsAVXInstruction(ins) || EncodedBySSE38orSSE3A(ins));
 
         dst += emitOutputByte(dst, (code >> 8) & 0xFF);
         dst += emitOutputByte(dst, (0xC0 | regcode));
