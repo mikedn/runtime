@@ -6533,7 +6533,17 @@ static uint8_t* emitOutputNOP(uint8_t* dstRW, size_t nBytes)
 uint8_t* emitter::emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
 {
     assert(codeGen->ShouldAlignLoops());
-    assert(ig->isLoopAlign());
+
+    // IG can be marked as not needing alignment after emitting align instruction
+    // In such case, skip outputting alignment.
+    if (!ig->isLoopAlign())
+    {
+        // If the IG is not marked as need alignment, then the code size
+        // should be zero i.e. no padding needed.
+        assert(id->idCodeSize() == 0);
+
+        return dst;
+    }
 
     unsigned paddingToAdd = id->idCodeSize();
 
@@ -9164,19 +9174,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
     assert(emitIssuing);
 
-    uint8_t*    dst = *dp;
-    size_t      sz  = sizeof(instrDesc);
-    instruction ins = id->idIns();
+    uint8_t*    dst  = *dp;
+    size_t      sz   = sizeof(instrDesc);
+    instruction ins  = id->idIns();
+    emitAttr    size = id->idOpSize();
 
-#ifdef DEBUG
-    bool dspOffs = emitComp->opts.dspGCtbls;
-#endif // DEBUG
-
-    emitAttr size = id->idOpSize();
-
-    assert(REG_NA == (int)REG_NA);
-
-    assert(ins != INS_imul || size >= EA_4BYTE); // Has no 'w' bit
+    assert((ins != INS_imul) || (size >= EA_4BYTE)); // Has no 'w' bit
 
     switch (id->idInsFmt())
     {
@@ -9189,20 +9192,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_NONE:
             if (ins == INS_align)
             {
-                // IG can be marked as not needing alignment after emitting align instruction
-                // In such case, skip outputting alignment.
-                if (ig->isLoopAlign())
-                {
-                    dst = emitOutputAlign(ig, id, dst);
-                }
-                else
-                {
-                    // If the IG is not marked as need alignment, then the code size
-                    // should be zero i.e. no padding needed.
-                    assert(id->idCodeSize() == 0);
-                }
-
-                sz = sizeof(instrDescAlign);
+                dst = emitOutputAlign(ig, id, dst);
+                sz  = sizeof(instrDescAlign);
                 break;
             }
 
@@ -9231,15 +9222,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_METHOD:
         case IF_METHPTR:
             dst = emitOutputCall(dst, id);
-        DONE_CALL:
-            sz = emitRecordGCCall(id, *dp, dst);
-#ifdef DEBUG
-            if (ins == INS_call)
-            {
-                emitRecordCallSite(emitCurCodeOffs(*dp), id->idDebugOnlyInfo()->idCallSig,
-                                   static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle));
-            }
-#endif
+            sz  = emitRecordGCCall(id, *dp, dst);
             break;
 
         /********************************************************************/
@@ -9253,10 +9236,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (ins == INS_call)
             {
-                goto DONE_CALL;
+                sz = emitRecordGCCall(id, *dp, dst);
             }
-
-            sz = SMALL_IDSC_SIZE;
+            else
+            {
+                sz = SMALL_IDSC_SIZE;
+            }
             break;
 
         /********************************************************************/
@@ -9305,10 +9290,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (ins == INS_call)
             {
-                goto DONE_CALL;
+                sz = emitRecordGCCall(id, *dp, dst);
             }
-
-            sz = emitSizeOfInsDsc(id);
+            else
+            {
+                sz = emitSizeOfInsDsc(id);
+            }
             break;
 
         case IF_ARD_CNS:
@@ -9437,7 +9424,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 #endif
             if (ins == INS_call)
             {
-                goto DONE_CALL;
+                sz = emitRecordGCCall(id, *dp, dst);
             }
             break;
 
@@ -9698,17 +9685,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             sz     = emitSizeOfInsDsc(id);
             break;
 
-        /********************************************************************/
-        /*                            oops                                  */
-        /********************************************************************/
-
         default:
-
-#ifdef DEBUG
-            printf("unexpected format %s\n", emitIfName(id->idInsFmt()));
-            assert(!"don't know how to encode this instruction");
-#endif
-            break;
+            unreached();
     }
 
     // Make sure we set the instruction descriptor size correctly
@@ -9761,7 +9739,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 #ifdef DEBUG
     if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
     {
-        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, (dst - *dp));
+        emitDispIns(id, false, emitComp->opts.dspGCtbls, true, emitCurCodeOffs(*dp), *dp, (dst - *dp));
     }
 #endif
 
@@ -9771,13 +9749,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     if (emitCurIG->igNum <= emitLastAlignedIgNum)
     {
         int diff = id->idCodeSize() - ((unsigned)(dst - *dp));
+
         assert(diff >= 0);
+
         if (diff != 0)
         {
-
 #ifdef DEBUG
             // should never over-estimate align instruction
             assert(id->idIns() != INS_align);
+
             JITDUMP("Added over-estimation compensation: %d\n", diff);
 
             if (emitComp->opts.disAsm)
@@ -9791,7 +9771,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dstRW          = emitOutputNOP(dstRW, diff);
             dst            = dstRW - writeableOffset;
         }
-        assert((id->idCodeSize() - ((unsigned)(dst - *dp))) == 0);
+
+        assert((id->idCodeSize() - static_cast<unsigned>(dst - *dp)) == 0);
     }
 #endif
 
@@ -9808,22 +9789,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             printf("\n");
         }
 
-        // For example, set JitBreakEmitOutputInstr=a6 will break when this method is called for
-        // emitting instruction a6, (i.e. IN00a6 in jitdump).
-        if ((unsigned)JitConfig.JitBreakEmitOutputInstr() == id->idDebugOnlyInfo()->idNum)
+        if (JitConfig.JitBreakEmitOutputInstr() == static_cast<int>(id->idDebugOnlyInfo()->idNum))
         {
             assert(!"JitBreakEmitOutputInstr reached");
         }
     }
-#endif
 
-    *dp = dst;
-
-#ifdef DEBUG
     if (ins == INS_mulEAX || ins == INS_imulEAX)
     {
-        // INS_mulEAX has implicit target of Edx:Eax. Make sure
-        // that we detected this cleared its GC-status.
         assert((gcInfo.GetAllLiveRegs() & (RBM_EAX | RBM_EDX)) == RBM_NONE);
     }
     else if (ins == INS_imuli)
@@ -9831,6 +9804,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         assert((gcInfo.GetAllLiveRegs() & genRegMask(id->idReg1())) == RBM_NONE);
     }
 #endif
+
+    *dp = dst;
 
     return sz;
 }

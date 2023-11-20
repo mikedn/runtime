@@ -5674,6 +5674,14 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
     }
 #endif
 
+#if defined(DEBUG) && defined(TARGET_XARCH)
+    if (id->idIns() == INS_call)
+    {
+        emitRecordCallSite(callOffs, id->idDebugOnlyInfo()->idCallSig,
+                           static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle));
+    }
+#endif
+
     return sz;
 }
 
