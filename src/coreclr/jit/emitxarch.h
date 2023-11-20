@@ -251,7 +251,6 @@ code_t AddRexXPrefix(instruction ins, code_t code);
 code_t AddRexBPrefix(instruction ins, code_t code);
 code_t AddRexPrefix(instruction ins, code_t code);
 
-bool Is4ByteSSEInstruction(instruction ins);
 bool IsRedundantMov(
     instruction ins, insFormat fmt, emitAttr size, regNumber dst, regNumber src, bool canIgnoreSideEffects);
 

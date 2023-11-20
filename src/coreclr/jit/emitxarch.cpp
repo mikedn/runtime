@@ -1187,6 +1187,8 @@ unsigned emitter::emitGetVexPrefixSize(instruction ins, emitAttr attr)
     return 0;
 }
 
+static bool EncodedBySSE38orSSE3A(instruction ins);
+
 //------------------------------------------------------------------------
 // emitGetAdjustedSize: Determines any size adjustment needed for a given instruction based on the current
 // configuration.
@@ -1246,7 +1248,7 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t cod
 
         adjustedSize = vexPrefixAdjustedSize;
     }
-    else if (Is4ByteSSEInstruction(ins))
+    else if (!UseVEXEncoding() && EncodedBySSE38orSSE3A(ins))
     {
         // The 4-Byte SSE instructions require one additional byte to hold the ModRM byte
         adjustedSize++;
@@ -1594,15 +1596,6 @@ static bool EncodedBySSE38orSSE3A(instruction ins)
 
     insCode &= MASK;
     return insCode == SSE38 || insCode == SSE3A;
-}
-
-// Returns true if the SSE instruction is a 4-byte opcode.
-// Note that this should be true for any of the instructions  that use the
-// SSE38 or SSE3A macro but returns false if the VEX encoding is in use,
-// since that encoding does not require an additional byte.
-bool emitter::Is4ByteSSEInstruction(instruction ins)
-{
-    return !UseVEXEncoding() && EncodedBySSE38orSSE3A(ins);
 }
 
 // Returns an encoding for the specified register to be used in the bits 0-2 of an opcode.
@@ -8037,7 +8030,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         dst += emitOutputWord(dst, code >> 16);
         code &= 0x0000FFFF;
 
-        if (Is4ByteSSEInstruction(ins))
+        if (!UseVEXEncoding() && EncodedBySSE38orSSE3A(ins))
         {
             dst += emitOutputByte(dst, code);
             code &= 0xFF00;
@@ -8056,7 +8049,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
     }
     else if ((code & 0xFF) == 0x00)
     {
-        assert(IsAVXInstruction(ins) || Is4ByteSSEInstruction(ins));
+        assert(IsAVXInstruction(ins) || (!UseVEXEncoding() && EncodedBySSE38orSSE3A(ins)));
 
         dst += emitOutputByte(dst, (code >> 8) & 0xFF);
         dst += emitOutputByte(dst, (0xC0 | regCode));
@@ -8363,7 +8356,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
         dst += emitOutputWord(dst, code >> 16);
         code &= 0x0000FFFF;
 
-        if (Is4ByteSSEInstruction(ins))
+        if (!UseVEXEncoding() && EncodedBySSE38orSSE3A(ins))
         {
             dst += emitOutputByte(dst, code);
             code &= 0xFF00;
@@ -8383,7 +8376,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
     else if ((code & 0xFF) == 0x00)
     {
         // This case happens for some SSE/AVX instructions only
-        assert(IsAVXInstruction(ins) || Is4ByteSSEInstruction(ins));
+        assert(IsAVXInstruction(ins) || (!UseVEXEncoding() && EncodedBySSE38orSSE3A(ins)));
 
         dst += emitOutputByte(dst, (code >> 8) & 0xFF);
         dst += emitOutputByte(dst, (0xC0 | regcode));
