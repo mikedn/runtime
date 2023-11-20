@@ -224,7 +224,10 @@ uint8_t* emitOutputRI(uint8_t* dst, instrDesc* id);
 uint8_t* emitOutputRR(uint8_t* dst, instrDesc* id);
 uint8_t* emitOutputIV(uint8_t* dst, instrDesc* id);
 uint8_t* emitOutputRRR(uint8_t* dst, instrDesc* id);
+uint8_t* emitOutputRRI(uint8_t* dst, instrDesc* id);
 uint8_t* emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* id);
+uint8_t* emitOutputCall(uint8_t* dst, instrDesc* id);
+uint8_t* emitOutputNoOperands(uint8_t* dst, instrDesc* id);
 
 size_t emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code);
 unsigned emitGetRexPrefixSize(instruction ins);
