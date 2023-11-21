@@ -113,13 +113,6 @@ static bool IsSSEOrAVXInstruction(instruction ins)
     return (ins >= INS_FIRST_SSE_INSTRUCTION) && (ins <= INS_LAST_AVX_INSTRUCTION);
 }
 
-#ifdef DEBUG
-static bool IsAVXOnlyInstruction(instruction ins)
-{
-    return (ins >= INS_FIRST_AVX_INSTRUCTION) && (ins <= INS_LAST_AVX_INSTRUCTION);
-}
-#endif
-
 static bool IsFMAInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_FMA_INSTRUCTION) && (ins <= INS_LAST_FMA_INSTRUCTION);
@@ -6001,8 +5994,6 @@ void emitter::emitDispIns(
             break;
 
         case IF_RWR_RRD_RRD_RRD:
-            assert(IsAVXOnlyInstruction(ins));
-            assert(UseVEXEncoding());
             printf("%s, ", emitRegName(id->idReg1(), attr));
             printf("%s, ", emitRegName(id->idReg2(), attr));
             printf("%s, ", emitRegName(id->idReg3(), attr));
