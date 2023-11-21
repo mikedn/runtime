@@ -5235,12 +5235,7 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 
 #ifdef DEBUG
 
-const char* emitter::emitRegName(regNumber reg, emitAttr attr)
-{
-    return RegName(reg, attr);
-}
-
-void emitter::emitDispClsVar(instrDesc* id)
+void emitter::PrintClsVar(instrDesc* id)
 {
     CORINFO_FIELD_HANDLE field = id->idAddr()->iiaFieldHnd;
     ssize_t              offs  = emitGetInsMemDisp(id);
@@ -5286,7 +5281,7 @@ void emitter::emitDispClsVar(instrDesc* id)
     printf("]");
 }
 
-void emitter::emitDispFrameRef(instrDesc* id, bool asmfm)
+void emitter::PrintFrameRef(instrDesc* id, bool asmfm)
 {
     int varNum  = id->idDebugOnlyInfo()->varNum;
     int varOffs = id->idDebugOnlyInfo()->varOffs;
@@ -5325,11 +5320,11 @@ void emitter::emitDispFrameRef(instrDesc* id, bool asmfm)
     printf("]");
 }
 
-void emitter::emitDispImm(instrDesc* id, ssize_t val)
+void emitter::PrintImm(instrDesc* id, ssize_t val)
 {
     if (id->idIsCnsReloc())
     {
-        emitDispReloc(val);
+        PrintReloc(val);
         return;
     }
 
@@ -5364,7 +5359,7 @@ void emitter::emitDispImm(instrDesc* id, ssize_t val)
     }
 }
 
-void emitter::emitDispReloc(ssize_t value)
+void emitter::PrintReloc(ssize_t value)
 {
     if (emitComp->opts.disAsm && emitComp->opts.disDiffable)
     {
@@ -5376,7 +5371,7 @@ void emitter::emitDispReloc(ssize_t value)
     }
 }
 
-void emitter::emitDispAddrMode(instrDesc* id)
+void emitter::PrintAddrMode(instrDesc* id)
 {
     ssize_t disp     = (id->idIns() == INS_call) ? emitGetInsCallDisp(id) : emitGetInsAmdDisp(id);
     bool    frameRef = false;
@@ -5386,7 +5381,7 @@ void emitter::emitDispAddrMode(instrDesc* id)
 
     if (id->idAddr()->iiaAddrMode.amBaseReg != REG_NA)
     {
-        printf("%s", emitRegName(id->idAddr()->iiaAddrMode.amBaseReg));
+        printf("%s", RegName(id->idAddr()->iiaAddrMode.amBaseReg, EA_PTRSIZE));
         nsep = true;
         if (id->idAddr()->iiaAddrMode.amBaseReg == REG_ESP)
         {
@@ -5410,7 +5405,7 @@ void emitter::emitDispAddrMode(instrDesc* id)
         {
             printf("%u*", scale);
         }
-        printf("%s", emitRegName(id->idAddr()->iiaAddrMode.amIndxReg));
+        printf("%s", RegName(id->idAddr()->iiaAddrMode.amIndxReg, EA_PTRSIZE));
         nsep = true;
     }
 
@@ -5420,7 +5415,7 @@ void emitter::emitDispAddrMode(instrDesc* id)
         {
             printf("+");
         }
-        emitDispReloc(disp);
+        PrintReloc(disp);
     }
     else
     {
@@ -5508,7 +5503,7 @@ void emitter::emitDispAddrMode(instrDesc* id)
     }
 }
 
-void emitter::emitDispShiftCL(instruction ins)
+void emitter::PrintShiftCL(instruction ins)
 {
     if (IsShiftCL(ins))
     {
@@ -5516,31 +5511,33 @@ void emitter::emitDispShiftCL(instruction ins)
     }
 }
 
-void emitter::emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz)
+void emitter::PrintHexCode(instrDesc* id, uint8_t* code, size_t size)
 {
-    if (!emitComp->opts.disDiffable)
+    if (emitComp->opts.disDiffable)
     {
+        return;
+    }
+
 #ifdef TARGET_AMD64
-        const size_t digits = 10;
+    const size_t digits = 10;
 #else
-        const size_t digits = 6;
+    const size_t digits = 6;
 #endif
 
-        printf(" ");
+    printf(" ");
 
-        for (unsigned i = 0; i < sz; i++)
-        {
-            printf("%02X", (*((uint8_t*)(code + i))));
-        }
+    for (size_t i = 0; i < size; i++)
+    {
+        printf("%02X", code[i]);
+    }
 
-        if (sz < digits)
-        {
-            printf("%.*s", 2 * (digits - sz), "                         ");
-        }
+    if (size < digits)
+    {
+        printf("%.*s", 2 * (digits - size), "                         ");
     }
 }
 
-static const char* emitSizeStr(emitAttr attr)
+static const char* GetSizeOperator(emitAttr attr)
 {
     switch (EA_SIZE(attr))
     {
@@ -5590,10 +5587,6 @@ void emitter::emitDispIns(
         return;
     }
 
-    emitAttr    attr;
-    const char* sstr;
-    instruction ins = id->idIns();
-
     if (emitComp->verbose)
     {
         printf("IN%04x: ", id->idDebugOnlyInfo()->idNum);
@@ -5612,10 +5605,10 @@ void emitter::emitDispIns(
         assert(((code >= emitCodeBlock) && (code < emitCodeBlock + emitTotalHotCodeSize)) ||
                ((code >= emitColdCodeBlock) && (code < emitColdCodeBlock + emitTotalColdCodeSize)));
 
-        emitDispInsHex(id, code + writeableOffset, sz);
+        PrintHexCode(id, code + writeableOffset, sz);
     }
 
-    sstr = genInsDisplayName(id);
+    const char* sstr = genInsDisplayName(id);
     printf(" %-9s", sstr);
 
 #ifndef HOST_UNIX
@@ -5629,6 +5622,9 @@ void emitter::emitDispIns(
 
     assert((id->idCodeSize() != 0) || InstrHasNoCode(id));
 
+    instruction ins = id->idIns();
+    emitAttr    attr;
+
     if (id->idGCref() == GCT_GCREF)
     {
         attr = EA_GCREF;
@@ -5641,8 +5637,7 @@ void emitter::emitDispIns(
     }
     else
     {
-        emitAttr sizeAttr = id->idOpSize();
-        attr              = sizeAttr;
+        attr = id->idOpSize();
 
         switch (ins)
         {
@@ -5650,65 +5645,50 @@ void emitter::emitDispIns(
             case INS_vextracti128:
             case INS_vinsertf128:
             case INS_vinserti128:
-                sizeAttr = EA_16BYTE;
+                sstr = GetSizeOperator(EA_16BYTE);
                 break;
             case INS_pextrb:
             case INS_pinsrb:
-                sizeAttr = EA_1BYTE;
+                sstr = GetSizeOperator(EA_1BYTE);
                 break;
             case INS_pextrw:
             case INS_pextrw_sse41:
             case INS_pinsrw:
-                sizeAttr = EA_2BYTE;
+                sstr = GetSizeOperator(EA_2BYTE);
                 break;
             case INS_extractps:
             case INS_insertps:
             case INS_pextrd:
             case INS_pinsrd:
-                sizeAttr = EA_4BYTE;
+                sstr = GetSizeOperator(EA_4BYTE);
                 break;
             case INS_pextrq:
             case INS_pinsrq:
-                sizeAttr = EA_8BYTE;
+                sstr = GetSizeOperator(EA_8BYTE);
+                break;
+            case INS_lea:
+                sstr = "";
                 break;
             default:
+                sstr = GetSizeOperator(attr);
                 break;
-        }
-
-        sstr = emitSizeStr(sizeAttr);
-
-        if (ins == INS_lea)
-        {
-#ifdef TARGET_AMD64
-            assert((attr == EA_4BYTE) || (attr == EA_8BYTE));
-#else
-            assert(attr == EA_4BYTE);
-#endif
-            sstr = "";
         }
     }
 
     switch (id->idInsFmt())
     {
         case IF_CNS:
-#ifdef TARGET_AMD64
-            assert((ins == INS_push_hide) && (emitGetInsSC(id) == 0) && !id->idIsReloc());
-            printf("0");
-#else
-            emitDispImm(id, emitGetInsSC(id));
-#endif
+            PrintImm(id, emitGetInsSC(id));
             break;
 
         case IF_ARD:
         case IF_AWR:
         case IF_ARW:
             printf("%s", sstr);
-            emitDispAddrMode(id);
+            PrintAddrMode(id);
 
             if ((ins == INS_call) || (ins == INS_i_jmp))
             {
-                assert(id->idInsFmt() == IF_ARD);
-
                 if (id->idDebugOnlyInfo()->idHandle != nullptr)
                 {
                     printf("%s", emitComp->eeGetMethodFullName(
@@ -5717,7 +5697,7 @@ void emitter::emitDispIns(
             }
             else
             {
-                emitDispShiftCL(ins);
+                PrintShiftCL(ins);
             }
             break;
 
@@ -5732,30 +5712,28 @@ void emitter::emitDispIns(
             {
                 attr = EA_4BYTE;
             }
-            printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
-            emitDispAddrMode(id);
+            printf("%s, %s", RegName(id->idReg1(), attr), sstr);
+            PrintAddrMode(id);
             break;
 
         case IF_RRW_ARD_CNS:
         case IF_RWR_ARD_CNS:
-            printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
-            emitDispAddrMode(id);
+            printf("%s, %s", RegName(id->idReg1(), attr), sstr);
+            PrintAddrMode(id);
             printf(", ");
-            emitDispImm(id, emitGetInsAmdCns(id));
+            PrintImm(id, emitGetInsAmdCns(id));
             break;
 
         case IF_AWR_RRD_CNS:
-            assert(ins == INS_vextracti128 || ins == INS_vextractf128);
-            printf("%s", emitSizeStr(EA_16BYTE));
-            emitDispAddrMode(id);
-            printf(", %s", emitRegName(id->idReg1(), attr));
-            printf(", ");
-            emitDispImm(id, emitGetInsAmdCns(id));
+            printf("%s", GetSizeOperator(EA_16BYTE));
+            PrintAddrMode(id);
+            printf(", %s, ", RegName(id->idReg1(), attr));
+            PrintImm(id, emitGetInsAmdCns(id));
             break;
 
         case IF_RWR_RRD_ARD:
-            printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
-            emitDispAddrMode(id);
+            printf("%s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr), sstr);
+            PrintAddrMode(id);
             break;
 
         case IF_RWR_ARD_RRD:
@@ -5763,97 +5741,89 @@ void emitter::emitDispIns(
             {
                 attr = EA_16BYTE;
             }
-            printf("%s, %s", emitRegName(id->idReg1(), attr), emitSizeStr(EA_4BYTE));
-            emitDispAddrMode(id);
-            printf(", %s", emitRegName(id->idReg2(), attr));
+            printf("%s, %s", RegName(id->idReg1(), attr), GetSizeOperator(EA_4BYTE));
+            PrintAddrMode(id);
+            printf(", %s", RegName(id->idReg2(), attr));
             break;
 
         case IF_RWR_RRD_ARD_CNS:
-            printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
-            emitDispAddrMode(id);
+            printf("%s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr), sstr);
+            PrintAddrMode(id);
             printf(", ");
-            emitDispImm(id, emitGetInsAmdCns(id));
+            PrintImm(id, emitGetInsAmdCns(id));
             break;
 
         case IF_RWR_RRD_ARD_RRD:
-            printf("%s, ", emitRegName(id->idReg1(), attr));
-            printf("%s, ", emitRegName(id->idReg2(), attr));
-            emitDispAddrMode(id);
-            printf(", %s", emitRegName(static_cast<regNumber>((emitGetInsAmdCns(id) >> 4) + XMMBASE), attr));
+            printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
+            PrintAddrMode(id);
+            printf(", %s", RegName(static_cast<regNumber>((emitGetInsAmdCns(id) >> 4) + XMMBASE), attr));
             break;
 
         case IF_ARD_RRD:
         case IF_AWR_RRD:
         case IF_ARW_RRD:
             printf("%s", sstr);
-            emitDispAddrMode(id);
-            printf(", %s", emitRegName(id->idReg1(), attr));
+            PrintAddrMode(id);
+            printf(", %s", RegName(id->idReg1(), attr));
             break;
 
         case IF_AWR_RRD_RRD:
             printf("%s", sstr);
-            emitDispAddrMode(id);
-            printf(", %s", emitRegName(id->idReg1(), attr));
-            printf(", %s", emitRegName(id->idReg2(), attr));
+            PrintAddrMode(id);
+            printf(", %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
             break;
 
         case IF_ARD_CNS:
         case IF_AWR_CNS:
         case IF_ARW_CNS:
             printf("%s", sstr);
-            emitDispAddrMode(id);
+            PrintAddrMode(id);
             printf(", ");
-            emitDispImm(id, emitGetInsAmdCns(id));
+            PrintImm(id, emitGetInsAmdCns(id));
             break;
 
         case IF_SRD:
         case IF_SWR:
         case IF_SRW:
             printf("%s", sstr);
-
 #if !FEATURE_FIXED_OUT_ARGS
             if (ins == INS_pop)
             {
                 emitCurStackLvl -= REGSIZE_BYTES;
             }
 #endif
-
-            emitDispFrameRef(id, asmfm);
-
+            PrintFrameRef(id, asmfm);
 #if !FEATURE_FIXED_OUT_ARGS
             if (ins == INS_pop)
             {
                 emitCurStackLvl += REGSIZE_BYTES;
             }
 #endif
-
-            emitDispShiftCL(ins);
+            PrintShiftCL(ins);
             break;
 
         case IF_SRD_RRD:
         case IF_SWR_RRD:
         case IF_SRW_RRD:
             printf("%s", sstr);
-            emitDispFrameRef(id, asmfm);
-            printf(", %s", emitRegName(id->idReg1(), attr));
+            PrintFrameRef(id, asmfm);
+            printf(", %s", RegName(id->idReg1(), attr));
             break;
 
         case IF_SRD_CNS:
         case IF_SWR_CNS:
         case IF_SRW_CNS:
             printf("%s", sstr);
-            emitDispFrameRef(id, asmfm);
+            PrintFrameRef(id, asmfm);
             printf(", ");
-            emitDispImm(id, emitGetInsCns(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_SWR_RRD_CNS:
-            assert(ins == INS_vextracti128 || ins == INS_vextractf128);
-            assert(UseVEXEncoding());
             printf("%s", sstr);
-            emitDispFrameRef(id, asmfm);
-            printf(", %s, ", emitRegName(id->idReg1(), attr));
-            emitDispImm(id, emitGetInsAmdCns(id));
+            PrintFrameRef(id, asmfm);
+            printf(", %s, ", RegName(id->idReg1(), attr));
+            PrintImm(id, emitGetInsAmdCns(id));
             break;
 
         case IF_RRD_SRD:
@@ -5868,199 +5838,154 @@ void emitter::emitDispIns(
                 attr = EA_4BYTE;
             }
 
-            printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
-            emitDispFrameRef(id, asmfm);
+            printf("%s, %s", RegName(id->idReg1(), attr), sstr);
+            PrintFrameRef(id, asmfm);
             break;
 
         case IF_RRW_SRD_CNS:
         case IF_RWR_SRD_CNS:
-            printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
-            emitDispFrameRef(id, asmfm);
+            printf("%s, %s", RegName(id->idReg1(), attr), sstr);
+            PrintFrameRef(id, asmfm);
             printf(", ");
-            emitDispImm(id, emitGetInsCns(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_RWR_RRD_SRD:
-            printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
-            emitDispFrameRef(id, asmfm);
+            printf("%s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr), sstr);
+            PrintFrameRef(id, asmfm);
             break;
 
         case IF_RWR_RRD_SRD_CNS:
-            printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
-            emitDispFrameRef(id, asmfm);
+            printf("%s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr), sstr);
+            PrintFrameRef(id, asmfm);
             printf(", ");
-            emitDispImm(id, emitGetInsCns(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_RWR_RRD_SRD_RRD:
-            printf("%s, ", emitRegName(id->idReg1(), attr));
-            printf("%s, ", emitRegName(id->idReg2(), attr));
-            emitDispFrameRef(id, asmfm);
-            printf(", %s", emitRegName(static_cast<regNumber>((emitGetInsCns(id) >> 4) + XMMBASE), attr));
+            printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
+            PrintFrameRef(id, asmfm);
+            printf(", %s", RegName(static_cast<regNumber>((emitGetInsCns(id) >> 4) + XMMBASE), attr));
             break;
 
         case IF_RRD_RRD:
         case IF_RWR_RRD:
         case IF_RRW_RRD:
+        case IF_RRW_RRW:
             if (ins == INS_pmovmskb)
             {
-                printf("%s, %s", emitRegName(id->idReg1(), EA_4BYTE), emitRegName(id->idReg2(), attr));
+                printf("%s, %s", RegName(id->idReg1(), EA_4BYTE), RegName(id->idReg2(), attr));
             }
             else if ((ins == INS_cvtsi2ss) || (ins == INS_cvtsi2sd))
             {
-                printf(" %s, %s", emitRegName(id->idReg1(), EA_16BYTE), emitRegName(id->idReg2(), attr));
+                printf(" %s, %s", RegName(id->idReg1(), EA_16BYTE), RegName(id->idReg2(), attr));
             }
             else if ((ins == INS_cvttsd2si) || (ins == INS_cvtss2si) || (ins == INS_cvtsd2si) || (ins == INS_cvttss2si))
             {
-                printf(" %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), EA_16BYTE));
+                printf(" %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), EA_16BYTE));
             }
             else if (ins == INS_movsx || ins == INS_movzx AMD64_ONLY(|| ins == INS_movsxd))
             {
-                printf("%s, %s", emitRegName(id->idReg1(), EA_PTRSIZE), emitRegName(id->idReg2(), attr));
+                printf("%s, %s", RegName(id->idReg1(), EA_PTRSIZE), RegName(id->idReg2(), attr));
             }
             else if (ins == INS_crc32 && attr != EA_8BYTE)
             {
-                printf("%s, %s", emitRegName(id->idReg1(), EA_4BYTE), emitRegName(id->idReg2(), attr));
+                printf("%s, %s", RegName(id->idReg1(), EA_4BYTE), RegName(id->idReg2(), attr));
             }
             else
             {
-                printf("%s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr));
+                printf("%s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
             }
-            break;
-
-        case IF_RRW_RRW:
-            assert(ins == INS_xchg);
-            printf("%s,", emitRegName(id->idReg1(), attr));
-            printf(" %s", emitRegName(id->idReg2(), attr));
             break;
 
         case IF_RWR_RRD_RRD:
-        {
-            assert(IsAVXInstruction(ins));
-            assert(IsThreeOperandAVXInstruction(ins));
-            regNumber reg2 = id->idReg2();
-            regNumber reg3 = id->idReg3();
-            if (ins == INS_bextr || ins == INS_bzhi)
+            if ((ins == INS_bextr) || (ins == INS_bzhi))
             {
                 // BMI bextr and bzhi encodes the reg2 in VEX.vvvv and reg3 in modRM,
                 // which is different from most of other instructions
-                regNumber tmp = reg2;
-                reg2          = reg3;
-                reg3          = tmp;
+                printf("%s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg3(), attr),
+                       RegName(id->idReg2(), attr));
             }
-            printf("%s, ", emitRegName(id->idReg1(), attr));
-            printf("%s, ", emitRegName(reg2, attr));
-            printf("%s", emitRegName(reg3, attr));
+            else
+            {
+                printf("%s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr),
+                       RegName(id->idReg3(), attr));
+            }
             break;
-        }
 
         case IF_RWR_RRD_RRD_CNS:
-            assert(IsAVXInstruction(ins));
-            assert(IsThreeOperandAVXInstruction(ins));
-            printf("%s, ", emitRegName(id->idReg1(), attr));
-            printf("%s, ", emitRegName(id->idReg2(), attr));
+            printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
 
             switch (ins)
             {
                 case INS_vinsertf128:
                 case INS_vinserti128:
-                {
                     attr = EA_16BYTE;
                     break;
-                }
-
                 case INS_pinsrb:
                 case INS_pinsrw:
                 case INS_pinsrd:
-                {
                     attr = EA_4BYTE;
                     break;
-                }
-
                 case INS_pinsrq:
-                {
                     attr = EA_8BYTE;
                     break;
-                }
-
                 default:
-                {
                     break;
-                }
             }
 
-            printf("%s, ", emitRegName(id->idReg3(), attr));
-            emitDispImm(id, emitGetInsSC(id));
+            printf("%s, ", RegName(id->idReg3(), attr));
+            PrintImm(id, emitGetInsSC(id));
             break;
 
         case IF_RWR_RRD_RRD_RRD:
-            printf("%s, ", emitRegName(id->idReg1(), attr));
-            printf("%s, ", emitRegName(id->idReg2(), attr));
-            printf("%s, ", emitRegName(id->idReg3(), attr));
-            printf("%s", emitRegName(id->idReg4(), attr));
+            printf("%s, %s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr),
+                   RegName(id->idReg3(), attr), RegName(id->idReg4(), attr));
             break;
 
         case IF_RRW_RRD_CNS:
         {
-            emitAttr tgtAttr = attr;
+            emitAttr attr1 = attr;
+            emitAttr attr2 = attr;
 
             switch (ins)
             {
                 case INS_vextractf128:
                 case INS_vextracti128:
-                {
-                    tgtAttr = EA_16BYTE;
+                    attr1 = EA_16BYTE;
                     break;
-                }
-
                 case INS_extractps:
                 case INS_pextrb:
                 case INS_pextrw:
                 case INS_pextrw_sse41:
                 case INS_pextrd:
-                {
-                    tgtAttr = EA_4BYTE;
+                    attr1 = EA_4BYTE;
                     break;
-                }
-
                 case INS_pextrq:
-                {
-                    tgtAttr = EA_8BYTE;
+                    attr1 = EA_8BYTE;
                     break;
-                }
-
                 case INS_pinsrb:
                 case INS_pinsrw:
                 case INS_pinsrd:
-                {
-                    attr = EA_4BYTE;
+                    attr2 = EA_4BYTE;
                     break;
-                }
-
                 case INS_pinsrq:
-                {
-                    attr = EA_8BYTE;
+                    attr2 = EA_8BYTE;
                     break;
-                }
-
                 default:
-                {
                     break;
-                }
             }
 
-            printf("%s,", emitRegName(id->idReg1(), tgtAttr));
-            printf(" %s", emitRegName(id->idReg2(), attr));
-            printf(", ");
-            emitDispImm(id, emitGetInsSC(id));
+            printf("%s, %s, ", RegName(id->idReg1(), attr1), RegName(id->idReg2(), attr2));
+            PrintImm(id, emitGetInsSC(id));
             break;
         }
 
         case IF_RRD:
         case IF_RWR:
         case IF_RRW:
-            printf("%s", emitRegName(id->idReg1(), attr));
-            emitDispShiftCL(ins);
+            printf("%s", RegName(id->idReg1(), attr));
+            PrintShiftCL(ins);
             break;
 
         case IF_RRD_MRD:
@@ -6074,86 +5999,83 @@ void emitter::emitDispIns(
             {
                 attr = EA_4BYTE;
             }
-            printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
-            emitDispClsVar(id);
+            printf("%s, %s", RegName(id->idReg1(), attr), sstr);
+            PrintClsVar(id);
             break;
 
         case IF_RRW_MRD_CNS:
         case IF_RWR_MRD_CNS:
-            printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
-            emitDispClsVar(id);
+            printf("%s, %s", RegName(id->idReg1(), attr), sstr);
+            PrintClsVar(id);
             printf(", ");
-            emitDispImm(id, emitGetInsMemImm(id));
+            PrintImm(id, emitGetInsMemImm(id));
             break;
 
         case IF_MWR_RRD_CNS:
-            assert(ins == INS_vextracti128 || ins == INS_vextractf128);
-            printf("%s", emitSizeStr(EA_16BYTE));
-            emitDispClsVar(id);
-            printf(", %s", emitRegName(id->idReg1(), attr));
-            printf(", ");
-            emitDispImm(id, emitGetInsMemImm(id));
+            printf("%s", GetSizeOperator(EA_16BYTE));
+            PrintClsVar(id);
+            printf(", %s, ", RegName(id->idReg1(), attr));
+            PrintImm(id, emitGetInsMemImm(id));
             break;
 
         case IF_RWR_RRD_MRD:
-            printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
-            emitDispClsVar(id);
+            printf("%s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr), sstr);
+            PrintClsVar(id);
             break;
 
         case IF_RWR_RRD_MRD_CNS:
-            printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
-            emitDispClsVar(id);
+            printf("%s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr), sstr);
+            PrintClsVar(id);
             printf(", ");
-            emitDispImm(id, emitGetInsMemImm(id));
+            PrintImm(id, emitGetInsMemImm(id));
             break;
 
         case IF_RWR_RRD_MRD_RRD:
-            printf("%s, ", emitRegName(id->idReg1(), attr));
-            printf("%s, ", emitRegName(id->idReg2(), attr));
-            emitDispClsVar(id);
-            printf(", %s", emitRegName(static_cast<regNumber>((emitGetInsMemImm(id) >> 4) + XMMBASE), attr));
+            printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
+            PrintClsVar(id);
+            printf(", %s", RegName(static_cast<regNumber>((emitGetInsMemImm(id) >> 4) + XMMBASE), attr));
             break;
 
         case IF_MRD_RRD:
         case IF_MWR_RRD:
         case IF_MRW_RRD:
             printf("%s", sstr);
-            emitDispClsVar(id);
-            printf(", %s", emitRegName(id->idReg1(), attr));
+            PrintClsVar(id);
+            printf(", %s", RegName(id->idReg1(), attr));
             break;
 
         case IF_MRD_CNS:
         case IF_MWR_CNS:
         case IF_MRW_CNS:
             printf("%s", sstr);
-            emitDispClsVar(id);
+            PrintClsVar(id);
             printf(", ");
-            emitDispImm(id, emitGetInsMemImm(id));
+            PrintImm(id, emitGetInsMemImm(id));
             break;
 
         case IF_MRD:
         case IF_MWR:
         case IF_MRW:
             printf("%s", sstr);
-            emitDispClsVar(id);
-            emitDispShiftCL(ins);
+            PrintClsVar(id);
+            PrintShiftCL(ins);
             break;
 
         case IF_RRD_CNS:
         case IF_RWR_CNS:
         case IF_RRW_CNS:
-            printf("%s, ", emitRegName(id->idReg1(), attr));
-            emitDispImm(id, emitGetInsSC(id));
+            printf("%s, ", RegName(id->idReg1(), attr));
+            PrintImm(id, emitGetInsSC(id));
             break;
 
         case IF_LABEL:
         case IF_RWR_LABEL:
             if (ins == INS_lea)
             {
-                printf("%s, ", emitRegName(id->idReg1(), attr));
+                printf("%s, ", RegName(id->idReg1(), attr));
             }
 
-            if (((instrDescJmp*)id)->idjShort)
+            if (static_cast<instrDescJmp*>(id)->idjShort)
             {
                 printf("SHORT ");
             }
@@ -6201,12 +6123,11 @@ void emitter::emitDispIns(
             break;
 
         default:
-            printf("unexpected format %s", emitIfName(id->idInsFmt()));
-            assert(!"unexpectedFormat");
+            printf("???");
             break;
     }
 
-    if (sz != 0 && sz != id->idCodeSize() && (!asmfm || emitComp->verbose))
+    if ((sz != 0) && (sz != id->idCodeSize()) && (!asmfm || emitComp->verbose))
     {
         printf(" (ECS:%d, ACS:%d)", id->idCodeSize(), sz);
     }

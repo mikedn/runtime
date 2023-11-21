@@ -279,6 +279,7 @@ bool IsThreeOperandAVXInstruction(instruction ins);
 /************************************************************************/
 
 #ifdef DEBUG
+void PrintHexCode(instrDesc* id, BYTE* code, size_t sz);
 void emitDispIns(instrDesc* id,
                  bool       isNew = false,
                  bool       doffs = false,
@@ -287,11 +288,12 @@ void emitDispIns(instrDesc* id,
                  uint8_t*   code  = nullptr,
                  size_t     sz    = 0,
                  insGroup*  ig    = nullptr);
-void emitDispImm(instrDesc* id, ssize_t val);
-void emitDispReloc(ssize_t value);
-void emitDispAddrMode(instrDesc* id);
-void emitDispClsVar(instrDesc* id);
-void emitDispShiftCL(instruction ins);
+void PrintImm(instrDesc* id, ssize_t val);
+void PrintReloc(ssize_t value);
+void PrintAddrMode(instrDesc* id);
+void PrintClsVar(instrDesc* id);
+void PrintShiftCL(instruction ins);
+void PrintFrameRef(instrDesc* id, bool asmfm);
 #endif
 
 /************************************************************************/

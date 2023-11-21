@@ -32,9 +32,11 @@ unsigned emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code);
 /************************************************************************/
 
 #ifdef DEBUG
+void emitDispInsHex(instrDesc* id, BYTE* code, size_t sz);
 void emitDispInst(instruction ins, insFlags flags);
 void emitDispImm(int imm, bool addComma, bool alwaysHex = false);
 void emitDispReloc(void* addr);
+void emitDispFrameRef(instrDesc* id);
 void emitDispCond(int cond);
 void emitDispShiftOpts(insOpts opt);
 void emitDispRegmask(int imm, bool encodedPC_LR);

@@ -26,9 +26,11 @@ size_t emitGetInstrDescSize(const instrDesc* id);
 
 const char* emitVectorRegName(regNumber reg);
 
+void emitDispInsHex(instrDesc* id, BYTE* code, size_t sz);
 void emitDispInst(instruction ins);
 void emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm);
 void emitDispImm(ssize_t imm, bool addComma, bool alwaysHex = false);
+void emitDispFrameRef(instrDesc* id);
 void emitDispFloatZero();
 void emitDispFloatImm(ssize_t imm8);
 void emitDispImmOptsLSL12(ssize_t imm, insOpts opt);

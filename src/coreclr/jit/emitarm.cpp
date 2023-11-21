@@ -6112,7 +6112,7 @@ void emitter::emitDispInst(instruction ins, insFlags flags)
  *
  *  Display an immediate value
  */
-void emitter::emitDispImm(int imm, bool addComma, bool alwaysHex /* =false */)
+void emitter::DispImm(int imm, bool addComma, bool alwaysHex /* =false */)
 {
     if (!alwaysHex && (imm > -1000) && (imm < 1000))
         printf("%d", imm);
@@ -6302,7 +6302,7 @@ void emitter::emitDispAddrRI(regNumber reg, int imm, emitAttr attr)
             printf("+");
 #endif
         }
-        emitDispImm(imm, false, regIsSPorFP);
+        DispImm(imm, false, regIsSPorFP);
     }
     printf("]");
     emitDispGC(attr);
@@ -6346,7 +6346,7 @@ void emitter::emitDispAddrRRI(regNumber reg1, regNumber reg2, int imm, emitAttr 
     printf("+");
     if (imm > 0)
     {
-        emitDispImm(1 << imm, false);
+        DispImm(1 << imm, false);
         printf("*");
     }
     emitDispReg(reg2, attr, false);
@@ -6378,7 +6378,7 @@ void emitter::emitDispAddrPUW(regNumber reg, int imm, insOpts opt, emitAttr attr
             printf("+");
 #endif
         }
-        emitDispImm(imm, false, regIsSPorFP);
+        DispImm(imm, false, regIsSPorFP);
     }
     printf("]");
 
@@ -6511,7 +6511,7 @@ void emitter::emitDispInsHelp(
 
         case IF_T1_L0: // Imm
         case IF_T2_B:
-            emitDispImm(emitGetInsSC(id), false);
+            DispImm(emitGetInsSC(id), false);
             break;
 
         case IF_T1_B: // <cond>
@@ -6557,7 +6557,7 @@ void emitter::emitDispInsHelp(
 
         case IF_T1_F: // SP, Imm
             emitDispReg(REG_SP, attr, true);
-            emitDispImm(emitGetInsSC(id), false);
+            DispImm(emitGetInsSC(id), false);
             break;
 
         case IF_T1_J0: // Reg, Imm
@@ -6565,7 +6565,7 @@ void emitter::emitDispInsHelp(
         case IF_T2_L2:
             emitDispReg(id->idReg1(), attr, true);
             imm = emitGetInsSC(id);
-            emitDispImm(imm, false, false);
+            DispImm(imm, false, false);
             break;
 
         case IF_T2_N:
@@ -6573,7 +6573,7 @@ void emitter::emitDispInsHelp(
             imm = emitGetInsSC(id);
             if (emitComp->opts.disDiffable)
                 imm = 0xD1FF;
-            emitDispImm(imm, false, true);
+            DispImm(imm, false, true);
             break;
 
         case IF_T2_N3:
@@ -6629,8 +6629,8 @@ void emitter::emitDispInsHelp(
                 int msb  = imm & 0x1f;
                 int imm1 = lsb;
                 int imm2 = msb + 1 - lsb;
-                emitDispImm(imm1, true);
-                emitDispImm(imm2, false);
+                DispImm(imm1, true);
+                DispImm(imm2, false);
             }
             break;
 
@@ -6650,7 +6650,7 @@ void emitter::emitDispInsHelp(
             else
             {
                 emitDispReg(id->idReg2(), attr, true);
-                emitDispImm(imm, false);
+                DispImm(imm, false);
             }
             break;
 
@@ -6664,7 +6664,7 @@ void emitter::emitDispInsHelp(
             else
             {
                 emitDispReg(REG_SP, attr, true);
-                emitDispImm(imm, false);
+                DispImm(imm, false);
             }
             break;
 
@@ -6686,7 +6686,7 @@ void emitter::emitDispInsHelp(
             else if (imm > 0)
             {
                 emitDispShiftOpts(id->idInsOpt());
-                emitDispImm(imm, false);
+                DispImm(imm, false);
             }
             break;
 
@@ -6696,7 +6696,7 @@ void emitter::emitDispInsHelp(
             emitDispReg(id->idReg2(), attr, (imm != 0));
             if (imm != 0)
             {
-                emitDispImm(imm, false);
+                DispImm(imm, false);
             }
             break;
 
@@ -6828,8 +6828,8 @@ void emitter::emitDispInsHelp(
                 int msb  = imm & 0x1f;
                 int imm1 = lsb;
                 int imm2 = msb + 1 - lsb;
-                emitDispImm(imm1, true);
-                emitDispImm(imm2, false);
+                DispImm(imm1, true);
+                DispImm(imm2, false);
             }
             else
             {
@@ -6837,8 +6837,8 @@ void emitter::emitDispInsHelp(
                 int widthm1 = imm & 0x1f;
                 int imm1    = lsb;
                 int imm2    = widthm1 + 1;
-                emitDispImm(imm1, true);
-                emitDispImm(imm2, false);
+                DispImm(imm1, true);
+                DispImm(imm2, false);
             }
             break;
 
@@ -6855,7 +6855,7 @@ void emitter::emitDispInsHelp(
             else if (imm > 0)
             {
                 emitDispShiftOpts(id->idInsOpt());
-                emitDispImm(imm, false);
+                DispImm(imm, false);
             }
             break;
 

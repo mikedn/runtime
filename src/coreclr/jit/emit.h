@@ -1473,14 +1473,8 @@ public:
     void emitDispIGlist(bool verbose = false);
 
 private:
-#ifdef TARGET_XARCH
-    void emitDispFrameRef(instrDesc* id, bool asmfm);
-#else
-    void emitDispFrameRef(instrDesc* id);
-#endif
     void emitDispInsAddr(BYTE* code);
     void emitDispInsOffs(unsigned offs, bool doffs);
-    void emitDispInsHex(instrDesc* id, BYTE* code, size_t sz);
 #endif // !DEBUG
 
     /************************************************************************/
