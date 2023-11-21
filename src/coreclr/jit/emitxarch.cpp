@@ -5675,6 +5675,49 @@ void emitter::emitDispIns(
         }
     }
 
+    emitAttr attr1 = attr;
+    emitAttr attr2 = attr;
+    emitAttr attr3 = attr;
+
+    switch (ins)
+    {
+        case INS_movsx:
+        case INS_movzx:
+#ifdef TARGET_AMD64
+        case INS_movsxd:
+#endif
+            attr1 = EA_PTRSIZE;
+            break;
+        case INS_crc32:
+            attr1 = attr == EA_8BYTE ? EA_8BYTE : EA_4BYTE;
+            break;
+        case INS_extractps:
+        case INS_pextrb:
+        case INS_pextrw:
+        case INS_pextrw_sse41:
+        case INS_pextrd:
+        case INS_pmovmskb:
+            attr1 = EA_4BYTE;
+            break;
+        case INS_pextrq:
+            attr1 = EA_8BYTE;
+            break;
+        case INS_vextractf128:
+        case INS_vextracti128:
+        case INS_cvtsi2ss:
+        case INS_cvtsi2sd:
+            attr1 = EA_16BYTE;
+            break;
+        case INS_cvttsd2si:
+        case INS_cvtss2si:
+        case INS_cvtsd2si:
+        case INS_cvttss2si:
+            attr2 = EA_16BYTE;
+            break;
+        default:
+            break;
+    }
+
     switch (id->idInsFmt())
     {
         case IF_CNS:
@@ -5704,15 +5747,7 @@ void emitter::emitDispIns(
         case IF_RRD_ARD:
         case IF_RWR_ARD:
         case IF_RRW_ARD:
-            if (ins == INS_movsx || ins == INS_movzx AMD64_ONLY(|| ins == INS_movsxd))
-            {
-                attr = EA_PTRSIZE;
-            }
-            else if ((ins == INS_crc32) && (attr != EA_8BYTE))
-            {
-                attr = EA_4BYTE;
-            }
-            printf("%s, %s", RegName(id->idReg1(), attr), sstr);
+            printf("%s, %s", RegName(id->idReg1(), attr1), sstr);
             PrintAddrMode(id);
             break;
 
@@ -5737,13 +5772,15 @@ void emitter::emitDispIns(
             break;
 
         case IF_RWR_ARD_RRD:
-            if (ins == INS_vpgatherqd || ins == INS_vgatherqps)
+            if ((ins == INS_vpgatherqd) || (ins == INS_vgatherqps))
             {
-                attr = EA_16BYTE;
+                attr1 = EA_16BYTE;
+                attr2 = EA_16BYTE;
             }
-            printf("%s, %s", RegName(id->idReg1(), attr), GetSizeOperator(EA_4BYTE));
+
+            printf("%s, %s", RegName(id->idReg1(), attr1), GetSizeOperator(EA_4BYTE));
             PrintAddrMode(id);
-            printf(", %s", RegName(id->idReg2(), attr));
+            printf(", %s", RegName(id->idReg2(), attr2));
             break;
 
         case IF_RWR_RRD_ARD_CNS:
@@ -5829,16 +5866,7 @@ void emitter::emitDispIns(
         case IF_RRD_SRD:
         case IF_RWR_SRD:
         case IF_RRW_SRD:
-            if (ins == INS_movsx || ins == INS_movzx AMD64_ONLY(|| ins == INS_movsxd))
-            {
-                attr = EA_PTRSIZE;
-            }
-            else if ((ins == INS_crc32) && (attr != EA_8BYTE))
-            {
-                attr = EA_4BYTE;
-            }
-
-            printf("%s, %s", RegName(id->idReg1(), attr), sstr);
+            printf("%s, %s", RegName(id->idReg1(), attr1), sstr);
             PrintFrameRef(id, asmfm);
             break;
 
@@ -5872,30 +5900,14 @@ void emitter::emitDispIns(
         case IF_RWR_RRD:
         case IF_RRW_RRD:
         case IF_RRW_RRW:
-            if (ins == INS_pmovmskb)
+            if ((ins == INS_cvtsi2ss) || (ins == INS_cvtsi2sd) || (ins == INS_cvttsd2si) || (ins == INS_cvtss2si) ||
+                (ins == INS_cvtsd2si) || (ins == INS_cvttss2si))
             {
-                printf("%s, %s", RegName(id->idReg1(), EA_4BYTE), RegName(id->idReg2(), attr));
+                // TODO-MIKE-Cleanup: Remove stray space.
+                printf(" ");
             }
-            else if ((ins == INS_cvtsi2ss) || (ins == INS_cvtsi2sd))
-            {
-                printf(" %s, %s", RegName(id->idReg1(), EA_16BYTE), RegName(id->idReg2(), attr));
-            }
-            else if ((ins == INS_cvttsd2si) || (ins == INS_cvtss2si) || (ins == INS_cvtsd2si) || (ins == INS_cvttss2si))
-            {
-                printf(" %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), EA_16BYTE));
-            }
-            else if (ins == INS_movsx || ins == INS_movzx AMD64_ONLY(|| ins == INS_movsxd))
-            {
-                printf("%s, %s", RegName(id->idReg1(), EA_PTRSIZE), RegName(id->idReg2(), attr));
-            }
-            else if (ins == INS_crc32 && attr != EA_8BYTE)
-            {
-                printf("%s, %s", RegName(id->idReg1(), EA_4BYTE), RegName(id->idReg2(), attr));
-            }
-            else
-            {
-                printf("%s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-            }
+
+            printf("%s, %s", RegName(id->idReg1(), attr1), RegName(id->idReg2(), attr2));
             break;
 
         case IF_RWR_RRD_RRD:
@@ -5913,57 +5925,38 @@ void emitter::emitDispIns(
             }
             break;
 
-        case IF_RWR_RRD_RRD_CNS:
-            printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-
-            switch (ins)
-            {
-                case INS_vinsertf128:
-                case INS_vinserti128:
-                    attr = EA_16BYTE;
-                    break;
-                case INS_pinsrb:
-                case INS_pinsrw:
-                case INS_pinsrd:
-                    attr = EA_4BYTE;
-                    break;
-                case INS_pinsrq:
-                    attr = EA_8BYTE;
-                    break;
-                default:
-                    break;
-            }
-
-            printf("%s, ", RegName(id->idReg3(), attr));
-            PrintImm(id, emitGetInsSC(id));
-            break;
-
         case IF_RWR_RRD_RRD_RRD:
             printf("%s, %s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr),
                    RegName(id->idReg3(), attr), RegName(id->idReg4(), attr));
             break;
 
-        case IF_RRW_RRD_CNS:
-        {
-            emitAttr attr1 = attr;
-            emitAttr attr2 = attr;
-
+        case IF_RWR_RRD_RRD_CNS:
             switch (ins)
             {
-                case INS_vextractf128:
-                case INS_vextracti128:
-                    attr1 = EA_16BYTE;
+                case INS_vinsertf128:
+                case INS_vinserti128:
+                    attr3 = EA_16BYTE;
                     break;
-                case INS_extractps:
-                case INS_pextrb:
-                case INS_pextrw:
-                case INS_pextrw_sse41:
-                case INS_pextrd:
-                    attr1 = EA_4BYTE;
+                case INS_pinsrb:
+                case INS_pinsrw:
+                case INS_pinsrd:
+                    attr3 = EA_4BYTE;
                     break;
-                case INS_pextrq:
-                    attr1 = EA_8BYTE;
+                case INS_pinsrq:
+                    attr3 = EA_8BYTE;
                     break;
+                default:
+                    break;
+            }
+
+            printf("%s, %s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr),
+                   RegName(id->idReg3(), attr3));
+            PrintImm(id, emitGetInsSC(id));
+            break;
+
+        case IF_RRW_RRD_CNS:
+            switch (ins)
+            {
                 case INS_pinsrb:
                 case INS_pinsrw:
                 case INS_pinsrd:
@@ -5979,7 +5972,6 @@ void emitter::emitDispIns(
             printf("%s, %s, ", RegName(id->idReg1(), attr1), RegName(id->idReg2(), attr2));
             PrintImm(id, emitGetInsSC(id));
             break;
-        }
 
         case IF_RRD:
         case IF_RWR:
@@ -5991,15 +5983,7 @@ void emitter::emitDispIns(
         case IF_RRD_MRD:
         case IF_RWR_MRD:
         case IF_RRW_MRD:
-            if (ins == INS_movsx || ins == INS_movzx AMD64_ONLY(|| ins == INS_movsxd))
-            {
-                attr = EA_PTRSIZE;
-            }
-            else if ((ins == INS_crc32) && (attr != EA_8BYTE))
-            {
-                attr = EA_4BYTE;
-            }
-            printf("%s, %s", RegName(id->idReg1(), attr), sstr);
+            printf("%s, %s", RegName(id->idReg1(), attr1), sstr);
             PrintClsVar(id);
             break;
 
