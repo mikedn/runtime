@@ -323,8 +323,6 @@ instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
 /*               Private helpers for instruction output                 */
 /************************************************************************/
 
-static bool emitInsCanOnlyWriteSSE2OrAVXReg(instrDesc* id);
-
 #if !FEATURE_FIXED_OUT_ARGS
 void emitAdjustStackDepthPushPop(instruction ins);
 void emitAdjustStackDepth(instruction ins, ssize_t val);

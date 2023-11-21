@@ -1276,56 +1276,6 @@ insFormat emitter::emitInsModeFormat(instruction ins, insFormat base)
     return (insFormat)(base + emitInsUpdateMode(ins));
 }
 
-// This is a helper we need due to Vs Whidbey #254016 in order to distinguish
-// if we can not possibly be updating an integer register. This is not the best
-// solution, but the other ones (see bug) are going to be much more complicated.
-bool emitter::emitInsCanOnlyWriteSSE2OrAVXReg(instrDesc* id)
-{
-    instruction ins = id->idIns();
-
-    if (!IsSSEOrAVXInstruction(ins))
-    {
-        return false;
-    }
-
-    switch (ins)
-    {
-        case INS_andn:
-        case INS_bextr:
-        case INS_blsi:
-        case INS_blsmsk:
-        case INS_blsr:
-        case INS_bzhi:
-        case INS_cvttsd2si:
-        case INS_cvttss2si:
-        case INS_cvtsd2si:
-        case INS_cvtss2si:
-        case INS_extractps:
-        case INS_movd:
-        case INS_movmskpd:
-        case INS_movmskps:
-        case INS_mulx:
-        case INS_pdep:
-        case INS_pext:
-        case INS_pmovmskb:
-        case INS_pextrb:
-        case INS_pextrd:
-        case INS_pextrq:
-        case INS_pextrw:
-        case INS_pextrw_sse41:
-        case INS_rorx:
-        {
-            // These SSE instructions write to a general purpose integer register.
-            return false;
-        }
-
-        default:
-        {
-            return true;
-        }
-    }
-}
-
 // Returns the base encoding of the given CPU instruction.
 static size_t insCode(instruction ins)
 {
@@ -6717,28 +6667,31 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     }
     else
     {
-        if (!emitInsCanOnlyWriteSSE2OrAVXReg(id))
+        switch (id->idInsFmt())
         {
-            switch (id->idInsFmt())
-            {
-                case IF_RWR_ARD:
-                case IF_RRW_ARD:
-                case IF_RWR_RRD_ARD:
+            case IF_RWR_ARD:
+            case IF_RRW_ARD:
+            case IF_RRW_ARD_CNS:
+            case IF_RWR_RRD_ARD:
+            case IF_RWR_ARD_CNS:
+            case IF_RWR_ARD_RRD:
+            case IF_RWR_RRD_ARD_CNS:
+            case IF_RWR_RRD_ARD_RRD:
+                if (IsGeneralRegister(id->idReg1()))
+                {
                     emitGCregDeadUpd(id->idReg1(), dst);
-                    break;
-                default:
-                    break;
-            }
-
-            if ((ins == INS_mulEAX) || (ins == INS_imulEAX))
-            {
-                emitGCregDeadUpd(REG_EAX, dst);
-                emitGCregDeadUpd(REG_EDX, dst);
-            }
-            else if (ins == INS_imuli)
-            {
-                emitGCregDeadUpd(id->idReg1(), dst);
-            }
+                }
+                break;
+            case IF_ARD:
+                if ((ins == INS_mulEAX) || (ins == INS_imulEAX))
+                {
+                    emitGCregDeadUpd(REG_EAX, dst);
+                    emitGCregDeadUpd(REG_EDX, dst);
+                }
+                break;
+            default:
+                assert((ins != INS_mulEAX) && (ins != INS_imulEAX));
+                break;
         }
     }
 
@@ -7007,28 +6960,32 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 assert(!"unexpected GC ref instruction format");
         }
     }
-    else if (!emitInsCanOnlyWriteSSE2OrAVXReg(id))
+    else
     {
         switch (id->idInsFmt())
         {
-            case IF_RWR_SRD:
             case IF_RRW_SRD:
+            case IF_RRW_SRD_CNS:
+            case IF_RWR_SRD:
             case IF_RWR_RRD_SRD:
-                emitGCregDeadUpd(id->idReg1(), dst);
+            case IF_RWR_SRD_CNS:
+            case IF_RWR_RRD_SRD_CNS:
+            case IF_RWR_RRD_SRD_RRD:
+                if (IsGeneralRegister(id->idReg1()))
+                {
+                    emitGCregDeadUpd(id->idReg1(), dst);
+                }
                 break;
-
+            case IF_SRD:
+                if ((ins == INS_mulEAX) || (ins == INS_imulEAX))
+                {
+                    emitGCregDeadUpd(REG_EAX, dst);
+                    emitGCregDeadUpd(REG_EDX, dst);
+                }
+                break;
             default:
+                assert((ins != INS_mulEAX) && (ins != INS_imulEAX));
                 break;
-        }
-
-        if ((ins == INS_mulEAX) || (ins == INS_imulEAX))
-        {
-            emitGCregDeadUpd(REG_EAX, dst);
-            emitGCregDeadUpd(REG_EDX, dst);
-        }
-        else if (ins == INS_imuli)
-        {
-            emitGCregDeadUpd(id->idReg1(), dst);
         }
     }
 
@@ -7351,28 +7308,30 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     }
     else
     {
-        if (!emitInsCanOnlyWriteSSE2OrAVXReg(id))
+        switch (id->idInsFmt())
         {
-            switch (id->idInsFmt())
-            {
-                case IF_RWR_MRD:
-                case IF_RRW_MRD:
-                case IF_RWR_RRD_MRD:
+            case IF_RRW_MRD:
+            case IF_RRW_MRD_CNS:
+            case IF_RWR_MRD:
+            case IF_RWR_RRD_MRD:
+            case IF_RWR_MRD_CNS:
+            case IF_RWR_RRD_MRD_CNS:
+            case IF_RWR_RRD_MRD_RRD:
+                if (IsGeneralRegister(id->idReg1()))
+                {
                     emitGCregDeadUpd(id->idReg1(), dst);
-                    break;
-                default:
-                    break;
-            }
-
-            if (ins == INS_mulEAX || ins == INS_imulEAX)
-            {
-                emitGCregDeadUpd(REG_EAX, dst);
-                emitGCregDeadUpd(REG_EDX, dst);
-            }
-            else if (ins == INS_imuli)
-            {
-                emitGCregDeadUpd(id->idReg1(), dst);
-            }
+                }
+                break;
+            case IF_MRD:
+                if ((ins == INS_mulEAX) || (ins == INS_imulEAX))
+                {
+                    emitGCregDeadUpd(REG_EAX, dst);
+                    emitGCregDeadUpd(REG_EDX, dst);
+                }
+                break;
+            default:
+                assert((ins != INS_mulEAX) && (ins != INS_imulEAX));
+                break;
         }
     }
 
@@ -7932,19 +7891,20 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
                 assert(!"unexpected GC ref instruction format");
         }
     }
-    else if (!emitInsCanOnlyWriteSSE2OrAVXReg(id))
+    else
     {
         switch (id->idInsFmt())
         {
-            case IF_RWR_RRD:
+            // TODO-MIKE-Review: What about IF_RRW_RRW (xchg)?
             case IF_RRW_RRD:
-            case IF_RWR_RRD_RRD:
-                emitGCregDeadUpd(reg1, dst);
-                break;
-            case IF_RRD_CNS:
-                assert(ins != INS_mulEAX && ins != INS_imulEAX && ins != INS_imuli);
+            case IF_RWR_RRD:
+                if (IsGeneralRegister(reg1))
+                {
+                    emitGCregDeadUpd(reg1, dst);
+                }
                 break;
             default:
+                assert((ins != INS_mulEAX) && (ins != INS_imulEAX) && (ins != INS_imuli));
                 break;
         }
     }
@@ -8009,19 +7969,12 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
     }
 
     noway_assert(!id->idGCref());
+    assert((id->idInsFmt() == IF_RWR_RRD_RRD) || (id->idInsFmt() == IF_RWR_RRD_RRD_CNS) ||
+           (id->idInsFmt() == IF_RWR_RRD_RRD_RRD));
 
-    if (!emitInsCanOnlyWriteSSE2OrAVXReg(id))
+    if (IsGeneralRegister(id->idReg1()))
     {
-        switch (id->idInsFmt())
-        {
-            case IF_RWR_RRD_RRD:
-            case IF_RWR_RRD_RRD_CNS:
-            case IF_RWR_RRD_RRD_RRD:
-                emitGCregDeadUpd(id->idReg1(), dst);
-                break;
-            default:
-                break;
-        }
+        emitGCregDeadUpd(id->idReg1(), dst);
     }
 
     return dst;
@@ -8031,8 +7984,6 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 {
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
-
-    assert(id->idGCref() == GCT_NONE);
 
     // Get the 'base' opcode (it's a big one)
     // Also, determine which operand goes where in the ModRM byte.
@@ -8166,7 +8117,9 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
         dst += emitOutputByte(dst, emitGetInsSC(id));
     }
 
-    if (!emitInsCanOnlyWriteSSE2OrAVXReg(id))
+    assert(id->idGCref() == GCT_NONE);
+
+    if (IsGeneralRegister(id->idReg1()))
     {
         emitGCregDeadUpd(id->idReg1(), dst);
     }
