@@ -1528,23 +1528,6 @@ void emitter::emitStartExitSeq()
 
 #endif // JIT32_GCENCODER
 
-/*****************************************************************************
- *
- *  A conversion table used to map an operand size value (in bytes) into its
- *  small encoding (0 through 3), and vice versa.
- */
-
-const emitter::opSize emitter::emitSizeEncode[] = {
-    emitter::OPSZ1, emitter::OPSZ2,  OPSIZE_INVALID, emitter::OPSZ4,  OPSIZE_INVALID, OPSIZE_INVALID, OPSIZE_INVALID,
-    emitter::OPSZ8, OPSIZE_INVALID,  OPSIZE_INVALID, OPSIZE_INVALID,  OPSIZE_INVALID, OPSIZE_INVALID, OPSIZE_INVALID,
-    OPSIZE_INVALID, emitter::OPSZ16, OPSIZE_INVALID, OPSIZE_INVALID,  OPSIZE_INVALID, OPSIZE_INVALID, OPSIZE_INVALID,
-    OPSIZE_INVALID, OPSIZE_INVALID,  OPSIZE_INVALID, OPSIZE_INVALID,  OPSIZE_INVALID, OPSIZE_INVALID, OPSIZE_INVALID,
-    OPSIZE_INVALID, OPSIZE_INVALID,  OPSIZE_INVALID, emitter::OPSZ32,
-};
-
-const emitAttr emitter::emitSizeDecode[emitter::OPSZ_COUNT] = {EA_1BYTE, EA_2BYTE,  EA_4BYTE,
-                                                               EA_8BYTE, EA_16BYTE, EA_32BYTE};
-
 insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
 {
     assert(!emitIGisInProlog(emitCurIG));

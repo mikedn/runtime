@@ -427,39 +427,13 @@ private:
 
     enum opSize : unsigned
     {
-        OPSZ1      = 0,
-        OPSZ2      = 1,
-        OPSZ4      = 2,
-        OPSZ8      = 3,
-        OPSZ16     = 4,
-        OPSZ32     = 5,
-        OPSZ_COUNT = 6,
-#ifdef TARGET_AMD64
-        OPSZP = OPSZ8,
-#else
-        OPSZP = OPSZ4,
-#endif
+        OPSZ1  = 0,
+        OPSZ2  = 1,
+        OPSZ4  = 2,
+        OPSZ8  = 3,
+        OPSZ16 = 4,
+        OPSZ32 = 5
     };
-
-#define OPSIZE_INVALID ((opSize)0xffff)
-
-    static const opSize   emitSizeEncode[];
-    static const emitAttr emitSizeDecode[];
-
-    static opSize emitEncodeSize(emitAttr size)
-    {
-        assert(size == EA_1BYTE || size == EA_2BYTE || size == EA_4BYTE || size == EA_8BYTE || size == EA_16BYTE ||
-               size == EA_32BYTE);
-
-        return emitSizeEncode[((int)size) - 1];
-    }
-
-    static emitAttr emitDecodeSize(opSize ensz)
-    {
-        assert(((unsigned)ensz) < OPSZ_COUNT);
-
-        return emitSizeDecode[ensz];
-    }
 
     insGroup* GetProlog() const
     {
@@ -588,7 +562,7 @@ private:
     private:
 #if defined(TARGET_XARCH)
         unsigned _idCodeSize : 4; // size of instruction in bytes. Max size of an Intel instruction is 15 bytes.
-        opSize   _idOpSize : 3;   // operand size: 0=1 , 1=2 , 2=4 , 3=8, 4=16, 5=32
+        unsigned _idOpSize : 3;   // operand size: 0=1 , 1=2 , 2=4 , 3=8, 4=16, 5=32
                                   // At this point we have fully consumed first DWORD so that next field
                                   // doesn't cross a byte boundary.
 #elif defined(TARGET_ARM64)
@@ -636,7 +610,7 @@ private:
         unsigned _idNoGC : 1; // Some helpers don't get recorded in GC tables
 
 #ifdef TARGET_ARM64
-        opSize   _idOpSize : 3; // operand size: 0=1 , 1=2 , 2=4 , 3=8, 4=16
+        unsigned _idOpSize : 3; // operand size: 0=1 , 1=2 , 2=4 , 3=8, 4=16
         insOpts  _idInsOpt : 6; // options for instructions
         unsigned _idLclVar : 1; // access a local on stack
 #endif
@@ -961,13 +935,15 @@ private:
         }
 #endif // TARGET_ARM
 
-        emitAttr idOpSize()
+        emitAttr idOpSize() const
         {
-            return emitDecodeSize(_idOpSize);
+            return static_cast<emitAttr>(1 << _idOpSize);
         }
-        void idOpSize(emitAttr opsz)
+
+        void idOpSize(emitAttr size)
         {
-            _idOpSize = emitEncodeSize(opsz);
+            assert(size == 1 || size == 2 || size == 4 || size == 8 || size == 16 || size == 32);
+            _idOpSize = BitPosition(size);
         }
 
         GCtype idGCref() const
