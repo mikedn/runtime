@@ -10892,7 +10892,7 @@ void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
         {
             printf("HIGH RELOC ");
 
-            PrintImm(reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr), false);
+            emitDispImm(reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr), false);
 
             size_t targetHandle = reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle);
 
@@ -10935,7 +10935,7 @@ void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
  *
  *  Display an immediate value
  */
-void emitter::PrintImm(ssize_t imm, bool addComma, bool alwaysHex /* =false */)
+void emitter::emitDispImm(ssize_t imm, bool addComma, bool alwaysHex /* =false */)
 {
     if (strictArmAsm)
     {
@@ -11020,7 +11020,7 @@ void emitter::emitDispImmOptsLSL12(ssize_t imm, insOpts opt)
     {
         imm <<= 12;
     }
-    PrintImm(imm, false);
+    emitDispImm(imm, false);
     if (strictArmAsm && insOptsLSL12(opt))
     {
         printf(", LSL #12");
@@ -11301,7 +11301,7 @@ void emitter::emitDispShiftedReg(regNumber reg, insOpts opt, ssize_t imm, emitAt
             printf(",");
         }
         emitDispShiftOpts(opt);
-        PrintImm(imm, false);
+        emitDispImm(imm, false);
     }
 }
 
@@ -11333,7 +11333,7 @@ void emitter::emitDispExtendReg(regNumber reg, insOpts opt, ssize_t imm)
             if ((imm > 0) || (opt == INS_OPTS_LSL))
             {
                 printf(" ");
-                PrintImm(imm, false);
+                emitDispImm(imm, false);
             }
         }
     }
@@ -11356,7 +11356,7 @@ void emitter::emitDispExtendReg(regNumber reg, insOpts opt, ssize_t imm)
         if (imm > 0)
         {
             printf("*");
-            PrintImm(ssize_t{1} << imm, false);
+            emitDispImm(ssize_t{1} << imm, false);
         }
     }
 }
@@ -11378,7 +11378,7 @@ void emitter::emitDispAddrRI(regNumber reg, insOpts opt, ssize_t imm)
         if (!insOptsPostIndex(opt) && (imm != 0))
         {
             printf(",");
-            PrintImm(imm, false);
+            emitDispImm(imm, false);
         }
         printf("]");
 
@@ -11389,7 +11389,7 @@ void emitter::emitDispAddrRI(regNumber reg, insOpts opt, ssize_t imm)
         else if (insOptsPostIndex(opt))
         {
             printf(",");
-            PrintImm(imm, false);
+            emitDispImm(imm, false);
         }
     }
     else // !strictArmAsm
@@ -11423,7 +11423,7 @@ void emitter::emitDispAddrRI(regNumber reg, insOpts opt, ssize_t imm)
         {
             printf("%c", operStr[1]);
         }
-        PrintImm(imm, false);
+        emitDispImm(imm, false);
         printf("]");
     }
 }
@@ -11617,7 +11617,7 @@ void emitter::emitDispIns(
         case IF_BI_1B: // BI_1B   B.......bbbbbiii iiiiiiiiiiittttt      Rt imm6, simm14:00
             assert(insOptsNone(id->idInsOpt()));
             emitDispReg(id->idReg1(), size, true);
-            PrintImm(emitGetInsSC(id), true);
+            emitDispImm(emitGetInsSC(id), true);
             if (id->idIsBound())
             {
                 emitPrintLabel(id->idAddr()->iiaIGlabel);
@@ -11780,15 +11780,15 @@ void emitter::emitDispIns(
             hwi.immHWVal = (unsigned)emitGetInsSC(id);
             if (ins == INS_mov)
             {
-                PrintImm(emitDecodeHalfwordImm(hwi, size), false);
+                emitDispImm(emitDecodeHalfwordImm(hwi, size), false);
             }
             else // movz, movn, movk
             {
-                PrintImm(hwi.immVal, false);
+                emitDispImm(hwi.immVal, false);
                 if (hwi.immHW != 0)
                 {
                     emitDispShiftOpts(INS_OPTS_LSL);
-                    PrintImm(hwi.immHW * 16, false);
+                    emitDispImm(hwi.immHW * 16, false);
                 }
             }
             break;
@@ -11796,13 +11796,13 @@ void emitter::emitDispIns(
         case IF_DI_1C: // DI_1C   X........Nrrrrrr ssssssnnnnn.....         Rn    imm(N,r,s)
             emitDispReg(id->idReg1(), size, true);
             bmi.immNRS = (unsigned)emitGetInsSC(id);
-            PrintImm(emitDecodeBitMaskImm(bmi, size), false);
+            emitDispImm(emitDecodeBitMaskImm(bmi, size), false);
             break;
 
         case IF_DI_1D: // DI_1D   X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
             emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
             bmi.immNRS = (unsigned)emitGetInsSC(id);
-            PrintImm(emitDecodeBitMaskImm(bmi, size), false);
+            emitDispImm(emitDecodeBitMaskImm(bmi, size), false);
             break;
 
         case IF_DI_2A: // DI_2A   X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
@@ -11820,7 +11820,7 @@ void emitter::emitDispIns(
             {
                 assert(ins == INS_add);
                 printf("[LOW RELOC ");
-                PrintImm(reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr), false);
+                emitDispImm(reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr), false);
                 printf("]");
             }
             else
@@ -11832,7 +11832,7 @@ void emitter::emitDispIns(
         case IF_DI_2B: // DI_2B   X........X.nnnnn ssssssnnnnnddddd      Rd Rn    imm(0-63)
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
-            PrintImm(emitGetInsSC(id), false);
+            emitDispImm(emitGetInsSC(id), false);
             break;
 
         case IF_DI_2C: // DI_2C   X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imm(N,r,s)
@@ -11846,7 +11846,7 @@ void emitter::emitDispIns(
             }
             emitDispReg(id->idReg2(), size, true);
             bmi.immNRS = (unsigned)emitGetInsSC(id);
-            PrintImm(emitDecodeBitMaskImm(bmi, size), false);
+            emitDispImm(emitDecodeBitMaskImm(bmi, size), false);
             break;
 
         case IF_DI_2D: // DI_2D   X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imr, ims   (N,r,s)
@@ -11861,28 +11861,28 @@ void emitter::emitDispIns(
                 case INS_bfm:
                 case INS_sbfm:
                 case INS_ubfm:
-                    PrintImm(bmi.immR, true);
-                    PrintImm(bmi.immS, false);
+                    emitDispImm(bmi.immR, true);
+                    emitDispImm(bmi.immS, false);
                     break;
 
                 case INS_bfi:
                 case INS_sbfiz:
                 case INS_ubfiz:
-                    PrintImm(getBitWidth(size) - bmi.immR, true);
-                    PrintImm(bmi.immS + 1, false);
+                    emitDispImm(getBitWidth(size) - bmi.immR, true);
+                    emitDispImm(bmi.immS + 1, false);
                     break;
 
                 case INS_bfxil:
                 case INS_sbfx:
                 case INS_ubfx:
-                    PrintImm(bmi.immR, true);
-                    PrintImm(bmi.immS - bmi.immR + 1, false);
+                    emitDispImm(bmi.immR, true);
+                    emitDispImm(bmi.immS - bmi.immR + 1, false);
                     break;
 
                 case INS_asr:
                 case INS_lsr:
                 case INS_lsl:
-                    PrintImm(imm, false);
+                    emitDispImm(imm, false);
                     break;
 
                 default:
@@ -11894,7 +11894,7 @@ void emitter::emitDispIns(
         case IF_DI_1F: // DI_1F   X..........iiiii cccc..nnnnn.nzcv      Rn imm5  nzcv cond
             emitDispReg(id->idReg1(), size, true);
             cfi.immCFVal = (unsigned)emitGetInsSC(id);
-            PrintImm(cfi.imm5, true);
+            emitDispImm(cfi.imm5, true);
             emitDispFlags(cfi.flags);
             printf(",");
             emitDispCond(cfi.cond);
@@ -12024,7 +12024,7 @@ void emitter::emitDispIns(
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
             emitDispReg(id->idReg3(), size, true);
-            PrintImm(emitGetInsSC(id), false);
+            emitDispImm(emitGetInsSC(id), false);
             break;
 
         case IF_DR_4A: // DR_4A   X..........mmmmm .aaaaannnnnmmmmm      Rd Rn Rm Ra
@@ -12084,18 +12084,18 @@ void emitter::emitDispIns(
                             imm64 |= (mask8 << (b * 8));
                         }
                     }
-                    PrintImm(imm64, hasShift, true);
+                    emitDispImm(imm64, hasShift, true);
                 }
                 else
                 {
-                    PrintImm(imm, hasShift, true);
+                    emitDispImm(imm, hasShift, true);
                 }
                 if (hasShift)
                 {
                     insOpts  opt   = (immShift & 0x4) ? INS_OPTS_MSL : INS_OPTS_LSL;
                     unsigned shift = (immShift & 0x3) * 8;
                     emitDispShiftOpts(opt);
-                    PrintImm(shift, false);
+                    emitDispImm(shift, false);
                 }
             }
             break;
@@ -12163,7 +12163,7 @@ void emitter::emitDispIns(
                 emitDispReg(id->idReg2(), elemsize, true);
             }
             imm = emitGetInsSC(id);
-            PrintImm(imm, false);
+            emitDispImm(imm, false);
             break;
 
         case IF_DV_2O: // DV_2O   .Q.......iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - vector)
@@ -12193,7 +12193,7 @@ void emitter::emitDispIns(
                 }
 
                 imm = emitGetInsSC(id);
-                PrintImm(imm, false);
+                emitDispImm(imm, false);
             }
             break;
 
@@ -12266,7 +12266,7 @@ void emitter::emitDispIns(
             {
                 emitDispReg(id->idReg1(), size, true);
                 emitDispReg(id->idReg2(), size, true);
-                PrintImm(0, false);
+                emitDispImm(0, false);
             }
             else if (emitInsIsVectorNarrow(ins))
             {
@@ -12508,7 +12508,7 @@ void emitter::emitDispIns(
             emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
             emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
             emitDispVectorReg(id->idReg3(), id->idInsOpt(), true);
-            PrintImm(emitGetInsSC(id), false);
+            emitDispImm(emitGetInsSC(id), false);
             break;
 
         case IF_DV_4A: // DV_4A   .........X.mmmmm .aaaaannnnnddddd      Vd Va Vn Vm (scalar)
@@ -12522,7 +12522,7 @@ void emitter::emitDispIns(
             break;
 
         case IF_SI_0A: // SI_0A   ...........iiiii iiiiiiiiiii.....               imm16
-            PrintImm(emitGetInsSC(id), false);
+            emitDispImm(emitGetInsSC(id), false);
             break;
 
         case IF_SI_0B: // SI_0B   ................ ....bbbb........               imm4 - barrier
