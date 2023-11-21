@@ -524,8 +524,6 @@ static bool IsDstSrcImmAvxInstruction(instruction ins)
     }
 }
 
-// Returns true if this instruction requires a VEX prefix
-// All AVX instructions require a VEX prefix
 bool emitter::TakesVexPrefix(instruction ins) const
 {
     // special case vzeroupper as it requires 2-byte VEX prefix
@@ -543,69 +541,29 @@ bool emitter::TakesVexPrefix(instruction ins) const
         case INS_vzeroupper:
             return false;
         default:
-            break;
+            return IsAVXInstruction(ins);
     }
-
-    return IsAVXInstruction(ins);
 }
 
-// 3-byte VEX prefix starts with byte 0xC4
-#define VEX_PREFIX_MASK_3BYTE 0xFF000000000000ULL
-#define VEX_PREFIX_CODE_3BYTE 0xC4000000000000ULL
-
-// Returns true if the instruction encoding already contains VEX prefix
 bool emitter::hasVexPrefix(code_t code)
 {
-    return (code & VEX_PREFIX_MASK_3BYTE) == VEX_PREFIX_CODE_3BYTE;
+    return ((code >> 48) & 0xFF) == 0xC4;
 }
 
-// Add base VEX prefix without setting W, R, X, or B bits
-// L bit will be set based on emitter attr.
-//
-// 2-byte VEX prefix = C5 <R,vvvv,L,pp>
-// 3-byte VEX prefix = C4 <R,X,B,m-mmmm> <W,vvvv,L,pp>
-//  - R, X, B, W - bits to express corresponding REX prefixes
-//  - m-mmmmm (5-bit)
-//    0-00001 - implied leading 0F opcode byte
-//    0-00010 - implied leading 0F 38 opcode bytes
-//    0-00011 - implied leading 0F 3A opcode bytes
-//    Rest    - reserved for future use and usage of them will uresult in Undefined instruction exception
-//
-// - vvvv (4-bits) - register specifier in 1's complement form; must be 1111 if unused
-// - L - scalar or AVX-128 bit operations (L=0),  256-bit operations (L=1)
-// - pp (2-bits) - opcode extension providing equivalent functionality of a SIMD size prefix
-//                 these prefixes are treated mandatory when used with escape opcode 0Fh for
-//                 some SIMD instructions
-//   00  - None   (0F    - packed float)
-//   01  - 66     (66 0F - packed double)
-//   10  - F3     (F3 0F - scalar float
-//   11  - F2     (F2 0F - scalar double)
-#define DEFAULT_3BYTE_VEX_PREFIX 0xC4E07800000000ULL
-#define DEFAULT_3BYTE_VEX_PREFIX_MASK 0xFFFFFF00000000ULL
-#define LBIT_IN_3BYTE_VEX_PREFIX 0x00000400000000ULL
 emitter::code_t emitter::AddVexPrefix(instruction ins, code_t code, emitAttr attr)
 {
-    // The 2-byte VEX encoding is preferred when possible, but actually emitting
-    // it depends on a number of factors that we may not know until much later.
-    //
-    // In order to handle this "easily", we just carry the 3-byte encoding all
-    // the way through and "fix-up" the encoding when the VEX prefix is actually
-    // emitted, by simply checking that all the requirements were met.
-
-    // Only AVX instructions require VEX prefix
     assert(IsAVXInstruction(ins));
-
-    // Shouldn't have already added VEX prefix
     assert(!hasVexPrefix(code));
+    assert((code >> 32) == 0);
 
-    assert((code & DEFAULT_3BYTE_VEX_PREFIX_MASK) == 0);
+    // We start with a 3-byte VEX by default. Once we gather all its
+    // components we can decide to emit a 2-byte VEX prefix instead.
 
-    code |= DEFAULT_3BYTE_VEX_PREFIX;
+    code |= 0xC4E078ull << 32;
 
     if (attr == EA_32BYTE)
     {
-        // Set L bit to 1 in case of instructions that operate on 256-bits.
-        code |= LBIT_IN_3BYTE_VEX_PREFIX;
+        code |= 0x04ull << 32;
     }
 
     return code;
@@ -696,15 +654,16 @@ static bool TakesRexWPrefix(instruction ins, emitAttr attr)
             break;
     }
 
-#ifdef TARGET_AMD64
+#ifdef TARGET_X86
+    return false;
+#else
     // movsx should always sign extend out to 8 bytes just because we don't track
     // whether the dest should be 4 bytes or 8 bytes (attr indicates the size
     // of the source, not the dest).
     // movsxd should always have a REX.W prefix, otherwise it's equivalent to mov.
     // A 4-byte movzx is equivalent to an 8 byte movzx, so it is not special
     // cased here.
-    //
-    // Rex_jmp = jmp with rex prefix always requires rex.w prefix.
+
     if (ins == INS_movsx || ins == INS_movsxd || ins == INS_rex_jmp)
     {
         return true;
@@ -743,23 +702,15 @@ static bool TakesRexWPrefix(instruction ins, emitAttr attr)
         }
     }
 
-    // TODO-XArch-Cleanup: Better way to not emit REX.W when we don't need it, than just testing all these
-    // opcodes...
+    // TODO-XArch-Cleanup: Better way to not emit REX.W when we don't need it, than just testing
+    // all these opcodes...
     // These are all the instructions that default to 8-byte operand without the REX.W bit
     // With 1 special case: movzx because the 4 byte version still zeros-out the hi 4 bytes
     // so we never need it
-    if ((ins != INS_push) && (ins != INS_pop) && (ins != INS_movq) && (ins != INS_movzx) && (ins != INS_push_hide) &&
-        (ins != INS_pop_hide) && (ins != INS_ret) && (ins != INS_call) && !((ins >= INS_i_jmp) && (ins <= INS_l_jg)))
-    {
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-#else  //! TARGET_AMD64 = TARGET_X86
-    return false;
-#endif //! TARGET_AMD64
+
+    return (ins != INS_push) && (ins != INS_pop) && (ins != INS_movq) && (ins != INS_movzx) && (ins != INS_push_hide) &&
+           (ins != INS_pop_hide) && (ins != INS_ret) && (ins != INS_call) && !((ins >= INS_i_jmp) && (ins <= INS_l_jg));
+#endif // TARGET_AMD64
 }
 
 // Returns true if using this register will require a REX.* prefix.
