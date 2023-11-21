@@ -1640,35 +1640,21 @@ emitter::code_t emitter::insEncodeMIreg(instruction ins, regNumber reg, emitAttr
 
 static unsigned ScaleEncoding(unsigned scale)
 {
-    assert(scale == 1 || scale == 2 || scale == 4 || scale == 8);
+    assert((scale == 0) || (scale == 1) || (scale == 2) || (scale == 4) || (scale == 8));
 
     static constexpr uint8_t scales[]{
-        0xFF, // 0
+        0x00, // 0
         0x00, // 1
-        0x40, // 2
-        0xFF, // 3
-        0x80, // 4
-        0xFF, // 5
-        0xFF, // 6
-        0xFF, // 7
-        0xC0, // 8
+        0x01, // 2
+        0x00, // 3
+        0x02, // 4
+        0x00, // 5
+        0x00, // 6
+        0x00, // 7
+        0x03, // 8
     };
 
     return scales[scale];
-}
-
-emitter::opSize emitter::emitEncodeScale(size_t scale)
-{
-    assert(scale == 1 || scale == 2 || scale == 4 || scale == 8);
-
-    return emitSizeEncode[scale - 1];
-}
-
-emitAttr emitter::emitDecodeScale(unsigned ensz)
-{
-    assert(ensz < 4);
-
-    return emitSizeDecode[ensz];
 }
 
 instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
@@ -1963,7 +1949,7 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
     {
         size++;
 
-        if (emitDecodeScale(id->idAddr()->iiaAddrMode.amScale) > 1)
+        if (id->idAddr()->iiaAddrMode.amScale != 0)
         {
             if (baseReg == REG_NA)
             {
@@ -2460,7 +2446,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
         id->idInsFmt(fmt);
         id->idAddr()->iiaAddrMode.amBaseReg = addr->GetRegNum();
         id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-        id->idAddr()->iiaAddrMode.amScale   = OPSZ1;
+        id->idAddr()->iiaAddrMode.amScale   = 0;
         assert(emitGetInsAmdDisp(id) == 0);
 
         return;
@@ -2490,7 +2476,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
 
         id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
         id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-        id->idAddr()->iiaAddrMode.amScale   = OPSZ1; // for completeness
+        id->idAddr()->iiaAddrMode.amScale   = 0;
 
         id->idInsFmt(fmt);
 
@@ -2520,12 +2506,12 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
         regNumber indexReg = index->GetRegNum();
         assert(indexReg != REG_NA);
         id->idAddr()->iiaAddrMode.amIndxReg = indexReg;
-        id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(addrMode->GetScale());
+        id->idAddr()->iiaAddrMode.amScale   = ScaleEncoding(addrMode->GetScale());
     }
     else
     {
         id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-        id->idAddr()->iiaAddrMode.amScale   = OPSZ1;
+        id->idAddr()->iiaAddrMode.amScale   = 0;
     }
 
     // disp must have already been set by the caller.
@@ -2551,7 +2537,7 @@ void emitter::PrologSpillParamRegsToShadowSlots()
         id->idInsFmt(IF_AWR_RRD);
         id->idAddr()->iiaAddrMode.amBaseReg = REG_SPBASE;
         id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-        id->idAddr()->iiaAddrMode.amScale   = OPSZ1;
+        id->idAddr()->iiaAddrMode.amScale   = 0;
         id->idReg1(argReg);
 
         unsigned sz = emitInsSizeAM(id, insCodeMR(INS_mov));
@@ -3548,7 +3534,7 @@ void emitter::emitIns_R_AR_R(instruction ins,
     id->idInsFmt(IF_RWR_ARD_RRD);
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = index;
-    id->idAddr()->iiaAddrMode.amScale   = emitEncodeSize((emitAttr)scale);
+    id->idAddr()->iiaAddrMode.amScale   = ScaleEncoding(scale);
 
     unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -4068,7 +4054,7 @@ void emitter::emitIns_ARX_I(
     id->idInsFmt(emitInsModeFormat(ins, IF_ARD_CNS));
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = index;
-    id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(scale);
+    id->idAddr()->iiaAddrMode.amScale   = ScaleEncoding(scale);
 
     unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -4096,7 +4082,7 @@ void emitter::emitIns_R_ARX(
     id->idReg1(reg);
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = index;
-    id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(scale);
+    id->idAddr()->iiaAddrMode.amScale   = ScaleEncoding(scale);
 
     unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -4133,7 +4119,7 @@ void emitter::emitIns_ARX_R(
     id->idInsFmt(fmt);
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = index;
-    id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(scale);
+    id->idAddr()->iiaAddrMode.amScale   = ScaleEncoding(scale);
 
     unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -4976,7 +4962,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         id->idInsFmt(IF_ARD);
         id->idAddr()->iiaAddrMode.amBaseReg = amBase;
         id->idAddr()->iiaAddrMode.amIndxReg = amIndex;
-        id->idAddr()->iiaAddrMode.amScale   = amScale ? emitEncodeScale(amScale) : OPSZ1;
+        id->idAddr()->iiaAddrMode.amScale   = ScaleEncoding(amScale);
 
         insSize = emitInsSizeAM(id, insCodeMR(INS_call));
     }
@@ -5395,16 +5381,16 @@ void emitter::PrintAddrMode(instrDesc* id)
 
     if (id->idAddr()->iiaAddrMode.amIndxReg != REG_NA)
     {
-        size_t scale = emitDecodeScale(id->idAddr()->iiaAddrMode.amScale);
-
         if (nsep)
         {
             printf("+");
         }
-        if (scale > 1)
+
+        if (id->idAddr()->iiaAddrMode.amScale != 0)
         {
-            printf("%u*", scale);
+            printf("%u*", 1u << id->idAddr()->iiaAddrMode.amScale);
         }
+
         printf("%s", RegName(id->idAddr()->iiaAddrMode.amIndxReg, EA_PTRSIZE));
         nsep = true;
     }
@@ -6698,12 +6684,12 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         }
         else
         {
-            unsigned scale = emitDecodeScale(id->idAddr()->iiaAddrMode.amScale);
+            unsigned scale = id->idAddr()->iiaAddrMode.amScale;
 
             code &= 0xFF;
             code |= RegEncoding(REG_RSP);
 
-            if ((scale > 1) && (baseReg == REG_NA))
+            if ((scale != 0) && (baseReg == REG_NA))
             {
                 baseReg  = REG_RBP;
                 hasDisp  = true;
@@ -6714,7 +6700,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 code |= hasDisp8 ? 0x40 : 0x80;
             }
 
-            code |= (RegEncoding(baseReg) | (RegEncoding(indexReg) << 3) | ScaleEncoding(scale)) << 8;
+            code |= (RegEncoding(baseReg) | (RegEncoding(indexReg) << 3) | (scale << 6)) << 8;
             dst += emitOutputWord(dst, code);
         }
 

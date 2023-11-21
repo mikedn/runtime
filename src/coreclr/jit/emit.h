@@ -490,7 +490,7 @@ private:
     {
         regNumber amBaseReg : REGNUM_BITS + 1;
         regNumber amIndxReg : REGNUM_BITS + 1;
-        opSize    amScale : 2;
+        uint32_t  amScale : 2;
         int32_t   amDisp : AM_DISP_BITS;
     };
 #endif // TARGET_XARCH
