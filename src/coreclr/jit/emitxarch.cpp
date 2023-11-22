@@ -93,10 +93,12 @@ bool emitter::emitIsUncondJump(instrDesc* jmp)
     return (ins == INS_jmp);
 }
 
+#ifdef DEBUG
 static bool instrHasImplicitRegPairDest(instruction ins)
 {
     return (ins == INS_mulEAX) || (ins == INS_imulEAX) || (ins == INS_div) || (ins == INS_idiv);
 }
+#endif
 
 static bool IsSSEInstruction(instruction ins)
 {
@@ -6301,11 +6303,6 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             }
         }
 
-        if (TakesRexWPrefix(ins, size))
-        {
-            code = AddRexWPrefix(ins, code);
-        }
-
 #ifdef TARGET_AMD64
         if (IsExtendedReg(baseReg))
         {
@@ -6317,6 +6314,11 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             code = AddRexXPrefix(ins, code);
         }
 #endif
+
+        if (TakesRexWPrefix(ins, size))
+        {
+            code = AddRexWPrefix(ins, code);
+        }
 
         if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
         {
@@ -6353,15 +6355,14 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 // Emit last opcode byte
                 // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
                 assert((code & 0xFF) == 0);
-                dst += emitOutputByte(dst, (code >> 8) & 0xFF);
             }
             else
             {
                 dst += emitOutputWord(dst, code >> 16);
-                dst += emitOutputWord(dst, code & 0xFFFF);
+                dst += emitOutputByte(dst, code);
             }
 
-            code = regcode;
+            code = ((code >> 8) & 0xFF) | (regcode << 8);
         }
         else if ((code & 0xFF000000) != 0)
         {
@@ -6433,17 +6434,11 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 default:
                     unreached();
             }
+
+            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
         }
 
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
         disp = emitGetInsAmdDisp(id);
-    }
-
-    if (!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32))
-    {
-        dst += emitOutputByte(dst, code);
-        code >>= 8;
     }
 
     if ((indexReg == REG_NA) && (baseReg == REG_NA))
@@ -6455,15 +6450,17 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             noway_assert(!emitComp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(disp)));
             noway_assert(IsDisp32(disp));
 
-            dst += emitOutputWord(dst, (code & 0xFF) | 0x2504);
+            dst += emitOutputWord(dst, code | 0x0400);
+            dst += emitOutputByte(dst, 0x25);
 #else
-            dst += emitOutputByte(dst, code | 0x05);
+            dst += emitOutputWord(dst, code | 0x0500);
 #endif
+
             dst += emitOutputLong(dst, disp);
         }
         else
         {
-            dst += emitOutputByte(dst, code | 0x05);
+            dst += emitOutputWord(dst, code | 0x0500);
 
             // For emitting relocation, we also need to take into account
             // the additional bytes of code emitted for imm.
@@ -6497,28 +6494,25 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
         if (indexReg == REG_NA)
         {
-            code |= RegEncoding(baseReg);
+            code |= RegEncoding(baseReg) << 8;
 
             if (hasDisp)
             {
-                code |= hasDisp8 ? 0x40 : 0x80;
+                code |= hasDisp8 ? 0x4000 : 0x8000;
             }
+
+            dst += emitOutputWord(dst, code);
 
             if (BaseRegRequiresSIB(baseReg))
             {
-                dst += emitOutputWord(dst, (code & 0xFF) | 0x2400);
-            }
-            else
-            {
-                dst += emitOutputByte(dst, code);
+                dst += emitOutputByte(dst, 0x24);
             }
         }
         else
         {
             unsigned scale = id->idAddr()->iiaAddrMode.amScale;
 
-            code &= 0xFF;
-            code |= RegEncoding(REG_RSP);
+            code |= RegEncoding(REG_RSP) << 8;
 
             if ((scale != 0) && (baseReg == REG_NA))
             {
@@ -6528,11 +6522,11 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             }
             else if (hasDisp)
             {
-                code |= hasDisp8 ? 0x40 : 0x80;
+                code |= hasDisp8 ? 0x4000 : 0x8000;
             }
 
-            code |= (RegEncoding(baseReg) | (RegEncoding(indexReg) << 3) | (scale << 6)) << 8;
             dst += emitOutputWord(dst, code);
+            dst += emitOutputByte(dst, RegEncoding(baseReg) | (RegEncoding(indexReg) << 3) | (scale << 6));
         }
 
         if (hasDisp)
@@ -6699,15 +6693,14 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             // Emit last opcode byte
             // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
             assert((code & 0xFF) == 0);
-            dst += emitOutputByte(dst, (code >> 8) & 0xFF);
         }
         else
         {
             dst += emitOutputWord(dst, code >> 16);
-            dst += emitOutputWord(dst, code & 0xFFFF);
+            dst += emitOutputByte(dst, code);
         }
 
-        code = regcode;
+        code = ((code >> 8) & 0xFF) | (regcode << 8);
     }
     else if ((code & 0xFF000000) != 0)
     {
@@ -6779,9 +6772,9 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             default:
                 unreached();
         }
-    }
 
-    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+    }
 
     assert(!id->idIsDspReloc());
 
@@ -6796,22 +6789,15 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     }
 #endif
 
-    bool   hasDisp8 = IsDisp8(disp);
-    code_t rmCode   = ebpBased ? 0x05 : 0x04;
+    bool hasDisp8 = IsDisp8(disp);
+    code |= ebpBased ? 0x0500 : 0x0400;
 
     if ((disp != 0) || ebpBased)
     {
-        rmCode |= hasDisp8 ? 0x40 : 0x80;
+        code |= hasDisp8 ? 0x4000 : 0x8000;
     }
 
-    if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
-    {
-        dst += emitOutputByte(dst, code | rmCode);
-    }
-    else
-    {
-        dst += emitOutputWord(dst, code | (rmCode << 8));
-    }
+    dst += emitOutputWord(dst, code);
 
     if (!ebpBased)
     {
@@ -6989,183 +6975,164 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         disp += reinterpret_cast<ssize_t>(addr);
     }
 
-    if (imm != nullptr)
-    {
-        // 1. Instructions like "ADD rm16/32/64, imm16/32" have an alternate encoding if the imm fits in 8 bits.
-        // 2. MOV/TEST do not have such encodings, they always need an imm16/32.
-        // 3. Shifts and SSE/AVX instructions only have imm8 encodings, independent of the first operand size.
-        if ((immSize > 1) && IsImm8(*imm) && !id->idIsCnsReloc() && (ins != INS_mov) && (ins != INS_test))
-        {
-            if (!IsShiftImm(ins) && !IsSSEOrAVXInstruction(ins))
-            {
-                code |= 2;
-            }
-
-            immSize = 1;
-        }
-    }
-
-    // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
-    code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
-
-    if (TakesRexWPrefix(ins, size))
-    {
-        code = AddRexWPrefix(ins, code);
-    }
-
-    // x64 currently never uses the moffset format, it uses only RIP relative addressing.
-    X86_ONLY(bool isMoffset = false);
-
 #ifdef TARGET_X86
     // Special case: "mov eax, [addr]" and "mov [addr], eax" have smaller encoding.
+    // x64 currently never uses the moffset format, it uses only RIP relative addressing.
     if ((ins == INS_mov) && (id->idReg1() == REG_EAX) && (imm == nullptr))
     {
-        if (id->idInsFmt() == IF_RWR_MRD)
-        {
-            code      = 0xA0;
-            isMoffset = true;
-        }
-        else
-        {
-            assert(id->idInsFmt() == IF_MWR_RRD);
+        assert((id->idInsFmt() == IF_RWR_MRD) || (id->idInsFmt() == IF_MWR_RRD));
 
-            code      = 0xA2;
-            isMoffset = true;
+        if (size == EA_2BYTE)
+        {
+            dst += emitOutputByte(dst, 0x66);
         }
+
+        dst += emitOutputByte(dst, 0xA0 | ((id->idInsFmt() == IF_MWR_RRD) << 1) | (size != EA_1BYTE));
     }
+    else
 #endif // TARGET_X86
-
-    if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
     {
-        if ((ins == INS_crc32) && (size > EA_1BYTE))
+        if (imm != nullptr)
         {
-            code |= 0x0100;
-
-            if (size == EA_2BYTE)
+            // 1. Instructions like "ADD rm16/32/64, imm16/32" have an alternate encoding if the imm fits in 8 bits.
+            // 2. MOV/TEST do not have such encodings, they always need an imm16/32.
+            // 3. Shifts and SSE/AVX instructions only have imm8 encodings, independent of the first operand size.
+            if ((immSize > 1) && IsImm8(*imm) && !id->idIsCnsReloc() && (ins != INS_mov) && (ins != INS_test))
             {
-                dst += emitOutputByte(dst, 0x66);
+                if (!IsShiftImm(ins) && !IsSSEOrAVXInstruction(ins))
+                {
+                    code |= 2;
+                }
+
+                immSize = 1;
             }
         }
 
-        regNumber reg345;
+        // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
+        code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
 
-        if (IsBMIRegExtInstruction(ins))
+        if (TakesRexWPrefix(ins, size))
         {
-            reg345 = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
-            code   = insEncodeReg3456(ins, id->idReg1(), size, code);
-        }
-        else
-        {
-            reg345 = id->idReg1();
+            code = AddRexWPrefix(ins, code);
         }
 
-        unsigned regcode = insEncodeReg345(ins, reg345, size, &code);
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-        if (UseVEXEncoding() && (ins != INS_crc32))
+        if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
         {
-            // Emit last opcode byte
-            // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
-            assert((code & 0xFF) == 0);
-            dst += emitOutputByte(dst, (code >> 8) & 0xFF);
-        }
-        else
-        {
-            dst += emitOutputWord(dst, code >> 16);
-            dst += emitOutputWord(dst, code & 0xFFFF);
-        }
+            if ((ins == INS_crc32) && (size > EA_1BYTE))
+            {
+                code |= 0x0100;
 
-        // Emit Mod,R/M byte
-        dst += emitOutputByte(dst, regcode | 0x05);
-        code = 0;
-    }
-    else if ((code & 0xFF000000) != 0)
-    {
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+                if (size == EA_2BYTE)
+                {
+                    dst += emitOutputByte(dst, 0x66);
+                }
+            }
 
-        // Output the highest word of the opcode.
-        // We need to check again because the leading escape byte(s) (e.g. 0x0F) will
-        // be encoded as part of VEX prefix when available and stripped from "code".
-        if ((code & 0xFF000000) != 0)
-        {
-            dst += emitOutputWord(dst, code >> 16);
-            code &= 0x0000FFFF;
-        }
-    }
-    else if ((code & 0x00FF0000) != 0)
-    {
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+            regNumber reg345;
 
-        // Output the highest byte of the opcode.
-        // We need to check again because the leading escape byte(s) (e.g. 0x0F) will
-        // be encoded as part of VEX prefix when available and stripped from "code".
-        if ((code & 0x00FF0000) != 0)
-        {
-            dst += emitOutputByte(dst, code >> 16);
-            code &= 0x0000FFFF;
-        }
+            if (IsBMIRegExtInstruction(ins))
+            {
+                reg345 = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
+                code   = insEncodeReg3456(ins, id->idReg1(), size, code);
+            }
+            else
+            {
+                reg345 = id->idReg1();
+            }
 
-        // Use the large version if this is not a byte instruction.
-        // TODO-MIKE-Cleanup: This stuff is really dumb. It needs to check for instructions which default to 8 bit
-        // (e.g. ADD, SUB, XOR etc.) and thus need to have their encoding adjusted to get 16/32 bit operations.
-        // If EA_1BYTE is used with any other instructions this MUST assert, and NOT modify the encoding.
-        // And the default encoding should really be the 32 bit encoding, since 8 bit instructions are rarely used.
-        if ((size != EA_1BYTE) && (ins != INS_imul) && (ins != INS_bsf) && (ins != INS_bsr) && (ins != INS_lzcnt) &&
-            (ins != INS_tzcnt) && (ins != INS_popcnt) && (ins != INS_shld) && (ins != INS_shrd) &&
-            !IsSSEInstruction(ins) && !IsAVXInstruction(ins))
-        {
-            code++;
+            unsigned regcode = insEncodeReg345(ins, reg345, size, &code);
+            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+
+            if (UseVEXEncoding() && (ins != INS_crc32))
+            {
+                // Emit last opcode byte
+                // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
+                assert((code & 0xFF) == 0);
+            }
+            else
+            {
+                dst += emitOutputWord(dst, code >> 16);
+                dst += emitOutputByte(dst, code);
+            }
+
+            code = ((code >> 8) & 0xFF) | (regcode << 8);
         }
-    }
+        else if ((code & 0xFF000000) != 0)
+        {
+            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+
+            // Output the highest word of the opcode.
+            // We need to check again because the leading escape byte(s) (e.g. 0x0F) will
+            // be encoded as part of VEX prefix when available and stripped from "code".
+            if ((code & 0xFF000000) != 0)
+            {
+                dst += emitOutputWord(dst, code >> 16);
+                code &= 0x0000FFFF;
+            }
+        }
+        else if ((code & 0x00FF0000) != 0)
+        {
+            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+
+            // Output the highest byte of the opcode.
+            // We need to check again because the leading escape byte(s) (e.g. 0x0F) will
+            // be encoded as part of VEX prefix when available and stripped from "code".
+            if ((code & 0x00FF0000) != 0)
+            {
+                dst += emitOutputByte(dst, code >> 16);
+                code &= 0x0000FFFF;
+            }
+
+            // Use the large version if this is not a byte instruction.
+            // TODO-MIKE-Cleanup: This stuff is really dumb. It needs to check for instructions which default to 8 bit
+            // (e.g. ADD, SUB, XOR etc.) and thus need to have their encoding adjusted to get 16/32 bit operations.
+            // If EA_1BYTE is used with any other instructions this MUST assert, and NOT modify the encoding.
+            // And the default encoding should really be the 32 bit encoding, since 8 bit instructions are rarely used.
+            if ((size != EA_1BYTE) && (ins != INS_imul) && (ins != INS_bsf) && (ins != INS_bsr) && (ins != INS_lzcnt) &&
+                (ins != INS_tzcnt) && (ins != INS_popcnt) && (ins != INS_shld) && (ins != INS_shrd) &&
+                !IsSSEInstruction(ins) && !IsAVXInstruction(ins))
+            {
+                code++;
+            }
+        }
 #ifdef TARGET_X86
-    else if (instIsFP(ins))
-    {
-        assert(size == EA_4BYTE || size == EA_8BYTE);
-
-        if (size == EA_8BYTE)
+        else if (instIsFP(ins))
         {
-            code += 4;
+            assert(size == EA_4BYTE || size == EA_8BYTE);
+
+            if (size == EA_8BYTE)
+            {
+                code += 4;
+            }
         }
-    }
 #endif
-    else
-    {
-        assert(!IsSSEInstruction(ins) && !IsAVXInstruction(ins));
-
-        switch (size)
+        else
         {
-            case EA_1BYTE:
-                break;
-            case EA_2BYTE:
-                dst += emitOutputByte(dst, 0x66);
-                FALLTHROUGH;
-            case EA_4BYTE:
+            assert(!IsSSEInstruction(ins) && !IsAVXInstruction(ins));
+
+            switch (size)
+            {
+                case EA_1BYTE:
+                    break;
+                case EA_2BYTE:
+                    dst += emitOutputByte(dst, 0x66);
+                    FALLTHROUGH;
+                case EA_4BYTE:
 #ifdef TARGET_AMD64
-            case EA_8BYTE:
+                case EA_8BYTE:
 #endif
-                // Set the 'w' size bit to indicate a 16/32/64-bit operation.
-                code |= 0x01;
-                break;
-            default:
-                unreached();
-        }
+                    // Set the 'w' size bit to indicate a 16/32/64-bit operation.
+                    code |= 0x01;
+                    break;
+                default:
+                    unreached();
+            }
 
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+        }
     }
 
-    if (code != 0)
-    {
-#ifdef TARGET_X86
-        if (isMoffset)
-        {
-            dst += emitOutputByte(dst, code);
-        }
-        else
-#endif
-        {
-            dst += emitOutputWord(dst, code | 0x0500);
-        }
-    }
+    dst += emitOutputWord(dst, code | 0x0500);
 
     if (!id->idIsDspReloc())
     {
