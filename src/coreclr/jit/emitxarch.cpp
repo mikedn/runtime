@@ -9,11 +9,6 @@
 #include "emit.h"
 #include "codegen.h"
 
-static bool isFloatReg(regNumber reg)
-{
-    return IsFloatReg(reg);
-}
-
 constexpr bool IsDisp8(ssize_t disp)
 {
     return (-128 <= disp) && (disp <= 127);
@@ -1869,9 +1864,9 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
             // registers so that we don't have to add that extra byte. However, we can't do that if the
             // index register is a vector, such as for a gather instruction.
 
-            if (dspIsZero && BaseRegRequiresDisp(baseReg) && !BaseRegRequiresDisp(indexReg) && !isFloatReg(indexReg))
+            if (dspIsZero && BaseRegRequiresDisp(baseReg) && !BaseRegRequiresDisp(indexReg) && !IsFloatReg(indexReg))
             {
-                // Swap reg and rgx, such that reg is not EBP/R13.
+                // Swap base and index, such that base is not EBP/R13.
                 std::swap(baseReg, indexReg);
                 id->idAddr()->iiaAddrMode.amBaseReg = baseReg;
                 id->idAddr()->iiaAddrMode.amIndxReg = indexReg;
@@ -3107,11 +3102,8 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
         case INS_mov:
         case INS_movsx:
         case INS_movzx:
-        {
             assert(IsGeneralRegister(dstReg) && IsGeneralRegister(srcReg));
             break;
-        }
-
         case INS_movapd:
         case INS_movaps:
         case INS_movdqa:
@@ -3120,35 +3112,21 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
         case INS_movss:
         case INS_movupd:
         case INS_movups:
-        {
-            assert(isFloatReg(dstReg) && isFloatReg(srcReg));
+            assert(IsFloatReg(dstReg) && IsFloatReg(srcReg));
             break;
-        }
-
         case INS_movd:
-        {
-            assert(isFloatReg(dstReg) != isFloatReg(srcReg));
+            assert(IsFloatReg(dstReg) != IsFloatReg(srcReg));
             break;
-        }
-
-#if defined(TARGET_AMD64)
+#ifdef TARGET_AMD64
         case INS_movq:
-        {
-            assert(isFloatReg(dstReg) && isFloatReg(srcReg));
+            assert(IsFloatReg(dstReg) && IsFloatReg(srcReg));
             break;
-        }
-
         case INS_movsxd:
-        {
             assert(IsGeneralRegister(dstReg) && IsGeneralRegister(srcReg));
             break;
-        }
-#endif // TARGET_AMD64
-
+#endif
         default:
-        {
             unreached();
-        }
     }
 #endif
 
@@ -7549,9 +7527,9 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 
     if (IsSSEOrAVXInstruction(ins))
     {
-        assert((ins != INS_movd) || (isFloatReg(reg1) != isFloatReg(reg2)));
+        assert((ins != INS_movd) || (IsFloatReg(reg1) != IsFloatReg(reg2)));
 
-        if ((ins != INS_movd) || isFloatReg(reg1))
+        if ((ins != INS_movd) || IsFloatReg(reg1))
         {
             code = insCodeRM(ins);
         }
@@ -7727,9 +7705,9 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 
     if (ins == INS_movd)
     {
-        assert(isFloatReg(reg1) != isFloatReg(reg2));
+        assert(IsFloatReg(reg1) != IsFloatReg(reg2));
 
-        if (isFloatReg(reg2))
+        if (IsFloatReg(reg2))
         {
             std::swap(regFor012Bits, regFor345Bits);
         }
