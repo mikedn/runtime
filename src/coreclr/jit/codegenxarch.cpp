@@ -9271,8 +9271,6 @@ void CodeGen::emitInsRM(instruction ins, emitAttr attr, GenTree* src)
 
 void CodeGen::emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTree* rm)
 {
-    assert(!emitter::instrHasImplicitRegPairDest(ins) && (ins != INS_imuli));
-
     Emitter& emit = *GetEmitter();
     unsigned lclNum;
     unsigned lclOffs;

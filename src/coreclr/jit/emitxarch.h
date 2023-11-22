@@ -14,7 +14,6 @@ void SetUseVEXEncoding(bool value)
     useVEXEncodings = value;
 }
 
-static bool instrHasImplicitRegPairDest(instruction ins);
 static bool IsMovInstruction(instruction ins);
 
 bool AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps treeOps);

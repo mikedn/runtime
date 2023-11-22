@@ -98,7 +98,7 @@ bool emitter::emitIsUncondJump(instrDesc* jmp)
     return (ins == INS_jmp);
 }
 
-bool emitter::instrHasImplicitRegPairDest(instruction ins)
+static bool instrHasImplicitRegPairDest(instruction ins)
 {
     return (ins == INS_mulEAX) || (ins == INS_imulEAX) || (ins == INS_div) || (ins == INS_idiv);
 }
@@ -3175,6 +3175,8 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
 
 void emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2)
 {
+    assert(!instrHasImplicitRegPairDest(ins) && (ins != INS_imuli));
+
     if (IsMovInstruction(ins))
     {
         assert(!"Please use emitIns_Mov() to correctly handle move elision");
@@ -3295,6 +3297,8 @@ void emitter::emitIns_RRW_A(instruction ins, emitAttr attr, regNumber reg1, GenT
 
 void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree* addr)
 {
+    assert(!instrHasImplicitRegPairDest(ins) && (ins != INS_imuli));
+
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
         emitIns_R_C(ins, attr, reg, clsAddr->GetFieldHandle());
@@ -3701,6 +3705,7 @@ void emitter::emitIns_R_R_R_R(
 
 void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE field)
 {
+    assert(!instrHasImplicitRegPairDest(ins) && (ins != INS_imuli));
     assert(FieldDispRequiresRelocation(field));
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
@@ -4455,6 +4460,7 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int var
 
 void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int varx, int offs)
 {
+    assert(!instrHasImplicitRegPairDest(ins) && (ins != INS_imuli));
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
     instrDesc* id = emitNewInstr(attr);
