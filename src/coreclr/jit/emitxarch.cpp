@@ -1432,6 +1432,13 @@ unsigned emitter::insEncodeReg345(instruction ins, regNumber reg, emitAttr size,
     return RegEncoding(reg) << 3;
 }
 
+emitter::code_t emitter::SetRMReg(instruction ins, regNumber reg, emitAttr size, code_t code)
+{
+    assert(!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32));
+    code |= insEncodeReg345(ins, reg, size, &code) << 8;
+    return code;
+}
+
 emitter::code_t emitter::SetVexVvvv(instruction ins, regNumber reg, emitAttr size, code_t code)
 {
     assert(reg < REG_STK);
@@ -8667,7 +8674,7 @@ uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
             idAmd->idCodeSize(sz);
 
             code = insCodeRM(ins);
-            code |= insEncodeReg345(ins, id->idReg1(), EA_PTRSIZE, &code) << 8;
+            code = SetRMReg(ins, id->idReg1(), EA_PTRSIZE, code);
 
             dst = emitOutputAM(dst, idAmd, code);
 
@@ -9006,9 +9013,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_ARW_RRD:
             code = insCodeMR(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
-            code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
-            dst = emitOutputAM(dst, id, code);
-            sz  = emitSizeOfInsDsc(id);
+            code = SetRMReg(ins, id->idReg1(), size, code);
+            dst  = emitOutputAM(dst, id, code);
+            sz   = emitSizeOfInsDsc(id);
             break;
 
         case IF_AWR_RRD_CNS:
@@ -9028,7 +9035,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             if (!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32))
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
-                code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
+                code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
             dst = emitOutputAM(dst, id, code);
@@ -9043,7 +9050,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             if (!EncodedBySSE38orSSE3A(ins))
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
-                code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
+                code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
             cnsVal = emitGetInsAmdCns(id);
@@ -9057,7 +9064,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             if (!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32))
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
-                code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
+                code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
             dst = emitOutputAM(dst, id, code);
@@ -9073,7 +9080,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             if (!EncodedBySSE38orSSE3A(ins))
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
-                code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
+                code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
             cnsVal = emitGetInsAmdCns(id);
@@ -9148,8 +9155,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
-            dst = emitOutputSV(dst, id, code);
+            code = SetRMReg(ins, id->idReg1(), size, code);
+            dst  = emitOutputSV(dst, id, code);
             break;
 
         case IF_SWR_RRD_CNS:
@@ -9176,7 +9183,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                     code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
 
-                code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
+                code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
             dst = emitOutputSV(dst, id, code);
@@ -9203,7 +9210,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                     code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
 
-                code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
+                code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
             cnsVal = emitGetInsCns(id);
@@ -9220,7 +9227,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
-                code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
+                code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
             dst = emitOutputSV(dst, id, code);
@@ -9236,7 +9243,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
-                code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
+                code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
             cnsVal = emitGetInsCns(id);
@@ -9281,7 +9288,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
+            code = SetRMReg(ins, id->idReg1(), size, code);
 
             dst = emitOutputCV(dst, id, code);
             sz  = emitSizeOfInsDsc(id);
@@ -9311,7 +9318,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                     code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
 
-                code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
+                code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
             dst = emitOutputCV(dst, id, code);
@@ -9338,7 +9345,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                     code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
 
-                code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
+                code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
             cnsVal = emitGetInsMemImm(id);
@@ -9355,7 +9362,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
-                code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
+                code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
             dst = emitOutputCV(dst, id, code);
@@ -9372,7 +9379,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
-                code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
+                code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
             cnsVal = emitGetInsCns(id);
