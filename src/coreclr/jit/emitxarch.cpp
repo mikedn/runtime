@@ -1430,9 +1430,7 @@ unsigned emitter::insEncodeReg345(instruction ins, regNumber reg, emitAttr size,
     return RegEncoding(reg) << 3;
 }
 
-// Returns modified AVX opcode with the specified register encoded
-// in bits 3-6 of byte 2 of VEX prefix.
-emitter::code_t emitter::insEncodeReg3456(instruction ins, regNumber reg, emitAttr size, code_t code)
+emitter::code_t emitter::SetVexVvvv(instruction ins, regNumber reg, emitAttr size, code_t code)
 {
     assert(reg < REG_STK);
     assert(IsAVXInstruction(ins));
@@ -6293,12 +6291,11 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                         break;
                 }
 
-                // encode source operand reg in 'vvvv' bits in 1's complement form
-                code = insEncodeReg3456(ins, src1, size, code);
+                code = SetVexVvvv(ins, src1, size, code);
             }
             else if (IsDstSrcSrcAVXInstruction(ins))
             {
-                code = insEncodeReg3456(ins, id->idReg2(), size, code);
+                code = SetVexVvvv(ins, id->idReg2(), size, code);
             }
         }
 
@@ -6661,7 +6658,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         {
             if (IsBMIRegExtInstruction(ins))
             {
-                code = insEncodeReg3456(ins, id->idReg1(), size, code);
+                code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
 
@@ -6718,7 +6715,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         {
             reg345 = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
         }
-        //else if (id->idInsFmt() == IF_AWR_RRD_RRD)
+        // else if (id->idInsFmt() == IF_AWR_RRD_RRD)
         //{
         //    reg345 = id->idReg2();
         //}
@@ -7059,7 +7056,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             {
                 if (IsBMIRegExtInstruction(ins))
                 {
-                    code = insEncodeReg3456(ins, id->idReg1(), size, code);
+                    code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
 
 
@@ -7116,7 +7113,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             {
                 reg345 = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
             }
-            //else if (id->idInsFmt() == IF_AWR_RRD_RRD)
+            // else if (id->idInsFmt() == IF_AWR_RRD_RRD)
             //{
             //    reg345 = id->idReg2();
             //}
@@ -7725,11 +7722,11 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         // now we use the single source as source1 and source2.
         if (IsDstDstSrcAVXInstruction(ins))
         {
-            code = insEncodeReg3456(ins, reg1, size, code);
+            code = SetVexVvvv(ins, reg1, size, code);
         }
         else if (IsDstSrcSrcAVXInstruction(ins))
         {
-            code = insEncodeReg3456(ins, reg2, size, code);
+            code = SetVexVvvv(ins, reg2, size, code);
         }
     }
 
@@ -7917,7 +7914,7 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
 
     unsigned regCode = insEncodeReg345(ins, reg1, size, &code);
     regCode |= insEncodeReg012(ins, reg3, size, &code);
-    code = insEncodeReg3456(ins, reg2, size, code);
+    code = SetVexVvvv(ins, reg2, size, code);
 
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
@@ -8034,19 +8031,17 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
     {
         if (IsDstDstSrcAVXInstruction(ins))
         {
-            // Encode source/dest operand reg in 'vvvv' bits in 1's complement form
             // This code will have to change when we support 3 operands.
             // For now, we always overload this source with the destination (always reg1).
             // (Though we will need to handle the few ops that can have the 'vvvv' bits as destination,
             // e.g. pslldq, when/if we support those instructions with 2 registers.)
             // (see x64 manual Table 2-9. Instructions with a VEX.vvvv destination)
-            code = insEncodeReg3456(ins, id->idReg1(), size, code);
+            code = SetVexVvvv(ins, id->idReg1(), size, code);
         }
         else if (IsDstSrcSrcAVXInstruction(ins))
         {
             // This is a "merge" move instruction.
-            // Encode source operand reg in 'vvvv' bits in 1's complement form
-            code = insEncodeReg3456(ins, id->idReg2(), size, code);
+            code = SetVexVvvv(ins, id->idReg2(), size, code);
         }
     }
 
@@ -8141,7 +8136,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
         {
             // The 'vvvv' bits encode the destination register,
             // which for the RI case is the same as the source.
-            code = insEncodeReg3456(ins, reg, size, code);
+            code = SetVexVvvv(ins, reg, size, code);
         }
 
         unsigned regcode = (insEncodeReg345(ins, static_cast<regNumber>(regOpcode), size, &code) |
@@ -9148,7 +9143,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             // For this format, moves do not support a third operand, so we only need to handle the binary ops.
             if (IsDstDstSrcAVXInstruction(ins))
             {
-                code = insEncodeReg3456(ins, id->idReg1(), size, code);
+                code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
             code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
@@ -9176,7 +9171,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
                 if (IsDstDstSrcAVXInstruction(ins))
                 {
-                    code = insEncodeReg3456(ins, id->idReg1(), size, code);
+                    code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
 
                 code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
@@ -9203,7 +9198,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 // For this format, moves do not support a third operand, so we only need to handle the binary ops.
                 if (IsDstDstSrcAVXInstruction(ins))
                 {
-                    code = insEncodeReg3456(ins, id->idReg1(), size, code);
+                    code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
 
                 code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
@@ -9219,7 +9214,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
-            code = insEncodeReg3456(ins, id->idReg2(), size, code);
+            code = SetVexVvvv(ins, id->idReg2(), size, code);
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
@@ -9235,7 +9230,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
-            code = insEncodeReg3456(ins, id->idReg2(), size, code);
+            code = SetVexVvvv(ins, id->idReg2(), size, code);
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
@@ -9281,7 +9276,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             // For this format, moves do not support a third operand, so we only need to handle the binary ops.
             if (IsDstDstSrcAVXInstruction(ins))
             {
-                code = insEncodeReg3456(ins, id->idReg1(), size, code);
+                code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
             code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
@@ -9311,7 +9306,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
                 if (IsDstDstSrcAVXInstruction(ins))
                 {
-                    code = insEncodeReg3456(ins, id->idReg1(), size, code);
+                    code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
 
                 code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
@@ -9338,7 +9333,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 // For this format, moves do not support a third operand, so we only need to handle the binary ops.
                 if (IsDstDstSrcAVXInstruction(ins))
                 {
-                    code = insEncodeReg3456(ins, id->idReg1(), size, code);
+                    code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
 
                 code |= insEncodeReg345(ins, id->idReg1(), size, &code) << 8;
@@ -9354,7 +9349,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
-            code = insEncodeReg3456(ins, id->idReg2(), size, code);
+            code = SetVexVvvv(ins, id->idReg2(), size, code);
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
@@ -9371,7 +9366,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
-            code = insEncodeReg3456(ins, id->idReg2(), size, code);
+            code = SetVexVvvv(ins, id->idReg2(), size, code);
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
