@@ -340,23 +340,8 @@ bool emitter::AreFlagsAlwaysModified(instrDesc* id)
     return !IsShiftCL(ins) && (!IsShiftImm(ins) || id->idIsLargeCns() || (id->idSmallCns() != 0));
 }
 
-//------------------------------------------------------------------------
-// AreUpper32BitsZero: check if some previously emitted
-//     instruction set the upper 32 bits of reg to zero.
-//
-// Arguments:
-//    reg - register of interest
-//
-// Return Value:
-//    true if previous instruction zeroed reg's upper 32 bits.
-//    false if it did not, or if we can't safely determine.
-//
-// Notes:
-//    Currently only looks back one instruction.
-//
-//    movsx eax, ... might seem viable but we always encode this
-//    instruction with a 64 bit destination. See TakesRexWPrefix.
-
+// Check if some previously emitted instruction set the upper 32 bits of reg to zero.
+// Currently only looks back one instruction.
 bool emitter::AreUpper32BitsZero(regNumber reg)
 {
     instrDesc* id = GetLastInsInCurrentBlock();
@@ -413,21 +398,9 @@ bool emitter::AreUpper32BitsZero(regNumber reg)
     return false;
 }
 
-//------------------------------------------------------------------------
-// AreFlagsSetToZeroCmp: Checks if the previous instruction set the SZ, and optionally OC, flags to
-//                       the same values as if there were a compare to 0
-//
-// Arguments:
-//    reg     - register of interest
-//    opSize  - size of register
-//    treeOps - type of tree node operation
-//
-// Return Value:
-//    true if the previous instruction set the flags for reg
-//    false if not, or if we can't safely determine
-//
-// Notes:
-//    Currently only looks back one instruction.
+// Checks if the previous instruction set the SZ, and optionally OC, flags to the same
+// values as if there were a compare to 0
+// Currently only looks back one instruction.
 bool emitter::AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps treeOps)
 {
     assert(reg != REG_NA);
@@ -483,21 +456,10 @@ bool emitter::AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps tr
     return false;
 }
 
-//------------------------------------------------------------------------
-// IsDstSrcImmAvxInstruction: Checks if the instruction has a "reg, reg/mem, imm" or
-//                            "reg/mem, reg, imm" form for the legacy, VEX, and EVEX
-//                            encodings.
-//
-// Arguments:
-//    instruction -- processor instruction to check
-//
-// Return Value:
-//    true if instruction has a "reg, reg/mem, imm" or "reg/mem, reg, imm" encoding
-//    form for the legacy, VEX, and EVEX encodings.
-//
-//    That is, the instruction takes two operands, one of which is immediate, and it
-//    does not need to encode any data in the VEX.vvvv field.
-//
+// Checks if the instruction has a "reg, reg/mem, imm" or "reg/mem, reg, imm"
+// form for the legacy, VEX, and EVEX encodings.
+// That is, the instruction takes two operands, one of which is immediate,
+// and it does not need to encode any data in the VEX.vvvv field.
 static bool IsDstSrcImmAvxInstruction(instruction ins)
 {
     switch (ins)
@@ -1079,14 +1041,6 @@ unsigned emitter::emitGetVexPrefixSize(instruction ins, emitAttr attr)
 
 static bool EncodedBySSE38orSSE3A(instruction ins);
 
-//------------------------------------------------------------------------
-// emitGetAdjustedSize: Determines any size adjustment needed for a given instruction based on the current
-// configuration.
-//
-// Arguments:
-//    ins   -- The instruction being emitted
-//    attr  -- The emit attribute
-//    code  -- The current opcode and any known prefixes
 unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code)
 {
     unsigned adjustedSize = 0;
@@ -1161,14 +1115,6 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t cod
     return adjustedSize;
 }
 
-//
-//------------------------------------------------------------------------
-// emitGetPrefixSize: Get size of rex or vex prefix emitted in code
-//
-// Arguments:
-//    code                  -- The current opcode and any known prefixes
-//    includeRexPrefixSize  -- If Rex Prefix size should be included or not
-//
 unsigned emitter::emitGetPrefixSize(code_t code, bool includeRexPrefixSize)
 {
     if (hasVexPrefix(code))
