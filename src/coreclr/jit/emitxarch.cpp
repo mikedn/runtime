@@ -311,7 +311,7 @@ static bool DoesResetOverflowAndCarryFlags(instruction ins)
 // to indicate whether a 3-operand instruction.
 bool emitter::IsDstDstSrcAVXInstruction(instruction ins)
 {
-    return ((InsFlags(ins) & INS_Flags_IsDstDstSrcAVXInstruction) != 0) && IsAVXInstruction(ins);
+    return ((InsFlags(ins) & INS_Flags_IsDstDstSrcAVXInstruction) != 0) && UseVEXEncoding();
 }
 
 // Returns true if the AVX instruction requires 3 operands that duplicate the source
@@ -321,7 +321,7 @@ bool emitter::IsDstDstSrcAVXInstruction(instruction ins)
 // to indicate whether a 3-operand instruction.
 bool emitter::IsDstSrcSrcAVXInstruction(instruction ins)
 {
-    return ((InsFlags(ins) & INS_Flags_IsDstSrcSrcAVXInstruction) != 0) && IsAVXInstruction(ins);
+    return ((InsFlags(ins) & INS_Flags_IsDstSrcSrcAVXInstruction) != 0) && UseVEXEncoding();
 }
 
 #if defined(TARGET_X86) || defined(DEBUG)
