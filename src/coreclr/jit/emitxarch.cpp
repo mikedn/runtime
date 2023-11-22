@@ -540,7 +540,9 @@ emitter::code_t emitter::AddVexPrefixIfNeeded(instruction ins, code_t code, emit
 
 emitter::code_t emitter::AddVexPrefixIfNeededAndNotPresent(instruction ins, code_t code, emitAttr size)
 {
-    if (TakesVexPrefix(ins) && !hasVexPrefix(code))
+    assert(TakesVexPrefix(ins));
+
+    if (!hasVexPrefix(code))
     {
         code = AddVexPrefix(ins, code, size);
     }
@@ -6269,11 +6271,11 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             }
         }
 
-        // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
-        code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
-
         if (TakesVexPrefix(ins))
         {
+            // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
+            code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
+
             if (IsDstDstSrcAVXInstruction(ins))
             {
                 regNumber src1;
@@ -6649,11 +6651,11 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         }
     }
 
-    // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
-    code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
-
     if (TakesVexPrefix(ins))
     {
+        // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
+        code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
+
         if (IsDstDstSrcAVXInstruction(ins))
         {
             if (IsBMIRegExtInstruction(ins))
@@ -7047,11 +7049,11 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             }
         }
 
-        // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
-        code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
-
         if (TakesVexPrefix(ins))
         {
+            // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
+            code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
+
             if (IsDstDstSrcAVXInstruction(ins))
             {
                 if (IsBMIRegExtInstruction(ins))
