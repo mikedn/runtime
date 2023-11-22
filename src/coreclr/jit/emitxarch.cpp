@@ -6274,7 +6274,6 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
         code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
 
-        // For this format, moves do not support a third operand, so we only need to handle the binary ops.
         if (TakesVexPrefix(ins))
         {
             if (IsDstDstSrcAVXInstruction(ins))
@@ -6656,6 +6655,46 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
     code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
 
+    if (TakesVexPrefix(ins))
+    {
+        if (IsDstDstSrcAVXInstruction(ins))
+        {
+            if (IsBMIRegExtInstruction(ins))
+            {
+                code = insEncodeReg3456(ins, id->idReg1(), size, code);
+            }
+
+
+
+
+
+
+
+
+
+
+
+
+
+        }
+        else if (IsDstSrcSrcAVXInstruction(ins))
+        {
+
+        }
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
     if (TakesRexWPrefix(ins, size))
     {
         code = AddRexWPrefix(ins, code);
@@ -6678,8 +6717,11 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         if (IsBMIRegExtInstruction(ins))
         {
             reg345 = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
-            code   = insEncodeReg3456(ins, id->idReg1(), size, code);
         }
+        //else if (id->idInsFmt() == IF_AWR_RRD_RRD)
+        //{
+        //    reg345 = id->idReg2();
+        //}
         else
         {
             reg345 = id->idReg1();
@@ -7011,6 +7053,46 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
         code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
 
+        if (TakesVexPrefix(ins))
+        {
+            if (IsDstDstSrcAVXInstruction(ins))
+            {
+                if (IsBMIRegExtInstruction(ins))
+                {
+                    code = insEncodeReg3456(ins, id->idReg1(), size, code);
+                }
+
+
+
+
+
+
+
+
+
+
+
+
+
+            }
+            else if (IsDstSrcSrcAVXInstruction(ins))
+            {
+
+            }
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
         if (TakesRexWPrefix(ins, size))
         {
             code = AddRexWPrefix(ins, code);
@@ -7033,8 +7115,11 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             if (IsBMIRegExtInstruction(ins))
             {
                 reg345 = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
-                code   = insEncodeReg3456(ins, id->idReg1(), size, code);
             }
+            //else if (id->idInsFmt() == IF_AWR_RRD_RRD)
+            //{
+            //    reg345 = id->idReg2();
+            //}
             else
             {
                 reg345 = id->idReg1();
