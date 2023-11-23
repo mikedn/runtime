@@ -171,7 +171,7 @@ static unsigned GetSSEShiftOpcodeRMExt(instruction ins)
 
 bool emitter::IsThreeOperandAVXInstruction(instruction ins)
 {
-    return (IsDstDstSrcAVXInstruction(ins) || IsDstSrcSrcAVXInstruction(ins));
+    return IsDstDstSrcAVXInstruction(ins) || IsDstSrcSrcAVXInstruction(ins);
 }
 
 #ifdef DEBUG
@@ -3321,7 +3321,6 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
 
 void emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr)
 {
-    assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
 
     instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
@@ -3382,7 +3381,6 @@ void emitter::emitIns_R_AR_R(instruction ins,
 
 void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field)
 {
-    assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
     assert(FieldDispRequiresRelocation(field));
 
@@ -3402,7 +3400,6 @@ void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regN
 
 void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3)
 {
-    assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
 
     instrDesc* id = emitNewInstr(attr);
@@ -3420,7 +3417,6 @@ void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regN
 
 void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs)
 {
-    assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
 
     instrDesc* id = emitNewInstr(attr);
@@ -3439,9 +3435,8 @@ void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regN
 void emitter::emitIns_R_R_A_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int32_t imm, insFormat fmt)
 {
-    assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
-    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
+    assert(!EA_IS_CNS_RELOC(attr));
     assert(IsImm8(imm));
 
     instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
@@ -3460,10 +3455,9 @@ void emitter::emitIns_R_R_A_I(
 void emitter::emitIns_R_R_C_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field, int32_t imm)
 {
-    assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
     assert(FieldDispRequiresRelocation(field));
-    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
+    assert(!EA_IS_CNS_RELOC(attr));
     assert(IsImm8(imm));
 
     instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
@@ -3483,9 +3477,8 @@ void emitter::emitIns_R_R_C_I(
 void emitter::emitIns_R_R_R_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int32_t imm)
 {
-    assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
-    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
+    assert(!EA_IS_CNS_RELOC(attr));
     assert(IsImm8(imm));
 
     instrDesc* id = emitNewInstrCns(attr, imm);
@@ -3526,9 +3519,8 @@ void emitter::emitIns_R_R_R_I(
 void emitter::emitIns_R_R_S_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs, int32_t imm)
 {
-    assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
-    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
+    assert(!EA_IS_CNS_RELOC(attr));
     assert(IsImm8(imm));
 
     instrDesc* id = emitNewInstrCns(attr, imm);
@@ -9015,15 +9007,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_RWR_RRD_ARD:
-            // assert(IsAVXInstruction(ins));
+            assert(IsThreeOperandAVXInstruction(ins));
 
             code = insCodeRM(ins);
-            // code = AddVexPrefixIfNeeded(ins, code, size);
+            code = AddVexPrefixIfNeeded(ins, code, size);
             // code = SetVexVvvv(ins, id->idReg2(), size, code);
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
-                code = AddVexPrefixIfNeeded(ins, code, size);
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
@@ -9033,15 +9024,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         case IF_RWR_RRD_ARD_CNS:
         case IF_RWR_RRD_ARD_RRD:
-            assert(IsSSEOrAVXInstruction(ins));
+            assert(IsThreeOperandAVXInstruction(ins));
 
             code = insCodeRM(ins);
-            // code = AddVexPrefixIfNeeded(ins, code, size);
+            code = AddVexPrefixIfNeeded(ins, code, size);
             // code = SetVexVvvv(ins, id->idReg2(), size, code);
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
-                code = AddVexPrefixIfNeeded(ins, code, size);
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
@@ -9170,7 +9160,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_RWR_RRD_SRD:
-            assert(IsAVXInstruction(ins));
+            assert(IsThreeOperandAVXInstruction(ins));
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
@@ -9178,7 +9168,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
-                // code = AddVexPrefixIfNeeded(ins, code, size);
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
@@ -9188,7 +9177,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         case IF_RWR_RRD_SRD_CNS:
         case IF_RWR_RRD_SRD_RRD:
-            assert(IsAVXInstruction(ins));
+            assert(IsThreeOperandAVXInstruction(ins));
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
@@ -9196,7 +9185,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
-                // code = AddVexPrefixIfNeeded(ins, code, size);
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
@@ -9309,7 +9297,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_RWR_RRD_MRD:
-            assert(IsAVXInstruction(ins));
+            assert(IsThreeOperandAVXInstruction(ins));
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
@@ -9317,7 +9305,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
-                // code = AddVexPrefixIfNeeded(ins, code, size);
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
@@ -9327,7 +9314,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         case IF_RWR_RRD_MRD_CNS:
         case IF_RWR_RRD_MRD_RRD:
-            assert(IsAVXInstruction(ins));
+            assert(IsThreeOperandAVXInstruction(ins));
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
@@ -9335,7 +9322,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
-                // code = AddVexPrefixIfNeeded(ins, code, size);
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
