@@ -9021,7 +9021,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             // code = AddVexPrefixIfNeeded(ins, code, size);
             // code = SetVexVvvv(ins, id->idReg2(), size, code);
 
-            if (!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32))
+            if (!EncodedBySSE38orSSE3A(ins))
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
                 code = SetRMReg(ins, id->idReg1(), size, code);
