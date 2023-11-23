@@ -6669,37 +6669,11 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             {
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
-
-
-
-
-
-
-
-
-
-
-
-
-
         }
         else if (IsDstSrcSrcAVXInstruction(ins))
         {
-
         }
     }
-
-
-
-
-
-
-
-
-
-
-
-
 
     if (TakesRexWPrefix(ins, size))
     {
@@ -7067,37 +7041,11 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 {
                     code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
-
-
-
-
-
-
-
-
-
-
-
-
-
             }
             else if (IsDstSrcSrcAVXInstruction(ins))
             {
-
             }
         }
-
-
-
-
-
-
-
-
-
-
-
-
 
         if (TakesRexWPrefix(ins, size))
         {
@@ -9002,6 +8950,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_ARW_RRD:
             code = insCodeMR(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
+
+            // if (IsDstDstSrcAVXInstruction(ins))
+            // {
+            //     code = SetVexVvvv(ins, id->idReg1(), size, code);
+            // }
+
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputAM(dst, id, code);
             sz   = emitSizeOfInsDsc(id);
@@ -9010,6 +8964,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_AWR_RRD_CNS:
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
             assert(UseVEXEncoding());
+
             code   = insCodeMR(ins);
             cnsVal = emitGetInsAmdCns(id);
             dst    = emitOutputAM(dst, id, code, &cnsVal);
@@ -9024,6 +8979,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             if (!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32))
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
+
+                // if (IsDstDstSrcAVXInstruction(ins))
+                // {
+                //     code = SetVexVvvv(ins, id->idReg1(), size, code);
+                // }
+
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
@@ -9039,6 +9000,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             if (!EncodedBySSE38orSSE3A(ins))
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
+
+                // if (IsDstDstSrcAVXInstruction(ins))
+                // {
+                //     code = SetVexVvvv(ins, id->idReg1(), size, code);
+                // }
+
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
@@ -9048,7 +9015,11 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_RWR_RRD_ARD:
+            // assert(IsAVXInstruction(ins));
+
             code = insCodeRM(ins);
+            // code = AddVexPrefixIfNeeded(ins, code, size);
+            // code = SetVexVvvv(ins, id->idReg2(), size, code);
 
             if (!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32))
             {
@@ -9065,6 +9036,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(IsSSEOrAVXInstruction(ins));
 
             code = insCodeRM(ins);
+            // code = AddVexPrefixIfNeeded(ins, code, size);
+            // code = SetVexVvvv(ins, id->idReg2(), size, code);
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
@@ -9133,12 +9106,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = insCodeMR(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
-            // In case of AVX instructions that take 3 operands, encode reg1 as first source.
-            // Note that reg1 is both a source and a destination.
-            //
-            // TODO-XArch-CQ: Eventually we need to support 3 operand instruction formats. For
-            // now we use the single source as source1 and source2.
-            // For this format, moves do not support a third operand, so we only need to handle the binary ops.
             if (IsDstDstSrcAVXInstruction(ins))
             {
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
@@ -9146,6 +9113,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputSV(dst, id, code);
+            // sz = emitSizeOfInsDsc(id);
             break;
 
         case IF_SWR_RRD_CNS:
@@ -9188,12 +9156,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
 
-                // In case of AVX instructions that take 3 operands, encode reg1 as first source.
-                // Note that reg1 is both a source and a destination.
-                //
-                // TODO-XArch-CQ: Eventually we need to support 3 operand instruction formats. For
-                // now we use the single source as source1 and source2.
-                // For this format, moves do not support a third operand, so we only need to handle the binary ops.
                 if (IsDstDstSrcAVXInstruction(ins))
                 {
                     code = SetVexVvvv(ins, id->idReg1(), size, code);
@@ -9216,10 +9178,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
+                // code = AddVexPrefixIfNeeded(ins, code, size);
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
             dst = emitOutputSV(dst, id, code);
+            // sz = emitSizeOfInsDsc(id);
             break;
 
         case IF_RWR_RRD_SRD_CNS:
@@ -9232,6 +9196,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
+                // code = AddVexPrefixIfNeeded(ins, code, size);
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
@@ -9239,6 +9204,20 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst    = emitOutputSV(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
+
+        // case IF_SWR_RRD_RRD:
+        // This format is used by vmaskmovps & co. and currently we can't
+        // generate such instructions, that store to a local variable.
+        // But there's probably nothing fundamentally impossible about this,
+        // it's just that currently all stores to locals are using
+        // STORE_LCL_VAR.
+
+        // case IF_RWR_SRD_RRD:
+        // This format is used by gather instructions. It's unlikely
+        // that such instructions could load from local variables, but
+        // perhaps not impossible, e.g. load from a local struct with
+        // with a fixed buffer. And 'vgatherdpd xmm0, [rsp+xmm1+32], xmm2'
+        // is perfectly valid.
 
         /********************************************************************/
         /*                    Direct memory address                         */
@@ -9266,21 +9245,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = insCodeMR(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
-            // In case of AVX instructions that take 3 operands, encode reg1 as first source.
-            // Note that reg1 is both a source and a destination.
-            //
-            // TODO-XArch-CQ: Eventually we need to support 3 operand instruction formats. For
-            // now we use the single source as source1 and source2.
-            // For this format, moves do not support a third operand, so we only need to handle the binary ops.
             if (IsDstDstSrcAVXInstruction(ins))
             {
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
             code = SetRMReg(ins, id->idReg1(), size, code);
-
-            dst = emitOutputCV(dst, id, code);
-            sz  = emitSizeOfInsDsc(id);
+            dst  = emitOutputCV(dst, id, code);
+            sz   = emitSizeOfInsDsc(id);
             break;
 
         case IF_MWR_RRD_CNS:
@@ -9323,12 +9295,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
 
-                // In case of AVX instructions that take 3 operands, encode reg1 as first source.
-                // Note that reg1 is both a source and a destination.
-                //
-                // TODO-XArch-CQ: Eventually we need to support 3 operand instruction formats. For
-                // now we use the single source as source1 and source2.
-                // For this format, moves do not support a third operand, so we only need to handle the binary ops.
                 if (IsDstDstSrcAVXInstruction(ins))
                 {
                     code = SetVexVvvv(ins, id->idReg1(), size, code);
@@ -9351,6 +9317,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
+                // code = AddVexPrefixIfNeeded(ins, code, size);
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
@@ -9368,6 +9335,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
+                // code = AddVexPrefixIfNeeded(ins, code, size);
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
@@ -9375,6 +9343,20 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst    = emitOutputCV(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
+
+        // case IF_MWR_RRD_RRD:
+        // This format is used by vmaskmovps & co. and currently we can't
+        // generate such instructions, that store to a static field.
+        // But there's probably nothing fundamentally impossible about this,
+        // it's just it likely needs .NET 8's struct statics to be of any
+        // use.
+
+        // case IF_RWR_MRD_RRD:
+        // This format is used by gather instructions.
+        // It's practically impossible to get this on x64, since RIP relative
+        // addressing is used.
+        //
+        // It may be possible to get this to work on x86 but hey, it's x86.
 
         default:
             unreached();
