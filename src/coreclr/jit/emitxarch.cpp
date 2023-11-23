@@ -8426,15 +8426,9 @@ uint8_t* emitter::emitOutputIV(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
 {
-    unsigned srcOffs;
-    unsigned dstOffs;
-    uint8_t* srcAddr;
-    uint8_t* dstAddr;
-    ssize_t  distVal;
-
-    instrDescJmp* id  = (instrDescJmp*)i;
+    instrDescJmp* id  = static_cast<instrDescJmp*>(i);
     instruction   ins = id->idIns();
-    bool          jmp;
+    bool          isJump;
 
     assert(!IsSSEInstruction(ins) && !IsAVXInstruction(ins));
 
@@ -8445,40 +8439,42 @@ uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
     switch (ins)
     {
         default:
-            ssz = JCC_SIZE_SMALL;
-            lsz = JCC_SIZE_LARGE;
-            jmp = true;
+            ssz    = JCC_SIZE_SMALL;
+            lsz    = JCC_SIZE_LARGE;
+            isJump = true;
             break;
 
         case INS_jmp:
-            ssz = JMP_SIZE_SMALL;
-            lsz = JMP_SIZE_LARGE;
-            jmp = true;
+            ssz    = JMP_SIZE_SMALL;
+            lsz    = JMP_SIZE_LARGE;
+            isJump = true;
             break;
 
         case INS_call:
             ssz = lsz = CALL_INST_SIZE;
-            jmp       = false;
+            isJump    = false;
             break;
 
         case INS_push_hide:
         case INS_push:
             ssz = lsz = 5;
-            jmp       = false;
+            isJump    = false;
             relAddr   = false;
             break;
 
         case INS_mov:
         case INS_lea:
             ssz = lsz = id->idCodeSize();
-            jmp       = false;
+            isJump    = false;
             relAddr   = false;
             break;
     }
 
     // Figure out the distance to the target
-    srcOffs = emitCurCodeOffs(dst);
-    srcAddr = emitOffsetToPtr(srcOffs);
+    unsigned srcOffs = emitCurCodeOffs(dst);
+    uint8_t* srcAddr = emitOffsetToPtr(srcOffs);
+    unsigned dstOffs;
+    uint8_t* dstAddr;
 
     if (id->idAddr()->iiaHasInstrCount())
     {
@@ -8503,7 +8499,7 @@ uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
         }
     }
 
-    distVal = (ssize_t)(dstAddr - srcAddr);
+    ssize_t distVal = static_cast<ssize_t>(dstAddr - srcAddr);
 
     if (dstOffs <= srcOffs)
     {
@@ -8526,7 +8522,7 @@ uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
 #endif
 
         // Can we use a short jump?
-        if (jmp && distVal - ssz >= (size_t)JMP_DIST_SMALL_MAX_NEG)
+        if (isJump && distVal - ssz >= (size_t)JMP_DIST_SMALL_MAX_NEG)
         {
             emitSetShortJump(id);
         }
@@ -8568,7 +8564,7 @@ uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
         }
 #endif
 
-        if (jmp && distVal - ssz <= (size_t)JMP_DIST_SMALL_MAX_POS)
+        if (isJump && distVal - ssz <= (size_t)JMP_DIST_SMALL_MAX_POS)
         {
             emitSetShortJump(id);
         }
@@ -8594,12 +8590,12 @@ uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
     if (id->idjShort)
     {
         assert(!id->idjKeepLong);
-        assert(emitJumpCrossHotColdBoundary(srcOffs, dstOffs) == false);
+        assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
 
         assert(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
         assert(JMP_SIZE_SMALL == 2);
 
-        assert(jmp);
+        assert(isJump);
 
         if (id->idCodeSize() != JMP_SIZE_SMALL)
         {
@@ -8625,7 +8621,7 @@ uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
         code_t code;
 
         // Long  jump
-        if (jmp)
+        if (isJump)
         {
             // clang-format off
             static_assert_no_msg(INS_jmp + (INS_l_jmp - INS_jmp) == INS_l_jmp);
@@ -8655,36 +8651,30 @@ uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
         }
         else if (ins == INS_lea)
         {
-            // Make an instrDesc that looks like IF_RWR_ARD so that emitOutputAM emits the r/m32 for us.
-            // We basically are doing what emitIns_R_AH does.
-            // TODO-XArch-Cleanup: revisit this.
-            instrDescAmd  idAmdStackLocal;
-            instrDescAmd* idAmd = &idAmdStackLocal;
-            *(instrDesc*)idAmd  = *(instrDesc*)id; // copy all the "core" fields
-            memset((uint8_t*)idAmd + sizeof(instrDesc), 0,
-                   sizeof(instrDescAmd) - sizeof(instrDesc)); // zero out the tail that wasn't copied
-
-            idAmd->idInsFmt(IF_RWR_ARD);
-            idAmd->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
-            idAmd->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-            emitSetAmdDisp(idAmd, distVal);
-            idAmd->idSetIsDspReloc(id->idIsDspReloc());
-
-            unsigned sz = emitInsSizeAM(idAmd, insCodeRM(ins));
-            idAmd->idCodeSize(sz);
+            assert((id->idOpSize() == EA_PTRSIZE) && id->idIsDspReloc());
 
             code = insCodeRM(ins);
+            AMD64_ONLY(code = AddRexWPrefix(INS_lea, code));
             code = SetRMReg(ins, id->idReg1(), EA_PTRSIZE, code);
+            AMD64_ONLY(dst += emitOutputRexPrefix(INS_lea, dst, code));
+            dst += emitOutputWord(dst, code | 0x0500);
 
-            dst = emitOutputAM(dst, idAmd, code);
+#ifdef TARGET_AMD64
+            // TODO-MIKE-Cleanup: This shouldn't call recordRelocation, the target is within
+            // this method so it's not like we'll need jump stubs or anything VM related.
 
-            code = 0xCC;
+            // We emit zero on x64, to avoid the assert in emitOutputLong
+            dst += emitOutputLong(dst, 0);
+            emitRecordRelocation(dst - 4, reinterpret_cast<void*>(distVal), IMAGE_REL_BASED_REL32, 0);
+#else
+            dst += emitOutputLong(dst, distVal);
+            emitRecordRelocation(dst - 4, reinterpret_cast<void*>(distVal), IMAGE_REL_BASED_HIGHLOW, 0);
+#endif
 
             // For forward jumps, record the address of the distance value
             // Hard-coded 4 here because we already output the displacement, as the last thing.
             id->idjTemp.idjAddr = (dstOffs > srcOffs) ? (dst - 4) : nullptr;
 
-            // We're done
             return dst;
         }
         else
@@ -8916,7 +8906,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(id->idGCref() == GCT_NONE);
             assert(id->idIsBound());
 
-            // TODO-XArch-Cleanup: handle IF_RWR_LABEL in emitOutputLJ() or change it to emitOutputAM()?
             dst = emitOutputLJ(ig, dst, id);
             sz  = sizeof(instrDescJmp);
             break;
