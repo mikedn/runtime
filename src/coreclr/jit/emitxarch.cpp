@@ -517,7 +517,7 @@ bool emitter::hasVexPrefix(code_t code)
 
 emitter::code_t emitter::AddVexPrefix(instruction ins, code_t code, emitAttr attr)
 {
-    assert(IsAVXInstruction(ins));
+    assert(TakesVexPrefix(ins));
     assert(!hasVexPrefix(code));
     assert((code >> 32) == 0);
 
@@ -804,7 +804,7 @@ emitter::code_t emitter::AddRexBPrefix(instruction ins, code_t code)
 // Adds REX prefix (0x40) without W, R, X or B bits set
 emitter::code_t emitter::AddRexPrefix(instruction ins, code_t code)
 {
-    assert(!UseVEXEncoding() || !IsAVXInstruction(ins));
+    assert(!TakesVexPrefix(ins));
 
     return code | (0x40ull << 32);
 }
@@ -830,7 +830,7 @@ static bool isPrefix(uint8_t b)
 
 size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
 {
-    assert(UseVEXEncoding() && IsAVXInstruction(ins) && hasVexPrefix(code));
+    assert(TakesVexPrefix(ins) && hasVexPrefix(code));
 
     uint32_t vexPrefix = (code >> 32) & UINT_MAX;
     code &= UINT_MAX;
@@ -1041,12 +1041,8 @@ size_t emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, 
 
 unsigned emitter::emitGetRexPrefixSize(instruction ins)
 {
+    // TODO-MIKE-Fix: This should be TakesVexPrefix.
     return IsAVXInstruction(ins) ? 0 : 1;
-}
-
-unsigned emitter::emitGetVexPrefixSize(instruction ins, emitAttr attr)
-{
-    return IsAVXInstruction(ins) ? 3 : 0;
 }
 
 static bool EncodedBySSE38orSSE3A(instruction ins);
@@ -1055,6 +1051,8 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t cod
 {
     unsigned adjustedSize = 0;
 
+    // TODO-MIKE-Fix: This should be TakesVexPrefix. Bozos managed to pass prefetch
+    // instructions through this code path, which messes up instruction size estimation.
     if (IsAVXInstruction(ins))
     {
         // VEX prefix encodes some bytes of the opcode and as a result, overall size of the instruction reduces.
@@ -1071,8 +1069,7 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t cod
         //  = opcodeSize + (vexPrefixSize - ExtrabytesSize)
         //  = opcodeSize + vexPrefixAdjustedSize
 
-        unsigned vexPrefixAdjustedSize = emitGetVexPrefixSize(ins, attr);
-        assert(vexPrefixAdjustedSize == 3);
+        unsigned vexPrefixAdjustedSize = 3;
 
         // In this case, opcode will contains escape prefix at least one byte,
         // vexPrefixAdjustedSize should be minus one.
@@ -1448,7 +1445,7 @@ emitter::code_t emitter::SetRMReg(instruction ins, regNumber reg, emitAttr size,
 emitter::code_t emitter::SetVexVvvv(instruction ins, regNumber reg, emitAttr size, code_t code)
 {
     assert(reg < REG_STK);
-    assert(IsAVXInstruction(ins));
+    assert(TakesVexPrefix(ins));
     assert(hasVexPrefix(code));
 
     code_t regBits = RegEncoding(reg);
@@ -1592,7 +1589,7 @@ unsigned emitter::emitInsSizeRR(instrDesc* id, code_t code)
         (!id->idIsSmallDsc() && (IsExtendedReg(id->idReg3(), attr) || IsExtendedReg(id->idReg4(), attr))))
     {
         sz += emitGetRexPrefixSize(ins);
-        includeRexPrefixSize = !IsAVXInstruction(ins);
+        includeRexPrefixSize = !TakesVexPrefix(ins);
     }
 
     sz += emitInsSize(code, includeRexPrefixSize);
@@ -5390,7 +5387,7 @@ const char* emitter::genInsDisplayName(instrDesc* id)
     static unsigned curBuf = 0;
     static char     buf[4][40];
 
-    if (IsAVXInstruction(ins) && !IsBMIInstruction(ins))
+    if (TakesVexPrefix(ins) && !IsBMIInstruction(ins))
     {
         auto& retbuf = buf[curBuf++ % _countof(buf)];
         sprintf_s(retbuf, _countof(retbuf), "v%s", name);
