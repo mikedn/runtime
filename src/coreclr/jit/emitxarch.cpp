@@ -7856,8 +7856,7 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
 {
     instruction ins = id->idIns();
 
-    assert(IsAVXInstruction(ins));
-    assert(IsThreeOperandAVXInstruction(ins) || isAvxBlendv(ins));
+    assert(IsThreeOperandAVXInstruction(ins));
 
     regNumber reg1 = id->idReg1();
     regNumber reg2 = id->idReg2();
