@@ -6296,6 +6296,14 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             }
             else if (IsDstSrcSrcAVXInstruction(ins))
             {
+                // TODO-MIKE-Review: There's something dodgy going here with movss/sd. These are marked as
+                // "DstSrcSrc" but that's only true in their reg/reg form, in the reg/mem form there's no
+                // reg2 in the instruction. But since the instrDesc is zero initialized we get back 0 (XMM0)
+                // and put that in VVVV, which ultimately means that this has no effect, except by being
+                // confusing. It's not clear if the code was written intentionally like this or if it just
+                // happened to work by accident.
+                // It's not clear if the other DstSrcSrc instructions are affected by this (e.g. sqrtss).
+                // It doesn't seem possible to generate the r/m form of those.
                 code = SetVexVvvv(ins, id->idReg2(), size, code);
             }
         }
