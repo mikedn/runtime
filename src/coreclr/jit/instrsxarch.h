@@ -552,26 +552,10 @@ INST2(sar_1,            "sar",              IUM_RW, 0x38D0,       0x38D0,       
 INST2(sar_N,            "sar",              IUM_RW, BAD_CODE,     0x38C0,                                                ShiftNFlags)
 
 //    id                nm                  um      mr                                                                   flags
-INST1(r_movsb,          "rep movsb",        IUM_RD, 0xA4F3,                                                              DirFlags)
-INST1(r_movsd,          "rep movsd",        IUM_RD, 0xA5F3,                                                              DirFlags)
-#ifdef TARGET_AMD64
-INST1(r_movsq,          "rep movsq",        IUM_RD, 0xF3A548,                                                            DirFlags)
-#endif
-INST1(movsb,            "movsb",            IUM_RD, 0xA4,                                                                DirFlags)
-INST1(movsd,            "movsd",            IUM_RD, 0xA5,                                                                DirFlags)
-#ifdef TARGET_AMD64
-INST1(movsq,            "movsq",            IUM_RD, 0xA548,                                                              DirFlags)
-#endif
-INST1(r_stosb,          "rep stosb",        IUM_RD, 0xAAF3,                                                              DirFlags)
-INST1(r_stosd,          "rep stosd",        IUM_RD, 0xABF3,                                                              DirFlags)
-#ifdef TARGET_AMD64
-INST1(r_stosq,          "rep stosq",        IUM_RD, 0xF3AB48,                                                            DirFlags)
-#endif
-INST1(stosb,            "stosb",            IUM_RD, 0xAA,                                                                DirFlags)
-INST1(stosd,            "stosd",            IUM_RD, 0xAB,                                                                DirFlags)
-#ifdef TARGET_AMD64
-INST1(stosq,            "stosq",            IUM_RD, 0xAB48,                                                              DirFlags)
-#endif
+INST1(rep_movs,         "rep movs",         IUM_RD, 0xA4F3,                                                              DirFlags)
+INST1(movs,             "movs",             IUM_RD, 0xA4,                                                                DirFlags)
+INST1(rep_stos,         "rep stos",         IUM_RD, 0xAAF3,                                                              DirFlags)
+INST1(stos,             "stos",             IUM_RD, 0xAA,                                                                DirFlags)
 
 INST1(int3,             "int3",             IUM_RD, 0xCC,                                                                None)
 INST1(nop,              "nop",              IUM_RD, 0x90,                                                                None)

@@ -2126,12 +2126,8 @@ void emitter::emitIns(instruction ins)
     instrDesc* id   = emitNewInstr();
     code_t     code = insCodeMR(ins);
 
-    assert(ins == INS_cdq || ins == INS_int3 || ins == INS_lock || ins == INS_leave || ins == INS_movsb ||
-           ins == INS_movsd || ins == INS_movsp || ins == INS_nop || ins == INS_r_movsb || ins == INS_r_movsd ||
-           ins == INS_r_movsp || ins == INS_r_stosb || ins == INS_r_stosd || ins == INS_r_stosp || ins == INS_ret ||
-           ins == INS_stosb || ins == INS_stosd || ins == INS_stosp
-           // These instructions take zero operands
-           || ins == INS_vzeroupper || ins == INS_lfence || ins == INS_mfence || ins == INS_sfence);
+    assert(ins == INS_cdq || ins == INS_int3 || ins == INS_lock || ins == INS_leave || ins == INS_nop ||
+           ins == INS_ret || ins == INS_vzeroupper || ins == INS_lfence || ins == INS_mfence || ins == INS_sfence);
 
     assert(!hasRexPrefix(code)); // Can't have a REX bit with no operands, right?
 
@@ -2167,22 +2163,17 @@ void emitter::emitIns(instruction ins)
 
 void emitter::emitIns(instruction ins, emitAttr attr)
 {
-    assert(ins == INS_cdq);
+    assert((ins == INS_cdq) || (ins == INS_movs) || (ins == INS_stos) || (ins == INS_rep_movs) ||
+           (ins == INS_rep_stos));
 
-    instrDesc* id   = emitNewInstr(attr);
-    code_t     code = insCodeMR(ins);
-    assert((code & 0xFFFFFF00) == 0);
+    size_t code = insCodeMR(ins);
+    assert((code >> 16) == 0);
 
-    insFormat fmt = IF_NONE;
+    unsigned sz = 1 + ((code & 0xFF00) != 0)AMD64_ONLY(+(attr == EA_8BYTE));
 
-    unsigned sz = 1 + emitGetAdjustedSize(ins, attr, code);
-    if (TakesRexWPrefix(ins, attr))
-    {
-        sz += emitGetRexPrefixSize(ins);
-    }
-
+    instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(IF_NONE);
     id->idCodeSize(sz);
 
     dispIns(id);
@@ -5381,16 +5372,20 @@ const char* emitter::genInsDisplayName(instrDesc* id)
     instruction ins  = id->idIns();
     const char* name = insName(ins);
 
-    const int       TEMP_BUFFER_LEN = 40;
-    static unsigned curBuf          = 0;
-    static char     buf[4][TEMP_BUFFER_LEN];
-    const char*     retbuf;
+    static unsigned curBuf = 0;
+    static char     buf[4][40];
 
     if (IsAVXInstruction(ins) && !IsBMIInstruction(ins))
     {
-        sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "v%s", name);
-        retbuf = buf[curBuf];
-        curBuf = (curBuf + 1) % 4;
+        auto& retbuf = buf[curBuf++ % _countof(buf)];
+        sprintf_s(retbuf, _countof(retbuf), "v%s", name);
+        return retbuf;
+    }
+
+    if ((ins == INS_stos) || (ins == INS_movs) || (ins == INS_rep_stos) || (ins == INS_rep_movs))
+    {
+        auto& retbuf = buf[curBuf++ % _countof(buf)];
+        sprintf_s(retbuf, _countof(retbuf), "%s%c", name, GetSizeOperator(id->idOpSize())[0]);
         return retbuf;
     }
 
@@ -8767,6 +8762,21 @@ uint8_t* emitter::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
         return dstRW - writeableOffset;
     }
 
+    code_t   code = insCodeMR(ins);
+    emitAttr size = id->idOpSize();
+
+    if ((ins == INS_rep_stos) || (ins == INS_rep_movs))
+    {
+        dst += emitOutputByte(dst, code);
+        code >>= 8;
+    }
+
+    if ((size != EA_1BYTE) &&
+        ((ins == INS_rep_stos) || (ins == INS_rep_movs) || (ins == INS_stos) || (ins == INS_movs)))
+    {
+        code |= 0x01;
+    }
+
     if (ins == INS_cdq)
     {
         emitGCregDeadUpd(REG_EDX, dst);
@@ -8774,16 +8784,17 @@ uint8_t* emitter::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
 
     assert(id->idGCref() == GCT_NONE);
 
-    code_t code = insCodeMR(ins);
-
 #ifdef TARGET_AMD64
     // Support only scalar AVX instructions and hence size is hard coded to 4-byte.
     code = AddVexPrefixIfNeeded(ins, code, EA_4BYTE);
 
-    if (ins == INS_cdq && TakesRexWPrefix(ins, id->idOpSize()))
+    if (((ins == INS_cdq) || (ins == INS_stos) || (ins == INS_movs) || (ins == INS_rep_stos) ||
+         (ins == INS_rep_movs)) &&
+        TakesRexWPrefix(ins, id->idOpSize()))
     {
         code = AddRexWPrefix(ins, code);
     }
+
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 #endif
     if (code & 0xFF000000)
@@ -10184,24 +10195,14 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
             break;
 #endif // TARGET_X86
 
-#ifdef TARGET_AMD64
-        case INS_movsq:
-        case INS_stosq:
-#endif // TARGET_AMD64
-        case INS_movsd:
-        case INS_stosd:
+        case INS_movs:
+        case INS_stos:
             // uops.info
             result.insThroughput = PERFSCORE_THROUGHPUT_1C;
             break;
 
-#ifdef TARGET_AMD64
-        case INS_r_movsq:
-        case INS_r_stosq:
-#endif // TARGET_AMD64
-        case INS_r_movsd:
-        case INS_r_movsb:
-        case INS_r_stosd:
-        case INS_r_stosb:
+        case INS_rep_movs:
+        case INS_rep_stos:
             // Actually variable sized: rep stosd, used to zero frame slots
             // uops.info
             result.insThroughput = PERFSCORE_THROUGHPUT_25C;

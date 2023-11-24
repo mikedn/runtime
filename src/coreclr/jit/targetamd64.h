@@ -369,12 +369,6 @@
   // The registers trashed by the CORINFO_HELP_INIT_PINVOKE_FRAME helper.
   #define RBM_INIT_PINVOKE_FRAME_TRASH  RBM_CALLEE_TRASH
 
-  // Pointer-sized string move instructions
-  #define INS_movsp                INS_movsq
-  #define INS_r_movsp              INS_r_movsq
-  #define INS_stosp                INS_stosq
-  #define INS_r_stosp              INS_r_stosq
-
   // AMD64 uses FEATURE_FIXED_OUT_ARGS so this can be zero.
   #define STACK_PROBE_BOUNDARY_THRESHOLD_BYTES 0
 

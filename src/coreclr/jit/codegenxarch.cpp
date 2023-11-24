@@ -2284,11 +2284,11 @@ void CodeGen::GenDynBlk(GenTreeDynBlk* store)
 #endif
         case StructStoreKind::RepStos:
             ConsumeDynBlk(store, REG_RDI, REG_RAX, REG_RCX);
-            instGen(INS_r_stosb);
+            GetEmitter()->emitIns(INS_rep_stos, EA_1BYTE);
             break;
         case StructStoreKind::RepMovs:
             ConsumeDynBlk(store, REG_RDI, REG_RSI, REG_RCX);
-            instGen(INS_r_movsb);
+            GetEmitter()->emitIns(INS_rep_movs, EA_1BYTE);
             break;
         default:
             unreached();
@@ -2434,7 +2434,7 @@ void CodeGen::GenStructStoreMemCpy(GenTree* store, ClassLayout* layout)
 void CodeGen::GenStructStoreRepStos(GenTree* store, ClassLayout* layout)
 {
     ConsumeStructStore(store, layout, REG_RDI, REG_RAX, REG_RCX);
-    instGen(INS_r_stosb);
+    GetEmitter()->emitIns(INS_rep_stos, EA_1BYTE);
 }
 
 void CodeGen::GenStructStoreRepMovs(GenTree* store, ClassLayout* layout)
@@ -2442,7 +2442,7 @@ void CodeGen::GenStructStoreRepMovs(GenTree* store, ClassLayout* layout)
     assert(!layout->HasGCPtr());
 
     ConsumeStructStore(store, layout, REG_RDI, REG_RSI, REG_RCX);
-    instGen(INS_r_movsb);
+    GetEmitter()->emitIns(INS_rep_movs, EA_1BYTE);
 }
 
 void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
@@ -2999,7 +2999,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
         {
             for (unsigned i = 0; i < slotCount; i++)
             {
-                instGen(INS_movsp);
+                GetEmitter()->emitIns(INS_movs, EA_PTRSIZE);
             }
         }
         else
@@ -3007,7 +3007,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
             assert(store->HasTempReg(REG_RCX));
 
             GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, slotCount);
-            instGen(INS_r_movsp);
+            GetEmitter()->emitIns(INS_rep_movs, EA_PTRSIZE);
         }
     }
     else
@@ -3033,7 +3033,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
                 {
                     for (unsigned j = 0; j < nonWBSequenceLength; j++)
                     {
-                        instGen(INS_movsp);
+                        GetEmitter()->emitIns(INS_movs, EA_PTRSIZE);
                     }
                 }
                 else
@@ -3041,7 +3041,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
                     assert(store->HasTempReg(REG_RCX));
 
                     GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, nonWBSequenceLength);
-                    instGen(INS_r_movsp);
+                    GetEmitter()->emitIns(INS_rep_movs, EA_PTRSIZE);
                 }
             }
         }
@@ -6669,7 +6669,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
             emit.emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RDI, outArgLclNum, static_cast<int>(outArgLclOffs));
 #endif
             emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, putArgStk->GetSlotCount());
-            emit.emitIns(INS_r_stosp);
+            emit.emitIns(INS_rep_stos, EA_PTRSIZE);
         }
 #ifdef TARGET_X86
         else if (putArgStk->GetArgSize() < XMM_REGSIZE_BYTES)
@@ -7114,7 +7114,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
     assert(!srcLayout->HasGCPtr());
 
     GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, srcLayout->GetSize());
-    GetEmitter()->emitIns(INS_r_movsb);
+    GetEmitter()->emitIns(INS_rep_movs, EA_1BYTE);
 #else
     regNumber intTmpReg = REG_NA;
     regNumber xmmTmpReg = REG_NA;
@@ -7144,7 +7144,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
         {
             assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstr);
             GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, srcLayout->GetSize());
-            GetEmitter()->emitIns(INS_r_movsb);
+            GetEmitter()->emitIns(INS_rep_movs, EA_1BYTE);
             return;
         }
 
@@ -7244,13 +7244,13 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
         {
             for (unsigned j = 0; j < nonGCSequenceLength; j++)
             {
-                instGen(INS_movsp);
+                GetEmitter()->emitIns(INS_movs, EA_PTRSIZE);
             }
         }
         else
         {
             GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, nonGCSequenceLength);
-            instGen(INS_r_movsp);
+            GetEmitter()->emitIns(INS_rep_movs, EA_PTRSIZE);
         }
 
         i += nonGCSequenceLength - 1;
