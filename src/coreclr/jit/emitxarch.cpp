@@ -100,11 +100,6 @@ static bool instrHasImplicitRegPairDest(instruction ins)
 }
 #endif
 
-static bool IsSSEInstruction(instruction ins)
-{
-    return (ins >= INS_FIRST_SSE_INSTRUCTION) && (ins <= INS_LAST_SSE_INSTRUCTION);
-}
-
 static bool IsSSEOrAVXInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_SSE_INSTRUCTION) && (ins <= INS_LAST_AVX_INSTRUCTION);
@@ -334,6 +329,17 @@ static bool instIsFP(instruction ins)
 #endif
 }
 #endif
+
+static bool HasWBit(instruction ins)
+{
+    // TODO-MIKE-Cleanup: This stuff is really dumb. It needs to check for instructions which
+    // default to 8 bit (e.g. ADD, SUB, XOR etc.) and thus need to have their encoding adjusted
+    // to get 16/32 bit operations. If EA_1BYTE is used with any other instructions this MUST
+    // assert, and NOT modify the encoding. And the default encoding should really be the 32 bit
+    // encoding, since 8 bit instructions are rarely used.
+    return (ins != INS_imul) && (ins != INS_bsf) && (ins != INS_bsr) && (ins != INS_lzcnt) && (ins != INS_tzcnt) &&
+           (ins != INS_popcnt) && (ins != INS_shld) && (ins != INS_shrd) && !IsSSEOrAVXInstruction(ins);
+}
 
 bool emitter::AreFlagsAlwaysModified(instrDesc* id)
 {
@@ -6399,14 +6405,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 code &= 0x0000FFFF;
             }
 
-            // Use the large version if this is not a byte instruction.
-            // TODO-MIKE-Cleanup: This stuff is really dumb. It needs to check for instructions which default to 8 bit
-            // (e.g. ADD, SUB, XOR etc.) and thus need to have their encoding adjusted to get 16/32 bit operations.
-            // If EA_1BYTE is used with any other instructions this MUST assert, and NOT modify the encoding.
-            // And the default encoding should really be the 32 bit encoding, since 8 bit instructions are rarely used.
-            if ((size != EA_1BYTE) && (ins != INS_imul) && (ins != INS_bsf) && (ins != INS_bsr) && (ins != INS_lzcnt) &&
-                (ins != INS_tzcnt) && (ins != INS_popcnt) && (ins != INS_shld) && (ins != INS_shrd) &&
-                !IsSSEInstruction(ins) && !IsAVXInstruction(ins))
+            if ((size != EA_1BYTE) && HasWBit(ins))
             {
                 code++;
             }
@@ -6424,7 +6423,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 #endif
         else
         {
-            assert(!IsSSEInstruction(ins) && !IsAVXInstruction(ins));
+            assert(!IsSSEOrAVXInstruction(ins));
 
             switch (size)
             {
@@ -6754,14 +6753,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             code &= 0x0000FFFF;
         }
 
-        // Use the large version if this is not a byte instruction.
-        // TODO-MIKE-Cleanup: This stuff is really dumb. It needs to check for instructions which default to 8 bit
-        // (e.g. ADD, SUB, XOR etc.) and thus need to have their encoding adjusted to get 16/32 bit operations.
-        // If EA_1BYTE is used with any other instructions this MUST assert, and NOT modify the encoding.
-        // And the default encoding should really be the 32 bit encoding, since 8 bit instructions are rarely used.
-        if ((size != EA_1BYTE) && (ins != INS_imul) && (ins != INS_bsf) && (ins != INS_bsr) && (ins != INS_lzcnt) &&
-            (ins != INS_tzcnt) && (ins != INS_popcnt) && (ins != INS_shld) && (ins != INS_shrd) &&
-            !IsSSEInstruction(ins) && !IsAVXInstruction(ins))
+        if ((size != EA_1BYTE) && HasWBit(ins))
         {
             code |= 0x1;
         }
@@ -6779,7 +6771,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 #endif
     else
     {
-        assert(!IsSSEInstruction(ins) && !IsAVXInstruction(ins));
+        assert(!IsSSEOrAVXInstruction(ins));
 
         switch (size)
         {
@@ -7126,14 +7118,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 code &= 0x0000FFFF;
             }
 
-            // Use the large version if this is not a byte instruction.
-            // TODO-MIKE-Cleanup: This stuff is really dumb. It needs to check for instructions which default to 8 bit
-            // (e.g. ADD, SUB, XOR etc.) and thus need to have their encoding adjusted to get 16/32 bit operations.
-            // If EA_1BYTE is used with any other instructions this MUST assert, and NOT modify the encoding.
-            // And the default encoding should really be the 32 bit encoding, since 8 bit instructions are rarely used.
-            if ((size != EA_1BYTE) && (ins != INS_imul) && (ins != INS_bsf) && (ins != INS_bsr) && (ins != INS_lzcnt) &&
-                (ins != INS_tzcnt) && (ins != INS_popcnt) && (ins != INS_shld) && (ins != INS_shrd) &&
-                !IsSSEInstruction(ins) && !IsAVXInstruction(ins))
+            if ((size != EA_1BYTE) && HasWBit(ins))
             {
                 code++;
             }
@@ -7151,7 +7136,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 #endif
         else
         {
-            assert(!IsSSEInstruction(ins) && !IsAVXInstruction(ins));
+            assert(!IsSSEOrAVXInstruction(ins));
 
             switch (size)
             {
@@ -7284,8 +7269,6 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
     regNumber   reg  = id->idReg1();
     emitAttr    size = id->idOpSize();
 
-    assert(!IsSSEInstruction(ins) && !IsAVXInstruction(ins));
-
     switch (ins)
     {
         code_t code;
@@ -7401,6 +7384,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             emitGCregDeadUpd(REG_EDX, dst);
             FALLTHROUGH;
         default:
+            assert(!IsSSEOrAVXInstruction(ins));
             assert(id->idGCref() == GCT_NONE);
 
             code = insEncodeRMreg(ins, reg, size, insCodeMR(ins));
@@ -8381,8 +8365,6 @@ uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
     instruction   ins = id->idIns();
     bool          isJump;
 
-    assert(!IsSSEInstruction(ins) && !IsAVXInstruction(ins));
-
     bool   relAddr = true; // does the instruction use relative-addressing?
     size_t ssz;
     size_t lsz;
@@ -8390,6 +8372,7 @@ uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
     switch (ins)
     {
         default:
+            assert((INS_jo <= ins) && (ins <= INS_jg));
             ssz    = JCC_SIZE_SMALL;
             lsz    = JCC_SIZE_LARGE;
             isJump = true;
