@@ -2140,39 +2140,29 @@ void emitter::emitIns_Lock()
 
 void emitter::emitIns(instruction ins)
 {
-    unsigned   sz;
-    instrDesc* id   = emitNewInstr();
-    code_t     code = insCodeMR(ins);
+    assert((ins == INS_int3) || (ins == INS_leave) || (ins == INS_nop) || (ins == INS_ret) || (ins == INS_vzeroupper) ||
+           (ins == INS_lfence) || (ins == INS_mfence) || (ins == INS_sfence));
 
-    assert(ins == INS_cdq || ins == INS_int3 || ins == INS_leave || ins == INS_nop || ins == INS_ret ||
-           ins == INS_vzeroupper || ins == INS_lfence || ins == INS_mfence || ins == INS_sfence);
+    code_t code = insCodeMR(ins);
+    assert((code >> 24) == 0);
+    unsigned sz;
 
-    assert(!hasRexPrefix(code)); // Can't have a REX bit with no operands, right?
-
-    if (code & 0xFF000000)
-    {
-        sz = 2; // TODO-XArch-Bug?: Shouldn't this be 4? Or maybe we should assert that we don't see this case.
-    }
-    else if (code & 0x00FF0000)
+    if ((code & 0x00FF0000) != 0)
     {
         sz = 3;
     }
-    else if (code & 0x0000FF00)
-    {
-        sz = 2;
-    }
     else
     {
+        assert((code & 0xFF00) == 0);
         sz = 1;
     }
 
     // vzeroupper includes its 2-byte VEX prefix in its MR code.
     assert((ins != INS_vzeroupper) || (sz == 3));
 
-    insFormat fmt = IF_NONE;
-
+    instrDesc* id = emitNewInstr();
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(IF_NONE);
     id->idCodeSize(sz);
 
     dispIns(id);
@@ -2183,6 +2173,7 @@ void emitter::emitIns(instruction ins, emitAttr attr)
 {
     assert((ins == INS_cdq) || (ins == INS_movs) || (ins == INS_stos) || (ins == INS_rep_movs) ||
            (ins == INS_rep_stos));
+    assert((attr == EA_1BYTE) || (attr == EA_4BYTE)AMD64_ONLY(|| (attr == EA_8BYTE)));
 
     size_t code = insCodeMR(ins);
     assert((code >> 16) == 0);
@@ -8780,59 +8771,47 @@ uint8_t* emitter::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
         return dstRW - writeableOffset;
     }
 
-    code_t   code = insCodeMR(ins);
-    emitAttr size = id->idOpSize();
+    assert(!TakesVexPrefix(ins));
+    assert(id->idOpSize() != EA_2BYTE);
+    assert(id->idGCref() == GCT_NONE);
+
+    code_t code = insCodeMR(ins);
+    assert((code >> 24) == 0);
 
     if ((ins == INS_rep_stos) || (ins == INS_rep_movs))
     {
         dst += emitOutputByte(dst, code);
         code >>= 8;
-    }
-
-    if ((size != EA_1BYTE) &&
-        ((ins == INS_rep_stos) || (ins == INS_rep_movs) || (ins == INS_stos) || (ins == INS_movs)))
-    {
-        code |= 0x01;
+        ins = ins == INS_rep_stos ? INS_stos : INS_movs;
     }
 
     if (ins == INS_cdq)
     {
         emitGCregDeadUpd(REG_EDX, dst);
     }
-
-    assert(id->idGCref() == GCT_NONE);
+    else if ((id->idOpSize() != EA_1BYTE) && ((ins == INS_stos) || (ins == INS_movs)))
+    {
+        code |= 0x01;
+    }
 
 #ifdef TARGET_AMD64
-    // Support only scalar AVX instructions and hence size is hard coded to 4-byte.
-    code = AddVexPrefixIfNeeded(ins, code, EA_4BYTE);
-
-    if (((ins == INS_cdq) || (ins == INS_stos) || (ins == INS_movs) || (ins == INS_rep_stos) ||
-         (ins == INS_rep_movs)) &&
-        TakesRexWPrefix(ins, id->idOpSize()))
+    if (id->idOpSize() == EA_8BYTE)
     {
+        assert((ins == INS_cdq) || (ins == INS_stos) || (ins == INS_movs));
+
         code = AddRexWPrefix(ins, code);
+        dst += emitOutputRexPrefix(ins, dst, code);
     }
-
-    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 #endif
-    if (code & 0xFF000000)
-    {
-        dst += emitOutputWord(dst, code >> 16);
-        code &= 0x0000FFFF;
-        dst += emitOutputWord(dst, code);
-    }
-    else if (code & 0x00FF0000)
+
+    if (code & 0x00FF0000)
     {
         dst += emitOutputByte(dst, code >> 16);
-        code &= 0x0000FFFF;
-        dst += emitOutputWord(dst, code);
-    }
-    else if (code & 0xFF00)
-    {
         dst += emitOutputWord(dst, code);
     }
     else
     {
+        assert((code & 0xFF00) == 0);
         dst += emitOutputByte(dst, code);
     }
 
