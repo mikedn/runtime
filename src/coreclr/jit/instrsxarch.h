@@ -124,7 +124,7 @@ INST3(pmovmskb,         "pmovmskb",         IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(movmskpd,         "movmskpd",         IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0x50),                            None)
 INST3(movd,             "movd",             IUM_WR, PCKDBL(0x7E), BAD_CODE,     PCKDBL(0x6E),                            None) // Cleanup https://github.com/dotnet/runtime/issues/47943
 INST3(movq,             "movq",             IUM_WR, PCKDBL(0xD6), BAD_CODE,     SSEFLT(0x7E),                            None) // Cleanup https://github.com/dotnet/runtime/issues/47943
-INST3(movsdsse2,        "movsd",            IUM_WR, SSEDBL(0x11), BAD_CODE,     SSEDBL(0x10),                            AvxDstSrcSrc)
+INST3(movsd,            "movsd",            IUM_WR, SSEDBL(0x11), BAD_CODE,     SSEDBL(0x10),                            AvxDstSrcSrc)
 INST3(punpckldq,        "punpckldq",        IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0x62),                            AvxDstDstSrc)
 INST3(xorps,            "xorps",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x57),                            AvxDstDstSrc)
 INST3(cvttsd2si,        "cvttsd2si",        IUM_WR, BAD_CODE,     BAD_CODE,     SSEDBL(0x2C),                            None)

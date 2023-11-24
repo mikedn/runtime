@@ -4000,7 +4000,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store)
     else if (dstReg == srcReg1)
     {
         GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
-        GetEmitter()->emitIns_Mov(INS_movsdsse2, EA_16BYTE, dstReg, srcReg0, /* canSkip */ false);
+        GetEmitter()->emitIns_Mov(INS_movsd, EA_16BYTE, dstReg, srcReg0, /* canSkip */ false);
     }
     else
     {
@@ -4038,14 +4038,14 @@ void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
     assert(call->GetRegType(0) == TYP_DOUBLE);
     assert((call->GetRegType(1) == TYP_DOUBLE) || (call->GetRegType(1) == TYP_FLOAT));
 
-    GetEmitter()->emitIns_S_R(INS_movsdsse2, EA_8BYTE, reg0, lclNum, 0);
+    GetEmitter()->emitIns_S_R(INS_movsd, EA_8BYTE, reg0, lclNum, 0);
     // TODO-MIKE-Review: Do we need to store a 0 for the 4th element of Vector3? Old code did not.
     // Also, it may be better to do a 8 byte store instead of 4 byte store whenever there is
     // enough space (pretty much always since local sizes are normally rounded up to 8 bytes,
     // P-DEP fields are probably the only exception).
     // Actually, it may be even better to pack the 2 regs into one and do a single store, if there
     // are subsequent SIMD loads then doing 2 stores here will block store forwarding.
-    GetEmitter()->emitIns_S_R(store->TypeIs(TYP_SIMD12) ? INS_movss : INS_movsdsse2,
+    GetEmitter()->emitIns_S_R(store->TypeIs(TYP_SIMD12) ? INS_movss : INS_movsd,
                               store->TypeIs(TYP_SIMD12) ? EA_4BYTE : EA_8BYTE, reg1, lclNum, 8);
 #endif
 
@@ -5755,7 +5755,7 @@ void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
     }
     else if (!src->isUsedFromReg())
     {
-        ins = srcType == TYP_FLOAT ? INS_movss : INS_movsdsse2;
+        ins = srcType == TYP_FLOAT ? INS_movss : INS_movsd;
     }
     else
     {
@@ -7932,8 +7932,8 @@ void CodeGen::genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber t
         inst_R_AM(INS_mov, EA_4BYTE, tmpReg, src, 8);
         inst_AM_R(INS_mov, EA_4BYTE, tmpReg, dst, 8);
 #else
-        inst_R_AM(INS_movsdsse2, EA_8BYTE, tmpReg, src, 0);
-        inst_AM_R(INS_movsdsse2, EA_8BYTE, tmpReg, dst, 0);
+        inst_R_AM(INS_movsd, EA_8BYTE, tmpReg, src, 0);
+        inst_AM_R(INS_movsd, EA_8BYTE, tmpReg, dst, 0);
         inst_R_AM(INS_movss, EA_4BYTE, tmpReg, src, 8);
         inst_AM_R(INS_movss, EA_4BYTE, tmpReg, dst, 8);
 #endif
@@ -7942,7 +7942,7 @@ void CodeGen::genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber t
 
     regNumber valueReg = genConsumeReg(value);
 
-    inst_AM_R(INS_movsdsse2, EA_8BYTE, valueReg, dst, 0);
+    inst_AM_R(INS_movsd, EA_8BYTE, valueReg, dst, 0);
 
     if (value->IsHWIntrinsicZero())
     {
@@ -7965,7 +7965,7 @@ void CodeGen::LoadSIMD12(GenTree* load)
 
     assert(tmpReg != dstReg);
 
-    inst_R_AM(INS_movsdsse2, EA_8BYTE, dstReg, src, 0);
+    inst_R_AM(INS_movsd, EA_8BYTE, dstReg, src, 0);
     inst_R_AM(INS_movss, EA_4BYTE, tmpReg, src, 8);
     GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, tmpReg);
 }
@@ -7977,7 +7977,7 @@ void CodeGen::genStoreSIMD12ToStack(regNumber valueReg, regNumber tmpReg)
     assert(genIsValidFloatReg(valueReg));
     assert(genIsValidFloatReg(tmpReg));
 
-    GetEmitter()->emitIns_AR_R(INS_movsdsse2, EA_8BYTE, valueReg, REG_SPBASE, 0);
+    GetEmitter()->emitIns_AR_R(INS_movsd, EA_8BYTE, valueReg, REG_SPBASE, 0);
     GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
     GetEmitter()->emitIns_AR_R(INS_movss, EA_4BYTE, tmpReg, REG_SPBASE, 8);
 }
@@ -9085,7 +9085,7 @@ instruction CodeGen::ins_Load(var_types srcType, bool aligned)
     {
         if (srcType == TYP_SIMD8)
         {
-            return INS_movsdsse2;
+            return INS_movsd;
         }
 
         if (compiler->canUseVexEncoding())
@@ -9101,7 +9101,7 @@ instruction CodeGen::ins_Load(var_types srcType, bool aligned)
 
     if (varTypeIsFloating(srcType))
     {
-        return srcType == TYP_DOUBLE ? INS_movsdsse2 : INS_movss;
+        return srcType == TYP_DOUBLE ? INS_movsd : INS_movss;
     }
 
     if (varTypeIsSmall(srcType))
@@ -9119,7 +9119,7 @@ instruction CodeGen::ins_Store(var_types dstType, bool aligned)
     {
         if (dstType == TYP_SIMD8)
         {
-            return INS_movsdsse2;
+            return INS_movsd;
         }
 
         if (compiler->canUseVexEncoding())
@@ -9135,7 +9135,7 @@ instruction CodeGen::ins_Store(var_types dstType, bool aligned)
 
     if (varTypeIsFloating(dstType))
     {
-        return dstType == TYP_DOUBLE ? INS_movsdsse2 : INS_movss;
+        return dstType == TYP_DOUBLE ? INS_movsd : INS_movss;
     }
 
     return INS_mov;

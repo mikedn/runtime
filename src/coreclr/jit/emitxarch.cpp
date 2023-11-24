@@ -2839,7 +2839,7 @@ bool emitter::IsMovInstruction(instruction ins)
         case INS_movd:
         case INS_movdqa:
         case INS_movdqu:
-        case INS_movsdsse2:
+        case INS_movsd:
         case INS_movss:
         case INS_movsx:
         case INS_movupd:
@@ -2962,7 +2962,7 @@ bool emitter::IsRedundantMov(
             break;
         }
 
-        case INS_movsdsse2:
+        case INS_movsd:
         case INS_movss:
         {
             // Clears the upper bits under VEX encoding
@@ -3063,7 +3063,7 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
         case INS_movaps:
         case INS_movdqa:
         case INS_movdqu:
-        case INS_movsdsse2:
+        case INS_movsd:
         case INS_movss:
         case INS_movupd:
         case INS_movups:
@@ -6963,7 +6963,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 align = 4;
                 break;
             case INS_vbroadcastsd:
-            case INS_movsdsse2:
+            case INS_movsd:
                 align = 8;
                 break;
             case INS_vinsertf128:
@@ -10320,7 +10320,7 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
             break;
 
         case INS_movss:
-        case INS_movsdsse2:
+        case INS_movsd:
         case INS_movddup:
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
