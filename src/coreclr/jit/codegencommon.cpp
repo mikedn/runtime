@@ -741,7 +741,7 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
 
         block->bbUnwindNopEmitCookie = GetEmitter()->emitAddLabel(INDEBUG(block));
 
-        instGen(INS_nop);
+        GetEmitter()->emitIns(INS_nop);
     }
 }
 #endif
@@ -4146,8 +4146,8 @@ void CodeGen::genFnProlog()
     {
         // Put a nop first because the debugger and other tools are likely to
         // put an int3 at the beginning and we don't want to confuse them.
-        instGen(INS_nop);
-        instGen(INS_BREAKPOINT);
+        GetEmitter()->emitIns(INS_nop);
+        GetEmitter()->emitIns(INS_BREAKPOINT);
 
 #ifdef TARGET_ARMARCH
         // Avoid asserts in the unwind info because these instructions aren't accounted for.
@@ -5296,7 +5296,7 @@ void CodeGen::genEnsureCodeEmitted(IL_OFFSETX offsx)
 
     if (genIPmappingLast->ipmdNativeLoc.IsCurrentLocation(GetEmitter()))
     {
-        instGen(INS_nop);
+        GetEmitter()->emitIns(INS_nop);
     }
 }
 
@@ -5837,24 +5837,6 @@ instruction CodeGen::ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool 
     return ins_Store(dstTypeForStore, aligned);
 }
 
-void CodeGen::instGen(instruction ins)
-{
-    GetEmitter()->emitIns(ins);
-
-#ifdef TARGET_XARCH
-#ifdef PSEUDORANDOM_NOP_INSERTION
-    // A workaround necessitated by limitations of emitter
-    // if we are scheduled to insert a nop here, we have to delay it
-    // hopefully we have not missed any other prefix instructions or places
-    // they could be inserted
-    if (ins == INS_lock && GetEmitter()->emitNextNop == 0)
-    {
-        GetEmitter()->emitNextNop = 1;
-    }
-#endif // PSEUDORANDOM_NOP_INSERTION
-#endif
-}
-
 void CodeGen::inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock)
 {
 #if !FEATURE_FIXED_OUT_ARGS
@@ -5938,7 +5920,7 @@ void CodeGen::genStackPointerCheck(unsigned lvaStackPointerVar)
 
     BasicBlock* sp_check = genCreateTempLabel();
     GetEmitter()->emitIns_J(INS_je, sp_check);
-    instGen(INS_BREAKPOINT);
+    GetEmitter()->emitIns(INS_BREAKPOINT);
     genDefineTempLabel(sp_check);
 }
 

@@ -338,7 +338,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_NO_OP:
-            instGen(INS_nop);
+            GetEmitter()->emitIns(INS_nop);
             break;
 
         case GT_BOUNDS_CHECK:

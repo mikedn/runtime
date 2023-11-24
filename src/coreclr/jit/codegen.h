@@ -1128,7 +1128,6 @@ protected:
 #endif
 
 public:
-    void instGen(instruction ins);
     void inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock);
     void inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip);
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);

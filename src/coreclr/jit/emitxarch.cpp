@@ -2120,14 +2120,32 @@ void emitter::emitIns_Nop(unsigned size)
     emitCurIGsize += size;
 }
 
+void emitter::emitIns_Lock()
+{
+    instrDesc* id = emitNewInstr();
+    id->idIns(INS_lock);
+    id->idInsFmt(IF_NONE);
+    id->idCodeSize(1);
+
+    dispIns(id);
+    emitCurIGsize++;
+
+#ifdef PSEUDORANDOM_NOP_INSERTION
+    if (emitNextNop == 0)
+    {
+        emitNextNop = 1;
+    }
+#endif
+}
+
 void emitter::emitIns(instruction ins)
 {
     unsigned   sz;
     instrDesc* id   = emitNewInstr();
     code_t     code = insCodeMR(ins);
 
-    assert(ins == INS_cdq || ins == INS_int3 || ins == INS_lock || ins == INS_leave || ins == INS_nop ||
-           ins == INS_ret || ins == INS_vzeroupper || ins == INS_lfence || ins == INS_mfence || ins == INS_sfence);
+    assert(ins == INS_cdq || ins == INS_int3 || ins == INS_leave || ins == INS_nop || ins == INS_ret ||
+           ins == INS_vzeroupper || ins == INS_lfence || ins == INS_mfence || ins == INS_sfence);
 
     assert(!hasRexPrefix(code)); // Can't have a REX bit with no operands, right?
 

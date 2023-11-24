@@ -1418,7 +1418,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
 
         if ((block->bbNext == nullptr) || !BasicBlock::sameEHRegion(block, block->bbNext))
         {
-            instGen(INS_BREAKPOINT); // This should never get executed
+            GetEmitter()->emitIns(INS_BREAKPOINT); // This should never get executed
         }
     }
     else
@@ -1435,7 +1435,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
             // TODO-ARM64-CQ: Can we get rid of this instruction, and just have the call return directly
             // to the next instruction? This would depend on stack walking from within the finally
             // handler working without this instruction being in this special EH region.
-            instGen(INS_nop);
+            GetEmitter()->emitIns(INS_nop);
         }
         else
         {
@@ -8081,10 +8081,10 @@ void CodeGen::genArm64EmitterUnitTests()
 
     BasicBlock* label = genCreateTempLabel();
     genDefineTempLabel(label);
-    instGen(INS_nop);
-    instGen(INS_nop);
-    instGen(INS_nop);
-    instGen(INS_nop);
+    theEmitter->emitIns(INS_nop);
+    theEmitter->emitIns(INS_nop);
+    theEmitter->emitIns(INS_nop);
+    theEmitter->emitIns(INS_nop);
     theEmitter->emitIns_R_L(INS_adr, label, REG_R0);
 
 #endif // ALL_ARM64_EMITTER_UNIT_TESTS

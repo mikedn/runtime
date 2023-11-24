@@ -40,6 +40,7 @@ void emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr);
 void emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm);
 void emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg);
 void emitIns_Nop(unsigned size);
+void emitIns_Lock();
 #ifdef TARGET_X86
 void emitIns_H(instruction ins, void* addr);
 #endif

@@ -279,7 +279,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
 
         if ((block->bbNext == nullptr) || !BasicBlock::sameEHRegion(block, block->bbNext))
         {
-            instGen(INS_BREAKPOINT); // This should never get executed
+            GetEmitter()->emitIns(INS_BREAKPOINT); // This should never get executed
         }
     }
     else
@@ -300,7 +300,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
             // TODO-XArch-CQ: Can we get rid of this instruction, and just have the call return directly
             // to the next instruction? This would depend on stack walking from within the finally
             // handler working without this instruction being in this special EH region.
-            instGen(INS_nop);
+            GetEmitter()->emitIns(INS_nop);
         }
         else
         {
@@ -414,7 +414,7 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
     {
         assert(block->bbJumpKind == BBJ_EHFILTERRET);
 
-        instGen(INS_ret);
+        GetEmitter()->emitIns(INS_ret);
     }
 }
 
@@ -3189,7 +3189,7 @@ void CodeGen::genCodeForLockAdd(GenTreeOp* node)
     regNumber addrReg  = UseReg(addr);
     regNumber valueReg = value->isUsedFromReg() ? UseReg(value) : REG_NA;
 
-    instGen(INS_lock);
+    GetEmitter()->emitIns_Lock();
 
     if (GenTreeIntCon* imm = value->IsContainedIntCon())
     {
@@ -3227,7 +3227,7 @@ void CodeGen::genLockedInstructions(GenTreeOp* node)
     // XCHG has an implied lock prefix when the first operand is a memory operand.
     if (ins != INS_xchg)
     {
-        instGen(INS_lock);
+        GetEmitter()->emitIns_Lock();
     }
 
     GetEmitter()->emitIns_AR_R(ins, size, dstReg, addrReg, 0);
@@ -3257,9 +3257,7 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* tree)
     // have a GT_COPY from RAX.
     inst_Mov(comparand->TypeGet(), REG_RAX, comparand->GetRegNum(), /* canSkip */ true);
 
-    // location is Rm
-    instGen(INS_lock);
-
+    GetEmitter()->emitIns_Lock();
     GetEmitter()->emitIns_AR_R(INS_cmpxchg, emitTypeSize(targetType), value->GetRegNum(), location->GetRegNum(), 0);
 
     // Result is in RAX
@@ -3282,7 +3280,7 @@ void CodeGen::GenMemoryBarrier(GenTree* barrier)
     // Only full barrier needs to be emitted on x86/64
     if ((barrier->gtFlags & GTF_MEMORYBARRIER_LOAD) == 0)
     {
-        instGen(INS_lock);
+        GetEmitter()->emitIns_Lock();
         GetEmitter()->emitIns_AR_I(INS_or, EA_4BYTE, REG_SPBASE, 0, 0);
     }
 }
@@ -4731,7 +4729,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     if (call->IsPInvoke() && (call->gtCallType == CT_USER_FUNC) && contains256bitAVXInstructions)
     {
         assert(compiler->canUseVexEncoding());
-        instGen(INS_vzeroupper);
+        GetEmitter()->emitIns(INS_vzeroupper);
     }
 
     if (call->IsHelperCall() && ((compiler->info.compFlags & CORINFO_FLG_SYNCH) != 0))
@@ -4982,7 +4980,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         BasicBlock* sp_check = genCreateTempLabel();
         GetEmitter()->emitIns_S_R(INS_cmp, EA_4BYTE, spRegCheck, compiler->lvaCallSpCheck, 0);
         GetEmitter()->emitIns_J(INS_je, sp_check);
-        instGen(INS_BREAKPOINT);
+        GetEmitter()->emitIns(INS_BREAKPOINT);
         genDefineTempLabel(sp_check);
     }
 #endif // defined(DEBUG) && defined(TARGET_X86)
@@ -5026,7 +5024,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     // TODO-MIKE-Consider: Emit a breakpoint after CORINFO_HELP_TAILCALL since it never returns.
     // if (call->IsTailCallViaJitHelper())
     // {
-    //     instGen(INS_BREAKPOINT);
+    //     GetEmitter()->emitIns(INS_BREAKPOINT);
     //     return;
     // }
 
@@ -7187,10 +7185,10 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 
         if (nonGCSequenceLength <= 1)
         {
-            // TODO-AMD64-Unix: Here a better solution (for code size) would be to use movsp instruction,
+            // TODO-AMD64-Unix: Here a better solution (for code size) would be to use movs instruction,
             // but the logic for emitting a GC info record is not available (it is internal for the emitter
             // only). See emitGCVarLiveUpd function. If we could call it separately, we could do
-            // instGen(INS_movsp); and emission of gc info.
+            // GetEmitter()->emitIns(INS_movs, EA_PTRSIZE); and emission of gc info.
 
             emitAttr slotAttr = emitTypeSize(srcLayout->GetGCPtrType(i));
 
@@ -8249,7 +8247,7 @@ void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly)
     if (emitVzeroUpper)
     {
         assert(compiler->canUseVexEncoding());
-        instGen(INS_vzeroupper);
+        GetEmitter()->emitIns(INS_vzeroupper);
     }
 }
 
@@ -8719,7 +8717,7 @@ void CodeGen::genFuncletEpilog()
     inst_RV_IV(INS_add, REG_SPBASE, genFuncletInfo.fiSpDelta, EA_PTRSIZE);
     genPopCalleeSavedRegisters();
     inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
-    instGen(INS_ret);
+    GetEmitter()->emitIns(INS_ret);
 }
 
 void CodeGen::genCaptureFuncletPrologEpilogInfo()
@@ -9038,11 +9036,11 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     }
 
 #ifndef TARGET_X86
-    instGen(INS_ret);
+    GetEmitter()->emitIns(INS_ret);
 #else
     if ((paramsStackSize == 0) || compiler->info.compIsVarArgs || IsCallerPop(compiler->info.compCallConv))
     {
-        instGen(INS_ret);
+        GetEmitter()->emitIns(INS_ret);
     }
     else
     {
