@@ -1039,21 +1039,13 @@ size_t emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, 
     return 0;
 }
 
-unsigned emitter::emitGetRexPrefixSize(instruction ins)
-{
-    // TODO-MIKE-Fix: This should be TakesVexPrefix.
-    return IsAVXInstruction(ins) ? 0 : 1;
-}
-
 static bool EncodedBySSE38orSSE3A(instruction ins);
 
 unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code)
 {
     unsigned adjustedSize = 0;
 
-    // TODO-MIKE-Fix: This should be TakesVexPrefix. Bozos managed to pass prefetch
-    // instructions through this code path, which messes up instruction size estimation.
-    if (IsAVXInstruction(ins))
+    if (TakesVexPrefix(ins))
     {
         // VEX prefix encodes some bytes of the opcode and as a result, overall size of the instruction reduces.
         // Therefore, to estimate the size adding VEX prefix size and size of instruction opcode bytes will always
@@ -1588,8 +1580,14 @@ unsigned emitter::emitInsSizeRR(instrDesc* id, code_t code)
     if (TakesRexWPrefix(ins, attr) || IsExtendedReg(id->idReg1(), attr) || IsExtendedReg(id->idReg2(), attr) ||
         (!id->idIsSmallDsc() && (IsExtendedReg(id->idReg3(), attr) || IsExtendedReg(id->idReg4(), attr))))
     {
-        sz += emitGetRexPrefixSize(ins);
-        includeRexPrefixSize = !TakesVexPrefix(ins);
+        if (TakesVexPrefix(ins))
+        {
+            includeRexPrefixSize = false;
+        }
+        else
+        {
+            sz++;
+        }
     }
 
     sz += emitInsSize(code, includeRexPrefixSize);
@@ -1615,8 +1613,14 @@ unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2,
         if ((TakesRexWPrefix(ins, size) && ((ins != INS_xor) || (reg1 != reg2))) || IsExtendedReg(reg1, attr) ||
             IsExtendedReg(reg2, attr))
         {
-            sz += emitGetRexPrefixSize(ins);
-            includeRexPrefixSize = false;
+            if (TakesVexPrefix(ins))
+            {
+                includeRexPrefixSize = false;
+            }
+            else
+            {
+                sz++;
+            }
         }
     }
 
@@ -1641,10 +1645,10 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
 
     unsigned size = emitGetAdjustedSize(ins, attrSize, code);
 
-    if (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(id->idReg1(), attrSize) ||
-        IsExtendedReg(id->idReg2(), attrSize))
+    if (!TakesVexPrefix(ins) && (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(id->idReg1(), attrSize) ||
+                                 IsExtendedReg(id->idReg2(), attrSize)))
     {
-        size += emitGetRexPrefixSize(ins);
+        size++;
     }
 
 #ifdef TARGET_AMD64
@@ -1761,11 +1765,12 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
 
     size += emitGetAdjustedSize(ins, attrSize, code);
 
-    if (hasRexPrefix(code) || TakesRexWPrefix(ins, attrSize) || IsExtendedReg(baseReg, EA_PTRSIZE) ||
-        IsExtendedReg(indexReg, EA_PTRSIZE) ||
-        ((ins != INS_call) && (IsExtendedReg(id->idReg1(), attrSize) || IsExtendedReg(id->idReg2(), attrSize))))
+    if (!TakesVexPrefix(ins) &&
+        (hasRexPrefix(code) || TakesRexWPrefix(ins, attrSize) || IsExtendedReg(baseReg, EA_PTRSIZE) ||
+         IsExtendedReg(indexReg, EA_PTRSIZE) ||
+         ((ins != INS_call) && (IsExtendedReg(id->idReg1(), attrSize) || IsExtendedReg(id->idReg2(), attrSize)))))
     {
-        size += emitGetRexPrefixSize(ins);
+        size++;
     }
 
     if (indexReg == REG_NA)
@@ -1856,11 +1861,14 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
 
     bool includeRexPrefixSize = true;
 
-    // 64-bit operand instructions will need a REX.W prefix
     if (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(id->idReg1(), attrSize) ||
         IsExtendedReg(id->idReg2(), attrSize))
     {
-        size += emitGetRexPrefixSize(ins);
+        if (!TakesVexPrefix(ins))
+        {
+            size++;
+        }
+
         includeRexPrefixSize = false;
     }
 
@@ -2566,13 +2574,11 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
         sz = 3;
     }
 
-    // Vex bytes
     sz += emitGetAdjustedSize(ins, attr, insEncodeRMreg(ins, reg, attr, insCodeMR(ins)));
 
-    // REX byte
-    if (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, attr))
+    if (!TakesVexPrefix(ins) && (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, attr)))
     {
-        sz += emitGetRexPrefixSize(ins);
+        sz++;
     }
 
     id->idCodeSize(sz);
@@ -2711,11 +2717,9 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
 
     sz += emitGetAdjustedSize(ins, attr, insCodeMI(ins));
 
-    // Do we need a REX prefix for AMD64? We need one if we are using any extended
-    // register (REX.R), or if we have a 64-bit sized operand (REX.W).
-    if (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, size))
+    if (!TakesVexPrefix(ins) && (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, size)))
     {
-        sz += emitGetRexPrefixSize(ins);
+        sz++;
     }
 
     instrDesc* id = emitNewInstrSC(attr, val);
@@ -2818,9 +2822,9 @@ void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fie
 
     unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
 
-    if (TakesRexWPrefix(ins, attr))
+    if (!TakesVexPrefix(ins) && TakesRexWPrefix(ins, attr))
     {
-        sz += emitGetRexPrefixSize(ins);
+        sz++;
     }
 
     id->idCodeSize(sz);
@@ -3702,10 +3706,9 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
         if (size == EA_2BYTE)
             sz += 1;
 
-        // REX prefix
-        if (TakesRexWPrefix(ins, attr) || IsExtendedReg(reg, attr))
+        if (!TakesVexPrefix(ins) && (TakesRexWPrefix(ins, attr) || IsExtendedReg(reg, attr)))
         {
-            sz += emitGetRexPrefixSize(ins);
+            sz++;
         }
     }
     else
