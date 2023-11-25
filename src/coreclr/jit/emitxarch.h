@@ -266,7 +266,7 @@ code_t AddVexPrefix(instruction ins, code_t code, emitAttr attr);
 code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
 code_t AddVexPrefixIfNeededAndNotPresent(instruction ins, code_t code, emitAttr size);
 
-bool IsVexDstSrcImm(instruction ins);
+bool IsSseDstSrcImm(instruction ins);
 bool IsVexDstDstSrc(instruction ins);
 bool IsVexDstSrcSrc(instruction ins);
 INDEBUG(bool IsVexTernary(instruction ins);)

@@ -291,10 +291,8 @@ static bool DoesResetOverflowAndCarryFlags(instruction ins)
 // form for the legacy, VEX, and EVEX encodings.
 // That is, the instruction takes two operands, one of which is immediate,
 // and it does not need to encode any data in the VEX.vvvv field.
-bool emitter::IsVexDstSrcImm(instruction ins)
+bool emitter::IsSseDstSrcImm(instruction ins)
 {
-    assert(UseVEXEncoding());
-
     switch (ins)
     {
         case INS_aeskeygenassist:
@@ -3952,7 +3950,7 @@ void emitter::emitIns_ARX_R(
 
 void emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int32_t imm)
 {
-    if (UseVEXEncoding() || IsVexDstSrcImm(ins))
+    if (UseVEXEncoding() || IsSseDstSrcImm(ins))
     {
         emitIns_R_R_I(ins, attr, reg1, reg2, imm);
     }
