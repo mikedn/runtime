@@ -7702,7 +7702,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
     }
     else if ((code & 0xFF) == 0x00)
     {
-        assert(IsAVXInstruction(ins) || EncodedBySSE38orSSE3A(ins));
+        assert(EncodedBySSE38orSSE3A(ins));
 
         dst += emitOutputByte(dst, (code >> 8) & 0xFF);
         dst += emitOutputByte(dst, (0xC0 | regCode));
@@ -8016,7 +8016,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
     }
     else if ((code & 0xFF) == 0x00)
     {
-        assert(IsAVXInstruction(ins) || EncodedBySSE38orSSE3A(ins));
+        assert(EncodedBySSE38orSSE3A(ins));
 
         dst += emitOutputByte(dst, (code >> 8) & 0xFF);
         dst += emitOutputByte(dst, (0xC0 | regcode));
