@@ -3142,7 +3142,7 @@ void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regN
 
 void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t disp)
 {
-    assert(ins == INS_prefetcht0 || ins == INS_prefetcht1 || ins == INS_prefetcht2 || ins == INS_prefetchnta);
+    assert(isPrefetch(ins));
 
     instrDesc* id = emitNewInstrAmd(attr, disp);
     id->idIns(ins);
