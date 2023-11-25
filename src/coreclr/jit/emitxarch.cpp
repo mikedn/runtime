@@ -7812,17 +7812,16 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
 {
-    instruction ins = id->idIns();
+    assert(IsVexTernary(id->idIns()));
 
-    assert(IsVexTernary(ins));
-
-    regNumber reg1 = id->idReg1();
-    regNumber reg2 = id->idReg2();
-    regNumber reg3 = id->idReg3();
-    emitAttr  size = id->idOpSize();
+    instruction ins  = id->idIns();
+    regNumber   reg1 = id->idReg1();
+    regNumber   reg2 = id->idReg2();
+    regNumber   reg3 = id->idReg3();
+    emitAttr    size = id->idOpSize();
 
     code_t code = insCodeRM(ins);
-    code        = AddVexPrefixIfNeeded(ins, code, size);
+    code        = AddVexPrefix(ins, code, size);
     code        = insEncodeRMreg(ins, code);
 
     if (TakesRexWPrefix(ins, size))
@@ -7834,22 +7833,7 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
     regCode |= insEncodeReg012(ins, reg3, size, &code);
     code = SetVexVvvv(ins, reg2, size, code);
 
-    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-    if (code & 0xFF000000)
-    {
-        assert(!TakesVexPrefix(ins));
-
-        dst += emitOutputWord(dst, code >> 16);
-        code &= 0x0000FFFF;
-    }
-    else if (code & 0x00FF0000)
-    {
-        assert(!TakesVexPrefix(ins));
-
-        dst += emitOutputByte(dst, code >> 16);
-        code &= 0x0000FFFF;
-    }
+    dst += emitOutputVexPrefix(ins, dst, code);
 
     // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
     if ((code & 0xFF00) == 0xC000)
