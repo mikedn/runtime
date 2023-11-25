@@ -7528,10 +7528,9 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
     else if ((ins == INS_bsf) || (ins == INS_bsr) || (ins == INS_crc32) || (ins == INS_lzcnt) || (ins == INS_popcnt) ||
              (ins == INS_tzcnt))
     {
-        assert(!hasCodeMI(ins) && !hasCodeMR(ins));
+        assert(!hasCodeMI(ins) && !hasCodeMR(ins) && !TakesVexPrefix(ins));
 
         code = insCodeRM(ins);
-        code = AddVexPrefixIfNeeded(ins, code, size);
         code = insEncodeRMreg(ins, code);
 
         if ((ins == INS_crc32) && (size > EA_1BYTE))
