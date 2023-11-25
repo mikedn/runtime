@@ -3164,7 +3164,6 @@ void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t
 void emitter::emitIns_AR_R_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber base, int32_t disp)
 {
-    assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
 
     instrDesc* id = emitNewInstrAmd(attr, disp);
