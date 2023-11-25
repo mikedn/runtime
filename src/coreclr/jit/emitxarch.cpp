@@ -2148,6 +2148,12 @@ void emitter::emitIns(instruction ins)
         sz = 1;
     }
 
+    // TODO-MIKE-Cleanup: Bozos thought that lfence & co. have VEX.
+    if (UseVEXEncoding() && ((ins == INS_lfence) || (ins == INS_mfence) || (ins == INS_sfence)))
+    {
+        sz++;
+    }
+
     // vzeroupper includes its 2-byte VEX prefix in its MR code.
     assert((ins != INS_vzeroupper) || (sz == 3));
 
@@ -3143,6 +3149,13 @@ void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t
     id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
 
     unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
+
+    // TODO-MIKE-Cleanup: Bozos thought that lfence & co. have VEX.
+    if (UseVEXEncoding())
+    {
+        sz++;
+    }
+
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -5345,7 +5358,9 @@ const char* emitter::genInsDisplayName(instrDesc* id)
     static unsigned curBuf = 0;
     static char     buf[4][40];
 
-    if (TakesVexPrefix(ins) && !IsBMIInstruction(ins))
+    if ((TakesVexPrefix(ins) && !IsBMIInstruction(ins)) ||
+        // TODO-MIKE-Cleanup: Bozos thought that lfence & co. have VEX.
+        (UseVEXEncoding() && (INS_FIRST_SSE_INSTRUCTION <= ins) && (ins < INS_FIRST_SSE_VEX_INSTRUCTION)))
     {
         auto& retbuf = buf[curBuf++ % _countof(buf)];
         sprintf_s(retbuf, _countof(retbuf), "v%s", name);
