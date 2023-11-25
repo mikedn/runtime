@@ -164,11 +164,6 @@ static unsigned GetSSEShiftOpcodeRMExt(instruction ins)
     }
 }
 
-bool emitter::IsThreeOperandAVXInstruction(instruction ins)
-{
-    return IsDstDstSrcAVXInstruction(ins) || IsDstSrcSrcAVXInstruction(ins);
-}
-
 #ifdef DEBUG
 static bool isAvxBlendv(instruction ins)
 {
@@ -219,9 +214,8 @@ enum insFlags : uint32_t
     Undefined_PF = 1 << 21,
     Undefined_CF = 1 << 22,
 
-    // Avx
-    INS_Flags_IsDstDstSrcAVXInstruction = 1 << 25,
-    INS_Flags_IsDstSrcSrcAVXInstruction = 1 << 26
+    INS_Flags_VexDstDstSrc = 1 << 25,
+    INS_Flags_VexDstSrcSrc = 1 << 26
 };
 
 static insFlags InsFlags(instruction ins)
@@ -265,8 +259,8 @@ static insFlags InsFlags(instruction ins)
         CcFlags_g         = Reads_OF | Reads_SF | Reads_ZF,
         DirFlags          = Reads_DF,
 
-        AvxDstSrcSrc = INS_Flags_IsDstSrcSrcAVXInstruction,
-        AvxDstDstSrc = INS_Flags_IsDstDstSrcAVXInstruction,
+        VexDstSrcSrc = INS_Flags_VexDstSrcSrc,
+        VexDstDstSrc = INS_Flags_VexDstDstSrc,
     };
 
     static const uint32_t flags[]{
@@ -293,15 +287,42 @@ static bool DoesResetOverflowAndCarryFlags(instruction ins)
     return (InsFlags(ins) & (Resets_OF | Resets_CF)) == (Resets_OF | Resets_CF);
 }
 
+// Checks if the instruction has a "reg, reg/mem, imm" or "reg/mem, reg, imm"
+// form for the legacy, VEX, and EVEX encodings.
+// That is, the instruction takes two operands, one of which is immediate,
+// and it does not need to encode any data in the VEX.vvvv field.
+bool emitter::IsVexDstSrcImm(instruction ins)
+{
+    assert(UseVEXEncoding());
+
+    switch (ins)
+    {
+        case INS_aeskeygenassist:
+        case INS_extractps:
+        case INS_pextrb:
+        case INS_pextrw:
+        case INS_pextrd:
+        case INS_pextrq:
+        case INS_pshufd:
+        case INS_pshufhw:
+        case INS_pshuflw:
+        case INS_roundpd:
+        case INS_roundps:
+            return true;
+        default:
+            return false;
+    }
+}
+
 // Returns true if the AVX instruction is a binary operator that requires 3 operands.
 // When we emit an instruction with only two operands, we will duplicate the destination
 // as a source.
 // TODO-XArch-Cleanup: This is a temporary solution for now. Eventually this needs to
 // be formalized by adding an additional field to instruction table to
 // to indicate whether a 3-operand instruction.
-bool emitter::IsDstDstSrcAVXInstruction(instruction ins)
+bool emitter::IsVexDstDstSrc(instruction ins)
 {
-    return ((InsFlags(ins) & INS_Flags_IsDstDstSrcAVXInstruction) != 0) && UseVEXEncoding();
+    return ((InsFlags(ins) & INS_Flags_VexDstDstSrc) != 0) && UseVEXEncoding();
 }
 
 // Returns true if the AVX instruction requires 3 operands that duplicate the source
@@ -309,10 +330,17 @@ bool emitter::IsDstDstSrcAVXInstruction(instruction ins)
 // TODO-XArch-Cleanup: This is a temporary solution for now. Eventually this needs to
 // be formalized by adding an additional field to instruction table to
 // to indicate whether a 3-operand instruction.
-bool emitter::IsDstSrcSrcAVXInstruction(instruction ins)
+bool emitter::IsVexDstSrcSrc(instruction ins)
 {
-    return ((InsFlags(ins) & INS_Flags_IsDstSrcSrcAVXInstruction) != 0) && UseVEXEncoding();
+    return ((InsFlags(ins) & INS_Flags_VexDstSrcSrc) != 0) && UseVEXEncoding();
 }
+
+#ifdef DEBUG
+bool emitter::IsVexTernary(instruction ins)
+{
+    return IsVexDstDstSrc(ins) || IsVexDstSrcSrc(ins);
+}
+#endif
 
 #if defined(TARGET_X86) || defined(DEBUG)
 static bool instIsFP(instruction ins)
@@ -457,31 +485,6 @@ bool emitter::AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps tr
     }
 
     return false;
-}
-
-// Checks if the instruction has a "reg, reg/mem, imm" or "reg/mem, reg, imm"
-// form for the legacy, VEX, and EVEX encodings.
-// That is, the instruction takes two operands, one of which is immediate,
-// and it does not need to encode any data in the VEX.vvvv field.
-static bool IsDstSrcImmAvxInstruction(instruction ins)
-{
-    switch (ins)
-    {
-        case INS_aeskeygenassist:
-        case INS_extractps:
-        case INS_pextrb:
-        case INS_pextrw:
-        case INS_pextrd:
-        case INS_pextrq:
-        case INS_pshufd:
-        case INS_pshufhw:
-        case INS_pshuflw:
-        case INS_roundpd:
-        case INS_roundps:
-            return true;
-        default:
-            return false;
-    }
 }
 
 bool emitter::TakesVexPrefix(instruction ins) const
@@ -3163,7 +3166,7 @@ void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t
 void emitter::emitIns_AR_R_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber base, int32_t disp)
 {
-    assert(IsThreeOperandAVXInstruction(ins));
+    assert(IsVexTernary(ins));
 
     instrDesc* id = emitNewInstrAmd(attr, disp);
     id->idIns(ins);
@@ -3294,7 +3297,7 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
 
 void emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr)
 {
-    assert(IsThreeOperandAVXInstruction(ins));
+    assert(IsVexTernary(ins));
 
     instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
     id->idIns(ins);
@@ -3354,7 +3357,7 @@ void emitter::emitIns_R_AR_R(instruction ins,
 
 void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field)
 {
-    assert(IsThreeOperandAVXInstruction(ins));
+    assert(IsVexTernary(ins));
     assert(FieldDispRequiresRelocation(field));
 
     instrDesc* id = emitNewInstrDsp(attr, 0);
@@ -3373,7 +3376,7 @@ void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regN
 
 void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3)
 {
-    assert(IsThreeOperandAVXInstruction(ins));
+    assert(IsVexTernary(ins));
 
     instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
@@ -3390,7 +3393,7 @@ void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regN
 
 void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs)
 {
-    assert(IsThreeOperandAVXInstruction(ins));
+    assert(IsVexTernary(ins));
 
     instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
@@ -3408,7 +3411,7 @@ void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regN
 void emitter::emitIns_R_R_A_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int32_t imm, insFormat fmt)
 {
-    assert(IsThreeOperandAVXInstruction(ins));
+    assert(IsVexTernary(ins));
     assert(!EA_IS_CNS_RELOC(attr));
     assert(IsImm8(imm));
 
@@ -3428,7 +3431,7 @@ void emitter::emitIns_R_R_A_I(
 void emitter::emitIns_R_R_C_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field, int32_t imm)
 {
-    assert(IsThreeOperandAVXInstruction(ins));
+    assert(IsVexTernary(ins));
     assert(FieldDispRequiresRelocation(field));
     assert(!EA_IS_CNS_RELOC(attr));
     assert(IsImm8(imm));
@@ -3450,7 +3453,7 @@ void emitter::emitIns_R_R_C_I(
 void emitter::emitIns_R_R_R_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int32_t imm)
 {
-    assert(IsThreeOperandAVXInstruction(ins));
+    assert(IsVexTernary(ins));
     assert(!EA_IS_CNS_RELOC(attr));
     assert(IsImm8(imm));
 
@@ -3492,7 +3495,7 @@ void emitter::emitIns_R_R_R_I(
 void emitter::emitIns_R_R_S_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs, int32_t imm)
 {
-    assert(IsThreeOperandAVXInstruction(ins));
+    assert(IsVexTernary(ins));
     assert(!EA_IS_CNS_RELOC(attr));
     assert(IsImm8(imm));
 
@@ -3935,7 +3938,7 @@ void emitter::emitIns_ARX_R(
 
 void emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int32_t imm)
 {
-    if (UseVEXEncoding() || IsDstSrcImmAvxInstruction(ins))
+    if (UseVEXEncoding() || IsVexDstSrcImm(ins))
     {
         emitIns_R_R_I(ins, attr, reg1, reg2, imm);
     }
@@ -6253,7 +6256,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
             code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
 
-            if (IsDstDstSrcAVXInstruction(ins))
+            if (IsVexDstDstSrc(ins))
             {
                 regNumber src1;
 
@@ -6272,7 +6275,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
                 code = SetVexVvvv(ins, src1, size, code);
             }
-            else if (IsDstSrcSrcAVXInstruction(ins))
+            else if (IsVexDstSrcSrc(ins))
             {
                 // TODO-MIKE-Review: There's something dodgy going here with movss/sd. These are marked as
                 // "DstSrcSrc" but that's only true in their reg/reg form, in the reg/mem form there's no
@@ -6634,14 +6637,14 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
         code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
 
-        if (IsDstDstSrcAVXInstruction(ins))
+        if (IsVexDstDstSrc(ins))
         {
             if (IsBMIRegExtInstruction(ins))
             {
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
         }
-        else if (IsDstSrcSrcAVXInstruction(ins))
+        else if (IsVexDstSrcSrc(ins))
         {
         }
     }
@@ -6999,14 +7002,14 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
             code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
 
-            if (IsDstDstSrcAVXInstruction(ins))
+            if (IsVexDstDstSrc(ins))
             {
                 if (IsBMIRegExtInstruction(ins))
                 {
                     code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
             }
-            else if (IsDstSrcSrcAVXInstruction(ins))
+            else if (IsVexDstSrcSrc(ins))
             {
             }
         }
@@ -7633,11 +7636,11 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         //
         // TODO-XArch-CQ: Eventually we need to support 3 operand instruction formats. For
         // now we use the single source as source1 and source2.
-        if (IsDstDstSrcAVXInstruction(ins))
+        if (IsVexDstDstSrc(ins))
         {
             code = SetVexVvvv(ins, reg1, size, code);
         }
-        else if (IsDstSrcSrcAVXInstruction(ins))
+        else if (IsVexDstSrcSrc(ins))
         {
             code = SetVexVvvv(ins, reg2, size, code);
         }
@@ -7811,7 +7814,7 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
 {
     instruction ins = id->idIns();
 
-    assert(IsThreeOperandAVXInstruction(ins));
+    assert(IsVexTernary(ins));
 
     regNumber reg1 = id->idReg1();
     regNumber reg2 = id->idReg2();
@@ -7946,7 +7949,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
     if (TakesVexPrefix(ins))
     {
-        if (IsDstDstSrcAVXInstruction(ins))
+        if (IsVexDstDstSrc(ins))
         {
             // This code will have to change when we support 3 operands.
             // For now, we always overload this source with the destination (always reg1).
@@ -7955,7 +7958,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
             // (see x64 manual Table 2-9. Instructions with a VEX.vvvv destination)
             code = SetVexVvvv(ins, id->idReg1(), size, code);
         }
-        else if (IsDstSrcSrcAVXInstruction(ins))
+        else if (IsVexDstSrcSrc(ins))
         {
             // This is a "merge" move instruction.
             code = SetVexVvvv(ins, id->idReg2(), size, code);
@@ -8917,7 +8920,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = insCodeMR(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
-            // if (IsDstDstSrcAVXInstruction(ins))
+            // if (IsVexDstDstSrc(ins))
             // {
             //     code = SetVexVvvv(ins, id->idReg1(), size, code);
             // }
@@ -8946,7 +8949,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
 
-                // if (IsDstDstSrcAVXInstruction(ins))
+                // if (IsVexDstDstSrc(ins))
                 // {
                 //     code = SetVexVvvv(ins, id->idReg1(), size, code);
                 // }
@@ -8967,7 +8970,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
 
-                // if (IsDstDstSrcAVXInstruction(ins))
+                // if (IsVexDstDstSrc(ins))
                 // {
                 //     code = SetVexVvvv(ins, id->idReg1(), size, code);
                 // }
@@ -8981,7 +8984,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_RWR_RRD_ARD:
-            assert(IsThreeOperandAVXInstruction(ins));
+            assert(IsVexTernary(ins));
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
@@ -8998,7 +9001,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         case IF_RWR_RRD_ARD_CNS:
         case IF_RWR_RRD_ARD_RRD:
-            assert(IsThreeOperandAVXInstruction(ins));
+            assert(IsVexTernary(ins));
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
@@ -9070,7 +9073,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = insCodeMR(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
-            if (IsDstDstSrcAVXInstruction(ins))
+            if (IsVexDstDstSrc(ins))
             {
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
@@ -9099,7 +9102,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
 
-                if (IsDstDstSrcAVXInstruction(ins))
+                if (IsVexDstDstSrc(ins))
                 {
                     code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
@@ -9120,7 +9123,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
 
-                if (IsDstDstSrcAVXInstruction(ins))
+                if (IsVexDstDstSrc(ins))
                 {
                     code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
@@ -9134,7 +9137,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_RWR_RRD_SRD:
-            assert(IsThreeOperandAVXInstruction(ins));
+            assert(IsVexTernary(ins));
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
@@ -9151,7 +9154,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         case IF_RWR_RRD_SRD_CNS:
         case IF_RWR_RRD_SRD_RRD:
-            assert(IsThreeOperandAVXInstruction(ins));
+            assert(IsVexTernary(ins));
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
@@ -9207,7 +9210,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = insCodeMR(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
-            if (IsDstDstSrcAVXInstruction(ins))
+            if (IsVexDstDstSrc(ins))
             {
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
@@ -9236,7 +9239,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
 
-                if (IsDstDstSrcAVXInstruction(ins))
+                if (IsVexDstDstSrc(ins))
                 {
                     code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
@@ -9257,7 +9260,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             {
                 code = AddVexPrefixIfNeeded(ins, code, size);
 
-                if (IsDstDstSrcAVXInstruction(ins))
+                if (IsVexDstDstSrc(ins))
                 {
                     code = SetVexVvvv(ins, id->idReg1(), size, code);
                 }
@@ -9271,7 +9274,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_RWR_RRD_MRD:
-            assert(IsThreeOperandAVXInstruction(ins));
+            assert(IsVexTernary(ins));
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
@@ -9288,7 +9291,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         case IF_RWR_RRD_MRD_CNS:
         case IF_RWR_RRD_MRD_RRD:
-            assert(IsThreeOperandAVXInstruction(ins));
+            assert(IsVexTernary(ins));
 
             code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);

@@ -265,11 +265,12 @@ code_t AddVexPrefix(instruction ins, code_t code, emitAttr attr);
 code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
 code_t AddVexPrefixIfNeededAndNotPresent(instruction ins, code_t code, emitAttr size);
 
-bool IsDstDstSrcAVXInstruction(instruction ins);
-bool IsDstSrcSrcAVXInstruction(instruction ins);
-bool AreFlagsAlwaysModified(instrDesc* id);
+bool IsVexDstSrcImm(instruction ins);
+bool IsVexDstDstSrc(instruction ins);
+bool IsVexDstSrcSrc(instruction ins);
+INDEBUG(bool IsVexTernary(instruction ins);)
 
-bool IsThreeOperandAVXInstruction(instruction ins);
+bool AreFlagsAlwaysModified(instrDesc* id);
 
 /************************************************************************/
 /*             Debug-only routines to display instructions              */
