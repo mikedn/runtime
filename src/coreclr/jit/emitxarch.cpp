@@ -7647,18 +7647,21 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 
     if (code & 0xFF000000)
     {
+        assert(!TakesVexPrefix(ins));
+
         dst += emitOutputWord(dst, code >> 16);
         code &= 0x0000FFFF;
 
         if (EncodedBySSE38orSSE3A(ins))
         {
-            assert(!UseVEXEncoding());
             dst += emitOutputByte(dst, code);
             code &= 0xFF00;
         }
     }
     else if (code & 0x00FF0000)
     {
+        assert(!TakesVexPrefix(ins));
+
         dst += emitOutputByte(dst, code >> 16);
         code &= 0x0000FFFF;
     }
@@ -7832,11 +7835,15 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
 
     if (code & 0xFF000000)
     {
+        assert(!TakesVexPrefix(ins));
+
         dst += emitOutputWord(dst, code >> 16);
         code &= 0x0000FFFF;
     }
     else if (code & 0x00FF0000)
     {
+        assert(!TakesVexPrefix(ins));
+
         dst += emitOutputByte(dst, code >> 16);
         code &= 0x0000FFFF;
     }
@@ -7961,18 +7968,21 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
     if (code & 0xFF000000)
     {
+        assert(!TakesVexPrefix(ins));
+
         dst += emitOutputWord(dst, code >> 16);
         code &= 0x0000FFFF;
 
         if (EncodedBySSE38orSSE3A(ins))
         {
-            assert(!UseVEXEncoding());
             dst += emitOutputByte(dst, code);
             code &= 0xFF00;
         }
     }
     else if (code & 0x00FF0000)
     {
+        assert(!TakesVexPrefix(ins));
+
         dst += emitOutputByte(dst, code >> 16);
         code &= 0x0000FFFF;
     }
