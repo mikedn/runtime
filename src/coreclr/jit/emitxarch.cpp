@@ -6247,22 +6247,25 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
             if (IsVexDstDstSrc(ins))
             {
-                regNumber src1;
-
                 switch (id->idInsFmt())
                 {
+                    case IF_ARD_RRD:
+                    case IF_AWR_RRD:
+                    case IF_ARW_RRD:
+                    case IF_RRD_ARD:
+                    case IF_RWR_ARD:
+                    case IF_RRW_ARD:
+                    case IF_RRW_ARD_CNS:
+                    case IF_RWR_ARD_CNS:
                     case IF_RWR_RRD_ARD:
-                    case IF_RWR_ARD_RRD:
                     case IF_RWR_RRD_ARD_CNS:
                     case IF_RWR_RRD_ARD_RRD:
-                        src1 = id->idReg2();
+                    case IF_RWR_ARD_RRD:
+                    case IF_AWR_RRD_RRD:
                         break;
                     default:
-                        src1 = id->idReg1();
-                        break;
+                        unreached();
                 }
-
-                code = SetVexVvvv(ins, src1, size, code);
             }
             else if (IsVexDstSrcSrc(ins))
             {
@@ -8870,10 +8873,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = insCodeMR(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
-            // if (IsVexDstDstSrc(ins))
-            // {
-            //     code = SetVexVvvv(ins, id->idReg1(), size, code);
-            // }
+            if (IsVexDstDstSrc(ins))
+            {
+                code = SetVexVvvv(ins, id->idReg1(), size, code);
+            }
 
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputAM(dst, id, code);
@@ -8883,6 +8886,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_AWR_RRD_CNS:
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
             assert(UseVEXEncoding());
+            assert(!IsVexTernary(ins));
 
             code   = insCodeMR(ins);
             cnsVal = emitGetInsAmdCns(id);
@@ -8894,16 +8898,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_ARD:
         case IF_RRW_ARD:
             code = insCodeRM(ins);
+            code = AddVexPrefixIfNeeded(ins, code, size);
+
+            if (IsVexDstDstSrc(ins))
+            {
+                code = SetVexVvvv(ins, id->idReg1(), size, code);
+            }
 
             if (!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32))
             {
-                code = AddVexPrefixIfNeeded(ins, code, size);
-
-                // if (IsVexDstDstSrc(ins))
-                // {
-                //     code = SetVexVvvv(ins, id->idReg1(), size, code);
-                // }
-
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
@@ -8916,15 +8919,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
             code = insCodeRM(ins);
 
+            code = AddVexPrefixIfNeeded(ins, code, size);
+
+            if (IsVexDstDstSrc(ins))
+            {
+                code = SetVexVvvv(ins, id->idReg1(), size, code);
+            }
+
             if (!EncodedBySSE38orSSE3A(ins))
             {
-                code = AddVexPrefixIfNeeded(ins, code, size);
-
-                // if (IsVexDstDstSrc(ins))
-                // {
-                //     code = SetVexVvvv(ins, id->idReg1(), size, code);
-                // }
-
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
@@ -8937,8 +8940,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(IsVexTernary(ins));
 
             code = insCodeRM(ins);
-            code = AddVexPrefixIfNeeded(ins, code, size);
-            // code = SetVexVvvv(ins, id->idReg2(), size, code);
+            code = AddVexPrefix(ins, code, size);
+
+            if (IsVexDstDstSrc(ins))
+            {
+                code = SetVexVvvv(ins, id->idReg2(), size, code);
+            }
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
@@ -8954,8 +8961,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(IsVexTernary(ins));
 
             code = insCodeRM(ins);
-            code = AddVexPrefixIfNeeded(ins, code, size);
-            // code = SetVexVvvv(ins, id->idReg2(), size, code);
+            code = AddVexPrefix(ins, code, size);
+
+            if (IsVexDstDstSrc(ins))
+            {
+                code = SetVexVvvv(ins, id->idReg2(), size, code);
+            }
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
@@ -8968,15 +8979,22 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_AWR_RRD_RRD:
+            assert(IsVexDstDstSrc(ins));
+
             code = insCodeMR(ins);
-            code = AddVexPrefixIfNeeded(ins, code, size);
+            code = AddVexPrefix(ins, code, size);
+            code = SetVexVvvv(ins, id->idReg1(), size, code);
             dst  = emitOutputAM(dst, id, code);
             sz   = emitSizeOfInsDsc(id);
             break;
 
         case IF_RWR_ARD_RRD:
             assert(IsAVX2GatherInstruction(ins));
+            assert(IsVexDstDstSrc(ins));
+
             code = insCodeRM(ins);
+            code = AddVexPrefix(ins, code, size);
+            code = SetVexVvvv(ins, id->idReg2(), size, code);
             dst  = emitOutputAM(dst, id, code);
             sz   = emitSizeOfInsDsc(id);
             break;
@@ -9036,6 +9054,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_SWR_RRD_CNS:
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
             assert(UseVEXEncoding());
+            assert(!IsVexTernary(ins));
 
             code   = insCodeMR(ins);
             cnsVal = emitGetInsAmdCns(id);
@@ -9047,22 +9066,16 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_SRD:
         case IF_RRW_SRD:
             code = insCodeRM(ins);
+            code = AddVexPrefixIfNeeded(ins, code, size);
+
+            if (IsVexDstDstSrc(ins))
+            {
+                code = SetVexVvvv(ins, id->idReg1(), size, code);
+            }
 
             if (!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32))
             {
-                code = AddVexPrefixIfNeeded(ins, code, size);
-
-                if (IsVexDstDstSrc(ins))
-                {
-                    code = SetVexVvvv(ins, id->idReg1(), size, code);
-                }
-
                 code = SetRMReg(ins, id->idReg1(), size, code);
-            }
-            else if (IsBMIRegExtInstruction(ins))
-            {
-                code = AddVexPrefix(ins, code, size);
-                code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
             dst = emitOutputSV(dst, id, code);
@@ -9074,15 +9087,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
             code = insCodeRM(ins);
 
+            code = AddVexPrefixIfNeeded(ins, code, size);
+
+            if (IsVexDstDstSrc(ins))
+            {
+                code = SetVexVvvv(ins, id->idReg1(), size, code);
+            }
+
             if (!EncodedBySSE38orSSE3A(ins))
             {
-                code = AddVexPrefixIfNeeded(ins, code, size);
-
-                if (IsVexDstDstSrc(ins))
-                {
-                    code = SetVexVvvv(ins, id->idReg1(), size, code);
-                }
-
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
@@ -9095,7 +9108,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(IsVexTernary(ins));
 
             code = insCodeRM(ins);
-            code = AddVexPrefixIfNeeded(ins, code, size);
+            code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg2(), size, code);
 
             if (!EncodedBySSE38orSSE3A(ins))
@@ -9112,8 +9125,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(IsVexTernary(ins));
 
             code = insCodeRM(ins);
-            code = AddVexPrefixIfNeeded(ins, code, size);
+            code = AddVexPrefix(ins, code, size);
+
+            // if (IsVexDstDstSrc(ins))
+            // {
             code = SetVexVvvv(ins, id->idReg2(), size, code);
+            // }
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
@@ -9178,6 +9195,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_MWR_RRD_CNS:
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
             assert(UseVEXEncoding());
+            assert(!IsVexTernary(ins));
 
             code   = insCodeMR(ins);
             cnsVal = emitGetInsMemImm(id);
@@ -9189,22 +9207,16 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_MRD:
         case IF_RRW_MRD:
             code = insCodeRM(ins);
+            code = AddVexPrefixIfNeeded(ins, code, size);
+
+            if (IsVexDstDstSrc(ins))
+            {
+                code = SetVexVvvv(ins, id->idReg1(), size, code);
+            }
 
             if (!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32))
             {
-                code = AddVexPrefixIfNeeded(ins, code, size);
-
-                if (IsVexDstDstSrc(ins))
-                {
-                    code = SetVexVvvv(ins, id->idReg1(), size, code);
-                }
-
                 code = SetRMReg(ins, id->idReg1(), size, code);
-            }
-            else if (IsBMIRegExtInstruction(ins))
-            {
-                code = AddVexPrefix(ins, code, size);
-                code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
             dst = emitOutputCV(dst, id, code);
@@ -9216,15 +9228,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
             code = insCodeRM(ins);
 
+            code = AddVexPrefixIfNeeded(ins, code, size);
+
+            if (IsVexDstDstSrc(ins))
+            {
+                code = SetVexVvvv(ins, id->idReg1(), size, code);
+            }
+
             if (!EncodedBySSE38orSSE3A(ins))
             {
-                code = AddVexPrefixIfNeeded(ins, code, size);
-
-                if (IsVexDstDstSrc(ins))
-                {
-                    code = SetVexVvvv(ins, id->idReg1(), size, code);
-                }
-
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
@@ -9237,7 +9249,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(IsVexTernary(ins));
 
             code = insCodeRM(ins);
-            code = AddVexPrefixIfNeeded(ins, code, size);
+            code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg2(), size, code);
 
             if (!EncodedBySSE38orSSE3A(ins))
@@ -9254,8 +9266,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(IsVexTernary(ins));
 
             code = insCodeRM(ins);
-            code = AddVexPrefixIfNeeded(ins, code, size);
+            code = AddVexPrefix(ins, code, size);
+
+            // if (IsVexDstDstSrc(ins))
+            // {
             code = SetVexVvvv(ins, id->idReg2(), size, code);
+            // }
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
