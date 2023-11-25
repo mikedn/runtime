@@ -6628,10 +6628,6 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
         if (IsVexDstDstSrc(ins))
         {
-            if (IsBMIRegExtInstruction(ins))
-            {
-                code = SetVexVvvv(ins, id->idReg1(), size, code);
-            }
         }
         else if (IsVexDstSrcSrc(ins))
         {
@@ -6993,10 +6989,6 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
             if (IsVexDstDstSrc(ins))
             {
-                if (IsBMIRegExtInstruction(ins))
-                {
-                    code = SetVexVvvv(ins, id->idReg1(), size, code);
-                }
             }
             else if (IsVexDstSrcSrc(ins))
             {
@@ -9067,6 +9059,11 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
+            else if (IsBMIRegExtInstruction(ins))
+            {
+                code = AddVexPrefix(ins, code, size);
+                code = SetVexVvvv(ins, id->idReg1(), size, code);
+            }
 
             dst = emitOutputSV(dst, id, code);
             sz  = emitSizeOfInsDsc(id);
@@ -9203,6 +9200,11 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 }
 
                 code = SetRMReg(ins, id->idReg1(), size, code);
+            }
+            else if (IsBMIRegExtInstruction(ins))
+            {
+                code = AddVexPrefix(ins, code, size);
+                code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
             dst = emitOutputCV(dst, id, code);
