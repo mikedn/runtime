@@ -7435,6 +7435,8 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
     regNumber   reg2 = id->idReg2();
     emitAttr    size = id->idOpSize();
     code_t      code;
+    regNumber   regFor012Bits = reg2;
+    regNumber   regFor345Bits = reg1;
 
     if (IsSSEOrAVXInstruction(ins))
     {
@@ -7455,6 +7457,39 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         if (TakesRexWPrefix(ins, size))
         {
             code = AddRexWPrefix(ins, code);
+        }
+
+        if (TakesVexPrefix(ins))
+        {
+            // In case of AVX instructions that take 3 operands, we generally want to encode reg1
+            // as first source.  In this case, reg1 is both a source and a destination.
+            // The exception is the "merge" 3-operand case, where we have a move instruction, such
+            // as movss, and we want to merge the source with itself.
+            //
+            // TODO-XArch-CQ: Eventually we need to support 3 operand instruction formats. For
+            // now we use the single source as source1 and source2.
+            if (IsVexDstDstSrc(ins))
+            {
+                code = SetVexVvvv(ins, reg1, size, code);
+            }
+            else if (IsVexDstSrcSrc(ins))
+            {
+                code = SetVexVvvv(ins, reg2, size, code);
+            }
+        }
+
+        if (IsBMIRegExtInstruction(ins))
+        {
+            regFor345Bits = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
+        }
+        else if (ins == INS_movd)
+        {
+            assert(IsFloatReg(reg1) != IsFloatReg(reg2));
+
+            if (IsFloatReg(reg2))
+            {
+                std::swap(regFor012Bits, regFor345Bits);
+            }
         }
     }
     else if ((ins == INS_movsx) || (ins == INS_movzx) || insIsCMOV(ins))
@@ -7523,7 +7558,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         }
 #endif
 
-        std::swap(reg1, reg2);
+        std::swap(regFor345Bits, regFor012Bits);
     }
     else if ((ins == INS_bsf) || (ins == INS_bsr) || (ins == INS_crc32) || (ins == INS_lzcnt) || (ins == INS_popcnt) ||
              (ins == INS_tzcnt))
@@ -7601,49 +7636,8 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         }
     }
 
-    regNumber regFor012Bits = reg2;
-    regNumber regFor345Bits;
-
-    if (IsBMIRegExtInstruction(ins))
-    {
-        regFor345Bits = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
-    }
-    else
-    {
-        regFor345Bits = reg1;
-    }
-
-    if (ins == INS_movd)
-    {
-        assert(IsFloatReg(reg1) != IsFloatReg(reg2));
-
-        if (IsFloatReg(reg2))
-        {
-            std::swap(regFor012Bits, regFor345Bits);
-        }
-    }
-
     unsigned regCode = insEncodeReg345(ins, regFor345Bits, size, &code);
     regCode |= insEncodeReg012(ins, regFor012Bits, size, &code);
-
-    if (TakesVexPrefix(ins))
-    {
-        // In case of AVX instructions that take 3 operands, we generally want to encode reg1
-        // as first source.  In this case, reg1 is both a source and a destination.
-        // The exception is the "merge" 3-operand case, where we have a move instruction, such
-        // as movss, and we want to merge the source with itself.
-        //
-        // TODO-XArch-CQ: Eventually we need to support 3 operand instruction formats. For
-        // now we use the single source as source1 and source2.
-        if (IsVexDstDstSrc(ins))
-        {
-            code = SetVexVvvv(ins, reg1, size, code);
-        }
-        else if (IsVexDstSrcSrc(ins))
-        {
-            code = SetVexVvvv(ins, reg2, size, code);
-        }
-    }
 
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
