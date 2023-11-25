@@ -5346,9 +5346,9 @@ const char* emitter::genInsDisplayName(instrDesc* id)
     static unsigned curBuf = 0;
     static char     buf[4][40];
 
-    if ((TakesVexPrefix(ins) && !IsBMIInstruction(ins)) ||
-        // TODO-MIKE-Cleanup: Bozos thought that lfence & co. have VEX.
-        (UseVEXEncoding() && (INS_FIRST_SSE_INSTRUCTION <= ins) && (ins < INS_FIRST_SSE_VEX_INSTRUCTION)))
+    // TODO-MIKE-Cleanup: This should check FIRST_SSE_VEX_INSTRUCTION instead of INS_FIRST_SSE_INSTRUCTION,
+    // bozos thought that lfence & co. have VEX.
+    if (UseVEXEncoding() && (INS_FIRST_SSE_INSTRUCTION <= ins) && (ins <= INS_LAST_SSE_INSTRUCTION))
     {
         auto& retbuf = buf[curBuf++ % _countof(buf)];
         sprintf_s(retbuf, _countof(retbuf), "v%s", name);
