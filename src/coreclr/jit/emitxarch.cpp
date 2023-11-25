@@ -7129,9 +7129,9 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
             dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
         }
-    }
 
-    dst += emitOutputWord(dst, code | 0x0500);
+        dst += emitOutputWord(dst, code | 0x0500);
+    }
 
     if (!id->idIsDspReloc())
     {
