@@ -1335,17 +1335,19 @@ static bool EncodedBySSE38orSSE3A(instruction ins)
         return false;
     }
 
+    assert(!hasCodeMI(ins) || (((insCodeMI(ins) & MASK) != SSE38 && ((insCodeMI(ins) & MASK) != SSE3A))));
+
     if (hasCodeRM(ins))
     {
         insCode = insCodeRM(ins);
     }
-    else if (hasCodeMI(ins))
-    {
-        insCode = insCodeMI(ins);
-    }
     else if (hasCodeMR(ins))
     {
         insCode = insCodeMR(ins);
+    }
+    else
+    {
+        return false;
     }
 
     insCode &= MASK;
