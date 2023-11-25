@@ -7880,8 +7880,6 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
     }
     else if ((code & 0xFF) == 0x00)
     {
-        assert(IsAVXInstruction(ins));
-
         dst += emitOutputByte(dst, (code >> 8) & 0xFF);
         dst += emitOutputByte(dst, (0xC0 | regCode));
     }
