@@ -1004,6 +1004,20 @@ size_t emitter::emitOutputRexPrefix(instruction ins, uint8_t* dst, code_t& code)
 }
 #endif // TARGET_AMD64
 
+size_t emitter::emitOutputRexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code)
+{
+    assert(!hasVexPrefix(code));
+
+#ifdef TARGET_AMD64
+    if ((code >> 32) != 0)
+    {
+        return emitOutputRexPrefix(ins, dst, code);
+    }
+#endif
+
+    return 0;
+}
+
 size_t emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code)
 {
     if (hasVexPrefix(code))
@@ -6220,7 +6234,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             code = AddRexXPrefix(ins, code);
         }
 
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
 #endif // TARGET_AMD64
 
         // The displacement field is in an unusual place for calls
@@ -6414,7 +6428,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                     unreached();
             }
 
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
         }
 
         disp = emitGetInsAmdDisp(id);
@@ -6762,7 +6776,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 unreached();
         }
 
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
     }
 
     assert(!id->idIsDspReloc());
@@ -7127,7 +7141,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                     unreached();
             }
 
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
         }
 
         dst += emitOutputWord(dst, code | 0x0500);
@@ -7246,7 +7260,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
         case INS_call:
             code = insEncodeRMreg(INS_call, reg, EA_PTRSIZE, insCodeMR(INS_call));
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
             dst += emitOutputWord(dst, code);
             // Calls use a different mechanism to update GC info so we can skip the normal handling.
             return dst;
@@ -7283,7 +7297,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             }
 
             code |= insEncodeReg012(ins, reg, size, &code) << 8;
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
             dst += emitOutputWord(dst, code);
             break;
 
@@ -7297,7 +7311,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
             code = insCodeRR(ins);
             code |= insEncodeReg012(ins, reg, size, &code);
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
             dst += emitOutputByte(dst, code);
             break;
 
@@ -7318,7 +7332,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
             {
                 code_t regcode = insEncodeReg012(ins, reg, size, &code);
-                dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+                dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
                 dst += emitOutputWord(dst, code | (regcode << 8));
             }
             break;
@@ -7344,7 +7358,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
             code = insEncodeRMreg(ins, reg, EA_1BYTE, insCodeMR(ins));
             assert(code & 0x00FF0000);
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
             dst += emitOutputByte(dst, code >> 16);
             dst += emitOutputWord(dst, code & 0x0000FFFF);
             break;
@@ -7356,6 +7370,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             FALLTHROUGH;
         default:
             assert(!IsSSEOrAVXInstruction(ins));
+            assert(!TakesVexPrefix(ins));
             assert(id->idGCref() == GCT_NONE);
 
             code = insEncodeRMreg(ins, reg, size, insCodeMR(ins));
@@ -7371,14 +7386,12 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
                 }
             }
 
-            code = AddVexPrefixIfNeeded(ins, code, size);
-
             if (TakesRexWPrefix(ins, size))
             {
                 code = AddRexWPrefix(ins, code);
             }
 
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
             dst += emitOutputWord(dst, code);
             break;
     }
@@ -8077,7 +8090,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
             code = AddRexWPrefix(ins, code);
         }
 
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
         dst += emitOutputByte(dst, code);
 
 #ifdef TARGET_X86
@@ -8147,7 +8160,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
             dst += emitOutputByte(dst, 0x66);
         }
 
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
         dst += emitOutputWord(dst, code);
         dst += emitOutputByte(dst, emitGetInsSC(id));
 
@@ -8198,7 +8211,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 #endif
     }
 
-    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+    dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
 
     if (useACC)
     {

@@ -233,6 +233,7 @@ size_t emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code);
 #ifdef TARGET_AMD64
 size_t emitOutputRexPrefix(instruction ins, uint8_t* dst, code_t& code);
 #endif
+size_t emitOutputRexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code);
 size_t emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code);
 unsigned emitGetPrefixSize(code_t code, bool includeRexPrefixSize);
 unsigned emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code);
