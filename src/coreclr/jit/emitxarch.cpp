@@ -139,31 +139,6 @@ static unsigned GetBMIOpcodeRMExt(instruction ins)
     }
 }
 
-static unsigned GetSSEShiftOpcodeRMExt(instruction ins)
-{
-    switch (ins)
-    {
-        case INS_psrldq:
-            return 3;
-        case INS_pslldq:
-            return 7;
-        case INS_psrld:
-        case INS_psrlw:
-        case INS_psrlq:
-            return 2;
-        case INS_pslld:
-        case INS_psllw:
-        case INS_psllq:
-            return 6;
-        case INS_psrad:
-        case INS_psraw:
-            return 4;
-        default:
-            assert(!"Invalid instruction for SSE2 instruction of the form: opcode base, immed8");
-            return 255;
-    }
-}
-
 #ifdef DEBUG
 static bool isAvxBlendv(instruction ins)
 {
@@ -7889,18 +7864,20 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
     }
     else if (hasCodeMI(ins))
     {
+        assert((INS_psrldq <= ins) && (ins <= INS_psrad) && UseVEXEncoding());
+
         code = insCodeMI(ins);
 
         // Emit the VEX prefix if it exists
         code = AddVexPrefixIfNeeded(ins, code, size);
 
         assert((code & 0xC000) == 0);
-        code |= 0xC000;
 
         mReg = id->idReg2();
-
-        // The left and right shifts use the same encoding, and are distinguished by the Reg/Opcode field.
-        rReg = static_cast<regNumber>(GetSSEShiftOpcodeRMExt(ins));
+        rReg = static_cast<regNumber>((code >> 11) & 7);
+        // TODO-MIKE-Cleanup: The code below doesn't handle the RM opcode extension properly.
+        code &= ~0xFF00ull;
+        code |= 0xC000;
     }
     else
     {
@@ -8026,33 +8003,22 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
     // (it is always encoded in a byte). Let's not complicate things until this is needed.
     assert(ins != INS_bt);
 
-    noway_assert(emitVerifyEncodable(ins, size, reg));
-
     if (IsSSEOrAVXInstruction(ins))
     {
+        assert((INS_psrldq <= ins) && (ins <= INS_psrad));
         assert(id->idGCref() == GCT_NONE);
         assert(IsImm8(imm));
 
-        // The left and right shifts use the same encoding, and are distinguished by the Reg/Opcode field.
-        unsigned regOpcode = GetSSEShiftOpcodeRMExt(ins);
-
         code_t code = insCodeMI(ins);
+        assert(code & 0xFF000000);
 
         code = AddVexPrefixIfNeeded(ins, code, size);
         code = insEncodeMIreg(ins, reg, size, code);
 
-        assert(code & 0x00FF0000);
-
         if (TakesVexPrefix(ins))
         {
-            // The 'vvvv' bits encode the destination register,
-            // which for the RI case is the same as the source.
             code = SetVexVvvv(ins, reg, size, code);
         }
-
-        unsigned regcode = (insEncodeReg345(ins, static_cast<regNumber>(regOpcode), size, &code) |
-                            insEncodeReg012(ins, reg, size, &code))
-                           << 8;
 
         dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
@@ -8065,11 +8031,13 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
             dst += emitOutputByte(dst, code >> 16);
         }
 
-        dst += emitOutputWord(dst, code | regcode);
+        dst += emitOutputWord(dst, code);
         dst += emitOutputByte(dst, imm);
 
         return dst;
     }
+
+    noway_assert(emitVerifyEncodable(ins, size, reg));
 
     if (ins == INS_mov)
     {

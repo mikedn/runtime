@@ -265,18 +265,16 @@ INST3(psubusb,          "psubusb",          IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(psubsw,           "psubsw",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0xE9),                            VexDstDstSrc)
 INST3(psubusw,          "psubusw",          IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0xD9),                            VexDstDstSrc)
 
-// Note that the shift immediates share the same encoding between left and right-shift, and are distinguished by the Reg/Opcode,
-// which is handled in emitxarch.cpp.
-INST3(psrldq,           "psrldq",           IUM_WR, BAD_CODE,     PCKDBL(0x73), BAD_CODE,                                VexDstDstSrc)
-INST3(pslldq,           "pslldq",           IUM_WR, BAD_CODE,     PCKDBL(0x73), BAD_CODE,                                VexDstDstSrc)
-INST3(psllw,            "psllw",            IUM_WR, BAD_CODE,     PCKDBL(0x71), PCKDBL(0xF1),                            VexDstDstSrc)
-INST3(pslld,            "pslld",            IUM_WR, BAD_CODE,     PCKDBL(0x72), PCKDBL(0xF2),                            VexDstDstSrc)
-INST3(psllq,            "psllq",            IUM_WR, BAD_CODE,     PCKDBL(0x73), PCKDBL(0xF3),                            VexDstDstSrc)
-INST3(psrlw,            "psrlw",            IUM_WR, BAD_CODE,     PCKDBL(0x71), PCKDBL(0xD1),                            VexDstDstSrc)
-INST3(psrld,            "psrld",            IUM_WR, BAD_CODE,     PCKDBL(0x72), PCKDBL(0xD2),                            VexDstDstSrc)
-INST3(psrlq,            "psrlq",            IUM_WR, BAD_CODE,     PCKDBL(0x73), PCKDBL(0xD3),                            VexDstDstSrc)
-INST3(psraw,            "psraw",            IUM_WR, BAD_CODE,     PCKDBL(0x71), PCKDBL(0xE1),                            VexDstDstSrc)
-INST3(psrad,            "psrad",            IUM_WR, BAD_CODE,     PCKDBL(0x72), PCKDBL(0xE2),                            VexDstDstSrc)
+INST3(psrldq,           "psrldq",           IUM_WR, BAD_CODE,     PCKDBL(0x1873), BAD_CODE,                              VexDstDstSrc)
+INST3(pslldq,           "pslldq",           IUM_WR, BAD_CODE,     PCKDBL(0x3873), BAD_CODE,                              VexDstDstSrc)
+INST3(psllw,            "psllw",            IUM_WR, BAD_CODE,     PCKDBL(0x3071), PCKDBL(0xF1),                          VexDstDstSrc)
+INST3(pslld,            "pslld",            IUM_WR, BAD_CODE,     PCKDBL(0x3072), PCKDBL(0xF2),                          VexDstDstSrc)
+INST3(psllq,            "psllq",            IUM_WR, BAD_CODE,     PCKDBL(0x3073), PCKDBL(0xF3),                          VexDstDstSrc)
+INST3(psrlw,            "psrlw",            IUM_WR, BAD_CODE,     PCKDBL(0x1071), PCKDBL(0xD1),                          VexDstDstSrc)
+INST3(psrld,            "psrld",            IUM_WR, BAD_CODE,     PCKDBL(0x1072), PCKDBL(0xD2),                          VexDstDstSrc)
+INST3(psrlq,            "psrlq",            IUM_WR, BAD_CODE,     PCKDBL(0x1073), PCKDBL(0xD3),                          VexDstDstSrc)
+INST3(psraw,            "psraw",            IUM_WR, BAD_CODE,     PCKDBL(0x2071), PCKDBL(0xE1),                          VexDstDstSrc)
+INST3(psrad,            "psrad",            IUM_WR, BAD_CODE,     PCKDBL(0x2072), PCKDBL(0xE2),                          VexDstDstSrc)
 
 INST3(pmaxub,           "pmaxub",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0xDE),                            VexDstDstSrc)
 INST3(pminub,           "pminub",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0xDA),                            VexDstDstSrc)
