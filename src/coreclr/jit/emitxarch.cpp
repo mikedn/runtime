@@ -2593,7 +2593,7 @@ void emitter::emitIns_R_H(instruction ins, regNumber reg, void* addr DEBUGARG(Ha
     emitCurIGsize += size;
 }
 
-void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t val DEBUGARG(HandleKind handleKind))
+void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t imm DEBUGARG(HandleKind handleKind))
 {
     // BT reg,imm might be useful but it requires special handling of the immediate value
     // (it is always encoded in a byte). Let's not complicate things until this is needed.
@@ -2601,41 +2601,37 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     assert(!EA_IS_RELOC(attr));
 
     emitAttr size = EA_SIZE(attr);
-
     // Allow emitting SSE2/AVX SIMD instructions of R_I form that can specify EA_16BYTE or EA_32BYTE
-    assert(size <= EA_PTRSIZE || IsSSEOrAVXInstruction(ins));
-
+    assert((size <= EA_PTRSIZE) || IsSSEOrAVXInstruction(ins));
     noway_assert(emitVerifyEncodable(ins, size, reg));
-
-#ifdef TARGET_AMD64
     // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
     // all other opcodes take a sign-extended 4-byte immediate
-    noway_assert(size < EA_8BYTE || ins == INS_mov || IsImm32(val));
-#endif
+    AMD64_ONLY(noway_assert((size < EA_8BYTE) || (ins == INS_mov) || IsImm32(imm)));
 
-    insFormat fmt       = emitInsModeFormat(ins, IF_RRD_CNS);
-    bool      valInByte = IsImm8(val) && (ins != INS_mov) && (ins != INS_test);
-    unsigned  sz;
+    bool     hasImm8 = IsImm8(imm) && (ins != INS_mov) && (ins != INS_test);
+    unsigned sz;
 
-    // Figure out the size of the instruction
     if (IsShiftImm(ins))
     {
-        assert(val != 1);
+        assert(imm != 1);
         sz = 3;
-        val &= 0x7F;
-        valInByte = true; // shift amount always placed in a byte
+        imm &= 0x7F;
+        hasImm8 = true;
     }
     else if (ins == INS_mov)
     {
 #ifdef TARGET_AMD64
         // mov reg, imm64 is equivalent to mov reg, imm32 if the high order bits are all 0
         // and this isn't a reloc constant.
-        if ((size == EA_8BYTE) && (0 <= val) && (val <= UINT_MAX))
+        // TODO-MIKE-Review: This doesn't check for relocs as the comment claims, the reloc
+        // bit was stripped by EA_SIZE above.
+        if ((size == EA_8BYTE) && (0 <= imm) && (imm <= UINT_MAX))
         {
-            attr = size = EA_4BYTE;
+            attr = EA_4BYTE;
+            size = EA_4BYTE;
+            sz   = 5;
         }
-
-        if (size > EA_4BYTE)
+        else if (size > EA_4BYTE)
         {
             sz = 9; // Really it is 10, but we'll add the REX prefix later.
         }
@@ -2645,47 +2641,26 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
             sz = 5;
         }
     }
-    else if (valInByte)
+    else if (hasImm8)
     {
         if (IsSSEOrAVXInstruction(ins))
         {
-            bool includeRexPrefixSize = true;
-            // Do not get the RexSize() but just decide if it will be included down further and if yes,
-            // do not include it again.
-            if (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, size))
-            {
-                includeRexPrefixSize = false;
-            }
-
-            sz = emitInsSize(insCodeMI(ins), includeRexPrefixSize);
-            sz += 1;
-        }
-        else if (size == EA_1BYTE && reg == REG_EAX)
-        {
-            sz = 2;
+            sz = emitInsSize(insCodeMI(ins), !IsExtendedReg(reg, attr) && !TakesRexWPrefix(ins, size)) + 1;
         }
         else
         {
-            sz = 3;
+            sz = (reg == REG_EAX) && (size == EA_1BYTE) ? 2 : 3;
         }
     }
     else
     {
         assert(!IsSSEOrAVXInstruction(ins));
 
-        if (reg == REG_EAX)
-        {
-            sz = 1;
-        }
-        else
-        {
-            sz = 2;
-        }
+        sz = (reg == REG_EAX) ? 1 : 2;
 
 #ifdef TARGET_AMD64
-        if (size > EA_4BYTE)
+        if (size >= EA_4BYTE)
         {
-            // We special-case anything that takes a full 8-byte constant.
             sz += 4;
         }
         else
@@ -2702,9 +2677,9 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
         sz++;
     }
 
-    instrDesc* id = emitNewInstrSC(attr, val);
+    instrDesc* id = emitNewInstrSC(attr, imm);
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(emitInsModeFormat(ins, IF_RRD_CNS));
     id->idReg1(reg);
     id->idCodeSize(sz);
     INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
@@ -2715,7 +2690,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
 #if !FEATURE_FIXED_OUT_ARGS
     if (reg == REG_ESP)
     {
-        emitAdjustStackDepth(ins, val);
+        emitAdjustStackDepth(ins, imm);
     }
 #endif
 }
