@@ -486,8 +486,7 @@ static bool IsDstSrcImmAvxInstruction(instruction ins)
 
 bool emitter::TakesVexPrefix(instruction ins) const
 {
-    return UseVEXEncoding() && (ins != INS_vzeroupper) && (INS_FIRST_SSE_VEX_INSTRUCTION <= ins) &&
-           (ins <= INS_LAST_AVX_INSTRUCTION);
+    return UseVEXEncoding() && (INS_FIRST_SSE_VEX_INSTRUCTION <= ins) && (ins <= INS_LAST_AVX_INSTRUCTION);
 }
 
 bool emitter::hasVexPrefix(code_t code)

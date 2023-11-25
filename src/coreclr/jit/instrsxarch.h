@@ -398,7 +398,6 @@ INST3(vextractf128,     "extractf128",      IUM_WR, SSE3A(0x19),  BAD_CODE,     
 INST3(vextracti128,     "extracti128",      IUM_WR, SSE3A(0x39),  BAD_CODE,     BAD_CODE,                                None)
 INST3(vinsertf128,      "insertf128",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0x18),                             AvxDstDstSrc)
 INST3(vinserti128,      "inserti128",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0x38),                             AvxDstDstSrc)
-INST3(vzeroupper,       "vzeroupper",       IUM_WR, 0xC577F8,     BAD_CODE,     BAD_CODE,                                None)
 INST3(vperm2i128,       "perm2i128",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0x46),                             AvxDstDstSrc)
 INST3(vpermq,           "permq",            IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0x00),                             None)
 INST3(vpblendd,         "pblendd",          IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0x02),                             AvxDstDstSrc)
@@ -582,6 +581,8 @@ INST1(cmpxchg,          "cmpxchg",          IUM_RW, PCKFLT(0xB0),               
 
 INST1(shld,             "shld",             IUM_RW, PCKFLT(0xA4),                                                        ShiftNFlags)
 INST1(shrd,             "shrd",             IUM_RW, PCKFLT(0xAC),                                                        ShiftNFlags)
+
+INST1(vzeroupper,       "vzeroupper",       IUM_WR, 0xC577F8,                                                            None)
 
 // For RyuJIT/x86, we follow the x86 calling convention that requires
 // us to return floating point value on the x87 FP stack, so we need
