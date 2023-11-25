@@ -119,7 +119,18 @@ INST3(imul,             "imul",             IUM_RW, BAD_CODE,     BAD_CODE,     
 INST3(imuli,            "imul",             IUM_RD, BAD_CODE,     BAD_CODE,     0x68,                                    ImulFlags)
 
 //    id                nm                  um      mr            mi            rm                                       flags
-INSTA(FIRST_SSE_INSTRUCTION, pmovmskb)
+INSTA(FIRST_SSE_INSTRUCTION, lfence)
+INST3(lfence,           "lfence",           IUM_RD, 0x0FE8AE,     BAD_CODE,     BAD_CODE,                                None)
+INST3(mfence,           "mfence",           IUM_RD, 0x0FF0AE,     BAD_CODE,     BAD_CODE,                                None)
+INST3(sfence,           "sfence",           IUM_RD, 0x0FF8AE,     BAD_CODE,     BAD_CODE,                                None)
+
+INST3(prefetchnta,      "prefetchnta",      IUM_RD, 0x0F0018,     BAD_CODE,     BAD_CODE,                                None)
+INST3(prefetcht0,       "prefetcht0",       IUM_RD, 0x0F0818,     BAD_CODE,     BAD_CODE,                                None)
+INST3(prefetcht1,       "prefetcht1",       IUM_RD, 0x0F1018,     BAD_CODE,     BAD_CODE,                                None)
+INST3(prefetcht2,       "prefetcht2",       IUM_RD, 0x0F1818,     BAD_CODE,     BAD_CODE,                                None)
+INST3(movnti,           "movnti",           IUM_WR, PCKFLT(0xC3), BAD_CODE,     BAD_CODE,                                None)
+
+INSTA(FIRST_SSE_VEX_INSTRUCTION, pmovmskb)
 INST3(pmovmskb,         "pmovmskb",         IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0xD7),                            None)
 INST3(movmskpd,         "movmskpd",         IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0x50),                            None)
 INST3(movd,             "movd",             IUM_WR, PCKDBL(0x7E), BAD_CODE,     PCKDBL(0x6E),                            None) // Cleanup https://github.com/dotnet/runtime/issues/47943
@@ -129,7 +140,6 @@ INST3(punpckldq,        "punpckldq",        IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(xorps,            "xorps",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x57),                            AvxDstDstSrc)
 INST3(cvttsd2si,        "cvttsd2si",        IUM_WR, BAD_CODE,     BAD_CODE,     SSEDBL(0x2C),                            None)
 INST3(movntdq,          "movntdq",          IUM_WR, PCKDBL(0xE7), BAD_CODE,     BAD_CODE,                                None)
-INST3(movnti,           "movnti",           IUM_WR, PCKFLT(0xC3), BAD_CODE,     BAD_CODE,                                None)
 INST3(movntpd,          "movntpd",          IUM_WR, PCKDBL(0x2B), BAD_CODE,     BAD_CODE,                                None)
 INST3(movntps,          "movntps",          IUM_WR, PCKFLT(0x2B), BAD_CODE,     BAD_CODE,                                None)
 INST3(movdqu,           "movdqu",           IUM_WR, SSEFLT(0x7F), BAD_CODE,     SSEFLT(0x6F),                            None)
@@ -152,13 +162,6 @@ INST3(maskmovdqu,       "maskmovdqu",       IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(shufps,           "shufps",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xC6),                            AvxDstDstSrc)
 INST3(shufpd,           "shufpd",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0xC6),                            AvxDstDstSrc)
 INST3(punpckhdq,        "punpckhdq",        IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0x6A),                            AvxDstDstSrc)
-INST3(lfence,           "lfence",           IUM_RD, 0x0FE8AE,     BAD_CODE,     BAD_CODE,                                None)
-INST3(mfence,           "mfence",           IUM_RD, 0x0FF0AE,     BAD_CODE,     BAD_CODE,                                None)
-INST3(prefetchnta,      "prefetchnta",      IUM_RD, 0x0F0018,     BAD_CODE,     BAD_CODE,                                None)
-INST3(prefetcht0,       "prefetcht0",       IUM_RD, 0x0F0818,     BAD_CODE,     BAD_CODE,                                None)
-INST3(prefetcht1,       "prefetcht1",       IUM_RD, 0x0F1018,     BAD_CODE,     BAD_CODE,                                None)
-INST3(prefetcht2,       "prefetcht2",       IUM_RD, 0x0F1818,     BAD_CODE,     BAD_CODE,                                None)
-INST3(sfence,           "sfence",           IUM_RD, 0x0FF8AE,     BAD_CODE,     BAD_CODE,                                None)
 INST3(addps,            "addps",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x58),                            AvxDstDstSrc)
 INST3(addss,            "addss",            IUM_WR, BAD_CODE,     BAD_CODE,     SSEFLT(0x58),                            AvxDstDstSrc)
 INST3(addpd,            "addpd",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0x58),                            AvxDstDstSrc)
@@ -382,9 +385,9 @@ INST3(aesenc,           "aesenc",           IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(aesenclast,       "aesenclast",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xDD),                             AvxDstDstSrc)
 INST3(aesimc,           "aesimc",           IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xDB),                             None)
 INST3(aeskeygenassist,  "aeskeygenassist",  IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0xDF),                             None)
-INSTA(LAST_SSE_INSTRUCTION, aeskeygenassist)
+//INSTA(LAST_SSE_INSTRUCTION, aeskeygenassist)
 
-INSTA(FIRST_AVX_INSTRUCTION, vbroadcastss)
+//INSTA(FIRST_AVX_INSTRUCTION, vbroadcastss)
 INST3(vbroadcastss,     "broadcastss",      IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x18),                             None)
 INST3(vbroadcastsd,     "broadcastsd",      IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x19),                             None)
 INST3(vpbroadcastb,     "pbroadcastb",      IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x78),                             None)

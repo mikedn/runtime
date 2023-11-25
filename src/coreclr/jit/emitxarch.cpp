@@ -191,11 +191,6 @@ bool emitter::UseVEXEncoding() const
     return useVEXEncodings;
 }
 
-bool emitter::IsAVXInstruction(instruction ins) const
-{
-    return UseVEXEncoding() && IsSSEOrAVXInstruction(ins);
-}
-
 enum insFlags : uint32_t
 {
     INS_FLAGS_None = 0,
@@ -491,23 +486,8 @@ static bool IsDstSrcImmAvxInstruction(instruction ins)
 
 bool emitter::TakesVexPrefix(instruction ins) const
 {
-    // special case vzeroupper as it requires 2-byte VEX prefix
-    // special case the fencing, movnti and the prefetch instructions as they never take a VEX prefix
-    switch (ins)
-    {
-        case INS_lfence:
-        case INS_mfence:
-        case INS_movnti:
-        case INS_prefetchnta:
-        case INS_prefetcht0:
-        case INS_prefetcht1:
-        case INS_prefetcht2:
-        case INS_sfence:
-        case INS_vzeroupper:
-            return false;
-        default:
-            return IsAVXInstruction(ins);
-    }
+    return UseVEXEncoding() && (ins != INS_vzeroupper) && (INS_FIRST_SSE_VEX_INSTRUCTION <= ins) &&
+           (ins <= INS_LAST_AVX_INSTRUCTION);
 }
 
 bool emitter::hasVexPrefix(code_t code)
