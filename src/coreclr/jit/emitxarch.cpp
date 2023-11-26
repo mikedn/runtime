@@ -499,18 +499,6 @@ emitter::code_t emitter::AddVexPrefixIfNeeded(instruction ins, code_t code, emit
     return code;
 }
 
-emitter::code_t emitter::AddVexPrefixIfNeededAndNotPresent(instruction ins, code_t code, emitAttr size)
-{
-    assert(TakesVexPrefix(ins));
-
-    if (!hasVexPrefix(code))
-    {
-        code = AddVexPrefix(ins, code, size);
-    }
-
-    return code;
-}
-
 bool emitter::hasRexPrefix(code_t code)
 {
 #ifdef TARGET_AMD64
@@ -6247,10 +6235,10 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             }
         }
 
-        if (TakesVexPrefix(ins))
+        // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
+        if (TakesVexPrefix(ins) && !hasVexPrefix(code))
         {
-            // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
-            code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
+            code = AddVexPrefix(ins, code, size);
         }
 
 #ifdef TARGET_AMD64
@@ -6596,10 +6584,10 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         }
     }
 
-    if (TakesVexPrefix(ins))
+    // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
+    if (TakesVexPrefix(ins) && !hasVexPrefix(code))
     {
-        // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
-        code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
+        code = AddVexPrefix(ins, code, size);
     }
 
     if (TakesRexWPrefix(ins, size))
@@ -6950,10 +6938,10 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             }
         }
 
-        if (TakesVexPrefix(ins))
+        // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
+        if (TakesVexPrefix(ins) && !hasVexPrefix(code))
         {
-            // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
-            code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
+            code = AddVexPrefix(ins, code, size);
         }
 
         if (TakesRexWPrefix(ins, size))

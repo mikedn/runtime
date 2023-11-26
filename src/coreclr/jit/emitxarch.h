@@ -264,7 +264,6 @@ bool TakesVexPrefix(instruction ins) const;
 bool hasVexPrefix(code_t code);
 code_t AddVexPrefix(instruction ins, code_t code, emitAttr attr);
 code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
-code_t AddVexPrefixIfNeededAndNotPresent(instruction ins, code_t code, emitAttr size);
 
 bool IsSseDstSrcImm(instruction ins);
 bool IsVexDstDstSrc(instruction ins);
