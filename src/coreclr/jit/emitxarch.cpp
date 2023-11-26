@@ -6245,39 +6245,40 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
             code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
 
-            if (IsVexDstDstSrc(ins))
+            switch (id->idInsFmt())
             {
-                switch (id->idInsFmt())
-                {
-                    case IF_ARD_RRD:
-                    case IF_AWR_RRD:
-                    case IF_ARW_RRD:
-                    case IF_RRD_ARD:
-                    case IF_RWR_ARD:
-                    case IF_RRW_ARD:
-                    case IF_RRW_ARD_CNS:
-                    case IF_RWR_ARD_CNS:
-                    case IF_RWR_RRD_ARD:
-                    case IF_RWR_RRD_ARD_CNS:
-                    case IF_RWR_RRD_ARD_RRD:
-                    case IF_RWR_ARD_RRD:
-                    case IF_AWR_RRD_RRD:
-                        break;
-                    default:
-                        unreached();
-                }
-            }
-            else if (IsVexDstSrcSrc(ins))
-            {
-                // TODO-MIKE-Review: There's something dodgy going here with movss/sd. These are marked as
-                // "DstSrcSrc" but that's only true in their reg/reg form, in the reg/mem form there's no
-                // reg2 in the instruction. But since the instrDesc is zero initialized we get back 0 (XMM0)
-                // and put that in VVVV, which ultimately means that this has no effect, except by being
-                // confusing. It's not clear if the code was written intentionally like this or if it just
-                // happened to work by accident.
-                // It's not clear if the other DstSrcSrc instructions are affected by this (e.g. sqrtss).
-                // It doesn't seem possible to generate the r/m form of those.
-                code = SetVexVvvv(ins, id->idReg2(), size, code);
+                case IF_ARD_RRD:
+                case IF_AWR_RRD:
+                case IF_ARW_RRD:
+                case IF_RRD_ARD:
+                case IF_RWR_ARD:
+                case IF_RRW_ARD:
+                case IF_RRW_ARD_CNS:
+                case IF_RWR_ARD_CNS:
+                    if (IsVexDstDstSrc(ins))
+                    {
+                    }
+                    else if (IsVexDstSrcSrc(ins))
+                    {
+                        // TODO-MIKE-Review: There's something dodgy going here with movss/sd. These are marked as
+                        // "DstSrcSrc" but that's only true in their reg/reg form, in the reg/mem form there's no
+                        // reg2 in the instruction. But since the instrDesc is zero initialized we get back 0 (XMM0)
+                        // and put that in VVVV, which ultimately means that this has no effect, except by being
+                        // confusing. It's not clear if the code was written intentionally like this or if it just
+                        // happened to work by accident.
+                        // It's not clear if the other DstSrcSrc instructions are affected by this (e.g. sqrtss).
+                        // It doesn't seem possible to generate the r/m form of those.
+                        code = SetVexVvvv(ins, id->idReg2(), size, code);
+                    }
+                    break;
+                case IF_RWR_RRD_ARD:
+                case IF_RWR_RRD_ARD_CNS:
+                case IF_RWR_RRD_ARD_RRD:
+                case IF_RWR_ARD_RRD:
+                case IF_AWR_RRD_RRD:
+                    break;
+                default:
+                    unreached();
             }
         }
 
@@ -8917,8 +8918,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RRW_ARD_CNS:
         case IF_RWR_ARD_CNS:
             assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
-            code = insCodeRM(ins);
 
+            code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
             if (IsVexDstDstSrc(ins))
@@ -8941,11 +8942,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code = insCodeRM(ins);
             code = AddVexPrefix(ins, code, size);
-
-            if (IsVexDstDstSrc(ins))
-            {
-                code = SetVexVvvv(ins, id->idReg2(), size, code);
-            }
+            code = SetVexVvvv(ins, id->idReg2(), size, code);
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
@@ -8962,11 +8959,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code = insCodeRM(ins);
             code = AddVexPrefix(ins, code, size);
-
-            if (IsVexDstDstSrc(ins))
-            {
-                code = SetVexVvvv(ins, id->idReg2(), size, code);
-            }
+            code = SetVexVvvv(ins, id->idReg2(), size, code);
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
@@ -9048,7 +9041,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputSV(dst, id, code);
-            // sz = emitSizeOfInsDsc(id);
+            sz   = emitSizeOfInsDsc(id);
             break;
 
         case IF_SWR_RRD_CNS:
@@ -9085,8 +9078,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RRW_SRD_CNS:
         case IF_RWR_SRD_CNS:
             assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
-            code = insCodeRM(ins);
 
+            code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
             if (IsVexDstDstSrc(ins))
@@ -9117,7 +9110,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             }
 
             dst = emitOutputSV(dst, id, code);
-            // sz = emitSizeOfInsDsc(id);
+            sz  = emitSizeOfInsDsc(id);
             break;
 
         case IF_RWR_RRD_SRD_CNS:
@@ -9126,11 +9119,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code = insCodeRM(ins);
             code = AddVexPrefix(ins, code, size);
-
-            // if (IsVexDstDstSrc(ins))
-            // {
             code = SetVexVvvv(ins, id->idReg2(), size, code);
-            // }
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
@@ -9226,8 +9215,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RRW_MRD_CNS:
         case IF_RWR_MRD_CNS:
             assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
-            code = insCodeRM(ins);
 
+            code = insCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
             if (IsVexDstDstSrc(ins))
@@ -9267,11 +9256,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code = insCodeRM(ins);
             code = AddVexPrefix(ins, code, size);
-
-            // if (IsVexDstDstSrc(ins))
-            // {
             code = SetVexVvvv(ins, id->idReg2(), size, code);
-            // }
 
             if (!EncodedBySSE38orSSE3A(ins))
             {
