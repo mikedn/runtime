@@ -6251,42 +6251,6 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         {
             // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
             code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
-
-            switch (id->idInsFmt())
-            {
-                case IF_ARD_RRD:
-                case IF_AWR_RRD:
-                case IF_ARW_RRD:
-                case IF_RRD_ARD:
-                case IF_RWR_ARD:
-                case IF_RRW_ARD:
-                case IF_RRW_ARD_CNS:
-                case IF_RWR_ARD_CNS:
-                    if (IsVexDstDstSrc(ins))
-                    {
-                    }
-                    else if (IsVexDstSrcSrc(ins))
-                    {
-                        // TODO-MIKE-Review: There's something dodgy going here with movss/sd. These are marked as
-                        // "DstSrcSrc" but that's only true in their reg/reg form, in the reg/mem form there's no
-                        // reg2 in the instruction. But since the instrDesc is zero initialized we get back 0 (XMM0)
-                        // and put that in VVVV, which ultimately means that this has no effect, except by being
-                        // confusing. It's not clear if the code was written intentionally like this or if it just
-                        // happened to work by accident.
-                        // It's not clear if the other DstSrcSrc instructions are affected by this (e.g. sqrtss).
-                        // It doesn't seem possible to generate the r/m form of those.
-                        code = SetVexVvvv(ins, id->idReg2(), size, code);
-                    }
-                    break;
-                case IF_RWR_RRD_ARD:
-                case IF_RWR_RRD_ARD_CNS:
-                case IF_RWR_RRD_ARD_RRD:
-                case IF_RWR_ARD_RRD:
-                case IF_AWR_RRD_RRD:
-                    break;
-                default:
-                    unreached();
-            }
         }
 
 #ifdef TARGET_AMD64
@@ -6636,13 +6600,6 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     {
         // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
         code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
-
-        if (IsVexDstDstSrc(ins))
-        {
-        }
-        else if (IsVexDstSrcSrc(ins))
-        {
-        }
     }
 
     if (TakesRexWPrefix(ins, size))
@@ -6997,13 +6954,6 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         {
             // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
             code = AddVexPrefixIfNeededAndNotPresent(ins, code, size);
-
-            if (IsVexDstDstSrc(ins))
-            {
-            }
-            else if (IsVexDstSrcSrc(ins))
-            {
-            }
         }
 
         if (TakesRexWPrefix(ins, size))
