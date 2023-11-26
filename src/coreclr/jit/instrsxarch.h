@@ -611,10 +611,10 @@ INST1(setg,             "setg",             IUM_WR, PCKFLT(0x9F),               
 
 #ifdef TARGET_AMD64
 // A jump with rex prefix. This is used for register indirect tail calls.
-INST1(rex_jmp,          "rex.jmp",          IUM_RD, 0x20FE,                                                              None)
+INST1(rex_jmp,          "rex.jmp",          IUM_RD, 0x20FF,                                                              None)
 #endif
 
-INST1(i_jmp,            "jmp",              IUM_RD, 0x20FE,                                                              None)
+INST1(i_jmp,            "jmp",              IUM_RD, 0x20FF,                                                              None)
 
 INST0(jmp,              "jmp",              IUM_RD, 0xEB,                                                                None)
 INST0(jo,               "jo",               IUM_RD, 0x70,                                                                CcFlags_o)

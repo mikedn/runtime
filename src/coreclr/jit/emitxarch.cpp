@@ -336,11 +336,8 @@ static bool HasWBit(instruction ins)
 #ifdef DEBUG
 static bool CanSetWBit(instruction ins)
 {
-    // TODO-MIKE-Cleanup: LEA/IMUL/MOVSXD do not have the w bit but it gets
+    // TODO-MIKE-Cleanup: LEA/IMUL/MOVSXD/JMP do not have the w bit but it gets
     // set anyway, doesn't really matter since the bit happens to be 1 already.
-    // JMP doesn't have a W bit but surprise, it gets set and it must be set
-    // because some genius thought it's convenient to put FE instead of FF in
-    // the encoding table.
     return HasWBit(ins) || (ins == INS_lea) || (ins == INS_imul) || (ins == INS_imuli) || (ins == INS_movsxd) ||
            (ins == INS_i_jmp) || (ins == INS_rex_jmp);
 }
