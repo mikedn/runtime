@@ -69,8 +69,8 @@ INST5(pop,              "pop",              IUM_WR, 0x008E,       BAD_CODE,     
 INST5(push_hide,        "push",             IUM_RD, 0x30FE,       0x68,         BAD_CODE,     BAD_CODE,     0x50,        None)
 INST5(pop_hide,         "pop",              IUM_WR, 0x008E,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0x58,        None)
 #ifdef TARGET_X86
-INST5(inc_s,            "inc",              IUM_RW, 0x00FE,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0x40,        IncDecFlags)
-INST5(dec_s,            "dec",              IUM_RW, 0x08FE,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0x48,        IncDecFlags)
+INST5(inc_s,            "inc",              IUM_RW, BAD_CODE,     BAD_CODE,     BAD_CODE,     BAD_CODE,     0x40,        IncDecFlags)
+INST5(dec_s,            "dec",              IUM_RW, BAD_CODE,     BAD_CODE,     BAD_CODE,     BAD_CODE,     0x48,        IncDecFlags)
 #endif
 INST5(bswap,            "bswap",            IUM_RW, PCKFLT(0xC8), BAD_CODE,     BAD_CODE,     BAD_CODE,     0xC80F,      None)
 
