@@ -7799,9 +7799,9 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
     if (hasCodeMR(ins))
     {
         code = insCodeMR(ins);
-        // Emit the VEX prefix if it exists
         code = AddVexPrefixIfNeeded(ins, code, size);
         code = insEncodeRMreg(ins, code);
+
         mReg = id->idReg1();
         rReg = id->idReg2();
     }
@@ -7810,10 +7810,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
         assert((INS_psrldq <= ins) && (ins <= INS_psrad) && UseVEXEncoding());
 
         code = insCodeMI(ins);
-
-        // Emit the VEX prefix if it exists
         code = AddVexPrefixIfNeeded(ins, code, size);
-
         assert((code & 0xC000) == 0);
 
         mReg = id->idReg2();
@@ -7825,9 +7822,9 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
     else
     {
         code = insCodeRM(ins);
-        // Emit the VEX prefix if it exists
         code = AddVexPrefixIfNeeded(ins, code, size);
         code = insEncodeRMreg(ins, code);
+
         mReg = id->idReg2();
         rReg = id->idReg1();
 
