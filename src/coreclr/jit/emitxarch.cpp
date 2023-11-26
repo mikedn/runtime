@@ -3144,7 +3144,7 @@ void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t
     // TODO-MIKE-Cleanup: Bozos thought that lfence & co. have VEX.
     if (UseVEXEncoding())
     {
-        sz++;
+        sz += 2;
     }
 
     id->idCodeSize(sz);
@@ -4342,6 +4342,13 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int var
     SetInstrLclAddrMode(id, varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeMR(ins));
+
+    // TODO-MIKE-Cleanup: Bozos thought that lfence & co. have VEX.
+    if (UseVEXEncoding() && (ins == INS_movnti))
+    {
+        sz++;
+    }
+
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
