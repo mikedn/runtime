@@ -150,11 +150,12 @@ static bool isSse41Blendv(instruction ins)
     return ins == INS_blendvps || ins == INS_blendvpd || ins == INS_pblendvb;
 }
 
-static bool isPrefetch(instruction ins)
+#endif
+
+static bool IsPrefetch(instruction ins)
 {
     return (ins == INS_prefetcht0) || (ins == INS_prefetcht1) || (ins == INS_prefetcht2) || (ins == INS_prefetchnta);
 }
-#endif
 
 bool emitter::UseVEXEncoding() const
 {
@@ -326,20 +327,12 @@ static bool instIsFP(instruction ins)
 }
 #endif
 
+#ifdef DEBUG
 static bool HasWBit(instruction ins)
 {
     // TODO-MIKE-Cleanup: It's probably best to make this a flag,
     // or at least ensure that the instruction order is correct.
     return ((INS_add <= ins) && (ins <= INS_movsx)) || ((INS_rol <= ins) && (ins <= INS_stos));
-}
-
-#ifdef DEBUG
-static bool CanSetWBit(instruction ins)
-{
-    // TODO-MIKE-Cleanup: LEA/IMUL/MOVSXD/JMP do not have the w bit but it gets
-    // set anyway, doesn't really matter since the bit happens to be 1 already.
-    return HasWBit(ins) || (ins == INS_lea) || (ins == INS_imul) || (ins == INS_imuli) || (ins == INS_movsxd) ||
-           (ins == INS_i_jmp) || (ins == INS_rex_jmp);
 }
 #endif
 
@@ -1724,7 +1717,7 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
                || (attrSize == EA_16BYTE) || (attrSize == EA_32BYTE) // only for x64
                || (ins == INS_movzx) || (ins == INS_movsx)
                // The prefetch instructions are always 3 bytes and have part of their modr/m byte hardcoded
-               || isPrefetch(ins));
+               || IsPrefetch(ins));
 
         size = 3;
     }
@@ -3130,7 +3123,7 @@ void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regN
 
 void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t disp)
 {
-    assert(isPrefetch(ins));
+    assert(IsPrefetch(ins));
 
     instrDesc* id = emitNewInstrAmd(attr, disp);
     id->idIns(ins);
@@ -6271,11 +6264,13 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
         if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
         {
-            if ((ins == INS_crc32) && (size > EA_1BYTE))
+            if (ins == INS_crc32)
             {
-                code |= 0x0100;
-
-                if (size == EA_2BYTE)
+                if (size == EA_1BYTE)
+                {
+                    code ^= 0x0100;
+                }
+                else if (size == EA_2BYTE)
                 {
                     dst += emitOutputByte(dst, 0x66);
                 }
@@ -6339,9 +6334,10 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 code &= 0x0000FFFF;
             }
 
-            if ((size != EA_1BYTE) && HasWBit(ins))
+            if ((size == EA_1BYTE) && !IsPrefetch(ins))
             {
-                code |= 1;
+                assert(HasWBit(ins) && ((code & 1) != 0));
+                code ^= 1;
             }
         }
 #ifdef TARGET_X86
@@ -6362,16 +6358,16 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             switch (size)
             {
                 case EA_1BYTE:
+                    assert(HasWBit(ins) && ((code & 1) != 0));
+                    code ^= 1;
                     break;
                 case EA_2BYTE:
                     dst += emitOutputByte(dst, 0x66);
-                    FALLTHROUGH;
+                    break;
                 case EA_4BYTE:
 #ifdef TARGET_AMD64
                 case EA_8BYTE:
 #endif
-                    assert(CanSetWBit(ins));
-                    code |= 1;
                     break;
                 default:
                     unreached();
@@ -6604,11 +6600,13 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
     if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
     {
-        if ((ins == INS_crc32) && (size > EA_1BYTE))
+        if (ins == INS_crc32)
         {
-            code |= 0x0100;
-
-            if (size == EA_2BYTE)
+            if (size == EA_1BYTE)
+            {
+                code ^= 0x0100;
+            }
+            else if (size == EA_2BYTE)
             {
                 dst += emitOutputByte(dst, 0x66);
             }
@@ -6672,9 +6670,10 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             code &= 0x0000FFFF;
         }
 
-        if ((size != EA_1BYTE) && HasWBit(ins))
+        if (size == EA_1BYTE)
         {
-            code |= 1;
+            assert(HasWBit(ins) && ((code & 1) != 0));
+            code ^= 1;
         }
     }
 #ifdef TARGET_X86
@@ -6695,16 +6694,16 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         switch (size)
         {
             case EA_1BYTE:
+                assert(HasWBit(ins) && ((code & 1) != 0));
+                code ^= 1;
                 break;
             case EA_2BYTE:
                 dst += emitOutputByte(dst, 0x66);
-                FALLTHROUGH;
+                break;
             case EA_4BYTE:
 #ifdef TARGET_AMD64
             case EA_8BYTE:
 #endif
-                assert(CanSetWBit(ins));
-                code |= 1;
                 break;
             default:
                 unreached();
@@ -6958,11 +6957,13 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
         if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
         {
-            if ((ins == INS_crc32) && (size > EA_1BYTE))
+            if (ins == INS_crc32)
             {
-                code |= 0x0100;
-
-                if (size == EA_2BYTE)
+                if (size == EA_1BYTE)
+                {
+                    code ^= 0x0100;
+                }
+                else if (size == EA_2BYTE)
                 {
                     dst += emitOutputByte(dst, 0x66);
                 }
@@ -7026,9 +7027,10 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 code &= 0x0000FFFF;
             }
 
-            if ((size != EA_1BYTE) && HasWBit(ins))
+            if (size == EA_1BYTE)
             {
-                code |= 1;
+                assert(HasWBit(ins) && ((code & 1) != 0));
+                code ^= 1;
             }
         }
 #ifdef TARGET_X86
@@ -7049,16 +7051,16 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             switch (size)
             {
                 case EA_1BYTE:
+                    assert(HasWBit(ins) && ((code & 1) != 0));
+                    code ^= 1;
                     break;
                 case EA_2BYTE:
                     dst += emitOutputByte(dst, 0x66);
-                    FALLTHROUGH;
+                    break;
                 case EA_4BYTE:
 #ifdef TARGET_AMD64
                 case EA_8BYTE:
 #endif
-                    assert(CanSetWBit(ins));
-                    code |= 1;
                     break;
                 default:
                     unreached();
@@ -7208,10 +7210,10 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
             code = insCodeMR(ins) | 0xC000;
 
-            if (size != EA_1BYTE)
+            if (size == EA_1BYTE)
             {
-                assert(CanSetWBit(ins));
-                code |= 1;
+                assert(HasWBit(ins) && ((code & 1) != 0));
+                code ^= 1;
             }
 
             if (TakesRexWPrefix(ins, size))
@@ -7298,15 +7300,14 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
             code = insEncodeRMreg(ins, reg, size, insCodeMR(ins));
 
-            if (size != EA_1BYTE)
+            if (size == EA_1BYTE)
             {
-                assert(CanSetWBit(ins));
-                code |= 1;
-
-                if (size == EA_2BYTE)
-                {
-                    dst += emitOutputByte(dst, 0x66);
-                }
+                assert(HasWBit(ins) && ((code & 1) != 0));
+                code ^= 1;
+            }
+            else if (size == EA_2BYTE)
+            {
+                dst += emitOutputByte(dst, 0x66);
             }
 
             if (TakesRexWPrefix(ins, size))
@@ -7433,7 +7434,13 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         assert(!hasCodeMI(ins) && !hasCodeMR(ins));
 
         code = insCodeRM(ins);
-        code = insEncodeRMreg(ins, code) | (size == EA_2BYTE);
+        code = insEncodeRMreg(ins, code);
+
+        if (size == EA_1BYTE)
+        {
+            assert(HasWBit(ins) && ((code & 1) != 0));
+            code ^= 1;
+        }
 
 #ifdef TARGET_AMD64
         assert((size < EA_4BYTE) || insIsCMOV(ins));
@@ -7504,21 +7511,21 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         code = insCodeRM(ins);
         code = insEncodeRMreg(ins, code);
 
-        if ((ins == INS_crc32) && (size > EA_1BYTE))
+        if (size == EA_1BYTE)
         {
-            code |= 0x0100;
+            noway_assert(ins == INS_crc32);
+            code ^= 0x0100;
         }
-
-        if (size == EA_2BYTE)
+        else if (size == EA_2BYTE)
         {
-            assert(ins == INS_crc32);
-
             dst += emitOutputByte(dst, 0x66);
         }
+#ifdef TARGET_AMD64
         else if (size == EA_8BYTE)
         {
             code = AddRexWPrefix(ins, code);
         }
+#endif
     }
     else
     {
@@ -7539,16 +7546,15 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
                 noway_assert(RBM_BYTE_REGS & genRegMask(reg1));
                 noway_assert(RBM_BYTE_REGS & genRegMask(reg2));
 #endif
+                assert(HasWBit(ins) && ((code & 1) != 0));
+                code ^= 1;
                 break;
 
             case EA_2BYTE:
                 dst += emitOutputByte(dst, 0x66);
-                FALLTHROUGH;
-            case EA_4BYTE:
-                assert(CanSetWBit(ins));
-                code |= 0x1;
                 break;
-
+            case EA_4BYTE:
+                break;
 #ifdef TARGET_AMD64
             case EA_8BYTE:
                 // TODO-AMD64-CQ: Better way to not emit REX.W when we don't need it
@@ -7561,9 +7567,6 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
                 {
                     id->idOpSize(EA_4BYTE);
                 }
-
-                assert(CanSetWBit(ins));
-                code |= 0x1;
                 break;
 #endif // TARGET_AMD64
 
@@ -8107,22 +8110,21 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
         }
     }
 
-    if (size != EA_1BYTE)
+    if (size == EA_1BYTE)
     {
-        assert(CanSetWBit(ins));
-        code |= 1;
-
-        if (size == EA_2BYTE)
-        {
-            dst += emitOutputByte(dst, 0x66);
-        }
-#ifdef TARGET_AMD64
-        else if (size == EA_8BYTE)
-        {
-            code = AddRexWPrefix(ins, code);
-        }
-#endif
+        assert(HasWBit(ins) && ((code & 1) != 0));
+        code ^= 1;
     }
+    else if (size == EA_2BYTE)
+    {
+        dst += emitOutputByte(dst, 0x66);
+    }
+#ifdef TARGET_AMD64
+    else if (size == EA_8BYTE)
+    {
+        code = AddRexWPrefix(ins, code);
+    }
+#endif
 
     dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
 
@@ -8653,9 +8655,10 @@ uint8_t* emitter::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
     {
         emitGCregDeadUpd(REG_EDX, dst);
     }
-    else if ((id->idOpSize() != EA_1BYTE) && ((ins == INS_stos) || (ins == INS_movs)))
+    else if ((id->idOpSize() == EA_1BYTE) && ((ins == INS_stos) || (ins == INS_movs)))
     {
-        code |= 0x01;
+        assert(HasWBit(ins) && ((code & 1) != 0));
+        code ^= 1;
     }
 
 #ifdef TARGET_AMD64
