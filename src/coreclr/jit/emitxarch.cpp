@@ -328,13 +328,27 @@ static bool instIsFP(instruction ins)
 
 static bool HasWBit(instruction ins)
 {
-    // TODO-MIKE-Cleanup: This stuff is really dumb. It needs to check for instructions which
-    // default to 8 bit (e.g. ADD, SUB, XOR etc.) and thus need to have their encoding adjusted
-    // to get 16/32 bit operations. If EA_1BYTE is used with any other instructions this MUST
-    // assert, and NOT modify the encoding. And the default encoding should really be the 32 bit
-    // encoding, since 8 bit instructions are rarely used.
-    return (ins != INS_imul) && (ins != INS_bsf) && (ins != INS_bsr) && (ins != INS_lzcnt) && (ins != INS_tzcnt) &&
-           (ins != INS_popcnt) && (ins != INS_shld) && (ins != INS_shrd) && !IsSSEOrAVXInstruction(ins);
+    // TODO-MIKE-Cleanup: It's probably best to make this a flag,
+    // or at least ensure that the instruction order is correct.
+    return ((INS_add <= ins) && (ins <= INS_movsx)) || ((INS_rol <= ins) && (ins <= INS_stos));
+}
+
+#ifdef DEBUG
+static bool CanSetWBit(instruction ins)
+{
+    // TODO-MIKE-Cleanup: LEA/IMUL/MOVSXD do not have the w bit but it gets
+    // set anyway, doesn't really matter since the bit happens to be 1 already.
+    // JMP doesn't have a W bit but surprise, it gets set and it must be set
+    // because some genius thought it's convenient to put FE instead of FF in
+    // the encoding table.
+    return HasWBit(ins) || (ins == INS_lea) || (ins == INS_imul) || (ins == INS_imuli) || (ins == INS_movsxd) ||
+           (ins == INS_i_jmp) || (ins == INS_rex_jmp);
+}
+#endif
+
+static bool HasSBit(instruction ins)
+{
+    return ((INS_add <= ins) && (ins <= INS_cmp)) || (ins == INS_imuli);
 }
 
 bool emitter::AreFlagsAlwaysModified(instrDesc* id)
@@ -6226,7 +6240,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             // 3. Shifts and SSE/AVX instructions only have imm8 encodings, independent of the first operand size.
             if ((immSize > 1) && IsImm8(*imm) && !id->idIsCnsReloc() && (ins != INS_mov) && (ins != INS_test))
             {
-                if (!IsShiftImm(ins) && !IsSSEOrAVXInstruction(ins))
+                if (HasSBit(ins))
                 {
                     code |= 2;
                 }
@@ -6330,7 +6344,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
             if ((size != EA_1BYTE) && HasWBit(ins))
             {
-                code++;
+                code |= 1;
             }
         }
 #ifdef TARGET_X86
@@ -6359,8 +6373,8 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 #ifdef TARGET_AMD64
                 case EA_8BYTE:
 #endif
-                    // Set the 'w' size bit to indicate a 16/32/64-bit operation.
-                    code |= 0x01;
+                    assert(CanSetWBit(ins));
+                    code |= 1;
                     break;
                 default:
                     unreached();
@@ -6571,11 +6585,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         // 3. Shifts and SSE/AVX instructions only have imm8 encodings, independent of the first operand size.
         if ((immSize > 1) && IsImm8(*imm) && !id->idIsCnsReloc() && (ins != INS_mov) && (ins != INS_test))
         {
-            // TODO-MIKE-Cleanup: Why the crap does this check IF_RRW_SRD_CNS and IF_RWR_RRD_SRD_CNS,
-            // which are only used by SSE/AVX instructions, and then also checks for SSE/VAX instructions?!?
-            if ((!IsShiftImm(ins) && (id->idInsFmt() != IF_RRW_SRD_CNS) && (id->idInsFmt() != IF_RWR_RRD_SRD_CNS) &&
-                 !IsSSEOrAVXInstruction(ins)) ||
-                (ins == INS_imuli))
+            if (HasSBit(ins))
             {
                 code |= 2;
             }
@@ -6667,7 +6677,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
         if ((size != EA_1BYTE) && HasWBit(ins))
         {
-            code |= 0x1;
+            code |= 1;
         }
     }
 #ifdef TARGET_X86
@@ -6696,8 +6706,8 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 #ifdef TARGET_AMD64
             case EA_8BYTE:
 #endif
-                // Set the 'w' size bit to indicate a 16/32/64-bit operation.
-                code |= 0x01;
+                assert(CanSetWBit(ins));
+                code |= 1;
                 break;
             default:
                 unreached();
@@ -6929,7 +6939,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             // 3. Shifts and SSE/AVX instructions only have imm8 encodings, independent of the first operand size.
             if ((immSize > 1) && IsImm8(*imm) && !id->idIsCnsReloc() && (ins != INS_mov) && (ins != INS_test))
             {
-                if (!IsShiftImm(ins) && !IsSSEOrAVXInstruction(ins))
+                if (HasSBit(ins))
                 {
                     code |= 2;
                 }
@@ -7021,7 +7031,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
             if ((size != EA_1BYTE) && HasWBit(ins))
             {
-                code++;
+                code |= 1;
             }
         }
 #ifdef TARGET_X86
@@ -7050,8 +7060,8 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 #ifdef TARGET_AMD64
                 case EA_8BYTE:
 #endif
-                    // Set the 'w' size bit to indicate a 16/32/64-bit operation.
-                    code |= 0x01;
+                    assert(CanSetWBit(ins));
+                    code |= 1;
                     break;
                 default:
                     unreached();
@@ -7203,8 +7213,8 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
             if (size != EA_1BYTE)
             {
-                // Set the 'w' bit to get the large version
-                code |= 0x1;
+                assert(CanSetWBit(ins));
+                code |= 1;
             }
 
             if (TakesRexWPrefix(ins, size))
@@ -7293,8 +7303,8 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
             if (size != EA_1BYTE)
             {
-                // Set the 'w' bit to get the large version
-                code |= 0x1;
+                assert(CanSetWBit(ins));
+                code |= 1;
 
                 if (size == EA_2BYTE)
                 {
@@ -7538,7 +7548,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
                 dst += emitOutputByte(dst, 0x66);
                 FALLTHROUGH;
             case EA_4BYTE:
-                // Set the 'w' bit to get the large version
+                assert(CanSetWBit(ins));
                 code |= 0x1;
                 break;
 
@@ -7555,7 +7565,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
                     id->idOpSize(EA_4BYTE);
                 }
 
-                // Set the 'w' bit to get the large version
+                assert(CanSetWBit(ins));
                 code |= 0x1;
                 break;
 #endif // TARGET_AMD64
@@ -8102,8 +8112,8 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 
     if (size != EA_1BYTE)
     {
-        // Set the 'w' bit
-        code |= 0x1;
+        assert(CanSetWBit(ins));
+        code |= 1;
 
         if (size == EA_2BYTE)
         {

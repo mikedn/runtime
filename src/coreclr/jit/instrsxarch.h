@@ -86,16 +86,21 @@ INST4(cmp,              "cmp",              IUM_RD, 0x38,         0x3880,       
 INST4(test,             "test",             IUM_RD, 0x84,         0x00F6,       0x84,         0xA8,                      BitwiseFlags)
 
 //    id                nm                  um      mr            mi            rm                                       flags
+INST3(xchg,             "xchg",             IUM_RW, 0x86,         BAD_CODE,     0x86,                                    None)
 INST3(mov,              "mov",              IUM_WR, 0x88,         0x00C6,       0x8A,                                    None)
-INST3(lea,              "lea",              IUM_WR, BAD_CODE,     BAD_CODE,     0x8D,                                    None)
-INST3(bt,               "bt",               IUM_RD, PCKFLT(0xA3), BAD_CODE,     PCKFLT(0xA3),                            BitTestFlags)
-INST3(bsf,              "bsf",              IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xBC),                            BitScanFlags)
-INST3(bsr,              "bsr",              IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xBD),                            BitScanFlags)
+INST3(movzx,            "movzx",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xB6),                            None)
 INST3(movsx,            "movsx",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xBE),                            None)
 #ifdef TARGET_AMD64
 INST3(movsxd,           "movsxd",           IUM_WR, BAD_CODE,     BAD_CODE,     0x63,                                    None)
 #endif
-INST3(movzx,            "movzx",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xB6),                            None)
+INST3(lea,              "lea",              IUM_WR, BAD_CODE,     BAD_CODE,     0x8D,                                    None)
+
+INST3(imul,             "imul",             IUM_RW, BAD_CODE,     BAD_CODE,     PCKFLT(0xAF),                            ImulFlags)
+INST3(imuli,            "imul",             IUM_RD, BAD_CODE,     BAD_CODE,     0x68,                                    ImulFlags)
+
+INST3(bt,               "bt",               IUM_RD, PCKFLT(0xA3), BAD_CODE,     PCKFLT(0xA3),                            BitTestFlags)
+INST3(bsf,              "bsf",              IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xBC),                            BitScanFlags)
+INST3(bsr,              "bsr",              IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xBD),                            BitScanFlags)
 
 INST3(cmovo,            "cmovo",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x40),                            CcFlags_o)
 INST3(cmovno,           "cmovno",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x41),                            CcFlags_no)
@@ -113,10 +118,6 @@ INST3(cmovl,            "cmovl",            IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(cmovge,           "cmovge",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x4D),                            CcFlags_ge)
 INST3(cmovle,           "cmovle",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x4E),                            CcFlags_le)
 INST3(cmovg,            "cmovg",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x4F),                            CcFlags_g)
-
-INST3(xchg,             "xchg",             IUM_RW, 0x86,         BAD_CODE,     0x86,                                    None)
-INST3(imul,             "imul",             IUM_RW, BAD_CODE,     BAD_CODE,     PCKFLT(0xAF),                            ImulFlags)
-INST3(imuli,            "imul",             IUM_RD, BAD_CODE,     BAD_CODE,     0x68,                                    ImulFlags)
 
 //    id                nm                  um      mr            mi            rm                                       flags
 INSTA(FIRST_SSE_INSTRUCTION, lfence)
@@ -552,6 +553,20 @@ INST2(sar_1,            "sar",              IUM_RW, 0x38D0,       0x38D0,       
 INST2(sar_N,            "sar",              IUM_RW, BAD_CODE,     0x38C0,                                                ShiftNFlags)
 
 //    id                nm                  um      mr                                                                   flags
+INST1(inc,              "inc",              IUM_RW, 0x00FE,                                                              IncDecFlags)
+INST1(dec,              "dec",              IUM_RW, 0x08FE,                                                              IncDecFlags)
+
+INST1(neg,              "neg",              IUM_RW, 0x18F6,                                                              AddSubFlags)
+INST1(not,              "not",              IUM_RW, 0x10F6,                                                              None)
+
+INST1(idiv,             "idiv",             IUM_RD, 0x38F6,                                                              DivFlags)
+INST1(div,              "div",              IUM_RD, 0x30F6,                                                              DivFlags)
+INST1(mulEAX,           "mul",              IUM_RD, 0x20F6,                                                              ImulFlags)
+INST1(imulEAX,          "imul",             IUM_RD, 0x28F6,                                                              ImulFlags)
+
+INST1(xadd,             "xadd",             IUM_RW, PCKFLT(0xC0),                                                        AddSubFlags)
+INST1(cmpxchg,          "cmpxchg",          IUM_RW, PCKFLT(0xB0),                                                        AddSubFlags)
+
 INST1(rep_movs,         "rep movs",         IUM_RD, 0xA4F3,                                                              DirFlags)
 INST1(movs,             "movs",             IUM_RD, 0xA4,                                                                DirFlags)
 INST1(rep_stos,         "rep stos",         IUM_RD, 0xAAF3,                                                              DirFlags)
@@ -562,20 +577,7 @@ INST1(nop,              "nop",              IUM_RD, 0x90,                       
 INST1(lock,             "lock",             IUM_RD, 0xF0,                                                                None)
 INST1(leave,            "leave",            IUM_RD, 0xC9,                                                                None)
 
-INST1(inc,              "inc",              IUM_RW, 0x00FE,                                                              IncDecFlags)
-INST1(dec,              "dec",              IUM_RW, 0x08FE,                                                              IncDecFlags)
-
-INST1(neg,              "neg",              IUM_RW, 0x18F6,                                                              AddSubFlags)
-INST1(not,              "not",              IUM_RW, 0x10F6,                                                              None)
-
 INST1(cdq,              "cdq",              IUM_RD, 0x99,                                                                None)
-INST1(idiv,             "idiv",             IUM_RD, 0x38F6,                                                              DivFlags)
-INST1(imulEAX,          "imul",             IUM_RD, 0x28F6,                                                              ImulFlags)
-INST1(div,              "div",              IUM_RD, 0x30F6,                                                              DivFlags)
-INST1(mulEAX,           "mul",              IUM_RD, 0x20F6,                                                              ImulFlags)
-
-INST1(xadd,             "xadd",             IUM_RW, PCKFLT(0xC0),                                                        AddSubFlags)
-INST1(cmpxchg,          "cmpxchg",          IUM_RW, PCKFLT(0xB0),                                                        AddSubFlags)
 
 INST1(shld,             "shld",             IUM_RW, PCKFLT(0xA4),                                                        ShiftNFlags)
 INST1(shrd,             "shrd",             IUM_RW, PCKFLT(0xAC),                                                        ShiftNFlags)
