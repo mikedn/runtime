@@ -7127,20 +7127,21 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             }
 #endif
 
-            code = insCodeMR(ins) | 0xC000;
+            code = insCodeMR(ins);
 
             if (size == EA_1BYTE)
             {
                 assert(HasWBit(ins) && ((code & 1) != 0));
                 code ^= 1;
             }
-
-            if (TakesRexWPrefix(ins, size))
+#ifdef TARGET_AMD64
+            else if (size == EA_8BYTE)
             {
                 code = AddRexWPrefix(ins, code);
             }
+#endif
 
-            code |= insEncodeReg012(ins, reg, size, &code) << 8;
+            code |= (0xC0ull | insEncodeReg012(ins, reg, size, &code)) << 8;
             dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
             dst += emitOutputWord(dst, code);
             break;
@@ -7162,23 +7163,20 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
         case INS_bswap:
             assert(size >= EA_4BYTE && size <= EA_PTRSIZE); // 16-bit BSWAP is undefined
 
-            // The Intel instruction set reference for BSWAP states that extended registers
-            // should be enabled via REX.R, but per Vol. 2A, Sec. 2.2.1.2 (see also Figure 2-7),
-            // REX.B should instead be used if the register is encoded in the opcode byte itself.
-            // Therefore the default logic of insEncodeReg012 is correct for this case.
-
             code = insCodeRR(ins);
 
-            if (TakesRexWPrefix(ins, size))
+            if (size == EA_8BYTE)
             {
                 code = AddRexWPrefix(ins, code);
             }
 
-            {
-                code_t regcode = insEncodeReg012(ins, reg, size, &code);
-                dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-                dst += emitOutputWord(dst, code | (regcode << 8));
-            }
+            // The Intel instruction set reference for BSWAP states that extended registers
+            // should be enabled via REX.R, but per Vol. 2A, Sec. 2.2.1.2 (see also Figure 2-7),
+            // REX.B should instead be used if the register is encoded in the opcode byte itself.
+            // Therefore the default logic of insEncodeReg012 is correct for this case.
+            code |= insEncodeReg012(ins, reg, size, &code) << 8;
+            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputWord(dst, code);
             break;
 
         case INS_seto:
