@@ -8506,11 +8506,6 @@ uint8_t* emitter::emitOutputCall(uint8_t* dst, instrDesc* id)
     {
         code_t code = insCodeMR(ins);
 
-        if (ins == INS_i_jmp)
-        {
-            code |= 1;
-        }
-
         if (id->idIsDspReloc())
         {
             dst += emitOutputWord(dst, code | 0x0500);
