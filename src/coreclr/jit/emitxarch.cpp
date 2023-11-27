@@ -8196,8 +8196,130 @@ uint8_t* emitter::emitOutputIV(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
+uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
+    assert(id->idIns() == INS_lea);
+    assert(id->idInsFmt() == IF_RWR_LABEL);
+    assert(id->idOpSize() == EA_PTRSIZE);
+    assert(id->idIsDspReloc());
+    assert(id->idGCref() == GCT_NONE);
+    assert(!id->idAddr()->iiaHasInstrCount());
+    assert(id->idIsBound());
+    assert(id->idjKeepLong);
+    assert(!id->idjShort);
+
+    unsigned srcOffs = emitCurCodeOffs(dst);
+    unsigned dstOffs = id->idAddr()->iiaIGlabel->igOffs;
+    uint8_t* dstAddr = emitOffsetToPtr(dstOffs);
+
+    // TODO-MIKE-CQ: For x86 this should really be mov, it can be more efficient.
+    code_t code = 0x8D;
+    assert(insCodeRM(INS_lea) == code);
+    AMD64_ONLY(code = AddRexWPrefix(INS_lea, code));
+    code = SetRMReg(INS_lea, id->idReg1(), EA_PTRSIZE, code);
+    AMD64_ONLY(dst += emitOutputRexPrefix(INS_lea, dst, code));
+    dst += emitOutputWord(dst, code | 0x0500);
+
+    if (dstOffs > srcOffs)
+    {
+        // This is a forward jump - distance will be an upper limit.
+        emitFwdJumps        = true;
+        id->idjTemp.idjAddr = dst;
+
+        // The target offset will be closer by at least 'emitOffsAdj',
+        // but only if this jump doesn't cross the hot-cold boundary.
+        if (!emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
+        {
+            dstOffs -= emitOffsAdj;
+            dstAddr -= emitOffsAdj;
+        }
+
+        // Record the location of the jump for later patching
+        id->idjOffs = dstOffs;
+
+        // Are we overflowing the id->idjOffs bitfield?
+        if (id->idjOffs != dstOffs)
+        {
+            IMPL_LIMITATION("Method is too large");
+        }
+    }
+
+#ifdef TARGET_AMD64
+    // TODO-MIKE-Cleanup: This shouldn't call recordRelocation, the target is within
+    // this method so it's not like we'll need jump stubs or anything VM related.
+
+    // We emit zero on x64, to avoid the assert in emitOutputLong
+    dst += emitOutputLong(dst, 0);
+    emitRecordRelocation(dst - 4, dstAddr, IMAGE_REL_BASED_REL32, 0);
+#else
+    dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(dstAddr));
+    emitRecordRelocation(dst - 4, dstAddr, IMAGE_REL_BASED_HIGHLOW, 0);
+#endif
+
+    emitGCregDeadUpd(id->idReg1(), dst);
+
+    return dst;
+}
+
+#ifdef TARGET_X86
+uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
+{
+    assert(id->idIns() == INS_push_hide);
+    assert(id->idInsFmt() == IF_LABEL);
+    assert(id->idGCref() == GCT_NONE);
+    assert(id->idIsBound());
+    assert(!id->idAddr()->iiaHasInstrCount());
+    //assert(id->idjKeepLong); // TODO-MIKE-Cleanup: This should be set but emitIns_J forgot to do it.
+    assert(!id->idjShort);
+
+    unsigned srcOffs = emitCurCodeOffs(dst);
+    unsigned dstOffs = id->idAddr()->iiaIGlabel->igOffs;
+    uint8_t* dstAddr = emitOffsetToPtr(dstOffs);
+
+    assert(insCodeMI(INS_push) == 0x68);
+    dst += emitOutputByte(dst, 0x68);
+
+    if (dstOffs > srcOffs)
+    {
+        // This is a forward jump - distance will be an upper limit
+        emitFwdJumps        = true;
+        id->idjTemp.idjAddr = dst;
+
+        // The target offset will be closer by at least 'emitOffsAdj', but only if this
+        // jump doesn't cross the hot-cold boundary.
+        if (!emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
+        {
+            dstOffs -= emitOffsAdj;
+            dstAddr -= emitOffsAdj;
+        }
+
+        // Record the location of the jump for later patching
+        id->idjOffs = dstOffs;
+
+        // Are we overflowing the id->idjOffs bitfield?
+        if (id->idjOffs != dstOffs)
+        {
+            IMPL_LIMITATION("Method is too large");
+        }
+    }
+
+    dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(dstAddr));
+
+    if (emitComp->opts.compReloc)
+    {
+        emitRecordRelocation(dst - 4, dstAddr, IMAGE_REL_BASED_HIGHLOW);
+    }
+
+    return dst;
+}
+#endif // TARGET_X86
+
+uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDesc* i, insGroup* ig)
+{
+    assert(i->idGCref() == GCT_NONE);
+    assert(i->idIsBound());
+    assert(i->idInsFmt() != IF_RWR_LABEL);
+
     instrDescJmp* id  = static_cast<instrDescJmp*>(i);
     instruction   ins = id->idIns();
     bool          isJump;
@@ -8224,20 +8346,6 @@ uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
         case INS_call:
             ssz = lsz = CALL_INST_SIZE;
             isJump    = false;
-            break;
-
-        case INS_push_hide:
-        case INS_push:
-            ssz = lsz = 5;
-            isJump    = false;
-            relAddr   = false;
-            break;
-
-        case INS_mov:
-        case INS_lea:
-            ssz = lsz = id->idCodeSize();
-            isJump    = false;
-            relAddr   = false;
             break;
     }
 
@@ -8415,52 +8523,16 @@ uint8_t* emitter::emitOutputLJ(insGroup* ig, uint8_t* dst, instrDesc* i)
 
             code = insCode((instruction)(ins + (INS_l_jmp - INS_jmp)));
         }
-        else if (ins == INS_push || ins == INS_push_hide)
-        {
-            assert(insCodeMI(INS_push) == 0x68);
-            code = 0x68;
-        }
-        else if (ins == INS_lea)
-        {
-            assert((id->idOpSize() == EA_PTRSIZE) && id->idIsDspReloc());
-
-            code = insCodeRM(ins);
-            AMD64_ONLY(code = AddRexWPrefix(INS_lea, code));
-            code = SetRMReg(ins, id->idReg1(), EA_PTRSIZE, code);
-            AMD64_ONLY(dst += emitOutputRexPrefix(INS_lea, dst, code));
-            dst += emitOutputWord(dst, code | 0x0500);
-
-#ifdef TARGET_AMD64
-            // TODO-MIKE-Cleanup: This shouldn't call recordRelocation, the target is within
-            // this method so it's not like we'll need jump stubs or anything VM related.
-
-            // We emit zero on x64, to avoid the assert in emitOutputLong
-            dst += emitOutputLong(dst, 0);
-            emitRecordRelocation(dst - 4, reinterpret_cast<void*>(distVal), IMAGE_REL_BASED_REL32, 0);
-#else
-            dst += emitOutputLong(dst, distVal);
-            emitRecordRelocation(dst - 4, reinterpret_cast<void*>(distVal), IMAGE_REL_BASED_HIGHLOW, 0);
-#endif
-
-            // For forward jumps, record the address of the distance value
-            // Hard-coded 4 here because we already output the displacement, as the last thing.
-            id->idjTemp.idjAddr = (dstOffs > srcOffs) ? (dst - 4) : nullptr;
-
-            return dst;
-        }
         else
         {
             code = 0xE8;
         }
 
-        if (ins != INS_mov)
-        {
-            dst += emitOutputByte(dst, code);
+        dst += emitOutputByte(dst, code);
 
-            if (code & 0xFF00)
-            {
-                dst += emitOutputByte(dst, code >> 8);
-            }
+        if (code & 0xFF00)
+        {
+            dst += emitOutputByte(dst, code >> 8);
         }
 
         // For forward jumps, record the address of the distance value
@@ -8677,13 +8749,23 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             sz  = emitSizeOfInsDsc(id);
             break;
 
-        case IF_LABEL:
         case IF_RWR_LABEL:
-            assert(id->idGCref() == GCT_NONE);
-            assert(id->idIsBound());
-
-            dst = emitOutputLJ(ig, dst, id);
+            dst = emitOutputRL(dst, static_cast<instrDescJmp*>(id), ig);
             sz  = sizeof(instrDescJmp);
+            break;
+
+        case IF_LABEL:
+#ifdef TARGET_X86
+            if (id->idIns() == INS_push_hide)
+            {
+                dst = emitOutputL(dst, static_cast<instrDescJmp*>(id), ig);
+            }
+            else
+#endif
+            {
+                dst = emitOutputJ(dst, id, ig);
+            }
+            sz = sizeof(instrDescJmp);
             break;
 
         case IF_METHOD:
