@@ -616,6 +616,7 @@ INST1(rex_jmp,          "rex.jmp",          IUM_RD, 0x20FF,                     
 
 INST1(i_jmp,            "jmp",              IUM_RD, 0x20FF,                                                              None)
 
+INSTA(FIRST_JMP, jmp)
 INST0(jmp,              "jmp",              IUM_RD, 0xEB,                                                                None)
 INST0(l_jmp,            "jmp",              IUM_RD, 0xE9,                                                                None)
 
@@ -635,6 +636,7 @@ INST0(jl,               "jl",               IUM_RD, 0x7C,                       
 INST0(jge,              "jge",              IUM_RD, 0x7D,                                                                CcFlags_ge)
 INST0(jle,              "jle",              IUM_RD, 0x7E,                                                                CcFlags_le)
 INST0(jg,               "jg",               IUM_RD, 0x7F,                                                                CcFlags_g)
+INSTA(LAST_JMP, jg)
 
 INST0(align,            "align",            IUM_RD, BAD_CODE,                                                            None)
 // clang-format on

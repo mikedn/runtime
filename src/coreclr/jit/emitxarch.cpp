@@ -1178,22 +1178,22 @@ insFormat emitter::emitInsModeFormat(instruction ins, insFormat base)
 }
 
 // Returns the base encoding of the given CPU instruction.
-static size_t insCode(instruction ins)
+static size_t insCodeJ(instruction ins)
 {
     const static uint32_t codes[]{
 #define INST0(id, nm, um, mr, ...) mr,
-#define INST1(id, nm, um, mr, ...) mr,
-#define INST2(id, nm, um, mr, ...) mr,
-#define INST3(id, nm, um, mr, ...) mr,
-#define INST4(id, nm, um, mr, ...) mr,
-#define INST5(id, nm, um, mr, ...) mr,
+#define INST1(...)
+#define INST2(...)
+#define INST3(...)
+#define INST4(...)
+#define INST5(...)
 #include "instrsxarch.h"
     };
 
-    assert(ins < _countof(codes));
-    assert(codes[ins] != BAD_CODE);
+    assert((INS_FIRST_JMP <= ins) && (ins <= INS_LAST_JMP));
+    assert(codes[ins - INS_FIRST_JMP] != BAD_CODE);
 
-    return codes[ins];
+    return codes[ins - INS_FIRST_JMP];
 }
 
 // Returns the "AL/AX/EAX, IMM" accumulator encoding of the given instruction.
@@ -8486,7 +8486,7 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 #endif
         }
 
-        dst += emitOutputByte(dst, insCode(ins));
+        dst += emitOutputByte(dst, insCodeJ(ins));
 
         // For forward jumps, record the address of the distance value
         if (distVal > 0)
@@ -8511,7 +8511,7 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         }
         else
         {
-            code_t code = insCode(ins);
+            code_t code = insCodeJ(ins);
             assert((0x70 <= code) && (code <= 0x7F));
             dst += emitOutputWord(dst, 0x0F | ((code + 0x10) << 8));
         }
@@ -8605,7 +8605,7 @@ uint8_t* emitter::emitOutputCall(uint8_t* dst, instrDesc* id)
     {
         assert(id->idInsFmt() == IF_METHOD);
 
-        dst += emitOutputByte(dst, ins == INS_l_jmp ? insCode(ins) : insCodeMI(ins));
+        dst += emitOutputByte(dst, ins == INS_l_jmp ? insCodeJ(ins) : insCodeMI(ins));
 
 #ifdef TARGET_AMD64
         // For x64 we always go through recordRelocation since we may need jump stubs,
