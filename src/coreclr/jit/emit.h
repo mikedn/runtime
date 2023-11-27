@@ -1854,6 +1854,9 @@ private:
 
     instrDescJmp* emitNewInstrJmp()
     {
+#if EMITTER_STATS
+        emitTotalIGjmps++;
+#endif
         return emitAllocInstrJmp();
     }
 

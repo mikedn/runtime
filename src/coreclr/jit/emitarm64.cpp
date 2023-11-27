@@ -7682,10 +7682,6 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
         id->idjOffs      = emitCurIGsize;
         id->idjNext      = emitCurIGjmpList;
         emitCurIGjmpList = id;
-
-#if EMITTER_STATS
-        emitTotalIGjmps++;
-#endif
     }
 
     dispIns(id);
@@ -7797,10 +7793,6 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -7824,10 +7816,6 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNu
     id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
-
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
 
     dispIns(id);
     appendToCurIG(id);
@@ -7855,10 +7843,6 @@ void emitter::emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* dst, reg
     id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
-
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
 
     dispIns(id);
     appendToCurIG(id);
@@ -7951,10 +7935,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
 
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
-
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
 
     dispIns(id);
     appendToCurIG(id);

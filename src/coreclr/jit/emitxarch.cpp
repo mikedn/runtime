@@ -3720,10 +3720,6 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
-
     unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
     dispIns(id);
@@ -4419,10 +4415,6 @@ void emitter::emitIns_L(instruction ins, BasicBlock* dst)
     id->idCodeSize(PUSH_INST_SIZE);
     dispIns(id);
     emitCurIGsize += PUSH_INST_SIZE;
-
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
 }
 #endif // TARGET_X86
 
@@ -4466,10 +4458,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
     id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
-
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
 
     // Figure out the max. size of the jump/call instruction.
 

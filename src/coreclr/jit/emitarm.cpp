@@ -4040,10 +4040,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
-
     /* Figure out the max. size of the jump/call instruction */
 
     if (!id->idjKeepLong)
@@ -4124,10 +4120,6 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
         id->idSetIsCnsReloc();
     }
 
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -4189,10 +4181,6 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNu
 
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
-
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
 
     dispIns(id);
     appendToCurIG(id);
