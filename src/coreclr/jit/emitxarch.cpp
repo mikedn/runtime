@@ -6308,31 +6308,19 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
             code = ((code >> 8) & 0xFF) | (regcode << 8);
         }
+        else if (hasVexPrefix(code))
+        {
+            dst += emitOutputVexPrefix(ins, dst, code);
+        }
         else if ((code & 0xFF000000) != 0)
         {
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-            // Output the highest word of the opcode
-            // We need to check again because the leading escape byte(s) (e.g. 0x0F) will
-            // be encoded as part of VEX prefix when available and stripped from "code".
-            if ((code & 0xFF000000) != 0)
-            {
-                dst += emitOutputWord(dst, code >> 16);
-                code &= 0x0000FFFF;
-            }
+            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputWord(dst, code >> 16);
         }
         else if ((code & 0x00FF0000) != 0)
         {
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-            // Output the highest byte of the opcode.
-            // We need to check again because the leading escape byte(s) (e.g. 0x0F) will
-            // be encoded as part of VEX prefix when available and stripped from "code".
-            if ((code & 0x00FF0000) != 0)
-            {
-                dst += emitOutputByte(dst, code >> 16);
-                code &= 0x0000FFFF;
-            }
+            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputByte(dst, code >> 16);
 
             if ((size == EA_1BYTE) && !IsPrefetch(ins))
             {
@@ -6644,31 +6632,19 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
         code = ((code >> 8) & 0xFF) | (regcode << 8);
     }
+    else if (hasVexPrefix(code))
+    {
+        dst += emitOutputVexPrefix(ins, dst, code);
+    }
     else if ((code & 0xFF000000) != 0)
     {
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-        // Output the highest word of the opcode.
-        // We need to check again because the leading escape byte(s) (e.g. 0x0F) will
-        // be encoded as part of VEX prefix when available and stripped from "code".
-        if ((code & 0xFF000000) != 0)
-        {
-            dst += emitOutputWord(dst, code >> 16);
-            code &= 0x0000FFFF;
-        }
+        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputWord(dst, code >> 16);
     }
     else if ((code & 0x00FF0000) != 0)
     {
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-        // Output the highest byte of the opcode.
-        // We need to check again because the leading escape byte(s) (e.g. 0x0F) will
-        // be encoded as part of VEX prefix when available and stripped from "code".
-        if ((code & 0x00FF0000) != 0)
-        {
-            dst += emitOutputByte(dst, code >> 16);
-            code &= 0x0000FFFF;
-        }
+        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputByte(dst, code >> 16);
 
         if (size == EA_1BYTE)
         {
@@ -7001,31 +6977,19 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
             code = ((code >> 8) & 0xFF) | (regcode << 8);
         }
+        else if (hasVexPrefix(code))
+        {
+            dst += emitOutputVexPrefix(ins, dst, code);
+        }
         else if ((code & 0xFF000000) != 0)
         {
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-            // Output the highest word of the opcode.
-            // We need to check again because the leading escape byte(s) (e.g. 0x0F) will
-            // be encoded as part of VEX prefix when available and stripped from "code".
-            if ((code & 0xFF000000) != 0)
-            {
-                dst += emitOutputWord(dst, code >> 16);
-                code &= 0x0000FFFF;
-            }
+            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputWord(dst, code >> 16);
         }
         else if ((code & 0x00FF0000) != 0)
         {
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-            // Output the highest byte of the opcode.
-            // We need to check again because the leading escape byte(s) (e.g. 0x0F) will
-            // be encoded as part of VEX prefix when available and stripped from "code".
-            if ((code & 0x00FF0000) != 0)
-            {
-                dst += emitOutputByte(dst, code >> 16);
-                code &= 0x0000FFFF;
-            }
+            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputByte(dst, code >> 16);
 
             if (size == EA_1BYTE)
             {
@@ -7970,15 +7934,22 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
             code = SetVexVvvv(ins, reg, size, code);
         }
 
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-        if (code & 0xFF000000)
+        if (hasVexPrefix(code))
         {
-            dst += emitOutputWord(dst, code >> 16);
+            dst += emitOutputVexPrefix(ins, dst, code);
         }
-        else if (code & 0xFF0000)
+        else
         {
-            dst += emitOutputByte(dst, code >> 16);
+            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+
+            if (code & 0xFF000000)
+            {
+                dst += emitOutputWord(dst, code >> 16);
+            }
+            else if (code & 0xFF0000)
+            {
+                dst += emitOutputByte(dst, code >> 16);
+            }
         }
 
         dst += emitOutputWord(dst, code);
