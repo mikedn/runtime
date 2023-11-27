@@ -7291,8 +7291,8 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
     regNumber   reg2 = id->idReg2();
     emitAttr    size = id->idOpSize();
     code_t      code;
-    regNumber   regFor012Bits = reg2;
-    regNumber   regFor345Bits = reg1;
+    regNumber   reg012 = reg2;
+    regNumber   reg345 = reg1;
 
     if (IsSSEOrAVXInstruction(ins))
     {
@@ -7308,7 +7308,6 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         }
 
         code = AddVexPrefixIfNeeded(ins, code, size);
-        code = insEncodeRMreg(ins, code);
 
         if (TakesRexWPrefix(ins, size))
         {
@@ -7336,7 +7335,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 
         if (IsBMIRegExtInstruction(ins))
         {
-            regFor345Bits = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
+            reg345 = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
         }
         else if (ins == INS_movd)
         {
@@ -7344,7 +7343,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 
             if (IsFloatReg(reg2))
             {
-                std::swap(regFor012Bits, regFor345Bits);
+                std::swap(reg012, reg345);
             }
         }
     }
@@ -7353,7 +7352,6 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         assert(!hasCodeMI(ins) && !hasCodeMR(ins));
 
         code = insCodeRM(ins);
-        code = insEncodeRMreg(ins, code);
 
         if (size == EA_1BYTE)
         {
@@ -7377,7 +7375,6 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 
         code = insCodeRM(ins);
         code = AddRexWPrefix(ins, code);
-        code = insEncodeRMreg(ins, code);
     }
 #endif
     else if (ins == INS_imul)
@@ -7386,7 +7383,6 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         assert(size != EA_1BYTE);
 
         code = insCodeRM(ins);
-        code = insEncodeRMreg(ins, code);
 
         // TODO-MIKE-Cleanup: There should be no need to generate a 16 bit imul.
         if (size == EA_2BYTE)
@@ -7406,7 +7402,6 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         assert(size != EA_1BYTE);
 
         code = insCodeMR(ins);
-        code = insEncodeRMreg(ins, code);
 
         // TODO-MIKE-Cleanup: There should be no need to generate a 16 bit bt.
         if (size == EA_2BYTE)
@@ -7420,7 +7415,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         }
 #endif
 
-        std::swap(regFor345Bits, regFor012Bits);
+        std::swap(reg345, reg012);
     }
     else if ((ins == INS_bsf) || (ins == INS_bsr) || (ins == INS_crc32) || (ins == INS_lzcnt) || (ins == INS_popcnt) ||
              (ins == INS_tzcnt))
@@ -7428,7 +7423,6 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         assert(!hasCodeMI(ins) && !hasCodeMR(ins) && !TakesVexPrefix(ins));
 
         code = insCodeRM(ins);
-        code = insEncodeRMreg(ins, code);
 
         if (size == EA_1BYTE)
         {
@@ -7451,7 +7445,6 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         assert(!TakesVexPrefix(ins));
 
         code = insCodeMR(ins);
-        code = insEncodeRMreg(ins, code);
 
         if (ins != INS_test)
         {
@@ -7494,55 +7487,47 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         }
     }
 
-    unsigned regCode = insEncodeReg345(ins, regFor345Bits, size, &code);
-    regCode |= insEncodeReg012(ins, regFor012Bits, size, &code);
+    code_t regCode = 0xC0 | insEncodeReg345(ins, reg345, size, &code) | insEncodeReg012(ins, reg012, size, &code);
 
-    if (hasVexPrefix(code))
+    if (IsSSE38orSSE3A(code) || (ins == INS_crc32))
+    {
+        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+
+        if (UseVEXEncoding() && (ins != INS_crc32))
+        {
+            // Emit last opcode byte
+            // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
+            assert((code & 0xFF) == 0);
+        }
+        else
+        {
+            dst += emitOutputWord(dst, code >> 16);
+            dst += emitOutputByte(dst, code);
+        }
+
+        code = (code >> 8) & 0xFF;
+    }
+    else if (hasVexPrefix(code))
     {
         dst += emitOutputVexPrefix(ins, dst, code);
     }
-    else if (IsSSE38orSSE3A(code))
-    {
-        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-        dst += emitOutputWord(dst, code >> 16);
-        dst += emitOutputByte(dst, code);
-        code &= 0xFF00;
-    }
     else
     {
         dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
 
-        if (code & 0xFF000000)
+        if ((code & 0xFF000000) != 0)
         {
-            assert(!TakesVexPrefix(ins));
-
             dst += emitOutputWord(dst, code >> 16);
-            code &= 0x0000FFFF;
         }
-        else if (code & 0x00FF0000)
+        else if ((code & 0x00FF0000) != 0)
         {
-            assert(!TakesVexPrefix(ins));
-
             dst += emitOutputByte(dst, code >> 16);
-            code &= 0x0000FFFF;
         }
     }
 
-    // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
-    if ((code & 0xFF00) == 0xC000)
-    {
-        dst += emitOutputWord(dst, code | (regCode << 8));
-    }
-    else if ((code & 0xFF) == 0x00)
-    {
-        dst += emitOutputByte(dst, (code >> 8) & 0xFF);
-        dst += emitOutputByte(dst, (0xC0 | regCode));
-    }
-    else
-    {
-        dst += emitOutputWord(dst, code);
-        dst += emitOutputByte(dst, (0xC0 | regCode));
-    }
+    assert((code & 0xFF00) == 0);
+
+    dst += emitOutputWord(dst, code | (regCode << 8));
 
     if (id->idGCref())
     {
@@ -7670,6 +7655,8 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
 {
     assert(IsVexTernary(id->idIns()));
+    assert((id->idInsFmt() == IF_RWR_RRD_RRD) || (id->idInsFmt() == IF_RWR_RRD_RRD_CNS) ||
+           (id->idInsFmt() == IF_RWR_RRD_RRD_RRD));
 
     instruction ins  = id->idIns();
     regNumber   reg1 = id->idReg1();
@@ -7678,42 +7665,32 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
     emitAttr    size = id->idOpSize();
 
     code_t code = insCodeRM(ins);
-    code        = AddVexPrefix(ins, code, size);
-    code        = insEncodeRMreg(ins, code);
+
+    code = AddVexPrefix(ins, code, size);
 
     if (TakesRexWPrefix(ins, size))
     {
         code = AddRexWPrefix(ins, code);
     }
 
-    unsigned regCode = insEncodeReg345(ins, reg1, size, &code);
-    regCode |= insEncodeReg012(ins, reg3, size, &code);
-    code = SetVexVvvv(ins, reg2, size, code);
+    code_t rmCode = 0xC0 | insEncodeReg345(ins, reg1, size, &code) | insEncodeReg012(ins, reg3, size, &code);
+    code          = SetVexVvvv(ins, reg2, size, code);
 
+    bool is4ByteOpcode = IsSSE38orSSE3A(code);
     dst += emitOutputVexPrefix(ins, dst, code);
 
-    // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
-    if ((code & 0xFF00) == 0xC000)
+    if (is4ByteOpcode)
     {
-        dst += emitOutputWord(dst, code | (regCode << 8));
-    }
-    else if ((code & 0xFF) == 0x00)
-    {
-        dst += emitOutputByte(dst, (code >> 8) & 0xFF);
-        dst += emitOutputByte(dst, (0xC0 | regCode));
-    }
-    else
-    {
-        dst += emitOutputWord(dst, code);
-        dst += emitOutputByte(dst, (0xC0 | regCode));
+        code = (code >> 8) & 0xFF;
     }
 
-    noway_assert(!id->idGCref());
-    assert((id->idInsFmt() == IF_RWR_RRD_RRD) || (id->idInsFmt() == IF_RWR_RRD_RRD_CNS) ||
-           (id->idInsFmt() == IF_RWR_RRD_RRD_RRD));
+    assert((code & 0xFF00) == 0);
+
+    dst += emitOutputWord(dst, code | (rmCode << 8));
 
     if (IsGeneralRegister(id->idReg1()))
     {
+        noway_assert(!id->idGCref());
         emitGCregDeadUpd(id->idReg1(), dst);
     }
 
@@ -7735,7 +7712,6 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
     {
         code = insCodeMR(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
-        code = insEncodeRMreg(ins, code);
 
         mReg = id->idReg1();
         rReg = id->idReg2();
@@ -7746,19 +7722,14 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
         code = insCodeMI(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
-        assert((code & 0xC000) == 0);
 
         mReg = id->idReg2();
         rReg = static_cast<regNumber>((code >> 11) & 7);
-        // TODO-MIKE-Cleanup: The code below doesn't handle the RM opcode extension properly.
-        code &= ~0xFF00ull;
-        code |= 0xC000;
     }
     else
     {
         code = insCodeRM(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
-        code = insEncodeRMreg(ins, code);
 
         mReg = id->idReg2();
         rReg = id->idReg1();
@@ -7805,54 +7776,47 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
         }
     }
 
-    unsigned regcode = insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, mReg, size, &code);
+    code_t rmCode = 0xC0 | insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, mReg, size, &code);
 
-    if (hasVexPrefix(code))
+    if (IsSSE38orSSE3A(code))
+    {
+        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+
+        if (UseVEXEncoding())
+        {
+            // Emit last opcode byte
+            // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
+            assert((code & 0xFF) == 0);
+        }
+        else
+        {
+            dst += emitOutputWord(dst, code >> 16);
+            dst += emitOutputByte(dst, code);
+        }
+
+        code = (code >> 8) & 0xFF;
+    }
+    else if (hasVexPrefix(code))
     {
         dst += emitOutputVexPrefix(ins, dst, code);
     }
-    else if (IsSSE38orSSE3A(code))
-    {
-        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-        dst += emitOutputWord(dst, code >> 16);
-        dst += emitOutputByte(dst, code);
-        code &= 0xFF00;
-    }
     else
     {
         dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
 
-        if (code & 0xFF000000)
+        if ((code & 0xFF000000) != 0)
         {
-            assert(!TakesVexPrefix(ins));
-
             dst += emitOutputWord(dst, code >> 16);
-            code &= 0x0000FFFF;
         }
-        else if (code & 0x00FF0000)
+        else if ((code & 0x00FF0000) != 0)
         {
-            assert(!TakesVexPrefix(ins));
-
             dst += emitOutputByte(dst, code >> 16);
-            code &= 0x0000FFFF;
         }
     }
 
-    // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
-    if ((code & 0xFF00) == 0xC000)
-    {
-        dst += emitOutputWord(dst, code | (regcode << 8));
-    }
-    else if ((code & 0xFF) == 0x00)
-    {
-        dst += emitOutputByte(dst, (code >> 8) & 0xFF);
-        dst += emitOutputByte(dst, (0xC0 | regcode));
-    }
-    else
-    {
-        dst += emitOutputWord(dst, code);
-        dst += emitOutputByte(dst, (0xC0 | regcode));
-    }
+    assert(((code & 0xFF00) == 0) || ((INS_psrldq <= ins) && (ins <= INS_psrad)));
+
+    dst += emitOutputWord(dst, code | (rmCode << 8));
 
     if ((ins == INS_imuli) && ((code & 0x02) == 0))
     {
