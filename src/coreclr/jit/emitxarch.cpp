@@ -7958,25 +7958,23 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
     {
         assert(!TakesVexPrefix(ins));
 
-        code_t code = insCodeMI(ins);
+        code_t code = insEncodeRMreg(ins, id->idReg1(), size, insCodeMI(ins));
 
-        code = insEncodeRMreg(ins, id->idReg1(), size, code);
-
-        // set the W bit
-        if (size != EA_1BYTE)
+        if (size == EA_1BYTE)
         {
-            code |= 1;
+            assert(HasWBit(ins) && ((code & 1) != 0));
+            code ^= 1;
         }
-
-        if (TakesRexWPrefix(ins, size))
-        {
-            code = AddRexWPrefix(ins, code);
-        }
-
-        if (size == EA_2BYTE)
+        else if (size == EA_2BYTE)
         {
             dst += emitOutputByte(dst, 0x66);
         }
+#ifdef TARGET_AMD64
+        else if (size == EA_8BYTE)
+        {
+            code = AddRexWPrefix(ins, code);
+        }
+#endif
 
         dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
         dst += emitOutputWord(dst, code);
