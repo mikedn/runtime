@@ -43,6 +43,7 @@ void emitIns_Nop(unsigned size);
 void emitIns_Lock();
 #ifdef TARGET_X86
 void emitIns_H(instruction ins, void* addr);
+void emitIns_L(instruction ins, BasicBlock* dst);
 #endif
 #ifdef WINDOWS_X86_ABI
 void emitInsMov_R_FS(regNumber reg, int offs);
@@ -229,7 +230,7 @@ uint8_t* emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig);
 #ifdef TARGET_X86
 uint8_t* emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig);
 #endif
-uint8_t* emitOutputJ(uint8_t* dst, instrDesc* id, insGroup* ig);
+uint8_t* emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
 uint8_t* emitOutputCall(uint8_t* dst, instrDesc* id);
 uint8_t* emitOutputNoOperands(uint8_t* dst, instrDesc* id);
 

@@ -4478,14 +4478,14 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 #endif
             insGroup* tgt = jmp->idAddr()->iiaIGlabel;
 
-            if (jmp->idjTemp.idjAddr == nullptr)
+            if (jmp->idjAddr == nullptr)
             {
                 continue;
             }
 
             if (jmp->idjOffs != tgt->igOffs)
             {
-                BYTE* adr = jmp->idjTemp.idjAddr;
+                BYTE* adr = jmp->idjAddr;
                 int   adj = jmp->idjOffs - tgt->igOffs;
 #ifdef TARGET_ARM
                 // On Arm, the offset is encoded in unit of 2 bytes.

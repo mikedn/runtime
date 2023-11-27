@@ -623,7 +623,7 @@ static bool TakesRexWPrefix(instruction ins, emitAttr attr)
     // so we never need it
 
     return (ins != INS_push) && (ins != INS_pop) && (ins != INS_movq) && (ins != INS_movzx) && (ins != INS_push_hide) &&
-           (ins != INS_pop_hide) && (ins != INS_ret) && (ins != INS_call) && !((ins >= INS_i_jmp) && (ins <= INS_l_jg));
+           (ins != INS_pop_hide) && (ins != INS_ret) && (ins != INS_call) && !((ins >= INS_i_jmp) && (ins <= INS_jg));
 #endif // TARGET_AMD64
 }
 
@@ -2817,7 +2817,7 @@ bool emitter::IsMovInstruction(instruction ins)
 
 bool emitter::IsJccInstruction(instruction ins)
 {
-    return ((ins >= INS_jo) && (ins <= INS_jg)) || ((ins >= INS_l_jo) && (ins <= INS_l_jg));
+    return (ins >= INS_jo) && (ins <= INS_jg);
 }
 
 bool emitter::IsJmpInstruction(instruction ins)
@@ -4392,8 +4392,44 @@ void emitter::emitSetShortJump(instrDescJmp* id)
     }
 }
 
+#ifdef TARGET_X86
+void emitter::emitIns_L(instruction ins, BasicBlock* dst)
+{
+    assert(ins == INS_push_hide);
+    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
+
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(ins);
+    id->idInsFmt(IF_LABEL);
+    id->idAddr()->iiaBBlabel = dst;
+    id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst);
+    id->idjIG                = emitCurIG;
+    id->idjOffs              = emitCurIGsize;
+
+    // Pushing the address of a basicBlock will need a reloc as the
+    // instruction uses the absolute address, not a relative address.
+    if (emitComp->opts.compReloc)
+    {
+        id->idSetIsDspReloc();
+    }
+
+    id->idjNext      = emitCurIGjmpList;
+    emitCurIGjmpList = id;
+
+    id->idCodeSize(PUSH_INST_SIZE);
+    dispIns(id);
+    emitCurIGsize += PUSH_INST_SIZE;
+
+#if EMITTER_STATS
+    emitTotalIGjmps++;
+#endif
+}
+#endif // TARGET_X86
+
 void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
 {
+    assert((ins == INS_jmp) || IsJccInstruction(ins) AMD64_ONLY(|| ins == INS_call));
+
     instrDescJmp* id = emitNewInstrJmp();
 
     if (dst != nullptr)
@@ -4442,17 +4478,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
     if (ins == INS_call)
     {
         sz = CALL_INST_SIZE;
-    }
-    else if (ins == INS_push || ins == INS_push_hide)
-    {
-        // Pushing the address of a basicBlock will need a reloc
-        // as the instruction uses the absolute address,
-        // not a relative address
-        if (emitComp->opts.compReloc)
-        {
-            id->idSetIsDspReloc();
-        }
-        sz = PUSH_INST_SIZE;
     }
     else
     {
@@ -8223,8 +8248,8 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     if (dstOffs > srcOffs)
     {
         // This is a forward jump - distance will be an upper limit.
-        emitFwdJumps        = true;
-        id->idjTemp.idjAddr = dst;
+        emitFwdJumps = true;
+        id->idjAddr  = dst;
 
         // The target offset will be closer by at least 'emitOffsAdj',
         // but only if this jump doesn't cross the hot-cold boundary.
@@ -8269,7 +8294,7 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idGCref() == GCT_NONE);
     assert(id->idIsBound());
     assert(!id->idAddr()->iiaHasInstrCount());
-    //assert(id->idjKeepLong); // TODO-MIKE-Cleanup: This should be set but emitIns_J forgot to do it.
+    // assert(id->idjKeepLong); // TODO-MIKE-Cleanup: This should be set but emitIns_J forgot to do it.
     assert(!id->idjShort);
 
     unsigned srcOffs = emitCurCodeOffs(dst);
@@ -8282,8 +8307,8 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     if (dstOffs > srcOffs)
     {
         // This is a forward jump - distance will be an upper limit
-        emitFwdJumps        = true;
-        id->idjTemp.idjAddr = dst;
+        emitFwdJumps = true;
+        id->idjAddr  = dst;
 
         // The target offset will be closer by at least 'emitOffsAdj', but only if this
         // jump doesn't cross the hot-cold boundary.
@@ -8314,71 +8339,61 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 }
 #endif // TARGET_X86
 
-uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDesc* i, insGroup* ig)
+uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
-    assert(i->idGCref() == GCT_NONE);
-    assert(i->idIsBound());
-    assert(i->idInsFmt() != IF_RWR_LABEL);
+    assert(id->idGCref() == GCT_NONE);
+    assert(id->idIsBound());
+    assert(id->idInsFmt() == IF_LABEL);
 
-    instrDescJmp* id  = static_cast<instrDescJmp*>(i);
-    instruction   ins = id->idIns();
-    bool          isJump;
+    instruction ins = id->idIns();
+    size_t      ssz;
+    size_t      lsz;
 
-    bool   relAddr = true; // does the instruction use relative-addressing?
-    size_t ssz;
-    size_t lsz;
-
-    switch (ins)
+    if (ins == INS_jmp)
     {
-        default:
-            assert((INS_jo <= ins) && (ins <= INS_jg));
-            ssz    = JCC_SIZE_SMALL;
-            lsz    = JCC_SIZE_LARGE;
-            isJump = true;
-            break;
+        ssz = JMP_SIZE_SMALL;
+        lsz = JMP_SIZE_LARGE;
+    }
+#ifdef FEATURE_EH_FUNCLETS
+    else if (ins == INS_call)
+    {
+        ssz = CALL_INST_SIZE;
+        lsz = CALL_INST_SIZE;
+    }
+#endif
+    else
+    {
+        assert((INS_jo <= ins) && (ins <= INS_jg));
 
-        case INS_jmp:
-            ssz    = JMP_SIZE_SMALL;
-            lsz    = JMP_SIZE_LARGE;
-            isJump = true;
-            break;
-
-        case INS_call:
-            ssz = lsz = CALL_INST_SIZE;
-            isJump    = false;
-            break;
+        ssz = JCC_SIZE_SMALL;
+        lsz = JCC_SIZE_LARGE;
     }
 
-    // Figure out the distance to the target
     unsigned srcOffs = emitCurCodeOffs(dst);
-    uint8_t* srcAddr = emitOffsetToPtr(srcOffs);
     unsigned dstOffs;
-    uint8_t* dstAddr;
 
     if (id->idAddr()->iiaHasInstrCount())
     {
         assert(ig != nullptr);
         int      instrCount = id->idAddr()->iiaGetInstrCount();
         unsigned insNum     = emitFindInsNum(ig, id);
+
         if (instrCount < 0)
         {
             // Backward branches using instruction count must be within the same instruction group.
             assert(insNum + 1 >= (unsigned)(-instrCount));
         }
+
         dstOffs = ig->igOffs + emitFindOffset(ig, (insNum + 1 + instrCount));
-        dstAddr = emitOffsetToPtr(dstOffs);
     }
     else
     {
         dstOffs = id->idAddr()->iiaIGlabel->igOffs;
-        dstAddr = emitOffsetToPtr(dstOffs);
-        if (!relAddr)
-        {
-            srcAddr = nullptr;
-        }
     }
 
-    ssize_t distVal = static_cast<ssize_t>(dstAddr - srcAddr);
+    uint8_t* srcAddr = emitOffsetToPtr(srcOffs);
+    uint8_t* dstAddr = emitOffsetToPtr(dstOffs);
+    ssize_t  distVal = static_cast<ssize_t>(dstAddr - srcAddr);
 
     if (dstOffs <= srcOffs)
     {
@@ -8401,7 +8416,7 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDesc* i, insGroup* ig)
 #endif
 
         // Can we use a short jump?
-        if (isJump && distVal - ssz >= (size_t)JMP_DIST_SMALL_MAX_NEG)
+        if ((ins != INS_call) && distVal - ssz >= (size_t)JMP_DIST_SMALL_MAX_NEG)
         {
             emitSetShortJump(id);
         }
@@ -8443,17 +8458,14 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDesc* i, insGroup* ig)
         }
 #endif
 
-        if (isJump && distVal - ssz <= (size_t)JMP_DIST_SMALL_MAX_POS)
+        if ((ins != INS_call) && distVal - ssz <= (size_t)JMP_DIST_SMALL_MAX_POS)
         {
             emitSetShortJump(id);
         }
     }
 
     // Adjust the offset to emit relative to the end of the instruction
-    if (relAddr)
-    {
-        distVal -= id->idjShort ? ssz : lsz;
-    }
+    distVal -= id->idjShort ? ssz : lsz;
 
 #ifdef DEBUG
     if (0 && emitComp->verbose)
@@ -8470,11 +8482,9 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDesc* i, insGroup* ig)
     {
         assert(!id->idjKeepLong);
         assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
-
         assert(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
         assert(JMP_SIZE_SMALL == 2);
-
-        assert(isJump);
+        assert(ins != INS_call);
 
         if (id->idCodeSize() != JMP_SIZE_SMALL)
         {
@@ -8491,68 +8501,47 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDesc* i, insGroup* ig)
         dst += emitOutputByte(dst, insCode(ins));
 
         // For forward jumps, record the address of the distance value
-        id->idjTemp.idjAddr = (distVal > 0) ? dst : nullptr;
+        if (distVal > 0)
+        {
+            id->idjAddr = dst;
+        }
 
         dst += emitOutputByte(dst, distVal);
     }
     else
     {
-        code_t code;
-
-        // Long  jump
-        if (isJump)
+#ifdef FEATURE_EH_FUNCLETS
+        if (ins == INS_call)
         {
-            // clang-format off
-            static_assert_no_msg(INS_jmp + (INS_l_jmp - INS_jmp) == INS_l_jmp);
-            static_assert_no_msg(INS_jo  + (INS_l_jmp - INS_jmp) == INS_l_jo);
-            static_assert_no_msg(INS_jb  + (INS_l_jmp - INS_jmp) == INS_l_jb);
-            static_assert_no_msg(INS_jae + (INS_l_jmp - INS_jmp) == INS_l_jae);
-            static_assert_no_msg(INS_je  + (INS_l_jmp - INS_jmp) == INS_l_je);
-            static_assert_no_msg(INS_jne + (INS_l_jmp - INS_jmp) == INS_l_jne);
-            static_assert_no_msg(INS_jbe + (INS_l_jmp - INS_jmp) == INS_l_jbe);
-            static_assert_no_msg(INS_ja  + (INS_l_jmp - INS_jmp) == INS_l_ja);
-            static_assert_no_msg(INS_js  + (INS_l_jmp - INS_jmp) == INS_l_js);
-            static_assert_no_msg(INS_jns + (INS_l_jmp - INS_jmp) == INS_l_jns);
-            static_assert_no_msg(INS_jp  + (INS_l_jmp - INS_jmp) == INS_l_jp);
-            static_assert_no_msg(INS_jnp + (INS_l_jmp - INS_jmp) == INS_l_jnp);
-            static_assert_no_msg(INS_jl  + (INS_l_jmp - INS_jmp) == INS_l_jl);
-            static_assert_no_msg(INS_jge + (INS_l_jmp - INS_jmp) == INS_l_jge);
-            static_assert_no_msg(INS_jle + (INS_l_jmp - INS_jmp) == INS_l_jle);
-            static_assert_no_msg(INS_jg  + (INS_l_jmp - INS_jmp) == INS_l_jg);
-            // clang-format on
-
-            code = insCode((instruction)(ins + (INS_l_jmp - INS_jmp)));
+            dst += emitOutputByte(dst, 0xE8);
+        }
+        else
+#endif
+            if (ins == INS_jmp)
+        {
+            dst += emitOutputByte(dst, 0xE9);
         }
         else
         {
-            code = 0xE8;
-        }
-
-        dst += emitOutputByte(dst, code);
-
-        if (code & 0xFF00)
-        {
-            dst += emitOutputByte(dst, code >> 8);
+            code_t code = insCode(ins);
+            assert((0x70 <= code) && (code <= 0x7F));
+            dst += emitOutputWord(dst, 0x0F | ((code + 0x10) << 8));
         }
 
         // For forward jumps, record the address of the distance value
-        id->idjTemp.idjAddr = (dstOffs > srcOffs) ? dst : nullptr;
+        if (dstOffs > srcOffs)
+        {
+            id->idjAddr = dst;
+        }
 
         dst += emitOutputLong(dst, distVal);
 
-#ifdef TARGET_X86 // For x64 we always go through recordRelocation since we may need jump stubs.
-        if (emitComp->opts.compReloc)
-#endif
+        // For x64 we always go through recordRelocation since we may need jump stubs.
+        // TODO-MIKE-Review: Hmm, jump stubs for jumps within the same method?!?
+        if (X86_ONLY(emitComp->opts.compReloc &&) emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
         {
-            if (!relAddr)
-            {
-                emitRecordRelocation(dst - 4, reinterpret_cast<void*>(distVal), IMAGE_REL_BASED_HIGHLOW);
-            }
-            else if (emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
-            {
-                assert(id->idjKeepLong);
-                emitRecordRelocation(dst - 4, dst + distVal, IMAGE_REL_BASED_REL32);
-            }
+            assert(id->idjKeepLong);
+            emitRecordRelocation(dst - 4, dst + distVal, IMAGE_REL_BASED_REL32);
         }
     }
 
@@ -8763,7 +8752,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             else
 #endif
             {
-                dst = emitOutputJ(dst, id, ig);
+                dst = emitOutputJ(dst, static_cast<instrDescJmp*>(id), ig);
             }
             sz = sizeof(instrDescJmp);
             break;

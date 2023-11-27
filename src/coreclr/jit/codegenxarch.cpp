@@ -354,7 +354,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     if (!(block->bbFlags & BBF_RETLESS_CALL))
     {
         assert(block->isBBCallAlwaysPair());
-        GetEmitter()->emitIns_J(INS_push_hide, block->bbNext->bbJumpDest);
+        GetEmitter()->emitIns_L(INS_push_hide, block->bbNext->bbJumpDest);
     }
     else
     {

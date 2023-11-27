@@ -1237,10 +1237,7 @@ private:
     {
         instrDescJmp* idjNext; // next jump in the group/method
         insGroup*     idjIG;   // containing group
-
-        union {
-            BYTE* idjAddr; // address of jump ins (for patching)
-        } idjTemp;
+        uint8_t*      idjAddr; // address of jump ins (for patching)
 
         unsigned idjOffs : 30; // Before jump emission, this is the byte offset within IG of the jump instruction.
         // After emission, for forward jumps, this is the target offset -- in bytes from the

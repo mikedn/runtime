@@ -9318,7 +9318,7 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
 #endif
 
     /* For forward jumps, record the address of the distance value */
-    id->idjTemp.idjAddr = (distVal > 0) ? dst : NULL;
+    id->idjAddr = (distVal > 0) ? dst : nullptr;
 
     if (emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
     {

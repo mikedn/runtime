@@ -4882,7 +4882,7 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
             assert(JMP_SIZE_SMALL == 2);
 
             /* For forward jumps, record the address of the distance value */
-            id->idjTemp.idjAddr = (distVal > 0) ? dst : NULL;
+            id->idjAddr = (distVal > 0) ? dst : nullptr;
 
             dst = emitOutputShortBranch(dst, ins, fmt, distVal, id);
         }
@@ -4891,7 +4891,7 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
             /* Long  jump */
 
             /* For forward jumps, record the address of the distance value */
-            id->idjTemp.idjAddr = (dstOffs > srcOffs) ? dst : NULL;
+            id->idjAddr = (dstOffs > srcOffs) ? dst : nullptr;
 
             if (fmt == IF_LARGEJMP)
             {
@@ -5006,7 +5006,7 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
     else if (loadLabel)
     {
         /* For forward jumps, record the address of the distance value */
-        id->idjTemp.idjAddr = (distVal > 0) ? dst : NULL;
+        id->idjAddr = (distVal > 0) ? dst : nullptr;
 
         code = emitInsCode(ins, fmt);
 
@@ -5041,7 +5041,7 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
         {
             assert(ins == INS_movt || ins == INS_movw);
             code |= insEncodeRegT2_D(id->idReg1());
-            ((instrDescJmp*)id)->idjTemp.idjAddr = (dstOffs > srcOffs) ? dst : NULL;
+            ((instrDescJmp*)id)->idjAddr = (dstOffs > srcOffs) ? dst : nullptr;
 
             if (id->idIsCnsReloc())
             {

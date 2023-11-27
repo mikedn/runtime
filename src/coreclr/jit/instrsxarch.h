@@ -617,6 +617,8 @@ INST1(rex_jmp,          "rex.jmp",          IUM_RD, 0x20FF,                     
 INST1(i_jmp,            "jmp",              IUM_RD, 0x20FF,                                                              None)
 
 INST0(jmp,              "jmp",              IUM_RD, 0xEB,                                                                None)
+INST0(l_jmp,            "jmp",              IUM_RD, 0xE9,                                                                None)
+
 INST0(jo,               "jo",               IUM_RD, 0x70,                                                                CcFlags_o)
 INST0(jno,              "jno",              IUM_RD, 0x71,                                                                CcFlags_no)
 INST0(jb,               "jb",               IUM_RD, 0x72,                                                                CcFlags_b)
@@ -633,24 +635,6 @@ INST0(jl,               "jl",               IUM_RD, 0x7C,                       
 INST0(jge,              "jge",              IUM_RD, 0x7D,                                                                CcFlags_ge)
 INST0(jle,              "jle",              IUM_RD, 0x7E,                                                                CcFlags_le)
 INST0(jg,               "jg",               IUM_RD, 0x7F,                                                                CcFlags_g)
-
-INST0(l_jmp,            "jmp",              IUM_RD, 0xE9,                                                                None)
-INST0(l_jo,             "jo",               IUM_RD, 0x800F,                                                              CcFlags_o)
-INST0(l_jno,            "jno",              IUM_RD, 0x810F,                                                              CcFlags_no)
-INST0(l_jb,             "jb",               IUM_RD, 0x820F,                                                              CcFlags_b)
-INST0(l_jae,            "jae",              IUM_RD, 0x830F,                                                              CcFlags_ae)
-INST0(l_je,             "je",               IUM_RD, 0x840F,                                                              CcFlags_e)
-INST0(l_jne,            "jne",              IUM_RD, 0x850F,                                                              CcFlags_ne)
-INST0(l_jbe,            "jbe",              IUM_RD, 0x860F,                                                              CcFlags_be)
-INST0(l_ja,             "ja",               IUM_RD, 0x870F,                                                              CcFlags_a)
-INST0(l_js,             "js",               IUM_RD, 0x880F,                                                              CcFlags_s)
-INST0(l_jns,            "jns",              IUM_RD, 0x890F,                                                              CcFlags_ns)
-INST0(l_jp,             "jp",               IUM_RD, 0x8A0F,                                                              CcFlags_p)
-INST0(l_jnp,            "jnp",              IUM_RD, 0x8B0F,                                                              CcFlags_np)
-INST0(l_jl,             "jl",               IUM_RD, 0x8C0F,                                                              CcFlags_l)
-INST0(l_jge,            "jge",              IUM_RD, 0x8D0F,                                                              CcFlags_ge)
-INST0(l_jle,            "jle",              IUM_RD, 0x8E0F,                                                              CcFlags_le)
-INST0(l_jg,             "jg",               IUM_RD, 0x8F0F,                                                              CcFlags_g)
 
 INST0(align,            "align",            IUM_RD, BAD_CODE,                                                            None)
 // clang-format on
