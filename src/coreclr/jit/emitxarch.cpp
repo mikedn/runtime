@@ -6312,22 +6312,6 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         {
             dst += emitOutputVexPrefix(ins, dst, code);
         }
-        else if ((code & 0xFF000000) != 0)
-        {
-            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-            dst += emitOutputWord(dst, code >> 16);
-        }
-        else if ((code & 0x00FF0000) != 0)
-        {
-            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-            dst += emitOutputByte(dst, code >> 16);
-
-            if ((size == EA_1BYTE) && !IsPrefetch(ins))
-            {
-                assert(HasWBit(ins) && ((code & 1) != 0));
-                code ^= 1;
-            }
-        }
 #ifdef TARGET_X86
         else if (instIsFP(ins))
         {
@@ -6341,27 +6325,37 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 #endif
         else
         {
-            assert(!IsSSEOrAVXInstruction(ins));
-
-            switch (size)
+            if (size == EA_1BYTE)
             {
-                case EA_1BYTE:
+                if (!IsPrefetch(ins))
+                {
                     assert(HasWBit(ins) && ((code & 1) != 0));
                     code ^= 1;
-                    break;
-                case EA_2BYTE:
+                }
+            }
+            else if (size == EA_2BYTE)
+            {
+                if ((ins != INS_movzx) && (ins != INS_movsx))
+                {
+                    assert(!IsSSEOrAVXInstruction(ins));
                     dst += emitOutputByte(dst, 0x66);
-                    break;
-                case EA_4BYTE:
-#ifdef TARGET_AMD64
-                case EA_8BYTE:
-#endif
-                    break;
-                default:
-                    unreached();
+                }
+            }
+            else
+            {
+                assert((size == EA_4BYTE) || IsSSEOrAVXInstruction(ins) AMD64_ONLY(|| size == EA_8BYTE));
             }
 
             dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+
+            if ((code & 0xFF000000) != 0)
+            {
+                dst += emitOutputWord(dst, code >> 16);
+            }
+            else if ((code & 0x00FF0000) != 0)
+            {
+                dst += emitOutputByte(dst, code >> 16);
+            }
         }
 
         disp = emitGetInsAmdDisp(id);
@@ -6636,22 +6630,6 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     {
         dst += emitOutputVexPrefix(ins, dst, code);
     }
-    else if ((code & 0xFF000000) != 0)
-    {
-        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-        dst += emitOutputWord(dst, code >> 16);
-    }
-    else if ((code & 0x00FF0000) != 0)
-    {
-        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-        dst += emitOutputByte(dst, code >> 16);
-
-        if (size == EA_1BYTE)
-        {
-            assert(HasWBit(ins) && ((code & 1) != 0));
-            code ^= 1;
-        }
-    }
 #ifdef TARGET_X86
     else if (instIsFP(ins))
     {
@@ -6665,27 +6643,37 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 #endif
     else
     {
-        assert(!IsSSEOrAVXInstruction(ins));
-
-        switch (size)
+        if (size == EA_1BYTE)
         {
-            case EA_1BYTE:
+            if (!IsPrefetch(ins))
+            {
                 assert(HasWBit(ins) && ((code & 1) != 0));
                 code ^= 1;
-                break;
-            case EA_2BYTE:
+            }
+        }
+        else if (size == EA_2BYTE)
+        {
+            if ((ins != INS_movzx) && (ins != INS_movsx))
+            {
+                assert(!IsSSEOrAVXInstruction(ins));
                 dst += emitOutputByte(dst, 0x66);
-                break;
-            case EA_4BYTE:
-#ifdef TARGET_AMD64
-            case EA_8BYTE:
-#endif
-                break;
-            default:
-                unreached();
+            }
+        }
+        else
+        {
+            assert((size == EA_4BYTE) || IsSSEOrAVXInstruction(ins) AMD64_ONLY(|| size == EA_8BYTE));
         }
 
         dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+
+        if ((code & 0xFF000000) != 0)
+        {
+            dst += emitOutputWord(dst, code >> 16);
+        }
+        else if ((code & 0x00FF0000) != 0)
+        {
+            dst += emitOutputByte(dst, code >> 16);
+        }
     }
 
     assert(!id->idIsDspReloc());
@@ -6981,22 +6969,6 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         {
             dst += emitOutputVexPrefix(ins, dst, code);
         }
-        else if ((code & 0xFF000000) != 0)
-        {
-            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-            dst += emitOutputWord(dst, code >> 16);
-        }
-        else if ((code & 0x00FF0000) != 0)
-        {
-            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-            dst += emitOutputByte(dst, code >> 16);
-
-            if (size == EA_1BYTE)
-            {
-                assert(HasWBit(ins) && ((code & 1) != 0));
-                code ^= 1;
-            }
-        }
 #ifdef TARGET_X86
         else if (instIsFP(ins))
         {
@@ -7010,27 +6982,37 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 #endif
         else
         {
-            assert(!IsSSEOrAVXInstruction(ins));
-
-            switch (size)
+            if (size == EA_1BYTE)
             {
-                case EA_1BYTE:
+                if (!IsPrefetch(ins))
+                {
                     assert(HasWBit(ins) && ((code & 1) != 0));
                     code ^= 1;
-                    break;
-                case EA_2BYTE:
+                }
+            }
+            else if (size == EA_2BYTE)
+            {
+                if ((ins != INS_movzx) && (ins != INS_movsx))
+                {
+                    assert(!IsSSEOrAVXInstruction(ins));
                     dst += emitOutputByte(dst, 0x66);
-                    break;
-                case EA_4BYTE:
-#ifdef TARGET_AMD64
-                case EA_8BYTE:
-#endif
-                    break;
-                default:
-                    unreached();
+                }
+            }
+            else
+            {
+                assert((size == EA_4BYTE) || IsSSEOrAVXInstruction(ins) AMD64_ONLY(|| size == EA_8BYTE));
             }
 
             dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+
+            if ((code & 0xFF000000) != 0)
+            {
+                dst += emitOutputWord(dst, code >> 16);
+            }
+            else if ((code & 0x00FF0000) != 0)
+            {
+                dst += emitOutputByte(dst, code >> 16);
+            }
         }
 
         dst += emitOutputWord(dst, code | 0x0500);
