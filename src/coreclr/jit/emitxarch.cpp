@@ -8235,26 +8235,10 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     if (dstOffs > srcOffs)
     {
-        // This is a forward jump - distance will be an upper limit.
-        emitFwdJumps = true;
-        id->idjAddr  = dst;
-
-        // The target offset will be closer by at least 'emitOffsAdj',
-        // but only if this jump doesn't cross the hot-cold boundary.
-        if (!emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
-        {
-            dstOffs -= emitOffsAdj;
-            dstAddr -= emitOffsAdj;
-        }
-
-        // Record the location of the jump for later patching
-        id->idjOffs = dstOffs;
-
-        // Are we overflowing the id->idjOffs bitfield?
-        if (id->idjOffs != dstOffs)
-        {
-            IMPL_LIMITATION("Method is too large");
-        }
+        int adjustment = RecordForwardJump(id, srcOffs, dstOffs);
+        dstOffs -= adjustment;
+        dstAddr -= adjustment;
+        id->idjAddr = dst;
     }
 
 #ifdef TARGET_AMD64
@@ -8294,26 +8278,10 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     if (dstOffs > srcOffs)
     {
-        // This is a forward jump - distance will be an upper limit
-        emitFwdJumps = true;
-        id->idjAddr  = dst;
-
-        // The target offset will be closer by at least 'emitOffsAdj', but only if this
-        // jump doesn't cross the hot-cold boundary.
-        if (!emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
-        {
-            dstOffs -= emitOffsAdj;
-            dstAddr -= emitOffsAdj;
-        }
-
-        // Record the location of the jump for later patching
-        id->idjOffs = dstOffs;
-
-        // Are we overflowing the id->idjOffs bitfield?
-        if (id->idjOffs != dstOffs)
-        {
-            IMPL_LIMITATION("Method is too large");
-        }
+        int adjustment = RecordForwardJump(id, srcOffs, dstOffs);
+        dstOffs -= adjustment;
+        dstAddr -= adjustment;
+        id->idjAddr = dst;
     }
 
     dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(dstAddr));
@@ -8411,25 +8379,9 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     }
     else
     {
-        // This is a  forward jump - distance will be an upper limit
-        emitFwdJumps = true;
-
-        // The target offset will be closer by at least 'emitOffsAdj', but only if this
-        // jump doesn't cross the hot-cold boundary.
-        if (!emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
-        {
-            dstOffs -= emitOffsAdj;
-            distVal -= emitOffsAdj;
-        }
-
-        // Record the location of the jump for later patching
-        id->idjOffs = dstOffs;
-
-        // Are we overflowing the id->idjOffs bitfield?
-        if (id->idjOffs != dstOffs)
-        {
-            IMPL_LIMITATION("Method is too large");
-        }
+        int adjustment = RecordForwardJump(id, srcOffs, dstOffs);
+        dstOffs -= adjustment;
+        distVal -= adjustment;
 
 #if DEBUG_EMIT
         if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)

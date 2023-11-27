@@ -568,7 +568,7 @@ private:
 #elif defined(TARGET_ARM64)
 // Moved the definition of '_idOpSize' later so that we don't cross a 32-bit boundary when laying out bitfields
 #else  // ARM
-        unsigned _idOpSize : 2; // operand size: 0=1 , 1=2 , 2=4 , 3=8
+        unsigned    _idOpSize : 2; // operand size: 0=1 , 1=2 , 2=4 , 3=8
 #endif // ARM
 
         // On Amd64, this is where the second DWORD begins
@@ -1247,6 +1247,8 @@ private:
         unsigned idjKeepLong : 1; // should the jump be kept long? (used for
         // hot to cold and cold to hot jumps)
     };
+
+    int RecordForwardJump(instrDescJmp* id, unsigned srcOffs, unsigned dstOffs);
 
     struct instrDescCGCA : instrDesc // call with ...
     {
