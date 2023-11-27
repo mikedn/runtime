@@ -9389,6 +9389,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     return sz;
 }
 
+#if defined(DEBUG) || defined(LATE_DISASM)
+
 insFormat emitter::getMemoryOperation(instrDesc* id)
 {
     insFormat   result = IF_NONE;
@@ -9527,8 +9529,6 @@ insFormat emitter::getMemoryOperation(instrDesc* id)
     }
     return result;
 }
-
-#if defined(DEBUG) || defined(LATE_DISASM)
 
 // The instruction latencies and throughput values returned by this function
 // are for the Intel Skylake-X processor and are from either:

@@ -1276,13 +1276,13 @@ private:
     }
 #endif
 
+#if defined(DEBUG) || defined(LATE_DISASM)
+
 #if defined(TARGET_XARCH)
     insFormat getMemoryOperation(instrDesc* id);
 #elif defined(TARGET_ARM64)
     void getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess);
 #endif
-
-#if defined(DEBUG) || defined(LATE_DISASM)
 
 #define PERFSCORE_THROUGHPUT_ILLEGAL -1024.0f
 
