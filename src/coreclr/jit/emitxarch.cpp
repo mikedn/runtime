@@ -1000,7 +1000,7 @@ size_t emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, 
     return 0;
 }
 
-static bool EncodedBySSE38orSSE3A(instruction ins);
+static bool IsSSE38orSSE3A(uint64_t code);
 
 unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code)
 {
@@ -1052,7 +1052,7 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t cod
 
         adjustedSize = vexPrefixAdjustedSize;
     }
-    else if (EncodedBySSE38orSSE3A(ins))
+    else if (IsSSE38orSSE3A(code))
     {
         // The 4-Byte SSE instructions require one additional byte to hold the ModRM byte
         adjustedSize++;
@@ -1244,14 +1244,6 @@ const static uint32_t insCodesRM[]{
 #include "instrsxarch.h"
 };
 
-// Returns true iff the give instruction has an "REG, RM" encoding.
-static bool hasCodeRM(instruction ins)
-{
-    assert(ins < _countof(insCodesRM));
-
-    return insCodesRM[ins] != BAD_CODE;
-}
-
 // Returns the "REG, RM" encoding of the given instruction.
 static size_t insCodeRM(instruction ins)
 {
@@ -1314,36 +1306,14 @@ static size_t insCodeMR(instruction ins)
 }
 
 // Return true if the instruction uses the SSE38 or SSE3A macro in instrsXArch.h.
-static bool EncodedBySSE38orSSE3A(instruction ins)
+static bool IsSSE38orSSE3A(uint64_t code)
 {
-    const size_t SSE38 = 0x0F660038;
-    const size_t SSE3A = 0x0F66003A;
-    const size_t MASK  = 0xFFFF00FF;
+    const uint64_t SSE38 = 0x0F660038ull;
+    const uint64_t SSE3A = 0x0F66003Aull;
+    const uint64_t MASK  = 0xFFFF00FFull;
 
-    size_t insCode = 0;
-
-    if (!IsSSEOrAVXInstruction(ins))
-    {
-        return false;
-    }
-
-    assert(!hasCodeMI(ins) || (((insCodeMI(ins) & MASK) != SSE38 && ((insCodeMI(ins) & MASK) != SSE3A))));
-
-    if (hasCodeRM(ins))
-    {
-        insCode = insCodeRM(ins);
-    }
-    else if (hasCodeMR(ins))
-    {
-        insCode = insCodeMR(ins);
-    }
-    else
-    {
-        return false;
-    }
-
-    insCode &= MASK;
-    return insCode == SSE38 || insCode == SSE3A;
+    code &= MASK;
+    return (code == SSE38) || (code == SSE3A);
 }
 
 // Returns an encoding for the specified register to be used in the bits 0-2 of an opcode.
@@ -1392,7 +1362,7 @@ unsigned emitter::insEncodeReg345(instruction ins, regNumber reg, emitAttr size,
 
 emitter::code_t emitter::SetRMReg(instruction ins, regNumber reg, emitAttr size, code_t code)
 {
-    assert(!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32));
+    assert(!IsSSE38orSSE3A(ins) && (ins != INS_crc32));
     code |= insEncodeReg345(ins, reg, size, &code) << 8;
     return code;
 }
@@ -6265,7 +6235,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             code = AddRexWPrefix(ins, code);
         }
 
-        if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
+        if (IsSSE38orSSE3A(code) || (ins == INS_crc32))
         {
             if (ins == INS_crc32)
             {
@@ -6583,7 +6553,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         code = AddRexWPrefix(ins, code);
     }
 
-    if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
+    if (IsSSE38orSSE3A(code) || (ins == INS_crc32))
     {
         if (ins == INS_crc32)
         {
@@ -6922,7 +6892,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             code = AddRexWPrefix(ins, code);
         }
 
-        if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
+        if (IsSSE38orSSE3A(code) || (ins == INS_crc32))
         {
             if (ins == INS_crc32)
             {
@@ -7527,27 +7497,35 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
     unsigned regCode = insEncodeReg345(ins, regFor345Bits, size, &code);
     regCode |= insEncodeReg012(ins, regFor012Bits, size, &code);
 
-    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-    if (code & 0xFF000000)
+    if (hasVexPrefix(code))
     {
-        assert(!TakesVexPrefix(ins));
-
-        dst += emitOutputWord(dst, code >> 16);
-        code &= 0x0000FFFF;
-
-        if (EncodedBySSE38orSSE3A(ins))
-        {
-            dst += emitOutputByte(dst, code);
-            code &= 0xFF00;
-        }
+        dst += emitOutputVexPrefix(ins, dst, code);
     }
-    else if (code & 0x00FF0000)
+    else if (IsSSE38orSSE3A(code))
     {
-        assert(!TakesVexPrefix(ins));
+        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputWord(dst, code >> 16);
+        dst += emitOutputByte(dst, code);
+        code &= 0xFF00;
+    }
+    else
+    {
+        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
 
-        dst += emitOutputByte(dst, code >> 16);
-        code &= 0x0000FFFF;
+        if (code & 0xFF000000)
+        {
+            assert(!TakesVexPrefix(ins));
+
+            dst += emitOutputWord(dst, code >> 16);
+            code &= 0x0000FFFF;
+        }
+        else if (code & 0x00FF0000)
+        {
+            assert(!TakesVexPrefix(ins));
+
+            dst += emitOutputByte(dst, code >> 16);
+            code &= 0x0000FFFF;
+        }
     }
 
     // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
@@ -7557,8 +7535,6 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
     }
     else if ((code & 0xFF) == 0x00)
     {
-        assert(EncodedBySSE38orSSE3A(ins));
-
         dst += emitOutputByte(dst, (code >> 8) & 0xFF);
         dst += emitOutputByte(dst, (0xC0 | regCode));
     }
@@ -7831,27 +7807,35 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
     unsigned regcode = insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, mReg, size, &code);
 
-    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-    if (code & 0xFF000000)
+    if (hasVexPrefix(code))
     {
-        assert(!TakesVexPrefix(ins));
-
-        dst += emitOutputWord(dst, code >> 16);
-        code &= 0x0000FFFF;
-
-        if (EncodedBySSE38orSSE3A(ins))
-        {
-            dst += emitOutputByte(dst, code);
-            code &= 0xFF00;
-        }
+        dst += emitOutputVexPrefix(ins, dst, code);
     }
-    else if (code & 0x00FF0000)
+    else if (IsSSE38orSSE3A(code))
     {
-        assert(!TakesVexPrefix(ins));
+        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputWord(dst, code >> 16);
+        dst += emitOutputByte(dst, code);
+        code &= 0xFF00;
+    }
+    else
+    {
+        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
 
-        dst += emitOutputByte(dst, code >> 16);
-        code &= 0x0000FFFF;
+        if (code & 0xFF000000)
+        {
+            assert(!TakesVexPrefix(ins));
+
+            dst += emitOutputWord(dst, code >> 16);
+            code &= 0x0000FFFF;
+        }
+        else if (code & 0x00FF0000)
+        {
+            assert(!TakesVexPrefix(ins));
+
+            dst += emitOutputByte(dst, code >> 16);
+            code &= 0x0000FFFF;
+        }
     }
 
     // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
@@ -7861,8 +7845,6 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
     }
     else if ((code & 0xFF) == 0x00)
     {
-        assert(EncodedBySSE38orSSE3A(ins));
-
         dst += emitOutputByte(dst, (code >> 8) & 0xFF);
         dst += emitOutputByte(dst, (0xC0 | regcode));
     }
@@ -8813,7 +8795,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32))
+            if (!IsSSE38orSSE3A(code) && (ins != INS_crc32))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8834,7 +8816,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!EncodedBySSE38orSSE3A(ins))
+            if (!IsSSE38orSSE3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8851,7 +8833,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg2(), size, code);
 
-            if (!EncodedBySSE38orSSE3A(ins))
+            if (!IsSSE38orSSE3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8868,7 +8850,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg2(), size, code);
 
-            if (!EncodedBySSE38orSSE3A(ins))
+            if (!IsSSE38orSSE3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8973,7 +8955,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32))
+            if (!IsSSE38orSSE3A(code) && (ins != INS_crc32))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8994,7 +8976,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!EncodedBySSE38orSSE3A(ins))
+            if (!IsSSE38orSSE3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -9011,7 +8993,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg2(), size, code);
 
-            if (!EncodedBySSE38orSSE3A(ins))
+            if (!IsSSE38orSSE3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -9028,7 +9010,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg2(), size, code);
 
-            if (!EncodedBySSE38orSSE3A(ins))
+            if (!IsSSE38orSSE3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -9113,7 +9095,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!EncodedBySSE38orSSE3A(ins) && (ins != INS_crc32))
+            if (!IsSSE38orSSE3A(code) && (ins != INS_crc32))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -9134,7 +9116,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!EncodedBySSE38orSSE3A(ins))
+            if (!IsSSE38orSSE3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -9151,7 +9133,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg2(), size, code);
 
-            if (!EncodedBySSE38orSSE3A(ins))
+            if (!IsSSE38orSSE3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -9168,7 +9150,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg2(), size, code);
 
-            if (!EncodedBySSE38orSSE3A(ins))
+            if (!IsSSE38orSSE3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
