@@ -4398,7 +4398,7 @@ void emitter::emitIns_L(instruction ins, BasicBlock* dst)
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
     id->idAddr()->iiaBBlabel = dst;
-    id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst);
+    id->idjKeepLong          = true;
     id->idjIG                = emitCurIG;
     id->idjOffs              = emitCurIGsize;
 
@@ -4423,19 +4423,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
     assert((ins == INS_jmp) || IsJccInstruction(ins) AMD64_ONLY(|| ins == INS_call));
 
     instrDescJmp* id = emitNewInstrJmp();
-
-    if (dst != nullptr)
-    {
-        assert(dst->bbFlags & BBF_HAS_LABEL);
-        assert(instrCount == 0);
-    }
-    else
-    {
-        // Only allow non-label jmps in prolog.
-        assert(emitIGisInProlog(emitCurIG));
-        assert(instrCount != 0);
-    }
-
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
 
@@ -4444,13 +4431,20 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
 
     if (dst != nullptr)
     {
+        assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
+        assert(instrCount == 0);
+
         id->idAddr()->iiaBBlabel = dst;
-        id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst);
+        id->idjKeepLong          = (ins == INS_call) || InDifferentRegions(GetCurrentBlock(), dst);
     }
     else
     {
+        // Only allow non-label jmps in prolog.
+        assert(emitIGisInProlog(emitCurIG));
+        assert(instrCount != 0);
+
         id->idAddr()->iiaSetInstrCount(instrCount);
-        emitSetShortJump(id);
+        id->idjShort = true;
         id->idSetIsBound();
     }
 
@@ -4541,12 +4535,8 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
     }
 
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
-#if !FEATURE_FIXED_OUT_ARGS
-    emitAdjustStackDepthPushPop(ins);
-#endif
 }
 
 ssize_t emitter::emitGetInsCns(instrDesc* id)
@@ -8235,9 +8225,7 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     if (dstOffs > srcOffs)
     {
-        int adjustment = RecordForwardJump(id, srcOffs, dstOffs);
-        dstOffs -= adjustment;
-        dstAddr -= adjustment;
+        dstAddr -= RecordForwardJump(id, srcOffs, dstOffs);
         id->idjAddr = dst;
     }
 
@@ -8266,7 +8254,7 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idGCref() == GCT_NONE);
     assert(id->idIsBound());
     assert(!id->idAddr()->iiaHasInstrCount());
-    // assert(id->idjKeepLong); // TODO-MIKE-Cleanup: This should be set but emitIns_J forgot to do it.
+    assert(id->idjKeepLong);
     assert(!id->idjShort);
 
     unsigned srcOffs = emitCurCodeOffs(dst);
@@ -8278,9 +8266,7 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     if (dstOffs > srcOffs)
     {
-        int adjustment = RecordForwardJump(id, srcOffs, dstOffs);
-        dstOffs -= adjustment;
-        dstAddr -= adjustment;
+        dstAddr -= RecordForwardJump(id, srcOffs, dstOffs);
         id->idjAddr = dst;
     }
 
