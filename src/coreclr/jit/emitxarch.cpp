@@ -1630,15 +1630,9 @@ unsigned emitter::emitInsSizeRRR(instrDesc* id, code_t code)
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
 
-    unsigned sz = emitGetAdjustedSize(ins, size, code);
+    assert(TakesVexPrefix(ins));
 
-    if (!TakesVexPrefix(ins) && (TakesRexWPrefix(ins, size) || IsExtendedReg(id->idReg1(), size) ||
-                                 IsExtendedReg(id->idReg2(), size) || (IsExtendedReg(id->idReg3(), size))))
-    {
-        sz++;
-    }
-
-    return sz + emitInsSize(code);
+    return emitGetAdjustedSize(ins, size, code) + emitInsSize(code);
 }
 
 unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr)
