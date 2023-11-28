@@ -1615,7 +1615,7 @@ unsigned emitter::emitInsSizeRR(instrDesc* id, code_t code)
 
     if (!TakesVexPrefix(ins) &&
         (TakesRexWPrefix(ins, size) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) ||
-         (!id->idIsSmallDsc() && (IsExtendedReg(id->idReg3(), size) || IsExtendedReg(id->idReg4(), size)))))
+         (!id->idIsSmallDsc() && (IsExtendedReg(id->idReg3(), size)))))
     {
         sz++;
     }
