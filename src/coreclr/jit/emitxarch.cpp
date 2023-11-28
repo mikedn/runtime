@@ -1614,8 +1614,26 @@ unsigned emitter::emitInsSizeRR(instrDesc* id, code_t code)
     unsigned sz = emitGetAdjustedSize(ins, size, code);
 
     if (!TakesVexPrefix(ins) &&
-        (TakesRexWPrefix(ins, size) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) ||
-         (!id->idIsSmallDsc() && (IsExtendedReg(id->idReg3(), size)))))
+        (TakesRexWPrefix(ins, size) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size)))
+    {
+        sz++;
+    }
+
+    return sz + emitInsSize(code);
+}
+
+unsigned emitter::emitInsSizeRRR(instrDesc* id, code_t code)
+{
+    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
+    assert(!id->idIsSmallDsc());
+
+    instruction ins  = id->idIns();
+    emitAttr    size = id->idOpSize();
+
+    unsigned sz = emitGetAdjustedSize(ins, size, code);
+
+    if (!TakesVexPrefix(ins) && (TakesRexWPrefix(ins, size) || IsExtendedReg(id->idReg1(), size) ||
+                                 IsExtendedReg(id->idReg2(), size) || (IsExtendedReg(id->idReg3(), size))))
     {
         sz++;
     }
@@ -3276,7 +3294,7 @@ void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    unsigned sz = emitInsSizeRR(id, insCodeRM(ins));
+    unsigned sz = emitInsSizeRRR(id, insCodeRM(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3377,7 +3395,7 @@ void emitter::emitIns_R_R_R_I(
             break;
     }
 
-    unsigned sz = emitInsSizeRR(id, code) + 1;
+    unsigned sz = emitInsSizeRRR(id, code) + 1;
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3488,7 +3506,7 @@ void emitter::emitIns_R_R_R_R(
     id->idReg3(reg3);
     id->idReg4(reg4);
 
-    unsigned sz = emitInsSizeRR(id, insCodeRM(ins)) + 1;
+    unsigned sz = emitInsSizeRRR(id, insCodeRM(ins)) + 1;
     id->idCodeSize(sz);
 
     dispIns(id);
