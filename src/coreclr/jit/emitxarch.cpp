@@ -1501,6 +1501,42 @@ unsigned emitter::emitInsSize(code_t code)
     return (code & 0xFF000000) ? 4 : (code & 0x00FF0000) ? 3 : 2;
 }
 
+unsigned emitter::emitInsSizeR(instrDesc* id, code_t code)
+{
+    instruction ins  = id->idIns();
+    emitAttr    size = id->idOpSize();
+    unsigned    sz   = 2;
+
+    if ((ins == INS_push) || (ins == INS_push_hide) || (ins == INS_pop) || (ins == INS_pop_hide))
+    {
+        assert(size == EA_PTRSIZE);
+        sz = 1;
+    }
+#ifdef TARGET_X86
+    else if (((ins == INS_inc) || (ins == INS_dec)) && (size != EA_1BYTE))
+    {
+        sz = 1;
+    }
+#endif
+    else if ((INS_seto <= ins) && (ins <= INS_setg))
+    {
+        static_assert_no_msg(INS_seto + 0xF == INS_setg);
+        assert(size == EA_1BYTE);
+        assert(insEncodeRMreg(ins, id->idReg1(), size, code) & 0x00FF0000);
+
+        sz = 3;
+    }
+
+    sz += emitGetAdjustedSize(ins, size, insEncodeRMreg(ins, id->idReg1(), size, code));
+
+    if (!TakesVexPrefix(ins) && (IsExtendedReg(id->idReg1(), size) || TakesRexWPrefix(ins, size)))
+    {
+        sz++;
+    }
+
+    return sz;
+}
+
 unsigned emitter::emitInsSizeRR(instrDesc* id, code_t code)
 {
     assert(!hasRexPrefix(code) && !hasVexPrefix(code));
@@ -2408,35 +2444,7 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD));
     id->idReg1(reg);
 
-    unsigned sz = 2;
-
-    if ((ins == INS_push) || (ins == INS_push_hide) || (ins == INS_pop) || (ins == INS_pop_hide))
-    {
-        assert(size == EA_PTRSIZE);
-        sz = 1;
-    }
-#ifdef TARGET_X86
-    else if (((ins == INS_inc) || (ins == INS_dec)) && (size != EA_1BYTE))
-    {
-        sz = 1;
-    }
-#endif
-    else if ((INS_seto <= ins) && (ins <= INS_setg))
-    {
-        static_assert_no_msg(INS_seto + 0xF == INS_setg);
-        assert(attr == EA_1BYTE);
-        assert(insEncodeRMreg(ins, reg, attr, insCodeMR(ins)) & 0x00FF0000);
-
-        sz = 3;
-    }
-
-    sz += emitGetAdjustedSize(ins, attr, insEncodeRMreg(ins, reg, attr, insCodeMR(ins)));
-
-    if (!TakesVexPrefix(ins) && (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, attr)))
-    {
-        sz++;
-    }
-
+    unsigned sz = emitInsSizeR(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
