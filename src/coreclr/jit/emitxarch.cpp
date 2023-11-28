@@ -2492,7 +2492,6 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     // all other opcodes take a sign-extended 4-byte immediate
     AMD64_ONLY(noway_assert((size < EA_8BYTE) || (ins == INS_mov) || IsImm32(imm)));
 
-    bool     hasImm8 = IsImm8(imm) && (ins != INS_mov) && (ins != INS_test);
     unsigned sz;
 
     if (IsShiftImm(ins))
@@ -2500,7 +2499,6 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
         assert(imm != 1);
         sz = 3;
         imm &= 0x7F;
-        hasImm8 = true;
     }
     else if (ins == INS_mov)
     {
@@ -2525,7 +2523,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
             sz = 5;
         }
     }
-    else if (hasImm8)
+    else if (IsImm8(imm) && (ins != INS_mov) && (ins != INS_test))
     {
         if (IsSSEOrAVXInstruction(ins))
         {
