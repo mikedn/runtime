@@ -1421,6 +1421,8 @@ bool emitter::emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1
 
 unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code)
 {
+    assert(ins != INS_invalid);
+
     unsigned adjustedSize = 0;
 
     if (TakesVexPrefix(ins))
@@ -1501,56 +1503,52 @@ unsigned emitter::emitInsSize(code_t code)
 
 unsigned emitter::emitInsSizeRR(instrDesc* id, code_t code)
 {
-    assert(id->idIns() != INS_invalid);
     assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
     instruction ins  = id->idIns();
-    emitAttr    attr = id->idOpSize();
+    emitAttr    size = id->idOpSize();
 
-    unsigned sz = emitGetAdjustedSize(ins, attr, code);
+    unsigned sz = emitGetAdjustedSize(ins, size, code);
 
-    if (TakesRexWPrefix(ins, attr) || IsExtendedReg(id->idReg1(), attr) || IsExtendedReg(id->idReg2(), attr) ||
-        (!id->idIsSmallDsc() && (IsExtendedReg(id->idReg3(), attr) || IsExtendedReg(id->idReg4(), attr))))
+    if (!TakesVexPrefix(ins) &&
+        (TakesRexWPrefix(ins, size) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) ||
+         (!id->idIsSmallDsc() && (IsExtendedReg(id->idReg3(), size) || IsExtendedReg(id->idReg4(), size)))))
     {
-        if (!TakesVexPrefix(ins))
-        {
-            sz++;
-        }
+        sz++;
     }
 
-    sz += emitInsSize(code);
-
-    return sz;
+    return sz + emitInsSize(code);
 }
 
 unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr)
 {
     emitAttr size = EA_SIZE(attr);
 
-    // If Byte 4 (which is 0xFF00) is zero, that's where the RM encoding goes.
-    // Otherwise, it will be placed after the 4 byte encoding, making the total 5 bytes.
-    // This would probably be better expressed as a different format or something?
     code_t code = insCodeRM(ins);
-    assert(!hasRexPrefix(code));
+    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
     unsigned sz = emitGetAdjustedSize(ins, size, code);
 
-    if ((TakesRexWPrefix(ins, size) && ((ins != INS_xor) || (reg1 != reg2))) || IsExtendedReg(reg1, attr) ||
-        IsExtendedReg(reg2, attr))
+    if (!TakesVexPrefix(ins) && ((TakesRexWPrefix(ins, size) && ((ins != INS_xor) || (reg1 != reg2))) ||
+                                 IsExtendedReg(reg1, attr) || IsExtendedReg(reg2, attr)))
     {
-        if (!TakesVexPrefix(ins))
-        {
-            sz++;
-        }
+        sz++;
     }
 
-    if ((code & 0xFF00) != 0)
+    // TODO-MIKE-Review: This stuff is dubious. The byte claimed to be 0 can contain
+    // the RM opcode extension and that doesn't affect the instruction size.
+    //
+    // If Byte 4 (which is 0xFF00) is zero, that's where the RM encoding goes.
+    // Otherwise, it will be placed after the 4 byte encoding, making the total 5 bytes.
+    // This would probably be better expressed as a different format or something?
+
+    if (((code & 0xFF00) == 0) || IsSSEOrAVXInstruction(ins))
     {
-        sz += IsSSEOrAVXInstruction(ins) ? emitInsSize(code) : 5;
+        sz += emitInsSize(code);
     }
     else
     {
-        sz += emitInsSize(insEncodeRMreg(ins, code));
+        sz += 5;
     }
 
     return sz;
@@ -1558,29 +1556,28 @@ unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2,
 
 unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
 {
-    assert(id->idIns() != INS_invalid);
     assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
-    instruction ins      = id->idIns();
-    emitAttr    attrSize = id->idOpSize();
+    instruction ins  = id->idIns();
+    emitAttr    size = id->idOpSize();
 
-    unsigned size = emitGetAdjustedSize(ins, attrSize, code);
+    unsigned sz = emitGetAdjustedSize(ins, size, code);
 
-    if (!TakesVexPrefix(ins) && (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(id->idReg1(), attrSize) ||
-                                 IsExtendedReg(id->idReg2(), attrSize)))
+    if (!TakesVexPrefix(ins) &&
+        (TakesRexWPrefix(ins, size) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size)))
     {
-        size++;
+        sz++;
     }
 
 #ifdef TARGET_AMD64
     // TODO-MIKE-Cleanup: Old code managed to count the REX prefix twice for movsxd.
     if ((ins == INS_movsxd) && IsExtendedReg(id->idReg1()))
     {
-        size++;
+        sz++;
     }
 #endif
 
-    size += emitInsSize(code);
+    sz += emitInsSize(code);
 
     bool ebpBased = id->idAddr()->isEbpBased;
     int  disp     = id->idAddr()->lclOffset;
@@ -1593,41 +1590,32 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
         assert(disp >= 0);
 
         // ESP based addressing modes always require a SIB byte.
-        size++;
+        sz++;
     }
 
     // EBP based addressing modes always require displacement.
     if (ebpBased || (disp != 0))
     {
-        size += IsDisp8(disp) ? 1 : 4;
+        sz += IsDisp8(disp) ? 1 : 4;
     }
 
-    return size;
+    return sz;
 }
 
 unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
 {
-    assert(id->idIns() != INS_invalid);
     assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
-    instruction ins       = id->idIns();
-    emitAttr    attrSize  = id->idOpSize();
-    ssize_t     dsp       = (ins == INS_call) ? emitGetInsCallDisp(id) : emitGetInsAmdDisp(id);
-    bool        dspInByte = ((signed char)dsp == (ssize_t)dsp) && !id->idIsDspReloc();
-    bool        dspIsZero = (dsp == 0) && !id->idIsDspReloc();
+    instruction ins      = id->idIns();
+    emitAttr    size     = id->idOpSize();
+    ssize_t     disp     = (ins == INS_call) ? emitGetInsCallDisp(id) : emitGetInsAmdDisp(id);
+    bool        hasDisp8 = ((int8_t)disp == disp) && !id->idIsDspReloc();
+    bool        hasDisp  = (disp != 0) || id->idIsDspReloc();
+    regNumber   baseReg;
+    regNumber   indexReg;
 
-    // Note that the values in reg and rgx are used in this method to decide
-    // how many bytes will be needed by the address [reg+rgx+cns]
-    // this includes the prefix bytes when reg or rgx are registers R8-R15
-    regNumber baseReg;
-    regNumber indexReg;
-
-    // The idAddr field is a union and only some of the instruction formats use the iiaAddrMode variant
-    // these are IF_AWR_*, IF_ARD_*, IF_ARW_* and IF_*_ARD
-    // ideally these should really be the only idInsFmts that we see here
-    //  but we have some outliers to deal with:
-    //     emitIns_R_L adds IF_RWR_LABEL and calls emitInsSizeAM
-    //     emitInsRMW adds IF_MRW_CNS, IF_MRW_RRD and calls emitInsSizeAM
+    // BT supports 16 bit operands and this code doesn't handle the necessary 66 prefix.
+    assert(ins != INS_bt);
 
     switch (id->idInsFmt())
     {
@@ -1643,136 +1631,98 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
             break;
     }
 
-    unsigned size;
-
-    if (code & 0xFF000000)
-    {
-        size = 4;
-    }
-    else if (code & 0x00FF0000)
-    {
-        // BT supports 16 bit operands and this code doesn't handle the necessary 66 prefix.
-        assert(ins != INS_bt);
-
-        assert((attrSize == EA_4BYTE) || (attrSize == EA_PTRSIZE)    // Only for x64
-               || (attrSize == EA_16BYTE) || (attrSize == EA_32BYTE) // only for x64
-               || (ins == INS_movzx) || (ins == INS_movsx)
-               // The prefetch instructions are always 3 bytes and have part of their modr/m byte hardcoded
-               || IsPrefetch(ins));
-
-        size = 3;
-    }
-    else
-    {
-        size = 2;
-    }
-
-    size += emitGetAdjustedSize(ins, attrSize, code);
+    unsigned sz = emitInsSize(code);
+    sz += emitGetAdjustedSize(ins, size, code);
 
     if (!TakesVexPrefix(ins) &&
-        (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(baseReg, EA_PTRSIZE) || IsExtendedReg(indexReg, EA_PTRSIZE) ||
-         ((ins != INS_call) && (IsExtendedReg(id->idReg1(), attrSize) || IsExtendedReg(id->idReg2(), attrSize)))))
+        (TakesRexWPrefix(ins, size) || IsExtendedReg(baseReg, EA_PTRSIZE) || IsExtendedReg(indexReg, EA_PTRSIZE) ||
+         ((ins != INS_call) && (IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size)))))
     {
-        size++;
+        sz++;
+    }
+
+    if ((baseReg == REG_NA) && (indexReg == REG_NA))
+    {
+        sz += 4;
+
+#ifdef TARGET_AMD64
+        if (!id->idIsDspReloc())
+        {
+            sz++;
+        }
+#endif
+
+        return sz;
     }
 
     if (indexReg == REG_NA)
     {
-        if (baseReg == REG_NA)
-        {
-            size += 4;
-
-#ifdef TARGET_AMD64
-            if (!id->idIsDspReloc())
-            {
-                size++;
-            }
-#endif
-
-            return size;
-        }
-
-        // If the base register is ESP (or R12 on 64-bit systems), a SIB byte must be used.
         if (BaseRegRequiresSIB(baseReg))
         {
-            size++;
+            sz++;
         }
 
-        // If the base register is EBP (or R13 on 64-bit systems), a displacement is required.
-        // Otherwise, the displacement can be elided if it is zero.
-        if (dspIsZero && !BaseRegRequiresDisp(baseReg))
+        if (hasDisp || BaseRegRequiresDisp(baseReg))
         {
-            return size;
+            sz += hasDisp8 ? 1 : 4;
         }
 
-        size += dspInByte ? 1 : 4;
+        return sz;
     }
-    else
+
+    sz++;
+
+    if (id->idAddr()->iiaAddrMode.amScale != 0)
     {
-        size++;
-
-        if (id->idAddr()->iiaAddrMode.amScale != 0)
+        if (baseReg == REG_NA)
         {
-            if (baseReg == REG_NA)
-            {
-                size += 4;
-            }
-            else if (!dspIsZero || BaseRegRequiresDisp(baseReg))
-            {
-                size += dspInByte ? 1 : 4;
-            }
+            sz += 4;
         }
-        else
+        else if (hasDisp || BaseRegRequiresDisp(baseReg))
         {
-            // When we are using the SIB or VSIB format with EBP or R13 as a base, we must emit at least
-            // a 1 byte displacement (this is a special case in the encoding to allow for the case of no
-            // base register at all). In order to avoid this when we have no scaling, we can reverse the
-            // registers so that we don't have to add that extra byte. However, we can't do that if the
-            // index register is a vector, such as for a gather instruction.
-
-            if (dspIsZero && BaseRegRequiresDisp(baseReg) && !BaseRegRequiresDisp(indexReg) && !IsFloatReg(indexReg))
-            {
-                // Swap base and index, such that base is not EBP/R13.
-                std::swap(baseReg, indexReg);
-                id->idAddr()->iiaAddrMode.amBaseReg = baseReg;
-                id->idAddr()->iiaAddrMode.amIndxReg = indexReg;
-            }
-
-            if (!dspIsZero || BaseRegRequiresDisp(baseReg))
-            {
-                size += dspInByte ? 1 : 4;
-            }
+            sz += hasDisp8 ? 1 : 4;
         }
+
+        return sz;
     }
 
-    return size;
+    // When we are using the SIB or VSIB format with EBP or R13 as a base, we must emit at least
+    // a 1 byte displacement (this is a special case in the encoding to allow for the case of no
+    // base register at all). In order to avoid this when we have no scaling, we can reverse the
+    // registers so that we don't have to add that extra byte. However, we can't do that if the
+    // index register is a vector, such as for a gather instruction.
+
+    if (!hasDisp && BaseRegRequiresDisp(baseReg) && !BaseRegRequiresDisp(indexReg) && !IsFloatReg(indexReg))
+    {
+        std::swap(baseReg, indexReg);
+        id->idAddr()->iiaAddrMode.amBaseReg = baseReg;
+        id->idAddr()->iiaAddrMode.amIndxReg = indexReg;
+    }
+
+    if (hasDisp || BaseRegRequiresDisp(baseReg))
+    {
+        sz += hasDisp8 ? 1 : 4;
+    }
+
+    return sz;
 }
 
 unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
 {
-    assert(id->idIns() != INS_invalid);
     assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
-    instruction ins      = id->idIns();
-    emitAttr    attrSize = id->idOpSize();
+    instruction ins  = id->idIns();
+    emitAttr    size = id->idOpSize();
 
-    // fgMorph changes any statics that won't fit into 32-bit addresses
-    // into constants with an indir, rather than GT_CLS_VAR_ADDR
-    // so we should only hit this path for statics that are RIP-relative
-    unsigned size = 4;
+    unsigned sz = emitGetAdjustedSize(ins, size, code);
 
-    size += emitGetAdjustedSize(ins, attrSize, code);
-
-    if (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(id->idReg1(), attrSize) ||
-        IsExtendedReg(id->idReg2(), attrSize))
+    if (!TakesVexPrefix(ins) &&
+        (TakesRexWPrefix(ins, size) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size)))
     {
-        if (!TakesVexPrefix(ins))
-        {
-            size++;
-        }
+        sz++;
     }
 
-    return size + emitInsSize(code);
+    return sz + emitInsSize(code) + 4;
 }
 
 static unsigned emitInsSizeImm(instruction ins, emitAttr attr, int32_t imm)
