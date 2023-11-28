@@ -1537,6 +1537,70 @@ unsigned emitter::emitInsSizeR(instrDesc* id, code_t code)
     return sz;
 }
 
+unsigned emitter::emitInsSizeRI(instrDesc* id, code_t code, ssize_t imm)
+{
+    instruction ins  = id->idIns();
+    emitAttr    size = id->idOpSize();
+    regNumber   reg  = id->idReg1();
+    unsigned    sz;
+
+    if (IsShiftImm(ins))
+    {
+        assert(imm != 1);
+        sz = 3;
+    }
+    else if (ins == INS_mov)
+    {
+#ifdef TARGET_AMD64
+        if (size > EA_4BYTE)
+        {
+            sz = 9; // Really it is 10, but we'll add the REX prefix later.
+        }
+        else
+#endif
+        {
+            sz = 5;
+        }
+    }
+    else if (IsImm8(imm) && (ins != INS_mov) && (ins != INS_test))
+    {
+        if (IsSSEOrAVXInstruction(ins))
+        {
+            sz = emitInsSize(code) + 1;
+        }
+        else
+        {
+            sz = (reg == REG_EAX) && (size == EA_1BYTE) ? 2 : 3;
+        }
+    }
+    else
+    {
+        assert(!IsSSEOrAVXInstruction(ins));
+
+        sz = (reg == REG_EAX) ? 1 : 2;
+
+#ifdef TARGET_AMD64
+        if (size >= EA_4BYTE)
+        {
+            sz += 4;
+        }
+        else
+#endif
+        {
+            sz += EA_SIZE_IN_BYTES(size);
+        }
+    }
+
+    sz += emitGetAdjustedSize(ins, size, code);
+
+    if (!TakesVexPrefix(ins) && (IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)))
+    {
+        sz++;
+    }
+
+    return sz;
+}
+
 unsigned emitter::emitInsSizeRR(instrDesc* id, code_t code)
 {
     assert(!hasRexPrefix(code) && !hasVexPrefix(code));
@@ -2492,80 +2556,30 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     // all other opcodes take a sign-extended 4-byte immediate
     AMD64_ONLY(noway_assert((size < EA_8BYTE) || (ins == INS_mov) || IsImm32(imm)));
 
-    unsigned sz;
-
     if (IsShiftImm(ins))
     {
         assert(imm != 1);
-        sz = 3;
         imm &= 0x7F;
     }
-    else if (ins == INS_mov)
-    {
 #ifdef TARGET_AMD64
-        // mov reg, imm64 is equivalent to mov reg, imm32 if the high order bits are all 0
-        // and this isn't a reloc constant.
-        // TODO-MIKE-Review: This doesn't check for relocs as the comment claims, the reloc
-        // bit was stripped by EA_SIZE above.
-        if ((size == EA_8BYTE) && (0 <= imm) && (imm <= UINT_MAX))
-        {
-            attr = EA_4BYTE;
-            size = EA_4BYTE;
-            sz   = 5;
-        }
-        else if (size > EA_4BYTE)
-        {
-            sz = 9; // Really it is 10, but we'll add the REX prefix later.
-        }
-        else
+    // mov reg, imm64 is equivalent to mov reg, imm32 if the high order bits are all 0
+    // and this isn't a reloc constant.
+    // TODO-MIKE-Review: This doesn't check for relocs as the comment claims, the reloc
+    // bit was stripped by EA_SIZE above.
+    else if ((ins == INS_mov) && (size == EA_8BYTE) && (0 <= imm) && (imm <= UINT_MAX))
+    {
+        attr = EA_4BYTE;
+    }
 #endif
-        {
-            sz = 5;
-        }
-    }
-    else if (IsImm8(imm) && (ins != INS_mov) && (ins != INS_test))
-    {
-        if (IsSSEOrAVXInstruction(ins))
-        {
-            sz = emitInsSize(insCodeMI(ins)) + 1;
-        }
-        else
-        {
-            sz = (reg == REG_EAX) && (size == EA_1BYTE) ? 2 : 3;
-        }
-    }
-    else
-    {
-        assert(!IsSSEOrAVXInstruction(ins));
-
-        sz = (reg == REG_EAX) ? 1 : 2;
-
-#ifdef TARGET_AMD64
-        if (size >= EA_4BYTE)
-        {
-            sz += 4;
-        }
-        else
-#endif
-        {
-            sz += EA_SIZE_IN_BYTES(attr);
-        }
-    }
-
-    sz += emitGetAdjustedSize(ins, attr, insCodeMI(ins));
-
-    if (!TakesVexPrefix(ins) && (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, size)))
-    {
-        sz++;
-    }
 
     instrDesc* id = emitNewInstrSC(attr, imm);
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_CNS));
     id->idReg1(reg);
-    id->idCodeSize(sz);
     INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
 
+    unsigned sz = emitInsSizeRI(id, insCodeMI(ins), imm);
+    id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
 
