@@ -1505,31 +1505,34 @@ unsigned emitter::emitInsSizeR(instrDesc* id, code_t code)
 {
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
-    unsigned    sz   = 2;
+    regNumber   reg  = id->idReg1();
 
     if ((ins == INS_push) || (ins == INS_push_hide) || (ins == INS_pop) || (ins == INS_pop_hide))
     {
         assert(size == EA_PTRSIZE);
-        sz = 1;
+
+        return 1 + IsExtendedReg(reg);
     }
-#ifdef TARGET_X86
-    else if (((ins == INS_inc) || (ins == INS_dec)) && (size != EA_1BYTE))
-    {
-        sz = 1;
-    }
-#endif
-    else if ((INS_seto <= ins) && (ins <= INS_setg))
+
+    if ((INS_seto <= ins) && (ins <= INS_setg))
     {
         static_assert_no_msg(INS_seto + 0xF == INS_setg);
         assert(size == EA_1BYTE);
-        assert(insEncodeRMreg(ins, id->idReg1(), size, code) & 0x00FF0000);
+        assert(code & 0x00FF0000);
 
-        sz = 3;
+        return 3 + IsExtendedReg(reg, EA_1BYTE);
     }
 
-    sz += emitGetAdjustedSize(ins, size, insEncodeRMreg(ins, id->idReg1(), size, code));
+#ifdef TARGET_X86
+    if (((ins == INS_inc) || (ins == INS_dec)) && (size != EA_1BYTE))
+    {
+        return 1;
+    }
+#endif
 
-    if (!TakesVexPrefix(ins) && (IsExtendedReg(id->idReg1(), size) || TakesRexWPrefix(ins, size)))
+    unsigned sz = 2 + emitGetAdjustedSize(ins, size, insEncodeRMreg(ins, reg, size, code));
+
+    if (!TakesVexPrefix(ins) && (IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)))
     {
         sz++;
     }
@@ -1562,7 +1565,7 @@ unsigned emitter::emitInsSizeRI(instrDesc* id, code_t code, ssize_t imm)
             sz = 5;
         }
     }
-    else if (IsImm8(imm) && (ins != INS_mov) && (ins != INS_test))
+    else if (IsImm8(imm) && (ins != INS_test))
     {
         if (IsSSEOrAVXInstruction(ins))
         {
