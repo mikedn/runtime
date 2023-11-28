@@ -1492,28 +1492,22 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t cod
     return adjustedSize;
 }
 
-unsigned emitter::emitGetPrefixSize(code_t code, bool includeRexPrefixSize)
-{
-    if (hasVexPrefix(code))
-    {
-        return 3;
-    }
-
-    if (includeRexPrefixSize && hasRexPrefix(code))
-    {
-        return 1;
-    }
-
-    return 0;
-}
-
 // Estimate the size (in bytes of generated code) of the given instruction.
 unsigned emitter::emitInsSize(code_t code, bool includeRexPrefixSize)
 {
     unsigned size = (code & 0xFF000000) ? 4 : (code & 0x00FF0000) ? 3 : 2;
+
 #ifdef TARGET_AMD64
-    size += emitGetPrefixSize(code, includeRexPrefixSize);
+    if (hasVexPrefix(code))
+    {
+        size += 3;
+    }
+    else if (includeRexPrefixSize && hasRexPrefix(code))
+    {
+        size += 1;
+    }
 #endif
+
     return size;
 }
 
