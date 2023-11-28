@@ -1002,94 +1002,6 @@ size_t emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, 
 
 static bool IsSSE38orSSE3A(uint64_t code);
 
-unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code)
-{
-    unsigned adjustedSize = 0;
-
-    if (TakesVexPrefix(ins))
-    {
-        // VEX prefix encodes some bytes of the opcode and as a result, overall size of the instruction reduces.
-        // Therefore, to estimate the size adding VEX prefix size and size of instruction opcode bytes will always
-        // overstimate.
-        // Instead this routine will adjust the size of VEX prefix based on the number of bytes of opcode it encodes so
-        // that
-        // instruction size estimate will be accurate.
-        // Basically this  will decrease the vexPrefixSize, so that opcodeSize + vexPrefixAdjustedSize will be the right
-        // size.
-        //
-        // rightOpcodeSize + vexPrefixSize
-        //  = (opcodeSize - ExtrabytesSize) + vexPrefixSize
-        //  = opcodeSize + (vexPrefixSize - ExtrabytesSize)
-        //  = opcodeSize + vexPrefixAdjustedSize
-
-        unsigned vexPrefixAdjustedSize = 3;
-
-        // In this case, opcode will contains escape prefix at least one byte,
-        // vexPrefixAdjustedSize should be minus one.
-        vexPrefixAdjustedSize -= 1;
-
-        // Get the fourth byte in Opcode.
-        // If this byte is non-zero, then we should check whether the opcode contains SIMD prefix or not.
-        uint8_t check = (code >> 24) & 0xFF;
-        if (check != 0)
-        {
-            // 3-byte opcode: with the bytes ordered as 0x2211RM33 or
-            // 4-byte opcode: with the bytes ordered as 0x22114433
-            // Simd prefix is at the first byte.
-            uint8_t sizePrefix = (code >> 16) & 0xFF;
-            if (sizePrefix != 0 && isPrefix(sizePrefix))
-            {
-                vexPrefixAdjustedSize -= 1;
-            }
-
-            // If the opcode size is 4 bytes, then the second escape prefix is at fourth byte in opcode.
-            // But in this case the opcode has not counted R\M part.
-            // opcodeSize + VexPrefixAdjustedSize - ExtraEscapePrefixSize + ModR\MSize
-            //=opcodeSize + VexPrefixAdjustedSize -1 + 1
-            //=opcodeSize + VexPrefixAdjustedSize
-            // So although we may have second byte escape prefix, we won't decrease vexPrefixAdjustedSize.
-        }
-
-        adjustedSize = vexPrefixAdjustedSize;
-    }
-    else if (IsSSE38orSSE3A(code))
-    {
-        // The 4-Byte SSE instructions require one additional byte to hold the ModRM byte
-        adjustedSize++;
-    }
-    else
-    {
-        if (ins == INS_crc32)
-        {
-            // Adjust code size for CRC32 that has 4-byte opcode but does not use SSE38 or EES3A encoding.
-            adjustedSize++;
-        }
-
-        if ((attr == EA_2BYTE) && (ins != INS_movzx) && (ins != INS_movsx))
-        {
-            // Most 16-bit operand instructions will need a 0x66 prefix.
-            adjustedSize++;
-        }
-    }
-
-    return adjustedSize;
-}
-
-unsigned emitter::emitGetPrefixSize(code_t code, bool includeRexPrefixSize)
-{
-    if (hasVexPrefix(code))
-    {
-        return 3;
-    }
-
-    if (includeRexPrefixSize && hasRexPrefix(code))
-    {
-        return 1;
-    }
-
-    return 0;
-}
-
 #ifdef TARGET_X86
 void emitter::emitMarkStackLvl(unsigned stackLevel)
 {
@@ -1436,6 +1348,24 @@ static unsigned ScaleEncoding(unsigned scale)
     return scales[scale];
 }
 
+static bool BaseRegRequiresSIB(regNumber base)
+{
+#ifdef TARGET_AMD64
+    return base == REG_ESP || base == REG_R12;
+#else
+    return base == REG_ESP;
+#endif
+}
+
+static bool BaseRegRequiresDisp(regNumber base)
+{
+#ifdef TARGET_AMD64
+    return base == REG_EBP || base == REG_R13;
+#else
+    return base == REG_EBP;
+#endif
+}
+
 instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
 {
     static const instruction map[]{INS_nop,
@@ -1487,6 +1417,94 @@ bool emitter::emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1
 #endif
 
     return true;
+}
+
+unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code)
+{
+    unsigned adjustedSize = 0;
+
+    if (TakesVexPrefix(ins))
+    {
+        // VEX prefix encodes some bytes of the opcode and as a result, overall size of the instruction reduces.
+        // Therefore, to estimate the size adding VEX prefix size and size of instruction opcode bytes will always
+        // overstimate.
+        // Instead this routine will adjust the size of VEX prefix based on the number of bytes of opcode it encodes so
+        // that
+        // instruction size estimate will be accurate.
+        // Basically this  will decrease the vexPrefixSize, so that opcodeSize + vexPrefixAdjustedSize will be the right
+        // size.
+        //
+        // rightOpcodeSize + vexPrefixSize
+        //  = (opcodeSize - ExtrabytesSize) + vexPrefixSize
+        //  = opcodeSize + (vexPrefixSize - ExtrabytesSize)
+        //  = opcodeSize + vexPrefixAdjustedSize
+
+        unsigned vexPrefixAdjustedSize = 3;
+
+        // In this case, opcode will contains escape prefix at least one byte,
+        // vexPrefixAdjustedSize should be minus one.
+        vexPrefixAdjustedSize -= 1;
+
+        // Get the fourth byte in Opcode.
+        // If this byte is non-zero, then we should check whether the opcode contains SIMD prefix or not.
+        uint8_t check = (code >> 24) & 0xFF;
+        if (check != 0)
+        {
+            // 3-byte opcode: with the bytes ordered as 0x2211RM33 or
+            // 4-byte opcode: with the bytes ordered as 0x22114433
+            // Simd prefix is at the first byte.
+            uint8_t sizePrefix = (code >> 16) & 0xFF;
+            if (sizePrefix != 0 && isPrefix(sizePrefix))
+            {
+                vexPrefixAdjustedSize -= 1;
+            }
+
+            // If the opcode size is 4 bytes, then the second escape prefix is at fourth byte in opcode.
+            // But in this case the opcode has not counted R\M part.
+            // opcodeSize + VexPrefixAdjustedSize - ExtraEscapePrefixSize + ModR\MSize
+            //=opcodeSize + VexPrefixAdjustedSize -1 + 1
+            //=opcodeSize + VexPrefixAdjustedSize
+            // So although we may have second byte escape prefix, we won't decrease vexPrefixAdjustedSize.
+        }
+
+        adjustedSize = vexPrefixAdjustedSize;
+    }
+    else if (IsSSE38orSSE3A(code))
+    {
+        // The 4-Byte SSE instructions require one additional byte to hold the ModRM byte
+        adjustedSize++;
+    }
+    else
+    {
+        if (ins == INS_crc32)
+        {
+            // Adjust code size for CRC32 that has 4-byte opcode but does not use SSE38 or EES3A encoding.
+            adjustedSize++;
+        }
+
+        if ((attr == EA_2BYTE) && (ins != INS_movzx) && (ins != INS_movsx))
+        {
+            // Most 16-bit operand instructions will need a 0x66 prefix.
+            adjustedSize++;
+        }
+    }
+
+    return adjustedSize;
+}
+
+unsigned emitter::emitGetPrefixSize(code_t code, bool includeRexPrefixSize)
+{
+    if (hasVexPrefix(code))
+    {
+        return 3;
+    }
+
+    if (includeRexPrefixSize && hasRexPrefix(code))
+    {
+        return 1;
+    }
+
+    return 0;
 }
 
 // Estimate the size (in bytes of generated code) of the given instruction.
@@ -1613,24 +1631,6 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
     }
 
     return size;
-}
-
-static bool BaseRegRequiresSIB(regNumber base)
-{
-#ifdef TARGET_AMD64
-    return base == REG_ESP || base == REG_R12;
-#else
-    return base == REG_ESP;
-#endif
-}
-
-static bool BaseRegRequiresDisp(regNumber base)
-{
-#ifdef TARGET_AMD64
-    return base == REG_EBP || base == REG_R13;
-#else
-    return base == REG_EBP;
-#endif
 }
 
 unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
