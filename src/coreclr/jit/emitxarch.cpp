@@ -1492,50 +1492,33 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t cod
     return adjustedSize;
 }
 
-// Estimate the size (in bytes of generated code) of the given instruction.
-unsigned emitter::emitInsSize(code_t code, bool includeRexPrefixSize)
+unsigned emitter::emitInsSize(code_t code)
 {
-    unsigned size = (code & 0xFF000000) ? 4 : (code & 0x00FF0000) ? 3 : 2;
+    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
-#ifdef TARGET_AMD64
-    if (hasVexPrefix(code))
-    {
-        size += 3;
-    }
-    else if (includeRexPrefixSize && hasRexPrefix(code))
-    {
-        size += 1;
-    }
-#endif
-
-    return size;
+    return (code & 0xFF000000) ? 4 : (code & 0x00FF0000) ? 3 : 2;
 }
 
 unsigned emitter::emitInsSizeRR(instrDesc* id, code_t code)
 {
     assert(id->idIns() != INS_invalid);
+    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
     instruction ins  = id->idIns();
     emitAttr    attr = id->idOpSize();
 
     unsigned sz = emitGetAdjustedSize(ins, attr, code);
 
-    bool includeRexPrefixSize = true;
-
     if (TakesRexWPrefix(ins, attr) || IsExtendedReg(id->idReg1(), attr) || IsExtendedReg(id->idReg2(), attr) ||
         (!id->idIsSmallDsc() && (IsExtendedReg(id->idReg3(), attr) || IsExtendedReg(id->idReg4(), attr))))
     {
-        if (TakesVexPrefix(ins))
-        {
-            includeRexPrefixSize = false;
-        }
-        else
+        if (!TakesVexPrefix(ins))
         {
             sz++;
         }
     }
 
-    sz += emitInsSize(code, includeRexPrefixSize);
+    sz += emitInsSize(code);
 
     return sz;
 }
@@ -1552,16 +1535,10 @@ unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2,
 
     unsigned sz = emitGetAdjustedSize(ins, size, code);
 
-    bool includeRexPrefixSize = true;
-
     if ((TakesRexWPrefix(ins, size) && ((ins != INS_xor) || (reg1 != reg2))) || IsExtendedReg(reg1, attr) ||
         IsExtendedReg(reg2, attr))
     {
-        if (TakesVexPrefix(ins))
-        {
-            includeRexPrefixSize = false;
-        }
-        else
+        if (!TakesVexPrefix(ins))
         {
             sz++;
         }
@@ -1569,11 +1546,11 @@ unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2,
 
     if ((code & 0xFF00) != 0)
     {
-        sz += IsSSEOrAVXInstruction(ins) ? emitInsSize(code, includeRexPrefixSize) : 5;
+        sz += IsSSEOrAVXInstruction(ins) ? emitInsSize(code) : 5;
     }
     else
     {
-        sz += emitInsSize(insEncodeRMreg(ins, code), includeRexPrefixSize);
+        sz += emitInsSize(insEncodeRMreg(ins, code));
     }
 
     return sz;
@@ -1582,6 +1559,7 @@ unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2,
 unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
 {
     assert(id->idIns() != INS_invalid);
+    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
     instruction ins      = id->idIns();
     emitAttr    attrSize = id->idOpSize();
@@ -1602,7 +1580,7 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
     }
 #endif
 
-    size += emitInsSize(code, /* includeRexPrefixSize */ true);
+    size += emitInsSize(code);
 
     bool ebpBased = id->idAddr()->isEbpBased;
     int  disp     = id->idAddr()->lclOffset;
@@ -1630,7 +1608,7 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
 unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
 {
     assert(id->idIns() != INS_invalid);
-    assert(!hasRexPrefix(code));
+    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
     instruction ins       = id->idIns();
     emitAttr    attrSize  = id->idOpSize();
@@ -1773,6 +1751,7 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
 unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
 {
     assert(id->idIns() != INS_invalid);
+    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
     instruction ins      = id->idIns();
     emitAttr    attrSize = id->idOpSize();
@@ -1784,8 +1763,6 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
 
     size += emitGetAdjustedSize(ins, attrSize, code);
 
-    bool includeRexPrefixSize = true;
-
     if (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(id->idReg1(), attrSize) ||
         IsExtendedReg(id->idReg2(), attrSize))
     {
@@ -1793,11 +1770,9 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
         {
             size++;
         }
-
-        includeRexPrefixSize = false;
     }
 
-    return size + emitInsSize(code, includeRexPrefixSize);
+    return size + emitInsSize(code);
 }
 
 static unsigned emitInsSizeImm(instruction ins, emitAttr attr, int32_t imm)
@@ -2596,7 +2571,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     {
         if (IsSSEOrAVXInstruction(ins))
         {
-            sz = emitInsSize(insCodeMI(ins), !IsExtendedReg(reg, attr) && !TakesRexWPrefix(ins, size)) + 1;
+            sz = emitInsSize(insCodeMI(ins)) + 1;
         }
         else
         {
