@@ -193,7 +193,7 @@ unsigned emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code);
 unsigned emitInsSize(code_t code);
 unsigned emitInsSizeR(instrDesc* id, code_t code);
 unsigned emitInsSizeRI(instrDesc* id, code_t code, ssize_t imm);
-unsigned emitInsSizeRR(instrDesc* id, code_t code);
+unsigned emitInsSizeRRI(instrDesc* id, code_t code);
 unsigned emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr);
 unsigned emitInsSizeRRR(instrDesc* id, code_t code);
 unsigned emitInsSizeSV(instrDesc* id, code_t code);

@@ -1604,7 +1604,7 @@ unsigned emitter::emitInsSizeRI(instrDesc* id, code_t code, ssize_t imm)
     return sz;
 }
 
-unsigned emitter::emitInsSizeRR(instrDesc* id, code_t code)
+unsigned emitter::emitInsSizeRRI(instrDesc* id, code_t code)
 {
     assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
@@ -3037,7 +3037,7 @@ void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regN
             break;
     }
 
-    unsigned sz = emitInsSizeRR(id, code) + emitInsSizeImm(ins, attr, imm);
+    unsigned sz = emitInsSizeRRI(id, code) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
