@@ -1536,24 +1536,22 @@ unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2,
     // Otherwise, it will be placed after the 4 byte encoding, making the total 5 bytes.
     // This would probably be better expressed as a different format or something?
     code_t code = insCodeRM(ins);
+    assert(!hasRexPrefix(code));
 
     unsigned sz = emitGetAdjustedSize(ins, size, code);
 
     bool includeRexPrefixSize = true;
 
-    if (!hasRexPrefix(code))
+    if ((TakesRexWPrefix(ins, size) && ((ins != INS_xor) || (reg1 != reg2))) || IsExtendedReg(reg1, attr) ||
+        IsExtendedReg(reg2, attr))
     {
-        if ((TakesRexWPrefix(ins, size) && ((ins != INS_xor) || (reg1 != reg2))) || IsExtendedReg(reg1, attr) ||
-            IsExtendedReg(reg2, attr))
+        if (TakesVexPrefix(ins))
         {
-            if (TakesVexPrefix(ins))
-            {
-                includeRexPrefixSize = false;
-            }
-            else
-            {
-                sz++;
-            }
+            includeRexPrefixSize = false;
+        }
+        else
+        {
+            sz++;
         }
     }
 
@@ -1638,6 +1636,7 @@ static bool BaseRegRequiresDisp(regNumber base)
 unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
 {
     assert(id->idIns() != INS_invalid);
+    assert(!hasRexPrefix(code));
 
     instruction ins       = id->idIns();
     emitAttr    attrSize  = id->idOpSize();
@@ -1699,8 +1698,7 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
     size += emitGetAdjustedSize(ins, attrSize, code);
 
     if (!TakesVexPrefix(ins) &&
-        (hasRexPrefix(code) || TakesRexWPrefix(ins, attrSize) || IsExtendedReg(baseReg, EA_PTRSIZE) ||
-         IsExtendedReg(indexReg, EA_PTRSIZE) ||
+        (TakesRexWPrefix(ins, attrSize) || IsExtendedReg(baseReg, EA_PTRSIZE) || IsExtendedReg(indexReg, EA_PTRSIZE) ||
          ((ins != INS_call) && (IsExtendedReg(id->idReg1(), attrSize) || IsExtendedReg(id->idReg2(), attrSize)))))
     {
         size++;
