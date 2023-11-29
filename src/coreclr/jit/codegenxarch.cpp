@@ -540,13 +540,11 @@ void CodeGen::genCodeForBswap(GenTree* tree)
 
     if (tree->OperIs(GT_BSWAP))
     {
-        // 32-bit and 64-bit byte swaps use "bswap reg"
         GetEmitter()->emitIns_R(INS_bswap, emitActualTypeSize(targetType), targetReg);
     }
     else
     {
-        // 16-bit byte swaps use "ror reg.16, 8"
-        inst_RV_IV(INS_ror_N, targetReg, 8 /* val */, EA_2BYTE);
+        GetEmitter()->emitIns_R_I(INS_ror_N, EA_2BYTE, targetReg, 8);
     }
 
     DefReg(tree);
@@ -560,8 +558,8 @@ void CodeGen::genCodeForIncSaturate(GenTree* tree)
     regNumber operandReg = UseReg(operand);
 
     inst_Mov(targetType, targetReg, operandReg, /* canSkip */ true);
-    inst_RV_IV(INS_add, targetReg, 1, emitActualTypeSize(targetType));
-    inst_RV_IV(INS_sbb, targetReg, 0, emitActualTypeSize(targetType));
+    GetEmitter()->emitIns_R_I(INS_add, emitActualTypeSize(targetType), targetReg, 1);
+    GetEmitter()->emitIns_R_I(INS_sbb, emitActualTypeSize(targetType), targetReg, 0);
 
     DefReg(tree);
 }
@@ -5529,7 +5527,7 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
             inst_JMP(EJ_jmp, success);
 
             genDefineTempLabel(allOne);
-            inst_RV_IV(INS_cmp, hiSrcReg, -1, EA_4BYTE);
+            GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, hiSrcReg, -1);
             genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
 
             genDefineTempLabel(success);
@@ -5950,12 +5948,12 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     if (targetType == TYP_DOUBLE)
     {
         // right shift by 32 bits to get to exponent.
-        inst_RV_SH(INS_shr, EA_8BYTE, tmpReg, 32);
+        GetEmitter()->emitIns_R_I(INS_shr_N, EA_8BYTE, tmpReg, 32);
     }
 
     // Mask exponent with all 1's and check if the exponent is all 1's
-    inst_RV_IV(INS_and, tmpReg, expMask, EA_4BYTE);
-    inst_RV_IV(INS_cmp, tmpReg, expMask, EA_4BYTE);
+    GetEmitter()->emitIns_R_I(INS_and, EA_4BYTE, tmpReg, expMask);
+    GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, tmpReg, expMask);
 
     // If exponent is all 1's, throw ArithmeticException
     genJumpToThrowHlpBlk(EJ_je, ThrowHelperKind::Arithmetic);
@@ -6012,8 +6010,8 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     inst_Mov(TYP_INT, tmpReg, copyToTmpSrcReg, /* canSkip */ false);
 
     // Mask exponent with all 1's and check if the exponent is all 1's
-    inst_RV_IV(INS_and, tmpReg, expMask, EA_4BYTE);
-    inst_RV_IV(INS_cmp, tmpReg, expMask, EA_4BYTE);
+    GetEmitter()->emitIns_R_I(INS_and, EA_4BYTE, tmpReg, expMask);
+    GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, tmpReg, expMask);
 
     // If exponent is all 1's, throw ArithmeticException
     genJumpToThrowHlpBlk(EJ_je, ThrowHelperKind::Arithmetic);
