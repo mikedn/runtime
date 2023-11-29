@@ -72,7 +72,7 @@ INST5(pop_hide,         "pop",              IUM_WR, 0x008F,       BAD_CODE,     
 INST5(inc_s,            "inc",              IUM_RW, BAD_CODE,     BAD_CODE,     BAD_CODE,     BAD_CODE,     0x40,        IncDecFlags)
 INST5(dec_s,            "dec",              IUM_RW, BAD_CODE,     BAD_CODE,     BAD_CODE,     BAD_CODE,     0x48,        IncDecFlags)
 #endif
-INST5(bswap,            "bswap",            IUM_RW, PCKFLT(0xC8), BAD_CODE,     BAD_CODE,     BAD_CODE,     0xC80F,      None)
+INST5(bswap,            "bswap",            IUM_RW, 0xC80F,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0xC80F,      None)
 
 //    id                nm                  um      mr            mi            rm            a4                         flags
 INST4(add,              "add",              IUM_RW, 0x01,         0x0081,       0x03,         0x05,                      AddSubFlags)

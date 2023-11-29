@@ -1498,14 +1498,11 @@ unsigned emitter::emitInsSizeR(instrDesc* id, code_t code)
     }
 #endif
 
-    unsigned sz = 2 + emitGetAdjustedSize(ins, size, code);
+    assert(!TakesVexPrefix(ins));
+    assert((ins != INS_movsx) && (ins != INS_movzx));
+    assert((code >> 16) == 0);
 
-    if (!TakesVexPrefix(ins) && (IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)))
-    {
-        sz++;
-    }
-
-    return sz;
+    return (size == EA_2BYTE) + (IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)) + 2;
 }
 
 unsigned emitter::emitInsSizeRI(instrDesc* id, code_t code, ssize_t imm)
