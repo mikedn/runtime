@@ -659,7 +659,7 @@ void CodeGen::GenLongUMod(GenTreeOp* node)
 
     //   cmp edx, divisor->GetRegNum()
     //   jb noOverflow
-    inst_RV_RV(INS_cmp, REG_EDX, divisor->GetRegNum(), TYP_I_IMPL);
+    GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, REG_EDX, divisor->GetRegNum());
     inst_JMP(EJ_jb, noOverflow);
 
     //   mov temp, eax
@@ -1934,7 +1934,7 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
 
     BasicBlock* loop = genCreateTempLabel();
 
-    inst_RV_RV(INS_add, regSpDelta, REG_SPBASE, TYP_I_IMPL);
+    GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, regSpDelta, REG_SPBASE);
     inst_JMP(EJ_jb, loop);
 
     GetEmitter()->emitIns_R_R(INS_xor, EA_4BYTE, regSpDelta, regSpDelta);
@@ -1951,7 +1951,7 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
     inst_RV_IV(INS_sub, regTmp, compiler->eeGetPageSize(), EA_PTRSIZE);
     inst_Mov(TYP_I_IMPL, REG_SPBASE, regTmp, /* canSkip */ false);
 
-    inst_RV_RV(INS_cmp, REG_SPBASE, regSpDelta, TYP_I_IMPL);
+    GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, regSpDelta);
     inst_JMP(EJ_jae, loop);
 
     // Move the final shift to ESP
@@ -3450,16 +3450,16 @@ void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
 
         GetEmitter()->emitIns_R_AR(INS_mov, emitActualTypeSize(TYP_INT), tmpReg, arrReg,
                                    genOffsetOfMDArrayDimensionSize(elemType, rank, dim));
-        inst_RV_RV(INS_imul, tmpReg, offsetReg, TYP_I_IMPL);
+        GetEmitter()->emitIns_R_R(INS_imul, EA_PTRSIZE, tmpReg, offsetReg);
 
         if (tmpReg == tgtReg)
         {
-            inst_RV_RV(INS_add, tmpReg, indexReg, TYP_I_IMPL);
+            GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, tmpReg, indexReg);
         }
         else
         {
             inst_Mov(TYP_I_IMPL, tgtReg, indexReg, /* canSkip */ true);
-            inst_RV_RV(INS_add, tgtReg, tmpReg, TYP_I_IMPL);
+            GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, tgtReg, tmpReg);
         }
     }
     else
@@ -5521,10 +5521,10 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
             BasicBlock* allOne  = genCreateTempLabel();
             BasicBlock* success = genCreateTempLabel();
 
-            inst_RV_RV(INS_test, loSrcReg, loSrcReg, TYP_INT);
+            GetEmitter()->emitIns_R_R(INS_test, EA_4BYTE, loSrcReg, loSrcReg);
             inst_JMP(EJ_js, allOne);
 
-            inst_RV_RV(INS_test, hiSrcReg, hiSrcReg, TYP_INT);
+            GetEmitter()->emitIns_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
             genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
             inst_JMP(EJ_jmp, success);
 
@@ -5538,11 +5538,11 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
         {
             if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
             {
-                inst_RV_RV(INS_test, loSrcReg, loSrcReg, TYP_INT);
+                GetEmitter()->emitIns_R_R(INS_test, EA_4BYTE, loSrcReg, loSrcReg);
                 genJumpToThrowHlpBlk(EJ_js, ThrowHelperKind::Overflow);
             }
 
-            inst_RV_RV(INS_test, hiSrcReg, hiSrcReg, TYP_INT);
+            GetEmitter()->emitIns_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
             genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
         }
     }
@@ -9139,11 +9139,6 @@ instruction CodeGen::ins_Store(var_types dstType, bool aligned)
     }
 
     return INS_mov;
-}
-
-void CodeGen::inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type)
-{
-    GetEmitter()->emitIns_R_R(ins, emitActualTypeSize(type), reg1, reg2);
 }
 
 void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
