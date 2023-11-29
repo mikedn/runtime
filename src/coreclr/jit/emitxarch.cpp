@@ -1498,7 +1498,7 @@ unsigned emitter::emitInsSizeR(instrDesc* id, code_t code)
     }
 #endif
 
-    unsigned sz = 2 + emitGetAdjustedSize(ins, size, insEncodeRMreg(ins, reg, size, code));
+    unsigned sz = 2 + emitGetAdjustedSize(ins, size, code);
 
     if (!TakesVexPrefix(ins) && (IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)))
     {
