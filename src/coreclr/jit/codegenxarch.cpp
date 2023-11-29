@@ -407,8 +407,8 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
         // the finally with a jmp, this leaves the x86 call-ret stack
         // balanced in the normal flow of path.
 
-        inst_RV(INS_pop_hide, REG_EAX, TYP_I_IMPL);
-        inst_RV(INS_i_jmp, REG_EAX, TYP_I_IMPL);
+        GetEmitter()->emitIns_R(INS_pop_hide, EA_PTRSIZE, REG_EAX);
+        GetEmitter()->emitIns_R(INS_i_jmp, EA_PTRSIZE, REG_EAX);
     }
     else
     {
@@ -541,7 +541,7 @@ void CodeGen::genCodeForBswap(GenTree* tree)
     if (tree->OperIs(GT_BSWAP))
     {
         // 32-bit and 64-bit byte swaps use "bswap reg"
-        inst_RV(INS_bswap, targetReg, targetType);
+        GetEmitter()->emitIns_R(INS_bswap, emitActualTypeSize(targetType), targetReg);
     }
     else
     {
@@ -671,13 +671,13 @@ void CodeGen::GenLongUMod(GenTreeOp* node)
     inst_Mov(TYP_INT, tempReg, REG_EAX, /* canSkip */ false);
     inst_Mov(TYP_INT, REG_EAX, REG_EDX, /* canSkip */ false);
     GetEmitter()->emitIns_R_R(INS_xor, EA_4BYTE, REG_EDX, REG_EDX);
-    inst_RV(INS_div, divisor->GetRegNum(), TYP_INT);
+    GetEmitter()->emitIns_R(INS_div, EA_4BYTE, divisor->GetRegNum());
     inst_Mov(TYP_INT, REG_EAX, tempReg, /* canSkip */ false);
 
     // noOverflow:
     //   div divisor->GetRegNum()
     genDefineTempLabel(noOverflow);
-    inst_RV(INS_div, divisor->GetRegNum(), TYP_INT);
+    GetEmitter()->emitIns_R(INS_div, EA_4BYTE, divisor->GetRegNum());
 
     const regNumber targetReg = node->GetRegNum();
     inst_Mov(TYP_INT, targetReg, REG_RDX, /* canSkip */ true);
@@ -2198,7 +2198,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         // Note that the stack must always be aligned to STACK_ALIGN bytes
 
         // Decrement the loop counter and loop if not done.
-        inst_RV(INS_dec, regCnt, TYP_I_IMPL);
+        GetEmitter()->emitIns_R(INS_dec, EA_PTRSIZE, regCnt);
         inst_JMP(EJ_jne, loop);
 
         lastTouchDelta = 0;
@@ -2209,7 +2209,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         // Negate this shift before calling the function to adjust the stack (which
         // adds to ESP).
 
-        inst_RV(INS_neg, regCnt, TYP_I_IMPL);
+        GetEmitter()->emitIns_R(INS_neg, EA_PTRSIZE, regCnt);
         regNumber regTmp = tree->GetSingleTempReg();
         genStackPointerDynamicAdjustmentWithProbe(regCnt, regTmp);
 
@@ -3576,7 +3576,7 @@ void CodeGen::genCodeForShift(GenTreeOp* tree)
 
         inst_Mov(TYP_INT, REG_RCX, shiftByReg, /* canSkip */ true);
         inst_Mov(targetType, dstReg, operandReg, /* canSkip */ true);
-        inst_RV(ins, dstReg, targetType);
+        GetEmitter()->emitIns_R(ins, emitActualTypeSize(targetType), dstReg);
     }
 
     DefReg(tree);
@@ -6304,7 +6304,7 @@ void CodeGen::genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias)
     {
         if (bias == 4)
         {
-            inst_RV(INS_pop, REG_ECX, TYP_INT);
+            GetEmitter()->emitIns_R(INS_pop, EA_4BYTE, REG_ECX);
         }
         else
         {
@@ -6844,7 +6844,7 @@ void CodeGen::genPushReg(var_types type, regNumber srcReg)
     if (varTypeIsIntegralOrI(type))
     {
         assert(genIsValidIntReg(srcReg));
-        inst_RV(INS_push, srcReg, type);
+        GetEmitter()->emitIns_R(INS_push, emitActualTypeSize(type), srcReg);
     }
     else
     {
@@ -8086,7 +8086,7 @@ void CodeGen::PrologPushCalleeSavedRegisters()
 
         if ((regBit & rsPushRegs) != 0)
         {
-            inst_RV(INS_push, reg, TYP_REF);
+            GetEmitter()->emitIns_R(INS_push, EA_GCREF, reg);
             compiler->unwindPush(reg);
 #ifdef USING_SCOPE_INFO
             if (!IsFramePointerRequired())
@@ -8661,7 +8661,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     // We do need to allocate the outgoing argument space, in case there are calls here. This must be the same
     // size as the parent frame's outgoing argument space, to keep the PSPSym offset the same.
 
-    inst_RV(INS_push, REG_FPBASE, TYP_REF);
+    GetEmitter()->emitIns_R(INS_push, EA_GCREF, REG_FPBASE);
     compiler->unwindPush(REG_FPBASE);
 
     // Callee saved int registers are pushed to stack.
@@ -8716,7 +8716,7 @@ void CodeGen::genFuncletEpilog()
     genRestoreCalleeSavedFltRegs(genFuncletInfo.fiSpDelta);
     inst_RV_IV(INS_add, REG_SPBASE, genFuncletInfo.fiSpDelta, EA_PTRSIZE);
     genPopCalleeSavedRegisters();
-    inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
+    GetEmitter()->emitIns_R(INS_pop, EA_PTRSIZE, REG_EBP);
     GetEmitter()->emitIns(INS_ret);
 }
 
@@ -8899,7 +8899,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             // If we ever allow the original method to have localloc this will
             // need to change.
             inst_RV_IV(INS_add, REG_SPBASE, originalFrameSize, EA_PTRSIZE);
-            inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
+            GetEmitter()->emitIns_R(INS_pop, EA_PTRSIZE, REG_EBP);
         }
     }
     else
@@ -9021,7 +9021,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         }
 #endif
 
-        inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
+        GetEmitter()->emitIns_R(INS_pop, EA_PTRSIZE, REG_EBP);
     }
 
 #ifdef JIT32_GCENCODER
@@ -9163,11 +9163,6 @@ void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emi
     {
         GetEmitter()->emitIns_R_I(ins, size, reg, val);
     }
-}
-
-void CodeGen::inst_RV(instruction ins, regNumber reg, var_types type)
-{
-    GetEmitter()->emitIns_R(ins, emitActualTypeSize(type), reg);
 }
 
 void CodeGen::inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val)
