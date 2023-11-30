@@ -189,14 +189,14 @@ ssize_t emitGetInsCallDisp(instrDesc* id);
 // its 3-byte VEX prefix.
 typedef uint64_t code_t;
 
-unsigned emitGetVexAdjustedSize(instruction ins, code_t code);
+unsigned emitGetVexAdjustedSize(instruction ins);
 unsigned emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code, bool isRR = false);
 unsigned emitInsSize(code_t code);
-unsigned emitInsSizeR(instrDesc* id, code_t code);
-unsigned emitInsSizeRI(instrDesc* id, code_t code, ssize_t imm);
-unsigned emitInsSizeRRI(instrDesc* id, code_t code);
+unsigned emitInsSizeR(instruction ins, emitAttr size, regNumber reg);
+unsigned emitInsSizeRI(instruction ins, emitAttr size, regNumber reg, ssize_t imm);
 unsigned emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, regNumber reg2);
-unsigned emitInsSizeRRR(instrDesc* id, code_t code);
+unsigned emitInsSizeRRI(instruction ins, emitAttr size, regNumber reg1, regNumber reg2);
+unsigned emitInsSizeRRR(instruction ins);
 unsigned emitInsSizeSV(instrDesc* id, code_t code);
 unsigned emitInsSizeAM(instrDesc* id, code_t code);
 unsigned emitInsSizeCV(instrDesc* id, code_t code);
