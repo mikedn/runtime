@@ -1122,10 +1122,10 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
 
     // BT supports 16 bit operands and this code doesn't handle the necessary 66 prefix.
     assert(ins != INS_bt);
+    assert(id->idInsFmt() != IF_RWR_LABEL);
 
     switch (id->idInsFmt())
     {
-        case IF_RWR_LABEL:
         case IF_MRW_CNS:
         case IF_MRW_RRD:
             baseReg  = REG_NA;
@@ -2939,7 +2939,7 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 
-    unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
+    unsigned sz = AMD64_ONLY(1 +) 1 + 1 + 4; // REX 8D RM DISP32
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
