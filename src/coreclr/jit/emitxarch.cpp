@@ -1419,25 +1419,28 @@ bool emitter::emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1
     return true;
 }
 
+unsigned emitter::emitGetVexAdjustedSize(instruction ins, emitAttr attr, code_t code)
+{
+    assert(TakesVexPrefix(ins));
+
+    // TODO-MIKE-Cleanup: This stuff is mind-bogglingly stupid. Instead of simply getting the size
+    // of a VEX instruction opcode as 3 (for the VEX prefix) + 1 (for the actual opcode) these
+    // lunatics have computed the size of the multi-byte, non-VEX opcode and then adjusted to
+    // account for the reduction in size due to prefixes moving to the VEX prefix.
+    unsigned adjustedSize = 2;
+
+    if ((((code >> 24) & 0xFF) != 0) && (((code >> 16) & 0xFF) != 0))
+    {
+        adjustedSize--;
+    }
+
+    return adjustedSize;
+}
+
 unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code)
 {
     assert(ins != INS_invalid);
-
-    if (TakesVexPrefix(ins))
-    {
-        // TODO-MIKE-Cleanup: This stuff is mind-bogglingly stupid. Instead of simply getting the size
-        // of a VEX instruction opcode as 3 (for the VEX prefix) + 1 (for the actual opcode) these
-        // lunatics have computed the size of the multi-byte, non-VEX opcode and then adjusted to
-        // account for the reduction in size due to prefixes moving to the VEX prefix.
-        unsigned adjustedSize = 2;
-
-        if ((((code >> 24) & 0xFF) != 0) && (((code >> 16) & 0xFF) != 0))
-        {
-            adjustedSize--;
-        }
-
-        return adjustedSize;
-    }
+    assert(!TakesVexPrefix(ins));
 
     if (IsSSE38orSSE3A(code))
     {
@@ -1559,7 +1562,14 @@ unsigned emitter::emitInsSizeRI(instrDesc* id, code_t code, ssize_t imm)
         }
     }
 
-    sz += emitGetAdjustedSize(ins, size, code);
+    if (TakesVexPrefix(ins))
+    {
+        sz += emitGetVexAdjustedSize(ins, size, code);
+    }
+    else
+    {
+        sz += emitGetAdjustedSize(ins, size, code);
+    }
 
     if (!TakesVexPrefix(ins) && (IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)))
     {
@@ -1576,7 +1586,16 @@ unsigned emitter::emitInsSizeRRI(instrDesc* id, code_t code)
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
 
-    unsigned sz = emitGetAdjustedSize(ins, size, code);
+    unsigned sz;
+
+    if (TakesVexPrefix(ins))
+    {
+        sz = emitGetVexAdjustedSize(ins, size, code);
+    }
+    else
+    {
+        sz = emitGetAdjustedSize(ins, size, code);
+    }
 
     if (!TakesVexPrefix(ins) &&
         (TakesRexWPrefix(ins, size) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size)))
@@ -1597,7 +1616,7 @@ unsigned emitter::emitInsSizeRRR(instrDesc* id, code_t code)
 
     assert(TakesVexPrefix(ins));
 
-    return emitGetAdjustedSize(ins, size, code) + emitInsSize(code);
+    return emitGetVexAdjustedSize(ins, size, code) + emitInsSize(code);
 }
 
 unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr)
@@ -1607,7 +1626,16 @@ unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2,
     code_t code = insCodeRM(ins);
     assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
-    unsigned sz = emitGetAdjustedSize(ins, size, code);
+    unsigned sz;
+
+    if (TakesVexPrefix(ins))
+    {
+        sz = emitGetVexAdjustedSize(ins, size, code);
+    }
+    else
+    {
+        sz = emitGetAdjustedSize(ins, size, code);
+    }
 
     if (!TakesVexPrefix(ins) && ((TakesRexWPrefix(ins, size) && ((ins != INS_xor) || (reg1 != reg2))) ||
                                  IsExtendedReg(reg1, attr) || IsExtendedReg(reg2, attr)))
@@ -1637,7 +1665,16 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
 
-    unsigned sz = emitGetAdjustedSize(ins, size, code);
+    unsigned sz;
+
+    if (TakesVexPrefix(ins))
+    {
+        sz = emitGetVexAdjustedSize(ins, size, code);
+    }
+    else
+    {
+        sz = emitGetAdjustedSize(ins, size, code);
+    }
 
     if (!TakesVexPrefix(ins) &&
         (TakesRexWPrefix(ins, size) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size)))
@@ -1708,7 +1745,15 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
     }
 
     unsigned sz = emitInsSize(code);
-    sz += emitGetAdjustedSize(ins, size, code);
+
+    if (TakesVexPrefix(ins))
+    {
+        sz += emitGetVexAdjustedSize(ins, size, code);
+    }
+    else
+    {
+        sz += emitGetAdjustedSize(ins, size, code);
+    }
 
     if (!TakesVexPrefix(ins) &&
         (TakesRexWPrefix(ins, size) || IsExtendedReg(baseReg, EA_PTRSIZE) || IsExtendedReg(indexReg, EA_PTRSIZE) ||
@@ -1790,7 +1835,16 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
 
-    unsigned sz = emitGetAdjustedSize(ins, size, code);
+    unsigned sz;
+
+    if (TakesVexPrefix(ins))
+    {
+        sz = emitGetVexAdjustedSize(ins, size, code);
+    }
+    else
+    {
+        sz = emitGetAdjustedSize(ins, size, code);
+    }
 
     if (!TakesVexPrefix(ins) &&
         (TakesRexWPrefix(ins, size) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size)))
