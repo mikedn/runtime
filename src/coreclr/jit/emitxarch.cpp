@@ -1485,8 +1485,8 @@ void emitter::emitIns_Nop(unsigned size)
     instrDesc* id = emitNewInstr();
     id->idIns(INS_nop);
     id->idInsFmt(IF_NONE);
-    id->idCodeSize(size);
 
+    id->idCodeSize(size);
     dispIns(id);
     emitCurIGsize += size;
 }
@@ -1496,8 +1496,8 @@ void emitter::emitIns_Lock()
     instrDesc* id = emitNewInstr();
     id->idIns(INS_lock);
     id->idInsFmt(IF_NONE);
-    id->idCodeSize(1);
 
+    id->idCodeSize(1);
     dispIns(id);
     emitCurIGsize++;
 
@@ -1514,8 +1514,13 @@ void emitter::emitIns(instruction ins)
     assert((ins == INS_int3) || (ins == INS_leave) || (ins == INS_nop) || (ins == INS_ret) || (ins == INS_vzeroupper) ||
            (ins == INS_lfence) || (ins == INS_mfence) || (ins == INS_sfence));
 
+    instrDesc* id = emitNewInstr();
+    id->idIns(ins);
+    id->idInsFmt(IF_NONE);
+
     code_t code = insCodeMR(ins);
     assert((code >> 24) == 0);
+
     unsigned sz;
 
     if ((code & 0x00FF0000) != 0)
@@ -1537,11 +1542,7 @@ void emitter::emitIns(instruction ins)
     // vzeroupper includes its 2-byte VEX prefix in its MR code.
     assert((ins != INS_vzeroupper) || (sz == 3));
 
-    instrDesc* id = emitNewInstr();
-    id->idIns(ins);
-    id->idInsFmt(IF_NONE);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -1552,16 +1553,15 @@ void emitter::emitIns(instruction ins, emitAttr attr)
            (ins == INS_rep_stos));
     assert((attr == EA_1BYTE) || (attr == EA_4BYTE)AMD64_ONLY(|| (attr == EA_8BYTE)));
 
+    instrDesc* id = emitNewInstr(attr);
+    id->idIns(ins);
+    id->idInsFmt(IF_NONE);
+
     size_t code = insCodeMR(ins);
     assert((code >> 16) == 0);
 
     unsigned sz = 1 + ((code & 0xFF00) != 0)AMD64_ONLY(+(attr == EA_8BYTE));
-
-    instrDesc* id = emitNewInstr(attr);
-    id->idIns(ins);
-    id->idInsFmt(IF_NONE);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -1802,6 +1802,7 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
+
 #if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
 #endif
@@ -1922,6 +1923,7 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
+
 #if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
 #endif
@@ -1932,6 +1934,12 @@ void emitter::emitIns_R_H(instruction ins, regNumber reg, void* addr DEBUGARG(Ha
     assert(ins == INS_mov);
     assert(genIsValidIntReg(reg) && (reg != REG_RSP));
 
+    instrDesc* id = emitNewInstrSC(EA_PTR_CNS_RELOC, reinterpret_cast<ssize_t>(addr));
+    id->idIns(ins);
+    id->idInsFmt(IF_RWR_CNS);
+    id->idReg1(reg);
+    INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
+
 #ifdef TARGET_AMD64
     // Because it has to be relocatable this has to be a "mov reg, imm64", we can't narrow it
     // down to imm32. And since it's always a 64 bit operation it always has a REX prefix.
@@ -1939,14 +1947,7 @@ void emitter::emitIns_R_H(instruction ins, regNumber reg, void* addr DEBUGARG(Ha
 #else
     unsigned size = 5;
 #endif
-
-    instrDesc* id = emitNewInstrSC(EA_PTR_CNS_RELOC, reinterpret_cast<ssize_t>(addr));
-    id->idIns(ins);
-    id->idInsFmt(IF_RWR_CNS);
-    id->idReg1(reg);
     id->idCodeSize(size);
-    INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
-
     dispIns(id);
     emitCurIGsize += size;
 }
@@ -2009,10 +2010,11 @@ void emitter::emitIns_H(instruction ins, void* addr)
     instrDesc* id = emitNewInstrSC(EA_PTR_CNS_RELOC, reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
     id->idInsFmt(IF_CNS);
-    id->idCodeSize(5);
 
+    id->idCodeSize(5);
     dispIns(id);
     emitCurIGsize += 5;
+
 #if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
 #endif
@@ -2039,6 +2041,10 @@ void emitter::emitInsMov_R_FS(regNumber reg, int offs)
 
 void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 {
+    instrDesc* id = emitNewInstrSC(attr, imm);
+    id->idIns(ins);
+    id->idInsFmt(IF_CNS);
+
     unsigned sz;
 
 #ifdef TARGET_AMD64
@@ -2059,13 +2065,10 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
     }
 #endif
 
-    instrDesc* id = emitNewInstrSC(attr, imm);
-    id->idIns(ins);
-    id->idInsFmt(IF_CNS);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
+
 #if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
 #endif
@@ -2081,17 +2084,12 @@ void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fie
     id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
 
-    unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
-
-    if (!TakesVexPrefix(ins) && TakesRexWPrefix(ins, attr))
-    {
-        sz++;
-    }
-
+    // TODO-MIKE-Review: This appears to add an extra REX byte, emitInsSizeCV already checks TakesRexWPrefix.
+    unsigned sz = emitInsSizeCV(id, insCodeMR(ins)) + (!TakesVexPrefix(ins) && TakesRexWPrefix(ins, attr));
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
+
 #if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
 #endif
@@ -2448,14 +2446,8 @@ void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
 
-    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
-
     // TODO-MIKE-Cleanup: Bozos thought that lfence & co. have VEX.
-    if (UseVEXEncoding())
-    {
-        sz += 2;
-    }
-
+    unsigned sz = emitInsSizeAM(id, insCodeMR(ins)) + (UseVEXEncoding() ? 2 : 0);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -2832,7 +2824,6 @@ void emitter::emitIns_R_R_A_R(
     id->idIns(ins);
     id->idReg1(reg1);
     id->idReg2(reg2);
-
     SetInstrAddrMode(id, IF_RWR_RRD_ARD_RRD, ins, addr);
 
     unsigned sz = emitInsSizeAM(id, insCodeRM(ins)) + 1;
@@ -2897,7 +2888,6 @@ void emitter::emitIns_R_R_R_R(
 
     unsigned sz = emitInsSizeRRR(id, insCodeRM(ins)) + 1;
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -2958,6 +2948,8 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idReg1(reg);
+    id->idSetIsDspReloc();
+    id->idAddr()->iiaFieldHnd = field;
 
     unsigned sz;
 
@@ -2985,10 +2977,6 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     }
 
     id->idCodeSize(sz);
-
-    id->idAddr()->iiaFieldHnd = field;
-    id->idSetIsDspReloc();
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -3225,6 +3213,7 @@ void emitter::emitIns_ARX_R(
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
+
 #if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
 #endif
@@ -3626,6 +3615,7 @@ void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
+
 #if !FEATURE_FIXED_OUT_ARGS
     emitAdjustStackDepthPushPop(ins);
 #endif
@@ -3633,12 +3623,7 @@ void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
 
 void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int varx, int offs)
 {
-#ifdef TARGET_X86
-    if (attr == EA_1BYTE)
-    {
-        assert(isByteReg(reg));
-    }
-#endif
+    X86_ONLY(assert((attr != EA_1BYTE) || isByteReg(reg)));
 
     instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
@@ -3646,14 +3631,8 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int var
     id->idReg1(reg);
     SetInstrLclAddrMode(id, varx, offs);
 
-    unsigned sz = emitInsSizeSV(id, insCodeMR(ins));
-
     // TODO-MIKE-Cleanup: Bozos thought that lfence & co. have VEX.
-    if (UseVEXEncoding() && (ins == INS_movnti))
-    {
-        sz++;
-    }
-
+    unsigned sz = emitInsSizeSV(id, insCodeMR(ins)) + (UseVEXEncoding() && (ins == INS_movnti));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4058,7 +4037,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         id->idIns(INS_i_jmp);
     }
 
-    unsigned insSize;
+    unsigned sz;
 
     if (kind == EC_INDIR_R)
     {
@@ -4068,7 +4047,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         id->idAddr()->iiaAddrMode.amIndxReg = id->idReg2();
         id->idReg1(amBase);
 
-        insSize = 2 + IsExtendedReg(amBase);
+        sz = 2 + IsExtendedReg(amBase);
     }
     else if (kind == EC_INDIR_ARD)
     {
@@ -4079,7 +4058,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         id->idAddr()->iiaAddrMode.amIndxReg = amIndex;
         id->idAddr()->iiaAddrMode.amScale   = ScaleEncoding(amScale);
 
-        insSize = emitInsSizeAM(id, insCodeMR(INS_call));
+        sz = emitInsSizeAM(id, insCodeMR(INS_call));
     }
     else if (kind == EC_FUNC_TOKEN_INDIR)
     {
@@ -4088,7 +4067,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         id->idInsFmt(IF_METHPTR);
         id->idAddr()->iiaAddr = addr;
 
-        insSize = 6;
+        sz = 6;
 
         // Since this is an indirect call through a pointer and we don't
         // currently pass in emitAttr into this function, we query codegen
@@ -4100,7 +4079,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         else
         {
             // This addr mode requires an extra SIB byte.
-            AMD64_ONLY(insSize++);
+            AMD64_ONLY(sz++);
         }
     }
     else
@@ -4119,8 +4098,12 @@ void emitter::emitIns_Call(EmitCallType          kind,
             id->idSetIsDspReloc();
         }
 
-        insSize = 5;
+        sz = 5;
     }
+
+    id->idCodeSize(sz);
+    dispIns(id);
+    emitCurIGsize += sz;
 
 #ifdef DEBUG
     id->idDebugOnlyInfo()->idHandle  = methodHandle;
@@ -4133,11 +4116,6 @@ void emitter::emitIns_Call(EmitCallType          kind,
         codeGen->getDisAssembler().disSetMethod(reinterpret_cast<size_t>(addr), methodHandle);
     }
 #endif
-
-    id->idCodeSize(insSize);
-
-    dispIns(id);
-    emitCurIGsize += insSize;
 
 #if !FEATURE_FIXED_OUT_ARGS
     if (emitCntStackDepth && (argSize > 0))

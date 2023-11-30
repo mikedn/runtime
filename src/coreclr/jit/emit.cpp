@@ -898,6 +898,8 @@ BasicBlock::weight_t emitter::getCurrentBlockWeight()
 
 void emitter::dispIns(instrDesc* id)
 {
+    assert(id->idDebugOnlyInfo()->idSize == emitSizeOfInsDsc(id));
+
 #ifdef DEBUG
     emitInsSanityCheck(id);
 
@@ -905,14 +907,11 @@ void emitter::dispIns(instrDesc* id)
     {
         emitDispIns(id, true);
     }
-
-#if !FEATURE_FIXED_OUT_ARGS
-    assert((int)emitCurStackLvl >= 0);
 #endif
 
-    size_t sz = emitSizeOfInsDsc(id);
-    assert(id->idDebugOnlyInfo()->idSize == sz);
-#endif // DEBUG
+#if !FEATURE_FIXED_OUT_ARGS
+    assert(emitCurStackLvl <= INT32_MAX);
+#endif
 
 #if EMITTER_STATS
     emitIFcounts[id->idInsFmt()]++;
