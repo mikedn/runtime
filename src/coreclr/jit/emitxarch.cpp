@@ -1278,15 +1278,6 @@ emitter::code_t emitter::insEncodeRMreg(instruction ins, regNumber reg, emitAttr
     return code;
 }
 
-// Returns the "byte ptr [r/m], icon" opcode with the mod/RM field set to the given register.
-emitter::code_t emitter::insEncodeMIreg(instruction ins, regNumber reg, emitAttr size, code_t code)
-{
-    assert((code & 0xC000) == 0);
-    code |= 0xC000;
-    code |= insEncodeReg012(ins, reg, size, &code) << 8;
-    return code;
-}
-
 static unsigned ScaleEncoding(unsigned scale)
 {
     assert((scale == 0) || (scale == 1) || (scale == 2) || (scale == 4) || (scale == 8));
@@ -7718,7 +7709,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
         assert(code & 0xFF000000);
 
         code = AddVexPrefixIfNeeded(ins, code, size);
-        code = insEncodeMIreg(ins, reg, size, code);
+        code = insEncodeRMreg(ins, reg, size, code);
 
         if (TakesVexPrefix(ins))
         {
@@ -7861,7 +7852,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
     else
     {
         code = insCodeMI(ins);
-        code = insEncodeMIreg(ins, reg, size, code);
+        code = insEncodeRMreg(ins, reg, size, code);
 
         if (useImm8)
         {
