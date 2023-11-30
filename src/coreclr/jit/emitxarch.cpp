@@ -1391,7 +1391,7 @@ bool emitter::emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1
     return true;
 }
 
-unsigned emitter::emitGetVexAdjustedSize(instruction ins, emitAttr attr, code_t code)
+unsigned emitter::emitGetVexAdjustedSize(instruction ins, code_t code)
 {
     assert(TakesVexPrefix(ins));
 
@@ -1399,14 +1399,14 @@ unsigned emitter::emitGetVexAdjustedSize(instruction ins, emitAttr attr, code_t 
     // of a VEX instruction opcode as 3 (for the VEX prefix) + 1 (for the actual opcode) these
     // lunatics have computed the size of the multi-byte, non-VEX opcode and then adjusted to
     // account for the reduction in size due to prefixes moving to the VEX prefix.
-    unsigned adjustedSize = 2;
+    unsigned sz = 2;
 
     if ((((code >> 24) & 0xFF) != 0) && (((code >> 16) & 0xFF) != 0))
     {
-        adjustedSize--;
+        sz--;
     }
 
-    return adjustedSize + emitInsSize(code);
+    return sz + emitInsSize(code);
 }
 
 unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t code, bool isRR)
@@ -1524,7 +1524,7 @@ unsigned emitter::emitInsSizeRI(instrDesc* id, code_t code, ssize_t imm)
     {
         if (TakesVexPrefix(ins))
         {
-            return emitGetVexAdjustedSize(ins, size, code) + 1;
+            return emitGetVexAdjustedSize(ins, code) + 1;
         }
 
         return (IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)) + emitInsSize(code) + IsSSE38orSSE3A(code) + 1;
@@ -1560,7 +1560,7 @@ unsigned emitter::emitInsSizeRRI(instrDesc* id, code_t code)
 
     if (TakesVexPrefix(ins))
     {
-        return emitGetVexAdjustedSize(ins, size, code);
+        return emitGetVexAdjustedSize(ins, code);
     }
 
     unsigned sz = emitGetAdjustedSize(ins, size, code);
@@ -1578,7 +1578,7 @@ unsigned emitter::emitInsSizeRRR(instrDesc* id, code_t code)
 
     assert(TakesVexPrefix(ins));
 
-    return emitGetVexAdjustedSize(ins, size, code);
+    return emitGetVexAdjustedSize(ins, code);
 }
 
 unsigned emitter::emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, regNumber reg2)
@@ -1588,7 +1588,7 @@ unsigned emitter::emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, 
 
     if (TakesVexPrefix(ins))
     {
-        return emitGetVexAdjustedSize(ins, size, code);
+        return emitGetVexAdjustedSize(ins, code);
     }
 
     unsigned sz = emitGetAdjustedSize(ins, size, code, true);
@@ -1608,7 +1608,7 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
 
     if (TakesVexPrefix(ins))
     {
-        sz = emitGetVexAdjustedSize(ins, size, code);
+        sz = emitGetVexAdjustedSize(ins, code);
     }
     else
     {
@@ -1680,7 +1680,7 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
 
     if (TakesVexPrefix(ins))
     {
-        sz = emitGetVexAdjustedSize(ins, size, code);
+        sz = emitGetVexAdjustedSize(ins, code);
     }
     else
     {
@@ -1767,7 +1767,7 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
 
     if (TakesVexPrefix(ins))
     {
-        sz = emitGetVexAdjustedSize(ins, size, code);
+        sz = emitGetVexAdjustedSize(ins, code);
     }
     else
     {
