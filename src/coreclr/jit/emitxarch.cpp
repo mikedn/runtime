@@ -879,6 +879,7 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t cod
 {
     assert(ins != INS_invalid);
     assert(!TakesVexPrefix(ins));
+    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
     if (IsSSE38orSSE3A(code))
     {
@@ -1012,10 +1013,7 @@ unsigned emitter::emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, 
         return emitGetVexAdjustedSize(ins);
     }
 
-    code_t code = insCodeRM(ins);
-    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
-
-    unsigned sz = emitGetAdjustedSize(ins, size, code, true);
+    unsigned sz = emitGetAdjustedSize(ins, size, insCodeRM(ins), true);
     sz += IsExtendedReg(reg1, size) || IsExtendedReg(reg2, size) ||
           (TakesRexWPrefix(ins, size) && ((ins != INS_xor) || (reg1 != reg2)));
     return sz;
@@ -1052,8 +1050,6 @@ unsigned emitter::emitInsSizeRRI(instruction ins, emitAttr size, regNumber reg1,
             break;
     }
 
-    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
-
     unsigned sz = emitGetAdjustedSize(ins, size, code);
     sz += IsExtendedReg(reg1, size) || IsExtendedReg(reg2, size) || TakesRexWPrefix(ins, size);
     return sz;
@@ -1068,8 +1064,6 @@ unsigned emitter::emitInsSizeRRR(instruction ins)
 
 unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
 {
-    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
-
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
 
@@ -1118,8 +1112,6 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
 
 unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
 {
-    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
-
     instruction ins      = id->idIns();
     emitAttr    size     = id->idOpSize();
     ssize_t     disp     = (ins == INS_call) ? emitGetInsCallDisp(id) : emitGetInsAmdDisp(id);
@@ -1227,8 +1219,6 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
 
 unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
 {
-    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
-
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
 
