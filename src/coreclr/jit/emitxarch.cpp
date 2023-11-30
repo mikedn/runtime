@@ -1406,27 +1406,20 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t cod
     assert(ins != INS_invalid);
     assert(!TakesVexPrefix(ins));
 
-    unsigned sz = 0;
-
     if (IsSSE38orSSE3A(code))
     {
         // The 4-Byte SSE instructions require one additional byte to hold the ModRM byte
-        sz++;
+        return 4 + 1;
     }
-    else
-    {
-        if (ins == INS_crc32)
-        {
-            // Adjust code size for CRC32 that has 4-byte opcode but does not use SSE38 or EES3A encoding.
-            sz++;
-        }
 
-        if ((size == EA_2BYTE) && (ins != INS_movzx) && (ins != INS_movsx))
-        {
-            // Most 16-bit operand instructions will need a 0x66 prefix.
-            sz++;
-        }
+    if (ins == INS_crc32)
+    {
+        // Adjust code size for CRC32 that has 4-byte opcode but does not use SSE38 or EES3A encoding.
+        return (size == EA_2BYTE) + 4 + 1;
     }
+
+    // Most 16-bit operand instructions will need a 0x66 prefix.
+    unsigned sz = (size == EA_2BYTE) && (ins != INS_movzx) && (ins != INS_movsx);
 
     // For reg,reg forms the RM byte cannot contain an opcode extension so it
     // must be 0, unless this is a 4-byte opcode, which doesn't have a RM byte.
