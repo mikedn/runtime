@@ -2798,7 +2798,6 @@ void emitter::emitIns_R_R_R_R(
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idReg3(reg3);
-    id->idReg4(reg4);
 
     unsigned sz = emitInsSizeRRR(ins) + 1;
     id->idCodeSize(sz);
@@ -4926,7 +4925,7 @@ void emitter::emitDispIns(
 
         case IF_RWR_RRD_RRD_RRD:
             printf("%s, %s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr),
-                   RegName(id->idReg3(), attr), RegName(id->idReg4(), attr));
+                   RegName(id->idReg3(), attr), RegName(static_cast<regNumber>(id->idSmallCns() >> 4), attr));
             break;
 
         case IF_RWR_RRD_RRD_CNS:

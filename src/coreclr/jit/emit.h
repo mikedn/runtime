@@ -789,7 +789,6 @@ private:
             struct
             {
                 regNumber _idReg3 : REGNUM_BITS;
-                regNumber _idReg4 : REGNUM_BITS;
             };
 #endif
 
@@ -799,7 +798,6 @@ private:
             struct
             {
                 regNumber _idReg3 : REGNUM_BITS;
-                regNumber _idReg4 : REGNUM_BITS;
                 unsigned  isTrackedGCSlotStore : 1;
                 unsigned  isGCArgStore : 1;
                 unsigned  isEbpBased : 1;
@@ -999,17 +997,6 @@ private:
             assert(!idIsSmallDsc());
             idAddr()->_idReg3 = reg;
             assert(reg == idAddr()->_idReg3);
-        }
-        regNumber idReg4() const
-        {
-            assert(!idIsSmallDsc());
-            return idAddr()->_idReg4;
-        }
-        void idReg4(regNumber reg)
-        {
-            assert(!idIsSmallDsc());
-            idAddr()->_idReg4 = reg;
-            assert(reg == idAddr()->_idReg4);
         }
 #endif // defined(TARGET_XARCH)
 #ifdef TARGET_ARMARCH
