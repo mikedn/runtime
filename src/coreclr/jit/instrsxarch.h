@@ -47,12 +47,6 @@
 #define F20F38(c) PACK4(0xF2, 0x0F, 0x38, c)
 #define SSE3A(c) PACK4(0x66, 0x0F, 0x3A, c)
 
-// VEX* encodes the implied leading opcode bytes in c1:
-// 1: implied 0f, 2: implied 0f 38, 3: implied 0f 3a
-#define VEX2INT(c1, c2) PACK3(c1, 0xc5, c2)
-#define VEX3INT(c1, c2) PACK4(c1, 0xc5, 0x02, c2)
-#define VEX3FLT(c1, c2) PACK4(c1, 0xc5, 0x02, c2)
-
 #ifndef INSTA
 #define INSTA(...)
 #endif
