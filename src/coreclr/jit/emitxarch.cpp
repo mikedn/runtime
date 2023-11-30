@@ -559,7 +559,7 @@ static bool TakesRexWPrefix(instruction ins, emitAttr attr)
         case INS_movzx:
             return false;
 
-        case INS_movd: // TODO-Cleanup: replace with movq, https://github.com/dotnet/runtime/issues/47943.
+        case INS_movd:
         case INS_movnti:
         case INS_cvttsd2si:
         case INS_cvttss2si:

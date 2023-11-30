@@ -134,8 +134,8 @@ INST3(movnti,           "movnti",           IUM_WR, PCKFLT(0xC3), BAD_CODE,     
 INSTA(FIRST_SSE_VEX_INSTRUCTION, pmovmskb)
 INST3(pmovmskb,         "pmovmskb",         IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0xD7),                            None)
 INST3(movmskpd,         "movmskpd",         IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0x50),                            None)
-INST3(movd,             "movd",             IUM_WR, PCKDBL(0x7E), BAD_CODE,     PCKDBL(0x6E),                            None) // Cleanup https://github.com/dotnet/runtime/issues/47943
-INST3(movq,             "movq",             IUM_WR, PCKDBL(0xD6), BAD_CODE,     SSEFLT(0x7E),                            None) // Cleanup https://github.com/dotnet/runtime/issues/47943
+INST3(movd,             "movd",             IUM_WR, PCKDBL(0x7E), BAD_CODE,     PCKDBL(0x6E),                            None)
+INST3(movq,             "movq",             IUM_WR, PCKDBL(0xD6), BAD_CODE,     SSEFLT(0x7E),                            None)
 INST3(movsd,            "movsd",            IUM_WR, SSEDBL(0x11), BAD_CODE,     SSEDBL(0x10),                            VexDstSrcSrc)
 INST3(punpckldq,        "punpckldq",        IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0x62),                            VexDstDstSrc)
 INST3(xorps,            "xorps",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x57),                            VexDstDstSrc)
