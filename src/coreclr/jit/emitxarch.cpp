@@ -627,57 +627,29 @@ static bool TakesRexWPrefix(instruction ins, emitAttr attr)
 #endif // TARGET_AMD64
 }
 
-// Returns true if using this register will require a REX.* prefix.
-// Since XMM registers overlap with YMM registers, this routine
-// can also be used to know whether a YMM register if the
-// instruction in question is AVX.
-bool IsExtendedReg(regNumber reg)
+static bool IsExtendedReg(regNumber reg)
 {
 #ifdef TARGET_AMD64
-    return ((reg >= REG_R8) && (reg <= REG_R15)) || ((reg >= REG_XMM8) && (reg <= REG_XMM15));
+    return ((REG_R8 <= reg) && (reg <= REG_R15)) || ((REG_XMM8 <= reg) && (reg <= REG_XMM15));
 #else
-    // X86 JIT operates in 32-bit mode and hence extended reg are not available.
     return false;
 #endif
 }
 
-// Returns true if using this register, for the given EA_SIZE(attr), will require a REX.* prefix
-bool IsExtendedReg(regNumber reg, emitAttr attr)
+static bool IsExtendedByteReg(regNumber reg)
 {
 #ifdef TARGET_AMD64
-    // Not a register, so doesn't need a prefix
-    if (reg > REG_XMM15)
-    {
-        return false;
-    }
-
-    // Opcode field only has 3 bits for the register, these high registers
-    // need a 4th bit, that comes from the REX prefix (eiter REX.X, REX.R, or REX.B)
-    if (IsExtendedReg(reg))
-    {
-        return true;
-    }
-
-    if (EA_SIZE(attr) != EA_1BYTE)
-    {
-        return false;
-    }
-
-    // There are 12 one byte registers addressible 'below' r8b:
-    //     al, cl, dl, bl, ah, ch, dh, bh, spl, bpl, sil, dil.
-    // The first 4 are always addressible, the last 8 are divided into 2 sets:
-    //     ah,  ch,  dh,  bh
-    //          -- or --
-    //     spl, bpl, sil, dil
-    // Both sets are encoded exactly the same, the difference is the presence
-    // of a REX prefix, even a REX prefix with no other bits set (0x40).
-    // So in order to get to the second set we need a REX prefix (but no bits).
-    //
-    // TODO-AMD64-CQ: if we ever want to start using the first set, we'll need a different way of
-    // encoding/tracking/encoding registers.
-    return (reg >= REG_RSP);
+    return (REG_RSP <= reg) && (reg <= REG_R15);
 #else
-    // X86 JIT operates in 32-bit mode and hence extended reg are not available.
+    return false;
+#endif
+}
+
+static bool IsExtendedReg(regNumber reg, emitAttr attr)
+{
+#ifdef TARGET_AMD64
+    return IsExtendedReg(reg) || ((attr == EA_1BYTE) && IsExtendedByteReg(reg));
+#else
     return false;
 #endif
 }
@@ -1491,7 +1463,7 @@ unsigned emitter::emitInsSizeR(instrDesc* id, code_t code)
         assert(size == EA_1BYTE);
         assert(code & 0x00FF0000);
 
-        return 3 + IsExtendedReg(reg, EA_1BYTE);
+        return 3 + IsExtendedByteReg(reg);
     }
 
 #ifdef TARGET_X86
@@ -1595,10 +1567,8 @@ unsigned emitter::emitInsSizeRRR(instrDesc* id, code_t code)
     return emitGetVexAdjustedSize(ins, size, code);
 }
 
-unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr)
+unsigned emitter::emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, regNumber reg2)
 {
-    emitAttr size = EA_SIZE(attr);
-
     code_t code = insCodeRM(ins);
     assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
@@ -1608,7 +1578,7 @@ unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2,
     }
 
     unsigned sz = emitGetAdjustedSize(ins, size, code);
-    sz += IsExtendedReg(reg1, attr) || IsExtendedReg(reg2, attr) ||
+    sz += IsExtendedReg(reg1, size) || IsExtendedReg(reg2, size) ||
           (TakesRexWPrefix(ins, size) && ((ins != INS_xor) || (reg1 != reg2)));
 
     // This as reg,reg form so the RM byte cannot contain an opcode extension and
@@ -1716,7 +1686,7 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
     else
     {
         sz = emitGetAdjustedSize(ins, size, code);
-        sz += IsExtendedReg(baseReg, EA_PTRSIZE) || IsExtendedReg(indexReg, EA_PTRSIZE) ||
+        sz += IsExtendedReg(baseReg) || IsExtendedReg(indexReg) ||
               ((ins != INS_call) && (IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size))) ||
               TakesRexWPrefix(ins, size);
         sz += emitInsSize(code);
@@ -2944,7 +2914,7 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
     id->idReg1(dstReg);
     id->idReg2(srcReg);
 
-    unsigned sz = emitInsSizeRR(ins, dstReg, srcReg, attr);
+    unsigned sz = emitInsSizeRR(ins, EA_SIZE(attr), dstReg, srcReg);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -2968,7 +2938,7 @@ void emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNum
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    unsigned sz = emitInsSizeRR(ins, reg1, reg2, attr);
+    unsigned sz = emitInsSizeRR(ins, EA_SIZE(attr), reg1, reg2);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;

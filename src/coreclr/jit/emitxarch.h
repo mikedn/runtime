@@ -195,7 +195,7 @@ unsigned emitInsSize(code_t code);
 unsigned emitInsSizeR(instrDesc* id, code_t code);
 unsigned emitInsSizeRI(instrDesc* id, code_t code, ssize_t imm);
 unsigned emitInsSizeRRI(instrDesc* id, code_t code);
-unsigned emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr);
+unsigned emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, regNumber reg2);
 unsigned emitInsSizeRRR(instrDesc* id, code_t code);
 unsigned emitInsSizeSV(instrDesc* id, code_t code);
 unsigned emitInsSizeAM(instrDesc* id, code_t code);
