@@ -9,6 +9,47 @@
 #include "emit.h"
 #include "codegen.h"
 
+bool emitter::emitIsCondJump(instrDesc* jmp)
+{
+    instruction ins = jmp->idIns();
+
+    assert(jmp->idInsFmt() == IF_LABEL);
+
+    return (ins != INS_call && ins != INS_jmp);
+}
+
+bool emitter::emitIsUncondJump(instrDesc* jmp)
+{
+    instruction ins = jmp->idIns();
+
+    assert(jmp->idInsFmt() == IF_LABEL);
+
+    return (ins == INS_jmp);
+}
+
+instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
+{
+    static const instruction map[]{INS_nop,
+#define JMP_SMALL(en, rev, ins) INS_##ins,
+#include "emitjmps.h"
+                                   INS_call};
+
+    assert(jumpKind < _countof(map));
+    return map[jumpKind];
+}
+
+emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
+{
+    static const emitJumpKind map[]{
+        EJ_NONE,
+#define JMP_SMALL(en, rev, ins) EJ_##rev,
+#include "emitjmps.h"
+    };
+
+    assert(jumpKind < EJ_COUNT);
+    return map[jumpKind];
+}
+
 constexpr bool IsDisp8(ssize_t disp)
 {
     return (-128 <= disp) && (disp <= 127);
@@ -75,28 +116,20 @@ static bool insIsCMOV(instruction ins)
     return ((ins >= INS_cmovo) && (ins <= INS_cmovg));
 }
 
-bool emitter::emitIsCondJump(instrDesc* jmp)
-{
-    instruction ins = jmp->idIns();
-
-    assert(jmp->idInsFmt() == IF_LABEL);
-
-    return (ins != INS_call && ins != INS_jmp);
-}
-
-bool emitter::emitIsUncondJump(instrDesc* jmp)
-{
-    instruction ins = jmp->idIns();
-
-    assert(jmp->idInsFmt() == IF_LABEL);
-
-    return (ins == INS_jmp);
-}
-
 #ifdef DEBUG
 static bool instrHasImplicitRegPairDest(instruction ins)
 {
     return (ins == INS_mulEAX) || (ins == INS_imulEAX) || (ins == INS_div) || (ins == INS_idiv);
+}
+
+static bool isAvxBlendv(instruction ins)
+{
+    return ins == INS_vblendvps || ins == INS_vblendvpd || ins == INS_vpblendvb;
+}
+
+static bool isSse41Blendv(instruction ins)
+{
+    return ins == INS_blendvps || ins == INS_blendvpd || ins == INS_pblendvb;
 }
 #endif
 
@@ -119,19 +152,6 @@ static bool IsBMIInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_BMI_INSTRUCTION) && (ins <= INS_LAST_BMI_INSTRUCTION);
 }
-
-#ifdef DEBUG
-static bool isAvxBlendv(instruction ins)
-{
-    return ins == INS_vblendvps || ins == INS_vblendvpd || ins == INS_vpblendvb;
-}
-
-static bool isSse41Blendv(instruction ins)
-{
-    return ins == INS_blendvps || ins == INS_blendvpd || ins == INS_pblendvb;
-}
-
-#endif
 
 static bool IsPrefetch(instruction ins)
 {
@@ -810,29 +830,6 @@ static bool BaseRegRequiresDisp(regNumber base)
 #else
     return base == REG_EBP;
 #endif
-}
-
-instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
-{
-    static const instruction map[]{INS_nop,
-#define JMP_SMALL(en, rev, ins) INS_##ins,
-#include "emitjmps.h"
-                                   INS_call};
-
-    assert(jumpKind < _countof(map));
-    return map[jumpKind];
-}
-
-emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
-{
-    static const emitJumpKind map[]{
-        EJ_NONE,
-#define JMP_SMALL(en, rev, ins) EJ_##rev,
-#include "emitjmps.h"
-    };
-
-    assert(jumpKind < EJ_COUNT);
-    return map[jumpKind];
 }
 
 // When encoding instructions that operate on byte registers on x86
