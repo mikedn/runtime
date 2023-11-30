@@ -1409,32 +1409,46 @@ unsigned emitter::emitGetVexAdjustedSize(instruction ins, emitAttr attr, code_t 
     return adjustedSize + emitInsSize(code);
 }
 
-unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code)
+unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t code, bool isRR)
 {
     assert(ins != INS_invalid);
     assert(!TakesVexPrefix(ins));
 
+    unsigned sz = 0;
+
     if (IsSSE38orSSE3A(code))
     {
         // The 4-Byte SSE instructions require one additional byte to hold the ModRM byte
-        return 1;
+        sz++;
     }
-
-    unsigned adjustedSize = 0;
-
-    if (ins == INS_crc32)
+    else
     {
-        // Adjust code size for CRC32 that has 4-byte opcode but does not use SSE38 or EES3A encoding.
-        adjustedSize++;
+        if (ins == INS_crc32)
+        {
+            // Adjust code size for CRC32 that has 4-byte opcode but does not use SSE38 or EES3A encoding.
+            sz++;
+        }
+
+        if ((size == EA_2BYTE) && (ins != INS_movzx) && (ins != INS_movsx))
+        {
+            // Most 16-bit operand instructions will need a 0x66 prefix.
+            sz++;
+        }
     }
 
-    if ((attr == EA_2BYTE) && (ins != INS_movzx) && (ins != INS_movsx))
+    // For reg,reg forms the RM byte cannot contain an opcode extension so it
+    // must be 0, unless this is a 4-byte opcode, which doesn't have a RM byte.
+
+    if (!isRR || ((code & 0xFF00) == 0) || IsSSEOrAVXInstruction(ins))
     {
-        // Most 16-bit operand instructions will need a 0x66 prefix.
-        adjustedSize++;
+        sz += emitInsSize(code);
+    }
+    else
+    {
+        sz += 4 + 1;
     }
 
-    return adjustedSize;
+    return sz;
 }
 
 unsigned emitter::emitInsSize(code_t code)
@@ -1551,7 +1565,7 @@ unsigned emitter::emitInsSizeRRI(instrDesc* id, code_t code)
 
     unsigned sz = emitGetAdjustedSize(ins, size, code);
     sz += IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) || TakesRexWPrefix(ins, size);
-    return sz + emitInsSize(code);
+    return sz;
 }
 
 unsigned emitter::emitInsSizeRRR(instrDesc* id, code_t code)
@@ -1577,22 +1591,9 @@ unsigned emitter::emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, 
         return emitGetVexAdjustedSize(ins, size, code);
     }
 
-    unsigned sz = emitGetAdjustedSize(ins, size, code);
+    unsigned sz = emitGetAdjustedSize(ins, size, code, true);
     sz += IsExtendedReg(reg1, size) || IsExtendedReg(reg2, size) ||
           (TakesRexWPrefix(ins, size) && ((ins != INS_xor) || (reg1 != reg2)));
-
-    // This as reg,reg form so the RM byte cannot contain an opcode extension and
-    // must be 0, unless this is a 4-byte opcode, which doesn't have a RM byte.
-
-    if (((code & 0xFF00) == 0) || IsSSEOrAVXInstruction(ins))
-    {
-        sz += emitInsSize(code);
-    }
-    else
-    {
-        sz += 4 + 1;
-    }
-
     return sz;
 }
 
@@ -1621,8 +1622,6 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
             sz++;
         }
 #endif
-
-        sz += emitInsSize(code);
     }
 
     bool ebpBased = id->idAddr()->isEbpBased;
@@ -1689,7 +1688,6 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
         sz += IsExtendedReg(baseReg) || IsExtendedReg(indexReg) ||
               ((ins != INS_call) && (IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size))) ||
               TakesRexWPrefix(ins, size);
-        sz += emitInsSize(code);
     }
 
     if ((baseReg == REG_NA) && (indexReg == REG_NA))
@@ -1775,7 +1773,6 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
     {
         sz = emitGetAdjustedSize(ins, size, code);
         sz += IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) || TakesRexWPrefix(ins, size);
-        sz += emitInsSize(code);
     }
 
     return sz + 4;

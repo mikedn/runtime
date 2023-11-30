@@ -190,7 +190,7 @@ ssize_t emitGetInsCallDisp(instrDesc* id);
 typedef uint64_t code_t;
 
 unsigned emitGetVexAdjustedSize(instruction ins, emitAttr attr, code_t code);
-unsigned emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code);
+unsigned emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code, bool isRR = false);
 unsigned emitInsSize(code_t code);
 unsigned emitInsSizeR(instrDesc* id, code_t code);
 unsigned emitInsSizeRI(instrDesc* id, code_t code, ssize_t imm);
