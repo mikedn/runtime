@@ -1269,20 +1269,6 @@ emitter::code_t emitter::SetVexVvvv(instruction ins, regNumber reg, emitAttr siz
     return code ^ regBits;
 }
 
-// Returns the "[r/m]" opcode with the mod/RM field set to register.
-emitter::code_t emitter::insEncodeRMreg(instruction ins, code_t code)
-{
-    // If Byte 4 (which is 0xFF00) is 0, that's where the RM encoding goes.
-    // Otherwise, it will be placed after the 4 byte encoding.
-    if ((code & 0xFF00) == 0)
-    {
-        assert((code & 0xC000) == 0);
-        code |= 0xC000;
-    }
-
-    return code;
-}
-
 // Returns the "byte ptr [r/m]" opcode with the mod/RM field set to the given register.
 emitter::code_t emitter::insEncodeRMreg(instruction ins, regNumber reg, emitAttr size, code_t code)
 {

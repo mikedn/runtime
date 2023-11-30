@@ -250,7 +250,6 @@ unsigned insEncodeReg345(instruction ins, regNumber reg, emitAttr size, code_t* 
 code_t SetRMReg(instruction ins, regNumber reg, emitAttr size, code_t code);
 code_t SetVexVvvv(instruction ins, regNumber reg, emitAttr size, code_t code);
 
-code_t insEncodeRMreg(instruction ins, code_t code);
 code_t insEncodeRMreg(instruction ins, regNumber reg, emitAttr size, code_t code);
 code_t insEncodeMIreg(instruction ins, regNumber reg, emitAttr size, code_t code);
 
