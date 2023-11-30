@@ -1415,7 +1415,8 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t cod
     if (ins == INS_crc32)
     {
         // Adjust code size for CRC32 that has 4-byte opcode but does not use SSE38 or EES3A encoding.
-        return (size == EA_2BYTE) + 4 + 1;
+        // TODO-MIKE-Cleanup: Old stupid code managed to add an extra byte for RR.
+        return (size == EA_2BYTE) + 4 + 1 + isRR;
     }
 
     // Most 16-bit operand instructions will need a 0x66 prefix.
