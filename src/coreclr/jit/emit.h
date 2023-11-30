@@ -778,6 +778,7 @@ private:
 
 #ifdef TARGET_X86
             emitAddrMode iiaAddrMode;
+            regNumber    _idReg3 : REGNUM_BITS;
 
             struct
             {
@@ -785,23 +786,18 @@ private:
                 unsigned isEbpBased : 1;
                 int      lclOffset : 30;
             };
-
-            struct
-            {
-                regNumber _idReg3 : REGNUM_BITS;
-            };
 #endif
 
 #ifdef TARGET_AMD64
             emitAddrMode iiaAddrMode;
+            regNumber    _idReg3 : REGNUM_BITS;
 
             struct
             {
-                regNumber _idReg3 : REGNUM_BITS;
-                unsigned  isTrackedGCSlotStore : 1;
-                unsigned  isGCArgStore : 1;
-                unsigned  isEbpBased : 1;
-                int       lclOffset;
+                unsigned isTrackedGCSlotStore : 1;
+                unsigned isGCArgStore : 1;
+                unsigned isEbpBased : 1;
+                int      lclOffset;
             };
 #endif
 
