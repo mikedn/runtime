@@ -1375,6 +1375,7 @@ emitter::instrDesc* emitter::emitNewInstrAmd(emitAttr size, ssize_t dsp)
         id->idSetIsLargeDsp();
         INDEBUG(id->idAddr()->iiaAddrMode.amDisp = AM_DISP_BIG_VAL);
         id->idaAmdVal = dsp;
+
         return id;
     }
 
@@ -1386,7 +1387,7 @@ emitter::instrDesc* emitter::emitNewInstrAmd(emitAttr size, ssize_t dsp)
 
 emitter::instrDesc* emitter::emitNewInstrAmdCns(emitAttr size, ssize_t dsp, int32_t cns)
 {
-    if (dsp >= AM_DISP_MIN && dsp <= AM_DISP_MAX)
+    if ((dsp >= AM_DISP_MIN) && (dsp <= AM_DISP_MAX))
     {
         instrDesc* id                    = emitNewInstrCns(size, cns);
         id->idAddr()->iiaAddrMode.amDisp = dsp;
@@ -1394,38 +1395,26 @@ emitter::instrDesc* emitter::emitNewInstrAmdCns(emitAttr size, ssize_t dsp, int3
 
         return id;
     }
-    else
+
+    if (instrDesc::fitsInSmallCns(cns))
     {
-        if (instrDesc::fitsInSmallCns(cns))
-        {
-            instrDescAmd* id = emitAllocInstrAmd(size);
+        instrDescAmd* id = emitAllocInstrAmd(size);
+        id->idSetIsLargeDsp();
+        INDEBUG(id->idAddr()->iiaAddrMode.amDisp = AM_DISP_BIG_VAL);
+        id->idaAmdVal = dsp;
+        id->idSmallCns(cns);
 
-            id->idSetIsLargeDsp();
-#ifdef DEBUG
-            id->idAddr()->iiaAddrMode.amDisp = AM_DISP_BIG_VAL;
-#endif
-            id->idaAmdVal = dsp;
-
-            id->idSmallCns(cns);
-
-            return id;
-        }
-        else
-        {
-            instrDescCnsAmd* id = emitAllocInstrCnsAmd(size);
-
-            id->idSetIsLargeCns();
-            id->idacCnsVal = cns;
-
-            id->idSetIsLargeDsp();
-#ifdef DEBUG
-            id->idAddr()->iiaAddrMode.amDisp = AM_DISP_BIG_VAL;
-#endif
-            id->idacAmdVal = dsp;
-
-            return id;
-        }
+        return id;
     }
+
+    instrDescCnsAmd* id = emitAllocInstrCnsAmd(size);
+    id->idSetIsLargeCns();
+    id->idacCnsVal = cns;
+    id->idSetIsLargeDsp();
+    INDEBUG(id->idAddr()->iiaAddrMode.amDisp = AM_DISP_BIG_VAL);
+    id->idacAmdVal = dsp;
+
+    return id;
 }
 
 void emitter::emitLoopAlign(uint16_t paddingBytes)
