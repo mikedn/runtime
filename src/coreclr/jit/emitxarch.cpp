@@ -9,6 +9,20 @@
 #include "emit.h"
 #include "codegen.h"
 
+bool emitter::IsJccInstruction(instruction ins)
+{
+    return (ins >= INS_jo) && (ins <= INS_jg);
+}
+
+bool emitter::IsJmpInstruction(instruction ins)
+{
+    return
+#ifdef TARGET_AMD64
+        (ins == INS_rex_jmp) ||
+#endif
+        (ins == INS_i_jmp) || (ins == INS_jmp) || (ins == INS_l_jmp);
+}
+
 bool emitter::emitIsCondJump(instrDesc* jmp)
 {
     instruction ins = jmp->idIns();
@@ -2100,20 +2114,6 @@ bool emitter::IsMovInstruction(instruction ins)
             return false;
         }
     }
-}
-
-bool emitter::IsJccInstruction(instruction ins)
-{
-    return (ins >= INS_jo) && (ins <= INS_jg);
-}
-
-bool emitter::IsJmpInstruction(instruction ins)
-{
-    return
-#ifdef TARGET_AMD64
-        (ins == INS_rex_jmp) ||
-#endif
-        (ins == INS_i_jmp) || (ins == INS_jmp) || (ins == INS_l_jmp);
 }
 
 // Check if the current `mov` instruction is redundant and can be omitted.
