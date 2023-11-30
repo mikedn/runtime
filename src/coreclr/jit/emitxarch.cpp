@@ -1434,7 +1434,7 @@ unsigned emitter::emitGetVexAdjustedSize(instruction ins, emitAttr attr, code_t 
         adjustedSize--;
     }
 
-    return adjustedSize;
+    return adjustedSize + emitInsSize(code);
 }
 
 unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code)
@@ -1538,7 +1538,7 @@ unsigned emitter::emitInsSizeRI(instrDesc* id, code_t code, ssize_t imm)
     {
         if (TakesVexPrefix(ins))
         {
-            return emitGetVexAdjustedSize(ins, size, code) + emitInsSize(code) + 1;
+            return emitGetVexAdjustedSize(ins, size, code) + 1;
         }
 
         return (IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)) + emitInsSize(code) + IsSSE38orSSE3A(code) + 1;
@@ -1574,7 +1574,7 @@ unsigned emitter::emitInsSizeRRI(instrDesc* id, code_t code)
 
     if (TakesVexPrefix(ins))
     {
-        return emitGetVexAdjustedSize(ins, size, code) + emitInsSize(code);
+        return emitGetVexAdjustedSize(ins, size, code);
     }
 
     unsigned sz = emitGetAdjustedSize(ins, size, code);
@@ -1592,7 +1592,7 @@ unsigned emitter::emitInsSizeRRR(instrDesc* id, code_t code)
 
     assert(TakesVexPrefix(ins));
 
-    return emitGetVexAdjustedSize(ins, size, code) + emitInsSize(code);
+    return emitGetVexAdjustedSize(ins, size, code);
 }
 
 unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr)
@@ -1604,7 +1604,7 @@ unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2,
 
     if (TakesVexPrefix(ins))
     {
-        return emitGetVexAdjustedSize(ins, size, code) + emitInsSize(code);
+        return emitGetVexAdjustedSize(ins, size, code);
     }
 
     unsigned sz = emitGetAdjustedSize(ins, size, code);
@@ -1637,7 +1637,7 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
 
     if (TakesVexPrefix(ins))
     {
-        sz = emitGetVexAdjustedSize(ins, size, code) + emitInsSize(code);
+        sz = emitGetVexAdjustedSize(ins, size, code);
     }
     else
     {
@@ -1711,7 +1711,7 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
 
     if (TakesVexPrefix(ins))
     {
-        sz = emitGetVexAdjustedSize(ins, size, code) + emitInsSize(code);
+        sz = emitGetVexAdjustedSize(ins, size, code);
     }
     else
     {
@@ -1799,7 +1799,7 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
 
     if (TakesVexPrefix(ins))
     {
-        sz = emitGetVexAdjustedSize(ins, size, code) + emitInsSize(code);
+        sz = emitGetVexAdjustedSize(ins, size, code);
     }
     else
     {
