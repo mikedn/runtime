@@ -1569,11 +1569,7 @@ unsigned emitter::emitInsSizeRI(instrDesc* id, code_t code, ssize_t imm)
     else
     {
         sz += emitGetAdjustedSize(ins, size, code);
-    }
-
-    if (!TakesVexPrefix(ins) && (IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)))
-    {
-        sz++;
+        sz += IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size);
     }
 
     return sz;
@@ -1595,12 +1591,7 @@ unsigned emitter::emitInsSizeRRI(instrDesc* id, code_t code)
     else
     {
         sz = emitGetAdjustedSize(ins, size, code);
-    }
-
-    if (!TakesVexPrefix(ins) &&
-        (TakesRexWPrefix(ins, size) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size)))
-    {
-        sz++;
+        sz += IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) || TakesRexWPrefix(ins, size);
     }
 
     return sz + emitInsSize(code);
@@ -1635,12 +1626,8 @@ unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2,
     else
     {
         sz = emitGetAdjustedSize(ins, size, code);
-    }
-
-    if (!TakesVexPrefix(ins) && ((TakesRexWPrefix(ins, size) && ((ins != INS_xor) || (reg1 != reg2))) ||
-                                 IsExtendedReg(reg1, attr) || IsExtendedReg(reg2, attr)))
-    {
-        sz++;
+        sz += IsExtendedReg(reg1, attr) || IsExtendedReg(reg2, attr) ||
+              (TakesRexWPrefix(ins, size) && ((ins != INS_xor) || (reg1 != reg2)));
     }
 
     // This as reg,reg form so the RM byte cannot contain an opcode extension and
@@ -1674,12 +1661,7 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
     else
     {
         sz = emitGetAdjustedSize(ins, size, code);
-    }
-
-    if (!TakesVexPrefix(ins) &&
-        (TakesRexWPrefix(ins, size) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size)))
-    {
-        sz++;
+        sz += IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) || TakesRexWPrefix(ins, size);
     }
 
 #ifdef TARGET_AMD64
@@ -1753,13 +1735,9 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
     else
     {
         sz += emitGetAdjustedSize(ins, size, code);
-    }
-
-    if (!TakesVexPrefix(ins) &&
-        (TakesRexWPrefix(ins, size) || IsExtendedReg(baseReg, EA_PTRSIZE) || IsExtendedReg(indexReg, EA_PTRSIZE) ||
-         ((ins != INS_call) && (IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size)))))
-    {
-        sz++;
+        sz += IsExtendedReg(baseReg, EA_PTRSIZE) || IsExtendedReg(indexReg, EA_PTRSIZE) ||
+              ((ins != INS_call) && (IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size))) ||
+              TakesRexWPrefix(ins, size);
     }
 
     if ((baseReg == REG_NA) && (indexReg == REG_NA))
@@ -1844,12 +1822,7 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
     else
     {
         sz = emitGetAdjustedSize(ins, size, code);
-    }
-
-    if (!TakesVexPrefix(ins) &&
-        (TakesRexWPrefix(ins, size) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size)))
-    {
-        sz++;
+        sz += IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) || TakesRexWPrefix(ins, size);
     }
 
     return sz + emitInsSize(code) + 4;
