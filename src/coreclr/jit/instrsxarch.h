@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+#ifdef TARGET_XARCH
+
 // x86 instructions for  the JIT compiler
 //
 // INST0-5 macro params:
@@ -40,48 +42,49 @@
 #define PACK4(byte1, byte2, byte3, byte4) (((byte1) << 16) | ((byte2) << 24) | (byte3) | ((byte4) << 8))
 
 #define PCKFLT(c) PACK2(0x0F, c)
+
 #define SSEFLT(c) PACK3(0xF3, 0x0F, c)
 #define SSEDBL(c) PACK3(0xF2, 0x0F, c)
 #define PCKDBL(c) PACK3(0x66, 0x0F, c)
+
 #define SSE38(c) PACK4(0x66, 0x0F, 0x38, c)
 #define F20F38(c) PACK4(0xF2, 0x0F, 0x38, c)
+
 #define SSE3A(c) PACK4(0x66, 0x0F, 0x3A, c)
+
+#define RME(c, e) ((c) | ((e) << 11))
 
 #ifndef INSTA
 #define INSTA(...)
 #endif
 
-#ifdef TARGET_XARCH
-
 // clang-format off
 //    id                nm                  um      mr            mi            rm            a4            rr           flags
 INST5(invalid,          "INVALID",          IUM_RD, BAD_CODE,     BAD_CODE,     BAD_CODE,     BAD_CODE,     BAD_CODE,    None)
 
-INST5(push,             "push",             IUM_RD, 0x30FF,       0x68,         BAD_CODE,     BAD_CODE,     0x50,        None)
-INST5(pop,              "pop",              IUM_WR, 0x008F,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0x58,        None)
+INST5(push,             "push",             IUM_RD, RME(0xFF, 6), 0x68,         BAD_CODE,     BAD_CODE,     0x50,        None)
+INST5(pop,              "pop",              IUM_WR, RME(0x8F, 0), BAD_CODE,     BAD_CODE,     BAD_CODE,     0x58,        None)
 // Does not affect the stack tracking in the emitter
-INST5(push_hide,        "push",             IUM_RD, 0x30FF,       0x68,         BAD_CODE,     BAD_CODE,     0x50,        None)
-INST5(pop_hide,         "pop",              IUM_WR, 0x008F,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0x58,        None)
+INST5(push_hide,        "push",             IUM_RD, RME(0xFF, 6), 0x68,         BAD_CODE,     BAD_CODE,     0x50,        None)
+INST5(pop_hide,         "pop",              IUM_WR, RME(0x8F, 0), BAD_CODE,     BAD_CODE,     BAD_CODE,     0x58,        None)
 #ifdef TARGET_X86
 INST5(inc_s,            "inc",              IUM_RW, BAD_CODE,     BAD_CODE,     BAD_CODE,     BAD_CODE,     0x40,        IncDecFlags)
 INST5(dec_s,            "dec",              IUM_RW, BAD_CODE,     BAD_CODE,     BAD_CODE,     BAD_CODE,     0x48,        IncDecFlags)
 #endif
 INST5(bswap,            "bswap",            IUM_RW, 0xC80F,       BAD_CODE,     BAD_CODE,     BAD_CODE,     0xC80F,      None)
 
-//    id                nm                  um      mr            mi            rm            a4                         flags
-INST4(add,              "add",              IUM_RW, 0x01,         0x0081,       0x03,         0x05,                      AddSubFlags)
-INST4(or,               "or",               IUM_RW, 0x09,         0x0881,       0x0B,         0x0D,                      BitwiseFlags)
-INST4(adc,              "adc",              IUM_RW, 0x11,         0x1081,       0x13,         0x15,                      AddSubCarryFlags)
-INST4(sbb,              "sbb",              IUM_RW, 0x19,         0x1881,       0x1B,         0x1D,                      AddSubCarryFlags)
-INST4(and,              "and",              IUM_RW, 0x21,         0x2081,       0x23,         0x25,                      BitwiseFlags)
-INST4(sub,              "sub",              IUM_RW, 0x29,         0x2881,       0x2B,         0x2D,                      AddSubFlags)
-INST4(xor,              "xor",              IUM_RW, 0x31,         0x3081,       0x33,         0x35,                      BitwiseFlags)
-INST4(cmp,              "cmp",              IUM_RD, 0x39,         0x3881,       0x3B,         0x3D,                      AddSubFlags)
-INST4(test,             "test",             IUM_RD, 0x85,         0x00F7,       0x85,         0xA9,                      BitwiseFlags)
+INST4(add,              "add",              IUM_RW, 0x01,         RME(0x81, 0), 0x03,         0x05,                      AddSubFlags)
+INST4(or,               "or",               IUM_RW, 0x09,         RME(0x81, 1), 0x0B,         0x0D,                      BitwiseFlags)
+INST4(adc,              "adc",              IUM_RW, 0x11,         RME(0x81, 2), 0x13,         0x15,                      AddSubCarryFlags)
+INST4(sbb,              "sbb",              IUM_RW, 0x19,         RME(0x81, 3), 0x1B,         0x1D,                      AddSubCarryFlags)
+INST4(and,              "and",              IUM_RW, 0x21,         RME(0x81, 4), 0x23,         0x25,                      BitwiseFlags)
+INST4(sub,              "sub",              IUM_RW, 0x29,         RME(0x81, 5), 0x2B,         0x2D,                      AddSubFlags)
+INST4(xor,              "xor",              IUM_RW, 0x31,         RME(0x81, 6), 0x33,         0x35,                      BitwiseFlags)
+INST4(cmp,              "cmp",              IUM_RD, 0x39,         RME(0x81, 7), 0x3B,         0x3D,                      AddSubFlags)
+INST4(test,             "test",             IUM_RD, 0x85,         RME(0xF7, 0), 0x85,         0xA9,                      BitwiseFlags)
 
-//    id                nm                  um      mr            mi            rm                                       flags
 INST3(xchg,             "xchg",             IUM_RW, 0x87,         BAD_CODE,     0x87,                                    None)
-INST3(mov,              "mov",              IUM_WR, 0x89,         0x00C7,       0x8B,                                    None)
+INST3(mov,              "mov",              IUM_WR, 0x89,         RME(0xC7, 0), 0x8B,                                    None)
 INST3(movzx,            "movzx",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xB7),                            None)
 INST3(movsx,            "movsx",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xBF),                            None)
 #ifdef TARGET_AMD64
@@ -113,17 +116,16 @@ INST3(cmovge,           "cmovge",           IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(cmovle,           "cmovle",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x4E),                            CcFlags_le)
 INST3(cmovg,            "cmovg",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x4F),                            CcFlags_g)
 
-//    id                nm                  um      mr            mi            rm                                       flags
 INSTA(FIRST_SSE_INSTRUCTION, lfence)
-INST3(lfence,           "lfence",           IUM_RD, 0x0FE8AE,     BAD_CODE,     BAD_CODE,                                None)
-INST3(mfence,           "mfence",           IUM_RD, 0x0FF0AE,     BAD_CODE,     BAD_CODE,                                None)
-INST3(sfence,           "sfence",           IUM_RD, 0x0FF8AE,     BAD_CODE,     BAD_CODE,                                None)
+INST3(lfence,           "lfence",           IUM_RD, PCKFLT(0xE8AE),       BAD_CODE, BAD_CODE,                            None)
+INST3(mfence,           "mfence",           IUM_RD, PCKFLT(0xF0AE),       BAD_CODE, BAD_CODE,                            None)
+INST3(sfence,           "sfence",           IUM_RD, PCKFLT(0xF8AE),       BAD_CODE, BAD_CODE,                            None)
 
-INST3(prefetchnta,      "prefetchnta",      IUM_RD, 0x0F0018,     BAD_CODE,     BAD_CODE,                                None)
-INST3(prefetcht0,       "prefetcht0",       IUM_RD, 0x0F0818,     BAD_CODE,     BAD_CODE,                                None)
-INST3(prefetcht1,       "prefetcht1",       IUM_RD, 0x0F1018,     BAD_CODE,     BAD_CODE,                                None)
-INST3(prefetcht2,       "prefetcht2",       IUM_RD, 0x0F1818,     BAD_CODE,     BAD_CODE,                                None)
-INST3(movnti,           "movnti",           IUM_WR, PCKFLT(0xC3), BAD_CODE,     BAD_CODE,                                None)
+INST3(prefetchnta,      "prefetchnta",      IUM_RD, PCKFLT(RME(0x18, 0)), BAD_CODE, BAD_CODE,                            None)
+INST3(prefetcht0,       "prefetcht0",       IUM_RD, PCKFLT(RME(0x18, 1)), BAD_CODE, BAD_CODE,                            None)
+INST3(prefetcht1,       "prefetcht1",       IUM_RD, PCKFLT(RME(0x18, 2)), BAD_CODE, BAD_CODE,                            None)
+INST3(prefetcht2,       "prefetcht2",       IUM_RD, PCKFLT(RME(0x18, 3)), BAD_CODE, BAD_CODE,                            None)
+INST3(movnti,           "movnti",           IUM_WR, PCKFLT(0xC3),         BAD_CODE, BAD_CODE,                            None)
 
 INSTA(FIRST_SSE_VEX_INSTRUCTION, pmovmskb)
 INST3(pmovmskb,         "pmovmskb",         IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0xD7),                            None)
@@ -260,16 +262,16 @@ INST3(psubusb,          "psubusb",          IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(psubsw,           "psubsw",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0xE9),                            VexDstDstSrc)
 INST3(psubusw,          "psubusw",          IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0xD9),                            VexDstDstSrc)
 
-INST3(psrldq,           "psrldq",           IUM_WR, BAD_CODE,     PCKDBL(0x1873), BAD_CODE,                              VexDstDstSrc)
-INST3(pslldq,           "pslldq",           IUM_WR, BAD_CODE,     PCKDBL(0x3873), BAD_CODE,                              VexDstDstSrc)
-INST3(psllw,            "psllw",            IUM_WR, BAD_CODE,     PCKDBL(0x3071), PCKDBL(0xF1),                          VexDstDstSrc)
-INST3(pslld,            "pslld",            IUM_WR, BAD_CODE,     PCKDBL(0x3072), PCKDBL(0xF2),                          VexDstDstSrc)
-INST3(psllq,            "psllq",            IUM_WR, BAD_CODE,     PCKDBL(0x3073), PCKDBL(0xF3),                          VexDstDstSrc)
-INST3(psrlw,            "psrlw",            IUM_WR, BAD_CODE,     PCKDBL(0x1071), PCKDBL(0xD1),                          VexDstDstSrc)
-INST3(psrld,            "psrld",            IUM_WR, BAD_CODE,     PCKDBL(0x1072), PCKDBL(0xD2),                          VexDstDstSrc)
-INST3(psrlq,            "psrlq",            IUM_WR, BAD_CODE,     PCKDBL(0x1073), PCKDBL(0xD3),                          VexDstDstSrc)
-INST3(psraw,            "psraw",            IUM_WR, BAD_CODE,     PCKDBL(0x2071), PCKDBL(0xE1),                          VexDstDstSrc)
-INST3(psrad,            "psrad",            IUM_WR, BAD_CODE,     PCKDBL(0x2072), PCKDBL(0xE2),                          VexDstDstSrc)
+INST3(psrldq,           "psrldq",           IUM_WR, BAD_CODE,     PCKDBL(RME(0x73, 3)), BAD_CODE,                        VexDstDstSrc)
+INST3(pslldq,           "pslldq",           IUM_WR, BAD_CODE,     PCKDBL(RME(0x73, 7)), BAD_CODE,                        VexDstDstSrc)
+INST3(psllw,            "psllw",            IUM_WR, BAD_CODE,     PCKDBL(RME(0x71, 6)), PCKDBL(0xF1),                    VexDstDstSrc)
+INST3(pslld,            "pslld",            IUM_WR, BAD_CODE,     PCKDBL(RME(0x72, 6)), PCKDBL(0xF2),                    VexDstDstSrc)
+INST3(psllq,            "psllq",            IUM_WR, BAD_CODE,     PCKDBL(RME(0x73, 6)), PCKDBL(0xF3),                    VexDstDstSrc)
+INST3(psrlw,            "psrlw",            IUM_WR, BAD_CODE,     PCKDBL(RME(0x71, 2)), PCKDBL(0xD1),                    VexDstDstSrc)
+INST3(psrld,            "psrld",            IUM_WR, BAD_CODE,     PCKDBL(RME(0x72, 2)), PCKDBL(0xD2),                    VexDstDstSrc)
+INST3(psrlq,            "psrlq",            IUM_WR, BAD_CODE,     PCKDBL(RME(0x73, 2)), PCKDBL(0xD3),                    VexDstDstSrc)
+INST3(psraw,            "psraw",            IUM_WR, BAD_CODE,     PCKDBL(RME(0x71, 4)), PCKDBL(0xE1),                    VexDstDstSrc)
+INST3(psrad,            "psrad",            IUM_WR, BAD_CODE,     PCKDBL(RME(0x72, 4)), PCKDBL(0xE2),                    VexDstDstSrc)
 
 INST3(pmaxub,           "pmaxub",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0xDE),                            VexDstDstSrc)
 INST3(pminub,           "pminub",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0xDA),                            VexDstDstSrc)
@@ -298,7 +300,6 @@ INST3(packssdw,         "packssdw",         IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(packsswb,         "packsswb",         IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0x63),                            VexDstDstSrc)
 INST3(packuswb,         "packuswb",         IUM_WR, BAD_CODE,     BAD_CODE,     PCKDBL(0x67),                            VexDstDstSrc)
 
-//    id                nm                  um      mr            mi            rm                                       flags
 INST3(dpps,             "dpps",             IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0x40),                             VexDstDstSrc)
 INST3(dppd,             "dppd",             IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0x41),                             VexDstDstSrc)
 INST3(insertps,         "insertps",         IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0x21),                             VexDstDstSrc)
@@ -369,9 +370,7 @@ INST3(pextrd,           "pextrd",           IUM_WR, SSE3A(0x16),  BAD_CODE,     
 INST3(pextrq,           "pextrq",           IUM_WR, SSE3A(0x16),  BAD_CODE,     BAD_CODE,                                None)
 INST3(pextrw_sse41,     "pextrw",           IUM_WR, SSE3A(0x15),  BAD_CODE,     BAD_CODE,                                None)
 INST3(extractps,        "extractps",        IUM_WR, SSE3A(0x17),  BAD_CODE,     BAD_CODE,                                None)
-
 INST3(pclmulqdq,        "pclmulqdq" ,       IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0x44),                             VexDstDstSrc)
-
 INST3(aesdec,           "aesdec",           IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xDE),                             VexDstDstSrc)
 INST3(aesdeclast,       "aesdeclast",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xDF),                             VexDstDstSrc)
 INST3(aesenc,           "aesenc",           IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xDC),                             VexDstDstSrc)
@@ -427,7 +426,6 @@ INST3(vgatherqps,       "vgatherqps",       IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(vgatherdpd,       "vgatherdpd",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x92),                             VexDstDstSrc)
 INST3(vgatherqpd,       "vgatherqpd",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x93),                             VexDstDstSrc)
 
-//    id                nm                  um      mr            mi            rm                                       flags
 INSTA(FIRST_FMA_INSTRUCTION, vfmadd132pd)
 INST3(vfmadd132pd,      "vfmadd132pd",      IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x98),                             VexDstDstSrc)
 INST3(vfmadd213pd,      "vfmadd213pd",      IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xA8),                             VexDstDstSrc)
@@ -492,10 +490,10 @@ INST3(vfnmsub231ss,     "vfnmsub231ss",     IUM_WR, BAD_CODE,     BAD_CODE,     
 INSTA(LAST_FMA_INSTRUCTION, vfnmsub231ss)
 
 INSTA(FIRST_AVXVNNI_INSTRUCTION, vpdpbusd)
-INST3(vpdpbusd,          "vpdpbusd",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x50),                             VexDstDstSrc)
-INST3(vpdpwssd,          "vpdpwssd",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x52),                             VexDstDstSrc)
-INST3(vpdpbusds,         "vpdpbusds",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x51),                             VexDstDstSrc)
-INST3(vpdpwssds,         "vpdpwssds",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x53),                             VexDstDstSrc)
+INST3(vpdpbusd,         "vpdpbusd",         IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x50),                             VexDstDstSrc)
+INST3(vpdpwssd,         "vpdpwssd",         IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x52),                             VexDstDstSrc)
+INST3(vpdpbusds,        "vpdpbusds",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x51),                             VexDstDstSrc)
+INST3(vpdpwssds,        "vpdpwssds",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x53),                             VexDstDstSrc)
 INSTA(LAST_AVXVNNI_INSTRUCTION, vpdpwssds)
 
 INSTA(FIRST_BMI_INSTRUCTION, andn)
@@ -519,44 +517,42 @@ INST3(tzcnt,            "tzcnt",            IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(lzcnt,            "lzcnt",            IUM_WR, BAD_CODE,     BAD_CODE,     SSEFLT(0xBD),                            ZCntFlags)
 INST3(popcnt,           "popcnt",           IUM_WR, BAD_CODE,     BAD_CODE,     SSEFLT(0xB8),                            PopCntFlags)
 
-//    id                nm                  um      mr            mi                                                     flags
 INST2(ret,              "ret",              IUM_RD, 0xC3,         0xC2,                                                  None)
-INST2(call,             "call",             IUM_RD, 0x10FF,       0xE8,                                                  None)
+INST2(call,             "call",             IUM_RD, RME(0xFF, 2), 0xE8,                                                  None)
 
-INST2(rol,              "rol",              IUM_RW, 0x00D3,       BAD_CODE,                                              RotateNFlags)
-INST2(rol_1,            "rol",              IUM_RW, 0x00D1,       0x00D1,                                                Rotate1Flags)
-INST2(rol_N,            "rol",              IUM_RW, BAD_CODE,     0x00C1,                                                RotateNFlags)
-INST2(ror,              "ror",              IUM_RW, 0x08D3,       BAD_CODE,                                              RotateNFlags)
-INST2(ror_1,            "ror",              IUM_RW, 0x08D1,       0x08D1,                                                Rotate1Flags)
-INST2(ror_N,            "ror",              IUM_RW, BAD_CODE,     0x08C1,                                                RotateNFlags)
-INST2(rcl,              "rcl",              IUM_RW, 0x10D3,       BAD_CODE,                                              RotateCarryNFlags)
-INST2(rcl_1,            "rcl",              IUM_RW, 0x10D1,       0x10D1,                                                RotateCarry1Flags)
-INST2(rcl_N,            "rcl",              IUM_RW, BAD_CODE,     0x10C1,                                                RotateCarryNFlags) 
-INST2(rcr,              "rcr",              IUM_RW, 0x18D3,       BAD_CODE,                                              RotateCarryNFlags)
-INST2(rcr_1,            "rcr",              IUM_RW, 0x18D1,       0x18D1,                                                RotateCarry1Flags)   
-INST2(rcr_N,            "rcr",              IUM_RW, BAD_CODE,     0x18C1,                                                RotateCarryNFlags)
+INST2(rol,              "rol",              IUM_RW, RME(0xD3, 0), BAD_CODE,                                              RotateNFlags)
+INST2(rol_1,            "rol",              IUM_RW, RME(0xD1, 0), RME(0xD1, 0),                                          Rotate1Flags)
+INST2(rol_N,            "rol",              IUM_RW, BAD_CODE,     RME(0xC1, 0),                                          RotateNFlags)
+INST2(ror,              "ror",              IUM_RW, RME(0xD3, 1), BAD_CODE,                                              RotateNFlags)
+INST2(ror_1,            "ror",              IUM_RW, RME(0xD1, 1), RME(0xD1, 1),                                          Rotate1Flags)
+INST2(ror_N,            "ror",              IUM_RW, BAD_CODE,     RME(0xC1, 1),                                          RotateNFlags)
+INST2(rcl,              "rcl",              IUM_RW, RME(0xD3, 2), BAD_CODE,                                              RotateCarryNFlags)
+INST2(rcl_1,            "rcl",              IUM_RW, RME(0xD1, 2), RME(0xD1, 2),                                          RotateCarry1Flags)
+INST2(rcl_N,            "rcl",              IUM_RW, BAD_CODE,     RME(0xC1, 2),                                          RotateCarryNFlags) 
+INST2(rcr,              "rcr",              IUM_RW, RME(0xD3, 3), BAD_CODE,                                              RotateCarryNFlags)
+INST2(rcr_1,            "rcr",              IUM_RW, RME(0xD1, 3), RME(0xD1, 3),                                          RotateCarry1Flags)   
+INST2(rcr_N,            "rcr",              IUM_RW, BAD_CODE,     RME(0xC1, 3),                                          RotateCarryNFlags)
 
-INST2(shl,              "shl",              IUM_RW, 0x20D3,       BAD_CODE,                                              ShiftNFlags)
-INST2(shl_1,            "shl",              IUM_RW, 0x20D1,       0x20D1,                                                Shift1Flags)
-INST2(shl_N,            "shl",              IUM_RW, BAD_CODE,     0x20C1,                                                ShiftNFlags)
-INST2(shr,              "shr",              IUM_RW, 0x28D3,       BAD_CODE,                                              ShiftNFlags)
-INST2(shr_1,            "shr",              IUM_RW, 0x28D1,       0x28D1,                                                Shift1Flags)
+INST2(shl,              "shl",              IUM_RW, RME(0xD3, 4), BAD_CODE,                                              ShiftNFlags)
+INST2(shl_1,            "shl",              IUM_RW, RME(0xD1, 4), RME(0xD1, 4),                                          Shift1Flags)
+INST2(shl_N,            "shl",              IUM_RW, BAD_CODE,     RME(0xC1, 4),                                          ShiftNFlags)
+INST2(shr,              "shr",              IUM_RW, RME(0xD3, 5), BAD_CODE,                                              ShiftNFlags)
+INST2(shr_1,            "shr",              IUM_RW, RME(0xD1, 5), RME(0xD1, 5),                                          Shift1Flags)
 INST2(shr_N,            "shr",              IUM_RW, BAD_CODE,     0x28C1,                                                ShiftNFlags)
-INST2(sar,              "sar",              IUM_RW, 0x38D3,       BAD_CODE,                                              ShiftNFlags)
-INST2(sar_1,            "sar",              IUM_RW, 0x38D1,       0x38D1,                                                Shift1Flags)
-INST2(sar_N,            "sar",              IUM_RW, BAD_CODE,     0x38C1,                                                ShiftNFlags)
+INST2(sar,              "sar",              IUM_RW, RME(0xD3, 7), BAD_CODE,                                              ShiftNFlags)
+INST2(sar_1,            "sar",              IUM_RW, RME(0xD1, 7), RME(0xD1, 7),                                          Shift1Flags)
+INST2(sar_N,            "sar",              IUM_RW, BAD_CODE,     RME(0xC1, 7),                                          ShiftNFlags)
 
-//    id                nm                  um      mr                                                                   flags
-INST1(inc,              "inc",              IUM_RW, 0x00FF,                                                              IncDecFlags)
-INST1(dec,              "dec",              IUM_RW, 0x08FF,                                                              IncDecFlags)
+INST1(inc,              "inc",              IUM_RW, RME(0xFF, 0),                                                        IncDecFlags)
+INST1(dec,              "dec",              IUM_RW, RME(0xFF, 1),                                                        IncDecFlags)
 
-INST1(neg,              "neg",              IUM_RW, 0x18F7,                                                              AddSubFlags)
-INST1(not,              "not",              IUM_RW, 0x10F7,                                                              None)
+INST1(neg,              "neg",              IUM_RW, RME(0xF7, 3),                                                        AddSubFlags)
+INST1(not,              "not",              IUM_RW, RME(0xF7, 2),                                                        None)
 
-INST1(idiv,             "idiv",             IUM_RD, 0x38F7,                                                              DivFlags)
-INST1(div,              "div",              IUM_RD, 0x30F7,                                                              DivFlags)
-INST1(mulEAX,           "mul",              IUM_RD, 0x20F7,                                                              ImulFlags)
-INST1(imulEAX,          "imul",             IUM_RD, 0x28F7,                                                              ImulFlags)
+INST1(idiv,             "idiv",             IUM_RD, RME(0xF7, 7),                                                        DivFlags)
+INST1(div,              "div",              IUM_RD, RME(0xF7, 6),                                                        DivFlags)
+INST1(mulEAX,           "mul",              IUM_RD, RME(0xF7, 4),                                                        ImulFlags)
+INST1(imulEAX,          "imul",             IUM_RD, RME(0xF7, 5),                                                        ImulFlags)
 
 INST1(xadd,             "xadd",             IUM_RW, PCKFLT(0xC1),                                                        AddSubFlags)
 INST1(cmpxchg,          "cmpxchg",          IUM_RW, PCKFLT(0xB1),                                                        AddSubFlags)
@@ -605,10 +601,10 @@ INST1(setg,             "setg",             IUM_WR, PCKFLT(0x9F),               
 
 #ifdef TARGET_AMD64
 // A jump with rex prefix. This is used for register indirect tail calls.
-INST1(rex_jmp,          "rex.jmp",          IUM_RD, 0x20FF,                                                              None)
+INST1(rex_jmp,          "rex.jmp",          IUM_RD, RME(0xFF, 4),                                                        None)
 #endif
 
-INST1(i_jmp,            "jmp",              IUM_RD, 0x20FF,                                                              None)
+INST1(i_jmp,            "jmp",              IUM_RD, RME(0xFF, 4),                                                        None)
 
 INSTA(FIRST_JMP, jmp)
 INST0(jmp,              "jmp",              IUM_RD, 0xEB,                                                                None)
