@@ -1615,12 +1615,8 @@ unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2,
         sz++;
     }
 
-    // TODO-MIKE-Review: This stuff is dubious. The byte claimed to be 0 can contain
-    // the RM opcode extension and that doesn't affect the instruction size.
-    //
-    // If Byte 4 (which is 0xFF00) is zero, that's where the RM encoding goes.
-    // Otherwise, it will be placed after the 4 byte encoding, making the total 5 bytes.
-    // This would probably be better expressed as a different format or something?
+    // This as reg,reg form so the RM byte cannot contain an opcode extension and
+    // must be 0, unless this is a 4-byte opcode, which doesn't have a RM byte.
 
     if (((code & 0xFF00) == 0) || IsSSEOrAVXInstruction(ins))
     {
@@ -1628,7 +1624,7 @@ unsigned emitter::emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2,
     }
     else
     {
-        sz += 5;
+        sz += 4 + 1;
     }
 
     return sz;
