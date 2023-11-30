@@ -1370,24 +1370,6 @@ emitter::instrDesc* emitter::emitNewInstrAmd(emitAttr size, ssize_t dsp)
     return id;
 }
 
-void emitter::emitSetAmdDisp(instrDescAmd* id, ssize_t dsp)
-{
-    if (dsp < AM_DISP_MIN || dsp > AM_DISP_MAX)
-    {
-        id->idSetIsLargeDsp();
-#ifdef DEBUG
-        id->idAddr()->iiaAddrMode.amDisp = AM_DISP_BIG_VAL;
-#endif
-        id->idaAmdVal = dsp;
-    }
-    else
-    {
-        id->idSetIsSmallDsp();
-        id->idAddr()->iiaAddrMode.amDisp = dsp;
-        assert(id->idAddr()->iiaAddrMode.amDisp == dsp); // make sure the value fit
-    }
-}
-
 emitter::instrDesc* emitter::emitNewInstrAmdCns(emitAttr size, ssize_t dsp, int32_t cns)
 {
     if (dsp >= AM_DISP_MIN && dsp <= AM_DISP_MAX)

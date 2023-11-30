@@ -306,7 +306,6 @@ void PrintFrameRef(instrDesc* id, bool asmfm);
 void SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs);
 ssize_t GetAddrModeDisp(GenTree* addr);
 void SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* addr);
-void emitSetAmdDisp(instrDescAmd* id, ssize_t dsp);
 instrDesc* emitNewInstrDsp(emitAttr attr, target_ssize_t dsp);
 instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t cns, int dsp);
 instrDesc* emitNewInstrAmd(emitAttr attr, ssize_t dsp);
