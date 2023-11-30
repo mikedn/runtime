@@ -485,15 +485,11 @@ bool emitter::hasRexPrefix(code_t code)
 #endif
 }
 
-// Returns true if this instruction, for the given EA_SIZE(attr), will require a REX.W prefix
 static bool TakesRexWPrefix(instruction ins, emitAttr attr)
 {
-    // Because the current implementation of AVX does not have a way to distinguish between the register
-    // size specification (128 vs. 256 bits) and the operand size specification (32 vs. 64 bits), where both are
-    // required, the instruction must be created with the register size attribute (EA_16BYTE or EA_32BYTE),
-    // and here we must special case these by the opcode.
     switch (ins)
     {
+        // Some AVX instructions require VEX.W as part of the instruction encoding.
         case INS_vpermpd:
         case INS_vpermq:
         case INS_vpsrlvq:
@@ -535,68 +531,62 @@ static bool TakesRexWPrefix(instruction ins, emitAttr attr)
         case INS_vpgatherqq:
         case INS_vgatherdpd:
         case INS_vgatherqpd:
+#ifdef TARGET_AMD64
+        // movsx should always sign extend out to 8 bytes just because we don't track
+        // whether the dest should be 4 bytes or 8 bytes (attr indicates the size of
+        // the source, not the dest).
+        case INS_movsx:
+        // movsxd should always have a REX.W prefix, otherwise it's equivalent to mov.
+        case INS_movsxd:
+        case INS_rex_jmp:
+#endif
             return true;
+
+#ifdef TARGET_AMD64
+        // Some instructions are implicitly 64 bit.
+        case INS_push:
+        case INS_push_hide:
+        case INS_pop:
+        case INS_pop_hide:
+            assert(EA_SIZE(attr) == EA_8BYTE);
+            FALLTHROUGH;
+        case INS_call:
+        case INS_ret:
+        case INS_i_jmp:
+        case INS_jmp:
+        case INS_l_jmp:
+        // movzx doesn't need REX.W because it zeroes out the upper 32 bit anyway.
+        case INS_movzx:
+            return false;
+
+        case INS_movd: // TODO-Cleanup: replace with movq, https://github.com/dotnet/runtime/issues/47943.
+        case INS_movnti:
+        case INS_cvttsd2si:
+        case INS_cvttss2si:
+        case INS_cvtsd2si:
+        case INS_cvtss2si:
+        case INS_cvtsi2sd:
+        case INS_cvtsi2ss:
+        case INS_andn:
+        case INS_bextr:
+        case INS_blsi:
+        case INS_blsmsk:
+        case INS_blsr:
+        case INS_bzhi:
+        case INS_mulx:
+        case INS_pdep:
+        case INS_pext:
+        case INS_rorx:
+            return EA_SIZE(attr) == EA_8BYTE;
+#endif
+
         default:
-            break;
-    }
-
 #ifdef TARGET_X86
-    return false;
+            return false;
 #else
-    // movsx should always sign extend out to 8 bytes just because we don't track
-    // whether the dest should be 4 bytes or 8 bytes (attr indicates the size
-    // of the source, not the dest).
-    // movsxd should always have a REX.W prefix, otherwise it's equivalent to mov.
-    // A 4-byte movzx is equivalent to an 8 byte movzx, so it is not special
-    // cased here.
-
-    if (ins == INS_movsx || ins == INS_movsxd || ins == INS_rex_jmp)
-    {
-        return true;
+            return (EA_SIZE(attr) == EA_8BYTE) && !IsSSEOrAVXInstruction(ins) && !((INS_jo <= ins) && (ins <= INS_jg));
+#endif
     }
-
-    if (EA_SIZE(attr) != EA_8BYTE)
-    {
-        return false;
-    }
-
-    if (IsSSEOrAVXInstruction(ins))
-    {
-        switch (ins)
-        {
-            case INS_movd: // TODO-Cleanup: replace with movq, https://github.com/dotnet/runtime/issues/47943.
-            case INS_andn:
-            case INS_bextr:
-            case INS_blsi:
-            case INS_blsmsk:
-            case INS_blsr:
-            case INS_bzhi:
-            case INS_cvttsd2si:
-            case INS_cvttss2si:
-            case INS_cvtsd2si:
-            case INS_cvtss2si:
-            case INS_cvtsi2sd:
-            case INS_cvtsi2ss:
-            case INS_movnti:
-            case INS_mulx:
-            case INS_pdep:
-            case INS_pext:
-            case INS_rorx:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    // TODO-XArch-Cleanup: Better way to not emit REX.W when we don't need it, than just testing
-    // all these opcodes...
-    // These are all the instructions that default to 8-byte operand without the REX.W bit
-    // With 1 special case: movzx because the 4 byte version still zeros-out the hi 4 bytes
-    // so we never need it
-
-    return (ins != INS_push) && (ins != INS_pop) && (ins != INS_movq) && (ins != INS_movzx) && (ins != INS_push_hide) &&
-           (ins != INS_pop_hide) && (ins != INS_ret) && (ins != INS_call) && !((ins >= INS_i_jmp) && (ins <= INS_jg));
-#endif // TARGET_AMD64
 }
 
 static bool IsExtendedReg(regNumber reg)
