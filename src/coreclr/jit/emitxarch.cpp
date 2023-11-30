@@ -120,25 +120,6 @@ static bool IsBMIInstruction(instruction ins)
     return (ins >= INS_FIRST_BMI_INSTRUCTION) && (ins <= INS_LAST_BMI_INSTRUCTION);
 }
 
-static bool IsBMIRegExtInstruction(instruction ins)
-{
-    return (ins == INS_blsi) || (ins == INS_blsmsk) || (ins == INS_blsr);
-}
-
-static unsigned GetBMIOpcodeRMExt(instruction ins)
-{
-    switch (ins)
-    {
-        case INS_blsi:
-            return 3;
-        case INS_blsmsk:
-            return 2;
-        default:
-            assert(ins == INS_blsr);
-            return 1;
-    }
-}
-
 #ifdef DEBUG
 static bool isAvxBlendv(instruction ins)
 {
@@ -474,35 +455,6 @@ bool emitter::hasVexPrefix(code_t code)
     return ((code >> 48) & 0xFF) == 0xC4;
 }
 
-emitter::code_t emitter::AddVexPrefix(instruction ins, code_t code, emitAttr attr)
-{
-    assert(TakesVexPrefix(ins));
-    assert(!hasVexPrefix(code));
-    assert((code >> 32) == 0);
-
-    // We start with a 3-byte VEX by default. Once we gather all its
-    // components we can decide to emit a 2-byte VEX prefix instead.
-
-    code |= 0xC4E078ull << 32;
-
-    if (attr == EA_32BYTE)
-    {
-        code |= 0x04ull << 32;
-    }
-
-    return code;
-}
-
-emitter::code_t emitter::AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size)
-{
-    if (TakesVexPrefix(ins))
-    {
-        code = AddVexPrefix(ins, code, size);
-    }
-
-    return code;
-}
-
 bool emitter::hasRexPrefix(code_t code)
 {
 #ifdef TARGET_AMD64
@@ -654,326 +606,6 @@ static bool IsExtendedReg(regNumber reg, emitAttr attr)
 #endif
 }
 
-static_assert_no_msg((REG_RAX & 0x7) == 0);
-static_assert_no_msg((REG_XMM0 & 0x7) == 0);
-
-// Returns bits to be encoded in instruction for the given register.
-unsigned RegEncoding(regNumber reg)
-{
-    return static_cast<unsigned>(reg & 0x7);
-}
-
-// Utility routines that abstract the logic of adding REX.W, REX.R, REX.X, REX.B and REX prefixes
-// SSE2: separate 1-byte prefix gets added before opcode.
-// AVX:  specific bits within VEX prefix need to be set in bit-inverted form.
-emitter::code_t emitter::AddRexWPrefix(instruction ins, code_t code)
-{
-    if (TakesVexPrefix(ins))
-    {
-        assert(hasVexPrefix(code));
-
-        return code | (0x80ull << 32);
-    }
-
-#ifdef TARGET_AMD64
-    return code | (0x48ull << 32);
-#else
-    unreached();
-#endif
-}
-
-#ifdef TARGET_AMD64
-
-emitter::code_t emitter::AddRexRPrefix(instruction ins, code_t code)
-{
-    if (TakesVexPrefix(ins))
-    {
-        assert(hasVexPrefix(code));
-
-        return code & ~(0x8000ull << 32);
-    }
-
-    return code | (0x44ull << 32);
-}
-
-emitter::code_t emitter::AddRexXPrefix(instruction ins, code_t code)
-{
-    if (TakesVexPrefix(ins))
-    {
-        assert(hasVexPrefix(code));
-
-        return code & ~(0x4000ull << 32);
-    }
-
-    return code | (0x42ull << 32);
-}
-
-emitter::code_t emitter::AddRexBPrefix(instruction ins, code_t code)
-{
-    if (TakesVexPrefix(ins))
-    {
-        assert(hasVexPrefix(code));
-
-        return code & ~(0x2000ull << 32);
-    }
-
-    return code | (0x41ull << 32);
-}
-
-// Adds REX prefix (0x40) without W, R, X or B bits set
-emitter::code_t emitter::AddRexPrefix(instruction ins, code_t code)
-{
-    assert(!TakesVexPrefix(ins));
-
-    return code | (0x40ull << 32);
-}
-
-#endif // TARGET_AMD64
-
-static bool isPrefix(uint8_t b)
-{
-    assert(b != 0);    // Caller should check this
-    assert(b != 0x67); // We don't use the address size prefix
-    assert(b != 0x65); // The GS segment override prefix is emitted separately
-    assert(b != 0x64); // The FS segment override prefix is emitted separately
-    assert(b != 0xF0); // The lock prefix is emitted separately
-    assert(b != 0x2E); // We don't use the CS segment override prefix
-    assert(b != 0x3E); // Or the DS segment override prefix
-    assert(b != 0x26); // Or the ES segment override prefix
-    assert(b != 0x36); // Or the SS segment override prefix
-
-    // That just leaves the size prefixes used in SSE opcodes:
-    //      Scalar Double  Scalar Single  Packed Double
-    return (b == 0xF2) || (b == 0xF3) || (b == 0x66);
-}
-
-size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
-{
-    assert(TakesVexPrefix(ins) && hasVexPrefix(code));
-
-    uint32_t vexPrefix = (code >> 32) & UINT_MAX;
-    code &= UINT_MAX;
-
-    uint16_t leadingBytes = 0;
-    uint8_t  check        = (code >> 24) & 0xFF;
-
-    if (check == 0)
-    {
-        // 2-byte opcode with the bytes ordered as 0x0011RM22
-        // the byte in position 11 must be an escape byte.
-
-        leadingBytes = (code >> 16) & 0xFF;
-        assert(leadingBytes == 0x0F);
-        code &= 0xFFFF;
-    }
-    else
-    {
-        // 3-byte opcode: with the bytes ordered as 0x2211RM33 or
-        // 4-byte opcode: with the bytes ordered as 0x22114433
-        // check for a prefix in the 11 position
-
-        uint8_t sizePrefix = (code >> 16) & 0xFF;
-
-        if ((sizePrefix != 0) && isPrefix(sizePrefix))
-        {
-            // 'pp' bits in byte2 of VEX prefix allows us to encode SIMD size prefixes as two bits
-            //
-            //   00  - None   (0F    - packed float)
-            //   01  - 66     (66 0F - packed double)
-            //   10  - F3     (F3 0F - scalar float
-            //   11  - F2     (F2 0F - scalar double)
-
-            switch (sizePrefix)
-            {
-                case 0x66:
-                    if (!IsBMIInstruction(ins))
-                    {
-                        vexPrefix |= 0x01;
-                    }
-                    else
-                    {
-                        switch (ins)
-                        {
-                            case INS_rorx:
-                            case INS_pdep:
-                            case INS_mulx:
-                                vexPrefix |= 0x03;
-                                break;
-                            case INS_pext:
-                                vexPrefix |= 0x02;
-                                break;
-                            default:
-                                vexPrefix |= 0x00;
-                                break;
-                        }
-                    }
-                    break;
-                case 0xF3:
-                    vexPrefix |= 0x02;
-                    break;
-                case 0xF2:
-                    vexPrefix |= 0x03;
-                    break;
-                default:
-                    unreached();
-            }
-
-            // Now the byte in the 22 position must be an escape byte 0F
-            leadingBytes = check;
-            assert(leadingBytes == 0x0F);
-
-            // Get rid of both sizePrefix and escape byte
-            code &= 0xFFFF;
-
-            // Check the byte in the 33 position to see if it is 3A or 38.
-            // In such a case escape bytes must be 0x0F3A or 0x0F38
-            check = code & 0xFF;
-
-            if (check == 0x3A || check == 0x38)
-            {
-                leadingBytes = (leadingBytes << 8) | check;
-
-                code &= 0xFF00;
-            }
-        }
-    }
-
-    switch (leadingBytes)
-    {
-        case 0x0F:
-            vexPrefix |= 0x0100;
-            break;
-        case 0x0F38:
-            vexPrefix |= 0x0200;
-            break;
-        case 0x0F3A:
-            vexPrefix |= 0x0300;
-            break;
-        default:
-            unreached();
-    }
-
-    if ((vexPrefix & 0xFFFF7F80) == 0x00C46100)
-    {
-        // Encoding optimization calculation is not done while estimating the instruction
-        // size and thus over-predict instruction size by 1 byte.
-        // If there are IGs that will be aligned, do not optimize encoding so the
-        // estimated alignment sizes are accurate.
-
-        if (emitCurIG->igNum > emitLastAlignedIgNum)
-        {
-            emitOutputByte(dst, 0xC5);
-            emitOutputByte(dst + 1, ((vexPrefix >> 8) & 0x80) | (vexPrefix & 0x7F));
-
-            return 2;
-        }
-    }
-
-    emitOutputByte(dst, 0xC4);
-    emitOutputByte(dst + 1, vexPrefix >> 8);
-    emitOutputByte(dst + 2, vexPrefix);
-
-    return 3;
-}
-
-#ifdef TARGET_AMD64
-size_t emitter::emitOutputRexPrefix(instruction ins, uint8_t* dst, code_t& code)
-{
-    uint8_t prefix = (code >> 32) & 0xFF;
-    noway_assert((prefix >= 0x40) && (prefix <= 0x4F));
-    code &= UINT_MAX;
-
-    // TODO-AMD64-Cleanup: when we remove the prefixes (just the SSE opcodes right now)
-    // we can remove this code as well
-
-    // The REX prefix is required to come after all other prefixes.
-    // Some of our 'opcodes' actually include some prefixes, if that
-    // is the case, shift them over and place the REX prefix after
-    // the other prefixes, and emit any prefix that got moved out.
-
-    uint8_t check = (code >> 24) & 0xFF;
-
-    if (check == 0)
-    {
-        // 3-byte opcode: with the bytes ordered as 0x00113322
-        // check for a prefix in the 11 position.
-
-        check = (code >> 16) & 0xFF;
-
-        if ((check != 0) && isPrefix(check))
-        {
-            // Swap the rex prefix and whatever this prefix is
-            code   = (static_cast<uint32_t>(prefix) << 16) | (code & 0xFFFF);
-            prefix = check;
-        }
-    }
-    else
-    {
-        // 4-byte opcode with the bytes ordered as 0x22114433
-        // first check for a prefix in the 11 position
-
-        uint8_t check2 = (code >> 16) & 0xFF;
-
-        if (isPrefix(check2))
-        {
-            assert(!isPrefix(check)); // We currently don't use this, so it is untested
-
-            if (isPrefix(check))
-            {
-                // 3 prefixes were rex = rr, check = c1, check2 = c2 encoded as 0xrrc1c2XXXX
-                // Change to c2rrc1XXXX, and emit check2 now
-
-                code = (static_cast<uint32_t>(prefix) << 24) | (static_cast<uint32_t>(check) << 16) | (code & 0xFFFF);
-            }
-            else
-            {
-                // 2 prefixes were rex = rr, check2 = c2 encoded as 0xrrXXc2XXXX, (check is part of the opcode)
-                // Change to c2XXrrXXXX, and emit check2 now
-
-                code = (static_cast<uint32_t>(check) << 24) | (static_cast<uint32_t>(prefix) << 16) | (code & 0xFFFF);
-            }
-
-            prefix = check2;
-        }
-    }
-
-    return emitOutputByte(dst, prefix);
-}
-#endif // TARGET_AMD64
-
-size_t emitter::emitOutputRexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code)
-{
-    assert(!hasVexPrefix(code));
-
-#ifdef TARGET_AMD64
-    if ((code >> 32) != 0)
-    {
-        return emitOutputRexPrefix(ins, dst, code);
-    }
-#endif
-
-    return 0;
-}
-
-size_t emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code)
-{
-    if (hasVexPrefix(code))
-    {
-        return emitOutputVexPrefix(ins, dst, code);
-    }
-
-#ifdef TARGET_AMD64
-    if ((code >> 32) != 0)
-    {
-        return emitOutputRexPrefix(ins, dst, code);
-    }
-#endif
-
-    return 0;
-}
-
-static bool IsSSE38orSSE3A(uint64_t code);
-
 #ifdef TARGET_X86
 void emitter::emitMarkStackLvl(unsigned stackLevel)
 {
@@ -1061,63 +693,6 @@ insFormat emitter::emitInsModeFormat(instruction ins, insFormat base)
     return (insFormat)(base + emitInsUpdateMode(ins));
 }
 
-// Returns the base encoding of the given CPU instruction.
-static size_t insCodeJ(instruction ins)
-{
-    const static uint32_t codes[]{
-#define INST0(id, nm, um, mr, ...) mr,
-#define INST1(...)
-#define INST2(...)
-#define INST3(...)
-#define INST4(...)
-#define INST5(...)
-#include "instrsxarch.h"
-    };
-
-    assert((INS_FIRST_JMP <= ins) && (ins <= INS_LAST_JMP));
-    assert(codes[ins - INS_FIRST_JMP] != BAD_CODE);
-
-    return codes[ins - INS_FIRST_JMP];
-}
-
-// Returns the "AL/AX/EAX, IMM" accumulator encoding of the given instruction.
-static size_t insCodeACC(instruction ins)
-{
-    const static uint32_t codes[]{
-#define INST0(...)
-#define INST1(...)
-#define INST2(...)
-#define INST3(...)
-#define INST4(id, nm, um, mr, mi, rm, a4, flags) a4,
-#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) a4,
-#include "instrsxarch.h"
-    };
-
-    assert(ins < _countof(codes));
-    assert(codes[ins] != BAD_CODE);
-
-    return codes[ins];
-}
-
-// Returns the "REG, REG" or "REG" encoding of the given instruction.
-static size_t insCodeRR(instruction ins)
-{
-    const static uint32_t codes[]{
-#define INST0(...)
-#define INST1(...)
-#define INST2(...)
-#define INST3(...)
-#define INST4(...)
-#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) rr,
-#include "instrsxarch.h"
-    };
-
-    assert(ins < _countof(codes));
-    assert(codes[ins] != BAD_CODE);
-
-    return codes[ins];
-}
-
 const static uint32_t insCodesRM[]{
 #define INST0(...)
 #define INST1(...)
@@ -1198,84 +773,6 @@ static bool IsSSE38orSSE3A(uint64_t code)
 
     code &= MASK;
     return (code == SSE38) || (code == SSE3A);
-}
-
-// Returns an encoding for the specified register to be used in the bits 0-2 of an opcode.
-unsigned emitter::insEncodeReg012(instruction ins, regNumber reg, emitAttr size, code_t* code)
-{
-    assert(reg < REG_STK);
-    assert(code != nullptr);
-
-#ifdef TARGET_AMD64
-    if (IsExtendedReg(reg))
-    {
-        *code = AddRexBPrefix(ins, *code);
-    }
-    else if ((size == EA_1BYTE) && (reg > REG_RBX))
-    {
-        // We are assuming that we only use/encode SPL, BPL, SIL and DIL
-        // not the corresponding AH, CH, DH, or BH
-        *code = AddRexPrefix(ins, *code);
-    }
-#endif // TARGET_AMD64
-
-    return RegEncoding(reg);
-}
-
-// Returns an encoding for the specified register to be used in the bits 3-5 of an opcode.
-unsigned emitter::insEncodeReg345(instruction ins, regNumber reg, emitAttr size, code_t* code)
-{
-    assert(reg < REG_STK);
-    assert(code != nullptr);
-
-#ifdef TARGET_AMD64
-    if (IsExtendedReg(reg))
-    {
-        *code = AddRexRPrefix(ins, *code);
-    }
-    else if ((size == EA_1BYTE) && (reg > REG_RBX))
-    {
-        // We are assuming that we only use/encode SPL, BPL, SIL and DIL
-        // not the corresponding AH, CH, DH, or BH
-        *code = AddRexPrefix(ins, *code);
-    }
-#endif // TARGET_AMD64
-
-    return RegEncoding(reg) << 3;
-}
-
-emitter::code_t emitter::SetRMReg(instruction ins, regNumber reg, emitAttr size, code_t code)
-{
-    assert(!IsSSE38orSSE3A(ins) && (ins != INS_crc32));
-    code |= insEncodeReg345(ins, reg, size, &code) << 8;
-    return code;
-}
-
-emitter::code_t emitter::SetVexVvvv(instruction ins, regNumber reg, emitAttr size, code_t code)
-{
-    assert(reg < REG_STK);
-    assert(TakesVexPrefix(ins));
-    assert(hasVexPrefix(code));
-
-    code_t regBits = RegEncoding(reg);
-
-    if (IsExtendedReg(reg))
-    {
-        regBits |= 0x08;
-    }
-
-    assert(regBits <= 0xF);
-    regBits <<= 35;
-    return code ^ regBits;
-}
-
-// Returns the "byte ptr [r/m]" opcode with the mod/RM field set to the given register.
-emitter::code_t emitter::insEncodeRMreg(instruction ins, regNumber reg, emitAttr size, code_t code)
-{
-    assert((code & 0xC000) == 0);
-    code |= 0xC000;
-    code |= insEncodeReg012(ins, reg, size, &code) << 8;
-    return code;
 }
 
 static unsigned ScaleEncoding(unsigned scale)
@@ -5733,6 +5230,265 @@ void emitter::emitDispIns(
 }
 #endif // DEBUG
 
+// Returns the base encoding of the given CPU instruction.
+static size_t insCodeJ(instruction ins)
+{
+    const static uint32_t codes[]{
+#define INST0(id, nm, um, mr, ...) mr,
+#define INST1(...)
+#define INST2(...)
+#define INST3(...)
+#define INST4(...)
+#define INST5(...)
+#include "instrsxarch.h"
+    };
+
+    assert((INS_FIRST_JMP <= ins) && (ins <= INS_LAST_JMP));
+    assert(codes[ins - INS_FIRST_JMP] != BAD_CODE);
+
+    return codes[ins - INS_FIRST_JMP];
+}
+
+// Returns the "AL/AX/EAX, IMM" accumulator encoding of the given instruction.
+static size_t insCodeACC(instruction ins)
+{
+    const static uint32_t codes[]{
+#define INST0(...)
+#define INST1(...)
+#define INST2(...)
+#define INST3(...)
+#define INST4(id, nm, um, mr, mi, rm, a4, flags) a4,
+#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) a4,
+#include "instrsxarch.h"
+    };
+
+    assert(ins < _countof(codes));
+    assert(codes[ins] != BAD_CODE);
+
+    return codes[ins];
+}
+
+// Returns the "REG, REG" or "REG" encoding of the given instruction.
+static size_t insCodeRR(instruction ins)
+{
+    const static uint32_t codes[]{
+#define INST0(...)
+#define INST1(...)
+#define INST2(...)
+#define INST3(...)
+#define INST4(...)
+#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) rr,
+#include "instrsxarch.h"
+    };
+
+    assert(ins < _countof(codes));
+    assert(codes[ins] != BAD_CODE);
+
+    return codes[ins];
+}
+
+// Utility routines that abstract the logic of adding REX.W, REX.R, REX.X, REX.B and REX prefixes
+// SSE2: separate 1-byte prefix gets added before opcode.
+// AVX:  specific bits within VEX prefix need to be set in bit-inverted form.
+emitter::code_t emitter::AddRexWPrefix(instruction ins, code_t code)
+{
+    if (TakesVexPrefix(ins))
+    {
+        assert(hasVexPrefix(code));
+
+        return code | (0x80ull << 32);
+    }
+
+#ifdef TARGET_AMD64
+    return code | (0x48ull << 32);
+#else
+    unreached();
+#endif
+}
+
+#ifdef TARGET_AMD64
+
+emitter::code_t emitter::AddRexRPrefix(instruction ins, code_t code)
+{
+    if (TakesVexPrefix(ins))
+    {
+        assert(hasVexPrefix(code));
+
+        return code & ~(0x8000ull << 32);
+    }
+
+    return code | (0x44ull << 32);
+}
+
+emitter::code_t emitter::AddRexXPrefix(instruction ins, code_t code)
+{
+    if (TakesVexPrefix(ins))
+    {
+        assert(hasVexPrefix(code));
+
+        return code & ~(0x4000ull << 32);
+    }
+
+    return code | (0x42ull << 32);
+}
+
+emitter::code_t emitter::AddRexBPrefix(instruction ins, code_t code)
+{
+    if (TakesVexPrefix(ins))
+    {
+        assert(hasVexPrefix(code));
+
+        return code & ~(0x2000ull << 32);
+    }
+
+    return code | (0x41ull << 32);
+}
+
+// Adds REX prefix (0x40) without W, R, X or B bits set
+emitter::code_t emitter::AddRexPrefix(instruction ins, code_t code)
+{
+    assert(!TakesVexPrefix(ins));
+
+    return code | (0x40ull << 32);
+}
+
+#endif // TARGET_AMD64
+
+emitter::code_t emitter::AddVexPrefix(instruction ins, code_t code, emitAttr attr)
+{
+    assert(TakesVexPrefix(ins));
+    assert(!hasVexPrefix(code));
+    assert((code >> 32) == 0);
+
+    // We start with a 3-byte VEX by default. Once we gather all its
+    // components we can decide to emit a 2-byte VEX prefix instead.
+
+    code |= 0xC4E078ull << 32;
+
+    if (attr == EA_32BYTE)
+    {
+        code |= 0x04ull << 32;
+    }
+
+    return code;
+}
+
+emitter::code_t emitter::AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size)
+{
+    if (TakesVexPrefix(ins))
+    {
+        code = AddVexPrefix(ins, code, size);
+    }
+
+    return code;
+}
+
+static_assert_no_msg((REG_RAX & 0x7) == 0);
+static_assert_no_msg((REG_XMM0 & 0x7) == 0);
+
+// Returns bits to be encoded in instruction for the given register.
+unsigned RegEncoding(regNumber reg)
+{
+    return static_cast<unsigned>(reg & 0x7);
+}
+
+// Returns an encoding for the specified register to be used in the bits 0-2 of an opcode.
+unsigned emitter::insEncodeReg012(instruction ins, regNumber reg, emitAttr size, code_t* code)
+{
+    assert(reg < REG_STK);
+    assert(code != nullptr);
+
+#ifdef TARGET_AMD64
+    if (IsExtendedReg(reg))
+    {
+        *code = AddRexBPrefix(ins, *code);
+    }
+    else if ((size == EA_1BYTE) && (reg > REG_RBX))
+    {
+        // We are assuming that we only use/encode SPL, BPL, SIL and DIL
+        // not the corresponding AH, CH, DH, or BH
+        *code = AddRexPrefix(ins, *code);
+    }
+#endif // TARGET_AMD64
+
+    return RegEncoding(reg);
+}
+
+// Returns an encoding for the specified register to be used in the bits 3-5 of an opcode.
+unsigned emitter::insEncodeReg345(instruction ins, regNumber reg, emitAttr size, code_t* code)
+{
+    assert(reg < REG_STK);
+    assert(code != nullptr);
+
+#ifdef TARGET_AMD64
+    if (IsExtendedReg(reg))
+    {
+        *code = AddRexRPrefix(ins, *code);
+    }
+    else if ((size == EA_1BYTE) && (reg > REG_RBX))
+    {
+        // We are assuming that we only use/encode SPL, BPL, SIL and DIL
+        // not the corresponding AH, CH, DH, or BH
+        *code = AddRexPrefix(ins, *code);
+    }
+#endif // TARGET_AMD64
+
+    return RegEncoding(reg) << 3;
+}
+
+emitter::code_t emitter::SetRMReg(instruction ins, regNumber reg, emitAttr size, code_t code)
+{
+    assert(!IsSSE38orSSE3A(ins) && (ins != INS_crc32));
+    code |= insEncodeReg345(ins, reg, size, &code) << 8;
+    return code;
+}
+
+emitter::code_t emitter::SetVexVvvv(instruction ins, regNumber reg, emitAttr size, code_t code)
+{
+    assert(reg < REG_STK);
+    assert(TakesVexPrefix(ins));
+    assert(hasVexPrefix(code));
+
+    code_t regBits = RegEncoding(reg);
+
+    if (IsExtendedReg(reg))
+    {
+        regBits |= 0x08;
+    }
+
+    assert(regBits <= 0xF);
+    regBits <<= 35;
+    return code ^ regBits;
+}
+
+// Returns the "byte ptr [r/m]" opcode with the mod/RM field set to the given register.
+emitter::code_t emitter::insEncodeRMreg(instruction ins, regNumber reg, emitAttr size, code_t code)
+{
+    assert((code & 0xC000) == 0);
+    code |= 0xC000;
+    code |= insEncodeReg012(ins, reg, size, &code) << 8;
+    return code;
+}
+
+static bool IsBMIRegExtInstruction(instruction ins)
+{
+    return (ins == INS_blsi) || (ins == INS_blsmsk) || (ins == INS_blsr);
+}
+
+static unsigned GetBMIOpcodeRMExt(instruction ins)
+{
+    switch (ins)
+    {
+        case INS_blsi:
+            return 3;
+        case INS_blsmsk:
+            return 2;
+        default:
+            assert(ins == INS_blsr);
+            return 1;
+    }
+}
+
 size_t emitter::emitOutputByte(uint8_t* dst, ssize_t val)
 {
     // if we're emitting code bytes, ensure that we've already emitted the rex prefix!
@@ -5799,6 +5555,248 @@ size_t emitter::emitOutputLong(uint8_t* dst, uint64_t val)
     return emitOutputLong(dst, static_cast<int32_t>(val));
 }
 #endif // defined(TARGET_X86) && !defined(HOST_64BIT)
+
+static bool isPrefix(uint8_t b)
+{
+    assert(b != 0);    // Caller should check this
+    assert(b != 0x67); // We don't use the address size prefix
+    assert(b != 0x65); // The GS segment override prefix is emitted separately
+    assert(b != 0x64); // The FS segment override prefix is emitted separately
+    assert(b != 0xF0); // The lock prefix is emitted separately
+    assert(b != 0x2E); // We don't use the CS segment override prefix
+    assert(b != 0x3E); // Or the DS segment override prefix
+    assert(b != 0x26); // Or the ES segment override prefix
+    assert(b != 0x36); // Or the SS segment override prefix
+
+    // That just leaves the size prefixes used in SSE opcodes:
+    //      Scalar Double  Scalar Single  Packed Double
+    return (b == 0xF2) || (b == 0xF3) || (b == 0x66);
+}
+
+size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
+{
+    assert(TakesVexPrefix(ins) && hasVexPrefix(code));
+
+    uint32_t vexPrefix = (code >> 32) & UINT_MAX;
+    code &= UINT_MAX;
+
+    uint16_t leadingBytes = 0;
+    uint8_t  check        = (code >> 24) & 0xFF;
+
+    if (check == 0)
+    {
+        // 2-byte opcode with the bytes ordered as 0x0011RM22
+        // the byte in position 11 must be an escape byte.
+
+        leadingBytes = (code >> 16) & 0xFF;
+        assert(leadingBytes == 0x0F);
+        code &= 0xFFFF;
+    }
+    else
+    {
+        // 3-byte opcode: with the bytes ordered as 0x2211RM33 or
+        // 4-byte opcode: with the bytes ordered as 0x22114433
+        // check for a prefix in the 11 position
+
+        uint8_t sizePrefix = (code >> 16) & 0xFF;
+
+        if ((sizePrefix != 0) && isPrefix(sizePrefix))
+        {
+            // 'pp' bits in byte2 of VEX prefix allows us to encode SIMD size prefixes as two bits
+            //
+            //   00  - None   (0F    - packed float)
+            //   01  - 66     (66 0F - packed double)
+            //   10  - F3     (F3 0F - scalar float
+            //   11  - F2     (F2 0F - scalar double)
+
+            switch (sizePrefix)
+            {
+                case 0x66:
+                    if (!IsBMIInstruction(ins))
+                    {
+                        vexPrefix |= 0x01;
+                    }
+                    else
+                    {
+                        switch (ins)
+                        {
+                            case INS_rorx:
+                            case INS_pdep:
+                            case INS_mulx:
+                                vexPrefix |= 0x03;
+                                break;
+                            case INS_pext:
+                                vexPrefix |= 0x02;
+                                break;
+                            default:
+                                vexPrefix |= 0x00;
+                                break;
+                        }
+                    }
+                    break;
+                case 0xF3:
+                    vexPrefix |= 0x02;
+                    break;
+                case 0xF2:
+                    vexPrefix |= 0x03;
+                    break;
+                default:
+                    unreached();
+            }
+
+            // Now the byte in the 22 position must be an escape byte 0F
+            leadingBytes = check;
+            assert(leadingBytes == 0x0F);
+
+            // Get rid of both sizePrefix and escape byte
+            code &= 0xFFFF;
+
+            // Check the byte in the 33 position to see if it is 3A or 38.
+            // In such a case escape bytes must be 0x0F3A or 0x0F38
+            check = code & 0xFF;
+
+            if (check == 0x3A || check == 0x38)
+            {
+                leadingBytes = (leadingBytes << 8) | check;
+
+                code &= 0xFF00;
+            }
+        }
+    }
+
+    switch (leadingBytes)
+    {
+        case 0x0F:
+            vexPrefix |= 0x0100;
+            break;
+        case 0x0F38:
+            vexPrefix |= 0x0200;
+            break;
+        case 0x0F3A:
+            vexPrefix |= 0x0300;
+            break;
+        default:
+            unreached();
+    }
+
+    if ((vexPrefix & 0xFFFF7F80) == 0x00C46100)
+    {
+        // Encoding optimization calculation is not done while estimating the instruction
+        // size and thus over-predict instruction size by 1 byte.
+        // If there are IGs that will be aligned, do not optimize encoding so the
+        // estimated alignment sizes are accurate.
+
+        if (emitCurIG->igNum > emitLastAlignedIgNum)
+        {
+            emitOutputByte(dst, 0xC5);
+            emitOutputByte(dst + 1, ((vexPrefix >> 8) & 0x80) | (vexPrefix & 0x7F));
+
+            return 2;
+        }
+    }
+
+    emitOutputByte(dst, 0xC4);
+    emitOutputByte(dst + 1, vexPrefix >> 8);
+    emitOutputByte(dst + 2, vexPrefix);
+
+    return 3;
+}
+
+#ifdef TARGET_AMD64
+size_t emitter::emitOutputRexPrefix(instruction ins, uint8_t* dst, code_t& code)
+{
+    uint8_t prefix = (code >> 32) & 0xFF;
+    noway_assert((prefix >= 0x40) && (prefix <= 0x4F));
+    code &= UINT_MAX;
+
+    // TODO-AMD64-Cleanup: when we remove the prefixes (just the SSE opcodes right now)
+    // we can remove this code as well
+
+    // The REX prefix is required to come after all other prefixes.
+    // Some of our 'opcodes' actually include some prefixes, if that
+    // is the case, shift them over and place the REX prefix after
+    // the other prefixes, and emit any prefix that got moved out.
+
+    uint8_t check = (code >> 24) & 0xFF;
+
+    if (check == 0)
+    {
+        // 3-byte opcode: with the bytes ordered as 0x00113322
+        // check for a prefix in the 11 position.
+
+        check = (code >> 16) & 0xFF;
+
+        if ((check != 0) && isPrefix(check))
+        {
+            // Swap the rex prefix and whatever this prefix is
+            code   = (static_cast<uint32_t>(prefix) << 16) | (code & 0xFFFF);
+            prefix = check;
+        }
+    }
+    else
+    {
+        // 4-byte opcode with the bytes ordered as 0x22114433
+        // first check for a prefix in the 11 position
+
+        uint8_t check2 = (code >> 16) & 0xFF;
+
+        if (isPrefix(check2))
+        {
+            assert(!isPrefix(check)); // We currently don't use this, so it is untested
+
+            if (isPrefix(check))
+            {
+                // 3 prefixes were rex = rr, check = c1, check2 = c2 encoded as 0xrrc1c2XXXX
+                // Change to c2rrc1XXXX, and emit check2 now
+
+                code = (static_cast<uint32_t>(prefix) << 24) | (static_cast<uint32_t>(check) << 16) | (code & 0xFFFF);
+            }
+            else
+            {
+                // 2 prefixes were rex = rr, check2 = c2 encoded as 0xrrXXc2XXXX, (check is part of the opcode)
+                // Change to c2XXrrXXXX, and emit check2 now
+
+                code = (static_cast<uint32_t>(check) << 24) | (static_cast<uint32_t>(prefix) << 16) | (code & 0xFFFF);
+            }
+
+            prefix = check2;
+        }
+    }
+
+    return emitOutputByte(dst, prefix);
+}
+#endif // TARGET_AMD64
+
+size_t emitter::emitOutputRexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code)
+{
+    assert(!hasVexPrefix(code));
+
+#ifdef TARGET_AMD64
+    if ((code >> 32) != 0)
+    {
+        return emitOutputRexPrefix(ins, dst, code);
+    }
+#endif
+
+    return 0;
+}
+
+size_t emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code)
+{
+    if (hasVexPrefix(code))
+    {
+        return emitOutputVexPrefix(ins, dst, code);
+    }
+
+#ifdef TARGET_AMD64
+    if ((code >> 32) != 0)
+    {
+        return emitOutputRexPrefix(ins, dst, code);
+    }
+#endif
+
+    return 0;
+}
 
 size_t emitter::emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t imm)
 {
