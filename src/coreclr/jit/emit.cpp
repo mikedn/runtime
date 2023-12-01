@@ -171,15 +171,6 @@ const char* emitter::genInsDisplayName(instrDesc* id)
 }
 #endif
 
-#endif // DEBUG
-
-/*****************************************************************************
- *
- *  Return the name of an instruction format.
- */
-
-#if defined(DEBUG) || EMITTER_STATS
-
 const char* emitter::emitIfName(unsigned f)
 {
     static const char* const ifNames[] = {
@@ -200,227 +191,6 @@ const char* emitter::emitIfName(unsigned f)
 
 #endif
 
-/*****************************************************************************/
-
-#if EMITTER_STATS
-
-static unsigned totAllocdSize;
-static unsigned totActualSize;
-
-unsigned emitter::emitIFcounts[emitter::IF_COUNT];
-
-static unsigned  emitSizeBuckets[] = {100, 1024 * 1, 1024 * 2, 1024 * 3, 1024 * 4, 1024 * 5, 1024 * 10, 0};
-static Histogram emitSizeTable(emitSizeBuckets);
-
-static unsigned  GCrefsBuckets[] = {0, 1, 2, 5, 10, 20, 50, 128, 256, 512, 1024, 0};
-static Histogram GCrefsTable(GCrefsBuckets);
-
-static unsigned  stkDepthBuckets[] = {0, 1, 2, 5, 10, 16, 32, 128, 1024, 0};
-static Histogram stkDepthTable(stkDepthBuckets);
-
-size_t emitter::emitSizeMethod;
-
-size_t   emitter::emitTotMemAlloc;
-unsigned emitter::emitTotalInsCnt;
-unsigned emitter::emitCurPrologInsCnt;
-size_t   emitter::emitCurPrologIGSize;
-unsigned emitter::emitMaxPrologInsCnt;
-size_t   emitter::emitMaxPrologIGSize;
-unsigned emitter::emitTotalIGcnt;
-unsigned emitter::emitTotalPhIGcnt;
-unsigned emitter::emitTotalIGjmps;
-unsigned emitter::emitTotalIGptrs;
-unsigned emitter::emitTotalIGicnt;
-size_t   emitter::emitTotalIGsize;
-unsigned emitter::emitTotalIGmcnt;
-unsigned emitter::emitTotalIGExtend;
-
-unsigned emitter::emitTotalIDescSmallCnt;
-unsigned emitter::emitTotalIDescCnt;
-unsigned emitter::emitTotalIDescJmpCnt;
-unsigned emitter::emitTotalIDescCnsCnt;
-unsigned emitter::emitTotalIDescDspCnt;
-unsigned emitter::emitTotalIDescCnsDspCnt;
-#ifdef TARGET_XARCH
-unsigned emitter::emitTotalIDescAmdCnt;
-unsigned emitter::emitTotalIDescCnsAmdCnt;
-#endif // TARGET_XARCH
-unsigned emitter::emitTotalIDescCGCACnt;
-
-unsigned emitter::emitSmallDspCnt;
-unsigned emitter::emitLargeDspCnt;
-
-unsigned emitter::emitSmallCnsCnt;
-unsigned emitter::emitLargeCnsCnt;
-unsigned emitter::emitSmallCns[SMALL_CNS_TSZ];
-
-unsigned emitter::emitTotalDescAlignCnt;
-
-void emitterStats(FILE* fout)
-{
-    if (totAllocdSize > 0)
-    {
-        assert(totActualSize <= totAllocdSize);
-
-        fprintf(fout, "\nTotal allocated code size = %u\n", totAllocdSize);
-
-        if (totActualSize < totAllocdSize)
-        {
-            fprintf(fout, "Total generated code size = %u  ", totActualSize);
-
-            fprintf(fout, "(%4.3f%% waste)", 100 * ((totAllocdSize - totActualSize) / (double)totActualSize));
-            fprintf(fout, "\n");
-        }
-
-        assert(emitter::emitTotalInsCnt > 0);
-
-        fprintf(fout, "Average of %4.2f bytes of code generated per instruction\n",
-                (double)totActualSize / emitter::emitTotalInsCnt);
-    }
-
-    fprintf(fout, "\nInstruction format frequency table:\n\n");
-
-    unsigned f, ic = 0, dc = 0;
-
-    for (f = 0; f < emitter::IF_COUNT; f++)
-    {
-        ic += emitter::emitIFcounts[f];
-    }
-
-    for (f = 0; f < emitter::IF_COUNT; f++)
-    {
-        unsigned c = emitter::emitIFcounts[f];
-
-        if ((c > 0) && (1000 * c >= ic))
-        {
-            dc += c;
-            fprintf(fout, "          %-14s %8u (%5.2f%%)\n", emitter::emitIfName(f), c, 100.0 * c / ic);
-        }
-    }
-
-    fprintf(fout, "         ---------------------------------\n");
-    fprintf(fout, "          %-14s %8u (%5.2f%%)\n", "Total shown", dc, 100.0 * dc / ic);
-
-    if (emitter::emitTotalIGmcnt > 0)
-    {
-        fprintf(fout, "\n");
-        fprintf(fout, "Total of %8u methods\n", emitter::emitTotalIGmcnt);
-        fprintf(fout, "Total of %8u insGroup\n", emitter::emitTotalIGcnt);
-        fprintf(fout, "Total of %8u insPlaceholderGroupData\n", emitter::emitTotalPhIGcnt);
-        fprintf(fout, "Total of %8u extend insGroup\n", emitter::emitTotalIGExtend);
-        fprintf(fout, "Total of %8u instructions\n", emitter::emitTotalIGicnt);
-        fprintf(fout, "Total of %8u jumps\n", emitter::emitTotalIGjmps);
-        fprintf(fout, "Total of %8u GC livesets\n", emitter::emitTotalIGptrs);
-        fprintf(fout, "\n");
-        fprintf(fout, "Max prolog instrDesc count: %8u\n", emitter::emitMaxPrologInsCnt);
-        fprintf(fout, "Max prolog insGroup size  : %8zu\n", emitter::emitMaxPrologIGSize);
-        fprintf(fout, "\n");
-        fprintf(fout, "Average of %8.1lf insGroup     per method\n",
-                (double)emitter::emitTotalIGcnt / emitter::emitTotalIGmcnt);
-        fprintf(fout, "Average of %8.1lf insPhGroup   per method\n",
-                (double)emitter::emitTotalPhIGcnt / emitter::emitTotalIGmcnt);
-        fprintf(fout, "Average of %8.1lf extend IG    per method\n",
-                (double)emitter::emitTotalIGExtend / emitter::emitTotalIGmcnt);
-        fprintf(fout, "Average of %8.1lf instructions per method\n",
-                (double)emitter::emitTotalIGicnt / emitter::emitTotalIGmcnt);
-        fprintf(fout, "Average of %8.1lf desc.  bytes per method\n",
-                (double)emitter::emitTotalIGsize / emitter::emitTotalIGmcnt);
-        fprintf(fout, "Average of %8.1lf jumps        per method\n",
-                (double)emitter::emitTotalIGjmps / emitter::emitTotalIGmcnt);
-        fprintf(fout, "Average of %8.1lf GC livesets  per method\n",
-                (double)emitter::emitTotalIGptrs / emitter::emitTotalIGmcnt);
-        fprintf(fout, "\n");
-        fprintf(fout, "Average of %8.1lf instructions per group \n",
-                (double)emitter::emitTotalIGicnt / emitter::emitTotalIGcnt);
-        fprintf(fout, "Average of %8.1lf desc.  bytes per group \n",
-                (double)emitter::emitTotalIGsize / emitter::emitTotalIGcnt);
-        fprintf(fout, "Average of %8.1lf jumps        per group \n",
-                (double)emitter::emitTotalIGjmps / emitter::emitTotalIGcnt);
-        fprintf(fout, "\n");
-        fprintf(fout, "Average of %8.1lf bytes        per instrDesc\n",
-                (double)emitter::emitTotalIGsize / emitter::emitTotalIGicnt);
-        fprintf(fout, "\n");
-        fprintf(fout, "A total of %8zu desc.  bytes\n", emitter::emitTotalIGsize);
-        fprintf(fout, "\n");
-
-        fprintf(fout, "Total instructions:    %8u\n", emitter::emitTotalInsCnt);
-        fprintf(fout, "Total small instrDesc: %8u (%5.2f%%)\n", emitter::emitTotalIDescSmallCnt,
-                100.0 * emitter::emitTotalIDescSmallCnt / emitter::emitTotalInsCnt);
-        fprintf(fout, "Total instrDesc:       %8u (%5.2f%%)\n", emitter::emitTotalIDescCnt,
-                100.0 * emitter::emitTotalIDescCnt / emitter::emitTotalInsCnt);
-        fprintf(fout, "Total instrDescJmp:    %8u (%5.2f%%)\n", emitter::emitTotalIDescJmpCnt,
-                100.0 * emitter::emitTotalIDescJmpCnt / emitter::emitTotalInsCnt);
-        fprintf(fout, "Total instrDescCns:    %8u (%5.2f%%)\n", emitter::emitTotalIDescCnsCnt,
-                100.0 * emitter::emitTotalIDescCnsCnt / emitter::emitTotalInsCnt);
-        fprintf(fout, "Total instrDescDsp:    %8u (%5.2f%%)\n", emitter::emitTotalIDescDspCnt,
-                100.0 * emitter::emitTotalIDescDspCnt / emitter::emitTotalInsCnt);
-        fprintf(fout, "Total instrDescCnsDsp: %8u (%5.2f%%)\n", emitter::emitTotalIDescCnsDspCnt,
-                100.0 * emitter::emitTotalIDescCnsDspCnt / emitter::emitTotalInsCnt);
-#ifdef TARGET_XARCH
-        fprintf(fout, "Total instrDescAmd:    %8u (%5.2f%%)\n", emitter::emitTotalIDescAmdCnt,
-                100.0 * emitter::emitTotalIDescAmdCnt / emitter::emitTotalInsCnt);
-        fprintf(fout, "Total instrDescCnsAmd: %8u (%5.2f%%)\n", emitter::emitTotalIDescCnsAmdCnt,
-                100.0 * emitter::emitTotalIDescCnsAmdCnt / emitter::emitTotalInsCnt);
-#endif // TARGET_XARCH
-        fprintf(fout, "Total instrDescCGCA:   %8u (%5.2f%%)\n", emitter::emitTotalIDescCGCACnt,
-                100.0 * emitter::emitTotalIDescCGCACnt / emitter::emitTotalInsCnt);
-        fprintf(fout, "Total instrDescAlign:  %8u (%5.2f%%)\n", emitter::emitTotalDescAlignCnt,
-                100.0 * emitter::emitTotalDescAlignCnt / emitter::emitTotalInsCnt);
-
-        fprintf(fout, "\n");
-    }
-
-    fprintf(fout, "Descriptor size distribution:\n");
-    emitSizeTable.dump(fout);
-    fprintf(fout, "\n");
-
-    fprintf(fout, "GC ref frame variable counts:\n");
-    GCrefsTable.dump(fout);
-    fprintf(fout, "\n");
-
-    fprintf(fout, "Max. stack depth distribution:\n");
-    stkDepthTable.dump(fout);
-    fprintf(fout, "\n");
-
-    if ((emitter::emitSmallCnsCnt > 0) || (emitter::emitLargeCnsCnt > 0))
-    {
-        fprintf(fout, "SmallCnsCnt = %6u\n", emitter::emitSmallCnsCnt);
-        fprintf(fout, "LargeCnsCnt = %6u (%3u %% of total)\n", emitter::emitLargeCnsCnt,
-                100 * emitter::emitLargeCnsCnt / (emitter::emitLargeCnsCnt + emitter::emitSmallCnsCnt));
-    }
-
-    // Print out the most common small constants.
-    if (emitter::emitSmallCnsCnt > 0)
-    {
-        fprintf(fout, "\n\n");
-        fprintf(fout, "Common small constants >= %2u, <= %2u\n", ID_MIN_SMALL_CNS, ID_MAX_SMALL_CNS);
-
-        unsigned m = emitter::emitSmallCnsCnt / 1000 + 1;
-
-        for (int i = ID_MIN_SMALL_CNS; (i <= ID_MAX_SMALL_CNS) && (i < SMALL_CNS_TSZ); i++)
-        {
-            unsigned c = emitter::emitSmallCns[i - ID_MIN_SMALL_CNS];
-            if (c >= m)
-            {
-                if (i == SMALL_CNS_TSZ - 1)
-                {
-                    fprintf(fout, "cns[>=%4d] = %u\n", i, c);
-                }
-                else
-                {
-                    fprintf(fout, "cns[%4d] = %u\n", i, c);
-                }
-            }
-        }
-    }
-
-    fprintf(fout, "%8zu bytes allocated in the emitter\n", emitter::emitTotMemAlloc);
-}
-
-#endif // EMITTER_STATS
-
-/*****************************************************************************/
-
 const uint16_t emitTypeSizes[]{
 #define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) sze,
 #include "typelist.h"
@@ -431,18 +201,9 @@ const uint16_t emitTypeActSz[]{
 #include "typelist.h"
 };
 
-/*****************************************************************************
- *
- *  Allocate memory.
- */
-
 void* emitter::emitGetMem(size_t sz)
 {
     assert(sz % sizeof(int) == 0);
-
-#if EMITTER_STATS
-    emitTotMemAlloc += sz;
-#endif
 
     return emitComp->getAllocator(CMK_InstDesc).allocate<char>(sz);
 }
@@ -482,12 +243,6 @@ insGroup* emitter::emitAllocIG()
     ig->igSelf             = ig;
     ig->lastGeneratedBlock = nullptr;
     new (&ig->igBlocks) jitstd::list<BasicBlock*>(emitComp->getAllocator(CMK_LoopOpt));
-#endif
-
-#if EMITTER_STATS
-    emitTotalIGcnt += 1;
-    emitTotalIGsize += sizeof(insGroup);
-    emitSizeMethod += sizeof(insGroup);
 #endif
 
     return ig;
@@ -538,9 +293,6 @@ void emitter::emitExtendIG()
     emitNewIG();
 
     emitCurIG->igFlags |= IGF_EXTEND;
-#if EMITTER_STATS
-    emitTotalIGExtend++;
-#endif
 }
 
 void emitter::emitFinishIG(bool extend)
@@ -718,20 +470,6 @@ void emitter::emitFinishIG(bool extend)
         printf("\n");
     }
 #endif
-
-#if EMITTER_STATS
-    emitTotalIGicnt += emitCurIGinsCnt;
-    emitTotalIGsize += instrSize;
-    emitSizeMethod += instrSize;
-
-    if (emitIGisInProlog(ig))
-    {
-        emitCurPrologInsCnt += emitCurIGinsCnt;
-        emitCurPrologIGSize += instrSize;
-        emitMaxPrologInsCnt = Max(emitMaxPrologInsCnt, emitCurPrologInsCnt);
-        emitMaxPrologIGSize = Max(emitCurPrologIGSize, emitCurPrologIGSize);
-    }
-#endif
 }
 
 #ifndef JIT32_GCENCODER
@@ -766,13 +504,6 @@ void emitter::emitEnableGC()
 
 void emitter::emitBegFN()
 {
-#if EMITTER_STATS
-    emitTotalIGmcnt++;
-    emitSizeMethod      = 0;
-    emitCurPrologInsCnt = 0;
-    emitCurPrologIGSize = 0;
-#endif
-
 #if !FEATURE_FIXED_OUT_ARGS
     emitCntStackDepth = 4;
 #endif
@@ -912,10 +643,6 @@ void emitter::dispIns(instrDesc* id)
 #if !FEATURE_FIXED_OUT_ARGS
     assert(emitCurStackLvl <= INT32_MAX);
 #endif
-
-#if EMITTER_STATS
-    emitIFcounts[id->idInsFmt()]++;
-#endif
 }
 
 void emitter::appendToCurIG(instrDesc* id)
@@ -1024,10 +751,6 @@ void* emitter::emitAllocAnyInstr(unsigned sz, bool updateLastIns)
     emitCurIGfreeNext += sz;
     emitCurIGinsCnt++;
 
-#if EMITTER_STATS
-    emitTotalInsCnt++;
-#endif
-
 #ifdef DEBUG
     if (emitCurIG->lastGeneratedBlock != GetCurrentBlock())
     {
@@ -1065,9 +788,6 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
 
 emitter::instrDesc* emitter::emitAllocInstr(emitAttr attr)
 {
-#if EMITTER_STATS
-    emitTotalIDescCnt++;
-#endif
     return AllocInstr<instrDesc>(attr);
 }
 
@@ -1078,9 +798,6 @@ emitter::instrDesc* emitter::emitNewInstr(emitAttr attr)
 
 emitter::instrDescCns* emitter::emitAllocInstrCns(emitAttr attr)
 {
-#if EMITTER_STATS
-    emitTotalIDescCnsCnt++;
-#endif
     return AllocInstr<instrDescCns>(attr);
 }
 
@@ -1098,9 +815,6 @@ emitter::instrDesc* emitter::emitNewInstrSmall(emitAttr attr)
 
     instrDescSmall* id = AllocInstr<instrDescSmall>(attr);
     id->idSetIsSmallDsc();
-#if EMITTER_STATS
-    emitTotalIDescSmallCnt++;
-#endif
     return static_cast<instrDesc*>(id);
 }
 
@@ -1110,21 +824,10 @@ emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns)
     {
         instrDesc* id = emitNewInstrSmall(attr);
         id->idSmallCns(cns);
-#if EMITTER_STATS
-        emitSmallCnsCnt++;
-        if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
-            emitSmallCns[SMALL_CNS_TSZ - 1]++;
-        else
-            emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
-#endif
         return id;
     }
 
-    instrDescCns* id = emitAllocInstrCns(attr, cns);
-#if EMITTER_STATS
-    emitLargeCnsCnt++;
-#endif
-    return id;
+    return emitAllocInstrCns(attr, cns);
 }
 
 emitter::instrDesc* emitter::emitNewInstrCns(emitAttr attr, int32_t cns)
@@ -1133,53 +836,30 @@ emitter::instrDesc* emitter::emitNewInstrCns(emitAttr attr, int32_t cns)
     {
         instrDesc* id = emitAllocInstr(attr);
         id->idSmallCns(cns);
-#if EMITTER_STATS
-        emitSmallCnsCnt++;
-        if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
-            emitSmallCns[SMALL_CNS_TSZ - 1]++;
-        else
-            emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
-#endif
         return id;
     }
 
-    instrDescCns* id = emitAllocInstrCns(attr, cns);
-#if EMITTER_STATS
-    emitLargeCnsCnt++;
-#endif
-    return id;
+    return emitAllocInstrCns(attr, cns);
 }
 
 emitter::instrDescJmp* emitter::emitAllocInstrJmp()
 {
-#if EMITTER_STATS
-    emitTotalIDescJmpCnt++;
-#endif
     return AllocInstr<instrDescJmp>(EA_1BYTE);
 }
 
 emitter::instrDescJmp* emitter::emitNewInstrJmp()
 {
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
     return emitAllocInstrJmp();
 }
 
 emitter::instrDescCGCA* emitter::emitAllocInstrCGCA(emitAttr attr)
 {
-#if EMITTER_STATS
-    emitTotalIDescCGCACnt++;
-#endif
     return AllocInstr<instrDescCGCA>(attr);
 }
 
 #if FEATURE_LOOP_ALIGN
 emitter::instrDescAlign* emitter::emitAllocInstrAlign()
 {
-#if EMITTER_STATS
-    emitTotalDescAlignCnt++;
-#endif
     return AllocInstr<instrDescAlign>(EA_1BYTE);
 }
 #endif
@@ -1442,10 +1122,6 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         }
 #endif
     }
-
-#if EMITTER_STATS
-    emitTotalPhIGcnt += 1;
-#endif
 
 #ifdef DEBUG
     if (emitComp->verbose)
@@ -4133,17 +3809,9 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     emitConsBlock = nullptr;
     emitOffsAdj   = 0;
 
-#if EMITTER_STATS
-    GCrefsTable.record(emitGCrFrameOffsCnt);
-    emitSizeTable.record(static_cast<unsigned>(emitSizeMethod));
-#endif
-
 #ifndef JIT32_GCENCODER
     gcInfo.Begin();
 #else
-#if EMITTER_STATS
-    stkDepthTable.record(emitMaxStackDepth);
-#endif
     unsigned maxStackDepthIn4ByteElements = emitMaxStackDepth / REGSIZE_BYTES;
     JITDUMP("Converting emitMaxStackDepth from bytes (%d) to elements (%d)\n", emitMaxStackDepth,
             maxStackDepthIn4ByteElements);
@@ -4702,11 +4370,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
     unsigned actualCodeSize = emitCurCodeOffs(cp);
     assert(emitTotalCodeSize >= actualCodeSize);
-
-#if EMITTER_STATS
-    totAllocdSize += emitTotalCodeSize;
-    totActualSize += actualCodeSize;
-#endif
 
     // Fill in eventual unused space, but do not report this space as used.
     // If you add this padding during the emitIGlist loop, then it will

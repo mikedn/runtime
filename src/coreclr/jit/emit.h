@@ -23,10 +23,6 @@
 #define DEBUG_EMIT 0
 #endif
 
-#if EMITTER_STATS
-void emitterStats(FILE* fout);
-#endif
-
 #if DEBUG_EMIT
 #define INTERESTING_JUMP_NUM -1 // set to 0 to see all jump info
 #endif
@@ -1402,19 +1398,10 @@ private:
 
     cnsval_ssize_t emitGetInsSC(instrDesc* id);
 
-    /************************************************************************/
-    /*           A few routines used for debug display purposes             */
-    /************************************************************************/
-
-    INDEBUG(const char* genInsDisplayName(instrDesc* id);)
-
-#if defined(DEBUG) || EMITTER_STATS
-
+#ifdef DEBUG
+    const char* genInsDisplayName(instrDesc* id);
     static const char* emitIfName(unsigned f);
 
-#endif // defined(DEBUG) || EMITTER_STATS
-
-#ifdef DEBUG
     unsigned emitInsCount = 0;
 
     static const char* emitRegName(regNumber reg, emitAttr size = EA_PTRSIZE);
@@ -1863,62 +1850,6 @@ private:
     void emitRecordCallSite(ULONG                 instrOffset,   /* IN */
                             CORINFO_SIG_INFO*     callSig,       /* IN */
                             CORINFO_METHOD_HANDLE methodHandle); /* IN */
-
-/************************************************************************/
-/*               Logic to collect and display statistics                */
-/************************************************************************/
-
-#if EMITTER_STATS
-
-    friend void emitterStats(FILE* fout);
-
-    static size_t emitSizeMethod;
-
-    static unsigned emitTotalInsCnt;
-
-    static unsigned emitCurPrologInsCnt; // current number of prolog instrDescs
-    static size_t   emitCurPrologIGSize; // current size of prolog instrDescs
-    static unsigned emitMaxPrologInsCnt; // maximum number of prolog instrDescs
-    static size_t   emitMaxPrologIGSize; // maximum size of prolog instrDescs
-
-    static unsigned emitTotalIGcnt;   // total number of insGroup allocated
-    static unsigned emitTotalPhIGcnt; // total number of insPlaceholderGroupData allocated
-    static unsigned emitTotalIGicnt;
-    static size_t   emitTotalIGsize;
-    static unsigned emitTotalIGmcnt;   // total method count
-    static unsigned emitTotalIGExtend; // total number of 'emitExtend' (typically overflow) groups
-    static unsigned emitTotalIGjmps;
-    static unsigned emitTotalIGptrs;
-
-    static unsigned emitTotalIDescSmallCnt;
-    static unsigned emitTotalIDescCnt;
-    static unsigned emitTotalIDescJmpCnt;
-#if !defined(TARGET_ARM64)
-    static unsigned emitTotalIDescLblCnt;
-#endif // !defined(TARGET_ARM64)
-    static unsigned emitTotalIDescCnsCnt;
-    static unsigned emitTotalIDescDspCnt;
-    static unsigned emitTotalIDescCnsDspCnt;
-#ifdef TARGET_XARCH
-    static unsigned emitTotalIDescAmdCnt;
-    static unsigned emitTotalIDescCnsAmdCnt;
-#endif // TARGET_XARCH
-    static unsigned emitTotalIDescCGCACnt;
-
-    static size_t emitTotMemAlloc;
-
-    static unsigned emitSmallDspCnt;
-    static unsigned emitLargeDspCnt;
-
-    static unsigned emitSmallCnsCnt;
-#define SMALL_CNS_TSZ 256
-    static unsigned emitSmallCns[SMALL_CNS_TSZ];
-    static unsigned emitLargeCnsCnt;
-    static unsigned emitTotalDescAlignCnt;
-
-    static unsigned emitIFcounts[IF_COUNT];
-
-#endif // EMITTER_STATS
 
 #if defined(TARGET_XARCH)
 #include "emitxarch.h"

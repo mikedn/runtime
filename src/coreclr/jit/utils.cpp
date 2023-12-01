@@ -772,7 +772,7 @@ void ConfigMethodRange::Dump()
 
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
-#if COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE || MEASURE_MEM_ALLOC
+#if COUNT_BASIC_BLOCKS || COUNT_LOOPS || MEASURE_NODE_SIZE || MEASURE_MEM_ALLOC
 
 Histogram::Histogram(const unsigned* const sizeTable) : m_sizeTable(sizeTable)
 {
@@ -842,7 +842,7 @@ void Histogram::record(unsigned size)
     m_counts[i]++;
 }
 
-#endif // COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE
+#endif // COUNT_BASIC_BLOCKS || COUNT_LOOPS || MEASURE_NODE_SIZE
 
 /*****************************************************************************
  * Fixed bit vector class

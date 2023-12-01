@@ -1243,33 +1243,21 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
 
 emitter::instrDescDsp* emitter::emitAllocInstrDsp(emitAttr attr)
 {
-#if EMITTER_STATS
-    emitTotalIDescDspCnt++;
-#endif
     return AllocInstr<instrDescDsp>(attr);
 }
 
 emitter::instrDescCnsDsp* emitter::emitAllocInstrCnsDsp(emitAttr attr)
 {
-#if EMITTER_STATS
-    emitTotalIDescCnsDspCnt++;
-#endif
     return AllocInstr<instrDescCnsDsp>(attr);
 }
 
 emitter::instrDescAmd* emitter::emitAllocInstrAmd(emitAttr attr)
 {
-#if EMITTER_STATS
-    emitTotalIDescAmdCnt++;
-#endif
     return AllocInstr<instrDescAmd>(attr);
 }
 
 emitter::instrDescCnsAmd* emitter::emitAllocInstrCnsAmd(emitAttr attr)
 {
-#if EMITTER_STATS
-    emitTotalIDescCnsAmdCnt++;
-#endif
     return AllocInstr<instrDescCnsAmd>(attr);
 }
 
@@ -1277,24 +1265,11 @@ emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, target_ssize_t im
 {
     if (!instrDesc::fitsInSmallCns(imm))
     {
-        instrDescCns* id = emitAllocInstrCns(size, imm);
-#if EMITTER_STATS
-        emitLargeCnsCnt++;
-        emitSmallDspCnt++;
-#endif
-        return id;
+        return emitAllocInstrCns(size, imm);
     }
 
     instrDesc* id = emitAllocInstr(size);
     id->idSmallCns(imm);
-#if EMITTER_STATS
-    emitSmallCnsCnt++;
-    if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
-        emitSmallCns[SMALL_CNS_TSZ - 1]++;
-    else
-        emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
-    emitSmallDspCnt++;
-#endif
     return id;
 }
 
@@ -1312,10 +1287,6 @@ emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, target_ssize_t im
         id->iddcCnsVal = imm;
         id->idSetIsLargeDsp();
         id->iddcDspVal = disp;
-#if EMITTER_STATS
-        emitLargeDspCnt++;
-        emitLargeCnsCnt++;
-#endif
         return id;
     }
 
@@ -1323,24 +1294,12 @@ emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, target_ssize_t im
     id->idSetIsLargeDsp();
     id->iddDspVal = disp;
     id->idSmallCns(imm);
-#if EMITTER_STATS
-    emitLargeDspCnt++;
-    emitSmallCnsCnt++;
-    if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
-        emitSmallCns[SMALL_CNS_TSZ - 1]++;
-    else
-        emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
-#endif
     return id;
 }
 
 emitter::instrDesc* emitter::emitNewInstrDsp(emitAttr attr)
 {
-    instrDesc* id = emitAllocInstr(attr);
-#if EMITTER_STATS
-    emitSmallDspCnt++;
-#endif
-    return id;
+    return emitAllocInstr(attr);
 }
 
 #ifdef TARGET_X86
@@ -1354,9 +1313,6 @@ emitter::instrDesc* emitter::emitNewInstrDsp(emitAttr attr, int32_t disp)
     instrDescDsp* id = emitAllocInstrDsp(attr);
     id->idSetIsLargeDsp();
     id->iddDspVal = disp;
-#if EMITTER_STATS
-    emitLargeDspCnt++;
-#endif
     return id;
 }
 #endif // TARGET_X86

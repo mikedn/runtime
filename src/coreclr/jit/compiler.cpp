@@ -759,10 +759,6 @@ void Compiler::compShutdown()
 
 #endif // MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || MEASURE_PTRTAB_SIZE || DISPLAY_SIZES
 
-#if EMITTER_STATS
-    emitterStats(fout);
-#endif
-
 #if MEASURE_FATAL
     fprintf(fout, "\n");
     fprintf(fout, "---------------------------------------------------\n");
