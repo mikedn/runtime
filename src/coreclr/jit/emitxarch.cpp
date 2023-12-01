@@ -64,12 +64,12 @@ emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
     return map[jumpKind];
 }
 
-constexpr bool IsDisp8(ssize_t disp)
+static bool IsDisp8(ssize_t disp)
 {
     return (-128 <= disp) && (disp <= 127);
 }
 
-constexpr bool IsDisp32(ssize_t disp)
+static bool IsDisp32(ssize_t disp)
 {
     return (INT32_MIN <= disp) && (disp <= INT32_MAX);
 }
@@ -86,7 +86,7 @@ static bool IsImm8(ssize_t imm)
     return (-128 <= imm) && (imm <= 127);
 }
 
-constexpr bool IsImm32(ssize_t imm)
+static bool IsImm32(ssize_t imm)
 {
     return (INT32_MIN <= imm) && (imm <= INT32_MAX);
 }
@@ -101,13 +101,13 @@ static bool IsShiftImm(instruction ins)
     return (INS_LAST_SHIFT_1 < ins) && (ins <= INS_LAST_SHIFT_IMM);
 }
 
-static bool insIsCMOV(instruction ins)
+static bool IsCmov(instruction ins)
 {
-    return ((ins >= INS_cmovo) && (ins <= INS_cmovg));
+    return (INS_FIRST_CMOV <= ins) && (ins <= INS_LAST_CMOV);
 }
 
 #ifdef DEBUG
-static bool instrHasImplicitRegPairDest(instruction ins)
+static bool HasImplicitRegPairDest(instruction ins)
 {
     return (ins == INS_mulEAX) || (ins == INS_imulEAX) || (ins == INS_div) || (ins == INS_idiv);
 }
@@ -325,7 +325,7 @@ bool emitter::IsVexTernary(instruction ins)
 #endif
 
 #if defined(TARGET_X86) || defined(DEBUG)
-static bool instIsFP(instruction ins)
+static bool IsX87LdSt(instruction ins)
 {
 #ifdef TARGET_X86
     return (ins == INS_fld) || (ins == INS_fstp);
@@ -2327,7 +2327,7 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
 
 void emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2)
 {
-    assert(!instrHasImplicitRegPairDest(ins) && (ins != INS_imuli));
+    assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
 
     if (IsMovInstruction(ins))
     {
@@ -2403,7 +2403,7 @@ void emitter::emitIns_AR_R_R(
 
 void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree* addr)
 {
-    assert(!instrHasImplicitRegPairDest(ins) && (ins != INS_imuli));
+    assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
 
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
@@ -2784,7 +2784,7 @@ void emitter::emitIns_R_R_R_R(
 
 void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE field)
 {
-    assert(!instrHasImplicitRegPairDest(ins) && (ins != INS_imuli));
+    assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
     assert(FieldDispRequiresRelocation(field));
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
@@ -2923,7 +2923,7 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
 
 void emitter::emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int32_t disp, int32_t imm)
 {
-    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
+    assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_8BYTE));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
     if (IsShiftImm(ins))
@@ -3018,7 +3018,7 @@ void emitter::emitIns_R_ARR(
 void emitter::emitIns_ARX_I(
     instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scale, int32_t disp, int32_t imm)
 {
-    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
+    assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_8BYTE));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
     if (IsShiftImm(ins))
@@ -3043,7 +3043,7 @@ void emitter::emitIns_ARX_I(
 void emitter::emitIns_R_ARX(
     instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, unsigned scale, int32_t disp)
 {
-    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_32BYTE) && (reg != REG_NA));
+    assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_32BYTE) && (reg != REG_NA));
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
     if ((ins == INS_lea) && (reg == base) && (index == REG_NA) && (disp == 0))
@@ -3088,7 +3088,7 @@ void emitter::emitIns_ARX_R(
         fmt = emitInsModeFormat(ins, IF_ARD_RRD);
 
         noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
-        assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_32BYTE));
+        assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_32BYTE));
 
         id->idReg1(reg);
     }
@@ -3408,7 +3408,7 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int var
 
 void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int varx, int offs)
 {
-    assert(!instrHasImplicitRegPairDest(ins) && (ins != INS_imuli));
+    assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
     instrDesc* id = emitNewInstr(attr);
@@ -5760,7 +5760,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
-    assert((ins != INS_bt) && !insIsCMOV(ins));
+    assert((ins != INS_bt) && !IsCmov(ins));
 
     if (ins == INS_call)
     {
@@ -5880,7 +5880,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             dst += emitOutputVexPrefix(ins, dst, code);
         }
 #ifdef TARGET_X86
-        else if (instIsFP(ins))
+        else if (IsX87LdSt(ins))
         {
             assert(size == EA_4BYTE || size == EA_8BYTE);
 
@@ -6118,7 +6118,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     assert(ins != INS_imul || id->idReg1() == REG_EAX || size == EA_4BYTE || size == EA_8BYTE);
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
-    assert((ins != INS_bt) && !insIsCMOV(ins));
+    assert((ins != INS_bt) && !IsCmov(ins));
 
     if (imm != nullptr)
     {
@@ -6198,7 +6198,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         dst += emitOutputVexPrefix(ins, dst, code);
     }
 #ifdef TARGET_X86
-    else if (instIsFP(ins))
+    else if (IsX87LdSt(ins))
     {
         assert(size == EA_4BYTE || size == EA_8BYTE);
 
@@ -6385,7 +6385,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
-    assert((ins != INS_bt) && !insIsCMOV(ins));
+    assert((ins != INS_bt) && !IsCmov(ins));
 
     if (IsRoDataField(field))
     {
@@ -6537,7 +6537,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             dst += emitOutputVexPrefix(ins, dst, code);
         }
 #ifdef TARGET_X86
-        else if (instIsFP(ins))
+        else if (IsX87LdSt(ins))
         {
             assert(size == EA_4BYTE || size == EA_8BYTE);
 
@@ -6939,9 +6939,10 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
             }
         }
     }
-    else if ((ins == INS_movsx) || (ins == INS_movzx) || insIsCMOV(ins))
+    else if ((ins == INS_movsx) || (ins == INS_movzx))
     {
         assert(!hasCodeMI(ins) && !hasCodeMR(ins));
+        assert(size < EA_4BYTE);
 
         code = insCodeRM(ins);
 
@@ -6952,9 +6953,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         }
 
 #ifdef TARGET_AMD64
-        assert((size < EA_4BYTE) || insIsCMOV(ins));
-
-        if ((size == EA_8BYTE) || (ins == INS_movsx))
+        if (ins == INS_movsx)
         {
             code = AddRexWPrefix(ins, code);
         }
@@ -7010,7 +7009,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         std::swap(reg345, reg012);
     }
     else if ((ins == INS_bsf) || (ins == INS_bsr) || (ins == INS_crc32) || (ins == INS_lzcnt) || (ins == INS_popcnt) ||
-             (ins == INS_tzcnt))
+             (ins == INS_tzcnt) || IsCmov(ins))
     {
         assert(!hasCodeMI(ins) && !hasCodeMR(ins) && !TakesVexPrefix(ins));
 

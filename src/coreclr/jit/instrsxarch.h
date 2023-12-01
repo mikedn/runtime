@@ -99,6 +99,7 @@ INST3(bt,               "bt",               IUM_RD, PCKFLT(0xA3), BAD_CODE,     
 INST3(bsf,              "bsf",              IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xBC),                            BitScanFlags)
 INST3(bsr,              "bsr",              IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0xBD),                            BitScanFlags)
 
+INSTA(FIRST_CMOV, cmovo)
 INST3(cmovo,            "cmovo",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x40),                            CcFlags_o)
 INST3(cmovno,           "cmovno",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x41),                            CcFlags_no)
 INST3(cmovb,            "cmovb",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x42),                            CcFlags_b)
@@ -115,6 +116,7 @@ INST3(cmovl,            "cmovl",            IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(cmovge,           "cmovge",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x4D),                            CcFlags_ge)
 INST3(cmovle,           "cmovle",           IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x4E),                            CcFlags_le)
 INST3(cmovg,            "cmovg",            IUM_WR, BAD_CODE,     BAD_CODE,     PCKFLT(0x4F),                            CcFlags_g)
+INSTA(LAST_CMOV, cmovg)
 
 INSTA(FIRST_SSE_INSTRUCTION, lfence)
 INST3(lfence,           "lfence",           IUM_RD, PCKFLT(0xE8AE),       BAD_CODE, BAD_CODE,                            None)
