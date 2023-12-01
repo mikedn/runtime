@@ -93,36 +93,12 @@ constexpr bool IsImm32(ssize_t imm)
 
 static bool IsShiftCL(instruction ins)
 {
-    switch (ins)
-    {
-        case INS_rcl:
-        case INS_rcr:
-        case INS_rol:
-        case INS_ror:
-        case INS_shl:
-        case INS_shr:
-        case INS_sar:
-            return true;
-        default:
-            return false;
-    }
+    return (INS_FIRST_SHIFT <= ins) && (ins <= INS_LAST_SHIFT_CL);
 }
 
 static bool IsShiftImm(instruction ins)
 {
-    switch (ins)
-    {
-        case INS_rcl_N:
-        case INS_rcr_N:
-        case INS_rol_N:
-        case INS_ror_N:
-        case INS_shl_N:
-        case INS_shr_N:
-        case INS_sar_N:
-            return true;
-        default:
-            return false;
-    }
+    return (INS_LAST_SHIFT_1 < ins) && (ins <= INS_LAST_SHIFT_IMM);
 }
 
 static bool insIsCMOV(instruction ins)

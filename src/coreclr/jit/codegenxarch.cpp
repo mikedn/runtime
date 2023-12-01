@@ -4074,8 +4074,7 @@ void CodeGen::GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, 
 
     src = src->AsOp()->GetOp(1);
 
-    bool isShift = (ins == INS_shl) || (ins == INS_shr) || (ins == INS_sar) || (ins == INS_rol) || (ins == INS_ror) ||
-                   (ins == INS_rcl) || (ins == INS_rcr);
+    bool isShift = (INS_FIRST_SHIFT <= ins) && (ins <= INS_LAST_SHIFT_CL);
 
     if (!src->isUsedFromReg())
     {
@@ -4354,34 +4353,32 @@ void CodeGen::GenIndStoreRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shif
 
 instruction CodeGen::MapShiftInsToShiftBy1Ins(instruction ins)
 {
-    assert(ins == INS_rcl || ins == INS_rcr || ins == INS_rol || ins == INS_ror || ins == INS_shl || ins == INS_shr ||
-           ins == INS_sar);
+    assert((INS_FIRST_SHIFT <= ins) && (ins <= INS_LAST_SHIFT_CL));
 
-    assert(INS_rcl + 1 == INS_rcl_1);
-    assert(INS_rcr + 1 == INS_rcr_1);
-    assert(INS_rol + 1 == INS_rol_1);
-    assert(INS_ror + 1 == INS_ror_1);
-    assert(INS_shl + 1 == INS_shl_1);
-    assert(INS_shr + 1 == INS_shr_1);
-    assert(INS_sar + 1 == INS_sar_1);
+    static_assert_no_msg(INS_rcl + 7 == INS_rcl_1);
+    static_assert_no_msg(INS_rcr + 7 == INS_rcr_1);
+    static_assert_no_msg(INS_rol + 7 == INS_rol_1);
+    static_assert_no_msg(INS_ror + 7 == INS_ror_1);
+    static_assert_no_msg(INS_shl + 7 == INS_shl_1);
+    static_assert_no_msg(INS_shr + 7 == INS_shr_1);
+    static_assert_no_msg(INS_sar + 7 == INS_sar_1);
 
-    return static_cast<instruction>(ins + 1);
+    return static_cast<instruction>(ins + 7);
 }
 
 instruction CodeGen::MapShiftInsToShiftByImmIns(instruction ins)
 {
-    assert(ins == INS_rcl || ins == INS_rcr || ins == INS_rol || ins == INS_ror || ins == INS_shl || ins == INS_shr ||
-           ins == INS_sar);
+    assert((INS_FIRST_SHIFT <= ins) && (ins <= INS_LAST_SHIFT_CL));
 
-    assert(INS_rcl + 2 == INS_rcl_N);
-    assert(INS_rcr + 2 == INS_rcr_N);
-    assert(INS_rol + 2 == INS_rol_N);
-    assert(INS_ror + 2 == INS_ror_N);
-    assert(INS_shl + 2 == INS_shl_N);
-    assert(INS_shr + 2 == INS_shr_N);
-    assert(INS_sar + 2 == INS_sar_N);
+    static_assert_no_msg(INS_rcl + 14 == INS_rcl_N);
+    static_assert_no_msg(INS_rcr + 14 == INS_rcr_N);
+    static_assert_no_msg(INS_rol + 14 == INS_rol_N);
+    static_assert_no_msg(INS_ror + 14 == INS_ror_N);
+    static_assert_no_msg(INS_shl + 14 == INS_shl_N);
+    static_assert_no_msg(INS_shr + 14 == INS_shr_N);
+    static_assert_no_msg(INS_sar + 14 == INS_sar_N);
 
-    return static_cast<instruction>(ins + 2);
+    return static_cast<instruction>(ins + 14);
 }
 
 //------------------------------------------------------------------------
