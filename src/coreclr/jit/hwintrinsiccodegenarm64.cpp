@@ -187,7 +187,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
     }
     else
     {
-        emitSize = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
+        emitSize = emitVecTypeSize(node->GetSimdSize());
         opt      = emitSimdArrangementOpt(emitSize, intrin.baseType);
     }
 

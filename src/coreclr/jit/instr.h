@@ -293,4 +293,24 @@ inline emitAttr emitActualTypeSize(var_types type)
     return static_cast<emitAttr>(emitTypeActSz[type]);
 }
 
+#ifdef FEATURE_SIMD
+constexpr emitAttr emitVecTypeSize(unsigned size)
+{
+    switch (size)
+    {
+        case 8:
+            return EA_8BYTE;
+        case 12:
+        case 16:
+            return EA_16BYTE;
+#ifdef TARGET_XARCH
+        case 32:
+            return EA_32BYTE;
+#endif
+        default:
+            unreached();
+    }
+}
+#endif
+
 #endif // INSTR_H
