@@ -776,7 +776,6 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
 
     return id;
 }
-#endif // !TARGET_XARCH
 
 emitter::instrDesc* emitter::emitAllocInstr(emitAttr attr)
 {
@@ -868,14 +867,12 @@ emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
     id->idSetIsSmallDsc();
     id->idIns(INS_mov);
     id->idInsFmt(IF_GC_REG);
-#ifdef TARGET_XARCH
-    id->idGCref(EA_GC_TYPE(attr));
-#endif
     id->idReg1(reg);
     id->idReg2(reg);
 
     return id;
 }
+#endif // !TARGET_XARCH
 
 #ifdef DEBUG
 

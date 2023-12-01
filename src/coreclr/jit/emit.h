@@ -1697,6 +1697,7 @@ private:
     //
 
     void* emitAllocAnyInstr(unsigned sz, bool updateLastIns);
+#ifndef TARGET_XARCH
     void* emitAllocAnyInstr(unsigned sz, emitAttr attr, bool updateLastIns = true);
 
     template <typename T>
@@ -1716,8 +1717,6 @@ private:
     instrDescJmp*  emitAllocInstrJmp();
     instrDescJmp*  emitNewInstrJmp();
     instrDescCGCA* emitAllocInstrCGCA(emitAttr attr);
-#if FEATURE_LOOP_ALIGN
-    instrDescAlign* emitAllocInstrAlign();
 #endif
 
     size_t emitSizeOfInsDsc(instrDesc* id);

@@ -1241,6 +1241,101 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
     return id;
 }
 
+emitter::instrDesc* emitter::emitAllocInstr(emitAttr attr)
+{
+    return AllocInstr<instrDesc>(attr);
+}
+
+emitter::instrDesc* emitter::emitNewInstr(emitAttr attr)
+{
+    return emitAllocInstr(attr);
+}
+
+emitter::instrDescCns* emitter::emitAllocInstrCns(emitAttr attr)
+{
+    return AllocInstr<instrDescCns>(attr);
+}
+
+emitter::instrDescCns* emitter::emitAllocInstrCns(emitAttr attr, cnsval_size_t cns)
+{
+    instrDescCns* result = emitAllocInstrCns(attr);
+    result->idSetIsLargeCns();
+    result->idcCnsVal = cns;
+    return result;
+}
+
+emitter::instrDesc* emitter::emitNewInstrSmall(emitAttr attr)
+{
+    instrDescSmall* id = AllocInstr<instrDescSmall>(attr);
+    id->idSetIsSmallDsc();
+    return static_cast<instrDesc*>(id);
+}
+
+emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns)
+{
+    if (instrDesc::fitsInSmallCns(cns))
+    {
+        instrDesc* id = emitNewInstrSmall(attr);
+        id->idSmallCns(cns);
+        return id;
+    }
+
+    return emitAllocInstrCns(attr, cns);
+}
+
+emitter::instrDesc* emitter::emitNewInstrCns(emitAttr attr, int32_t cns)
+{
+    if (instrDesc::fitsInSmallCns(cns))
+    {
+        instrDesc* id = emitAllocInstr(attr);
+        id->idSmallCns(cns);
+        return id;
+    }
+
+    return emitAllocInstrCns(attr, cns);
+}
+
+emitter::instrDescJmp* emitter::emitAllocInstrJmp()
+{
+    return AllocInstr<instrDescJmp>(EA_1BYTE);
+}
+
+emitter::instrDescJmp* emitter::emitNewInstrJmp()
+{
+    return emitAllocInstrJmp();
+}
+
+emitter::instrDescCGCA* emitter::emitAllocInstrCGCA(emitAttr attr)
+{
+    return AllocInstr<instrDescCGCA>(attr);
+}
+
+emitter::instrDescAlign* emitter::emitAllocInstrAlign()
+{
+    return AllocInstr<instrDescAlign>(EA_1BYTE);
+}
+
+emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
+{
+    assert(EA_IS_GCREF_OR_BYREF(attr));
+    assert(IsGeneralRegister(reg));
+
+    if ((codeGen->liveness.GetGCRegs(attr) & genRegMask(reg)) != RBM_NONE)
+    {
+        return nullptr;
+    }
+
+    instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(sizeof(instrDescSmall), attr, false));
+    id->idSetIsSmallDsc();
+    id->idIns(INS_mov);
+    id->idInsFmt(IF_GC_REG);
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idReg1(reg);
+    id->idReg2(reg);
+
+    return id;
+}
+
 emitter::instrDescDsp* emitter::emitAllocInstrDsp(emitAttr attr)
 {
     return AllocInstr<instrDescDsp>(attr);

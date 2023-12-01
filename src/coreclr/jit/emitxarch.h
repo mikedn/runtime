@@ -168,6 +168,26 @@ private:
 bool        UseVEXEncoding() const;
 static bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 = REG_NA);
 
+void* emitAllocAnyInstr(unsigned sz, emitAttr attr, bool updateLastIns = true);
+
+template <typename T>
+T* AllocInstr(emitAttr attr, bool updateLastIns = true)
+{
+    return static_cast<T*>(emitAllocAnyInstr(sizeof(T), attr, updateLastIns));
+}
+
+instrDesc* emitAllocInstr(emitAttr attr);
+instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
+instrDescCns* emitAllocInstrCns(emitAttr attr);
+instrDescCns* emitAllocInstrCns(emitAttr attr, cnsval_size_t cns);
+instrDesc* emitNewInstrSmall(emitAttr attr);
+instrDesc* emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns);
+instrDesc* emitNewInstrCns(emitAttr attr, int32_t cns);
+instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
+instrDescJmp*  emitAllocInstrJmp();
+instrDescJmp*  emitNewInstrJmp();
+instrDescCGCA* emitAllocInstrCGCA(emitAttr attr);
+instrDescAlign* emitAllocInstrAlign();
 instrDescDsp* emitAllocInstrDsp(emitAttr attr);
 instrDescCnsDsp* emitAllocInstrCnsDsp(emitAttr attr);
 instrDescAmd* emitAllocInstrAmd(emitAttr attr);
