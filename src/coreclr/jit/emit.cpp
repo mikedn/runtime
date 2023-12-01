@@ -147,14 +147,6 @@ unsigned emitter::emitCurOffset()
     return codePos;
 }
 
-void emitter::instrDesc::checkSizes()
-{
-#ifdef DEBUG
-    C_ASSERT(SMALL_IDSC_SIZE == (offsetof(instrDesc, _idDebugOnlyInfo) + sizeof(instrDescDebugInfo*)));
-#endif
-    C_ASSERT(SMALL_IDSC_SIZE == offsetof(instrDesc, _idAddrUnion));
-}
-
 #ifdef DEBUG
 
 void emitLocation::Print(LONG compMethodID) const
@@ -522,9 +514,9 @@ void emitter::emitBegFN()
     // arguments, and must store them all to the frame on entry. If the frame is very large,
     // we generate ugly code like "movw r10, 0x488; add r10, sp; vstr s0, [r10]" for each
     // store, which eats up our insGroup buffer.
-    constexpr size_t IG_BUFFER_SIZE = 100 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE;
+    constexpr size_t IG_BUFFER_SIZE = 100 * sizeof(emitter::instrDesc) + 14 * sizeof(instrDescSmall);
 #else
-    constexpr size_t IG_BUFFER_SIZE = 50 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE;
+    constexpr size_t IG_BUFFER_SIZE = 50 * sizeof(emitter::instrDesc) + 14 * sizeof(instrDescSmall);
 #endif
     emitCurIGfreeBase = static_cast<uint8_t*>(emitGetMem(IG_BUFFER_SIZE));
     emitCurIGfreeEndp = emitCurIGfreeBase + IG_BUFFER_SIZE;
@@ -811,8 +803,6 @@ emitter::instrDescCns* emitter::emitAllocInstrCns(emitAttr attr, cnsval_size_t c
 
 emitter::instrDesc* emitter::emitNewInstrSmall(emitAttr attr)
 {
-    static_assert_no_msg(sizeof(emitter::instrDescSmall) == SMALL_IDSC_SIZE);
-
     instrDescSmall* id = AllocInstr<instrDescSmall>(attr);
     id->idSetIsSmallDsc();
     return static_cast<instrDesc*>(id);
@@ -874,7 +864,7 @@ emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
         return nullptr;
     }
 
-    instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(SMALL_IDSC_SIZE, attr, false));
+    instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(sizeof(instrDescSmall), attr, false));
     id->idSetIsSmallDsc();
     id->idIns(INS_mov);
     id->idInsFmt(IF_GC_REG);
@@ -4132,7 +4122,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             {
                 emitGCregLiveUpd(id->idGCref(), id->idReg1(), cp);
                 assert(id->idIsSmallDsc());
-                id = reinterpret_cast<instrDesc*>(reinterpret_cast<uint8_t*>(id) + SMALL_IDSC_SIZE);
+                id = reinterpret_cast<instrDesc*>(reinterpret_cast<uint8_t*>(id) + sizeof(instrDescSmall));
             }
             else
             {

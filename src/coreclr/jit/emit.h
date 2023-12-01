@@ -675,7 +675,6 @@ private:
         CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
-
         instrDescDebugInfo* _idDebugOnlyInfo;
 
     public:
@@ -687,39 +686,19 @@ private:
         {
             _idDebugOnlyInfo = info;
         }
-
-    private:
-#endif // DEBUG
-
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-//
-// This is the end of the 'small' instrDesc which is the same on all
-//   platforms (except 64-bit DEBUG which is a little bigger).
-// Non-DEBUG sizes:
-//   x86/amd64/arm/arm64: 64 bits
-// DEBUG sizes (includes one pointer):
-//   x86:   2 DWORDs, 96 bits
-//   amd64: 4 DWORDs, 128 bits
-//   arm:   3 DWORDs, 96 bits
-//   arm64: 4 DWORDs, 128 bits
-// There should no padding or alignment issues on any platform or
-//   configuration (including DEBUG which has 1 extra pointer).
-//
-
-/*
-    If you add lots more fields that need to be cleared (such
-    as various flags), you might need to update the body of
-    emitAllocInstr to clear them.
- */
-
-#if DEBUG
-#define SMALL_IDSC_DEBUG_EXTRA (sizeof(void*))
-#else
-#define SMALL_IDSC_DEBUG_EXTRA (0)
 #endif
 
-#define SMALL_IDSC_SIZE (8 + SMALL_IDSC_DEBUG_EXTRA)
+        // This is the end of the 'small' instrDesc which is the same on all
+        //   platforms (except 64-bit DEBUG which is a little bigger).
+        // Non-DEBUG sizes:
+        //   x86/amd64/arm/arm64: 64 bits
+        // DEBUG sizes (includes one pointer):
+        //   x86:   2 DWORDs, 96 bits
+        //   amd64: 4 DWORDs, 128 bits
+        //   arm:   3 DWORDs, 96 bits
+        //   arm64: 4 DWORDs, 128 bits
+        // There should no padding or alignment issues on any platform or
+        //   configuration (including DEBUG which has 1 extra pointer).
 
     public:
         bool idIsSmallDsc() const
@@ -735,8 +714,6 @@ private:
     struct instrDesc : public instrDescSmall
     {
     private:
-        void checkSizes();
-
         union idAddrUnion {
             // TODO-Cleanup: We should really add a DEBUG-only tag to this union so we can add asserts
             // about reading what we think is here, to avoid unexpected corruption issues.

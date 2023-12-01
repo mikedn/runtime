@@ -248,7 +248,7 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 {
     if (id->idIsSmallDsc())
     {
-        return SMALL_IDSC_SIZE;
+        return sizeof(instrDescSmall);
     }
 
     ID_OPS idOp = GetFormatOp(id->idInsFmt());

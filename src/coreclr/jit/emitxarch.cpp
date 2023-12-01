@@ -8285,7 +8285,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             }
             else
             {
-                sz = SMALL_IDSC_SIZE;
+                sz = sizeof(instrDescSmall);
             }
             break;
 
@@ -8298,7 +8298,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RRW_RRD:
         case IF_RRW_RRW:
             dst = emitOutputRR(dst, id);
-            sz  = SMALL_IDSC_SIZE;
+            sz  = sizeof(instrDescSmall);
             break;
 
         case IF_RRD_CNS:

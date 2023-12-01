@@ -164,7 +164,7 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 {
     if (id->idIsSmallDsc())
     {
-        return SMALL_IDSC_SIZE;
+        return sizeof(instrDescSmall);
     }
 
     ID_OPS idOp = GetFormatOp(id->idInsFmt());
@@ -5144,7 +5144,7 @@ size_t emitter::emitGetInstrDescSizeSC(const instrDesc* id)
 {
     if (id->idIsSmallDsc())
     {
-        return SMALL_IDSC_SIZE;
+        return sizeof(instrDescSmall);
     }
     else if (id->idIsLargeCns())
     {
@@ -5224,7 +5224,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         void* addr;
 
         case IF_T1_A: // T1_A    ................
-            sz   = SMALL_IDSC_SIZE;
+            sz   = sizeof(instrDescSmall);
             code = emitInsCode(ins, fmt);
             dst += emitOutput_Thumb1Instr(dst, code);
             break;
@@ -5235,13 +5235,13 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             assert(id->idGCref() == GCT_NONE);
             int32_t condcode = emitGetInsSC(id);
             dst              = emitOutputIT(dst, ins, fmt, condcode);
-            sz               = SMALL_IDSC_SIZE;
+            sz               = sizeof(instrDescSmall);
         }
         break;
 #endif // FEATURE_ITINSTRUCTION
 
         case IF_T1_C: // T1_C    .....iiiiinnnddd                       R1  R2              imm5
-            sz   = SMALL_IDSC_SIZE;
+            sz   = sizeof(instrDescSmall);
             imm  = emitGetInsSC(id);
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_D3(id->idReg1());
@@ -5253,7 +5253,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T1_D0: // T1_D0   ........Dmmmmddd                       R1* R2*
-            sz   = SMALL_IDSC_SIZE;
+            sz   = sizeof(instrDescSmall);
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_D4(id->idReg1());
             code |= insEncodeRegT1_M4(id->idReg2());
@@ -5261,7 +5261,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T1_E: // T1_E    ..........nnnddd                       R1  R2
-            sz   = SMALL_IDSC_SIZE;
+            sz   = sizeof(instrDescSmall);
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_D3(id->idReg1());
             code |= insEncodeRegT1_N3(id->idReg2());
@@ -5281,7 +5281,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T1_G: // T1_G    .......iiinnnddd                       R1  R2              imm3
-            sz   = SMALL_IDSC_SIZE;
+            sz   = sizeof(instrDescSmall);
             imm  = emitGetInsSC(id);
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_D3(id->idReg1());
@@ -5343,13 +5343,13 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_A: // T2_A    ................ ................
-            sz   = SMALL_IDSC_SIZE;
+            sz   = sizeof(instrDescSmall);
             code = emitInsCode(ins, fmt);
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
         case IF_T2_B: // T2_B    ................ ............iiii                          imm4
-            sz   = SMALL_IDSC_SIZE;
+            sz   = sizeof(instrDescSmall);
             imm  = emitGetInsSC(id);
             code = emitInsCode(ins, fmt);
             assert((imm & 0x000F) == imm);
@@ -5379,7 +5379,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T2_C1: // T2_C1   ...........S.... .iiiddddiishmmmm       R1  R2          S, imm5, sh
         case IF_T2_C2: // T2_C2   ...........S.... .iiiddddii..mmmm       R1  R2          S, imm5
         case IF_T2_C6: // T2_C6   ................ ....dddd..iimmmm       R1  R2                   imm2
-            sz   = SMALL_IDSC_SIZE;
+            sz   = sizeof(instrDescSmall);
             imm  = emitGetInsSC(id);
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
@@ -5400,7 +5400,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_C3: // T2_C3   ...........S.... ....dddd....mmmm       R1  R2          S
-            sz   = SMALL_IDSC_SIZE;
+            sz   = sizeof(instrDescSmall);
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             code |= insEncodeRegT2_M(id->idReg2());
@@ -5410,7 +5410,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_T2_C7: // T2_C7   ............nnnn ..........shmmmm       R1  R2                   imm2
         case IF_T2_C8: // T2_C8   ............nnnn .iii....iishmmmm       R1  R2             imm5, sh
-            sz   = SMALL_IDSC_SIZE;
+            sz   = sizeof(instrDescSmall);
             imm  = emitGetInsSC(id);
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_N(id->idReg1());
@@ -5429,7 +5429,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_C9: // T2_C9   ............nnnn ............mmmm       R1  R2
-            sz   = SMALL_IDSC_SIZE;
+            sz   = sizeof(instrDescSmall);
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_N(id->idReg1());
             code |= insEncodeRegT2_M(id->idReg2());
@@ -5437,7 +5437,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_C10: // T2_C10  ............mmmm ....dddd....mmmm       R1  R2
-            sz   = SMALL_IDSC_SIZE;
+            sz   = sizeof(instrDescSmall);
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             code |= insEncodeRegT2_M(id->idReg2());
@@ -5447,7 +5447,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_T2_D0: // T2_D0   ............nnnn .iiiddddii.wwwww       R1  R2             imm5, imm5
         case IF_T2_D1: // T2_D1   ................ .iiiddddii.wwwww       R1                 imm5, imm5
-            sz   = SMALL_IDSC_SIZE;
+            sz   = sizeof(instrDescSmall);
             imm  = emitGetInsSC(id);
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
@@ -5481,7 +5481,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             }
             else
             {
-                sz = SMALL_IDSC_SIZE;
+                sz = sizeof(instrDescSmall);
                 if (fmt != IF_T2_E2)
                 {
                     code |= insEncodeRegT2_N(id->idReg2());
@@ -5855,7 +5855,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_M4(id->idReg1());
             dst += emitOutput_Thumb1Instr(dst, code);
-            sz = SMALL_IDSC_SIZE;
+            sz = sizeof(instrDescSmall);
             break;
 
         case IF_T1_D2: // T1_D2   .........mmmm...                                R3*
