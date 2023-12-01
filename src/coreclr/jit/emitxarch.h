@@ -294,20 +294,20 @@ void SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* ad
 template <typename T>
 T* AllocInstr(bool updateLastIns = true);
 
-instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
-instrDesc* emitNewInstrSmall(emitAttr attr);
-instrDesc* emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns);
-instrDesc* emitNewInstrCns(emitAttr attr, int32_t cns);
-instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
+instrDesc* emitNewInstr();
+instrDesc* emitNewInstrSmall();
+instrDesc* emitNewInstrSC(cnsval_ssize_t imm);
+instrDesc* emitNewInstrCns(int32_t imm);
 instrDescJmp*  emitNewInstrJmp();
-instrDescCGCA* emitNewInstrCGCA(emitAttr attr);
+instrDescCGCA* emitNewInstrCGCA();
 #ifdef TARGET_X86
-instrDesc* emitNewInstrDsp(emitAttr attr, int32_t disp);
+instrDesc* emitNewInstrDsp(int32_t disp);
 #endif
-instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t imm);
-instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t imm, int32_t disp);
-instrDesc* emitNewInstrAmd(emitAttr attr, ssize_t dsp);
-instrDesc* emitNewInstrAmdCns(emitAttr attr, ssize_t dsp, int32_t cns);
+instrDesc* emitNewInstrCnsDsp(target_ssize_t imm);
+instrDesc* emitNewInstrCnsDsp(target_ssize_t imm, int32_t disp);
+instrDesc* emitNewInstrAmd(ssize_t disp);
+instrDesc* emitNewInstrAmdCns(ssize_t disp, int32_t imm);
+instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
 instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
                             emitAttr              retRegAttr,
 #ifdef UNIX_AMD64_ABI

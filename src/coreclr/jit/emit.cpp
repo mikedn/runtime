@@ -1862,7 +1862,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #endif
 
 #ifdef TARGET_XARCH
-        instrDescCGCA* idc = emitNewInstrCGCA(retRegAttr);
+        instrDescCGCA* idc = emitNewInstrCGCA();
 #else
         instrDescCGCA* idc = emitAllocInstrCGCA(retRegAttr);
 #endif
@@ -1888,9 +1888,11 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         }
 
 #ifdef TARGET_X86
-        id = emitNewInstrCns(retRegAttr, argSlotCount);
+        id = emitNewInstrCns(argSlotCount);
+#elif defined(TARGET_AMD64)
+        id                 = emitNewInstr();
 #else
-        id                 = emitNewInstr(retRegAttr);
+        id = emitNewInstr(retRegAttr);
 #endif
 
 #ifdef TARGET_XARCH
