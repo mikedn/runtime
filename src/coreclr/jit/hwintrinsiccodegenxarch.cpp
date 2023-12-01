@@ -490,7 +490,7 @@ void CodeGen::genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, i
 
 void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenTree* rmOp, int ival)
 {
-    noway_assert(Emitter::emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
+    assert(attr != EA_1BYTE);
 
     Emitter& emit = *GetEmitter();
 
@@ -555,7 +555,7 @@ void CodeGen::genHWIntrinsic_R_R_RM(
 void CodeGen::inst_RV_RV_TT(
     instruction ins, emitAttr size, regNumber targetReg, regNumber op1Reg, GenTree* op2, bool isRMW)
 {
-    noway_assert(Emitter::emitVerifyEncodable(ins, EA_SIZE(size), targetReg));
+    assert(size != EA_1BYTE);
 
     // TODO-XArch-CQ: Commutative operations can have op1 be contained
     // TODO-XArch-CQ: Non-VEX encoded instructions can have both ops contained

@@ -7,8 +7,6 @@ private:
 bool useVEXEncodings = false;
 
 public:
-static bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 = REG_NA);
-
 void SetUseVEXEncoding(bool value)
 {
     useVEXEncodings = value;
@@ -168,7 +166,8 @@ void emitIns_Call(EmitCallType          kind,
                   bool      isJump  = false);
 
 private:
-bool UseVEXEncoding() const;
+bool        UseVEXEncoding() const;
+static bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 = REG_NA);
 
 instrDescDsp* emitAllocInstrDsp(emitAttr attr);
 instrDescCnsDsp* emitAllocInstrCnsDsp(emitAttr attr);
