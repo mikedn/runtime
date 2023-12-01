@@ -603,26 +603,6 @@ static bool IsExtendedReg(regNumber reg, emitAttr attr)
 #endif
 }
 
-#ifdef TARGET_X86
-void emitter::emitMarkStackLvl(unsigned stackLevel)
-{
-    assert(int(stackLevel) >= 0);
-    assert(emitCurStackLvl == 0);
-    assert(emitCurIG->igStkLvl == 0);
-    assert(emitCurIGfreeNext == emitCurIGfreeBase);
-
-    assert(stackLevel && stackLevel % REGSIZE_BYTES == 0);
-
-    emitCurStackLvl = emitCurIG->igStkLvl = stackLevel;
-
-    if (emitMaxStackDepth < emitCurStackLvl)
-    {
-        JITDUMP("Upping emitMaxStackDepth from %d to %d\n", emitMaxStackDepth, emitCurStackLvl);
-        emitMaxStackDepth = emitCurStackLvl;
-    }
-}
-#endif
-
 #ifdef WINDOWS_X86_ABI
 // Special CORINFO_FIELD_HANDLE that references the FS segment, for x86 TLS access.
 static const CORINFO_FIELD_HANDLE FS_SEG_FIELD = reinterpret_cast<CORINFO_FIELD_HANDLE>(-8);
@@ -3718,6 +3698,24 @@ ssize_t emitter::emitGetInsCallDisp(instrDesc* id)
 }
 
 #if !FEATURE_FIXED_OUT_ARGS
+void emitter::emitMarkStackLvl(unsigned stackLevel)
+{
+    assert(int(stackLevel) >= 0);
+    assert(emitCurStackLvl == 0);
+    assert(emitCurIG->igStkLvl == 0);
+    assert(emitCurIGfreeNext == emitCurIGfreeBase);
+
+    assert(stackLevel && stackLevel % REGSIZE_BYTES == 0);
+
+    emitCurStackLvl = emitCurIG->igStkLvl = stackLevel;
+
+    if (emitMaxStackDepth < emitCurStackLvl)
+    {
+        JITDUMP("Upping emitMaxStackDepth from %d to %d\n", emitMaxStackDepth, emitCurStackLvl);
+        emitMaxStackDepth = emitCurStackLvl;
+    }
+}
+
 void emitter::emitAdjustStackDepthPushPop(instruction ins)
 {
     if (ins == INS_push)
