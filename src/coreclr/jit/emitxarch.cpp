@@ -1231,10 +1231,8 @@ static unsigned emitInsSizeImm(instruction ins, emitAttr attr, int32_t imm)
 }
 
 template <typename T>
-T* emitter::AllocInstr(emitAttr attr, bool updateLastIns)
+T* emitter::AllocInstr(bool updateLastIns)
 {
-    assert(!EA_IS_DSP_RELOC(attr));
-
     instrDescSmall* id = static_cast<instrDescSmall*>(emitAllocAnyInstr(sizeof(T), updateLastIns));
     memset(id, 0, sizeof(T));
     INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sizeof(T))));
@@ -1244,22 +1242,22 @@ T* emitter::AllocInstr(emitAttr attr, bool updateLastIns)
 
 emitter::instrDesc* emitter::emitNewInstr(emitAttr attr)
 {
-    return AllocInstr<instrDesc>(attr);
+    return AllocInstr<instrDesc>();
 }
 
 emitter::instrDescJmp* emitter::emitNewInstrJmp()
 {
-    return AllocInstr<instrDescJmp>(EA_1BYTE);
+    return AllocInstr<instrDescJmp>();
 }
 
 emitter::instrDescCGCA* emitter::emitNewInstrCGCA(emitAttr attr)
 {
-    return AllocInstr<instrDescCGCA>(attr);
+    return AllocInstr<instrDescCGCA>();
 }
 
 emitter::instrDesc* emitter::emitNewInstrSmall(emitAttr attr)
 {
-    instrDescSmall* id = AllocInstr<instrDescSmall>(attr);
+    instrDescSmall* id = AllocInstr<instrDescSmall>();
     id->idSetIsSmallDsc();
     return static_cast<instrDesc*>(id);
 }
@@ -1268,7 +1266,7 @@ emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
-        instrDescCns* id = AllocInstr<instrDescCns>(attr);
+        instrDescCns* id = AllocInstr<instrDescCns>();
         id->idSetIsLargeCns();
         id->idcCnsVal = cns;
         return id;
@@ -1283,7 +1281,7 @@ emitter::instrDesc* emitter::emitNewInstrCns(emitAttr attr, int32_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
-        instrDescCns* id = AllocInstr<instrDescCns>(attr);
+        instrDescCns* id = AllocInstr<instrDescCns>();
         id->idSetIsLargeCns();
         id->idcCnsVal = cns;
         return id;
@@ -1304,7 +1302,7 @@ emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
         return nullptr;
     }
 
-    instrDesc* id = static_cast<instrDesc*>(AllocInstr<instrDescSmall>(attr, false));
+    instrDesc* id = static_cast<instrDesc*>(AllocInstr<instrDescSmall>(false));
     id->idSetIsSmallDsc();
     id->idIns(INS_mov);
     id->idInsFmt(IF_GC_REG);
@@ -1319,7 +1317,7 @@ emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, target_ssize_t im
 {
     if (!instrDesc::fitsInSmallCns(imm))
     {
-        instrDescCns* result = AllocInstr<instrDescCns>(size);
+        instrDescCns* result = AllocInstr<instrDescCns>();
         result->idSetIsLargeCns();
         result->idcCnsVal = imm;
         return result;
@@ -1339,7 +1337,7 @@ emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, target_ssize_t im
 
     if (!instrDesc::fitsInSmallCns(imm))
     {
-        instrDescCnsDsp* id = AllocInstr<instrDescCnsDsp>(size);
+        instrDescCnsDsp* id = AllocInstr<instrDescCnsDsp>();
         id->idSetIsLargeCns();
         id->iddcCnsVal = imm;
         id->idSetIsLargeDsp();
@@ -1347,7 +1345,7 @@ emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, target_ssize_t im
         return id;
     }
 
-    instrDescDsp* id = AllocInstr<instrDescDsp>(size);
+    instrDescDsp* id = AllocInstr<instrDescDsp>();
     id->idSetIsLargeDsp();
     id->iddDspVal = disp;
     id->idSmallCns(imm);
@@ -1362,7 +1360,7 @@ emitter::instrDesc* emitter::emitNewInstrDsp(emitAttr attr, int32_t disp)
         return emitNewInstr(attr);
     }
 
-    instrDescDsp* id = AllocInstr<instrDescDsp>(attr);
+    instrDescDsp* id = AllocInstr<instrDescDsp>();
     id->idSetIsLargeDsp();
     id->iddDspVal = disp;
     return id;
@@ -1373,7 +1371,7 @@ emitter::instrDesc* emitter::emitNewInstrAmd(emitAttr size, ssize_t dsp)
 {
     if ((dsp < AM_DISP_MIN) || (dsp > AM_DISP_MAX))
     {
-        instrDescAmd* id = AllocInstr<instrDescAmd>(size);
+        instrDescAmd* id = AllocInstr<instrDescAmd>();
         id->idSetIsLargeDsp();
         INDEBUG(id->idAddr()->iiaAddrMode.amDisp = AM_DISP_BIG_VAL);
         id->idaAmdVal = dsp;
@@ -1400,7 +1398,7 @@ emitter::instrDesc* emitter::emitNewInstrAmdCns(emitAttr size, ssize_t dsp, int3
 
     if (instrDesc::fitsInSmallCns(cns))
     {
-        instrDescAmd* id = AllocInstr<instrDescAmd>(size);
+        instrDescAmd* id = AllocInstr<instrDescAmd>();
         id->idSetIsLargeDsp();
         INDEBUG(id->idAddr()->iiaAddrMode.amDisp = AM_DISP_BIG_VAL);
         id->idaAmdVal = dsp;
@@ -1409,7 +1407,7 @@ emitter::instrDesc* emitter::emitNewInstrAmdCns(emitAttr size, ssize_t dsp, int3
         return id;
     }
 
-    instrDescCnsAmd* id = AllocInstr<instrDescCnsAmd>(size);
+    instrDescCnsAmd* id = AllocInstr<instrDescCnsAmd>();
     id->idSetIsLargeCns();
     id->idacCnsVal = cns;
     id->idSetIsLargeDsp();
@@ -1424,7 +1422,7 @@ void emitter::emitLoopAlign(uint16_t paddingBytes)
     assert(paddingBytes <= MAX_ENCODED_SIZE);
     paddingBytes = min(paddingBytes, MAX_ENCODED_SIZE); // We may need to skip up to 15 bytes of code
 
-    instrDescAlign* id = AllocInstr<instrDescAlign>(EA_1BYTE);
+    instrDescAlign* id = AllocInstr<instrDescAlign>();
     id->idIns(INS_align);
     id->idCodeSize(paddingBytes);
     id->idaIG   = emitCurIG;

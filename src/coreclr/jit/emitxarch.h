@@ -292,7 +292,7 @@ ssize_t GetAddrModeDisp(GenTree* addr);
 void SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* addr);
 
 template <typename T>
-T* AllocInstr(emitAttr attr, bool updateLastIns = true);
+T* AllocInstr(bool updateLastIns = true);
 
 instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
 instrDesc* emitNewInstrSmall(emitAttr attr);
