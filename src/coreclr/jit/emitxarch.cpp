@@ -1300,9 +1300,9 @@ emitter::instrDesc* emitter::emitNewInstrDsp(int32_t disp)
         return emitNewInstr();
     }
 
-    instrDescDsp* id = AllocInstr<instrDescDsp>();
+    instrDescAmd* id = AllocInstr<instrDescAmd>();
     id->idSetIsLargeDsp();
-    id->iddDspVal = disp;
+    id->idaAmdVal = disp;
     return id;
 }
 #endif // TARGET_X86
@@ -3678,11 +3678,11 @@ ssize_t emitter::emitGetInsMemDisp(instrDesc* id)
     }
     else if (id->idIsLargeCns())
     {
-        return static_cast<instrDescCnsDsp*>(id)->iddcDspVal;
+        return static_cast<instrDescCns*>(id)->idcCnsVal;
     }
     else
     {
-        return static_cast<instrDescDsp*>(id)->iddDspVal;
+        return static_cast<instrDescAmd*>(id)->idaAmdVal;
     }
 }
 
@@ -3691,10 +3691,6 @@ ssize_t emitter::emitGetInsMemImm(instrDesc* id)
     if (!id->idIsLargeCns())
     {
         return id->idSmallCns();
-    }
-    else if (id->idIsLargeDsp())
-    {
-        return static_cast<instrDescCnsDsp*>(id)->iddcCnsVal;
     }
     else
     {
@@ -4107,17 +4103,6 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
         case ID_OP_CNS:
         case ID_OP_DSP:
         case ID_OP_DSP_CNS:
-            if (id->idIsLargeCns())
-            {
-                return id->idIsLargeDsp() ? sizeof(instrDescCnsDsp) : sizeof(instrDescCns);
-            }
-
-            if (id->idIsLargeDsp())
-            {
-                return sizeof(instrDescDsp);
-            }
-            break;
-
         case ID_OP_AMD:
         case ID_OP_AMD_CNS:
             if (id->idIsLargeCns())

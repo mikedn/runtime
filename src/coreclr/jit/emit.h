@@ -1154,17 +1154,6 @@ private:
         ssize_t idcCnsVal;
     };
 
-    struct instrDescDsp : instrDesc // large displacement
-    {
-        target_ssize_t iddDspVal;
-    };
-
-    struct instrDescCnsDsp : instrDesc // large cons + disp
-    {
-        target_ssize_t iddcCnsVal;
-        int            iddcDspVal;
-    };
-
     struct instrDescAmd : instrDesc // large addrmode disp
     {
         ssize_t idaAmdVal;
