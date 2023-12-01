@@ -4064,12 +4064,10 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
     switch (GetFormatOp(id->idInsFmt()))
     {
         case ID_OP_NONE:
-#if FEATURE_LOOP_ALIGN
             if (id->idIns() == INS_align)
             {
                 return sizeof(instrDescAlign);
             }
-#endif
             break;
 
         case ID_OP_JMP:
@@ -4970,12 +4968,10 @@ void emitter::emitDispIns(
             break;
 
         case IF_NONE:
-#if FEATURE_LOOP_ALIGN
             if (ins == INS_align)
             {
                 printf("[%d bytes]", id->idCodeSize());
             }
-#endif
             break;
 
         default:
@@ -8797,7 +8793,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     }
 #endif
 
-#if FEATURE_LOOP_ALIGN
     // Only compensate over-estimated instructions if emitCurIG is before
     // the last IG that needs alignment.
     if (emitCurIG->igNum <= emitLastAlignedIgNum)
@@ -8828,7 +8823,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         assert((id->idCodeSize() - static_cast<unsigned>(dst - *dp)) == 0);
     }
-#endif
 
 #ifdef DEBUG
     if (emitComp->compDebugBreak)
@@ -9088,7 +9082,6 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
     switch (ins)
     {
         case INS_align:
-#if FEATURE_LOOP_ALIGN
             if (id->idCodeSize() == 0)
             {
                 // We're not going to generate any instruction, so it doesn't count for PerfScore.
@@ -9096,9 +9089,7 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
                 result.insLatency    = PERFSCORE_LATENCY_ZERO;
                 break;
             }
-#endif
             FALLTHROUGH;
-
         case INS_nop:
         case INS_int3:
             assert(memFmt == IF_NONE);
