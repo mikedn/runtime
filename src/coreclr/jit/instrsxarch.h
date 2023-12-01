@@ -614,7 +614,7 @@ INST1(i_jmp,            "jmp",              IUM_RD, RME(0xFF, 4),               
 INSTA(FIRST_JMP, jmp)
 INST0(jmp,              "jmp",              IUM_RD, 0xEB,                                                                None)
 INST0(l_jmp,            "jmp",              IUM_RD, 0xE9,                                                                None)
-
+INSTA(FIRST_JCC, jo)
 INST0(jo,               "jo",               IUM_RD, 0x70,                                                                CcFlags_o)
 INST0(jno,              "jno",              IUM_RD, 0x71,                                                                CcFlags_no)
 INST0(jb,               "jb",               IUM_RD, 0x72,                                                                CcFlags_b)
@@ -631,6 +631,7 @@ INST0(jl,               "jl",               IUM_RD, 0x7C,                       
 INST0(jge,              "jge",              IUM_RD, 0x7D,                                                                CcFlags_ge)
 INST0(jle,              "jle",              IUM_RD, 0x7E,                                                                CcFlags_le)
 INST0(jg,               "jg",               IUM_RD, 0x7F,                                                                CcFlags_g)
+INSTA(LAST_JCC, jg)
 INSTA(LAST_JMP, jg)
 
 INST0(align,            "align",            IUM_RD, BAD_CODE,                                                            None)

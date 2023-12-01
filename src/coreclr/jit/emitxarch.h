@@ -326,10 +326,8 @@ void emitAdjustStackDepthPushPop(instruction ins);
 void emitAdjustStackDepth(instruction ins, ssize_t val);
 #endif
 
-void emitLoopAlign(unsigned short paddingBytes);
-void emitLongLoopAlign(unsigned short alignmentBoundary);
-static bool emitIsCondJump(instrDesc* jmp);
-static bool emitIsUncondJump(instrDesc* jmp);
+void emitLoopAlign(uint16_t paddingBytes);
+void emitLongLoopAlign(uint16_t alignmentBoundary);
 
 static insFormat emitInsModeFormat(instruction ins, insFormat base);
 

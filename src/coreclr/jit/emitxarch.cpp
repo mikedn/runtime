@@ -11,34 +11,12 @@
 
 bool emitter::IsJccInstruction(instruction ins)
 {
-    return (ins >= INS_jo) && (ins <= INS_jg);
+    return (INS_FIRST_JCC <= ins) && (ins <= INS_LAST_JCC);
 }
 
 bool emitter::IsJmpInstruction(instruction ins)
 {
-    return
-#ifdef TARGET_AMD64
-        (ins == INS_rex_jmp) ||
-#endif
-        (ins == INS_i_jmp) || (ins == INS_jmp) || (ins == INS_l_jmp);
-}
-
-bool emitter::emitIsCondJump(instrDesc* jmp)
-{
-    instruction ins = jmp->idIns();
-
-    assert(jmp->idInsFmt() == IF_LABEL);
-
-    return (ins != INS_call && ins != INS_jmp);
-}
-
-bool emitter::emitIsUncondJump(instrDesc* jmp)
-{
-    instruction ins = jmp->idIns();
-
-    assert(jmp->idInsFmt() == IF_LABEL);
-
-    return (ins == INS_jmp);
+    return AMD64_ONLY((ins == INS_rex_jmp) ||)(ins == INS_i_jmp) || (ins == INS_jmp) || (ins == INS_l_jmp);
 }
 
 instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)

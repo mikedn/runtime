@@ -2598,22 +2598,17 @@ AGAIN:
 #ifdef TARGET_XARCH
         assert((jmp->idInsFmt() == IF_LABEL) || (jmp->idInsFmt() == IF_RWR_LABEL));
 
-        /* Figure out the smallest size we can end up with */
-
-        if (jmp->idInsFmt() == IF_LABEL)
+        if (IsJccInstruction(jmp->idIns()))
         {
-            if (emitIsCondJump(jmp))
-            {
-                ssz = JCC_SIZE_SMALL;
-                nsd = JCC_DIST_SMALL_MAX_NEG;
-                psd = JCC_DIST_SMALL_MAX_POS;
-            }
-            else
-            {
-                ssz = JMP_SIZE_SMALL;
-                nsd = JMP_DIST_SMALL_MAX_NEG;
-                psd = JMP_DIST_SMALL_MAX_POS;
-            }
+            ssz = JCC_SIZE_SMALL;
+            nsd = JCC_DIST_SMALL_MAX_NEG;
+            psd = JCC_DIST_SMALL_MAX_POS;
+        }
+        else if (jmp->idInsFmt() == IF_LABEL)
+        {
+            ssz = JMP_SIZE_SMALL;
+            nsd = JMP_DIST_SMALL_MAX_NEG;
+            psd = JMP_DIST_SMALL_MAX_POS;
         }
 #endif // TARGET_XARCH
 
