@@ -47,11 +47,6 @@ static bool IsDisp8(ssize_t disp)
     return (-128 <= disp) && (disp <= 127);
 }
 
-static bool IsDisp32(ssize_t disp)
-{
-    return (INT32_MIN <= disp) && (disp <= INT32_MAX);
-}
-
 static bool IsImm8(ssize_t imm)
 {
 #ifdef TARGET_X86
@@ -64,10 +59,17 @@ static bool IsImm8(ssize_t imm)
     return (-128 <= imm) && (imm <= 127);
 }
 
+#ifdef TARGET_AMD64
+static bool IsDisp32(ssize_t disp)
+{
+    return (INT32_MIN <= disp) && (disp <= INT32_MAX);
+}
+
 static bool IsImm32(ssize_t imm)
 {
     return (INT32_MIN <= imm) && (imm <= INT32_MAX);
 }
+#endif
 
 static bool IsShiftCL(instruction ins)
 {
