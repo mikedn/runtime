@@ -1349,7 +1349,7 @@ emitter::instrDesc* emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
 
     instrDescCnsAmd* id = AllocInstr<instrDescCnsAmd>();
     id->idSetIsLargeCns();
-    id->idacCnsVal = imm;
+    id->idcCnsVal = imm;
     id->idSetIsLargeDsp();
     INDEBUG(id->idAddr()->iiaAddrMode.amDisp = AM_DISP_BIG_VAL);
     id->idacAmdVal = disp;
@@ -3707,10 +3707,6 @@ ssize_t emitter::emitGetInsAmdCns(instrDesc* id)
     if (!id->idIsLargeCns())
     {
         return id->idSmallCns();
-    }
-    else if (id->idIsLargeDsp())
-    {
-        return static_cast<instrDescCnsAmd*>(id)->idacCnsVal;
     }
     else
     {

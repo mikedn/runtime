@@ -1170,9 +1170,8 @@ private:
         ssize_t idaAmdVal;
     };
 
-    struct instrDescCnsAmd : instrDesc // large cons + addrmode disp
+    struct instrDescCnsAmd : instrDescCns // large cons + addrmode disp
     {
-        ssize_t idacCnsVal;
         ssize_t idacAmdVal;
     };
 #endif // TARGET_XARCH
