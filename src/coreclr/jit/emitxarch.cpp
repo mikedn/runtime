@@ -1262,26 +1262,11 @@ emitter::instrDescCnsAmd* emitter::emitAllocInstrCnsAmd(emitAttr attr)
     return AllocInstr<instrDescCnsAmd>(attr);
 }
 
-emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, target_ssize_t cns, int dsp)
+emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, target_ssize_t imm)
 {
-    if (dsp == 0)
+    if (!instrDesc::fitsInSmallCns(imm))
     {
-        if (instrDesc::fitsInSmallCns(cns))
-        {
-            instrDesc* id = emitAllocInstr(size);
-            id->idSmallCns(cns);
-#if EMITTER_STATS
-            emitSmallCnsCnt++;
-            if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
-                emitSmallCns[SMALL_CNS_TSZ - 1]++;
-            else
-                emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
-            emitSmallDspCnt++;
-#endif
-            return id;
-        }
-
-        instrDescCns* id = emitAllocInstrCns(size, cns);
+        instrDescCns* id = emitAllocInstrCns(size, imm);
 #if EMITTER_STATS
         emitLargeCnsCnt++;
         emitSmallDspCnt++;
@@ -1289,31 +1274,51 @@ emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, target_ssize_t cn
         return id;
     }
 
-    if (instrDesc::fitsInSmallCns(cns))
+    instrDesc* id = emitAllocInstr(size);
+    id->idSmallCns(imm);
+#if EMITTER_STATS
+    emitSmallCnsCnt++;
+    if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
+        emitSmallCns[SMALL_CNS_TSZ - 1]++;
+    else
+        emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
+    emitSmallDspCnt++;
+#endif
+    return id;
+}
+
+emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, target_ssize_t imm, int32_t disp)
+{
+    if (disp == 0)
     {
-        instrDescDsp* id = emitAllocInstrDsp(size);
+        return emitNewInstrCnsDsp(size, imm);
+    }
+
+    if (!instrDesc::fitsInSmallCns(imm))
+    {
+        instrDescCnsDsp* id = emitAllocInstrCnsDsp(size);
+        id->idSetIsLargeCns();
+        id->iddcCnsVal = imm;
         id->idSetIsLargeDsp();
-        id->iddDspVal = dsp;
-        id->idSmallCns(cns);
+        id->iddcDspVal = disp;
 #if EMITTER_STATS
         emitLargeDspCnt++;
-        emitSmallCnsCnt++;
-        if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
-            emitSmallCns[SMALL_CNS_TSZ - 1]++;
-        else
-            emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
+        emitLargeCnsCnt++;
 #endif
         return id;
     }
 
-    instrDescCnsDsp* id = emitAllocInstrCnsDsp(size);
-    id->idSetIsLargeCns();
-    id->iddcCnsVal = cns;
+    instrDescDsp* id = emitAllocInstrDsp(size);
     id->idSetIsLargeDsp();
-    id->iddcDspVal = dsp;
+    id->iddDspVal = disp;
+    id->idSmallCns(imm);
 #if EMITTER_STATS
     emitLargeDspCnt++;
-    emitLargeCnsCnt++;
+    emitSmallCnsCnt++;
+    if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
+        emitSmallCns[SMALL_CNS_TSZ - 1]++;
+    else
+        emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
 #endif
     return id;
 }
@@ -2488,7 +2493,7 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORI
 
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
 
-    instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
+    instrDesc* id = emitNewInstrCnsDsp(attr, imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RRW_MRD_CNS);
@@ -2669,7 +2674,7 @@ void emitter::emitIns_R_R_C_I(
     assert(FieldDispRequiresRelocation(field));
     assert(IsImm8(imm));
 
-    instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
+    instrDesc* id = emitNewInstrCnsDsp(attr, imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_MRD_CNS);
@@ -2772,7 +2777,7 @@ void emitter::emitIns_R_R_C_R(
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
     assert(FieldDispRequiresRelocation(field));
 
-    instrDesc* id = emitNewInstrCnsDsp(attr, EncodeXmmRegAsImm(reg3), 0);
+    instrDesc* id = emitNewInstrCnsDsp(attr, EncodeXmmRegAsImm(reg3));
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
@@ -2930,7 +2935,7 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
         imm &= 0x7F;
     }
 
-    instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
+    instrDesc* id = emitNewInstrCnsDsp(attr, imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD_CNS));

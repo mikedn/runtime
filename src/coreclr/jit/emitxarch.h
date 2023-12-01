@@ -306,7 +306,8 @@ instrDesc* emitNewInstrDsp(emitAttr attr);
 #ifdef TARGET_X86
 instrDesc* emitNewInstrDsp(emitAttr attr, int32_t disp);
 #endif
-instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t cns, int dsp);
+instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t imm);
+instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t imm, int32_t disp);
 instrDesc* emitNewInstrAmd(emitAttr attr, ssize_t dsp);
 instrDesc* emitNewInstrAmdCns(emitAttr attr, ssize_t dsp, int32_t cns);
 
