@@ -136,16 +136,33 @@ static bool instrHasImplicitRegPairDest(instruction ins)
     return (ins == INS_mulEAX) || (ins == INS_imulEAX) || (ins == INS_div) || (ins == INS_idiv);
 }
 
-static bool isAvxBlendv(instruction ins)
+static bool IsAvxBlendv(instruction ins)
 {
     return ins == INS_vblendvps || ins == INS_vblendvpd || ins == INS_vpblendvb;
 }
 
-static bool isSse41Blendv(instruction ins)
+static bool IsSse41Blendv(instruction ins)
 {
     return ins == INS_blendvps || ins == INS_blendvpd || ins == INS_pblendvb;
 }
 #endif
+
+static instruction MapSse41BlendvToAvxBlendv(instruction ins)
+{
+    assert(IsAvxBlendv(ins) || IsSse41Blendv(ins));
+
+    switch (ins)
+    {
+        case INS_blendvps:
+            return INS_vblendvps;
+        case INS_blendvpd:
+            return INS_vblendvpd;
+        case INS_pblendvb:
+            return INS_vpblendvb;
+        default:
+            return ins;
+    }
+}
 
 static bool IsSSEOrAVXInstruction(instruction ins)
 {
@@ -2731,7 +2748,7 @@ static int8_t EncodeXmmRegAsImm(regNumber reg)
 void emitter::emitIns_R_R_A_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr)
 {
-    assert(isAvxBlendv(ins));
+    assert(IsAvxBlendv(ins));
     assert(UseVEXEncoding());
 
     instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), EncodeXmmRegAsImm(reg3));
@@ -2749,7 +2766,7 @@ void emitter::emitIns_R_R_A_R(
 void emitter::emitIns_R_R_C_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, CORINFO_FIELD_HANDLE field)
 {
-    assert(isAvxBlendv(ins));
+    assert(IsAvxBlendv(ins));
     assert(UseVEXEncoding());
     assert(FieldDispRequiresRelocation(field));
 
@@ -2770,7 +2787,7 @@ void emitter::emitIns_R_R_C_R(
 void emitter::emitIns_R_R_S_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int varx, int offs)
 {
-    assert(isAvxBlendv(ins));
+    assert(IsAvxBlendv(ins));
     assert(UseVEXEncoding());
 
     instrDesc* id = emitNewInstrCns(attr, EncodeXmmRegAsImm(reg3));
@@ -2789,7 +2806,7 @@ void emitter::emitIns_R_R_S_R(
 void emitter::emitIns_R_R_R_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, regNumber reg4)
 {
-    assert(isAvxBlendv(ins));
+    assert(IsAvxBlendv(ins));
     assert(UseVEXEncoding());
 
     instrDesc* id = emitNewInstrCns(attr, EncodeXmmRegAsImm(reg4));
@@ -3324,27 +3341,11 @@ void emitter::emitIns_SIMD_R_R_R_R(
     }
     else if (UseVEXEncoding())
     {
-        assert(isAvxBlendv(ins) || isSse41Blendv(ins));
-
-        switch (ins)
-        {
-            case INS_blendvps:
-                ins = INS_vblendvps;
-                break;
-            case INS_blendvpd:
-                ins = INS_vblendvpd;
-                break;
-            case INS_pblendvb:
-                ins = INS_vpblendvb;
-                break;
-            default:
-                break;
-        }
-        emitIns_R_R_R_R(ins, attr, reg1, reg2, reg3, reg4);
+        emitIns_R_R_R_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, reg4);
     }
     else
     {
-        assert(isSse41Blendv(ins));
+        assert(IsSse41Blendv(ins));
 
         // Ensure we aren't overwriting op1 or op2
         assert((reg2 != REG_XMM0) || (reg4 == REG_XMM0));
@@ -3384,28 +3385,11 @@ void emitter::emitIns_SIMD_R_R_A_R(
     }
     else if (UseVEXEncoding())
     {
-        assert(isAvxBlendv(ins) || isSse41Blendv(ins));
-
-        switch (ins)
-        {
-            case INS_blendvps:
-                ins = INS_vblendvps;
-                break;
-            case INS_blendvpd:
-                ins = INS_vblendvpd;
-                break;
-            case INS_pblendvb:
-                ins = INS_vpblendvb;
-                break;
-            default:
-                break;
-        }
-
-        emitIns_R_R_A_R(ins, attr, reg1, reg2, reg3, addr);
+        emitIns_R_R_A_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, addr);
     }
     else
     {
-        assert(isSse41Blendv(ins));
+        assert(IsSse41Blendv(ins));
 
         // Ensure we aren't overwriting op1
         assert(reg2 != REG_XMM0);
@@ -3426,28 +3410,11 @@ void emitter::emitIns_SIMD_R_R_C_R(
 {
     if (UseVEXEncoding())
     {
-        assert(isAvxBlendv(ins) || isSse41Blendv(ins));
-
-        switch (ins)
-        {
-            case INS_blendvps:
-                ins = INS_vblendvps;
-                break;
-            case INS_blendvpd:
-                ins = INS_vblendvpd;
-                break;
-            case INS_pblendvb:
-                ins = INS_vpblendvb;
-                break;
-            default:
-                break;
-        }
-
-        emitIns_R_R_C_R(ins, attr, reg1, reg2, reg3, field);
+        emitIns_R_R_C_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, field);
     }
     else
     {
-        assert(isSse41Blendv(ins));
+        assert(IsSse41Blendv(ins));
 
         // Ensure we aren't overwriting op1
         assert(reg2 != REG_XMM0);
@@ -3468,40 +3435,11 @@ void emitter::emitIns_SIMD_R_R_S_R(
 {
     if (UseVEXEncoding())
     {
-        assert(isAvxBlendv(ins) || isSse41Blendv(ins));
-
-        // convert SSE encoding of SSE4.1 instructions to VEX encoding
-        switch (ins)
-        {
-            case INS_blendvps:
-            {
-                ins = INS_vblendvps;
-                break;
-            }
-
-            case INS_blendvpd:
-            {
-                ins = INS_vblendvpd;
-                break;
-            }
-
-            case INS_pblendvb:
-            {
-                ins = INS_vpblendvb;
-                break;
-            }
-
-            default:
-            {
-                break;
-            }
-        }
-
-        emitIns_R_R_S_R(ins, attr, reg1, reg2, reg3, varx, offs);
+        emitIns_R_R_S_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, varx, offs);
     }
     else
     {
-        assert(isSse41Blendv(ins));
+        assert(IsSse41Blendv(ins));
 
         // Ensure we aren't overwriting op1
         assert(reg2 != REG_XMM0);
