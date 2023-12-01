@@ -294,17 +294,15 @@ void SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* ad
 template <typename T>
 T* AllocInstr(bool updateLastIns = true);
 
-instrDesc* emitNewInstr();
-instrDesc* emitNewInstrSmall();
-instrDesc* emitNewInstrSC(cnsval_ssize_t imm);
-instrDesc* emitNewInstrCns(int32_t imm);
+instrDesc*     emitNewInstr();
+instrDesc*     emitNewInstrSmall();
 instrDescJmp*  emitNewInstrJmp();
 instrDescCGCA* emitNewInstrCGCA();
+instrDesc* emitNewInstrSC(cnsval_ssize_t imm);
+instrDesc* emitNewInstrCns(int32_t imm);
 #ifdef TARGET_X86
 instrDesc* emitNewInstrDsp(int32_t disp);
 #endif
-instrDesc* emitNewInstrCnsDsp(target_ssize_t imm);
-instrDesc* emitNewInstrCnsDsp(target_ssize_t imm, int32_t disp);
 instrDesc* emitNewInstrAmd(ssize_t disp);
 instrDesc* emitNewInstrAmdCns(ssize_t disp, int32_t imm);
 instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);

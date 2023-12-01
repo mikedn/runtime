@@ -1292,66 +1292,6 @@ emitter::instrDesc* emitter::emitNewInstrCns(int32_t cns)
     return id;
 }
 
-emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
-{
-    assert(EA_IS_GCREF_OR_BYREF(attr));
-    assert(IsGeneralRegister(reg));
-
-    if ((codeGen->liveness.GetGCRegs(attr) & genRegMask(reg)) != RBM_NONE)
-    {
-        return nullptr;
-    }
-
-    instrDesc* id = static_cast<instrDesc*>(AllocInstr<instrDescSmall>(false));
-    id->idSetIsSmallDsc();
-    id->idIns(INS_mov);
-    id->idInsFmt(IF_GC_REG);
-    id->idGCref(EA_GC_TYPE(attr));
-    id->idReg1(reg);
-    id->idReg2(reg);
-
-    return id;
-}
-
-emitter::instrDesc* emitter::emitNewInstrCnsDsp(target_ssize_t imm)
-{
-    if (!instrDesc::fitsInSmallCns(imm))
-    {
-        instrDescCns* result = AllocInstr<instrDescCns>();
-        result->idSetIsLargeCns();
-        result->idcCnsVal = imm;
-        return result;
-    }
-
-    instrDesc* id = emitNewInstr();
-    id->idSmallCns(imm);
-    return id;
-}
-
-emitter::instrDesc* emitter::emitNewInstrCnsDsp(target_ssize_t imm, int32_t disp)
-{
-    if (disp == 0)
-    {
-        return emitNewInstrCnsDsp(imm);
-    }
-
-    if (!instrDesc::fitsInSmallCns(imm))
-    {
-        instrDescCnsDsp* id = AllocInstr<instrDescCnsDsp>();
-        id->idSetIsLargeCns();
-        id->iddcCnsVal = imm;
-        id->idSetIsLargeDsp();
-        id->iddcDspVal = disp;
-        return id;
-    }
-
-    instrDescDsp* id = AllocInstr<instrDescDsp>();
-    id->idSetIsLargeDsp();
-    id->iddDspVal = disp;
-    id->idSmallCns(imm);
-    return id;
-}
-
 #ifdef TARGET_X86
 emitter::instrDesc* emitter::emitNewInstrDsp(int32_t disp)
 {
@@ -1413,6 +1353,27 @@ emitter::instrDesc* emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
     id->idSetIsLargeDsp();
     INDEBUG(id->idAddr()->iiaAddrMode.amDisp = AM_DISP_BIG_VAL);
     id->idacAmdVal = disp;
+
+    return id;
+}
+
+emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
+{
+    assert(EA_IS_GCREF_OR_BYREF(attr));
+    assert(IsGeneralRegister(reg));
+
+    if ((codeGen->liveness.GetGCRegs(attr) & genRegMask(reg)) != RBM_NONE)
+    {
+        return nullptr;
+    }
+
+    instrDesc* id = static_cast<instrDesc*>(AllocInstr<instrDescSmall>(false));
+    id->idSetIsSmallDsc();
+    id->idIns(INS_mov);
+    id->idInsFmt(IF_GC_REG);
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idReg1(reg);
+    id->idReg2(reg);
 
     return id;
 }
@@ -2516,7 +2477,7 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORI
 
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
 
-    instrDesc* id = emitNewInstrCnsDsp(imm);
+    instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
@@ -2699,7 +2660,7 @@ void emitter::emitIns_R_R_C_I(
     assert(FieldDispRequiresRelocation(field));
     assert(IsImm8(imm));
 
-    instrDesc* id = emitNewInstrCnsDsp(imm);
+    instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_MRD_CNS);
@@ -2802,7 +2763,7 @@ void emitter::emitIns_R_R_C_R(
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
     assert(FieldDispRequiresRelocation(field));
 
-    instrDesc* id = emitNewInstrCnsDsp(EncodeXmmRegAsImm(reg3));
+    instrDesc* id = emitNewInstrCns(EncodeXmmRegAsImm(reg3));
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
@@ -2960,7 +2921,7 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
         imm &= 0x7F;
     }
 
-    instrDesc* id = emitNewInstrCnsDsp(imm);
+    instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
