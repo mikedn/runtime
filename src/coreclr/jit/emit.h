@@ -1140,25 +1140,24 @@ private:
         }
     }; // End of  struct instrDesc
 
-#ifdef TARGET_XARCH
-    // instrDescCns holds constant values for the emitter. The X86 compiler is unique in that it
-    // may represent relocated pointer values with these constants. On the 64bit to 32 bit
-    // cross-targetting jit, the the constant value must be represented as a 64bit value in order
-    // to represent these pointers.
-    // TODO-MIKE-Review: Wouldn't cross compiling on 64 bit for ARM32 have the same issue?
-    typedef ssize_t cnsval_ssize_t;
-    typedef size_t  cnsval_size_t;
-#else
+#ifndef TARGET_XARCH
     typedef target_ssize_t cnsval_ssize_t;
     typedef target_size_t  cnsval_size_t;
-#endif
 
     struct instrDescCns : instrDesc // large const
     {
         cnsval_ssize_t idcCnsVal;
     };
+#else
+    struct instrDescCns : instrDesc // large const
+    {
+        // Normally immediate values should be target_ssize_t but for relocatable immediates
+        // we need to store a host pointer here, that will get converted to the actual 32 bit
+        // immediate during/after encoding.
+        // TODO-MIKE-Review: Wouldn't cross compiling on 64 bit for ARM32 have the same issue?
+        ssize_t idcCnsVal;
+    };
 
-#ifdef TARGET_XARCH
     struct instrDescDsp : instrDesc // large displacement
     {
         target_ssize_t iddDspVal;
