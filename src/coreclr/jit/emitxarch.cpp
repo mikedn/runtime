@@ -2751,6 +2751,12 @@ void emitter::emitIns_R_R_A_R(
     assert(IsAvxBlendv(ins));
     assert(UseVEXEncoding());
 
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    {
+        emitIns_R_R_C_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, clsAddr->GetFieldHandle());
+        return;
+    }
+
     instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), EncodeXmmRegAsImm(reg3));
     id->idIns(ins);
     id->idReg1(reg1);
@@ -3379,54 +3385,18 @@ void emitter::emitIns_SIMD_R_R_R_S(
 void emitter::emitIns_SIMD_R_R_A_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
-    {
-        emitIns_SIMD_R_R_C_R(ins, attr, reg1, reg2, reg3, clsAddr->GetFieldHandle());
-    }
-    else if (UseVEXEncoding())
+    if (UseVEXEncoding())
     {
         emitIns_R_R_A_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, addr);
     }
     else
     {
         assert(IsSse41Blendv(ins));
+        assert((reg1 != REG_XMM0) && (reg2 != REG_XMM0));
 
-        // Ensure we aren't overwriting op1
-        assert(reg2 != REG_XMM0);
-
-        // SSE4.1 blendv* hardcode the mask vector (op3) in XMM0
         emitIns_Mov(INS_movaps, attr, REG_XMM0, reg3, /* canSkip */ true);
-
-        // Ensure we aren't overwriting op3 (which should be REG_XMM0)
-        assert(reg1 != REG_XMM0);
-
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
         emitIns_RRW_A(ins, attr, reg1, addr);
-    }
-}
-
-void emitter::emitIns_SIMD_R_R_C_R(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, CORINFO_FIELD_HANDLE field)
-{
-    if (UseVEXEncoding())
-    {
-        emitIns_R_R_C_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, field);
-    }
-    else
-    {
-        assert(IsSse41Blendv(ins));
-
-        // Ensure we aren't overwriting op1
-        assert(reg2 != REG_XMM0);
-
-        // SSE4.1 blendv* hardcode the mask vector (op3) in XMM0
-        emitIns_Mov(INS_movaps, attr, REG_XMM0, reg3, /* canSkip */ true);
-
-        // Ensure we aren't overwriting op3 (which should be REG_XMM0)
-        assert(reg1 != REG_XMM0);
-
-        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_R_C(ins, attr, reg1, field);
     }
 }
 
@@ -3440,16 +3410,9 @@ void emitter::emitIns_SIMD_R_R_S_R(
     else
     {
         assert(IsSse41Blendv(ins));
+        assert((reg1 != REG_XMM0) && (reg2 != REG_XMM0));
 
-        // Ensure we aren't overwriting op1
-        assert(reg2 != REG_XMM0);
-
-        // SSE4.1 blendv* hardcode the mask vector (op3) in XMM0
         emitIns_Mov(INS_movaps, attr, REG_XMM0, reg3, /* canSkip */ true);
-
-        // Ensure we aren't overwriting op3 (which should be REG_XMM0)
-        assert(reg1 != REG_XMM0);
-
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
         emitIns_R_S(ins, attr, reg1, varx, offs);
     }

@@ -137,8 +137,6 @@ void emitIns_SIMD_R_R_R_S(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int varx, int offs);
 void emitIns_SIMD_R_R_A_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr);
-void emitIns_SIMD_R_R_C_R(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, CORINFO_FIELD_HANDLE field);
 void emitIns_SIMD_R_R_S_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int varx, int offs);
 

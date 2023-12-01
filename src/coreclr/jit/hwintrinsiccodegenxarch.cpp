@@ -705,36 +705,36 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     assert(op1Reg != REG_NA);
     assert(op3Reg != REG_NA);
 
-    if (op2->isContained() || op2->isUsedFromSpillTemp())
+    if (op2->isUsedFromReg())
     {
-        assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assert(IsContainableHWIntrinsicOp(compiler, node, op2));
+        emit->emitIns_SIMD_R_R_R_R(ins, simdSize, targetReg, op1Reg, op2->GetRegNum(), op3Reg);
+        return;
+    }
 
-        unsigned             lclNum;
-        unsigned             lclOffs;
-        GenTree*             addr;
-        CORINFO_FIELD_HANDLE field;
+    assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
+    assert(IsContainableHWIntrinsicOp(compiler, node, op2));
 
-        if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
-        {
-            unreached();
-        }
-        else if (addr != nullptr)
-        {
-            emit->emitIns_SIMD_R_R_A_R(ins, simdSize, targetReg, op1Reg, op3Reg, addr);
-        }
-        else if (field != nullptr)
-        {
-            emit->emitIns_SIMD_R_R_C_R(ins, simdSize, targetReg, op1Reg, op3Reg, field);
-        }
-        else
-        {
-            emit->emitIns_SIMD_R_R_S_R(ins, simdSize, targetReg, op1Reg, op3Reg, lclNum, lclOffs);
-        }
+    unsigned             lclNum;
+    unsigned             lclOffs;
+    GenTree*             addr;
+    CORINFO_FIELD_HANDLE field;
+
+    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
+    {
+        unreached();
+    }
+    else if (addr != nullptr)
+    {
+        emit->emitIns_SIMD_R_R_A_R(ins, simdSize, targetReg, op1Reg, op3Reg, addr);
+    }
+    else if (field != nullptr)
+    {
+        // We can't have a DblCon operand on blend instructions.
+        unreached();
     }
     else
     {
-        emit->emitIns_SIMD_R_R_R_R(ins, simdSize, targetReg, op1Reg, op2->GetRegNum(), op3Reg);
+        emit->emitIns_SIMD_R_R_S_R(ins, simdSize, targetReg, op1Reg, op3Reg, lclNum, lclOffs);
     }
 }
 
