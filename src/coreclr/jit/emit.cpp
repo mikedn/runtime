@@ -952,7 +952,7 @@ void emitter::emitDispInsOffs(unsigned offs, bool doffs)
 
 #endif // DEBUG
 
-void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
+void* emitter::emitAllocAnyInstr(unsigned sz, bool updateLastIns)
 {
     assert(sz >= sizeof(void*));
 
@@ -1014,6 +1014,34 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
     }
 
     instrDesc* id = reinterpret_cast<instrDesc*>(emitCurIGfreeNext);
+
+    if (updateLastIns)
+    {
+        emitLastIns      = id;
+        emitLastInsLabel = emitCurLabel;
+    }
+
+    emitCurIGfreeNext += sz;
+    emitCurIGinsCnt++;
+
+#if EMITTER_STATS
+    emitTotalInsCnt++;
+#endif
+
+#ifdef DEBUG
+    if (emitCurIG->lastGeneratedBlock != GetCurrentBlock())
+    {
+        emitCurIG->lastGeneratedBlock = GetCurrentBlock();
+        emitCurIG->igBlocks.push_back(emitCurIG->lastGeneratedBlock);
+    }
+#endif
+
+    return id;
+}
+
+void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
+{
+    instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(sz, updateLastIns));
     memset(id, 0, sz);
 
     // These fields should have been zero-ed by the above
@@ -1044,28 +1072,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
         id->idSetIsCnsReloc();
     }
 
-    if (updateLastIns)
-    {
-        emitLastIns      = id;
-        emitLastInsLabel = emitCurLabel;
-    }
-
-    emitCurIGfreeNext += sz;
-    emitCurIGinsCnt++;
-
-#if EMITTER_STATS
-    emitTotalInsCnt++;
-#endif
-
-#ifdef DEBUG
-    id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz));
-
-    if (emitCurIG->lastGeneratedBlock != GetCurrentBlock())
-    {
-        emitCurIG->lastGeneratedBlock = GetCurrentBlock();
-        emitCurIG->igBlocks.push_back(emitCurIG->lastGeneratedBlock);
-    }
-#endif
+    INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz)));
 
     return id;
 }
