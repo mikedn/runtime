@@ -1077,6 +1077,134 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
     return id;
 }
 
+emitter::instrDesc* emitter::emitAllocInstr(emitAttr attr)
+{
+#if EMITTER_STATS
+    emitTotalIDescCnt++;
+#endif
+    return AllocInstr<instrDesc>(attr);
+}
+
+emitter::instrDesc* emitter::emitNewInstr(emitAttr attr)
+{
+    return emitAllocInstr(attr);
+}
+
+emitter::instrDescCns* emitter::emitAllocInstrCns(emitAttr attr)
+{
+#if EMITTER_STATS
+    emitTotalIDescCnsCnt++;
+#endif
+    return AllocInstr<instrDescCns>(attr);
+}
+
+emitter::instrDescCns* emitter::emitAllocInstrCns(emitAttr attr, cnsval_size_t cns)
+{
+    instrDescCns* result = emitAllocInstrCns(attr);
+    result->idSetIsLargeCns();
+    result->idcCnsVal = cns;
+    return result;
+}
+
+emitter::instrDesc* emitter::emitNewInstrSmall(emitAttr attr)
+{
+    static_assert_no_msg(sizeof(emitter::instrDescSmall) == SMALL_IDSC_SIZE);
+
+    instrDescSmall* id = AllocInstr<instrDescSmall>(attr);
+    id->idSetIsSmallDsc();
+#if EMITTER_STATS
+    emitTotalIDescSmallCnt++;
+#endif
+    return static_cast<instrDesc*>(id);
+}
+
+emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns)
+{
+    if (instrDesc::fitsInSmallCns(cns))
+    {
+        instrDesc* id = emitNewInstrSmall(attr);
+        id->idSmallCns(cns);
+#if EMITTER_STATS
+        emitSmallCnsCnt++;
+        if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
+            emitSmallCns[SMALL_CNS_TSZ - 1]++;
+        else
+            emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
+#endif
+        return id;
+    }
+
+    instrDescCns* id = emitAllocInstrCns(attr, cns);
+#if EMITTER_STATS
+    emitLargeCnsCnt++;
+#endif
+    return id;
+}
+
+emitter::instrDesc* emitter::emitNewInstrCns(emitAttr attr, int32_t cns)
+{
+    if (instrDesc::fitsInSmallCns(cns))
+    {
+        instrDesc* id = emitAllocInstr(attr);
+        id->idSmallCns(cns);
+#if EMITTER_STATS
+        emitSmallCnsCnt++;
+        if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
+            emitSmallCns[SMALL_CNS_TSZ - 1]++;
+        else
+            emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
+#endif
+        return id;
+    }
+
+    instrDescCns* id = emitAllocInstrCns(attr, cns);
+#if EMITTER_STATS
+    emitLargeCnsCnt++;
+#endif
+    return id;
+}
+
+emitter::instrDescJmp* emitter::emitAllocInstrJmp()
+{
+#if EMITTER_STATS
+    emitTotalIDescJmpCnt++;
+#endif
+    return AllocInstr<instrDescJmp>(EA_1BYTE);
+}
+
+emitter::instrDescJmp* emitter::emitNewInstrJmp()
+{
+#if EMITTER_STATS
+    emitTotalIGjmps++;
+#endif
+    return emitAllocInstrJmp();
+}
+
+emitter::instrDescCGCA* emitter::emitAllocInstrCGCA(emitAttr attr)
+{
+#if EMITTER_STATS
+    emitTotalIDescCGCACnt++;
+#endif
+    return AllocInstr<instrDescCGCA>(attr);
+}
+
+#if FEATURE_LOOP_ALIGN
+emitter::instrDescAlign* emitter::emitAllocInstrAlign()
+{
+#if EMITTER_STATS
+    emitTotalDescAlignCnt++;
+#endif
+    return AllocInstr<instrDescAlign>(EA_1BYTE);
+}
+
+emitter::instrDescAlign* emitter::emitNewInstrAlign()
+{
+    instrDescAlign* newInstr = emitAllocInstrAlign();
+    newInstr->idIns(INS_align);
+    return newInstr;
+}
+#endif
+
 emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
 {
     assert(EA_IS_GCREF_OR_BYREF(attr));
