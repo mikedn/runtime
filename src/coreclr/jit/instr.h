@@ -229,6 +229,13 @@ enum insBarrier : unsigned
 };
 #endif // TARGET_ARM64
 
+enum GCtype : unsigned
+{
+    GCT_NONE,
+    GCT_GCREF,
+    GCT_BYREF
+};
+
 #undef EA_UNKNOWN
 enum emitAttr : unsigned
 {
@@ -247,15 +254,15 @@ enum emitAttr : unsigned
     EA_PTRSIZE     = EA_4BYTE,
 #endif
 
-    EA_GCREF_FLG = 0x080,
+    EA_GCREF_FLG = GCT_GCREF << 7,
     EA_GCREF     = EA_PTRSIZE | EA_GCREF_FLG,
-    EA_BYREF_FLG = 0x100,
+    EA_BYREF_FLG = GCT_BYREF << 7,
     EA_BYREF     = EA_PTRSIZE | EA_BYREF_FLG,
 #ifdef TARGET_XARCH
-    EA_DSP_RELOC_FLG = 0x200,
+    EA_DSP_RELOC_FLG = 1 << 9,
     EA_PTR_DSP_RELOC = EA_PTRSIZE | EA_DSP_RELOC_FLG,
 #endif
-    EA_CNS_RELOC_FLG = 0x400,
+    EA_CNS_RELOC_FLG = 1 << 10,
     EA_PTR_CNS_RELOC = EA_PTRSIZE | EA_CNS_RELOC_FLG,
 };
 
@@ -268,6 +275,7 @@ enum emitAttr : unsigned
 #define EA_IS_BYREF(x) ((((unsigned)(x)) & ((unsigned)EA_BYREF_FLG)) != 0)
 #define EA_IS_GCREF_OR_BYREF(x) ((((unsigned)(x)) & ((unsigned)(EA_BYREF_FLG | EA_GCREF_FLG))) != 0)
 #define EA_IS_CNS_RELOC(x) ((((unsigned)(x)) & ((unsigned)EA_CNS_RELOC_FLG)) != 0)
+#define EA_GC_TYPE(x) static_cast<GCtype>((x >> 7) & 3)
 #ifdef TARGET_XARCH
 #define EA_IS_DSP_RELOC(x) ((((unsigned)(x)) & ((unsigned)EA_DSP_RELOC_FLG)) != 0)
 #define EA_IS_RELOC(x) (EA_IS_DSP_RELOC(x) || EA_IS_CNS_RELOC(x))

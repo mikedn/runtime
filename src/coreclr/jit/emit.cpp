@@ -1050,17 +1050,8 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
 #ifdef TARGET_XARCH
     assert(id->idCodeSize() == 0);
 #endif
-    static_assert_no_msg(GCT_NONE == 0);
 
-    if (EA_IS_GCREF(opsz))
-    {
-        id->idGCref(GCT_GCREF);
-    }
-    else if (EA_IS_BYREF(opsz))
-    {
-        id->idGCref(GCT_BYREF);
-    }
-
+    id->idGCref(EA_GC_TYPE(opsz));
     id->idOpSize(EA_SIZE(opsz));
 
 #ifdef TARGET_XARCH
