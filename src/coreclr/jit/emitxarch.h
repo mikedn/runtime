@@ -318,8 +318,6 @@ instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
 
 ssize_t emitGetInsCns(instrDesc* id);
 ssize_t emitGetInsMemDisp(instrDesc* id);
-ssize_t emitGetInsMemImm(instrDesc* id);
-ssize_t emitGetInsAmdCns(instrDesc* id);
 ssize_t emitGetInsAmdDisp(instrDesc* id);
 ssize_t emitGetInsCallDisp(instrDesc* id);
 

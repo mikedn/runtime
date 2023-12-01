@@ -3686,30 +3686,6 @@ ssize_t emitter::emitGetInsMemDisp(instrDesc* id)
     }
 }
 
-ssize_t emitter::emitGetInsMemImm(instrDesc* id)
-{
-    if (!id->idIsLargeCns())
-    {
-        return id->idSmallCns();
-    }
-    else
-    {
-        return static_cast<instrDescCns*>(id)->idcCnsVal;
-    }
-}
-
-ssize_t emitter::emitGetInsAmdCns(instrDesc* id)
-{
-    if (!id->idIsLargeCns())
-    {
-        return id->idSmallCns();
-    }
-    else
-    {
-        return static_cast<instrDescCns*>(id)->idcCnsVal;
-    }
-}
-
 ssize_t emitter::emitGetInsAmdDisp(instrDesc* id)
 {
     if (!id->idIsLargeDsp())
@@ -4652,14 +4628,14 @@ void emitter::emitDispIns(
             printf("%s, %s", RegName(id->idReg1(), attr), sstr);
             PrintAddrMode(id);
             printf(", ");
-            PrintImm(id, emitGetInsAmdCns(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_AWR_RRD_CNS:
             printf("%s", GetSizeOperator(EA_16BYTE));
             PrintAddrMode(id);
             printf(", %s, ", RegName(id->idReg1(), attr));
-            PrintImm(id, emitGetInsAmdCns(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_RWR_RRD_ARD:
@@ -4683,13 +4659,13 @@ void emitter::emitDispIns(
             printf("%s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr), sstr);
             PrintAddrMode(id);
             printf(", ");
-            PrintImm(id, emitGetInsAmdCns(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_RWR_RRD_ARD_RRD:
             printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
             PrintAddrMode(id);
-            printf(", %s", RegName(static_cast<regNumber>((emitGetInsAmdCns(id) >> 4) + XMMBASE), attr));
+            printf(", %s", RegName(static_cast<regNumber>((emitGetInsCns(id) >> 4) + XMMBASE), attr));
             break;
 
         case IF_ARD_RRD:
@@ -4712,7 +4688,7 @@ void emitter::emitDispIns(
             printf("%s", sstr);
             PrintAddrMode(id);
             printf(", ");
-            PrintImm(id, emitGetInsAmdCns(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_SRD:
@@ -4756,7 +4732,7 @@ void emitter::emitDispIns(
             printf("%s", sstr);
             PrintFrameRef(id, asmfm);
             printf(", %s, ", RegName(id->idReg1(), attr));
-            PrintImm(id, emitGetInsAmdCns(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_RRD_SRD:
@@ -4888,14 +4864,14 @@ void emitter::emitDispIns(
             printf("%s, %s", RegName(id->idReg1(), attr), sstr);
             PrintClsVar(id);
             printf(", ");
-            PrintImm(id, emitGetInsMemImm(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_MWR_RRD_CNS:
             printf("%s", GetSizeOperator(EA_16BYTE));
             PrintClsVar(id);
             printf(", %s, ", RegName(id->idReg1(), attr));
-            PrintImm(id, emitGetInsMemImm(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_RWR_RRD_MRD:
@@ -4907,13 +4883,13 @@ void emitter::emitDispIns(
             printf("%s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr), sstr);
             PrintClsVar(id);
             printf(", ");
-            PrintImm(id, emitGetInsMemImm(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_RWR_RRD_MRD_RRD:
             printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
             PrintClsVar(id);
-            printf(", %s", RegName(static_cast<regNumber>((emitGetInsMemImm(id) >> 4) + XMMBASE), attr));
+            printf(", %s", RegName(static_cast<regNumber>((emitGetInsCns(id) >> 4) + XMMBASE), attr));
             break;
 
         case IF_MRD_RRD:
@@ -4930,7 +4906,7 @@ void emitter::emitDispIns(
             printf("%s", sstr);
             PrintClsVar(id);
             printf(", ");
-            PrintImm(id, emitGetInsMemImm(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_MRD:
@@ -8338,7 +8314,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_ARD_CNS:
         case IF_AWR_CNS:
         case IF_ARW_CNS:
-            cnsVal = emitGetInsAmdCns(id);
+            cnsVal = emitGetInsCns(id);
             dst    = emitOutputAM(dst, id, insCodeMI(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
@@ -8365,7 +8341,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(!IsVexTernary(ins));
 
             code   = insCodeMR(ins);
-            cnsVal = emitGetInsAmdCns(id);
+            cnsVal = emitGetInsCns(id);
             dst    = emitOutputAM(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
@@ -8417,7 +8393,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
-            cnsVal = emitGetInsAmdCns(id);
+            cnsVal = emitGetInsCns(id);
             dst    = emitOutputAM(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
@@ -8451,7 +8427,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
-            cnsVal = emitGetInsAmdCns(id);
+            cnsVal = emitGetInsCns(id);
             dst    = emitOutputAM(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
@@ -8525,7 +8501,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(!IsVexTernary(ins));
 
             code   = insCodeMR(ins);
-            cnsVal = emitGetInsAmdCns(id);
+            cnsVal = emitGetInsCns(id);
             dst    = emitOutputSV(dst, id, insCodeMR(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
@@ -8638,7 +8614,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_MRD_CNS:
         case IF_MWR_CNS:
         case IF_MRW_CNS:
-            cnsVal = emitGetInsMemImm(id);
+            cnsVal = emitGetInsCns(id);
             dst    = emitOutputCV(dst, id, insCodeMI(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
@@ -8665,7 +8641,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(!IsVexTernary(ins));
 
             code   = insCodeMR(ins);
-            cnsVal = emitGetInsMemImm(id);
+            cnsVal = emitGetInsCns(id);
             dst    = emitOutputCV(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
@@ -8717,7 +8693,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
-            cnsVal = emitGetInsMemImm(id);
+            cnsVal = emitGetInsCns(id);
             dst    = emitOutputCV(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
