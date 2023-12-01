@@ -1141,12 +1141,9 @@ private:
     }; // End of  struct instrDesc
 
 #ifndef TARGET_XARCH
-    typedef target_ssize_t cnsval_ssize_t;
-    typedef target_size_t  cnsval_size_t;
-
     struct instrDescCns : instrDesc // large const
     {
-        cnsval_ssize_t idcCnsVal;
+        target_ssize_t idcCnsVal;
     };
 #else
     struct instrDescCns : instrDesc // large const
@@ -1154,7 +1151,6 @@ private:
         // Normally immediate values should be target_ssize_t but for relocatable immediates
         // we need to store a host pointer here, that will get converted to the actual 32 bit
         // immediate during/after encoding.
-        // TODO-MIKE-Review: Wouldn't cross compiling on 64 bit for ARM32 have the same issue?
         ssize_t idcCnsVal;
     };
 
@@ -1374,7 +1370,7 @@ private:
     size_t emitGetInstrDescSizeSC(const instrDesc* id);
 
 #ifndef TARGET_XARCH
-    cnsval_ssize_t emitGetInsSC(instrDesc* id);
+    target_ssize_t emitGetInsSC(instrDesc* id);
 #endif
 
 #ifdef DEBUG
@@ -1711,9 +1707,9 @@ private:
     instrDesc* emitAllocInstr(emitAttr attr);
     instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
     instrDescCns* emitAllocInstrCns(emitAttr attr);
-    instrDescCns* emitAllocInstrCns(emitAttr attr, cnsval_size_t cns);
+    instrDescCns* emitAllocInstrCns(emitAttr attr, target_size_t cns);
     instrDesc* emitNewInstrSmall(emitAttr attr);
-    instrDesc* emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns);
+    instrDesc* emitNewInstrSC(emitAttr attr, target_ssize_t cns);
     instrDesc* emitNewInstrCns(emitAttr attr, int32_t cns);
     instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
     instrDescJmp*  emitAllocInstrJmp();

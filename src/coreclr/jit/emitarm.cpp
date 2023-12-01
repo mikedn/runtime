@@ -5018,7 +5018,9 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
             {
                 dst += emitOutput_Thumb2Instr(dst, code);
                 if ((ins == INS_movt) && emitComp->info.compMatchedVM)
+                {
                     emitHandlePCRelativeMov32((void*)(dst - 8), (void*)distVal);
+                }
             }
             else
             {
@@ -5690,7 +5692,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 assert((ins == INS_movt) || (ins == INS_movw));
                 dst += emitOutput_Thumb2Instr(dst, code);
                 if ((ins == INS_movt) && emitComp->info.compMatchedVM)
+                {
                     emitHandlePCRelativeMov32((void*)(dst - 8), addr);
+                }
             }
             break;
 
@@ -5705,7 +5709,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             addr = id->idAddr()->iiaAddr;
             dst += emitOutput_Thumb2Instr(dst, code);
             if ((ins == INS_movt) && emitComp->info.compMatchedVM)
+            {
                 emitHandlePCRelativeMov32((void*)(dst - 8), addr);
+            }
             break;
 
         case IF_T2_VFP3:

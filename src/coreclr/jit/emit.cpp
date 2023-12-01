@@ -792,7 +792,7 @@ emitter::instrDescCns* emitter::emitAllocInstrCns(emitAttr attr)
     return AllocInstr<instrDescCns>(attr);
 }
 
-emitter::instrDescCns* emitter::emitAllocInstrCns(emitAttr attr, cnsval_size_t cns)
+emitter::instrDescCns* emitter::emitAllocInstrCns(emitAttr attr, target_size_t cns)
 {
     instrDescCns* result = emitAllocInstrCns(attr);
     result->idSetIsLargeCns();
@@ -807,7 +807,7 @@ emitter::instrDesc* emitter::emitNewInstrSmall(emitAttr attr)
     return static_cast<instrDesc*>(id);
 }
 
-emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns)
+emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, target_ssize_t cns)
 {
     if (instrDesc::fitsInSmallCns(cns))
     {
@@ -5189,7 +5189,7 @@ UNATIVE_OFFSET emitter::emitCodeOffset(void* blockPtr, unsigned codePos)
 }
 
 #ifndef TARGET_XARCH
-emitter::cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
+target_ssize_t emitter::emitGetInsSC(instrDesc* id)
 {
     if (id->idIsLargeCns())
     {
