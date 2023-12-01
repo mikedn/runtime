@@ -1262,7 +1262,7 @@ emitter::instrDesc* emitter::emitNewInstrSmall()
     return static_cast<instrDesc*>(id);
 }
 
-emitter::instrDesc* emitter::emitNewInstrSC(cnsval_ssize_t cns)
+emitter::instrDesc* emitter::emitNewInstrSC(ssize_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -3665,7 +3665,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
     emitCurIGsize += sz;
 }
 
-emitter::cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
+ssize_t emitter::emitGetInsSC(instrDesc* id)
 {
     if (id->idIsLargeCns())
     {
