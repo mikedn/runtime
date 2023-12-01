@@ -1113,9 +1113,9 @@ private:
         {
             return _idCnsReloc != 0;
         }
-        void idSetIsCnsReloc()
+        void idSetIsCnsReloc(bool val = true)
         {
-            _idCnsReloc = 1;
+            _idCnsReloc = val;
         }
 
 #ifdef TARGET_XARCH

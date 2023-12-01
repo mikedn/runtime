@@ -1793,6 +1793,7 @@ void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD_CNS), ins, addr);
 
     unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
@@ -1909,10 +1910,11 @@ void emitter::emitIns_R_H(instruction ins, regNumber reg, void* addr DEBUGARG(Ha
     assert(ins == INS_mov);
     assert(genIsValidIntReg(reg) && (reg != REG_RSP));
 
-    instrDesc* id = emitNewInstrSC(EA_PTR_CNS_RELOC, reinterpret_cast<ssize_t>(addr));
+    instrDesc* id = emitNewInstrSC(EA_PTRSIZE, reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_CNS);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc);
     id->idReg1(reg);
     INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
 
@@ -1986,10 +1988,11 @@ void emitter::emitIns_H(instruction ins, void* addr)
 {
     assert((ins == INS_push) || (ins == INS_push_hide));
 
-    instrDesc* id = emitNewInstrSC(EA_PTR_CNS_RELOC, reinterpret_cast<ssize_t>(addr));
+    instrDesc* id = emitNewInstrSC(EA_PTRSIZE, reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_CNS);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc);
 
     id->idCodeSize(5);
     dispIns(id);
@@ -2026,6 +2029,7 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_CNS);
+    id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc);
 
     unsigned sz;
 
@@ -2379,6 +2383,7 @@ void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RRW_RRD_CNS);
     id->idGCref(EA_GC_TYPE(attr));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idReg1(reg1);
     id->idReg2(reg2);
 
@@ -2475,6 +2480,7 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idGCref(EA_GC_TYPE(attr));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idReg1(reg1);
     SetInstrAddrMode(id, IF_RRW_ARD_CNS, ins, addr);
 
@@ -2496,6 +2502,7 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORI
     instrDesc* id = emitNewInstrCnsDsp(attr, imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(IF_RRW_MRD_CNS);
     id->idReg1(reg1);
     id->idAddr()->iiaFieldHnd = field;
@@ -2518,6 +2525,7 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
     instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(IF_RRW_SRD_CNS);
     id->idReg1(reg1);
     SetInstrLclAddrMode(id, varx, offs);
@@ -2938,6 +2946,7 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     instrDesc* id = emitNewInstrCnsDsp(attr, imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD_CNS));
     id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
@@ -2988,6 +2997,7 @@ void emitter::emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int32
     instrDesc* id = emitNewInstrAmdCns(attr, disp, imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(emitInsModeFormat(ins, IF_ARD_CNS));
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
@@ -3033,6 +3043,7 @@ void emitter::emitIns_AR_R(instruction ins, emitAttr attr, regNumber reg, regNum
 void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs, regNumber reg, int32_t imm)
 {
     assert(ins == INS_vextracti128 || ins == INS_vextractf128);
+    assert(attr == EA_32BYTE);
     assert((imm == 0) || (imm == 1));
 
     instrDesc* id = emitNewInstrAmdCns(attr, 0, imm);
@@ -3087,6 +3098,7 @@ void emitter::emitIns_ARX_I(
     instrDesc* id = emitNewInstrAmdCns(attr, disp, imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(emitInsModeFormat(ins, IF_ARD_CNS));
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = index;
@@ -3504,6 +3516,7 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
     instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD_CNS));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     SetInstrLclAddrMode(id, varx, offs);

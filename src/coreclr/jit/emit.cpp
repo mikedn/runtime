@@ -1060,10 +1060,12 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
     assert(!EA_IS_DSP_RELOC(opsz));
 #endif
 
+#ifndef TARGET_XARCH
     if (EA_IS_CNS_RELOC(opsz) && emitComp->opts.compReloc)
     {
         id->idSetIsCnsReloc();
     }
+#endif
 
     INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz)));
 
