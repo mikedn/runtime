@@ -60,7 +60,6 @@ void emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg
 void emitIns_A(instruction ins, emitAttr attr, GenTree* addr);
 void emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm);
 void emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg);
-void emitIns_RRW_A(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr);
 void emitIns_R_A(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr);
 void emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr, int32_t imm);
 void emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORINFO_FIELD_HANDLE field, int32_t imm);

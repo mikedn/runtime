@@ -455,7 +455,7 @@ void CodeGen::genHWIntrinsic_R_RM(
     }
     else if (addr != nullptr)
     {
-        emit.emitIns_RRW_A(ins, attr, reg, addr);
+        emit.emitIns_R_A(ins, attr, reg, addr);
     }
     else if (field != nullptr)
     {

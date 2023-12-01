@@ -2425,28 +2425,6 @@ void emitter::emitIns_AR_R_R(
     emitCurIGsize += sz;
 }
 
-// TODO-MIKE-Cleanup: Reconcile this with emitIns_R_A, this one always uses IF_RRW_ARD
-// instead of using emitInsModeFormat. It also doesn't handle local addresses but that
-// is unlikely to be an issue.
-void emitter::emitIns_RRW_A(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr)
-{
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
-    {
-        emitIns_R_C(ins, attr, reg1, clsAddr->GetFieldHandle());
-        return;
-    }
-
-    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
-    id->idIns(ins);
-    id->idReg1(reg1);
-    SetInstrAddrMode(id, IF_RRW_ARD, ins, addr);
-
-    unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
-    id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
 void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree* addr)
 {
     assert(!instrHasImplicitRegPairDest(ins) && (ins != INS_imuli));
@@ -3181,7 +3159,7 @@ void emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber reg1,
     else
     {
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_RRW_A(ins, attr, reg1, addr);
+        emitIns_R_A(ins, attr, reg1, addr);
     }
 }
 
@@ -3396,7 +3374,7 @@ void emitter::emitIns_SIMD_R_R_A_R(
 
         emitIns_Mov(INS_movaps, attr, REG_XMM0, reg3, /* canSkip */ true);
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_RRW_A(ins, attr, reg1, addr);
+        emitIns_R_A(ins, attr, reg1, addr);
     }
 }
 
