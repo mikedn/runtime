@@ -1039,6 +1039,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, bool updateLastIns)
     return id;
 }
 
+#ifndef TARGET_XARCH
 void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
 {
     instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(sz, updateLastIns));
@@ -1047,30 +1048,20 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
     // These fields should have been zero-ed by the above
     assert(id->idReg1() == regNumber(0));
     assert(id->idReg2() == regNumber(0));
-#ifdef TARGET_XARCH
-    assert(id->idCodeSize() == 0);
-#endif
 
-#ifndef TARGET_XARCH
     id->idGCref(EA_GC_TYPE(opsz));
     id->idOpSize(EA_SIZE(opsz));
-#endif
 
-#ifdef TARGET_XARCH
-    assert(!EA_IS_DSP_RELOC(opsz));
-#endif
-
-#ifndef TARGET_XARCH
     if (EA_IS_CNS_RELOC(opsz) && emitComp->opts.compReloc)
     {
         id->idSetIsCnsReloc();
     }
-#endif
 
     INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz)));
 
     return id;
 }
+#endif // !TARGET_XARCH
 
 emitter::instrDesc* emitter::emitAllocInstr(emitAttr attr)
 {

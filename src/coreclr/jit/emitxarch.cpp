@@ -1230,6 +1230,17 @@ static unsigned emitInsSizeImm(instruction ins, emitAttr attr, int32_t imm)
     return Min(immSize, 4u);
 }
 
+void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
+{
+    assert(!EA_IS_DSP_RELOC(opsz));
+
+    instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(sz, updateLastIns));
+    memset(id, 0, sz);
+    INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz)));
+
+    return id;
+}
+
 emitter::instrDescDsp* emitter::emitAllocInstrDsp(emitAttr attr)
 {
 #if EMITTER_STATS
