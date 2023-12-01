@@ -423,44 +423,47 @@ bool CodeGen::IsMemoryOperand(
 void CodeGen::genHWIntrinsic_R_RM(
     GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, regNumber reg, GenTree* rmOp)
 {
-    emitter* emit = GetEmitter();
+    Emitter& emit = *GetEmitter();
 
     assert(reg != REG_NA);
 
-    if (rmOp->isContained() || rmOp->isUsedFromSpillTemp())
+    if (rmOp->isUsedFromReg())
     {
-        assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assert(IsContainableHWIntrinsicOp(compiler, node, rmOp));
-
-        unsigned             lclNum;
-        unsigned             lclOffs;
-        GenTree*             addr;
-        CORINFO_FIELD_HANDLE field;
-
-        if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &field))
+        if (emit.IsMovInstruction(ins))
         {
-            unreached();
-        }
-        else if (addr != nullptr)
-        {
-            emit->emitIns_RRW_A(ins, attr, reg, addr);
-        }
-        else if (field != nullptr)
-        {
-            emit->emitIns_R_C(ins, attr, reg, field);
+            emit.emitIns_Mov(ins, attr, reg, rmOp->GetRegNum(), /* canSkip */ false);
         }
         else
         {
-            emit->emitIns_R_S(ins, attr, reg, lclNum, lclOffs);
+            emit.emitIns_R_R(ins, attr, reg, rmOp->GetRegNum());
         }
+
+        return;
     }
-    else if (emit->IsMovInstruction(ins))
+
+    assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
+    assert(IsContainableHWIntrinsicOp(compiler, node, rmOp));
+
+    unsigned             lclNum;
+    unsigned             lclOffs;
+    GenTree*             addr;
+    CORINFO_FIELD_HANDLE field;
+
+    if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &field))
     {
-        emit->emitIns_Mov(ins, attr, reg, rmOp->GetRegNum(), /* canSkip */ false);
+        unreached();
+    }
+    else if (addr != nullptr)
+    {
+        emit.emitIns_RRW_A(ins, attr, reg, addr);
+    }
+    else if (field != nullptr)
+    {
+        emit.emitIns_R_C(ins, attr, reg, field);
     }
     else
     {
-        emit->emitIns_R_R(ins, attr, reg, rmOp->GetRegNum());
+        emit.emitIns_R_S(ins, attr, reg, lclNum, lclOffs);
     }
 }
 
@@ -489,34 +492,35 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenT
 {
     noway_assert(Emitter::emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
 
-    if (rmOp->isContained() || rmOp->isUsedFromSpillTemp())
-    {
-        unsigned             lclNum;
-        unsigned             lclOffs;
-        GenTree*             addr;
-        CORINFO_FIELD_HANDLE field;
+    Emitter& emit = *GetEmitter();
 
-        if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &field))
-        {
-            unreached();
-        }
-        else if (addr != nullptr)
-        {
-            GetEmitter()->emitIns_R_A_I(ins, attr, reg1, addr, ival);
-        }
-        else if (field != nullptr)
-        {
-            GetEmitter()->emitIns_R_C_I(ins, attr, reg1, field, ival);
-        }
-        else
-        {
-            GetEmitter()->emitIns_R_S_I(ins, attr, reg1, lclNum, lclOffs, ival);
-        }
+    if (rmOp->isUsedFromReg())
+    {
+        emit.emitIns_SIMD_R_R_I(ins, attr, reg1, rmOp->GetRegNum(), ival);
+
+        return;
+    }
+
+    unsigned             lclNum;
+    unsigned             lclOffs;
+    GenTree*             addr;
+    CORINFO_FIELD_HANDLE field;
+
+    if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &field))
+    {
+        unreached();
+    }
+    else if (addr != nullptr)
+    {
+        emit.emitIns_R_A_I(ins, attr, reg1, addr, ival);
+    }
+    else if (field != nullptr)
+    {
+        emit.emitIns_R_C_I(ins, attr, reg1, field, ival);
     }
     else
     {
-        regNumber rmOpReg = rmOp->GetRegNum();
-        GetEmitter()->emitIns_SIMD_R_R_I(ins, attr, reg1, rmOpReg, ival);
+        emit.emitIns_R_S_I(ins, attr, reg1, lclNum, lclOffs, ival);
     }
 }
 
@@ -556,31 +560,9 @@ void CodeGen::inst_RV_RV_TT(
     // TODO-XArch-CQ: Commutative operations can have op1 be contained
     // TODO-XArch-CQ: Non-VEX encoded instructions can have both ops contained
 
-    if (op2->isContained() || op2->isUsedFromSpillTemp())
-    {
-        unsigned             lclNum;
-        unsigned             lclOffs;
-        GenTree*             addr;
-        CORINFO_FIELD_HANDLE field;
+    Emitter& emit = *GetEmitter();
 
-        if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
-        {
-            unreached();
-        }
-        else if (addr != nullptr)
-        {
-            GetEmitter()->emitIns_SIMD_R_R_A(ins, size, targetReg, op1Reg, addr);
-        }
-        else if (field != nullptr)
-        {
-            GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, field);
-        }
-        else
-        {
-            GetEmitter()->emitIns_SIMD_R_R_S(ins, size, targetReg, op1Reg, lclNum, lclOffs);
-        }
-    }
-    else
+    if (op2->isUsedFromReg())
     {
         regNumber op2Reg = op2->GetRegNum();
 
@@ -597,7 +579,31 @@ void CodeGen::inst_RV_RV_TT(
             op1Reg = targetReg;
         }
 
-        GetEmitter()->emitIns_SIMD_R_R_R(ins, size, targetReg, op1Reg, op2Reg);
+        emit.emitIns_SIMD_R_R_R(ins, size, targetReg, op1Reg, op2Reg);
+
+        return;
+    }
+
+    unsigned             lclNum;
+    unsigned             lclOffs;
+    GenTree*             addr;
+    CORINFO_FIELD_HANDLE field;
+
+    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
+    {
+        unreached();
+    }
+    else if (addr != nullptr)
+    {
+        emit.emitIns_SIMD_R_R_A(ins, size, targetReg, op1Reg, addr);
+    }
+    else if (field != nullptr)
+    {
+        emit.emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, field);
+    }
+    else
+    {
+        emit.emitIns_SIMD_R_R_S(ins, size, targetReg, op1Reg, lclNum, lclOffs);
     }
 }
 
@@ -607,7 +613,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     GenTree*  op1       = node->GetOp(0);
     GenTree*  op2       = node->GetOp(1);
     emitAttr  simdSize  = emitVecTypeSize(node->GetSimdSize());
-    emitter*  emit      = GetEmitter();
+    Emitter&  emit      = *GetEmitter();
 
     assert(targetReg != REG_NA);
 
@@ -622,7 +628,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
 
         regNumber op2Reg = op2->GetRegNum();
         ival |= 0b1111 & ~(1 << ((ival >> 4) & 0b11));
-        emit->emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op2Reg, op2Reg, ival);
+        emit.emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op2Reg, op2Reg, ival);
 
         return;
     }
@@ -630,44 +636,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     regNumber op1Reg = op1->GetRegNum();
     assert(op1Reg != REG_NA);
 
-    if (op2->isContained() || op2->isUsedFromSpillTemp())
-    {
-        if (op2->IsDblConPositiveZero())
-        {
-            assert(ins == INS_insertps);
-
-            ival |= 1 << ((ival >> 4) & 0b11);
-            emit->emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op1Reg, op1Reg, ival);
-
-            return;
-        }
-
-        assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assert((ins == INS_insertps) || IsContainableHWIntrinsicOp(compiler, node, op2));
-
-        unsigned             lclNum;
-        unsigned             lclOffs;
-        GenTree*             addr;
-        CORINFO_FIELD_HANDLE field;
-
-        if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
-        {
-            unreached();
-        }
-        else if (addr != nullptr)
-        {
-            emit->emitIns_SIMD_R_R_A_I(ins, simdSize, targetReg, op1Reg, addr, ival);
-        }
-        else if (field != nullptr)
-        {
-            emit->emitIns_SIMD_R_R_C_I(ins, simdSize, targetReg, op1Reg, field, ival);
-        }
-        else
-        {
-            emit->emitIns_SIMD_R_R_S_I(ins, simdSize, targetReg, op1Reg, lclNum, lclOffs, ival);
-        }
-    }
-    else
+    if (op2->isUsedFromReg())
     {
         regNumber op2Reg = op2->GetRegNum();
 
@@ -685,7 +654,44 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
             op1Reg = targetReg;
         }
 
-        emit->emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op1Reg, op2Reg, ival);
+        emit.emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op1Reg, op2Reg, ival);
+
+        return;
+    }
+
+    if (op2->IsDblConPositiveZero())
+    {
+        assert(ins == INS_insertps);
+
+        ival |= 1 << ((ival >> 4) & 0b11);
+        emit.emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op1Reg, op1Reg, ival);
+
+        return;
+    }
+
+    assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
+    assert((ins == INS_insertps) || IsContainableHWIntrinsicOp(compiler, node, op2));
+
+    unsigned             lclNum;
+    unsigned             lclOffs;
+    GenTree*             addr;
+    CORINFO_FIELD_HANDLE field;
+
+    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
+    {
+        unreached();
+    }
+    else if (addr != nullptr)
+    {
+        emit.emitIns_SIMD_R_R_A_I(ins, simdSize, targetReg, op1Reg, addr, ival);
+    }
+    else if (field != nullptr)
+    {
+        emit.emitIns_SIMD_R_R_C_I(ins, simdSize, targetReg, op1Reg, field, ival);
+    }
+    else
+    {
+        emit.emitIns_SIMD_R_R_S_I(ins, simdSize, targetReg, op1Reg, lclNum, lclOffs, ival);
     }
 }
 
@@ -696,7 +702,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     GenTree*  op2       = node->GetOp(1);
     GenTree*  op3       = node->GetOp(2);
     emitAttr  simdSize  = emitVecTypeSize(node->GetSimdSize());
-    emitter*  emit      = GetEmitter();
+    Emitter&  emit      = *GetEmitter();
 
     regNumber op1Reg = op1->GetRegNum();
     regNumber op3Reg = op3->GetRegNum();
@@ -707,7 +713,8 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
 
     if (op2->isUsedFromReg())
     {
-        emit->emitIns_SIMD_R_R_R_R(ins, simdSize, targetReg, op1Reg, op2->GetRegNum(), op3Reg);
+        emit.emitIns_SIMD_R_R_R_R(ins, simdSize, targetReg, op1Reg, op2->GetRegNum(), op3Reg);
+
         return;
     }
 
@@ -725,7 +732,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     }
     else if (addr != nullptr)
     {
-        emit->emitIns_SIMD_R_R_A_R(ins, simdSize, targetReg, op1Reg, op3Reg, addr);
+        emit.emitIns_SIMD_R_R_A_R(ins, simdSize, targetReg, op1Reg, op3Reg, addr);
     }
     else if (field != nullptr)
     {
@@ -734,7 +741,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     }
     else
     {
-        emit->emitIns_SIMD_R_R_S_R(ins, simdSize, targetReg, op1Reg, op3Reg, lclNum, lclOffs);
+        emit.emitIns_SIMD_R_R_S_R(ins, simdSize, targetReg, op1Reg, op3Reg, lclNum, lclOffs);
     }
 }
 
@@ -745,35 +752,35 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
     assert(op1Reg != REG_NA);
     assert(op2Reg != REG_NA);
 
-    emitter* emit = GetEmitter();
+    Emitter& emit = *GetEmitter();
 
-    if (op3->isContained() || op3->isUsedFromSpillTemp())
+    if (op3->isUsedFromReg())
     {
-        unsigned             lclNum;
-        unsigned             lclOffs;
-        GenTree*             addr;
-        CORINFO_FIELD_HANDLE field;
+        emit.emitIns_SIMD_R_R_R_R(ins, attr, targetReg, op1Reg, op2Reg, op3->GetRegNum());
 
-        if (!IsMemoryOperand(op3, &lclNum, &lclOffs, &addr, &field))
-        {
-            unreached();
-        }
-        else if (addr != nullptr)
-        {
-            emit->emitIns_SIMD_R_R_R_A(ins, attr, targetReg, op1Reg, op2Reg, addr);
-        }
-        else if (field != nullptr)
-        {
-            emit->emitIns_SIMD_R_R_R_C(ins, attr, targetReg, op1Reg, op2Reg, field);
-        }
-        else
-        {
-            emit->emitIns_SIMD_R_R_R_S(ins, attr, targetReg, op1Reg, op2Reg, lclNum, lclOffs);
-        }
+        return;
+    }
+
+    unsigned             lclNum;
+    unsigned             lclOffs;
+    GenTree*             addr;
+    CORINFO_FIELD_HANDLE field;
+
+    if (!IsMemoryOperand(op3, &lclNum, &lclOffs, &addr, &field))
+    {
+        unreached();
+    }
+    else if (addr != nullptr)
+    {
+        emit.emitIns_SIMD_R_R_R_A(ins, attr, targetReg, op1Reg, op2Reg, addr);
+    }
+    else if (field != nullptr)
+    {
+        emit.emitIns_SIMD_R_R_R_C(ins, attr, targetReg, op1Reg, op2Reg, field);
     }
     else
     {
-        emit->emitIns_SIMD_R_R_R_R(ins, attr, targetReg, op1Reg, op2Reg, op3->GetRegNum());
+        emit.emitIns_SIMD_R_R_R_S(ins, attr, targetReg, op1Reg, op2Reg, lclNum, lclOffs);
     }
 }
 
