@@ -5188,6 +5188,7 @@ UNATIVE_OFFSET emitter::emitCodeOffset(void* blockPtr, unsigned codePos)
     return ig->igOffs + of;
 }
 
+#ifndef TARGET_XARCH
 emitter::cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
 {
     if (id->idIsLargeCns())
@@ -5199,6 +5200,7 @@ emitter::cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
         return id->idSmallCns();
     }
 }
+#endif
 
 // A helper for recording a relocation with the EE.
 void emitter::emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta)

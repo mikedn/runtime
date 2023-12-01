@@ -316,6 +316,7 @@ instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
 #endif
                             int32_t disp);
 
+cnsval_ssize_t emitGetInsSC(instrDesc* id);
 ssize_t emitGetInsCns(instrDesc* id);
 ssize_t emitGetInsMemDisp(instrDesc* id);
 ssize_t emitGetInsMemImm(instrDesc* id);

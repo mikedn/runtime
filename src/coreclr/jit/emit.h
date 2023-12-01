@@ -1373,7 +1373,9 @@ private:
 
     size_t emitGetInstrDescSizeSC(const instrDesc* id);
 
+#ifndef TARGET_XARCH
     cnsval_ssize_t emitGetInsSC(instrDesc* id);
+#endif
 
 #ifdef DEBUG
     const char* genInsDisplayName(instrDesc* id);

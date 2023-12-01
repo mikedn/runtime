@@ -3665,6 +3665,18 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
     emitCurIGsize += sz;
 }
 
+emitter::cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
+{
+    if (id->idIsLargeCns())
+    {
+        return static_cast<instrDescCns*>(id)->idcCnsVal;
+    }
+    else
+    {
+        return id->idSmallCns();
+    }
+}
+
 ssize_t emitter::emitGetInsCns(instrDesc* id)
 {
     return id->idIsLargeCns() ? static_cast<instrDescCns*>(id)->idcCnsVal : id->idSmallCns();
