@@ -3665,18 +3665,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
     emitCurIGsize += sz;
 }
 
-ssize_t emitter::emitGetInsSC(instrDesc* id)
-{
-    if (id->idIsLargeCns())
-    {
-        return static_cast<instrDescCns*>(id)->idcCnsVal;
-    }
-    else
-    {
-        return id->idSmallCns();
-    }
-}
-
 ssize_t emitter::emitGetInsCns(instrDesc* id)
 {
     return id->idIsLargeCns() ? static_cast<instrDescCns*>(id)->idcCnsVal : id->idSmallCns();
@@ -4648,7 +4636,7 @@ void emitter::emitDispIns(
     switch (id->idInsFmt())
     {
         case IF_CNS:
-            PrintImm(id, emitGetInsSC(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_ARD:
@@ -4878,7 +4866,7 @@ void emitter::emitDispIns(
 
             printf("%s, %s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr),
                    RegName(id->idReg3(), attr3));
-            PrintImm(id, emitGetInsSC(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_RRW_RRD_CNS:
@@ -4897,7 +4885,7 @@ void emitter::emitDispIns(
             }
 
             printf("%s, %s, ", RegName(id->idReg1(), attr1), RegName(id->idReg2(), attr2));
-            PrintImm(id, emitGetInsSC(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_RRD:
@@ -4976,7 +4964,7 @@ void emitter::emitDispIns(
         case IF_RWR_CNS:
         case IF_RRW_CNS:
             printf("%s, ", RegName(id->idReg1(), attr));
-            PrintImm(id, emitGetInsSC(id));
+            PrintImm(id, emitGetInsCns(id));
             break;
 
         case IF_LABEL:
@@ -7408,7 +7396,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
                 code |= 1;
 
-                if (IsImm8(emitGetInsSC(id)))
+                if (IsImm8(emitGetInsCns(id)))
                 {
                     code |= 2;
                 }
@@ -7485,11 +7473,11 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
     if ((ins == INS_imuli) && ((code & 0x02) == 0))
     {
-        dst += emitOutputLong(dst, emitGetInsSC(id));
+        dst += emitOutputLong(dst, emitGetInsCns(id));
     }
     else
     {
-        dst += emitOutputByte(dst, emitGetInsSC(id));
+        dst += emitOutputByte(dst, emitGetInsCns(id));
     }
 
     assert(id->idGCref() == GCT_NONE);
@@ -7507,7 +7495,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
     emitAttr    size = id->idOpSize();
     instruction ins  = id->idIns();
     regNumber   reg  = id->idReg1();
-    ssize_t     imm  = emitGetInsSC(id);
+    ssize_t     imm  = emitGetInsCns(id);
 
     // BT reg,imm might be useful but it requires special handling of the immediate value
     // (it is always encoded in a byte). Let's not complicate things until this is needed.
@@ -7643,7 +7631,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 
         dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
         dst += emitOutputWord(dst, code);
-        dst += emitOutputByte(dst, emitGetInsSC(id));
+        dst += emitOutputByte(dst, emitGetInsCns(id));
 
         assert(!id->idGCref());
         emitGCregDeadUpd(id->idReg1(), dst);
@@ -7768,7 +7756,7 @@ uint8_t* emitter::emitOutputIV(uint8_t* dst, instrDesc* id)
 {
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
-    ssize_t     val  = emitGetInsSC(id);
+    ssize_t     val  = emitGetInsCns(id);
 
 #ifdef TARGET_AMD64
     assert((ins == INS_push_hide) && (size == EA_8BYTE) && (val == 0) && !id->idIsCnsReloc());
@@ -8338,7 +8326,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_RRD_RRD_CNS:
         case IF_RWR_RRD_RRD_RRD:
             dst = emitOutputRRR(dst, id);
-            dst += emitOutputByte(dst, emitGetInsSC(id));
+            dst += emitOutputByte(dst, emitGetInsCns(id));
             sz = emitSizeOfInsDsc(id);
             break;
 
@@ -8819,7 +8807,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             case INS_sub:
                 if ((id->idInsFmt() == IF_RRW_CNS) && (id->idReg1() == REG_ESP))
                 {
-                    size_t imm = static_cast<size_t>(emitGetInsSC(id));
+                    size_t imm = static_cast<size_t>(emitGetInsCns(id));
                     assert(imm < UINT_MAX);
                     unsigned count    = static_cast<unsigned>(imm) / TARGET_POINTER_SIZE;
                     unsigned codeOffs = emitCurCodeOffs(dst);
