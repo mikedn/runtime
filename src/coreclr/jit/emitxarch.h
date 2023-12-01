@@ -168,38 +168,6 @@ private:
 bool        UseVEXEncoding() const;
 static bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 = REG_NA);
 
-void* emitAllocAnyInstr(unsigned sz, emitAttr attr, bool updateLastIns = true);
-
-template <typename T>
-T* AllocInstr(emitAttr attr, bool updateLastIns = true)
-{
-    return static_cast<T*>(emitAllocAnyInstr(sizeof(T), attr, updateLastIns));
-}
-
-instrDesc* emitAllocInstr(emitAttr attr);
-instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
-instrDescCns* emitAllocInstrCns(emitAttr attr);
-instrDescCns* emitAllocInstrCns(emitAttr attr, cnsval_size_t cns);
-instrDesc* emitNewInstrSmall(emitAttr attr);
-instrDesc* emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns);
-instrDesc* emitNewInstrCns(emitAttr attr, int32_t cns);
-instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
-instrDescJmp*  emitAllocInstrJmp();
-instrDescJmp*  emitNewInstrJmp();
-instrDescCGCA* emitAllocInstrCGCA(emitAttr attr);
-instrDescAlign* emitAllocInstrAlign();
-instrDescDsp* emitAllocInstrDsp(emitAttr attr);
-instrDescCnsDsp* emitAllocInstrCnsDsp(emitAttr attr);
-instrDescAmd* emitAllocInstrAmd(emitAttr attr);
-instrDescCnsAmd* emitAllocInstrCnsAmd(emitAttr attr);
-
-ssize_t emitGetInsCns(instrDesc* id);
-ssize_t emitGetInsMemDisp(instrDesc* id);
-ssize_t emitGetInsMemImm(instrDesc* id);
-ssize_t emitGetInsAmdCns(instrDesc* id);
-ssize_t emitGetInsAmdDisp(instrDesc* id);
-ssize_t emitGetInsCallDisp(instrDesc* id);
-
 // code_t is a type used to accumulate bits of opcode + prefixes. On amd64, it must be 64 bits
 // to support the REX prefixes. On both x86 and amd64, it must be 64 bits to support AVX, with
 // its 3-byte VEX prefix.
@@ -322,7 +290,17 @@ void PrintFrameRef(instrDesc* id, bool asmfm);
 void SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs);
 ssize_t GetAddrModeDisp(GenTree* addr);
 void SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* addr);
-instrDesc* emitNewInstrDsp(emitAttr attr);
+
+template <typename T>
+T* AllocInstr(emitAttr attr, bool updateLastIns = true);
+
+instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
+instrDesc* emitNewInstrSmall(emitAttr attr);
+instrDesc* emitNewInstrSC(emitAttr attr, cnsval_ssize_t cns);
+instrDesc* emitNewInstrCns(emitAttr attr, int32_t cns);
+instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
+instrDescJmp*  emitNewInstrJmp();
+instrDescCGCA* emitNewInstrCGCA(emitAttr attr);
 #ifdef TARGET_X86
 instrDesc* emitNewInstrDsp(emitAttr attr, int32_t disp);
 #endif
@@ -330,7 +308,6 @@ instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t imm);
 instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t imm, int32_t disp);
 instrDesc* emitNewInstrAmd(emitAttr attr, ssize_t dsp);
 instrDesc* emitNewInstrAmdCns(emitAttr attr, ssize_t dsp, int32_t cns);
-
 instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
                             emitAttr              retRegAttr,
 #ifdef UNIX_AMD64_ABI
@@ -340,6 +317,13 @@ instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
                             int argSlotCount,
 #endif
                             int32_t disp);
+
+ssize_t emitGetInsCns(instrDesc* id);
+ssize_t emitGetInsMemDisp(instrDesc* id);
+ssize_t emitGetInsMemImm(instrDesc* id);
+ssize_t emitGetInsAmdCns(instrDesc* id);
+ssize_t emitGetInsAmdDisp(instrDesc* id);
+ssize_t emitGetInsCallDisp(instrDesc* id);
 
 /************************************************************************/
 /*               Private helpers for instruction output                 */

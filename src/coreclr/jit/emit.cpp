@@ -1861,7 +1861,11 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         }
 #endif
 
+#ifdef TARGET_XARCH
+        instrDescCGCA* idc = emitNewInstrCGCA(retRegAttr);
+#else
         instrDescCGCA* idc = emitAllocInstrCGCA(retRegAttr);
+#endif
         idc->idSetIsLargeCall();
         idc->idcGCvars    = VarSetOps::MakeCopy(emitComp, gcLcls);
         idc->idcGcrefRegs = refRegs;
@@ -1886,7 +1890,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #ifdef TARGET_X86
         id = emitNewInstrCns(retRegAttr, argSlotCount);
 #else
-        id = emitAllocInstr(retRegAttr);
+        id                 = emitNewInstr(retRegAttr);
 #endif
 
 #ifdef TARGET_XARCH
