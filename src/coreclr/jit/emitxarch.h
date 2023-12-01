@@ -44,7 +44,7 @@ void emitIns_H(instruction ins, void* addr);
 void emitIns_L(instruction ins, BasicBlock* dst);
 #endif
 #ifdef WINDOWS_X86_ABI
-void emitInsMov_R_FS(regNumber reg, int offs);
+void emitInsMov_R_FS(regNumber reg, int32_t offs);
 #endif
 void emitIns_I(instruction ins, emitAttr attr, int32_t val);
 void emitIns_R(instruction ins, emitAttr attr, regNumber reg);
@@ -302,7 +302,10 @@ void PrintFrameRef(instrDesc* id, bool asmfm);
 void SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs);
 ssize_t GetAddrModeDisp(GenTree* addr);
 void SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* addr);
-instrDesc* emitNewInstrDsp(emitAttr attr, target_ssize_t dsp);
+instrDesc* emitNewInstrDsp(emitAttr attr);
+#ifdef TARGET_X86
+instrDesc* emitNewInstrDsp(emitAttr attr, int32_t disp);
+#endif
 instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t cns, int dsp);
 instrDesc* emitNewInstrAmd(emitAttr attr, ssize_t dsp);
 instrDesc* emitNewInstrAmdCns(emitAttr attr, ssize_t dsp, int32_t cns);

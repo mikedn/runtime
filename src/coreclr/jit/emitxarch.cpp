@@ -1318,25 +1318,32 @@ emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, target_ssize_t cn
     return id;
 }
 
-emitter::instrDesc* emitter::emitNewInstrDsp(emitAttr attr, target_ssize_t dsp)
+emitter::instrDesc* emitter::emitNewInstrDsp(emitAttr attr)
 {
-    if (dsp == 0)
-    {
-        instrDesc* id = emitAllocInstr(attr);
+    instrDesc* id = emitAllocInstr(attr);
 #if EMITTER_STATS
-        emitSmallDspCnt++;
+    emitSmallDspCnt++;
 #endif
-        return id;
+    return id;
+}
+
+#ifdef TARGET_X86
+emitter::instrDesc* emitter::emitNewInstrDsp(emitAttr attr, int32_t disp)
+{
+    if (disp == 0)
+    {
+        return emitNewInstrDsp(attr, disp);
     }
 
     instrDescDsp* id = emitAllocInstrDsp(attr);
     id->idSetIsLargeDsp();
-    id->iddDspVal = dsp;
+    id->iddDspVal = disp;
 #if EMITTER_STATS
     emitLargeDspCnt++;
 #endif
     return id;
 }
+#endif // TARGET_X86
 
 emitter::instrDesc* emitter::emitNewInstrAmd(emitAttr size, ssize_t dsp)
 {
@@ -1990,7 +1997,7 @@ void emitter::emitIns_H(instruction ins, void* addr)
 #endif
 
 #ifdef WINDOWS_X86_ABI
-void emitter::emitInsMov_R_FS(regNumber reg, int offs)
+void emitter::emitInsMov_R_FS(regNumber reg, int32_t offs)
 {
     assert(genIsValidIntReg(reg));
 
@@ -2048,7 +2055,7 @@ void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fie
 {
     assert(FieldDispRequiresRelocation(field));
 
-    instrDesc* id = emitNewInstrDsp(attr, 0);
+    instrDesc* id = emitNewInstrDsp(attr);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD));
@@ -2583,7 +2590,7 @@ void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regN
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
     assert(FieldDispRequiresRelocation(field));
 
-    instrDesc* id = emitNewInstrDsp(attr, 0);
+    instrDesc* id = emitNewInstrDsp(attr);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_MRD);
@@ -2828,7 +2835,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     assert(FieldDispRequiresRelocation(field));
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
-    instrDesc* id = emitNewInstrDsp(attr, 0);
+    instrDesc* id = emitNewInstrDsp(attr);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_MRD));
@@ -2874,7 +2881,7 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
 
     noway_assert(emitVerifyEncodable(ins, size, reg));
 
-    instrDesc* id = emitNewInstrDsp(attr, 0);
+    instrDesc* id = emitNewInstrDsp(attr);
     id->idIns(ins);
     id->idOpSize(size);
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD_RRD));
