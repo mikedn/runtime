@@ -3678,7 +3678,7 @@ ssize_t emitter::emitGetInsMemDisp(instrDesc* id)
     }
     else if (id->idIsLargeCns())
     {
-        return static_cast<instrDescCns*>(id)->idcCnsVal;
+        return static_cast<instrDescCnsAmd*>(id)->idacAmdVal;
     }
     else
     {
