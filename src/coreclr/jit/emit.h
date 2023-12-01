@@ -942,7 +942,7 @@ private:
 
         GCtype idGCref() const
         {
-            return (GCtype)_idGCref;
+            return _idGCref;
         }
         void idGCref(GCtype gctype)
         {

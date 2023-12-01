@@ -1051,8 +1051,10 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
     assert(id->idCodeSize() == 0);
 #endif
 
+#ifndef TARGET_XARCH
     id->idGCref(EA_GC_TYPE(opsz));
     id->idOpSize(EA_SIZE(opsz));
+#endif
 
 #ifdef TARGET_XARCH
     assert(!EA_IS_DSP_RELOC(opsz));
@@ -1200,10 +1202,12 @@ emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
     }
 
     instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(SMALL_IDSC_SIZE, attr, false));
-
     id->idSetIsSmallDsc();
     id->idIns(INS_mov);
     id->idInsFmt(IF_GC_REG);
+#ifdef TARGET_XARCH
+    id->idGCref(EA_GC_TYPE(attr));
+#endif
     id->idReg1(reg);
     id->idReg2(reg);
 
@@ -2207,6 +2211,8 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         idc->idcGcrefRegs = refRegs;
         idc->idcByrefRegs = byrefRegs;
 #ifdef TARGET_XARCH
+        idc->idOpSize(EA_SIZE(retRegAttr));
+        idc->idGCref(EA_GC_TYPE(retRegAttr));
         idc->idcDisp = disp;
 #endif
 #ifdef TARGET_X86
@@ -2225,6 +2231,11 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         id = emitNewInstrCns(retRegAttr, argSlotCount);
 #else
         id = emitAllocInstr(retRegAttr);
+#endif
+
+#ifdef TARGET_XARCH
+        id->idOpSize(EA_SIZE(retRegAttr));
+        id->idGCref(EA_GC_TYPE(retRegAttr));
 #endif
 
         EncodeCallGCRegs(refRegs, id);

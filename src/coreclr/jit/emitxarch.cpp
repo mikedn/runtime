@@ -1500,6 +1500,7 @@ void emitter::emitIns(instruction ins, emitAttr attr)
 
     instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
+    id->idOpSize(attr);
     id->idInsFmt(IF_NONE);
 
     size_t code = insCodeMR(ins);
@@ -1707,6 +1708,7 @@ void emitter::PrologSpillParamRegsToShadowSlots()
 
         instrDesc* id = emitNewInstrAmd(EA_PTRSIZE, offset);
         id->idIns(INS_mov);
+        id->idOpSize(EA_PTRSIZE);
         id->idInsFmt(IF_AWR_RRD);
         id->idAddr()->iiaAddrMode.amBaseReg = REG_SPBASE;
         id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
@@ -1741,6 +1743,8 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
 
     instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
+    id->idGCref(EA_GC_TYPE(attr));
     SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD), ins, addr);
 
     unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
@@ -1773,6 +1777,8 @@ void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t
 
     instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
+    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD_CNS), ins, addr);
 
     unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
@@ -1799,6 +1805,8 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
 
     instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
+    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     id->idReg1(reg);
     SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD_RRD), ins, addr);
 
@@ -1811,8 +1819,10 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
 void emitter::emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr)
 {
     instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
-    SetInstrAddrMode(id, IF_ARW, ins, addr);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
+    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
+    SetInstrAddrMode(id, IF_ARW, ins, addr);
 
     unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -1830,8 +1840,10 @@ void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int3
     }
 
     instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
-    SetInstrAddrMode(id, IF_ARW_CNS, ins, addr);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
+    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
+    SetInstrAddrMode(id, IF_ARW_CNS, ins, addr);
 
     unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -1842,9 +1854,11 @@ void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int3
 void emitter::emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg)
 {
     instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
-    SetInstrAddrMode(id, IF_ARW_RRD, ins, addr);
-    id->idReg1(reg);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
+    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
+    id->idReg1(reg);
+    SetInstrAddrMode(id, IF_ARW_RRD, ins, addr);
 
     unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -1861,7 +1875,9 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
 
     instrDesc* id = emitNewInstrSmall(attr);
     id->idIns(ins);
+    id->idOpSize(size);
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD));
+    id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
 
     unsigned sz = emitInsSizeR(ins, size, reg);
@@ -1881,6 +1897,7 @@ void emitter::emitIns_R_H(instruction ins, regNumber reg, void* addr DEBUGARG(Ha
 
     instrDesc* id = emitNewInstrSC(EA_PTR_CNS_RELOC, reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
+    id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_CNS);
     id->idReg1(reg);
     INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
@@ -1931,7 +1948,9 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
 
     instrDesc* id = emitNewInstrSC(attr, imm);
     id->idIns(ins);
+    id->idOpSize(size);
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_CNS));
+    id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
     INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
 
@@ -1955,6 +1974,7 @@ void emitter::emitIns_H(instruction ins, void* addr)
 
     instrDesc* id = emitNewInstrSC(EA_PTR_CNS_RELOC, reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
+    id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_CNS);
 
     id->idCodeSize(5);
@@ -1974,6 +1994,7 @@ void emitter::emitInsMov_R_FS(regNumber reg, int offs)
 
     instrDesc* id = emitNewInstrDsp(EA_4BYTE, offs);
     id->idIns(INS_mov);
+    id->idOpSize(EA_4BYTE);
     id->idInsFmt(emitInsModeFormat(INS_mov, IF_RRD_MRD));
     id->idReg1(reg);
     id->idAddr()->iiaFieldHnd = FS_SEG_FIELD;
@@ -1989,6 +2010,7 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 {
     instrDesc* id = emitNewInstrSC(attr, imm);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_CNS);
 
     unsigned sz;
@@ -2026,7 +2048,9 @@ void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fie
 
     instrDesc* id = emitNewInstrDsp(attr, 0);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD));
+    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
 
@@ -2294,7 +2318,9 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
 
     instrDesc* id = emitNewInstrSmall(attr);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(fmt);
+    id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(dstReg);
     id->idReg2(srcReg);
 
@@ -2318,7 +2344,9 @@ void emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNum
 
     instrDesc* id = emitNewInstrSmall(attr);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt((ins == INS_xchg) ? IF_RRW_RRW : emitInsModeFormat(ins, IF_RRD_RRD));
+    id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
 
@@ -2334,7 +2362,9 @@ void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regN
 
     instrDesc* id = emitNewInstrSC(attr, imm);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RRW_RRD_CNS);
+    id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
 
@@ -2346,7 +2376,7 @@ void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regN
 
 void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t disp)
 {
-    assert(IsPrefetch(ins));
+    assert(IsPrefetch(ins) && (attr == EA_1BYTE));
 
     instrDesc* id = emitNewInstrAmd(attr, disp);
     id->idIns(ins);
@@ -2364,10 +2394,12 @@ void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t
 void emitter::emitIns_AR_R_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber base, int32_t disp)
 {
-    assert(IsVexTernary(ins));
+    assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
     instrDesc* id = emitNewInstrAmd(attr, disp);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
+    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idInsFmt(IF_AWR_RRD_RRD);
@@ -2400,6 +2432,8 @@ void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree
 
     instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
+    id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
     SetInstrAddrMode(id, emitInsModeFormat(ins, IF_RRD_ARD), ins, addr);
 
@@ -2411,7 +2445,9 @@ void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree
 
 void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr, int32_t imm)
 {
+    assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
+    assert(!EA_IS_GCREF_OR_BYREF(attr));
 
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
@@ -2420,10 +2456,11 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
     }
 
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
-    assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
 
     instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
+    id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg1);
     SetInstrAddrMode(id, IF_RRW_ARD_CNS, ins, addr);
 
@@ -2437,11 +2474,14 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORI
 {
     assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
+    assert(!EA_IS_GCREF_OR_BYREF(attr));
     assert(FieldDispRequiresRelocation(field));
+
+    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
 
     instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RRW_MRD_CNS);
     id->idReg1(reg1);
     id->idAddr()->iiaFieldHnd = field;
@@ -2455,12 +2495,15 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORI
 
 void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int varx, int offs, int32_t imm)
 {
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
     assert(IsSSEOrAVXInstruction(ins) || (ins == INS_imuli));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
+    assert(!EA_IS_GCREF_OR_BYREF(attr));
+
+    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
 
     instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RRW_SRD_CNS);
     id->idReg1(reg1);
     SetInstrLclAddrMode(id, varx, offs);
@@ -2473,10 +2516,11 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
 
 void emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr)
 {
-    assert(IsVexTernary(ins));
+    assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
     instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
     SetInstrAddrMode(id, IF_RWR_RRD_ARD, ins, addr);
@@ -2514,10 +2558,11 @@ void emitter::emitIns_R_AR_R(instruction ins,
                              int         scale,
                              int32_t     disp)
 {
-    assert(IsAVX2GatherInstruction(ins));
+    assert(IsAVX2GatherInstruction(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
     instrDesc* id = emitNewInstrAmd(attr, disp);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idInsFmt(IF_RWR_ARD_RRD);
@@ -2533,11 +2578,12 @@ void emitter::emitIns_R_AR_R(instruction ins,
 
 void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field)
 {
-    assert(IsVexTernary(ins));
+    assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
     assert(FieldDispRequiresRelocation(field));
 
     instrDesc* id = emitNewInstrDsp(attr, 0);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_MRD);
     id->idReg1(reg1);
     id->idReg2(reg2);
@@ -2552,10 +2598,11 @@ void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regN
 
 void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3)
 {
-    assert(IsVexTernary(ins));
+    assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
     instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_RRD);
     id->idReg1(reg1);
     id->idReg2(reg2);
@@ -2569,10 +2616,11 @@ void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regN
 
 void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs)
 {
-    assert(IsVexTernary(ins));
+    assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
     instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_SRD);
     id->idReg1(reg1);
     id->idReg2(reg2);
@@ -2588,14 +2636,14 @@ void emitter::emitIns_R_R_A_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int32_t imm, insFormat fmt)
 {
     assert(IsVexTernary(ins));
-    assert(!EA_IS_CNS_RELOC(attr));
+    assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
     assert(IsImm8(imm));
 
     instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
-
     SetInstrAddrMode(id, fmt, ins, addr);
 
     unsigned sz = emitInsSizeAM(id, insCodeRM(ins)) + 1;
@@ -2608,12 +2656,13 @@ void emitter::emitIns_R_R_C_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field, int32_t imm)
 {
     assert(IsVexTernary(ins));
+    assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
     assert(FieldDispRequiresRelocation(field));
-    assert(!EA_IS_CNS_RELOC(attr));
     assert(IsImm8(imm));
 
     instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_MRD_CNS);
     id->idReg1(reg1);
     id->idReg2(reg2);
@@ -2630,11 +2679,12 @@ void emitter::emitIns_R_R_R_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int32_t imm)
 {
     assert(IsVexTernary(ins));
-    assert(!EA_IS_CNS_RELOC(attr));
+    assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
     assert(IsImm8(imm));
 
     instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_RRD_CNS);
     id->idReg1(reg1);
     id->idReg2(reg2);
@@ -2650,11 +2700,12 @@ void emitter::emitIns_R_R_S_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs, int32_t imm)
 {
     assert(IsVexTernary(ins));
-    assert(!EA_IS_CNS_RELOC(attr));
+    assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
     assert(IsImm8(imm));
 
     instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_SRD_CNS);
     id->idReg1(reg1);
     id->idReg2(reg2);
@@ -2681,8 +2732,9 @@ static int8_t EncodeXmmRegAsImm(regNumber reg)
 void emitter::emitIns_R_R_A_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr)
 {
-    assert(IsAvxBlendv(ins));
     assert(UseVEXEncoding());
+    assert(IsAvxBlendv(ins));
+    assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
 
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
@@ -2692,6 +2744,7 @@ void emitter::emitIns_R_R_A_R(
 
     instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), EncodeXmmRegAsImm(reg3));
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
     SetInstrAddrMode(id, IF_RWR_RRD_ARD_RRD, ins, addr);
@@ -2705,12 +2758,14 @@ void emitter::emitIns_R_R_A_R(
 void emitter::emitIns_R_R_C_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, CORINFO_FIELD_HANDLE field)
 {
-    assert(IsAvxBlendv(ins));
     assert(UseVEXEncoding());
+    assert(IsAvxBlendv(ins));
+    assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
     assert(FieldDispRequiresRelocation(field));
 
     instrDesc* id = emitNewInstrCnsDsp(attr, EncodeXmmRegAsImm(reg3), 0);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idInsFmt(IF_RWR_RRD_MRD_RRD);
@@ -2726,11 +2781,13 @@ void emitter::emitIns_R_R_C_R(
 void emitter::emitIns_R_R_S_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int varx, int offs)
 {
-    assert(IsAvxBlendv(ins));
     assert(UseVEXEncoding());
+    assert(IsAvxBlendv(ins));
+    assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
 
     instrDesc* id = emitNewInstrCns(attr, EncodeXmmRegAsImm(reg3));
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idInsFmt(IF_RWR_RRD_SRD_RRD);
@@ -2747,9 +2804,11 @@ void emitter::emitIns_R_R_R_R(
 {
     assert(IsAvxBlendv(ins));
     assert(UseVEXEncoding());
+    assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
 
     instrDesc* id = emitNewInstrCns(attr, EncodeXmmRegAsImm(reg4));
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_RRD_RRD);
     id->idReg1(reg1);
     id->idReg2(reg2);
@@ -2769,7 +2828,9 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
 
     instrDesc* id = emitNewInstrDsp(attr, 0);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_MRD));
+    id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
     id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
@@ -2811,11 +2872,10 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
 
     noway_assert(emitVerifyEncodable(ins, size, reg));
 
-    instrDesc* id  = emitNewInstrDsp(attr, 0);
-    insFormat  fmt = emitInsModeFormat(ins, IF_MRD_RRD);
-
+    instrDesc* id = emitNewInstrDsp(attr, 0);
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idOpSize(size);
+    id->idInsFmt(emitInsModeFormat(ins, IF_MRD_RRD));
     id->idReg1(reg);
     id->idSetIsDspReloc();
     id->idAddr()->iiaFieldHnd = field;
@@ -2863,6 +2923,7 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
 
     instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD_CNS));
     id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
@@ -2879,11 +2940,10 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
-
     id->idIns(INS_lea);
-    id->idReg1(reg);
-    id->idInsFmt(IF_RWR_LABEL);
     id->idOpSize(EA_PTRSIZE);
+    id->idInsFmt(IF_RWR_LABEL);
+    id->idReg1(reg);
     id->idSetIsDspReloc();
     id->idAddr()->iiaBBlabel = dst;
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
@@ -2913,6 +2973,7 @@ void emitter::emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int32
 
     instrDesc* id = emitNewInstrAmdCns(attr, disp, imm);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_ARD_CNS));
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
@@ -2936,6 +2997,7 @@ void emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
 
     instrDesc* id = emitNewInstrAmd(EA_PTRSIZE, reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
+    id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_ARD);
     id->idReg1(reg);
     id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
@@ -2961,6 +3023,7 @@ void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs
 
     instrDesc* id = emitNewInstrAmdCns(attr, 0, imm);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_SWR_RRD_CNS);
     id->idReg1(reg);
     SetInstrLclAddrMode(id, varNum, offs);
@@ -2979,6 +3042,7 @@ void emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, regNu
 
     instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
     id->idIns(ins);
+    id->idOpSize(EA_32BYTE);
     id->idReg1(reg);
     SetInstrAddrMode(id, IF_AWR_RRD_CNS, ins, addr);
 
@@ -3008,6 +3072,7 @@ void emitter::emitIns_ARX_I(
 
     instrDesc* id = emitNewInstrAmdCns(attr, disp, imm);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_ARD_CNS));
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = index;
@@ -3035,7 +3100,9 @@ void emitter::emitIns_R_ARX(
 
     instrDesc* id = emitNewInstrAmd(attr, disp);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_ARD));
+    id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = index;
@@ -3073,6 +3140,8 @@ void emitter::emitIns_ARX_R(
     }
 
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
+    id->idGCref(EA_GC_TYPE(attr));
     id->idInsFmt(fmt);
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = index;
@@ -3355,6 +3424,8 @@ void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
 {
     instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
+    id->idGCref(EA_GC_TYPE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD));
     SetInstrLclAddrMode(id, varx, offs);
 
@@ -3374,7 +3445,9 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int var
 
     instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD_RRD));
+    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     id->idReg1(reg);
     SetInstrLclAddrMode(id, varx, offs);
 
@@ -3392,7 +3465,9 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int var
 
     instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_SRD));
+    id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
     SetInstrLclAddrMode(id, varx, offs);
 
@@ -3414,7 +3489,9 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
 
     instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD_CNS));
+    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     SetInstrLclAddrMode(id, varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
@@ -3439,6 +3516,7 @@ void emitter::emitIns_L(instruction ins, BasicBlock* dst)
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
+    id->idOpSize(EA_4BYTE);
     id->idInsFmt(IF_LABEL);
     id->idAddr()->iiaBBlabel = dst;
     id->idjKeepLong          = true;
