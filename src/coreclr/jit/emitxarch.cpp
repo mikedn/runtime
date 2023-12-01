@@ -3024,7 +3024,7 @@ void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs
     assert(attr == EA_32BYTE);
     assert((imm == 0) || (imm == 1));
 
-    instrDesc* id = emitNewInstrAmdCns(0, imm);
+    instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_SWR_RRD_CNS);
