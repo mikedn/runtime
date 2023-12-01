@@ -1754,7 +1754,6 @@ private:
     instrDescCGCA* emitAllocInstrCGCA(emitAttr attr);
 #if FEATURE_LOOP_ALIGN
     instrDescAlign* emitAllocInstrAlign();
-    instrDescAlign* emitNewInstrAlign();
 #endif
 
     size_t emitSizeOfInsDsc(instrDesc* id);

@@ -1391,7 +1391,8 @@ void emitter::emitLoopAlign(uint16_t paddingBytes)
     assert(paddingBytes <= MAX_ENCODED_SIZE);
     paddingBytes = min(paddingBytes, MAX_ENCODED_SIZE); // We may need to skip up to 15 bytes of code
 
-    instrDescAlign* id = emitNewInstrAlign();
+    instrDescAlign* id = emitAllocInstrAlign();
+    id->idIns(INS_align);
     id->idCodeSize(paddingBytes);
     id->idaIG   = emitCurIG;
     id->idaNext = emitCurIGAlignList;

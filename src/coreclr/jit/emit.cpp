@@ -1187,13 +1187,6 @@ emitter::instrDescAlign* emitter::emitAllocInstrAlign()
 #endif
     return AllocInstr<instrDescAlign>(EA_1BYTE);
 }
-
-emitter::instrDescAlign* emitter::emitNewInstrAlign()
-{
-    instrDescAlign* newInstr = emitAllocInstrAlign();
-    newInstr->idIns(INS_align);
-    return newInstr;
-}
 #endif
 
 emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
