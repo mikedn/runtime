@@ -1220,7 +1220,12 @@ emitter::instrDesc* emitter::emitNewInstr()
 
 emitter::instrDescJmp* emitter::emitNewInstrJmp()
 {
-    return AllocInstr<instrDescJmp>();
+    instrDescJmp* jmp = AllocInstr<instrDescJmp>();
+    jmp->idjIG        = emitCurIG;
+    jmp->idjOffs      = emitCurIGsize;
+    jmp->idjNext      = emitCurIGjmpList;
+    emitCurIGjmpList  = jmp;
+    return jmp;
 }
 
 emitter::instrDescCGCA* emitter::emitNewInstrCGCA()
@@ -2913,6 +2918,7 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
+    id->idjKeepLong  = true;
     id->idIns(INS_lea);
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_LABEL);
@@ -2920,12 +2926,6 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
     id->idSetIsDspReloc();
     id->idAddr()->iiaBBlabel = dst;
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
-
-    id->idjKeepLong  = true;
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
 
     unsigned sz = AMD64_ONLY(1 +) 1 + 1 + 4; // REX 8D RM DISP32
     id->idCodeSize(sz);
@@ -3491,23 +3491,12 @@ void emitter::emitIns_L(instruction ins, BasicBlock* dst)
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
+    id->idjKeepLong  = true;
     id->idIns(ins);
     id->idOpSize(EA_4BYTE);
     id->idInsFmt(IF_LABEL);
+    id->idSetIsDspReloc(emitComp->opts.compReloc);
     id->idAddr()->iiaBBlabel = dst;
-    id->idjKeepLong          = true;
-    id->idjIG                = emitCurIG;
-    id->idjOffs              = emitCurIGsize;
-
-    // Pushing the address of a basicBlock will need a reloc as the
-    // instruction uses the absolute address, not a relative address.
-    if (emitComp->opts.compReloc)
-    {
-        id->idSetIsDspReloc();
-    }
-
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
 
     id->idCodeSize(PUSH_INST_SIZE);
     dispIns(id);
@@ -3522,16 +3511,10 @@ void emitter::emitIns_CallFinally(BasicBlock* block)
     assert((block->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
+    id->idjKeepLong  = true;
     id->idIns(INS_call);
     id->idInsFmt(IF_LABEL);
     id->idAddr()->iiaBBlabel = block;
-
-    id->idjKeepLong = true;
-    id->idjIG       = emitCurIG;
-    id->idjOffs     = emitCurIGsize;
-
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
 
     INDEBUG(id->idDebugOnlyInfo()->idFinallyCall = true);
 
@@ -3567,11 +3550,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
         id->idjShort = true;
         id->idSetIsBound();
     }
-
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
 
     insGroup* tgt = nullptr;
     unsigned  sz;
