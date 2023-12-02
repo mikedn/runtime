@@ -3515,16 +3515,39 @@ void emitter::emitIns_L(instruction ins, BasicBlock* dst)
 }
 #endif // TARGET_X86
 
+#ifdef TARGET_AMD64
+void emitter::emitIns_CallFinally(BasicBlock* block)
+{
+    assert(GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
+    assert((block->bbFlags & BBF_HAS_LABEL) != 0);
+
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(INS_call);
+    id->idInsFmt(IF_LABEL);
+    id->idAddr()->iiaBBlabel = block;
+
+    id->idjKeepLong = true;
+    id->idjIG       = emitCurIG;
+    id->idjOffs     = emitCurIGsize;
+
+    id->idjNext      = emitCurIGjmpList;
+    emitCurIGjmpList = id;
+
+    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall = true);
+
+    id->idCodeSize(CALL_INST_SIZE);
+    dispIns(id);
+    emitCurIGsize += CALL_INST_SIZE;
+}
+#endif // TARGET_AMD64
+
 void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
 {
-    assert((ins == INS_jmp) || IsJccInstruction(ins) AMD64_ONLY(|| ins == INS_call));
+    assert((ins == INS_jmp) || IsJccInstruction(ins));
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
-
-    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
-                (ins == INS_call) && (GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
 
     if (dst != nullptr)
     {
@@ -3532,7 +3555,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
         assert(instrCount == 0);
 
         id->idAddr()->iiaBBlabel = dst;
-        id->idjKeepLong          = (ins == INS_call) || InDifferentRegions(GetCurrentBlock(), dst);
+        id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst);
     }
     else
     {
@@ -3550,86 +3573,76 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 
-    // Figure out the max. size of the jump/call instruction.
+    insGroup* tgt = nullptr;
+    unsigned  sz;
 
-    unsigned sz;
-
-    if (ins == INS_call)
+    if (dst != nullptr)
     {
-        sz = CALL_INST_SIZE;
+        sz  = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
+        tgt = emitCodeGetCookie(dst);
     }
     else
     {
-        insGroup* tgt = nullptr;
+        sz = JMP_SIZE_SMALL;
+    }
 
-        if (dst != nullptr)
+    if (tgt != nullptr)
+    {
+        int      extra;
+        unsigned srcOffs;
+        int      jmpDist;
+
+        assert(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
+
+        // This is a backward jump - figure out the distance
+
+        srcOffs = emitCurCodeOffset + emitCurIGsize + JMP_SIZE_SMALL;
+
+        jmpDist = srcOffs - tgt->igOffs;
+        assert((int)jmpDist > 0);
+
+        extra = jmpDist + JMP_DIST_SMALL_MAX_NEG;
+
+#if DEBUG_EMIT
+        if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
         {
-            sz  = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
-            tgt = emitCodeGetCookie(dst);
+            if (INTERESTING_JUMP_NUM == 0)
+            {
+                printf("[0] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
+            }
+
+            printf("[0] Jump source is at %08X\n", srcOffs);
+            printf("[0] Label block is at %08X\n", tgt->igOffs);
+            printf("[0] Jump  distance  - %04X\n", jmpDist);
+
+            if (extra > 0)
+            {
+                printf("[0] Distance excess = %d  \n", extra);
+            }
         }
-        else
+#endif
+
+        if (extra <= 0 && !id->idjKeepLong)
         {
+            emitSetShortJump(id);
             sz = JMP_SIZE_SMALL;
         }
-
-        if (tgt != nullptr)
-        {
-            int      extra;
-            unsigned srcOffs;
-            int      jmpDist;
-
-            assert(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
-
-            // This is a backward jump - figure out the distance
-
-            srcOffs = emitCurCodeOffset + emitCurIGsize + JMP_SIZE_SMALL;
-
-            jmpDist = srcOffs - tgt->igOffs;
-            assert((int)jmpDist > 0);
-
-            extra = jmpDist + JMP_DIST_SMALL_MAX_NEG;
-
-#if DEBUG_EMIT
-            if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
-            {
-                if (INTERESTING_JUMP_NUM == 0)
-                {
-                    printf("[0] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
-                }
-
-                printf("[0] Jump source is at %08X\n", srcOffs);
-                printf("[0] Label block is at %08X\n", tgt->igOffs);
-                printf("[0] Jump  distance  - %04X\n", jmpDist);
-
-                if (extra > 0)
-                {
-                    printf("[0] Distance excess = %d  \n", extra);
-                }
-            }
-#endif
-
-            if (extra <= 0 && !id->idjKeepLong)
-            {
-                emitSetShortJump(id);
-                sz = JMP_SIZE_SMALL;
-            }
-        }
-#if DEBUG_EMIT
-        else
-        {
-            if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
-            {
-                if (INTERESTING_JUMP_NUM == 0)
-                {
-                    printf("[0] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
-                }
-                printf("[0] Jump source is at %04X/%08X\n", emitCurIGsize,
-                       emitCurCodeOffset + emitCurIGsize + JMP_SIZE_SMALL);
-                printf("[0] Label block is unknown\n");
-            }
-        }
-#endif
     }
+#if DEBUG_EMIT
+    else
+    {
+        if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
+        {
+            if (INTERESTING_JUMP_NUM == 0)
+            {
+                printf("[0] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
+            }
+            printf("[0] Jump source is at %04X/%08X\n", emitCurIGsize,
+                   emitCurCodeOffset + emitCurIGsize + JMP_SIZE_SMALL);
+            printf("[0] Label block is unknown\n");
+        }
+    }
+#endif
 
     id->idCodeSize(sz);
     dispIns(id);

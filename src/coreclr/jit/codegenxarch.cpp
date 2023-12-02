@@ -247,6 +247,8 @@ void CodeGen::SetStackLevel(unsigned newStackLevel)
 
 BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
 {
+    assert(block->GetKind() == BBJ_CALLFINALLY);
+
 #ifdef FEATURE_EH_FUNCLETS
     // Generate a call to the finally, like this:
     //      mov         rcx,qword ptr [rbp + 20H]       // Load rcx with PSPSym
@@ -268,7 +270,8 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     {
         GetEmitter()->emitIns_R_S(ins_Load(TYP_I_IMPL), EA_PTRSIZE, REG_ARG_0, compiler->lvaPSPSym, 0);
     }
-    GetEmitter()->emitIns_J(INS_call, block->bbJumpDest);
+
+    GetEmitter()->emitIns_CallFinally(block->bbJumpDest);
 
     if (block->bbFlags & BBF_RETLESS_CALL)
     {
