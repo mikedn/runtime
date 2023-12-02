@@ -1469,24 +1469,6 @@ void emitter::emitIns(instruction ins, emitAttr attr)
     emitCurIGsize += sz;
 }
 
-ssize_t emitter::GetAddrModeDisp(GenTree* addr)
-{
-    if (addr->isContained())
-    {
-        if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
-        {
-            return addrMode->GetOffset();
-        }
-
-        if (GenTreeIntCon* intConAddr = addr->IsIntCon())
-        {
-            return intConAddr->GetValue();
-        }
-    }
-
-    return 0;
-}
-
 void emitter::SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs)
 {
     id->SetVarAddr(varNum, varOffs);
@@ -1531,6 +1513,21 @@ bool emitter::IntConNeedsReloc(GenTreeIntCon* con)
 #else
     return emitComp->opts.compReloc && con->IsIconHandle();
 #endif
+}
+
+ssize_t emitter::GetAddrModeDisp(GenTree* addr)
+{
+    if (!addr->isContained())
+    {
+        return 0;
+    }
+
+    if (GenTreeIntCon* intConAddr = addr->IsIntCon())
+    {
+        return intConAddr->GetValue();
+    }
+
+    return addr->AsAddrMode()->GetOffset();
 }
 
 void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
