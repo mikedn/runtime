@@ -39,6 +39,9 @@ void emitIns_J(instruction ins, int instrCount = 0);
 void emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr);
 void emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm);
 void emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg);
+void emitInsRMW_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field);
+void emitInsRMW_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, int32_t imm);
+void emitInsRMW_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg);
 void emitIns_Nop(unsigned size);
 void emitIns_Lock();
 #ifdef TARGET_AMD64
@@ -73,10 +76,10 @@ void emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg
 void emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field);
 void emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs);
 void emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3);
-void emitIns_R_R_A_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int32_t imm, insFormat fmt);
+void emitIns_R_R_A_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int32_t imm);
 void emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs, regNumber reg, int32_t imm);
 void emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, regNumber reg, int32_t imm);
+void emitIns_C_R_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg, int32_t imm);
 void emitIns_R_R_C_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field, int32_t imm);
 void emitIns_R_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int32_t imm);
@@ -294,7 +297,7 @@ void PrintFrameRef(instrDesc* id, bool asmfm);
 
 void SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs);
 ssize_t GetAddrModeDisp(GenTree* addr);
-void SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* addr);
+void SetInstrAddrMode(instrDesc* id, GenTree* addr);
 
 template <typename T>
 T* AllocInstr(bool updateLastIns = true);
