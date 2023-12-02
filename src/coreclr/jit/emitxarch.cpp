@@ -4200,11 +4200,11 @@ void emitter::PrintImm(instrDesc* id, ssize_t val)
     }
     else if ((val > 0) || (val < -0xFFFFFF))
     {
-        printf("0x%IX", val);
+        printf("0x%" AMD64_ONLY("I") "X", val);
     }
     else
     {
-        printf("-0x%IX", -val);
+        printf("-0x%" AMD64_ONLY("I") "X", -val);
     }
 
     if (id->idDebugOnlyInfo()->idHandleKind != HandleKind::None)
