@@ -171,7 +171,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
     // TODO-MIKE-Review: These 2 have confusing names. emitSize appears to be the vector
     // element size while attr is the size of the vector itself. Well, unless the node's
     // type is not a vector. Oh well.
-    emitAttr attr = emitTypeSize(node->GetType());
+    emitAttr attr = node->TypeIs(TYP_VOID) ? EA_UNKNOWN : emitTypeSize(node->GetType());
     emitAttr emitSize;
     insOpts  opt;
 
