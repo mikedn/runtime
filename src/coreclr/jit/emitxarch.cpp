@@ -4072,19 +4072,20 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
             return sizeof(instrDescJmp);
 
         case ID_OP_CALL:
-        case ID_OP_CNS:
         case ID_OP_DSP:
         case ID_OP_DSP_CNS:
         case ID_OP_AMD:
         case ID_OP_AMD_CNS:
-            if (id->idIsLargeCns())
+            if (id->idIsLargeCns() && id->idIsLargeDsp())
             {
-                return id->idIsLargeDsp() ? sizeof(instrDescCnsAmd) : sizeof(instrDescCns);
+                return sizeof(instrDescCnsAmd);
             }
-
-            if (id->idIsLargeDsp())
+            FALLTHROUGH;
+        case ID_OP_CNS:
+            if (id->idIsLargeDsp() || id->idIsLargeCns())
             {
-                return sizeof(instrDescAmd);
+                static_assert_no_msg(sizeof(instrDescAmd) == sizeof(instrDescCns));
+                return sizeof(instrDescCns);
             }
             break;
 
