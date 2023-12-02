@@ -258,6 +258,11 @@ enum emitAttr : unsigned
     EA_GCREF     = EA_PTRSIZE | EA_GCREF_FLG,
     EA_BYREF_FLG = GCT_BYREF << 7,
     EA_BYREF     = EA_PTRSIZE | EA_BYREF_FLG,
+
+// TODO-MIKE-Cleanup: These aren't used anymore, remove? In theory, x86 could still use
+// these, as it can put a reloc pretty much anywhere an imm32/disp32 is available.
+// All other targets are far more restrictive in this regard and are better off using
+// specific emitter function overloads.
 #ifdef TARGET_XARCH
     EA_DSP_RELOC_FLG = 1 << 9,
     EA_PTR_DSP_RELOC = EA_PTRSIZE | EA_DSP_RELOC_FLG,

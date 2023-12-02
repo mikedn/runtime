@@ -757,6 +757,8 @@ void* emitter::emitAllocAnyInstr(unsigned sz, bool updateLastIns)
 #ifndef TARGET_XARCH
 void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
 {
+    assert(!EA_IS_CNS_RELOC(opsz));
+
     instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(sz, updateLastIns));
     memset(id, 0, sz);
 
@@ -766,11 +768,6 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
 
     id->idGCref(EA_GC_TYPE(opsz));
     id->idOpSize(EA_SIZE(opsz));
-
-    if (EA_IS_CNS_RELOC(opsz) && emitComp->opts.compReloc)
-    {
-        id->idSetIsCnsReloc();
-    }
 
     INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz)));
 

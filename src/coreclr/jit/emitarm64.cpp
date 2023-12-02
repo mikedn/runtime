@@ -7713,14 +7713,13 @@ void emitter::emitIns_R_AH(instruction ins,
 
     if (ins == INS_adrp)
     {
-        instrDesc* id = emitNewInstr(EA_PTR_CNS_RELOC);
-        assert(id->idIsCnsReloc());
-
+        instrDesc* id = emitNewInstr(EA_8BYTE);
         id->idIns(INS_add);
         id->idInsFmt(IF_DI_2A);
         id->idInsOpt(INS_OPTS_NONE);
         id->idOpSize(EA_8BYTE);
         id->idAddr()->iiaAddr = addr;
+        id->idSetIsCnsReloc(emitComp->opts.compReloc);
         id->idReg1(reg);
         id->idReg2(reg);
 
@@ -7975,11 +7974,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         id->idIns(isJump ? INS_b_tail : INS_bl);
         id->idInsFmt(IF_BI_0C);
         id->idAddr()->iiaAddr = addr;
-
-        if (emitComp->opts.compReloc)
-        {
-            id->idSetIsCnsReloc();
-        }
+        id->idSetIsCnsReloc(emitComp->opts.compReloc);
     }
 
 #ifdef DEBUG

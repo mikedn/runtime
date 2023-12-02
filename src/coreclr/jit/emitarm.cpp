@@ -2078,13 +2078,14 @@ void emitter::emitIns_MovRelocatableImmediate(instruction ins, regNumber reg, vo
 {
     assert((ins == INS_movw) || (ins == INS_movt));
 
-    instrDesc* id = emitNewInstr(EA_PTR_CNS_RELOC);
+    instrDesc* id = emitNewInstr(EA_4BYTE);
     id->idIns(ins);
     id->idInsFmt(IF_T2_N3);
     id->idInsSize(emitInsSize(IF_T2_N3));
     id->idInsFlags(INS_FLAGS_NOT_SET);
     id->idReg1(reg);
     id->idAddr()->iiaAddr = addr;
+    id->idSetIsCnsReloc(emitComp->opts.compReloc);
 
     dispIns(id);
     appendToCurIG(id);
@@ -4107,6 +4108,7 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
     id->idInsFmt(IF_T2_N1);
     id->idInsSize(emitInsSize(IF_T2_N1));
     id->idAddr()->iiaBBlabel = dst;
+    id->idSetIsCnsReloc(emitComp->opts.compReloc);
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
     id->idjKeepLong  = true;
@@ -4114,11 +4116,6 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
     id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
-
-    if (emitComp->opts.compReloc)
-    {
-        id->idSetIsCnsReloc();
-    }
 
     dispIns(id);
     appendToCurIG(id);
@@ -4128,16 +4125,12 @@ void emitter::emitIns_R_D(instruction ins, unsigned offs, regNumber reg)
 {
     assert((ins == INS_movw) || (ins == INS_movt));
 
-    instrDesc* id = emitNewInstrSC(EA_PTR_CNS_RELOC, offs);
+    instrDesc* id = emitNewInstrSC(EA_4BYTE, offs);
     id->idIns(ins);
     id->idReg1(reg);
     id->idInsFmt(IF_T2_N2);
     id->idInsSize(emitInsSize(IF_T2_N2));
-
-    if (emitComp->opts.compReloc)
-    {
-        id->idSetIsCnsReloc();
-    }
+    id->idSetIsCnsReloc(emitComp->opts.compReloc);
 
     dispIns(id);
     appendToCurIG(id);
@@ -4223,15 +4216,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         id->idInsFmt(IF_T2_J3);
         id->idInsSize(emitInsSize(IF_T2_J3));
         id->idAddr()->iiaAddr = addr;
-
-        if (emitComp->opts.compReloc)
-        {
-            // Since this is an indirect call through a pointer and we don't
-            // currently pass in emitAttr into this function we have decided
-            // to always mark the address as being relocatable.
-
-            id->idSetIsCnsReloc();
-        }
+        id->idSetIsCnsReloc(emitComp->opts.compReloc);
     }
 
 #ifdef DEBUG
