@@ -6773,30 +6773,15 @@ void emitter::emitIns_R_R_R_I(instruction ins,
     assert(fmt != IF_NONE);
 
     instrDesc* id = emitNewInstrCns(attr, imm);
-
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
-
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    // Record the attribute for the second register in the pair
-    id->idGCrefReg2(GCT_NONE);
-    if (attrReg2 != EA_UNKNOWN)
-    {
-        // Record the attribute for the second register in the pair
-        assert((fmt == IF_LS_3B) || (fmt == IF_LS_3C));
-        if (EA_IS_GCREF(attrReg2))
-        {
-            id->idGCrefReg2(GCT_GCREF);
-        }
-        else if (EA_IS_BYREF(attrReg2))
-        {
-            id->idGCrefReg2(GCT_BYREF);
-        }
-    }
+    assert((attrReg2 == EA_UNKNOWN) || (fmt == IF_LS_3B) || (fmt == IF_LS_3C));
+    id->idGCrefReg2(EA_GC_TYPE(attrReg2));
 
     dispIns(id);
     appendToCurIG(id);
@@ -7574,21 +7559,10 @@ void emitter::Ins_R_R_S(
         fmt     = IF_LS_3B;
     }
 
-    GCtype reg2Type = GCT_NONE;
-
-    if (EA_IS_GCREF(attr2))
-    {
-        reg2Type = GCT_GCREF;
-    }
-    else if (EA_IS_BYREF(attr2))
-    {
-        reg2Type = GCT_BYREF;
-    }
-
     instrDesc* id = emitNewInstrCns(attr1, imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idGCrefReg2(reg2Type);
+    id->idGCrefReg2(EA_GC_TYPE(attr2));
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idReg3(baseReg);
