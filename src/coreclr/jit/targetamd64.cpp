@@ -147,29 +147,6 @@ const char* RegName(regNumber reg, emitAttr attr)
             break;
     }
 
-#if 0
-    // The following is useful if you want register names to be tagged with * or ^ representing gcref or byref, respectively,
-    // however it's possibly not interesting most of the time.
-    if (EA_IS_GCREF(attr) || EA_IS_BYREF(attr))
-    {
-        if (rn != rb[rbc])
-        {
-            rbc = (rbc + 1) % 2;
-            strcpy_s(rb[rbc], sizeof(rb[rbc]), rn);
-            rn = rb[rbc];
-        }
-
-        if (EA_IS_GCREF(attr))
-        {
-            strcat_s(rb[rbc], sizeof(rb[rbc]), "*");
-        }
-        else if (EA_IS_BYREF(attr))
-        {
-            strcat_s(rb[rbc], sizeof(rb[rbc]), "^");
-        }
-    }
-#endif // 0
-
     return rn;
 }
 #endif // DEBUG
