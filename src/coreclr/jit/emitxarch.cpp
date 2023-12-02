@@ -1511,7 +1511,7 @@ bool emitter::IntConNeedsReloc(GenTreeIntCon* con)
 
     return emitComp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(con->GetValue()));
 #else
-    return emitComp->opts.compReloc && con->IsIconHandle();
+    return con->ImmedValNeedsReloc(emitComp);
 #endif
 }
 
