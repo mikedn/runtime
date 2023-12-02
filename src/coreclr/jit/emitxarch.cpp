@@ -789,35 +789,28 @@ static bool BaseRegRequiresDisp(regNumber base)
 #endif
 }
 
+#ifdef TARGET_X86
 // When encoding instructions that operate on byte registers on x86
 // we have to ensure that we use a low register (EAX, EBX, ECX or EDX).
-bool emitter::emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2)
+bool emitter::emitVerifyEncodable(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2)
 {
-#ifdef TARGET_X86
-    if (size != EA_1BYTE) // Not operating on a byte register is fine
+    if (attr != EA_1BYTE)
     {
         return true;
     }
 
-    if ((ins != INS_movsx) && // These three instructions support high register
-        (ins != INS_movzx)    // encodings for reg1
-        && (ins != INS_crc32))
+    // These instructions destination register is always 32 bit.
+    if ((ins != INS_movsx) && (ins != INS_movzx) && (ins != INS_crc32))
     {
-        // reg1 must be a byte-able register
-        if ((genRegMask(reg1) & RBM_BYTE_REGS) == 0)
+        if (!isByteReg(reg1))
         {
             return false;
         }
     }
-    // if reg2 is not REG_NA then reg2 must be a byte-able register
-    if ((reg2 != REG_NA) && ((genRegMask(reg2) & RBM_BYTE_REGS) == 0))
-    {
-        return false;
-    }
-#endif
 
-    return true;
+    return (reg2 == REG_NA) || isByteReg(reg2);
 }
+#endif // TARGET_X86
 
 unsigned emitter::emitGetVexAdjustedSize(instruction ins)
 {
@@ -1841,10 +1834,10 @@ void emitter::emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regN
 
 void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
 {
-    emitAttr size = EA_SIZE(attr);
+    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
 
+    emitAttr size = EA_SIZE(attr);
     assert(size <= EA_PTRSIZE);
-    noway_assert(emitVerifyEncodable(ins, size, reg));
 
     instrDesc* id = emitNewInstrSmall();
     id->idIns(ins);
@@ -1894,11 +1887,11 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     // (it is always encoded in a byte). Let's not complicate things until this is needed.
     assert(ins != INS_bt);
     assert(!EA_IS_RELOC(attr));
+    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
 
     emitAttr size = EA_SIZE(attr);
     // Allow emitting SSE2/AVX SIMD instructions of R_I form that can specify EA_16BYTE or EA_32BYTE
     assert((size <= EA_PTRSIZE) || IsSSEOrAVXInstruction(ins));
-    noway_assert(emitVerifyEncodable(ins, size, reg));
     // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
     // all other opcodes take a sign-extended 4-byte immediate
     AMD64_ONLY(noway_assert((size < EA_8BYTE) || (ins == INS_mov) || IsImm32(imm)));
@@ -2283,7 +2276,7 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
     }
 #endif
 
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), dstReg, srcReg));
+    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, dstReg, srcReg)));
 
     insFormat fmt = emitInsModeFormat(ins, IF_RRD_RRD);
 
@@ -2316,7 +2309,7 @@ void emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNum
         emitIns_Mov(ins, attr, reg1, reg2, /* canSkip */ false);
     }
 
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1, reg2));
+    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg1, reg2)));
 
     instrDesc* id = emitNewInstrSmall();
     id->idIns(ins);
@@ -2432,7 +2425,7 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
         return;
     }
 
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
+    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg1)));
 
     instrDesc* id = emitNewInstrAmdCns(GetAddrModeDisp(addr), imm);
     id->idIns(ins);
@@ -2455,7 +2448,7 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORI
     assert(!EA_IS_GCREF_OR_BYREF(attr));
     assert(FieldDispRequiresRelocation(field));
 
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
+    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg1)));
 
     instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
@@ -2478,7 +2471,7 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     assert(!EA_IS_GCREF_OR_BYREF(attr));
 
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
+    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg1)));
 
     instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
@@ -2804,7 +2797,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
     assert(FieldDispRequiresRelocation(field));
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
+    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
 
     instrDesc* id = emitNewInstr();
     id->idIns(ins);
@@ -2840,17 +2833,16 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
 void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg)
 {
     assert(FieldDispRequiresRelocation(field));
+    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
 
     emitAttr size = EA_SIZE(attr);
 
-#if defined(TARGET_X86)
+#ifdef TARGET_X86
     // For x86 it is valid to storeind a double sized operand in an xmm reg to memory
     assert(size <= EA_8BYTE);
 #else
     assert(size <= EA_PTRSIZE);
 #endif
-
-    noway_assert(emitVerifyEncodable(ins, size, reg));
 
     instrDesc* id = emitNewInstr();
     id->idIns(ins);
@@ -2975,7 +2967,6 @@ void emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
 {
     assert((ins == INS_mov) || (ins == INS_lea));
     assert(genIsValidIntReg(reg));
-    noway_assert(emitVerifyEncodable(ins, EA_PTRSIZE, reg));
 
     instrDesc* id = emitNewInstrAmd(reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
@@ -3072,7 +3063,7 @@ void emitter::emitIns_R_ARX(
     instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, unsigned scale, int32_t disp)
 {
     assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_32BYTE) && (reg != REG_NA));
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
+    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
 
     if ((ins == INS_lea) && (reg == base) && (index == REG_NA) && (disp == 0))
     {
@@ -3117,7 +3108,7 @@ void emitter::emitIns_ARX_R(
     {
         fmt = emitInsModeFormat(ins, IF_ARD_RRD);
 
-        noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
+        X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
         assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_32BYTE));
 
         id->idReg1(reg);
@@ -3445,7 +3436,7 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int var
 void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int varx, int offs)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
+    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
 
     instrDesc* id = emitNewInstr();
     id->idIns(ins);
@@ -7494,7 +7485,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
         return dst;
     }
 
-    noway_assert(emitVerifyEncodable(ins, size, reg));
+    X86_ONLY(noway_assert(emitVerifyEncodable(ins, size, reg)));
 
     if (ins == INS_mov)
     {

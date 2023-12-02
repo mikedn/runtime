@@ -165,8 +165,8 @@ void emitIns_Call(EmitCallType          kind,
                   bool      isJump  = false);
 
 private:
-bool        UseVEXEncoding() const;
-static bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 = REG_NA);
+bool UseVEXEncoding() const;
+X86_ONLY(static bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 = REG_NA));
 
 // code_t is a type used to accumulate bits of opcode + prefixes. On amd64, it must be 64 bits
 // to support the REX prefixes. On both x86 and amd64, it must be 64 bits to support AVX, with
