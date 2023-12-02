@@ -3537,52 +3537,67 @@ void emitter::emitIns_J(instruction ins, int instrCount)
     id->idAddr()->iiaSetInstrCount(instrCount);
     id->idSetIsBound();
 
-    id->idCodeSize(JMP_SIZE_SMALL);
+    id->idCodeSize(JCC_SIZE_SMALL);
     dispIns(id);
-    emitCurIGsize += JMP_SIZE_SMALL;
+    emitCurIGsize += JCC_SIZE_SMALL;
 }
 
-void emitter::emitIns_J(instruction ins, BasicBlock* dst)
+void emitter::emitIns_J(instruction ins, BasicBlock* block)
 {
     assert((ins == INS_jmp) || IsJccInstruction(ins));
-    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
+    assert((block->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
+    id->idjKeepLong  = InDifferentRegions(GetCurrentBlock(), block);
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
-    id->idAddr()->iiaBBlabel = dst;
-    id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst);
+    id->idAddr()->iiaBBlabel = block;
 
-    unsigned  sz  = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
-    insGroup* tgt = emitCodeGetCookie(dst);
+    unsigned  sz    = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
+    insGroup* label = emitCodeGetCookie(block);
 
-    if (tgt != nullptr)
+    if (label != nullptr)
     {
-        int      extra;
-        unsigned srcOffs;
-        int      jmpDist;
-
-        assert(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
-
         // This is a backward jump - figure out the distance
 
-        srcOffs = emitCurCodeOffset + emitCurIGsize + JMP_SIZE_SMALL;
+        static_assert_no_msg(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
 
-        jmpDist = srcOffs - tgt->igOffs;
-        assert((int)jmpDist > 0);
+        unsigned srcOffs = emitCurCodeOffset + emitCurIGsize + JMP_SIZE_SMALL;
+        int      jmpDist = srcOffs - label->igOffs;
+        int      extra   = jmpDist + JMP_DIST_SMALL_MAX_NEG;
 
-        extra = jmpDist + JMP_DIST_SMALL_MAX_NEG;
+        assert(jmpDist > 0);
+
+        if ((extra <= 0) && !id->idjKeepLong)
+        {
+            emitSetShortJump(id);
+            sz = JMP_SIZE_SMALL;
+        }
+    }
 
 #if DEBUG_EMIT
-        if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
+    if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
+    {
+        if (INTERESTING_JUMP_NUM == 0)
         {
-            if (INTERESTING_JUMP_NUM == 0)
-            {
-                printf("[0] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
-            }
+            printf("[0] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
+        }
 
-            printf("[0] Jump source is at %08X\n", srcOffs);
-            printf("[0] Label block is at %08X\n", tgt->igOffs);
+        unsigned srcOffs = emitCurCodeOffset + emitCurIGsize + JMP_SIZE_SMALL;
+
+        printf("[0] Jump source is at %04X/%08X\n", emitCurIGsize, srcOffs);
+
+        if (label == nullptr)
+        {
+            printf("[0] Label block is unknown\n");
+        }
+        else
+        {
+            printf("[0] Label block is at %08X\n", label->igOffs);
+
+            int jmpDist = srcOffs - label->igOffs;
+            int extra   = jmpDist + JMP_DIST_SMALL_MAX_NEG;
+
             printf("[0] Jump  distance  - %04X\n", jmpDist);
 
             if (extra > 0)
@@ -3590,29 +3605,8 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst)
                 printf("[0] Distance excess = %d  \n", extra);
             }
         }
-#endif
-
-        if (extra <= 0 && !id->idjKeepLong)
-        {
-            emitSetShortJump(id);
-            sz = JMP_SIZE_SMALL;
-        }
     }
-#if DEBUG_EMIT
-    else
-    {
-        if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
-        {
-            if (INTERESTING_JUMP_NUM == 0)
-            {
-                printf("[0] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
-            }
-            printf("[0] Jump source is at %04X/%08X\n", emitCurIGsize,
-                   emitCurCodeOffset + emitCurIGsize + JMP_SIZE_SMALL);
-            printf("[0] Label block is unknown\n");
-        }
-    }
-#endif
+#endif // DEBUG_EMIT
 
     id->idCodeSize(sz);
     dispIns(id);
