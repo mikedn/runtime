@@ -259,16 +259,16 @@ enum emitAttr : unsigned
     EA_BYREF_FLG = GCT_BYREF << 7,
     EA_BYREF     = EA_PTRSIZE | EA_BYREF_FLG,
 
-// TODO-MIKE-Cleanup: These aren't used anymore, remove? In theory, x86 could still use
-// these, as it can put a reloc pretty much anywhere an imm32/disp32 is available.
-// All other targets are far more restrictive in this regard and are better off using
-// specific emitter function overloads.
 #ifdef TARGET_XARCH
+    // TODO-MIKE-Cleanup: These aren't used anymore, remove? In theory, x86 could still use
+    // these, as it can put a reloc pretty much anywhere an imm32/disp32 is available.
+    // All other targets are far more restrictive in this regard and are better off using
+    // specific emitter function overloads.
     EA_DSP_RELOC_FLG = 1 << 9,
     EA_PTR_DSP_RELOC = EA_PTRSIZE | EA_DSP_RELOC_FLG,
-#endif
     EA_CNS_RELOC_FLG = 1 << 10,
     EA_PTR_CNS_RELOC = EA_PTRSIZE | EA_CNS_RELOC_FLG,
+#endif
 };
 
 #define EA_ATTR(x) ((emitAttr)(x))
@@ -279,14 +279,13 @@ enum emitAttr : unsigned
 #define EA_IS_GCREF(x) ((((unsigned)(x)) & ((unsigned)EA_GCREF_FLG)) != 0)
 #define EA_IS_BYREF(x) ((((unsigned)(x)) & ((unsigned)EA_BYREF_FLG)) != 0)
 #define EA_IS_GCREF_OR_BYREF(x) ((((unsigned)(x)) & ((unsigned)(EA_BYREF_FLG | EA_GCREF_FLG))) != 0)
-#define EA_IS_CNS_RELOC(x) ((((unsigned)(x)) & ((unsigned)EA_CNS_RELOC_FLG)) != 0)
 #define EA_GC_TYPE(x) static_cast<GCtype>((x >> 7) & 3)
 #ifdef TARGET_XARCH
 #define EA_IS_DSP_RELOC(x) ((((unsigned)(x)) & ((unsigned)EA_DSP_RELOC_FLG)) != 0)
+#define EA_IS_CNS_RELOC(x) ((((unsigned)(x)) & ((unsigned)EA_CNS_RELOC_FLG)) != 0)
 #define EA_IS_RELOC(x) (EA_IS_DSP_RELOC(x) || EA_IS_CNS_RELOC(x))
-#define EA_TYPE(x) ((emitAttr)(((unsigned)(x)) & ~(EA_DSP_RELOC_FLG | EA_CNS_RELOC_FLG)))
 #else
-#define EA_TYPE(x) ((emitAttr)(((unsigned)(x)) & ~(EA_CNS_RELOC_FLG)))
+#define EA_IS_CNS_RELOC(x) false
 #endif
 
 extern const uint16_t emitTypeSizes[TYP_COUNT];

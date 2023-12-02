@@ -1921,8 +1921,6 @@ void emitter::emitIns_R_I(
             return;
 
         case INS_mov:
-            assert(!EA_IS_CNS_RELOC(attr));
-
             if (isLowRegister(reg) && insSetsFlags(flags) && ((imm & 0x00ff) == imm))
             {
                 fmt = IF_T1_J0;
@@ -1955,7 +1953,6 @@ void emitter::emitIns_R_I(
 
         case INS_movw:
         case INS_movt:
-            assert(!EA_IS_CNS_RELOC(attr));
             assert(insDoesNotSetFlags(flags));
 
             if ((imm & 0x0000ffff) == imm)
@@ -1983,7 +1980,6 @@ void emitter::emitIns_R_I(
 
         case INS_cmp:
             assert(reg != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
-            assert(!EA_IS_CNS_RELOC(attr));
             assert(insSetsFlags(flags));
             sf = INS_FLAGS_SET;
             if (isLowRegister(reg) && ((imm & 0x0ff) == imm))

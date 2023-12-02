@@ -1492,7 +1492,6 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
                                      ssize_t imm DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
-    assert(!EA_IS_CNS_RELOC(size));
     assert(!genIsValidFloatReg(reg));
 
     // TODO-MIKE-Cleanup: This was trying to remove the reloc flag but it also removed GC flags.

@@ -757,8 +757,6 @@ void* emitter::emitAllocAnyInstr(unsigned sz, bool updateLastIns)
 #ifndef TARGET_XARCH
 void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
 {
-    assert(!EA_IS_CNS_RELOC(opsz));
-
     instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(sz, updateLastIns));
     memset(id, 0, sz);
 
