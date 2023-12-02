@@ -271,21 +271,17 @@ enum emitAttr : unsigned
 #endif
 };
 
-#define EA_ATTR(x) ((emitAttr)(x))
-#define EA_SIZE(x) ((emitAttr)(((unsigned)(x)) & EA_SIZE_MASK))
-#define EA_SIZE_IN_BYTES(x) ((UNATIVE_OFFSET)(EA_SIZE(x)))
-#define EA_SET_SIZE(x, sz) ((emitAttr)((((unsigned)(x)) & ~EA_SIZE_MASK) | (sz)))
-#define EA_SET_FLG(x, flg) ((emitAttr)(((unsigned)(x)) | (flg)))
-#define EA_IS_GCREF(x) ((((unsigned)(x)) & ((unsigned)EA_GCREF_FLG)) != 0)
-#define EA_IS_BYREF(x) ((((unsigned)(x)) & ((unsigned)EA_BYREF_FLG)) != 0)
-#define EA_IS_GCREF_OR_BYREF(x) ((((unsigned)(x)) & ((unsigned)(EA_BYREF_FLG | EA_GCREF_FLG))) != 0)
-#define EA_GC_TYPE(x) static_cast<GCtype>((x >> 7) & 3)
+#define EA_ATTR(x) static_cast<emitAttr>(x)
+#define EA_SIZE(x) static_cast<emitAttr>((x)&EA_SIZE_MASK)
+#define EA_SIZE_IN_BYTES(x) ((x)&EA_SIZE_MASK)
+#define EA_GC_TYPE(x) static_cast<GCtype>(((x) >> 7) & 3)
+#define EA_IS_GCREF_OR_BYREF(x) (EA_GC_TYPE(x) != GCT_NONE)
+#define EA_IS_GCREF(x) (EA_GC_TYPE(x) == GCT_GCREF)
+#define EA_IS_BYREF(x) (EA_GC_TYPE(x) == GCT_BYREF)
 #ifdef TARGET_XARCH
-#define EA_IS_DSP_RELOC(x) ((((unsigned)(x)) & ((unsigned)EA_DSP_RELOC_FLG)) != 0)
-#define EA_IS_CNS_RELOC(x) ((((unsigned)(x)) & ((unsigned)EA_CNS_RELOC_FLG)) != 0)
+#define EA_IS_DSP_RELOC(x) (((x)&EA_DSP_RELOC_FLG) != 0)
+#define EA_IS_CNS_RELOC(x) (((x)&EA_CNS_RELOC_FLG) != 0)
 #define EA_IS_RELOC(x) (EA_IS_DSP_RELOC(x) || EA_IS_CNS_RELOC(x))
-#else
-#define EA_IS_CNS_RELOC(x) false
 #endif
 
 extern const uint16_t emitTypeSizes[TYP_COUNT];
