@@ -2834,7 +2834,6 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     bool ImmedValNeedsReloc(Compiler* comp);
 
 #ifdef TARGET_XARCH
-    bool AddrNeedsReloc(Compiler* comp);
     bool FitsInAddrBase(Compiler* comp);
 #endif
 

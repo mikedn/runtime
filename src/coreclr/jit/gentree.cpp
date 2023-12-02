@@ -11474,31 +11474,11 @@ bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
     return FitsIn<int32_t>(gtIconVal) || comp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(gtIconVal));
 }
 
-// Returns true if this icon value is encoded as addr needs recording a relocation with VM
-bool GenTreeIntCon::AddrNeedsReloc(Compiler* comp)
-{
-    if (comp->opts.compReloc && !IsIconHandle())
-    {
-        // During Ngen JIT is always asked to generate relocatable code.
-        // Hence JIT will try to encode only icon handles as pc-relative offsets.
-        return false;
-    }
-
-    return comp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(gtIconVal));
-}
-
 #elif defined(TARGET_X86)
 // On x86 all addresses are 4-bytes and can be directly encoded in an addr mode.
 bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
 {
     return true;
-}
-
-// Returns true if this icon value is encoded as addr needs recording a relocation with VM
-bool GenTreeIntCon::AddrNeedsReloc(Compiler* comp)
-{
-    // If generating relocatable code, icons should be reported for recording relocatons.
-    return comp->opts.compReloc && IsIconHandle();
 }
 #endif // TARGET_X86
 

@@ -1517,6 +1517,22 @@ void emitter::SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs)
     }
 }
 
+bool emitter::IntConNeedsReloc(GenTreeIntCon* con)
+{
+#ifdef TARGET_AMD64
+    if (emitComp->opts.compReloc && !con->IsIconHandle())
+    {
+        // During Ngen JIT is always asked to generate relocatable code.
+        // Hence JIT will try to encode only icon handles as pc-relative offsets.
+        return false;
+    }
+
+    return emitComp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(con->GetValue()));
+#else
+    return emitComp->opts.compReloc && con->IsIconHandle();
+#endif
+}
+
 void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
 {
     if (!addr->isContained())
@@ -1534,7 +1550,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
         // Absolute addresses marked as contained should fit within the base of addr mode.
         assert(intConAddr->FitsInAddrBase(emitComp));
 
-        id->idSetIsDspReloc(intConAddr->AddrNeedsReloc(emitComp));
+        id->idSetIsDspReloc(IntConNeedsReloc(intConAddr));
         id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
         id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
         id->idAddr()->iiaAddrMode.amScale   = 0;

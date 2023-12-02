@@ -298,6 +298,7 @@ void PrintFrameRef(instrDesc* id, bool asmfm);
 void SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs);
 ssize_t GetAddrModeDisp(GenTree* addr);
 void SetInstrAddrMode(instrDesc* id, GenTree* addr);
+bool IntConNeedsReloc(GenTreeIntCon* con);
 
 template <typename T>
 T* AllocInstr(bool updateLastIns = true);
