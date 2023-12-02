@@ -11473,14 +11473,7 @@ bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
 
     return FitsIn<int32_t>(gtIconVal) || comp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(gtIconVal));
 }
-
-#elif defined(TARGET_X86)
-// On x86 all addresses are 4-bytes and can be directly encoded in an addr mode.
-bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
-{
-    return true;
-}
-#endif // TARGET_X86
+#endif // TARGET_AMD64
 
 ClassLayout* GenTreeLclFld::GetLayout(Compiler* compiler) const
 {

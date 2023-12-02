@@ -1545,7 +1545,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
     if (GenTreeIntCon* intConAddr = addr->IsIntCon())
     {
         // Absolute addresses marked as contained should fit within the base of addr mode.
-        assert(intConAddr->FitsInAddrBase(emitComp));
+        AMD64_ONLY(assert(intConAddr->FitsInAddrBase(emitComp)));
 
         id->idSetIsDspReloc(IntConNeedsReloc(intConAddr));
         id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;

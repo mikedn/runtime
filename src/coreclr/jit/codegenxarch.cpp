@@ -4786,7 +4786,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             {
                 // Note that if gtControlExpr is an indir of an absolute address, we mark it as
                 // contained only if it can be encoded as PC-relative offset.
-                assert(intConAddr->FitsInAddrBase(compiler));
+                AMD64_ONLY(assert(intConAddr->FitsInAddrBase(compiler)));
 
                 emitCallType = emitter::EC_FUNC_TOKEN_INDIR;
                 callAddr     = reinterpret_cast<void*>(intConAddr->GetValue());
