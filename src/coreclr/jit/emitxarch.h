@@ -34,6 +34,8 @@ void emitMarkStackLvl(unsigned stackLevel);
 
 void emitIns(instruction ins);
 void emitIns(instruction ins, emitAttr attr);
+void emitIns_J(instruction ins, BasicBlock* dst);
+void emitIns_J(instruction ins, int instrCount = 0);
 void emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr);
 void emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm);
 void emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg);

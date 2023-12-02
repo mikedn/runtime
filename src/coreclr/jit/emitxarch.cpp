@@ -3524,45 +3524,37 @@ void emitter::emitIns_CallFinally(BasicBlock* block)
 }
 #endif // TARGET_AMD64
 
-void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
+void emitter::emitIns_J(instruction ins, int instrCount)
+{
+    assert(IsJccInstruction(ins));
+    assert(emitIGisInProlog(emitCurIG));
+    assert(instrCount < 0);
+
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idjShort     = true;
+    id->idIns(ins);
+    id->idInsFmt(IF_LABEL);
+    id->idAddr()->iiaSetInstrCount(instrCount);
+    id->idSetIsBound();
+
+    id->idCodeSize(JMP_SIZE_SMALL);
+    dispIns(id);
+    emitCurIGsize += JMP_SIZE_SMALL;
+}
+
+void emitter::emitIns_J(instruction ins, BasicBlock* dst)
 {
     assert((ins == INS_jmp) || IsJccInstruction(ins));
+    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
+    id->idAddr()->iiaBBlabel = dst;
+    id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst);
 
-    if (dst != nullptr)
-    {
-        assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
-        assert(instrCount == 0);
-
-        id->idAddr()->iiaBBlabel = dst;
-        id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst);
-    }
-    else
-    {
-        // Only allow non-label jmps in prolog.
-        assert(emitIGisInProlog(emitCurIG));
-        assert(instrCount != 0);
-
-        id->idAddr()->iiaSetInstrCount(instrCount);
-        id->idjShort = true;
-        id->idSetIsBound();
-    }
-
-    insGroup* tgt = nullptr;
-    unsigned  sz;
-
-    if (dst != nullptr)
-    {
-        sz  = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
-        tgt = emitCodeGetCookie(dst);
-    }
-    else
-    {
-        sz = JMP_SIZE_SMALL;
-    }
+    unsigned  sz  = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
+    insGroup* tgt = emitCodeGetCookie(dst);
 
     if (tgt != nullptr)
     {

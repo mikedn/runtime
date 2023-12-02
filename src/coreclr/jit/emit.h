@@ -353,7 +353,9 @@ public:
     /*                   Output target-independent instructions             */
     /************************************************************************/
 
+#ifndef TARGET_XARCH
     void emitIns_J(instruction ins, BasicBlock* dst, int instrCount = 0);
+#endif
 
     /************************************************************************/
     /*                   Emit initialized data sections                     */

@@ -8464,7 +8464,7 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
 
             emit->emitIns_R_I(INS_add, EA_PTRSIZE, initReg, XMM_REGSIZE_BYTES * 3);
             // Loop until counter is 0
-            emit->emitIns_J(INS_jne, nullptr, -5);
+            emit->emitIns_J(INS_jne, -5);
 
             // initReg will be zero at end of the loop
             *pInitRegZeroed = true;
