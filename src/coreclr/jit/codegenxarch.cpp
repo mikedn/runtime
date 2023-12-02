@@ -207,7 +207,7 @@ void CodeGen::genAdjustStackLevel(BasicBlock* block)
         if (genStackLevel != 0)
         {
             GetEmitter()->emitMarkStackLvl(genStackLevel);
-            inst_RV_IV(INS_add, REG_SPBASE, genStackLevel, EA_PTRSIZE);
+            GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(genStackLevel));
             SetStackLevel(0);
         }
     }
@@ -1813,7 +1813,9 @@ void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTm
     // function that does a probe, which will in turn call this function.
     assert((target_size_t)(-spDelta) <= compiler->eeGetPageSize());
 
-#ifdef TARGET_X86
+#ifdef TARGET_AMD64
+    GetEmitter()->emitIns_R_I(INS_sub, EA_8BYTE, REG_SPBASE, -spDelta);
+#else
     if (regTmp != REG_NA)
     {
         // For x86, some cases don't want to use "sub ESP" because we don't want the emitter to track the adjustment
@@ -1821,15 +1823,15 @@ void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTm
         // TODO-CQ: manipulate ESP directly, to share code, reduce #ifdefs, and improve CQ. This would require
         // creating a way to temporarily turn off the emitter's tracking of ESP, maybe marking instrDescs as "don't
         // track".
-        inst_Mov(TYP_I_IMPL, regTmp, REG_SPBASE, /* canSkip */ false);
-        inst_RV_IV(INS_sub, regTmp, (target_ssize_t)-spDelta, EA_PTRSIZE);
-        inst_Mov(TYP_I_IMPL, REG_SPBASE, regTmp, /* canSkip */ false);
+        inst_Mov(TYP_INT, regTmp, REG_SPBASE, /* canSkip */ false);
+        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, regTmp, static_cast<int32_t>(-spDelta));
+        inst_Mov(TYP_INT, REG_SPBASE, regTmp, /* canSkip */ false);
     }
     else
-#endif // TARGET_X86
     {
-        inst_RV_IV(INS_sub, REG_SPBASE, (target_ssize_t)-spDelta, EA_PTRSIZE);
+        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(-spDelta));
     }
+#endif // TARGET_X86
 }
 
 // Add a specified constant shift to the stack pointer, and probe the stack as appropriate.
@@ -1946,7 +1948,7 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
     // Subtract a page from ESP. This is a trick to avoid the emitter trying to track the
     // decrement of the ESP - we do the subtraction in another reg instead of adjusting ESP directly.
     inst_Mov(TYP_I_IMPL, regTmp, REG_SPBASE, /* canSkip */ false);
-    inst_RV_IV(INS_sub, regTmp, compiler->eeGetPageSize(), EA_PTRSIZE);
+    GetEmitter()->emitIns_R_I(INS_sub, EA_PTRSIZE, regTmp, compiler->eeGetPageSize());
     inst_Mov(TYP_I_IMPL, REG_SPBASE, regTmp, /* canSkip */ false);
 
     GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, regSpDelta);
@@ -2047,7 +2049,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         //      add reg, 15
         //      shr reg, 4
 
-        inst_RV_IV(INS_add, regCnt, STACK_ALIGN - 1, emitActualTypeSize(type));
+        GetEmitter()->emitIns_R_I(INS_add, emitActualTypeSize(type), regCnt, STACK_ALIGN - 1);
 
         if (compiler->info.compInitMem)
         {
@@ -2060,12 +2062,13 @@ void CodeGen::genLclHeap(GenTree* tree)
             // added above, so there is no need for an 'and' instruction.
 
             // --- shr regCnt, 2 (or 4) ---
+            // TODO-MIKE-Review: Shouldn't this PTRSIZE be emitActualTypeSize(type)?
             inst_RV_SH(INS_shr, EA_PTRSIZE, regCnt, STACK_ALIGN_SHIFT);
         }
         else
         {
             // Otherwise, mask off the low bits to align the byte count.
-            inst_RV_IV(INS_and, regCnt, ~(STACK_ALIGN - 1), emitActualTypeSize(type));
+            GetEmitter()->emitIns_R_I(INS_and, emitActualTypeSize(type), regCnt, ~(STACK_ALIGN - 1));
         }
     }
 
@@ -2100,7 +2103,7 @@ void CodeGen::genLclHeap(GenTree* tree)
             goto ALLOC_DONE;
         }
 
-        inst_RV_IV(INS_add, REG_SPBASE, outgoingArgSpaceSize, EA_PTRSIZE);
+        GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, outgoingArgSpaceSize);
         stackAdjustment += static_cast<target_size_t>(outgoingArgSpaceSize);
         locAllocStackOffset = stackAdjustment;
     }
@@ -6269,7 +6272,7 @@ void CodeGen::genAlignStackBeforeCall(GenTreeCall* call)
         if (padStkAlign != 0)
         {
             // Now generate the alignment
-            inst_RV_IV(INS_sub, REG_SPBASE, padStkAlign, EA_PTRSIZE);
+            GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(padStkAlign));
             AddStackLevel(padStkAlign);
             AddNestedAlignment(padStkAlign);
         }
@@ -6290,7 +6293,7 @@ void CodeGen::genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias)
 
     if (padStkAdjust != 0)
     {
-        inst_RV_IV(INS_add, REG_SPBASE, padStkAdjust, EA_PTRSIZE);
+        GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(padStkAdjust));
         SubtractStackLevel(padStkAlign);
         SubtractNestedAlignment(padStkAlign);
     }
@@ -6303,7 +6306,7 @@ void CodeGen::genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias)
         }
         else
         {
-            inst_RV_IV(INS_add, REG_SPBASE, bias, EA_PTRSIZE);
+            GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(bias));
         }
     }
 #endif
@@ -6326,7 +6329,7 @@ void CodeGen::genPreAdjustStackForPutArgStk(unsigned argSize)
     }
     else
     {
-        inst_RV_IV(INS_sub, REG_SPBASE, argSize, EA_PTRSIZE);
+        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(argSize));
     }
 
     AddStackLevel(argSize);
@@ -6527,10 +6530,11 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
 
         prevFieldOffset = fieldOffset;
     }
+
     if (currentOffset != 0)
     {
         // We don't expect padding at the beginning of a struct, but it could happen with explicit layout.
-        inst_RV_IV(INS_sub, REG_SPBASE, currentOffset, EA_PTRSIZE);
+        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(currentOffset));
         AddStackLevel(currentOffset);
     }
 }
@@ -6844,7 +6848,7 @@ void CodeGen::genPushReg(var_types type, regNumber srcReg)
     else
     {
         assert(genIsValidFloatReg(srcReg));
-        inst_RV_IV(INS_sub, REG_SPBASE, size, EA_4BYTE);
+        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, size);
         GetEmitter()->emitIns_AR_R(ins_Store(type), emitTypeSize(type), srcReg, REG_SPBASE, 0);
     }
 
@@ -8709,7 +8713,7 @@ void CodeGen::genFuncletEpilog()
     // Restore callee saved XMM regs from their stack slots before modifying SP
     // to position at callee saved int regs.
     genRestoreCalleeSavedFltRegs(genFuncletInfo.fiSpDelta);
-    inst_RV_IV(INS_add, REG_SPBASE, genFuncletInfo.fiSpDelta, EA_PTRSIZE);
+    GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, genFuncletInfo.fiSpDelta);
     genPopCalleeSavedRegisters();
     GetEmitter()->emitIns_R(INS_pop, EA_PTRSIZE, REG_EBP);
     GetEmitter()->emitIns(INS_ret);
@@ -8887,13 +8891,13 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         if (compiler->opts.IsOSR())
         {
             PatchpointInfo* patchpointInfo    = compiler->info.compPatchpointInfo;
-            const int       originalFrameSize = patchpointInfo->FpToSpDelta();
+            int32_t         originalFrameSize = patchpointInfo->FpToSpDelta();
 
             // Use add since we know the SP-to-FP delta of the original method.
             //
             // If we ever allow the original method to have localloc this will
             // need to change.
-            inst_RV_IV(INS_add, REG_SPBASE, originalFrameSize, EA_PTRSIZE);
+            GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, originalFrameSize);
             GetEmitter()->emitIns_R(INS_pop, EA_PTRSIZE, REG_EBP);
         }
     }
@@ -8916,7 +8920,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             // also complicates the code manager. Hence, we ignore that case.
 
             noway_assert(lclFrameSize != 0);
-            inst_RV_IV(INS_add, REG_SPBASE, lclFrameSize, EA_PTRSIZE);
+            GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(lclFrameSize));
 
             needMovEspEbp = true;
         }
@@ -8998,14 +9002,14 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         if (compiler->opts.IsOSR())
         {
             PatchpointInfo* patchpointInfo    = compiler->info.compPatchpointInfo;
-            const int       originalFrameSize = patchpointInfo->FpToSpDelta();
+            int32_t         originalFrameSize = patchpointInfo->FpToSpDelta();
 
             // Use add since we know the SP-to-FP delta of the original method.
             // We also need to skip over the slot where we pushed RBP.
             //
             // If we ever allow the original method to have localloc this will
             // need to change.
-            inst_RV_IV(INS_add, REG_SPBASE, originalFrameSize + TARGET_POINTER_SIZE, EA_PTRSIZE);
+            GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, originalFrameSize + TARGET_POINTER_SIZE);
         }
 #endif
 
@@ -9134,11 +9138,6 @@ instruction CodeGen::ins_Store(var_types dstType, bool aligned)
     }
 
     return INS_mov;
-}
-
-void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
-{
-    GetEmitter()->emitIns_R_I(ins, size, reg, val);
 }
 
 void CodeGen::inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val)

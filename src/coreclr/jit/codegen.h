@@ -1130,7 +1130,6 @@ protected:
 public:
     void inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock);
     void inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip);
-    void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
 
     bool IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs);
 
@@ -1148,6 +1147,7 @@ public:
 #endif
 
 #ifdef TARGET_ARM
+    void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
     void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
     void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
     void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset);
@@ -1155,6 +1155,7 @@ public:
 #endif
 
 #ifdef TARGET_ARM64
+    void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
     void inst_SET(emitJumpKind condition, regNumber reg);
     void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
     void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
