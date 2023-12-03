@@ -4396,28 +4396,32 @@ void emitter::PrintShiftCL(instruction ins)
 
 void emitter::PrintHexCode(instrDesc* id, uint8_t* code, size_t size)
 {
-    if (emitComp->opts.disDiffable)
-    {
-        return;
-    }
+    constexpr size_t minSize = 6 AMD64_ONLY(+4);
+    constexpr size_t maxSize = 15;
 
-#ifdef TARGET_AMD64
-    const size_t digits = 10;
-#else
-    const size_t digits = 6;
-#endif
+    assert(size <= maxSize);
+    char  buffer[1 + maxSize * 2 + 1];
+    char* p = buffer;
+    *p++    = ' ';
 
-    printf(" ");
+    static const char digits[] = "0123456789ABCDEF";
 
     for (size_t i = 0; i < size; i++)
     {
-        printf("%02X", code[i]);
+        *p++ = digits[code[i] >> 4];
+        *p++ = digits[code[i] & 15];
     }
 
-    if (size < digits)
+    while (size < minSize)
     {
-        printf("%.*s", 2 * (digits - size), "                         ");
+        *p++ = ' ';
+        *p++ = ' ';
+        size++;
     }
+
+    *p++ = 0;
+
+    printf("%s", buffer);
 }
 
 static const char* GetSizeOperator(emitAttr attr)
@@ -4494,7 +4498,10 @@ void emitter::emitDispIns(
         assert(((code >= emitCodeBlock) && (code < emitCodeBlock + emitTotalHotCodeSize)) ||
                ((code >= emitColdCodeBlock) && (code < emitColdCodeBlock + emitTotalColdCodeSize)));
 
-        PrintHexCode(id, code + writeableOffset, sz);
+        if (!emitComp->opts.disDiffable)
+        {
+            PrintHexCode(id, code + writeableOffset, sz);
+        }
     }
 
     const char* sstr = genInsDisplayName(id);
