@@ -4394,7 +4394,7 @@ void emitter::PrintShiftCL(instruction ins)
     }
 }
 
-void emitter::PrintHexCode(instrDesc* id, uint8_t* code, size_t size)
+void emitter::PrintHexCode(instrDesc* id, const uint8_t* code, size_t size)
 {
     constexpr size_t minSize = 6 AMD64_ONLY(+4);
     constexpr size_t maxSize = 15;
@@ -4500,7 +4500,7 @@ void emitter::emitDispIns(
 
         if (!emitComp->opts.disDiffable)
         {
-            PrintHexCode(id, code + writeableOffset, sz);
+            PrintHexCode(id, code, sz);
         }
     }
 

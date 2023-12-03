@@ -274,7 +274,7 @@ bool AreFlagsAlwaysModified(instrDesc* id);
 /************************************************************************/
 
 #ifdef DEBUG
-void PrintHexCode(instrDesc* id, BYTE* code, size_t sz);
+void PrintHexCode(instrDesc* id, const uint8_t* code, size_t sz);
 void emitDispIns(instrDesc* id,
                  bool       isNew = false,
                  bool       doffs = false,
