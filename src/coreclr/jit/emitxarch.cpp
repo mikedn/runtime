@@ -4203,15 +4203,16 @@ class AsmPrinter
 
     Compiler* compiler;
     Emitter*  emitter;
+    bool      asmfm;
 
 public:
-    AsmPrinter(Emitter* emitter) : compiler(emitter->emitComp), emitter(emitter)
+    AsmPrinter(Emitter* emitter, bool asmfm) : compiler(emitter->emitComp), emitter(emitter), asmfm(asmfm)
     {
     }
 
-    void Print(instrDesc* id, bool asmfm)
+    void Print(instrDesc* id)
     {
-        PrintIns(id, asmfm);
+        PrintIns(id);
     }
 
 private:
@@ -4261,7 +4262,7 @@ private:
         printf("]");
     }
 
-    void PrintFrameRef(instrDesc* id, bool asmfm, const char* sizeOper)
+    void PrintFrameRef(instrDesc* id, const char* sizeOper)
     {
         int varNum  = id->idDebugOnlyInfo()->varNum;
         int varOffs = id->idDebugOnlyInfo()->varOffs;
@@ -4491,7 +4492,7 @@ private:
         }
     }
 
-    void PrintIns(instrDesc* id, bool asmfm)
+    void PrintIns(instrDesc* id)
     {
         const char* sstr = emitter->genInsDisplayName(id);
         printf(" %-9s", sstr);
@@ -4708,7 +4709,7 @@ private:
                     emitter->emitCurStackLvl -= REGSIZE_BYTES;
                 }
 #endif
-                PrintFrameRef(id, asmfm, sstr);
+                PrintFrameRef(id, sstr);
 #if !FEATURE_FIXED_OUT_ARGS
                 if (ins == INS_pop)
                 {
@@ -4721,20 +4722,20 @@ private:
             case IF_SRD_RRD:
             case IF_SWR_RRD:
             case IF_SRW_RRD:
-                PrintFrameRef(id, asmfm, sstr);
+                PrintFrameRef(id, sstr);
                 printf(", %s", RegName(id->idReg1(), attr));
                 break;
 
             case IF_SRD_CNS:
             case IF_SWR_CNS:
             case IF_SRW_CNS:
-                PrintFrameRef(id, asmfm, sstr);
+                PrintFrameRef(id, sstr);
                 printf(", ");
                 PrintImm(id, id->GetImm());
                 break;
 
             case IF_SWR_RRD_CNS:
-                PrintFrameRef(id, asmfm, sstr);
+                PrintFrameRef(id, sstr);
                 printf(", %s, ", RegName(id->idReg1(), attr));
                 PrintImm(id, id->GetImm());
                 break;
@@ -4743,32 +4744,32 @@ private:
             case IF_RWR_SRD:
             case IF_RRW_SRD:
                 printf("%s, ", RegName(id->idReg1(), attr1));
-                PrintFrameRef(id, asmfm, sstr);
+                PrintFrameRef(id, sstr);
                 break;
 
             case IF_RRW_SRD_CNS:
             case IF_RWR_SRD_CNS:
                 printf("%s, ", RegName(id->idReg1(), attr));
-                PrintFrameRef(id, asmfm, sstr);
+                PrintFrameRef(id, sstr);
                 printf(", ");
                 PrintImm(id, id->GetImm());
                 break;
 
             case IF_RWR_RRD_SRD:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintFrameRef(id, asmfm, sstr);
+                PrintFrameRef(id, sstr);
                 break;
 
             case IF_RWR_RRD_SRD_CNS:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintFrameRef(id, asmfm, sstr);
+                PrintFrameRef(id, sstr);
                 printf(", ");
                 PrintImm(id, id->GetImm());
                 break;
 
             case IF_RWR_RRD_SRD_RRD:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintFrameRef(id, asmfm, "");
+                PrintFrameRef(id, "");
                 printf(", %s", RegName(static_cast<regNumber>((id->GetImm() >> 4) + XMMBASE), attr));
                 break;
 
@@ -5015,8 +5016,8 @@ void emitter::emitDispIns(
         }
     }
 
-    AsmPrinter printer(this);
-    printer.Print(id, asmfm);
+    AsmPrinter printer(this, asmfm);
+    printer.Print(id);
 
     if ((sz != 0) && (sz != id->idCodeSize()) && (!asmfm || emitComp->verbose))
     {
