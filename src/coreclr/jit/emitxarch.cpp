@@ -4360,153 +4360,132 @@ private:
         }
     }
 
-    void PrintReloc(ssize_t value)
+    void PrintReloc(ssize_t value, const char* prefix = "")
     {
         if (compiler->opts.disAsm && compiler->opts.disDiffable)
         {
-            printf("(reloc)");
+            printf("%s(reloc)", prefix);
         }
         else
         {
-            printf("(reloc 0x%Ix)", compiler->dspPtr(value));
+            printf("%s(reloc 0x%Ix)", prefix, compiler->dspPtr(value));
         }
     }
 
     void PrintAddrMode(instrDesc* id, emitAttr size)
     {
-        ssize_t disp     = (id->idIns() == INS_call) ? id->GetCallDisp() : id->GetAmDisp();
-        bool    frameRef = false;
-        bool    nsep     = false;
+        auto        am        = id->idAddr()->iiaAddrMode;
+        ssize_t     disp      = id->idIns() == INS_call ? id->GetCallDisp() : id->GetAmDisp();
+        bool        frameRef  = false;
+        const char* separator = "";
 
         printf("%s[", GetSizeOperator(size));
 
-        if (id->idAddr()->iiaAddrMode.amBaseReg != REG_NA)
+        if (am.amBaseReg != REG_NA)
         {
-            printf("%s", getRegName(id->idAddr()->iiaAddrMode.amBaseReg));
-            nsep = true;
-            if (id->idAddr()->iiaAddrMode.amBaseReg == REG_ESP)
-            {
-                frameRef = true;
-            }
-            else if (emitter->codeGen->isFramePointerUsed() && id->idAddr()->iiaAddrMode.amBaseReg == REG_EBP)
-            {
-                frameRef = true;
-            }
+            printf("%s", getRegName(am.amBaseReg));
+
+            separator = "+";
+            frameRef =
+                (am.amBaseReg == REG_ESP) || ((am.amBaseReg == REG_EBP) && emitter->codeGen->isFramePointerUsed());
         }
 
-        if (id->idAddr()->iiaAddrMode.amIndxReg != REG_NA)
+        if (am.amIndxReg != REG_NA)
         {
-            if (nsep)
+            if (am.amScale != 0)
             {
-                printf("+");
+                printf("%s%d", separator, 1 << am.amScale);
+                separator = "*";
             }
 
-            if (id->idAddr()->iiaAddrMode.amScale != 0)
-            {
-                printf("%u*", 1u << id->idAddr()->iiaAddrMode.amScale);
-            }
-
-            printf("%s", getRegName(id->idAddr()->iiaAddrMode.amIndxReg));
-            nsep = true;
+            printf("%s%s", separator, getRegName(am.amIndxReg));
+            separator = "+";
         }
 
         if (id->idIsDspReloc() && (id->idIns() != INS_i_jmp))
         {
-            if (nsep)
-            {
-                printf("+");
-            }
-            PrintReloc(disp);
+            PrintReloc(disp, separator);
         }
-        else
+        // Munge any pointers if we want diff-able disassembly
+        // It's assumed to be a pointer when disp is outside of the range (-1M, +1M); top bits are not 0 or -1
+        else if (!frameRef && compiler->opts.disDiffable && (static_cast<size_t>((disp >> 20) + 1) > 1))
         {
-            // Munge any pointers if we want diff-able disassembly
-            // It's assumed to be a pointer when disp is outside of the range (-1M, +1M); top bits are not 0 or -1
-            if (!frameRef && compiler->opts.disDiffable && (static_cast<size_t>((disp >> 20) + 1) > 1))
+            printf("%sD1FFAB1EH", separator);
+        }
+        else if (disp > 0)
+        {
+            if (frameRef)
             {
-                if (nsep)
-                {
-                    printf("+");
-                }
-                printf("D1FFAB1EH");
+                printf("%s%02XH", separator, disp);
             }
-            else if (disp > 0)
+            else if (disp < 1000)
             {
-                if (nsep)
-                {
-                    printf("+");
-                }
-                if (frameRef)
-                {
-                    printf("%02XH", disp);
-                }
-                else if (disp < 1000)
-                {
-                    printf("%d", disp);
-                }
-                else if (disp <= 0xFFFF)
-                {
-                    printf("%04XH", disp);
-                }
-                else
-                {
-                    printf("%08XH", disp);
-                }
+                printf("%s%d", separator, disp);
             }
-            else if (disp < 0)
+            else if (disp <= 0xFFFF)
             {
-                if (frameRef)
-                {
-                    printf("-%02XH", -disp);
-                }
-                else if (disp > -1000)
-                {
-                    printf("-%d", -disp);
-                }
-                else if (disp >= -0xFFFF)
-                {
-                    printf("-%04XH", -disp);
-                }
-                else if (disp < -0xFFFFFF)
-                {
-                    if (nsep)
-                    {
-                        printf("+");
-                    }
-                    printf("%08XH", disp);
-                }
-                else
-                {
-                    printf("-%08XH", -disp);
-                }
+                printf("%s%04XH", separator, disp);
             }
-            else if (!nsep)
+            else
             {
-                printf("%04XH", disp);
+                printf("%s%08XH", separator, disp);
             }
+        }
+        else if (disp < 0)
+        {
+            if (frameRef)
+            {
+                printf("-%02XH", -disp);
+            }
+            else if (disp > -1000)
+            {
+                printf("-%d", -disp);
+            }
+            else if (disp >= -0xFFFF)
+            {
+                printf("-%04XH", -disp);
+            }
+            else if (disp < -0xFFFFFF)
+            {
+                printf("%s%08XH", separator, disp);
+            }
+            else
+            {
+                printf("-%08XH", -disp);
+            }
+        }
+        else if (separator[0] == 0)
+        {
+            printf("0");
         }
 
         printf("]");
 
-        // pretty print string if it looks like one
-        if ((id->idGCref() == GCT_GCREF) && (id->idIns() == INS_mov) && (id->idAddr()->iiaAddrMode.amBaseReg == REG_NA))
+        if (id->idIns() == INS_mov)
         {
-            // TODO-MIKE-Review: This stuff is dubious, probably it only works because strings are the only
-            // loading a REF from a memory location. Well, you would expect a static object field load to
-            // look identical but on x86 such loads will use CLS_VAR_ADDR as address and this is treated as
-            // reloc (even when jitting, why?!?). And on x64 apparently RIP addressing is not used in this
-            // case so this is never hit.
-
-            if (const WCHAR* str = compiler->eeGetCPString(reinterpret_cast<void*>(disp)))
+            // Pretty print string if it looks like one
+            if ((id->idGCref() == GCT_GCREF) && (am.amBaseReg == REG_NA))
             {
-                printf("      '%S'", str);
+                // TODO-MIKE-Review: This stuff is dubious, probably it only works because strings are the only
+                // case of loading a REF from a memory location. Well, you would expect a static object field
+                // load to look identical but on x86 such loads will use CLS_VAR_ADDR as address and this is
+                // treated as reloc (even when jitting, why?!?). And on x64 apparently RIP addressing is not used
+                // in this case so this is never hit.
+                // Besides, this should be displayed as an instruction comment, not as part of the operand.
+
+                if (const WCHAR* str = compiler->eeGetCPString(reinterpret_cast<void*>(disp)))
+                {
+                    printf("      '%S'", str);
+                }
             }
         }
-
-        if (((id->idIns() == INS_call) || (id->idIns() == INS_i_jmp)) && (id->idDebugOnlyInfo()->idHandle != nullptr))
+        else if ((id->idIns() == INS_call) || (id->idIns() == INS_i_jmp))
         {
-            printf("%s",
-                   compiler->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
+            if (id->idDebugOnlyInfo()->idHandle != nullptr)
+            {
+                printf("%s", compiler->eeGetMethodFullName(
+                                 static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
+            }
         }
     }
 
