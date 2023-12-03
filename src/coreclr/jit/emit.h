@@ -977,6 +977,13 @@ private:
             idAddr()->_idReg3 = reg;
             assert(reg == idAddr()->_idReg3);
         }
+
+        regNumber idReg4() const
+        {
+            assert(idInsFmt() == IF_RWR_RRD_ARD_RRD || idInsFmt() == IF_RWR_RRD_SRD_RRD ||
+                   idInsFmt() == IF_RWR_RRD_MRD_RRD);
+            return static_cast<regNumber>((_idSmallCns >> 4) + XMMBASE);
+        }
 #endif // defined(TARGET_XARCH)
 #ifdef TARGET_ARMARCH
         insOpts idInsOpt() const

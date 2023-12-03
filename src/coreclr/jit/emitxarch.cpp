@@ -4148,27 +4148,6 @@ void emitter::PrintHexCode(instrDesc* id, const uint8_t* code, size_t size)
     printf("%s", buffer);
 }
 
-static const char* GetSizeOperator(emitAttr attr)
-{
-    switch (EA_SIZE(attr))
-    {
-        case 1:
-            return "byte ptr ";
-        case 2:
-            return "word ptr ";
-        case 4:
-            return "dword ptr ";
-        case 8:
-            return "qword ptr ";
-        case 16:
-            return "xmmword ptr ";
-        case 32:
-            return "ymmword ptr ";
-        default:
-            return "??? ";
-    }
-}
-
 const char* emitter::genInsDisplayName(instrDesc* id)
 {
     instruction ins  = id->idIns();
@@ -4188,8 +4167,11 @@ const char* emitter::genInsDisplayName(instrDesc* id)
 
     if ((ins == INS_stos) || (ins == INS_movs) || (ins == INS_rep_stos) || (ins == INS_rep_movs))
     {
+        static const char types[]{'b', 'w', 'd', 'q', '?'};
+
         auto& retbuf = buf[curBuf++ % _countof(buf)];
-        sprintf_s(retbuf, _countof(retbuf), "%s%c", name, GetSizeOperator(id->idOpSize())[0]);
+        char  type   = types[Min<size_t>(BitPosition(id->idOpSize()), _countof(types) - 1)];
+        sprintf_s(retbuf, _countof(retbuf), "%s%c", name, type);
         return retbuf;
     }
 
@@ -4216,7 +4198,34 @@ public:
     }
 
 private:
-    void PrintClsVar(instrDesc* id, const char* sizeOper)
+    static const char* GetSizeOperator(emitAttr attr)
+    {
+        switch (attr)
+        {
+            case EA_UNKNOWN:
+                return "";
+            case EA_1BYTE:
+                return "byte ptr ";
+            case EA_2BYTE:
+                return "word ptr ";
+            case EA_4BYTE:
+                return "dword ptr ";
+            case EA_8BYTE:
+                return "qword ptr ";
+            case EA_16BYTE:
+                return "xmmword ptr ";
+            case EA_32BYTE:
+                return "ymmword ptr ";
+            case EA_GCREF:
+                return "gword ptr ";
+            case EA_BYREF:
+                return "bword ptr ";
+            default:
+                return "??? ";
+        }
+    }
+
+    void PrintClsVar(instrDesc* id, emitAttr size)
     {
         CORINFO_FIELD_HANDLE field = id->idAddr()->iiaFieldHnd;
         ssize_t              offs  = id->GetMemDisp();
@@ -4229,7 +4238,7 @@ private:
         }
 #endif
 
-        printf("%s[", sizeOper);
+        printf("%s[", GetSizeOperator(size));
 
         if (id->idIsDspReloc())
         {
@@ -4262,12 +4271,12 @@ private:
         printf("]");
     }
 
-    void PrintFrameRef(instrDesc* id, const char* sizeOper)
+    void PrintFrameRef(instrDesc* id, emitAttr size)
     {
         int varNum  = id->idDebugOnlyInfo()->varNum;
         int varOffs = id->idDebugOnlyInfo()->varOffs;
 
-        printf("%s[", sizeOper);
+        printf("%s[", GetSizeOperator(size));
 
         if (!asmfm)
         {
@@ -4281,15 +4290,25 @@ private:
             printf(" ");
         }
 
-        bool ebpBase;
-        int  disp = compiler->lvaFrameAddress(varNum, &ebpBase) + varOffs;
+        bool ebpBased;
+        int  disp = compiler->lvaFrameAddress(varNum, &ebpBased) + varOffs;
 
-        printf("%s", getRegName(ebpBase ? REG_EBP : REG_ESP));
+        printf("%s", getRegName(ebpBased ? REG_EBP : REG_ESP));
 
 #if !FEATURE_FIXED_OUT_ARGS
-        if (!ebpBase && (emitter->emitCurStackLvl != 0))
+        if (!ebpBased)
         {
-            printf("+%02XH", emitter->emitCurStackLvl);
+            unsigned stackLevel = emitter->emitCurStackLvl;
+
+            if (id->idIns() == INS_pop)
+            {
+                stackLevel -= REGSIZE_BYTES;
+            }
+
+            if (stackLevel != 0)
+            {
+                printf("+%02XH", stackLevel);
+            }
         }
 #endif
 
@@ -4353,13 +4372,13 @@ private:
         }
     }
 
-    void PrintAddrMode(instrDesc* id, const char* sizeOper)
+    void PrintAddrMode(instrDesc* id, emitAttr size)
     {
         ssize_t disp     = (id->idIns() == INS_call) ? id->GetCallDisp() : id->GetAmDisp();
         bool    frameRef = false;
         bool    nsep     = false;
 
-        printf("%s[", sizeOper);
+        printf("%s[", GetSizeOperator(size));
 
         if (id->idAddr()->iiaAddrMode.amBaseReg != REG_NA)
         {
@@ -4483,6 +4502,12 @@ private:
                 printf("      '%S'", str);
             }
         }
+
+        if (((id->idIns() == INS_call) || (id->idIns() == INS_i_jmp)) && (id->idDebugOnlyInfo()->idHandle != nullptr))
+        {
+            printf("%s",
+                   compiler->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
+        }
     }
 
     void PrintShiftCL(instruction ins)
@@ -4493,15 +4518,55 @@ private:
         }
     }
 
+    void PrintLabel(instrDesc* id)
+    {
+        if (static_cast<instrDescJmp*>(id)->idjShort)
+        {
+            printf("SHORT ");
+        }
+
+        if (id->idIsBound())
+        {
+            if (id->idAddr()->iiaHasInstrCount())
+            {
+                printf("%3d instr", id->idAddr()->iiaGetInstrCount());
+            }
+            else
+            {
+                emitter->emitPrintLabel(id->idAddr()->iiaIGlabel);
+            }
+        }
+        else
+        {
+            printf("L_M%03u_" FMT_BB, compiler->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
+        }
+    }
+
+    void PrintMethod(instrDesc* id)
+    {
+        if (id->idInsFmt() == IF_METHPTR)
+        {
+            printf("[");
+        }
+
+        printf("%s",
+               compiler->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
+
+        if (id->idInsFmt() == IF_METHPTR)
+        {
+            printf("]");
+        }
+    }
+
     void PrintIns(instrDesc* id)
     {
-        const char* sstr = emitter->genInsDisplayName(id);
-        printf(" %-9s", sstr);
+        const char* insName = emitter->genInsDisplayName(id);
+        printf(" %-9s", insName);
 
 #ifndef HOST_UNIX
-        if (strnlen_s(sstr, 10) >= 9)
+        if (strnlen_s(insName, 10) >= 9)
 #else
-        if (strnlen(sstr, 10) >= 9)
+        if (strnlen(insName, 10) >= 9)
 #endif
         {
             printf(" ");
@@ -4509,16 +4574,17 @@ private:
 
         instruction ins = id->idIns();
         emitAttr    attr;
+        emitAttr    mattr;
 
         if (id->idGCref() == GCT_GCREF)
         {
-            attr = EA_GCREF;
-            sstr = "gword ptr ";
+            attr  = EA_GCREF;
+            mattr = attr;
         }
         else if (id->idGCref() == GCT_BYREF)
         {
-            attr = EA_BYREF;
-            sstr = "bword ptr ";
+            attr  = EA_BYREF;
+            mattr = attr;
         }
         else
         {
@@ -4530,32 +4596,32 @@ private:
                 case INS_vextracti128:
                 case INS_vinsertf128:
                 case INS_vinserti128:
-                    sstr = GetSizeOperator(EA_16BYTE);
+                    mattr = EA_16BYTE;
                     break;
                 case INS_pextrb:
                 case INS_pinsrb:
-                    sstr = GetSizeOperator(EA_1BYTE);
+                    mattr = EA_1BYTE;
                     break;
                 case INS_pextrw:
                 case INS_pextrw_sse41:
                 case INS_pinsrw:
-                    sstr = GetSizeOperator(EA_2BYTE);
+                    mattr = EA_2BYTE;
                     break;
                 case INS_extractps:
                 case INS_insertps:
                 case INS_pextrd:
                 case INS_pinsrd:
-                    sstr = GetSizeOperator(EA_4BYTE);
+                    mattr = EA_4BYTE;
                     break;
                 case INS_pextrq:
                 case INS_pinsrq:
-                    sstr = GetSizeOperator(EA_8BYTE);
+                    mattr = EA_8BYTE;
                     break;
                 case INS_lea:
-                    sstr = "";
+                    mattr = EA_UNKNOWN;
                     break;
                 default:
-                    sstr = GetSizeOperator(attr);
+                    mattr = attr;
                     break;
             }
         }
@@ -4612,46 +4678,34 @@ private:
             case IF_ARD:
             case IF_AWR:
             case IF_ARW:
-                PrintAddrMode(id, sstr);
-
-                if ((ins == INS_call) || (ins == INS_i_jmp))
-                {
-                    if (id->idDebugOnlyInfo()->idHandle != nullptr)
-                    {
-                        printf("%s", compiler->eeGetMethodFullName(
-                                         static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
-                    }
-                }
-                else
-                {
-                    PrintShiftCL(ins);
-                }
+                PrintAddrMode(id, mattr);
+                PrintShiftCL(ins);
                 break;
 
             case IF_RRD_ARD:
             case IF_RWR_ARD:
             case IF_RRW_ARD:
                 printf("%s, ", RegName(id->idReg1(), attr1));
-                PrintAddrMode(id, sstr);
+                PrintAddrMode(id, mattr);
                 break;
 
             case IF_RRW_ARD_CNS:
             case IF_RWR_ARD_CNS:
                 printf("%s, ", RegName(id->idReg1(), attr));
-                PrintAddrMode(id, sstr);
+                PrintAddrMode(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
 
             case IF_AWR_RRD_CNS:
-                PrintAddrMode(id, GetSizeOperator(EA_16BYTE));
+                PrintAddrMode(id, EA_16BYTE);
                 printf(", %s, ", RegName(id->idReg1(), attr));
                 PrintImm(id);
                 break;
 
             case IF_RWR_RRD_ARD:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintAddrMode(id, sstr);
+                PrintAddrMode(id, mattr);
                 break;
 
             case IF_RWR_ARD_RRD:
@@ -4662,39 +4716,39 @@ private:
                 }
 
                 printf("%s, ", RegName(id->idReg1(), attr1));
-                PrintAddrMode(id, GetSizeOperator(EA_4BYTE));
+                PrintAddrMode(id, EA_4BYTE);
                 printf(", %s", RegName(id->idReg2(), attr2));
                 break;
 
             case IF_RWR_RRD_ARD_CNS:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintAddrMode(id, sstr);
+                PrintAddrMode(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
 
             case IF_RWR_RRD_ARD_RRD:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintAddrMode(id, "");
-                printf(", %s", RegName(static_cast<regNumber>((id->GetImm() >> 4) + XMMBASE), attr));
+                PrintAddrMode(id, EA_UNKNOWN);
+                printf(", %s", RegName(id->idReg4(), attr));
                 break;
 
             case IF_ARD_RRD:
             case IF_AWR_RRD:
             case IF_ARW_RRD:
-                PrintAddrMode(id, sstr);
+                PrintAddrMode(id, mattr);
                 printf(", %s", RegName(id->idReg1(), attr));
                 break;
 
             case IF_AWR_RRD_RRD:
-                PrintAddrMode(id, sstr);
+                PrintAddrMode(id, mattr);
                 printf(", %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
                 break;
 
             case IF_ARD_CNS:
             case IF_AWR_CNS:
             case IF_ARW_CNS:
-                PrintAddrMode(id, sstr);
+                PrintAddrMode(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
@@ -4702,39 +4756,27 @@ private:
             case IF_SRD:
             case IF_SWR:
             case IF_SRW:
-#if !FEATURE_FIXED_OUT_ARGS
-                if (ins == INS_pop)
-                {
-                    emitter->emitCurStackLvl -= REGSIZE_BYTES;
-                }
-#endif
-                PrintFrameRef(id, sstr);
-#if !FEATURE_FIXED_OUT_ARGS
-                if (ins == INS_pop)
-                {
-                    emitter->emitCurStackLvl += REGSIZE_BYTES;
-                }
-#endif
+                PrintFrameRef(id, mattr);
                 PrintShiftCL(ins);
                 break;
 
             case IF_SRD_RRD:
             case IF_SWR_RRD:
             case IF_SRW_RRD:
-                PrintFrameRef(id, sstr);
+                PrintFrameRef(id, mattr);
                 printf(", %s", RegName(id->idReg1(), attr));
                 break;
 
             case IF_SRD_CNS:
             case IF_SWR_CNS:
             case IF_SRW_CNS:
-                PrintFrameRef(id, sstr);
+                PrintFrameRef(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
 
             case IF_SWR_RRD_CNS:
-                PrintFrameRef(id, sstr);
+                PrintFrameRef(id, mattr);
                 printf(", %s, ", RegName(id->idReg1(), attr));
                 PrintImm(id);
                 break;
@@ -4743,33 +4785,33 @@ private:
             case IF_RWR_SRD:
             case IF_RRW_SRD:
                 printf("%s, ", RegName(id->idReg1(), attr1));
-                PrintFrameRef(id, sstr);
+                PrintFrameRef(id, mattr);
                 break;
 
             case IF_RRW_SRD_CNS:
             case IF_RWR_SRD_CNS:
                 printf("%s, ", RegName(id->idReg1(), attr));
-                PrintFrameRef(id, sstr);
+                PrintFrameRef(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
 
             case IF_RWR_RRD_SRD:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintFrameRef(id, sstr);
+                PrintFrameRef(id, mattr);
                 break;
 
             case IF_RWR_RRD_SRD_CNS:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintFrameRef(id, sstr);
+                PrintFrameRef(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
 
             case IF_RWR_RRD_SRD_RRD:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintFrameRef(id, "");
-                printf(", %s", RegName(static_cast<regNumber>((id->GetImm() >> 4) + XMMBASE), attr));
+                PrintFrameRef(id, EA_UNKNOWN);
+                printf(", %s", RegName(id->idReg4(), attr));
                 break;
 
             case IF_RRD_RRD:
@@ -4860,52 +4902,52 @@ private:
             case IF_RWR_MRD:
             case IF_RRW_MRD:
                 printf("%s, ", RegName(id->idReg1(), attr1));
-                PrintClsVar(id, sstr);
+                PrintClsVar(id, mattr);
                 break;
 
             case IF_RRW_MRD_CNS:
             case IF_RWR_MRD_CNS:
                 printf("%s, ", RegName(id->idReg1(), attr));
-                PrintClsVar(id, sstr);
+                PrintClsVar(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
 
             case IF_MWR_RRD_CNS:
-                PrintClsVar(id, GetSizeOperator(EA_16BYTE));
+                PrintClsVar(id, EA_16BYTE);
                 printf(", %s, ", RegName(id->idReg1(), attr));
                 PrintImm(id);
                 break;
 
             case IF_RWR_RRD_MRD:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintClsVar(id, sstr);
+                PrintClsVar(id, mattr);
                 break;
 
             case IF_RWR_RRD_MRD_CNS:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintClsVar(id, sstr);
+                PrintClsVar(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
 
             case IF_RWR_RRD_MRD_RRD:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintClsVar(id, "");
-                printf(", %s", RegName(static_cast<regNumber>((id->GetImm() >> 4) + XMMBASE), attr));
+                PrintClsVar(id, EA_UNKNOWN);
+                printf(", %s", RegName(id->idReg4(), attr));
                 break;
 
             case IF_MRD_RRD:
             case IF_MWR_RRD:
             case IF_MRW_RRD:
-                PrintClsVar(id, sstr);
+                PrintClsVar(id, mattr);
                 printf(", %s", RegName(id->idReg1(), attr));
                 break;
 
             case IF_MRD_CNS:
             case IF_MWR_CNS:
             case IF_MRW_CNS:
-                PrintClsVar(id, sstr);
+                PrintClsVar(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
@@ -4913,7 +4955,7 @@ private:
             case IF_MRD:
             case IF_MWR:
             case IF_MRW:
-                PrintClsVar(id, sstr);
+                PrintClsVar(id, mattr);
                 PrintShiftCL(ins);
                 break;
 
@@ -4924,49 +4966,18 @@ private:
                 PrintImm(id);
                 break;
 
-            case IF_LABEL:
             case IF_RWR_LABEL:
-                if (ins == INS_lea)
-                {
-                    printf("%s, ", RegName(id->idReg1(), attr));
-                }
+                printf("%s, ", RegName(id->idReg1(), attr));
+                PrintLabel(id);
+                break;
 
-                if (static_cast<instrDescJmp*>(id)->idjShort)
-                {
-                    printf("SHORT ");
-                }
-
-                if (id->idIsBound())
-                {
-                    if (id->idAddr()->iiaHasInstrCount())
-                    {
-                        printf("%3d instr", id->idAddr()->iiaGetInstrCount());
-                    }
-                    else
-                    {
-                        emitter->emitPrintLabel(id->idAddr()->iiaIGlabel);
-                    }
-                }
-                else
-                {
-                    printf("L_M%03u_" FMT_BB, compiler->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
-                }
+            case IF_LABEL:
+                PrintLabel(id);
                 break;
 
             case IF_METHOD:
             case IF_METHPTR:
-                if (id->idInsFmt() == IF_METHPTR)
-                {
-                    printf("[");
-                }
-
-                printf("%s", compiler->eeGetMethodFullName(
-                                 static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
-
-                if (id->idInsFmt() == IF_METHPTR)
-                {
-                    printf("]");
-                }
+                PrintMethod(id);
                 break;
 
             case IF_NONE:
