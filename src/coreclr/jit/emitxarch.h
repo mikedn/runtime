@@ -285,10 +285,10 @@ void emitDispIns(instrDesc* id,
                  insGroup*  ig    = nullptr);
 void PrintImm(instrDesc* id, ssize_t val);
 void PrintReloc(ssize_t value);
-void PrintAddrMode(instrDesc* id);
-void PrintClsVar(instrDesc* id);
+void PrintAddrMode(instrDesc* id, const char* sizeOper);
+void PrintClsVar(instrDesc* id, const char* sizeOper);
 void PrintShiftCL(instruction ins);
-void PrintFrameRef(instrDesc* id, bool asmfm);
+void PrintFrameRef(instrDesc* id, bool asmfm, const char* sizeOper);
 #endif
 
 /************************************************************************/
