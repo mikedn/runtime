@@ -326,11 +326,6 @@ instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
 #endif
                             int32_t disp);
 
-ssize_t emitGetInsCns(instrDesc* id);
-ssize_t emitGetInsMemDisp(instrDesc* id);
-ssize_t emitGetInsAmdDisp(instrDesc* id);
-ssize_t emitGetInsCallDisp(instrDesc* id);
-
 /************************************************************************/
 /*               Private helpers for instruction output                 */
 /************************************************************************/

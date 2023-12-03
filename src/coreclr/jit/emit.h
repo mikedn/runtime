@@ -718,6 +718,11 @@ private:
 
     struct instrDesc : public instrDescSmall
     {
+        ssize_t GetImm() const;
+        ssize_t GetMemDisp() const;
+        ssize_t GetAmDisp() const;
+        ssize_t GetCallDisp() const;
+
     private:
         union idAddrUnion {
             // TODO-Cleanup: We should really add a DEBUG-only tag to this union so we can add asserts
