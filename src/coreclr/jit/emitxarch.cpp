@@ -2721,9 +2721,9 @@ static int8_t EncodeXmmRegAsImm(regNumber reg)
 {
     // AVX/AVX2 supports 4-reg format for vblendvps/vblendvpd/vpblendvb,
     // which encodes the fourth register into imm8[7:4]
-    assert(reg >= XMMBASE);
+    assert(reg >= REG_XMM0);
 
-    int imm = (reg - XMMBASE) << 4;
+    int imm = (reg - REG_XMM0) << 4;
     assert((imm >= 0) && (imm <= 255));
     return static_cast<int8_t>(imm);
 }

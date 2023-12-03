@@ -982,7 +982,7 @@ private:
         {
             assert(idInsFmt() == IF_RWR_RRD_ARD_RRD || idInsFmt() == IF_RWR_RRD_SRD_RRD ||
                    idInsFmt() == IF_RWR_RRD_MRD_RRD);
-            return static_cast<regNumber>((_idSmallCns >> 4) + XMMBASE);
+            return static_cast<regNumber>(REG_XMM0 + (_idSmallCns >> 4));
         }
 #endif // defined(TARGET_XARCH)
 #ifdef TARGET_ARMARCH
