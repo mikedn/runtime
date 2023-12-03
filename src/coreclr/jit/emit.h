@@ -1380,7 +1380,6 @@ private:
 #endif
 
 #ifdef DEBUG
-    const char* genInsDisplayName(instrDesc* id);
     static const char* emitIfName(unsigned f);
 
     unsigned emitInsCount = 0;

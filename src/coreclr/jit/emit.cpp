@@ -156,13 +156,6 @@ void emitLocation::Print(LONG compMethodID) const
     printf("(G_M%03u_IG%02u,ins#%d,ofs#%d)", compMethodID, ig->igNum, insNum, insOfs);
 }
 
-#ifndef TARGET_XARCH
-const char* emitter::genInsDisplayName(instrDesc* id)
-{
-    return insName(id->idIns());
-}
-#endif
-
 const char* emitter::emitIfName(unsigned f)
 {
     static const char* const ifNames[] = {
@@ -600,7 +593,7 @@ float emitter::insEvaluateExecutionCost(instrDesc* id)
 void emitter::perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* pResult)
 {
 #ifdef DEBUG
-    printf("PerfScore: unhandled instruction: %s, format %s", genInsDisplayName(id), emitIfName(id->idInsFmt()));
+    printf("PerfScore: unhandled instruction: %s, format %s", insName(id->idIns()), emitIfName(id->idInsFmt()));
     assert(!"PerfScore: unhandled instruction");
 #endif
     pResult->insThroughput = PERFSCORE_THROUGHPUT_1C;
@@ -4188,7 +4181,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                         unsigned bytesCrossedBoundary = (unsigned)(afterInstrAddr & jccAlignBoundaryMask);
                         printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d ; jcc erratum) %dB boundary "
                                "...............................\n",
-                               genInsDisplayName(curInstrDesc), bytesCrossedBoundary, jccAlignBoundary);
+                               insName(curInstrDesc->idIns()), bytesCrossedBoundary, jccAlignBoundary);
                     }
                 }
 
@@ -4207,7 +4200,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                         unsigned bytesCrossedBoundary = (unsigned)(afterInstrAddr & alignBoundaryMask);
                         if (bytesCrossedBoundary != 0)
                         {
-                            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", genInsDisplayName(curInstrDesc),
+                            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", insName(curInstrDesc->idIns()),
                                    bytesCrossedBoundary);
                         }
                         else

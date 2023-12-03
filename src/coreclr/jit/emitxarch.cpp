@@ -4148,36 +4148,6 @@ void emitter::PrintHexCode(instrDesc* id, const uint8_t* code, size_t size)
     printf("%s", buffer);
 }
 
-const char* emitter::genInsDisplayName(instrDesc* id)
-{
-    instruction ins  = id->idIns();
-    const char* name = insName(ins);
-
-    static unsigned curBuf = 0;
-    static char     buf[4][40];
-
-    // TODO-MIKE-Cleanup: This should check FIRST_SSE_VEX_INSTRUCTION instead of INS_FIRST_SSE_INSTRUCTION,
-    // bozos thought that lfence & co. have VEX.
-    if (UseVEXEncoding() && (INS_FIRST_SSE_INSTRUCTION <= ins) && (ins <= INS_LAST_SSE_INSTRUCTION))
-    {
-        auto& retbuf = buf[curBuf++ % _countof(buf)];
-        sprintf_s(retbuf, _countof(retbuf), "v%s", name);
-        return retbuf;
-    }
-
-    if ((ins == INS_stos) || (ins == INS_movs) || (ins == INS_rep_stos) || (ins == INS_rep_movs))
-    {
-        static const char types[]{'b', 'w', 'd', 'q', '?'};
-
-        auto& retbuf = buf[curBuf++ % _countof(buf)];
-        char  type   = types[Min<size_t>(BitPosition(id->idOpSize()), _countof(types) - 1)];
-        sprintf_s(retbuf, _countof(retbuf), "%s%c", name, type);
-        return retbuf;
-    }
-
-    return name;
-}
-
 class AsmPrinter
 {
     using instrDesc    = Emitter::instrDesc;
@@ -4536,9 +4506,39 @@ private:
         }
     }
 
+    const char* GetInsName(instrDesc* id)
+    {
+        instruction ins  = id->idIns();
+        const char* name = insName(ins);
+
+        static unsigned curBuf = 0;
+        static char     buf[4][40];
+
+        // TODO-MIKE-Cleanup: This should check FIRST_SSE_VEX_INSTRUCTION instead of INS_FIRST_SSE_INSTRUCTION,
+        // bozos thought that lfence & co. have VEX.
+        if ((INS_FIRST_SSE_INSTRUCTION <= ins) && (ins <= INS_LAST_SSE_INSTRUCTION) && emitter->UseVEXEncoding())
+        {
+            auto& retbuf = buf[curBuf++ % _countof(buf)];
+            sprintf_s(retbuf, _countof(retbuf), "v%s", name);
+            return retbuf;
+        }
+
+        if ((ins == INS_stos) || (ins == INS_movs) || (ins == INS_rep_stos) || (ins == INS_rep_movs))
+        {
+            static const char types[]{'b', 'w', 'd', 'q', '?'};
+
+            auto& retbuf = buf[curBuf++ % _countof(buf)];
+            char  type   = types[Min<size_t>(BitPosition(id->idOpSize()), _countof(types) - 1)];
+            sprintf_s(retbuf, _countof(retbuf), "%s%c", name, type);
+            return retbuf;
+        }
+
+        return name;
+    }
+
     void PrintIns(instrDesc* id)
     {
-        const char* insName = emitter->genInsDisplayName(id);
+        const char* insName = GetInsName(id);
         printf(" %-9s", insName);
 
 #ifndef HOST_UNIX
