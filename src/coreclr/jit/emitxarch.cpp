@@ -4382,7 +4382,7 @@ private:
 
         if (id->idAddr()->iiaAddrMode.amBaseReg != REG_NA)
         {
-            printf("%s", RegName(id->idAddr()->iiaAddrMode.amBaseReg, EA_PTRSIZE));
+            printf("%s", getRegName(id->idAddr()->iiaAddrMode.amBaseReg));
             nsep = true;
             if (id->idAddr()->iiaAddrMode.amBaseReg == REG_ESP)
             {
@@ -4406,7 +4406,7 @@ private:
                 printf("%u*", 1u << id->idAddr()->iiaAddrMode.amScale);
             }
 
-            printf("%s", RegName(id->idAddr()->iiaAddrMode.amIndxReg, EA_PTRSIZE));
+            printf("%s", getRegName(id->idAddr()->iiaAddrMode.amIndxReg));
             nsep = true;
         }
 

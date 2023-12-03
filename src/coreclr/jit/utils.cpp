@@ -315,7 +315,7 @@ void DumpRegSet(regMaskTP regs)
             sp = true;
         }
 
-        printf("%s", RegName(reg, EA_PTRSIZE));
+        printf("%s", getRegName(reg));
     }
 
     printf("}");
@@ -343,7 +343,7 @@ void DumpRegSetDiff(const char* name, regMaskTP from, regMaskTP to)
             s = toBit ? "+" : "-";
         }
 
-        printf("%s%s ", s, RegName(reg, EA_PTRSIZE));
+        printf("%s%s ", s, getRegName(reg));
     }
 
     printf("}\n");
