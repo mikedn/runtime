@@ -5973,7 +5973,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         }
     }
 
-    assert((*dp != dst) || InstrHasNoCode(id));
+    assert((*dp != dst) || id->InstrHasNoCode());
 
 #ifdef DEBUG
     /* Make sure we set the instruction descriptor size correctly */

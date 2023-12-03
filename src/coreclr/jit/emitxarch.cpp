@@ -4235,9 +4235,9 @@ private:
             printf("reloc ");
         }
 
-        if (emitter->IsRoDataField(field))
+        if (Emitter::IsRoDataField(field))
         {
-            printf("@RWD%02u", emitter->GetRoDataOffset(field));
+            printf("@RWD%02u", Emitter::GetRoDataOffset(field));
         }
         else
         {
@@ -4505,7 +4505,7 @@ private:
             printf(" ");
         }
 
-        assert((id->idCodeSize() != 0) || emitter->InstrHasNoCode(id));
+        assert((id->idCodeSize() != 0) || id->InstrHasNoCode());
 
         instruction ins = id->idIns();
         emitAttr    attr;
@@ -8823,7 +8823,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     assert(emitCurStackLvl <= INT32_MAX);
 #endif // !FEATURE_FIXED_OUT_ARGS
 
-    assert((*dp != dst) || InstrHasNoCode(id));
+    assert((*dp != dst) || id->InstrHasNoCode());
 
 #ifdef DEBUG
     if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))

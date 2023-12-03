@@ -1148,6 +1148,18 @@ private:
             _idDebugOnlyInfo->varOffs = varOffs;
 #endif
         }
+
+#ifdef DEBUG
+        bool InstrHasNoCode() const
+        {
+            return (idInsFmt() == IF_GC_REG)
+#ifdef TARGET_XARCH
+                   || (idIns() == INS_align)
+#endif
+                ;
+        }
+#endif
+
     }; // End of  struct instrDesc
 
 #ifndef TARGET_XARCH
@@ -1216,17 +1228,6 @@ private:
         int workaroundToAvoidDiffInducingStupidInsGroupSizeChanges;
 #endif
     };
-
-#ifdef DEBUG
-    bool InstrHasNoCode(const instrDesc* id)
-    {
-        return (id->idInsFmt() == IF_GC_REG)
-#ifdef TARGET_XARCH
-               || (id->idIns() == INS_align)
-#endif
-            ;
-    }
-#endif
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
