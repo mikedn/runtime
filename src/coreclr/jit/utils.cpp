@@ -122,31 +122,6 @@ const char* varTypeName(var_types type)
 }
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
-/*****************************************************************************
- *
- *  Return the name of the given register.
- */
-
-const char* getRegName(regNumber reg)
-{
-    // Special-case REG_NA; it's not in the regNames array, but we might want to print it.
-    if (reg == REG_NA)
-    {
-        return "NA";
-    }
-
-    static const char* const regNames[] = {
-#if defined(TARGET_ARM64)
-#define REGDEF(name, rnum, mask, xname, wname) xname,
-#else
-#define REGDEF(name, rnum, mask, sname) sname,
-#endif
-#include "register.h"
-    };
-
-    return reg < _countof(regNames) ? regNames[reg] : "???";
-}
-
 const char* getRegName(unsigned reg) // this is for gcencode.cpp and disasm.cpp that dont use the regNumber type
 {
     return getRegName(static_cast<regNumber>(reg));

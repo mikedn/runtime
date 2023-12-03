@@ -1,37 +1,44 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*****************************************************************************/
-
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
-#if defined(TARGET_AMD64)
-
+#ifdef TARGET_AMD64
 #include "target.h"
 
 const char* Target::g_tgtCPUName = "x64";
 
-// clang-format off
 #ifdef UNIX_AMD64_ABI
-const regNumber intArgRegs [] = { REG_EDI, REG_ESI, REG_EDX, REG_ECX, REG_R8, REG_R9 };
-const regMaskTP intArgMasks[] = { RBM_EDI, RBM_ESI, RBM_EDX, RBM_ECX, RBM_R8, RBM_R9 };
-const regNumber fltArgRegs [] = { REG_XMM0, REG_XMM1, REG_XMM2, REG_XMM3, REG_XMM4, REG_XMM5, REG_XMM6, REG_XMM7 };
-const regMaskTP fltArgMasks[] = { RBM_XMM0, RBM_XMM1, RBM_XMM2, RBM_XMM3, RBM_XMM4, RBM_XMM5, RBM_XMM6, RBM_XMM7 };
-#else // !UNIX_AMD64_ABI
-const regNumber intArgRegs [] = { REG_ECX, REG_EDX, REG_R8, REG_R9 };
-const regMaskTP intArgMasks[] = { RBM_ECX, RBM_EDX, RBM_R8, RBM_R9 };
-const regNumber fltArgRegs [] = { REG_XMM0, REG_XMM1, REG_XMM2, REG_XMM3 };
-const regMaskTP fltArgMasks[] = { RBM_XMM0, RBM_XMM1, RBM_XMM2, RBM_XMM3 };
-#endif // !UNIX_AMD64_ABI
-// clang-format on
+const regNumber intArgRegs[]{REG_EDI, REG_ESI, REG_EDX, REG_ECX, REG_R8, REG_R9};
+const regMaskTP intArgMasks[]{RBM_EDI, RBM_ESI, RBM_EDX, RBM_ECX, RBM_R8, RBM_R9};
+
+const regNumber fltArgRegs[]{REG_XMM0, REG_XMM1, REG_XMM2, REG_XMM3, REG_XMM4, REG_XMM5, REG_XMM6, REG_XMM7};
+const regMaskTP fltArgMasks[]{RBM_XMM0, RBM_XMM1, RBM_XMM2, RBM_XMM3, RBM_XMM4, RBM_XMM5, RBM_XMM6, RBM_XMM7};
+#else
+const regNumber intArgRegs[]{REG_ECX, REG_EDX, REG_R8, REG_R9};
+const regMaskTP intArgMasks[]{RBM_ECX, RBM_EDX, RBM_R8, RBM_R9};
+
+const regNumber fltArgRegs[]{REG_XMM0, REG_XMM1, REG_XMM2, REG_XMM3};
+const regMaskTP fltArgMasks[]{RBM_XMM0, RBM_XMM1, RBM_XMM2, RBM_XMM3};
+#endif
 
 const regMaskTP regMasks[]{
 #define REGDEF(name, rnum, mask, sname) mask,
 #include "register.h"
 };
+
+#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
+const char* getRegName(regNumber reg)
+{
+    static const char* const names[]{
+#define REGDEF(name, rnum, mask, sname) sname,
+#include "register.h"
+        "NA", "???"};
+    static_assert_no_msg(REG_NA == _countof(names) - 2);
+
+    return names[Min<size_t>(reg, _countof(names) - 1)];
+}
+#endif
 
 #ifdef DEBUG
 static bool IsXmmReg(regNumber reg)
@@ -149,6 +156,6 @@ const char* RegName(regNumber reg, emitAttr attr)
 
     return rn;
 }
-#endif // DEBUG
 
+#endif // DEBUG
 #endif // TARGET_AMD64
