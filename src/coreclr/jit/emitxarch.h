@@ -283,6 +283,7 @@ void emitDispIns(instrDesc* id,
                  uint8_t*   code  = nullptr,
                  size_t     sz    = 0,
                  insGroup*  ig    = nullptr);
+void PrintIns(instrDesc* id, bool asmfm = false);
 void PrintImm(instrDesc* id, ssize_t val);
 void PrintReloc(ssize_t value);
 void PrintAddrMode(instrDesc* id, const char* sizeOper);

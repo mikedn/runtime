@@ -4504,6 +4504,18 @@ void emitter::emitDispIns(
         }
     }
 
+    PrintIns(id, asmfm);
+
+    if ((sz != 0) && (sz != id->idCodeSize()) && (!asmfm || emitComp->verbose))
+    {
+        printf(" (ECS:%d, ACS:%d)", id->idCodeSize(), sz);
+    }
+
+    printf("\n");
+}
+
+void emitter::PrintIns(instrDesc* id, bool asmfm)
+{
     const char* sstr = genInsDisplayName(id);
     printf(" %-9s", sstr);
 
@@ -4991,13 +5003,6 @@ void emitter::emitDispIns(
             printf("???");
             break;
     }
-
-    if ((sz != 0) && (sz != id->idCodeSize()) && (!asmfm || emitComp->verbose))
-    {
-        printf(" (ECS:%d, ACS:%d)", id->idCodeSize(), sz);
-    }
-
-    printf("\n");
 }
 #endif // DEBUG
 
