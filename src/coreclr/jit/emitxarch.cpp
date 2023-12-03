@@ -4286,9 +4286,9 @@ private:
         printf("%s", getRegName(ebpBase ? REG_EBP : REG_ESP));
 
 #if !FEATURE_FIXED_OUT_ARGS
-        if (!ebpBase && (emitCurStackLvl != 0))
+        if (!ebpBase && (emitter->emitCurStackLvl != 0))
         {
-            printf("+%02XH", emitCurStackLvl);
+            printf("+%02XH", emitter->emitCurStackLvl);
         }
 #endif
 
@@ -4705,14 +4705,14 @@ private:
 #if !FEATURE_FIXED_OUT_ARGS
                 if (ins == INS_pop)
                 {
-                    emitCurStackLvl -= REGSIZE_BYTES;
+                    emitter->emitCurStackLvl -= REGSIZE_BYTES;
                 }
 #endif
                 PrintFrameRef(id, asmfm, sstr);
 #if !FEATURE_FIXED_OUT_ARGS
                 if (ins == INS_pop)
                 {
-                    emitCurStackLvl += REGSIZE_BYTES;
+                    emitter->emitCurStackLvl += REGSIZE_BYTES;
                 }
 #endif
                 PrintShiftCL(ins);
