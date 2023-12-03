@@ -23,20 +23,14 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "opcode.h"
 
-/*****************************************************************************/
-// Define the string platform name based on compilation #ifdefs. This is the
-// same code for all platforms, hence it is here instead of in the targetXXX.cpp
-// files.
-
+const char* Target::PlatformName()
+{
 #ifdef TARGET_UNIX
-// Should we distinguish Mac? Can we?
-// Should we distinguish flavors of Unix? Can we?
-const char* Target::g_tgtPlatformName = "Unix";
-#else  // !TARGET_UNIX
-const char* Target::g_tgtPlatformName = "Windows";
-#endif // !TARGET_UNIX
-
-/*****************************************************************************/
+    return "Unix";
+#else
+    return "Windows";
+#endif
+}
 
 #define DECLARE_DATA
 
@@ -1777,7 +1771,7 @@ double FloatingPointUtils::convertUInt64ToDouble(unsigned __int64 uIntVal)
         uint64_t adjHex = 0x43F0000000000000UL;
         d               = (double)s64 + *(double*)&adjHex;
 #else
-        d                             = (double)uIntVal;
+        d = (double)uIntVal;
 #endif
     }
     else
@@ -1825,7 +1819,7 @@ unsigned __int64 FloatingPointUtils::convertDoubleToUInt64(double d)
 
     u64 = UINT64(INT64(d));
 #else
-    u64                               = UINT64(d);
+    u64   = UINT64(d);
 #endif // TARGET_XARCH
 
     return u64;

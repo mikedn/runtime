@@ -219,12 +219,11 @@ C_ASSERT((FEATURE_TAILCALL_OPT == 0) || (FEATURE_FASTTAILCALL == 1));
 
 // clang-format on
 
-/*****************************************************************************/
 class Target
 {
 public:
-    static const char* g_tgtCPUName;
-    static const char* g_tgtPlatformName;
+    static const char* CpuName();
+    static const char* PlatformName();
 };
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES

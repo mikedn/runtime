@@ -6,7 +6,10 @@
 #ifdef TARGET_ARM
 #include "target.h"
 
-const char* Target::g_tgtCPUName = "arm";
+const char* Target::CpuName()
+{
+    return "arm";
+}
 
 const regNumber intArgRegs[]{REG_R0, REG_R1, REG_R2, REG_R3};
 const regMaskTP intArgMasks[]{RBM_R0, RBM_R1, RBM_R2, RBM_R3};

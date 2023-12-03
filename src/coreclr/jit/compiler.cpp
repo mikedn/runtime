@@ -564,10 +564,10 @@ void Compiler::compShutdown()
         fprintf(fout, "Function and GC info size stats\n");
         fprintf(fout, "--------------------------------------\n");
 
-        fprintf(fout, "[%7u VM, %8u %6s %4u%%] %s\n", grossVMsize, grossNCsize, Target::g_tgtCPUName,
+        fprintf(fout, "[%7u VM, %8u %6s %4u%%] %s\n", grossVMsize, grossNCsize, Target::CpuName(),
                 100 * grossNCsize / grossVMsize, "Total (excluding GC info)");
 
-        fprintf(fout, "[%7u VM, %8u %6s %4u%%] %s\n", grossVMsize, totalNCsize, Target::g_tgtCPUName,
+        fprintf(fout, "[%7u VM, %8u %6s %4u%%] %s\n", grossVMsize, totalNCsize, Target::CpuName(),
                 100 * totalNCsize / grossVMsize, "Total (including GC info)");
 
         if (gcHeaderISize || gcHeaderNSize)
@@ -577,7 +577,7 @@ void Compiler::compShutdown()
             fprintf(fout, "GC tables   : [%7uI,%7uN] %7u byt  (%u%% of IL, %u%% of %s).\n",
                     gcHeaderISize + gcPtrMapISize, gcHeaderNSize + gcPtrMapNSize, totalNCsize - grossNCsize,
                     100 * (totalNCsize - grossNCsize) / grossVMsize, 100 * (totalNCsize - grossNCsize) / grossNCsize,
-                    Target::g_tgtCPUName);
+                    Target::CpuName());
 
             fprintf(fout, "GC headers  : [%7uI,%7uN] %7u byt, [%4.1fI,%4.1fN] %4.1f byt/meth\n", gcHeaderISize,
                     gcHeaderNSize, gcHeaderISize + gcHeaderNSize, (float)gcHeaderISize / (genMethodICnt + 0.001),
@@ -1465,7 +1465,7 @@ void Compiler::compInitOptions()
     if (verbose)
     {
         printf("****** START compiling %s (MethodHash=%08x)\n", info.compFullName, info.compMethodHash());
-        printf("Generating code for %s %s\n", Target::g_tgtPlatformName, Target::g_tgtCPUName);
+        printf("Generating code for %s %s\n", Target::PlatformName(), Target::CpuName());
         printf(""); // in our logic this causes a flush
     }
 
@@ -3116,7 +3116,7 @@ void Compiler::compCompileFinish()
         {
             // clang-format off
             headerPrinted = true;
-            printf("         |  Profiled   | Method   |   Method has    |   calls   | Num |LclV |AProp| CSE |   Perf  |bytes | %3s codesize| \n", Target::g_tgtCPUName);
+            printf("         |  Profiled   | Method   |   Method has    |   calls   | Num |LclV |AProp| CSE |   Perf  |bytes | %3s codesize| \n", Target::CpuName());
             printf(" mdToken |  CNT |  RGN |    Hash  | EH | FRM | LOOP | NRM | IND | BBs | Cnt | Cnt | Cnt |  Score  |  IL  |   HOT | CLD | method name \n");
             printf("---------+------+------+----------+----+-----+------+-----+-----+-----+-----+-----+-----+---------+------+-------+-----+\n");
             //      06001234 | 1234 |  HOT | 0f1e2d3c | EH | ebp | LOOP |  15 |   6 |  12 |  17 |  12 |   8 | 1234.56 |  145 |  1234 | 123 | System.Example(int)

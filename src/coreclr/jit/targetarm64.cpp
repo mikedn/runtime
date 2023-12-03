@@ -6,7 +6,10 @@
 #ifdef TARGET_ARM64
 #include "target.h"
 
-const char* Target::g_tgtCPUName = "arm64";
+const char* Target::CpuName()
+{
+    return "arm64";
+}
 
 const regNumber intArgRegs[]{REG_R0, REG_R1, REG_R2, REG_R3, REG_R4, REG_R5, REG_R6, REG_R7};
 const regMaskTP intArgMasks[]{RBM_R0, RBM_R1, RBM_R2, RBM_R3, RBM_R4, RBM_R5, RBM_R6, RBM_R7};

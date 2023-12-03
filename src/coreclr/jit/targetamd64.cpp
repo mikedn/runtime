@@ -6,7 +6,10 @@
 #ifdef TARGET_AMD64
 #include "target.h"
 
-const char* Target::g_tgtCPUName = "x64";
+const char* Target::CpuName()
+{
+    return "x64";
+}
 
 #ifdef UNIX_AMD64_ABI
 const regNumber intArgRegs[]{REG_EDI, REG_ESI, REG_EDX, REG_ECX, REG_R8, REG_R9};

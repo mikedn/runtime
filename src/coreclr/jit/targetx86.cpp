@@ -6,7 +6,10 @@
 #ifdef TARGET_X86
 #include "target.h"
 
-const char* Target::g_tgtCPUName = "x86";
+const char* Target::CpuName()
+{
+    return "x86";
+}
 
 const regNumber intArgRegs[]{REG_ECX, REG_EDX};
 const regMaskTP intArgMasks[]{RBM_ECX, RBM_EDX};
