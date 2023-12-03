@@ -21,11 +21,6 @@ const regMaskTP fltArgMasks[]{RBM_F0, RBM_F1, RBM_F2,  RBM_F3,  RBM_F4,  RBM_F5,
 
 const regNumber initPInvokeFrameArgRegs[]{REG_PINVOKE_FRAME};
 
-const regMaskTP regMasks[]{
-#define REGDEF(name, rnum, mask, sname) mask,
-#include "register.h"
-};
-
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
 const char* getRegName(regNumber reg)
 {

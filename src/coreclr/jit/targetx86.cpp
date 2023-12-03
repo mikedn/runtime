@@ -17,11 +17,6 @@ const regMaskTP intArgMasks[]{RBM_ECX, RBM_EDX};
 const regNumber longShiftHelperArgRegs[]{REG_EAX, REG_EDX, REG_ECX};
 const regNumber initPInvokeFrameArgRegs[]{REG_PINVOKE_FRAME};
 
-const regMaskTP regMasks[]{
-#define REGDEF(name, rnum, mask, sname) mask,
-#include "register.h"
-};
-
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
 const char* getRegName(regNumber reg)
 {

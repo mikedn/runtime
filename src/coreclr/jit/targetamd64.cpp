@@ -25,11 +25,6 @@ const regNumber fltArgRegs[]{REG_XMM0, REG_XMM1, REG_XMM2, REG_XMM3};
 const regMaskTP fltArgMasks[]{RBM_XMM0, RBM_XMM1, RBM_XMM2, RBM_XMM3};
 #endif
 
-const regMaskTP regMasks[]{
-#define REGDEF(name, rnum, mask, sname) mask,
-#include "register.h"
-};
-
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
 const char* getRegName(regNumber reg)
 {
