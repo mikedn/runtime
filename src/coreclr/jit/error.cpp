@@ -330,62 +330,10 @@ int flogf(FILE* file, const char* fmt, ...)
 /*********************************************************************/
 int logf(const char* fmt, ...)
 {
-    va_list     args;
-    static bool logToEEfailed = false;
-    int         written       = 0;
-    //
-    // We remember when the EE failed to log, because vlogf()
-    // is very slow in a checked build.
-    //
-    // If it fails to log an LL_INFO1000 message once
-    // it will always fail when logging an LL_INFO1000 message.
-    //
-    if (!logToEEfailed)
-    {
-        va_start(args, fmt);
-        if (!vlogf(LL_INFO1000, fmt, args))
-        {
-            logToEEfailed = true;
-        }
-        va_end(args);
-    }
-
-    if (logToEEfailed)
-    {
-        // if the EE refuses to log it, we try to send it to stdout
-        va_start(args, fmt);
-        written = vflogf(jitstdout, fmt, args);
-        va_end(args);
-    }
-#if 0  // Enable this only when you need it
-    else
-    {
-        //
-        // The EE just successfully logged our message
-        //
-        static ConfigDWORD fJitBreakOnDumpToken;
-        DWORD breakOnDumpToken = fJitBreakOnDumpToken.val(CLRConfig::INTERNAL_BreakOnDumpToken);
-        static DWORD forbidEntry = 0;
-
-        if ((breakOnDumpToken != 0xffffffff) && (forbidEntry == 0))
-        {
-            forbidEntry = 1;
-
-            // Use value of 0 to get the dump
-            static DWORD currentLine = 1;
-
-            if (currentLine == breakOnDumpToken)
-            {
-                assert(!"Dump token reached");
-            }
-
-            printf("(Token=0x%x) ", currentLine++);
-            forbidEntry = 0;
-        }
-    }
-#endif // 0
+    va_list args;
+    va_start(args, fmt);
+    int written = vflogf(jitstdout, fmt, args);
     va_end(args);
-
     return written;
 }
 
