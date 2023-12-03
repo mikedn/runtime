@@ -255,10 +255,13 @@ enum insFormat : unsigned
     IF_COUNT
 };
 
+class AsmPrinter;
+
 class emitter
 {
     friend class emitLocation;
     friend class GCInfo;
+    friend class AsmPrinter;
 
     Compiler*    emitComp;
     GCInfo       gcInfo;
@@ -349,9 +352,9 @@ public:
     UNATIVE_OFFSET emitCodeOffset(void* blockPtr, unsigned codeOffs);
     INDEBUG(const char* emitOffsetToLabel(unsigned offs);)
 
-    /************************************************************************/
-    /*                   Output target-independent instructions             */
-    /************************************************************************/
+/************************************************************************/
+/*                   Output target-independent instructions             */
+/************************************************************************/
 
 #ifndef TARGET_XARCH
     void emitIns_J(instruction ins, BasicBlock* dst, int instrCount = 0);
