@@ -6102,7 +6102,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             case IF_RRD_ARD:
                 break;
             default:
-                INDEBUG(emitDispIns(id));
+                INDEBUG(printf(emitIfName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
 
@@ -6370,9 +6370,8 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             case IF_SWR:
             case IF_SWR_RRD:
                 break;
-
             default:
-                INDEBUG(emitDispIns(id));
+                INDEBUG(printf(emitIfName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
@@ -6683,7 +6682,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             case IF_MRW_CNS:
                 break;
             default:
-                INDEBUG(emitDispIns(id));
+                INDEBUG(printf(emitIfName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
@@ -6901,7 +6900,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
         case IF_RRD:
             break;
         default:
-            INDEBUG(emitDispIns(id));
+            INDEBUG(printf(emitIfName(id->idInsFmt())));
             assert(!"unexpected instruction format");
             break;
     }
@@ -7210,7 +7209,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
                         break;
 
                     default:
-                        INDEBUG(emitDispIns(id));
+                        INDEBUG(printf(emitIfName(id->idInsFmt())));
                         assert(!"unexpected GC base update instruction");
                 }
                 break;
@@ -7251,7 +7250,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
                 break;
 
             default:
-                INDEBUG(emitDispIns(id));
+                INDEBUG(printf(emitIfName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
@@ -7698,7 +7697,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
             case IF_RRD_CNS:
                 break;
             default:
-                INDEBUG(emitDispIns(id));
+                INDEBUG(printf(emitIfName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
@@ -7715,7 +7714,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
                 assert(ins != INS_mulEAX && ins != INS_imulEAX && ins != INS_imuli);
                 break;
             default:
-                INDEBUG(emitDispIns(id));
+                INDEBUG(printf(emitIfName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
