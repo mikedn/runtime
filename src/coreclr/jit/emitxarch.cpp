@@ -1063,8 +1063,8 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
     ssize_t     disp     = (ins == INS_call) ? id->GetCallDisp() : id->GetAmDisp();
     bool        hasDisp8 = ((int8_t)disp == disp) && !id->idIsDspReloc();
     bool        hasDisp  = (disp != 0) || id->idIsDspReloc();
-    regNumber   baseReg  = id->idAddr()->iiaAddrMode.amBaseReg;
-    regNumber   indexReg = id->idAddr()->iiaAddrMode.amIndxReg;
+    regNumber   baseReg  = id->idAddr()->iiaAddrMode.base;
+    regNumber   indexReg = id->idAddr()->iiaAddrMode.index;
 
     // BT supports 16 bit operands and this code doesn't handle the necessary 66 prefix.
     assert(ins != INS_bt);
@@ -1115,7 +1115,7 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
 
     sz++;
 
-    if (id->idAddr()->iiaAddrMode.amScale != 0)
+    if (id->idAddr()->iiaAddrMode.scale != 0)
     {
         if (baseReg == REG_NA)
         {
@@ -1138,8 +1138,8 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
     if (!hasDisp && BaseRegRequiresDisp(baseReg) && !BaseRegRequiresDisp(indexReg) && !IsFloatReg(indexReg))
     {
         std::swap(baseReg, indexReg);
-        id->idAddr()->iiaAddrMode.amBaseReg = baseReg;
-        id->idAddr()->iiaAddrMode.amIndxReg = indexReg;
+        id->idAddr()->iiaAddrMode.base  = baseReg;
+        id->idAddr()->iiaAddrMode.index = indexReg;
     }
 
     if (hasDisp || BaseRegRequiresDisp(baseReg))
@@ -1278,15 +1278,15 @@ emitter::instrDesc* emitter::emitNewInstrAmd(ssize_t disp)
     {
         instrDescAmd* id = AllocInstr<instrDescAmd>();
         id->idSetIsLargeDsp();
-        INDEBUG(id->idAddr()->iiaAddrMode.amDisp = AM_DISP_BIG_VAL);
+        INDEBUG(id->idAddr()->iiaAddrMode.disp = AM_DISP_BIG_VAL);
         id->idaAmdVal = disp;
 
         return id;
     }
 
-    instrDesc* id                    = emitNewInstr();
-    id->idAddr()->iiaAddrMode.amDisp = disp;
-    assert(id->idAddr()->iiaAddrMode.amDisp == disp); // make sure the value fit
+    instrDesc* id                  = emitNewInstr();
+    id->idAddr()->iiaAddrMode.disp = disp;
+    assert(id->idAddr()->iiaAddrMode.disp == disp); // make sure the value fit
     return id;
 }
 
@@ -1294,9 +1294,9 @@ emitter::instrDesc* emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
 {
     if ((disp >= AM_DISP_MIN) && (disp <= AM_DISP_MAX))
     {
-        instrDesc* id                    = emitNewInstrCns(imm);
-        id->idAddr()->iiaAddrMode.amDisp = disp;
-        assert(id->idAddr()->iiaAddrMode.amDisp == disp); // make sure the value fit
+        instrDesc* id                  = emitNewInstrCns(imm);
+        id->idAddr()->iiaAddrMode.disp = disp;
+        assert(id->idAddr()->iiaAddrMode.disp == disp); // make sure the value fit
 
         return id;
     }
@@ -1305,7 +1305,7 @@ emitter::instrDesc* emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
     {
         instrDescAmd* id = AllocInstr<instrDescAmd>();
         id->idSetIsLargeDsp();
-        INDEBUG(id->idAddr()->iiaAddrMode.amDisp = AM_DISP_BIG_VAL);
+        INDEBUG(id->idAddr()->iiaAddrMode.disp = AM_DISP_BIG_VAL);
         id->idaAmdVal = disp;
         id->idSmallCns(imm);
 
@@ -1316,7 +1316,7 @@ emitter::instrDesc* emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
     id->idSetIsLargeCns();
     id->idcCnsVal = imm;
     id->idSetIsLargeDsp();
-    INDEBUG(id->idAddr()->iiaAddrMode.amDisp = AM_DISP_BIG_VAL);
+    INDEBUG(id->idAddr()->iiaAddrMode.disp = AM_DISP_BIG_VAL);
     id->idacAmdVal = disp;
 
     return id;
@@ -1534,9 +1534,9 @@ void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
 {
     if (!addr->isContained())
     {
-        id->idAddr()->iiaAddrMode.amBaseReg = addr->GetRegNum();
-        id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-        id->idAddr()->iiaAddrMode.amScale   = 0;
+        id->idAddr()->iiaAddrMode.base  = addr->GetRegNum();
+        id->idAddr()->iiaAddrMode.index = REG_NA;
+        id->idAddr()->iiaAddrMode.scale = 0;
         assert(id->GetAmDisp() == 0);
 
         return;
@@ -1548,9 +1548,9 @@ void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
         AMD64_ONLY(assert(intConAddr->FitsInAddrBase(emitComp)));
 
         id->idSetIsDspReloc(IntConNeedsReloc(intConAddr));
-        id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
-        id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-        id->idAddr()->iiaAddrMode.amScale   = 0;
+        id->idAddr()->iiaAddrMode.base  = REG_NA;
+        id->idAddr()->iiaAddrMode.index = REG_NA;
+        id->idAddr()->iiaAddrMode.scale = 0;
         // The displacement must have already been set by the caller.
         assert(id->GetAmDisp() == intConAddr->GetValue());
 
@@ -1563,24 +1563,24 @@ void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
     {
         regNumber baseReg = base->GetRegNum();
         assert(baseReg != REG_NA);
-        id->idAddr()->iiaAddrMode.amBaseReg = baseReg;
+        id->idAddr()->iiaAddrMode.base = baseReg;
     }
     else
     {
-        id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
+        id->idAddr()->iiaAddrMode.index = REG_NA;
     }
 
     if (GenTree* index = addrMode->GetIndex())
     {
         regNumber indexReg = index->GetRegNum();
         assert(indexReg != REG_NA);
-        id->idAddr()->iiaAddrMode.amIndxReg = indexReg;
-        id->idAddr()->iiaAddrMode.amScale   = ScaleEncoding(addrMode->GetScale());
+        id->idAddr()->iiaAddrMode.index = indexReg;
+        id->idAddr()->iiaAddrMode.scale = ScaleEncoding(addrMode->GetScale());
     }
     else
     {
-        id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-        id->idAddr()->iiaAddrMode.amScale   = 0;
+        id->idAddr()->iiaAddrMode.index = REG_NA;
+        id->idAddr()->iiaAddrMode.scale = 0;
     }
 
     // The displacement must have already been set by the caller.
@@ -1605,9 +1605,9 @@ void emitter::PrologSpillParamRegsToShadowSlots()
         id->idIns(INS_mov);
         id->idOpSize(EA_PTRSIZE);
         id->idInsFmt(IF_AWR_RRD);
-        id->idAddr()->iiaAddrMode.amBaseReg = REG_SPBASE;
-        id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-        id->idAddr()->iiaAddrMode.amScale   = 0;
+        id->idAddr()->iiaAddrMode.base  = REG_SPBASE;
+        id->idAddr()->iiaAddrMode.index = REG_NA;
+        id->idAddr()->iiaAddrMode.scale = 0;
         id->idReg1(argReg);
 
         unsigned sz = emitInsSizeAM(id, insCodeMR(INS_mov));
@@ -2361,8 +2361,8 @@ void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t
     instrDesc* id = emitNewInstrAmd(disp);
     id->idIns(ins);
     id->idInsFmt(IF_ARD);
-    id->idAddr()->iiaAddrMode.amBaseReg = base;
-    id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
+    id->idAddr()->iiaAddrMode.base  = base;
+    id->idAddr()->iiaAddrMode.index = REG_NA;
 
     // TODO-MIKE-Cleanup: Bozos thought that lfence & co. have VEX.
     unsigned sz = emitInsSizeAM(id, insCodeMR(ins)) + (UseVEXEncoding() ? 2 : 0);
@@ -2383,8 +2383,8 @@ void emitter::emitIns_AR_R_R(
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idInsFmt(IF_AWR_RRD_RRD);
-    id->idAddr()->iiaAddrMode.amBaseReg = base;
-    id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
+    id->idAddr()->iiaAddrMode.base  = base;
+    id->idAddr()->iiaAddrMode.index = REG_NA;
 
     unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -2558,9 +2558,9 @@ void emitter::emitIns_R_AR_R(instruction ins,
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idInsFmt(IF_RWR_ARD_RRD);
-    id->idAddr()->iiaAddrMode.amBaseReg = base;
-    id->idAddr()->iiaAddrMode.amIndxReg = index;
-    id->idAddr()->iiaAddrMode.amScale   = ScaleEncoding(scale);
+    id->idAddr()->iiaAddrMode.base  = base;
+    id->idAddr()->iiaAddrMode.index = index;
+    id->idAddr()->iiaAddrMode.scale = ScaleEncoding(scale);
 
     unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -2971,8 +2971,8 @@ void emitter::emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int32
     id->idOpSize(EA_SIZE(attr));
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(emitInsModeFormat(ins, IF_ARD_CNS));
-    id->idAddr()->iiaAddrMode.amBaseReg = base;
-    id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
+    id->idAddr()->iiaAddrMode.base  = base;
+    id->idAddr()->iiaAddrMode.index = REG_NA;
 
     unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -2995,8 +2995,8 @@ void emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_ARD);
     id->idReg1(reg);
-    id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
-    id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
+    id->idAddr()->iiaAddrMode.base  = REG_NA;
+    id->idAddr()->iiaAddrMode.index = REG_NA;
     // On x64 RIP relative addressing is always used and that needs relocs.
     id->idSetIsDspReloc(X86_ONLY(emitComp->opts.compReloc));
 
@@ -3101,9 +3101,9 @@ void emitter::emitIns_ARX_I(
     id->idOpSize(EA_SIZE(attr));
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(emitInsModeFormat(ins, IF_ARD_CNS));
-    id->idAddr()->iiaAddrMode.amBaseReg = base;
-    id->idAddr()->iiaAddrMode.amIndxReg = index;
-    id->idAddr()->iiaAddrMode.amScale   = ScaleEncoding(scale);
+    id->idAddr()->iiaAddrMode.base  = base;
+    id->idAddr()->iiaAddrMode.index = index;
+    id->idAddr()->iiaAddrMode.scale = ScaleEncoding(scale);
 
     unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -3131,9 +3131,9 @@ void emitter::emitIns_R_ARX(
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_ARD));
     id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
-    id->idAddr()->iiaAddrMode.amBaseReg = base;
-    id->idAddr()->iiaAddrMode.amIndxReg = index;
-    id->idAddr()->iiaAddrMode.amScale   = ScaleEncoding(scale);
+    id->idAddr()->iiaAddrMode.base  = base;
+    id->idAddr()->iiaAddrMode.index = index;
+    id->idAddr()->iiaAddrMode.scale = ScaleEncoding(scale);
 
     unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -3170,9 +3170,9 @@ void emitter::emitIns_ARX_R(
     id->idOpSize(EA_SIZE(attr));
     id->idGCref(EA_GC_TYPE(attr));
     id->idInsFmt(fmt);
-    id->idAddr()->iiaAddrMode.amBaseReg = base;
-    id->idAddr()->iiaAddrMode.amIndxReg = index;
-    id->idAddr()->iiaAddrMode.amScale   = ScaleEncoding(scale);
+    id->idAddr()->iiaAddrMode.base  = base;
+    id->idAddr()->iiaAddrMode.index = index;
+    id->idAddr()->iiaAddrMode.scale = ScaleEncoding(scale);
 
     unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -3690,7 +3690,7 @@ ssize_t emitter::instrDesc::GetAmDisp() const
 {
     if (!_idLargeDsp)
     {
-        return idAddr()->iiaAddrMode.amDisp;
+        return idAddr()->iiaAddrMode.disp;
     }
     else if (_idLargeCns)
     {
@@ -3713,7 +3713,7 @@ ssize_t emitter::instrDesc::GetCallDisp() const
         assert(!_idLargeDsp);
         assert(!_idLargeCns);
 
-        return idAddr()->iiaAddrMode.amDisp;
+        return idAddr()->iiaAddrMode.disp;
     }
 }
 
@@ -3859,8 +3859,8 @@ void emitter::emitIns_Call(EmitCallType          kind,
     {
         id->idInsFmt(IF_RRD);
         // Move the GC regs info to the unused address mode bits.
-        id->idAddr()->iiaAddrMode.amBaseReg = id->idReg1();
-        id->idAddr()->iiaAddrMode.amIndxReg = id->idReg2();
+        id->idAddr()->iiaAddrMode.base  = id->idReg1();
+        id->idAddr()->iiaAddrMode.index = id->idReg2();
         id->idReg1(amBase);
 
         sz = 2 + IsExtendedReg(amBase);
@@ -3870,9 +3870,9 @@ void emitter::emitIns_Call(EmitCallType          kind,
         assert(amBase != REG_NA);
 
         id->idInsFmt(IF_ARD);
-        id->idAddr()->iiaAddrMode.amBaseReg = amBase;
-        id->idAddr()->iiaAddrMode.amIndxReg = amIndex;
-        id->idAddr()->iiaAddrMode.amScale   = ScaleEncoding(amScale);
+        id->idAddr()->iiaAddrMode.base  = amBase;
+        id->idAddr()->iiaAddrMode.index = amIndex;
+        id->idAddr()->iiaAddrMode.scale = ScaleEncoding(amScale);
 
         sz = emitInsSizeAM(id, insCodeMR(INS_call));
     }
@@ -3988,7 +3988,7 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
     if (id->idInsFmt() == IF_RRD)
     {
-        encoded = id->idAddr()->iiaAddrMode.amBaseReg | (id->idAddr()->iiaAddrMode.amIndxReg << 8);
+        encoded = id->idAddr()->iiaAddrMode.base | (id->idAddr()->iiaAddrMode.index << 8);
     }
     else
     {
@@ -4381,24 +4381,23 @@ private:
 
         printf("%s[", GetSizeOperator(size));
 
-        if (am.amBaseReg != REG_NA)
+        if (am.base != REG_NA)
         {
-            printf("%s", getRegName(am.amBaseReg));
+            printf("%s", getRegName(am.base));
 
             separator = "+";
-            frameRef =
-                (am.amBaseReg == REG_ESP) || ((am.amBaseReg == REG_EBP) && emitter->codeGen->isFramePointerUsed());
+            frameRef  = (am.base == REG_ESP) || ((am.base == REG_EBP) && emitter->codeGen->isFramePointerUsed());
         }
 
-        if (am.amIndxReg != REG_NA)
+        if (am.index != REG_NA)
         {
-            if (am.amScale != 0)
+            if (am.scale != 0)
             {
-                printf("%s%d", separator, 1 << am.amScale);
+                printf("%s%d", separator, 1 << am.scale);
                 separator = "*";
             }
 
-            printf("%s%s", separator, getRegName(am.amIndxReg));
+            printf("%s%s", separator, getRegName(am.index));
             separator = "+";
         }
 
@@ -4464,7 +4463,7 @@ private:
         if (id->idIns() == INS_mov)
         {
             // Pretty print string if it looks like one
-            if ((id->idGCref() == GCT_GCREF) && (am.amBaseReg == REG_NA))
+            if ((id->idGCref() == GCT_GCREF) && (am.base == REG_NA))
             {
                 // TODO-MIKE-Review: This stuff is dubious, probably it only works because strings are the only
                 // case of loading a REF from a memory location. Well, you would expect a static object field
@@ -5798,8 +5797,8 @@ uint8_t* emitter::emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
 uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
 {
     instruction ins      = id->idIns();
-    regNumber   baseReg  = id->idAddr()->iiaAddrMode.amBaseReg;
-    regNumber   indexReg = id->idAddr()->iiaAddrMode.amIndxReg;
+    regNumber   baseReg  = id->idAddr()->iiaAddrMode.base;
+    regNumber   indexReg = id->idAddr()->iiaAddrMode.index;
     ssize_t     disp;
     unsigned    immSize;
 
@@ -6042,7 +6041,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         }
         else
         {
-            unsigned scale = id->idAddr()->iiaAddrMode.amScale;
+            unsigned scale = id->idAddr()->iiaAddrMode.scale;
 
             code |= RegEncoding(REG_RSP) << 8;
 
@@ -9227,9 +9226,9 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
             }
             else if (insFmt != IF_RWR_SRD)
             {
-                if (id->idAddr()->iiaAddrMode.amIndxReg != REG_NA)
+                if (id->idAddr()->iiaAddrMode.index != REG_NA)
                 {
-                    regNumber baseReg = id->idAddr()->iiaAddrMode.amBaseReg;
+                    regNumber baseReg = id->idAddr()->iiaAddrMode.base;
                     if (baseReg != REG_NA)
                     {
                         ssize_t dsp = id->GetAmDisp();

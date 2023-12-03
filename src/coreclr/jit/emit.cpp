@@ -1902,8 +1902,8 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         EncodeCallGCRegs(refRegs, id);
 
 #ifdef TARGET_XARCH
-        id->idAddr()->iiaAddrMode.amDisp = disp;
-        assert(id->idAddr()->iiaAddrMode.amDisp == disp);
+        id->idAddr()->iiaAddrMode.disp = disp;
+        assert(id->idAddr()->iiaAddrMode.disp == disp);
 #endif
     }
 

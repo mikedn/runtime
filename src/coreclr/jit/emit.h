@@ -463,10 +463,10 @@ private:
 
     struct emitAddrMode
     {
-        regNumber amBaseReg : REGNUM_BITS + 1;
-        regNumber amIndxReg : REGNUM_BITS + 1;
-        uint32_t  amScale : 2;
-        int32_t   amDisp : AM_DISP_BITS;
+        RegNum   base : REGNUM_BITS + 1;
+        RegNum   index : REGNUM_BITS + 1;
+        uint32_t scale : 2;
+        int32_t  disp : AM_DISP_BITS;
     };
 #endif // TARGET_XARCH
 
