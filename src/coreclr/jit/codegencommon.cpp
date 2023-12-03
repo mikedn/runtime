@@ -1046,9 +1046,7 @@ void CodeGen::genEmitMachineCode()
 #endif // TRACK_LSRA_STATS
 
         printf(" (MethodHash=%08x) for method %s\n", compiler->info.compMethodHash(), compiler->info.compFullName);
-
         printf("; ============================================================\n\n");
-        printf(""); // in our logic this causes a flush
     }
 
     if (verbose)
