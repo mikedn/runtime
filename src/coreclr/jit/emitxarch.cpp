@@ -4301,42 +4301,43 @@ private:
         printf("]");
     }
 
-    void PrintImm(instrDesc* id, ssize_t val)
+    void PrintImm(instrDesc* id)
     {
         if (id->idIsCnsReloc())
         {
-            PrintReloc(val);
+            PrintReloc(id->GetImm());
             return;
         }
 
-        ssize_t srcVal = val;
+        ssize_t imm = id->GetImm();
 
         // Munge any pointers if we want diff-able disassembly
         if (compiler->opts.disDiffable)
         {
-            ssize_t top14bits = (val >> 18);
+            ssize_t top14bits = (imm >> 18);
             if ((top14bits != 0) && (top14bits != -1))
             {
-                val = 0xD1FFAB1E;
+                imm = 0xD1FFAB1E;
             }
         }
 
-        if ((val > -1000) && (val < 1000))
+        if ((imm > -1000) && (imm < 1000))
         {
-            printf("%d", val);
+            printf("%d", imm);
         }
-        else if ((val > 0) || (val < -0xFFFFFF))
+        else if ((imm > 0) || (imm < -0xFFFFFF))
         {
-            printf("0x%" AMD64_ONLY("I") "X", val);
+            printf("0x%" AMD64_ONLY("I") "X", imm);
         }
         else
         {
-            printf("-0x%" AMD64_ONLY("I") "X", -val);
+            printf("-0x%" AMD64_ONLY("I") "X", -imm);
         }
 
         if (id->idDebugOnlyInfo()->idHandleKind != HandleKind::None)
         {
-            emitter->emitDispCommentForHandle(reinterpret_cast<void*>(srcVal), id->idDebugOnlyInfo()->idHandleKind);
+            emitter->emitDispCommentForHandle(reinterpret_cast<void*>(id->GetImm()),
+                                              id->idDebugOnlyInfo()->idHandleKind);
         }
     }
 
@@ -4607,7 +4608,7 @@ private:
         switch (id->idInsFmt())
         {
             case IF_CNS:
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_ARD:
@@ -4641,13 +4642,13 @@ private:
                 printf("%s, ", RegName(id->idReg1(), attr));
                 PrintAddrMode(id, sstr);
                 printf(", ");
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_AWR_RRD_CNS:
                 PrintAddrMode(id, GetSizeOperator(EA_16BYTE));
                 printf(", %s, ", RegName(id->idReg1(), attr));
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_RWR_RRD_ARD:
@@ -4671,7 +4672,7 @@ private:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
                 PrintAddrMode(id, sstr);
                 printf(", ");
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_RWR_RRD_ARD_RRD:
@@ -4697,7 +4698,7 @@ private:
             case IF_ARW_CNS:
                 PrintAddrMode(id, sstr);
                 printf(", ");
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_SRD:
@@ -4731,13 +4732,13 @@ private:
             case IF_SRW_CNS:
                 PrintFrameRef(id, sstr);
                 printf(", ");
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_SWR_RRD_CNS:
                 PrintFrameRef(id, sstr);
                 printf(", %s, ", RegName(id->idReg1(), attr));
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_RRD_SRD:
@@ -4752,7 +4753,7 @@ private:
                 printf("%s, ", RegName(id->idReg1(), attr));
                 PrintFrameRef(id, sstr);
                 printf(", ");
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_RWR_RRD_SRD:
@@ -4764,7 +4765,7 @@ private:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
                 PrintFrameRef(id, sstr);
                 printf(", ");
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_RWR_RRD_SRD_RRD:
@@ -4828,7 +4829,7 @@ private:
 
                 printf("%s, %s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr),
                        RegName(id->idReg3(), attr3));
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_RRW_RRD_CNS:
@@ -4847,7 +4848,7 @@ private:
                 }
 
                 printf("%s, %s, ", RegName(id->idReg1(), attr1), RegName(id->idReg2(), attr2));
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_RRD:
@@ -4869,13 +4870,13 @@ private:
                 printf("%s, ", RegName(id->idReg1(), attr));
                 PrintClsVar(id, sstr);
                 printf(", ");
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_MWR_RRD_CNS:
                 PrintClsVar(id, GetSizeOperator(EA_16BYTE));
                 printf(", %s, ", RegName(id->idReg1(), attr));
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_RWR_RRD_MRD:
@@ -4887,7 +4888,7 @@ private:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
                 PrintClsVar(id, sstr);
                 printf(", ");
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_RWR_RRD_MRD_RRD:
@@ -4908,7 +4909,7 @@ private:
             case IF_MRW_CNS:
                 PrintClsVar(id, sstr);
                 printf(", ");
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_MRD:
@@ -4922,7 +4923,7 @@ private:
             case IF_RWR_CNS:
             case IF_RRW_CNS:
                 printf("%s, ", RegName(id->idReg1(), attr));
-                PrintImm(id, id->GetImm());
+                PrintImm(id);
                 break;
 
             case IF_LABEL:
