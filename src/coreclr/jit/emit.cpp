@@ -623,6 +623,10 @@ void emitter::dispIns(instrDesc* id)
 {
     assert(id->idDebugOnlyInfo()->idSize == emitSizeOfInsDsc(id));
 
+#ifdef TARGET_XARCH
+    assert((id->idCodeSize() != 0) || id->InstrHasNoCode());
+#endif
+
 #ifdef DEBUG
     emitInsSanityCheck(id);
 

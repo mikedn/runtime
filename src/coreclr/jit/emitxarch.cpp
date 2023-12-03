@@ -4507,8 +4507,6 @@ private:
             printf(" ");
         }
 
-        assert((id->idCodeSize() != 0) || id->InstrHasNoCode());
-
         instruction ins = id->idIns();
         emitAttr    attr;
 
