@@ -26,7 +26,8 @@ const regMaskTP fltArgMasks[]{RBM_XMM0, RBM_XMM1, RBM_XMM2, RBM_XMM3};
 #endif
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
-const char* getRegName(regNumber reg)
+
+const char* getRegName(RegNum reg)
 {
     static const char* const names[]{
 #define REGDEF(name, rnum, mask, sname) sname,
@@ -36,123 +37,38 @@ const char* getRegName(regNumber reg)
 
     return names[Min<size_t>(reg, _countof(names) - 1)];
 }
+
 #endif
 
 #ifdef DEBUG
-static bool IsXmmReg(regNumber reg)
-{
-    return (reg >= REG_XMM0) && (reg <= REG_XMM15);
-}
 
-static const char* XmmRegName(regNumber reg, emitAttr size)
+const char* RegName(RegNum reg, emitAttr attr)
 {
-    static const char* const xmmNames[]{
-#define REGDEF(name, rnum, mask, sname) "x" sname,
-#include "register.h"
-    };
-    static const char* const ymmNames[]{
-#define REGDEF(name, rnum, mask, sname) "y" sname,
-#include "register.h"
-    };
-
-    if (!IsXmmReg(reg))
+    if (reg <= REG_R15)
     {
-        return "???";
+        if (attr <= 4)
+        {
+            static const char* const names[][3]{{"al", "ax", "eax"},      {"cl", "cx", "ecx"},
+                                                {"dl", "dx", "edx"},      {"bl", "bx", "ebx"},
+                                                {"spl", "sp", "esp"},     {"bpl", "bp", "ebp"},
+                                                {"sil", "si", "esi"},     {"dil", "di", "edi"},
+                                                {"r8b", "r8w", "r8d"},    {"r9b", "r9w", "r9d"},
+                                                {"r10b", "r10w", "r10d"}, {"r11b", "r11w", "r11d"},
+                                                {"r12b", "r12w", "r12d"}, {"r13b", "r13w", "r13d"},
+                                                {"r14b", "r14w", "r14d"}, {"r15b", "r15w", "r15d"}};
+
+            return names[reg][attr / 2];
+        }
+    }
+    else if ((attr == EA_32BYTE) && (REG_XMM0 <= reg) && (reg <= REG_XMM15))
+    {
+        static const char* const names[]{"ymm0", "ymm1", "ymm2",  "ymm3",  "ymm4",  "ymm5",  "ymm6",  "ymm7",
+                                         "ymm8", "ymm9", "ymm10", "ymm11", "ymm12", "ymm13", "ymm14", "ymm15"};
+
+        return names[reg - REG_XMM0];
     }
 
-    return size == EA_32BYTE ? ymmNames[reg] : xmmNames[reg];
-}
-
-const char* RegName(regNumber reg, emitAttr attr)
-{
-    if (IsXmmReg(reg))
-    {
-        return XmmRegName(reg, attr);
-    }
-
-    static char          rb[2][128];
-    static unsigned char rbc = 0;
-
-    const char* rn = getRegName(reg);
-
-    char suffix = '\0';
-
-    switch (EA_SIZE(attr))
-    {
-        case EA_4BYTE:
-            if (reg > REG_R15)
-            {
-                break;
-            }
-
-            if (reg > REG_RDI)
-            {
-                suffix = 'd';
-                goto APPEND_SUFFIX;
-            }
-            rbc        = (rbc + 1) % 2;
-            rb[rbc][0] = 'e';
-            rb[rbc][1] = rn[1];
-            rb[rbc][2] = rn[2];
-            rb[rbc][3] = 0;
-            rn         = rb[rbc];
-            break;
-
-        case EA_2BYTE:
-            if (reg > REG_RDI)
-            {
-                suffix = 'w';
-                goto APPEND_SUFFIX;
-            }
-            rn++;
-            break;
-
-        case EA_1BYTE:
-            if (reg > REG_RDI)
-            {
-                suffix = 'b';
-            APPEND_SUFFIX:
-                rbc        = (rbc + 1) % 2;
-                rb[rbc][0] = rn[0];
-                rb[rbc][1] = rn[1];
-                if (rn[2])
-                {
-                    assert(rn[3] == 0);
-                    rb[rbc][2] = rn[2];
-                    rb[rbc][3] = suffix;
-                    rb[rbc][4] = 0;
-                }
-                else
-                {
-                    rb[rbc][2] = suffix;
-                    rb[rbc][3] = 0;
-                }
-            }
-            else
-            {
-                rbc        = (rbc + 1) % 2;
-                rb[rbc][0] = rn[1];
-                if (reg < 4)
-                {
-                    rb[rbc][1] = 'l';
-                    rb[rbc][2] = 0;
-                }
-                else
-                {
-                    rb[rbc][1] = rn[2];
-                    rb[rbc][2] = 'l';
-                    rb[rbc][3] = 0;
-                }
-            }
-
-            rn = rb[rbc];
-            break;
-
-        default:
-            break;
-    }
-
-    return rn;
+    return getRegName(reg);
 }
 
 #endif // DEBUG
