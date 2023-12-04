@@ -135,11 +135,6 @@ static bool IsAVXVNNIInstruction(instruction ins)
     return (ins >= INS_FIRST_AVXVNNI_INSTRUCTION) && (ins <= INS_LAST_AVXVNNI_INSTRUCTION);
 }
 
-static bool IsBMIInstruction(instruction ins)
-{
-    return (ins >= INS_FIRST_BMI_INSTRUCTION) && (ins <= INS_LAST_BMI_INSTRUCTION);
-}
-
 static bool IsPrefetch(instruction ins)
 {
     return (ins == INS_prefetcht0) || (ins == INS_prefetcht1) || (ins == INS_prefetcht2) || (ins == INS_prefetchnta);
@@ -750,6 +745,17 @@ static bool IsSSE38orSSE3A(uint64_t code)
 
     code &= MASK;
     return (code == SSE38) || (code == SSE3A);
+}
+
+static bool IsF20F3AorF20F38orF20F3A(uint64_t code)
+{
+    const uint64_t F20F38 = 0x0FF20038ull;
+    const uint64_t F30F38 = 0x0FF30038ull;
+    const uint64_t F20F3A = 0x0FF2003Aull;
+    const uint64_t MASK   = 0xFFFF00FFull;
+
+    code &= MASK;
+    return (code == F20F38) || (code == F30F38) || (code == F20F3A);
 }
 
 static unsigned ScaleEncoding(unsigned scale)
@@ -5212,9 +5218,14 @@ unsigned emitter::insEncodeReg345(instruction ins, regNumber reg, emitAttr size,
     return RegEncoding(reg) << 3;
 }
 
+static bool IsBMIRegExtInstruction(instruction ins)
+{
+    return (ins == INS_blsi) || (ins == INS_blsmsk) || (ins == INS_blsr);
+}
+
 emitter::code_t emitter::SetRMReg(instruction ins, regNumber reg, emitAttr size, code_t code)
 {
-    assert(!IsSSE38orSSE3A(ins) && (ins != INS_crc32));
+    assert(!IsSSE38orSSE3A(ins) && (ins != INS_crc32) && !IsBMIRegExtInstruction(ins));
     code |= insEncodeReg345(ins, reg, size, &code) << 8;
     return code;
 }
@@ -5367,27 +5378,7 @@ size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
             switch (sizePrefix)
             {
                 case 0x66:
-                    if (!IsBMIInstruction(ins))
-                    {
-                        vexPrefix |= 0x01;
-                    }
-                    else
-                    {
-                        switch (ins)
-                        {
-                            case INS_rorx:
-                            case INS_pdep:
-                            case INS_mulx:
-                                vexPrefix |= 0x03;
-                                break;
-                            case INS_pext:
-                                vexPrefix |= 0x02;
-                                break;
-                            default:
-                                vexPrefix |= 0x00;
-                                break;
-                        }
-                    }
+                    vexPrefix |= 0x01;
                     break;
                 case 0xF3:
                     vexPrefix |= 0x02;
@@ -5421,9 +5412,8 @@ size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
         {
             assert(code >> 16 == 0x380F);
 
-            leadingBytes = (code >> 16) & 0xFFFF;
             code &= 0xFFFF;
-            leadingBytes = _byteswap_ushort(leadingBytes);
+            leadingBytes = 0x0F38;
         }
     }
 
@@ -5849,7 +5839,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             code = AddRexWPrefix(ins, code);
         }
 
-        if (IsSSE38orSSE3A(code) || (ins == INS_crc32))
+        if (IsSSE38orSSE3A(code) || IsF20F3AorF20F38orF20F3A(code) || (ins == INS_crc32))
         {
             if (ins == INS_crc32)
             {
@@ -6163,7 +6153,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         code = AddRexWPrefix(ins, code);
     }
 
-    if (IsSSE38orSSE3A(code) || (ins == INS_crc32))
+    if (IsSSE38orSSE3A(code) || IsF20F3AorF20F38orF20F3A(code) || (ins == INS_crc32))
     {
         if (ins == INS_crc32)
         {
@@ -6497,7 +6487,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             code = AddRexWPrefix(ins, code);
         }
 
-        if (IsSSE38orSSE3A(code) || (ins == INS_crc32))
+        if (IsSSE38orSSE3A(code) || IsF20F3AorF20F38orF20F3A(code) || (ins == INS_crc32))
         {
             if (ins == INS_crc32)
             {
@@ -6881,11 +6871,6 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
     }
 
     return dst;
-}
-
-static bool IsBMIRegExtInstruction(instruction ins)
-{
-    return (ins == INS_blsi) || (ins == INS_blsmsk) || (ins == INS_blsr);
 }
 
 uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
@@ -7286,7 +7271,7 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
     code_t rmCode = 0xC0 | insEncodeReg345(ins, reg1, size, &code) | insEncodeReg012(ins, reg3, size, &code);
     code          = SetVexVvvv(ins, reg2, size, code);
 
-    bool is4ByteOpcode = IsSSE38orSSE3A(code);
+    bool is4ByteOpcode = IsSSE38orSSE3A(code) || IsF20F3AorF20F38orF20F3A(code);
     dst += emitOutputVexPrefix(ins, dst, code);
 
     if (is4ByteOpcode)
@@ -7388,7 +7373,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
     code_t rmCode = 0xC0 | insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, mReg, size, &code);
 
-    if (IsSSE38orSSE3A(code))
+    if (IsSSE38orSSE3A(code) || IsF20F3AorF20F38orF20F3A(code))
     {
         dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
@@ -8388,7 +8373,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!IsSSE38orSSE3A(code))
+            if (!IsSSE38orSSE3A(code) && !IsF20F3AorF20F38orF20F3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8405,7 +8390,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg2(), size, code);
 
-            if (!IsSSE38orSSE3A(code))
+            if (!IsSSE38orSSE3A(code) && !IsF20F3AorF20F38orF20F3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8548,7 +8533,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!IsSSE38orSSE3A(code))
+            if (!IsSSE38orSSE3A(code) && !IsF20F3AorF20F38orF20F3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8565,7 +8550,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg2(), size, code);
 
-            if (!IsSSE38orSSE3A(code))
+            if (!IsSSE38orSSE3A(code) && !IsF20F3AorF20F38orF20F3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8688,7 +8673,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!IsSSE38orSSE3A(code))
+            if (!IsSSE38orSSE3A(code) && !IsF20F3AorF20F38orF20F3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8705,7 +8690,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg2(), size, code);
 
-            if (!IsSSE38orSSE3A(code))
+            if (!IsSSE38orSSE3A(code) && !IsF20F3AorF20F38orF20F3A(code))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
