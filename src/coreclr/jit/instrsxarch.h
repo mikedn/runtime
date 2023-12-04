@@ -47,6 +47,7 @@
 #define SSEDBL(c) PACK3(0xF2, 0x0F, c)
 #define PCKDBL(c) PACK3(0x66, 0x0F, c)
 
+#define OF38(c) PACK3(0x0F, 0x38, c)
 #define SSE38(c) PACK4(0x66, 0x0F, 0x38, c)
 #define F20F38(c) PACK4(0xF2, 0x0F, 0x38, c)
 
@@ -504,9 +505,9 @@ INSTA(LAST_AVXVNNI_INSTRUCTION, vpdpwssds)
 INSTA(FIRST_BMI_INSTRUCTION, andn)
 // BMI1
 INST3(andn,             "andn",             IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xF2),                             VexDstDstSrc)
-INST3(blsi,             "blsi",             IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xF3),                             VexDstDstSrc)
-INST3(blsmsk,           "blsmsk",           IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xF3),                             VexDstDstSrc)
-INST3(blsr,             "blsr",             IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xF3),                             VexDstDstSrc)
+INST3(blsi,             "blsi",             IUM_WR, BAD_CODE,     BAD_CODE,     OF38(RME(0xF3, 3)),                      VexDstDstSrc)
+INST3(blsmsk,           "blsmsk",           IUM_WR, BAD_CODE,     BAD_CODE,     OF38(RME(0xF3, 2)),                      VexDstDstSrc)
+INST3(blsr,             "blsr",             IUM_WR, BAD_CODE,     BAD_CODE,     OF38(RME(0xF3, 1)),                      VexDstDstSrc)
 INST3(bextr,            "bextr",            IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xF7),                             VexDstDstSrc)
 // BMI2
 INST3(rorx,             "rorx",             IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0xF0),                             None)

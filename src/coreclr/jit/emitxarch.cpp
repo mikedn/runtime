@@ -5246,25 +5246,6 @@ emitter::code_t emitter::insEncodeRMreg(instruction ins, regNumber reg, emitAttr
     return code;
 }
 
-static bool IsBMIRegExtInstruction(instruction ins)
-{
-    return (ins == INS_blsi) || (ins == INS_blsmsk) || (ins == INS_blsr);
-}
-
-static unsigned GetBMIOpcodeRMExt(instruction ins)
-{
-    switch (ins)
-    {
-        case INS_blsi:
-            return 3;
-        case INS_blsmsk:
-            return 2;
-        default:
-            assert(ins == INS_blsr);
-            return 1;
-    }
-}
-
 size_t emitter::emitOutputByte(uint8_t* dst, ssize_t val)
 {
     // if we're emitting code bytes, ensure that we've already emitted the rex prefix!
@@ -5368,15 +5349,13 @@ size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
         assert(leadingBytes == 0x0F);
         code &= 0xFFFF;
     }
-    else
+    else if (uint8_t sizePrefix = (code >> 16) & 0xFF)
     {
         // 3-byte opcode: with the bytes ordered as 0x2211RM33 or
         // 4-byte opcode: with the bytes ordered as 0x22114433
         // check for a prefix in the 11 position
 
-        uint8_t sizePrefix = (code >> 16) & 0xFF;
-
-        if ((sizePrefix != 0) && isPrefix(sizePrefix))
+        if (isPrefix(sizePrefix))
         {
             // 'pp' bits in byte2 of VEX prefix allows us to encode SIMD size prefixes as two bits
             //
@@ -5437,6 +5416,14 @@ size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
 
                 code &= 0xFF00;
             }
+        }
+        else
+        {
+            assert(code >> 16 == 0x380F);
+
+            leadingBytes = (code >> 16) & 0xFFFF;
+            code &= 0xFFFF;
+            leadingBytes = _byteswap_ushort(leadingBytes);
         }
     }
 
@@ -5878,11 +5865,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
             regNumber reg345;
 
-            if (IsBMIRegExtInstruction(ins))
-            {
-                reg345 = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
-            }
-            else if (id->idInsFmt() == IF_AWR_RRD_RRD)
+            if (id->idInsFmt() == IF_AWR_RRD_RRD)
             {
                 reg345 = id->idReg2();
             }
@@ -6196,15 +6179,11 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
         regNumber reg345;
 
-        if (IsBMIRegExtInstruction(ins))
-        {
-            reg345 = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
-        }
-        // else if (id->idInsFmt() == IF_AWR_RRD_RRD)
+        // if (id->idInsFmt() == IF_AWR_RRD_RRD)
         //{
         //    reg345 = id->idReg2();
         //}
-        else
+        // else
         {
             reg345 = id->idReg1();
         }
@@ -6534,15 +6513,11 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
             regNumber reg345;
 
-            if (IsBMIRegExtInstruction(ins))
-            {
-                reg345 = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
-            }
-            // else if (id->idInsFmt() == IF_AWR_RRD_RRD)
+            // if (id->idInsFmt() == IF_AWR_RRD_RRD)
             //{
             //    reg345 = id->idReg2();
             //}
-            else
+            // else
             {
                 reg345 = id->idReg1();
             }
@@ -6908,15 +6883,20 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
+static bool IsBMIRegExtInstruction(instruction ins)
+{
+    return (ins == INS_blsi) || (ins == INS_blsmsk) || (ins == INS_blsr);
+}
+
 uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 {
-    instruction ins  = id->idIns();
-    regNumber   reg1 = id->idReg1();
-    regNumber   reg2 = id->idReg2();
-    emitAttr    size = id->idOpSize();
-    code_t      code;
-    regNumber   reg012 = reg2;
+    instruction ins    = id->idIns();
+    emitAttr    size   = id->idOpSize();
+    regNumber   reg1   = id->idReg1();
+    regNumber   reg2   = id->idReg2();
     regNumber   reg345 = reg1;
+    regNumber   reg012 = reg2;
+    code_t      code;
 
     if (IsSSEOrAVXInstruction(ins))
     {
@@ -6950,6 +6930,17 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
             if (IsVexDstDstSrc(ins))
             {
                 code = SetVexVvvv(ins, reg1, size, code);
+
+                if (IsBMIRegExtInstruction(ins))
+                {
+                    // TODO-MIKE-Cleanup: These instructions put the destination register in VEX.vvvv and use
+                    // the reg field of the RM byte as an opcode extension, which the rest of the code does
+                    // not expect. Can avoid going back and forth between extension and register? Maybe after
+                    // 4-byte opcodes are gone and we always have a RM byte.
+
+                    reg345 = static_cast<RegNum>((code >> 11) & 7);
+                    code &= ~0xFF00ull;
+                }
             }
             else if (IsVexDstSrcSrc(ins))
             {
@@ -6957,11 +6948,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
             }
         }
 
-        if (IsBMIRegExtInstruction(ins))
-        {
-            reg345 = static_cast<regNumber>(GetBMIOpcodeRMExt(ins));
-        }
-        else if (ins == INS_movd)
+        if (ins == INS_movd)
         {
             assert(IsFloatReg(reg1) != IsFloatReg(reg2));
 
@@ -8380,7 +8367,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!IsSSE38orSSE3A(code) && (ins != INS_crc32))
+            if (!IsSSE38orSSE3A(code) && (ins != INS_crc32) && !IsBMIRegExtInstruction(ins))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8540,7 +8527,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!IsSSE38orSSE3A(code) && (ins != INS_crc32))
+            if (!IsSSE38orSSE3A(code) && (ins != INS_crc32) && !IsBMIRegExtInstruction(ins))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8680,7 +8667,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!IsSSE38orSSE3A(code) && (ins != INS_crc32))
+            if (!IsSSE38orSSE3A(code) && (ins != INS_crc32) && !IsBMIRegExtInstruction(ins))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
