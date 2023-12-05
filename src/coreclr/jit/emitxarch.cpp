@@ -297,6 +297,17 @@ bool emitter::IsVexTernary(instruction ins)
 {
     return IsVexDstDstSrc(ins) || IsVexDstSrcSrc(ins);
 }
+
+bool emitter::IsReallyVexTernary(instruction ins)
+{
+    // TODO-MIKE-Cleanup: The VexDstSrcSrc/DstDstSrc are incorrecly placed on instructions
+    // when they're in fact a property of the encoding. movss & co. are not DstSrcSrc in
+    // their mem,reg forms. Actually movss isn't DstSrcSrc even in its reg,mem form, only
+    // in its reg,reg form.
+    return IsVexTernary(ins) &&
+           !((ins == INS_movss) || (ins == INS_movsd) || (ins == INS_movlps) || (ins == INS_movlpd) ||
+             (ins == INS_movhps) || (ins == INS_movhpd));
+}
 #endif
 
 #if defined(TARGET_X86) || defined(DEBUG)
@@ -1693,6 +1704,8 @@ void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t
 
 void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg)
 {
+    assert(!IsReallyVexTernary(ins));
+
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
         emitIns_C_R(ins, attr, clsAddr->GetFieldHandle(), reg);
@@ -3102,6 +3115,8 @@ void emitter::emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNum
 void emitter::emitIns_ARX_R(
     instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, unsigned scale, int32_t disp)
 {
+    assert(!IsReallyVexTernary(ins));
+
     instrDesc* id = emitNewInstrAmd(disp);
     insFormat  fmt;
 
@@ -3421,6 +3436,7 @@ void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
 
 void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int varx, int offs)
 {
+    assert(!IsReallyVexTernary(ins));
     X86_ONLY(assert((attr != EA_1BYTE) || isByteReg(reg)));
 
     instrDesc* id = emitNewInstr();
@@ -8265,14 +8281,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_ARD_RRD:
         case IF_AWR_RRD:
         case IF_ARW_RRD:
+            assert(!IsReallyVexTernary(ins));
+
             code = insCodeMR(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
-
-            if (IsVexDstDstSrc(ins))
-            {
-                code = SetVexVvvv(ins, id->idReg1(), size, code);
-            }
-
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputAM(dst, id, code);
             sz   = emitSizeOfInsDsc(id);
@@ -8425,14 +8437,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_SRD_RRD:
         case IF_SWR_RRD:
         case IF_SRW_RRD:
+            assert(!IsReallyVexTernary(ins));
+
             code = insCodeMR(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
-
-            if (IsVexDstDstSrc(ins))
-            {
-                code = SetVexVvvv(ins, id->idReg1(), size, code);
-            }
-
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputSV(dst, id, code);
             sz   = emitSizeOfInsDsc(id);
@@ -8565,14 +8573,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_MRD_RRD:
         case IF_MWR_RRD:
         case IF_MRW_RRD:
+            assert(!IsReallyVexTernary(ins));
+
             code = insCodeMR(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
-
-            if (IsVexDstDstSrc(ins))
-            {
-                code = SetVexVvvv(ins, id->idReg1(), size, code);
-            }
-
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputCV(dst, id, code);
             sz   = emitSizeOfInsDsc(id);

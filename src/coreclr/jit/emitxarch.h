@@ -265,6 +265,7 @@ bool IsSseDstSrcImm(instruction ins);
 bool IsVexDstDstSrc(instruction ins);
 bool IsVexDstSrcSrc(instruction ins);
 INDEBUG(bool IsVexTernary(instruction ins);)
+INDEBUG(bool IsReallyVexTernary(instruction ins);)
 
 bool AreFlagsAlwaysModified(instrDesc* id);
 
