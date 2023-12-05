@@ -2066,22 +2066,13 @@ bool emitter::IsMovInstruction(instruction ins)
         case INS_movupd:
         case INS_movups:
         case INS_movzx:
-        {
-            return true;
-        }
-
-#if defined(TARGET_AMD64)
+#ifdef TARGET_AMD64
         case INS_movq:
         case INS_movsxd:
-        {
+#endif
             return true;
-        }
-#endif // TARGET_AMD64
-
         default:
-        {
             return false;
-        }
     }
 }
 
@@ -2103,8 +2094,7 @@ bool emitter::IsMovInstruction(instruction ins)
 //         mov rax, rbx  # <-- last instruction
 //         mov rbx, rax  # <-- current instruction can be omitted.
 //
-bool emitter::IsRedundantMov(
-    instruction ins, insFormat fmt, emitAttr size, regNumber dst, regNumber src, bool canIgnoreSideEffects)
+bool emitter::IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regNumber src, bool canIgnoreSideEffects)
 {
     assert(IsMovInstruction(ins));
 
@@ -2144,67 +2134,40 @@ bool emitter::IsRedundantMov(
     switch (ins)
     {
         case INS_mov:
-        {
             // non EA_PTRSIZE moves may zero-extend the source
             hasSideEffect = (size != EA_PTRSIZE);
             break;
-        }
-
         case INS_movapd:
         case INS_movaps:
         case INS_movdqa:
         case INS_movdqu:
         case INS_movupd:
         case INS_movups:
-        {
             // non EA_32BYTE moves clear the upper bits under VEX encoding
             hasSideEffect = UseVEXEncoding() && (size != EA_32BYTE);
             break;
-        }
-
         case INS_movd:
-        {
+#ifdef TARGET_AMD64
+        case INS_movq:
+#endif
             // Clears the upper bits
             hasSideEffect = true;
             break;
-        }
-
         case INS_movsd:
         case INS_movss:
-        {
             // Clears the upper bits under VEX encoding
             hasSideEffect = UseVEXEncoding();
             break;
-        }
-
         case INS_movsx:
         case INS_movzx:
-        {
+#ifdef TARGET_AMD64
+        case INS_movsxd:
+#endif
             // Sign/Zero-extends the source
             hasSideEffect = true;
             break;
-        }
-
-#if defined(TARGET_AMD64)
-        case INS_movq:
-        {
-            // Clears the upper bits
-            hasSideEffect = true;
-            break;
-        }
-
-        case INS_movsxd:
-        {
-            // Sign-extends the source
-            hasSideEffect = true;
-            break;
-        }
-#endif // TARGET_AMD64
-
         default:
-        {
             unreached();
-        }
     }
 
     // Check if we are already in the correct register and don't have a side effect
@@ -2220,7 +2183,7 @@ bool emitter::IsRedundantMov(
     // functionality even if their actual identifier differs and we should optimize these
 
     if ((lastIns == nullptr) || (lastIns->idIns() != ins) || (lastIns->idOpSize() != size) ||
-        (lastIns->idInsFmt() != fmt))
+        (lastIns->idInsFmt() != IF_RWR_RRD))
     {
         return false;
     }
@@ -2263,6 +2226,9 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
         case INS_mov:
         case INS_movsx:
         case INS_movzx:
+#ifdef TARGET_AMD64
+        case INS_movsxd:
+#endif
             assert(IsGeneralRegister(dstReg) && IsGeneralRegister(srcReg));
             break;
         case INS_movapd:
@@ -2273,29 +2239,27 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
         case INS_movss:
         case INS_movupd:
         case INS_movups:
+#ifdef TARGET_AMD64
+        case INS_movq:
+#endif
             assert(IsFloatReg(dstReg) && IsFloatReg(srcReg));
             break;
         case INS_movd:
             assert(IsFloatReg(dstReg) != IsFloatReg(srcReg));
             break;
-#ifdef TARGET_AMD64
-        case INS_movq:
-            assert(IsFloatReg(dstReg) && IsFloatReg(srcReg));
-            break;
-        case INS_movsxd:
-            assert(IsGeneralRegister(dstReg) && IsGeneralRegister(srcReg));
-            break;
-#endif
         default:
             unreached();
     }
 #endif
 
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, dstReg, srcReg)));
+    // TODO-MIKE-Review: movss/movsd are actually IF_RRW_RRD, but the table says
+    // they're IF_RWR_RRD. And they actually are, in their memory load form. But
+    // it doesn't really matter, we only care about WR vs. RW when updating GC
+    // liveness and that doesn't apply to movss/movsd.
+    assert(emitInsModeFormat(ins, IF_RRD_RRD) == IF_RWR_RRD);
 
-    insFormat fmt = emitInsModeFormat(ins, IF_RRD_RRD);
-
-    if (IsRedundantMov(ins, fmt, attr, dstReg, srcReg, canSkip))
+    if (IsRedundantMov(ins, attr, dstReg, srcReg, canSkip))
     {
         return;
     }
@@ -2303,7 +2267,7 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
     instrDesc* id = emitNewInstrSmall();
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
-    id->idInsFmt(fmt);
+    id->idInsFmt(IF_RWR_RRD);
     id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(dstReg);
     id->idReg2(srcReg);
