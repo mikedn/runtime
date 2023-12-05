@@ -2248,7 +2248,6 @@ bool emitter::IsRedundantMov(
 
 void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regNumber srcReg, bool canSkip)
 {
-    // Only move instructions can use emitIns_Mov
     assert(IsMovInstruction(ins));
 
     if (EA_IS_GCREF_OR_BYREF(attr) && (ins == INS_mov) && (dstReg == srcReg))
@@ -2318,12 +2317,7 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
 void emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
-
-    if (IsMovInstruction(ins))
-    {
-        assert(!"Please use emitIns_Mov() to correctly handle move elision");
-        emitIns_Mov(ins, attr, reg1, reg2, /* canSkip */ false);
-    }
+    assert(!IsMovInstruction(ins));
 
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg1, reg2)));
 
