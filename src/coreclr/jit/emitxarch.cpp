@@ -3917,14 +3917,14 @@ void emitter::emitIns_Call(EmitCallType          kind,
         sz = 5;
     }
 
-    id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
-
 #ifdef DEBUG
     id->idDebugOnlyInfo()->idHandle  = methodHandle;
     id->idDebugOnlyInfo()->idCallSig = sigInfo;
 #endif
+
+    id->idCodeSize(sz);
+    dispIns(id);
+    emitCurIGsize += sz;
 
 #ifdef LATE_DISASM
     if (addr != nullptr)
