@@ -4234,7 +4234,8 @@ void CodeGen::GenIndLoad(GenTreeIndir* load)
 #endif
     {
         genConsumeAddress(load->GetAddr());
-        emitInsLoad(ins_Load(load->GetType()), emitTypeSize(load->GetType()), load->GetRegNum(), load->GetAddr());
+        GetEmitter()->emitIns_R_A(ins_Load(load->GetType()), emitTypeSize(load->GetType()), load->GetRegNum(),
+                                  load->GetAddr());
     }
 
     DefReg(load);
@@ -4282,13 +4283,22 @@ void CodeGen::GenIndStore(GenTreeStoreInd* store)
 
     genConsumeAddress(addr);
 
-    if (!value->isContained() || !value->OperIsRMWMemOp())
+    if (!value->isContained())
     {
-        genConsumeRegs(value);
-        emitInsStore(ins_Store(value->GetType()), attr, store->GetAddr(), store->GetValue());
+        RegNum reg = UseReg(value);
+        GetEmitter()->emitIns_A_R(ins_Store(value->GetType()), attr, addr, reg);
 
         return;
     }
+
+    if (GenTreeIntCon* imm = value->IsIntCon())
+    {
+        GetEmitter()->emitIns_A_I(ins_Store(value->GetType()), attr, addr, imm->GetInt32Value());
+
+        return;
+    }
+
+    assert(value->OperIsRMWMemOp());
 
     if (value->OperIsUnary())
     {
@@ -9309,27 +9319,6 @@ void CodeGen::emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* 
         {
             emit.emitIns_A_R(ins, attr, addr, regOp->GetRegNum());
         }
-    }
-}
-
-void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTree* addr)
-{
-    // TODO-MIKE-Cleanup: Fix or remove this assert, emitInsModeFormat should
-    // not be public just for this.
-    // assert(emitter::emitInsModeFormat(ins, emitter::IF_RRD_ARD) == emitter::IF_RWR_ARD);
-
-    GetEmitter()->emitIns_R_A(ins, attr, reg, addr);
-}
-
-void CodeGen::emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* data)
-{
-    if (GenTreeIntCon* imm = data->IsContainedIntCon())
-    {
-        GetEmitter()->emitIns_A_I(ins, attr, addr, imm->GetInt32Value());
-    }
-    else
-    {
-        GetEmitter()->emitIns_A_R(ins, attr, addr, data->GetRegNum());
     }
 }
 

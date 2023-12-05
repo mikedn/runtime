@@ -1140,8 +1140,6 @@ public:
     void emitInsRM(instruction ins, emitAttr attr, GenTree* src);
     void emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTree* mem);
     void emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* op2);
-    void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTree* addr);
-    void emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* value);
     void inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenTree* rmOp, int ival);
     void inst_RV_RV_TT(instruction ins, emitAttr size, regNumber targetReg, regNumber op1Reg, GenTree* op2, bool isRMW);
 #endif

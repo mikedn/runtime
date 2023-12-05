@@ -76,7 +76,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                 if (node->OperIsMemoryLoad())
                 {
                     genConsumeAddress(op1);
-                    emitInsLoad(ins, simdSize, node->GetRegNum(), op1);
+                    GetEmitter()->emitIns_R_A(ins, simdSize, node->GetRegNum(), op1);
                 }
                 else
                 {
@@ -132,7 +132,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                     else
                     {
                         genConsumeReg(op2);
-                        emitInsStore(ins, simdSize, op1, op2);
+                        GetEmitter()->emitIns_A_R(ins, simdSize, op1, op2->GetRegNum());
                     }
                     break;
                 }
@@ -1256,7 +1256,7 @@ void CodeGen::genSSE2Intrinsic(GenTreeHWIntrinsic* node)
             assert(op2 != nullptr);
 
             instruction ins = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
-            emitInsStore(ins, emitTypeSize(baseType), op1, op2);
+            GetEmitter()->emitIns_A_R(ins, emitTypeSize(baseType), op1, op2->GetRegNum());
             break;
         }
 
@@ -1290,7 +1290,7 @@ void CodeGen::genSSE41Intrinsic(GenTreeHWIntrinsic* node)
 
             if (!varTypeIsSIMD(op1->gtType))
             {
-                emitInsLoad(ins, emitTypeSize(TYP_SIMD16), node->GetRegNum(), op1);
+                GetEmitter()->emitIns_R_A(ins, EA_16BYTE, node->GetRegNum(), op1);
             }
             else
             {
@@ -1421,7 +1421,7 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
 
             if (!varTypeIsSIMD(op1->gtType))
             {
-                emitInsLoad(ins, emitTypeSize(TYP_SIMD32), node->GetRegNum(), op1);
+                GetEmitter()->emitIns_R_A(ins, EA_32BYTE, node->GetRegNum(), op1);
             }
             else
             {
