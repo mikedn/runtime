@@ -2523,23 +2523,12 @@ void emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regN
     emitCurIGsize += sz;
 }
 
-bool IsAVX2GatherInstruction(instruction ins)
+#ifdef DEBUG
+static bool IsAVX2GatherInstruction(instruction ins)
 {
-    switch (ins)
-    {
-        case INS_vpgatherdd:
-        case INS_vpgatherdq:
-        case INS_vpgatherqd:
-        case INS_vpgatherqq:
-        case INS_vgatherdps:
-        case INS_vgatherdpd:
-        case INS_vgatherqps:
-        case INS_vgatherqpd:
-            return true;
-        default:
-            return false;
-    }
+    return (INS_FIRST_AVX2_GATHER_INSTRUCTION <= ins) && (ins <= INS_LAST_AVX2_GATHER_INSTRUCTION);
 }
+#endif
 
 void emitter::emitIns_R_AR_R(instruction ins,
                              emitAttr    attr,

@@ -419,6 +419,8 @@ INST3(vmaskmovps,       "vmaskmovps",       IUM_WR, SSE38(0x2E),  BAD_CODE,     
 INST3(vmaskmovpd,       "vmaskmovpd",       IUM_WR, SSE38(0x2F),  BAD_CODE,     SSE38(0x2D),                             VexDstDstSrc)
 INST3(vpmaskmovd,       "vpmaskmovd",       IUM_WR, SSE38(0x8E),  BAD_CODE,     SSE38(0x8C),                             VexDstDstSrc)
 INST3(vpmaskmovq,       "vpmaskmovq",       IUM_WR, SSE38(0x8E),  BAD_CODE,     SSE38(0x8C),                             VexDstDstSrc)
+
+INSTA(FIRST_AVX2_GATHER_INSTRUCTION, vpgatherdd)
 INST3(vpgatherdd,       "vpgatherdd",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x90),                             VexDstDstSrc)
 INST3(vpgatherqd,       "vpgatherqd",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x91),                             VexDstDstSrc)
 INST3(vpgatherdq,       "vpgatherdq",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x90),                             VexDstDstSrc)
@@ -427,6 +429,7 @@ INST3(vgatherdps,       "vgatherdps",       IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(vgatherqps,       "vgatherqps",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x93),                             VexDstDstSrc)
 INST3(vgatherdpd,       "vgatherdpd",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x92),                             VexDstDstSrc)
 INST3(vgatherqpd,       "vgatherqpd",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x93),                             VexDstDstSrc)
+INSTA(LAST_AVX2_GATHER_INSTRUCTION, vgatherqpd)
 
 INSTA(FIRST_FMA_INSTRUCTION, vfmadd132pd)
 INST3(vfmadd132pd,      "vfmadd132pd",      IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x98),                             VexDstDstSrc)
