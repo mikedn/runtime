@@ -8290,27 +8290,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             sz   = emitSizeOfInsDsc(id);
             break;
 
-        case IF_AWR_RRD_CNS:
-            assert(ins == INS_vextracti128 || ins == INS_vextractf128);
-            assert(UseVEXEncoding());
-            assert(!IsVexTernary(ins));
-
-            code   = insCodeMR(ins);
-            cnsVal = id->GetImm();
-            dst    = emitOutputAM(dst, id, code, &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
-            break;
-
-        case IF_AWR_RRD_RRD:
-            assert(IsVexDstDstSrc(ins));
-
-            code = insCodeMR(ins);
-            code = AddVexPrefix(ins, code, size);
-            code = SetVexVvvv(ins, id->idReg1(), size, code);
-            dst  = emitOutputAM(dst, id, code);
-            sz   = emitSizeOfInsDsc(id);
-            break;
-
         case IF_RRD_ARD:
         case IF_RWR_ARD:
         case IF_RRW_ARD:
@@ -8353,6 +8332,38 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             sz     = emitSizeOfInsDsc(id);
             break;
 
+        case IF_AWR_RRD_CNS:
+            assert(ins == INS_vextracti128 || ins == INS_vextractf128);
+            assert(UseVEXEncoding());
+            assert(!IsVexTernary(ins));
+
+            code   = insCodeMR(ins);
+            cnsVal = id->GetImm();
+            dst    = emitOutputAM(dst, id, code, &cnsVal);
+            sz     = emitSizeOfInsDsc(id);
+            break;
+
+        case IF_AWR_RRD_RRD:
+            assert(IsVexDstDstSrc(ins));
+
+            code = insCodeMR(ins);
+            code = AddVexPrefix(ins, code, size);
+            code = SetVexVvvv(ins, id->idReg1(), size, code);
+            dst  = emitOutputAM(dst, id, code);
+            sz   = emitSizeOfInsDsc(id);
+            break;
+
+        case IF_RWR_ARD_RRD:
+            assert(IsAVX2GatherInstruction(ins));
+            assert(IsVexDstDstSrc(ins));
+
+            code = insCodeRM(ins);
+            code = AddVexPrefix(ins, code, size);
+            code = SetVexVvvv(ins, id->idReg2(), size, code);
+            dst  = emitOutputAM(dst, id, code);
+            sz   = emitSizeOfInsDsc(id);
+            break;
+
         case IF_RWR_RRD_ARD:
             assert(IsVexTernary(ins));
 
@@ -8385,17 +8396,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             cnsVal = id->GetImm();
             dst    = emitOutputAM(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
-            break;
-
-        case IF_RWR_ARD_RRD:
-            assert(IsAVX2GatherInstruction(ins));
-            assert(IsVexDstDstSrc(ins));
-
-            code = insCodeRM(ins);
-            code = AddVexPrefix(ins, code, size);
-            code = SetVexVvvv(ins, id->idReg2(), size, code);
-            dst  = emitOutputAM(dst, id, code);
-            sz   = emitSizeOfInsDsc(id);
             break;
 
         /********************************************************************/
@@ -8446,27 +8446,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             sz   = emitSizeOfInsDsc(id);
             break;
 
-        case IF_SWR_RRD_CNS:
-            assert(ins == INS_vextracti128 || ins == INS_vextractf128);
-            assert(UseVEXEncoding());
-            assert(!IsVexTernary(ins));
-
-            code   = insCodeMR(ins);
-            cnsVal = id->GetImm();
-            dst    = emitOutputSV(dst, id, insCodeMR(ins), &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
-            break;
-
-        // case IF_SWR_RRD_RRD:
-        // This format is used by vmaskmovps & co. and currently we can't
-        // generate such instructions, that store to a local variable.
-        // But there's probably nothing fundamentally impossible about this,
-        // it's just that currently all stores to locals are using
-        // STORE_LCL_VAR.
-        //
-        //
-        //
-
         case IF_RRD_SRD:
         case IF_RWR_SRD:
         case IF_RRW_SRD:
@@ -8509,6 +8488,38 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             sz     = emitSizeOfInsDsc(id);
             break;
 
+        case IF_SWR_RRD_CNS:
+            assert(ins == INS_vextracti128 || ins == INS_vextractf128);
+            assert(UseVEXEncoding());
+            assert(!IsVexTernary(ins));
+
+            code   = insCodeMR(ins);
+            cnsVal = id->GetImm();
+            dst    = emitOutputSV(dst, id, insCodeMR(ins), &cnsVal);
+            sz     = emitSizeOfInsDsc(id);
+            break;
+
+        // case IF_SWR_RRD_RRD:
+        // This format is used by vmaskmovps & co. and currently we can't
+        // generate such instructions, that store to a local variable.
+        // But there's probably nothing fundamentally impossible about this,
+        // it's just that currently all stores to locals are using
+        // STORE_LCL_VAR.
+        //
+        //
+        //
+
+        // case IF_RWR_SRD_RRD:
+        // This format is used by gather instructions. It's unlikely
+        // that such instructions could load from local variables, but
+        // perhaps not impossible, e.g. load from a local struct with
+        // with a fixed buffer. And 'vgatherdpd xmm0, [rsp+xmm1+32], xmm2'
+        // is perfectly valid.
+        //
+        //
+        //
+        //
+
         case IF_RWR_RRD_SRD:
             assert(IsVexTernary(ins));
 
@@ -8543,13 +8554,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             sz     = emitSizeOfInsDsc(id);
             break;
 
-        // case IF_RWR_SRD_RRD:
-        // This format is used by gather instructions. It's unlikely
-        // that such instructions could load from local variables, but
-        // perhaps not impossible, e.g. load from a local struct with
-        // with a fixed buffer. And 'vgatherdpd xmm0, [rsp+xmm1+32], xmm2'
-        // is perfectly valid.
-
         /********************************************************************/
         /*                    Direct memory address                         */
         /********************************************************************/
@@ -8581,27 +8585,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst  = emitOutputCV(dst, id, code);
             sz   = emitSizeOfInsDsc(id);
             break;
-
-        case IF_MWR_RRD_CNS:
-            assert(ins == INS_vextracti128 || ins == INS_vextractf128);
-            assert(UseVEXEncoding());
-            assert(!IsVexTernary(ins));
-
-            code   = insCodeMR(ins);
-            cnsVal = id->GetImm();
-            dst    = emitOutputCV(dst, id, code, &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
-            break;
-
-        // case IF_MWR_RRD_RRD:
-        // This format is used by vmaskmovps & co. and currently we can't
-        // generate such instructions, that store to a static field.
-        // But there's probably nothing fundamentally impossible about this,
-        // it's just it likely needs .NET 8's struct statics to be of any
-        // use.
-        //
-        //
-        //
 
         case IF_RRD_MRD:
         case IF_RWR_MRD:
@@ -8645,6 +8628,38 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             sz     = emitSizeOfInsDsc(id);
             break;
 
+        case IF_MWR_RRD_CNS:
+            assert(ins == INS_vextracti128 || ins == INS_vextractf128);
+            assert(UseVEXEncoding());
+            assert(!IsVexTernary(ins));
+
+            code   = insCodeMR(ins);
+            cnsVal = id->GetImm();
+            dst    = emitOutputCV(dst, id, code, &cnsVal);
+            sz     = emitSizeOfInsDsc(id);
+            break;
+
+        // case IF_MWR_RRD_RRD:
+        // This format is used by vmaskmovps & co. and currently we can't
+        // generate such instructions, that store to a static field.
+        // But there's probably nothing fundamentally impossible about this,
+        // it's just it likely needs .NET 8's struct statics to be of any
+        // use.
+        //
+        //
+        //
+
+        // case IF_RWR_MRD_RRD:
+        // This format is used by gather instructions.
+        // It's practically impossible to get this on x64, since RIP relative
+        // addressing is used.
+        //
+        // It may be possible to get this to work on x86 but hey, it's x86.
+        //
+        //
+        //
+        //
+
         case IF_RWR_RRD_MRD:
             assert(IsVexTernary(ins));
 
@@ -8678,13 +8693,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst    = emitOutputCV(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
-
-        // case IF_RWR_MRD_RRD:
-        // This format is used by gather instructions.
-        // It's practically impossible to get this on x64, since RIP relative
-        // addressing is used.
-        //
-        // It may be possible to get this to work on x86 but hey, it's x86.
 
         default:
             unreached();
