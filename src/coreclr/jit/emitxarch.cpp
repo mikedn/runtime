@@ -8354,15 +8354,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_RWR_ARD_RRD:
-            assert(IsAVX2GatherInstruction(ins));
-
-            code = insCodeRM(ins);
-            code = AddVexPrefix(ins, code, size);
-            code = SetVexVvvv(ins, id->idReg2(), size, code);
-            dst  = emitOutputAM(dst, id, code);
-            sz   = emitSizeOfInsDsc(id);
-            break;
-
         case IF_RWR_RRD_ARD:
             assert(IsVexTernary(ins));
 
@@ -8508,16 +8499,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         //
         //
 
-        // case IF_RWR_SRD_RRD:
-        // This format is used by gather instructions. It's unlikely
-        // that such instructions could load from local variables, but
-        // perhaps not impossible, e.g. load from a local struct with
-        // with a fixed buffer. And 'vgatherdpd xmm0, [rsp+xmm1+32], xmm2'
-        // is perfectly valid.
-        //
-        //
-        //
-
+        // case IF_RWR_SRD_RRD: - This format is used only by gather instructions.
         case IF_RWR_RRD_SRD:
             assert(IsVexTernary(ins));
 
@@ -8647,16 +8629,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         //
         //
 
-        // case IF_RWR_MRD_RRD:
-        // This format is used by gather instructions.
-        // It's practically impossible to get this on x64, since RIP relative
-        // addressing is used.
-        //
-        // It may be possible to get this to work on x86 but hey, it's x86.
-        //
-        //
-        //
-
+        // case IF_RWR_MRD_RRD: - This format is used only by gather instructions.
         case IF_RWR_RRD_MRD:
             assert(IsVexTernary(ins));
 
