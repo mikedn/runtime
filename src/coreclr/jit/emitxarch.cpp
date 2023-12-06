@@ -8355,7 +8355,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         case IF_RWR_ARD_RRD:
             assert(IsAVX2GatherInstruction(ins));
-            assert(IsVexDstDstSrc(ins));
 
             code = insCodeRM(ins);
             code = AddVexPrefix(ins, code, size);
@@ -8518,7 +8517,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         //
         //
         //
-        //
 
         case IF_RWR_RRD_SRD:
             assert(IsVexTernary(ins));
@@ -8655,7 +8653,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         // addressing is used.
         //
         // It may be possible to get this to work on x86 but hey, it's x86.
-        //
         //
         //
         //
