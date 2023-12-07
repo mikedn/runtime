@@ -37,22 +37,30 @@
 // So a 4-byte opcode would be something like this:
 //             0x22114433
 
-#define PACK3(byte1, byte2, byte3) (((byte1) << 16) | ((byte2) << 24) | (byte3))
 #define PACK2(byte1, byte2) (((byte1) << 16) | (byte2))
-#define PACK4(byte1, byte2, byte3, byte4) (((byte1) << 16) | ((byte2) << 24) | (byte3) | ((byte4) << 8))
+//#define PACK3(byte1, byte2, byte3) (((byte1) << 16) | ((byte2) << 24) | (byte3))
+//#define PACK4(byte1, byte2, byte3, byte4) (((byte1) << 16) | ((byte2) << 24) | (byte3) | ((byte4) << 8))
 
-#define h0F(c) PACK2(0x0F, c)
-#define hF30F(c) PACK3(0xF3, 0x0F, c)
-#define hF20F(c) PACK3(0xF2, 0x0F, c)
-#define h660F(c) PACK3(0x66, 0x0F, c)
+#define M0F 1
+#define M0F38 2
+#define M0F3A 3
+#define MAPX 4
+#define P66 (1 << 3)
+#define PF3 (2 << 3)
+#define PF2 (3 << 3)
 
-#define h0F38(c) PACK3(0x0F, 0x38, c)
-#define h660F38(c) PACK4(0x66, 0x0F, 0x38, c)
-#define hF20F38(c) PACK4(0xF2, 0x0F, 0x38, c)
-#define hF30F38(c) PACK4(0xF3, 0x0F, 0x38, c)
+#define h0F(c) PACK2(M0F, c)
+#define hF30F(c) PACK2(PF3 | M0F, c)
+#define hF20F(c) PACK2(PF2 | M0F, c)
+#define h660F(c) PACK2(P66 | M0F, c)
 
-#define h660F3A(c) PACK4(0x66, 0x0F, 0x3A, c)
-#define hF20F3A(c) PACK4(0xF2, 0x0F, 0x3A, c)
+#define h0F38(c) PACK2(M0F38, c)
+#define h660F38(c) PACK2(P66 | M0F38, c)
+#define hF20F38(c) PACK2(PF2 | M0F38, c)
+#define hF30F38(c) PACK2(PF3 | M0F38, c)
+
+#define h660F3A(c) PACK2(P66 | M0F3A, c)
+#define hF20F3A(c) PACK2(PF2 | M0F3A, c)
 
 #define RME(c, e) ((c) | ((e) << 11))
 

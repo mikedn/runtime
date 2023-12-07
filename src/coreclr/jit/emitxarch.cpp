@@ -326,7 +326,7 @@ static bool HasWBit(instruction ins)
 {
     // TODO-MIKE-Cleanup: It's probably best to make this a flag,
     // or at least ensure that the instruction order is correct.
-    return ((INS_add <= ins) && (ins <= INS_movsx)) || ((INS_rol <= ins) && (ins <= INS_stos));
+    return ((INS_add <= ins) && (ins <= INS_movsx)) || ((INS_rol <= ins) && (ins <= INS_stos)) || (ins == INS_crc32);
 }
 #endif
 
@@ -747,28 +747,6 @@ static size_t insCodeMR(instruction ins)
     return insCodesMR[ins];
 }
 
-// Return true if the instruction uses the SSE38 or SSE3A macro in instrsXArch.h.
-static bool IsSSE38orSSE3A(uint64_t code)
-{
-    const uint64_t SSE38 = 0x0F660038ull;
-    const uint64_t SSE3A = 0x0F66003Aull;
-    const uint64_t MASK  = 0xFFFF00FFull;
-
-    code &= MASK;
-    return (code == SSE38) || (code == SSE3A);
-}
-
-static bool IsF20F3AorF20F38orF20F3A(uint64_t code)
-{
-    const uint64_t F20F38 = 0x0FF20038ull;
-    const uint64_t F30F38 = 0x0FF30038ull;
-    const uint64_t F20F3A = 0x0FF2003Aull;
-    const uint64_t MASK   = 0xFFFF00FFull;
-
-    code &= MASK;
-    return (code == F20F38) || (code == F30F38) || (code == F20F3A);
-}
-
 static unsigned ScaleEncoding(unsigned scale)
 {
     assert((scale == 0) || (scale == 1) || (scale == 2) || (scale == 4) || (scale == 8));
@@ -844,15 +822,8 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t cod
     assert(!TakesVexPrefix(ins));
     assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
-    if (IsSSE38orSSE3A(code))
-    {
-        // The 4-Byte SSE instructions require one additional byte to hold the ModRM byte
-        return 4 + 1;
-    }
-
     if (ins == INS_crc32)
     {
-        // Adjust code size for CRC32 that has 4-byte opcode but does not use SSE38 or EES3A encoding.
         // TODO-MIKE-Cleanup: Old stupid code managed to add an extra byte for RR.
         return (size == EA_2BYTE) + 4 + 1 + isRR;
     }
@@ -879,7 +850,24 @@ unsigned emitter::emitInsSize(code_t code)
 {
     assert(!hasRexPrefix(code) && !hasVexPrefix(code));
 
-    return (code & 0xFF000000) ? 4 : (code & 0x00FF0000) ? 3 : 2;
+    unsigned size = 2;
+
+    if (uint32_t prefixes = (code >> 16) & 0xFF)
+    {
+        if ((prefixes >> 3) != 0)
+        {
+            size++;
+        }
+
+        size++;
+
+        if ((prefixes & 7) > 1)
+        {
+            size++;
+        }
+    }
+
+    return size;
 }
 
 unsigned emitter::emitInsSizeR(instruction ins, emitAttr size, regNumber reg)
@@ -891,11 +879,11 @@ unsigned emitter::emitInsSizeR(instruction ins, emitAttr size, regNumber reg)
         return 1 + IsExtendedReg(reg);
     }
 
+    // TODO-MIKE-Review: Does this really need special casing?
     if ((INS_seto <= ins) && (ins <= INS_setg))
     {
         static_assert_no_msg(INS_seto + 0xF == INS_setg);
         assert(size == EA_1BYTE);
-        assert(insCodeMR(ins) & 0x00FF0000);
 
         return 3 + IsExtendedByteReg(reg);
     }
@@ -945,11 +933,10 @@ unsigned emitter::emitInsSizeRI(instruction ins, emitAttr size, regNumber reg, s
             return emitGetVexAdjustedSize(ins) + 1;
         }
 
-        return (IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)) + emitInsSize(code) + IsSSE38orSSE3A(code) + 1;
+        return (IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)) + emitInsSize(code) + 1;
     }
 
     assert(!TakesVexPrefix(ins));
-    assert(!IsSSE38orSSE3A(code));
     assert((INS_add <= ins) && (ins <= INS_test));
 
     unsigned sz = (size == EA_2BYTE)AMD64_ONLY(+(size == EA_8BYTE || IsExtendedReg(reg, size)));
@@ -5199,7 +5186,7 @@ static bool IsBMIRegExtInstruction(instruction ins)
 
 emitter::code_t emitter::SetRMReg(instruction ins, regNumber reg, emitAttr size, code_t code)
 {
-    assert(!IsSSE38orSSE3A(ins) && (ins != INS_crc32) && !IsBMIRegExtInstruction(ins));
+    assert(!IsBMIRegExtInstruction(ins));
     code |= insEncodeReg345(ins, reg, size, &code) << 8;
     return code;
 }
@@ -5298,113 +5285,17 @@ size_t emitter::emitOutputLong(uint8_t* dst, uint64_t val)
 }
 #endif // defined(TARGET_X86) && !defined(HOST_64BIT)
 
-static bool isPrefix(uint8_t b)
-{
-    assert(b != 0);    // Caller should check this
-    assert(b != 0x67); // We don't use the address size prefix
-    assert(b != 0x65); // The GS segment override prefix is emitted separately
-    assert(b != 0x64); // The FS segment override prefix is emitted separately
-    assert(b != 0xF0); // The lock prefix is emitted separately
-    assert(b != 0x2E); // We don't use the CS segment override prefix
-    assert(b != 0x3E); // Or the DS segment override prefix
-    assert(b != 0x26); // Or the ES segment override prefix
-    assert(b != 0x36); // Or the SS segment override prefix
-
-    // That just leaves the size prefixes used in SSE opcodes:
-    //      Scalar Double  Scalar Single  Packed Double
-    return (b == 0xF2) || (b == 0xF3) || (b == 0x66);
-}
-
 size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
 {
     assert(TakesVexPrefix(ins) && hasVexPrefix(code));
 
     uint32_t vexPrefix = (code >> 32) & UINT_MAX;
-    code &= UINT_MAX;
+    uint32_t prefixes  = (code >> 16) & 0xFF;
+    code &= 0xFFFF;
 
-    uint16_t leadingBytes = 0;
-    uint8_t  check        = (code >> 24) & 0xFF;
-
-    if (check == 0)
-    {
-        // 2-byte opcode with the bytes ordered as 0x0011RM22
-        // the byte in position 11 must be an escape byte.
-
-        leadingBytes = (code >> 16) & 0xFF;
-        assert(leadingBytes == 0x0F);
-        code &= 0xFFFF;
-    }
-    else if (uint8_t sizePrefix = (code >> 16) & 0xFF)
-    {
-        // 3-byte opcode: with the bytes ordered as 0x2211RM33 or
-        // 4-byte opcode: with the bytes ordered as 0x22114433
-        // check for a prefix in the 11 position
-
-        if (isPrefix(sizePrefix))
-        {
-            // 'pp' bits in byte2 of VEX prefix allows us to encode SIMD size prefixes as two bits
-            //
-            //   00  - None   (0F    - packed float)
-            //   01  - 66     (66 0F - packed double)
-            //   10  - F3     (F3 0F - scalar float
-            //   11  - F2     (F2 0F - scalar double)
-
-            switch (sizePrefix)
-            {
-                case 0x66:
-                    vexPrefix |= 0x01;
-                    break;
-                case 0xF3:
-                    vexPrefix |= 0x02;
-                    break;
-                case 0xF2:
-                    vexPrefix |= 0x03;
-                    break;
-                default:
-                    unreached();
-            }
-
-            // Now the byte in the 22 position must be an escape byte 0F
-            leadingBytes = check;
-            assert(leadingBytes == 0x0F);
-
-            // Get rid of both sizePrefix and escape byte
-            code &= 0xFFFF;
-
-            // Check the byte in the 33 position to see if it is 3A or 38.
-            // In such a case escape bytes must be 0x0F3A or 0x0F38
-            check = code & 0xFF;
-
-            if (check == 0x3A || check == 0x38)
-            {
-                leadingBytes = (leadingBytes << 8) | check;
-
-                code &= 0xFF00;
-            }
-        }
-        else
-        {
-            assert(code >> 16 == 0x380F);
-
-            code &= 0xFFFF;
-            leadingBytes = 0x0F38;
-        }
-    }
-
-    switch (leadingBytes)
-    {
-        case 0x0F:
-            vexPrefix |= 0x0100;
-            break;
-        case 0x0F38:
-            vexPrefix |= 0x0200;
-            break;
-        case 0x0F3A:
-            vexPrefix |= 0x0300;
-            break;
-        default:
-            unreached();
-    }
+    assert(prefixes != 0);
+    vexPrefix |= (prefixes >> 3) & 3;
+    vexPrefix |= (prefixes & 7) << 8;
 
     if ((vexPrefix & 0xFFFF7F80) == 0x00C46100)
     {
@@ -5432,65 +5323,22 @@ size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
 #ifdef TARGET_AMD64
 size_t emitter::emitOutputRexPrefix(instruction ins, uint8_t* dst, code_t& code)
 {
-    uint8_t prefix = (code >> 32) & 0xFF;
-    noway_assert((prefix >= 0x40) && (prefix <= 0x4F));
+    uint32_t rex = (code >> 32) & 0xFF;
+    noway_assert((rex >= 0x40) && (rex <= 0x4F));
     code &= UINT_MAX;
 
-    // TODO-AMD64-Cleanup: when we remove the prefixes (just the SSE opcodes right now)
-    // we can remove this code as well
-
-    // The REX prefix is required to come after all other prefixes.
-    // Some of our 'opcodes' actually include some prefixes, if that
-    // is the case, shift them over and place the REX prefix after
-    // the other prefixes, and emit any prefix that got moved out.
-
-    uint8_t check = (code >> 24) & 0xFF;
-
-    if (check == 0)
+    if (uint32_t prefix = (code >> 19) & 3)
     {
-        // 3-byte opcode: with the bytes ordered as 0x00113322
-        // check for a prefix in the 11 position.
+        static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
 
-        check = (code >> 16) & 0xFF;
+        // The REX prefix is required to come after all other prefixes,
+        // emit such prefixes now and remove them from the code.
+        code &= ~(3ull << 19);
 
-        if ((check != 0) && isPrefix(check))
-        {
-            // Swap the rex prefix and whatever this prefix is
-            code   = (static_cast<uint32_t>(prefix) << 16) | (code & 0xFFFF);
-            prefix = check;
-        }
-    }
-    else
-    {
-        // 4-byte opcode with the bytes ordered as 0x22114433
-        // first check for a prefix in the 11 position
-
-        uint8_t check2 = (code >> 16) & 0xFF;
-
-        if (isPrefix(check2))
-        {
-            assert(!isPrefix(check)); // We currently don't use this, so it is untested
-
-            if (isPrefix(check))
-            {
-                // 3 prefixes were rex = rr, check = c1, check2 = c2 encoded as 0xrrc1c2XXXX
-                // Change to c2rrc1XXXX, and emit check2 now
-
-                code = (static_cast<uint32_t>(prefix) << 24) | (static_cast<uint32_t>(check) << 16) | (code & 0xFFFF);
-            }
-            else
-            {
-                // 2 prefixes were rex = rr, check2 = c2 encoded as 0xrrXXc2XXXX, (check is part of the opcode)
-                // Change to c2XXrrXXXX, and emit check2 now
-
-                code = (static_cast<uint32_t>(check) << 24) | (static_cast<uint32_t>(prefix) << 16) | (code & 0xFFFF);
-            }
-
-            prefix = check2;
-        }
+        return emitOutputWord(dst, prefixMap[prefix] | (rex << 8));
     }
 
-    return emitOutputByte(dst, prefix);
+    return emitOutputByte(dst, rex);
 }
 #endif // TARGET_AMD64
 
@@ -5744,51 +5592,21 @@ uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
         code = AddRexWPrefix(ins, code);
     }
 
-    if (IsSSE38orSSE3A(code) || IsF20F3AorF20F38orF20F3A(code) || (ins == INS_crc32))
+    if (size == EA_1BYTE)
     {
-        if (ins == INS_crc32)
+        if (!IsPrefetch(ins))
         {
-            if (size == EA_1BYTE)
-            {
-                code ^= 0x0100;
-            }
-            else if (size == EA_2BYTE)
-            {
-                dst += emitOutputByte(dst, 0x66);
-            }
+            assert(HasWBit(ins) && ((code & 1) != 0));
+            code ^= 1;
         }
-
-        regNumber reg345;
-
-        if (id->idInsFmt() == IF_AWR_RRD_RRD)
-        {
-            reg345 = id->idReg2();
-        }
-        else
-        {
-            reg345 = id->idReg1();
-        }
-
-        unsigned regcode = insEncodeReg345(ins, reg345, size, &code);
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-        if (UseVEXEncoding() && (ins != INS_crc32))
-        {
-            // Emit last opcode byte
-            // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
-            assert((code & 0xFF) == 0);
-        }
-        else
-        {
-            dst += emitOutputWord(dst, code >> 16);
-            dst += emitOutputByte(dst, code);
-        }
-
-        code = ((code >> 8) & 0xFF) | (regcode << 8);
     }
-    else if (hasVexPrefix(code))
+    else if (size == EA_2BYTE)
     {
-        dst += emitOutputVexPrefix(ins, dst, code);
+        if ((ins != INS_movzx) && (ins != INS_movsx))
+        {
+            assert(!IsSSEOrAVXInstruction(ins));
+            dst += emitOutputByte(dst, 0x66);
+        }
     }
 #ifdef TARGET_X86
     else if (IsX87LdSt(ins))
@@ -5803,36 +5621,31 @@ uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
 #endif
     else
     {
-        if (size == EA_1BYTE)
+        assert((size == EA_4BYTE) || IsSSEOrAVXInstruction(ins) AMD64_ONLY(|| size == EA_8BYTE));
+    }
+
+    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+
+    if (uint32_t prefixes = ((code >> 16) & 0xFF))
+    {
+        if (uint32_t pp = (prefixes >> 3) & 3)
         {
-            if (!IsPrefetch(ins))
-            {
-                assert(HasWBit(ins) && ((code & 1) != 0));
-                code ^= 1;
-            }
-        }
-        else if (size == EA_2BYTE)
-        {
-            if ((ins != INS_movzx) && (ins != INS_movsx))
-            {
-                assert(!IsSSEOrAVXInstruction(ins));
-                dst += emitOutputByte(dst, 0x66);
-            }
-        }
-        else
-        {
-            assert((size == EA_4BYTE) || IsSSEOrAVXInstruction(ins) AMD64_ONLY(|| size == EA_8BYTE));
+            static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
+
+            dst += emitOutputByte(dst, prefixMap[pp]);
         }
 
-        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-
-        if ((code & 0xFF000000) != 0)
+        switch (prefixes & 7)
         {
-            dst += emitOutputWord(dst, code >> 16);
-        }
-        else if ((code & 0x00FF0000) != 0)
-        {
-            dst += emitOutputByte(dst, code >> 16);
+            case 1:
+                dst += emitOutputByte(dst, 0x0F);
+                break;
+            case 2:
+                dst += emitOutputWord(dst, 0x380F);
+                break;
+            case 3:
+                dst += emitOutputWord(dst, 0x3A0F);
+                break;
         }
     }
 
@@ -6584,9 +6397,8 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             assert(size == EA_1BYTE);
 
             code = insEncodeRMreg(ins, reg, EA_1BYTE, insCodeMR(ins));
-            assert(code & 0x00FF0000);
             dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-            dst += emitOutputByte(dst, code >> 16);
+            dst += emitOutputByte(dst, 0x0F);
             dst += emitOutputWord(dst, code & 0x0000FFFF);
             break;
 
@@ -6616,6 +6428,8 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             {
                 code = AddRexWPrefix(ins, code);
             }
+
+            assert((code & 0x00FF0000) == 0);
 
             dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
             dst += emitOutputWord(dst, code);
@@ -6816,7 +6630,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         if (size == EA_1BYTE)
         {
             noway_assert(ins == INS_crc32);
-            code ^= 0x0100;
+            code ^= 1;
         }
         else if (size == EA_2BYTE)
         {
@@ -6878,39 +6692,28 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 
     code_t regCode = 0xC0 | insEncodeReg345(ins, reg345, size, &code) | insEncodeReg012(ins, reg012, size, &code);
 
-    if (IsSSE38orSSE3A(code) || (ins == INS_crc32))
-    {
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
-        if (UseVEXEncoding() && (ins != INS_crc32))
+    if (uint32_t prefixes = ((code >> 16) & 0xFF))
+    {
+        if (uint32_t pp = (prefixes >> 3) & 3)
         {
-            // Emit last opcode byte
-            // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
-            assert((code & 0xFF) == 0);
-        }
-        else
-        {
-            dst += emitOutputWord(dst, code >> 16);
-            dst += emitOutputByte(dst, code);
+            static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
+
+            dst += emitOutputByte(dst, prefixMap[pp]);
         }
 
-        code = (code >> 8) & 0xFF;
-    }
-    else if (hasVexPrefix(code))
-    {
-        dst += emitOutputVexPrefix(ins, dst, code);
-    }
-    else
-    {
-        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-
-        if ((code & 0xFF000000) != 0)
+        switch (prefixes & 7)
         {
-            dst += emitOutputWord(dst, code >> 16);
-        }
-        else if ((code & 0x00FF0000) != 0)
-        {
-            dst += emitOutputByte(dst, code >> 16);
+            case 1:
+                dst += emitOutputByte(dst, 0x0F);
+                break;
+            case 2:
+                dst += emitOutputWord(dst, 0x380F);
+                break;
+            case 3:
+                dst += emitOutputWord(dst, 0x3A0F);
+                break;
         }
     }
 
@@ -7065,13 +6868,7 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
     code_t rmCode = 0xC0 | insEncodeReg345(ins, reg1, size, &code) | insEncodeReg012(ins, reg3, size, &code);
     code          = SetVexVvvv(ins, reg2, size, code);
 
-    bool is4ByteOpcode = IsSSE38orSSE3A(code) || IsF20F3AorF20F38orF20F3A(code);
     dst += emitOutputVexPrefix(ins, dst, code);
-
-    if (is4ByteOpcode)
-    {
-        code = (code >> 8) & 0xFF;
-    }
 
     assert((code & 0xFF00) == 0);
 
@@ -7167,39 +6964,28 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
     code_t rmCode = 0xC0 | insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, mReg, size, &code);
 
-    if (IsSSE38orSSE3A(code) || IsF20F3AorF20F38orF20F3A(code))
-    {
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
-        if (UseVEXEncoding())
+    if (uint32_t prefixes = ((code >> 16) & 0xFF))
+    {
+        if (uint32_t pp = (prefixes >> 3) & 3)
         {
-            // Emit last opcode byte
-            // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
-            assert((code & 0xFF) == 0);
-        }
-        else
-        {
-            dst += emitOutputWord(dst, code >> 16);
-            dst += emitOutputByte(dst, code);
+            static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
+
+            dst += emitOutputByte(dst, prefixMap[pp]);
         }
 
-        code = (code >> 8) & 0xFF;
-    }
-    else if (hasVexPrefix(code))
-    {
-        dst += emitOutputVexPrefix(ins, dst, code);
-    }
-    else
-    {
-        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-
-        if ((code & 0xFF000000) != 0)
+        switch (prefixes & 7)
         {
-            dst += emitOutputWord(dst, code >> 16);
-        }
-        else if ((code & 0x00FF0000) != 0)
-        {
-            dst += emitOutputByte(dst, code >> 16);
+            case 1:
+                dst += emitOutputByte(dst, 0x0F);
+                break;
+            case 2:
+                dst += emitOutputWord(dst, 0x380F);
+                break;
+            case 3:
+                dst += emitOutputWord(dst, 0x3A0F);
+                break;
         }
     }
 
@@ -7244,7 +7030,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
         assert(IsImm8(imm));
 
         code_t code = insCodeMI(ins);
-        assert(code & 0xFF000000);
+        assert((code & 0x00FF0000) != 0);
 
         code = AddVexPrefixIfNeeded(ins, code, size);
         code = insEncodeRMreg(ins, reg, size, code);
@@ -7262,13 +7048,27 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
         {
             dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
 
-            if (code & 0xFF000000)
+            if (uint32_t prefixes = ((code >> 16) & 0xFF))
             {
-                dst += emitOutputWord(dst, code >> 16);
-            }
-            else if (code & 0xFF0000)
-            {
-                dst += emitOutputByte(dst, code >> 16);
+                if (uint32_t pp = (prefixes >> 3) & 3)
+                {
+                    static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
+
+                    dst += emitOutputByte(dst, prefixMap[pp]);
+                }
+
+                switch (prefixes & 7)
+                {
+                    case 1:
+                        dst += emitOutputByte(dst, 0x0F);
+                        break;
+                    case 2:
+                        dst += emitOutputWord(dst, 0x380F);
+                        break;
+                    case 3:
+                        dst += emitOutputWord(dst, 0x3A0F);
+                        break;
+                }
             }
         }
 
@@ -7939,14 +7739,19 @@ uint8_t* emitter::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
     }
 #endif
 
-    if (code & 0x00FF0000)
+    if ((code >> 16) == 1)
     {
-        dst += emitOutputByte(dst, code >> 16);
+        dst += emitOutputByte(dst, 0x0F);
+        dst += emitOutputWord(dst, code);
+    }
+    else if ((code >> 16) == 0xC5)
+    {
+        dst += emitOutputByte(dst, 0xC5);
         dst += emitOutputWord(dst, code);
     }
     else
     {
-        assert((code & 0xFF00) == 0);
+        assert((code & 0xFFFFFF00) == 0);
         dst += emitOutputByte(dst, code);
     }
 
@@ -8121,7 +7926,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!IsSSE38orSSE3A(code) && (ins != INS_crc32) && !IsBMIRegExtInstruction(ins))
+            if (!IsBMIRegExtInstruction(ins))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8142,11 +7947,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!IsSSE38orSSE3A(code) && !IsF20F3AorF20F38orF20F3A(code))
-            {
-                code = SetRMReg(ins, id->idReg1(), size, code);
-            }
-
+            code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputAM(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
@@ -8158,6 +7959,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(!IsVexTernary(ins));
 
             code   = insCodeMR(ins);
+            code   = AddVexPrefix(ins, code, size);
+            code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputAM(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
@@ -8169,6 +7972,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = insCodeMR(ins);
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg1(), size, code);
+            code = SetRMReg(ins, id->idReg2(), size, code);
             dst  = emitOutputAM(dst, id, code);
             sz   = emitSizeOfInsDsc(id);
             break;
@@ -8180,29 +7984,19 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = insCodeRM(ins);
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg2(), size, code);
-
-            if (!IsSSE38orSSE3A(code) && !IsF20F3AorF20F38orF20F3A(code))
-            {
-                code = SetRMReg(ins, id->idReg1(), size, code);
-            }
-
-            dst = emitOutputAM(dst, id, code);
-            sz  = emitSizeOfInsDsc(id);
+            code = SetRMReg(ins, id->idReg1(), size, code);
+            dst  = emitOutputAM(dst, id, code);
+            sz   = emitSizeOfInsDsc(id);
             break;
 
         case IF_RWR_RRD_ARD_CNS:
         case IF_RWR_RRD_ARD_RRD:
             assert(IsVexTernary(ins));
 
-            code = insCodeRM(ins);
-            code = AddVexPrefix(ins, code, size);
-            code = SetVexVvvv(ins, id->idReg2(), size, code);
-
-            if (!IsSSE38orSSE3A(code))
-            {
-                code = SetRMReg(ins, id->idReg1(), size, code);
-            }
-
+            code   = insCodeRM(ins);
+            code   = AddVexPrefix(ins, code, size);
+            code   = SetVexVvvv(ins, id->idReg2(), size, code);
+            code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputAM(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
@@ -8267,7 +8061,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!IsSSE38orSSE3A(code) && (ins != INS_crc32) && !IsBMIRegExtInstruction(ins))
+            if (!IsBMIRegExtInstruction(ins))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8288,11 +8082,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!IsSSE38orSSE3A(code) && !IsF20F3AorF20F38orF20F3A(code))
-            {
-                code = SetRMReg(ins, id->idReg1(), size, code);
-            }
-
+            code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputSV(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
@@ -8304,6 +8094,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(!IsVexTernary(ins));
 
             code   = insCodeMR(ins);
+            code   = AddVexPrefix(ins, code, size);
+            code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputSV(dst, id, insCodeMR(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
@@ -8318,6 +8110,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         //
         //
         //
+        //
 
         // case IF_RWR_SRD_RRD: - This format is used only by gather instructions.
         case IF_RWR_RRD_SRD:
@@ -8326,29 +8119,19 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = insCodeRM(ins);
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg2(), size, code);
-
-            if (!IsSSE38orSSE3A(code) && !IsF20F3AorF20F38orF20F3A(code))
-            {
-                code = SetRMReg(ins, id->idReg1(), size, code);
-            }
-
-            dst = emitOutputSV(dst, id, code);
-            sz  = emitSizeOfInsDsc(id);
+            code = SetRMReg(ins, id->idReg1(), size, code);
+            dst  = emitOutputSV(dst, id, code);
+            sz   = emitSizeOfInsDsc(id);
             break;
 
         case IF_RWR_RRD_SRD_CNS:
         case IF_RWR_RRD_SRD_RRD:
             assert(IsVexTernary(ins));
 
-            code = insCodeRM(ins);
-            code = AddVexPrefix(ins, code, size);
-            code = SetVexVvvv(ins, id->idReg2(), size, code);
-
-            if (!IsSSE38orSSE3A(code))
-            {
-                code = SetRMReg(ins, id->idReg1(), size, code);
-            }
-
+            code   = insCodeRM(ins);
+            code   = AddVexPrefix(ins, code, size);
+            code   = SetVexVvvv(ins, id->idReg2(), size, code);
+            code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputSV(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
@@ -8397,7 +8180,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!IsSSE38orSSE3A(code) && (ins != INS_crc32) && !IsBMIRegExtInstruction(ins))
+            if (!IsBMIRegExtInstruction(ins))
             {
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
@@ -8418,11 +8201,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetVexVvvv(ins, id->idReg1(), size, code);
             }
 
-            if (!IsSSE38orSSE3A(code) && !IsF20F3AorF20F38orF20F3A(code))
-            {
-                code = SetRMReg(ins, id->idReg1(), size, code);
-            }
-
+            code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputCV(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
@@ -8434,6 +8213,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(!IsVexTernary(ins));
 
             code   = insCodeMR(ins);
+            code   = AddVexPrefix(ins, code, size);
+            code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputCV(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
@@ -8448,6 +8229,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         //
         //
         //
+        //
 
         // case IF_RWR_MRD_RRD: - This format is used only by gather instructions.
         case IF_RWR_RRD_MRD:
@@ -8456,29 +8238,19 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = insCodeRM(ins);
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(ins, id->idReg2(), size, code);
-
-            if (!IsSSE38orSSE3A(code) && !IsF20F3AorF20F38orF20F3A(code))
-            {
-                code = SetRMReg(ins, id->idReg1(), size, code);
-            }
-
-            dst = emitOutputCV(dst, id, code);
-            sz  = emitSizeOfInsDsc(id);
+            code = SetRMReg(ins, id->idReg1(), size, code);
+            dst  = emitOutputCV(dst, id, code);
+            sz   = emitSizeOfInsDsc(id);
             break;
 
         case IF_RWR_RRD_MRD_CNS:
         case IF_RWR_RRD_MRD_RRD:
             assert(IsVexTernary(ins));
 
-            code = insCodeRM(ins);
-            code = AddVexPrefix(ins, code, size);
-            code = SetVexVvvv(ins, id->idReg2(), size, code);
-
-            if (!IsSSE38orSSE3A(code))
-            {
-                code = SetRMReg(ins, id->idReg1(), size, code);
-            }
-
+            code   = insCodeRM(ins);
+            code   = AddVexPrefix(ins, code, size);
+            code   = SetVexVvvv(ins, id->idReg2(), size, code);
+            code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputCV(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
