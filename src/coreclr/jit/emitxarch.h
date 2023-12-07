@@ -212,6 +212,7 @@ size_t emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t imm);
 
 uint8_t* emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst);
 
+uint8_t* emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code);
 uint8_t* emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
 uint8_t* emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
 uint8_t* emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);

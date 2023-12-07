@@ -5734,6 +5734,111 @@ uint8_t* emitter::emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
     return dstRW - writeableOffset;
 }
 
+uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
+{
+    instruction ins  = id->idIns();
+    emitAttr    size = id->idOpSize();
+
+    if (TakesRexWPrefix(ins, size))
+    {
+        code = AddRexWPrefix(ins, code);
+    }
+
+    if (IsSSE38orSSE3A(code) || IsF20F3AorF20F38orF20F3A(code) || (ins == INS_crc32))
+    {
+        if (ins == INS_crc32)
+        {
+            if (size == EA_1BYTE)
+            {
+                code ^= 0x0100;
+            }
+            else if (size == EA_2BYTE)
+            {
+                dst += emitOutputByte(dst, 0x66);
+            }
+        }
+
+        regNumber reg345;
+
+        if (id->idInsFmt() == IF_AWR_RRD_RRD)
+        {
+            reg345 = id->idReg2();
+        }
+        else
+        {
+            reg345 = id->idReg1();
+        }
+
+        unsigned regcode = insEncodeReg345(ins, reg345, size, &code);
+        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+
+        if (UseVEXEncoding() && (ins != INS_crc32))
+        {
+            // Emit last opcode byte
+            // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
+            assert((code & 0xFF) == 0);
+        }
+        else
+        {
+            dst += emitOutputWord(dst, code >> 16);
+            dst += emitOutputByte(dst, code);
+        }
+
+        code = ((code >> 8) & 0xFF) | (regcode << 8);
+    }
+    else if (hasVexPrefix(code))
+    {
+        dst += emitOutputVexPrefix(ins, dst, code);
+    }
+#ifdef TARGET_X86
+    else if (IsX87LdSt(ins))
+    {
+        assert(size == EA_4BYTE || size == EA_8BYTE);
+
+        if (size == EA_8BYTE)
+        {
+            code += 4;
+        }
+    }
+#endif
+    else
+    {
+        if (size == EA_1BYTE)
+        {
+            if (!IsPrefetch(ins))
+            {
+                assert(HasWBit(ins) && ((code & 1) != 0));
+                code ^= 1;
+            }
+        }
+        else if (size == EA_2BYTE)
+        {
+            if ((ins != INS_movzx) && (ins != INS_movsx))
+            {
+                assert(!IsSSEOrAVXInstruction(ins));
+                dst += emitOutputByte(dst, 0x66);
+            }
+        }
+        else
+        {
+            assert((size == EA_4BYTE) || IsSSEOrAVXInstruction(ins) AMD64_ONLY(|| size == EA_8BYTE));
+        }
+
+        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+
+        if ((code & 0xFF000000) != 0)
+        {
+            dst += emitOutputWord(dst, code >> 16);
+        }
+        else if ((code & 0x00FF0000) != 0)
+        {
+            dst += emitOutputByte(dst, code >> 16);
+        }
+    }
+
+    return dst;
+}
+
 uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
 {
     instruction ins      = id->idIns();
@@ -5808,102 +5913,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         }
 #endif
 
-        if (TakesRexWPrefix(ins, size))
-        {
-            code = AddRexWPrefix(ins, code);
-        }
-
-        if (IsSSE38orSSE3A(code) || IsF20F3AorF20F38orF20F3A(code) || (ins == INS_crc32))
-        {
-            if (ins == INS_crc32)
-            {
-                if (size == EA_1BYTE)
-                {
-                    code ^= 0x0100;
-                }
-                else if (size == EA_2BYTE)
-                {
-                    dst += emitOutputByte(dst, 0x66);
-                }
-            }
-
-            regNumber reg345;
-
-            if (id->idInsFmt() == IF_AWR_RRD_RRD)
-            {
-                reg345 = id->idReg2();
-            }
-            else
-            {
-                reg345 = id->idReg1();
-            }
-
-            unsigned regcode = insEncodeReg345(ins, reg345, size, &code);
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-            if (UseVEXEncoding() && (ins != INS_crc32))
-            {
-                // Emit last opcode byte
-                // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
-                assert((code & 0xFF) == 0);
-            }
-            else
-            {
-                dst += emitOutputWord(dst, code >> 16);
-                dst += emitOutputByte(dst, code);
-            }
-
-            code = ((code >> 8) & 0xFF) | (regcode << 8);
-        }
-        else if (hasVexPrefix(code))
-        {
-            dst += emitOutputVexPrefix(ins, dst, code);
-        }
-#ifdef TARGET_X86
-        else if (IsX87LdSt(ins))
-        {
-            assert(size == EA_4BYTE || size == EA_8BYTE);
-
-            if (size == EA_8BYTE)
-            {
-                code += 4;
-            }
-        }
-#endif
-        else
-        {
-            if (size == EA_1BYTE)
-            {
-                if (!IsPrefetch(ins))
-                {
-                    assert(HasWBit(ins) && ((code & 1) != 0));
-                    code ^= 1;
-                }
-            }
-            else if (size == EA_2BYTE)
-            {
-                if ((ins != INS_movzx) && (ins != INS_movsx))
-                {
-                    assert(!IsSSEOrAVXInstruction(ins));
-                    dst += emitOutputByte(dst, 0x66);
-                }
-            }
-            else
-            {
-                assert((size == EA_4BYTE) || IsSSEOrAVXInstruction(ins) AMD64_ONLY(|| size == EA_8BYTE));
-            }
-
-            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-
-            if ((code & 0xFF000000) != 0)
-            {
-                dst += emitOutputWord(dst, code >> 16);
-            }
-            else if ((code & 0x00FF0000) != 0)
-            {
-                dst += emitOutputByte(dst, code >> 16);
-            }
-        }
+        dst = emitOutputOpcode(dst, id, code);
 
         disp = id->GetAmDisp();
     }
@@ -6122,102 +6132,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         code = AddVexPrefix(ins, code, size);
     }
 
-    if (TakesRexWPrefix(ins, size))
-    {
-        code = AddRexWPrefix(ins, code);
-    }
-
-    if (IsSSE38orSSE3A(code) || IsF20F3AorF20F38orF20F3A(code) || (ins == INS_crc32))
-    {
-        if (ins == INS_crc32)
-        {
-            if (size == EA_1BYTE)
-            {
-                code ^= 0x0100;
-            }
-            else if (size == EA_2BYTE)
-            {
-                dst += emitOutputByte(dst, 0x66);
-            }
-        }
-
-        regNumber reg345;
-
-        // if (id->idInsFmt() == IF_AWR_RRD_RRD)
-        //{
-        //    reg345 = id->idReg2();
-        //}
-        // else
-        {
-            reg345 = id->idReg1();
-        }
-
-        unsigned regcode = insEncodeReg345(ins, reg345, size, &code);
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-        if (UseVEXEncoding() && (ins != INS_crc32))
-        {
-            // Emit last opcode byte
-            // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
-            assert((code & 0xFF) == 0);
-        }
-        else
-        {
-            dst += emitOutputWord(dst, code >> 16);
-            dst += emitOutputByte(dst, code);
-        }
-
-        code = ((code >> 8) & 0xFF) | (regcode << 8);
-    }
-    else if (hasVexPrefix(code))
-    {
-        dst += emitOutputVexPrefix(ins, dst, code);
-    }
-#ifdef TARGET_X86
-    else if (IsX87LdSt(ins))
-    {
-        assert(size == EA_4BYTE || size == EA_8BYTE);
-
-        if (size == EA_8BYTE)
-        {
-            code += 4;
-        }
-    }
-#endif
-    else
-    {
-        if (size == EA_1BYTE)
-        {
-            if (!IsPrefetch(ins))
-            {
-                assert(HasWBit(ins) && ((code & 1) != 0));
-                code ^= 1;
-            }
-        }
-        else if (size == EA_2BYTE)
-        {
-            if ((ins != INS_movzx) && (ins != INS_movsx))
-            {
-                assert(!IsSSEOrAVXInstruction(ins));
-                dst += emitOutputByte(dst, 0x66);
-            }
-        }
-        else
-        {
-            assert((size == EA_4BYTE) || IsSSEOrAVXInstruction(ins) AMD64_ONLY(|| size == EA_8BYTE));
-        }
-
-        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-
-        if ((code & 0xFF000000) != 0)
-        {
-            dst += emitOutputWord(dst, code >> 16);
-        }
-        else if ((code & 0x00FF0000) != 0)
-        {
-            dst += emitOutputByte(dst, code >> 16);
-        }
-    }
+    dst = emitOutputOpcode(dst, id, code);
 
     assert(!id->idIsDspReloc());
 
@@ -6456,102 +6371,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             code = AddVexPrefix(ins, code, size);
         }
 
-        if (TakesRexWPrefix(ins, size))
-        {
-            code = AddRexWPrefix(ins, code);
-        }
-
-        if (IsSSE38orSSE3A(code) || IsF20F3AorF20F38orF20F3A(code) || (ins == INS_crc32))
-        {
-            if (ins == INS_crc32)
-            {
-                if (size == EA_1BYTE)
-                {
-                    code ^= 0x0100;
-                }
-                else if (size == EA_2BYTE)
-                {
-                    dst += emitOutputByte(dst, 0x66);
-                }
-            }
-
-            regNumber reg345;
-
-            // if (id->idInsFmt() == IF_AWR_RRD_RRD)
-            //{
-            //    reg345 = id->idReg2();
-            //}
-            // else
-            {
-                reg345 = id->idReg1();
-            }
-
-            unsigned regcode = insEncodeReg345(ins, reg345, size, &code);
-            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-            if (UseVEXEncoding() && (ins != INS_crc32))
-            {
-                // Emit last opcode byte
-                // TODO-XArch-CQ: Right now support 4-byte opcode instructions only
-                assert((code & 0xFF) == 0);
-            }
-            else
-            {
-                dst += emitOutputWord(dst, code >> 16);
-                dst += emitOutputByte(dst, code);
-            }
-
-            code = ((code >> 8) & 0xFF) | (regcode << 8);
-        }
-        else if (hasVexPrefix(code))
-        {
-            dst += emitOutputVexPrefix(ins, dst, code);
-        }
-#ifdef TARGET_X86
-        else if (IsX87LdSt(ins))
-        {
-            assert(size == EA_4BYTE || size == EA_8BYTE);
-
-            if (size == EA_8BYTE)
-            {
-                code += 4;
-            }
-        }
-#endif
-        else
-        {
-            if (size == EA_1BYTE)
-            {
-                if (!IsPrefetch(ins))
-                {
-                    assert(HasWBit(ins) && ((code & 1) != 0));
-                    code ^= 1;
-                }
-            }
-            else if (size == EA_2BYTE)
-            {
-                if ((ins != INS_movzx) && (ins != INS_movsx))
-                {
-                    assert(!IsSSEOrAVXInstruction(ins));
-                    dst += emitOutputByte(dst, 0x66);
-                }
-            }
-            else
-            {
-                assert((size == EA_4BYTE) || IsSSEOrAVXInstruction(ins) AMD64_ONLY(|| size == EA_8BYTE));
-            }
-
-            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-
-            if ((code & 0xFF000000) != 0)
-            {
-                dst += emitOutputWord(dst, code >> 16);
-            }
-            else if ((code & 0x00FF0000) != 0)
-            {
-                dst += emitOutputByte(dst, code >> 16);
-            }
-        }
+        dst = emitOutputOpcode(dst, id, code);
 
         dst += emitOutputWord(dst, code | 0x0500);
     }
