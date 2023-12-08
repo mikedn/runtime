@@ -6689,13 +6689,11 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         }
     }
 
-    code_t regCode = 0xC0 | insEncodeReg345(ins, reg345, size, &code) | insEncodeReg012(ins, reg012, size, &code);
-
-    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
     assert((code & 0xFF00) == 0);
 
-    dst += emitOutputWord(dst, code | (regCode << 8));
+    code |= (0xC0 | insEncodeReg345(ins, reg345, size, &code) | insEncodeReg012(ins, reg012, size, &code)) << 8;
+    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+    dst += emitOutputWord(dst, code);
 
     if (id->idGCref())
     {
@@ -6833,7 +6831,7 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
     emitAttr    size = id->idOpSize();
 
     code_t code = insCodeRM(ins);
-
+    assert((code & 0xFF00) == 0);
     code = AddVexPrefix(ins, code, size);
 
     if (TakesRexWPrefix(ins, size))
@@ -6841,14 +6839,10 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
         code = AddRexWPrefix(ins, code);
     }
 
-    code_t rmCode = 0xC0 | insEncodeReg345(ins, reg1, size, &code) | insEncodeReg012(ins, reg3, size, &code);
-    code          = SetVexVvvv(ins, reg2, size, code);
-
+    code |= (0xC0 | insEncodeReg345(ins, reg1, size, &code) | insEncodeReg012(ins, reg3, size, &code)) << 8;
+    code = SetVexVvvv(ins, reg2, size, code);
     dst += emitOutputVexPrefix(ins, dst, code);
-
-    assert((code & 0xFF00) == 0);
-
-    dst += emitOutputWord(dst, code | (rmCode << 8));
+    dst += emitOutputWord(dst, code);
 
     if (IsGeneralRegister(id->idReg1()))
     {
@@ -6896,19 +6890,16 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
         mReg = id->idReg2();
         rReg = id->idReg1();
 
-        if (ins == INS_imuli)
+        if ((ins == INS_imuli) && (id->idOpSize() > EA_1BYTE))
         {
-            if (id->idOpSize() > EA_1BYTE)
+            // Don't bother with 16 bit imul, which needs the 66 prefix, we only need 32/64 bit.
+            assert(id->idOpSize() != EA_2BYTE);
+
+            code |= 1;
+
+            if (IsImm8(id->GetImm()))
             {
-                // Don't bother with 16 bit imul, which needs the 66 prefix, we only need 32/64 bit.
-                assert(id->idOpSize() != EA_2BYTE);
-
-                code |= 1;
-
-                if (IsImm8(id->GetImm()))
-                {
-                    code |= 2;
-                }
+                code |= 2;
             }
         }
     }
@@ -6938,13 +6929,11 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
         }
     }
 
-    code_t rmCode = 0xC0 | insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, mReg, size, &code);
-
-    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
     assert(((code & 0xFF00) == 0) || ((INS_psrldq <= ins) && (ins <= INS_psrad)));
 
-    dst += emitOutputWord(dst, code | (rmCode << 8));
+    code |= (0xC0 | insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, mReg, size, &code)) << 8;
+    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+    dst += emitOutputWord(dst, code);
 
     if ((ins == INS_imuli) && ((code & 0x02) == 0))
     {
