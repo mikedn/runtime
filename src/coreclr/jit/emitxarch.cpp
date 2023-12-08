@@ -5099,9 +5099,18 @@ static_assert_no_msg((REG_RAX & 0x7) == 0);
 static_assert_no_msg((REG_XMM0 & 0x7) == 0);
 
 // Returns bits to be encoded in instruction for the given register.
-unsigned RegEncoding(regNumber reg)
+static unsigned RegEncoding(regNumber reg)
 {
     return static_cast<unsigned>(reg & 0x7);
+}
+
+static unsigned RegVvvvEncoding(regNumber reg)
+{
+#ifdef TARGET_AMD64
+    return static_cast<unsigned>(reg & 0xF);
+#else
+    return static_cast<unsigned>(reg & 0x7);
+#endif
 }
 
 // Returns an encoding for the specified register to be used in the bits 0-2 of an opcode.
@@ -5166,13 +5175,7 @@ emitter::code_t emitter::SetVexVvvv(instruction ins, regNumber reg, emitAttr siz
     assert(TakesVexPrefix(ins));
     assert(hasVexPrefix(code));
 
-    code_t regBits = RegEncoding(reg);
-
-    if (IsExtendedReg(reg))
-    {
-        regBits |= 0x08;
-    }
-
+    code_t regBits = RegVvvvEncoding(reg);
     assert(regBits <= 0xF);
     regBits <<= 35;
     return code ^ regBits;
