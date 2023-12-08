@@ -5324,20 +5324,9 @@ size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
 size_t emitter::emitOutputRexPrefix(instruction ins, uint8_t* dst, code_t& code)
 {
     uint32_t rex = (code >> 32) & 0xFF;
-    noway_assert((rex >= 0x40) && (rex <= 0x4F));
+    assert((rex >= 0x40) && (rex <= 0x4F));
     code &= UINT_MAX;
-
-    if (uint32_t prefix = (code >> 19) & 3)
-    {
-        static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
-
-        // The REX prefix is required to come after all other prefixes,
-        // emit such prefixes now and remove them from the code.
-        code &= ~(3ull << 19);
-
-        return emitOutputWord(dst, prefixMap[prefix] | (rex << 8));
-    }
-
+    assert(((code >> 19) & 3) == 0); // Can't emit REX prefix before other prefixes.
     return emitOutputByte(dst, rex);
 }
 #endif // TARGET_AMD64
@@ -5347,7 +5336,7 @@ size_t emitter::emitOutputRexPrefixIfNeeded(instruction ins, uint8_t* dst, code_
     assert(!hasVexPrefix(code));
 
 #ifdef TARGET_AMD64
-    if ((code >> 32) != 0)
+    if (((code >> 32) & 0xFF) != 0)
     {
         return emitOutputRexPrefix(ins, dst, code);
     }
@@ -5363,30 +5352,45 @@ size_t emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, 
         return emitOutputVexPrefix(ins, dst, code);
     }
 
+    if ((code >> 16) != 0)
+    {
+        return emitOutputPrefixesIfNeeded(ins, dst, code);
+    }
+
+    return 0;
+}
+
+size_t emitter::emitOutputPrefixesIfNeeded(instruction ins, uint8_t* dst, code_t& code)
+{
     uint8_t* start = dst;
 
-    dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-
-    if (uint32_t prefixes = ((code >> 16) & 0xFF))
+    if (uint32_t pp = (code >> 19) & 3)
     {
-        if (uint32_t pp = (prefixes >> 3) & 3)
-        {
-            static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
+        static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
 
-            dst += emitOutputByte(dst, prefixMap[pp]);
+        dst += emitOutputByte(dst, prefixMap[pp]);
+    }
+
+#ifdef TARGET_AMD64
+    if (uint32_t rex = (code >> 32) & 0xFF)
+    {
+        assert((rex >= 0x40) && (rex <= 0x4F));
+        code &= UINT_MAX;
+        dst += emitOutputByte(dst, rex);
+    }
+#endif
+
+    if (uint32_t map = (code >> 16) & 7)
+    {
+        if (map == 1)
+        {
+            dst += emitOutputByte(dst, 0x0F);
         }
-
-        switch (prefixes & 7)
+        else
         {
-            case 1:
-                dst += emitOutputByte(dst, 0x0F);
-                break;
-            case 2:
-                dst += emitOutputWord(dst, 0x380F);
-                break;
-            case 3:
-                dst += emitOutputWord(dst, 0x3A0F);
-                break;
+            assert((map == 2) || (map == 3));
+
+            dst += emitOutputWord(dst, map == 2 ? 0x380F : 0x3A0F);
         }
     }
 
@@ -6425,8 +6429,6 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             {
                 code = AddRexWPrefix(ins, code);
             }
-
-            assert((code & 0x00FF0000) == 0);
 
             dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
             dst += emitOutputWord(dst, code);

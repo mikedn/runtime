@@ -237,6 +237,7 @@ size_t emitOutputRexPrefix(instruction ins, uint8_t* dst, code_t& code);
 #endif
 size_t emitOutputRexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code);
 size_t emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code);
+size_t emitOutputPrefixesIfNeeded(instruction ins, uint8_t* dst, code_t& code);
 
 unsigned insEncodeReg012(instruction ins, regNumber reg, emitAttr size, code_t* code);
 unsigned insEncodeReg345(instruction ins, regNumber reg, emitAttr size, code_t* code);
