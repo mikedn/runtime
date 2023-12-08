@@ -5664,22 +5664,23 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
     assert((ins != INS_bt) && !IsCmov(ins));
+    assert(TakesVexPrefix(ins) == hasVexPrefix(code));
+
+#ifdef TARGET_AMD64
+    if (IsExtendedReg(baseReg))
+    {
+        code = AddRexBPrefix(ins, code);
+    }
+
+    if (IsExtendedReg(indexReg))
+    {
+        code = AddRexXPrefix(ins, code);
+    }
+#endif
 
     if (ins == INS_call)
     {
-#ifdef TARGET_AMD64
-        if (IsExtendedReg(baseReg))
-        {
-            code = AddRexBPrefix(ins, code);
-        }
-
-        if (IsExtendedReg(indexReg))
-        {
-            code = AddRexXPrefix(ins, code);
-        }
-
         dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-#endif // TARGET_AMD64
 
         // The displacement field is in an unusual place for calls
         disp = id->GetCallDisp();
@@ -5708,24 +5709,6 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 immSize = 1;
             }
         }
-
-        // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
-        if (TakesVexPrefix(ins) && !hasVexPrefix(code))
-        {
-            code = AddVexPrefix(ins, code, size);
-        }
-
-#ifdef TARGET_AMD64
-        if (IsExtendedReg(baseReg))
-        {
-            code = AddRexBPrefix(ins, code);
-        }
-
-        if (IsExtendedReg(indexReg))
-        {
-            code = AddRexXPrefix(ins, code);
-        }
-#endif
 
         dst = emitOutputOpcode(dst, id, code);
 
@@ -5923,6 +5906,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
     assert((ins != INS_bt) && !IsCmov(ins));
+    assert(TakesVexPrefix(ins) == hasVexPrefix(code));
 
     if (imm != nullptr)
     {
@@ -5938,12 +5922,6 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
             immSize = 1;
         }
-    }
-
-    // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
-    if (TakesVexPrefix(ins) && !hasVexPrefix(code))
-    {
-        code = AddVexPrefix(ins, code, size);
     }
 
     dst = emitOutputOpcode(dst, id, code);
@@ -6090,6 +6068,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
     assert((ins != INS_bt) && !IsCmov(ins));
+    assert(TakesVexPrefix(ins) == hasVexPrefix(code));
 
     if (IsRoDataField(field))
     {
@@ -6179,14 +6158,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
             }
         }
 
-        // Some callers add the VEX prefix and call this routine, add it only if it's not already present.
-        if (TakesVexPrefix(ins) && !hasVexPrefix(code))
-        {
-            code = AddVexPrefix(ins, code, size);
-        }
-
         dst = emitOutputOpcode(dst, id, code);
-
         dst += emitOutputWord(dst, code | 0x0500);
     }
 
@@ -7794,6 +7766,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_ARD:
         case IF_AWR:
         case IF_ARW:
+            assert(!TakesVexPrefix(ins));
+
             dst = emitOutputAM(dst, id, insCodeMR(ins));
 
             if (ins == INS_call)
@@ -7809,6 +7783,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_ARD_CNS:
         case IF_AWR_CNS:
         case IF_ARW_CNS:
+            assert(!TakesVexPrefix(ins));
+
             cnsVal = id->GetImm();
             dst    = emitOutputAM(dst, id, insCodeMI(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
@@ -7920,6 +7896,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_SRD:
         case IF_SWR:
         case IF_SRW:
+            assert(!TakesVexPrefix(ins));
             assert(ins != INS_pop_hide);
 #if !FEATURE_FIXED_OUT_ARGS
             if (ins == INS_pop)
@@ -7944,6 +7921,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_SRD_CNS:
         case IF_SWR_CNS:
         case IF_SRW_CNS:
+            assert(!TakesVexPrefix(ins));
+
             cnsVal = id->GetImm();
             dst    = emitOutputSV(dst, id, insCodeMI(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
@@ -8055,7 +8034,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_MRD:
         case IF_MRW:
         case IF_MWR:
+            assert(!TakesVexPrefix(ins));
             noway_assert(ins != INS_call);
+
             dst = emitOutputCV(dst, id, insCodeMR(ins));
             sz  = emitSizeOfInsDsc(id);
             break;
@@ -8063,6 +8044,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_MRD_CNS:
         case IF_MWR_CNS:
         case IF_MRW_CNS:
+            assert(!TakesVexPrefix(ins));
+
             cnsVal = id->GetImm();
             dst    = emitOutputCV(dst, id, insCodeMI(ins), &cnsVal);
             sz     = emitSizeOfInsDsc(id);
