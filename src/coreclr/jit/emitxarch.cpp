@@ -5598,7 +5598,9 @@ uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
         if ((ins != INS_movzx) && (ins != INS_movsx))
         {
             assert(!IsSSEOrAVXInstruction(ins));
-            dst += emitOutputByte(dst, 0x66);
+            assert(((code >> 19) & 3) == 0);
+
+            code |= 1ull << 19;
         }
     }
 #ifdef TARGET_X86
@@ -6530,7 +6532,8 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         // TODO-MIKE-Cleanup: There should be no need to generate a 16 bit imul.
         if (size == EA_2BYTE)
         {
-            dst += emitOutputByte(dst, 0x66);
+            assert(((code >> 19) & 3) == 0);
+            code |= 1ull << 19;
         }
 #ifdef TARGET_AMD64
         else if (size == EA_8BYTE)
@@ -6549,7 +6552,8 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         // TODO-MIKE-Cleanup: There should be no need to generate a 16 bit bt.
         if (size == EA_2BYTE)
         {
-            dst += emitOutputByte(dst, 0x66);
+            assert(((code >> 19) & 3) == 0);
+            code |= 1ull << 19;
         }
 #ifdef TARGET_AMD64
         else if (size == EA_8BYTE)
@@ -6574,7 +6578,8 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         }
         else if (size == EA_2BYTE)
         {
-            dst += emitOutputByte(dst, 0x66);
+            assert(((code >> 19) & 3) == 0);
+            code |= 1ull << 19;
         }
 #ifdef TARGET_AMD64
         else if (size == EA_8BYTE)
@@ -6606,7 +6611,8 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
                 break;
 
             case EA_2BYTE:
-                dst += emitOutputByte(dst, 0x66);
+                assert(((code >> 19) & 3) == 0);
+                code |= 1ull << 19;
                 break;
             case EA_4BYTE:
                 break;
