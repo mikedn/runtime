@@ -3197,7 +3197,7 @@ void CodeGen::genCodeForLockAdd(GenTreeOp* node)
 
     if (GenTreeIntCon* imm = value->IsContainedIntCon())
     {
-        GetEmitter()->emitIns_AR_I(INS_add, size, addrReg, 0, imm->GetInt32Value());
+        GetEmitter()->emitIns_ARX_I(INS_add, size, addrReg, REG_NA, 0, 0, imm->GetInt32Value());
     }
     else
     {
@@ -3285,7 +3285,7 @@ void CodeGen::GenMemoryBarrier(GenTree* barrier)
     if ((barrier->gtFlags & GTF_MEMORYBARRIER_LOAD) == 0)
     {
         GetEmitter()->emitIns_Lock();
-        GetEmitter()->emitIns_AR_I(INS_or, EA_4BYTE, REG_SPBASE, 0, 0);
+        GetEmitter()->emitIns_ARX_I(INS_or, EA_4BYTE, REG_SPBASE, REG_NA, 0, 0, 0);
     }
 }
 
@@ -8557,7 +8557,7 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
     assert(offset != BAD_STK_OFFS);
     noway_assert(lastArg->lvFramePointerBased);
 
-    GetEmitter()->emitIns_R_ARR(INS_lea, EA_4BYTE, REG_EAX, genFramePointerReg(), REG_EAX, offset);
+    GetEmitter()->emitIns_R_ARX(INS_lea, EA_4BYTE, REG_EAX, genFramePointerReg(), REG_EAX, 1, offset);
 
     if (varDsc->lvIsInReg())
     {

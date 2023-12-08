@@ -101,9 +101,7 @@ void emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg);
 void emitIns_R_AH(instruction ins, regNumber ireg, void* addr);
 void emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t disp);
 void emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scaled, int32_t disp);
-void emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int32_t disp, int32_t imm);
 void emitIns_R_AR(instruction ins, emitAttr attr, regNumber reg, regNumber base, int32_t disp);
-void emitIns_R_ARR(instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, int32_t disp);
 void emitIns_AR_R(instruction ins, emitAttr attr, regNumber reg, regNumber base, int32_t disp);
 void emitIns_ARX_I(
     instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scale, int32_t disp, int32_t imm);

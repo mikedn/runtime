@@ -2908,36 +2908,6 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int32_t disp, int32_t imm)
-{
-    assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_8BYTE));
-    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
-
-    if (IsShiftImm(ins))
-    {
-        assert(imm != 1);
-        imm &= 0x7F;
-    }
-
-    instrDesc* id = emitNewInstrAmdCns(disp, imm);
-    id->idIns(ins);
-    id->idOpSize(EA_SIZE(attr));
-    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
-    id->idInsFmt(emitInsModeFormat(ins, IF_ARD_CNS));
-    id->idAddr()->iiaAddrMode.base  = base;
-    id->idAddr()->iiaAddrMode.index = REG_NA;
-
-    unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
-    id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
-void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber reg, regNumber base, int32_t disp)
-{
-    emitIns_R_ARX(ins, attr, reg, base, REG_NA, 1, disp);
-}
-
 void emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
 {
     assert((ins == INS_mov) || (ins == INS_lea));
@@ -2957,11 +2927,6 @@ void emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
-}
-
-void emitter::emitIns_AR_R(instruction ins, emitAttr attr, regNumber reg, regNumber base, int32_t disp)
-{
-    emitIns_ARX_R(ins, attr, reg, base, REG_NA, 1, disp);
 }
 
 void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs, regNumber reg, int32_t imm)
@@ -3031,12 +2996,6 @@ void emitter::emitIns_C_R_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE
     emitCurIGsize += size;
 }
 
-void emitter::emitIns_R_ARR(
-    instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, int32_t disp)
-{
-    emitIns_R_ARX(ins, attr, reg, base, index, 1, disp);
-}
-
 void emitter::emitIns_ARX_I(
     instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scale, int32_t disp, int32_t imm)
 {
@@ -3062,6 +3021,11 @@ void emitter::emitIns_ARX_I(
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
+}
+
+void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber reg, regNumber base, int32_t disp)
+{
+    emitIns_R_ARX(ins, attr, reg, base, REG_NA, 1, disp);
 }
 
 void emitter::emitIns_R_ARX(
@@ -3097,6 +3061,11 @@ void emitter::emitIns_R_ARX(
 void emitter::emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scale, int32_t disp)
 {
     emitIns_ARX_R(ins, attr, REG_NA, base, index, scale, disp);
+}
+
+void emitter::emitIns_AR_R(instruction ins, emitAttr attr, regNumber reg, regNumber base, int32_t disp)
+{
+    emitIns_ARX_R(ins, attr, reg, base, REG_NA, 1, disp);
 }
 
 void emitter::emitIns_ARX_R(
