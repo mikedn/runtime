@@ -5363,14 +5363,34 @@ size_t emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, 
         return emitOutputVexPrefix(ins, dst, code);
     }
 
-#ifdef TARGET_AMD64
-    if ((code >> 32) != 0)
-    {
-        return emitOutputRexPrefix(ins, dst, code);
-    }
-#endif
+    uint8_t* start = dst;
 
-    return 0;
+    dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+
+    if (uint32_t prefixes = ((code >> 16) & 0xFF))
+    {
+        if (uint32_t pp = (prefixes >> 3) & 3)
+        {
+            static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
+
+            dst += emitOutputByte(dst, prefixMap[pp]);
+        }
+
+        switch (prefixes & 7)
+        {
+            case 1:
+                dst += emitOutputByte(dst, 0x0F);
+                break;
+            case 2:
+                dst += emitOutputWord(dst, 0x380F);
+                break;
+            case 3:
+                dst += emitOutputWord(dst, 0x3A0F);
+                break;
+        }
+    }
+
+    return dst - start;
 }
 
 size_t emitter::emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t imm)
@@ -5625,29 +5645,6 @@ uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
     }
 
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
-
-    if (uint32_t prefixes = ((code >> 16) & 0xFF))
-    {
-        if (uint32_t pp = (prefixes >> 3) & 3)
-        {
-            static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
-
-            dst += emitOutputByte(dst, prefixMap[pp]);
-        }
-
-        switch (prefixes & 7)
-        {
-            case 1:
-                dst += emitOutputByte(dst, 0x0F);
-                break;
-            case 2:
-                dst += emitOutputWord(dst, 0x380F);
-                break;
-            case 3:
-                dst += emitOutputWord(dst, 0x3A0F);
-                break;
-        }
-    }
 
     return dst;
 }
@@ -6694,29 +6691,6 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
-    if (uint32_t prefixes = ((code >> 16) & 0xFF))
-    {
-        if (uint32_t pp = (prefixes >> 3) & 3)
-        {
-            static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
-
-            dst += emitOutputByte(dst, prefixMap[pp]);
-        }
-
-        switch (prefixes & 7)
-        {
-            case 1:
-                dst += emitOutputByte(dst, 0x0F);
-                break;
-            case 2:
-                dst += emitOutputWord(dst, 0x380F);
-                break;
-            case 3:
-                dst += emitOutputWord(dst, 0x3A0F);
-                break;
-        }
-    }
-
     assert((code & 0xFF00) == 0);
 
     dst += emitOutputWord(dst, code | (regCode << 8));
@@ -6966,29 +6940,6 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
-    if (uint32_t prefixes = ((code >> 16) & 0xFF))
-    {
-        if (uint32_t pp = (prefixes >> 3) & 3)
-        {
-            static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
-
-            dst += emitOutputByte(dst, prefixMap[pp]);
-        }
-
-        switch (prefixes & 7)
-        {
-            case 1:
-                dst += emitOutputByte(dst, 0x0F);
-                break;
-            case 2:
-                dst += emitOutputWord(dst, 0x380F);
-                break;
-            case 3:
-                dst += emitOutputWord(dst, 0x3A0F);
-                break;
-        }
-    }
-
     assert(((code & 0xFF00) == 0) || ((INS_psrldq <= ins) && (ins <= INS_psrad)));
 
     dst += emitOutputWord(dst, code | (rmCode << 8));
@@ -7040,38 +6991,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
             code = SetVexVvvv(ins, reg, size, code);
         }
 
-        if (hasVexPrefix(code))
-        {
-            dst += emitOutputVexPrefix(ins, dst, code);
-        }
-        else
-        {
-            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
-
-            if (uint32_t prefixes = ((code >> 16) & 0xFF))
-            {
-                if (uint32_t pp = (prefixes >> 3) & 3)
-                {
-                    static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
-
-                    dst += emitOutputByte(dst, prefixMap[pp]);
-                }
-
-                switch (prefixes & 7)
-                {
-                    case 1:
-                        dst += emitOutputByte(dst, 0x0F);
-                        break;
-                    case 2:
-                        dst += emitOutputWord(dst, 0x380F);
-                        break;
-                    case 3:
-                        dst += emitOutputWord(dst, 0x3A0F);
-                        break;
-                }
-            }
-        }
-
+        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
         dst += emitOutputWord(dst, code);
         dst += emitOutputByte(dst, imm);
 
