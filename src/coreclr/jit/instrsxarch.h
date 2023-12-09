@@ -537,9 +537,6 @@ INST3(tzcnt,            "tzcnt",            WR, NA,                NA,     hF30F
 INST3(lzcnt,            "lzcnt",            WR, NA,                NA,     hF30F(0xBD),                       ZCntFlags)
 INST3(popcnt,           "popcnt",           WR, NA,                NA,     hF30F(0xB8),                       PopCntFlags)
                                                                                                                   
-INST2(ret,              "ret",              RD, 0xC3,              0xC2,                                      None)
-INST2(call,             "call",             RD, RME(0xFF, 2),      0xE8,                                      None)
-                                                                                                                  
 INSTA(FIRST_SHIFT, rol)                                                                                           
 INST2(rol,              "rol",              RW, RME(0xD3, 0),      NA,                                        RotateNFlags)
 INST2(ror,              "ror",              RW, RME(0xD3, 1),      NA,                                        RotateNFlags)
@@ -565,6 +562,9 @@ INST2(shl_N,            "shl",              RW, NA,                RME(0xC1, 4),
 INST2(shr_N,            "shr",              RW, NA,                RME(0xC1, 5),                              ShiftNFlags)
 INST2(sar_N,            "sar",              RW, NA,                RME(0xC1, 7),                              ShiftNFlags)
 INSTA(LAST_SHIFT_IMM, sar_N)                                                                                      
+                                                                                                                  
+INST2(ret,              "ret",              RD, 0xC3,              0xC2,                                      None)
+INST2(call,             "call",             RD, RME(0xFF, 2),      0xE8,                                      None)
                                                                                                                   
 INST1(inc,              "inc",              RW, RME(0xFF, 0),                                                 IncDecFlags)
 INST1(dec,              "dec",              RW, RME(0xFF, 1),                                                 IncDecFlags)
