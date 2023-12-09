@@ -2805,17 +2805,9 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     // This case is not enable for amd64 as it always uses RIP relative addressing
     // and it will result in smaller instruction size than encoding 64-bit addr in
     // the instruction.
-    if (ins == INS_mov && reg == REG_EAX)
+    if ((ins == INS_mov) && (reg == REG_EAX))
     {
-        sz = 1 + TARGET_POINTER_SIZE;
-
-        if (size == EA_2BYTE)
-            sz += 1;
-
-        if (!TakesVexPrefix(ins) && (TakesRexWPrefix(ins, attr) || IsExtendedReg(reg, attr)))
-        {
-            sz++;
-        }
+        sz = (size == EA_2BYTE) + 1 + 4;
     }
     else
 #endif // TARGET_X86
@@ -6232,7 +6224,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
         case INS_push_hide:
             assert(size == EA_PTRSIZE);
             assert(!TakesVexPrefix(ins));
-            assert(!TakesRexWPrefix(ins));
+            AMD64_ONLY(assert(!TakesRexWPrefix(ins)));
 
             code = insCodeRR(ins);
             code |= insEncodeReg012(ins, reg, size, &code);
