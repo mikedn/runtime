@@ -5829,6 +5829,12 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     if (!ebpBased)
     {
         disp += emitCurStackLvl;
+
+        if (ins == INS_pop)
+        {
+            // The offset in "pop [ESP+xxx]" is relative to the new ESP value
+            disp -= REGSIZE_BYTES;
+        }
     }
 #endif
 
@@ -7803,20 +7809,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_SRW:
             assert(!TakesVexPrefix(ins));
             assert(ins != INS_pop_hide);
-#if !FEATURE_FIXED_OUT_ARGS
-            if (ins == INS_pop)
-            {
-                // The offset in "pop [ESP+xxx]" is relative to the new ESP value
-                emitCurStackLvl -= REGSIZE_BYTES;
-            }
-#endif
+
             dst = emitOutputSV(dst, id, insCodeMR(ins));
-#if !FEATURE_FIXED_OUT_ARGS
-            if (ins == INS_pop)
-            {
-                emitCurStackLvl += REGSIZE_BYTES;
-            }
-#endif
             if (ins == INS_call)
             {
                 sz = emitRecordGCCall(id, *dp, dst);
