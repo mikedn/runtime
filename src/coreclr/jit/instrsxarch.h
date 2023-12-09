@@ -601,8 +601,8 @@ INST1(vzeroupper,       "vzeroupper",       WR, 0xC577F8,                       
 // us to return floating point value on the x87 FP stack, so we need                                              
 // these instructions regardless of whether we're using full stack fp.                                            
 #ifdef TARGET_X86                                                                                                 
-INST1(fld,              "fld",              WR, 0x00D9,                                                       None)
-INST1(fstp,             "fstp",             WR, 0x18D9,                                                       None)
+INST1(fld,              "fld",              WR, RME(0xD9, 0),                                                 None)
+INST1(fstp,             "fstp",             WR, RME(0xD9, 3),                                                 None)
 #endif                                                                                                            
                                                                                                                   
 INST1(seto,             "seto",             WR, h0F(0x90),                                                    CcFlags_o)
