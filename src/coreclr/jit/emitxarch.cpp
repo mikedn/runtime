@@ -120,10 +120,12 @@ static instruction MapSse41BlendvToAvxBlendv(instruction ins)
     }
 }
 
+#ifdef TARGET_AMD64
 static bool IsSSEOrAVXInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_SSE_INSTRUCTION) && (ins <= INS_LAST_AVX_INSTRUCTION);
 }
+#endif
 
 static bool IsSSEOrAVXOrBMIInstruction(instruction ins)
 {
