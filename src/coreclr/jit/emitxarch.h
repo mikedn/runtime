@@ -244,11 +244,13 @@ code_t SetVexVvvv(instruction ins, regNumber reg, emitAttr size, code_t code);
 
 code_t insEncodeRMreg(instruction ins, regNumber reg, emitAttr size, code_t code);
 
+#ifdef TARGET_AMD64
 code_t AddRexWPrefix(instruction ins, code_t code);
 code_t AddRexRPrefix(instruction ins, code_t code);
 code_t AddRexXPrefix(instruction ins, code_t code);
 code_t AddRexBPrefix(instruction ins, code_t code);
 code_t AddRexPrefix(instruction ins, code_t code);
+#endif
 
 bool IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regNumber src, bool canIgnoreSideEffects);
 

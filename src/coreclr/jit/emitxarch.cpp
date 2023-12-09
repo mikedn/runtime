@@ -4963,19 +4963,12 @@ static size_t insCodeRR(instruction ins)
     return codes[ins];
 }
 
-// Utility routines that abstract the logic of adding REX.W, REX.R, REX.X, REX.B and REX prefixes
-// SSE2: separate 1-byte prefix gets added before opcode.
-// AVX:  specific bits within VEX prefix need to be set in bit-inverted form.
+#ifdef TARGET_AMD64
+
 emitter::code_t emitter::AddRexWPrefix(instruction ins, code_t code)
 {
-#ifdef TARGET_AMD64
     return code | (0x48ull << RexBitOffset);
-#else
-    unreached();
-#endif
 }
-
-#ifdef TARGET_AMD64
 
 emitter::code_t emitter::AddRexRPrefix(instruction ins, code_t code)
 {
@@ -5518,10 +5511,12 @@ uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
 
+#ifdef TARGET_AMD64
     if (TakesRexWPrefix(ins, size))
     {
         code = AddRexWPrefix(ins, code);
     }
+#endif
 
     if (size == EA_1BYTE)
     {
@@ -6246,10 +6241,12 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
             code = insCodeRR(ins);
 
+#ifdef TARGET_AMD64
             if (size == EA_8BYTE)
             {
                 code = AddRexWPrefix(ins, code);
             }
+#endif
 
             // The Intel instruction set reference for BSWAP states that extended registers
             // should be enabled via REX.R, but per Vol. 2A, Sec. 2.2.1.2 (see also Figure 2-7),
@@ -6307,10 +6304,12 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
                 dst += emitOutputByte(dst, 0x66);
             }
 
+#ifdef TARGET_AMD64
             if (TakesRexWPrefix(ins, size))
             {
                 code = AddRexWPrefix(ins, code);
             }
+#endif
 
             dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
             dst += emitOutputWord(dst, code);
@@ -6387,10 +6386,12 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 
         code = AddVexPrefixIfNeeded(ins, code, size);
 
+#ifdef TARGET_AMD64
         if (TakesRexWPrefix(ins, size))
         {
             code = AddRexWPrefix(ins, code);
         }
+#endif
 
         if (TakesVexPrefix(ins))
         {
@@ -6721,10 +6722,12 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
     assert((code & 0xFF00) == 0);
     code = AddVexPrefix(ins, code, size);
 
+#ifdef TARGET_AMD64
     if (TakesRexWPrefix(ins, size))
     {
         code = AddRexWPrefix(ins, code);
     }
+#endif
 
     code |= (0xC0 | insEncodeReg345(ins, reg1, size, &code) | insEncodeReg012(ins, reg3, size, &code)) << 8;
     code = SetVexVvvv(ins, reg2, size, code);
@@ -6793,10 +6796,12 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
     assert(((code & 0x00FF0000) != 0) || (id->idIns() == INS_imuli));
 
+#ifdef TARGET_AMD64
     if (TakesRexWPrefix(ins, size))
     {
         code = AddRexWPrefix(ins, code);
     }
+#endif
 
     if (TakesVexPrefix(ins))
     {
@@ -6890,10 +6895,12 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 
         assert(!TakesVexPrefix(ins));
 
+#ifdef TARGET_AMD64
         if (TakesRexWPrefix(ins, size))
         {
             code = AddRexWPrefix(ins, code);
         }
+#endif
 
         dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
         dst += emitOutputByte(dst, code);
