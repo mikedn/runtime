@@ -470,17 +470,19 @@ bool emitter::TakesVexPrefix(instruction ins) const
     return UseVEXEncoding() && (INS_FIRST_VEX_INSTRUCTION <= ins) && (ins <= INS_LAST_VEX_INSTRUCTION);
 }
 
-bool emitter::hasVexPrefix(code_t code)
-{
-    return ((code >> 48) & 0xFF) == 0xC4;
-}
-
 constexpr unsigned PrefixesBitOffset = 16;
 constexpr unsigned MmmBitOffset      = 16;
 constexpr unsigned PpBitOffset       = 19;
+constexpr unsigned HasVexBitOffset   = 21;
 constexpr unsigned RexBitOffset      = 24;
 constexpr unsigned VexBitOffset      = 32;
+constexpr unsigned VexLBitOffset     = 34;
 constexpr unsigned VexVvvvBitOffset  = 35;
+
+bool emitter::hasVexPrefix(code_t code)
+{
+    return ((code >> HasVexBitOffset) & 1) == 1;
+}
 
 bool emitter::hasRexPrefix(code_t code)
 {
@@ -4994,14 +4996,11 @@ emitter::code_t emitter::AddVexPrefix(instruction ins, code_t code, emitAttr att
     assert(TakesVexPrefix(ins));
     assert(!hasVexPrefix(code));
 
-    // We start with a 3-byte VEX by default. Once we gather all its
-    // components we can decide to emit a 2-byte VEX prefix instead.
-
-    code |= 0xC4E078ull << VexBitOffset;
+    code |= 1ull << HasVexBitOffset;
 
     if (attr == EA_32BYTE)
     {
-        code |= 0x04ull << VexBitOffset;
+        code |= 1ull << VexLBitOffset;
     }
 
     return code;
@@ -5099,8 +5098,7 @@ emitter::code_t emitter::SetVexVvvv(instruction ins, regNumber reg, emitAttr siz
 
     code_t regBits = RegVvvvEncoding(reg);
     assert(regBits <= 0xF);
-    regBits <<= VexVvvvBitOffset;
-    return code ^ regBits;
+    return code | (regBits << VexVvvvBitOffset);
 }
 
 // Returns the "byte ptr [r/m]" opcode with the mod/RM field set to the given register.
@@ -5174,24 +5172,13 @@ size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
 {
     assert(TakesVexPrefix(ins) && hasVexPrefix(code));
 
-    uint32_t vexPrefix = (code >> VexBitOffset) & UINT_MAX;
+    uint32_t vexPrefix = (code >> VexBitOffset) & (0x1F << 2);
     uint32_t rexPrefix = (code >> RexBitOffset) & 0xFF;
     uint32_t prefixes  = (code >> PrefixesBitOffset) & 0xFF;
-    code &= 0xFFFF;
 
-    if (rexPrefix != 0)
-    {
-        assert(((vexPrefix >> 13) & 7) == 7);
-        vexPrefix ^= (rexPrefix & 7) << 13;
-        assert(((vexPrefix >> 8) & 1) == 0);
-        vexPrefix |= (rexPrefix & 8) << 4;
-    }
+    // VEX2 can be used if REX.W, REX.X, REX.B are all 0 and VEX.mmm is 1 (opcode map 0F).
 
-    assert(prefixes != 0);
-    vexPrefix |= (prefixes >> 3) & 3;
-    vexPrefix |= (prefixes & 7) << 8;
-
-    if ((vexPrefix & 0xFFFF7F80) == 0x00C46100)
+    if ((code & ((0x0Bull << RexBitOffset) | (7ull << MmmBitOffset))) == (1ull << MmmBitOffset))
     {
         // Encoding optimization calculation is not done while estimating the instruction
         // size and thus over-predict instruction size by 1 byte.
@@ -5200,16 +5187,21 @@ size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
 
         if (emitCurIG->igNum > emitLastAlignedIgNum)
         {
-            emitOutputByte(dst, 0xC5);
-            emitOutputByte(dst + 1, ((vexPrefix >> 8) & 0x80) | (vexPrefix & 0x7F));
+            uint32_t vex21 = ((rexPrefix << 5) | vexPrefix | ((prefixes >> 3) & 3)) ^ (0x1F << 3);
+            emitOutputWord(dst, 0xC5 | (vex21 << 8));
+            code &= 0xFFFF;
 
             return 2;
         }
     }
 
-    emitOutputByte(dst, 0xC4);
-    emitOutputByte(dst + 1, vexPrefix >> 8);
-    emitOutputByte(dst + 2, vexPrefix);
+    assert(prefixes != 0);
+
+    uint32_t vex31 = (((rexPrefix & 7) << 5) | (prefixes & 7)) ^ (0x07 << 5);
+    emitOutputWord(dst, 0xC4 | (vex31 << 8));
+    uint32_t vex32 = (((rexPrefix & 8) << 4) | vexPrefix | ((prefixes >> 3) & 3)) ^ (0x0F << 3);
+    emitOutputByte(dst + 2, vex32);
+    code &= 0xFFFF;
 
     return 3;
 }
