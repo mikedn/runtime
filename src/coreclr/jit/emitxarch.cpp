@@ -7901,7 +7901,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code   = AddVexPrefix(ins, code, size);
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
-            dst    = emitOutputSV(dst, id, insCodeMR(ins), &cnsVal);
+            dst    = emitOutputSV(dst, id, code, &cnsVal);
             sz     = emitSizeOfInsDsc(id);
             break;
 
