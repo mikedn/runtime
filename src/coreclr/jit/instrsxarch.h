@@ -154,7 +154,7 @@ INST3(prefetcht1,       "prefetcht1",       RD, h0F(RME(0x18, 2)), NA,          
 INST3(prefetcht2,       "prefetcht2",       RD, h0F(RME(0x18, 3)), NA,           NA,                          None)
 INST3(movnti,           "movnti",           WR, h0F(0xC3),         NA,           NA,                          None)
                                                                                     
-INSTA(FIRST_SSE_VEX_INSTRUCTION, pmovmskb)                                          
+INSTA(FIRST_VEX_INSTRUCTION, pmovmskb)                                          
 INST3(pmovmskb,         "pmovmskb",         WR, NA,                NA,           h660F(0xD7),                 None)
 INST3(movmskpd,         "movmskpd",         WR, NA,                NA,           h660F(0x50),                 None)
 INST3(movd,             "movd",             WR, h660F(0x7E),       NA,           h660F(0x6E),                 None)
@@ -525,7 +525,8 @@ INST3(vpdpwssd,         "vpdpwssd",         WR, NA,                NA,     h660F
 INST3(vpdpbusds,        "vpdpbusds",        WR, NA,                NA,     h660F38(0x51),                     VexDstDstSrc)
 INST3(vpdpwssds,        "vpdpwssds",        WR, NA,                NA,     h660F38(0x53),                     VexDstDstSrc)
 INSTA(LAST_AVXVNNI_INSTRUCTION, vpdpwssds)                                                                        
-                                                                                                                  
+INSTA(LAST_AVX_INSTRUCTION, vpdpwssds)
+
 INST3(andn,             "andn",             WR, NA,                NA,     h0F38(0xF2),                       VexDstDstSrc)
 INST3(blsi,             "blsi",             WR, NA,                NA,     h0F38(RME(0xF3, 3)),               VexDstDstSrc)
 INST3(blsmsk,           "blsmsk",           WR, NA,                NA,     h0F38(RME(0xF3, 2)),               VexDstDstSrc)
@@ -536,7 +537,7 @@ INST3(pdep,             "pdep",             WR, NA,                NA,     hF20F
 INST3(pext,             "pext",             WR, NA,                NA,     hF30F38(0xF5),                     VexDstDstSrc)
 INST3(bzhi,             "bzhi",             WR, NA,                NA,     h0F38(0xF5),                       BzhiFlags | VexDstDstSrc)
 INST3(mulx,             "mulx",             WR, NA,                NA,     hF20F38(0xF6),                     VexDstDstSrc)
-INSTA(LAST_AVX_INSTRUCTION, mulx)                                                                                 
+INSTA(LAST_VEX_INSTRUCTION, mulx)
                                                                                                                   
 INST3(crc32,            "crc32",            WR, NA,                NA,     hF20F38(0xF1),                     None)
 INST3(tzcnt,            "tzcnt",            WR, NA,                NA,     hF30F(0xBC),                       ZCntFlags)
