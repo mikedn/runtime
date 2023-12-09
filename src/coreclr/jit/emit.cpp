@@ -159,7 +159,7 @@ void emitLocation::Print(LONG compMethodID) const
 const char* emitter::emitIfName(unsigned f)
 {
     static const char* const ifNames[] = {
-#define IF_DEF(en, op1, op2) "IF_" #en,
+#define IF_DEF(en, ...) "IF_" #en,
 #include "emitfmts.h"
     };
 

@@ -250,7 +250,7 @@ struct insGroup
 
 enum insFormat : unsigned
 {
-#define IF_DEF(en, op1, op2) IF_##en,
+#define IF_DEF(en, ...) IF_##en,
 #include "emitfmts.h"
     IF_COUNT
 };
@@ -1239,7 +1239,7 @@ private:
 #if defined(DEBUG) || defined(LATE_DISASM)
 
 #if defined(TARGET_XARCH)
-    insFormat getMemoryOperation(instrDesc* id);
+    static insFormat getMemoryOperation(instrDesc* id);
 #elif defined(TARGET_ARM64)
     void getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess);
 #endif
