@@ -244,18 +244,17 @@ static ID_OPS GetFormatOp(insFormat format)
 }
 
 // Return the allocated size (in bytes) of the given instruction descriptor.
-size_t emitter::emitSizeOfInsDsc(instrDesc* id)
+size_t emitter::instrDescSmall::GetDescSize() const
 {
-    if (id->idIsSmallDsc())
+    if (_idSmallDsc)
     {
         return sizeof(instrDescSmall);
     }
 
-    ID_OPS idOp = GetFormatOp(id->idInsFmt());
+    ID_OPS idOp = GetFormatOp(_idInsFmt);
 
-    bool isCallIns = (id->idIns() == INS_bl) || (id->idIns() == INS_blr) || (id->idIns() == INS_b_tail) ||
-                     (id->idIns() == INS_br_tail);
-    bool maybeCallIns = (id->idIns() == INS_b) || (id->idIns() == INS_br);
+    bool isCallIns    = (_idIns == INS_bl) || (_idIns == INS_blr) || (_idIns == INS_b_tail) || (_idIns == INS_br_tail);
+    bool maybeCallIns = (_idIns == INS_b) || (_idIns == INS_br);
 
     switch (idOp)
     {
@@ -267,14 +266,14 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 
         case ID_OP_CALL:
             assert(isCallIns || maybeCallIns);
-            if (id->idIsLargeCall())
+            if (_idLargeCall)
             {
                 /* Must be a "fat" call descriptor */
                 return sizeof(instrDescCGCA);
             }
             else
             {
-                assert(!id->idIsLargeCns());
+                assert(!_idLargeCns);
                 return sizeof(instrDesc);
             }
             break;
@@ -284,7 +283,7 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
             break;
     }
 
-    if (id->idIsLargeCns())
+    if (_idLargeCns)
     {
         return sizeof(instrDescCns);
     }
@@ -10740,7 +10739,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 #ifdef DEBUG
     /* Make sure we set the instruction descriptor size correctly */
 
-    size_t expected = emitSizeOfInsDsc(id);
+    size_t expected = id->GetDescSize();
     assert(sz == expected);
 
     if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
@@ -11465,7 +11464,7 @@ void emitter::emitDispIns(
 
     /* If this instruction has just been added, check its size */
 
-    assert(isNew == false || (int)emitSizeOfInsDsc(id) == emitCurIGfreeNext - (BYTE*)id);
+    assert(!isNew || (static_cast<int>(id->GetDescSize()) == emitCurIGfreeNext - reinterpret_cast<uint8_t*>(id)));
 
     /* Figure out the operand size */
     emitAttr size = id->idOpSize();

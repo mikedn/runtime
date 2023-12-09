@@ -714,6 +714,8 @@ private:
         {
             _idSmallDsc = 1;
         }
+
+        size_t GetDescSize() const;
     };
 
     struct instrDesc : public instrDescSmall
@@ -1721,8 +1723,6 @@ private:
     instrDescJmp*  emitNewInstrJmp();
     instrDescCGCA* emitAllocInstrCGCA(emitAttr attr);
 #endif
-
-    size_t emitSizeOfInsDsc(instrDesc* id);
 
     static emitJumpKind emitInsToJumpKind(instruction ins);
 

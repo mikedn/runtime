@@ -614,7 +614,7 @@ BasicBlock::weight_t emitter::getCurrentBlockWeight()
 
 void emitter::dispIns(instrDesc* id)
 {
-    assert(id->idDebugOnlyInfo()->idSize == emitSizeOfInsDsc(id));
+    assert(id->idDebugOnlyInfo()->idSize == id->GetDescSize());
 
 #ifdef TARGET_XARCH
     assert((id->idCodeSize() != 0) || id->InstrHasNoCode());
@@ -1623,7 +1623,7 @@ bool emitter::emitGetLocationInfo(emitLocation* emitLoc,
             }
         }
 
-        if (ig == NULL)
+        if (ig == nullptr)
         {
             // 'ig' can't be NULL, or we went past the current IG represented by 'emitCurIG'.
             // Perhaps 'loc' was corrupt coming in?
@@ -1639,7 +1639,7 @@ bool emitter::emitGetLocationInfo(emitLocation* emitLoc,
     int i;
     for (i = 0; i != insNum; ++i)
     {
-        castto(id, BYTE*) += emitSizeOfInsDsc(id);
+        castto(id, uint8_t*) += id->GetDescSize();
     }
 
     // Return the info we found
@@ -1667,7 +1667,7 @@ bool emitter::emitNextID(insGroup*& ig, instrDesc*& id, int& insRemaining)
 {
     if (insRemaining > 0)
     {
-        castto(id, BYTE*) += emitSizeOfInsDsc(id);
+        castto(id, uint8_t*) += id->GetDescSize();
         --insRemaining;
         return true;
     }
@@ -2054,7 +2054,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         {
             instrDesc* id = reinterpret_cast<instrDesc*>(ins);
             emitDispIns(id, false, true, false, ofs, nullptr, 0, ig);
-            ins += emitSizeOfInsDsc(id);
+            ins += id->GetDescSize();
             ofs += id->idCodeSize();
         }
 
@@ -2149,11 +2149,11 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
 
 #ifdef DEBUG
     /* Make sure the instruction descriptor size also matches our expectations */
-    if (is != emitSizeOfInsDsc(id))
+    if (is != id->GetDescSize())
     {
         printf("%s at %u: Expected size = %u , actual size = %u\n", emitIfName(id->idInsFmt()),
-               id->idDebugOnlyInfo()->idNum, is, emitSizeOfInsDsc(id));
-        assert(is == emitSizeOfInsDsc(id));
+               id->idDebugOnlyInfo()->idNum, is, id->GetDescSize());
+        assert(is == id->GetDescSize());
     }
 #endif // DEBUG
 
@@ -4412,7 +4412,7 @@ unsigned emitter::emitFindInsNum(insGroup* ig, instrDesc* idMatch)
 
     while (insRemaining > 0)
     {
-        castto(id, BYTE*) += emitSizeOfInsDsc(id);
+        castto(id, uint8_t*) += id->GetDescSize();
         insNum++;
         insRemaining--;
 
@@ -4449,7 +4449,7 @@ UNATIVE_OFFSET emitter::emitFindOffset(insGroup* ig, unsigned insNum)
     {
         of += id->idCodeSize();
 
-        castto(id, BYTE*) += emitSizeOfInsDsc(id);
+        castto(id, uint8_t*) += id->GetDescSize();
 
         insNum--;
     }

@@ -3951,23 +3951,22 @@ void emitter::emitInsSanityCheck(instrDesc* id)
 }
 #endif
 
-// Return the allocated size (in bytes) of the given instruction descriptor.
-size_t emitter::emitSizeOfInsDsc(instrDesc* id)
+size_t emitter::instrDescSmall::GetDescSize() const
 {
-    if (id->idIsSmallDsc())
+    if (_idSmallDsc)
     {
         return sizeof(instrDescSmall);
     }
 
-    if (id->idIsLargeCall())
+    if (_idLargeCall)
     {
         return sizeof(instrDescCGCA);
     }
 
-    switch (GetFormatOp(id->idInsFmt()))
+    switch (GetFormatOp(_idInsFmt))
     {
         case ID_OP_NONE:
-            if (id->idIns() == INS_align)
+            if (_idIns == INS_align)
             {
                 return sizeof(instrDescAlign);
             }
@@ -3981,13 +3980,13 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
         case ID_OP_DSP_CNS:
         case ID_OP_AMD:
         case ID_OP_AMD_CNS:
-            if (id->idIsLargeCns() && id->idIsLargeDsp())
+            if (_idLargeCns && _idLargeDsp)
             {
                 return sizeof(instrDescCnsAmd);
             }
             FALLTHROUGH;
         case ID_OP_CNS:
-            if (id->idIsLargeDsp() || id->idIsLargeCns())
+            if (_idLargeDsp || _idLargeCns)
             {
                 static_assert_no_msg(sizeof(instrDescAmd) == sizeof(instrDescCns));
                 return sizeof(instrDescCns);
@@ -7586,7 +7585,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         case IF_CNS:
             dst = emitOutputIV(dst, id);
-            sz  = emitSizeOfInsDsc(id);
+            sz  = id->GetDescSize();
             break;
 
         case IF_RWR_LABEL:
@@ -7649,23 +7648,23 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_CNS:
         case IF_RRW_CNS:
             dst = emitOutputRI(dst, id);
-            sz  = emitSizeOfInsDsc(id);
+            sz  = id->GetDescSize();
             break;
 
         case IF_RWR_RRD_RRD:
             dst = emitOutputRRR(dst, id);
-            sz  = emitSizeOfInsDsc(id);
+            sz  = id->GetDescSize();
             break;
         case IF_RWR_RRD_RRD_CNS:
         case IF_RWR_RRD_RRD_RRD:
             dst = emitOutputRRR(dst, id);
             dst += emitOutputByte(dst, id->GetImm());
-            sz = emitSizeOfInsDsc(id);
+            sz = id->GetDescSize();
             break;
 
         case IF_RRW_RRD_CNS:
             dst = emitOutputRRI(dst, id);
-            sz  = emitSizeOfInsDsc(id);
+            sz  = id->GetDescSize();
             break;
 
         /********************************************************************/
@@ -7685,7 +7684,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             }
             else
             {
-                sz = emitSizeOfInsDsc(id);
+                sz = id->GetDescSize();
             }
             break;
 
@@ -7696,7 +7695,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             cnsVal = id->GetImm();
             dst    = emitOutputAM(dst, id, insCodeMI(ins), &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
+            sz     = id->GetDescSize();
             break;
 
         case IF_ARD_RRD:
@@ -7708,7 +7707,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = AddVexPrefixIfNeeded(ins, code, size);
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputAM(dst, id, code);
-            sz   = emitSizeOfInsDsc(id);
+            sz   = id->GetDescSize();
             break;
 
         case IF_RRD_ARD:
@@ -7728,7 +7727,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             }
 
             dst = emitOutputAM(dst, id, code);
-            sz  = emitSizeOfInsDsc(id);
+            sz  = id->GetDescSize();
             break;
 
         case IF_RRW_ARD_CNS:
@@ -7746,7 +7745,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputAM(dst, id, code, &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
+            sz     = id->GetDescSize();
             break;
 
         case IF_AWR_RRD_CNS:
@@ -7759,7 +7758,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputAM(dst, id, code, &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
+            sz     = id->GetDescSize();
             break;
 
         case IF_AWR_RRD_RRD:
@@ -7770,7 +7769,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = SetVexVvvv(ins, id->idReg1(), size, code);
             code = SetRMReg(ins, id->idReg2(), size, code);
             dst  = emitOutputAM(dst, id, code);
-            sz   = emitSizeOfInsDsc(id);
+            sz   = id->GetDescSize();
             break;
 
         case IF_RWR_ARD_RRD:
@@ -7782,7 +7781,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = SetVexVvvv(ins, id->idReg2(), size, code);
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputAM(dst, id, code);
-            sz   = emitSizeOfInsDsc(id);
+            sz   = id->GetDescSize();
             break;
 
         case IF_RWR_RRD_ARD_CNS:
@@ -7795,7 +7794,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputAM(dst, id, code, &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
+            sz     = id->GetDescSize();
             break;
 
         /********************************************************************/
@@ -7822,7 +7821,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             cnsVal = id->GetImm();
             dst    = emitOutputSV(dst, id, insCodeMI(ins), &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
+            sz     = id->GetDescSize();
             break;
 
         case IF_SRD_RRD:
@@ -7834,7 +7833,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = AddVexPrefixIfNeeded(ins, code, size);
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputSV(dst, id, code);
-            sz   = emitSizeOfInsDsc(id);
+            sz   = id->GetDescSize();
             break;
 
         case IF_RRD_SRD:
@@ -7854,7 +7853,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             }
 
             dst = emitOutputSV(dst, id, code);
-            sz  = emitSizeOfInsDsc(id);
+            sz  = id->GetDescSize();
             break;
 
         case IF_RRW_SRD_CNS:
@@ -7872,7 +7871,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputSV(dst, id, code, &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
+            sz     = id->GetDescSize();
             break;
 
         case IF_SWR_RRD_CNS:
@@ -7885,7 +7884,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputSV(dst, id, code, &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
+            sz     = id->GetDescSize();
             break;
 
         // case IF_SWR_RRD_RRD:
@@ -7908,7 +7907,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = SetVexVvvv(ins, id->idReg2(), size, code);
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputSV(dst, id, code);
-            sz   = emitSizeOfInsDsc(id);
+            sz   = id->GetDescSize();
             break;
 
         case IF_RWR_RRD_SRD_CNS:
@@ -7921,7 +7920,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputSV(dst, id, code, &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
+            sz     = id->GetDescSize();
             break;
 
         /********************************************************************/
@@ -7935,7 +7934,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             noway_assert(ins != INS_call);
 
             dst = emitOutputCV(dst, id, insCodeMR(ins));
-            sz  = emitSizeOfInsDsc(id);
+            sz  = id->GetDescSize();
             break;
 
         case IF_MRD_CNS:
@@ -7945,7 +7944,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             cnsVal = id->GetImm();
             dst    = emitOutputCV(dst, id, insCodeMI(ins), &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
+            sz     = id->GetDescSize();
             break;
 
         case IF_MRD_RRD:
@@ -7957,7 +7956,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = AddVexPrefixIfNeeded(ins, code, size);
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputCV(dst, id, code);
-            sz   = emitSizeOfInsDsc(id);
+            sz   = id->GetDescSize();
             break;
 
         case IF_RRD_MRD:
@@ -7977,7 +7976,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             }
 
             dst = emitOutputCV(dst, id, code);
-            sz  = emitSizeOfInsDsc(id);
+            sz  = id->GetDescSize();
             break;
 
         case IF_RRW_MRD_CNS:
@@ -7995,7 +7994,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputCV(dst, id, code, &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
+            sz     = id->GetDescSize();
             break;
 
         case IF_MWR_RRD_CNS:
@@ -8008,7 +8007,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputCV(dst, id, code, &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
+            sz     = id->GetDescSize();
             break;
 
         // case IF_MWR_RRD_RRD:
@@ -8031,7 +8030,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = SetVexVvvv(ins, id->idReg2(), size, code);
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputCV(dst, id, code);
-            sz   = emitSizeOfInsDsc(id);
+            sz   = id->GetDescSize();
             break;
 
         case IF_RWR_RRD_MRD_CNS:
@@ -8044,7 +8043,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputCV(dst, id, code, &cnsVal);
-            sz     = emitSizeOfInsDsc(id);
+            sz     = id->GetDescSize();
             break;
 
         default:
@@ -8052,7 +8051,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     }
 
     // Make sure we set the instruction descriptor size correctly
-    assert(sz == emitSizeOfInsDsc(id));
+    assert(sz == id->GetDescSize());
 
 #if !FEATURE_FIXED_OUT_ARGS
     if (!emitIGisInProlog(ig) && !ig->IsEpilog() && !ig->IsFuncletPrologOrEpilog())
