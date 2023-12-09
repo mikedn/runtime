@@ -491,16 +491,9 @@ bool emitter::hasRexPrefix(code_t code)
 #endif
 }
 
-static bool TakesRexWPrefix(instruction ins, emitAttr attr)
+#ifdef TARGET_AMD64
+static bool TakesRexWPrefix(instruction ins)
 {
-#ifdef TARGET_X86
-    return false;
-#else
-    if (EA_SIZE(attr) != EA_8BYTE)
-    {
-        return false;
-    }
-
     if (IsSSEOrAVXInstruction(ins))
     {
         switch (ins)
@@ -538,7 +531,16 @@ static bool TakesRexWPrefix(instruction ins, emitAttr attr)
         default:
             return !((INS_jo <= ins) && (ins <= INS_jg));
     }
+}
 #endif // TARGET_AMD64
+
+static bool TakesRexWPrefix(instruction ins, emitAttr attr)
+{
+#ifdef TARGET_X86
+    return false;
+#else
+    return (EA_SIZE(attr) == EA_8BYTE) && TakesRexWPrefix(ins);
+#endif
 }
 
 static bool IsExtendedReg(regNumber reg)
@@ -5511,13 +5513,6 @@ uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
 
-#ifdef TARGET_AMD64
-    if (TakesRexWPrefix(ins, size))
-    {
-        code = AddRexWPrefix(ins, code);
-    }
-#endif
-
     if (size == EA_1BYTE)
     {
         if (!IsPrefetch(ins))
@@ -5548,9 +5543,18 @@ uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
         }
     }
 #endif
+#ifdef TARGET_AMD64
+    else if (size == EA_8BYTE)
+    {
+        if (TakesRexWPrefix(ins))
+        {
+            code = AddRexWPrefix(ins, code);
+        }
+    }
+#endif
     else
     {
-        assert((size == EA_4BYTE) || IsSSEOrAVXOrBMIInstruction(ins) AMD64_ONLY(|| size == EA_8BYTE));
+        assert((size == EA_4BYTE) || IsSSEOrAVXOrBMIInstruction(ins));
     }
 
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
@@ -6228,7 +6232,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
         case INS_push_hide:
             assert(size == EA_PTRSIZE);
             assert(!TakesVexPrefix(ins));
-            assert(!TakesRexWPrefix(ins, size));
+            assert(!TakesRexWPrefix(ins));
 
             code = insCodeRR(ins);
             code |= insEncodeReg012(ins, reg, size, &code);
@@ -6303,9 +6307,8 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             {
                 dst += emitOutputByte(dst, 0x66);
             }
-
 #ifdef TARGET_AMD64
-            if (TakesRexWPrefix(ins, size))
+            else if ((size == EA_8BYTE) && TakesRexWPrefix(ins))
             {
                 code = AddRexWPrefix(ins, code);
             }
@@ -6387,7 +6390,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         code = AddVexPrefixIfNeeded(ins, code, size);
 
 #ifdef TARGET_AMD64
-        if (TakesRexWPrefix(ins, size))
+        if ((size == EA_8BYTE) && TakesRexWPrefix(ins))
         {
             code = AddRexWPrefix(ins, code);
         }
@@ -6446,12 +6449,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
             code ^= 1;
         }
 
-#ifdef TARGET_AMD64
-        if (ins == INS_movsx)
-        {
-            code = AddRexWPrefix(ins, code);
-        }
-#endif
+        AMD64_ONLY(assert((ins == INS_movsx) == (((code >> (RexBitOffset + 3)) & 1) != 0)));
     }
 #ifdef TARGET_AMD64
     else if (ins == INS_movsxd)
@@ -6459,7 +6457,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         assert(!hasCodeMI(ins) && !hasCodeMR(ins));
 
         code = insCodeRM(ins);
-        code = AddRexWPrefix(ins, code);
+        assert(((code >> (RexBitOffset + 3)) & 1) != 0);
     }
 #endif
     else if (ins == INS_imul)
@@ -6723,7 +6721,7 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
     code = AddVexPrefix(ins, code, size);
 
 #ifdef TARGET_AMD64
-    if (TakesRexWPrefix(ins, size))
+    if ((size == EA_8BYTE) && TakesRexWPrefix(ins))
     {
         code = AddRexWPrefix(ins, code);
     }
@@ -6797,7 +6795,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
     assert(((code & 0x00FF0000) != 0) || (id->idIns() == INS_imuli));
 
 #ifdef TARGET_AMD64
-    if (TakesRexWPrefix(ins, size))
+    if ((size == EA_8BYTE) && TakesRexWPrefix(ins))
     {
         code = AddRexWPrefix(ins, code);
     }
@@ -6896,7 +6894,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
         assert(!TakesVexPrefix(ins));
 
 #ifdef TARGET_AMD64
-        if (TakesRexWPrefix(ins, size))
+        if (size == EA_8BYTE)
         {
             code = AddRexWPrefix(ins, code);
         }
