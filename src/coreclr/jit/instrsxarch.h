@@ -60,6 +60,7 @@
 #define hF20F3A(c) PACK2(PF2 | M0F3A, c)
 
 #define RME(c, e) ((c) | ((e) << 11))
+#define RMR(c, e) ((c) | ((e) << 11) | 0xC000) // Fences use RM.mod = 11 and ignore the reg fields
 
 #ifndef INSTA
 #define INSTA(...)
@@ -136,9 +137,9 @@ INST3(cmovg,            "cmovg",            WR, NA,                NA,          
 INSTA(LAST_CMOV, cmovg)
 
 INSTA(FIRST_SSE_INSTRUCTION, lfence)
-INST3(lfence,           "lfence",           RD, h0F(0xE8AE),       NA,           NA,                          None)
-INST3(mfence,           "mfence",           RD, h0F(0xF0AE),       NA,           NA,                          None)
-INST3(sfence,           "sfence",           RD, h0F(0xF8AE),       NA,           NA,                          None)
+INST3(lfence,           "lfence",           RD, h0F(RMR(0xAE, 5)), NA,           NA,                          None)
+INST3(mfence,           "mfence",           RD, h0F(RMR(0xAE, 6)), NA,           NA,                          None)
+INST3(sfence,           "sfence",           RD, h0F(RMR(0xAE, 7)), NA,           NA,                          None)
                                                                                                               
 INST3(prefetchnta,      "prefetchnta",      RD, h0F(RME(0x18, 0)), NA,           NA,                          None)
 INST3(prefetcht0,       "prefetcht0",       RD, h0F(RME(0x18, 1)), NA,           NA,                          None)
