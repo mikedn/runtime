@@ -468,11 +468,17 @@ bool emitter::hasVexPrefix(code_t code)
     return ((code >> 48) & 0xFF) == 0xC4;
 }
 
+constexpr unsigned PrefixesBitOffset = 16;
+constexpr unsigned MmmBitOffset      = 16;
+constexpr unsigned PpBitOffset       = 19;
+constexpr unsigned RexBitOffset      = 24;
+constexpr unsigned VexBitOffset      = 32;
+constexpr unsigned VexVvvvBitOffset  = 35;
+
 bool emitter::hasRexPrefix(code_t code)
 {
 #ifdef TARGET_AMD64
-    const code_t REX_PREFIX_MASK = 0xFF00000000LL;
-    return (code & REX_PREFIX_MASK) != 0;
+    return ((code >> RexBitOffset) & 0xFF) != 0;
 #else
     return false;
 #endif
@@ -852,7 +858,7 @@ unsigned emitter::emitInsSize(code_t code)
 
     unsigned size = 2;
 
-    if (uint32_t prefixes = (code >> 16) & 0xFF)
+    if (uint32_t prefixes = (code >> PrefixesBitOffset) & 0xFF)
     {
         if ((prefixes >> 3) != 0)
         {
@@ -1465,7 +1471,7 @@ void emitter::emitIns(instruction ins, emitAttr attr)
     id->idInsFmt(IF_NONE);
 
     size_t code = insCodeMR(ins);
-    assert((code >> 16) == 0);
+    assert((code >> PrefixesBitOffset) == 0);
 
     unsigned sz = 1 + ((code & 0xFF00) != 0)AMD64_ONLY(+(attr == EA_8BYTE));
     id->idCodeSize(sz);
@@ -5004,15 +5010,8 @@ static size_t insCodeRR(instruction ins)
 // AVX:  specific bits within VEX prefix need to be set in bit-inverted form.
 emitter::code_t emitter::AddRexWPrefix(instruction ins, code_t code)
 {
-    if (TakesVexPrefix(ins))
-    {
-        assert(hasVexPrefix(code));
-
-        return code | (0x80ull << 32);
-    }
-
 #ifdef TARGET_AMD64
-    return code | (0x48ull << 32);
+    return code | (0x48ull << RexBitOffset);
 #else
     unreached();
 #endif
@@ -5022,38 +5021,17 @@ emitter::code_t emitter::AddRexWPrefix(instruction ins, code_t code)
 
 emitter::code_t emitter::AddRexRPrefix(instruction ins, code_t code)
 {
-    if (TakesVexPrefix(ins))
-    {
-        assert(hasVexPrefix(code));
-
-        return code & ~(0x8000ull << 32);
-    }
-
-    return code | (0x44ull << 32);
+    return code | (0x44ull << RexBitOffset);
 }
 
 emitter::code_t emitter::AddRexXPrefix(instruction ins, code_t code)
 {
-    if (TakesVexPrefix(ins))
-    {
-        assert(hasVexPrefix(code));
-
-        return code & ~(0x4000ull << 32);
-    }
-
-    return code | (0x42ull << 32);
+    return code | (0x42ull << RexBitOffset);
 }
 
 emitter::code_t emitter::AddRexBPrefix(instruction ins, code_t code)
 {
-    if (TakesVexPrefix(ins))
-    {
-        assert(hasVexPrefix(code));
-
-        return code & ~(0x2000ull << 32);
-    }
-
-    return code | (0x41ull << 32);
+    return code | (0x41ull << RexBitOffset);
 }
 
 // Adds REX prefix (0x40) without W, R, X or B bits set
@@ -5061,7 +5039,7 @@ emitter::code_t emitter::AddRexPrefix(instruction ins, code_t code)
 {
     assert(!TakesVexPrefix(ins));
 
-    return code | (0x40ull << 32);
+    return code | (0x40ull << RexBitOffset);
 }
 
 #endif // TARGET_AMD64
@@ -5070,16 +5048,16 @@ emitter::code_t emitter::AddVexPrefix(instruction ins, code_t code, emitAttr att
 {
     assert(TakesVexPrefix(ins));
     assert(!hasVexPrefix(code));
-    assert((code >> 32) == 0);
+    assert((code >> RexBitOffset) == 0);
 
     // We start with a 3-byte VEX by default. Once we gather all its
     // components we can decide to emit a 2-byte VEX prefix instead.
 
-    code |= 0xC4E078ull << 32;
+    code |= 0xC4E078ull << VexBitOffset;
 
     if (attr == EA_32BYTE)
     {
-        code |= 0x04ull << 32;
+        code |= 0x04ull << VexBitOffset;
     }
 
     return code;
@@ -5177,7 +5155,7 @@ emitter::code_t emitter::SetVexVvvv(instruction ins, regNumber reg, emitAttr siz
 
     code_t regBits = RegVvvvEncoding(reg);
     assert(regBits <= 0xF);
-    regBits <<= 35;
+    regBits <<= VexVvvvBitOffset;
     return code ^ regBits;
 }
 
@@ -5192,27 +5170,18 @@ emitter::code_t emitter::insEncodeRMreg(instruction ins, regNumber reg, emitAttr
 
 size_t emitter::emitOutputByte(uint8_t* dst, ssize_t val)
 {
-    // if we're emitting code bytes, ensure that we've already emitted the rex prefix!
-    AMD64_ONLY(assert(((val & 0xFF00000000LL) == 0) || ((val & 0xFFFFFFFF00000000LL) == 0xFFFFFFFF00000000LL)));
-
     *(dst + writeableOffset) = static_cast<uint8_t>(val);
     return 1;
 }
 
 size_t emitter::emitOutputWord(uint8_t* dst, ssize_t val)
 {
-    // if we're emitting code bytes, ensure that we've already emitted the rex prefix!
-    AMD64_ONLY(assert(((val & 0xFF00000000LL) == 0) || ((val & 0xFFFFFFFF00000000LL) == 0xFFFFFFFF00000000LL)));
-
     *reinterpret_cast<int16_t*>(dst + writeableOffset) = static_cast<int16_t>(val);
     return 2;
 }
 
 size_t emitter::emitOutputLong(uint8_t* dst, ssize_t val)
 {
-    // if we're emitting code bytes, ensure that we've already emitted the rex prefix!
-    AMD64_ONLY(assert(((val & 0xFF00000000LL) == 0) || ((val & 0xFFFFFFFF00000000LL) == 0xFFFFFFFF00000000LL)));
-
     *reinterpret_cast<int32_t*>(dst + writeableOffset) = static_cast<int32_t>(val);
     return 4;
 }
@@ -5261,9 +5230,18 @@ size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
 {
     assert(TakesVexPrefix(ins) && hasVexPrefix(code));
 
-    uint32_t vexPrefix = (code >> 32) & UINT_MAX;
-    uint32_t prefixes  = (code >> 16) & 0xFF;
+    uint32_t vexPrefix = (code >> VexBitOffset) & UINT_MAX;
+    uint32_t rexPrefix = (code >> RexBitOffset) & 0xFF;
+    uint32_t prefixes  = (code >> PrefixesBitOffset) & 0xFF;
     code &= 0xFFFF;
+
+    if (rexPrefix != 0)
+    {
+        assert(((vexPrefix >> 13) & 7) == 7);
+        vexPrefix ^= (rexPrefix & 7) << 13;
+        assert(((vexPrefix >> 8) & 1) == 0);
+        vexPrefix |= (rexPrefix & 8) << 4;
+    }
 
     assert(prefixes != 0);
     vexPrefix |= (prefixes >> 3) & 3;
@@ -5295,10 +5273,10 @@ size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
 #ifdef TARGET_AMD64
 size_t emitter::emitOutputRexPrefix(instruction ins, uint8_t* dst, code_t& code)
 {
-    uint32_t rex = (code >> 32) & 0xFF;
+    uint32_t rex = (code >> RexBitOffset) & 0xFF;
     assert((rex >= 0x40) && (rex <= 0x4F));
     code &= UINT_MAX;
-    assert(((code >> 19) & 3) == 0); // Can't emit REX prefix before other prefixes.
+    assert(((code >> PpBitOffset) & 3) == 0); // Can't emit REX prefix before other prefixes.
     return emitOutputByte(dst, rex);
 }
 #endif // TARGET_AMD64
@@ -5308,7 +5286,7 @@ size_t emitter::emitOutputRexPrefixIfNeeded(instruction ins, uint8_t* dst, code_
     assert(!hasVexPrefix(code));
 
 #ifdef TARGET_AMD64
-    if (((code >> 32) & 0xFF) != 0)
+    if (((code >> RexBitOffset) & 0xFF) != 0)
     {
         return emitOutputRexPrefix(ins, dst, code);
     }
@@ -5324,7 +5302,7 @@ size_t emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, 
         return emitOutputVexPrefix(ins, dst, code);
     }
 
-    if ((code >> 16) != 0)
+    if ((code >> PrefixesBitOffset) != 0)
     {
         return emitOutputPrefixesIfNeeded(ins, dst, code);
     }
@@ -5336,7 +5314,7 @@ size_t emitter::emitOutputPrefixesIfNeeded(instruction ins, uint8_t* dst, code_t
 {
     uint8_t* start = dst;
 
-    if (uint32_t pp = (code >> 19) & 3)
+    if (uint32_t pp = (code >> PpBitOffset) & 3)
     {
         static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
 
@@ -5344,7 +5322,7 @@ size_t emitter::emitOutputPrefixesIfNeeded(instruction ins, uint8_t* dst, code_t
     }
 
 #ifdef TARGET_AMD64
-    if (uint32_t rex = (code >> 32) & 0xFF)
+    if (uint32_t rex = (code >> RexBitOffset) & 0xFF)
     {
         assert((rex >= 0x40) && (rex <= 0x4F));
         code &= UINT_MAX;
@@ -5352,7 +5330,7 @@ size_t emitter::emitOutputPrefixesIfNeeded(instruction ins, uint8_t* dst, code_t
     }
 #endif
 
-    if (uint32_t map = (code >> 16) & 7)
+    if (uint32_t map = (code >> MmmBitOffset) & 7)
     {
         if (map == 1)
         {
@@ -5601,9 +5579,9 @@ uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
         if ((ins != INS_movzx) && (ins != INS_movsx))
         {
             assert(!IsSSEOrAVXInstruction(ins));
-            assert(((code >> 19) & 3) == 0);
+            assert(((code >> PpBitOffset) & 3) == 0);
 
-            code |= 1ull << 19;
+            code |= 1ull << PpBitOffset;
         }
     }
 #ifdef TARGET_X86
@@ -6535,8 +6513,8 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         // TODO-MIKE-Cleanup: There should be no need to generate a 16 bit imul.
         if (size == EA_2BYTE)
         {
-            assert(((code >> 19) & 3) == 0);
-            code |= 1ull << 19;
+            assert(((code >> PpBitOffset) & 3) == 0);
+            code |= 1ull << PpBitOffset;
         }
 #ifdef TARGET_AMD64
         else if (size == EA_8BYTE)
@@ -6555,8 +6533,8 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         // TODO-MIKE-Cleanup: There should be no need to generate a 16 bit bt.
         if (size == EA_2BYTE)
         {
-            assert(((code >> 19) & 3) == 0);
-            code |= 1ull << 19;
+            assert(((code >> PpBitOffset) & 3) == 0);
+            code |= 1ull << PpBitOffset;
         }
 #ifdef TARGET_AMD64
         else if (size == EA_8BYTE)
@@ -6581,8 +6559,8 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         }
         else if (size == EA_2BYTE)
         {
-            assert(((code >> 19) & 3) == 0);
-            code |= 1ull << 19;
+            assert(((code >> PpBitOffset) & 3) == 0);
+            code |= 1ull << PpBitOffset;
         }
 #ifdef TARGET_AMD64
         else if (size == EA_8BYTE)
@@ -6614,8 +6592,8 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
                 break;
 
             case EA_2BYTE:
-                assert(((code >> 19) & 3) == 0);
-                code |= 1ull << 19;
+                assert(((code >> PpBitOffset) & 3) == 0);
+                code |= 1ull << PpBitOffset;
                 break;
             case EA_4BYTE:
                 break;
@@ -7597,10 +7575,11 @@ uint8_t* emitter::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
 
         code = AddRexWPrefix(ins, code);
         dst += emitOutputRexPrefix(ins, dst, code);
+        INDEBUG(code &= ~(0xFFull << RexBitOffset));
     }
 #endif
 
-    if ((code >> 16) == 1)
+    if ((code >> MmmBitOffset) == 1)
     {
         dst += emitOutputByte(dst, 0x0F);
         dst += emitOutputWord(dst, code);
