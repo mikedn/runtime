@@ -486,69 +486,21 @@ bool emitter::hasRexPrefix(code_t code)
 
 static bool TakesRexWPrefix(instruction ins, emitAttr attr)
 {
+#ifdef TARGET_X86
+    return false;
+#else
+    if (EA_SIZE(attr) != EA_8BYTE)
+    {
+        return false;
+    }
+
     switch (ins)
     {
-        // Some AVX instructions require VEX.W as part of the instruction encoding.
-        case INS_vpermpd:
-        case INS_vpermq:
-        case INS_vpsrlvq:
-        case INS_vpsllvq:
-        case INS_pinsrq:
-        case INS_pextrq:
-        case INS_vfmadd132pd:
-        case INS_vfmadd213pd:
-        case INS_vfmadd231pd:
-        case INS_vfmadd132sd:
-        case INS_vfmadd213sd:
-        case INS_vfmadd231sd:
-        case INS_vfmaddsub132pd:
-        case INS_vfmaddsub213pd:
-        case INS_vfmaddsub231pd:
-        case INS_vfmsubadd132pd:
-        case INS_vfmsubadd213pd:
-        case INS_vfmsubadd231pd:
-        case INS_vfmsub132pd:
-        case INS_vfmsub213pd:
-        case INS_vfmsub231pd:
-        case INS_vfmsub132sd:
-        case INS_vfmsub213sd:
-        case INS_vfmsub231sd:
-        case INS_vfnmadd132pd:
-        case INS_vfnmadd213pd:
-        case INS_vfnmadd231pd:
-        case INS_vfnmadd132sd:
-        case INS_vfnmadd213sd:
-        case INS_vfnmadd231sd:
-        case INS_vfnmsub132pd:
-        case INS_vfnmsub213pd:
-        case INS_vfnmsub231pd:
-        case INS_vfnmsub132sd:
-        case INS_vfnmsub213sd:
-        case INS_vfnmsub231sd:
-        case INS_vpmaskmovq:
-        case INS_vpgatherdq:
-        case INS_vpgatherqq:
-        case INS_vgatherdpd:
-        case INS_vgatherqpd:
-#ifdef TARGET_AMD64
-        // movsx should always sign extend out to 8 bytes just because we don't track
-        // whether the dest should be 4 bytes or 8 bytes (attr indicates the size of
-        // the source, not the dest).
-        case INS_movsx:
-        // movsxd should always have a REX.W prefix, otherwise it's equivalent to mov.
-        case INS_movsxd:
-        case INS_rex_jmp:
-#endif
-            return true;
-
-#ifdef TARGET_AMD64
         // Some instructions are implicitly 64 bit.
         case INS_push:
         case INS_push_hide:
         case INS_pop:
         case INS_pop_hide:
-            assert(EA_SIZE(attr) == EA_8BYTE);
-            FALLTHROUGH;
         case INS_call:
         case INS_ret:
         case INS_i_jmp:
@@ -576,16 +528,11 @@ static bool TakesRexWPrefix(instruction ins, emitAttr attr)
         case INS_pdep:
         case INS_pext:
         case INS_rorx:
-            return EA_SIZE(attr) == EA_8BYTE;
-#endif
-
+            return true;
         default:
-#ifdef TARGET_X86
-            return false;
-#else
-            return (EA_SIZE(attr) == EA_8BYTE) && !IsSSEOrAVXInstruction(ins) && !((INS_jo <= ins) && (ins <= INS_jg));
-#endif
+            return !IsSSEOrAVXInstruction(ins) && !((INS_jo <= ins) && (ins <= INS_jg));
     }
+#endif // TARGET_AMD64
 }
 
 static bool IsExtendedReg(regNumber reg)
@@ -826,7 +773,7 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t cod
 {
     assert(ins != INS_invalid);
     assert(!TakesVexPrefix(ins));
-    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
+    assert(!hasVexPrefix(code));
 
     if (ins == INS_crc32)
     {
@@ -854,7 +801,7 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t cod
 
 unsigned emitter::emitInsSize(code_t code)
 {
-    assert(!hasRexPrefix(code) && !hasVexPrefix(code));
+    assert(!hasVexPrefix(code));
 
     unsigned size = 2;
 
@@ -901,11 +848,13 @@ unsigned emitter::emitInsSizeR(instruction ins, emitAttr size, regNumber reg)
     }
 #endif
 
+    code_t code = insCodeMR(ins);
+
     assert(!TakesVexPrefix(ins));
     assert((ins != INS_movsx) && (ins != INS_movzx));
-    assert((insCodeMR(ins) >> 16) == 0);
+    assert(((code >> PrefixesBitOffset) & 0xFF) == 0);
 
-    return (size == EA_2BYTE) + (IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)) + 2;
+    return (size == EA_2BYTE) + (hasRexPrefix(code) || IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)) + 2;
 }
 
 unsigned emitter::emitInsSizeRI(instruction ins, emitAttr size, regNumber reg, ssize_t imm)
@@ -939,7 +888,7 @@ unsigned emitter::emitInsSizeRI(instruction ins, emitAttr size, regNumber reg, s
             return emitGetVexAdjustedSize(ins) + 1;
         }
 
-        return (IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)) + emitInsSize(code) + 1;
+        return (hasRexPrefix(code) || IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)) + emitInsSize(code) + 1;
     }
 
     assert(!TakesVexPrefix(ins));
@@ -969,8 +918,9 @@ unsigned emitter::emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, 
         return emitGetVexAdjustedSize(ins);
     }
 
-    unsigned sz = emitGetAdjustedSize(ins, size, insCodeRM(ins), true);
-    sz += IsExtendedReg(reg1, size) || IsExtendedReg(reg2, size) ||
+    code_t   code = insCodeRM(ins);
+    unsigned sz   = emitGetAdjustedSize(ins, size, code, true);
+    sz += hasRexPrefix(code) || IsExtendedReg(reg1, size) || IsExtendedReg(reg2, size) ||
           (TakesRexWPrefix(ins, size) && ((ins != INS_xor) || (reg1 != reg2)));
     return sz;
 }
@@ -1007,7 +957,7 @@ unsigned emitter::emitInsSizeRRI(instruction ins, emitAttr size, regNumber reg1,
     }
 
     unsigned sz = emitGetAdjustedSize(ins, size, code);
-    sz += IsExtendedReg(reg1, size) || IsExtendedReg(reg2, size) || TakesRexWPrefix(ins, size);
+    sz += hasRexPrefix(code) || IsExtendedReg(reg1, size) || IsExtendedReg(reg2, size) || TakesRexWPrefix(ins, size);
     return sz;
 }
 
@@ -1032,7 +982,8 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
     else
     {
         sz = emitGetAdjustedSize(ins, size, code);
-        sz += IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) || TakesRexWPrefix(ins, size);
+        sz += hasRexPrefix(code) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) ||
+              TakesRexWPrefix(ins, size);
 
 #ifdef TARGET_AMD64
         // TODO-MIKE-Cleanup: Old code managed to count the REX prefix twice for movsxd.
@@ -1089,7 +1040,7 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
     else
     {
         sz = emitGetAdjustedSize(ins, size, code);
-        sz += IsExtendedReg(baseReg) || IsExtendedReg(indexReg) ||
+        sz += hasRexPrefix(code) || IsExtendedReg(baseReg) || IsExtendedReg(indexReg) ||
               ((ins != INS_call) && (IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size))) ||
               TakesRexWPrefix(ins, size);
     }
@@ -1174,7 +1125,8 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
     else
     {
         sz = emitGetAdjustedSize(ins, size, code);
-        sz += IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) || TakesRexWPrefix(ins, size);
+        sz += hasRexPrefix(code) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) ||
+              TakesRexWPrefix(ins, size);
     }
 
     return sz + 4;
@@ -5048,7 +5000,6 @@ emitter::code_t emitter::AddVexPrefix(instruction ins, code_t code, emitAttr att
 {
     assert(TakesVexPrefix(ins));
     assert(!hasVexPrefix(code));
-    assert((code >> RexBitOffset) == 0);
 
     // We start with a 3-byte VEX by default. Once we gather all its
     // components we can decide to emit a 2-byte VEX prefix instead.
