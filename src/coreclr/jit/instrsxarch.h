@@ -16,26 +16,18 @@
 //   rr    - base encoding for register addressing mode
 //   flags - flags, see INS_FLAGS_* enum
 //
-// The hex codes in this file represent the instruction encoding as follows:
+// The hex codes in this file represent the instruction encoding as follows
+// (assuming that the first bitfield goes to the lowest bits):
 //
-//   0x0000ff00 - modrm byte position
-//   0x000000ff - last byte of opcode (before modrm)
-//   0x00ff0000 - first byte of opcode
-//   0xff000000 - middle byte of opcode, if needed (after first, before last)
-//
-// Multi-byte opcodes without modrm are represented in mixed endian fashion.
-//
-// So a 1-byte opcode is:      and with modrm:
-//             0x00000011          0x0000RM11
-//
-// So a 2-byte opcode is:      and with modrm:
-//             0x00002211          0x0011RM22
-//
-// So a 3-byte opcode is:      and with modrm:
-//             0x00113322          0x2211RM33
-//
-// So a 4-byte opcode would be something like this:
-//             0x22114433
+// struct Code : uint32_t {
+//     uint32_t opcode : 8;    // The main instruction opcode (always 1 byte)
+//     uint32_t rm : 8;        // The entire RM byte, even if the opcode extension fits in 3 bits only
+//     uint32_t mmm : 3;       // VEX/EVEX map field (3 bits only as VEXm3-4 aren't used)
+//     uint32_t pp : 2;        // VEX/EVEX prefix field
+//     uint32_t reserved : 3;  // Maybe use to indicate VEX presence instead of C4? VEX.l/EVX.ll bits?
+//     uint32_t wrxb : 4;      // REX low 4 bits. RXB are always 0, to be set in code as needed.
+//     uint32_t rex : 4;       // 0100 if REX is present. Potentially REX2 R4-X4-B4 bits in the future.
+// }
 
 #define PACK2(byte1, byte2) (((byte1) << 16) | (byte2))
 #define PACK3(byte1, byte2, byte3) (((byte1) << 16) | ((byte2) << 24) | (byte3))
