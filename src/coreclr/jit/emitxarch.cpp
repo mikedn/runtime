@@ -5168,7 +5168,7 @@ size_t emitter::emitOutputLong(uint8_t* dst, uint64_t val)
 }
 #endif // defined(TARGET_X86) && !defined(HOST_64BIT)
 
-size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
+size_t emitter::emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instruction ins))
 {
     assert(TakesVexPrefix(ins) && hasVexPrefix(code));
 
@@ -5189,7 +5189,6 @@ size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
         {
             uint32_t vex21 = ((rexPrefix << 5) | vexPrefix | ((prefixes >> 3) & 3)) ^ (0x1F << 3);
             emitOutputWord(dst, 0xC5 | (vex21 << 8));
-            code &= 0xFFFF;
 
             return 2;
         }
@@ -5201,52 +5200,51 @@ size_t emitter::emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code)
     emitOutputWord(dst, 0xC4 | (vex31 << 8));
     uint32_t vex32 = (((rexPrefix & 8) << 4) | vexPrefix | ((prefixes >> 3) & 3)) ^ (0x0F << 3);
     emitOutputByte(dst + 2, vex32);
-    code &= 0xFFFF;
 
     return 3;
 }
 
 #ifdef TARGET_AMD64
-size_t emitter::emitOutputRexPrefix(instruction ins, uint8_t* dst, code_t& code)
+size_t emitter::emitOutputRexPrefix(uint8_t* dst, code_t code)
 {
+    assert(!hasVexPrefix(code));
     uint32_t rex = (code >> RexBitOffset) & 0xFF;
     assert((rex >= 0x40) && (rex <= 0x4F));
-    code &= UINT_MAX;
     assert(((code >> PpBitOffset) & 3) == 0); // Can't emit REX prefix before other prefixes.
     return emitOutputByte(dst, rex);
 }
 #endif // TARGET_AMD64
 
-size_t emitter::emitOutputRexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code)
+size_t emitter::emitOutputRexPrefixIfNeeded(uint8_t* dst, code_t code)
 {
     assert(!hasVexPrefix(code));
 
 #ifdef TARGET_AMD64
     if (((code >> RexBitOffset) & 0xFF) != 0)
     {
-        return emitOutputRexPrefix(ins, dst, code);
+        return emitOutputRexPrefix(dst, code);
     }
 #endif
 
     return 0;
 }
 
-size_t emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code)
+size_t emitter::emitOutputRexOrVexPrefixIfNeeded(uint8_t* dst, code_t code DEBUGARG(instruction ins))
 {
     if (hasVexPrefix(code))
     {
-        return emitOutputVexPrefix(ins, dst, code);
+        return emitOutputVexPrefix(dst, code DEBUGARG(ins));
     }
 
     if ((code >> PrefixesBitOffset) != 0)
     {
-        return emitOutputPrefixesIfNeeded(ins, dst, code);
+        return emitOutputPrefixesIfNeeded(dst, code);
     }
 
     return 0;
 }
 
-size_t emitter::emitOutputPrefixesIfNeeded(instruction ins, uint8_t* dst, code_t& code)
+size_t emitter::emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code)
 {
     uint8_t* start = dst;
 
@@ -5541,7 +5539,7 @@ uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
         assert((size == EA_4BYTE) || IsSSEOrAVXOrBMIInstruction(ins));
     }
 
-    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+    dst += emitOutputRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
 
     return dst;
 }
@@ -5573,7 +5571,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
     if (ins == INS_call)
     {
-        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputRexPrefixIfNeeded(dst, code);
 
         // The displacement field is in an unusual place for calls
         disp = id->GetCallDisp();
@@ -6174,7 +6172,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
         case INS_call:
             code = insEncodeRMreg(INS_call, reg, EA_PTRSIZE, insCodeMR(INS_call));
-            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputRexPrefixIfNeeded(dst, code);
             dst += emitOutputWord(dst, code);
             // Calls use a different mechanism to update GC info so we can skip the normal handling.
             return dst;
@@ -6212,7 +6210,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 #endif
 
             code |= (0xC0ull | insEncodeReg012(ins, reg, size, &code)) << 8;
-            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputRexPrefixIfNeeded(dst, code);
             dst += emitOutputWord(dst, code);
             break;
 
@@ -6226,7 +6224,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
             code = insCodeRR(ins);
             code |= insEncodeReg012(ins, reg, size, &code);
-            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputRexPrefixIfNeeded(dst, code);
             dst += emitOutputByte(dst, code);
             break;
 
@@ -6247,7 +6245,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             // REX.B should instead be used if the register is encoded in the opcode byte itself.
             // Therefore the default logic of insEncodeReg012 is correct for this case.
             code |= insEncodeReg012(ins, reg, size, &code) << 8;
-            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputRexPrefixIfNeeded(dst, code);
             dst += emitOutputWord(dst, code);
             break;
 
@@ -6271,7 +6269,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             assert(size == EA_1BYTE);
 
             code = insEncodeRMreg(ins, reg, EA_1BYTE, insCodeMR(ins));
-            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputRexPrefixIfNeeded(dst, code);
             dst += emitOutputByte(dst, 0x0F);
             dst += emitOutputWord(dst, code & 0x0000FFFF);
             break;
@@ -6304,7 +6302,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
             }
 #endif
 
-            dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+            dst += emitOutputRexPrefixIfNeeded(dst, code);
             dst += emitOutputWord(dst, code);
             break;
     }
@@ -6568,7 +6566,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
     assert((code & 0xFF00) == 0);
 
     code |= (0xC0 | insEncodeReg345(ins, reg345, size, &code) | insEncodeReg012(ins, reg012, size, &code)) << 8;
-    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+    dst += emitOutputRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
     dst += emitOutputWord(dst, code);
 
     if (id->idGCref())
@@ -6719,7 +6717,7 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
 
     code |= (0xC0 | insEncodeReg345(ins, reg1, size, &code) | insEncodeReg012(ins, reg3, size, &code)) << 8;
     code = SetVexVvvv(ins, reg2, size, code);
-    dst += emitOutputVexPrefix(ins, dst, code);
+    dst += emitOutputVexPrefix(dst, code DEBUGARG(ins));
     dst += emitOutputWord(dst, code);
 
     if (IsGeneralRegister(id->idReg1()))
@@ -6812,7 +6810,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
     assert(((code & 0xFF00) == 0) || ((INS_psrldq <= ins) && (ins <= INS_psrad)));
 
     code |= (0xC0 | insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, mReg, size, &code)) << 8;
-    dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+    dst += emitOutputRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
     dst += emitOutputWord(dst, code);
 
     if ((ins == INS_imuli) && ((code & 0x02) == 0))
@@ -6862,7 +6860,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
             code = SetVexVvvv(ins, reg, size, code);
         }
 
-        dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
         dst += emitOutputWord(dst, code);
         dst += emitOutputByte(dst, imm);
 
@@ -6890,7 +6888,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
         }
 #endif
 
-        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputRexPrefixIfNeeded(dst, code);
         dst += emitOutputByte(dst, code);
 
 #ifdef TARGET_X86
@@ -6958,7 +6956,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
         }
 #endif
 
-        dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+        dst += emitOutputRexPrefixIfNeeded(dst, code);
         dst += emitOutputWord(dst, code);
         dst += emitOutputByte(dst, id->GetImm());
 
@@ -7008,7 +7006,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
     }
 #endif
 
-    dst += emitOutputRexPrefixIfNeeded(ins, dst, code);
+    dst += emitOutputRexPrefixIfNeeded(dst, code);
 
     if (useACC)
     {
@@ -7146,7 +7144,7 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(insCodeRM(INS_lea) == code);
     AMD64_ONLY(code = AddRexWPrefix(INS_lea, code));
     code = SetRMReg(INS_lea, id->idReg1(), EA_PTRSIZE, code);
-    AMD64_ONLY(dst += emitOutputRexPrefix(INS_lea, dst, code));
+    AMD64_ONLY(dst += emitOutputRexPrefix(dst, code));
     dst += emitOutputWord(dst, code | 0x0500);
 
     if (dstOffs > srcOffs)
@@ -7528,7 +7526,7 @@ uint8_t* emitter::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
         assert((ins == INS_cdq) || (ins == INS_stos) || (ins == INS_movs));
 
         code = AddRexWPrefix(ins, code);
-        dst += emitOutputRexPrefix(ins, dst, code);
+        dst += emitOutputRexPrefix(dst, code);
         INDEBUG(code &= ~(0xFFull << RexBitOffset));
     }
 #endif

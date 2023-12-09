@@ -229,13 +229,13 @@ uint8_t* emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
 uint8_t* emitOutputCall(uint8_t* dst, instrDesc* id);
 uint8_t* emitOutputNoOperands(uint8_t* dst, instrDesc* id);
 
-size_t emitOutputVexPrefix(instruction ins, uint8_t* dst, code_t& code);
+size_t emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instruction ins));
 #ifdef TARGET_AMD64
-size_t emitOutputRexPrefix(instruction ins, uint8_t* dst, code_t& code);
+size_t emitOutputRexPrefix(uint8_t* dst, code_t code);
 #endif
-size_t emitOutputRexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code);
-size_t emitOutputRexOrVexPrefixIfNeeded(instruction ins, uint8_t* dst, code_t& code);
-size_t emitOutputPrefixesIfNeeded(instruction ins, uint8_t* dst, code_t& code);
+size_t emitOutputRexPrefixIfNeeded(uint8_t* dst, code_t code);
+size_t emitOutputRexOrVexPrefixIfNeeded(uint8_t* dst, code_t code DEBUGARG(instruction ins));
+size_t emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code);
 
 unsigned insEncodeReg012(instruction ins, regNumber reg, emitAttr size, code_t* code);
 unsigned insEncodeReg345(instruction ins, regNumber reg, emitAttr size, code_t* code);
