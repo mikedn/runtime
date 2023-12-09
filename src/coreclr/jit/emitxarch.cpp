@@ -5579,9 +5579,10 @@ uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
         if ((ins != INS_movzx) && (ins != INS_movsx))
         {
             assert(!IsSSEOrAVXInstruction(ins));
-            assert(((code >> PpBitOffset) & 3) == 0);
 
-            code |= 1ull << PpBitOffset;
+            // We need to emit 0x66 now, instead of adding it to code's prefixes,
+            // crc32 already has a mandatory prefix and can also have a size prefix.
+            dst += emitOutputByte(dst, 0x66);
         }
     }
 #ifdef TARGET_X86
@@ -6559,8 +6560,9 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         }
         else if (size == EA_2BYTE)
         {
-            assert(((code >> PpBitOffset) & 3) == 0);
-            code |= 1ull << PpBitOffset;
+            // We need to emit 0x66 now, instead of adding it to code's prefixes,
+            // crc32 already has a mandatory prefix and can also have a size prefix.
+            dst += emitOutputByte(dst, 0x66);
         }
 #ifdef TARGET_AMD64
         else if (size == EA_8BYTE)
