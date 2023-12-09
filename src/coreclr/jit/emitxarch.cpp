@@ -499,6 +499,25 @@ static bool TakesRexWPrefix(instruction ins, emitAttr attr)
         return false;
     }
 
+    if (IsSSEOrAVXInstruction(ins))
+    {
+        switch (ins)
+        {
+            // Only a few SSE instructions use a REXW prefix.
+            case INS_movd:
+            case INS_movnti:
+            case INS_cvttsd2si:
+            case INS_cvttss2si:
+            case INS_cvtsd2si:
+            case INS_cvtss2si:
+            case INS_cvtsi2sd:
+            case INS_cvtsi2ss:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     switch (ins)
     {
         // Some instructions are implicitly 64 bit.
@@ -514,17 +533,8 @@ static bool TakesRexWPrefix(instruction ins, emitAttr attr)
         // movzx doesn't need REX.W because it zeroes out the upper 32 bit anyway.
         case INS_movzx:
             return false;
-        case INS_movd:
-        case INS_movnti:
-        case INS_cvttsd2si:
-        case INS_cvttss2si:
-        case INS_cvtsd2si:
-        case INS_cvtss2si:
-        case INS_cvtsi2sd:
-        case INS_cvtsi2ss:
-            return true;
         default:
-            return !IsSSEOrAVXInstruction(ins) && !((INS_jo <= ins) && (ins <= INS_jg));
+            return !((INS_jo <= ins) && (ins <= INS_jg));
     }
 #endif // TARGET_AMD64
 }
