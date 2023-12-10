@@ -69,7 +69,7 @@ IF_DEF(RWR_RRD_RRD_RRD, IS_R1_WR|IS_R2_RD|IS_R3_RD|IS_R4_RD, CNS,  NONE)
 
 IF_DEF(MRD,             IS_GM_RD,                            DSP,     MRD)
 IF_DEF(MWR,             IS_GM_WR,                            DSP,     MWR)
-IF_DEF(MRW,             IS_GM_RW,                            DSP,     MWR) // TODO-MIKE-Cleanup: Should be MRW, old code got it wrong.
+IF_DEF(MRW,             IS_GM_RW,                            DSP,     MRW)
 
 IF_DEF(RRD_MRD,         IS_GM_RD|IS_R1_RD,                   DSP,     MRD)
 IF_DEF(RWR_MRD,         IS_GM_RD|IS_R1_WR,                   DSP,     MRD)
@@ -83,11 +83,11 @@ IF_DEF(RWR_RRD_MRD_RRD, IS_GM_RD|IS_R1_WR|IS_R2_RD|IS_R3_RD, DSP_CNS, MRD)
 
 IF_DEF(MRD_RRD,         IS_GM_RD|IS_R1_RD,                   DSP,     MRD)
 IF_DEF(MWR_RRD,         IS_GM_WR|IS_R1_RD,                   DSP,     MWR)
-IF_DEF(MRW_RRD,         IS_GM_RW|IS_R1_RD,                   DSP,     MWR) // TODO-MIKE-Cleanup: Should be MRW, old code got it wrong.
+IF_DEF(MRW_RRD,         IS_GM_RW|IS_R1_RD,                   DSP,     MRW)
 
 IF_DEF(MRD_CNS,         IS_GM_RD,                            DSP_CNS, MRD)
 IF_DEF(MWR_CNS,         IS_GM_WR,                            DSP_CNS, MWR)
-IF_DEF(MRW_CNS,         IS_GM_RW,                            DSP_CNS, MWR) // TODO-MIKE-Cleanup: Should be MRW, old code got it wrong.
+IF_DEF(MRW_CNS,         IS_GM_RW,                            DSP_CNS, MRW)
 
 IF_DEF(MWR_RRD_CNS,     IS_GM_WR|IS_R1_RD,                   DSP_CNS, MWR)
 
@@ -97,7 +97,7 @@ IF_DEF(MWR_RRD_CNS,     IS_GM_WR|IS_R1_RD,                   DSP_CNS, MWR)
 
 IF_DEF(SRD,             IS_SF_RD,                            NONE, SRD)
 IF_DEF(SWR,             IS_SF_WR,                            NONE, SWR)
-IF_DEF(SRW,             IS_SF_RW,                            NONE, SWR) // TODO-MIKE-Cleanup: Should be SRW, old code got it wrong.
+IF_DEF(SRW,             IS_SF_RW,                            NONE, SRW)
 
 IF_DEF(RRD_SRD,         IS_SF_RD|IS_R1_RD,                   NONE, SRD)
 IF_DEF(RWR_SRD,         IS_SF_RD|IS_R1_WR,                   NONE, SRD)
@@ -111,11 +111,11 @@ IF_DEF(RWR_RRD_SRD_RRD, IS_SF_RD|IS_R1_WR|IS_R2_RD|IS_R3_RD, CNS,  SRD)
 
 IF_DEF(SRD_RRD,         IS_SF_RD|IS_R1_RD,                   NONE, SRD)
 IF_DEF(SWR_RRD,         IS_SF_WR|IS_R1_RD,                   NONE, SWR)
-IF_DEF(SRW_RRD,         IS_SF_RW|IS_R1_RD,                   NONE, SWR) // TODO-MIKE-Cleanup: Should be SRW, old code got it wrong.
+IF_DEF(SRW_RRD,         IS_SF_RW|IS_R1_RD,                   NONE, SRW)
 
 IF_DEF(SRD_CNS,         IS_SF_RD,                            CNS,  SRD)
 IF_DEF(SWR_CNS,         IS_SF_WR,                            CNS,  SWR)
-IF_DEF(SRW_CNS,         IS_SF_RW,                            CNS,  SWR) // TODO-MIKE-Cleanup: Should be SRW, old code got it wrong.
+IF_DEF(SRW_CNS,         IS_SF_RW,                            CNS,  SRW)
 
 IF_DEF(SWR_RRD_CNS,     IS_AM_WR|IS_R1_RD,                   CNS,  SWR)
 
