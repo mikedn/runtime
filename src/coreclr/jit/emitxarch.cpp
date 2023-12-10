@@ -4605,7 +4605,7 @@ private:
 
             case IF_RWR_RRD_RRD_RRD:
                 printf("%s, %s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr),
-                       RegName(id->idReg3(), attr), RegName(static_cast<regNumber>(id->idSmallCns() >> 4), attr));
+                       RegName(id->idReg3(), attr), RegName(id->idReg4(), attr));
                 break;
 
             case IF_RWR_RRD_RRD_CNS:
