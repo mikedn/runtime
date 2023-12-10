@@ -180,7 +180,6 @@ bool UseVEXEncoding() const;
 
 unsigned emitGetVexAdjustedSize(instruction ins);
 unsigned emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code, bool isRR = false);
-unsigned emitInsSize(code_t code);
 unsigned emitInsSizeR(instruction ins, emitAttr size, regNumber reg);
 unsigned emitInsSizeRI(instruction ins, emitAttr size, regNumber reg, ssize_t imm);
 unsigned emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, regNumber reg2);

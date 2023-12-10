@@ -735,6 +735,30 @@ unsigned emitter::emitGetVexAdjustedSize(instruction ins)
     return 3 + 1 + 1;
 }
 
+static unsigned emitInsSize(code_t code)
+{
+    assert(!hasVexPrefix(code));
+
+    unsigned size = 2;
+
+    if (uint32_t prefixes = (code >> PrefixesBitOffset) & 0xFF)
+    {
+        if ((prefixes >> 3) != 0)
+        {
+            size++;
+        }
+
+        size++;
+
+        if ((prefixes & 7) > 1)
+        {
+            size++;
+        }
+    }
+
+    return size;
+}
+
 unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t code, bool isRR)
 {
     assert(ins != INS_invalid);
@@ -763,30 +787,6 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t cod
     }
 
     return sz;
-}
-
-unsigned emitter::emitInsSize(code_t code)
-{
-    assert(!hasVexPrefix(code));
-
-    unsigned size = 2;
-
-    if (uint32_t prefixes = (code >> PrefixesBitOffset) & 0xFF)
-    {
-        if ((prefixes >> 3) != 0)
-        {
-            size++;
-        }
-
-        size++;
-
-        if ((prefixes & 7) > 1)
-        {
-            size++;
-        }
-    }
-
-    return size;
 }
 
 unsigned emitter::emitInsSizeR(instruction ins, emitAttr size, regNumber reg)
