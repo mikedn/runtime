@@ -7675,6 +7675,7 @@ void emitter::emitIns_R_AH(instruction ins,
     id->idOpSize(EA_8BYTE);
     id->idAddr()->iiaAddr = addr;
     id->idReg1(reg);
+    // TODO-MIKE-Review: Why does this always set CnsReloc and adrp below sets in only if relocs are enabled?
     id->idSetIsCnsReloc();
 #ifdef DEBUG
     id->idDebugOnlyInfo()->idHandle     = handle;
