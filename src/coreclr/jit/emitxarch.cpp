@@ -1100,22 +1100,23 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
 
 static unsigned emitInsSizeImm(instruction ins, emitAttr attr, int32_t imm)
 {
-    unsigned immSize = EA_SIZE_IN_BYTES(attr);
-    bool     hasImm8 = ((signed char)imm == imm) && (ins != INS_mov) && (ins != INS_test) && !EA_IS_CNS_RELOC(attr);
+    if (IsShiftImm(ins))
+    {
+        return 1;
+    }
 
-    // We should never generate BT mem,reg because it has poor performance. BT mem,imm might be useful
-    // but it requires special handling of the immediate value (it is always encoded in a byte).
-    // Let's not complicate things until this is needed.
+    // BT mem,imm might be useful but it requires special handling of the immediate value
+    // (it is always encoded in a byte). Let's not complicate things until this is needed.
     assert(ins != INS_bt);
 
-    if (hasImm8)
+    if ((static_cast<int8_t>(imm) == imm) && (ins != INS_mov) && (ins != INS_test) && !EA_IS_CNS_RELOC(attr))
     {
         return 1;
     }
 
     assert(!IsSSEOrAVXOrBMIInstruction(ins));
 
-    return Min(immSize, 4u);
+    return Min(EA_SIZE_IN_BYTES(attr), 4u);
 }
 
 template <typename T>
@@ -1676,11 +1677,6 @@ void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int3
 
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
-    if (IsShiftImm(ins))
-    {
-        imm &= 0x7F;
-    }
-
     instrDesc* id = emitNewInstrAmdCns(GetAddrModeDisp(addr), imm);
     id->idIns(ins);
     id->idInsFmt(IF_ARW_CNS);
@@ -1735,11 +1731,6 @@ void emitter::emitInsRMW_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE 
 void emitter::emitInsRMW_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
-
-    if (IsShiftImm(ins))
-    {
-        imm &= 0x7F;
-    }
 
     instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
@@ -1836,17 +1827,12 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     // all other opcodes take a sign-extended 4-byte immediate
     AMD64_ONLY(noway_assert((size < EA_8BYTE) || (ins == INS_mov) || IsImm32(imm)));
 
-    if (IsShiftImm(ins))
-    {
-        assert(imm != 1);
-        imm &= 0x7F;
-    }
 #ifdef TARGET_AMD64
     // mov reg, imm64 is equivalent to mov reg, imm32 if the high order bits are all 0
     // and this isn't a reloc constant.
     // TODO-MIKE-Review: This doesn't check for relocs as the comment claims, the reloc
     // bit was stripped by EA_SIZE above.
-    else if ((ins == INS_mov) && (size == EA_8BYTE) && (0 <= imm) && (imm <= UINT_MAX))
+    if ((ins == INS_mov) && (size == EA_8BYTE) && (0 <= imm) && (imm <= UINT_MAX))
     {
         attr = EA_4BYTE;
         size = EA_4BYTE;
@@ -2783,12 +2769,6 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     assert(FieldDispRequiresRelocation(field));
 
-    if (IsShiftImm(ins))
-    {
-        assert(imm != 1);
-        imm &= 0x7F;
-    }
-
     instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
@@ -2917,12 +2897,6 @@ void emitter::emitIns_ARX_I(
 {
     assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_8BYTE));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
-
-    if (IsShiftImm(ins))
-    {
-        assert(imm != 1);
-        imm &= 0x7F;
-    }
 
     instrDesc* id = emitNewInstrAmdCns(disp, imm);
     id->idIns(ins);
@@ -3348,12 +3322,6 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int var
 void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
-
-    if (IsShiftImm(ins))
-    {
-        assert(imm != 1);
-        imm &= 0x7F;
-    }
 
     instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
@@ -5510,8 +5478,6 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     instruction ins      = id->idIns();
     regNumber   baseReg  = id->idAddr()->iiaAddrMode.base;
     regNumber   indexReg = id->idAddr()->iiaAddrMode.index;
-    ssize_t     disp;
-    unsigned    immSize;
 
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
@@ -5530,24 +5496,22 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     }
 #endif
 
+    ssize_t  disp;
+    unsigned immSize = 0;
+
     if (ins == INS_call)
     {
         dst += emitOutputRexPrefixIfNeeded(dst, code);
 
         // The displacement field is in an unusual place for calls
         disp = id->GetCallDisp();
-        // Calls don't have an immediate operand and the instruction size indicates the size of
-        // the return value, the operand size of the call is always 32/64 bit. Just set this to
-        // keep the compiler from complaining about it being uninitialized.
-        immSize = 0;
     }
     else
     {
-        emitAttr size = id->idOpSize();
-        immSize       = EA_SIZE_IN_BYTES(size);
-
         if (imm != nullptr)
         {
+            immSize = IsShiftImm(ins) ? 1 : EA_SIZE_IN_BYTES(id->idOpSize());
+
             // 1. Instructions like "ADD rm16/32/64, imm16/32" have an alternate encoding if the imm fits in 8 bits.
             // 2. MOV/TEST do not have such encodings, they always need an imm16/32.
             // 3. Shifts and SSE/AVX instructions only have imm8 encodings, independent of the first operand size.
@@ -5750,18 +5714,20 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
 uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
 {
-    instruction ins     = id->idIns();
-    emitAttr    size    = id->idOpSize();
-    unsigned    immSize = EA_SIZE_IN_BYTES(size);
+    instruction ins = id->idIns();
 
-    assert(ins != INS_imul || id->idReg1() == REG_EAX || size == EA_4BYTE || size == EA_8BYTE);
+    assert(ins != INS_imul || id->idReg1() == REG_EAX || id->idOpSize() == EA_4BYTE || id->idOpSize() == EA_8BYTE);
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
     assert((ins != INS_bt) && !IsCmov(ins));
     assert(TakesVexPrefix(ins) == hasVexPrefix(code));
 
+    unsigned immSize = 0;
+
     if (imm != nullptr)
     {
+        immSize = IsShiftImm(ins) ? 1 : EA_SIZE_IN_BYTES(id->idOpSize());
+
         // 1. Instructions like "ADD rm16/32/64, imm16/32" have an alternate encoding if the imm fits in 8 bits.
         // 2. MOV/TEST do not have such encodings, they always need an imm16/32.
         // 3. Shifts and SSE/AVX instructions only have imm8 encodings, independent of the first operand size.
@@ -5917,11 +5883,9 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
 uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
 {
-    instruction          ins     = id->idIns();
-    emitAttr             size    = id->idOpSize();
-    unsigned             immSize = EA_SIZE_IN_BYTES(size);
-    CORINFO_FIELD_HANDLE field   = id->idAddr()->iiaFieldHnd;
-    ssize_t              disp    = id->GetMemDisp();
+    instruction          ins   = id->idIns();
+    CORINFO_FIELD_HANDLE field = id->idAddr()->iiaFieldHnd;
+    ssize_t              disp  = id->GetMemDisp();
 
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
@@ -5956,7 +5920,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
                 align = 1;
                 break;
             default:
-                align = EA_SIZE_IN_BYTES(size);
+                align = EA_SIZE_IN_BYTES(id->idOpSize());
                 break;
         }
 
@@ -5983,6 +5947,8 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
         disp += reinterpret_cast<ssize_t>(addr);
     }
 
+    unsigned immSize = 0;
+
 #ifdef TARGET_X86
     // Special case: "mov eax, [addr]" and "mov [addr], eax" have smaller encoding.
     // x64 currently never uses the moffset format, it uses only RIP relative addressing.
@@ -6002,6 +5968,8 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     {
         if (imm != nullptr)
         {
+            immSize = IsShiftImm(ins) ? 1 : EA_SIZE_IN_BYTES(id->idOpSize());
+
             // 1. Instructions like "ADD rm16/32/64, imm16/32" have an alternate encoding if the imm fits in 8 bits.
             // 2. MOV/TEST do not have such encodings, they always need an imm16/32.
             // 3. Shifts and SSE/AVX instructions only have imm8 encodings, independent of the first operand size.
