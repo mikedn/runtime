@@ -1826,7 +1826,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         || EA_IS_GCREF_OR_BYREF(retReg2Attr)
 #endif
 #ifdef TARGET_X86
-        || (argSlotCount > ID_MAX_SMALL_CNS) || (argSlotCount < 0)
+        || !instrDesc::fitsInSmallCns(argSlotCount)
 #endif
 #ifdef TARGET_XARCH
         || (disp < AM_DISP_MIN) || (disp > AM_DISP_MAX)

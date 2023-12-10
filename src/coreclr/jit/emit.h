@@ -516,6 +516,7 @@ private:
         static_assert_no_msg(INS_COUNT <= 1024);
         static_assert_no_msg(IF_COUNT <= 128);
         static_assert_no_msg(ACTUAL_REG_COUNT <= 64);
+        static constexpr unsigned SmallImmBits = 16;
 
         instruction _idIns : 10;      // Instruction opcode
         insFormat   _idInsFmt : 7;    // Instruction format
@@ -526,19 +527,14 @@ private:
         RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
         unsigned    _idSmallDsc : 1;  // this is instrDescSmall
         unsigned    _idLargeCall : 1; // this is instrDescCGCA
-        unsigned    _idLargeCns : 1;  // does a large constant     follow?
-        unsigned    _idLargeDsp : 1;  // does a large displacement follow?
+        unsigned    _idLargeCns : 1;  // this is instrDescCns/instrDescCnsAmd
+        unsigned    _idLargeDsp : 1;  // this is instrDescAmd
         unsigned    _idBound : 1;     // Jump target / frame offset bound
         unsigned    _idNoGC : 1;      // Helper call that does not need GC information
         unsigned    _idCnsReloc : 1;  // Immediate is relocatable
         unsigned    _idDspReloc : 1;  // Address mode displacement is relocatable
-#define ID_EXTRA_BITFIELD_BITS 14
-#define ID_EXTRA_RELOC_BITS 2
-#define ID_EXTRA_BITS (ID_EXTRA_RELOC_BITS + ID_EXTRA_BITFIELD_BITS)
-#define ID_BIT_SMALL_CNS (32 - ID_EXTRA_BITS)
-#define ID_MIN_SMALL_CNS 0
-#define ID_MAX_SMALL_CNS (int)((1 << ID_BIT_SMALL_CNS) - 1U)
-        unsigned _idSmallCns : ID_BIT_SMALL_CNS;
+        unsigned    _idSpare : 2;     // Reserved for EVEX/APX registers?
+        unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_XARCH
 
 #ifdef TARGET_ARM64
@@ -546,6 +542,7 @@ private:
         static_assert_no_msg(IF_COUNT <= 256);
         // REG_SP is included the in actual reg count but we don't need that here.
         static_assert_no_msg(ACTUAL_REG_COUNT - 1 <= 64);
+        static constexpr unsigned SmallImmBits = 14;
 
         instruction _idIns : 9;       // Instruction opcode
         insFormat   _idInsFmt : 8;    // Instruction format
@@ -561,19 +558,15 @@ private:
         insOpts     _idInsOpt : 6;    // Instruction options
         unsigned    _idLclVar : 1;    // Local load/store
         unsigned    _idCnsReloc : 1;  // Immediate is relocatable
-#define ID_EXTRA_BITFIELD_BITS 16
-#define ID_EXTRA_RELOC_BITS 2
-#define ID_EXTRA_BITS (ID_EXTRA_RELOC_BITS + ID_EXTRA_BITFIELD_BITS)
-#define ID_BIT_SMALL_CNS (32 - ID_EXTRA_BITS)
-#define ID_MIN_SMALL_CNS 0
-#define ID_MAX_SMALL_CNS (int)((1 << ID_BIT_SMALL_CNS) - 1U)
-        unsigned _idSmallCns : ID_BIT_SMALL_CNS;
+        unsigned    _idSpare : 3;     // Give these to small imm?
+        unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_ARM64
 
 #ifdef TARGET_ARM
         static_assert_no_msg(INS_COUNT <= 256);
         static_assert_no_msg(IF_COUNT <= 256);
         static_assert_no_msg(ACTUAL_REG_COUNT <= 64);
+        static constexpr unsigned SmallImmBits = 14;
 
         instruction _idIns : 8;       // Instruction opcode
         insFormat   _idInsFmt : 8;    // Instruction format
@@ -591,13 +584,8 @@ private:
         unsigned    _idLclVar : 1;    // Local load/store
         insOpts     _idInsOpt : 3;    // Instruction options
         unsigned    _idCnsReloc : 1;  // Immediate is relocatable
-#define ID_EXTRA_BITFIELD_BITS 16
-#define ID_EXTRA_RELOC_BITS 2
-#define ID_EXTRA_BITS (ID_EXTRA_RELOC_BITS + ID_EXTRA_BITFIELD_BITS)
-#define ID_BIT_SMALL_CNS (32 - ID_EXTRA_BITS)
-#define ID_MIN_SMALL_CNS 0
-#define ID_MAX_SMALL_CNS (int)((1 << ID_BIT_SMALL_CNS) - 1U)
-        unsigned _idSmallCns : ID_BIT_SMALL_CNS;
+        unsigned    _idSpare : 5;     // Give these to small imm?
+        unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_ARM
 
         INDEBUG(instrDescDebugInfo* _idDebugOnlyInfo;)
@@ -812,9 +800,9 @@ private:
             assert(reg == _idReg2);
         }
 
-        inline static bool fitsInSmallCns(ssize_t val)
+        static bool fitsInSmallCns(ssize_t val)
         {
-            return ((val >= ID_MIN_SMALL_CNS) && (val <= ID_MAX_SMALL_CNS));
+            return (val >= 0) && (val < (static_cast<ssize_t>(1) << SmallImmBits));
         }
 
         bool idIsLargeCns() const
