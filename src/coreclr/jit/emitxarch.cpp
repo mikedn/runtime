@@ -120,13 +120,6 @@ static instruction MapSse41BlendvToAvxBlendv(instruction ins)
     }
 }
 
-#ifdef TARGET_AMD64
-static bool IsSSEOrAVXInstruction(instruction ins)
-{
-    return (ins >= INS_FIRST_SSE_INSTRUCTION) && (ins <= INS_LAST_AVX_INSTRUCTION);
-}
-#endif
-
 static bool IsSSEOrAVXOrBMIInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_SSE_INSTRUCTION) && (ins <= INS_LAST_VEX_INSTRUCTION);
@@ -180,8 +173,11 @@ enum insFlags : uint32_t
     Undefined_PF = 1 << 21,
     Undefined_CF = 1 << 22,
 
+#ifdef TARGET_AMD64
+    INS_Flags_RexW = 1 << 24,
+#endif
     INS_Flags_VexDstDstSrc = 1 << 25,
-    INS_Flags_VexDstSrcSrc = 1 << 26
+    INS_Flags_VexDstSrcSrc = 1 << 26,
 };
 
 static insFlags InsFlags(instruction ins)
@@ -225,6 +221,11 @@ static insFlags InsFlags(instruction ins)
         CcFlags_g         = Reads_OF | Reads_SF | Reads_ZF,
         DirFlags          = Reads_DF,
 
+#ifdef TARGET_AMD64
+        RexW = INS_Flags_RexW,
+#else
+        RexW = 0,
+#endif
         VexDstSrcSrc = INS_Flags_VexDstSrcSrc,
         VexDstDstSrc = INS_Flags_VexDstDstSrc,
     };
@@ -484,45 +485,9 @@ static bool hasRexPrefix(code_t code)
 #ifdef TARGET_AMD64
 static bool TakesRexWPrefix(instruction ins)
 {
-    if (IsSSEOrAVXInstruction(ins))
-    {
-        switch (ins)
-        {
-            // Only a few SSE instructions use a REXW prefix.
-            case INS_movd:
-            case INS_movnti:
-            case INS_cvttsd2si:
-            case INS_cvttss2si:
-            case INS_cvtsd2si:
-            case INS_cvtss2si:
-            case INS_cvtsi2sd:
-            case INS_cvtsi2ss:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    switch (ins)
-    {
-        // Some instructions are implicitly 64 bit.
-        case INS_push:
-        case INS_push_hide:
-        case INS_pop:
-        case INS_pop_hide:
-        case INS_call:
-        case INS_ret:
-        case INS_i_jmp:
-        case INS_jmp:
-        case INS_l_jmp:
-        // movzx doesn't need REX.W because it zeroes out the upper 32 bit anyway.
-        case INS_movzx:
-            return false;
-        default:
-            return !((INS_jo <= ins) && (ins <= INS_jg));
-    }
+    return (InsFlags(ins) & INS_Flags_RexW) != 0;
 }
-#endif // TARGET_AMD64
+#endif
 
 static bool TakesRexWPrefix(instruction ins, emitAttr attr)
 {
@@ -533,12 +498,12 @@ static bool TakesRexWPrefix(instruction ins, emitAttr attr)
 #endif
 }
 
-static_assert_no_msg(REG_R8 == 0x08);
-static_assert_no_msg(REG_XMM8 == 0x18);
-
 static bool IsExtendedReg(regNumber reg)
 {
 #ifdef TARGET_AMD64
+    static_assert_no_msg(REG_R8 == 0x08);
+    static_assert_no_msg(REG_XMM8 == 0x18);
+
     return (reg <= REG_XMM15) && ((reg & 0x08) != 0);
 #else
     return false;
