@@ -361,7 +361,6 @@ typedef ptrdiff_t ssize_t;
 #define MEASURE_FATAL 0       // Count the number of calls to fatal(), including NYIs and noway_asserts.
 #define MEASURE_NODE_SIZE 0   // Collect stats about GenTree node allocations.
 #define MEASURE_PTRTAB_SIZE 0 // Collect stats about GC pointer table allocations.
-#define EMITTER_STATS 0       // Collect stats on the emitter.
 #define NODEBASH_STATS 0      // Collect stats on changed gtOper values in GenTree's.
 #define COUNT_AST_OPERS 0     // Display use counts for GenTree operators.
 
@@ -515,7 +514,7 @@ inline size_t unsigned_abs(ssize_t x)
 
 /*****************************************************************************/
 
-#if COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE || MEASURE_MEM_ALLOC
+#if COUNT_BASIC_BLOCKS || COUNT_LOOPS || MEASURE_NODE_SIZE || MEASURE_MEM_ALLOC
 
 #define HISTOGRAM_MAX_SIZE_COUNT 64
 
@@ -533,7 +532,7 @@ private:
     unsigned              m_counts[HISTOGRAM_MAX_SIZE_COUNT];
 };
 
-#endif // COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE
+#endif // COUNT_BASIC_BLOCKS || COUNT_LOOPS || MEASURE_NODE_SIZE
 
 #if CHECK_STRUCT_PADDING
 #pragma warning(push)

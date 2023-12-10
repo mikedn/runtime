@@ -249,7 +249,7 @@ void CodeGen::genCodeForBBlist()
         // partly because emitCreatePlaceholderIG is stealing the insGroup create
         // by emitAddLabel and partly due to temp labels, which aren't real basic
         // blocks (and DO NOT kill spill temps).
-        GetEmitter()->emitCurIG->igFlags |= IGF_BASIC_BLOCK;
+        GetEmitter()->GetCurrentInsGroup()->igFlags |= IGF_BASIC_BLOCK;
 
         // Emit poisoning into scratch BB that comes right after prolog.
         // We cannot emit this code in the prolog as it might make the prolog too large.
@@ -332,11 +332,11 @@ void CodeGen::genCodeForBBlist()
             if (nonLclGCRegs != RBM_NONE)
             {
                 printf("Regs after " FMT_BB " ref-regs", block->bbNum);
-                emitter::emitDispRegSet(liveness.GetGCRegs(TYP_REF) & ~lclRegs);
+                DumpRegSet(liveness.GetGCRegs(TYP_REF) & ~lclRegs);
                 printf(", byref-regs");
-                emitter::emitDispRegSet(liveness.GetGCRegs(TYP_BYREF) & ~lclRegs);
+                DumpRegSet(liveness.GetGCRegs(TYP_BYREF) & ~lclRegs);
                 printf(", lcl-regs");
-                emitter::emitDispRegSet(lclRegs);
+                DumpRegSet(lclRegs);
                 printf("\n");
             }
 
@@ -467,7 +467,7 @@ void CodeGen::genCodeForBBlist()
                     (!isFramePointerUsed() && compiler->fgIsThrowHelperBlock(block->bbNext)) ||
                     block->bbNext == compiler->fgFirstColdBlock)
                 {
-                    instGen(INS_BREAKPOINT); // This should never get executed
+                    GetEmitter()->emitIns(INS_BREAKPOINT); // This should never get executed
                 }
                 // Do likewise for blocks that end in DOES_NOT_RETURN calls
                 // that were not caught by the above rules. This ensures that
@@ -479,7 +479,7 @@ void CodeGen::genCodeForBBlist()
 
                     if ((call != nullptr) && call->IsCall() && call->AsCall()->IsNoReturn())
                     {
-                        instGen(INS_BREAKPOINT); // This should never get executed
+                        GetEmitter()->emitIns(INS_BREAKPOINT); // This should never get executed
                     }
                 }
                 break;
@@ -535,12 +535,12 @@ void CodeGen::genCodeForBBlist()
                     if (block->bbNext == nullptr)
                     {
                         // Call immediately before the end of the code; we should never get here.
-                        instGen(INS_BREAKPOINT);
+                        GetEmitter()->emitIns(INS_BREAKPOINT);
                     }
                     else if (!BasicBlock::sameEHRegion(block, block->bbNext))
                     {
                         // We need the NOP for EH.
-                        instGen(INS_nop);
+                        GetEmitter()->emitIns(INS_nop);
                     }
                 }
 #endif // TARGET_AMD64

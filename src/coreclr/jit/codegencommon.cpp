@@ -38,6 +38,13 @@ CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), liveness(comp
 #endif
 }
 
+#ifdef TARGET_XARCH
+void CodeGenInterface::SetUseVEXEncoding(bool value)
+{
+    m_cgEmitter->SetUseVEXEncoding(value);
+}
+#endif
+
 //------------------------------------------------------------------------
 // genMarkLabelsForCodegen: Mark labels required for codegen.
 //
@@ -734,7 +741,7 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
 
         block->bbUnwindNopEmitCookie = GetEmitter()->emitAddLabel(INDEBUG(block));
 
-        instGen(INS_nop);
+        GetEmitter()->emitIns(INS_nop);
     }
 }
 #endif
@@ -1029,8 +1036,7 @@ void CodeGen::genEmitMachineCode()
     {
         printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
                "code %d",
-               codeSize, prologSize, compiler->info.compPerfScore, instrCount,
-               GetEmitter()->emitTotalHotCodeSize + GetEmitter()->emitTotalColdCodeSize);
+               codeSize, prologSize, compiler->info.compPerfScore, instrCount, GetEmitter()->GetCodeSize());
 
 #if TRACK_LSRA_STATS
         if (JitConfig.DisplayLsraStats() == 3)
@@ -1040,9 +1046,7 @@ void CodeGen::genEmitMachineCode()
 #endif // TRACK_LSRA_STATS
 
         printf(" (MethodHash=%08x) for method %s\n", compiler->info.compMethodHash(), compiler->info.compFullName);
-
         printf("; ============================================================\n\n");
-        printf(""); // in our logic this causes a flush
     }
 
     if (verbose)
@@ -1140,9 +1144,9 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
 #ifdef JIT32_GCENCODER
     INDEBUG(void* infoPtr =)
-    GetEmitter()->gcInfo.CreateAndStoreGCInfo(this, codeSize, prologSize, epilogSize);
+    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, codeSize, prologSize, epilogSize);
 #else
-    GetEmitter()->gcInfo.CreateAndStoreGCInfo(codeSize, prologSize);
+    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(codeSize, prologSize);
 #endif
 
 #ifdef DEBUG
@@ -1810,7 +1814,7 @@ void CodeGen::genPrologMoveParamRegs(
 // Map a parameter register to a parameter register index.
 unsigned genGetParamRegIndex(regNumber regNum)
 {
-    if (emitter::isFloatReg(regNum))
+    if (IsFloatReg(regNum))
     {
         assert(isValidFloatArgReg(regNum));
 
@@ -1907,7 +1911,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
             {
                 regNumber regNum = lcl->GetParamReg(regIndex);
 
-                if (emitter::isFloatReg(regNum) != isFloat)
+                if (IsFloatReg(regNum) != isFloat)
                 {
                     continue;
                 }
@@ -1961,7 +1965,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
         else
 #endif // UNIX_AMD64_ABI
         {
-            if (emitter::isFloatReg(lcl->GetParamReg()) != isFloat)
+            if (IsFloatReg(lcl->GetParamReg()) != isFloat)
             {
                 continue;
             }
@@ -3375,7 +3379,7 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
                 abs(maxGCTrackedOffset));
 #endif
 
-        GetEmitter()->gcInfo.SetTrackedStackSlotRange(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
+        GetEmitter()->GetGCInfo().SetTrackedStackSlotRange(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
     }
     else
     {
@@ -4140,8 +4144,8 @@ void CodeGen::genFnProlog()
     {
         // Put a nop first because the debugger and other tools are likely to
         // put an int3 at the beginning and we don't want to confuse them.
-        instGen(INS_nop);
-        instGen(INS_BREAKPOINT);
+        GetEmitter()->emitIns(INS_nop);
+        GetEmitter()->emitIns(INS_BREAKPOINT);
 
 #ifdef TARGET_ARMARCH
         // Avoid asserts in the unwind info because these instructions aren't accounted for.
@@ -5290,7 +5294,7 @@ void CodeGen::genEnsureCodeEmitted(IL_OFFSETX offsx)
 
     if (genIPmappingLast->ipmdNativeLoc.IsCurrentLocation(GetEmitter()))
     {
-        instGen(INS_nop);
+        GetEmitter()->emitIns(INS_nop);
     }
 }
 
@@ -5831,6 +5835,70 @@ instruction CodeGen::ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool 
     return ins_Store(dstTypeForStore, aligned);
 }
 
+void CodeGen::inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock)
+{
+#if !FEATURE_FIXED_OUT_ARGS
+    // On the x86 we are pushing (and changing the stack level), but on x64 and other archs we have
+    // a fixed outgoing args area that we store into and we never change the stack level when calling methods.
+    //
+    // Thus only on x86 do we need to assert that the stack level at the target block matches the current stack level.
+    //
+    CLANG_FORMAT_COMMENT_ANCHOR;
+
+#ifdef UNIX_X86_ABI
+    // bbTgtStkDepth is a (pure) argument count (stack alignment padding should be excluded).
+    assert((tgtBlock->bbTgtStkDepth * sizeof(int) == (genStackLevel - curNestedAlignment)) || isFramePointerUsed());
+#else
+    assert((tgtBlock->bbTgtStkDepth * sizeof(int) == genStackLevel) || isFramePointerUsed());
+#endif
+#endif // !FEATURE_FIXED_OUT_ARGS
+
+    GetEmitter()->emitIns_J(emitter::emitJumpKindToIns(jmp), tgtBlock);
+}
+
+void CodeGen::inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip)
+{
+    GetEmitter()->emitIns_Mov(ins_Copy(srcReg, dstType), emitActualTypeSize(dstType), dstReg, srcReg, canSkip);
+}
+
+bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs)
+{
+    if (op->isUsedFromSpillTemp())
+    {
+        assert(op->IsRegOptional());
+        assert(op->IsRegSpilled(0));
+
+        SpillTemp* temp = spillTemps.UseSpillTemp(op, 0);
+
+        *lclNum  = temp->GetNum();
+        *lclOffs = 0;
+
+        return true;
+    }
+
+    assert(op->isContained());
+
+    if (op->OperIs(GT_LCL_FLD))
+    {
+        *lclNum  = op->AsLclFld()->GetLclNum();
+        *lclOffs = op->AsLclFld()->GetLclOffs();
+
+        return true;
+    }
+
+    if (op->OperIs(GT_LCL_VAR))
+    {
+        assert(op->IsRegOptional() || !compiler->lvaGetDesc(op->AsLclVar())->IsRegCandidate());
+
+        *lclNum  = op->AsLclVar()->GetLclNum();
+        *lclOffs = 0;
+
+        return true;
+    }
+
+    return false;
+}
+
 #if defined(DEBUG) && defined(TARGET_XARCH)
 
 //------------------------------------------------------------------------
@@ -5850,7 +5918,7 @@ void CodeGen::genStackPointerCheck(unsigned lvaStackPointerVar)
 
     BasicBlock* sp_check = genCreateTempLabel();
     GetEmitter()->emitIns_J(INS_je, sp_check);
-    instGen(INS_BREAKPOINT);
+    GetEmitter()->emitIns(INS_BREAKPOINT);
     genDefineTempLabel(sp_check);
 }
 
@@ -5871,8 +5939,7 @@ unsigned CodeGenInterface::getCurrentStackLevel() const
 
 // Dump "VariableLiveRange" when code has not been generated and we don't have so the assembly native offset
 // but at least "emitLocation"s and "siVarLoc"
-void CodeGenInterface::VariableLiveKeeper::VariableLiveRange::dumpVariableLiveRange(
-    const CodeGenInterface* codeGen) const
+void CodeGen::VariableLiveKeeper::VariableLiveRange::dumpVariableLiveRange(const CodeGenInterface* codeGen) const
 {
     codeGen->dumpSiVarLoc(&m_VarLocation);
 
@@ -5891,8 +5958,8 @@ void CodeGenInterface::VariableLiveKeeper::VariableLiveRange::dumpVariableLiveRa
 }
 
 // Dump "VariableLiveRange" when code has been generated and we have the assembly native offset of each "emitLocation"
-void CodeGenInterface::VariableLiveKeeper::VariableLiveRange::dumpVariableLiveRange(
-    emitter* emit, const CodeGenInterface* codeGen) const
+void CodeGen::VariableLiveKeeper::VariableLiveRange::dumpVariableLiveRange(emitter*                emit,
+                                                                           const CodeGenInterface* codeGen) const
 {
     assert(emit != nullptr);
 
@@ -5923,7 +5990,7 @@ void CodeGenInterface::VariableLiveKeeper::VariableLiveRange::dumpVariableLiveRa
 //  This method is expected to be called once a the code for a BasicBlock has been
 //  generated and all the new "VariableLiveRange"s of the variable during this block
 //  has been dumped.
-void CodeGenInterface::VariableLiveKeeper::LiveRangeDumper::resetDumper(const LiveRangeList* liveRanges)
+void CodeGen::VariableLiveKeeper::LiveRangeDumper::resetDumper(const LiveRangeList* liveRanges)
 {
     // There must have reported something in order to reset
     assert(m_hasLiveRangestoDump);
@@ -5955,7 +6022,7 @@ void CodeGenInterface::VariableLiveKeeper::LiveRangeDumper::resetDumper(const Li
 //
 // Notes:
 //  "varNum" should be always a valid inde ("varnum" < "m_LiveDscCount")
-void CodeGenInterface::VariableLiveKeeper::LiveRangeDumper::setDumperStartAt(const LiveRangeListIterator liveRangeIt)
+void CodeGen::VariableLiveKeeper::LiveRangeDumper::setDumperStartAt(const LiveRangeListIterator liveRangeIt)
 {
     m_hasLiveRangestoDump = true;
     m_StartingLiveRange   = liveRangeIt;
@@ -5969,8 +6036,7 @@ void CodeGenInterface::VariableLiveKeeper::LiveRangeDumper::setDumperStartAt(con
 //  A LiveRangeListIterator to the first "VariableLiveRange" in "LiveRangeList" which
 //  was used during last "BasicBlock".
 //
-CodeGenInterface::VariableLiveKeeper::LiveRangeListIterator CodeGenInterface::VariableLiveKeeper::LiveRangeDumper::
-    getStartForDump() const
+CodeGen::VariableLiveKeeper::LiveRangeListIterator CodeGen::VariableLiveKeeper::LiveRangeDumper::getStartForDump() const
 {
     return m_StartingLiveRange;
 }
@@ -5983,7 +6049,7 @@ CodeGenInterface::VariableLiveKeeper::LiveRangeListIterator CodeGenInterface::Va
 //  A boolean indicating indicating if there is at least a "VariableLiveRange"
 //  that has been used for the variable during last "BasicBlock".
 //
-bool CodeGenInterface::VariableLiveKeeper::LiveRangeDumper::hasLiveRangesToDump() const
+bool CodeGen::VariableLiveKeeper::LiveRangeDumper::hasLiveRangesToDump() const
 {
     return m_hasLiveRangestoDump;
 }
@@ -5993,7 +6059,7 @@ bool CodeGenInterface::VariableLiveKeeper::LiveRangeDumper::hasLiveRangesToDump(
 //                      VariableLiveDescriptor
 //------------------------------------------------------------------------
 
-CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::VariableLiveDescriptor(CompAllocator allocator)
+CodeGen::VariableLiveKeeper::VariableLiveDescriptor::VariableLiveDescriptor(CompAllocator allocator)
 {
     // Initialize an empty list
     m_VariableLiveRanges = new (allocator) LiveRangeList(allocator);
@@ -6005,7 +6071,7 @@ CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::VariableLiveDescri
 // hasVariableLiveRangeOpen: Return true if the variable is still alive,
 //  false in other case.
 //
-bool CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::hasVariableLiveRangeOpen() const
+bool CodeGen::VariableLiveKeeper::VariableLiveDescriptor::hasVariableLiveRangeOpen() const
 {
     return !m_VariableLiveRanges->empty() && !m_VariableLiveRanges->back().m_EndEmitLocation.Valid();
 }
@@ -6017,8 +6083,7 @@ bool CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::hasVariableLi
 //  A const LiveRangeList* pointing to the first variable location if it has
 //  any or the end of the list in other case.
 //
-CodeGenInterface::VariableLiveKeeper::LiveRangeList* CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::
-    getLiveRanges() const
+CodeGen::VariableLiveKeeper::LiveRangeList* CodeGen::VariableLiveKeeper::VariableLiveDescriptor::getLiveRanges() const
 {
     return m_VariableLiveRanges;
 }
@@ -6039,7 +6104,7 @@ CodeGenInterface::VariableLiveKeeper::LiveRangeList* CodeGenInterface::VariableL
 //  The position of "emit" matters to ensure intervals inclusive of the
 //  beginning and exclusive of the end.
 //
-void CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::startLiveRangeFromEmitter(
+void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::startLiveRangeFromEmitter(
     CodeGenInterface::siVarLoc varLocation, emitter* emit) const
 {
     noway_assert(emit != nullptr);
@@ -6097,7 +6162,7 @@ void CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::startLiveRang
 //  The position of "emit" matters to ensure intervals inclusive of the
 //  beginning and exclusive of the end.
 //
-void CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::endLiveRangeAtEmitter(emitter* emit) const
+void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::endLiveRangeAtEmitter(emitter* emit) const
 {
     noway_assert(emit != nullptr);
     noway_assert(hasVariableLiveRangeOpen());
@@ -6125,7 +6190,7 @@ void CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::endLiveRangeA
 //  The position of "emit" matters to ensure intervals inclusive of the
 //  beginning and exclusive of the end.
 //
-void CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::updateLiveRangeAtEmitter(
+void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::updateLiveRangeAtEmitter(
     CodeGenInterface::siVarLoc varLocation, emitter* emit) const
 {
     // This variable is changing home so it has been started before during this block
@@ -6144,7 +6209,7 @@ void CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::updateLiveRan
 }
 
 #ifdef DEBUG
-void CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::dumpAllRegisterLiveRangesForBlock(
+void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::dumpAllRegisterLiveRangesForBlock(
     emitter* emit, const CodeGenInterface* codeGen) const
 {
     bool first = true;
@@ -6159,7 +6224,7 @@ void CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::dumpAllRegist
     }
 }
 
-void CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::dumpRegisterLiveRangesForBlockBeforeCodeGenerated(
+void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::dumpRegisterLiveRangesForBlockBeforeCodeGenerated(
     const CodeGenInterface* codeGen) const
 {
     bool first = true;
@@ -6175,19 +6240,19 @@ void CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::dumpRegisterL
 }
 
 // Returns true if a live range for this variable has been recorded
-bool CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::hasVarLiveRangesToDump() const
+bool CodeGen::VariableLiveKeeper::VariableLiveDescriptor::hasVarLiveRangesToDump() const
 {
     return !m_VariableLiveRanges->empty();
 }
 
 // Returns true if a live range for this variable has been recorded from last call to EndBlock
-bool CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::hasVarLiveRangesFromLastBlockToDump() const
+bool CodeGen::VariableLiveKeeper::VariableLiveDescriptor::hasVarLiveRangesFromLastBlockToDump() const
 {
     return m_VariableLifeBarrier->hasLiveRangesToDump();
 }
 
 // Reset the barrier so as to dump only next block changes on next block
-void CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::endBlockLiveRanges()
+void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::endBlockLiveRanges()
 {
     // make "m_VariableLifeBarrier->m_StartingLiveRange" now points to nullptr for printing purposes
     m_VariableLifeBarrier->resetDumper(m_VariableLiveRanges);
@@ -6198,7 +6263,7 @@ void CodeGenInterface::VariableLiveKeeper::VariableLiveDescriptor::endBlockLiveR
 //                      VariableLiveKeeper
 //------------------------------------------------------------------------
 // Initialize structures for VariableLiveRanges
-void CodeGenInterface::initializeVariableLiveKeeper()
+void CodeGen::initializeVariableLiveKeeper()
 {
     CompAllocator allocator = compiler->getAllocator(CMK_VariableLiveRanges);
 
@@ -6208,7 +6273,7 @@ void CodeGenInterface::initializeVariableLiveKeeper()
     varLiveKeeper = new (allocator) VariableLiveKeeper(amountTrackedVariables, amountTrackedArgs, compiler, allocator);
 }
 
-CodeGenInterface::VariableLiveKeeper* CodeGenInterface::getVariableLiveKeeper() const
+CodeGen::VariableLiveKeeper* CodeGen::getVariableLiveKeeper() const
 {
     return varLiveKeeper;
 };
@@ -6223,10 +6288,10 @@ CodeGenInterface::VariableLiveKeeper* CodeGenInterface::getVariableLiveKeeper() 
 //    argsCount         - the count of args and special args in the method.
 //    compiler          - a compiler instance
 //
-CodeGenInterface::VariableLiveKeeper::VariableLiveKeeper(unsigned int  totalLocalCount,
-                                                         unsigned int  argsCount,
-                                                         Compiler*     comp,
-                                                         CompAllocator allocator)
+CodeGen::VariableLiveKeeper::VariableLiveKeeper(unsigned int  totalLocalCount,
+                                                unsigned int  argsCount,
+                                                Compiler*     comp,
+                                                CompAllocator allocator)
     : m_LiveDscCount(totalLocalCount)
     , m_LiveArgsCount(argsCount)
     , m_Compiler(comp)
@@ -6264,10 +6329,10 @@ CodeGenInterface::VariableLiveKeeper::VariableLiveKeeper(unsigned int  totalLoca
 //    This method is being called when the variable is being born,
 //    becoming dead, or both.
 //
-void CodeGenInterface::VariableLiveKeeper::siStartOrCloseVariableLiveRange(const LclVarDsc* varDsc,
-                                                                           unsigned int     varNum,
-                                                                           bool             isBorn,
-                                                                           bool             isDying)
+void CodeGen::VariableLiveKeeper::siStartOrCloseVariableLiveRange(const LclVarDsc* varDsc,
+                                                                  unsigned int     varNum,
+                                                                  bool             isBorn,
+                                                                  bool             isDying)
 {
     noway_assert(varDsc != nullptr);
 
@@ -6302,7 +6367,7 @@ void CodeGenInterface::VariableLiveKeeper::siStartOrCloseVariableLiveRange(const
 //
 // Notes:
 //    This method should be called on every place a Variable is becoming alive.
-void CodeGenInterface::VariableLiveKeeper::siStartVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum)
+void CodeGen::VariableLiveKeeper::siStartVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum)
 {
     noway_assert(varDsc != nullptr);
 
@@ -6339,7 +6404,7 @@ void CodeGenInterface::VariableLiveKeeper::siStartVariableLiveRange(const LclVar
 //
 // Notes:
 //    This method should be called on every place a Variable is becoming dead.
-void CodeGenInterface::VariableLiveKeeper::siEndVariableLiveRange(unsigned int varNum)
+void CodeGen::VariableLiveKeeper::siEndVariableLiveRange(unsigned int varNum)
 {
     // Only the variables that exists in the IL, "this", and special arguments
     // will be reported.
@@ -6369,7 +6434,7 @@ void CodeGenInterface::VariableLiveKeeper::siEndVariableLiveRange(unsigned int v
 //    The emitter should be pointing to the first instruction from where
 //    the new variable location is becoming valid.
 //
-void CodeGenInterface::VariableLiveKeeper::siUpdateVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum)
+void CodeGen::VariableLiveKeeper::siUpdateVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum)
 {
     noway_assert(varDsc != nullptr);
 
@@ -6410,7 +6475,7 @@ void CodeGenInterface::VariableLiveKeeper::siUpdateVariableLiveRange(const LclVa
 //    This method is called when the last block being generated to killed all
 //    the live variables and set a flag to avoid reporting variable locations for
 //    on next calls to method that update variable liveness.
-void CodeGenInterface::VariableLiveKeeper::siEndAllVariableLiveRange(VARSET_VALARG_TP varsToClose)
+void CodeGen::VariableLiveKeeper::siEndAllVariableLiveRange(VARSET_VALARG_TP varsToClose)
 {
     if (m_Compiler->opts.compDbgInfo)
     {
@@ -6444,7 +6509,7 @@ void CodeGenInterface::VariableLiveKeeper::siEndAllVariableLiveRange(VARSET_VALA
 //    as "BaiscBlock::bbLiveIn" or "BaiscBlock::bbLiveOut" and there is no
 //    tracked variable.
 //
-void CodeGenInterface::VariableLiveKeeper::siEndAllVariableLiveRange()
+void CodeGen::VariableLiveKeeper::siEndAllVariableLiveRange()
 {
     // TODO: we can improve this keeping a set for the variables with
     // open VariableLiveRanges
@@ -6473,7 +6538,7 @@ void CodeGenInterface::VariableLiveKeeper::siEndAllVariableLiveRange()
 // Assumptions:
 //  This variable should be an argument, a special argument or an IL local
 //  variable.
-CodeGenInterface::VariableLiveKeeper::LiveRangeList* CodeGenInterface::VariableLiveKeeper::getLiveRangesForVarForBody(
+CodeGen::VariableLiveKeeper::LiveRangeList* CodeGen::VariableLiveKeeper::getLiveRangesForVarForBody(
     unsigned int varNum) const
 {
     // There should be at least one variable for which its liveness is tracked
@@ -6496,7 +6561,7 @@ CodeGenInterface::VariableLiveKeeper::LiveRangeList* CodeGenInterface::VariableL
 // Assumptions:
 //  This variable should be an argument, a special argument or an IL local
 //  variable.
-CodeGenInterface::VariableLiveKeeper::LiveRangeList* CodeGenInterface::VariableLiveKeeper::getLiveRangesForVarForProlog(
+CodeGen::VariableLiveKeeper::LiveRangeList* CodeGen::VariableLiveKeeper::getLiveRangesForVarForProlog(
     unsigned int varNum) const
 {
     // There should be at least one variable for which its liveness is tracked
@@ -6516,7 +6581,7 @@ CodeGenInterface::VariableLiveKeeper::LiveRangeList* CodeGenInterface::VariableL
 //    This method is being called from "genSetScopeInfo" to know the count of
 //    "varResultInfo" that should be created on eeSetLVcount.
 //
-size_t CodeGenInterface::VariableLiveKeeper::getLiveRangesCount() const
+size_t CodeGen::VariableLiveKeeper::getLiveRangesCount() const
 {
     size_t liveRangesCount = 0;
 
@@ -6550,8 +6615,7 @@ size_t CodeGenInterface::VariableLiveKeeper::getLiveRangesCount() const
 //  This function is expected to be called from "psiBegProlog" during
 //  prolog code generation.
 //
-void CodeGenInterface::VariableLiveKeeper::psiStartVariableLiveRange(CodeGenInterface::siVarLoc varLocation,
-                                                                     unsigned int               varNum)
+void CodeGen::VariableLiveKeeper::psiStartVariableLiveRange(CodeGenInterface::siVarLoc varLocation, unsigned int varNum)
 {
     // This descriptor has to correspond to a parameter. The first slots in lvaTable
     // are arguments and special arguments.
@@ -6568,7 +6632,7 @@ void CodeGenInterface::VariableLiveKeeper::psiStartVariableLiveRange(CodeGenInte
 //  This function is expected to be called from preffix "psiEndProlog" after
 //  code for prolog has been generated.
 //
-void CodeGenInterface::VariableLiveKeeper::psiClosePrologVariableRanges()
+void CodeGen::VariableLiveKeeper::psiClosePrologVariableRanges()
 {
     noway_assert(m_LiveArgsCount <= m_LiveDscCount);
 
@@ -6584,7 +6648,7 @@ void CodeGenInterface::VariableLiveKeeper::psiClosePrologVariableRanges()
 }
 
 #ifdef DEBUG
-void CodeGenInterface::VariableLiveKeeper::dumpBlockVariableLiveRanges(const BasicBlock* block)
+void CodeGen::VariableLiveKeeper::dumpBlockVariableLiveRanges(const BasicBlock* block)
 {
     assert(block != nullptr);
 
@@ -6616,7 +6680,7 @@ void CodeGenInterface::VariableLiveKeeper::dumpBlockVariableLiveRanges(const Bas
     }
 }
 
-void CodeGenInterface::VariableLiveKeeper::dumpLvaVariableLiveRanges() const
+void CodeGen::VariableLiveKeeper::dumpLvaVariableLiveRanges() const
 {
     bool hasDumpedHistory = false;
 

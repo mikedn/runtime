@@ -5414,6 +5414,15 @@ void Compiler::lvaDumpRegLocation(unsigned lclNum)
     }
     else
 #endif
+#ifdef TARGET_XARCH
+        if (varTypeUsesFloatReg(varDsc->GetType()))
+    {
+        // TODO-MIKE-Cleanup: Remove this workaround. Old getRegName returned bogus names
+        // for XMM registers - mm0-mm15 - fixing it resulted in disassembly diffs.
+        printf("%3s        ", getRegName(varDsc->GetRegNum()) + 1);
+    }
+    else
+#endif
     {
         printf("%3s        ", getRegName(varDsc->GetRegNum()));
     }

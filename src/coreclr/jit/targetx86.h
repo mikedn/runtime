@@ -8,7 +8,6 @@
 
 // clang-format off
   #define ROUND_FLOAT              1       // round intermed float expression results
-  #define CPU_HAS_BYTE_REGS        1
 
   // TODO-CQ: Fine tune the following xxBlk threshold values:
 
@@ -275,4 +274,18 @@
   #define RBM_STACK_PROBE_HELPER_ARG   RBM_EAX
 
   #define RBM_STACK_PROBE_HELPER_TRASH RBM_NONE
+
+  #define RBM_BYTE_REGS           (RBM_EAX|RBM_ECX|RBM_EDX|RBM_EBX)
+  #define BYTE_REG_COUNT          4
+  #define RBM_NON_BYTE_REGS       (RBM_ESI|RBM_EDI)
 // clang-format on
+
+constexpr bool IsGeneralRegister(regNumber reg)
+{
+    return (reg >= REG_INT_FIRST) && (reg <= REG_INT_LAST);
+}
+
+constexpr bool IsFloatReg(regNumber reg)
+{
+    return (reg >= REG_FP_FIRST) && (reg <= REG_FP_LAST);
+}

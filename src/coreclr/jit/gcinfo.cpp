@@ -4,6 +4,7 @@
 #include "jitpch.h"
 #include "jitgcinfo.h"
 #include "gcinfotypes.h"
+#include "emit.h"
 
 #if MEASURE_PTRTAB_SIZE
 size_t GCInfo::s_gcRegPtrDscSize;
@@ -1001,7 +1002,7 @@ void GCInfo::DumpRegDelta(const char* header, GCtype type, regMaskTP baseRegs, r
     if (baseRegs != diffRegs)
     {
         printf("%s%s-regs ", header, GetGCTypeName(type));
-        emitter::emitDispRegSetDiff("", baseRegs, diffRegs);
+        DumpRegSetDiff("", baseRegs, diffRegs);
     }
 }
 

@@ -558,7 +558,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 
     if (GenTreeIntCon* icon = op1->IsIntCon())
     {
-        emitAttr emitSize = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
+        emitAttr emitSize = emitVecTypeSize(node->GetSimdSize());
         insOpts  opt      = emitSimdArrangementOpt(emitSize, node->GetSimdBaseType());
 
         if ((node->GetIntrinsic() == NI_Vector64_CreateScalar) || (node->GetIntrinsic() == NI_Vector128_CreateScalar))

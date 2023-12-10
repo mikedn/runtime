@@ -157,7 +157,6 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
                                      ssize_t imm DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
-    assert(!EA_IS_CNS_RELOC(size));
     assert(!genIsValidFloatReg(reg));
 
     // TODO-MIKE-Cleanup: This was trying to remove the reloc flag but it also removed GC flags.
@@ -285,7 +284,8 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     assert(IsValidSourceType(targetType, op1->GetType()));
     assert(IsValidSourceType(targetType, op2->GetType()));
 
-    instruction ins = genGetInsForOper(oper);
+    instruction ins  = genGetInsForOper(oper);
+    emitAttr    attr = emitTypeSize(treeNode->GetType());
 
     // The arithmetic node must be sitting in a register (since it's not contained)
     noway_assert(targetReg != REG_NA);
@@ -294,12 +294,11 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     {
         // During decomposition, all operands become reg
         assert(!op1->isContained() && !op2->isContained());
-        emit->emitIns_R_R_R(ins, emitTypeSize(treeNode), treeNode->GetRegNum(), op1->GetRegNum(), op2->GetRegNum(),
-                            INS_FLAGS_SET);
+        emit->emitIns_R_R_R(ins, attr, treeNode->GetRegNum(), op1->GetRegNum(), op2->GetRegNum(), INS_FLAGS_SET);
     }
     else
     {
-        regNumber r = emitInsTernary(ins, emitTypeSize(treeNode), treeNode, op1, op2);
+        regNumber r = emitInsTernary(ins, attr, treeNode, op1, op2);
         assert(r == targetReg);
     }
 

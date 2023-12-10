@@ -1,32 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-//////////////////////////////////////////////////////////////////////////////
 
-// clang-format off
-#if !defined(TARGET_ARM)
-  #error Unexpected target type
-#endif
-
-#ifdef  DEFINE_ID_OPS
-//////////////////////////////////////////////////////////////////////////////
-
-#undef  DEFINE_ID_OPS
-
-enum ID_OPS : uint8_t
-{
-    ID_OP_NONE,                             // no additional arguments
-    ID_OP_SCNS,                             // small const  operand (21-bits or less, no reloc)
-    ID_OP_JMP,                              // local jump
-    ID_OP_CALL,                             // direct method call
-    ID_OP_SPEC,                             // special handling required
-};
-
-//////////////////////////////////////////////////////////////////////////////
-#else // !DEFINE_ID_OPS
-//////////////////////////////////////////////////////////////////////////////
+#ifdef TARGET_ARM
 
 #ifndef IF_DEF
-#error  Must define IF_DEF macro before including this file
+#error Must define IF_DEF macro before including this file
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -36,6 +14,7 @@ enum ID_OPS : uint8_t
 //                  (unused)
 //////////////////////////////////////////////////////////////////////////////
 
+// clang-format off
 IF_DEF(NONE,        IS_NONE,               NONE)
 
 IF_DEF(LABEL,       IS_NONE,               JMP)      // label
@@ -139,11 +118,8 @@ IF_DEF(T2_VMOVS,    IS_NONE,               NONE)
 IF_DEF(T2_VMOVD,    IS_NONE,               NONE)
 
 IF_DEF(INVALID,     IS_NONE,               NONE)     //
-
-//////////////////////////////////////////////////////////////////////////////
-#undef IF_DEF
-//////////////////////////////////////////////////////////////////////////////
-
-#endif // !DEFINE_ID_OPS
-//////////////////////////////////////////////////////////////////////////////
 // clang-format on
+
+#undef IF_DEF
+
+#endif // TARGET_ARM

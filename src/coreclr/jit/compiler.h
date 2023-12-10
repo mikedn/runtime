@@ -29,7 +29,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "block.h"
 #include "inline.h"
 #include "jiteh.h"
-#include "instr.h"
 #include "cycletimer.h"
 #include "arraystack.h"
 #include "hashbv.h"
@@ -6745,7 +6744,7 @@ private:
     static constexpr unsigned SIZE_BITS    = 9;
 #endif
 
-    static_assert_no_msg(INS_count <= (1 << INS_BITS));
+    static_assert_no_msg(INS_COUNT <= (1 << INS_BITS));
     static_assert_no_msg(EA_BYREF < (1 << SIZE_BITS));
 #if defined(TARGET_ARM64)
     static_assert_no_msg(INS_OPTS_SXTX < (1 << OPT_BITS));
@@ -6838,7 +6837,7 @@ public:
 
     void SetIns(instruction ins)
     {
-        assert(ins < INS_count);
+        assert(ins < INS_COUNT);
 
         m_ins  = ins;
         m_size = emitActualTypeSize(GetType());
@@ -6855,7 +6854,7 @@ public:
 #endif
                 )
     {
-        assert(ins < INS_count);
+        assert(ins < INS_COUNT);
         assert(size <= EA_BYREF);
 #if defined(TARGET_ARM64)
         assert(opt <= INS_OPTS_SXTX);

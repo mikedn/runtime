@@ -11,7 +11,6 @@
   // TODO-ARM-CQ: Check for sdiv/udiv at runtime and generate it if available
   #define USE_HELPERS_FOR_INT_DIV  1       // BeagleBoard (ARMv7A) doesn't support SDIV/UDIV
   #define ROUND_FLOAT              0       // Do not round intermed float expression results
-  #define CPU_HAS_BYTE_REGS        0
 
   #define CPBLK_UNROLL_LIMIT       32      // Upper bound to let the code generator to loop unroll CpBlk.
   #define INITBLK_UNROLL_LIMIT     16      // Upper bound to let the code generator to loop unroll InitBlk.
@@ -308,3 +307,13 @@
   #define RBM_STACK_PROBE_HELPER_CALL_TARGET RBM_R5
   #define RBM_STACK_PROBE_HELPER_TRASH       (RBM_R5 | RBM_LR)
 // clang-format on
+
+constexpr bool IsGeneralRegister(regNumber reg)
+{
+    return reg <= REG_R15;
+}
+
+constexpr bool IsFloatReg(regNumber reg)
+{
+    return (reg >= REG_F0 && reg <= REG_F31);
+}

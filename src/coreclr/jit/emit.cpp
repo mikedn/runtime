@@ -71,6 +71,25 @@ UNATIVE_OFFSET emitLocation::CodeOffset(emitter* emit) const
     return emit->emitCodeOffset(ig, codePos);
 }
 
+/*****************************************************************************
+ *
+ *  The emitCurOffset() method returns a cookie that identifies the current
+ *  position in the instruction stream. Due to things like scheduling (and
+ *  the fact that the final size of some instructions cannot be known until
+ *  the end of code generation), we return a value with the instruction number
+ *  and its estimated offset to the caller.
+ */
+
+static unsigned emitGetInsNumFromCodePos(unsigned codePos)
+{
+    return (codePos & 0xFFFF);
+}
+
+static unsigned emitGetInsOfsFromCodePos(unsigned codePos)
+{
+    return (codePos >> 16);
+}
+
 int emitLocation::GetInsNum() const
 {
     return emitGetInsNumFromCodePos(codePos);
@@ -116,6 +135,18 @@ bool emitLocation::IsPreviousInsNum(emitter* emit) const
     return false;
 }
 
+unsigned emitter::emitCurOffset()
+{
+    unsigned codePos = emitCurIGinsCnt + (emitCurIGsize << 16);
+
+    assert(emitGetInsOfsFromCodePos(codePos) == emitCurIGsize);
+    assert(emitGetInsNumFromCodePos(codePos) == emitCurIGinsCnt);
+
+    // printf("[IG=%02u;ID=%03u;OF=%04X] => %08X\n", emitCurIG->igNum, emitCurIGinsCnt, emitCurIGsize, codePos);
+
+    return codePos;
+}
+
 #ifdef DEBUG
 
 void emitLocation::Print(LONG compMethodID) const
@@ -125,51 +156,10 @@ void emitLocation::Print(LONG compMethodID) const
     printf("(G_M%03u_IG%02u,ins#%d,ofs#%d)", compMethodID, ig->igNum, insNum, insOfs);
 }
 
-//-----------------------------------------------------------------------------
-// genInsDisplayName: Get a fully-formed instruction display name. This only handles
-// the xarch case of prepending a "v", not the arm case of appending an "s".
-// This can be called up to four times in a single 'printf' before the static buffers
-// get reused.
-//
-// Returns:
-//    String with instruction name
-//
-const char* emitter::genInsDisplayName(instrDesc* id)
-{
-    instruction ins  = id->idIns();
-    const char* name = insName(ins);
-
-#ifdef TARGET_XARCH
-    const int       TEMP_BUFFER_LEN = 40;
-    static unsigned curBuf          = 0;
-    static char     buf[4][TEMP_BUFFER_LEN];
-    const char*     retbuf;
-
-    if (IsAVXInstruction(ins) && !IsBMIInstruction(ins))
-    {
-        sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "v%s", name);
-        retbuf = buf[curBuf];
-        curBuf = (curBuf + 1) % 4;
-        return retbuf;
-    }
-#endif // TARGET_XARCH
-
-    return name;
-}
-
-#endif // DEBUG
-
-/*****************************************************************************
- *
- *  Return the name of an instruction format.
- */
-
-#if defined(DEBUG) || EMITTER_STATS
-
 const char* emitter::emitIfName(unsigned f)
 {
     static const char* const ifNames[] = {
-#define IF_DEF(en, op1, op2) "IF_" #en,
+#define IF_DEF(en, ...) "IF_" #en,
 #include "emitfmts.h"
     };
 
@@ -186,227 +176,6 @@ const char* emitter::emitIfName(unsigned f)
 
 #endif
 
-/*****************************************************************************/
-
-#if EMITTER_STATS
-
-static unsigned totAllocdSize;
-static unsigned totActualSize;
-
-unsigned emitter::emitIFcounts[emitter::IF_COUNT];
-
-static unsigned  emitSizeBuckets[] = {100, 1024 * 1, 1024 * 2, 1024 * 3, 1024 * 4, 1024 * 5, 1024 * 10, 0};
-static Histogram emitSizeTable(emitSizeBuckets);
-
-static unsigned  GCrefsBuckets[] = {0, 1, 2, 5, 10, 20, 50, 128, 256, 512, 1024, 0};
-static Histogram GCrefsTable(GCrefsBuckets);
-
-static unsigned  stkDepthBuckets[] = {0, 1, 2, 5, 10, 16, 32, 128, 1024, 0};
-static Histogram stkDepthTable(stkDepthBuckets);
-
-size_t emitter::emitSizeMethod;
-
-size_t   emitter::emitTotMemAlloc;
-unsigned emitter::emitTotalInsCnt;
-unsigned emitter::emitCurPrologInsCnt;
-size_t   emitter::emitCurPrologIGSize;
-unsigned emitter::emitMaxPrologInsCnt;
-size_t   emitter::emitMaxPrologIGSize;
-unsigned emitter::emitTotalIGcnt;
-unsigned emitter::emitTotalPhIGcnt;
-unsigned emitter::emitTotalIGjmps;
-unsigned emitter::emitTotalIGptrs;
-unsigned emitter::emitTotalIGicnt;
-size_t   emitter::emitTotalIGsize;
-unsigned emitter::emitTotalIGmcnt;
-unsigned emitter::emitTotalIGExtend;
-
-unsigned emitter::emitTotalIDescSmallCnt;
-unsigned emitter::emitTotalIDescCnt;
-unsigned emitter::emitTotalIDescJmpCnt;
-unsigned emitter::emitTotalIDescCnsCnt;
-unsigned emitter::emitTotalIDescDspCnt;
-unsigned emitter::emitTotalIDescCnsDspCnt;
-#ifdef TARGET_XARCH
-unsigned emitter::emitTotalIDescAmdCnt;
-unsigned emitter::emitTotalIDescCnsAmdCnt;
-#endif // TARGET_XARCH
-unsigned emitter::emitTotalIDescCGCACnt;
-
-unsigned emitter::emitSmallDspCnt;
-unsigned emitter::emitLargeDspCnt;
-
-unsigned emitter::emitSmallCnsCnt;
-unsigned emitter::emitLargeCnsCnt;
-unsigned emitter::emitSmallCns[SMALL_CNS_TSZ];
-
-unsigned emitter::emitTotalDescAlignCnt;
-
-void emitterStats(FILE* fout)
-{
-    if (totAllocdSize > 0)
-    {
-        assert(totActualSize <= totAllocdSize);
-
-        fprintf(fout, "\nTotal allocated code size = %u\n", totAllocdSize);
-
-        if (totActualSize < totAllocdSize)
-        {
-            fprintf(fout, "Total generated code size = %u  ", totActualSize);
-
-            fprintf(fout, "(%4.3f%% waste)", 100 * ((totAllocdSize - totActualSize) / (double)totActualSize));
-            fprintf(fout, "\n");
-        }
-
-        assert(emitter::emitTotalInsCnt > 0);
-
-        fprintf(fout, "Average of %4.2f bytes of code generated per instruction\n",
-                (double)totActualSize / emitter::emitTotalInsCnt);
-    }
-
-    fprintf(fout, "\nInstruction format frequency table:\n\n");
-
-    unsigned f, ic = 0, dc = 0;
-
-    for (f = 0; f < emitter::IF_COUNT; f++)
-    {
-        ic += emitter::emitIFcounts[f];
-    }
-
-    for (f = 0; f < emitter::IF_COUNT; f++)
-    {
-        unsigned c = emitter::emitIFcounts[f];
-
-        if ((c > 0) && (1000 * c >= ic))
-        {
-            dc += c;
-            fprintf(fout, "          %-14s %8u (%5.2f%%)\n", emitter::emitIfName(f), c, 100.0 * c / ic);
-        }
-    }
-
-    fprintf(fout, "         ---------------------------------\n");
-    fprintf(fout, "          %-14s %8u (%5.2f%%)\n", "Total shown", dc, 100.0 * dc / ic);
-
-    if (emitter::emitTotalIGmcnt > 0)
-    {
-        fprintf(fout, "\n");
-        fprintf(fout, "Total of %8u methods\n", emitter::emitTotalIGmcnt);
-        fprintf(fout, "Total of %8u insGroup\n", emitter::emitTotalIGcnt);
-        fprintf(fout, "Total of %8u insPlaceholderGroupData\n", emitter::emitTotalPhIGcnt);
-        fprintf(fout, "Total of %8u extend insGroup\n", emitter::emitTotalIGExtend);
-        fprintf(fout, "Total of %8u instructions\n", emitter::emitTotalIGicnt);
-        fprintf(fout, "Total of %8u jumps\n", emitter::emitTotalIGjmps);
-        fprintf(fout, "Total of %8u GC livesets\n", emitter::emitTotalIGptrs);
-        fprintf(fout, "\n");
-        fprintf(fout, "Max prolog instrDesc count: %8u\n", emitter::emitMaxPrologInsCnt);
-        fprintf(fout, "Max prolog insGroup size  : %8zu\n", emitter::emitMaxPrologIGSize);
-        fprintf(fout, "\n");
-        fprintf(fout, "Average of %8.1lf insGroup     per method\n",
-                (double)emitter::emitTotalIGcnt / emitter::emitTotalIGmcnt);
-        fprintf(fout, "Average of %8.1lf insPhGroup   per method\n",
-                (double)emitter::emitTotalPhIGcnt / emitter::emitTotalIGmcnt);
-        fprintf(fout, "Average of %8.1lf extend IG    per method\n",
-                (double)emitter::emitTotalIGExtend / emitter::emitTotalIGmcnt);
-        fprintf(fout, "Average of %8.1lf instructions per method\n",
-                (double)emitter::emitTotalIGicnt / emitter::emitTotalIGmcnt);
-        fprintf(fout, "Average of %8.1lf desc.  bytes per method\n",
-                (double)emitter::emitTotalIGsize / emitter::emitTotalIGmcnt);
-        fprintf(fout, "Average of %8.1lf jumps        per method\n",
-                (double)emitter::emitTotalIGjmps / emitter::emitTotalIGmcnt);
-        fprintf(fout, "Average of %8.1lf GC livesets  per method\n",
-                (double)emitter::emitTotalIGptrs / emitter::emitTotalIGmcnt);
-        fprintf(fout, "\n");
-        fprintf(fout, "Average of %8.1lf instructions per group \n",
-                (double)emitter::emitTotalIGicnt / emitter::emitTotalIGcnt);
-        fprintf(fout, "Average of %8.1lf desc.  bytes per group \n",
-                (double)emitter::emitTotalIGsize / emitter::emitTotalIGcnt);
-        fprintf(fout, "Average of %8.1lf jumps        per group \n",
-                (double)emitter::emitTotalIGjmps / emitter::emitTotalIGcnt);
-        fprintf(fout, "\n");
-        fprintf(fout, "Average of %8.1lf bytes        per instrDesc\n",
-                (double)emitter::emitTotalIGsize / emitter::emitTotalIGicnt);
-        fprintf(fout, "\n");
-        fprintf(fout, "A total of %8zu desc.  bytes\n", emitter::emitTotalIGsize);
-        fprintf(fout, "\n");
-
-        fprintf(fout, "Total instructions:    %8u\n", emitter::emitTotalInsCnt);
-        fprintf(fout, "Total small instrDesc: %8u (%5.2f%%)\n", emitter::emitTotalIDescSmallCnt,
-                100.0 * emitter::emitTotalIDescSmallCnt / emitter::emitTotalInsCnt);
-        fprintf(fout, "Total instrDesc:       %8u (%5.2f%%)\n", emitter::emitTotalIDescCnt,
-                100.0 * emitter::emitTotalIDescCnt / emitter::emitTotalInsCnt);
-        fprintf(fout, "Total instrDescJmp:    %8u (%5.2f%%)\n", emitter::emitTotalIDescJmpCnt,
-                100.0 * emitter::emitTotalIDescJmpCnt / emitter::emitTotalInsCnt);
-        fprintf(fout, "Total instrDescCns:    %8u (%5.2f%%)\n", emitter::emitTotalIDescCnsCnt,
-                100.0 * emitter::emitTotalIDescCnsCnt / emitter::emitTotalInsCnt);
-        fprintf(fout, "Total instrDescDsp:    %8u (%5.2f%%)\n", emitter::emitTotalIDescDspCnt,
-                100.0 * emitter::emitTotalIDescDspCnt / emitter::emitTotalInsCnt);
-        fprintf(fout, "Total instrDescCnsDsp: %8u (%5.2f%%)\n", emitter::emitTotalIDescCnsDspCnt,
-                100.0 * emitter::emitTotalIDescCnsDspCnt / emitter::emitTotalInsCnt);
-#ifdef TARGET_XARCH
-        fprintf(fout, "Total instrDescAmd:    %8u (%5.2f%%)\n", emitter::emitTotalIDescAmdCnt,
-                100.0 * emitter::emitTotalIDescAmdCnt / emitter::emitTotalInsCnt);
-        fprintf(fout, "Total instrDescCnsAmd: %8u (%5.2f%%)\n", emitter::emitTotalIDescCnsAmdCnt,
-                100.0 * emitter::emitTotalIDescCnsAmdCnt / emitter::emitTotalInsCnt);
-#endif // TARGET_XARCH
-        fprintf(fout, "Total instrDescCGCA:   %8u (%5.2f%%)\n", emitter::emitTotalIDescCGCACnt,
-                100.0 * emitter::emitTotalIDescCGCACnt / emitter::emitTotalInsCnt);
-        fprintf(fout, "Total instrDescAlign:  %8u (%5.2f%%)\n", emitter::emitTotalDescAlignCnt,
-                100.0 * emitter::emitTotalDescAlignCnt / emitter::emitTotalInsCnt);
-
-        fprintf(fout, "\n");
-    }
-
-    fprintf(fout, "Descriptor size distribution:\n");
-    emitSizeTable.dump(fout);
-    fprintf(fout, "\n");
-
-    fprintf(fout, "GC ref frame variable counts:\n");
-    GCrefsTable.dump(fout);
-    fprintf(fout, "\n");
-
-    fprintf(fout, "Max. stack depth distribution:\n");
-    stkDepthTable.dump(fout);
-    fprintf(fout, "\n");
-
-    if ((emitter::emitSmallCnsCnt > 0) || (emitter::emitLargeCnsCnt > 0))
-    {
-        fprintf(fout, "SmallCnsCnt = %6u\n", emitter::emitSmallCnsCnt);
-        fprintf(fout, "LargeCnsCnt = %6u (%3u %% of total)\n", emitter::emitLargeCnsCnt,
-                100 * emitter::emitLargeCnsCnt / (emitter::emitLargeCnsCnt + emitter::emitSmallCnsCnt));
-    }
-
-    // Print out the most common small constants.
-    if (emitter::emitSmallCnsCnt > 0)
-    {
-        fprintf(fout, "\n\n");
-        fprintf(fout, "Common small constants >= %2u, <= %2u\n", ID_MIN_SMALL_CNS, ID_MAX_SMALL_CNS);
-
-        unsigned m = emitter::emitSmallCnsCnt / 1000 + 1;
-
-        for (int i = ID_MIN_SMALL_CNS; (i <= ID_MAX_SMALL_CNS) && (i < SMALL_CNS_TSZ); i++)
-        {
-            unsigned c = emitter::emitSmallCns[i - ID_MIN_SMALL_CNS];
-            if (c >= m)
-            {
-                if (i == SMALL_CNS_TSZ - 1)
-                {
-                    fprintf(fout, "cns[>=%4d] = %u\n", i, c);
-                }
-                else
-                {
-                    fprintf(fout, "cns[%4d] = %u\n", i, c);
-                }
-            }
-        }
-    }
-
-    fprintf(fout, "%8zu bytes allocated in the emitter\n", emitter::emitTotMemAlloc);
-}
-
-#endif // EMITTER_STATS
-
-/*****************************************************************************/
-
 const uint16_t emitTypeSizes[]{
 #define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) sze,
 #include "typelist.h"
@@ -417,21 +186,19 @@ const uint16_t emitTypeActSz[]{
 #include "typelist.h"
 };
 
-/*****************************************************************************
- *
- *  Allocate memory.
- */
-
 void* emitter::emitGetMem(size_t sz)
 {
     assert(sz % sizeof(int) == 0);
 
-#if EMITTER_STATS
-    emitTotMemAlloc += sz;
-#endif
-
     return emitComp->getAllocator(CMK_InstDesc).allocate<char>(sz);
 }
+
+#ifdef DEBUG
+static bool IsCodeAligned(UNATIVE_OFFSET offset)
+{
+    return ((offset & (CODE_ALIGN - 1)) == 0);
+}
+#endif
 
 insGroup* emitter::emitAllocIG()
 {
@@ -461,12 +228,6 @@ insGroup* emitter::emitAllocIG()
     ig->igSelf             = ig;
     ig->lastGeneratedBlock = nullptr;
     new (&ig->igBlocks) jitstd::list<BasicBlock*>(emitComp->getAllocator(CMK_LoopOpt));
-#endif
-
-#if EMITTER_STATS
-    emitTotalIGcnt += 1;
-    emitTotalIGsize += sizeof(insGroup);
-    emitSizeMethod += sizeof(insGroup);
 #endif
 
     return ig;
@@ -517,9 +278,6 @@ void emitter::emitExtendIG()
     emitNewIG();
 
     emitCurIG->igFlags |= IGF_EXTEND;
-#if EMITTER_STATS
-    emitTotalIGExtend++;
-#endif
 }
 
 void emitter::emitFinishIG(bool extend)
@@ -697,20 +455,6 @@ void emitter::emitFinishIG(bool extend)
         printf("\n");
     }
 #endif
-
-#if EMITTER_STATS
-    emitTotalIGicnt += emitCurIGinsCnt;
-    emitTotalIGsize += instrSize;
-    emitSizeMethod += instrSize;
-
-    if (emitIGisInProlog(ig))
-    {
-        emitCurPrologInsCnt += emitCurIGinsCnt;
-        emitCurPrologIGSize += instrSize;
-        emitMaxPrologInsCnt = Max(emitMaxPrologInsCnt, emitCurPrologInsCnt);
-        emitMaxPrologIGSize = Max(emitCurPrologIGSize, emitCurPrologIGSize);
-    }
-#endif
 }
 
 #ifndef JIT32_GCENCODER
@@ -745,13 +489,6 @@ void emitter::emitEnableGC()
 
 void emitter::emitBegFN()
 {
-#if EMITTER_STATS
-    emitTotalIGmcnt++;
-    emitSizeMethod      = 0;
-    emitCurPrologInsCnt = 0;
-    emitCurPrologIGSize = 0;
-#endif
-
 #if !FEATURE_FIXED_OUT_ARGS
     emitCntStackDepth = 4;
 #endif
@@ -770,9 +507,9 @@ void emitter::emitBegFN()
     // arguments, and must store them all to the frame on entry. If the frame is very large,
     // we generate ugly code like "movw r10, 0x488; add r10, sp; vstr s0, [r10]" for each
     // store, which eats up our insGroup buffer.
-    constexpr size_t IG_BUFFER_SIZE = 100 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE;
+    constexpr size_t IG_BUFFER_SIZE = 100 * sizeof(emitter::instrDesc) + 14 * sizeof(instrDescSmall);
 #else
-    constexpr size_t IG_BUFFER_SIZE = 50 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE;
+    constexpr size_t IG_BUFFER_SIZE = 50 * sizeof(emitter::instrDesc) + 14 * sizeof(instrDescSmall);
 #endif
     emitCurIGfreeBase = static_cast<uint8_t*>(emitGetMem(IG_BUFFER_SIZE));
     emitCurIGfreeEndp = emitCurIGfreeBase + IG_BUFFER_SIZE;
@@ -856,7 +593,7 @@ float emitter::insEvaluateExecutionCost(instrDesc* id)
 void emitter::perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* pResult)
 {
 #ifdef DEBUG
-    printf("PerfScore: unhandled instruction: %s, format %s", genInsDisplayName(id), emitIfName(id->idInsFmt()));
+    printf("PerfScore: unhandled instruction: %s, format %s", insName(id->idIns()), emitIfName(id->idInsFmt()));
     assert(!"PerfScore: unhandled instruction");
 #endif
     pResult->insThroughput = PERFSCORE_THROUGHPUT_1C;
@@ -877,6 +614,12 @@ BasicBlock::weight_t emitter::getCurrentBlockWeight()
 
 void emitter::dispIns(instrDesc* id)
 {
+    assert(id->idDebugOnlyInfo()->idSize == id->GetDescSize());
+
+#ifdef TARGET_XARCH
+    assert((id->idCodeSize() != 0) || id->InstrHasNoCode());
+#endif
+
 #ifdef DEBUG
     emitInsSanityCheck(id);
 
@@ -884,17 +627,10 @@ void emitter::dispIns(instrDesc* id)
     {
         emitDispIns(id, true);
     }
-
-#if !FEATURE_FIXED_OUT_ARGS
-    assert((int)emitCurStackLvl >= 0);
 #endif
 
-    size_t sz = emitSizeOfInsDsc(id);
-    assert(id->idDebugOnlyInfo()->idSize == sz);
-#endif // DEBUG
-
-#if EMITTER_STATS
-    emitIFcounts[id->idInsFmt()]++;
+#if !FEATURE_FIXED_OUT_ARGS
+    assert(emitCurStackLvl <= INT32_MAX);
 #endif
 }
 
@@ -932,7 +668,7 @@ void emitter::emitDispInsOffs(unsigned offs, bool doffs)
 
 #endif // DEBUG
 
-void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
+void* emitter::emitAllocAnyInstr(unsigned sz, bool updateLastIns)
 {
     assert(sz >= sizeof(void*));
 
@@ -994,35 +730,6 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
     }
 
     instrDesc* id = reinterpret_cast<instrDesc*>(emitCurIGfreeNext);
-    memset(id, 0, sz);
-
-    // These fields should have been zero-ed by the above
-    assert(id->idReg1() == regNumber(0));
-    assert(id->idReg2() == regNumber(0));
-#ifdef TARGET_XARCH
-    assert(id->idCodeSize() == 0);
-#endif
-    static_assert_no_msg(GCT_NONE == 0);
-
-    if (EA_IS_GCREF(opsz))
-    {
-        id->idGCref(GCT_GCREF);
-    }
-    else if (EA_IS_BYREF(opsz))
-    {
-        id->idGCref(GCT_BYREF);
-    }
-
-    id->idOpSize(EA_SIZE(opsz));
-
-#ifdef TARGET_XARCH
-    assert(!EA_IS_DSP_RELOC(opsz));
-#endif
-
-    if (EA_IS_CNS_RELOC(opsz) && emitComp->opts.compReloc)
-    {
-        id->idSetIsCnsReloc();
-    }
 
     if (updateLastIns)
     {
@@ -1033,13 +740,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
     emitCurIGfreeNext += sz;
     emitCurIGinsCnt++;
 
-#if EMITTER_STATS
-    emitTotalInsCnt++;
-#endif
-
 #ifdef DEBUG
-    id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz));
-
     if (emitCurIG->lastGeneratedBlock != GetCurrentBlock())
     {
         emitCurIG->lastGeneratedBlock = GetCurrentBlock();
@@ -1050,18 +751,111 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
     return id;
 }
 
+#ifndef TARGET_XARCH
+void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
+{
+    instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(sz, updateLastIns));
+    memset(id, 0, sz);
+
+    // These fields should have been zero-ed by the above
+    assert(id->idReg1() == regNumber(0));
+    assert(id->idReg2() == regNumber(0));
+
+    id->idGCref(EA_GC_TYPE(opsz));
+    id->idOpSize(EA_SIZE(opsz));
+
+    INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz)));
+
+    return id;
+}
+
+emitter::instrDesc* emitter::emitAllocInstr(emitAttr attr)
+{
+    return AllocInstr<instrDesc>(attr);
+}
+
+emitter::instrDesc* emitter::emitNewInstr(emitAttr attr)
+{
+    return emitAllocInstr(attr);
+}
+
+emitter::instrDescCns* emitter::emitAllocInstrCns(emitAttr attr)
+{
+    return AllocInstr<instrDescCns>(attr);
+}
+
+emitter::instrDescCns* emitter::emitAllocInstrCns(emitAttr attr, target_size_t cns)
+{
+    instrDescCns* result = emitAllocInstrCns(attr);
+    result->idSetIsLargeCns();
+    result->idcCnsVal = cns;
+    return result;
+}
+
+emitter::instrDesc* emitter::emitNewInstrSmall(emitAttr attr)
+{
+    instrDescSmall* id = AllocInstr<instrDescSmall>(attr);
+    id->idSetIsSmallDsc();
+    return static_cast<instrDesc*>(id);
+}
+
+emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, target_ssize_t cns)
+{
+    if (instrDesc::fitsInSmallCns(cns))
+    {
+        instrDesc* id = emitNewInstrSmall(attr);
+        id->idSmallCns(cns);
+        return id;
+    }
+
+    return emitAllocInstrCns(attr, cns);
+}
+
+emitter::instrDesc* emitter::emitNewInstrCns(emitAttr attr, int32_t cns)
+{
+    if (instrDesc::fitsInSmallCns(cns))
+    {
+        instrDesc* id = emitAllocInstr(attr);
+        id->idSmallCns(cns);
+        return id;
+    }
+
+    return emitAllocInstrCns(attr, cns);
+}
+
+emitter::instrDescJmp* emitter::emitAllocInstrJmp()
+{
+    return AllocInstr<instrDescJmp>(EA_1BYTE);
+}
+
+emitter::instrDescJmp* emitter::emitNewInstrJmp()
+{
+    return emitAllocInstrJmp();
+}
+
+emitter::instrDescCGCA* emitter::emitAllocInstrCGCA(emitAttr attr)
+{
+    return AllocInstr<instrDescCGCA>(attr);
+}
+
+#if FEATURE_LOOP_ALIGN
+emitter::instrDescAlign* emitter::emitAllocInstrAlign()
+{
+    return AllocInstr<instrDescAlign>(EA_1BYTE);
+}
+#endif
+
 emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
 {
     assert(EA_IS_GCREF_OR_BYREF(attr));
-    assert(isGeneralRegister(reg));
+    assert(IsGeneralRegister(reg));
 
     if ((codeGen->liveness.GetGCRegs(attr) & genRegMask(reg)) != RBM_NONE)
     {
         return nullptr;
     }
 
-    instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(SMALL_IDSC_SIZE, attr, false));
-
+    instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(sizeof(instrDescSmall), attr, false));
     id->idSetIsSmallDsc();
     id->idIns(INS_mov);
     id->idInsFmt(IF_GC_REG);
@@ -1070,6 +864,7 @@ emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
 
     return id;
 }
+#endif // !TARGET_XARCH
 
 #ifdef DEBUG
 
@@ -1307,10 +1102,6 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 #endif
     }
 
-#if EMITTER_STATS
-    emitTotalPhIGcnt += 1;
-#endif
-
 #ifdef DEBUG
     if (emitComp->verbose)
     {
@@ -1507,23 +1298,6 @@ void emitter::emitStartExitSeq()
 
 #endif // JIT32_GCENCODER
 
-/*****************************************************************************
- *
- *  A conversion table used to map an operand size value (in bytes) into its
- *  small encoding (0 through 3), and vice versa.
- */
-
-const emitter::opSize emitter::emitSizeEncode[] = {
-    emitter::OPSZ1, emitter::OPSZ2,  OPSIZE_INVALID, emitter::OPSZ4,  OPSIZE_INVALID, OPSIZE_INVALID, OPSIZE_INVALID,
-    emitter::OPSZ8, OPSIZE_INVALID,  OPSIZE_INVALID, OPSIZE_INVALID,  OPSIZE_INVALID, OPSIZE_INVALID, OPSIZE_INVALID,
-    OPSIZE_INVALID, emitter::OPSZ16, OPSIZE_INVALID, OPSIZE_INVALID,  OPSIZE_INVALID, OPSIZE_INVALID, OPSIZE_INVALID,
-    OPSIZE_INVALID, OPSIZE_INVALID,  OPSIZE_INVALID, OPSIZE_INVALID,  OPSIZE_INVALID, OPSIZE_INVALID, OPSIZE_INVALID,
-    OPSIZE_INVALID, OPSIZE_INVALID,  OPSIZE_INVALID, emitter::OPSZ32,
-};
-
-const emitAttr emitter::emitSizeDecode[emitter::OPSZ_COUNT] = {EA_1BYTE, EA_2BYTE,  EA_4BYTE,
-                                                               EA_8BYTE, EA_16BYTE, EA_32BYTE};
-
 insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
 {
     assert(!emitIGisInProlog(emitCurIG));
@@ -1556,9 +1330,9 @@ insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
         printf("Label: IG%02u, gc-lcls ", emitCurIG->igNum);
         dumpConvertedVarSet(emitComp, emitCurIG->gcLcls);
         printf(", ref-regs");
-        emitDispRegSet(emitCurIG->refRegs);
+        DumpRegSet(emitCurIG->refRegs);
         printf(", byref-regs");
-        emitDispRegSet(emitCurIG->byrefRegs);
+        DumpRegSet(emitCurIG->byrefRegs);
         printf("\n");
     }
 #endif
@@ -1849,7 +1623,7 @@ bool emitter::emitGetLocationInfo(emitLocation* emitLoc,
             }
         }
 
-        if (ig == NULL)
+        if (ig == nullptr)
         {
             // 'ig' can't be NULL, or we went past the current IG represented by 'emitCurIG'.
             // Perhaps 'loc' was corrupt coming in?
@@ -1865,7 +1639,7 @@ bool emitter::emitGetLocationInfo(emitLocation* emitLoc,
     int i;
     for (i = 0; i != insNum; ++i)
     {
-        castto(id, BYTE*) += emitSizeOfInsDsc(id);
+        castto(id, uint8_t*) += id->GetDescSize();
     }
 
     // Return the info we found
@@ -1893,7 +1667,7 @@ bool emitter::emitNextID(insGroup*& ig, instrDesc*& id, int& insRemaining)
 {
     if (insRemaining > 0)
     {
-        castto(id, BYTE*) += emitSizeOfInsDsc(id);
+        castto(id, uint8_t*) += id->GetDescSize();
         --insRemaining;
         return true;
     }
@@ -1995,68 +1769,6 @@ const char* emitter::emitGetFrameReg()
     }
 }
 
-/*****************************************************************************
- *
- *  Display a register set in a readable form.
- */
-
-void emitter::emitDispRegSet(regMaskTP regs)
-{
-    regNumber reg;
-    bool      sp = false;
-
-    printf(" {");
-
-    for (reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))
-    {
-        if ((regs & genRegMask(reg)) == 0)
-        {
-            continue;
-        }
-
-        if (sp)
-        {
-            printf(" ");
-        }
-        else
-        {
-            sp = true;
-        }
-
-        printf("%s", emitRegName(reg));
-    }
-
-    printf("}");
-}
-
-void emitter::emitDispRegSetDiff(const char* name, regMaskTP from, regMaskTP to)
-{
-    printf("%s{ ", name);
-
-    for (regNumber reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))
-    {
-        regMaskTP mask    = genRegMask(reg);
-        bool      fromBit = (from & mask) != 0;
-        bool      toBit   = (to & mask) != 0;
-
-        if (!fromBit && !toBit)
-        {
-            continue;
-        }
-
-        const char* s = "";
-
-        if (fromBit != toBit)
-        {
-            s = toBit ? "+" : "-";
-        }
-
-        printf("%s%s ", s, emitRegName(reg));
-    }
-
-    printf("}\n");
-}
-
 #endif // DEBUG
 
 emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
@@ -2088,16 +1800,16 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         if (isNoGCHelper)
         {
             printf("NoGC Call: saved regs");
-            emitDispRegSet(savedRegs);
+            DumpRegSet(savedRegs);
             printf("\n");
         }
 
         printf("Call: gc-lcls ");
         dumpConvertedVarSet(emitComp, gcLcls);
         printf(", ref-regs");
-        emitDispRegSet(refRegs);
+        DumpRegSet(refRegs);
         printf(", byref-regs");
-        emitDispRegSet(byrefRegs);
+        DumpRegSet(byrefRegs);
         printf("\n");
     }
 #endif
@@ -2114,7 +1826,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         || EA_IS_GCREF_OR_BYREF(retReg2Attr)
 #endif
 #ifdef TARGET_X86
-        || (argSlotCount > ID_MAX_SMALL_CNS) || (argSlotCount < 0)
+        || !instrDesc::fitsInSmallCns(argSlotCount)
 #endif
 #ifdef TARGET_XARCH
         || (disp < AM_DISP_MIN) || (disp > AM_DISP_MAX)
@@ -2141,12 +1853,18 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         }
 #endif
 
+#ifdef TARGET_XARCH
+        instrDescCGCA* idc = emitNewInstrCGCA();
+#else
         instrDescCGCA* idc = emitAllocInstrCGCA(retRegAttr);
+#endif
         idc->idSetIsLargeCall();
         idc->idcGCvars    = VarSetOps::MakeCopy(emitComp, gcLcls);
         idc->idcGcrefRegs = refRegs;
         idc->idcByrefRegs = byrefRegs;
 #ifdef TARGET_XARCH
+        idc->idOpSize(EA_SIZE(retRegAttr));
+        idc->idGCref(EA_GC_TYPE(retRegAttr));
         idc->idcDisp = disp;
 #endif
 #ifdef TARGET_X86
@@ -2162,33 +1880,29 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         }
 
 #ifdef TARGET_X86
-        id = emitNewInstrCns(retRegAttr, argSlotCount);
+        id = emitNewInstrCns(argSlotCount);
+#elif defined(TARGET_AMD64)
+        id                 = emitNewInstr();
 #else
-        id = emitAllocInstr(retRegAttr);
+        id = emitNewInstr(retRegAttr);
+#endif
+
+#ifdef TARGET_XARCH
+        id->idOpSize(EA_SIZE(retRegAttr));
+        id->idGCref(EA_GC_TYPE(retRegAttr));
 #endif
 
         EncodeCallGCRegs(refRegs, id);
 
 #ifdef TARGET_XARCH
-        id->idAddr()->iiaAddrMode.amDisp = disp;
-        assert(id->idAddr()->iiaAddrMode.amDisp == disp);
+        id->idAddr()->iiaAddrMode.disp = disp;
+        assert(id->idAddr()->iiaAddrMode.disp == disp);
 #endif
     }
 
     id->idSetIsNoGC(isNoGCHelper);
 
     return id;
-}
-
-ID_OPS emitter::GetFormatOp(insFormat format)
-{
-    static const ID_OPS ops[]{
-#define IF_DEF(en, op1, op2) ID_OP_##op2,
-#include "emitfmts.h"
-    };
-
-    assert(format < _countof(ops));
-    return ops[format];
 }
 
 #ifdef DEBUG
@@ -2285,14 +1999,14 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         if (ig->refRegs != RBM_NONE)
         {
             printf("%c ref-regs", separator);
-            emitDispRegSet(ig->refRegs);
+            DumpRegSet(ig->refRegs);
             separator = ',';
         }
 
         if (ig->byrefRegs != RBM_NONE)
         {
             printf("%c byref-regs", separator);
-            emitDispRegSet(ig->byrefRegs);
+            DumpRegSet(ig->byrefRegs);
             separator = ',';
         }
     }
@@ -2340,7 +2054,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         {
             instrDesc* id = reinterpret_cast<instrDesc*>(ins);
             emitDispIns(id, false, true, false, ofs, nullptr, 0, ig);
-            ins += emitSizeOfInsDsc(id);
+            ins += id->GetDescSize();
             ofs += id->idCodeSize();
         }
 
@@ -2435,11 +2149,11 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
 
 #ifdef DEBUG
     /* Make sure the instruction descriptor size also matches our expectations */
-    if (is != emitSizeOfInsDsc(id))
+    if (is != id->GetDescSize())
     {
         printf("%s at %u: Expected size = %u , actual size = %u\n", emitIfName(id->idInsFmt()),
-               id->idDebugOnlyInfo()->idNum, is, emitSizeOfInsDsc(id));
-        assert(is == emitSizeOfInsDsc(id));
+               id->idDebugOnlyInfo()->idNum, is, id->GetDescSize());
+        assert(is == id->GetDescSize());
     }
 #endif // DEBUG
 
@@ -2668,22 +2382,17 @@ AGAIN:
 #ifdef TARGET_XARCH
         assert((jmp->idInsFmt() == IF_LABEL) || (jmp->idInsFmt() == IF_RWR_LABEL));
 
-        /* Figure out the smallest size we can end up with */
-
-        if (jmp->idInsFmt() == IF_LABEL)
+        if (IsJccInstruction(jmp->idIns()))
         {
-            if (emitIsCondJump(jmp))
-            {
-                ssz = JCC_SIZE_SMALL;
-                nsd = JCC_DIST_SMALL_MAX_NEG;
-                psd = JCC_DIST_SMALL_MAX_POS;
-            }
-            else
-            {
-                ssz = JMP_SIZE_SMALL;
-                nsd = JMP_DIST_SMALL_MAX_NEG;
-                psd = JMP_DIST_SMALL_MAX_POS;
-            }
+            ssz = JCC_SIZE_SMALL;
+            nsd = JCC_DIST_SMALL_MAX_NEG;
+            psd = JCC_DIST_SMALL_MAX_POS;
+        }
+        else if (jmp->idInsFmt() == IF_LABEL)
+        {
+            ssz = JMP_SIZE_SMALL;
+            nsd = JMP_DIST_SMALL_MAX_NEG;
+            psd = JMP_DIST_SMALL_MAX_POS;
         }
 #endif // TARGET_XARCH
 
@@ -4019,6 +3728,30 @@ void emitter::emitComputeCodeSizes()
 #endif
 }
 
+int emitter::RecordForwardJump(instrDescJmp* id, unsigned srcOffs, unsigned dstOffs)
+{
+    assert(dstOffs > srcOffs);
+
+    // This is a forward jump - distance will be an upper limit.
+    emitFwdJumps = true;
+
+    // The target offset will be closer by at least 'emitOffsAdj',
+    // but only if this jump doesn't cross the hot-cold boundary.
+    int adjustment = emitJumpCrossHotColdBoundary(srcOffs, dstOffs) ? 0 : emitOffsAdj;
+    dstOffs -= adjustment;
+
+    // Record the location of the jump for later patching
+    id->idjOffs = dstOffs;
+
+    // Are we overflowing the id->idjOffs bitfield?
+    if (id->idjOffs != dstOffs)
+    {
+        IMPL_LIMITATION("Method is too large");
+    }
+
+    return adjustment;
+}
+
 //------------------------------------------------------------------------
 // emitEndCodeGen: called at end of code generation to create code, data, and gc info
 //
@@ -4061,17 +3794,9 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     emitConsBlock = nullptr;
     emitOffsAdj   = 0;
 
-#if EMITTER_STATS
-    GCrefsTable.record(emitGCrFrameOffsCnt);
-    emitSizeTable.record(static_cast<unsigned>(emitSizeMethod));
-#endif
-
 #ifndef JIT32_GCENCODER
     gcInfo.Begin();
 #else
-#if EMITTER_STATS
-    stkDepthTable.record(emitMaxStackDepth);
-#endif
     unsigned maxStackDepthIn4ByteElements = emitMaxStackDepth / REGSIZE_BYTES;
     JITDUMP("Converting emitMaxStackDepth from bytes (%d) to elements (%d)\n", emitMaxStackDepth,
             maxStackDepthIn4ByteElements);
@@ -4243,7 +3968,9 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
 #define DEFAULT_CODE_BUFFER_INIT 0xcc
 
-    for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
+    INDEBUG(double perfScore = 0.0);
+
+    for (insGroup *ig = emitIGfirst, *prevIG = nullptr; ig != nullptr; prevIG = ig, ig = ig->igNext)
     {
         assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
 
@@ -4282,10 +4009,14 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             }
             else
             {
-                printf("\n%s:", emitLabelString(ig));
-                if (!emitComp->opts.disDiffable)
+                if (!ig->IsExtension() || ig->IsEpilog() || ig->IsFuncletPrologOrEpilog() || (prevIG == nullptr) ||
+                    (ig->IsNoGC() != prevIG->IsNoGC()))
                 {
-                    printf("              ;; offset=%04XH", emitCurCodeOffs(cp));
+                    printf("\n%s:", emitLabelString(ig));
+                    if (!emitComp->opts.disDiffable)
+                    {
+                        printf("              ;; offset=%04XH", emitCurCodeOffs(cp));
+                    }
                 }
                 printf("\n");
             }
@@ -4392,7 +4123,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             {
                 emitGCregLiveUpd(id->idGCref(), id->idReg1(), cp);
                 assert(id->idIsSmallDsc());
-                id = reinterpret_cast<instrDesc*>(reinterpret_cast<uint8_t*>(id) + SMALL_IDSC_SIZE);
+                id = reinterpret_cast<instrDesc*>(reinterpret_cast<uint8_t*>(id) + sizeof(instrDescSmall));
             }
             else
             {
@@ -4456,7 +4187,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                         unsigned bytesCrossedBoundary = (unsigned)(afterInstrAddr & jccAlignBoundaryMask);
                         printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d ; jcc erratum) %dB boundary "
                                "...............................\n",
-                               genInsDisplayName(curInstrDesc), bytesCrossedBoundary, jccAlignBoundary);
+                               insName(curInstrDesc->idIns()), bytesCrossedBoundary, jccAlignBoundary);
                     }
                 }
 
@@ -4475,7 +4206,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                         unsigned bytesCrossedBoundary = (unsigned)(afterInstrAddr & alignBoundaryMask);
                         if (bytesCrossedBoundary != 0)
                         {
-                            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", genInsDisplayName(curInstrDesc),
+                            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", insName(curInstrDesc->idIns()),
                                    bytesCrossedBoundary);
                         }
                         else
@@ -4491,9 +4222,14 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         }
 
 #ifdef DEBUG
-        if (emitComp->opts.disAsm || emitComp->verbose)
+        perfScore += ig->igPerfScore;
+
+        if (emitComp->verbose ||
+            (emitComp->opts.disAsm && ((ig->igNext == nullptr) || !ig->igNext->IsExtension() ||
+                                       ig->igNext->IsEpilog() || ig->igNext->IsFuncletPrologOrEpilog())))
         {
-            printf("\t\t\t\t\t\t;; bbWeight=%s PerfScore %.2f", refCntWtd2str(ig->igWeight), ig->igPerfScore);
+            printf("\t\t\t\t\t\t;; bbWeight=%s PerfScore %.2f", refCntWtd2str(ig->igWeight), perfScore);
+            perfScore = 0.0;
         }
         *instrCount += ig->igInsCnt;
 #endif // DEBUG
@@ -4547,14 +4283,14 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 #endif
             insGroup* tgt = jmp->idAddr()->iiaIGlabel;
 
-            if (jmp->idjTemp.idjAddr == nullptr)
+            if (jmp->idjAddr == nullptr)
             {
                 continue;
             }
 
             if (jmp->idjOffs != tgt->igOffs)
             {
-                BYTE* adr = jmp->idjTemp.idjAddr;
+                BYTE* adr = jmp->idjAddr;
                 int   adj = jmp->idjOffs - tgt->igOffs;
 #ifdef TARGET_ARM
                 // On Arm, the offset is encoded in unit of 2 bytes.
@@ -4631,11 +4367,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     unsigned actualCodeSize = emitCurCodeOffs(cp);
     assert(emitTotalCodeSize >= actualCodeSize);
 
-#if EMITTER_STATS
-    totAllocdSize += emitTotalCodeSize;
-    totActualSize += actualCodeSize;
-#endif
-
     // Fill in eventual unused space, but do not report this space as used.
     // If you add this padding during the emitIGlist loop, then it will
     // emit offsets after the loop with wrong value (for example for GC ref variables).
@@ -4692,7 +4423,7 @@ unsigned emitter::emitFindInsNum(insGroup* ig, instrDesc* idMatch)
 
     while (insRemaining > 0)
     {
-        castto(id, BYTE*) += emitSizeOfInsDsc(id);
+        castto(id, uint8_t*) += id->GetDescSize();
         insNum++;
         insRemaining--;
 
@@ -4729,7 +4460,7 @@ UNATIVE_OFFSET emitter::emitFindOffset(insGroup* ig, unsigned insNum)
     {
         of += id->idCodeSize();
 
-        castto(id, BYTE*) += emitSizeOfInsDsc(id);
+        castto(id, uint8_t*) += id->GetDescSize();
 
         insNum--;
     }
@@ -4764,13 +4495,13 @@ UNATIVE_OFFSET emitter::emitDataGenBeg(unsigned size, unsigned alignment, var_ty
     // MIN_DATA_ALIGN. We allow smaller alignment to be specified since it is
     // simpler to allow it than to check and block it.
     //
-    assert((size != 0) && ((size % dataSection::MIN_DATA_ALIGN) == 0));
-    assert(isPow2(alignment) && (alignment <= dataSection::MAX_DATA_ALIGN));
+    assert((size != 0) && ((size % MIN_DATA_ALIGN) == 0));
+    assert(isPow2(alignment) && (alignment <= MAX_DATA_ALIGN));
 
     /* Get hold of the current offset */
     secOffs = emitConsDsc.dsdOffs;
 
-    if (((secOffs % alignment) != 0) && (alignment > dataSection::MIN_DATA_ALIGN))
+    if (((secOffs % alignment) != 0) && (alignment > MIN_DATA_ALIGN))
     {
         // As per the above comment, the minimum alignment is actually (MIN_DATA_ALIGN)
         // bytes so we don't need to make any adjustments if the requested
@@ -4781,10 +4512,10 @@ UNATIVE_OFFSET emitter::emitDataGenBeg(unsigned size, unsigned alignment, var_ty
         // alignment.  So if the requested alignment is greater than MIN_DATA_ALIGN,
         // we need to pad the space out so the offset is a multiple of the requested.
         //
-        uint8_t zeros[dataSection::MAX_DATA_ALIGN] = {}; // auto initialize to all zeros
+        uint8_t zeros[MAX_DATA_ALIGN] = {}; // auto initialize to all zeros
 
         unsigned  zeroSize  = alignment - (secOffs % alignment);
-        unsigned  zeroAlign = dataSection::MIN_DATA_ALIGN;
+        unsigned  zeroAlign = MIN_DATA_ALIGN;
         var_types zeroType  = TYP_INT;
 
         emitBlkConst(&zeros, zeroSize, zeroAlign, zeroType);
@@ -5092,7 +4823,7 @@ CORINFO_FIELD_HANDLE emitter::emitFltOrDblConst(double constValue, emitAttr attr
         // Some platforms don't require doubles to be aligned and so
         // we can use a smaller alignment to help with smaller code
 
-        cnsAlign = dataSection::MIN_DATA_ALIGN;
+        cnsAlign = MIN_DATA_ALIGN;
     }
 #endif // TARGET_XARCH
 
@@ -5460,7 +5191,8 @@ UNATIVE_OFFSET emitter::emitCodeOffset(void* blockPtr, unsigned codePos)
     return ig->igOffs + of;
 }
 
-emitter::cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
+#ifndef TARGET_XARCH
+target_ssize_t emitter::emitGetInsSC(instrDesc* id)
 {
     if (id->idIsLargeCns())
     {
@@ -5471,6 +5203,7 @@ emitter::cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
         return id->idSmallCns();
     }
 }
+#endif
 
 // A helper for recording a relocation with the EE.
 void emitter::emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta)
@@ -5723,6 +5456,14 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
         {
             gcInfo.AddCallSite(callOffs, callEndOffs);
         }
+    }
+#endif
+
+#if defined(DEBUG) && defined(TARGET_XARCH)
+    if (id->idIns() == INS_call)
+    {
+        emitRecordCallSite(callOffs, id->idDebugOnlyInfo()->idCallSig,
+                           static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle));
     }
 #endif
 

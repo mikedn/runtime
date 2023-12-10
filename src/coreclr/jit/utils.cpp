@@ -23,20 +23,14 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "opcode.h"
 
-/*****************************************************************************/
-// Define the string platform name based on compilation #ifdefs. This is the
-// same code for all platforms, hence it is here instead of in the targetXXX.cpp
-// files.
-
+const char* Target::PlatformName()
+{
 #ifdef TARGET_UNIX
-// Should we distinguish Mac? Can we?
-// Should we distinguish flavors of Unix? Can we?
-const char* Target::g_tgtPlatformName = "Unix";
-#else  // !TARGET_UNIX
-const char* Target::g_tgtPlatformName = "Windows";
-#endif // !TARGET_UNIX
-
-/*****************************************************************************/
+    return "Unix";
+#else
+    return "Windows";
+#endif
+}
 
 #define DECLARE_DATA
 
@@ -122,36 +116,16 @@ const char* varTypeName(var_types type)
 }
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
-/*****************************************************************************
- *
- *  Return the name of the given register.
- */
-
-const char* getRegName(regNumber reg)
-{
-    // Special-case REG_NA; it's not in the regNames array, but we might want to print it.
-    if (reg == REG_NA)
-    {
-        return "NA";
-    }
-
-    static const char* const regNames[] = {
-#if defined(TARGET_ARM64)
-#define REGDEF(name, rnum, mask, xname, wname) xname,
-#else
-#define REGDEF(name, rnum, mask, sname) sname,
-#endif
-#include "register.h"
-    };
-
-    return reg < _countof(regNames) ? regNames[reg] : "???";
-}
-
 const char* getRegName(unsigned reg) // this is for gcencode.cpp and disasm.cpp that dont use the regNumber type
 {
     return getRegName(static_cast<regNumber>(reg));
 }
 #endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
+
+const regMaskTP regMasks[]{
+#define REGDEF(name, rnum, mask, ...) mask,
+#include "register.h"
+};
 
 #ifdef DEBUG
 
@@ -316,6 +290,63 @@ void dspRegMask(regMaskTP regMask, size_t minSiz)
         printf(" ");
         minSiz--;
     }
+}
+
+void DumpRegSet(regMaskTP regs)
+{
+    regNumber reg;
+    bool      sp = false;
+
+    printf(" {");
+
+    for (reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))
+    {
+        if ((regs & genRegMask(reg)) == 0)
+        {
+            continue;
+        }
+
+        if (sp)
+        {
+            printf(" ");
+        }
+        else
+        {
+            sp = true;
+        }
+
+        printf("%s", getRegName(reg));
+    }
+
+    printf("}");
+}
+
+void DumpRegSetDiff(const char* name, regMaskTP from, regMaskTP to)
+{
+    printf("%s{ ", name);
+
+    for (regNumber reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))
+    {
+        regMaskTP mask    = genRegMask(reg);
+        bool      fromBit = (from & mask) != 0;
+        bool      toBit   = (to & mask) != 0;
+
+        if (!fromBit && !toBit)
+        {
+            continue;
+        }
+
+        const char* s = "";
+
+        if (fromBit != toBit)
+        {
+            s = toBit ? "+" : "-";
+        }
+
+        printf("%s%s ", s, getRegName(reg));
+    }
+
+    printf("}\n");
 }
 
 static void DumpILBytes(const uint8_t* const codeAddr, unsigned codeSize, unsigned alignSize)
@@ -715,7 +746,7 @@ void ConfigMethodRange::Dump()
 
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
-#if COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE || MEASURE_MEM_ALLOC
+#if COUNT_BASIC_BLOCKS || COUNT_LOOPS || MEASURE_NODE_SIZE || MEASURE_MEM_ALLOC
 
 Histogram::Histogram(const unsigned* const sizeTable) : m_sizeTable(sizeTable)
 {
@@ -785,7 +816,7 @@ void Histogram::record(unsigned size)
     m_counts[i]++;
 }
 
-#endif // COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE
+#endif // COUNT_BASIC_BLOCKS || COUNT_LOOPS || MEASURE_NODE_SIZE
 
 /*****************************************************************************
  * Fixed bit vector class
@@ -1745,7 +1776,7 @@ double FloatingPointUtils::convertUInt64ToDouble(unsigned __int64 uIntVal)
         uint64_t adjHex = 0x43F0000000000000UL;
         d               = (double)s64 + *(double*)&adjHex;
 #else
-        d                             = (double)uIntVal;
+        d = (double)uIntVal;
 #endif
     }
     else
@@ -1793,7 +1824,7 @@ unsigned __int64 FloatingPointUtils::convertDoubleToUInt64(double d)
 
     u64 = UINT64(INT64(d));
 #else
-    u64                               = UINT64(d);
+    u64   = UINT64(d);
 #endif // TARGET_XARCH
 
     return u64;

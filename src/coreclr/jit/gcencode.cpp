@@ -3079,7 +3079,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
     }
 
     unsigned         lastOffset = 0;
-    PendingArgsStack pasStk(compiler->GetEmitter()->emitMaxStackDepth, compiler);
+    PendingArgsStack pasStk(compiler->GetEmitter()->GetMaxStackDepth(), compiler);
 
     for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
     {

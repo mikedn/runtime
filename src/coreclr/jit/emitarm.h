@@ -3,6 +3,7 @@
 
 #ifdef TARGET_ARM
 
+private:
 void emitHandlePCRelativeMov32(void* location, void* target);
 
 // This typedef defines the type that we use to hold encoded instructions.
@@ -31,10 +32,11 @@ unsigned emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code);
 /************************************************************************/
 
 #ifdef DEBUG
-
+void emitDispInsHex(instrDesc* id, BYTE* code, size_t sz);
 void emitDispInst(instruction ins, insFlags flags);
 void emitDispImm(int imm, bool addComma, bool alwaysHex = false);
 void emitDispReloc(void* addr);
+void emitDispFrameRef(instrDesc* id);
 void emitDispCond(int cond);
 void emitDispShiftOpts(insOpts opt);
 void emitDispRegmask(int imm, bool encodedPC_LR);
@@ -70,7 +72,6 @@ void emitDispIns(instrDesc* id,
 /*  Private members that deal with target-dependent instr. descriptors  */
 /************************************************************************/
 
-private:
 instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize);
 
 /************************************************************************/
@@ -85,8 +86,8 @@ static bool emitInsIsCompare(instruction ins);
 static bool emitInsIsLoad(instruction ins);
 static bool emitInsIsStore(instruction ins);
 static bool emitInsIsLoadOrStore(instruction ins);
-emitter::insFormat emitInsFormat(instruction ins);
-emitter::code_t emitInsCode(instruction ins, insFormat fmt);
+insFormat emitInsFormat(instruction ins);
+code_t emitInsCode(instruction ins, insFormat fmt);
 
 static bool IsMovInstruction(instruction ins);
 static bool isModImmConst(int imm);
@@ -102,99 +103,13 @@ void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varO
 /*           Public inline informational methods                        */
 /************************************************************************/
 
-public:
-inline static bool isLowRegister(regNumber reg)
+static bool isLowRegister(regNumber reg)
 {
     return (reg <= REG_R7);
 }
 
-inline static bool isGeneralRegister(regNumber reg)
-{
-    return (reg <= REG_R15);
-}
-
-inline static bool isFloatReg(regNumber reg)
-{
-    return (reg >= REG_F0 && reg <= REG_F31);
-}
-
-inline static bool isDoubleReg(regNumber reg)
-{
-    return isFloatReg(reg) && ((reg % 2) == 0);
-}
-
-inline static bool insSetsFlags(insFlags flags)
-{
-    return (flags != INS_FLAGS_NOT_SET);
-}
-
-inline static bool insDoesNotSetFlags(insFlags flags)
-{
-    return (flags != INS_FLAGS_SET);
-}
-
-inline static insFlags insMustSetFlags(insFlags flags)
-{
-    return (flags == INS_FLAGS_SET) ? INS_FLAGS_SET : INS_FLAGS_NOT_SET;
-}
-
-inline static insFlags insMustNotSetFlags(insFlags flags)
-{
-    return (flags == INS_FLAGS_NOT_SET) ? INS_FLAGS_NOT_SET : INS_FLAGS_SET;
-}
-
-inline static bool insOptsNone(insOpts opt)
-{
-    return (opt == INS_OPTS_NONE);
-}
-
-inline static bool insOptAnyInc(insOpts opt)
-{
-    return (opt == INS_OPTS_LDST_PRE_DEC) || (opt == INS_OPTS_LDST_POST_INC);
-}
-
-inline static bool insOptsPreDec(insOpts opt)
-{
-    return (opt == INS_OPTS_LDST_PRE_DEC);
-}
-
-inline static bool insOptsPostInc(insOpts opt)
-{
-    return (opt == INS_OPTS_LDST_POST_INC);
-}
-
-inline static bool insOptAnyShift(insOpts opt)
-{
-    return ((opt >= INS_OPTS_RRX) && (opt <= INS_OPTS_ROR));
-}
-
-inline static bool insOptsRRX(insOpts opt)
-{
-    return (opt == INS_OPTS_RRX);
-}
-
-inline static bool insOptsLSL(insOpts opt)
-{
-    return (opt == INS_OPTS_LSL);
-}
-
-inline static bool insOptsLSR(insOpts opt)
-{
-    return (opt == INS_OPTS_LSR);
-}
-
-inline static bool insOptsASR(insOpts opt)
-{
-    return (opt == INS_OPTS_ASR);
-}
-
-inline static bool insOptsROR(insOpts opt)
-{
-    return (opt == INS_OPTS_ROR);
-}
-
 // Returns the number of bits used by the given 'size'.
-inline static unsigned getBitWidth(emitAttr size)
+static unsigned getBitWidth(emitAttr size)
 {
     assert(size <= EA_8BYTE);
     return (unsigned)size * BITS_PER_BYTE;
@@ -296,6 +211,7 @@ void emitIns_Call(EmitCallType          kind,
                   regNumber reg    = REG_NA,
                   bool      isJump = false);
 
+private:
 /*****************************************************************************
  *
  *  Given an instrDesc, return true if it's a conditional jump.
@@ -339,6 +255,7 @@ inline bool emitIsLoadLabel(instrDesc* jmp)
 /************************************************************************/
 /*                   Interface for generating unwind information        */
 /************************************************************************/
+public:
 bool emitIsFuncEnd(emitLocation* emitLoc, emitLocation* emitLocNextFragment = NULL);
 
 void emitSplit(emitLocation*         startLoc,
@@ -348,6 +265,25 @@ void emitSplit(emitLocation*         startLoc,
                emitSplitCallbackType callbackFunc);
 
 void emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp);
+
 unsigned emitGetInstructionSize(emitLocation* emitLoc);
+
+private:
+// Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
+// pointer. This exempts the SP and PC registers, and floating point registers. Memory access
+// instructions that pre- or post-increment their memory address registers are *not* considered to write
+// to GC registers, even if that memory address is a by-ref: such an instruction cannot change the GC
+// status of that register, since it must be a byref before and remains one after.
+//
+// This may return false positives.
+bool emitInsMayWriteToGCReg(instrDesc* id);
+
+// Returns true if the instruction may write to more than one register.
+bool emitInsMayWriteMultipleRegs(instrDesc* id);
+
+unsigned insEncodeSetFlags(insFlags sf);
+unsigned insEncodeShiftOpts(insOpts opt);
+unsigned insEncodePUW_G0(insOpts opt, int imm);
+unsigned insEncodePUW_H0(insOpts opt, int imm);
 
 #endif // TARGET_ARM

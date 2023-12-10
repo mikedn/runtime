@@ -11969,7 +11969,7 @@ DONE_MORPHING_CHILDREN:
             {
                 if (GenTreeIntCon* offset = op1->AsOp()->GetOp(1)->IsIntCon())
                 {
-                    if ((offset->GetValue() % emitTypeSize(TYP_FLOAT)) != 0)
+                    if ((offset->GetValue() % 4) != 0)
                     {
                         tree->AsIndir()->SetUnaligned();
                     }

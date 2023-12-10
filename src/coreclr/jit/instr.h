@@ -9,55 +9,68 @@
 enum instruction : unsigned
 {
 #if defined(TARGET_XARCH)
-#define INST0(id, nm, um, mr, flags) INS_##id,
-#define INST1(id, nm, um, mr, flags) INS_##id,
-#define INST2(id, nm, um, mr, mi, flags) INS_##id,
-#define INST3(id, nm, um, mr, mi, rm, flags) INS_##id,
-#define INST4(id, nm, um, mr, mi, rm, a4, flags) INS_##id,
-#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) INS_##id,
+#define INST0(id, ...) INS_##id,
+#define INST1(id, ...) INS_##id,
+#define INST2(id, ...) INS_##id,
+#define INST3(id, ...) INS_##id,
+#define INST4(id, ...) INS_##id,
+#define INST5(id, ...) INS_##id,
 #include "instrsxarch.h"
+    INS_none,
+#define INST0(...)
+#define INST1(...)
+#define INST2(...)
+#define INST3(...)
+#define INST4(...)
+#define INST5(...)
+#define INSTA(id, val) INS_##id = INS_##val,
+#include "instrsxarch.h"
+    INS_BREAKPOINT = INS_int3,
 
 #elif defined(TARGET_ARM)
-#define INST1(id, nm, fp, ldst, fmt, e1) INS_##id,
-#define INST2(id, nm, fp, ldst, fmt, e1, e2) INS_##id,
-#define INST3(id, nm, fp, ldst, fmt, e1, e2, e3) INS_##id,
-#define INST4(id, nm, fp, ldst, fmt, e1, e2, e3, e4) INS_##id,
-#define INST5(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5) INS_##id,
-#define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6) INS_##id,
-#define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8) INS_##id,
-#define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) INS_##id,
+#define INST1(id, ...) INS_##id,
+#define INST2(id, ...) INS_##id,
+#define INST3(id, ...) INS_##id,
+#define INST4(id, ...) INS_##id,
+#define INST5(id, ...) INS_##id,
+#define INST6(id, ...) INS_##id,
+#define INST8(id, ...) INS_##id,
+#define INST9(id, ...) INS_##id,
 #include "instrsarm.h"
-
     INS_lea, // Not a real instruction. It is used for load the address of stack locals
+    INS_none,
+    INS_MULADD     = INS_mla,
+    INS_ABS        = INS_vabs,
+    INS_SQRT       = INS_vsqrt,
+    INS_BREAKPOINT = INS_bkpt,
 
 #elif defined(TARGET_ARM64)
-#define INST1(id, nm, ldst, fmt, e1) INS_##id,
-#define INST2(id, nm, ldst, fmt, e1, e2) INS_##id,
-#define INST3(id, nm, ldst, fmt, e1, e2, e3) INS_##id,
-#define INST4(id, nm, ldst, fmt, e1, e2, e3, e4) INS_##id,
-#define INST5(id, nm, ldst, fmt, e1, e2, e3, e4, e5) INS_##id,
-#define INST6(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6) INS_##id,
-#define INST9(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) INS_##id,
+#define INST1(id, ...) INS_##id,
+#define INST2(id, ...) INS_##id,
+#define INST3(id, ...) INS_##id,
+#define INST4(id, ...) INS_##id,
+#define INST5(id, ...) INS_##id,
+#define INST6(id, ...) INS_##id,
+#define INST9(id, ...) INS_##id,
 #include "instrsarm64.h"
-
     INS_lea, // Not a real instruction. It is used for load the address of stack locals
+    INS_none,
+    INS_MULADD     = INS_madd,
+    INS_ABS        = INS_fabs,
+    INS_SQRT       = INS_fsqrt,
+#ifdef TARGET_UNIX
+    INS_BREAKPOINT = INS_brk,
+#else
+    INS_BREAKPOINT = INS_bkpt,
+#endif
 
 #else
 #error Unsupported target architecture
 #endif
-
-    INS_none,
-    INS_count = INS_none
+    INS_COUNT = INS_none
 };
 
 INDEBUG(const char* insName(instruction ins);)
-
-enum insUpdateModes
-{
-    IUM_RD,
-    IUM_WR,
-    IUM_RW,
-};
 
 enum emitJumpKind
 {
@@ -67,59 +80,6 @@ enum emitJumpKind
     EJ_COUNT
 };
 
-enum GCtype : unsigned
-{
-    GCT_NONE,
-    GCT_GCREF,
-    GCT_BYREF
-};
-
-#ifdef TARGET_XARCH
-
-enum insFlags : uint32_t
-{
-    INS_FLAGS_None = 0,
-
-    // Reads
-    Reads_OF = 1 << 0,
-    Reads_SF = 1 << 1,
-    Reads_ZF = 1 << 2,
-    Reads_PF = 1 << 3,
-    Reads_CF = 1 << 4,
-    Reads_DF = 1 << 5,
-
-    // Writes
-    Writes_OF = 1 << 6,
-    Writes_SF = 1 << 7,
-    Writes_ZF = 1 << 8,
-    Writes_AF = 1 << 9,
-    Writes_PF = 1 << 10,
-    Writes_CF = 1 << 11,
-
-    // Resets
-    Resets_OF = 1 << 12,
-    Resets_SF = 1 << 13,
-    Resets_AF = 1 << 14,
-    Resets_PF = 1 << 15,
-    Resets_CF = 1 << 16,
-
-    // Undefined
-    Undefined_OF = 1 << 17,
-    Undefined_SF = 1 << 18,
-    Undefined_ZF = 1 << 19,
-    Undefined_AF = 1 << 20,
-    Undefined_PF = 1 << 21,
-    Undefined_CF = 1 << 22,
-
-    // Restore
-    Restore_SF_ZF_AF_PF_CF = 1 << 23,
-
-    // Avx
-    INS_Flags_IsDstDstSrcAVXInstruction = 1 << 25,
-    INS_Flags_IsDstSrcSrcAVXInstruction = 1 << 26
-};
-
-#endif // TARGET_XARCH
 #ifdef TARGET_ARM
 
 enum insFlags : unsigned
@@ -269,6 +229,13 @@ enum insBarrier : unsigned
 };
 #endif // TARGET_ARM64
 
+enum GCtype : unsigned
+{
+    GCT_NONE,
+    GCT_GCREF,
+    GCT_BYREF
+};
+
 #undef EA_UNKNOWN
 enum emitAttr : unsigned
 {
@@ -284,64 +251,74 @@ enum emitAttr : unsigned
 #ifdef TARGET_64BIT
     EA_PTRSIZE = EA_8BYTE,
 #else
-    EA_PTRSIZE = EA_4BYTE,
+    EA_PTRSIZE     = EA_4BYTE,
 #endif
 
-    EA_GCREF_FLG = 0x080,
-    EA_GCREF     = EA_GCREF_FLG | EA_PTRSIZE, /* size == -1 */
-    EA_BYREF_FLG = 0x100,
-    EA_BYREF     = EA_BYREF_FLG | EA_PTRSIZE, /* size == -2 */
+    EA_GCREF_FLG = GCT_GCREF << 7,
+    EA_GCREF     = EA_PTRSIZE | EA_GCREF_FLG,
+    EA_BYREF_FLG = GCT_BYREF << 7,
+    EA_BYREF     = EA_PTRSIZE | EA_BYREF_FLG,
+
 #ifdef TARGET_XARCH
-    EA_DSP_RELOC_FLG = 0x200,
+    // TODO-MIKE-Cleanup: These aren't used anymore, remove? In theory, x86 could still use
+    // these, as it can put a reloc pretty much anywhere an imm32/disp32 is available.
+    // All other targets are far more restrictive in this regard and are better off using
+    // specific emitter function overloads.
+    EA_DSP_RELOC_FLG = 1 << 9,
+    EA_PTR_DSP_RELOC = EA_PTRSIZE | EA_DSP_RELOC_FLG,
+    EA_CNS_RELOC_FLG = 1 << 10,
+    EA_PTR_CNS_RELOC = EA_PTRSIZE | EA_CNS_RELOC_FLG,
 #endif
-    EA_CNS_RELOC_FLG = 0x400,
 };
 
-#define EA_ATTR(x) ((emitAttr)(x))
-#define EA_SIZE(x) ((emitAttr)(((unsigned)(x)) & EA_SIZE_MASK))
-#define EA_SIZE_IN_BYTES(x) ((UNATIVE_OFFSET)(EA_SIZE(x)))
-#define EA_SET_SIZE(x, sz) ((emitAttr)((((unsigned)(x)) & ~EA_SIZE_MASK) | (sz)))
-#define EA_SET_FLG(x, flg) ((emitAttr)(((unsigned)(x)) | (flg)))
+#define EA_ATTR(x) static_cast<emitAttr>(x)
+#define EA_SIZE(x) static_cast<emitAttr>((x)&EA_SIZE_MASK)
+#define EA_SIZE_IN_BYTES(x) ((x)&EA_SIZE_MASK)
+#define EA_GC_TYPE(x) static_cast<GCtype>(((x) >> 7) & 3)
+#define EA_IS_GCREF_OR_BYREF(x) (EA_GC_TYPE(x) != GCT_NONE)
+#define EA_IS_GCREF(x) (EA_GC_TYPE(x) == GCT_GCREF)
+#define EA_IS_BYREF(x) (EA_GC_TYPE(x) == GCT_BYREF)
 #ifdef TARGET_XARCH
-#define EA_PTR_DSP_RELOC (EA_SET_FLG(EA_PTRSIZE, EA_DSP_RELOC_FLG))
-#endif
-#define EA_PTR_CNS_RELOC (EA_SET_FLG(EA_PTRSIZE, EA_CNS_RELOC_FLG))
-#define EA_IS_GCREF(x) ((((unsigned)(x)) & ((unsigned)EA_GCREF_FLG)) != 0)
-#define EA_IS_BYREF(x) ((((unsigned)(x)) & ((unsigned)EA_BYREF_FLG)) != 0)
-#define EA_IS_GCREF_OR_BYREF(x) ((((unsigned)(x)) & ((unsigned)(EA_BYREF_FLG | EA_GCREF_FLG))) != 0)
-#ifdef TARGET_XARCH
-#define EA_IS_DSP_RELOC(x) ((((unsigned)(x)) & ((unsigned)EA_DSP_RELOC_FLG)) != 0)
-#endif
-#define EA_IS_CNS_RELOC(x) ((((unsigned)(x)) & ((unsigned)EA_CNS_RELOC_FLG)) != 0)
-#ifdef TARGET_XARCH
+#define EA_IS_DSP_RELOC(x) (((x)&EA_DSP_RELOC_FLG) != 0)
+#define EA_IS_CNS_RELOC(x) (((x)&EA_CNS_RELOC_FLG) != 0)
 #define EA_IS_RELOC(x) (EA_IS_DSP_RELOC(x) || EA_IS_CNS_RELOC(x))
-#define EA_TYPE(x) ((emitAttr)(((unsigned)(x)) & ~(EA_DSP_RELOC_FLG | EA_CNS_RELOC_FLG)))
-#else
-#define EA_TYPE(x) ((emitAttr)(((unsigned)(x)) & ~(EA_CNS_RELOC_FLG)))
 #endif
 
-#define EmitSize(x) (EA_ATTR(genTypeSize(TypeGet(x))))
+extern const uint16_t emitTypeSizes[TYP_COUNT];
+extern const uint16_t emitTypeActSz[TYP_COUNT];
 
+inline emitAttr emitTypeSize(var_types type)
+{
+    assert(type < _countof(emitTypeSizes));
+    assert(emitTypeSizes[type] != EA_UNKNOWN);
+    return static_cast<emitAttr>(emitTypeSizes[type]);
+}
+
+inline emitAttr emitActualTypeSize(var_types type)
+{
+    assert(type < _countof(emitTypeActSz));
+    assert(emitTypeActSz[type] != EA_UNKNOWN);
+    return static_cast<emitAttr>(emitTypeActSz[type]);
+}
+
+#ifdef FEATURE_SIMD
+constexpr emitAttr emitVecTypeSize(unsigned size)
+{
+    switch (size)
+    {
+        case 8:
+            return EA_8BYTE;
+        case 12:
+        case 16:
+            return EA_16BYTE;
 #ifdef TARGET_XARCH
-constexpr instruction INS_BREAKPOINT = INS_int3;
+        case 32:
+            return EA_32BYTE;
 #endif
-
-#ifdef TARGET_ARM
-constexpr instruction INS_MULADD     = INS_mla;
-constexpr instruction INS_ABS        = INS_vabs;
-constexpr instruction INS_SQRT       = INS_vsqrt;
-constexpr instruction INS_BREAKPOINT = INS_bkpt;
-#endif
-
-#ifdef TARGET_ARM64
-constexpr instruction INS_MULADD = INS_madd;
-constexpr instruction INS_ABS    = INS_fabs;
-constexpr instruction INS_SQRT   = INS_fsqrt;
-#if defined(TARGET_UNIX)
-constexpr instruction INS_BREAKPOINT = INS_brk;
-#else
-constexpr instruction INS_BREAKPOINT = INS_bkpt;
-#endif
+        default:
+            unreached();
+    }
+}
 #endif
 
 #endif // INSTR_H

@@ -66,7 +66,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
         assert(numArgs >= 0);
         instruction ins = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
         assert(ins != INS_invalid);
-        emitAttr simdSize = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
+        emitAttr simdSize = emitVecTypeSize(node->GetSimdSize());
         assert(simdSize != 0);
 
         switch (numArgs)
@@ -76,7 +76,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                 if (node->OperIsMemoryLoad())
                 {
                     genConsumeAddress(op1);
-                    emitInsLoad(ins, simdSize, node->GetRegNum(), op1);
+                    GetEmitter()->emitIns_R_A(ins, simdSize, node->GetRegNum(), op1);
                 }
                 else
                 {
@@ -132,7 +132,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                     else
                     {
                         genConsumeReg(op2);
-                        emitInsStore(ins, simdSize, op1, op2);
+                        GetEmitter()->emitIns_A_R(ins, simdSize, op1, op2->GetRegNum());
                     }
                     break;
                 }
@@ -363,47 +363,107 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
     }
 }
 
-void CodeGen::genHWIntrinsic_R_RM(
-    GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, regNumber reg, GenTree* rmOp)
+bool CodeGen::IsMemoryOperand(
+    GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, CORINFO_FIELD_HANDLE* field)
 {
-    emitter* emit = GetEmitter();
-
-    assert(reg != REG_NA);
-
-    if (rmOp->isContained() || rmOp->isUsedFromSpillTemp())
+    if (IsLocalMemoryOperand(op, lclNum, lclOffs))
     {
-        assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assert(IsContainableHWIntrinsicOp(compiler, node, rmOp));
+        *addr  = nullptr;
+        *field = nullptr;
 
-        unsigned             lclNum;
-        unsigned             lclOffs;
-        GenTree*             addr;
-        CORINFO_FIELD_HANDLE field;
-
-        if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &field))
-        {
-            unreached();
-        }
-        else if (addr != nullptr)
-        {
-            emit->emitIns_RRW_A(ins, attr, reg, addr);
-        }
-        else if (field != nullptr)
-        {
-            emit->emitIns_R_C(ins, attr, reg, field);
-        }
-        else
-        {
-            emit->emitIns_R_S(ins, attr, reg, lclNum, lclOffs);
-        }
+        return true;
     }
-    else if (emit->IsMovInstruction(ins))
+
+    if (GenTreeDblCon* dblCon = op->IsDblCon())
     {
-        emit->emitIns_Mov(ins, attr, reg, rmOp->GetRegNum(), /* canSkip */ false);
+        *addr  = nullptr;
+        *field = GetEmitter()->emitFltOrDblConst(dblCon->GetValue(), emitTypeSize(dblCon->GetType()));
+
+        return true;
+    }
+
+    GenTree* loadAddr;
+
+    if (op->OperIs(GT_IND))
+    {
+        loadAddr = op->AsIndir()->GetAddr();
+    }
+#ifdef FEATURE_HW_INTRINSICS
+    else if (GenTreeHWIntrinsic* intrin = op->IsHWIntrinsic())
+    {
+        assert(intrin->OperIsMemoryLoad());
+        assert(intrin->IsUnary());
+
+        loadAddr = intrin->GetOp(0);
+    }
+#endif
+    else
+    {
+        return false;
+    }
+
+    if (loadAddr->OperIs(GT_LCL_ADDR))
+    {
+        assert(loadAddr->isContained());
+
+        *lclNum  = loadAddr->AsLclAddr()->GetLclNum();
+        *lclOffs = loadAddr->AsLclAddr()->GetLclOffs();
+        *addr    = nullptr;
+        *field   = nullptr;
     }
     else
     {
-        emit->emitIns_R_R(ins, attr, reg, rmOp->GetRegNum());
+        *addr  = loadAddr;
+        *field = nullptr;
+    }
+
+    return true;
+}
+
+void CodeGen::genHWIntrinsic_R_RM(
+    GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, regNumber reg, GenTree* rmOp)
+{
+    Emitter& emit = *GetEmitter();
+
+    assert(reg != REG_NA);
+
+    if (rmOp->isUsedFromReg())
+    {
+        if (emit.IsMovInstruction(ins))
+        {
+            emit.emitIns_Mov(ins, attr, reg, rmOp->GetRegNum(), /* canSkip */ false);
+        }
+        else
+        {
+            emit.emitIns_R_R(ins, attr, reg, rmOp->GetRegNum());
+        }
+
+        return;
+    }
+
+    assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
+    assert(IsContainableHWIntrinsicOp(compiler, node, rmOp));
+
+    unsigned             lclNum;
+    unsigned             lclOffs;
+    GenTree*             addr;
+    CORINFO_FIELD_HANDLE field;
+
+    if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &field))
+    {
+        unreached();
+    }
+    else if (addr != nullptr)
+    {
+        emit.emitIns_R_A(ins, attr, reg, addr);
+    }
+    else if (field != nullptr)
+    {
+        emit.emitIns_R_C(ins, attr, reg, field);
+    }
+    else
+    {
+        emit.emitIns_R_S(ins, attr, reg, lclNum, lclOffs);
     }
 }
 
@@ -411,7 +471,7 @@ void CodeGen::genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, i
 {
     regNumber targetReg = node->GetRegNum();
     GenTree*  op1       = node->GetOp(0);
-    emitAttr  simdSize  = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
+    emitAttr  simdSize  = emitVecTypeSize(node->GetSimdSize());
 
     // TODO-XArch-CQ: Commutative operations can have op1 be contained
     // TODO-XArch-CQ: Non-VEX encoded instructions can have both ops contained
@@ -424,7 +484,44 @@ void CodeGen::genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, i
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
         assert(IsContainableHWIntrinsicOp(compiler, node, op1));
     }
+
     inst_RV_TT_IV(ins, simdSize, targetReg, op1, ival);
+}
+
+void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenTree* rmOp, int ival)
+{
+    assert(attr != EA_1BYTE);
+
+    Emitter& emit = *GetEmitter();
+
+    if (rmOp->isUsedFromReg())
+    {
+        emit.emitIns_SIMD_R_R_I(ins, attr, reg1, rmOp->GetRegNum(), ival);
+
+        return;
+    }
+
+    unsigned             lclNum;
+    unsigned             lclOffs;
+    GenTree*             addr;
+    CORINFO_FIELD_HANDLE field;
+
+    if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &field))
+    {
+        unreached();
+    }
+    else if (addr != nullptr)
+    {
+        emit.emitIns_R_A_I(ins, attr, reg1, addr, ival);
+    }
+    else if (field != nullptr)
+    {
+        emit.emitIns_R_C_I(ins, attr, reg1, field, ival);
+    }
+    else
+    {
+        emit.emitIns_R_S_I(ins, attr, reg1, lclNum, lclOffs, ival);
+    }
 }
 
 void CodeGen::genHWIntrinsic_R_R_RM(GenTreeHWIntrinsic* node, instruction ins, emitAttr attr)
@@ -452,8 +549,62 @@ void CodeGen::genHWIntrinsic_R_R_RM(
         assert(IsContainableHWIntrinsicOp(compiler, node, op2));
     }
 
-    bool isRMW = node->isRMWHWIntrinsic(compiler);
-    inst_RV_RV_TT(ins, attr, targetReg, op1Reg, op2, isRMW);
+    inst_RV_RV_TT(ins, attr, targetReg, op1Reg, op2, node->isRMWHWIntrinsic(compiler));
+}
+
+void CodeGen::inst_RV_RV_TT(
+    instruction ins, emitAttr size, regNumber targetReg, regNumber op1Reg, GenTree* op2, bool isRMW)
+{
+    assert(size != EA_1BYTE);
+
+    // TODO-XArch-CQ: Commutative operations can have op1 be contained
+    // TODO-XArch-CQ: Non-VEX encoded instructions can have both ops contained
+
+    Emitter& emit = *GetEmitter();
+
+    if (op2->isUsedFromReg())
+    {
+        regNumber op2Reg = op2->GetRegNum();
+
+        if ((op1Reg != targetReg) && (op2Reg == targetReg) && isRMW)
+        {
+            // We have "reg2 = reg1 op reg2" where "reg1 != reg2" on a RMW instruction.
+            //
+            // For non-commutative instructions, we should have ensured that op2 was marked
+            // delay free in order to prevent it from getting assigned the same register
+            // as target. However, for commutative instructions, we can just swap the operands
+            // in order to have "reg2 = reg2 op reg1" which will end up producing the right code.
+
+            op2Reg = op1Reg;
+            op1Reg = targetReg;
+        }
+
+        emit.emitIns_SIMD_R_R_R(ins, size, targetReg, op1Reg, op2Reg);
+
+        return;
+    }
+
+    unsigned             lclNum;
+    unsigned             lclOffs;
+    GenTree*             addr;
+    CORINFO_FIELD_HANDLE field;
+
+    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
+    {
+        unreached();
+    }
+    else if (addr != nullptr)
+    {
+        emit.emitIns_SIMD_R_R_A(ins, size, targetReg, op1Reg, addr);
+    }
+    else if (field != nullptr)
+    {
+        emit.emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, field);
+    }
+    else
+    {
+        emit.emitIns_SIMD_R_R_S(ins, size, targetReg, op1Reg, lclNum, lclOffs);
+    }
 }
 
 void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, int8_t ival)
@@ -461,8 +612,8 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     regNumber targetReg = node->GetRegNum();
     GenTree*  op1       = node->GetOp(0);
     GenTree*  op2       = node->GetOp(1);
-    emitAttr  simdSize  = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
-    emitter*  emit      = GetEmitter();
+    emitAttr  simdSize  = emitVecTypeSize(node->GetSimdSize());
+    Emitter&  emit      = *GetEmitter();
 
     assert(targetReg != REG_NA);
 
@@ -477,7 +628,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
 
         regNumber op2Reg = op2->GetRegNum();
         ival |= 0b1111 & ~(1 << ((ival >> 4) & 0b11));
-        emit->emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op2Reg, op2Reg, ival);
+        emit.emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op2Reg, op2Reg, ival);
 
         return;
     }
@@ -485,44 +636,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     regNumber op1Reg = op1->GetRegNum();
     assert(op1Reg != REG_NA);
 
-    if (op2->isContained() || op2->isUsedFromSpillTemp())
-    {
-        if (op2->IsDblConPositiveZero())
-        {
-            assert(ins == INS_insertps);
-
-            ival |= 1 << ((ival >> 4) & 0b11);
-            emit->emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op1Reg, op1Reg, ival);
-
-            return;
-        }
-
-        assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assert((ins == INS_insertps) || IsContainableHWIntrinsicOp(compiler, node, op2));
-
-        unsigned             lclNum;
-        unsigned             lclOffs;
-        GenTree*             addr;
-        CORINFO_FIELD_HANDLE field;
-
-        if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
-        {
-            unreached();
-        }
-        else if (addr != nullptr)
-        {
-            emit->emitIns_SIMD_R_R_A_I(ins, simdSize, targetReg, op1Reg, addr, ival);
-        }
-        else if (field != nullptr)
-        {
-            emit->emitIns_SIMD_R_R_C_I(ins, simdSize, targetReg, op1Reg, field, ival);
-        }
-        else
-        {
-            emit->emitIns_SIMD_R_R_S_I(ins, simdSize, targetReg, op1Reg, lclNum, lclOffs, ival);
-        }
-    }
-    else
+    if (op2->isUsedFromReg())
     {
         regNumber op2Reg = op2->GetRegNum();
 
@@ -540,7 +654,44 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
             op1Reg = targetReg;
         }
 
-        emit->emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op1Reg, op2Reg, ival);
+        emit.emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op1Reg, op2Reg, ival);
+
+        return;
+    }
+
+    if (op2->IsDblConPositiveZero())
+    {
+        assert(ins == INS_insertps);
+
+        ival |= 1 << ((ival >> 4) & 0b11);
+        emit.emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op1Reg, op1Reg, ival);
+
+        return;
+    }
+
+    assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
+    assert((ins == INS_insertps) || IsContainableHWIntrinsicOp(compiler, node, op2));
+
+    unsigned             lclNum;
+    unsigned             lclOffs;
+    GenTree*             addr;
+    CORINFO_FIELD_HANDLE field;
+
+    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
+    {
+        unreached();
+    }
+    else if (addr != nullptr)
+    {
+        emit.emitIns_SIMD_R_R_A_I(ins, simdSize, targetReg, op1Reg, addr, ival);
+    }
+    else if (field != nullptr)
+    {
+        emit.emitIns_SIMD_R_R_C_I(ins, simdSize, targetReg, op1Reg, field, ival);
+    }
+    else
+    {
+        emit.emitIns_SIMD_R_R_S_I(ins, simdSize, targetReg, op1Reg, lclNum, lclOffs, ival);
     }
 }
 
@@ -550,8 +701,8 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     GenTree*  op1       = node->GetOp(0);
     GenTree*  op2       = node->GetOp(1);
     GenTree*  op3       = node->GetOp(2);
-    emitAttr  simdSize  = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
-    emitter*  emit      = GetEmitter();
+    emitAttr  simdSize  = emitVecTypeSize(node->GetSimdSize());
+    Emitter&  emit      = *GetEmitter();
 
     regNumber op1Reg = op1->GetRegNum();
     regNumber op3Reg = op3->GetRegNum();
@@ -560,36 +711,37 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     assert(op1Reg != REG_NA);
     assert(op3Reg != REG_NA);
 
-    if (op2->isContained() || op2->isUsedFromSpillTemp())
+    if (op2->isUsedFromReg())
     {
-        assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assert(IsContainableHWIntrinsicOp(compiler, node, op2));
+        emit.emitIns_SIMD_R_R_R_R(ins, simdSize, targetReg, op1Reg, op2->GetRegNum(), op3Reg);
 
-        unsigned             lclNum;
-        unsigned             lclOffs;
-        GenTree*             addr;
-        CORINFO_FIELD_HANDLE field;
+        return;
+    }
 
-        if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
-        {
-            unreached();
-        }
-        else if (addr != nullptr)
-        {
-            emit->emitIns_SIMD_R_R_A_R(ins, simdSize, targetReg, op1Reg, op3Reg, addr);
-        }
-        else if (field != nullptr)
-        {
-            emit->emitIns_SIMD_R_R_C_R(ins, simdSize, targetReg, op1Reg, op3Reg, field);
-        }
-        else
-        {
-            emit->emitIns_SIMD_R_R_S_R(ins, simdSize, targetReg, op1Reg, op3Reg, lclNum, lclOffs);
-        }
+    assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
+    assert(IsContainableHWIntrinsicOp(compiler, node, op2));
+
+    unsigned             lclNum;
+    unsigned             lclOffs;
+    GenTree*             addr;
+    CORINFO_FIELD_HANDLE field;
+
+    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
+    {
+        unreached();
+    }
+    else if (addr != nullptr)
+    {
+        emit.emitIns_SIMD_R_R_A_R(ins, simdSize, targetReg, op1Reg, op3Reg, addr);
+    }
+    else if (field != nullptr)
+    {
+        // We can't have a DblCon operand on blend instructions.
+        unreached();
     }
     else
     {
-        emit->emitIns_SIMD_R_R_R_R(ins, simdSize, targetReg, op1Reg, op2->GetRegNum(), op3Reg);
+        emit.emitIns_SIMD_R_R_S_R(ins, simdSize, targetReg, op1Reg, op3Reg, lclNum, lclOffs);
     }
 }
 
@@ -600,35 +752,35 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
     assert(op1Reg != REG_NA);
     assert(op2Reg != REG_NA);
 
-    emitter* emit = GetEmitter();
+    Emitter& emit = *GetEmitter();
 
-    if (op3->isContained() || op3->isUsedFromSpillTemp())
+    if (op3->isUsedFromReg())
     {
-        unsigned             lclNum;
-        unsigned             lclOffs;
-        GenTree*             addr;
-        CORINFO_FIELD_HANDLE field;
+        emit.emitIns_SIMD_R_R_R_R(ins, attr, targetReg, op1Reg, op2Reg, op3->GetRegNum());
 
-        if (!IsMemoryOperand(op3, &lclNum, &lclOffs, &addr, &field))
-        {
-            unreached();
-        }
-        else if (addr != nullptr)
-        {
-            emit->emitIns_SIMD_R_R_R_A(ins, attr, targetReg, op1Reg, op2Reg, addr);
-        }
-        else if (field != nullptr)
-        {
-            emit->emitIns_SIMD_R_R_R_C(ins, attr, targetReg, op1Reg, op2Reg, field);
-        }
-        else
-        {
-            emit->emitIns_SIMD_R_R_R_S(ins, attr, targetReg, op1Reg, op2Reg, lclNum, lclOffs);
-        }
+        return;
+    }
+
+    unsigned             lclNum;
+    unsigned             lclOffs;
+    GenTree*             addr;
+    CORINFO_FIELD_HANDLE field;
+
+    if (!IsMemoryOperand(op3, &lclNum, &lclOffs, &addr, &field))
+    {
+        unreached();
+    }
+    else if (addr != nullptr)
+    {
+        emit.emitIns_SIMD_R_R_R_A(ins, attr, targetReg, op1Reg, op2Reg, addr);
+    }
+    else if (field != nullptr)
+    {
+        emit.emitIns_SIMD_R_R_R_C(ins, attr, targetReg, op1Reg, op2Reg, field);
     }
     else
     {
-        emit->emitIns_SIMD_R_R_R_R(ins, attr, targetReg, op1Reg, op2Reg, op3->GetRegNum());
+        emit.emitIns_SIMD_R_R_R_S(ins, attr, targetReg, op1Reg, op2Reg, lclNum, lclOffs);
     }
 }
 
@@ -706,7 +858,7 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
     GenTree* op2 = node->GetNumOps() >= 2 ? node->GetOp(1) : nullptr;
 
     emitter*    emit   = GetEmitter();
-    emitAttr    attr   = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
+    emitAttr    attr   = emitVecTypeSize(node->GetSimdSize());
     instruction ins    = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
     regNumber   op1Reg = (op1 == nullptr) ? REG_NA : op1->GetRegNum();
 
@@ -1104,7 +1256,7 @@ void CodeGen::genSSE2Intrinsic(GenTreeHWIntrinsic* node)
             assert(op2 != nullptr);
 
             instruction ins = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
-            emitInsStore(ins, emitTypeSize(baseType), op1, op2);
+            GetEmitter()->emitIns_A_R(ins, emitTypeSize(baseType), op1, op2->GetRegNum());
             break;
         }
 
@@ -1138,7 +1290,7 @@ void CodeGen::genSSE41Intrinsic(GenTreeHWIntrinsic* node)
 
             if (!varTypeIsSIMD(op1->gtType))
             {
-                emitInsLoad(ins, emitTypeSize(TYP_SIMD16), node->GetRegNum(), op1);
+                GetEmitter()->emitIns_R_A(ins, EA_16BYTE, node->GetRegNum(), op1);
             }
             else
             {
@@ -1235,7 +1387,7 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
     var_types      baseType    = node->GetSimdBaseType();
-    emitAttr       attr        = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
+    emitAttr       attr        = emitVecTypeSize(node->GetSimdSize());
     var_types      targetType  = node->TypeGet();
     instruction    ins         = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
     int            numArgs     = node->GetNumOps();
@@ -1269,7 +1421,7 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
 
             if (!varTypeIsSIMD(op1->gtType))
             {
-                emitInsLoad(ins, emitTypeSize(TYP_SIMD32), node->GetRegNum(), op1);
+                GetEmitter()->emitIns_R_A(ins, EA_32BYTE, node->GetRegNum(), op1);
             }
             else
             {
@@ -1510,7 +1662,7 @@ void CodeGen::genFMAIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
     var_types      baseType    = node->GetSimdBaseType();
-    emitAttr       attr        = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
+    emitAttr       attr        = emitVecTypeSize(node->GetSimdSize());
     instruction    ins         = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
     GenTree*       op1         = node->GetOp(0);
     GenTree*       op2         = node->GetOp(1);

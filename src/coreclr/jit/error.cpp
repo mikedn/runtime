@@ -1,15 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           error.cpp                                       XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 #ifdef _MSC_VER
 #pragma hdrstop
@@ -22,13 +13,10 @@ unsigned fatal_noWay;
 unsigned fatal_implLimitation;
 unsigned fatal_NOMEM;
 unsigned fatal_noWayAssertBody;
-#ifdef DEBUG
-unsigned fatal_noWayAssertBodyArgs;
-#endif // DEBUG
 unsigned fatal_NYI;
-#endif // MEASURE_FATAL
+INDEBUG(unsigned fatal_noWayAssertBodyArgs;)
+#endif
 
-/*****************************************************************************/
 void DECLSPEC_NORETURN fatal(int errCode)
 {
 #ifdef DEBUG
@@ -39,59 +27,54 @@ void DECLSPEC_NORETURN fatal(int errCode)
             DebugBreak();
         }
     }
-#endif // DEBUG
+#endif
 
     ULONG_PTR exceptArg = errCode;
     RaiseException(FATAL_JIT_EXCEPTION, EXCEPTION_NONCONTINUABLE, 1, &exceptArg);
     __UNREACHABLE();
 }
 
-/*****************************************************************************/
 void DECLSPEC_NORETURN badCode()
 {
 #if MEASURE_FATAL
     fatal_badCode += 1;
-#endif // MEASURE_FATAL
+#endif
 
     fatal(CORJIT_BADCODE);
 }
 
-/*****************************************************************************/
 void DECLSPEC_NORETURN noWay()
 {
 #if MEASURE_FATAL
     fatal_noWay += 1;
-#endif // MEASURE_FATAL
+#endif
 
     fatal(CORJIT_INTERNALERROR);
 }
 
-/*****************************************************************************/
 void DECLSPEC_NORETURN implLimitation()
 {
 #if MEASURE_FATAL
     fatal_implLimitation += 1;
-#endif // MEASURE_FATAL
+#endif
 
     fatal(CORJIT_IMPLLIMITATION);
 }
 
-/*****************************************************************************/
 void DECLSPEC_NORETURN NOMEM()
 {
 #if MEASURE_FATAL
     fatal_NOMEM += 1;
-#endif // MEASURE_FATAL
+#endif
 
     fatal(CORJIT_OUTOFMEM);
 }
 
-/*****************************************************************************/
 void DECLSPEC_NORETURN noWayAssertBody()
 {
 #if MEASURE_FATAL
     fatal_noWayAssertBody += 1;
-#endif // MEASURE_FATAL
+#endif
 
 #ifndef DEBUG
     // Even in retail, if we hit a noway, and we have this variable set, we don't want to fall back
@@ -103,7 +86,7 @@ void DECLSPEC_NORETURN noWayAssertBody()
     {
         DebugBreak();
     }
-#endif // !DEBUG
+#endif
 
     fatal(CORJIT_RECOVERABLEERROR);
 }
@@ -121,7 +104,6 @@ void NOINLINE noWayAssertBodyConditional()
     }
 }
 
-/*****************************************************************************/
 void notYetImplemented(const char* msg, const char* filename, unsigned line)
 {
     Compiler* compiler = JitTls::GetCompiler();
@@ -177,7 +159,7 @@ void notYetImplemented(const char* msg, const char* filename, unsigned line)
     {
 #if MEASURE_FATAL
         fatal_NYI += 1;
-#endif // MEASURE_FATAL
+#endif
 
         fatal(CORJIT_SKIPPED);
     }
@@ -203,7 +185,6 @@ LONG JitErrorTrapFilter(PEXCEPTION_POINTERS pExceptionPointers, ErrorTrapParam& 
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
-/*****************************************************************************/
 #ifdef DEBUG
 
 DWORD getBreakOnBadCode()
@@ -211,7 +192,6 @@ DWORD getBreakOnBadCode()
     return JitConfig.JitBreakOnBadCode();
 }
 
-/*****************************************************************************/
 void debugError(const char* msg, const char* file, unsigned line)
 {
     const char* tail = strrchr(file, '\\');
@@ -327,80 +307,24 @@ int flogf(FILE* file, const char* fmt, ...)
     return written;
 }
 
-/*********************************************************************/
 int logf(const char* fmt, ...)
 {
-    va_list     args;
-    static bool logToEEfailed = false;
-    int         written       = 0;
-    //
-    // We remember when the EE failed to log, because vlogf()
-    // is very slow in a checked build.
-    //
-    // If it fails to log an LL_INFO1000 message once
-    // it will always fail when logging an LL_INFO1000 message.
-    //
-    if (!logToEEfailed)
-    {
-        va_start(args, fmt);
-        if (!vlogf(LL_INFO1000, fmt, args))
-        {
-            logToEEfailed = true;
-        }
-        va_end(args);
-    }
-
-    if (logToEEfailed)
-    {
-        // if the EE refuses to log it, we try to send it to stdout
-        va_start(args, fmt);
-        written = vflogf(jitstdout, fmt, args);
-        va_end(args);
-    }
-#if 0  // Enable this only when you need it
-    else
-    {
-        //
-        // The EE just successfully logged our message
-        //
-        static ConfigDWORD fJitBreakOnDumpToken;
-        DWORD breakOnDumpToken = fJitBreakOnDumpToken.val(CLRConfig::INTERNAL_BreakOnDumpToken);
-        static DWORD forbidEntry = 0;
-
-        if ((breakOnDumpToken != 0xffffffff) && (forbidEntry == 0))
-        {
-            forbidEntry = 1;
-
-            // Use value of 0 to get the dump
-            static DWORD currentLine = 1;
-
-            if (currentLine == breakOnDumpToken)
-            {
-                assert(!"Dump token reached");
-            }
-
-            printf("(Token=0x%x) ", currentLine++);
-            forbidEntry = 0;
-        }
-    }
-#endif // 0
+    va_list args;
+    va_start(args, fmt);
+    int written = vflogf(jitstdout, fmt, args);
     va_end(args);
-
     return written;
 }
 
-/*********************************************************************/
 void gcDump_logf(const char* fmt, ...)
 {
     va_list     args;
     static bool logToEEfailed = false;
-    //
+
     // We remember when the EE failed to log, because vlogf()
     // is very slow in a checked build.
-    //
     // If it fails to log an LL_INFO1000 message once
     // it will always fail when logging an LL_INFO1000 message.
-    //
     if (!logToEEfailed)
     {
         va_start(args, fmt);
@@ -445,10 +369,8 @@ void gcDump_logf(const char* fmt, ...)
         }
     }
 #endif // 0
-    va_end(args);
 }
 
-/*********************************************************************/
 void logf(unsigned level, const char* fmt, ...)
 {
     va_list args;
@@ -495,7 +417,7 @@ void DECLSPEC_NORETURN noWayAssertBody(const char* cond, const char* file, unsig
 {
 #if MEASURE_FATAL
     fatal_noWayAssertBodyArgs += 1;
-#endif // MEASURE_FATAL
+#endif
 
     noWayAssertAbortHelper(cond, file, line);
     noWayAssertBody();

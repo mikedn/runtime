@@ -5,6 +5,7 @@
 #include "dataflow.h"
 #include "ssabuilder.h"
 #include "valuenum.h"
+#include "emit.h"
 
 enum ApKind : uint8_t
 {

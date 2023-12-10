@@ -29,124 +29,56 @@
 /*****************************************************************************/
 // The following are intended to capture only those #defines that cannot be replaced
 // with static const members of Target
-#if defined(TARGET_XARCH)
-#define REGMASK_BITS 32
-#elif defined(TARGET_ARM)
-#define REGMASK_BITS 64
-#elif defined(TARGET_ARM64)
-#define REGMASK_BITS 64
-#else
-#error Unsupported or unset target architecture
-#endif
 
-//------------------------------------------------------------------------
-//
-// Each register list in register.h must declare REG_STK as the last value.
-// In the following enum declarations, the following REG_XXX are created beyond
-// the "real" registers:
-//    REG_STK          - Used to indicate something evaluated onto the stack.
-//    ACTUAL_REG_COUNT - The number of physical registers. (same as REG_STK).
-//    REG_COUNT        - The number of physical register + REG_STK. This is the count of values that may
-//                       be assigned during register allocation.
-//    REG_NA           - Used to indicate that a register is either not yet assigned or not required.
-//
 #if defined(TARGET_ARM)
-enum _regNumber_enum : unsigned
-{
-#define REGDEF(name, rnum, mask, sname) REG_##name = rnum,
-#define REGALIAS(alias, realname) REG_##alias = REG_##realname,
-#include "register.h"
-
-    REG_COUNT,
-    REG_NA           = REG_COUNT,
-    ACTUAL_REG_COUNT = REG_COUNT - 1 // everything but REG_STK (only real regs)
-};
-
-enum _regMask_enum : unsigned __int64
-{
-    RBM_NONE = 0,
-#define REGDEF(name, rnum, mask, sname) RBM_##name = mask,
-#define REGALIAS(alias, realname) RBM_##alias = RBM_##realname,
-#include "register.h"
-};
-
+using IntRegNum  = uint32_t;
+using IntRegMask = uint64_t;
 #elif defined(TARGET_ARM64)
-
-enum _regNumber_enum : unsigned
-{
-#define REGDEF(name, rnum, mask, xname, wname) REG_##name = rnum,
-#define REGALIAS(alias, realname) REG_##alias = REG_##realname,
-#include "register.h"
-
-    REG_COUNT,
-    REG_NA           = REG_COUNT,
-    ACTUAL_REG_COUNT = REG_COUNT - 1 // everything but REG_STK (only real regs)
-};
-
-enum _regMask_enum : unsigned __int64
-{
-    RBM_NONE = 0,
-#define REGDEF(name, rnum, mask, xname, wname) RBM_##name = mask,
-#define REGALIAS(alias, realname) RBM_##alias = RBM_##realname,
-#include "register.h"
-};
-
+using IntRegNum  = uint32_t;
+using IntRegMask = uint64_t;
 #elif defined(TARGET_AMD64)
-
-enum _regNumber_enum : unsigned
-{
-#define REGDEF(name, rnum, mask, sname) REG_##name = rnum,
-#define REGALIAS(alias, realname) REG_##alias = REG_##realname,
-#include "register.h"
-
-    REG_COUNT,
-    REG_NA           = REG_COUNT,
-    ACTUAL_REG_COUNT = REG_COUNT - 1 // everything but REG_STK (only real regs)
-};
-
-enum _regMask_enum : unsigned
-{
-    RBM_NONE = 0,
-
-#define REGDEF(name, rnum, mask, sname) RBM_##name = mask,
-#define REGALIAS(alias, realname) RBM_##alias = RBM_##realname,
-#include "register.h"
-};
-
+using IntRegNum  = uint32_t;
+using IntRegMask = uint32_t;
 #elif defined(TARGET_X86)
-
-enum _regNumber_enum : unsigned
-{
-#define REGDEF(name, rnum, mask, sname) REG_##name = rnum,
-#define REGALIAS(alias, realname) REG_##alias = REG_##realname,
-#include "register.h"
-
-    REG_COUNT,
-    REG_NA           = REG_COUNT,
-    ACTUAL_REG_COUNT = REG_COUNT - 1 // everything but REG_STK (only real regs)
-};
-
-enum _regMask_enum : unsigned
-{
-    RBM_NONE = 0,
-
-#define REGDEF(name, rnum, mask, sname) RBM_##name = mask,
-#define REGALIAS(alias, realname) RBM_##alias = RBM_##realname,
-#include "register.h"
-};
-
+using IntRegNum  = uint32_t;
+using IntRegMask = uint32_t;
 #else
 #error Unsupported target architecture
 #endif
 
-#ifdef TARGET_ARMARCH
-typedef uint64_t regMaskTP;
-#else
-typedef uint32_t regMaskTP;
-#endif
+#define REGMASK_BITS sizeof(IntRegMask)
 
-typedef _regNumber_enum regNumber;
-typedef unsigned char   regNumberSmall;
+// Each register list in register.h must declare REG_STK as the last value.
+// In the following enum declaration, the following REG_XXX are created beyond
+// the "real" registers:
+//    ACTUAL_REG_COUNT - The number of physical registers.
+//    REG_STK          - Used to indicate something evaluated onto the stack.
+//    REG_COUNT        - The number of physical register + REG_STK. This is the count of values that may
+//                       be assigned during register allocation.
+//    REG_NA           - Used to indicate that a register is either not yet assigned or not required.
+//
+
+enum RegNum : IntRegNum
+{
+#define REGDEF(name, num, mask, ...) REG_##name = num,
+#define REGALIAS(alias, name) REG_##alias = REG_##name,
+#include "register.h"
+    REG_COUNT,
+    REG_NA           = REG_COUNT,
+    ACTUAL_REG_COUNT = REG_STK // everything but REG_STK (only real regs)
+};
+
+enum RegMask : IntRegMask
+{
+    RBM_NONE = 0,
+#define REGDEF(name, num, mask, ...) RBM_##name = mask,
+#define REGALIAS(alias, name) RBM_##alias = RBM_##name,
+#include "register.h"
+};
+
+using regNumber      = RegNum;
+using regNumberSmall = uint8_t;
+using regMaskTP      = IntRegMask;
 
 static_assert_no_msg(static_cast<regNumber>(static_cast<regNumberSmall>(REG_COUNT)) == REG_COUNT);
 
@@ -217,24 +149,13 @@ C_ASSERT((FEATURE_TAILCALL_OPT == 0) || (FEATURE_FASTTAILCALL == 1));
 #define BITS_PER_BYTE              8
 #define RBM_ALL(type) (varTypeUsesFloatReg(type) ? RBM_ALLFLOAT : RBM_ALLINT)
 
-/*****************************************************************************/
-
-#if CPU_HAS_BYTE_REGS
-  #define RBM_BYTE_REGS           (RBM_EAX|RBM_ECX|RBM_EDX|RBM_EBX)
-  #define BYTE_REG_COUNT          4
-  #define RBM_NON_BYTE_REGS       (RBM_ESI|RBM_EDI)
-#else
-  #define RBM_BYTE_REGS            RBM_ALLINT
-  #define RBM_NON_BYTE_REGS        RBM_NONE
-#endif
 // clang-format on
 
-/*****************************************************************************/
 class Target
 {
 public:
-    static const char* g_tgtCPUName;
-    static const char* g_tgtPlatformName;
+    static const char* CpuName();
+    static const char* PlatformName();
 };
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
@@ -244,10 +165,14 @@ const char* getRegName(regNumber reg);
 #endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
 
 #ifdef DEBUG
-extern void dspRegMask(regMaskTP regMask, size_t minSiz = 0);
+enum emitAttr : unsigned;
+const char* RegName(regNumber reg, enum emitAttr attr);
+void dspRegMask(regMaskTP regMask, size_t minSiz = 0);
+void DumpRegSet(regMaskTP regs);
+void DumpRegSetDiff(const char* name, regMaskTP from, regMaskTP to);
 #endif
 
-#if CPU_HAS_BYTE_REGS
+#ifdef TARGET_X86
 inline bool isByteReg(regNumber reg)
 {
     return (reg <= REG_EBX);

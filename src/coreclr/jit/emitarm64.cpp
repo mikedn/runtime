@@ -24,61 +24,188 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 
-/* static */ bool emitter::strictArmAsm = true;
-
-/*****************************************************************************/
-
-const instruction emitJumpKindInstructions[] = {
-    INS_nop,
-
-#define JMP_SMALL(en, rev, ins) INS_##ins,
-#include "emitjmps.h"
-};
-
-const emitJumpKind emitReverseJumpKinds[] = {
-    EJ_NONE,
-
-#define JMP_SMALL(en, rev, ins) EJ_##rev,
-#include "emitjmps.h"
-};
-
-/*****************************************************************************
- * Look up the instruction for a jump kind
- */
-
-/*static*/ instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
+static bool isGeneralRegister(regNumber reg)
 {
-    assert((unsigned)jumpKind < ArrLen(emitJumpKindInstructions));
-    return emitJumpKindInstructions[jumpKind];
+    return IsGeneralRegister(reg);
+} // Excludes REG_ZR
+
+static bool isGeneralRegisterOrZR(regNumber reg)
+{
+    return (reg >= REG_INT_FIRST) && (reg <= REG_ZR);
+} // Includes REG_ZR
+
+static bool isGeneralRegisterOrSP(regNumber reg)
+{
+    return isGeneralRegister(reg) || (reg == REG_SP);
+} // Includes REG_SP, Excludes REG_ZR
+
+#ifdef DEBUG
+static bool isValidGeneralDatasize(emitAttr size)
+{
+    return (size == EA_8BYTE) || (size == EA_4BYTE);
 }
 
-/*****************************************************************************
-* Look up the jump kind for an instruction. It better be a conditional
-* branch instruction with a jump kind!
-*/
-
-/*static*/ emitJumpKind emitter::emitInsToJumpKind(instruction ins)
+static bool isValidScalarDatasize(emitAttr size)
 {
-    for (unsigned i = 0; i < ArrLen(emitJumpKindInstructions); i++)
+    return (size == EA_8BYTE) || (size == EA_4BYTE);
+}
+
+static bool isValidGeneralLSDatasize(emitAttr size)
+{
+    return (size == EA_8BYTE) || (size == EA_4BYTE) || (size == EA_2BYTE) || (size == EA_1BYTE);
+}
+
+static bool isValidVectorLSDatasize(emitAttr size)
+{
+    return (size == EA_16BYTE) || (size == EA_8BYTE) || (size == EA_4BYTE) || (size == EA_2BYTE) || (size == EA_1BYTE);
+}
+
+static bool isValidVectorLSPDatasize(emitAttr size)
+{
+    return (size == EA_16BYTE) || (size == EA_8BYTE) || (size == EA_4BYTE);
+}
+
+static bool isValidVectorElemsize(emitAttr size)
+{
+    return (size == EA_8BYTE) || (size == EA_4BYTE) || (size == EA_2BYTE) || (size == EA_1BYTE);
+}
+
+static bool isValidVectorFcvtsize(emitAttr size)
+{
+    return (size == EA_8BYTE) || (size == EA_4BYTE) || (size == EA_2BYTE);
+}
+
+static bool isValidVectorElemsizeFloat(emitAttr size)
+{
+    return (size == EA_8BYTE) || (size == EA_4BYTE);
+}
+
+static bool insOptsPreIndex(insOpts opt)
+{
+    return (opt == INS_OPTS_PRE_INDEX);
+}
+
+static bool insOptsLSExtend(insOpts opt)
+{
+    return ((opt == INS_OPTS_NONE) || (opt == INS_OPTS_LSL) || (opt == INS_OPTS_UXTW) || (opt == INS_OPTS_SXTW) ||
+            (opt == INS_OPTS_UXTX) || (opt == INS_OPTS_SXTX));
+}
+
+static bool insOpts32BitExtend(insOpts opt)
+{
+    return ((opt == INS_OPTS_UXTW) || (opt == INS_OPTS_SXTW));
+}
+
+static bool insOptsConvertFloatToFloat(insOpts opt)
+{
+    return ((opt >= INS_OPTS_S_TO_D) && (opt <= INS_OPTS_D_TO_H));
+}
+
+static bool insOptsConvertFloatToInt(insOpts opt)
+{
+    return ((opt >= INS_OPTS_S_TO_4BYTE) && (opt <= INS_OPTS_D_TO_8BYTE));
+}
+
+static bool insOptsConvertIntToFloat(insOpts opt)
+{
+    return ((opt >= INS_OPTS_4BYTE_TO_S) && (opt <= INS_OPTS_8BYTE_TO_D));
+}
+#endif // DEBUG
+
+static bool insOptsNone(insOpts opt)
+{
+    return (opt == INS_OPTS_NONE);
+}
+
+static bool insOptsAluShift(insOpts opt) // excludes ROR
+{
+    return ((opt >= INS_OPTS_LSL) && (opt <= INS_OPTS_ASR));
+}
+
+static bool insOptsIndexed(insOpts opt)
+{
+    return (opt == INS_OPTS_PRE_INDEX) || (opt == INS_OPTS_POST_INDEX);
+}
+
+static bool insOptsAnyExtend(insOpts opt)
+{
+    return ((opt >= INS_OPTS_UXTB) && (opt <= INS_OPTS_SXTX));
+}
+
+static bool insOptsLSL(insOpts opt)
+{
+    return (opt == INS_OPTS_LSL);
+}
+
+static bool insOptsLSL12(insOpts opt) // special 12-bit shift only used for imm12
+{
+    return (opt == INS_OPTS_LSL12);
+}
+
+static bool insOptsAnyShift(insOpts opt)
+{
+    return ((opt >= INS_OPTS_LSL) && (opt <= INS_OPTS_ROR));
+}
+
+static bool insOptsPostIndex(insOpts opt)
+{
+    return (opt == INS_OPTS_POST_INDEX);
+}
+
+static bool insOptsAnyArrangement(insOpts opt)
+{
+    return ((opt >= INS_OPTS_8B) && (opt <= INS_OPTS_2D));
+}
+
+static bool isValidVectorDatasize(emitAttr size)
+{
+    return (size == EA_16BYTE) || (size == EA_8BYTE);
+}
+
+static bool isVectorRegister(regNumber reg)
+{
+    return IsVectorRegister(reg);
+}
+
+bool emitter::strictArmAsm = true;
+
+instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
+{
+    static const instruction map[]{
+        INS_nop,
+#define JMP_SMALL(en, rev, ins) INS_##ins,
+#include "emitjmps.h"
+    };
+
+    assert(jumpKind < _countof(map));
+    return map[jumpKind];
+}
+
+emitJumpKind emitter::emitInsToJumpKind(instruction ins)
+{
+    for (unsigned i = EJ_NONE + 1; i < EJ_COUNT; i++)
     {
-        if (ins == emitJumpKindInstructions[i])
+        emitJumpKind kind = static_cast<emitJumpKind>(i);
+
+        if (ins == emitJumpKindToIns(kind))
         {
-            emitJumpKind ret = (emitJumpKind)i;
-            assert(EJ_NONE < ret && ret < EJ_COUNT);
-            return ret;
+            return kind;
         }
     }
+
     unreached();
 }
 
-/*****************************************************************************
- * Reverse the conditional jump
- */
-
-/*static*/ emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
+emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
 {
+    static const emitJumpKind map[]{
+        EJ_NONE,
+#define JMP_SMALL(en, rev, ins) EJ_##rev,
+#include "emitjmps.h"
+    };
+
     assert(jumpKind < EJ_COUNT);
-    return emitReverseJumpKinds[jumpKind];
+    return map[jumpKind];
 }
 
 size_t emitter::emitGetInstrDescSize(const instrDesc* id)
@@ -96,19 +223,38 @@ size_t emitter::emitGetInstrDescSize(const instrDesc* id)
     return sizeof(instrDesc);
 }
 
-// Return the allocated size (in bytes) of the given instruction descriptor.
-size_t emitter::emitSizeOfInsDsc(instrDesc* id)
+enum ID_OPS : uint8_t
 {
-    if (id->idIsSmallDsc())
+    ID_OP_NONE, // no additional arguments
+    ID_OP_SCNS, // small const  operand (21-bits or less, no reloc)
+    ID_OP_JMP,  // local jump
+    ID_OP_CALL, // method call
+    ID_OP_SPEC, // special handling required
+};
+
+static ID_OPS GetFormatOp(insFormat format)
+{
+    static const ID_OPS ops[]{
+#define IF_DEF(en, op1, op2) ID_OP_##op2,
+#include "emitfmtsarm64.h"
+    };
+
+    assert(format < _countof(ops));
+    return ops[format];
+}
+
+// Return the allocated size (in bytes) of the given instruction descriptor.
+size_t emitter::instrDescSmall::GetDescSize() const
+{
+    if (_idSmallDsc)
     {
-        return SMALL_IDSC_SIZE;
+        return sizeof(instrDescSmall);
     }
 
-    ID_OPS idOp = GetFormatOp(id->idInsFmt());
+    ID_OPS idOp = GetFormatOp(_idInsFmt);
 
-    bool isCallIns = (id->idIns() == INS_bl) || (id->idIns() == INS_blr) || (id->idIns() == INS_b_tail) ||
-                     (id->idIns() == INS_br_tail);
-    bool maybeCallIns = (id->idIns() == INS_b) || (id->idIns() == INS_br);
+    bool isCallIns    = (_idIns == INS_bl) || (_idIns == INS_blr) || (_idIns == INS_b_tail) || (_idIns == INS_br_tail);
+    bool maybeCallIns = (_idIns == INS_b) || (_idIns == INS_br);
 
     switch (idOp)
     {
@@ -120,14 +266,14 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 
         case ID_OP_CALL:
             assert(isCallIns || maybeCallIns);
-            if (id->idIsLargeCall())
+            if (_idLargeCall)
             {
                 /* Must be a "fat" call descriptor */
                 return sizeof(instrDescCGCA);
             }
             else
             {
-                assert(!id->idIsLargeCns());
+                assert(!_idLargeCns);
                 return sizeof(instrDesc);
             }
             break;
@@ -137,7 +283,7 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
             break;
     }
 
-    if (id->idIsLargeCns())
+    if (_idLargeCns)
     {
         return sizeof(instrDescCns);
     }
@@ -1203,98 +1349,12 @@ emitAttr emitter::emitInsLoadStoreSize(instrDesc* id)
 }
 
 /*****************************************************************************/
+
 #ifdef DEBUG
 
-// clang-format off
-static const char * const  xRegNames[] =
+const char* emitter::emitRegName(regNumber reg, emitAttr attr)
 {
-    #define REGDEF(name, rnum, mask, xname, wname) xname,
-    #include "register.h"
-};
-
-static const char * const  wRegNames[] =
-{
-    #define REGDEF(name, rnum, mask, xname, wname) wname,
-    #include "register.h"
-};
-
-static const char * const  vRegNames[] =
-{
-    "v0",  "v1",  "v2",  "v3",  "v4",
-    "v5",  "v6",  "v7",  "v8",  "v9",
-    "v10", "v11", "v12", "v13", "v14",
-    "v15", "v16", "v17", "v18", "v19",
-    "v20", "v21", "v22", "v23", "v24",
-    "v25", "v26", "v27", "v28", "v29",
-    "v30", "v31"
-};
-
-static const char * const  qRegNames[] =
-{
-    "q0",  "q1",  "q2",  "q3",  "q4",
-    "q5",  "q6",  "q7",  "q8",  "q9",
-    "q10", "q11", "q12", "q13", "q14",
-    "q15", "q16", "q17", "q18", "q19",
-    "q20", "q21", "q22", "q23", "q24",
-    "q25", "q26", "q27", "q28", "q29",
-    "q30", "q31"
-};
-
-static const char * const  hRegNames[] =
-{
-    "h0",  "h1",  "h2",  "h3",  "h4",
-    "h5",  "h6",  "h7",  "h8",  "h9",
-    "h10", "h11", "h12", "h13", "h14",
-    "h15", "h16", "h17", "h18", "h19",
-    "h20", "h21", "h22", "h23", "h24",
-    "h25", "h26", "h27", "h28", "h29",
-    "h30", "h31"
-};
-static const char * const  bRegNames[] =
-{
-    "b0",  "b1",  "b2",  "b3",  "b4",
-    "b5",  "b6",  "b7",  "b8",  "b9",
-    "b10", "b11", "b12", "b13", "b14",
-    "b15", "b16", "b17", "b18", "b19",
-    "b20", "b21", "b22", "b23", "b24",
-    "b25", "b26", "b27", "b28", "b29",
-    "b30", "b31"
-};
-// clang-format on
-
-const char* emitter::emitRegName(regNumber reg, emitAttr size)
-{
-    assert(reg < REG_COUNT);
-
-    const char* rn = nullptr;
-
-    if (size == EA_8BYTE)
-    {
-        rn = xRegNames[reg];
-    }
-    else if (size == EA_4BYTE)
-    {
-        rn = wRegNames[reg];
-    }
-    else if (isVectorRegister(reg))
-    {
-        if (size == EA_16BYTE)
-        {
-            rn = qRegNames[reg - REG_V0];
-        }
-        else if (size == EA_2BYTE)
-        {
-            rn = hRegNames[reg - REG_V0];
-        }
-        else if (size == EA_1BYTE)
-        {
-            rn = bRegNames[reg - REG_V0];
-        }
-    }
-
-    assert(rn != nullptr);
-
-    return rn;
+    return RegName(reg, attr);
 }
 
 //------------------------------------------------------------------------
@@ -1308,11 +1368,13 @@ const char* emitter::emitRegName(regNumber reg, emitAttr size)
 //
 const char* emitter::emitVectorRegName(regNumber reg)
 {
+    static const char* const vRegNames[]{"v0",  "v1",  "v2",  "v3",  "v4",  "v5",  "v6",  "v7",  "v8",  "v9",  "v10",
+                                         "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21",
+                                         "v22", "v23", "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31"};
+
     assert((reg >= REG_V0) && (reg <= REG_V31));
 
-    int index = (int)reg - (int)REG_V0;
-
-    return vRegNames[index];
+    return vRegNames[reg - REG_V0];
 }
 
 #endif // DEBUG
@@ -1344,7 +1406,7 @@ const char* insName(instruction ins)
  *  Returns the base encoding of the given CPU instruction.
  */
 
-emitter::insFormat emitter::emitInsFormat(instruction ins)
+insFormat emitter::emitInsFormat(instruction ins)
 {
     // clang-format off
     const static insFormat insFormats[] =
@@ -1374,19 +1436,16 @@ emitter::insFormat emitter::emitInsFormat(instruction ins)
 #define LNG 32
 #define NRW 64
 
-// clang-format off
-const BYTE emitter::instInfo[] =
-{
-    #define INST1(id, nm, info, fmt, e1                                ) info,
-    #define INST2(id, nm, info, fmt, e1, e2                            ) info,
-    #define INST3(id, nm, info, fmt, e1, e2, e3                        ) info,
-    #define INST4(id, nm, info, fmt, e1, e2, e3, e4                    ) info,
-    #define INST5(id, nm, info, fmt, e1, e2, e3, e4, e5                ) info,
-    #define INST6(id, nm, info, fmt, e1, e2, e3, e4, e5, e6            ) info,
-    #define INST9(id, nm, info, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) info,
-    #include "instrsarm64.h"
+const uint8_t instInfo[]{
+#define INST1(id, nm, info, ...) info,
+#define INST2(id, nm, info, ...) info,
+#define INST3(id, nm, info, ...) info,
+#define INST4(id, nm, info, ...) info,
+#define INST5(id, nm, info, ...) info,
+#define INST6(id, nm, info, ...) info,
+#define INST9(id, nm, info, ...) info,
+#include "instrsarm64.h"
 };
-// clang-format on
 
 bool emitter::emitInsIsCompare(instruction ins)
 {
@@ -2435,7 +2494,7 @@ bool emitter::validImmForBL(ssize_t addr, Compiler* compiler)
 
 /*static*/ UINT64 emitter::Replicate_helper(UINT64 value, unsigned width, emitAttr size)
 {
-    assert(emitter::isValidGeneralDatasize(size));
+    assert(isValidGeneralDatasize(size));
 
     unsigned immWidth = (size == EA_8BYTE) ? 64 : 32;
     assert(width <= immWidth);
@@ -6713,30 +6772,15 @@ void emitter::emitIns_R_R_R_I(instruction ins,
     assert(fmt != IF_NONE);
 
     instrDesc* id = emitNewInstrCns(attr, imm);
-
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
-
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    // Record the attribute for the second register in the pair
-    id->idGCrefReg2(GCT_NONE);
-    if (attrReg2 != EA_UNKNOWN)
-    {
-        // Record the attribute for the second register in the pair
-        assert((fmt == IF_LS_3B) || (fmt == IF_LS_3C));
-        if (EA_IS_GCREF(attrReg2))
-        {
-            id->idGCrefReg2(GCT_GCREF);
-        }
-        else if (EA_IS_BYREF(attrReg2))
-        {
-            id->idGCrefReg2(GCT_BYREF);
-        }
-    }
+    assert((attrReg2 == EA_UNKNOWN) || (fmt == IF_LS_3B) || (fmt == IF_LS_3C));
+    id->idGCrefReg2(EA_GC_TYPE(attrReg2));
 
     dispIns(id);
     appendToCurIG(id);
@@ -7514,21 +7558,10 @@ void emitter::Ins_R_R_S(
         fmt     = IF_LS_3B;
     }
 
-    GCtype reg2Type = GCT_NONE;
-
-    if (EA_IS_GCREF(attr2))
-    {
-        reg2Type = GCT_GCREF;
-    }
-    else if (EA_IS_BYREF(attr2))
-    {
-        reg2Type = GCT_BYREF;
-    }
-
     instrDesc* id = emitNewInstrCns(attr1, imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idGCrefReg2(reg2Type);
+    id->idGCrefReg2(EA_GC_TYPE(attr2));
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idReg3(baseReg);
@@ -7622,10 +7655,6 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
         id->idjOffs      = emitCurIGsize;
         id->idjNext      = emitCurIGjmpList;
         emitCurIGjmpList = id;
-
-#if EMITTER_STATS
-        emitTotalIGjmps++;
-#endif
     }
 
     dispIns(id);
@@ -7646,6 +7675,7 @@ void emitter::emitIns_R_AH(instruction ins,
     id->idOpSize(EA_8BYTE);
     id->idAddr()->iiaAddr = addr;
     id->idReg1(reg);
+    // TODO-MIKE-Review: Why does this always set CnsReloc and adrp below sets in only if relocs are enabled?
     id->idSetIsCnsReloc();
 #ifdef DEBUG
     id->idDebugOnlyInfo()->idHandle     = handle;
@@ -7657,14 +7687,13 @@ void emitter::emitIns_R_AH(instruction ins,
 
     if (ins == INS_adrp)
     {
-        instrDesc* id = emitNewInstr(EA_PTR_CNS_RELOC);
-        assert(id->idIsCnsReloc());
-
+        instrDesc* id = emitNewInstr(EA_8BYTE);
         id->idIns(INS_add);
         id->idInsFmt(IF_DI_2A);
         id->idInsOpt(INS_OPTS_NONE);
         id->idOpSize(EA_8BYTE);
         id->idAddr()->iiaAddr = addr;
+        id->idSetIsCnsReloc(emitComp->opts.compReloc);
         id->idReg1(reg);
         id->idReg2(reg);
 
@@ -7737,10 +7766,6 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -7764,10 +7789,6 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNu
     id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
-
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
 
     dispIns(id);
     appendToCurIG(id);
@@ -7795,10 +7816,6 @@ void emitter::emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* dst, reg
     id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
-
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
 
     dispIns(id);
     appendToCurIG(id);
@@ -7892,10 +7909,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -7935,11 +7948,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         id->idIns(isJump ? INS_b_tail : INS_bl);
         id->idInsFmt(IF_BI_0C);
         id->idAddr()->iiaAddr = addr;
-
-        if (emitComp->opts.compReloc)
-        {
-            id->idSetIsCnsReloc();
-        }
+        id->idSetIsCnsReloc(emitComp->opts.compReloc);
     }
 
 #ifdef DEBUG
@@ -8140,7 +8149,7 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 /*static*/ emitter::code_t emitter::insEncodeReg_Ra(regNumber reg)
 {
     assert(isIntegerRegister(reg));
-    emitter::code_t ureg = (emitter::code_t)reg;
+    code_t ureg = (code_t)reg;
     assert((ureg >= 0) && (ureg <= 31));
     return ureg << 10;
 }
@@ -8152,8 +8161,8 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodeReg_Vd(regNumber reg)
 {
-    assert(emitter::isVectorRegister(reg));
-    emitter::code_t ureg = (emitter::code_t)reg - (emitter::code_t)REG_V0;
+    assert(isVectorRegister(reg));
+    code_t ureg = (code_t)reg - (code_t)REG_V0;
     assert((ureg >= 0) && (ureg <= 31));
     return ureg;
 }
@@ -8165,8 +8174,8 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodeReg_Vt(regNumber reg)
 {
-    assert(emitter::isVectorRegister(reg));
-    emitter::code_t ureg = (emitter::code_t)reg - (emitter::code_t)REG_V0;
+    assert(isVectorRegister(reg));
+    code_t ureg = (code_t)reg - (code_t)REG_V0;
     assert((ureg >= 0) && (ureg <= 31));
     return ureg;
 }
@@ -8178,8 +8187,8 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodeReg_Vn(regNumber reg)
 {
-    assert(emitter::isVectorRegister(reg));
-    emitter::code_t ureg = (emitter::code_t)reg - (emitter::code_t)REG_V0;
+    assert(isVectorRegister(reg));
+    code_t ureg = (code_t)reg - (code_t)REG_V0;
     assert((ureg >= 0) && (ureg <= 31));
     return ureg << 5;
 }
@@ -8191,8 +8200,8 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodeReg_Vm(regNumber reg)
 {
-    assert(emitter::isVectorRegister(reg));
-    emitter::code_t ureg = (emitter::code_t)reg - (emitter::code_t)REG_V0;
+    assert(isVectorRegister(reg));
+    code_t ureg = (code_t)reg - (code_t)REG_V0;
     assert((ureg >= 0) && (ureg <= 31));
     return ureg << 16;
 }
@@ -8204,8 +8213,8 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodeReg_Va(regNumber reg)
 {
-    assert(emitter::isVectorRegister(reg));
-    emitter::code_t ureg = (emitter::code_t)reg - (emitter::code_t)REG_V0;
+    assert(isVectorRegister(reg));
+    code_t ureg = (code_t)reg - (code_t)REG_V0;
     assert((ureg >= 0) && (ureg <= 31));
     return ureg << 10;
 }
@@ -8217,7 +8226,7 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodeCond(insCond cond)
 {
-    emitter::code_t uimm = (emitter::code_t)cond;
+    code_t uimm = (code_t)cond;
     return uimm << 12;
 }
 
@@ -8229,7 +8238,7 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodeInvertedCond(insCond cond)
 {
-    emitter::code_t uimm = (emitter::code_t)cond;
+    code_t uimm = (code_t)cond;
     uimm ^= 1; // invert the lowest bit
     return uimm << 12;
 }
@@ -8859,25 +8868,25 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
  *  or not updated
  */
 
-/*static*/ emitter::code_t emitter::insEncodeIndexedOpt(insOpts opt)
+emitter::code_t emitter::insEncodeIndexedOpt(insOpts opt)
 {
-    assert(emitter::insOptsNone(opt) || emitter::insOptsIndexed(opt));
+    assert(insOptsNone(opt) || insOptsIndexed(opt));
 
-    if (emitter::insOptsIndexed(opt))
+    if (insOptsIndexed(opt))
     {
-        if (emitter::insOptsPostIndex(opt))
+        if (insOptsPostIndex(opt))
         {
             return 0x00000400; // set the bit at location 10
         }
         else
         {
-            assert(emitter::insOptsPreIndex(opt));
+            assert(insOptsPreIndex(opt));
             return 0x00000C00; // set the bit at location 10 and 11
         }
     }
     else
     {
-        assert(emitter::insOptsNone(opt));
+        assert(insOptsNone(opt));
         return 0; // bits 10 and 11 are zero
     }
 }
@@ -8890,30 +8899,30 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 
 /*static*/ emitter::code_t emitter::insEncodePairIndexedOpt(instruction ins, insOpts opt)
 {
-    assert(emitter::insOptsNone(opt) || emitter::insOptsIndexed(opt));
+    assert(insOptsNone(opt) || insOptsIndexed(opt));
 
     if ((ins == INS_ldnp) || (ins == INS_stnp))
     {
-        assert(emitter::insOptsNone(opt));
+        assert(insOptsNone(opt));
         return 0; // bits 23 and 24 are zero
     }
     else
     {
-        if (emitter::insOptsIndexed(opt))
+        if (insOptsIndexed(opt))
         {
-            if (emitter::insOptsPostIndex(opt))
+            if (insOptsPostIndex(opt))
             {
                 return 0x00800000; // set the bit at location 23
             }
             else
             {
-                assert(emitter::insOptsPreIndex(opt));
+                assert(insOptsPreIndex(opt));
                 return 0x01800000; // set the bit at location 24 and 23
             }
         }
         else
         {
-            assert(emitter::insOptsNone(opt));
+            assert(insOptsNone(opt));
             return 0x01000000; // set the bit at location 24
         }
     }
@@ -8924,16 +8933,16 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
  *  Returns the encoding to apply a Shift Type on the Rm register
  */
 
-/*static*/ emitter::code_t emitter::insEncodeShiftType(insOpts opt)
+emitter::code_t emitter::insEncodeShiftType(insOpts opt)
 {
-    if (emitter::insOptsNone(opt))
+    if (insOptsNone(opt))
     {
         // None implies the we encode LSL (with a zero immediate)
         opt = INS_OPTS_LSL;
     }
-    assert(emitter::insOptsAnyShift(opt));
+    assert(insOptsAnyShift(opt));
 
-    emitter::code_t option = (emitter::code_t)opt - (emitter::code_t)INS_OPTS_LSL;
+    code_t option = (code_t)opt - (code_t)INS_OPTS_LSL;
     assert(option <= 3);
 
     return option << 22; // bits 23, 22
@@ -8944,9 +8953,9 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
  *  Returns the encoding to apply a 12 bit left shift to the immediate
  */
 
-/*static*/ emitter::code_t emitter::insEncodeShiftImm12(insOpts opt)
+emitter::code_t emitter::insEncodeShiftImm12(insOpts opt)
 {
-    if (emitter::insOptsLSL12(opt))
+    if (insOptsLSL12(opt))
     {
         return 0x00400000; // set the bit at location 22
     }
@@ -8958,16 +8967,16 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
  *  Returns the encoding to have the Rm register use an extend operation
  */
 
-/*static*/ emitter::code_t emitter::insEncodeExtend(insOpts opt)
+emitter::code_t emitter::insEncodeExtend(insOpts opt)
 {
-    if (emitter::insOptsNone(opt) || (opt == INS_OPTS_LSL))
+    if (insOptsNone(opt) || (opt == INS_OPTS_LSL))
     {
         // None or LSL implies the we encode UXTX
         opt = INS_OPTS_UXTX;
     }
-    assert(emitter::insOptsAnyExtend(opt));
+    assert(insOptsAnyExtend(opt));
 
-    emitter::code_t option = (emitter::code_t)opt - (emitter::code_t)INS_OPTS_UXTB;
+    code_t option = (code_t)opt - (code_t)INS_OPTS_UXTB;
     assert(option <= 7);
 
     return option << 13; // bits 15,14,13
@@ -8983,7 +8992,7 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 {
     assert((imm >= 0) && (imm <= 4));
 
-    return (emitter::code_t)imm << 10; // bits 12,11,10
+    return (code_t)imm << 10; // bits 12,11,10
 }
 
 /*****************************************************************************
@@ -8991,7 +9000,7 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
  *  Returns the encoding to have the Rm register be auto scaled by the ld/st size
  */
 
-/*static*/ emitter::code_t emitter::insEncodeReg3Scale(bool isScaled)
+emitter::code_t emitter::insEncodeReg3Scale(bool isScaled)
 {
     if (isScaled)
     {
@@ -9212,26 +9221,9 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
     }
     else
     {
-        /* This is a  forward jump - distance will be an upper limit */
-
-        emitFwdJumps = true;
-
-        /* The target offset will be closer by at least 'emitOffsAdj', but only if this
-           jump doesn't cross the hot-cold boundary. */
-
-        if (!emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
-        {
-            dstOffs -= emitOffsAdj;
-            distVal -= emitOffsAdj;
-        }
-
-        /* Record the location of the jump for later patching */
-
-        id->idjOffs = dstOffs;
-
-        /* Are we overflowing the id->idjOffs bitfield? */
-        if (id->idjOffs != dstOffs)
-            IMPL_LIMITATION("Method is too large");
+        int adjustment = RecordForwardJump(id, srcOffs, dstOffs);
+        dstOffs -= adjustment;
+        distVal -= adjustment;
 
 #if DEBUG_EMIT
         if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
@@ -9258,7 +9250,7 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
 #endif
 
     /* For forward jumps, record the address of the distance value */
-    id->idjTemp.idjAddr = (distVal > 0) ? dst : NULL;
+    id->idjAddr = (distVal > 0) ? dst : nullptr;
 
     if (emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
     {
@@ -10743,12 +10735,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         }
     }
 
-    assert((*dp != dst) || InstrHasNoCode(id));
+    assert((*dp != dst) || id->InstrHasNoCode());
 
 #ifdef DEBUG
     /* Make sure we set the instruction descriptor size correctly */
 
-    size_t expected = emitSizeOfInsDsc(id);
+    size_t expected = id->GetDescSize();
     assert(sz == expected);
 
     if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
@@ -11473,7 +11465,7 @@ void emitter::emitDispIns(
 
     /* If this instruction has just been added, check its size */
 
-    assert(isNew == false || (int)emitSizeOfInsDsc(id) == emitCurIGfreeNext - (BYTE*)id);
+    assert(!isNew || (static_cast<int>(id->GetDescSize()) == emitCurIGfreeNext - reinterpret_cast<uint8_t*>(id)));
 
     /* Figure out the operand size */
     emitAttr size = id->idOpSize();

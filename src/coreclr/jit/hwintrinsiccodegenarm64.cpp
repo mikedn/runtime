@@ -168,6 +168,10 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
         return;
     }
 
+    // TODO-MIKE-Review: These 2 have confusing names. emitSize appears to be the vector
+    // element size while attr is the size of the vector itself. Well, unless the node's
+    // type is not a vector. Oh well.
+    emitAttr attr = node->TypeIs(TYP_VOID) ? EA_UNKNOWN : emitTypeSize(node->GetType());
     emitAttr emitSize;
     insOpts  opt;
 
@@ -183,7 +187,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
     }
     else
     {
-        emitSize = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
+        emitSize = emitVecTypeSize(node->GetSimdSize());
         opt      = emitSimdArrangementOpt(emitSize, intrin.baseType);
     }
 
@@ -223,7 +227,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(defReg != regs[1]);
                 assert(defReg != regs[2]);
 
-                emit.emitIns_Mov(INS_mov, emitTypeSize(node), defReg, regs[0], /* canSkip */ true);
+                emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
 
                 regs[0] = regs[1];
                 regs[1] = regs[2];
@@ -251,7 +255,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
 
             if (isRMW)
             {
-                emit.emitIns_Mov(INS_mov, emitTypeSize(node), defReg, regs[0], /* canSkip */ true);
+                emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
 
                 immOp   = intrin.op3;
                 regs[0] = regs[1];
@@ -279,7 +283,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                     {
                         assert(defReg != regs[1]);
 
-                        emit.emitIns_Mov(INS_mov, emitTypeSize(node), defReg, regs[0], /* canSkip */ true);
+                        emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
                         emit.emitIns_R_R(ins, emitSize, defReg, regs[1], opt);
                     }
                     else
@@ -293,7 +297,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                     assert(defReg != regs[1]);
                     assert(defReg != regs[2]);
 
-                    emit.emitIns_Mov(INS_mov, emitTypeSize(node), defReg, regs[0], /* canSkip */ true);
+                    emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
                     emit.emitIns_R_R_R(ins, emitSize, defReg, regs[1], regs[2], opt);
                     break;
 
@@ -432,7 +436,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
             case NI_AdvSimd_Insert:
                 assert(isRMW);
 
-                emit.emitIns_Mov(INS_mov, emitTypeSize(node), defReg, regs[0], /* canSkip */ true);
+                emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
 
                 if (intrin.op3->isContained())
                 {
@@ -471,7 +475,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(isRMW);
                 assert(defReg != regs[2]);
 
-                emit.emitIns_Mov(INS_mov, emitTypeSize(node), defReg, regs[0], /* canSkip */ true);
+                emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
 
                 ExpandNonConstImm(this, intrin.op2, node,
                                   [&](int imm) { emit.emitIns_R_R_I_I(ins, emitSize, defReg, regs[2], imm, 0, opt); });
@@ -481,7 +485,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(isRMW);
                 assert(defReg != regs[2]);
 
-                emit.emitIns_Mov(INS_mov, emitTypeSize(node), defReg, regs[0], /* canSkip */ true);
+                emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
                 emit.emitIns_R_R_I_I(ins, emitSize, defReg, regs[2], intrin.op2->AsIntCon()->GetInt32Value(),
                                      intrin.op4->AsIntCon()->GetInt32Value(), opt);
                 break;
@@ -490,7 +494,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(isRMW);
                 assert(defReg != regs[2]);
 
-                emit.emitIns_Mov(INS_mov, emitTypeSize(node), defReg, regs[0], /* canSkip */ true);
+                emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
 
                 ExpandNonConstImm(this, intrin.op2, node,
                                   [&](int imm) { emit.emitIns_R_R_I(ins, emitSize, defReg, regs[2], imm); });
@@ -531,7 +535,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                 {
                     ins = varTypeIsUnsigned(intrin.baseType) ? INS_usqadd : INS_suqadd;
 
-                    emit.emitIns_Mov(INS_mov, emitTypeSize(node), defReg, regs[0], /* canSkip */ true);
+                    emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
                     emit.emitIns_R_R(ins, emitSize, defReg, regs[1], opt);
                     break;
                 }

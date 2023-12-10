@@ -11,13 +11,10 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
+#include "emit.h"
 
-#if defined(TARGET_ARM64)
-
-#if defined(TARGET_UNIX)
+#ifdef TARGET_ARM64
+#ifdef TARGET_UNIX
 short Compiler::mapRegNumToDwarfReg(regNumber reg)
 {
     short dwarfReg = DWARF_REG_ILLEGAL;
@@ -391,7 +388,7 @@ void Compiler::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
 
         pu->AddCode(0xD6 | (BYTE)(x >> 2), (BYTE)(x << 6) | (BYTE)z);
     }
-    else if (emitter::isGeneralRegister(reg1))
+    else if (IsGeneralRegister(reg1))
     {
         // save_regp: 110010xx | xxzzzzzz: save r(19 + #X) pair at [sp + #Z * 8], offset <= 504
 
@@ -475,7 +472,7 @@ void Compiler::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int o
 
         pu->AddCode(0x20 | (BYTE)z);
     }
-    else if (emitter::isGeneralRegister(reg1))
+    else if (IsGeneralRegister(reg1))
     {
         // save_regp_x: 110011xx | xxzzzzzz: save pair r(19 + #X) at [sp - (#Z + 1) * 8]!, pre-indexed offset >= -512
 
@@ -539,7 +536,7 @@ void Compiler::unwindSaveReg(regNumber reg, int offset)
 
     UnwindInfo* pu = &funCurrentFunc()->uwi;
 
-    if (emitter::isGeneralRegister(reg))
+    if (IsGeneralRegister(reg))
     {
         // save_reg: 110100xx | xxzzzzzz: save reg r(19 + #X) at [sp + #Z * 8], offset <= 504
 
@@ -594,7 +591,7 @@ void Compiler::unwindSaveRegPreindexed(regNumber reg, int offset)
     int z = (-offset) / 8 - 1;
     assert(0 <= z && z <= 0x1F);
 
-    if (emitter::isGeneralRegister(reg))
+    if (IsGeneralRegister(reg))
     {
         // save_reg_x: 1101010x | xxxzzzzz: save reg r(19 + #X) at [sp - (#Z + 1) * 8]!, pre-indexed offset >= -256
 

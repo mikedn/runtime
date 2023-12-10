@@ -245,14 +245,14 @@ public:
         }
         else
 #endif
-            if (emitter::isFloatReg(reg))
+            if (IsFloatReg(reg))
         {
             registerType = FloatRegisterType;
         }
         else
         {
             // The constructor defaults to IntRegisterType
-            assert(emitter::isGeneralRegister(reg) && registerType == IntRegisterType);
+            assert(IsGeneralRegister(reg) && registerType == IntRegisterType);
         }
         regNum       = reg;
         isCalleeSave = ((RBM_CALLEE_SAVED & genRegMask(reg)) != 0);

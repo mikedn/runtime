@@ -11,11 +11,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
+#include "emit.h"
 
-#if defined(TARGET_AMD64)
+#ifdef TARGET_AMD64
 #ifdef UNIX_AMD64_ABI
 short Compiler::mapRegNumToDwarfReg(regNumber reg)
 {

@@ -9,9 +9,11 @@
 static const HWIntrinsicInfo hwIntrinsicInfoArray[] = {
 // clang-format off
 #if defined(TARGET_XARCH)
+#define INS_movsdsse2 INS_movsd
 #define HARDWARE_INTRINSIC(isa, name, size, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, category, flag) \
     {NI_##isa##_##name, #name, InstructionSet_##isa, size, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, category, static_cast<HWIntrinsicFlag>(flag)},
 #include "hwintrinsiclistxarch.h"
+#undef INS_movsdsse2
 #elif defined (TARGET_ARM64)
 #define HARDWARE_INTRINSIC(isa, name, size, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, category, flag) \
     {NI_##isa##_##name, #name, InstructionSet_##isa, size, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, category, static_cast<HWIntrinsicFlag>(flag)},

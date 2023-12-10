@@ -8,7 +8,6 @@
 
 // clang-format off
   #define ROUND_FLOAT              0       // Do not round intermed float expression results
-  #define CPU_HAS_BYTE_REGS        0
 
   #define CPBLK_UNROLL_LIMIT       64      // Upper bound to let the code generator to loop unroll CpBlk.
   #define INITBLK_UNROLL_LIMIT     64      // Upper bound to let the code generator to loop unroll InitBlk.
@@ -345,3 +344,18 @@
   #define REG_ZERO_INIT_FRAME_SIMD REG_V16
 
 // clang-format on
+
+constexpr bool IsGeneralRegister(regNumber reg)
+{
+    return (reg >= REG_INT_FIRST) && (reg <= REG_LR);
+}
+
+constexpr bool IsVectorRegister(regNumber reg)
+{
+    return (reg >= REG_FP_FIRST) && (reg <= REG_FP_LAST);
+}
+
+constexpr bool IsFloatReg(regNumber reg)
+{
+    return IsVectorRegister(reg);
+}

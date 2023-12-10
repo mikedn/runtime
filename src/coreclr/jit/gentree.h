@@ -2833,8 +2833,7 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 
     bool ImmedValNeedsReloc(Compiler* comp);
 
-#ifdef TARGET_XARCH
-    bool AddrNeedsReloc(Compiler* comp);
+#ifdef TARGET_AMD64
     bool FitsInAddrBase(Compiler* comp);
 #endif
 

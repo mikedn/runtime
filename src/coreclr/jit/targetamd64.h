@@ -10,7 +10,6 @@
   // TODO-AMD64-CQ: Fine tune the following xxBlk threshold values:
 
   #define ROUND_FLOAT              0       // Do not round intermed float expression results
-  #define CPU_HAS_BYTE_REGS        0
 
   #define CPBLK_UNROLL_LIMIT       64      // Upper bound to let the code generator to loop unroll CpBlk.
   #define INITBLK_UNROLL_LIMIT     128     // Upper bound to let the code generator to loop unroll InitBlk.
@@ -370,12 +369,6 @@
   // The registers trashed by the CORINFO_HELP_INIT_PINVOKE_FRAME helper.
   #define RBM_INIT_PINVOKE_FRAME_TRASH  RBM_CALLEE_TRASH
 
-  // Pointer-sized string move instructions
-  #define INS_movsp                INS_movsq
-  #define INS_r_movsp              INS_r_movsq
-  #define INS_stosp                INS_stosq
-  #define INS_r_stosp              INS_r_stosq
-
   // AMD64 uses FEATURE_FIXED_OUT_ARGS so this can be zero.
   #define STACK_PROBE_BOUNDARY_THRESHOLD_BYTES 0
 
@@ -389,3 +382,13 @@
 #endif // !TARGET_UNIX
 
 // clang-format on
+
+constexpr bool IsGeneralRegister(regNumber reg)
+{
+    return (reg >= REG_INT_FIRST) && (reg <= REG_INT_LAST);
+}
+
+constexpr bool IsFloatReg(regNumber reg)
+{
+    return (reg >= REG_FP_FIRST) && (reg <= REG_FP_LAST);
+}

@@ -13,15 +13,11 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-#include "emit.h"
 #include "corexcep.h"
 #include "jitstd/algorithm.h"
 #include "codegen.h"
 
-#if !defined(HOST_UNIX)
+#ifndef HOST_UNIX
 #include <io.h>    // For _dup, _setmode
 #include <fcntl.h> // For _O_TEXT
 #include <errno.h> // For EINVAL

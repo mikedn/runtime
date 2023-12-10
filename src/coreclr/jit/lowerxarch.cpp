@@ -21,6 +21,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "sideeffects.h"
 #include "lower.h"
+#include "emit.h"
 
 void Lowering::LowerRotate(GenTree* tree)
 {
@@ -2338,7 +2339,7 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
 
     var_types type = getSIMDTypeForSize(size);
     size           = (size != 12) ? size : 16;
-    unsigned align = (comp->compCodeOpt() != SMALL_CODE) ? size : emitter::dataSection::MIN_DATA_ALIGN;
+    unsigned align = (comp->compCodeOpt() != SMALL_CODE) ? size : emitter::MIN_DATA_ALIGN;
 
     unsigned offset = comp->GetEmitter()->emitDataConst(vecConst.u8, size, align, type);
 
@@ -3365,7 +3366,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
     {
         addr->SetContained();
     }
-    else if (addr->IsIntCon() && addr->AsIntCon()->FitsInAddrBase(comp))
+    else if (addr->IsIntCon() AMD64_ONLY(&&addr->AsIntCon()->FitsInAddrBase(comp)))
     {
         addr->SetContained();
     }
@@ -4540,7 +4541,7 @@ void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* ad
     assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF));
     TryCreateAddrMode(addr, true);
     if ((addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_ADDR, GT_LEA) ||
-         (addr->IsIntCon() && addr->AsIntCon()->FitsInAddrBase(comp))) &&
+         (addr->IsIntCon() AMD64_ONLY(&&addr->AsIntCon()->FitsInAddrBase(comp)))) &&
         IsSafeToContainMem(node, addr))
     {
         MakeSrcContained(node, addr);
