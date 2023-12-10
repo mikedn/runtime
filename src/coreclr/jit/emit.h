@@ -501,6 +501,10 @@ private:
     };
 #endif
 
+#ifdef TARGET_XARCH
+#define MAX_ENCODED_SIZE 15
+#endif
+
     struct instrDesc;
 
     struct instrDescSmall
@@ -508,165 +512,95 @@ private:
         friend struct instrDesc;
 
     private:
-// The assembly instruction
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
         static_assert_no_msg(INS_COUNT <= 1024);
-        instruction _idIns : 10;
-#define MAX_ENCODED_SIZE 15
-#elif defined(TARGET_ARM64)
-        static_assert_no_msg(INS_COUNT <= 512);
-        instruction _idIns : 9;
-#else  // !(defined(TARGET_XARCH) || defined(TARGET_ARM64))
-        static_assert_no_msg(INS_COUNT <= 256);
-        instruction _idIns : 8;
-#endif // !(defined(TARGET_XARCH) || defined(TARGET_ARM64))
-
-// The format for the instruction
-#if defined(TARGET_XARCH)
         static_assert_no_msg(IF_COUNT <= 128);
-        insFormat _idInsFmt : 7;
-#else
-        static_assert_no_msg(IF_COUNT <= 256);
-        insFormat _idInsFmt : 8;
-#endif
+        static_assert_no_msg(ACTUAL_REG_COUNT <= 64);
 
-////////////////////////////////////////////////////////////////////////
-// Space taken up to here:
-// x86:   17 bits
-// amd64: 17 bits
-// arm:   16 bits
-// arm64: 17 bits
-
-#if defined(TARGET_XARCH)
-        unsigned _idCodeSize : 4; // size of instruction in bytes. Max size of an Intel instruction is 15 bytes.
-        unsigned _idOpSize : 3;   // operand size: 0=1 , 1=2 , 2=4 , 3=8, 4=16, 5=32
-                                  // At this point we have fully consumed first DWORD so that next field
-                                  // doesn't cross a byte boundary.
-#elif defined(TARGET_ARM64)
-// Moved the definition of '_idOpSize' later so that we don't cross a 32-bit boundary when laying out bitfields
-#else  // ARM
-        unsigned    _idOpSize : 2; // operand size: 0=1 , 1=2 , 2=4 , 3=8
-#endif // ARM
-
-        // On Amd64, this is where the second DWORD begins
-        // On System V a call could return a struct in 2 registers. The instrDescCGCA struct below has  member that
-        // stores the GC-ness of the second register.
-        // It is added to the instrDescCGCA and not here (the base struct) since it is not needed by all the
-        // instructions. This struct (instrDesc) is very carefully kept to be no more than 128 bytes. There is no more
-        // space to add members for keeping GC-ness of the second return registers. It will also bloat the base struct
-        // unnecessarily since the GC-ness of the second register is only needed for call instructions.
-        // The instrDescCGCA struct's member keeping the GC-ness of the first return register is _idcSecondRetRegGCType.
-        GCtype _idGCref : 2; // GCref operand? (value is a "GCtype")
-
-        // The idReg1 and idReg2 fields hold the first and second register
-        // operand(s), whenever these are present. Note that currently the
-        // size of these fields is 6 bits on all targets, and care needs to
-        // be taken to make sure all of these fields stay reasonably packed.
-
-        // Note that we use the _idReg1 and _idReg2 fields to hold
-        // the live gcrefReg mask for the call instructions on x86/x64
-        //
-        regNumber _idReg1 : REGNUM_BITS; // register num
-
-        regNumber _idReg2 : REGNUM_BITS;
-
-        ////////////////////////////////////////////////////////////////////////
-        // Space taken up to here:
-        // x86:   38 bits
-        // amd64: 38 bits
-        // arm:   32 bits
-        // arm64: 31 bits
-
-        unsigned _idSmallDsc : 1;  // is this a "small" descriptor?
-        unsigned _idLargeCall : 1; // large call descriptor used
-        unsigned _idLargeCns : 1;  // does a large constant     follow?
-#ifdef TARGET_XARCH
-        unsigned _idLargeDsp : 1; // does a large displacement follow?
-#endif
-        unsigned _idBound : 1; // jump target / frame offset bound
-        unsigned _idNoGC : 1;  // Some helpers don't get recorded in GC tables
-
-#ifdef TARGET_ARM64
-        unsigned _idOpSize : 3; // operand size: 0=1 , 1=2 , 2=4 , 3=8, 4=16
-        insOpts  _idInsOpt : 6; // options for instructions
-        unsigned _idLclVar : 1; // access a local on stack
-#endif
-
-#ifdef TARGET_ARM
-        insSize  _idInsSize : 2;  // size of instruction: 16, 32 or 48 bits
-        insFlags _idInsFlags : 1; // will this instruction set the flags
-        unsigned _idLclVar : 1;   // access a local on stack
-        insOpts  _idInsOpt : 3;   // options for Load/Store instructions
-
-// For arm we have used 16 bits
-#define ID_EXTRA_BITFIELD_BITS (16)
-
-#elif defined(TARGET_ARM64)
-// For Arm64, we have used 16 bits from the second DWORD.
-#define ID_EXTRA_BITFIELD_BITS (16)
-#elif defined(TARGET_XARCH)
-                                   // For xarch, we have used 14 bits from the second DWORD.
-#define ID_EXTRA_BITFIELD_BITS (14)
-#else
-#error Unsupported or unset target architecture
-#endif
-
-        ////////////////////////////////////////////////////////////////////////
-        // Space taken up to here:
-        // x86:   46 bits
-        // amd64: 46 bits
-        // arm:   48 bits
-        // arm64: 49 bits
-
-        unsigned _idCnsReloc : 1; // LargeCns is an RVA and needs reloc tag
-#ifdef TARGET_XARCH
-        unsigned _idDspReloc : 1; // LargeDsp is an RVA and needs reloc tag
-#endif
-
-#define ID_EXTRA_RELOC_BITS (2)
-
-        ////////////////////////////////////////////////////////////////////////
-        // Space taken up to here:
-        // x86:   48 bits
-        // amd64: 48 bits
-        // arm:   49 bits
-        // arm64: 50 bits
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
+        instruction _idIns : 10;      // Instruction opcode
+        insFormat   _idInsFmt : 7;    // Instruction format
+        unsigned    _idCodeSize : 4;  // Encoded instruction size
+        unsigned    _idOpSize : 3;    // Operation size (log 2)
+        GCtype      _idGCref : 2;     // GC type of the first destination register
+        RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
+        RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
+        unsigned    _idSmallDsc : 1;  // this is instrDescSmall
+        unsigned    _idLargeCall : 1; // this is instrDescCGCA
+        unsigned    _idLargeCns : 1;  // does a large constant     follow?
+        unsigned    _idLargeDsp : 1;  // does a large displacement follow?
+        unsigned    _idBound : 1;     // Jump target / frame offset bound
+        unsigned    _idNoGC : 1;      // Helper call that does not need GC information
+        unsigned    _idCnsReloc : 1;  // Immediate is relocatable
+        unsigned    _idDspReloc : 1;  // Address mode displacement is relocatable
+#define ID_EXTRA_BITFIELD_BITS 14
+#define ID_EXTRA_RELOC_BITS 2
 #define ID_EXTRA_BITS (ID_EXTRA_RELOC_BITS + ID_EXTRA_BITFIELD_BITS)
-
-/* Use whatever bits are left over for small constants */
-
 #define ID_BIT_SMALL_CNS (32 - ID_EXTRA_BITS)
 #define ID_MIN_SMALL_CNS 0
 #define ID_MAX_SMALL_CNS (int)((1 << ID_BIT_SMALL_CNS) - 1U)
-
-        ////////////////////////////////////////////////////////////////////////
-        // Small constant size:
-        // x86:   16 bits
-        // amd64: 16 bits
-        // arm:   14 bits
-        // arm64: 13 bits
-
         unsigned _idSmallCns : ID_BIT_SMALL_CNS;
+#endif // TARGET_XARCH
 
-        ////////////////////////////////////////////////////////////////////////
-        // Space taken up to here: 64 bits, all architectures, by design.
-        ////////////////////////////////////////////////////////////////////////
+#ifdef TARGET_ARM64
+        static_assert_no_msg(INS_COUNT <= 512);
+        static_assert_no_msg(IF_COUNT <= 256);
+        // REG_SP is included the in actual reg count but we don't need that here.
+        static_assert_no_msg(ACTUAL_REG_COUNT - 1 <= 64);
+
+        instruction _idIns : 9;       // Instruction opcode
+        insFormat   _idInsFmt : 8;    // Instruction format
+        GCtype      _idGCref : 2;     // GC type of the first destination register
+        RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
+        RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
+        unsigned    _idSmallDsc : 1;  // this is instrDescSmall
+        unsigned    _idLargeCall : 1; // this is instrDescCGCA
+        unsigned    _idLargeCns : 1;  // this is instrDescCns
+        unsigned    _idBound : 1;     // Jump target / frame offset bound
+        unsigned    _idNoGC : 1;      // Helper call that does not need GC information
+        unsigned    _idOpSize : 3;    // Operation size (log 2)
+        insOpts     _idInsOpt : 6;    // Instruction options
+        unsigned    _idLclVar : 1;    // Local load/store
+        unsigned    _idCnsReloc : 1;  // Immediate is relocatable
+#define ID_EXTRA_BITFIELD_BITS 16
+#define ID_EXTRA_RELOC_BITS 2
+#define ID_EXTRA_BITS (ID_EXTRA_RELOC_BITS + ID_EXTRA_BITFIELD_BITS)
+#define ID_BIT_SMALL_CNS (32 - ID_EXTRA_BITS)
+#define ID_MIN_SMALL_CNS 0
+#define ID_MAX_SMALL_CNS (int)((1 << ID_BIT_SMALL_CNS) - 1U)
+        unsigned _idSmallCns : ID_BIT_SMALL_CNS;
+#endif // TARGET_ARM64
+
+#ifdef TARGET_ARM
+        static_assert_no_msg(INS_COUNT <= 256);
+        static_assert_no_msg(IF_COUNT <= 256);
+        static_assert_no_msg(ACTUAL_REG_COUNT <= 64);
+
+        instruction _idIns : 8;       // Instruction opcode
+        insFormat   _idInsFmt : 8;    // Instruction format
+        unsigned    _idOpSize : 2;    // Operation size (log 2)
+        GCtype      _idGCref : 2;     // GC type of the first destination register
+        RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
+        RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
+        unsigned    _idSmallDsc : 1;  // this is instrDescSmall
+        unsigned    _idLargeCall : 1; // this is instrDescCGCA
+        unsigned    _idLargeCns : 1;  // this is instrDescCns
+        unsigned    _idBound : 1;     // Jump target / frame offset bound
+        unsigned    _idNoGC : 1;      // Helper call that does not need GC information
+        insSize     _idInsSize : 2;   // Encoded instruction size: 16, 32 or 48 bits
+        insFlags    _idInsFlags : 1;  // Instruction sets flags
+        unsigned    _idLclVar : 1;    // Local load/store
+        insOpts     _idInsOpt : 3;    // Instruction options
+        unsigned    _idCnsReloc : 1;  // Immediate is relocatable
+#define ID_EXTRA_BITFIELD_BITS 16
+#define ID_EXTRA_RELOC_BITS 2
+#define ID_EXTRA_BITS (ID_EXTRA_RELOC_BITS + ID_EXTRA_BITFIELD_BITS)
+#define ID_BIT_SMALL_CNS (32 - ID_EXTRA_BITS)
+#define ID_MIN_SMALL_CNS 0
+#define ID_MAX_SMALL_CNS (int)((1 << ID_BIT_SMALL_CNS) - 1U)
+        unsigned _idSmallCns : ID_BIT_SMALL_CNS;
+#endif // TARGET_ARM
 
         INDEBUG(instrDescDebugInfo* _idDebugOnlyInfo;)
-
-        // This is the end of the 'small' instrDesc which is the same on all
-        //   platforms (except 64-bit DEBUG which is a little bigger).
-        // Non-DEBUG sizes:
-        //   x86/amd64/arm/arm64: 64 bits
-        // DEBUG sizes (includes one pointer):
-        //   x86:   2 DWORDs, 96 bits
-        //   amd64: 4 DWORDs, 128 bits
-        //   arm:   3 DWORDs, 96 bits
-        //   arm64: 4 DWORDs, 128 bits
-        // There should no padding or alignment issues on any platform or
-        //   configuration (including DEBUG which has 1 extra pointer).
 
     public:
         instruction idIns() const
@@ -963,9 +897,9 @@ private:
 #ifdef DEBUG
         bool InstrHasNoCode() const
         {
-            return (idInsFmt() == IF_GC_REG)
+            return (_idInsFmt == IF_GC_REG)
 #ifdef TARGET_XARCH
-                   || (idIns() == INS_align)
+                   || (_idIns == INS_align)
 #endif
                 ;
         }
@@ -981,6 +915,8 @@ private:
         }
 #endif // DEBUG
     };
+
+    static_assert(sizeof(instrDescSmall) == 8 INDEBUG(+sizeof(void*)), "Bad instrDescSmall size");
 
     struct instrDesc : public instrDescSmall
     {
