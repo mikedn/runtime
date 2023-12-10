@@ -2755,6 +2755,7 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
+    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD_CNS));
     id->idAddr()->iiaFieldHnd = field;
