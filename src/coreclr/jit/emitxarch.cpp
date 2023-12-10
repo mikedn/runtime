@@ -469,7 +469,7 @@ using code_t = emitter::code_t;
 
 static bool hasVexPrefix(code_t code)
 {
-    return ((code >> HasVexBitOffset) & 1) == 1;
+    return ((code >> HasVexBitOffset) & 1) != 0;
 }
 
 static bool hasRexPrefix(code_t code)
@@ -5165,15 +5165,17 @@ size_t emitter::emitOutputLong(uint8_t* dst, uint64_t val)
 size_t emitter::emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instruction ins))
 {
     assert(TakesVexPrefix(ins) && hasVexPrefix(code));
-
-    uint32_t vexPrefix = (code >> VexBitOffset) & (0x1F << 2);
-    uint32_t rexPrefix = (code >> RexBitOffset) & 0xFF;
-    uint32_t prefixes  = (code >> PrefixesBitOffset) & 0xFF;
-
     // VEX can't encode an empty REX prefix.
-    assert(rexPrefix != 0x40);
+    assert(((code >> RexBitOffset) & 0xFF) != 0x40);
+    // There should be some prefixes (opcdoe map 0 doesn't use VEX).
+    assert(((code >> PrefixesBitOffset) & 0xFF) != 0);
+
+    uint32_t vvvvl = (code >> VexBitOffset) & (0x1F << 2);
 
     // VEX2 can be used if REX.W, REX.X, REX.B are all 0 and VEX.mmm is 1 (opcode map 0F).
+
+    constexpr unsigned RexRDelta = RexBitOffset - 5;
+    constexpr unsigned RexWDelta = RexBitOffset - 4;
 
     if ((code & ((0x0Bull << RexBitOffset) | (7ull << MmmBitOffset))) == (1ull << MmmBitOffset))
     {
@@ -5184,18 +5186,16 @@ size_t emitter::emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instructi
 
         if (emitCurIG->igNum > emitLastAlignedIgNum)
         {
-            uint32_t vex21 = ((rexPrefix << 5) | vexPrefix | ((prefixes >> 3) & 3)) ^ (0x1F << 3);
+            uint32_t vex21 = (((code >> RexRDelta) & 0x80) | vvvvl | ((code >> PpBitOffset) & 3)) ^ (0x1F << 3);
             emitOutputWord(dst, 0xC5 | (vex21 << 8));
 
             return 2;
         }
     }
 
-    assert(prefixes != 0);
-
-    uint32_t vex31 = (((rexPrefix & 7) << 5) | (prefixes & 7)) ^ (0x07 << 5);
+    uint32_t vex31 = (((code >> RexRDelta) & 0xE0) | ((code >> MmmBitOffset) & 7)) ^ (0x07 << 5);
     emitOutputWord(dst, 0xC4 | (vex31 << 8));
-    uint32_t vex32 = (((rexPrefix & 8) << 4) | vexPrefix | ((prefixes >> 3) & 3)) ^ (0x0F << 3);
+    uint32_t vex32 = (((code >> RexWDelta) & 0x80) | vvvvl | ((code >> PpBitOffset) & 3)) ^ (0x0F << 3);
     emitOutputByte(dst + 2, vex32);
 
     return 3;
