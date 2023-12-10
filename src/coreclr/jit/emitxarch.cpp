@@ -533,10 +533,13 @@ static bool TakesRexWPrefix(instruction ins, emitAttr attr)
 #endif
 }
 
+static_assert_no_msg(REG_R8 == 0x08);
+static_assert_no_msg(REG_XMM8 == 0x18);
+
 static bool IsExtendedReg(regNumber reg)
 {
 #ifdef TARGET_AMD64
-    return ((REG_R8 <= reg) && (reg <= REG_R15)) || ((REG_XMM8 <= reg) && (reg <= REG_XMM15));
+    return (reg <= REG_XMM15) && ((reg & 0x08) != 0);
 #else
     return false;
 #endif
