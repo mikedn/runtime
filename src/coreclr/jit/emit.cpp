@@ -3968,7 +3968,9 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
 #define DEFAULT_CODE_BUFFER_INIT 0xcc
 
-    for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
+    INDEBUG(double perfScore = 0.0);
+
+    for (insGroup *ig = emitIGfirst, *prevIG = nullptr; ig != nullptr; prevIG = ig, ig = ig->igNext)
     {
         assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
 
@@ -4007,10 +4009,14 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             }
             else
             {
-                printf("\n%s:", emitLabelString(ig));
-                if (!emitComp->opts.disDiffable)
+                if (!ig->IsExtension() || ig->IsEpilog() || ig->IsFuncletPrologOrEpilog() || (prevIG == nullptr) ||
+                    (ig->IsNoGC() != prevIG->IsNoGC()))
                 {
-                    printf("              ;; offset=%04XH", emitCurCodeOffs(cp));
+                    printf("\n%s:", emitLabelString(ig));
+                    if (!emitComp->opts.disDiffable)
+                    {
+                        printf("              ;; offset=%04XH", emitCurCodeOffs(cp));
+                    }
                 }
                 printf("\n");
             }
@@ -4216,9 +4222,14 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         }
 
 #ifdef DEBUG
-        if (emitComp->opts.disAsm || emitComp->verbose)
+        perfScore += ig->igPerfScore;
+
+        if (emitComp->verbose ||
+            (emitComp->opts.disAsm && ((ig->igNext == nullptr) || !ig->igNext->IsExtension() ||
+                                       ig->igNext->IsEpilog() || ig->igNext->IsFuncletPrologOrEpilog())))
         {
-            printf("\t\t\t\t\t\t;; bbWeight=%s PerfScore %.2f", refCntWtd2str(ig->igWeight), ig->igPerfScore);
+            printf("\t\t\t\t\t\t;; bbWeight=%s PerfScore %.2f", refCntWtd2str(ig->igWeight), perfScore);
+            perfScore = 0.0;
         }
         *instrCount += ig->igInsCnt;
 #endif // DEBUG

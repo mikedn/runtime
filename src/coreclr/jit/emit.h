@@ -246,6 +246,18 @@ struct insGroup
     {
         return (igFlags & IGF_BASIC_BLOCK) != 0;
     }
+
+#ifdef DEBUG
+    bool IsExtension() const
+    {
+        return (igFlags & IGF_EXTEND) != 0;
+    }
+
+    bool IsNoGC() const
+    {
+        return (igFlags & IGF_NOGCINTERRUPT) != 0;
+    }
+#endif
 };
 
 enum insFormat : unsigned
@@ -315,7 +327,7 @@ public:
     {
         for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
         {
-            if ((ig->igFlags & IGF_NOGCINTERRUPT) != 0)
+            if (ig->IsNoGC())
             {
                 callback(ig->igFuncIdx, ig->igOffs, ig->igSize);
             }
