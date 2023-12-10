@@ -767,8 +767,7 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t cod
 
     if (ins == INS_crc32)
     {
-        // TODO-MIKE-Cleanup: Old stupid code managed to add an extra byte for RR.
-        return (size == EA_2BYTE) + 4 + 1 + isRR;
+        return (size == EA_2BYTE) + 4 + 1;
     }
 
     // Most 16-bit operand instructions will need a 0x66 prefix.
@@ -950,14 +949,6 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
         sz = emitGetAdjustedSize(ins, size, code);
         sz += hasRexPrefix(code) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) ||
               TakesRexWPrefix(ins, size);
-
-#ifdef TARGET_AMD64
-        // TODO-MIKE-Cleanup: Old code managed to count the REX prefix twice for movsxd.
-        if ((ins == INS_movsxd) && IsExtendedReg(id->idReg1()))
-        {
-            sz++;
-        }
-#endif
     }
 
     bool ebpBased = id->idAddr()->isEbpBased;
@@ -1362,12 +1353,6 @@ void emitter::emitIns(instruction ins)
     {
         assert((code & 0xFF00) == 0);
         sz = 1;
-    }
-
-    // TODO-MIKE-Cleanup: Bozos thought that lfence & co. have VEX.
-    if (UseVEXEncoding() && ((ins == INS_lfence) || (ins == INS_mfence) || (ins == INS_sfence)))
-    {
-        sz++;
     }
 
     // vzeroupper includes its 2-byte VEX prefix in its MR code.
@@ -1949,8 +1934,7 @@ void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fie
     id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
 
-    // TODO-MIKE-Review: This appears to add an extra REX byte, emitInsSizeCV already checks TakesRexWPrefix.
-    unsigned sz = emitInsSizeCV(id, insCodeMR(ins)) + (!TakesVexPrefix(ins) && TakesRexWPrefix(ins, attr));
+    unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -2238,8 +2222,7 @@ void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t
     id->idAddr()->iiaAddrMode.base  = base;
     id->idAddr()->iiaAddrMode.index = REG_NA;
 
-    // TODO-MIKE-Cleanup: Bozos thought that lfence & co. have VEX.
-    unsigned sz = emitInsSizeAM(id, insCodeMR(ins)) + (UseVEXEncoding() ? 2 : 0);
+    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3293,8 +3276,7 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int var
     id->idReg1(reg);
     SetInstrLclAddrMode(id, varx, offs);
 
-    // TODO-MIKE-Cleanup: Bozos thought that lfence & co. have VEX.
-    unsigned sz = emitInsSizeSV(id, insCodeMR(ins)) + (UseVEXEncoding() && (ins == INS_movnti));
+    unsigned sz = emitInsSizeSV(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4322,9 +4304,7 @@ private:
         static unsigned curBuf = 0;
         static char     buf[4][40];
 
-        // TODO-MIKE-Cleanup: This should check FIRST_SSE_VEX_INSTRUCTION instead of INS_FIRST_SSE_INSTRUCTION,
-        // bozos thought that lfence & co. have VEX.
-        if ((INS_FIRST_SSE_INSTRUCTION <= ins) && (ins <= INS_LAST_SSE_INSTRUCTION) && emitter->UseVEXEncoding())
+        if ((INS_FIRST_VEX_INSTRUCTION <= ins) && (ins <= INS_LAST_SSE_INSTRUCTION) && emitter->UseVEXEncoding())
         {
             auto& retbuf = buf[curBuf++ % _countof(buf)];
             sprintf_s(retbuf, _countof(retbuf), "v%s", name);
@@ -4604,13 +4584,6 @@ private:
             case IF_RWR_RRD:
             case IF_RRW_RRD:
             case IF_RRW_RRW:
-                if ((ins == INS_cvtsi2ss) || (ins == INS_cvtsi2sd) || (ins == INS_cvttsd2si) || (ins == INS_cvtss2si) ||
-                    (ins == INS_cvtsd2si) || (ins == INS_cvttss2si))
-                {
-                    // TODO-MIKE-Cleanup: Remove stray space.
-                    printf(" ");
-                }
-
                 printf("%s, %s", RegName(id->idReg1(), attr1), RegName(id->idReg2(), attr2));
                 break;
 

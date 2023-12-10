@@ -1166,10 +1166,6 @@ private:
 #ifdef TARGET_X86
         int idcArgCnt; // ... lots of args or (<0 ==> caller pops args)
 #endif
-#if MULTIREG_HAS_SECOND_GC_RET
-        // TODO-MIKE-Cleanup: Remove this...
-        int workaroundToAvoidDiffInducingStupidInsGroupSizeChanges;
-#endif
     };
 
     int RecordForwardJump(instrDescJmp* id, unsigned srcOffs, unsigned dstOffs);
