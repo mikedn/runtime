@@ -4953,22 +4953,22 @@ static size_t insCodeRR(instruction ins)
 
 static code_t AddRexWPrefix(code_t code)
 {
-    return code | (0x48ull << RexBitOffset);
+    return code | (0x8ull << RexBitOffset);
 }
 
 static code_t AddRexRPrefix(code_t code)
 {
-    return code | (0x44ull << RexBitOffset);
+    return code | (0x4ull << RexBitOffset);
 }
 
 static code_t AddRexXPrefix(code_t code)
 {
-    return code | (0x42ull << RexBitOffset);
+    return code | (0x2ull << RexBitOffset);
 }
 
 static code_t AddRexBPrefix(code_t code)
 {
-    return code | (0x41ull << RexBitOffset);
+    return code | (0x1ull << RexBitOffset);
 }
 
 // Adds REX prefix (0x40) without W, R, X or B bits set
@@ -5168,8 +5168,6 @@ size_t emitter::emitOutputLong(uint8_t* dst, uint64_t val)
 size_t emitter::emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instruction ins))
 {
     assert(TakesVexPrefix(ins) && hasVexPrefix(code));
-    // VEX can't encode an empty REX prefix.
-    assert(((code >> RexBitOffset) & 0xFF) != 0x40);
     // There should be some prefixes (opcdoe map 0 doesn't use VEX).
     assert(((code >> PrefixesBitOffset) & 0xFF) != 0);
 
@@ -5209,9 +5207,8 @@ size_t emitter::emitOutputRexPrefix(uint8_t* dst, code_t code)
 {
     assert(!hasVexPrefix(code));
     uint32_t rex = (code >> RexBitOffset) & 0xFF;
-    assert((rex >= 0x40) && (rex <= 0x4F));
     assert(((code >> PpBitOffset) & 3) == 0); // Can't emit REX prefix before other prefixes.
-    return emitOutputByte(dst, rex);
+    return emitOutputByte(dst, rex | 0x40);
 }
 #endif // TARGET_AMD64
 
@@ -5258,9 +5255,8 @@ size_t emitter::emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code)
 #ifdef TARGET_AMD64
     if (uint32_t rex = (code >> RexBitOffset) & 0xFF)
     {
-        assert((rex >= 0x40) && (rex <= 0x4F));
         code &= UINT_MAX;
-        dst += emitOutputByte(dst, rex);
+        dst += emitOutputByte(dst, rex | 0x40);
     }
 #endif
 
