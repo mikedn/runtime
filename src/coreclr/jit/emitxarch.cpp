@@ -5956,12 +5956,12 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     {
         assert((id->idInsFmt() == IF_RWR_MRD) || (id->idInsFmt() == IF_MWR_RRD));
 
-        if (size == EA_2BYTE)
+        if (id->idOpSize() == EA_2BYTE)
         {
             dst += emitOutputByte(dst, 0x66);
         }
 
-        dst += emitOutputByte(dst, 0xA0 | ((id->idInsFmt() == IF_MWR_RRD) << 1) | (size != EA_1BYTE));
+        dst += emitOutputByte(dst, 0xA0 | ((id->idInsFmt() == IF_MWR_RRD) << 1) | (id->idOpSize() != EA_1BYTE));
     }
     else
 #endif // TARGET_X86
