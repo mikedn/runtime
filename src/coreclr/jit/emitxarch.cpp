@@ -328,20 +328,6 @@ static bool IsX87LdSt(instruction ins)
 }
 #endif
 
-#ifdef DEBUG
-static bool HasWBit(instruction ins)
-{
-    // TODO-MIKE-Cleanup: It's probably best to make this a flag,
-    // or at least ensure that the instruction order is correct.
-    return ((INS_add <= ins) && (ins <= INS_movsx)) || ((INS_rol <= ins) && (ins <= INS_stos)) || (ins == INS_crc32);
-}
-#endif
-
-static bool HasSBit(instruction ins)
-{
-    return ((INS_add <= ins) && (ins <= INS_cmp)) || (ins == INS_imuli);
-}
-
 bool emitter::AreFlagsAlwaysModified(instrDesc* id)
 {
     instruction ins = id->idIns();
@@ -479,12 +465,14 @@ constexpr unsigned VexBitOffset      = 32;
 constexpr unsigned VexLBitOffset     = 34;
 constexpr unsigned VexVvvvBitOffset  = 35;
 
-bool emitter::hasVexPrefix(code_t code)
+using code_t = emitter::code_t;
+
+static bool hasVexPrefix(code_t code)
 {
     return ((code >> HasVexBitOffset) & 1) == 1;
 }
 
-bool emitter::hasRexPrefix(code_t code)
+static bool hasRexPrefix(code_t code)
 {
 #ifdef TARGET_AMD64
     return ((code >> RexBitOffset) & 0xFF) != 0;
@@ -630,13 +618,13 @@ static insUpdateModes emitInsUpdateMode(instruction ins)
     return static_cast<insUpdateModes>(emitInsModeFmtTab[ins]);
 }
 
-insFormat emitter::emitInsModeFormat(instruction ins, insFormat base)
+static insFormat emitInsModeFormat(instruction ins, insFormat base)
 {
     assert(IF_RRD + IUM_RD == IF_RRD);
     assert(IF_RRD + IUM_WR == IF_RWR);
     assert(IF_RRD + IUM_RW == IF_RRW);
 
-    return (insFormat)(base + emitInsUpdateMode(ins));
+    return static_cast<insFormat>(base + emitInsUpdateMode(ins));
 }
 
 const static uint32_t insCodesRM[]{
@@ -750,7 +738,7 @@ static bool BaseRegRequiresDisp(regNumber base)
 #ifdef TARGET_X86
 // When encoding instructions that operate on byte registers on x86
 // we have to ensure that we use a low register (EAX, EBX, ECX or EDX).
-bool emitter::emitVerifyEncodable(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2)
+static bool emitVerifyEncodable(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2 = REG_NA)
 {
     if (attr != EA_1BYTE)
     {
@@ -4960,39 +4948,38 @@ static size_t insCodeRR(instruction ins)
 
 #ifdef TARGET_AMD64
 
-emitter::code_t emitter::AddRexWPrefix(instruction ins, code_t code)
+static code_t AddRexWPrefix(code_t code)
 {
     return code | (0x48ull << RexBitOffset);
 }
 
-emitter::code_t emitter::AddRexRPrefix(instruction ins, code_t code)
+static code_t AddRexRPrefix(code_t code)
 {
     return code | (0x44ull << RexBitOffset);
 }
 
-emitter::code_t emitter::AddRexXPrefix(instruction ins, code_t code)
+static code_t AddRexXPrefix(code_t code)
 {
     return code | (0x42ull << RexBitOffset);
 }
 
-emitter::code_t emitter::AddRexBPrefix(instruction ins, code_t code)
+static code_t AddRexBPrefix(code_t code)
 {
     return code | (0x41ull << RexBitOffset);
 }
 
 // Adds REX prefix (0x40) without W, R, X or B bits set
-emitter::code_t emitter::AddRexPrefix(instruction ins, code_t code)
+static code_t AddRexPrefix(code_t code)
 {
-    assert(!TakesVexPrefix(ins));
+    assert(!hasVexPrefix(code));
 
     return code | (0x40ull << RexBitOffset);
 }
 
 #endif // TARGET_AMD64
 
-emitter::code_t emitter::AddVexPrefix(instruction ins, code_t code, emitAttr attr)
+static code_t AddVexPrefix(instruction ins, code_t code, emitAttr attr)
 {
-    assert(TakesVexPrefix(ins));
     assert(!hasVexPrefix(code));
 
     code |= 1ull << HasVexBitOffset;
@@ -5021,11 +5008,13 @@ static_assert_no_msg((REG_XMM0 & 0x7) == 0);
 // Returns bits to be encoded in instruction for the given register.
 static unsigned RegEncoding(regNumber reg)
 {
+    assert(reg < REG_STK);
     return static_cast<unsigned>(reg & 0x7);
 }
 
 static unsigned RegVvvvEncoding(regNumber reg)
 {
+    assert(reg < REG_STK);
 #ifdef TARGET_AMD64
     return static_cast<unsigned>(reg & 0xF);
 #else
@@ -5034,21 +5023,18 @@ static unsigned RegVvvvEncoding(regNumber reg)
 }
 
 // Returns an encoding for the specified register to be used in the bits 0-2 of an opcode.
-unsigned emitter::insEncodeReg012(instruction ins, regNumber reg, emitAttr size, code_t* code)
+static unsigned insEncodeReg012(instruction ins, regNumber reg, emitAttr size, code_t* code)
 {
-    assert(reg < REG_STK);
-    assert(code != nullptr);
-
 #ifdef TARGET_AMD64
     if (IsExtendedReg(reg))
     {
-        *code = AddRexBPrefix(ins, *code);
+        *code = AddRexBPrefix(*code);
     }
     else if ((size == EA_1BYTE) && (reg > REG_RBX))
     {
         // We are assuming that we only use/encode SPL, BPL, SIL and DIL
         // not the corresponding AH, CH, DH, or BH
-        *code = AddRexPrefix(ins, *code);
+        *code = AddRexPrefix(*code);
     }
 #endif // TARGET_AMD64
 
@@ -5056,21 +5042,18 @@ unsigned emitter::insEncodeReg012(instruction ins, regNumber reg, emitAttr size,
 }
 
 // Returns an encoding for the specified register to be used in the bits 3-5 of an opcode.
-unsigned emitter::insEncodeReg345(instruction ins, regNumber reg, emitAttr size, code_t* code)
+static unsigned insEncodeReg345(instruction ins, regNumber reg, emitAttr size, code_t* code)
 {
-    assert(reg < REG_STK);
-    assert(code != nullptr);
-
 #ifdef TARGET_AMD64
     if (IsExtendedReg(reg))
     {
-        *code = AddRexRPrefix(ins, *code);
+        *code = AddRexRPrefix(*code);
     }
     else if ((size == EA_1BYTE) && (reg > REG_RBX))
     {
         // We are assuming that we only use/encode SPL, BPL, SIL and DIL
         // not the corresponding AH, CH, DH, or BH
-        *code = AddRexPrefix(ins, *code);
+        *code = AddRexPrefix(*code);
     }
 #endif // TARGET_AMD64
 
@@ -5082,17 +5065,15 @@ static bool IsBMIRegExtInstruction(instruction ins)
     return (ins == INS_blsi) || (ins == INS_blsmsk) || (ins == INS_blsr);
 }
 
-emitter::code_t emitter::SetRMReg(instruction ins, regNumber reg, emitAttr size, code_t code)
+static code_t SetRMReg(instruction ins, regNumber reg, emitAttr size, code_t code)
 {
     assert(!IsBMIRegExtInstruction(ins));
     code |= insEncodeReg345(ins, reg, size, &code) << 8;
     return code;
 }
 
-emitter::code_t emitter::SetVexVvvv(instruction ins, regNumber reg, emitAttr size, code_t code)
+static code_t SetVexVvvv(regNumber reg, emitAttr size, code_t code)
 {
-    assert(reg < REG_STK);
-    assert(TakesVexPrefix(ins));
     assert(hasVexPrefix(code));
 
     code_t regBits = RegVvvvEncoding(reg);
@@ -5101,12 +5082,26 @@ emitter::code_t emitter::SetVexVvvv(instruction ins, regNumber reg, emitAttr siz
 }
 
 // Returns the "byte ptr [r/m]" opcode with the mod/RM field set to the given register.
-emitter::code_t emitter::insEncodeRMreg(instruction ins, regNumber reg, emitAttr size, code_t code)
+static code_t insEncodeRMreg(instruction ins, regNumber reg, emitAttr size, code_t code)
 {
     assert((code & 0xC000) == 0);
     code |= 0xC000;
     code |= insEncodeReg012(ins, reg, size, &code) << 8;
     return code;
+}
+
+#ifdef DEBUG
+static bool HasWBit(instruction ins)
+{
+    // TODO-MIKE-Cleanup: It's probably best to make this a flag,
+    // or at least ensure that the instruction order is correct.
+    return ((INS_add <= ins) && (ins <= INS_movsx)) || ((INS_rol <= ins) && (ins <= INS_stos)) || (ins == INS_crc32);
+}
+#endif
+
+static bool HasSBit(instruction ins)
+{
+    return ((INS_add <= ins) && (ins <= INS_cmp)) || (ins == INS_imuli);
 }
 
 size_t emitter::emitOutputByte(uint8_t* dst, ssize_t val)
@@ -5174,6 +5169,9 @@ size_t emitter::emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instructi
     uint32_t vexPrefix = (code >> VexBitOffset) & (0x1F << 2);
     uint32_t rexPrefix = (code >> RexBitOffset) & 0xFF;
     uint32_t prefixes  = (code >> PrefixesBitOffset) & 0xFF;
+
+    // VEX can't encode an empty REX prefix.
+    assert(rexPrefix != 0x40);
 
     // VEX2 can be used if REX.W, REX.X, REX.B are all 0 and VEX.mmm is 1 (opcode map 0F).
 
@@ -5529,7 +5527,7 @@ uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
     {
         if (TakesRexWPrefix(ins))
         {
-            code = AddRexWPrefix(ins, code);
+            code = AddRexWPrefix(code);
         }
     }
 #endif
@@ -5559,12 +5557,12 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 #ifdef TARGET_AMD64
     if (IsExtendedReg(baseReg))
     {
-        code = AddRexBPrefix(ins, code);
+        code = AddRexBPrefix(code);
     }
 
     if (IsExtendedReg(indexReg))
     {
-        code = AddRexXPrefix(ins, code);
+        code = AddRexXPrefix(code);
     }
 #endif
 
@@ -6204,7 +6202,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_AMD64
             else if (size == EA_8BYTE)
             {
-                code = AddRexWPrefix(ins, code);
+                code = AddRexWPrefix(code);
             }
 #endif
 
@@ -6235,7 +6233,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_AMD64
             if (size == EA_8BYTE)
             {
-                code = AddRexWPrefix(ins, code);
+                code = AddRexWPrefix(code);
             }
 #endif
 
@@ -6297,7 +6295,7 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_AMD64
             else if ((size == EA_8BYTE) && TakesRexWPrefix(ins))
             {
-                code = AddRexWPrefix(ins, code);
+                code = AddRexWPrefix(code);
             }
 #endif
 
@@ -6379,7 +6377,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_AMD64
         if ((size == EA_8BYTE) && TakesRexWPrefix(ins))
         {
-            code = AddRexWPrefix(ins, code);
+            code = AddRexWPrefix(code);
         }
 #endif
 
@@ -6394,7 +6392,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
             // now we use the single source as source1 and source2.
             if (IsVexDstDstSrc(ins))
             {
-                code = SetVexVvvv(ins, reg1, size, code);
+                code = SetVexVvvv(reg1, size, code);
 
                 if (IsBMIRegExtInstruction(ins))
                 {
@@ -6409,7 +6407,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
             }
             else if (IsVexDstSrcSrc(ins))
             {
-                code = SetVexVvvv(ins, reg2, size, code);
+                code = SetVexVvvv(reg2, size, code);
             }
         }
 
@@ -6463,7 +6461,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_AMD64
         else if (size == EA_8BYTE)
         {
-            code = AddRexWPrefix(ins, code);
+            code = AddRexWPrefix(code);
         }
 #endif
     }
@@ -6483,7 +6481,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_AMD64
         else if (size == EA_8BYTE)
         {
-            code = AddRexWPrefix(ins, code);
+            code = AddRexWPrefix(code);
         }
 #endif
 
@@ -6510,7 +6508,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_AMD64
         else if (size == EA_8BYTE)
         {
-            code = AddRexWPrefix(ins, code);
+            code = AddRexWPrefix(code);
         }
 #endif
     }
@@ -6548,7 +6546,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
                 // Don't need to zero out the high bits explicitly
                 if ((ins != INS_xor) || (reg1 != reg2))
                 {
-                    code = AddRexWPrefix(ins, code);
+                    code = AddRexWPrefix(code);
                 }
                 else
                 {
@@ -6710,12 +6708,12 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_AMD64
     if ((size == EA_8BYTE) && TakesRexWPrefix(ins))
     {
-        code = AddRexWPrefix(ins, code);
+        code = AddRexWPrefix(code);
     }
 #endif
 
     code |= (0xC0 | insEncodeReg345(ins, reg1, size, &code) | insEncodeReg012(ins, reg3, size, &code)) << 8;
-    code = SetVexVvvv(ins, reg2, size, code);
+    code = SetVexVvvv(reg2, size, code);
     dst += emitOutputVexPrefix(dst, code DEBUGARG(ins));
     dst += emitOutputWord(dst, code);
 
@@ -6784,7 +6782,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_AMD64
     if ((size == EA_8BYTE) && TakesRexWPrefix(ins))
     {
-        code = AddRexWPrefix(ins, code);
+        code = AddRexWPrefix(code);
     }
 #endif
 
@@ -6797,12 +6795,12 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
             // (Though we will need to handle the few ops that can have the 'vvvv' bits as destination,
             // e.g. pslldq, when/if we support those instructions with 2 registers.)
             // (see x64 manual Table 2-9. Instructions with a VEX.vvvv destination)
-            code = SetVexVvvv(ins, id->idReg1(), size, code);
+            code = SetVexVvvv(id->idReg1(), size, code);
         }
         else if (IsVexDstSrcSrc(ins))
         {
             // This is a "merge" move instruction.
-            code = SetVexVvvv(ins, id->idReg2(), size, code);
+            code = SetVexVvvv(id->idReg2(), size, code);
         }
     }
 
@@ -6856,7 +6854,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 
         if (TakesVexPrefix(ins))
         {
-            code = SetVexVvvv(ins, reg, size, code);
+            code = SetVexVvvv(reg, size, code);
         }
 
         dst += emitOutputRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
@@ -6883,7 +6881,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_AMD64
         if (size == EA_8BYTE)
         {
-            code = AddRexWPrefix(ins, code);
+            code = AddRexWPrefix(code);
         }
 #endif
 
@@ -6951,7 +6949,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_AMD64
         else if (size == EA_8BYTE)
         {
-            code = AddRexWPrefix(ins, code);
+            code = AddRexWPrefix(code);
         }
 #endif
 
@@ -7001,7 +6999,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_AMD64
     else if (size == EA_8BYTE)
     {
-        code = AddRexWPrefix(ins, code);
+        code = AddRexWPrefix(code);
     }
 #endif
 
@@ -7141,7 +7139,7 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     // TODO-MIKE-CQ: For x86 this should really be mov, it can be more efficient.
     code_t code = 0x8D;
     assert(insCodeRM(INS_lea) == code);
-    AMD64_ONLY(code = AddRexWPrefix(INS_lea, code));
+    AMD64_ONLY(code = AddRexWPrefix(code));
     code = SetRMReg(INS_lea, id->idReg1(), EA_PTRSIZE, code);
     AMD64_ONLY(dst += emitOutputRexPrefix(dst, code));
     dst += emitOutputWord(dst, code | 0x0500);
@@ -7524,7 +7522,7 @@ uint8_t* emitter::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
     {
         assert((ins == INS_cdq) || (ins == INS_stos) || (ins == INS_movs));
 
-        code = AddRexWPrefix(ins, code);
+        code = AddRexWPrefix(code);
         dst += emitOutputRexPrefix(dst, code);
         INDEBUG(code &= ~(0xFFull << RexBitOffset));
     }
@@ -7718,7 +7716,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (IsVexDstDstSrc(ins))
             {
-                code = SetVexVvvv(ins, id->idReg1(), size, code);
+                code = SetVexVvvv(id->idReg1(), size, code);
             }
 
             if (!IsBMIRegExtInstruction(ins))
@@ -7739,7 +7737,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (IsVexDstDstSrc(ins))
             {
-                code = SetVexVvvv(ins, id->idReg1(), size, code);
+                code = SetVexVvvv(id->idReg1(), size, code);
             }
 
             code   = SetRMReg(ins, id->idReg1(), size, code);
@@ -7766,7 +7764,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code = insCodeMR(ins);
             code = AddVexPrefix(ins, code, size);
-            code = SetVexVvvv(ins, id->idReg1(), size, code);
+            code = SetVexVvvv(id->idReg1(), size, code);
             code = SetRMReg(ins, id->idReg2(), size, code);
             dst  = emitOutputAM(dst, id, code);
             sz   = id->GetDescSize();
@@ -7778,7 +7776,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code = insCodeRM(ins);
             code = AddVexPrefix(ins, code, size);
-            code = SetVexVvvv(ins, id->idReg2(), size, code);
+            code = SetVexVvvv(id->idReg2(), size, code);
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputAM(dst, id, code);
             sz   = id->GetDescSize();
@@ -7790,7 +7788,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code   = insCodeRM(ins);
             code   = AddVexPrefix(ins, code, size);
-            code   = SetVexVvvv(ins, id->idReg2(), size, code);
+            code   = SetVexVvvv(id->idReg2(), size, code);
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputAM(dst, id, code, &cnsVal);
@@ -7844,7 +7842,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (IsVexDstDstSrc(ins))
             {
-                code = SetVexVvvv(ins, id->idReg1(), size, code);
+                code = SetVexVvvv(id->idReg1(), size, code);
             }
 
             if (!IsBMIRegExtInstruction(ins))
@@ -7865,7 +7863,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (IsVexDstDstSrc(ins))
             {
-                code = SetVexVvvv(ins, id->idReg1(), size, code);
+                code = SetVexVvvv(id->idReg1(), size, code);
             }
 
             code   = SetRMReg(ins, id->idReg1(), size, code);
@@ -7904,7 +7902,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code = insCodeRM(ins);
             code = AddVexPrefix(ins, code, size);
-            code = SetVexVvvv(ins, id->idReg2(), size, code);
+            code = SetVexVvvv(id->idReg2(), size, code);
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputSV(dst, id, code);
             sz   = id->GetDescSize();
@@ -7916,7 +7914,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code   = insCodeRM(ins);
             code   = AddVexPrefix(ins, code, size);
-            code   = SetVexVvvv(ins, id->idReg2(), size, code);
+            code   = SetVexVvvv(id->idReg2(), size, code);
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputSV(dst, id, code, &cnsVal);
@@ -7967,7 +7965,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (IsVexDstDstSrc(ins))
             {
-                code = SetVexVvvv(ins, id->idReg1(), size, code);
+                code = SetVexVvvv(id->idReg1(), size, code);
             }
 
             if (!IsBMIRegExtInstruction(ins))
@@ -7988,7 +7986,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (IsVexDstDstSrc(ins))
             {
-                code = SetVexVvvv(ins, id->idReg1(), size, code);
+                code = SetVexVvvv(id->idReg1(), size, code);
             }
 
             code   = SetRMReg(ins, id->idReg1(), size, code);
@@ -8027,7 +8025,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code = insCodeRM(ins);
             code = AddVexPrefix(ins, code, size);
-            code = SetVexVvvv(ins, id->idReg2(), size, code);
+            code = SetVexVvvv(id->idReg2(), size, code);
             code = SetRMReg(ins, id->idReg1(), size, code);
             dst  = emitOutputCV(dst, id, code);
             sz   = id->GetDescSize();
@@ -8039,7 +8037,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code   = insCodeRM(ins);
             code   = AddVexPrefix(ins, code, size);
-            code   = SetVexVvvv(ins, id->idReg2(), size, code);
+            code   = SetVexVvvv(id->idReg2(), size, code);
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = emitOutputCV(dst, id, code, &cnsVal);

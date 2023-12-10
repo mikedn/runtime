@@ -170,14 +170,13 @@ void emitIns_Call(EmitCallType          kind,
                   int32_t   amDisp  = 0,
                   bool      isJump  = false);
 
-private:
-bool UseVEXEncoding() const;
-X86_ONLY(static bool emitVerifyEncodable(instruction ins, emitAttr size, regNumber reg1, regNumber reg2 = REG_NA));
-
 // code_t is a type used to accumulate bits of opcode + prefixes. On amd64, it must be 64 bits
 // to support the REX prefixes. On both x86 and amd64, it must be 64 bits to support AVX, with
 // its 3-byte VEX prefix.
 typedef uint64_t code_t;
+
+private:
+bool UseVEXEncoding() const;
 
 unsigned emitGetVexAdjustedSize(instruction ins);
 unsigned emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code, bool isRR = false);
@@ -237,30 +236,12 @@ size_t emitOutputRexPrefixIfNeeded(uint8_t* dst, code_t code);
 size_t emitOutputRexOrVexPrefixIfNeeded(uint8_t* dst, code_t code DEBUGARG(instruction ins));
 size_t emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code);
 
-unsigned insEncodeReg012(instruction ins, regNumber reg, emitAttr size, code_t* code);
-unsigned insEncodeReg345(instruction ins, regNumber reg, emitAttr size, code_t* code);
-code_t SetRMReg(instruction ins, regNumber reg, emitAttr size, code_t code);
-code_t SetVexVvvv(instruction ins, regNumber reg, emitAttr size, code_t code);
-
-code_t insEncodeRMreg(instruction ins, regNumber reg, emitAttr size, code_t code);
-
-#ifdef TARGET_AMD64
-code_t AddRexWPrefix(instruction ins, code_t code);
-code_t AddRexRPrefix(instruction ins, code_t code);
-code_t AddRexXPrefix(instruction ins, code_t code);
-code_t AddRexBPrefix(instruction ins, code_t code);
-code_t AddRexPrefix(instruction ins, code_t code);
-#endif
-
 bool IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regNumber src, bool canIgnoreSideEffects);
 
 static bool IsJccInstruction(instruction ins);
 static bool IsJmpInstruction(instruction ins);
 
-static bool hasRexPrefix(code_t code);
 bool TakesVexPrefix(instruction ins) const;
-bool hasVexPrefix(code_t code);
-code_t AddVexPrefix(instruction ins, code_t code, emitAttr attr);
 code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
 
 bool IsSseDstSrcImm(instruction ins);
@@ -339,7 +320,5 @@ void emitAdjustStackDepth(instruction ins, ssize_t val);
 
 void emitLoopAlign(uint16_t paddingBytes);
 void emitLongLoopAlign(uint16_t alignmentBoundary);
-
-static insFormat emitInsModeFormat(instruction ins, insFormat base);
 
 #endif // TARGET_XARCH
