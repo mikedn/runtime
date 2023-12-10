@@ -542,7 +542,7 @@ private:
         static_assert_no_msg(IF_COUNT <= 256);
         // REG_SP is included the in actual reg count but we don't need that here.
         static_assert_no_msg(ACTUAL_REG_COUNT - 1 <= 64);
-        static constexpr unsigned SmallImmBits = 14;
+        static constexpr unsigned SmallImmBits = 16;
 
         instruction _idIns : 9;       // Instruction opcode
         insFormat   _idInsFmt : 8;    // Instruction format
@@ -558,7 +558,7 @@ private:
         insOpts     _idInsOpt : 6;    // Instruction options
         unsigned    _idLclVar : 1;    // Local load/store
         unsigned    _idCnsReloc : 1;  // Immediate is relocatable
-        unsigned    _idSpare : 3;     // Give these to small imm?
+        unsigned    _idSpare : 1;     // Give this to small imm?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_ARM64
 
@@ -566,7 +566,7 @@ private:
         static_assert_no_msg(INS_COUNT <= 256);
         static_assert_no_msg(IF_COUNT <= 256);
         static_assert_no_msg(ACTUAL_REG_COUNT <= 64);
-        static constexpr unsigned SmallImmBits = 14;
+        static constexpr unsigned SmallImmBits = 16;
 
         instruction _idIns : 8;       // Instruction opcode
         insFormat   _idInsFmt : 8;    // Instruction format
@@ -584,7 +584,7 @@ private:
         unsigned    _idLclVar : 1;    // Local load/store
         insOpts     _idInsOpt : 3;    // Instruction options
         unsigned    _idCnsReloc : 1;  // Immediate is relocatable
-        unsigned    _idSpare : 5;     // Give these to small imm?
+        unsigned    _idSpare : 3;     // Give these to small imm?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_ARM
 
