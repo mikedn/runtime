@@ -153,6 +153,37 @@ void CodeGen::genMarkLabelsForCodegen()
                 noway_assert(!"Unexpected bbJumpKind");
                 break;
         }
+
+        if (BasicBlock* prevBlock = block->bbPrev)
+        {
+            if (!prevBlock->bbFallsThrough())
+            {
+                // TODO-MIKE-Cleanup: Some dead blocks aren't removed. If they don't have a label we
+                // may end up with an insGroup without GC information and crash due to null gcLcls.
+                // Ideally such blocks should be removed but for now just avoid crashing.
+
+                block->bbFlags |= BBF_HAS_LABEL;
+            }
+            else if ((prevBlock->GetKind() == BBJ_COND) && (prevBlock->bbWeight != block->bbWeight))
+            {
+                // TODO-MIKE-Review: What's this for? Just to show the different weight in disassembly?!?
+
+                JITDUMP("Adding label due to BB weight difference: BBJ_COND " FMT_BB " with weight " FMT_WT
+                        " different from " FMT_BB " with weight " FMT_WT "\n",
+                        prevBlock->bbNum, prevBlock->bbWeight, block->bbNum, block->bbWeight);
+
+                block->bbFlags |= BBF_HAS_LABEL;
+            }
+        }
+    }
+
+    // TODO-MIKE-Review: Wouldn't the first cold block be a jump target anyway? How else could it be reached?
+    // Anyway, hot/cold splitting is not enabled so this is basically dead code.
+    if (BasicBlock* firstColdBlock = compiler->fgFirstColdBlock)
+    {
+        noway_assert(!firstColdBlock->bbPrev->bbFallsThrough());
+
+        firstColdBlock->bbFlags |= BBF_HAS_LABEL;
     }
 
     // Walk all the throw helper blocks and mark them, since jumps to them don't appear the flow graph.

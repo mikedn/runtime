@@ -170,41 +170,7 @@ void CodeGen::genCodeForBBlist()
 
         m_currentBlock = block;
 
-        bool needLabel = (block->bbFlags & BBF_HAS_LABEL) != 0;
-
-        if (!needLabel)
-        {
-            if (block == compiler->fgFirstColdBlock)
-            {
-                noway_assert(!block->bbPrev->bbFallsThrough());
-
-                needLabel = true;
-            }
-            else if ((block->bbPrev != nullptr) && !block->bbPrev->bbFallsThrough())
-            {
-                // TODO-MIKE-Cleanup: Some dead blocks aren't removed. If they don't have a label we
-                // may end up with an insGroup without GC information and crash due to null gcLcls.
-                // Ideally such blocks should be removed but for now just avoid crashing.
-                needLabel = true;
-            }
-            else if ((block->bbPrev != nullptr) && (block->bbPrev->bbJumpKind == BBJ_COND) &&
-                     (block->bbWeight != block->bbPrev->bbWeight))
-            {
-                JITDUMP("Adding label due to BB weight difference: BBJ_COND " FMT_BB " with weight " FMT_WT
-                        " different from " FMT_BB " with weight " FMT_WT "\n",
-                        block->bbPrev->bbNum, block->bbPrev->bbWeight, block->bbNum, block->bbWeight);
-
-                needLabel = true;
-            }
-#if FEATURE_LOOP_ALIGN
-            else
-            {
-                assert(!GetEmitter()->emitEndsWithAlignInstr());
-            }
-#endif
-        }
-
-        if (needLabel)
+        if ((block->bbFlags & BBF_HAS_LABEL) != 0)
         {
             insGroup* ig = GetEmitter()->emitAddLabel(INDEBUG(block));
 
@@ -218,6 +184,10 @@ void CodeGen::genCodeForBBlist()
         }
         else
         {
+#if FEATURE_LOOP_ALIGN
+            assert(!GetEmitter()->emitEndsWithAlignInstr());
+#endif
+
             block->bbEmitCookie = nullptr;
         }
 
