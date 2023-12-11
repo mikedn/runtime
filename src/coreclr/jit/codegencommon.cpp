@@ -103,8 +103,21 @@ void CodeGen::genMarkLabelsForCodegen()
     {
         switch (block->bbJumpKind)
         {
-            case BBJ_ALWAYS: // This will also handle the BBJ_ALWAYS of a BBJ_CALLFINALLY/BBJ_ALWAYS pair.
             case BBJ_COND:
+#if FEATURE_LOOP_ALIGN
+                if (block->bbJumpDest->isLoopAlign() && (block->bbNext != nullptr))
+                {
+                    // In the emitter, we need to calculate the loop size from `block->bbJumpDest` through
+                    // `block` (inclusive). Thus, we need to ensure there is a label on the lexical fall-through
+                    // block, even if one is not otherwise needed, to be able to calculate the size of this
+                    // loop (loop size is calculated by walking the instruction groups; see emitter::getLoopSize()).
+
+                    JITDUMP("Mark " FMT_BB " as label: alignment end-of-loop\n", block->bbNext->bbNum);
+                    block->bbNext->bbFlags |= BBF_HAS_LABEL;
+                }
+                FALLTHROUGH;
+#endif                       // FEATURE_LOOP_ALIGN
+            case BBJ_ALWAYS: // This will also handle the BBJ_ALWAYS of a BBJ_CALLFINALLY/BBJ_ALWAYS pair.
             case BBJ_EHCATCHRET:
                 JITDUMP("  " FMT_BB " : branch target\n", block->bbJumpDest->bbNum);
                 block->bbJumpDest->bbFlags |= BBF_HAS_LABEL;
