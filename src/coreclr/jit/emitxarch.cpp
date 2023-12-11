@@ -1481,7 +1481,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
     }
     else
     {
-        id->idAddr()->iiaAddrMode.index = REG_NA;
+        id->idAddr()->iiaAddrMode.base = REG_NA;
     }
 
     if (GenTree* index = addrMode->GetIndex())
