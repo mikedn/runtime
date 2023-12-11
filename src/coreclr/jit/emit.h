@@ -247,15 +247,15 @@ struct insGroup
         return (igFlags & IGF_BASIC_BLOCK) != 0;
     }
 
+    bool IsNoGC() const
+    {
+        return (igFlags & IGF_NOGCINTERRUPT) != 0;
+    }
+
 #ifdef DEBUG
     bool IsExtension() const
     {
         return (igFlags & IGF_EXTEND) != 0;
-    }
-
-    bool IsNoGC() const
-    {
-        return (igFlags & IGF_NOGCINTERRUPT) != 0;
     }
 #endif
 };
