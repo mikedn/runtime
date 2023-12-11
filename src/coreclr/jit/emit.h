@@ -1064,8 +1064,8 @@ private:
 
         regNumber idReg4() const
         {
-            assert(idInsFmt() == IF_RWR_RRD_ARD_RRD || idInsFmt() == IF_RWR_RRD_SRD_RRD ||
-                   idInsFmt() == IF_RWR_RRD_MRD_RRD);
+            assert(_idInsFmt == IF_RWR_RRD_ARD_RRD || _idInsFmt == IF_RWR_RRD_SRD_RRD ||
+                   _idInsFmt == IF_RWR_RRD_MRD_RRD || _idInsFmt == IF_RWR_RRD_RRD_RRD);
             return static_cast<regNumber>(REG_XMM0 + (_idSmallCns >> 4));
         }
 #endif // TARGET_XARCH
