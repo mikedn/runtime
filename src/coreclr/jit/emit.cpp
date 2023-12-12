@@ -1298,7 +1298,7 @@ void emitter::emitStartExitSeq()
 
 #endif // JIT32_GCENCODER
 
-insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
+insGroup* emitter::emitAddLabel()
 {
     assert(!emitIGisInProlog(emitCurIG));
 
@@ -1320,11 +1320,6 @@ insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
     emitCurIG->byrefRegs = static_cast<uint32_t>(codeGen->liveness.GetGCRegs(TYP_BYREF));
 
 #ifdef DEBUG
-    if (block != nullptr)
-    {
-        JITDUMP("Mapped " FMT_BB " to %s\n", block->bbNum, emitLabelString(emitCurIG));
-    }
-
     if (emitComp->verbose)
     {
         printf("Label: IG%02u, gc-lcls ", emitCurIG->igNum);

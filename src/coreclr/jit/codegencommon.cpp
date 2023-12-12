@@ -447,7 +447,7 @@ void CodeGen::genLogLabel(BasicBlock* bb)
 void CodeGen::genDefineTempLabel(BasicBlock* label)
 {
     genLogLabel(label);
-    label->bbEmitCookie = GetEmitter()->emitAddLabel(INDEBUG(label));
+    label->bbEmitCookie = GetEmitter()->emitAddLabel();
 }
 
 // genDefineInlineTempLabel: Define an inline label that does not affect the GC

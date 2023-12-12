@@ -2773,15 +2773,17 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
     {
         assert((block->bbFlags & BBF_HAS_LABEL) != 0);
 
-        JITDUMP("\nEmitting finally target NOP predecessor for " FMT_BB "\n", block->bbNum);
-
         // Create a label that we'll use for computing the start of an EH region, if this block
         // is at the beginning of such a region. If we used the existing bbEmitCookie as is for
         // determining the EH regions, then this NOP would end up outside of the region, if this
         // block starts an EH region. If we pointed the existing bbEmitCookie here, then the NOP
         // would be executed, which we would prefer not to do.
 
-        block->bbUnwindNopEmitCookie = GetEmitter()->emitAddLabel(INDEBUG(block));
+        insGroup* ig = GetEmitter()->emitAddLabel();
+
+        block->bbUnwindNopEmitCookie = ig;
+        JITDUMP("\nEmitting finally target NOP predecessor %s for " FMT_BB "\n", GetEmitter()->emitLabelString(ig),
+                block->bbNum);
         GetEmitter()->emitIns(INS_nop);
     }
 }
