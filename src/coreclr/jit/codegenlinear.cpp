@@ -170,7 +170,7 @@ void CodeGen::genCodeForBBlist()
         {
             insGroup* ig = GetEmitter()->emitAddLabel();
 
-            JITDUMP("Mapped " FMT_BB " to IG%02u\n", block->bbNum, ig->igNum);
+            JITDUMP("Mapped " FMT_BB " to " FMT_IG "\n", block->bbNum, ig->igNum);
 
             if (block == compiler->fgFirstColdBlock)
             {

@@ -31,6 +31,8 @@
 insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType);
 #endif
 
+#define FMT_IG "IG%02u"
+
 class CodeGen;
 class emitter;
 struct insGroup;

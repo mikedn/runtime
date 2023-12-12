@@ -439,22 +439,8 @@ void emitter::emitFinishIG(bool extend)
 
     emitCurIGfreeNext = emitCurIGfreeBase;
 
-#ifdef DEBUG
-    if (emitComp->opts.dspCode)
-    {
-        printf("\n      %s:", emitLabelString(ig));
-        if (emitComp->verbose)
-        {
-            printf("        ; offs=%06XH, funclet=%02u, bbWeight=%s", ig->igOffs, ig->igFuncIdx,
-                   refCntWtd2str(ig->igWeight));
-        }
-        else
-        {
-            printf("        ; funclet=%02u", ig->igFuncIdx);
-        }
-        printf("\n");
-    }
-#endif
+    JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", ig->igNum, ig->igOffs, ig->igFuncIdx,
+            refCntWtd2str(ig->igWeight));
 }
 
 #ifndef JIT32_GCENCODER
@@ -1322,7 +1308,7 @@ insGroup* emitter::emitAddLabel()
 #ifdef DEBUG
     if (emitComp->verbose)
     {
-        printf("Label: IG%02u, gc-lcls ", emitCurIG->igNum);
+        printf("Label: " FMT_IG ", gc-lcls ", emitCurIG->igNum);
         dumpConvertedVarSet(emitComp, emitCurIG->gcLcls);
         printf(", ref-regs");
         DumpRegSet(emitCurIG->refRegs);
@@ -1351,23 +1337,11 @@ insGroup* emitter::emitAddInlineLabel()
 
 #ifdef DEBUG
 
-//-----------------------------------------------------------------------------
-// emitPrintLabel: Print the assembly label for an insGroup. We could use emitter::emitLabelString()
-// to be consistent, but that seems silly.
-//
 void emitter::emitPrintLabel(insGroup* ig)
 {
     printf("G_M%03u_IG%02u", emitComp->compMethodID, ig->igNum);
 }
 
-//-----------------------------------------------------------------------------
-// emitLabelString: Return label string for an insGroup, for use in debug output.
-// This can be called up to four times in a single 'printf' before the static buffers
-// get reused.
-//
-// Returns:
-//    String with insGroup label
-//
 const char* emitter::emitLabelString(insGroup* ig)
 {
     const int       TEMP_BUFFER_LEN = 40;
@@ -1468,10 +1442,7 @@ void emitter::emitSplit(emitLocation*         startLoc,
             // Is there a candidate?
             if (igLastCandidate == NULL)
             {
-#ifdef DEBUG
-                if (EMITVERBOSE)
-                    printf("emitSplit: can't split at IG%02u; we don't have a candidate to report\n", ig->igNum);
-#endif
+                JITDUMP("emitSplit: can't split at " FMT_IG "; we don't have a candidate to report\n", ig->igNum);
                 reportCandidate = false;
             }
 
@@ -1479,21 +1450,18 @@ void emitter::emitSplit(emitLocation*         startLoc,
             // initialized to igStart).
             if (igLastCandidate == igLastReported)
             {
-#ifdef DEBUG
-                if (EMITVERBOSE)
-                    printf("emitSplit: can't split at IG%02u; we already reported it\n", igLastCandidate->igNum);
-#endif
+                JITDUMP("emitSplit: can't split at " FMT_IG "; we already reported it\n", igLastCandidate->igNum);
                 reportCandidate = false;
             }
 
             // Report it!
             if (reportCandidate)
             {
-#ifdef DEBUG
-                if (EMITVERBOSE && (candidateSize >= maxSplitSize))
-                    printf("emitSplit: split at IG%02u is size %d, larger than requested maximum size of %d\n",
-                           igLastCandidate->igNum, candidateSize, maxSplitSize);
-#endif
+                if (candidateSize >= maxSplitSize)
+                {
+                    JITDUMP("emitSplit: split at " FMT_IG " is size %u, larger than requested maximum size of %u\n",
+                            igLastCandidate->igNum, candidateSize, maxSplitSize);
+                }
 
                 // hand memory ownership to the callback function
                 emitLocation* pEmitLoc = new (emitComp, CMK_Unknown) emitLocation(igLastCandidate);
@@ -1905,7 +1873,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
 {
     char buff[40];
-    sprintf_s(buff, _countof(buff), "%s: ", emitLabelString(ig));
+    sprintf_s(buff, _countof(buff), FMT_IG ": ", ig->igNum);
     printf("%s", buff);
 
     char     separator = ';';
@@ -2022,7 +1990,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
 #if FEATURE_LOOP_ALIGN
     if (ig->igLoopBackEdge != nullptr)
     {
-        printf("%c loop IG%02u", separator, ig->igLoopBackEdge->igNum);
+        printf("%c loop " FMT_IG, separator, ig->igLoopBackEdge->igNum);
         separator = ',';
     }
 #endif
@@ -2589,7 +2557,7 @@ AGAIN:
             {
                 printf("Binding: ");
                 emitDispIns(jmp);
-                printf("Binding L_M%03u_" FMT_BB, emitComp->compMethodID, jmp->idAddr()->iiaBBlabel->bbNum);
+                printf("Binding " FMT_BB, jmp->idAddr()->iiaBBlabel->bbNum);
             }
 #endif // DEBUG
 
@@ -2600,7 +2568,7 @@ AGAIN:
             {
                 if (tgtIG)
                 {
-                    printf(" to %s\n", emitLabelString(tgtIG));
+                    printf(" to " FMT_IG "\n", tgtIG->igNum);
                 }
                 else
                 {
@@ -3028,7 +2996,7 @@ AGAIN:
 //
 void emitter::emitLoopAlignment()
 {
-    unsigned short paddingBytes;
+    uint16_t paddingBytes;
 
     if ((emitComp->opts.compJitAlignLoopBoundary > 16) && (!emitComp->opts.compJitAlignLoopAdaptive))
     {
@@ -3045,11 +3013,9 @@ void emitter::emitLoopAlignment()
     // all IGs that follows this IG and participate in a loop.
     emitCurIG->igFlags |= IGF_LOOP_ALIGN;
 
-    JITDUMP("Adding 'align' instruction of %d bytes in %s.\n", paddingBytes, emitLabelString(emitCurIG));
+    JITDUMP("Adding 'align' instruction of %d bytes in " FMT_IG ".\n", paddingBytes, emitCurIG->igNum);
 
-#ifdef DEBUG
-    emitComp->loopAlignCandidates++;
-#endif // DEBUG
+    INDEBUG(emitComp->loopAlignCandidates++);
 }
 
 //-----------------------------------------------------------------------------
@@ -3206,7 +3172,7 @@ void emitter::emitSetLoopBackEdge(BasicBlock* loopTopBlock)
         {
             emitCurIG->igLoopBackEdge = dstIG;
 
-            JITDUMP("** IG%02u jumps back to IG%02u forming a loop.\n", currLoopEnd, currLoopStart);
+            JITDUMP("** " FMT_IG " jumps back to " FMT_IG " forming a loop.\n", currLoopEnd, currLoopStart);
 
             emitLastLoopStart = currLoopStart;
             emitLastLoopEnd   = currLoopEnd;
@@ -3256,8 +3222,8 @@ void emitter::emitSetLoopBackEdge(BasicBlock* loopTopBlock)
                     assert(!markedCurrLoop);
                     alignInstr->idaIG->igFlags &= ~IGF_LOOP_ALIGN;
                     markedCurrLoop = true;
-                    JITDUMP("** Skip alignment for current loop IG%02u ~ IG%02u because it encloses an aligned loop "
-                            "IG%02u ~ IG%02u.\n",
+                    JITDUMP("** Skip alignment for current loop " FMT_IG " ~ " FMT_IG
+                            " because it encloses an aligned loop " FMT_IG " ~ " FMT_IG ".\n",
                             currLoopStart, currLoopEnd, emitLastLoopStart, emitLastLoopEnd);
                 }
 
@@ -3269,8 +3235,8 @@ void emitter::emitSetLoopBackEdge(BasicBlock* loopTopBlock)
                     assert(alignInstr->idaIG->isLoopAlign());
                     alignInstr->idaIG->igFlags &= ~IGF_LOOP_ALIGN;
                     markedLastLoop = true;
-                    JITDUMP("** Skip alignment for aligned loop IG%02u ~ IG%02u because it encloses the current loop "
-                            "IG%02u ~ IG%02u.\n",
+                    JITDUMP("** Skip alignment for aligned loop " FMT_IG " ~ " FMT_IG
+                            " because it encloses the current loop " FMT_IG " ~ " FMT_IG ".\n ",
                             emitLastLoopStart, emitLastLoopEnd, currLoopStart, currLoopEnd);
                 }
 
@@ -3384,9 +3350,9 @@ void emitter::emitLoopAlignAdjustments()
                 alignInstr = prevAlignInstr;
             }
 
-            JITDUMP("Adjusted alignment of %s from %u to %u.\n", emitLabelString(alignIG), estimatedPaddingNeeded,
+            JITDUMP("Adjusted alignment of " FMT_IG " from %u to %u.\n", alignIG->igNum, estimatedPaddingNeeded,
                     actualPaddingNeeded);
-            JITDUMP("Adjusted size of %s from %u to %u.\n", emitLabelString(alignIG), (alignIG->igSize + diff),
+            JITDUMP("Adjusted size of " FMT_IG " from %u to %u.\n", alignIG->igNum, (alignIG->igSize + diff),
                     alignIG->igSize);
         }
 
@@ -3396,7 +3362,7 @@ void emitter::emitLoopAlignAdjustments()
         insGroup* adjOffUptoIG = alignInstr->idaNext != nullptr ? alignInstr->idaNext->idaIG : emitIGlast;
         while ((adjOffIG != nullptr) && (adjOffIG->igNum <= adjOffUptoIG->igNum))
         {
-            JITDUMP("Adjusted offset of %s from %04X to %04X\n", emitLabelString(adjOffIG), adjOffIG->igOffs,
+            JITDUMP("Adjusted offset of " FMT_IG " from %04X to %04X\n", adjOffIG->igNum, adjOffIG->igOffs,
                     (adjOffIG->igOffs - alignBytesRemoved));
             adjOffIG->igOffs -= alignBytesRemoved;
             adjOffIG = adjOffIG->igNext;
@@ -3456,7 +3422,7 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
     // No padding if loop is already aligned
     if ((offset & (alignmentBoundary - 1)) == 0)
     {
-        JITDUMP(";; Skip alignment: 'Loop at %s already aligned at %dB boundary.'\n", emitLabelString(ig->igNext),
+        JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " already aligned at %dB boundary.'\n", ig->igNext->igNum,
                 alignmentBoundary);
         return 0;
     }
@@ -3481,7 +3447,7 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
     // No padding if loop is big
     if (loopSize > maxLoopSize)
     {
-        JITDUMP(";; Skip alignment: 'Loop at %s is big. LoopSize= %d, MaxLoopSize= %d.'\n", emitLabelString(ig->igNext),
+        JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " is big. LoopSize= %d, MaxLoopSize= %d.'\n", ig->igNext->igNum,
                 loopSize, maxLoopSize);
         return 0;
     }
@@ -3508,16 +3474,16 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
             if (nPaddingBytes == 0)
             {
                 skipPadding = true;
-                JITDUMP(";; Skip alignment: 'Loop at %s already aligned at %uB boundary.'\n",
-                        emitLabelString(ig->igNext), alignmentBoundary);
+                JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " already aligned at %uB boundary.'\n", ig->igNext->igNum,
+                        alignmentBoundary);
             }
             // Check if the alignment exceeds new maxPadding limit
             else if (nPaddingBytes > nMaxPaddingBytes)
             {
                 skipPadding = true;
-                JITDUMP(";; Skip alignment: 'Loop at %s PaddingNeeded= %d, MaxPadding= %d, LoopSize= %d, "
+                JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " PaddingNeeded= %d, MaxPadding= %d, LoopSize= %d, "
                         "AlignmentBoundary= %dB.'\n",
-                        emitLabelString(ig->igNext), nPaddingBytes, nMaxPaddingBytes, loopSize, alignmentBoundary);
+                        ig->igNext->igNum, nPaddingBytes, nMaxPaddingBytes, loopSize, alignmentBoundary);
             }
         }
 
@@ -3539,8 +3505,8 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
             else
             {
                 // Otherwise, the loop just fits in minBlocksNeededForLoop and so can skip alignment.
-                JITDUMP(";; Skip alignment: 'Loop at %s is aligned to fit in %d blocks of %d chunks.'\n",
-                        emitLabelString(ig->igNext), minBlocksNeededForLoop, alignmentBoundary);
+                JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " is aligned to fit in %d blocks of %d chunks.'\n",
+                        ig->igNext->igNum, minBlocksNeededForLoop, alignmentBoundary);
             }
         }
     }
@@ -3568,13 +3534,13 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
         else
         {
             // Otherwise, the loop just fits in minBlocksNeededForLoop and so can skip alignment.
-            JITDUMP(";; Skip alignment: 'Loop at %s is aligned to fit in %d blocks of %d chunks.'\n",
-                    emitLabelString(ig->igNext), minBlocksNeededForLoop, alignmentBoundary);
+            JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " is aligned to fit in %d blocks of %d chunks.'\n",
+                    ig->igNext->igNum, minBlocksNeededForLoop, alignmentBoundary);
         }
     }
 
-    JITDUMP(";; Calculated padding to add %d bytes to align %s at %dB boundary.\n", paddingToAdd,
-            emitLabelString(ig->igNext), alignmentBoundary);
+    JITDUMP(";; Calculated padding to add %d bytes to align " FMT_IG " at %dB boundary.\n", paddingToAdd,
+            ig->igNext->igNum, alignmentBoundary);
 
     // Either no padding is added because it is too expensive or the offset gets aligned
     // to the alignment boundary
