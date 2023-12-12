@@ -51,7 +51,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             // Kill callee saves GC registers, and create a label
             // so that information gets propagated to the emitter.
             liveness.RemoveGCRegs(RBM_INT_CALLEE_SAVED);
-            genDefineTempLabel(genCreateTempLabel());
+            genDefineTempLabel();
             break;
 
         case GT_PROF_HOOK:
@@ -2361,7 +2361,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     // at (or inside) the callsite.
     if (compiler->killGCRefs(call))
     {
-        genDefineTempLabel(genCreateTempLabel());
+        genDefineTempLabel();
     }
 
     // Determine return value attr(s).

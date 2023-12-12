@@ -179,6 +179,7 @@ public:
     BasicBlock* genCreateTempLabel();
     void genLogLabel(BasicBlock* bb);
     void genDefineTempLabel(BasicBlock* label);
+    void genDefineTempLabel();
     void genDefineInlineTempLabel(BasicBlock* label);
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -430,7 +431,7 @@ public:
     void genInsertNopForUnwinder(BasicBlock* block);
 #endif
 
-#else // !FEATURE_EH_FUNCLETS
+#else  // !FEATURE_EH_FUNCLETS
     void genUpdateCurrentFunclet(BasicBlock* block)
     {
     }

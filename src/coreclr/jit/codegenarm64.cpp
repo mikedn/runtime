@@ -3454,15 +3454,13 @@ void CodeGen::genArm64EmitterUnitTests()
 #endif // ALL_ARM64_EMITTER_UNIT_TESTS
 
 #ifdef ALL_ARM64_EMITTER_UNIT_TESTS
-    // We use this:
-    //      genDefineTempLabel(genCreateTempLabel());
-    // to create artificial labels to help separate groups of tests.
+    // We use this genDefineTempLabel to create artificial labels to help separate groups of tests.
 
     //
     // Loads/Stores basic general register
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // ldr/str Xt, [reg]
     theEmitter->emitIns_R_R(INS_ldr, EA_8BYTE, REG_R8, REG_R9);
@@ -3559,7 +3557,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // Loads to and Stores from one, two, three, or four SIMD&FP registers
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // ld1 {Vt}, [Xn|SP]
     theEmitter->emitIns_R_R(INS_ld1, EA_8BYTE, REG_V0, REG_R1, INS_OPTS_8B);
@@ -3774,7 +3772,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // Loads to and Stores from one, two, three, or four SIMD&FP registers
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // ld1 {Vt}, [Xn|SP], Xm
     theEmitter->emitIns_R_R_R(INS_ld1, EA_8BYTE, REG_V0, REG_R1, REG_R2, INS_OPTS_8B);
@@ -3957,7 +3955,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // Loads to and Stores from one, two, three, or four SIMD&FP registers
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // ld1 {Vt}, [Xn|SP], #imm
     theEmitter->emitIns_R_R_I(INS_ld1, EA_8BYTE, REG_V0, REG_R1, 8, INS_OPTS_8B);
@@ -4140,7 +4138,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // Loads to and Stores from one, two, three, or four SIMD&FP registers
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // ld1 {Vt}[#index], [Xn|SP]
     theEmitter->emitIns_R_R_I(INS_ld1, EA_1BYTE, REG_V0, REG_R1, 3);
@@ -4197,7 +4195,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // Loads to and Stores from one, two, three, or four SIMD&FP registers
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // ld1 {Vt}[#index], [Xn|SP], Xm
     theEmitter->emitIns_R_R_R_I(INS_ld1, EA_1BYTE, REG_V0, REG_R1, REG_R2, 3, INS_OPTS_POST_INDEX);
@@ -4254,7 +4252,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // Loads to and Stores from one, two, three, or four SIMD&FP registers
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // ld1 {Vt}[#index], [Xn|SP], #imm
     theEmitter->emitIns_R_R_I_I(INS_ld1, EA_1BYTE, REG_V0, REG_R1, 3, 1, INS_OPTS_POST_INDEX);
@@ -4311,7 +4309,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // Compares
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // cmp reg, reg
     theEmitter->emitIns_R_R(INS_cmp, EA_8BYTE, REG_R8, REG_R9);
@@ -4344,7 +4342,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // R_R
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     theEmitter->emitIns_R_R(INS_cls, EA_8BYTE, REG_R1, REG_R12);
     theEmitter->emitIns_R_R(INS_clz, EA_8BYTE, REG_R2, REG_R13);
@@ -4366,7 +4364,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // R_I
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // mov reg, imm(i16,hw)
     theEmitter->emitIns_R_I(INS_mov, EA_8BYTE, REG_R8, 0x0000000000001234);
@@ -4419,7 +4417,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // R_R
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // tst reg, reg
     theEmitter->emitIns_R_R(INS_tst, EA_8BYTE, REG_R7, REG_R10);
@@ -4456,7 +4454,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // R_I_I
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // mov reg, imm(i16,hw)
     theEmitter->emitIns_R_I_I(INS_mov, EA_8BYTE, REG_R8, 0x1234, 0, INS_OPTS_LSL);
@@ -4477,7 +4475,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // R_R_I
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     theEmitter->emitIns_R_R_I(INS_lsl, EA_8BYTE, REG_R0, REG_R0, 1);
     theEmitter->emitIns_R_R_I(INS_lsl, EA_4BYTE, REG_R9, REG_R3, 18);
@@ -4651,7 +4649,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // R_R_R
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     theEmitter->emitIns_R_R_R(INS_lsl, EA_8BYTE, REG_R8, REG_R9, REG_R10);
     theEmitter->emitIns_R_R_R(INS_lsr, EA_8BYTE, REG_R8, REG_R9, REG_R10);
@@ -4705,7 +4703,7 @@ void CodeGen::genArm64EmitterUnitTests()
     //
     // ARMv8.1 LSE Atomics
     //
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     theEmitter->emitIns_R_R_R(INS_casb, EA_4BYTE, REG_R8, REG_R9, REG_R10);
     theEmitter->emitIns_R_R_R(INS_casab, EA_4BYTE, REG_R8, REG_R9, REG_R10);
@@ -4775,7 +4773,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // R_R_I_I
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     theEmitter->emitIns_R_R_I_I(INS_sbfm, EA_8BYTE, REG_R2, REG_R3, 4, 39);
     theEmitter->emitIns_R_R_I_I(INS_bfm, EA_8BYTE, REG_R1, REG_R5, 20, 23);
@@ -4808,7 +4806,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // R_R_R_I
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // ADD (extended register)
     theEmitter->emitIns_R_R_R_I(INS_add, EA_8BYTE, REG_R8, REG_R9, REG_R10, 0, INS_OPTS_UXTB);
@@ -4963,7 +4961,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // R_R_R_Ext    -- load/store shifted/extend
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // LDR (register)
     theEmitter->emitIns_R_R_R_Ext(INS_ldr, EA_8BYTE, REG_R8, REG_SP, REG_R9);
@@ -5090,7 +5088,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // R_R_R_R
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     theEmitter->emitIns_R_R_R_R(INS_madd, EA_4BYTE, REG_R0, REG_R12, REG_R27, REG_R10);
     theEmitter->emitIns_R_R_R_R(INS_msub, EA_4BYTE, REG_R1, REG_R13, REG_R28, REG_R11);
@@ -5286,7 +5284,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // Branch to register
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     theEmitter->emitIns_R(INS_br, EA_8BYTE, REG_R8);
     theEmitter->emitIns_R(INS_ret, EA_8BYTE, REG_R8);
@@ -5299,7 +5297,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // Misc
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     theEmitter->emitIns_BRK(0);
     theEmitter->emitIns_BRK(65535);
@@ -5333,7 +5331,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // Load/Stores vector register
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // ldr/str Vt, [reg]
     theEmitter->emitIns_R_R(INS_ldr, EA_8BYTE, REG_V1, REG_R9);
@@ -6079,7 +6077,7 @@ void CodeGen::genArm64EmitterUnitTests()
 #endif
 
 #ifdef ALL_ARM64_EMITTER_UNIT_TESTS
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // abs scalar
     theEmitter->emitIns_R_R(INS_abs, EA_8BYTE, REG_V2, REG_V3);
@@ -6440,7 +6438,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // R_R_R   floating point operations, one dest, two source
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // fadd
     theEmitter->emitIns_R_R_R(INS_fadd, EA_4BYTE, REG_V0, REG_V1, REG_V2); // scalar 4BYTE
@@ -6532,7 +6530,7 @@ void CodeGen::genArm64EmitterUnitTests()
     theEmitter->emitIns_R_R_R(INS_frsqrts, EA_16BYTE, REG_V9, REG_V10, REG_V11, INS_OPTS_4S);
     theEmitter->emitIns_R_R_R(INS_frsqrts, EA_16BYTE, REG_V12, REG_V13, REG_V14, INS_OPTS_2D);
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     theEmitter->emitIns_R_R_R(INS_fmul, EA_4BYTE, REG_V0, REG_V1, REG_V2); // scalar 4BYTE
     theEmitter->emitIns_R_R_R(INS_fmul, EA_8BYTE, REG_V3, REG_V4, REG_V5); // scalar 8BYTE
@@ -6572,7 +6570,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // vector arrangements. However, these are added to verify that the split constant encoding works with both - small
     // and large constants.
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // sshr scalar
     theEmitter->emitIns_R_R_I(INS_sshr, EA_8BYTE, REG_V0, REG_V1, 1);
@@ -7005,7 +7003,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // R_R_R   vector operations, one dest, two source
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // Specifying an Arrangement is optional
     //
@@ -7047,7 +7045,7 @@ void CodeGen::genArm64EmitterUnitTests()
     theEmitter->emitIns_R_R_R(INS_bit, EA_16BYTE, REG_V16, REG_V17, REG_V18, INS_OPTS_16B);
     theEmitter->emitIns_R_R_R(INS_bif, EA_16BYTE, REG_V19, REG_V20, REG_V21, INS_OPTS_16B);
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // add
     theEmitter->emitIns_R_R_R(INS_add, EA_8BYTE, REG_V0, REG_V1, REG_V2); // scalar 8BYTE
@@ -7079,7 +7077,7 @@ void CodeGen::genArm64EmitterUnitTests()
     theEmitter->emitIns_R_R_R(INS_sub, EA_16BYTE, REG_V19, REG_V20, REG_V21, INS_OPTS_4S);
     theEmitter->emitIns_R_R_R(INS_sub, EA_16BYTE, REG_V22, REG_V23, REG_V24, INS_OPTS_2D);
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // saba vector
     theEmitter->emitIns_R_R_R(INS_saba, EA_8BYTE, REG_V0, REG_V1, REG_V2, INS_OPTS_8B);
@@ -7773,7 +7771,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // R_R_R  vector multiply
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     theEmitter->emitIns_R_R_R(INS_mul, EA_8BYTE, REG_V0, REG_V1, REG_V2, INS_OPTS_8B);
     theEmitter->emitIns_R_R_R(INS_mul, EA_8BYTE, REG_V3, REG_V4, REG_V5, INS_OPTS_4H);
@@ -8035,7 +8033,7 @@ void CodeGen::genArm64EmitterUnitTests()
     // R_R_R   floating point operations, one source/dest, and two source
     //
 
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     theEmitter->emitIns_R_R_R(INS_fmla, EA_8BYTE, REG_V6, REG_V7, REG_V8, INS_OPTS_2S);
     theEmitter->emitIns_R_R_R(INS_fmla, EA_16BYTE, REG_V9, REG_V10, REG_V11, INS_OPTS_4S);

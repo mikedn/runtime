@@ -450,6 +450,11 @@ void CodeGen::genDefineTempLabel(BasicBlock* label)
     label->bbEmitCookie = GetEmitter()->emitAddLabel();
 }
 
+void CodeGen::genDefineTempLabel()
+{
+    GetEmitter()->emitAddLabel();
+}
+
 // genDefineInlineTempLabel: Define an inline label that does not affect the GC
 // info.
 //

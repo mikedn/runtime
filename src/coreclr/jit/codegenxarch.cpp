@@ -1294,7 +1294,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             // Kill callee saves GC registers, and create a label
             // so that information gets propagated to the emitter.
             liveness.RemoveGCRegs(RBM_INT_CALLEE_SAVED);
-            genDefineTempLabel(genCreateTempLabel());
+            genDefineTempLabel();
             break;
 
         case GT_PROF_HOOK:
@@ -4659,7 +4659,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     // at (or inside) the callsite.
     if (compiler->killGCRefs(call))
     {
-        genDefineTempLabel(genCreateTempLabel());
+        genDefineTempLabel();
     }
 
     // Determine return shift size(s).
@@ -7364,9 +7364,7 @@ void CodeGen::genAmd64EmitterUnitTests()
     // Mark the "fake" instructions in the output.
     printf("*************** In genAmd64EmitterUnitTests()\n");
 
-    // We use this:
-    //      genDefineTempLabel(genCreateTempLabel());
-    // to create artificial labels to help separate groups of tests.
+    // We use this genDefineTempLabel to create artificial labels to help separate groups of tests.
 
     //
     // Loads
@@ -7374,7 +7372,7 @@ void CodeGen::genAmd64EmitterUnitTests()
     CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef ALL_XARCH_EMITTER_UNIT_TESTS
-    genDefineTempLabel(genCreateTempLabel());
+    genDefineTempLabel();
 
     // vhaddpd     ymm0,ymm1,ymm2
     GetEmitter()->emitIns_R_R_R(INS_haddpd, EA_32BYTE, REG_XMM0, REG_XMM1, REG_XMM2);
