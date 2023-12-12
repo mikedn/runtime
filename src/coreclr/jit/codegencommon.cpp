@@ -419,16 +419,6 @@ BasicBlock* CodeGen::genCreateTempLabel()
     return block;
 }
 
-void CodeGen::genLogLabel(BasicBlock* bb)
-{
-#ifdef DEBUG
-    if (compiler->opts.dspCode)
-    {
-        printf("\n      L_M%03u_" FMT_BB ":\n", compiler->compMethodID, bb->bbNum);
-    }
-#endif
-}
-
 // genDefineTempLabel: Define a label based on the current GC info tracked by
 // the code generator.
 //
@@ -446,7 +436,6 @@ void CodeGen::genLogLabel(BasicBlock* bb)
 //
 void CodeGen::genDefineTempLabel(BasicBlock* label)
 {
-    genLogLabel(label);
     label->bbEmitCookie = GetEmitter()->emitAddLabel();
 }
 
@@ -467,7 +456,6 @@ void CodeGen::genDefineTempLabel()
 //
 void CodeGen::genDefineInlineTempLabel(BasicBlock* label)
 {
-    genLogLabel(label);
     label->bbEmitCookie = GetEmitter()->emitAddInlineLabel();
 }
 

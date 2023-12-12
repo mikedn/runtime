@@ -177,7 +177,6 @@ public:
     void genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf);
 
     BasicBlock* genCreateTempLabel();
-    void genLogLabel(BasicBlock* bb);
     void genDefineTempLabel(BasicBlock* label);
     void genDefineTempLabel();
     void genDefineInlineTempLabel(BasicBlock* label);

@@ -163,7 +163,6 @@ void CodeGen::genCodeForBBlist()
 #endif
 
         genUpdateCurrentFunclet(block);
-        genLogLabel(block);
 
         m_currentBlock = block;
 
@@ -171,7 +170,7 @@ void CodeGen::genCodeForBBlist()
         {
             insGroup* ig = GetEmitter()->emitAddLabel();
 
-            JITDUMP("Mapped " FMT_BB " to %s\n", block->bbNum, GetEmitter()->emitLabelString(ig));
+            JITDUMP("Mapped " FMT_BB " to IG%02u\n", block->bbNum, ig->igNum);
 
             if (block == compiler->fgFirstColdBlock)
             {
