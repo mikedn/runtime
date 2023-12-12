@@ -2,30 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #pragma once
+
 #include "instr.h"
 #include "jitgcinfo.h"
-
-#if 0
-#define EMITVERBOSE 1
-#else
-#define EMITVERBOSE (emitComp->verbose)
-#endif
-
-#if 1
-#define EMIT_INSTLIST_VERBOSE 0
-#else
-#define EMIT_INSTLIST_VERBOSE (emitComp->verbose)
-#endif
-
-#ifdef DEBUG
-#define DEBUG_EMIT 1
-#else
-#define DEBUG_EMIT 0
-#endif
-
-#if DEBUG_EMIT
-#define INTERESTING_JUMP_NUM -1 // set to 0 to see all jump info
-#endif
 
 #ifdef TARGET_ARM64
 insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType);

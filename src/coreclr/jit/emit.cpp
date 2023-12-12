@@ -2080,12 +2080,7 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
         assert(id->idIns() != INS_align && emitCurIG->igNum > emitLastAlignedIgNum);
 #endif
 
-#if DEBUG_EMIT
-        if (EMITVERBOSE)
-        {
-            printf("Instruction predicted size = %u, actual = %u\n", estimatedSize, actualSize);
-        }
-#endif // DEBUG_EMIT
+        JITDUMP("Instruction predicted size = %u, actual = %u\n", estimatedSize, actualSize);
 
         // Add the shrinkage to the ongoing offset adjustment. This needs to happen during the
         // processing of an instruction group, and not only at the beginning of an instruction
@@ -2261,10 +2256,7 @@ void emitter::emitJumpDistBind()
     if (emitComp->verbose)
     {
         printf("*************** In emitJumpDistBind()\n");
-    }
-    if (EMIT_INSTLIST_VERBOSE)
-    {
-        printf("\nInstruction list before jump distance binding:\n\n");
+        printf("\nInstruction groups before jump distance binding:\n\n");
         emitDispIGlist(true);
     }
 #endif
@@ -2468,13 +2460,8 @@ AGAIN:
                 {
                     lstIG = lstIG->igNext;
                     assert(lstIG);
-#ifdef DEBUG
-                    if (EMITVERBOSE)
-                    {
-                        printf("Adjusted offset of " FMT_BB " from %04X to %04X\n", lstIG->igNum, lstIG->igOffs,
-                               lstIG->igOffs - adjIG);
-                    }
-#endif // DEBUG
+                    JITDUMP("Adjusted offset of " FMT_BB " from %04X to %04X\n", lstIG->igNum, lstIG->igOffs,
+                            lstIG->igOffs - adjIG);
                     lstIG->igOffs -= adjIG;
                     assert(IsCodeAligned(lstIG->igOffs));
                 } while (lstIG != jmpIG);
@@ -2553,7 +2540,7 @@ AGAIN:
             CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
-            if (EMITVERBOSE)
+            if (emitComp->verbose)
             {
                 printf("Binding: ");
                 emitDispIns(jmp);
@@ -2563,21 +2550,17 @@ AGAIN:
 
             tgtIG = emitCodeGetCookie(jmp->idAddr()->iiaBBlabel);
 
-#ifdef DEBUG
-            if (EMITVERBOSE)
+            if (tgtIG != nullptr)
             {
-                if (tgtIG)
-                {
-                    printf(" to " FMT_IG "\n", tgtIG->igNum);
-                }
-                else
-                {
-                    printf("-- ERROR, no emitter cookie for " FMT_BB "; it is probably missing BBF_HAS_LABEL.\n",
-                           jmp->idAddr()->iiaBBlabel->bbNum);
-                }
+                JITDUMP(" to " FMT_IG "\n", tgtIG->igNum);
             }
-            assert(tgtIG);
-#endif // DEBUG
+            else
+            {
+                JITDUMP("-- ERROR, no emitter cookie for " FMT_BB "; it is probably missing BBF_HAS_LABEL.\n",
+                        jmp->idAddr()->iiaBBlabel->bbNum);
+            }
+
+            assert(tgtIG != nullptr);
 
             /* Record the bound target */
 
@@ -2658,19 +2641,16 @@ AGAIN:
 
             extra = jmpDist - psd;
 
-#if DEBUG_EMIT
-            assert(jmp->idDebugOnlyInfo() != nullptr);
-            if (jmp->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
+#ifdef DEBUG
+            if (emitComp->verbose)
             {
-                if (INTERESTING_JUMP_NUM == 0)
-                {
-                    printf("[1] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
-                }
+                printf("[1] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
                 printf("[1] Jump  block is at %08X\n", jmpIG->igOffs);
                 printf("[1] Jump reloffset is %04X\n", jmp->idjOffs);
                 printf("[1] Jump source is at %08X\n", srcEncodingOffs);
                 printf("[1] Label block is at %08X\n", dstOffs);
                 printf("[1] Jump  dist. is    %04X\n", jmpDist);
+
                 if (extra > 0)
                 {
                     printf("[1] Dist excess [S] = %d  \n", extra);
@@ -2679,7 +2659,7 @@ AGAIN:
 
             JITDUMP("Estimate of fwd jump IN%04x: %04X -> %04X = %04X\n", jmp->idDebugOnlyInfo()->idNum, srcInstrOffs,
                     dstOffs, jmpDist);
-#endif // DEBUG_EMIT
+#endif // DEBUG
 
             if (extra <= 0)
             {
@@ -2699,19 +2679,16 @@ AGAIN:
 
             extra = jmpDist + nsd;
 
-#if DEBUG_EMIT
-            assert(jmp->idDebugOnlyInfo() != nullptr);
-            if (jmp->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
+#ifdef DEBUG
+            if (emitComp->verbose)
             {
-                if (INTERESTING_JUMP_NUM == 0)
-                {
-                    printf("[2] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
-                }
+                printf("[2] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
                 printf("[2] Jump  block is at %08X\n", jmpIG->igOffs);
                 printf("[2] Jump reloffset is %04X\n", jmp->idjOffs);
                 printf("[2] Jump source is at %08X\n", srcEncodingOffs);
                 printf("[2] Label block is at %08X\n", dstOffs);
                 printf("[2] Jump  dist. is    %04X\n", jmpDist);
+
                 if (extra > 0)
                 {
                     printf("[2] Dist excess [S] = %d  \n", extra);
@@ -2720,7 +2697,7 @@ AGAIN:
 
             JITDUMP("Estimate of bwd jump IN%04x: %04X -> %04X = %04X\n", jmp->idDebugOnlyInfo()->idNum, srcInstrOffs,
                     dstOffs, jmpDist);
-#endif // DEBUG_EMIT
+#endif // DEBUG
 
             if (extra <= 0)
             {
@@ -2745,7 +2722,7 @@ AGAIN:
             minShortExtra = (unsigned)extra;
         }
 
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
 
         // If we're here, we couldn't convert to a small jump.
         // Handle conversion to medium-sized conditional jumps.
@@ -2762,18 +2739,13 @@ AGAIN:
 
                 mextra = jmpDist - pmd;
 
-#if DEBUG_EMIT
-                assert(jmp->idDebugOnlyInfo() != NULL);
-                if (jmp->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
+#ifdef DEBUG
+                if (emitComp->verbose && (mextra > 0))
                 {
-                    if (mextra > 0)
-                    {
-                        if (INTERESTING_JUMP_NUM == 0)
-                            printf("[6] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
-                        printf("[6] Dist excess [S] = %d  \n", mextra);
-                    }
+                    printf("[6] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
+                    printf("[6] Dist excess [S] = %d  \n", mextra);
                 }
-#endif // DEBUG_EMIT
+#endif // DEBUG
 
                 if (mextra <= 0)
                 {
@@ -2789,18 +2761,13 @@ AGAIN:
 
                 mextra = jmpDist + nmd;
 
-#if DEBUG_EMIT
-                assert(jmp->idDebugOnlyInfo() != NULL);
-                if (jmp->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
+#ifdef DEBUG
+                if (emitComp->verbose && (mextra > 0))
                 {
-                    if (mextra > 0)
-                    {
-                        if (INTERESTING_JUMP_NUM == 0)
-                            printf("[7] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
-                        printf("[7] Dist excess [S] = %d  \n", mextra);
-                    }
+                    printf("[7] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
+                    printf("[7] Dist excess [S] = %d  \n", mextra);
                 }
-#endif // DEBUG_EMIT
+#endif // DEBUG
 
                 if (mextra <= 0)
                 {
@@ -2945,39 +2912,28 @@ AGAIN:
 
         /* Is there a chance of other jumps becoming short? */
         CLANG_FORMAT_COMMENT_ANCHOR;
-#ifdef DEBUG
-#if defined(TARGET_ARM)
-        if (EMITVERBOSE)
-            printf("Total shrinkage = %3u, min extra short jump size = %3u, min extra medium jump size = %u\n", adjIG,
-                   minShortExtra, minMediumExtra);
+#ifdef TARGET_ARM
+        JITDUMP("Total shrinkage = %3u, min extra short jump size = %3u, min extra medium jump size = %u\n", adjIG,
+                minShortExtra, minMediumExtra);
 #else
-        if (EMITVERBOSE)
-        {
-            printf("Total shrinkage = %3u, min extra jump size = %3u\n", adjIG, minShortExtra);
-        }
-#endif
+        JITDUMP("Total shrinkage = %3u, min extra jump size = %3u\n", adjIG, minShortExtra);
 #endif
 
         if ((minShortExtra <= adjIG)
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
             || (minMediumExtra <= adjIG)
-#endif // TARGET_ARM
+#endif
                 )
         {
             jmp_iteration++;
 
-#ifdef DEBUG
-            if (EMITVERBOSE)
-            {
-                printf("Iterating branch shortening. Iteration = %d\n", jmp_iteration);
-            }
-#endif
+            JITDUMP("Iterating branch shortening. Iteration = %d\n", jmp_iteration);
 
             goto AGAIN;
         }
     }
 #ifdef DEBUG
-    if (EMIT_INSTLIST_VERBOSE)
+    if (emitComp->verbose)
     {
         printf("\nLabels list after the jump dist binding:\n\n");
         emitDispIGlist(false);
@@ -3776,7 +3732,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 #endif // JIT32_GCENCODER
 
 #ifdef DEBUG
-    if (EMIT_INSTLIST_VERBOSE)
+    if (emitComp->verbose)
     {
         printf("\nInstruction list before instruction issue:\n\n");
         emitDispIGlist(true);
@@ -3990,17 +3946,15 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
         int newOffsAdj = ig->igOffs - emitCurCodeOffs(cp);
 
-#if DEBUG_EMIT
 #ifdef DEBUG
-        // Under DEBUG, only output under verbose flag.
         if (emitComp->verbose)
-#endif // DEBUG
         {
             if (newOffsAdj != 0)
             {
                 printf("Block predicted offs = %08X, actual = %08X -> size adj = %d\n", ig->igOffs, emitCurCodeOffs(cp),
                        newOffsAdj);
             }
+
             if (emitOffsAdj != newOffsAdj)
             {
                 printf("Block expected size adj %d not equal to actual size adj %d (probably some instruction size was "
@@ -4008,10 +3962,11 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                        emitOffsAdj, newOffsAdj);
             }
         }
+
         // Make it noisy in DEBUG if these don't match. In release, the noway_assert below checks the
         // fatal condition.
         assert(emitOffsAdj == newOffsAdj);
-#endif // DEBUG_EMIT
+#endif // DEBUG
 
         // We can't have over-estimated the adjustment, or we might have underestimated a jump distance.
         noway_assert(emitOffsAdj <= newOffsAdj);
@@ -4258,18 +4213,15 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                 adj >>= 1;
 #endif
 
-#if DEBUG_EMIT
-                if ((jmp->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM) || (INTERESTING_JUMP_NUM == 0))
+#ifdef DEBUG
+                if (emitComp->verbose)
                 {
 #ifdef TARGET_ARM
                     printf("[5] This output is broken for ARM, since it doesn't properly decode the jump offsets of "
                            "the instruction at adr\n");
 #endif
 
-                    if (INTERESTING_JUMP_NUM == 0)
-                    {
-                        printf("[5] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
-                    }
+                    printf("[5] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
 
                     if (jmp->idjShort)
                     {
@@ -4282,7 +4234,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                         printf("[5] Jump distance is  %08X - %02X = %08X\n", *(int*)adr, adj, *(int*)adr - adj);
                     }
                 }
-#endif // DEBUG_EMIT
+#endif // DEBUG
 
                 if (jmp->idjShort)
                 {
@@ -4348,7 +4300,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     emitTotalCodeSize = actualCodeSize;
 
 #ifdef DEBUG
-    if (EMIT_INSTLIST_VERBOSE)
+    if (emitComp->verbose)
     {
         printf("\nLabels list after the end of codegen:\n\n");
         emitDispIGlist(false);
@@ -4798,12 +4750,9 @@ CORINFO_FIELD_HANDLE emitter::emitFltOrDblConst(double constValue, emitAttr attr
 
 void emitter::emitOutputDataSec(dataSecDsc* sec, BYTE* dst)
 {
-#ifdef DEBUG
-    if (EMITVERBOSE)
-    {
-        printf("\nEmitting data sections: %u total bytes\n", sec->dsdOffs);
-    }
+    JITDUMP("\nEmitting data sections: %u total bytes\n", sec->dsdOffs);
 
+#ifdef DEBUG
     if (emitComp->opts.disAsm)
     {
         emitDispDataSec(sec);
@@ -4885,7 +4834,7 @@ void emitter::emitOutputDataSec(dataSecDsc* sec, BYTE* dst)
             memcpy(dstRW, dsc->dsCont, dscSize);
 
 #ifdef DEBUG
-            if (EMITVERBOSE)
+            if (emitComp->verbose)
             {
                 printf("  section %3u, size %2u, RWD%2u:\t", secNum++, dscSize, curOffs);
 

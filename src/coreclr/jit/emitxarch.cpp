@@ -3419,13 +3419,10 @@ void emitter::emitIns_J(instruction ins, BasicBlock* block)
         }
     }
 
-#if DEBUG_EMIT
-    if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
+#ifdef DEBUG
+    if (emitComp->verbose)
     {
-        if (INTERESTING_JUMP_NUM == 0)
-        {
-            printf("[0] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
-        }
+        printf("[0] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
 
         unsigned srcOffs = emitCurCodeOffset + emitCurIGsize + JMP_SIZE_SMALL;
 
@@ -3450,7 +3447,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* block)
             }
         }
     }
-#endif // DEBUG_EMIT
+#endif // DEBUG
 
     id->idCodeSize(sz);
     dispIns(id);
@@ -7169,15 +7166,12 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         // This is a backward jump - distance is known at this point
         CLANG_FORMAT_COMMENT_ANCHOR;
 
-#if DEBUG_EMIT
-        if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
+#ifdef DEBUG
+        if (emitComp->verbose)
         {
             size_t blkOffs = id->idjIG->igOffs;
 
-            if (INTERESTING_JUMP_NUM == 0)
-            {
-                printf("[3] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
-            }
+            printf("[3] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
             printf("[3] Jump  block is at %08X - %02X = %08X\n", blkOffs, emitOffsAdj, blkOffs - emitOffsAdj);
             printf("[3] Jump        is at %08X - %02X = %08X\n", srcOffs, emitOffsAdj, srcOffs - emitOffsAdj);
             printf("[3] Label block is at %08X - %02X = %08X\n", dstOffs, emitOffsAdj, dstOffs - emitOffsAdj);
@@ -7196,15 +7190,12 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         dstOffs -= adjustment;
         distVal -= adjustment;
 
-#if DEBUG_EMIT
-        if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
+#ifdef DEBUG
+        if (emitComp->verbose)
         {
             size_t blkOffs = id->idjIG->igOffs;
 
-            if (INTERESTING_JUMP_NUM == 0)
-            {
-                printf("[4] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
-            }
+            printf("[4] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
             printf("[4] Jump  block is at %08X\n", blkOffs);
             printf("[4] Jump        is at %08X\n", srcOffs);
             printf("[4] Label block is at %08X - %02X = %08X\n", dstOffs + emitOffsAdj, emitOffsAdj, dstOffs);
@@ -7241,14 +7232,8 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
         if (id->idCodeSize() != JMP_SIZE_SMALL)
         {
-#if DEBUG_EMIT || defined(DEBUG)
-            int offsShrinkage = id->idCodeSize() - JMP_SIZE_SMALL;
-            if (INDEBUG(emitComp->verbose ||)(id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM ||
-                                              INTERESTING_JUMP_NUM == 0))
-            {
-                printf("; NOTE: size of jump [%08p] mis-predicted by %d bytes\n", dspPtr(id), offsShrinkage);
-            }
-#endif
+            JITDUMP("; NOTE: size of jump [%08p] mis-predicted by %d bytes\n", dspPtr(id),
+                    id->idCodeSize() - JMP_SIZE_SMALL);
         }
 
         dst += emitOutputByte(dst, insCodeJ(ins));

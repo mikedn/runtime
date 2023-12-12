@@ -9204,15 +9204,14 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
 
     if (dstOffs <= srcOffs)
     {
-#if DEBUG_EMIT
+#ifdef DEBUG
         /* This is a backward jump - distance is known at this point */
 
-        if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
+        if (emitComp->verbose)
         {
             size_t blkOffs = id->idjIG->igOffs;
 
-            if (INTERESTING_JUMP_NUM == 0)
-                printf("[3] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
+            printf("[3] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
             printf("[3] Jump  block is at %08X - %02X = %08X\n", blkOffs, emitOffsAdj, blkOffs - emitOffsAdj);
             printf("[3] Jump        is at %08X - %02X = %08X\n", srcOffs, emitOffsAdj, srcOffs - emitOffsAdj);
             printf("[3] Label block is at %08X - %02X = %08X\n", dstOffs, emitOffsAdj, dstOffs - emitOffsAdj);
@@ -9225,13 +9224,12 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
         dstOffs -= adjustment;
         distVal -= adjustment;
 
-#if DEBUG_EMIT
-        if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
+#ifdef DEBUG
+        if (emitComp->verbose)
         {
             size_t blkOffs = id->idjIG->igOffs;
 
-            if (INTERESTING_JUMP_NUM == 0)
-                printf("[4] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
+            printf("[4] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
             printf("[4] Jump  block is at %08X\n", blkOffs);
             printf("[4] Jump        is at %08X\n", srcOffs);
             printf("[4] Label block is at %08X - %02X = %08X\n", dstOffs + emitOffsAdj, emitOffsAdj, dstOffs);
@@ -11426,16 +11424,12 @@ void emitter::emitDispIns(
         return;
     }
 
-    if (EMITVERBOSE)
+    JITDUMP("IN%04x: ", id->idDebugOnlyInfo()->idNum);
+
+    if (pCode == nullptr)
     {
-        unsigned idNum =
-            id->idDebugOnlyInfo()->idNum; // Do not remove this!  It is needed for VisualStudio conditional breakpoints
-
-        printf("IN%04x: ", idNum);
-    }
-
-    if (pCode == NULL)
         sz = 0;
+    }
 
     if (!isNew && !asmfm && sz)
     {
