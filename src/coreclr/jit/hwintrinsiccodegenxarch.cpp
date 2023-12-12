@@ -803,7 +803,6 @@ void CodeGen::genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
 
     unsigned jmpTableBase = emit->emitBBTableDataGenBeg(maxByte, true);
 
-    // Emit the jump table
     for (unsigned i = 0; i < maxByte; i++)
     {
         jmpTable[i] = genCreateTempLabel();
@@ -818,17 +817,12 @@ void CodeGen::genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
     emit->emitIns_R_R(INS_add, EA_PTRSIZE, offsReg, baseReg);
     emit->emitIns_R(INS_i_jmp, emitTypeSize(TYP_I_IMPL), offsReg);
 
-    // Emit the switch table entries
-
-    BasicBlock* switchTableBeg = genCreateTempLabel();
     BasicBlock* switchTableEnd = genCreateTempLabel();
-
-    genDefineTempLabel(switchTableBeg);
 
     for (unsigned i = 0; i < maxByte; i++)
     {
         genDefineTempLabel(jmpTable[i]);
-        emitSwCase((int8_t)i);
+        emitSwCase(static_cast<int8_t>(i));
         emit->emitIns_J(INS_jmp, switchTableEnd);
     }
 
