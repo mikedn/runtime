@@ -1047,17 +1047,15 @@ void* Compiler::ehEmitCookie(BasicBlock* block)
 
     void* cookie;
 
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    if (block->bbFlags & BBF_FINALLY_TARGET)
+#ifdef TARGET_ARM
+    if ((block->bbFlags & BBF_FINALLY_TARGET) != 0)
     {
         // Use the offset of the beginning of the NOP padding, not the main block.
         // This might include loop head padding, too, if this is a loop head.
-        assert(block->bbUnwindNopEmitCookie); // probably not null-initialized, though, so this might not tell us
-                                              // anything
         cookie = block->bbUnwindNopEmitCookie;
     }
     else
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#endif
     {
         cookie = block->bbEmitCookie;
     }

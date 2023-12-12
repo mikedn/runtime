@@ -158,14 +158,11 @@ void CodeGen::genCodeForBBlist()
         UpdateLclBlockLiveInRegs(block);
         liveness.BeginBlockCodeGen(this, block);
 
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#ifdef TARGET_ARM
         genInsertNopForUnwinder(block);
 #endif
 
-        /* Start a new code output block */
-
         genUpdateCurrentFunclet(block);
-
         genLogLabel(block);
 
         m_currentBlock = block;

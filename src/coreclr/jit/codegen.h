@@ -434,13 +434,6 @@ public:
     void genUpdateCurrentFunclet(BasicBlock* block)
     {
     }
-
-#ifdef TARGET_ARM
-    void genInsertNopForUnwinder(BasicBlock* block)
-    {
-    }
-#endif
-
 #endif // !FEATURE_EH_FUNCLETS
 
     void genGeneratePrologsAndEpilogs();

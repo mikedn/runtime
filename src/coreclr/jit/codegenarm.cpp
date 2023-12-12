@@ -2763,4 +2763,27 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     compiler->unwindEndEpilog();
 }
 
+void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
+{
+    // If this block is the target of a finally return, we need to add a preceding NOP, in the same EH region,
+    // so the unwinder doesn't get confused by our "movw lr, xxx; movt lr, xxx; b Lyyy" calling convention that
+    // calls the funclet during non-exceptional control flow.
+
+    if ((block->bbFlags & BBF_FINALLY_TARGET) != 0)
+    {
+        assert((block->bbFlags & BBF_HAS_LABEL) != 0);
+
+        JITDUMP("\nEmitting finally target NOP predecessor for " FMT_BB "\n", block->bbNum);
+
+        // Create a label that we'll use for computing the start of an EH region, if this block
+        // is at the beginning of such a region. If we used the existing bbEmitCookie as is for
+        // determining the EH regions, then this NOP would end up outside of the region, if this
+        // block starts an EH region. If we pointed the existing bbEmitCookie here, then the NOP
+        // would be executed, which we would prefer not to do.
+
+        block->bbUnwindNopEmitCookie = GetEmitter()->emitAddLabel(INDEBUG(block));
+        GetEmitter()->emitIns(INS_nop);
+    }
+}
+
 #endif // TARGET_ARM
