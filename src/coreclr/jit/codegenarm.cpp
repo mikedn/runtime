@@ -2037,7 +2037,7 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
     {
         GetEmitter()->emitIns_R_I(INS_stm, EA_4BYTE, rAddr, stmImm); // zero stack slots
         GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, rCnt, 1, INS_FLAGS_SET);
-        GetEmitter()->emitIns_J(INS_bhi, NULL, -3);
+        GetEmitter()->emitIns_J(INS_bhi, -3);
         uCntBytes %= REGSIZE_BYTES * 2;
     }
 

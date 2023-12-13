@@ -7821,31 +7821,13 @@ void emitter::emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* dst, reg
     appendToCurIG(id);
 }
 
-void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
+static insFormat GetJumpFormat(instruction ins)
 {
-    insFormat fmt = IF_NONE;
-
-    if (dst != nullptr)
-    {
-        assert(dst->bbFlags & BBF_HAS_LABEL);
-    }
-    else
-    {
-        assert(instrCount != 0);
-    }
-
-    /* Figure out the encoding format of the instruction */
-
-    bool idjShort = false;
     switch (ins)
     {
         case INS_bl_local:
         case INS_b:
-            // Unconditional jump is a single form.
-            idjShort = true;
-            fmt      = IF_BI_0A;
-            break;
-
+            return IF_BI_0A;
         case INS_beq:
         case INS_bne:
         case INS_bhs:
@@ -7860,17 +7842,20 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
         case INS_blt:
         case INS_bgt:
         case INS_ble:
-            // Assume conditional jump is long.
-            fmt = IF_LARGEJMP;
-            break;
-
+            return IF_LARGEJMP;
         default:
             unreached();
-            break;
     }
+}
+
+void emitter::emitIns_J(instruction ins, int instrCount)
+{
+    assert(instrCount != 0);
+
+    insFormat fmt      = GetJumpFormat(ins);
+    bool      idjShort = fmt != IF_LARGEJMP;
 
     instrDescJmp* id = emitNewInstrJmp();
-
     id->idIns(ins);
     id->idInsFmt(fmt);
     INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
@@ -7878,25 +7863,48 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
 
     id->idjShort = idjShort;
 
-    if (dst != nullptr)
-    {
-        id->idAddr()->iiaBBlabel = dst;
+    id->idAddr()->iiaSetInstrCount(instrCount);
+    id->idjKeepLong = false;
+    /* This jump must be short */
+    emitSetShortJump(id);
+    id->idSetIsBound();
 
-        // Skip unconditional jump that has a single form.
-        // TODO-ARM64-NYI: enable hot/cold splittingNYI.
-        // The target needs to be relocated.
-        if (!idjShort)
-        {
-            id->idjKeepLong = InDifferentRegions(GetCurrentBlock(), dst) INDEBUG(|| keepLongJumps);
-        }
-    }
-    else
+    /* Record the jump's IG and offset within it */
+
+    id->idjIG   = emitCurIG;
+    id->idjOffs = emitCurIGsize;
+
+    /* Append this jump to this IG's jump list */
+
+    id->idjNext      = emitCurIGjmpList;
+    emitCurIGjmpList = id;
+
+    dispIns(id);
+    appendToCurIG(id);
+}
+
+void emitter::emitIns_J(instruction ins, BasicBlock* dst)
+{
+    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
+
+    insFormat fmt      = GetJumpFormat(ins);
+    bool      idjShort = fmt != IF_LARGEJMP;
+
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(ins);
+    id->idInsFmt(fmt);
+    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
+                (ins == INS_bl_local) && (GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
+
+    id->idjShort             = idjShort;
+    id->idAddr()->iiaBBlabel = dst;
+
+    // Skip unconditional jump that has a single form.
+    // TODO-ARM64-NYI: enable hot/cold splittingNYI.
+    // The target needs to be relocated.
+    if (!idjShort)
     {
-        id->idAddr()->iiaSetInstrCount(instrCount);
-        id->idjKeepLong = false;
-        /* This jump must be short */
-        emitSetShortJump(id);
-        id->idSetIsBound();
+        id->idjKeepLong = InDifferentRegions(GetCurrentBlock(), dst) INDEBUG(|| keepLongJumps);
     }
 
     /* Record the jump's IG and offset within it */

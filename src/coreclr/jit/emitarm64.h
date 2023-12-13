@@ -557,6 +557,9 @@ inline static ssize_t computeRelPageAddr(size_t dstAddr, size_t srcAddr)
 public:
 void emitIns(instruction ins);
 
+void emitIns_J(instruction ins, int instrCount);
+void emitIns_J(instruction ins, BasicBlock* dst);
+
 void emitIns_BRK(uint16_t imm);
 
 void emitIns_R(instruction ins, emitAttr attr, regNumber reg);

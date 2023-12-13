@@ -8206,7 +8206,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
         GetEmitter()->emitIns_R_R_R(INS_ldr, EA_4BYTE, REG_ZR, REG_SPBASE, rOffset);
         GetEmitter()->emitIns_R_R_I(INS_sub, EA_8BYTE, rOffset, rOffset, pageSize);
         GetEmitter()->emitIns_R_R(INS_cmp, EA_8BYTE, rLimit, rOffset); // If equal, we need to probe again
-        GetEmitter()->emitIns_J(INS_bls, NULL, -4);
+        GetEmitter()->emitIns_J(INS_bls, -4);
 
         *pInitRegZeroed = false; // The initReg does not contain zero
 
@@ -9380,7 +9380,7 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
             GetEmitter()->emitIns_R(INS_dczva, EA_8BYTE, addrReg);
             GetEmitter()->emitIns_R_R_I(INS_add, EA_8BYTE, addrReg, addrReg, 64);
             GetEmitter()->emitIns_R_R(INS_cmp, EA_8BYTE, addrReg, endAddrReg);
-            GetEmitter()->emitIns_J(INS_blo, NULL, -4);
+            GetEmitter()->emitIns_J(INS_blo, -4);
 
             addrReg      = endAddrReg;
             bytesToWrite = 64;
@@ -9404,7 +9404,7 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
                                           INS_OPTS_PRE_INDEX);
 
             GetEmitter()->emitIns_R_R_I(INS_subs, EA_8BYTE, countReg, countReg, 64);
-            GetEmitter()->emitIns_J(INS_bge, NULL, -4);
+            GetEmitter()->emitIns_J(INS_bge, -4);
 
             bytesToWrite %= 64;
         }

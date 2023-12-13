@@ -3947,38 +3947,12 @@ void emitter::emitSetMediumJump(instrDescJmp* id)
     id->idInsSize(isz);
 }
 
-/*****************************************************************************
- *
- *  Add a jmp instruction.
- *  When dst is NULL, instrCount specifies number of instructions
- *       to jump: positive is forward, negative is backward.
- *  Unconditional branches have two sizes: short and long.
- *  Conditional branches have three sizes: short, medium, and long. A long
- *     branch is a pseudo-instruction that represents two instructions:
- *     a short conditional branch to branch around a large unconditional
- *     branch. Thus, we can handle branch offsets of imm24 instead of just imm20.
- */
-
-void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 */)
+static insFormat GetJumpFormat(instruction ins)
 {
-    insFormat fmt = IF_NONE;
-
-    if (dst != NULL)
-    {
-        assert(dst->bbFlags & BBF_HAS_LABEL);
-    }
-    else
-    {
-        assert(instrCount != 0);
-    }
-
-    /* Figure out the encoding format of the instruction */
     switch (ins)
     {
         case INS_b:
-            fmt = IF_T2_J2; /* Assume the jump will be long */
-            break;
-
+            return IF_T2_J2;
         case INS_beq:
         case INS_bne:
         case INS_bhs:
@@ -3993,13 +3967,17 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
         case INS_blt:
         case INS_bgt:
         case INS_ble:
-            fmt = IF_LARGEJMP; /* Assume the jump will be long */
-            break;
-
+            return IF_LARGEJMP;
         default:
             unreached();
     }
-    assert((fmt == IF_LARGEJMP) || (fmt == IF_T2_J2));
+}
+
+void emitter::emitIns_J(instruction ins, int instrCount)
+{
+    assert(instrCount != 0);
+
+    insFormat fmt = GetJumpFormat(ins);
 
     instrDescJmp* id  = emitNewInstrJmp();
     insSize       isz = emitInsSize(fmt);
@@ -4011,17 +3989,37 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
                 (ins == INS_b) && (GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
 
-    if (dst != nullptr)
-    {
-        id->idAddr()->iiaBBlabel = dst;
-        id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst) INDEBUG(|| keepLongJumps);
-    }
-    else
-    {
-        id->idAddr()->iiaSetInstrCount(instrCount);
-        emitSetShortJump(id);
-        id->idSetIsBound();
-    }
+    id->idAddr()->iiaSetInstrCount(instrCount);
+    emitSetShortJump(id);
+    id->idSetIsBound();
+
+    id->idjIG        = emitCurIG;
+    id->idjOffs      = emitCurIGsize;
+    id->idjNext      = emitCurIGjmpList;
+    emitCurIGjmpList = id;
+
+    dispIns(id);
+    appendToCurIG(id);
+}
+
+void emitter::emitIns_J(instruction ins, BasicBlock* dst)
+{
+    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
+
+    insFormat fmt = GetJumpFormat(ins);
+
+    instrDescJmp* id  = emitNewInstrJmp();
+    insSize       isz = emitInsSize(fmt);
+
+    id->idIns(ins);
+    id->idInsFmt(fmt);
+    id->idInsSize(isz);
+
+    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
+                (ins == INS_b) && (GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
+
+    id->idAddr()->iiaBBlabel = dst;
+    id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst) INDEBUG(|| keepLongJumps);
 
     id->idjIG        = emitCurIG;
     id->idjOffs      = emitCurIGsize;
@@ -4032,14 +4030,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
 
     if (!id->idjKeepLong)
     {
-        insGroup* tgt = nullptr;
-
-        if (dst != nullptr)
-        {
-            tgt = emitCodeGetCookie(dst);
-        }
-
-        if (tgt != nullptr)
+        if (insGroup* tgt = emitCodeGetCookie(dst))
         {
             assert(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
 

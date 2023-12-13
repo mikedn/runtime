@@ -131,6 +131,9 @@ static bool emitIns_valid_imm_for_vldst_offset(int imm);
 
 void emitIns(instruction ins);
 
+void emitIns_J(instruction ins, int instrCount);
+void emitIns_J(instruction ins, BasicBlock* dst);
+
 void emitIns_I(instruction ins, emitAttr attr, int32_t imm);
 
 void emitIns_R(instruction ins, emitAttr attr, regNumber reg);

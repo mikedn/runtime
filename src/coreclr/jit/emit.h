@@ -345,14 +345,6 @@ public:
     UNATIVE_OFFSET emitCodeOffset(void* blockPtr, unsigned codeOffs);
     INDEBUG(const char* emitOffsetToLabel(unsigned offs);)
 
-/************************************************************************/
-/*                   Output target-independent instructions             */
-/************************************************************************/
-
-#ifndef TARGET_XARCH
-    void emitIns_J(instruction ins, BasicBlock* dst, int instrCount = 0);
-#endif
-
     /************************************************************************/
     /*                   Emit initialized data sections                     */
     /************************************************************************/
