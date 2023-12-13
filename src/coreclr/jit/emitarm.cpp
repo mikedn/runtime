@@ -4273,6 +4273,699 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
     return regs;
 }
 
+void emitter::emitJumpDistBind()
+{
+#ifdef DEBUG
+    if (emitComp->verbose)
+    {
+        printf("*************** In emitJumpDistBind()\n");
+        printf("\nInstruction groups before jump distance binding:\n\n");
+        emitDispIGlist(true);
+    }
+#endif
+
+    instrDescJmp* jmp;
+
+    UNATIVE_OFFSET minShortExtra; // The smallest offset greater than that required for a jump to be converted
+// to a small jump. If it is small enough, we will iterate in hopes of
+// converting those jumps we missed converting the first (or second...) time.
+
+#if defined(TARGET_ARM)
+    UNATIVE_OFFSET minMediumExtra; // Same as 'minShortExtra', but for medium-sized jumps.
+#endif                             // TARGET_ARM
+
+    UNATIVE_OFFSET adjIG;
+    UNATIVE_OFFSET adjLJ;
+    insGroup*      lstIG;
+    INDEBUG(insGroup* prologIG = GetProlog());
+
+    int jmp_iteration = 1;
+
+/*****************************************************************************/
+/* If we iterate to look for more jumps to shorten, we start again here.     */
+/*****************************************************************************/
+
+AGAIN:
+
+#ifdef DEBUG
+    emitCheckIGoffsets();
+#endif
+
+/*
+    In the following loop we convert all jump targets from "BasicBlock *"
+    to "insGroup *" values. We also estimate which jumps will be short.
+ */
+
+#ifdef DEBUG
+    insGroup*     lastIG = nullptr;
+    instrDescJmp* lastLJ = nullptr;
+#endif
+
+    lstIG         = nullptr;
+    adjLJ         = 0;
+    adjIG         = 0;
+    minShortExtra = (UNATIVE_OFFSET)-1;
+
+#if defined(TARGET_ARM)
+    minMediumExtra = (UNATIVE_OFFSET)-1;
+#endif // TARGET_ARM
+
+    for (jmp = emitJumpList; jmp; jmp = jmp->idjNext)
+    {
+        insGroup* jmpIG;
+        insGroup* tgtIG;
+
+        UNATIVE_OFFSET jsz; // size of the jump instruction in bytes
+
+        UNATIVE_OFFSET ssz = 0; // small  jump size
+        NATIVE_OFFSET  nsd = 0; // small  jump max. neg distance
+        NATIVE_OFFSET  psd = 0; // small  jump max. pos distance
+
+#if defined(TARGET_ARM)
+        UNATIVE_OFFSET msz = 0; // medium jump size
+        NATIVE_OFFSET  nmd = 0; // medium jump max. neg distance
+        NATIVE_OFFSET  pmd = 0; // medium jump max. pos distance
+        NATIVE_OFFSET  mextra;  // How far beyond the medium jump range is this jump offset?
+#endif                          // TARGET_ARM
+
+        NATIVE_OFFSET  extra;           // How far beyond the short jump range is this jump offset?
+        UNATIVE_OFFSET srcInstrOffs;    // offset of the source instruction of the jump
+        UNATIVE_OFFSET srcEncodingOffs; // offset of the source used by the instruction set to calculate the relative
+        // offset of the jump
+        UNATIVE_OFFSET dstOffs;
+        NATIVE_OFFSET  jmpDist; // the relative jump distance, as it will be encoded
+        UNATIVE_OFFSET oldSize;
+        UNATIVE_OFFSET sizeDif;
+
+#ifdef TARGET_XARCH
+        assert((jmp->idInsFmt() == IF_LABEL) || (jmp->idInsFmt() == IF_RWR_LABEL));
+
+        if (IsJccInstruction(jmp->idIns()))
+        {
+            ssz = JCC_SIZE_SMALL;
+            nsd = JCC_DIST_SMALL_MAX_NEG;
+            psd = JCC_DIST_SMALL_MAX_POS;
+        }
+        else if (jmp->idInsFmt() == IF_LABEL)
+        {
+            ssz = JMP_SIZE_SMALL;
+            nsd = JMP_DIST_SMALL_MAX_NEG;
+            psd = JMP_DIST_SMALL_MAX_POS;
+        }
+#endif // TARGET_XARCH
+
+#ifdef TARGET_ARM
+        assert((jmp->idInsFmt() == IF_T2_J1) || (jmp->idInsFmt() == IF_T2_J2) || (jmp->idInsFmt() == IF_T1_I) ||
+               (jmp->idInsFmt() == IF_T1_K) || (jmp->idInsFmt() == IF_T1_M) || (jmp->idInsFmt() == IF_T2_M1) ||
+               (jmp->idInsFmt() == IF_T2_N1) || (jmp->idInsFmt() == IF_T1_J3) || (jmp->idInsFmt() == IF_LARGEJMP));
+
+        /* Figure out the smallest size we can end up with */
+
+        if (emitIsCondJump(jmp))
+        {
+            ssz = JCC_SIZE_SMALL;
+            nsd = JCC_DIST_SMALL_MAX_NEG;
+            psd = JCC_DIST_SMALL_MAX_POS;
+
+            msz = JCC_SIZE_MEDIUM;
+            nmd = JCC_DIST_MEDIUM_MAX_NEG;
+            pmd = JCC_DIST_MEDIUM_MAX_POS;
+        }
+        else if (emitIsCmpJump(jmp))
+        {
+            ssz = JMP_SIZE_SMALL;
+            nsd = 0;
+            psd = 126;
+        }
+        else if (emitIsUncondJump(jmp))
+        {
+            ssz = JMP_SIZE_SMALL;
+            nsd = JMP_DIST_SMALL_MAX_NEG;
+            psd = JMP_DIST_SMALL_MAX_POS;
+        }
+        else if (emitIsLoadLabel(jmp))
+        {
+            ssz = LBL_SIZE_SMALL;
+            nsd = LBL_DIST_SMALL_MAX_NEG;
+            psd = LBL_DIST_SMALL_MAX_POS;
+        }
+        else
+        {
+            assert(!"Unknown jump instruction");
+        }
+#endif // TARGET_ARM
+
+#ifdef TARGET_ARM64
+        /* Figure out the smallest size we can end up with */
+
+        if (emitIsCondJump(jmp))
+        {
+            ssz         = JCC_SIZE_SMALL;
+            bool isTest = (jmp->idIns() == INS_tbz) || (jmp->idIns() == INS_tbnz);
+
+            nsd = (isTest) ? TB_DIST_SMALL_MAX_NEG : JCC_DIST_SMALL_MAX_NEG;
+            psd = (isTest) ? TB_DIST_SMALL_MAX_POS : JCC_DIST_SMALL_MAX_POS;
+        }
+        else if (emitIsUncondJump(jmp))
+        {
+            // Nothing to do; we don't shrink these.
+            assert(jmp->idjShort);
+            ssz = JMP_SIZE_SMALL;
+        }
+        else if (emitIsLoadLabel(jmp))
+        {
+            ssz = LBL_SIZE_SMALL;
+            nsd = LBL_DIST_SMALL_MAX_NEG;
+            psd = LBL_DIST_SMALL_MAX_POS;
+        }
+        else if (emitIsLoadConstant(jmp))
+        {
+            ssz = LDC_SIZE_SMALL;
+            nsd = LDC_DIST_SMALL_MAX_NEG;
+            psd = LDC_DIST_SMALL_MAX_POS;
+        }
+        else
+        {
+            assert(!"Unknown jump instruction");
+        }
+#endif // TARGET_ARM64
+
+/* Make sure the jumps are properly ordered */
+
+#ifdef DEBUG
+        assert(lastLJ == nullptr || lastIG != jmp->idjIG || lastLJ->idjOffs < jmp->idjOffs);
+        lastLJ = (lastIG == jmp->idjIG) ? jmp : nullptr;
+
+        assert(lastIG == nullptr || lastIG->igNum <= jmp->idjIG->igNum || jmp->idjIG == prologIG ||
+               emitNxtIGnum > unsigned(0xFFFF)); // igNum might overflow
+        lastIG = jmp->idjIG;
+#endif // DEBUG
+
+        /* Get hold of the current jump size */
+
+        jsz = jmp->idCodeSize();
+
+        /* Get the group the jump is in */
+
+        jmpIG = jmp->idjIG;
+
+        /* Are we in a group different from the previous jump? */
+
+        if (lstIG != jmpIG)
+        {
+            /* Were there any jumps before this one? */
+
+            if (lstIG)
+            {
+                /* Adjust the offsets of the intervening blocks */
+
+                do
+                {
+                    lstIG = lstIG->igNext;
+                    assert(lstIG);
+                    JITDUMP("Adjusted offset of " FMT_BB " from %04X to %04X\n", lstIG->igNum, lstIG->igOffs,
+                            lstIG->igOffs - adjIG);
+                    lstIG->igOffs -= adjIG;
+                    assert(IsCodeAligned(lstIG->igOffs));
+                } while (lstIG != jmpIG);
+            }
+
+            /* We've got the first jump in a new group */
+
+            adjLJ = 0;
+            lstIG = jmpIG;
+        }
+
+        /* Apply any local size adjustment to the jump's relative offset */
+
+        jmp->idjOffs -= adjLJ;
+
+        // If this is a jump via register, the instruction size does not change, so we are done.
+        CLANG_FORMAT_COMMENT_ANCHOR;
+
+#ifdef TARGET_ARM64
+        // JIT code and data will be allocated together for arm64 so the relative offset to JIT data is known.
+        // In case such offset can be encodable for `ldr` (+-1MB), shorten it.
+        if (jmp->idAddr()->iiaIsJitDataOffset())
+        {
+            // Reference to JIT data
+            assert(jmp->idIsBound());
+            UNATIVE_OFFSET srcOffs = jmpIG->igOffs + jmp->idjOffs;
+
+            int doff = jmp->idAddr()->iiaGetJitDataOffset();
+
+            ssize_t imm = emitGetInsSC(jmp);
+            assert((imm >= 0) && (imm < 0x1000)); // 0x1000 is arbitrary, currently 'imm' is always 0
+
+            unsigned dataOffs = (unsigned)(doff + imm);
+            assert(dataOffs < emitDataSize());
+
+            // Conservatively assume JIT data starts after the entire code size.
+            // TODO-ARM64: we might consider only hot code size which will be computed later in emitComputeCodeSizes().
+            assert(emitTotalCodeSize > 0);
+            UNATIVE_OFFSET maxDstOffs = emitTotalCodeSize + dataOffs;
+
+            // Check if the distance is within the encoding length.
+
+            jmpDist = maxDstOffs - srcOffs;
+            extra   = jmpDist - psd;
+            if (extra <= 0)
+            {
+                goto SHORT_JMP;
+            }
+
+            // Keep the large form.
+            continue;
+        }
+#endif
+
+        /* Have we bound this jump's target already? */
+
+        if (jmp->idIsBound())
+        {
+            /* Does the jump already have the smallest size? */
+
+            if (jmp->idjShort)
+            {
+                assert(jmp->idCodeSize() == ssz);
+
+                // We should not be jumping/branching across funclets/functions
+                emitCheckFuncletBranch(jmp, jmpIG);
+
+                continue;
+            }
+
+            tgtIG = jmp->idAddr()->iiaIGlabel;
+        }
+        else
+        {
+            /* First time we've seen this label, convert its target */
+            CLANG_FORMAT_COMMENT_ANCHOR;
+
+#ifdef DEBUG
+            if (emitComp->verbose)
+            {
+                printf("Binding: ");
+                emitDispIns(jmp);
+                printf("Binding " FMT_BB, jmp->idAddr()->iiaBBlabel->bbNum);
+            }
+#endif // DEBUG
+
+            tgtIG = emitCodeGetCookie(jmp->idAddr()->iiaBBlabel);
+
+            if (tgtIG != nullptr)
+            {
+                JITDUMP(" to " FMT_IG "\n", tgtIG->igNum);
+            }
+            else
+            {
+                JITDUMP("-- ERROR, no emitter cookie for " FMT_BB "; it is probably missing BBF_HAS_LABEL.\n",
+                        jmp->idAddr()->iiaBBlabel->bbNum);
+            }
+
+            assert(tgtIG != nullptr);
+
+            /* Record the bound target */
+
+            jmp->idAddr()->iiaIGlabel = tgtIG;
+            jmp->idSetIsBound();
+        }
+
+        // We should not be jumping/branching across funclets/functions
+        emitCheckFuncletBranch(jmp, jmpIG);
+
+#ifdef TARGET_XARCH
+        /* Done if this is not a variable-sized jump */
+
+        if ((jmp->idIns() == INS_push) || (jmp->idIns() == INS_mov) || (jmp->idIns() == INS_call) ||
+            (jmp->idIns() == INS_push_hide))
+        {
+            continue;
+        }
+#endif
+#ifdef TARGET_ARM
+        if ((jmp->idIns() == INS_push) || (jmp->idIns() == INS_mov) || (jmp->idIns() == INS_movt) ||
+            (jmp->idIns() == INS_movw))
+        {
+            continue;
+        }
+#endif
+#ifdef TARGET_ARM64
+        // There is only one size of unconditional branch; we don't support functions larger than 2^28 bytes (our branch
+        // range).
+        if (emitIsUncondJump(jmp))
+        {
+            continue;
+        }
+#endif
+
+        /*
+            In the following distance calculations, if we're not actually
+            scheduling the code (i.e. reordering instructions), we can
+            use the actual offset of the jump (rather than the beg/end of
+            the instruction group) since the jump will not be moved around
+            and thus its offset is accurate.
+
+            First we need to figure out whether this jump is a forward or
+            backward one; to do this we simply look at the ordinals of the
+            group that contains the jump and the target.
+         */
+
+        srcInstrOffs = jmpIG->igOffs + jmp->idjOffs;
+
+        /* Note that the destination is always the beginning of an IG, so no need for an offset inside it */
+        dstOffs = tgtIG->igOffs;
+
+#if defined(TARGET_ARM)
+        srcEncodingOffs =
+            srcInstrOffs + 4; // For relative branches, ARM PC is always considered to be the instruction address + 4
+#elif defined(TARGET_ARM64)
+        srcEncodingOffs =
+            srcInstrOffs; // For relative branches, ARM64 PC is always considered to be the instruction address
+#else
+        srcEncodingOffs = srcInstrOffs + ssz; // Encoding offset of relative offset for small branch
+#endif
+
+        if (jmpIG->igNum < tgtIG->igNum)
+        {
+            /* Forward jump */
+
+            /* Adjust the target offset by the current delta. This is a worst-case estimate, as jumps between
+               here and the target could be shortened, causing the actual distance to shrink.
+             */
+
+            dstOffs -= adjIG;
+
+            /* Compute the distance estimate */
+
+            jmpDist = dstOffs - srcEncodingOffs;
+
+            /* How much beyond the max. short distance does the jump go? */
+
+            extra = jmpDist - psd;
+
+#ifdef DEBUG
+            if (emitComp->verbose)
+            {
+                printf("[1] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
+                printf("[1] Jump  block is at %08X\n", jmpIG->igOffs);
+                printf("[1] Jump reloffset is %04X\n", jmp->idjOffs);
+                printf("[1] Jump source is at %08X\n", srcEncodingOffs);
+                printf("[1] Label block is at %08X\n", dstOffs);
+                printf("[1] Jump  dist. is    %04X\n", jmpDist);
+
+                if (extra > 0)
+                {
+                    printf("[1] Dist excess [S] = %d  \n", extra);
+                }
+            }
+
+            JITDUMP("Estimate of fwd jump IN%04x: %04X -> %04X = %04X\n", jmp->idDebugOnlyInfo()->idNum, srcInstrOffs,
+                    dstOffs, jmpDist);
+#endif // DEBUG
+
+            if (extra <= 0)
+            {
+                /* This jump will be a short one */
+                goto SHORT_JMP;
+            }
+        }
+        else
+        {
+            /* Backward jump */
+
+            /* Compute the distance estimate */
+
+            jmpDist = srcEncodingOffs - dstOffs;
+
+            /* How much beyond the max. short distance does the jump go? */
+
+            extra = jmpDist + nsd;
+
+#ifdef DEBUG
+            if (emitComp->verbose)
+            {
+                printf("[2] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
+                printf("[2] Jump  block is at %08X\n", jmpIG->igOffs);
+                printf("[2] Jump reloffset is %04X\n", jmp->idjOffs);
+                printf("[2] Jump source is at %08X\n", srcEncodingOffs);
+                printf("[2] Label block is at %08X\n", dstOffs);
+                printf("[2] Jump  dist. is    %04X\n", jmpDist);
+
+                if (extra > 0)
+                {
+                    printf("[2] Dist excess [S] = %d  \n", extra);
+                }
+            }
+
+            JITDUMP("Estimate of bwd jump IN%04x: %04X -> %04X = %04X\n", jmp->idDebugOnlyInfo()->idNum, srcInstrOffs,
+                    dstOffs, jmpDist);
+#endif // DEBUG
+
+            if (extra <= 0)
+            {
+                /* This jump will be a short one */
+                goto SHORT_JMP;
+            }
+        }
+
+        /* We arrive here if the jump couldn't be made short, at least for now */
+
+        /* We had better not have eagerly marked the jump as short
+         * in emitIns_J(). If we did, then it has to be able to stay short
+         * as emitIns_J() uses the worst case scenario, and blocks can
+         * only move closer together after that.
+         */
+        assert(jmp->idjShort == 0);
+
+        /* Keep track of the closest distance we got */
+
+        if (minShortExtra > (unsigned)extra)
+        {
+            minShortExtra = (unsigned)extra;
+        }
+
+#ifdef TARGET_ARM
+
+        // If we're here, we couldn't convert to a small jump.
+        // Handle conversion to medium-sized conditional jumps.
+        // 'srcInstrOffs', 'srcEncodingOffs', 'dstOffs', 'jmpDist' have already been computed
+        // and don't need to be recomputed.
+
+        if (emitIsCondJump(jmp))
+        {
+            if (jmpIG->igNum < tgtIG->igNum)
+            {
+                /* Forward jump */
+
+                /* How much beyond the max. medium distance does the jump go? */
+
+                mextra = jmpDist - pmd;
+
+#ifdef DEBUG
+                if (emitComp->verbose && (mextra > 0))
+                {
+                    printf("[6] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
+                    printf("[6] Dist excess [S] = %d  \n", mextra);
+                }
+#endif // DEBUG
+
+                if (mextra <= 0)
+                {
+                    /* This jump will be a medium one */
+                    goto MEDIUM_JMP;
+                }
+            }
+            else
+            {
+                /* Backward jump */
+
+                /* How much beyond the max. medium distance does the jump go? */
+
+                mextra = jmpDist + nmd;
+
+#ifdef DEBUG
+                if (emitComp->verbose && (mextra > 0))
+                {
+                    printf("[7] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
+                    printf("[7] Dist excess [S] = %d  \n", mextra);
+                }
+#endif // DEBUG
+
+                if (mextra <= 0)
+                {
+                    /* This jump will be a medium one */
+                    goto MEDIUM_JMP;
+                }
+            }
+
+            /* We arrive here if the jump couldn't be made medium, at least for now */
+
+            /* Keep track of the closest distance we got */
+
+            if (minMediumExtra > (unsigned)mextra)
+                minMediumExtra = (unsigned)mextra;
+        }
+
+#endif // TARGET_ARM
+
+        /*****************************************************************************
+         * We arrive here if the jump must stay long, at least for now.
+         * Go try the next one.
+         */
+
+        continue;
+
+    /*****************************************************************************/
+    /* Handle conversion to short jump                                           */
+    /*****************************************************************************/
+
+    SHORT_JMP:
+
+        /* Try to make this jump a short one */
+
+        emitSetShortJump(jmp);
+
+        if (!jmp->idjShort)
+        {
+            continue; // This jump must be kept long
+        }
+
+        /* This jump is becoming either short or medium */
+
+        oldSize = jsz;
+        jsz     = ssz;
+        assert(oldSize >= jsz);
+        sizeDif = oldSize - jsz;
+
+#if defined(TARGET_XARCH)
+        jmp->idCodeSize(jsz);
+#elif defined(TARGET_ARM)
+#if 0
+        // This is done as part of emitSetShortJump():
+        insSize isz = emitInsSize(jmp->idInsFmt());
+        jmp->idInsSize(isz);
+#endif
+#elif defined(TARGET_ARM64)
+        // The size of IF_LARGEJMP/IF_LARGEADR/IF_LARGELDC are 8 or 12.
+        // All other code size is 4.
+        assert((sizeDif == 4) || (sizeDif == 8));
+#else
+#error Unsupported or unset target architecture
+#endif
+
+        goto NEXT_JMP;
+
+#if defined(TARGET_ARM)
+
+    /*****************************************************************************/
+    /* Handle conversion to medium jump                                          */
+    /*****************************************************************************/
+
+    MEDIUM_JMP:
+
+        /* Try to make this jump a medium one */
+
+        emitSetMediumJump(jmp);
+
+        if (jmp->idCodeSize() > msz)
+        {
+            continue; // This jump wasn't shortened
+        }
+        assert(jmp->idCodeSize() == msz);
+
+        /* This jump is becoming medium */
+
+        oldSize = jsz;
+        jsz     = msz;
+        assert(oldSize >= jsz);
+        sizeDif = oldSize - jsz;
+
+        goto NEXT_JMP;
+
+#endif // TARGET_ARM
+
+    /*****************************************************************************/
+
+    NEXT_JMP:
+
+        /* Make sure the size of the jump is marked correctly */
+
+        assert((0 == (jsz | jmpDist)) || (jsz == jmp->idCodeSize()));
+        JITDUMP("Shrinking jump IN%04x\n", jmp->idDebugOnlyInfo()->idNum);
+        noway_assert((unsigned short)sizeDif == sizeDif);
+
+        adjIG += sizeDif;
+        adjLJ += sizeDif;
+        jmpIG->igSize -= (unsigned short)sizeDif;
+        emitTotalCodeSize -= sizeDif;
+
+        /* The jump size estimate wasn't accurate; flag its group */
+
+        jmpIG->igFlags |= IGF_UPD_ISZ;
+
+    } // end for each jump
+
+    /* Did we shorten any jumps? */
+
+    if (adjIG)
+    {
+        /* Adjust offsets of any remaining blocks */
+
+        assert(lstIG);
+
+        for (;;)
+        {
+            lstIG = lstIG->igNext;
+            if (!lstIG)
+            {
+                break;
+            }
+
+            JITDUMP("Adjusted offset of " FMT_BB " from %04X to %04X\n", lstIG->igNum, lstIG->igOffs,
+                    lstIG->igOffs - adjIG);
+
+            lstIG->igOffs -= adjIG;
+            assert(IsCodeAligned(lstIG->igOffs));
+        }
+
+#ifdef DEBUG
+        emitCheckIGoffsets();
+#endif
+
+        /* Is there a chance of other jumps becoming short? */
+        CLANG_FORMAT_COMMENT_ANCHOR;
+#ifdef TARGET_ARM
+        JITDUMP("Total shrinkage = %3u, min extra short jump size = %3u, min extra medium jump size = %u\n", adjIG,
+                minShortExtra, minMediumExtra);
+#else
+        JITDUMP("Total shrinkage = %3u, min extra jump size = %3u\n", adjIG, minShortExtra);
+#endif
+
+        if ((minShortExtra <= adjIG)
+#ifdef TARGET_ARM
+            || (minMediumExtra <= adjIG)
+#endif
+                )
+        {
+            jmp_iteration++;
+
+            JITDUMP("Iterating branch shortening. Iteration = %d\n", jmp_iteration);
+
+            goto AGAIN;
+        }
+    }
+#ifdef DEBUG
+    if (emitComp->verbose)
+    {
+        printf("\nLabels list after the jump dist binding:\n\n");
+        emitDispIGlist(false);
+    }
+
+    emitCheckIGoffsets();
+#endif // DEBUG
+}
+
 /*****************************************************************************
  *
  *  Returns an encoding for the specified register (any-reg) to be used in

@@ -1471,6 +1471,7 @@ public:
     CORINFO_FIELD_HANDLE emitBlkConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types elemType);
     CORINFO_FIELD_HANDLE emitFltOrDblConst(double constValue, emitAttr attr);
 
+    INDEBUG(static bool IsCodeAligned(UNATIVE_OFFSET offset);)
     void emitJumpDistBind(); // Bind all the local jumps in method
 
 #if FEATURE_LOOP_ALIGN
