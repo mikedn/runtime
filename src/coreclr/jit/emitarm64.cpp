@@ -8043,6 +8043,27 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
     return regs;
 }
 
+#define LBL_DIST_SMALL_MAX_NEG (-1048576)
+#define LBL_DIST_SMALL_MAX_POS (+1048575)
+
+#define LBL_SIZE_SMALL (4)
+
+#define JCC_DIST_SMALL_MAX_NEG (-1048576)
+#define JCC_DIST_SMALL_MAX_POS (+1048575)
+
+#define TB_DIST_SMALL_MAX_NEG (-32768)
+#define TB_DIST_SMALL_MAX_POS (+32767)
+
+#define JCC_SIZE_SMALL (4)
+#define JCC_SIZE_LARGE (8)
+
+#define LDC_DIST_SMALL_MAX_NEG (-1048576)
+#define LDC_DIST_SMALL_MAX_POS (+1048575)
+
+#define LDC_SIZE_SMALL (4)
+
+#define JMP_SIZE_SMALL (4)
+
 void emitter::emitJumpDistBind()
 {
 #ifdef DEBUG

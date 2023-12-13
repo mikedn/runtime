@@ -3973,6 +3973,32 @@ static insFormat GetJumpFormat(instruction ins)
     }
 }
 
+#define LBL_DIST_SMALL_MAX_NEG (0)
+#define LBL_DIST_SMALL_MAX_POS (+1020)
+#define LBL_DIST_MED_MAX_NEG (-4095)
+#define LBL_DIST_MED_MAX_POS (+4096)
+
+#define JMP_DIST_SMALL_MAX_NEG (-2048)
+#define JMP_DIST_SMALL_MAX_POS (+2046)
+
+#define CALL_DIST_MAX_NEG (-16777216)
+#define CALL_DIST_MAX_POS (+16777214)
+
+#define JCC_DIST_SMALL_MAX_NEG (-256)
+#define JCC_DIST_SMALL_MAX_POS (+254)
+
+#define JCC_DIST_MEDIUM_MAX_NEG (-1048576)
+#define JCC_DIST_MEDIUM_MAX_POS (+1048574)
+
+#define LBL_SIZE_SMALL (2)
+
+#define JMP_SIZE_SMALL (2)
+#define JMP_SIZE_LARGE (4)
+
+#define JCC_SIZE_SMALL (2)
+#define JCC_SIZE_MEDIUM (4)
+#define JCC_SIZE_LARGE (6)
+
 void emitter::emitIns_J(instruction ins, int instrCount)
 {
     assert(instrCount != 0);

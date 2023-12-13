@@ -3320,6 +3320,21 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
     emitCurIGsize += sz;
 }
 
+#define JMP_DIST_SMALL_MAX_NEG (-128)
+#define JMP_DIST_SMALL_MAX_POS (+127)
+
+#define JCC_DIST_SMALL_MAX_NEG (-128)
+#define JCC_DIST_SMALL_MAX_POS (+127)
+
+#define JMP_SIZE_SMALL (2)
+#define JMP_SIZE_LARGE (5)
+
+#define JCC_SIZE_SMALL (2)
+#define JCC_SIZE_LARGE (6)
+
+#define PUSH_INST_SIZE (5)
+#define CALL_INST_SIZE (5)
+
 void emitter::emitSetShortJump(instrDescJmp* id)
 {
     if (!id->idjKeepLong)

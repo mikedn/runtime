@@ -308,27 +308,6 @@
   extern const regNumber fltArgRegs [MAX_FLOAT_REG_ARG];
   extern const regMaskTP fltArgMasks[MAX_FLOAT_REG_ARG];
 
-  #define LBL_DIST_SMALL_MAX_NEG  (-1048576)
-  #define LBL_DIST_SMALL_MAX_POS  (+1048575)
-
-  #define LBL_SIZE_SMALL          (4)
-
-  #define JCC_DIST_SMALL_MAX_NEG  (-1048576)
-  #define JCC_DIST_SMALL_MAX_POS  (+1048575)
-
-  #define TB_DIST_SMALL_MAX_NEG   (-32768)
-  #define TB_DIST_SMALL_MAX_POS   (+32767)
-
-  #define JCC_SIZE_SMALL          (4)
-  #define JCC_SIZE_LARGE          (8)
-
-  #define LDC_DIST_SMALL_MAX_NEG  (-1048576)
-  #define LDC_DIST_SMALL_MAX_POS  (+1048575)
-
-  #define LDC_SIZE_SMALL          (4)
-
-  #define JMP_SIZE_SMALL          (4)
-
   // The number of bytes from the end the last probed page that must also be probed, to allow for some
   // small SP adjustments without probes. If zero, then the stack pointer can point to the last byte/word
   // on the stack guard page, and must be touched before any further "SUB SP".
