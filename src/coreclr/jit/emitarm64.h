@@ -663,6 +663,8 @@ void emitIns_Call(EmitCallType          kind,
                   bool      isJump = false);
 
 private:
+void emitSetShortJump(instrDescJmp* id);
+
 BYTE* emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i);
 BYTE* emitOutputLoadLabel(BYTE* dst, BYTE* srcAddr, BYTE* dstAddr, instrDescJmp* id);
 BYTE* emitOutputShortBranch(BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);

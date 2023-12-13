@@ -868,6 +868,8 @@ void emitter::emitCheckIGoffsets()
 
     for (insGroup* tempIG = emitIGfirst; tempIG != nullptr; tempIG = tempIG->igNext)
     {
+        assert(IsCodeAligned(tempIG->igOffs));
+
         if (tempIG->igOffs != currentOffset)
         {
             printf("Block #%u has offset %08X, expected %08X\n", tempIG->igNum, tempIG->igOffs, currentOffset);
@@ -2804,9 +2806,9 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
 
 #endif // FEATURE_LOOP_ALIGN
 
-void emitter::emitCheckFuncletBranch(instrDesc* jmp, insGroup* jmpIG)
-{
 #ifdef DEBUG
+void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
+{
     // We should not be jumping/branching across funclets/functions
     // Except possibly a 'call' to a finally funclet for a local unwind
     // or a 'return' from a catch handler (that can go just about anywhere)
@@ -2839,6 +2841,7 @@ void emitter::emitCheckFuncletBranch(instrDesc* jmp, insGroup* jmpIG)
     }
 #endif // TARGET_ARM64
 
+    insGroup* jmpIG = jmp->idjIG;
     insGroup* tgtIG = jmp->idAddr()->iiaIGlabel;
     assert(tgtIG);
     if (tgtIG->igFuncIdx != jmpIG->igFuncIdx)
@@ -2900,8 +2903,8 @@ void emitter::emitCheckFuncletBranch(instrDesc* jmp, insGroup* jmpIG)
             assert(tgtIG->igFuncIdx == jmpIG->igFuncIdx);
         }
     }
-#endif // DEBUG
 }
+#endif // DEBUG
 
 /*****************************************************************************
  *

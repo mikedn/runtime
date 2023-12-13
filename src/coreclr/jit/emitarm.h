@@ -272,6 +272,9 @@ void emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp);
 unsigned emitGetInstructionSize(emitLocation* emitLoc);
 
 private:
+void emitSetShortJump(instrDescJmp* id);
+void emitSetMediumJump(instrDescJmp* id);
+
 // Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
 // pointer. This exempts the SP and PC registers, and floating point registers. Memory access
 // instructions that pre- or post-increment their memory address registers are *not* considered to write

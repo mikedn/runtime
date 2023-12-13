@@ -1446,9 +1446,6 @@ public:
     insGroup* emitCurIG;
     insGroup* emitCurLabel = nullptr;
 
-    void emitSetShortJump(instrDescJmp* id);
-    void emitSetMediumJump(instrDescJmp* id);
-
 private:
     /************************************************************************/
     /*      The logic that creates and keeps track of instruction groups    */
@@ -1493,7 +1490,7 @@ private:
 #endif
 
 private:
-    void emitCheckFuncletBranch(instrDesc* jmp, insGroup* jmpIG); // Check for illegal branches between funclets
+    INDEBUG(void emitCheckFuncletBranch(instrDescJmp* jmp);)
 
     // Are forward jumps present?
     bool emitFwdJumps = false;
