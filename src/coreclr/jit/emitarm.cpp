@@ -3932,32 +3932,6 @@ void emitter::emitSetMediumJump(instrDescJmp* id)
     id->idjShort = false;
 }
 
-static insFormat GetJumpFormat(instruction ins)
-{
-    switch (ins)
-    {
-        case INS_b:
-            return IF_T2_J2;
-        case INS_beq:
-        case INS_bne:
-        case INS_bhs:
-        case INS_blo:
-        case INS_bmi:
-        case INS_bpl:
-        case INS_bvs:
-        case INS_bvc:
-        case INS_bhi:
-        case INS_bls:
-        case INS_bge:
-        case INS_blt:
-        case INS_bgt:
-        case INS_ble:
-            return IF_LARGEJMP;
-        default:
-            unreached();
-    }
-}
-
 #define LBL_DIST_SMALL_MAX_NEG (0)
 #define LBL_DIST_SMALL_MAX_POS (+1020)
 #define LBL_DIST_MED_MAX_NEG (-4095)
@@ -3985,14 +3959,12 @@ void emitter::emitIns_J(instruction ins, int instrCount)
 {
     assert(instrCount != 0);
 
-    insFormat fmt = GetJumpFormat(ins);
+    insFormat fmt = ins == INS_b ? IF_T2_J2 : IF_LARGEJMP;
 
-    instrDescJmp* id  = emitNewInstrJmp();
-    insSize       isz = emitInsSize(fmt);
-
+    instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsSize(emitInsSize(fmt));
     id->idAddr()->iiaSetInstrCount(instrCount);
     emitSetShortJump(id);
     id->idSetIsBound();
@@ -4010,67 +3982,76 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst)
 {
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
 
-    insFormat fmt = GetJumpFormat(ins);
+    insFormat fmt;
 
-    instrDescJmp* id  = emitNewInstrJmp();
-    insSize       isz = emitInsSize(fmt);
+    switch (ins)
+    {
+        case INS_b:
+            fmt = IF_T2_J2;
+            break;
+        case INS_beq:
+        case INS_bne:
+        case INS_bhs:
+        case INS_blo:
+        case INS_bmi:
+        case INS_bpl:
+        case INS_bvs:
+        case INS_bvc:
+        case INS_bhi:
+        case INS_bls:
+        case INS_bge:
+        case INS_blt:
+        case INS_bgt:
+        case INS_ble:
+            fmt = IF_LARGEJMP;
+            break;
+        default:
+            unreached();
+    }
 
+    instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsSize(emitInsSize(fmt));
+    id->idAddr()->iiaBBlabel = dst;
+    id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst) INDEBUG(|| keepLongJumps);
 
     INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
                 (ins == INS_b) && (GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
-
-    id->idAddr()->iiaBBlabel = dst;
-    id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst) INDEBUG(|| keepLongJumps);
 
     id->idjIG        = emitCurIG;
     id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 
-    /* Figure out the max. size of the jump/call instruction */
-
     if (!id->idjKeepLong)
     {
-        if (insGroup* tgt = emitCodeGetCookie(dst))
+        if (insGroup* targetIG = emitCodeGetCookie(dst))
         {
-            assert(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
+            // This is a backward jump, we can determine now if it's going to be short/medium/large.
 
-            // This is a backward jump - figure out the distance.
+            uint32_t jumpOffs = emitCurCodeOffset + emitCurIGsize;
+            int32_t  distance = jumpOffs - targetIG->igOffs;
+            assert(distance >= 0);
+            distance += 4;
 
-            unsigned srcOffs = emitCurCodeOffset + emitCurIGsize;
-            int      jmpDist = srcOffs - tgt->igOffs;
-            assert(jmpDist >= 0);
-            jmpDist += 4; // Adjustment for ARM PC
-
-            switch (fmt)
+            if (ins == INS_b)
             {
-                case IF_T2_J2:
-                    if (JMP_DIST_SMALL_MAX_NEG <= -jmpDist)
-                    {
-                        /* This jump surely will be short */
-                        emitSetShortJump(id);
-                    }
-                    break;
-
-                case IF_LARGEJMP:
-                    if (JCC_DIST_SMALL_MAX_NEG <= -jmpDist)
-                    {
-                        /* This jump surely will be short */
-                        emitSetShortJump(id);
-                    }
-                    else if (JCC_DIST_MEDIUM_MAX_NEG <= -jmpDist)
-                    {
-                        /* This jump surely will be medium */
-                        emitSetMediumJump(id);
-                    }
-                    break;
-
-                default:
-                    unreached();
-                    break;
+                if (JMP_DIST_SMALL_MAX_NEG <= -distance)
+                {
+                    emitSetShortJump(id);
+                }
+            }
+            else
+            {
+                if (JCC_DIST_SMALL_MAX_NEG <= -distance)
+                {
+                    emitSetShortJump(id);
+                }
+                else if (JCC_DIST_MEDIUM_MAX_NEG <= -distance)
+                {
+                    emitSetMediumJump(id);
+                }
             }
         }
     }
