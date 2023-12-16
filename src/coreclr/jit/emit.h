@@ -1436,8 +1436,8 @@ public:
         return ((srcOffset < emitTotalHotCodeSize) != (dstOffset < emitTotalHotCodeSize));
     }
 
-    size_t emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp);
-    size_t emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp);
+    size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
+    size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
     void PatchForwardJumps();
 
 #ifdef PSEUDORANDOM_NOP_INSERTION

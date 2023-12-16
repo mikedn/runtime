@@ -2037,87 +2037,61 @@ void emitter::emitDispIGlist(bool verbose)
 
 #endif // DEBUG
 
-/*****************************************************************************
- *
- *  Issue the given instruction. Basically, this is just a thin wrapper around
- *  emitOutputInstr() that does a few debug checks.
- */
-
-size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
+size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
     assert(id->idInsFmt() != IF_GC_REG);
 
-    size_t is;
-
-    /* Record the beginning offset of the instruction */
-
-    BYTE* curInsAdr = *dp;
-
-    /* Issue the next instruction */
-
-    // printf("[S=%02u] " , emitCurStackLvl);
-
-    is = emitOutputInstr(ig, id, dp);
+    uint8_t* instrCodeAddr = *dp;
+    size_t   instrDescSize = emitOutputInstr(ig, id, dp);
 
 #if defined(DEBUG) || defined(LATE_DISASM)
-    float insExeCost = insEvaluateExecutionCost(id);
-    // All compPerfScore calculations must be performed using doubles
-    double insPerfScore = (double)(ig->igWeight / (double)BB_UNITY_WEIGHT) * insExeCost;
+    double insExecCost  = insEvaluateExecutionCost(id);
+    double insPerfScore = (static_cast<double>(ig->igWeight) / BB_UNITY_WEIGHT) * insExecCost;
     emitComp->info.compPerfScore += insPerfScore;
     ig->igPerfScore += insPerfScore;
-#endif // defined(DEBUG) || defined(LATE_DISASM)
+#endif
 
-    /* Did the size of the instruction match our expectations? */
+    uint32_t actualSize    = static_cast<uint32_t>(*dp - instrCodeAddr);
+    uint32_t estimatedSize = id->idCodeSize();
 
-    UNATIVE_OFFSET actualSize = (UNATIVE_OFFSET)(*dp - curInsAdr);
-
-    unsigned estimatedSize = id->idCodeSize();
     if (actualSize != estimatedSize)
     {
+        JITDUMP("Instruction estimated size %u, actual %u\n", estimatedSize, actualSize);
+
+#ifdef TARGET_XARCH
         // It is fatal to under-estimate the instruction size, except for alignment instructions
         noway_assert(estimatedSize >= actualSize);
-
 #if FEATURE_LOOP_ALIGN
         // Should never over-estimate align instruction or any instruction before the last align instruction of a method
         assert(id->idIns() != INS_align && emitCurIG->igNum > emitLastAlignedIgNum);
 #endif
 
-        JITDUMP("Instruction predicted size = %u, actual = %u\n", estimatedSize, actualSize);
-
         // Add the shrinkage to the ongoing offset adjustment. This needs to happen during the
         // processing of an instruction group, and not only at the beginning of an instruction
         // group, or else the difference of IG sizes between debug and release builds can cause
         // debug/non-debug asm diffs.
-        int offsShrinkage = estimatedSize - actualSize;
-        JITDUMP("Increasing size adj %d by %d => %d\n", emitOffsAdj, offsShrinkage, emitOffsAdj + offsShrinkage);
-        emitOffsAdj += offsShrinkage;
-
-        /* The instruction size estimate wasn't accurate; remember this */
+        int32_t sizeDiff = estimatedSize - actualSize;
+        JITDUMP("Increasing emitOffsAdj %d by %d => %d\n", emitOffsAdj, sizeDiff, emitOffsAdj + sizeDiff);
+        emitOffsAdj += sizeDiff;
 
         ig->igFlags |= IGF_UPD_ISZ;
-#if defined(TARGET_XARCH)
         id->idCodeSize(actualSize);
-#elif defined(TARGET_ARM)
-// This is done as part of emitSetShortJump();
-// insSize isz = emitInsSize(id->idInsFmt());
-// id->idInsSize(isz);
 #else
-        /* It is fatal to over-estimate the instruction size */
         IMPL_LIMITATION("Over-estimated instruction size");
 #endif
     }
 
 #ifdef DEBUG
-    /* Make sure the instruction descriptor size also matches our expectations */
-    if (is != id->GetDescSize())
+    if (instrDescSize != id->GetDescSize())
     {
-        printf("%s at %u: Expected size = %u , actual size = %u\n", emitIfName(id->idInsFmt()),
-               id->idDebugOnlyInfo()->idNum, is, id->GetDescSize());
-        assert(is == id->GetDescSize());
-    }
-#endif // DEBUG
+        printf("IN%04X %s: expected size %u, actual size %u\n", id->idDebugOnlyInfo()->idNum,
+               emitIfName(id->idInsFmt()), instrDescSize, id->GetDescSize());
 
-    return is;
+        assert(instrDescSize == id->GetDescSize());
+    }
+#endif
+
+    return instrDescSize;
 }
 
 /*****************************************************************************
