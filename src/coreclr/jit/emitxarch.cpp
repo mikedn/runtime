@@ -5514,9 +5514,7 @@ uint8_t* emitter::emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
     emitComp->loopsAligned++;
 #endif
 
-    uint8_t* dstRW = dst + writeableOffset;
-    dstRW          = emitOutputNOP(dstRW, paddingToAdd);
-    return dstRW - writeableOffset;
+    return emitOutputNOP(dst + writeableOffset, paddingToAdd) - writeableOffset;
 }
 
 uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
@@ -7507,10 +7505,7 @@ uint8_t* emitter::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
 
     if (ins == INS_nop)
     {
-        uint8_t* dstRW = dst + writeableOffset;
-        dstRW          = emitOutputNOP(dstRW, id->idCodeSize());
-
-        return dstRW - writeableOffset;
+        return emitOutputNOP(dst + writeableOffset, id->idCodeSize()) - writeableOffset;
     }
 
     assert(!TakesVexPrefix(ins));
