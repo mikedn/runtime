@@ -8159,7 +8159,33 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         assert((id->idCodeSize() - static_cast<unsigned>(dst - *dp)) == 0);
     }
 
+    uint8_t* instrCodeAddr = *dp;
+
     *dp = dst;
+
+    uint32_t actualSize    = static_cast<uint32_t>(*dp - instrCodeAddr);
+    uint32_t estimatedSize = id->idCodeSize();
+
+    if (actualSize != estimatedSize)
+    {
+        JITDUMP("Instruction estimated size %u, actual %u\n", estimatedSize, actualSize);
+
+        // It is fatal to under-estimate the instruction size, except for alignment instructions
+        noway_assert(estimatedSize >= actualSize);
+        // Should never over-estimate align instruction or any instruction before the last align instruction of a method
+        assert(id->idIns() != INS_align && emitCurIG->igNum > emitLastAlignedIgNum);
+
+        // Add the shrinkage to the ongoing offset adjustment. This needs to happen during the
+        // processing of an instruction group, and not only at the beginning of an instruction
+        // group, or else the difference of IG sizes between debug and release builds can cause
+        // debug/non-debug asm diffs.
+        int32_t sizeDiff = estimatedSize - actualSize;
+        JITDUMP("Increasing emitOffsAdj %d by %d => %d\n", emitOffsAdj, sizeDiff, emitOffsAdj + sizeDiff);
+        emitOffsAdj += sizeDiff;
+
+        ig->igFlags |= IGF_UPD_ISZ;
+        id->idCodeSize(actualSize);
+    }
 
     return sz;
 }

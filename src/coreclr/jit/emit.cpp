@@ -1821,7 +1821,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #ifdef TARGET_XARCH
         instrDescCGCA* idc = emitNewInstrCGCA();
 #else
-        instrDescCGCA* idc = emitAllocInstrCGCA(retRegAttr);
+        instrDescCGCA* idc                = emitAllocInstrCGCA(retRegAttr);
 #endif
         idc->idSetIsLargeCall();
         idc->idcGCvars    = VarSetOps::MakeCopy(emitComp, gcLcls);
@@ -1847,7 +1847,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #ifdef TARGET_X86
         id = emitNewInstrCns(argSlotCount);
 #elif defined(TARGET_AMD64)
-        id                 = emitNewInstr();
+        id                                = emitNewInstr();
 #else
         id = emitNewInstr(retRegAttr);
 #endif
@@ -2075,26 +2075,7 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
     if (actualSize != estimatedSize)
     {
         JITDUMP("Instruction estimated size %u, actual %u\n", estimatedSize, actualSize);
-
-#ifdef TARGET_XARCH
-        // It is fatal to under-estimate the instruction size, except for alignment instructions
-        noway_assert(estimatedSize >= actualSize);
-#if FEATURE_LOOP_ALIGN
-        // Should never over-estimate align instruction or any instruction before the last align instruction of a method
-        assert(id->idIns() != INS_align && emitCurIG->igNum > emitLastAlignedIgNum);
-#endif
-
-        // Add the shrinkage to the ongoing offset adjustment. This needs to happen during the
-        // processing of an instruction group, and not only at the beginning of an instruction
-        // group, or else the difference of IG sizes between debug and release builds can cause
-        // debug/non-debug asm diffs.
-        int32_t sizeDiff = estimatedSize - actualSize;
-        JITDUMP("Increasing emitOffsAdj %d by %d => %d\n", emitOffsAdj, sizeDiff, emitOffsAdj + sizeDiff);
-        emitOffsAdj += sizeDiff;
-
-        ig->igFlags |= IGF_UPD_ISZ;
-        id->idCodeSize(actualSize);
-#else
+#ifndef TARGET_XARCH
         IMPL_LIMITATION("Over-estimated instruction size");
 #endif
     }
