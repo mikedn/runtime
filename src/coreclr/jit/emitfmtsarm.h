@@ -17,7 +17,6 @@
 // clang-format off
 IF_DEF(NONE,        IS_NONE,               NONE)
 
-IF_DEF(LABEL,       IS_NONE,               JMP)      // label
 IF_DEF(LARGEJMP,    IS_NONE,               JMP)      // large conditional branch pseudo-op
 IF_DEF(GC_REG,      IS_NONE,               NONE)     // GC reg update
 
