@@ -2072,6 +2072,8 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
     uint32_t actualSize    = static_cast<uint32_t>(*dp - instrCodeAddr);
     uint32_t estimatedSize = id->idCodeSize();
 
+    assert((actualSize != 0) || id->InstrHasNoCode());
+
     if (actualSize != estimatedSize)
     {
         JITDUMP("Instruction estimated size %u, actual %u\n", estimatedSize, actualSize);

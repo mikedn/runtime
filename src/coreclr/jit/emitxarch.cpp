@@ -8119,73 +8119,58 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         assert((gcInfo.GetAllLiveRegs() & genRegMask(id->idReg1())) == RBM_NONE);
     }
 
-    assert((*dp != dst) || id->InstrHasNoCode());
-
-#ifdef DEBUG
-    if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
-    {
-        emitDispIns(id, false, emitComp->opts.dspGCtbls, true, emitCurCodeOffs(*dp), *dp, (dst - *dp));
-    }
-#endif
-
-    // Only compensate over-estimated instructions if emitCurIG is before
-    // the last IG that needs alignment.
-    if (emitCurIG->igNum <= emitLastAlignedIgNum)
-    {
-        int diff = id->idCodeSize() - ((unsigned)(dst - *dp));
-
-        assert(diff >= 0);
-
-        if (diff != 0)
-        {
-#ifdef DEBUG
-            // should never over-estimate align instruction
-            assert(id->idIns() != INS_align);
-
-            JITDUMP("Added over-estimation compensation: %d\n", diff);
-
-            if (emitComp->opts.disAsm)
-            {
-                emitDispInsAddr(dst);
-                printf("\t\t  ;; NOP compensation instructions of %d bytes.\n", diff);
-            }
-#endif
-
-            uint8_t* dstRW = dst + writeableOffset;
-            dstRW          = emitOutputNOP(dstRW, diff);
-            dst            = dstRW - writeableOffset;
-        }
-
-        assert((id->idCodeSize() - static_cast<unsigned>(dst - *dp)) == 0);
-    }
-
-    uint8_t* instrCodeAddr = *dp;
-
-    *dp = dst;
-
-    uint32_t actualSize    = static_cast<uint32_t>(*dp - instrCodeAddr);
     uint32_t estimatedSize = id->idCodeSize();
+    uint32_t actualSize    = static_cast<uint32_t>(dst - *dp);
+
+#ifdef DEBUG
+    if ((emitComp->opts.disAsm || emitComp->verbose) && (actualSize != 0))
+    {
+        emitDispIns(id, false, emitComp->opts.dspGCtbls, true, emitCurCodeOffs(*dp), *dp, actualSize);
+    }
+#endif
 
     if (actualSize != estimatedSize)
     {
         JITDUMP("Instruction estimated size %u, actual %u\n", estimatedSize, actualSize);
 
-        // It is fatal to under-estimate the instruction size, except for alignment instructions
-        noway_assert(estimatedSize >= actualSize);
-        // Should never over-estimate align instruction or any instruction before the last align instruction of a method
-        assert(id->idIns() != INS_align && emitCurIG->igNum > emitLastAlignedIgNum);
-
-        // Add the shrinkage to the ongoing offset adjustment. This needs to happen during the
-        // processing of an instruction group, and not only at the beginning of an instruction
-        // group, or else the difference of IG sizes between debug and release builds can cause
-        // debug/non-debug asm diffs.
         int32_t sizeDiff = estimatedSize - actualSize;
-        JITDUMP("Increasing emitOffsAdj %d by %d => %d\n", emitOffsAdj, sizeDiff, emitOffsAdj + sizeDiff);
-        emitOffsAdj += sizeDiff;
 
-        ig->igFlags |= IGF_UPD_ISZ;
-        id->idCodeSize(actualSize);
+        // It is fatal to under-estimate the instruction size.
+        noway_assert(sizeDiff >= 0);
+        // Should never over-estimate align instruction.
+        assert(id->idIns() != INS_align);
+
+        // Only compensate over-estimated instructions if emitCurIG is before
+        // the last IG that needs alignment.
+        if (emitCurIG->igNum <= emitLastAlignedIgNum)
+        {
+            JITDUMP("Added over-estimation compensation: %d\n", sizeDiff);
+
+#ifdef DEBUG
+            if (emitComp->opts.disAsm)
+            {
+                emitDispInsAddr(dst);
+                printf("\t\t  ;; NOP compensation instructions of %d bytes.\n", sizeDiff);
+            }
+#endif
+
+            dst = emitOutputNOP(dst + writeableOffset, sizeDiff) - writeableOffset;
+        }
+        else
+        {
+            // Add the shrinkage to the ongoing offset adjustment. This needs to happen during the
+            // processing of an instruction group, and not only at the beginning of an instruction
+            // group, or else the difference of IG sizes between debug and release builds can cause
+            // debug/non-debug asm diffs.
+            JITDUMP("Increasing emitOffsAdj %d by %d => %d\n", emitOffsAdj, sizeDiff, emitOffsAdj + sizeDiff);
+            emitOffsAdj += sizeDiff;
+
+            ig->igFlags |= IGF_UPD_ISZ;
+            id->idCodeSize(actualSize);
+        }
     }
+
+    *dp = dst;
 
     return sz;
 }
