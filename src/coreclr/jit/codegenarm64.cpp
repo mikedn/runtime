@@ -1407,7 +1407,8 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     {
         GetEmitter()->emitIns_Mov(INS_mov, EA_8BYTE, REG_R0, REG_SPBASE, /* canSkip */ false);
     }
-    GetEmitter()->emitIns_J(INS_bl_local, block->bbJumpDest);
+
+    GetEmitter()->emitIns_CallFinally(block->bbJumpDest);
 
     if (block->bbFlags & BBF_RETLESS_CALL)
     {

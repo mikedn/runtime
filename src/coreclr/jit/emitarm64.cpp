@@ -7810,17 +7810,25 @@ void emitter::emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* dst, reg
     appendToCurIG(id);
 }
 
+static bool IsConditionalBranch(instruction ins)
+{
+    return (INS_beq <= ins) && (ins <= INS_ble);
+}
+
+static bool IsBranch(instruction ins)
+{
+    return (ins == INS_b) || IsConditionalBranch(ins);
+}
+
 void emitter::emitIns_J(instruction ins, int instrCount)
 {
-    assert(ins != INS_bl_local);
+    assert(IsBranch(ins));
     assert(instrCount != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(ins == INS_b ? IF_BI_0A : IF_BI_0B);
-    id->idjShort = true;
-    id->idAddr()->iiaSetInstrCount(instrCount);
-    id->idSetIsBound();
+    id->SetInstrCount(instrCount);
 
     id->idjIG        = emitCurIG;
     id->idjOffs      = emitCurIGsize;
@@ -7833,44 +7841,37 @@ void emitter::emitIns_J(instruction ins, int instrCount)
 
 void emitter::emitIns_J(instruction ins, BasicBlock* dst)
 {
+    assert(IsBranch(ins));
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
-
-    insFormat fmt;
-    switch (ins)
-    {
-        case INS_bl_local:
-        case INS_b:
-            fmt = IF_BI_0A;
-            break;
-        case INS_beq:
-        case INS_bne:
-        case INS_bhs:
-        case INS_blo:
-        case INS_bmi:
-        case INS_bpl:
-        case INS_bvs:
-        case INS_bvc:
-        case INS_bhi:
-        case INS_bls:
-        case INS_bge:
-        case INS_blt:
-        case INS_bgt:
-        case INS_ble:
-            fmt = IF_LARGEJMP;
-            break;
-        default:
-            unreached();
-    }
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
-    id->idInsFmt(fmt);
-    id->idjShort             = fmt != IF_LARGEJMP;
+    id->idInsFmt(ins == INS_b ? IF_BI_0A : IF_LARGEJMP);
+    id->idjShort             = ins == INS_b;
     id->idjKeepLong          = !id->idjShort && (InDifferentRegions(GetCurrentBlock(), dst) INDEBUG(|| keepLongJumps));
     id->idAddr()->iiaBBlabel = dst;
 
-    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
-                (ins == INS_bl_local) && (GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
+    id->idjIG        = emitCurIG;
+    id->idjOffs      = emitCurIGsize;
+    id->idjNext      = emitCurIGjmpList;
+    emitCurIGjmpList = id;
+
+    dispIns(id);
+    appendToCurIG(id);
+}
+
+void emitter::emitIns_CallFinally(BasicBlock* block)
+{
+    assert(GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
+    assert((block->bbFlags & BBF_HAS_LABEL) != 0);
+
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(INS_bl_local);
+    id->idInsFmt(IF_BI_0A);
+    id->idjShort             = true;
+    id->idAddr()->iiaBBlabel = block;
+
+    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall = true);
 
     id->idjIG        = emitCurIG;
     id->idjOffs      = emitCurIGsize;

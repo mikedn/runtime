@@ -62,8 +62,6 @@ void CodeGen::genStackPointerAdjustment(int32_t spDelta, regNumber tmpReg)
 
 BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
 {
-    BasicBlock* bbFinallyRet = nullptr;
-
     // We don't have retless calls, since we use the BBJ_ALWAYS to point at a NOP pad where
     // we would have otherwise created retless calls.
     assert(block->isBBCallAlwaysPair());
@@ -73,14 +71,13 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     assert(block->bbNext->bbJumpDest != NULL);
     assert(block->bbNext->bbJumpDest->bbFlags & BBF_FINALLY_TARGET);
 
-    bbFinallyRet = block->bbNext->bbJumpDest;
+    BasicBlock* bbFinallyRet = block->bbNext->bbJumpDest;
 
     // Load the address where the finally funclet should return into LR.
     // The funclet prolog/epilog will do "push {lr}" / "pop {pc}" to do the return.
     genMov32RelocatableDisplacement(bbFinallyRet, REG_LR);
 
-    // Jump to the finally BB
-    inst_JMP(EJ_jmp, block->bbJumpDest);
+    GetEmitter()->emitIns_J(INS_b, block->bbJumpDest);
 
     // The BBJ_ALWAYS is used because the BBJ_CALLFINALLY can't point to the
     // jump target using bbJumpDest - that is already used to point

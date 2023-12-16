@@ -3376,11 +3376,9 @@ void emitter::emitIns_J(instruction ins, int instrCount)
     assert(instrCount < 0);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idjShort     = true;
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
-    id->idAddr()->iiaSetInstrCount(instrCount);
-    id->idSetIsBound();
+    id->SetInstrCount(instrCount);
 
     id->idCodeSize(JCC_SIZE_SMALL);
     dispIns(id);

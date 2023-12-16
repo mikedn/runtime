@@ -559,6 +559,7 @@ void emitIns(instruction ins);
 
 void emitIns_J(instruction ins, int instrCount);
 void emitIns_J(instruction ins, BasicBlock* dst);
+void emitIns_CallFinally(BasicBlock* block);
 
 void emitIns_BRK(uint16_t imm);
 

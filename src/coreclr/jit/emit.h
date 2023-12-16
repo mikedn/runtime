@@ -1138,6 +1138,13 @@ private:
         unsigned idjShort : 1;    // is the jump known to be a short  one?
         unsigned idjKeepLong : 1; // should the jump be kept long? (used for
         // hot to cold and cold to hot jumps)
+
+        void SetInstrCount(int count)
+        {
+            idjShort = true;
+            idSetIsBound();
+            idAddr()->iiaSetInstrCount(count);
+        }
     };
 
     struct instrDescCGCA : instrDesc // call with ...
