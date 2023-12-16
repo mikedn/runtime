@@ -8068,9 +8068,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             unreached();
     }
 
-    // Make sure we set the instruction descriptor size correctly
-    assert(sz == id->GetDescSize());
-
 #if !FEATURE_FIXED_OUT_ARGS
     if (!emitIGisInProlog(ig) && !ig->IsEpilog() && !ig->IsFuncletPrologOrEpilog())
     {
@@ -8113,6 +8110,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     assert(emitCurStackLvl <= INT32_MAX);
 #endif // !FEATURE_FIXED_OUT_ARGS
 
+    if (ins == INS_mulEAX || ins == INS_imulEAX)
+    {
+        assert((gcInfo.GetAllLiveRegs() & (RBM_EAX | RBM_EDX)) == RBM_NONE);
+    }
+    else if (ins == INS_imuli)
+    {
+        assert((gcInfo.GetAllLiveRegs() & genRegMask(id->idReg1())) == RBM_NONE);
+    }
+
     assert((*dp != dst) || id->InstrHasNoCode());
 
 #ifdef DEBUG
@@ -8152,35 +8158,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         assert((id->idCodeSize() - static_cast<unsigned>(dst - *dp)) == 0);
     }
-
-#ifdef DEBUG
-    if (emitComp->compDebugBreak)
-    {
-        if (JitConfig.JitEmitPrintRefRegs() != 0)
-        {
-            printf("Before emitOutputInstr for id->idDebugOnlyInfo()->idNum=0x%02x\n", id->idDebugOnlyInfo()->idNum);
-            printf("  REF regs");
-            DumpRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
-            printf("\n  BYREF regs");
-            DumpRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
-            printf("\n");
-        }
-
-        if (JitConfig.JitBreakEmitOutputInstr() == static_cast<int>(id->idDebugOnlyInfo()->idNum))
-        {
-            assert(!"JitBreakEmitOutputInstr reached");
-        }
-    }
-
-    if (ins == INS_mulEAX || ins == INS_imulEAX)
-    {
-        assert((gcInfo.GetAllLiveRegs() & (RBM_EAX | RBM_EDX)) == RBM_NONE);
-    }
-    else if (ins == INS_imuli)
-    {
-        assert((gcInfo.GetAllLiveRegs() & genRegMask(id->idReg1())) == RBM_NONE);
-    }
-#endif
 
     *dp = dst;
 

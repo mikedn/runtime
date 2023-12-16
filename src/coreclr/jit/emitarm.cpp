@@ -5364,10 +5364,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     insFormat   fmt  = id->idInsFmt();
     emitAttr    size = id->idOpSize();
 
-#ifdef DEBUG
-    bool dspOffs = emitComp->opts.dspGCtbls || !emitComp->opts.disDiffable;
-#endif // DEBUG
-
     assert(REG_NA == (int)REG_NA);
 
     switch (fmt)
@@ -6145,34 +6141,11 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     assert((*dp != dst) || id->InstrHasNoCode());
 
 #ifdef DEBUG
-    /* Make sure we set the instruction descriptor size correctly */
-
-    size_t expected = id->GetDescSize();
-    assert(sz == expected);
-
     if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
     {
+        bool dspOffs = emitComp->opts.dspGCtbls || !emitComp->opts.disDiffable;
+
         emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(odst), *dp, (dst - *dp), ig);
-    }
-
-    if (emitComp->compDebugBreak)
-    {
-        if (JitConfig.JitEmitPrintRefRegs() != 0)
-        {
-            printf("Before emitOutputInstr for id->idDebugOnlyInfo()->idNum=0x%02x\n", id->idDebugOnlyInfo()->idNum);
-            printf("  REF regs");
-            DumpRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
-            printf("\n  BYREF regs");
-            DumpRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
-            printf("\n");
-        }
-
-        // For example, set JitBreakEmitOutputInstr=a6 will break when this method is called for
-        // emitting instruction a6, (i.e. IN00a6 in jitdump).
-        if ((unsigned)JitConfig.JitBreakEmitOutputInstr() == id->idDebugOnlyInfo()->idNum)
-        {
-            assert(!"JitBreakEmitOutputInstr reached");
-        }
     }
 #endif
 

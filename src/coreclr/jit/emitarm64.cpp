@@ -9708,17 +9708,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     const emitAttr    size = id->idOpSize();
     size_t            sz   = emitGetInstrDescSize(id); // TODO-ARM64-Cleanup: on ARM, this is set in each case. why?
 
-#ifdef DEBUG
-#if DUMP_GC_TABLES
-    bool dspOffs = emitComp->opts.dspGCtbls;
-#else
-    bool dspOffs = !emitComp->opts.disDiffable;
-#endif
-#endif // DEBUG
-
     assert(REG_NA == (int)REG_NA);
-
-    /* What instruction format have we got? */
 
     switch (fmt)
     {
@@ -10893,24 +10883,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     assert((*dp != dst) || id->InstrHasNoCode());
 
 #ifdef DEBUG
-    /* Make sure we set the instruction descriptor size correctly */
-
-    size_t expected = id->GetDescSize();
-    assert(sz == expected);
-
     if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
     {
-        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(odst), *dp, (dst - *dp), ig);
-    }
+#if DUMP_GC_TABLES
+        bool dspOffs = emitComp->opts.dspGCtbls;
+#else
+        bool dspOffs = !emitComp->opts.disDiffable;
+#endif
 
-    if (emitComp->compDebugBreak)
-    {
-        // For example, set JitBreakEmitOutputInstr=a6 will break when this method is called for
-        // emitting instruction a6, (i.e. IN00a6 in jitdump).
-        if ((unsigned)JitConfig.JitBreakEmitOutputInstr() == id->idDebugOnlyInfo()->idNum)
-        {
-            assert(!"JitBreakEmitOutputInstr reached");
-        }
+        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(odst), *dp, (dst - *dp), ig);
     }
 #endif
 

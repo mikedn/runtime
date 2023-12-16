@@ -2044,6 +2044,28 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
     uint8_t* instrCodeAddr = *dp;
     size_t   instrDescSize = emitOutputInstr(ig, id, dp);
 
+#ifdef DEBUG
+    if (emitComp->compDebugBreak)
+    {
+        if (JitConfig.JitEmitPrintRefRegs() != 0)
+        {
+            printf("Before emitOutputInstr for id->idDebugOnlyInfo()->idNum=0x%02x\n", id->idDebugOnlyInfo()->idNum);
+            printf("  REF regs");
+            DumpRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
+            printf("\n  BYREF regs");
+            DumpRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
+            printf("\n");
+        }
+
+        // For example, set JitBreakEmitOutputInstr=a6 will break when this method is called for
+        // emitting instruction a6, (i.e. IN00a6 in jitdump).
+        if (static_cast<unsigned>(JitConfig.JitBreakEmitOutputInstr()) == id->idDebugOnlyInfo()->idNum)
+        {
+            assert(!"JitBreakEmitOutputInstr reached");
+        }
+    }
+#endif
+
 #if defined(DEBUG) || defined(LATE_DISASM)
     double insExecCost  = insEvaluateExecutionCost(id);
     double insPerfScore = (static_cast<double>(ig->igWeight) / BB_UNITY_WEIGHT) * insExecCost;
