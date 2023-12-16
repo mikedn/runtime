@@ -2041,30 +2041,26 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
     assert(id->idInsFmt() != IF_GC_REG);
 
-    uint8_t* instrCodeAddr = *dp;
-    size_t   instrDescSize = emitOutputInstr(ig, id, dp);
-
 #ifdef DEBUG
-    if (emitComp->compDebugBreak)
+    if (JitConfig.JitEmitPrintRefRegs() != 0)
     {
-        if (JitConfig.JitEmitPrintRefRegs() != 0)
-        {
-            printf("Before emitOutputInstr for id->idDebugOnlyInfo()->idNum=0x%02x\n", id->idDebugOnlyInfo()->idNum);
-            printf("  REF regs");
-            DumpRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
-            printf("\n  BYREF regs");
-            DumpRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
-            printf("\n");
-        }
+        printf("Before emitOutputInstr for IN%04X\n", id->idDebugOnlyInfo()->idNum);
+        printf("  REF regs");
+        DumpRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
+        printf("\n  BYREF regs");
+        DumpRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
+        printf("\n");
+    }
 
-        // For example, set JitBreakEmitOutputInstr=a6 will break when this method is called for
-        // emitting instruction a6, (i.e. IN00a6 in jitdump).
-        if (static_cast<unsigned>(JitConfig.JitBreakEmitOutputInstr()) == id->idDebugOnlyInfo()->idNum)
-        {
-            assert(!"JitBreakEmitOutputInstr reached");
-        }
+    if (emitComp->compDebugBreak &&
+        static_cast<unsigned>(JitConfig.JitBreakEmitOutputInstr()) == id->idDebugOnlyInfo()->idNum)
+    {
+        assert(!"JitBreakEmitOutputInstr reached");
     }
 #endif
+
+    uint8_t* instrCodeAddr = *dp;
+    size_t   instrDescSize = emitOutputInstr(ig, id, dp);
 
 #if defined(DEBUG) || defined(LATE_DISASM)
     double insExecCost  = insEvaluateExecutionCost(id);
