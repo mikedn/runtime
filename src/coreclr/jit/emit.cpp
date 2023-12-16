@@ -3492,7 +3492,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     // Patch any forward jumps.
     if (emitFwdJumps)
     {
-        PatchJumps();
+        PatchForwardJumps();
     }
 
 #ifdef DEBUG

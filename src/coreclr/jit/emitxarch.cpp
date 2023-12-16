@@ -8187,82 +8187,29 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     return sz;
 }
 
-void emitter::PatchJumps()
+void emitter::PatchForwardJumps()
 {
-    for (instrDescJmp* jmp = emitJumpList; jmp != nullptr; jmp = jmp->idjNext)
+    for (instrDescJmp* jump = emitJumpList; jump != nullptr; jump = jump->idjNext)
     {
-#ifdef TARGET_XARCH
-        assert((jmp->idInsFmt() == IF_LABEL) || (jmp->idInsFmt() == IF_RWR_LABEL));
-#endif
-        insGroup* tgt = jmp->idAddr()->iiaIGlabel;
+        assert((jump->idInsFmt() == IF_LABEL) || (jump->idInsFmt() == IF_RWR_LABEL));
 
-        if (jmp->idjAddr == nullptr)
+        insGroup* targetIG = jump->idAddr()->iiaIGlabel;
+
+        if ((jump->idjAddr == nullptr) || (jump->idjOffs == targetIG->igOffs))
         {
             continue;
         }
 
-        if (jmp->idjOffs != tgt->igOffs)
+        uint8_t* addr  = jump->idjAddr;
+        int32_t  delta = jump->idjOffs - targetIG->igOffs;
+
+        if (jump->idjShort)
         {
-            BYTE* adr = jmp->idjAddr;
-            int   adj = jmp->idjOffs - tgt->igOffs;
-#ifdef TARGET_ARM
-            // On Arm, the offset is encoded in unit of 2 bytes.
-            adj >>= 1;
-#endif
-
-#ifdef DEBUG
-            if (emitComp->verbose)
-            {
-#ifdef TARGET_ARM
-                printf("[5] This output is broken for ARM, since it doesn't properly decode the jump offsets of "
-                    "the instruction at adr\n");
-#endif
-
-                printf("[5] Jump %u:\n", jmp->idDebugOnlyInfo()->idNum);
-
-                if (jmp->idjShort)
-                {
-                    printf("[5] Jump        is at %08X\n", (adr + 1 - emitCodeBlock));
-                    printf("[5] Jump distance is  %02X - %02X = %02X\n", *(BYTE*)adr, adj, *(BYTE*)adr - adj);
-                }
-                else
-                {
-                    printf("[5] Jump        is at %08X\n", (adr + 4 - emitCodeBlock));
-                    printf("[5] Jump distance is  %08X - %02X = %08X\n", *(int*)adr, adj, *(int*)adr - adj);
-                }
-            }
-#endif // DEBUG
-
-            if (jmp->idjShort)
-            {
-                // Patch Forward Short Jump
-                CLANG_FORMAT_COMMENT_ANCHOR;
-#if defined(TARGET_XARCH)
-                * (BYTE*)(adr + writeableOffset) -= (BYTE)adj;
-#elif defined(TARGET_ARM)
-                // The following works because the jump offset is in the low order bits of the instruction.
-                // Presumably we could also just call "emitOutputLJ(NULL, adr, jmp)", like for long jumps?
-                * (short int*)(adr + writeableOffset) -= (short)adj;
-#elif defined(TARGET_ARM64)
-                assert(!jmp->idAddr()->iiaHasInstrCount());
-                emitOutputLJ(NULL, adr, jmp);
-#else
-#error Unsupported or unset target architecture
-#endif
-            }
-            else
-            {
-                // Patch Forward non-Short Jump
-                CLANG_FORMAT_COMMENT_ANCHOR;
-#if defined(TARGET_XARCH)
-                * (int*)(adr + writeableOffset) -= adj;
-#elif defined(TARGET_ARMARCH)
-                assert(!jmp->idAddr()->iiaHasInstrCount());
-                emitOutputLJ(NULL, adr, jmp);
-#else
-#error Unsupported or unset target architecture
-#endif
-            }
+            *reinterpret_cast<int8_t*>(addr + writeableOffset) -= static_cast<int8_t>(delta);
+        }
+        else
+        {
+            *reinterpret_cast<int32_t*>(addr + writeableOffset) -= delta;
         }
     }
 }
