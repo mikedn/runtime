@@ -389,20 +389,10 @@ void emitter::emitFinishIG(bool extend)
             assert(nj->idjNext == oj->idjNext);
 
             // Make sure the jumps are correctly ordered
-
-            assert(last == nullptr || last->idjOffs > nj->idjOffs);
-
-            if (ig->igFlags & IGF_FUNCLET_PROLOG)
-            {
-                // Our funclet prologs have short jumps, if the prolog would ever have
-                // long jumps, then we'd have to insert the list in sorted order than
-                // just append to the emitJumpList.
-                noway_assert(nj->idjShort);
-                if (nj->idjShort)
-                {
-                    continue;
-                }
-            }
+            assert((last == nullptr) || (last->idjOffs > nj->idjOffs));
+            // We don't generate any jumps in method epilogs and funclet prologs/epilogs,
+            // these are generated out of order and we'd need to reorder the jumps.
+            assert(!ig->IsFuncletPrologOrEpilog() && !ig->IsEpilog());
 
             // Append the new jump to the list
 
