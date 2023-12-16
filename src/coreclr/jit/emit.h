@@ -1560,6 +1560,10 @@ private:
     void emitGenIG(insGroup* ig);
     void emitExtendIG();
     void emitFinishIG(bool extend = false);
+    void MoveJumpInstrList(insGroup* ig);
+#if FEATURE_LOOP_ALIGN
+    void MoveAlignInstrList(insGroup* ig);
+#endif
 
 #ifndef JIT32_GCENCODER
 public:

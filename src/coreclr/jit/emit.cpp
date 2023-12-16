@@ -311,126 +311,124 @@ void emitter::emitFinishIG(bool extend)
     assert(IsCodeAligned(emitCurCodeOffset));
 
 #if FEATURE_LOOP_ALIGN
-    // Did we have any align instructions in this group?
-    if (emitCurIGAlignList)
+    if (emitCurIGAlignList != nullptr)
     {
-        instrDescAlign* list = nullptr;
-        instrDescAlign* last = nullptr;
-
-        // Move align instructions to the global list, update their 'next' links
-        do
-        {
-            // Grab the jump and remove it from the list
-
-            instrDescAlign* oa = emitCurIGAlignList;
-            emitCurIGAlignList = oa->idaNext;
-
-            // Figure out the address of where the align got copied
-
-            size_t          of = (BYTE*)oa - emitCurIGfreeBase;
-            instrDescAlign* na = (instrDescAlign*)(ig->igData + of);
-
-            assert(na->idaIG == ig);
-            assert(na->idIns() == oa->idIns());
-            assert(na->idaNext == oa->idaNext);
-            assert(na->idIns() == INS_align);
-
-            na->idaNext = list;
-            list        = na;
-
-            if (last == nullptr)
-            {
-                last = na;
-            }
-        } while (emitCurIGAlignList);
-
-        // Should have at least one align instruction
-        assert(last);
-
-        if (emitAlignList == nullptr)
-        {
-            assert(emitAlignLast == nullptr);
-
-            last->idaNext = emitAlignList;
-            emitAlignList = list;
-        }
-        else
-        {
-            last->idaNext          = nullptr;
-            emitAlignLast->idaNext = list;
-        }
-
-        emitAlignLast = last;
+        MoveAlignInstrList(ig);
     }
-
 #endif
 
-    if (emitCurIGjmpList)
+    if (emitCurIGjmpList != nullptr)
     {
-        instrDescJmp* list = nullptr;
-        instrDescJmp* last = nullptr;
-
-        // Move jumps to the global list, update their 'next' links
-
-        do
-        {
-            // Grab the jump and remove it from the list
-
-            instrDescJmp* oj = emitCurIGjmpList;
-            emitCurIGjmpList = oj->idjNext;
-
-            // Figure out the address of where the jump got copied
-
-            size_t        of = (BYTE*)oj - emitCurIGfreeBase;
-            instrDescJmp* nj = (instrDescJmp*)(ig->igData + of);
-
-            assert(nj->idjIG == ig);
-            assert(nj->idIns() == oj->idIns());
-            assert(nj->idjNext == oj->idjNext);
-
-            // Make sure the jumps are correctly ordered
-            assert((last == nullptr) || (last->idjOffs > nj->idjOffs));
-            // We don't generate any jumps in method epilogs and funclet prologs/epilogs,
-            // these are generated out of order and we'd need to reorder the jumps.
-            assert(!ig->IsFuncletPrologOrEpilog() && !ig->IsEpilog());
-
-            // Append the new jump to the list
-
-            nj->idjNext = list;
-            list        = nj;
-
-            if (last == nullptr)
-            {
-                last = nj;
-            }
-        } while (emitCurIGjmpList);
-
-        if (last != nullptr)
-        {
-            // Append the jump(s) from this IG to the global list
-            bool prologJump = emitIGisInProlog(ig);
-            if ((emitJumpList == nullptr) || prologJump)
-            {
-                last->idjNext = emitJumpList;
-                emitJumpList  = list;
-            }
-            else
-            {
-                last->idjNext         = nullptr;
-                emitJumpLast->idjNext = list;
-            }
-
-            if (!prologJump || (emitJumpLast == nullptr))
-            {
-                emitJumpLast = last;
-            }
-        }
+        MoveJumpInstrList(ig);
     }
 
     emitCurIGfreeNext = emitCurIGfreeBase;
 
     JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", ig->igNum, ig->igOffs, ig->igFuncIdx,
             refCntWtd2str(ig->igWeight));
+}
+
+#if FEATURE_LOOP_ALIGN
+void emitter::MoveAlignInstrList(insGroup* ig)
+{
+    assert(emitCurIGAlignList != nullptr);
+
+    instrDescAlign* list = nullptr;
+    instrDescAlign* last = nullptr;
+
+    while (emitCurIGAlignList != nullptr)
+    {
+        instrDescAlign* instr = emitCurIGAlignList;
+        emitCurIGAlignList    = instr->idaNext;
+
+        size_t          instrOffs = reinterpret_cast<uint8_t*>(instr) - emitCurIGfreeBase;
+        instrDescAlign* newInstr  = reinterpret_cast<instrDescAlign*>(ig->igData + instrOffs);
+
+        assert(newInstr->idIns() == INS_align);
+        assert(newInstr->idaIG == ig);
+        assert(newInstr->idaNext == instr->idaNext);
+
+        newInstr->idaNext = list;
+        list              = newInstr;
+
+        if (last == nullptr)
+        {
+            last = newInstr;
+        }
+    }
+
+    assert(last != nullptr);
+
+    if (emitAlignList == nullptr)
+    {
+        assert(emitAlignLast == nullptr);
+
+        last->idaNext = emitAlignList;
+        emitAlignList = list;
+    }
+    else
+    {
+        last->idaNext          = nullptr;
+        emitAlignLast->idaNext = list;
+    }
+
+    emitAlignLast = last;
+}
+#endif // FEATURE_LOOP_ALIGN
+
+void emitter::MoveJumpInstrList(insGroup* ig)
+{
+    assert(emitCurIGjmpList != nullptr);
+
+    instrDescJmp* list = nullptr;
+    instrDescJmp* last = nullptr;
+
+    while (emitCurIGjmpList != nullptr)
+    {
+        instrDescJmp* instr = emitCurIGjmpList;
+        emitCurIGjmpList    = instr->idjNext;
+
+        size_t        instrOffs = reinterpret_cast<uint8_t*>(instr) - emitCurIGfreeBase;
+        instrDescJmp* newInstr  = reinterpret_cast<instrDescJmp*>(ig->igData + instrOffs);
+
+        assert(newInstr->idIns() == instr->idIns());
+        assert(newInstr->idjIG == ig);
+        assert(newInstr->idjNext == instr->idjNext);
+
+        // Make sure the jumps are correctly ordered
+        assert((last == nullptr) || (last->idjOffs > newInstr->idjOffs));
+        // We don't generate any jumps in method epilogs and funclet prologs/epilogs,
+        // these are generated out of order and we'd need to reorder the jumps.
+        assert(!ig->IsFuncletPrologOrEpilog() && !ig->IsEpilog());
+
+        newInstr->idjNext = list;
+        list              = newInstr;
+
+        if (last == nullptr)
+        {
+            last = newInstr;
+        }
+    }
+
+    assert(last != nullptr);
+
+    bool isPrologJump = emitIGisInProlog(ig);
+
+    if ((emitJumpList == nullptr) || isPrologJump)
+    {
+        last->idjNext = emitJumpList;
+        emitJumpList  = list;
+    }
+    else
+    {
+        last->idjNext         = nullptr;
+        emitJumpLast->idjNext = list;
+    }
+
+    if (!isPrologJump || (emitJumpLast == nullptr))
+    {
+        emitJumpLast = last;
+    }
 }
 
 #ifndef JIT32_GCENCODER
