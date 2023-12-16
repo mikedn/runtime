@@ -3903,13 +3903,10 @@ void emitter::emitSetShortJump(instrDescJmp* id)
     {
         id->idInsFmt(IF_T1_M);
     }
-    else if (emitIsLoadLabel(id))
-    {
-        return; // Keep long - we don't know the alignment of the target
-    }
     else
     {
-        assert(!"Unknown instruction in emitSetShortJump()");
+        assert(emitIsLoadLabel(id));
+        return; // Keep long - we don't know the alignment of the target
     }
 
     id->idjShort = true;
@@ -3955,18 +3952,27 @@ void emitter::emitSetMediumJump(instrDescJmp* id)
 #define JCC_SIZE_SMALL (2)
 #define JCC_SIZE_LARGE (6)
 
+static bool IsConditionalBranch(instruction ins)
+{
+    return (INS_beq <= ins) && (ins <= INS_ble);
+}
+
+static bool IsBranch(instruction ins)
+{
+    return (ins == INS_b) || IsConditionalBranch(ins);
+}
+
 void emitter::emitIns_J(instruction ins, int instrCount)
 {
+    assert(IsBranch(ins));
     assert(instrCount != 0);
-
-    insFormat fmt = ins == INS_b ? IF_T2_J2 : IF_LARGEJMP;
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
-    id->idInsFmt(fmt);
-    id->idInsSize(emitInsSize(fmt));
+    id->idInsFmt(ins == INS_b ? IF_T1_M : IF_T1_K);
+    id->idInsSize(ISZ_16BIT);
+    id->idjShort = true;
     id->idAddr()->iiaSetInstrCount(instrCount);
-    emitSetShortJump(id);
     id->idSetIsBound();
 
     id->idjIG        = emitCurIG;
@@ -3980,49 +3986,15 @@ void emitter::emitIns_J(instruction ins, int instrCount)
 
 void emitter::emitIns_J(instruction ins, BasicBlock* dst)
 {
+    assert(IsBranch(ins));
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
-
-    insFormat fmt;
-
-    switch (ins)
-    {
-        case INS_b:
-            fmt = IF_T2_J2;
-            break;
-        case INS_beq:
-        case INS_bne:
-        case INS_bhs:
-        case INS_blo:
-        case INS_bmi:
-        case INS_bpl:
-        case INS_bvs:
-        case INS_bvc:
-        case INS_bhi:
-        case INS_bls:
-        case INS_bge:
-        case INS_blt:
-        case INS_bgt:
-        case INS_ble:
-            fmt = IF_LARGEJMP;
-            break;
-        default:
-            unreached();
-    }
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
-    id->idInsFmt(fmt);
-    id->idInsSize(emitInsSize(fmt));
+    id->idInsFmt(ins == INS_b ? IF_T2_J2 : IF_LARGEJMP);
+    id->idInsSize(emitInsSize(id->idInsFmt()));
     id->idAddr()->iiaBBlabel = dst;
     id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst) INDEBUG(|| keepLongJumps);
-
-    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
-                (ins == INS_b) && (GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
-
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
 
     if (!id->idjKeepLong)
     {
@@ -4039,22 +4011,62 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst)
             {
                 if (JMP_DIST_SMALL_MAX_NEG <= -distance)
                 {
-                    emitSetShortJump(id);
+                    id->idInsFmt(IF_T1_M);
+                    id->idInsSize(ISZ_16BIT);
+                    id->idjShort = true;
                 }
             }
             else
             {
                 if (JCC_DIST_SMALL_MAX_NEG <= -distance)
                 {
-                    emitSetShortJump(id);
+                    id->idInsFmt(IF_T1_K);
+                    id->idInsSize(ISZ_16BIT);
+                    id->idjShort = true;
                 }
                 else if (JCC_DIST_MEDIUM_MAX_NEG <= -distance)
                 {
-                    emitSetMediumJump(id);
+                    id->idInsFmt(IF_T2_J1);
+                    id->idInsSize(ISZ_32BIT);
                 }
             }
         }
     }
+
+    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
+                (ins == INS_b) && (GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
+
+    id->idjIG        = emitCurIG;
+    id->idjOffs      = emitCurIGsize;
+    id->idjNext      = emitCurIGjmpList;
+    emitCurIGjmpList = id;
+
+    dispIns(id);
+    appendToCurIG(id);
+}
+
+void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg)
+{
+    // TODO-MIKE-Review: cbz/cbnz aren't used on ARM. Delete or try to use these instructions?
+    // Their limited range might make using them problematic, we might save a cheap 0 compare
+    // and end up with an extra unconditional branch.
+    assert((ins == INS_cbz) || (ins == INS_cbnz));
+    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
+    assert(isLowRegister(reg));
+
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(ins);
+    id->idInsFmt(IF_T1_I);
+    id->idInsSize(ISZ_16BIT);
+    id->idReg1(reg);
+    id->idAddr()->iiaBBlabel = dst;
+    id->idjShort             = true;
+    id->idjKeepLong          = false;
+
+    id->idjIG        = emitCurIG;
+    id->idjOffs      = emitCurIGsize;
+    id->idjNext      = emitCurIGjmpList;
+    emitCurIGjmpList = id;
 
     dispIns(id);
     appendToCurIG(id);
@@ -4095,49 +4107,6 @@ void emitter::emitIns_R_D(instruction ins, unsigned offs, regNumber reg)
     id->idInsFmt(IF_T2_N2);
     id->idInsSize(emitInsSize(IF_T2_N2));
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
-
-    dispIns(id);
-    appendToCurIG(id);
-}
-
-void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg)
-{
-    assert(dst->bbFlags & BBF_HAS_LABEL);
-
-    insFormat fmt = IF_NONE;
-    switch (ins)
-    {
-        case INS_cbz:
-        case INS_cbnz:
-            fmt = IF_T1_I;
-            break;
-        default:
-            unreached();
-    }
-    assert(fmt == IF_T1_I);
-
-    assert(isLowRegister(reg));
-
-    instrDescJmp* id = emitNewInstrJmp();
-    id->idIns(ins);
-    id->idInsFmt(IF_T1_I);
-    id->idInsSize(emitInsSize(IF_T1_I));
-    id->idReg1(reg);
-
-    /* This jump better be short or-else! */
-    id->idjShort             = true;
-    id->idAddr()->iiaBBlabel = dst;
-    id->idjKeepLong          = false;
-
-    /* Record the jump's IG and offset within it */
-
-    id->idjIG   = emitCurIG;
-    id->idjOffs = emitCurIGsize;
-
-    /* Append this jump to this IG's jump list */
-
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
 
     dispIns(id);
     appendToCurIG(id);
