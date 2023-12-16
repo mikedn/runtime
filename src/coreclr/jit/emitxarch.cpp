@@ -5338,66 +5338,17 @@ size_t emitter::emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t 
 
 static uint8_t* emitOutputNOP(uint8_t* dstRW, size_t nBytes)
 {
-    assert(nBytes <= 15);
+    assert(nBytes <= MAX_ENCODED_SIZE);
 
-#ifndef TARGET_AMD64
+#ifdef TARGET_X86
     // TODO-X86-CQ: when VIA C3 CPU's are out of circulation, switch to the
     // more efficient real NOP: 0x0F 0x1F +modR/M
     // Also can't use AMD recommended, multiple size prefixes (i.e. 0x66 0x66 0x90 for 3 byte NOP)
     // because debugger and msdis don't like it, so maybe VIA doesn't either
     // So instead just stick to repeating single byte nops
-
-    switch (nBytes)
-    {
-        case 15:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 14:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 13:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 12:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 11:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 10:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 9:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 8:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 7:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 6:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 5:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 4:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 3:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 2:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 1:
-            *dstRW++ = 0x90;
-            break;
-        case 0:
-            break;
-    }
-#else  // TARGET_AMD64
+    memset(dstRW, 0x90, nBytes);
+    dstRW += nBytes;
+#else
     switch (nBytes)
     {
         case 2:
