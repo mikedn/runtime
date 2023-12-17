@@ -666,12 +666,13 @@ void emitIns_Call(EmitCallType          kind,
 private:
 void emitSetShortJump(instrDescJmp* id);
 
-BYTE* emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i);
-BYTE* emitOutputLoadLabel(BYTE* dst, BYTE* srcAddr, BYTE* dstAddr, instrDescJmp* id);
-BYTE* emitOutputShortBranch(BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);
-BYTE* emitOutputShortAddress(BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, regNumber reg);
-BYTE* emitOutputShortConstant(
-    BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, regNumber reg, emitAttr opSize);
+uint8_t* emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
+uint8_t* emitOutputDL(uint8_t* dst, instrDescJmp* id);
+uint8_t* emitOutputLoadLabel(uint8_t* dst, uint8_t* srcAddr, uint8_t* dstAddr, instrDescJmp* id);
+uint8_t* emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);
+uint8_t* emitOutputShortAddress(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, regNumber reg);
+uint8_t* emitOutputShortConstant(
+    uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, regNumber reg, emitAttr opSize);
 
 /*****************************************************************************
  *

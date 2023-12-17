@@ -2781,6 +2781,10 @@ void emitter::emitIns_R_R_I(instruction ins,
             break;
 
         case INS_adr:
+            // TODO-MIKE-Review: adr isn't used on ARM and this code is likely broken, this would
+            // need to create an instrDescJmp instead of instrDesc and it's not even clear why is
+            // this in R_R_I instead of R_I or R_L or whatever. Probably not very useful anyway
+            // as the imm range is very small.
             assert(insOptsNone(opt));
             assert(insDoesNotSetFlags(flags));
             assert(reg2 == REG_PC);
@@ -4805,416 +4809,296 @@ unsigned emitter::emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code)
     return 4;
 }
 
-/*****************************************************************************
- *
- *  Output a local jump instruction.
- *  Note that this may be invoked to overwrite an existing jump instruction at 'dst'
- *  to handle forward branch patching.
- */
-
-BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
+uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id)
 {
-    unsigned srcOffs;
-    unsigned dstOffs;
-    ssize_t  distVal;
+    instruction ins = id->idIns();
+    insFormat   fmt = id->idInsFmt();
 
-    instrDescJmp* id  = (instrDescJmp*)i;
-    instruction   ins = id->idIns();
-    code_t        code;
+    assert((ins == INS_adr) || (ins == INS_movw) || (ins == INS_movt));
+    assert((fmt == IF_T1_J3) || (fmt == IF_T2_M1) || (fmt == IF_T2_N1));
 
-    bool loadLabel = false;
-    bool isJump    = false;
-    bool relAddr   = true; // does the instruction use relative-addressing?
+    uint32_t srcOffs = emitCurCodeOffs(dst);
+    uint32_t dstOffs = id->idAddr()->iiaIGlabel->igOffs;
+    ssize_t  distance;
 
-    size_t sdistneg;
-
-    switch (ins)
+    if (ins == INS_adr)
     {
-        default:
-            sdistneg = JCC_DIST_SMALL_MAX_NEG;
-            isJump   = true;
-            break;
+        // For adr, the distance is calculated from 4-byte aligned srcOffs.
+        distance = emitOffsetToPtr(dstOffs) -
+                   reinterpret_cast<uint8_t*>(reinterpret_cast<size_t>(emitOffsetToPtr(srcOffs)) & ~3) + 1;
+    }
+    else
+    {
+        assert((ins == INS_movw) || (ins == INS_movt));
 
-        case INS_cbz:
-        case INS_cbnz:
-            // One size fits all!
-            sdistneg = 0;
-            isJump   = true;
-            break;
-
-        case INS_adr:
-            sdistneg  = LBL_DIST_SMALL_MAX_NEG;
-            loadLabel = true;
-            break;
-
-        case INS_movw:
-        case INS_movt:
-            sdistneg  = LBL_DIST_SMALL_MAX_NEG;
-            relAddr   = false;
-            loadLabel = true;
-            break;
+        distance = reinterpret_cast<ssize_t>(emitOffsetToPtr(dstOffs)) + 1; // Or in thumb bit
     }
 
-    /* Figure out the distance to the target */
+    if (dstOffs > srcOffs)
+    {
+        int adjustment = RecordForwardJump(id, srcOffs, dstOffs);
 
-    srcOffs = emitCurCodeOffs(dst);
+        dstOffs -= adjustment;
+        distance -= adjustment;
+    }
+
+    // Adjust the offset to emit relative to the end of the instruction.
+    if (ins == INS_adr)
+    {
+        distance -= 4;
+    }
+
+    id->idjAddr = distance > 0 ? dst : nullptr;
+
+    code_t code = emitInsCode(ins, fmt);
+
+    if (fmt == IF_T1_J3)
+    {
+        assert((dstOffs & 3) == 0);
+        assert((0 <= distance) && (distance <= 1022));
+
+        code |= (distance >> 2) & 0xff;
+
+        return dst + emitOutput_Thumb1Instr(dst, code);
+    }
+
+    if (fmt == IF_T2_M1)
+    {
+        assert((-4095 <= distance) && (distance <= 4095));
+
+        if (distance < 0)
+        {
+            code |= 0x00A0 << 16;
+            distance = -distance;
+        }
+
+        assert((distance & 0x0fff) == distance);
+
+        code |= distance & 0x00ff;
+        code |= (distance & 0x0700) << 4;
+        code |= (distance & 0x0800) << 15;
+        code |= id->idReg1() << 8;
+
+        return dst + emitOutput_Thumb2Instr(dst, code);
+    }
+
+    assert(fmt == IF_T2_N1);
+    assert((ins == INS_movt) || (ins == INS_movw));
+
+    id->idjAddr = dstOffs > srcOffs ? dst : nullptr;
+
+    code |= insEncodeRegT2_D(id->idReg1());
+
+    if (id->idIsCnsReloc())
+    {
+        dst += emitOutput_Thumb2Instr(dst, code);
+
+        if ((ins == INS_movt) && emitComp->info.compMatchedVM)
+        {
+            emitHandlePCRelativeMov32(dst - 8, reinterpret_cast<void*>(distance));
+        }
+
+        return dst;
+    }
+
+    code |= insEncodeImmT2_Mov((ins == INS_movw ? distance : (distance >> 16)) & 0xffff);
+
+    return dst + emitOutput_Thumb2Instr(dst, code);
+}
+
+uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
+{
+    instruction ins = id->idIns();
+    insFormat   fmt = id->idInsFmt();
+
+    uint32_t srcOffs = emitCurCodeOffs(dst);
+    uint32_t dstOffs;
+
     if (id->idAddr()->iiaHasInstrCount())
     {
-        assert(ig != NULL);
-        int      instrCount = id->idAddr()->iiaGetInstrCount();
-        unsigned insNum     = emitFindInsNum(ig, id);
-        if (instrCount < 0)
-        {
-            // Backward branches using instruction count must be within the same instruction group.
-            assert(insNum + 1 >= (unsigned)(-instrCount));
-        }
-        dstOffs = ig->igOffs + emitFindOffset(ig, (insNum + 1 + instrCount));
+        assert(ig != nullptr);
+
+        int      instrCount   = id->idAddr()->iiaGetInstrCount();
+        unsigned jumpInstrNum = emitFindInsNum(ig, id);
+
+        assert((instrCount >= 0) || (jumpInstrNum + 1 >= static_cast<unsigned>(-instrCount)));
+
+        dstOffs = ig->igOffs + emitFindOffset(ig, jumpInstrNum + 1 + instrCount);
     }
     else
     {
         dstOffs = id->idAddr()->iiaIGlabel->igOffs;
     }
 
-    if (relAddr)
-    {
-        if (ins == INS_adr)
-        {
-            // for adr, the distance is calculated from 4-byte aligned srcOffs.
-            distVal = (ssize_t)((emitOffsetToPtr(dstOffs) - (BYTE*)(((size_t)emitOffsetToPtr(srcOffs)) & ~3)) + 1);
-        }
-        else
-        {
-            distVal = (ssize_t)(emitOffsetToPtr(dstOffs) - emitOffsetToPtr(srcOffs));
-        }
-    }
-    else
-    {
-        assert(ins == INS_movw || ins == INS_movt);
-        distVal = (ssize_t)emitOffsetToPtr(dstOffs) + 1; // Or in thumb bit
-    }
+    ssize_t distance = emitOffsetToPtr(dstOffs) - emitOffsetToPtr(srcOffs);
+
+    // Adjust the offset to emit relative to the end of the instruction.
+    distance -= 4;
 
     if (dstOffs <= srcOffs)
     {
-/* This is a backward jump - distance is known at this point */
-
-#ifdef DEBUG
-        if (emitComp->verbose)
-        {
-            size_t blkOffs = id->idjIG->igOffs;
-
-            printf("[3] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
-            printf("[3] Jump  block is at %08X - %02X = %08X\n", blkOffs, emitOffsAdj, blkOffs - emitOffsAdj);
-            printf("[3] Jump        is at %08X - %02X = %08X\n", srcOffs, emitOffsAdj, srcOffs - emitOffsAdj);
-            printf("[3] Label block is at %08X - %02X = %08X\n", dstOffs, emitOffsAdj, dstOffs - emitOffsAdj);
-        }
-#endif
-
-        // This format only supports forward branches
+        // This format only supports forward branches.
         noway_assert(id->idInsFmt() != IF_T1_I);
 
-        /* Can we use a short jump? */
-
-        if (isJump && ((unsigned)(distVal - 4) >= (unsigned)sdistneg) && !id->idjKeepLong)
+        if (!id->idjKeepLong)
         {
-            emitSetShortJump(id);
+            unsigned smallMaxNeg = (ins == INS_cbz) || (ins == INS_cbnz) ? 0 : JCC_DIST_SMALL_MAX_NEG;
+
+            if (static_cast<unsigned>(distance) >= smallMaxNeg)
+            {
+                emitSetShortJump(id);
+            }
         }
     }
     else
     {
         int adjustment = RecordForwardJump(id, srcOffs, dstOffs);
+
         dstOffs -= adjustment;
-        distVal -= adjustment;
-
-#ifdef DEBUG
-        if (emitComp->verbose)
-        {
-            size_t blkOffs = id->idjIG->igOffs;
-
-            printf("[4] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
-            printf("[4] Jump  block is at %08X\n", blkOffs);
-            printf("[4] Jump        is at %08X\n", srcOffs);
-            printf("[4] Label block is at %08X - %02X = %08X\n", dstOffs + emitOffsAdj, emitOffsAdj, dstOffs);
-        }
-#endif
+        distance -= adjustment;
     }
 
-    /* Adjust the offset to emit relative to the end of the instruction */
-
-    if (relAddr)
-        distVal -= 4;
-
-#ifdef DEBUG
-    if (0 && emitComp->verbose)
+    if (id->idjShort)
     {
-        size_t sz          = 4; // Thumb-2 pretends all instructions are 4-bytes long for computing jump offsets?
-        int    distValSize = id->idjShort ? 4 : 8;
-        printf("; %s jump [%08X/%03u] from %0*X to %0*X: dist = %08XH\n", (dstOffs <= srcOffs) ? "Fwd" : "Bwd",
-               dspPtr(id), id->idDebugOnlyInfo()->idNum, distValSize, srcOffs + sz, distValSize, dstOffs, distVal);
+        assert(!id->idjKeepLong);
+        assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
+        static_assert_no_msg(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
+        static_assert_no_msg(JMP_SIZE_SMALL == 2);
+
+        id->idjAddr = distance > 0 ? dst : nullptr;
+
+        return emitOutputShortBranch(dst, ins, fmt, distance, id);
     }
-#endif
 
-    insFormat fmt = id->idInsFmt();
+    id->idjAddr = dstOffs > srcOffs ? dst : nullptr;
 
-    if (isJump)
+    if (fmt == IF_LARGEJMP)
     {
-        /* What size jump should we use? */
+        // This is a pseudo-instruction format representing a large conditional branch, to allow us
+        // to get a greater branch target range than we can get by using a straightforward conditional
+        // branch. It is encoded as a short conditional branch that branches around a long unconditional
+        // branch.
+        instruction reverse = emitJumpKindToIns(emitReverseJumpKind(emitInsToJumpKind(ins)));
+        dst                 = emitOutputShortBranch(dst, reverse, IF_T1_K, 2, nullptr);
 
-        if (id->idjShort)
-        {
-            /* Short jump */
+        // Now, pretend we've got a normal unconditional branch, and fall through to the code to emit that.
+        ins = INS_b;
+        fmt = IF_T2_J2;
 
-            assert(!id->idjKeepLong);
-            assert(emitJumpCrossHotColdBoundary(srcOffs, dstOffs) == false);
-
-            assert(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
-            assert(JMP_SIZE_SMALL == 2);
-
-            /* For forward jumps, record the address of the distance value */
-            id->idjAddr = (distVal > 0) ? dst : nullptr;
-
-            dst = emitOutputShortBranch(dst, ins, fmt, distVal, id);
-        }
-        else
-        {
-            /* Long  jump */
-
-            /* For forward jumps, record the address of the distance value */
-            id->idjAddr = (dstOffs > srcOffs) ? dst : nullptr;
-
-            if (fmt == IF_LARGEJMP)
-            {
-                // This is a pseudo-instruction format representing a large conditional branch, to allow
-                // us to get a greater branch target range than we can get by using a straightforward conditional
-                // branch. It is encoded as a short conditional branch that branches around a long unconditional
-                // branch.
-                //
-                // Conceptually, we have:
-                //
-                //      b<cond> L_target
-                //
-                // The code we emit is:
-                //
-                //      b<!cond> L_not  // 2 bytes. Note that we reverse the condition.
-                //      b L_target      // 4 bytes
-                //   L_not:
-                //
-                // Note that we don't actually insert any blocks: we simply encode "b <!cond> L_not" as a branch with
-                // the correct offset. Note also that this works for both integer and floating-point conditions, because
-                // the condition inversion takes ordered/unordered into account, preserving NaN behavior. For example,
-                // "GT" (greater than) is inverted to "LE" (less than, equal, or unordered).
-                //
-                // History: previously, we generated:
-                //      it<cond>
-                //      b L_target
-                // but the "it" instruction was deprecated, so we can't use it.
-
-                dst = emitOutputShortBranch(dst,
-                                            emitJumpKindToIns(emitReverseJumpKind(
-                                                emitInsToJumpKind(ins))), // reverse the conditional instruction
-                                            IF_T1_K,
-                                            6 - 4, /* 6 bytes from start of this large conditional pseudo-instruction to
-                                                      L_not. Jumps are encoded as offset from instr address + 4. */
-                                            NULL /* only used for cbz/cbnz */);
-
-                // Now, pretend we've got a normal unconditional branch, and fall through to the code to emit that.
-                ins = INS_b;
-                fmt = IF_T2_J2;
-
-                // The distVal was computed based on the beginning of the pseudo-instruction, which is
-                // the IT. So subtract the size of the IT from the offset, so it is relative to the
-                // unconditional branch.
-                distVal -= 2;
-            }
-
-            code = emitInsCode(ins, fmt);
-
-            if (fmt == IF_T2_J1)
-            {
-                // Can't use this form for jumps between the hot and cold regions
-                assert(!id->idjKeepLong);
-                assert(emitJumpCrossHotColdBoundary(srcOffs, dstOffs) == false);
-
-                assert((distVal & 1) == 0);
-                assert(distVal >= -1048576);
-                assert(distVal <= 1048574);
-
-                if (distVal < 0)
-                    code |= 1 << 26;
-                code |= ((distVal >> 1) & 0x0007ff);
-                code |= (((distVal >> 1) & 0x01f800) << 5);
-                code |= (((distVal >> 1) & 0x020000) >> 4);
-                code |= (((distVal >> 1) & 0x040000) >> 7);
-            }
-            else if (fmt == IF_T2_J2)
-            {
-                assert((distVal & 1) == 0);
-                if (emitComp->opts.compReloc && emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
-                {
-                    // dst isn't an actual final target location, just some intermediate
-                    // location.  Thus we cannot make any guarantees about distVal (not
-                    // even the direction/sign).  Instead we don't encode any offset and
-                    // rely on the relocation to do all the work
-                }
-                else
-                {
-                    assert(distVal >= CALL_DIST_MAX_NEG);
-                    assert(distVal <= CALL_DIST_MAX_POS);
-
-                    if (distVal < 0)
-                        code |= 1 << 26;
-                    code |= ((distVal >> 1) & 0x0007ff);
-                    code |= (((distVal >> 1) & 0x1ff800) << 5);
-
-                    bool S  = (distVal < 0);
-                    bool I1 = ((distVal & 0x00800000) == 0);
-                    bool I2 = ((distVal & 0x00400000) == 0);
-
-                    if (S ^ I1)
-                        code |= (1 << 13); // J1 bit
-                    if (S ^ I2)
-                        code |= (1 << 11); // J2 bit
-                }
-            }
-            else
-            {
-                assert(!"Unknown fmt");
-            }
-
-            unsigned instrSize = emitOutput_Thumb2Instr(dst, code);
-
-            if (emitComp->opts.compReloc && emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
-            {
-                assert(id->idjKeepLong);
-                emitRecordRelocation((void*)dst, emitOffsetToPtr(dstOffs), IMAGE_REL_BASED_THUMB_BRANCH24);
-            }
-
-            dst += instrSize;
-        }
+        // The distance was computed based on the beginning of the pseudo-instruction.
+        distance -= 2;
     }
-    else if (loadLabel)
+
+    code_t code = emitInsCode(ins, fmt);
+
+    if (fmt == IF_T2_J1)
     {
-        /* For forward jumps, record the address of the distance value */
-        id->idjAddr = (distVal > 0) ? dst : nullptr;
+        assert(!id->idjKeepLong);
+        assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
+        assert((distance & 1) == 0);
+        assert((-1048576 <= distance) && (distance <= 1048574));
 
-        code = emitInsCode(ins, fmt);
-
-        if (fmt == IF_T1_J3)
+        if (distance < 0)
         {
-            assert((dstOffs & 3) == 0); // The target label must be 4-byte aligned
-            assert(distVal >= 0);
-            assert(distVal <= 1022);
-            code |= ((distVal >> 2) & 0xff);
-
-            dst += emitOutput_Thumb1Instr(dst, code);
+            code |= 1 << 26;
         }
-        else if (fmt == IF_T2_M1)
-        {
-            assert(distVal >= -4095);
-            assert(distVal <= +4095);
-            if (distVal < 0)
-            {
-                code |= 0x00A0 << 16;
-                distVal = -distVal;
-            }
-            assert((distVal & 0x0fff) == distVal);
-            code |= (distVal & 0x00ff);
-            code |= ((distVal & 0x0700) << 4);
 
-            code |= ((distVal & 0x0800) << 15);
-            code |= id->idReg1() << 8;
+        code |= (distance >> 1) & 0x0007ff;
+        code |= ((distance >> 1) & 0x01f800) << 5;
+        code |= ((distance >> 1) & 0x020000) >> 4;
+        code |= ((distance >> 1) & 0x040000) >> 7;
 
-            dst += emitOutput_Thumb2Instr(dst, code);
-        }
-        else if (fmt == IF_T2_N1)
-        {
-            assert(ins == INS_movt || ins == INS_movw);
-            code |= insEncodeRegT2_D(id->idReg1());
-            ((instrDescJmp*)id)->idjAddr = (dstOffs > srcOffs) ? dst : nullptr;
-
-            if (id->idIsCnsReloc())
-            {
-                dst += emitOutput_Thumb2Instr(dst, code);
-                if ((ins == INS_movt) && emitComp->info.compMatchedVM)
-                {
-                    emitHandlePCRelativeMov32((void*)(dst - 8), (void*)distVal);
-                }
-            }
-            else
-            {
-                assert(sizeof(size_t) == sizeof(target_size_t));
-                target_size_t imm = (target_size_t)distVal;
-                if (ins == INS_movw)
-                {
-                    imm &= 0xffff;
-                }
-                else
-                {
-                    imm = (imm >> 16) & 0xffff;
-                }
-                code |= insEncodeImmT2_Mov(imm);
-                dst += emitOutput_Thumb2Instr(dst, code);
-            }
-        }
-        else
-        {
-            assert(!"Unknown fmt");
-        }
+        return dst + emitOutput_Thumb2Instr(dst, code);
     }
 
-    return dst;
+    assert(fmt == IF_T2_J2);
+    assert((distance & 1) == 0);
+
+    if (emitComp->opts.compReloc && emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
+    {
+        // dst isn't an actual final target location, just some intermediate location.
+        // Thus we cannot make any guarantees about distVal (not even the direction/sign).
+        // Instead we don't encode any offset and rely on the relocation to do all the work.
+        unsigned instrSize = emitOutput_Thumb2Instr(dst, code);
+
+        if (emitComp->opts.compReloc && emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
+        {
+            assert(id->idjKeepLong);
+            emitRecordRelocation((void*)dst, emitOffsetToPtr(dstOffs), IMAGE_REL_BASED_THUMB_BRANCH24);
+        }
+
+        return dst + instrSize;
+    }
+
+    assert((CALL_DIST_MAX_NEG <= distance) && (distance <= CALL_DIST_MAX_POS));
+
+    if (distance < 0)
+    {
+        code |= 1 << 26;
+    }
+
+    code |= (distance >> 1) & 0x0007ff;
+    code |= ((distance >> 1) & 0x1ff800) << 5;
+
+    bool S  = distance < 0;
+    bool I1 = (distance & 0x00800000) == 0;
+    bool I2 = (distance & 0x00400000) == 0;
+
+    if (S ^ I1)
+    {
+        code |= (1 << 13); // J1 bit
+    }
+
+    if (S ^ I2)
+    {
+        code |= (1 << 11); // J2 bit
+    }
+
+    return dst + emitOutput_Thumb2Instr(dst, code);
 }
 
-/*****************************************************************************
- *
- *  Output a short branch instruction.
- */
-
-BYTE* emitter::emitOutputShortBranch(BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id)
+uint8_t* emitter::emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distance, instrDesc* id)
 {
-    code_t code;
-
-    code = emitInsCode(ins, fmt);
+    code_t code = emitInsCode(ins, fmt);
 
     if (fmt == IF_T1_K)
     {
-        assert((distVal & 1) == 0);
-        assert(distVal >= -256);
-        assert(distVal <= 254);
+        assert((distance & 1) == 0);
+        assert((-256 <= distance) && (distance <= 254));
 
-        if (distVal < 0)
+        if (distance < 0)
+        {
             code |= 1 << 7;
-        code |= ((distVal >> 1) & 0x7f);
+        }
+
+        code |= (distance >> 1) & 0x7f;
     }
     else if (fmt == IF_T1_M)
     {
-        assert((distVal & 1) == 0);
-        assert(distVal >= -2048);
-        assert(distVal <= 2046);
+        assert((distance & 1) == 0);
+        assert((-2048 <= distance) && (distance <= 2046));
 
-        if (distVal < 0)
+        if (distance < 0)
+        {
             code |= 1 << 10;
-        code |= ((distVal >> 1) & 0x3ff);
-    }
-    else if (fmt == IF_T1_I)
-    {
-        assert(id != NULL);
-        assert(ins == INS_cbz || ins == INS_cbnz);
-        assert((distVal & 1) == 0);
-        assert(distVal >= 0);
-        assert(distVal <= 126);
+        }
 
-        code |= ((distVal << 3) & 0x0200);
-        code |= ((distVal << 2) & 0x00F8);
-        code |= (id->idReg1() & 0x0007);
+        code |= (distance >> 1) & 0x3ff;
     }
     else
     {
-        assert(!"Unknown fmt");
+        assert(fmt == IF_T1_I);
+        assert((ins == INS_cbz) || (ins == INS_cbnz));
+        assert(id != nullptr);
+        assert((distance & 1) == 0);
+        assert((0 <= distance) && (distance <= 126));
+
+        code |= (distance << 3) & 0x0200;
+        code |= (distance << 2) & 0x00F8;
+        code |= id->idReg1() & 0x0007;
     }
 
-    dst += emitOutput_Thumb1Instr(dst, code);
-
-    return dst;
+    return dst + emitOutput_Thumb1Instr(dst, code);
 }
 
 #ifdef FEATURE_ITINSTRUCTION
@@ -5418,7 +5302,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T1_I: // T1_I    ......i.iiiiiddd                       R1                  imm6
             assert(id->idIsBound());
 
-            dst = emitOutputLJ(ig, dst, id);
+            dst = emitOutputLJ(dst, static_cast<instrDescJmp*>(id), ig);
             sz  = sizeof(instrDescJmp);
             break;
 
@@ -5949,23 +5833,23 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_T1_J3: // T1_J3   .....dddiiiiiiii                        R1  PC             imm8
         case IF_T2_M1: // T2_M1   .....i.......... .iiiddddiiiiiiii       R1  PC             imm12
+        case IF_T2_N1: // T2_N    .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             assert(id->idGCref() == GCT_NONE);
             assert(id->idIsBound());
 
-            dst = emitOutputLJ(ig, dst, id);
-            sz  = sizeof(instrDesc);
+            dst = emitOutputRL(dst, static_cast<instrDescJmp*>(id));
+            sz  = sizeof(instrDescJmp);
             break;
 
         case IF_T1_K:  // T1_K    ....cccciiiiiiii                       Branch              imm8, cond4
         case IF_T1_M:  // T1_M    .....iiiiiiiiiii                       Branch              imm11
         case IF_T2_J1: // T2_J1   .....Scccciiiiii ..j.jiiiiiiiiiii      Branch              imm20, cond4
         case IF_T2_J2: // T2_J2   .....Siiiiiiiiii ..j.jiiiiiiiiii.      Branch              imm24
-        case IF_T2_N1: // T2_N    .....i......iiii .iiiddddiiiiiiii       R1                 imm16
         case IF_LARGEJMP:
             assert(id->idGCref() == GCT_NONE);
             assert(id->idIsBound());
 
-            dst = emitOutputLJ(ig, dst, id);
+            dst = emitOutputLJ(dst, static_cast<instrDescJmp*>(id), ig);
             sz  = sizeof(instrDescJmp);
             break;
 
@@ -6143,7 +6027,7 @@ void emitter::PatchForwardJumps()
         {
             assert(!jump->idAddr()->iiaHasInstrCount());
 
-            emitOutputLJ(nullptr, addr, jump);
+            emitOutputLJ(addr, jump, nullptr);
         }
     }
 }

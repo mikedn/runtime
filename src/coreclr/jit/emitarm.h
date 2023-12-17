@@ -21,8 +21,9 @@ size_t emitGetInstrDescSize(const instrDesc* id);
 BYTE* emitOutputIT(BYTE* dst, instruction ins, insFormat fmt, code_t condcode);
 #endif // FEATURE_ITINSTRUCTION
 
-BYTE* emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* id);
-BYTE* emitOutputShortBranch(BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);
+uint8_t* emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
+uint8_t* emitOutputRL(uint8_t* dst, instrDescJmp* id);
+uint8_t* emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDesc* id);
 
 unsigned emitOutput_Thumb1Instr(uint8_t* dst, uint32_t code);
 unsigned emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code);
