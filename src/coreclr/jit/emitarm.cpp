@@ -3953,9 +3953,7 @@ void emitter::emitSetMediumJump(instrDescJmp* id)
 #define JMP_SIZE_SMALL (2)
 #define JMP_SIZE_LARGE (4)
 
-#define JCC_SIZE_SMALL (2)
-#define JCC_SIZE_LARGE (6)
-
+#ifdef DEBUG
 static bool IsConditionalBranch(instruction ins)
 {
     return (INS_beq <= ins) && (ins <= INS_ble);
@@ -3965,6 +3963,7 @@ static bool IsBranch(instruction ins)
 {
     return (ins == INS_b) || IsConditionalBranch(ins);
 }
+#endif
 
 void emitter::emitIns_J(instruction ins, int instrCount)
 {
@@ -4935,22 +4934,7 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     // Adjust the offset to emit relative to the end of the instruction.
     distance -= 4;
 
-    if (dstOffs <= srcOffs)
-    {
-        // This format only supports forward branches.
-        noway_assert(id->idInsFmt() != IF_T1_I);
-
-        if (!id->idjKeepLong)
-        {
-            unsigned smallMaxNeg = (ins == INS_cbz) || (ins == INS_cbnz) ? 0 : JCC_DIST_SMALL_MAX_NEG;
-
-            if (static_cast<unsigned>(distance) >= smallMaxNeg)
-            {
-                emitSetShortJump(id);
-            }
-        }
-    }
-    else
+    if (dstOffs > srcOffs)
     {
         int adjustment = RecordForwardJump(id, srcOffs, dstOffs);
 
@@ -4962,8 +4946,6 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     {
         assert(!id->idjKeepLong);
         assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
-        static_assert_no_msg(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
-        static_assert_no_msg(JMP_SIZE_SMALL == 2);
 
         id->idjAddr = distance > 0 ? dst : nullptr;
 
@@ -5089,7 +5071,6 @@ uint8_t* emitter::emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat
     {
         assert(fmt == IF_T1_I);
         assert((ins == INS_cbz) || (ins == INS_cbnz));
-        assert(id != nullptr);
         assert((distance & 1) == 0);
         assert((0 <= distance) && (distance <= 126));
 
