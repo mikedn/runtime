@@ -7704,7 +7704,7 @@ void emitter::emitSetShortJump(instrDescJmp* id)
 
     insFormat fmt;
 
-    if (emitIsCondJump(id))
+    if (id->idInsFmt() == IF_LARGEJMP)
     {
         switch (id->idIns())
         {
@@ -7721,11 +7721,11 @@ void emitter::emitSetShortJump(instrDescJmp* id)
                 break;
         }
     }
-    else if (emitIsLoadLabel(id))
+    else if (id->idInsFmt() == IF_LARGEADR)
     {
         fmt = IF_DI_1E;
     }
-    else if (emitIsLoadConstant(id))
+    else if (id->idInsFmt() == IF_LARGELDC)
     {
         fmt = IF_LS_1A;
     }
