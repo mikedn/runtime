@@ -3897,40 +3897,24 @@ void emitter::emitSetShortJump(instrDescJmp* id)
     {
         id->idInsFmt(IF_T1_K);
     }
-    else if (emitIsCmpJump(id))
-    {
-        // These are always only ever short!
-        assert(id->idjShort);
-        return;
-    }
-    else if (emitIsUncondJump(id))
-    {
-        id->idInsFmt(IF_T1_M);
-    }
     else
     {
-        assert(emitIsLoadLabel(id));
-        return; // Keep long - we don't know the alignment of the target
+        assert(emitIsUncondJump(id));
+        id->idInsFmt(IF_T1_M);
     }
 
     id->idjShort = true;
-
-    JITDUMP("[8] Converting jump %u to short\n", id->idDebugOnlyInfo()->idNum);
-
     id->idInsSize(emitInsSize(id->idInsFmt()));
 }
 
 void emitter::emitSetMediumJump(instrDescJmp* id)
 {
     assert(emitIsCondJump(id));
-    assert(emitInsSize(IF_T2_J1) == ISZ_32BIT);
     assert(!id->idjKeepLong);
-
-    JITDUMP("Converting jump IN%04X to medium\n", id->idDebugOnlyInfo()->idNum);
+    assert(!id->idjShort);
 
     id->idInsFmt(IF_T2_J1);
     id->idInsSize(ISZ_32BIT);
-    id->idjShort = false;
 }
 
 #define LBL_DIST_SMALL_MAX_NEG (0)

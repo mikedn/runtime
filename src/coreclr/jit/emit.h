@@ -680,11 +680,6 @@ private:
 #endif // TARGET_ARM64
 
 #ifdef TARGET_ARM
-        bool idInstrIsT1() const
-        {
-            return _idInsSize == ISZ_16BIT;
-        }
-
         unsigned idCodeSize() const
         {
             switch (_idInsSize)
