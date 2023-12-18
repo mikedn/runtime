@@ -3320,12 +3320,9 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
     emitCurIGsize += sz;
 }
 
-#define JMP_SIZE_SMALL (2)
+#define JMP_JCC_SIZE_SMALL (2)
 #define JMP_SIZE_LARGE (5)
-
-#define JCC_SIZE_SMALL (2)
 #define JCC_SIZE_LARGE (6)
-
 #define PUSH_INST_SIZE (5)
 #define CALL_INST_SIZE (5)
 
@@ -3380,9 +3377,9 @@ void emitter::emitIns_J(instruction ins, int instrCount)
     id->idInsFmt(IF_LABEL);
     id->SetInstrCount(instrCount);
 
-    id->idCodeSize(JCC_SIZE_SMALL);
+    id->idCodeSize(JMP_JCC_SIZE_SMALL);
     dispIns(id);
-    emitCurIGsize += JCC_SIZE_SMALL;
+    emitCurIGsize += JMP_JCC_SIZE_SMALL;
 }
 
 void emitter::emitIns_J(instruction ins, BasicBlock* block)
@@ -3403,9 +3400,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* block)
     {
         // This is a backward jump, we can determine now if it's going to be short.
 
-        static_assert_no_msg(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
-
-        uint32_t jumpOffs = emitCurCodeOffset + emitCurIGsize + JMP_SIZE_SMALL;
+        uint32_t jumpOffs = emitCurCodeOffset + emitCurIGsize + JMP_JCC_SIZE_SMALL;
         int32_t  distance = jumpOffs - targetIG->igOffs;
         int32_t  overflow = distance + -128;
 
@@ -3413,7 +3408,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* block)
 
         if (overflow <= 0)
         {
-            sz = JMP_SIZE_SMALL;
+            sz = JMP_JCC_SIZE_SMALL;
         }
     }
 
@@ -3858,9 +3853,8 @@ AGAIN:
         assert(IsJccInstruction(jump->idIns()) || (jump->idIns() == INS_jmp));
 
         uint32_t currentSize = jump->idCodeSize();
-        uint32_t smallSize   = IsJccInstruction(jump->idIns()) ? JCC_SIZE_SMALL : JMP_SIZE_SMALL;
 
-        if (currentSize <= smallSize)
+        if (currentSize <= JMP_JCC_SIZE_SMALL)
         {
             continue;
         }
@@ -3868,7 +3862,7 @@ AGAIN:
         assert(!jump->idAddr()->iiaHasInstrCount());
 
         uint32_t  jumpOffs    = jumpIG->igOffs + jump->idjOffs;
-        uint32_t  jumpEndOffs = jumpOffs + smallSize;
+        uint32_t  jumpEndOffs = jumpOffs + JMP_JCC_SIZE_SMALL;
         insGroup* targetIG    = jump->idAddr()->iiaIGlabel;
         uint32_t  targetOffs  = targetIG->igOffs;
         int32_t   distanceOverflow;
@@ -3885,8 +3879,8 @@ AGAIN:
         }
 
         JITDUMP("Jump IN%04X from %04X +%u (" FMT_IG ") to %04X (" FMT_IG "), distance %d, overflow %d%s\n",
-                jump->idDebugOnlyInfo()->idNum, jumpOffs, smallSize, jumpIG->igNum, targetOffs, targetIG->igNum,
-                targetOffs - jumpEndOffs, distanceOverflow, distanceOverflow <= 0 ? ", short" : "");
+                jump->idDebugOnlyInfo()->idNum, jumpOffs, JMP_JCC_SIZE_SMALL, jumpIG->igNum, targetOffs,
+                targetIG->igNum, targetOffs - jumpEndOffs, distanceOverflow, distanceOverflow <= 0 ? ", short" : "");
 
         if (distanceOverflow > 0)
         {
@@ -3895,9 +3889,9 @@ AGAIN:
             continue;
         }
 
-        jump->idCodeSize(smallSize);
+        jump->idCodeSize(JMP_JCC_SIZE_SMALL);
 
-        uint32_t sizeReduction = currentSize - smallSize;
+        uint32_t sizeReduction = currentSize - JMP_JCC_SIZE_SMALL;
         jumpIG->igSize -= static_cast<uint16_t>(sizeReduction);
         jumpIG->igFlags |= IGF_UPD_ISZ;
         jumpIGSizeReduction += sizeReduction;
@@ -4381,7 +4375,7 @@ private:
 
     void PrintLabel(instrDesc* id)
     {
-        if (static_cast<instrDescJmp*>(id)->idCodeSize() == JMP_SIZE_SMALL)
+        if (static_cast<instrDescJmp*>(id)->idCodeSize() == JMP_JCC_SIZE_SMALL)
         {
             printf("SHORT ");
         }
@@ -7189,7 +7183,7 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     if (ins == INS_jmp)
     {
-        ssz = JMP_SIZE_SMALL;
+        ssz = JMP_JCC_SIZE_SMALL;
         lsz = JMP_SIZE_LARGE;
     }
 #ifdef FEATURE_EH_FUNCLETS
@@ -7203,7 +7197,7 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     {
         assert((INS_jo <= ins) && (ins <= INS_jg));
 
-        ssz = JCC_SIZE_SMALL;
+        ssz = JMP_JCC_SIZE_SMALL;
         lsz = JCC_SIZE_LARGE;
     }
 
@@ -7232,7 +7226,7 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     uint8_t* srcAddr = emitOffsetToPtr(srcOffs);
     uint8_t* dstAddr = emitOffsetToPtr(dstOffs);
     ssize_t  distVal = static_cast<ssize_t>(dstAddr - srcAddr);
-    bool     isShort = id->idCodeSize() == JMP_SIZE_SMALL;
+    bool     isShort = id->idCodeSize() == JMP_JCC_SIZE_SMALL;
 
     if (dstOffs <= srcOffs)
     {
@@ -7288,14 +7282,12 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     {
         assert(!id->idjKeepLong);
         assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
-        assert(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
-        assert(JMP_SIZE_SMALL == 2);
         assert(ins != INS_call);
 
-        if (id->idCodeSize() != JMP_SIZE_SMALL)
+        if (id->idCodeSize() != JMP_JCC_SIZE_SMALL)
         {
-            JITDUMP("; NOTE: size of jump [%08p] mis-predicted by %d bytes\n", dspPtr(id),
-                    id->idCodeSize() - JMP_SIZE_SMALL);
+            JITDUMP("; NOTE: size of jump IN%04X mis-predicted by %d bytes\n", id->idDebugOnlyInfo()->idNum,
+                    id->idCodeSize() - JMP_JCC_SIZE_SMALL);
         }
 
         dst += emitOutputByte(dst, insCodeJ(ins));
@@ -8121,7 +8113,7 @@ void emitter::PatchForwardJumps()
         uint8_t* addr  = jump->idjAddr;
         int32_t  delta = jump->idjOffs - targetIG->igOffs;
 
-        if (jump->idCodeSize() == JMP_SIZE_SMALL)
+        if (jump->idCodeSize() == JMP_JCC_SIZE_SMALL)
         {
             *reinterpret_cast<int8_t*>(addr + writeableOffset) -= static_cast<int8_t>(delta);
         }

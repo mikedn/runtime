@@ -4019,7 +4019,6 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNu
     id->idInsSize(ISZ_16BIT);
     id->idReg1(reg);
     id->idAddr()->iiaBBlabel = dst;
-    id->idjKeepLong          = false;
 
     id->idjIG        = emitCurIG;
     id->idjOffs      = emitCurIGsize;
@@ -4045,7 +4044,6 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
-    id->idjKeepLong  = true;
     id->idjIG        = emitCurIG;
     id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
