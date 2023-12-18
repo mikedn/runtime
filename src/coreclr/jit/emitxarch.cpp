@@ -3413,8 +3413,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* block)
 
         if (overflow <= 0)
         {
-            id->idjShort = true;
-            sz           = JMP_SIZE_SMALL;
+            sz = JMP_SIZE_SMALL;
         }
     }
 
@@ -3897,7 +3896,6 @@ AGAIN:
         }
 
         jump->idCodeSize(smallSize);
-        jump->idjShort = true;
 
         uint32_t sizeReduction = currentSize - smallSize;
         jumpIG->igSize -= static_cast<uint16_t>(sizeReduction);
@@ -4383,7 +4381,7 @@ private:
 
     void PrintLabel(instrDesc* id)
     {
-        if (static_cast<instrDescJmp*>(id)->idjShort)
+        if (static_cast<instrDescJmp*>(id)->idCodeSize() == JMP_SIZE_SMALL)
         {
             printf("SHORT ");
         }
@@ -7109,7 +7107,6 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(!id->idAddr()->iiaHasInstrCount());
     assert(id->idIsBound());
     assert(id->idjKeepLong);
-    assert(!id->idjShort);
 
     unsigned srcOffs = emitCurCodeOffs(dst);
     unsigned dstOffs = id->idAddr()->iiaIGlabel->igOffs;
@@ -7155,7 +7152,6 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idIsBound());
     assert(!id->idAddr()->iiaHasInstrCount());
     assert(id->idjKeepLong);
-    assert(!id->idjShort);
 
     unsigned srcOffs = emitCurCodeOffs(dst);
     unsigned dstOffs = id->idAddr()->iiaIGlabel->igOffs;
@@ -7236,6 +7232,7 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     uint8_t* srcAddr = emitOffsetToPtr(srcOffs);
     uint8_t* dstAddr = emitOffsetToPtr(dstOffs);
     ssize_t  distVal = static_cast<ssize_t>(dstAddr - srcAddr);
+    bool     isShort = id->idCodeSize() == JMP_SIZE_SMALL;
 
     if (dstOffs <= srcOffs)
     {
@@ -7257,7 +7254,7 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         // Can we use a short jump?
         if ((ins != INS_call) && distVal - ssz >= (size_t)-128 && !id->idjKeepLong)
         {
-            id->idjShort = true;
+            isShort = true;
         }
     }
     else
@@ -7280,25 +7277,14 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
         if ((ins != INS_call) && distVal - ssz <= 127 && !id->idjKeepLong)
         {
-            id->idjShort = true;
+            isShort = true;
         }
     }
 
     // Adjust the offset to emit relative to the end of the instruction
-    distVal -= id->idjShort ? ssz : lsz;
+    distVal -= isShort ? ssz : lsz;
 
-#ifdef DEBUG
-    if (0 && emitComp->verbose)
-    {
-        size_t sz          = id->idjShort ? ssz : lsz;
-        int    distValSize = id->idjShort ? 4 : 8;
-        printf("; %s jump [%08X/%03u] from %0*X to %0*X: dist = %08XH\n", (dstOffs <= srcOffs) ? "Fwd" : "Bwd",
-               emitComp->dspPtr(id), id->idDebugOnlyInfo()->idNum, distValSize, srcOffs + sz, distValSize, dstOffs,
-               distVal);
-    }
-#endif
-
-    if (id->idjShort)
+    if (isShort)
     {
         assert(!id->idjKeepLong);
         assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
@@ -8135,7 +8121,7 @@ void emitter::PatchForwardJumps()
         uint8_t* addr  = jump->idjAddr;
         int32_t  delta = jump->idjOffs - targetIG->igOffs;
 
-        if (jump->idjShort)
+        if (jump->idCodeSize() == JMP_SIZE_SMALL)
         {
             *reinterpret_cast<int8_t*>(addr + writeableOffset) -= static_cast<int8_t>(delta);
         }
