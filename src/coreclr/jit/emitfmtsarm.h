@@ -115,8 +115,6 @@ IF_DEF(T2_VFP2,     IS_NONE,               NONE)     // T2_VFP2  111011101D110--
 IF_DEF(T2_VFP3,     IS_NONE,               NONE)     // T2_VFP3  11101110-D--nnnn dddd101ZN-M0mmmm      D1  D2  D3
 IF_DEF(T2_VMOVS,    IS_NONE,               NONE)
 IF_DEF(T2_VMOVD,    IS_NONE,               NONE)
-
-IF_DEF(INVALID,     IS_NONE,               NONE)     //
 // clang-format on
 
 #undef IF_DEF

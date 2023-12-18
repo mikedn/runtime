@@ -1229,7 +1229,7 @@ emitter::insSize emitter::emitInsSize(insFormat insFmt)
     if ((insFmt >= IF_T1_A) && (insFmt < IF_T2_A))
         return ISZ_16BIT;
 
-    if ((insFmt >= IF_T2_A) && (insFmt < IF_INVALID))
+    if ((insFmt >= IF_T2_A) && (insFmt < IF_COUNT))
         return ISZ_32BIT;
 
     if (insFmt == IF_LARGEJMP)
