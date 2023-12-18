@@ -4784,7 +4784,7 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id)
 
     if (dstOffs > srcOffs)
     {
-        int adjustment = RecordForwardJump(id, srcOffs, dstOffs);
+        int adjustment = emitJumpCrossHotColdBoundary(srcOffs, dstOffs) ? 0 : emitOffsAdj;
 
         dstOffs -= adjustment;
         distance -= adjustment;
@@ -4795,8 +4795,6 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id)
     {
         distance -= 4;
     }
-
-    id->idjAddr = distance > 0 ? dst : nullptr;
 
     code_t code = emitInsCode(ins, fmt);
 
@@ -4832,8 +4830,6 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id)
 
     assert(fmt == IF_T2_N1);
     assert((ins == INS_movt) || (ins == INS_movw));
-
-    id->idjAddr = dstOffs > srcOffs ? dst : nullptr;
 
     code |= insEncodeRegT2_D(id->idReg1());
 
@@ -4885,7 +4881,7 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     if (dstOffs > srcOffs)
     {
-        int adjustment = RecordForwardJump(id, srcOffs, dstOffs);
+        int adjustment = emitJumpCrossHotColdBoundary(srcOffs, dstOffs) ? 0 : emitOffsAdj;
 
         dstOffs -= adjustment;
         distance -= adjustment;
@@ -4896,12 +4892,8 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         assert(!id->idjKeepLong);
         assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
 
-        id->idjAddr = distance > 0 ? dst : nullptr;
-
         return emitOutputShortBranch(dst, ins, fmt, distance, id);
     }
-
-    id->idjAddr = dstOffs > srcOffs ? dst : nullptr;
 
     if (fmt == IF_T2_J1)
     {
@@ -5920,35 +5912,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     *dp = dst;
 
     return sz;
-}
-
-void emitter::PatchForwardJumps()
-{
-    for (instrDescJmp* jump = emitJumpList; jump != nullptr; jump = jump->idjNext)
-    {
-        insGroup* targetIG = jump->idAddr()->iiaIGlabel;
-
-        if ((jump->idjAddr == nullptr) || (jump->idjOffs == targetIG->igOffs))
-        {
-            continue;
-        }
-
-        uint8_t* addr  = jump->idjAddr;
-        int32_t  delta = (jump->idjOffs - targetIG->igOffs) >> 1;
-
-        if (jump->idInsSize() == ISZ_16BIT)
-        {
-            // The following works because the jump offset is in the low order bits of the instruction.
-            // Presumably we could also just call "emitOutputLJ(nullptr, adr, jmp)", like for long jumps?
-            *reinterpret_cast<int16_t*>(addr + writeableOffset) -= static_cast<int16_t>(delta);
-        }
-        else
-        {
-            assert(!jump->idAddr()->iiaHasInstrCount());
-
-            emitOutputLJ(addr, jump, nullptr);
-        }
-    }
 }
 
 #ifdef DEBUG

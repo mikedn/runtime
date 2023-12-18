@@ -1124,7 +1124,9 @@ private:
     {
         instrDescJmp* idjNext; // next jump in the group/method
         insGroup*     idjIG;   // containing group
-        uint8_t*      idjAddr; // address of jump ins (for patching)
+#ifndef TARGET_ARM
+        uint8_t* idjAddr; // address of jump ins (for patching)
+#endif
 
         unsigned idjOffs : 30;    // Before jump emission, this is the byte offset within IG of the jump instruction.
                                   // After emission, for forward jumps, this is the target offset -- in bytes from the
@@ -1153,7 +1155,9 @@ private:
 #endif
     };
 
+#ifndef TARGET_ARM
     int RecordForwardJump(instrDescJmp* id, unsigned srcOffs, unsigned dstOffs);
+#endif
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 #if defined(TARGET_XARCH)
@@ -1438,7 +1442,9 @@ public:
 
     size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
     size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
+#ifndef TARGET_ARM
     void PatchForwardJumps();
+#endif
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
     bool emitInInstrumentation = false;
@@ -1493,8 +1499,10 @@ private:
 private:
     INDEBUG(void emitCheckFuncletBranch(instrDescJmp* jmp);)
 
+#ifndef TARGET_ARM
     // Are forward jumps present?
     bool emitFwdJumps = false;
+#endif
     // Are we generating IGF_NOGCINTERRUPT insGroups (for prologs, epilogs, etc.)
     bool emitNoGCIG = false;
     // If we generate an instruction, and not another instruction group, force create a new emitAdd
