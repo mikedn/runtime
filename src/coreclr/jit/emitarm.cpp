@@ -5139,18 +5139,18 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 {
     BYTE*       dst  = *dp;
     BYTE*       odst = dst;
-    code_t      code = 0;
-    size_t      sz   = 0;
     instruction ins  = id->idIns();
     insFormat   fmt  = id->idInsFmt();
     emitAttr    size = id->idOpSize();
+    size_t      sz;
 
     assert(REG_NA == (int)REG_NA);
 
     switch (fmt)
     {
-        int   imm;
-        void* addr;
+        code_t code;
+        int    imm;
+        void*  addr;
 
         case IF_T1_I:  // ......i.iiiiiddd                       R1                  imm6
         case IF_T1_K:  // ....cccciiiiiiii                       Branch              imm8, cond4
@@ -5845,12 +5845,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         /********************************************************************/
 
         default:
-
-#ifdef DEBUG
-            printf("unexpected format %s\n", emitIfName(id->idInsFmt()));
-            assert(!"don't know how to encode this instruction");
-#endif
-            break;
+            unreached();
     }
 
     // Determine if any registers now hold GC refs, or whether a register that was overwritten held a GC ref.
