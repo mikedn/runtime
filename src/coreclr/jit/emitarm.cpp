@@ -4903,31 +4903,14 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     id->idjAddr = dstOffs > srcOffs ? dst : nullptr;
 
-    if (fmt == IF_LARGEJMP)
-    {
-        // This is a pseudo-instruction format representing a large conditional branch, to allow us
-        // to get a greater branch target range than we can get by using a straightforward conditional
-        // branch. It is encoded as a short conditional branch that branches around a long unconditional
-        // branch.
-        instruction reverse = emitJumpKindToIns(emitReverseJumpKind(emitInsToJumpKind(ins)));
-        dst                 = emitOutputShortBranch(dst, reverse, IF_T1_K, 2, nullptr);
-
-        // Now, pretend we've got a normal unconditional branch, and fall through to the code to emit that.
-        ins = INS_b;
-        fmt = IF_T2_J2;
-
-        // The distance was computed based on the beginning of the pseudo-instruction.
-        distance -= 2;
-    }
-
-    code_t code = emitInsCode(ins, fmt);
-
     if (fmt == IF_T2_J1)
     {
         assert(!id->idjKeepLong);
         assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
         assert((distance & 1) == 0);
         assert((-1048576 <= distance) && (distance <= 1048574));
+
+        code_t code = emitInsCode(ins, fmt);
 
         if (distance < 0)
         {
@@ -4942,50 +4925,67 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         return dst + emitOutput_Thumb2Instr(dst, code);
     }
 
-    assert(fmt == IF_T2_J2);
+    if (fmt == IF_LARGEJMP)
+    {
+        // This is a pseudo-instruction format representing a large conditional branch, to allow us
+        // to get a greater branch target range than we can get by using a straightforward conditional
+        // branch. It is encoded as a short conditional branch that branches around a long unconditional
+        // branch.
+        instruction reverse = emitJumpKindToIns(emitReverseJumpKind(emitInsToJumpKind(ins)));
+        dst                 = emitOutputShortBranch(dst, reverse, IF_T1_K, 2, nullptr);
+
+        // The distance was computed based on the beginning of the pseudo-instruction.
+        distance -= 2;
+    }
+    else
+    {
+        assert(ins == INS_b);
+        assert(fmt == IF_T2_J2);
+    }
+
     assert((distance & 1) == 0);
 
-    if (emitComp->opts.compReloc && emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
-    {
-        // dst isn't an actual final target location, just some intermediate location.
-        // Thus we cannot make any guarantees about distVal (not even the direction/sign).
-        // Instead we don't encode any offset and rely on the relocation to do all the work.
-        unsigned instrSize = emitOutput_Thumb2Instr(dst, code);
+    bool   hasReloc = emitComp->opts.compReloc && emitJumpCrossHotColdBoundary(srcOffs, dstOffs);
+    code_t code     = emitInsCode(INS_b, IF_T2_J2);
 
-        if (emitComp->opts.compReloc && emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
+    // For relocs we can't compute the offset so we just leave it set to 0,
+    // the runtime will patch the instruction later.
+    if (!hasReloc)
+    {
+        assert((CALL_DIST_MAX_NEG <= distance) && (distance <= CALL_DIST_MAX_POS));
+
+        if (distance < 0)
         {
-            assert(id->idjKeepLong);
-            emitRecordRelocation((void*)dst, emitOffsetToPtr(dstOffs), IMAGE_REL_BASED_THUMB_BRANCH24);
+            code |= 1 << 26;
         }
 
-        return dst + instrSize;
+        code |= (distance >> 1) & 0x0007ff;
+        code |= ((distance >> 1) & 0x1ff800) << 5;
+
+        bool S  = distance < 0;
+        bool I1 = (distance & 0x00800000) == 0;
+        bool I2 = (distance & 0x00400000) == 0;
+
+        if (S ^ I1)
+        {
+            code |= (1 << 13); // J1 bit
+        }
+
+        if (S ^ I2)
+        {
+            code |= (1 << 11); // J2 bit
+        }
     }
 
-    assert((CALL_DIST_MAX_NEG <= distance) && (distance <= CALL_DIST_MAX_POS));
+    emitOutput_Thumb2Instr(dst, code);
 
-    if (distance < 0)
+    if (hasReloc)
     {
-        code |= 1 << 26;
+        assert(id->idjKeepLong);
+        emitRecordRelocation(dst, emitOffsetToPtr(dstOffs), IMAGE_REL_BASED_THUMB_BRANCH24);
     }
 
-    code |= (distance >> 1) & 0x0007ff;
-    code |= ((distance >> 1) & 0x1ff800) << 5;
-
-    bool S  = distance < 0;
-    bool I1 = (distance & 0x00800000) == 0;
-    bool I2 = (distance & 0x00400000) == 0;
-
-    if (S ^ I1)
-    {
-        code |= (1 << 13); // J1 bit
-    }
-
-    if (S ^ I2)
-    {
-        code |= (1 << 11); // J2 bit
-    }
-
-    return dst + emitOutput_Thumb2Instr(dst, code);
+    return dst + 4;
 }
 
 uint8_t* emitter::emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distance, instrDesc* id)
