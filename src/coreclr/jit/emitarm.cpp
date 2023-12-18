@@ -1561,15 +1561,14 @@ bool emitter::emitIns_valid_imm_for_mov(int imm)
 
 void emitter::emitIns(instruction ins)
 {
-    instrDesc* id  = emitNewInstrSmall(EA_4BYTE);
-    insFormat  fmt = emitInsFormat(ins);
-    insSize    isz = emitInsSize(fmt);
+    insFormat fmt = emitInsFormat(ins);
 
     assert((fmt == IF_T1_A) || (fmt == IF_T2_A));
 
+    instrDesc* id = emitNewInstrSmall(EA_4BYTE);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsSize(emitInsSize(fmt));
 
     dispIns(id);
     appendToCurIG(id);
@@ -2077,7 +2076,7 @@ void emitter::emitIns_MovRelocatableImmediate(instruction ins, regNumber reg, vo
     instrDesc* id = emitNewInstr(EA_4BYTE);
     id->idIns(ins);
     id->idInsFmt(IF_T2_N3);
-    id->idInsSize(emitInsSize(IF_T2_N3));
+    id->idInsSize(ISZ_32BIT);
     id->idInsFlags(INS_FLAGS_NOT_SET);
     id->idReg1(reg);
     id->idAddr()->iiaAddr = addr;
@@ -2514,12 +2513,10 @@ void emitter::emitIns_R_R(
 
     assert(sf != INS_FLAGS_DONT_CARE);
 
-    instrDesc* id  = emitNewInstrSmall(attr);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstrSmall(attr);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsSize(emitInsSize(fmt));
     id->idInsFlags(sf);
     id->idReg1(reg1);
     id->idReg2(reg2);
@@ -2533,49 +2530,29 @@ void emitter::emitIns_R_R(
  *  Add an instruction referencing a register and two constants.
  */
 
-void emitter::emitIns_R_I_I(
-    instruction ins, emitAttr attr, regNumber reg, int imm1, int imm2, insFlags flags /* = INS_FLAGS_DONT_CARE */)
-
+void emitter::emitIns_R_I_I(instruction ins, emitAttr attr, regNumber reg, int imm1, int imm2, insFlags flags)
 {
-    insFormat fmt = IF_NONE;
-    insFlags  sf  = INS_FLAGS_DONT_CARE;
-    int       imm = 0; // combined immediates
+    int imm = 0; // combined immediates
 
-    /* Figure out the encoding format of the instruction */
-    switch (ins)
-    {
-        case INS_bfc:
-        {
-            assert(reg != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
+    assert(ins == INS_bfc);
+    assert(reg != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
 
-            int lsb = imm1;
-            int msb = lsb + imm2 - 1;
+    int lsb = imm1;
+    int msb = lsb + imm2 - 1;
 
-            assert((lsb >= 0) && (lsb <= 31)); // required for encoding of INS_bfc
-            assert((msb >= 0) && (msb <= 31)); // required for encoding of INS_bfc
-            assert(msb >= lsb);                // required for encoding of INS_bfc
+    assert((lsb >= 0) && (lsb <= 31)); // required for encoding of INS_bfc
+    assert((msb >= 0) && (msb <= 31)); // required for encoding of INS_bfc
+    assert(msb >= lsb);                // required for encoding of INS_bfc
 
-            imm = (lsb << 5) | msb;
+    imm = (lsb << 5) | msb;
 
-            assert(insDoesNotSetFlags(flags));
-            fmt = IF_T2_D1;
-            sf  = INS_FLAGS_NOT_SET;
-        }
-        break;
+    assert(insDoesNotSetFlags(flags));
 
-        default:
-            unreached();
-    }
-    assert(fmt == IF_T2_D1);
-    assert(sf != INS_FLAGS_DONT_CARE);
-
-    instrDesc* id  = emitNewInstrSC(attr, imm);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstrSC(attr, imm);
     id->idIns(ins);
-    id->idInsFmt(fmt);
-    id->idInsSize(isz);
-    id->idInsFlags(sf);
+    id->idInsFmt(IF_T2_D1);
+    id->idInsSize(ISZ_32BIT);
+    id->idInsFlags(INS_FLAGS_NOT_SET);
     id->idReg1(reg);
 
     dispIns(id);
@@ -3108,12 +3085,10 @@ void emitter::emitIns_R_R_I(instruction ins,
            (fmt == IF_T2_M0) || (fmt == IF_T2_VLDST) || (fmt == IF_T2_M1));
     assert(sf != INS_FLAGS_DONT_CARE);
 
-    instrDesc* id  = emitNewInstrSC(attr, imm);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstrSC(attr, imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsSize(emitInsSize(fmt));
     id->idInsFlags(sf);
     id->idInsOpt(opt);
     id->idReg1(reg1);
@@ -3358,12 +3333,10 @@ void emitter::emitIns_R_R_R(instruction ins,
            (fmt == IF_T2_G1));
     assert(sf != INS_FLAGS_DONT_CARE);
 
-    instrDesc* id  = emitNewInstr(attr);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsSize(emitInsSize(fmt));
     id->idInsFlags(sf);
     id->idReg1(reg1);
     id->idReg2(reg2);
@@ -3431,12 +3404,10 @@ void emitter::emitIns_R_R_I_I(instruction ins,
     assert((fmt == IF_T2_D0));
     assert(sf != INS_FLAGS_DONT_CARE);
 
-    instrDesc* id  = emitNewInstrSC(attr, imm);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstrSC(attr, imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsSize(emitInsSize(fmt));
     id->idInsFlags(sf);
     id->idReg1(reg1);
     id->idReg2(reg2);
@@ -3600,13 +3571,10 @@ void emitter::emitIns_R_R_R_I(instruction ins,
     assert((fmt == IF_T2_C0) || (fmt == IF_T2_E0) || (fmt == IF_T2_G0));
     assert(sf != INS_FLAGS_DONT_CARE);
 
-    // 3-reg ops can't use the small instrdesc
     instrDesc* id = emitNewInstrCns(attr, imm);
-
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsSize(emitInsSize(fmt));
-
     id->idInsFlags(sf);
     id->idInsOpt(opt);
     id->idReg1(reg1);
@@ -3653,12 +3621,10 @@ void emitter::emitIns_R_R_R_R(
     assert(reg3 != REG_PC);
     assert(reg4 != REG_PC);
 
-    instrDesc* id  = emitNewInstr(attr);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsSize(emitInsSize(fmt));
     id->idInsFlags(sf);
     id->idReg1(reg1);
     id->idReg2(reg2);
@@ -3891,25 +3857,17 @@ int emitter::OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, regNumber
 
 void emitter::emitSetShortJump(instrDescJmp* id)
 {
+    assert((id->idInsFmt() == IF_T2_J1) || (id->idInsFmt() == IF_T2_J2) || (id->idInsFmt() == IF_LARGEJMP));
     assert(!id->idjKeepLong);
 
-    if (emitIsCondJump(id))
-    {
-        id->idInsFmt(IF_T1_K);
-    }
-    else
-    {
-        assert(emitIsUncondJump(id));
-        id->idInsFmt(IF_T1_M);
-    }
-
+    id->idInsFmt(id->idInsFmt() == IF_T2_J2 ? IF_T1_M : IF_T1_K);
+    id->idInsSize(ISZ_16BIT);
     id->idjShort = true;
-    id->idInsSize(emitInsSize(id->idInsFmt()));
 }
 
 void emitter::emitSetMediumJump(instrDescJmp* id)
 {
-    assert(emitIsCondJump(id));
+    assert((id->idInsFmt() == IF_T2_J1) || (id->idInsFmt() == IF_LARGEJMP));
     assert(!id->idjKeepLong);
     assert(!id->idjShort);
 
@@ -4067,7 +4025,7 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
     id->idIns(ins);
     id->idReg1(reg);
     id->idInsFmt(IF_T2_N1);
-    id->idInsSize(emitInsSize(IF_T2_N1));
+    id->idInsSize(ISZ_32BIT);
     id->idAddr()->iiaBBlabel = dst;
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
@@ -4090,7 +4048,7 @@ void emitter::emitIns_R_D(instruction ins, unsigned offs, regNumber reg)
     id->idIns(ins);
     id->idReg1(reg);
     id->idInsFmt(IF_T2_N2);
-    id->idInsSize(emitInsSize(IF_T2_N2));
+    id->idInsSize(ISZ_32BIT);
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
 
     dispIns(id);
@@ -4121,7 +4079,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
     {
         id->idIns(isJump ? INS_bx : INS_blx);
         id->idInsFmt(IF_T1_D2);
-        id->idInsSize(emitInsSize(IF_T1_D2));
+        id->idInsSize(ISZ_16BIT);
         id->idReg3(reg);
     }
     else
@@ -4132,7 +4090,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
 
         id->idIns(isJump ? INS_b : INS_bl);
         id->idInsFmt(IF_T2_J3);
-        id->idInsSize(emitInsSize(IF_T2_J3));
+        id->idInsSize(ISZ_32BIT);
         id->idAddr()->iiaAddr = addr;
         id->idSetIsCnsReloc(emitComp->opts.compReloc);
     }
@@ -4288,7 +4246,7 @@ AGAIN:
 
         if (jump->idjShort)
         {
-            assert(jump->idCodeSize() == 2);
+            assert(jump->idInsSize() == ISZ_16BIT);
 
             continue;
         }
@@ -4355,7 +4313,7 @@ AGAIN:
         {
             emitSetShortJump(jump);
 
-            assert(jump->idCodeSize() == 2);
+            assert(jump->idInsSize() == ISZ_16BIT);
             newSize = 2;
         }
         else
@@ -4371,7 +4329,7 @@ AGAIN:
 
             emitSetMediumJump(jump);
 
-            assert(jump->idCodeSize() == 4);
+            assert(jump->idInsSize() == ISZ_32BIT);
             newSize = 4;
         }
 
@@ -6929,7 +6887,7 @@ void emitter::emitDispIns(
         memset(&idJmp, 0, sizeof(idJmp));
         idJmp.idIns(emitJumpKindToIns(emitReverseJumpKind(emitInsToJumpKind(id->idIns()))));
         idJmp.idInsFmt(IF_T1_K);
-        idJmp.idInsSize(emitInsSize(IF_T1_K));
+        idJmp.idInsSize(ISZ_16BIT);
         idJmp.SetInstrCount(1);
         idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
 
@@ -6944,7 +6902,7 @@ void emitter::emitDispIns(
         memset(&idJmp, 0, sizeof(idJmp));
         idJmp.idIns(INS_b);
         idJmp.idInsFmt(IF_T2_J2);
-        idJmp.idInsSize(emitInsSize(IF_T2_J2));
+        idJmp.idInsSize(ISZ_32BIT);
         idJmp.idjShort = 0;
 
         if (id->idIsBound())
