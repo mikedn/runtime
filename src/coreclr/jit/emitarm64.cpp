@@ -1401,31 +1401,74 @@ const char* insName(instruction ins)
     return insNames[ins];
 }
 
-/*****************************************************************************
- *
- *  Returns the base encoding of the given CPU instruction.
- */
-
-insFormat emitter::emitInsFormat(instruction ins)
+enum
 {
-    // clang-format off
-    const static insFormat insFormats[] =
-    {
-        #define INST1(id, nm, info, fmt, e1                                ) fmt,
-        #define INST2(id, nm, info, fmt, e1, e2                            ) fmt,
-        #define INST3(id, nm, info, fmt, e1, e2, e3                        ) fmt,
-        #define INST4(id, nm, info, fmt, e1, e2, e3, e4                    ) fmt,
-        #define INST5(id, nm, info, fmt, e1, e2, e3, e4, e5                ) fmt,
-        #define INST6(id, nm, info, fmt, e1, e2, e3, e4, e5, e6            ) fmt,
-        #define INST9(id, nm, info, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) fmt,
-        #include "instrsarm64.h"
+    IF_EN9 = IF_COUNT + 1,
+    IF_EN6A,
+    IF_EN6B,
+    IF_EN5A,
+    IF_EN5B,
+    IF_EN5C,
+    IF_EN4A,
+    IF_EN4B,
+    IF_EN4C,
+    IF_EN4D,
+    IF_EN4E,
+    IF_EN4F,
+    IF_EN4G,
+    IF_EN4H,
+    IF_EN4I,
+    IF_EN4J,
+    IF_EN4K,
+    IF_EN3A,
+    IF_EN3B,
+    IF_EN3C,
+    IF_EN3D,
+    IF_EN3E,
+    IF_EN3F,
+    IF_EN3G,
+    IF_EN3H,
+    IF_EN3I,
+    IF_EN3J,
+    IF_EN2A,
+    IF_EN2B,
+    IF_EN2C,
+    IF_EN2D,
+    IF_EN2E,
+    IF_EN2F,
+    IF_EN2G,
+    IF_EN2H,
+    IF_EN2I,
+    IF_EN2J,
+    IF_EN2K,
+    IF_EN2L,
+    IF_EN2M,
+    IF_EN2N,
+    IF_EN2O,
+    IF_EN2P,
+    IF_EN2Q,
+    IF_ENCOUNT
+};
+
+static uint8_t emitInsFormat(instruction ins)
+{
+    static_assert_no_msg(IF_ENCOUNT <= UINT8_MAX);
+
+    const static uint8_t formats[]{
+#define INST1(id, nm, info, fmt, ...) fmt,
+#define INST2(id, nm, info, fmt, ...) fmt,
+#define INST3(id, nm, info, fmt, ...) fmt,
+#define INST4(id, nm, info, fmt, ...) fmt,
+#define INST5(id, nm, info, fmt, ...) fmt,
+#define INST6(id, nm, info, fmt, ...) fmt,
+#define INST9(id, nm, info, fmt, ...) fmt,
+#include "instrsarm64.h"
     };
-    // clang-format on
 
-    assert(ins < ArrLen(insFormats));
-    assert((insFormats[ins] != IF_NONE));
+    assert(ins < _countof(formats));
+    assert(formats[ins] != IF_NONE);
 
-    return insFormats[ins];
+    return formats[ins];
 }
 
 #define LD 1
@@ -1655,10 +1698,10 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
     const static insFormat formatEncode2P[2] = {IF_DV_2Q, IF_DV_3B};
     const static insFormat formatEncode2Q[2] = {IF_DV_2S, IF_DV_3A};
 
-    code_t    code           = BAD_CODE;
-    insFormat insFmt         = emitInsFormat(ins);
-    bool      encoding_found = false;
-    int       index          = -1;
+    code_t  code           = BAD_CODE;
+    uint8_t insFmt         = emitInsFormat(ins);
+    bool    encoding_found = false;
+    int     index          = -1;
 
     switch (insFmt)
     {
@@ -3637,14 +3680,11 @@ insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType)
 
 void emitter::emitIns(instruction ins)
 {
-    instrDesc* id  = emitNewInstrSmall(EA_8BYTE);
-    insFormat  fmt = emitInsFormat(ins);
+    insFormat fmt = static_cast<insFormat>(emitInsFormat(ins));
 
-    if (ins != INS_BREAKPOINT)
-    {
-        assert(fmt == IF_SN_0A);
-    }
+    assert((fmt == IF_SN_0A) || ((ins == INS_brk) && (fmt == IF_SI_0A)));
 
+    instrDesc* id = emitNewInstrSmall(EA_8BYTE);
     id->idIns(ins);
     id->idInsFmt(fmt);
 

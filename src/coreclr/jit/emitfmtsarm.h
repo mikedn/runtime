@@ -22,30 +22,6 @@ IF_DEF(LARGEJMP,    IS_NONE,               JMP)      // large conditional branch
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-IF_DEF(EN9,         IS_NONE,               NONE)     // Instruction has 9 possible encoding types
-IF_DEF(EN8,         IS_NONE,               NONE)     // Instruction has 8 possible encoding types
-IF_DEF(EN6A,        IS_NONE,               NONE)     // Instruction has 6 possible encoding types, type A
-IF_DEF(EN6B,        IS_NONE,               NONE)     // Instruction has 6 possible encoding types, type B
-IF_DEF(EN5A,        IS_NONE,               NONE)     // Instruction has 5 possible encoding types, type A
-IF_DEF(EN5B,        IS_NONE,               NONE)     // Instruction has 5 possible encoding types, type B
-IF_DEF(EN4A,        IS_NONE,               NONE)     // Instruction has 4 possible encoding types, type A
-IF_DEF(EN4B,        IS_NONE,               NONE)     // Instruction has 4 possible encoding types, type B
-IF_DEF(EN4C,        IS_NONE,               NONE)     // Instruction has 4 possible encoding types, type C
-IF_DEF(EN3A,        IS_NONE,               NONE)     // Instruction has 3 possible encoding types, type A
-IF_DEF(EN3B,        IS_NONE,               NONE)     // Instruction has 3 possible encoding types, type B
-IF_DEF(EN3C,        IS_NONE,               NONE)     // Instruction has 3 possible encoding types, type C
-IF_DEF(EN3D,        IS_NONE,               NONE)     // Instruction has 3 possible encoding types, type D
-IF_DEF(EN3E,        IS_NONE,               NONE)     // Instruction has 3 possible encoding types, type E
-IF_DEF(EN2A,        IS_NONE,               NONE)     // Instruction has 2 possible encoding types, type A
-IF_DEF(EN2B,        IS_NONE,               NONE)     // Instruction has 2 possible encoding types, type B
-IF_DEF(EN2C,        IS_NONE,               NONE)     // Instruction has 2 possible encoding types, type C
-IF_DEF(EN2D,        IS_NONE,               NONE)     // Instruction has 2 possible encoding types, type D
-IF_DEF(EN2E,        IS_NONE,               NONE)     // Instruction has 2 possible encoding types, type E
-IF_DEF(EN2F,        IS_NONE,               NONE)     // Instruction has 2 possible encoding types, type F
-IF_DEF(EN2G,        IS_NONE,               NONE)     // Instruction has 2 possible encoding types, type G
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 IF_DEF(T1_A,        IS_NONE,               NONE)     // T1_A    ................
 IF_DEF(T1_B,        IS_NONE,               NONE)     // T1_B    ........cccc....                                           cond
 IF_DEF(T1_C,        IS_NONE,               NONE)     // T1_C    .....iiiiimmmddd                       R1  R2              imm5

@@ -87,7 +87,6 @@ void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varO
 void Ins_R_R_S(
     instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs);
 
-insFormat emitInsFormat(instruction ins);
 code_t emitInsCode(instruction ins, insFormat fmt);
 
 //  Emit the 32-bit Arm64 instruction 'code' into the 'dst'  buffer

@@ -524,13 +524,13 @@ private:
 
 #ifdef TARGET_ARM64
         static_assert_no_msg(INS_COUNT <= 512);
-        static_assert_no_msg(IF_COUNT <= 256);
+        static_assert_no_msg(IF_COUNT <= 128);
         // REG_SP is included the in actual reg count but we don't need that here.
         static_assert_no_msg(ACTUAL_REG_COUNT - 1 <= 64);
         static constexpr unsigned SmallImmBits = 16;
 
         instruction _idIns : 9;       // Instruction opcode
-        insFormat   _idInsFmt : 8;    // Instruction format
+        insFormat   _idInsFmt : 7;    // Instruction format
         GCtype      _idGCref : 2;     // GC type of the first destination register
         RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
         RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
@@ -543,18 +543,18 @@ private:
         insOpts     _idInsOpt : 6;    // Instruction options
         unsigned    _idLclVar : 1;    // Local load/store
         unsigned    _idCnsReloc : 1;  // Immediate is relocatable
-        unsigned    _idSpare : 1;     // Give this to small imm?
+        unsigned    _idSpare : 2;     // Give these to small imm?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_ARM64
 
 #ifdef TARGET_ARM
         static_assert_no_msg(INS_COUNT <= 256);
-        static_assert_no_msg(IF_COUNT <= 256);
+        static_assert_no_msg(IF_COUNT <= 128);
         static_assert_no_msg(ACTUAL_REG_COUNT <= 64);
         static constexpr unsigned SmallImmBits = 16;
 
         instruction _idIns : 8;       // Instruction opcode
-        insFormat   _idInsFmt : 8;    // Instruction format
+        insFormat   _idInsFmt : 7;    // Instruction format
         unsigned    _idOpSize : 2;    // Operation size (log 2)
         GCtype      _idGCref : 2;     // GC type of the first destination register
         RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
@@ -569,7 +569,7 @@ private:
         unsigned    _idLclVar : 1;    // Local load/store
         insOpts     _idInsOpt : 3;    // Instruction options
         unsigned    _idCnsReloc : 1;  // Immediate is relocatable
-        unsigned    _idSpare : 3;     // Give these to small imm?
+        unsigned    _idSpare : 4;     // Give these to small imm?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_ARM
 

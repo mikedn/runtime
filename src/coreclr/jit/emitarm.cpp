@@ -717,32 +717,52 @@ const char* insName(instruction ins)
     return insNames[ins];
 }
 
-/*****************************************************************************
- *
- *  Returns the base encoding of the given CPU instruction.
- */
-
-insFormat emitter::emitInsFormat(instruction ins)
+enum
 {
-    // clang-format off
-    const static insFormat insFormats[] =
-    {
-        #define INST1(id, nm, fp, ldst, fmt, e1                                ) fmt,
-        #define INST2(id, nm, fp, ldst, fmt, e1, e2                            ) fmt,
-        #define INST3(id, nm, fp, ldst, fmt, e1, e2, e3                        ) fmt,
-        #define INST4(id, nm, fp, ldst, fmt, e1, e2, e3, e4                    ) fmt,
-        #define INST5(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5                ) fmt,
-        #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) fmt,
-        #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) fmt,
-        #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) fmt,
-        #include "instrsarm.h"
+    IF_EN9 = IF_COUNT + 1,
+    IF_EN8,
+    IF_EN6A,
+    IF_EN6B,
+    IF_EN5A,
+    IF_EN5B,
+    IF_EN4A,
+    IF_EN4B,
+    IF_EN4C,
+    IF_EN3A,
+    IF_EN3B,
+    IF_EN3C,
+    IF_EN3D,
+    IF_EN3E,
+    IF_EN2A,
+    IF_EN2B,
+    IF_EN2C,
+    IF_EN2D,
+    IF_EN2E,
+    IF_EN2F,
+    IF_EN2G,
+    IF_ENCOUNT
+};
+
+static uint8_t emitInsFormat(instruction ins)
+{
+    static_assert_no_msg(IF_ENCOUNT <= UINT8_MAX);
+
+    const static uint8_t formats[]{
+#define INST1(id, nm, fp, ldst, fmt, ...) fmt,
+#define INST2(id, nm, fp, ldst, fmt, ...) fmt,
+#define INST3(id, nm, fp, ldst, fmt, ...) fmt,
+#define INST4(id, nm, fp, ldst, fmt, ...) fmt,
+#define INST5(id, nm, fp, ldst, fmt, ...) fmt,
+#define INST6(id, nm, fp, ldst, fmt, ...) fmt,
+#define INST8(id, nm, fp, ldst, fmt, ...) fmt,
+#define INST9(id, nm, fp, ldst, fmt, ...) fmt,
+#include "instrsarm.h"
     };
-    // clang-format on
 
-    assert(ins < ArrLen(insFormats));
-    assert((insFormats[ins] != IF_NONE));
+    assert(ins < _countof(formats));
+    assert(formats[ins] != IF_NONE);
 
-    return insFormats[ins];
+    return formats[ins];
 }
 
 #define INST_FP 1
@@ -935,10 +955,10 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
     const static insFormat formatEncode2G[2] = { IF_T1_J3, IF_T2_M1 };
     // clang-format on
 
-    code_t    code   = BAD_CODE;
-    insFormat insFmt = emitInsFormat(ins);
-    bool      found  = false;
-    int       index  = 0;
+    code_t  code   = BAD_CODE;
+    uint8_t insFmt = emitInsFormat(ins);
+    bool    found  = false;
+    int     index  = 0;
 
     switch (insFmt)
     {
@@ -1561,7 +1581,7 @@ bool emitter::emitIns_valid_imm_for_mov(int imm)
 
 void emitter::emitIns(instruction ins)
 {
-    insFormat fmt = emitInsFormat(ins);
+    insFormat fmt = static_cast<insFormat>(emitInsFormat(ins));
 
     assert((fmt == IF_T1_A) || (fmt == IF_T2_A));
 
