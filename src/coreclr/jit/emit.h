@@ -1127,16 +1127,20 @@ private:
         uint8_t*      idjAddr; // address of jump ins (for patching)
 
         unsigned idjOffs : 30; // Before jump emission, this is the byte offset within IG of the jump instruction.
-        // After emission, for forward jumps, this is the target offset -- in bytes from the
-        // beginning of the function -- of the target instruction of the jump, used to
-        // determine if this jump needs to be patched.
-        unsigned idjShort : 1;    // is the jump known to be a short  one?
+                               // After emission, for forward jumps, this is the target offset -- in bytes from the
+                               // beginning of the function -- of the target instruction of the jump, used to
+                               // determine if this jump needs to be patched.
+#ifndef TARGET_ARM
+        unsigned idjShort : 1; // is the jump known to be a short  one?
+#endif
         unsigned idjKeepLong : 1; // should the jump be kept long? (used for
         // hot to cold and cold to hot jumps)
 
         void SetInstrCount(int count)
         {
+#ifndef TARGET_ARM
             idjShort = true;
+#endif
             idSetIsBound();
             idAddr()->iiaSetInstrCount(count);
         }

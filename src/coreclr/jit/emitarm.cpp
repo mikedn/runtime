@@ -3882,14 +3882,12 @@ void emitter::emitSetShortJump(instrDescJmp* id)
 
     id->idInsFmt(id->idInsFmt() == IF_T2_J2 ? IF_T1_M : IF_T1_K);
     id->idInsSize(ISZ_16BIT);
-    id->idjShort = true;
 }
 
 void emitter::emitSetMediumJump(instrDescJmp* id)
 {
     assert((id->idInsFmt() == IF_T2_J1) || (id->idInsFmt() == IF_LARGEJMP));
     assert(!id->idjKeepLong);
-    assert(!id->idjShort);
 
     id->idInsFmt(IF_T2_J1);
     id->idInsSize(ISZ_32BIT);
@@ -3976,7 +3974,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst)
                 {
                     id->idInsFmt(IF_T1_M);
                     id->idInsSize(ISZ_16BIT);
-                    id->idjShort = true;
                 }
             }
             else
@@ -3985,7 +3982,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst)
                 {
                     id->idInsFmt(IF_T1_K);
                     id->idInsSize(ISZ_16BIT);
-                    id->idjShort = true;
                 }
                 else if (JCC_DIST_MEDIUM_MAX_NEG <= -distance)
                 {
@@ -4023,7 +4019,6 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNu
     id->idInsSize(ISZ_16BIT);
     id->idReg1(reg);
     id->idAddr()->iiaBBlabel = dst;
-    id->idjShort             = true;
     id->idjKeepLong          = false;
 
     id->idjIG        = emitCurIG;
@@ -4264,10 +4259,8 @@ AGAIN:
             previousJumpIG = jumpIG;
         }
 
-        if (jump->idjShort)
+        if (jump->idInsSize() == ISZ_16BIT)
         {
-            assert(jump->idInsSize() == ISZ_16BIT);
-
             continue;
         }
 
@@ -4904,7 +4897,7 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         distance -= adjustment;
     }
 
-    if (id->idjShort)
+    if (id->idInsSize() == ISZ_16BIT)
     {
         assert(!id->idjKeepLong);
         assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
@@ -5960,7 +5953,7 @@ void emitter::PatchForwardJumps()
         uint8_t* addr  = jump->idjAddr;
         int32_t  delta = (jump->idjOffs - targetIG->igOffs) >> 1;
 
-        if (jump->idjShort)
+        if (jump->idInsSize() == ISZ_16BIT)
         {
             // The following works because the jump offset is in the low order bits of the instruction.
             // Presumably we could also just call "emitOutputLJ(nullptr, adr, jmp)", like for long jumps?
@@ -6814,10 +6807,8 @@ void emitter::emitDispInsHelp(
 
         case IF_T1_K: // Special Branch, conditional
         case IF_T1_M:
-            assert(((instrDescJmp*)id)->idjShort);
             printf("SHORT ");
             FALLTHROUGH;
-
         case IF_T2_N1:
             if (fmt == IF_T2_N1)
             {
@@ -6923,7 +6914,6 @@ void emitter::emitDispIns(
         idJmp.idIns(INS_b);
         idJmp.idInsFmt(IF_T2_J2);
         idJmp.idInsSize(ISZ_32BIT);
-        idJmp.idjShort = 0;
 
         if (id->idIsBound())
         {
