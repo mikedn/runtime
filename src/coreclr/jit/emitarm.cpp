@@ -4035,7 +4035,6 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idjKeepLong  = true;
     id->idIns(ins);
     id->idReg1(reg);
     id->idInsFmt(IF_T2_N1);
@@ -4257,11 +4256,6 @@ AGAIN:
             previousJumpIG = jumpIG;
         }
 
-        if (jump->idInsSize() == ISZ_16BIT)
-        {
-            continue;
-        }
-
         if (jump->idjKeepLong)
         {
             continue;
@@ -4272,21 +4266,23 @@ AGAIN:
         int32_t mediumNegativeDistance;
         int32_t mediumPositiveDistance;
 
-        if (emitIsCondJump(jump))
+        if ((jump->idInsFmt() == IF_T2_J1) || (jump->idInsFmt() == IF_LARGEJMP))
         {
             smallNegativeDistance  = JCC_DIST_SMALL_MAX_NEG;
             smallPositiveDistance  = JCC_DIST_SMALL_MAX_POS;
             mediumNegativeDistance = JCC_DIST_MEDIUM_MAX_NEG;
             mediumPositiveDistance = JCC_DIST_MEDIUM_MAX_POS;
         }
-        else
+        else if (jump->idInsFmt() == IF_T2_J2)
         {
-            assert(emitIsUncondJump(jump));
-
             smallNegativeDistance  = JMP_DIST_SMALL_MAX_NEG;
             smallPositiveDistance  = JMP_DIST_SMALL_MAX_POS;
             mediumNegativeDistance = 0;
             mediumPositiveDistance = 0;
+        }
+        else
+        {
+            continue;
         }
 
         uint32_t  jumpOffs    = jumpIG->igOffs + jump->idjOffs;
