@@ -9356,13 +9356,11 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     if (dstOffs > srcOffs)
     {
-        int adjustment = RecordForwardJump(id, srcOffs, dstOffs);
+        int adjustment = emitJumpCrossHotColdBoundary(srcOffs, dstOffs) ? 0 : emitOffsAdj;
 
         dstOffs -= adjustment;
         distance -= adjustment;
     }
-
-    id->idjAddr = distance > 0 ? dst : nullptr;
 
     if (emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
     {
@@ -10776,21 +10774,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     *dp = dst;
 
     return sz;
-}
-
-void emitter::PatchForwardJumps()
-{
-    for (instrDescJmp* jump = emitJumpList; jump != nullptr; jump = jump->idjNext)
-    {
-        if ((jump->idjAddr == nullptr) || (jump->idjOffs == jump->idAddr()->iiaIGlabel->igOffs))
-        {
-            continue;
-        }
-
-        assert(!jump->idAddr()->iiaHasInstrCount());
-
-        emitOutputLJ(jump->idjAddr, jump, nullptr);
-    }
 }
 
 #ifdef DEBUG

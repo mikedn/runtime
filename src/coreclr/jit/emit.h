@@ -1124,7 +1124,7 @@ private:
     {
         instrDescJmp* idjNext; // next jump in the group/method
         insGroup*     idjIG;   // containing group
-#ifndef TARGET_ARM
+#ifndef TARGET_ARMARCH
         uint8_t* idjAddr; // address of jump ins (for patching)
 #endif
 
@@ -1155,7 +1155,7 @@ private:
 #endif
     };
 
-#ifndef TARGET_ARM
+#ifndef TARGET_ARMARCH
     int RecordForwardJump(instrDescJmp* id, unsigned srcOffs, unsigned dstOffs);
 #endif
 
@@ -1442,7 +1442,7 @@ public:
 
     size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
     size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
-#ifndef TARGET_ARM
+#ifndef TARGET_ARMARCH
     void PatchForwardJumps();
 #endif
 
@@ -1499,7 +1499,7 @@ private:
 private:
     INDEBUG(void emitCheckFuncletBranch(instrDescJmp* jmp);)
 
-#ifndef TARGET_ARM
+#ifndef TARGET_ARMARCH
     // Are forward jumps present?
     bool emitFwdJumps = false;
 #endif

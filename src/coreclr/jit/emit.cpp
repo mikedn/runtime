@@ -2908,7 +2908,7 @@ void emitter::emitComputeCodeSizes()
 #endif
 }
 
-#ifndef TARGET_ARM
+#ifndef TARGET_ARMARCH
 int emitter::RecordForwardJump(instrDescJmp* id, unsigned srcOffs, unsigned dstOffs)
 {
     assert(dstOffs > srcOffs);
@@ -2932,7 +2932,7 @@ int emitter::RecordForwardJump(instrDescJmp* id, unsigned srcOffs, unsigned dstO
 
     return adjustment;
 }
-#endif // TARGET_ARM
+#endif // TARGET_ARMARCH
 
 //------------------------------------------------------------------------
 // emitEndCodeGen: called at end of code generation to create code, data, and gc info
@@ -3454,7 +3454,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
     gcInfo.End(emitCurCodeOffs(cp));
 
-#ifndef TARGET_ARM
+#ifndef TARGET_ARMARCH
     // Patch any forward jumps.
     if (emitFwdJumps)
     {
