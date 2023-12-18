@@ -5152,6 +5152,29 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         int   imm;
         void* addr;
 
+        case IF_T1_I:  // ......i.iiiiiddd                       R1                  imm6
+        case IF_T1_K:  // ....cccciiiiiiii                       Branch              imm8, cond4
+        case IF_T1_M:  // .....iiiiiiiiiii                       Branch              imm11
+        case IF_T2_J1: // .....Scccciiiiii ..j.jiiiiiiiiiii      Branch              imm20, cond4
+        case IF_T2_J2: // .....Siiiiiiiiii ..j.jiiiiiiiiii.      Branch              imm24
+        case IF_LARGEJMP:
+            assert(id->idGCref() == GCT_NONE);
+            assert(id->idIsBound());
+
+            dst = emitOutputLJ(dst, static_cast<instrDescJmp*>(id), ig);
+            sz  = sizeof(instrDescJmp);
+            break;
+
+        case IF_T1_J3: // .....dddiiiiiiii                        R1  PC             imm8
+        case IF_T2_M1: // .....i.......... .iiiddddiiiiiiii       R1  PC             imm12
+        case IF_T2_N1: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
+            assert(id->idGCref() == GCT_NONE);
+            assert(id->idIsBound());
+
+            dst = emitOutputRL(dst, static_cast<instrDescJmp*>(id));
+            sz  = sizeof(instrDescJmp);
+            break;
+
         case IF_T1_A: // T1_A    ................
             sz   = sizeof(instrDescSmall);
             code = emitInsCode(ins, fmt);
@@ -5227,13 +5250,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             code |= insEncodeRegT1_N3(id->idReg2());
             code |= insEncodeRegT1_M3(id->idReg3());
             dst += emitOutput_Thumb1Instr(dst, code);
-            break;
-
-        case IF_T1_I: // T1_I    ......i.iiiiiddd                       R1                  imm6
-            assert(id->idIsBound());
-
-            dst = emitOutputLJ(dst, static_cast<instrDescJmp*>(id), ig);
-            sz  = sizeof(instrDescJmp);
             break;
 
         case IF_T1_J0: // T1_J0   .....dddiiiiiiii                       R1                  imm8
@@ -5759,28 +5775,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             }
 
             dst += emitOutput_Thumb2Instr(dst, code);
-            break;
-
-        case IF_T1_J3: // T1_J3   .....dddiiiiiiii                        R1  PC             imm8
-        case IF_T2_M1: // T2_M1   .....i.......... .iiiddddiiiiiiii       R1  PC             imm12
-        case IF_T2_N1: // T2_N    .....i......iiii .iiiddddiiiiiiii       R1                 imm16
-            assert(id->idGCref() == GCT_NONE);
-            assert(id->idIsBound());
-
-            dst = emitOutputRL(dst, static_cast<instrDescJmp*>(id));
-            sz  = sizeof(instrDescJmp);
-            break;
-
-        case IF_T1_K:  // T1_K    ....cccciiiiiiii                       Branch              imm8, cond4
-        case IF_T1_M:  // T1_M    .....iiiiiiiiiii                       Branch              imm11
-        case IF_T2_J1: // T2_J1   .....Scccciiiiii ..j.jiiiiiiiiiii      Branch              imm20, cond4
-        case IF_T2_J2: // T2_J2   .....Siiiiiiiiii ..j.jiiiiiiiiii.      Branch              imm24
-        case IF_LARGEJMP:
-            assert(id->idGCref() == GCT_NONE);
-            assert(id->idIsBound());
-
-            dst = emitOutputLJ(dst, static_cast<instrDescJmp*>(id), ig);
-            sz  = sizeof(instrDescJmp);
             break;
 
         case IF_T1_D1: // T1_D1   .........mmmm...                       R1*
