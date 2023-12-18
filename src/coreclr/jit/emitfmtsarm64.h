@@ -208,8 +208,6 @@ IF_DEF(SI_0A, IS_NONE, NONE) // SI_0A   ...........iiiii iiiiiiiiiii.....       
 IF_DEF(SI_0B, IS_NONE, NONE) // SI_0B   ................ ....bbbb........               imm4 - barrier
 
 IF_DEF(SR_1A, IS_NONE, NONE) // SR_1A   ................ ...........ttttt      Rt       (dc zva)
-
-IF_DEF(INVALID, IS_NONE, NONE) //
 // clang-format on
 
 #undef IF_DEF

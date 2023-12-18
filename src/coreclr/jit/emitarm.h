@@ -14,7 +14,7 @@ typedef unsigned int code_t;
 /*         Routines that compute the size of / encode instructions      */
 /************************************************************************/
 
-insSize emitInsSize(insFormat insFmt);
+static insSize emitInsSize(insFormat insFmt);
 size_t emitGetInstrDescSize(const instrDesc* id);
 
 #ifdef FEATURE_ITINSTRUCTION
