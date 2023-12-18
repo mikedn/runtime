@@ -1130,7 +1130,7 @@ private:
                                // After emission, for forward jumps, this is the target offset -- in bytes from the
                                // beginning of the function -- of the target instruction of the jump, used to
                                // determine if this jump needs to be patched.
-#ifndef TARGET_ARM
+#ifndef TARGET_ARMARCH
         unsigned idjShort : 1; // is the jump known to be a short  one?
 #endif
         unsigned idjKeepLong : 1; // should the jump be kept long? (used for
@@ -1138,7 +1138,7 @@ private:
 
         void SetInstrCount(int count)
         {
-#ifndef TARGET_ARM
+#ifndef TARGET_ARMARCH
             idjShort = true;
 #endif
             idSetIsBound();

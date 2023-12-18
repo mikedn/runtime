@@ -7775,7 +7775,6 @@ void emitter::emitSetShortJump(instrDescJmp* id)
     }
 
     id->idInsFmt(fmt);
-    id->idjShort = true;
 }
 
 void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
@@ -7889,8 +7888,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst)
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(ins == INS_b ? IF_BI_0A : IF_LARGEJMP);
-    id->idjShort             = ins == INS_b;
-    id->idjKeepLong          = !id->idjShort && (InDifferentRegions(GetCurrentBlock(), dst) INDEBUG(|| keepLongJumps));
+    id->idjKeepLong          = (ins != INS_b) && (InDifferentRegions(GetCurrentBlock(), dst) INDEBUG(|| keepLongJumps));
     id->idAddr()->iiaBBlabel = dst;
 
     id->idjIG        = emitCurIG;
@@ -7910,7 +7908,6 @@ void emitter::emitIns_CallFinally(BasicBlock* block)
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(INS_bl_local);
     id->idInsFmt(IF_BI_0A);
-    id->idjShort             = true;
     id->idAddr()->iiaBBlabel = block;
 
     INDEBUG(id->idDebugOnlyInfo()->idFinallyCall = true);
@@ -8115,10 +8112,8 @@ AGAIN:
             previousJumpIG = jumpIG;
         }
 
-        if (emitIsUncondJump(jump) || jump->idjShort)
+        if ((jump->idInsFmt() != IF_LARGEJMP) && (jump->idInsFmt() != IF_LARGEADR) && (jump->idInsFmt() != IF_LARGELDC))
         {
-            assert(jump->idjShort);
-
             continue;
         }
 
@@ -9218,10 +9213,9 @@ uint8_t* emitter::emitOutputLoadLabel(uint8_t* dst, uint8_t* srcAddr, uint8_t* d
     insFormat   fmt    = id->idInsFmt();
     regNumber   dstReg = id->idReg1();
 
-    if (id->idjShort)
+    if (fmt == IF_DI_1E)
     {
         assert(ins == INS_adr);
-        assert(fmt == IF_DI_1E);
 
         return emitOutputShortAddress(dst, INS_adr, IF_DI_1E, dstAddr - srcAddr, dstReg);
     }
@@ -9273,11 +9267,10 @@ uint8_t* emitter::emitOutputDL(uint8_t* dst, instrDescJmp* id)
     regNumber dstReg  = id->idReg1();
     regNumber addrReg = dstReg; // an integer register to compute long address.
 
-    if (id->idjShort)
+    if (fmt == IF_LS_1A)
     {
         // ldr x/v, [rel addr] -- load constant from current addr(ip) + rel addr.
         assert(ins == INS_ldr);
-        assert(fmt == IF_LS_1A);
 
         return emitOutputShortConstant(dst, ins, fmt, dstAddr - srcAddr, dstReg, opSize);
     }
@@ -9373,7 +9366,6 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     if (emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
     {
-        assert(!id->idjShort);
         NYI_ARM64("Relocation Support for long address");
     }
 
