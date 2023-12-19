@@ -180,13 +180,12 @@ typedef uint64_t code_t;
 private:
 bool UseVEXEncoding() const;
 
-unsigned emitGetVexAdjustedSize(instruction ins);
 unsigned emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code, bool isRR = false);
 unsigned emitInsSizeR(instruction ins, emitAttr size, regNumber reg);
 unsigned emitInsSizeRI(instruction ins, emitAttr size, regNumber reg, ssize_t imm);
 unsigned emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, regNumber reg2);
 unsigned emitInsSizeRRI(instruction ins, emitAttr size, regNumber reg1, regNumber reg2);
-unsigned emitInsSizeRRR(instruction ins);
+unsigned emitInsSizeRRR(instruction ins, emitAttr size, regNumber reg3);
 unsigned emitInsSizeSV(instrDesc* id, code_t code);
 unsigned emitInsSizeAM(instrDesc* id, code_t code);
 unsigned emitInsSizeCV(instrDesc* id, code_t code);

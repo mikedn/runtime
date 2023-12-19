@@ -459,6 +459,7 @@ bool emitter::TakesVexPrefix(instruction ins) const
 
 constexpr unsigned PrefixesBitOffset = 16;
 constexpr unsigned MmmBitOffset      = 16;
+constexpr unsigned MmmBitMask        = 7;
 constexpr unsigned PpBitOffset       = 19;
 constexpr unsigned HasVexBitOffset   = 21;
 constexpr unsigned RexBitOffset      = 24;
@@ -467,6 +468,11 @@ constexpr unsigned VexLBitOffset     = 34;
 constexpr unsigned VexVvvvBitOffset  = 35;
 
 using code_t = emitter::code_t;
+
+static bool IsMap0F(code_t code)
+{
+    return ((code >> MmmBitOffset) & MmmBitMask) == 1;
+}
 
 static bool hasVexPrefix(code_t code)
 {
@@ -477,6 +483,15 @@ static bool hasRexPrefix(code_t code)
 {
 #ifdef TARGET_AMD64
     return ((code >> RexBitOffset) & 0xFF) != 0;
+#else
+    return false;
+#endif
+}
+
+static bool HasRexW(uint64_t code)
+{
+#ifdef TARGET_AMD64
+    return ((code >> RexBitOffset) & 8) != 0;
 #else
     return false;
 #endif
@@ -726,15 +741,6 @@ static bool emitVerifyEncodable(instruction ins, emitAttr attr, regNumber reg1, 
 }
 #endif // TARGET_X86
 
-unsigned emitter::emitGetVexAdjustedSize(instruction ins)
-{
-    assert(TakesVexPrefix(ins));
-
-    // TODO-MIKE-Cleanup: This assume that a 3-byte VEX prefix will be used. It should
-    // be relatively simple to detect instructions that can use a 2-byte VEX prefix.
-    return 3 + 1 + 1;
-}
-
 static unsigned emitInsSize(code_t code)
 {
     assert(!hasVexPrefix(code));
@@ -848,12 +854,18 @@ unsigned emitter::emitInsSizeRI(instruction ins, emitAttr size, regNumber reg, s
 
     if (IsSSEOrAVXOrBMIInstruction(ins))
     {
+        assert((INS_psrldq <= ins) && (ins <= INS_psrad));
+        assert(size != EA_1BYTE);
+        assert(!hasRexPrefix(code));
+        assert(!TakesRexWPrefix(ins, size));
+        assert(IsMap0F(code));
+
         if (TakesVexPrefix(ins))
         {
-            return emitGetVexAdjustedSize(ins) + 1;
+            return 2 + IsExtendedReg(reg) + 1 + 1 + 1;
         }
 
-        return (hasRexPrefix(code) || IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)) + emitInsSize(code) + 1;
+        return IsExtendedReg(reg) + emitInsSize(code) + 1;
     }
 
     assert(!TakesVexPrefix(ins));
@@ -880,9 +892,27 @@ unsigned emitter::emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, 
 {
     if (TakesVexPrefix(ins))
     {
-        return emitGetVexAdjustedSize(ins);
+        code_t code;
+        RegNum bReg;
+
+        assert((ins != INS_movd) || (IsFloatReg(reg1) != IsFloatReg(reg2)));
+
+        if ((ins == INS_movd) && IsFloatReg(reg2))
+        {
+            code = insCodeMR(ins);
+            bReg = reg1;
+        }
+        else
+        {
+            code = insCodeRM(ins);
+            bReg = reg2;
+        }
+
+        return 2 + (HasRexW(code) || !IsMap0F(code) || TakesRexWPrefix(ins, size) || IsExtendedReg(bReg)) + 1 + 1;
     }
 
+    // TODO-MIKE-Cleanup: This doesn't use the correct code for movd, it
+    // just happens to work because because both codes have the same length.
     code_t   code = insCodeRM(ins);
     unsigned sz   = emitGetAdjustedSize(ins, size, code, true);
     sz += hasRexPrefix(code) || IsExtendedReg(reg1, size) || IsExtendedReg(reg2, size) ||
@@ -894,7 +924,28 @@ unsigned emitter::emitInsSizeRRI(instruction ins, emitAttr size, regNumber reg1,
 {
     if (TakesVexPrefix(ins))
     {
-        return emitGetVexAdjustedSize(ins);
+        regNumber bReg;
+        code_t    code;
+
+        if (hasCodeMR(ins))
+        {
+            code = insCodeMR(ins);
+            bReg = reg1;
+        }
+        else if (hasCodeMI(ins))
+        {
+            assert((INS_psrldq <= ins) && (ins <= INS_psrad));
+
+            code = insCodeMI(ins);
+            bReg = reg2;
+        }
+        else
+        {
+            code = insCodeRM(ins);
+            bReg = reg2;
+        }
+
+        return 2 + (HasRexW(code) || !IsMap0F(code) || TakesRexWPrefix(ins, size) || IsExtendedReg(bReg)) + 1 + 1;
     }
 
     code_t code;
@@ -926,11 +977,13 @@ unsigned emitter::emitInsSizeRRI(instruction ins, emitAttr size, regNumber reg1,
     return sz;
 }
 
-unsigned emitter::emitInsSizeRRR(instruction ins)
+unsigned emitter::emitInsSizeRRR(instruction ins, emitAttr size, RegNum reg3)
 {
     assert(TakesVexPrefix(ins));
 
-    return emitGetVexAdjustedSize(ins);
+    code_t code = insCodeRM(ins);
+
+    return 2 + (HasRexW(code) || !IsMap0F(code) || TakesRexWPrefix(ins, size) || IsExtendedReg(reg3)) + 1 + 1;
 }
 
 unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
@@ -942,7 +995,7 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
 
     if (TakesVexPrefix(ins))
     {
-        sz = emitGetVexAdjustedSize(ins);
+        sz = 2 + (HasRexW(code) || !IsMap0F(code) || TakesRexWPrefix(ins, size)) + 1 + 1;
     }
     else
     {
@@ -992,7 +1045,9 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
 
     if (TakesVexPrefix(ins))
     {
-        sz = emitGetVexAdjustedSize(ins);
+        sz = 2 + (HasRexW(code) || !IsMap0F(code) || TakesRexWPrefix(ins, size) || IsExtendedReg(baseReg) ||
+                  IsExtendedReg(indexReg)) +
+             1 + 1;
     }
     else
     {
@@ -1077,7 +1132,7 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
 
     if (TakesVexPrefix(ins))
     {
-        sz = emitGetVexAdjustedSize(ins);
+        sz = 2 + (HasRexW(code) || !IsMap0F(code) || TakesRexWPrefix(ins, size)) + 1 + 1;
     }
     else
     {
@@ -2446,7 +2501,7 @@ void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    unsigned sz = emitInsSizeRRR(ins);
+    unsigned sz = emitInsSizeRRR(ins, EA_SIZE(attr), reg3);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -2535,7 +2590,7 @@ void emitter::emitIns_R_R_R_I(
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    unsigned sz = emitInsSizeRRR(ins) + 1;
+    unsigned sz = emitInsSizeRRR(ins, EA_SIZE(attr), reg3) + 1;
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -2660,7 +2715,7 @@ void emitter::emitIns_R_R_R_R(
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    unsigned sz = emitInsSizeRRR(ins) + 1;
+    unsigned sz = emitInsSizeRRR(ins, EA_SIZE(attr), reg3) + 1;
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -5203,18 +5258,10 @@ size_t emitter::emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instructi
 
     if ((code & ((0x0Bull << RexBitOffset) | (7ull << MmmBitOffset))) == (1ull << MmmBitOffset))
     {
-        // Encoding optimization calculation is not done while estimating the instruction
-        // size and thus over-predict instruction size by 1 byte.
-        // If there are IGs that will be aligned, do not optimize encoding so the
-        // estimated alignment sizes are accurate.
+        uint32_t vex21 = (((code >> RexRDelta) & 0x80) | vvvvl | ((code >> PpBitOffset) & 3)) ^ (0x1F << 3);
+        emitOutputWord(dst, 0xC5 | (vex21 << 8));
 
-        if (emitCurIG->igNum > emitLastAlignedIgNum)
-        {
-            uint32_t vex21 = (((code >> RexRDelta) & 0x80) | vvvvl | ((code >> PpBitOffset) & 3)) ^ (0x1F << 3);
-            emitOutputWord(dst, 0xC5 | (vex21 << 8));
-
-            return 2;
-        }
+        return 2;
     }
 
     uint32_t vex31 = (((code >> RexRDelta) & 0xE0) | ((code >> MmmBitOffset) & 7)) ^ (0x07 << 5);
@@ -6322,12 +6369,12 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 {
-    instruction ins    = id->idIns();
-    emitAttr    size   = id->idOpSize();
-    regNumber   reg1   = id->idReg1();
-    regNumber   reg2   = id->idReg2();
-    regNumber   reg345 = reg1;
-    regNumber   reg012 = reg2;
+    instruction ins  = id->idIns();
+    emitAttr    size = id->idOpSize();
+    regNumber   reg1 = id->idReg1();
+    regNumber   reg2 = id->idReg2();
+    regNumber   rReg = reg1;
+    regNumber   bReg = reg2;
     code_t      code;
 
     if (IsSSEOrAVXOrBMIInstruction(ins))
@@ -6372,7 +6419,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
                     // not expect. Can avoid going back and forth between extension and register? Maybe after
                     // 4-byte opcodes are gone and we always have a RM byte.
 
-                    reg345 = static_cast<RegNum>((code >> 11) & 7);
+                    rReg = static_cast<RegNum>((code >> 11) & 7);
                     code &= ~0xFF00ull;
                 }
             }
@@ -6388,7 +6435,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 
             if (IsFloatReg(reg2))
             {
-                std::swap(reg012, reg345);
+                std::swap(bReg, rReg);
             }
         }
     }
@@ -6456,7 +6503,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         }
 #endif
 
-        std::swap(reg345, reg012);
+        std::swap(rReg, bReg);
     }
     else if ((ins == INS_bsf) || (ins == INS_bsr) || (ins == INS_crc32) || (ins == INS_lzcnt) || (ins == INS_popcnt) ||
              (ins == INS_tzcnt) || IsCmov(ins))
@@ -6533,7 +6580,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 
     assert((code & 0xFF00) == 0);
 
-    code |= (0xC0 | insEncodeReg345(ins, reg345, size, &code) | insEncodeReg012(ins, reg012, size, &code)) << 8;
+    code |= (0xC0 | insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, bReg, size, &code)) << 8;
     dst += emitOutputRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
     dst += emitOutputWord(dst, code);
 
@@ -6702,9 +6749,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
 
-    // Get the 'base' opcode (it's a big one)
-    // Also, determine which operand goes where in the ModRM byte.
-    regNumber mReg;
+    regNumber bReg;
     regNumber rReg;
     code_t    code;
 
@@ -6713,7 +6758,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
         code = insCodeMR(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
 
-        mReg = id->idReg1();
+        bReg = id->idReg1();
         rReg = id->idReg2();
     }
     else if (hasCodeMI(ins))
@@ -6723,7 +6768,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
         code = insCodeMI(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
 
-        mReg = id->idReg2();
+        bReg = id->idReg2();
         rReg = static_cast<regNumber>((code >> 11) & 7);
     }
     else
@@ -6731,7 +6776,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
         code = insCodeRM(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
 
-        mReg = id->idReg2();
+        bReg = id->idReg2();
         rReg = id->idReg1();
 
         if ((ins == INS_imuli) && (id->idOpSize() > EA_1BYTE))
@@ -6777,7 +6822,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
     assert(((code & 0xFF00) == 0) || ((INS_psrldq <= ins) && (ins <= INS_psrad)));
 
-    code |= (0xC0 | insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, mReg, size, &code)) << 8;
+    code |= (0xC0 | insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, bReg, size, &code)) << 8;
     dst += emitOutputRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
     dst += emitOutputWord(dst, code);
 
