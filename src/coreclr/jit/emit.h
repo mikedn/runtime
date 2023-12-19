@@ -1155,10 +1155,6 @@ private:
 #endif
     };
 
-#ifndef TARGET_ARMARCH
-    int RecordForwardJump(instrDescJmp* id, unsigned srcOffs, unsigned dstOffs);
-#endif
-
 #if defined(DEBUG) || defined(LATE_DISASM)
 #if defined(TARGET_XARCH)
     static insFormat getMemoryOperation(instrDesc* id);
@@ -1442,9 +1438,6 @@ public:
 
     size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
     size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
-#ifndef TARGET_ARMARCH
-    void PatchForwardJumps();
-#endif
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
     bool emitInInstrumentation = false;
@@ -1499,10 +1492,6 @@ private:
 private:
     INDEBUG(void emitCheckFuncletBranch(instrDescJmp* jmp);)
 
-#ifndef TARGET_ARMARCH
-    // Are forward jumps present?
-    bool emitFwdJumps = false;
-#endif
     // Are we generating IGF_NOGCINTERRUPT insGroups (for prologs, epilogs, etc.)
     bool emitNoGCIG = false;
     // If we generate an instruction, and not another instruction group, force create a new emitAdd
@@ -1527,10 +1516,6 @@ public:
     }
 
 private:
-#ifndef TARGET_ARMARCH
-    int emitOffsAdj; // current code offset adjustment
-#endif
-
     instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
 
     VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();

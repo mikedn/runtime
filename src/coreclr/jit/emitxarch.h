@@ -5,6 +5,8 @@
 
 private:
 bool useVEXEncodings = false;
+bool emitFwdJumps    = false;
+int  emitOffsAdj     = 0;
 
 public:
 void SetUseVEXEncoding(bool value)
@@ -319,5 +321,8 @@ void emitAdjustStackDepth(instruction ins, ssize_t val);
 
 void emitLoopAlign(uint16_t paddingBytes);
 void emitLongLoopAlign(uint16_t alignmentBoundary);
+
+int RecordForwardJump(instrDescJmp* id, unsigned srcOffs, unsigned dstOffs);
+void PatchForwardJumps();
 
 #endif // TARGET_XARCH

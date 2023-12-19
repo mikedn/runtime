@@ -2908,32 +2908,6 @@ void emitter::emitComputeCodeSizes()
 #endif
 }
 
-#ifndef TARGET_ARMARCH
-int emitter::RecordForwardJump(instrDescJmp* id, unsigned srcOffs, unsigned dstOffs)
-{
-    assert(dstOffs > srcOffs);
-
-    // This is a forward jump - distance will be an upper limit.
-    emitFwdJumps = true;
-
-    // The target offset will be closer by at least 'emitOffsAdj',
-    // but only if this jump doesn't cross the hot-cold boundary.
-    int adjustment = emitJumpCrossHotColdBoundary(srcOffs, dstOffs) ? 0 : emitOffsAdj;
-    dstOffs -= adjustment;
-
-    // Record the location of the jump for later patching
-    id->idjOffs = dstOffs;
-
-    // Are we overflowing the id->idjOffs bitfield?
-    if (id->idjOffs != dstOffs)
-    {
-        IMPL_LIMITATION("Method is too large");
-    }
-
-    return adjustment;
-}
-#endif // TARGET_ARMARCH
-
 //------------------------------------------------------------------------
 // emitEndCodeGen: called at end of code generation to create code, data, and gc info
 //
@@ -2974,9 +2948,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
     emitCodeBlock = nullptr;
     emitConsBlock = nullptr;
-#ifndef TARGET_ARMARCH
-    emitOffsAdj = 0;
-#endif
 
 #ifndef JIT32_GCENCODER
     gcInfo.Begin();
@@ -3118,12 +3089,12 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
     emitCmpHandle->allocMem(&args);
 
-    codeBlock                     = (BYTE*)args.hotCodeBlock;
-    codeBlockRW                   = (BYTE*)args.hotCodeBlockRW;
-    coldCodeBlock                 = (BYTE*)args.coldCodeBlock;
-    coldCodeBlockRW               = (BYTE*)args.coldCodeBlockRW;
-    consBlock                     = (BYTE*)args.roDataBlock;
-    consBlockRW                   = (BYTE*)args.roDataBlockRW;
+    codeBlock       = (BYTE*)args.hotCodeBlock;
+    codeBlockRW     = (BYTE*)args.hotCodeBlockRW;
+    coldCodeBlock   = (BYTE*)args.coldCodeBlock;
+    coldCodeBlockRW = (BYTE*)args.coldCodeBlockRW;
+    consBlock       = (BYTE*)args.roDataBlock;
+    consBlockRW     = (BYTE*)args.roDataBlockRW;
 
 #endif
 
@@ -3213,11 +3184,12 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         const uint32_t codeOffs = ig->igOffs;
         noway_assert(codeOffs == emitCurCodeOffs(cp));
         assert(IsCodeAligned(codeOffs));
-#else
+#endif
+
+#ifdef TARGET_XARCH
         const uint32_t codeOffs   = emitCurCodeOffs(cp);
         const int32_t  newOffsAdj = ig->igOffs - codeOffs;
 
-#ifdef DEBUG
         if (newOffsAdj != 0)
         {
             JITDUMP("Block predicted offs = %08X, actual = %08X -> size adj = %d\n", ig->igOffs, codeOffs, newOffsAdj);
@@ -3233,7 +3205,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         // Make it noisy in DEBUG if these don't match. In release, the noway_assert below checks the
         // fatal condition.
         assert(emitOffsAdj == newOffsAdj);
-#endif // DEBUG
 
         // We can't have over-estimated the adjustment, or we might have underestimated a jump distance.
         noway_assert(newOffsAdj >= emitOffsAdj);
@@ -3241,7 +3212,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
         emitOffsAdj = newOffsAdj;
         ig->igOffs  = codeOffs;
-#endif // !TARGET_ARMARCH
+#endif // TARGET_XARCH
 
 #if !FEATURE_FIXED_OUT_ARGS
         if (ig->igStkLvl != emitCurStackLvl)
@@ -3454,8 +3425,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
     gcInfo.End(emitCurCodeOffs(cp));
 
-#ifndef TARGET_ARMARCH
-    // Patch any forward jumps.
+#ifdef TARGET_XARCH
     if (emitFwdJumps)
     {
         PatchForwardJumps();
