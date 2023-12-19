@@ -1041,11 +1041,11 @@ unsigned Compiler::bbThrowIndex(BasicBlock* blk)
  * Determine the emitter code cookie for a block, for unwind purposes.
  */
 
-void* Compiler::ehEmitCookie(BasicBlock* block)
+insGroup* Compiler::ehEmitCookie(BasicBlock* block)
 {
-    noway_assert(block);
+    noway_assert(block != nullptr);
 
-    void* cookie;
+    insGroup* cookie;
 
 #ifdef TARGET_ARM
     if ((block->bbFlags & BBF_FINALLY_TARGET) != 0)
@@ -1071,7 +1071,7 @@ void* Compiler::ehEmitCookie(BasicBlock* block)
 
 UNATIVE_OFFSET Compiler::ehCodeOffset(BasicBlock* block)
 {
-    return GetEmitter()->emitCodeOffset(ehEmitCookie(block), 0);
+    return GetEmitter()->emitCodeOffset(ehEmitCookie(block));
 }
 
 /****************************************************************************/

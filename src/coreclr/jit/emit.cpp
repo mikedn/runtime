@@ -225,7 +225,6 @@ insGroup* emitter::emitAllocIG()
     ig->igPerfScore = 0.0;
 #endif
 #ifdef DEBUG
-    ig->igSelf             = ig;
     ig->lastGeneratedBlock = nullptr;
     new (&ig->igBlocks) jitstd::list<BasicBlock*>(emitComp->getAllocator(CMK_LoopOpt));
 #endif
@@ -3454,71 +3453,76 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     return actualCodeSize;
 }
 
-/*****************************************************************************
- *
- *  We have an instruction in an insGroup and we need to know the
- *  instruction number for this instruction
- */
-
 unsigned emitter::emitFindInsNum(insGroup* ig, instrDesc* idMatch)
 {
-    instrDesc* id = (instrDesc*)ig->igData;
+    uint8_t* insData = ig->igData;
 
-    // Check if we are the first instruction in the group
-    if (id == idMatch)
+    for (unsigned i = 0, count = ig->igInsCnt; i < count; i++)
     {
-        return 0;
-    }
-
-    /* Walk the list of instructions until we find a match */
-    unsigned insNum       = 0;
-    unsigned insRemaining = ig->igInsCnt;
-
-    while (insRemaining > 0)
-    {
-        castto(id, uint8_t*) += id->GetDescSize();
-        insNum++;
-        insRemaining--;
+        instrDesc* id = reinterpret_cast<instrDesc*>(insData);
 
         if (id == idMatch)
         {
-            return insNum;
+            return i;
         }
+
+        insData += id->GetDescSize();
     }
-    assert(!"emitFindInsNum failed");
-    return -1;
+
+    unreached();
 }
 
-/*****************************************************************************
- *
- *  We've been asked for the code offset of an instruction but alas one or
- *  more instruction sizes in the block have been mis-predicted, so we have
- *  to find the true offset by looking for the instruction within the group.
- */
-
-UNATIVE_OFFSET emitter::emitFindOffset(insGroup* ig, unsigned insNum)
+// We've been asked for the code offset of an instruction but alas one or
+// more instruction sizes in the block have been mis-predicted, so we have
+// to find the true offset by looking for the instruction within the group.
+uint32_t emitter::emitFindOffset(insGroup* ig, unsigned insNum)
 {
-    instrDesc*     id = (instrDesc*)ig->igData;
-    UNATIVE_OFFSET of = 0;
+    assert(insNum <= ig->igInsCnt);
 
-#ifdef DEBUG
-    /* Make sure we were passed reasonable arguments */
-    assert(ig && ig->igSelf == ig);
-    assert(ig->igInsCnt >= insNum);
-#endif
+    uint8_t* insData = ig->igData;
+    uint32_t insOffs = 0;
 
-    /* Walk the instruction list until all are counted */
-
-    while (insNum > 0)
+    for (unsigned i = 0; i < insNum; i++)
     {
-        of += id->idCodeSize();
-
-        castto(id, uint8_t*) += id->GetDescSize();
-
-        insNum--;
+        instrDesc* id = reinterpret_cast<instrDesc*>(insData);
+        insOffs += id->idCodeSize();
+        insData += id->GetDescSize();
     }
 
-    return of;
+    return insOffs;
+}
+
+// Given a block cookie and a code position, return the actual code offset;
+// this can only be called at the end of code generation.
+uint32_t emitter::emitCodeOffset(insGroup* ig)
+{
+    return ig->igOffs;
+}
+
+uint32_t emitter::emitCodeOffset(insGroup* ig, unsigned codePos)
+{
+    uint32_t insOffs;
+    unsigned insNum = emitGetInsNumFromCodePos(codePos);
+
+    if (insNum == 0)
+    {
+        insOffs = 0;
+    }
+    else if (insNum == ig->igInsCnt)
+    {
+        insOffs = ig->igSize;
+    }
+    else if ((ig->igFlags & IGF_UPD_ISZ) != 0)
+    {
+        insOffs = emitFindOffset(ig, insNum);
+    }
+    else
+    {
+        insOffs = emitGetInsOfsFromCodePos(codePos);
+        assert(insOffs == emitFindOffset(ig, emitGetInsNumFromCodePos(codePos)));
+    }
+
+    return ig->igOffs + insOffs;
 }
 
 //---------------------------------------------------------------------------
@@ -4185,61 +4189,6 @@ void emitter::emitDispDataSec(dataSecDsc* section)
     }
 }
 #endif
-
-/*****************************************************************************
- *
- *  Given a block cookie and a code position, return the actual code offset;
- *  this can only be called at the end of code generation.
- */
-
-UNATIVE_OFFSET emitter::emitCodeOffset(void* blockPtr, unsigned codePos)
-{
-    insGroup* ig;
-
-    UNATIVE_OFFSET of;
-    unsigned       no = emitGetInsNumFromCodePos(codePos);
-
-    /* Make sure we weren't passed some kind of a garbage thing */
-
-    ig = (insGroup*)blockPtr;
-#ifdef DEBUG
-    assert(ig && ig->igSelf == ig);
-#endif
-
-    /* The first and last offsets are always easy */
-
-    if (no == 0)
-    {
-        of = 0;
-    }
-    else if (no == ig->igInsCnt)
-    {
-        of = ig->igSize;
-    }
-    else if (ig->igFlags & IGF_UPD_ISZ)
-    {
-        /*
-            Some instruction sizes have changed, so we'll have to figure
-            out the instruction offset "the hard way".
-         */
-
-        of = emitFindOffset(ig, no);
-    }
-    else
-    {
-        /* All instructions correctly predicted, the offset stays the same */
-
-        of = emitGetInsOfsFromCodePos(codePos);
-
-        // printf("[IG=%02u;ID=%03u;OF=%04X] <= %08X\n", ig->igNum, emitGetInsNumFromCodePos(codePos), of, codePos);
-
-        /* Make sure the offset estimate is accurate */
-
-        assert(of == emitFindOffset(ig, emitGetInsNumFromCodePos(codePos)));
-    }
-
-    return ig->igOffs + of;
-}
 
 #ifndef TARGET_XARCH
 target_ssize_t emitter::emitGetInsSC(instrDesc* id)

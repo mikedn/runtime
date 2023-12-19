@@ -1092,9 +1092,9 @@ struct BasicBlock : private LIR::Range
 #endif
     };
 
-    void* bbEmitCookie;
+    struct insGroup* bbEmitCookie;
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    void* bbUnwindNopEmitCookie;
+    struct insGroup* bbUnwindNopEmitCookie;
 #endif
 
 #if MEASURE_BLOCK_SIZE

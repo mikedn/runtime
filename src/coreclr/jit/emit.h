@@ -178,7 +178,6 @@ struct insGroup
     double               igPerfScore; // The PerfScore for this insGroup
 #endif
 #ifdef DEBUG
-    insGroup*                 igSelf;             // for consistency checking
     BasicBlock*               lastGeneratedBlock; // The last block that generated code into this insGroup.
     jitstd::list<BasicBlock*> igBlocks;           // All the blocks that generated code into this insGroup.
 #endif
@@ -341,8 +340,9 @@ public:
     /*           Record a code position and later convert it to offset      */
     /************************************************************************/
 
-    unsigned       emitCurOffset();
-    UNATIVE_OFFSET emitCodeOffset(void* blockPtr, unsigned codeOffs);
+    unsigned emitCurOffset();
+    uint32_t emitCodeOffset(insGroup* ig);
+    uint32_t emitCodeOffset(insGroup* ig, unsigned codeOffs);
     INDEBUG(const char* emitOffsetToLabel(unsigned offs);)
 
     /************************************************************************/
@@ -1367,7 +1367,7 @@ public:
     /************************************************************************/
 
     unsigned emitFindInsNum(insGroup* ig, instrDesc* id);
-    UNATIVE_OFFSET emitFindOffset(insGroup* ig, unsigned insNum);
+    uint32_t emitFindOffset(insGroup* ig, unsigned insNum);
 
     /************************************************************************/
     /*        Members and methods used to issue (encode) instructions.      */

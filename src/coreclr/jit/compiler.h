@@ -2860,7 +2860,7 @@ public:
     // convenient to also consider it a predecessor.)
     flowList* BlockPredsWithEH(BasicBlock* blk);
 
-    void* ehEmitCookie(BasicBlock* block);
+    insGroup* ehEmitCookie(BasicBlock* block);
     UNATIVE_OFFSET ehCodeOffset(BasicBlock* block);
 
     EHblkDsc* ehInitHndRange(BasicBlock* src, IL_OFFSET* hndBeg, IL_OFFSET* hndEnd, bool* inFilter);
