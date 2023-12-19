@@ -9342,7 +9342,7 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
         assert((instrCount >= 0) || (jumpInstrNum + 1 >= static_cast<unsigned>(-instrCount)));
 
-        dstOffs = ig->igOffs + emitFindOffset(ig, (jumpInstrNum + 1 + instrCount));
+        dstOffs = ig->igOffs + emitFindOffset(ig, jumpInstrNum + 1 + instrCount);
     }
     else
     {
@@ -10759,7 +10759,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         bool dspOffs = !emitComp->opts.disDiffable;
 #endif
 
-        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(odst), *dp, (dst - *dp), ig);
+        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp, ig);
     }
 #endif
 

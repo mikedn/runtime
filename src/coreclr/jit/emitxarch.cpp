@@ -7209,98 +7209,79 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idIsBound());
     assert(id->idInsFmt() == IF_LABEL);
 
-    instruction ins = id->idIns();
-    size_t      ssz;
-    size_t      lsz;
-
-    if (ins == INS_jmp)
-    {
-        ssz = JMP_JCC_SIZE_SMALL;
-        lsz = JMP_SIZE_LARGE;
-    }
-#ifdef FEATURE_EH_FUNCLETS
-    else if (ins == INS_call)
-    {
-        ssz = CALL_INST_SIZE;
-        lsz = CALL_INST_SIZE;
-    }
-#endif
-    else
-    {
-        assert((INS_jo <= ins) && (ins <= INS_jg));
-
-        ssz = JMP_JCC_SIZE_SMALL;
-        lsz = JCC_SIZE_LARGE;
-    }
-
-    unsigned srcOffs = emitCurCodeOffs(dst);
     unsigned dstOffs;
 
     if (id->idAddr()->iiaHasInstrCount())
     {
         assert(ig != nullptr);
-        int      instrCount = id->idAddr()->iiaGetInstrCount();
-        unsigned insNum     = emitFindInsNum(ig, id);
 
-        if (instrCount < 0)
-        {
-            // Backward branches using instruction count must be within the same instruction group.
-            assert(insNum + 1 >= (unsigned)(-instrCount));
-        }
+        int      instrCount   = id->idAddr()->iiaGetInstrCount();
+        unsigned jumpInstrNum = emitFindInsNum(ig, id);
 
-        dstOffs = ig->igOffs + emitFindOffset(ig, (insNum + 1 + instrCount));
+        assert((instrCount >= 0) || (jumpInstrNum + 1 >= static_cast<unsigned>(-instrCount)));
+
+        dstOffs = ig->igOffs + emitFindOffset(ig, jumpInstrNum + 1 + instrCount);
     }
     else
     {
         dstOffs = id->idAddr()->iiaIGlabel->igOffs;
     }
 
-    uint8_t* srcAddr = emitOffsetToPtr(srcOffs);
-    uint8_t* dstAddr = emitOffsetToPtr(dstOffs);
-    ssize_t  distVal = static_cast<ssize_t>(dstAddr - srcAddr);
-    bool     isShort = id->idCodeSize() == JMP_JCC_SIZE_SMALL;
+    uint8_t*    dstAddr  = emitOffsetToPtr(dstOffs);
+    unsigned    srcOffs  = emitCurCodeOffs(dst);
+    uint8_t*    srcAddr  = emitOffsetToPtr(srcOffs);
+    ssize_t     distance = static_cast<ssize_t>(dstAddr - srcAddr);
+    instruction ins      = id->idIns();
 
-    // Adjust the offset to emit relative to the end of the instruction
-    distVal -= isShort ? ssz : lsz;
-
-    if (isShort)
+    if (id->idCodeSize() == JMP_JCC_SIZE_SMALL)
     {
         assert(!id->idjKeepLong);
         assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
         assert(ins != INS_call);
-        assert(id->idCodeSize() == JMP_JCC_SIZE_SMALL);
+
+        distance -= JMP_JCC_SIZE_SMALL;
+        assert(IsImm8(distance));
 
         dst += emitOutputByte(dst, insCodeJ(ins));
-        dst += emitOutputByte(dst, distVal);
+        dst += emitOutputByte(dst, distance);
     }
     else
     {
 #ifdef FEATURE_EH_FUNCLETS
         if (ins == INS_call)
         {
+            assert(id->idCodeSize() == CALL_INST_SIZE);
+            distance -= CALL_INST_SIZE;
+
             dst += emitOutputByte(dst, 0xE8);
         }
         else
 #endif
             if (ins == INS_jmp)
         {
+            assert(id->idCodeSize() == JMP_SIZE_LARGE);
+            distance -= JMP_SIZE_LARGE;
+
             dst += emitOutputByte(dst, 0xE9);
         }
         else
         {
+            assert(id->idCodeSize() == JCC_SIZE_LARGE);
+            distance -= JCC_SIZE_LARGE;
+
             code_t code = insCodeJ(ins);
             assert((0x70 <= code) && (code <= 0x7F));
             dst += emitOutputWord(dst, 0x0F | ((code + 0x10) << 8));
         }
 
-        dst += emitOutputLong(dst, distVal);
+        dst += emitOutputLong(dst, distance);
 
         // For x64 we always go through recordRelocation since we may need jump stubs.
         // TODO-MIKE-Review: Hmm, jump stubs for jumps within the same method?!?
         if (X86_ONLY(emitComp->opts.compReloc &&) emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
         {
             assert(id->idjKeepLong);
-            emitRecordRelocation(dst - 4, dst + distVal, IMAGE_REL_BASED_REL32);
+            emitRecordRelocation(dst - 4, dst + distance, IMAGE_REL_BASED_REL32);
         }
     }
 
@@ -8008,13 +7989,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         assert((gcInfo.GetAllLiveRegs() & genRegMask(id->idReg1())) == RBM_NONE);
     }
 
-    uint32_t estimatedSize = id->idCodeSize();
-    uint32_t actualSize    = static_cast<uint32_t>(dst - *dp);
-
 #ifdef DEBUG
-    if ((emitComp->opts.disAsm || emitComp->verbose) && (actualSize != 0))
+    if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
     {
-        emitDispIns(id, false, emitComp->opts.dspGCtbls, true, emitCurCodeOffs(*dp), *dp, actualSize);
+        bool dspOffs = emitComp->opts.dspGCtbls;
+
+        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp);
     }
 #endif
 

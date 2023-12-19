@@ -4844,10 +4844,6 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id)
 
 uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
-    instruction ins = id->idIns();
-    insFormat   fmt = id->idInsFmt();
-
-    uint32_t srcOffs = emitCurCodeOffs(dst);
     uint32_t dstOffs;
 
     if (id->idAddr()->iiaHasInstrCount())
@@ -4866,7 +4862,10 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         dstOffs = id->idAddr()->iiaIGlabel->igOffs;
     }
 
-    ssize_t distance = emitOffsetToPtr(dstOffs) - emitOffsetToPtr(srcOffs);
+    uint32_t    srcOffs  = emitCurCodeOffs(dst);
+    ssize_t     distance = emitOffsetToPtr(dstOffs) - emitOffsetToPtr(srcOffs);
+    instruction ins      = id->idIns();
+    insFormat   fmt      = id->idInsFmt();
 
     // Adjust the offset to emit relative to the end of the instruction.
     distance -= 4;
@@ -5889,7 +5888,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     {
         bool dspOffs = emitComp->opts.dspGCtbls || !emitComp->opts.disDiffable;
 
-        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(odst), *dp, (dst - *dp), ig);
+        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp, ig);
     }
 #endif
 
