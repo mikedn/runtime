@@ -3118,12 +3118,12 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
     emitCmpHandle->allocMem(&args);
 
-    codeBlock       = (BYTE*)args.hotCodeBlock;
-    codeBlockRW     = (BYTE*)args.hotCodeBlockRW;
-    coldCodeBlock   = (BYTE*)args.coldCodeBlock;
-    coldCodeBlockRW = (BYTE*)args.coldCodeBlockRW;
-    consBlock       = (BYTE*)args.roDataBlock;
-    consBlockRW     = (BYTE*)args.roDataBlockRW;
+    codeBlock                     = (BYTE*)args.hotCodeBlock;
+    codeBlockRW                   = (BYTE*)args.hotCodeBlockRW;
+    coldCodeBlock                 = (BYTE*)args.coldCodeBlock;
+    coldCodeBlockRW               = (BYTE*)args.coldCodeBlockRW;
+    consBlock                     = (BYTE*)args.roDataBlock;
+    consBlockRW                   = (BYTE*)args.roDataBlockRW;
 
 #endif
 
@@ -3210,29 +3210,24 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         BYTE* bp = cp;
 
 #ifdef TARGET_ARMARCH
-        noway_assert(ig->igOffs == emitCurCodeOffs(cp));
-        const unsigned codeOffs = ig->igOffs;
+        const uint32_t codeOffs = ig->igOffs;
+        noway_assert(codeOffs == emitCurCodeOffs(cp));
         assert(IsCodeAligned(codeOffs));
 #else
-        /* Record the actual offset of the block, noting the difference */
-
-        int newOffsAdj = ig->igOffs - emitCurCodeOffs(cp);
+        const uint32_t codeOffs   = emitCurCodeOffs(cp);
+        const int32_t  newOffsAdj = ig->igOffs - codeOffs;
 
 #ifdef DEBUG
-        if (emitComp->verbose)
+        if (newOffsAdj != 0)
         {
-            if (newOffsAdj != 0)
-            {
-                printf("Block predicted offs = %08X, actual = %08X -> size adj = %d\n", ig->igOffs, emitCurCodeOffs(cp),
-                       newOffsAdj);
-            }
+            JITDUMP("Block predicted offs = %08X, actual = %08X -> size adj = %d\n", ig->igOffs, codeOffs, newOffsAdj);
+        }
 
-            if (emitOffsAdj != newOffsAdj)
-            {
-                printf("Block expected size adj %d not equal to actual size adj %d (probably some instruction size was "
-                       "underestimated but not included in the running `emitOffsAdj` count)\n",
-                       emitOffsAdj, newOffsAdj);
-            }
+        if (emitOffsAdj != newOffsAdj)
+        {
+            JITDUMP("Block expected size adj %d not equal to actual size adj %d (probably some instruction size was "
+                    "underestimated but not included in the running `emitOffsAdj` count)\n",
+                    emitOffsAdj, newOffsAdj);
         }
 
         // Make it noisy in DEBUG if these don't match. In release, the noway_assert below checks the
@@ -3241,13 +3236,11 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 #endif // DEBUG
 
         // We can't have over-estimated the adjustment, or we might have underestimated a jump distance.
-        noway_assert(emitOffsAdj <= newOffsAdj);
+        noway_assert(newOffsAdj >= emitOffsAdj);
+        assert(newOffsAdj >= 0);
 
         emitOffsAdj = newOffsAdj;
-        assert(emitOffsAdj >= 0);
-
-        const unsigned codeOffs = emitCurCodeOffs(cp);
-        ig->igOffs              = codeOffs;
+        ig->igOffs  = codeOffs;
 #endif // !TARGET_ARMARCH
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -3255,7 +3248,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         {
             // We are pushing stuff implicitly at this label.
             assert(ig->igStkLvl > emitCurStackLvl);
-            emitStackPushN(emitCurCodeOffs(cp), (ig->igStkLvl - emitCurStackLvl) / TARGET_POINTER_SIZE);
+            emitStackPushN(codeOffs, (ig->igStkLvl - emitCurStackLvl) / TARGET_POINTER_SIZE);
         }
 #endif
 
