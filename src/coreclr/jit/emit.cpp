@@ -2974,7 +2974,9 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
     emitCodeBlock = nullptr;
     emitConsBlock = nullptr;
-    emitOffsAdj   = 0;
+#ifndef TARGET_ARMARCH
+    emitOffsAdj = 0;
+#endif
 
 #ifndef JIT32_GCENCODER
     gcInfo.Begin();
@@ -3207,6 +3209,11 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
         BYTE* bp = cp;
 
+#ifdef TARGET_ARMARCH
+        noway_assert(ig->igOffs == emitCurCodeOffs(cp));
+        const unsigned codeOffs = ig->igOffs;
+        assert(IsCodeAligned(codeOffs));
+#else
         /* Record the actual offset of the block, noting the difference */
 
         int newOffsAdj = ig->igOffs - emitCurCodeOffs(cp);
@@ -3240,8 +3247,8 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         assert(emitOffsAdj >= 0);
 
         const unsigned codeOffs = emitCurCodeOffs(cp);
-        assert(IsCodeAligned(codeOffs));
-        ig->igOffs = codeOffs;
+        ig->igOffs              = codeOffs;
+#endif // !TARGET_ARMARCH
 
 #if !FEATURE_FIXED_OUT_ARGS
         if (ig->igStkLvl != emitCurStackLvl)

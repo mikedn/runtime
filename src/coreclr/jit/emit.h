@@ -1527,7 +1527,9 @@ public:
     }
 
 private:
+#ifndef TARGET_ARMARCH
     int emitOffsAdj; // current code offset adjustment
+#endif
 
     instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
 

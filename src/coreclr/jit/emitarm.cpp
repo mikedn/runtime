@@ -4782,14 +4782,6 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id)
         distance = reinterpret_cast<ssize_t>(emitOffsetToPtr(dstOffs)) + 1; // Or in thumb bit
     }
 
-    if (dstOffs > srcOffs)
-    {
-        int adjustment = emitJumpCrossHotColdBoundary(srcOffs, dstOffs) ? 0 : emitOffsAdj;
-
-        dstOffs -= adjustment;
-        distance -= adjustment;
-    }
-
     // Adjust the offset to emit relative to the end of the instruction.
     if (ins == INS_adr)
     {
@@ -4878,14 +4870,6 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     // Adjust the offset to emit relative to the end of the instruction.
     distance -= 4;
-
-    if (dstOffs > srcOffs)
-    {
-        int adjustment = emitJumpCrossHotColdBoundary(srcOffs, dstOffs) ? 0 : emitOffsAdj;
-
-        dstOffs -= adjustment;
-        distance -= adjustment;
-    }
 
     if (id->idInsSize() == ISZ_16BIT)
     {

@@ -9354,14 +9354,6 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     uint8_t* dstAddr  = emitOffsetToPtr(dstOffs);
     ssize_t  distance = dstAddr - srcAddr;
 
-    if (dstOffs > srcOffs)
-    {
-        int adjustment = emitJumpCrossHotColdBoundary(srcOffs, dstOffs) ? 0 : emitOffsAdj;
-
-        dstOffs -= adjustment;
-        distance -= adjustment;
-    }
-
     if (emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
     {
         NYI_ARM64("Relocation Support for long address");
