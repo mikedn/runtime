@@ -7159,12 +7159,6 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     AMD64_ONLY(dst += emitOutputRexPrefix(dst, code));
     dst += emitOutputWord(dst, code | 0x0500);
 
-    if (dstOffs > srcOffs)
-    {
-        dstAddr -= RecordForwardJump(id, srcOffs, dstOffs);
-        id->idjAddr = dst;
-    }
-
 #ifdef TARGET_AMD64
     // TODO-MIKE-Cleanup: This shouldn't call recordRelocation, the target is within
     // this method so it's not like we'll need jump stubs or anything VM related.
@@ -7198,13 +7192,6 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     assert(insCodeMI(INS_push) == 0x68);
     dst += emitOutputByte(dst, 0x68);
-
-    if (dstOffs > srcOffs)
-    {
-        dstAddr -= RecordForwardJump(id, srcOffs, dstOffs);
-        id->idjAddr = dst;
-    }
-
     dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(dstAddr));
 
     if (emitComp->opts.compReloc)
@@ -7273,53 +7260,6 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     ssize_t  distVal = static_cast<ssize_t>(dstAddr - srcAddr);
     bool     isShort = id->idCodeSize() == JMP_JCC_SIZE_SMALL;
 
-    if (dstOffs <= srcOffs)
-    {
-        // This is a backward jump - distance is known at this point
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-        if (emitComp->verbose)
-        {
-            size_t blkOffs = id->idjIG->igOffs;
-
-            printf("[3] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
-            printf("[3] Jump  block is at %08X - %02X = %08X\n", blkOffs, emitOffsAdj, blkOffs - emitOffsAdj);
-            printf("[3] Jump        is at %08X - %02X = %08X\n", srcOffs, emitOffsAdj, srcOffs - emitOffsAdj);
-            printf("[3] Label block is at %08X - %02X = %08X\n", dstOffs, emitOffsAdj, dstOffs - emitOffsAdj);
-        }
-#endif
-
-        // Can we use a short jump?
-        if ((ins != INS_call) && distVal - ssz >= (size_t)-128 && !id->idjKeepLong)
-        {
-            isShort = true;
-        }
-    }
-    else
-    {
-        int adjustment = RecordForwardJump(id, srcOffs, dstOffs);
-        dstOffs -= adjustment;
-        distVal -= adjustment;
-
-#ifdef DEBUG
-        if (emitComp->verbose)
-        {
-            size_t blkOffs = id->idjIG->igOffs;
-
-            printf("[4] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
-            printf("[4] Jump  block is at %08X\n", blkOffs);
-            printf("[4] Jump        is at %08X\n", srcOffs);
-            printf("[4] Label block is at %08X - %02X = %08X\n", dstOffs + emitOffsAdj, emitOffsAdj, dstOffs);
-        }
-#endif
-
-        if ((ins != INS_call) && distVal - ssz <= 127 && !id->idjKeepLong)
-        {
-            isShort = true;
-        }
-    }
-
     // Adjust the offset to emit relative to the end of the instruction
     distVal -= isShort ? ssz : lsz;
 
@@ -7328,21 +7268,9 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         assert(!id->idjKeepLong);
         assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
         assert(ins != INS_call);
-
-        if (id->idCodeSize() != JMP_JCC_SIZE_SMALL)
-        {
-            JITDUMP("; NOTE: size of jump IN%04X mis-predicted by %d bytes\n", id->idDebugOnlyInfo()->idNum,
-                    id->idCodeSize() - JMP_JCC_SIZE_SMALL);
-        }
+        assert(id->idCodeSize() == JMP_JCC_SIZE_SMALL);
 
         dst += emitOutputByte(dst, insCodeJ(ins));
-
-        // For forward jumps, record the address of the distance value
-        if (distVal > 0)
-        {
-            id->idjAddr = dst;
-        }
-
         dst += emitOutputByte(dst, distVal);
     }
     else
@@ -7363,12 +7291,6 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
             code_t code = insCodeJ(ins);
             assert((0x70 <= code) && (code <= 0x7F));
             dst += emitOutputWord(dst, 0x0F | ((code + 0x10) << 8));
-        }
-
-        // For forward jumps, record the address of the distance value
-        if (dstOffs > srcOffs)
-        {
-            id->idjAddr = dst;
         }
 
         dst += emitOutputLong(dst, distVal);
@@ -8096,101 +8018,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     }
 #endif
 
-    if (actualSize != estimatedSize)
-    {
-        JITDUMP("Instruction estimated size %u, actual %u\n", estimatedSize, actualSize);
-
-        int32_t sizeDiff = estimatedSize - actualSize;
-
-        // It is fatal to under-estimate the instruction size.
-        noway_assert(sizeDiff >= 0);
-        // Should never over-estimate align instruction.
-        assert(id->idIns() != INS_align);
-
-        // Only compensate over-estimated instructions if emitCurIG is before
-        // the last IG that needs alignment.
-        if (emitCurIG->igNum <= emitLastAlignedIgNum)
-        {
-            JITDUMP("Added over-estimation compensation: %d\n", sizeDiff);
-
-#ifdef DEBUG
-            if (emitComp->opts.disAsm)
-            {
-                emitDispInsAddr(dst);
-                printf("\t\t  ;; NOP compensation instructions of %d bytes.\n", sizeDiff);
-            }
-#endif
-
-            dst = emitOutputNOP(dst + writeableOffset, sizeDiff) - writeableOffset;
-        }
-        else
-        {
-            // Add the shrinkage to the ongoing offset adjustment. This needs to happen during the
-            // processing of an instruction group, and not only at the beginning of an instruction
-            // group, or else the difference of IG sizes between debug and release builds can cause
-            // debug/non-debug asm diffs.
-            JITDUMP("Increasing emitOffsAdj %u by %u => %u\n", emitOffsAdj, sizeDiff, emitOffsAdj + sizeDiff);
-            emitOffsAdj += sizeDiff;
-
-            ig->igFlags |= IGF_UPD_ISZ;
-            id->idCodeSize(actualSize);
-        }
-    }
-
     *dp = dst;
 
     return sz;
-}
-
-int emitter::RecordForwardJump(instrDescJmp* id, unsigned srcOffs, unsigned dstOffs)
-{
-    assert(dstOffs > srcOffs);
-
-    // This is a forward jump - distance will be an upper limit.
-    emitFwdJumps = true;
-
-    // The target offset will be closer by at least 'emitOffsAdj',
-    // but only if this jump doesn't cross the hot-cold boundary.
-    uint32_t adjustment = emitJumpCrossHotColdBoundary(srcOffs, dstOffs) ? 0 : emitOffsAdj;
-    dstOffs -= adjustment;
-
-    // Record the location of the jump for later patching
-    id->idjOffs = dstOffs;
-
-    // Are we overflowing the id->idjOffs bitfield?
-    if (id->idjOffs != dstOffs)
-    {
-        IMPL_LIMITATION("Method is too large");
-    }
-
-    return adjustment;
-}
-
-void emitter::PatchForwardJumps()
-{
-    for (instrDescJmp* jump = emitJumpList; jump != nullptr; jump = jump->idjNext)
-    {
-        assert((jump->idInsFmt() == IF_LABEL) || (jump->idInsFmt() == IF_RWR_LABEL));
-
-        insGroup* targetIG = jump->idAddr()->iiaIGlabel;
-
-        if ((jump->idjAddr == nullptr) || (jump->idjOffs == targetIG->igOffs))
-        {
-            continue;
-        }
-
-        uint8_t* addr  = jump->idjAddr;
-        int32_t  delta = jump->idjOffs - targetIG->igOffs;
-
-        if (jump->idCodeSize() == JMP_JCC_SIZE_SMALL)
-        {
-            *reinterpret_cast<int8_t*>(addr + writeableOffset) -= static_cast<int8_t>(delta);
-        }
-        else
-        {
-            *reinterpret_cast<int32_t*>(addr + writeableOffset) -= delta;
-        }
-    }
 }
 
 #if defined(DEBUG) || defined(LATE_DISASM)

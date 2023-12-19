@@ -2061,13 +2061,7 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
     assert((actualSize != 0) || id->InstrHasNoCode());
 
-    if (actualSize != estimatedSize)
-    {
-        JITDUMP("Instruction estimated size %u, actual %u\n", estimatedSize, actualSize);
-#ifndef TARGET_XARCH
-        IMPL_LIMITATION("Over-estimated instruction size");
-#endif
-    }
+    noway_assert(actualSize == estimatedSize);
 
 #ifdef DEBUG
     if (instrDescSize != id->GetDescSize())
@@ -3179,17 +3173,9 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
         BYTE* bp = cp;
 
-#ifdef TARGET_ARMARCH
         const uint32_t codeOffs = ig->igOffs;
         noway_assert(codeOffs == emitCurCodeOffs(cp));
         assert(IsCodeAligned(codeOffs));
-#endif
-
-#ifdef TARGET_XARCH
-        const uint32_t codeOffs = emitCurCodeOffs(cp);
-        noway_assert(emitOffsAdj == ig->igOffs - codeOffs);
-        ig->igOffs = codeOffs;
-#endif
 
 #if !FEATURE_FIXED_OUT_ARGS
         if (ig->igStkLvl != emitCurStackLvl)
@@ -3401,13 +3387,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     }
 
     gcInfo.End(emitCurCodeOffs(cp));
-
-#ifdef TARGET_XARCH
-    if (emitFwdJumps)
-    {
-        PatchForwardJumps();
-    }
-#endif
 
 #ifdef DEBUG
     if (emitComp->opts.disAsm)

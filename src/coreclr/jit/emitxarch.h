@@ -4,9 +4,7 @@
 #ifdef TARGET_XARCH
 
 private:
-bool     useVEXEncodings = false;
-bool     emitFwdJumps    = false;
-uint32_t emitOffsAdj     = 0;
+bool useVEXEncodings = false;
 
 public:
 void SetUseVEXEncoding(bool value)
@@ -320,8 +318,5 @@ void emitAdjustStackDepth(instruction ins, ssize_t val);
 
 void emitLoopAlign(uint16_t paddingBytes);
 void emitLongLoopAlign(uint16_t alignmentBoundary);
-
-int RecordForwardJump(instrDescJmp* id, unsigned srcOffs, unsigned dstOffs);
-void PatchForwardJumps();
 
 #endif // TARGET_XARCH

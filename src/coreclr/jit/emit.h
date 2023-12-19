@@ -1122,18 +1122,10 @@ private:
 
     struct instrDescJmp : instrDesc
     {
-        instrDescJmp* idjNext; // next jump in the group/method
-        insGroup*     idjIG;   // containing group
-#ifndef TARGET_ARMARCH
-        uint8_t* idjAddr; // address of jump ins (for patching)
-#endif
-
-        unsigned idjOffs : 30;    // Before jump emission, this is the byte offset within IG of the jump instruction.
-                                  // After emission, for forward jumps, this is the target offset -- in bytes from the
-                                  // beginning of the function -- of the target instruction of the jump, used to
-                                  // determine if this jump needs to be patched.
-        unsigned idjKeepLong : 1; // should the jump be kept long? (used for
-        // hot to cold and cold to hot jumps)
+        instrDescJmp* idjNext;         // next jump in the group/method
+        insGroup*     idjIG;           // containing group
+        unsigned      idjOffs : 30;    // The byte offset within IG of the jump instruction.
+        unsigned      idjKeepLong : 1; // should the jump be kept long? (used for hot to cold and cold to hot jumps)
 
         void SetInstrCount(int count)
         {
