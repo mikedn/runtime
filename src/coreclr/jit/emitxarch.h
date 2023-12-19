@@ -4,9 +4,9 @@
 #ifdef TARGET_XARCH
 
 private:
-bool useVEXEncodings = false;
-bool emitFwdJumps    = false;
-int  emitOffsAdj     = 0;
+bool     useVEXEncodings = false;
+bool     emitFwdJumps    = false;
+uint32_t emitOffsAdj     = 0;
 
 public:
 void SetUseVEXEncoding(bool value)

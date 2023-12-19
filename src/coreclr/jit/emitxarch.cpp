@@ -8084,7 +8084,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             // processing of an instruction group, and not only at the beginning of an instruction
             // group, or else the difference of IG sizes between debug and release builds can cause
             // debug/non-debug asm diffs.
-            JITDUMP("Increasing emitOffsAdj %d by %d => %d\n", emitOffsAdj, sizeDiff, emitOffsAdj + sizeDiff);
+            JITDUMP("Increasing emitOffsAdj %u by %u => %u\n", emitOffsAdj, sizeDiff, emitOffsAdj + sizeDiff);
             emitOffsAdj += sizeDiff;
 
             ig->igFlags |= IGF_UPD_ISZ;
@@ -8106,7 +8106,7 @@ int emitter::RecordForwardJump(instrDescJmp* id, unsigned srcOffs, unsigned dstO
 
     // The target offset will be closer by at least 'emitOffsAdj',
     // but only if this jump doesn't cross the hot-cold boundary.
-    int adjustment = emitJumpCrossHotColdBoundary(srcOffs, dstOffs) ? 0 : emitOffsAdj;
+    uint32_t adjustment = emitJumpCrossHotColdBoundary(srcOffs, dstOffs) ? 0 : emitOffsAdj;
     dstOffs -= adjustment;
 
     // Record the location of the jump for later patching

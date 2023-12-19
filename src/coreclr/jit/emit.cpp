@@ -3187,32 +3187,10 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 #endif
 
 #ifdef TARGET_XARCH
-        const uint32_t codeOffs   = emitCurCodeOffs(cp);
-        const int32_t  newOffsAdj = ig->igOffs - codeOffs;
-
-        if (newOffsAdj != 0)
-        {
-            JITDUMP("Block predicted offs = %08X, actual = %08X -> size adj = %d\n", ig->igOffs, codeOffs, newOffsAdj);
-        }
-
-        if (emitOffsAdj != newOffsAdj)
-        {
-            JITDUMP("Block expected size adj %d not equal to actual size adj %d (probably some instruction size was "
-                    "underestimated but not included in the running `emitOffsAdj` count)\n",
-                    emitOffsAdj, newOffsAdj);
-        }
-
-        // Make it noisy in DEBUG if these don't match. In release, the noway_assert below checks the
-        // fatal condition.
-        assert(emitOffsAdj == newOffsAdj);
-
-        // We can't have over-estimated the adjustment, or we might have underestimated a jump distance.
-        noway_assert(newOffsAdj >= emitOffsAdj);
-        assert(newOffsAdj >= 0);
-
-        emitOffsAdj = newOffsAdj;
-        ig->igOffs  = codeOffs;
-#endif // TARGET_XARCH
+        const uint32_t codeOffs = emitCurCodeOffs(cp);
+        noway_assert(emitOffsAdj == ig->igOffs - codeOffs);
+        ig->igOffs = codeOffs;
+#endif
 
 #if !FEATURE_FIXED_OUT_ARGS
         if (ig->igStkLvl != emitCurStackLvl)
