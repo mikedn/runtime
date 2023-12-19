@@ -2929,14 +2929,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 {
     JITDUMP("*************** In emitEndCodeGen()\n");
 
-    BYTE* consBlock;
-    BYTE* consBlockRW;
-    BYTE* codeBlock;
-    BYTE* codeBlockRW;
-    BYTE* coldCodeBlock;
-    BYTE* coldCodeBlockRW;
-    BYTE* cp;
-
     assert(emitCurIG == nullptr);
 
     emitCodeBlock = nullptr;
@@ -2959,31 +2951,14 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         emitExitSeqSize = 0;
     }
 
-    *epilogSize = emitEpilogSize + emitExitSeqSize;
+    *epilogSize            = emitEpilogSize + emitExitSeqSize;
 #endif // JIT32_GCENCODER
 
-#ifdef DEBUG
-    if (emitComp->verbose)
-    {
-        printf("\nInstruction list before instruction issue:\n\n");
-        emitDispIGlist(true);
-    }
-
-    emitCheckIGoffsets();
-#endif
-
-    /* Allocate the code block (and optionally the data blocks) */
-
-    // If we're doing procedure splitting and we found cold blocks, then
-    // allocate hot and cold buffers.  Otherwise only allocate a hot
-    // buffer.
-
-    coldCodeBlock = nullptr;
+    INDEBUG(emitCheckIGoffsets());
 
     CorJitAllocMemFlag allocMemFlag = CORJIT_ALLOCMEM_DEFAULT_CODE_ALIGN;
 
 #ifdef TARGET_X86
-    //
     // These are the heuristics we use to decide whether or not to force the
     // code to be 16-byte aligned.
     //
@@ -2994,7 +2969,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     //    because of they are penalized heavily on certain hardware when not 16-byte
     //    aligned (VSWhidbey #373938). To minimize size impact of this optimization,
     //    we do not align large methods because of the penalty is amortized for them.
-    //
+
     if (emitComp->fgHaveProfileData())
     {
         const float scenarioHotWeight = 256.0f;
@@ -3003,19 +2978,15 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             allocMemFlag = CORJIT_ALLOCMEM_FLG_16BYTE_ALIGN;
         }
     }
-    else
+    else if (emitTotalHotCodeSize <= 16)
     {
-        if (emitTotalHotCodeSize <= 16)
-        {
-            allocMemFlag = CORJIT_ALLOCMEM_FLG_16BYTE_ALIGN;
-        }
+        allocMemFlag = CORJIT_ALLOCMEM_FLG_16BYTE_ALIGN;
     }
 #endif
 
 #ifdef TARGET_XARCH
-    // For x64/x86, align methods that are "optimizations enabled" to 32 byte boundaries if
-    // they are larger than 16 bytes and contain a loop.
-    //
+    // For x64/x86, align methods that are "optimizations enabled" to 32 byte
+    // boundaries if they are larger than 16 bytes and contain a loop.
     if (emitComp->opts.OptimizationEnabled() && !emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
         (emitTotalHotCodeSize > 16) && emitComp->fgHasLoops)
     {
@@ -3036,87 +3007,67 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         allocMemFlag = static_cast<CorJitAllocMemFlag>(allocMemFlag | CORJIT_ALLOCMEM_FLG_RODATA_32BYTE_ALIGN);
     }
 
-    AllocMemArgs args;
-    memset(&args, 0, sizeof(args));
+    AllocMemArgs args{};
 
 #ifdef TARGET_ARM64
     // For arm64, we want to allocate JIT data always adjacent to code similar to what native compiler does.
     // This way allows us to use a single `ldr` to access such data like float constant/jmp table.
+
     if (emitTotalColdCodeSize > 0)
     {
         // JIT data might be far away from the cold code.
         NYI_ARM64("Need to handle fix-up to data from cold code.");
     }
 
-    UNATIVE_OFFSET roDataAlignmentDelta = 0;
+    uint32_t roDataAlignmentDelta = 0;
+
     if (emitConsDsc.dsdOffs && (emitConsDsc.alignment == TARGET_POINTER_SIZE))
     {
-        UNATIVE_OFFSET roDataAlignment = TARGET_POINTER_SIZE; // 8 Byte align by default.
-        roDataAlignmentDelta = (UNATIVE_OFFSET)ALIGN_UP(emitTotalHotCodeSize, roDataAlignment) - emitTotalHotCodeSize;
+        uint32_t roDataAlignment = TARGET_POINTER_SIZE; // 8 Byte align by default.
+        roDataAlignmentDelta     = ALIGN_UP(emitTotalHotCodeSize, roDataAlignment) - emitTotalHotCodeSize;
         assert((roDataAlignmentDelta == 0) || (roDataAlignmentDelta == 4));
     }
 
-    args.hotCodeSize  = emitTotalHotCodeSize + roDataAlignmentDelta + emitConsDsc.dsdOffs;
-    args.coldCodeSize = emitTotalColdCodeSize;
-    args.roDataSize   = 0;
-    args.xcptnsCount  = emitComp->compHndBBtabCount;
-    args.flag         = allocMemFlag;
-
-    emitCmpHandle->allocMem(&args);
-
-    codeBlock       = (BYTE*)args.hotCodeBlock;
-    codeBlockRW     = (BYTE*)args.hotCodeBlockRW;
-    coldCodeBlock   = (BYTE*)args.coldCodeBlock;
-    coldCodeBlockRW = (BYTE*)args.coldCodeBlockRW;
-
-    consBlock   = codeBlock + emitTotalHotCodeSize + roDataAlignmentDelta;
-    consBlockRW = codeBlockRW + emitTotalHotCodeSize + roDataAlignmentDelta;
-
+    args.hotCodeSize = emitTotalHotCodeSize + roDataAlignmentDelta + emitConsDsc.dsdOffs;
 #else
-
-    args.hotCodeSize  = emitTotalHotCodeSize;
+    args.hotCodeSize       = emitTotalHotCodeSize;
+    args.roDataSize        = emitConsDsc.dsdOffs;
+#endif
     args.coldCodeSize = emitTotalColdCodeSize;
-    args.roDataSize   = emitConsDsc.dsdOffs;
     args.xcptnsCount  = emitComp->compHndBBtabCount;
     args.flag         = allocMemFlag;
 
     emitCmpHandle->allocMem(&args);
 
-    codeBlock       = (BYTE*)args.hotCodeBlock;
-    codeBlockRW     = (BYTE*)args.hotCodeBlockRW;
-    coldCodeBlock   = (BYTE*)args.coldCodeBlock;
-    coldCodeBlockRW = (BYTE*)args.coldCodeBlockRW;
-    consBlock       = (BYTE*)args.roDataBlock;
-    consBlockRW     = (BYTE*)args.roDataBlockRW;
-
+    uint8_t* codeBlock       = static_cast<uint8_t*>(args.hotCodeBlock);
+    uint8_t* codeBlockRW     = static_cast<uint8_t*>(args.hotCodeBlockRW);
+    uint8_t* coldCodeBlock   = static_cast<uint8_t*>(args.coldCodeBlock);
+    uint8_t* coldCodeBlockRW = static_cast<uint8_t*>(args.coldCodeBlockRW);
+#ifdef TARGET_ARM64
+    uint8_t* roDataBlock   = codeBlock + emitTotalHotCodeSize + roDataAlignmentDelta;
+    uint8_t* roDataBlockRW = codeBlockRW + emitTotalHotCodeSize + roDataAlignmentDelta;
+#else
+    uint8_t* roDataBlock   = static_cast<uint8_t*>(args.roDataBlock);
+    uint8_t* roDataBlockRW = static_cast<uint8_t*>(args.roDataBlockRW);
 #endif
 
-#ifdef DEBUG
-    if ((allocMemFlag & CORJIT_ALLOCMEM_FLG_32BYTE_ALIGN) != 0)
-    {
-        assert(((size_t)codeBlock & 31) == 0);
-    }
-#endif
+    assert(((allocMemFlag & CORJIT_ALLOCMEM_FLG_32BYTE_ALIGN) == 0) ||
+           ((reinterpret_cast<size_t>(codeBlock) & 31) == 0));
 
     *codeAddr = emitCodeBlock = codeBlock;
     *coldCodeAddr = emitColdCodeBlock = coldCodeBlock;
-    *consAddr = emitConsBlock = consBlock;
+    *consAddr = emitConsBlock = roDataBlock;
 
+    uint8_t* cp     = codeBlock;
+    writeableOffset = codeBlockRW - codeBlock;
 #if !FEATURE_FIXED_OUT_ARGS
     emitCurStackLvl = 0;
 #endif
-
 #ifdef DEBUG
-    emitIssuing = true;
-    *instrCount = 0;
+    emitIssuing      = true;
+    *instrCount      = 0;
+    double perfScore = 0.0;
 #endif
-
-    cp              = codeBlock;
-    writeableOffset = codeBlockRW - codeBlock;
-
-#define DEFAULT_CODE_BUFFER_INIT 0xcc
-
-    INDEBUG(double perfScore = 0.0);
 
     for (insGroup *ig = emitIGfirst, *prevIG = nullptr; ig != nullptr; prevIG = ig, ig = ig->igNext)
     {
@@ -3125,10 +3076,11 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         if (ig == emitFirstColdIG)
         {
             assert(emitCurCodeOffs(cp) == emitTotalHotCodeSize);
+            assert(coldCodeBlock != nullptr);
 
-            assert(coldCodeBlock);
             cp              = coldCodeBlock;
             writeableOffset = coldCodeBlockRW - coldCodeBlock;
+
 #ifdef DEBUG
             if (emitComp->opts.disAsm || emitComp->verbose)
             {
@@ -3137,17 +3089,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 #endif
         }
 
-        /* Are we overflowing? */
-        if (ig->igNext && (ig->igNum + 1 != ig->igNext->igNum))
-        {
-            NO_WAY("Too many instruction groups");
-        }
-
-        instrDesc* id = (instrDesc*)ig->igData;
-
 #ifdef DEBUG
-        /* Print the IG label, but only if it is a branch label */
-
         if (emitComp->opts.disAsm || emitComp->verbose)
         {
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
@@ -3161,17 +3103,17 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                     (ig->IsNoGC() != prevIG->IsNoGC()))
                 {
                     printf("\n%s:", emitLabelString(ig));
+
                     if (!emitComp->opts.disDiffable)
                     {
                         printf("              ;; offset=%04XH", emitCurCodeOffs(cp));
                     }
                 }
+
                 printf("\n");
             }
         }
 #endif // DEBUG
-
-        BYTE* bp = cp;
 
         const uint32_t codeOffs = ig->igOffs;
         noway_assert(codeOffs == emitCurCodeOffs(cp));
@@ -3182,7 +3124,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         {
             // We are pushing stuff implicitly at this label.
             assert(ig->igStkLvl > emitCurStackLvl);
-            emitStackPushN(codeOffs, (ig->igStkLvl - emitCurStackLvl) / TARGET_POINTER_SIZE);
+            emitStackPushN(codeOffs, (ig->igStkLvl - emitCurStackLvl) / REGSIZE_BYTES);
         }
 #endif
 
@@ -3223,27 +3165,30 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 #endif
         }
 
-        /* Issue each instruction in order */
-
-        emitCurIG = ig;
+        emitCurIG     = ig;
+        instrDesc* id = reinterpret_cast<instrDesc*>(ig->igData);
+        INDEBUG(const uint8_t* const bp = cp);
 
         for (unsigned cnt = ig->igInsCnt; cnt > 0; cnt--)
         {
 #ifdef DEBUG
-            size_t     curInstrAddr = (size_t)cp;
+            size_t     curInstrAddr = reinterpret_cast<size_t>(cp);
             instrDesc* curInstrDesc = id;
 #endif
+            size_t sz;
 
             if (id->idInsFmt() == IF_GC_REG)
             {
                 emitGCregLiveUpd(id->idGCref(), id->idReg1(), cp);
                 assert(id->idIsSmallDsc());
-                id = reinterpret_cast<instrDesc*>(reinterpret_cast<uint8_t*>(id) + sizeof(instrDescSmall));
+                sz = sizeof(instrDescSmall);
             }
             else
             {
-                castto(id, BYTE*) += emitIssue1Instr(ig, id, &cp);
+                sz = emitIssue1Instr(ig, id, &cp);
             }
+
+            id = reinterpret_cast<instrDesc*>(reinterpret_cast<uint8_t*>(id) + sz);
 
 #ifdef DEBUG
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
@@ -3256,12 +3201,11 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             // Print the alignment boundary
             if ((emitComp->opts.disAsm || emitComp->verbose) && (emitComp->opts.disAddr || emitComp->opts.disAlignment))
             {
-                size_t      afterInstrAddr   = (size_t)cp;
+                size_t      afterInstrAddr   = reinterpret_cast<size_t>(cp);
                 instruction curIns           = curInstrDesc->idIns();
                 bool        isJccAffectedIns = false;
 
-#if defined(TARGET_XARCH)
-
+#ifdef TARGET_XARCH
                 // Determine if this instruction is part of a set that matches the Intel jcc erratum characteristic
                 // described here:
                 // https://www.intel.com/content/dam/support/us/en/documents/processors/mitigations-jump-conditional-code-erratum.pdf
@@ -3288,37 +3232,36 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                     {
                         // The current `id` is valid, namely, there is another instruction in this group.
                         instruction nextIns = id->idIns();
-                        if (((curIns == INS_cmp) || (curIns == INS_test) || (curIns == INS_add) ||
-                             (curIns == INS_sub) || (curIns == INS_and) || (curIns == INS_inc) ||
-                             (curIns == INS_dec)) &&
-                            IsJccInstruction(nextIns))
-                        {
-                            isJccAffectedIns = true;
-                        }
+
+                        isJccAffectedIns |=
+                            IsJccInstruction(nextIns) &&
+                            ((curIns == INS_cmp) || (curIns == INS_test) || (curIns == INS_add) ||
+                             (curIns == INS_sub) || (curIns == INS_and) || (curIns == INS_inc) || (curIns == INS_dec));
                     }
 
                     if (isJccAffectedIns)
                     {
-                        unsigned bytesCrossedBoundary = (unsigned)(afterInstrAddr & jccAlignBoundaryMask);
+                        size_t bytesCrossedBoundary = afterInstrAddr & jccAlignBoundaryMask;
+
                         printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d ; jcc erratum) %dB boundary "
                                "...............................\n",
                                insName(curInstrDesc->idIns()), bytesCrossedBoundary, jccAlignBoundary);
                     }
                 }
-
 #endif // TARGET_XARCH
 
                 // Jcc affected instruction boundaries were printed above; handle other cases here.
                 if (!isJccAffectedIns)
                 {
-                    size_t alignBoundaryMask = (size_t)emitComp->opts.compJitAlignLoopBoundary - 1;
+                    size_t alignBoundaryMask = static_cast<size_t>(emitComp->opts.compJitAlignLoopBoundary) - 1;
                     size_t lastBoundaryAddr  = afterInstrAddr & ~alignBoundaryMask;
 
                     // draw boundary if beforeAddr was before the lastBoundary.
                     if (curInstrAddr < lastBoundaryAddr)
                     {
                         // Indicate if instruction is at the alignment boundary or is split
-                        unsigned bytesCrossedBoundary = (unsigned)(afterInstrAddr & alignBoundaryMask);
+                        size_t bytesCrossedBoundary = afterInstrAddr & alignBoundaryMask;
+
                         if (bytesCrossedBoundary != 0)
                         {
                             printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", insName(curInstrDesc->idIns()),
@@ -3328,6 +3271,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                         {
                             printf("; ...............................");
                         }
+
                         printf(" %dB boundary ...............................\n",
                                emitComp->opts.compJitAlignLoopBoundary);
                     }
@@ -3336,7 +3280,11 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 #endif // DEBUG
         }
 
+        emitCurIG = nullptr;
+        assert(ig->igSize == cp - bp);
+
 #ifdef DEBUG
+        *instrCount += ig->igInsCnt;
         perfScore += ig->igPerfScore;
 
         if (emitComp->verbose ||
@@ -3346,47 +3294,20 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             printf("\t\t\t\t\t\t;; bbWeight=%s PerfScore %.2f", refCntWtd2str(ig->igWeight), perfScore);
             perfScore = 0.0;
         }
-        *instrCount += ig->igInsCnt;
-#endif // DEBUG
-
-        emitCurIG = nullptr;
-
-        assert(ig->igSize >= cp - bp);
-
-        // Is it the last ig in the hot part?
-        bool lastHotIG = (emitFirstColdIG != nullptr && ig->igNext == emitFirstColdIG);
-        if (lastHotIG)
-        {
-            unsigned actualHotCodeSize    = emitCurCodeOffs(cp);
-            unsigned allocatedHotCodeSize = emitTotalHotCodeSize;
-            assert(actualHotCodeSize <= allocatedHotCodeSize);
-            if (actualHotCodeSize < allocatedHotCodeSize)
-            {
-                // The allocated chunk is bigger than used, fill in unused space in it.
-                unsigned unusedSize = allocatedHotCodeSize - emitCurCodeOffs(cp);
-                for (unsigned i = 0; i < unusedSize; ++i)
-                {
-                    *cp++ = DEFAULT_CODE_BUFFER_INIT;
-                }
-                assert(allocatedHotCodeSize == emitCurCodeOffs(cp));
-            }
-        }
-
-        assert((ig->igSize >= cp - bp) || lastHotIG);
-        ig->igSize = (unsigned short)(cp - bp);
+#endif
     }
 
+    assert(emitTotalCodeSize == emitCurCodeOffs(cp));
 #if !FEATURE_FIXED_OUT_ARGS
     assert(emitCurStackLvl == 0);
 #endif
 
-    // Output any initialized data we may have.
+    gcInfo.End(emitCurCodeOffs(cp));
+
     if (emitConsDsc.dsdOffs != 0)
     {
-        emitOutputDataSec(&emitConsDsc, consBlock);
+        emitOutputDataSec(&emitConsDsc, roDataBlock);
     }
-
-    gcInfo.End(emitCurCodeOffs(cp));
 
 #ifdef DEBUG
     if (emitComp->opts.disAsm)
@@ -3395,41 +3316,11 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     }
 #endif
 
-    unsigned actualCodeSize = emitCurCodeOffs(cp);
-    assert(emitTotalCodeSize >= actualCodeSize);
-
-    // Fill in eventual unused space, but do not report this space as used.
-    // If you add this padding during the emitIGlist loop, then it will
-    // emit offsets after the loop with wrong value (for example for GC ref variables).
-    unsigned unusedSize = emitTotalCodeSize - actualCodeSize;
-
-    JITDUMP("Allocated method code size = %4u , actual size = %4u, unused size = %4u\n", emitTotalCodeSize,
-            actualCodeSize, unusedSize);
-
-    BYTE* cpRW = cp + writeableOffset;
-    for (unsigned i = 0; i < unusedSize; ++i)
-    {
-        *cpRW++ = DEFAULT_CODE_BUFFER_INIT;
-    }
-    cp = cpRW - writeableOffset;
-    assert(emitTotalCodeSize == emitCurCodeOffs(cp));
-
-    // Total code size is sum of all IG->size and doesn't include padding in the last IG.
-    emitTotalCodeSize = actualCodeSize;
-
-#ifdef DEBUG
-    if (emitComp->verbose)
-    {
-        printf("\nLabels list after the end of codegen:\n\n");
-        emitDispIGlist(false);
-    }
-
-    emitCheckIGoffsets();
-#endif // DEBUG
+    JITDUMP("Allocated method code size %u\n", emitTotalCodeSize);
 
     *prologSize = emitCodeOffset(GetProlog(), emitPrologEndPos);
 
-    return actualCodeSize;
+    return emitTotalCodeSize;
 }
 
 unsigned emitter::emitFindInsNum(insGroup* ig, instrDesc* idMatch)
