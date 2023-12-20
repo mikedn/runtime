@@ -2822,18 +2822,18 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
+void emitter::emitIns_R_L(instruction ins, BasicBlock* label, regNumber reg)
 {
     assert(ins == INS_lea);
-    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
+    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idjKeepLong  = true;
     id->idIns(INS_lea);
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_LABEL);
     id->idReg1(reg);
-    id->idAddr()->iiaBBlabel = dst;
+    id->idAddr()->iiaBBlabel = label;
+    id->idSetIsCnsReloc(emitComp->opts.compReloc AMD64_ONLY(&&InDifferentRegions(GetCurrentBlock(), label)));
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
     unsigned sz = AMD64_ONLY(1 +) 1 + 1 + 4; // REX 8D RM DISP32
@@ -2855,6 +2855,7 @@ void emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
     id->idAddr()->iiaAddrMode.base  = REG_NA;
     id->idAddr()->iiaAddrMode.index = REG_NA;
     // On x64 RIP relative addressing is always used and that needs relocs.
+    // TODO-MIKE-Review: Erm, normally RIP-relative does NOT need relocs...
     id->idSetIsDspReloc(X86_ONLY(emitComp->opts.compReloc));
 
     unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
@@ -3387,11 +3388,10 @@ void emitter::emitIns_L(instruction ins, BasicBlock* dst)
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idjKeepLong  = true;
     id->idIns(ins);
     id->idOpSize(EA_4BYTE);
     id->idInsFmt(IF_LABEL);
-    id->idSetIsDspReloc(emitComp->opts.compReloc);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc);
     id->idAddr()->iiaBBlabel = dst;
 
     id->idCodeSize(PUSH_INST_SIZE);
@@ -3407,7 +3407,7 @@ void emitter::emitIns_CallFinally(BasicBlock* block)
     assert((block->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idjKeepLong  = true;
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), block));
     id->idIns(INS_call);
     id->idInsFmt(IF_LABEL);
     id->idAddr()->iiaBBlabel = block;
@@ -3442,7 +3442,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* block)
     assert((block->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idjKeepLong  = InDifferentRegions(GetCurrentBlock(), block);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), block));
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
     id->idAddr()->iiaBBlabel = block;
@@ -3450,7 +3450,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* block)
     unsigned  sz       = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
     insGroup* targetIG = emitCodeGetCookie(block);
 
-    if ((targetIG != nullptr) && !id->idjKeepLong)
+    if ((targetIG != nullptr) && !id->idIsCnsReloc())
     {
         // This is a backward jump, we can determine now if it's going to be short.
 
@@ -3899,12 +3899,15 @@ AGAIN:
             previousJumpIG = jumpIG;
         }
 
-        if (jump->idjKeepLong)
+        if (!IsJccInstruction(jump->idIns()) && (jump->idIns() != INS_jmp))
         {
             continue;
         }
 
-        assert(IsJccInstruction(jump->idIns()) || (jump->idIns() == INS_jmp));
+        if (jump->idIsCnsReloc())
+        {
+            continue;
+        }
 
         uint32_t currentSize = jump->idCodeSize();
 
@@ -7158,19 +7161,19 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     dst += emitOutputWord(dst, code | 0x0500);
 
 #ifdef TARGET_AMD64
-    if (emitComp->opts.compReloc && emitJumpCrossHotColdBoundary(instrOffs, labelOffs))
+    if (id->idIsCnsReloc())
     {
         dst += emitOutputLong(dst, 0);
         emitRecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_REL32);
     }
     else
     {
-        ssize_t distance = static_cast<ssize_t>(labelAddr - instrAddr - id->idCodeSize());
+        ssize_t distance = labelAddr - instrAddr - id->idCodeSize();
         assert(IsImm32(distance));
         dst += emitOutputLong(dst, distance);
     }
 #else
-    if (emitComp->opts.compReloc)
+    if (id->idIsCnsReloc())
     {
         dst += emitOutputLong(dst, 0);
         emitRecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_HIGHLOW);
@@ -7201,7 +7204,7 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(insCodeMI(INS_push) == 0x68);
     dst += emitOutputByte(dst, 0x68);
 
-    if (emitComp->opts.compReloc)
+    if (id->idIsCnsReloc())
     {
         dst += emitOutputLong(dst, 0);
         emitRecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_HIGHLOW);
@@ -7242,11 +7245,12 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     uint8_t*    labelAddr = emitOffsetToPtr(labelOffs);
     unsigned    instrOffs = emitCurCodeOffs(dst);
     uint8_t*    instrAddr = emitOffsetToPtr(instrOffs);
-    ssize_t     distance  = static_cast<ssize_t>(labelAddr - instrAddr - id->idCodeSize());
+    ssize_t     distance  = labelAddr - instrAddr - id->idCodeSize();
     instruction ins       = id->idIns();
 
     if (id->idCodeSize() == JMP_JCC_SIZE_SMALL)
     {
+        assert(!id->idIsCnsReloc());
         assert(!emitJumpCrossHotColdBoundary(instrOffs, labelOffs));
         assert(ins != INS_call);
         assert(IsImm8(distance));
@@ -7277,7 +7281,7 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
         dst += emitOutputLong(dst, distance);
 
-        if (emitComp->opts.compReloc && emitJumpCrossHotColdBoundary(instrOffs, labelOffs))
+        if (id->idIsCnsReloc())
         {
 #ifdef TARGET_AMD64
             emitRecordRelocation(dst - 4, dst + distance, IMAGE_REL_BASED_REL32);
