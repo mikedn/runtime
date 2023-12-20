@@ -3878,7 +3878,7 @@ int emitter::OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, regNumber
 void emitter::emitSetShortJump(instrDescJmp* id)
 {
     assert((id->idInsFmt() == IF_T2_J1) || (id->idInsFmt() == IF_T2_J2) || (id->idInsFmt() == IF_LARGEJMP));
-    assert(!id->idjKeepLong);
+    assert(!id->idIsCnsReloc());
 
     id->idInsFmt(id->idInsFmt() == IF_T2_J2 ? IF_T1_M : IF_T1_K);
     id->idInsSize(ISZ_16BIT);
@@ -3887,7 +3887,7 @@ void emitter::emitSetShortJump(instrDescJmp* id)
 void emitter::emitSetMediumJump(instrDescJmp* id)
 {
     assert((id->idInsFmt() == IF_T2_J1) || (id->idInsFmt() == IF_LARGEJMP));
-    assert(!id->idjKeepLong);
+    assert(!id->idIsCnsReloc());
 
     id->idInsFmt(IF_T2_J1);
     id->idInsSize(ISZ_32BIT);
@@ -3955,9 +3955,9 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst)
     id->idInsFmt(ins == INS_b ? IF_T2_J2 : IF_LARGEJMP);
     id->idInsSize(emitInsSize(id->idInsFmt()));
     id->idAddr()->iiaBBlabel = dst;
-    id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), dst) INDEBUG(|| keepLongJumps);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), dst));
 
-    if (!id->idjKeepLong)
+    if (!id->idIsCnsReloc())
     {
         if (insGroup* targetIG = emitCodeGetCookie(dst))
         {
@@ -4012,6 +4012,7 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNu
     assert((ins == INS_cbz) || (ins == INS_cbnz));
     assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
     assert(isLowRegister(reg));
+    assert(!emitComp->opts.compReloc || !InDifferentRegions(GetCurrentBlock(), dst));
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
@@ -4256,7 +4257,7 @@ AGAIN:
             previousJumpIG = jumpIG;
         }
 
-        if (jump->idjKeepLong)
+        if (jump->idIsCnsReloc())
         {
             continue;
         }
@@ -4844,7 +4845,7 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id)
 
 uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
-    uint32_t dstOffs;
+    uint32_t labelOffs;
 
     if (id->idAddr()->iiaHasInstrCount())
     {
@@ -4855,33 +4856,33 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
         assert((instrCount >= 0) || (jumpInstrNum + 1 >= static_cast<unsigned>(-instrCount)));
 
-        dstOffs = ig->igOffs + emitFindOffset(ig, jumpInstrNum + 1 + instrCount);
+        labelOffs = ig->igOffs + emitFindOffset(ig, jumpInstrNum + 1 + instrCount);
     }
     else
     {
-        dstOffs = id->idAddr()->iiaIGlabel->igOffs;
+        labelOffs = id->idAddr()->iiaIGlabel->igOffs;
     }
 
-    uint32_t    srcOffs  = emitCurCodeOffs(dst);
-    ssize_t     distance = emitOffsetToPtr(dstOffs) - emitOffsetToPtr(srcOffs);
-    instruction ins      = id->idIns();
-    insFormat   fmt      = id->idInsFmt();
+    uint32_t    instrOffs = emitCurCodeOffs(dst);
+    ssize_t     distance  = emitOffsetToPtr(labelOffs) - emitOffsetToPtr(instrOffs);
+    instruction ins       = id->idIns();
+    insFormat   fmt       = id->idInsFmt();
 
     // Adjust the offset to emit relative to the end of the instruction.
     distance -= 4;
 
     if (id->idInsSize() == ISZ_16BIT)
     {
-        assert(!id->idjKeepLong);
-        assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
+        assert(!id->idIsCnsReloc());
+        assert(!emitJumpCrossHotColdBoundary(instrOffs, labelOffs));
 
         return emitOutputShortBranch(dst, ins, fmt, distance, id);
     }
 
     if (fmt == IF_T2_J1)
     {
-        assert(!id->idjKeepLong);
-        assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
+        assert(!id->idIsCnsReloc());
+        assert(!emitJumpCrossHotColdBoundary(instrOffs, labelOffs));
         assert((distance & 1) == 0);
         assert((-1048576 <= distance) && (distance <= 1048574));
 
@@ -4920,12 +4921,11 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     assert((distance & 1) == 0);
 
-    bool   hasReloc = emitComp->opts.compReloc && emitJumpCrossHotColdBoundary(srcOffs, dstOffs);
-    code_t code     = emitInsCode(INS_b, IF_T2_J2);
+    code_t code = emitInsCode(INS_b, IF_T2_J2);
 
     // For relocs we can't compute the offset so we just leave it set to 0,
     // the runtime will patch the instruction later.
-    if (!hasReloc)
+    if (!id->idIsCnsReloc())
     {
         assert((CALL_DIST_MAX_NEG <= distance) && (distance <= CALL_DIST_MAX_POS));
 
@@ -4954,10 +4954,9 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     emitOutput_Thumb2Instr(dst, code);
 
-    if (hasReloc)
+    if (id->idIsCnsReloc())
     {
-        assert(id->idjKeepLong);
-        emitRecordRelocation(dst, emitOffsetToPtr(dstOffs), IMAGE_REL_BASED_THUMB_BRANCH24);
+        emitRecordRelocation(dst, emitOffsetToPtr(labelOffs), IMAGE_REL_BASED_THUMB_BRANCH24);
     }
 
     return dst + 4;
