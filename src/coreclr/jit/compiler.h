@@ -1437,8 +1437,7 @@ struct CompilerOptions
     bool disAlignment : 1;             // Display alignment boundaries in disassembly code
     bool dspOrder : 1;                 // Display names of each of the methods that we ngen/jit
     bool dspUnwind : 1;                // Display the unwind info output
-    bool dspDiffable : 1; // Makes the Jit Dump 'diff-able' (currently uses same COMPlus_* flag as disDiffable)
-    // (IF_LARGEJMP/IF_LARGEADR/IF_LARGLDC)
+    bool dspDiffable : 1;     // Makes the Jit Dump 'diff-able' (currently uses same COMPlus_* flag as disDiffable)
     bool dspGCtbls : 1;       // Display the GC tables
     bool isAltJitPresent : 1; // And AltJit may be present, dump options apply only to it.
 #endif

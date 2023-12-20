@@ -1462,7 +1462,7 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
 {
     // For long address (default): `adrp + add` will be emitted.
     // For short address (proven later): `adr` will be emitted.
-    GetEmitter()->emitIns_R_L(INS_adr, block->bbJumpDest, REG_INTRET);
+    GetEmitter()->emitIns_R_L(block->bbJumpDest, REG_INTRET);
 }
 
 void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
@@ -1486,7 +1486,7 @@ void CodeGen::instGen_Set_Reg_To_Reloc(regNumber reg, void* addr DEBUGARG(void* 
 {
     assert(compiler->opts.compReloc);
 
-    GetEmitter()->emitIns_R_AH(INS_adrp, reg, addr DEBUGARG(handle) DEBUGARG(handleKind));
+    GetEmitter()->emitIns_R_AH(reg, addr DEBUGARG(handle) DEBUGARG(handleKind));
 }
 
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
@@ -2380,7 +2380,7 @@ void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
     GetEmitter()->emitIns_R_R_R(INS_ldr, EA_4BYTE, baseReg, baseReg, idxReg, INS_OPTS_LSL);
 
     // add it to the absolute address of fgFirstBB
-    GetEmitter()->emitIns_R_L(INS_adr, compiler->fgFirstBB, tmpReg);
+    GetEmitter()->emitIns_R_L(compiler->fgFirstBB, tmpReg);
     GetEmitter()->emitIns_R_R_R(INS_add, EA_8BYTE, baseReg, baseReg, tmpReg);
 
     // br baseReg
@@ -3213,17 +3213,17 @@ bool CodeGenInterface::IsSaveFpLrWithAllCalleeSavedRegisters() const
     return genSaveFpLrWithAllCalleeSavedRegisters;
 }
 
-void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNumber callTargetReg /*= REG_NA */)
+void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNumber callTargetReg)
 {
-    void* addr  = nullptr;
-    void* pAddr = nullptr;
-
-    emitter::EmitCallType callType = emitter::EC_FUNC_TOKEN;
-    addr                           = compiler->compGetHelperFtn(helper, &pAddr);
-    regNumber callTarget           = REG_NA;
+    void*                 pAddr      = nullptr;
+    void*                 addr       = compiler->compGetHelperFtn(helper, &pAddr);
+    emitter::EmitCallType callType   = emitter::EC_FUNC_TOKEN;
+    regNumber             callTarget = REG_NA;
 
     if (addr == nullptr)
     {
+        assert(compiler->opts.compReloc);
+
         // This is call to a runtime helper.
         // adrp x, [reloc:rel page addr]
         // add x, x, [reloc:page offset]
@@ -3246,9 +3246,8 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
         callTarget = callTargetReg;
 
         // adrp + add with relocations will be emitted
-        GetEmitter()->emitIns_R_AH(INS_adrp, callTarget,
-                                   pAddr DEBUGARG(reinterpret_cast<void*>(Compiler::eeFindHelper(helper)))
-                                       DEBUGARG(HandleKind::Method));
+        GetEmitter()->emitIns_R_AH(callTarget, pAddr DEBUGARG(reinterpret_cast<void*>(Compiler::eeFindHelper(helper)))
+                                                   DEBUGARG(HandleKind::Method));
 
         GetEmitter()->emitIns_R_R(INS_ldr, EA_8BYTE, callTarget, callTarget);
         callType = emitter::EC_INDIR_R;
@@ -8083,7 +8082,7 @@ void CodeGen::genArm64EmitterUnitTests()
     theEmitter->emitIns(INS_nop);
     theEmitter->emitIns(INS_nop);
     theEmitter->emitIns(INS_nop);
-    theEmitter->emitIns_R_L(INS_adr, label, REG_R0);
+    theEmitter->emitIns_R_L(label, REG_R0);
 
 #endif // ALL_ARM64_EMITTER_UNIT_TESTS
 

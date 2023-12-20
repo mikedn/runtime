@@ -34,7 +34,7 @@ void emitMarkStackLvl(unsigned stackLevel);
 
 void emitIns(instruction ins);
 void emitIns(instruction ins, emitAttr attr);
-void emitIns_J(instruction ins, BasicBlock* dst);
+void emitIns_J(instruction ins, BasicBlock* label);
 void emitIns_J(instruction ins, int instrCount = 0);
 void emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr);
 void emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm);
@@ -45,11 +45,11 @@ void emitInsRMW_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, 
 void emitIns_Nop(unsigned size);
 void emitIns_Lock();
 #ifdef TARGET_AMD64
-void emitIns_CallFinally(BasicBlock* block);
+void emitIns_CallFinally(BasicBlock* label);
 #endif
 #ifdef TARGET_X86
 void emitIns_H(instruction ins, void* addr);
-void emitIns_L(instruction ins, BasicBlock* dst);
+void emitIns_L(instruction ins, BasicBlock* label);
 #endif
 #ifdef WINDOWS_X86_ABI
 void emitInsMov_R_FS(regNumber reg, int32_t offs);
@@ -97,7 +97,7 @@ void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int32_t imm
 void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE field);
 void emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg);
 void emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, int32_t imm);
-void emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg);
+void emitIns_R_L(BasicBlock* label, RegNum reg);
 void emitIns_R_AH(instruction ins, regNumber ireg, void* addr);
 void emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t disp);
 void emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scaled, int32_t disp);

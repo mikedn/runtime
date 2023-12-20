@@ -1427,7 +1427,7 @@ public:
         assert(srcOffset < (emitTotalHotCodeSize + emitTotalColdCodeSize));
         assert(dstOffset < (emitTotalHotCodeSize + emitTotalColdCodeSize));
 
-        return ((srcOffset < emitTotalHotCodeSize) != (dstOffset < emitTotalHotCodeSize));
+        return (srcOffset < emitTotalHotCodeSize) != (dstOffset < emitTotalHotCodeSize);
     }
 
     size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);

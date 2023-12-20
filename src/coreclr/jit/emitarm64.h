@@ -543,12 +543,6 @@ static bool isValidImmCond(ssize_t imm);
 static bool isValidImmCondFlags(ssize_t imm);
 static bool isValidImmCondFlagsImm5(ssize_t imm);
 
-// Computes page "delta" between two addresses
-inline static ssize_t computeRelPageAddr(size_t dstAddr, size_t srcAddr)
-{
-    return (dstAddr >> 12) - (srcAddr >> 12);
-}
-
 /************************************************************************/
 /*           The public entry points to output instructions             */
 /************************************************************************/
@@ -557,8 +551,8 @@ public:
 void emitIns(instruction ins);
 
 void emitIns_J(instruction ins, int instrCount);
-void emitIns_J(instruction ins, BasicBlock* dst);
-void emitIns_CallFinally(BasicBlock* block);
+void emitIns_J(instruction ins, BasicBlock* label);
+void emitIns_CallFinally(BasicBlock* label);
 
 void emitIns_BRK(uint16_t imm);
 
@@ -638,14 +632,13 @@ void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val);
 
 void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber tmpReg, CORINFO_FIELD_HANDLE fldHnd);
 
-void emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg);
+void emitIns_R_L(BasicBlock* label, RegNum reg);
 
-void emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
+void emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, regNumber reg);
 
-void emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg, int imm);
+void emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* label, regNumber reg, int imm);
 
-void emitIns_R_AH(instruction ins,
-                  regNumber   ireg,
+void emitIns_R_AH(RegNum reg,
                   void* addr DEBUGARG(void* handle = nullptr) DEBUGARG(HandleKind handleKind = HandleKind::None));
 
 enum EmitCallType
@@ -669,7 +662,7 @@ uint8_t* emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
 uint8_t* emitOutputDL(uint8_t* dst, instrDescJmp* id);
 uint8_t* emitOutputLoadLabel(uint8_t* dst, uint8_t* srcAddr, uint8_t* dstAddr, instrDescJmp* id);
 uint8_t* emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);
-uint8_t* emitOutputShortAddress(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, regNumber reg);
+uint8_t* emitOutputShortAddress(uint8_t* dst, instruction ins, ssize_t distance, RegNum reg);
 uint8_t* emitOutputShortConstant(
     uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, regNumber reg, emitAttr opSize);
 

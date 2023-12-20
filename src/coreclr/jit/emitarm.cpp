@@ -3945,26 +3945,26 @@ void emitter::emitIns_J(instruction ins, int instrCount)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_J(instruction ins, BasicBlock* dst)
+void emitter::emitIns_J(instruction ins, BasicBlock* label)
 {
     assert(IsBranch(ins));
-    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
+    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(ins == INS_b ? IF_T2_J2 : IF_LARGEJMP);
     id->idInsSize(emitInsSize(id->idInsFmt()));
-    id->idAddr()->iiaBBlabel = dst;
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), dst));
+    id->idAddr()->iiaBBlabel = label;
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
 
     if (!id->idIsCnsReloc())
     {
-        if (insGroup* targetIG = emitCodeGetCookie(dst))
+        if (insGroup* targetIG = emitCodeGetCookie(label))
         {
             // This is a backward jump, we can determine now if it's going to be short/medium/large.
 
-            uint32_t jumpOffs = emitCurCodeOffset + emitCurIGsize;
-            int32_t  distance = jumpOffs - targetIG->igOffs;
+            uint32_t instrOffs = emitCurCodeOffset + emitCurIGsize;
+            int32_t  distance  = instrOffs - targetIG->igOffs;
             assert(distance >= 0);
             distance += 4;
 
@@ -4004,22 +4004,22 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg)
+void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, regNumber reg)
 {
     // TODO-MIKE-Review: cbz/cbnz aren't used on ARM. Delete or try to use these instructions?
     // Their limited range might make using them problematic, we might save a cheap 0 compare
     // and end up with an extra unconditional branch.
     assert((ins == INS_cbz) || (ins == INS_cbnz));
-    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
+    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
     assert(isLowRegister(reg));
-    assert(!emitComp->opts.compReloc || !InDifferentRegions(GetCurrentBlock(), dst));
+    assert(!emitComp->opts.compReloc || !InDifferentRegions(GetCurrentBlock(), label));
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(IF_T1_I);
     id->idInsSize(ISZ_16BIT);
     id->idReg1(reg);
-    id->idAddr()->iiaBBlabel = dst;
+    id->idAddr()->iiaBBlabel = label;
 
     id->idjIG        = emitCurIG;
     id->idjOffs      = emitCurIGsize;
@@ -4030,17 +4030,17 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNu
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
+void emitter::emitIns_R_L(instruction ins, BasicBlock* label, regNumber reg)
 {
     assert((ins == INS_movt) || (ins == INS_movw));
-    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
+    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idReg1(reg);
     id->idInsFmt(IF_T2_N1);
     id->idInsSize(ISZ_32BIT);
-    id->idAddr()->iiaBBlabel = dst;
+    id->idAddr()->iiaBBlabel = label;
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
@@ -4193,21 +4193,21 @@ void emitter::emitJumpDistBind()
 
     JITDUMP("*************** In emitJumpDistBind()\n");
 
-    for (instrDescJmp* jump = emitJumpList; jump != nullptr; jump = jump->idjNext)
+    for (instrDescJmp* instr = emitJumpList; instr != nullptr; instr = instr->idjNext)
     {
-        if (!jump->idIsBound())
+        if (!instr->idIsBound())
         {
-            insGroup* targetIG = emitCodeGetCookie(jump->idAddr()->iiaBBlabel);
+            insGroup* label = emitCodeGetCookie(instr->idAddr()->iiaBBlabel);
 
-            assert(targetIG != nullptr);
-            JITDUMP("Binding IN%04X target " FMT_BB " to " FMT_IG "\n", jump->idDebugOnlyInfo()->idNum,
-                    jump->idAddr()->iiaBBlabel->bbNum, targetIG->igNum);
+            assert(label != nullptr);
+            JITDUMP("Binding IN%04X target " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
+                    instr->idAddr()->iiaBBlabel->bbNum, label->igNum);
 
-            jump->idAddr()->iiaIGlabel = targetIG;
-            jump->idSetIsBound();
+            instr->idAddr()->iiaIGlabel = label;
+            instr->idSetIsBound();
         }
 
-        INDEBUG(emitCheckFuncletBranch(jump));
+        INDEBUG(emitCheckFuncletBranch(instr));
     }
 
 #ifdef DEBUG
@@ -4221,43 +4221,44 @@ void emitter::emitJumpDistBind()
 AGAIN:
     INDEBUG(emitCheckIGoffsets());
 
-    uint32_t      minDistanceOverflow = UINT32_MAX;
-    uint32_t      totalSizeReduction  = 0;
-    uint32_t      jumpIGSizeReduction = 0;
-    instrDescJmp* previousJump        = nullptr;
-    insGroup*     previousJumpIG      = emitJumpList->idjIG;
+    uint32_t      minDistanceOverflow  = UINT32_MAX;
+    uint32_t      totalSizeReduction   = 0;
+    uint32_t      instrIGSizeReduction = 0;
+    instrDescJmp* previousInstr        = nullptr;
+    insGroup*     previousInstrIG      = emitJumpList->idjIG;
 
-    for (instrDescJmp *jump = emitJumpList; jump != nullptr; previousJump = jump, jump = jump->idjNext)
+    for (instrDescJmp *instr = emitJumpList; instr != nullptr; previousInstr = instr, instr = instr->idjNext)
     {
-        assert((jump->idInsFmt() == IF_T2_J1) || (jump->idInsFmt() == IF_T2_J2) || (jump->idInsFmt() == IF_T1_I) ||
-               (jump->idInsFmt() == IF_T1_K) || (jump->idInsFmt() == IF_T1_M) || (jump->idInsFmt() == IF_T2_M1) ||
-               (jump->idInsFmt() == IF_T2_N1) || (jump->idInsFmt() == IF_T1_J3) || (jump->idInsFmt() == IF_LARGEJMP));
+        assert((instr->idInsFmt() == IF_T2_J1) || (instr->idInsFmt() == IF_T2_J2) || (instr->idInsFmt() == IF_T1_I) ||
+               (instr->idInsFmt() == IF_T1_K) || (instr->idInsFmt() == IF_T1_M) || (instr->idInsFmt() == IF_T2_M1) ||
+               (instr->idInsFmt() == IF_T2_N1) || (instr->idInsFmt() == IF_T1_J3) ||
+               (instr->idInsFmt() == IF_LARGEJMP));
 
-        insGroup* jumpIG = jump->idjIG;
+        insGroup* instrIG = instr->idjIG;
 
-        if (previousJumpIG == jumpIG)
+        if (previousInstrIG == instrIG)
         {
-            jump->idjOffs -= jumpIGSizeReduction;
+            instr->idjOffs -= instrIGSizeReduction;
 
-            assert((previousJump == nullptr) || (jump->idjOffs > previousJump->idjOffs));
+            assert((previousInstr == nullptr) || (instr->idjOffs > previousInstr->idjOffs));
         }
         else
         {
-            jumpIGSizeReduction = 0;
+            instrIGSizeReduction = 0;
 
-            for (insGroup* ig = previousJumpIG->igNext; ig != jumpIG->igNext; ig = ig->igNext)
+            for (insGroup* ig = previousInstrIG->igNext; ig != instrIG->igNext; ig = ig->igNext)
             {
                 JITDUMP(FMT_IG " moved back from %04X", ig->igNum, ig->igOffs);
                 ig->igOffs -= totalSizeReduction;
                 JITDUMP(" to % 04X\n", ig->igOffs);
             }
 
-            assert(jumpIG->igOffs > previousJumpIG->igOffs);
+            assert(instrIG->igOffs > previousInstrIG->igOffs);
 
-            previousJumpIG = jumpIG;
+            previousInstrIG = instrIG;
         }
 
-        if (jump->idIsCnsReloc())
+        if (instr->idIsCnsReloc())
         {
             continue;
         }
@@ -4267,14 +4268,14 @@ AGAIN:
         int32_t mediumNegativeDistance;
         int32_t mediumPositiveDistance;
 
-        if ((jump->idInsFmt() == IF_T2_J1) || (jump->idInsFmt() == IF_LARGEJMP))
+        if ((instr->idInsFmt() == IF_T2_J1) || (instr->idInsFmt() == IF_LARGEJMP))
         {
             smallNegativeDistance  = JCC_DIST_SMALL_MAX_NEG;
             smallPositiveDistance  = JCC_DIST_SMALL_MAX_POS;
             mediumNegativeDistance = JCC_DIST_MEDIUM_MAX_NEG;
             mediumPositiveDistance = JCC_DIST_MEDIUM_MAX_POS;
         }
-        else if (jump->idInsFmt() == IF_T2_J2)
+        else if (instr->idInsFmt() == IF_T2_J2)
         {
             smallNegativeDistance  = JMP_DIST_SMALL_MAX_NEG;
             smallPositiveDistance  = JMP_DIST_SMALL_MAX_POS;
@@ -4286,42 +4287,42 @@ AGAIN:
             continue;
         }
 
-        uint32_t  jumpOffs    = jumpIG->igOffs + jump->idjOffs;
-        uint32_t  jumpEndOffs = jumpOffs + 4;
-        insGroup* targetIG    = jump->idAddr()->iiaIGlabel;
-        uint32_t  targetOffs  = targetIG->igOffs;
+        uint32_t  instrOffs    = instrIG->igOffs + instr->idjOffs;
+        uint32_t  instrEndOffs = instrOffs + 4;
+        insGroup* label        = instr->idAddr()->iiaIGlabel;
+        uint32_t  labelOffs    = label->igOffs;
         int32_t   smallDistanceOverflow;
         int32_t   mediumDistanceOverflow;
 
-        if (targetIG->igNum > jumpIG->igNum)
+        if (label->igNum > instrIG->igNum)
         {
-            targetOffs -= totalSizeReduction;
+            labelOffs -= totalSizeReduction;
 
-            int32_t distance       = targetOffs - jumpEndOffs;
+            int32_t distance       = labelOffs - instrEndOffs;
             smallDistanceOverflow  = distance - smallPositiveDistance;
             mediumDistanceOverflow = distance - mediumPositiveDistance;
         }
         else
         {
-            int32_t distance       = jumpEndOffs - targetOffs;
+            int32_t distance       = instrEndOffs - labelOffs;
             smallDistanceOverflow  = distance + smallNegativeDistance;
             mediumDistanceOverflow = distance + mediumNegativeDistance;
         }
 
         JITDUMP("Jump IN%04X from %04X +%u (" FMT_IG ") to %04X (" FMT_IG
                 "), distance %d, overflow %d, medium overflow %d%s\n",
-                jump->idDebugOnlyInfo()->idNum, jumpOffs, 2, jumpIG->igNum, targetOffs, targetIG->igNum,
-                targetOffs - jumpEndOffs, smallDistanceOverflow, mediumDistanceOverflow,
+                instr->idDebugOnlyInfo()->idNum, instrOffs, 2, instrIG->igNum, labelOffs, label->igNum,
+                labelOffs - instrEndOffs, smallDistanceOverflow, mediumDistanceOverflow,
                 smallDistanceOverflow <= 0 ? ", short" : (mediumDistanceOverflow <= 0 ? "medium" : ""));
 
-        uint32_t currentSize = jump->idCodeSize();
+        uint32_t currentSize = instr->idCodeSize();
         uint32_t newSize;
 
         if (smallDistanceOverflow <= 0)
         {
-            emitSetShortJump(jump);
+            emitSetShortJump(instr);
 
-            assert(jump->idInsSize() == ISZ_16BIT);
+            assert(instr->idInsSize() == ISZ_16BIT);
             newSize = 2;
         }
         else
@@ -4335,24 +4336,24 @@ AGAIN:
                 continue;
             }
 
-            emitSetMediumJump(jump);
+            emitSetMediumJump(instr);
 
-            assert(jump->idInsSize() == ISZ_32BIT);
+            assert(instr->idInsSize() == ISZ_32BIT);
             newSize = 4;
         }
 
         assert(currentSize >= newSize);
 
         uint32_t sizeReduction = currentSize - newSize;
-        jumpIG->igSize -= static_cast<uint16_t>(sizeReduction);
-        jumpIG->igFlags |= IGF_UPD_ISZ;
-        jumpIGSizeReduction += sizeReduction;
+        instrIG->igSize -= static_cast<uint16_t>(sizeReduction);
+        instrIG->igFlags |= IGF_UPD_ISZ;
+        instrIGSizeReduction += sizeReduction;
         totalSizeReduction += sizeReduction;
     }
 
     if (totalSizeReduction != 0)
     {
-        for (insGroup* ig = previousJumpIG->igNext; ig != nullptr; ig = ig->igNext)
+        for (insGroup* ig = previousInstrIG->igNext; ig != nullptr; ig = ig->igNext)
         {
             JITDUMP(FMT_IG " moved back from %04X", ig->igNum, ig->igOffs);
             ig->igOffs -= totalSizeReduction;
