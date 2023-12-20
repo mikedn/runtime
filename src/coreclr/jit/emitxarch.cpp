@@ -2833,7 +2833,6 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_LABEL);
     id->idReg1(reg);
-    id->idSetIsDspReloc();
     id->idAddr()->iiaBBlabel = dst;
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
@@ -7141,15 +7140,14 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idIns() == INS_lea);
     assert(id->idInsFmt() == IF_RWR_LABEL);
     assert(id->idOpSize() == EA_PTRSIZE);
-    assert(id->idIsDspReloc());
     assert(id->idGCref() == GCT_NONE);
     assert(!id->idAddr()->iiaHasInstrCount());
     assert(id->idIsBound());
-    assert(id->idjKeepLong);
 
-    unsigned srcOffs = emitCurCodeOffs(dst);
-    unsigned dstOffs = id->idAddr()->iiaIGlabel->igOffs;
-    uint8_t* dstAddr = emitOffsetToPtr(dstOffs);
+    unsigned instrOffs = emitCurCodeOffs(dst);
+    uint8_t* instrAddr = emitOffsetToPtr(instrOffs);
+    unsigned labelOffs = id->idAddr()->iiaIGlabel->igOffs;
+    uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
 
     // TODO-MIKE-CQ: For x86 this should really be mov, it can be more efficient.
     code_t code = 0x8D;
@@ -7160,15 +7158,27 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     dst += emitOutputWord(dst, code | 0x0500);
 
 #ifdef TARGET_AMD64
-    // TODO-MIKE-Cleanup: This shouldn't call recordRelocation, the target is within
-    // this method so it's not like we'll need jump stubs or anything VM related.
-
-    // We emit zero on x64, to avoid the assert in emitOutputLong
-    dst += emitOutputLong(dst, 0);
-    emitRecordRelocation(dst - 4, dstAddr, IMAGE_REL_BASED_REL32, 0);
+    if (emitComp->opts.compReloc && emitJumpCrossHotColdBoundary(instrOffs, labelOffs))
+    {
+        dst += emitOutputLong(dst, 0);
+        emitRecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_REL32);
+    }
+    else
+    {
+        ssize_t distance = static_cast<ssize_t>(labelAddr - instrAddr - id->idCodeSize());
+        assert(IsImm32(distance));
+        dst += emitOutputLong(dst, distance);
+    }
 #else
-    dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(dstAddr));
-    emitRecordRelocation(dst - 4, dstAddr, IMAGE_REL_BASED_HIGHLOW, 0);
+    if (emitComp->opts.compReloc)
+    {
+        dst += emitOutputLong(dst, 0);
+        emitRecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_HIGHLOW);
+    }
+    else
+    {
+        dst += emitOutputLong(dst, reinterpret_cast<size_t>(labelAddr));
+    }
 #endif
 
     emitGCregDeadUpd(id->idReg1(), dst);
@@ -7184,19 +7194,21 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idGCref() == GCT_NONE);
     assert(id->idIsBound());
     assert(!id->idAddr()->iiaHasInstrCount());
-    assert(id->idjKeepLong);
 
-    unsigned srcOffs = emitCurCodeOffs(dst);
-    unsigned dstOffs = id->idAddr()->iiaIGlabel->igOffs;
-    uint8_t* dstAddr = emitOffsetToPtr(dstOffs);
+    unsigned labelOffs = id->idAddr()->iiaIGlabel->igOffs;
+    uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
 
     assert(insCodeMI(INS_push) == 0x68);
     dst += emitOutputByte(dst, 0x68);
-    dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(dstAddr));
 
     if (emitComp->opts.compReloc)
     {
-        emitRecordRelocation(dst - 4, dstAddr, IMAGE_REL_BASED_HIGHLOW);
+        dst += emitOutputLong(dst, 0);
+        emitRecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_HIGHLOW);
+    }
+    else
+    {
+        dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(labelAddr));
     }
 
     return dst;
@@ -7209,7 +7221,7 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idIsBound());
     assert(id->idInsFmt() == IF_LABEL);
 
-    unsigned dstOffs;
+    unsigned labelOffs;
 
     if (id->idAddr()->iiaHasInstrCount())
     {
@@ -7220,26 +7232,23 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
         assert((instrCount >= 0) || (jumpInstrNum + 1 >= static_cast<unsigned>(-instrCount)));
 
-        dstOffs = ig->igOffs + emitFindOffset(ig, jumpInstrNum + 1 + instrCount);
+        labelOffs = ig->igOffs + emitFindOffset(ig, jumpInstrNum + 1 + instrCount);
     }
     else
     {
-        dstOffs = id->idAddr()->iiaIGlabel->igOffs;
+        labelOffs = id->idAddr()->iiaIGlabel->igOffs;
     }
 
-    uint8_t*    dstAddr  = emitOffsetToPtr(dstOffs);
-    unsigned    srcOffs  = emitCurCodeOffs(dst);
-    uint8_t*    srcAddr  = emitOffsetToPtr(srcOffs);
-    ssize_t     distance = static_cast<ssize_t>(dstAddr - srcAddr);
-    instruction ins      = id->idIns();
+    uint8_t*    labelAddr = emitOffsetToPtr(labelOffs);
+    unsigned    instrOffs = emitCurCodeOffs(dst);
+    uint8_t*    instrAddr = emitOffsetToPtr(instrOffs);
+    ssize_t     distance  = static_cast<ssize_t>(labelAddr - instrAddr - id->idCodeSize());
+    instruction ins       = id->idIns();
 
     if (id->idCodeSize() == JMP_JCC_SIZE_SMALL)
     {
-        assert(!id->idjKeepLong);
-        assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
+        assert(!emitJumpCrossHotColdBoundary(instrOffs, labelOffs));
         assert(ins != INS_call);
-
-        distance -= JMP_JCC_SIZE_SMALL;
         assert(IsImm8(distance));
 
         dst += emitOutputByte(dst, insCodeJ(ins));
@@ -7247,28 +7256,20 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     }
     else
     {
-#ifdef FEATURE_EH_FUNCLETS
-        if (ins == INS_call)
-        {
-            assert(id->idCodeSize() == CALL_INST_SIZE);
-            distance -= CALL_INST_SIZE;
+        AMD64_ONLY(assert(IsImm32(distance)));
 
-            dst += emitOutputByte(dst, 0xE8);
-        }
-        else
-#endif
-            if (ins == INS_jmp)
+        if (ins == INS_jmp)
         {
-            assert(id->idCodeSize() == JMP_SIZE_LARGE);
-            distance -= JMP_SIZE_LARGE;
-
             dst += emitOutputByte(dst, 0xE9);
         }
+#ifdef FEATURE_EH_FUNCLETS
+        else if (ins == INS_call)
+        {
+            dst += emitOutputByte(dst, 0xE8);
+        }
+#endif
         else
         {
-            assert(id->idCodeSize() == JCC_SIZE_LARGE);
-            distance -= JCC_SIZE_LARGE;
-
             code_t code = insCodeJ(ins);
             assert((0x70 <= code) && (code <= 0x7F));
             dst += emitOutputWord(dst, 0x0F | ((code + 0x10) << 8));
@@ -7276,35 +7277,36 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
         dst += emitOutputLong(dst, distance);
 
-        // For x64 we always go through recordRelocation since we may need jump stubs.
-        // TODO-MIKE-Review: Hmm, jump stubs for jumps within the same method?!?
-        if (X86_ONLY(emitComp->opts.compReloc &&) emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
+        if (emitComp->opts.compReloc && emitJumpCrossHotColdBoundary(instrOffs, labelOffs))
         {
-            assert(id->idjKeepLong);
+#ifdef TARGET_AMD64
             emitRecordRelocation(dst - 4, dst + distance, IMAGE_REL_BASED_REL32);
+#else
+            emitRecordRelocation(dst - 4, dst + distance, IMAGE_REL_BASED_HIGHLOW);
+#endif
         }
-    }
 
 #ifdef FEATURE_EH_FUNCLETS
-    // Calls to "finally" handlers kill all registers.
-    // TODO-MIKE-Review: It's not entirely clear why is this needed. Such calls are
-    // always at the end of the block and the following block should have the correct
-    // CG reg liveness. Sometimes, a nop is inserted after such calls, but then it's
-    // inserted in a no-GC region so it shouldn't matter if some GC regs are killed
-    // later than they really are. In fact, we already kill "later", the regs that
-    // could possibly be live after the call are callee saved registers, and these
-    // are practically dead before the call.
-    // But the weirdest thing is that ARM64 doesn't appear to be doing this.
-    // It certainly doesn't call emitGCregDeadAll but perhaps it achieves the same
-    // effect by other means?
-    // Anyway, even if this code is useless removing it results in GC info diffs.
-    if ((ins == INS_call) && (gcInfo.GetAllLiveRegs() != RBM_NONE))
-    {
-        emitGCregDeadAll(dst);
-    }
+        // Calls to "finally" handlers kill all registers.
+        // TODO-MIKE-Review: It's not entirely clear why is this needed. Such calls are
+        // always at the end of the block and the following block should have the correct
+        // CG reg liveness. Sometimes, a nop is inserted after such calls, but then it's
+        // inserted in a no-GC region so it shouldn't matter if some GC regs are killed
+        // later than they really are. In fact, we already kill "later", the regs that
+        // could possibly be live after the call are callee saved registers, and these
+        // are practically dead before the call.
+        // But the weirdest thing is that ARM64 doesn't appear to be doing this.
+        // It certainly doesn't call emitGCregDeadAll but perhaps it achieves the same
+        // effect by other means?
+        // Anyway, even if this code is useless removing it results in GC info diffs.
+        if ((ins == INS_call) && (gcInfo.GetAllLiveRegs() != RBM_NONE))
+        {
+            emitGCregDeadAll(dst);
+        }
 #else
-    assert(ins != INS_call);
+        assert(ins != INS_call);
 #endif
+    }
 
     return dst;
 }
