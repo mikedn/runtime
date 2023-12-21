@@ -259,7 +259,6 @@ class emitter
     GCInfo       gcInfo;
     CodeGen*     codeGen;
     ICorJitInfo* emitCmpHandle;
-    INDEBUG(bool keepLongJumps;)
 
 public:
     emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo);

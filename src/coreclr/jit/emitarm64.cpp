@@ -7687,7 +7687,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
         id->idReg2(addrReg);
     }
 
-    id->idjKeepLong = IsColdBlock(GetCurrentBlock()) INDEBUG(|| keepLongJumps);
+    id->idjKeepLong = IsColdBlock(GetCurrentBlock());
 
     if (!id->idjKeepLong)
     {
@@ -7779,7 +7779,7 @@ void emitter::emitIns_R_L(BasicBlock* label, RegNum reg)
     id->idOpSize(EA_PTRSIZE);
     id->idReg1(reg);
     id->idAddr()->iiaBBlabel = label;
-    id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), label) INDEBUG(|| keepLongJumps);
+    id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), label);
 
     id->idjIG        = emitCurIG;
     id->idjOffs      = emitCurIGsize;
@@ -7876,7 +7876,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(ins == INS_b ? IF_BI_0A : IF_LARGEJMP);
-    id->idjKeepLong = (ins != INS_b) && (InDifferentRegions(GetCurrentBlock(), label) INDEBUG(|| keepLongJumps));
+    id->idjKeepLong          = (ins != INS_b) && InDifferentRegions(GetCurrentBlock(), label);
     id->idAddr()->iiaBBlabel = label;
 
     id->idjIG        = emitCurIG;
@@ -8058,6 +8058,12 @@ void emitter::emitJumpDistBind()
     }
 
 #ifdef DEBUG
+    if (JitConfig.JitLongAddress())
+    {
+        JITDUMP("JitLongAddress is set, not shortening any label access\n");
+        return;
+    }
+
     if (emitComp->verbose)
     {
         printf("\nInstruction groups before jump shortening:\n\n");

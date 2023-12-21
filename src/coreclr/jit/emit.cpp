@@ -21,13 +21,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "gcinfotypes.h"
 
 emitter::emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo)
-    : emitComp(compiler)
-    , gcInfo(compiler)
-    , codeGen(codeGen)
-    , emitCmpHandle(jitInfo)
-#ifdef DEBUG
-    , keepLongJumps(JitConfig.JitLongAddress() != 0)
-#endif
+    : emitComp(compiler), gcInfo(compiler), codeGen(codeGen), emitCmpHandle(jitInfo)
 {
 }
 
