@@ -9278,9 +9278,8 @@ uint8_t* emitter::emitOutputDL(uint8_t* dst, instrDescJmp* id)
         return emitOutputLoadLabel(dst, instrAddr, dataAddr, id);
     }
 
-    emitAttr  opSize  = id->idOpSize();
-    regNumber dstReg  = id->idReg1();
-    regNumber addrReg = dstReg; // an integer register to compute long address.
+    emitAttr  opSize = id->idOpSize();
+    regNumber dstReg = id->idReg1();
 
     if (fmt == IF_LS_1A)
     {
@@ -9293,41 +9292,31 @@ uint8_t* emitter::emitOutputDL(uint8_t* dst, instrDescJmp* id)
     // adrp x, [rel page addr] -- compute page address: current page addr + rel page addr
     assert(fmt == IF_LARGELDC);
 
-    ssize_t relPageAddr = ComputeRelPageAddr(dataAddr, instrAddr);
+    regNumber addrReg = IsVectorRegister(dstReg) ? id->idReg2() : dstReg;
+
+    dst = emitOutputShortAddress(dst, INS_adrp, ComputeRelPageAddr(dataAddr, instrAddr), addrReg);
+
+    // TODO-MIKE-Fix: SIMD16 constants aren't 16 byte aligned?!?!
+    noway_assert((reinterpret_cast<uint64_t>(dataAddr) & 0xFFF) % EA_SIZE_IN_BYTES(opSize) == 0);
+    uint32_t imm12 = (reinterpret_cast<uint64_t>(dataAddr) & 0xFFF) / EA_SIZE_IN_BYTES(opSize);
+    code_t   code  = emitInsCode(INS_ldr, IF_LS_2B);
 
     if (isVectorRegister(dstReg))
     {
-        // Update addrReg with the reserved integer register
-        // since we cannot use dstReg (vector) to load constant directly from memory.
-        addrReg = id->idReg2();
-        assert(isGeneralRegister(addrReg));
+        code &= 0x3FFFFFFF;
+        code |= insEncodeDatasizeVLS(code, opSize);
+        code |= insEncodeReg_Vt(dstReg);
     }
-
-    dst = emitOutputShortAddress(dst, INS_adrp, relPageAddr, addrReg);
-
-    // ldr x, [x, page offs] -- load constant from page address + page offset into integer register.
-    ssize_t imm12 = reinterpret_cast<ssize_t>(dataAddr) & 0xFFF;
-
-    dst = emitOutputShortConstant(dst, INS_ldr, IF_LS_2B, imm12, addrReg, opSize);
-
-    if (addrReg != dstReg)
+    else
     {
-        // fmov    Vd,Rn  DV_2I  X00111100X100111 000000nnnnnddddd   1E27 0000   Vd,Rn
-        assert(isVectorRegister(dstReg) && isGeneralRegister(addrReg));
-
-        code_t code = emitInsCode(INS_fmov, IF_DV_2I);
-        code |= insEncodeReg_Vd(dstReg);
-        code |= insEncodeReg_Rn(addrReg);
-
-        if (id->idOpSize() == EA_8BYTE)
-        {
-            code |= 0x80400000; // X ... X
-        }
-
-        dst += emitOutput_Instr(dst, code);
+        code |= insEncodeDatasizeLS(code, opSize);
+        code |= insEncodeReg_Rt(dstReg);
     }
 
-    return dst;
+    code |= imm12 << 10;
+    code |= insEncodeReg_Rn(addrReg);
+
+    return dst + emitOutput_Instr(dst, code);
 }
 
 uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
@@ -9480,6 +9469,7 @@ uint8_t* emitter::emitOutputShortBranch(
 uint8_t* emitter::emitOutputShortAddress(uint8_t* dst, instruction ins, ssize_t distance, RegNum reg)
 {
     assert((ins == INS_adr) || (ins == INS_adrp));
+    assert(IsGeneralRegister(reg));
 
     code_t code = emitInsCode(ins, IF_DI_1E);
     code |= insEncodeReg_Rd(reg);
@@ -9495,63 +9485,36 @@ uint8_t* emitter::emitOutputShortAddress(uint8_t* dst, instruction ins, ssize_t 
 uint8_t* emitter::emitOutputShortConstant(
     uint8_t* dst, instruction ins, insFormat fmt, ssize_t imm, regNumber reg, emitAttr opSize)
 {
-    code_t code = emitInsCode(ins, fmt);
+    assert(ins == INS_ldr);
+    assert(fmt == IF_LS_1A);
 
-    if (fmt == IF_LS_1A) // XX...V..iiiiiiii iiiiiiiiiiittttt      Rt simm21
+    code_t code = emitInsCode(INS_ldr, IF_LS_1A);
+
+    ssize_t loBits = (imm & 3);
+    noway_assert(loBits == 0);
+    ssize_t distance = imm >>= 2;
+
+    noway_assert(isValidSimm19(distance));
+
+    if (isVectorRegister(reg))
     {
-        // INS_ldr or INS_ldrsw (PC-Relative)
-        ssize_t loBits = (imm & 3);
-        noway_assert(loBits == 0);
-        ssize_t distance = imm >>= 2;
-
-        noway_assert(isValidSimm19(distance));
-
-        if (isVectorRegister(reg))
-        {
-            code |= insEncodeDatasizeVLS(code, opSize);
-            code |= insEncodeReg_Vt(reg);
-        }
-        else
-        {
-            assert(isGeneralRegister(reg));
-
-            if ((ins == INS_ldr) && (opSize == EA_8BYTE))
-            {
-                code |= 0x40000000;
-            }
-
-            code |= insEncodeReg_Rt(reg);
-        }
-
-        distance &= 0x7FFFFLL;
-        code |= distance << 5;
+        code |= insEncodeDatasizeVLS(code, opSize);
+        code |= insEncodeReg_Vt(reg);
     }
     else
     {
-        // INS_ldr or INS_ldrsw (PC-Relative)
-        assert(fmt == IF_LS_2B); // 1X11100101iiiiii iiiiiinnnnnttttt   B940 0000   imm(0-4095<<{2,3})
-        noway_assert(isValidUimm12(imm));
         assert(isGeneralRegister(reg));
 
-        if (opSize == EA_8BYTE)
+        if ((ins == INS_ldr) && (opSize == EA_8BYTE))
         {
-            assert((imm & 7) == 0);
-
-            code |= ins == INS_ldr ? 0x40000000 : 0;
-            imm >>= 3;
-        }
-        else
-        {
-            assert(opSize == EA_4BYTE);
-            assert((imm & 3) == 0);
-
-            imm >>= 2;
+            code |= 0x40000000;
         }
 
         code |= insEncodeReg_Rt(reg);
-        code |= insEncodeReg_Rn(reg);
-        code |= imm << 10;
     }
+
+    distance &= 0x7FFFFLL;
+    code |= distance << 5;
 
     return dst + emitOutput_Instr(dst, code);
 }
@@ -10779,11 +10742,11 @@ void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
 {
     if (fmt == IF_LARGEADR)
     {
-        printf("(LARGEADR)");
+        printf("(LARGEADR) ");
     }
     else if (fmt == IF_LARGELDC)
     {
-        printf("(LARGELDC)");
+        printf("(LARGELDC) ");
     }
 
     printf("[");
@@ -11374,25 +11337,25 @@ void emitter::emitDispAddrRRExt(regNumber reg1, regNumber reg2, insOpts opt, boo
     printf("]");
 }
 
-/*****************************************************************************
- *
- *  Display (optionally) the instruction encoding in hex
- */
-
-void emitter::emitDispInsHex(instrDesc* id, BYTE* code, size_t sz)
+void emitter::emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz)
 {
     // We do not display the instruction hex if we want diff-able disassembly
-    if (!emitComp->opts.disDiffable)
+    if (emitComp->opts.disDiffable)
     {
-        if (sz == 4)
-        {
-            printf("  %08X    ", (*((code_t*)code)));
-        }
-        else
-        {
-            assert(sz == 0);
-            printf("              ");
-        }
+        printf("      ");
+    }
+    else if (sz == 0)
+    {
+        printf("                    ");
+    }
+    else if (sz == 4)
+    {
+        printf("  %08X          ", *reinterpret_cast<code_t*>(code));
+    }
+    else
+    {
+        assert(sz == 8);
+        printf("  %08X %08X ", *reinterpret_cast<code_t*>(code), *reinterpret_cast<code_t*>(code + 4));
     }
 }
 
@@ -11432,8 +11395,6 @@ void emitter::emitDispIns(
     /* Display the instruction hex code */
 
     emitDispInsHex(id, pCode, sz);
-
-    printf("      ");
 
     /* Get the instruction and format */
 
@@ -12544,6 +12505,9 @@ void emitter::getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* 
                 {
                     isLocalAccess = true;
                 }
+                break;
+
+            case IF_LARGELDC:
                 break;
 
             default:

@@ -660,15 +660,8 @@ private:
             switch (_idInsFmt)
             {
                 case IF_LARGEADR: // adrp + add
+                case IF_LARGELDC: // adrp + ldr
                 case IF_LARGEJMP: // b<cond> + b<uncond>
-                    return 8;
-                case IF_LARGELDC:
-                    if (IsVectorRegister(idReg1()))
-                    {
-                        // adrp + ldr + fmov
-                        return 12;
-                    }
-                    // adrp + ldr
                     return 8;
                 case IF_GC_REG:
                     return 0;
