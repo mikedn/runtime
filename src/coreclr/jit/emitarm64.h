@@ -747,7 +747,7 @@ bool emitInsMayWriteToGCReg(instrDesc* id);
 bool emitInsMayWriteMultipleRegs(instrDesc* id);
 
 template <typename T>
-T* AllocInstr(emitAttr attr, bool updateLastIns = true);
+T* AllocInstr(bool updateLastIns = true);
 
 instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
 instrDesc* emitNewInstrSmall(emitAttr attr);

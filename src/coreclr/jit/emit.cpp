@@ -1693,9 +1693,9 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         idc->idcGCvars    = VarSetOps::MakeCopy(emitComp, gcLcls);
         idc->idcGcrefRegs = refRegs;
         idc->idcByrefRegs = byrefRegs;
-#ifdef TARGET_XARCH
         idc->idOpSize(EA_SIZE(retRegAttr));
         idc->idGCref(EA_GC_TYPE(retRegAttr));
+#ifdef TARGET_XARCH
         idc->idcDisp = disp;
 #endif
 #ifdef TARGET_X86
