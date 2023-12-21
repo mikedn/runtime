@@ -953,41 +953,6 @@ private:
                 int       lclOffset;
             };
 #endif
-
-#ifdef TARGET_ARM64
-            bool iiaIsJitDataOffset() const
-            {
-                return (roDataOffset & iaut_MASK) == iaut_DATA_OFFSET;
-            }
-
-            unsigned iiaGetJitDataOffset() const
-            {
-                assert(iiaIsJitDataOffset());
-                return roDataOffset >> iaut_SHIFT;
-            }
-
-            void SetRoDataOffset(unsigned offset)
-            {
-                roDataOffset = (offset << iaut_SHIFT) | iaut_DATA_OFFSET;
-            }
-#endif
-
-            bool iiaHasInstrCount() const
-            {
-                return (iiaEncodedInstrCount & iaut_MASK) == iaut_INST_COUNT;
-            }
-
-            int iiaGetInstrCount() const
-            {
-                assert(iiaHasInstrCount());
-                return (iiaEncodedInstrCount >> iaut_SHIFT);
-            }
-
-            void iiaSetInstrCount(int count)
-            {
-                assert(abs(count) < 10);
-                iiaEncodedInstrCount = (count << iaut_SHIFT) | iaut_INST_COUNT;
-            }
         } _idAddrUnion;
 
         static_assert_no_msg(sizeof(idAddrUnion) == sizeof(void*));
@@ -1125,10 +1090,40 @@ private:
         insGroup*     idjIG;   // containing group
         unsigned      idjOffs; // The byte offset within IG of the jump instruction.
 
+#ifdef TARGET_ARM64
+        bool HasRoDataOffset() const
+        {
+            return (idAddr()->roDataOffset & iaut_MASK) == iaut_DATA_OFFSET;
+        }
+
+        uint32_t GetRoDataOffset() const
+        {
+            assert(HasRoDataOffset());
+            return idAddr()->roDataOffset >> iaut_SHIFT;
+        }
+
+        void SetRoDataOffset(uint32_t offset)
+        {
+            idAddr()->roDataOffset = (offset << iaut_SHIFT) | iaut_DATA_OFFSET;
+        }
+#endif
+
+        bool HasInstrCount() const
+        {
+            return (idAddr()->iiaEncodedInstrCount & iaut_MASK) == iaut_INST_COUNT;
+        }
+
+        int GetInstrCount() const
+        {
+            assert(HasInstrCount());
+            return idAddr()->iiaEncodedInstrCount >> iaut_SHIFT;
+        }
+
         void SetInstrCount(int count)
         {
+            assert(abs(count) < 10);
             idSetIsBound();
-            idAddr()->iiaSetInstrCount(count);
+            idAddr()->iiaEncodedInstrCount = (count << iaut_SHIFT) | iaut_INST_COUNT;
         }
     };
 

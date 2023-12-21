@@ -2650,7 +2650,7 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
     }
 #endif
 
-    if (jmp->idAddr()->iiaHasInstrCount())
+    if (jmp->HasInstrCount())
     {
         // Too hard to figure out funclets from just an instruction count
         // You're on your own!

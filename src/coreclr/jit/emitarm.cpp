@@ -4947,11 +4947,11 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
     uint32_t labelOffs;
 
-    if (id->idAddr()->iiaHasInstrCount())
+    if (id->HasInstrCount())
     {
         assert(ig != nullptr);
 
-        int      instrCount   = id->idAddr()->iiaGetInstrCount();
+        int      instrCount   = id->GetInstrCount();
         unsigned jumpInstrNum = emitFindInsNum(ig, id);
 
         assert((instrCount >= 0) || (jumpInstrNum + 1 >= static_cast<unsigned>(-instrCount)));
@@ -6849,11 +6849,13 @@ void emitter::emitDispInsHelp(
         case IF_T2_J2:
         case IF_LARGEJMP:
         {
-            if (id->idAddr()->iiaHasInstrCount())
-            {
-                int instrCount = id->idAddr()->iiaGetInstrCount();
+            instrDescJmp* ij = static_cast<instrDescJmp*>(id);
 
-                if (ig == NULL)
+            if (ij->HasInstrCount())
+            {
+                int instrCount = ij->GetInstrCount();
+
+                if (ig == nullptr)
                 {
                     printf("pc%s%d instructions", (instrCount >= 0) ? "+" : "", instrCount);
                 }
@@ -6867,9 +6869,13 @@ void emitter::emitDispInsHelp(
                 }
             }
             else if (id->idIsBound())
+            {
                 emitPrintLabel(id->idAddr()->iiaIGlabel);
+            }
             else
+            {
                 printf("L_M%03u_" FMT_BB, emitComp->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
+            }
         }
         break;
 

@@ -7766,7 +7766,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
     id->idInsFmt(fmt);
     id->idOpSize(size);
     id->idReg1(reg);
-    id->idAddr()->SetRoDataOffset(GetRoDataOffset(fldHnd));
+    id->SetRoDataOffset(GetRoDataOffset(fldHnd));
     id->idSetIsBound();
     id->idSetIsCnsReloc(emitComp->opts.compReloc && IsColdBlock(GetCurrentBlock()));
 
@@ -8168,9 +8168,9 @@ AGAIN:
         uint32_t instrOffs = instrIG->igOffs + instr->idjOffs;
         int32_t  distanceOverflow;
 
-        if (instr->idAddr()->iiaIsJitDataOffset())
+        if (instr->HasRoDataOffset())
         {
-            uint32_t dataOffs = instr->idAddr()->iiaGetJitDataOffset();
+            uint32_t dataOffs = instr->GetRoDataOffset();
 
             ssize_t imm = emitGetInsSC(instr);
             assert((imm >= 0) && (imm < 0x1000)); // 0x1000 is arbitrary, currently 'imm' is always 0
@@ -9305,7 +9305,7 @@ uint8_t* emitter::emitOutputDL(uint8_t* dst, instrDescJmp* id)
     uint32_t instrOffs = emitCurCodeOffs(dst);
     uint8_t* instrAddr = emitOffsetToPtr(instrOffs);
 
-    uint32_t dataOffset = id->idAddr()->iiaGetJitDataOffset();
+    uint32_t dataOffset = id->GetRoDataOffset();
 
     int64_t imm = emitGetInsSC(id);
     assert((imm >= 0) && (imm < 0x1000)); // 0x1000 is arbitrary, currently 'imm' is always 0
@@ -9363,7 +9363,7 @@ uint8_t* emitter::emitOutputDL(uint8_t* dst, instrDescJmp* id)
 
 uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
-    assert(!id->idAddr()->iiaIsJitDataOffset());
+    assert(!id->HasRoDataOffset());
     assert(id->idInsOpt() == INS_OPTS_NONE);
     assert(id->idIsBound());
     assert(id->idGCref() == GCT_NONE);
@@ -9375,11 +9375,11 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     uint32_t labelOffs;
 
-    if (id->idAddr()->iiaHasInstrCount())
+    if (id->HasInstrCount())
     {
         assert(ig != nullptr);
 
-        int      instrCount   = id->idAddr()->iiaGetInstrCount();
+        int      instrCount   = id->GetInstrCount();
         unsigned jumpInstrNum = emitFindInsNum(ig, id);
 
         assert((instrCount >= 0) || (jumpInstrNum + 1 >= static_cast<unsigned>(-instrCount)));
@@ -9604,7 +9604,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_SMALLADR:
         case IF_LARGEADR:
         case IF_LARGELDC:
-            if (id->idAddr()->iiaIsJitDataOffset())
+            if (static_cast<instrDescJmp*>(id)->HasRoDataOffset())
             {
                 dst = emitOutputDL(dst, static_cast<instrDescJmp*>(id));
                 sz  = sizeof(instrDescJmp);
@@ -10780,7 +10780,7 @@ void emitter::emitDispInst(instruction ins)
     } while (len < 8);
 }
 
-void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
+void emitter::emitDispLargeImm(instrDescJmp* id, insFormat fmt, ssize_t imm)
 {
     if (fmt == IF_LARGEADR)
     {
@@ -10795,9 +10795,9 @@ void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
 
     const char* targetName = nullptr;
 
-    if (id->idAddr()->iiaIsJitDataOffset())
+    if (id->HasRoDataOffset())
     {
-        printf("@RWD%02u", id->idAddr()->iiaGetJitDataOffset());
+        printf("@RWD%02u", id->GetRoDataOffset());
 
         if (imm != 0)
         {
@@ -11478,13 +11478,16 @@ void emitter::emitDispIns(
         case IF_BI_0B: // BI_0B   ......iiiiiiiiii iiiiiiiiiii.....               simm19:00
         case IF_LARGEJMP:
         {
+            instrDescJmp* ij = static_cast<instrDescJmp*>(id);
+
             if (fmt == IF_LARGEJMP)
             {
-                printf("(LARGEJMP)");
+                printf("(LARGEJMP) ");
             }
-            if (id->idAddr()->iiaHasInstrCount())
+
+            if (ij->HasInstrCount())
             {
-                int instrCount = id->idAddr()->iiaGetInstrCount();
+                int instrCount = ij->GetInstrCount();
 
                 if (ig == nullptr)
                 {
@@ -11560,7 +11563,7 @@ void emitter::emitDispIns(
         case IF_SMALLADR:
             assert(insOptsNone(id->idInsOpt()));
             emitDispReg(id->idReg1(), size, true);
-            emitDispLargeImm(id, fmt, emitGetInsSC(id));
+            emitDispLargeImm(static_cast<instrDescJmp*>(id), fmt, emitGetInsSC(id));
             break;
 
         case IF_LS_2A: // LS_2A   .X.......X...... ......nnnnnttttt      Rt Rn

@@ -3915,7 +3915,7 @@ AGAIN:
             continue;
         }
 
-        assert(!instr->idAddr()->iiaHasInstrCount());
+        assert(!instr->HasInstrCount());
 
         uint32_t  instrOffs    = instrIG->igOffs + instr->idjOffs;
         uint32_t  instrEndOffs = instrOffs + JMP_JCC_SIZE_SMALL;
@@ -4429,18 +4429,18 @@ private:
         }
     }
 
-    void PrintLabel(instrDesc* id)
+    void PrintLabel(instrDescJmp* id)
     {
-        if (static_cast<instrDescJmp*>(id)->idCodeSize() == JMP_JCC_SIZE_SMALL)
+        if (id->idCodeSize() == JMP_JCC_SIZE_SMALL)
         {
             printf("SHORT ");
         }
 
         if (id->idIsBound())
         {
-            if (id->idAddr()->iiaHasInstrCount())
+            if (id->HasInstrCount())
             {
-                printf("%3d instr", id->idAddr()->iiaGetInstrCount());
+                printf("%3d instr", id->GetInstrCount());
             }
             else
             {
@@ -4900,11 +4900,11 @@ private:
 
             case IF_RWR_LABEL:
                 printf("%s, ", RegName(id->idReg1(), attr));
-                PrintLabel(id);
+                PrintLabel(static_cast<instrDescJmp*>(id));
                 break;
 
             case IF_LABEL:
-                PrintLabel(id);
+                PrintLabel(static_cast<instrDescJmp*>(id));
                 break;
 
             case IF_METHOD:
@@ -7143,7 +7143,7 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idInsFmt() == IF_RWR_LABEL);
     assert(id->idOpSize() == EA_PTRSIZE);
     assert(id->idGCref() == GCT_NONE);
-    assert(!id->idAddr()->iiaHasInstrCount());
+    assert(!id->HasInstrCount());
     assert(id->idIsBound());
 
     unsigned instrOffs = emitCurCodeOffs(dst);
@@ -7195,7 +7195,7 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idInsFmt() == IF_LABEL);
     assert(id->idGCref() == GCT_NONE);
     assert(id->idIsBound());
-    assert(!id->idAddr()->iiaHasInstrCount());
+    assert(!id->HasInstrCount());
 
     unsigned labelOffs = id->idAddr()->iiaIGlabel->igOffs;
     uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
@@ -7225,11 +7225,11 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     unsigned labelOffs;
 
-    if (id->idAddr()->iiaHasInstrCount())
+    if (id->HasInstrCount())
     {
         assert(ig != nullptr);
 
-        int      instrCount   = id->idAddr()->iiaGetInstrCount();
+        int      instrCount   = id->GetInstrCount();
         unsigned jumpInstrNum = emitFindInsNum(ig, id);
 
         assert((instrCount >= 0) || (jumpInstrNum + 1 >= static_cast<unsigned>(-instrCount)));

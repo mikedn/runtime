@@ -28,7 +28,7 @@ const char* emitVectorRegName(regNumber reg);
 
 void emitDispInsHex(instrDesc* id, BYTE* code, size_t sz);
 void emitDispInst(instruction ins);
-void emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm);
+void emitDispLargeImm(instrDescJmp* id, insFormat fmt, ssize_t imm);
 void emitDispImm(ssize_t imm, bool addComma, bool alwaysHex = false);
 void emitDispFrameRef(instrDesc* id);
 void emitDispFloatZero();
