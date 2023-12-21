@@ -295,12 +295,12 @@ unsigned insEncodePUW_H0(insOpts opt, int imm);
 template <typename T>
 T* AllocInstr(bool updateLastIns = true);
 
-instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
-instrDesc* emitNewInstrSmall(emitAttr attr);
-instrDesc* emitNewInstrSC(emitAttr attr, int32_t cns);
-instrDesc* emitNewInstrCns(emitAttr attr, int32_t cns);
+instrDesc* emitNewInstr();
+instrDesc* emitNewInstrSmall();
+instrDesc* emitNewInstrSC(int32_t cns);
+instrDesc* emitNewInstrCns(int32_t cns);
 instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
 instrDescJmp*  emitNewInstrJmp();
-instrDescCGCA* emitAllocInstrCGCA(emitAttr attr);
+instrDescCGCA* emitAllocInstrCGCA();
 
 #endif // TARGET_ARM

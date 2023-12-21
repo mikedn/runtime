@@ -749,12 +749,12 @@ bool emitInsMayWriteMultipleRegs(instrDesc* id);
 template <typename T>
 T* AllocInstr(bool updateLastIns = true);
 
-instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
-instrDesc* emitNewInstrSmall(emitAttr attr);
-instrDesc* emitNewInstrSC(emitAttr attr, int64_t cns);
-instrDesc* emitNewInstrCns(emitAttr attr, int32_t cns);
+instrDesc* emitNewInstr();
+instrDesc* emitNewInstrSmall();
+instrDesc* emitNewInstrSC(int64_t imm);
+instrDesc* emitNewInstrCns(int32_t imm);
 instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
 instrDescJmp*  emitNewInstrJmp();
-instrDescCGCA* emitAllocInstrCGCA(emitAttr attr);
+instrDescCGCA* emitAllocInstrCGCA();
 
 #endif // TARGET_ARM64

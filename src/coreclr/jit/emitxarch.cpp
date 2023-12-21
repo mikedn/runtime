@@ -1190,7 +1190,7 @@ emitter::instrDescJmp* emitter::emitNewInstrJmp()
     return jmp;
 }
 
-emitter::instrDescCGCA* emitter::emitNewInstrCGCA()
+emitter::instrDescCGCA* emitter::emitAllocInstrCGCA()
 {
     return AllocInstr<instrDescCGCA>();
 }

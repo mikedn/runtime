@@ -288,7 +288,7 @@ T* AllocInstr(bool updateLastIns = true);
 instrDesc*     emitNewInstr();
 instrDesc*     emitNewInstrSmall();
 instrDescJmp*  emitNewInstrJmp();
-instrDescCGCA* emitNewInstrCGCA();
+instrDescCGCA* emitAllocInstrCGCA();
 instrDesc* emitNewInstrSC(ssize_t imm);
 instrDesc* emitNewInstrCns(int32_t imm);
 #ifdef TARGET_X86

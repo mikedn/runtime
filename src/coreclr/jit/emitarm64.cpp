@@ -3691,53 +3691,44 @@ T* emitter::AllocInstr(bool updateLastIns)
     return static_cast<T*>(id);
 }
 
-emitter::instrDesc* emitter::emitNewInstr(emitAttr attr)
+emitter::instrDesc* emitter::emitNewInstr()
 {
-    instrDesc* id = AllocInstr<instrDesc>();
-    id->idGCref(EA_GC_TYPE(attr));
-    id->idOpSize(EA_SIZE(attr));
-    return id;
+    return AllocInstr<instrDesc>();
 }
 
-emitter::instrDesc* emitter::emitNewInstrSmall(emitAttr attr)
+emitter::instrDesc* emitter::emitNewInstrSmall()
 {
     instrDescSmall* id = AllocInstr<instrDescSmall>();
     id->idSetIsSmallDsc();
-    id->idGCref(EA_GC_TYPE(attr));
-    id->idOpSize(EA_SIZE(attr));
     return static_cast<instrDesc*>(id);
 }
 
-emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, int64_t cns)
+emitter::instrDesc* emitter::emitNewInstrSC(int64_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
         instrDescCns* id = AllocInstr<instrDescCns>();
         id->idSetIsLargeCns();
-        id->idGCref(EA_GC_TYPE(attr));
-        id->idOpSize(EA_SIZE(attr));
         id->idcCnsVal = cns;
         return id;
     }
 
-    instrDesc* id = emitNewInstrSmall(attr);
+    instrDesc* id = emitNewInstrSmall();
     id->idSmallCns(cns);
     return id;
 }
 
-emitter::instrDesc* emitter::emitNewInstrCns(emitAttr attr, int32_t cns)
+emitter::instrDesc* emitter::emitNewInstrCns(int32_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
         instrDescCns* id = AllocInstr<instrDescCns>();
         id->idSetIsLargeCns();
-        id->idGCref(EA_GC_TYPE(attr));
-        id->idOpSize(EA_SIZE(attr));
         id->idcCnsVal = cns;
         return id;
     }
 
-    instrDesc* id = emitNewInstr(attr);
+    instrDesc* id = emitNewInstr();
     id->idSmallCns(cns);
     return id;
 }
@@ -3752,7 +3743,7 @@ emitter::instrDescJmp* emitter::emitNewInstrJmp()
     return id;
 }
 
-emitter::instrDescCGCA* emitter::emitAllocInstrCGCA(emitAttr attr)
+emitter::instrDescCGCA* emitter::emitAllocInstrCGCA()
 {
     return AllocInstr<instrDescCGCA>();
 }
@@ -3790,9 +3781,10 @@ void emitter::emitIns(instruction ins)
 
     assert((fmt == IF_SN_0A) || ((ins == INS_brk) && (fmt == IF_SI_0A)));
 
-    instrDesc* id = emitNewInstrSmall(EA_8BYTE);
+    instrDesc* id = emitNewInstrSmall();
     id->idIns(ins);
     id->idInsFmt(fmt);
+    id->idOpSize(EA_8BYTE);
 
     dispIns(id);
     appendToCurIG(id);
@@ -3800,9 +3792,10 @@ void emitter::emitIns(instruction ins)
 
 void emitter::emitIns_BRK(uint16_t imm)
 {
-    instrDesc* id = emitNewInstrSC(EA_8BYTE, imm);
+    instrDesc* id = emitNewInstrSC(imm);
     id->idIns(INS_brk);
     id->idInsFmt(IF_SI_0A);
+    id->idOpSize(EA_8BYTE);
 
     dispIns(id);
     appendToCurIG(id);
@@ -3824,7 +3817,9 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
         case INS_br:
         case INS_ret:
             assert(isGeneralRegister(reg));
-            id = emitNewInstrSmall(attr);
+            id = emitNewInstrSmall();
+            id->idGCref(EA_GC_TYPE(attr));
+            id->idOpSize(EA_SIZE(attr));
             id->idReg1(reg);
             fmt = IF_BR_1A;
             break;
@@ -3832,7 +3827,9 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
         case INS_dczva:
             assert(isGeneralRegister(reg));
             assert(attr == EA_8BYTE);
-            id = emitNewInstrSmall(attr);
+            id = emitNewInstrSmall();
+            id->idGCref(EA_GC_TYPE(attr));
+            id->idOpSize(EA_SIZE(attr));
             id->idReg1(reg);
             fmt = IF_SR_1A;
             break;
@@ -4020,12 +4017,12 @@ void emitter::emitIns_R_I(
     assert(canEncode);
     assert(fmt != IF_NONE);
 
-    instrDesc* id = emitNewInstrSC(attr, imm);
-
+    instrDesc* id = emitNewInstrSC(imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
-
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
     INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
 
@@ -4110,12 +4107,12 @@ void emitter::emitIns_R_F(
     assert(canEncode);
     assert(fmt != IF_NONE);
 
-    instrDesc* id = emitNewInstrSC(attr, imm);
-
+    instrDesc* id = emitNewInstrSC(imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
-
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
 
     dispIns(id);
@@ -4282,10 +4279,12 @@ void emitter::emitIns_Mov(
 
     assert(fmt != IF_NONE);
 
-    instrDesc* id = emitNewInstrSmall(attr);
+    instrDesc* id = emitNewInstrSmall();
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(dstReg);
     id->idReg2(srcReg);
 
@@ -4947,12 +4946,12 @@ void emitter::emitIns_R_R(
 
     assert(fmt != IF_NONE);
 
-    instrDesc* id = emitNewInstrSmall(attr);
-
+    instrDesc* id = emitNewInstrSmall();
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
-
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
 
@@ -5046,11 +5045,11 @@ void emitter::emitIns_R_I_I(
 
     assert(fmt != IF_NONE);
 
-    instrDesc* id = emitNewInstrSC(attr, immOut);
-
+    instrDesc* id = emitNewInstrSC(immOut);
     id->idIns(ins);
     id->idInsFmt(fmt);
-
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
 
     dispIns(id);
@@ -5751,12 +5750,12 @@ void emitter::emitIns_R_R_I(
 
     assert(fmt != IF_NONE);
 
-    instrDesc* id = emitNewInstrSC(attr, imm);
-
+    instrDesc* id = emitNewInstrSC(imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
-
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
 
@@ -6481,12 +6480,12 @@ void emitter::emitIns_R_R_R(
 
     assert(fmt != IF_NONE);
 
-    instrDesc* id = emitNewInstr(attr);
-
+    instrDesc* id = emitNewInstr();
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
-
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idReg3(reg3);
@@ -6917,10 +6916,12 @@ void emitter::emitIns_R_R_R_I(instruction ins,
     }
     assert(fmt != IF_NONE);
 
-    instrDesc* id = emitNewInstrCns(attr, imm);
+    instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idReg3(reg3);
@@ -7024,12 +7025,12 @@ void emitter::emitIns_R_R_R_Ext(instruction ins,
     reg2 = encodingSPtoZR(reg2);
     fmt  = IF_LS_3A;
 
-    instrDesc* id = emitNewInstr(attr);
-
+    instrDesc* id = emitNewInstr();
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
-
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idReg3(reg3);
@@ -7150,11 +7151,12 @@ void emitter::emitIns_R_R_I_I(
 
     assert(fmt != IF_NONE);
 
-    instrDesc* id = emitNewInstrSC(attr, immOut);
+    instrDesc* id = emitNewInstrSC(immOut);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
-
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
 
@@ -7213,11 +7215,11 @@ void emitter::emitIns_R_R_R_R(
     }
     assert(fmt != IF_NONE);
 
-    instrDesc* id = emitNewInstr(attr);
-
+    instrDesc* id = emitNewInstr();
     id->idIns(ins);
     id->idInsFmt(fmt);
-
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idReg3(reg3);
@@ -7257,12 +7259,11 @@ void emitter::emitIns_R_COND(instruction ins, emitAttr attr, regNumber reg, insC
     assert(fmt != IF_NONE);
     assert(isValidImmCond(cfi.immCFVal));
 
-    instrDesc* id = emitNewInstrSC(attr, cfi.immCFVal);
-
+    instrDesc* id = emitNewInstrSC(cfi.immCFVal);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsOpt(INS_OPTS_NONE);
-
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
 
     dispIns(id);
@@ -7300,12 +7301,11 @@ void emitter::emitIns_R_R_COND(instruction ins, emitAttr attr, regNumber reg1, r
     assert(fmt != IF_NONE);
     assert(isValidImmCond(cfi.immCFVal));
 
-    instrDesc* id = emitNewInstrSC(attr, cfi.immCFVal);
-
+    instrDesc* id = emitNewInstrSC(cfi.immCFVal);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsOpt(INS_OPTS_NONE);
-
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
 
@@ -7348,12 +7348,11 @@ void emitter::emitIns_R_R_R_COND(
     assert(fmt != IF_NONE);
     assert(isValidImmCond(cfi.immCFVal));
 
-    instrDesc* id = emitNewInstr(attr);
-
+    instrDesc* id = emitNewInstr();
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsOpt(INS_OPTS_NONE);
-
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idReg3(reg3);
@@ -7394,12 +7393,11 @@ void emitter::emitIns_R_R_FLAGS_COND(
     assert(fmt != IF_NONE);
     assert(isValidImmCondFlags(cfi.immCFVal));
 
-    instrDesc* id = emitNewInstrSC(attr, cfi.immCFVal);
-
+    instrDesc* id = emitNewInstrSC(cfi.immCFVal);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsOpt(INS_OPTS_NONE);
-
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
 
@@ -7450,12 +7448,11 @@ void emitter::emitIns_R_I_FLAGS_COND(
     assert(fmt != IF_NONE);
     assert(isValidImmCondFlagsImm5(cfi.immCFVal));
 
-    instrDesc* id = emitNewInstrSC(attr, cfi.immCFVal);
-
+    instrDesc* id = emitNewInstrSC(cfi.immCFVal);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsOpt(INS_OPTS_NONE);
-
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
 
     dispIns(id);
@@ -7466,10 +7463,10 @@ void emitter::emitIns_BARR(instruction ins, insBarrier barrier)
 {
     assert((ins == INS_dsb) || (ins == INS_dmb) || (ins == INS_isb));
 
-    instrDesc* id = emitNewInstrSC(EA_8BYTE, static_cast<uint32_t>(barrier));
+    instrDesc* id = emitNewInstrSC(static_cast<uint32_t>(barrier));
     id->idIns(ins);
     id->idInsFmt(IF_SI_0B);
-    id->idInsOpt(INS_OPTS_NONE);
+    id->idOpSize(EA_8BYTE);
 
     dispIns(id);
     appendToCurIG(id);
@@ -7633,10 +7630,11 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
         return;
     }
 
-    instrDesc* id = emitNewInstrCns(attr, imm);
+    instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsOpt(INS_OPTS_NONE);
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
     id->idReg2(baseReg);
     id->SetVarAddr(varNum, varOffs);
@@ -7704,9 +7702,11 @@ void emitter::Ins_R_R_S(
         fmt     = IF_LS_3B;
     }
 
-    instrDesc* id = emitNewInstrCns(attr1, imm);
+    instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
+    id->idOpSize(EA_SIZE(attr1));
+    id->idGCref(EA_GC_TYPE(attr1));
     id->idGCrefReg2(EA_GC_TYPE(attr2));
     id->idReg1(reg1);
     id->idReg2(reg2);
@@ -7795,9 +7795,10 @@ void emitter::emitIns_R_AH(RegNum reg, void* addr DEBUGARG(void* handle) DEBUGAR
 {
     assert(emitComp->opts.compReloc);
 
-    instrDesc* ij = emitNewInstr(EA_8BYTE);
+    instrDesc* ij = emitNewInstr();
     ij->idIns(INS_adrp);
     ij->idInsFmt(IF_DI_1E);
+    ij->idOpSize(EA_8BYTE);
     ij->idAddr()->iiaAddr = addr;
     ij->idReg1(reg);
     ij->idSetIsCnsReloc();
@@ -7809,7 +7810,7 @@ void emitter::emitIns_R_AH(RegNum reg, void* addr DEBUGARG(void* handle) DEBUGAR
     dispIns(ij);
     appendToCurIG(ij);
 
-    instrDesc* id = emitNewInstr(EA_8BYTE);
+    instrDesc* id = emitNewInstr();
     id->idIns(INS_add);
     id->idInsFmt(IF_DI_2A);
     id->idOpSize(EA_8BYTE);

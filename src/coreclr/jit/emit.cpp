@@ -1684,11 +1684,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         }
 #endif
 
-#ifdef TARGET_XARCH
-        instrDescCGCA* idc = emitNewInstrCGCA();
-#else
-        instrDescCGCA* idc                = emitAllocInstrCGCA(retRegAttr);
-#endif
+        instrDescCGCA* idc = emitAllocInstrCGCA();
         idc->idSetIsLargeCall();
         idc->idcGCvars    = VarSetOps::MakeCopy(emitComp, gcLcls);
         idc->idcGcrefRegs = refRegs;
@@ -1712,19 +1708,12 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 
 #ifdef TARGET_X86
         id = emitNewInstrCns(argSlotCount);
-#elif defined(TARGET_AMD64)
-        id                                = emitNewInstr();
 #else
-        id = emitNewInstr(retRegAttr);
+        id                                = emitNewInstr();
 #endif
-
-#ifdef TARGET_XARCH
         id->idOpSize(EA_SIZE(retRegAttr));
         id->idGCref(EA_GC_TYPE(retRegAttr));
-#endif
-
         EncodeCallGCRegs(refRegs, id);
-
 #ifdef TARGET_XARCH
         id->idAddr()->iiaAddrMode.disp = disp;
         assert(id->idAddr()->iiaAddrMode.disp == disp);
