@@ -1121,12 +1121,9 @@ private:
 
     struct instrDescJmp : instrDesc
     {
-        instrDescJmp* idjNext;      // next jump in the group/method
-        insGroup*     idjIG;        // containing group
-        unsigned      idjOffs : 30; // The byte offset within IG of the jump instruction.
-#ifdef TARGET_ARM64
-        unsigned idjKeepLong : 1; // should the jump be kept long? (used for hot to cold and cold to hot jumps)
-#endif
+        instrDescJmp* idjNext; // next jump in the group/method
+        insGroup*     idjIG;   // containing group
+        unsigned      idjOffs; // The byte offset within IG of the jump instruction.
 
         void SetInstrCount(int count)
         {

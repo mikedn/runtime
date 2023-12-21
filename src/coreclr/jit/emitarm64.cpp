@@ -7681,21 +7681,17 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
     id->idReg1(reg);
     id->idAddr()->SetRoDataOffset(GetRoDataOffset(fldHnd));
     id->idSetIsBound();
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && IsColdBlock(GetCurrentBlock()));
 
     if (addrReg != REG_NA)
     {
         id->idReg2(addrReg);
     }
 
-    id->idjKeepLong = IsColdBlock(GetCurrentBlock());
-
-    if (!id->idjKeepLong)
-    {
-        id->idjIG        = emitCurIG;
-        id->idjOffs      = emitCurIGsize;
-        id->idjNext      = emitCurIGjmpList;
-        emitCurIGjmpList = id;
-    }
+    id->idjIG        = emitCurIG;
+    id->idjOffs      = emitCurIGsize;
+    id->idjNext      = emitCurIGjmpList;
+    emitCurIGjmpList = id;
 
     dispIns(id);
     appendToCurIG(id);
@@ -7735,7 +7731,7 @@ void emitter::emitIns_R_AH(RegNum reg, void* addr DEBUGARG(void* handle) DEBUGAR
 
 void emitter::emitSetShortJump(instrDescJmp* id)
 {
-    assert(!id->idjKeepLong);
+    assert(!id->idIsCnsReloc());
 
     insFormat fmt;
 
@@ -7779,7 +7775,7 @@ void emitter::emitIns_R_L(BasicBlock* label, RegNum reg)
     id->idOpSize(EA_PTRSIZE);
     id->idReg1(reg);
     id->idAddr()->iiaBBlabel = label;
-    id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), label);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
 
     id->idjIG        = emitCurIG;
     id->idjOffs      = emitCurIGsize;
@@ -7801,7 +7797,7 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, reg
     id->idReg1(reg);
     id->idOpSize(EA_SIZE(attr));
     id->idAddr()->iiaBBlabel = label;
-    id->idjKeepLong          = InDifferentRegions(GetCurrentBlock(), label);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
 
     id->idjIG        = emitCurIG;
     id->idjOffs      = emitCurIGsize;
@@ -7823,7 +7819,7 @@ void emitter::emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* label, r
     id->idIns(ins);
     id->idInsFmt(IF_LARGEJMP);
     id->idOpSize(EA_SIZE(attr));
-    id->idjKeepLong = InDifferentRegions(GetCurrentBlock(), label);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
     id->idReg1(reg);
     id->idSmallCns(imm);
     id->idAddr()->iiaBBlabel = label;
@@ -7876,7 +7872,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(ins == INS_b ? IF_BI_0A : IF_LARGEJMP);
-    id->idjKeepLong          = (ins != INS_b) && InDifferentRegions(GetCurrentBlock(), label);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
     id->idAddr()->iiaBBlabel = label;
 
     id->idjIG        = emitCurIG;
@@ -8104,6 +8100,11 @@ AGAIN:
             assert(instrIG->igOffs > previousInstrIG->igOffs);
 
             previousInstrIG = instrIG;
+        }
+
+        if (instr->idIsCnsReloc())
+        {
+            continue;
         }
 
         if ((instr->idInsFmt() != IF_LARGEJMP) && (instr->idInsFmt() != IF_LARGEADR) &&
@@ -9254,6 +9255,11 @@ uint8_t* emitter::emitOutputDL(uint8_t* dst, instrDescJmp* id)
 
     assert((ins == INS_ldr) || (ins == INS_ldrsw) || (ins == INS_adr) || (ins == INS_adrp));
 
+    if (id->idIsCnsReloc())
+    {
+        NYI_ARM64("Relocation support for hot/cold jumps");
+    }
+
     uint32_t instrOffs = emitCurCodeOffs(dst);
     uint8_t* instrAddr = emitOffsetToPtr(instrOffs);
 
@@ -9266,11 +9272,6 @@ uint8_t* emitter::emitOutputDL(uint8_t* dst, instrDescJmp* id)
     assert(dataOffs < emitDataSize());
 
     uint8_t* dataAddr = emitDataOffsetToPtr(dataOffs);
-
-    if (emitJumpCrossHotColdBoundary(instrOffs, dataOffs))
-    {
-        NYI_ARM64("Relocation support for cold code references to rodata");
-    }
 
     if ((ins == INS_adr) || (ins == INS_adrp))
     {
@@ -9336,6 +9337,11 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idIsBound());
     assert(id->idGCref() == GCT_NONE);
 
+    if (id->idIsCnsReloc())
+    {
+        NYI_ARM64("Relocation support for hot/cold jumps");
+    }
+
     uint32_t labelOffs;
 
     if (id->idAddr()->iiaHasInstrCount())
@@ -9358,11 +9364,6 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     uint8_t* instrAddr = emitOffsetToPtr(instrOffs);
     uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
     ssize_t  distance  = labelAddr - instrAddr;
-
-    if (emitJumpCrossHotColdBoundary(instrOffs, labelOffs))
-    {
-        NYI_ARM64("Relocation support for hot/cold jumps");
-    }
 
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
