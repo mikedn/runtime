@@ -1591,35 +1591,7 @@ private:
 
     int emitNextRandomNop();
 
-    //
-    // Functions for allocating instrDescs.
-    //
-    // The emitAllocXXX functions are the base level that allocate memory, and do little else.
-    // The emitters themselves use emitNewXXX, which might be thin wrappers over the emitAllocXXX functions.
-    //
-
     void* emitAllocAnyInstr(unsigned sz, bool updateLastIns);
-#ifndef TARGET_XARCH
-    void* emitAllocAnyInstr(unsigned sz, emitAttr attr, bool updateLastIns = true);
-
-    template <typename T>
-    T* AllocInstr(emitAttr attr, bool updateLastIns = true)
-    {
-        return static_cast<T*>(emitAllocAnyInstr(sizeof(T), attr, updateLastIns));
-    }
-
-    instrDesc* emitAllocInstr(emitAttr attr);
-    instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
-    instrDescCns* emitAllocInstrCns(emitAttr attr);
-    instrDescCns* emitAllocInstrCns(emitAttr attr, target_size_t cns);
-    instrDesc* emitNewInstrSmall(emitAttr attr);
-    instrDesc* emitNewInstrSC(emitAttr attr, target_ssize_t cns);
-    instrDesc* emitNewInstrCns(emitAttr attr, int32_t cns);
-    instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
-    instrDescJmp*  emitAllocInstrJmp();
-    instrDescJmp*  emitNewInstrJmp();
-    instrDescCGCA* emitAllocInstrCGCA(emitAttr attr);
-#endif
 
     static emitJumpKind emitInsToJumpKind(instruction ins);
 

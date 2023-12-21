@@ -292,4 +292,24 @@ unsigned insEncodeShiftOpts(insOpts opt);
 unsigned insEncodePUW_G0(insOpts opt, int imm);
 unsigned insEncodePUW_H0(insOpts opt, int imm);
 
+void* emitAllocAnyInstr(unsigned sz, emitAttr attr, bool updateLastIns = true);
+
+template <typename T>
+T* AllocInstr(emitAttr attr, bool updateLastIns = true)
+{
+    return static_cast<T*>(emitAllocAnyInstr(sizeof(T), attr, updateLastIns));
+}
+
+instrDesc* emitAllocInstr(emitAttr attr);
+instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
+instrDescCns* emitAllocInstrCns(emitAttr attr);
+instrDescCns* emitAllocInstrCns(emitAttr attr, target_size_t cns);
+instrDesc* emitNewInstrSmall(emitAttr attr);
+instrDesc* emitNewInstrSC(emitAttr attr, target_ssize_t cns);
+instrDesc* emitNewInstrCns(emitAttr attr, int32_t cns);
+instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
+instrDescJmp*  emitAllocInstrJmp();
+instrDescJmp*  emitNewInstrJmp();
+instrDescCGCA* emitAllocInstrCGCA(emitAttr attr);
+
 #endif // TARGET_ARM
