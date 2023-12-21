@@ -2384,7 +2384,7 @@ void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
     GetEmitter()->emitIns_R_R_R(INS_add, EA_8BYTE, baseReg, baseReg, tmpReg);
 
     // br baseReg
-    GetEmitter()->emitIns_R(INS_br, emitActualTypeSize(TYP_I_IMPL), baseReg);
+    GetEmitter()->emitIns_R(INS_br, EA_8BYTE, baseReg);
 }
 
 void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)

@@ -3808,40 +3808,29 @@ void emitter::emitIns_BRK(uint16_t imm)
 
 void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
 {
-    insFormat  fmt = IF_NONE;
-    instrDesc* id  = nullptr;
+    assert(attr == EA_8BYTE);
 
-    /* Figure out the encoding format of the instruction */
-    switch (ins)
+    insFormat fmt;
+
+    if (ins == INS_dczva)
     {
-        case INS_br:
-        case INS_ret:
-            assert(isGeneralRegister(reg));
-            id = emitNewInstrSmall();
-            id->idGCref(EA_GC_TYPE(attr));
-            id->idOpSize(EA_SIZE(attr));
-            id->idReg1(reg);
-            fmt = IF_BR_1A;
-            break;
+        assert(isGeneralRegister(reg));
 
-        case INS_dczva:
-            assert(isGeneralRegister(reg));
-            assert(attr == EA_8BYTE);
-            id = emitNewInstrSmall();
-            id->idGCref(EA_GC_TYPE(attr));
-            id->idOpSize(EA_SIZE(attr));
-            id->idReg1(reg);
-            fmt = IF_SR_1A;
-            break;
+        fmt = IF_SR_1A;
+    }
+    else
+    {
+        assert((ins == INS_br) || (ins == INS_ret));
+        assert(isGeneralRegister(reg));
 
-        default:
-            unreached();
+        fmt = IF_BR_1A;
     }
 
-    assert(fmt != IF_NONE);
-
+    instrDesc* id = emitNewInstrSmall();
     id->idIns(ins);
     id->idInsFmt(fmt);
+    id->idOpSize(EA_8BYTE);
+    id->idReg1(reg);
 
     dispIns(id);
     appendToCurIG(id);
