@@ -8208,11 +8208,6 @@ AGAIN:
             assert(emitTotalCodeSize > 0);
             dataOffs += emitTotalCodeSize;
 
-            if (emitJumpCrossHotColdBoundary(instrOffs, dataOffs))
-            {
-                NYI_ARM64("Relocation support for cold code references to rodata");
-            }
-
             distanceOverflow = (dataOffs - instrOffs) - ((1 << 20) - 1);
 
             JITDUMP("RoData address IN%04X at %04X (" FMT_IG "), data at %04X, distance %d, overflow %d%s\n",
@@ -8237,11 +8232,6 @@ AGAIN:
 
             insGroup* label     = instr->idAddr()->iiaIGlabel;
             uint32_t  labelOffs = label->igOffs;
-
-            if (emitJumpCrossHotColdBoundary(instrOffs, labelOffs))
-            {
-                NYI_ARM64("Relocation support for hot/cold jumps");
-            }
 
             if (label->igNum > instrIG->igNum)
             {
