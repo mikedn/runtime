@@ -2666,7 +2666,7 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
 #endif // TARGET_ARM64
 
     insGroup* jmpIG = jmp->idjIG;
-    insGroup* tgtIG = jmp->idAddr()->iiaIGlabel;
+    insGroup* tgtIG = jmp->GetLabel();
     assert(tgtIG);
     if (tgtIG->igFuncIdx != jmpIG->igFuncIdx)
     {

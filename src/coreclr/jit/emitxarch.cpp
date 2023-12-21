@@ -2831,7 +2831,7 @@ void emitter::emitIns_R_L(BasicBlock* label, RegNum reg)
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_LABEL);
     id->idReg1(reg);
-    id->idAddr()->iiaBBlabel = label;
+    id->SetLabelBlock(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc AMD64_ONLY(&&InDifferentRegions(GetCurrentBlock(), label)));
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
@@ -3391,7 +3391,7 @@ void emitter::emitIns_L(instruction ins, BasicBlock* label)
     id->idOpSize(EA_4BYTE);
     id->idInsFmt(IF_LABEL);
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
-    id->idAddr()->iiaBBlabel = label;
+    id->SetLabelBlock(label);
 
     id->idCodeSize(PUSH_INST_SIZE);
     dispIns(id);
@@ -3409,8 +3409,7 @@ void emitter::emitIns_CallFinally(BasicBlock* label)
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
     id->idIns(INS_call);
     id->idInsFmt(IF_LABEL);
-    id->idAddr()->iiaBBlabel = label;
-
+    id->SetLabelBlock(label);
     INDEBUG(id->idDebugOnlyInfo()->idFinallyCall = true);
 
     id->idCodeSize(CALL_INST_SIZE);
@@ -3444,7 +3443,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
-    id->idAddr()->iiaBBlabel = label;
+    id->SetLabelBlock(label);
 
     unsigned  sz       = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
     insGroup* targetIG = emitCodeGetCookie(label);
@@ -3842,14 +3841,13 @@ void emitter::emitJumpDistBind()
 
         if (!instr->idIsBound())
         {
-            insGroup* label = emitCodeGetCookie(instr->idAddr()->iiaBBlabel);
+            insGroup* label = emitCodeGetCookie(instr->GetLabelBlock());
 
             assert(label != nullptr);
             JITDUMP("Binding IN%04X label " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
-                    instr->idAddr()->iiaBBlabel->bbNum, label->igNum);
+                    instr->GetLabelBlock()->bbNum, label->igNum);
 
-            instr->idAddr()->iiaIGlabel = label;
-            instr->idSetIsBound();
+            instr->SetLabel(label);
         }
 
         INDEBUG(emitCheckFuncletBranch(instr));
@@ -3919,7 +3917,7 @@ AGAIN:
 
         uint32_t  instrOffs    = instrIG->igOffs + instr->idjOffs;
         uint32_t  instrEndOffs = instrOffs + JMP_JCC_SIZE_SMALL;
-        insGroup* label        = instr->idAddr()->iiaIGlabel;
+        insGroup* label        = instr->GetLabel();
         uint32_t  labelOffs    = label->igOffs;
         int32_t   distanceOverflow;
 
@@ -4444,12 +4442,12 @@ private:
             }
             else
             {
-                emitter->emitPrintLabel(id->idAddr()->iiaIGlabel);
+                emitter->emitPrintLabel(id->GetLabel());
             }
         }
         else
         {
-            printf("L_M%03u_" FMT_BB, compiler->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
+            printf("L_M%03u_" FMT_BB, compiler->compMethodID, id->GetLabelBlock()->bbNum);
         }
     }
 
@@ -7148,7 +7146,7 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     unsigned instrOffs = emitCurCodeOffs(dst);
     uint8_t* instrAddr = emitOffsetToPtr(instrOffs);
-    unsigned labelOffs = id->idAddr()->iiaIGlabel->igOffs;
+    unsigned labelOffs = id->GetLabel()->igOffs;
     uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
 
     // TODO-MIKE-CQ: For x86 this should really be mov, it can be more efficient.
@@ -7197,7 +7195,7 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idIsBound());
     assert(!id->HasInstrCount());
 
-    unsigned labelOffs = id->idAddr()->iiaIGlabel->igOffs;
+    unsigned labelOffs = id->GetLabel()->igOffs;
     uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
 
     assert(insCodeMI(INS_push) == 0x68);
@@ -7238,7 +7236,7 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     }
     else
     {
-        labelOffs = id->idAddr()->iiaIGlabel->igOffs;
+        labelOffs = id->GetLabel()->igOffs;
     }
 
     uint8_t*    labelAddr = emitOffsetToPtr(labelOffs);

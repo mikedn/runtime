@@ -7857,7 +7857,7 @@ void emitter::emitIns_R_L(BasicBlock* label, RegNum reg)
     id->idInsFmt(IF_LARGEADR);
     id->idOpSize(EA_8BYTE);
     id->idReg1(reg);
-    id->idAddr()->iiaBBlabel = label;
+    id->SetLabelBlock(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
 
     dispIns(id);
@@ -7874,7 +7874,7 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, reg
     id->idInsFmt(IF_LARGEJMP);
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
-    id->idAddr()->iiaBBlabel = label;
+    id->SetLabelBlock(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
 
     dispIns(id);
@@ -7895,7 +7895,7 @@ void emitter::emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* label, r
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
     id->idReg1(reg);
     id->idSmallCns(imm);
-    id->idAddr()->iiaBBlabel = label;
+    id->SetLabelBlock(label);
 
     dispIns(id);
     appendToCurIG(id);
@@ -7936,7 +7936,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     id->idIns(ins);
     id->idInsFmt(ins == INS_b ? IF_BI_0A : IF_LARGEJMP);
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
-    id->idAddr()->iiaBBlabel = label;
+    id->SetLabelBlock(label);
 
     dispIns(id);
     appendToCurIG(id);
@@ -7950,7 +7950,7 @@ void emitter::emitIns_CallFinally(BasicBlock* label)
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(INS_bl_local);
     id->idInsFmt(IF_BI_0A);
-    id->idAddr()->iiaBBlabel = label;
+    id->SetLabelBlock(label);
     INDEBUG(id->idDebugOnlyInfo()->idFinallyCall = true);
 
     dispIns(id);
@@ -8092,14 +8092,13 @@ void emitter::emitJumpDistBind()
     {
         if (!instr->idIsBound())
         {
-            insGroup* label = emitCodeGetCookie(instr->idAddr()->iiaBBlabel);
+            insGroup* label = emitCodeGetCookie(instr->GetLabelBlock());
 
             assert(label != nullptr);
             JITDUMP("Binding IN%04X target " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
-                    instr->idAddr()->iiaBBlabel->bbNum, label->igNum);
+                    instr->GetLabelBlock()->bbNum, label->igNum);
 
-            instr->idAddr()->iiaIGlabel = label;
-            instr->idSetIsBound();
+            instr->SetLabel(label);
         }
 
         INDEBUG(emitCheckFuncletBranch(instr));
@@ -8205,7 +8204,7 @@ AGAIN:
                 maxPositiveDistance = (1 << 20) - 1;
             }
 
-            insGroup* label     = instr->idAddr()->iiaIGlabel;
+            insGroup* label     = instr->GetLabel();
             uint32_t  labelOffs = label->igOffs;
 
             if (label->igNum > instrIG->igNum)
@@ -9388,7 +9387,7 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     }
     else
     {
-        labelOffs = id->idAddr()->iiaIGlabel->igOffs;
+        labelOffs = id->GetLabel()->igOffs;
     }
 
     uint32_t instrOffs = emitCurCodeOffs(dst);
@@ -10807,36 +10806,53 @@ void emitter::emitDispLargeImm(instrDescJmp* id, insFormat fmt, ssize_t imm)
     else
     {
         assert(imm == 0);
+        assert(fmt != IF_DI_1E);
 
-        if (fmt == IF_DI_1E)
+        if (id->idIsBound())
         {
-            printf("HIGH RELOC ");
-
-            emitDispImm(reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr), false);
-
-            size_t targetHandle = reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle);
-
-            if (targetHandle == THT_IntializeArrayIntrinsics)
-            {
-                targetName = "IntializeArrayIntrinsics";
-            }
-            else if (targetHandle == THT_GSCookieCheck)
-            {
-                targetName = "GlobalSecurityCookieCheck";
-            }
-            else if (targetHandle == THT_SetGSCookie)
-            {
-                targetName = "SetGlobalSecurityCookie";
-            }
-        }
-        else if (id->idIsBound())
-        {
-            emitPrintLabel(id->idAddr()->iiaIGlabel);
+            emitPrintLabel(id->GetLabel());
         }
         else
         {
-            printf("L_M%03u_" FMT_BB, emitComp->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
+            printf("L_M%03u_" FMT_BB, emitComp->compMethodID, id->GetLabelBlock()->bbNum);
         }
+    }
+
+    printf("]");
+
+    if (targetName != nullptr)
+    {
+        printf("      // [%s]", targetName);
+    }
+    else
+    {
+        emitDispCommentForHandle(id->idDebugOnlyInfo()->idHandle, id->idDebugOnlyInfo()->idHandleKind);
+    }
+}
+
+void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
+{
+    assert(imm == 0);
+    assert(fmt == IF_DI_1E);
+
+    printf("[HIGH RELOC ");
+
+    emitDispImm(reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr), false);
+
+    size_t      targetHandle = reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle);
+    const char* targetName   = nullptr;
+
+    if (targetHandle == THT_IntializeArrayIntrinsics)
+    {
+        targetName = "IntializeArrayIntrinsics";
+    }
+    else if (targetHandle == THT_GSCookieCheck)
+    {
+        targetName = "GlobalSecurityCookieCheck";
+    }
+    else if (targetHandle == THT_SetGSCookie)
+    {
+        targetName = "SetGlobalSecurityCookie";
     }
 
     printf("]");
@@ -11504,11 +11520,11 @@ void emitter::emitDispIns(
             }
             else if (id->idIsBound())
             {
-                emitPrintLabel(id->idAddr()->iiaIGlabel);
+                emitPrintLabel(ij->GetLabel());
             }
             else
             {
-                printf("L_M%03u_" FMT_BB, emitComp->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
+                printf("L_M%03u_" FMT_BB, emitComp->compMethodID, ij->GetLabelBlock()->bbNum);
             }
         }
         break;
@@ -11521,13 +11537,16 @@ void emitter::emitDispIns(
         case IF_BI_1A: // BI_1A   ......iiiiiiiiii iiiiiiiiiiittttt      Rt       simm19:00
             assert(insOptsNone(id->idInsOpt()));
             emitDispReg(id->idReg1(), size, true);
-            if (id->idIsBound())
             {
-                emitPrintLabel(id->idAddr()->iiaIGlabel);
-            }
-            else
-            {
-                printf("L_M%03u_" FMT_BB, emitComp->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
+                instrDescJmp* ij = static_cast<instrDescJmp*>(id);
+                if (ij->idIsBound())
+                {
+                    emitPrintLabel(ij->GetLabel());
+                }
+                else
+                {
+                    printf("L_M%03u_" FMT_BB, emitComp->compMethodID, ij->GetLabelBlock()->bbNum);
+                }
             }
             break;
 
@@ -11535,13 +11554,16 @@ void emitter::emitDispIns(
             assert(insOptsNone(id->idInsOpt()));
             emitDispReg(id->idReg1(), size, true);
             emitDispImm(emitGetInsSC(id), true);
-            if (id->idIsBound())
             {
-                emitPrintLabel(id->idAddr()->iiaIGlabel);
-            }
-            else
-            {
-                printf("L_M%03u_" FMT_BB, emitComp->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
+                instrDescJmp* ij = static_cast<instrDescJmp*>(id);
+                if (id->idIsBound())
+                {
+                    emitPrintLabel(ij->GetLabel());
+                }
+                else
+                {
+                    printf("L_M%03u_" FMT_BB, emitComp->compMethodID, ij->GetLabelBlock()->bbNum);
+                }
             }
             break;
 
@@ -11556,8 +11578,13 @@ void emitter::emitDispIns(
             emitDispReg(id->idReg3(), EA_PTRSIZE, false);
             break;
 
-        case IF_LS_1A: // LS_1A   XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
         case IF_DI_1E: // DI_1E   .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
+            assert(insOptsNone(id->idInsOpt()));
+            emitDispReg(id->idReg1(), size, true);
+            emitDispLargeImm(id, fmt, emitGetInsSC(id));
+            break;
+
+        case IF_LS_1A: // LS_1A   XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
         case IF_LARGELDC:
         case IF_LARGEADR:
         case IF_SMALLADR:

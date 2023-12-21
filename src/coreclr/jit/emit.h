@@ -878,8 +878,12 @@ private:
 
     static_assert(sizeof(instrDescSmall) == 8 INDEBUG(+sizeof(void*)), "Bad instrDescSmall size");
 
+    struct instrDescJmp;
+
     struct instrDesc : public instrDescSmall
     {
+        friend struct instrDescJmp;
+
     private:
         union idAddrUnion {
             // TODO-Cleanup: We should really add a DEBUG-only tag to this union so we can add asserts
@@ -1090,40 +1094,67 @@ private:
         insGroup*     idjIG;   // containing group
         unsigned      idjOffs; // The byte offset within IG of the jump instruction.
 
+        const idAddrUnion* idAddr() const = delete;
+        idAddrUnion*       idAddr()       = delete;
+
+        BasicBlock* GetLabelBlock() const
+        {
+            assert(!idIsBound() && !HasInstrCount());
+            return _idAddrUnion.iiaBBlabel;
+        }
+
+        void SetLabelBlock(BasicBlock* block)
+        {
+            assert(!idIsBound());
+            _idAddrUnion.iiaBBlabel = block;
+        }
+
+        insGroup* GetLabel() const
+        {
+            assert(idIsBound() && !HasInstrCount());
+            return _idAddrUnion.iiaIGlabel;
+        }
+
+        void SetLabel(insGroup* label)
+        {
+            idSetIsBound();
+            _idAddrUnion.iiaIGlabel = label;
+        }
+
 #ifdef TARGET_ARM64
         bool HasRoDataOffset() const
         {
-            return (idAddr()->roDataOffset & iaut_MASK) == iaut_DATA_OFFSET;
+            return (_idAddrUnion.roDataOffset & iaut_MASK) == iaut_DATA_OFFSET;
         }
 
         uint32_t GetRoDataOffset() const
         {
             assert(HasRoDataOffset());
-            return idAddr()->roDataOffset >> iaut_SHIFT;
+            return _idAddrUnion.roDataOffset >> iaut_SHIFT;
         }
 
         void SetRoDataOffset(uint32_t offset)
         {
-            idAddr()->roDataOffset = (offset << iaut_SHIFT) | iaut_DATA_OFFSET;
+            _idAddrUnion.roDataOffset = (offset << iaut_SHIFT) | iaut_DATA_OFFSET;
         }
 #endif
 
         bool HasInstrCount() const
         {
-            return (idAddr()->iiaEncodedInstrCount & iaut_MASK) == iaut_INST_COUNT;
+            return (_idAddrUnion.iiaEncodedInstrCount & iaut_MASK) == iaut_INST_COUNT;
         }
 
         int GetInstrCount() const
         {
             assert(HasInstrCount());
-            return idAddr()->iiaEncodedInstrCount >> iaut_SHIFT;
+            return _idAddrUnion.iiaEncodedInstrCount >> iaut_SHIFT;
         }
 
         void SetInstrCount(int count)
         {
             assert(abs(count) < 10);
             idSetIsBound();
-            idAddr()->iiaEncodedInstrCount = (count << iaut_SHIFT) | iaut_INST_COUNT;
+            _idAddrUnion.iiaEncodedInstrCount = (count << iaut_SHIFT) | iaut_INST_COUNT;
         }
     };
 

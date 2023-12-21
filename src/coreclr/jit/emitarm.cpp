@@ -4065,7 +4065,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     id->idIns(ins);
     id->idInsFmt(ins == INS_b ? IF_T2_J2 : IF_LARGEJMP);
     id->idInsSize(emitInsSize(id->idInsFmt()));
-    id->idAddr()->iiaBBlabel = label;
+    id->SetLabelBlock(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
 
     if (!id->idIsCnsReloc())
@@ -4126,7 +4126,7 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, reg
     id->idInsSize(ISZ_16BIT);
     id->idOpSize(EA_4BYTE);
     id->idReg1(reg);
-    id->idAddr()->iiaBBlabel = label;
+    id->SetLabelBlock(label);
 
     dispIns(id);
     appendToCurIG(id);
@@ -4143,7 +4143,7 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* label, regNumber reg)
     id->idInsSize(ISZ_32BIT);
     id->idOpSize(EA_4BYTE);
     id->idReg1(reg);
-    id->idAddr()->iiaBBlabel = label;
+    id->SetLabelBlock(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
@@ -4296,14 +4296,13 @@ void emitter::emitJumpDistBind()
     {
         if (!instr->idIsBound())
         {
-            insGroup* label = emitCodeGetCookie(instr->idAddr()->iiaBBlabel);
+            insGroup* label = emitCodeGetCookie(instr->GetLabelBlock());
 
             assert(label != nullptr);
             JITDUMP("Binding IN%04X target " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
-                    instr->idAddr()->iiaBBlabel->bbNum, label->igNum);
+                    instr->GetLabelBlock()->bbNum, label->igNum);
 
-            instr->idAddr()->iiaIGlabel = label;
-            instr->idSetIsBound();
+            instr->SetLabel(label);
         }
 
         INDEBUG(emitCheckFuncletBranch(instr));
@@ -4388,7 +4387,7 @@ AGAIN:
 
         uint32_t  instrOffs    = instrIG->igOffs + instr->idjOffs;
         uint32_t  instrEndOffs = instrOffs + 4;
-        insGroup* label        = instr->idAddr()->iiaIGlabel;
+        insGroup* label        = instr->GetLabel();
         uint32_t  labelOffs    = label->igOffs;
         int32_t   smallDistanceOverflow;
         int32_t   mediumDistanceOverflow;
@@ -4867,7 +4866,7 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id)
     assert((fmt == IF_T1_J3) || (fmt == IF_T2_M1) || (fmt == IF_T2_N1));
 
     uint32_t srcOffs = emitCurCodeOffs(dst);
-    uint32_t dstOffs = id->idAddr()->iiaIGlabel->igOffs;
+    uint32_t dstOffs = id->GetLabel()->igOffs;
     ssize_t  distance;
 
     if (ins == INS_adr)
@@ -4960,7 +4959,7 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     }
     else
     {
-        labelOffs = id->idAddr()->iiaIGlabel->igOffs;
+        labelOffs = id->GetLabel()->igOffs;
     }
 
     uint32_t    instrOffs = emitCurCodeOffs(dst);
@@ -6823,10 +6822,17 @@ void emitter::emitDispInsHelp(
         case IF_T1_J3:
         case IF_T2_M1: // Load Label
             emitDispReg(id->idReg1(), attr, true);
-            if (id->idIsBound())
-                emitPrintLabel(id->idAddr()->iiaIGlabel);
-            else
-                printf("L_M%03u_" FMT_BB, emitComp->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
+            {
+                instrDescJmp* ij = static_cast<instrDescJmp*>(id);
+                if (ij->idIsBound())
+                {
+                    emitPrintLabel(ij->GetLabel());
+                }
+                else
+                {
+                    printf("L_M%03u_" FMT_BB, emitComp->compMethodID, ij->GetLabelBlock()->bbNum);
+                }
+            }
             break;
 
         case IF_T1_I: // Special Compare-and-branch
@@ -6870,11 +6876,11 @@ void emitter::emitDispInsHelp(
             }
             else if (id->idIsBound())
             {
-                emitPrintLabel(id->idAddr()->iiaIGlabel);
+                emitPrintLabel(ij->GetLabel());
             }
             else
             {
-                printf("L_M%03u_" FMT_BB, emitComp->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
+                printf("L_M%03u_" FMT_BB, emitComp->compMethodID, ij->GetLabelBlock()->bbNum);
             }
         }
         break;
@@ -6927,7 +6933,8 @@ void emitter::emitDispIns(
         // Note: don't touch the actual instrDesc. If we accidentally messed it up, it would create a very
         // difficult to find bug.
 
-        instrDescJmp idJmp;
+        instrDescJmp* ij = static_cast<instrDescJmp*>(id);
+        instrDescJmp  idJmp;
 
         memset(&idJmp, 0, sizeof(idJmp));
         idJmp.idIns(emitJumpKindToIns(emitReverseJumpKind(emitInsToJumpKind(id->idIns()))));
@@ -6951,12 +6958,11 @@ void emitter::emitDispIns(
 
         if (id->idIsBound())
         {
-            idJmp.idSetIsBound();
-            idJmp.idAddr()->iiaIGlabel = id->idAddr()->iiaIGlabel;
+            idJmp.SetLabel(ij->GetLabel());
         }
         else
         {
-            idJmp.idAddr()->iiaBBlabel = id->idAddr()->iiaBBlabel;
+            idJmp.SetLabelBlock(ij->GetLabelBlock());
         }
 
         idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
