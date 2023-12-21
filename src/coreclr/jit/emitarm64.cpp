@@ -323,6 +323,11 @@ void emitter::emitInsSanityCheck(instrDesc* id)
         case IF_LARGEJMP:
         case IF_LARGEADR:
         case IF_LARGELDC:
+            // TODO-MIKE-Review: Shouldn't LARGEADR/LARGELDC check for registers?
+            break;
+
+        case IF_SMALLADR:
+            assert(isGeneralRegister(id->idReg1()));
             break;
 
         case IF_BI_0C: // BI_0C   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
@@ -1075,6 +1080,9 @@ bool emitter::emitInsMayWriteToGCReg(instrDesc* id)
     {
 
         // These are the formats with "destination" registers:
+
+        // TODO-MIKE-Review: Is this missing IF_LARGEADR/IF_LARGELDC?
+        case IF_SMALLADR:
 
         case IF_DI_1B: // DI_1B   X........hwiiiii iiiiiiiiiiiddddd      Rd       imm(i16,hw)
         case IF_DI_1D: // DI_1D   X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
@@ -7698,10 +7706,9 @@ void emitter::emitIns_R_AH(RegNum reg, void* addr DEBUGARG(void* handle) DEBUGAR
 {
     assert(emitComp->opts.compReloc);
 
-    instrDescJmp* ij = emitNewInstrJmp();
+    instrDesc* ij = emitNewInstr(EA_8BYTE);
     ij->idIns(INS_adrp);
     ij->idInsFmt(IF_DI_1E);
-    ij->idOpSize(EA_8BYTE);
     ij->idAddr()->iiaAddr = addr;
     ij->idReg1(reg);
     ij->idSetIsCnsReloc();
@@ -7751,7 +7758,7 @@ void emitter::emitSetShortJump(instrDescJmp* id)
     }
     else if (id->idInsFmt() == IF_LARGEADR)
     {
-        fmt = IF_DI_1E;
+        fmt = IF_SMALLADR;
     }
     else
     {
@@ -9209,7 +9216,7 @@ uint8_t* emitter::emitOutputLoadLabel(uint8_t* dst, uint8_t* instrAddr, uint8_t*
     insFormat   fmt    = id->idInsFmt();
     regNumber   dstReg = id->idReg1();
 
-    if (fmt == IF_DI_1E)
+    if (fmt == IF_SMALLADR)
     {
         assert(ins == INS_adr);
 
@@ -9465,8 +9472,7 @@ uint8_t* emitter::emitOutputShortBranch(
 
 uint8_t* emitter::emitOutputShortAddress(uint8_t* dst, instruction ins, ssize_t distance, RegNum reg)
 {
-    // INS_adr or INS_adrp
-    // IF_DI_1E .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd simm21
+    assert((ins == INS_adr) || (ins == INS_adrp));
 
     code_t code = emitInsCode(ins, IF_DI_1E);
     code |= insEncodeReg_Rd(reg);
@@ -9582,6 +9588,17 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         emitAttr elemsize;
         emitAttr datasize;
 
+        case IF_LS_1A: // LS_1A   XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
+        case IF_SMALLADR:
+        case IF_LARGEADR:
+        case IF_LARGELDC:
+            if (id->idAddr()->iiaIsJitDataOffset())
+            {
+                dst = emitOutputDL(dst, static_cast<instrDescJmp*>(id));
+                sz  = sizeof(instrDescJmp);
+                break;
+            }
+            FALLTHROUGH;
         case IF_BI_0A: // BI_0A   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
         case IF_BI_0B: // BI_0B   ......iiiiiiiiii iiiiiiiiiii.....               simm19:00
         case IF_BI_1A: // BI_1A   ......iiiiiiiiii iiiiiiiiiiittttt      Rt       simm19:00
@@ -9591,40 +9608,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             sz  = sizeof(instrDescJmp);
             break;
 
-        case IF_LS_1A: // LS_1A   XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
-        case IF_LARGELDC:
-            if (id->idAddr()->iiaIsJitDataOffset())
-            {
-                dst = emitOutputDL(dst, static_cast<instrDescJmp*>(id));
-            }
-            else
-            {
-                dst = emitOutputLJ(dst, static_cast<instrDescJmp*>(id), ig);
-            }
-            sz = sizeof(instrDescJmp);
-            break;
-
         case IF_DI_1E: // DI_1E   .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
-            if (id->idIsCnsReloc())
-            {
-                code = emitInsCode(ins, fmt);
-                code |= insEncodeReg_Rd(id->idReg1()); // ddddd
-                dst += emitOutput_Instr(dst, code);
-                emitRecordRelocation(odst, id->idAddr()->iiaAddr, IMAGE_REL_ARM64_PAGEBASE_REL21);
-                sz = sizeof(instrDescJmp);
-                break;
-            }
-            FALLTHROUGH;
-        case IF_LARGEADR:
-            if (id->idAddr()->iiaIsJitDataOffset())
-            {
-                dst = emitOutputDL(dst, static_cast<instrDescJmp*>(id));
-            }
-            else
-            {
-                dst = emitOutputLJ(dst, static_cast<instrDescJmp*>(id), ig);
-            }
-            sz = sizeof(instrDescJmp);
+            assert(id->idIsCnsReloc());
+
+            code = emitInsCode(ins, fmt);
+            code |= insEncodeReg_Rd(id->idReg1()); // ddddd
+            dst += emitOutput_Instr(dst, code);
+            emitRecordRelocation(odst, id->idAddr()->iiaAddr, IMAGE_REL_ARM64_PAGEBASE_REL21);
+            sz = sizeof(instrDesc);
             break;
 
         case IF_BI_0C: // BI_0C   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
@@ -10805,7 +10796,7 @@ void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
     {
         assert(imm == 0);
 
-        if (id->idIsCnsReloc())
+        if (fmt == IF_DI_1E)
         {
             printf("HIGH RELOC ");
 
@@ -11556,6 +11547,7 @@ void emitter::emitDispIns(
         case IF_DI_1E: // DI_1E   .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
         case IF_LARGELDC:
         case IF_LARGEADR:
+        case IF_SMALLADR:
             assert(insOptsNone(id->idInsOpt()));
             emitDispReg(id->idReg1(), size, true);
             emitDispLargeImm(id, fmt, emitGetInsSC(id));
@@ -12780,6 +12772,11 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
 
             result.insThroughput = PERFSCORE_THROUGHPUT_1C;
             result.insLatency    = PERFSCORE_LATENCY_2C;
+            break;
+
+        case IF_SMALLADR: // adr
+            result.insThroughput = PERFSCORE_THROUGHPUT_2X;
+            result.insLatency    = PERFSCORE_LATENCY_1C;
             break;
 
         // ALU, shift by immediate

@@ -21,6 +21,7 @@ IF_DEF(NONE, IS_NONE, NONE) //
 IF_DEF(LARGEJMP, IS_NONE, JMP) // large conditional branch pseudo-op (cond branch + uncond branch)
 IF_DEF(LARGEADR, IS_NONE, JMP) // large address pseudo-op (adrp + add)
 IF_DEF(LARGELDC, IS_NONE, JMP) // large constant pseudo-op (adrp + ldr)
+IF_DEF(SMALLADR, IS_NONE, JMP) // small address pseudo-op (adr)
 IF_DEF(GC_REG, IS_NONE, NONE)  // GC reg update
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -88,7 +89,7 @@ IF_DEF(DI_1A, IS_NONE, NONE) // DI_1A   X.......shiiiiii iiiiiinnnnn.....       
 IF_DEF(DI_1B, IS_NONE, NONE) // DI_1B   X........hwiiiii iiiiiiiiiiiddddd      Rd       imm(i16,hw)
 IF_DEF(DI_1C, IS_NONE, NONE) // DI_1C   X........Nrrrrrr ssssssnnnnn.....         Rn    imm(N,r,s)
 IF_DEF(DI_1D, IS_NONE, NONE) // DI_1D   X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
-IF_DEF(DI_1E, IS_NONE, JMP)  // DI_1E   .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
+IF_DEF(DI_1E, IS_NONE, NONE) // DI_1E   .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
 IF_DEF(DI_1F, IS_NONE, NONE) // DI_1F   X..........iiiii cccc..nnnnn.nzcv      Rn imm5  nzcv cond
 
 IF_DEF(DI_2A, IS_NONE, NONE) // DI_2A   X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
