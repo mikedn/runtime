@@ -3936,11 +3936,6 @@ void emitter::emitIns_J(instruction ins, int instrCount)
     id->idInsSize(ISZ_16BIT);
     id->SetInstrCount(instrCount);
 
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -3995,11 +3990,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
                 (ins == INS_b) && (GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
 
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -4021,11 +4011,6 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, reg
     id->idReg1(reg);
     id->idAddr()->iiaBBlabel = label;
 
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -4043,11 +4028,6 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* label, regNumber reg)
     id->idAddr()->iiaBBlabel = label;
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
-
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
 
     dispIns(id);
     appendToCurIG(id);

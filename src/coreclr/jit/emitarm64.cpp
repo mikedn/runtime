@@ -7688,11 +7688,6 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
         id->idReg2(addrReg);
     }
 
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -7777,11 +7772,6 @@ void emitter::emitIns_R_L(BasicBlock* label, RegNum reg)
     id->idAddr()->iiaBBlabel = label;
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
 
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -7798,11 +7788,6 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, reg
     id->idOpSize(EA_SIZE(attr));
     id->idAddr()->iiaBBlabel = label;
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
-
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
 
     dispIns(id);
     appendToCurIG(id);
@@ -7823,11 +7808,6 @@ void emitter::emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* label, r
     id->idReg1(reg);
     id->idSmallCns(imm);
     id->idAddr()->iiaBBlabel = label;
-
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
 
     dispIns(id);
     appendToCurIG(id);
@@ -7855,11 +7835,6 @@ void emitter::emitIns_J(instruction ins, int instrCount)
     id->idInsFmt(ins == INS_b ? IF_BI_0A : IF_BI_0B);
     id->SetInstrCount(instrCount);
 
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -7875,11 +7850,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
     id->idAddr()->iiaBBlabel = label;
 
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -7893,13 +7863,7 @@ void emitter::emitIns_CallFinally(BasicBlock* label)
     id->idIns(INS_bl_local);
     id->idInsFmt(IF_BI_0A);
     id->idAddr()->iiaBBlabel = label;
-
     INDEBUG(id->idDebugOnlyInfo()->idFinallyCall = true);
-
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
 
     dispIns(id);
     appendToCurIG(id);

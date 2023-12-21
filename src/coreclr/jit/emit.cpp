@@ -797,7 +797,14 @@ emitter::instrDescJmp* emitter::emitAllocInstrJmp()
 
 emitter::instrDescJmp* emitter::emitNewInstrJmp()
 {
-    return emitAllocInstrJmp();
+    instrDescJmp* id = emitAllocInstrJmp();
+
+    id->idjIG        = emitCurIG;
+    id->idjOffs      = emitCurIGsize;
+    id->idjNext      = emitCurIGjmpList;
+    emitCurIGjmpList = id;
+
+    return id;
 }
 
 emitter::instrDescCGCA* emitter::emitAllocInstrCGCA(emitAttr attr)
