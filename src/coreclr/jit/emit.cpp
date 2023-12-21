@@ -3274,6 +3274,58 @@ uint32_t emitter::emitCodeOffset(insGroup* ig, unsigned codePos)
     return ig->igOffs + insOffs;
 }
 
+UNATIVE_OFFSET emitter::emitCurCodeOffs(BYTE* dst)
+{
+    size_t distance;
+    if ((dst >= emitCodeBlock) && (dst <= (emitCodeBlock + emitTotalHotCodeSize)))
+    {
+        distance = (dst - emitCodeBlock);
+    }
+    else
+    {
+        assert(emitFirstColdIG);
+        assert(emitColdCodeBlock);
+        assert((dst >= emitColdCodeBlock) && (dst <= (emitColdCodeBlock + emitTotalColdCodeSize)));
+
+        distance = (dst - emitColdCodeBlock + emitTotalHotCodeSize);
+    }
+    noway_assert((UNATIVE_OFFSET)distance == distance);
+    return (UNATIVE_OFFSET)distance;
+}
+
+BYTE* emitter::emitOffsetToPtr(UNATIVE_OFFSET offset)
+{
+    if (offset < emitTotalHotCodeSize)
+    {
+        return emitCodeBlock + offset;
+    }
+    else
+    {
+        assert(offset < (emitTotalHotCodeSize + emitTotalColdCodeSize));
+
+        return emitColdCodeBlock + (offset - emitTotalHotCodeSize);
+    }
+}
+
+BYTE* emitter::emitDataOffsetToPtr(UNATIVE_OFFSET offset)
+{
+    assert(offset < emitDataSize());
+    return emitConsBlock + offset;
+}
+
+bool emitter::emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset)
+{
+    if (emitTotalColdCodeSize == 0)
+    {
+        return false;
+    }
+
+    assert(srcOffset < (emitTotalHotCodeSize + emitTotalColdCodeSize));
+    assert(dstOffset < (emitTotalHotCodeSize + emitTotalColdCodeSize));
+
+    return (srcOffset < emitTotalHotCodeSize) != (dstOffset < emitTotalHotCodeSize);
+}
+
 //---------------------------------------------------------------------------
 // emitDataGenBeg:
 //   - Allocate space for a constant or block of the size and alignment requested

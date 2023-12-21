@@ -1367,57 +1367,10 @@ public:
     UNATIVE_OFFSET emitTotalHotCodeSize;
     UNATIVE_OFFSET emitTotalColdCodeSize;
 
-    UNATIVE_OFFSET emitCurCodeOffs(BYTE* dst)
-    {
-        size_t distance;
-        if ((dst >= emitCodeBlock) && (dst <= (emitCodeBlock + emitTotalHotCodeSize)))
-        {
-            distance = (dst - emitCodeBlock);
-        }
-        else
-        {
-            assert(emitFirstColdIG);
-            assert(emitColdCodeBlock);
-            assert((dst >= emitColdCodeBlock) && (dst <= (emitColdCodeBlock + emitTotalColdCodeSize)));
-
-            distance = (dst - emitColdCodeBlock + emitTotalHotCodeSize);
-        }
-        noway_assert((UNATIVE_OFFSET)distance == distance);
-        return (UNATIVE_OFFSET)distance;
-    }
-
-    BYTE* emitOffsetToPtr(UNATIVE_OFFSET offset)
-    {
-        if (offset < emitTotalHotCodeSize)
-        {
-            return emitCodeBlock + offset;
-        }
-        else
-        {
-            assert(offset < (emitTotalHotCodeSize + emitTotalColdCodeSize));
-
-            return emitColdCodeBlock + (offset - emitTotalHotCodeSize);
-        }
-    }
-
-    BYTE* emitDataOffsetToPtr(UNATIVE_OFFSET offset)
-    {
-        assert(offset < emitDataSize());
-        return emitConsBlock + offset;
-    }
-
-    bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset)
-    {
-        if (emitTotalColdCodeSize == 0)
-        {
-            return false;
-        }
-
-        assert(srcOffset < (emitTotalHotCodeSize + emitTotalColdCodeSize));
-        assert(dstOffset < (emitTotalHotCodeSize + emitTotalColdCodeSize));
-
-        return (srcOffset < emitTotalHotCodeSize) != (dstOffset < emitTotalHotCodeSize);
-    }
+    UNATIVE_OFFSET emitCurCodeOffs(BYTE* dst);
+    BYTE* emitOffsetToPtr(UNATIVE_OFFSET offset);
+    BYTE* emitDataOffsetToPtr(UNATIVE_OFFSET offset);
+    bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset);
 
     size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
     size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
