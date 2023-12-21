@@ -635,9 +635,9 @@ void emitter::emitDispInsOffs(unsigned offs, bool doffs)
 
 #endif // DEBUG
 
-void* emitter::emitAllocAnyInstr(unsigned sz, bool updateLastIns)
+emitter::instrDescSmall* emitter::emitAllocAnyInstr(unsigned sz, bool updateLastIns)
 {
-    assert(sz >= sizeof(void*));
+    assert(sz >= sizeof(instrDescSmall));
 
 #ifdef DEBUG
     // Under STRESS_EMITTER, put every instruction in its own instruction group.
@@ -696,11 +696,11 @@ void* emitter::emitAllocAnyInstr(unsigned sz, bool updateLastIns)
         emitExtendIG();
     }
 
-    instrDesc* id = reinterpret_cast<instrDesc*>(emitCurIGfreeNext);
+    instrDescSmall* id = reinterpret_cast<instrDescSmall*>(emitCurIGfreeNext);
 
     if (updateLastIns)
     {
-        emitLastIns      = id;
+        emitLastIns      = static_cast<instrDesc*>(id);
         emitLastInsLabel = emitCurLabel;
     }
 

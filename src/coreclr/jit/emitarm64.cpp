@@ -3681,44 +3681,21 @@ insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType)
     return result;
 }
 
-void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz, bool updateLastIns)
+template <typename T>
+T* emitter::AllocInstr(emitAttr attr, bool updateLastIns)
 {
-    instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(sz, updateLastIns));
-    memset(id, 0, sz);
+    instrDescSmall* id = emitAllocAnyInstr(sizeof(T), updateLastIns);
+    memset(id, 0, sizeof(T));
+    INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sizeof(T))));
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idOpSize(EA_SIZE(attr));
 
-    // These fields should have been zero-ed by the above
-    assert(id->idReg1() == regNumber(0));
-    assert(id->idReg2() == regNumber(0));
-
-    id->idGCref(EA_GC_TYPE(opsz));
-    id->idOpSize(EA_SIZE(opsz));
-
-    INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sz)));
-
-    return id;
-}
-
-emitter::instrDesc* emitter::emitAllocInstr(emitAttr attr)
-{
-    return AllocInstr<instrDesc>(attr);
+    return static_cast<T*>(id);
 }
 
 emitter::instrDesc* emitter::emitNewInstr(emitAttr attr)
 {
-    return emitAllocInstr(attr);
-}
-
-emitter::instrDescCns* emitter::emitAllocInstrCns(emitAttr attr)
-{
-    return AllocInstr<instrDescCns>(attr);
-}
-
-emitter::instrDescCns* emitter::emitAllocInstrCns(emitAttr attr, target_size_t cns)
-{
-    instrDescCns* result = emitAllocInstrCns(attr);
-    result->idSetIsLargeCns();
-    result->idcCnsVal = cns;
-    return result;
+    return AllocInstr<instrDesc>(attr);
 }
 
 emitter::instrDesc* emitter::emitNewInstrSmall(emitAttr attr)
@@ -3728,38 +3705,39 @@ emitter::instrDesc* emitter::emitNewInstrSmall(emitAttr attr)
     return static_cast<instrDesc*>(id);
 }
 
-emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, target_ssize_t cns)
+emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, int64_t cns)
 {
-    if (instrDesc::fitsInSmallCns(cns))
+    if (!instrDesc::fitsInSmallCns(cns))
     {
-        instrDesc* id = emitNewInstrSmall(attr);
-        id->idSmallCns(cns);
+        instrDescCns* id = AllocInstr<instrDescCns>(attr);
+        id->idSetIsLargeCns();
+        id->idcCnsVal = cns;
         return id;
     }
 
-    return emitAllocInstrCns(attr, cns);
+    instrDesc* id = emitNewInstrSmall(attr);
+    id->idSmallCns(cns);
+    return id;
 }
 
 emitter::instrDesc* emitter::emitNewInstrCns(emitAttr attr, int32_t cns)
 {
-    if (instrDesc::fitsInSmallCns(cns))
+    if (!instrDesc::fitsInSmallCns(cns))
     {
-        instrDesc* id = emitAllocInstr(attr);
-        id->idSmallCns(cns);
+        instrDescCns* id = AllocInstr<instrDescCns>(attr);
+        id->idSetIsLargeCns();
+        id->idcCnsVal = cns;
         return id;
     }
 
-    return emitAllocInstrCns(attr, cns);
-}
-
-emitter::instrDescJmp* emitter::emitAllocInstrJmp()
-{
-    return AllocInstr<instrDescJmp>(EA_1BYTE);
+    instrDesc* id = AllocInstr<instrDesc>(attr);
+    id->idSmallCns(cns);
+    return id;
 }
 
 emitter::instrDescJmp* emitter::emitNewInstrJmp()
 {
-    instrDescJmp* id = emitAllocInstrJmp();
+    instrDescJmp* id = AllocInstr<instrDescJmp>(EA_1BYTE);
 
     id->idjIG        = emitCurIG;
     id->idjOffs      = emitCurIGsize;
@@ -3784,7 +3762,7 @@ emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
         return nullptr;
     }
 
-    instrDesc* id = static_cast<instrDesc*>(emitAllocAnyInstr(sizeof(instrDescSmall), attr, false));
+    instrDesc* id = static_cast<instrDesc*>(AllocInstr<instrDescSmall>(attr, false));
     id->idSetIsSmallDsc();
     id->idIns(INS_mov);
     id->idInsFmt(IF_GC_REG);

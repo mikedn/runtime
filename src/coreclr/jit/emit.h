@@ -1077,10 +1077,17 @@ private:
 #endif // TARGET_ARM64
     };
 
-#ifdef TARGET_ARMARCH
+#ifdef TARGET_ARM
     struct instrDescCns : instrDesc
     {
-        target_ssize_t idcCnsVal;
+        int32_t idcCnsVal;
+    };
+#endif
+
+#ifdef TARGET_ARM64
+    struct instrDescCns : instrDesc
+    {
+        int64_t idcCnsVal;
     };
 #endif
 
@@ -1544,7 +1551,7 @@ private:
 
     int emitNextRandomNop();
 
-    void* emitAllocAnyInstr(unsigned sz, bool updateLastIns);
+    instrDescSmall* emitAllocAnyInstr(unsigned sz, bool updateLastIns);
 
     static emitJumpKind emitInsToJumpKind(instruction ins);
 

@@ -1168,7 +1168,7 @@ static unsigned emitInsSizeImm(instruction ins, emitAttr attr, int32_t imm)
 template <typename T>
 T* emitter::AllocInstr(bool updateLastIns)
 {
-    instrDescSmall* id = static_cast<instrDescSmall*>(emitAllocAnyInstr(sizeof(T), updateLastIns));
+    instrDescSmall* id = emitAllocAnyInstr(sizeof(T), updateLastIns);
     memset(id, 0, sizeof(T));
     INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sizeof(T))));
 
