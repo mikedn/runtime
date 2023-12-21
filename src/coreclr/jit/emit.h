@@ -512,12 +512,12 @@ private:
         unsigned    _idLargeCall : 1; // this is instrDescCGCA
         unsigned    _idLargeCns : 1;  // this is instrDescCns/instrDescCnsAmd
         unsigned    _idLargeDsp : 1;  // this is instrDescAmd
-        unsigned    _idBound : 1;     // Jump target / frame offset bound
-        unsigned    _idNoGC : 1;      // Helper call that does not need GC information
-        unsigned    _idSpare : 2;     // Reserved for EVEX/APX registers?
         unsigned    _idCodeSize : 4;  // Encoded instruction size
         RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
         RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
+        unsigned    _idBound : 1;     // Jump target / frame offset bound
+        unsigned    _idNoGC : 1;      // Helper call that does not need GC information
+        unsigned    _idSpare : 2;     // Reserved for EVEX/APX registers?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_XARCH
 
@@ -530,18 +530,18 @@ private:
 
         instruction _idIns : 9;       // Instruction opcode
         insFormat   _idInsFmt : 7;    // Instruction format
+        insOpts     _idInsOpt : 6;    // Instruction options
+        unsigned    _idOpSize : 3;    // Operation size (log 2)
         GCtype      _idGCref : 2;     // GC type of the first destination register
-        RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
-        RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
         unsigned    _idSmallDsc : 1;  // this is instrDescSmall
         unsigned    _idLargeCall : 1; // this is instrDescCGCA
         unsigned    _idLargeCns : 1;  // this is instrDescCns
+        unsigned    _idCnsReloc : 1;  // Immediate is relocatable
+        unsigned    _idLclVar : 1;    // Local load/store
+        RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
+        RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
         unsigned    _idBound : 1;     // Jump target / frame offset bound
         unsigned    _idNoGC : 1;      // Helper call that does not need GC information
-        unsigned    _idOpSize : 3;    // Operation size (log 2)
-        insOpts     _idInsOpt : 6;    // Instruction options
-        unsigned    _idLclVar : 1;    // Local load/store
-        unsigned    _idCnsReloc : 1;  // Immediate is relocatable
         unsigned    _idSpare : 2;     // Give these to small imm?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_ARM64
@@ -554,20 +554,20 @@ private:
 
         instruction _idIns : 8;       // Instruction opcode
         insFormat   _idInsFmt : 7;    // Instruction format
+        insOpts     _idInsOpt : 3;    // Instruction options
+        insFlags    _idInsFlags : 1;  // Instruction sets flags
         unsigned    _idOpSize : 2;    // Operation size (log 2)
         GCtype      _idGCref : 2;     // GC type of the first destination register
-        RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
-        RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
         unsigned    _idSmallDsc : 1;  // this is instrDescSmall
         unsigned    _idLargeCall : 1; // this is instrDescCGCA
         unsigned    _idLargeCns : 1;  // this is instrDescCns
         unsigned    _idBound : 1;     // Jump target / frame offset bound
         unsigned    _idNoGC : 1;      // Helper call that does not need GC information
         insSize     _idInsSize : 2;   // Encoded instruction size: 16, 32 or 48 bits
-        insFlags    _idInsFlags : 1;  // Instruction sets flags
         unsigned    _idLclVar : 1;    // Local load/store
-        insOpts     _idInsOpt : 3;    // Instruction options
         unsigned    _idCnsReloc : 1;  // Immediate is relocatable
+        RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
+        RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
         unsigned    _idSpare : 4;     // Give these to small imm?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_ARM
