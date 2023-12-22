@@ -3685,7 +3685,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHPTR);
-        id->idAddr()->iiaAddr = addr;
+        id->SetAddr(addr);
 
         sz = 6;
 
@@ -3708,7 +3708,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHOD);
-        id->idAddr()->iiaAddr = addr;
+        id->SetAddr(addr);
 
         // Direct call to a method and no addr indirection is needed.
         // On x64 all direct code addresses go through relocation so that VM will
@@ -7316,8 +7316,7 @@ uint8_t* emitter::emitOutputCall(uint8_t* dst, instrDesc* id)
 {
     instruction ins = id->idIns();
 
-    void* addr = id->idAddr()->iiaAddr;
-    assert(addr != nullptr);
+    void* addr = id->GetAddr();
 
     if (id->idInsFmt() == IF_METHPTR)
     {

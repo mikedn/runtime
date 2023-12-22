@@ -7788,9 +7788,9 @@ void emitter::emitIns_R_AH(RegNum reg, void* addr DEBUGARG(void* handle) DEBUGAR
     ij->idIns(INS_adrp);
     ij->idInsFmt(IF_DI_1E);
     ij->idOpSize(EA_8BYTE);
-    ij->idAddr()->iiaAddr = addr;
     ij->idReg1(reg);
     ij->idSetIsCnsReloc();
+    ij->SetAddr(addr);
 #ifdef DEBUG
     ij->idDebugOnlyInfo()->idHandle     = handle;
     ij->idDebugOnlyInfo()->idHandleKind = handleKind;
@@ -7803,10 +7803,10 @@ void emitter::emitIns_R_AH(RegNum reg, void* addr DEBUGARG(void* handle) DEBUGAR
     id->idIns(INS_add);
     id->idInsFmt(IF_DI_2A);
     id->idOpSize(EA_8BYTE);
-    id->idAddr()->iiaAddr = addr;
     id->idSetIsCnsReloc();
     id->idReg1(reg);
     id->idReg2(reg);
+    id->SetAddr(addr);
 
     dispIns(id);
     appendToCurIG(id);
@@ -7991,8 +7991,8 @@ void emitter::emitIns_Call(EmitCallType          kind,
 
         id->idIns(isJump ? INS_b_tail : INS_bl);
         id->idInsFmt(IF_BI_0C);
-        id->idAddr()->iiaAddr = addr;
         id->idSetIsCnsReloc(emitComp->opts.compReloc);
+        id->SetAddr(addr);
     }
 
 #ifdef DEBUG
@@ -9625,7 +9625,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             code = emitInsCode(ins, fmt);
             code |= insEncodeReg_Rd(id->idReg1()); // ddddd
             dst += emitOutput_Instr(dst, code);
-            emitRecordRelocation(odst, id->idAddr()->iiaAddr, IMAGE_REL_ARM64_PAGEBASE_REL21);
+            emitRecordRelocation(odst, id->GetAddr(), IMAGE_REL_ARM64_PAGEBASE_REL21);
             sz = sizeof(instrDesc);
             break;
 
@@ -9634,7 +9634,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             code = emitInsCode(ins, fmt);
             dst += emitOutput_Instr(dst, code);
             // Always call RecordRelocation so that we wire in a JumpStub when we don't reach
-            emitRecordRelocation(odst, id->idAddr()->iiaAddr, IMAGE_REL_ARM64_BRANCH26);
+            emitRecordRelocation(odst, id->GetAddr(), IMAGE_REL_ARM64_BRANCH26);
             break;
 
         case IF_BR_1A: // BR_1A   ................ ......nnnnn.....         Rn
@@ -9935,8 +9935,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             if (id->idIsCnsReloc())
             {
                 assert(sz == sizeof(instrDesc));
-                assert(id->idAddr()->iiaAddr != nullptr);
-                emitRecordRelocation(odst, id->idAddr()->iiaAddr, IMAGE_REL_ARM64_PAGEOFFSET_12A);
+                assert(id->GetAddr() != nullptr);
+                emitRecordRelocation(odst, id->GetAddr(), IMAGE_REL_ARM64_PAGEOFFSET_12A);
             }
             break;
 
@@ -10837,7 +10837,7 @@ void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
 
     printf("[HIGH RELOC ");
 
-    emitDispImm(reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr), false);
+    emitDispImm(reinterpret_cast<ssize_t>(id->GetAddr()), false);
 
     size_t      targetHandle = reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle);
     const char* targetName   = nullptr;
@@ -11761,11 +11761,12 @@ void emitter::emitDispIns(
                 emitDispReg(id->idReg1(), size, true);
                 emitDispReg(id->idReg2(), size, true);
             }
+
             if (id->idIsCnsReloc())
             {
                 assert(ins == INS_add);
                 printf("[LOW RELOC ");
-                emitDispImm(reinterpret_cast<ssize_t>(id->idAddr()->iiaAddr), false);
+                emitDispImm(reinterpret_cast<ssize_t>(id->GetAddr()), false);
                 printf("]");
             }
             else

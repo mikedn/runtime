@@ -2196,8 +2196,8 @@ void emitter::emitIns_MovRelocatableImmediate(instruction ins, regNumber reg, vo
     id->idInsFlags(INS_FLAGS_NOT_SET);
     id->idOpSize(EA_4BYTE);
     id->idReg1(reg);
-    id->idAddr()->iiaAddr = addr;
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
+    id->SetAddr(addr);
 
     dispIns(id);
     appendToCurIG(id);
@@ -4203,8 +4203,8 @@ void emitter::emitIns_Call(EmitCallType          kind,
         id->idIns(isJump ? INS_b : INS_bl);
         id->idInsFmt(IF_T2_J3);
         id->idInsSize(ISZ_32BIT);
-        id->idAddr()->iiaAddr = addr;
         id->idSetIsCnsReloc(emitComp->opts.compReloc);
+        id->SetAddr(addr);
     }
 
 #ifdef DEBUG
@@ -5715,19 +5715,19 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_N3: // T2_N3   .....i......iiii .iiiddddiiiiiiii       R1                 imm16
-            sz   = sizeof(instrDesc);
-            code = emitInsCode(ins, fmt);
-            code |= insEncodeRegT2_D(id->idReg1());
-
             assert((ins == INS_movt) || (ins == INS_movw));
             assert(id->idIsCnsReloc());
 
-            addr = id->idAddr()->iiaAddr;
+            code = emitInsCode(ins, fmt);
+            code |= insEncodeRegT2_D(id->idReg1());
             dst += emitOutput_Thumb2Instr(dst, code);
+
             if ((ins == INS_movt) && emitComp->info.compMatchedVM)
             {
-                emitHandlePCRelativeMov32((void*)(dst - 8), addr);
+                emitHandlePCRelativeMov32(dst - 8, id->GetAddr());
             }
+
+            sz = sizeof(instrDesc);
             break;
 
         case IF_T2_VFP3:
@@ -5865,14 +5865,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             sz = emitRecordGCCall(id, *dp, dst);
             break;
 
-        case IF_T2_J3: // T2_J3   .....Siiiiiiiiii ..j.jiiiiiiiiii.      Call                imm24
-            if (id->idAddr()->iiaAddr == nullptr) /* a recursive call */
+        case IF_T2_J3:                    // T2_J3   .....Siiiiiiiiii ..j.jiiiiiiiiii.      Call                imm24
+            if (id->GetAddr() == nullptr) /* a recursive call */
             {
                 addr = emitCodeBlock;
             }
             else
             {
-                addr = id->idAddr()->iiaAddr;
+                addr = id->GetAddr();
             }
             code = emitInsCode(ins, fmt);
 
@@ -6513,7 +6513,7 @@ void emitter::emitDispInsHelp(
         case IF_T2_N3:
             emitDispReg(id->idReg1(), attr, true);
             printf("%s RELOC ", (id->idIns() == INS_movw) ? "LOW" : "HIGH");
-            emitDispReloc(id->idAddr()->iiaAddr);
+            emitDispReloc(id->GetAddr());
             break;
 
         case IF_T2_N2:

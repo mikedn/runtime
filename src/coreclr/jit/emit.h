@@ -961,7 +961,40 @@ private:
 
         static_assert_no_msg(sizeof(idAddrUnion) == sizeof(void*));
 
+#ifdef DEBUG
+        bool HasAddr() const
+        {
+#ifdef TARGET_ARM
+            return ((_idInsFmt == IF_T2_N3) && ((_idIns == INS_movt) || (_idIns == INS_movw))) ||
+                   ((_idInsFmt == IF_T2_J3) && ((_idIns == INS_b) || (_idIns == INS_bl)));
+#endif
+#ifdef TARGET_ARM64
+            return ((_idInsFmt == IF_BI_0C) && ((_idIns == INS_bl) || (_idIns == INS_b_tail))) ||
+                   ((_idInsFmt == IF_DI_1E) && (_idIns == INS_adrp)) ||
+                   ((_idInsFmt == IF_DI_2A) && (_idIns == INS_add));
+#endif
+#ifdef TARGET_XARCH
+            return (_idInsFmt == IF_METHOD) || (_idInsFmt == IF_METHPTR);
+#endif
+        }
+#endif // DEBUG
+
     public:
+        void* GetAddr() const
+        {
+            assert(HasAddr());
+            return idAddr()->iiaAddr;
+        }
+
+        void SetAddr(void* addr)
+        {
+#ifndef TARGET_ARM
+            assert(addr != nullptr);
+#endif
+            assert(HasAddr());
+            idAddr()->iiaAddr = addr;
+        }
+
         const idAddrUnion* idAddr() const
         {
             assert(!idIsSmallDsc());
