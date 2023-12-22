@@ -889,21 +889,11 @@ private:
             // TODO-Cleanup: We should really add a DEBUG-only tag to this union so we can add asserts
             // about reading what we think is here, to avoid unexpected corruption issues.
 
-            BasicBlock* iiaBBlabel;
-            insGroup*   iiaIGlabel;
-            void*       iiaAddr;
-
+            uintptr_t label;
+            uintptr_t addr;
 #ifdef TARGET_XARCH
             CORINFO_FIELD_HANDLE iiaFieldHnd;
 #endif
-#ifdef TARGET_ARM64
-            unsigned roDataOffset;
-#endif
-
-            // Used to specify an instruction count for jumps, instead of using
-            // a label and multiple blocks. This is used in the prolog as well
-            // as for IF_LARGEJMP pseudo-branch instructions.
-            int iiaEncodedInstrCount;
 
 #ifdef TARGET_ARM
             struct
@@ -983,7 +973,7 @@ private:
         void* GetAddr() const
         {
             assert(HasAddr());
-            return idAddr()->iiaAddr;
+            return reinterpret_cast<void*>(idAddr()->addr);
         }
 
         void SetAddr(void* addr)
@@ -992,7 +982,7 @@ private:
             assert(addr != nullptr);
 #endif
             assert(HasAddr());
-            idAddr()->iiaAddr = addr;
+            idAddr()->addr = reinterpret_cast<uintptr_t>(addr);
         }
 
         const idAddrUnion* idAddr() const
@@ -1133,13 +1123,13 @@ private:
         BasicBlock* GetLabelBlock() const
         {
             assert(!idIsBound() && !HasInstrCount());
-            return _idAddrUnion.iiaBBlabel;
+            return reinterpret_cast<BasicBlock*>(_idAddrUnion.label);
         }
 
         void SetLabelBlock(BasicBlock* block)
         {
             assert(!idIsBound());
-            _idAddrUnion.iiaBBlabel = block;
+            _idAddrUnion.label = reinterpret_cast<uintptr_t>(block);
         }
 
         bool HasLabel() const
@@ -1150,49 +1140,49 @@ private:
         insGroup* GetLabel() const
         {
             assert(idIsBound() && !HasInstrCount());
-            return _idAddrUnion.iiaIGlabel;
+            return reinterpret_cast<insGroup*>(_idAddrUnion.label);
         }
 
         void SetLabel(insGroup* label)
         {
             idSetIsBound();
-            _idAddrUnion.iiaIGlabel = label;
+            _idAddrUnion.label = reinterpret_cast<uintptr_t>(label);
         }
 
 #ifdef TARGET_ARM64
         bool HasRoDataOffset() const
         {
-            return (_idAddrUnion.roDataOffset & iaut_MASK) == iaut_DATA_OFFSET;
+            return (_idAddrUnion.label & iaut_MASK) == iaut_DATA_OFFSET;
         }
 
         uint32_t GetRoDataOffset() const
         {
             assert(HasRoDataOffset());
-            return _idAddrUnion.roDataOffset >> iaut_SHIFT;
+            return static_cast<uint32_t>(_idAddrUnion.label >> iaut_SHIFT);
         }
 
         void SetRoDataOffset(uint32_t offset)
         {
-            _idAddrUnion.roDataOffset = (offset << iaut_SHIFT) | iaut_DATA_OFFSET;
+            _idAddrUnion.label = (static_cast<uintptr_t>(offset) << iaut_SHIFT) | iaut_DATA_OFFSET;
         }
 #endif
 
         bool HasInstrCount() const
         {
-            return (_idAddrUnion.iiaEncodedInstrCount & iaut_MASK) == iaut_INST_COUNT;
+            return (_idAddrUnion.label & iaut_MASK) == iaut_INST_COUNT;
         }
 
         int GetInstrCount() const
         {
             assert(HasInstrCount());
-            return _idAddrUnion.iiaEncodedInstrCount >> iaut_SHIFT;
+            return static_cast<int>(_idAddrUnion.label >> iaut_SHIFT);
         }
 
         void SetInstrCount(int count)
         {
             assert(abs(count) < 10);
             idSetIsBound();
-            _idAddrUnion.iiaEncodedInstrCount = (count << iaut_SHIFT) | iaut_INST_COUNT;
+            _idAddrUnion.label = (static_cast<intptr_t>(count) << iaut_SHIFT) | iaut_INST_COUNT;
         }
     };
 
