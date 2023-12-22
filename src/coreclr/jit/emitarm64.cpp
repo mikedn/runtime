@@ -10745,7 +10745,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         bool dspOffs = !emitComp->opts.disDiffable;
 #endif
 
-        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp, ig);
+        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp);
     }
 #endif
 
@@ -10779,8 +10779,14 @@ void emitter::emitDispInst(instruction ins)
     } while (len < 8);
 }
 
-void emitter::emitDispLargeImm(instrDescJmp* id, insFormat fmt, ssize_t imm)
+void emitter::emitDispAddrLoadLabel(instrDescJmp* id)
 {
+    assert(insOptsNone(id->idInsOpt()));
+
+    insFormat fmt = id->idInsFmt();
+
+    emitDispReg(id->idReg1(), id->idOpSize(), true);
+
     if (fmt == IF_LARGEADR)
     {
         printf("(LARGEADR) ");
@@ -10792,41 +10798,65 @@ void emitter::emitDispLargeImm(instrDescJmp* id, insFormat fmt, ssize_t imm)
 
     printf("[");
 
-    const char* targetName = nullptr;
-
     if (id->HasRoDataOffset())
     {
         printf("@RWD%02u", id->GetRoDataOffset());
-
-        if (imm != 0)
-        {
-            printf("%+Id", imm);
-        }
+    }
+    else if (id->HasLabel())
+    {
+        emitPrintLabel(id->GetLabel());
     }
     else
     {
-        assert(imm == 0);
-        assert(fmt != IF_DI_1E);
+        printf(FMT_BB, id->GetLabelBlock()->bbNum);
+    }
 
-        if (id->idIsBound())
-        {
-            emitPrintLabel(id->GetLabel());
-        }
-        else
-        {
-            printf("L_M%03u_" FMT_BB, emitComp->compMethodID, id->GetLabelBlock()->bbNum);
-        }
+    if (ssize_t imm = emitGetInsSC(id))
+    {
+        printf("%+Id", imm);
     }
 
     printf("]");
+}
 
-    if (targetName != nullptr)
+void emitter::emitDispJumpLabel(instrDescJmp* id)
+{
+    assert(insOptsNone(id->idInsOpt()));
+
+    insFormat fmt = id->idInsFmt();
+
+    if (fmt == IF_LARGEJMP)
     {
-        printf("      // [%s]", targetName);
+        printf("(LARGEJMP) ");
+    }
+
+    if (fmt == IF_BI_1A)
+    {
+        emitDispReg(id->idReg1(), id->idOpSize(), true);
+    }
+    else if (fmt == IF_BI_1B)
+    {
+        emitDispReg(id->idReg1(), id->idOpSize(), true);
+        emitDispImm(emitGetInsSC(id), true);
+    }
+
+    if (id->HasInstrCount())
+    {
+        unsigned instrNum   = emitFindInsNum(id->idjIG, id);
+        uint32_t instrOffs  = id->idjIG->igOffs + id->idjOffs;
+        int      instrCount = id->GetInstrCount();
+        uint32_t labelOffs  = id->idjIG->igOffs + emitFindOffset(id->idjIG, instrNum + 1 + instrCount);
+        ssize_t  distance   = emitOffsetToPtr(labelOffs) - emitOffsetToPtr(instrOffs) - 4;
+
+        printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
+    }
+    else if (id->HasLabel())
+    {
+        emitPrintLabel(id->GetLabel());
     }
     else
     {
-        emitDispCommentForHandle(id->idDebugOnlyInfo()->idHandle, id->idDebugOnlyInfo()->idHandleKind);
+        printf(FMT_BB, id->GetLabelBlock()->bbNum);
     }
 }
 
@@ -11422,8 +11452,7 @@ void emitter::emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz)
  *  Display the given instruction.
  */
 
-void emitter::emitDispIns(
-    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, BYTE* pCode, size_t sz, insGroup* ig)
+void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
 {
     if (id->idInsFmt() == IF_GC_REG)
     {
@@ -11432,7 +11461,7 @@ void emitter::emitDispIns(
 
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
-    if (pCode == nullptr)
+    if (code == nullptr)
     {
         sz = 0;
     }
@@ -11444,7 +11473,7 @@ void emitter::emitDispIns(
 
     /* Display the instruction address */
 
-    emitDispInsAddr(pCode);
+    emitDispInsAddr(code);
 
     /* Display the instruction offset */
 
@@ -11452,7 +11481,7 @@ void emitter::emitDispIns(
 
     /* Display the instruction hex code */
 
-    emitDispInsHex(id, pCode, sz);
+    emitDispInsHex(id, code, sz);
 
     /* Get the instruction and format */
 
@@ -11492,79 +11521,22 @@ void emitter::emitDispIns(
 
         case IF_BI_0A: // BI_0A   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
         case IF_BI_0B: // BI_0B   ......iiiiiiiiii iiiiiiiiiii.....               simm19:00
+        case IF_BI_1A: // BI_1A   ......iiiiiiiiii iiiiiiiiiiittttt      Rt       simm19:00
+        case IF_BI_1B: // BI_1B   B.......bbbbbiii iiiiiiiiiiittttt      Rt imm6, simm14:00
         case IF_LARGEJMP:
-        {
-            instrDescJmp* ij = static_cast<instrDescJmp*>(id);
+            emitDispJumpLabel(static_cast<instrDescJmp*>(id));
+            break;
 
-            if (fmt == IF_LARGEJMP)
-            {
-                printf("(LARGEJMP) ");
-            }
-
-            if (ij->HasInstrCount())
-            {
-                int instrCount = ij->GetInstrCount();
-
-                if (ig == nullptr)
-                {
-                    printf("pc%s%d instructions", (instrCount >= 0) ? "+" : "", instrCount);
-                }
-                else
-                {
-                    unsigned       insNum  = emitFindInsNum(ig, id);
-                    UNATIVE_OFFSET srcOffs = ig->igOffs + emitFindOffset(ig, insNum + 1);
-                    UNATIVE_OFFSET dstOffs = ig->igOffs + emitFindOffset(ig, insNum + 1 + instrCount);
-                    ssize_t        relOffs = (ssize_t)(emitOffsetToPtr(dstOffs) - emitOffsetToPtr(srcOffs));
-                    printf("pc%s%d (%d instructions)", (relOffs >= 0) ? "+" : "", relOffs, instrCount);
-                }
-            }
-            else if (id->idIsBound())
-            {
-                emitPrintLabel(ij->GetLabel());
-            }
-            else
-            {
-                printf("L_M%03u_" FMT_BB, emitComp->compMethodID, ij->GetLabelBlock()->bbNum);
-            }
-        }
-        break;
+        case IF_LS_1A: // LS_1A   XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
+        case IF_LARGELDC:
+        case IF_LARGEADR:
+        case IF_SMALLADR:
+            emitDispAddrLoadLabel(static_cast<instrDescJmp*>(id));
+            break;
 
         case IF_BI_0C: // BI_0C   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
             printf("%s",
                    emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
-            break;
-
-        case IF_BI_1A: // BI_1A   ......iiiiiiiiii iiiiiiiiiiittttt      Rt       simm19:00
-            assert(insOptsNone(id->idInsOpt()));
-            emitDispReg(id->idReg1(), size, true);
-            {
-                instrDescJmp* ij = static_cast<instrDescJmp*>(id);
-                if (ij->idIsBound())
-                {
-                    emitPrintLabel(ij->GetLabel());
-                }
-                else
-                {
-                    printf("L_M%03u_" FMT_BB, emitComp->compMethodID, ij->GetLabelBlock()->bbNum);
-                }
-            }
-            break;
-
-        case IF_BI_1B: // BI_1B   B.......bbbbbiii iiiiiiiiiiittttt      Rt imm6, simm14:00
-            assert(insOptsNone(id->idInsOpt()));
-            emitDispReg(id->idReg1(), size, true);
-            emitDispImm(emitGetInsSC(id), true);
-            {
-                instrDescJmp* ij = static_cast<instrDescJmp*>(id);
-                if (id->idIsBound())
-                {
-                    emitPrintLabel(ij->GetLabel());
-                }
-                else
-                {
-                    printf("L_M%03u_" FMT_BB, emitComp->compMethodID, ij->GetLabelBlock()->bbNum);
-                }
-            }
             break;
 
         case IF_BR_1A: // BR_1A   ................ ......nnnnn.....         Rn
@@ -11582,15 +11554,6 @@ void emitter::emitDispIns(
             assert(insOptsNone(id->idInsOpt()));
             emitDispReg(id->idReg1(), size, true);
             emitDispLargeImm(id, fmt, emitGetInsSC(id));
-            break;
-
-        case IF_LS_1A: // LS_1A   XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
-        case IF_LARGELDC:
-        case IF_LARGEADR:
-        case IF_SMALLADR:
-            assert(insOptsNone(id->idInsOpt()));
-            emitDispReg(id->idReg1(), size, true);
-            emitDispLargeImm(static_cast<instrDescJmp*>(id), fmt, emitGetInsSC(id));
             break;
 
         case IF_LS_2A: // LS_2A   .X.......X...... ......nnnnnttttt      Rt Rn

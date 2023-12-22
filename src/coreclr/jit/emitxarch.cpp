@@ -4434,20 +4434,17 @@ private:
             printf("SHORT ");
         }
 
-        if (id->idIsBound())
+        if (id->HasInstrCount())
         {
-            if (id->HasInstrCount())
-            {
-                printf("%3d instr", id->GetInstrCount());
-            }
-            else
-            {
-                emitter->emitPrintLabel(id->GetLabel());
-            }
+            printf("%3d instr", id->GetInstrCount());
+        }
+        else if (id->HasLabel())
+        {
+            emitter->emitPrintLabel(id->GetLabel());
         }
         else
         {
-            printf("L_M%03u_" FMT_BB, compiler->compMethodID, id->GetLabelBlock()->bbNum);
+            printf(FMT_BB, id->GetLabelBlock()->bbNum);
         }
     }
 
@@ -4924,8 +4921,7 @@ private:
     }
 };
 
-void emitter::emitDispIns(
-    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz, insGroup* ig)
+void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
 {
     if (id->idInsFmt() == IF_GC_REG)
     {

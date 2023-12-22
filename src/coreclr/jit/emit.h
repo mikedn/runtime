@@ -1142,6 +1142,11 @@ private:
             _idAddrUnion.iiaBBlabel = block;
         }
 
+        bool HasLabel() const
+        {
+            return idIsBound();
+        }
+
         insGroup* GetLabel() const
         {
             assert(idIsBound() && !HasInstrCount());

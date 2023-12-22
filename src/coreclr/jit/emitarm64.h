@@ -29,7 +29,8 @@ const char* emitVectorRegName(regNumber reg);
 void emitDispInsHex(instrDesc* id, BYTE* code, size_t sz);
 void emitDispInst(instruction ins);
 void emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm);
-void emitDispLargeImm(instrDescJmp* id, insFormat fmt, ssize_t imm);
+void emitDispAddrLoadLabel(instrDescJmp* id);
+void emitDispJumpLabel(instrDescJmp* id);
 void emitDispImm(ssize_t imm, bool addComma, bool alwaysHex = false);
 void emitDispFrameRef(instrDesc* id);
 void emitDispFloatZero();
@@ -58,9 +59,8 @@ void emitDispIns(instrDesc* id,
                  bool       doffs = false,
                  bool       asmfm = false,
                  unsigned   offs  = 0,
-                 BYTE*      pCode = 0,
-                 size_t     sz    = 0,
-                 insGroup*  ig    = NULL);
+                 uint8_t*   code  = 0,
+                 size_t     sz    = 0);
 #endif // DEBUG
 
 /************************************************************************/

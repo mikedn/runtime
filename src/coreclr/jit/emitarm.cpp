@@ -5986,7 +5986,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     {
         bool dspOffs = emitComp->opts.dspGCtbls || !emitComp->opts.disDiffable;
 
-        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp, ig);
+        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp);
     }
 #endif
 
@@ -6208,6 +6208,44 @@ void emitter::emitDispReg(regNumber reg, emitAttr attr, bool addComma)
         printf(", ");
 }
 
+void emitter::emitDispLabel(instrDescJmp* id)
+{
+    insFormat fmt = id->idInsFmt();
+
+    if ((fmt == IF_T1_I) || (fmt == IF_T1_J3) || (fmt == IF_T2_M1))
+    {
+        emitDispReg(id->idReg1(), EA_4BYTE, true);
+    }
+    else if (fmt == IF_T2_N1)
+    {
+        emitDispReg(id->idReg1(), EA_4BYTE, true);
+        printf("%s ADDRESS ", id->idIns() == INS_movw ? "LOW" : "HIGH");
+    }
+    else if ((fmt == IF_T1_K) || (fmt == IF_T1_M))
+    {
+        printf("SHORT ");
+    }
+
+    if (id->HasInstrCount())
+    {
+        unsigned instrNum   = emitFindInsNum(id->idjIG, id);
+        uint32_t instrOffs  = id->idjIG->igOffs + id->idjOffs;
+        int      instrCount = id->GetInstrCount();
+        uint32_t labelOffs  = id->idjIG->igOffs + emitFindOffset(id->idjIG, instrNum + 1 + instrCount);
+        ssize_t  distance   = emitOffsetToPtr(labelOffs) - emitOffsetToPtr(instrOffs) - 2;
+
+        printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
+    }
+    else if (id->HasLabel())
+    {
+        emitPrintLabel(id->GetLabel());
+    }
+    else
+    {
+        printf(FMT_BB, id->GetLabelBlock()->bbNum);
+    }
+}
+
 /*****************************************************************************
  *
  *  Display an addressing operand [reg]
@@ -6385,8 +6423,7 @@ void emitter::emitDispInsHex(instrDesc* id, BYTE* code, size_t sz)
  *  Display the given instruction.
  */
 
-void emitter::emitDispInsHelp(
-    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, BYTE* code, size_t sz, insGroup* ig)
+void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, BYTE* code, size_t sz)
 {
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
@@ -6819,71 +6856,17 @@ void emitter::emitDispInsHelp(
             emitDispReg(id->idReg4(), attr, false);
             break;
 
-        case IF_T1_J3:
-        case IF_T2_M1: // Load Label
-            emitDispReg(id->idReg1(), attr, true);
-            {
-                instrDescJmp* ij = static_cast<instrDescJmp*>(id);
-                if (ij->idIsBound())
-                {
-                    emitPrintLabel(ij->GetLabel());
-                }
-                else
-                {
-                    printf("L_M%03u_" FMT_BB, emitComp->compMethodID, ij->GetLabelBlock()->bbNum);
-                }
-            }
-            break;
-
-        case IF_T1_I: // Special Compare-and-branch
-            emitDispReg(id->idReg1(), attr, true);
-            FALLTHROUGH;
-
-        case IF_T1_K: // Special Branch, conditional
+        case IF_T1_I:
+        case IF_T1_K:
         case IF_T1_M:
-            printf("SHORT ");
-            FALLTHROUGH;
         case IF_T2_N1:
-            if (fmt == IF_T2_N1)
-            {
-                emitDispReg(id->idReg1(), attr, true);
-                printf("%s ADDRESS ", (id->idIns() == INS_movw) ? "LOW" : "HIGH");
-            }
-            FALLTHROUGH;
-
         case IF_T2_J1:
         case IF_T2_J2:
+        case IF_T1_J3:
+        case IF_T2_M1:
         case IF_LARGEJMP:
-        {
-            instrDescJmp* ij = static_cast<instrDescJmp*>(id);
-
-            if (ij->HasInstrCount())
-            {
-                int instrCount = ij->GetInstrCount();
-
-                if (ig == nullptr)
-                {
-                    printf("pc%s%d instructions", (instrCount >= 0) ? "+" : "", instrCount);
-                }
-                else
-                {
-                    unsigned       insNum  = emitFindInsNum(ig, id);
-                    UNATIVE_OFFSET srcOffs = ig->igOffs + emitFindOffset(ig, insNum + 1);
-                    UNATIVE_OFFSET dstOffs = ig->igOffs + emitFindOffset(ig, insNum + 1 + instrCount);
-                    ssize_t        relOffs = (ssize_t)(emitOffsetToPtr(dstOffs) - emitOffsetToPtr(srcOffs));
-                    printf("pc%s%d (%d instructions)", (relOffs >= 0) ? "+" : "", relOffs, instrCount);
-                }
-            }
-            else if (id->idIsBound())
-            {
-                emitPrintLabel(ij->GetLabel());
-            }
-            else
-            {
-                printf("L_M%03u_" FMT_BB, emitComp->compMethodID, ij->GetLabelBlock()->bbNum);
-            }
-        }
-        break;
+            emitDispLabel(static_cast<instrDescJmp*>(id));
+            break;
 
         case IF_T2_J3:
             printf("%s",
@@ -6904,8 +6887,7 @@ void emitter::emitDispInsHelp(
     printf("\n");
 }
 
-void emitter::emitDispIns(
-    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, BYTE* code, size_t sz, insGroup* ig)
+void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
 {
     insFormat fmt = id->idInsFmt();
 
@@ -6944,7 +6926,7 @@ void emitter::emitDispIns(
         idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
 
         size_t bcondSizeOrZero = (code == NULL) ? 0 : 2; // branch is 2 bytes
-        emitDispInsHelp(&idJmp, false, doffs, asmfm, offset, code, bcondSizeOrZero, nullptr);
+        emitDispInsHelp(&idJmp, false, doffs, asmfm, offset, code, bcondSizeOrZero);
 
         code += bcondSizeOrZero;
         offset += 2;
@@ -6968,11 +6950,11 @@ void emitter::emitDispIns(
         idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
 
         size_t brSizeOrZero = (code == NULL) ? 0 : 4; // unconditional branch is 4 bytes
-        emitDispInsHelp(&idJmp, isNew, doffs, asmfm, offset, code, brSizeOrZero, ig);
+        emitDispInsHelp(&idJmp, isNew, doffs, asmfm, offset, code, brSizeOrZero);
     }
     else
     {
-        emitDispInsHelp(id, isNew, doffs, asmfm, offset, code, sz, ig);
+        emitDispInsHelp(id, isNew, doffs, asmfm, offset, code, sz);
     }
 }
 

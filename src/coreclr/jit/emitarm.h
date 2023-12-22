@@ -43,6 +43,7 @@ void emitDispShiftOpts(insOpts opt);
 void emitDispRegmask(int imm, bool encodedPC_LR);
 void emitDispRegRange(regNumber reg, int len, emitAttr attr);
 void emitDispReg(regNumber reg, emitAttr attr, bool addComma);
+void emitDispLabel(instrDescJmp* id);
 void emitDispAddrR(regNumber reg, emitAttr attr);
 void emitDispAddrRI(regNumber reg, int imm, emitAttr attr);
 void emitDispAddrRR(regNumber reg1, regNumber reg2, emitAttr attr);
@@ -50,22 +51,15 @@ void emitDispAddrRRI(regNumber reg1, regNumber reg2, int imm, emitAttr attr);
 void emitDispAddrPUW(regNumber reg, int imm, insOpts opt, emitAttr attr);
 void emitDispGC(emitAttr attr);
 
-void emitDispInsHelp(instrDesc* id,
-                     bool       isNew,
-                     bool       doffs,
-                     bool       asmfm,
-                     unsigned   offs = 0,
-                     BYTE*      code = 0,
-                     size_t     sz   = 0,
-                     insGroup*  ig   = NULL);
+void emitDispInsHelp(
+    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offs = 0, BYTE* code = 0, size_t sz = 0);
 void emitDispIns(instrDesc* id,
                  bool       isNew = false,
                  bool       doffs = false,
                  bool       asmfm = false,
                  unsigned   offs  = 0,
-                 BYTE*      code  = 0,
-                 size_t     sz    = 0,
-                 insGroup*  ig    = NULL);
+                 uint8_t*   code  = 0,
+                 size_t     sz    = 0);
 
 #endif // DEBUG
 

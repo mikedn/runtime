@@ -1873,7 +1873,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         for (unsigned i = 0; i < ig->igInsCnt; i++)
         {
             instrDesc* id = reinterpret_cast<instrDesc*>(ins);
-            emitDispIns(id, false, true, false, ofs, nullptr, 0, ig);
+            emitDispIns(id, false, true, false, ofs, nullptr, 0);
             ins += id->GetDescSize();
             ofs += id->idCodeSize();
         }
