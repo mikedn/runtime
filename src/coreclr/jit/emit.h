@@ -880,7 +880,7 @@ private:
             uintptr_t label;
             uintptr_t addr;
 #ifdef TARGET_XARCH
-            CORINFO_FIELD_HANDLE iiaFieldHnd;
+            CORINFO_FIELD_HANDLE field;
 #endif
 
 #ifdef TARGET_ARM
@@ -990,6 +990,18 @@ private:
         ssize_t GetMemDisp() const;
         ssize_t GetAmDisp() const;
         ssize_t GetCallDisp() const;
+
+        CORINFO_FIELD_HANDLE GetField() const
+        {
+            assert((IF_MRD <= _idInsFmt) && (_idInsFmt <= IF_MWR_RRD_CNS));
+            return idAddr()->field;
+        }
+
+        void SetField(CORINFO_FIELD_HANDLE field)
+        {
+            assert((IF_MRD <= _idInsFmt) && (_idInsFmt <= IF_MWR_RRD_CNS));
+            idAddr()->field = field;
+        }
 
         regNumber idReg3() const
         {

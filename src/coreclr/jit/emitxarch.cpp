@@ -1759,8 +1759,8 @@ void emitter::emitInsRMW_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE 
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_MRW);
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -1777,8 +1777,8 @@ void emitter::emitInsRMW_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDL
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_MRW_CNS);
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -1794,8 +1794,8 @@ void emitter::emitInsRMW_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDL
     id->idInsFmt(IF_MRW_RRD);
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     id->idReg1(reg);
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -1931,7 +1931,7 @@ void emitter::emitInsMov_R_FS(regNumber reg, int32_t offs)
     id->idOpSize(EA_4BYTE);
     id->idInsFmt(emitInsModeFormat(INS_mov, IF_RRD_MRD));
     id->idReg1(reg);
-    id->idAddr()->iiaFieldHnd = FS_SEG_FIELD;
+    id->SetField(FS_SEG_FIELD);
 
     unsigned sz = 1 + (reg == REG_EAX ? 1 : 2) + 4;
     id->idCodeSize(sz);
@@ -1986,8 +1986,8 @@ void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fie
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -2380,8 +2380,8 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORI
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(IF_RRW_MRD_CNS);
     id->idReg1(reg1);
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -2480,8 +2480,8 @@ void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idInsFmt(IF_RWR_RRD_MRD);
     id->idReg1(reg1);
     id->idReg2(reg2);
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -2566,8 +2566,8 @@ void emitter::emitIns_R_R_C_I(
     id->idInsFmt(IF_RWR_RRD_MRD_CNS);
     id->idReg1(reg1);
     id->idReg2(reg2);
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + 1;
     id->idCodeSize(sz);
@@ -2670,8 +2670,8 @@ void emitter::emitIns_R_R_C_R(
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idInsFmt(IF_RWR_RRD_MRD_RRD);
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + 1;
     id->idCodeSize(sz);
@@ -2733,8 +2733,8 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_MRD));
     id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz;
 
@@ -2778,7 +2778,7 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD_RRD));
     id->idReg1(reg);
     id->idSetIsDspReloc();
-    id->idAddr()->iiaFieldHnd = field;
+    id->SetField(field);
 
     unsigned sz;
 
@@ -2813,8 +2813,8 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD_CNS));
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -2922,7 +2922,7 @@ void emitter::emitIns_C_R_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE
     id->idInsFmt(IF_MWR_RRD_CNS);
     id->idReg1(reg);
     id->idSetIsDspReloc();
-    id->idAddr()->iiaFieldHnd = field;
+    id->SetField(field);
 
     unsigned size = emitInsSizeCV(id, insCodeMR(ins)) + 1;
     id->idCodeSize(size);
@@ -4158,7 +4158,7 @@ private:
 
     void PrintClsVar(instrDesc* id, emitAttr size)
     {
-        CORINFO_FIELD_HANDLE field = id->idAddr()->iiaFieldHnd;
+        CORINFO_FIELD_HANDLE field = id->GetField();
         ssize_t              offs  = id->GetMemDisp();
 
 #ifdef WINDOWS_X86_ABI
@@ -5965,7 +5965,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
 {
     instruction          ins   = id->idIns();
-    CORINFO_FIELD_HANDLE field = id->idAddr()->iiaFieldHnd;
+    CORINFO_FIELD_HANDLE field = id->GetField();
     ssize_t              disp  = id->GetMemDisp();
 
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
