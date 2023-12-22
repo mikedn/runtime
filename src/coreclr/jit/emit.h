@@ -1113,6 +1113,20 @@ private:
 
     struct instrDescJmp : instrDesc
     {
+    private:
+        enum : uintptr_t
+        {
+            LabelTag = 0,
+#ifdef TARGET_ARM64
+            RoDataOffsetTag = 1,
+#endif
+            InstrCountTag = 2,
+            BasicBlockTag = 3,
+            TagMask       = 3,
+            TagSize       = 2
+        };
+
+    public:
         instrDescJmp* idjNext; // next jump in the group/method
         insGroup*     idjIG;   // containing group
         unsigned      idjOffs; // The byte offset within IG of the jump instruction.
@@ -1123,13 +1137,13 @@ private:
         BasicBlock* GetLabelBlock() const
         {
             assert(!idIsBound() && !HasInstrCount());
-            return reinterpret_cast<BasicBlock*>(_idAddrUnion.label);
+            return reinterpret_cast<BasicBlock*>(_idAddrUnion.label & ~TagMask);
         }
 
         void SetLabelBlock(BasicBlock* block)
         {
             assert(!idIsBound());
-            _idAddrUnion.label = reinterpret_cast<uintptr_t>(block);
+            _idAddrUnion.label = reinterpret_cast<uintptr_t>(block) | BasicBlockTag;
         }
 
         bool HasLabel() const
@@ -1152,37 +1166,37 @@ private:
 #ifdef TARGET_ARM64
         bool HasRoDataOffset() const
         {
-            return (_idAddrUnion.label & iaut_MASK) == iaut_DATA_OFFSET;
+            return (_idAddrUnion.label & TagMask) == RoDataOffsetTag;
         }
 
         uint32_t GetRoDataOffset() const
         {
             assert(HasRoDataOffset());
-            return static_cast<uint32_t>(_idAddrUnion.label >> iaut_SHIFT);
+            return static_cast<uint32_t>(_idAddrUnion.label >> TagSize);
         }
 
         void SetRoDataOffset(uint32_t offset)
         {
-            _idAddrUnion.label = (static_cast<uintptr_t>(offset) << iaut_SHIFT) | iaut_DATA_OFFSET;
+            _idAddrUnion.label = (static_cast<uintptr_t>(offset) << TagSize) | RoDataOffsetTag;
         }
 #endif
 
         bool HasInstrCount() const
         {
-            return (_idAddrUnion.label & iaut_MASK) == iaut_INST_COUNT;
+            return (_idAddrUnion.label & TagMask) == InstrCountTag;
         }
 
         int GetInstrCount() const
         {
             assert(HasInstrCount());
-            return static_cast<int>(_idAddrUnion.label >> iaut_SHIFT);
+            return static_cast<int>(_idAddrUnion.label >> TagSize);
         }
 
         void SetInstrCount(int count)
         {
             assert(abs(count) < 10);
             idSetIsBound();
-            _idAddrUnion.label = (static_cast<intptr_t>(count) << iaut_SHIFT) | iaut_INST_COUNT;
+            _idAddrUnion.label = (static_cast<intptr_t>(count) << TagSize) | InstrCountTag;
         }
     };
 
