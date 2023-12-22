@@ -2631,15 +2631,13 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
 #endif // FEATURE_LOOP_ALIGN
 
 #ifdef DEBUG
+// We should not be jumping/branching across funclets/functions
+// Except possibly a 'call' to a finally funclet for a local unwind
+// or a 'return' from a catch handler (that can go just about anywhere)
+// This routine attempts to validate that any branches across funclets
+// meets one of those criteria...
 void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
 {
-    // We should not be jumping/branching across funclets/functions
-    // Except possibly a 'call' to a finally funclet for a local unwind
-    // or a 'return' from a catch handler (that can go just about anywhere)
-    // This routine attempts to validate that any branches across funclets
-    // meets one of those criteria...
-    assert(jmp->idIsBound());
-
 #ifdef TARGET_XARCH
     // An lea of a code address (for constant data stored with the code)
     // is treated like a jump for emission purposes but is not really a jump so

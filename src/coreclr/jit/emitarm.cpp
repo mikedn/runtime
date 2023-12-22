@@ -4065,8 +4065,8 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     id->idIns(ins);
     id->idInsFmt(ins == INS_b ? IF_T2_J2 : IF_LARGEJMP);
     id->idInsSize(emitInsSize(id->idInsFmt()));
-    id->SetLabelBlock(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
+    id->SetLabelBlock(label);
 
     if (!id->idIsCnsReloc())
     {
@@ -4294,7 +4294,7 @@ void emitter::emitJumpDistBind()
 
     for (instrDescJmp* instr = emitJumpList; instr != nullptr; instr = instr->idjNext)
     {
-        if (!instr->idIsBound())
+        if (instr->HasLabelBlock())
         {
             insGroup* label = emitCodeGetCookie(instr->GetLabelBlock());
 
@@ -4859,6 +4859,8 @@ unsigned emitter::emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code)
 
 uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id)
 {
+    assert(id->idGCref() == GCT_NONE);
+
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
 
@@ -4944,6 +4946,8 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id)
 
 uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
+    assert(id->idGCref() == GCT_NONE);
+
     uint32_t labelOffs;
 
     if (id->HasInstrCount())
@@ -5231,9 +5235,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T2_J1: // .....Scccciiiiii ..j.jiiiiiiiiiii      Branch              imm20, cond4
         case IF_T2_J2: // .....Siiiiiiiiii ..j.jiiiiiiiiii.      Branch              imm24
         case IF_LARGEJMP:
-            assert(id->idGCref() == GCT_NONE);
-            assert(id->idIsBound());
-
             dst = emitOutputLJ(dst, static_cast<instrDescJmp*>(id), ig);
             sz  = sizeof(instrDescJmp);
             break;
@@ -5241,9 +5242,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T1_J3: // .....dddiiiiiiii                        R1  PC             imm8
         case IF_T2_M1: // .....i.......... .iiiddddiiiiiiii       R1  PC             imm12
         case IF_T2_N1: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
-            assert(id->idGCref() == GCT_NONE);
-            assert(id->idIsBound());
-
             dst = emitOutputRL(dst, static_cast<instrDescJmp*>(id));
             sz  = sizeof(instrDescJmp);
             break;
@@ -6898,7 +6896,7 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
 
     /* Special-case IF_LARGEJMP */
 
-    if ((fmt == IF_LARGEJMP) && id->idIsBound())
+    if ((fmt == IF_LARGEJMP) && static_cast<instrDescJmp*>(id)->HasLabel())
     {
         // This is a pseudo-instruction format representing a large conditional branch. See the comment
         // in emitter::emitOutputLJ() for the full description.
@@ -6938,7 +6936,7 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
         idJmp.idInsFmt(IF_T2_J2);
         idJmp.idInsSize(ISZ_32BIT);
 
-        if (id->idIsBound())
+        if (ij->HasLabel())
         {
             idJmp.SetLabel(ij->GetLabel());
         }

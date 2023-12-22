@@ -515,9 +515,8 @@ private:
         unsigned    _idCodeSize : 4;  // Encoded instruction size
         RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
         RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
-        unsigned    _idBound : 1;     // Jump target / frame offset bound
         unsigned    _idNoGC : 1;      // Helper call that does not need GC information
-        unsigned    _idSpare : 2;     // Reserved for EVEX/APX registers?
+        unsigned    _idSpare : 3;     // Reserved for EVEX/APX registers?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_XARCH
 
@@ -540,9 +539,8 @@ private:
         unsigned    _idLclVar : 1;    // Local load/store
         RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
         RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
-        unsigned    _idBound : 1;     // Jump target / frame offset bound
         unsigned    _idNoGC : 1;      // Helper call that does not need GC information
-        unsigned    _idSpare : 2;     // Give these to small imm?
+        unsigned    _idSpare : 3;     // Give these to small imm?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_ARM64
 
@@ -561,7 +559,7 @@ private:
         unsigned    _idSmallDsc : 1;  // this is instrDescSmall
         unsigned    _idLargeCall : 1; // this is instrDescCGCA
         unsigned    _idLargeCns : 1;  // this is instrDescCns
-        unsigned    _idBound : 1;     // Jump target / frame offset bound
+        unsigned    _idSpare1 : 1;    // Give this to small imm?
         unsigned    _idNoGC : 1;      // Helper call that does not need GC information
         insSize     _idInsSize : 2;   // Encoded instruction size: 16, 32 or 48 bits
         unsigned    _idLclVar : 1;    // Local load/store
@@ -795,16 +793,6 @@ private:
         void idSetIsLargeCall()
         {
             _idLargeCall = true;
-        }
-
-        bool idIsBound() const
-        {
-            return _idBound;
-        }
-
-        void idSetIsBound()
-        {
-            _idBound = true;
         }
 
         // Only call instructions that call helper functions may be marked as "IsNoGC", indicating
@@ -1134,32 +1122,35 @@ private:
         const idAddrUnion* idAddr() const = delete;
         idAddrUnion*       idAddr()       = delete;
 
+        bool HasLabelBlock() const
+        {
+            return (_idAddrUnion.label & TagMask) == BasicBlockTag;
+        }
+
         BasicBlock* GetLabelBlock() const
         {
-            assert(!idIsBound() && !HasInstrCount());
+            assert(HasLabelBlock());
             return reinterpret_cast<BasicBlock*>(_idAddrUnion.label & ~TagMask);
         }
 
         void SetLabelBlock(BasicBlock* block)
         {
-            assert(!idIsBound());
             _idAddrUnion.label = reinterpret_cast<uintptr_t>(block) | BasicBlockTag;
         }
 
         bool HasLabel() const
         {
-            return idIsBound();
+            return (_idAddrUnion.label & TagMask) == LabelTag;
         }
 
         insGroup* GetLabel() const
         {
-            assert(idIsBound() && !HasInstrCount());
+            assert(HasLabel());
             return reinterpret_cast<insGroup*>(_idAddrUnion.label);
         }
 
         void SetLabel(insGroup* label)
         {
-            idSetIsBound();
             _idAddrUnion.label = reinterpret_cast<uintptr_t>(label);
         }
 
@@ -1189,13 +1180,12 @@ private:
         int GetInstrCount() const
         {
             assert(HasInstrCount());
-            return static_cast<int>(_idAddrUnion.label >> TagSize);
+            return static_cast<int>(static_cast<intptr_t>(_idAddrUnion.label) >> TagSize);
         }
 
         void SetInstrCount(int count)
         {
             assert(abs(count) < 10);
-            idSetIsBound();
             _idAddrUnion.label = (static_cast<intptr_t>(count) << TagSize) | InstrCountTag;
         }
     };

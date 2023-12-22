@@ -3839,7 +3839,7 @@ void emitter::emitJumpDistBind()
     {
         assert((instr->idInsFmt() == IF_LABEL) || (instr->idInsFmt() == IF_RWR_LABEL));
 
-        if (!instr->idIsBound())
+        if (instr->HasLabelBlock())
         {
             insGroup* label = emitCodeGetCookie(instr->GetLabelBlock());
 
@@ -7137,8 +7137,6 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idInsFmt() == IF_RWR_LABEL);
     assert(id->idOpSize() == EA_PTRSIZE);
     assert(id->idGCref() == GCT_NONE);
-    assert(!id->HasInstrCount());
-    assert(id->idIsBound());
 
     unsigned instrOffs = emitCurCodeOffs(dst);
     uint8_t* instrAddr = emitOffsetToPtr(instrOffs);
@@ -7188,7 +7186,6 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idIns() == INS_push_hide);
     assert(id->idInsFmt() == IF_LABEL);
     assert(id->idGCref() == GCT_NONE);
-    assert(id->idIsBound());
     assert(!id->HasInstrCount());
 
     unsigned labelOffs = id->GetLabel()->igOffs;
@@ -7213,9 +7210,8 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
 uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
-    assert(id->idGCref() == GCT_NONE);
-    assert(id->idIsBound());
     assert(id->idInsFmt() == IF_LABEL);
+    assert(id->idGCref() == GCT_NONE);
 
     unsigned labelOffs;
 

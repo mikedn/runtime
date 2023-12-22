@@ -7767,7 +7767,6 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
     id->idOpSize(size);
     id->idReg1(reg);
     id->SetRoDataOffset(GetRoDataOffset(fldHnd));
-    id->idSetIsBound();
     id->idSetIsCnsReloc(emitComp->opts.compReloc && IsColdBlock(GetCurrentBlock()));
 
     if (addrReg != REG_NA)
@@ -8090,7 +8089,7 @@ void emitter::emitJumpDistBind()
 
     for (instrDescJmp* instr = emitJumpList; instr != nullptr; instr = instr->idjNext)
     {
-        if (!instr->idIsBound())
+        if (instr->HasLabelBlock())
         {
             insGroup* label = emitCodeGetCookie(instr->GetLabelBlock());
 
@@ -9364,7 +9363,6 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
     assert(!id->HasRoDataOffset());
     assert(id->idInsOpt() == INS_OPTS_NONE);
-    assert(id->idIsBound());
     assert(id->idGCref() == GCT_NONE);
 
     if (id->idIsCnsReloc())
