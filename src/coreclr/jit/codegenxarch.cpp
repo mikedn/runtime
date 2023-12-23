@@ -366,7 +366,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     }
 
     // Jump to the finally BB
-    inst_JMP(EJ_jmp, block->bbJumpDest);
+    GetEmitter()->emitIns_J(INS_jmp, block->bbJumpDest);
 
 #endif // !FEATURE_EH_FUNCLETS
 
