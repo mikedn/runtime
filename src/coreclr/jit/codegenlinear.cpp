@@ -524,7 +524,10 @@ void CodeGen::genCodeForBBlist()
 #ifdef TARGET_ARMARCH
                 GetEmitter()->emitIns_J(INS_b, block->bbJumpDest);
 #else
-                inst_JMP(EJ_jmp, block->bbJumpDest);
+#if !FEATURE_FIXED_OUT_ARGS
+                assert(block->bbJumpDest->bbTgtStkDepth == 0);
+#endif
+                GetEmitter()->emitIns_J(INS_jmp, block->bbJumpDest);
 #endif
                 FALLTHROUGH;
             case BBJ_COND:
