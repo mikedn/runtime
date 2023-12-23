@@ -1137,7 +1137,6 @@ public:
 #endif
 
 #ifdef TARGET_ARM
-    void inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock);
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
     void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
     void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
@@ -1147,7 +1146,6 @@ public:
 
 #ifdef TARGET_ARM64
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
-    void inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock);
     void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
     void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
     void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);

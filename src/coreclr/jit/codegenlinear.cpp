@@ -521,7 +521,11 @@ void CodeGen::genCodeForBBlist()
                 break;
 
             case BBJ_ALWAYS:
+#ifdef TARGET_ARMARCH
+                GetEmitter()->emitIns_J(INS_b, block->bbJumpDest);
+#else
                 inst_JMP(EJ_jmp, block->bbJumpDest);
+#endif
                 FALLTHROUGH;
             case BBJ_COND:
 #ifdef TARGET_AMD64

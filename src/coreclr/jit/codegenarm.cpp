@@ -1857,11 +1857,6 @@ void CodeGen::inst_JCC(GenCondition condition, BasicBlock* target)
     }
 }
 
-void CodeGen::inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock)
-{
-    GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(jmp), tgtBlock);
-}
-
 void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstReg)
 {
     assert(varTypeIsIntegral(type));
