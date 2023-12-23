@@ -2517,11 +2517,6 @@ ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(ThrowHelperKind kind, unsigne
     return found;
 }
 
-bool Compiler::fgIsThrowHelperBlock(BasicBlock* block)
-{
-    return (block->bbFlags & BBF_THROW_HELPER) != 0;
-}
-
 #if !FEATURE_FIXED_OUT_ARGS
 
 unsigned Compiler::fgGetThrowHelperBlockStackLevel(BasicBlock* block)

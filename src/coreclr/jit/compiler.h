@@ -4836,9 +4836,6 @@ public:
     void inlPropagateInlineeCompilerState();
     INDEBUG(void inlDebugCheckInlineCandidates();)
 
-public:
-    static bool fgIsThrowHelperBlock(BasicBlock* block);
-
 private:
 #if !FEATURE_FIXED_OUT_ARGS
     unsigned fgGetThrowHelperBlockStackLevel(BasicBlock* block);

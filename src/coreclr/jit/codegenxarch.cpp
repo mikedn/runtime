@@ -182,7 +182,7 @@ void CodeGen::genAdjustStackLevel(BasicBlock* block)
 {
     // Check for inserted throw blocks and adjust genStackLevel.
 
-    if (!compiler->fgIsThrowHelperBlock(block))
+    if (!block->IsThrowHelperBlock())
     {
         return;
     }
@@ -1152,7 +1152,7 @@ void CodeGen::inst_JCC(GenCondition condition, BasicBlock* target)
 {
     const GenConditionDesc& desc = GenConditionDesc::Get(condition);
 
-    assert(!Compiler::fgIsThrowHelperBlock(target));
+    assert(!target->IsThrowHelperBlock());
 
     if (desc.oper == GT_NONE)
     {

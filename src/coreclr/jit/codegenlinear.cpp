@@ -432,7 +432,7 @@ void CodeGen::genCodeForBBlist()
 
                 if ((block->bbNext == nullptr) || (block->bbNext->bbFlags & BBF_FUNCLET_BEG) ||
                     !BasicBlock::sameEHRegion(block, block->bbNext) ||
-                    (!isFramePointerUsed() && compiler->fgIsThrowHelperBlock(block->bbNext)) ||
+                    (!isFramePointerUsed() && block->bbNext->IsThrowHelperBlock()) ||
                     block->bbNext == compiler->fgFirstColdBlock)
                 {
                     GetEmitter()->emitIns(INS_BREAKPOINT); // This should never get executed
@@ -521,7 +521,7 @@ void CodeGen::genCodeForBBlist()
                 break;
 
             case BBJ_ALWAYS:
-                assert(!Compiler::fgIsThrowHelperBlock(block));
+                assert(!block->IsThrowHelperBlock());
 #ifdef TARGET_ARMARCH
                 GetEmitter()->emitIns_J(INS_b, block->bbJumpDest);
 #else
