@@ -178,8 +178,6 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(ThrowHelperKind kind, Basic
     {
         helper->stackLevelSet = true;
         helper->stackLevel    = currentStackLevel;
-
-        INDEBUG(helper->block->bbTgtStkDepth = currentStackLevel);
     }
 }
 

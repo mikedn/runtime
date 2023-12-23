@@ -2530,21 +2530,11 @@ unsigned Compiler::fgGetThrowHelperBlockStackLevel(BasicBlock* block)
     {
         if (block == helper->block)
         {
-            // TODO: bbTgtStkDepth is DEBUG-only.
-            // Should we use it regularly and avoid this search.
-            assert(block->bbTgtStkDepth == helper->stackLevel);
-
             return helper->stackLevel;
         }
     }
 
-    noway_assert(
-        !"fgGetThrowHelperBlockStackLevel should only be called if fgIsThrowHelperBlock is true, but we can't find the "
-         "block in the throw helper block list");
-
-    // We couldn't find the basic block: it must not have been a throw helper block.
-
-    return 0;
+    unreached();
 }
 
 #endif // !FEATURE_FIXED_OUT_ARGS

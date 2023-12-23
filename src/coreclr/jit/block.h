@@ -1118,10 +1118,6 @@ struct BasicBlock : private LIR::Range
     }
 
 #ifdef DEBUG
-#if !FEATURE_FIXED_OUT_ARGS
-    unsigned bbTgtStkDepth; // Native stack depth on entry (for throw-blocks)
-#endif
-
     // This is used in integrity checks.  We semi-randomly pick a traversal stamp, label all blocks
     // in the BB list with that stamp (in this field); then we can tell if (e.g.) predecessors are
     // still in the BB list by whether they have the same stamp (with high probability).

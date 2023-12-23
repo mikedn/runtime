@@ -1152,9 +1152,7 @@ void CodeGen::inst_JCC(GenCondition condition, BasicBlock* target)
 {
     const GenConditionDesc& desc = GenConditionDesc::Get(condition);
 
-#if !FEATURE_FIXED_OUT_ARGS
-    assert(target->bbTgtStkDepth == 0);
-#endif
+    assert(!Compiler::fgIsThrowHelperBlock(target));
 
     if (desc.oper == GT_NONE)
     {
@@ -9297,10 +9295,12 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
 
     if (useThrowHelperBlocks)
     {
+        ThrowHelperBlock* helper;
+
         if (throwBlock != nullptr)
         {
 #ifdef DEBUG
-            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(throwKind, m_currentBlock);
+            helper = compiler->fgFindThrowHelperBlock(throwKind, m_currentBlock);
             assert(throwBlock == helper->block);
 #if !FEATURE_FIXED_OUT_ARGS
             assert(helper->stackLevelSet || isFramePointerUsed());
@@ -9309,7 +9309,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
         }
         else
         {
-            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(throwKind, m_currentBlock);
+            helper = compiler->fgFindThrowHelperBlock(throwKind, m_currentBlock);
             assert(helper != nullptr);
 #if !FEATURE_FIXED_OUT_ARGS
             assert(helper->stackLevelSet || isFramePointerUsed());
@@ -9322,10 +9322,10 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
         if (!isFramePointerUsed())
         {
 #ifdef UNIX_X86_ABI
-            // bbTgtStkDepth is a (pure) argument count (stack alignment padding should be excluded).
-            assert(throwBlock->bbTgtStkDepth * 4 == genStackLevel - curNestedAlignment);
+            // helper's stackLevel is a (pure) argument count (stack alignment padding should be excluded).
+            assert(helper->stackLevel * 4 == genStackLevel - curNestedAlignment);
 #else
-            assert(throwBlock->bbTgtStkDepth * 4 == genStackLevel);
+            assert(helper->stackLevel * 4 == genStackLevel);
 #endif
         }
 #endif

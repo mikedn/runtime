@@ -521,12 +521,10 @@ void CodeGen::genCodeForBBlist()
                 break;
 
             case BBJ_ALWAYS:
+                assert(!Compiler::fgIsThrowHelperBlock(block));
 #ifdef TARGET_ARMARCH
                 GetEmitter()->emitIns_J(INS_b, block->bbJumpDest);
 #else
-#if !FEATURE_FIXED_OUT_ARGS
-                assert(block->bbJumpDest->bbTgtStkDepth == 0);
-#endif
                 GetEmitter()->emitIns_J(INS_jmp, block->bbJumpDest);
 #endif
                 FALLTHROUGH;

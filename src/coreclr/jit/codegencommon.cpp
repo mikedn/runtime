@@ -406,16 +406,6 @@ BasicBlock* CodeGen::genCreateTempLabel()
     // Use coldness of current block, as this label will be contained in it.
     block->bbFlags |= (m_currentBlock->bbFlags & BBF_COLD);
 
-#ifdef DEBUG
-#ifdef UNIX_X86_ABI
-    block->bbTgtStkDepth = (genStackLevel - curNestedAlignment) / sizeof(int);
-#else
-#if !FEATURE_FIXED_OUT_ARGS
-    block->bbTgtStkDepth = genStackLevel / sizeof(int);
-#endif
-#endif
-#endif
-
     return block;
 }
 
