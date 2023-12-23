@@ -1199,27 +1199,6 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
     }
 }
 
-void CodeGen::inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock)
-{
-#if !FEATURE_FIXED_OUT_ARGS
-    // On the x86 we are pushing (and changing the stack level), but on x64 and other archs we have
-    // a fixed outgoing args area that we store into and we never change the stack level when calling methods.
-    //
-    // Thus only on x86 do we need to assert that the stack level at the target block matches the current stack level.
-    //
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef UNIX_X86_ABI
-    // bbTgtStkDepth is a (pure) argument count (stack alignment padding should be excluded).
-    assert((tgtBlock->bbTgtStkDepth * sizeof(int) == (genStackLevel - curNestedAlignment)) || isFramePointerUsed());
-#else
-    assert((tgtBlock->bbTgtStkDepth * sizeof(int) == genStackLevel) || isFramePointerUsed());
-#endif
-#endif // !FEATURE_FIXED_OUT_ARGS
-
-    GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(jmp), tgtBlock);
-}
-
 void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
 {
     assert(tree->OperIs(GT_RETURNTRAP));
@@ -9339,7 +9318,19 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
             assert(throwBlock != nullptr);
         }
 
-        inst_JMP(condition, throwBlock);
+#if !FEATURE_FIXED_OUT_ARGS
+        if (!isFramePointerUsed())
+        {
+#ifdef UNIX_X86_ABI
+            // bbTgtStkDepth is a (pure) argument count (stack alignment padding should be excluded).
+            assert(throwBlock->bbTgtStkDepth * 4 == genStackLevel - curNestedAlignment);
+#else
+            assert(throwBlock->bbTgtStkDepth * 4 == genStackLevel);
+#endif
+        }
+#endif
+
+        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(condition), throwBlock);
     }
     else
     {

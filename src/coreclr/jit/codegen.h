@@ -1126,7 +1126,6 @@ public:
     bool IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs);
 
 #ifdef TARGET_XARCH
-    void inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock);
     void inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val);
     bool IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, CORINFO_FIELD_HANDLE* field);
     void emitInsRM(instruction ins, emitAttr attr, GenTree* src);
