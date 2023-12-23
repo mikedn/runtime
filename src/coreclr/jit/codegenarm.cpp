@@ -355,7 +355,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         genCopyRegIfNeeded(size, regCnt);
         endLabel = genCreateTempLabel();
         GetEmitter()->emitIns_R_R(INS_tst, easz, regCnt, regCnt);
-        inst_JMP(EJ_eq, endLabel);
+        GetEmitter()->emitIns_J(INS_beq, endLabel);
     }
 
     // Setup the regTmp, if there is one.
@@ -447,7 +447,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         // Note that regCnt is the number of bytes to stack allocate.
         assert(genIsValidIntReg(regCnt));
         GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, regCnt, STACK_ALIGN, INS_FLAGS_SET);
-        inst_JMP(EJ_ne, loop);
+        GetEmitter()->emitIns_J(INS_bne, loop);
 
         lastTouchDelta = 0;
     }
@@ -490,7 +490,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         //       subs  regCnt, SP, regCnt      // regCnt now holds ultimate SP
         GetEmitter()->emitIns_R_R_R(INS_sub, EA_4BYTE, regCnt, REG_SPBASE, regCnt, INS_FLAGS_SET);
 
-        inst_JMP(EJ_vc, loop); // branch if the V flag is not set
+        GetEmitter()->emitIns_J(INS_bvc, loop); // branch if the V flag is not set
 
         // Overflow, set regCnt to lowest possible value
         GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, regCnt, 0);
@@ -504,13 +504,13 @@ void CodeGen::genLclHeap(GenTree* tree)
         GetEmitter()->emitIns_R_R_I(INS_sub, EA_4BYTE, regTmp, REG_SPBASE, compiler->eeGetPageSize());
 
         GetEmitter()->emitIns_R_R(INS_cmp, EA_4BYTE, regTmp, regCnt);
-        inst_JMP(EJ_lo, done);
+        GetEmitter()->emitIns_J(INS_blo, done);
 
         // Update SP to be at the next page of stack that we will tickle
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SPBASE, regTmp, /* canSkip */ false);
 
         // Jump to loop and tickle new stack address
-        inst_JMP(EJ_jmp, loop);
+        GetEmitter()->emitIns_J(INS_b, loop);
 
         // Done with stack tickle loop
         genDefineTempLabel(done);
@@ -975,7 +975,7 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
 
     BasicBlock* skipLabel = genCreateTempLabel();
 
-    inst_JMP(EJ_eq, skipLabel);
+    GetEmitter()->emitIns_J(INS_beq, skipLabel);
 
     // emit the call to the EE-helper that stops for GC (or other reasons)
 
@@ -1079,11 +1079,11 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
             BasicBlock* success = genCreateTempLabel();
 
             GetEmitter()->emitIns_R_R(INS_tst, EA_4BYTE, loSrcReg, loSrcReg);
-            inst_JMP(EJ_mi, allOne);
+            GetEmitter()->emitIns_J(INS_bmi, allOne);
 
             GetEmitter()->emitIns_R_R(INS_tst, EA_4BYTE, hiSrcReg, hiSrcReg);
             genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
-            inst_JMP(EJ_jmp, success);
+            GetEmitter()->emitIns_J(INS_b, success);
 
             genDefineTempLabel(allOne);
             inst_RV_IV(INS_cmp, hiSrcReg, -1, EA_4BYTE);
@@ -1790,6 +1790,26 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
     }
 
     return dst->GetRegNum();
+}
+
+void CodeGen::inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock)
+{
+    GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(jmp), tgtBlock);
+}
+
+void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstReg)
+{
+    assert(varTypeIsIntegral(type));
+    assert(genIsValidIntReg(dstReg));
+
+    BasicBlock* labelTrue = genCreateTempLabel();
+    inst_JCC(condition, labelTrue);
+    GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, dstReg, 0);
+    BasicBlock* labelNext = genCreateTempLabel();
+    GetEmitter()->emitIns_J(INS_b, labelNext);
+    genDefineTempLabel(labelTrue);
+    GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, dstReg, 1);
+    genDefineTempLabel(labelNext);
 }
 
 void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)

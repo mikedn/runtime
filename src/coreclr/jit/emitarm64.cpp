@@ -169,43 +169,56 @@ static bool isVectorRegister(regNumber reg)
 
 bool emitter::strictArmAsm = true;
 
-instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
+insCond emitter::emitJumpKindToCond(emitJumpKind kind)
+{
+    assert((EJ_eq <= kind) && (kind <= INS_ble));
+
+    static const uint8_t map[]{
+        0, 0,
+#define CC_DEF(cc, rev, cond) INS_COND_##cond,
+#include "emitjmps.h"
+    };
+
+    assert(kind < _countof(map));
+    return static_cast<insCond>(map[kind]);
+}
+
+instruction emitter::emitJumpKindToBranch(emitJumpKind kind)
 {
     static const instruction map[]{
-        INS_nop,
-#define JMP_SMALL(en, rev, ins) INS_##ins,
+        INS_nop, INS_b,
+#define CC_DEF(cc, rev, cond) INS_b##cc,
 #include "emitjmps.h"
     };
 
-    assert(jumpKind < _countof(map));
-    return map[jumpKind];
+    assert(kind < _countof(map));
+    return map[kind];
 }
 
-emitJumpKind emitter::emitInsToJumpKind(instruction ins)
+emitJumpKind emitter::emitReverseJumpKind(emitJumpKind kind)
 {
-    for (unsigned i = EJ_NONE + 1; i < EJ_COUNT; i++)
-    {
-        emitJumpKind kind = static_cast<emitJumpKind>(i);
+    static const uint8_t map[]{
+        EJ_NONE, EJ_jmp,
+#define CC_DEF(cc, rev, cond) EJ_##rev,
+#include "emitjmps.h"
+    };
 
-        if (ins == emitJumpKindToIns(kind))
-        {
-            return kind;
-        }
+    assert(kind < _countof(map));
+    return static_cast<emitJumpKind>(map[kind]);
+}
+
+static emitJumpKind BranchToJumpKind(instruction ins)
+{
+    if (ins == INS_b)
+    {
+        return EJ_jmp;
     }
 
-    unreached();
-}
-
-emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
-{
-    static const emitJumpKind map[]{
-        EJ_NONE,
-#define JMP_SMALL(en, rev, ins) EJ_##rev,
+    assert((INS_beq <= ins) && (ins <= INS_ble));
+#define CC_DEF(cc, rev, ...) static_assert_no_msg(INS_b##cc - INS_beq == EJ_##cc - EJ_eq);
 #include "emitjmps.h"
-    };
 
-    assert(jumpKind < EJ_COUNT);
-    return map[jumpKind];
+    return static_cast<emitJumpKind>(EJ_eq + (ins - INS_beq));
 }
 
 size_t emitter::emitGetInstrDescSize(const instrDesc* id)
@@ -9430,7 +9443,7 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
                 reverseFmt = IF_BI_1B;
                 break;
             default:
-                reverseIns = emitJumpKindToIns(emitReverseJumpKind(emitInsToJumpKind(ins)));
+                reverseIns = emitJumpKindToBranch(emitReverseJumpKind(BranchToJumpKind(ins)));
                 reverseFmt = IF_BI_0B;
                 break;
         }

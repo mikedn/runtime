@@ -75,9 +75,9 @@ INDEBUG(const char* insName(instruction ins);)
 enum emitJumpKind
 {
     EJ_NONE,
-#define JMP_SMALL(en, rev, ins) EJ_##en,
+    EJ_jmp,
+#define CC_DEF(en, ...) EJ_##en,
 #include "emitjmps.h"
-    EJ_COUNT
 };
 
 #ifdef TARGET_ARM

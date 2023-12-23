@@ -85,43 +85,37 @@ static bool insOptsRRX(insOpts opt)
     return (opt == INS_OPTS_RRX);
 }
 
-instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
+instruction emitter::emitJumpKindToBranch(emitJumpKind kind)
 {
     static const instruction map[]{
-        INS_nop,
-#define JMP_SMALL(en, rev, ins) INS_##ins,
+        INS_nop, INS_b,
+#define CC_DEF(cc, rev, ...) INS_b##cc,
 #include "emitjmps.h"
     };
 
-    assert(jumpKind < _countof(map));
-    return map[jumpKind];
+    assert(kind < _countof(map));
+    return map[kind];
 }
 
-emitJumpKind emitter::emitInsToJumpKind(instruction ins)
-{
-    for (unsigned i = EJ_NONE + 1; i < EJ_COUNT; i++)
-    {
-        emitJumpKind kind = static_cast<emitJumpKind>(i);
-
-        if (ins == emitJumpKindToIns(kind))
-        {
-            return kind;
-        }
-    }
-
-    unreached();
-}
-
-emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
+emitJumpKind emitter::emitReverseJumpKind(emitJumpKind kind)
 {
     static const emitJumpKind map[]{
-        EJ_NONE,
-#define JMP_SMALL(en, rev, ins) EJ_##rev,
+        EJ_NONE, EJ_jmp,
+#define CC_DEF(cc, rev, ...) EJ_##rev,
 #include "emitjmps.h"
     };
 
-    assert(jumpKind < EJ_COUNT);
-    return map[jumpKind];
+    assert(kind < _countof(map));
+    return map[kind];
+}
+
+static emitJumpKind BranchToJumpKind(instruction ins)
+{
+    assert((INS_b <= ins) && (ins <= INS_ble));
+#define CC_DEF(cc, rev, ...) static_assert_no_msg(INS_b##cc - INS_b == EJ_##cc - EJ_jmp);
+#include "emitjmps.h"
+
+    return static_cast<emitJumpKind>(EJ_jmp + (ins - INS_b));
 }
 
 size_t emitter::emitGetInstrDescSize(const instrDesc* id)
@@ -5010,7 +5004,7 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         // to get a greater branch target range than we can get by using a straightforward conditional
         // branch. It is encoded as a short conditional branch that branches around a long unconditional
         // branch.
-        instruction reverse = emitJumpKindToIns(emitReverseJumpKind(emitInsToJumpKind(ins)));
+        instruction reverse = emitJumpKindToBranch(emitReverseJumpKind(BranchToJumpKind(ins)));
         dst                 = emitOutputShortBranch(dst, reverse, IF_T1_K, 2, nullptr);
 
         // The distance was computed based on the beginning of the pseudo-instruction.
@@ -6917,7 +6911,7 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
         instrDescJmp  idJmp;
 
         memset(&idJmp, 0, sizeof(idJmp));
-        idJmp.idIns(emitJumpKindToIns(emitReverseJumpKind(emitInsToJumpKind(id->idIns()))));
+        idJmp.idIns(emitJumpKindToBranch(emitReverseJumpKind(BranchToJumpKind(id->idIns()))));
         idJmp.idInsFmt(IF_T1_K);
         idJmp.idInsSize(ISZ_16BIT);
         idJmp.SetInstrCount(1);

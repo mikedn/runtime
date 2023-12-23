@@ -549,6 +549,9 @@ static bool isValidImmCondFlagsImm5(ssize_t imm);
 /************************************************************************/
 
 public:
+static insCond emitJumpKindToCond(emitJumpKind jumpKind);
+static instruction emitJumpKindToBranch(emitJumpKind jumpKind);
+
 void emitIns(instruction ins);
 
 void emitIns_J(instruction ins, int instrCount);

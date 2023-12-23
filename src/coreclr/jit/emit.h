@@ -1623,10 +1623,7 @@ private:
 
     instrDescSmall* emitAllocAnyInstr(unsigned sz, bool updateLastIns);
 
-    static emitJumpKind emitInsToJumpKind(instruction ins);
-
 public:
-    static instruction emitJumpKindToIns(emitJumpKind jumpKind);
     static emitJumpKind emitReverseJumpKind(emitJumpKind jumpKind);
 
 private:

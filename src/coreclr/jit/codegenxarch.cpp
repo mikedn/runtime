@@ -124,7 +124,7 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
     }
 
     BasicBlock* gsCheckBlk = genCreateTempLabel();
-    inst_JMP(EJ_je, gsCheckBlk);
+    inst_JMP(EJ_e, gsCheckBlk);
     genEmitHelperCall(CORINFO_HELP_FAIL_FAST);
     genDefineTempLabel(gsCheckBlk);
 
@@ -661,7 +661,7 @@ void CodeGen::GenLongUMod(GenTreeOp* node)
     //   cmp edx, divisor->GetRegNum()
     //   jb noOverflow
     GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, REG_EDX, divisor->GetRegNum());
-    inst_JMP(EJ_jb, noOverflow);
+    inst_JMP(EJ_b, noOverflow);
 
     //   mov temp, eax
     //   mov eax, edx
@@ -843,7 +843,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
 #endif
         noway_assert(!varTypeIsSmall(node->GetType()));
 
-        genJumpToThrowHlpBlk(node->IsUnsigned() ? EJ_jb : EJ_jo, ThrowHelperKind::Overflow);
+        genJumpToThrowHlpBlk(node->IsUnsigned() ? EJ_b : EJ_o, ThrowHelperKind::Overflow);
     }
 
     DefReg(node);
@@ -1017,7 +1017,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
 
     if (checkOverflow)
     {
-        genJumpToThrowHlpBlk(mul->IsUnsigned() ? EJ_jb : EJ_jo, ThrowHelperKind::Overflow);
+        genJumpToThrowHlpBlk(mul->IsUnsigned() ? EJ_b : EJ_o, ThrowHelperKind::Overflow);
     }
 
     DefReg(mul);
@@ -1098,23 +1098,23 @@ void CodeGen::genCodeForBT(GenTreeOp* bt)
 // clang-format off
 const CodeGen::GenConditionDesc CodeGen::GenConditionDesc::map[32]
 {
-    { },        // NONE
-    { },        // 1
-    { EJ_jl  }, // SLT
-    { EJ_jle }, // SLE
-    { EJ_jge }, // SGE
-    { EJ_jg  }, // SGT
-    { EJ_js  }, // S
-    { EJ_jns }, // NS
+    { },       // NONE
+    { },       // 1
+    { EJ_l  }, // SLT
+    { EJ_le }, // SLE
+    { EJ_ge }, // SGE
+    { EJ_g  }, // SGT
+    { EJ_s  }, // S
+    { EJ_ns }, // NS
 
-    { EJ_je  }, // EQ
-    { EJ_jne }, // NE
-    { EJ_jb  }, // ULT
-    { EJ_jbe }, // ULE
-    { EJ_jae }, // UGE
-    { EJ_ja  }, // UGT
-    { EJ_jb  }, // C
-    { EJ_jae }, // NC
+    { EJ_e  }, // EQ
+    { EJ_ne }, // NE
+    { EJ_b  }, // ULT
+    { EJ_be }, // ULE
+    { EJ_ae }, // UGE
+    { EJ_a  }, // UGT
+    { EJ_b  }, // C
+    { EJ_ae }, // NC
 
     // Floating point compare instructions (UCOMISS, UCOMISD etc.) set the condition flags as follows:
     //    ZF PF CF  Meaning
@@ -1128,25 +1128,46 @@ const CodeGen::GenConditionDesc CodeGen::GenConditionDesc::map[32]
     // PF before checking ZF/CF. In general, ordered conditions will result in a jump only if PF is not
     // set and unordered conditions will result in a jump only if PF is set.
 
-    { EJ_jnp, GT_AND, EJ_je  }, // FEQ
-    { EJ_jne                 }, // FNE
-    { EJ_jnp, GT_AND, EJ_jb  }, // FLT
-    { EJ_jnp, GT_AND, EJ_jbe }, // FLE
-    { EJ_jae                 }, // FGE
-    { EJ_ja                  }, // FGT
-    { EJ_jo                  }, // O
-    { EJ_jno                 }, // NO
+    { EJ_np, GT_AND, EJ_e  }, // FEQ
+    { EJ_ne                }, // FNE
+    { EJ_np, GT_AND, EJ_b  }, // FLT
+    { EJ_np, GT_AND, EJ_be }, // FLE
+    { EJ_ae                }, // FGE
+    { EJ_a                 }, // FGT
+    { EJ_o                 }, // O
+    { EJ_no                }, // NO
 
-    { EJ_je                }, // FEQU
-    { EJ_jp, GT_OR, EJ_jne }, // FNEU
-    { EJ_jb                }, // FLTU
-    { EJ_jbe               }, // FLEU
-    { EJ_jp, GT_OR, EJ_jae }, // FGEU
-    { EJ_jp, GT_OR, EJ_ja  }, // FGTU
-    { EJ_jp                }, // P
-    { EJ_jnp               }, // NP
+    { EJ_e               }, // FEQU
+    { EJ_p, GT_OR, EJ_ne }, // FNEU
+    { EJ_b               }, // FLTU
+    { EJ_be              }, // FLEU
+    { EJ_p, GT_OR, EJ_ae }, // FGEU
+    { EJ_p, GT_OR, EJ_a  }, // FGTU
+    { EJ_p               }, // P
+    { EJ_np              }, // NP
 };
 // clang-format on
+
+void CodeGen::inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock)
+{
+#if !FEATURE_FIXED_OUT_ARGS
+    // On the x86 we are pushing (and changing the stack level), but on x64 and other archs we have
+    // a fixed outgoing args area that we store into and we never change the stack level when calling methods.
+    //
+    // Thus only on x86 do we need to assert that the stack level at the target block matches the current stack level.
+    //
+    CLANG_FORMAT_COMMENT_ANCHOR;
+
+#ifdef UNIX_X86_ABI
+    // bbTgtStkDepth is a (pure) argument count (stack alignment padding should be excluded).
+    assert((tgtBlock->bbTgtStkDepth * sizeof(int) == (genStackLevel - curNestedAlignment)) || isFramePointerUsed());
+#else
+    assert((tgtBlock->bbTgtStkDepth * sizeof(int) == genStackLevel) || isFramePointerUsed());
+#endif
+#endif // !FEATURE_FIXED_OUT_ARGS
+
+    GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(jmp), tgtBlock);
+}
 
 void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstReg)
 {
@@ -1155,13 +1176,13 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
 
     const GenConditionDesc& desc = GenConditionDesc::Get(condition);
 
-    inst_SET(desc.jumpKind1, dstReg);
+    GetEmitter()->emitIns_R(emitter::emitJumpKindToSetcc(desc.jumpKind1), EA_1BYTE, dstReg);
 
     if (desc.oper != GT_NONE)
     {
         BasicBlock* labelNext = genCreateTempLabel();
         inst_JMP((desc.oper == GT_OR) ? desc.jumpKind1 : emitter::emitReverseJumpKind(desc.jumpKind1), labelNext);
-        inst_SET(desc.jumpKind2, dstReg);
+        GetEmitter()->emitIns_R(emitter::emitJumpKindToSetcc(desc.jumpKind2), EA_1BYTE, dstReg);
         genDefineTempLabel(labelNext);
     }
 
@@ -1169,67 +1190,6 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
     {
         GetEmitter()->emitIns_Mov(INS_movzx, EA_1BYTE, dstReg, dstReg, /* canSkip */ false);
     }
-}
-
-void CodeGen::inst_SET(emitJumpKind condition, regNumber reg)
-{
-    instruction ins;
-
-    switch (condition)
-    {
-        case EJ_js:
-            ins = INS_sets;
-            break;
-        case EJ_jns:
-            ins = INS_setns;
-            break;
-        case EJ_je:
-            ins = INS_sete;
-            break;
-        case EJ_jne:
-            ins = INS_setne;
-            break;
-
-        case EJ_jl:
-            ins = INS_setl;
-            break;
-        case EJ_jle:
-            ins = INS_setle;
-            break;
-        case EJ_jge:
-            ins = INS_setge;
-            break;
-        case EJ_jg:
-            ins = INS_setg;
-            break;
-
-        case EJ_jb:
-            ins = INS_setb;
-            break;
-        case EJ_jbe:
-            ins = INS_setbe;
-            break;
-        case EJ_jae:
-            ins = INS_setae;
-            break;
-        case EJ_ja:
-            ins = INS_seta;
-            break;
-
-        case EJ_jp:
-            ins = INS_setp;
-            break;
-        case EJ_jnp:
-            ins = INS_setnp;
-            break;
-
-        default:
-            unreached();
-    }
-
-    X86_ONLY(assert((genRegMask(reg) & RBM_BYTE_REGS) != RBM_NONE));
-
-    GetEmitter()->emitIns_R(ins, EA_1BYTE, reg);
 }
 
 void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
@@ -1242,7 +1202,7 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     GetEmitter()->emitIns_A_I(INS_cmp, EA_4BYTE, mem->GetAddr(), 0);
 
     BasicBlock* skipLabel = genCreateTempLabel();
-    inst_JMP(EJ_je, skipLabel);
+    inst_JMP(EJ_e, skipLabel);
 
     regNumber tmpReg = tree->GetSingleTempReg(RBM_ALLINT);
     assert(genIsValidIntReg(tmpReg));
@@ -1938,7 +1898,7 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
     BasicBlock* loop = genCreateTempLabel();
 
     GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, regSpDelta, REG_SPBASE);
-    inst_JMP(EJ_jb, loop);
+    inst_JMP(EJ_b, loop);
 
     GetEmitter()->emitIns_R_R(INS_xor, EA_4BYTE, regSpDelta, regSpDelta);
 
@@ -1955,7 +1915,7 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
     inst_Mov(TYP_I_IMPL, REG_SPBASE, regTmp, /* canSkip */ false);
 
     GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, regSpDelta);
-    inst_JMP(EJ_jae, loop);
+    inst_JMP(EJ_ae, loop);
 
     // Move the final shift to ESP
     inst_Mov(TYP_I_IMPL, REG_SPBASE, regSpDelta, /* canSkip */ false);
@@ -2024,7 +1984,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         genCopyRegIfNeeded(size, targetReg);
         endLabel = genCreateTempLabel();
         GetEmitter()->emitIns_R_R(INS_test, easz, targetReg, targetReg);
-        inst_JMP(EJ_je, endLabel);
+        inst_JMP(EJ_e, endLabel);
 
         // Compute the size of the block to allocate and perform alignment.
         // If compInitMem=true, we can reuse targetReg as regcnt,
@@ -2203,7 +2163,7 @@ void CodeGen::genLclHeap(GenTree* tree)
 
         // Decrement the loop counter and loop if not done.
         GetEmitter()->emitIns_R(INS_dec, EA_PTRSIZE, regCnt);
-        inst_JMP(EJ_jne, loop);
+        inst_JMP(EJ_ne, loop);
 
         lastTouchDelta = 0;
     }
@@ -3310,7 +3270,7 @@ void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
         // since arrLen is non-negative
         src1    = arrLen;
         src2    = arrLen;
-        jmpKind = EJ_je;
+        jmpKind = EJ_e;
         cmpIns  = INS_test;
     }
     else if (arrIndex->isContainedIntOrIImmed())
@@ -3325,7 +3285,7 @@ void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
 
         src1    = arrLen;
         src2    = arrIndex;
-        jmpKind = EJ_jbe;
+        jmpKind = EJ_be;
         cmpIns  = INS_cmp;
     }
     else
@@ -3343,7 +3303,7 @@ void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
 
         src1    = arrIndex;
         src2    = arrLen;
-        jmpKind = EJ_jae;
+        jmpKind = EJ_ae;
         cmpIns  = INS_cmp;
     }
 
@@ -3402,7 +3362,7 @@ void CodeGen::genCodeForArrIndex(GenTreeArrIndex* arrIndex)
                                genOffsetOfMDArrayLowerBound(elemType, rank, dim));
     GetEmitter()->emitIns_R_AR(INS_cmp, emitActualTypeSize(TYP_INT), tgtReg, arrReg,
                                genOffsetOfMDArrayDimensionSize(elemType, rank, dim));
-    genJumpToThrowHlpBlk(EJ_jae, ThrowHelperKind::IndexOutOfRange);
+    genJumpToThrowHlpBlk(EJ_ae, ThrowHelperKind::IndexOutOfRange);
 
     genProduceReg(arrIndex);
 }
@@ -4167,7 +4127,7 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
             GetEmitter()->emitIns_R_AR(INS_cmp, EA_4BYTE, indexReg, baseReg, node->GetLenOffs());
         }
 
-        genJumpToThrowHlpBlk(EJ_jae, ThrowHelperKind::IndexOutOfRange, node->GetThrowBlock());
+        genJumpToThrowHlpBlk(EJ_ae, ThrowHelperKind::IndexOutOfRange, node->GetThrowBlock());
     }
 
 #ifdef TARGET_64BIT
@@ -5533,15 +5493,15 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
             BasicBlock* success = genCreateTempLabel();
 
             GetEmitter()->emitIns_R_R(INS_test, EA_4BYTE, loSrcReg, loSrcReg);
-            inst_JMP(EJ_js, allOne);
+            inst_JMP(EJ_s, allOne);
 
             GetEmitter()->emitIns_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
-            genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
             inst_JMP(EJ_jmp, success);
 
             genDefineTempLabel(allOne);
             GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, hiSrcReg, -1);
-            genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
 
             genDefineTempLabel(success);
         }
@@ -5550,11 +5510,11 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
             if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
             {
                 GetEmitter()->emitIns_R_R(INS_test, EA_4BYTE, loSrcReg, loSrcReg);
-                genJumpToThrowHlpBlk(EJ_js, ThrowHelperKind::Overflow);
+                genJumpToThrowHlpBlk(EJ_s, ThrowHelperKind::Overflow);
             }
 
             GetEmitter()->emitIns_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
-            genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
         }
     }
 
@@ -5578,7 +5538,7 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
     {
         case GenIntCastDesc::CHECK_POSITIVE:
             GetEmitter()->emitIns_R_R(INS_test, EA_SIZE(desc.CheckSrcSize()), reg, reg);
-            genJumpToThrowHlpBlk(EJ_jl, ThrowHelperKind::Overflow);
+            genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
             break;
 
 #ifdef TARGET_64BIT
@@ -5591,20 +5551,20 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             assert(tempReg != reg);
             GetEmitter()->emitIns_Mov(INS_mov, EA_8BYTE, tempReg, reg, /* canSkip */ false);
             GetEmitter()->emitIns_R_I(INS_shr_N, EA_8BYTE, tempReg, 32);
-            genJumpToThrowHlpBlk(EJ_jne, ThrowHelperKind::Overflow);
+            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
         }
         break;
 
         case GenIntCastDesc::CHECK_POSITIVE_INT_RANGE:
             GetEmitter()->emitIns_R_I(INS_cmp, EA_8BYTE, reg, INT32_MAX);
-            genJumpToThrowHlpBlk(EJ_ja, ThrowHelperKind::Overflow);
+            genJumpToThrowHlpBlk(EJ_a, ThrowHelperKind::Overflow);
             break;
 
         case GenIntCastDesc::CHECK_INT_RANGE:
             GetEmitter()->emitIns_R_I(INS_cmp, EA_8BYTE, reg, INT32_MAX);
-            genJumpToThrowHlpBlk(EJ_jg, ThrowHelperKind::Overflow);
+            genJumpToThrowHlpBlk(EJ_g, ThrowHelperKind::Overflow);
             GetEmitter()->emitIns_R_I(INS_cmp, EA_8BYTE, reg, INT32_MIN);
-            genJumpToThrowHlpBlk(EJ_jl, ThrowHelperKind::Overflow);
+            genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
             break;
 #endif
 
@@ -5615,12 +5575,12 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             const int castMinValue = desc.CheckSmallIntMin();
 
             GetEmitter()->emitIns_R_I(INS_cmp, EA_SIZE(desc.CheckSrcSize()), reg, castMaxValue);
-            genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_ja : EJ_jg, ThrowHelperKind::Overflow);
+            genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_a : EJ_g, ThrowHelperKind::Overflow);
 
             if (castMinValue != 0)
             {
                 GetEmitter()->emitIns_R_I(INS_cmp, EA_SIZE(desc.CheckSrcSize()), reg, castMinValue);
-                genJumpToThrowHlpBlk(EJ_jl, ThrowHelperKind::Overflow);
+                genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
             }
         }
         break;
@@ -5870,7 +5830,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 
         BasicBlock* label = genCreateTempLabel();
         GetEmitter()->emitIns_R_R(INS_test, EA_8BYTE, srcReg, srcReg);
-        inst_JMP(EJ_jge, label);
+        inst_JMP(EJ_ge, label);
         GetEmitter()->emitIns_R_C(ins, size, dstReg, field);
         genDefineTempLabel(label);
     }
@@ -5969,7 +5929,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, tmpReg, expMask);
 
     // If exponent is all 1's, throw ArithmeticException
-    genJumpToThrowHlpBlk(EJ_je, ThrowHelperKind::Arithmetic);
+    genJumpToThrowHlpBlk(EJ_e, ThrowHelperKind::Arithmetic);
 
     // if it is a finite shift copy it to targetReg
     inst_Mov(targetType, targetReg, srcReg, /* canSkip */ true);
@@ -6027,7 +5987,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, tmpReg, expMask);
 
     // If exponent is all 1's, throw ArithmeticException
-    genJumpToThrowHlpBlk(EJ_je, ThrowHelperKind::Arithmetic);
+    genJumpToThrowHlpBlk(EJ_e, ThrowHelperKind::Arithmetic);
 
     if ((targetType == TYP_DOUBLE) && (targetReg == srcReg))
     {

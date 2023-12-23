@@ -1440,7 +1440,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
         }
         else
         {
-            inst_JMP(EJ_jmp, block->bbNext->bbJumpDest);
+            GetEmitter()->emitIns_J(INS_b, block->bbNext->bbJumpDest);
         }
 
         GetEmitter()->emitEnableGC();
@@ -1994,7 +1994,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         genCopyRegIfNeeded(size, targetReg);
         endLabel = genCreateTempLabel();
         GetEmitter()->emitIns_R_R(INS_tst, easz, targetReg, targetReg);
-        inst_JMP(EJ_eq, endLabel);
+        GetEmitter()->emitIns_J(INS_beq, endLabel);
 
         // Compute the size of the block to allocate and perform alignment.
         // If compInitMem=true, we can reuse targetReg as regcnt,
@@ -2115,7 +2115,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         // Therefore we need to subtract 16 from regcnt here.
         assert(genIsValidIntReg(regCnt));
         inst_RV_IV(INS_subs, regCnt, 16, emitActualTypeSize(type));
-        inst_JMP(EJ_ne, loop);
+        GetEmitter()->emitIns_J(INS_bne, loop);
 
         lastTouchDelta = 0;
     }
@@ -2159,7 +2159,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         //       subs  regCnt, SP, regCnt      // regCnt now holds ultimate SP
         GetEmitter()->emitIns_R_R_R(INS_subs, EA_8BYTE, regCnt, REG_SP, regCnt);
 
-        inst_JMP(EJ_vc, loop); // branch if the V flag is not set
+        GetEmitter()->emitIns_J(INS_bvc, loop); // branch if the V flag is not set
 
         // Overflow, set regCnt to lowest possible value
         GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, regCnt, 0);
@@ -2173,13 +2173,13 @@ void CodeGen::genLclHeap(GenTree* tree)
         GetEmitter()->emitIns_R_R_I(INS_sub, EA_8BYTE, regTmp, REG_SP, compiler->eeGetPageSize());
 
         GetEmitter()->emitIns_R_R(INS_cmp, EA_8BYTE, regTmp, regCnt);
-        inst_JMP(EJ_lo, done);
+        GetEmitter()->emitIns_J(INS_blo, done);
 
         // Update SP to be at the next page of stack that we will tickle
         GetEmitter()->emitIns_Mov(INS_mov, EA_8BYTE, REG_SP, regTmp, /* canSkip */ false);
 
         // Jump to loop and tickle new stack address
-        inst_JMP(EJ_jmp, loop);
+        GetEmitter()->emitIns_J(INS_b, loop);
 
         // Done with stack tickle loop
         genDefineTempLabel(done);
@@ -2356,9 +2356,9 @@ void CodeGen::GenDivMod(GenTreeOp* div)
         {
             BasicBlock* sdivLabel = genCreateTempLabel();
             emit->emitIns_R_I(INS_cmp, attr, divisorReg, -1);
-            inst_JMP(EJ_ne, sdivLabel);
+            emit->emitIns_J(INS_bne, sdivLabel);
             emit->emitIns_R_R_R(INS_adds, attr, REG_ZR, dividendReg, dividendReg);
-            inst_JMP(EJ_ne, sdivLabel);
+            emit->emitIns_J(INS_bne, sdivLabel);
             genJumpToThrowHlpBlk(EJ_vs, ThrowHelperKind::Arithmetic);
             genDefineTempLabel(sdivLabel);
         }
@@ -2709,7 +2709,7 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
 
     BasicBlock* skipLabel = genCreateTempLabel();
 
-    inst_JMP(EJ_eq, skipLabel);
+    GetEmitter()->emitIns_J(INS_beq, skipLabel);
     // emit the call to the EE-helper that stops for GC (or other reasons)
 
     genEmitHelperCall(CORINFO_HELP_STOP_FOR_GC);
@@ -3011,63 +3011,27 @@ void CodeGen::GenCompare(GenTreeOp* cmp)
     DefReg(cmp);
 }
 
-void CodeGen::inst_SET(emitJumpKind condition, regNumber reg)
+void CodeGen::inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock)
 {
-    insCond cond;
+    GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(jmp), tgtBlock);
+}
 
-    switch (condition)
+void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstReg)
+{
+    assert(varTypeIsIntegral(type));
+    assert(genIsValidIntReg(dstReg));
+
+    const GenConditionDesc& desc = GenConditionDesc::Get(condition);
+
+    GetEmitter()->emitIns_R_COND(INS_cset, EA_8BYTE, dstReg, emitter::emitJumpKindToCond(desc.jumpKind1));
+
+    if (desc.oper != GT_NONE)
     {
-        case EJ_eq:
-            cond = INS_COND_EQ;
-            break;
-        case EJ_ne:
-            cond = INS_COND_NE;
-            break;
-        case EJ_hs:
-            cond = INS_COND_HS;
-            break;
-        case EJ_lo:
-            cond = INS_COND_LO;
-            break;
-
-        case EJ_mi:
-            cond = INS_COND_MI;
-            break;
-        case EJ_pl:
-            cond = INS_COND_PL;
-            break;
-        case EJ_vs:
-            cond = INS_COND_VS;
-            break;
-        case EJ_vc:
-            cond = INS_COND_VC;
-            break;
-
-        case EJ_hi:
-            cond = INS_COND_HI;
-            break;
-        case EJ_ls:
-            cond = INS_COND_LS;
-            break;
-        case EJ_ge:
-            cond = INS_COND_GE;
-            break;
-        case EJ_lt:
-            cond = INS_COND_LT;
-            break;
-
-        case EJ_gt:
-            cond = INS_COND_GT;
-            break;
-        case EJ_le:
-            cond = INS_COND_LE;
-            break;
-
-        default:
-            unreached();
+        BasicBlock* labelNext = genCreateTempLabel();
+        inst_JMP((desc.oper == GT_OR) ? desc.jumpKind1 : emitter::emitReverseJumpKind(desc.jumpKind1), labelNext);
+        GetEmitter()->emitIns_R_COND(INS_cset, EA_8BYTE, dstReg, emitter::emitJumpKindToCond(desc.jumpKind2));
+        genDefineTempLabel(labelNext);
     }
-
-    GetEmitter()->emitIns_R_COND(INS_cset, EA_8BYTE, reg, cond);
 }
 
 // Generates code for JCMP node.

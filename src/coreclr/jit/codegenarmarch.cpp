@@ -488,7 +488,7 @@ void CodeGen::EpilogGSCookieCheck()
     GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, regGSConst, regGSValue);
 
     BasicBlock* gsCheckBlk = genCreateTempLabel();
-    inst_JMP(EJ_eq, gsCheckBlk);
+    GetEmitter()->emitIns_J(INS_beq, gsCheckBlk);
     genEmitHelperCall(CORINFO_HELP_FAIL_FAST);
     genDefineTempLabel(gsCheckBlk);
 }
@@ -3149,48 +3149,6 @@ const CodeGen::GenConditionDesc CodeGen::GenConditionDesc::map[32]
     { },                      // NP
 };
 // clang-format on
-
-void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstReg)
-{
-    assert(varTypeIsIntegral(type));
-    assert(genIsValidIntReg(dstReg));
-
-#ifdef TARGET_ARM64
-    const GenConditionDesc& desc = GenConditionDesc::Get(condition);
-
-    inst_SET(desc.jumpKind1, dstReg);
-
-    if (desc.oper != GT_NONE)
-    {
-        BasicBlock* labelNext = genCreateTempLabel();
-        inst_JMP((desc.oper == GT_OR) ? desc.jumpKind1 : emitter::emitReverseJumpKind(desc.jumpKind1), labelNext);
-        inst_SET(desc.jumpKind2, dstReg);
-        genDefineTempLabel(labelNext);
-    }
-#else
-    // Emit code like that:
-    //   ...
-    //   bgt True
-    //   movs rD, #0
-    //   b Next
-    // True:
-    //   movs rD, #1
-    // Next:
-    //   ...
-
-    BasicBlock* labelTrue = genCreateTempLabel();
-    inst_JCC(condition, labelTrue);
-
-    GetEmitter()->emitIns_R_I(INS_mov, emitActualTypeSize(type), dstReg, 0);
-
-    BasicBlock* labelNext = genCreateTempLabel();
-    GetEmitter()->emitIns_J(INS_b, labelNext);
-
-    genDefineTempLabel(labelTrue);
-    GetEmitter()->emitIns_R_I(INS_mov, emitActualTypeSize(type), dstReg, 1);
-    genDefineTempLabel(labelNext);
-#endif
-}
 
 void CodeGen::genScaledAdd(emitAttr attr, regNumber targetReg, regNumber baseReg, regNumber indexReg, int scale)
 {

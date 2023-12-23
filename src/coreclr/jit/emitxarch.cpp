@@ -19,27 +19,42 @@ bool emitter::IsJmpInstruction(instruction ins)
     return AMD64_ONLY((ins == INS_rex_jmp) ||)(ins == INS_i_jmp) || (ins == INS_jmp) || (ins == INS_l_jmp);
 }
 
-instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
+instruction emitter::emitJumpKindToSetcc(emitJumpKind kind)
 {
-    static const instruction map[]{INS_nop,
-#define JMP_SMALL(en, rev, ins) INS_##ins,
-#include "emitjmps.h"
-                                   INS_call};
+    assert((EJ_o <= kind) && (kind <= EJ_g));
 
-    assert(jumpKind < _countof(map));
-    return map[jumpKind];
-}
-
-emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
-{
-    static const emitJumpKind map[]{
-        EJ_NONE,
-#define JMP_SMALL(en, rev, ins) EJ_##rev,
+    static const instruction map[]{
+        INS_none, INS_none,
+#define CC_DEF(cc, rev) INS_set##cc,
 #include "emitjmps.h"
     };
 
-    assert(jumpKind < EJ_COUNT);
-    return map[jumpKind];
+    assert(kind < _countof(map));
+    return map[kind];
+}
+
+instruction emitter::emitJumpKindToBranch(emitJumpKind kind)
+{
+    static const instruction map[]{
+        INS_nop, INS_jmp,
+#define CC_DEF(cc, rev) INS_j##cc,
+#include "emitjmps.h"
+    };
+
+    assert(kind < _countof(map));
+    return map[kind];
+}
+
+emitJumpKind emitter::emitReverseJumpKind(emitJumpKind kind)
+{
+    static const uint8_t map[]{
+        EJ_NONE, EJ_jmp,
+#define CC_DEF(en, rev) EJ_##rev,
+#include "emitjmps.h"
+    };
+
+    assert(kind < _countof(map));
+    return static_cast<emitJumpKind>(map[kind]);
 }
 
 static bool IsDisp8(ssize_t disp)

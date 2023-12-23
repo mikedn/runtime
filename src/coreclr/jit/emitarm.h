@@ -114,6 +114,8 @@ static unsigned getBitWidth(emitAttr size)
 /************************************************************************/
 
 public:
+static instruction emitJumpKindToBranch(emitJumpKind jumpKind);
+
 static bool emitIns_valid_imm_for_alu(int imm);
 static bool emitIns_valid_imm_for_mov(int imm);
 static bool emitIns_valid_imm_for_small_mov(regNumber reg, int imm, insFlags flags);
