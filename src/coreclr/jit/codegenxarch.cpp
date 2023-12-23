@@ -9301,4 +9301,49 @@ void CodeGen::emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* 
     }
 }
 
+void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throwKind, BasicBlock* throwBlock)
+{
+    assert(condition != EJ_jmp);
+
+    bool useThrowHelperBlocks = compiler->fgUseThrowHelperBlocks();
+
+#if defined(UNIX_X86_ABI) && defined(FEATURE_EH_FUNCLETS)
+    // Inline exception-throwing code in funclet to make it possible to unwind funclet frames.
+    useThrowHelperBlocks = useThrowHelperBlocks && (compiler->funCurrentFunc()->funKind == FUNC_ROOT);
+#endif
+
+    if (useThrowHelperBlocks)
+    {
+        if (throwBlock != nullptr)
+        {
+#ifdef DEBUG
+            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(throwKind, m_currentBlock);
+            assert(throwBlock == helper->block);
+#if !FEATURE_FIXED_OUT_ARGS
+            assert(helper->stackLevelSet || isFramePointerUsed());
+#endif
+#endif
+        }
+        else
+        {
+            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(throwKind, m_currentBlock);
+            assert(helper != nullptr);
+#if !FEATURE_FIXED_OUT_ARGS
+            assert(helper->stackLevelSet || isFramePointerUsed());
+#endif
+            throwBlock = helper->block;
+            assert(throwBlock != nullptr);
+        }
+
+        inst_JMP(condition, throwBlock);
+    }
+    else
+    {
+        BasicBlock* label = genCreateTempLabel();
+        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(condition)), label);
+        genEmitHelperCall(Compiler::GetThrowHelperCall(throwKind));
+        genDefineTempLabel(label);
+    }
+}
+
 #endif // TARGET_XARCH

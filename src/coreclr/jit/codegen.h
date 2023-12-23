@@ -187,7 +187,7 @@ public:
 
     void genExitCode(BasicBlock* block);
 
-    void genJumpToThrowHlpBlk(emitJumpKind jumpKind, ThrowHelperKind codeKind, BasicBlock* failBlk = nullptr);
+    void genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throwKind, BasicBlock* throwBlock = nullptr);
 
 #ifdef TARGET_ARM64
     void genCheckOverflow(GenTree* tree);

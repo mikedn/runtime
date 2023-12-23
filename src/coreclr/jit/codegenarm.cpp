@@ -2869,4 +2869,33 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
     }
 }
 
+void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throwKind, BasicBlock* throwBlock)
+{
+    assert(condition != EJ_jmp);
+
+    if (compiler->fgUseThrowHelperBlocks())
+    {
+        if (throwBlock != nullptr)
+        {
+            assert(throwBlock == compiler->fgFindThrowHelperBlock(throwKind, m_currentBlock)->block);
+        }
+        else
+        {
+            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(throwKind, m_currentBlock);
+            assert(helper != nullptr);
+            throwBlock = helper->block;
+            assert(throwBlock != nullptr);
+        }
+
+        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(condition), throwBlock);
+    }
+    else
+    {
+        BasicBlock* label = genCreateTempLabel();
+        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(condition)), label);
+        genEmitHelperCall(Compiler::GetThrowHelperCall(throwKind));
+        genDefineTempLabel(label);
+    }
+}
+
 #endif // TARGET_ARM
