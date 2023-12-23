@@ -191,7 +191,12 @@ void CodeGen::genCodeForBBlist()
 
 #if !FEATURE_FIXED_OUT_ARGS
         assert(genStackLevel == 0);
-        genAdjustStackLevel(block);
+
+        if (block->IsThrowHelperBlock())
+        {
+            SetThrowHelperBlockStackLevel(block);
+        }
+
         unsigned savedStkLvl = genStackLevel;
 #endif
 

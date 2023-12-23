@@ -178,31 +178,15 @@ void CodeGen::PopTempReg(regNumber reg, var_types type)
 
 // Adjust the stack level, if required, for a throw helper block
 // Must be called just prior to generating code for 'block'.
-void CodeGen::genAdjustStackLevel(BasicBlock* block)
+void CodeGen::SetThrowHelperBlockStackLevel(BasicBlock* block)
 {
-    // Check for inserted throw blocks and adjust genStackLevel.
-
-    if (!block->IsThrowHelperBlock())
-    {
-        return;
-    }
-
-#ifdef UNIX_X86_ABI
-    if (isFramePointerUsed())
-    {
-        // x86/Linux requires stack frames to be 16-byte aligned, but SP may be unaligned
-        // at this point if a jump to this block is made in the middle of pushing arguments.
-        //
-        // Here we restore SP to prevent potential stack alignment issues.
-        GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_SPBASE, REG_FPBASE, -genSPtoFPdelta());
-    }
-#endif
+    assert(block->IsThrowHelperBlock());
 
     if (!isFramePointerUsed())
     {
         noway_assert(block->bbFlags & BBF_HAS_LABEL);
 
-        SetStackLevel(compiler->fgGetThrowHelperBlockStackLevel(block) * REGSIZE_BYTES);
+        SetStackLevel(compiler->fgFindThrowHelperBlock(block)->stackLevel * REGSIZE_BYTES);
 
         if (genStackLevel != 0)
         {
@@ -211,6 +195,16 @@ void CodeGen::genAdjustStackLevel(BasicBlock* block)
             SetStackLevel(0);
         }
     }
+#ifdef UNIX_X86_ABI
+    else
+    {
+        // x86/Linux requires stack frames to be 16-byte aligned, but SP may be unaligned
+        // at this point if a jump to this block is made in the middle of pushing arguments.
+        //
+        // Here we restore SP to prevent potential stack alignment issues.
+        GetEmitter()->emitIns_R_AR(INS_lea, EA_4BYTE, REG_SPBASE, REG_FPBASE, -genSPtoFPdelta());
+    }
+#endif
 }
 
 void CodeGen::SubtractStackLevel(unsigned adjustment)

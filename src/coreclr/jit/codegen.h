@@ -182,7 +182,7 @@ public:
     void genDefineInlineTempLabel(BasicBlock* label);
 
 #if !FEATURE_FIXED_OUT_ARGS
-    void genAdjustStackLevel(BasicBlock* block);
+    void SetThrowHelperBlockStackLevel(BasicBlock* block);
 #endif
 
     void genExitCode(BasicBlock* block);

@@ -2519,17 +2519,17 @@ ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(ThrowHelperKind kind, unsigne
 
 #if !FEATURE_FIXED_OUT_ARGS
 
-unsigned Compiler::fgGetThrowHelperBlockStackLevel(BasicBlock* block)
+ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(BasicBlock* block)
 {
     for (ThrowHelperBlock* helper = m_throwHelperBlockList; helper != nullptr; helper = helper->next)
     {
         if (block == helper->block)
         {
-            return helper->stackLevel;
+            return helper;
         }
     }
 
-    unreached();
+    return nullptr;
 }
 
 #endif // !FEATURE_FIXED_OUT_ARGS

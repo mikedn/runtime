@@ -171,7 +171,7 @@ bool emitter::strictArmAsm = true;
 
 insCond emitter::emitJumpKindToCond(emitJumpKind kind)
 {
-    assert((EJ_eq <= kind) && (kind <= INS_ble));
+    assert((EJ_eq <= kind) && (kind <= EJ_le));
 
     static const uint8_t map[]{
         0, 0,

@@ -4798,6 +4798,9 @@ public:
     BasicBlock* fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* throwBlock, unsigned throwIndex);
     ThrowHelperBlock* fgFindThrowHelperBlock(ThrowHelperKind kind, BasicBlock* throwBlock);
     ThrowHelperBlock* fgFindThrowHelperBlock(ThrowHelperKind kind, unsigned throwIndex);
+#if !FEATURE_FIXED_OUT_ARGS
+    ThrowHelperBlock* fgFindThrowHelperBlock(BasicBlock* block);
+#endif
 
     bool fgUseThrowHelperBlocks() const
     {
@@ -4837,10 +4840,6 @@ public:
     INDEBUG(void inlDebugCheckInlineCandidates();)
 
 private:
-#if !FEATURE_FIXED_OUT_ARGS
-    unsigned fgGetThrowHelperBlockStackLevel(BasicBlock* block);
-#endif // !FEATURE_FIXED_OUT_ARGS
-
     void fgPromoteStructs();
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
