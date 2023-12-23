@@ -4109,6 +4109,20 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     appendToCurIG(id);
 }
 
+void emitter::emitIns_J(instruction ins, insGroup* label)
+{
+    assert(IsBranch(ins));
+
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(ins);
+    id->idInsFmt(ins == INS_b ? IF_T2_J2 : IF_LARGEJMP);
+    id->idInsSize(emitInsSize(id->idInsFmt()));
+    id->SetLabel(label);
+
+    dispIns(id);
+    appendToCurIG(id);
+}
+
 void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, regNumber reg)
 {
     // TODO-MIKE-Review: cbz/cbnz aren't used on ARM. Delete or try to use these instructions?
@@ -4145,6 +4159,23 @@ void emitter::emitIns_R_L(instruction ins, BasicBlock* label, regNumber reg)
     id->SetLabelBlock(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
+
+    dispIns(id);
+    appendToCurIG(id);
+}
+
+void emitter::emitIns_R_L(instruction ins, insGroup* label, regNumber reg)
+{
+    assert((ins == INS_movt) || (ins == INS_movw));
+
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(ins);
+    id->idInsFmt(IF_T2_N1);
+    id->idInsSize(ISZ_32BIT);
+    id->idOpSize(EA_4BYTE);
+    id->idReg1(reg);
+    id->SetLabel(label);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc);
 
     dispIns(id);
     appendToCurIG(id);

@@ -2856,6 +2856,22 @@ void emitter::emitIns_R_L(BasicBlock* label, RegNum reg)
     emitCurIGsize += sz;
 }
 
+void emitter::emitIns_R_L(insGroup* label, RegNum reg)
+{
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(INS_lea);
+    id->idOpSize(EA_PTRSIZE);
+    id->idInsFmt(IF_RWR_LABEL);
+    id->idReg1(reg);
+    id->SetLabel(label);
+    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
+
+    unsigned sz = AMD64_ONLY(1 +) 1 + 1 + 4; // REX 8D RM DISP32
+    id->idCodeSize(sz);
+    dispIns(id);
+    emitCurIGsize += sz;
+}
+
 void emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
 {
     assert((ins == INS_mov) || (ins == INS_lea));
@@ -3479,6 +3495,21 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
         }
     }
 
+    id->idCodeSize(sz);
+    dispIns(id);
+    emitCurIGsize += sz;
+}
+
+void emitter::emitIns_J(instruction ins, insGroup* label)
+{
+    assert((ins == INS_jmp) || IsJccInstruction(ins));
+
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(ins);
+    id->idInsFmt(IF_LABEL);
+    id->SetLabel(label);
+
+    unsigned sz = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;

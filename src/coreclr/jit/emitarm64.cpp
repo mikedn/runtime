@@ -7881,6 +7881,19 @@ void emitter::emitIns_R_L(BasicBlock* label, RegNum reg)
     appendToCurIG(id);
 }
 
+void emitter::emitIns_R_L(insGroup* label, RegNum reg)
+{
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(INS_adr);
+    id->idInsFmt(IF_LARGEADR);
+    id->idOpSize(EA_8BYTE);
+    id->idReg1(reg);
+    id->SetLabel(label);
+
+    dispIns(id);
+    appendToCurIG(id);
+}
+
 void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, regNumber reg)
 {
     assert((ins == INS_cbz) || (ins == INS_cbnz));
@@ -7893,6 +7906,21 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, reg
     id->idReg1(reg);
     id->SetLabelBlock(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
+
+    dispIns(id);
+    appendToCurIG(id);
+}
+
+void emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNumber reg)
+{
+    assert((ins == INS_cbz) || (ins == INS_cbnz));
+
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(ins);
+    id->idInsFmt(IF_LARGEJMP);
+    id->idOpSize(EA_SIZE(attr));
+    id->idReg1(reg);
+    id->SetLabel(label);
 
     dispIns(id);
     appendToCurIG(id);
@@ -7954,6 +7982,19 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     id->idInsFmt(ins == INS_b ? IF_BI_0A : IF_LARGEJMP);
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
     id->SetLabelBlock(label);
+
+    dispIns(id);
+    appendToCurIG(id);
+}
+
+void emitter::emitIns_J(instruction ins, insGroup* label)
+{
+    assert(IsBranch(ins));
+
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(ins);
+    id->idInsFmt(ins == INS_b ? IF_BI_0A : IF_LARGEJMP);
+    id->SetLabel(label);
 
     dispIns(id);
     appendToCurIG(id);

@@ -1962,12 +1962,13 @@ void CodeGen::genLclHeap(GenTree* tree)
     regNumber            pspSymReg                = REG_NA;
     var_types            type                     = genActualType(size->gtType);
     emitAttr             easz                     = emitTypeSize(type);
-    BasicBlock*          endLabel                 = nullptr;
+    insGroup*            endLabel                 = nullptr;
     BasicBlock*          loop                     = nullptr;
     unsigned             stackAdjustment          = 0;
     const target_ssize_t ILLEGAL_LAST_TOUCH_DELTA = (target_ssize_t)-1;
-    target_ssize_t       lastTouchDelta =
-        ILLEGAL_LAST_TOUCH_DELTA; // The number of bytes from SP to the last stack address probed.
+    // The number of bytes from SP to the last stack address probed.
+    target_ssize_t lastTouchDelta = ILLEGAL_LAST_TOUCH_DELTA;
+    Emitter&       emit           = *GetEmitter();
 
     noway_assert(isFramePointerUsed()); // localloc requires Frame Pointer to be established since SP changes
 #if !FEATURE_FIXED_OUT_ARGS
@@ -1992,9 +1993,9 @@ void CodeGen::genLclHeap(GenTree* tree)
         // If 0 bail out by returning null in targetReg
         genConsumeReg(size);
         genCopyRegIfNeeded(size, targetReg);
-        endLabel = genCreateTempLabel();
-        GetEmitter()->emitIns_R_R(INS_tst, easz, targetReg, targetReg);
-        GetEmitter()->emitIns_J(INS_beq, endLabel);
+        endLabel = emit.CreateTempLabel();
+        emit.emitIns_R_R(INS_tst, easz, targetReg, targetReg);
+        emit.emitIns_J(INS_beq, endLabel);
 
         // Compute the size of the block to allocate and perform alignment.
         // If compInitMem=true, we can reuse targetReg as regcnt,
@@ -2094,8 +2095,6 @@ void CodeGen::genLclHeap(GenTree* tree)
 
     if (compiler->info.compInitMem)
     {
-        BasicBlock* loop = genCreateTempLabel();
-
         // At this point 'regCnt' is set to the total number of bytes to locAlloc.
         // Since we have to zero out the allocated memory AND ensure that the stack pointer is always valid
         // by tickling the pages, we will just push 0's on the stack.
@@ -2104,7 +2103,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         // and localloc size is a multiple of STACK_ALIGN.
 
         // Loop:
-        genDefineTempLabel(loop);
+        insGroup* loop = GetEmitter()->DefineTempLabel();
 
         // We can use pre-indexed addressing.
         // stp ZR, ZR, [SP, #-16]!
@@ -2153,39 +2152,29 @@ void CodeGen::genLclHeap(GenTree* tree)
         // Setup the regTmp
         regNumber regTmp = tree->GetSingleTempReg();
 
-        BasicBlock* loop = genCreateTempLabel();
-        BasicBlock* done = genCreateTempLabel();
-
         //       subs  regCnt, SP, regCnt      // regCnt now holds ultimate SP
-        GetEmitter()->emitIns_R_R_R(INS_subs, EA_8BYTE, regCnt, REG_SP, regCnt);
+        emit.emitIns_R_R_R(INS_subs, EA_8BYTE, regCnt, REG_SP, regCnt);
 
-        GetEmitter()->emitIns_J(INS_bvc, loop); // branch if the V flag is not set
-
+        insGroup* loop = emit.CreateTempLabel();
+        emit.emitIns_J(INS_bvc, loop); // branch if the V flag is not set
         // Overflow, set regCnt to lowest possible value
-        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, regCnt, 0);
-
-        genDefineTempLabel(loop);
-
+        emit.emitIns_R_I(INS_mov, EA_8BYTE, regCnt, 0);
+        emit.DefineTempLabel(loop);
         // tickle the page - Read from the updated SP - this triggers a page fault when on the guard page
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_ZR, REG_SP, 0);
-
+        emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_ZR, REG_SP, 0);
         // decrement SP by eeGetPageSize()
-        GetEmitter()->emitIns_R_R_I(INS_sub, EA_8BYTE, regTmp, REG_SP, compiler->eeGetPageSize());
-
-        GetEmitter()->emitIns_R_R(INS_cmp, EA_8BYTE, regTmp, regCnt);
-        GetEmitter()->emitIns_J(INS_blo, done);
-
+        emit.emitIns_R_R_I(INS_sub, EA_8BYTE, regTmp, REG_SP, compiler->eeGetPageSize());
+        emit.emitIns_R_R(INS_cmp, EA_8BYTE, regTmp, regCnt);
+        insGroup* done = emit.CreateTempLabel();
+        emit.emitIns_J(INS_blo, done);
         // Update SP to be at the next page of stack that we will tickle
-        GetEmitter()->emitIns_Mov(INS_mov, EA_8BYTE, REG_SP, regTmp, /* canSkip */ false);
-
+        emit.emitIns_Mov(INS_mov, EA_8BYTE, REG_SP, regTmp, /* canSkip */ false);
         // Jump to loop and tickle new stack address
-        GetEmitter()->emitIns_J(INS_b, loop);
-
+        emit.emitIns_J(INS_b, loop);
         // Done with stack tickle loop
-        genDefineTempLabel(done);
-
+        emit.DefineTempLabel(done);
         // Now just move the final value to SP
-        GetEmitter()->emitIns_Mov(INS_mov, EA_8BYTE, REG_SP, regCnt, /* canSkip */ false);
+        emit.emitIns_Mov(INS_mov, EA_8BYTE, REG_SP, regCnt, /* canSkip */ false);
 
         // lastTouchDelta is dynamic, and can be up to a page. So if we have outgoing arg space,
         // we're going to assume the worst and probe.
@@ -2224,7 +2213,7 @@ ALLOC_DONE:
 
     if (endLabel != nullptr)
     {
-        genDefineTempLabel(endLabel);
+        emit.DefineTempLabel(endLabel);
     }
 
     genProduceReg(tree);
@@ -2329,7 +2318,7 @@ void CodeGen::GenDivMod(GenTreeOp* div)
     regNumber dstReg      = div->GetRegNum();
 
     emitAttr attr = emitActualTypeSize(div->GetType());
-    emitter* emit = GetEmitter();
+    Emitter& emit = *GetEmitter();
 
     if (divisor->IsIntegralConst(0))
     {
@@ -2344,7 +2333,7 @@ void CodeGen::GenDivMod(GenTreeOp* div)
 
         if (!divisor->IsIntCon())
         {
-            emit->emitIns_R_I(INS_cmp, attr, divisorReg, 0);
+            emit.emitIns_R_I(INS_cmp, attr, divisorReg, 0);
             genJumpToThrowHlpBlk(EJ_eq, ThrowHelperKind::DivideByZero);
         }
         else
@@ -2354,16 +2343,16 @@ void CodeGen::GenDivMod(GenTreeOp* div)
 
         if (div->OperIs(GT_DIV) && checkDividend)
         {
-            BasicBlock* sdivLabel = genCreateTempLabel();
-            emit->emitIns_R_I(INS_cmp, attr, divisorReg, -1);
-            emit->emitIns_J(INS_bne, sdivLabel);
-            emit->emitIns_R_R_R(INS_adds, attr, REG_ZR, dividendReg, dividendReg);
-            emit->emitIns_J(INS_bne, sdivLabel);
+            insGroup* sdivLabel = emit.CreateTempLabel();
+            emit.emitIns_R_I(INS_cmp, attr, divisorReg, -1);
+            emit.emitIns_J(INS_bne, sdivLabel);
+            emit.emitIns_R_R_R(INS_adds, attr, REG_ZR, dividendReg, dividendReg);
+            emit.emitIns_J(INS_bne, sdivLabel);
             genJumpToThrowHlpBlk(EJ_vs, ThrowHelperKind::Arithmetic);
-            genDefineTempLabel(sdivLabel);
+            emit.DefineTempLabel(sdivLabel);
         }
 
-        emit->emitIns_R_R_R(div->OperIs(GT_DIV) ? INS_sdiv : INS_udiv, attr, dstReg, dividendReg, divisorReg);
+        emit.emitIns_R_R_R(div->OperIs(GT_DIV) ? INS_sdiv : INS_udiv, attr, dstReg, dividendReg, divisorReg);
     }
 
     DefReg(div);
@@ -2499,8 +2488,7 @@ void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
         //     cbnz exResult, retry
         //     dmb ish
 
-        BasicBlock* labelRetry = genCreateTempLabel();
-        genDefineTempLabel(labelRetry);
+        insGroup* labelRetry = GetEmitter()->DefineTempLabel();
 
         // The following instruction includes a acquire half barrier
         GetEmitter()->emitIns_R_R(INS_ldaxr, dataSize, loadReg, addrReg);
@@ -2557,18 +2545,20 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
     regNumber comparandReg = comparand->isUsedFromReg() ? UseReg(comparand) : REG_NA;
     regNumber targetReg    = treeNode->GetRegNum();
 
+    Emitter& emit = *GetEmitter();
+
     if (compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
     {
         emitAttr dataSize = emitActualTypeSize(data->GetType());
 
         // casal use the comparand as the target reg
-        GetEmitter()->emitIns_Mov(INS_mov, dataSize, targetReg, comparandReg, /* canSkip */ true);
+        emit.emitIns_Mov(INS_mov, dataSize, targetReg, comparandReg, /* canSkip */ true);
 
         // Catch case we destroyed data or address before use
         noway_assert((addrReg != targetReg) || (targetReg == comparandReg));
         noway_assert((dataReg != targetReg) || (targetReg == comparandReg));
 
-        GetEmitter()->emitIns_R_R_R(INS_casal, dataSize, targetReg, dataReg, addrReg);
+        emit.emitIns_R_R_R(INS_casal, dataSize, targetReg, dataReg, addrReg);
     }
     else
     {
@@ -2613,9 +2603,7 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
         //   compareFail:
         //     dmb ish
 
-        BasicBlock* labelRetry       = genCreateTempLabel();
-        BasicBlock* labelCompareFail = genCreateTempLabel();
-        genDefineTempLabel(labelRetry);
+        insGroup* labelRetry = GetEmitter()->DefineTempLabel();
 
         // TODO-MIKE-Cleanup: emitTypeSize is likely bogus here, ldaxr and stlxr
         // do not have 8/16 bit versions, you'd need ldaxrb & co. Or maybe they
@@ -2624,32 +2612,32 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
         emitAttr actualSize = emitActualTypeSize(treeNode->GetType());
 
         // The following instruction includes a acquire half barrier
-        GetEmitter()->emitIns_R_R(INS_ldaxr, size, targetReg, addrReg);
+        emit.emitIns_R_R(INS_ldaxr, size, targetReg, addrReg);
+
+        insGroup* labelCompareFail = emit.CreateTempLabel();
 
         if (GenTreeIntCon* con = comparand->IsContainedIntCon())
         {
             if (con->GetValue() == 0)
             {
-                GetEmitter()->emitIns_J_R(INS_cbnz, actualSize, labelCompareFail, targetReg);
+                emit.emitIns_J_R(INS_cbnz, actualSize, labelCompareFail, targetReg);
             }
             else
             {
-                GetEmitter()->emitIns_R_I(INS_cmp, actualSize, targetReg, con->GetValue());
-                GetEmitter()->emitIns_J(INS_bne, labelCompareFail);
+                emit.emitIns_R_I(INS_cmp, actualSize, targetReg, con->GetValue());
+                emit.emitIns_J(INS_bne, labelCompareFail);
             }
         }
         else
         {
-            GetEmitter()->emitIns_R_R(INS_cmp, actualSize, targetReg, comparandReg);
-            GetEmitter()->emitIns_J(INS_bne, labelCompareFail);
+            emit.emitIns_R_R(INS_cmp, actualSize, targetReg, comparandReg);
+            emit.emitIns_J(INS_bne, labelCompareFail);
         }
 
         // The following instruction includes a release half barrier
-        GetEmitter()->emitIns_R_R_R(INS_stlxr, size, exResultReg, dataReg, addrReg);
-
-        GetEmitter()->emitIns_J_R(INS_cbnz, EA_4BYTE, labelRetry, exResultReg);
-
-        genDefineTempLabel(labelCompareFail);
+        emit.emitIns_R_R_R(INS_stlxr, size, exResultReg, dataReg, addrReg);
+        emit.emitIns_J_R(INS_cbnz, EA_4BYTE, labelRetry, exResultReg);
+        emit.DefineTempLabel(labelCompareFail);
 
         instGen_MemoryBarrier();
 
@@ -2698,22 +2686,15 @@ instruction CodeGen::genGetInsForOper(genTreeOps oper)
 
 void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
 {
-    assert(tree->OperGet() == GT_RETURNTRAP);
-
-    // this is nothing but a conditional call to CORINFO_HELP_STOP_FOR_GC
-    // based on the contents of 'data'
+    assert(tree->OperIs(GT_RETURNTRAP));
 
     regNumber reg = UseReg(tree->GetOp(0));
 
     GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, reg, 0);
-
-    BasicBlock* skipLabel = genCreateTempLabel();
-
+    insGroup* skipLabel = GetEmitter()->CreateTempLabel();
     GetEmitter()->emitIns_J(INS_beq, skipLabel);
-    // emit the call to the EE-helper that stops for GC (or other reasons)
-
     genEmitHelperCall(CORINFO_HELP_STOP_FOR_GC);
-    genDefineTempLabel(skipLabel);
+    GetEmitter()->DefineTempLabel(skipLabel);
 }
 
 void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
@@ -3069,10 +3050,10 @@ void CodeGen::inst_JCC(GenCondition condition, BasicBlock* target)
     else
     {
         assert(desc.oper == GT_AND);
-        BasicBlock* labelNext = genCreateTempLabel();
+        insGroup* labelNext = emit.CreateTempLabel();
         emit.emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(desc.jumpKind1)), labelNext);
         emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), target);
-        genDefineTempLabel(labelNext);
+        emit.DefineTempLabel(labelNext);
     }
 }
 
@@ -3082,16 +3063,18 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
     assert(genIsValidIntReg(dstReg));
 
     const GenConditionDesc& desc = GenConditionDesc::Get(condition);
+    Emitter&                emit = *GetEmitter();
 
-    GetEmitter()->emitIns_R_COND(INS_cset, EA_8BYTE, dstReg, emitter::emitJumpKindToCond(desc.jumpKind1));
+    emit.emitIns_R_COND(INS_cset, EA_8BYTE, dstReg, emitter::emitJumpKindToCond(desc.jumpKind1));
 
     if (desc.oper != GT_NONE)
     {
-        BasicBlock*  labelNext = genCreateTempLabel();
-        emitJumpKind cc        = (desc.oper == GT_OR) ? desc.jumpKind1 : emitter::emitReverseJumpKind(desc.jumpKind1);
-        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(cc), labelNext);
-        GetEmitter()->emitIns_R_COND(INS_cset, EA_8BYTE, dstReg, emitter::emitJumpKindToCond(desc.jumpKind2));
-        genDefineTempLabel(labelNext);
+        emitJumpKind jcc = (desc.oper == GT_OR) ? desc.jumpKind1 : emitter::emitReverseJumpKind(desc.jumpKind1);
+
+        insGroup* labelNext = emit.CreateTempLabel();
+        emit.emitIns_J(emitter::emitJumpKindToBranch(jcc), labelNext);
+        emit.emitIns_R_COND(INS_cset, EA_8BYTE, dstReg, emitter::emitJumpKindToCond(desc.jumpKind2));
+        emit.DefineTempLabel(labelNext);
     }
 }
 
@@ -3479,7 +3462,8 @@ void CodeGen::genArm64EmitterUnitTests()
 #endif // ALL_ARM64_EMITTER_UNIT_TESTS
 
 #ifdef ALL_ARM64_EMITTER_UNIT_TESTS
-    // We use this genDefineTempLabel to create artificial labels to help separate groups of tests.
+    // We use genDefineTempLabel to create artificial labels to help separate groups of tests.
+    auto genDefineTempLabel = [theEmitter]() { theEmitter->DefineTempLabel(); };
 
     //
     // Loads/Stores basic general register
@@ -8101,8 +8085,7 @@ void CodeGen::genArm64EmitterUnitTests()
 
 #ifdef ALL_ARM64_EMITTER_UNIT_TESTS
 
-    BasicBlock* label = genCreateTempLabel();
-    genDefineTempLabel(label);
+    insGroup* label = GetEmitter()->DefineTempLabel();
     theEmitter->emitIns(INS_nop);
     theEmitter->emitIns(INS_nop);
     theEmitter->emitIns(INS_nop);
@@ -9815,10 +9798,10 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
     }
     else
     {
-        BasicBlock* label = genCreateTempLabel();
+        insGroup* label = GetEmitter()->CreateTempLabel();
         GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(condition)), label);
         genEmitHelperCall(Compiler::GetThrowHelperCall(throwKind));
-        genDefineTempLabel(label);
+        GetEmitter()->DefineTempLabel(label);
     }
 }
 

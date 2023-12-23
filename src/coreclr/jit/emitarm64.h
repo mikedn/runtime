@@ -556,6 +556,7 @@ void emitIns(instruction ins);
 
 void emitIns_J(instruction ins, int instrCount);
 void emitIns_J(instruction ins, BasicBlock* label);
+void emitIns_J(instruction ins, insGroup* label);
 void emitIns_CallFinally(BasicBlock* label);
 
 void emitIns_BRK(uint16_t imm);
@@ -637,8 +638,10 @@ void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val);
 void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber tmpReg, CORINFO_FIELD_HANDLE fldHnd);
 
 void emitIns_R_L(BasicBlock* label, RegNum reg);
+void emitIns_R_L(insGroup* label, RegNum reg);
 
 void emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, regNumber reg);
+void emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNumber reg);
 
 void emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* label, regNumber reg, int imm);
 

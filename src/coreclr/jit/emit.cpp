@@ -201,7 +201,7 @@ insGroup* emitter::emitAllocIG()
     insGroup* ig  = static_cast<insGroup*>(emitGetMem(sizeof(insGroup)));
     ig->igNext    = nullptr;
     ig->igData    = nullptr;
-    ig->igNum     = ++emitNxtIGnum;
+    ig->igNum     = 0;
     ig->igOffs    = emitCurCodeOffset;
     ig->igFuncIdx = emitComp->compCurrFuncIdx;
     ig->igSize    = 0;
@@ -231,7 +231,27 @@ void emitter::emitNewIG()
     assert(emitIGlast == emitCurIG);
 
     insGroup* ig = emitAllocIG();
+    ig->igNum    = emitIGlast->igNum + 1;
     ig->igFlags |= emitIGlast->igFlags & IGF_PROPAGATE_MASK;
+
+    emitIGlast->igNext = ig;
+    emitIGlast         = ig;
+    emitForceNewIG     = false;
+
+    emitGenIG(ig);
+}
+
+void emitter::emitAppendIG(insGroup* ig)
+{
+    assert(ig->igNum == 0);
+
+    ig->igNum  = emitIGlast->igNum + 1;
+    ig->igOffs = emitCurCodeOffset;
+    ig->igFlags |= emitIGlast->igFlags & IGF_PROPAGATE_MASK;
+
+#if defined(DEBUG) || defined(LATE_DISASM)
+    ig->igWeight = getCurrentBlockWeight();
+#endif
 
     emitIGlast->igNext = ig;
     emitIGlast         = ig;
@@ -482,9 +502,10 @@ void emitter::emitBegFN()
     emitCurIGfreeEndp = emitCurIGfreeBase + IG_BUFFER_SIZE;
 
     // Create the first IG, it will be used for the prolog.
-    emitIGfirst = emitAllocIG();
-    emitIGlast  = emitIGfirst;
-    emitCurIG   = emitIGfirst;
+    emitIGfirst        = emitAllocIG();
+    emitIGfirst->igNum = 1;
+    emitIGlast         = emitIGfirst;
+    emitCurIG          = emitIGfirst;
 
     // Append another group, to start generating the method body
     emitNewIG();
@@ -1152,6 +1173,27 @@ void emitter::emitStartExitSeq()
 
 #endif // JIT32_GCENCODER
 
+insGroup* emitter::CreateTempLabel()
+{
+    return emitAllocIG();
+}
+
+void emitter::DefineTempLabel(insGroup* label)
+{
+    assert(!emitIGisInProlog(emitCurIG));
+
+    emitFinishIG();
+    emitAppendIG(label);
+
+    emitCurLabel = label;
+    SetLabelGCLiveness(label);
+}
+
+insGroup* emitter::DefineTempLabel()
+{
+    return emitAddLabel();
+}
+
 insGroup* emitter::emitAddLabel()
 {
     assert(!emitIGisInProlog(emitCurIG));
@@ -1164,35 +1206,42 @@ insGroup* emitter::emitAddLabel()
 #if defined(DEBUG) || defined(LATE_DISASM)
     else
     {
-        emitCurIG->igWeight    = getCurrentBlockWeight();
-        emitCurIG->igPerfScore = 0.0;
-    }
-#endif
-
-    emitCurIG->gcLcls    = VarSetOps::MakeCopy(emitComp, codeGen->liveness.GetGCLiveSet());
-    emitCurIG->refRegs   = static_cast<uint32_t>(codeGen->liveness.GetGCRegs(TYP_REF));
-    emitCurIG->byrefRegs = static_cast<uint32_t>(codeGen->liveness.GetGCRegs(TYP_BYREF));
-
-#ifdef DEBUG
-    if (emitComp->verbose)
-    {
-        printf("Label: " FMT_IG ", gc-lcls ", emitCurIG->igNum);
-        dumpConvertedVarSet(emitComp, emitCurIG->gcLcls);
-        printf(", ref-regs");
-        DumpRegSet(emitCurIG->refRegs);
-        printf(", byref-regs");
-        DumpRegSet(emitCurIG->byrefRegs);
-        printf("\n");
+        emitCurIG->igWeight = getCurrentBlockWeight();
     }
 #endif
 
     emitCurLabel = emitCurIG;
+    SetLabelGCLiveness(emitCurIG);
 
     return emitCurIG;
 }
 
-insGroup* emitter::emitAddInlineLabel()
+void emitter::SetLabelGCLiveness(insGroup* label)
 {
+    assert(!label->IsExtension());
+
+    label->gcLcls    = VarSetOps::MakeCopy(emitComp, codeGen->liveness.GetGCLiveSet());
+    label->refRegs   = static_cast<uint32_t>(codeGen->liveness.GetGCRegs(TYP_REF));
+    label->byrefRegs = static_cast<uint32_t>(codeGen->liveness.GetGCRegs(TYP_BYREF));
+
+#ifdef DEBUG
+    if (emitComp->verbose)
+    {
+        printf("Label: " FMT_IG ", gc-lcls ", label->igNum);
+        dumpConvertedVarSet(emitComp, label->gcLcls);
+        printf(", ref-regs");
+        DumpRegSet(label->refRegs);
+        printf(", byref-regs");
+        DumpRegSet(label->byrefRegs);
+        printf("\n");
+    }
+#endif
+}
+
+insGroup* emitter::DefineInlineTempLabel()
+{
+    assert(!emitIGisInProlog(emitCurIG));
+
     if (emitCurIGnonEmpty())
     {
         emitExtendIG();
@@ -1201,6 +1250,17 @@ insGroup* emitter::emitAddInlineLabel()
     emitCurLabel = emitCurIG;
 
     return emitCurIG;
+}
+
+void emitter::DefineInlineTempLabel(insGroup* label)
+{
+    assert(!emitIGisInProlog(emitCurIG));
+
+    emitFinishIG(true);
+    emitAppendIG(label);
+
+    emitCurLabel = label;
+    label->igFlags |= IGF_EXTEND;
 }
 
 #ifdef DEBUG
@@ -3448,6 +3508,58 @@ UNATIVE_OFFSET emitter::emitBBTableDataGenBeg(unsigned numEntries, bool relative
     return secOffs;
 }
 
+UNATIVE_OFFSET emitter::emitLabelTableDataGenBeg(unsigned numEntries, bool relativeAddr)
+{
+    unsigned     secOffs;
+    dataSection* secDesc;
+
+    assert(emitDataSecCur == nullptr);
+
+    UNATIVE_OFFSET emittedSize;
+
+    if (relativeAddr)
+    {
+        emittedSize = numEntries * 4;
+    }
+    else
+    {
+        emittedSize = numEntries * TARGET_POINTER_SIZE;
+    }
+
+    /* Get hold of the current offset */
+
+    secOffs = emitConsDsc.dsdOffs;
+
+    /* Advance the current offset */
+
+    emitConsDsc.dsdOffs += emittedSize;
+
+    /* Allocate a data section descriptor and add it to the list */
+
+    secDesc = emitDataSecCur = (dataSection*)emitGetMem(roundUp(sizeof(*secDesc) + numEntries * sizeof(insGroup*)));
+
+    secDesc->dsSize = emittedSize;
+
+    secDesc->dsType = relativeAddr ? dataSection::insGroupRelative32 : dataSection::insGroupAbsoluteAddr;
+
+    secDesc->dsDataType = TYP_UNKNOWN;
+
+    secDesc->dsNext = nullptr;
+
+    if (emitConsDsc.dsdLast)
+    {
+        emitConsDsc.dsdLast->dsNext = secDesc;
+    }
+    else
+    {
+        emitConsDsc.dsdList = secDesc;
+    }
+
+    emitConsDsc.dsdLast = secDesc;
+
+    return secOffs;
+}
+
 /*****************************************************************************
  *
  *  Emit the given block of bits into the current data section.
@@ -3489,9 +3601,34 @@ void emitter::emitDataGenData(unsigned index, BasicBlock* label)
         JITDUMP("RWD%02u LABEL DWORD\n", offset);
     }
 
-    JITDUMP("DD L_M%03u_" FMT_BB "\n", emitComp->compMethodID, label->bbNum);
+    JITDUMP("DD " FMT_BB "\n", label->bbNum);
 
     ((BasicBlock**)(emitDataSecCur->dsCont))[index] = label;
+}
+
+void emitter::emitDataGenData(unsigned index, insGroup* label)
+{
+    assert(emitDataSecCur != nullptr);
+    assert(emitDataSecCur->dsType == dataSection::insGroupAbsoluteAddr ||
+           emitDataSecCur->dsType == dataSection::insGroupRelative32);
+
+    unsigned emittedElemSize = emitDataSecCur->dsType == dataSection::insGroupAbsoluteAddr ? TARGET_POINTER_SIZE : 4;
+
+    assert(emitDataSecCur->dsSize >= emittedElemSize * (index + 1));
+
+    if (index == 0)
+    {
+        unsigned offset = 0;
+
+        for (dataSection* d = emitConsDsc.dsdList; d != nullptr && d != emitDataSecCur; d = d->dsNext)
+        {
+            offset += d->dsSize;
+        }
+
+        JITDUMP("RWD%02u LABEL DWORD\n", offset);
+    }
+
+    ((insGroup**)(emitDataSecCur->dsCont))[index] = label;
 }
 
 /*****************************************************************************
@@ -3749,6 +3886,56 @@ void emitter::emitOutputDataSec(dataSecDsc* sec, BYTE* dst)
                 JITDUMP("  " FMT_BB ": 0x%x\n", blocks[i]->bbNum, uDstRW[i]);
             }
         }
+        // absolute label table
+        else if (dsc->dsType == dataSection::insGroupAbsoluteAddr)
+        {
+            JITDUMP("  section %u, size %u, block absolute addr\n", secNum++, dscSize);
+
+            assert(dscSize && dscSize % TARGET_POINTER_SIZE == 0);
+            size_t         numElems = dscSize / TARGET_POINTER_SIZE;
+            target_size_t* bDstRW   = (target_size_t*)dstRW;
+            insGroup**     blocks   = reinterpret_cast<insGroup**>(dsc->dsCont);
+
+            for (unsigned i = 0; i < numElems; i++)
+            {
+                insGroup* lab = blocks[i];
+
+                // Append the appropriate address to the destination
+                BYTE* target = emitOffsetToPtr(lab->igOffs);
+#ifdef TARGET_ARM
+                target = (BYTE*)((size_t)target | 1); // Or in thumb bit
+#endif
+
+                bDstRW[i] = (target_size_t)(size_t)target;
+
+                if (emitComp->opts.compReloc)
+                {
+                    emitRecordRelocation(&(bDstRW[i]), target, IMAGE_REL_BASED_HIGHLOW);
+                }
+
+                JITDUMP("  " FMT_IG ": 0x%p\n", blocks[i]->igNum, bDstRW[i]);
+            }
+        }
+        // relative label table
+        else if (dsc->dsType == dataSection::insGroupRelative32)
+        {
+            JITDUMP("  section %u, size %u, block relative addr\n", secNum++, dscSize);
+
+            size_t     numElems = dscSize / 4;
+            unsigned*  uDstRW   = (unsigned*)dstRW;
+            insGroup*  labFirst = emitCodeGetCookie(emitComp->fgFirstBB);
+            insGroup** blocks   = reinterpret_cast<insGroup**>(dsc->dsCont);
+
+            for (unsigned i = 0; i < numElems; i++)
+            {
+                insGroup* lab = blocks[i];
+
+                assert(FitsIn<uint32_t>(lab->igOffs - labFirst->igOffs));
+                uDstRW[i] = lab->igOffs - labFirst->igOffs;
+
+                JITDUMP("  " FMT_IG ": 0x%x\n", blocks[i]->igNum, uDstRW[i]);
+            }
+        }
         else
         {
             // Simple binary data: copy the bytes to the target
@@ -3832,6 +4019,68 @@ void emitter::emitDispDataSec(dataSecDsc* section)
                 }
 
                 insGroup* ig = emitCodeGetCookie(blocks[i]);
+
+                const char* blockLabel = emitLabelString(ig);
+                const char* firstLabel = emitLabelString(igFirst);
+
+                if (isRelative)
+                {
+                    if (emitComp->opts.disDiffable)
+                    {
+                        printf("\tdd\t%s - %s\n", blockLabel, firstLabel);
+                    }
+                    else
+                    {
+                        printf("\tdd\t%08Xh", ig->igOffs - igFirst->igOffs);
+                    }
+                }
+                else
+                {
+#ifndef TARGET_64BIT
+                    // We have a 32-BIT target
+                    if (emitComp->opts.disDiffable)
+                    {
+                        printf("\tdd\t%s\n", blockLabel);
+                    }
+                    else
+                    {
+                        printf("\tdd\t%08Xh", (uint32_t)(size_t)emitOffsetToPtr(ig->igOffs));
+                    }
+#else  // TARGET_64BIT
+                    // We have a 64-BIT target
+                    if (emitComp->opts.disDiffable)
+                    {
+                        printf("\tdq\t%s\n", blockLabel);
+                    }
+                    else
+                    {
+                        printf("\tdq\t%016llXh", reinterpret_cast<uint64_t>(emitOffsetToPtr(ig->igOffs)));
+                    }
+#endif // TARGET_64BIT
+                }
+
+                if (!emitComp->opts.disDiffable)
+                {
+                    printf(" ; case %s\n", blockLabel);
+                }
+            }
+        }
+        else if ((data->dsType == dataSection::insGroupRelative32) ||
+                 (data->dsType == dataSection::insGroupAbsoluteAddr))
+        {
+            insGroup*  igFirst    = emitCodeGetCookie(emitComp->fgFirstBB);
+            bool       isRelative = (data->dsType == dataSection::insGroupRelative32);
+            size_t     blockCount = data->dsSize / (isRelative ? 4 : TARGET_POINTER_SIZE);
+            insGroup** blocks     = reinterpret_cast<insGroup**>(data->dsCont);
+
+            for (unsigned i = 0; i < blockCount; i++)
+            {
+                if (i > 0)
+                {
+                    printf(labelFormat, "");
+                }
+
+                insGroup* ig = blocks[i];
 
                 const char* blockLabel = emitLabelString(ig);
                 const char* firstLabel = emitLabelString(igFirst);

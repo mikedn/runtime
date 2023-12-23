@@ -10,8 +10,8 @@
 struct ExpandNonConstImmHelper
 {
     CodeGen* const codeGen;
-    BasicBlock*    endLabel     = nullptr;
-    BasicBlock*    nonZeroLabel = nullptr;
+    insGroup*      endLabel     = nullptr;
+    insGroup*      nonZeroLabel = nullptr;
     int            immValue;
     int            immLowerBound;
     int            immUpperBound;
@@ -47,7 +47,7 @@ struct ExpandNonConstImmHelper
 
         if (TestImmOpZeroOrOne())
         {
-            nonZeroLabel = codeGen->genCreateTempLabel();
+            nonZeroLabel = emit.CreateTempLabel();
         }
         else
         {
@@ -61,21 +61,21 @@ struct ExpandNonConstImmHelper
             branchTargetReg = intrin->GetSingleTempReg();
         }
 
-        endLabel = codeGen->genCreateTempLabel();
+        endLabel = emit.CreateTempLabel();
 
         EmitBegin();
     }
 
     void EmitBegin()
     {
-        BasicBlock* beginLabel = codeGen->genCreateTempLabel();
-
         if (TestImmOpZeroOrOne())
         {
             emit.emitIns_J_R(INS_cbnz, EA_4BYTE, nonZeroLabel, nonConstImmReg);
         }
         else
         {
+            insGroup* beginLabel = emit.CreateTempLabel();
+
             // Here we assume that each case consists of one arm64 instruction followed by "b endLabel".
             // Since an arm64 instruction is 4 bytes, we branch to AddressOf(beginLabel) + (nonConstImmReg << 3).
             emit.emitIns_R_L(beginLabel, branchTargetReg);
@@ -90,9 +90,8 @@ struct ExpandNonConstImmHelper
             }
 
             emit.emitIns_R(INS_br, EA_8BYTE, branchTargetReg);
+            emit.DefineInlineTempLabel(beginLabel);
         }
-
-        codeGen->genDefineInlineTempLabel(beginLabel);
     }
 
     void EmitCaseEnd()
@@ -103,7 +102,7 @@ struct ExpandNonConstImmHelper
 
         if (isLastCase)
         {
-            codeGen->genDefineInlineTempLabel(endLabel);
+            emit.DefineInlineTempLabel(endLabel);
         }
         else
         {
@@ -111,11 +110,7 @@ struct ExpandNonConstImmHelper
 
             if (TestImmOpZeroOrOne())
             {
-                codeGen->genDefineInlineTempLabel(nonZeroLabel);
-            }
-            else
-            {
-                codeGen->genDefineInlineTempLabel(codeGen->genCreateTempLabel());
+                emit.DefineInlineTempLabel(nonZeroLabel);
             }
         }
 

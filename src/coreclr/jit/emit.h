@@ -232,12 +232,10 @@ struct insGroup
         return (igFlags & IGF_NOGCINTERRUPT) != 0;
     }
 
-#ifdef DEBUG
     bool IsExtension() const
     {
         return (igFlags & IGF_EXTEND) != 0;
     }
-#endif
 };
 
 enum insFormat : unsigned
@@ -389,8 +387,10 @@ public:
 
     UNATIVE_OFFSET emitDataGenBeg(unsigned size, unsigned alignment, var_types dataType);
     UNATIVE_OFFSET emitBBTableDataGenBeg(unsigned numEntries, bool relativeAddr);
+    UNATIVE_OFFSET emitLabelTableDataGenBeg(unsigned numEntries, bool relativeAddr);
     void emitDataGenData(unsigned offs, const void* data, UNATIVE_OFFSET size);
     void emitDataGenData(unsigned offs, BasicBlock* label);
+    void emitDataGenData(unsigned offs, insGroup* label);
     void           emitDataGenEnd();
     UNATIVE_OFFSET emitDataGenFind(const void* cnsAddr, unsigned size, unsigned alignment, var_types dataType);
     UNATIVE_OFFSET emitDataConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types dataType);
@@ -1531,8 +1531,6 @@ private:
     static void EncodeCallGCRegs(regMaskTP regs, instrDesc* id);
     static unsigned DecodeCallGCRegs(instrDesc* id);
 
-    unsigned emitNxtIGnum = 0;
-
 #ifdef PSEUDORANDOM_NOP_INSERTION
 
     // random nop insertion to break up nop sleds
@@ -1553,6 +1551,7 @@ private:
     insGroup* emitAllocIG();
 
     void emitNewIG();
+    void emitAppendIG(insGroup* ig);
     void emitGenIG(insGroup* ig);
     void emitExtendIG();
     void emitFinishIG(bool extend = false);
@@ -1589,6 +1588,11 @@ private:
 #endif
 
 public:
+    insGroup* CreateTempLabel();
+    insGroup* DefineTempLabel();
+    void DefineTempLabel(insGroup* label);
+    void DefineInlineTempLabel(insGroup* label);
+
     // Terminates any in-progress instruction group, making the current IG a new empty one.
     // Mark this instruction group as having a label; return the the new instruction group.
     // Sets the emitter's record of the currently live GC variables and registers.
@@ -1597,9 +1601,11 @@ public:
     // Same as above, except the label is added and is conceptually "inline" in
     // the current block. Thus it extends the previous block and the emitter
     // continues to track GC info as if there was no label.
-    insGroup* emitAddInlineLabel();
+    insGroup* DefineInlineTempLabel();
 
 private:
+    void SetLabelGCLiveness(insGroup* label);
+
     inline insGroup* emitCodeGetCookie(BasicBlock* block)
     {
         return static_cast<insGroup*>(block->bbEmitCookie);
@@ -1681,7 +1687,9 @@ private:
         {
             data,
             blockAbsoluteAddr,
-            blockRelative32
+            blockRelative32,
+            insGroupAbsoluteAddr,
+            insGroupRelative32
         };
 
         dataSection*   dsNext;

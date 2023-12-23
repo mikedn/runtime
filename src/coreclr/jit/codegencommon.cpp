@@ -54,10 +54,6 @@ void CodeGenInterface::SetUseVEXEncoding(bool value)
 // 3. needed to denote the range of EH regions to the VM.
 // 4. needed to denote the range of code for alignment processing.
 //
-// No labels will be in the IR before now, but future codegen might annotate additional blocks
-// with this flag, such as "switch" codegen, or codegen-created blocks from genCreateTempLabel().
-// Also, the alignment processing code marks BBJ_COND fall-through labels elsewhere.
-//
 // To report exception handling information to the VM, we need the size of the exception
 // handling regions. To compute that, we need to emit labels for the beginning block of
 // an EH region, and the block that immediately follows a region. Go through the EH
@@ -390,63 +386,6 @@ unsigned CodeGen::genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned r
 {
     // Note that the lower bound and length fields of the Array object are always TYP_INT, even on 64-bit targets.
     return compiler->eeGetArrayDataOffset(elemType) + genTypeSize(TYP_INT) * dimension;
-}
-
-// The following can be used to create basic blocks that serve as labels for
-// the emitter. Use with caution - these are not real basic blocks!
-BasicBlock* CodeGen::genCreateTempLabel()
-{
-    INDEBUG(compiler->fgSafeBasicBlockCreation = true);
-    BasicBlock* block = compiler->bbNewBasicBlock(BBJ_NONE);
-    INDEBUG(compiler->fgSafeBasicBlockCreation = false);
-
-    JITDUMP("Mark " FMT_BB " as label: codegen temp block\n", block->bbNum);
-
-    block->bbFlags |= BBF_HAS_LABEL;
-    // Use coldness of current block, as this label will be contained in it.
-    block->bbFlags |= (m_currentBlock->bbFlags & BBF_COLD);
-
-    return block;
-}
-
-// genDefineTempLabel: Define a label based on the current GC info tracked by
-// the code generator.
-//
-// Arguments:
-//     label - A label represented as a basic block. These are created with
-//     genCreateTempLabel and are not normal basic blocks.
-//
-// Notes:
-//     The label will be defined with the current GC info tracked by the code
-//     generator. When the emitter sees this label it will thus remove any temporary
-//     GC refs it is tracking in registers. For example, a call might produce a ref
-//     in RAX which the emitter would track but which would not be tracked in
-//     codegen's GC info since codegen would immediately copy it from RAX into its
-//     home.
-//
-void CodeGen::genDefineTempLabel(BasicBlock* label)
-{
-    label->bbEmitCookie = GetEmitter()->emitAddLabel();
-}
-
-void CodeGen::genDefineTempLabel()
-{
-    GetEmitter()->emitAddLabel();
-}
-
-// genDefineInlineTempLabel: Define an inline label that does not affect the GC
-// info.
-//
-// Arguments:
-//     label - A label represented as a basic block. These are created with
-//     genCreateTempLabel and are not normal basic blocks.
-//
-// Notes:
-//     The emitter will continue to track GC info as if there was no label.
-//
-void CodeGen::genDefineInlineTempLabel(BasicBlock* label)
-{
-    label->bbEmitCookie = GetEmitter()->emitAddInlineLabel();
 }
 
 bool AddrMode::IsIndexScale(size_t value)
@@ -5813,10 +5752,10 @@ void CodeGen::genStackPointerCheck(unsigned lvaStackPointerVar)
 
     GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, lvaStackPointerVar, 0);
 
-    BasicBlock* sp_check = genCreateTempLabel();
-    GetEmitter()->emitIns_J(INS_je, sp_check);
+    insGroup* spCheckEndLabel = GetEmitter()->CreateTempLabel();
+    GetEmitter()->emitIns_J(INS_je, spCheckEndLabel);
     GetEmitter()->emitIns(INS_BREAKPOINT);
-    genDefineTempLabel(sp_check);
+    GetEmitter()->DefineTempLabel(spCheckEndLabel);
 }
 
 #endif // defined(DEBUG) && defined(TARGET_XARCH)

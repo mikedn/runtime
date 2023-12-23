@@ -37,6 +37,7 @@ static instruction emitJumpKindToBranch(emitJumpKind jumpKind);
 
 void emitIns(instruction ins);
 void emitIns(instruction ins, emitAttr attr);
+void emitIns_J(instruction ins, insGroup* label);
 void emitIns_J(instruction ins, BasicBlock* label);
 void emitIns_J(instruction ins, int instrCount = 0);
 void emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr);
@@ -101,6 +102,7 @@ void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HA
 void emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg);
 void emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, int32_t imm);
 void emitIns_R_L(BasicBlock* label, RegNum reg);
+void emitIns_R_L(insGroup* label, RegNum reg);
 void emitIns_R_AH(instruction ins, regNumber ireg, void* addr);
 void emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t disp);
 void emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scaled, int32_t disp);

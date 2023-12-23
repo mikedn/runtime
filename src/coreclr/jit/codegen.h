@@ -144,7 +144,7 @@ private:
 
 protected:
     // the current (pending) label ref, a label which has been referenced but not yet seen
-    BasicBlock* genPendingCallLabel;
+    insGroup* genPendingCallLabel;
 
     void**    codePtr;
     uint32_t* nativeSizeOfCode;
@@ -175,11 +175,6 @@ public:
 #endif
 
     void genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf);
-
-    BasicBlock* genCreateTempLabel();
-    void genDefineTempLabel(BasicBlock* label);
-    void genDefineTempLabel();
-    void genDefineInlineTempLabel(BasicBlock* label);
 
 #if !FEATURE_FIXED_OUT_ARGS
     void SetThrowHelperBlockStackLevel(BasicBlock* block);
@@ -321,6 +316,7 @@ public:
     void genFreeLclFrame(unsigned frameSize, bool* pUnwindStarted);
 
     void genMov32RelocatableDisplacement(BasicBlock* block, regNumber reg);
+    void genMov32RelocatableDisplacement(insGroup* block, regNumber reg);
     void genMov32RelocatableDataLabel(unsigned value, regNumber reg);
 
     bool genUsedPopToReturn; // True if we use the pop into PC to return,

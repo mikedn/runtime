@@ -51,7 +51,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             // Kill callee saves GC registers, and create a label
             // so that information gets propagated to the emitter.
             liveness.RemoveGCRegs(RBM_INT_CALLEE_SAVED);
-            genDefineTempLabel();
+            GetEmitter()->DefineTempLabel();
             break;
 
         case GT_PROF_HOOK:
@@ -372,7 +372,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_LABEL:
-            genPendingCallLabel = genCreateTempLabel();
+            genPendingCallLabel = GetEmitter()->CreateTempLabel();
 #ifdef TARGET_ARM
             genMov32RelocatableDisplacement(genPendingCallLabel, treeNode->GetRegNum());
 #else
@@ -471,6 +471,7 @@ void CodeGen::EpilogGSCookieCheck()
     regNumber regGSConst     = REG_GSCOOKIE_TMP_0;
     regNumber regGSValue     = REG_GSCOOKIE_TMP_1;
     unsigned  gsCookieLclNum = compiler->lvaGSSecurityCookie;
+    Emitter&  emit           = *GetEmitter();
 
     if (m_gsCookieAddr == nullptr)
     {
@@ -481,16 +482,16 @@ void CodeGen::EpilogGSCookieCheck()
     else
     {
         instGen_Set_Reg_To_Addr(regGSConst, m_gsCookieAddr DEBUGARG(reinterpret_cast<void*>(THT_GSCookieCheck)));
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, regGSConst, regGSConst, 0);
+        emit.emitIns_R_R_I(INS_ldr, EA_PTRSIZE, regGSConst, regGSConst, 0);
     }
 
-    GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, regGSValue, gsCookieLclNum, 0);
-    GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, regGSConst, regGSValue);
+    emit.emitIns_R_S(INS_ldr, EA_PTRSIZE, regGSValue, gsCookieLclNum, 0);
+    emit.emitIns_R_R(INS_cmp, EA_PTRSIZE, regGSConst, regGSValue);
 
-    BasicBlock* gsCheckBlk = genCreateTempLabel();
-    GetEmitter()->emitIns_J(INS_beq, gsCheckBlk);
+    insGroup* gsCheckBlk = emit.CreateTempLabel();
+    emit.emitIns_J(INS_beq, gsCheckBlk);
     genEmitHelperCall(CORINFO_HELP_FAIL_FAST);
-    genDefineTempLabel(gsCheckBlk);
+    emit.DefineTempLabel(gsCheckBlk);
 }
 
 void CodeGen::genIntrinsic(GenTreeIntrinsic* node)
@@ -2361,7 +2362,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     // at (or inside) the callsite.
     if (compiler->killGCRefs(call))
     {
-        genDefineTempLabel();
+        GetEmitter()->DefineTempLabel();
     }
 
     // Determine return value attr(s).
@@ -2500,10 +2501,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         false);
     // clang-format on
 
-    // if it was a pinvoke we may have needed to get the address of a label
-    if (genPendingCallLabel)
+    if (genPendingCallLabel != nullptr)
     {
-        genDefineInlineTempLabel(genPendingCallLabel);
+        GetEmitter()->DefineInlineTempLabel(genPendingCallLabel);
         genPendingCallLabel = nullptr;
     }
 

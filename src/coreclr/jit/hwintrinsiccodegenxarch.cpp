@@ -795,38 +795,38 @@ void CodeGen::genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
     // AVX2 Gather intrinsics use managed non-const fallback since they have discrete imm8 value range
     // that does work with the current compiler generated jump-table fallback
     assert(!HWIntrinsicInfo::isAVX2GatherIntrinsic(intrinsic));
-    emitter* emit = GetEmitter();
+    Emitter& emit = *GetEmitter();
 
     const unsigned maxByte = (unsigned)HWIntrinsicInfo::lookupImmUpperBound(intrinsic) + 1;
     assert(maxByte <= 256);
-    BasicBlock* jmpTable[256];
+    insGroup* jmpTable[256];
 
-    unsigned jmpTableBase = emit->emitBBTableDataGenBeg(maxByte, true);
+    unsigned jmpTableBase = emit.emitLabelTableDataGenBeg(maxByte, true);
 
     for (unsigned i = 0; i < maxByte; i++)
     {
-        jmpTable[i] = genCreateTempLabel();
-        emit->emitDataGenData(i, jmpTable[i]);
+        jmpTable[i] = emit.CreateTempLabel();
+        emit.emitDataGenData(i, jmpTable[i]);
     }
 
-    emit->emitDataGenEnd();
+    emit.emitDataGenEnd();
 
-    emit->emitIns_R_C(INS_lea, emitTypeSize(TYP_I_IMPL), offsReg, Emitter::MakeRoDataField(jmpTableBase));
-    emit->emitIns_R_ARX(INS_mov, EA_4BYTE, offsReg, offsReg, nonConstImmReg, 4, 0);
-    emit->emitIns_R_L(compiler->fgFirstBB, baseReg);
-    emit->emitIns_R_R(INS_add, EA_PTRSIZE, offsReg, baseReg);
-    emit->emitIns_R(INS_i_jmp, emitTypeSize(TYP_I_IMPL), offsReg);
+    emit.emitIns_R_C(INS_lea, emitTypeSize(TYP_I_IMPL), offsReg, Emitter::MakeRoDataField(jmpTableBase));
+    emit.emitIns_R_ARX(INS_mov, EA_4BYTE, offsReg, offsReg, nonConstImmReg, 4, 0);
+    emit.emitIns_R_L(compiler->fgFirstBB, baseReg);
+    emit.emitIns_R_R(INS_add, EA_PTRSIZE, offsReg, baseReg);
+    emit.emitIns_R(INS_i_jmp, emitTypeSize(TYP_I_IMPL), offsReg);
 
-    BasicBlock* switchTableEnd = genCreateTempLabel();
+    insGroup* switchTableEnd = GetEmitter()->CreateTempLabel();
 
     for (unsigned i = 0; i < maxByte; i++)
     {
-        genDefineTempLabel(jmpTable[i]);
+        emit.DefineTempLabel(jmpTable[i]);
         emitSwCase(static_cast<int8_t>(i));
-        emit->emitIns_J(INS_jmp, switchTableEnd);
+        emit.emitIns_J(INS_jmp, switchTableEnd);
     }
 
-    genDefineTempLabel(switchTableEnd);
+    emit.DefineTempLabel(switchTableEnd);
 }
 
 void CodeGen::genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* node)
