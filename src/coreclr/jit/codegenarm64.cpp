@@ -3011,6 +3011,71 @@ void CodeGen::GenCompare(GenTreeOp* cmp)
     DefReg(cmp);
 }
 
+// clang-format off
+const CodeGen::GenConditionDesc CodeGen::GenConditionDesc::map[32]
+{
+    { },       // NONE
+    { },       // 1
+    { EJ_lt }, // SLT
+    { EJ_le }, // SLE
+    { EJ_ge }, // SGE
+    { EJ_gt }, // SGT
+    { EJ_mi }, // S
+    { EJ_pl }, // NS
+
+    { EJ_eq }, // EQ
+    { EJ_ne }, // NE
+    { EJ_lo }, // ULT
+    { EJ_ls }, // ULE
+    { EJ_hs }, // UGE
+    { EJ_hi }, // UGT
+    { EJ_hs }, // C
+    { EJ_lo }, // NC
+
+    { EJ_eq },                // FEQ
+    { EJ_gt, GT_AND, EJ_lo }, // FNE
+    { EJ_lo },                // FLT
+    { EJ_ls },                // FLE
+    { EJ_ge },                // FGE
+    { EJ_gt },                // FGT
+    { EJ_vs },                // O
+    { EJ_vc },                // NO
+
+    { EJ_eq, GT_OR, EJ_vs },  // FEQU
+    { EJ_ne },                // FNEU
+    { EJ_lt },                // FLTU
+    { EJ_le },                // FLEU
+    { EJ_hs },                // FGEU
+    { EJ_hi },                // FGTU
+    { },                      // P
+    { },                      // NP
+};
+// clang-format on
+
+void CodeGen::inst_JCC(GenCondition condition, BasicBlock* target)
+{
+    const GenConditionDesc& desc = GenConditionDesc::Get(condition);
+    Emitter&                emit = *GetEmitter();
+
+    if (desc.oper == GT_NONE)
+    {
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), target);
+    }
+    else if (desc.oper == GT_OR)
+    {
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), target);
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), target);
+    }
+    else
+    {
+        assert(desc.oper == GT_AND);
+        BasicBlock* labelNext = genCreateTempLabel();
+        emit.emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(desc.jumpKind1)), labelNext);
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), target);
+        genDefineTempLabel(labelNext);
+    }
+}
+
 void CodeGen::inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock)
 {
     GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(jmp), tgtBlock);
@@ -3027,8 +3092,9 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
 
     if (desc.oper != GT_NONE)
     {
-        BasicBlock* labelNext = genCreateTempLabel();
-        inst_JMP((desc.oper == GT_OR) ? desc.jumpKind1 : emitter::emitReverseJumpKind(desc.jumpKind1), labelNext);
+        BasicBlock*  labelNext = genCreateTempLabel();
+        emitJumpKind cc        = (desc.oper == GT_OR) ? desc.jumpKind1 : emitter::emitReverseJumpKind(desc.jumpKind1);
+        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(cc), labelNext);
         GetEmitter()->emitIns_R_COND(INS_cset, EA_8BYTE, dstReg, emitter::emitJumpKindToCond(desc.jumpKind2));
         genDefineTempLabel(labelNext);
     }

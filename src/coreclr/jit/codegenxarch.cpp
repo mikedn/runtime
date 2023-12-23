@@ -124,7 +124,7 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
     }
 
     BasicBlock* gsCheckBlk = genCreateTempLabel();
-    inst_JMP(EJ_e, gsCheckBlk);
+    GetEmitter()->emitIns_J(INS_je, gsCheckBlk);
     genEmitHelperCall(CORINFO_HELP_FAIL_FAST);
     genDefineTempLabel(gsCheckBlk);
 
@@ -307,7 +307,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
         }
         else
         {
-            inst_JMP(EJ_jmp, block->bbNext->bbJumpDest);
+            GetEmitter()->emitIns_J(INS_jmp, block->bbNext->bbJumpDest);
         }
 
 #ifndef JIT32_GCENCODER
@@ -661,7 +661,7 @@ void CodeGen::GenLongUMod(GenTreeOp* node)
     //   cmp edx, divisor->GetRegNum()
     //   jb noOverflow
     GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, REG_EDX, divisor->GetRegNum());
-    inst_JMP(EJ_b, noOverflow);
+    GetEmitter()->emitIns_J(INS_jb, noOverflow);
 
     //   mov temp, eax
     //   mov eax, edx
@@ -1148,6 +1148,53 @@ const CodeGen::GenConditionDesc CodeGen::GenConditionDesc::map[32]
 };
 // clang-format on
 
+void CodeGen::inst_JCC(GenCondition condition, BasicBlock* target)
+{
+    const GenConditionDesc& desc = GenConditionDesc::Get(condition);
+
+    if (desc.oper == GT_NONE)
+    {
+        inst_JMP(desc.jumpKind1, target);
+    }
+    else if (desc.oper == GT_OR)
+    {
+        inst_JMP(desc.jumpKind1, target);
+        inst_JMP(desc.jumpKind2, target);
+    }
+    else
+    {
+        assert(desc.oper == GT_AND);
+        BasicBlock* labelNext = genCreateTempLabel();
+        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(desc.jumpKind1)), labelNext);
+        inst_JMP(desc.jumpKind2, target);
+        genDefineTempLabel(labelNext);
+    }
+}
+
+void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstReg)
+{
+    assert(varTypeIsIntegral(type));
+    assert(genIsValidIntReg(dstReg) && isByteReg(dstReg));
+
+    const GenConditionDesc& desc = GenConditionDesc::Get(condition);
+
+    GetEmitter()->emitIns_R(emitter::emitJumpKindToSetcc(desc.jumpKind1), EA_1BYTE, dstReg);
+
+    if (desc.oper != GT_NONE)
+    {
+        BasicBlock*  labelNext = genCreateTempLabel();
+        emitJumpKind cc        = (desc.oper == GT_OR) ? desc.jumpKind1 : emitter::emitReverseJumpKind(desc.jumpKind1);
+        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(cc), labelNext);
+        GetEmitter()->emitIns_R(emitter::emitJumpKindToSetcc(desc.jumpKind2), EA_1BYTE, dstReg);
+        genDefineTempLabel(labelNext);
+    }
+
+    if (!varTypeIsByte(type))
+    {
+        GetEmitter()->emitIns_Mov(INS_movzx, EA_1BYTE, dstReg, dstReg, /* canSkip */ false);
+    }
+}
+
 void CodeGen::inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock)
 {
 #if !FEATURE_FIXED_OUT_ARGS
@@ -1169,29 +1216,6 @@ void CodeGen::inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock)
     GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(jmp), tgtBlock);
 }
 
-void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstReg)
-{
-    assert(varTypeIsIntegral(type));
-    assert(genIsValidIntReg(dstReg) && isByteReg(dstReg));
-
-    const GenConditionDesc& desc = GenConditionDesc::Get(condition);
-
-    GetEmitter()->emitIns_R(emitter::emitJumpKindToSetcc(desc.jumpKind1), EA_1BYTE, dstReg);
-
-    if (desc.oper != GT_NONE)
-    {
-        BasicBlock* labelNext = genCreateTempLabel();
-        inst_JMP((desc.oper == GT_OR) ? desc.jumpKind1 : emitter::emitReverseJumpKind(desc.jumpKind1), labelNext);
-        GetEmitter()->emitIns_R(emitter::emitJumpKindToSetcc(desc.jumpKind2), EA_1BYTE, dstReg);
-        genDefineTempLabel(labelNext);
-    }
-
-    if (!varTypeIsByte(type))
-    {
-        GetEmitter()->emitIns_Mov(INS_movzx, EA_1BYTE, dstReg, dstReg, /* canSkip */ false);
-    }
-}
-
 void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
 {
     assert(tree->OperIs(GT_RETURNTRAP));
@@ -1199,13 +1223,13 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     GenTreeIndir* mem = tree->GetOp(0)->AsIndir();
     assert(mem->isContained());
     genConsumeAddress(mem->GetAddr());
-    GetEmitter()->emitIns_A_I(INS_cmp, EA_4BYTE, mem->GetAddr(), 0);
-
-    BasicBlock* skipLabel = genCreateTempLabel();
-    inst_JMP(EJ_e, skipLabel);
 
     regNumber tmpReg = tree->GetSingleTempReg(RBM_ALLINT);
     assert(genIsValidIntReg(tmpReg));
+
+    GetEmitter()->emitIns_A_I(INS_cmp, EA_4BYTE, mem->GetAddr(), 0);
+    BasicBlock* skipLabel = genCreateTempLabel();
+    GetEmitter()->emitIns_J(INS_je, skipLabel);
     genEmitHelperCall(CORINFO_HELP_STOP_FOR_GC, EA_UNKNOWN, tmpReg);
     genDefineTempLabel(skipLabel);
 }
@@ -1895,13 +1919,11 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
     //       jae   loop
     //       mov   ESP, regSpDelta
 
-    BasicBlock* loop = genCreateTempLabel();
-
     GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, regSpDelta, REG_SPBASE);
-    inst_JMP(EJ_b, loop);
 
+    BasicBlock* loop = genCreateTempLabel();
+    GetEmitter()->emitIns_J(INS_jb, loop);
     GetEmitter()->emitIns_R_R(INS_xor, EA_4BYTE, regSpDelta, regSpDelta);
-
     genDefineTempLabel(loop);
 
     // Tickle the decremented shift. Note that it must be done BEFORE the update of ESP since ESP might already
@@ -1910,15 +1932,14 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
 
     // Subtract a page from ESP. This is a trick to avoid the emitter trying to track the
     // decrement of the ESP - we do the subtraction in another reg instead of adjusting ESP directly.
-    inst_Mov(TYP_I_IMPL, regTmp, REG_SPBASE, /* canSkip */ false);
+    GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, regTmp, REG_SPBASE, /* canSkip */ false);
     GetEmitter()->emitIns_R_I(INS_sub, EA_PTRSIZE, regTmp, compiler->eeGetPageSize());
-    inst_Mov(TYP_I_IMPL, REG_SPBASE, regTmp, /* canSkip */ false);
+    GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_SPBASE, regTmp, /* canSkip */ false);
 
     GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, regSpDelta);
-    inst_JMP(EJ_ae, loop);
+    GetEmitter()->emitIns_J(INS_jae, loop);
 
-    // Move the final shift to ESP
-    inst_Mov(TYP_I_IMPL, REG_SPBASE, regSpDelta, /* canSkip */ false);
+    GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_SPBASE, regSpDelta, /* canSkip */ false);
 }
 
 void CodeGen::genLclHeap(GenTree* tree)
@@ -1984,7 +2005,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         genCopyRegIfNeeded(size, targetReg);
         endLabel = genCreateTempLabel();
         GetEmitter()->emitIns_R_R(INS_test, easz, targetReg, targetReg);
-        inst_JMP(EJ_e, endLabel);
+        GetEmitter()->emitIns_J(INS_je, endLabel);
 
         // Compute the size of the block to allocate and perform alignment.
         // If compInitMem=true, we can reuse targetReg as regcnt,
@@ -2163,7 +2184,7 @@ void CodeGen::genLclHeap(GenTree* tree)
 
         // Decrement the loop counter and loop if not done.
         GetEmitter()->emitIns_R(INS_dec, EA_PTRSIZE, regCnt);
-        inst_JMP(EJ_ne, loop);
+        GetEmitter()->emitIns_J(INS_jne, loop);
 
         lastTouchDelta = 0;
     }
@@ -5493,11 +5514,11 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
             BasicBlock* success = genCreateTempLabel();
 
             GetEmitter()->emitIns_R_R(INS_test, EA_4BYTE, loSrcReg, loSrcReg);
-            inst_JMP(EJ_s, allOne);
+            GetEmitter()->emitIns_J(INS_js, allOne);
 
             GetEmitter()->emitIns_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
             genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
-            inst_JMP(EJ_jmp, success);
+            GetEmitter()->emitIns_J(INS_jmp, success);
 
             genDefineTempLabel(allOne);
             GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, hiSrcReg, -1);
@@ -5830,7 +5851,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 
         BasicBlock* label = genCreateTempLabel();
         GetEmitter()->emitIns_R_R(INS_test, EA_8BYTE, srcReg, srcReg);
-        inst_JMP(EJ_ge, label);
+        GetEmitter()->emitIns_J(INS_jge, label);
         GetEmitter()->emitIns_R_C(ins, size, dstReg, field);
         genDefineTempLabel(label);
     }

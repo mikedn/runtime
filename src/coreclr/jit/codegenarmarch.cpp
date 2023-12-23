@@ -3109,47 +3109,6 @@ void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-// clang-format off
-const CodeGen::GenConditionDesc CodeGen::GenConditionDesc::map[32]
-{
-    { },       // NONE
-    { },       // 1
-    { EJ_lt }, // SLT
-    { EJ_le }, // SLE
-    { EJ_ge }, // SGE
-    { EJ_gt }, // SGT
-    { EJ_mi }, // S
-    { EJ_pl }, // NS
-
-    { EJ_eq }, // EQ
-    { EJ_ne }, // NE
-    { EJ_lo }, // ULT
-    { EJ_ls }, // ULE
-    { EJ_hs }, // UGE
-    { EJ_hi }, // UGT
-    { EJ_hs }, // C
-    { EJ_lo }, // NC
-
-    { EJ_eq },                // FEQ
-    { EJ_gt, GT_AND, EJ_lo }, // FNE
-    { EJ_lo },                // FLT
-    { EJ_ls },                // FLE
-    { EJ_ge },                // FGE
-    { EJ_gt },                // FGT
-    { EJ_vs },                // O
-    { EJ_vc },                // NO
-
-    { EJ_eq, GT_OR, EJ_vs },  // FEQU
-    { EJ_ne },                // FNEU
-    { EJ_lt },                // FLTU
-    { EJ_le },                // FLEU
-    { EJ_hs },                // FGEU
-    { EJ_hi },                // FGTU
-    { },                      // P
-    { },                      // NP
-};
-// clang-format on
-
 void CodeGen::genScaledAdd(emitAttr attr, regNumber targetReg, regNumber baseReg, regNumber indexReg, int scale)
 {
     emitter* emit = GetEmitter();

@@ -2006,35 +2006,6 @@ void CodeGen::GenJCC(GenTreeCC* jcc, BasicBlock* block)
     inst_JCC(jcc->GetCondition(), block->bbJumpDest);
 }
 
-//------------------------------------------------------------------------
-// inst_JCC: Generate a conditional branch instruction sequence.
-//
-// Arguments:
-//   condition - The branch condition
-//   target    - The basic block to jump to when the condition is true
-//
-void CodeGen::inst_JCC(GenCondition condition, BasicBlock* target)
-{
-    const GenConditionDesc& desc = GenConditionDesc::Get(condition);
-
-    if (desc.oper == GT_NONE)
-    {
-        inst_JMP(desc.jumpKind1, target);
-    }
-    else if (desc.oper == GT_OR)
-    {
-        inst_JMP(desc.jumpKind1, target);
-        inst_JMP(desc.jumpKind2, target);
-    }
-    else // if (desc.oper == GT_AND)
-    {
-        BasicBlock* labelNext = genCreateTempLabel();
-        inst_JMP(emitter::emitReverseJumpKind(desc.jumpKind1), labelNext);
-        inst_JMP(desc.jumpKind2, target);
-        genDefineTempLabel(labelNext);
-    }
-}
-
 void CodeGen::genCodeForSetcc(GenTreeCC* setcc)
 {
     assert(setcc->OperIs(GT_SETCC));
