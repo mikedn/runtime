@@ -306,6 +306,11 @@ size_t emitter::instrDescSmall::GetDescSize() const
     }
 }
 
+int64_t emitter::emitGetInsSC(instrDesc* id)
+{
+    return id->idIsLargeCns() ? static_cast<instrDescCns*>(id)->idcCnsVal : id->idSmallCns();
+}
+
 #ifdef DEBUG
 /*****************************************************************************
  *

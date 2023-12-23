@@ -220,6 +220,11 @@ bool offsetFitsInVectorMem(int disp)
     return ((imm & 0x03fc) == imm);
 }
 
+int32_t emitter::emitGetInsSC(instrDesc* id)
+{
+    return id->idIsLargeCns() ? static_cast<instrDescCns*>(id)->idcCnsVal : id->idSmallCns();
+}
+
 #ifdef DEBUG
 /*****************************************************************************
  *

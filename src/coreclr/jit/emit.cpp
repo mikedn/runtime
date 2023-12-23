@@ -3978,20 +3978,6 @@ void emitter::emitDispDataSec(dataSecDsc* section)
 }
 #endif
 
-#ifndef TARGET_XARCH
-target_ssize_t emitter::emitGetInsSC(instrDesc* id)
-{
-    if (id->idIsLargeCns())
-    {
-        return static_cast<instrDescCns*>(id)->idcCnsVal;
-    }
-    else
-    {
-        return id->idSmallCns();
-    }
-}
-#endif
-
 // A helper for recording a relocation with the EE.
 void emitter::emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta)
 {

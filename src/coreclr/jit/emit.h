@@ -1353,10 +1353,6 @@ private:
 
     size_t emitGetInstrDescSizeSC(const instrDesc* id);
 
-#ifndef TARGET_XARCH
-    target_ssize_t emitGetInsSC(instrDesc* id);
-#endif
-
 #ifdef DEBUG
     static const char* emitIfName(unsigned f);
 
