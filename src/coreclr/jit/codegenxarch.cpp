@@ -1152,21 +1152,25 @@ void CodeGen::inst_JCC(GenCondition condition, BasicBlock* target)
 {
     const GenConditionDesc& desc = GenConditionDesc::Get(condition);
 
+#if !FEATURE_FIXED_OUT_ARGS
+    assert(target->bbTgtStkDepth == 0);
+#endif
+
     if (desc.oper == GT_NONE)
     {
-        inst_JMP(desc.jumpKind1, target);
+        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), target);
     }
     else if (desc.oper == GT_OR)
     {
-        inst_JMP(desc.jumpKind1, target);
-        inst_JMP(desc.jumpKind2, target);
+        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), target);
+        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), target);
     }
     else
     {
         assert(desc.oper == GT_AND);
         BasicBlock* labelNext = genCreateTempLabel();
         GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(desc.jumpKind1)), labelNext);
-        inst_JMP(desc.jumpKind2, target);
+        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), target);
         genDefineTempLabel(labelNext);
     }
 }
