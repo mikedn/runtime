@@ -2446,18 +2446,9 @@ void emitter::emitLoopAlignAdjustments()
             adjOffIG->igOffs -= alignBytesRemoved;
             adjOffIG = adjOffIG->igNext;
         }
-
-        if (actualPaddingNeeded > 0)
-        {
-            // Record the last IG that has align instruction. No overestimation
-            // adjustment will be done after emitLastAlignedIgNum.
-            emitLastAlignedIgNum = alignIG->igNum;
-        }
     }
 
-#ifdef DEBUG
-    emitCheckIGoffsets();
-#endif
+    INDEBUG(emitCheckIGoffsets());
 }
 
 //-----------------------------------------------------------------------------

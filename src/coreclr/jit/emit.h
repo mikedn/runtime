@@ -1487,12 +1487,11 @@ public:
     void emitLoopAlignAdjustments(); // Predict if loop alignment is needed and make appropriate adjustments
 
 private:
-    instrDescAlign* emitCurIGAlignList   = nullptr; // list of align instructions in current IG
-    unsigned        emitLastLoopStart    = 0;       // Start IG of last inner loop
-    unsigned        emitLastLoopEnd      = 0;       // End IG of last inner loop
-    unsigned        emitLastAlignedIgNum = 0;       // last IG that has align instruction
-    instrDescAlign* emitAlignList        = nullptr; // list of local align instructions in method
-    instrDescAlign* emitAlignLast        = nullptr; // last align instruction in method
+    instrDescAlign* emitCurIGAlignList = nullptr; // list of align instructions in current IG
+    unsigned        emitLastLoopStart  = 0;       // Start IG of last inner loop
+    unsigned        emitLastLoopEnd    = 0;       // End IG of last inner loop
+    instrDescAlign* emitAlignList      = nullptr; // list of local align instructions in method
+    instrDescAlign* emitAlignLast      = nullptr; // last align instruction in method
     unsigned getLoopSize(insGroup* igLoopHeader,
                          unsigned maxLoopSize DEBUG_ARG(bool isAlignAdjusted)); // Get the smallest loop size
     unsigned emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offset DEBUG_ARG(bool isAlignAdjusted));
