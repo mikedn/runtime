@@ -1437,9 +1437,6 @@ public:
     BYTE*  emitConsBlock;     // Read-only (constant) data block
     size_t writeableOffset;   // Offset applied to a code address to get memory location that can be written
 
-    UNATIVE_OFFSET emitTotalHotCodeSize;
-    UNATIVE_OFFSET emitTotalColdCodeSize;
-
     UNATIVE_OFFSET emitCurCodeOffs(BYTE* dst);
     BYTE* emitOffsetToPtr(UNATIVE_OFFSET offset);
     BYTE* emitDataOffsetToPtr(UNATIVE_OFFSET offset);
@@ -1510,10 +1507,15 @@ private:
     BYTE* emitCurIGfreeEndp;           // one byte past the last available byte in buffer
     BYTE* emitCurIGfreeBase = nullptr; // first byte address
 
+    instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
+
     unsigned       emitCurIGinsCnt;       // # of collected instr's in buffer
     unsigned       emitCurIGsize;         // estimated code size of current group in bytes
     UNATIVE_OFFSET emitCurCodeOffset = 0; // current code offset within group
+
     UNATIVE_OFFSET emitTotalCodeSize = 0; // bytes of code in entire method
+    UNATIVE_OFFSET emitTotalHotCodeSize;
+    UNATIVE_OFFSET emitTotalColdCodeSize;
 
     insGroup* emitFirstColdIG = nullptr; // first cold instruction group
 
@@ -1524,8 +1526,6 @@ public:
     }
 
 private:
-    instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
-
     VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
 
     static void EncodeCallGCRegs(regMaskTP regs, instrDesc* id);
