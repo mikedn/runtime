@@ -1191,7 +1191,9 @@ void emitter::DefineTempLabel(insGroup* label)
 
 insGroup* emitter::DefineTempLabel()
 {
-    return emitAddLabel();
+    insGroup* label = emitAddLabel();
+    SetLabelGCLiveness(label);
+    return label;
 }
 
 insGroup* emitter::emitAddLabel()
@@ -1211,7 +1213,6 @@ insGroup* emitter::emitAddLabel()
 #endif
 
     emitCurLabel = emitCurIG;
-    SetLabelGCLiveness(emitCurIG);
 
     return emitCurIG;
 }

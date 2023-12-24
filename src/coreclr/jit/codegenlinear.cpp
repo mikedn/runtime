@@ -169,6 +169,7 @@ void CodeGen::genCodeForBBlist()
         if ((block->bbFlags & BBF_HAS_LABEL) != 0)
         {
             insGroup* ig = GetEmitter()->emitAddLabel();
+            GetEmitter()->SetLabelGCLiveness(ig);
 
             JITDUMP("Mapped " FMT_BB " to " FMT_IG "\n", block->bbNum, ig->igNum);
 

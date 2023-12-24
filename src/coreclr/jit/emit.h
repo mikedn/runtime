@@ -1592,20 +1592,11 @@ public:
     insGroup* DefineTempLabel();
     void DefineTempLabel(insGroup* label);
     void DefineInlineTempLabel(insGroup* label);
-
-    // Terminates any in-progress instruction group, making the current IG a new empty one.
-    // Mark this instruction group as having a label; return the the new instruction group.
-    // Sets the emitter's record of the currently live GC variables and registers.
     insGroup* emitAddLabel();
-
-    // Same as above, except the label is added and is conceptually "inline" in
-    // the current block. Thus it extends the previous block and the emitter
-    // continues to track GC info as if there was no label.
+    void SetLabelGCLiveness(insGroup* label);
     insGroup* DefineInlineTempLabel();
 
 private:
-    void SetLabelGCLiveness(insGroup* label);
-
     inline insGroup* emitCodeGetCookie(BasicBlock* block)
     {
         return static_cast<insGroup*>(block->bbEmitCookie);

@@ -2875,6 +2875,7 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
         // would be executed, which we would prefer not to do.
 
         insGroup* ig = GetEmitter()->emitAddLabel();
+        GetEmitter()->SetLabelGCLiveness(ig);
 
         block->bbUnwindNopEmitCookie = ig;
         JITDUMP("\nEmitting finally target NOP predecessor " FMT_IG " for " FMT_BB "\n", ig->igNum, block->bbNum);
