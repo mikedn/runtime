@@ -97,6 +97,11 @@ void CodeGen::genMarkLabelsForCodegen()
 
     for (BasicBlock* const block : compiler->Blocks())
     {
+        block->emitLabel = nullptr;
+#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+        block->unwindNopEmitLabel = nullptr;
+#endif
+
         switch (block->bbJumpKind)
         {
             case BBJ_COND:

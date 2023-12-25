@@ -181,14 +181,12 @@ void CodeGen::genCodeForBBlist()
 
             block->emitLabel = ig;
         }
+#if FEATURE_LOOP_ALIGN
         else
         {
-#if FEATURE_LOOP_ALIGN
             assert(!GetEmitter()->emitEndsWithAlignInstr());
-#endif
-
-            block->emitLabel = nullptr;
         }
+#endif
 
 #if !FEATURE_FIXED_OUT_ARGS
         assert(genStackLevel == 0);

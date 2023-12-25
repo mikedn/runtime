@@ -1077,30 +1077,30 @@ struct BasicBlock : private LIR::Range
      */
 
     union {
-        BitVec bbCseGen; // CSEs computed by block
-#if ASSERTION_PROP
-        ASSERT_TP bbAssertionOutJumpDest; // out assertions for bbJumpDest
-#endif
-    };
+        struct
+        {
+            BitVec bbCseGen; // CSEs computed by block
+            BitVec bbCseIn;  // CSEs available on entry
+            BitVec bbCseOut; // CSEs available on exit
+        };
 
-    union {
-        BitVec bbCseIn; // CSEs available on entry
 #if ASSERTION_PROP
-        ASSERT_TP bbAssertionIn; // value assignments available on entry
+        struct
+        {
+            ASSERT_TP bbAssertionOutJumpDest; // out assertions for bbJumpDest
+            ASSERT_TP bbAssertionIn;          // value assignments available on entry
+            ASSERT_TP bbAssertionOut;         // value assignments available on exit
+        };
 #endif
-    };
 
-    union {
-        BitVec bbCseOut; // CSEs available on exit
-#if ASSERTION_PROP
-        ASSERT_TP bbAssertionOut; // value assignments available on exit
-#endif
-    };
-
-    struct insGroup* emitLabel;
+        struct
+        {
+            struct insGroup* emitLabel;
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    struct insGroup* unwindNopEmitLabel;
+            struct insGroup* unwindNopEmitLabel;
 #endif
+        };
+    };
 
 #if MEASURE_BLOCK_SIZE
     static size_t s_Size;
