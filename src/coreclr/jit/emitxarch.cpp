@@ -3477,7 +3477,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     id->SetLabelBlock(label);
 
     unsigned  sz       = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
-    insGroup* targetIG = emitCodeGetCookie(label);
+    insGroup* targetIG = label->emitLabel;
 
     if ((targetIG != nullptr) && !id->idIsCnsReloc())
     {
@@ -3887,10 +3887,10 @@ void emitter::emitJumpDistBind()
 
         if (instr->HasLabelBlock())
         {
-            insGroup* label = emitCodeGetCookie(instr->GetLabelBlock());
+            insGroup* label = instr->GetLabelBlock()->emitLabel;
 
             assert(label != nullptr);
-            JITDUMP("Binding IN%04X label " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
+            JITDUMP("Binding IN%04X label block " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
                     instr->GetLabelBlock()->bbNum, label->igNum);
 
             instr->SetLabel(label);

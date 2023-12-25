@@ -2293,7 +2293,7 @@ unsigned emitter::getLoopSize(insGroup* igLoopHeader, unsigned maxLoopSize DEBUG
 //
 void emitter::emitSetLoopBackEdge(BasicBlock* loopTopBlock)
 {
-    insGroup* dstIG            = (insGroup*)loopTopBlock->bbEmitCookie;
+    insGroup* dstIG            = loopTopBlock->emitLabel;
     bool      alignCurrentLoop = true;
     bool      alignLastLoop    = true;
 
@@ -2739,7 +2739,7 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
             assert(tgtBlk->bbFlags & BBF_FUNCLET_BEG);
 
             // And now we made it back to where we started
-            assert(tgtIG == emitCodeGetCookie(tgtBlk));
+            assert(tgtIG == tgtBlk->emitLabel);
             assert(tgtIG->igFuncIdx == emitComp->funGetFuncIdx(tgtBlk));
         }
         else if (jmp->idDebugOnlyInfo()->idCatchRet)
@@ -3849,7 +3849,7 @@ void emitter::emitOutputDataSec(dataSecDsc* sec, BYTE* dst)
 
             for (unsigned i = 0; i < numElems; i++)
             {
-                insGroup* lab = emitCodeGetCookie(blocks[i]);
+                insGroup* lab = blocks[i]->emitLabel;
 
                 // Append the appropriate address to the destination
                 BYTE* target = emitOffsetToPtr(lab->igOffs);
@@ -3874,12 +3874,12 @@ void emitter::emitOutputDataSec(dataSecDsc* sec, BYTE* dst)
 
             size_t       numElems = dscSize / 4;
             unsigned*    uDstRW   = (unsigned*)dstRW;
-            insGroup*    labFirst = emitCodeGetCookie(emitComp->fgFirstBB);
+            insGroup*    labFirst = emitComp->fgFirstBB->emitLabel;
             BasicBlock** blocks   = reinterpret_cast<BasicBlock**>(dsc->dsCont);
 
             for (unsigned i = 0; i < numElems; i++)
             {
-                insGroup* lab = emitCodeGetCookie(blocks[i]);
+                insGroup* lab = blocks[i]->emitLabel;
 
                 assert(FitsIn<uint32_t>(lab->igOffs - labFirst->igOffs));
                 uDstRW[i] = lab->igOffs - labFirst->igOffs;
@@ -3924,7 +3924,7 @@ void emitter::emitOutputDataSec(dataSecDsc* sec, BYTE* dst)
 
             size_t     numElems = dscSize / 4;
             unsigned*  uDstRW   = (unsigned*)dstRW;
-            insGroup*  labFirst = emitCodeGetCookie(emitComp->fgFirstBB);
+            insGroup*  labFirst = emitComp->fgFirstBB->emitLabel;
             insGroup** blocks   = reinterpret_cast<insGroup**>(dsc->dsCont);
 
             for (unsigned i = 0; i < numElems; i++)
@@ -4007,7 +4007,7 @@ void emitter::emitDispDataSec(dataSecDsc* section)
 
         if ((data->dsType == dataSection::blockRelative32) || (data->dsType == dataSection::blockAbsoluteAddr))
         {
-            insGroup*    igFirst    = emitCodeGetCookie(emitComp->fgFirstBB);
+            insGroup*    igFirst    = emitComp->fgFirstBB->emitLabel;
             bool         isRelative = (data->dsType == dataSection::blockRelative32);
             size_t       blockCount = data->dsSize / (isRelative ? 4 : TARGET_POINTER_SIZE);
             BasicBlock** blocks     = reinterpret_cast<BasicBlock**>(data->dsCont);
@@ -4019,7 +4019,7 @@ void emitter::emitDispDataSec(dataSecDsc* section)
                     printf(labelFormat, "");
                 }
 
-                insGroup* ig = emitCodeGetCookie(blocks[i]);
+                insGroup* ig = blocks[i]->emitLabel;
 
                 const char* blockLabel = emitLabelString(ig);
                 const char* firstLabel = emitLabelString(igFirst);
@@ -4069,7 +4069,7 @@ void emitter::emitDispDataSec(dataSecDsc* section)
         else if ((data->dsType == dataSection::insGroupRelative32) ||
                  (data->dsType == dataSection::insGroupAbsoluteAddr))
         {
-            insGroup*  igFirst    = emitCodeGetCookie(emitComp->fgFirstBB);
+            insGroup*  igFirst    = emitComp->fgFirstBB->emitLabel;
             bool       isRelative = (data->dsType == dataSection::insGroupRelative32);
             size_t     blockCount = data->dsSize / (isRelative ? 4 : TARGET_POINTER_SIZE);
             insGroup** blocks     = reinterpret_cast<insGroup**>(data->dsCont);

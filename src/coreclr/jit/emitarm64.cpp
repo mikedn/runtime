@@ -8150,10 +8150,10 @@ void emitter::emitJumpDistBind()
     {
         if (instr->HasLabelBlock())
         {
-            insGroup* label = emitCodeGetCookie(instr->GetLabelBlock());
+            insGroup* label = instr->GetLabelBlock()->emitLabel;
 
             assert(label != nullptr);
-            JITDUMP("Binding IN%04X target " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
+            JITDUMP("Binding IN%04X label block " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
                     instr->GetLabelBlock()->bbNum, label->igNum);
 
             instr->SetLabel(label);

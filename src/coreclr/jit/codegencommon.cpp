@@ -1467,8 +1467,8 @@ void CodeGen::genReportEH()
 
                 hndBeg = compiler->ehCodeOffset(block);
 
-                // How big is it? The BBJ_ALWAYS has a null bbEmitCookie! Look for the block after, which must be
-                // a label or jump target, since the BBJ_CALLFINALLY doesn't fall through.
+                // How big is it? The BBJ_ALWAYS has a null label! Look for the block after, which
+                // must be a label or jump target, since the BBJ_CALLFINALLY doesn't fall through.
                 BasicBlock* bbLabel = block->bbNext;
                 if (block->isBBCallAlwaysPair())
                 {
@@ -1480,7 +1480,7 @@ void CodeGen::genReportEH()
                 }
                 else
                 {
-                    assert(bbLabel->bbEmitCookie != nullptr);
+                    assert(bbLabel->emitLabel != nullptr);
                     hndEnd = compiler->ehCodeOffset(bbLabel);
                 }
 

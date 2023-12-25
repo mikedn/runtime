@@ -1520,7 +1520,7 @@ private:
     insGroup* emitFirstColdIG = nullptr; // first cold instruction group
 
 public:
-    void emitSetFirstColdIGCookie(insGroup* ig)
+    void emitSetFirstColdLabel(insGroup* ig)
     {
         emitFirstColdIG = ig;
     }
@@ -1597,11 +1597,6 @@ public:
     insGroup* DefineInlineTempLabel();
 
 private:
-    inline insGroup* emitCodeGetCookie(BasicBlock* block)
-    {
-        return static_cast<insGroup*>(block->bbEmitCookie);
-    }
-
 #ifdef TARGET_ARMARCH
     void emitGetInstrDescs(insGroup* ig, instrDesc** id, int* insCnt);
     bool emitGetLocationInfo(emitLocation* emitLoc, insGroup** pig, instrDesc** pid, int* pinsRemaining = NULL);

@@ -176,10 +176,10 @@ void CodeGen::genCodeForBBlist()
             if (block == compiler->fgFirstColdBlock)
             {
                 JITDUMP("\nThis is the start of the cold region of the method\n");
-                GetEmitter()->emitSetFirstColdIGCookie(ig);
+                GetEmitter()->emitSetFirstColdLabel(ig);
             }
 
-            block->bbEmitCookie = ig;
+            block->emitLabel = ig;
         }
         else
         {
@@ -187,7 +187,7 @@ void CodeGen::genCodeForBBlist()
             assert(!GetEmitter()->emitEndsWithAlignInstr());
 #endif
 
-            block->bbEmitCookie = nullptr;
+            block->emitLabel = nullptr;
         }
 
 #if !FEATURE_FIXED_OUT_ARGS

@@ -4069,7 +4069,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
 
     if (!id->idIsCnsReloc())
     {
-        if (insGroup* targetIG = emitCodeGetCookie(label))
+        if (insGroup* targetIG = label->emitLabel)
         {
             // This is a backward jump, we can determine now if it's going to be short/medium/large.
 
@@ -4326,10 +4326,10 @@ void emitter::emitJumpDistBind()
     {
         if (instr->HasLabelBlock())
         {
-            insGroup* label = emitCodeGetCookie(instr->GetLabelBlock());
+            insGroup* label = instr->GetLabelBlock()->emitLabel;
 
             assert(label != nullptr);
-            JITDUMP("Binding IN%04X target " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
+            JITDUMP("Binding IN%04X label block " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
                     instr->GetLabelBlock()->bbNum, label->igNum);
 
             instr->SetLabel(label);

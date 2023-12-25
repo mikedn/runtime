@@ -67,13 +67,13 @@ void Compiler::unwindGetFuncLocations(FuncInfoDsc*             func,
                 // The hot section only goes up to the cold section
                 assert(fgFirstFuncletBB == nullptr);
 
-                *ppEndLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitCookie(fgFirstColdBlock));
+                *ppEndLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitLabel(fgFirstColdBlock));
             }
             else
             {
                 if (fgFirstFuncletBB != nullptr)
                 {
-                    *ppEndLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitCookie(fgFirstFuncletBB));
+                    *ppEndLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitLabel(fgFirstFuncletBB));
                 }
                 else
                 {
@@ -86,7 +86,7 @@ void Compiler::unwindGetFuncLocations(FuncInfoDsc*             func,
             assert(fgFirstFuncletBB == nullptr); // TODO-CQ: support hot/cold splitting in functions with EH
             assert(fgFirstColdBlock != nullptr); // There better be a cold section!
 
-            *ppStartLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitCookie(fgFirstColdBlock));
+            *ppStartLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitLabel(fgFirstColdBlock));
             *ppEndLoc   = nullptr; // nullptr end location means the end of the code
         }
     }
@@ -99,16 +99,16 @@ void Compiler::unwindGetFuncLocations(FuncInfoDsc*             func,
         if (func->funKind == FUNC_FILTER)
         {
             assert(HBtab->HasFilter());
-            *ppStartLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitCookie(HBtab->ebdFilter));
-            *ppEndLoc   = new (this, CMK_UnwindInfo) emitLocation(ehEmitCookie(HBtab->ebdHndBeg));
+            *ppStartLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdFilter));
+            *ppEndLoc   = new (this, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdHndBeg));
         }
         else
         {
             assert(func->funKind == FUNC_HANDLER);
-            *ppStartLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitCookie(HBtab->ebdHndBeg));
+            *ppStartLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdHndBeg));
             *ppEndLoc   = (HBtab->ebdHndLast->bbNext == nullptr)
                             ? nullptr
-                            : new (this, CMK_UnwindInfo) emitLocation(ehEmitCookie(HBtab->ebdHndLast->bbNext));
+                            : new (this, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdHndLast->bbNext));
         }
     }
 }

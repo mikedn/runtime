@@ -1038,30 +1038,30 @@ unsigned Compiler::bbThrowIndex(BasicBlock* blk)
 #endif // FEATURE_EH_FUNCLETS
 
 /*****************************************************************************
- * Determine the emitter code cookie for a block, for unwind purposes.
+ * Determine the emitter code label for a block, for unwind purposes.
  */
 
-insGroup* Compiler::ehEmitCookie(BasicBlock* block)
+insGroup* Compiler::ehEmitLabel(BasicBlock* block)
 {
     noway_assert(block != nullptr);
 
-    insGroup* cookie;
+    insGroup* label;
 
 #ifdef TARGET_ARM
     if ((block->bbFlags & BBF_FINALLY_TARGET) != 0)
     {
         // Use the offset of the beginning of the NOP padding, not the main block.
         // This might include loop head padding, too, if this is a loop head.
-        cookie = block->bbUnwindNopEmitCookie;
+        label = block->unwindNopEmitLabel;
     }
     else
 #endif
     {
-        cookie = block->bbEmitCookie;
+        label = block->emitLabel;
     }
 
-    noway_assert(cookie != nullptr);
-    return cookie;
+    noway_assert(label != nullptr);
+    return label;
 }
 
 /*****************************************************************************
@@ -1071,7 +1071,7 @@ insGroup* Compiler::ehEmitCookie(BasicBlock* block)
 
 UNATIVE_OFFSET Compiler::ehCodeOffset(BasicBlock* block)
 {
-    return GetEmitter()->emitCodeOffset(ehEmitCookie(block));
+    return GetEmitter()->emitCodeOffset(ehEmitLabel(block));
 }
 
 /****************************************************************************/
