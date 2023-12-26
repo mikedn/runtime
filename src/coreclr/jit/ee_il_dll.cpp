@@ -793,38 +793,25 @@ void Compiler::compInitSortedScopeLists()
                  });
 }
 
-void Compiler::compResetScopeLists()
+VarScopeDsc* Compiler::compGetNextEnterScope(unsigned offs, unsigned* nextEnterScope)
 {
-    if (info.compVarScopesCount == 0)
-    {
-        return;
-    }
-
-    assert(compVarScopeExtended || (compEnterScopeList != nullptr) && (compExitScopeList != nullptr));
-
-    compNextEnterScope = 0;
-    compNextExitScope  = 0;
-}
-
-VarScopeDsc* Compiler::compGetNextEnterScope(unsigned offs)
-{
-    if (compNextEnterScope < info.compVarScopesCount)
+    if (*nextEnterScope < info.compVarScopesCount)
     {
         if (compVarScopeExtended)
         {
             if (offs == 0)
             {
-                return &info.compVarScopes[compNextEnterScope++];
+                return &info.compVarScopes[(*nextEnterScope)++];
             }
         }
         else
         {
-            unsigned nextEnterOffs = compEnterScopeList[compNextEnterScope]->vsdLifeBeg;
+            unsigned nextEnterOffs = compEnterScopeList[*nextEnterScope]->vsdLifeBeg;
             assert(offs <= nextEnterOffs);
 
             if (nextEnterOffs == offs)
             {
-                return compEnterScopeList[compNextEnterScope++];
+                return compEnterScopeList[(*nextEnterScope)++];
             }
         }
     }
@@ -832,25 +819,25 @@ VarScopeDsc* Compiler::compGetNextEnterScope(unsigned offs)
     return nullptr;
 }
 
-VarScopeDsc* Compiler::compGetNextExitScope(unsigned offs)
+VarScopeDsc* Compiler::compGetNextExitScope(unsigned offs, unsigned* nextExitScope)
 {
-    if (compNextExitScope < info.compVarScopesCount)
+    if (*nextExitScope < info.compVarScopesCount)
     {
         if (compVarScopeExtended)
         {
             if (offs == info.compILCodeSize)
             {
-                return &info.compVarScopes[compNextExitScope++];
+                return &info.compVarScopes[(*nextExitScope)++];
             }
         }
         else
         {
-            unsigned nextExitOffs = compExitScopeList[compNextExitScope]->vsdLifeEnd;
+            unsigned nextExitOffs = compExitScopeList[*nextExitScope]->vsdLifeEnd;
             assert(offs <= nextExitOffs);
 
             if (nextExitOffs == offs)
             {
-                return compExitScopeList[compNextExitScope++];
+                return compExitScopeList[(*nextExitScope)++];
             }
         }
     }
@@ -858,37 +845,37 @@ VarScopeDsc* Compiler::compGetNextExitScope(unsigned offs)
     return nullptr;
 }
 
-VarScopeDsc* Compiler::compGetNextEnterScopeScan(unsigned offs)
+VarScopeDsc* Compiler::compGetNextEnterScopeScan(unsigned offs, unsigned* nextEnterScope)
 {
-    if (compNextEnterScope < info.compVarScopesCount)
+    if (*nextEnterScope < info.compVarScopesCount)
     {
         if (compVarScopeExtended)
         {
-            return &info.compVarScopes[compNextEnterScope++];
+            return &info.compVarScopes[(*nextEnterScope)++];
         }
-        else if (offs >= compEnterScopeList[compNextEnterScope]->vsdLifeBeg)
+        else if (offs >= compEnterScopeList[*nextEnterScope]->vsdLifeBeg)
         {
-            return compEnterScopeList[compNextEnterScope++];
+            return compEnterScopeList[(*nextEnterScope)++];
         }
     }
 
     return nullptr;
 }
 
-VarScopeDsc* Compiler::compGetNextExitScopeScan(unsigned offs)
+VarScopeDsc* Compiler::compGetNextExitScopeScan(unsigned offs, unsigned* nextExitScope)
 {
-    if (compNextExitScope < info.compVarScopesCount)
+    if (*nextExitScope < info.compVarScopesCount)
     {
         if (compVarScopeExtended)
         {
             if (offs >= info.compILCodeSize)
             {
-                return &info.compVarScopes[compNextExitScope++];
+                return &info.compVarScopes[(*nextExitScope)++];
             }
         }
-        else if (offs >= compExitScopeList[compNextExitScope]->vsdLifeEnd)
+        else if (offs >= compExitScopeList[*nextExitScope]->vsdLifeEnd)
         {
-            return compExitScopeList[compNextExitScope++];
+            return compExitScopeList[(*nextExitScope)++];
         }
     }
 

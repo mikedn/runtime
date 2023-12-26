@@ -20,12 +20,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 void CodeGen::genInitialize()
 {
-    // Initialize the line# tracking logic
-    if (compiler->opts.compScopeInfo)
-    {
-        siInit();
-    }
-
     initializeVariableLiveKeeper();
 
     genPendingCallLabel = nullptr;
@@ -138,6 +132,9 @@ void CodeGen::genCodeForBBlist()
     /* Initialize structures used in the block list iteration */
     genInitialize();
 
+    unsigned nextEnterScope = 0;
+    unsigned nextExitScope  = 0;
+
     for (BasicBlock* block = compiler->fgFirstBB; block != nullptr; block = block->bbNext)
     {
 #ifdef DEBUG
@@ -195,8 +192,10 @@ void CodeGen::genCodeForBBlist()
         unsigned savedStkLvl = genStackLevel;
 #endif
 
-        // Needed when jitting debug code
-        siBeginBlock(block);
+        if (compiler->opts.compScopeInfo)
+        {
+            siBeginBlock(block, &nextEnterScope, &nextExitScope);
+        }
 
         // BBF_INTERNAL blocks don't correspond to any single IL instruction.
         if (compiler->opts.compDbgInfo && (block->bbFlags & BBF_INTERNAL) &&

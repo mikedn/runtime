@@ -509,10 +509,12 @@ public:
     void genSetScopeInfoUsingVariableRanges();
 
 public:
-    void siInit();
-    void siBeginBlock(BasicBlock* block);
+    void siBeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
+    void siOpenScopesForNonTrackedVars(const BasicBlock* block,
+                                       unsigned          lastBlockILEndOffset,
+                                       unsigned*         nextEnterScope,
+                                       unsigned*         nextExitScope);
     void siEndBlock(BasicBlock* block);
-    void siOpenScopesForNonTrackedVars(const BasicBlock* block, unsigned lastBlockILEndOffset);
 
 protected:
 #ifdef FEATURE_EH_FUNCLETS

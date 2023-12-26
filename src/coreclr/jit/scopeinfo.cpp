@@ -388,19 +388,9 @@ void CodeGenInterface::dumpSiVarLoc(const siVarLoc* varLoc) const
 }
 #endif
 
-void CodeGen::siInit()
+void CodeGen::siBeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope)
 {
     assert(compiler->opts.compScopeInfo);
-
-    compiler->compResetScopeLists();
-}
-
-void CodeGen::siBeginBlock(BasicBlock* block)
-{
-    if (!compiler->opts.compScopeInfo)
-    {
-        return;
-    }
 
     if (compiler->info.compVarScopesCount == 0)
     {
@@ -448,11 +438,14 @@ void CodeGen::siBeginBlock(BasicBlock* block)
     // locals, untracked locals will fail to be reported.
     if (compiler->lvaTrackedCount == 0)
     {
-        siOpenScopesForNonTrackedVars(block, siLastEndOffs);
+        siOpenScopesForNonTrackedVars(block, siLastEndOffs, nextEnterScope, nextExitScope);
     }
 }
 
-void CodeGen::siOpenScopesForNonTrackedVars(const BasicBlock* block, unsigned lastBlockILEndOffset)
+void CodeGen::siOpenScopesForNonTrackedVars(const BasicBlock* block,
+                                            unsigned          lastBlockILEndOffset,
+                                            unsigned*         nextEnterScope,
+                                            unsigned*         nextExitScope)
 {
     unsigned beginOffs = block->bbCodeOffs;
 
@@ -475,12 +468,12 @@ void CodeGen::siOpenScopesForNonTrackedVars(const BasicBlock* block, unsigned la
         JITDUMP("Scope info: found offset hole. lastOffs=%u, currOffs=%u\n", lastBlockILEndOffset, beginOffs);
 
         // Skip enter & exit scopes
-        for (VarScopeDsc* scope; (scope = compiler->compGetNextEnterScopeScan(beginOffs - 1)) != nullptr;)
+        while (VarScopeDsc* scope = compiler->compGetNextEnterScopeScan(beginOffs - 1, nextEnterScope))
         {
             JITDUMP("Scope info: skipping enter scope, LVnum=%u\n", scope->vsdLVnum);
         }
 
-        for (VarScopeDsc* scope; (scope = compiler->compGetNextExitScopeScan(beginOffs - 1)) != nullptr;)
+        while (VarScopeDsc* scope = compiler->compGetNextExitScopeScan(beginOffs - 1, nextExitScope))
         {
             JITDUMP("Scope info: skipping exit scope, LVnum=%u\n", scope->vsdLVnum);
         }
@@ -499,7 +492,7 @@ void CodeGen::siOpenScopesForNonTrackedVars(const BasicBlock* block, unsigned la
     // report them as beign born from here on the stack until the whole method is
     // generated.
 
-    for (VarScopeDsc* scope; (scope = compiler->compGetNextEnterScope(beginOffs)) != nullptr;)
+    while (VarScopeDsc* scope = compiler->compGetNextEnterScope(beginOffs, nextEnterScope))
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(scope->vsdVarNum);
 
@@ -556,9 +549,9 @@ void CodeGen::psiBegProlog()
 {
     assert(generatingProlog);
 
-    compiler->compResetScopeLists();
+    unsigned nextEnterScope = 0;
 
-    for (VarScopeDsc* scope; (scope = compiler->compGetNextEnterScope(0)) != nullptr;)
+    while (VarScopeDsc* scope = compiler->compGetNextEnterScope(0, &nextEnterScope))
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(scope->vsdVarNum);
 

@@ -6330,17 +6330,14 @@ public:
 
     VarScopeDsc** compEnterScopeList; // List has the offsets where variables enter scope, sorted by instr offset
     VarScopeDsc** compExitScopeList;  // List has the offsets where variables go out of scope, sorted by instr offset
-    unsigned      compNextEnterScope;
-    unsigned      compNextExitScope;
 
     bool compVarScopeExtended = false;
 
     void         compInitSortedScopeLists();
-    void         compResetScopeLists();
-    VarScopeDsc* compGetNextEnterScope(unsigned offs);
-    VarScopeDsc* compGetNextExitScope(unsigned offs);
-    VarScopeDsc* compGetNextEnterScopeScan(unsigned offs);
-    VarScopeDsc* compGetNextExitScopeScan(unsigned offs);
+    VarScopeDsc* compGetNextEnterScope(unsigned offs, unsigned* nextEnterScope);
+    VarScopeDsc* compGetNextExitScope(unsigned offs, unsigned* nextExitScope);
+    VarScopeDsc* compGetNextEnterScopeScan(unsigned offs, unsigned* nextEnterScope);
+    VarScopeDsc* compGetNextExitScopeScan(unsigned offs, unsigned* nextExitScope);
 
     bool compIsProfilerHookNeeded();
 
