@@ -1303,10 +1303,10 @@ public:
 #endif
         };
 
-        unsigned int m_LiveDscCount;  // count of args, special args, and IL local variables to report home
-        unsigned int m_LiveArgsCount; // count of arguments to report home
-
         Compiler* m_Compiler;
+
+        unsigned m_LiveDscCount;  // count of args, special args, and IL local variables to report home
+        unsigned m_LiveArgsCount; // count of arguments to report home
 
         VariableLiveDescriptor* m_vlrLiveDsc; // Array of descriptors that manage VariableLiveRanges.
         // Its indices correspond to lvaTable indexes.
@@ -1314,14 +1314,11 @@ public:
         VariableLiveDescriptor* m_vlrLiveDscForProlog; // Array of descriptors that manage VariableLiveRanges.
         // Its indices correspond to lvaTable indexes.
 
-        bool m_LastBasicBlockHasBeenEmited; // When true no more siEndVariableLiveRange is considered.
+        bool m_LastBasicBlockHasBeenEmited = false; // When true no more siEndVariableLiveRange is considered.
         // No update/start happens when code has been generated.
 
     public:
-        VariableLiveKeeper(unsigned int  totalLocalCount,
-                           unsigned int  argsCount,
-                           Compiler*     compiler,
-                           CompAllocator allocator);
+        VariableLiveKeeper(Compiler* compiler, CompAllocator allocator);
 
         void siStartOrCloseVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum, bool isBorn, bool isDying);
         void siStartVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum);

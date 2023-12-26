@@ -5945,10 +5945,7 @@ void CodeGen::initializeVariableLiveKeeper()
 {
     CompAllocator allocator = compiler->getAllocator(CMK_VariableLiveRanges);
 
-    int amountTrackedVariables = compiler->opts.compDbgInfo ? compiler->info.compLocalsCount : 0;
-    int amountTrackedArgs      = compiler->opts.compDbgInfo ? compiler->info.compArgsCount : 0;
-
-    varLiveKeeper = new (allocator) VariableLiveKeeper(amountTrackedVariables, amountTrackedArgs, compiler, allocator);
+    varLiveKeeper = new (allocator) VariableLiveKeeper(compiler, allocator);
 }
 
 CodeGen::VariableLiveKeeper* CodeGen::getVariableLiveKeeper() const
@@ -5956,24 +5953,10 @@ CodeGen::VariableLiveKeeper* CodeGen::getVariableLiveKeeper() const
     return varLiveKeeper;
 };
 
-//------------------------------------------------------------------------
-// VariableLiveKeeper: Create an instance of the object in charge of managing
-//  VariableLiveRanges and intialize the array "m_vlrLiveDsc".
-//
-// Arguments:
-//    totalLocalCount   - the count of args, special args and IL Local
-//      variables in the method.
-//    argsCount         - the count of args and special args in the method.
-//    compiler          - a compiler instance
-//
-CodeGen::VariableLiveKeeper::VariableLiveKeeper(unsigned int  totalLocalCount,
-                                                unsigned int  argsCount,
-                                                Compiler*     comp,
-                                                CompAllocator allocator)
-    : m_LiveDscCount(totalLocalCount)
-    , m_LiveArgsCount(argsCount)
-    , m_Compiler(comp)
-    , m_LastBasicBlockHasBeenEmited(false)
+CodeGen::VariableLiveKeeper::VariableLiveKeeper(Compiler* comp, CompAllocator allocator)
+    : m_Compiler(comp)
+    , m_LiveDscCount(comp->opts.compDbgInfo ? comp->info.compLocalsCount : 0)
+    , m_LiveArgsCount(comp->opts.compDbgInfo ? comp->info.compArgsCount : 0)
 {
     if (m_LiveDscCount > 0)
     {
