@@ -388,46 +388,31 @@ void CodeGenInterface::siVarLoc::siFillRegisterVarLoc(
             break;
 #endif // !TARGET_64BIT
 
-#ifdef TARGET_64BIT
         case TYP_FLOAT:
         case TYP_DOUBLE:
-            // TODO-AMD64-Bug: ndp\clr\src\inc\corinfo.h has a definition of RegNum that only goes up to R15,
-            // so no XMM registers can get debug information.
-            this->vlType       = VLT_REG_FP;
-            this->vlReg.vlrReg = varDsc->GetRegNum();
-            break;
-
-#else // !TARGET_64BIT
-
-        case TYP_FLOAT:
-        case TYP_DOUBLE:
-            if (varTypeUsesFloatReg(type))
-            {
-                this->vlType         = VLT_FPSTK;
-                this->vlFPstk.vlfReg = varDsc->GetRegNum();
-            }
-            break;
-
-#endif // !TARGET_64BIT
-
 #ifdef FEATURE_SIMD
         case TYP_SIMD8:
         case TYP_SIMD12:
         case TYP_SIMD16:
         case TYP_SIMD32:
-            this->vlType = VLT_REG_FP;
-
-            // TODO-AMD64-Bug: ndp\clr\src\inc\corinfo.h has a definition of RegNum that only goes up to R15,
-            // so no XMM registers can get debug information.
-            //
-            // Note: Need to initialize vlrReg field, otherwise during jit dump hitting an assert
-            // in eeDispVar() --> getRegName() that regNumber is valid.
-            this->vlReg.vlrReg = varDsc->GetRegNum();
+#endif
+#ifdef TARGET_X86
+            // TODO-MIKE-Review: Debugger doesn't support VLT_REG_FP on x86 so we use VLT_FPSTK,
+            // even if the variable is not actually on the x87 FP stack. It doesn't really matter
+            // as the debugger returns CORDBG_E_IL_VAR_NOT_AVAILABLE for VLT_FPSTK anyway.
+            vlType         = VLT_FPSTK;
+            vlFPstk.vlfReg = varDsc->GetRegNum();
+#else
+            // TODO-MIKE-Review: It looks like for VLT_REG_FP the debugger expects the 0 based index
+            // of the vector register in vlrReg (e.g. varDsc->GetRegNum() - REG_XMM0).
+            // Also note that on ARM the debugger always returns E_NOTIMPL.
+            vlType       = VLT_REG_FP;
+            vlReg.vlrReg = varDsc->GetRegNum();
+#endif
             break;
-#endif // FEATURE_SIMD
 
         default:
-            noway_assert(!"Invalid type");
+            unreached();
     }
 }
 
