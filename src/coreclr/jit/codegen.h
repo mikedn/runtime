@@ -497,13 +497,8 @@ public:
 
     void genEnsureCodeEmitted(IL_OFFSETX offsx);
 
-    void genSetScopeInfo(unsigned  index,
-                         uint32_t  startOffs,
-                         uint32_t  length,
-                         uint32_t  varNum,
-                         unsigned  LVnum,
-                         bool      avail,
-                         siVarLoc* varLoc);
+    void genSetScopeInfo(
+        unsigned index, uint32_t startOffs, uint32_t length, uint32_t lclNum, bool avail, siVarLoc* varLoc);
 
     void genSetScopeInfo();
     void genSetScopeInfoUsingVariableRanges();

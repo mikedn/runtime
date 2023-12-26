@@ -4503,11 +4503,11 @@ void CodeGen::genSetScopeInfoUsingVariableRanges()
 {
     unsigned int liveRangeIndex = 0;
 
-    for (unsigned int varNum = 0; varNum < compiler->info.compLocalsCount; varNum++)
+    for (unsigned int lclNum = 0; lclNum < compiler->info.compLocalsCount; lclNum++)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+        LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
 
-        if (compiler->compMap2ILvarNum(varNum) != (unsigned int)ICorDebugInfo::UNKNOWN_ILNUM)
+        if (compiler->compMap2ILvarNum(lclNum) != (unsigned int)ICorDebugInfo::UNKNOWN_ILNUM)
         {
             VariableLiveKeeper::LiveRangeList* liveRanges = nullptr;
 
@@ -4515,11 +4515,11 @@ void CodeGen::genSetScopeInfoUsingVariableRanges()
             {
                 if (rangeIndex == 0)
                 {
-                    liveRanges = varLiveKeeper->getLiveRangesForVarForProlog(varNum);
+                    liveRanges = varLiveKeeper->getLiveRangesForVarForProlog(lclNum);
                 }
                 else
                 {
-                    liveRanges = varLiveKeeper->getLiveRangesForVarForBody(varNum);
+                    liveRanges = varLiveKeeper->getLiveRangesForVarForBody(lclNum);
                 }
                 for (VariableLiveKeeper::VariableLiveRange& liveRange : *liveRanges)
                 {
@@ -4535,8 +4535,7 @@ void CodeGen::genSetScopeInfoUsingVariableRanges()
                         endOffs++;
                     }
 
-                    genSetScopeInfo(liveRangeIndex, startOffs, endOffs - startOffs, varNum,
-                                    varNum /* I dont know what is the which in eeGetLvInfo */, true,
+                    genSetScopeInfo(liveRangeIndex, startOffs, endOffs - startOffs, lclNum, true,
                                     &liveRange.m_VarLocation);
                     liveRangeIndex++;
                 }
@@ -4546,14 +4545,14 @@ void CodeGen::genSetScopeInfoUsingVariableRanges()
 }
 
 void CodeGen::genSetScopeInfo(
-    unsigned index, uint32_t startOffs, uint32_t length, uint32_t varNum, unsigned LVnum, bool avail, siVarLoc* varLoc)
+    unsigned index, uint32_t startOffs, uint32_t length, uint32_t lclNum, bool avail, siVarLoc* varLoc)
 {
-    unsigned ilVarNum = compiler->compMap2ILvarNum(varNum);
+    unsigned ilVarNum = compiler->compMap2ILvarNum(lclNum);
     noway_assert((int)ilVarNum != ICorDebugInfo::UNKNOWN_ILNUM);
 
 #ifdef TARGET_X86
-    if (compiler->info.compIsVarArgs && (varNum != compiler->lvaVarargsHandleArg) &&
-        (varNum < compiler->info.compArgsCount) && !compiler->lvaGetDesc(varNum)->IsRegParam())
+    if (compiler->info.compIsVarArgs && (lclNum != compiler->lvaVarargsHandleArg) &&
+        (lclNum < compiler->info.compArgsCount) && !compiler->lvaGetDesc(lclNum)->IsRegParam())
     {
         noway_assert((varLoc->vlType == VLT_STK) || (varLoc->vlType == VLT_STK2));
 
@@ -4571,7 +4570,7 @@ void CodeGen::genSetScopeInfo(
             return;
         }
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(varNum);
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
         // Can't check varLcl->lvOnFrame as we don't set it for params
         // of vararg functions to avoid reporting them to GC.
@@ -4596,7 +4595,7 @@ void CodeGen::genSetScopeInfo(
 
     for (unsigned scopeNum = 0; scopeNum < compiler->info.compVarScopesCount; scopeNum++)
     {
-        if (LVnum == compiler->info.compVarScopes[scopeNum].vsdLVnum)
+        if (lclNum == compiler->info.compVarScopes[scopeNum].vsdLVnum)
         {
             name = compiler->info.compVarScopes[scopeNum].vsdName;
         }
@@ -4605,7 +4604,7 @@ void CodeGen::genSetScopeInfo(
     TrnslLocalVarInfo& tlvi = genTrnslLocalVarInfo[index];
 
     tlvi.tlviVarNum    = ilVarNum;
-    tlvi.tlviLVnum     = LVnum;
+    tlvi.tlviLVnum     = lclNum;
     tlvi.tlviName      = name;
     tlvi.tlviStartPC   = startOffs;
     tlvi.tlviLength    = length;
