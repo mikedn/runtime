@@ -380,7 +380,6 @@ public:
 
         bool vlIsInReg(regNumber reg) const;
         bool vlIsOnStack(regNumber reg, int32_t offset) const;
-        bool vlIsOnStack() const;
 
         void storeVariableInRegisters(regNumber reg1, regNumber reg2);
         void storeVariableOnStack(regNumber stackBaseReg, int32_t stackOffset);

@@ -110,19 +110,6 @@ bool CodeGenInterface::siVarLoc::vlIsOnStack(RegNum reg, int32_t offset) const
     }
 }
 
-bool CodeGenInterface::siVarLoc::vlIsOnStack() const
-{
-    switch (vlType)
-    {
-        case CodeGenInterface::VLT_STK:
-        case CodeGenInterface::VLT_STK2:
-        case CodeGenInterface::VLT_FPSTK:
-            return true;
-        default:
-            return false;
-    }
-}
-
 void CodeGenInterface::siVarLoc::storeVariableInRegisters(RegNum reg1, RegNum reg2)
 {
     if (reg2 == REG_NA)
