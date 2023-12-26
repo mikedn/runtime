@@ -626,12 +626,12 @@ void Compiler::eeGetVars()
 
     for (unsigned i = 0; i < info.compLocalsCount; i++)
     {
-        scopes[i].vsdLifeBeg = 0;
-        scopes[i].vsdLifeEnd = info.compILCodeSize;
-        scopes[i].vsdVarNum  = i;
-        scopes[i].vsdLVnum   = i;
+        scopes[i].scopeNum    = i;
+        scopes[i].lclNum      = i;
+        scopes[i].startOffset = 0;
+        scopes[i].endOffset   = info.compILCodeSize;
 
-        INDEBUG(scopes[i].vsdName = gtGetLclVarName(i));
+        INDEBUG(scopes[i].name = gtGetLclVarName(i));
     }
 
     info.compVarScopesCount = info.compLocalsCount;
@@ -658,7 +658,7 @@ void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInf
     VarScopeDsc*              scopes = info.compVarScopes;
     ICorDebugInfo::ILVarInfo* vars   = varInfoTable;
 
-    for (unsigned i = 0; i < varInfoCount; i++, vars++)
+    for (unsigned i = 0; i < varInfoCount; i++, vars++, scopes++)
     {
         JITDUMP("var:%d start:%d end:%d\n", vars->varNumber, vars->startOffset, vars->endOffset);
 
@@ -670,14 +670,13 @@ void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInf
         assert(vars->startOffset <= info.compILCodeSize);
         assert(vars->endOffset <= info.compILCodeSize);
 
-        scopes->vsdLifeBeg = vars->startOffset;
-        scopes->vsdLifeEnd = vars->endOffset;
-        scopes->vsdLVnum   = i;
-        scopes->vsdVarNum  = compMapILvarNum(vars->varNumber);
+        scopes->scopeNum    = i;
+        scopes->lclNum      = compMapILvarNum(vars->varNumber);
+        scopes->startOffset = vars->startOffset;
+        scopes->endOffset   = vars->endOffset;
 
-        INDEBUG(scopes->vsdName = gtGetLclVarName(scopes->vsdVarNum));
+        INDEBUG(scopes->name = gtGetLclVarName(scopes->lclNum));
 
-        scopes++;
         info.compVarScopesCount++;
     }
 
@@ -692,24 +691,23 @@ void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInf
 
         for (unsigned i = 0; i < info.compVarScopesCount; i++)
         {
-            varInfoProvided[info.compVarScopes[i].vsdVarNum] = true;
+            varInfoProvided[info.compVarScopes[i].lclNum] = true;
         }
 
-        for (unsigned varNum = 0; varNum < info.compLocalsCount; varNum++)
+        for (unsigned lclNum = 0; lclNum < info.compLocalsCount; lclNum++, scopes++)
         {
-            if (varInfoProvided[varNum])
+            if (varInfoProvided[lclNum])
             {
                 continue;
             }
 
-            scopes->vsdLifeBeg = 0;
-            scopes->vsdLifeEnd = info.compILCodeSize;
-            scopes->vsdVarNum  = varNum;
-            scopes->vsdLVnum   = info.compVarScopesCount;
+            scopes->scopeNum    = info.compVarScopesCount;
+            scopes->lclNum      = lclNum;
+            scopes->startOffset = 0;
+            scopes->endOffset   = info.compILCodeSize;
 
-            INDEBUG(scopes->vsdName = gtGetLclVarName(scopes->vsdVarNum));
+            INDEBUG(scopes->name = gtGetLclVarName(scopes->lclNum));
 
-            scopes++;
             info.compVarScopesCount++;
         }
     }
@@ -784,12 +782,12 @@ void Compiler::compInitSortedScopeLists()
 
     jitstd::sort(compEnterScopeList, compEnterScopeList + info.compVarScopesCount,
                  [](const VarScopeDsc* elem1, const VarScopeDsc* elem2) {
-                     return elem1->vsdLifeBeg < elem2->vsdLifeBeg;
+                     return elem1->startOffset < elem2->startOffset;
                  });
 
     jitstd::sort(compExitScopeList, compExitScopeList + info.compVarScopesCount,
                  [](const VarScopeDsc* elem1, const VarScopeDsc* elem2) {
-                     return elem1->vsdLifeEnd < elem2->vsdLifeEnd;
+                     return elem1->endOffset < elem2->endOffset;
                  });
 }
 
@@ -806,7 +804,7 @@ VarScopeDsc* Compiler::compGetNextEnterScope(unsigned offs, unsigned* nextEnterS
         }
         else
         {
-            unsigned nextEnterOffs = compEnterScopeList[*nextEnterScope]->vsdLifeBeg;
+            unsigned nextEnterOffs = compEnterScopeList[*nextEnterScope]->startOffset;
             assert(offs <= nextEnterOffs);
 
             if (nextEnterOffs == offs)
@@ -832,7 +830,7 @@ VarScopeDsc* Compiler::compGetNextExitScope(unsigned offs, unsigned* nextExitSco
         }
         else
         {
-            unsigned nextExitOffs = compExitScopeList[*nextExitScope]->vsdLifeEnd;
+            unsigned nextExitOffs = compExitScopeList[*nextExitScope]->endOffset;
             assert(offs <= nextExitOffs);
 
             if (nextExitOffs == offs)
@@ -853,7 +851,7 @@ VarScopeDsc* Compiler::compGetNextEnterScopeScan(unsigned offs, unsigned* nextEn
         {
             return &info.compVarScopes[(*nextEnterScope)++];
         }
-        else if (offs >= compEnterScopeList[*nextEnterScope]->vsdLifeBeg)
+        else if (offs >= compEnterScopeList[*nextEnterScope]->startOffset)
         {
             return compEnterScopeList[(*nextEnterScope)++];
         }
@@ -873,7 +871,7 @@ VarScopeDsc* Compiler::compGetNextExitScopeScan(unsigned offs, unsigned* nextExi
                 return &info.compVarScopes[(*nextExitScope)++];
             }
         }
-        else if (offs >= compExitScopeList[*nextExitScope]->vsdLifeEnd)
+        else if (offs >= compExitScopeList[*nextExitScope]->endOffset)
         {
             return compExitScopeList[(*nextExitScope)++];
         }
@@ -896,9 +894,8 @@ void Compiler::compDispLocalVars()
     for (unsigned i = 0; i < info.compVarScopesCount; i++)
     {
         VarScopeDsc* varScope = &info.compVarScopes[i];
-        printf("%2d: \t%02Xh \t%02Xh \t%10s \t%03Xh   \t%03Xh\n", i, varScope->vsdVarNum, varScope->vsdLVnum,
-               varScope->vsdName == nullptr ? "UNKNOWN" : varScope->vsdName, varScope->vsdLifeBeg,
-               varScope->vsdLifeEnd);
+        printf("%2d: \t%02Xh \t%02Xh \t%10s \t%03Xh   \t%03Xh\n", i, varScope->lclNum, varScope->scopeNum,
+               varScope->name == nullptr ? "UNKNOWN" : varScope->name, varScope->startOffset, varScope->endOffset);
     }
 }
 

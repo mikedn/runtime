@@ -4593,11 +4593,11 @@ void CodeGen::genSetScopeInfo(
 #ifdef LATE_DISASM
     const char* name = nullptr;
 
-    for (unsigned scopeNum = 0; scopeNum < compiler->info.compVarScopesCount; scopeNum++)
+    for (unsigned i = 0; i < compiler->info.compVarScopesCount; i++)
     {
-        if (lclNum == compiler->info.compVarScopes[scopeNum].vsdLVnum)
+        if (compiler->info.compVarScopes[i].lclNum == lclNum)
         {
-            name = compiler->info.compVarScopes[scopeNum].vsdName;
+            name = compiler->info.compVarScopes[i].name;
         }
     }
 

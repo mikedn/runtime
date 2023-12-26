@@ -470,12 +470,12 @@ void CodeGen::siOpenScopesForNonTrackedVars(const BasicBlock* block,
         // Skip enter & exit scopes
         while (VarScopeDsc* scope = compiler->compGetNextEnterScopeScan(beginOffs - 1, nextEnterScope))
         {
-            JITDUMP("Scope info: skipping enter scope, LVnum=%u\n", scope->vsdLVnum);
+            JITDUMP("Scope info: skipping enter scope, LVnum=%u\n", scope->scopeNum);
         }
 
         while (VarScopeDsc* scope = compiler->compGetNextExitScopeScan(beginOffs - 1, nextExitScope))
         {
-            JITDUMP("Scope info: skipping exit scope, LVnum=%u\n", scope->vsdLVnum);
+            JITDUMP("Scope info: skipping exit scope, LVnum=%u\n", scope->scopeNum);
         }
     }
 #else  // !FEATURE_EH_FUNCLETS
@@ -494,19 +494,19 @@ void CodeGen::siOpenScopesForNonTrackedVars(const BasicBlock* block,
 
     while (VarScopeDsc* scope = compiler->compGetNextEnterScope(beginOffs, nextEnterScope))
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(scope->vsdVarNum);
+        LclVarDsc* lcl = compiler->lvaGetDesc(scope->lclNum);
 
         if (!compiler->opts.compDbgCode && (lcl->GetRefCount() == 0))
         {
-            JITDUMP("Skipping open scope for V%02u, unreferenced\n", scope->vsdVarNum);
+            JITDUMP("Skipping open scope for V%02u, unreferenced\n", scope->lclNum);
 
             continue;
         }
 
-        JITDUMP("Scope info: opening scope, LVnum=%u [%03X..%03X)\n", scope->vsdLVnum, scope->vsdLifeBeg,
-                scope->vsdLifeEnd);
+        JITDUMP("Scope info: opening scope, LVnum=%u [%03X..%03X)\n", scope->scopeNum, scope->startOffset,
+                scope->endOffset);
 
-        varLiveKeeper->siStartVariableLiveRange(lcl, scope->vsdVarNum);
+        varLiveKeeper->siStartVariableLiveRange(lcl, scope->lclNum);
 
         INDEBUG(assert(!lcl->lvTracked || VarSetOps::IsMember(compiler, block->bbLiveIn, lcl->lvVarIndex)));
     }
@@ -553,7 +553,7 @@ void CodeGen::psiBegProlog()
 
     while (VarScopeDsc* scope = compiler->compGetNextEnterScope(0, &nextEnterScope))
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(scope->vsdVarNum);
+        LclVarDsc* lcl = compiler->lvaGetDesc(scope->lclNum);
 
         if (!lcl->IsParam())
         {
@@ -583,6 +583,6 @@ void CodeGen::psiBegProlog()
             loc.storeVariableOnStack(REG_SPBASE, psiGetVarStackOffset(lcl));
         }
 
-        varLiveKeeper->psiStartVariableLiveRange(loc, scope->vsdVarNum);
+        varLiveKeeper->psiStartVariableLiveRange(loc, scope->lclNum);
     }
 }

@@ -102,16 +102,12 @@ const int BAD_STK_OFFS = 0xBAADF00D; // for LclVarDsc::lvStkOffs
 // The following holds the Local var info (scope information)
 struct VarScopeDsc
 {
-    unsigned vsdVarNum; // (remapped) LclVarDsc number
-    unsigned vsdLVnum;  // 'which' in eeGetLVinfo().
-                        // Also, it is the index of this entry in the info.compVarScopes array,
-                        // which is useful since the array is also accessed via the
-                        // compEnterScopeList and compExitScopeList sorted arrays.
+    unsigned  scopeNum;
+    unsigned  lclNum;
+    IL_OFFSET startOffset;
+    IL_OFFSET endOffset;
 
-    IL_OFFSET vsdLifeBeg; // instr offset of beg of life
-    IL_OFFSET vsdLifeEnd; // instr offset of end of life
-
-    INDEBUG(const char* vsdName;) // name of the var
+    INDEBUG(const char* name;) // name of the var
 };
 
 enum RefCountState : uint8_t
