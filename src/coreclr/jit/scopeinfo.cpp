@@ -576,232 +576,6 @@ void CodeGenInterface::dumpSiVarLoc(const siVarLoc* varLoc) const
 }
 #endif
 
-#ifdef USING_SCOPE_INFO
-//------------------------------------------------------------------------
-// getSiVarLoc: Returns a "siVarLoc" instance representing the place where the variable
-// is given its description, "baseReg", and "offset" (if needed).
-//
-// Arguments:
-//    varDsc    - a "LclVarDsc *" to the variable it is desired to build the "siVarLoc".
-//    scope   - a "siScope" Scope info of the variable.
-//
-// Return Value:
-//    A "siVarLoc" filled with the correct case struct fields for the variable, which could live
-//    in a register, an stack position, or a combination of both.
-//
-// Notes:
-//    Called for each siScope in siScopeList when "genSetScopeInfo".
-CodeGenInterface::siVarLoc CodeGen::getSiVarLoc(const LclVarDsc* varDsc, const siScope* scope) const
-{
-    // For stack vars, find the base register, and offset
-
-    regNumber baseReg;
-    signed    offset = varDsc->GetStackOffset();
-
-    if (!varDsc->lvFramePointerBased)
-    {
-        baseReg = REG_SPBASE;
-        offset += scope->scStackLevel;
-    }
-    else
-    {
-        baseReg = REG_FPBASE;
-    }
-
-    return CodeGenInterface::siVarLoc(varDsc, baseReg, offset, isFramePointerUsed());
-}
-
-//------------------------------------------------------------------------
-// getSiVarLoc: Creates a "CodegenInterface::siVarLoc" instance from using the properties
-// of the "psiScope" instance.
-//
-// Notes:
-//    Called for every psiScope in "psiScopeList" codegen.h
-CodeGenInterface::siVarLoc CodeGen::psiScope::getSiVarLoc() const
-{
-    CodeGenInterface::siVarLoc varLoc;
-
-    if (scRegister)
-    {
-        varLoc.vlType       = VLT_REG;
-        varLoc.vlReg.vlrReg = (regNumber)u1.scRegNum;
-    }
-    else
-    {
-        varLoc.vlType           = VLT_STK;
-        varLoc.vlStk.vlsBaseReg = (regNumber)u2.scBaseReg;
-        varLoc.vlStk.vlsOffset  = u2.scOffset;
-    }
-
-    return varLoc;
-}
-
-/*============================================================================
- *
- *              Implementation for ScopeInfo
- *
- *
- * Whenever a variable comes into scope, add it to the list.
- * When a varDsc goes dead, end its previous scope entry, and make a new one
- * which is unavailable.
- * When a varDsc goes live, end its previous un-available entry (if any) and
- * set its new entry as available.
- *
- *============================================================================
- */
-
-/*****************************************************************************
- *                      siNewScope
- *
- * Creates a new scope and adds it to the Open scope list.
- */
-
-CodeGen::siScope* CodeGen::siNewScope(unsigned LVnum, unsigned varNum)
-{
-    bool     tracked  = compiler->lvaTable[varNum].lvTracked;
-    unsigned varIndex = compiler->lvaTable[varNum].lvVarIndex;
-
-    if (tracked)
-    {
-        siEndTrackedScope(varIndex);
-    }
-
-    siScope* newScope = compiler->getAllocator(CMK_SiScope).allocate<siScope>(1);
-
-    newScope->scStartLoc.CaptureLocation(GetEmitter());
-    assert(newScope->scStartLoc.Valid());
-
-    newScope->scEndLoc.Init();
-
-    newScope->scLVnum      = LVnum;
-    newScope->scVarNum     = varNum;
-    newScope->scNext       = nullptr;
-    newScope->scStackLevel = genStackLevel; // used only by stack vars
-
-    siOpenScopeLast->scNext = newScope;
-    newScope->scPrev        = siOpenScopeLast;
-    siOpenScopeLast         = newScope;
-
-    if (tracked)
-    {
-        siLatestTrackedScopes[varIndex] = newScope;
-    }
-
-    return newScope;
-}
-
-/*****************************************************************************
- *                          siRemoveFromOpenScopeList
- *
- * Removes a scope from the open-scope list and puts it into the done-scope list
- */
-
-void CodeGen::siRemoveFromOpenScopeList(CodeGen::siScope* scope)
-{
-    assert(scope);
-    assert(scope->scEndLoc.Valid());
-
-    // Remove from open-scope list
-
-    scope->scPrev->scNext = scope->scNext;
-    if (scope->scNext)
-    {
-        scope->scNext->scPrev = scope->scPrev;
-    }
-    else
-    {
-        siOpenScopeLast = scope->scPrev;
-    }
-
-    // Add to the finished scope list. (Try to) filter out scopes of length 0.
-
-    if (scope->scStartLoc != scope->scEndLoc)
-    {
-        siScopeLast->scNext = scope;
-        siScopeLast         = scope;
-        siScopeCnt++;
-    }
-}
-
-/*----------------------------------------------------------------------------
- * These functions end scopes given different types of parameters
- *----------------------------------------------------------------------------
- */
-
-/*****************************************************************************
- * For tracked vars, we don't need to search for the scope in the list as we
- * have a pointer to the open scopes of all tracked variables.
- */
-
-void CodeGen::siEndTrackedScope(unsigned varIndex)
-{
-    siScope* scope = siLatestTrackedScopes[varIndex];
-    if (!scope)
-    {
-        return;
-    }
-
-    scope->scEndLoc.CaptureLocation(GetEmitter());
-    assert(scope->scEndLoc.Valid());
-
-    siRemoveFromOpenScopeList(scope);
-
-    siLatestTrackedScopes[varIndex] = nullptr;
-}
-
-/*****************************************************************************
- * If we don't know that the variable is tracked, this function handles both
- * cases.
- */
-
-void CodeGen::siEndScope(unsigned varNum)
-{
-    for (siScope* scope = siOpenScopeList.scNext; scope; scope = scope->scNext)
-    {
-        if (scope->scVarNum == varNum)
-        {
-            siEndScope(scope);
-            return;
-        }
-    }
-
-    JITDUMP("siEndScope: Failed to end scope for V%02u\n", varNum);
-
-    // At this point, we probably have a bad LocalVarTab
-    if (compiler->opts.compDbgCode)
-    {
-        JITDUMP("...checking var tab validity\n");
-
-        // Note the following assert is saying that we expect
-        // the VM supplied info to be invalid...
-        assert(!compiler->compVerifyVarScopes());
-
-        compiler->opts.compScopeInfo = false;
-    }
-}
-
-/*****************************************************************************
- * If we have a handle to the siScope structure, we handle ending this scope
- * differently than if we just had a variable number. This saves us searching
- * the open-scope list again.
- */
-
-void CodeGen::siEndScope(siScope* scope)
-{
-    scope->scEndLoc.CaptureLocation(GetEmitter());
-    assert(scope->scEndLoc.Valid());
-
-    siRemoveFromOpenScopeList(scope);
-
-    LclVarDsc& lclVarDsc1 = compiler->lvaTable[scope->scVarNum];
-    if (lclVarDsc1.lvTracked)
-    {
-        siLatestTrackedScopes[lclVarDsc1.lvVarIndex] = nullptr;
-    }
-}
-
-#endif // USING_SCOPE_INFO
-
 /*============================================================================
  *           INTERFACE (public) Functions for ScopeInfo
  *============================================================================
@@ -847,42 +621,15 @@ void CodeGen::siInit()
 
     assert(compiler->opts.compScopeInfo);
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     if (compiler->info.compVarScopesCount > 0)
     {
         siInFuncletRegion = false;
     }
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     siLastEndOffs = 0;
 
-#ifdef USING_SCOPE_INFO
-    siOpenScopeList.scNext = nullptr;
-    siOpenScopeLast        = &siOpenScopeList;
-    siScopeLast            = &siScopeList;
-
-    siScopeCnt = 0;
-
-    VarSetOps::AssignNoCopy(compiler, siLastLife, VarSetOps::MakeEmpty(compiler));
-
-    if (compiler->info.compVarScopesCount == 0)
-    {
-        siLatestTrackedScopes = nullptr;
-    }
-    else
-    {
-        unsigned scopeCount = compiler->lvaTrackedCount;
-
-        if (scopeCount == 0)
-        {
-            siLatestTrackedScopes = nullptr;
-        }
-        else
-        {
-            siLatestTrackedScopes = new (compiler->getAllocator(CMK_SiScope)) siScope* [scopeCount] {};
-        }
-    }
-#endif // USING_SCOPE_INFO
     compiler->compResetScopeLists();
 }
 
@@ -946,42 +693,10 @@ void CodeGen::siBeginBlock(BasicBlock* block)
     //
     // Note: we can improve on this some day -- if there are any tracked
     // locals, untracked locals will fail to be reported.
-    if (compiler->lvaTrackedCount > 0)
-    {
-#ifdef USING_SCOPE_INFO
-        // End scope of variables which are not live for this block
-        siUpdate();
-
-        // Check that vars which are live on entry have an open scope
-        VarSetOps::Iter iter(compiler, block->bbLiveIn);
-        unsigned        varIndex = 0;
-        while (iter.NextElem(&varIndex))
-        {
-            unsigned   varNum = compiler->lvaTrackedIndexToLclNum(varIndex);
-            LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
-            // lvRefCnt may go down to 0 after liveness-analysis.
-            // So we need to check if this tracked variable is actually used.
-            if (!varDsc->lvIsInReg() && !varDsc->lvOnFrame)
-            {
-                assert(varDsc->lvRefCnt() == 0);
-                continue;
-            }
-
-            siCheckVarScope(varNum, beginOffs);
-        }
-#endif
-    }
-    else
+    if (compiler->lvaTrackedCount == 0)
     {
         siOpenScopesForNonTrackedVars(block, siLastEndOffs);
     }
-
-#if defined(USING_SCOPE_INFO) && defined(DEBUG)
-    if (verbose)
-    {
-        siDispOpenScopes();
-    }
-#endif // defined(USING_SCOPE_INFO) && defined(DEBUG)
 }
 
 //------------------------------------------------------------------------
@@ -1064,23 +779,7 @@ void CodeGen::siOpenScopesForNonTrackedVars(const BasicBlock* block, unsigned in
                 JITDUMP("Scope info: opening scope, LVnum=%u [%03X..%03X)\n", varScope->vsdLVnum, varScope->vsdLifeBeg,
                         varScope->vsdLifeEnd);
 
-#ifdef USING_SCOPE_INFO
-                siNewScope(varScope->vsdLVnum, varScope->vsdVarNum);
-#endif // USING_SCOPE_INFO
-#ifdef USING_VARIABLE_LIVE_RANGE
                 varLiveKeeper->siStartVariableLiveRange(lclVarDsc, varScope->vsdVarNum);
-#endif // USING_VARIABLE_LIVE_RANGE
-
-#if defined(DEBUG) && defined(USING_SCOPE_INFO)
-                if (VERBOSE)
-                {
-                    printf("Scope info: >> new scope, VarNum=%u, tracked? %s, VarIndex=%u, bbLiveIn=%s ",
-                           varScope->vsdVarNum, lclVarDsc->lvTracked ? "yes" : "no", lclVarDsc->lvVarIndex,
-                           VarSetOps::ToString(compiler, block->bbLiveIn));
-                    dumpConvertedVarSet(compiler, block->bbLiveIn);
-                    printf("\n");
-                }
-#endif // defined(DEBUG) && defined(USING_SCOPE_INFO)
 
                 INDEBUG(assert(!lclVarDsc->lvTracked ||
                                VarSetOps::IsMember(compiler, block->bbLiveIn, lclVarDsc->lvVarIndex)));
@@ -1105,21 +804,12 @@ void CodeGen::siEndBlock(BasicBlock* block)
 {
     assert(compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0));
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     if (siInFuncletRegion)
     {
         return;
     }
-#endif // FEATURE_EH_FUNCLETS
-
-#if defined(USING_SCOPE_INFO) && defined(DEBUG)
-    if (verbose)
-    {
-        printf("\nScope info: end block " FMT_BB ", IL range ", block->bbNum);
-        block->dspBlockILRange();
-        printf("\n");
-    }
-#endif // defined(USING_SCOPE_INFO) && defined(DEBUG)
+#endif
 
     unsigned endOffs = block->bbCodeOffsEnd;
 
@@ -1129,302 +819,8 @@ void CodeGen::siEndBlock(BasicBlock* block)
         return;
     }
 
-#ifdef USING_SCOPE_INFO
-    // If non-debuggable code, find all scopes which end over this block
-    // and close them. For debuggable code, scopes will only end on block
-    // boundaries.
-
-    VarScopeDsc* varScope;
-    while ((varScope = compiler->compGetNextExitScope(endOffs, !compiler->opts.compDbgCode)) != nullptr)
-    {
-        // brace-matching editor workaround for following line: (
-        JITDUMP("Scope info: ending scope, LVnum=%u [%03X..%03X)\n", varScope->vsdLVnum, varScope->vsdLifeBeg,
-                varScope->vsdLifeEnd);
-
-        unsigned   varNum     = varScope->vsdVarNum;
-        LclVarDsc* lclVarDsc1 = &compiler->lvaTable[varNum];
-
-        assert(lclVarDsc1);
-
-        if (lclVarDsc1->lvTracked)
-        {
-            siEndTrackedScope(lclVarDsc1->lvVarIndex);
-        }
-        else
-        {
-            siEndScope(varNum);
-        }
-    }
-#endif // USING_SCOPE_INFO
-
     siLastEndOffs = endOffs;
-
-#if defined(USING_SCOPE_INFO) && defined(DEBUG)
-    if (verbose)
-    {
-        siDispOpenScopes();
-    }
-#endif // defined(USING_SCOPE_INFO) && defined(DEBUG)
 }
-
-#ifdef USING_SCOPE_INFO
-//------------------------------------------------------------------------
-// siUpdate: Closes the "ScopeInfo" of the tracked variables that has become dead.
-//
-// Notes:
-//    Called at the start of basic blocks, and during code-gen of a block,
-//    for non-debuggable code, whenever the life of any tracked variable changes
-//    and the appropriate code has been generated. For debuggable code, variables are
-//    live over their entire scope, and so they go live or dead only on
-//    block boundaries.
-void CodeGen::siUpdate()
-{
-    if (!compiler->opts.compScopeInfo)
-    {
-        return;
-    }
-
-    if (compiler->opts.compDbgCode)
-    {
-        return;
-    }
-
-    if (compiler->info.compVarScopesCount == 0)
-    {
-        return;
-    }
-
-#if defined(FEATURE_EH_FUNCLETS)
-    if (siInFuncletRegion)
-    {
-        return;
-    }
-#endif // FEATURE_EH_FUNCLETS
-
-    VARSET_TP killed(VarSetOps::Diff(compiler, siLastLife, m_liveness.GetLiveSet()));
-
-    VarSetOps::Iter iter(compiler, killed);
-    unsigned        varIndex = 0;
-    while (iter.NextElem(&varIndex))
-    {
-        assert(compiler->lvaGetDescByTrackedIndex(varIndex)->lvTracked);
-        siEndTrackedScope(varIndex);
-    }
-
-    VarSetOps::Assign(compiler, siLastLife, m_liveness.GetLiveSet());
-}
-
-/*****************************************************************************
- *                          siCheckVarScope
- *
- * For non-debuggable code, whenever we come across a GenTree which is an
- * assignment to a local variable, this function is called to check if the
- * variable has an open scope. Also, check if it has the correct LVnum.
- */
-
-void CodeGen::siCheckVarScope(unsigned varNum, IL_OFFSET offs)
-{
-    assert(compiler->opts.compScopeInfo && !compiler->opts.compDbgCode && (compiler->info.compVarScopesCount > 0));
-
-#if defined(FEATURE_EH_FUNCLETS)
-    if (siInFuncletRegion)
-    {
-        return;
-    }
-#endif // FEATURE_EH_FUNCLETS
-
-    if (offs == BAD_IL_OFFSET)
-    {
-        return;
-    }
-
-    siScope*   scope;
-    LclVarDsc* lclVarDsc1 = &compiler->lvaTable[varNum];
-
-    // If there is an open scope corresponding to varNum, find it
-
-    if (lclVarDsc1->lvTracked)
-    {
-        scope = siLatestTrackedScopes[lclVarDsc1->lvVarIndex];
-    }
-    else
-    {
-        for (scope = siOpenScopeList.scNext; scope; scope = scope->scNext)
-        {
-            if (scope->scVarNum == varNum)
-            {
-                break;
-            }
-        }
-    }
-
-    VarScopeDsc* varScope = compiler->compFindLocalVar(varNum, offs);
-    if (varScope == nullptr)
-    {
-        return;
-    }
-
-    // If the currently open scope does not have the correct LVnum, close it
-    // and create a new scope with this new LVnum
-
-    if (scope)
-    {
-        if (scope->scLVnum != varScope->vsdLVnum)
-        {
-            siEndScope(scope);
-            siNewScope(varScope->vsdLVnum, varScope->vsdVarNum);
-        }
-    }
-    else
-    {
-        siNewScope(varScope->vsdLVnum, varScope->vsdVarNum);
-    }
-}
-
-/*****************************************************************************
- *                          siCloseAllOpenScopes
- *
- * For unreachable code, or optimized code with blocks reordered, there may be
- * scopes left open at the end. Simply close them.
- */
-
-void CodeGen::siCloseAllOpenScopes()
-{
-    assert(siOpenScopeList.scNext);
-
-    while (siOpenScopeList.scNext)
-    {
-        siEndScope(siOpenScopeList.scNext);
-    }
-}
-
-/*****************************************************************************
- *                          siDispOpenScopes
- *
- * Displays all the vars on the open-scope list
- */
-
-#ifdef DEBUG
-
-void CodeGen::siDispOpenScopes()
-{
-    assert(compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0));
-
-    printf("Scope info: open scopes =\n");
-
-    if (siOpenScopeList.scNext == nullptr)
-    {
-        printf("   <none>\n");
-    }
-    else
-    {
-        for (siScope* scope = siOpenScopeList.scNext; scope != nullptr; scope = scope->scNext)
-        {
-            VarScopeDsc* localVars = compiler->info.compVarScopes;
-
-            for (unsigned i = 0; i < compiler->info.compVarScopesCount; i++, localVars++)
-            {
-                if (localVars->vsdLVnum == scope->scLVnum)
-                {
-                    const char* name = localVars->vsdName;
-                    printf("   %u (%s) [%03X..%03X)\n", localVars->vsdLVnum, name == nullptr ? "UNKNOWN" : name,
-                           localVars->vsdLifeBeg, localVars->vsdLifeEnd);
-                    break;
-                }
-            }
-        }
-    }
-}
-
-#endif // DEBUG
-
-/*============================================================================
- *
- *              Implementation for PrologScopeInfo
- *
- *============================================================================
- */
-
-/*****************************************************************************
- *                      psiNewPrologScope
- *
- * Creates a new scope and adds it to the Open scope list.
- */
-
-CodeGen::psiScope* CodeGen::psiNewPrologScope(unsigned LVnum, unsigned slotNum)
-{
-    psiScope* newScope = compiler->getAllocator(CMK_SiScope).allocate<psiScope>(1);
-
-    newScope->scStartLoc.CaptureLocation(GetEmitter());
-    assert(newScope->scStartLoc.Valid());
-
-    newScope->scEndLoc.Init();
-
-    newScope->scLVnum   = LVnum;
-    newScope->scSlotNum = slotNum;
-
-    newScope->scNext         = nullptr;
-    psiOpenScopeLast->scNext = newScope;
-    newScope->scPrev         = psiOpenScopeLast;
-    psiOpenScopeLast         = newScope;
-
-    return newScope;
-}
-
-/*****************************************************************************
- *                          psiEndPrologScope
- *
- * Remove the scope from the Open-scope list and add it to the finished-scopes
- * list if its length is non-zero
- */
-
-void CodeGen::psiEndPrologScope(psiScope* scope)
-{
-    scope->scEndLoc.CaptureLocation(GetEmitter());
-    assert(scope->scEndLoc.Valid());
-
-    // Remove from open-scope list
-    scope->scPrev->scNext = scope->scNext;
-    if (scope->scNext)
-    {
-        scope->scNext->scPrev = scope->scPrev;
-    }
-    else
-    {
-        psiOpenScopeLast = scope->scPrev;
-    }
-
-    // Add to the finished scope list.
-    // If the length is zero, it means that the prolog is empty. In that case,
-    // CodeGen::genSetScopeInfo will report the liveness of all arguments
-    // as spanning the first instruction in the method, so that they can
-    // at least be inspected on entry to the method.
-    if (scope->scStartLoc != scope->scEndLoc || scope->scStartLoc.IsOffsetZero())
-    {
-        psiScopeLast->scNext = scope;
-        psiScopeLast         = scope;
-        psiScopeCnt++;
-    }
-}
-
-/*============================================================================
- *           INTERFACE (protected) Functions for PrologScopeInfo
- *============================================================================
- */
-
-//------------------------------------------------------------------------
-// psiSetScopeOffset: Set the offset of the newScope to the offset of the LslVar
-//
-// Arguments:
-//    'newScope'  the new scope object whose offset is to be set to the lclVarDsc offset.
-//    'lclVarDsc' is an op that will now be contained by its parent.
-void CodeGen::psiSetScopeOffset(psiScope* newScope, const LclVarDsc* lclVarDsc) const
-{
-    newScope->scRegister   = false;
-    newScope->u2.scBaseReg = REG_SPBASE;
-    newScope->u2.scOffset  = psiGetVarStackOffset(lclVarDsc);
-}
-#endif // USING_SCOPE_INFO
 
 //------------------------------------------------------------------------
 // psiGetVarStackOffset: Return the offset of the lclVarDsc on the stack.
@@ -1472,17 +868,9 @@ void CodeGen::psiBegProlog()
 {
     assert(generatingProlog);
 
-#ifdef USING_SCOPE_INFO
-    psiOpenScopeList.scNext = nullptr;
-    psiOpenScopeLast        = &psiOpenScopeList;
-    psiScopeLast            = &psiScopeList;
-    psiScopeCnt             = 0;
-#endif // USING_SCOPE_INFO
-
     compiler->compResetScopeLists();
 
-    VarScopeDsc* varScope;
-    while ((varScope = compiler->compGetNextEnterScope(0)) != nullptr)
+    for (VarScopeDsc* varScope; (varScope = compiler->compGetNextEnterScope(0)) != nullptr;)
     {
         LclVarDsc* lclVarDsc = compiler->lvaGetDesc(varScope->vsdVarNum);
 
@@ -1491,12 +879,7 @@ void CodeGen::psiBegProlog()
             continue;
         }
 
-#ifdef USING_SCOPE_INFO
-        psiScope* newScope = psiNewPrologScope(varScope->vsdLVnum, varScope->vsdVarNum);
-#endif
-#ifdef USING_VARIABLE_LIVE_RANGE
         siVarLoc varLocation;
-#endif
 
         if (lclVarDsc->IsRegParam())
         {
@@ -1512,29 +895,15 @@ void CodeGen::psiBegProlog()
             assert(isValidIntArgReg(regs[0]) || isValidFloatArgReg(regs[0]));
             assert((regs[1] == REG_NA) || isValidIntArgReg(regs[1]) || isValidFloatArgReg(regs[1]));
 
-#ifdef USING_SCOPE_INFO
-            newScope->scRegister    = true;
-            newScope->u1.scRegNum   = static_cast<regNumberSmall>(regs[0]);
-            newScope->u1.scOtherReg = static_cast<regNumberSmall>(regs[1]);
-#endif
-#ifdef USING_VARIABLE_LIVE_RANGE
             varLocation.storeVariableInRegisters(regs[0], regs[1]);
-#endif
         }
         else
         {
-#ifdef USING_SCOPE_INFO
-            psiSetScopeOffset(newScope, lclVarDsc);
-#endif
-#ifdef USING_VARIABLE_LIVE_RANGE
             varLocation.storeVariableOnStack(REG_SPBASE, psiGetVarStackOffset(lclVarDsc));
-#endif
         }
 
-#ifdef USING_VARIABLE_LIVE_RANGE
         // Start a VariableLiveRange for this LclVarDsc on the built location
         varLiveKeeper->psiStartVariableLiveRange(varLocation, varScope->vsdVarNum);
-#endif
     }
 }
 
@@ -1548,234 +917,5 @@ void CodeGen::psiBegProlog()
 void CodeGen::psiEndProlog()
 {
     assert(generatingProlog);
-#ifdef USING_SCOPE_INFO
-    for (psiScope* scope = psiOpenScopeList.scNext; scope; scope = psiOpenScopeList.scNext)
-    {
-        psiEndPrologScope(scope);
-    }
-#endif
-
-#ifdef USING_VARIABLE_LIVE_RANGE
     varLiveKeeper->psiClosePrologVariableRanges();
-#endif // USING_VARIABLE_LIVE_RANGE
 }
-
-#ifdef USING_SCOPE_INFO
-
-/*****************************************************************************
- Enable this macro to get accurate prolog information for every instruction
- in the prolog. However, this is overkill as nobody steps through the
- disassembly of the prolog. Even if they do they will not expect rich debug info.
-
- We still report all the arguments at the very start of the method so that
- the user can see the arguments at the very start of the method (offset=0).
-
- Disabling this decreased the debug maps in CoreLib by 10% (01/2003)
- */
-
-#if 0
-#define ACCURATE_PROLOG_DEBUG_INFO
-#endif
-
-/*****************************************************************************
- *                          psiAdjustStackLevel
- *
- * When ESP changes, all scopes relative to ESP have to be updated.
- */
-
-void CodeGen::psiAdjustStackLevel(unsigned size)
-{
-    if (!compiler->opts.compScopeInfo || (compiler->info.compVarScopesCount == 0))
-    {
-        return;
-    }
-
-    assert(compiler->compGeneratingProlog);
-
-#ifdef ACCURATE_PROLOG_DEBUG_INFO
-
-    psiScope* scope;
-
-    // walk the list backwards
-    // Works as psiEndPrologScope does not change scPrev
-    for (scope = psiOpenScopeLast; scope != &psiOpenScopeList; scope = scope->scPrev)
-    {
-        if (scope->scRegister)
-        {
-            assert(compiler->lvaGetDesc(scope->scSlotNum)->IsRegParam());
-            continue;
-        }
-
-        assert(scope->u2.scBaseReg == REG_SPBASE);
-
-        psiScope* newScope     = psiNewPrologScope(scope->scLVnum, scope->scSlotNum);
-        newScope->scRegister   = false;
-        newScope->u2.scBaseReg = REG_SPBASE;
-        newScope->u2.scOffset  = scope->u2.scOffset + size;
-
-        psiEndPrologScope(scope);
-    }
-
-#endif // ACCURATE_PROLOG_DEBUG_INFO
-}
-
-/*****************************************************************************
- *                          psiMoveESPtoEBP
- *
- * For EBP-frames, the parameters are accessed via ESP on entry to the function,
- * but via EBP right after a "mov ebp,esp" instruction
- */
-
-void CodeGen::psiMoveESPtoEBP()
-{
-    if (!compiler->opts.compScopeInfo || (compiler->info.compVarScopesCount == 0))
-    {
-        return;
-    }
-
-    assert(compiler->compGeneratingProlog);
-    assert(IsFramePointerRequired());
-
-#ifdef ACCURATE_PROLOG_DEBUG_INFO
-
-    psiScope* scope;
-
-    // walk the list backwards
-    // Works as psiEndPrologScope does not change scPrev
-    for (scope = psiOpenScopeLast; scope != &psiOpenScopeList; scope = scope->scPrev)
-    {
-        if (scope->scRegister)
-        {
-            assert(compiler->lvaGetDesc(scope->scSlotNum)->IsRegParam());
-            continue;
-        }
-
-        assert(scope->u2.scBaseReg == REG_SPBASE);
-
-        psiScope* newScope     = psiNewPrologScope(scope->scLVnum, scope->scSlotNum);
-        newScope->scRegister   = false;
-        newScope->u2.scBaseReg = REG_FPBASE;
-        newScope->u2.scOffset  = scope->u2.scOffset;
-
-        psiEndPrologScope(scope);
-    }
-
-#endif // ACCURATE_PROLOG_DEBUG_INFO
-}
-
-/*****************************************************************************
- *                          psiMoveToReg
- *
- * Called when a parameter is loaded into its assigned register from the stack,
- * or when parameters are moved around due to circular dependancy.
- * If reg != REG_NA, then the parameter is being moved into its assigned
- * register, else it may be being moved to a temp register.
- */
-
-void CodeGen::psiMoveToReg(unsigned varNum, regNumber reg, regNumber otherReg)
-{
-    assert(compiler->compGeneratingProlog);
-
-    if (!compiler->opts.compScopeInfo)
-    {
-        return;
-    }
-
-    if (compiler->info.compVarScopesCount == 0)
-    {
-        return;
-    }
-
-    assert((int)varNum >= 0); // It's not a spill temp number.
-    assert(compiler->lvaTable[varNum].lvIsInReg());
-
-#ifdef ACCURATE_PROLOG_DEBUG_INFO
-
-    /* If reg!=REG_NA, the parameter is part of a cirular dependancy, and is
-     * being moved through temp register "reg".
-     * If reg==REG_NA, it is being moved to its assigned register.
-     */
-    if (reg == REG_NA)
-    {
-        // Grab the assigned registers.
-
-        reg      = compiler->lvaTable[varNum].GetRegNum();
-        otherReg = compiler->lvaTable[varNum].GetOtherReg();
-    }
-
-    psiScope* scope;
-
-    // walk the list backwards
-    // Works as psiEndPrologScope does not change scPrev
-    for (scope = psiOpenScopeLast; scope != &psiOpenScopeList; scope = scope->scPrev)
-    {
-        if (scope->scSlotNum != varNum)
-            continue;
-
-        psiScope* newScope      = psiNewPrologScope(scope->scLVnum, scope->scSlotNum);
-        newScope->scRegister    = true;
-        newScope->u1.scRegNum   = reg;
-        newScope->u1.scOtherReg = otherReg;
-
-        psiEndPrologScope(scope);
-        return;
-    }
-
-    // May happen if a parameter does not have an entry in the LocalVarTab
-    // But assert() just in case it is because of something else.
-    assert(varNum == compiler->info.compRetBuffArg ||
-           !"Parameter scope not found (Assert doesnt always indicate error)");
-
-#endif // ACCURATE_PROLOG_DEBUG_INFO
-}
-
-/*****************************************************************************
- *                      CodeGen::psiMoveToStack
- *
- * A incoming register-argument is being moved to its final home on the stack
- * (ie. all adjustments to {F/S}PBASE have been made
- */
-
-void CodeGen::psiMoveToStack(unsigned varNum)
-{
-    if (!compiler->opts.compScopeInfo || (compiler->info.compVarScopesCount == 0))
-    {
-        return;
-    }
-
-    assert(compiler->compGeneratingProlog);
-    assert(compiler->lvaGetDesc(varNum)->IsRegParam());
-    assert(!compiler->lvaGetDesc(varNum)->lvRegister);
-
-#ifdef ACCURATE_PROLOG_DEBUG_INFO
-
-    psiScope* scope;
-
-    // walk the list backwards
-    // Works as psiEndPrologScope does not change scPrev
-    for (scope = psiOpenScopeLast; scope != &psiOpenScopeList; scope = scope->scPrev)
-    {
-        if (scope->scSlotNum != varNum)
-            continue;
-
-        // The param must be currently sitting in the register in which it was passed in.
-        assert(scope->scRegister);
-        assert(scope->u1.scRegNum == compiler->lvaGetDesc(varNum)->GetParamReg());
-
-        psiScope* newScope     = psiNewPrologScope(scope->scLVnum, scope->scSlotNum);
-        newScope->scRegister   = false;
-        newScope->u2.scBaseReg = (compiler->lvaTable[varNum].lvFramePointerBased) ? REG_FPBASE : REG_SPBASE;
-        newScope->u2.scOffset  = compiler->lvaTable[varNum].GetStackOffset();
-
-        psiEndPrologScope(scope);
-        return;
-    }
-
-    // May happen if a parameter does not have an entry in the LocalVarTab
-    // But assert() just in case it is because of something else.
-    assert(varNum == compiler->info.compRetBuffArg ||
-           !"Parameter scope not found (Assert doesnt always indicate error)");
-
-#endif // ACCURATE_PROLOG_DEBUG_INFO
-}
-#endif // USING_SCOPE_INFO

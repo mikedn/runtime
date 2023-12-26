@@ -1732,13 +1732,6 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
             *pInitRegZeroed = false;
         }
     }
-
-#ifdef USING_SCOPE_INFO
-    if (!IsFramePointerRequired())
-    {
-        psiAdjustStackLevel(frameSize);
-    }
-#endif // USING_SCOPE_INFO
 }
 
 void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
@@ -1746,10 +1739,6 @@ void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
     if (delta == 0)
     {
         GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_FPBASE, REG_ESP, /* canSkip */ false);
-
-#ifdef USING_SCOPE_INFO
-        psiMoveESPtoEBP();
-#endif
     }
     else
     {
@@ -8062,12 +8051,6 @@ void CodeGen::PrologPushCalleeSavedRegisters()
         {
             GetEmitter()->emitIns_R(INS_push, EA_GCREF, reg);
             compiler->unwindPush(reg);
-#ifdef USING_SCOPE_INFO
-            if (!IsFramePointerRequired())
-            {
-                psiAdjustStackLevel(REGSIZE_BYTES);
-            }
-#endif // USING_SCOPE_INFO
             rsPushRegs &= ~regBit;
         }
     }

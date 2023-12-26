@@ -27,10 +27,6 @@ void CodeGenLivenessUpdater::End(CodeGen* codeGen)
 
     VarSetOps::ClearD(compiler, currentLife);
     VarSetOps::ClearD(compiler, liveGCLcl);
-
-#ifdef USING_SCOPE_INFO
-    codeGen->siUpdate();
-#endif
 }
 
 static regMaskTP GetLclRegs(const LclVarDsc* lcl)
@@ -70,23 +66,15 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
                     VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
                 }
 
-#ifdef USING_VARIABLE_LIVE_RANGE
                 codeGen->getVariableLiveKeeper()->siEndVariableLiveRange(lclNum);
-#endif
             }
             else
             {
-#ifdef USING_VARIABLE_LIVE_RANGE
                 codeGen->getVariableLiveKeeper()->siStartVariableLiveRange(lcl, lclNum);
-#endif
             }
         }
 
         VarSetOps::Assign(compiler, currentLife, newLife);
-
-#ifdef USING_SCOPE_INFO
-        codeGen->siUpdate();
-#endif
     }
 
     regMaskTP newLclRegs     = RBM_NONE;
@@ -246,14 +234,8 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
             DBEXEC(compiler->verbose, DumpDiff(codeGen);)
 
-#ifdef USING_VARIABLE_LIVE_RANGE
             codeGen->getVariableLiveKeeper()->siStartOrCloseVariableLiveRange(lcl, lclNode->GetLclNum(), isBorn,
                                                                               isDying);
-#endif
-
-#ifdef USING_SCOPE_INFO
-            codeGen->siUpdate();
-#endif
         }
     }
 

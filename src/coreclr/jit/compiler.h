@@ -6333,20 +6333,6 @@ public:
     unsigned      compNextEnterScope;
     unsigned      compNextExitScope;
 
-#ifdef USING_SCOPE_INFO
-    struct VarScopeListNode
-    {
-        VarScopeDsc*      scope;
-        VarScopeListNode* next;
-
-        VarScopeListNode(VarScopeDsc* scope, VarScopeListNode* next) : scope(scope), next(next)
-        {
-        }
-    };
-
-    JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, VarScopeListNode*>* compVarScopeMap = nullptr;
-#endif
-
     bool compVarScopeExtended = false;
 
     void         compInitSortedScopeLists();
@@ -6355,14 +6341,6 @@ public:
     VarScopeDsc* compGetNextExitScope(unsigned offs);
     VarScopeDsc* compGetNextEnterScopeScan(unsigned offs);
     VarScopeDsc* compGetNextExitScopeScan(unsigned offs);
-
-#ifdef USING_SCOPE_INFO
-    void         compInitVarScopeMap();
-    VarScopeDsc* compFindLocalVar(unsigned varNum, unsigned offs);
-    VarScopeDsc* compFindLocalVarLinear(unsigned varNum, unsigned offs);
-    VarScopeDsc* compFindLocalVarMapped(unsigned varNum, unsigned offs);
-    INDEBUG(void compVerifyVarScopes());
-#endif
 
     bool compIsProfilerHookNeeded();
 

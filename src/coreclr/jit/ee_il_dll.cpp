@@ -597,9 +597,6 @@ void Compiler::eeGetVars()
         info.compCompHnd->freeArray(varTable);
 
         compInitSortedScopeLists();
-#ifdef USING_SCOPE_INFO
-        compInitVarScopeMap();
-#endif
 
         return;
     }
@@ -885,114 +882,6 @@ VarScopeDsc* Compiler::compGetNextExitScopeScan(unsigned offs)
 
     return nullptr;
 }
-
-#ifdef USING_SCOPE_INFO
-VarScopeDsc* Compiler::compFindLocalVarLinear(unsigned varNum, unsigned offs)
-{
-    for (unsigned i = 0; i < info.compVarScopesCount; i++)
-    {
-        VarScopeDsc& dsc = info.compVarScopes[i];
-
-        if ((dsc.vsdVarNum == varNum) && (dsc.vsdLifeBeg <= offs) && (dsc.vsdLifeEnd > offs))
-        {
-            return &dsc;
-        }
-    }
-
-    return nullptr;
-}
-
-VarScopeDsc* Compiler::compFindLocalVar(unsigned varNum, unsigned offs)
-{
-    if (compVarScopeExtended)
-    {
-        assert(info.compVarScopes[varNum].vsdVarNum == varNum);
-        assert((info.compVarScopes[varNum].vsdLifeBeg == 0) && (offs <= info.compVarScopes[varNum].vsdLifeEnd));
-
-        return &info.compVarScopes[varNum];
-    }
-
-    if (compVarScopeMap == nullptr)
-    {
-        return compFindLocalVarLinear(varNum, offs);
-    }
-
-    VarScopeDsc* scope = compFindLocalVarMapped(varNum, offs);
-    assert(scope == compFindLocalVarLinear(varNum, offs));
-    return scope;
-}
-
-void Compiler::compInitVarScopeMap()
-{
-    assert(compVarScopeMap == nullptr);
-
-    if (info.compVarScopesCount < 32)
-    {
-        return;
-    }
-
-    compVarScopeMap = new (getAllocator(CMK_DebugInfo))
-        JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, VarScopeListNode*>(getAllocator(CMK_DebugInfo));
-    // 599 prime to limit huge allocations; for ex: duplicated scopes on single var.
-    compVarScopeMap->Reallocate(min(info.compVarScopesCount, 599));
-
-    for (unsigned i = 0; i < info.compVarScopesCount; ++i)
-    {
-        VarScopeListNode** head = compVarScopeMap->Emplace(info.compVarScopes[i].vsdVarNum);
-
-        *head = new (getAllocator(CMK_DebugInfo)) VarScopeListNode(&info.compVarScopes[i], *head);
-    }
-}
-
-VarScopeDsc* Compiler::compFindLocalVarMapped(unsigned varNum, unsigned offs)
-{
-    VarScopeListNode* node;
-
-    if (compVarScopeMap->Lookup(varNum, &node))
-    {
-        for (; node != nullptr; node = node->next)
-        {
-            if ((node->scope->vsdLifeBeg <= offs) && (node->scope->vsdLifeEnd > offs))
-            {
-                return node->scope;
-            }
-        }
-    }
-
-    return nullptr;
-}
-
-bool Compiler::compVerifyVarScopes()
-{
-    if (compVarScopeExtended)
-    {
-        return true;
-    }
-
-    // No entries with overlapping lives should have the same slot.
-
-    for (unsigned i = 0; i < info.compVarScopesCount; i++)
-    {
-        for (unsigned j = i + 1; j < compiler->info.compVarScopesCount; j++)
-        {
-            unsigned slot1 = info.compVarScopes[i].vsdVarNum;
-            unsigned beg1  = info.compVarScopes[i].vsdLifeBeg;
-            unsigned end1  = info.compVarScopes[i].vsdLifeEnd;
-
-            unsigned slot2 = info.compVarScopes[j].vsdVarNum;
-            unsigned beg2  = info.compVarScopes[j].vsdLifeBeg;
-            unsigned end2  = info.compVarScopes[j].vsdLifeEnd;
-
-            if (slot1 == slot2 && (end1 > beg2 && beg1 < end2))
-            {
-                return false;
-            }
-        }
-    }
-
-    return true;
-}
-#endif // USING_SCOPE_INFO
 
 #ifdef DEBUG
 

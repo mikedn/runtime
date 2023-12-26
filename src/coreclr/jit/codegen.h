@@ -509,13 +509,7 @@ public:
                          siVarLoc*      varLoc);
 
     void genSetScopeInfo();
-#ifdef USING_VARIABLE_LIVE_RANGE
     void genSetScopeInfoUsingVariableRanges();
-#endif
-
-#ifdef USING_SCOPE_INFO
-    void genSetScopeInfoUsingsiScope();
-#endif
 
 public:
     void siInit();
@@ -532,123 +526,9 @@ protected:
 
     IL_OFFSET siLastEndOffs; // IL offset of the (exclusive) end of the last block processed
 
-#ifdef USING_SCOPE_INFO
-public:
-    // Closes the "ScopeInfo" of the tracked variables that has become dead.
-    virtual void siUpdate();
-    void siCheckVarScope(unsigned varNum, IL_OFFSET offs);
-    void siCloseAllOpenScopes();
-#ifdef DEBUG
-    void siDispOpenScopes();
-#endif
-
-protected:
-    struct siScope
-    {
-        emitLocation scStartLoc; // emitter location of start of scope
-        emitLocation scEndLoc;   // emitter location of end of scope
-
-        unsigned scVarNum; // index into lvaTable
-        unsigned scLVnum;  // 'which' in eeGetLVinfo()
-
-        unsigned scStackLevel; // Only for stk-vars
-
-        siScope* scPrev;
-        siScope* scNext;
-    };
-
-    // Returns a "siVarLoc" instance representing the place where the variable lives base on
-    // varDsc and scope description.
-    CodeGenInterface::siVarLoc getSiVarLoc(const LclVarDsc* varDsc, const siScope* scope) const;
-
-    siScope siOpenScopeList, siScopeList, *siOpenScopeLast, *siScopeLast;
-
-    unsigned siScopeCnt;
-
-    VARSET_TP siLastLife; // Life at last call to siUpdate()
-
-    // Tracks the last entry for each tracked register variable
-
-    siScope** siLatestTrackedScopes;
-
-    siScope* siNewScope(unsigned LVnum, unsigned varNum);
-    void siRemoveFromOpenScopeList(siScope* scope);
-    void siEndTrackedScope(unsigned varIndex);
-    void siEndScope(unsigned varNum);
-    void siEndScope(siScope* scope);
-
-#ifdef LATE_DISASM
-public:
-    const char* siRegVarName(size_t offs, size_t size, unsigned reg);
-    const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
-#endif
-
-#endif // USING_SCOPE_INFO
-
 public:
     void psiBegProlog();
     void psiEndProlog();
-
-#ifdef USING_SCOPE_INFO
-    void psiAdjustStackLevel(unsigned size);
-
-    // For EBP-frames, the parameters are accessed via ESP on entry to the function,
-    // but via EBP right after a "mov ebp,esp" instruction.
-    void psiMoveESPtoEBP();
-
-    // Close previous psiScope and open a new one on the location described by the registers.
-    void psiMoveToReg(unsigned varNum, regNumber reg = REG_NA, regNumber otherReg = REG_NA);
-
-    // Search the open "psiScope" of the "varNum" parameter, close it and open
-    // a new one using "LclVarDsc" fields.
-    void psiMoveToStack(unsigned varNum);
-
-protected:
-    struct psiScope
-    {
-        emitLocation scStartLoc; // emitter location of start of scope
-        emitLocation scEndLoc;   // emitter location of end of scope
-
-        unsigned scSlotNum; // index into lclVarTab
-        unsigned scLVnum;   // 'which' in eeGetLVinfo()
-
-        bool scRegister;
-
-        union {
-            struct
-            {
-                regNumberSmall scRegNum;
-
-                // Used for:
-                //  - "other half" of long var on architectures with 32 bit size registers - x86.
-                //  - for System V structs it stores the second register
-                //    used to pass a register passed struct.
-                regNumberSmall scOtherReg;
-            } u1;
-
-            struct
-            {
-                regNumberSmall scBaseReg;
-                NATIVE_OFFSET  scOffset;
-            } u2;
-        };
-
-        psiScope* scPrev;
-        psiScope* scNext;
-
-        // Returns a "siVarLoc" instance representing the place where the variable lives base on
-        // psiScope properties.
-        CodeGenInterface::siVarLoc getSiVarLoc() const;
-    };
-
-    psiScope psiOpenScopeList, psiScopeList, *psiOpenScopeLast, *psiScopeLast;
-
-    unsigned psiScopeCnt;
-
-    psiScope* psiNewPrologScope(unsigned LVnum, unsigned slotNum);
-    void psiEndPrologScope(psiScope* scope);
-    void psiSetScopeOffset(psiScope* newScope, const LclVarDsc* lclVarDsc) const;
-#endif // USING_SCOPE_INFO
 
     NATIVE_OFFSET psiGetVarStackOffset(const LclVarDsc* lclVarDsc) const;
 
@@ -1304,7 +1184,7 @@ public:
     insGroup* syncStartEmitCookie = nullptr;
     insGroup* syncEndEmitCookie   = nullptr;
 #endif
-#ifdef USING_VARIABLE_LIVE_RANGE
+
     // Holds an array of "VariableLiveDescriptor", one for each variable
     // whose location we track. It provides start/end/update/count operations
     // over the "LiveRangeList" of any variable.
@@ -1479,7 +1359,6 @@ public:
     VariableLiveKeeper* getVariableLiveKeeper() const;
 
     VariableLiveKeeper* varLiveKeeper; // Used to manage VariableLiveRanges of variables
-#endif                                 // USING_VARIABLE_LIVE_RANGE
 };
 
 #endif // CODEGEN_H

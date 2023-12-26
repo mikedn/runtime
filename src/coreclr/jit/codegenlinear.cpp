@@ -26,9 +26,7 @@ void CodeGen::genInitialize()
         siInit();
     }
 
-#ifdef USING_VARIABLE_LIVE_RANGE
     initializeVariableLiveKeeper();
-#endif //  USING_VARIABLE_LIVE_RANGE
 
     genPendingCallLabel = nullptr;
 
@@ -74,14 +72,12 @@ void CodeGen::UpdateLclBlockLiveInRegs(BasicBlock* block)
             JITDUMP("  V%02u (%s -> %s)", lclNum, getRegName(oldRegNum), getRegName(newRegNum));
             INDEBUG(count++);
 
-#ifdef USING_VARIABLE_LIVE_RANGE
             if ((block->bbPrev != nullptr) && VarSetOps::IsMember(compiler, block->bbPrev->bbLiveOut, en.Current()))
             {
                 // lcl was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
                 // "VariableLiveRange" which should change to be according "getInVarToRegMap"
                 getVariableLiveKeeper()->siUpdateVariableLiveRange(lcl, lclNum);
             }
-#endif // USING_VARIABLE_LIVE_RANGE
         }
         else if (newRegNum != REG_STK)
         {
@@ -351,30 +347,14 @@ void CodeGen::genCodeForBBlist()
             isLastBlockProcessed = (block->bbNext->bbNext == nullptr);
         }
 
-#ifdef USING_VARIABLE_LIVE_RANGE
         if (compiler->opts.compDbgInfo && isLastBlockProcessed)
         {
             varLiveKeeper->siEndAllVariableLiveRange(liveness.GetLiveSet());
         }
-#endif // USING_VARIABLE_LIVE_RANGE
 
         if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
         {
             siEndBlock(block);
-
-#ifdef USING_SCOPE_INFO
-            if (isLastBlockProcessed && siOpenScopeList.scNext)
-            {
-                /* This assert no longer holds, because we may insert a throw
-                   block to demarcate the end of a try or finally region when they
-                   are at the end of the method.  It would be nice if we could fix
-                   our code so that this throw block will no longer be necessary. */
-
-                // noway_assert(block->bbCodeOffsEnd != compiler->info.compILCodeSize);
-
-                siCloseAllOpenScopes();
-            }
-#endif // USING_SCOPE_INFO
         }
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -574,12 +554,7 @@ void CodeGen::genCodeForBBlist()
         }
 #endif
 
-#if defined(DEBUG) && defined(USING_VARIABLE_LIVE_RANGE)
-        if (compiler->verbose)
-        {
-            varLiveKeeper->dumpBlockVariableLiveRanges(block);
-        }
-#endif
+        DBEXEC(compiler->verbose, varLiveKeeper->dumpBlockVariableLiveRanges(block));
     }
 
     m_currentBlock = nullptr;
@@ -680,14 +655,12 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
         assert(lcl->IsAlwaysAliveInMemory() && lclVar->OperIs(GT_STORE_LCL_VAR));
     }
 
-#ifdef USING_VARIABLE_LIVE_RANGE
     if (needsSpill)
     {
         // We need this after "lvRegNum" has change because now we are sure that varDsc->lvIsInReg() is false.
         // "SiVarLoc" constructor uses the "LclVarDsc" of the variable.
         varLiveKeeper->siUpdateVariableLiveRange(lcl, lclVar->GetLclNum());
     }
-#endif
 }
 
 //------------------------------------------------------------------------
@@ -881,9 +854,7 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
                 liveness.UpdateLiveLclRegs(lcl, /*isDying*/ true DEBUGARG(src));
                 liveness.RemoveGCRegs(genRegMask(src->GetRegNum()));
                 lcl->SetRegNum(copy->GetRegNum());
-#ifdef USING_VARIABLE_LIVE_RANGE
                 varLiveKeeper->siUpdateVariableLiveRange(lcl, src->AsLclVar()->GetLclNum());
-#endif
                 liveness.UpdateLiveLclRegs(lcl, /*isDying*/ false DEBUGARG(copy));
             }
         }
@@ -978,7 +949,6 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     {
         lcl->SetRegNum(dstReg);
 
-#ifdef USING_VARIABLE_LIVE_RANGE
         // We want "VariableLiveRange" inclusive on the beginning and exclusive on the ending.
         // For that we shouldn't report an update of the variable location if is becoming dead
         // on the same native offset.
@@ -986,7 +956,6 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
         {
             varLiveKeeper->siUpdateVariableLiveRange(lcl, lclNum);
         }
-#endif
 
         liveness.UnspillGCSlot(lcl DEBUGARG(node));
     }

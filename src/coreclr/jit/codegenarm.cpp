@@ -1454,12 +1454,6 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
     }
 
     compiler->unwindAllocStack(frameSize);
-#ifdef USING_SCOPE_INFO
-    if (!IsFramePointerRequired())
-    {
-        psiAdjustStackLevel(frameSize);
-    }
-#endif // USING_SCOPE_INFO
 }
 
 void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
