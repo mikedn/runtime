@@ -5738,11 +5738,11 @@ bool CodeGen::VariableLiveKeeper::LiveRangeDumper::hasLiveRangesToDump() const
 //------------------------------------------------------------------------
 
 CodeGen::VariableLiveKeeper::VariableLiveDescriptor::VariableLiveDescriptor(CompAllocator allocator)
+    : m_VariableLiveRanges(new (allocator) LiveRangeList(allocator))
+#ifdef DEBUG
+    , m_VariableLifeBarrier(new (allocator) LiveRangeDumper(m_VariableLiveRanges))
+#endif
 {
-    // Initialize an empty list
-    m_VariableLiveRanges = new (allocator) LiveRangeList(allocator);
-
-    INDEBUG(m_VariableLifeBarrier = new (allocator) LiveRangeDumper(m_VariableLiveRanges));
 }
 
 //------------------------------------------------------------------------
