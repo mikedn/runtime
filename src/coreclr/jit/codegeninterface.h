@@ -387,7 +387,7 @@ public:
         siVarLoc(const LclVarDsc* lcl, regNumber baseReg, int offset, bool isFramePointerUsed);
         siVarLoc(){};
 
-        static bool Equals(const siVarLoc* lhs, const siVarLoc* rhs);
+        static bool Equals(const siVarLoc& x, const siVarLoc& y);
 
     private:
         void siFillRegisterVarLoc(
@@ -398,16 +398,8 @@ public:
     };
 
 public:
-    siVarLoc getSiVarLoc(const LclVarDsc* varDsc
-#if !FEATURE_FIXED_OUT_ARGS
-                         ,
-                         unsigned stackLevel
-#endif
-                         ) const;
-
-#ifdef DEBUG
-    void dumpSiVarLoc(const siVarLoc* varLoc) const;
-#endif
+    siVarLoc getSiVarLoc(const LclVarDsc* lcl) const;
+    INDEBUG(static void dumpSiVarLoc(const siVarLoc* varLoc);)
 
 #if !FEATURE_FIXED_OUT_ARGS
     unsigned getCurrentStackLevel() const;

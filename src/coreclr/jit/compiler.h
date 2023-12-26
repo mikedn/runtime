@@ -117,6 +117,8 @@ enum RefCountState : uint8_t
     RCS_NORMAL,  // normal ref counts (from lvaMarkRefs onward)
 };
 
+#define FMT_LCL "V%02u"
+
 class LclVarDsc
 {
 public:

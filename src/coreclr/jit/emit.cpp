@@ -143,6 +143,13 @@ unsigned emitter::emitCurOffset()
 
 #ifdef DEBUG
 
+void emitLocation::Print() const
+{
+    unsigned insNum = emitGetInsNumFromCodePos(codePos);
+    unsigned insOfs = emitGetInsOfsFromCodePos(codePos);
+    printf("(" FMT_IG ", ins %u, ofs %u)", ig->igNum, insNum, insOfs);
+}
+
 void emitLocation::Print(LONG compMethodID) const
 {
     unsigned insNum = emitGetInsNumFromCodePos(codePos);

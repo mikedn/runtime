@@ -968,7 +968,7 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
     genSetScopeInfo();
 
-    DBEXEC(compiler->verbose, varLiveKeeper->dumpLvaVariableLiveRanges());
+    DBEXEC(compiler->verbose, varLiveKeeper->DumpAllRanges());
 
 #ifdef LATE_DISASM
     unsigned finalHotCodeSize;
@@ -4229,7 +4229,7 @@ void CodeGen::genFnProlog()
 
     if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
     {
-        varLiveKeeper->psiClosePrologVariableRanges();
+        varLiveKeeper->EndPrologRange();
     }
 
 #ifdef TARGET_X86
@@ -4458,7 +4458,7 @@ void CodeGen::genSetScopeInfo()
 
     JITDUMP("*************** In genSetScopeInfo()\n");
 
-    unsigned varsLocationsCount = static_cast<unsigned>(varLiveKeeper->getLiveRangesCount());
+    unsigned varsLocationsCount = varLiveKeeper->GetRangeCount();
 
     JITDUMP("VarLocInfo count is %d\n", varsLocationsCount);
 
@@ -4496,32 +4496,33 @@ void CodeGen::genSetScopeInfo()
 //
 void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
 {
-    unsigned int liveRangeIndex = 0;
+    unsigned liveRangeIndex = 0;
 
-    for (unsigned int lclNum = 0; lclNum < compiler->info.compLocalsCount; lclNum++)
+    for (unsigned lclNum = 0; lclNum < compiler->info.compLocalsCount; lclNum++)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-        if (compiler->compMap2ILvarNum(lclNum) != (unsigned int)ICorDebugInfo::UNKNOWN_ILNUM)
+        if (compiler->compMap2ILvarNum(lclNum) != ICorDebugInfo::UNKNOWN_ILNUM)
         {
-            VariableLiveKeeper::LiveRangeList* liveRanges = nullptr;
-
-            for (int rangeIndex = 0; rangeIndex < 2; rangeIndex++)
+            for (unsigned i = 0; i < 2; i++)
             {
-                if (rangeIndex == 0)
+                VariableLiveRangeList* liveRanges = nullptr;
+
+                if (i == 0)
                 {
-                    liveRanges = varLiveKeeper->getLiveRangesForVarForProlog(lclNum);
+                    liveRanges = varLiveKeeper->GetPrologRanges(lclNum);
                 }
                 else
                 {
-                    liveRanges = varLiveKeeper->getLiveRangesForVarForBody(lclNum);
+                    liveRanges = varLiveKeeper->GetBodyRanges(lclNum);
                 }
-                for (VariableLiveKeeper::VariableLiveRange& liveRange : *liveRanges)
-                {
-                    UNATIVE_OFFSET startOffs = liveRange.m_StartEmitLocation.CodeOffset(GetEmitter());
-                    UNATIVE_OFFSET endOffs   = liveRange.m_EndEmitLocation.CodeOffset(GetEmitter());
 
-                    if (varDsc->IsParam() && (startOffs == endOffs))
+                for (VariableLiveRange& liveRange : *liveRanges)
+                {
+                    uint32_t startOffs = liveRange.startOffset.CodeOffset(GetEmitter());
+                    uint32_t endOffs   = liveRange.endOffset.CodeOffset(GetEmitter());
+
+                    if (lcl->IsParam() && (startOffs == endOffs))
                     {
                         // If the length is zero, it means that the prolog is empty. In that case,
                         // CodeGen::genSetScopeInfo will report the liveness of all arguments
@@ -4531,7 +4532,7 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
                     }
 
                     genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs - startOffs, lclNum, true,
-                                    &liveRange.m_VarLocation);
+                                    &liveRange.location);
                     liveRangeIndex++;
                 }
             }
@@ -5605,13 +5606,6 @@ void CodeGen::genStackPointerCheck(unsigned lvaStackPointerVar)
 }
 
 #endif // defined(DEBUG) && defined(TARGET_XARCH)
-
-#if !FEATURE_FIXED_OUT_ARGS
-unsigned CodeGenInterface::getCurrentStackLevel() const
-{
-    return genStackLevel;
-}
-#endif
 
 //-----------------------------------------------------------------------------
 // genPoisonFrame: Generate code that places a recognizable value into address exposed variables.

@@ -1173,158 +1173,95 @@ public:
     insGroup* syncEndEmitCookie   = nullptr;
 #endif
 
+    struct VariableLiveRange
+    {
+        emitLocation startOffset;
+        emitLocation endOffset;
+        siVarLoc     location;
+
+        VariableLiveRange(siVarLoc location, emitLocation startOffset, emitLocation endOffset)
+            : startOffset(startOffset), endOffset(endOffset), location(location)
+        {
+        }
+
+#ifdef DEBUG
+        void Dump() const;
+        void Dump(emitter* emit) const;
+#endif
+    };
+
+    typedef jitstd::list<VariableLiveRange>       VariableLiveRangeList;
+    typedef VariableLiveRangeList::const_iterator VariableLiveRangeListIterator;
+    class VariableLiveRangeDumper;
+
+    class VariableLiveDescriptor
+    {
+        VariableLiveRangeList* ranges;
+        INDEBUG(VariableLiveRangeDumper* dumper);
+
+    public:
+        VariableLiveDescriptor(CompAllocator allocator);
+
+        bool                   HasOpenRange() const;
+        VariableLiveRangeList* GetRanges() const;
+
+        void StartRange(siVarLoc varLoc, emitter* emit) const;
+        void EndRange(emitter* emit) const;
+        void UpdateRange(siVarLoc varLoc, emitter* emit) const;
+
+#ifdef DEBUG
+        void DumpAllRanges(emitter* emit) const;
+        bool HasRangesToDump() const;
+        void DumpNewRanges() const;
+        bool HasNewRangesToDump() const;
+#endif
+    };
+
+#ifdef DEBUG
+    class VariableLiveRangeDumper
+    {
+        VariableLiveRangeListIterator startingRange;
+        bool                          hasRangestoDump = false;
+
+    public:
+        VariableLiveRangeDumper(const VariableLiveRangeList* ranges) : startingRange(ranges->end()){};
+
+        void Reset(const VariableLiveRangeList* ranges);
+        void SetDumpStart(const VariableLiveRangeListIterator start);
+        VariableLiveRangeListIterator GetDumpStart() const;
+        bool                          HasRangesToDump() const;
+    };
+#endif // DEBUG
+
     class VariableLiveKeeper
     {
-    public:
-        // Represent part of the life of a variable.
-        // A variable lives in a location (represented with struct "siVarLoc")
-        // between two native offsets.
-        //
-        // We use emitLocation and not NATTIVE_OFFSET because location
-        // is captured when code is being generated (genCodeForBBList
-        // and genGeneratePrologsAndEpilogs) but only after the whole
-        // method's code is generated can we obtain a final, fixed
-        // int32_t representing the actual generated code offset.
-        // There is also a IL_OFFSET, but this is more accurate and the
-        // debugger is expecting assembly offsets.
-        // This class doesn't have behaviour attached to itself, it is
-        // just putting a name to a representation. It is used to build
-        // typedefs LiveRangeList and LiveRangeListIterator, which are
-        // basically a list of this class and a const_iterator of that list.
-        //
-        class VariableLiveRange
-        {
-        public:
-            emitLocation               m_StartEmitLocation; // first position from where "m_VarLocation" becomes valid
-            emitLocation               m_EndEmitLocation;   // last position where "m_VarLocation" is valid
-            CodeGenInterface::siVarLoc m_VarLocation;       // variable location
-
-            VariableLiveRange(CodeGenInterface::siVarLoc varLocation,
-                              emitLocation               startEmitLocation,
-                              emitLocation               endEmitLocation)
-                : m_StartEmitLocation(startEmitLocation), m_EndEmitLocation(endEmitLocation), m_VarLocation(varLocation)
-            {
-            }
-
-#ifdef DEBUG
-            // Dump "VariableLiveRange" when code has not been generated. We don't have the native code offset,
-            // but we do have "emitLocation"s and "siVarLoc".
-            void dumpVariableLiveRange(const CodeGenInterface* codeGen) const;
-
-            // Dump "VariableLiveRange" when code has been generated and we have the native code offset of each
-            // "emitLocation"
-            void dumpVariableLiveRange(emitter* emit, const CodeGenInterface* codeGen) const;
-#endif // DEBUG
-        };
-
-        typedef jitstd::list<VariableLiveRange> LiveRangeList;
-        typedef LiveRangeList::const_iterator   LiveRangeListIterator;
-
-    private:
-#ifdef DEBUG
-        // Used for debugging purposes during code generation on genCodeForBBList.
-        // Keeps an iterator to the first edited/added "VariableLiveRange" of a
-        // variable during the generation of code of one block.
-        //
-        // The first "VariableLiveRange" reported for a variable during
-        // a BasicBlock is sent to "setDumperStartAt" so we can dump all
-        // the "VariableLiveRange"s from that one.
-        // After we dump all the "VariableLiveRange"s we call "reset" with
-        // the "liveRangeList" to set the barrier to nullptr or the last
-        // "VariableLiveRange" if it is opened.
-        // If no "VariableLiveRange" was edited/added during block,
-        // the iterator points to the end of variable's LiveRangeList.
-        class LiveRangeDumper
-        {
-            // Iterator to the first edited/added position during actual block code generation. If last
-            // block had a closed "VariableLiveRange" (with a valid "m_EndEmitLocation") and not changes
-            // were applied to variable liveness, it points to the end of variable's LiveRangeList.
-            LiveRangeListIterator m_StartingLiveRange;
-            bool                  m_hasLiveRangestoDump; // True if a live range for this variable has been
-            // reported from last call to EndBlock
-
-        public:
-            LiveRangeDumper(const LiveRangeList* liveRanges)
-                : m_StartingLiveRange(liveRanges->end()), m_hasLiveRangestoDump(false){};
-
-            // Make the dumper point to the last "VariableLiveRange" opened or nullptr if all are closed
-            void resetDumper(const LiveRangeList* list);
-
-            // Make "LiveRangeDumper" instance points the last "VariableLiveRange" added so we can
-            // start dumping from there after the actual "BasicBlock"s code is generated.
-            void setDumperStartAt(const LiveRangeListIterator liveRangeIt);
-
-            // Return an iterator to the first "VariableLiveRange" edited/added during the current
-            // "BasicBlock"
-            LiveRangeListIterator getStartForDump() const;
-
-            // Return whether at least a "VariableLiveRange" was alive during the current "BasicBlock"'s
-            // code generation
-            bool hasLiveRangesToDump() const;
-        };
-#endif // DEBUG
-
-        // This class persist and update all the changes to the home of a variable.
-        // It has an instance of "LiveRangeList" and methods to report the start/end
-        // of a VariableLiveRange.
-        class VariableLiveDescriptor
-        {
-            LiveRangeList* m_VariableLiveRanges; // the variable locations of this variable
-            INDEBUG(LiveRangeDumper* m_VariableLifeBarrier);
-
-        public:
-            VariableLiveDescriptor(CompAllocator allocator);
-
-            bool           hasVariableLiveRangeOpen() const;
-            LiveRangeList* getLiveRanges() const;
-
-            void startLiveRangeFromEmitter(CodeGenInterface::siVarLoc varLocation, emitter* emit) const;
-            void endLiveRangeAtEmitter(emitter* emit) const;
-            void updateLiveRangeAtEmitter(CodeGenInterface::siVarLoc varLocation, emitter* emit) const;
-
-#ifdef DEBUG
-            void dumpAllRegisterLiveRangesForBlock(emitter* emit, const CodeGenInterface* codeGen) const;
-            void dumpRegisterLiveRangesForBlockBeforeCodeGenerated(const CodeGenInterface* codeGen) const;
-            bool hasVarLiveRangesToDump() const;
-            bool hasVarLiveRangesFromLastBlockToDump() const;
-            void endBlockLiveRanges();
-#endif
-        };
-
-        Compiler* m_Compiler;
-
-        unsigned m_LiveDscCount;  // count of args, special args, and IL local variables to report home
-        unsigned m_LiveArgsCount; // count of arguments to report home
-
-        VariableLiveDescriptor* m_vlrLiveDsc; // Array of descriptors that manage VariableLiveRanges.
-        // Its indices correspond to lvaTable indexes.
-
-        VariableLiveDescriptor* m_vlrLiveDscForProlog; // Array of descriptors that manage VariableLiveRanges.
-        // Its indices correspond to lvaTable indexes.
-
-        bool m_LastBasicBlockHasBeenEmited = false; // When true no more siEndVariableLiveRange is considered.
-        // No update/start happens when code has been generated.
+        Compiler*               compiler;
+        unsigned                varCount;
+        unsigned                paramCount;
+        VariableLiveDescriptor* bodyVars;
+        VariableLiveDescriptor* prologVars;
+        bool                    lastBasicBlockHasBeenEmited = false;
 
     public:
         VariableLiveKeeper(Compiler* compiler, CompAllocator allocator);
 
-        void siStartOrCloseVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum, bool isBorn, bool isDying);
-        void siStartVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum);
-        void siEndVariableLiveRange(unsigned int varNum);
-        void siUpdateVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum);
-        void siEndAllVariableLiveRange(VARSET_VALARG_TP varsToClose);
-        void siEndAllVariableLiveRange();
+        void StartOrCloseRange(const LclVarDsc* lcl, unsigned lclNum, bool isBorn, bool isDying);
+        void StartRange(const LclVarDsc* lcl, unsigned lclNum);
+        void EndRange(unsigned lclNum);
+        void UpdateRange(const LclVarDsc* lcl, unsigned int lclNum);
+        void EndAllRanges(VARSET_VALARG_TP varsToClose);
+        void EndAllRanges();
 
-        LiveRangeList* getLiveRangesForVarForBody(unsigned int varNum) const;
-        LiveRangeList* getLiveRangesForVarForProlog(unsigned int varNum) const;
-        size_t getLiveRangesCount() const;
+        VariableLiveRangeList* GetBodyRanges(unsigned lclNum) const;
+        VariableLiveRangeList* GetPrologRanges(unsigned lclNum) const;
+        unsigned GetRangeCount() const;
 
-        void psiStartVariableLiveRange(CodeGenInterface::siVarLoc varLocation, unsigned int varNum);
-        void psiClosePrologVariableRanges();
+        void StartPrologRange(siVarLoc varLocation, unsigned lclNum);
+        void EndPrologRange();
 
 #ifdef DEBUG
-        void dumpBlockVariableLiveRanges(const BasicBlock* block);
-        void dumpLvaVariableLiveRanges() const;
+        void DumpNewRanges(const BasicBlock* block);
+        void DumpAllRanges() const;
 #endif
     };
 

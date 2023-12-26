@@ -136,48 +136,38 @@ void CodeGenInterface::siVarLoc::storeVariableOnStack(RegNum stackBaseReg, int32
     vlStk.vlsOffset  = stackOffset;
 }
 
-bool CodeGenInterface::siVarLoc::Equals(const siVarLoc* x, const siVarLoc* y)
+bool CodeGenInterface::siVarLoc::Equals(const siVarLoc& x, const siVarLoc& y)
 {
-    if (x == y)
-    {
-        return true;
-    }
-
-    if ((x == nullptr) || (y == nullptr))
+    if (x.vlType != y.vlType)
     {
         return false;
     }
 
-    if (x->vlType != y->vlType)
-    {
-        return false;
-    }
-
-    switch (x->vlType)
+    switch (x.vlType)
     {
         case VLT_STK:
         case VLT_STK_BYREF:
-            return (x->vlStk.vlsBaseReg == y->vlStk.vlsBaseReg) && (x->vlStk.vlsOffset == y->vlStk.vlsOffset);
+            return (x.vlStk.vlsBaseReg == y.vlStk.vlsBaseReg) && (x.vlStk.vlsOffset == y.vlStk.vlsOffset);
         case VLT_STK2:
-            return (x->vlStk2.vls2BaseReg == y->vlStk2.vls2BaseReg) && (x->vlStk2.vls2Offset == y->vlStk2.vls2Offset);
+            return (x.vlStk2.vls2BaseReg == y.vlStk2.vls2BaseReg) && (x.vlStk2.vls2Offset == y.vlStk2.vls2Offset);
         case VLT_REG:
         case VLT_REG_FP:
         case VLT_REG_BYREF:
-            return x->vlReg.vlrReg == y->vlReg.vlrReg;
+            return x.vlReg.vlrReg == y.vlReg.vlrReg;
         case VLT_REG_REG:
-            return (x->vlRegReg.vlrrReg1 == y->vlRegReg.vlrrReg1) && (x->vlRegReg.vlrrReg2 == y->vlRegReg.vlrrReg2);
+            return (x.vlRegReg.vlrrReg1 == y.vlRegReg.vlrrReg1) && (x.vlRegReg.vlrrReg2 == y.vlRegReg.vlrrReg2);
         case VLT_REG_STK:
-            return (x->vlRegStk.vlrsReg == y->vlRegStk.vlrsReg) &&
-                   (x->vlRegStk.vlrsStk.vlrssBaseReg == y->vlRegStk.vlrsStk.vlrssBaseReg) &&
-                   (x->vlRegStk.vlrsStk.vlrssOffset == y->vlRegStk.vlrsStk.vlrssOffset);
+            return (x.vlRegStk.vlrsReg == y.vlRegStk.vlrsReg) &&
+                   (x.vlRegStk.vlrsStk.vlrssBaseReg == y.vlRegStk.vlrsStk.vlrssBaseReg) &&
+                   (x.vlRegStk.vlrsStk.vlrssOffset == y.vlRegStk.vlrsStk.vlrssOffset);
         case VLT_STK_REG:
-            return (x->vlStkReg.vlsrReg == y->vlStkReg.vlsrReg) &&
-                   (x->vlStkReg.vlsrStk.vlsrsBaseReg == y->vlStkReg.vlsrStk.vlsrsBaseReg) &&
-                   (x->vlStkReg.vlsrStk.vlsrsOffset == y->vlStkReg.vlsrStk.vlsrsOffset);
+            return (x.vlStkReg.vlsrReg == y.vlStkReg.vlsrReg) &&
+                   (x.vlStkReg.vlsrStk.vlsrsBaseReg == y.vlStkReg.vlsrStk.vlsrsBaseReg) &&
+                   (x.vlStkReg.vlsrStk.vlsrsOffset == y.vlStkReg.vlsrStk.vlsrsOffset);
         case VLT_FPSTK:
-            return x->vlFPstk.vlfReg == y->vlFPstk.vlfReg;
+            return x.vlFPstk.vlfReg == y.vlFPstk.vlfReg;
         case VLT_FIXED_VA:
-            return x->vlFixedVarArg.vlfvOffset == y->vlFixedVarArg.vlfvOffset;
+            return x.vlFixedVarArg.vlfvOffset == y.vlFixedVarArg.vlfvOffset;
         case VLT_COUNT:
         case VLT_INVALID:
             return true;
@@ -283,12 +273,7 @@ CodeGenInterface::siVarLoc::siVarLoc(const LclVarDsc* lcl, RegNum baseReg, int o
     }
 }
 
-CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* lcl
-#if !FEATURE_FIXED_OUT_ARGS
-                                                         ,
-                                                         unsigned stackLevel
-#endif
-                                                         ) const
+CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* lcl) const
 {
     RegNum baseReg;
     signed offset = lcl->GetStackOffset();
@@ -297,7 +282,7 @@ CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* lcl
     {
         baseReg = REG_SPBASE;
 #if !FEATURE_FIXED_OUT_ARGS
-        offset += stackLevel;
+        offset += genStackLevel;
 #endif
     }
     else
@@ -309,7 +294,7 @@ CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* lcl
 }
 
 #ifdef DEBUG
-void CodeGenInterface::dumpSiVarLoc(const siVarLoc* varLoc) const
+void CodeGenInterface::dumpSiVarLoc(const siVarLoc* varLoc)
 {
     switch (varLoc->vlType)
     {

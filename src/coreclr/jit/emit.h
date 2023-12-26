@@ -89,8 +89,9 @@ public:
     bool IsPreviousInsNum(emitter* emit) const;
 
 #ifdef DEBUG
+    void Print() const;
     void Print(LONG compMethodID) const;
-#endif // DEBUG
+#endif
 
 private:
     insGroup* ig;      // the instruction group
