@@ -1153,6 +1153,194 @@ void CodeGen::VariableLiveKeeper::psiClosePrologVariableRanges()
     }
 }
 
+void CodeGen::siBeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope)
+{
+    assert(compiler->opts.compScopeInfo);
+
+    if (compiler->info.compVarScopesCount == 0)
+    {
+        return;
+    }
+
+#ifdef FEATURE_EH_FUNCLETS
+    if (siInFuncletRegion)
+    {
+        return;
+    }
+
+    if (block->bbFlags & BBF_FUNCLET_BEG)
+    {
+        // For now, don't report any scopes in funclets. JIT64 doesn't.
+        siInFuncletRegion = true;
+
+        JITDUMP("Scope info: found beginning of funclet region at block " FMT_BB "; ignoring following blocks\n",
+                block->bbNum);
+
+        return;
+    }
+#endif // FEATURE_EH_FUNCLETS
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("\nScope info: begin block " FMT_BB ", IL range ", block->bbNum);
+        block->dspBlockILRange();
+        printf("\n");
+    }
+#endif // DEBUG
+
+    unsigned beginOffs = block->bbCodeOffs;
+
+    if (beginOffs == BAD_IL_OFFSET)
+    {
+        JITDUMP("Scope info: ignoring block beginning\n");
+        return;
+    }
+
+    // If we have tracked locals, use liveness to update the debug state.
+    //
+    // Note: we can improve on this some day -- if there are any tracked
+    // locals, untracked locals will fail to be reported.
+    if (compiler->lvaTrackedCount == 0)
+    {
+        siOpenScopesForNonTrackedVars(block, siLastEndOffs, nextEnterScope, nextExitScope);
+    }
+}
+
+void CodeGen::siOpenScopesForNonTrackedVars(const BasicBlock* block,
+                                            unsigned          lastBlockILEndOffset,
+                                            unsigned*         nextEnterScope,
+                                            unsigned*         nextExitScope)
+{
+    unsigned beginOffs = block->bbCodeOffs;
+
+    if (compiler->opts.OptimizationEnabled())
+    {
+        return;
+    }
+
+#ifdef FEATURE_EH_FUNCLETS
+    // If we find a spot where the code offset isn't what we expect, because
+    // there is a gap, it might be because we've moved the funclets out of
+    // line. Catch up with the enter and exit scopes of the current block.
+    // Ignore the enter/exit scope changes of the missing scopes, which for
+    // funclets must be matched.
+    if (lastBlockILEndOffset != beginOffs)
+    {
+        assert(beginOffs > 0);
+        assert(lastBlockILEndOffset < beginOffs);
+
+        JITDUMP("Scope info: found offset hole. lastOffs=%u, currOffs=%u\n", lastBlockILEndOffset, beginOffs);
+
+        // Skip enter & exit scopes
+        while (VarScopeDsc* scope = compiler->compGetNextEnterScopeScan(beginOffs - 1, nextEnterScope))
+        {
+            JITDUMP("Scope info: skipping enter scope, LVnum=%u\n", scope->scopeNum);
+        }
+
+        while (VarScopeDsc* scope = compiler->compGetNextExitScopeScan(beginOffs - 1, nextExitScope))
+        {
+            JITDUMP("Scope info: skipping exit scope, LVnum=%u\n", scope->scopeNum);
+        }
+    }
+#else  // !FEATURE_EH_FUNCLETS
+    if (lastBlockILEndOffset != beginOffs)
+    {
+        assert(lastBlockILEndOffset < beginOffs);
+        return;
+    }
+#endif // !FEATURE_EH_FUNCLETS
+
+    // When there we are jitting methods compiled in debug mode, no variable is
+    // tracked and there is no info that shows variable liveness like block->bbLiveIn.
+    // On debug code variables are not enregistered the whole method so we can just
+    // report them as beign born from here on the stack until the whole method is
+    // generated.
+
+    while (VarScopeDsc* scope = compiler->compGetNextEnterScope(beginOffs, nextEnterScope))
+    {
+        LclVarDsc* lcl = compiler->lvaGetDesc(scope->lclNum);
+
+        if (!compiler->opts.compDbgCode && (lcl->GetRefCount() == 0))
+        {
+            JITDUMP("Skipping open scope for V%02u, unreferenced\n", scope->lclNum);
+
+            continue;
+        }
+
+        JITDUMP("Scope info: opening scope, LVnum=%u [%03X..%03X)\n", scope->scopeNum, scope->startOffset,
+                scope->endOffset);
+
+        varLiveKeeper->siStartVariableLiveRange(lcl, scope->lclNum);
+
+        INDEBUG(assert(!lcl->lvTracked || VarSetOps::IsMember(compiler, block->bbLiveIn, lcl->lvVarIndex)));
+    }
+}
+
+void CodeGen::siEndBlock(BasicBlock* block)
+{
+    assert(compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0));
+
+#ifdef FEATURE_EH_FUNCLETS
+    if (siInFuncletRegion)
+    {
+        return;
+    }
+#endif
+
+    unsigned endOffs = block->bbCodeOffsEnd;
+
+    if (endOffs == BAD_IL_OFFSET)
+    {
+        JITDUMP("Scope info: ignoring block end\n");
+        return;
+    }
+
+    siLastEndOffs = endOffs;
+}
+
+void CodeGen::psiBegProlog()
+{
+    assert(generatingProlog);
+
+    unsigned nextEnterScope = 0;
+
+    while (VarScopeDsc* scope = compiler->compGetNextEnterScope(0, &nextEnterScope))
+    {
+        LclVarDsc* lcl = compiler->lvaGetDesc(scope->lclNum);
+
+        if (!lcl->IsParam())
+        {
+            continue;
+        }
+
+        siVarLoc loc;
+
+        if (lcl->IsRegParam())
+        {
+            RegNum regs[2]{lcl->GetParamReg(), REG_NA};
+
+#ifdef UNIX_AMD64_ABI
+            if (lcl->GetParamRegCount() > 1)
+            {
+                regs[1] = lcl->GetParamReg(1);
+            }
+#endif
+
+            assert(isValidIntArgReg(regs[0]) || isValidFloatArgReg(regs[0]));
+            assert((regs[1] == REG_NA) || isValidIntArgReg(regs[1]) || isValidFloatArgReg(regs[1]));
+
+            loc.storeVariableInRegisters(regs[0], regs[1]);
+        }
+        else
+        {
+            loc.storeVariableOnStack(REG_SPBASE, psiGetVarStackOffset(lcl));
+        }
+
+        varLiveKeeper->psiStartVariableLiveRange(loc, scope->lclNum);
+    }
+}
+
 #ifdef DEBUG
 //------------------------------------------------------------------------
 //                      VariableLiveRanges dumpers
