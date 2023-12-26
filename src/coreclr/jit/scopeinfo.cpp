@@ -40,6 +40,28 @@
 #include "emit.h"
 #include "codegen.h"
 
+#if defined(DEBUG) || defined(LATE_DISASM)
+static bool IsAmbientSP(RegNum reg)
+{
+    // TODO-MIKE-Review: This is rather dodgy. They've put JIT's RegNum in siVarLoc
+    // even though it's really ICorDebugInfo's RegNum and REGNUM_AMBIENT_SP collides
+    // with JIT vector registers. It just happens to work because we only need this
+    // in cases where the register can only be one of the frame registers.
+    return static_cast<ICorDebugInfo::RegNum>(reg) == ICorDebugInfo::REGNUM_AMBIENT_SP;
+}
+#endif
+
+static RegNum MapToAmbientSP(RegNum reg, bool isFramePointerUsed)
+{
+    if (!isFramePointerUsed && (reg == REG_SPBASE))
+    {
+        reg = static_cast<RegNum>(ICorDebugInfo::REGNUM_AMBIENT_SP);
+    }
+
+    return reg;
+}
+
+#ifdef LATE_DISASM
 bool CodeGenInterface::siVarLoc::vlIsInReg(RegNum reg) const
 {
     switch (vlType)
@@ -60,25 +82,6 @@ bool CodeGenInterface::siVarLoc::vlIsInReg(RegNum reg) const
             assert(!"Bad locType");
             return false;
     }
-}
-
-static bool IsAmbientSP(RegNum reg)
-{
-    // TODO-MIKE-Review: This is rather dodgy. They've put JIT's RegNum in siVarLoc
-    // even though it's really ICorDebugInfo's RegNum and REGNUM_AMBIENT_SP collides
-    // with JIT vector registers. It just happens to work because we only need this
-    // in cases where the register can only be one of the frame registers.
-    return static_cast<ICorDebugInfo::RegNum>(reg) == ICorDebugInfo::REGNUM_AMBIENT_SP;
-}
-
-static RegNum MapToAmbientSP(RegNum reg, bool isFramePointerUsed)
-{
-    if (!isFramePointerUsed && (reg == REG_SPBASE))
-    {
-        reg = static_cast<RegNum>(ICorDebugInfo::REGNUM_AMBIENT_SP);
-    }
-
-    return reg;
 }
 
 bool CodeGenInterface::siVarLoc::vlIsOnStack(RegNum reg, int32_t offset) const
@@ -109,6 +112,7 @@ bool CodeGenInterface::siVarLoc::vlIsOnStack(RegNum reg, int32_t offset) const
             return false;
     }
 }
+#endif // LATE_DISASM
 
 void CodeGenInterface::siVarLoc::storeVariableInRegisters(RegNum reg1, RegNum reg2)
 {

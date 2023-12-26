@@ -376,10 +376,10 @@ public:
             } vlMemory;
         };
 
-        // Helper functions
-
+#ifdef LATE_DISASM
         bool vlIsInReg(regNumber reg) const;
         bool vlIsOnStack(regNumber reg, int32_t offset) const;
+#endif
 
         void storeVariableInRegisters(regNumber reg1, regNumber reg2);
         void storeVariableOnStack(regNumber stackBaseReg, int32_t stackOffset);
