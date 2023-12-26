@@ -563,22 +563,40 @@ void CodeGen::eeSetLVinfo(unsigned                          which,
     }
 }
 
+// Check every CodeGenInterface::siVarLocType and CodeGenInterface::siVarLoc are what
+// ICodeDebugInfo is expecting so we can reinterpret siVarLoc as ICodeDebugInfo::VarLoc.
+#ifdef TARGET_X86
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_EAX) == REG_EAX);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_ECX) == REG_ECX);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_EDX) == REG_EDX);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_EBX) == REG_EBX);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_ESP) == REG_ESP);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_EBP) == REG_EBP);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_ESI) == REG_ESI);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_EDI) == REG_EDI);
+#endif
+
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_REG) == CodeGenInterface::VLT_REG);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_STK) == CodeGenInterface::VLT_STK);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_REG_REG) == CodeGenInterface::VLT_REG_REG);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_REG_STK) == CodeGenInterface::VLT_REG_STK);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_STK_REG) == CodeGenInterface::VLT_STK_REG);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_STK2) == CodeGenInterface::VLT_STK2);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_FPSTK) == CodeGenInterface::VLT_FPSTK);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_FIXED_VA) == CodeGenInterface::VLT_FIXED_VA);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_COUNT) == CodeGenInterface::VLT_COUNT);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_INVALID) == CodeGenInterface::VLT_INVALID);
+
+static_assert_no_msg(sizeof(ICorDebugInfo::VarLoc) == sizeof(CodeGenInterface::siVarLoc));
+static_assert_no_msg(sizeof(CodeGen::VarResultInfo) == sizeof(ICorDebugInfo::NativeVarInfo));
+
 void CodeGen::eeSetLVdone()
 {
-    // necessary but not sufficient condition that the 2 struct definitions overlap
-    assert(sizeof(eeVars[0]) == sizeof(ICorDebugInfo::NativeVarInfo));
     assert(compiler->opts.compScopeInfo);
 
-#ifdef DEBUG
-    if (verbose || compiler->opts.dspDebugInfo)
-    {
-        eeDispVars(compiler->info.compMethodHnd, eeVarsCount, (ICorDebugInfo::NativeVarInfo*)eeVars);
-    }
-#endif // DEBUG
-
-    compiler->info.compCompHnd->setVars(compiler->info.compMethodHnd, eeVarsCount,
-                                        (ICorDebugInfo::NativeVarInfo*)eeVars);
-
+    ICorDebugInfo::NativeVarInfo* vars = reinterpret_cast<ICorDebugInfo::NativeVarInfo*>(eeVars);
+    DBEXEC(verbose || compiler->opts.dspDebugInfo, eeDispVars(compiler->info.compMethodHnd, eeVarsCount, vars));
+    compiler->info.compCompHnd->setVars(compiler->info.compMethodHnd, eeVarsCount, vars);
     eeVars = nullptr; // We give up ownership after setVars()
 }
 

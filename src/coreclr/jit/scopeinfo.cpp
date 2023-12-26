@@ -576,49 +576,8 @@ void CodeGenInterface::dumpSiVarLoc(const siVarLoc* varLoc) const
 }
 #endif
 
-/*============================================================================
- *           INTERFACE (public) Functions for ScopeInfo
- *============================================================================
- */
-
-// Check every CodeGenInterface::siVarLocType and CodeGenInterface::siVarLoc
-// are what ICodeDebugInfo is expetecting.
-void CodeGen::checkICodeDebugInfo()
-{
-#ifdef TARGET_X86
-    assert((unsigned)ICorDebugInfo::REGNUM_EAX == REG_EAX);
-    assert((unsigned)ICorDebugInfo::REGNUM_ECX == REG_ECX);
-    assert((unsigned)ICorDebugInfo::REGNUM_EDX == REG_EDX);
-    assert((unsigned)ICorDebugInfo::REGNUM_EBX == REG_EBX);
-    assert((unsigned)ICorDebugInfo::REGNUM_ESP == REG_ESP);
-    assert((unsigned)ICorDebugInfo::REGNUM_EBP == REG_EBP);
-    assert((unsigned)ICorDebugInfo::REGNUM_ESI == REG_ESI);
-    assert((unsigned)ICorDebugInfo::REGNUM_EDI == REG_EDI);
-#endif
-
-    assert((unsigned)ICorDebugInfo::VLT_REG == CodeGenInterface::VLT_REG);
-    assert((unsigned)ICorDebugInfo::VLT_STK == CodeGenInterface::VLT_STK);
-    assert((unsigned)ICorDebugInfo::VLT_REG_REG == CodeGenInterface::VLT_REG_REG);
-    assert((unsigned)ICorDebugInfo::VLT_REG_STK == CodeGenInterface::VLT_REG_STK);
-    assert((unsigned)ICorDebugInfo::VLT_STK_REG == CodeGenInterface::VLT_STK_REG);
-    assert((unsigned)ICorDebugInfo::VLT_STK2 == CodeGenInterface::VLT_STK2);
-    assert((unsigned)ICorDebugInfo::VLT_FPSTK == CodeGenInterface::VLT_FPSTK);
-    assert((unsigned)ICorDebugInfo::VLT_FIXED_VA == CodeGenInterface::VLT_FIXED_VA);
-    assert((unsigned)ICorDebugInfo::VLT_COUNT == CodeGenInterface::VLT_COUNT);
-    assert((unsigned)ICorDebugInfo::VLT_INVALID == CodeGenInterface::VLT_INVALID);
-
-    /* ICorDebugInfo::VarLoc and siVarLoc should overlap exactly as we cast
-     * one to the other in eeSetLVinfo()
-     * Below is a "required but not sufficient" condition
-     */
-
-    assert(sizeof(ICorDebugInfo::VarLoc) == sizeof(CodeGenInterface::siVarLoc));
-}
-
 void CodeGen::siInit()
 {
-    checkICodeDebugInfo();
-
     assert(compiler->opts.compScopeInfo);
 
 #ifdef FEATURE_EH_FUNCLETS

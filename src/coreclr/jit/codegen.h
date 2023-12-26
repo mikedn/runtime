@@ -513,8 +513,6 @@ public:
 
 public:
     void siInit();
-    void checkICodeDebugInfo();
-
     void siBeginBlock(BasicBlock* block);
     void siEndBlock(BasicBlock* block);
     void siOpenScopesForNonTrackedVars(const BasicBlock* block, unsigned int lastBlockILEndOffset);
