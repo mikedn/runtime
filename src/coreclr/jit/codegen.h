@@ -479,18 +479,15 @@ public:
 
     struct VarResultInfo
     {
-        UNATIVE_OFFSET             startOffset;
-        UNATIVE_OFFSET             endOffset;
-        DWORD                      varNumber;
+        uint32_t                   startOffset;
+        uint32_t                   endOffset;
+        uint32_t                   varNumber;
         CodeGenInterface::siVarLoc loc;
     } * eeVars;
 
     void eeSetLVcount(unsigned count);
-    void eeSetLVinfo(unsigned                          which,
-                     UNATIVE_OFFSET                    startOffs,
-                     UNATIVE_OFFSET                    length,
-                     unsigned                          varNum,
-                     const CodeGenInterface::siVarLoc& loc);
+    void eeSetLVinfo(
+        unsigned index, uint32_t startOffs, uint32_t length, uint32_t varNum, const CodeGenInterface::siVarLoc& loc);
     void eeSetLVdone();
 
 #ifdef DEBUG
@@ -500,13 +497,13 @@ public:
 
     void genEnsureCodeEmitted(IL_OFFSETX offsx);
 
-    void genSetScopeInfo(unsigned       which,
-                         UNATIVE_OFFSET startOffs,
-                         UNATIVE_OFFSET length,
-                         unsigned       varNum,
-                         unsigned       LVnum,
-                         bool           avail,
-                         siVarLoc*      varLoc);
+    void genSetScopeInfo(unsigned  index,
+                         uint32_t  startOffs,
+                         uint32_t  length,
+                         uint32_t  varNum,
+                         unsigned  LVnum,
+                         bool      avail,
+                         siVarLoc* varLoc);
 
     void genSetScopeInfo();
     void genSetScopeInfoUsingVariableRanges();

@@ -4545,43 +4545,17 @@ void CodeGen::genSetScopeInfoUsingVariableRanges()
     }
 }
 
-//------------------------------------------------------------------------
-// genSetScopeInfo: Record scope information for debug info
-//
-// Arguments:
-//    which
-//    startOffs - the starting offset for this scope
-//    length    - the length of this scope
-//    varNum    - the lclVar for this scope info
-//    LVnum
-//    avail     - a bool indicating if it has a home
-//    varLoc    - the position (reg or stack) of the variable
-//
-// Notes:
-//    Called for every scope info piece to record by the main genSetScopeInfo()
-
-void CodeGen::genSetScopeInfo(unsigned       which,
-                              UNATIVE_OFFSET startOffs,
-                              UNATIVE_OFFSET length,
-                              unsigned       varNum,
-                              unsigned       LVnum,
-                              bool           avail,
-                              siVarLoc*      varLoc)
+void CodeGen::genSetScopeInfo(
+    unsigned index, uint32_t startOffs, uint32_t length, uint32_t varNum, unsigned LVnum, bool avail, siVarLoc* varLoc)
 {
-    // We need to do some mapping while reporting back these variables.
-
     unsigned ilVarNum = compiler->compMap2ILvarNum(varNum);
     noway_assert((int)ilVarNum != ICorDebugInfo::UNKNOWN_ILNUM);
 
 #ifdef TARGET_X86
-    // Non-x86 platforms are allowed to access all arguments directly
-    // so we don't need this code.
-
-    // Is this a varargs function?
     if (compiler->info.compIsVarArgs && (varNum != compiler->lvaVarargsHandleArg) &&
         (varNum < compiler->info.compArgsCount) && !compiler->lvaGetDesc(varNum)->IsRegParam())
     {
-        noway_assert(varLoc->vlType == VLT_STK || varLoc->vlType == VLT_STK2);
+        noway_assert((varLoc->vlType == VLT_STK) || (varLoc->vlType == VLT_STK2));
 
         // All stack arguments (except the varargs handle) have to be
         // accessed via the varargs cookie. Discard generated info,
@@ -4597,14 +4571,14 @@ void CodeGen::genSetScopeInfo(unsigned       which,
             return;
         }
 
-        LclVarDsc* varLcl = compiler->lvaGetDesc(varNum);
+        LclVarDsc* lcl = compiler->lvaGetDesc(varNum);
 
         // Can't check varLcl->lvOnFrame as we don't set it for params
         // of vararg functions to avoid reporting them to GC.
-        noway_assert(!varLcl->lvRegister);
+        noway_assert(!lcl->lvRegister);
 
         unsigned cookieOffset = varargHandleLcl->GetStackOffset();
-        unsigned varOffset    = varLcl->GetStackOffset();
+        unsigned varOffset    = lcl->GetStackOffset();
 
         noway_assert(cookieOffset < varOffset);
         unsigned offset     = varOffset - cookieOffset;
@@ -4615,7 +4589,6 @@ void CodeGen::genSetScopeInfo(unsigned       which,
         varLoc->vlType                   = VLT_FIXED_VA;
         varLoc->vlFixedVarArg.vlfvOffset = offset;
     }
-
 #endif // TARGET_X86
 
 #ifdef LATE_DISASM
@@ -4629,7 +4602,7 @@ void CodeGen::genSetScopeInfo(unsigned       which,
         }
     }
 
-    TrnslLocalVarInfo& tlvi = genTrnslLocalVarInfo[which];
+    TrnslLocalVarInfo& tlvi = genTrnslLocalVarInfo[index];
 
     tlvi.tlviVarNum    = ilVarNum;
     tlvi.tlviLVnum     = LVnum;
@@ -4640,7 +4613,7 @@ void CodeGen::genSetScopeInfo(unsigned       which,
     tlvi.tlviVarLoc    = *varLoc;
 #endif
 
-    eeSetLVinfo(which, startOffs, length, ilVarNum, *varLoc);
+    eeSetLVinfo(index, startOffs, length, ilVarNum, *varLoc);
 }
 
 #ifdef LATE_DISASM

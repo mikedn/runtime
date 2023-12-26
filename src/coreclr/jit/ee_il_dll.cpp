@@ -530,10 +530,10 @@ void CodeGen::eeSetLVcount(unsigned count)
     JITDUMP("VarLocInfo count is %d\n", count);
 
     eeVarsCount = count;
-    if (eeVarsCount)
+
+    if (count != 0)
     {
-        eeVars =
-            static_cast<VarResultInfo*>(compiler->info.compCompHnd->allocateArray(eeVarsCount * sizeof(eeVars[0])));
+        eeVars = static_cast<VarResultInfo*>(compiler->info.compCompHnd->allocateArray(count * sizeof(eeVars[0])));
     }
     else
     {
@@ -541,25 +541,19 @@ void CodeGen::eeSetLVcount(unsigned count)
     }
 }
 
-void CodeGen::eeSetLVinfo(unsigned                          which,
-                          UNATIVE_OFFSET                    startOffs,
-                          UNATIVE_OFFSET                    length,
-                          unsigned                          varNum,
-                          const CodeGenInterface::siVarLoc& varLoc)
+void CodeGen::eeSetLVinfo(
+    unsigned index, uint32_t startOffs, uint32_t length, uint32_t varNum, const CodeGenInterface::siVarLoc& varLoc)
 {
-    // ICorDebugInfo::VarLoc and CodeGenInterface::siVarLoc have to overlap
-    // This is checked in siInit()
-
     assert(compiler->opts.compScopeInfo);
     assert(eeVarsCount > 0);
-    assert(which < eeVarsCount);
+    assert(index < eeVarsCount);
 
     if (eeVars != nullptr)
     {
-        eeVars[which].startOffset = startOffs;
-        eeVars[which].endOffset   = startOffs + length;
-        eeVars[which].varNumber   = varNum;
-        eeVars[which].loc         = varLoc;
+        eeVars[index].startOffset = startOffs;
+        eeVars[index].endOffset   = startOffs + length;
+        eeVars[index].varNumber   = varNum;
+        eeVars[index].loc         = varLoc;
     }
 }
 
@@ -925,35 +919,36 @@ void CodeGen::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
 {
     const char* name = nullptr;
 
-    if (var->varNumber == (DWORD)ICorDebugInfo::VARARGS_HND_ILNUM)
+    if (var->varNumber == ICorDebugInfo::VARARGS_HND_ILNUM)
     {
         name = "varargsHandle";
     }
-    else if (var->varNumber == (DWORD)ICorDebugInfo::RETBUF_ILNUM)
+    else if (var->varNumber == ICorDebugInfo::RETBUF_ILNUM)
     {
         name = "retBuff";
     }
-    else if (var->varNumber == (DWORD)ICorDebugInfo::TYPECTXT_ILNUM)
+    else if (var->varNumber == ICorDebugInfo::TYPECTXT_ILNUM)
     {
         name = "typeCtx";
     }
+
     printf("%3d(%10s) : From %08Xh to %08Xh, in ", var->varNumber, (name == nullptr) ? "UNKNOWN" : name,
            var->startOffset, var->endOffset);
 
-    switch ((CodeGenInterface::siVarLocType)var->loc.vlType)
+    switch (var->loc.vlType)
     {
-        case CodeGenInterface::VLT_REG:
-        case CodeGenInterface::VLT_REG_BYREF:
-        case CodeGenInterface::VLT_REG_FP:
+        case ICorDebugInfo::VLT_REG:
+        case ICorDebugInfo::VLT_REG_BYREF:
+        case ICorDebugInfo::VLT_REG_FP:
             printf("%s", getRegName(var->loc.vlReg.vlrReg));
-            if (var->loc.vlType == (ICorDebugInfo::VarLocType)CodeGenInterface::VLT_REG_BYREF)
+            if (var->loc.vlType == ICorDebugInfo::VLT_REG_BYREF)
             {
                 printf(" byref");
             }
             break;
 
-        case CodeGenInterface::VLT_STK:
-        case CodeGenInterface::VLT_STK_BYREF:
+        case ICorDebugInfo::VLT_STK:
+        case ICorDebugInfo::VLT_STK_BYREF:
             if ((int)var->loc.vlStk.vlsBaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
             {
                 printf("%s[%d] (1 slot)", getRegName(var->loc.vlStk.vlsBaseReg), var->loc.vlStk.vlsOffset);
@@ -962,18 +957,18 @@ void CodeGen::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
             {
                 printf(STR_SPBASE "'[%d] (1 slot)", var->loc.vlStk.vlsOffset);
             }
-            if (var->loc.vlType == (ICorDebugInfo::VarLocType)CodeGenInterface::VLT_REG_BYREF)
+            if (var->loc.vlType == ICorDebugInfo::VLT_REG_BYREF)
             {
                 printf(" byref");
             }
             break;
 
-        case CodeGenInterface::VLT_REG_REG:
+        case ICorDebugInfo::VLT_REG_REG:
             printf("%s-%s", getRegName(var->loc.vlRegReg.vlrrReg1), getRegName(var->loc.vlRegReg.vlrrReg2));
             break;
 
 #ifndef TARGET_AMD64
-        case CodeGenInterface::VLT_REG_STK:
+        case ICorDebugInfo::VLT_REG_STK:
             if ((int)var->loc.vlRegStk.vlrsStk.vlrssBaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
             {
                 printf("%s-%s[%d]", getRegName(var->loc.vlRegStk.vlrsReg),
@@ -986,10 +981,10 @@ void CodeGen::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
             }
             break;
 
-        case CodeGenInterface::VLT_STK_REG:
+        case ICorDebugInfo::VLT_STK_REG:
             unreached(); // unexpected
 
-        case CodeGenInterface::VLT_STK2:
+        case ICorDebugInfo::VLT_STK2:
             if ((int)var->loc.vlStk2.vls2BaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
             {
                 printf("%s[%d] (2 slots)", getRegName(var->loc.vlStk2.vls2BaseReg), var->loc.vlStk2.vls2Offset);
@@ -1000,11 +995,11 @@ void CodeGen::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
             }
             break;
 
-        case CodeGenInterface::VLT_FPSTK:
+        case ICorDebugInfo::VLT_FPSTK:
             printf("ST(L-%d)", var->loc.vlFPstk.vlfReg);
             break;
 
-        case CodeGenInterface::VLT_FIXED_VA:
+        case ICorDebugInfo::VLT_FIXED_VA:
             printf("fxd_va[%d]", var->loc.vlFixedVarArg.vlfvOffset);
             break;
 #endif // !TARGET_AMD64
