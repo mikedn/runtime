@@ -392,15 +392,6 @@ void CodeGen::siInit()
 {
     assert(compiler->opts.compScopeInfo);
 
-#ifdef FEATURE_EH_FUNCLETS
-    if (compiler->info.compVarScopesCount > 0)
-    {
-        siInFuncletRegion = false;
-    }
-#endif
-
-    siLastEndOffs = 0;
-
     compiler->compResetScopeLists();
 }
 

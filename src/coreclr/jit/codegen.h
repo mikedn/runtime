@@ -516,10 +516,10 @@ public:
 
 protected:
 #ifdef FEATURE_EH_FUNCLETS
-    bool siInFuncletRegion;
+    bool siInFuncletRegion = false;
 #endif
 
-    IL_OFFSET siLastEndOffs; // IL offset of the (exclusive) end of the last block processed
+    IL_OFFSET siLastEndOffs = 0; // IL offset of the (exclusive) end of the last block processed
 
 public:
     void psiBegProlog();
