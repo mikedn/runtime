@@ -527,8 +527,6 @@ protected:
 #ifdef LATE_DISASM
     struct TrnslLocalVarInfo
     {
-        unsigned       tlviVarNum;
-        unsigned       tlviLVnum;
         const char*    tlviName;
         UNATIVE_OFFSET tlviStartPC;
         size_t         tlviLength;
