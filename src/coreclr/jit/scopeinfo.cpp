@@ -850,16 +850,3 @@ void CodeGen::psiBegProlog()
         varLiveKeeper->psiStartVariableLiveRange(varLocation, varScope->vsdVarNum);
     }
 }
-
-//------------------------------------------------------------------------
-// psiEndProlog: Close all the open "psiScope" or "VariableLiveRanges"
-//  after prolog has been generated.
-//
-// Notes:
-//  This function is expected to be called after prolog code has been generated.
-//
-void CodeGen::psiEndProlog()
-{
-    assert(generatingProlog);
-    varLiveKeeper->psiClosePrologVariableRanges();
-}

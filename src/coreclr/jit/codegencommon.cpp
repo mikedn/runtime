@@ -4226,9 +4226,10 @@ void CodeGen::genFnProlog()
     {
         GetEmitter()->emitMarkPrologEnd();
     }
+
     if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
     {
-        psiEndProlog();
+        varLiveKeeper->psiClosePrologVariableRanges();
     }
 
 #ifdef TARGET_X86

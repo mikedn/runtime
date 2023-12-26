@@ -526,7 +526,6 @@ protected:
 
 public:
     void psiBegProlog();
-    void psiEndProlog();
 
     NATIVE_OFFSET psiGetVarStackOffset(const LclVarDsc* lclVarDsc) const;
 
