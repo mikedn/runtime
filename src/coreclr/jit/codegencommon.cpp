@@ -4460,18 +4460,18 @@ void CodeGen::genSetScopeInfo()
 
     unsigned varsLocationsCount = static_cast<unsigned>(varLiveKeeper->getLiveRangesCount());
 
+    JITDUMP("VarLocInfo count is %d\n", varsLocationsCount);
+
     if (varsLocationsCount == 0)
     {
-        // No variable home to report
-        eeSetLVcount(0);
-        eeSetLVdone();
+        eeSetLVdone(nullptr, 0);
         return;
     }
 
     noway_assert(compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0));
 
     // Initialize the table where the reported variables' home will be placed.
-    eeSetLVcount(varsLocationsCount);
+    VarResultInfo* vars = eeSetLVcount(varsLocationsCount);
 
 #ifdef LATE_DISASM
     genTrnslLocalVarCount = varsLocationsCount;
@@ -4481,13 +4481,8 @@ void CodeGen::genSetScopeInfo()
     }
 #endif
 
-    // We can have one of both flags defined, both, or none. Specially if we need to compare both
-    // both results. But we cannot report both to the debugger, since there would be overlapping
-    // intervals, and may not indicate the same variable location.
-
-    genSetScopeInfoUsingVariableRanges();
-
-    eeSetLVdone();
+    genSetScopeInfoUsingVariableRanges(vars);
+    eeSetLVdone(vars, varsLocationsCount);
 }
 
 //------------------------------------------------------------------------
@@ -4499,7 +4494,7 @@ void CodeGen::genSetScopeInfo()
 //  This function is called from "genSetScopeInfo" once the code is generated
 //  and we want to send debug info to the debugger.
 //
-void CodeGen::genSetScopeInfoUsingVariableRanges()
+void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
 {
     unsigned int liveRangeIndex = 0;
 
@@ -4535,7 +4530,7 @@ void CodeGen::genSetScopeInfoUsingVariableRanges()
                         endOffs++;
                     }
 
-                    genSetScopeInfo(liveRangeIndex, startOffs, endOffs - startOffs, lclNum, true,
+                    genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs - startOffs, lclNum, true,
                                     &liveRange.m_VarLocation);
                     liveRangeIndex++;
                 }
@@ -4544,8 +4539,13 @@ void CodeGen::genSetScopeInfoUsingVariableRanges()
     }
 }
 
-void CodeGen::genSetScopeInfo(
-    unsigned index, uint32_t startOffs, uint32_t length, uint32_t lclNum, bool avail, siVarLoc* varLoc)
+void CodeGen::genSetScopeInfo(VarResultInfo* vars,
+                              unsigned       index,
+                              uint32_t       startOffs,
+                              uint32_t       length,
+                              uint32_t       lclNum,
+                              bool           avail,
+                              siVarLoc*      varLoc)
 {
     unsigned ilVarNum = compiler->compMap2ILvarNum(lclNum);
     noway_assert((int)ilVarNum != ICorDebugInfo::UNKNOWN_ILNUM);
@@ -4610,7 +4610,10 @@ void CodeGen::genSetScopeInfo(
     tlvi.tlviVarLoc    = *varLoc;
 #endif
 
-    eeSetLVinfo(index, startOffs, length, ilVarNum, *varLoc);
+    vars[index].startOffset = startOffs;
+    vars[index].endOffset   = startOffs + length;
+    vars[index].varNumber   = ilVarNum;
+    vars[index].loc         = *varLoc;
 }
 
 #ifdef LATE_DISASM

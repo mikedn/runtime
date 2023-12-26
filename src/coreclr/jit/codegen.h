@@ -475,20 +475,16 @@ public:
     void eeDispLineInfos();
 #endif
 
-    unsigned eeVarsCount;
-
     struct VarResultInfo
     {
         uint32_t                   startOffset;
         uint32_t                   endOffset;
         uint32_t                   varNumber;
         CodeGenInterface::siVarLoc loc;
-    } * eeVars;
+    };
 
-    void eeSetLVcount(unsigned count);
-    void eeSetLVinfo(
-        unsigned index, uint32_t startOffs, uint32_t length, uint32_t varNum, const CodeGenInterface::siVarLoc& loc);
-    void eeSetLVdone();
+    VarResultInfo* eeSetLVcount(unsigned count);
+    void eeSetLVdone(VarResultInfo* vars, unsigned count);
 
 #ifdef DEBUG
     void eeDispVar(ICorDebugInfo::NativeVarInfo* var);
@@ -497,13 +493,16 @@ public:
 
     void genEnsureCodeEmitted(IL_OFFSETX offsx);
 
-    void genSetScopeInfo(
-        unsigned index, uint32_t startOffs, uint32_t length, uint32_t lclNum, bool avail, siVarLoc* varLoc);
-
     void genSetScopeInfo();
-    void genSetScopeInfoUsingVariableRanges();
+    void genSetScopeInfoUsingVariableRanges(VarResultInfo* vars);
+    void genSetScopeInfo(VarResultInfo* vars,
+                         unsigned       index,
+                         uint32_t       startOffs,
+                         uint32_t       length,
+                         uint32_t       lclNum,
+                         bool           avail,
+                         siVarLoc*      varLoc);
 
-public:
     void siBeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
     void siOpenScopesForNonTrackedVars(const BasicBlock* block,
                                        unsigned          lastBlockILEndOffset,

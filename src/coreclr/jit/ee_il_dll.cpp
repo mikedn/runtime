@@ -523,38 +523,12 @@ void Importer::eeGetStmtOffsets()
  *                  Debugging support - Local var info
  */
 
-void CodeGen::eeSetLVcount(unsigned count)
+CodeGen::VarResultInfo* CodeGen::eeSetLVcount(unsigned count)
 {
     assert(compiler->opts.compScopeInfo);
+    assert(count != 0);
 
-    JITDUMP("VarLocInfo count is %d\n", count);
-
-    eeVarsCount = count;
-
-    if (count != 0)
-    {
-        eeVars = static_cast<VarResultInfo*>(compiler->info.compCompHnd->allocateArray(count * sizeof(eeVars[0])));
-    }
-    else
-    {
-        eeVars = nullptr;
-    }
-}
-
-void CodeGen::eeSetLVinfo(
-    unsigned index, uint32_t startOffs, uint32_t length, uint32_t varNum, const CodeGenInterface::siVarLoc& varLoc)
-{
-    assert(compiler->opts.compScopeInfo);
-    assert(eeVarsCount > 0);
-    assert(index < eeVarsCount);
-
-    if (eeVars != nullptr)
-    {
-        eeVars[index].startOffset = startOffs;
-        eeVars[index].endOffset   = startOffs + length;
-        eeVars[index].varNumber   = varNum;
-        eeVars[index].loc         = varLoc;
-    }
+    return static_cast<VarResultInfo*>(compiler->info.compCompHnd->allocateArray(count * sizeof(VarResultInfo)));
 }
 
 // Check every CodeGenInterface::siVarLocType and CodeGenInterface::siVarLoc are what
@@ -584,14 +558,13 @@ static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_INVALID) == CodeGe
 static_assert_no_msg(sizeof(ICorDebugInfo::VarLoc) == sizeof(CodeGenInterface::siVarLoc));
 static_assert_no_msg(sizeof(CodeGen::VarResultInfo) == sizeof(ICorDebugInfo::NativeVarInfo));
 
-void CodeGen::eeSetLVdone()
+void CodeGen::eeSetLVdone(VarResultInfo* vars, unsigned count)
 {
     assert(compiler->opts.compScopeInfo);
 
-    ICorDebugInfo::NativeVarInfo* vars = reinterpret_cast<ICorDebugInfo::NativeVarInfo*>(eeVars);
-    DBEXEC(verbose || compiler->opts.dspDebugInfo, eeDispVars(compiler->info.compMethodHnd, eeVarsCount, vars));
-    compiler->info.compCompHnd->setVars(compiler->info.compMethodHnd, eeVarsCount, vars);
-    eeVars = nullptr; // We give up ownership after setVars()
+    ICorDebugInfo::NativeVarInfo* eeVars = reinterpret_cast<ICorDebugInfo::NativeVarInfo*>(vars);
+    DBEXEC(verbose || compiler->opts.dspDebugInfo, eeDispVars(compiler->info.compMethodHnd, count, eeVars));
+    compiler->info.compCompHnd->setVars(compiler->info.compMethodHnd, count, eeVars);
 }
 
 void Compiler::eeGetVars()
