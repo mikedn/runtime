@@ -733,57 +733,6 @@ void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::updateLiveRangeAtEmitt
     startLiveRangeFromEmitter(varLocation, emit);
 }
 
-#ifdef DEBUG
-void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::dumpAllRegisterLiveRangesForBlock(
-    emitter* emit, const CodeGenInterface* codeGen) const
-{
-    bool first = true;
-    for (LiveRangeListIterator it = m_VariableLiveRanges->begin(); it != m_VariableLiveRanges->end(); it++)
-    {
-        if (!first)
-        {
-            printf("; ");
-        }
-        it->dumpVariableLiveRange(emit, codeGen);
-        first = false;
-    }
-}
-
-void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::dumpRegisterLiveRangesForBlockBeforeCodeGenerated(
-    const CodeGenInterface* codeGen) const
-{
-    bool first = true;
-    for (LiveRangeListIterator it = m_VariableLifeBarrier->getStartForDump(); it != m_VariableLiveRanges->end(); it++)
-    {
-        if (!first)
-        {
-            printf("; ");
-        }
-        it->dumpVariableLiveRange(codeGen);
-        first = false;
-    }
-}
-
-// Returns true if a live range for this variable has been recorded
-bool CodeGen::VariableLiveKeeper::VariableLiveDescriptor::hasVarLiveRangesToDump() const
-{
-    return !m_VariableLiveRanges->empty();
-}
-
-// Returns true if a live range for this variable has been recorded from last call to EndBlock
-bool CodeGen::VariableLiveKeeper::VariableLiveDescriptor::hasVarLiveRangesFromLastBlockToDump() const
-{
-    return m_VariableLifeBarrier->hasLiveRangesToDump();
-}
-
-// Reset the barrier so as to dump only next block changes on next block
-void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::endBlockLiveRanges()
-{
-    // make "m_VariableLifeBarrier->m_StartingLiveRange" now points to nullptr for printing purposes
-    m_VariableLifeBarrier->resetDumper(m_VariableLiveRanges);
-}
-#endif // DEBUG
-
 //------------------------------------------------------------------------
 //                      VariableLiveKeeper
 //------------------------------------------------------------------------
@@ -1342,6 +1291,55 @@ void CodeGen::psiBegProlog()
 }
 
 #ifdef DEBUG
+void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::dumpAllRegisterLiveRangesForBlock(
+    emitter* emit, const CodeGenInterface* codeGen) const
+{
+    bool first = true;
+    for (LiveRangeListIterator it = m_VariableLiveRanges->begin(); it != m_VariableLiveRanges->end(); it++)
+    {
+        if (!first)
+        {
+            printf("; ");
+        }
+        it->dumpVariableLiveRange(emit, codeGen);
+        first = false;
+    }
+}
+
+void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::dumpRegisterLiveRangesForBlockBeforeCodeGenerated(
+    const CodeGenInterface* codeGen) const
+{
+    bool first = true;
+    for (LiveRangeListIterator it = m_VariableLifeBarrier->getStartForDump(); it != m_VariableLiveRanges->end(); it++)
+    {
+        if (!first)
+        {
+            printf("; ");
+        }
+        it->dumpVariableLiveRange(codeGen);
+        first = false;
+    }
+}
+
+// Returns true if a live range for this variable has been recorded
+bool CodeGen::VariableLiveKeeper::VariableLiveDescriptor::hasVarLiveRangesToDump() const
+{
+    return !m_VariableLiveRanges->empty();
+}
+
+// Returns true if a live range for this variable has been recorded from last call to EndBlock
+bool CodeGen::VariableLiveKeeper::VariableLiveDescriptor::hasVarLiveRangesFromLastBlockToDump() const
+{
+    return m_VariableLifeBarrier->hasLiveRangesToDump();
+}
+
+// Reset the barrier so as to dump only next block changes on next block
+void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::endBlockLiveRanges()
+{
+    // make "m_VariableLifeBarrier->m_StartingLiveRange" now points to nullptr for printing purposes
+    m_VariableLifeBarrier->resetDumper(m_VariableLiveRanges);
+}
+
 //------------------------------------------------------------------------
 //                      VariableLiveRanges dumpers
 //------------------------------------------------------------------------
