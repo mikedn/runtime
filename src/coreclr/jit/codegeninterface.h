@@ -299,8 +299,8 @@ public:
 
             struct
             {
-                regNumber     vlsBaseReg;
-                NATIVE_OFFSET vlsOffset;
+                regNumber vlsBaseReg;
+                int32_t   vlsOffset;
             } vlStk;
 
             // VLT_REG_REG -- TYP_LONG/TYP_DOUBLE with both DWords enregistered
@@ -321,8 +321,8 @@ public:
 
                 struct
                 {
-                    regNumber     vlrssBaseReg;
-                    NATIVE_OFFSET vlrssOffset;
+                    regNumber vlrssBaseReg;
+                    int32_t   vlrssOffset;
                 } vlrsStk;
             } vlRegStk;
 
@@ -333,8 +333,8 @@ public:
             {
                 struct
                 {
-                    regNumber     vlsrsBaseReg;
-                    NATIVE_OFFSET vlsrsOffset;
+                    regNumber vlsrsBaseReg;
+                    int32_t   vlsrsOffset;
                 } vlsrStk;
 
                 regNumber vlsrReg;
@@ -345,8 +345,8 @@ public:
 
             struct
             {
-                regNumber     vls2BaseReg;
-                NATIVE_OFFSET vls2Offset;
+                regNumber vls2BaseReg;
+                int32_t   vls2Offset;
             } vlStk2;
 
             // VLT_FPSTK -- enregisterd TYP_DOUBLE (on the FP stack)
@@ -379,28 +379,23 @@ public:
         // Helper functions
 
         bool vlIsInReg(regNumber reg) const;
-        bool vlIsOnStack(regNumber reg, signed offset) const;
+        bool vlIsOnStack(regNumber reg, int32_t offset) const;
         bool vlIsOnStack() const;
 
-        void storeVariableInRegisters(regNumber reg, regNumber otherReg);
-        void storeVariableOnStack(regNumber stackBaseReg, NATIVE_OFFSET variableStackOffset);
+        void storeVariableInRegisters(regNumber reg1, regNumber reg2);
+        void storeVariableOnStack(regNumber stackBaseReg, int32_t stackOffset);
 
-        siVarLoc(const LclVarDsc* varDsc, regNumber baseReg, int offset, bool isFramePointerUsed);
+        siVarLoc(const LclVarDsc* lcl, regNumber baseReg, int offset, bool isFramePointerUsed);
         siVarLoc(){};
 
         static bool Equals(const siVarLoc* lhs, const siVarLoc* rhs);
 
     private:
-        // Fill "siVarLoc" properties indicating the register position of the variable
-        // using "LclVarDsc" and "baseReg"/"offset" if it has a part in the stack (x64 bit float or long).
         void siFillRegisterVarLoc(
-            const LclVarDsc* varDsc, var_types type, regNumber baseReg, int offset, bool isFramePointerUsed);
+            const LclVarDsc* lcl, var_types type, regNumber baseReg, int offset, bool isFramePointerUsed);
 
-        // Fill "siVarLoc" properties indicating the register position of the variable
-        // using "LclVarDsc" and "baseReg"/"offset" if it is a variable with part in a register and
-        // part in the stack
         void siFillStackVarLoc(
-            const LclVarDsc* varDsc, var_types type, regNumber baseReg, int offset, bool isFramePointerUsed);
+            const LclVarDsc* lcl, var_types type, regNumber baseReg, int offset, bool isFramePointerUsed);
     };
 
 public:

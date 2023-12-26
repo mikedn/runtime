@@ -297,10 +297,6 @@ bool jitIsCallInstruction(IL_OFFSETX offsx);
 
 const unsigned BAD_VAR_NUM = UINT_MAX;
 
-// Code can't be more than 2^31 in any direction.  This is signed, so it should be used for anything that is
-// relative to something else.
-typedef int NATIVE_OFFSET;
-
 // This is the same as the above, but it's used in absolute contexts (i.e. offset from the start).  Also,
 // this is used for native code sizes.
 typedef unsigned UNATIVE_OFFSET;

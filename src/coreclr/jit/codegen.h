@@ -515,7 +515,7 @@ public:
     void siInit();
     void siBeginBlock(BasicBlock* block);
     void siEndBlock(BasicBlock* block);
-    void siOpenScopesForNonTrackedVars(const BasicBlock* block, unsigned int lastBlockILEndOffset);
+    void siOpenScopesForNonTrackedVars(const BasicBlock* block, unsigned lastBlockILEndOffset);
 
 protected:
 #ifdef FEATURE_EH_FUNCLETS
@@ -527,7 +527,7 @@ protected:
 public:
     void psiBegProlog();
 
-    NATIVE_OFFSET psiGetVarStackOffset(const LclVarDsc* lclVarDsc) const;
+    int32_t psiGetVarStackOffset(const LclVarDsc* lclVarDsc) const;
 
 protected:
 #ifdef LATE_DISASM
@@ -1204,7 +1204,7 @@ public:
         // is captured when code is being generated (genCodeForBBList
         // and genGeneratePrologsAndEpilogs) but only after the whole
         // method's code is generated can we obtain a final, fixed
-        // NATIVE_OFFSET representing the actual generated code offset.
+        // int32_t representing the actual generated code offset.
         // There is also a IL_OFFSET, but this is more accurate and the
         // debugger is expecting assembly offsets.
         // This class doesn't have behaviour attached to itself, it is
