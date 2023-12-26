@@ -1173,17 +1173,6 @@ public:
     insGroup* syncEndEmitCookie   = nullptr;
 #endif
 
-    // Holds an array of "VariableLiveDescriptor", one for each variable
-    // whose location we track. It provides start/end/update/count operations
-    // over the "LiveRangeList" of any variable.
-    //
-    // This method could be implemented on Compiler class too, but the intention is to move code
-    // out of that class, which is huge. With this solution the only code needed in Compiler is
-    // a getter and an initializer of this class.
-    // The index of each variable in this array corresponds to the one in "compiler->lvaTable".
-    // We care about tracking the variable locations of arguments, special arguments, and local IL
-    // variables, and we ignore any other variable (like JIT temporary variables).
-    //
     class VariableLiveKeeper
     {
     public:
