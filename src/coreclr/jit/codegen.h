@@ -1170,12 +1170,11 @@ public:
 
     typedef jitstd::list<VariableLiveRange>       VariableLiveRangeList;
     typedef VariableLiveRangeList::const_iterator VariableLiveRangeListIterator;
-    class VariableLiveRangeDumper;
 
     class VariableLiveDescriptor
     {
         VariableLiveRangeList* ranges;
-        INDEBUG(VariableLiveRangeDumper* dumper);
+        INDEBUG(VariableLiveRangeListIterator dumpRange);
 
     public:
         VariableLiveDescriptor(CompAllocator allocator);
@@ -1183,31 +1182,15 @@ public:
         bool                   HasOpenRange() const;
         VariableLiveRangeList* GetRanges() const;
 
-        void StartRange(siVarLoc varLoc, emitter* emit) const;
+        void StartRange(siVarLoc varLoc, emitter* emit);
         void EndRange(emitter* emit) const;
-        void UpdateRange(siVarLoc varLoc, emitter* emit) const;
+        void UpdateRange(siVarLoc varLoc, emitter* emit);
 
 #ifdef DEBUG
-        void DumpNewRanges() const;
+        void DumpNewRanges();
         bool HasNewRangesToDump() const;
 #endif
     };
-
-#ifdef DEBUG
-    class VariableLiveRangeDumper
-    {
-        VariableLiveRangeListIterator startingRange;
-        bool                          hasRangestoDump = false;
-
-    public:
-        VariableLiveRangeDumper(const VariableLiveRangeList* ranges) : startingRange(ranges->end()){};
-
-        void Reset(const VariableLiveRangeList* ranges);
-        void SetDumpStart(const VariableLiveRangeListIterator start);
-        VariableLiveRangeListIterator GetDumpStart() const;
-        bool                          HasRangesToDump() const;
-    };
-#endif // DEBUG
 
     class VariableLiveKeeper
     {

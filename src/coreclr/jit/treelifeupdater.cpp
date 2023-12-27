@@ -582,7 +582,7 @@ void CodeGenLivenessUpdater::DumpGCByRefRegsDiff(regMaskTP newRegs DEBUGARG(bool
 CodeGen::VariableLiveDescriptor::VariableLiveDescriptor(CompAllocator allocator)
     : ranges(new (allocator) VariableLiveRangeList(allocator))
 #ifdef DEBUG
-    , dumper(new (allocator) VariableLiveRangeDumper(ranges))
+    , dumpRange(ranges->end())
 #endif
 {
 }
@@ -597,7 +597,7 @@ CodeGen::VariableLiveRangeList* CodeGen::VariableLiveDescriptor::GetRanges() con
     return ranges;
 }
 
-void CodeGen::VariableLiveDescriptor::StartRange(siVarLoc varLoc, emitter* emit) const
+void CodeGen::VariableLiveDescriptor::StartRange(siVarLoc varLoc, emitter* emit)
 {
     noway_assert(ranges->empty() || ranges->back().endOffset.Valid());
 
@@ -622,9 +622,9 @@ void CodeGen::VariableLiveDescriptor::StartRange(siVarLoc varLoc, emitter* emit)
     }
 
 #ifdef DEBUG
-    if (!dumper->HasRangesToDump())
+    if (dumpRange == ranges->end())
     {
-        dumper->SetDumpStart(ranges->backPosition());
+        dumpRange = ranges->backPosition();
     }
 #endif
 
@@ -642,7 +642,7 @@ void CodeGen::VariableLiveDescriptor::EndRange(emitter* emit) const
     noway_assert(ranges->back().endOffset.Valid());
 }
 
-void CodeGen::VariableLiveDescriptor::UpdateRange(siVarLoc varLoc, emitter* emit) const
+void CodeGen::VariableLiveDescriptor::UpdateRange(siVarLoc varLoc, emitter* emit)
 {
     noway_assert(!ranges->empty() && !ranges->back().endOffset.Valid());
 
@@ -1008,11 +1008,11 @@ int32_t CodeGen::VariableLiveKeeper::GetVarStackOffset(const LclVarDsc* lcl, Cod
 }
 
 #ifdef DEBUG
-void CodeGen::VariableLiveDescriptor::DumpNewRanges() const
+void CodeGen::VariableLiveDescriptor::DumpNewRanges()
 {
-    for (auto it = dumper->GetDumpStart(); it != ranges->end(); it++)
+    for (auto it = dumpRange; it != ranges->end(); it++)
     {
-        if (it != dumper->GetDumpStart())
+        if (it != dumpRange)
         {
             printf("; ");
         }
@@ -1020,12 +1020,12 @@ void CodeGen::VariableLiveDescriptor::DumpNewRanges() const
         it->Dump();
     }
 
-    dumper->Reset(ranges);
+    dumpRange = ranges->end();
 }
 
 bool CodeGen::VariableLiveDescriptor::HasNewRangesToDump() const
 {
-    return dumper->HasRangesToDump();
+    return dumpRange != ranges->end();
 }
 
 void CodeGen::VariableLiveRange::Dump() const
@@ -1046,36 +1046,6 @@ void CodeGen::VariableLiveRange::Dump() const
     }
 
     printf("]");
-}
-
-void CodeGen::VariableLiveRangeDumper::Reset(const VariableLiveRangeList* ranges)
-{
-    assert(hasRangestoDump);
-
-    if (ranges->back().endOffset.Valid())
-    {
-        hasRangestoDump = false;
-    }
-    else
-    {
-        startingRange = ranges->backPosition();
-    }
-}
-
-void CodeGen::VariableLiveRangeDumper::SetDumpStart(const VariableLiveRangeListIterator start)
-{
-    hasRangestoDump = true;
-    startingRange   = start;
-}
-
-CodeGen::VariableLiveRangeListIterator CodeGen::VariableLiveRangeDumper::GetDumpStart() const
-{
-    return startingRange;
-}
-
-bool CodeGen::VariableLiveRangeDumper::HasRangesToDump() const
-{
-    return hasRangestoDump;
 }
 
 void CodeGen::VariableLiveKeeper::DumpNewRanges(const BasicBlock* block)
