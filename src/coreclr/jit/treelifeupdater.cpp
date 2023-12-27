@@ -591,7 +591,7 @@ void CodeGenLivenessUpdater::DumpGCByRefRegsDiff(regMaskTP newRegs DEBUGARG(bool
 
 void CodeGen::VariableLiveDescriptor::StartRange(siVarLoc varLoc, emitter* emit)
 {
-    noway_assert((lastRange == nullptr) || lastRange->endOffset.Valid());
+    noway_assert(!HasOpenRange());
 
     if ((lastRange != nullptr) && siVarLoc::Equals(varLoc, lastRange->location) &&
         lastRange->endOffset.IsPreviousInsNum(emit))
@@ -646,8 +646,6 @@ void CodeGen::VariableLiveDescriptor::EndRange(emitter* emit)
 
 void CodeGen::VariableLiveDescriptor::UpdateRange(siVarLoc varLoc, emitter* emit)
 {
-    noway_assert((lastRange != nullptr) && !lastRange->endOffset.Valid());
-
     // If we are reporting again the same home, that means we are doing something twice?
     // noway_assert(!siVarLoc::Equals(lastRange->location, varLoc));
 
