@@ -4507,11 +4507,11 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
 
                 if (i == 0)
                 {
-                    liveRanges = varLiveKeeper->GetPrologRanges(lclNum);
+                    liveRanges = &varLiveKeeper->GetPrologRanges(lclNum);
                 }
                 else
                 {
-                    liveRanges = varLiveKeeper->GetBodyRanges(lclNum);
+                    liveRanges = &varLiveKeeper->GetBodyRanges(lclNum);
                 }
 
                 for (VariableLiveRange& liveRange : *liveRanges)

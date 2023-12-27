@@ -580,71 +580,71 @@ void CodeGenLivenessUpdater::DumpGCByRefRegsDiff(regMaskTP newRegs DEBUGARG(bool
 #endif // DEBUG
 
 CodeGen::VariableLiveDescriptor::VariableLiveDescriptor(CompAllocator allocator)
-    : ranges(new (allocator) VariableLiveRangeList(allocator))
+    : ranges(allocator)
 #ifdef DEBUG
-    , dumpRange(ranges->end())
+    , dumpRange(ranges.end())
 #endif
 {
 }
 
 bool CodeGen::VariableLiveDescriptor::HasOpenRange() const
 {
-    return !ranges->empty() && !ranges->back().endOffset.Valid();
+    return !ranges.empty() && !ranges.back().endOffset.Valid();
 }
 
-CodeGen::VariableLiveRangeList* CodeGen::VariableLiveDescriptor::GetRanges() const
+CodeGen::VariableLiveRangeList& CodeGen::VariableLiveDescriptor::GetRanges()
 {
     return ranges;
 }
 
 void CodeGen::VariableLiveDescriptor::StartRange(siVarLoc varLoc, emitter* emit)
 {
-    noway_assert(ranges->empty() || ranges->back().endOffset.Valid());
+    noway_assert(ranges.empty() || ranges.back().endOffset.Valid());
 
-    if (!ranges->empty() && siVarLoc::Equals(varLoc, ranges->back().location) &&
-        ranges->back().endOffset.IsPreviousInsNum(emit))
+    if (!ranges.empty() && siVarLoc::Equals(varLoc, ranges.back().location) &&
+        ranges.back().endOffset.IsPreviousInsNum(emit))
     {
         JITDUMP("Extending debug range...\n");
 
         // The variable is being born just after the instruction at which it died.
         // In this case, i.e. an update of the variable's value, we coalesce the live ranges.
-        ranges->back().endOffset.Init();
+        ranges.back().endOffset.Init();
     }
     else
     {
-        JITDUMP("New debug range: %s\n", ranges->empty() ? "first" : siVarLoc::Equals(varLoc, ranges->back().location)
-                                                                         ? "new var or location"
-                                                                         : "not adjacent");
+        JITDUMP("New debug range: %s\n", ranges.empty() ? "first" : siVarLoc::Equals(varLoc, ranges.back().location)
+                                                                        ? "new var or location"
+                                                                        : "not adjacent");
 
         // Creates new live range with invalid end
-        ranges->emplace_back(varLoc, emitLocation(), emitLocation());
-        ranges->back().startOffset.CaptureLocation(emit);
+        ranges.emplace_back(varLoc, emitLocation(), emitLocation());
+        ranges.back().startOffset.CaptureLocation(emit);
     }
 
 #ifdef DEBUG
-    if (dumpRange == ranges->end())
+    if (dumpRange == ranges.end())
     {
-        dumpRange = ranges->backPosition();
+        dumpRange = ranges.backPosition();
     }
 #endif
 
-    noway_assert(ranges->back().startOffset.Valid());
-    noway_assert(!ranges->back().endOffset.Valid());
+    noway_assert(ranges.back().startOffset.Valid());
+    noway_assert(!ranges.back().endOffset.Valid());
 }
 
-void CodeGen::VariableLiveDescriptor::EndRange(emitter* emit) const
+void CodeGen::VariableLiveDescriptor::EndRange(emitter* emit)
 {
     noway_assert(HasOpenRange());
 
     // Using [close, open) ranges so as to not compute the size of the last instruction
-    ranges->back().endOffset.CaptureLocation(emit);
+    ranges.back().endOffset.CaptureLocation(emit);
 
-    noway_assert(ranges->back().endOffset.Valid());
+    noway_assert(ranges.back().endOffset.Valid());
 }
 
 void CodeGen::VariableLiveDescriptor::UpdateRange(siVarLoc varLoc, emitter* emit)
 {
-    noway_assert(!ranges->empty() && !ranges->back().endOffset.Valid());
+    noway_assert(!ranges.empty() && !ranges.back().endOffset.Valid());
 
     // If we are reporting again the same home, that means we are doing something twice?
     // noway_assert(!siVarLoc::Equals(m_ranges->back().m_location, varLoc));
@@ -761,14 +761,14 @@ void CodeGen::VariableLiveKeeper::EndAllRanges()
     }
 }
 
-CodeGen::VariableLiveRangeList* CodeGen::VariableLiveKeeper::GetBodyRanges(unsigned lclNum) const
+CodeGen::VariableLiveRangeList& CodeGen::VariableLiveKeeper::GetBodyRanges(unsigned lclNum) const
 {
     noway_assert(lclNum < varCount);
 
     return bodyVars[lclNum].GetRanges();
 }
 
-CodeGen::VariableLiveRangeList* CodeGen::VariableLiveKeeper::GetPrologRanges(unsigned lclNum) const
+CodeGen::VariableLiveRangeList& CodeGen::VariableLiveKeeper::GetPrologRanges(unsigned lclNum) const
 {
     noway_assert(lclNum < varCount);
 
@@ -783,8 +783,8 @@ unsigned CodeGen::VariableLiveKeeper::GetRangeCount() const
     {
         if (compiler->compMap2ILvarNum(lclNum) != static_cast<unsigned>(ICorDebugInfo::UNKNOWN_ILNUM))
         {
-            count += static_cast<unsigned>(bodyVars[lclNum].GetRanges()->size());
-            count += static_cast<unsigned>(prologVars[lclNum].GetRanges()->size());
+            count += static_cast<unsigned>(bodyVars[lclNum].GetRanges().size());
+            count += static_cast<unsigned>(prologVars[lclNum].GetRanges().size());
         }
     }
 
@@ -1010,7 +1010,7 @@ int32_t CodeGen::VariableLiveKeeper::GetVarStackOffset(const LclVarDsc* lcl, Cod
 #ifdef DEBUG
 void CodeGen::VariableLiveDescriptor::DumpNewRanges()
 {
-    for (auto it = dumpRange; it != ranges->end(); it++)
+    for (auto it = dumpRange; it != ranges.end(); it++)
     {
         if (it != dumpRange)
         {
@@ -1020,12 +1020,12 @@ void CodeGen::VariableLiveDescriptor::DumpNewRanges()
         it->Dump();
     }
 
-    dumpRange = ranges->end();
+    dumpRange = ranges.end();
 }
 
 bool CodeGen::VariableLiveDescriptor::HasNewRangesToDump() const
 {
-    return dumpRange != ranges->end();
+    return dumpRange != ranges.end();
 }
 
 void CodeGen::VariableLiveRange::Dump() const

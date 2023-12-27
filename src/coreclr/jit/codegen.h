@@ -1173,17 +1173,17 @@ public:
 
     class VariableLiveDescriptor
     {
-        VariableLiveRangeList* ranges;
+        VariableLiveRangeList ranges;
         INDEBUG(VariableLiveRangeListIterator dumpRange);
 
     public:
         VariableLiveDescriptor(CompAllocator allocator);
 
         bool                   HasOpenRange() const;
-        VariableLiveRangeList* GetRanges() const;
+        VariableLiveRangeList& GetRanges();
 
         void StartRange(siVarLoc varLoc, emitter* emit);
-        void EndRange(emitter* emit) const;
+        void EndRange(emitter* emit);
         void UpdateRange(siVarLoc varLoc, emitter* emit);
 
 #ifdef DEBUG
@@ -1222,8 +1222,8 @@ public:
         void EndAllRanges(VARSET_VALARG_TP varsToClose);
         void EndAllRanges();
 
-        VariableLiveRangeList* GetBodyRanges(unsigned lclNum) const;
-        VariableLiveRangeList* GetPrologRanges(unsigned lclNum) const;
+        VariableLiveRangeList& GetBodyRanges(unsigned lclNum) const;
+        VariableLiveRangeList& GetPrologRanges(unsigned lclNum) const;
         unsigned GetRangeCount() const;
 
         void StartPrologRange(siVarLoc varLocation, unsigned lclNum);
