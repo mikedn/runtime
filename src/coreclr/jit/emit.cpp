@@ -132,13 +132,6 @@ void emitLocation::Print() const
     printf("(" FMT_IG ", ins %u, ofs %u)", ig->igNum, insNum, insOfs);
 }
 
-void emitLocation::Print(LONG compMethodID) const
-{
-    unsigned insNum = GetInsNumFromCodePos(codePos);
-    unsigned insOfs = GetInsOffsetFromCodePos(codePos);
-    printf("(G_M%03u_IG%02u,ins#%d,ofs#%d)", compMethodID, ig->igNum, insNum, insOfs);
-}
-
 const char* emitter::emitIfName(unsigned f)
 {
     static const char* const ifNames[] = {

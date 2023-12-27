@@ -4680,9 +4680,7 @@ void CodeGen::genIPmappingDisp(IPmappingDsc* ipMapping)
     }
 
     printf(" ");
-    ipMapping->ipmdNativeLoc.Print(compiler->compMethodID);
-    // We can only call this after code generation. Is there any way to tell when it's legal to call?
-    // printf(" [%x]", ipMapping->ipmdNativeLoc.CodeOffset(GetEmitter()));
+    ipMapping->ipmdNativeLoc.Print();
 
     if (ipMapping->ipmdIsLabel)
     {

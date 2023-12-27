@@ -54,10 +54,7 @@ public:
         return !(*this == other);
     }
 
-#ifdef DEBUG
-    void Print() const;
-    void Print(LONG compMethodID) const;
-#endif
+    INDEBUG(void Print() const;)
 };
 
 typedef void (*emitSplitCallbackType)(void* context, emitLocation* emitLoc);
