@@ -866,7 +866,6 @@ void CodeGen::VariableLiveKeeper::StartUntrackedVarsRanges(const BasicBlock* blo
 
     unsigned startILOffset = block->bbCodeOffs;
 
-#ifdef FEATURE_EH_FUNCLETS
     // If we find a spot where the code offset isn't what we expect, because
     // there is a gap, it might be because we've moved the funclets out of
     // line. Catch up with the enter and exit scopes of the current block.
@@ -874,8 +873,12 @@ void CodeGen::VariableLiveKeeper::StartUntrackedVarsRanges(const BasicBlock* blo
     // funclets must be matched.
     if (lastBlockEndILOffset != startILOffset)
     {
-        assert(startILOffset > 0);
         assert(lastBlockEndILOffset < startILOffset);
+
+#ifndef FEATURE_EH_FUNCLETS
+        return;
+#else
+        assert(startILOffset > 0);
 
         JITDUMP("Scope info: found offset hole. lastOffs=%u, currOffs=%u\n", lastBlockEndILOffset, startILOffset);
 
@@ -889,14 +892,8 @@ void CodeGen::VariableLiveKeeper::StartUntrackedVarsRanges(const BasicBlock* blo
         {
             JITDUMP("Scope info: skipping exit scope, LVnum=%u\n", scope->scopeNum);
         }
+#endif // FEATURE_EH_FUNCLETS
     }
-#else  // !FEATURE_EH_FUNCLETS
-    if (lastBlockEndILOffset != startILOffset)
-    {
-        assert(lastBlockEndILOffset < startILOffset);
-        return;
-    }
-#endif // !FEATURE_EH_FUNCLETS
 
     // When there we are jitting methods compiled in debug mode, no variable is
     // tracked and there is no info that shows variable liveness like block->bbLiveIn.
