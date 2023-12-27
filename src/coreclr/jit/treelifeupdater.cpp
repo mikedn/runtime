@@ -588,6 +588,7 @@ void CodeGen::VariableLiveDescriptor::StartRange(siVarLoc varLoc, emitter* emit)
     {
         JITDUMP("Extending debug range...\n");
 
+        assert(lastRange->startOffset.Valid());
         // The variable is being born just after the instruction at which it died.
         // In this case, i.e. an update of the variable's value, we coalesce the live ranges.
         lastRange->endOffset.Init();
@@ -621,9 +622,6 @@ void CodeGen::VariableLiveDescriptor::StartRange(siVarLoc varLoc, emitter* emit)
         dumpRange = lastRange;
     }
 #endif
-
-    noway_assert(lastRange->startOffset.Valid());
-    noway_assert(!lastRange->endOffset.Valid());
 }
 
 void CodeGen::VariableLiveDescriptor::EndRange(emitter* emit)
