@@ -1,41 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-// Classes to gather the Scope information from the local variable info.
-// Translates the given LocalVarTab from IL instruction offsets into
-// native code offsets.
-//
-// Debuggable code
-//
-// We break up blocks at the start and end IL ranges of the local variables.
-// This is because IL offsets do not correspond exactly to native offsets
-// except at block boundaries. No basic-blocks are deleted (not even
-// unreachable), so there will not be any missing address-ranges, though the
-// blocks themselves may not be ordered. (Also, internal blocks may be added).
-// - At the start of each basic block, siBeginBlock() checks if any variables
-//   are coming in scope, and adds an open scope to siOpenScopeList if needed.
-// - At the end of each basic block, siEndBlock() checks if any variables
-//   are going out of scope and moves the open scope from siOpenScopeLast
-//   to siScopeList.
-//
-// Optimized code
-//
-// We cannot break up the blocks as this will produce different code under
-// the debugger. Instead we try to do a best effort.
-// - At the start of each basic block, siBeginBlock() adds open scopes
-//   corresponding to block->bbLiveIn to siOpenScopeList. Also siUpdate()
-//   is called to close scopes for variables which are not live anymore.
-// - siEndBlock() closes scopes for any variables which go out of range
-//   before bbCodeOffsEnd.
-// - siCloseAllOpenScopes() closes any open scopes after all the blocks.
-//   This should only be needed if some basic block are deleted/out of order,
-//   etc.
-// Also,
-// - At every assignment to a variable, siCheckVarScope() adds an open scope
-//   for the variable being assigned to.
-// - UpdateLifeVar() calls siUpdate() which closes scopes for variables which
-//   are not live anymore.
-
 #include "jitpch.h"
 #include "emit.h"
 #include "codegen.h"
