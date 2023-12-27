@@ -3953,8 +3953,7 @@ void CodeGen::genFnProlog()
 
     if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
     {
-        // Create new scopes for the method-parameters for the prolog-block.
-        psiBegProlog();
+        varLiveKeeper->BeginProlog(this);
     }
 
 #ifdef TARGET_XARCH

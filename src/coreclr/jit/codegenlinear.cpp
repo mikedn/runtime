@@ -194,7 +194,7 @@ void CodeGen::genCodeForBBlist()
 
         if (compiler->opts.compScopeInfo)
         {
-            siBeginBlock(block, &nextEnterScope, &nextExitScope);
+            varLiveKeeper->BeginBlock(block, &nextEnterScope, &nextExitScope);
         }
 
         // BBF_INTERNAL blocks don't correspond to any single IL instruction.
@@ -353,7 +353,7 @@ void CodeGen::genCodeForBBlist()
 
         if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
         {
-            siEndBlock(block);
+            varLiveKeeper->EndBlock(block);
         }
 
 #if !FEATURE_FIXED_OUT_ARGS

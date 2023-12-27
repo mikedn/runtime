@@ -809,7 +809,7 @@ void CodeGen::VariableLiveKeeper::EndPrologRange()
     }
 }
 
-void CodeGen::siBeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope)
+void CodeGen::VariableLiveKeeper::BeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope)
 {
     assert(compiler->opts.compScopeInfo);
 
@@ -819,7 +819,7 @@ void CodeGen::siBeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned
     }
 
 #ifdef FEATURE_EH_FUNCLETS
-    if (siInFuncletRegion)
+    if (inFuncletRegion)
     {
         return;
     }
@@ -827,7 +827,7 @@ void CodeGen::siBeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned
     if (block->bbFlags & BBF_FUNCLET_BEG)
     {
         // For now, don't report any scopes in funclets. JIT64 doesn't.
-        siInFuncletRegion = true;
+        inFuncletRegion = true;
 
         JITDUMP("Scope info: found beginning of funclet region at block " FMT_BB "; ignoring following blocks\n",
                 block->bbNum);
@@ -837,7 +837,7 @@ void CodeGen::siBeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned
 #endif // FEATURE_EH_FUNCLETS
 
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("\nScope info: begin block " FMT_BB ", IL range ", block->bbNum);
         block->dspBlockILRange();
@@ -859,14 +859,13 @@ void CodeGen::siBeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned
     // locals, untracked locals will fail to be reported.
     if (compiler->lvaTrackedCount == 0)
     {
-        siOpenScopesForNonTrackedVars(block, siLastEndOffs, nextEnterScope, nextExitScope);
+        StartUntrackedVarsRanges(block, nextEnterScope, nextExitScope);
     }
 }
 
-void CodeGen::siOpenScopesForNonTrackedVars(const BasicBlock* block,
-                                            unsigned          lastBlockEndILOffset,
-                                            unsigned*         nextEnterScope,
-                                            unsigned*         nextExitScope)
+void CodeGen::VariableLiveKeeper::StartUntrackedVarsRanges(const BasicBlock* block,
+                                                           unsigned*         nextEnterScope,
+                                                           unsigned*         nextExitScope)
 {
     if (compiler->opts.OptimizationEnabled())
     {
@@ -927,18 +926,18 @@ void CodeGen::siOpenScopesForNonTrackedVars(const BasicBlock* block,
         JITDUMP("Scope info: opening scope, LVnum=%u [%03X..%03X)\n", scope->scopeNum, scope->startOffset,
                 scope->endOffset);
 
-        varLiveKeeper->StartRange(lcl, scope->lclNum);
+        StartRange(lcl, scope->lclNum);
 
         assert(!lcl->HasLiveness() || VarSetOps::IsMember(compiler, block->bbLiveIn, lcl->GetLivenessBitIndex()));
     }
 }
 
-void CodeGen::siEndBlock(BasicBlock* block)
+void CodeGen::VariableLiveKeeper::EndBlock(BasicBlock* block)
 {
     assert(compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0));
 
 #ifdef FEATURE_EH_FUNCLETS
-    if (siInFuncletRegion)
+    if (inFuncletRegion)
     {
         return;
     }
@@ -952,12 +951,12 @@ void CodeGen::siEndBlock(BasicBlock* block)
         return;
     }
 
-    siLastEndOffs = endILOffset;
+    lastBlockEndILOffset = endILOffset;
 }
 
-void CodeGen::psiBegProlog()
+void CodeGen::VariableLiveKeeper::BeginProlog(CodeGen* codeGen)
 {
-    assert(generatingProlog);
+    assert(codeGen->generatingProlog);
 
     unsigned nextEnterScope = 0;
 
@@ -990,11 +989,22 @@ void CodeGen::psiBegProlog()
         }
         else
         {
-            loc.storeVariableOnStack(REG_SPBASE, psiGetVarStackOffset(lcl));
+            loc.storeVariableOnStack(REG_SPBASE, GetVarStackOffset(lcl, codeGen));
         }
 
-        varLiveKeeper->StartPrologRange(loc, scope->lclNum);
+        StartPrologRange(loc, scope->lclNum);
     }
+}
+
+int32_t CodeGen::VariableLiveKeeper::GetVarStackOffset(const LclVarDsc* lcl, CodeGen* codeGen) const
+{
+#ifdef TARGET_AMD64
+    // scOffset = offset from caller SP - REGSIZE_BYTES
+    // TODO-Cleanup - scOffset needs to be understood. For now just matching with the existing definition.
+    return compiler->lvaToCallerSPRelativeOffset(lcl->GetStackOffset(), lcl->lvFramePointerBased) + REGSIZE_BYTES;
+#else
+    return lcl->GetStackOffset() - (codeGen->IsFramePointerRequired() ? REGSIZE_BYTES : codeGen->genTotalFrameSize());
+#endif
 }
 
 #ifdef DEBUG

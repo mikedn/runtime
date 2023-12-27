@@ -372,14 +372,3 @@ void CodeGenInterface::dumpSiVarLoc(const siVarLoc* varLoc)
     }
 }
 #endif
-
-int32_t CodeGen::psiGetVarStackOffset(const LclVarDsc* lcl) const
-{
-#ifdef TARGET_AMD64
-    // scOffset = offset from caller SP - REGSIZE_BYTES
-    // TODO-Cleanup - scOffset needs to be understood. For now just matching with the existing definition.
-    return compiler->lvaToCallerSPRelativeOffset(lcl->GetStackOffset(), lcl->lvFramePointerBased) + REGSIZE_BYTES;
-#else
-    return lcl->GetStackOffset() - (IsFramePointerRequired() ? REGSIZE_BYTES : genTotalFrameSize());
-#endif
-}

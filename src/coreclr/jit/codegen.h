@@ -503,25 +503,6 @@ public:
                          bool           avail,
                          siVarLoc*      varLoc);
 
-    void siBeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
-    void siOpenScopesForNonTrackedVars(const BasicBlock* block,
-                                       unsigned          lastBlockILEndOffset,
-                                       unsigned*         nextEnterScope,
-                                       unsigned*         nextExitScope);
-    void siEndBlock(BasicBlock* block);
-
-protected:
-#ifdef FEATURE_EH_FUNCLETS
-    bool siInFuncletRegion = false;
-#endif
-
-    IL_OFFSET siLastEndOffs = 0; // IL offset of the (exclusive) end of the last block processed
-
-public:
-    void psiBegProlog();
-
-    int32_t psiGetVarStackOffset(const LclVarDsc* lclVarDsc) const;
-
 protected:
 #ifdef LATE_DISASM
     struct TrnslLocalVarInfo
@@ -1240,10 +1221,21 @@ public:
         unsigned                paramCount;
         VariableLiveDescriptor* bodyVars;
         VariableLiveDescriptor* prologVars;
+        IL_OFFSET               lastBlockEndILOffset        = 0;
         bool                    lastBasicBlockHasBeenEmited = false;
+#ifdef FEATURE_EH_FUNCLETS
+        bool inFuncletRegion = false;
+#endif
+
+        void StartUntrackedVarsRanges(const BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
+        int32_t GetVarStackOffset(const LclVarDsc* lcl, CodeGen* codeGen) const;
 
     public:
         VariableLiveKeeper(Compiler* compiler, CompAllocator allocator);
+
+        void BeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
+        void EndBlock(BasicBlock* block);
+        void BeginProlog(CodeGen* codeGen);
 
         void StartOrCloseRange(const LclVarDsc* lcl, unsigned lclNum, bool isBorn, bool isDying);
         void StartRange(const LclVarDsc* lcl, unsigned lclNum);
