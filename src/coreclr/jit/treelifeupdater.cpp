@@ -766,24 +766,6 @@ unsigned CodeGen::VariableLiveKeeper::GetRangeCount() const
     return count;
 }
 
-void CodeGen::VariableLiveKeeper::StartPrologRange(unsigned lclNum, const siVarLoc& varLoc)
-{
-    noway_assert(lclNum < paramCount);
-
-    prologVars[lclNum].StartRange(compiler->GetEmitter(), varLoc);
-}
-
-void CodeGen::VariableLiveKeeper::EndPrologRange()
-{
-    for (unsigned i = 0; i < paramCount; i++)
-    {
-        if (prologVars[i].HasOpenRange())
-        {
-            prologVars[i].EndRange(compiler->GetEmitter());
-        }
-    }
-}
-
 void CodeGen::VariableLiveKeeper::BeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope)
 {
     assert(compiler->opts.compScopeInfo);
@@ -961,7 +943,20 @@ void CodeGen::VariableLiveKeeper::BeginProlog(CodeGen* codeGen)
             loc.storeVariableOnStack(REG_SPBASE, GetVarStackOffset(lcl, codeGen));
         }
 
-        StartPrologRange(scope->lclNum, loc);
+        noway_assert(scope->lclNum < paramCount);
+
+        prologVars[scope->lclNum].StartRange(compiler->GetEmitter(), loc);
+    }
+}
+
+void CodeGen::VariableLiveKeeper::EndProlog()
+{
+    for (unsigned i = 0; i < paramCount; i++)
+    {
+        if (prologVars[i].HasOpenRange())
+        {
+            prologVars[i].EndRange(compiler->GetEmitter());
+        }
     }
 }
 

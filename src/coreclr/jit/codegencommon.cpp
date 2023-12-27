@@ -4226,7 +4226,7 @@ void CodeGen::genFnProlog()
 
     if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
     {
-        varLiveKeeper->EndPrologRange();
+        varLiveKeeper->EndProlog();
     }
 
 #ifdef TARGET_X86

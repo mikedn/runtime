@@ -1220,6 +1220,7 @@ public:
         void BeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
         void EndBlock(BasicBlock* block);
         void BeginProlog(CodeGen* codeGen);
+        void EndProlog();
 
         void StartRange(const LclVarDsc* lcl, unsigned lclNum);
         void EndRange(unsigned lclNum);
@@ -1229,9 +1230,6 @@ public:
         VariableLiveRange* GetBodyRanges(unsigned lclNum) const;
         VariableLiveRange* GetPrologRanges(unsigned lclNum) const;
         unsigned GetRangeCount() const;
-
-        void StartPrologRange(unsigned lclNum, const siVarLoc& varLoc);
-        void EndPrologRange();
 
         INDEBUG(void DumpNewRanges(const BasicBlock* block);)
     };
