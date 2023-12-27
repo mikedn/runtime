@@ -161,7 +161,7 @@ protected:
     void genCodeForBBlist();
 
 public:
-    void SpillRegCandidateLclVar(GenTreeLclVar* node);
+    bool SpillRegCandidateLclVar(GenTreeLclVar* node);
 
 #ifdef TARGET_X86
     void genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, regNumber callTarget = REG_NA)

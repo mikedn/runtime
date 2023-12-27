@@ -245,7 +245,10 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
         // and SpillRegCandidateLclVar tries to update it for spill. It may be that SpillRegCandidateLclVar
         // needs to use StartOrCloseRange instead of UpdateRange in this case but then it's not clear why
         // would a last-use need spilling to begin with.
-        codeGen->SpillRegCandidateLclVar(lclNode->AsLclVar());
+        if (codeGen->SpillRegCandidateLclVar(lclNode->AsLclVar()))
+        {
+            codeGen->getVariableLiveKeeper()->UpdateRange(lcl, lclNode->GetLclNum());
+        }
 
         if (lcl->HasGCSlotLiveness() && VarSetOps::TryAddElemD(compiler, liveGCLcl, lcl->lvVarIndex))
         {

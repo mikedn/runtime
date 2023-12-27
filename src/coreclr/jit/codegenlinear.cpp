@@ -600,7 +600,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
+bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
 {
     LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
 
@@ -654,12 +654,7 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
         assert(lcl->IsAlwaysAliveInMemory() && lclVar->OperIs(GT_STORE_LCL_VAR));
     }
 
-    if (needsSpill)
-    {
-        // We need this after "lvRegNum" has change because now we are sure that varDsc->lvIsInReg() is false.
-        // "SiVarLoc" constructor uses the "LclVarDsc" of the variable.
-        varLiveKeeper->UpdateRange(lcl, lclVar->GetLclNum());
-    }
+    return needsSpill;
 }
 
 //------------------------------------------------------------------------
