@@ -4531,21 +4531,15 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
                     endOffs++;
                 }
 
-                genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs - startOffs, lclNum, true,
-                                &liveRange->location);
+                genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs, lclNum, &liveRange->location);
                 liveRangeIndex++;
             }
         }
     }
 }
 
-void CodeGen::genSetScopeInfo(VarResultInfo* vars,
-                              unsigned       index,
-                              uint32_t       startOffs,
-                              uint32_t       length,
-                              uint32_t       lclNum,
-                              bool           avail,
-                              siVarLoc*      varLoc)
+void CodeGen::genSetScopeInfo(
+    VarResultInfo* vars, unsigned index, uint32_t startOffs, uint32_t endOffs, uint32_t lclNum, siVarLoc* varLoc)
 {
     unsigned ilVarNum = compiler->compMap2ILvarNum(lclNum);
     noway_assert((int)ilVarNum != ICorDebugInfo::UNKNOWN_ILNUM);
@@ -4593,15 +4587,14 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
 #ifdef LATE_DISASM
     TrnslLocalVarInfo& tlvi = genTrnslLocalVarInfo[index];
 
-    tlvi.tlviName      = gtGetLclVarName(lclNum);
-    tlvi.tlviStartPC   = startOffs;
-    tlvi.tlviLength    = length;
-    tlvi.tlviAvailable = avail;
-    tlvi.tlviVarLoc    = *varLoc;
+    tlvi.tlviName    = gtGetLclVarName(lclNum);
+    tlvi.tlviStartPC = startOffs;
+    tlvi.tlviEndPC   = endOffs;
+    tlvi.tlviVarLoc  = *varLoc;
 #endif
 
     vars[index].startOffset = startOffs;
-    vars[index].endOffset   = startOffs + length;
+    vars[index].endOffset   = endOffs;
     vars[index].varNumber   = ilVarNum;
     vars[index].loc         = *varLoc;
 }
@@ -4621,10 +4614,10 @@ const char* CodeGen::siRegVarName(size_t offs, size_t size, unsigned reg)
 
     for (unsigned i = 0; i < genTrnslLocalVarCount; i++)
     {
-        if ((info[i].tlviVarLoc.vlIsInReg((regNumber)reg)) && (info[i].tlviAvailable == true) &&
-            (info[i].tlviStartPC <= offs + size) && (info[i].tlviStartPC + info[i].tlviLength > offs))
+        if ((info[i].tlviVarLoc.vlIsInReg((regNumber)reg)) && (info[i].tlviStartPC <= offs + size) &&
+            (info[i].tlviEndPC > offs))
         {
-            return info[i].tlviName ? info[i].tlviName : nullptr;
+            return info[i].tlviName;
         }
     }
 
@@ -4645,10 +4638,10 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
 
     for (unsigned i = 0; i < genTrnslLocalVarCount; i++)
     {
-        if ((info[i].tlviVarLoc.vlIsOnStack((regNumber)reg, stkOffs)) && (info[i].tlviAvailable == true) &&
-            (info[i].tlviStartPC <= offs + size) && (info[i].tlviStartPC + info[i].tlviLength > offs))
+        if ((info[i].tlviVarLoc.vlIsOnStack((regNumber)reg, stkOffs)) && (info[i].tlviStartPC <= offs + size) &&
+            (info[i].tlviEndPC > offs))
         {
-            return info[i].tlviName ? info[i].tlviName : nullptr;
+            return info[i].tlviName;
         }
     }
 

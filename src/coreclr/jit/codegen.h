@@ -495,23 +495,17 @@ public:
 
     void genSetScopeInfo();
     void genSetScopeInfoUsingVariableRanges(VarResultInfo* vars);
-    void genSetScopeInfo(VarResultInfo* vars,
-                         unsigned       index,
-                         uint32_t       startOffs,
-                         uint32_t       length,
-                         uint32_t       lclNum,
-                         bool           avail,
-                         siVarLoc*      varLoc);
+    void genSetScopeInfo(
+        VarResultInfo* vars, unsigned index, uint32_t startOffs, uint32_t length, uint32_t lclNum, siVarLoc* varLoc);
 
 protected:
 #ifdef LATE_DISASM
     struct TrnslLocalVarInfo
     {
-        const char*    tlviName;
-        UNATIVE_OFFSET tlviStartPC;
-        size_t         tlviLength;
-        bool           tlviAvailable;
-        siVarLoc       tlviVarLoc;
+        const char* tlviName;
+        uint32_t    tlviStartPC;
+        uint32_t    tlviEndPC;
+        siVarLoc    tlviVarLoc;
     };
 
     TrnslLocalVarInfo* genTrnslLocalVarInfo;
