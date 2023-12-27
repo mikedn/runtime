@@ -4497,30 +4497,31 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
 
     for (unsigned lclNum = 0; lclNum < compiler->info.compLocalsCount; lclNum++)
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl      = compiler->lvaGetDesc(lclNum);
+        unsigned   ilVarNum = compiler->compMap2ILvarNum(lclNum);
 
-        if (compiler->compMap2ILvarNum(lclNum) == ICorDebugInfo::UNKNOWN_ILNUM)
+        if (ilVarNum == ICorDebugInfo::UNKNOWN_ILNUM)
         {
             continue;
         }
 
         for (unsigned i = 0; i < 2; i++)
         {
-            VariableLiveRange* liveRanges = nullptr;
+            VariableLiveRange* ranges = nullptr;
 
             if (i == 0)
             {
-                liveRanges = varLiveKeeper->GetPrologRanges(lclNum);
+                ranges = varLiveKeeper->GetPrologRanges(lclNum);
             }
             else
             {
-                liveRanges = varLiveKeeper->GetBodyRanges(lclNum);
+                ranges = varLiveKeeper->GetBodyRanges(lclNum);
             }
 
-            for (VariableLiveRange* liveRange = liveRanges; liveRange != nullptr; liveRange = liveRange->next)
+            for (VariableLiveRange* range = ranges; range != nullptr; range = range->next)
             {
-                uint32_t startOffs = liveRange->startOffset.CodeOffset(GetEmitter());
-                uint32_t endOffs   = liveRange->endOffset.CodeOffset(GetEmitter());
+                uint32_t startOffs = range->startOffset.CodeOffset(GetEmitter());
+                uint32_t endOffs   = range->endOffset.CodeOffset(GetEmitter());
 
                 if (lcl->IsParam() && (startOffs == endOffs))
                 {
@@ -4531,18 +4532,22 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
                     endOffs++;
                 }
 
-                genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs, lclNum, &liveRange->location);
+                genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs, lclNum, ilVarNum, &range->location);
                 liveRangeIndex++;
             }
         }
     }
 }
 
-void CodeGen::genSetScopeInfo(
-    VarResultInfo* vars, unsigned index, uint32_t startOffs, uint32_t endOffs, uint32_t lclNum, siVarLoc* varLoc)
+void CodeGen::genSetScopeInfo(VarResultInfo* vars,
+                              unsigned       index,
+                              uint32_t       startOffs,
+                              uint32_t       endOffs,
+                              unsigned       lclNum,
+                              unsigned       ilVarNum,
+                              siVarLoc*      varLoc)
 {
-    unsigned ilVarNum = compiler->compMap2ILvarNum(lclNum);
-    noway_assert((int)ilVarNum != ICorDebugInfo::UNKNOWN_ILNUM);
+    assert(ilVarNum != ICorDebugInfo::UNKNOWN_ILNUM);
 
 #ifdef TARGET_X86
     if (compiler->info.compIsVarArgs && (lclNum != compiler->lvaVarargsHandleArg) &&

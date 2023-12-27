@@ -495,8 +495,13 @@ public:
 
     void genSetScopeInfo();
     void genSetScopeInfoUsingVariableRanges(VarResultInfo* vars);
-    void genSetScopeInfo(
-        VarResultInfo* vars, unsigned index, uint32_t startOffs, uint32_t length, uint32_t lclNum, siVarLoc* varLoc);
+    void genSetScopeInfo(VarResultInfo* vars,
+                         unsigned       index,
+                         uint32_t       startOffs,
+                         uint32_t       endOffs,
+                         unsigned       lclNum,
+                         unsigned       ilVarNum,
+                         siVarLoc*      varLoc);
 
 protected:
 #ifdef LATE_DISASM
