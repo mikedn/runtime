@@ -1228,8 +1228,7 @@ public:
         void StartRange(const LclVarDsc* lcl, unsigned lclNum);
         void EndRange(unsigned lclNum);
         void UpdateRange(const LclVarDsc* lcl, unsigned int lclNum);
-        void EndAllRanges(VARSET_VALARG_TP varsToClose);
-        void EndAllRanges();
+        void EndCodeGen(CodeGen* codeGen);
 
         VariableLiveRange* GetBodyRanges(unsigned lclNum) const;
         VariableLiveRange* GetPrologRanges(unsigned lclNum) const;

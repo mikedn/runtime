@@ -705,36 +705,30 @@ void CodeGen::VariableLiveKeeper::UpdateRange(const LclVarDsc* lcl, unsigned lcl
     }
 }
 
-void CodeGen::VariableLiveKeeper::EndAllRanges(VARSET_VALARG_TP varsToClose)
+void CodeGen::VariableLiveKeeper::EndCodeGen(CodeGen* codeGen)
 {
     if (varCount != 0)
     {
         if ((compiler->lvaTrackedCount > 0) || !compiler->opts.OptimizationDisabled())
         {
-            for (VarSetOps::Enumerator en(compiler, varsToClose); en.MoveNext();)
+            for (VarSetOps::Enumerator en(compiler, codeGen->GetLiveSet()); en.MoveNext();)
             {
                 EndRange(compiler->lvaTrackedIndexToLclNum(en.Current()));
             }
         }
         else
         {
-            // We are jitting debug code, so we don't have variable liveness info.
-            EndAllRanges();
+            for (unsigned i = 0; i < varCount; i++)
+            {
+                if (bodyVars[i].HasOpenRange())
+                {
+                    EndRange(i);
+                }
+            }
         }
     }
 
     lastBasicBlockHasBeenEmited = true;
-}
-
-void CodeGen::VariableLiveKeeper::EndAllRanges()
-{
-    for (unsigned i = 0; i < varCount; i++)
-    {
-        if (bodyVars[i].HasOpenRange())
-        {
-            EndRange(i);
-        }
-    }
 }
 
 CodeGen::VariableLiveRange* CodeGen::VariableLiveKeeper::GetBodyRanges(unsigned lclNum) const

@@ -348,7 +348,7 @@ void CodeGen::genCodeForBBlist()
 
         if (compiler->opts.compDbgInfo && isLastBlockProcessed)
         {
-            varLiveKeeper->EndAllRanges(liveness.GetLiveSet());
+            varLiveKeeper->EndCodeGen(this);
         }
 
         if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
