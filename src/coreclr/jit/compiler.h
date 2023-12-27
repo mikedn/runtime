@@ -105,8 +105,6 @@ struct VarScopeDsc
     unsigned  lclNum;
     IL_OFFSET startOffset;
     IL_OFFSET endOffset;
-
-    INDEBUG(const char* name;) // name of the var
 };
 
 enum RefCountState : uint8_t

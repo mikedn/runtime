@@ -4589,16 +4589,6 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
 #endif // TARGET_X86
 
 #ifdef LATE_DISASM
-    const char* name = nullptr;
-
-    for (unsigned i = 0; i < compiler->info.compVarScopesCount; i++)
-    {
-        if (compiler->info.compVarScopes[i].lclNum == lclNum)
-        {
-            name = compiler->info.compVarScopes[i].name;
-        }
-    }
-
     TrnslLocalVarInfo& tlvi = genTrnslLocalVarInfo[index];
 
     tlvi.tlviName      = gtGetLclVarName(lclNum);

@@ -602,8 +602,6 @@ void Compiler::eeGetVars()
         scopes[i].lclNum      = i;
         scopes[i].startOffset = 0;
         scopes[i].endOffset   = info.compILCodeSize;
-
-        INDEBUG(scopes[i].name = gtGetLclVarName(i));
     }
 
     info.compVarScopesCount = info.compLocalsCount;
@@ -646,8 +644,6 @@ void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInf
         scopes->startOffset = vars->startOffset;
         scopes->endOffset   = vars->endOffset;
 
-        INDEBUG(scopes->name = gtGetLclVarName(scopes->lclNum));
-
         info.compVarScopesCount++;
     }
 
@@ -675,8 +671,6 @@ void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInf
             scopes->lclNum      = lclNum;
             scopes->startOffset = 0;
             scopes->endOffset   = info.compILCodeSize;
-
-            INDEBUG(scopes->name = gtGetLclVarName(scopes->lclNum));
 
             info.compVarScopesCount++;
         }
@@ -864,8 +858,9 @@ void Compiler::compDispLocalVars()
     for (unsigned i = 0; i < info.compVarScopesCount; i++)
     {
         VarScopeDsc& scope = info.compVarScopes[i];
+        const char*  name  = gtGetLclVarName(scope.lclNum);
 
-        printf("%2u: " FMT_LCL " %10s %03Xh %03Xh\n", i, scope.lclNum, scope.name == nullptr ? "UNKNOWN" : scope.name,
+        printf("%2u: " FMT_LCL " %10s %03Xh %03Xh\n", i, scope.lclNum, name == nullptr ? "UNKNOWN" : name,
                scope.startOffset, scope.endOffset);
     }
 }
