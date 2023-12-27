@@ -102,7 +102,6 @@ const int BAD_STK_OFFS = 0xBAADF00D; // for LclVarDsc::lvStkOffs
 // The following holds the Local var info (scope information)
 struct VarScopeDsc
 {
-    unsigned  scopeNum;
     unsigned  lclNum;
     IL_OFFSET startOffset;
     IL_OFFSET endOffset;

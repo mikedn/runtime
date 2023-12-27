@@ -599,7 +599,6 @@ void Compiler::eeGetVars()
 
     for (unsigned i = 0; i < info.compLocalsCount; i++)
     {
-        scopes[i].scopeNum    = i;
         scopes[i].lclNum      = i;
         scopes[i].startOffset = 0;
         scopes[i].endOffset   = info.compILCodeSize;
@@ -643,7 +642,6 @@ void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInf
         assert(vars->startOffset <= info.compILCodeSize);
         assert(vars->endOffset <= info.compILCodeSize);
 
-        scopes->scopeNum    = i;
         scopes->lclNum      = compMapILvarNum(vars->varNumber);
         scopes->startOffset = vars->startOffset;
         scopes->endOffset   = vars->endOffset;
@@ -674,7 +672,6 @@ void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInf
                 continue;
             }
 
-            scopes->scopeNum    = info.compVarScopesCount;
             scopes->lclNum      = lclNum;
             scopes->startOffset = 0;
             scopes->endOffset   = info.compILCodeSize;
@@ -866,9 +863,10 @@ void Compiler::compDispLocalVars()
 
     for (unsigned i = 0; i < info.compVarScopesCount; i++)
     {
-        VarScopeDsc* varScope = &info.compVarScopes[i];
-        printf("%2d: \t%02Xh \t%02Xh \t%10s \t%03Xh   \t%03Xh\n", i, varScope->lclNum, varScope->scopeNum,
-               varScope->name == nullptr ? "UNKNOWN" : varScope->name, varScope->startOffset, varScope->endOffset);
+        VarScopeDsc& scope = info.compVarScopes[i];
+
+        printf("%2u: " FMT_LCL " %10s %03Xh %03Xh\n", i, scope.lclNum, scope.name == nullptr ? "UNKNOWN" : scope.name,
+               scope.startOffset, scope.endOffset);
     }
 }
 

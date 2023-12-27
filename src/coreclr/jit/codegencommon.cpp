@@ -4601,7 +4601,7 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
 
     TrnslLocalVarInfo& tlvi = genTrnslLocalVarInfo[index];
 
-    tlvi.tlviName      = name;
+    tlvi.tlviName      = gtGetLclVarName(lclNum);
     tlvi.tlviStartPC   = startOffs;
     tlvi.tlviLength    = length;
     tlvi.tlviAvailable = avail;
