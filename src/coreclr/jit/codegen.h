@@ -447,10 +447,7 @@ public:
     void PopTempReg(regNumber reg, var_types type);
 #endif
 
-#ifdef DEBUG
-    void genIPmappingDisp(unsigned mappingNum, IPmappingDsc* ipMapping);
-    void genIPmappingListDisp();
-#endif
+    INDEBUG(void genIPmappingDisp(IPmappingDsc* ipMapping);)
 
     void genIPmappingAdd(IL_OFFSETX offset, bool isLabel);
     void genIPmappingAddToFront(IL_OFFSETX offset);

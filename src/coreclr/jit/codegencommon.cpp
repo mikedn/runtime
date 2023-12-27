@@ -4656,17 +4656,8 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
 
 #ifdef DEBUG
 
-/*****************************************************************************
- *  Display a IPmappingDsc. Pass -1 as mappingNum to not display a mapping number.
- */
-
-void CodeGen::genIPmappingDisp(unsigned mappingNum, IPmappingDsc* ipMapping)
+void CodeGen::genIPmappingDisp(IPmappingDsc* ipMapping)
 {
-    if (mappingNum != unsigned(-1))
-    {
-        printf("%d: ", mappingNum);
-    }
-
     IL_OFFSETX offsx = ipMapping->ipmdILoffsx;
 
     if (offsx == BAD_IL_OFFSET)
@@ -4699,18 +4690,6 @@ void CodeGen::genIPmappingDisp(unsigned mappingNum, IPmappingDsc* ipMapping)
     }
 
     printf("\n");
-}
-
-void CodeGen::genIPmappingListDisp()
-{
-    unsigned      mappingNum = 0;
-    IPmappingDsc* ipMapping;
-
-    for (ipMapping = genIPmappingList; ipMapping != nullptr; ipMapping = ipMapping->ipmdNext)
-    {
-        genIPmappingDisp(mappingNum, ipMapping);
-        ++mappingNum;
-    }
 }
 
 #endif // DEBUG
@@ -4781,7 +4760,7 @@ void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
     if (verbose)
     {
         printf("Added IP mapping: ");
-        genIPmappingDisp(unsigned(-1), addMapping);
+        genIPmappingDisp(addMapping);
     }
 #endif // DEBUG
 }
@@ -4834,7 +4813,7 @@ void CodeGen::genIPmappingAddToFront(IL_OFFSETX offsx)
     if (verbose)
     {
         printf("Added IP mapping to front: ");
-        genIPmappingDisp(unsigned(-1), addMapping);
+        genIPmappingDisp(addMapping);
     }
 #endif // DEBUG
 }
