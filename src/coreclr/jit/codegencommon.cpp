@@ -968,8 +968,6 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
     genSetScopeInfo();
 
-    DBEXEC(compiler->verbose, varLiveKeeper->DumpAllRanges());
-
 #ifdef LATE_DISASM
     unsigned finalHotCodeSize;
     unsigned finalColdCodeSize;

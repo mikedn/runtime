@@ -1008,19 +1008,6 @@ int32_t CodeGen::VariableLiveKeeper::GetVarStackOffset(const LclVarDsc* lcl, Cod
 }
 
 #ifdef DEBUG
-void CodeGen::VariableLiveDescriptor::DumpAllRanges(emitter* emit) const
-{
-    for (auto it = ranges->begin(); it != ranges->end(); it++)
-    {
-        if (it != ranges->begin())
-        {
-            printf("; ");
-        }
-
-        it->Dump(emit);
-    }
-}
-
 void CodeGen::VariableLiveDescriptor::DumpNewRanges() const
 {
     for (auto it = dumper->GetDumpStart(); it != ranges->end(); it++)
@@ -1034,11 +1021,6 @@ void CodeGen::VariableLiveDescriptor::DumpNewRanges() const
     }
 
     dumper->Reset(ranges);
-}
-
-bool CodeGen::VariableLiveDescriptor::HasRangesToDump() const
-{
-    return !ranges->empty();
 }
 
 bool CodeGen::VariableLiveDescriptor::HasNewRangesToDump() const
@@ -1064,13 +1046,6 @@ void CodeGen::VariableLiveRange::Dump() const
     }
 
     printf("]");
-}
-
-void CodeGen::VariableLiveRange::Dump(emitter* emit) const
-{
-    location.Dump();
-
-    printf(" [%X, %X)", startOffset.CodeOffset(emit), endOffset.Valid() ? endOffset.CodeOffset(emit) : UINT32_MAX);
 }
 
 void CodeGen::VariableLiveRangeDumper::Reset(const VariableLiveRangeList* ranges)
@@ -1115,29 +1090,6 @@ void CodeGen::VariableLiveKeeper::DumpNewRanges(const BasicBlock* block)
         {
             printf(FMT_LCL ": ", i);
             bodyVars[i].DumpNewRanges();
-            printf("\n");
-            hasDumpedHistory = true;
-        }
-    }
-
-    if (!hasDumpedHistory)
-    {
-        printf("None.\n");
-    }
-}
-
-void CodeGen::VariableLiveKeeper::DumpAllRanges() const
-{
-    bool hasDumpedHistory = false;
-
-    printf("VARIABLE LIVE RANGES:\n");
-
-    for (unsigned i = 0; i < varCount; i++)
-    {
-        if (bodyVars[i].HasRangesToDump())
-        {
-            printf(FMT_LCL ": ", i);
-            bodyVars[i].DumpAllRanges(compiler->GetEmitter());
             printf("\n");
             hasDumpedHistory = true;
         }

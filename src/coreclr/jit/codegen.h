@@ -1165,10 +1165,7 @@ public:
         {
         }
 
-#ifdef DEBUG
-        void Dump() const;
-        void Dump(emitter* emit) const;
-#endif
+        INDEBUG(void Dump() const;)
     };
 
     typedef jitstd::list<VariableLiveRange>       VariableLiveRangeList;
@@ -1191,8 +1188,6 @@ public:
         void UpdateRange(siVarLoc varLoc, emitter* emit) const;
 
 #ifdef DEBUG
-        void DumpAllRanges(emitter* emit) const;
-        bool HasRangesToDump() const;
         void DumpNewRanges() const;
         bool HasNewRangesToDump() const;
 #endif
@@ -1251,10 +1246,7 @@ public:
         void StartPrologRange(siVarLoc varLocation, unsigned lclNum);
         void EndPrologRange();
 
-#ifdef DEBUG
-        void DumpNewRanges(const BasicBlock* block);
-        void DumpAllRanges() const;
-#endif
+        INDEBUG(void DumpNewRanges(const BasicBlock* block);)
     };
 
     void initializeVariableLiveKeeper();
