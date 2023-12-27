@@ -916,6 +916,8 @@ void CodeGen::VariableLiveKeeper::StartUntrackedVarsRanges(const BasicBlock* blo
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(scope->lclNum);
 
+        assert(!lcl->HasLiveness());
+
         if (!compiler->opts.compDbgCode && (lcl->GetRefCount() == 0))
         {
             JITDUMP("Skipping open scope for V%02u, unreferenced\n", scope->lclNum);
@@ -927,8 +929,6 @@ void CodeGen::VariableLiveKeeper::StartUntrackedVarsRanges(const BasicBlock* blo
                 scope->endOffset);
 
         StartRange(lcl, scope->lclNum);
-
-        assert(!lcl->HasLiveness() || VarSetOps::IsMember(compiler, block->bbLiveIn, lcl->GetLivenessBitIndex()));
     }
 }
 
