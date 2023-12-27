@@ -1048,7 +1048,7 @@ bool CodeGen::VariableLiveDescriptor::HasNewRangesToDump() const
 
 void CodeGen::VariableLiveRange::Dump() const
 {
-    dumpSiVarLoc(&location);
+    location.Dump();
 
     printf(" [");
     startOffset.Print();
@@ -1068,7 +1068,7 @@ void CodeGen::VariableLiveRange::Dump() const
 
 void CodeGen::VariableLiveRange::Dump(emitter* emit) const
 {
-    dumpSiVarLoc(&location);
+    location.Dump();
 
     printf(" [%X, %X)", startOffset.CodeOffset(emit), endOffset.Valid() ? endOffset.CodeOffset(emit) : UINT32_MAX);
 }

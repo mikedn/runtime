@@ -389,6 +389,8 @@ public:
 
         static bool Equals(const siVarLoc& x, const siVarLoc& y);
 
+        INDEBUG(void Dump() const;)
+
     private:
         void siFillRegisterVarLoc(
             const LclVarDsc* lcl, var_types type, regNumber baseReg, int offset, bool isFramePointerUsed);
@@ -399,7 +401,6 @@ public:
 
 public:
     siVarLoc getSiVarLoc(const LclVarDsc* lcl) const;
-    INDEBUG(static void dumpSiVarLoc(const siVarLoc* varLoc);)
 
 #if !FEATURE_FIXED_OUT_ARGS
     unsigned getCurrentStackLevel() const;
