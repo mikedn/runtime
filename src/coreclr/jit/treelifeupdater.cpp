@@ -669,14 +669,8 @@ CodeGen::VariableLiveKeeper::VariableLiveKeeper(Compiler* comp, CompAllocator al
         return;
     }
 
-    bodyVars   = allocator.allocate<VariableLiveDescriptor>(varCount);
-    prologVars = allocator.allocate<VariableLiveDescriptor>(varCount);
-
-    for (unsigned i = 0; i < varCount; i++)
-    {
-        new (&bodyVars[i]) VariableLiveDescriptor();
-        new (&prologVars[i]) VariableLiveDescriptor();
-    }
+    bodyVars   = new (allocator) VariableLiveDescriptor[2 * varCount];
+    prologVars = bodyVars + varCount;
 }
 
 void CodeGen::VariableLiveKeeper::StartOrCloseRange(const LclVarDsc* lcl, unsigned lclNum, bool isBorn, bool isDying)
