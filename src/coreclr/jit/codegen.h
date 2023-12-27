@@ -1188,9 +1188,9 @@ public:
             return count;
         }
 
-        void StartRange(siVarLoc varLoc, emitter* emit);
+        void StartRange(emitter* emit, const siVarLoc& varLoc);
         void EndRange(emitter* emit);
-        void UpdateRange(siVarLoc varLoc, emitter* emit);
+        void UpdateRange(emitter* emit, const siVarLoc& varLoc);
 
 #ifdef DEBUG
         void DumpNewRanges();
@@ -1230,7 +1230,7 @@ public:
         VariableLiveRange* GetPrologRanges(unsigned lclNum) const;
         unsigned GetRangeCount() const;
 
-        void StartPrologRange(siVarLoc varLocation, unsigned lclNum);
+        void StartPrologRange(unsigned lclNum, const siVarLoc& varLoc);
         void EndPrologRange();
 
         INDEBUG(void DumpNewRanges(const BasicBlock* block);)

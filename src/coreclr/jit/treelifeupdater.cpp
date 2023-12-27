@@ -589,7 +589,7 @@ void CodeGenLivenessUpdater::DumpGCByRefRegsDiff(regMaskTP newRegs DEBUGARG(bool
 }
 #endif // DEBUG
 
-void CodeGen::VariableLiveDescriptor::StartRange(siVarLoc varLoc, emitter* emit)
+void CodeGen::VariableLiveDescriptor::StartRange(emitter* emit, const siVarLoc& varLoc)
 {
     noway_assert(!HasOpenRange());
 
@@ -646,13 +646,13 @@ void CodeGen::VariableLiveDescriptor::EndRange(emitter* emit)
     noway_assert(lastRange->endOffset.Valid());
 }
 
-void CodeGen::VariableLiveDescriptor::UpdateRange(siVarLoc varLoc, emitter* emit)
+void CodeGen::VariableLiveDescriptor::UpdateRange(emitter* emit, const siVarLoc& varLoc)
 {
     // If we are reporting again the same home, that means we are doing something twice?
     // noway_assert(!siVarLoc::Equals(lastRange->location, varLoc));
 
     EndRange(emit);
-    StartRange(varLoc, emit);
+    StartRange(emit, varLoc);
 }
 
 void CodeGen::initializeVariableLiveKeeper()
@@ -687,7 +687,7 @@ void CodeGen::VariableLiveKeeper::StartRange(const LclVarDsc* lcl, unsigned lclN
 {
     if (lclNum < varCount)
     {
-        bodyVars[lclNum].StartRange(compiler->codeGen->getSiVarLoc(lcl), compiler->GetEmitter());
+        bodyVars[lclNum].StartRange(compiler->GetEmitter(), compiler->codeGen->getSiVarLoc(lcl));
     }
 }
 
@@ -703,7 +703,7 @@ void CodeGen::VariableLiveKeeper::UpdateRange(const LclVarDsc* lcl, unsigned lcl
 {
     if (lclNum < varCount && !lastBasicBlockHasBeenEmited)
     {
-        bodyVars[lclNum].UpdateRange(compiler->codeGen->getSiVarLoc(lcl), compiler->GetEmitter());
+        bodyVars[lclNum].UpdateRange(compiler->GetEmitter(), compiler->codeGen->getSiVarLoc(lcl));
     }
 }
 
@@ -766,11 +766,11 @@ unsigned CodeGen::VariableLiveKeeper::GetRangeCount() const
     return count;
 }
 
-void CodeGen::VariableLiveKeeper::StartPrologRange(siVarLoc varLoc, unsigned lclNum)
+void CodeGen::VariableLiveKeeper::StartPrologRange(unsigned lclNum, const siVarLoc& varLoc)
 {
     noway_assert(lclNum < paramCount);
 
-    prologVars[lclNum].StartRange(varLoc, compiler->GetEmitter());
+    prologVars[lclNum].StartRange(compiler->GetEmitter(), varLoc);
 }
 
 void CodeGen::VariableLiveKeeper::EndPrologRange()
@@ -961,7 +961,7 @@ void CodeGen::VariableLiveKeeper::BeginProlog(CodeGen* codeGen)
             loc.storeVariableOnStack(REG_SPBASE, GetVarStackOffset(lcl, codeGen));
         }
 
-        StartPrologRange(loc, scope->lclNum);
+        StartPrologRange(scope->lclNum, loc);
     }
 }
 
