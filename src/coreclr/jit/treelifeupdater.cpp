@@ -678,11 +678,6 @@ CodeGen::VariableLiveKeeper::VariableLiveKeeper(Compiler* comp, CompAllocator al
 
 void CodeGen::VariableLiveKeeper::StartOrCloseRange(const LclVarDsc* lcl, unsigned lclNum, bool isBorn, bool isDying)
 {
-    if (lclNum >= varCount)
-    {
-        return;
-    }
-
     if (isBorn && !isDying)
     {
         StartRange(lcl, lclNum);
