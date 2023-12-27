@@ -4503,21 +4503,21 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
         {
             for (unsigned i = 0; i < 2; i++)
             {
-                VariableLiveRangeList* liveRanges = nullptr;
+                VariableLiveRange* liveRanges = nullptr;
 
                 if (i == 0)
                 {
-                    liveRanges = &varLiveKeeper->GetPrologRanges(lclNum);
+                    liveRanges = varLiveKeeper->GetPrologRanges(lclNum);
                 }
                 else
                 {
-                    liveRanges = &varLiveKeeper->GetBodyRanges(lclNum);
+                    liveRanges = varLiveKeeper->GetBodyRanges(lclNum);
                 }
 
-                for (VariableLiveRange& liveRange : *liveRanges)
+                for (VariableLiveRange* liveRange = liveRanges; liveRange != nullptr; liveRange = liveRange->next)
                 {
-                    uint32_t startOffs = liveRange.startOffset.CodeOffset(GetEmitter());
-                    uint32_t endOffs   = liveRange.endOffset.CodeOffset(GetEmitter());
+                    uint32_t startOffs = liveRange->startOffset.CodeOffset(GetEmitter());
+                    uint32_t endOffs   = liveRange->endOffset.CodeOffset(GetEmitter());
 
                     if (lcl->IsParam() && (startOffs == endOffs))
                     {
@@ -4529,7 +4529,7 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
                     }
 
                     genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs - startOffs, lclNum, true,
-                                    &liveRange.location);
+                                    &liveRange->location);
                     liveRangeIndex++;
                 }
             }

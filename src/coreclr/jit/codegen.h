@@ -1156,9 +1156,10 @@ public:
 
     struct VariableLiveRange
     {
-        emitLocation startOffset;
-        emitLocation endOffset;
-        siVarLoc     location;
+        VariableLiveRange* next = nullptr;
+        emitLocation       startOffset;
+        emitLocation       endOffset;
+        siVarLoc           location;
 
         VariableLiveRange(siVarLoc location, emitLocation startOffset, emitLocation endOffset)
             : startOffset(startOffset), endOffset(endOffset), location(location)
@@ -1168,19 +1169,28 @@ public:
         INDEBUG(void Dump() const;)
     };
 
-    typedef jitstd::list<VariableLiveRange>       VariableLiveRangeList;
-    typedef VariableLiveRangeList::const_iterator VariableLiveRangeListIterator;
-
     class VariableLiveDescriptor
     {
-        VariableLiveRangeList ranges;
-        INDEBUG(VariableLiveRangeListIterator dumpRange);
+        VariableLiveRange* firstRange = nullptr;
+        VariableLiveRange* lastRange  = nullptr;
+        INDEBUG(VariableLiveRange* dumpRange = nullptr);
+        unsigned count = 0;
 
     public:
-        VariableLiveDescriptor(CompAllocator allocator);
+        bool HasOpenRange() const
+        {
+            return (lastRange != nullptr) && !lastRange->endOffset.Valid();
+        }
 
-        bool                   HasOpenRange() const;
-        VariableLiveRangeList& GetRanges();
+        VariableLiveRange* GetRanges() const
+        {
+            return firstRange;
+        }
+
+        unsigned GetRangeCount() const
+        {
+            return count;
+        }
 
         void StartRange(siVarLoc varLoc, emitter* emit);
         void EndRange(emitter* emit);
@@ -1222,8 +1232,8 @@ public:
         void EndAllRanges(VARSET_VALARG_TP varsToClose);
         void EndAllRanges();
 
-        VariableLiveRangeList& GetBodyRanges(unsigned lclNum) const;
-        VariableLiveRangeList& GetPrologRanges(unsigned lclNum) const;
+        VariableLiveRange* GetBodyRanges(unsigned lclNum) const;
+        VariableLiveRange* GetPrologRanges(unsigned lclNum) const;
         unsigned GetRangeCount() const;
 
         void StartPrologRange(siVarLoc varLocation, unsigned lclNum);
