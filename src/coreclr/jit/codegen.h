@@ -1225,7 +1225,6 @@ public:
         void EndBlock(BasicBlock* block);
         void BeginProlog(CodeGen* codeGen);
 
-        void StartOrCloseRange(const LclVarDsc* lcl, unsigned lclNum, bool isBorn, bool isDying);
         void StartRange(const LclVarDsc* lcl, unsigned lclNum);
         void EndRange(unsigned lclNum);
         void UpdateRange(const LclVarDsc* lcl, unsigned int lclNum);

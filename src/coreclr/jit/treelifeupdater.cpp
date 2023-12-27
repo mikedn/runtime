@@ -234,7 +234,15 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
             DBEXEC(compiler->verbose, DumpDiff(codeGen);)
 
-            codeGen->getVariableLiveKeeper()->StartOrCloseRange(lcl, lclNode->GetLclNum(), isBorn, isDying);
+            if (isBorn && !isDying)
+            {
+                codeGen->getVariableLiveKeeper()->StartRange(lcl, lclNode->GetLclNum());
+            }
+
+            if (isDying && !isBorn)
+            {
+                codeGen->getVariableLiveKeeper()->EndRange(lclNode->GetLclNum());
+            }
         }
     }
 
@@ -242,9 +250,8 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
     {
         // TODO-MIKE-Review: There's something dubious going on here, or perhaps in LSRA. On ARM64 a last-use
         // gets spilled and that results in an assert in "variable range". The range was already closed above
-        // and SpillRegCandidateLclVar tries to update it for spill. It may be that SpillRegCandidateLclVar
-        // needs to use StartOrCloseRange instead of UpdateRange in this case but then it's not clear why
-        // would a last-use need spilling to begin with.
+        // and now we're trying to update it to account for spilling. But why would a last-use need spilling
+        // to begin with?
         if (codeGen->SpillRegCandidateLclVar(lclNode->AsLclVar()))
         {
             codeGen->getVariableLiveKeeper()->UpdateRange(lcl, lclNode->GetLclNum());
@@ -674,19 +681,6 @@ CodeGen::VariableLiveKeeper::VariableLiveKeeper(Compiler* comp, CompAllocator al
 
     bodyVars   = new (allocator) VariableLiveDescriptor[2 * varCount];
     prologVars = bodyVars + varCount;
-}
-
-void CodeGen::VariableLiveKeeper::StartOrCloseRange(const LclVarDsc* lcl, unsigned lclNum, bool isBorn, bool isDying)
-{
-    if (isBorn && !isDying)
-    {
-        StartRange(lcl, lclNum);
-    }
-
-    if (isDying && !isBorn)
-    {
-        EndRange(lclNum);
-    }
 }
 
 void CodeGen::VariableLiveKeeper::StartRange(const LclVarDsc* lcl, unsigned lclNum)
