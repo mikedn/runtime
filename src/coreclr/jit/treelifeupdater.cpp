@@ -594,6 +594,8 @@ void CodeGen::VariableLiveDescriptor::StartRange(siVarLoc varLoc, emitter* emit)
     noway_assert(!HasOpenRange());
 
     if ((lastRange != nullptr) && siVarLoc::Equals(varLoc, lastRange->location) &&
+        // TODO-MIKE-Review: IsPreviousInsNum's handling of the cross block case is dubious,
+        // it may be the reason why moving BeginBlockCodeGen around produces debug info diffs.
         lastRange->endOffset.IsPreviousInsNum(emit))
     {
         JITDUMP("Extending debug range...\n");
@@ -601,7 +603,7 @@ void CodeGen::VariableLiveDescriptor::StartRange(siVarLoc varLoc, emitter* emit)
         assert(lastRange->startOffset.Valid());
         // The variable is being born just after the instruction at which it died.
         // In this case, i.e. an update of the variable's value, we coalesce the live ranges.
-        lastRange->endOffset.Init();
+        lastRange->endOffset = {};
     }
     else
     {

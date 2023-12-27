@@ -18,84 +18,46 @@ struct insGroup;
 
 class emitLocation
 {
+    insGroup* ig;
+    unsigned  codePos = 0;
+
 public:
-    emitLocation() : ig(nullptr), codePos(0)
+    emitLocation(insGroup* ig = nullptr) : ig(ig)
     {
-    }
-
-    emitLocation(insGroup* _ig) : ig(_ig), codePos(0)
-    {
-    }
-
-    emitLocation(void* emitCookie) : ig((insGroup*)emitCookie), codePos(0)
-    {
-    }
-
-    // A constructor for code that needs to call it explicitly.
-    void Init()
-    {
-        *this = emitLocation();
     }
 
     void CaptureLocation(emitter* emit);
-
-    bool IsCurrentLocation(emitter* emit) const;
-
-    // This function is highly suspect, since it presumes knowledge of the codePos "cookie",
-    // and doesn't look at the 'ig' pointer.
-    bool IsOffsetZero() const
-    {
-        return (codePos == 0);
-    }
-
-    UNATIVE_OFFSET CodeOffset(emitter* emit) const;
 
     insGroup* GetIG() const
     {
         return ig;
     }
 
-    int GetInsNum() const;
-
-    bool operator!=(const emitLocation& other) const
+    bool Valid() const
     {
-        return (ig != other.ig) || (codePos != other.codePos);
+        return ig != nullptr;
     }
+
+    bool IsCurrentLocation(emitter* emit) const;
+    unsigned GetInsNum() const;
+    bool IsPreviousInsNum(emitter* emit) const;
+    uint32_t CodeOffset(emitter* emit) const;
+    uint32_t GetFuncletPrologOffset(emitter* emit) const;
 
     bool operator==(const emitLocation& other) const
     {
-        return !(*this != other);
+        return (ig == other.ig) && (codePos == other.codePos);
     }
 
-    bool Valid() const
+    bool operator!=(const emitLocation& other) const
     {
-        // Things we could validate:
-        //   1. the instruction group pointer is non-nullptr.
-        //   2. 'ig' is a legal pointer to an instruction group.
-        //   3. 'codePos' is a legal offset into 'ig'.
-        // Currently, we just do #1.
-        // #2 and #3 should only be done in DEBUG, if they are implemented.
-
-        if (ig == nullptr)
-        {
-            return false;
-        }
-
-        return true;
+        return !(*this == other);
     }
-
-    UNATIVE_OFFSET GetFuncletPrologOffset(emitter* emit) const;
-
-    bool IsPreviousInsNum(emitter* emit) const;
 
 #ifdef DEBUG
     void Print() const;
     void Print(LONG compMethodID) const;
 #endif
-
-private:
-    insGroup* ig;      // the instruction group
-    unsigned  codePos; // the code position within the IG (see emitCurOffset())
 };
 
 typedef void (*emitSplitCallbackType)(void* context, emitLocation* emitLoc);
@@ -343,7 +305,7 @@ public:
     /*           Record a code position and later convert it to offset      */
     /************************************************************************/
 
-    unsigned emitCurOffset();
+    unsigned emitCurCodePos();
     uint32_t emitCodeOffset(insGroup* ig);
     uint32_t emitCodeOffset(insGroup* ig, unsigned codeOffs);
     INDEBUG(const char* emitOffsetToLabel(unsigned offs);)

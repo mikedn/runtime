@@ -40,15 +40,37 @@ bool emitter::IsColdBlock(BasicBlock* block) const
     return emitComp->fgIsBlockCold(block);
 }
 
-/*****************************************************************************
- *
- *  Represent an emitter location.
- */
+// emitCurCodePos returns a cookie that identifies the current position in
+// the instruction stream. Due to things like branch shortening, the final
+// size of some instructions is not known until the end of code generation,
+// so we return a value with the instruction number and its estimated offset.
+static unsigned GetCodePos(unsigned num, unsigned codeOffset)
+{
+    assert(num <= UINT16_MAX);
+    assert(codeOffset <= UINT16_MAX);
+
+    return num | (codeOffset << 16);
+}
+
+static unsigned GetInsNumFromCodePos(unsigned codePos)
+{
+    return (codePos & 0xFFFF);
+}
+
+static unsigned GetInsOffsetFromCodePos(unsigned codePos)
+{
+    return (codePos >> 16);
+}
+
+unsigned emitter::emitCurCodePos()
+{
+    return GetCodePos(emitCurIGinsCnt, emitCurIGsize);
+}
 
 void emitLocation::CaptureLocation(emitter* emit)
 {
     ig      = emit->emitCurIG;
-    codePos = emit->emitCurOffset();
+    codePos = emit->emitCurCodePos();
 
     assert(Valid());
 }
@@ -56,37 +78,35 @@ void emitLocation::CaptureLocation(emitter* emit)
 bool emitLocation::IsCurrentLocation(emitter* emit) const
 {
     assert(Valid());
-    return (ig == emit->emitCurIG) && (codePos == emit->emitCurOffset());
+    return (ig == emit->emitCurIG) && (codePos == emit->emitCurCodePos());
 }
 
-UNATIVE_OFFSET emitLocation::CodeOffset(emitter* emit) const
+unsigned emitLocation::GetInsNum() const
+{
+    return GetInsNumFromCodePos(codePos);
+}
+
+bool emitLocation::IsPreviousInsNum(emitter* emit) const
+{
+    assert(Valid());
+
+    if (ig == emit->emitCurIG)
+    {
+        return GetInsNumFromCodePos(codePos) == GetInsNumFromCodePos(emit->emitCurCodePos()) - 1;
+    }
+
+    if (ig->igNext == emit->emitCurIG)
+    {
+        return (GetInsNumFromCodePos(codePos) == ig->igInsCnt) && (emit->emitCurIGinsCnt == 1);
+    }
+
+    return false;
+}
+
+uint32_t emitLocation::CodeOffset(emitter* emit) const
 {
     assert(Valid());
     return emit->emitCodeOffset(ig, codePos);
-}
-
-/*****************************************************************************
- *
- *  The emitCurOffset() method returns a cookie that identifies the current
- *  position in the instruction stream. Due to things like scheduling (and
- *  the fact that the final size of some instructions cannot be known until
- *  the end of code generation), we return a value with the instruction number
- *  and its estimated offset to the caller.
- */
-
-static unsigned emitGetInsNumFromCodePos(unsigned codePos)
-{
-    return (codePos & 0xFFFF);
-}
-
-static unsigned emitGetInsOfsFromCodePos(unsigned codePos)
-{
-    return (codePos >> 16);
-}
-
-int emitLocation::GetInsNum() const
-{
-    return emitGetInsNumFromCodePos(codePos);
 }
 
 // Get the instruction offset in the current instruction group, which must be a funclet prolog group.
@@ -94,7 +114,7 @@ int emitLocation::GetInsNum() const
 // TODO-AMD64-Bug?: We only support a single main function prolog group, but allow for multiple funclet prolog
 // groups (not that we actually use that flexibility, since the funclet prolog will be small). How to
 // handle that?
-UNATIVE_OFFSET emitLocation::GetFuncletPrologOffset(emitter* emit) const
+uint32_t emitLocation::GetFuncletPrologOffset(emitter* emit) const
 {
     assert(ig->igFuncIdx != 0);
     assert((ig->igFlags & IGF_FUNCLET_PROLOG) != 0);
@@ -103,57 +123,19 @@ UNATIVE_OFFSET emitLocation::GetFuncletPrologOffset(emitter* emit) const
     return emit->emitCurIGsize;
 }
 
-//------------------------------------------------------------------------
-// IsPreviousInsNum: Returns true if the emitter is on the next instruction
-//  of the same group as this emitLocation.
-//
-// Arguments:
-//  emit - an emitter* instance
-//
-bool emitLocation::IsPreviousInsNum(emitter* emit) const
-{
-    assert(Valid());
-
-    // Within the same IG?
-    if (ig == emit->emitCurIG)
-    {
-        return (emitGetInsNumFromCodePos(codePos) == emitGetInsNumFromCodePos(emit->emitCurOffset()) - 1);
-    }
-
-    // Spanning an IG boundary?
-    if (ig->igNext == emit->emitCurIG)
-    {
-        return (emitGetInsNumFromCodePos(codePos) == ig->igInsCnt) && (emit->emitCurIGinsCnt == 1);
-    }
-
-    return false;
-}
-
-unsigned emitter::emitCurOffset()
-{
-    unsigned codePos = emitCurIGinsCnt + (emitCurIGsize << 16);
-
-    assert(emitGetInsOfsFromCodePos(codePos) == emitCurIGsize);
-    assert(emitGetInsNumFromCodePos(codePos) == emitCurIGinsCnt);
-
-    // printf("[IG=%02u;ID=%03u;OF=%04X] => %08X\n", emitCurIG->igNum, emitCurIGinsCnt, emitCurIGsize, codePos);
-
-    return codePos;
-}
-
 #ifdef DEBUG
 
 void emitLocation::Print() const
 {
-    unsigned insNum = emitGetInsNumFromCodePos(codePos);
-    unsigned insOfs = emitGetInsOfsFromCodePos(codePos);
+    unsigned insNum = GetInsNumFromCodePos(codePos);
+    unsigned insOfs = GetInsOffsetFromCodePos(codePos);
     printf("(" FMT_IG ", ins %u, ofs %u)", ig->igNum, insNum, insOfs);
 }
 
 void emitLocation::Print(LONG compMethodID) const
 {
-    unsigned insNum = emitGetInsNumFromCodePos(codePos);
-    unsigned insOfs = emitGetInsOfsFromCodePos(codePos);
+    unsigned insNum = GetInsNumFromCodePos(codePos);
+    unsigned insOfs = GetInsOffsetFromCodePos(codePos);
     printf("(G_M%03u_IG%02u,ins#%d,ofs#%d)", compMethodID, ig->igNum, insNum, insOfs);
 }
 
@@ -820,7 +802,7 @@ void emitter::emitMarkPrologEnd()
     assert(codeGen->generatingProlog);
     assert(emitIGisInProlog(emitCurIG));
 
-    emitPrologEndPos = emitCurOffset();
+    emitPrologEndPos = emitCurCodePos();
 }
 
 void emitter::emitEndProlog()
@@ -1135,7 +1117,7 @@ void emitter::emitEndFnEpilog()
     assert(emitEpilogSize == 0 || emitEpilogSize == newSize); // All epilogs must be identical
     emitEpilogSize = newSize;
 
-    UNATIVE_OFFSET epilogEndCodeOffset = emitCodeOffset(emitCurIG, emitCurOffset());
+    UNATIVE_OFFSET epilogEndCodeOffset = emitCodeOffset(emitCurIG, emitCurCodePos());
     assert(epilogExitSeqStartCodeOffset != epilogEndCodeOffset);
 
     newSize = epilogEndCodeOffset - epilogExitSeqStartCodeOffset;
@@ -3297,7 +3279,7 @@ uint32_t emitter::emitCodeOffset(insGroup* ig)
 uint32_t emitter::emitCodeOffset(insGroup* ig, unsigned codePos)
 {
     uint32_t insOffs;
-    unsigned insNum = emitGetInsNumFromCodePos(codePos);
+    unsigned insNum = GetInsNumFromCodePos(codePos);
 
     if (insNum == 0)
     {
@@ -3313,8 +3295,8 @@ uint32_t emitter::emitCodeOffset(insGroup* ig, unsigned codePos)
     }
     else
     {
-        insOffs = emitGetInsOfsFromCodePos(codePos);
-        assert(insOffs == emitFindOffset(ig, emitGetInsNumFromCodePos(codePos)));
+        insOffs = GetInsOffsetFromCodePos(codePos);
+        assert(insOffs == emitFindOffset(ig, GetInsNumFromCodePos(codePos)));
     }
 
     return ig->igOffs + insOffs;

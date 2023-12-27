@@ -5058,14 +5058,14 @@ void CodeGen::genIPmappingGen()
         if (prevMapping->ipmdILoffsx == static_cast<IL_OFFSETX>(ICorDebugInfo::NO_MAPPING))
         {
             // If the previous entry was NO_MAPPING, ignore it
-            prevMapping->ipmdNativeLoc.Init();
-            prevMapping = tmpMapping;
+            prevMapping->ipmdNativeLoc = {};
+            prevMapping                = tmpMapping;
         }
         else if (srcIP == (IL_OFFSETX)ICorDebugInfo::NO_MAPPING)
         {
             // If the current entry is NO_MAPPING, ignore it
             // Leave prevMapping unchanged as tmpMapping is no longer valid
-            tmpMapping->ipmdNativeLoc.Init();
+            tmpMapping->ipmdNativeLoc = {};
         }
         else if (srcIP == (IL_OFFSETX)ICorDebugInfo::EPILOG || srcIP == 0)
         {
@@ -5086,12 +5086,12 @@ void CodeGen::genIPmappingGen()
             if (prevMapping->ipmdIsLabel)
             {
                 // Leave prevMapping unchanged as tmpMapping is no longer valid
-                tmpMapping->ipmdNativeLoc.Init();
+                tmpMapping->ipmdNativeLoc = {};
             }
             else
             {
-                prevMapping->ipmdNativeLoc.Init();
-                prevMapping = tmpMapping;
+                prevMapping->ipmdNativeLoc = {};
+                prevMapping                = tmpMapping;
             }
         }
     }
