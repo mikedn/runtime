@@ -677,7 +677,7 @@ CodeGen::VariableLiveKeeper::VariableLiveKeeper(Compiler* comp, CompAllocator al
         return;
     }
 
-    bodyVars   = new (allocator) VariableLiveDescriptor[2 * varCount];
+    bodyVars   = new (allocator) VariableLiveDescriptor[varCount + paramCount];
     prologVars = bodyVars + varCount;
 }
 
@@ -733,16 +733,12 @@ void CodeGen::VariableLiveKeeper::EndCodeGen(CodeGen* codeGen)
 
 CodeGen::VariableLiveRange* CodeGen::VariableLiveKeeper::GetBodyRanges(unsigned lclNum) const
 {
-    noway_assert(lclNum < varCount);
-
-    return bodyVars[lclNum].GetRanges();
+    return lclNum >= varCount ? nullptr : bodyVars[lclNum].GetRanges();
 }
 
 CodeGen::VariableLiveRange* CodeGen::VariableLiveKeeper::GetPrologRanges(unsigned lclNum) const
 {
-    noway_assert(lclNum < varCount);
-
-    return prologVars[lclNum].GetRanges();
+    return lclNum >= paramCount ? nullptr : prologVars[lclNum].GetRanges();
 }
 
 unsigned CodeGen::VariableLiveKeeper::GetRangeCount() const
@@ -751,9 +747,16 @@ unsigned CodeGen::VariableLiveKeeper::GetRangeCount() const
 
     for (unsigned lclNum = 0; lclNum < varCount; lclNum++)
     {
-        if (compiler->compMap2ILvarNum(lclNum) != static_cast<unsigned>(ICorDebugInfo::UNKNOWN_ILNUM))
+        if (compiler->compMap2ILvarNum(lclNum) != ICorDebugInfo::UNKNOWN_ILNUM)
         {
             count += bodyVars[lclNum].GetRangeCount();
+        }
+    }
+
+    for (unsigned lclNum = 0; lclNum < paramCount; lclNum++)
+    {
+        if (compiler->compMap2ILvarNum(lclNum) != ICorDebugInfo::UNKNOWN_ILNUM)
+        {
             count += prologVars[lclNum].GetRangeCount();
         }
     }

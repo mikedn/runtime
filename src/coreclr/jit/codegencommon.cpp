@@ -4499,39 +4499,41 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-        if (compiler->compMap2ILvarNum(lclNum) != ICorDebugInfo::UNKNOWN_ILNUM)
+        if (compiler->compMap2ILvarNum(lclNum) == ICorDebugInfo::UNKNOWN_ILNUM)
         {
-            for (unsigned i = 0; i < 2; i++)
+            continue;
+        }
+
+        for (unsigned i = 0; i < 2; i++)
+        {
+            VariableLiveRange* liveRanges = nullptr;
+
+            if (i == 0)
             {
-                VariableLiveRange* liveRanges = nullptr;
+                liveRanges = varLiveKeeper->GetPrologRanges(lclNum);
+            }
+            else
+            {
+                liveRanges = varLiveKeeper->GetBodyRanges(lclNum);
+            }
 
-                if (i == 0)
+            for (VariableLiveRange* liveRange = liveRanges; liveRange != nullptr; liveRange = liveRange->next)
+            {
+                uint32_t startOffs = liveRange->startOffset.CodeOffset(GetEmitter());
+                uint32_t endOffs   = liveRange->endOffset.CodeOffset(GetEmitter());
+
+                if (lcl->IsParam() && (startOffs == endOffs))
                 {
-                    liveRanges = varLiveKeeper->GetPrologRanges(lclNum);
-                }
-                else
-                {
-                    liveRanges = varLiveKeeper->GetBodyRanges(lclNum);
+                    // If the length is zero, it means that the prolog is empty. In that case,
+                    // CodeGen::genSetScopeInfo will report the liveness of all arguments
+                    // as spanning the first instruction in the method, so that they can
+                    // at least be inspected on entry to the method.
+                    endOffs++;
                 }
 
-                for (VariableLiveRange* liveRange = liveRanges; liveRange != nullptr; liveRange = liveRange->next)
-                {
-                    uint32_t startOffs = liveRange->startOffset.CodeOffset(GetEmitter());
-                    uint32_t endOffs   = liveRange->endOffset.CodeOffset(GetEmitter());
-
-                    if (lcl->IsParam() && (startOffs == endOffs))
-                    {
-                        // If the length is zero, it means that the prolog is empty. In that case,
-                        // CodeGen::genSetScopeInfo will report the liveness of all arguments
-                        // as spanning the first instruction in the method, so that they can
-                        // at least be inspected on entry to the method.
-                        endOffs++;
-                    }
-
-                    genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs - startOffs, lclNum, true,
-                                    &liveRange->location);
-                    liveRangeIndex++;
-                }
+                genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs - startOffs, lclNum, true,
+                                &liveRange->location);
+                liveRangeIndex++;
             }
         }
     }
