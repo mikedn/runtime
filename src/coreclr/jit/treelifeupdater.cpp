@@ -879,12 +879,12 @@ void CodeGen::VariableLiveKeeper::StartUntrackedVarsRanges(const BasicBlock* blo
         // Skip enter & exit scopes
         while (VarScopeDsc* scope = compiler->compGetNextEnterScopeScan(startILOffset - 1, nextEnterScope))
         {
-            JITDUMP("Scope info: skipping enter scope, LVnum=%u\n", scope->scopeNum);
+            JITDUMP("Scope info: Skipping " FMT_LCL " enter scope\n", scope->lclNum);
         }
 
         while (VarScopeDsc* scope = compiler->compGetNextExitScopeScan(startILOffset - 1, nextExitScope))
         {
-            JITDUMP("Scope info: skipping exit scope, LVnum=%u\n", scope->scopeNum);
+            JITDUMP("Scope info: Skipping " FMT_LCL " exit scope\n", scope->lclNum);
         }
 #endif // FEATURE_EH_FUNCLETS
     }
@@ -903,13 +903,10 @@ void CodeGen::VariableLiveKeeper::StartUntrackedVarsRanges(const BasicBlock* blo
 
         if (!compiler->opts.compDbgCode && (lcl->GetRefCount() == 0))
         {
-            JITDUMP("Skipping open scope for V%02u, unreferenced\n", scope->lclNum);
+            JITDUMP("Skipping unreferenced " FMT_LCL " scope\n", scope->lclNum);
 
             continue;
         }
-
-        JITDUMP("Scope info: opening scope, LVnum=%u [%03X..%03X)\n", scope->scopeNum, scope->startOffset,
-                scope->endOffset);
 
         StartRange(lcl, scope->lclNum);
     }
