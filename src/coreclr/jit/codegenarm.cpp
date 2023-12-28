@@ -831,7 +831,7 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
         }
     }
 
-    genUpdateLife(store);
+    liveness.UpdateLife(this, store);
 }
 
 void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
@@ -859,7 +859,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         ClassLayout*    layout = lcl->GetLayout();
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
         GenStructStore(store, kind, layout);
-        genUpdateLife(store);
+        liveness.UpdateLife(this, store);
         return;
     }
 
@@ -872,7 +872,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     {
         unsigned lclNum = store->GetLclNum();
         GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitTypeSize(lclRegType), srcReg, lclNum, 0);
-        genUpdateLife(store);
+        liveness.UpdateLife(this, store);
         lcl->SetRegNum(REG_STK);
 
         return;

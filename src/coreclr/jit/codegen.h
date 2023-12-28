@@ -714,10 +714,7 @@ protected:
                                          regNumber                 offsReg,
                                          HWIntrinsicSwitchCaseBody emitSwCase);
 #endif // TARGET_XARCH
-
 #endif // FEATURE_HW_INTRINSICS
-
-    void genUpdateLife(GenTreeLclVarCommon* tree);
 
     void SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex);
     X86_ONLY(void SpillST0(GenTree* node);)

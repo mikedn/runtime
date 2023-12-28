@@ -328,7 +328,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
                 // in lowering and only a reg optional LCL_VAR can become contained.
                 if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                 {
-                    genUpdateLife(src->AsLclVarCommon());
+                    liveness.UpdateLife(this, src->AsLclVarCommon());
                 }
             }
             else
@@ -840,7 +840,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
     if (src->isContained())
     {
         assert(IsValidContainedLcl(src->AsLclVar()));
-        genUpdateLife(src->AsLclVar());
+        liveness.UpdateLife(this, src->AsLclVar());
         unsigned  lclNum = src->AsLclVar()->GetLclNum();
         regNumber dstReg = bitcast->GetRegNum();
 

@@ -243,11 +243,6 @@ void CodeGen::genMarkLabelsForCodegen()
 #endif // DEBUG
 }
 
-void CodeGen::genUpdateLife(GenTreeLclVarCommon* node)
-{
-    liveness.UpdateLife(this, node);
-}
-
 //----------------------------------------------------------------------
 // compHelperCallKillSet: Gets a register mask that represents the kill set for a helper call.
 // Not all JIT Helper calls follow the standard ABI on the target architecture.
@@ -5410,7 +5405,7 @@ void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
     GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[0], store->GetLclNum(), 0);
     GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[1], store->GetLclNum(), 4);
 
-    genUpdateLife(store);
+    liveness.UpdateLife(this, store);
 }
 
 #endif

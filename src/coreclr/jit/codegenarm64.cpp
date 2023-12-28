@@ -1785,7 +1785,7 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
         }
     }
 
-    genUpdateLife(store);
+    liveness.UpdateLife(this, store);
 }
 
 void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
@@ -1807,7 +1807,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         ClassLayout*    layout = lcl->GetLayout();
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
         GenStructStore(store, kind, layout);
-        genUpdateLife(store);
+        liveness.UpdateLife(this, store);
         return;
     }
 
@@ -1866,7 +1866,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
             GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitActualTypeSize(lclRegType), srcReg, lclNum, 0);
         }
 
-        genUpdateLife(store);
+        liveness.UpdateLife(this, store);
         lcl->SetRegNum(REG_STK);
 
         return;
@@ -1945,7 +1945,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
         GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, regs[2], lclNum, 8);
     }
 
-    genUpdateLife(store);
+    liveness.UpdateLife(this, store);
     lcl->SetRegNum(REG_STK);
 }
 

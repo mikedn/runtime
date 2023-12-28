@@ -721,7 +721,7 @@ regNumber CodeGen::UseReg(GenTree* node)
 
     if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        genUpdateLife(node->AsLclVarCommon());
+        liveness.UpdateLife(this, node->AsLclVarCommon());
     }
 
     liveness.RemoveGCRegs(genRegMask(node->GetRegNum()));
@@ -758,7 +758,7 @@ regNumber CodeGen::UseRegCandidateLclVar(GenTreeLclVar* node)
         UnspillRegCandidateLclVar(node);
     }
 
-    genUpdateLife(node);
+    liveness.UpdateLife(this, node);
 
     assert(node->GetRegNum() != REG_NA);
 
@@ -1151,7 +1151,7 @@ void CodeGen::genConsumeRegs(GenTree* tree)
     if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         assert(IsValidContainedLcl(tree->AsLclVarCommon()));
-        genUpdateLife(tree->AsLclVarCommon());
+        liveness.UpdateLife(this, tree->AsLclVarCommon());
 
         return;
     }
@@ -1485,7 +1485,7 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
 
     if (lclVar->OperIs(GT_STORE_LCL_VAR))
     {
-        genUpdateLife(lclVar);
+        liveness.UpdateLife(this, lclVar);
     }
 
     if ((lclVar->GetRegNum() != REG_NA) && (!lcl->IsRegCandidate() || !lclVar->IsLastUse(0)))
