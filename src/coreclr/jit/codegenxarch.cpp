@@ -137,6 +137,22 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
 #endif
 }
 
+#ifdef DEBUG
+// TODO-MIKE-Review: Is this of any use on x64? Maybe in methods with localloc?
+void CodeGen::genStackPointerCheck()
+{
+    LclVarDsc* lcl = compiler->lvaGetDesc(compiler->lvaReturnSpCheck);
+    assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
+
+    GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, compiler->lvaReturnSpCheck, 0);
+
+    insGroup* spCheckEndLabel = GetEmitter()->CreateTempLabel();
+    GetEmitter()->emitIns_J(INS_je, spCheckEndLabel);
+    GetEmitter()->emitIns(INS_BREAKPOINT);
+    GetEmitter()->DefineTempLabel(spCheckEndLabel);
+}
+#endif // DEBUG
+
 #ifdef TARGET_X86
 
 var_types CodeGen::PushTempReg(regNumber reg)
@@ -1354,7 +1370,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 #endif // !defined(TARGET_64BIT)
 
         case GT_CAST:
-            genCodeForCast(treeNode->AsCast());
+            GenCast(treeNode->AsCast());
             break;
 
         case GT_BITCAST:
@@ -1456,7 +1472,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_SETCC:
-            genCodeForSetcc(treeNode->AsCC());
+            GenSetCC(treeNode->AsCC());
             break;
 
         case GT_BT:
@@ -1930,7 +1946,7 @@ void CodeGen::genLclHeap(GenTree* tree)
 #ifdef DEBUG
     if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
     {
-        genStackPointerCheck(compiler->lvaReturnSpCheck);
+        genStackPointerCheck();
     }
 #endif
 

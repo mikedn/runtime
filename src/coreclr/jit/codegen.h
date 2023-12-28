@@ -774,7 +774,7 @@ protected:
     void EpilogGSCookieCheck();
 #endif
 
-    void genCodeForCast(GenTreeCast* cast);
+    void GenCast(GenTreeCast* cast);
     void GenLclAddr(GenTreeLclAddr* addr);
     void genCodeForIndexAddr(GenTreeIndexAddr* tree);
     void GenIndLoad(GenTreeIndir* load);
@@ -792,7 +792,7 @@ protected:
     void GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store);
     void GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store);
     void genCodeForReturnTrap(GenTreeOp* tree);
-    void genCodeForSetcc(GenTreeCC* setcc);
+    void GenSetCC(GenTreeCC* setcc);
     void GenIndStore(GenTreeStoreInd* tree);
 #ifdef TARGET_XARCH
     void genCodeForSwap(GenTreeOp* tree);
@@ -944,7 +944,7 @@ protected:
     }
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
-    void genStackPointerCheck(unsigned lvaStackPointerVar);
+    void genStackPointerCheck();
 #endif
 
 #ifdef DEBUG

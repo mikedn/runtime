@@ -5320,9 +5320,9 @@ void CodeGen::GenReturn(GenTree* ret, BasicBlock* block)
 #if defined(DEBUG) && defined(TARGET_XARCH)
     if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
     {
-        genStackPointerCheck(compiler->lvaReturnSpCheck);
+        genStackPointerCheck();
     }
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
+#endif
 }
 
 #ifndef WINDOWS_AMD64_ABI
@@ -5541,30 +5541,408 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclO
     return false;
 }
 
-#if defined(DEBUG) && defined(TARGET_XARCH)
-
-//------------------------------------------------------------------------
-// genStackPointerCheck: Generate code to check the stack pointer against a saved value.
-// This is a debug check.
-//
-// Arguments:
-//    lvaStackPointerVar  - The local variable number that holds the value of the stack pointer
-//                          we are comparing against.
-//
-void CodeGen::genStackPointerCheck(unsigned lvaStackPointerVar)
+CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)
 {
-    LclVarDsc* lcl = compiler->lvaGetDesc(lvaStackPointerVar);
-    assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
+    GenTree* src = cast->GetOp(0);
 
-    GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, lvaStackPointerVar, 0);
+    const var_types srcType      = varActualType(src->GetType());
+    const bool      srcUnsigned  = cast->IsUnsigned();
+    const unsigned  srcSize      = varTypeSize(srcType);
+    const var_types castType     = cast->GetCastType();
+    const bool      castUnsigned = varTypeIsUnsigned(castType);
+    const unsigned  castSize     = varTypeSize(castType);
+    const var_types dstType      = varActualType(cast->GetType());
+    const unsigned  dstSize      = varTypeSize(dstType);
+    const bool      overflow     = cast->gtOverflow();
 
-    insGroup* spCheckEndLabel = GetEmitter()->CreateTempLabel();
-    GetEmitter()->emitIns_J(INS_je, spCheckEndLabel);
-    GetEmitter()->emitIns(INS_BREAKPOINT);
-    GetEmitter()->DefineTempLabel(spCheckEndLabel);
+    assert(cast->GetType() == varCastType(castType));
+    assert((srcSize == 4) || (srcSize == varTypeSize(TYP_I_IMPL)));
+    assert((dstSize == 4) || (dstSize == varTypeSize(TYP_I_IMPL)));
+
+    assert(dstSize == varTypeSize(varActualType(castType)));
+
+    if (castSize < 4) // Cast to small int type
+    {
+        if (overflow)
+        {
+            m_checkKind    = CHECK_SMALL_INT_RANGE;
+            m_checkSrcSize = srcSize;
+            // Since these are small int types we can compute the min and max
+            // values of the castType without risk of integer overflow.
+            const int castNumBits = (castSize * 8) - (castUnsigned ? 0 : 1);
+            m_checkSmallIntMax    = (1 << castNumBits) - 1;
+            m_checkSmallIntMin    = (castUnsigned | srcUnsigned) ? 0 : (-m_checkSmallIntMax - 1);
+
+            m_extendKind    = COPY;
+            m_extendSrcSize = dstSize;
+        }
+        else
+        {
+            m_checkKind = CHECK_NONE;
+
+            // Casting to a small type really means widening from that small type to INT/LONG.
+            m_extendKind    = castUnsigned ? ZERO_EXTEND_SMALL_INT : SIGN_EXTEND_SMALL_INT;
+            m_extendSrcSize = castSize;
+        }
+    }
+#ifdef TARGET_64BIT
+    // castType cannot be (U)LONG on 32 bit targets, such casts should have been decomposed.
+    // srcType cannot be a small int type since it's the "actual type" of the cast operand.
+    // This means that widening casts do not occur on 32 bit targets.
+    else if (castSize > srcSize) // (U)INT to (U)LONG widening cast
+    {
+        assert((srcSize == 4) && (castSize == 8));
+
+        if (overflow && !srcUnsigned && castUnsigned)
+        {
+            // Widening from INT to ULONG, check if the value is positive
+            m_checkKind    = CHECK_POSITIVE;
+            m_checkSrcSize = 4;
+
+            // This is the only overflow checking cast that requires changing the
+            // source value (by zero extending), all others copy the value as is.
+            assert((srcType == TYP_INT) && (castType == TYP_ULONG));
+            m_extendKind    = ZERO_EXTEND_INT;
+            m_extendSrcSize = 4;
+        }
+        else
+        {
+            m_checkKind = CHECK_NONE;
+
+            m_extendKind    = srcUnsigned ? ZERO_EXTEND_INT : SIGN_EXTEND_INT;
+            m_extendSrcSize = 4;
+        }
+    }
+    else if (castSize < srcSize) // (U)LONG to (U)INT narrowing cast
+    {
+        assert((srcSize == 8) && (castSize == 4));
+
+        if (overflow)
+        {
+            if (castUnsigned) // (U)LONG to UINT cast
+            {
+                m_checkKind = CHECK_UINT_RANGE;
+            }
+            else if (srcUnsigned) // ULONG to INT cast
+            {
+                m_checkKind = CHECK_POSITIVE_INT_RANGE;
+            }
+            else // LONG to INT cast
+            {
+                m_checkKind = CHECK_INT_RANGE;
+            }
+
+            m_checkSrcSize = 8;
+        }
+        else
+        {
+            m_checkKind = CHECK_NONE;
+        }
+
+        m_extendKind    = COPY;
+        m_extendSrcSize = 4;
+    }
+#endif
+    else // if (castSize == srcSize) // Sign changing or same type cast
+    {
+        assert(castSize == srcSize);
+
+        if (overflow && (srcUnsigned != castUnsigned))
+        {
+            m_checkKind    = CHECK_POSITIVE;
+            m_checkSrcSize = srcSize;
+        }
+        else
+        {
+            m_checkKind = CHECK_NONE;
+        }
+
+        m_extendKind    = COPY;
+        m_extendSrcSize = srcSize;
+    }
+
+    if (src->isUsedFromMemory())
+    {
+        bool     memUnsigned = varTypeIsUnsigned(src->GetType());
+        unsigned memSize     = genTypeSize(src->GetType());
+
+        if (m_checkKind != CHECK_NONE)
+        {
+            // For overflow checking casts the memory load is performed as usual and
+            // the cast only checks if the resulting TYP_(U)INT/TYP_(U)LONG value is
+            // within the cast type's range.
+            //
+            // There is one specific case that normally requires sign extending the
+            // loaded value - casting TYP_INT to TYP_ULONG. But this isn't needed:
+            //   - the overflow check guarantees that the TYP_INT value is positive
+            //     so zero extend can be used instead
+            //   - this case is 64 bit specific and both x64 and arm64 zero extend
+            //     while loading (even when using SIGN_EXTEND_SMALL_INT because the
+            //     the value is positive)
+            //
+            // Other TYP_(U)INT/TYP_(U)LONG widening casts do not require overflow
+            // checks so they are not handled here.
+
+            if (memSize < 4)
+            {
+                m_loadKind = memUnsigned ? LOAD_ZERO_EXTEND_SMALL_INT : LOAD_SIGN_EXTEND_SMALL_INT;
+            }
+            else
+            {
+                m_loadKind = LOAD;
+            }
+
+            m_loadSrcSize = memSize;
+
+            m_extendKind = COPY;
+        }
+        else
+        {
+            if (castSize <= memSize)
+            {
+                // If we have a narrowing cast then we can narrow the memory load itself.
+                // The upper bits contained in the wider memory location and the sign/zero
+                // extension bits that a small type load would have produced are anyway
+                // discarded by the cast.
+                //
+                // Handle the sign changing cast as well, just to pick up the sign of the
+                // cast type (see the memSize < 4 case below).
+                //
+                // This effectively turns all casts into widening or sign changing casts.
+                memSize     = castSize;
+                memUnsigned = castUnsigned;
+            }
+
+            if (memSize < 4)
+            {
+                m_loadKind    = memUnsigned ? LOAD_ZERO_EXTEND_SMALL_INT : LOAD_SIGN_EXTEND_SMALL_INT;
+                m_loadSrcSize = memSize;
+
+                // Most of the time the load itself is sufficient, even on 64 bit where we
+                // may need to widen directly to 64 bit (CodeGen needs to ensure that 64 bit
+                // instructions are used on 64 bit targets). But there are 2 exceptions that
+                // involve loading signed values and then zero extending:
+
+                // Loading a TYP_BYTE and then casting to TYP_USHORT - bits 8-15 will contain
+                // the sign bit of the original value while bits 16-31/63 will be 0. There's
+                // no single instruction that does this so we'll need to emit an extra zero
+                // extend to zero out bits 16-31/63.
+                if ((memSize == 1) && !memUnsigned && (castType == TYP_USHORT))
+                {
+                    assert(m_extendKind == ZERO_EXTEND_SMALL_INT);
+                    assert(m_extendSrcSize == 2);
+                }
+#ifdef TARGET_64BIT
+                // Loading a small signed value and then zero extending to TYP_LONG - on x64
+                // this requires a 32 bit MOVSX but the emitter lacks support for it so we'll
+                // need to emit a 32 bit MOV to zero out the upper 32 bits. This kind of
+                // signed/unsigned mix should be rare.
+                else if (!memUnsigned && (castSize == 8) && srcUnsigned)
+                {
+                    assert(m_extendKind == ZERO_EXTEND_INT);
+                    assert(m_extendSrcSize == 4);
+                }
+#endif
+                // Various other combinations do not need extra instructions. For example:
+                // - Unsigned value load and sign extending cast - if the value is unsigned
+                //   then sign extending is in fact zero extending.
+                // - TYP_SHORT value load and cast to TYP_UINT - that's a TYP_INT to TYP_UINT
+                //   cast that's basically a NOP.
+                else
+                {
+                    m_extendKind = COPY;
+                }
+            }
+#ifdef TARGET_64BIT
+            else if ((memSize == 4) && !srcUnsigned && (castSize == 8))
+            {
+                m_loadKind    = LOAD_SIGN_EXTEND_INT;
+                m_loadSrcSize = memSize;
+
+                m_extendKind = COPY;
+            }
+#endif
+            else
+            {
+                m_loadKind    = LOAD;
+                m_loadSrcSize = memSize;
+
+                m_extendKind = COPY;
+            }
+        }
+    }
 }
 
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
+void CodeGen::GenCast(GenTreeCast* cast)
+{
+    if (varTypeIsFloating(cast->GetType()) && varTypeIsFloating(cast->GetOp(0)->GetType()))
+    {
+        genFloatToFloatCast(cast);
+    }
+    else if (varTypeIsFloating(cast->GetOp(0)->GetType()))
+    {
+        genFloatToIntCast(cast);
+    }
+    else if (varTypeIsFloating(cast->GetType()))
+    {
+        genIntToFloatCast(cast);
+    }
+#ifndef TARGET_64BIT
+    else if (varTypeIsLong(cast->GetOp(0)->GetType()))
+    {
+        genLongToIntCast(cast);
+    }
+#endif
+    else
+    {
+        genIntToIntCast(cast);
+    }
+}
+
+void CodeGen::GenJTrue(GenTreeUnOp* jtrue, BasicBlock* block)
+{
+    assert(jtrue->OperIs(GT_JTRUE));
+    assert(block->bbJumpKind == BBJ_COND);
+
+    GenTreeOp*   relop     = jtrue->GetOp(0)->AsOp();
+    GenCondition condition = GenCondition::FromRelop(relop);
+
+    if (condition.PreferSwap())
+    {
+        condition = GenCondition::Swap(condition);
+    }
+
+#if defined(TARGET_XARCH)
+    if ((condition.GetCode() == GenCondition::FNEU) &&
+        (relop->gtGetOp1()->GetRegNum() == relop->gtGetOp2()->GetRegNum()) &&
+        !relop->gtGetOp1()->isUsedFromSpillTemp() && !relop->gtGetOp2()->isUsedFromSpillTemp())
+    {
+        // For floating point, `x != x` is a common way of
+        // checking for NaN. So, in the case where both
+        // operands are the same, we can optimize codegen
+        // to only do a single check.
+
+        condition = GenCondition(GenCondition::P);
+    }
+#endif
+
+    inst_JCC(condition, block->bbJumpDest);
+}
+
+void CodeGen::GenJCC(GenTreeCC* jcc, BasicBlock* block)
+{
+    assert(jcc->OperIs(GT_JCC));
+    assert(block->KindIs(BBJ_COND));
+
+    inst_JCC(jcc->GetCondition(), block->bbJumpDest);
+}
+
+void CodeGen::GenSetCC(GenTreeCC* setcc)
+{
+    assert(setcc->OperIs(GT_SETCC));
+
+    inst_SETCC(setcc->GetCondition(), setcc->GetType(), setcc->GetRegNum());
+    genProduceReg(setcc);
+}
+
+void CodeGen::GenLclAddr(GenTreeLclAddr* addr)
+{
+    assert(addr->TypeIs(TYP_BYREF, TYP_I_IMPL));
+
+    // TODO-MIKE-Review: Shouldn't this simply be EA_PTRSIZE?
+    emitAttr attr = emitTypeSize(addr->GetType());
+
+    GetEmitter()->emitIns_R_S(INS_lea, attr, addr->GetRegNum(), addr->GetLclNum(), addr->GetLclOffs());
+    DefReg(addr);
+}
+
+#ifdef DEBUG
+bool CodeGen::IsValidSourceType(var_types instrType, var_types sourceType)
+{
+    switch (varActualType(instrType))
+    {
+        case TYP_INT:
+        case TYP_LONG:
+        case TYP_REF:
+        case TYP_BYREF:
+            return varTypeIsIntegralOrI(sourceType) &&
+                   (varTypeSize(varActualType(sourceType)) >= varTypeSize(instrType));
+
+        case TYP_FLOAT:
+        case TYP_DOUBLE:
+            return sourceType == instrType;
+
+#ifdef FEATURE_SIMD
+        case TYP_SIMD8:
+        case TYP_SIMD12:
+        case TYP_SIMD16:
+        case TYP_SIMD32:
+            return varTypeIsSIMD(sourceType) && (varTypeSize(sourceType) >= varTypeSize(instrType));
+#endif
+
+        default:
+            return false;
+    }
+}
+#endif
+
+// Returns true if the TYP_SIMD locals on stack are aligned at their
+// preferred byte boundary specified by lvaGetSimdTypedLocalPreferredAlignment().
+//
+// As per the Intel manual, the preferred alignment for AVX vectors is
+// 32-bytes. It is not clear whether additional stack space used in
+// aligning stack is worth the benefit and for now will use 16-byte
+// alignment for AVX 256-bit vectors with unaligned load/stores to/from
+// memory. On x86, the stack frame is aligned to 4 bytes. We need to extend
+// existing support for double (8-byte) alignment to 16 or 32 byte
+// alignment for frames with local SIMD vars, if that is determined to be
+// profitable.
+//
+// On Amd64 and SysV, RSP+8 is aligned on entry to the function (before
+// prolog has run). This means that in RBP-based frames RBP will be 16-byte
+// aligned. For RSP-based frames these are only sometimes aligned, depending
+// on the frame size.
+//
+bool CodeGen::IsSimdLocalAligned(unsigned lclNum)
+{
+#ifndef FEATURE_SIMD
+    return false;
+#else
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
+    if (!varTypeIsSIMD(lcl->GetType()))
+    {
+        return false;
+    }
+
+    int alignment = compiler->lvaGetSimdTypedLocalPreferredAlignment(lcl);
+
+    if (alignment > STACK_ALIGN)
+    {
+        return false;
+    }
+
+    bool rbpBased;
+    int  off = compiler->lvaFrameAddress(lclNum, &rbpBased);
+    // On SysV and Winx64 ABIs RSP+8 will be 16-byte aligned at the
+    // first instruction of a function. If our frame is RBP based
+    // then RBP will always be 16 bytes aligned, so we can simply
+    // check the offset.
+    if (rbpBased)
+    {
+        return (off % alignment) == 0;
+    }
+
+    // For RSP-based frame the alignment of RSP depends on our
+    // locals. rsp+8 is aligned on entry and we just subtract frame
+    // size so it is not hard to compute. Note that the compiler
+    // tries hard to make sure the frame size means RSP will be
+    // 16-byte aligned, but for leaf functions without locals (i.e.
+    // frameSize = 0) it will not be.
+    int frameSize = genTotalFrameSize();
+    return ((8 - frameSize + off) % alignment) == 0;
+#endif
+}
 
 //-----------------------------------------------------------------------------
 // genPoisonFrame: Generate code that places a recognizable value into address exposed variables.

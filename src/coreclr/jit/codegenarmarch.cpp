@@ -137,7 +137,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 #endif
 
         case GT_CAST:
-            genCodeForCast(treeNode->AsCast());
+            GenCast(treeNode->AsCast());
             break;
 
         case GT_BITCAST:
@@ -256,7 +256,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_SETCC:
-            genCodeForSetcc(treeNode->AsCC());
+            GenSetCC(treeNode->AsCC());
             break;
 
         case GT_RETURNTRAP:
