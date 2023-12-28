@@ -167,30 +167,7 @@ void CodeGen::genCodeForBBlist()
             genPoisonFrame(liveness.GetLiveLclRegs());
         }
 
-#ifdef DEBUG
-        // Set the use-order numbers for each node.
-        {
-            int useNum = 0;
-            for (GenTree* node : LIR::AsRange(block))
-            {
-                assert((node->gtDebugFlags & GTF_DEBUG_NODE_CG_CONSUMED) == 0);
-
-                node->gtUseNum = -1;
-                if (node->isContained() || node->IsCopyOrReload())
-                {
-                    continue;
-                }
-
-                for (GenTree* operand : node->Operands())
-                {
-                    genNumberOperandUse(operand, useNum);
-                }
-            }
-        }
-#endif // DEBUG
-
-        // Traverse the block in linear order, generating code for each node as we
-        // as we encounter it.
+        INDEBUG(genNumberOperandUse(block));
 
         IL_OFFSETX currentILOffset = BAD_IL_OFFSET;
         bool       firstMapping    = true;
@@ -600,6 +577,28 @@ bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
 
 // Check that registers are consumed in the right order for the current node being generated.
 #ifdef DEBUG
+void CodeGen::genNumberOperandUse(BasicBlock* block)
+{
+    int useNum = 0;
+
+    for (GenTree* node : LIR::AsRange(block))
+    {
+        assert((node->gtDebugFlags & GTF_DEBUG_NODE_CG_CONSUMED) == 0);
+
+        node->gtUseNum = -1;
+
+        if (node->isContained() || node->IsCopyOrReload())
+        {
+            continue;
+        }
+
+        for (GenTree* operand : node->Operands())
+        {
+            genNumberOperandUse(operand, useNum);
+        }
+    }
+}
+
 void CodeGen::genNumberOperandUse(GenTree* const operand, int& useNum) const
 {
     assert(operand != nullptr);

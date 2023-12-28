@@ -949,6 +949,7 @@ protected:
 
 #ifdef DEBUG
     GenTree* lastConsumedNode;
+    void genNumberOperandUse(BasicBlock* block);
     void genNumberOperandUse(GenTree* const operand, int& useNum) const;
     void genCheckConsumeNode(GenTree* const node);
 #else
