@@ -31,6 +31,35 @@ void CodeGen::genInitialize()
     liveness.Begin();
 }
 
+void CodeGen::InitLclBlockLiveInRegs()
+{
+    BasicBlock* firstBlock = compiler->fgFirstBB;
+    VarToRegMap varRegMap  = m_lsra->GetBlockLiveInRegMap(firstBlock);
+
+    if (varRegMap == nullptr)
+    {
+        assert(compiler->lvaTrackedCount == 0);
+        return;
+    }
+
+    JITDUMP("Initializing local regs at start of " FMT_BB "\n", firstBlock->bbNum);
+
+    for (VarSetOps::Enumerator en(compiler, firstBlock->bbLiveIn); en.MoveNext();)
+    {
+        unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(en.Current());
+        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+
+        if (lcl->IsRegCandidate())
+        {
+            regNumber regNum = static_cast<regNumber>(varRegMap[en.Current()]);
+            lcl->SetRegNum(regNum);
+            JITDUMP("  V%02u (%s)", lclNum, getRegName(regNum));
+        }
+    }
+
+    JITDUMP("\n");
+}
+
 void CodeGen::UpdateLclBlockLiveInRegs(BasicBlock* block)
 {
     VarToRegMap map = m_lsra->GetBlockLiveInRegMap(block);

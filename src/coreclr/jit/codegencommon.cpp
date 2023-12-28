@@ -3674,7 +3674,7 @@ void CodeGen::genFinalizeFrame()
     // of the first basic block, so load those up. In particular, the determination
     // of whether or not to use block init in the prolog is dependent on the variable
     // locations on entry to the function.
-    UpdateLclBlockLiveInRegs(compiler->fgFirstBB);
+    InitLclBlockLiveInRegs();
 
     MarkStackLocals();
     CheckUseBlockInit();
@@ -3932,6 +3932,10 @@ regNumber CodeGen::PrologChooseInitReg(regMaskTP initRegs)
 void CodeGen::genFnProlog()
 {
     JITDUMP("*************** In genFnProlog()\n");
+
+    // Before generating the prolog, we need to reset the variable locations to what they will be on entry.
+    // This affects our code that determines which untracked locals need to be zero initialized.
+    InitLclBlockLiveInRegs();
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
     compiler->funSetCurrentFunc(0);
@@ -4416,10 +4420,6 @@ void CodeGen::genGeneratePrologsAndEpilogs()
         GetEmitter()->emitDispIGlist(false);
     }
 #endif
-
-    // Before generating the prolog, we need to reset the variable locations to what they will be on entry.
-    // This affects our code that determines which untracked locals need to be zero initialized.
-    UpdateLclBlockLiveInRegs(compiler->fgFirstBB);
 
     genFnProlog();
 #ifdef FEATURE_EH_FUNCLETS
