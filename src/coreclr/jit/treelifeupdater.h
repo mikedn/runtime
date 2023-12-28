@@ -133,8 +133,6 @@ struct DbgInfoVarLoc
     void SetRegLocation(RegNum reg1, RegNum reg2);
     void SetStackLocation(RegNum baseReg, int offset);
 
-    static bool Equals(const DbgInfoVarLoc& x, const DbgInfoVarLoc& y);
-
     INDEBUG(void Dump() const;)
 
 #ifdef LATE_DISASM
@@ -146,6 +144,8 @@ private:
     void InitRegLocation(const LclVarDsc* lcl, var_types type, RegNum baseReg, int offset, bool isFramePointerUsed);
     void InitStackLocation(const LclVarDsc* lcl, var_types type, RegNum baseReg, int offset, bool isFramePointerUsed);
 };
+
+bool operator==(const DbgInfoVarLoc& x, const DbgInfoVarLoc& y);
 
 struct DbgInfoVarRange
 {

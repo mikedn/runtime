@@ -593,7 +593,7 @@ void DbgInfoVar::StartRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc)
 {
     noway_assert(!HasOpenRange());
 
-    if ((lastRange != nullptr) && DbgInfoVarLoc::Equals(varLoc, lastRange->location) &&
+    if ((lastRange != nullptr) && (varLoc == lastRange->location) &&
         // TODO-MIKE-Review: IsPreviousInsNum's handling of the cross block case is dubious,
         // it may be the reason why moving BeginBlockCodeGen around produces debug info diffs.
         lastRange->endOffset.IsPreviousInsNum(codeGen->GetEmitter()))
@@ -608,8 +608,7 @@ void DbgInfoVar::StartRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc)
     else
     {
         JITDUMP("New debug range: %s\n",
-                lastRange == nullptr ? "first" : DbgInfoVarLoc::Equals(varLoc, lastRange->location) ? "not adjacent"
-                                                                                                    : "new location");
+                lastRange == nullptr ? "first" : (varLoc == lastRange->location ? "not adjacent" : "new location"));
 
         DbgInfoVarRange* newRange = new (codeGen->GetCompiler(), CMK_VariableLiveRanges) DbgInfoVarRange(varLoc);
         newRange->startOffset.CaptureLocation(codeGen->GetEmitter());

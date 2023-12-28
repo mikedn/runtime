@@ -159,7 +159,7 @@ void DbgInfoVarLoc::SetRegLocation(RegNum reg1, RegNum reg2)
     vlRegReg.vlrrReg2 = reg2;
 }
 
-bool DbgInfoVarLoc::Equals(const DbgInfoVarLoc& x, const DbgInfoVarLoc& y)
+bool operator==(const DbgInfoVarLoc& x, const DbgInfoVarLoc& y)
 {
     if (x.vlType != y.vlType)
     {
@@ -168,31 +168,31 @@ bool DbgInfoVarLoc::Equals(const DbgInfoVarLoc& x, const DbgInfoVarLoc& y)
 
     switch (x.vlType)
     {
-        case VLT_STK:
-        case VLT_STK_BYREF:
+        case DbgInfoVarLoc::VLT_STK:
+        case DbgInfoVarLoc::VLT_STK_BYREF:
             return (x.vlStk.vlsBaseReg == y.vlStk.vlsBaseReg) && (x.vlStk.vlsOffset == y.vlStk.vlsOffset);
-        case VLT_STK2:
+        case DbgInfoVarLoc::VLT_STK2:
             return (x.vlStk2.vls2BaseReg == y.vlStk2.vls2BaseReg) && (x.vlStk2.vls2Offset == y.vlStk2.vls2Offset);
-        case VLT_REG:
-        case VLT_REG_FP:
-        case VLT_REG_BYREF:
+        case DbgInfoVarLoc::VLT_REG:
+        case DbgInfoVarLoc::VLT_REG_FP:
+        case DbgInfoVarLoc::VLT_REG_BYREF:
             return x.vlReg.vlrReg == y.vlReg.vlrReg;
-        case VLT_REG_REG:
+        case DbgInfoVarLoc::VLT_REG_REG:
             return (x.vlRegReg.vlrrReg1 == y.vlRegReg.vlrrReg1) && (x.vlRegReg.vlrrReg2 == y.vlRegReg.vlrrReg2);
-        case VLT_REG_STK:
+        case DbgInfoVarLoc::VLT_REG_STK:
             return (x.vlRegStk.vlrsReg == y.vlRegStk.vlrsReg) &&
                    (x.vlRegStk.vlrsStk.vlrssBaseReg == y.vlRegStk.vlrsStk.vlrssBaseReg) &&
                    (x.vlRegStk.vlrsStk.vlrssOffset == y.vlRegStk.vlrsStk.vlrssOffset);
-        case VLT_STK_REG:
+        case DbgInfoVarLoc::VLT_STK_REG:
             return (x.vlStkReg.vlsrReg == y.vlStkReg.vlsrReg) &&
                    (x.vlStkReg.vlsrStk.vlsrsBaseReg == y.vlStkReg.vlsrStk.vlsrsBaseReg) &&
                    (x.vlStkReg.vlsrStk.vlsrsOffset == y.vlStkReg.vlsrStk.vlsrsOffset);
-        case VLT_FPSTK:
+        case DbgInfoVarLoc::VLT_FPSTK:
             return x.vlFPstk.vlfReg == y.vlFPstk.vlfReg;
-        case VLT_FIXED_VA:
+        case DbgInfoVarLoc::VLT_FIXED_VA:
             return x.vlFixedVarArg.vlfvOffset == y.vlFixedVarArg.vlfvOffset;
-        case VLT_COUNT:
-        case VLT_INVALID:
+        case DbgInfoVarLoc::VLT_COUNT:
+        case DbgInfoVarLoc::VLT_INVALID:
             return true;
         default:
             unreached();
