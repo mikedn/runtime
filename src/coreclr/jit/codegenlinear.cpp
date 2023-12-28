@@ -70,7 +70,7 @@ void CodeGen::UpdateLclBlockLiveInRegs(BasicBlock* block)
             {
                 // lcl was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
                 // "VariableLiveRange" which should change to be according "getInVarToRegMap"
-                getVariableLiveKeeper()->UpdateRange(lcl, lclNum);
+                getVariableLiveKeeper()->UpdateRange(this, lcl, lclNum);
             }
         }
         else if (newRegNum != REG_STK)
@@ -194,7 +194,7 @@ void CodeGen::genCodeForBBlist()
 
         if (compiler->opts.compScopeInfo)
         {
-            varLiveKeeper->BeginBlock(block, &nextEnterScope, &nextExitScope);
+            varLiveKeeper->BeginBlock(this, block, &nextEnterScope, &nextExitScope);
         }
 
         // BBF_INTERNAL blocks don't correspond to any single IL instruction.
@@ -848,7 +848,7 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
                 liveness.UpdateLiveLclRegs(lcl, /*isDying*/ true DEBUGARG(src));
                 liveness.RemoveGCRegs(genRegMask(src->GetRegNum()));
                 lcl->SetRegNum(copy->GetRegNum());
-                varLiveKeeper->UpdateRange(lcl, src->AsLclVar()->GetLclNum());
+                varLiveKeeper->UpdateRange(this, lcl, src->AsLclVar()->GetLclNum());
                 liveness.UpdateLiveLclRegs(lcl, /*isDying*/ false DEBUGARG(copy));
             }
         }
@@ -948,7 +948,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
         // on the same native offset.
         if (!node->IsLastUse(0))
         {
-            varLiveKeeper->UpdateRange(lcl, lclNum);
+            varLiveKeeper->UpdateRange(this, lcl, lclNum);
         }
 
         liveness.UnspillGCSlot(lcl DEBUGARG(node));

@@ -221,11 +221,6 @@ class emitter
 public:
     emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo);
 
-    Compiler* GetCompiler() const
-    {
-        return emitComp;
-    }
-
     GCInfo& GetGCInfo()
     {
         return gcInfo;

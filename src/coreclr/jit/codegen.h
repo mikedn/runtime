@@ -1150,6 +1150,16 @@ public:
     insGroup* syncEndEmitCookie   = nullptr;
 #endif
 
+#if !FEATURE_FIXED_OUT_ARGS
+    //  Keeps track of how many bytes we've pushed on the processor's stack.
+    unsigned genStackLevel = 0;
+
+    unsigned GetCurrentStackLevel() const
+    {
+        return genStackLevel;
+    }
+#endif
+
     struct VariableLiveRange
     {
         VariableLiveRange* next = nullptr;
@@ -1188,9 +1198,9 @@ public:
             return count;
         }
 
-        void StartRange(emitter* emit, const siVarLoc& varLoc);
-        void EndRange(emitter* emit);
-        void UpdateRange(emitter* emit, const siVarLoc& varLoc);
+        void StartRange(CodeGen* codeGen, const siVarLoc& varLoc);
+        void EndRange(CodeGen* codeGen);
+        void UpdateRange(CodeGen* codeGen, const siVarLoc& varLoc);
 
 #ifdef DEBUG
         void DumpNewRanges();
@@ -1211,20 +1221,24 @@ public:
         bool inFuncletRegion = false;
 #endif
 
-        void StartUntrackedVarsRanges(const BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
-        int GetVarStackOffset(const LclVarDsc* lcl, CodeGen* codeGen) const;
+        void StartUntrackedVarsRanges(CodeGen*    codeGen,
+                                      BasicBlock* block,
+                                      unsigned*   nextEnterScope,
+                                      unsigned*   nextExitScope);
+        int GetVarStackOffset(CodeGen* codeGen, const LclVarDsc* lcl) const;
+        siVarLoc GetVarLocation(CodeGen* codeGen, const LclVarDsc* lcl) const;
 
     public:
         VariableLiveKeeper(Compiler* compiler, CompAllocator allocator);
 
-        void BeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
+        void BeginBlock(CodeGen* codeGen, BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
         void EndBlock(BasicBlock* block);
         void BeginProlog(CodeGen* codeGen);
-        void EndProlog();
+        void EndProlog(CodeGen* codeGen);
 
-        void StartRange(const LclVarDsc* lcl, unsigned lclNum);
-        void EndRange(unsigned lclNum);
-        void UpdateRange(const LclVarDsc* lcl, unsigned int lclNum);
+        void StartRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum);
+        void EndRange(CodeGen* codeGen, unsigned lclNum);
+        void UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned int lclNum);
         void EndCodeGen(CodeGen* codeGen);
 
         VariableLiveRange* GetBodyRanges(unsigned lclNum) const;

@@ -66,11 +66,11 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
                     VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
                 }
 
-                codeGen->getVariableLiveKeeper()->EndRange(lclNum);
+                codeGen->getVariableLiveKeeper()->EndRange(codeGen, lclNum);
             }
             else
             {
-                codeGen->getVariableLiveKeeper()->StartRange(lcl, lclNum);
+                codeGen->getVariableLiveKeeper()->StartRange(codeGen, lcl, lclNum);
             }
         }
 
@@ -236,12 +236,12 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
             if (isBorn && !isDying)
             {
-                codeGen->getVariableLiveKeeper()->StartRange(lcl, lclNode->GetLclNum());
+                codeGen->getVariableLiveKeeper()->StartRange(codeGen, lcl, lclNode->GetLclNum());
             }
 
             if (isDying && !isBorn)
             {
-                codeGen->getVariableLiveKeeper()->EndRange(lclNode->GetLclNum());
+                codeGen->getVariableLiveKeeper()->EndRange(codeGen, lclNode->GetLclNum());
             }
         }
     }
@@ -254,7 +254,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
         // to begin with?
         if (codeGen->SpillRegCandidateLclVar(lclNode->AsLclVar()))
         {
-            codeGen->getVariableLiveKeeper()->UpdateRange(lcl, lclNode->GetLclNum());
+            codeGen->getVariableLiveKeeper()->UpdateRange(codeGen, lcl, lclNode->GetLclNum());
         }
 
         if (lcl->HasGCSlotLiveness() && VarSetOps::TryAddElemD(compiler, liveGCLcl, lcl->lvVarIndex))
@@ -589,14 +589,14 @@ void CodeGenLivenessUpdater::DumpGCByRefRegsDiff(regMaskTP newRegs DEBUGARG(bool
 }
 #endif // DEBUG
 
-void CodeGen::VariableLiveDescriptor::StartRange(emitter* emit, const siVarLoc& varLoc)
+void CodeGen::VariableLiveDescriptor::StartRange(CodeGen* codeGen, const siVarLoc& varLoc)
 {
     noway_assert(!HasOpenRange());
 
     if ((lastRange != nullptr) && siVarLoc::Equals(varLoc, lastRange->location) &&
         // TODO-MIKE-Review: IsPreviousInsNum's handling of the cross block case is dubious,
         // it may be the reason why moving BeginBlockCodeGen around produces debug info diffs.
-        lastRange->endOffset.IsPreviousInsNum(emit))
+        lastRange->endOffset.IsPreviousInsNum(codeGen->GetEmitter()))
     {
         JITDUMP("Extending debug range...\n");
 
@@ -611,9 +611,9 @@ void CodeGen::VariableLiveDescriptor::StartRange(emitter* emit, const siVarLoc& 
                                                                               ? "new var or location"
                                                                               : "not adjacent");
 
-        VariableLiveRange* newRange =
-            new (emit->GetCompiler(), CMK_VariableLiveRanges) VariableLiveRange(varLoc, emitLocation(), emitLocation());
-        newRange->startOffset.CaptureLocation(emit);
+        VariableLiveRange* newRange = new (codeGen->GetCompiler(), CMK_VariableLiveRanges)
+            VariableLiveRange(varLoc, emitLocation(), emitLocation());
+        newRange->startOffset.CaptureLocation(codeGen->GetEmitter());
 
         if (lastRange != nullptr)
         {
@@ -636,23 +636,23 @@ void CodeGen::VariableLiveDescriptor::StartRange(emitter* emit, const siVarLoc& 
 #endif
 }
 
-void CodeGen::VariableLiveDescriptor::EndRange(emitter* emit)
+void CodeGen::VariableLiveDescriptor::EndRange(CodeGen* codeGen)
 {
     noway_assert(HasOpenRange());
 
     // Using [close, open) ranges so as to not compute the size of the last instruction
-    lastRange->endOffset.CaptureLocation(emit);
+    lastRange->endOffset.CaptureLocation(codeGen->GetEmitter());
 
     noway_assert(lastRange->endOffset.Valid());
 }
 
-void CodeGen::VariableLiveDescriptor::UpdateRange(emitter* emit, const siVarLoc& varLoc)
+void CodeGen::VariableLiveDescriptor::UpdateRange(CodeGen* codeGen, const siVarLoc& varLoc)
 {
     // If we are reporting again the same home, that means we are doing something twice?
     // noway_assert(!siVarLoc::Equals(lastRange->location, varLoc));
 
-    EndRange(emit);
-    StartRange(emit, varLoc);
+    EndRange(codeGen);
+    StartRange(codeGen, varLoc);
 }
 
 void CodeGen::initializeVariableLiveKeeper()
@@ -683,27 +683,27 @@ CodeGen::VariableLiveKeeper::VariableLiveKeeper(Compiler* comp, CompAllocator al
     prologVars = bodyVars + varCount;
 }
 
-void CodeGen::VariableLiveKeeper::StartRange(const LclVarDsc* lcl, unsigned lclNum)
+void CodeGen::VariableLiveKeeper::StartRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum)
 {
     if (lclNum < varCount)
     {
-        bodyVars[lclNum].StartRange(compiler->GetEmitter(), compiler->codeGen->getSiVarLoc(lcl));
+        bodyVars[lclNum].StartRange(codeGen, GetVarLocation(codeGen, lcl));
     }
 }
 
-void CodeGen::VariableLiveKeeper::EndRange(unsigned lclNum)
+void CodeGen::VariableLiveKeeper::EndRange(CodeGen* codeGen, unsigned lclNum)
 {
     if ((lclNum < varCount) && !lastBasicBlockHasBeenEmited)
     {
-        bodyVars[lclNum].EndRange(compiler->GetEmitter());
+        bodyVars[lclNum].EndRange(codeGen);
     }
 }
 
-void CodeGen::VariableLiveKeeper::UpdateRange(const LclVarDsc* lcl, unsigned lclNum)
+void CodeGen::VariableLiveKeeper::UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum)
 {
     if (lclNum < varCount && !lastBasicBlockHasBeenEmited)
     {
-        bodyVars[lclNum].UpdateRange(compiler->GetEmitter(), compiler->codeGen->getSiVarLoc(lcl));
+        bodyVars[lclNum].UpdateRange(codeGen, GetVarLocation(codeGen, lcl));
     }
 }
 
@@ -715,7 +715,7 @@ void CodeGen::VariableLiveKeeper::EndCodeGen(CodeGen* codeGen)
         {
             for (VarSetOps::Enumerator en(compiler, codeGen->GetLiveSet()); en.MoveNext();)
             {
-                EndRange(compiler->lvaTrackedIndexToLclNum(en.Current()));
+                EndRange(codeGen, compiler->lvaTrackedIndexToLclNum(en.Current()));
             }
         }
         else
@@ -724,7 +724,7 @@ void CodeGen::VariableLiveKeeper::EndCodeGen(CodeGen* codeGen)
             {
                 if (bodyVars[i].HasOpenRange())
                 {
-                    EndRange(i);
+                    EndRange(codeGen, i);
                 }
             }
         }
@@ -766,7 +766,10 @@ unsigned CodeGen::VariableLiveKeeper::GetRangeCount() const
     return count;
 }
 
-void CodeGen::VariableLiveKeeper::BeginBlock(BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope)
+void CodeGen::VariableLiveKeeper::BeginBlock(CodeGen*    codeGen,
+                                             BasicBlock* block,
+                                             unsigned*   nextEnterScope,
+                                             unsigned*   nextExitScope)
 {
     assert(compiler->opts.compScopeInfo);
 
@@ -816,13 +819,14 @@ void CodeGen::VariableLiveKeeper::BeginBlock(BasicBlock* block, unsigned* nextEn
     // locals, untracked locals will fail to be reported.
     if (compiler->lvaTrackedCount == 0)
     {
-        StartUntrackedVarsRanges(block, nextEnterScope, nextExitScope);
+        StartUntrackedVarsRanges(codeGen, block, nextEnterScope, nextExitScope);
     }
 }
 
-void CodeGen::VariableLiveKeeper::StartUntrackedVarsRanges(const BasicBlock* block,
-                                                           unsigned*         nextEnterScope,
-                                                           unsigned*         nextExitScope)
+void CodeGen::VariableLiveKeeper::StartUntrackedVarsRanges(CodeGen*    codeGen,
+                                                           BasicBlock* block,
+                                                           unsigned*   nextEnterScope,
+                                                           unsigned*   nextExitScope)
 {
     if (compiler->opts.OptimizationEnabled())
     {
@@ -879,7 +883,7 @@ void CodeGen::VariableLiveKeeper::StartUntrackedVarsRanges(const BasicBlock* blo
             continue;
         }
 
-        StartRange(lcl, scope->lclNum);
+        StartRange(codeGen, lcl, scope->lclNum);
     }
 }
 
@@ -926,7 +930,7 @@ void CodeGen::VariableLiveKeeper::BeginProlog(CodeGen* codeGen)
 
         if (!lcl->IsRegParam())
         {
-            loc.SetStackLocation(REG_SPBASE, GetVarStackOffset(lcl, codeGen));
+            loc.SetStackLocation(REG_SPBASE, GetVarStackOffset(codeGen, lcl));
         }
 #ifdef UNIX_AMD64_ABI
         // TODO-MIKE-Review: What about ARM?
@@ -940,22 +944,22 @@ void CodeGen::VariableLiveKeeper::BeginProlog(CodeGen* codeGen)
             loc.SetRegLocation(lcl->GetParamReg());
         }
 
-        prologVars[scope->lclNum].StartRange(compiler->GetEmitter(), loc);
+        prologVars[scope->lclNum].StartRange(codeGen, loc);
     }
 }
 
-void CodeGen::VariableLiveKeeper::EndProlog()
+void CodeGen::VariableLiveKeeper::EndProlog(CodeGen* codeGen)
 {
     for (unsigned i = 0; i < paramCount; i++)
     {
         if (prologVars[i].HasOpenRange())
         {
-            prologVars[i].EndRange(compiler->GetEmitter());
+            prologVars[i].EndRange(codeGen);
         }
     }
 }
 
-CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* lcl) const
+CodeGenInterface::siVarLoc CodeGen::VariableLiveKeeper::GetVarLocation(CodeGen* codeGen, const LclVarDsc* lcl) const
 {
     RegNum baseReg;
     int    offset = lcl->GetStackOffset();
@@ -964,7 +968,7 @@ CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* lcl) c
     {
         baseReg = REG_SPBASE;
 #if !FEATURE_FIXED_OUT_ARGS
-        offset += genStackLevel;
+        offset += codeGen->GetCurrentStackLevel();
 #endif
     }
     else
@@ -972,10 +976,10 @@ CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* lcl) c
         baseReg = REG_FPBASE;
     }
 
-    return CodeGenInterface::siVarLoc(lcl, baseReg, offset, isFramePointerUsed());
+    return CodeGenInterface::siVarLoc(lcl, baseReg, offset, codeGen->isFramePointerUsed());
 }
 
-int CodeGen::VariableLiveKeeper::GetVarStackOffset(const LclVarDsc* lcl, CodeGen* codeGen) const
+int CodeGen::VariableLiveKeeper::GetVarStackOffset(CodeGen* codeGen, const LclVarDsc* lcl) const
 {
 #ifdef TARGET_AMD64
     // scOffset = offset from caller SP - REGSIZE_BYTES
