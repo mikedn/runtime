@@ -641,8 +641,6 @@ void CodeGen::VariableLiveDescriptor::EndRange(CodeGen* codeGen)
 
     // Using [close, open) ranges so as to not compute the size of the last instruction
     lastRange->endOffset.CaptureLocation(codeGen->GetEmitter());
-
-    noway_assert(lastRange->endOffset.Valid());
 }
 
 void CodeGen::VariableLiveDescriptor::UpdateRange(CodeGen* codeGen, const siVarLoc& varLoc)
