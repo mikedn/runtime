@@ -4545,7 +4545,7 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
                               uint32_t       endOffs,
                               unsigned       lclNum,
                               unsigned       ilVarNum,
-                              siVarLoc*      varLoc)
+                              DbgInfoVarLoc* varLoc)
 {
     assert(ilVarNum != ICorDebugInfo::UNKNOWN_ILNUM);
 
@@ -4553,7 +4553,7 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
     if (compiler->info.compIsVarArgs && (lclNum != compiler->lvaVarargsHandleArg) &&
         (lclNum < compiler->info.compArgsCount) && !compiler->lvaGetDesc(lclNum)->IsRegParam())
     {
-        noway_assert((varLoc->vlType == VLT_STK) || (varLoc->vlType == VLT_STK2));
+        noway_assert((varLoc->vlType == DbgInfoVarLoc::VLT_STK) || (varLoc->vlType == DbgInfoVarLoc::VLT_STK2));
 
         // All stack arguments (except the varargs handle) have to be
         // accessed via the varargs cookie. Discard generated info,
@@ -4584,7 +4584,7 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
         noway_assert(offset < stkArgSize);
         offset = stkArgSize - offset;
 
-        varLoc->vlType                   = VLT_FIXED_VA;
+        varLoc->vlType                   = DbgInfoVarLoc::VLT_FIXED_VA;
         varLoc->vlFixedVarArg.vlfvOffset = offset;
     }
 #endif // TARGET_X86

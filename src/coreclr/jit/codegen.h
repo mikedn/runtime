@@ -474,10 +474,10 @@ public:
 
     struct VarResultInfo
     {
-        uint32_t                   startOffset;
-        uint32_t                   endOffset;
-        uint32_t                   varNumber;
-        CodeGenInterface::siVarLoc loc;
+        uint32_t      startOffset;
+        uint32_t      endOffset;
+        uint32_t      varNumber;
+        DbgInfoVarLoc loc;
     };
 
     VarResultInfo* eeSetLVcount(unsigned count);
@@ -498,16 +498,16 @@ public:
                          uint32_t       endOffs,
                          unsigned       lclNum,
                          unsigned       ilVarNum,
-                         siVarLoc*      varLoc);
+                         DbgInfoVarLoc* varLoc);
 
 protected:
 #ifdef LATE_DISASM
     struct TrnslLocalVarInfo
     {
-        const char* tlviName;
-        uint32_t    tlviStartPC;
-        uint32_t    tlviEndPC;
-        siVarLoc    tlviVarLoc;
+        const char*   tlviName;
+        uint32_t      tlviStartPC;
+        uint32_t      tlviEndPC;
+        DbgInfoVarLoc tlviVarLoc;
     };
 
     TrnslLocalVarInfo* genTrnslLocalVarInfo;
@@ -1165,9 +1165,9 @@ public:
         VariableLiveRange* next = nullptr;
         emitLocation       startOffset;
         emitLocation       endOffset;
-        siVarLoc           location;
+        DbgInfoVarLoc      location;
 
-        VariableLiveRange(siVarLoc location) : location(location)
+        VariableLiveRange(DbgInfoVarLoc location) : location(location)
         {
         }
 
@@ -1197,9 +1197,9 @@ public:
             return count;
         }
 
-        void StartRange(CodeGen* codeGen, const siVarLoc& varLoc);
+        void StartRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc);
         void EndRange(CodeGen* codeGen);
-        void UpdateRange(CodeGen* codeGen, const siVarLoc& varLoc);
+        void UpdateRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc);
 
 #ifdef DEBUG
         void DumpNewRanges();
@@ -1225,7 +1225,7 @@ public:
                                       unsigned*   nextEnterScope,
                                       unsigned*   nextExitScope);
         int GetVarStackOffset(CodeGen* codeGen, const LclVarDsc* lcl) const;
-        siVarLoc GetVarLocation(CodeGen* codeGen, const LclVarDsc* lcl) const;
+        DbgInfoVarLoc GetVarLocation(CodeGen* codeGen, const LclVarDsc* lcl) const;
 
     public:
         VariableLiveKeeper(Compiler* compiler, CompAllocator allocator);

@@ -589,11 +589,11 @@ void CodeGenLivenessUpdater::DumpGCByRefRegsDiff(regMaskTP newRegs DEBUGARG(bool
 }
 #endif // DEBUG
 
-void CodeGen::VariableLiveDescriptor::StartRange(CodeGen* codeGen, const siVarLoc& varLoc)
+void CodeGen::VariableLiveDescriptor::StartRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc)
 {
     noway_assert(!HasOpenRange());
 
-    if ((lastRange != nullptr) && siVarLoc::Equals(varLoc, lastRange->location) &&
+    if ((lastRange != nullptr) && DbgInfoVarLoc::Equals(varLoc, lastRange->location) &&
         // TODO-MIKE-Review: IsPreviousInsNum's handling of the cross block case is dubious,
         // it may be the reason why moving BeginBlockCodeGen around produces debug info diffs.
         lastRange->endOffset.IsPreviousInsNum(codeGen->GetEmitter()))
@@ -607,7 +607,7 @@ void CodeGen::VariableLiveDescriptor::StartRange(CodeGen* codeGen, const siVarLo
     }
     else
     {
-        JITDUMP("New debug range: %s\n", lastRange == nullptr ? "first" : siVarLoc::Equals(varLoc, lastRange->location)
+        JITDUMP("New debug range: %s\n", lastRange == nullptr ? "first" : DbgInfoVarLoc::Equals(varLoc, lastRange->location)
                                                                               ? "not adjacent"
                                                                               : "new location");
 
@@ -643,7 +643,7 @@ void CodeGen::VariableLiveDescriptor::EndRange(CodeGen* codeGen)
     lastRange->endOffset.CaptureLocation(codeGen->GetEmitter());
 }
 
-void CodeGen::VariableLiveDescriptor::UpdateRange(CodeGen* codeGen, const siVarLoc& varLoc)
+void CodeGen::VariableLiveDescriptor::UpdateRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc)
 {
     // If we are reporting again the same home, that means we are doing something twice?
     // noway_assert(!siVarLoc::Equals(lastRange->location, varLoc));
@@ -923,7 +923,7 @@ void CodeGen::VariableLiveKeeper::BeginProlog(CodeGen* codeGen)
 
         noway_assert(scope->lclNum < paramCount);
 
-        siVarLoc loc;
+        DbgInfoVarLoc loc;
 
         if (!lcl->IsRegParam())
         {
@@ -956,7 +956,7 @@ void CodeGen::VariableLiveKeeper::EndProlog(CodeGen* codeGen)
     }
 }
 
-CodeGenInterface::siVarLoc CodeGen::VariableLiveKeeper::GetVarLocation(CodeGen* codeGen, const LclVarDsc* lcl) const
+DbgInfoVarLoc CodeGen::VariableLiveKeeper::GetVarLocation(CodeGen* codeGen, const LclVarDsc* lcl) const
 {
     RegNum baseReg;
     int    offset = lcl->GetStackOffset();
@@ -973,7 +973,7 @@ CodeGenInterface::siVarLoc CodeGen::VariableLiveKeeper::GetVarLocation(CodeGen* 
         baseReg = REG_FPBASE;
     }
 
-    return CodeGenInterface::siVarLoc(lcl, baseReg, offset, codeGen->isFramePointerUsed());
+    return DbgInfoVarLoc(lcl, baseReg, offset, codeGen->isFramePointerUsed());
 }
 
 int CodeGen::VariableLiveKeeper::GetVarStackOffset(CodeGen* codeGen, const LclVarDsc* lcl) const

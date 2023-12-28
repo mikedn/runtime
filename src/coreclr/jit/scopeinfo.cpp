@@ -26,7 +26,7 @@ static RegNum MapToAmbientSP(RegNum reg, bool isFramePointerUsed)
     return reg;
 }
 
-CodeGenInterface::siVarLoc::siVarLoc(const LclVarDsc* lcl, RegNum baseReg, int offset, bool isFramePointerUsed)
+DbgInfoVarLoc::DbgInfoVarLoc(const LclVarDsc* lcl, RegNum baseReg, int offset, bool isFramePointerUsed)
 {
     if (lcl->lvIsInReg())
     {
@@ -38,7 +38,7 @@ CodeGenInterface::siVarLoc::siVarLoc(const LclVarDsc* lcl, RegNum baseReg, int o
     }
 }
 
-void CodeGenInterface::siVarLoc::InitStackLocation(
+void DbgInfoVarLoc::InitStackLocation(
     const LclVarDsc* lcl, var_types type, RegNum baseReg, int offset, bool isFramePointerUsed)
 {
     assert(offset != BAD_STK_OFFS);
@@ -75,7 +75,7 @@ void CodeGenInterface::siVarLoc::InitStackLocation(
     }
 }
 
-void CodeGenInterface::siVarLoc::SetStackLocation(RegNum baseReg, int offset)
+void DbgInfoVarLoc::SetStackLocation(RegNum baseReg, int offset)
 {
     // TODO-MIKE-Review: What about LONG/DOUBLE on 32 bit targets (VLT_STK2)?
     // What about implicit byref params? Ultimately it's not clear why
@@ -86,7 +86,7 @@ void CodeGenInterface::siVarLoc::SetStackLocation(RegNum baseReg, int offset)
     vlStk.vlsOffset  = offset;
 }
 
-void CodeGenInterface::siVarLoc::InitRegLocation(
+void DbgInfoVarLoc::InitRegLocation(
     const LclVarDsc* lcl, var_types type, RegNum baseReg, int offset, bool isFramePointerUsed)
 {
     switch (type)
@@ -134,7 +134,7 @@ void CodeGenInterface::siVarLoc::InitRegLocation(
     }
 }
 
-void CodeGenInterface::siVarLoc::SetRegLocation(RegNum reg1)
+void DbgInfoVarLoc::SetRegLocation(RegNum reg1)
 {
     assert(isValidIntArgReg(reg1) || isValidFloatArgReg(reg1));
 
@@ -146,7 +146,7 @@ void CodeGenInterface::siVarLoc::SetRegLocation(RegNum reg1)
     vlReg.vlrReg = reg1;
 }
 
-void CodeGenInterface::siVarLoc::SetRegLocation(RegNum reg1, RegNum reg2)
+void DbgInfoVarLoc::SetRegLocation(RegNum reg1, RegNum reg2)
 {
     assert(isValidIntArgReg(reg1) || isValidFloatArgReg(reg1));
     assert(isValidIntArgReg(reg2) || isValidFloatArgReg(reg2));
@@ -159,7 +159,7 @@ void CodeGenInterface::siVarLoc::SetRegLocation(RegNum reg1, RegNum reg2)
     vlRegReg.vlrrReg2 = reg2;
 }
 
-bool CodeGenInterface::siVarLoc::Equals(const siVarLoc& x, const siVarLoc& y)
+bool DbgInfoVarLoc::Equals(const DbgInfoVarLoc& x, const DbgInfoVarLoc& y)
 {
     if (x.vlType != y.vlType)
     {
@@ -200,7 +200,7 @@ bool CodeGenInterface::siVarLoc::Equals(const siVarLoc& x, const siVarLoc& y)
 }
 
 #ifdef DEBUG
-void CodeGenInterface::siVarLoc::Dump() const
+void DbgInfoVarLoc::Dump() const
 {
     switch (vlType)
     {
@@ -279,7 +279,7 @@ void CodeGenInterface::siVarLoc::Dump() const
 #endif
 
 #ifdef LATE_DISASM
-bool CodeGenInterface::siVarLoc::IsInReg(RegNum reg) const
+bool DbgInfoVarLoc::IsInReg(RegNum reg) const
 {
     switch (vlType)
     {
@@ -301,7 +301,7 @@ bool CodeGenInterface::siVarLoc::IsInReg(RegNum reg) const
     }
 }
 
-bool CodeGenInterface::siVarLoc::IsOnStack(RegNum reg, int offset) const
+bool DbgInfoVarLoc::IsOnStack(RegNum reg, int offset) const
 {
     RegNum actualReg;
 
