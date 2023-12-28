@@ -144,7 +144,7 @@ private:
 
 protected:
     // the current (pending) label ref, a label which has been referenced but not yet seen
-    insGroup* genPendingCallLabel;
+    insGroup* genPendingCallLabel = nullptr;
 
     void**    codePtr;
     uint32_t* nativeSizeOfCode;
@@ -156,7 +156,6 @@ protected:
     unsigned genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank, unsigned dimension);
     unsigned genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned rank, unsigned dimension);
 
-    void genInitialize();
     void InitLclBlockLiveInRegs();
     void genCodeForBBlist();
 

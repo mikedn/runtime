@@ -3209,7 +3209,7 @@ void Compiler::compCompileFinish()
 
         printf(" %3d |", optCallCount);
         printf(" %3d |", optIndirectCallCount);
-        printf(" %3d |", fgBBcountAtCodegen);
+        printf(" %3d |", fgBBcount);
         printf(" %3d |", lvaCount);
 
         if (opts.MinOpts())

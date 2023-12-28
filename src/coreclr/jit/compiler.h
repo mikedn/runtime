@@ -3843,11 +3843,8 @@ public:
     BasicBlockList* fgReturnBlocks   = nullptr; // list of BBJ_RETURN blocks
     unsigned        fgEdgeCount      = 0;       // # of control flow edges between the BBs
     unsigned        fgBBcount        = 0;       // # of BBs in the method
-#ifdef DEBUG
-    unsigned fgBBcountAtCodegen = 0; // # of BBs in the method at the start of codegen
-#endif
-    unsigned fgBBNumMax   = 0; // The max bbNum that has been assigned to basic blocks
-    unsigned fgDomBBcount = 0; // # of BBs for which we have dominator and reachability information
+    unsigned        fgBBNumMax       = 0;       // The max bbNum that has been assigned to basic blocks
+    unsigned        fgDomBBcount     = 0;       // # of BBs for which we have dominator and reachability information
 
     // After the dominance tree is computed, we cache a DFS preorder number and DFS postorder number to compute
     // dominance queries in O(1). fgDomTreePreOrder and fgDomTreePostOrder are arrays giving the block's preorder and

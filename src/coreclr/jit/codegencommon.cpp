@@ -674,7 +674,7 @@ void CodeGen::genAllocateRegisters()
 void CodeGen::genGenerateMachineCode()
 {
 #ifdef DEBUG
-    compiler->fgBBcountAtCodegen = compiler->fgBBcount;
+    compiler->fgSafeBasicBlockCreation = false;
     compiler->fgDebugCheckLinks();
     compiler->fgDebugCheckBBlist();
 #endif

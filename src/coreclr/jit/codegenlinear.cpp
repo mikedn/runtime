@@ -1,35 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX            Code Generation Support Methods for Linear Codegen             XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 #include "emit.h"
 #include "codegen.h"
 #include "lsra.h"
-
-void CodeGen::genInitialize()
-{
-    genPendingCallLabel = nullptr;
-
-#if !FEATURE_FIXED_OUT_ARGS
-    // We initialize the stack level before first "BasicBlock" code is generated in case we need to report stack
-    // variable needs home and so its stack offset.
-    SetStackLevel(0);
-#endif
-
-    liveness.Begin();
-}
 
 void CodeGen::InitLclBlockLiveInRegs()
 {
@@ -73,9 +48,6 @@ void CodeGen::genCodeForBBlist()
         compiler->lvaTableDump();
     }
 
-    // You have to be careful if you create basic blocks from now on
-    compiler->fgSafeBasicBlockCreation = false;
-
 #ifdef TARGET_XARCH
     // Check stack pointer on return stress mode is not compatible with fully interruptible GC. REVIEW: why?
     // It is also not compatible with any function that makes a tailcall: we aren't smart enough to only
@@ -94,13 +66,14 @@ void CodeGen::genCodeForBBlist()
 #endif // TARGET_XARCH
 #endif // DEBUG
 
+    assert((compiler->fgFirstBBScratch == nullptr) || (compiler->fgFirstBB == compiler->fgFirstBBScratch));
+    assert(genPendingCallLabel == nullptr);
+#if !FEATURE_FIXED_OUT_ARGS
+    assert(genStackLevel == 0);
+#endif
+
     genMarkLabelsForCodegen();
-
-    assert(!compiler->fgFirstBBScratch ||
-           compiler->fgFirstBB == compiler->fgFirstBBScratch); // compiler->fgFirstBBScratch has to be first.
-
-    /* Initialize structures used in the block list iteration */
-    genInitialize();
+    liveness.Begin();
 
     unsigned nextEnterScope = 0;
     unsigned nextExitScope  = 0;
