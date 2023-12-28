@@ -1138,64 +1138,6 @@ void CodeGen::genConsumeRegs(GenTree* tree)
     assert(tree->OperIsLeaf());
 }
 
-//------------------------------------------------------------------------
-// genPutArgStkFieldList: Generate code for a putArgStk whose source is a GT_FIELD_LIST
-//
-// Arguments:
-//    fieldList     - The list of fields to store to the stack
-//    outArgLclNum  - The local variable where outgoing arguments are stored
-//    outArgLclOffs - The offset of the argument in the argument area
-//    outArgLclSize - The size of the argument area
-//
-// Notes:
-//    The x86 version of this is in codegenxarch.cpp, and doesn't take an
-//    outArgLclNum, as it pushes its args onto the stack.
-//
-//    For fast tail calls the outgoing argument area is actually the method's
-//    own incoming argument area.
-//
-#ifndef TARGET_X86
-void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
-                                    unsigned          outArgLclNum,
-                                    unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
-{
-    regNumber tmpReg = putArg->AvailableTempRegCount() ? putArg->GetSingleTempReg() : REG_NA;
-
-    for (GenTreeFieldList::Use& use : putArg->GetOp(0)->AsFieldList()->Uses())
-    {
-        unsigned dstOffset = outArgLclOffs + use.GetOffset();
-
-        GenTree*  src     = use.GetNode();
-        var_types srcType = use.GetType();
-        regNumber srcReg;
-
-        assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
-
-#ifdef FEATURE_SIMD
-        if (srcType == TYP_SIMD12)
-        {
-            genStoreSIMD12(GenAddrMode(outArgLclNum, dstOffset), src, tmpReg);
-            continue;
-        }
-#endif
-
-#ifdef TARGET_ARM64
-        if (src->isContained())
-        {
-            assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero());
-            srcReg = REG_ZR;
-        }
-        else
-#endif
-        {
-            srcReg = genConsumeReg(src);
-        }
-
-        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum, dstOffset);
-    }
-}
-#endif // !TARGET_X86
-
 void CodeGen::ConsumeStructStore(
     GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg)
 {
