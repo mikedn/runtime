@@ -4600,13 +4600,14 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
 }
 
 #ifdef LATE_DISASM
+
 const char* CodeGen::siRegVarName(size_t offs, size_t size, unsigned reg)
 {
-    if (!compiler->opts.compScopeInfo)
+#ifdef DEBUG
+    if (!compiler->opts.compScopeInfo || (compiler->info.compVarScopesCount == 0))
+    {
         return nullptr;
-
-    if (compiler->info.compVarScopesCount == 0)
-        return nullptr;
+    }
 
     TrnslLocalVarInfo* info = genTrnslLocalVarInfo;
 
@@ -4620,17 +4621,18 @@ const char* CodeGen::siRegVarName(size_t offs, size_t size, unsigned reg)
             return info[i].tlviName;
         }
     }
+#endif // DEBUG
 
     return nullptr;
 }
 
 const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs)
 {
-    if (!compiler->opts.compScopeInfo)
+#ifdef DEBUG
+    if (!compiler->opts.compScopeInfo || (compiler->info.compVarScopesCount == 0))
+    {
         return nullptr;
-
-    if (compiler->info.compVarScopesCount == 0)
-        return nullptr;
+    }
 
     TrnslLocalVarInfo* info = genTrnslLocalVarInfo;
 
@@ -4644,6 +4646,7 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
             return info[i].tlviName;
         }
     }
+#endif // DEBUG
 
     return nullptr;
 }
@@ -5149,32 +5152,6 @@ void CodeGen::genIPmappingGen()
 
     eeSetLIdone();
 }
-
-/*============================================================================
- *
- *   These are empty stubs to help the late dis-assembler to compile
- *   if the late disassembler is being built into a non-DEBUG build.
- *
- *============================================================================
- */
-
-#if defined(LATE_DISASM)
-#if !defined(DEBUG)
-
-/* virtual */
-const char* CodeGen::siRegVarName(size_t offs, size_t size, unsigned reg)
-{
-    return NULL;
-}
-
-/* virtual */
-const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs)
-{
-    return NULL;
-}
-
-#endif // !defined(DEBUG)
-#endif // defined(LATE_DISASM)
 
 void CodeGen::GenRetFilt(GenTree* retfilt, BasicBlock* block)
 {
