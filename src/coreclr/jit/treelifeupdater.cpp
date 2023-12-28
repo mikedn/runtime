@@ -399,6 +399,54 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
     DBEXEC(compiler->verbose, DumpDiff(codeGen);)
 }
 
+void CodeGenLivenessUpdater::MoveReg(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, GenTreeCopyOrReload* dst)
+{
+    assert(src->OperIs(GT_LCL_VAR));
+    assert(lcl->GetRegNum() != REG_STK);
+
+    RegNum srcReg = src->GetRegNum();
+    RegNum dstReg = dst->GetRegNum();
+
+    UpdateLiveLclRegs(lcl, /* isDying */ true DEBUGARG(src));
+    RemoveGCRegs(genRegMask(srcReg));
+    lcl->SetRegNum(dstReg);
+    UpdateRange(codeGen, lcl, src->AsLclVar()->GetLclNum());
+    UpdateLiveLclRegs(lcl, /* isDying */ false DEBUGARG(dst));
+    SetGCRegType(dstReg, dst->GetType());
+}
+
+void CodeGenLivenessUpdater::Spill(LclVarDsc* lcl, GenTreeLclVar* lclNode)
+{
+    assert(lclNode->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+
+    UpdateLiveLclRegs(lcl, /* isDying */ true DEBUGARG(lclNode));
+    SpillGCSlot(lcl);
+}
+
+void CodeGenLivenessUpdater::Unspill(
+    CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, RegNum dstReg, var_types dstType)
+{
+    assert(src->OperIs(GT_LCL_VAR));
+
+    // Don't update the variable's location if we are just re-spilling it again.
+    if (!src->IsRegSpill(0))
+    {
+        lcl->SetRegNum(dstReg);
+
+        // We want DbgInfoVarRange inclusive on the beginning and exclusive on the ending.
+        // For that we shouldn't report an update of the variable location if is becoming
+        // dead on the same native offset.
+        if (!src->IsLastUse(0))
+        {
+            UpdateRange(codeGen, lcl, src->GetLclNum());
+        }
+
+        UnspillGCSlot(lcl DEBUGARG(src));
+    }
+
+    SetGCRegType(dstReg, dstType);
+}
+
 void CodeGenLivenessUpdater::BeginPrologEpilogCodeGen()
 {
     // No stack locals are live inside prologs/epilogs, they can't be accessed anyway.

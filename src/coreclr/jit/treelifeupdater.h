@@ -225,9 +225,13 @@ class CodeGenLivenessUpdater
     void UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
 
     void SetLiveLclRegs(regMaskTP regs);
+    void UpdateLiveLclRegs(const LclVarDsc* lcl, bool isDying DEBUGARG(GenTree* node = nullptr));
 
     void AddGCRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
     void AddGCByRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
+
+    void SpillGCSlot(LclVarDsc* lcl);
+    void UnspillGCSlot(LclVarDsc* lcl DEBUGARG(GenTreeLclVar* lclVar));
 
     void StartUntrackedVarsRanges(CodeGen*    codeGen,
                                   BasicBlock* block,
@@ -258,6 +262,10 @@ public:
     void UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
     void UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar* lclNode);
 
+    void MoveReg(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, GenTreeCopyOrReload* dst);
+    void Spill(LclVarDsc* lcl, GenTreeLclVar* lclNode);
+    void Unspill(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, RegNum dstReg, var_types dstType);
+
     VARSET_VALARG_TP GetLiveSet() const
     {
         return currentLife;
@@ -268,16 +276,12 @@ public:
         return liveGCLcl;
     }
 
-    void SpillGCSlot(LclVarDsc* lcl);
-    void UnspillGCSlot(LclVarDsc* lcl DEBUGARG(GenTreeLclVar* lclVar));
     void RemoveGCSlot(LclVarDsc* lcl);
 
     regMaskTP GetLiveLclRegs() const
     {
         return liveLclRegs;
     }
-
-    void UpdateLiveLclRegs(const LclVarDsc* lcl, bool isDying DEBUGARG(GenTree* node = nullptr));
 
     void AddLiveLclRegs(regMaskTP regs)
     {

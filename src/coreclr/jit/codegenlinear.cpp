@@ -634,8 +634,7 @@ bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
             GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), lclVar->GetRegNum(), lclNum, 0);
         }
 
-        liveness.UpdateLiveLclRegs(lcl, /*isDying*/ true DEBUGARG(lclVar));
-        liveness.SpillGCSlot(lcl);
+        liveness.Spill(lcl, lclVar);
     }
 
     lclVar->SetRegSpill(0, false);
@@ -825,30 +824,23 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
 
     inst_Mov(dstType, dstReg, srcReg, /* canSkip */ false);
 
-    if (src->OperIs(GT_LCL_VAR))
+    // If it is a last use, the local will be killed by UseReg, as usual, and DefReg will
+    // appropriately set the GC liveness for the copied value.
+    // If not, there are two cases we need to handle:
+    // - If this is a TEMPORARY copy (indicated by the GTF_VAR_DEATH flag) the variable
+    //   will remain live in its original register.
+    //   DefReg will appropriately set the GC liveness for the copied value,
+    //   and UseReg will reset it.
+    // - Otherwise, we need to update register info for the lclVar.
+
+    if (src->OperIs(GT_LCL_VAR) && !src->IsLastUse(0) && !copy->IsLastUse(0))
     {
-        // If it is a last use, the local will be killed by UseReg, as usual, and DefReg will
-        // appropriately set the GC liveness for the copied value.
-        // If not, there are two cases we need to handle:
-        // - If this is a TEMPORARY copy (indicated by the GTF_VAR_DEATH flag) the variable
-        //   will remain live in its original register.
-        //   DefReg will appropriately set the GC liveness for the copied value,
-        //   and UseReg will reset it.
-        // - Otherwise, we need to update register info for the lclVar.
+        LclVarDsc* lcl = compiler->lvaGetDesc(src->AsLclVar());
 
-        if (!src->IsLastUse(0) && !copy->IsLastUse(0))
+        if (lcl->GetRegNum() != REG_STK)
         {
-            LclVarDsc* lcl = compiler->lvaGetDesc(src->AsLclVar());
-
-            // If we didn't just spill it (in UseReg, above), then update the register info
-            if (lcl->GetRegNum() != REG_STK)
-            {
-                liveness.UpdateLiveLclRegs(lcl, /*isDying*/ true DEBUGARG(src));
-                liveness.RemoveGCRegs(genRegMask(src->GetRegNum()));
-                lcl->SetRegNum(copy->GetRegNum());
-                liveness.UpdateRange(this, lcl, src->AsLclVar()->GetLclNum());
-                liveness.UpdateLiveLclRegs(lcl, /*isDying*/ false DEBUGARG(copy));
-            }
+            liveness.MoveReg(this, lcl, src->AsLclVar(), copy);
+            return;
         }
     }
 
@@ -923,36 +915,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     instruction ins = ins_Load(regType, IsSimdLocalAligned(lclNum));
     GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, lclNum, 0);
 
-    // TODO-Review: We would like to call:
-    //      liveness.UpdateLiveLclRegs(varDsc, /*isDying*/ false DEBUGARG(tree));
-    // instead of the following code, but this ends up hitting this assert:
-    //      assert((regSet.GetMaskVars() & regMask) == 0);
-    // due to issues with LSRA resolution moves.
-    // So, just force it for now. This probably indicates a condition that creates a GC hole!
-    //
-    // Extra note: I think we really want to call something like liveness.gcUpdateForRegVarMove,
-    // because the variable is not really going live or dead, but that method is somewhat poorly
-    // factored because it, in turn, updates rsMaskVars which is part of RegSet not GCInfo.
-    // TODO-Cleanup: This code exists in other CodeGen*.cpp files, and should be moved to CodeGenCommon.cpp.
-
-    // Don't update the variable's location if we are just re-spilling it again.
-
-    if (!node->IsRegSpill(0))
-    {
-        lcl->SetRegNum(dstReg);
-
-        // We want "DbgInfoVarRange" inclusive on the beginning and exclusive on the ending.
-        // For that we shouldn't report an update of the variable location if is becoming dead
-        // on the same native offset.
-        if (!node->IsLastUse(0))
-        {
-            liveness.UpdateRange(this, lcl, lclNum);
-        }
-
-        liveness.UnspillGCSlot(lcl DEBUGARG(node));
-    }
-
-    liveness.SetGCRegType(dstReg, regType);
+    liveness.Unspill(this, lcl, node, dstReg, regType);
 }
 
 regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
