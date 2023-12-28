@@ -65,8 +65,6 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
         assert(compiler->lvaTrackedCount == 0);
     }
 
-    currentNode = nullptr;
-
     VARSET_TP newLife = block->bbLiveIn;
 
     DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars at start of block: ", currentLife, newLife);)
@@ -206,14 +204,6 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 {
     assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && !lclNode->IsMultiRegLclVar());
     assert(compiler->GetCurLVEpoch() == epoch);
-
-    // TODO-Cleanup: We shouldn't really be calling this more than once
-    if (lclNode == currentNode)
-    {
-        return;
-    }
-
-    currentNode = lclNode;
 
     LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
 
