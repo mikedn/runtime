@@ -58,7 +58,41 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
 {
     if (varRegMap != nullptr)
     {
-        UpdateLclBlockLiveInRegs(codeGen, block, varRegMap);
+        JITDUMP("Updating local regs at start of " FMT_BB "\n", block->bbNum);
+
+        for (VarSetOps::Enumerator en(compiler, block->bbLiveIn); en.MoveNext();)
+        {
+            unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(en.Current());
+            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+
+            if (!lcl->IsRegCandidate())
+            {
+                continue;
+            }
+
+            regNumber oldRegNum = lcl->GetRegNum();
+            regNumber newRegNum = static_cast<regNumber>(varRegMap[en.Current()]);
+
+            if (oldRegNum != newRegNum)
+            {
+                lcl->SetRegNum(newRegNum);
+
+                JITDUMP("  V%02u (%s -> %s)", lclNum, getRegName(oldRegNum), getRegName(newRegNum));
+
+                if ((block->bbPrev != nullptr) && VarSetOps::IsMember(compiler, block->bbPrev->bbLiveOut, en.Current()))
+                {
+                    // lcl was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
+                    // "DbgInfoVarRange" which should change to be according "getInVarToRegMap"
+                    UpdateRange(codeGen, lcl, lclNum);
+                }
+            }
+            else if (newRegNum != REG_STK)
+            {
+                JITDUMP("  V%02u (%s)", lclNum, getRegName(newRegNum));
+            }
+        }
+
+        JITDUMP("\n");
     }
     else
     {
@@ -159,45 +193,6 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
     liveLclRegs     = newLclRegs;
     liveGCRefRegs   = newGCRefRegs;
     liveGCByRefRegs = newGCByrefRegs;
-}
-
-void CodeGenLivenessUpdater::UpdateLclBlockLiveInRegs(CodeGen* codeGen, BasicBlock* block, const RegNumSmall* varRegMap)
-{
-    JITDUMP("Updating local regs at start of " FMT_BB "\n", block->bbNum);
-
-    for (VarSetOps::Enumerator en(compiler, block->bbLiveIn); en.MoveNext();)
-    {
-        unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(en.Current());
-        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
-
-        if (!lcl->IsRegCandidate())
-        {
-            continue;
-        }
-
-        regNumber oldRegNum = lcl->GetRegNum();
-        regNumber newRegNum = static_cast<regNumber>(varRegMap[en.Current()]);
-
-        if (oldRegNum != newRegNum)
-        {
-            lcl->SetRegNum(newRegNum);
-
-            JITDUMP("  V%02u (%s -> %s)", lclNum, getRegName(oldRegNum), getRegName(newRegNum));
-
-            if ((block->bbPrev != nullptr) && VarSetOps::IsMember(compiler, block->bbPrev->bbLiveOut, en.Current()))
-            {
-                // lcl was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
-                // "DbgInfoVarRange" which should change to be according "getInVarToRegMap"
-                UpdateRange(codeGen, lcl, lclNum);
-            }
-        }
-        else if (newRegNum != REG_STK)
-        {
-            JITDUMP("  V%02u (%s)", lclNum, getRegName(newRegNum));
-        }
-    }
-
-    JITDUMP("\n");
 }
 
 void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)

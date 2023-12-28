@@ -221,7 +221,6 @@ class CodeGenLivenessUpdater
     unsigned  epoch;
 #endif
 
-    void UpdateLclBlockLiveInRegs(CodeGen* codeGen, BasicBlock* block, const RegNumSmall* varRegMap);
     void UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
 
     void SetLiveLclRegs(regMaskTP regs);
