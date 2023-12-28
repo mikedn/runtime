@@ -158,7 +158,6 @@ protected:
 
     void genInitialize();
     void InitLclBlockLiveInRegs();
-    void UpdateLclBlockLiveInRegs(BasicBlock* block);
     void genCodeForBBlist();
 
 public:

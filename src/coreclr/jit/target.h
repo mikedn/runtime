@@ -78,6 +78,7 @@ enum RegMask : IntRegMask
 
 using regNumber      = RegNum;
 using regNumberSmall = uint8_t;
+using RegNumSmall    = uint8_t;
 using regMaskTP      = IntRegMask;
 
 static_assert_no_msg(static_cast<regNumber>(static_cast<regNumberSmall>(REG_COUNT)) == REG_COUNT);

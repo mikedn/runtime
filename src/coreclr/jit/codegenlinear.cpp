@@ -60,63 +60,6 @@ void CodeGen::InitLclBlockLiveInRegs()
     JITDUMP("\n");
 }
 
-void CodeGen::UpdateLclBlockLiveInRegs(BasicBlock* block)
-{
-    VarToRegMap map = m_lsra->GetBlockLiveInRegMap(block);
-
-    if (map == nullptr)
-    {
-        assert(compiler->lvaTrackedCount == 0);
-        return;
-    }
-
-    JITDUMP("Updating local regs at start of " FMT_BB "\n", block->bbNum);
-    INDEBUG(unsigned count = 0);
-
-    for (VarSetOps::Enumerator en(compiler, block->bbLiveIn); en.MoveNext();)
-    {
-        unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(en.Current());
-        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
-
-        if (!lcl->IsRegCandidate())
-        {
-            continue;
-        }
-
-        regNumber oldRegNum = lcl->GetRegNum();
-        regNumber newRegNum = static_cast<regNumber>(map[en.Current()]);
-
-        if (oldRegNum != newRegNum)
-        {
-            lcl->SetRegNum(newRegNum);
-
-            JITDUMP("  V%02u (%s -> %s)", lclNum, getRegName(oldRegNum), getRegName(newRegNum));
-            INDEBUG(count++);
-
-            if ((block->bbPrev != nullptr) && VarSetOps::IsMember(compiler, block->bbPrev->bbLiveOut, en.Current()))
-            {
-                // lcl was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
-                // "DbgInfoVarRange" which should change to be according "getInVarToRegMap"
-                liveness.UpdateRange(this, lcl, lclNum);
-            }
-        }
-        else if (newRegNum != REG_STK)
-        {
-            JITDUMP("  V%02u (%s)", lclNum, getRegName(newRegNum));
-            INDEBUG(count++);
-        }
-    }
-
-#ifdef DEBUG
-    if (count == 0)
-    {
-        JITDUMP("  <none>\n");
-    }
-
-    JITDUMP("\n");
-#endif
-}
-
 void CodeGen::genCodeForBBlist()
 {
 #ifdef DEBUG
@@ -175,8 +118,7 @@ void CodeGen::genCodeForBBlist()
 
         assert(LIR::AsRange(block).CheckLIR(compiler));
 
-        UpdateLclBlockLiveInRegs(block);
-        liveness.BeginBlockCodeGen(this, block);
+        liveness.BeginBlockCodeGen(this, block, m_lsra->GetBlockLiveInRegMap(block));
 
 #ifdef TARGET_ARM
         genInsertNopForUnwinder(block);

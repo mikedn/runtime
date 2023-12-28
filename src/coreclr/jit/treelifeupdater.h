@@ -222,6 +222,7 @@ class CodeGenLivenessUpdater
     unsigned  epoch;
 #endif
 
+    void UpdateLclBlockLiveInRegs(CodeGen* codeGen, BasicBlock* block, const RegNumSmall* varRegMap);
     void UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
 
     void SetLiveLclRegs(regMaskTP regs);
@@ -238,6 +239,7 @@ class CodeGenLivenessUpdater
     DbgInfoVarLoc GetVarLocation(CodeGen* codeGen, const LclVarDsc* lcl) const;
 
     void StartRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum);
+    void UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum);
     void EndRange(CodeGen* codeGen, unsigned lclNum);
 
 #ifdef DEBUG
@@ -253,7 +255,7 @@ public:
 
     void Begin();
     void End(CodeGen* codeGen);
-    void BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* block);
+    void BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* block, const RegNumSmall* map);
     void BeginPrologEpilogCodeGen();
 
     void UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
@@ -347,7 +349,6 @@ public:
     }
 
     void BeginBlock(CodeGen* codeGen, BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
-    void UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum);
     void EndBlock(BasicBlock* block);
     void BeginProlog(CodeGen* codeGen);
     void EndProlog(CodeGen* codeGen);
